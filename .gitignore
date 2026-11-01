@@ -4,6 +4,8 @@ dist/
 out/
 coverage/
 artifacts/
+# Downloaded Chromium snapshots for pnpm verify:engines (tools/engines)
+/.cache/
 *.log
 .env
 .env.*

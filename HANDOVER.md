@@ -1,121 +1,115 @@
-# Zoma IPTV: relay leg 2 opening prompt
+# Zoma IPTV: relay leg 3 opening prompt
 
-You are leg 2 of relay run `iptv-20261101-214120`, building **Zoma IPTV**: a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one. Leg 0 planned it. Leg 1 (2026-11-01) did **step 1, the workspace scaffold**, and merged it to `main` as PR #1 with green CI. **Your step is step 2: the TV build pipeline and hello app.**
+You are leg 3 of relay run `iptv-20261101-214120`, building **Zoma IPTV**: a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+
+- Leg 0 planned it.
+- Leg 1 did step 1, the workspace scaffold (PR #1).
+- Leg 2 did step 2, the TV build pipeline and hello app (PR #2). It merged to `main` with green CI.
+
+**Your step is step 2b: the old-engine test harness** (Chromium 53/56/68 snapshots running the built TV bundles).
 
 ## Read first, in this order
-1. `CLAUDE.md` (repo root, new in leg 1): commands, conventions, the Chromium 53 cheat sheet, the package-boundary table, the Definition of Done, the merge policy, legal guardrails and the commit format. It is the project's rulebook.
-2. `RELAY.md`: step 2's full text and its "Done when". Step 1 is ticked and has a progress-log row.
-3. `docs/architecture.md` §4 (build pipeline, dev loops, keyboard-as-remote mapping, test layers), §1.1 (layout) and §1.2 (focus engine and Intents, which the hello app's key handling should match).
-4. `docs/adr/ADR-003` (chrome53 IIFE and syntax gate) and `ADR-008` (player/platform-api direction).
+1. `CLAUDE.md`: commands (now including `pnpm dev`, `build:tv`, `e2e` and `device`), conventions (worker imports, the `__PLATFORM__` branches), the Chromium 53 cheat sheet, package boundaries, Definition of Done, merge policy, legal guardrails and commit format.
+2. `RELAY.md`: step 2b's full text and its "Done when". Steps 1 and 2 are ticked, with progress-log rows.
+3. `docs/runbooks/tv-build.md`: how `pnpm build:tv` works (bundle, gate, budgets, isolation check, packaging) and what lands in `dist/`.
+4. `docs/adr/ADR-003` (the chrome53 IIFE and syntax gate; it names the step-2b harness) and `docs/architecture.md` §4 (test layers, on-device testing).
 5. `docs/PLAN.md` wins on any conflict.
 
 ## Git state to expect
-- Worktree: `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`. Work **only** there. Your session folder is the main checkout; never edit, commit in or switch branches there.
-- `origin/main` = `42f1830`, the merge of PR #1. The relay branch is ahead by the commit that adds this `HANDOVER.md`, and the branch is pushed. The worktree is clean.
-- The main checkout's local `main` was not pulled after the merge. Leave it alone.
-- `node_modules` is already installed in the worktree (`pnpm install` done). `pnpm verify` is green there: lint, typecheck, and 29 tests.
+- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`. Work **only** there. Your session folder is the main checkout: never edit it, commit in it or switch its branch.
+- **Branch:** HEAD is the commit that adds this `HANDOVER.md`, on top of `fda1c53` (RELAY tick) and `18d2b3a` (the step-2 feature commit). The branch is pushed and the worktree is clean.
+- **`main`:** `origin/main` = `d38c73b`, the merge of PR #2 (merge commit; the branch was kept). CI on `main` is green.
+- The main checkout's local `main` has not been pulled. Leave it alone.
+- **Ready to use:**
+  - `node_modules` is installed in the worktree.
+  - Playwright's `chromium-1248`, which @playwright/test 1.64.1 needs, is in `%LOCALAPPDATA%/ms-playwright`.
+  - `pnpm verify` is green: lint, typecheck, 196 unit tests, both TV builds and 5 Playwright tests.
 
-## What exists (step 1)
-- pnpm 11.1.2 workspace (`packages/*`, `apps/*`, `tools/*`), Node ≥ 22. `tsconfig.base.json` sets strict, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`, `moduleResolution: Bundler` and `noEmit`.
-- Ten skeleton packages under `packages/`. Each `src/index.ts` contains only `export {}`.
-  - Each package's `main`, `types` and `exports` point at `./src/index.ts`, so there is no build step.
-  - Allowed internal deps are declared as `workspace:*`.
-  - `core`, `protocol` and `crypto` use `lib: ["ES2017"]` with no DOM. The rest add `DOM` and `DOM.Iterable`.
-- `eslint.config.js` (flat config):
-  - `typescript-eslint` recommended.
-  - `eslint-plugin-boundaries` v5 with `element-types` (folder-mode elements per package, plus `app-tv`, `app-web`, `app-mock-provider` and `tools`) and `entry-point` (only `src/index.ts` may be imported across packages).
-  - `no-restricted-globals` and `no-restricted-properties` for the platform globals.
-  - `consistent-type-imports`.
-- The root `tsconfig.json` maps `@zoma/*` to every package **only** so the ESLint resolver can resolve, and therefore report, undeclared forbidden imports.
-- `test/lint-boundaries.test.ts`: 29 cases run through the ESLint API's `lintText` with virtual file paths.
-- `vitest.config.ts` includes `packages/*/{src,test}/**/*.test.ts`, `apps/*/{src,test}/**`, `tools/*/{src,test}/**` and `test/**`.
-- CI in `.github/workflows/ci.yml`: `actions/checkout@v7`, `pnpm/action-setup@v6` (reads `packageManager`), `actions/setup-node@v7` (Node 22, pnpm cache), `pnpm install --frozen-lockfile`, `pnpm verify`. It runs on PRs and on pushes to `main`.
+## What exists after step 2
+- **`pnpm build:tv`** (`tools/build/build-tv.ts` plus `tools/build/src/*`):
+  - Bundling: Rollup IIFE, Babel 7 `preset-env {chrome: 53}` with core-js 3.51 `usage`, and TS and Preact JSX through Babel.
+  - Workers: `?worker` imports are built as separate IIFEs and inlined as Blob URLs.
+  - Gate: acorn `ecmaVersion: 2016` on every bundle.
+  - Budgets: main ≤ 500 KB, worker ≤ 150 KB. Today main is ≈ 124/126 KB and the hello worker ≈ 37 KB.
+  - Platform isolation: the Tizen bundle must not contain `PalmSystem`, the webOS bundle must not contain `tvinputdevice`/`productinfo`, and neither may contain `Desktop browser`.
+  - Output: `dist/tv/{tizen,webos}/` holds `index.html` (classic scripts plus an inline ES5 `window.onerror` that writes into `#boot-error`), `main.js`, `app.css`, the manifest and icons. `dist/packages/com.zoma.iptv_0.1.0_all.ipk` comes from `ares-package --no-minify`.
+  - Options: `--platform tizen|webos` and `--skip-package`.
+- **Hello app hooks for the harness** (`apps/tv/src/App.tsx`):
+  - `[data-testid=hello][data-ready=true]` once device info has loaded.
+  - `platform-id`, `info-<field>`, `worker-status` (text `ok in N ms (…)` or `failed: …`), `last-intent`, `key-count` and `exit-requested`.
+  - Keys go through `platform.keyToIntent(event.keyCode)`. On both TV builds, arrows are 37–40 and Enter is 13, so synthetic key events work.
+- **Tests:**
+  - `tools/build/src/bundle.test.ts` builds fixtures (`tools/build/test/fixtures/`). It runs one in a Node `vm` realm with `Object.entries`/`padStart` deleted, which proves the polyfills ship. It also proves a regex lookbehind fails the gate and that `__PLATFORM__` tree-shakes the other platform.
+  - `e2e/tv-bundle.spec.ts` boots both built bundles from `file://` in modern Chromium.
+- **CI** (`.github/workflows/ci.yml`, `ubuntu-latest`, Node 22): `pnpm install --frozen-lockfile`, `pnpm exec playwright install --with-deps chromium`, then `pnpm verify`. It uploads `dist/` as the `tv-builds` artifact and, on failure, the Playwright report.
 
-## Step 2: TV build pipeline and hello app (RELAY.md has the full text)
-Suggested order:
-1. **`platform-api`:** a minimal `Platform` interface (architecture.md §1.1). The hello app needs `info()` (model, firmware, Chromium version, tier, locale), the key-to-Intent mapping with the Intent names from architecture.md §1.2, `onLifecycle` and `exitApp`.
-   - Player types are `import type` only (ADR-008).
-2. **`platform-browser`:** the keyboard-as-remote mapping from architecture.md §4 and fake device info.
-   - Also add `platform-tizen` and `platform-webos` stubs, just enough for the hello screen: Tizen `tvinputdevice` key registration, and webOS `PalmSystem`/`webOS` device info when available.
-3. **`apps/tv`:** a hello screen showing platform info, one entry per platform, platform chosen by a `__PLATFORM__` define.
-   - Using Preact here doubles as an early check of spike S1's runtime baseline.
-   - `apps/tv` may import every package.
-4. **`tools/build/build-tv.ts`:**
-   - Rollup IIFE output.
-   - Babel `preset-env` with `targets: {chrome: '53'}` and core-js 3 `useBuiltIns: 'usage'`.
-   - Workers built as IIFEs and inlined as Blob URLs. Include a trivial worker so this path is proven.
-   - acorn `ecmaVersion: 2016` syntax gate on every bundle.
-   - Bundle budgets: main ≤ 500 KB minified, worker ≤ 150 KB.
-   - `pnpm build:tv` builds both platforms.
-5. **Platform files:** `platforms/tizen/config.xml` and `platforms/webos/appinfo.json` (with `disableBackHistoryAPI: true`), plus placeholder icons.
-6. **Packaging:**
-   - `.ipk` via `@webos-tools/cli` (`ares-package`). It officially wants Node 14–16, so try it as a devDependency or through npx on Node 24 first.
-   - `.wgt`: **the Tizen CLI is NOT installed** (checked in leg 1). Document the manual `tizen package -t wgt -s <profile>` path instead, and never install GUI tools unattended.
-7. **`tools/device`:** install and launch wrappers (`ares-install`/`ares-launch`; `tizen`/`sdb` documented). **`pnpm dev`:** a Vite desktop loop with `platform-browser`.
-8. **Playwright smoke test of the desktop hello app.**
-   - Playwright Chromium builds are already cached locally (`ms-playwright/chromium-1223`, `-1228`). CI needs `pnpm exec playwright install --with-deps chromium`.
-   - Wire the TV build, gate, budgets and smoke test into `pnpm verify` and CI.
-9. **Done when:** `pnpm build:tv` passes the gate for both platforms, the `.ipk` is produced, and the Playwright smoke test passes, locally and on CI.
-   - **Also prove the gate:** seed an ES2018 feature (e.g. object rest in a dependency-free spot, or a regex lookbehind) and show that the gate fails.
-10. **Finish:**
-    - Tick step 2 and add a progress-log row.
-    - Push, run `gh pr create --base main`, wait for green CI, then `gh pr merge <n> --merge`. **Never squash, never `--delete-branch`**: the relay branch must survive.
-    - If the session is still light, go on to step 2b, which needs a Chromium 53/56/68 snapshot harness. Otherwise end the leg.
+## Step 2b: suggested approach
+The goal: run the **built** TV bundles in real old engines, because Playwright can't attach to Chromium 53/56 and test TVs are scarce. Target engines: Chromium 53 (webOS 4), 56 (Tizen 4) and 68/69 (2020 sets).
+1. **Fetching engines** (`tools/engines/` or `tools/old-engines/`, a new `tools/*` workspace package with a `typecheck` script and tsconfig):
+   - Download Linux x64 builds from the `chromium-browser-snapshots` bucket (`https://commondatastorage.googleapis.com/chromium-browser-snapshots/Linux_x64/<position>/chrome-linux.zip`).
+   - Pick each version's branch-base position. **Verify these before use:** roughly 403382 for M53, 433059 for M56 and 550428 for M68. Find the nearest position that has a build.
+   - Cache the downloads outside git (e.g. `.cache/engines/`, gitignored), and checksum them.
+2. **Driver:** use an old-protocol driver.
+   - Option A: `chrome-remote-interface` against `--remote-debugging-port`, which speaks raw CDP and works with M53.
+   - Option B: a matching old Puppeteer (1.x targets around M66+, so it won't reach M53).
+   - Option C: no driver at all. Load the page with `--headless --disable-gpu --dump-dom` / `--repl` plus an injected harness that posts results. Note that headless mode in M53/M56 on Linux exists but is limited.
+   - Prefer the simplest thing that can read `data-testid` state and dispatch key events. A small injected script that runs the checks and prints JSON (read through CDP `Runtime.evaluate`) is enough.
+3. **Assertions per engine** (from RELAY):
+   - The bundle boots with no syntax or runtime errors: `#boot-error` is empty, `data-ready=true`, and no `Runtime.exceptionThrown`.
+   - Remote-key navigation: dispatch keydown 38/13 and check `last-intent`.
+   - IndexedDB plus Web Worker sanity: `worker-status` starts with `ok`. Add a tiny IDB write/read check, either in the harness page or as a new hello-app check.
+4. **Linux libraries:** old Chromium snapshots need old shared libraries (e.g. `libgconf-2-4`, older `libnss3`) that may be missing on Ubuntu 24.04/26. Two options:
+   - Run the harness in a **Docker image** (e.g. `debian:buster`/`stretch` from the archive). Docker 29.4.2 is available locally and on GitHub runners. This is likely the most reproducible route on both Windows and CI.
+   - Pin the CI job to `ubuntu-24.04`. `ubuntu-latest` has been moving to Ubuntu 26 since 2026-10-19.
+5. **Wiring:**
+   - Add `pnpm verify:engines` (it needs `pnpm build:tv` first) and a separate CI job, so the main `verify` job stays fast.
+   - Decide whether `verify:engines` joins `pnpm verify`, and record that decision in CLAUDE.md.
+6. **Done when:**
+   - CI fails on a **seeded ES2018 feature** and on a **seeded missing polyfill**, and passes on the hello app in every engine.
+   - The syntax gate already catches seeded syntax at build time. To prove the harness catches it on its own, add a test-only escape hatch to `build-tv`, e.g. `--unsafe-skip-gate` and `--unsafe-no-polyfills`, used only by the harness's self-test. Then show that the harness fails on such a bundle (e.g. one using `Object.entries` without core-js on M53).
+   - Record the seeded failures in the PR description.
+7. **Finish:**
+   - Tick 2b in RELAY.md and add a progress-log row.
+   - Push, run `gh pr create --base main`, wait for green CI, then `gh pr merge <n> --merge`. **Never squash, never `--delete-branch`.**
+   - Omar's standing rule (2026-11-01): *"For this project always merge without review from me."* Merge on green CI without asking. Put the 3 riskiest changes in the handover.
+8. If the session is still light, continue to step 3 (`apps/mock-provider`). Otherwise end the leg.
 
-## Gotchas and lessons from leg 1
-- **The Bash tool's cwd resets to the main checkout after every call.** Always `cd "D:/Claude Code PlayGround/IPTV-relay-20261101-214120" && ...` or use `git -C`. Write and Edit on worktree paths work directly; no EnterWorktree is needed.
-- **Use the Write tool for doc files**, not one big Bash command with many heredocs. A multi-file heredoc command failed with "unexpected EOF while looking for matching `'`".
-- **pnpm 11 build scripts:**
-  - pnpm 11 fails the install with `ERR_PNPM_IGNORED_BUILDS` when a dependency has a blocked build script.
-  - The setting is `allowBuilds:` (a map of `name: true`) in `pnpm-workspace.yaml`. `esbuild: true` is already there.
-  - On an ignored build, pnpm itself **appends a placeholder `allowBuilds:` block** to the file. Edit the existing block; a second `allowBuilds:` key is a YAML duplicate-key error.
-  - New deps with build scripts (e.g. `@parcel/watcher`, `core-js` postinstall, Playwright) may need entries.
-- **Version pins.** npm "latest" is now several majors ahead of the known-good pins:
-
-  | Package | Pinned in leg 1 | npm latest |
-  |---|---|---|
-  | TypeScript | ~5.9.3 | 7.0.2 (native) |
-  | ESLint | ^9.39 | 10 |
-  | Vitest | ^3.2.7 | 5 |
-  | eslint-plugin-boundaries | ^5.4 | 7 |
-  | globals | ^16 | 17 |
-
-  - For step 2, pick majors compatible with these: Vite must satisfy Vitest 3.2's peer range (check with `npm view vitest@3.2.7 peerDependencies`). Use Rollup 4, Babel 7, core-js 3 and acorn 8, and check each with `npm view` before adding it.
-- **ESLint for new code:**
-  - Node-side globals apply to `*.{js,ts}` at the root, `test/**`, `tools/**` and `apps/mock-provider/**`.
-  - `apps/tv` and browser packages get no Node globals. Add browser globals for them if lint needs it.
-  - Every new workspace package needs a `typecheck` script so `pnpm -r` covers it, plus its own `tsconfig.json` extending `../../tsconfig.base.json`.
-- **Boundaries:**
-  - `tools/*` may import only `core`, `protocol` and `crypto`.
-  - `apps/tv` may import any package.
-  - Cross-package imports must go through `@zoma/<name>`. Deep paths fail `boundaries/entry-point`.
-  - Platform globals: `tizen`/`webapis` are allowed only in `platform-tizen`, and `webOS`/`PalmSystem` only in `platform-webos`.
-- **CI annotation:** `ubuntu-latest` is migrating to Ubuntu 26 (from 2026-10-19). Watch for apt or library breakage in step 2b, where old Chromium snapshots need old shared libraries; pin `ubuntu-24.04` for that job if needed.
+## Gotchas and lessons (legs 1–2)
+- **Bash tool cwd** resets to the main checkout after every call. Always `cd "D:/Claude Code PlayGround/IPTV-relay-20261101-214120" && …` or use `git -C`. Write and Edit on worktree paths work directly.
+- **Merging:**
+  - In leg 2, the auto-mode classifier blocked `gh pr merge` ("Merge Without Review") until Omar confirmed in chat.
+  - With his OK, `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` now allows `Bash(gh pr merge:*)`. The file is locally ignored through `.git/info/exclude`.
+  - If a merge is still denied, don't work around it. Stop the leg as needs-you.
+- **Write tool and invisible characters:** writing `\u2028` in source through Write produced the raw character and broke parsing. Build such characters with `String.fromCharCode(0x2028)` and grep for raw bytes afterwards.
+- **`.gitignore` and ESLint `build/`** used to match `tools/build` and silently hid it. Both are now root-only (`/build/`, `'build/**'`). Check `git status -uall` for new folders whose names look like build outputs.
+- **pnpm 11 `allowBuilds`:**
+  - `pnpm-workspace.yaml` allows `esbuild` and `@webos-tools/cli` (a chmod postinstall).
+  - It denies `core-js` (a banner), `ssh2` and `cpu-features` (optional native builds).
+  - New deps with build scripts need an entry: edit the existing block, never add a second `allowBuilds:` key.
+- **Version pins:** TS 5.9, ESLint 9, Vitest 3.2, boundaries 5, Babel **7.29** (Babel 8 is out, but `@rollup/plugin-babel` 7 needs ^7), Vite **7.3** (Vitest 3.2 accepts ≤ 7), Preact **10** (11 is out; ADR-002 says 10), Playwright 1.64.1. Check peer ranges with `npm view` before adding anything.
+- **Babel:** `browserslistConfigFile: false` is a **top-level** Babel option, not a `preset-env` option.
+- **The webOS CLI** `@webos-tools/cli` 3.2.6 works on Node 22/24. Run it as `pnpm --filter @zoma/tools-device exec ares-<cmd>`. `ares-package` keeps the hidden `--no-minify` flag.
+- **No Tizen CLI or sdb:** no `.wgt` is built. Never install Tizen Studio unattended.
 - **Commits** end with:
   ```
   Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
   Claude-Session: <the session URL the harness gives you>
   ```
-  Use scoped `git add` and a `git commit -F - <<'EOF'` heredoc in Git Bash.
-- **Environment (2026-11-01):** Windows 11, Node v24.14.1, pnpm 11.1.2, gh 2.92 (logged in as `Omarmarei`), Docker 29.4.2.
-  - **ffmpeg 8.1.1 IS on PATH** (winget Gyan.FFmpeg), so step 4's "install ffmpeg" gate is already cleared.
-  - Neither the Tizen CLI/sdb nor the webOS `ares-*` CLI is installed.
+  Use scoped `git add` and a `git commit -F - <<'EOF'` heredoc.
+- **Environment:** Windows 11, Node v24.14.1 (CI uses 22), pnpm 11.1.2, gh 2.92 (`Omarmarei`), Docker 29.4.2, ffmpeg 8.1.1.
 
-## The 3 riskiest changes merged in PR #1 (per the merge policy)
-1. **The boundary rules go beyond architecture.md:**
-   - `player` must not import `platform-api` (ADR-008).
-   - A new `entry-point` rule forbids deep imports.
-   - `apps/mock-provider` may import nothing internal, and `tools/*` only `core`/`protocol`/`crypto`.
-   - Loosen these deliberately (with an ADR note) if a later step needs it.
-2. **The root `tsconfig.json` maps every `@zoma/*` package for the ESLint resolver,** while packages type-check without paths. The strict base (`noUncheckedIndexedAccess`, `verbatimModuleSyntax`) will add friction in the parser steps; that is intended.
-3. **Toolchain pinned below npm latest** (TS 5.9, ESLint 9, Vitest 3, boundaries 5), with `allowBuilds: esbuild`. Upgrading is a deliberate future step, not a drive-by.
+## The 3 riskiest changes merged in PR #2
+1. **`.gitignore`/ESLint `build/` ignores are now root-only.** `tools/build` is tracked and linted. Any future folder called `build/` below the root is now visible to git.
+2. **The app IDs are placeholders and become permanent at the first store publish** (step 45): webOS `com.zoma.iptv`, Tizen package `ZomaIPTV01` and app id `ZomaIPTV01.Zoma`, widget id `https://zoma-iptv.invalid/tv`.
+3. **The version tables** (Tizen/webOS version → model year and Chromium) are best-known public values that spike S0 confirms. Unknown versions fall back to a Chromium-based tier, and to `low` when nothing is known.
 
-## Open decisions and gates (none block step 2)
-- **Step 16 [needs Omar]:** the LG TV's model and year, LG Developer Mode, the Samsung testing route (from step 15's comparison) and the Samsung certificate.
-- **Later gates:** steps 21, 34, 44, 46 and 47 (see RELAY.md).
+## Open decisions and gates (none block step 2b)
+- **Step 16 [needs Omar]:** the LG TV's model and year, LG Developer Mode, the Samsung testing route (from step 15) and the Samsung certificate.
+- **Later gates:** steps 21, 34, 44, 46 and 47.
+- **Before the first store submission** (step 45): final app IDs, real icons, and PostCSS (`postcss-preset-env` + `postcss-rtlcss`), which step 11 adds to `build:tv`.
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
 - Submit the **Samsung Seller Office Partner application ASAP** (Samsung Gulf). It takes weeks, and Samsung in the GCC and Canada depends on it.
 - Share the **LG TV's model and year**.
-- **"Zoma" trademark clearance** (US, CA, AE, SA) and domains.
+- **"Zoma" trademark clearance** (US, CA, AE, SA) and domains. This also decides the final app IDs.
 - No secrets have been shared, so nothing needs rotating.

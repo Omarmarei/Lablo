@@ -17,7 +17,8 @@ Zoma IPTV is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen 
 | `pnpm build:tv` | Both TV builds (`dist/tv/{tizen,webos}`): Rollup IIFE + Babel chrome 53 + core-js, inline Blob workers, ES2016 syntax gate, budgets (main ≤ 500 KB, worker ≤ 150 KB), platform-isolation check, webOS `.ipk` in `dist/packages`. `.wgt` only with the Tizen CLI + `TIZEN_SIGNING_PROFILE`. See [docs/runbooks/tv-build.md](docs/runbooks/tv-build.md). |
 | `pnpm e2e` | Playwright (Chromium, 1920x1080): the dev app by keyboard, and both built TV bundles from `file://`. Needs `pnpm build:tv` first. |
 | `pnpm device <devices|install|launch|inspect> <webos|tizen> [device]` | ares-* / tizen / sdb wrappers (`tools/device`). |
-| `pnpm verify` | lint + typecheck + test + build:tv + e2e. CI runs exactly this (after `playwright install --with-deps chromium`). Step 2b adds the old-engine runs. |
+| `pnpm verify` | lint + typecheck + test + build:tv + e2e. CI job `verify` runs exactly this (after `playwright install --with-deps chromium`). |
+| `pnpm verify:engines [--self-test] [--engine chrome53]` | The built TV apps (needs `pnpm build:tv`) in real Chromium 53/56/68 snapshots under Docker: boot with no errors, Blob worker + IndexedDB in it, remote keys. `--self-test` also proves seeded ES2018/ES2020 syntax and a no-polyfill build are caught. Needs Docker (start Docker Desktop on Windows). **Not part of `pnpm verify`** (Docker + ~280 MB of downloads); CI runs it as the separate `engines` job, which must be green too. See [docs/runbooks/old-engines.md](docs/runbooks/old-engines.md). |
 
 ## Conventions
 
@@ -61,6 +62,8 @@ Newer syntax (`async`/`await`, object spread, `?.`, `??`, optional catch binding
 
 **Available in Chromium 53:** `fetch` with `response.body` streams, `TextDecoder`, IntersectionObserver, IndexedDB `getAll`, WebSocket, EventSource, CSS custom properties, Web Workers.
 
+**IndexedDB in a Blob worker on `file://`** works only with file-URL access granted (the TV runtimes grant it to packaged apps; desktop Chromium 53–68 denies it). The old-engine harness models the TV with `--allow-file-access-from-files`; spike S1 confirms it on the TVs (architecture.md §5).
+
 ## Package boundaries
 
 Enforced by `eslint-plugin-boundaries` (`boundaries/element-types`, `boundaries/entry-point`) in `eslint.config.js`, and proven by `test/lint-boundaries.test.ts`.
@@ -93,7 +96,7 @@ Deliberate change from architecture.md §1.1: `player` does **not** import `plat
 ## Definition of done
 
 A step or phase is done only when, in this order:
-1. **Tests and build:** `pnpm verify` is green (lint incl. boundaries, typecheck, tests, both TV builds with the ES2016 syntax gate and bundle budgets, Playwright smoke tests; plus the old-engine runs once step 2b lands).
+1. **Tests and build:** `pnpm verify` is green (lint incl. boundaries, typecheck, tests, both TV builds with the ES2016 syntax gate and bundle budgets, Playwright smoke tests), and so is `pnpm verify:engines --self-test` (CI job `engines`; run it locally after changes to the build, polyfills, workers or boot code).
 2. **PR and CI:** a PR to `main` with green CI, merged with a merge commit (not squash).
 3. **Migrations:** N/A until the backend exists (RELAY step 29). After that, Neon production migrations are applied and the schema is checked with a query. Each one needs Omar's word.
 4. **Deploy:** backend production deploys (Vercel) need Omar's word and a live check afterwards. For the TV app, the "deploy" is a store submission (needs Omar); before that, check the change on a real TV once the test TVs exist.

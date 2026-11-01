@@ -25,6 +25,11 @@ export interface BundleOptions {
   readonly platform: BuildPlatform;
   /** Label used in gate errors, e.g. `main.js (webos)`. */
   readonly label?: string;
+  /**
+   * Inject core-js polyfills (default true). Only the old-engine harness self-test turns this
+   * off (`build-tv --unsafe-no-polyfills`), to prove it catches a missing polyfill.
+   */
+  readonly polyfills?: boolean;
 }
 
 export interface BuiltWorker {
@@ -93,7 +98,12 @@ function inlineWorkers(options: BundleOptions, workers: BuiltWorker[]): Plugin {
     async load(id) {
       if (!id.startsWith(WORKER_PREFIX)) return null;
       const entry = id.slice(WORKER_PREFIX.length);
-      const built = await bundleIife({ input: entry, platform: options.platform, label: `worker ${entry}` });
+      const built = await bundleIife({
+        input: entry,
+        platform: options.platform,
+        label: `worker ${entry}`,
+        polyfills: options.polyfills,
+      });
       workers.push({ entry, code: built.code }, ...built.workers);
       const literal = escapeLineSeparators(JSON.stringify(built.code));
       return [
@@ -143,8 +153,7 @@ function plugins(options: BundleOptions, workers: BuiltWorker[]): Plugin[] {
           require.resolve('@babel/preset-env'),
           {
             targets: TV_TARGETS,
-            useBuiltIns: 'usage',
-            corejs: CORE_JS_VERSION,
+            ...(options.polyfills === false ? { useBuiltIns: false } : { useBuiltIns: 'usage', corejs: CORE_JS_VERSION }),
             bugfixes: true,
             modules: false,
           },

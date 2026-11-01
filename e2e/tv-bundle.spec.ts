@@ -31,6 +31,8 @@ for (const platform of ['tizen', 'webos'] as const) {
     // No TV APIs on the desktop: the adapter falls back instead of crashing.
     await expect(page.getByTestId('info-model')).toHaveText('unknown');
     await expect(page.getByTestId('worker-status')).toHaveText(/^ok in \d+ ms/);
+    // IndexedDB inside the Blob worker, from a file:// page (the TV's origin).
+    await expect(page.getByTestId('idb-status')).toHaveText('ok');
     await expect(page.locator('#boot-error')).toBeHidden();
 
     // Arrow keys share key codes with the TV remotes (37–40), so the TV key maps apply.

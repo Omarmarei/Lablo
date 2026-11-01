@@ -23,6 +23,7 @@ test.describe('hello app in the desktop browser (pnpm dev)', () => {
     await expect(page.getByTestId('info-tier')).toHaveText('full');
     await expect(page.getByTestId('info-chromiumVersion')).toHaveText(/^\d+$/);
     await expect(page.getByTestId('worker-status')).toHaveText(/^ok in \d+ ms \(.*TextDecoder.*indexedDB.*\)$/);
+    await expect(page.getByTestId('idb-status')).toHaveText('ok');
     expect(errors).toEqual([]);
   });
 

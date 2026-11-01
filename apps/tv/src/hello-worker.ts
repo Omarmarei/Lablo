@@ -4,6 +4,8 @@ import HelloWorker from './workers/hello.worker?worker';
 export interface WorkerReport {
   readonly roundTripMs: number;
   readonly features: readonly string[];
+  /** IndexedDB write/read inside the worker: `'ok'` or `'failed: …'`. */
+  readonly idb: string;
 }
 
 /** Starts the hello worker, sends one ping and resolves with its answer. */
@@ -32,7 +34,7 @@ export function pingHelloWorker(timeoutMs = 5000): Promise<WorkerReport> {
         reject(new Error('unexpected worker reply'));
         return;
       }
-      resolve({ roundTripMs: Date.now() - started, features: event.data.features });
+      resolve({ roundTripMs: Date.now() - started, features: event.data.features, idb: event.data.idb });
     };
     worker.onerror = (event: ErrorEvent) => {
       finish();

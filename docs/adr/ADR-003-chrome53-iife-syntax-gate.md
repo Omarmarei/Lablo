@@ -13,7 +13,7 @@ TV web engines are never upgraded after the set ships. The minimum supported mod
 - **Bundle budgets:** main JS ≤ 500 KB minified, each worker ≤ 150 KB.
 - **Desktop development** uses Vite with the browser platform adapter. It is not the shipping build.
 - `eslint-plugin-compat` with browserslist `chrome 53` flags APIs that need a polyfill. The cheat sheet and polyfill rules live in CLAUDE.md.
-- An old-engine harness (RELAY step 2b) runs the built bundle in Chromium 53/56/68 snapshots, because Playwright cannot attach to those engines and test TVs are scarce.
+- An old-engine harness (RELAY step 2b, `pnpm verify:engines`, [runbook](../runbooks/old-engines.md)) runs the built bundle in Chromium 53/56/68 snapshots, because Playwright cannot attach to those engines and test TVs are scarce. It runs the snapshots headed under Xvfb in a Debian 9 container, drives them over raw CDP, and proves with a self-test that it catches seeded ES2018/ES2020 syntax and a build without polyfills.
 
 ## Consequences
 - Source can use modern syntax; the transpiler and the gate guarantee the output.
