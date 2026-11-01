@@ -67,7 +67,13 @@ UI steps also end with a short "press these keys" checklist that Omar can run in
   - YAML fault scenarios: 302 chains, stalls with the socket held open, 401/403/404/509, slow headers, malformed M3U, BOM/CRLF, gzip.
   - LAN log collector endpoint.
   - **Done when:** integration tests cover every endpoint and fault.
-- [ ] 4. **Legal media set and scale fixtures (2.2).**
+- [x] 4. **Legal media set and scale fixtures (2.2).** Done in leg 5 (runbook docs/runbooks/mock-provider.md: Media, Scale fixtures, Benchmarks, Docker).
+  - `pnpm mock:media` generates 12 live loops plus a generic one, and 15 VOD/episode files plus 2 generic ones, in about 30 s.
+  - Live loops are placed on the epoch timeline by a TS rewriter, so live TS, HLS and catch-up are one seamless stream.
+  - `pnpm mock:open-movies` fetches the four films with pinned SHA-256, and `/attribution` credits them.
+  - `pnpm fixtures` writes the 200k catalog and 50/150/300 MB XMLTV in about 20 s.
+  - `pnpm bench` is the harness for steps 5–9. The mock's Dockerfile is in place.
+  - CI job `media` runs `pnpm verify:media`: ffprobe on everything the mock serves, and the 2-minute fixture limit.
   - ffmpeg scripts: endless TS and sliding-window HLS test channels with name and clock burned in; multi-audio (ara/eng/5.1 AC3/E-AC3); HEVC 4K; MKV with ara/eng SRT. Plus a Blender open-movies fetch script with an attribution page.
   - `tools/fixtures`: deterministic 200k catalog (M3U + Xtream JSON, ar/en/fr/es names, malformed lines) and 50/150/300 MB XMLTV (+gz).
   - Node benchmark harness; Dockerfile.
@@ -199,3 +205,4 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 | 2 | 2026-11-01 | 2 | build:tv (Rollup IIFE, Babel chrome 53, core-js, Blob workers, ES2016 gate, budgets, isolation check), .ipk via ares-package, platform adapters, Preact hello app, pnpm dev/device, Playwright smoke; verify + CI extended | 18d2b3a |
 | 3 | 2026-11-02 | 2b | Old-engine harness: Chromium 53/56/68 snapshots in Debian 9 Docker over raw CDP; boot, Blob worker + IDB, keys; self-test catches ES2018/ES2020 seeds and no-polyfills; CI job `engines`; S1 finding (Blob-worker IDB on file://) | e632376 |
 | 4 | 2026-11-02 | 3 | Mock provider: Xtream player_api (all actions, user_info states), m3u_plus, XMLTV(.gz), live TS/HLS, VOD ranges, catch-up in all Xtream/M3U modes, 14 fault types (YAML scenarios + `?mock_fault=`), LAN log collector, `pnpm mock`; 149 tests | 8977442 |
+| 5 | 2026-11-02 | 4 | Legal media set: ffmpeg test channels (60 s loops on the epoch timeline via a TS rewriter; bilingual, 720p50, 1080p, MP3 radio), VOD (4K HEVC, multi-audio ara/eng/spa + AC3/E-AC3 5.1, SRT/mov_text ara+eng), Blender open movies (pinned SHA-256) + /attribution; scale fixtures (200k M3U/Xtream/catalog JSON, 50/150/300 MB XMLTV + gz, ~20 s); bench harness; mock Dockerfile; mock `--catalog/--xmltv/--media`; CI job `media` (ffprobe-validated) | 6a2b9f9 |
