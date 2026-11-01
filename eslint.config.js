@@ -74,7 +74,7 @@ export default defineConfig(
     ignores: [
       '**/node_modules/**',
       '**/dist/**',
-      '**/build/**',
+      'build/**',
       '**/out/**',
       '**/coverage/**',
       '**/artifacts/**',
@@ -89,8 +89,8 @@ export default defineConfig(
     },
   },
   {
-    // Node-side files: root configs, tests, tools, mock provider.
-    files: ['*.{js,ts}', 'test/**/*.{js,ts}', 'tools/**/*.{js,ts}', 'apps/mock-provider/**/*.{js,ts}'],
+    // Node-side files: root configs, tests, e2e, tools, mock provider, app build configs.
+    files: ['*.{js,ts}', 'test/**/*.{js,ts}', 'e2e/**/*.{js,ts}', 'apps/*/vite.config.ts', 'tools/**/*.{js,ts}', 'apps/mock-provider/**/*.{js,ts}'],
     languageOptions: { globals: globals.node },
   },
   {

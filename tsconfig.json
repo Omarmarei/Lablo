@@ -15,5 +15,5 @@
       "@zoma/*": ["./packages/*/src/index.ts"]
     }
   },
-  "include": ["*.ts", "*.js", "test/**/*.ts"]
+  "include": ["*.ts", "*.js", "test/**/*.ts", "e2e/**/*.ts", "apps/*/vite.config.ts"]
 }

@@ -29,4 +29,28 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Chromium for the Playwright smoke tests (pnpm e2e, part of pnpm verify).
+      - run: pnpm exec playwright install --with-deps chromium
+
+      # lint + typecheck + unit tests + TV builds (syntax gate, budgets, .ipk) + Playwright.
       - run: pnpm verify
+
+      - name: Upload the TV builds
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tv-builds
+          path: |
+            dist/tv/
+            dist/packages/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: artifacts/
+          if-no-files-found: ignore
+          retention-days: 14

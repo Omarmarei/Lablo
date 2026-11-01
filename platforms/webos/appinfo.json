@@ -1,0 +1,14 @@
+{
+  "id": "com.zoma.iptv",
+  "version": "{{version}}",
+  "vendor": "Zoma",
+  "type": "web",
+  "main": "index.html",
+  "title": "Zoma",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "bgColor": "#0b0f14",
+  "iconColor": "#0b0f14",
+  "resolution": "1920x1080",
+  "disableBackHistoryAPI": true
+}

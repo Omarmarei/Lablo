@@ -11,9 +11,13 @@ Zoma IPTV is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen 
 |---|---|
 | `pnpm install` | Install (pnpm 11, Node ≥ 22). Dependency build scripts must be allowed in `pnpm-workspace.yaml` → `allowBuilds`. |
 | `pnpm lint` | ESLint flat config, including the package-boundary and platform-global rules. Zero warnings allowed. |
-| `pnpm typecheck` | Root `tsc` (configs, `test/`) plus `tsc --noEmit` in every package via `pnpm -r`. |
+| `pnpm typecheck` | Root `tsc` (configs, `test/`, `e2e/`) plus `tsc --noEmit` in every package via `pnpm -r`. |
 | `pnpm test` | Vitest, run once from the root (`vitest.config.ts` lists the test globs). |
-| `pnpm verify` | lint + typecheck + test. CI runs exactly this. Later steps add the TV builds, syntax gate, bundle budgets and old-engine runs to it. |
+| `pnpm dev` | Vite desktop loop for `apps/tv` with the browser adapter (keyboard = remote). URL overrides: `?tier=low&locale=ar-SA&country=SA`. |
+| `pnpm build:tv` | Both TV builds (`dist/tv/{tizen,webos}`): Rollup IIFE + Babel chrome 53 + core-js, inline Blob workers, ES2016 syntax gate, budgets (main ≤ 500 KB, worker ≤ 150 KB), platform-isolation check, webOS `.ipk` in `dist/packages`. `.wgt` only with the Tizen CLI + `TIZEN_SIGNING_PROFILE`. See [docs/runbooks/tv-build.md](docs/runbooks/tv-build.md). |
+| `pnpm e2e` | Playwright (Chromium, 1920x1080): the dev app by keyboard, and both built TV bundles from `file://`. Needs `pnpm build:tv` first. |
+| `pnpm device <devices|install|launch|inspect> <webos|tizen> [device]` | ares-* / tizen / sdb wrappers (`tools/device`). |
+| `pnpm verify` | lint + typecheck + test + build:tv + e2e. CI runs exactly this (after `playwright install --with-deps chromium`). Step 2b adds the old-engine runs. |
 
 ## Conventions
 
@@ -25,6 +29,8 @@ Zoma IPTV is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen 
 - **Tests:** Vitest. Tests sit next to the code (`src/**/*.test.ts`) or in a package `test/` folder. No placeholder tests: every test must be able to fail. Tests pass before every commit.
 - **Line endings:** LF everywhere (`.gitattributes` has `* text=auto eol=lf`; the Windows checkout has `core.autocrlf` on).
 - **Shell:** the Bash tool is Git Bash on Windows. Use POSIX syntax there, never PowerShell syntax.
+- **Workers:** import them as `import X from './x.worker?worker'` and start them with `new X()`. Vite serves them in dev; the TV build inlines them as Blob-URL IIFEs (no `type: 'module'`, no worker files on disk).
+- **Platform choice:** `apps/tv/src/platform.ts` branches on the `__PLATFORM__` define (`tizen`, `webos`, `browser`). Keep platform-specific code behind those branches or inside the adapters, so the other adapters are tree-shaken out; `pnpm build:tv` fails if one leaks.
 - **Nothing important in localStorage** (webOS wipes it on app updates; see architecture.md §1.3).
 
 ## Chromium 53 cheat sheet (the oldest engine: 2018 LG webOS 4)
@@ -87,7 +93,7 @@ Deliberate change from architecture.md §1.1: `player` does **not** import `plat
 ## Definition of done
 
 A step or phase is done only when, in this order:
-1. **Tests and build:** `pnpm verify` is green (lint incl. boundaries, typecheck, tests; plus both TV builds, the ES2016 syntax gate and bundle budgets once they exist).
+1. **Tests and build:** `pnpm verify` is green (lint incl. boundaries, typecheck, tests, both TV builds with the ES2016 syntax gate and bundle budgets, Playwright smoke tests; plus the old-engine runs once step 2b lands).
 2. **PR and CI:** a PR to `main` with green CI, merged with a merge commit (not squash).
 3. **Migrations:** N/A until the backend exists (RELAY step 29). After that, Neon production migrations are applied and the schema is checked with a query. Each one needs Omar's word.
 4. **Deploy:** backend production deploys (Vercel) need Omar's word and a live check afterwards. For the TV app, the "deploy" is a store submission (needs Omar); before that, check the change on a real TV once the test TVs exist.

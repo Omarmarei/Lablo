@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Pure TypeScript domain logic: models, ContentKey, normalization, M3U/Xtream/XMLTV parsers, search, EPG matching. No DOM, no platform globals, no fetch.",
+  "sideEffects": false,
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
