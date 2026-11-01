@@ -188,3 +188,4 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 | Session | Date | Step | Result | Commit |
 |---|---|---|---|---|
 | 0 (planning) | 2026-11-01 | 0 | Research (competitors, user voice, platform/legal), approved plan, architecture saved to docs/ | 4581e54 |
+| 0 (planning) | 2026-11-01 | setup | RELAY.md written; private repo Omarmarei/zoma-iptv created, main pushed; Omar: auto-merge on green CI, only an LG TV (2b + 15/16 adapted) | 2e82349 |
