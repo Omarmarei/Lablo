@@ -1,0 +1,9 @@
+packages:
+  - packages/*
+  - apps/*
+  - tools/*
+
+# pnpm 11 blocks dependency build scripts unless they are allowed here.
+# esbuild (pulled in by vitest/vite) runs a postinstall that verifies its native binary.
+allowBuilds:
+  esbuild: true

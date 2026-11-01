@@ -21,7 +21,7 @@ UI steps also end with a short "press these keys" checklist that Omar can run in
 
 ### Phase 0: Foundations
 - [x] 0. Research, plan, architecture docs (leg 0). Commit `4581e54`.
-- [ ] 1. **Workspace scaffold (architecture.md 0.1).**
+- [x] 1. **Workspace scaffold (architecture.md 0.1).** Done in leg 1, commit `2415c0e`, PR #1. Also added ADR-008 (player/platform-api direction) and `boundaries/entry-point` (no deep imports across packages).
   - pnpm workspace, `tsconfig.base.json`, `.gitattributes` (`* text=auto eol=lf`; the Windows checkout has autocrlf).
   - Skeleton packages: `core`, `protocol`, `crypto`, `data`, `player`, `ui`, `platform-api`, `platform-tizen`, `platform-webos`, `platform-browser`.
   - ESLint flat config with `eslint-plugin-boundaries` (import rules from architecture.md 1.1; `player` must NOT import `platform-api`, while `platform-api` may import `player` types). `no-restricted-globals` for `tizen`/`webapis`/`webOS`/`PalmSystem` outside `platform-*`.
@@ -189,3 +189,4 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 |---|---|---|---|---|
 | 0 (planning) | 2026-11-01 | 0 | Research (competitors, user voice, platform/legal), approved plan, architecture saved to docs/ | 4581e54 |
 | 0 (planning) | 2026-11-01 | setup | RELAY.md written; private repo Omarmarei/zoma-iptv created, main pushed; Omar: auto-merge on green CI, only an LG TV (2b + 15/16 adapted) | 2e82349 |
+| 1 | 2026-11-01 | 1 | Workspace scaffold: 10 packages, boundary lint + 29-case ESLint API test, CLAUDE.md, ADR-001..008, CI green on PR #1 | 2415c0e |
