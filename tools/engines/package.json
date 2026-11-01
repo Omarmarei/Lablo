@@ -1,0 +1,16 @@
+{
+  "name": "@zoma/tools-engines",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Old-engine harness: runs the built TV bundles in Chromium 53/56/68 snapshots (Docker + Xvfb) over raw CDP.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "acorn": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5"
+  }
+}

@@ -37,6 +37,7 @@ export function App({ platform, keyHelp }: Props) {
   const info = useSignal<DeviceInfo | null>(null);
   const infoError = useSignal<string | null>(null);
   const worker = useSignal('starting…');
+  const idb = useSignal('checking…');
   const lastIntent = useSignal<Intent | null>(null);
   const keyCount = useSignal(0);
   const lifecycle = useSignal<LifecycleEvent | 'started'>('started');
@@ -56,9 +57,11 @@ export function App({ platform, keyHelp }: Props) {
     pingHelloWorker().then(
       (report) => {
         worker.value = `ok in ${report.roundTripMs} ms (${report.features.join(', ')})`;
+        idb.value = report.idb;
       },
       (error: unknown) => {
         worker.value = `failed: ${message(error)}`;
+        idb.value = 'failed: no worker';
       },
     );
 
@@ -107,6 +110,9 @@ export function App({ platform, keyHelp }: Props) {
           </table>
           <p class="hello__row">
             Worker: <span data-testid="worker-status">{worker}</span>
+          </p>
+          <p class="hello__row">
+            IndexedDB (in the worker): <span data-testid="idb-status">{idb}</span>
           </p>
           <p class="hello__row">
             Lifecycle: <span data-testid="lifecycle">{lifecycle}</span>

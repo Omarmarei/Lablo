@@ -7,7 +7,8 @@ How `pnpm build:tv`, `pnpm dev` and `pnpm device` work, and the manual Tizen ste
 | Command | What it does |
 |---|---|
 | `pnpm dev` | Vite dev server for `apps/tv` with the browser adapter (keyboard = remote). Open the printed URL at 1920x1080. URL overrides: `?tier=low&locale=ar-SA&country=SA`. |
-| `pnpm build:tv` | Both TV builds, the ES2016 syntax gate, bundle budgets and the webOS `.ipk`. Options: `--platform tizen` or `--platform webos` (repeatable), `--skip-package`. |
+| `pnpm build:tv` | Both TV builds, the ES2016 syntax gate, bundle budgets and the webOS `.ipk`. Options: `--platform tizen` or `--platform webos` (repeatable), `--skip-package`, `--out <dir>` (staging root instead of `dist/tv`). Test only: `--unsafe-no-polyfills` builds without core-js for the old-engine self-test; it needs `--out`, refuses `dist/tv` and never packages. |
+| `pnpm verify:engines` | The built apps in Chromium 53/56/68 snapshots (Docker). See [old-engines.md](old-engines.md). |
 | `pnpm e2e` | Playwright: the dev app by keyboard, and both built TV bundles booted from `file://`. Needs `pnpm build:tv` first (`pnpm verify` runs it). |
 | `pnpm device <devices\|install\|launch\|inspect> <webos\|tizen> [device]` | Install, launch or remote-inspect the build on a TV. |
 
@@ -68,7 +69,7 @@ The Tizen Studio CLI is not installed on the build machine, and GUI tools are ne
 
 Run `pnpm dev`, open the URL at 1920x1080, then:
 
-1. The screen shows **Zoma**, "Hello from browser", a device table (model "Desktop browser", tier `full`) and **Worker: ok in N ms (TextDecoder, indexedDB, fetch)**.
+1. The screen shows **Zoma**, "Hello from browser", a device table (model "Desktop browser", tier `full`) and **Worker: ok in N ms (TextDecoder, indexedDB, fetch)** and **IndexedDB (in the worker): ok**.
 2. Press the arrows, Enter, PgUp/PgDn, digits, F1–F4, Space, `i`, `g`: the big text shows `DOWN`, `OK`, `CH_UP`, `DIGIT_5`, `RED`, `PLAY_PAUSE`, `INFO`, `GUIDE`… and the key count goes up.
 3. Press `a`: nothing changes.
 4. Press Esc: it shows `BACK` and "Back: exit requested".

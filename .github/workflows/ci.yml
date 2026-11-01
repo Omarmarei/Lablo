@@ -54,3 +54,43 @@ jobs:
           path: artifacts/
           if-no-files-found: ignore
           retention-days: 14
+
+  # Old-engine harness (RELAY step 2b, docs/runbooks/old-engines.md): the built TV apps in
+  # Chromium 53/56/68 snapshots under Docker, plus the self-test that seeded ES2018/ES2020
+  # syntax and a build without polyfills are caught. Separate job so `verify` stays fast.
+  engines:
+    # The engines run inside a pinned Debian 9 container, so the host image barely matters;
+    # pinned anyway (ubuntu-latest moves to 26.04).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # ~280 MB of pinned Chromium snapshots; the key changes when an engine changes.
+      - name: Cache the Chromium snapshots
+        uses: actions/cache@v6
+        with:
+          path: .cache/engines
+          key: engines-${{ hashFiles('tools/engines/src/engines.ts') }}
+
+      - run: pnpm build:tv --skip-package
+
+      - run: pnpm verify:engines --self-test
+
+      - name: Upload the old-engine report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: old-engines-report
+          path: artifacts/engines/report.json
+          if-no-files-found: ignore
+          retention-days: 14

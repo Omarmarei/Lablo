@@ -41,6 +41,15 @@ describe('bundleIife (Rollup IIFE + Babel chrome 53 + core-js)', () => {
     expect(result.code).toContain('createObjectURL');
   }, 60_000);
 
+  it('leaves the polyfills out only when asked to (the old-engine self-test build)', async () => {
+    const result = await bundleIife({ input: fixture('modern.ts'), platform: 'webos', polyfills: false });
+    // Still Chromium 53 syntax, but nothing patches the missing APIs.
+    expect(checkSyntax(result.code, 'main')).toBeNull();
+    expect(result.code).not.toContain('core-js');
+    const exported = runWithoutModernApis(result.code) as { run(): Promise<string> };
+    await expect(exported.run()).rejects.toThrow(/is not a function/);
+  }, 60_000);
+
   it('fails the build on ES2018 syntax that Babel cannot transpile (regex lookbehind)', async () => {
     const build = bundleIife({ input: fixture('lookbehind.ts'), platform: 'tizen', label: 'main.js (tizen)' });
     await expect(build).rejects.toThrow(SyntaxGateError);
