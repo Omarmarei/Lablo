@@ -1,0 +1,15 @@
+description: Live streams stall after 64 KiB with the socket held open; the 3rd VOD request resets mid-body.
+rules:
+  - match:
+      path: /live/**
+    faults:
+      - type: stall
+        after_bytes: 65536
+        hold_ms: 300000
+  - match:
+      path: [/movie/**, /series/**]
+    after: 2
+    times: 1
+    faults:
+      - type: reset
+        after_bytes: 32768

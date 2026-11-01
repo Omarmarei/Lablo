@@ -1,0 +1,8 @@
+description: Live, VOD and episode URLs go through a 3-hop 302 chain before the media (AVPlay redirect probe, spike S4).
+rules:
+  - match:
+      path: [/live/**, /movie/**, /series/**]
+    faults:
+      - type: redirect
+        hops: 3
+        status: 302

@@ -11,6 +11,7 @@
     "dev": "pnpm --filter @zoma/app-tv dev",
     "build:tv": "tsx tools/build/build-tv.ts",
     "device": "tsx tools/device/device.ts",
+    "mock": "tsx apps/mock-provider/src/main.ts",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r --parallel run typecheck",
     "test": "vitest run",

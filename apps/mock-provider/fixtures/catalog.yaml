@@ -1,0 +1,122 @@
+# The mock provider's catalog: our own test channels plus the Blender open movies (CC BY;
+# RELAY step 4 adds the media and the attribution page). No real channels, ever.
+#
+# Ids share one space across live channels, movies and episodes (like a panel's stream ids).
+# live[].catchup is how the M3U advertises catch-up (xc, default, append, shift, flussonic);
+# it only applies when archive_days > 0. Xtream clients always use /timeshift.
+# live[].xmltv_id: the id in the XMLTV when it differs from epg_id (exercises EPG matching).
+
+live_categories:
+  - { id: 1, name: Test News }
+  - { id: 2, name: اختبار - أخبار }
+  - { id: 3, name: Kids Test | أطفال }
+  - { id: 4, name: Sports Test }
+  - { id: 5, name: Radio Test }
+  - { id: 6, name: 18+ Test (lock check) }
+
+vod_categories:
+  - { id: 10, name: Open Movies | أفلام مفتوحة }
+  - { id: 11, name: Test Patterns }
+
+series_categories:
+  - { id: 20, name: Test Series | مسلسلات تجريبية }
+
+live:
+  - { id: 101, num: 1, name: Zoma Test 1 SMPTE, category: 1, epg_id: zoma.test1, archive_days: 7, catchup: xc }
+  - { id: 102, num: 2, name: Zoma Test 2 Clock, category: 1, epg_id: zoma.test2, archive_days: 3, catchup: default }
+  - { id: 103, num: 3, name: زوما تجريبي ٣, category: 2, epg_id: zoma.ar3, archive_days: 3, catchup: append }
+  - { id: 104, num: 4, name: قناة الاختبار الإخبارية, category: 2, epg_id: zoma.ar4 }
+  - { id: 105, num: 5, name: Zoma Kids Test, category: 3, epg_id: Zoma.Kids, xmltv_id: zoma.kids, archive_days: 1, catchup: shift }
+  - { id: 106, num: 6, name: Zoma Sports Test HD, category: 4, epg_id: zoma.sports, archive_days: 2, catchup: flussonic }
+  - { id: 107, num: 7, name: Zoma Sports Test FHD, category: 4 }
+  - { id: 108, num: 8, name: Zoma Radio Test, category: 5, epg_id: zoma.radio, radio: true, logo: false }
+  - { id: 109, num: 9, name: 18+ Test Pattern, category: 6, adult: true }
+  - { id: 110, num: 10, name: Zoma Test FR - Mire, category: 1, epg_id: zoma.fr }
+  - { id: 111, num: 11, name: Zoma Prueba ES - Carta de ajuste, category: 1, epg_id: zoma.es }
+  # Same name and EPG as 101 in another group: duplicates are normal in real playlists.
+  - { id: 112, num: 12, name: Zoma Test 1 SMPTE, category: 2, epg_id: zoma.test1, archive_days: 7, catchup: xc }
+
+movies:
+  - id: 201
+    name: Big Buck Bunny
+    category: 10
+    ext: mp4
+    year: 2008
+    duration_secs: 596
+    rating: 7.5
+    genre: Animation
+    plot: A giant rabbit takes on three bullies. (c) Blender Foundation, CC BY 3.0, peach.blender.org
+  - id: 202
+    name: Sintel
+    category: 10
+    ext: mkv
+    year: 2010
+    duration_secs: 888
+    rating: 7.4
+    genre: Animation
+    plot: A girl searches for her baby dragon. (c) Blender Foundation, CC BY 3.0, durian.blender.org
+  - id: 203
+    name: Tears of Steel
+    category: 10
+    ext: mp4
+    year: 2012
+    duration_secs: 734
+    rating: 6.4
+    genre: Science Fiction
+    plot: Scientists try to save the world from robots. (c) Blender Foundation, CC BY 3.0, mango.blender.org
+  - id: 204
+    name: Elephants Dream
+    category: 10
+    ext: mp4
+    year: 2006
+    duration_secs: 654
+    rating: 6.5
+    genre: Animation
+    plot: Two men explore a strange machine. (c) Blender Foundation, CC BY 2.5, orange.blender.org
+  - id: 205
+    name: Zoma Test Pattern 4K HEVC
+    category: 11
+    ext: mp4
+    year: 2026
+    duration_secs: 60
+    genre: Test
+    plot: Our own 4K HEVC test pattern.
+  - id: 206
+    name: اختبار الصوت المتعدد
+    category: 11
+    ext: mkv
+    year: 2026
+    duration_secs: 120
+    genre: Test
+    plot: Multi-audio test (ara, eng, 5.1) with Arabic and English subtitles.
+
+series:
+  - id: 301
+    name: Zoma Test Series
+    category: 20
+    year: 2026
+    rating: 8
+    genre: Test
+    plot: Our own test series for seasons, resume and auto-next.
+    seasons:
+      - number: 1
+        episodes:
+          - { id: 3001, title: Pilot - Colour Bars, ext: mkv, duration_secs: 300 }
+          - { id: 3002, title: Tone and Clock, ext: mkv, duration_secs: 300 }
+          - { id: 3003, title: Lip Sync, ext: mkv, duration_secs: 300 }
+      - number: 2
+        episodes:
+          - { id: 3011, title: Return of the Bars, ext: mp4, duration_secs: 240 }
+          - { id: 3012, title: Finale, ext: mp4, duration_secs: 240 }
+  - id: 302
+    name: مسلسل الاختبار
+    category: 20
+    year: 2026
+    genre: اختبار
+    plot: مسلسل تجريبي لاختبار الواجهة العربية.
+    seasons:
+      - number: 1
+        name: الموسم ١
+        episodes:
+          - { id: 3021, title: الحلقة الأولى, ext: mp4, duration_secs: 180 }
+          - { id: 3022, title: الحلقة الثانية, ext: mp4, duration_secs: 180 }

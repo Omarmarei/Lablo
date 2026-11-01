@@ -1,0 +1,12 @@
+description: The panel answers slowly - 3 s before headers on player_api.php and 8 s on get.php and xmltv.php.
+rules:
+  - match:
+      path: /player_api.php
+    faults:
+      - type: slow-headers
+        delay_ms: 3000
+  - match:
+      path: [/get.php, /xmltv.php]
+    faults:
+      - type: slow-headers
+        delay_ms: 8000
