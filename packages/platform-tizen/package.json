@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Samsung Tizen adapter: keys, DUID, lifecycle, screensaver, AvplayEngine, TTS hook.",
+  "sideEffects": false,
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {

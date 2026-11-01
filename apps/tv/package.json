@@ -1,0 +1,23 @@
+{
+  "name": "@zoma/app-tv",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "TV app composition root: screens, router and wiring. One platform per build, chosen by the __PLATFORM__ define.",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@preact/signals": "^2.11.4",
+    "@zoma/core": "workspace:*",
+    "@zoma/platform-api": "workspace:*",
+    "@zoma/platform-browser": "workspace:*",
+    "@zoma/platform-tizen": "workspace:*",
+    "@zoma/platform-webos": "workspace:*",
+    "preact": "^10.29.8"
+  },
+  "devDependencies": {
+    "vite": "^7.3.7"
+  }
+}

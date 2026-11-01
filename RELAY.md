@@ -38,7 +38,7 @@ UI steps also end with a short "press these keys" checklist that Omar can run in
   - GitHub Actions CI running `pnpm verify`; README.
   - The private repo `Omarmarei/zoma-iptv` was created in leg 0 and `main` pushed. Push the relay branch, open the first PR, and merge it on green CI.
   - **Done when:** `pnpm verify` is green locally and on CI, and the lint test fails on a seeded forbidden import.
-- [ ] 2. **TV build pipeline and hello app (0.2).**
+- [x] 2. **TV build pipeline and hello app (0.2).** Done in leg 2, commit `18d2b3a`. Main bundle ≈ 124 KB, hello worker ≈ 37 KB. `.wgt` is documented, not built (no Tizen CLI): docs/runbooks/tv-build.md. The gate failed as expected on a seeded regex lookbehind (`main.js (webos) 1:129246`).
   - `apps/tv` hello screen showing platform info.
   - `platform-browser` adapter (keyboard as remote).
   - `tools/build/build-tv.ts`: Rollup IIFE, Babel `preset-env {chrome:53}`, core-js, workers inlined as Blob URLs.
@@ -190,3 +190,4 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 | 0 (planning) | 2026-11-01 | 0 | Research (competitors, user voice, platform/legal), approved plan, architecture saved to docs/ | 4581e54 |
 | 0 (planning) | 2026-11-01 | setup | RELAY.md written; private repo Omarmarei/zoma-iptv created, main pushed; Omar: auto-merge on green CI, only an LG TV (2b + 15/16 adapted) | 2e82349 |
 | 1 | 2026-11-01 | 1 | Workspace scaffold: 10 packages, boundary lint + 29-case ESLint API test, CLAUDE.md, ADR-001..008, CI green on PR #1 | 2415c0e |
+| 2 | 2026-11-01 | 2 | build:tv (Rollup IIFE, Babel chrome 53, core-js, Blob workers, ES2016 gate, budgets, isolation check), .ipk via ares-package, platform adapters, Preact hello app, pnpm dev/device, Playwright smoke; verify + CI extended | 18d2b3a |

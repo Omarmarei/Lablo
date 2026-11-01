@@ -1,0 +1,16 @@
+{
+  "name": "@zoma/tools-device",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Install, launch and inspect wrappers around the webOS ares-* CLI and the Tizen tizen/sdb CLI.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@webos-tools/cli": "^3.2.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5"
+  }
+}

@@ -3,7 +3,14 @@ packages:
   - apps/*
   - tools/*
 
-# pnpm 11 blocks dependency build scripts unless they are allowed here.
-# esbuild (pulled in by vitest/vite) runs a postinstall that verifies its native binary.
+# pnpm 11 blocks dependency build scripts unless they are listed here.
 allowBuilds:
+  # The webOS CLI (ares-*) makes its config files writable on Linux/macOS.
+  '@webos-tools/cli': true
+  # Only a donation banner.
+  core-js: false
+  # Optional native speed-ups for ssh2 (used by ares-* device commands); it falls back to pure JS.
+  cpu-features: false
+  # esbuild (pulled in by vitest/vite) runs a postinstall that verifies its native binary.
   esbuild: true
+  ssh2: false
