@@ -1,0 +1,19 @@
+* text=auto eol=lf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.mp4 binary
+*.mkv binary
+*.wgt binary
+*.ipk binary
+*.gz binary
+*.pptx binary
+*.p12 binary
