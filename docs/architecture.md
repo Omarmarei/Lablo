@@ -1,0 +1,632 @@
+> **Snapshot 2026-11-01.** Detailed design produced during planning. Where it differs from [PLAN.md](PLAN.md) (e.g. features added to v1, Stalker dropped, Phase 9 = 6 sessions), **PLAN.md wins**. Record changes as ADRs in [adr/](adr/).
+
+# Zoma IPTV: architecture and phased build plan
+
+Paths below are relative to the repo root. Written before any code existed.
+
+## Key decisions
+
+- **Packaging:** packaged apps on both platforms (Tizen `.wgt`, webOS `.ipk`). No hosted app. Store reviews are slow, so every tunable setting comes from a signed remote config.
+- **Code layout:** TypeScript monorepo using pnpm workspaces. All logic is platform-agnostic and runs in Node for tests. Thin platform adapters are the only code allowed to touch `tizen`, `webapis`, `webOS` or luna.
+- **UI:** Preact 10 with `@preact/signals`, rendered as normal DOM, with a custom index-based focus engine. No CSS Grid, flex `gap`, `position: sticky` or logical CSS properties, because Chromium 53 lacks them.
+- **Build:** Vite for desktop development. The production build is a Rollup IIFE run through Babel `preset-env` targeting `chrome 53`, plus core-js polyfills. Workers are built as IIFEs and inlined as Blob URLs. A syntax gate blocks any newer JavaScript.
+- **Data:** Two workers. An ingest worker starts for each refresh and is killed afterwards to free memory. A query worker stays running. IndexedDB holds a cache that can always be rebuilt. The only data that can't be rebuilt is a small "profile" document, and it is mirrored to an end-to-end encrypted cloud backup.
+- **EPG:** Streamed, filtered at ingest to the user's matched channels, stored in one record per channel per day, with a time window that depends on the TV's tier.
+- **Player:** One controller handles state, the stall watchdog, retries, error classification and zapping. It sits on top of interchangeable engines: AVPlay on Tizen and an HTML5 `<video>` engine on webOS and desktop.
+- **Backend:** Next.js, Prisma, Postgres (Neon), Cloudflare R2 and Vercel. It provides the signed config and kill-switch, an end-to-end encrypted pairing relay, encrypted backup, and telemetry. It never fetches a user-supplied URL, and a lint rule enforces that.
+
+---
+
+## 1. Architecture
+
+### 1.1 Monorepo layout
+
+```
+zoma/
+├─ apps/
+│  ├─ tv/               Composition root: screens, router, wiring, one entry file per platform
+│  ├─ web/              Next.js: /p pairing page, /v1/* API, legal pages, landing page
+│  └─ mock-provider/    Node (Fastify): Xtream/M3U/XMLTV/HLS/TS emulator, fault injection, LAN log collector
+├─ packages/
+│  ├─ core/             Pure TS: models, ContentKey, Arabic/Latin normalization, M3U/Xtream/XMLTV parsers,
+│  │                    streaming JSON-array splitter, catch-up URL builders, search, EPG matcher,
+│  │                    plural rules, entitlements seam
+│  ├─ data/             Workers: IDB schema and migrations, ingest pipeline, query service, typed RPC, DataClient
+│  ├─ player/           PlayerController, PlayerEngine interface, Html5Engine, watchdog, error classifier,
+│  │                    SRT/VTT parsing and cue sync
+│  ├─ ui/               Focus engine, virtual list and EPG grid, design tokens, components, i18n runtime
+│  ├─ platform-api/     Platform, EngineFactory and Intent interfaces only (no implementation)
+│  ├─ platform-tizen/   Keys (tvinputdevice), DUID, lifecycle, screensaver, AvplayEngine, TTS hook
+│  ├─ platform-webos/   Keys, LGUDID, Back policy, luna helpers, DB8 mirror, webOS track-switch strategy
+│  ├─ platform-browser/ Desktop dev and test: keyboard as remote, fake device info, virtual remote overlay
+│  ├─ crypto/           tweetnacl + @noble/hashes wrappers: envelopes, KDFs, Ed25519 verify (shared by TV and web)
+│  └─ protocol/         zod schemas and types: config doc, pairing payload, backup envelope, telemetry events
+├─ platforms/
+│  ├─ tizen/            config.xml template, icons, privileges
+│  └─ webos/            appinfo.json (disableBackHistoryAPI: true), icons, optional luna JS service
+├─ tools/
+│  ├─ build/            build-tv.ts (workers, gate, main, gate, package), syntax gate, bundle budgets
+│  ├─ device/           install, launch and inspect wrappers around tizen/sdb and ares-*
+│  ├─ fixtures/         Deterministic generators (200k catalog, 50–300 MB XMLTV)
+│  └─ sign-config/      Offline Ed25519 signer for the remote config
+├─ e2e/                 Playwright: RemoteDriver, flows, en/ar screenshots
+├─ docs/                adr/, spikes/, store/ (LG UX scenario, self-checklists, Samsung tester notes), runbooks/
+├─ CLAUDE.md            Conventions, Chromium 53 cheat sheet, boundaries, definition of done
+└─ ROADMAP.md           One checkbox per session (works with your relay/handover workflow)
+```
+
+**What depends on what.** These rules are enforced with `eslint-plugin-boundaries` in CI.
+
+| Package | May import | Never |
+|---|---|---|
+| core | nothing; tsconfig `lib: ES2017` with no DOM | DOM, platform globals, fetch |
+| protocol, crypto | their own libraries only | anything else |
+| data | core, protocol, crypto | ui, player, platform-* |
+| player | core, platform-api | concrete platforms, ui |
+| ui | core, player (controller and types), data (client only), platform-api | concrete platforms |
+| platform-* | platform-api, player (to implement engines) | ui, data |
+| apps/tv | everything; picks the platform via a `__PLATFORM__` build define, so unused platform code is removed | — |
+| apps/web | protocol, crypto | core, data, and outbound `fetch` (only listed SDKs are allowed) |
+
+**The Platform interface** is the only seam between platforms:
+- `info()`: model, model year, firmware, Chromium version, tier (`low` for 2018–19, `full` for 2020+), locale, country
+- `deviceSecret()`: DUID or LGUDID, or `null`
+- key-to-Intent mapping and key registration
+- `onLifecycle` (hidden, visible, relaunch)
+- `rootBackPolicy()`: `exit-dialog` on Tizen, `platform-back` on webOS 23–25
+- `exitApp()` and `setScreenSaver()`
+- `createEngines()`
+- optional extras: `persistentKV` (webOS DB8), `tts`, and an `http` transport (luna relay, only if spike S7 fails)
+
+### 1.2 UI framework and state
+
+**Preact with signals.** It is React-shaped, so it fits both your Next.js background and what Claude writes most reliably. The runtime is about 4 KB, which matters on 1 GB webOS 4 sets, and signals update only the cells that change, which matters for the EPG grid. I ruled out the alternatives:
+- **Lightning/Blits (WebGL):** weak Arabic bidi handling and no DOM for Voice Guide.
+- **React 18:** too heavy for 1 GB TVs.
+- **Enact:** webOS only.
+
+**Custom focus engine** (about 600 lines, pure TS, unit-tested without a DOM):
+- **Intents.** Adapters turn key codes into Intents: `UP DOWN LEFT RIGHT OK BACK CH_UP CH_DOWN DIGIT_n PLAY_PAUSE STOP FF RW INFO GUIDE RED GREEN YELLOW BLUE PREV_CH`. In RTL, LEFT and RIGHT are swapped once at this layer for horizontal zones.
+- **Zones.** Each screen is made of zones, and each zone uses one of these strategies:
+  - `list`: index-based, which is what makes virtualized lists work
+  - `grid`
+  - `epg`: channel index plus a time cursor
+  - `free`: geometry fallback, for small static screens only
+
+  Focus is a data index held in a signal, not DOM focus. DOM `focus()` is used only for native text inputs, so the system on-screen keyboard (including Arabic) pops up. Each zone remembers its last focused index.
+- **Magic Remote:** hovering over an item focuses it, the wheel scrolls the active list, and hiding the pointer keeps the current focus.
+- **Router:** a back stack. At the root, Back is handled by the platform's `rootBackPolicy`.
+
+Off-the-shelf libraries such as Norigin measure the DOM on every move. That fights virtualization and is slow on 2018 TVs.
+
+**State:**
+- Signals hold UI and session state.
+- Domain stores are plain classes that expose signals: `ProfileStore`, `SourceStore`, `PlayerStore` (mirrors the controller) and `SettingsStore`.
+- Catalog and EPG data comes from the query worker through `DataClient`: typed postMessage RPC, an LRU page cache, de-duplication of in-flight requests, and a small `useQuery` hook.
+- No Redux, no react-query, no comlink.
+
+### 1.3 Storage design (assumes the worst case: webOS wipes everything on update)
+
+| Data | Where it lives | Size | After a webOS wipe |
+|---|---|---|---|
+| **Profile doc**: sources (credentials encrypted), favourites lists, hidden and reordered groups, channel-number overrides, EPG match overrides, audio/subtitle preferences, VOD and series progress (latest 500), last channel, recent channels, settings, parental PIN hash | Memory (signals), IDB `profile` (current plus 3 rolling snapshots), webOS DB8 mirror if spike S2 shows it survives, encrypted cloud backup | < 300 KB gzipped | Restored automatically from the cloud at startup |
+| Catalog (live, VOD, series, categories) | IDB `catalog_chunks`, 500 items per record, versioned by generation | 5–60 MB | Re-ingested from the provider |
+| Search text and key index | IDB `catalog_index` (typed arrays) plus query-worker memory | 5–15 MB | Rebuilt with the catalog |
+| EPG programmes | IDB `epg_buckets`, keyed `[epgSrc, channelKey, dayIndex]` | 10–100 MB, by tier | Re-ingested |
+| XMLTV channel list and match table | IDB `epg_channels` | < 5 MB | Re-ingested |
+| M3U files sent from a phone | IDB `blobs` (gzipped); included in the backup if ≤ 5 MB gzipped | ≤ 30 MB | Backup, or re-send from the phone |
+| Signed remote config | IDB `kv` plus memory | < 50 KB | Re-fetched |
+| Current zap list, visible pages, images | Main-thread memory only | A few MB | n/a |
+| localStorage | Not used for anything that matters | — | — |
+
+Profile schema changes go through versioned migrations with fixture tests. A migration never drops data, and the 3 snapshots allow rollback. This addresses complaint #7 (updates wiping favourites).
+
+**Storage space.** On Tizen, request the `unlimitedstorage` privilege. Spike S2 measures webOS quota. Budget: catalog ≤ 60 MB; EPG ≤ 100 MB on full-tier TVs and ≤ 30 MB on low-tier ones.
+
+### 1.4 Catalog pipeline (ingest worker)
+
+1. **Trigger.** A refresh runs when a source is added, when the user asks, or at launch if the cache is stale (live after 12 h, VOD and series after 24 h; both values come from remote config). Startup always shows the cached generation immediately.
+2. **Spawn.** A fresh ingest worker starts for each refresh and is terminated when done, which frees its whole heap.
+3. **Fetch.** Use `fetch()` and read `response.body.getReader()` as a stream. Send ETag/If-Modified-Since where the server supports it, and compare an FNV-1a hash of the bytes with the previous generation; if unchanged, stop. Chromium 53 has no AbortController, so cancel with `reader.cancel()` or by aborting an XHR.
+4. **Decode.** `TextDecoder({stream:true})`, tolerant of BOM and CRLF. If the file starts with the gzip magic bytes `1f 8b`, decompress with `DecompressionStream` when available (Chromium 80+) or fflate's streaming `Gunzip` otherwise.
+5. **Parse.**
+   - **M3U:** a line-by-line state machine.
+     - Reads `#EXTINF` attributes (`tvg-id`, `tvg-name`, `tvg-logo`, `group-title`, `tvg-chno`, `tvg-shift`, `catchup*`), plus `#EXTGRP` and `#EXTVLCOPT`.
+     - User-Agent hints can't be applied, so they are recorded and shown in diagnostics.
+     - A header `url-tvg`/`x-tvg-url` automatically adds an EPG source.
+     - Items are classified as live, movie or series from the Xtream path (`/movie/`, `/series/`) or the file extension. Anything unclear is treated as live.
+   - **Xtream:** list endpoints go through a streaming JSON-array splitter. It tracks nesting depth and strings, yields the text of each top-level object, and runs `JSON.parse` on each one, so a 60 MB response never becomes one giant string. Parsing is tolerant: Xtream panels return numbers as strings and plenty of nulls. `get_series_info` and `get_vod_info` are fetched only when the user opens an item, and cached for 24 h. `server_info.timezone` is stored because catch-up URLs need it.
+6. **Keys and normalization.**
+   - **ContentKey:** `x:<src>:<kind>:<stream_id>` for Xtream, or `m:<src>:<hash(tvg-id || normName+group)>:<dup#>` for M3U. A key is never derived from the URL, because URLs contain credentials and change.
+   - **Name normalization:** lowercase, Latin accents removed, Arabic normalized (diacritics and tatweel removed; أإآ become ا, ة becomes ه, ى becomes ي; Arabic-Indic digits become ASCII).
+   - **`matchName`:** a separate field with quality and country tags (HD, FHD, 4K, `AR:`, `|UK|`) stripped, used for EPG matching.
+7. **Write.**
+   - Records hold 500 items each, keyed `[src, gen, kind, catIdx, chunk]`, with about 10 records per transaction. This cuts IndexedDB record overhead by about 500x on old LevelDB.
+   - The worker yields between batches.
+   - When the UI posts `busy` (zapping or starting playback), the worker pauses.
+   - On low-tier TVs it runs a duty cycle of 50 ms work and 50 ms sleep.
+8. **Index.** For each source and kind, all normalized names are joined into one search string with `\u0001` separators, plus a `Uint32Array` of offsets. A key-to-location map is also built. Both are stored as typed arrays.
+9. **Swap.** One transaction sets `sources_meta.gen = new`. The query worker reloads its index and the old generation is deleted in the background. If the app crashes mid-ingest, the old generation is still intact.
+10. **Favourites survive refreshes** because they reference ContentKeys. If a key disappears, it is kept as "unavailable" for 30 days and re-matched by normalized name, which covers providers renumbering their streams.
+11. **Search.** `indexOf` over the search string, then a binary search over offsets to find the item.
+    - **Ranking:** word-prefix matches first, then substring matches; live before VOD before series; favourites boosted.
+    - **Results** are capped at 200.
+    - **Speed target:** under 200 ms for 200k items on 2018 TVs.
+12. **Fallback if spike S1 or S6 fails** on webOS 4: VOD and series are fetched per category on demand (`&category_id=`), and search covers only loaded categories plus all live channels.
+
+### 1.5 EPG pipeline
+
+1. **Sources:**
+   - Xtream `xmltv.php` and the M3U `url-tvg` header, both added automatically.
+   - User-added XMLTV URLs, in priority order.
+   - For unmatched channels, Xtream `get_short_epg` is used as a now/next fallback. It is called only after a channel has been focused for 600 ms, and cached for 30 minutes.
+2. **Wanted set.** Before ingest, build the set of tvg-ids, `epg_channel_id`s and matchNames from all live channels in all sources.
+3. **Tokenizer.** A purpose-built streaming XMLTV tokenizer, not DOMParser. It handles entities and CDATA, and when a programme has titles in several languages it prefers the UI language.
+4. **Matching cascade** (first hit wins):
+   1. User override
+   2. Exact id (case-insensitive)
+   3. Xtream `epg_channel_id`
+   4. Normalized display name
+   5. matchName with tags stripped
+   6. No match
+
+   The method used is stored for each channel. Diagnostics shows the match rate per source and lists unmatched channels for manual mapping.
+5. **Filter.** Drop programmes for unmatched channels, which is usually over 90% of a big XMLTV file. Drop anything outside the window. Apply `tvg-shift`, and parse `YYYYMMDDhhmmss ±hhmm` to UTC minutes.
+6. **Time window** (remote-configurable):
+
+   | Tier | Past | Future | Descriptions |
+   |---|---|---|---|
+   | Full (2020+) | Longest catch-up days among matched channels (at least 1, at most 7) | 7 days | ≤ 1000 chars |
+   | Low (2018–19) | 1 day (or catch-up days, at most 2) | 3 days | ≤ 300 chars |
+
+7. **Storage.** One record per channel per day holding column arrays (`Int32Array` start/end, `title[]`, `desc[]`, flags). A typical grid screen is the visible rows times 1–2 days, so about 20 reads.
+8. **Refresh.** Every 12 h, or sooner if less than 24 h of future data remains. Past days are pruned daily. Updates use the same generation swap as the catalog. On low-tier TVs, EPG and catalog ingest never run at the same time.
+9. **XMLTV assumptions.** The parser assumes `<channel>` elements come before `<programme>` elements, which is the standard. If they are interleaved, a telemetry flag is recorded and those programmes are buffered with a size cap.
+
+---
+
+## 2. Player abstraction
+
+```ts
+// packages/player/src/engine.ts
+export interface PlayerEngine {
+  readonly kind: 'avplay' | 'html5' | 'mse';
+  readonly caps: { maxHeight: number; trackSwitch: 'reliable'|'unreliable'|'none';
+                   deliversSubtitleText: boolean; preloadSlots: number; rates: number[] };
+  load(req: PlayRequest, token: number, opts?: { startMs?: number; preload?: boolean }): Promise<void>;
+  play(): void; pause(): void; seek(ms: number): Promise<void>;
+  stop(): Promise<void>;                 // must close the network connection (provider connection limits)
+  setRect(r: Rect | 'full'): void;       // AVPlay setDisplayRect / CSS on the single <video>
+  getTracks(): { audio: Track[]; text: Track[] };
+  selectAudio(id: string): Promise<boolean>; selectText(id: string | null): Promise<boolean>;
+  positionMs(): number; stats(): EngineStats;
+  suspend(): void; resume(): void;
+  on(cb: (e: EngineEvent & { token: number }) => void): () => void;
+  destroy(): void;
+}
+export type PlayRequest = { key: ContentKey; mode: 'live'|'vod'|'catchup';
+  candidates: { url: string; container: 'ts'|'hls'|'mp4'|'mkv' }[];  // ordered fallbacks
+  externalSubs?: { lang: string; url: string; fmt: 'srt'|'vtt' }[]; hints?: { uhd?: boolean } };
+```
+
+**Engines:**
+- **Tizen:** `AvplayEngine` (in platform-tizen) handles everything, including 4K, TS, AC3/E-AC3 and track switching. `Html5Engine` is a fallback for HLS only, used when AVPlay fails with specific error codes.
+- **webOS:** `Html5Engine` with one app-wide `<video>` element shared by fullscreen and future preview. Audio-track switching uses `audioTracks` first, then luna `com.webos.media` `selectTrack` with `video.mediaId` (spike S5 decides). If neither works, the menu says "Not supported on this TV" instead of pretending.
+- **Desktop:** `Html5Engine`, plus hls.js in dev builds only.
+- **MSE engine** (hls.js or mpegts.js): only if S5 shows gaps in native HLS on webOS. It is never the default, because MSE is FHD-only and AC3 support is unreliable.
+- **AVPlay layering:** AVPlay renders below the HTML, so the player route sets `html` and `body` to transparent backgrounds.
+
+**PlayerController** is platform-agnostic and owns all of the following:
+- **Session tokens.** Every `load` gets a new token, and events carrying an old token are dropped. This prevents race bugs during fast zapping.
+- **Close-before-open.** `await stop()` always runs before the next `load`, because providers often allow only one connection.
+- **URL strategy.**
+  - Xtream live tries `.ts` first (faster start), then `.m3u8`, unless `allowed_output_formats` says otherwise.
+  - The format that worked is remembered per source.
+  - Catch-up and timeshift URL builders live in core (Xtream `timeshift` in the server's timezone; M3U `default/append/shift/flussonic/xc` templates).
+- **Redirect handling (Tizen).** Each source has a `redirectMode`: `unknown`, `none` or `redirects`.
+  - **First play:** an XHR GET is aborted as soon as headers arrive (`readyState 2`), and `responseURL` is read.
+  - **If it redirected:** the source is marked `redirects` and AVPlay gets the final URL from then on.
+  - **If not:** the source is marked `none` and later plays skip the probe.
+  - **Re-probe:** if AVPlay hasn't prepared within 8 s.
+
+  The webOS `<video>` element follows redirects itself, so no probe is needed unless S5 shows otherwise.
+- **Watchdog.**
+  - **Stall definition, live:** the position hasn't moved for 6 s while playing, or buffering has lasted more than 12 s.
+  - **Stall definition, VOD:** buffering has lasted more than 20 s.
+  - **Retry ladder:**
+    1. Reopen the same URL (live jumps to the live edge; VOD resumes at the last position).
+    2. Re-run the redirect probe.
+    3. Switch container (`.ts` and `.m3u8`).
+    4. Repeat with backoff of 1, 2 and 4 s.
+  - **Give up:** after 4 attempts within 60 s, show the error card.
+  - **While retrying:** the UI shows a small "Reconnecting…" badge, not a black screen.
+  - **Thresholds** are tunable per model through remote config.
+- **Error classifier** (complaint #9). It produces four user-facing categories, each with a diagnostic code:
+
+  | Category | Examples |
+  |---|---|
+  | **Your internet** | Device offline, DNS failure for all hosts |
+  | **Your provider** | Xtream `auth=0`, Expired, Banned, `active_cons >= max_connections`, HTTP 401/403/404/5xx/509 on the probe, timeouts |
+  | **This TV can't play this** | Unsupported codec, e.g. DTS on Samsung 2024+ |
+  | **App error** | Anything else |
+
+  On a provider failure the controller re-checks `player_api.php` and shows the account status, expiry date and connection count.
+- **Zapping (v1).**
+  - The on-screen info bar updates instantly; loading starts after 350 ms with no new key press.
+  - Number entry collects digits for 1.5 s. Channel numbers come from `tvg-chno`, then Xtream `num`, then list position, and user overrides win.
+  - Previous channel uses the Samsung PRE-CH key where it can be registered, with an info-bar action and a configurable colour key elsewhere.
+  - On AVPlay, `setBufferingParam` sets a lower first-play buffer. A "Fast start / Stable" setting controls this, and remote config can override it per model.
+- **Tracks.**
+  - Preferred audio and subtitle language lists, e.g. `['ar','en']`, are applied automatically when tracks appear.
+  - The user's per-channel choice is remembered.
+  - Language codes are normalized (`ar`, `ara`, `arb`, `Arabic` and `عربي` all become `ar`).
+- **Subtitles.**
+  - **Our overlay:** external SRT/VTT is parsed in core and drawn by our own overlay on both platforms, with `dir=auto` on each cue for Arabic, and size and background settings. AVPlay's embedded-subtitle text callback feeds the same overlay.
+  - **webOS embedded subtitles** are left to the native renderer.
+  - **No `<track>` element** is used on webOS, which removes the VTT-only limitation.
+- **Lifecycle.**
+  - **Tizen, on hide/show:** `suspend()` and `restore()`.
+  - **webOS, on hide:** stop.
+  - **webOS, on show:** live reloads at the live edge; VOD resumes from the saved position.
+  - **Screensaver:** off while playing, on when stopped.
+  - **VOD progress** is saved every 10 s.
+- **Start on last channel.** At startup the controller reads the profile, decrypts that source's credentials, builds the URL and starts playback before the catalog has loaded. Target: first frame within 4 s on 2020+ TVs.
+
+---
+
+## 3. Backend (minimal)
+
+### 3.1 What v1 needs
+
+| Service | Why it's in v1 |
+|---|---|
+| Signed remote config, kill-switch, domain blocklist | Legal posture, and fixing behaviour without waiting for store review |
+| End-to-end pairing relay (phone to TV) | Complaint #1, and remote family setup for older users |
+| End-to-end encrypted backup and restore | Required on webOS because of the update wipe; also used on Tizen |
+| Telemetry, crash reports, diagnostics code | You can't buy every TV model; this is how you learn what works |
+
+**Not in v1:** user accounts, multi-TV sync, server-side EPG processing, image proxy or resizing (both would fetch provider URLs), payments.
+
+### 3.2 Stack and endpoints
+
+**Stack:**
+- Next.js App Router route handlers on Vercel.
+- Neon Postgres via Prisma: `PairSession`, `Backup` (metadata), `TelemetryEvent`, `DiagReport`.
+- Cloudflare R2 for encrypted blobs (backups and pairing files), with lifecycle deletion.
+- Upstash for rate limiting.
+- The phone page and legal pages are part of the same Next.js app.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /v1/config` | Signed config doc plus `country` from the request's geo header; 5-minute CDN cache |
+| `POST /v1/pair` | TV registers `{tvPk}` and receives `{sid, code, pollToken, exp}` |
+| `GET /v1/pair/:code` | Phone gets `tvPk` (manual-code path only) |
+| `POST /v1/pair/:code/payload` | Phone sends `{phonePk, nonce, ct}` (≤ 64 KB) |
+| `POST /v1/pair/:code/upload-url` | Presigned R2 PUT for an encrypted M3U file (≤ 40 MB) |
+| `GET /v1/pair/s/:sid` | TV polls every 2 s with `pollToken`; payload is deleted on read |
+| `POST /v1/pair/s/:sid/status` | TV reports `ok, auth_failed, expired, unreachable, blocked`; the phone displays it |
+| `PUT/GET/DELETE /v1/backup/:lookupId` | Encrypted envelope (≤ 512 KB); `X-Write-Token` required for PUT and DELETE |
+| `POST /v1/telemetry` | Batched, schema-validated events (≤ 64 KB) |
+| `POST /v1/diag` | Scrubbed diagnostics report; returns a 6-character support code |
+
+**Retention:** pairing rows are deleted after 1 h (R2 objects after 24 h); backups after 180 days without an update; telemetry after 90 days. IP addresses are used for rate limiting only and never stored.
+
+### 3.3 Encryption and key scheme
+
+All primitives come from **tweetnacl** (X25519, XSalsa20-Poly1305, Ed25519) and **@noble/hashes** (SHA-256, HMAC, HKDF, scrypt). Both are pure JavaScript, so they work on Chromium 53 and on `file://`, where WebCrypto `subtle` may not be available. The phone page uses the same `packages/crypto`, and test vectors are shared between TV and web.
+
+**A. Pairing (end-to-end; the server only ever sees ciphertext)**
+1. The TV generates an ephemeral X25519 keypair `(tvPk, tvSk)`, held in memory only. It calls `POST /v1/pair {tvPk}`. The server stores `sha256(code)`, `tvPk` and `sha256(pollToken)`. The code is 8 Crockford base32 characters (about 40 bits), expires after 10 minutes, and is rate-limited per IP.
+2. The TV shows a QR code for `https://<domain>/p#c=<code>&k=<tvPk>`. The URL fragment is never sent to the server. It also shows the code in large text, so a family member elsewhere can type it at `<domain>/p`.
+3. The phone page (English and Arabic, RTL) offers three forms: Xtream (server, user, password), M3U URL, or M3U file. Each takes optional EPG URLs and a name. The page never contacts the provider.
+4. The phone runs `ct = nacl.box(JSON(payload), nonce, tvPk, phoneEphSk)` and posts `{phonePk, nonce, ct}`.
+   - **File uploads:** a random `fileKey` encrypts the file in 1 MB `secretbox` frames (nonce = base + counter), uploaded through the presigned PUT.
+   - **Decryption key:** `fileKey` and the object key travel inside the boxed payload.
+   - **On the TV:** it decrypts and parses frame by frame.
+5. The TV decrypts the payload, validates it against the provider directly, and posts only a status category back. The server deletes the payload once the TV reads it.
+
+**B. Backup (restores automatically after the webOS wipe, no user action needed)**
+```
+deviceSecret = DUID (Tizen) | LGUDID (webOS) | fallback: random 128-bit "Backup code" shown in Settings
+master     = scrypt(deviceSecret, salt="zoma.backup.v1|"+platform+"|"+appId, N=2^15, r=8, p=1, dkLen=32)
+             (derived once in a worker, a few seconds on 2018 TVs, then cached in IDB)
+lookupId   = b64url(HMAC-SHA256(master, "lookup"))
+writeToken = HMAC-SHA256(master, "write")          server stores sha256(writeToken) on first write
+encKey     = HKDF-SHA256(master, info="enc")       localKey = HKDF-SHA256(master, info="local")
+envelope   = {v:1, kdf:"scrypt-15-8-1", nonce:24B, ct: secretbox(gzip(profileJSON), nonce, encKey)}
+```
+- **Restore.** At startup, if IDB has no profile, derive `master`, GET the envelope, decrypt it, show "Welcome back", and re-ingest catalogs in the background.
+- **Upload.** 60 s after a change, at most once every 5 minutes, and whenever the app is hidden.
+- **Credentials on the TV** are encrypted with `localKey` and decrypted only when building a URL.
+- **Threat model, honestly stated.**
+  - **Protected:** a database leak, insiders, and any request for plaintext (we don't have it).
+  - **Not protected:** someone who has both our database and the physical TV's device ID.
+  - **Later hardening:** an optional user PIN mixed into the KDF.
+- **Settings.** The backup is on by default and disclosed during onboarding, with a toggle in Settings ("include login details" is a separate toggle).
+
+**C. Config signing**
+- **Keys.** An offline Ed25519 private key is kept in your password manager plus a paper backup. The app embeds two public keys so the key can be rotated.
+- **Signing.** `tools/sign-config` signs `config/config.json` and the result is committed to the repo, which gives an audit trail.
+- **Doc contents:**
+  - `minVersion` per platform
+  - `kill[]` rules, each with `{match:{platform, versions, countries}, mode: notice | block-new-sources | disable-playback | disable-app}`
+  - `blocklist:{salt, hashes[]}`
+  - feature flags and tunables (buffer seconds, watchdog thresholds, EPG windows, telemetry sampling)
+  - `issuedAt` and `expiresAt`
+- **Fetching.** The app fetches the config at launch without blocking (3 s timeout) and every 6 h. It verifies the signature, caches the result, and falls back to the cached copy if a fetch fails.
+- **Blocklist matching.**
+  - The client compares `sha256(salt + host)` against the host and each parent domain.
+  - It checks when a source is added, on refresh, and before playing. Both the API host and the final stream host after redirects are checked.
+  - The list never names domains publicly, and our server never learns which provider a user has.
+
+### 3.4 Telemetry
+
+- **Events:** `app_start` (tier, cold-start ms, catalog size bucket), `ingest_done` (kind, ms, size buckets), `play_result` (engine, container, ttffMs, error class and code), `stall` (recovered, attempts), `epg_match` (rate bucket), `capability` (model, firmware, Chromium version, spike-style feature probes), `crash` (scrubbed stack).
+- **Never collected:** URLs, hostnames, channel or VOD names, credentials, or IP addresses.
+- **Identity:** a random installId that changes after a wipe.
+- **Scrubbing:** the server drops fields not in the schema, and a URL/credential scrubber with tests acts as defense in depth.
+- **Control:** sampling per event via config; an opt-out toggle.
+- **Reporting:** saved SQL views to start with.
+
+---
+
+## 4. Build tooling and test strategy
+
+**Build pipeline** (`tools/build/build-tv.ts`):
+1. Build each worker as an IIFE with Rollup and Babel (`targets: {chrome:'53'}`, `useBuiltIns:'usage'`, core-js 3). Async/await becomes generators, which Chromium 53 runs natively.
+2. Run the syntax gate on the workers. It parses with acorn at `ecmaVersion: 2016` and fails on anything newer.
+3. Build the main IIFE. Workers are imported as strings and started from Blob URLs, which avoids the `file://` worker question. PostCSS runs `postcss-preset-env` (chrome 53) and `postcss-rtlcss`.
+4. Run the syntax gate on the main bundle. Check bundle budgets: main JS ≤ 500 KB minified, each worker ≤ 150 KB.
+5. Copy the platform files and package: `tizen package -t wgt -s <profile>` and `ares-package`.
+
+**Linting:** `eslint-plugin-compat` with browserslist `chrome 53`. The polyfill allowlist lives in CLAUDE.md.
+
+**Dev loops:**
+- **Desktop:** `pnpm dev` runs Vite with platform-browser and the mock provider.
+- **On the TV:** `pnpm tv:watch` rebuilds the IIFE on every change and serves it over the LAN. A dev-only loader in the installed app pulls it and live-reloads via EventSource, so there's no reinstall per change.
+- **Installed builds:** `pnpm device:install <alias>` wraps `sdb`/`tizen install` and `ares-install`. `ares-inspect` gives remote DevTools.
+- **LG Dev Mode** expires after about 50 h; the runbook covers extending it.
+
+**Chromium 53 cheat sheet for CLAUDE.md.** These are missing and must be avoided or polyfilled:
+- AbortController
+- `Object.values` and `Object.entries`
+- `padStart`
+- `Promise.finally`
+- `Array.flat`
+- `Object.fromEntries`
+- `globalThis` and `queueMicrotask`
+- `Intl.PluralRules`
+- `ResizeObserver`
+- `structuredClone`
+- `Blob.text()`
+- CSS Grid, flex `gap`, `position: sticky`, logical properties
+- `loading="lazy"`
+
+These are available: fetch with streams, TextDecoder, IntersectionObserver, IDB `getAll`, WebSocket/EventSource, CSS variables.
+
+**Test layers:**
+
+| Layer | Tool | Covers |
+|---|---|---|
+| core | Vitest (Node) | Golden tests and fast-check fuzzing for the M3U, Xtream, XMLTV and JSON splitter parsers; normalization; EPG matching; catch-up URLs; search ranking; Arabic plurals (6 forms) |
+| data | Vitest + fake-indexeddb | Migrations, generation swap, crash mid-ingest, pruning, favourites surviving a refresh |
+| player | Vitest + FakeEngine + fake timers | State machine, zapping races, watchdog ladder, error classifier |
+| focus/ui | Vitest + happy-dom + @testing-library/preact | Focus moves in LTR and RTL, virtual-list windows, EPG grid cursor |
+| crypto/backend | Vitest + Postgres in Docker | Shared vectors, rate limits, and a "no plaintext" test that searches every DB row and R2 object for the test password |
+| e2e | Playwright + mock provider | Full flows driven by remote keys; en/ar screenshots; 4x CPU-throttle smoke run; forced low-tier mode |
+| perf | Nightly Node benchmarks + on-device self-test | Parse throughput and memory against thresholds |
+
+**Remote navigation in a desktop browser:**
+- **Keyboard mapping (platform-browser):**
+  - Arrow keys move focus; Enter is OK; Backspace or Escape is Back.
+  - PageUp and PageDown are CH+ and CH−.
+  - Digits enter channel numbers; F1–F4 are the colour keys.
+  - Space is Play/Pause; `i` is Info; `g` is Guide.
+- **`?remote=1`** shows a clickable virtual remote.
+- **Playwright `RemoteDriver`** presses Intents and checks `window.__ZOMA_TEST__.focusPath()` (focus IDs from the engine, not the DOM). Viewport is 1920x1080.
+- **Magic Remote** is covered by mouse-hover tests.
+
+**Mock provider** (`apps/mock-provider`). It serves only legal open content and doubles as the store test account.
+- **Xtream API:**
+  - Every `player_api.php` action, plus `xmltv.php`, `get.php?type=m3u_plus`, `/live`, `/movie`, `/series` and `/timeshift`.
+  - Configurable `user_info` (Active, Expired, Banned, `max_connections`) and base64 short EPG.
+- **Media**, generated by ffmpeg scripts in Docker:
+  - `testsrc2`/`smptehdbars` channels with the channel name and clock burned in.
+  - Endless TS made by looping pre-encoded segments at real-time speed, plus sliding-window live HLS.
+  - Multi-audio (ara/eng/spa tones plus a 5.1 AC3 and E-AC3 track), HEVC 4K, MKV with embedded SRT (ara/eng), MP4 with mov_text.
+  - Blender open movies (Big Buck Bunny, Sintel, Tears of Steel, Elephants Dream; CC-BY) for VOD and series, with an attribution page.
+- **Fault injection** via YAML scenarios or query flags:
+  - 302 redirects and redirect chains; stalls after N seconds with the socket held open.
+  - HTTP 401/403/404/509; slow headers.
+  - Malformed M3U, BOM/CRLF, invalid UTF-8; gzip XMLTV; odd timezones.
+- **LAN log collector:** it receives self-test and spike results from the TVs as JSON that Claude sessions can read. Since Claude can't see the TV, this is how results get back to it.
+- **Public deployment** (small VPS, separate test domain, clearly labelled as a test-signal server) gives store testers working Xtream, M3U and EPG credentials with no activation limits. It is never shown or bundled in the app.
+
+**Scale fixtures** (`tools/fixtures`), deterministic and seeded:
+- **Catalog:** 200k items (20k live, 120k VOD, 60k episodes) as both M3U and Xtream JSON, with Arabic, English, French and Spanish names, duplicates and malformed lines.
+- **XMLTV:** 50, 150 and 300 MB, plus gzip versions (5k channels × 14 days).
+
+**On-device testing:**
+- **Self-test runner:** dev builds include one. It injects Intent sequences into the focus engine, runs playback checks against the mock provider, and posts results to the log collector. Playwright can't attach to Chromium 53 over CDP, so this is how repeatable on-device tests work.
+- **Release checklist:** a manual checklist per release covers data surviving an update, cold start, 200k ingest, 300 MB EPG, 50 rapid zaps, an 8 h live soak, 4K HEVC, multi-audio, subtitles, pulling the network cable for 30 s, provider auth failures, 50 Home/return cycles, Magic Remote, RTL screens and Voice Guide.
+
+| Tier | Samsung | LG |
+|---|---|---|
+| Minimum (must own) | 2018 Tizen 4.0, e.g. NU7100 | 2018 webOS 4.x low-end 1 GB, e.g. UK6300 |
+| Mid (borrow or later) | 2020 Tizen 5.5, e.g. TU7000 | 2020 webOS 5, e.g. UN7300 |
+| Current (must own) | 2023/24 Tizen 7/8 (DTS dropped) | 2023/24 webOS 23/24 (Back goes Home) |
+| Emulators | Tizen Studio TV emulator | webOS TV Emulator 4.x + Simulator 22–24 |
+
+Emulators are for syntax and API checks only, never media.
+
+---
+
+## 5. Hardware spikes (weeks 1–2; the four "must own" TVs are needed on day 1)
+
+All spikes run in a "Zoma Lab" build that posts results to the log collector. The results go into `docs/spikes/results.md` and ADRs.
+
+| # | Question | Pass criteria | If it fails |
+|---|---|---|---|
+| S0 | Can we sideload signed builds onto all 4 TVs with one command? | The hello app shows model, firmware and Chromium version on each TV | Blocker. Fix certificates and Dev Mode before anything else |
+| S1 | Does the runtime baseline work on Tizen 4 and webOS 4? (IIFE, polyfills, Preact, Blob worker, `response.body` streaming, TextDecoder, IDB bulk write) | All work | Blob worker fails: use a file worker. No streaming: 2 MB XHR range requests, or lazy per-category Xtream ingest on the low tier |
+| S2 | Does storage survive an app update (localStorage, IDB, DB8)? What's the webOS quota? | IDB survives on both; ≥ 200 MB writable | webOS IDB wiped: auto-restore becomes launch-blocking (already planned); DB8 becomes the local mirror if it survives. Re-verify after the first real store update, since a dev reinstall may differ |
+| S3 | Are the device IDs available and stable (DUID, LGUDID) across reinstalls? | Available and stable | Use the "Backup code" fallback, which the user photographs |
+| S4 | AVPlay battery (2018 and 2023 Samsung) | TS first frame < 2.5 s (< 4 s on 2018), HLS < 4 s. The 302 freeze reproduces without the probe and plays with it. 60 min endless TS: every stall recovered in < 10 s. 4K HEVC VOD plays on 2020+. AC3/E-AC3 5.1 plays. `setSelectTrack` audio switch < 2 s with no restart. Subtitle text callback fires. suspend/restore after Home < 5 s | Stalls not recoverable: shorter watchdog and proactive reconnect, tuned by remote config per model. Track switch broken on a model: per-model flag and honest UI |
+| S5 | webOS `<video>` battery (2018 and 2023 LG) | Same matrix, plus audio switch via `audioTracks` or luna `selectTrack`; 302 followed natively; MKV multi-audio | No working track API: ship "audio track not switchable on this TV" for those firmwares, and evaluate the MSE engine for HLS sources only |
+| S6 | Scale on the low-end webOS 4 TV | 200k M3U ingest ≤ 90 s with no crash. Key press to focus move < 200 ms during ingest. 150 MB gzipped XMLTV filtered ingest ≤ 4 min. Cached cold start to usable ≤ 3 s. Search ≤ 200 ms | Low tier gets: lazy VOD/series per category, 24 h + 2 day EPG window, no posters in lists. If it still fails, raise the LG minimum to 2019/2020 (product decision) |
+| S7 | Can packaged apps make cross-origin `http://` calls (no CORS headers, redirects, `responseURL`)? | Works on both | webOS: build the luna JS service relay (+2 sessions) |
+| S8 | Tizen `avplaystore` pre-buffering (investigational) | Two instances prepare at once; switching to the prepared one ≤ 700 ms on 2020+ | Drop pre-buffered zapping from the post-launch list |
+| S9 | Arabic text: bundled woff2 font shaping, bidi mixed names, `Intl` with `ar` | Correct rendering | Bundle fonts and own date/number formatters (already planned, so this only confirms) |
+| S10 | Input: registering number, CH, colour and media keys; PRE-CH; Magic Remote pointer; Back behaviour; native IME in Arabic | All behave | IME unusable: build our own on-screen keyboard (+2 sessions) |
+| S11 | Lifecycle and accessibility: screensaver control; Tizen Voice Guide reading focused `aria-label` on a US-region model | Works | Explicit TTS `speak()` through the adapter on focus change (+1 session before the US submission) |
+
+---
+
+## 6. Phased roadmap
+
+Effort is counted in Claude Code sessions. A session ends only when `pnpm verify` is green (lint, typecheck, tests, both builds, syntax gate, budgets), ROADMAP.md is updated, and there is evidence a non-coder can check: Playwright screenshots in `artifacts/`, a self-test JSON from the TV, or a short on-TV checklist. At 3–4 sessions a week plus your device testing, that is about 16 weeks to submission.
+
+| Phase | Goal | Sessions | Weeks | Exit criteria |
+|---|---|---|---|---|
+| 0 Foundations | Repo, CI, build pipeline | 2 | 1 | CI green; the hello app installs on all 4 TVs with one command each |
+| 1 Lab and spikes | Remove hardware unknowns | 4 | 1–2 | Every spike recorded per device; ADRs updated; plan adjusted |
+| 2 Mock provider and fixtures | Test bed and future store test account | 2 | 2 | `pnpm mock` covers every endpoint and fault; fixtures generate in < 2 min |
+| 3 Data engine | Ingest, store and query at scale | 5 | 3–4 | 200k on webOS 4 ≤ 90 s with no crash; search ≤ 200 ms; crash-mid-ingest test passes |
+| 4 UI shell | Focus, RTL, i18n, onboarding, live list | 5 | 4–5 | Playwright onboarding to live list in en and ar by keys only; smooth list on 2018 TVs |
+| 5 Player and live TV | Playback, zapping, recovery | 5 | 6–7 | 50 rapid zaps without a hang; 2 h soak with injected stalls recovers each in ≤ 10 s; launch to last channel ≤ 4 s on 2020+ |
+| 6 EPG | Ingest, now/next, grid guide | 4 | 8–9 | 7-day (full) / 3-day (low) grid on a 5k-channel fixture; ≤ 150 ms per key in the grid on 2018 |
+| 7 VOD, series, search | Browsing, resume, progress | 4 | 9–10 | Resume accurate to ±5 s; search ≤ 300 ms on 2018 with 200k items |
+| 8 Backend | Config, pairing, backup, telemetry | 5 | 10–11 | Phone adds a source with only ciphertext on the server (automated test); webOS reinstall restores automatically; kill-switch reaches the TV within one config refresh |
+| 9 Personalization | Favourites, groups, multiple sources, parental, diagnostics | 4 | 12 | Favourites survive a renamed and reordered refresh fixture; profile migration test passes |
+| 10 Hardening | Performance, soak, accessibility, localization, store docs | 5 | 13–14 | Release candidate passes the full device checklist; store docs complete |
+| 11 Beta and submission | Real users, then the stores | 2 + 4 buffer | 15–16+ | Listings approved; dashboards live |
+
+That totals about 47 sessions plus 4 held back for store QA feedback.
+
+**Session breakdown** (one line each, so ROADMAP.md can list them directly):
+- **Phase 0:**
+  - **0.1** Workspace, tsconfigs, boundary lint, Vitest, CLAUDE.md, ADR-001..006, GitHub Actions.
+  - **0.2** apps/tv hello screen, browser adapter, build-tv pipeline, syntax gate, `.wgt`/`.ipk` packaging, device scripts, LAN watch loader.
+- **Phase 1:**
+  - **1.1** ffmpeg media set, fault routes and log collector.
+  - **1.2** Lab screens for S1–S3, S6, S7 and S9–S11.
+  - **1.3** Lab player wrappers and the S4, S5 and S8 batteries.
+  - **1.4** You run the batteries on the TVs; Claude analyses the results and writes the ADRs.
+- **Phase 2:**
+  - **2.1** Full Xtream, M3U and XMLTV emulation with scenarios.
+  - **2.2** Fixture generators, Node benchmark harness, Dockerfile and deploy guide.
+- **Phase 3:**
+  - **3.1** Domain types, ContentKey, normalization, M3U parser.
+  - **3.2** Xtream client, JSON splitter, XMLTV tokenizer, catch-up builders.
+  - **3.3** IDB schema and migrations, RPC, query worker, search.
+  - **3.4** Ingest worker (stream, decode, parse, chunk, swap), throttling, conditional fetch.
+  - **3.5** EPG matcher, window and buckets, plus an on-device benchmark.
+- **Phase 4:**
+  - **4.1** Focus engine, intents, router, platform key, back and pointer handling.
+  - **4.2** Tokens, fonts, components, virtual list, RTL CSS, pseudo-locales.
+  - **4.3** i18n catalogs (en/ar), plurals, date and digit formatting, no-hard-coded-strings lint.
+  - **4.4** Onboarding: language, disclaimer, add source on the TV, validation, load progress.
+  - **4.5** Live browse screen, RemoteDriver e2e tests, CPU-throttled check.
+- **Phase 5:**
+  - **5.1** Controller and FakeEngine tests.
+  - **5.2** AvplayEngine and redirect probe.
+  - **5.3** Html5Engine and webOS track strategy.
+  - **5.4** Watchdog, retry ladder, error classifier and error UI.
+  - **5.5** Info bar, zapping, number entry, previous channel, track menu, start on last channel.
+- **Phase 6:**
+  - **6.1** EPG source management, refresh, now/next, short-EPG fallback.
+  - **6.2** Grid guide.
+  - **6.3** Programme details, manual matching, match diagnostics.
+  - **6.4** Low-tier tuning on the device.
+- **Phase 7:**
+  - **7.1** Movies: lazy images capped by tier, details, resume.
+  - **7.2** Series, progress, continue watching, next episode.
+  - **7.3** Global search.
+  - **7.4** Home screen and external subtitle renderer.
+- **Phase 8:**
+  - **8.1** Next.js, Prisma, Neon and R2 skeleton, protocol and crypto packages, Vercel deploy.
+  - **8.2** Signed config, `sign-config`, client enforcement and blocklist.
+  - **8.3** Pairing API, phone page (en/ar), TV QR screen, file relay.
+  - **8.4** Backup and auto-restore.
+  - **8.5** Telemetry, scrubber, crash handler, diagnostics code.
+- **Phase 9:**
+  - **9.1** Favourites lists, hide and reorder groups, channel numbers.
+  - **9.2** Multiple sources and merged favourites.
+  - **9.3** Parental PIN with adult groups hidden by default (keywords such as XXX, 18+, للكبار), and the full settings set.
+  - **9.4** Diagnostics screen, "Test stream" button, help, in-app legal pages.
+- **Phase 10:**
+  - **10.1** 2018-tier performance and memory pass.
+  - **10.2** 8 h soaks, network drops, update-in-place on both platforms.
+  - **10.3** Voice Guide/TTS and captions.
+  - **10.4** Arabic native review, store texts, test-pattern screenshots, LG UX scenario doc and self-checklist, Samsung tester notes, public test server with uptime monitoring.
+  - **10.5** Release engineering and the release checklist script.
+- **Phase 11:**
+  - **11.1** Closed beta of 10–30 users in GCC and North America.
+  - **11.2** Submissions: LG first; Samsung US through Public Seller.
+
+**Business and legal track (runs in parallel; you own it):**
+
+| When | Item |
+|---|---|
+| Week 0–1 | Pick the publishing company (needed for the Samsung Partner contract and to limit liability). Order the 4 TVs. Open Samsung Seller Office and **submit the Partner application on day 1** (GCC and Canada depend on it); use Public Seller for the US. Open an LG Seller Lounge account under the company. Run trademark clearance for "Zoma" (classes 9, 38, 41, 42) in the US, Canada, UAE and KSA. Register domains and handles |
+| Week 2–4 | Engage counsel (US plus one GCC jurisdiction). Draft ToS, privacy policy, in-app and store disclaimers, and a DMCA policy. **Register a DMCA agent** with the US Copyright Office (renews every 3 years). Write the court-order and blocklist runbook. Review privacy obligations under UAE and KSA PDPL, PIPEDA and Quebec Law 25, and check the encryption export self-classification |
+| Week 4–8 | File trademarks (US first; Madrid Protocol where available, national filings elsewhere, as counsel advises). Set up a support mailbox and help pages |
+| Week 6–12 | Store listing copy in en and ar, screenshots using test patterns only (no real channel logos), age-rating questionnaires |
+| Week 12–14 | Legal pages live on the domain and linked in the app. Test server live. Back up the Tizen author certificate and config signing key in two places (password manager plus offline) |
+| Week 15+ | Submissions. LG countries: US, AE, SA, KW, QA, BH, OM. Add Canada when fr-CA ships, to satisfy Quebec's French-language requirement. Samsung: US now; GCC and CA after Partner approval |
+
+---
+
+## 7. Post-launch roadmap
+
+| Release | Differentiator | Why it's feasible |
+|---|---|---|
+| v1.1 | Catch-up from the grid (Xtream `tv_archive`; M3U `catchup` modes) | URL builders are already in core from Phase 3; only the UI is left |
+| v1.1 | fr-CA and es-US; Canada listing | The catalogs already exist; this unblocks Quebec |
+| v1.1 | Live preview while browsing | AVPlay `setDisplayRect`, or resizing the single webOS `<video>` |
+| v1.2 | Pre-buffered zapping on Tizen | Only if S8 passes and `max_connections ≥ 2`; opt-in |
+| v1.2 | "Family helper": manage a parent's favourites, groups and settings from a phone anywhere | Reuses the end-to-end pairing channel; a strong fit for the older-user segment |
+| v1.2 | USB M3U import on Tizen | Filesystem API for removable storage |
+| v1.3 | Optional account with multi-TV sync | End-to-end, with a recovery key |
+| v1.3 | Premium tier via store IAP | `Entitlements.has(feature)` exists in core from day 1 and returns free-tier values in v1. Later: Samsung Checkout and LG IAP adapters plus a receipt-verification endpoint. Never put a paywall on basics |
+| v2 | Ports | VIDAA reuses the browser adapter (about 4 sessions). Android/Fire TV need a native player wrapper. Apple TV is native Swift reusing only the backend and protocol |
+
+**Not feasible:**
+- Multiview or picture-in-picture on webOS (only one `<video>` can play). Tizen-only is possible later as an experiment.
+- Recording or DVR (no large media writes, and legal exposure).
+- Pause or rewind of live TV without provider catch-up.
+- Custom User-Agent or Referer headers on streams.
+- RTMP and UDP multicast.
+- Playback speed other than 1.0x on webOS.
+- DTS on Samsung 2024+ (shown as a clear "this TV can't play this" message).
+- Background refresh while the app is closed.
+- Any server-side EPG, playlist or logo processing (it would fetch provider URLs).
+- Stalker portals.
+
+---
+
+## 8. Top risks and mitigations
+
+| Risk | Mitigation |
+|---|---|
+| Store rejects or removes the app, as has happened to IPTV players | No content or default lists; disclaimers; adult groups hidden behind a PIN; test-pattern screenshots; a working test server; LG submitted first; complete LG UX doc and checklist; no proxy SDKs; kill-switch and blocklist runbook ready |
+| Samsung Partner approval is slow (GCC and Canada) | Apply on day 1; launch LG GCC and Samsung US first |
+| webOS update wipes data | Cloud backup with auto-restore from v1; DB8 mirror if S2 passes; profile migrations and snapshots; first-update test via beta |
+| 2018 low-end TVs run out of memory or lag | Worker plus chunked IDB; ingest worker killed after use; tier gating; image caps (no server-side resizing is allowed, so caps are client-side); S6 thresholds as release gates; option to raise the LG minimum |
+| AVPlay stalls and 302 freezes | Watchdog, retry ladder and learned redirect probe, tuned per model by remote config; 8 h soak gate |
+| webOS audio-track switching unreliable | S5 picks the working API; per-language auto-preference; honest UI on firmware where it fails |
+| Legal action or court orders | Servers never fetch provider URLs or relay streams; end-to-end relay with short TTL; hashed blocklist and kill-switch; DMCA agent; company entity; counsel review; no piracy-flavoured marketing |
+| Loss of the Tizen author certificate or config signing key | Two backups, recorded in a runbook; two embedded config keys for rotation |
+| Code quality drifts across ~50 Claude sessions | CLAUDE.md rules, boundary lint, syntax and compat gates, `pnpm verify` as the definition of done, ADRs, one session per ROADMAP checkbox |
+| Model fragmentation | Capability telemetry, per-model flags, the device matrix, the self-test runner |
+| Provider connection limits or bans triggered by the app | Close before open; no speculative connections unless opted in; probe only until the redirect behaviour is learned; refresh TTLs and conditional fetch |
+| Clones and impersonation | Early trademark filings, consistent brand and domain, store takedown requests |
+| Arabic and RTL quality | Pseudo-locales in CI, en/ar screenshot tests, a native Arabic reviewer before submission |
+| Privacy law (GCC PDPL, Quebec) | Minimal anonymous telemetry, end-to-end backups, counsel review, fr-CA before the Canada listing |
+
+### Critical files for implementation (first to create)
+- d:\Claude Code PlayGround\IPTV\CLAUDE.md
+- d:\Claude Code PlayGround\IPTV\tools\build\build-tv.ts
+- d:\Claude Code PlayGround\IPTV\packages\player\src\engine.ts
+- d:\Claude Code PlayGround\IPTV\packages\data\src\idb\schema.ts
+- d:\Claude Code PlayGround\IPTV\packages\crypto\src\backup.ts

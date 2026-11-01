@@ -1,0 +1,18 @@
+node_modules/
+dist/
+build/
+out/
+coverage/
+artifacts/
+*.log
+.env
+.env.*
+!.env.example
+# signing material — never commit (back up offline, see docs/runbooks)
+*.p12
+*.pem
+author*.p12
+distributor*.p12
+.DS_Store
+.vscode/
+.idea/
