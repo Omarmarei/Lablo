@@ -94,3 +94,62 @@ jobs:
           path: artifacts/engines/report.json
           if-no-files-found: ignore
           retention-days: 14
+
+  # Legal media set and scale fixtures (RELAY step 4, docs/runbooks/mock-provider.md "Media"):
+  # ffmpeg generates the test channels and files, ffprobe validates what the mock serves, and the
+  # 200k catalog plus the 50/150/300 MB XMLTV must generate in under 2 minutes. Then the
+  # benchmark baselines, and the mock's Docker image is built and probed.
+  media:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Not preinstalled on the runner image; Ubuntu's build has libx264/libx265/drawtext.
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core
+          ffmpeg -hide_banner -version | head -n 1
+
+      # Assets are cached by a hash of their ffmpeg arguments, so a restored cache only
+      # re-encodes what changed.
+      - name: Cache the generated media
+        uses: actions/cache@v6
+        with:
+          path: .cache/media
+          key: media-${{ hashFiles('apps/mock-provider/src/media-plan.ts', 'apps/mock-provider/src/media-gen.ts', 'apps/mock-provider/fixtures/catalog.yaml') }}
+          restore-keys: media-
+
+      # pnpm fixtures (fails over 2 minutes) + pnpm test:media (ffprobe on everything served).
+      - run: pnpm verify:media
+
+      - name: Benchmark baselines
+        run: pnpm bench --iterations 2 --json artifacts/bench.json
+
+      - name: Build and probe the mock's Docker image
+        run: |
+          docker build -f apps/mock-provider/Dockerfile -t zoma-mock:ci .
+          docker run -d --name zoma-mock -p 18080:8080 zoma-mock:ci --no-lab-logs
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:18080/__mock/health && break; sleep 1; done
+          curl -fs http://127.0.0.1:18080/__mock/health | grep -q '"media":"files"'
+          ffprobe -v error -show_streams -of compact http://127.0.0.1:18080/live/zoma/zoma-test/104.ts | grep -c codec_type=audio | grep -qx 2
+          docker rm -f zoma-mock
+
+      - name: Upload the benchmark results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: bench
+          path: artifacts/bench.json
+          if-no-files-found: ignore
+          retention-days: 14

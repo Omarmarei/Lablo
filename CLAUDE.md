@@ -17,8 +17,13 @@ Zoma IPTV is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen 
 | `pnpm build:tv` | Both TV builds (`dist/tv/{tizen,webos}`): Rollup IIFE + Babel chrome 53 + core-js, inline Blob workers, ES2016 syntax gate, budgets (main ≤ 500 KB, worker ≤ 150 KB), platform-isolation check, webOS `.ipk` in `dist/packages`. `.wgt` only with the Tizen CLI + `TIZEN_SIGNING_PROFILE`. See [docs/runbooks/tv-build.md](docs/runbooks/tv-build.md). |
 | `pnpm e2e` | Playwright (Chromium, 1920x1080): the dev app by keyboard, and both built TV bundles from `file://`. Needs `pnpm build:tv` first. |
 | `pnpm device <devices|install|launch|inspect> <webos|tizen> [device]` | ares-* / tizen / sdb wrappers (`tools/device`). |
-| `pnpm mock [--port 8080] [--scenario <name>]` | Mock Xtream/M3U/XMLTV/catch-up provider on `0.0.0.0:8080` (`apps/mock-provider`): test accounts in every `user_info` state, YAML fault scenarios plus `?mock_fault=` per request, and the LAN log collector (`POST /__lab/logs/<session>` → `artifacts/lab-logs/`). Tests build it in-process with `buildServer()`. See [docs/runbooks/mock-provider.md](docs/runbooks/mock-provider.md). |
+| `pnpm mock [--port 8080] [--scenario <name>] [--catalog <json>] [--xmltv <file>]` | Mock Xtream/M3U/XMLTV/catch-up provider on `0.0.0.0:8080` (`apps/mock-provider`). It has test accounts in every `user_info` state, YAML fault scenarios plus `?mock_fault=` per request, and the LAN log collector (`POST /__lab/logs/<session>` → `artifacts/lab-logs/`). It serves the ffmpeg media from `.cache/media` when generated, placeholder bytes otherwise. Tests build it in-process with `buildServer()`. See [docs/runbooks/mock-provider.md](docs/runbooks/mock-provider.md). |
+| `pnpm mock:media` | Generates the legal media set with ffmpeg (needs ffmpeg on PATH) into `.cache/media`, cached by hash:<br>- live test channels: 60 s loops placed on the epoch timeline, with the name and clock burned in;<br>- multi-audio ara/eng/spa + AC3/E-AC3 5.1;<br>- 4K HEVC;<br>- SRT in MKV, mov_text in MP4. |
+| `pnpm mock:open-movies` | Opt-in: fetches the four Blender films (about 1.2 GB, pinned SHA-256). Never run in CI. Credits are at `GET /attribution`. |
+| `pnpm fixtures` | Deterministic scale fixtures in `.cache/fixtures`: a 200k catalog (M3U, Xtream JSON, mock `catalog.json`) and 50/150/300 MB XMLTV (+ gz). Fails if they take over 2 minutes. |
+| `pnpm bench [case…]` | Throughput and peak-memory benchmarks over the fixtures (`tools/bench`). Steps 5–9 add their parsers to `tools/bench/src/suites.ts`. |
 | `pnpm verify` | lint + typecheck + test + build:tv + e2e. CI job `verify` runs exactly this (after `playwright install --with-deps chromium`). |
+| `pnpm test:media` / `pnpm verify:media` | `test:media`: the ffprobe tests (`*.media.test.ts`, kept out of `pnpm test`). They check every live channel, HLS, catch-up and VOD file the mock serves, and that the mock serves the scale catalog. `verify:media` runs `pnpm fixtures`, then `test:media`. Needs ffmpeg. CI runs it as the separate `media` job, which also runs the benchmarks and builds and probes the mock's Docker image (`apps/mock-provider/Dockerfile`). |
 | `pnpm verify:engines [--self-test] [--engine chrome53]` | The built TV apps (needs `pnpm build:tv`) in real Chromium 53/56/68 snapshots under Docker: boot with no errors, Blob worker + IndexedDB in it, remote keys. `--self-test` also proves seeded ES2018/ES2020 syntax and a no-polyfill build are caught. Needs Docker (start Docker Desktop on Windows). **Not part of `pnpm verify`** (Docker + ~280 MB of downloads); CI runs it as the separate `engines` job, which must be green too. See [docs/runbooks/old-engines.md](docs/runbooks/old-engines.md). |
 
 ## Conventions
@@ -97,7 +102,10 @@ Deliberate change from architecture.md §1.1: `player` does **not** import `plat
 ## Definition of done
 
 A step or phase is done only when, in this order:
-1. **Tests and build:** `pnpm verify` is green (lint incl. boundaries, typecheck, tests, both TV builds with the ES2016 syntax gate and bundle budgets, Playwright smoke tests), and so is `pnpm verify:engines --self-test` (CI job `engines`; run it locally after changes to the build, polyfills, workers or boot code).
+1. **Tests and build:**
+   - `pnpm verify` is green: lint (incl. boundaries), typecheck, tests, both TV builds with the ES2016 syntax gate and bundle budgets, and the Playwright smoke tests.
+   - `pnpm verify:engines --self-test` is green (CI job `engines`). Run it locally after changes to the build, polyfills, workers or boot code.
+   - `pnpm verify:media` is green (CI job `media`). Run it locally after changes to the mock's media, streams or fixtures.
 2. **PR and CI:** a PR to `main` with green CI, merged with a merge commit (not squash).
 3. **Migrations:** N/A until the backend exists (RELAY step 29). After that, Neon production migrations are applied and the schema is checked with a query. Each one needs Omar's word.
 4. **Deploy:** backend production deploys (Vercel) need Omar's word and a live check afterwards. For the TV app, the "deploy" is a store submission (needs Omar); before that, check the change on a real TV once the test TVs exist.

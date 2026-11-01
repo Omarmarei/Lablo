@@ -6,10 +6,12 @@
   "description": "Fastify mock IPTV provider: Xtream player_api, m3u_plus, XMLTV, live/VOD/series/catch-up streams, YAML fault injection and the LAN log collector for TV lab runs. Imports nothing internal: it is an independent oracle for the parsers.",
   "scripts": {
     "start": "tsx src/main.ts",
+    "media": "tsx src/media-cli.ts generate",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "fastify": "^5.12.7",
+    "tsx": "^4.23.15",
     "yaml": "^2.9.1"
   },
   "devDependencies": {

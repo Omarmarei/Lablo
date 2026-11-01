@@ -1,6 +1,7 @@
-// Pluggable media behind the stream endpoints. Step 3 ships placeholder bytes with the right
-// shapes (MPEG-TS packets, ranged files, endless live); RELAY step 4 adds an ffmpeg-backed
-// source with real test channels and the Blender open movies behind the same interface.
+// Pluggable media behind the stream endpoints. PlaceholderMedia sends bytes with the right
+// shapes (MPEG-TS packets, ranged files, endless live) and nothing decodes; FileMedia
+// (file-media.ts) serves the ffmpeg test channels and files from `pnpm mock:media` and the
+// Blender open movies, and falls back to PlaceholderMedia for whatever it lacks.
 
 import { Readable } from 'node:stream';
 
@@ -33,6 +34,8 @@ export interface MediaFile {
 }
 
 export interface MediaSource {
+  /** `placeholder` or `files` (shown by /__mock/health). */
+  readonly kind: string;
   /** Live MPEG-TS for a channel; endless unless the source is configured otherwise. */
   liveTs(channelId: number): Readable;
   /** One live or archive HLS segment (MPEG-TS). */
@@ -73,6 +76,7 @@ export interface PlaceholderOptions {
 }
 
 export class PlaceholderMedia implements MediaSource {
+  readonly kind = 'placeholder';
   private readonly intervalMs: number;
   private readonly packetsPerChunk: number;
   private readonly limit: number | undefined;

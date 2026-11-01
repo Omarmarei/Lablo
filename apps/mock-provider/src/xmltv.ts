@@ -2,7 +2,9 @@
 // `/epg/guide.xml.gz`, the shape of a standalone EPG URL. The `timezone` fault changes how
 // start/stop offsets are written; `gzip` serves the panel endpoint compressed.
 
-import { gzipSync } from 'node:zlib';
+import { createReadStream } from 'node:fs';
+import type { Readable } from 'node:stream';
+import { createGunzip, createGzip, gzipSync } from 'node:zlib';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { epgWindow, programmes } from './epg';
 import { authorizeText } from './playlist';
@@ -54,14 +56,26 @@ export function buildXmltv(state: MockState, request: FastifyRequest): string {
   return out.join('\n');
 }
 
+/** A static XMLTV file (`--xmltv`), plain or gzipped on disk, as plain or gzip bytes. */
+function staticXmltv(path: string, gzip: boolean): Readable {
+  const onDisk = path.toLowerCase().endsWith('.gz');
+  const file = createReadStream(path);
+  if (onDisk === gzip) return file;
+  return file.pipe(gzip ? createGzip() : createGunzip());
+}
+
 export function registerXmltv(app: FastifyInstance, state: MockState): void {
+  const xml = (request: FastifyRequest): string | Readable =>
+    state.xmltvFile ? staticXmltv(state.xmltvFile, false) : buildXmltv(state, request);
   app.get('/xmltv.php', async (request, reply) => {
     const account = authorizeText(state, request, reply);
     if (!account) return reply;
-    return reply.type('application/xml; charset=utf-8').send(buildXmltv(state, request));
+    return reply.type('application/xml; charset=utf-8').send(xml(request));
   });
-  app.get('/epg/guide.xml', async (request, reply) => reply.type('application/xml; charset=utf-8').send(buildXmltv(state, request)));
+  app.get('/epg/guide.xml', async (request, reply) => reply.type('application/xml; charset=utf-8').send(xml(request)));
   app.get('/epg/guide.xml.gz', async (request, reply) =>
-    reply.type('application/gzip').send(gzipSync(Buffer.from(buildXmltv(state, request), 'utf8'))),
+    reply
+      .type('application/gzip')
+      .send(state.xmltvFile ? staticXmltv(state.xmltvFile, true) : gzipSync(Buffer.from(buildXmltv(state, request), 'utf8'))),
   );
 }

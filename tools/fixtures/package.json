@@ -1,0 +1,13 @@
+{
+  "name": "@zoma/tools-fixtures",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic scale fixtures: a 200k-item catalog (M3U, Xtream JSON, mock catalog JSON) and 50/150/300 MB XMLTV (+gz) for parser tests and benchmarks.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5"
+  }
+}

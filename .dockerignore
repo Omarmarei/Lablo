@@ -1,0 +1,12 @@
+# Docker build context for apps/mock-provider/Dockerfile (the repo root). The engines image
+# (tools/engines) builds from its own folder and is not affected.
+**/node_modules
+dist
+.cache
+artifacts
+.git
+**/*.log
+.env
+.env.*
+*.p12
+*.pem
