@@ -47,7 +47,11 @@ UI steps also end with a short "press these keys" checklist that Omar can run in
   - Packaging: `.ipk` via `@webos-tools/cli`; `.wgt` via the Tizen CLI if installed, otherwise document it.
   - `tools/device` install/launch wrappers; `pnpm dev` desktop loop.
   - **Done when:** `pnpm build:tv` passes the gate for both platforms, the `.ipk` is produced, and the desktop hello app passes a Playwright smoke test.
-- [ ] 2b. **Old-engine test harness (the main substitute for missing TVs).**
+- [x] 2b. **Old-engine test harness (the main substitute for missing TVs).** Done in leg 3, commit `e632376`. `pnpm verify:engines [--self-test]` (`tools/engines`, runbook docs/runbooks/old-engines.md).
+  - Pinned snapshots 403380 (53.0.2785), 433042 (56.0.2924) and 561732 (68.0.3440; the suggested 550428 is M67).
+  - The engines run headed under Xvfb in a **Debian 9** container (on Debian 12, Chromium 53/56 segfault on a HarfBuzz ABI clash) and are driven over raw CDP.
+  - Self-test: the ES2018 seed fails on 53/56 and passes on 68; the ES2020 seed and the no-polyfills build fail on all three; the real app passes on all. CI job `engines`, separate from `verify`.
+  - **Finding for S1:** IndexedDB in a Blob worker on `file://` is denied on desktop 53–68 without file access. The harness runs with `--allow-file-access-from-files` (as the TV runtimes do); S1 must confirm on the TVs.
   - Script that fetches Chromium snapshot builds matching the TV engines (Chromium 53 = webOS 4, 56 = Tizen 4, 68/69 = 2020 sets), e.g. from `chromium-browser-snapshots`.
   - Run the built TV bundle headless in each, through an old-protocol driver (a matching old Puppeteer or chromedriver). Assert boot with no syntax or runtime errors, a remote-key navigation smoke test, and IDB plus Web Worker sanity.
   - Wire it into CI (Linux snapshots) as part of `pnpm verify:engines`.
@@ -191,3 +195,4 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 | 0 (planning) | 2026-11-01 | setup | RELAY.md written; private repo Omarmarei/zoma-iptv created, main pushed; Omar: auto-merge on green CI, only an LG TV (2b + 15/16 adapted) | 2e82349 |
 | 1 | 2026-11-01 | 1 | Workspace scaffold: 10 packages, boundary lint + 29-case ESLint API test, CLAUDE.md, ADR-001..008, CI green on PR #1 | 2415c0e |
 | 2 | 2026-11-01 | 2 | build:tv (Rollup IIFE, Babel chrome 53, core-js, Blob workers, ES2016 gate, budgets, isolation check), .ipk via ares-package, platform adapters, Preact hello app, pnpm dev/device, Playwright smoke; verify + CI extended | 18d2b3a |
+| 3 | 2026-11-02 | 2b | Old-engine harness: Chromium 53/56/68 snapshots in Debian 9 Docker over raw CDP; boot, Blob worker + IDB, keys; self-test catches ES2018/ES2020 seeds and no-polyfills; CI job `engines`; S1 finding (Blob-worker IDB on file://) | e632376 |
