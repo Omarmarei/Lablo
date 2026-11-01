@@ -58,7 +58,9 @@ UI steps also end with a short "press these keys" checklist that Omar can run in
   - **Done when:** CI fails on a seeded ES2018 feature and on a seeded missing polyfill, and passes on the hello app in all engines.
 
 ### Phase 2: Mock provider and fixtures (hardware-independent, done before the lab work)
-- [ ] 3. **`apps/mock-provider` (2.1).**
+- [x] 3. **`apps/mock-provider` (2.1).** Done in leg 4, commit `8977442`. `pnpm mock` (runbook docs/runbooks/mock-provider.md). 149 tests; the endpoint test fails if a registered route has no probe, and the fault table is a `Record<FaultType, …>`.
+  - Beyond the list: M3U catch-up in every mode (`xc`/`default`/`append`/`shift`/`flussonic`) served with `X-Mock-Archive-*` oracle headers, `json-quirks`/`timezone`/`truncate`/`reset`/`no-cors` faults, `max_connections` counted from open streams, an account with special characters for percent-encoding, runtime scenario switch (`PUT /__mock/scenario`).
+  - Media is placeholder bytes behind a `MediaSource` interface (`src/media.ts`); step 4 plugs in the ffmpeg channels and open movies.
   - Fastify.
   - Xtream `player_api.php` (every action), `get.php` m3u_plus, `xmltv.php`, `/live` `/movie` `/series` `/timeshift`.
   - `user_info` states (Active/Expired/Banned/max_connections), base64 short EPG.
@@ -196,3 +198,4 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 | 1 | 2026-11-01 | 1 | Workspace scaffold: 10 packages, boundary lint + 29-case ESLint API test, CLAUDE.md, ADR-001..008, CI green on PR #1 | 2415c0e |
 | 2 | 2026-11-01 | 2 | build:tv (Rollup IIFE, Babel chrome 53, core-js, Blob workers, ES2016 gate, budgets, isolation check), .ipk via ares-package, platform adapters, Preact hello app, pnpm dev/device, Playwright smoke; verify + CI extended | 18d2b3a |
 | 3 | 2026-11-02 | 2b | Old-engine harness: Chromium 53/56/68 snapshots in Debian 9 Docker over raw CDP; boot, Blob worker + IDB, keys; self-test catches ES2018/ES2020 seeds and no-polyfills; CI job `engines`; S1 finding (Blob-worker IDB on file://) | e632376 |
+| 4 | 2026-11-02 | 3 | Mock provider: Xtream player_api (all actions, user_info states), m3u_plus, XMLTV(.gz), live TS/HLS, VOD ranges, catch-up in all Xtream/M3U modes, 14 fault types (YAML scenarios + `?mock_fault=`), LAN log collector, `pnpm mock`; 149 tests | 8977442 |
