@@ -1,0 +1,66 @@
+# Mock provider settings and TEST accounts. These credentials exist only here (CLAUDE.md legal
+# guardrails: test credentials live in the mock provider's fixtures, nowhere else).
+#
+# exp_days: days from today (UTC) to the expiry date; omit for "never expires" (exp_date null).
+# active_cons: connections "from other devices", added to the streams this server holds open.
+# over_limit_status: HTTP status for a stream once max_connections is reached (default 403).
+
+server:
+  timezone: UTC
+  https_port: 8443
+  rtmp_port: 8880
+  epg_future_days: 3
+
+accounts:
+  - username: zoma
+    password: zoma-test
+    status: Active
+    exp_days: 365
+    max_connections: 2
+    message: Welcome to the Zoma test server
+
+  - username: trial
+    password: trial-test
+    status: Active
+    is_trial: true
+    exp_days: 2
+    max_connections: 1
+
+  - username: forever
+    password: forever-test
+    status: Active
+    max_connections: 4
+
+  - username: expired
+    password: expired-test
+    status: Expired
+    exp_days: -3
+    max_connections: 1
+
+  - username: banned
+    password: banned-test
+    status: Banned
+    exp_days: 100
+    max_connections: 1
+
+  - username: disabled
+    password: disabled-test
+    status: Disabled
+    exp_days: 100
+    max_connections: 1
+
+  # Already at its limit from "another device": every stream is refused with 509.
+  - username: maxed
+    password: maxed-test
+    status: Active
+    exp_days: 30
+    max_connections: 1
+    active_cons: 1
+    over_limit_status: 509
+
+  # Characters a client must percent-encode in paths and queries: + @ / & ? # space and non-ASCII.
+  - username: "special+user@zoma.test"
+    password: "p@ss/w0rd&?# é"
+    status: Active
+    exp_days: 365
+    max_connections: 2

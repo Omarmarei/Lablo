@@ -1,0 +1,8 @@
+description: A panel in Asia/Kathmandu (UTC+05:45) whose XMLTV times carry no offset at all.
+rules:
+  - match:
+      path: '**'
+    faults:
+      - type: timezone
+        tz: Asia/Kathmandu
+        xmltv: none

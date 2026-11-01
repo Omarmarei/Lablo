@@ -1,0 +1,9 @@
+description: get.php returns a malformed M3U with a BOM, CRLF line endings and invalid UTF-8.
+rules:
+  - match:
+      path: /get.php
+    faults:
+      - type: malformed-m3u
+      - type: invalid-utf8
+      - type: crlf
+      - type: bom

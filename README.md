@@ -2,13 +2,13 @@
 
 A content-free IPTV player for Samsung Tizen and LG webOS TVs. Users bring their own M3U playlist or Xtream login; Zoma ships no channels and its servers never touch provider links. Arabic (RTL) and English from day one.
 
-**Status:** pre-alpha. The workspace scaffold, the TV build pipeline and a hello app exist; the data engine, player and UI are being built step by step (see [RELAY.md](RELAY.md)).
+**Status:** pre-alpha. The workspace scaffold, the TV build pipeline, a hello app and the mock provider exist; the data engine, player and UI are being built step by step (see [RELAY.md](RELAY.md)).
 
 ## Layout
 
 ```
 packages/  core, protocol, crypto, data, player, ui, platform-api, platform-{tizen,webos,browser}
-apps/      tv (hello app); web, mock-provider come later
+apps/      tv (hello app), mock-provider (pnpm mock); web comes later
 tools/     build (pnpm build:tv), device (pnpm device), engines (pnpm verify:engines); fixtures, sign-config come later
 platforms/ tizen/config.xml, webos/appinfo.json, icons
 e2e/       Playwright smoke tests
@@ -26,9 +26,10 @@ pnpm dev         # desktop loop: the TV app in a browser, keyboard = remote
 pnpm build:tv    # Tizen + webOS bundles, ES2016 syntax gate, budgets, .ipk
 pnpm verify      # lint + typecheck + tests + build:tv + e2e, same as CI
 pnpm verify:engines --self-test   # built apps in Chromium 53/56/68 (Docker); CI job "engines"
+pnpm mock        # mock Xtream/M3U/XMLTV provider with fault injection, on :8080
 ```
 
-Packaging and device commands: [docs/runbooks/tv-build.md](docs/runbooks/tv-build.md).
+Packaging and device commands: [docs/runbooks/tv-build.md](docs/runbooks/tv-build.md). Mock provider, test accounts and faults: [docs/runbooks/mock-provider.md](docs/runbooks/mock-provider.md).
 
 ## Docs
 

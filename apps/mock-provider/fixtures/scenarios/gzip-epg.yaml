@@ -1,0 +1,12 @@
+description: xmltv.php is served gzip-encoded (Content-Encoding) and get.php as a raw .gz body.
+rules:
+  - match:
+      path: /xmltv.php
+    faults:
+      - type: gzip
+        mode: encoding
+  - match:
+      path: /get.php
+    faults:
+      - type: gzip
+        mode: raw

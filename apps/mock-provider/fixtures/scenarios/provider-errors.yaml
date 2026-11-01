@@ -1,0 +1,14 @@
+description: Per-channel HTTP errors (101 401, 102 403, 103 404, 104 509), a truncated playlist and quirky JSON types.
+rules:
+  - match: { path: /live/**, stream_id: 101 }
+    faults: [{ type: status, status: 401 }]
+  - match: { path: /live/**, stream_id: 102 }
+    faults: [{ type: status, status: 403 }]
+  - match: { path: /live/**, stream_id: 103 }
+    faults: [{ type: status, status: 404 }]
+  - match: { path: /live/**, stream_id: 104 }
+    faults: [{ type: status, status: 509 }]
+  - match: { path: /get.php }
+    faults: [{ type: truncate, fraction: 0.6 }]
+  - match: { path: /player_api.php }
+    faults: [{ type: json-quirks }]
