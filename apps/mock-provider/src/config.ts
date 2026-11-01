@@ -45,6 +45,18 @@ export interface ServerFixture {
 export const CATCHUP_MODES = ['xc', 'default', 'append', 'shift', 'flussonic'] as const;
 export type CatchupMode = (typeof CATCHUP_MODES)[number];
 
+/** Test-channel looks (media-plan.ts). `clock` is the default. */
+export const LIVE_MEDIA_PROFILES = ['clock', 'bars', 'bilingual', 'hd', 'fhd', 'radio'] as const;
+export type LiveMediaProfile = (typeof LIVE_MEDIA_PROFILES)[number];
+
+/** The Blender open movies that `pnpm mock:open-movies` can fetch (open-movies.ts). */
+export const OPEN_MOVIE_KEYS = ['big-buck-bunny', 'sintel', 'tears-of-steel', 'elephants-dream'] as const;
+export type OpenMovieKey = (typeof OPEN_MOVIE_KEYS)[number];
+
+/** VOD and episode media (media-plan.ts). `vod` is the default. */
+export const FILE_MEDIA_PROFILES = ['vod', 'hevc-4k', 'multi-audio', ...OPEN_MOVIE_KEYS.map((k) => `open-movie:${k}` as const)] as const;
+export type FileMediaProfile = (typeof FILE_MEDIA_PROFILES)[number];
+
 export interface Category {
   id: number;
   name: string;
@@ -67,6 +79,7 @@ export interface LiveChannel {
   radio: boolean;
   adult: boolean;
   addedDaysAgo: number;
+  media: LiveMediaProfile;
 }
 
 export interface Movie {
@@ -81,6 +94,7 @@ export interface Movie {
   genre: string;
   plot: string;
   addedDaysAgo: number;
+  media: FileMediaProfile;
 }
 
 export interface Episode {
@@ -90,6 +104,7 @@ export interface Episode {
   ext: string;
   durationSecs: number;
   plot: string;
+  media: FileMediaProfile;
 }
 
 export interface Season {
@@ -267,10 +282,10 @@ export function parseServerFixture(value: unknown, where = 'server.yaml'): Serve
 }
 
 const ACCOUNT_KEYS = ['username', 'password', 'status', 'exp_days', 'created_days_ago', 'is_trial', 'max_connections', 'active_cons', 'over_limit_status', 'message'];
-const LIVE_KEYS = ['id', 'num', 'name', 'category', 'epg_id', 'xmltv_id', 'logo', 'archive_days', 'catchup', 'radio', 'adult', 'added_days_ago'];
-const MOVIE_KEYS = ['id', 'num', 'name', 'category', 'ext', 'year', 'duration_secs', 'rating', 'genre', 'plot', 'added_days_ago'];
+const LIVE_KEYS = ['id', 'num', 'name', 'category', 'epg_id', 'xmltv_id', 'logo', 'archive_days', 'catchup', 'radio', 'adult', 'added_days_ago', 'media'];
+const MOVIE_KEYS = ['id', 'num', 'name', 'category', 'ext', 'year', 'duration_secs', 'rating', 'genre', 'plot', 'added_days_ago', 'media'];
 const SERIES_KEYS = ['id', 'num', 'name', 'category', 'year', 'rating', 'genre', 'plot', 'added_days_ago', 'seasons'];
-const EPISODE_KEYS = ['id', 'episode_num', 'title', 'ext', 'duration_secs', 'plot'];
+const EPISODE_KEYS = ['id', 'episode_num', 'title', 'ext', 'duration_secs', 'plot', 'media'];
 
 function categories(root: Fields, key: string): Category[] {
   return root.list(key).map((f) => {
@@ -313,6 +328,7 @@ export function parseCatalog(value: unknown, where = 'catalog.yaml'): Catalog {
       radio: c.bool('radio', false),
       adult: c.bool('adult', false),
       addedDaysAgo: c.int('added_days_ago', 30),
+      media: c.oneOf('media', LIVE_MEDIA_PROFILES, c.bool('radio', false) ? 'radio' : 'clock'),
     };
   });
 
@@ -328,6 +344,7 @@ export function parseCatalog(value: unknown, where = 'catalog.yaml'): Catalog {
     genre: m.str('genre', ''),
     plot: m.str('plot', ''),
     addedDaysAgo: m.int('added_days_ago', 10),
+    media: m.oneOf('media', FILE_MEDIA_PROFILES, 'vod'),
   }));
 
   const series = root.list('series').map((s, i): Series => ({
@@ -353,6 +370,7 @@ export function parseCatalog(value: unknown, where = 'catalog.yaml'): Catalog {
         ext: e.str('ext', 'mp4'),
         durationSecs: e.int('duration_secs', undefined, 1),
         plot: e.str('plot', ''),
+        media: e.oneOf('media', FILE_MEDIA_PROFILES, 'vod'),
       })),
       };
     }),
@@ -367,6 +385,20 @@ export function loadServerFixture(dir = DEFAULT_FIXTURES_DIR): ServerFixture {
 }
 
 export function loadCatalog(dir = DEFAULT_FIXTURES_DIR): Catalog {
-  const path = join(dir, 'catalog.yaml');
-  return parseCatalog(readYaml(path), path);
+  return loadCatalogFile(join(dir, 'catalog.yaml'));
+}
+
+/**
+ * A catalog file: YAML, or JSON with the same snake_case shape. JSON is the fast path for the
+ * 200k-item scale catalogs from `pnpm fixtures` (YAML parsing is far too slow at that size).
+ */
+export function loadCatalogFile(path: string): Catalog {
+  if (!path.toLowerCase().endsWith('.json')) return parseCatalog(readYaml(path), path);
+  let value: unknown;
+  try {
+    value = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (error) {
+    throw new FixtureError(`${path}: ${(error as Error).message}`);
+  }
+  return parseCatalog(value, path);
 }

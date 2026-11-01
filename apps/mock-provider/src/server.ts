@@ -27,6 +27,7 @@ import {
   transformBody,
 } from './faults';
 import { DEFAULT_LAB_LOG_DIR, registerLabLogs } from './lab-logs';
+import { attributionHtml } from './open-movies';
 import type { MediaSource } from './media';
 import { PlaceholderMedia } from './media';
 import { registerPlaylist } from './playlist';
@@ -47,6 +48,8 @@ export interface MockServerOptions {
   /** Clock in epoch ms (tests pin it). */
   now?: () => number;
   media?: MediaSource;
+  /** Serve this XMLTV file (.xml or .xml.gz) instead of the generated guide (scale fixtures). */
+  xmltvFile?: string;
   /** Lab log folder; `null` disables the collector (e.g. on a public server). */
   labLogDir?: string | null;
   /** Print one line per request. */
@@ -93,6 +96,7 @@ export async function buildServer(options: MockServerOptions = {}): Promise<Mock
     scenario,
     scenariosDir,
     connections: new ConnectionTracker(),
+    xmltvFile: options.xmltvFile ?? null,
   };
 
   const app = Fastify({
@@ -249,7 +253,16 @@ export async function buildServer(options: MockServerOptions = {}): Promise<Mock
     return reply.code(chain.status).header('location', location).send();
   });
 
-  app.get('/__mock/health', async () => ({ ok: true, scenario: state.scenario?.name ?? null, now: new Date(state.now()).toISOString() }));
+  app.get('/__mock/health', async () => ({
+    ok: true,
+    scenario: state.scenario?.name ?? null,
+    now: new Date(state.now()).toISOString(),
+    media: state.media.kind,
+    catalog: { live: state.catalog.live.length, movies: state.catalog.movies.length, series: state.catalog.series.length },
+  }));
+
+  // Credits for the Blender open movies (CC BY) and a note on the generated test media.
+  app.get('/attribution', async (_request, reply) => reply.type('text/html; charset=utf-8').send(attributionHtml()));
 
   app.get('/__mock/scenarios', async () => ({ active: state.scenario?.name ?? null, available: listScenarios(state.scenariosDir) }));
 
@@ -283,6 +296,7 @@ export async function buildServer(options: MockServerOptions = {}): Promise<Mock
         `XMLTV:    ${base}/xmltv.php?username=U&password=P   (also ${base}/epg/guide.xml[.gz])`,
         `Faults:   ?mock_fault=status:509 | redirect:hops=3 | stall:after_bytes=4096 | ...   scenario: ${state.scenario?.name ?? 'none'}`,
         `Lab logs: POST ${base}/__lab/logs/<session>   GET ${base}/__lab/logs`,
+        `Media:    ${state.media.kind}   Credits: ${base}/attribution`,
         '',
         'Test accounts (fixtures/server.yaml):',
         ...accounts,

@@ -41,6 +41,8 @@ export interface MockState {
   scenario: Scenario | null;
   scenariosDir: string;
   connections: ConnectionTracker;
+  /** A static XMLTV file served instead of the generated guide, or null. */
+  xmltvFile: string | null;
 }
 
 export interface RequestMock {

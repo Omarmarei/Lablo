@@ -78,6 +78,8 @@ export default defineConfig(
       '**/out/**',
       '**/coverage/**',
       '**/artifacts/**',
+      // Generated media and fixtures (MPEG-TS segments end in .ts too).
+      '.cache/**',
     ],
   },
   js.configs.recommended,

@@ -12,13 +12,19 @@
     "build:tv": "tsx tools/build/build-tv.ts",
     "device": "tsx tools/device/device.ts",
     "mock": "tsx apps/mock-provider/src/main.ts",
+    "mock:media": "tsx apps/mock-provider/src/media-cli.ts generate",
+    "mock:open-movies": "tsx apps/mock-provider/src/media-cli.ts open-movies",
+    "fixtures": "tsx tools/fixtures/fixtures.ts",
+    "bench": "node --expose-gc --import tsx tools/bench/bench.ts",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r --parallel run typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:media": "vitest run -c vitest.media.config.ts",
     "e2e": "playwright test",
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build:tv && pnpm e2e",
-    "verify:engines": "tsx tools/engines/verify-engines.ts"
+    "verify:engines": "tsx tools/engines/verify-engines.ts",
+    "verify:media": "pnpm fixtures && pnpm test:media"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
