@@ -75,6 +75,9 @@ importers:
       '@zoma/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@zoma/data':
+        specifier: workspace:*
+        version: link:../../packages/data
       '@zoma/platform-api':
         specifier: workspace:*
         version: link:../../packages/platform-api

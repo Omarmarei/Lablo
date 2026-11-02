@@ -1,11 +1,24 @@
+import type { ReadonlySignal } from '@preact/signals';
 import { useSignal } from '@preact/signals';
 import type { DeviceInfo, Intent, LifecycleEvent, Platform } from '@zoma/platform-api';
 import { useEffect } from 'preact/hooks';
+import { DataPanel } from './DataPanel';
+import type { DataEngine } from './data/engine';
+import type { DebugParams } from './data/params';
 import { pingHelloWorker } from './hello-worker';
+
+/** The data workers and the catalog debug parameters (RELAY step 8b). */
+export interface AppData {
+  readonly engine: DataEngine;
+  readonly params: DebugParams;
+  /** True while remote keys are being pressed (a running refresh is paused). */
+  readonly busy: ReadonlySignal<boolean>;
+}
 
 interface Props {
   readonly platform: Platform;
   readonly keyHelp: ReadonlyArray<readonly [string, string]>;
+  readonly data: AppData;
 }
 
 const INFO_ROWS: ReadonlyArray<readonly [keyof DeviceInfo, string]> = [
@@ -31,9 +44,10 @@ function message(error: unknown): string {
 
 /**
  * The hello screen (relay step 2): device facts, the worker round trip and the last remote
- * key as an Intent. Back exits the app the platform's way.
+ * key as an Intent. Back exits the app the platform's way. Step 8b added the catalog panel
+ * (the data workers); the onboarding and browse screens (steps 13 and 14) replace it.
  */
-export function App({ platform, keyHelp }: Props) {
+export function App({ platform, keyHelp, data }: Props) {
   const info = useSignal<DeviceInfo | null>(null);
   const infoError = useSignal<string | null>(null);
   const worker = useSignal('starting…');
@@ -43,6 +57,11 @@ export function App({ platform, keyHelp }: Props) {
   const lifecycle = useSignal<LifecycleEvent | 'started'>('started');
   const exitRequested = useSignal(false);
   const startedAt = useSignal(clock(new Date()));
+  const lowTier = (): Promise<boolean> =>
+    platform.info().then(
+      (value) => value.tier === 'low',
+      () => false,
+    );
 
   useEffect(() => {
     platform.info().then(
@@ -69,6 +88,8 @@ export function App({ platform, keyHelp }: Props) {
       const intent = platform.keyToIntent(event);
       if (intent === null) return;
       event.preventDefault();
+      // Pauses a running catalog refresh until the keys are idle (architecture.md §1.4).
+      data.engine.noteActivity();
       lastIntent.value = intent;
       keyCount.value += 1;
       if (intent === 'BACK') {
@@ -84,7 +105,7 @@ export function App({ platform, keyHelp }: Props) {
       window.removeEventListener('keydown', onKey);
       stopLifecycle();
     };
-  }, [platform]);
+  }, [platform, data]);
 
   const device = info.value;
   return (
@@ -143,6 +164,8 @@ export function App({ platform, keyHelp }: Props) {
             </tbody>
           </table>
         </section>
+
+        <DataPanel engine={data.engine} params={data.params} lowTier={lowTier} busy={data.busy} />
       </div>
     </main>
   );

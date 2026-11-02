@@ -61,9 +61,11 @@ describe('bundleIife (Rollup IIFE + Babel chrome 53 + core-js)', () => {
 
   it('injects no polyfills for the ES2019+ APIs nothing can call, and still the ones that are needed', async () => {
     const result = await bundleIife({ input: fixture('collections.ts'), platform: 'webos' });
-    expect((runWithoutModernApis(result.code) as { run(): string }).run()).toBe('n3,n1,n2|3,2|007');
-    // Method names the excluded core-js modules define (terser keeps property names).
-    for (const name of ['toBase64', 'setFromHex', 'getOrInsert', 'symmetricDifference', 'isDisjointFrom', 'toSorted', 'transferToFixedLength']) {
+    expect((runWithoutModernApis(result.code) as { run(): string }).run()).toBe('n3,n1,n2|3,2|007|7');
+    // Method names the excluded core-js modules define (terser keeps property names), and the
+    // error text of the JSON.parse source-text polyfill (`esnext.json.parse` → `es.json.parse`).
+    const excluded = ['toBase64', 'setFromHex', 'getOrInsert', 'symmetricDifference', 'isDisjointFrom', 'toSorted', 'transferToFixedLength'];
+    for (const name of [...excluded, 'after the parsed data at']) {
       expect(result.code).not.toContain(name);
     }
     expect(result.code).toContain('padStart');

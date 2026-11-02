@@ -176,6 +176,13 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
         - `test/ingest-mock.test.ts`: favourites survive a mock refresh where every Xtream id moved by 1000, including a same-name, same-tvg-id twin in another group;
         - `test/ingest-worker-bundle.test.ts`: the bundled worker (128.8 KB) ingests from the mock with the ES2017 APIs and DecompressionStream removed;
         - `test/ingest-200k.media.test.ts`: the 200k playlist.
+    - **Wired into the app in step 8b** (`apps/tv/src/data`):
+      - `DataEngine` (`engine.ts`) starts the query worker once. At app start a short-lived ingest worker runs `prune`; each refresh gets a fresh ingest worker, terminated when the refresh ends. A refresh first waits for the start-up prune, because a prune abandons any generation being built next to it, and only one refresh runs at a time.
+      - On `swapped`, the query worker `reload`s before the refresh resolves, so the next read sees the new catalog.
+      - Remote keys call `noteActivity()`: `setBusy(true)` once per burst of keys and `setBusy(false)` 1 s after the last one. A refresh that starts mid-burst is told at once. Sending busy only once per burst keeps the worker's 15 s expiry meaningful, so endless key presses can't starve a refresh.
+      - The workers come from `@zoma/data/query.worker?worker` and `@zoma/data/ingest.worker?worker` (package `exports`, allowed by the boundary lint). The RPC clients come from `@zoma/data/client`, because the package index would pull every data module's polyfills into the main bundle.
+      - The hello screen's catalog panel drives it until onboarding (step 13) replaces it: `?q=<words>`, `?force=1` and `?source=<playlist URL>` as the last parameter.
+      - Tests: `test/tv-data-engine.test.ts` runs the real services over message channels (9/9 mutants caught); e2e refreshes the mock's playlist in `pnpm dev` and in both built bundles from `file://`; the old-engine harness does it in Chromium 53, 56 and 68 (§5, S1).
 11. **Search.** `indexOf` over the search string, then a binary search over offsets to find the item.
     - **Ranking:** word-prefix matches first, then substring matches; live before VOD before series; favourites boosted.
     - **Results** are capped at 200.
@@ -514,6 +521,8 @@ All spikes run in a "Zoma Lab" build that posts results to the log collector. Th
 | S11 | Lifecycle and accessibility: screensaver control; Tizen Voice Guide reading focused `aria-label` on a US-region model | Works | Explicit TTS `speak()` through the adapter on focus change (+1 session before the US submission) |
 
 **Old-engine harness finding for S1 (relay step 2b, 2026-11-02).** Desktop Chromium 53, 56 and 68 deny IndexedDB inside a Blob worker started from a `file://` page ("access to the Indexed Database API is denied in this context"; the Blob worker's origin is opaque). Main-thread IndexedDB works, and so does Blob-worker IndexedDB once file-URL access is granted (`--allow-file-access-from-files`). The TV runtimes load packaged apps from `file://` with file access granted, so the harness runs with that switch. S1 must confirm **IndexedDB inside a Blob worker on the real TVs**. If a TV denies it: give the data workers IndexedDB through a main-thread proxy, or start them from a packaged worker file instead of a Blob. See `docs/runbooks/old-engines.md`.
+
+**The data layer in the harness (relay step 8b, 2026-11-02).** With that switch, the real data workers run as Blob workers from `file://` in Chromium 53, 56 and 68. They prune at start, then stream a 3,000-item playlist over HTTP: plain for the tizen app, and gzipped (through fflate) for the webos app. They write it to IndexedDB in 500-item chunks, swap generations, reload the query worker and search it, and the hit counts are exact (a Latin word, and an Arabic word that matches only through normalization). What S1 still has to show on the TVs is the switch's assumption (Blob-worker IndexedDB from a packaged app) and the speed on real hardware. The harness serves the playlist with CORS headers; whether packaged apps need none is S7.
 
 ---
 

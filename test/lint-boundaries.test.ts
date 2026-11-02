@@ -71,6 +71,17 @@ describe('package boundaries (boundaries/element-types)', () => {
     const messages = await lint('packages/ui/src/f.ts', "import '../../core/package.json';\n");
     expect(messages.some((m) => m.startsWith('boundaries/entry-point'))).toBe(true);
   });
+
+  it('allows the data workers as entry points, and nothing else in data', async () => {
+    const file = 'apps/tv/src/f.ts';
+    for (const worker of ['query', 'ingest']) {
+      expect(await lint(file, `import W from '@zoma/data/${worker}.worker?worker';\nexport { W };\n`)).toEqual([]);
+    }
+    const deep = await lint(file, "import { serveRpc } from '../../../packages/data/src/rpc';\nexport { serveRpc };\n");
+    expect(deep.some((m) => m.startsWith('boundaries/entry-point'))).toBe(true);
+    const deepWorker = await lint(file, "import W from '../../../packages/data/src/rpc?worker';\nexport { W };\n");
+    expect(deepWorker.some((m) => m.startsWith('boundaries/entry-point'))).toBe(true);
+  });
 });
 
 describe('platform globals (no-restricted-globals / no-restricted-properties)', () => {
