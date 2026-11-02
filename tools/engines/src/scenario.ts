@@ -34,6 +34,8 @@ export interface PageState {
   readonly idb: string | null;
   readonly lastIntent: string | null;
   readonly keyCount: string | null;
+  /** The focus engine's row (step 10): `screen · zone index`. */
+  readonly focus: string | null;
   /** The catalog panel: data workers, refresh and search (null when the app has none). */
   readonly data: string | null;
   readonly ingest: string | null;
@@ -73,6 +75,7 @@ export const STATE_EXPRESSION = `(function () {
     idb: text('idb-status'),
     lastIntent: text('last-intent'),
     keyCount: text('key-count'),
+    focus: text('focus-status'),
     data: text('data-status'),
     ingest: text('ingest-status'),
     ingestItems: attr('ingest-status', 'data-items'),
@@ -90,18 +93,25 @@ export interface KeyStep {
   readonly key: string;
   readonly keyCode: number;
   readonly intent: string;
+  /** The focus engine's row after the key: the demo starts on its list's first item. */
+  readonly focus: string;
 }
 
-/** Remote keys that share their key codes with every TV remote (arrows 37–40, Enter 13). */
+/**
+ * Remote keys that share their key codes with every TV remote (arrows 37–40, Enter 13). UP
+ * leaves the list for the rail above it, and OK opens a details screen on the rail's item.
+ */
 export const KEY_STEPS: readonly KeyStep[] = [
-  { key: 'ArrowUp', keyCode: 38, intent: 'UP' },
-  { key: 'Enter', keyCode: 13, intent: 'OK' },
+  { key: 'ArrowUp', keyCode: 38, intent: 'UP', focus: 'home · rail 0' },
+  { key: 'Enter', keyCode: 13, intent: 'OK', focus: 'details · buttons 0' },
 ];
 
 export interface KeyResult {
   readonly key: string;
   readonly expected: string;
   readonly observed: string | null;
+  readonly expectedFocus: string;
+  readonly focus: string | null;
 }
 
 export interface PlatformRun {
@@ -216,6 +226,9 @@ export function evaluateRun(run: PlatformRun, engine: Pick<Engine, 'major'>, boo
     if (run.data !== null) failures.push(...evaluateData(boot, run.data));
     for (const key of run.keys) {
       if (key.observed !== key.expected) failures.push(`key ${key.key}: expected intent ${key.expected}, saw ${key.observed ?? 'nothing'}`);
+      else if (key.focus !== key.expectedFocus) {
+        failures.push(`key ${key.key}: expected focus "${key.expectedFocus}", saw "${key.focus ?? 'nothing'}"`);
+      }
     }
     // After an uncaught error the keys are skipped; the error itself is the failure.
     if (run.exceptions.length === 0) {
@@ -321,8 +334,18 @@ export async function runPlatform(
     if (booted.met && booted.state !== null && booted.state.bootError.trim() === '' && firstErrorAt === null) {
       for (const step of KEY_STEPS) {
         await pressKey(client, step);
-        const after = await waitFor(client, (state) => state.lastIntent === step.intent, options.keyTimeoutMs);
-        keys.push({ key: step.key, expected: step.intent, observed: after.state?.lastIntent ?? null });
+        const after = await waitFor(
+          client,
+          (state) => state.lastIntent === step.intent && state.focus === step.focus,
+          options.keyTimeoutMs,
+        );
+        keys.push({
+          key: step.key,
+          expected: step.intent,
+          observed: after.state?.lastIntent ?? null,
+          expectedFocus: step.focus,
+          focus: after.state?.focus ?? null,
+        });
         keyCount = after.state?.keyCount ?? null;
       }
       // Late errors (e.g. from a worker reply) land in #boot-error too.

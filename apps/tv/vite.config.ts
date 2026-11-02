@@ -15,4 +15,10 @@ export default defineConfig({
   server: {
     port: 5173,
   },
+  // Only the ingest worker imports fflate, and Vite's start-up scan doesn't follow `?worker`
+  // imports. Found late, it is pre-bundled then and every open page reloads, which resets
+  // the app in the middle of a key-driven e2e test (seen with a cold cache, as in CI).
+  optimizeDeps: {
+    include: ['@zoma/data > fflate'],
+  },
 });

@@ -59,11 +59,15 @@ for (const platform of ['tizen', 'webos'] as const) {
     await expect(page.getByTestId('shortepg-status')).toHaveText('none: 18+ Test Pattern: the panel has no programmes for it now', { timeout: 20_000 });
     await expect(page.getByTestId('shortepg-status')).toHaveAttribute('data-from', 'panel');
 
-    // Arrow keys share key codes with the TV remotes (37–40), so the TV key maps apply.
+    // Arrow keys share key codes with the TV remotes (37–40), so the TV key maps apply. The
+    // focus engine moves from the list up to the rail, and OK opens a details screen.
+    await expect(page.getByTestId('focus-status')).toHaveText('home · list 0');
     await page.keyboard.press('ArrowUp');
     await expect(page.getByTestId('last-intent')).toHaveText('UP');
+    await expect(page.getByTestId('focus-status')).toHaveText('home · rail 0');
     await page.keyboard.press('Enter');
     await expect(page.getByTestId('last-intent')).toHaveText('OK');
+    await expect(page.getByTestId('focus-status')).toHaveText('details · buttons 0');
     expect(errors).toEqual([]);
   });
 }

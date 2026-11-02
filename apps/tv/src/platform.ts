@@ -17,7 +17,7 @@ const TV_KEY_HELP: ReadonlyArray<readonly [string, string]> = [
   ['Arrows, OK', 'Move, select'],
   ['Number keys', 'Digits'],
   ['Colour keys', 'Red, Green, Yellow, Blue'],
-  ['Back', 'Exit'],
+  ['Back', 'Back; exit on the first screen'],
 ];
 
 /** On-screen key help: the keyboard layout on the desktop, the remote on a TV. */

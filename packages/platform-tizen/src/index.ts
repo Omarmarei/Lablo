@@ -107,6 +107,8 @@ export function createTizenPlatform(): Platform {
         window.removeEventListener('appcontrol', onAppControl);
       };
     },
+    // Tizen remotes have no system pointer events; a mouse shows itself by moving.
+    onPointer: () => () => undefined,
     rootBackPolicy: () => 'exit-dialog',
     exitApp(): void {
       attempt(() => globals().tizen?.application?.getCurrentApplication().exit(), undefined);

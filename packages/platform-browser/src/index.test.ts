@@ -101,6 +101,13 @@ describe('createBrowserPlatform', () => {
     expect(events).toEqual(['hidden', 'visible']);
   });
 
+  it('has no pointer events of its own (a mouse shows itself by moving)', () => {
+    const listener = vi.fn();
+    const off = createBrowserPlatform(fakeEnv()).onPointer(listener);
+    expect(off()).toBeUndefined();
+    expect(listener).not.toHaveBeenCalled();
+  });
+
   it('routes exitApp to the injected handler', () => {
     const onExit = vi.fn();
     createBrowserPlatform(fakeEnv({ onExit })).exitApp();

@@ -19,6 +19,7 @@ function state(overrides: Partial<PageState> = {}): PageState {
     idb: 'ok',
     lastIntent: 'OK',
     keyCount: '2',
+    focus: 'details · buttons 0',
     data: 'ok: 1 source, 3000 items',
     ingest: 'ok: committed gen 1, 3000 items (live 2400, movie 600), gzip, 840 ms',
     ingestItems: '3000',
@@ -40,7 +41,13 @@ function run(overrides: Partial<PlatformRun> = {}): PlatformRun {
     data: CHECK,
     boot: state(),
     settled: true,
-    keys: KEY_STEPS.map((step) => ({ key: step.key, expected: step.intent, observed: step.intent })),
+    keys: KEY_STEPS.map((step) => ({
+      key: step.key,
+      expected: step.intent,
+      observed: step.intent,
+      expectedFocus: step.focus,
+      focus: step.focus,
+    })),
     keyCount: '2',
     exceptions: [],
     durationMs: 200,
@@ -208,12 +215,25 @@ describe('evaluateRun', () => {
   it('reports keys that did not reach the app', () => {
     const deaf = run({
       keys: [
-        { key: 'ArrowUp', expected: 'UP', observed: 'Press a key' },
-        { key: 'Enter', expected: 'OK', observed: 'OK' },
+        { key: 'ArrowUp', expected: 'UP', observed: 'Press a key', expectedFocus: 'home · rail 0', focus: 'home · list 0' },
+        { key: 'Enter', expected: 'OK', observed: 'OK', expectedFocus: 'details · buttons 0', focus: 'details · buttons 0' },
       ],
       keyCount: '1',
     });
     expect(evaluateRun(deaf, engine53, 20_000)).toEqual(['key ArrowUp: expected intent UP, saw Press a key', 'key-count is 1, expected 2']);
+  });
+
+  it('reports keys the focus engine did not act on', () => {
+    const stuck = run({
+      keys: [
+        { key: 'ArrowUp', expected: 'UP', observed: 'UP', expectedFocus: 'home · rail 0', focus: 'home · list 0' },
+        { key: 'Enter', expected: 'OK', observed: 'OK', expectedFocus: 'details · buttons 0', focus: null },
+      ],
+    });
+    expect(evaluateRun(stuck, engine53, 20_000)).toEqual([
+      'key ArrowUp: expected focus "home · rail 0", saw "home · list 0"',
+      'key Enter: expected focus "details · buttons 0", saw "nothing"',
+    ]);
   });
 
   it('fails on an uncaught exception even when the screen looks fine', () => {

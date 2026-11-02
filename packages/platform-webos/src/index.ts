@@ -49,6 +49,20 @@ interface PalmSystemApi {
   platformBack?(): void;
 }
 
+/**
+ * Reports the Magic Remote pointer's `cursorStateChange` events (`detail.visibility`), which
+ * webOS sends when the pointer appears, and when it hides after a few idle seconds or on a
+ * key press. Returns a function that stops listening.
+ */
+export function watchCursorState(target: EventTarget, listener: (visible: boolean) => void): () => void {
+  const onChange = (event: Event): void => {
+    const visibility = (event as CustomEvent<{ readonly visibility?: unknown } | null>).detail?.visibility;
+    if (typeof visibility === 'boolean') listener(visibility);
+  };
+  target.addEventListener('cursorStateChange', onChange);
+  return () => target.removeEventListener('cursorStateChange', onChange);
+}
+
 function palmSystem(): PalmSystemApi | undefined {
   return (window as unknown as { PalmSystem?: PalmSystemApi }).PalmSystem;
 }
@@ -87,6 +101,7 @@ export function createWebosPlatform(): Platform {
         document.removeEventListener('webOSRelaunch', onRelaunch);
       };
     },
+    onPointer: (listener: (visible: boolean) => void): (() => void) => watchCursorState(document, listener),
     rootBackPolicy: () => 'platform-back',
     exitApp(): void {
       // appinfo.json sets disableBackHistoryAPI, so the app owns Back; at the root it hands

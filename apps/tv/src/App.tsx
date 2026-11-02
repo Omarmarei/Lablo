@@ -1,10 +1,14 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { useSignal } from '@preact/signals';
 import type { DeviceInfo, Intent, LifecycleEvent, Platform } from '@zoma/platform-api';
+import { watchPointerMoves } from '@zoma/ui';
 import { useEffect } from 'preact/hooks';
 import { DataPanel } from './DataPanel';
+import { FocusPanel } from './FocusPanel';
 import type { DataEngine } from './data/engine';
 import type { DebugParams } from './data/params';
+import type { FocusDemo } from './focus-demo';
+import { localeDir } from './focus-demo';
 import { pingHelloWorker } from './hello-worker';
 
 /** The data workers and the catalog debug parameters (RELAY step 8b). */
@@ -19,6 +23,8 @@ interface Props {
   readonly platform: Platform;
   readonly keyHelp: ReadonlyArray<readonly [string, string]>;
   readonly data: AppData;
+  /** The focus engine and its demo screens (relay step 10). */
+  readonly focus: FocusDemo;
 }
 
 const INFO_ROWS: ReadonlyArray<readonly [keyof DeviceInfo, string]> = [
@@ -44,10 +50,11 @@ function message(error: unknown): string {
 
 /**
  * The hello screen (relay step 2): device facts, the worker round trip and the last remote
- * key as an Intent. Back exits the app the platform's way. Step 8b added the catalog panel
- * (the data workers); the onboarding and browse screens (steps 13 and 14) replace it.
+ * key as an Intent. Step 8b added the catalog panel (the data workers), step 10 the focus
+ * engine: every key goes to it, and Back on the root follows the platform's
+ * `rootBackPolicy`. The onboarding and browse screens (steps 13 and 14) replace it.
  */
-export function App({ platform, keyHelp, data }: Props) {
+export function App({ platform, keyHelp, data, focus }: Props) {
   const info = useSignal<DeviceInfo | null>(null);
   const infoError = useSignal<string | null>(null);
   const worker = useSignal('starting…');
@@ -55,7 +62,6 @@ export function App({ platform, keyHelp, data }: Props) {
   const lastIntent = useSignal<Intent | null>(null);
   const keyCount = useSignal(0);
   const lifecycle = useSignal<LifecycleEvent | 'started'>('started');
-  const exitRequested = useSignal(false);
   const startedAt = useSignal(clock(new Date()));
   const lowTier = (): Promise<boolean> =>
     platform.info().then(
@@ -67,6 +73,7 @@ export function App({ platform, keyHelp, data }: Props) {
     platform.info().then(
       (value) => {
         info.value = value;
+        focus.nav.setDir(localeDir(value.locale));
       },
       (error: unknown) => {
         infoError.value = message(error);
@@ -92,20 +99,30 @@ export function App({ platform, keyHelp, data }: Props) {
       data.engine.noteActivity();
       lastIntent.value = intent;
       keyCount.value += 1;
-      if (intent === 'BACK') {
-        exitRequested.value = true;
-        platform.exitApp();
-      }
+      focus.nav.handle(intent);
     };
+    // Magic Remote: the pointer shows itself by moving (and on webOS through the system's
+    // own events), keys hide it, and the wheel scrolls the focused list instead of the page.
+    const onWheel = (event: WheelEvent): void => {
+      event.preventDefault();
+      if (event.deltaY !== 0) focus.nav.wheel(event.deltaY > 0 ? 1 : -1);
+    };
+    const wheelOptions: AddEventListenerOptions = { passive: false };
     window.addEventListener('keydown', onKey);
+    window.addEventListener('wheel', onWheel, wheelOptions);
+    const stopMoves = watchPointerMoves(window, () => focus.nav.pointer(true));
+    const stopPointer = platform.onPointer((visible) => focus.nav.pointer(visible));
     const stopLifecycle = platform.onLifecycle((event) => {
       lifecycle.value = event;
     });
     return () => {
       window.removeEventListener('keydown', onKey);
+      window.removeEventListener('wheel', onWheel, wheelOptions);
+      stopMoves();
+      stopPointer();
       stopLifecycle();
     };
-  }, [platform, data]);
+  }, [platform, data, focus]);
 
   const device = info.value;
   return (
@@ -148,11 +165,12 @@ export function App({ platform, keyHelp, data }: Props) {
           <p class="hello__row">
             Keys pressed: <span data-testid="key-count">{keyCount}</span>
           </p>
-          {exitRequested.value && (
+          {focus.exitRequested.value && (
             <p class="hello__notice" data-testid="exit-requested">
               Back: exit requested
             </p>
           )}
+          <FocusPanel demo={focus} />
           <table class="hello__keys">
             <tbody>
               {keyHelp.map(([keys, action]) => (

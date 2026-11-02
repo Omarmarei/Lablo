@@ -4,6 +4,7 @@ import type { AppData } from './App';
 import { App } from './App';
 import { readDebugParams } from './data/params';
 import { createAppDataEngine } from './data/workers';
+import { createFocusDemo } from './focus-demo';
 import { KEY_HELP, createPlatform } from './platform';
 
 const platform = createPlatform();
@@ -22,4 +23,4 @@ const data: AppData = {
 
 const root = document.getElementById('app');
 if (root === null) throw new Error('#app element missing from index.html');
-render(<App platform={platform} keyHelp={KEY_HELP} data={data} />, root);
+render(<App platform={platform} keyHelp={KEY_HELP} data={data} focus={createFocusDemo(platform)} />, root);

@@ -85,5 +85,10 @@ Run `pnpm dev`, open the URL at 1920x1080, then:
 1. The screen shows **Zoma**, "Hello from browser", a device table (model "Desktop browser", tier `full`) and **Worker: ok in N ms (TextDecoder, indexedDB, fetch)** and **IndexedDB (in the worker): ok**.
 2. Press the arrows, Enter, PgUp/PgDn, digits, F1–F4, Space, `i`, `g`: the big text shows `DOWN`, `OK`, `CH_UP`, `DIGIT_5`, `RED`, `PLAY_PAUSE`, `INFO`, `GUIDE`… and the key count goes up.
 3. Press `a`: nothing changes.
-4. Press Esc: it shows `BACK` and "Back: exit requested".
-5. Reload with `?tier=low&locale=ar-SA`: the table shows tier `low` and locale `ar-SA`.
+4. The **Focus** block under the remote (the focus engine, step 10) starts on `home · list 0`:
+   - Down moves down the list, which shows 4 rows at a time and scrolls. Up from the first row goes to the rail of tiles, Right from the list to the grid, and Left from the grid's first column back to the list's remembered row (thin outline).
+   - PgDn and PgUp move a page of the list.
+   - Enter opens a "details" box (`details · buttons 0`); Esc closes it, and the focus is back where it was.
+5. With the mouse: moving over a tile focuses it (`data-pointer` true); an arrow key carries on from there. The wheel scrolls the focused list.
+6. Esc on the main screen shows "Exit Zoma?" (Tizen and the browser ask first; webOS goes straight to the launcher). Enter on Stay closes it; Right then Enter on Exit shows "Back: exit requested".
+7. Reload with `?tier=low&locale=ar-SA`: the table shows tier `low` and locale `ar-SA`, and the Focus block runs right to left: Left moves along the rail towards its end, Right back. Up and Down don't change.

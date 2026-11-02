@@ -90,6 +90,9 @@ importers:
       '@zoma/platform-webos':
         specifier: workspace:*
         version: link:../../packages/platform-webos
+      '@zoma/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       preact:
         specifier: ^10.29.8
         version: 10.29.8
