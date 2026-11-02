@@ -13,6 +13,9 @@
  *   guides' match tables are combined in priority order (core `combineEpgMatches`), and each
  *   channel's buckets of the days around now are read from IndexedDB, with its tvg-shift applied.
  * - `epgStatus` lists the guides and how many live channels have one.
+ * - `shortEpg` is the fallback for a focused live channel no guide matches (step 9c): its Xtream
+ *   panel's `get_short_epg`, kept 30 min per channel (`short-epg.ts`). The app asks only after
+ *   600 ms of focus. A matched channel gets its guide's now/next, with no request.
  *
  * A segment that fails to load (other layout version, inconsistent data) is skipped and listed
  * in `status().stale`, so the ingest can rebuild it.
@@ -26,6 +29,9 @@ import { getSources, readCategories, readChunks, readIndexes } from './catalog-s
 import type { EpgBucketKey, EpgMeta, StoredEpgMatch } from './epg-store';
 import { getEpgMetas, readEpgBuckets, readEpgChannels } from './epg-store';
 import type { RpcContext } from './rpc';
+import type { ByteTransport } from './bytes';
+import type { ShortEpgRequest } from './short-epg';
+import { ShortEpgCache, shortEpgNowNext, shortEpgTarget } from './short-epg';
 
 /** Where a search hit (or any item) is stored. */
 export interface ItemRef {
@@ -70,6 +76,17 @@ export interface EpgNowNext {
   next: EpgProgramme | null;
 }
 
+/** A focused channel's now/next, and where it came from. */
+export interface ShortEpgNowNext extends EpgNowNext {
+  /**
+   * `guide`: a stored guide matches the channel (no request). `panel`: its panel's short EPG.
+   * `none`: no guide, and its source is no Xtream panel (or the worker has no transport).
+   */
+  from: 'guide' | 'panel' | 'none';
+  /** The panel's answer came from the 30-minute cache: no request was made. */
+  cached: boolean;
+}
+
 export interface EpgStatus {
   /** Every stored guide, in priority order. */
   guides: EpgMeta[];
@@ -93,8 +110,10 @@ export interface QueryServiceOptions {
   openDb: () => Promise<IDBDatabase>;
   /** Chunks kept in memory (default 16, about 8,000 items). */
   chunkCache?: number;
-  /** The clock now/next is read at when the caller gives no time. */
+  /** The clock now/next is read at when the caller gives no time (and short EPG ages by). */
   now?: () => number;
+  /** The network, for the short-EPG fallback (none: `shortEpg` never asks a panel). */
+  transport?: ByteTransport;
 }
 
 const chunkId = (k: ChunkKey): string => `${k.src}|${k.gen}|${k.kind}|${k.catIdx}|${k.chunk}`;
@@ -111,9 +130,15 @@ export class QueryService {
   private readonly cache = new Map<string, CatalogItem[]>();
   private readonly cacheSize: number;
   private epgLinks = new Map<ContentKey, EpgLink>();
+  private readonly panelEpg: ShortEpgCache | null;
 
   constructor(private readonly options: QueryServiceOptions) {
     this.cacheSize = Math.max(1, options.chunkCache ?? 16);
+    this.panelEpg = options.transport ? new ShortEpgCache(options.transport, () => this.clock()) : null;
+  }
+
+  private clock(): number {
+    return this.options.now ? this.options.now() : Date.now();
   }
 
   /** The RPC handlers (serve them with `serveRpc`). */
@@ -128,6 +153,7 @@ export class QueryService {
       items: (arg: { refs: ItemRef[] }): Promise<(CatalogItem | null)[]> => this.items(arg.refs),
       nowNext: (arg: { keys: ContentKey[]; at?: number }): Promise<EpgNowNext[]> => this.nowNext(arg.keys, arg.at),
       epgStatus: (): Promise<EpgStatus> => this.epgStatus(),
+      shortEpg: (req: ShortEpgRequest): Promise<ShortEpgNowNext> => this.shortEpg(req),
     };
   }
 
@@ -249,7 +275,7 @@ export class QueryService {
    */
   async nowNext(keys: ContentKey[], at?: number): Promise<EpgNowNext[]> {
     await this.ensureLoaded();
-    const nowMs = at ?? (this.options.now ? this.options.now() : Date.now());
+    const nowMs = at ?? this.clock();
     const reads: EpgBucketKey[] = [];
     const plan = keys.map((key) => {
       const link = this.epgLinks.get(key);
@@ -271,6 +297,22 @@ export class QueryService {
       const nn = epgNowNext(found, nowMs, p.link.shift);
       return { key, epgSrc: p.link.epgSrc, channel: p.link.channel, method: p.link.method, now: nn.now, next: nn.next };
     });
+  }
+
+  /**
+   * Now/next for a focused live channel: its guide's when one matches it, otherwise its Xtream
+   * panel's short EPG (cached 30 min). Rejects with the panel's error (`XtreamError`,
+   * `NetworkError`), which isn't cached.
+   */
+  async shortEpg(req: ShortEpgRequest): Promise<ShortEpgNowNext> {
+    const [stored] = await this.nowNext([req.key], req.at);
+    const base = stored ?? { key: req.key, epgSrc: null, channel: null, method: null, now: null, next: null };
+    if (base.epgSrc !== null) return { ...base, from: 'guide', cached: false };
+    const target = this.panelEpg === null ? null : shortEpgTarget(req.url, req.source);
+    if (target === null || this.panelEpg === null) return { ...base, from: 'none', cached: false };
+    const answer = await this.panelEpg.programmes(req.key, target);
+    const nn = shortEpgNowNext(answer.programmes, req.at ?? this.clock());
+    return { ...base, now: nn.now, next: nn.next, from: 'panel', cached: answer.cached };
   }
 
   /** Sets the favourite keys boosted in search. Returns how many are in loaded segments. */

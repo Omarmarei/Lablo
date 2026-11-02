@@ -1,7 +1,7 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { useSignal } from '@preact/signals';
 import type { ContentKey, ContentKind } from '@zoma/core';
-import type { EpgNowNext, EpgRefreshResult, EpgStatus, IngestResult } from '@zoma/data';
+import type { EpgNowNext, EpgRefreshResult, EpgStatus, IngestResult, ShortEpgNowNext } from '@zoma/data';
 import { useEffect } from 'preact/hooks';
 import type { DataEngine, DataSummary } from './data/engine';
 import type { DebugParams } from './data/params';
@@ -71,6 +71,16 @@ function describeNowNext(name: string, n: EpgNowNext): string {
   return `ok: ${name}: ${now}${next}`;
 }
 
+/** Live channels the panel looks through for one no guide matches. */
+const SHORT_EPG_SCAN = 200;
+
+function describeShortEpg(name: string, n: ShortEpgNowNext): string {
+  if (n.from === 'none') return `none: ${name}: its playlist is no Xtream panel's (get.php)`;
+  if (n.now === null && n.next === null) return `none: ${name}: the panel has no programmes for it now`;
+  const answer = describeNowNext(name, n);
+  return `${answer} (${n.from === 'panel' ? 'panel' : 'guide'}${n.cached ? ', cached' : ''})`;
+}
+
 function describeRefresh(result: IngestResult): string {
   const kinds = (Object.keys(result.counts) as ContentKind[]).map((kind) => `${kind} ${result.counts[kind] ?? 0}`).join(', ');
   const gzip = result.gzipped ? ', gzip' : '';
@@ -78,13 +88,14 @@ function describeRefresh(result: IngestResult): string {
 }
 
 /**
- * The hello screen's catalog panel (RELAY steps 8b and 9b): the data workers end to end. At start
- * it prunes and shows what the query worker holds; with `?source=` it refreshes that playlist in
- * an ingest worker, then the guides its header names in an EPG worker (only when due, unless
- * `?force=1`); with `?q=` it searches the catalog through the query worker. It shows the guides'
- * match rate and the now/next of the first search hit with a guide (or of the first live
- * channels). Remote keys mark the UI busy, which pauses a running refresh. The old-engine
- * harness reads these statuses.
+ * The hello screen's catalog panel (RELAY steps 8b, 9b and 9c): the data workers end to end. At
+ * start it prunes and shows what the query worker holds; with `?source=` it refreshes that
+ * playlist in an ingest worker, then the guides its header names in an EPG worker (only when
+ * due, unless `?force=1`); with `?q=` it searches the catalog through the query worker. It shows
+ * the guides' match rate and the now/next of the first search hit with a guide (or of the first
+ * live channels). With `?source=`, it then focuses the first live channel no guide matches, as
+ * the remote would, and shows what the short-EPG fallback gives after 600 ms. Remote keys mark
+ * the UI busy, which pauses a running refresh. The old-engine harness reads these statuses.
  */
 export function DataPanel({ engine, params, lowTier, busy }: Props) {
   const data = useSignal('starting…');
@@ -97,6 +108,8 @@ export function DataPanel({ engine, params, lowTier, busy }: Props) {
   const epgMatched = useSignal<number | null>(null);
   const epgWanted = useSignal<number | null>(null);
   const onAir = useSignal('waiting…');
+  const shortEpg = useSignal('waiting…');
+  const shortEpgFrom = useSignal('');
 
   useEffect(() => {
     let alive = true;
@@ -158,6 +171,39 @@ export function DataPanel({ engine, params, lowTier, busy }: Props) {
       }
     };
 
+    /** The first live channel of the debug source no guide matches, focused as the remote would. */
+    const runShortEpg = async (url: string): Promise<void> => {
+      try {
+        let target: { key: ContentKey; name: string; url: string } | null = null;
+        let seen = 0;
+        for (const cat of await engine.query.call('categories', { src: DEBUG_SOURCE, kind: 'live' })) {
+          for (let n = 0; n < cat.chunks.length && target === null && seen < SHORT_EPG_SCAN; n++) {
+            const items = (await engine.query.call('chunk', { src: DEBUG_SOURCE, kind: 'live', catIdx: cat.catIdx, chunk: n })).slice(0, SHORT_EPG_SCAN - seen);
+            seen += items.length;
+            const stored = items.length === 0 ? [] : await engine.nowNext(items.map((i) => i.key));
+            const at = stored.findIndex((s) => s.epgSrc === null);
+            const hit = items[at];
+            if (hit !== undefined) target = { key: hit.key, name: hit.name, url: hit.url };
+          }
+          if (target !== null || seen >= SHORT_EPG_SCAN) break;
+        }
+        if (target === null) {
+          set(() => (shortEpg.value = 'none: every live channel here has a guide'));
+          return;
+        }
+        const name = target.name;
+        set(() => (shortEpg.value = `focused: ${name}…`));
+        const answer = await engine.focusChannel({ key: target.key, url: target.url, source: { type: 'm3u', url } });
+        if (answer === null) return;
+        set(() => {
+          shortEpgFrom.value = answer.from;
+          shortEpg.value = describeShortEpg(name, answer);
+        });
+      } catch (error) {
+        set(() => (shortEpg.value = `failed: ${message(error)}`));
+      }
+    };
+
     const run = async (): Promise<void> => {
       try {
         await engine.start();
@@ -170,6 +216,7 @@ export function DataPanel({ engine, params, lowTier, busy }: Props) {
           search.value = 'failed: no data workers';
           epg.value = 'failed: no data workers';
           onAir.value = 'failed: no data workers';
+          shortEpg.value = 'failed: no data workers';
         });
         return;
       }
@@ -202,6 +249,8 @@ export function DataPanel({ engine, params, lowTier, busy }: Props) {
       if (params.query === null) set(() => (search.value = 'none: add ?q=<words>'));
       else await runSearch(params.query);
       await runEpg(params.source !== null && params.error === null);
+      if (params.source === null || params.error !== null) set(() => (shortEpg.value = "none: needs ?source=<an Xtream panel's get.php URL>"));
+      else await runShortEpg(params.source);
     };
     void run();
     return () => {
@@ -235,6 +284,12 @@ export function DataPanel({ engine, params, lowTier, busy }: Props) {
       </p>
       <p class="hello__row">
         On air: <span data-testid="nownext-status">{onAir}</span>
+      </p>
+      <p class="hello__row">
+        Panel EPG:{' '}
+        <span data-testid="shortepg-status" data-from={shortEpgFrom.value}>
+          {shortEpg}
+        </span>
       </p>
       <p class="hello__row">
         Remote: <span data-testid="busy-status">{busy.value ? 'busy (refresh paused)' : 'idle'}</span>

@@ -57,7 +57,17 @@ describe('the bundled query worker', () => {
     // As in a real worker, the global object is the port and `self` is the global object
     // (core-js's `self` polyfill replaces any other `self`).
     const [workerPort, uiPort] = pipe();
+    // The short-EPG fallback's network (step 9c): fetch and TextDecoder, as in Chromium 53.
+    const asked: string[] = [];
+    const noon = Date.UTC(2026, 10, 2, 12) / 1000;
+    const answer = { epg_listings: [0, 1].map((i) => ({ title: Buffer.from(`Bundled ${i}`).toString('base64'), start_timestamp: noon + i * 1800, stop_timestamp: noon + (i + 1) * 1800 })) };
+    const fakeFetch = (url: string): Promise<Response> => {
+      asked.push(url);
+      return Promise.resolve(new Response(JSON.stringify(answer), { status: 200 }));
+    };
     const realm = vm.createContext({
+      fetch: fakeFetch,
+      TextDecoder,
       postMessage: workerPort.postMessage,
       addEventListener: workerPort.addEventListener,
       removeEventListener: workerPort.removeEventListener,
@@ -81,5 +91,12 @@ describe('the bundled query worker', () => {
     await expect(client.call('chunk', { src: 'tv', kind: 'live', catIdx: 5, chunk: 0 })).resolves.toEqual([]);
     const status = await client.call('status');
     expect(status.segments.map((s) => `${s.kind}:${s.count}`)).toEqual(['live:2', 'movie:1']);
+
+    // No guide matches the channel: the panel's short EPG, once, then from the cache.
+    const account = { base: 'http://p.test', username: 'u', password: 'secret' };
+    const focus = { key: 'x:tv:live:1', url: 'http://p.test/live/u/secret/1.ts', source: { type: 'xtream' as const, account }, at: (noon + 60) * 1000 };
+    expect(await client.call('shortEpg', focus)).toMatchObject({ from: 'panel', cached: false, now: { title: 'Bundled 0' }, next: { title: 'Bundled 1' } });
+    expect(await client.call('shortEpg', focus)).toMatchObject({ from: 'panel', cached: true, now: { title: 'Bundled 0' } });
+    expect(asked).toEqual(['http://p.test/player_api.php?username=u&password=secret&action=get_short_epg&stream_id=1&limit=4']);
   }, 120_000);
 });

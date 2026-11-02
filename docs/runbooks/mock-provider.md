@@ -320,6 +320,7 @@ Unknown keys are errors, so a typo fails loudly. Shipped scenarios:
 | `slow-provider` | 3 s before headers on `player_api.php`, 8 s on `get.php` and `xmltv.php`. |
 | `broken-playlist` | `get.php` with malformed entries, invalid UTF-8, CRLF and a BOM. |
 | `gzip-epg` | `xmltv.php` gzip-encoded; `get.php` as a raw gzip body. |
+| `no-xmltv` | `xmltv.php` answers 404, as on panels that turn their guide off, while `get_short_epg` still answers: every live channel is unmatched, so the app's short-EPG fallback (step 9c) gives now/next. |
 | `odd-timezone` | A panel in Asia/Kathmandu (+05:45) whose XMLTV times have no offset. |
 | `provider-errors` | Channels 101–104 answer 401/403/404/509; `get.php` cut at 60 %; quirky JSON types. |
 

@@ -266,7 +266,7 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
       - 96 MB is the ingest worker's share on a 1–1.5 GB low-tier TV, next to the main thread and the query worker.
     - **The slowdown factors are estimates.** S6 measures the real ones: the lab build runs the same reader on the TV. If S6 measures a larger factor, lower the limits in `EPG_LIMITS` (`tools/bench/src/suites.ts`) to match, rather than raising the TV budget.
 
-**Built in step 9b** (`packages/data/src`: `epg-store`, `epg-sources`, `epg-ingest`, `epg-service`, `epg.worker`, `ingest-errors`, now/next in `query-service`; `apps/tv/src/data/engine.ts` and the hello screen's catalog panel). The short-EPG fallback is step 9c.
+**Built in step 9b** (`packages/data/src`: `epg-store`, `epg-sources`, `epg-ingest`, `epg-service`, `epg.worker`, `ingest-errors`, now/next in `query-service`; `apps/tv/src/data/engine.ts` and the hello screen's catalog panel). The short-EPG fallback is step 9c (below).
 - **Storage** (database version 2, §1.3):
   - `epg_meta`, one record per guide: the active and building generation, the fetch stamp, the basis it was matched against, `until` (the latest programme end, in UTC minutes), a summary of the match rate and the window, the guide's `rank`, and `failedAt`.
   - `epg_buckets`: core's column bucket without `channel`, `day` and `merge` (the key holds them). The `Int32Array` and `Uint8Array` columns are stored as they are; fake-indexeddb and Chromium 53/56/68 round-trip them.
@@ -312,6 +312,44 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
   - `test/tv-data-engine.test.ts`: the EPG worker, the `due` rule, one refresh at a time, and the busy pause.
   - e2e: the guide row in `pnpm dev` and in both built bundles.
   - The old-engine harness: a third Blob worker reads a generated guide in Chromium 53, 56 and 68 (runbook old-engines.md).
+
+**Built in step 9c: the short-EPG fallback** (`packages/core/src`: `xtream-epg.ts`, `xtream-base.ts`; `packages/data/src/short-epg.ts` and `shortEpg` in `query-service`; `DataEngine.focusChannel` in `apps/tv/src/data/engine.ts`; the hello screen's catalog panel):
+- **When it asks:** `DataEngine.focusChannel(channel)` starts a 600 ms timer (`FOCUS_MS`). A new focus, `focusChannel(null)` (the focus left the live channels) or `dispose` cancels it, and the waiting promise resolves with `null`, so scrolling through a list asks nothing. After 600 ms the query worker answers. An answer that arrives after the focus moved on is dropped by the engine, but the worker keeps it for the next focus.
+- **Which channels:** the query worker first reads the stored now/next.
+  - A channel that a guide matches gets the guide's now/next (`from: 'guide'`), with no request.
+  - Otherwise the panel's `get_short_epg` is asked (`limit=4`, `from: 'panel'`), but only when the source is an Xtream panel and the channel's stream URL is an Xtream live URL (`…/live/{u}/{p}/{id}.ts`, or `…/{u}/{p}/{id}`). An Xtream panel is an Xtream source, or an M3U source whose URL is a `get.php` export.
+  - Anything else gets `from: 'none'`.
+- **Credentials:** the account always comes from the source, never from the stream URL, so the request goes only to the panel the user added, even when the stream URLs point at a load balancer. The cache is keyed by ContentKey, and errors carry a code and an HTTP status only.
+- **Cache** (in the query worker, which keeps running):
+  - 30 minutes per channel (`SHORT_EPG_TTL_MS`), up to 200 channels, the oldest answer dropped first;
+  - an empty answer is kept too (the panel has nothing for that channel);
+  - a failure isn't kept, so the next focus asks again;
+  - two asks while a request runs share it.
+- **Programmes** (`xtreamEpgProgrammes`): the entries become the guide's own `EpgProgramme` rows, so the UI shows one type.
+  - Times are UTC minutes from `start_timestamp` and `stop_timestamp`, so no zone is needed. An entry without a start timestamp is skipped.
+  - A missing stop becomes the next start, or 60 minutes for the last entry, and is flagged `EPG_FLAG_STOP_GUESSED`. Lengths are cut at 24 h, and of equal starts the first entry is kept.
+  - Now/next is read the way the stored guides are (`buildEpgBucket`, then `epgNowNext`), at the caller's `at` or now, on a copy, so the kept answer never changes.
+- **Size:** the query worker now has `fetchTransport`.
+  - With `XtreamClient`, the worker measured 110.5 KB: the client brings the list parser and the JSON splitter.
+  - So the short-EPG call and the plumbing it shares with the client moved out of `xtream.ts`, into `xtream-epg.ts` (decode, convert, `xtreamShortEpg`) and `xtream-base.ts` (tolerant values, the text transport, `XtreamError`, reading a small JSON answer). `xtream.ts` re-exports them, so no import changed.
+  - The stream id comes from the URL rather than from `parseContentKey`, because `content-key.ts` would bring core-js's `JSON.stringify` polyfill (about 4 KB). `Fnv1a.digest` no longer uses `padStart`, whose polyfill came with `bytes.ts`.
+  - Result (tizen): query 80.7 → 89.8 KB; main 449.4 → 459.1 KB of 500; EPG 116.0 → 115.1 KB; ingest 125.5 → 124.9 KB.
+- **Mock:** the scenario `no-xmltv` turns `xmltv.php` off (404) while `get_short_epg` still answers, as on panels that disable their guide. Every live channel is then unmatched.
+- **Tests:**
+  - `xtream.test.ts`: the conversion (missing times, guessed stops, cuts, equal starts, seconds).
+  - `short-epg.test.ts`:
+    - which channels have a panel;
+    - the cache: 30 minutes to the millisecond, eviction, shared requests, failures not kept;
+    - now/next at any time without changing the kept rows;
+    - `QueryService.shortEpg` with a stored guide: matched, unmatched, no panel, no transport, errors.
+  - `test/short-epg-mock.test.ts`, the "done when": the real `DataEngine`, the services over message channels and fetch against the in-process mock over a socket, with only `setTimeout` faked.
+    - On a `no-xmltv` panel, an unmatched channel gets the mock's own now/next after 600 ms of focus and not at 599 ms.
+    - A second focus within 30 minutes makes no request, and the panel is asked again after 30 minutes.
+    - A focus that moves on early asks nothing, and a late answer is dropped.
+    - With the `get.php` guide, a matched channel asks nothing, and the unmatched one's empty answer is kept.
+  - `test/query-worker-bundle.test.ts`: the bundled Chromium 53 worker asks with `fetch` and `TextDecoder`, then answers from its cache.
+  - e2e, in `pnpm dev` and both built bundles: the mock's unmatched channel asks the panel. In dev, a `no-xmltv` panel gives `from: panel`.
+  - 26/26 mutants caught (`artifacts/mutate9c.py`).
 
 ---
 
