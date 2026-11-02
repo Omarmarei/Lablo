@@ -1,13 +1,15 @@
 // Benchmark cases over the scale fixtures (`pnpm fixtures`). The `*-scan` and `*-json-parse`
 // cases are baselines: the naive way to read each input. The real parsers run next to them:
 // core's M3U parser is `m3u-parse` (step 5); the Xtream list parser over the JSON-array splitter
-// is `xtream-vod-json-split` and the XMLTV tokenizer `xmltv-gz-tokenize` (step 6). Step 9 adds
-// the EPG ingest (matching, window, buckets).
+// is `xtream-vod-json-split` and the XMLTV tokenizer `xmltv-gz-tokenize` (step 6); the search
+// index build and the 200k search are `search-index-build` and `search-200k` (step 7). Step 9
+// adds the EPG ingest (matching, window, buckets).
 
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createGunzip } from 'node:zlib';
-import { M3uCatalogParser, XmltvTokenizer, XtreamListParser } from '@zoma/core';
+import type { CatalogItem, ContentKind } from '@zoma/core';
+import { CONTENT_KINDS, M3uCatalogParser, SearchIndexBuilder, SearchSegment, XmltvTokenizer, XtreamListParser, searchSegments } from '@zoma/core';
 import type { BenchCase } from './harness';
 
 export interface Suite {
@@ -74,6 +76,38 @@ export async function tokenizeXmltvStream(stream: AsyncIterable<unknown>, want?:
   return tokenizer.stats.programmes;
 }
 
+/** Parses a whole playlist into memory (setup for the search cases, not timed by them). */
+export async function parsePlaylistItems(path: string): Promise<CatalogItem[]> {
+  const decoder = new TextDecoder();
+  const parser = new M3uCatalogParser('bench');
+  const items: CatalogItem[] = [];
+  for await (const chunk of createReadStream(path)) items.push(...parser.push(decoder.decode(chunk as Uint8Array, { stream: true })));
+  items.push(...parser.push(decoder.decode()), ...parser.end());
+  return items;
+}
+
+/** One search segment per kind, items in playlist order, 500 per chunk (as the ingest stores them). */
+export function buildSegments(items: readonly CatalogItem[]): SearchSegment[] {
+  return CONTENT_KINDS.map((kind: ContentKind) => {
+    const builder = new SearchIndexBuilder('bench', kind, 1);
+    for (const item of items) {
+      if (item.kind !== kind) continue;
+      if (builder.count % 500 === 0) builder.beginChunk(0, builder.count / 500);
+      builder.add(item.key, item.normName);
+    }
+    return new SearchSegment(builder.finish());
+  });
+}
+
+/** Typical queries: 1-3 letters, Latin and Arabic, several words, a rare word, no match. */
+export const SEARCH_QUERIES = ['a', 'e', 'zoma', 'زوما', 'أخبار', 'الحلقة', 'news', 'golden night', 'cine', 'hd', '12', 'épisode 3', 'qqq'];
+
+/** Caches the parsed playlist between runs, so the search cases time only their own work. */
+function lazy<T>(make: () => Promise<T>): () => Promise<T> {
+  let value: Promise<T> | null = null;
+  return () => (value ??= make());
+}
+
 /** Every tenth EPG channel of the scale catalog (`epg{k}.zoma.test`): a typical matched share. */
 const tenthOfChannels = (id: string): boolean => /^epg\d*0\.zoma\.test$/.test(id);
 
@@ -115,6 +149,30 @@ export const SUITES: Record<string, Suite> = {
       // Every channel wanted: the worst case.
       run: () => tokenizeXmltvStream(createReadStream(path).pipe(createGunzip())),
     }),
+  },
+  'search-index-build': {
+    input: 'playlist.m3u',
+    make: (path) => {
+      const items = lazy(() => parsePlaylistItems(path));
+      // The index build the ingest does per refresh (the warmup run parses the playlist).
+      return { name: 'search-index-build', bytes: 0, run: async () => buildSegments(await items()).reduce((n, s) => n + s.count, 0) };
+    },
+  },
+  'search-200k': {
+    input: 'playlist.m3u',
+    make: (path) => {
+      const segments = lazy(async () => buildSegments(await parsePlaylistItems(path)));
+      // Each run answers every query in SEARCH_QUERIES once; items/s is queries per second.
+      return {
+        name: 'search-200k',
+        bytes: 0,
+        run: async () => {
+          const segs = await segments();
+          for (const q of SEARCH_QUERIES) searchSegments(segs, q);
+          return SEARCH_QUERIES.length;
+        },
+      };
+    },
   },
   'xmltv-gz-tokenize-10pct': {
     input: 'xmltv-300mb.xml.gz',

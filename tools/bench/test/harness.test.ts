@@ -1,7 +1,21 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Readable } from 'node:stream';
+import { searchSegments } from '@zoma/core';
 import { describe, expect, it } from 'vitest';
 import { formatTable, measure } from '../src/harness';
-import { SUITES, availableCases, countInStream, parseM3uStream, parseXtreamListStream, tokenizeXmltvStream } from '../src/suites';
+import {
+  SEARCH_QUERIES,
+  SUITES,
+  availableCases,
+  buildSegments,
+  countInStream,
+  parseM3uStream,
+  parsePlaylistItems,
+  parseXtreamListStream,
+  tokenizeXmltvStream,
+} from '../src/suites';
 
 const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 2));
 
@@ -93,6 +107,24 @@ describe('suites', () => {
     const at = xml.indexOf(0xd9) + 1;
     expect(await tokenizeXmltvStream(Readable.from([xml.subarray(0, at), xml.subarray(at)]))).toBe(2);
     expect(await tokenizeXmltvStream(Readable.from([xml]), (id) => id === 'epg10.zoma.test')).toBe(1);
+  });
+
+  it('builds search segments per kind and runs the search cases over a playlist', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'zoma-bench-'));
+    try {
+      const lines = ['#EXTM3U'];
+      for (let i = 0; i < 1203; i++) lines.push(`#EXTINF:-1,Zoma ${i}`, `http://h.test/${i % 3 === 0 ? 'movie/' : ''}${i}.${i % 3 === 0 ? 'mp4' : 'ts'}`);
+      writeFileSync(join(dir, 'playlist.m3u'), lines.join('\n'));
+      const { cases } = availableCases(dir, ['search-index-build', 'search-200k']);
+      expect(await cases[0]!.run()).toBe(1203);
+      expect(await cases[1]!.run()).toBe(SEARCH_QUERIES.length);
+      const segs = buildSegments(await parsePlaylistItems(join(dir, 'playlist.m3u')));
+      expect(segs.map((s) => [s.kind, s.count])).toEqual([['live', 802], ['movie', 401], ['series', 0]]);
+      expect(segs[0]!.chunkOf(801)).toEqual({ catIdx: 0, chunk: 1, slot: 301 });
+      expect(searchSegments(segs, 'zoma 1200').hits).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('reports missing fixtures instead of failing, and rejects unknown cases', () => {

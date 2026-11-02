@@ -83,3 +83,18 @@ export { catchupMode, fillCatchupTemplate, flussonicCatchupUrl, m3uCatchupUrl, x
 
 export type { XmltvChannel, XmltvItem, XmltvOptions, XmltvProgramme, XmltvStats } from './xmltv';
 export { XmltvTokenizer, decodeXmlEntities, parseXmltv, parseXmltvTime } from './xmltv';
+
+export type { ChunkRef, FavouriteMarks, SearchHit, SearchMatch, SearchOptions, SearchResult, SearchSegmentData } from './search';
+export {
+  SEARCH_INDEX_VERSION,
+  SEARCH_LIMIT,
+  SEARCH_LIMIT_MAX,
+  SEARCH_SEPARATOR,
+  SearchIndexBuilder,
+  SearchIndexError,
+  SearchSegment,
+  buildSearchSegment,
+  favouriteMarks,
+  searchSegments,
+  searchTerms,
+} from './search';

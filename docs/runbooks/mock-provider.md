@@ -212,8 +212,10 @@ The `*-scan` and `*-json-parse` cases are baselines (the naive way to read each 
 | `xmltv-gz-programme-scan` | Baseline: gunzip and scan of the 300 MB guide. |
 | `xmltv-gz-tokenize` | core's `XmltvTokenizer` (step 6) over the gunzipped 300 MB guide, every channel wanted (the worst case): about 4.1 s for 1.34 M programmes, against 0.8 s for the scan. |
 | `xmltv-gz-tokenize-10pct` | The same with a tenth of the channels wanted, as after EPG matching: unwanted programmes are skipped by searching for `</programme`. About 2 s. |
+| `search-index-build` | core's `SearchIndexBuilder` (step 7) over the parsed 200k playlist: one segment per kind, 500 items per chunk, as each refresh builds them. The playlist is parsed once, in the warm-up run. About 100 ms on a fast PC (2026-11-02). |
+| `search-200k` | core's `searchSegments` (step 7): each run answers the 13 queries of `SEARCH_QUERIES` (1–3 letters, Latin and Arabic, several words, a rare word, no match) over the 200k segments. About 43 ms per run, so 3 ms per query, on a fast PC (2026-11-02); the target is 200 ms per query on a 2018 TV. |
 
-Steps 7–9 add their parts to `tools/bench/src/suites.ts` the same way. CI uploads the results as the `bench` artifact.
+Steps 8–9 add their parts to `tools/bench/src/suites.ts` the same way. CI uploads the results as the `bench` artifact.
 
 The 200k playlist is also a correctness test: `tools/fixtures/test/m3u-scale.media.test.ts` (`pnpm test:media`) checks that core's parser returns exactly the 200,000 entries that `catalog.json` lists, and that each of the 400 malformed lines has its documented effect (`MALFORMED_EFFECTS` in `tools/fixtures/test/m3u-oracle.ts`). `m3u-core.test.ts` runs the same check on a 9,000-entry catalog in `pnpm test`.
 
@@ -222,6 +224,8 @@ Step 6 adds the same for the other inputs (`tools/fixtures/test/xtream-oracle.ts
 - every guide must read as one contiguous schedule per channel, from the first instant of the guide to past its end. Each channel writes its own UTC offset, so a misread offset breaks it.
 
 `xtream-xmltv-scale.media.test.ts` runs both on the 200k lists and the gzipped 300 MB guide (`pnpm test:media`); `xtream-xmltv-core.test.ts` runs them on a small catalog and guide in `pnpm test`.
+
+Step 7 adds `test/search-200k.media.test.ts` (root, `pnpm test:media`). The 200k playlist goes through the data layer into fake-indexeddb: the chunker, the search index and the generation commit. The query service then loads the index back and must answer each typical query in ≤ 200 ms. Every result is checked against the parsed names, with the total count of every query exact. `packages/core/src/search.test.ts` runs the same timing on a generated 200k catalog in `pnpm test`, and checks the ranking against a naive oracle with fast-check.
 
 `test/core-mock.test.ts` (root, `pnpm test`) checks the rest of step 6 against a live in-process mock:
 - the Xtream client, with and without `json-quirks`;

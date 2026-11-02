@@ -121,6 +121,12 @@ Off-the-shelf libraries such as Norigin measure the DOM on every move. That figh
 
 Profile schema changes go through versioned migrations with fixture tests. A migration never drops data, and the 3 snapshots allow rollback. This addresses complaint #7 (updates wiping favourites).
 
+**Built in step 7** (`packages/data`):
+- **Database version 1** (`schema.ts`): `sources_meta`, `catalog_chunks`, `catalog_cats`, `catalog_index`, `profile` and `kv`. The EPG stores come with step 9 as migration 2, and `blobs` with the phone pairing.
+- **Migrations** are an append-only list, and the database version is its length. They run inside the upgrade transaction. A migration that throws aborts the upgrade, so the old version and its data stay intact. `schema.test.ts` pins the shape of every version, and upgrades from each earlier version with seeded data.
+- **Transactions** are callback-driven inside and promise-based outside (`transact`). Never `await` inside one: on Chromium 53 a transpiled `await` can resume on a later task, after IndexedDB has committed the transaction.
+- **The profile document** is versioned on its own (`profile.ts`, version 1 = favourites). Older documents are upgraded on load, and the old copy goes to a snapshot. A save snapshots the replaced document at most once a day, into 3 rolling slots, and a restore can itself be undone. A document from a newer app version is shown but never overwritten.
+
 **Storage space.** On Tizen, request the `unlimitedstorage` privilege. Spike S2 measures webOS quota. Budget: catalog ≤ 60 MB; EPG ≤ 100 MB on full-tier TVs and ≤ 30 MB on low-tier ones.
 
 ### 1.4 Catalog pipeline (ingest worker)
@@ -148,12 +154,21 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
    - When the UI posts `busy` (zapping or starting playback), the worker pauses.
    - On low-tier TVs it runs a duty cycle of 50 ms work and 50 ms sleep.
 8. **Index.** For each source and kind, all normalized names are joined into one search string with `\u0001` separators, plus a `Uint32Array` of offsets. A key-to-location map is also built. Both are stored as typed arrays.
+   - **Built in step 7** (`packages/core/src/search.ts`):
+     - The key map is the sorted `hash53` of each key plus the item index (12 bytes per item), and it compares hashes only. A collision inside one segment is about a one-in-a-million event at 200k items, and it would cost only a favourite boost.
+     - Items are numbered in the order the 500-item chunks were written, and a chunk table maps an item to its `[catIdx, chunk, slot]`. Display names stay in the chunks, so the index for 200k items is about 12 MB in memory, not double that.
+     - `CatalogChunker` (data) numbers categories by first appearance. When more than 5,000 items are waiting, it flushes the largest category early as a partial chunk.
 9. **Swap.** One transaction sets `sources_meta.gen = new`. The query worker reloads its index and the old generation is deleted in the background. If the app crashes mid-ingest, the old generation is still intact.
 10. **Favourites survive refreshes** because they reference ContentKeys. If a key disappears, it is kept as "unavailable" for 30 days and re-matched by normalized name, which covers providers renumbering their streams.
 11. **Search.** `indexOf` over the search string, then a binary search over offsets to find the item.
     - **Ranking:** word-prefix matches first, then substring matches; live before VOD before series; favourites boosted.
     - **Results** are capped at 200.
     - **Speed target:** under 200 ms for 200k items on 2018 TVs.
+    - **Built in step 7:**
+      - Query words are ANDed in any order.
+      - The ranking is: word-prefix before substring, then favourites, then live, VOD, series, then exact, name-start, word, then source order and catalog order.
+      - The query worker (`packages/data/src/query.worker.ts`, 100.5 KB of the 150 KB worker budget) loads the active generations' segments, and resolves hits to items through a 16-chunk cache.
+      - In Node, 13 typical queries over the 200k fixture take 0.3–11 ms each (`test/search-200k.media.test.ts`, `pnpm bench search-200k`).
 12. **Fallback if spike S1 or S6 fails** on webOS 4: VOD and series are fetched per category on demand (`&category_id=`), and search covers only loaded categories plus all live channels.
 
 ### 1.5 EPG pipeline

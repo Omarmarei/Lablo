@@ -41,7 +41,7 @@ describe('bundleIife (Rollup IIFE + Babel chrome 53 + core-js)', () => {
     expect(result.code).toContain('createObjectURL');
   }, 60_000);
 
-  it("compiles core's parsers to gated Chromium 53 code that gives the same results as Node", async () => {
+  it("compiles core's parsers and search to gated Chromium 53 code that gives the same results as Node", async () => {
     const result = await bundleIife({ input: fixture('core-parsers.ts'), platform: 'webos', label: 'core-parsers' });
     expect(checkSyntax(result.code, 'main')).toBeNull();
     const bundled = (runWithoutModernApis(result.code) as { run(): string }).run();
@@ -54,6 +54,8 @@ describe('bundleIife (Rollup IIFE + Babel chrome 53 + core-js)', () => {
     expect(bundled).toContain('/timeshift/u/p%40ss/45/2026-11-02:16-15/101.ts');
     expect(bundled).toContain('clock 345');
     expect(bundled).toContain('"username":"special+user","password":"a b"');
+    expect(bundled).toContain('news=3:0/0.0/word*,2/2.0/start,3/2.1/substring');
+    expect(bundled).toContain('new 24=1:2/2.0/word');
   }, 60_000);
 
   it('leaves the polyfills out only when asked to (the old-engine self-test build)', async () => {

@@ -1,4 +1,4 @@
-// Build fixture: core's parsers (RELAY steps 5-6) through the TV pipeline. The app doesn't use
+// Build fixture: core's parsers and search (RELAY steps 5-7) through the TV pipeline. The app doesn't use
 // them until the data worker does (step 8), so they are tree-shaken out of the TV bundle; this
 // fixture proves they transpile to Chromium 53 code, pass the syntax gate and run without the
 // ES2017 APIs that engine lacks. bundle.test.ts compares the bundled result with a native run.
@@ -6,12 +6,17 @@ import {
   JsonArraySplitter,
   M3uCatalogParser,
   XmltvTokenizer,
+  SearchIndexBuilder,
+  SearchSegment,
   XtreamListParser,
   decodeBase64Utf8,
+  favouriteMarks,
   fixedZone,
   m3uCatchupUrl,
+  normalizeName,
   panelZone,
   parseXmltvTime,
+  searchSegments,
   xtreamCatchupUrl,
   xtreamFromM3uUrl,
 } from '@zoma/core';
@@ -48,6 +53,18 @@ export function run(): string {
   out.push(`${zone.source} ${zone.offset(0)}`);
   out.push(JSON.stringify(xtreamFromM3uUrl('http://p.test/get.php?username=special%2Buser&password=a+b&type=m3u_plus')));
   out.push(String(decodeBase64Utf8('2YbYtNix2Kk=')));
+
+  const builder = new SearchIndexBuilder('tv', 'live', 3);
+  ['Sky News', 'قناة الأخبار', 'News 24', 'Renews'].forEach((name, i) => {
+    if (i % 2 === 0) builder.beginChunk(i, 0);
+    builder.add(`x:tv:live:${i}`, normalizeName(name));
+  });
+  const segments = [new SearchSegment(builder.finish())];
+  const favs = favouriteMarks(segments, ['x:tv:live:0']);
+  for (const q of ['news', 'الاخبار', 'NEW 24']) {
+    const result = searchSegments(segments, q, { favourites: favs });
+    out.push(`${result.query}=${result.total}:${result.hits.map((h) => `${h.index}/${h.catIdx}.${h.slot}/${h.match}${h.favourite ? '*' : ''}`).join(',')}`);
+  }
   return out.join('\n');
 }
 

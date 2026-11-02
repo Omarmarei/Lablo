@@ -7,7 +7,8 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["ES2023"],
+    // DOM: test/ type-checks @zoma/data sources (IndexedDB, MessagePort, Worker types).
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": ["node"],
     "allowJs": true,
     "checkJs": true,
