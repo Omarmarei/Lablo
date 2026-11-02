@@ -81,8 +81,12 @@ UI steps also end with a short "press these keys" checklist that Omar can run in
   - **Done when:** `pnpm mock` serves streams that ffprobe validates in a test, and fixtures generate in under 2 minutes.
 
 ### Phase 3: Data engine
-- [ ] 5. **core, part 1 (3.1).** Domain types, ContentKey, Arabic/Latin normalization (diacritics, alef forms, ة→ه, ى→ي, Arabic-Indic digits), streaming M3U parser.
+- [x] 5. **core, part 1 (3.1).** Domain types, ContentKey, Arabic/Latin normalization (diacritics, alef forms, ة→ه, ى→ي, Arabic-Indic digits), streaming M3U parser.
   - **Done when:** golden and fast-check fuzz tests pass.
+  - Done in leg 7 (`packages/core/src`: `model`, `normalize`, `hash`, `content-key`, `m3u`, `m3u-catalog`). [ADR-009](docs/adr/ADR-009-m3u-content-keys.md) amends the M3U key: tvg-id **plus** name, 53-bit hash, key functions frozen.
+  - Golden tests and fast-check properties: chunk-split invariance, never-throw on any UTF-16, round trips, Arabic and Latin folding.
+  - Checked against the fixture generator's own catalog: all 200,000 entries come back and all 400 malformed lines are counted (`pnpm test:media`). A 9,000-entry run is in `pnpm test`.
+  - `pnpm bench m3u-parse`: about 74 MB/s on the 45.6 MB playlist.
 - [ ] 6. **core, part 2 (3.2).** Tolerant Xtream client, streaming JSON-array splitter, streaming XMLTV tokenizer, catch-up URL builders (Xtream + M3U `default/append/shift/flussonic/xc`), detection of Xtream-style M3U links (`get.php?username=`) for the M3U→Xtream upgrade.
   - **Done when:** tests against the mock provider pass.
 - [ ] 7. **data, part 1 (3.3).** IDB schema and migrations (fake-indexeddb), typed worker RPC, query worker, search index and ranking.
@@ -206,3 +210,5 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 | 3 | 2026-11-02 | 2b | Old-engine harness: Chromium 53/56/68 snapshots in Debian 9 Docker over raw CDP; boot, Blob worker + IDB, keys; self-test catches ES2018/ES2020 seeds and no-polyfills; CI job `engines`; S1 finding (Blob-worker IDB on file://) | e632376 |
 | 4 | 2026-11-02 | 3 | Mock provider: Xtream player_api (all actions, user_info states), m3u_plus, XMLTV(.gz), live TS/HLS, VOD ranges, catch-up in all Xtream/M3U modes, 14 fault types (YAML scenarios + `?mock_fault=`), LAN log collector, `pnpm mock`; 149 tests | 8977442 |
 | 5 | 2026-11-02 | 4 | Legal media set: ffmpeg test channels (60 s loops on the epoch timeline via a TS rewriter; bilingual, 720p50, 1080p, MP3 radio), VOD (4K HEVC, multi-audio ara/eng/spa + AC3/E-AC3 5.1, SRT/mov_text ara+eng), Blender open movies (pinned SHA-256) + /attribution; scale fixtures (200k M3U/Xtream/catalog JSON, 50/150/300 MB XMLTV + gz, ~20 s); bench harness; mock Dockerfile; mock `--catalog/--xmltv/--media`; CI job `media` (ffprobe-validated) | 6a2b9f9 |
+| 6 | 2026-11-02 | — | No project work. Stalled at start on a hidden EnterWorktree permission prompt, as leg 3 did. Diagnosed with Omar, and the relay skill fixed: the run settings deny EnterWorktree, and the watcher now cancels a stuck prompt and nudges the leg once. Step 5 moves to leg 7 | — |
+| 7 | 2026-11-02 | 5 | core part 1: domain types, ContentKey (ADR-009: tvg-id+name, 53-bit hash, frozen), NFKD-based Arabic/Latin normalization + matchName, streaming M3U parser (chunk-split safe, counted skips) + catalog mapping; golden + fast-check tests; 200k fixture oracle (all entries, 400 malformed lines); bench `m3u-parse` ~74 MB/s | 1bdf817 |

@@ -113,8 +113,11 @@ function channelName(rng: Rng, cat: Category, n: number): string {
 
 const esc = (s: string): string => s.replace(/"/g, "'");
 
-/** Broken M3U lines that tolerant parsers must survive (inserted before every ~500th entry). */
-const MALFORMED = [
+/**
+ * Broken M3U lines that tolerant parsers must survive: line `k` (k = 1, 2, …) is written before
+ * entry `500k`, and is `MALFORMED[k % MALFORMED.length]`.
+ */
+export const MALFORMED = [
   '#EXTINF:-1 tvg-name="Unbalanced quote,Broken entry',
   '#EXTINF:-1,Entry without a URL',
   'http://scale.zoma.test/orphan/url-without-extinf.ts',

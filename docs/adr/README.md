@@ -12,3 +12,4 @@ One file per decision, numbered in order. Format: Status, Date, Context, Decisio
 | [006](ADR-006-e2e-pairing-backup-crypto.md) | End-to-end pairing and backup crypto | Accepted |
 | [007](ADR-007-stalker-dropped.md) | Stalker/MAG portals dropped | Accepted |
 | [008](ADR-008-player-platform-api-direction.md) | `platform-api` depends on `player`, not the reverse | Accepted |
+| [009](ADR-009-m3u-content-keys.md) | M3U ContentKeys hash tvg-id plus name; key functions are frozen | Accepted |

@@ -1,7 +1,7 @@
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { formatTable, measure } from '../src/harness';
-import { availableCases, countInStream } from '../src/suites';
+import { availableCases, countInStream, parseM3uStream } from '../src/suites';
 
 const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 2));
 
@@ -74,10 +74,18 @@ describe('suites', () => {
     expect(await countInStream(Readable.from([Buffer.from('#EXT'), Buffer.from('INF')]), '#EXTINF')).toBe(1);
   });
 
+  it('parses an M3U byte stream with core, across split multi-byte characters', async () => {
+    const text = Buffer.from(['#EXTM3U', '#EXTINF:-1,زوما', 'http://h.test/1.ts', '#EXTINF:-1,b', 'http://h.test/movie/2.mp4'].join('\n'));
+    const at = text.indexOf(Buffer.from('و')) + 1; // inside a 2-byte character
+    expect(await parseM3uStream(Readable.from([text.subarray(0, at), text.subarray(at)]))).toBe(2);
+    // An orphan URL in an extended playlist is no entry.
+    expect(await parseM3uStream(Readable.from([Buffer.from('#EXTM3U\nhttp://orphan.test/x.ts\n')]))).toBe(0);
+  });
+
   it('reports missing fixtures instead of failing, and rejects unknown cases', () => {
     const { cases, missing } = availableCases('/nonexistent');
     expect(cases).toHaveLength(0);
-    expect(missing).toHaveLength(3);
+    expect(missing).toHaveLength(4);
     expect(() => availableCases('/nonexistent', ['nope'])).toThrow(/Unknown benchmark/);
   });
 });

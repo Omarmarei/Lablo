@@ -14,3 +14,14 @@ allowBuilds:
   # esbuild (pulled in by vitest/vite) runs a postinstall that verifies its native binary.
   esbuild: true
   ssh2: false
+  # napi-postinstall check of the native binding; the bindings come as optional dependencies.
+  unrs-resolver: false
+
+overrides:
+  # Windows Smart App Control (kept on) blocks unsigned native binaries it has no reputation
+  # for. On 2026-11-02 it blocked unrs-resolver 1.13.0's resolver.win32-x64-msvc.node (published
+  # 2026-10-31), which ESLint's import resolver, and so the boundary lint, needs. The 1.12.2
+  # binary (2026-05) loads. Its wasm32 build is no fallback on Windows: WASI preopens only the
+  # drive root and gets Windows paths, so every resolve fails. Linux CI is unaffected.
+  # Lift the pin once a newer release loads under SAC (`pnpm lint` stays green locally).
+  unrs-resolver: 1.12.2

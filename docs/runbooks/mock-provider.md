@@ -201,15 +201,18 @@ pnpm mock --catalog .cache/fixtures/catalog.json --xmltv .cache/fixtures/xmltv-3
 - peak heap, sampled while the case runs, starting from a heap cleaned with `--expose-gc`;
 - peak RSS.
 
-Today's cases are baselines:
+The `*-scan` and `*-json-parse` cases are baselines (the naive way to read each input). The real parsers run next to them on the same inputs:
 
 | Case | What it measures |
 |---|---|
-| `m3u-extinf-scan` | A streamed line scan of the M3U. |
-| `xtream-vod-json-parse` | The whole-response `JSON.parse` that step 6's streaming splitter replaces. |
-| `xmltv-gz-programme-scan` | Gunzip and scan of the 300 MB guide. |
+| `m3u-extinf-scan` | Baseline: a streamed line scan of the M3U. |
+| `m3u-parse` | core's streaming `M3uCatalogParser` (step 5): bytes → TextDecoder → catalog items with keys, normalized names and match names, items dropped per chunk. About 74 MB/s and a 75 MB heap peak for the 200k playlist on a fast PC (2026-11-02), against about 640 MB/s for the scan. |
+| `xtream-vod-json-parse` | Baseline: the whole-response `JSON.parse` that step 6's streaming splitter replaces. |
+| `xmltv-gz-programme-scan` | Baseline: gunzip and scan of the 300 MB guide. |
 
-Steps 5–9 add their parsers to `tools/bench/src/suites.ts`, so they are measured against these numbers. CI uploads the results as the `bench` artifact.
+Steps 6–9 add their parsers to `tools/bench/src/suites.ts` the same way. CI uploads the results as the `bench` artifact.
+
+The 200k playlist is also a correctness test: `tools/fixtures/test/m3u-scale.media.test.ts` (`pnpm test:media`) checks that core's parser returns exactly the 200,000 entries that `catalog.json` lists, and that each of the 400 malformed lines has its documented effect (`MALFORMED_EFFECTS` in `tools/fixtures/test/m3u-oracle.ts`). `m3u-core.test.ts` runs the same check on a 9,000-entry catalog in `pnpm test`.
 
 ## Docker
 
