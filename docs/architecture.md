@@ -255,11 +255,11 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
       - The fixture is twice S6's guide, so the TV gets 8 min.
       - The low tier's 50/50 duty cycle leaves 4 min of CPU. Half of that is kept for what Node doesn't do here: fflate's JavaScript gunzip, IndexedDB writes and structured clones. That leaves 120 s for the read.
       - A 2018 webOS 4 core is taken as about 15x slower than the CI runner: about 10x for the SoC (a 1.x GHz Cortex-A53 class core) and 1.5x for V8 5.3 against today's V8. 120 s / 15 = 8 s.
-      - Measured: about 2.5–3 s on a fast PC (2026-11-02).
+      - Measured: 2.3 s on the CI runner and about 2.5–3 s on a fast PC under load (2026-11-02).
     - **`epg-ingest-full`, the worst case: ≤ 20 s median.** Every guide channel matched, the full tier's 7 + 7 days, 1.33 M programmes kept.
       - S6 sets no full-tier number, so the target chosen here is 4 min on a 2020 TV, with no duty cycle and half the CPU for gunzip and writes: 120 s.
       - A 2020 TV (Chromium 68+, 1.5–2 GHz cores) is taken as about 6x slower than the CI runner. 120 s / 6 = 20 s.
-      - Measured: about 7.5 s on a fast PC, against about 5.7 s for the tokenizer alone.
+      - Measured: 5.9 s on the CI runner (the tokenizer alone: 4.0 s), about 7.5 s on a fast PC under load.
     - **Memory: the worst case runs in a 96 MB V8 heap** (`--max-old-space-size=96`), with the 200k playlist parse and its 20,000-channel wanted set in the same heap (`test/epg-300mb.media.test.ts`). It runs in about 24 s there, because the GC works harder.
       - A sampled heap peak isn't limited: uncapped, V8 lets garbage grow to 200 MB or more before collecting it.
       - 96 MB is the ingest worker's share on a 1–1.5 GB low-tier TV, next to the main thread and the query worker.
