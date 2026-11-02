@@ -1,7 +1,7 @@
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { formatTable, measure } from '../src/harness';
-import { availableCases, countInStream, parseM3uStream } from '../src/suites';
+import { SUITES, availableCases, countInStream, parseM3uStream, parseXtreamListStream, tokenizeXmltvStream } from '../src/suites';
 
 const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 2));
 
@@ -82,10 +82,23 @@ describe('suites', () => {
     expect(await parseM3uStream(Readable.from([Buffer.from('#EXTM3U\nhttp://orphan.test/x.ts\n')]))).toBe(0);
   });
 
+  it('streams Xtream lists through the list parser, across chunk and UTF-8 boundaries', async () => {
+    const text = Buffer.from('[{"stream_id":1,"name":"أفلام"},{"stream_id":"x y"},{"stream_id":2,"name":"Two"}]');
+    const at = text.indexOf(0xd9) + 1;
+    expect(await parseXtreamListStream(Readable.from([text.subarray(0, at), text.subarray(at)]))).toBe(2);
+  });
+
+  it('streams XMLTV through the tokenizer, keeping only wanted channels', async () => {
+    const xml = Buffer.from('<tv><programme start="1" channel="epg10.zoma.test"><title>نشرة</title></programme><programme start="1" channel="epg11.zoma.test"/></tv>');
+    const at = xml.indexOf(0xd9) + 1;
+    expect(await tokenizeXmltvStream(Readable.from([xml.subarray(0, at), xml.subarray(at)]))).toBe(2);
+    expect(await tokenizeXmltvStream(Readable.from([xml]), (id) => id === 'epg10.zoma.test')).toBe(1);
+  });
+
   it('reports missing fixtures instead of failing, and rejects unknown cases', () => {
     const { cases, missing } = availableCases('/nonexistent');
     expect(cases).toHaveLength(0);
-    expect(missing).toHaveLength(4);
+    expect(missing).toHaveLength(Object.keys(SUITES).length);
     expect(() => availableCases('/nonexistent', ['nope'])).toThrow(/Unknown benchmark/);
   });
 });
