@@ -16,5 +16,8 @@
     "@zoma/core": "workspace:*",
     "@zoma/protocol": "workspace:*",
     "@zoma/crypto": "workspace:*"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "6.2.6"
   }
 }
