@@ -87,8 +87,18 @@ UI steps also end with a short "press these keys" checklist that Omar can run in
   - Golden tests and fast-check properties: chunk-split invariance, never-throw on any UTF-16, round trips, Arabic and Latin folding.
   - Checked against the fixture generator's own catalog: all 200,000 entries come back and all 400 malformed lines are counted (`pnpm test:media`). A 9,000-entry run is in `pnpm test`.
   - `pnpm bench m3u-parse`: about 74 MB/s on the 45.6 MB playlist.
-- [ ] 6. **core, part 2 (3.2).** Tolerant Xtream client, streaming JSON-array splitter, streaming XMLTV tokenizer, catch-up URL builders (Xtream + M3U `default/append/shift/flussonic/xc`), detection of Xtream-style M3U links (`get.php?username=`) for the M3U→Xtream upgrade.
+- [x] 6. **core, part 2 (3.2).** Tolerant Xtream client, streaming JSON-array splitter, streaming XMLTV tokenizer, catch-up URL builders (Xtream + M3U `default/append/shift/flussonic/xc`), detection of Xtream-style M3U links (`get.php?username=`) for the M3U→Xtream upgrade.
   - **Done when:** tests against the mock provider pass.
+  - Done in leg 8 (`packages/core/src`: `json-splitter`, `xtream-url`, `xtream`, `timezone`, `catchup`, `xmltv`, `text`). [ADR-010](docs/adr/ADR-010-catchup-time-zones.md) records how the panel zone is found (Intl, then the panel clock, then UTC) and how M3U catch-up modes are inferred.
+  - `test/core-mock.test.ts` runs everything against the in-process mock:
+    - the Xtream client, with identical keys and items under `json-quirks`;
+    - the `truncate`, `bom`, `gzip`, `invalid-utf8` and `status` faults;
+    - every catch-up mode, resolved through `X-Mock-Archive-*` in four panel zones (one with DST);
+    - get.php upgrade, including the special-character account;
+    - XMLTV in every offset style.
+  - Fixture oracles: the 200k Xtream lists come back exactly as `catalog.json` has them, and the gzipped 300 MB guide reads as 5,000 contiguous schedules (`pnpm test:media`).
+  - Bench: `xtream-vod-json-split` about 95 MB/s; `xmltv-gz-tokenize` about 4.1 s for the 300 MB guide (2 s at a 10% match rate).
+  - fast-check properties (chunk-split invariance, never-throw, round trips) were mutation-checked: all 8 mutants caught.
 - [ ] 7. **data, part 1 (3.3).** IDB schema and migrations (fake-indexeddb), typed worker RPC, query worker, search index and ranking.
   - **Done when:** search over the 200k fixture takes ≤ 200 ms in Node and migration tests pass.
 - [ ] 8. **data, part 2 (3.4).** Ingest worker: streamed fetch, DecompressionStream/fflate gunzip, parse, 500-item chunks, generation swap. Busy-pause and low-tier duty cycle; conditional fetch.
@@ -212,3 +222,4 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 | 5 | 2026-11-02 | 4 | Legal media set: ffmpeg test channels (60 s loops on the epoch timeline via a TS rewriter; bilingual, 720p50, 1080p, MP3 radio), VOD (4K HEVC, multi-audio ara/eng/spa + AC3/E-AC3 5.1, SRT/mov_text ara+eng), Blender open movies (pinned SHA-256) + /attribution; scale fixtures (200k M3U/Xtream/catalog JSON, 50/150/300 MB XMLTV + gz, ~20 s); bench harness; mock Dockerfile; mock `--catalog/--xmltv/--media`; CI job `media` (ffprobe-validated) | 6a2b9f9 |
 | 6 | 2026-11-02 | — | No project work. Stalled at start on a hidden EnterWorktree permission prompt, as leg 3 did. Diagnosed with Omar, and the relay skill fixed: the run settings deny EnterWorktree, and the watcher now cancels a stuck prompt and nudges the leg once. Step 5 moves to leg 7 | — |
 | 7 | 2026-11-02 | 5 | core part 1: domain types, ContentKey (ADR-009: tvg-id+name, 53-bit hash, frozen), NFKD-based Arabic/Latin normalization + matchName, streaming M3U parser (chunk-split safe, counted skips) + catalog mapping; golden + fast-check tests; 200k fixture oracle (all entries, 400 malformed lines); bench `m3u-parse` ~74 MB/s. Also (Omar's option 1): unrs-resolver pinned to 1.12.2 because Smart App Control blocks 1.13.0's binary, and the WASM fallback was dropped (it can't resolve Windows paths). PR #6 merged as 7b44cb3 | 1bdf817, 597c73e |
+| 8 | 2026-11-02 | 6 | core part 2: streaming JSON-array splitter; tolerant Xtream client (injected transport, json-quirks-proof keys, episodes in any shape); streaming XMLTV tokenizer (entities, CDATA, UI-language titles, wantChannel skipping); catch-up URLs for Xtream and every M3U mode, panel zone via Intl, then panel clock, then UTC (ADR-010); get.php detection. Checked against the in-process mock (every catch-up mode via X-Mock-Archive-* in 4 zones, faults, XMLTV offset styles), the 200k Xtream lists and 300 MB guide oracles, and a Chromium 53 pipeline bundle; 711 tests. Bench: Xtream lists ~95 MB/s, 300 MB guide ~4.1 s | 0798039 |
