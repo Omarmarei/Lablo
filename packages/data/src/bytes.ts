@@ -181,6 +181,8 @@ export class Fnv1a {
 
   /** Eight lower-case hex digits. */
   digest(): string {
-    return (this.h >>> 0).toString(16).padStart(8, '0');
+    // Not padStart: its polyfill would be in every worker that reads bytes (the query worker too).
+    const hex = (this.h >>> 0).toString(16);
+    return '00000000'.slice(hex.length) + hex;
   }
 }

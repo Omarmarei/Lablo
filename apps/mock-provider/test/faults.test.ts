@@ -365,6 +365,7 @@ describe('scenario rules', () => {
       'broken-playlist',
       'flaky-live',
       'gzip-epg',
+      'no-xmltv',
       'odd-timezone',
       'provider-errors',
       'redirect-chain',
@@ -404,7 +405,7 @@ describe('shipped scenarios against the server', () => {
     expect((await inject(api())).json<{ user_info: Record<string, unknown> }>().user_info['max_connections']).toBe(2);
   });
 
-  it('broken-playlist, gzip-epg, odd-timezone and redirect-chain do what they say', async () => {
+  it('broken-playlist, gzip-epg, odd-timezone, redirect-chain and no-xmltv do what they say', async () => {
     app = await mock({ scenario: 'broken-playlist' });
     const broken = (await inject(M3U)).rawPayload;
     expect([...broken.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
@@ -426,6 +427,14 @@ describe('shipped scenarios against the server', () => {
     app = await mock({ scenario: 'redirect-chain' });
     expect((await inject('/series/zoma/zoma-test/3001.mkv')).statusCode).toBe(302);
     expect((await inject(api())).statusCode).toBe(200);
+    await app.close();
+
+    // The guide is off, the short EPG still answers (the step-9c fallback).
+    app = await mock({ scenario: 'no-xmltv' });
+    expect((await inject(XMLTV)).statusCode).toBe(404);
+    const short = (await inject(api('get_short_epg', '&stream_id=101&limit=2'))).json<{ epg_listings: unknown[] }>();
+    expect(short.epg_listings).toHaveLength(2);
+    expect((await inject(M3U)).body).toContain('url-tvg=');
   });
 });
 
@@ -445,7 +454,7 @@ describe('scenario control', () => {
     expect((await put(null)).json()).toEqual({ active: null });
     expect((await inject('/live/zoma/zoma-test/101.ts')).statusCode).toBe(200);
     const listed = (await inject('/__mock/scenarios')).json<{ active: null; available: { name: string }[] }>();
-    expect(listed.available).toHaveLength(8);
+    expect(listed.available).toHaveLength(9);
   });
 
   it('never faults the control and lab endpoints', async () => {

@@ -14,7 +14,9 @@ import {
   xId,
   xInt,
   xNumber,
+  xtreamEpgProgrammes,
 } from './xtream';
+import { EPG_DEFAULT_LENGTH, EPG_FLAG_CUT, EPG_FLAG_STOP_GUESSED, EPG_MAX_LENGTH } from './epg-guide';
 
 const account = { base: 'http://p.test:8080', username: 'zoma', password: 'zoma-test' };
 const ctx: XtreamDecodeContext = { src: 'src1', account, categories: new Map([['3', 'Kids Test | أطفال']]) };
@@ -246,6 +248,49 @@ describe('details', () => {
     ]);
     expect(decodeShortEpg({ epg_listings: [] })).toEqual([]);
     expect(decodeShortEpg([])).toEqual([]);
+  });
+
+  it('turns the short EPG into guide programmes in UTC minutes, in time order', () => {
+    const at = 29_893_680; // 2026-11-02 18:00 UTC, in epoch minutes
+    const entry = (start: number | null, end: number | null, title: string) => ({
+      title,
+      description: `${title} desc`,
+      startMs: start === null ? null : start * 60_000,
+      endMs: end === null ? null : end * 60_000,
+      start: '',
+      end: '',
+      nowPlaying: null,
+      hasArchive: null,
+    });
+    const row = (start: number, end: number, title: string, flags = 0) => ({ start, end, title, sub: '', desc: `${title} desc`, category: '', episode: '', flags });
+    // Seconds are dropped the way the guide reader drops them.
+    expect(xtreamEpgProgrammes([{ ...entry(at, at + 30, 'A'), startMs: at * 60_000 + 59_000, endMs: (at + 30) * 60_000 + 59_000 }])).toEqual([row(at, at + 30, 'A')]);
+    expect(
+      xtreamEpgProgrammes([
+        entry(at + 60, at + 90, 'C'),
+        entry(null, at + 30, 'no start'),
+        entry(at, null, 'A'),
+        entry(at + 30, at + 30, 'B'),
+        entry(at, at + 15, 'A again'),
+        entry(at + 90, null, 'D'),
+      ]),
+    ).toEqual([
+      // No stop: the next start. A stop not after the start: the same. The last: an hour.
+      row(at, at + 30, 'A', EPG_FLAG_STOP_GUESSED),
+      row(at + 30, at + 60, 'B', EPG_FLAG_STOP_GUESSED),
+      row(at + 60, at + 90, 'C'),
+      row(at + 90, at + 90 + EPG_DEFAULT_LENGTH, 'D', EPG_FLAG_STOP_GUESSED),
+    ]);
+    // Cut at 24 h, and a guessed stop too.
+    expect(xtreamEpgProgrammes([entry(at, at + 2 * EPG_MAX_LENGTH, 'long'), entry(at + 3 * EPG_MAX_LENGTH, null, 'gap'), entry(at + 5 * EPG_MAX_LENGTH, at + 5 * EPG_MAX_LENGTH + 30, 'last')])).toEqual([
+      row(at, at + EPG_MAX_LENGTH, 'long', EPG_FLAG_CUT),
+      row(at + 3 * EPG_MAX_LENGTH, at + 4 * EPG_MAX_LENGTH, 'gap', EPG_FLAG_STOP_GUESSED | EPG_FLAG_CUT),
+      row(at + 5 * EPG_MAX_LENGTH, at + 5 * EPG_MAX_LENGTH + 30, 'last'),
+    ]);
+    // Decoded straight from a panel answer.
+    const listing = { title: b64('News'), description: '', start_timestamp: String(at * 60), stop_timestamp: String((at + 45) * 60) };
+    expect(xtreamEpgProgrammes(decodeShortEpg({ epg_listings: [listing, { title: 'No times' }] }))).toEqual([{ ...row(at, at + 45, 'News'), desc: '' }]);
+    expect(xtreamEpgProgrammes([])).toEqual([]);
   });
 });
 

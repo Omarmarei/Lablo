@@ -40,14 +40,14 @@ export {
   xtreamXmltvUrl,
 } from './xtream-url';
 
+export type { TextResponse, TextTransport, XtreamErrorCode } from './xtream-base';
+export { XtreamError, xFlag, xId, xInt, xNumber, xText } from './xtream-base';
+export type { XtreamEpgEntry } from './xtream-epg';
+export { decodeShortEpg, xtreamEpgProgrammes, xtreamShortEpg } from './xtream-epg';
 export type {
-  TextResponse,
-  TextTransport,
   XtreamCategory,
   XtreamDecodeContext,
-  XtreamEpgEntry,
   XtreamEpisode,
-  XtreamErrorCode,
   XtreamListItem,
   XtreamListOptions,
   XtreamListStats,
@@ -58,22 +58,7 @@ export type {
   XtreamUserInfo,
   XtreamVodInfo,
 } from './xtream';
-export {
-  XtreamClient,
-  XtreamError,
-  XtreamListParser,
-  decodeCategory,
-  decodeListItem,
-  decodeLogin,
-  decodeSeriesInfo,
-  decodeShortEpg,
-  decodeVodInfo,
-  xFlag,
-  xId,
-  xInt,
-  xNumber,
-  xText,
-} from './xtream';
+export { XtreamClient, XtreamListParser, decodeCategory, decodeListItem, decodeLogin, decodeSeriesInfo, decodeVodInfo } from './xtream';
 
 export type { PanelClock, PanelZone, ZoneOffset, ZoneSource } from './timezone';
 export { UTC_ZONE, clockOffset, fixedZone, intlZone, panelZone, wallParts } from './timezone';

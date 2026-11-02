@@ -112,6 +112,11 @@ test.describe('catalog panel in the desktop browser (pnpm dev)', () => {
     await expect(guide).toHaveText('ok: 11 of 12 live channels have a guide (91.7%), 1 guide', { timeout: 20_000 });
     await expect(guide).toHaveAttribute('data-matched', '11');
     await expect(page.getByTestId('nownext-status')).toHaveText(/^(ok: Zoma Sports Test F?HD: |none: )/);
+    // The one live channel no guide matches, focused for 600 ms: its panel's short EPG is asked,
+    // and has nothing for it either (it has no EPG id).
+    const panelEpg = page.getByTestId('shortepg-status');
+    await expect(panelEpg).toHaveText('none: 18+ Test Pattern: the panel has no programmes for it now', { timeout: 20_000 });
+    await expect(panelEpg).toHaveAttribute('data-from', 'panel');
 
     // A remote key marks the UI busy (a running refresh would pause), then idle again.
     await page.keyboard.press('ArrowDown');
@@ -123,8 +128,27 @@ test.describe('catalog panel in the desktop browser (pnpm dev)', () => {
     await expect(page.getByTestId('data-status')).toHaveText(`ok: 1 source, ${entries} items`);
     await expect(search).toHaveAttribute('data-total', '2');
     await expect(guide).toHaveAttribute('data-matched', '11');
+    await expect(panelEpg).toHaveText("none: needs ?source=<an Xtream panel's get.php URL>");
     await page.goto(`/?source=${encodeURIComponent(playlist)}`);
     await expect(ingest).toHaveText(new RegExp(`^ok: unchanged gen 1, ${entries} items`), { timeout: 20_000 });
     expect(errors).toEqual([]);
+  });
+
+  test('falls back to the short EPG of a panel whose guide is off', async ({ page }) => {
+    const errors = trackErrors(page);
+    const noGuide = await mock({ scenario: 'no-xmltv' });
+    try {
+      const playlist = `${await listen(noGuide)}/get.php?username=${U}&password=${P}&type=m3u_plus`;
+      await page.goto(`/?source=${playlist}`);
+      await expect(page.getByTestId('epg-status')).toHaveText('failed: debug:tvg0 http', { timeout: 20_000 });
+      const panelEpg = page.getByTestId('shortepg-status');
+      await expect(panelEpg).toHaveAttribute('data-from', 'panel', { timeout: 20_000 });
+      // The mock's schedule is pinned to its own day and the browser's clock isn't, so the text
+      // depends on the clock (packages/data and test/short-epg-mock.test.ts check it exactly).
+      await expect(panelEpg).toHaveText(/^(ok: Zoma Test 1 SMPTE: .+ [(]panel[)]|none: Zoma Test 1 SMPTE: the panel has no programmes for it now)$/);
+      expect(errors).toEqual([]);
+    } finally {
+      await noGuide.close();
+    }
   });
 });

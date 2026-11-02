@@ -52,7 +52,7 @@ export {
 export type { CallOptions, CancelToken, RpcContext, RpcHandler, RpcHandlers, RpcPort, RpcServer } from './rpc';
 export { CancelError, CancelSource, NEVER, RpcClient, RpcError, serveRpc } from './rpc';
 
-export type { EpgNowNext, EpgStatus, ItemRef, QueryServiceOptions, QueryStatus, SearchRequest, SegmentStatus } from './query-service';
+export type { EpgNowNext, EpgStatus, ItemRef, QueryServiceOptions, QueryStatus, SearchRequest, SegmentStatus, ShortEpgNowNext } from './query-service';
 export { QueryService } from './query-service';
 
 export type { ByteRequest, ByteResponse, ByteSource, ByteTransport, FetchLike, TextSource } from './bytes';
@@ -93,6 +93,9 @@ export {
 
 export type { EpgCatalogSource, EpgDueReason, EpgGuide, UserGuide } from './epg-sources';
 export { EPG_AHEAD_MS, EPG_REFRESH_MS, EPG_RETRY_MS, epgGuides, epgRefreshDue } from './epg-sources';
+
+export type { ShortEpgAnswer, ShortEpgRequest, ShortEpgSource, ShortEpgTarget } from './short-epg';
+export { SHORT_EPG_LIMIT, SHORT_EPG_TTL_MS, ShortEpgCache, shortEpgNowNext, shortEpgTarget } from './short-epg';
 
 export type { EpgIngestOptions, EpgOutcome, EpgProgress, EpgRefreshJob, EpgRefreshResult, EpgResult, EpgSwap, EpgWanted } from './epg-ingest';
 export { EPG_INGEST_VERSION, EPG_WRITE_BATCH, readEpgWanted, runEpgIngest, runEpgRefresh } from './epg-ingest';

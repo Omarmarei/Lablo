@@ -18,73 +18,26 @@ import type { JsonSplitterOptions, JsonSplitterStats } from './json-splitter';
 import { JsonArraySplitter } from './json-splitter';
 import type { CatalogItem, ContentKey, ContentKind } from './model';
 import { matchName, normalizeName } from './normalize';
-import { cutText, decodeBase64Utf8 } from './text';
+import { cutText } from './text';
 import type { PanelZone } from './timezone';
 import { panelZone } from './timezone';
 import type { XtreamAccount, XtreamStreamKind } from './xtream-url';
 import { streamExtension, xtreamApiUrl, xtreamStreamUrl } from './xtream-url';
+import type { Obj, TextResponse, TextTransport } from './xtream-base';
+import { XtreamError, isObj, positiveInt, readAll, xFlag, xId, xInt, xNumber, xText, xtreamJson, xtreamOpen } from './xtream-base';
+import type { XtreamEpgEntry } from './xtream-epg';
+import { xtreamShortEpg } from './xtream-epg';
 
-type Obj = Record<string, unknown>;
-
-function isObj(v: unknown): v is Obj {
-  return v !== null && typeof v === 'object' && !Array.isArray(v);
-}
-
-// ---------------------------------------------------------------------------------------------
-// Tolerant values
-
-/** A string field: strings trimmed, numbers and booleans written out, anything else `''`. */
-export function xText(v: unknown): string {
-  if (typeof v === 'string') return v.trim();
-  if (typeof v === 'number') return isFinite(v) ? String(v) : '';
-  if (typeof v === 'boolean') return v ? '1' : '0';
-  return '';
-}
+// The plumbing and the short EPG have files of their own (RELAY step 9c): a bundle that only
+// asks for a channel's short EPG (the query worker) then leaves the list parser out.
+export type { TextResponse, TextTransport, XtreamErrorCode } from './xtream-base';
+export { XtreamError, xFlag, xId, xInt, xNumber, xText } from './xtream-base';
+export type { XtreamEpgEntry } from './xtream-epg';
+export { decodeShortEpg, xtreamEpgProgrammes } from './xtream-epg';
 
 function textOrNull(v: unknown): string | null {
   const text = xText(v);
   return text.length > 0 ? text : null;
-}
-
-/** A number field: numbers, or numeric strings (`"7.5"`, `" 12 "`, `"7,5"`); otherwise `null`. */
-export function xNumber(v: unknown): number | null {
-  if (typeof v === 'number') return isFinite(v) ? v : null;
-  if (typeof v !== 'string') return null;
-  const text = v.trim().replace(',', '.');
-  if (!/^-?\d+(?:\.\d+)?$/.test(text)) return null;
-  return Number(text);
-}
-
-/** An integer field (`"12"`, `12`, `"12.0"`); otherwise `null`. */
-export function xInt(v: unknown): number | null {
-  const n = xNumber(v);
-  return n !== null && Math.floor(n) === n && Number.isSafeInteger(n) ? n : null;
-}
-
-/** A flag: `true`, `1`, `"1"`, `"true"`, `"yes"`. */
-export function xFlag(v: unknown): boolean {
-  if (v === true) return true;
-  if (typeof v === 'number') return v === 1;
-  if (typeof v !== 'string') return false;
-  const text = v.trim().toLowerCase();
-  return text === '1' || text === 'true' || text === 'yes';
-}
-
-/**
- * A panel id as key text: a non-negative integer, or a string without whitespace or colons
- * (what `xtreamKey` accepts). `123` and `"123"` give the same text, so keys survive panels
- * switching types. `null` when unusable.
- */
-export function xId(v: unknown): string | null {
-  if (typeof v === 'number') return Number.isSafeInteger(v) && v >= 0 ? String(v) : null;
-  if (typeof v !== 'string') return null;
-  const text = v.trim();
-  return /^[^\s:]{1,64}$/.test(text) ? text : null;
-}
-
-function positiveInt(v: unknown): number | null {
-  const n = xInt(v);
-  return n !== null && n > 0 ? n : null;
 }
 
 function yearOf(...values: unknown[]): number | null {
@@ -534,85 +487,11 @@ export function decodeSeriesInfo(v: unknown, ctx: XtreamDecodeContext): XtreamSe
   };
 }
 
-export interface XtreamEpgEntry {
-  title: string;
-  description: string;
-  /** Epoch ms from `start_timestamp`; `null` when the panel gave none. */
-  startMs: number | null;
-  endMs: number | null;
-  /** `start`/`end` as written (wall time in the panel's zone). */
-  start: string;
-  end: string;
-  /** `get_simple_data_table` only. */
-  nowPlaying: boolean | null;
-  hasArchive: boolean | null;
-}
-
-/** Base64 text as panels send EPG titles; plain text when it isn't base64. */
-function epgText(v: unknown, max: number): string {
-  const raw = xText(v);
-  return cutText(decodeBase64Utf8(raw) ?? raw, max);
-}
-
-/** Decodes `get_short_epg` / `get_simple_data_table` (`{ epg_listings: [...] }`). */
-export function decodeShortEpg(v: unknown): XtreamEpgEntry[] {
-  const list = isObj(v) ? v['epg_listings'] : v;
-  if (!Array.isArray(list)) return [];
-  const out: XtreamEpgEntry[] = [];
-  for (const e of list) {
-    if (!isObj(e)) continue;
-    const start = positiveInt(e['start_timestamp']);
-    const stop = positiveInt(e['stop_timestamp']) ?? positiveInt(e['end_timestamp']);
-    out.push({
-      title: epgText(e['title'], 256),
-      description: epgText(e['description'], 1000),
-      startMs: start === null ? null : start * 1000,
-      endMs: stop === null ? null : stop * 1000,
-      start: xText(e['start']),
-      end: xText(e['end']) || xText(e['stop']),
-      nowPlaying: 'now_playing' in e ? xFlag(e['now_playing']) : null,
-      hasArchive: 'has_archive' in e ? xFlag(e['has_archive']) : null,
-    });
-  }
-  return out;
-}
-
 // ---------------------------------------------------------------------------------------------
 // Client
 
-/** A response being read: decoded text chunks in order (`null` at the end). */
-export interface TextResponse {
-  status: number;
-  read(): Promise<string | null>;
-  /** Stops reading and releases the connection. Safe to call more than once. */
-  cancel(): void;
-}
-
-/**
- * GET over HTTP, decoded to text (UTF-8, gzip handled). The data layer implements it with
- * fetch + TextDecoder or XHR; tests use the mock provider.
- */
-export interface TextTransport {
-  get(url: string): Promise<TextResponse>;
-}
-
-export type XtreamErrorCode = 'http' | 'auth' | 'format';
-
-/** A failed Xtream call. The message never holds the URL or credentials. */
-export class XtreamError extends Error {
-  constructor(
-    readonly code: XtreamErrorCode,
-    readonly status: number | null = null,
-  ) {
-    super(`Xtream ${code} error${status === null ? '' : ` (HTTP ${status})`}`);
-    this.name = 'XtreamError';
-  }
-}
-
 const LIST_ACTION: Record<ContentKind, string> = { live: 'get_live_streams', movie: 'get_vod_streams', series: 'get_series' };
 const CATEGORY_ACTION: Record<ContentKind, string> = { live: 'get_live_categories', movie: 'get_vod_categories', series: 'get_series_categories' };
-/** Largest non-list body read whole (in UTF-16 code units). */
-const MAX_BODY = 16 * 1024 * 1024;
 
 export interface XtreamListOptions {
   categories?: Map<string, string>;
@@ -695,8 +574,8 @@ export class XtreamClient {
     });
   }
 
-  async shortEpg(streamId: string | number, limit = 4): Promise<XtreamEpgEntry[]> {
-    return decodeShortEpg(await this.json(xtreamApiUrl(this.account, 'get_short_epg', { stream_id: streamId, limit })));
+  shortEpg(streamId: string | number, limit = 4): Promise<XtreamEpgEntry[]> {
+    return xtreamShortEpg(this.account, this.transport, streamId, limit);
   }
 
   streamUrl(kind: XtreamStreamKind, id: string | number, ext: string): string {
@@ -708,40 +587,11 @@ export class XtreamClient {
     return xtreamCatchupUrl(this.account, streamId, window, this.zone().offset, ext);
   }
 
-  private async open(url: string): Promise<TextResponse> {
-    const res = await this.transport.get(url);
-    if (res.status >= 200 && res.status < 300) return res;
-    res.cancel();
-    throw new XtreamError(res.status === 401 || res.status === 403 ? 'auth' : 'http', res.status);
+  private open(url: string): Promise<TextResponse> {
+    return xtreamOpen(this.transport, url);
   }
 
-  /** A small JSON answer read whole. Throws `XtreamError('format')` when it isn't JSON. */
-  private async json(url: string): Promise<unknown> {
-    const res = await this.open(url);
-    let text = '';
-    await readAll(res, (chunk) => {
-      text += chunk;
-      if (text.length > MAX_BODY) throw new XtreamError('format');
-    });
-    if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
-    try {
-      return JSON.parse(text);
-    } catch {
-      throw new XtreamError('format');
-    }
-  }
-}
-
-/** Reads a response to its end, cancelling it if the consumer throws. */
-async function readAll(res: TextResponse, consume: (chunk: string) => void | Promise<void>): Promise<void> {
-  try {
-    for (;;) {
-      const chunk = await res.read();
-      if (chunk === null) return;
-      await consume(chunk);
-    }
-  } catch (error) {
-    res.cancel();
-    throw error;
+  private json(url: string): Promise<unknown> {
+    return xtreamJson(this.transport, url);
   }
 }

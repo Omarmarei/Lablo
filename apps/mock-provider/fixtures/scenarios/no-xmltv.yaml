@@ -1,0 +1,7 @@
+description: xmltv.php answers 404, as on panels that turn their guide off; get_short_epg still answers.
+rules:
+  - match:
+      path: /xmltv.php
+    faults:
+      - type: status
+        status: 404

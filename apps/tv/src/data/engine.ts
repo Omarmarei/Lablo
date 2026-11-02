@@ -10,7 +10,10 @@
  * - an **EPG worker** starts for each EPG refresh (step 9b). The guides come from the catalog
  *   sources (`epgGuides`), and `due` refreshes only those `epgRefreshDue` names. Catalog and EPG
  *   refreshes share one slot, so a low-tier TV never runs both at once; when a guide swaps in, the
- *   query worker reloads, and `nowNext` reads the store through it.
+ *   query worker reloads, and `nowNext` reads the store through it;
+ * - `focusChannel` is the short-EPG fallback (step 9c): once a live channel has kept the focus
+ *   for `FOCUS_MS`, the query worker gives its now/next, from its guide or, when no guide matches
+ *   it, from its Xtream panel's `get_short_epg` (kept 30 min per channel in the worker).
  *
  * Workers come from factories, so tests serve the real services over message channels; the
  * app passes the `?worker` imports (`./workers.ts`).
@@ -32,6 +35,8 @@ import type {
   ItemRef,
   QueryStatus,
   RpcPort,
+  ShortEpgNowNext,
+  ShortEpgSource,
   UserGuide,
 } from '@zoma/data';
 // The client entry only: the package index would pull every data module's polyfills into main.
@@ -97,6 +102,17 @@ export interface EpgRefreshOptions {
 }
 
 export const IDLE_MS = 1000;
+/** How long a live channel keeps the focus before its short EPG is asked for (§1.5 item 1). */
+export const FOCUS_MS = 600;
+
+/** A focused live channel. */
+export interface FocusedChannel {
+  key: ContentKey;
+  /** Its stream URL (the panel's stream id is read from it; it never leaves the data layer). */
+  url: string;
+  /** Its catalog source, as the app refreshes it (an `IngestSource` fits). */
+  source: ShortEpgSource;
+}
 
 const ignore = (): void => undefined;
 
@@ -119,6 +135,10 @@ export class DataEngine {
   private busyFlag = false;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
+  /** The focus waiting out `FOCUS_MS`, and the newest focus (older answers are dropped). */
+  private focusTimer: ReturnType<typeof setTimeout> | null = null;
+  private focusWaiting: ((value: null) => void) | null = null;
+  private focusSeq = 0;
 
   constructor(private readonly options: DataEngineOptions) {}
 
@@ -230,6 +250,38 @@ export class DataEngine {
     return this.query.call('epgStatus');
   }
 
+  /**
+   * A live channel got the focus (`null`: the focus left the live channels). Once it has kept
+   * the focus for `FOCUS_MS`, the query worker gives its now/next: its guide's when one matches
+   * it, otherwise its Xtream panel's short EPG (`from: 'panel'`). A focus that moves on before
+   * then asks nothing, so scrolling through a list makes no requests.
+   *
+   * Resolves with the answer, or `null` when the focus moved on first (or the engine was
+   * disposed): each call settles the one before. Rejects with the panel's error for the focused
+   * channel (the next focus asks again).
+   */
+  focusChannel(channel: FocusedChannel | null): Promise<ShortEpgNowNext | null> {
+    const seq = ++this.focusSeq;
+    this.clearFocus();
+    if (channel === null || this.disposed) return Promise.resolve(null);
+    return new Promise<ShortEpgNowNext | null>((resolve, reject) => {
+      this.focusWaiting = resolve;
+      this.focusTimer = setTimeout(() => {
+        this.focusTimer = null;
+        this.focusWaiting = null;
+        const current = (): boolean => seq === this.focusSeq && !this.disposed;
+        if (!current()) {
+          resolve(null);
+          return;
+        }
+        this.query.call('shortEpg', { key: channel.key, url: channel.url, source: channel.source }).then(
+          (answer) => resolve(current() ? answer : null),
+          (error: unknown) => (current() ? reject(error) : resolve(null)),
+        );
+      }, FOCUS_MS);
+    });
+  }
+
   /** Searches every active generation and resolves the first `names` hits to display names. */
   async search(query: string, options: { limit?: number; names?: number } = {}): Promise<SearchSummary> {
     const result = await this.query.call('search', { query, limit: options.limit });
@@ -271,6 +323,7 @@ export class DataEngine {
     this.disposed = true;
     if (this.idleTimer !== null) clearTimeout(this.idleTimer);
     this.idleTimer = null;
+    this.clearFocus();
     this.queryClient?.close();
     this.queryWorker?.terminate();
     this.queryClient = null;
@@ -285,6 +338,15 @@ export class DataEngine {
       this.queryClient = createDataClient(worker);
     }
     return this.queryClient;
+  }
+
+  /** Stops the focus timer; a focus still waiting resolves with `null`. */
+  private clearFocus(): void {
+    if (this.focusTimer !== null) clearTimeout(this.focusTimer);
+    this.focusTimer = null;
+    const waiting = this.focusWaiting;
+    this.focusWaiting = null;
+    waiting?.(null);
   }
 
   private setBusy(busy: boolean): void {

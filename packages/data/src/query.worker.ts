@@ -5,10 +5,12 @@
  * `createDataClient` (from `@zoma/data/client`).
  */
 
+import { fetchTransport } from './bytes';
 import { openDatabase } from './idb';
 import { QueryService } from './query-service';
 import type { RpcPort } from './rpc';
 import { serveRpc } from './rpc';
 
-const service = new QueryService({ openDb: () => openDatabase(indexedDB) });
+// The transport is for the short-EPG fallback only (step 9c): the catalog reads never fetch.
+const service = new QueryService({ openDb: () => openDatabase(indexedDB), transport: fetchTransport() });
 serveRpc(self as unknown as RpcPort, service.handlers());
