@@ -394,8 +394,8 @@ describe('XMLTV tokenizer against the mock', () => {
     const expected = expectedGuide().flatMap((p) => [p[2], p[3]]);
     expect(got).toHaveLength(expected.length);
     // New York repeated 01:00-02:00 on 2026-11-01 (05:00-07:00 UTC). Wall times in the second
-    // pass (06:00-07:00 UTC) read as the first pass, an hour early. Step 9 can repair these from
-    // per-channel ordering; everything else is exact.
+    // pass (06:00-07:00 UTC) read as the first pass, an hour early. Step 9's EpgGuideReader
+    // repairs these from per-channel ordering (test/epg-mock.test.ts); everything else is exact.
     const second = [Date.UTC(2026, 10, 1, 6), Date.UTC(2026, 10, 1, 7)];
     const off = expected.flatMap((ms, i) => (got[i] === ms ? [] : [[ms, got[i]]]));
     expect(off.length).toBeGreaterThan(0);

@@ -54,6 +54,12 @@ export interface XmltvOptions {
   wantChannel?: (id: string) => boolean;
   /** Longest description kept (default 1000; 300 on low-tier TVs). */
   descLimit?: number;
+  /**
+   * Receives each channel and programme as it completes, in document order, instead of the
+   * lists `push` and `end` return (which are then empty). A channel reaches it before the
+   * `wantChannel` call of any programme after it in the same chunk.
+   */
+  onItem?: (item: XmltvItem) => void;
 }
 
 export interface XmltvStats {
@@ -203,6 +209,8 @@ export class XmltvTokenizer {
   private readonly languages: string[];
   private readonly wantChannel: ((id: string) => boolean) | null;
   private readonly descLimit: number;
+  private readonly onItem: ((item: XmltvItem) => void) | null;
+  private readonly ranks = new Map<string, number>();
 
   private buf = '';
   private ctx = NONE;
@@ -235,6 +243,7 @@ export class XmltvTokenizer {
     this.languages = (options.languages ?? []).map((l) => primaryLanguage(l));
     this.wantChannel = options.wantChannel ?? null;
     this.descLimit = Math.max(0, options.descLimit ?? 1000);
+    this.onItem = options.onItem ?? null;
   }
 
   /** Feeds the next chunk of text; returns the channels and programmes it completed, in order. */
@@ -470,7 +479,7 @@ export class XmltvTokenizer {
     if (this.ctx === PROGRAMME && name === 'programme') {
       this.ctx = NONE;
       this.stats.programmes++;
-      out.push({
+      this.emit(out, {
         type: 'programme',
         channel: this.id,
         start: this.start,
@@ -489,8 +498,13 @@ export class XmltvTokenizer {
         return;
       }
       this.stats.channels++;
-      out.push({ type: 'channel', id: this.id, name: this.name.text ?? this.id, names: this.names, icon: this.icon });
+      this.emit(out, { type: 'channel', id: this.id, name: this.name.text ?? this.id, names: this.names, icon: this.icon });
     }
+  }
+
+  private emit(out: XmltvItem[], item: XmltvItem): void {
+    if (this.onItem === null) out.push(item);
+    else this.onItem(item);
   }
 
   private finishField(): void {
@@ -532,9 +546,21 @@ export class XmltvTokenizer {
 
   private rank(lang: string | undefined): number {
     if (this.languages.length === 0) return 0;
-    const at = lang === undefined ? -1 : this.languages.indexOf(primaryLanguage(lang));
-    return at === -1 ? this.languages.length : at;
+    if (lang === undefined) return this.languages.length;
+    // A guide uses a handful of lang values: remember each one's rank.
+    let rank = this.ranks.get(lang);
+    if (rank === undefined) {
+      const at = this.languages.indexOf(primaryLanguage(lang));
+      rank = at === -1 ? this.languages.length : at;
+      if (this.ranks.size < 64) this.ranks.set(ownCopy(lang), rank);
+    }
+    return rank;
   }
+}
+
+/** A flat copy: a cached attribute value must not keep its whole chunk alive. */
+function ownCopy(s: string): string {
+  return (' ' + s).slice(1);
 }
 
 function primaryLanguage(lang: string): string {
@@ -557,6 +583,25 @@ export function parseXmltv(text: string, options: XmltvOptions = {}): { items: X
 
 const XMLTV_TIME = /^\s*(\d{4})(\d{2})(\d{2})(?:(\d{2})(\d{2})(\d{2})?)?\s*(.*)$/;
 
+/** Minutes east of UTC a zone suffix states (`+0545`, `+05:45`, `+05`, `Z`…); `null` if none or unreadable. */
+function zoneMinutes(zone: string): number | null {
+  const offset = /^([+-])(\d{2}):?(\d{2})$/.exec(zone) ?? /^([+-])(\d{1,2})()$/.exec(zone);
+  if (offset) {
+    const minutes = Number(offset[2]) * 60 + (offset[3] ? Number(offset[3]) : 0);
+    return offset[1] === '-' ? -minutes : minutes;
+  }
+  return /^(?:Z|UTC|GMT)$/i.test(zone) ? 0 : null;
+}
+
+/**
+ * Whether an XMLTV time states its own offset (so `parseXmltvTime` ignores its fallback zone).
+ * The EPG pipeline repairs the repeated DST hour only in times that don't.
+ */
+export function xmltvTimeHasZone(raw: string): boolean {
+  const m = XMLTV_TIME.exec(raw);
+  return m !== null && zoneMinutes((m[7] ?? '').trim()) !== null;
+}
+
 /**
  * Epoch ms of an XMLTV time (`YYYYMMDDhhmmss ±hhmm`). Accepted offsets: `+0545`, `+05:45`,
  * `+05`, `Z`, `UTC`, `GMT`. Without one (or with one it can't read), `fallback` gives the zone:
@@ -564,6 +609,54 @@ const XMLTV_TIME = /^\s*(\d{4})(\d{2})(\d{2})(?:(\d{2})(\d{2})(\d{2})?)?\s*(.*)$
  * zone for an Xtream guide). `null` when the date itself is unreadable.
  */
 export function parseXmltvTime(raw: string, fallback: number | ZoneOffset = 0): number | null {
+  // Fast path for the usual `YYYYMMDDhhmmss +hhmm` (a guide has millions of these); anything
+  // else, or anything it can't read, takes the general path, which gives the same answers.
+  if (raw.length === 20 && raw.charCodeAt(14) === 32) {
+    const sign = raw.charCodeAt(15);
+    const year = digits(raw, 0, 4);
+    const month = digits(raw, 4, 2);
+    const day = digits(raw, 6, 2);
+    const hour = digits(raw, 8, 2);
+    const minute = digits(raw, 10, 2);
+    const second = digits(raw, 12, 2);
+    const offH = digits(raw, 16, 2);
+    const offM = digits(raw, 18, 2);
+    if (
+      (sign === 43 || sign === 45) &&
+      year >= 0 &&
+      month >= 1 &&
+      month <= 12 &&
+      day >= 1 &&
+      day <= 31 &&
+      hour >= 0 &&
+      hour <= 24 &&
+      minute >= 0 &&
+      minute <= 59 &&
+      second >= 0 &&
+      second <= 60 &&
+      offH >= 0 &&
+      offM >= 0
+    ) {
+      const offset = (offH * 60 + offM) * (sign === 45 ? -1 : 1);
+      return Date.UTC(year, month - 1, day, hour, minute, second) - offset * 60_000;
+    }
+  }
+  return parseXmltvTimeGeneral(raw, fallback);
+}
+
+/** The value of `n` ASCII digits at `from`, or -1 if one isn't a digit. */
+function digits(s: string, from: number, n: number): number {
+  let v = 0;
+  for (let i = from; i < from + n; i++) {
+    const c = s.charCodeAt(i) - 48;
+    if (c < 0 || c > 9) return -1;
+    v = v * 10 + c;
+  }
+  return v;
+}
+
+/** @internal `parseXmltvTime` without its fast path (tests compare the two). */
+export function parseXmltvTimeGeneral(raw: string, fallback: number | ZoneOffset = 0): number | null {
   const m = XMLTV_TIME.exec(raw);
   if (!m) return null;
   const year = Number(m[1]);
@@ -574,13 +667,8 @@ export function parseXmltvTime(raw: string, fallback: number | ZoneOffset = 0): 
   const second = m[6] === undefined ? 0 : Number(m[6]);
   if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 24 || minute > 59 || second > 60) return null;
   const wall = Date.UTC(year, month - 1, day, hour, minute, second);
-  const zone = (m[7] ?? '').trim();
-  const offset = /^([+-])(\d{2}):?(\d{2})$/.exec(zone) ?? /^([+-])(\d{1,2})()$/.exec(zone);
-  if (offset) {
-    const minutes = Number(offset[2]) * 60 + (offset[3] ? Number(offset[3]) : 0);
-    return wall - (offset[1] === '-' ? -minutes : minutes) * 60_000;
-  }
-  if (/^(?:Z|UTC|GMT)$/i.test(zone)) return wall;
+  const stated = zoneMinutes((m[7] ?? '').trim());
+  if (stated !== null) return wall - stated * 60_000;
   if (typeof fallback === 'number') return wall - fallback * 60_000;
   // Wall time in a zone with DST: settle the offset in two steps.
   const first = wall - fallback(wall) * 60_000;

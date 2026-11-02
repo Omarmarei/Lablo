@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import type { BenchResult } from './src/harness';
-import { formatTable, measure } from './src/harness';
+import { formatTable, measure, overLimits } from './src/harness';
 import { availableCases } from './src/suites';
 
 const { values, positionals } = parseArgs({
@@ -26,7 +26,11 @@ for (const c of cases) {
   console.log(`done: ${c.name}`);
 }
 console.log(formatTable(results));
+const over = results.flatMap(overLimits);
+for (const line of over) console.error(`over the limit: ${line}`);
+if (results.some((r) => r.limit)) console.log(over.length === 0 ? 'limits: every case within its limits' : `limits: ${over.length} exceeded`);
 if (values.json) {
   mkdirSync(dirname(resolve(values.json)), { recursive: true });
   writeFileSync(values.json, `${JSON.stringify(results, null, 2)}\n`);
 }
+if (over.length > 0) process.exitCode = 1;

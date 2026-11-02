@@ -2,15 +2,27 @@
 // cases are baselines: the naive way to read each input. The real parsers run next to them:
 // core's M3U parser is `m3u-parse` (step 5); the Xtream list parser over the JSON-array splitter
 // is `xtream-vod-json-split` and the XMLTV tokenizer `xmltv-gz-tokenize` (step 6); the search
-// index build and the 200k search are `search-index-build` and `search-200k` (step 7). Step 9
-// adds the EPG ingest (matching, window, buckets).
+// index build and the 200k search are `search-index-build` and `search-200k` (step 7). The EPG
+// guide reads (matching, window, time repair, per-channel-day buckets) are `epg-ingest-*` (step
+// 9); they carry limits derived from spike S6 (architecture.md §1.5 step 10), and `pnpm bench`
+// fails when a case goes over its limit.
 
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createGunzip } from 'node:zlib';
-import type { CatalogItem, ContentKind } from '@zoma/core';
-import { CONTENT_KINDS, M3uCatalogParser, SearchIndexBuilder, SearchSegment, XmltvTokenizer, XtreamListParser, searchSegments } from '@zoma/core';
-import type { BenchCase } from './harness';
+import type { CatalogItem, ContentKind, DeviceTier, EpgSourceReport } from '@zoma/core';
+import {
+  CONTENT_KINDS,
+  EpgGuideReader,
+  EpgWantedSet,
+  M3uCatalogParser,
+  SearchIndexBuilder,
+  SearchSegment,
+  XmltvTokenizer,
+  XtreamListParser,
+  searchSegments,
+} from '@zoma/core';
+import type { BenchCase, BenchLimit } from './harness';
 
 export interface Suite {
   /** Fixture file the case reads (relative to the fixtures folder). */
@@ -76,13 +88,36 @@ export async function tokenizeXmltvStream(stream: AsyncIterable<unknown>, want?:
   return tokenizer.stats.programmes;
 }
 
-/** Parses a whole playlist into memory (setup for the search cases, not timed by them). */
-export async function parsePlaylistItems(path: string): Promise<CatalogItem[]> {
+/**
+ * The scale guide's centre (tools/fixtures `XMLTV_ANCHOR_MS`, checked by test/epg-fixture.test.ts):
+ * it covers 7 days either side, so the full tier's 7 + 7-day window keeps all of it.
+ */
+export const EPG_BENCH_NOW = Date.UTC(2026, 10, 1);
+
+/**
+ * Reads a guide as the ingest worker will (TextDecoder, then EpgGuideReader: tokenizer, matcher,
+ * window, time repair, buckets), dropping the buckets it hands out. Returns the report.
+ */
+export async function readEpgStream(stream: AsyncIterable<unknown>, wanted: EpgWantedSet, tier: DeviceTier, nowMs = EPG_BENCH_NOW): Promise<EpgSourceReport> {
+  const decoder = new TextDecoder();
+  const reader = new EpgGuideReader({ epgSrc: 'bench', wanted, tier, nowMs, languages: ['ar', 'en'] });
+  for await (const chunk of stream) reader.push(decoder.decode(chunk as Uint8Array, { stream: true }));
+  reader.push(decoder.decode());
+  reader.end();
+  return reader.report();
+}
+
+/** Parses a whole playlist into memory, or only its items of one kind (setup, not timed). */
+export async function parsePlaylistItems(path: string, kind?: ContentKind): Promise<CatalogItem[]> {
   const decoder = new TextDecoder();
   const parser = new M3uCatalogParser('bench');
   const items: CatalogItem[] = [];
-  for await (const chunk of createReadStream(path)) items.push(...parser.push(decoder.decode(chunk as Uint8Array, { stream: true })));
-  items.push(...parser.push(decoder.decode()), ...parser.end());
+  const keep = (list: CatalogItem[]): void => {
+    for (const item of list) if (kind === undefined || item.kind === kind) items.push(item);
+  };
+  for await (const chunk of createReadStream(path)) keep(parser.push(decoder.decode(chunk as Uint8Array, { stream: true })));
+  keep(parser.push(decoder.decode()));
+  keep(parser.end());
   return items;
 }
 
@@ -110,6 +145,40 @@ function lazy<T>(make: () => Promise<T>): () => Promise<T> {
 
 /** Every tenth EPG channel of the scale catalog (`epg{k}.zoma.test`): a typical matched share. */
 const tenthOfChannels = (id: string): boolean => /^epg\d*0\.zoma\.test$/.test(id);
+
+/**
+ * The wanted sets of the EPG cases, from the 200k playlist next to the guide: all 20,000 live
+ * channels (they point at every channel of the guide: the worst case), or every tenth one
+ * (2,000 channels wanting about a tenth of the guide: the usual filtered case).
+ */
+const wantedSets = new Map<string, Promise<{ all: EpgWantedSet; tenth: EpgWantedSet }>>();
+export function epgWanted(guidePath: string): Promise<{ all: EpgWantedSet; tenth: EpgWantedSet }> {
+  const playlist = join(dirname(guidePath), 'playlist.m3u');
+  let sets = wantedSets.get(playlist);
+  if (sets === undefined) {
+    sets = parsePlaylistItems(playlist, 'live').then((live) => ({
+      all: EpgWantedSet.fromItems(live),
+      tenth: EpgWantedSet.fromItems(live.filter((_, i) => i % 10 === 0)),
+    }));
+    wantedSets.set(playlist, sets);
+  }
+  return sets;
+}
+
+/**
+ * Median wall-time limits of the EPG cases on the CI runner (the slow end), derived from spike S6
+ * in architecture.md §1.5 step 10. Memory is bounded separately: the worst case must run in a
+ * 96 MB heap (test/epg-300mb.media.test.ts), because a sampled heap peak mostly measures how
+ * lazily V8 collects garbage.
+ */
+export const EPG_LIMITS: Record<'epg-ingest-low-10pct' | 'epg-ingest-full', BenchLimit> = {
+  // S6: 150 MB guide <= 4 min on webOS 4, so 8 min for 300 MB; half of it CPU (50/50 duty
+  // cycle), half of that left for gunzip and IndexedDB: 120 s; a 2018 TV ~15x slower: 8 s.
+  'epg-ingest-low-10pct': { medianMs: 8_000 },
+  // Full tier (no S6 number): the all-matched worst case <= 4 min on a 2020 TV, no duty cycle,
+  // half for gunzip and IndexedDB: 120 s; a 2020 TV ~6x slower: 20 s.
+  'epg-ingest-full': { medianMs: 20_000 },
+};
 
 export const SUITES: Record<string, Suite> = {
   'm3u-extinf-scan': {
@@ -173,6 +242,27 @@ export const SUITES: Record<string, Suite> = {
         },
       };
     },
+  },
+  'epg-ingest-low-10pct': {
+    input: 'xmltv-300mb.xml.gz',
+    make: (path) => ({
+      name: 'epg-ingest-low-10pct',
+      bytes: statSync(path).size,
+      limit: EPG_LIMITS['epg-ingest-low-10pct'],
+      // S6's scenario: a low-tier TV (1-2 past and 3 future days, 300-character descriptions)
+      // with a playlist that matches a tenth of the guide. Items: programmes kept.
+      run: async () => (await readEpgStream(createReadStream(path).pipe(createGunzip()), (await epgWanted(path)).tenth, 'low')).programmes.kept,
+    }),
+  },
+  'epg-ingest-full': {
+    input: 'xmltv-300mb.xml.gz',
+    make: (path) => ({
+      name: 'epg-ingest-full',
+      bytes: statSync(path).size,
+      limit: EPG_LIMITS['epg-ingest-full'],
+      // The worst case: every channel of the guide matched, the full tier's 7 + 7 days kept.
+      run: async () => (await readEpgStream(createReadStream(path).pipe(createGunzip()), (await epgWanted(path)).all, 'full')).programmes.kept,
+    }),
   },
   'xmltv-gz-tokenize-10pct': {
     input: 'xmltv-300mb.xml.gz',

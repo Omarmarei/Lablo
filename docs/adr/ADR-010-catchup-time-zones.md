@@ -34,7 +34,14 @@ Template placeholders follow Kodi's names (`{utc}`, `${start}`, `{utcend}`, `{lu
 
 **M3U `xc` channels on a non-UTC panel** need the panel zone, which only `player_api.php` gives. When the M3U URL is an Xtream `get.php` link (`xtreamFromM3uUrl`), the data layer logs in once and uses that zone; otherwise UTC.
 
-**XMLTV times without an offset** (the `timezone` fault's `none` style) are read in a fallback zone: the source's time offset (step 24), or the panel zone for an Xtream guide. In a DST zone the repeated hour is ambiguous; `parseXmltvTime` takes the earlier instant. Step 9 can repair those from per-channel ordering (a start before the previous stop moves forward an hour).
+**XMLTV times without an offset** (the `timezone` fault's `none` style) are read in a fallback zone: the source's time offset (step 24), or the panel zone for an Xtream guide. In a DST zone the repeated hour is ambiguous. Step 9 repairs it from per-channel ordering (a start before the previous stop moves forward an hour).
+
+**Amended in step 9 (2026-11-02):**
+- `parseXmltvTime` alone does not always take the earlier instant. It settles the offset from the wall time read as UTC, so it gives the earlier instant west of UTC (New York) and the later one east of it (London). `EpgGuideReader` therefore first settles every offset-less time in the repeated hour to the earlier instant, then repairs from ordering:
+  - a start before the channel's previous stop moves forward an hour;
+  - so does a stop that would end before its start, or the stop of a programme whose start moved.
+- **Limit:** a lone boundary in the repeated hour reads the same with either instant. An example is a 90-minute programme ending at the second 01:00 with the next one starting there. It is taken as the earlier instant, an hour early. `test/epg-mock.test.ts` checks that only that case stays off in a New York guide written without offsets, and `epg-guide.test.ts` checks the repair for London and New York.
+- An offset stated in the guide is never repaired, and neither is a fixed fallback zone, which has no repeated hour.
 
 ## Consequences
 - On engines with zone data, Xtream catch-up is exact across DST. Without it, DST zones are an hour off for archive programmes across a DST change, and the diagnostics screen (step 40) should show the zone source (`intl`/`clock`/`utc`).

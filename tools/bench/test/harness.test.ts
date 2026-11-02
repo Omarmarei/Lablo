@@ -4,18 +4,21 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { searchSegments } from '@zoma/core';
 import { describe, expect, it } from 'vitest';
-import { formatTable, measure } from '../src/harness';
+import { formatTable, measure, overLimits } from '../src/harness';
 import {
   SEARCH_QUERIES,
   SUITES,
+  EPG_BENCH_NOW,
   availableCases,
   buildSegments,
   countInStream,
   parseM3uStream,
   parsePlaylistItems,
   parseXtreamListStream,
+  readEpgStream,
   tokenizeXmltvStream,
 } from '../src/suites';
+import { EpgWantedSet, matchName, normalizeName } from '@zoma/core';
 
 const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 2));
 
@@ -68,6 +71,17 @@ describe('measure', () => {
     await expect(measure({ name: 'bad', bytes: 1, run: () => Promise.reject(new Error('boom')) }, { warmup: 0 })).rejects.toThrow('boom');
   });
 
+  it('carries a case limit into its result, and reports a median over it', async () => {
+    const slow = await measure({ name: 'slow', bytes: 0, limit: { medianMs: 1 }, run: () => new Promise((resolve) => setTimeout(() => resolve(1), 15)) }, { iterations: 1, warmup: 0 });
+    expect(slow.limit).toEqual({ medianMs: 1 });
+    expect(overLimits(slow)).toEqual([`slow: median ${slow.ms.median.toFixed(0)} ms over the 1 ms limit`]);
+    const fast = await measure({ name: 'fast', bytes: 0, limit: { medianMs: 60_000 }, run: () => 1 }, { iterations: 1, warmup: 0 });
+    expect(overLimits(fast)).toEqual([]);
+    const free = await measure({ name: 'free', bytes: 0, run: () => 1 }, { iterations: 1, warmup: 0 });
+    expect(free.limit).toBeUndefined();
+    expect(overLimits(free)).toEqual([]);
+  });
+
   it('formats an aligned table', () => {
     const table = formatTable([
       { name: 'a', iterations: 1, bytes: 2e6, items: 10, ms: { min: 1, median: 2, max: 3 }, mbPerSec: 1000, itemsPerSec: 5000, heapPeakMb: 1.25, rssPeakMb: 100 },
@@ -107,6 +121,28 @@ describe('suites', () => {
     const at = xml.indexOf(0xd9) + 1;
     expect(await tokenizeXmltvStream(Readable.from([xml.subarray(0, at), xml.subarray(at)]))).toBe(2);
     expect(await tokenizeXmltvStream(Readable.from([xml]), (id) => id === 'epg10.zoma.test')).toBe(1);
+  });
+
+  it('reads a guide byte stream as the TV does, keeping matched channels in the window', async () => {
+    const t = (hours: number): string => {
+      const d = new Date(EPG_BENCH_NOW + hours * 3_600_000);
+      const p = (n: number): string => String(n).padStart(2, '0');
+      return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}0000 +0000`;
+    };
+    const xml = Buffer.from(
+      `<tv><channel id="epg10.zoma.test"><display-name>نشرة</display-name></channel><channel id="epg11.zoma.test"/>` +
+        `<programme start="${t(1)}" stop="${t(2)}" channel="ghost.zoma.test"><title>ghost</title></programme>` +
+        `<programme start="${t(1)}" stop="${t(2)}" channel="epg10.zoma.test"><title>نشرة</title></programme>` +
+        `<programme start="${t(100)}" stop="${t(101)}" channel="epg10.zoma.test"><title>later</title></programme>` +
+        `<programme start="${t(1)}" stop="${t(2)}" channel="epg11.zoma.test"><title>x</title></programme></tv>`,
+    );
+    const at = xml.indexOf(0xd9) + 1;
+    const live = { key: 'm:b:1:0', src: 'b', kind: 'live' as const, name: 'News', normName: normalizeName('News'), group: '', url: '', logo: null, epgId: 'epg10.zoma.test', tvgName: null, matchName: matchName('News'), chno: null, tvgShift: 0, catchup: null, radio: false, hints: null };
+    const wanted = EpgWantedSet.fromItems([live]);
+    const low = await readEpgStream(Readable.from([xml.subarray(0, at), xml.subarray(at)]), wanted, 'low');
+    expect(low.programmes).toMatchObject({ kept: 1, outOfWindow: 1, orphansDropped: 1 });
+    expect(low.xmltv.filtered).toBe(1);
+    expect((await readEpgStream(Readable.from([xml]), wanted, 'full')).programmes.kept).toBe(2);
   });
 
   it('builds search segments per kind and runs the search cases over a playlist', async () => {
