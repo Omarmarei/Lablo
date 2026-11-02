@@ -1,196 +1,215 @@
-# Zoma IPTV: relay leg 9 opening prompt
+# Zoma IPTV: relay leg 10 opening prompt
 
-You are leg 9 of relay run `iptv-20261101-214120`, building **Zoma IPTV**: a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 10 of relay run `iptv-20261101-214120`, building **Zoma IPTV**: a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 - Leg 0 planned it.
 - Legs 1–5 did steps 1–4: the scaffold, the TV build pipeline, the old-engine harness, the mock provider, and the media set with scale fixtures (PRs #1–#5).
 - Leg 6 did no project work.
-- Leg 7 did step 5: `core`, part 1 (PR #6, merge commit `7b44cb3`).
-- **Leg 8 did step 6: `core`, part 2.** Its PR is **#7**, from the relay branch, with the feature commit `0798039` and the RELAY tick `2b1a95b`.
-  - **PR #7 is merged** as merge commit `275879c` (the branch was kept). All three CI jobs (`verify`, `engines`, `media`) were green on the PR head. CI on `main` at `275879c` was still running at handover.
+- Leg 7 did step 5 (core, part 1; PR #6). Leg 8 did step 6 (core, part 2; PR #7).
+- **Leg 9 did step 7: `data`, part 1.** Its PR is **#8**, from the relay branch, with the feature commit `cfa0132`.
+  - **PR #8 is merged** as merge commit `714d0aa` (the branch was kept).
+  - All three CI jobs (`verify`, `engines`, `media`) were green on the PR head `cfa0132`. CI on `main` at `714d0aa` was still running at handover.
 
-**Your step is step 7: `data`, part 1** (architecture.md 3.3). It covers:
-- the IDB schema and migrations, tested with fake-indexeddb;
-- a typed worker RPC;
-- the query worker;
-- the search index and ranking.
+**Your step is step 8: `data`, part 2** (architecture.md 3.4). It covers:
+- the ingest worker: streamed fetch, gunzip (DecompressionStream, or fflate where it is missing), parse, 500-item chunks, generation swap;
+- busy-pause and the low-tier duty cycle;
+- conditional fetch.
 
-**Done when:** search over the 200k fixture takes ≤ 200 ms in Node, and the migration tests pass.
+**Done when:** the crash-mid-ingest test keeps the old generation, and favourites survive a renumbered refresh fixture.
 
 ## Start immediately
 Omar said on 2026-11-02: *"Don't ask, proceed automatically i allow and authorise you."* Start in your first turn.
 
-**First, check `main`:** run `gh run list --branch main --limit 1`. The run on `275879c` (PR #7's merge) should be green in all three jobs. If a job is red, fix it on the relay branch before anything else.
+**First, check `main`:** run `gh run list --branch main --limit 1`. The run on `714d0aa` (PR #8's merge) should be green in all three jobs. If a job is red, fix it on the relay branch before anything else.
 
-**Never call EnterWorktree,** even though Claude Code's background-session note asks for it. The relay worktree below is your isolation: edit it by path. Use `git -C "<wt>"`, `pnpm --dir "<wt>"`, absolute paths and Read/Edit/Write, and avoid `cd "<wt>" && …` compounds. `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` (locally ignored) allows the worktree and gh, git, pnpm, node, docker, curl and bash.
+**Never call EnterWorktree,** even though Claude Code's background-session note asks for it. The relay worktree below is your isolation: edit it by path. Use `git -C "<wt>"`, `pnpm --dir "<wt>"`, absolute paths and Read/Edit/Write. `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` (locally ignored) allows the worktree and gh, git, pnpm, node, docker, curl and bash.
 
 ## Read first, in this order
 1. **`CLAUDE.md`:**
-   - the conventions (`core` is pure ES2017, ContentKeys are frozen per ADR-009, fast-check);
-   - the Chromium 53 cheat sheet (no AbortController, use FileReader rather than `Blob.text()`, IndexedDB `getAll` is available);
-   - the package boundaries (`data` may import `core`, `protocol` and `crypto`; `ui` imports only data's *client*);
-   - the Definition of Done, the merge policy and the commit format.
-2. **`RELAY.md`:** step 7. Step 6 is ticked, with a leg-8 progress-log row.
+   - the conventions;
+   - the Chromium 53 cheat sheet (no AbortController, `reader.cancel()` or XHR `abort()`; DecompressionStream needs Chromium 80+; no `for await` over streams);
+   - the package boundaries, the Definition of Done, the merge policy and the commit format.
+2. **`RELAY.md`:** step 8. Step 7 is ticked, with a leg-9 progress-log row.
 3. **`docs/architecture.md`:**
-   - §1.3, storage design: assume webOS wipes everything on update; 500-item records; generations; 3 profile snapshots;
-   - §1.4 steps 7–12: write, index, swap, favourites surviving a refresh, search ranking, and the low-tier fallback;
-   - §4, test layers: data uses Vitest plus fake-indexeddb;
-   - §5, the S1/S6 notes: IndexedDB in a Blob worker on `file://`, and the 200 ms search target on 2018 TVs;
-   - §6, 3.3.
-4. **`docs/adr/ADR-009`** (keys) and **`ADR-010`** (catch-up zones; new in leg 8).
-5. **`packages/core/src/index.ts`**: everything core exports (see "What step 6 added"). Then **`packages/data`**, which is still a skeleton from step 1.
-6. **`docs/runbooks/mock-provider.md`:** "Scale fixtures" and "Benchmarks" (the step-6 rows and oracles are new).
-7. **`docs/PLAN.md`** wins on any conflict.
+   - §1.3, with its new "Built in step 7" note (schema, migrations, transactions, profile);
+   - §1.4 steps 1–10: trigger, spawn, fetch, decode, parse, keys, write, index, swap, and favourites surviving refreshes. Steps 8 and 11 have step-7 notes;
+   - §5: S1 (IndexedDB in a Blob worker) and S6 (200k ingest ≤ 90 s, key response < 200 ms during ingest);
+   - §6, 3.4.
+4. **`docs/adr/ADR-009`** (keys; Xtream keys `x:<src>:<kind>:<id>` change when a provider renumbers) and **`ADR-010`**.
+5. **The `packages/data/src` module comments,** in this order: `schema.ts`, `idb.ts`, `catalog-store.ts`, `chunker.ts`, `profile.ts`, `rpc.ts`, `query-service.ts`, `query.worker.ts`, `client.ts`. Also **`packages/core/src/search.ts`**.
+6. **`packages/data/src/test-support.ts`:** its `ingest()` helper is the in-test ingest that the real ingest pipeline replaces (chunker → `indexChunk` → `putChunks` in batches of 10 → `putCatalogKind` → `commitGeneration` with counts).
+7. **`docs/runbooks/mock-provider.md`:** "Scale fixtures" and "Benchmarks" (the `search-*` rows are new).
+8. **`docs/PLAN.md`** wins on any conflict.
 
 ## Git state to expect
 - **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`. Work **only** there. Your session folder is the main checkout: leave it alone (its local `main` is behind).
-- **Branch:** HEAD is the commit that adds this `HANDOVER.md`, on top of:
-  - `2b1a95b`, the RELAY tick and leg-8 log row;
-  - `0798039`, the step-6 feature;
-  - `bc9c8d8`, the leg-7 handover.
+- **Branch:** HEAD is the commit that adds this `HANDOVER.md` and records PR #8's merge in RELAY.md, on top of:
+  - `cfa0132`, the step-7 feature and RELAY tick;
+  - `d35f754`, the leg-8 handover.
 
   The branch is pushed and the worktree is clean.
 - **Gitignored but present:**
-  - `node_modules` (after leg 8's `pnpm install`: `@zoma/core` is now a root devDependency and a devDependency of `tools/build`);
-  - `.cache/media`, `.cache/fixtures` (200k catalog, Xtream JSON, 50/150/300 MB XMLTV with `.gz`) and `.cache/engines`;
+  - `node_modules`, now with `fake-indexeddb` 6.2.6 (a devDependency of `data`; 6.2.7 was too new) and `@zoma/data` as a root devDependency;
+  - `.cache/media`, `.cache/fixtures` (200k catalog, Xtream JSON, XMLTV) and `.cache/engines`;
   - Playwright `chromium-1248`;
-  - `artifacts/`, which holds leg 8's scratch scripts (`mutate.py`, `patch_*.py`). They are reusable patterns.
+  - `artifacts/`:
+    - `mutate7.py`: the mutation runner, now with a 180 s timeout per mutant and an optional filter argument (`python -u artifacts/mutate7.py "<snippet of the new text>"`);
+    - `bundle-probe.ts`: prints part of a bundled worker;
+    - `verify.log`.
 - **Local gates:**
-  - `pnpm verify` is green: 711 tests, both TV builds within budget, e2e 5/5.
-  - The step-6 scale media test is green: the 200k Xtream lists in 0.7 s and the 300 MB gzipped guide in 6.3 s.
-  - The full `pnpm test:media` was **not** rerun locally (no media or stream changes); CI's `media` job runs it.
+  - `pnpm verify` is green: 768 tests, both TV builds within budget, e2e 5/5.
+  - `test/search-200k.media.test.ts` is green locally and on CI. The full `pnpm test:media` was not rerun locally; CI's `media` job ran it.
 
-## What step 6 added (in `@zoma/core`, so you can use it)
-- **`json-splitter.ts`:** `JsonArraySplitter` (`push(chunk) → element texts`, `end()`, `stats`) and `splitJsonArray`.
-- **`xtream-url.ts`:**
-  - `XtreamAccount {base, username, password}` and `normalizeXtreamBase`;
-  - the builders `xtreamApiUrl`, `xtreamStreamUrl`, `xtreamM3uUrl` and `xtreamXmltvUrl`;
-  - `xtreamFromM3uUrl` (get.php → account) and `parseXtreamStreamUrl`.
-- **`xtream.ts`:**
-  - `XtreamClient(account, transport, src)`, with `login`, `zone`, `categories`, `list(kind, onItems, opts)`, `vodInfo`, `seriesInfo`, `shortEpg` and `catchupUrl`;
-  - the injected `TextTransport { get(url) → TextResponse { status, read() → string|null, cancel() } }`, which step 8 implements with fetch or XHR;
-  - `XtreamListParser(kind, ctx)` for streamed lists, and the tolerant decoders (`decodeListItem`, `decodeSeriesInfo`, …);
-  - `XtreamListItem = { item: CatalogItem, id, categoryId, added, adult, rating, year }`. Xtream series items have `url: ''`, because episodes come from `seriesInfo`.
-- **`timezone.ts`:** `panelZone(server)` (Intl, then the panel clock, then UTC), plus `intlZone`, `clockOffset`, `fixedZone` and `ZoneOffset`.
-- **`catchup.ts`:** `m3uCatchupUrl(url, catchupInfo, window, {zone, flussonic})`, `xtreamCatchupUrl`, `catchupMode` and `fillCatchupTemplate`.
-- **`xmltv.ts`:**
-  - `XmltvTokenizer({languages, wantChannel, descLimit})` gives `XmltvChannel`/`XmltvProgramme` items with raw times;
-  - `parseXmltvTime(raw, fallbackZone)` returns epoch ms;
-  - `decodeXmlEntities`.
-- **`text.ts`:** `cutText`, `collapseSpace` and `decodeBase64Utf8` (`m3u-catalog` now uses the shared `cutText`).
-- **Tests to copy the shape of:**
-  - `test/core-mock.test.ts`: core against the in-process mock over a real socket, with a fetch-based `TextTransport` (a template for step 8's transport);
-  - `tools/fixtures/test/{xtream,xmltv}-oracle.ts`;
-  - `tools/build/test/fixtures/core-parsers.ts` with its `bundle.test.ts` case: core code bundled through the TV pipeline and run without the ES2017 APIs Chromium 53 lacks. **Extend it with the search code**; it is the cheapest Chromium 53 check until step 8 bundles real workers.
+## What step 7 added (use it, don't rebuild it)
+**core** (`search.ts`):
+- `SearchIndexBuilder(src, kind, gen)` with `.beginChunk(catIdx, chunk)`, `.add(key, normName)` and `.finish()`, which returns `SearchSegmentData` (typed arrays, structured-clonable);
+- `SearchSegment(data)`, which validates the data and throws `SearchIndexError`, and provides `nameAt`, `chunkOf` and `indexOfKey`;
+- `searchSegments(segments, query, {limit, kinds, favourites})` → `{query, hits, total}`;
+- `favouriteMarks`, `buildSearchSegment` and `SEARCH_SEPARATOR` (built with `String.fromCharCode(1)`).
 
-## Step 7: suggested approach
-1. **Check first:** run `git log`, look at `packages/data`, and grep for `indexedDB`, `fake-indexeddb`, `rpc` and `search`. Today it is a skeleton.
-2. **Dependencies:**
-   - add `fake-indexeddb` as a devDependency of `data`; pick a version published at least 2 weeks ago and check its peers with `npm view`;
-   - **Smart App Control:** it is pure JS, so it should load; any native binary may be blocked (see CLAUDE.md).
-3. **Schema** (§1.3):
-   - stores for `sources_meta` (with `gen`), catalog chunks keyed `[src, gen, kind, catIdx, chunk]` holding 500 items each, the search index, the profile (favourites keyed by ContentKey) and snapshots;
-   - versioned migrations that never drop data;
-   - fixture tests for each migration, plus an "upgrade from every earlier version" test.
-4. **RPC:**
-   - typed request/response over `postMessage`, with ids, error transport and cancellation by token (no AbortController);
-   - test it with an in-memory MessageChannel pair (Node has `MessageChannel`);
-   - workers start through `?worker` imports (CLAUDE.md "Workers").
-5. **Search index** (§1.4 steps 8 and 11):
-   - all `normName`s joined with the U+0001 separator (build it with `String.fromCharCode(1)`, never a `\u0001` literal through the Write tool), a `Uint32Array` of offsets, and a key-to-location map;
-   - `indexOf`, then a binary search over the offsets;
-   - ranking: word-prefix before substring; live before VOD before series; favourites boosted; capped at 200 results;
-   - normalize the query with `normalizeName`. It is frozen for keys; if search needs different folding, add a separate function and never change `normalizeName`.
-6. **The 200 ms test:**
-   - build the index from the 200k fixture: parse `playlist.m3u` with `M3uCatalogParser`, or the Xtream JSON with `XtreamListParser`, as the oracles do;
-   - time typical queries (Arabic and Latin, 1–3 characters, a rare word);
-   - the full 200k needs `pnpm fixtures`, so it belongs in a `*.media.test.ts`; for `pnpm test`, generate a 200k catalog in memory or use a smaller fixture with a scaled limit;
-   - add a bench case `search-200k`.
-7. **Size:** step 7 is big. If your context runs low, split it in RELAY.md:
-   - 7a: schema, migrations and RPC;
-   - 7b: query worker, search index, ranking and the 200 ms test.
+**data, storage:**
+- **`openDatabase(factory, {migrations, name, onBlocked})`:** database v1 with the stores in `STORE`: `sources_meta`, `catalog_chunks`, `catalog_cats`, `catalog_index`, `profile` and `kv`. Migrations are append-only (`MIGRATIONS`). EPG stores come as migration 2 in step 9, and `schema.test.ts` needs a new `SHAPES`/`SEEDS` entry then.
+- **`transact(db, stores, mode, (tx, done) => …)` and `onSuccess(request, cb)`:**
+  - **never `await` inside a transaction;** chain requests from callbacks;
+  - throwing inside `onSuccess` aborts the transaction and rejects with that error.
+- **`catalog-store.ts`:**
+  - `beginGeneration(db, src)` → gen;
+  - `putChunks(db, src, gen, chunks)` (batch about 10);
+  - `putCatalogKind(db, src, gen, kind, cats, segment)`;
+  - `commitGeneration(db, src, gen, counts, now)` → the previous gen. It throws `GenerationError` if `gen` isn't the one being built;
+  - `deleteGeneration`, `pruneGenerations(db, src, {abandon})`, `deleteSource`, `getSources`, `readChunks`, `readCategories`, `readIndexes`;
+  - `SourceMeta {src, gen, building, nextGen, updatedAt, counts}`. Adding optional fields (ETag, Last-Modified, a byte hash) needs no database migration, because it is a value change.
+- **`CatalogChunker(kind, {chunkSize, maxBuffered})`:**
+  - `.push(item)` / `.end()` give chunks, and `.categories()` gives `CategoryInfo {catIdx, name, count, chunks[]}`;
+  - categories are keyed by `item.group`;
+  - `indexChunk(builder, chunk)`.
 
-   Tick 7a and hand over.
-8. **Finish:**
-   - tick the step, add a progress-log row, and update CLAUDE.md only if commands change;
-   - push, `gh pr create --base main`, and wait for **all three** CI jobs;
-   - `gh pr merge <n> --merge`;
-   - list the 3 riskiest changes in your handover.
+**data, profile:**
+- `ProfileDoc` v1 is `{v: 1, favourites: FavouriteRef[]}`, where `FavouriteRef` is `{key, src, kind, normName, added, missingSince}`;
+- functions: `loadProfile`, `saveProfile`, `listSnapshots`, `restoreSnapshot`, `migrateProfile`;
+- `PROFILE_MIGRATIONS` is empty (append to it if step 8 changes the shape).
 
-## Gotchas and lessons (legs 1–8)
+**data, RPC and query worker:**
+- `serveRpc(port, handlers)` and `RpcClient<H, Events>` (`call`, `on`, `fail`, `close`);
+- `RpcContext {token, transfer, emit}`; `CancelSource`/`CancelToken`/`NEVER`; `CancelError`; `RpcError {code}`;
+- `QueryService` handlers: `status`, `reload`, `search`, `setFavourites`, `categories`, `chunk` and `items`;
+- `query.worker.ts`; `createDataClient(worker)`.
+
+**Tests to copy the shape of:**
+- **`packages/data/src/test-support.ts`:** `freshFactory`, `describeSchema`, `dumpStore`, `item()` and `ingest(db, src, items, {chunkSize, now, commit: false})`. `commit: false` simulates a crash before the swap.
+- **`test/search-200k.media.test.ts`:** the 200k playlist through the data layer into fake-indexeddb.
+- **`test/query-worker-bundle.test.ts`:** bundles a worker entry through the TV pipeline (`bundleIife`), checks the worker budget, and runs it in a `vm` realm that acts as the worker. Copy it for the ingest worker.
+
+## Step 8: suggested approach
+1. **Check first:** run `git log`, and grep for `ingest`, `fflate`, `DecompressionStream` and `If-None-Match`. There is no ingest code yet.
+2. **fflate:**
+   - pure JS; add it to `data` (not core);
+   - pick a version at least 2 weeks old, checked with `npm view fflate time`;
+   - use DecompressionStream behind a feature probe, with fflate's streaming `Gunzip` otherwise;
+   - detect gzip by the `1f 8b` magic bytes.
+3. **The ingest pipeline** (testable in Node with fake-indexeddb):
+   - **Transport:** an injected byte transport, fetch-based, with `response.body.getReader()` and `reader.cancel()` (no AbortController).
+   - **Decode:** `TextDecoder({stream:true})`.
+   - **Parse:** `M3uCatalogParser` (one source gives mixed kinds), or per-kind `XtreamListParser` calls (`XtreamClient.list`).
+   - **Chunk and index:** a chunker and index builder per kind, with `putChunks` every ~10 chunks.
+   - **Commit:** `putCatalogKind`, then `commitGeneration` **with counts**, then `deleteGeneration(previous)` in the background.
+   - **Reload:** emit an event so the main thread tells the query worker to `reload`. `QueryService` loads only the kinds whose `counts` are above 0.
+4. **Busy-pause and duty cycle:**
+   - an RPC `setBusy(bool)`, and the worker waits between batches while busy;
+   - on low-tier TVs, work 50 ms and sleep 50 ms;
+   - fake timers in the tests.
+5. **Conditional fetch:**
+   - send ETag/If-Modified-Since, and compare an FNV-1a hash of the bytes with the previous generation. If nothing changed, stop without beginning a generation (or abandon it);
+   - store the validators in `SourceMeta`;
+   - the mock provider may need ETag support. Check its routes first; the mock runbook lists them.
+6. **Crash mid-ingest test:**
+   - the transport throws, or the job is cancelled, after N chunks;
+   - the active generation is still served by `QueryService`;
+   - at the next start, `pruneGenerations(..., {abandon: true})` removes the leftovers.
+7. **Favourites survive a renumbered refresh:**
+   - build a fixture whose Xtream ids are shifted (the mock's catalog, or generated items);
+   - after the swap, mark favourites whose keys disappeared with `missingSince`;
+   - re-match them by `normName` + kind + src to the new key;
+   - drop them after 30 days (architecture.md §1.4 step 10);
+   - save through `saveProfile`.
+8. **App wiring:** both workers through `?worker` imports in `apps/tv`, so the TV build inlines them. Watch the **150 KB worker budget**: the query worker alone is 100.5 KB (core-js plus core). Run `pnpm verify:engines --self-test` (needs Docker Desktop) so the data workers run in real Chromium 53/56/68 with Blob-worker IndexedDB.
+9. **Size:** if the step runs long, split it in RELAY.md:
+   - 8a: ingest pipeline, crash test and favourites;
+   - 8b: app wiring, engines run, busy/duty cycle.
+
+   Tick 8a and hand over.
+10. **Finish:**
+    - tick the step, add a progress-log row, push;
+    - `gh pr create --base main`, wait for **all three** CI jobs, then `gh pr merge <n> --merge`;
+    - list the 3 riskiest changes in your handover.
+
+## Gotchas and lessons (legs 1–9)
 **Shell and tools**
 - The Bash cwd resets to the main checkout after any `cd`. Use absolute paths.
-- **Don't patch files with Bash heredocs or sed.** Write a Python script with the Write tool (build backslashes with `chr(92)`), or use Edit.
-  - Leg 8: GNU sed's replacement `\u` uppercases the next character, which turned `\uFEFF` into `FEFF`.
-  - **The Write tool turns `\uFEFF` and `\u2028` in string literals into raw characters.** Build them with `String.fromCharCode` and grep for the raw bytes afterwards (`LC_ALL=C grep -c $'\xef\xbb\xbf' file`).
-- **Background CI watchers can be killed under memory pressure** (leg 8). Don't restart one unasked; run single `gh pr checks <n>` calls instead. `gh pr checks --watch` right after `gh pr create` exits with "no checks reported", so wait about 20 s first.
-- **tsx:** use extensionless relative imports. Put probe scripts in the gitignored `artifacts/`. A probe *test* must match a vitest include glob (for example `packages/core/src/zz-probe.test.ts`, deleted afterwards).
-- **Smart App Control is ON (Omar's choice).** "Resolve error"s in lint, or "An Application Control policy has blocked this file", mean a too-new unsigned native binary was blocked. Pin an older version that has reputation, or use a pure-JS package. Never turn SAC off, and never weaken lint.
+- **Never put backslash escapes in a Bash heredoc,** not even a short `python - <<'EOF'`.
+  - Leg 9: `'\\n'` arrived as `'\n'` and wrote a real newline into a TS string.
+  - Write patch scripts with the Write tool (build backslashes with `chr(92)`), or use Edit.
+  - GNU sed's `\u` uppercases the next character.
+  - The Write tool turns `\uFEFF` and `\u2028` in string literals into raw characters. Use `String.fromCharCode`.
+- **Background CI watchers get killed under memory pressure** (legs 8 and 9). Don't restart one. Leg 9 used the **Monitor tool** instead, with a `while … gh pr checks <n> … sleep 45` loop that exits on the `media` result (timeout 30 min); it survived and reported. `gh pr checks` right after `gh pr create` says "no checks reported", so wait about 20 s.
+- **Mutation runs:** a mutant can turn a loop into a synchronous infinite loop (leg 9: the binary search with `<` instead of `<=`). Vitest test timeouts can't stop that, so the run hangs. `artifacts/mutate7.py` now has a per-mutant timeout. If you kill a run, restore the mutated file from its `.bak`.
+- **tsx:** use extensionless relative imports. Put probe scripts in `artifacts/`; a probe test must match a vitest include glob.
+- **Smart App Control is ON (Omar's choice).** "Resolve error"s, or "An Application Control policy has blocked this file", mean a too-new native binary was blocked. Pin an older version or use pure JS. Never turn SAC off, and never weaken lint.
 - **pnpm 11:** after a `package.json` dependency edit, run `pnpm install --config.optimistic-repeat-install=false`.
 
-**core and tests**
-- `normalizeName`, `hash53` and the key layout are **frozen** (ADR-009). Xtream keys `x:<src>:<kind>:<id>` are also stored data now. `xId` gives `123` and `"123"` the same key text; keep it that way.
-- `core` targets ES2017: no `\p{…}`, no lookbehind, no named groups, no `s` flag. `String.fromCodePoint`, `startsWith`, `Map`/`Set`, typed arrays and `Number.isSafeInteger` are fine. `Intl.DateTimeFormat` is used only behind a feature probe (ADR-010).
-- **fast-check 4:**
-  - use block-bodied predicates: `(x) => { expect(...); }`. An expression arrow fails with "Property failed by returning false";
-  - generate lone surrogates with `fc.string({ unit: fc.integer({min:0,max:0xffff}).map(String.fromCharCode) })`;
-  - the chunk-split helper must keep empty chunks;
-  - mutation-check each property once (leg 8: 8/8 mutants caught, with `artifacts/mutate.py`).
-- **ESLint `no-control-regex`** rejects control-character ranges in regex literals; check char codes instead.
-- **Golden files:** `toMatchFileSnapshot` writes the file on the first local run. Read it by hand before committing.
-- **Fixtures:**
-  - `writeCatalog()` needs `<out>/xtream/` to exist;
-  - `createReadStream` with a tiny `highWaterMark` is slow, so use 61 bytes or more;
-  - big oracles stream with per-key state only.
+**Repo layout and tests**
+- Package `tsconfig`s include only `src`, so **package tests go in `src/`** to be type-checked. `packages/data/src/test-support.ts` imports `fake-indexeddb`, a devDependency: never import it from package code.
+- **The root `test/` folder is outside the boundary lint.** Use it for tests that combine `@zoma/data` with `tools/*` (fixtures, `bundleIife`). `vitest.media.config.ts` now includes `test/**/*.media.test.ts`. The root `tsconfig.json` now has the DOM libs, because `test/` type-checks data sources.
+- **fake-indexeddb:** `import 'fake-indexeddb/auto'` sets the globals (`IDBKeyRange`); use `new IDBFactory()` per test (`freshFactory()`).
+- **Node's `MessageChannel` ports** keep the process alive: close them in `afterEach`.
+- **Emulating a worker in a `vm` realm:** core-js's `self` polyfill replaces any `self` that isn't the global object. Put `postMessage` and `addEventListener` on the realm's global, and run `var self = globalThis` first.
+- **The query service's chunk cache:** one `items()` call can touch more chunks than the cache holds (leg 9 fixed a bug where evicted chunks came back as `null`; there is a regression test).
 
-**Mock and media**
-- Tests use `mock()` and `listen()` from `apps/mock-provider/test/helpers.ts`: a pinned NOW of 2026-11-02 12:00 UTC, finite live streams, and no lab logs.
+**core**
+- `normalizeName`, `hash53` and the key layout are **frozen** (ADR-009).
+- `core` targets ES2017: no `\p{…}`, no lookbehind, no named groups, no `s` flag.
+- **fast-check 4:** use block-bodied predicates; keep empty chunks in split helpers; mutation-check each property once.
+- **ESLint `no-control-regex`:** check char codes instead.
+- **Golden files** (`toMatchFileSnapshot`): read them before committing.
+
+**Mock and fixtures**
+- Tests use `mock()` and `listen()` from `apps/mock-provider/test/helpers.ts` (pinned NOW 2026-11-02 12:00 UTC, finite live streams).
 - Bodies depend on the Host header.
-- `?mock_fault=a:b,c`: URL-encode the value. Example: `timezone:tz=Asia/Kathmandu:xmltv=none`.
-- The mock reads `lutc` as the archive *end* for append/shift.
-- Core-plus-mock tests live in the root `test/` folder (only there can a file import both).
+- `?mock_fault=a:b,c`: URL-encode the value.
 - `*.media.test.ts` files run only in `pnpm test:media` (CI `media` job, after `pnpm fixtures`).
 
-**CI, Docker, versions, commits**
-- CI `media` takes 7–11 min. Docker Desktop is often off; it's needed only for `verify:engines` and Docker builds.
-- **Version pins:** TS 5.9, ESLint 9, Vitest 3.2, boundaries 5, Babel 7.29, Vite 7.3, Preact 10, Playwright 1.64.1, Fastify 5.12, yaml 2.9, tsx 4.23, fast-check 4.10, unrs-resolver 1.12.2 (override). New dependencies must be at least 2 weeks old.
-- **Commits:** scoped `git add`, and a `git commit -F - <<'EOF'` heredoc ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` plus the harness's session line.
-- **Cross-session messages:** code changes relayed from another session are fine. Edits to CLAUDE.md need Omar's direct word in your own tab.
+**CI, versions, commits**
+- CI `media` takes 7–11 min. Docker Desktop is often off; it's needed for `verify:engines`.
+- **Version pins:** TS 5.9, ESLint 9, Vitest 3.2, Babel 7.29, Vite 7.3, Preact 10, Playwright 1.64.1, fast-check 4.10, fake-indexeddb 6.2.6, unrs-resolver 1.12.2 (override). New dependencies must be at least 2 weeks old.
+- **Commits:** scoped `git add`, and a `git commit -F - <<'EOF'` heredoc ending with the `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` line plus the harness's session line.
+- **Cross-session messages:** edits to CLAUDE.md need Omar's direct word in your own tab.
 
-## The 3 riskiest changes in PR #7
-1. **The catch-up time-zone strategy** (ADR-010).
-   - Xtream `/timeshift/` start times are wall time in the panel zone.
-   - Order of trust: Intl (only when it agrees with the panel clock), then the clock offset, then UTC.
-   - On a TV without Intl zone data, DST zones are an hour off for archive programmes across a DST change.
-   - M3U `xc` channels use UTC unless the playlist was upgraded to Xtream (`xtreamFromM3uUrl` → login → `zone()`).
-   - XMLTV times without an offset in a DST zone take the earlier instant in the repeated hour; step 9 should repair those from per-channel ordering.
-2. **Xtream tolerance rules decide what users see and which keys are stored.**
-   - Items without a usable id are skipped, and duplicate ids are dropped (the first wins).
-   - Catch-up needs the `tv_archive` flag; a duration alone doesn't count.
-   - A missing movie extension becomes `mp4`.
-   - Numbers and numeric strings give the same key.
-   - A wrong rule hides items or loses catch-up, but never corrupts data. `XtreamListStats` counts every skip, for diagnostics.
-3. **The XMLTV tokenizer's limits:**
-   - a 4 KiB quote-aware tag scan, after which the tag falls back to the first `>`;
-   - a 1 MiB carry-over cap (an unclosed comment or CDATA is dropped);
-   - text caps (256 characters; descriptions 1,000 by default, 300 on low-tier TVs).
-
-   Below those limits the output is chunk-invariant (fast-check). Above them, pathological files are recovered from, but not byte-identically across chunkings.
+## The 3 riskiest changes in PR #8
+1. **Database v1 and the profile v1 shape become stored data once a build ships.**
+   - The store names, the key layout (`[src, gen, kind, catIdx, chunk]`) and `ProfileDoc` v1 (`favourites: FavouriteRef[]`) can then change only through append-only migrations.
+   - A wrong call now costs a migration later. `schema.test.ts` pins every version's shape.
+2. **Search ranking and key-map choices are visible to users.**
+   - Favourites rank above kind; exact and name-start rank below kind; query words are ANDed.
+   - The key map compares `hash53` only: a collision inside a segment (about 1e-6 at 200k) costs a favourite boost, nothing else.
+   - Display names stay in the chunks, so hits must be resolved through `items()`.
+3. **IndexedDB and RPC behaviour on old engines is still unproven.**
+   - Transactions are callback-driven because an `await` inside one can commit early on Chromium 53. Node tests can't catch that mistake, so any future `await` inside `transact` is a latent TV-only bug.
+   - The bundled query worker ran in a Node `vm` realm, not in real Chromium 53/56. Step 8's engines run is the first real test.
 
 ## Verified vs not
 - **Verified:**
-  - local `pnpm verify` (711 tests);
-  - the mock integration suite (20 tests);
-  - the 200k Xtream and 300 MB XMLTV oracles;
-  - a TV-pipeline bundle of the parsers, identical to Node with the ES2017 APIs removed;
-  - mutation checks (8/8);
-  - CI `verify`, `engines` and `media` green on PR #7's head `2b1a95b`. The `media` job ran the new scale oracles and the new bench cases. Merged as `275879c`; `main` CI was still running at handover.
+  - local `pnpm verify` (768 tests);
+  - the 200k fixture through the data layer: slowest query 10.8 ms locally and 14 ms on CI, index load 14 ms, every result checked;
+  - migration tests;
+  - the bundled query worker (100.5 KB) running with the ES2017 APIs removed;
+  - mutation check 16/16;
+  - CI `verify`, `engines` and `media` green on PR #8's head `cfa0132`, merged as `714d0aa`. `main` CI was running at handover.
 - **Not done:**
-  - core still hasn't run inside real Chromium 53/56 (the engines harness runs only the built app, and the parsers are bundled from step 8);
-  - no TV has been involved yet.
+  - the data workers haven't run in real Chromium 53/56 yet (step 8);
+  - no TV has been involved.
 - **Migrations and deploys:** N/A (no backend until step 29; the TV "deploy" is a store submission).
 
-## Open decisions and gates (none block step 7)
+## Open decisions and gates (none block step 8)
 - **Step 16 [needs Omar]:** the LG TV's model and year, LG Developer Mode, the Samsung route (from step 15) and the Samsung certificate.
 - **Later gates:** steps 21, 34, 44, 46 and 47.
 - **Before the first store submission:** final app IDs, real icons, and PostCSS in `build:tv` (step 11).
@@ -199,6 +218,6 @@ Omar said on 2026-11-02: *"Don't ask, proceed automatically i allow and authoris
 - Submit the **Samsung Seller Office Partner application ASAP** (Samsung Gulf). It takes weeks, and Samsung in the GCC and Canada depends on it.
 - Share the **LG TV's model and year**.
 - **"Zoma" trademark clearance** (US, CA, AE, SA) and domains. This also decides the final app IDs.
-- `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` was widened with his authorisation on 2026-11-02 (allow rules plus the worktree directory). Prune it when the relay run ends if he wants it tighter.
-- Leg 8's background CI watcher was killed by Claude Code because the PC ran low on memory. If that keeps happening, closing idle Cursor tabs or Docker while the relay runs may help.
+- `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` was widened with his authorisation on 2026-11-02. Prune it when the relay run ends if he wants it tighter.
+- Background watchers were killed for low memory in legs 8 and 9. Closing idle Cursor tabs or Docker while the relay runs may help.
 - No secrets have been shared, so nothing needs rotating.
