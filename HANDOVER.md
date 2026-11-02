@@ -1,220 +1,229 @@
-# Zoma IPTV: relay leg 13 opening prompt
+# Zoma IPTV: relay leg 14 opening prompt
 
-You are leg 13 of relay run `iptv-20261101-214120`, building **Zoma IPTV**: a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 14 of relay run `iptv-20261101-214120`, building **Zoma IPTV**: a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
-- Leg 0 planned it. Legs 1–5 did steps 1–4 (PRs #1–#5); leg 6 did no project work; legs 7–11 did steps 5–8b (PRs #6–#10).
-- **Leg 12 did step 9, the core part of the EPG:** matching cascade, guide reader, tiered window, DST repair, per-channel-day buckets, the match-rate report and enforced benchmark limits.
-  - PR **#11**, commit `9adcab5`, merged as merge commit **`fd777e1`** (the branch was kept).
-  - CI `verify`, `engines` and `media` were green on `9adcab5`.
-  - Leg 12 split step 9 the way leg 10 split step 8. **Storage, refresh, the short-EPG fallback and the app wiring are now step 9b.**
+- Leg 0 planned it. Legs 1–5 did steps 1–4 (PRs #1–#5); leg 6 did no project work; legs 7–12 did steps 5–9 (PRs #6–#11).
+- **Leg 13 did step 9b: EPG storage, refresh and the app.**
+  - PR **#12**, commit `252b0b0`, merged as merge commit **`f448c5c`** (the branch was kept).
+  - CI `verify` (4 m 26 s), `engines` (3 m 8 s) and `media` (9 m 31 s) were green on `252b0b0`.
+  - Leg 13 split the step again: **the short-EPG fallback is now step 9c.**
 
-**Your step is step 9b: EPG storage, refresh and the app** (RELAY.md, step 9b).
-- **Storage:** database v2, an append-only migration, adding `epg_buckets` keyed `[epgSrc, gen, channel, day]` and `epg_channels` (the match table and the used guide channels). Pin v2 in `schema.test.ts` and upgrade from v1 with a seed.
-- **Ingest:** fetch, gunzip and decode the guide the way the catalog ingest does, into core's `EpgGuideReader`.
-  - Write the buckets about 10 per transaction. A bucket with `merge: true` is merged with the stored one (`mergeEpgBuckets`).
-  - Then swap generations, and prune past days and old generations.
-- **Sources:** Xtream `xmltv.php` and the M3U `url-tvg` header, added automatically; user XMLTV URLs in priority order.
-- **Refresh:** every 12 h, or sooner when less than 24 h of future data remains. Low-tier TVs never run EPG and catalog ingest at once.
-- **Short EPG:** `get_short_epg` for unmatched Xtream channels, after 600 ms of focus, cached 30 min.
-- **App:** `DataEngine` gets an EPG refresh and now/next; the catalog panel shows the match rate and a channel's now/next.
+**Your step is step 9c: the short-EPG fallback** (RELAY.md, step 9c).
+- **Data:** for live channels of an Xtream source that no guide matches, call `get_short_epg` (core `XtreamClient.shortEpg(streamId, limit)`, `decodeShortEpg`) through the data layer, and cache each channel's answer for 30 min.
+  - It needs the account and a transport. So it runs either as a `shortEpg` handler on the query worker or in a short-lived worker.
+  - Measure the query worker's budget before choosing: it is 80.7 of 150 KB.
+- **App:** `DataEngine` asks after a channel has been focused for 600 ms (a debounce; use fake timers in tests) and merges the answer into its now/next. The hello screen's panel shows it for an unmatched channel of an Xtream `?source=`.
 - **Done when:**
-  - an EPG refresh of the mock through the data layer (fake-indexeddb) stores exactly the mock's schedule;
-  - a crash mid-EPG-ingest keeps the old generation;
-  - now/next comes back from the store;
-  - `pnpm verify` and `pnpm verify:engines --self-test` are green.
+  - an unmatched mock channel gets now/next from `get_short_epg` after 600 ms of focus, and not before;
+  - a second focus within 30 min makes no request;
+  - `pnpm verify` is green.
+- If 9c turns out small, take step 10 (focus engine) next in the same leg only if the session is still light.
 
 ## Start immediately
 Omar said on 2026-11-02: *"Don't ask, proceed automatically i allow and authorise you."* Start in your first turn.
 
-**First, check `main`:** `gh run list --branch main --limit 1 -R Omarmarei/zoma-iptv`. The run on `fd777e1` (PR #11's merge) should be green in all three jobs. If one is red, fix it on the relay branch before anything else.
+**First, check `main`:** `gh run list --branch main --limit 1 -R Omarmarei/zoma-iptv`. The run on `f448c5c` (PR #12's merge, run 41513580143) was in progress when this was written, and all three jobs should be green. If one is red, fix it on the relay branch before anything else.
 
-**Never call EnterWorktree,** even though Claude Code's background-session note asks for it. The relay worktree is your isolation. Edit it by path; use `git -C "<wt>"`, `pnpm --dir "<wt>"`, absolute paths, and Read/Edit/Write. `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` (locally ignored) allows the worktree and gh, git, pnpm, node, docker, curl and bash.
+**Never call EnterWorktree,** even though Claude Code's background-session note asks for it. The relay worktree is your isolation. Edit it by path, and use `git -C "<wt>"`, `pnpm --dir "<wt>"`, absolute paths, and Read/Edit/Write. **Don't `cd`** in Bash either: in leg 13 a `cd` moved the session's working directory, and the harness reset it to the main checkout later. `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` (locally ignored) allows the worktree and gh, git, pnpm, node, docker, curl and bash.
 
 ## Read first, in this order
-1. **`CLAUDE.md`:** conventions, the Chromium 53 cheat sheet, package boundaries, Definition of Done, merge policy, commit format.
-2. **`RELAY.md`:** step 9 (ticked, with what was built), step 9b, and the leg-12 progress-log row.
+1. **`CLAUDE.md`:** conventions, the Chromium 53 cheat sheet, package boundaries, Definition of Done, merge policy and commit format.
+2. **`RELAY.md`:**
+   - step 9b (ticked, with what was built);
+   - step 9c;
+   - the **"Main bundle budget"** note just before Phase 4;
+   - the leg-13 progress-log row.
 3. **`docs/architecture.md` §1.5:**
-   - items 1–9 (sources, wanted set, cascade, filter, window, storage, refresh, XMLTV assumptions);
-   - **"Built in step 9"** (what exists);
-   - **item 10** (benchmark limits and how they were derived).
-   - Then §1.3 (storage: `epg_buckets`, `epg_channels`; EPG ≤ 100 MB full tier, ≤ 30 MB low tier), and §1.4's "Built in step 8" and "Wired into the app in step 8b": the ingest and app patterns to mirror.
-4. **`docs/adr/ADR-010-catchup-time-zones.md`**, including the step-9 amendment on the repeated DST hour.
-5. **Code to build on:**
-   - `packages/core/src/epg-match.ts` and `epg-guide.ts` (and their tests);
+   - item 1 (the short-EPG rule);
+   - "Built in step 9b";
+   - §1.3 (database v2).
+4. **Code to build on:**
+   - `packages/core/src/xtream.ts`:
+     - `XtreamClient.shortEpg` and `decodeShortEpg` (entries carry `startMs`/`endMs` from `start_timestamp`, so no zone is needed);
+     - `xtreamFromM3uUrl` (core `xtream-url.ts`) turns a mock `get.php` URL into an Xtream account, which is useful for the debug panel;
+     - `parseContentKey` (Xtream keys are `x:<src>:live:<streamId>`);
+     - `parseXtreamStreamUrl`.
    - `packages/data/src`:
-     - `schema.ts` and `schema.test.ts` (v1 only; add v2);
-     - `ingest.ts` (`runIngest`: transport, `MaybeGunzip`, `decodeUtf8`, throttle, generation begin/commit/abandon, prune);
-     - `catalog-store.ts`, `idb.ts` (`transact`), `ingest-service.ts`, `ingest.worker.ts`, `client.ts`, `test-support.ts` (`freshFactory`, `fakeTransport`);
-   - `apps/tv/src/data/engine.ts` (`DataEngine`) and `DataPanel.tsx`;
-   - `packages/core/src/xtream.ts`: `XtreamClient.shortEpg(streamId, limit)`, `decodeShortEpg`, and `zone()` for the panel zone.
-6. **`docs/PLAN.md`** wins on any conflict.
-
-## Heads-up for step 9b
-- **The ingest worker is at 125.3 of its 150 KB budget.** The EPG reader inside it may not fit.
-  - Measure first: `python artifacts/make-size-probe.py` (see Gotchas).
-  - If it doesn't fit, add an `epg.worker.ts` entry, the way step 8b added `query.worker`/`ingest.worker`:
-    - package `exports`;
-    - an `entry-point` rule in `eslint.config.js`;
-    - `test/lint-boundaries.test.ts`;
-    - a `?worker` import in `apps/tv/src/data/workers.ts`.
-  - PR #11 left every bundle unchanged (main 323.1 KB, query 75.8, ingest 125.3).
-- **Database v2:**
-  - append a migration; never edit v1;
-  - add the v2 shape to `SHAPES` and a v2 seed to `SEEDS` in `schema.test.ts`;
-  - consider an `epg_meta` store keyed by `epgSrc` (active/building generation, fetch stamp, last report), like `sources_meta` for catalogs.
-- **Wanted set:** build `EpgWantedSet.fromItems` from the active generation's stored live items of every source; stored items are full `CatalogItem`s.
-- **Fallback zone:** the panel zone (`XtreamClient.zone().offset`) for an Xtream guide; UTC for `url-tvg` and user URLs, until step 24 adds per-source offsets.
-- **Writes:**
-  - never `await` inside `transact`;
-  - a `merge: true` bucket needs get + `mergeEpgBuckets` + put chained in callbacks of the same transaction;
-  - a guide grouped by channel gives no fragments, but a time-sorted one does;
-  - check that fake-indexeddb round-trips `Int32Array`/`Uint8Array` columns.
-- **`nowMs`** is `Date.now()` at ingest. Prune days older than the window's past days.
-- **One refresh at a time:** `DataEngine`'s guard already serializes refreshes. Keep EPG behind it (the low-tier rule).
-- **Short EPG:** put the cache and fetch in the data layer, and the 600 ms focus debounce in `DataEngine` (fake timers in tests). Step 22 builds the UI on it.
-- **If 9b won't fit one session, split it again** and record the split in RELAY.md:
-  - **9b:** v2, ingest, swap, prune, refresh;
-  - **9c:** short EPG and app wiring.
-- **The mock:** `xmltv.php` and `/epg/guide.xml(.gz)` cover each channel's archive days back (up to 7) and 3 days ahead. `test/epg-mock.test.ts` shows how to read them, get the panel zone and build an oracle from `apps/mock-provider/src/epg.ts`.
+     - `query-service.ts` (`nowNext`, `epgStatus`; the `EpgNowNext` shape, `epgSrc: null` for an unmatched channel);
+     - `bytes.ts` (`fetchTransport`);
+     - `ingest.ts` (the `TextTransport` adapter over a `ByteTransport` in the Xtream branch);
+     - `client.ts`;
+     - `epg-sources.ts`.
+   - `apps/tv/src/data/engine.ts`: `refreshEpg`, `nowNext`, the refresh slot (`claim`/`release`), `busyTo`, and `withWorker`.
+   - `apps/tv/src/DataPanel.tsx` (`runEpg`, the `nownext-status` row) and `apps/tv/src/data/params.ts` (`?source=` must stay last).
+   - The mock: `apps/mock-provider/src/xtream.ts` `get_short_epg` (and `upcoming` in `epg.ts`). It answers for any live stream id, so `18+ Test Pattern`, the one live channel without an EPG id (unmatched by every guide), is the natural test channel. Confirm that first.
+5. **`docs/PLAN.md`** wins on any conflict.
 
 ## Git state to expect
 - **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`. Work **only** there. Your session folder is the main checkout: leave it alone (its local `main` is behind).
-- **Branch:** HEAD is the commit that adds this `HANDOVER.md` and records PR #11's merge in RELAY.md and §1.5, on top of `9adcab5` (step 9). It is pushed, and the worktree is clean. `main` holds the merge commit `fd777e1`; the branch doesn't, which is normal for this run.
+- **Branch:** HEAD is the commit that adds this `HANDOVER.md` and records PR #12's merge in RELAY.md, on top of `252b0b0` (step 9b). It is pushed, and the worktree is clean. `main` holds the merge commit `f448c5c`; the branch doesn't, which is normal for this run.
 - **Gitignored but present:**
   - `node_modules`;
-  - `.cache/media`, `.cache/fixtures` (200k `catalog.json`/`playlist.m3u`/`xtream`, `xmltv-{50,150,300}mb.xml` + `.gz`), `.cache/engines`;
-  - Playwright `chromium-1248`; Docker image `zoma-old-engines:ba502212364a`;
+  - `.cache/media`, `.cache/fixtures`, `.cache/engines`;
+  - Playwright `chromium-1248`; the Docker image `zoma-old-engines:ba502212364a`;
   - `artifacts/`:
-    - `mutate9.py` (step 9's 28 mutants; `python -I artifacts/mutate9.py [snippet]`), `mutate8.py`, `mutate8b.py`;
-    - `make-size-probe.py`, `screenshot-8b.ts`;
-    - `epg-mem-probe.ts` (EPG read time and heap per flush size; run with `node --expose-gc [--max-old-space-size=N] --import tsx artifacts/epg-mem-probe.ts all|tenth 20000,5000`);
-    - `verify.log`.
-- **Local gates on `9adcab5`:**
-  - `pnpm verify` green: 905 tests in 65 files, e2e 6/6, both TV builds pass the ES2016 gate, bundles unchanged;
-  - `test/epg-300mb.media.test.ts` green locally;
-  - `verify:engines` not run locally (no build, polyfill, worker or boot change), but CI `engines` was green.
+    - `mutate9b.py` (step 9b's 34 mutants; `python -I artifacts/mutate9b.py [snippet]`), plus `mutate9.py`, `mutate8.py` and `mutate8b.py`;
+    - `make-size-probe.py`, `epg-mem-probe.ts`;
+    - `verify.log`, `engines.log`, `mutate9b.log`;
+    - `engines/report.json`, which now holds `guide` and `nowNext` per run.
+- **Local gates on `252b0b0`:**
+  - `pnpm verify` green: lint, typecheck, 933 tests in 68 files, both TV builds, e2e 6/6;
+  - `pnpm verify:engines --self-test`: all 24 runs as expected on Chromium 53/56/68, 16 seeded failures caught. The app prints `guide 300/2400, now/next` in every engine.
 
-## What step 9 added (use it, don't rebuild it)
-- **`@zoma/core` matching:**
-  - `EpgWantedSet` (`fromItems`, overrides `{ key, epgSrc, channel | null }`) and `EpgMatcher`, one per guide: `addChannel`, `declareById`, `channelIndex`/`channelId`/`usedAt`, `matches()`, `unmatched()`, `usedChannels()`, `stats()`, `maxCatchupDays()`, `maxShiftHours()`;
-  - `combineEpgMatches`, `epgWantedChannel`, `xmltvIdStem`, `EPG_MATCH_METHODS`, `epgMethodRank`.
-- **`@zoma/core` reading:**
-  - `EpgGuideReader({ epgSrc, wanted, tier, nowMs, languages, fallback, shiftMinutes, windows, flushAt = 20000, orphanCap = 20000 })`: `push(text)` and `end()` return the buckets to write; also `report()`, `stats`, `xmltvStats`, `window`, `matcher`;
-  - `EpgBucket` (`channel`, `day` = UTC day of the start, `Int32Array` start/end in epoch minutes, `title`/`sub`/`desc`/`category`/`episode` string arrays, `Uint8Array` flags, `merge`);
-  - `EpgBucketBuilder`, `buildEpgBucket`, `mergeEpgBuckets` (on equal starts the stored one wins), `epgProgrammes`, `epgNowNext(buckets, nowMs, shiftHours)` (read days d-1 and d);
-  - `epgWindow`, `EPG_WINDOWS`, the flags `EPG_FLAG_STOP_GUESSED`/`TIME_REPAIRED`/`CUT`, `formatEpgReport`.
-- **`@zoma/core` XMLTV:** `XmltvTokenizer` option `onItem` (items in document order; `push`/`end` then return `[]`), `xmltvTimeHasZone`, and a fast path in `parseXmltvTime` (`parseXmltvTimeGeneral` is the general path, exported from the module for tests).
-- **Tools:**
-  - `pnpm epg:report --playlist <m3u> --xmltv <guide> [--xmltv …] [--tier low] [--now ISO] [--json f]` (files or URLs, gzip sniffed);
-  - `pnpm bench` cases `epg-ingest-low-10pct` (limit 8 s) and `epg-ingest-full` (limit 20 s). `pnpm bench` exits 1 over a limit.
-  - `tools/bench/src/suites.ts`: `readEpgStream`, `epgWanted`, `EPG_LIMITS`, `EPG_BENCH_NOW`.
-  - `tools/fixtures/src/xmltv.ts` exports `slotOf` and `channelProgrammes`.
-- **Tests:**
-  - `packages/core/src/epg-{match,guide}.test.ts`;
-  - `test/epg-mock.test.ts`, `test/epg-fixture.test.ts`;
-  - `test/epg-300mb.media.test.ts`: the CLI in a child Node with a 96 MB heap, every number exact against `catalog.json`.
+## What step 9b added (use it, don't rebuild it)
+- **Database v2** (migration 2; `schema.test.ts` pins it and upgrades a seeded v1):
+  - `epg_meta` (keyPath `epgSrc`): `gen`, `building`, `nextGen`, `fetch`, `basis`, `until` (UTC minutes), `summary`, `rank` and `failedAt`;
+  - `epg_buckets`: key `[epgSrc, gen, channel, day]`; the value is core's bucket without channel/day/merge, with typed columns;
+  - `epg_channels`: key `[epgSrc, gen]`; `{ matches: StoredEpgMatch[] (key, channel, method, ambiguous, shift), channels, unmatched }`.
+- **`epg-store.ts`:**
+  - begin/commit/abandon/delete/prune of generations;
+  - `putEpgBuckets`: merges `merge: true` fragments into the stored record, and merges fragments within one batch in memory first;
+  - `putEpgChannels`, `pruneEpgDays` and `epgFirstDay`;
+  - `markEpgChecked` and `markEpgFailed`;
+  - `readEpgBuckets` and `readEpgChannels`.
+- **`epg-sources.ts`** (also exported from `@zoma/data/client`):
+  - `epgGuides(catalogs, sourceMetas, userGuides)`: user guides first, then `<src>:xmltv` (Xtream `xmltv.php`, zone `{ panel: src }`) and `<src>:tvg<n>` (from `SourceMeta.epgUrls`, UTC). User guides get the id `u~<id>`; a URL listed twice is read once.
+  - `epgRefreshDue`: `new`, `stale` at 12 h, or `running-out` under 24 h ahead. Never within 2 h of the last check or of a failure.
+- **`epg-ingest.ts`:**
+  - `readEpgWanted`: every source's active live items, plus a basis string;
+  - `runEpgIngest` (one guide);
+  - `runEpgRefresh(job, options)`: deletes unlisted guides, prunes the listed ones, reads `only` or all, and gives each guide its own outcome (`{ epgSrc, result | error: { code, message } }`).
+- **Also new:**
+  - `ingest-errors.ts`: `IngestError`, `ingestError` and `headerNumber`, still re-exported from `ingest.ts`;
+  - `epg-service.ts` and `epg.worker.ts`: the `run` and `setBusy` handlers, events `progress` and `swapped`; `createEpgClient` in `client.ts`;
+  - `SourceMeta.epgUrls`, set by the catalog ingest.
+- **The query worker:**
+  - `nowNext({ keys, at? })`: reads days d-1..d+1 with the tvg-shift; the guides are combined by `rank` then id, through `combineEpgMatches`;
+  - `epgStatus()`: guides and sources read fresh from IndexedDB, plus `matched`.
+- **The app** (`DataEngine`):
+  - `refreshEpg(catalogs, { tier, user?, languages?, overrides?, due?, force?, onProgress?, cancel? })`;
+  - `nowNext(keys, at?)` and `epgStatus()`;
+  - `startEpgWorker` in the options; `now?` for tests;
+  - one refresh slot for catalog and EPG ("A guide refresh is already running");
+  - `SearchSummary` now has `keys` and `live`.
+- **The panel:**
+  - `epg-status` with `data-matched` and `data-wanted`;
+  - `nownext-status`: the first search hit, or the first live channel, that has programmes.
+- **Old engines:**
+  - The fixture playlists name `guide.xml` (tizen) and `guide.xml.gz` (webos). The guide is generated at harness start: every 8th live channel, hourly, from a day back to 3 days ahead.
+  - `scenario.ts` waits for the `epg` and `nowNext` rows (`none` counts as final), and checks 300 of 2400 matched plus a now/next.
+- **Core fix:** with a tvg-shift, `epgNowNext` compared an unshifted start with an already-shifted candidate, so the bucket order decided "next". It is fixed, with a test over shifts and bucket orders.
 
-## Gotchas and lessons (legs 1–12)
-**New in leg 12**
-- **V8 substrings keep their parent alive.**
-  - Ids and attribute values from the tokenizer are slices of a 30–60 KB decoded chunk. Keeping one per channel (a Map key) pinned a chunk per channel, and the 300 MB guide ran out of a 160 MB heap.
-  - Store long-lived strings from parsers as owned copies (`ownString` in `epg-match.ts`), or index state by number.
-  - The data layer must not keep raw tokenizer strings either.
-- **A bench "heap peak" mostly measures lazy GC:** 200–460 MB uncapped for a read that fits in 96 MB. Bound memory with a capped child process (`node --max-old-space-size=N`) instead. The 200k playlist parse alone needs more than 64 MB.
-- **Local timings swing ±30%:** this PC is shared with browsers and other sessions. On the CI runner `epg-ingest-low-10pct` took 2.3 s, `epg-ingest-full` 5.9 s and `xmltv-gz-tokenize` 4.0 s, faster than locally.
-- **When `wantChannel` depends on channels, use the tokenizer's `onItem`.** Otherwise a programme in the same chunk as its channel is asked about before the channel is seen.
-- **`parseXmltvTime` and the repeated DST hour:** it gives the earlier instant west of UTC and the later one east of it. `EpgGuideReader` settles to the earlier one, then repairs from per-channel ordering. A lone boundary in the repeated hour stays an hour early (ADR-010).
-- **Smaller ones:**
-  - `new XtreamClient(account, transport, src)` takes 3 arguments.
-  - Programme ids must match a channel id exactly. A case-different programme id is declared as its own channel by `declareById`.
-- **Backslashes in Bash heredocs broke again:** a Python patch that wrote `'\n'` produced a SyntaxError. Write patch scripts with the Write tool into `$CLAUDE_JOB_DIR/tmp` and run them, or use Edit.
+## Heads-up for step 9c
+- **The main budget is tight:** main is 449.4 KB of 500 (90%), because it inlines all four workers. 9c adds main-thread code (the debounce in `DataEngine`). Measure the main bundle after the change.
+  - If 9c would push it over, stop and ask Omar with RELAY.md's three budget options (recommended: count inlined workers only against their own budgets). Don't raise a budget on your own.
+- **Short EPG on the query worker** means `fetchTransport` and `XtreamClient` in that worker. Core's index is already in every worker, so mostly `bytes.ts` is added. Measure with `python artifacts/make-size-probe.py` (see Gotchas).
+- **Credentials:** the account must reach the worker (an RPC argument, or set once). Never put it in an error message, a log line or a cache key: key the cache by `src` and stream id.
+- **Time:** `XtreamEpgEntry.startMs`/`endMs` are epoch ms from `start_timestamp`; a missing timestamp gives `null`, so skip that entry. Convert to `EpgProgramme` (UTC minutes, the same shape as now/next), so the UI shows one type.
+- **Only unmatched channels:** `nowNext` already returns `epgSrc: null` for a live channel no guide matches. Ask for the short EPG only then, and only for Xtream keys (`x:` keys). For an M3U source of an Xtream panel (`get.php`), `xtreamFromM3uUrl` plus `parseXtreamStreamUrl` on the item's URL give the account and the stream id.
+- **The debounce:** `DataEngine.focus(key)` (or similar) starts a 600 ms timer, and a new focus cancels it. Test it with `vi.useFakeTimers()`. Mind the MessageChannel-based worker doubles in `test/tv-data-engine.test.ts`: fake timers can stall `MessageChannel` delivery, so advance timers, then await real promises, or fake only `setTimeout`.
+- **The cache:** 30 min per channel in whichever context fetches (Map + timestamp, and an injected `now` for tests). A failed request isn't cached for 30 min (retry on the next focus), and two focuses within 600 ms make one request.
+
+## Gotchas and lessons (legs 1–13)
+**New in leg 13**
+- **IndexedDB:** a read-modify-write of the same key twice in one transaction loses the first update. Requests answer in issue order: both `get`s come back before the first callback's `put` runs. Merge in memory first, as `putEpgBuckets` does.
+- **A crash test must crash after something is written:** with 10 buckets per batch, an early crash point writes nothing. Assert that leftovers exist before the clean-up.
+- **No clock-dependent e2e:** the mock's schedule is pinned to 2026-11-02 12:00 UTC, the browser's clock isn't. e2e asserts the match rate (11 of 12), never now/next text. The engines guide is generated at harness start.
+- **Mutation scripts:** a mutant that adds a second listener leaves the first one working, so mutate the original handler's body instead.
+- **Watching CI:**
+  - A Monitor script built on `comm <(…) <(…)` (process substitution) delivered no events in Git Bash, though `gh pr checks 12 --json name,bucket` works.
+  - The background `until … gh pr checks` waiter was reaped for low memory.
+  - What worked: a plain foreground `gh pr checks <n> -R Omarmarei/zoma-iptv` now and then. For a Monitor, test the script in the foreground first and avoid process substitution.
+- **Worker sizes (tizen):** EPG 116.0 KB, ingest 125.5 KB, query 80.7 KB, hello 37.5 KB; main 449.4 KB of 500.
+- **Bash heredocs:** they broke again on a Python patch with quotes. Write patch scripts with the Write tool into `$CLAUDE_JOB_DIR/tmp` and run `python -I` on them. Assert `s.count(old) == 1` in every patch.
 
 **Shell and tools**
-- The Bash cwd resets after a `cd`; use absolute paths.
-- **Never put a backslash in a Bash heredoc.** Use the Edit tool, or Write whole files (Write keeps `\n` literal, but turns `\uFEFF`/`\u2028` into raw characters).
-- **CI waits:** the Monitor tool with a loop over `gh pr checks <n>` that prints each finished job and exits when none is pending (timeout 30 min). Wait about 20 s after `gh pr create`.
+- Use absolute paths, and never `cd`. Never put a backslash in a Bash heredoc. The Write tool keeps `\n` literal but turns `\uFEFF`/`\u2028` into raw characters.
 - **Bundle sizes:** `python artifacts/make-size-probe.py` writes `tools/build/src/zz-sizes-probe.ts` for `packages/data/src/<name>.worker.ts`.
-  - For another entry, change its last line to `join(process.cwd(), process.argv[2])` and pass a path.
-  - Run it with `npx tsx tools/build/src/zz-sizes-probe.ts <arg>` from the worktree root, then **delete it** (lint would see it).
-- **Mutation runs** have a 180 s timeout each. Restore from `.bak` if one is killed.
-- **Old-engine Docker image:**
-  - never change the `RUN apt-get …` line (archive.debian.org runs at about 40 KB/s; a rebuild takes an hour);
+  - Run `npx tsx tools/build/src/zz-sizes-probe.ts <ingest|query|epg>` from the worktree root. It prints a module table and "minified total".
+  - Delete the probe afterwards (lint would see it).
+- **Mutation runs:** each mutant has a 180 s timeout. Restore from `.bak` if a run is killed. Never run mutations while `pnpm verify` or `verify:engines` builds from the same source.
+- **The old-engine Docker image:**
+  - never change the `RUN apt-get …` line (a rebuild takes an hour);
   - add layers after it;
   - list new COPY files in `IMAGE_FILES`.
-- **TaskStop on a background `verify:engines`** leaves its `docker build` running. Find it with `Get-CimInstance Win32_Process -Filter "Name='docker.exe'"` and stop it.
-- **Smart App Control is ON** (Omar's choice). For a blocked native binary, pin an older version or use pure JS. Never turn SAC off or weaken lint.
+  - `serve-fixture.sh` serves any plain file in the fixtures folder, so new fixtures need no image change.
+- **TaskStop on a background `verify:engines`** leaves its `docker build` running: find it with `Get-CimInstance Win32_Process -Filter "Name='docker.exe'"`.
+- **Smart App Control is ON** (Omar's choice). Pin an older version or use pure JS; never weaken lint.
 - **pnpm 11:** after a dependency edit, run `pnpm install --config.optimistic-repeat-install=false`. New dependencies must be at least 2 weeks old.
 
 **Repo layout and tests**
-- Package tsconfigs include only `src`, so package tests go in `src/`. Root `test/` holds cross-package tests: data with tools, the mock, `apps/tv`, and tools with tools.
-- `tools/*` may import only core, protocol and crypto. Constants shared with `tools/fixtures` are repeated, and checked equal by a root test (`test/epg-fixture.test.ts`).
-- The boundary lint resolves `?worker` imports, so a new worker entry needs an `entry-point` rule.
-- **fake-indexeddb:** `freshFactory()` per test. A worker crash is `db.close()` in `fakeTransport`'s `beforeChunk`. Close `MessageChannel` ports in `afterEach`.
-- **`vm` realm workers:** run `var self = globalThis` first, and pass `fetch`, `TextDecoder`, `IDBKeyRange` and `indexedDB` in.
+- Package tsconfigs include only `src`, so package tests go there. Root `test/` holds cross-package tests (data with tools, the mock, `apps/tv`).
+- `tools/*` may import only core, protocol and crypto.
+- **New worker entries** need:
+  - a package `exports` entry;
+  - an `entry-point` rule in `eslint.config.js`;
+  - a case in `test/lint-boundaries.test.ts`;
+  - a `?worker` import in `apps/tv/src/data/workers.ts`.
+- **fake-indexeddb:** use `freshFactory()` per test. A worker crash is `db.close()` in `fakeTransport`'s `beforeChunk`. Close `MessageChannel` ports in `afterEach`.
 - **Mock tests:**
   - never build URLs from `base` at module level;
   - reset `app.mockState.catalog` in `beforeEach`;
-  - the clock is pinned at 2026-11-02 12:00 UTC (`NOW` in `apps/mock-provider/test/helpers`).
-- **Old engines:**
-  - `file://` pages in one engine share one IndexedDB, so the harness passes `force=1`;
-  - the first chrome53 run after Docker starts can time out: retry once.
+  - the clock is `NOW` = 2026-11-02 12:00 UTC;
+  - a whole-session fault: wrap the transport and append `&mock_fault=…` to every URL (`test/epg-ingest-mock.test.ts`).
 - **Polyfills:**
-  - Babel injects them per file before tree-shaking, and a package index import drags every module's polyfills in, so use narrow entries;
-  - exclusion patterns must match the `esnext.*` names;
+  - Babel injects them per file before tree-shaking, so use narrow entries (`@zoma/data/client`) and keep shared helpers in small modules (`ingest-errors.ts` kept the catalog ingest out of the EPG worker);
   - TV code keeps `lib: ES2017`.
 
 **core and data**
-- `normalizeName`, `hash53` and the key layout are **frozen** (ADR-009).
-- `core` targets ES2017: no `\p{…}`, lookbehind, named groups or `s` flag. `Array.prototype.sort` isn't stable on Chromium 53: use an index tie-break or insertion sort (as `buildEpgBucket` does).
-- **Never `await` inside `transact`;** chain requests from callbacks.
-- **Database v1 and profile v1 become stored data once a build ships.** Change them only through append-only migrations, with `schema.test.ts`/`profile.test.ts` updated.
+- `normalizeName`, `hash53` and the key layout are frozen (ADR-009). `core` targets ES2017. `Array.prototype.sort` isn't stable on Chromium 53.
+- Never `await` inside `transact`. Database v1 and v2 and profile v1 become stored data once a build ships; change them only through append-only migrations.
+- Keep long-lived parser strings as owned copies (`ownString`): V8 substrings pin their parent chunk.
 
 **CI, versions, commits**
-- CI `media` takes about 6–11 min (it now includes the EPG bench cases and the 96 MB-heap run), `verify` about 4–6, `engines` about 2–3.
-- **Version pins:** TS 5.9, ESLint 9, Vitest 3.2, Babel 7.29, Vite 7.3, Preact 10, Playwright 1.64.1, fast-check 4.10, fake-indexeddb 6.2.6, fflate 0.8.3, unrs-resolver 1.12.2 (override).
-- **Commits:** scoped `git add`, and `git commit -F <file>` or a `-F - <<'EOF'` message. End it with the `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` line and the harness's session line.
-- **CLAUDE.md edits need Omar's direct word in your own tab.** Two gaps are open there:
-  - the "deep imports are a lint error" convention doesn't mention `@zoma/data`'s three extra entries;
-  - the Commands table lacks `pnpm epg:report` (it is documented in runbook mock-provider.md "Benchmarks").
+- CI takes about 4–5 min for `verify`, 3 for `engines` and 9–11 for `media`. Wait about 20 s after `gh pr create` before reading checks.
+- **Version pins:** TS 5.9, ESLint 9, Vitest 3.2, Babel 7.29, Vite 7.3, Preact 10, Playwright 1.64.1, fast-check 4.10, fake-indexeddb 6.2.6, fflate 0.8.3, unrs-resolver 1.12.2.
+- **Commits:** a scoped `git add` and `git commit -F <file>`. End with the `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` line and the harness's session line.
+- **CLAUDE.md edits need Omar's direct word in your own tab.** Three gaps are open:
+  - the "deep imports" convention doesn't mention `@zoma/data`'s four extra entries (client, query, ingest and epg workers);
+  - the Commands table lacks `pnpm epg:report`;
+  - the `build:tv` row doesn't say that the main budget includes the inlined workers.
 
-## The 3 riskiest changes in PR #11
-1. **`pnpm bench` now exits 1 when a case goes over its limit,** so CI's `media` job fails if the EPG read regresses. On the runner the margin is about 3.4x (2.3 s against 8 s, 5.9 s against 20 s). The limits come from S6 with estimated slowdown factors (15x for a 2018 TV, 6x for a 2020 TV); S6 on real hardware must replace them.
-2. **Shared core XMLTV code changed:** the tokenizer's `onItem` hook, and a fast path in `parseXmltvTime` used by every caller since step 6. A property test (3,000 runs) checks the fast path against the general one, and the step-6 tests still pass.
-3. **ADR-010 was amended:** a lone boundary in the repeated DST hour of an offset-less guide reads an hour early. This is accepted behaviour, pinned by a test, and affects only guides without offsets in DST zones.
+## The 3 riskiest changes in PR #12
+1. **Database v2** (`epg_meta`, `epg_buckets`, `epg_channels`) is stored data once a build ships. It is append-only, and an upgrade from a seeded v1 is tested.
+2. **A third data worker is inlined into main** (449.4 KB of 500, 90%). The EPG worker passes on Chromium 53/56/68 in the harness, but there is little room left for the UI steps.
+3. **Shared code changed:**
+   - core `epgNowNext` (the shift fix);
+   - `SourceMeta.epgUrls` stores guide URLs that may carry credentials, as the chunks already store stream URLs;
+   - the ingest error helpers moved to `ingest-errors.ts` (re-exported).
 
 ## Verified vs not
 - **Verified:**
-  - local `pnpm verify` (905 tests, e2e 6/6);
-  - the 300 MB report exact in a 96 MB heap (local and CI);
-  - the benchmarks within their limits (local and CI);
-  - 28/28 mutants caught;
-  - `pnpm epg:report` against a running mock over HTTP (two guides, gzipped and plain: 11 of 12 matched);
-  - CI green on `9adcab5`, merged as `fd777e1`.
+  - local `pnpm verify` (933 tests, e2e 6/6: the guide row shows 11 of 12 in dev and in both built bundles);
+  - `verify:engines --self-test` (24/24 as expected);
+  - 34/34 mutants caught;
+  - the mock's schedule stored exactly (M3U `url-tvg`; a gzipped user guide in the low tier; an Xtream guide without offsets in Kathmandu time);
+  - a crash mid-ingest keeps the old generation;
+  - now/next from the store for every live mock channel;
+  - CI green on `252b0b0`, merged as `f448c5c`.
 - **Not done:**
-  - CI on `main` at `fd777e1` (run 41503306184), still running when this was written;
-  - nothing is stored yet (step 9b);
-  - no TV involved: S6's real slowdown factors are unmeasured.
+  - CI on `main` at `f448c5c` (run 41513580143) was in progress at handover;
+  - the short EPG (step 9c);
+  - no timer that runs `refreshEpg({ due: true })` while the app runs (step 22 owns the scheduling);
+  - zip guides (step 22) and per-guide offsets and overrides from the profile (step 24);
+  - no TV involved.
 - **Migrations and deploys:** N/A (no backend until step 29; the TV "deploy" is a store submission).
 
-## Try it (Omar, desktop, step 9)
-Step 9 has no screen yet; the report is the visible part.
+## Try it (Omar, desktop, step 9b)
 1. Run the mock: `pnpm mock --host 127.0.0.1`.
-2. In a second terminal, run `pnpm epg:report --playlist "http://127.0.0.1:8080/get.php?username=zoma&password=zoma-test&type=m3u_plus" --xmltv "http://127.0.0.1:8080/xmltv.php?username=zoma&password=zoma-test" --tier low`.
-   - It should say `11 of 12 live channels matched (91.7%)`: 10 by id and 1 by match name.
-   - It lists `18+ Test Pattern` as unmatched.
-   - The window is `2 past and 3 future days`.
-3. Optional, at scale, with the fixtures (`pnpm fixtures`): `pnpm epg:report --playlist .cache/fixtures/playlist.m3u --xmltv .cache/fixtures/xmltv-300mb.xml.gz --now 2026-11-01T00:00:00Z`. It reports 14,013 of 20,000 (70.1%) in about 6–8 s.
+2. In another terminal, run `pnpm dev`.
+3. Open `http://localhost:5173/?q=sports&source=http://127.0.0.1:8080/get.php?username=zoma&password=zoma-test&type=m3u_plus`.
+   - **Refresh** turns `ok: committed gen 1, …`, then **Guide** turns `ok: 11 of 12 live channels have a guide (91.7%), 1 guide`.
+   - **On air** shows a sports channel's programme, but only while your clock is inside the mock's window (7 days before to 3 days after 2026-11-02, by the mock's schedule). Otherwise it says `none: …`.
+4. Reload without `source`: the guide row still shows the stored 11 of 12.
+5. Reload with the source: the refresh is `unchanged`, and no guide is re-read (not due).
 
-## Open decisions and gates (none block step 9b)
-- **Step 16 [needs Omar]:** the LG TV's model and year, LG Developer Mode, the Samsung route (from step 15) and the Samsung certificate.
+## Open decisions and gates
+- **Main bundle budget** (RELAY.md note, decide before step 11; it may be needed sooner if 9c overflows). The options are inlined workers counted only against their own budgets (recommended), separate worker files (needs S1), or raising the main budget.
+- **Step 16 [needs Omar]:** the LG TV's model and year, LG Developer Mode, the Samsung route and the Samsung certificate.
 - **Later gates:** steps 21, 34, 44, 46 and 47.
 - **Before the first store submission:** final app IDs, real icons, and PostCSS in `build:tv` (step 11).
-- **Relay cap:** 40 legs; leg 12 was the 12th.
+- **Relay cap:** 40 legs; leg 13 was the 13th.
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
 - Submit the **Samsung Seller Office Partner application ASAP** (Samsung Gulf). It takes weeks, and Samsung in the GCC and Canada depends on it.
 - Share the **LG TV's model and year**.
 - **"Zoma" trademark clearance** (US, CA, AE, SA) and domains. This also decides the final app IDs.
 - `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` was widened with his authorisation on 2026-11-02. Prune it when the relay run ends if he wants it tighter.
-- **Two CLAUDE.md gaps** wait for his word: `@zoma/data`'s three entries, and the `pnpm epg:report` command.
+- **Three CLAUDE.md gaps** wait for his word: `@zoma/data`'s four entries, `pnpm epg:report`, and the main budget including the inlined workers.
 - No secrets have been shared, so nothing needs rotating.
