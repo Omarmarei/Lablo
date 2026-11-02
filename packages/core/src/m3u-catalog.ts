@@ -8,8 +8,8 @@ import { M3uKeyAllocator } from './content-key';
 import type { M3uEntry, M3uParserOptions, M3uStats } from './m3u';
 import { M3uParser } from './m3u';
 import type { CatalogItem, CatchupInfo, ContentKind, StreamHints } from './model';
-import { MAX_TEXT } from './model';
 import { matchName, normalizeName } from './normalize';
+import { cutText as cut } from './text';
 
 /** File extensions of on-demand files. Anything else without a path hint is live. */
 const VOD_EXTENSIONS = new Set(['mp4', 'mkv', 'avi', 'mov', 'm4v', 'wmv', 'webm', 'mpg', 'mpeg', 'flv', '3gp', 'ogv', 'divx', 'vob']);
@@ -201,12 +201,4 @@ function nonEmpty(value: string | undefined): string | null {
   if (value === undefined) return null;
   const text = value.trim();
   return text.length > 0 ? text : null;
-}
-
-/** Trims and caps a display text at `MAX_TEXT` code units, never splitting a surrogate pair. */
-function cut(value: string): string {
-  const text = value.trim();
-  if (text.length <= MAX_TEXT) return text;
-  const last = text.charCodeAt(MAX_TEXT - 1);
-  return text.slice(0, last >= 0xd800 && last <= 0xdbff ? MAX_TEXT - 1 : MAX_TEXT).trim();
 }

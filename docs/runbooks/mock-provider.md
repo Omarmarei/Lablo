@@ -208,11 +208,27 @@ The `*-scan` and `*-json-parse` cases are baselines (the naive way to read each 
 | `m3u-extinf-scan` | Baseline: a streamed line scan of the M3U. |
 | `m3u-parse` | core's streaming `M3uCatalogParser` (step 5): bytes → TextDecoder → catalog items with keys, normalized names and match names, items dropped per chunk. About 74 MB/s and a 75 MB heap peak for the 200k playlist on a fast PC (2026-11-02), against about 640 MB/s for the scan. |
 | `xtream-vod-json-parse` | Baseline: the whole-response `JSON.parse` that step 6's streaming splitter replaces. |
+| `xtream-vod-json-split` | core's `XtreamListParser` (step 6): bytes → TextDecoder → `JsonArraySplitter` → per-element `JSON.parse` → catalog items, dropped per chunk. About 95 MB/s for the 120k VOD list on a fast PC (2026-11-02), against about 175 MB/s for the whole-response baseline, with a similar heap peak. |
 | `xmltv-gz-programme-scan` | Baseline: gunzip and scan of the 300 MB guide. |
+| `xmltv-gz-tokenize` | core's `XmltvTokenizer` (step 6) over the gunzipped 300 MB guide, every channel wanted (the worst case): about 4.1 s for 1.34 M programmes, against 0.8 s for the scan. |
+| `xmltv-gz-tokenize-10pct` | The same with a tenth of the channels wanted, as after EPG matching: unwanted programmes are skipped by searching for `</programme`. About 2 s. |
 
-Steps 6–9 add their parsers to `tools/bench/src/suites.ts` the same way. CI uploads the results as the `bench` artifact.
+Steps 7–9 add their parts to `tools/bench/src/suites.ts` the same way. CI uploads the results as the `bench` artifact.
 
 The 200k playlist is also a correctness test: `tools/fixtures/test/m3u-scale.media.test.ts` (`pnpm test:media`) checks that core's parser returns exactly the 200,000 entries that `catalog.json` lists, and that each of the 400 malformed lines has its documented effect (`MALFORMED_EFFECTS` in `tools/fixtures/test/m3u-oracle.ts`). `m3u-core.test.ts` runs the same check on a 9,000-entry catalog in `pnpm test`.
+
+Step 6 adds the same for the other inputs (`tools/fixtures/test/xtream-oracle.ts`, `xmltv-oracle.ts`):
+- `xtream/*.json` must come back through core's Xtream list parser as exactly the items of `catalog.json`;
+- every guide must read as one contiguous schedule per channel, from the first instant of the guide to past its end. Each channel writes its own UTC offset, so a misread offset breaks it.
+
+`xtream-xmltv-scale.media.test.ts` runs both on the 200k lists and the gzipped 300 MB guide (`pnpm test:media`); `xtream-xmltv-core.test.ts` runs them on a small catalog and guide in `pnpm test`.
+
+`test/core-mock.test.ts` (root, `pnpm test`) checks the rest of step 6 against a live in-process mock:
+- the Xtream client, with and without `json-quirks`;
+- the `truncate`, `bom`, `gzip`, `invalid-utf8` and `status` faults;
+- every catch-up mode, through the `X-Mock-Archive-*` headers, in UTC, +05:45, +03:00 and New York panels;
+- `get.php` detection;
+- XMLTV in every `timezone` offset style.
 
 ## Docker
 

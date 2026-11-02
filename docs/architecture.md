@@ -136,6 +136,7 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
      - A header `url-tvg`/`x-tvg-url` automatically adds an EPG source.
      - Items are classified as live, movie or series from the Xtream path (`/movie/`, `/series/`) or the file extension. Anything unclear is treated as live.
    - **Xtream:** list endpoints go through a streaming JSON-array splitter. It tracks nesting depth and strings, yields the text of each top-level object, and runs `JSON.parse` on each one, so a 60 MB response never becomes one giant string. Parsing is tolerant: Xtream panels return numbers as strings and plenty of nulls. `get_series_info` and `get_vod_info` are fetched only when the user opens an item, and cached for 24 h. `server_info.timezone` is stored because catch-up URLs need it.
+     - **Built in step 6** (`packages/core`): `XtreamClient` over an injected `TextTransport`, `XtreamListParser` on `JsonArraySplitter`, and `xtreamFromM3uUrl` for the M3U→Xtream upgrade. How the panel zone is worked out without full `Intl` support is [ADR-010](adr/ADR-010-catchup-time-zones.md).
 6. **Keys and normalization.**
    - **ContentKey:** `x:<src>:<kind>:<stream_id>` for Xtream, or `m:<src>:<hash(tvg-id || normName+group)>:<dup#>` for M3U. A key is never derived from the URL, because URLs contain credentials and change.
      - **Amended by [ADR-009](adr/ADR-009-m3u-content-keys.md)** (step 5): the M3U hash covers tvg-id **plus** normName, so channel variants that share a tvg-id don't depend on playlist order. It is a 53-bit hash, and `normalizeName`, `hash53` and the key layout are frozen.
@@ -172,7 +173,7 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
    6. No match
 
    The method used is stored for each channel. Diagnostics shows the match rate per source and lists unmatched channels for manual mapping.
-5. **Filter.** Drop programmes for unmatched channels, which is usually over 90% of a big XMLTV file. Drop anything outside the window. Apply `tvg-shift`, and parse `YYYYMMDDhhmmss ±hhmm` to UTC minutes.
+5. **Filter.** Drop programmes for unmatched channels, which is usually over 90% of a big XMLTV file. Drop anything outside the window. Apply `tvg-shift`, and parse `YYYYMMDDhhmmss ±hhmm` to UTC minutes. Times without an offset use the source's time offset or the panel zone; in a DST zone the repeated hour is ambiguous, so repair it from per-channel ordering ([ADR-010](adr/ADR-010-catchup-time-zones.md)). The step-6 tokenizer (`XmltvTokenizer`) skips unwanted programmes by `wantChannel` before tokenizing them.
 6. **Time window** (remote-configurable):
 
    | Tier | Past | Future | Descriptions |

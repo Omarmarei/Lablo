@@ -41,6 +41,21 @@ describe('bundleIife (Rollup IIFE + Babel chrome 53 + core-js)', () => {
     expect(result.code).toContain('createObjectURL');
   }, 60_000);
 
+  it("compiles core's parsers to gated Chromium 53 code that gives the same results as Node", async () => {
+    const result = await bundleIife({ input: fixture('core-parsers.ts'), platform: 'webos', label: 'core-parsers' });
+    expect(checkSyntax(result.code, 'main')).toBeNull();
+    const bundled = (runWithoutModernApis(result.code) as { run(): string }).run();
+    const { run } = await import('../test/fixtures/core-parsers');
+    expect(bundled).toBe(run());
+    // The run reached every parser (spot checks on the expected output).
+    expect(bundled).toContain('x:tv:live:7 News zoma 1 hd zoma1 {"mode":"xc","days":3,"source":null}');
+    expect(bundled).toContain(`index-${Date.UTC(2026, 10, 2, 10, 30) / 1000}-2700.m3u8`);
+    expect(bundled).toContain(`News & more a <b>b</b> ${Date.UTC(2026, 10, 2, 12)}`);
+    expect(bundled).toContain('/timeshift/u/p%40ss/45/2026-11-02:16-15/101.ts');
+    expect(bundled).toContain('clock 345');
+    expect(bundled).toContain('"username":"special+user","password":"a b"');
+  }, 60_000);
+
   it('leaves the polyfills out only when asked to (the old-engine self-test build)', async () => {
     const result = await bundleIife({ input: fixture('modern.ts'), platform: 'webos', polyfills: false });
     // Still Chromium 53 syntax, but nothing patches the missing APIs.
