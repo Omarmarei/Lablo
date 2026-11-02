@@ -1,7 +1,8 @@
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
-import { SyntaxGateError, bundleIife } from './bundle';
+import { SyntaxGateError, UNUSED_POLYFILLS, bundleIife } from './bundle';
 import { checkSyntax } from './syntax-gate';
 
 const FIXTURES = path.resolve(import.meta.dirname, '../test/fixtures');
@@ -57,6 +58,27 @@ describe('bundleIife (Rollup IIFE + Babel chrome 53 + core-js)', () => {
     expect(bundled).toContain('news=3:0/0.0/word*,2/2.0/start,3/2.1/substring');
     expect(bundled).toContain('new 24=1:2/2.0/word');
   }, 60_000);
+
+  it('injects no polyfills for the ES2019+ APIs nothing can call, and still the ones that are needed', async () => {
+    const result = await bundleIife({ input: fixture('collections.ts'), platform: 'webos' });
+    expect((runWithoutModernApis(result.code) as { run(): string }).run()).toBe('n3,n1,n2|3,2|007');
+    // Method names the excluded core-js modules define (terser keeps property names).
+    for (const name of ['toBase64', 'setFromHex', 'getOrInsert', 'symmetricDifference', 'isDisjointFrom', 'toSorted', 'transferToFixedLength']) {
+      expect(result.code).not.toContain(name);
+    }
+    expect(result.code).toContain('padStart');
+  }, 60_000);
+
+  it('excludes only APIs that TV code cannot call: every bundled package compiles against lib ES2017', () => {
+    expect(UNUSED_POLYFILLS.length).toBeGreaterThan(0);
+    const root = path.resolve(import.meta.dirname, '../../..');
+    const configs = [...readdirSync(path.join(root, 'packages')).map((p) => path.join('packages', p)), path.join('apps', 'tv')];
+    for (const dir of configs) {
+      const config = JSON.parse(readFileSync(path.join(root, dir, 'tsconfig.json'), 'utf8')) as { compilerOptions?: { lib?: string[] } };
+      const libs = (config.compilerOptions?.lib ?? ['ES2017']).filter((l) => !l.startsWith('DOM'));
+      expect([dir, libs]).toEqual([dir, ['ES2017']]);
+    }
+  });
 
   it('leaves the polyfills out only when asked to (the old-engine self-test build)', async () => {
     const result = await bundleIife({ input: fixture('modern.ts'), platform: 'webos', polyfills: false });

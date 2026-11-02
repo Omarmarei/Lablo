@@ -9,6 +9,72 @@ import { SearchIndexBuilder } from '@zoma/core';
 import { beginGeneration, commitGeneration, putCatalogKind, putChunks } from './catalog-store';
 import type { Migration } from './schema';
 import { openDatabase, transact } from './idb';
+import type { ByteRequest, ByteResponse, ByteTransport } from './bytes';
+import { NetworkError } from './bytes';
+
+/** One canned response of `fakeTransport`. */
+export interface FakeResponse {
+  status?: number;
+  headers?: Record<string, string>;
+  body?: string | Uint8Array;
+  /** Bytes per chunk (default 4096). */
+  chunk?: number;
+  /** Fail with `NetworkError` once this many bytes have been read. */
+  failAfter?: number;
+  /** Runs before chunk `n` (0-based) is handed out; may throw (a crash) or wait. */
+  beforeChunk?: (n: number) => void | Promise<void>;
+}
+
+export interface FakeTransport extends ByteTransport {
+  requests: { url: string; headers: Record<string, string> }[];
+  /** Responses cancelled before their end. */
+  cancelled: number;
+}
+
+/** A transport answering from `respond`, chunk by chunk, as a network would. */
+export function fakeTransport(respond: (url: string, headers: Record<string, string>) => FakeResponse): FakeTransport {
+  const t: FakeTransport = {
+    requests: [],
+    cancelled: 0,
+    async get(url: string, request: ByteRequest = {}): Promise<ByteResponse> {
+      const headers = { ...(request.headers ?? {}) };
+      t.requests.push({ url, headers });
+      const r = respond(url, headers);
+      const body = typeof r.body === 'string' ? new TextEncoder().encode(r.body) : (r.body ?? new Uint8Array(0));
+      const size = r.chunk ?? 4096;
+      const lower = new Map(Object.entries(r.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
+      let at = 0;
+      let n = 0;
+      let done = false;
+      return {
+        status: r.status ?? 200,
+        header: (name) => lower.get(name.toLowerCase()) ?? null,
+        async read() {
+          if (done) return null;
+          if (r.failAfter !== undefined && at >= r.failAfter) {
+            done = true;
+            throw new NetworkError('Connection lost');
+          }
+          if (at >= body.length) {
+            done = true;
+            return null;
+          }
+          await r.beforeChunk?.(n++);
+          if (done) return null;
+          const end = Math.min(body.length, at + size, r.failAfter ?? Infinity);
+          const piece = body.slice(at, end);
+          at = end;
+          return piece;
+        },
+        cancel() {
+          if (!done) t.cancelled++;
+          done = true;
+        },
+      };
+    },
+  };
+  return t;
+}
 
 /** A fresh, empty IndexedDB implementation per test. */
 export const freshFactory = (): IDBFactory => new IDBFactory();
@@ -88,7 +154,7 @@ export function item(src: string, kind: ContentKind, id: number, name: string, g
 
 /**
  * Writes `items` as a full generation of `src` (chunker, search index, swap), as the ingest
- * worker will in step 8. Returns the committed generation and the one it replaced.
+ * worker does (ingest.ts, step 8) but from items in memory. Returns the committed generation and the one it replaced.
  */
 export async function ingest(db: IDBDatabase, src: string, items: CatalogItem[], options: { chunkSize?: number; now?: number; commit?: boolean } = {}): Promise<{ gen: number; previous: number }> {
   const gen = await beginGeneration(db, src);

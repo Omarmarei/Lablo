@@ -15,12 +15,19 @@ import type { ContentKey, ContentKind } from '@zoma/core';
 import { onSuccess, transact } from './idb';
 import { STORE } from './schema';
 
-/** A favourite item. `normName` re-matches it when a provider renumbers its streams (step 8). */
+/**
+ * A favourite item. When its key disappears from a refresh, `normName` (narrowed by `epgId` and
+ * `group`) re-matches it to the renumbered or renamed item (favourites.ts, step 8).
+ */
 export interface FavouriteRef {
   key: ContentKey;
   src: string;
   kind: ContentKind;
   normName: string;
+  /** The item's group when it was added or last re-matched (tells apart same-name items). */
+  group?: string;
+  /** The item's tvg-id / `epg_channel_id` (re-matches a renamed M3U channel). */
+  epgId?: string | null;
   /** Epoch ms when it was added. */
   added: number;
   /** Epoch ms since its key has been missing from the catalog (`null`: present). */
@@ -175,14 +182,55 @@ export function saveProfile(db: IDBDatabase, doc: ProfileDoc, options: { now?: n
       if (previous && checkVersion(previous.doc).v > PROFILE_VERSION) {
         throw new ProfileError('The stored profile is from a newer app version');
       }
-      onSuccess(store.getAll(SNAPSHOTS()), (value2) => {
-        const snaps = value2 as ProfileSnapshot[];
-        const newest = snaps.reduce((m, s) => Math.max(m, s.savedAt), -Infinity);
-        if (previous && now - newest >= every) {
-          store.put({ id: snapshotSlot(snaps), savedAt: now, doc: previous.doc, reason: 'daily' } satisfies ProfileSnapshot);
-        }
-        store.put({ id: CURRENT, savedAt: now, doc } satisfies ProfileRecord);
-      });
+      writeCurrent(store, previous, doc, now, every, 'daily');
+    });
+  });
+}
+
+/**
+ * Puts `doc` as the current profile inside a running transaction. The replaced document is
+ * snapshotted first when the newest snapshot is older than `every` (always for a migration).
+ */
+function writeCurrent(store: IDBObjectStore, previous: ProfileRecord | undefined, doc: AnyProfile, now: number, every: number, reason: 'daily' | 'migration'): void {
+  onSuccess(store.getAll(SNAPSHOTS()), (value) => {
+    const snaps = value as ProfileSnapshot[];
+    const newest = snaps.reduce((m, s) => Math.max(m, s.savedAt), -Infinity);
+    if (previous && (reason === 'migration' || now - newest >= every)) {
+      store.put({ id: snapshotSlot(snaps), savedAt: now, doc: previous.doc, reason } satisfies ProfileSnapshot);
+    }
+    store.put({ id: CURRENT, savedAt: now, doc } satisfies ProfileRecord);
+  });
+}
+
+/**
+ * Read-modify-write of the current profile in one transaction, so an edit saved by the UI in
+ * the meantime is never lost (the ingest worker's favourites update uses it). `update` gets the
+ * stored document upgraded to this version and returns the new one, or `null` to leave it; it
+ * runs inside the transaction, so it must be synchronous. Snapshots like `saveProfile`.
+ * Resolves `true` if it wrote. Nothing is written when there is no profile, or when it comes
+ * from a newer app version.
+ */
+export function updateProfile(
+  db: IDBDatabase,
+  update: (doc: ProfileDoc) => ProfileDoc | null,
+  options: ProfileOptions & { snapshotEveryMs?: number } = {},
+): Promise<boolean> {
+  const now = options.now ?? Date.now();
+  const every = options.snapshotEveryMs ?? SNAPSHOT_EVERY_MS;
+  return transact<boolean>(db, STORE.profile, 'readwrite', (tx, done) => {
+    const store = tx.objectStore(STORE.profile);
+    done(false);
+    onSuccess(store.get(CURRENT), (value) => {
+      const record = value as ProfileRecord | undefined;
+      if (!record) return;
+      const migrated = migrateProfile(record.doc, options.migrations);
+      if (migrated.newer) return;
+      const next = update(migrated.doc as ProfileDoc);
+      if (next === null) return;
+      const latest = (options.migrations ?? PROFILE_MIGRATIONS).length + 1;
+      if (checkVersion(next).v !== latest) throw new ProfileError(`Can't save a version ${next.v} profile (this app writes ${latest})`);
+      writeCurrent(store, record, next, now, every, migrated.migrated ? 'migration' : 'daily');
+      done(true);
     });
   });
 }

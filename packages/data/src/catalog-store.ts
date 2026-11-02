@@ -14,7 +14,7 @@
  * `[src, gen]`..`[src, gen, []]` covers one generation and `[src]`..`[src, []]` a whole source.
  */
 
-import type { CatalogItem, ContentKind, SearchSegmentData } from '@zoma/core';
+import type { CatalogItem, ContentKind, SearchSegmentData, XtreamServerInfo } from '@zoma/core';
 import type { CatalogChunk, CategoryInfo } from './chunker';
 import { onSuccess, transact } from './idb';
 import { STORE } from './schema';
@@ -32,7 +32,31 @@ export interface SourceMeta {
   updatedAt: number | null;
   /** Items per kind in the active generation. */
   counts: Partial<Record<ContentKind, number>>;
+  /** What the active generation was built from (conditional fetch; step 8). */
+  fetch?: FetchStamp | null;
+  /** Epoch ms of the last refresh that finished: committed, or found nothing new (step 8). */
+  checkedAt?: number | null;
+  /** The Xtream panel's server facts from the last login (catch-up needs its zone; step 8). */
+  server?: XtreamServerInfo | null;
 }
+
+/**
+ * Identifies the download a generation was built from. A refresh sends the validators back
+ * (`If-None-Match`, `If-Modified-Since`), and one that downloads the same bytes (same FNV-1a
+ * hash and length) with the same ingest version changes nothing.
+ */
+export interface FetchStamp {
+  /** `INGEST_VERSION` that built it: a newer parser rebuilds even unchanged bytes. */
+  v: number;
+  /** FNV-1a of every byte received, as downloaded (before gunzip). */
+  hash: string;
+  bytes: number;
+  etag: string | null;
+  lastModified: string | null;
+}
+
+/** Optional fields `commitGeneration` and `markChecked` also set. */
+export type SourceMetaPatch = Partial<Pick<SourceMeta, 'fetch' | 'checkedAt' | 'server'>>;
 
 /** Thrown when a commit finds another refresh took over the source. */
 export class GenerationError extends Error {
@@ -53,6 +77,39 @@ export function newSourceMeta(src: string): SourceMeta {
 export function getSources(db: IDBDatabase): Promise<SourceMeta[]> {
   return transact<SourceMeta[]>(db, STORE.sources, 'readonly', (tx, done) => {
     onSuccess(tx.objectStore(STORE.sources).getAll(), (all) => done(all as SourceMeta[]));
+  });
+}
+
+/** One source's bookkeeping (`null`: never refreshed). */
+export function getSource(db: IDBDatabase, src: string): Promise<SourceMeta | null> {
+  return transact<SourceMeta | null>(db, STORE.sources, 'readonly', (tx, done) => {
+    onSuccess(tx.objectStore(STORE.sources).get(src), (value) => done((value as SourceMeta | undefined) ?? null));
+  });
+}
+
+/** Records a refresh that found nothing new (`checkedAt`, plus `patch`). No-op for an unknown source. */
+export function markChecked(db: IDBDatabase, src: string, now: number, patch: SourceMetaPatch = {}): Promise<void> {
+  return transact<void>(db, STORE.sources, 'readwrite', (tx) => {
+    const store = tx.objectStore(STORE.sources);
+    onSuccess(store.get(src), (value) => {
+      const meta = value as SourceMeta | undefined;
+      if (meta) store.put({ ...meta, ...patch, checkedAt: now } satisfies SourceMeta);
+    });
+  });
+}
+
+/**
+ * Drops a generation that will never be committed (a failed or cancelled refresh, or one that
+ * turned out unchanged): its records, and the `building` mark if it is still the one being built.
+ */
+export function abandonGeneration(db: IDBDatabase, src: string, gen: number): Promise<void> {
+  return transact<void>(db, [STORE.sources, ...CATALOG_STORES], 'readwrite', (tx) => {
+    const sources = tx.objectStore(STORE.sources);
+    onSuccess(sources.get(src), (value) => {
+      const meta = value as SourceMeta | undefined;
+      if (meta && meta.building === gen) sources.put({ ...meta, building: null } satisfies SourceMeta);
+    });
+    if (gen > 0) for (const name of CATALOG_STORES) tx.objectStore(name).delete(generationRange(src, gen));
   });
 }
 
@@ -89,15 +146,23 @@ export function putCatalogKind(db: IDBDatabase, src: string, gen: number, kind: 
 /**
  * Makes `gen` the active generation of `src`, in one transaction. Returns the previous active
  * generation (0 if none) for `deleteGeneration`. Fails if `gen` is not the one being built
- * (another refresh began after it, or it was already committed).
+ * (another refresh began after it, or it was already committed). `patch` sets the fetch stamp
+ * and panel facts of the new generation in the same write.
  */
-export function commitGeneration(db: IDBDatabase, src: string, gen: number, counts: Partial<Record<ContentKind, number>>, now = Date.now()): Promise<number> {
+export function commitGeneration(
+  db: IDBDatabase,
+  src: string,
+  gen: number,
+  counts: Partial<Record<ContentKind, number>>,
+  now = Date.now(),
+  patch: SourceMetaPatch = {},
+): Promise<number> {
   return transact<number>(db, STORE.sources, 'readwrite', (tx, done) => {
     const store = tx.objectStore(STORE.sources);
     onSuccess(store.get(src), (value) => {
       const meta = value as SourceMeta | undefined;
       if (!meta || meta.building !== gen) throw new GenerationError(`Generation ${gen} of ${src} is not being built`);
-      store.put({ ...meta, gen, building: null, updatedAt: now, counts: { ...counts } } satisfies SourceMeta);
+      store.put({ ...meta, ...patch, gen, building: null, updatedAt: now, counts: { ...counts } } satisfies SourceMeta);
       done(meta.gen);
     });
   });

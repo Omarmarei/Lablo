@@ -12,6 +12,7 @@ import {
   migrateProfile,
   restoreSnapshot,
   saveProfile,
+  updateProfile,
 } from './profile';
 import { STORE } from './schema';
 import { freshFactory } from './test-support';
@@ -135,6 +136,57 @@ describe('profile storage', () => {
     await restoreSnapshot(db, 'snap:1', { now: 3 * DAY + 5 });
     expect((await loadProfile(db))!.doc).toEqual(withFavs(3));
     await expect(restoreSnapshot(db, 'snap:9')).rejects.toThrow(/No profile snapshot snap:9/);
+    db.close();
+  });
+});
+
+describe('updateProfile', () => {
+  it('reads, changes and writes the current profile in one transaction', async () => {
+    const db = await openDatabase(freshFactory());
+    expect(await updateProfile(db, () => withFavs(9))).toBe(false);
+    expect(await loadProfile(db)).toBeNull();
+    await saveProfile(db, withFavs(1), { now: 0 });
+    let seen: ProfileDoc | null = null;
+    expect(
+      await updateProfile(
+        db,
+        (doc) => {
+          seen = doc;
+          return { ...doc, favourites: [...doc.favourites, fav(2)] };
+        },
+        { now: 5 },
+      ),
+    ).toBe(true);
+    expect(seen).toEqual(withFavs(1));
+    expect((await loadProfile(db))!.doc).toEqual(withFavs(1, 2));
+    // Returning null writes nothing.
+    expect(await updateProfile(db, () => null, { now: 6 })).toBe(false);
+    expect((await loadProfile(db))!.doc).toEqual(withFavs(1, 2));
+    db.close();
+  });
+
+  it('snapshots like saveProfile, upgrades old documents and never writes over a newer one', async () => {
+    const db = await openDatabase(freshFactory());
+    await saveProfile(db, withFavs(1), { now: 0 });
+    await updateProfile(db, (doc) => ({ ...doc, favourites: [fav(2)] }), { now: DAY });
+    expect((await listSnapshots(db)).map((s) => [s.reason, s.doc])).toEqual([['daily', withFavs(1)]]);
+
+    // A version-1 document under an app that writes version 2: upgraded, the old one snapshotted.
+    expect(await updateProfile(db, (doc) => ({ ...doc, extra: true }) as ProfileDoc, { now: DAY + 1, migrations: [toV2] })).toBe(true);
+    const snaps = await listSnapshots(db);
+    expect(snaps[0]).toMatchObject({ reason: 'migration', doc: withFavs(2) });
+    await expect(updateProfile(db, (doc) => doc, { migrations: [] })).resolves.toBe(false);
+
+    await writeCurrent(db, { v: 9, favourites: [] });
+    expect(await updateProfile(db, () => withFavs(3))).toBe(false);
+    db.close();
+  });
+
+  it('rejects (and writes nothing) when the update returns another version', async () => {
+    const db = await openDatabase(freshFactory());
+    await saveProfile(db, withFavs(1), { now: 0 });
+    await expect(updateProfile(db, (doc) => ({ ...doc, v: 2 }) as unknown as ProfileDoc)).rejects.toThrow(ProfileError);
+    expect((await loadProfile(db))!.doc).toEqual(withFavs(1));
     db.close();
   });
 });

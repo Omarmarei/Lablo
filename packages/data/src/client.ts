@@ -1,8 +1,9 @@
 /**
- * The UI's side of the query worker: a typed RPC client over the worker (architecture.md §1.2).
- * `ui` imports only this part of `@zoma/data`.
+ * The UI's side of the data workers: typed RPC clients over the query worker and the ingest
+ * worker (architecture.md §1.2). `ui` imports only this part of `@zoma/data`.
  */
 
+import type { IngestEvents, IngestService } from './ingest-service';
 import type { QueryService } from './query-service';
 import type { RpcPort } from './rpc';
 import { RpcClient } from './rpc';
@@ -22,6 +23,26 @@ export function createDataClient(port: RpcPort & { onerror?: ((event: ErrorEvent
   if ('onerror' in port) {
     port.onerror = (event: ErrorEvent) => {
       client.fail(new Error(`Query worker failed: ${event.message || 'unknown error'}`));
+    };
+  }
+  return client;
+}
+
+/** The ingest worker's RPC methods. */
+export type IngestHandlers = ReturnType<IngestService['handlers']>;
+
+/** Calls an ingest worker: `client.call('run', { job }, { cancel })`, events `progress` and `swapped`. */
+export type IngestClient = RpcClient<IngestHandlers, IngestEvents>;
+
+/**
+ * Wraps a started ingest worker. If the worker dies (or is terminated mid-refresh), pending
+ * calls reject; the refresh's half-written generation is pruned by the next one.
+ */
+export function createIngestClient(port: RpcPort & { onerror?: ((event: ErrorEvent) => void) | null }): IngestClient {
+  const client = new RpcClient<IngestHandlers, IngestEvents>(port);
+  if ('onerror' in port) {
+    port.onerror = (event: ErrorEvent) => {
+      client.fail(new Error(`Ingest worker failed: ${event.message || 'unknown error'}`));
     };
   }
   return client;
