@@ -1,196 +1,196 @@
-# Zoma IPTV: relay leg 8 opening prompt
+# Zoma IPTV: relay leg 9 opening prompt
 
-You are leg 8 of relay run `iptv-20261101-214120`, building **Zoma IPTV**: a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 9 of relay run `iptv-20261101-214120`, building **Zoma IPTV**: a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 - Leg 0 planned it.
 - Legs 1–5 did steps 1–4: the scaffold, the TV build pipeline, the old-engine harness, the mock provider, and the media set with scale fixtures (PRs #1–#5).
 - Leg 6 did no project work.
-- **Leg 7 did step 5: `core`, part 1.** Merged as PR #6 (merge commit `7b44cb3`). CI is green in all three jobs (`verify`, `engines`, `media`), both on the PR and on `main` at `7b44cb3`.
+- Leg 7 did step 5: `core`, part 1 (PR #6, merge commit `7b44cb3`).
+- **Leg 8 did step 6: `core`, part 2.** Its PR is **#7**, from the relay branch, with the feature commit `0798039` and the RELAY tick `2b1a95b`.
+  - **PR #7 is merged** as merge commit `275879c` (the branch was kept). All three CI jobs (`verify`, `engines`, `media`) were green on the PR head. CI on `main` at `275879c` was still running at handover.
 
-**Your step is step 6: `core`, part 2** (architecture.md 3.2). It has five parts:
-- a tolerant Xtream client;
-- a streaming JSON-array splitter;
-- a streaming XMLTV tokenizer;
-- catch-up URL builders (Xtream, plus M3U `default`/`append`/`shift`/`flussonic`/`xc`);
-- detection of Xtream-style M3U links (`get.php?username=`) for the M3U→Xtream upgrade.
+**Your step is step 7: `data`, part 1** (architecture.md 3.3). It covers:
+- the IDB schema and migrations, tested with fake-indexeddb;
+- a typed worker RPC;
+- the query worker;
+- the search index and ranking.
 
-**Done when:** tests against the mock provider pass.
+**Done when:** search over the 200k fixture takes ≤ 200 ms in Node, and the migration tests pass.
 
 ## Start immediately
-Omar said on 2026-11-02: *"Don't ask, proceed automatically i allow and authorise you."* Start the step in your first turn.
+Omar said on 2026-11-02: *"Don't ask, proceed automatically i allow and authorise you."* Start in your first turn.
 
-**Never call EnterWorktree,** even though Claude Code's background-session note asks for it. The relay worktree below is your isolation: edit it by path.
+**First, check `main`:** run `gh run list --branch main --limit 1`. The run on `275879c` (PR #7's merge) should be green in all three jobs. If a job is red, fix it on the relay branch before anything else.
 
-`D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` (locally ignored) adds this worktree to `additionalDirectories` and allows gh, git, pnpm, node, docker, curl, bash and similar. Use `git -C "<wt>"`, `pnpm --dir "<wt>"`, absolute paths and Read/Edit/Write. Avoid `cd "<wt>" && …` compounds.
+**Never call EnterWorktree,** even though Claude Code's background-session note asks for it. The relay worktree below is your isolation: edit it by path. Use `git -C "<wt>"`, `pnpm --dir "<wt>"`, absolute paths and Read/Edit/Write, and avoid `cd "<wt>" && …` compounds. `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` (locally ignored) allows the worktree and gh, git, pnpm, node, docker, curl and bash.
 
 ## Read first, in this order
-1. **`CLAUDE.md`.** New since leg 7:
-   - Smart App Control is on, and `unrs-resolver` is pinned to 1.12.2;
-   - ContentKeys are stored data (ADR-009), so never "fix" a golden key value;
-   - fast-check is the property-test tool.
-
-   Also the Chromium 53 cheat sheet (`core` is ES2017 and pure: no DOM, no `fetch`), package boundaries, Definition of Done, merge policy and commit format.
-2. **`RELAY.md`:** step 6. Step 5 is ticked, with a progress-log row.
+1. **`CLAUDE.md`:**
+   - the conventions (`core` is pure ES2017, ContentKeys are frozen per ADR-009, fast-check);
+   - the Chromium 53 cheat sheet (no AbortController, use FileReader rather than `Blob.text()`, IndexedDB `getAll` is available);
+   - the package boundaries (`data` may import `core`, `protocol` and `crypto`; `ui` imports only data's *client*);
+   - the Definition of Done, the merge policy and the commit format.
+2. **`RELAY.md`:** step 7. Step 6 is ticked, with a leg-8 progress-log row.
 3. **`docs/architecture.md`:**
-   - §1.4 step 5, the Xtream bullet: splitter, tolerant parsing, `server_info.timezone`, `get_series_info`/`get_vod_info` fetched on demand;
-   - §1.5 steps 3 and 9: the tokenizer (entities, CDATA, UI-language titles, channels before programmes);
-   - §4, the test layers;
-   - §6, 3.2.
-4. **`docs/adr/ADR-009-m3u-content-keys.md`** and the code in **`packages/core/src`** (see "What step 5 added").
-5. **`docs/runbooks/mock-provider.md`:**
-   - "Endpoints" and "Catch-up modes": the `X-Mock-Archive-Channel/-Start/-Duration` oracle headers tell a test exactly what a built URL resolved to;
-   - "Faults": `json-quirks`, `timezone`, the `odd-timezone` scenario;
-   - "Scale fixtures" and "Benchmarks".
-6. **`docs/PLAN.md`** wins on any conflict.
+   - §1.3, storage design: assume webOS wipes everything on update; 500-item records; generations; 3 profile snapshots;
+   - §1.4 steps 7–12: write, index, swap, favourites surviving a refresh, search ranking, and the low-tier fallback;
+   - §4, test layers: data uses Vitest plus fake-indexeddb;
+   - §5, the S1/S6 notes: IndexedDB in a Blob worker on `file://`, and the 200 ms search target on 2018 TVs;
+   - §6, 3.3.
+4. **`docs/adr/ADR-009`** (keys) and **`ADR-010`** (catch-up zones; new in leg 8).
+5. **`packages/core/src/index.ts`**: everything core exports (see "What step 6 added"). Then **`packages/data`**, which is still a skeleton from step 1.
+6. **`docs/runbooks/mock-provider.md`:** "Scale fixtures" and "Benchmarks" (the step-6 rows and oracles are new).
+7. **`docs/PLAN.md`** wins on any conflict.
 
 ## Git state to expect
-- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, on branch `relay/iptv-20261101-214120`. Work **only** there. Your session folder is the main checkout: leave it alone (its local `main` is behind).
-- **Branch:** HEAD is the commit that adds this `HANDOVER.md` (plus a RELAY log tweak), on top of:
-  - `597c73e`, which keeps the `unrs-resolver` pin and drops the wasm32 install;
-  - `6674046`, the pin;
-  - `2bf407c`, the progress-log hash;
-  - `1bdf817`, the step-5 feature commit.
+- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`. Work **only** there. Your session folder is the main checkout: leave it alone (its local `main` is behind).
+- **Branch:** HEAD is the commit that adds this `HANDOVER.md`, on top of:
+  - `2b1a95b`, the RELAY tick and leg-8 log row;
+  - `0798039`, the step-6 feature;
+  - `bc9c8d8`, the leg-7 handover.
 
   The branch is pushed and the worktree is clean.
-- **`origin/main`:** `7b44cb3`, the merge of PR #6 (a merge commit; the branch was kept).
-- **Ready in the worktree** (`.cache/` is gitignored):
-  - `node_modules` (`unrs-resolver` 1.12.2; leftover wasm32 folders in `node_modules/.pnpm` are harmless);
-  - `.cache/media`, including the four Blender films;
-  - `.cache/fixtures`: the 200k M3U, `xtream/*.json`, `catalog.json`, and the 50/150/300 MB XMLTV with `.gz`;
-  - `.cache/engines`;
-  - Playwright `chromium-1248`.
-- **`pnpm verify` is green locally:** 558 tests, lint including boundaries, both TV builds and e2e 5/5, in about 26 s. `pnpm test:media` is green.
+- **Gitignored but present:**
+  - `node_modules` (after leg 8's `pnpm install`: `@zoma/core` is now a root devDependency and a devDependency of `tools/build`);
+  - `.cache/media`, `.cache/fixtures` (200k catalog, Xtream JSON, 50/150/300 MB XMLTV with `.gz`) and `.cache/engines`;
+  - Playwright `chromium-1248`;
+  - `artifacts/`, which holds leg 8's scratch scripts (`mutate.py`, `patch_*.py`). They are reusable patterns.
+- **Local gates:**
+  - `pnpm verify` is green: 711 tests, both TV builds within budget, e2e 5/5.
+  - The step-6 scale media test is green: the 200k Xtream lists in 0.7 s and the 300 MB gzipped guide in 6.3 s.
+  - The full `pnpm test:media` was **not** rerun locally (no media or stream changes); CI's `media` job runs it.
 
-## What step 5 added (in `@zoma/core`, so you can use it)
-- **`model.ts`:**
-  - `CatalogItem`, with key, src, kind, name, normName, group, url, logo, epgId, tvgName, matchName, chno, tvgShift, catchup, radio and hints;
-  - `ContentKind` (`live`/`movie`/`series`), `CatchupInfo` (`{ mode: string|null, days: number|null, source: string|null }`, recorded as written), `StreamHints`, `MAX_TEXT` (256).
-- **`normalize.ts`:**
-  - `normalizeName`: NFKD; Arabic folding (أإآٱ→ا, ة→ه, ى→ي, ؤ→و, ئ→ي, harakat and tatweel removed); digits → ASCII; punctuation → spaces. It's frozen.
-  - `matchName`: country and category tags plus quality tokens stripped, no spaces. Use it for XMLTV display names too.
-- **`hash.ts`:** `hash53` and `hash53Base36` (frozen).
-- **`content-key.ts`:**
-  - `xtreamKey(src, kind | 'episode', id)` → `x:<src>:<kind>:<id>`; ids must be non-negative integers or strings without whitespace or colons, and it throws `RangeError` otherwise, so the tolerant client must skip bad ids;
-  - `M3uKeyAllocator`, `m3uKeyHash`, `parseContentKey`, `isSourceId`.
-- **`m3u.ts`:** `M3uParser`, a streaming syntax layer with `stats`. `push(chunk)` returns the entries that chunk completed; `end()` flushes.
-- **`m3u-catalog.ts`:** `M3uCatalogParser(src)`, which gives items plus `summary()` (epgUrls, counts, stats, userAgents, looksLikeHls); `parseM3uCatalog`; `classifyStreamUrl`.
+## What step 6 added (in `@zoma/core`, so you can use it)
+- **`json-splitter.ts`:** `JsonArraySplitter` (`push(chunk) → element texts`, `end()`, `stats`) and `splitJsonArray`.
+- **`xtream-url.ts`:**
+  - `XtreamAccount {base, username, password}` and `normalizeXtreamBase`;
+  - the builders `xtreamApiUrl`, `xtreamStreamUrl`, `xtreamM3uUrl` and `xtreamXmltvUrl`;
+  - `xtreamFromM3uUrl` (get.php → account) and `parseXtreamStreamUrl`.
+- **`xtream.ts`:**
+  - `XtreamClient(account, transport, src)`, with `login`, `zone`, `categories`, `list(kind, onItems, opts)`, `vodInfo`, `seriesInfo`, `shortEpg` and `catchupUrl`;
+  - the injected `TextTransport { get(url) → TextResponse { status, read() → string|null, cancel() } }`, which step 8 implements with fetch or XHR;
+  - `XtreamListParser(kind, ctx)` for streamed lists, and the tolerant decoders (`decodeListItem`, `decodeSeriesInfo`, …);
+  - `XtreamListItem = { item: CatalogItem, id, categoryId, added, adult, rating, year }`. Xtream series items have `url: ''`, because episodes come from `seriesInfo`.
+- **`timezone.ts`:** `panelZone(server)` (Intl, then the panel clock, then UTC), plus `intlZone`, `clockOffset`, `fixedZone` and `ZoneOffset`.
+- **`catchup.ts`:** `m3uCatchupUrl(url, catchupInfo, window, {zone, flussonic})`, `xtreamCatchupUrl`, `catchupMode` and `fillCatchupTemplate`.
+- **`xmltv.ts`:**
+  - `XmltvTokenizer({languages, wantChannel, descLimit})` gives `XmltvChannel`/`XmltvProgramme` items with raw times;
+  - `parseXmltvTime(raw, fallbackZone)` returns epoch ms;
+  - `decodeXmlEntities`.
+- **`text.ts`:** `cutText`, `collapseSpace` and `decodeBase64Utf8` (`m3u-catalog` now uses the shared `cutText`).
 - **Tests to copy the shape of:**
-  - `packages/core/src/*.test.ts`: goldens plus fast-check;
-  - `tools/fixtures/test/m3u-oracle.ts`: the parser checked against `catalog.json`;
-  - `m3u-core.test.ts` (9k entries, `pnpm test`);
-  - `m3u-scale.media.test.ts` (200k, `pnpm test:media`).
-- **Bench:** the case `m3u-parse` in `tools/bench/src/suites.ts` runs at about 74 MB/s locally and 42 MB/s on CI.
+  - `test/core-mock.test.ts`: core against the in-process mock over a real socket, with a fetch-based `TextTransport` (a template for step 8's transport);
+  - `tools/fixtures/test/{xtream,xmltv}-oracle.ts`;
+  - `tools/build/test/fixtures/core-parsers.ts` with its `bundle.test.ts` case: core code bundled through the TV pipeline and run without the ES2017 APIs Chromium 53 lacks. **Extend it with the search code**; it is the cheapest Chromium 53 check until step 8 bundles real workers.
 
-## Step 6: suggested approach
-1. **Check first:** `git log`, and grep `packages/core/src` for xtream, json, xmltv and catchup. Today none of them exist.
-2. **`core` stays pure.**
-   - The Xtream "client" is URL builders plus tolerant decoders of `player_api.php` responses. The transport is injected (a small interface), and data step 8 supplies fetch/XHR.
-   - Never log or key on URLs or credentials.
-   - Map Xtream items to `CatalogItem` with `xtreamKey`, using the same `normalizeName`/`matchName` as M3U.
-   - Handle the `json-quirks` fault: numbers as strings, `null` → `""`, and series `episodes` as an array of arrays.
-3. **JSON-array splitter:**
-   - Takes string chunks; tracks depth, strings and escapes; yields each top-level element's text for `JSON.parse`.
-   - Tolerates a BOM, whitespace, an empty `[]`, an object instead of an array (panels send `{}` or error objects) and truncation (the `truncate` fault).
-   - Fuzz it like the M3U parser (chunk-split invariance, never-throw).
-   - Write an oracle against `.cache/fixtures/xtream/*.json` vs `catalog.json`.
-   - Add a bench case next to `xtream-vod-json-parse`.
-4. **XMLTV tokenizer:**
-   - Streaming: `<channel id>` with `<display-name lang>`, and `<programme start stop channel>` with `<title lang>`/`<desc>`.
-   - Handles entities (`&amp;`, `&#…;`) and CDATA; prefers the UI-language title.
-   - Exposes the raw `YYYYMMDDhhmmss ±hhmm` times, or converts them to UTC minutes. The `timezone` fault also writes `+05:45`, a missing offset, or UTC.
-   - Gunzip belongs to step 8; tests can use `node:zlib`.
-   - Add a bench case next to `xmltv-gz-programme-scan` (300 MB).
-5. **Catch-up builders:**
-   - Xtream: `/timeshift/{u}/{p}/{minutes}/{YYYY-MM-DD:HH-MM}/{id}.ts`, with the start as wall time in `server_info.timezone`. This needs IANA-zone math without `Intl` time-zone support on old TVs, so decide and record an approach.
-   - M3U modes: `default` (fill the template: `{utc}`, `{utcend}`, `{lutc}`, `{duration}`…), `append`, `shift` (`?utc=&lutc=`), `flussonic` (`archive-{utc}-{duration}.ts`, `index-…m3u8`, `timeshift_abs-…`) and `xc`.
-   - `CatchupInfo.mode === null` (days given, no mode): pick a default and record it.
-   - Check every mode against the mock's `X-Mock-Archive-*` headers.
-6. **Xtream-style M3U detection:** `get.php?username=…&password=…&type=m3u_plus` → `{ base, username, password }`, for the upgrade offer (UX comes in step 37).
-7. **"Tests against the mock":**
-   - The mock imports nothing internal and has no package entry point.
-   - `tools/*` may import only core/protocol/crypto, not apps.
-   - So use the **root `test/` folder**: it sits outside the boundary elements, vitest includes `test/**/*.test.ts`, and the root tsconfig includes it. Import `buildServer` from `../apps/mock-provider/src/server` in-process.
-   - The root `package.json` doesn't declare `@zoma/core` yet. Add `"@zoma/core": "workspace:*"` as a root devDependency, or check how vitest resolves it.
-   - Mock gotchas: bodies follow the Host header; the fault separator is `?mock_fault=a:b`; pin the clock with `now`; live streams must be finite in tests.
-8. **Size:** step 6 is big. If your context runs low, split it in RELAY.md:
-   - 6a: splitter, Xtream decoders and get.php detection;
-   - 6b: XMLTV tokenizer and catch-up builders.
+## Step 7: suggested approach
+1. **Check first:** run `git log`, look at `packages/data`, and grep for `indexedDB`, `fake-indexeddb`, `rpc` and `search`. Today it is a skeleton.
+2. **Dependencies:**
+   - add `fake-indexeddb` as a devDependency of `data`; pick a version published at least 2 weeks ago and check its peers with `npm view`;
+   - **Smart App Control:** it is pure JS, so it should load; any native binary may be blocked (see CLAUDE.md).
+3. **Schema** (§1.3):
+   - stores for `sources_meta` (with `gen`), catalog chunks keyed `[src, gen, kind, catIdx, chunk]` holding 500 items each, the search index, the profile (favourites keyed by ContentKey) and snapshots;
+   - versioned migrations that never drop data;
+   - fixture tests for each migration, plus an "upgrade from every earlier version" test.
+4. **RPC:**
+   - typed request/response over `postMessage`, with ids, error transport and cancellation by token (no AbortController);
+   - test it with an in-memory MessageChannel pair (Node has `MessageChannel`);
+   - workers start through `?worker` imports (CLAUDE.md "Workers").
+5. **Search index** (§1.4 steps 8 and 11):
+   - all `normName`s joined with the U+0001 separator (build it with `String.fromCharCode(1)`, never a `\u0001` literal through the Write tool), a `Uint32Array` of offsets, and a key-to-location map;
+   - `indexOf`, then a binary search over the offsets;
+   - ranking: word-prefix before substring; live before VOD before series; favourites boosted; capped at 200 results;
+   - normalize the query with `normalizeName`. It is frozen for keys; if search needs different folding, add a separate function and never change `normalizeName`.
+6. **The 200 ms test:**
+   - build the index from the 200k fixture: parse `playlist.m3u` with `M3uCatalogParser`, or the Xtream JSON with `XtreamListParser`, as the oracles do;
+   - time typical queries (Arabic and Latin, 1–3 characters, a rare word);
+   - the full 200k needs `pnpm fixtures`, so it belongs in a `*.media.test.ts`; for `pnpm test`, generate a 200k catalog in memory or use a smaller fixture with a scaled limit;
+   - add a bench case `search-200k`.
+7. **Size:** step 7 is big. If your context runs low, split it in RELAY.md:
+   - 7a: schema, migrations and RPC;
+   - 7b: query worker, search index, ranking and the 200 ms test.
 
-   Tick 6a and hand over.
-9. **Finish:**
-   - Tick the step, add a progress-log row, and update CLAUDE.md if commands change.
-   - Push, run `gh pr create --base main`, and wait for **all three** CI jobs.
-   - Run `gh pr merge <n> --merge`. Never squash, never `--delete-branch`.
-   - List the 3 riskiest changes in your handover.
+   Tick 7a and hand over.
+8. **Finish:**
+   - tick the step, add a progress-log row, and update CLAUDE.md only if commands change;
+   - push, `gh pr create --base main`, and wait for **all three** CI jobs;
+   - `gh pr merge <n> --merge`;
+   - list the 3 riskiest changes in your handover.
 
-## Gotchas and lessons (legs 1–7)
+## Gotchas and lessons (legs 1–8)
 **Shell and tools**
 - The Bash cwd resets to the main checkout after any `cd`. Use absolute paths.
-- **Don't patch files with Bash heredocs.** They fail to parse, or, worse (leg 7), turn `\\n`/`\\r` into real newlines and CRs inside the patched code. Write the script with the Write tool (build backslashes with `chr(92)`), or use Edit.
-- **`gh pr checks <n> --watch` right after a push or `gh pr create`** exits at once with "no checks reported". Wait about 20 s first.
-- **tsx:** use extensionless relative imports. Put probe scripts in the gitignored `artifacts/`.
-- **Write tool:** `\u2028` and similar escapes become raw characters. Build such characters with `String.fromCharCode` in code.
-- **Smart App Control is ON (Omar's choice).**
-  - If lint shows "Resolve error"s, or Node says "An Application Control policy has blocked this file", a too-new unsigned native binary is blocked.
-  - Pin an older version that has reputation (as with `unrs-resolver` 1.12.2), or use a pure-JS fallback. napi-rs WASM fallbacks can't resolve Windows paths.
-  - Never turn SAC off, and never weaken lint.
-- **pnpm 11:** after editing only `pnpm-workspace.yaml`, run `pnpm install --config.optimistic-repeat-install=false`; otherwise it reports "Already up to date" and does nothing. `allowBuilds`: edit pnpm's own placeholder line (`unrs-resolver: false` is set).
+- **Don't patch files with Bash heredocs or sed.** Write a Python script with the Write tool (build backslashes with `chr(92)`), or use Edit.
+  - Leg 8: GNU sed's replacement `\u` uppercases the next character, which turned `\uFEFF` into `FEFF`.
+  - **The Write tool turns `\uFEFF` and `\u2028` in string literals into raw characters.** Build them with `String.fromCharCode` and grep for the raw bytes afterwards (`LC_ALL=C grep -c $'\xef\xbb\xbf' file`).
+- **Background CI watchers can be killed under memory pressure** (leg 8). Don't restart one unasked; run single `gh pr checks <n>` calls instead. `gh pr checks --watch` right after `gh pr create` exits with "no checks reported", so wait about 20 s first.
+- **tsx:** use extensionless relative imports. Put probe scripts in the gitignored `artifacts/`. A probe *test* must match a vitest include glob (for example `packages/core/src/zz-probe.test.ts`, deleted afterwards).
+- **Smart App Control is ON (Omar's choice).** "Resolve error"s in lint, or "An Application Control policy has blocked this file", mean a too-new unsigned native binary was blocked. Pin an older version that has reputation, or use a pure-JS package. Never turn SAC off, and never weaken lint.
+- **pnpm 11:** after a `package.json` dependency edit, run `pnpm install --config.optimistic-repeat-install=false`.
 
 **core and tests**
-- `normalizeName`, `hash53` and the key layout are **frozen** (ADR-009). A golden failure there is a real regression, not a test to update.
-- `core` targets ES2017: no `\p{…}`, no lookbehind, no named groups, no `s` flag. Optional catch binding and spread are fine (Babel).
-- The new core code is **tree-shaken out of the TV bundle** until step 8 uses it, so it hasn't run on Chromium 53 yet. Keep to Chromium-53-safe APIs: `String.prototype.normalize`, `Math.imul`, `Map`/`Set`, typed arrays and `startsWith` are fine.
+- `normalizeName`, `hash53` and the key layout are **frozen** (ADR-009). Xtream keys `x:<src>:<kind>:<id>` are also stored data now. `xId` gives `123` and `"123"` the same key text; keep it that way.
+- `core` targets ES2017: no `\p{…}`, no lookbehind, no named groups, no `s` flag. `String.fromCodePoint`, `startsWith`, `Map`/`Set`, typed arrays and `Number.isSafeInteger` are fine. `Intl.DateTimeFormat` is used only behind a feature probe (ADR-010).
 - **fast-check 4:**
-  - lone surrogates: `fc.string({ unit: fc.integer({min:0,max:0xffff}).map(c => String.fromCharCode(c)) })`;
-  - your chunk-split helper **must allow empty chunks** (repeated cut points). A deduplicating splitter hid a real CR bug;
-  - mutation-check each property once.
+  - use block-bodied predicates: `(x) => { expect(...); }`. An expression arrow fails with "Property failed by returning false";
+  - generate lone surrogates with `fc.string({ unit: fc.integer({min:0,max:0xffff}).map(String.fromCharCode) })`;
+  - the chunk-split helper must keep empty chunks;
+  - mutation-check each property once (leg 8: 8/8 mutants caught, with `artifacts/mutate.py`).
+- **ESLint `no-control-regex`** rejects control-character ranges in regex literals; check char codes instead.
 - **Golden files:** `toMatchFileSnapshot` writes the file on the first local run. Read it by hand before committing.
-- **Fixtures:** `writeCatalog()` needs `<out>/xtream/` to exist. `createReadStream` with a tiny `highWaterMark` is slow (stream overhead), so use 61 bytes or more in tests.
+- **Fixtures:**
+  - `writeCatalog()` needs `<out>/xtream/` to exist;
+  - `createReadStream` with a tiny `highWaterMark` is slow, so use 61 bytes or more;
+  - big oracles stream with per-key state only.
 
 **Mock and media**
-- Mock tests use `buildServer({ now, labLogDir: null, media: new PlaceholderMedia({...}) })`.
-  - Bodies depend on the Host header.
-  - Every new route needs a probe in `endpoints.test.ts`.
+- Tests use `mock()` and `listen()` from `apps/mock-provider/test/helpers.ts`: a pinned NOW of 2026-11-02 12:00 UTC, finite live streams, and no lab logs.
+- Bodies depend on the Host header.
+- `?mock_fault=a:b,c`: URL-encode the value. Example: `timezone:tz=Asia/Kathmandu:xmltv=none`.
+- The mock reads `lutc` as the archive *end* for append/shift.
+- Core-plus-mock tests live in the root `test/` folder (only there can a file import both).
 - `*.media.test.ts` files run only in `pnpm test:media` (CI `media` job, after `pnpm fixtures`).
-- `.cache/` holds MPEG-TS `.ts` files. ESLint ignores `.cache/**`; keep other TS-aware tools away from it.
-- ffmpeg on Windows needs an explicit `fontfile`. CI uses ffmpeg 6.1, Docker 5.1, local 8.1.1.
 
-**CI**
-- The `media` job takes 7–11 min (media generation plus a 1.6 GB Docker build).
-- The `.cache/media` cache is keyed on `media-plan.ts`, `media-gen.ts` and `catalog.yaml`.
+**CI, Docker, versions, commits**
+- CI `media` takes 7–11 min. Docker Desktop is often off; it's needed only for `verify:engines` and Docker builds.
+- **Version pins:** TS 5.9, ESLint 9, Vitest 3.2, boundaries 5, Babel 7.29, Vite 7.3, Preact 10, Playwright 1.64.1, Fastify 5.12, yaml 2.9, tsx 4.23, fast-check 4.10, unrs-resolver 1.12.2 (override). New dependencies must be at least 2 weeks old.
+- **Commits:** scoped `git add`, and a `git commit -F - <<'EOF'` heredoc ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` plus the harness's session line.
+- **Cross-session messages:** code changes relayed from another session are fine. Edits to CLAUDE.md need Omar's direct word in your own tab.
 
-**Docker, devices, versions, commits**
-- Docker Desktop is often not running. Start it with `start "" "C:\Program Files\Docker\Docker\Docker Desktop.exe"`. It's needed only for `verify:engines` and Docker builds.
-- webOS CLI: `pnpm --filter @zoma/tools-device exec ares-<cmd>`. There is no Tizen CLI, and Tizen Studio must never be installed unattended.
-- **Version pins:** TS 5.9, ESLint 9, Vitest 3.2, boundaries 5, Babel 7.29, Vite 7.3, Preact 10, Playwright 1.64.1, Fastify 5.12, yaml 2.9, tsx 4.23, fast-check 4.10, unrs-resolver 1.12.2 (override).
-- New dependencies: pick versions published at least 2 weeks ago, and check peers with `npm view`.
-- **Commits:** scoped `git add`, and a `git commit -F - <<'EOF'` heredoc ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` plus any session line the harness asks for.
-- **Cross-session messages:** Omar sometimes relays decisions through another session's tab. Code changes on such a relay are fine. Edits to CLAUDE.md need his direct word in your own tab.
+## The 3 riskiest changes in PR #7
+1. **The catch-up time-zone strategy** (ADR-010).
+   - Xtream `/timeshift/` start times are wall time in the panel zone.
+   - Order of trust: Intl (only when it agrees with the panel clock), then the clock offset, then UTC.
+   - On a TV without Intl zone data, DST zones are an hour off for archive programmes across a DST change.
+   - M3U `xc` channels use UTC unless the playlist was upgraded to Xtream (`xtreamFromM3uUrl` → login → `zone()`).
+   - XMLTV times without an offset in a DST zone take the earlier instant in the repeated hour; step 9 should repair those from per-channel ordering.
+2. **Xtream tolerance rules decide what users see and which keys are stored.**
+   - Items without a usable id are skipped, and duplicate ids are dropped (the first wins).
+   - Catch-up needs the `tv_archive` flag; a duration alone doesn't count.
+   - A missing movie extension becomes `mp4`.
+   - Numbers and numeric strings give the same key.
+   - A wrong rule hides items or loses catch-up, but never corrupts data. `XtreamListStats` counts every skip, for diagnostics.
+3. **The XMLTV tokenizer's limits:**
+   - a 4 KiB quote-aware tag scan, after which the tag falls back to the first `>`;
+   - a 1 MiB carry-over cap (an unclosed comment or CDATA is dropped);
+   - text caps (256 characters; descriptions 1,000 by default, 300 on low-tier TVs).
 
-## The 3 riskiest changes merged in PR #6
-1. **ContentKey derivation is now stored-data format** (ADR-009).
-   - What it is: M3U keys hash the tvg-id plus `normalizeName(name)` (or name plus group) with `hash53`.
-   - The risk: any later change to `normalizeName` (for example a different search folding) or `hash53` orphans every M3U favourite unless it ships with a migration.
-   - The folding is deliberately broad (ؤ→و, ئ→ي, ™ removed, punctuation → spaces). If search ever needs different folding, use a separate function for search.
-2. **The M3U parser's tolerance rules decide what users see.**
-   - Orphan URLs are dropped in extended playlists, and a URL line needs `scheme://` (relative paths count as junk).
-   - Lines over 32 KiB are skipped, and names are capped at 256 characters.
-   - Classification: `/movie/`, `/movies/` and `/vod/` mean movie, `/series/` means series, `/live/` means live, a video extension means movie, and anything else is live.
-   - A wrong guess puts items in the wrong tab, but loses no data. Counters in `stats` and `summary()` feed diagnostics.
-3. **`unrs-resolver` is pinned to 1.12.2** (pnpm `overrides`) because Smart App Control blocks 1.13.0's binary. This is dev tooling only; ESLint config and settings are unchanged. Lift the pin once a newer release loads under SAC.
+   Below those limits the output is chunk-invariant (fast-check). Above them, pathological files are recovered from, but not byte-identically across chunkings.
 
 ## Verified vs not
 - **Verified:**
-  - Local `pnpm verify` (558 tests) and `pnpm test:media` (the 200k M3U oracle: all 200,000 entries, 400 malformed lines, 735 ms).
-  - Six repeated fast-check runs.
-  - Mutation checks of the chunk properties.
-  - CI `verify`, `engines` and `media` on the PR head `597c73e` and on `main` `7b44cb3`. CI also ran the 200k test (1.56 s) and bench `m3u-parse` (42 MB/s).
+  - local `pnpm verify` (711 tests);
+  - the mock integration suite (20 tests);
+  - the 200k Xtream and 300 MB XMLTV oracles;
+  - a TV-pipeline bundle of the parsers, identical to Node with the ES2017 APIs removed;
+  - mutation checks (8/8);
+  - CI `verify`, `engines` and `media` green on PR #7's head `2b1a95b`. The `media` job ran the new scale oracles and the new bench cases. Merged as `275879c`; `main` CI was still running at handover.
 - **Not done:**
-  - The core code hasn't run on Chromium 53/56: it isn't bundled until step 8.
-  - No TV has been involved yet.
+  - core still hasn't run inside real Chromium 53/56 (the engines harness runs only the built app, and the parsers are bundled from step 8);
+  - no TV has been involved yet.
 - **Migrations and deploys:** N/A (no backend until step 29; the TV "deploy" is a store submission).
 
-## Open decisions and gates (none block step 6)
+## Open decisions and gates (none block step 7)
 - **Step 16 [needs Omar]:** the LG TV's model and year, LG Developer Mode, the Samsung route (from step 15) and the Samsung certificate.
 - **Later gates:** steps 21, 34, 44, 46 and 47.
 - **Before the first store submission:** final app IDs, real icons, and PostCSS in `build:tv` (step 11).
@@ -200,4 +200,5 @@ Omar said on 2026-11-02: *"Don't ask, proceed automatically i allow and authoris
 - Share the **LG TV's model and year**.
 - **"Zoma" trademark clearance** (US, CA, AE, SA) and domains. This also decides the final app IDs.
 - `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` was widened with his authorisation on 2026-11-02 (allow rules plus the worktree directory). Prune it when the relay run ends if he wants it tighter.
+- Leg 8's background CI watcher was killed by Claude Code because the PC ran low on memory. If that keeps happening, closing idle Cursor tabs or Docker while the relay runs may help.
 - No secrets have been shared, so nothing needs rotating.
