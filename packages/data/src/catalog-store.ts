@@ -38,6 +38,11 @@ export interface SourceMeta {
   checkedAt?: number | null;
   /** The Xtream panel's server facts from the last login (catch-up needs its zone; step 8). */
   server?: XtreamServerInfo | null;
+  /**
+   * EPG URLs from the M3U header (`url-tvg`, `x-tvg-url`), added as guides automatically (step
+   * 9b). They may carry credentials, like the stream URLs in the chunks: never log them.
+   */
+  epgUrls?: string[];
 }
 
 /**
@@ -56,7 +61,7 @@ export interface FetchStamp {
 }
 
 /** Optional fields `commitGeneration` and `markChecked` also set. */
-export type SourceMetaPatch = Partial<Pick<SourceMeta, 'fetch' | 'checkedAt' | 'server'>>;
+export type SourceMetaPatch = Partial<Pick<SourceMeta, 'fetch' | 'checkedAt' | 'server' | 'epgUrls'>>;
 
 /** Thrown when a commit finds another refresh took over the source. */
 export class GenerationError extends Error {
@@ -189,24 +194,31 @@ export function pruneGenerations(db: IDBDatabase, src: string, options: { abando
       if (meta && meta.gen > 0) keep.push(meta.gen);
       if (meta && meta.building !== null && !options.abandon) keep.push(meta.building);
       if (meta && meta.building !== null && options.abandon) sources.put({ ...meta, building: null } satisfies SourceMeta);
-      if (keep.length === 2 && keep[0] === keep[1]) keep.pop();
-      keep.sort((a, b) => a - b);
-      // The ranges between the kept generations: [src] .. [src, k1) .. (k1 all] .. [src, k2) ..
-      const ranges: IDBKeyRange[] = [];
-      let lower: IDBValidKey = [src];
-      let lowerOpen = false;
-      for (const k of keep) {
-        ranges.push(IDBKeyRange.bound(lower, [src, k], lowerOpen, true));
-        lower = [src, k, []];
-        lowerOpen = true;
-      }
-      ranges.push(IDBKeyRange.bound(lower, [src, []], lowerOpen, false));
+      const ranges = otherGenerations(src, keep);
       for (const name of CATALOG_STORES) {
         const store = tx.objectStore(name);
         for (const range of ranges) store.delete(range);
       }
     });
   });
+}
+
+/**
+ * The key ranges of every generation of `src` except those in `keep`, for stores keyed
+ * `[src, gen, ...]`: `[src]` .. `[src, k1)`, `(k1 all]` .. `[src, k2)`, ... `[src, []]`.
+ */
+export function otherGenerations(src: string, keep: readonly number[]): IDBKeyRange[] {
+  const kept = keep.filter((k, i) => keep.indexOf(k) === i).sort((a, b) => a - b);
+  const ranges: IDBKeyRange[] = [];
+  let lower: IDBValidKey = [src];
+  let lowerOpen = false;
+  for (const k of kept) {
+    ranges.push(IDBKeyRange.bound(lower, [src, k], lowerOpen, true));
+    lower = [src, k, []];
+    lowerOpen = true;
+  }
+  ranges.push(IDBKeyRange.bound(lower, [src, []], lowerOpen, false));
+  return ranges;
 }
 
 /** Deletes a source: its bookkeeping and every generation. */

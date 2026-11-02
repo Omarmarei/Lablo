@@ -53,6 +53,8 @@ for (const platform of ['tizen', 'webos'] as const) {
     await expect(page.getByTestId('ingest-status')).toHaveText(/^ok: committed gen 1, \d+ items/, { timeout: 20_000 });
     await expect(page.getByTestId('data-status')).toHaveText(/^ok: 1 source, \d+ items$/);
     await expect(page.getByTestId('search-status')).toHaveAttribute('data-total', '2');
+    // The EPG worker too: the guide the playlist names, read and stored, then matched.
+    await expect(page.getByTestId('epg-status')).toHaveText('ok: 11 of 12 live channels have a guide (91.7%), 1 guide', { timeout: 20_000 });
 
     // Arrow keys share key codes with the TV remotes (37–40), so the TV key maps apply.
     await page.keyboard.press('ArrowUp');

@@ -47,7 +47,9 @@ Needs **Docker**. On Windows, start Docker Desktop first. The first run download
      - `data-status` is `ok`: the query worker answered and a short-lived ingest worker ran the start-up `prune`.
      - `ingest-status` is `ok: committed`: a fresh ingest worker fetched the fixture over HTTP (streamed `response.body`), parsed it, wrote 500-item chunks to IndexedDB and swapped the generation in. `data-items` must be the fixture's 3,000 items, and `data-gzip` must be `true` for the `.gz` playlist, which only fflate can unpack before Chromium 80.
      - `search-status` is `ok` with `data-total` exactly the expected hits: the query worker reloaded on `swapped` (it had loaded the old catalog at start) and searched it.
-     - `force=1` makes every run commit a new generation, although all runs in one engine share the `file://` IndexedDB.
+     - `epg-status` is `ok` with `data-matched` and `data-wanted` exactly the fixture's (step 9b): a fresh EPG worker fetched the guide the playlist header names (`url-tvg`), gunzipped the `.gz` one, wrote its per-channel-day buckets (`Int32Array` and `Uint8Array` columns) to IndexedDB and swapped it in, and the query worker reloaded its match table.
+     - `nownext-status` is `ok`: the query worker read a channel's buckets back from IndexedDB and found the programme on air.
+     - `force=1` makes every run commit a new generation (catalog and guide), although all runs in one engine share the `file://` IndexedDB.
    - **Remote keys:** CDP `Input.dispatchKeyEvent` ArrowUp (38) and Enter (13) show `UP` and `OK`, and `key-count` is 2.
 5. Results print as a table (with each run's items and hits) and go to `artifacts/engines/report.json`. CI uploads it as `old-engines-report`.
 
@@ -60,8 +62,12 @@ The harness writes it to `artifacts/engines/variants/fixtures/` on every run. It
 | Playlist | `playlist.m3u` (plain) | `playlist.m3u.gz` (same bytes, gzipped) |
 | Items | 3,000: 2,400 live, then 600 movies (`/movie/` URLs) | the same |
 | Search | `news`: 308 hits (`Zoma News n`) | `اخبار`: 240 hits. The names say `أخبار`, so the bare-alef query only matches through normalization |
+| Guide (step 9b) | `guide.xml`, named by the playlist's `url-tvg` | `guide.xml.gz` (same bytes, gzipped) |
+| Guide matches | 300 of 2,400 live channels (every 8th, by tvg-id), plus one XMLTV channel that feeds nothing | the same |
 
-Each engine runs both apps, so each engine ingests both files and runs both searches. `test/engines-fixture.test.ts` checks the expected numbers against core's real M3U parser and `normalizeName`.
+The guide has hourly programmes from a day before the harness starts to 3 days after, written in UTC. The engine reads it at its own clock, the harness machine's, so now/next always finds a programme on air.
+
+Each engine runs both apps, so each engine ingests both files, runs both searches and reads both guides. `test/engines-fixture.test.ts` checks the expected numbers against core's real M3U parser, `normalizeName` and `EpgGuideReader`.
 
 ## The self-test (proof that the harness catches problems)
 
@@ -90,10 +96,12 @@ The data engine keeps the catalog in IndexedDB inside workers, so **spike S1 mus
 
 **The data workers with the switch (step 8b, 2026-11-02):** in Chromium 53, 56 and 68, the query worker and the ingest worker both run as Blob workers from `file://`. They stream a playlist over HTTP, gunzip it with fflate, write it to IndexedDB in 500-item chunks, swap generations, reload and search. That is S1's data path as far as an emulator can take it. Only a real webOS 4 and Tizen 4 set can confirm the switch's assumption.
 
+**The EPG worker (step 9b):** the same runs also read the fixture guide in a third Blob worker, store its typed-array buckets in IndexedDB and read now/next back through the query worker.
+
 ## Troubleshooting
 
 - **`the Docker daemon is not reachable`:** start Docker Desktop.
 - **`DevTools … did not answer`:** the engine crashed at startup, and the harness prints the container log. Check the image (libraries) first. `docker run --rm --entrypoint /bin/sh <image> -c "unzip -q /engine.zip -d /opt/e && ldd /opt/e/chrome-linux/chrome | grep 'not found'"` with the zip mounted at `/engine.zip`.
-- **A data check fails:** `refresh of playlist.m3u.gz: failed: …` quotes the app's own error (`IngestError` codes such as `network`, `http`, `format`). The container log lists every fixture request (`fixtures: GET /playlist.m3u.gz`); no request at all means the worker never fetched. `search … found 0` with a committed refresh means the query worker did not reload after the swap.
+- **A data check fails:** `refresh of playlist.m3u.gz: failed: …` quotes the app's own error (`IngestError` codes such as `network`, `http`, `format`). The container log lists every fixture request (`fixtures: GET /playlist.m3u.gz`); no request at all means the worker never fetched. `search … found 0` with a committed refresh means the query worker did not reload after the swap. `guide guide.xml.gz: failed: debug:tvg0 format` names the guide and the refresh's error code; `matched 0 of 2400` with an `ok` guide means the reader saw no channel ids (a gzip or decoding problem), and `now/next: none` with matches means the buckets didn't come back from IndexedDB or the engine's clock is outside the fixture's four days.
 - **A real app run fails:** read the failure lines. `Boot error: …` is what the TV would show on screen. Reproduce with `--engine <id> --keep`, then attach Chrome DevTools from a current Chrome at `http://127.0.0.1:<port>` (old frontends may not match; the `/json` list still works).
 - **Download mismatch:** the pinned SHA-256 no longer matches. The harness deletes the file and stops; it never runs an unverified engine.

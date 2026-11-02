@@ -20,18 +20,45 @@ const SHAPES: Record<number, Record<string, StoreShape>> = {
     [STORE.profile]: { ...plain, keyPath: 'id' },
     [STORE.kv]: plain,
   },
+  2: {
+    [STORE.sources]: { ...plain, keyPath: 'src' },
+    [STORE.chunks]: plain,
+    [STORE.cats]: plain,
+    [STORE.index]: plain,
+    [STORE.profile]: { ...plain, keyPath: 'id' },
+    [STORE.kv]: plain,
+    [STORE.epgMeta]: { ...plain, keyPath: 'epgSrc' },
+    [STORE.epgBuckets]: plain,
+    [STORE.epgChannels]: plain,
+  },
 };
 
-/**
- * Data written by each version's app, which every later version must keep. Step 9's migration
- * adds the EPG stores and a seed for them here.
- */
+/** Data written by each version's app, which every later version must keep. */
 const SEEDS: Record<number, Record<string, [IDBValidKey | null, unknown][]>> = {
   1: {
     [STORE.sources]: [[null, { src: 'tv', gen: 2, building: null, nextGen: 3, updatedAt: 5, counts: { live: 1 } }]],
     [STORE.chunks]: [[['tv', 2, 'live', 0, 0], { items: [{ key: 'x:tv:live:1', name: 'One' }] }]],
     [STORE.profile]: [[null, { id: 'current', savedAt: 5, doc: { v: 1, favourites: [] } }]],
     [STORE.kv]: [['config', { signed: 'abc' }]],
+  },
+  2: {
+    [STORE.epgMeta]: [[null, { epgSrc: 'tv:xmltv', gen: 1, building: null, nextGen: 2, updatedAt: 5, checkedAt: 5, rank: 0 }]],
+    [STORE.epgBuckets]: [
+      [
+        ['tv:xmltv', 1, 'one.tv', 20394],
+        {
+          start: new Int32Array([29367360]),
+          end: new Int32Array([29367420]),
+          title: ['News'],
+          sub: [''],
+          desc: [''],
+          category: [''],
+          episode: [''],
+          flags: new Uint8Array([0]),
+        },
+      ],
+    ],
+    [STORE.epgChannels]: [[['tv:xmltv', 1], { matches: [{ key: 'x:tv:live:1', channel: 'one.tv', method: 'id', ambiguous: false, shift: 0 }], channels: [] }]],
   },
 };
 

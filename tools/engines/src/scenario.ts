@@ -7,7 +7,8 @@
  * 3. The data workers (step 8b): the query worker and a start-up prune, then a refresh of the
  *    staged fixture playlist in an ingest worker, and a search through the query worker. The
  *    refresh must commit every item (gunzipping the .gz one), and the search must count exactly
- *    the expected hits (`fixture.ts`).
+ *    the expected hits (`fixture.ts`). Then the guide the playlist names, in an EPG worker
+ *    (step 9b): exactly the expected channels matched, and a now/next read from IndexedDB.
  * 4. Remote-key navigation: ArrowUp and Enter (the TV remote key codes 38 and 13) reach the app
  *    as the UP and OK intents.
  *
@@ -40,6 +41,11 @@ export interface PageState {
   readonly gzip: string | null;
   readonly search: string | null;
   readonly searchTotal: string | null;
+  /** The guide row (step 9b) and the now/next row. */
+  readonly epg: string | null;
+  readonly epgMatched: string | null;
+  readonly epgWanted: string | null;
+  readonly nowNext: string | null;
 }
 
 /**
@@ -72,7 +78,11 @@ export const STATE_EXPRESSION = `(function () {
     ingestItems: attr('ingest-status', 'data-items'),
     gzip: attr('ingest-status', 'data-gzip'),
     search: text('search-status'),
-    searchTotal: attr('search-status', 'data-total')
+    searchTotal: attr('search-status', 'data-total'),
+    epg: text('epg-status'),
+    epgMatched: attr('epg-status', 'data-matched'),
+    epgWanted: attr('epg-status', 'data-wanted'),
+    nowNext: text('nownext-status')
   });
 })()`;
 
@@ -109,19 +119,21 @@ export interface PlatformRun {
   readonly durationMs: number;
 }
 
+/** A row that has answered: `ok`, `failed`, or `none` (nothing to do, e.g. no guide named). */
 const isFinal = (status: string | null): boolean =>
-  status !== null && (status.startsWith('ok') || status.startsWith('failed'));
+  status !== null && (status.startsWith('ok') || status.startsWith('failed') || status.startsWith('none'));
 
 /**
  * Boot is over when it failed visibly, or when the worker and IndexedDB checks have answered,
- * and (with a data check) the refresh and the search have too.
+ * and (with a data check) the refresh, the search, the guide and now/next have too.
  */
 export function isSettled(state: PageState, url: string, data: DataCheck | null = null): boolean {
   if (state.href !== url) return false;
   if (state.bootError.trim() !== '') return true;
   const booted = state.ready && isFinal(state.worker) && isFinal(state.idb);
   if (!booted || data === null) return booted;
-  return isFinal(state.data) && isFinal(state.ingest) && isFinal(state.search);
+  if (state.data?.startsWith('failed') === true) return true;
+  return isFinal(state.data) && isFinal(state.ingest) && isFinal(state.search) && isFinal(state.epg) && isFinal(state.nowNext);
 }
 
 /** What went wrong in the catalog panel; empty when it shows exactly what `check` expects. */
@@ -135,6 +147,11 @@ function evaluateData(state: PageState, check: DataCheck): string[] {
   }
   if (state.search?.startsWith('ok: ') !== true) failures.push(`search "${check.query}": ${state.search ?? 'missing'}`);
   else if (state.searchTotal !== String(check.total)) failures.push(`search "${check.query}" found ${state.searchTotal ?? '?'}, expected ${check.total}`);
+  if (state.epg?.startsWith('ok: ') !== true) failures.push(`guide ${check.guide}: ${state.epg ?? 'missing'}`);
+  else if (state.epgMatched !== String(check.epgMatched) || state.epgWanted !== String(check.epgWanted)) {
+    failures.push(`guide ${check.guide} matched ${state.epgMatched ?? '?'} of ${state.epgWanted ?? '?'}, expected ${check.epgMatched} of ${check.epgWanted}`);
+  }
+  if (state.nowNext?.startsWith('ok: ') !== true) failures.push(`now/next: ${state.nowNext ?? 'missing'}`);
   return failures;
 }
 

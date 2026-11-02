@@ -52,7 +52,7 @@ export {
 export type { CallOptions, CancelToken, RpcContext, RpcHandler, RpcHandlers, RpcPort, RpcServer } from './rpc';
 export { CancelError, CancelSource, NEVER, RpcClient, RpcError, serveRpc } from './rpc';
 
-export type { ItemRef, QueryServiceOptions, QueryStatus, SearchRequest, SegmentStatus } from './query-service';
+export type { EpgNowNext, EpgStatus, ItemRef, QueryServiceOptions, QueryStatus, SearchRequest, SegmentStatus } from './query-service';
 export { QueryService } from './query-service';
 
 export type { ByteRequest, ByteResponse, ByteSource, ByteTransport, FetchLike, TextSource } from './bytes';
@@ -70,8 +70,38 @@ export { FavouriteMatcher, MISSING_KEEP_MS, reconcileFavourites } from './favour
 export type { IngestErrorCode, IngestJob, IngestOptions, IngestProgress, IngestResult, IngestSource, IngestSwap } from './ingest';
 export { INGEST_VERSION, IngestError, WRITE_BATCH, runIngest } from './ingest';
 
+export type { EpgBucketKey, EpgChannelTable, EpgMeta, EpgMetaPatch, EpgSummary, StoredEpgMatch } from './epg-store';
+export {
+  abandonEpgGeneration,
+  beginEpgGeneration,
+  commitEpgGeneration,
+  deleteEpgGeneration,
+  deleteEpgSource,
+  epgFirstDay,
+  getEpgMeta,
+  getEpgMetas,
+  markEpgChecked,
+  markEpgFailed,
+  newEpgMeta,
+  pruneEpgDays,
+  pruneEpgGenerations,
+  putEpgBuckets,
+  putEpgChannels,
+  readEpgBuckets,
+  readEpgChannels,
+} from './epg-store';
+
+export type { EpgCatalogSource, EpgDueReason, EpgGuide, UserGuide } from './epg-sources';
+export { EPG_AHEAD_MS, EPG_REFRESH_MS, EPG_RETRY_MS, epgGuides, epgRefreshDue } from './epg-sources';
+
+export type { EpgIngestOptions, EpgOutcome, EpgProgress, EpgRefreshJob, EpgRefreshResult, EpgResult, EpgSwap, EpgWanted } from './epg-ingest';
+export { EPG_INGEST_VERSION, EPG_WRITE_BATCH, readEpgWanted, runEpgIngest, runEpgRefresh } from './epg-ingest';
+
 export type { IngestEvents, IngestRunRequest, IngestServiceOptions } from './ingest-service';
 export { IngestService } from './ingest-service';
 
-export type { DataClient, IngestClient, IngestHandlers, QueryHandlers } from './client';
-export { createDataClient, createIngestClient } from './client';
+export type { EpgEvents, EpgRunRequest, EpgServiceOptions } from './epg-service';
+export { EpgService } from './epg-service';
+
+export type { DataClient, EpgClient, EpgHandlers, IngestClient, IngestHandlers, QueryHandlers } from './client';
+export { createDataClient, createEpgClient, createIngestClient } from './client';

@@ -6,7 +6,7 @@ import { KEY_STEPS, STATE_EXPRESSION, evaluateRun, formatConsoleError, formatExc
 
 const URL = 'file:///app/app/webos/index.html';
 const UA53 = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.0 Safari/537.36';
-const CHECK: DataCheck = { file: 'playlist.m3u.gz', query: 'اخبار', items: 3000, total: 240, gzip: true };
+const CHECK: DataCheck = { file: 'playlist.m3u.gz', query: 'اخبار', items: 3000, total: 240, gzip: true, guide: 'guide.xml.gz', epgMatched: 300, epgWanted: 2400 };
 
 function state(overrides: Partial<PageState> = {}): PageState {
   return {
@@ -25,6 +25,10 @@ function state(overrides: Partial<PageState> = {}): PageState {
     gzip: 'true',
     search: 'ok: 240 for "اخبار": أخبار زوما 10, أخبار زوما 20, أخبار زوما 30',
     searchTotal: '240',
+    epg: 'ok: 300 of 2400 live channels have a guide (12.5%), 1 guide',
+    epgMatched: '300',
+    epgWanted: '2400',
+    nowNext: 'ok: Zoma Channel 1: fixture.1 20h 20:00–21:00, next fixture.1 21h 21:00',
     ...overrides,
   };
 }
@@ -81,6 +85,14 @@ describe('isSettled', () => {
     expect(isSettled(state({ data: null, ingest: null, search: null }), URL, CHECK)).toBe(false);
     const failed = { data: 'failed: denied', ingest: 'failed: no data workers', search: 'failed: no data workers' };
     expect(isSettled(state(failed), URL, CHECK)).toBe(true);
+    expect(isSettled(state({ ...failed, epg: 'waiting…', nowNext: 'waiting…' }), URL, CHECK)).toBe(true);
+  });
+
+  it('with a data check, also waits for the guide and now/next', () => {
+    expect(isSettled(state({ epg: 'running: 120 KB, 900 programmes', nowNext: 'waiting…' }), URL, CHECK)).toBe(false);
+    expect(isSettled(state({ nowNext: 'waiting…' }), URL, CHECK)).toBe(false);
+    expect(isSettled(state({ epg: 'running…' }), URL)).toBe(true);
+    expect(isSettled(state({ epg: 'none: no guide stored (the playlist names none)', nowNext: 'none: no channel here has programmes now' }), URL, CHECK)).toBe(true);
   });
 });
 
@@ -161,6 +173,15 @@ describe('evaluateRun', () => {
       'refresh of playlist.m3u.gz committed 2500 items, expected 3000',
       'refresh of playlist.m3u.gz: gzip false, expected true',
     ]);
+  });
+
+  it('reports a guide that failed, matched wrong, or gave no now/next', () => {
+    const failed = run({ boot: state({ epg: 'failed: debug:tvg0 format', epgMatched: '', epgWanted: '' }) });
+    expect(evaluateRun(failed, engine53, 20_000)).toEqual(['guide guide.xml.gz: failed: debug:tvg0 format']);
+    const wrong = run({ boot: state({ epgMatched: '299' }) });
+    expect(evaluateRun(wrong, engine53, 20_000)).toEqual(['guide guide.xml.gz matched 299 of 2400, expected 300 of 2400']);
+    const none = run({ boot: state({ epg: 'none: no guide stored (the playlist names none)', nowNext: 'none: no channel here has programmes now' }) });
+    expect(evaluateRun(none, engine53, 20_000)).toEqual(['guide guide.xml.gz: none: no guide stored (the playlist names none)', 'now/next: none: no channel here has programmes now']);
   });
 
   it('reports a search that failed or counted wrong', () => {

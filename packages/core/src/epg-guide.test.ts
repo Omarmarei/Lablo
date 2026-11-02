@@ -380,4 +380,27 @@ describe('buckets', () => {
     expect(epgNowNext([today, yesterday], NOW + 45 * MIN, 1).now).toMatchObject({ title: 'long', end: nowMin + 90 });
     expect(epgNowNext([today], NOW + 2 * HOUR + MIN)).toEqual({ now: null, next: null });
   });
+
+  it('compares candidates in guide time, whatever the bucket order and shift', () => {
+    // Step 9b found it: the next programme was compared with an already-shifted one, so with a
+    // shift the bucket order decided which programme came "next".
+    const day = Math.floor(nowMin / 1440);
+    const slots = (d: number): EpgProgramme[] => {
+      const out: EpgProgramme[] = [];
+      for (let t = d * 1440; t < (d + 1) * 1440; t += 30) out.push(row(t, t + 30, `s${t}`));
+      return out;
+    };
+    const buckets = [day - 1, day, day + 1].map((d) => buildEpgBucket('c', d, slots(d)));
+    const at = NOW + 7 * MIN;
+    const slot = (min: number): number => min - (((min % 30) + 30) % 30);
+    for (const shift of [-2, -1, 0, 1, 2.5]) {
+      const guideNow = slot(Math.floor(at / MIN) - Math.round(shift * 60));
+      for (const order of [buckets, buckets.slice().reverse(), [buckets[1]!, buckets[2]!, buckets[0]!]]) {
+        const got = epgNowNext(order, at, shift);
+        expect(got.now?.title, `shift ${shift}`).toBe(`s${guideNow}`);
+        expect(got.next?.title, `shift ${shift}`).toBe(`s${guideNow + 30}`);
+        expect(got.next!.start).toBe(guideNow + 30 + Math.round(shift * 60));
+      }
+    }
+  });
 });

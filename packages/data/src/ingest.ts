@@ -26,12 +26,11 @@
  */
 
 import type { CatalogItem, ContentKind, M3uStats, TextTransport, XtreamAccount, XtreamListStats, XtreamServerInfo } from '@zoma/core';
-import { CONTENT_KINDS, M3uCatalogParser, SearchIndexBuilder, SearchSegment, XtreamClient, XtreamError } from '@zoma/core';
+import { CONTENT_KINDS, M3uCatalogParser, SearchIndexBuilder, SearchSegment, XtreamClient } from '@zoma/core';
 import type { ByteResponse, ByteTransport, TextSource } from './bytes';
-import { Fnv1a, NetworkError, decodeUtf8, tapBytes } from './bytes';
-import type { FetchStamp } from './catalog-store';
+import { Fnv1a, decodeUtf8, tapBytes } from './bytes';
+import type { FetchStamp, SourceMetaPatch } from './catalog-store';
 import {
-  GenerationError,
   abandonGeneration,
   beginGeneration,
   commitGeneration,
@@ -47,7 +46,8 @@ import { CatalogChunker, indexChunk } from './chunker';
 import type { CatalogView, FavouriteReport } from './favourites';
 import { FavouriteMatcher, reconcileFavourites } from './favourites';
 import type { GunzipMode } from './gunzip';
-import { GzipError, MaybeGunzip } from './gunzip';
+import { MaybeGunzip } from './gunzip';
+import { IngestError, headerNumber, ingestError } from './ingest-errors';
 import type { ProfileDoc } from './profile';
 import { loadProfile, updateProfile } from './profile';
 import type { CancelToken } from './rpc';
@@ -79,19 +79,8 @@ export interface IngestJob {
   force?: boolean;
 }
 
-export type IngestErrorCode = 'http' | 'auth' | 'network' | 'format' | 'empty' | 'superseded';
-
-/** A refresh that failed; the active generation is unchanged. Never holds a URL. */
-export class IngestError extends Error {
-  constructor(
-    readonly code: IngestErrorCode,
-    readonly status: number | null = null,
-    message?: string,
-  ) {
-    super(message ?? `Catalog refresh failed: ${code}${status === null ? '' : ` (HTTP ${status})`}`);
-    this.name = 'IngestError';
-  }
-}
+export type { IngestErrorCode } from './ingest-errors';
+export { IngestError } from './ingest-errors';
 
 export interface IngestProgress {
   src: string;
@@ -232,23 +221,6 @@ class GenerationWriter {
     for (const [kind, w] of this.kinds) if (w.count > 0) out[kind] = w.count;
     return out;
   }
-}
-
-function headerNumber(value: string | null): number | null {
-  if (value === null || !/^\d+$/.test(value.trim())) return null;
-  return Number(value.trim());
-}
-
-/** The error a failed refresh rejects with. */
-function ingestError(error: unknown, token: CancelToken): Error {
-  if (error instanceof CancelError) return error;
-  if (token.cancelled) return new CancelError();
-  if (error instanceof IngestError) return error;
-  if (error instanceof XtreamError) return new IngestError(error.code, error.status);
-  if (error instanceof NetworkError) return new IngestError('network', null, error.message);
-  if (error instanceof GzipError) return new IngestError('format', null, error.message);
-  if (error instanceof GenerationError) return new IngestError('superseded', null, 'Another refresh of this source took over');
-  return error instanceof Error ? error : new Error(String(error));
 }
 
 /** Refreshes one source. See the module comment for the steps and guarantees. */
@@ -402,12 +374,14 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
     }
     const stamp: FetchStamp = { v: INGEST_VERSION, hash: hasher.digest(), bytes: hasher.bytes, etag, lastModified };
     const server = xtream ? xtream.server : null;
+    // The guides an M3U header names (step 9b reads them as EPG sources).
+    const extra: SourceMetaPatch = m3u ? { server, epgUrls: m3u.epgUrls.slice() } : { server };
 
     if (known && known.hash === stamp.hash && known.bytes === stamp.bytes) {
       const unused = writer.gen;
       writer = null;
       await abandonGeneration(db, src, unused);
-      await markChecked(db, src, now(), { fetch: stamp, server });
+      await markChecked(db, src, now(), { ...extra, fetch: stamp });
       return done('unchanged', { fetch: stamp, m3u, xtream });
     }
 
@@ -415,7 +389,7 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
     const at = now();
     const counts = writer.counts();
     const gen = writer.gen;
-    const previous = await commitGeneration(db, src, gen, counts, at, { fetch: stamp, checkedAt: at, server });
+    const previous = await commitGeneration(db, src, gen, counts, at, { ...extra, fetch: stamp, checkedAt: at });
     committed = true;
     options.onSwap?.({ src, gen, previous, counts });
 

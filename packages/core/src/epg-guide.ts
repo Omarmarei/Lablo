@@ -252,20 +252,27 @@ export class EpgBucketBuilder {
 export function epgNowNext(buckets: readonly EpgBucket[], nowMs: number, shiftHours = 0): { now: EpgProgramme | null; next: EpgProgramme | null } {
   const shift = Math.round(shiftHours * 60);
   const at = Math.floor(nowMs / MINUTE) - shift;
-  let now: EpgProgramme | null = null;
-  let next: EpgProgramme | null = null;
+  // Compared in guide time; only the two winners are shifted.
+  let nowBucket: EpgBucket | null = null;
+  let nowAt = 0;
+  let nextBucket: EpgBucket | null = null;
+  let nextAt = 0;
   for (const bucket of buckets) {
     for (let i = 0; i < bucket.start.length; i++) {
       const start = bucket.start[i]!;
       const end = bucket.end[i]!;
       if (start <= at && end > at) {
-        if (now === null || start > now.start) now = row(bucket, i, shift);
-      } else if (start > at && (next === null || start < next.start)) {
-        next = row(bucket, i, shift);
+        if (nowBucket === null || start > nowBucket.start[nowAt]!) {
+          nowBucket = bucket;
+          nowAt = i;
+        }
+      } else if (start > at && (nextBucket === null || start < nextBucket.start[nextAt]!)) {
+        nextBucket = bucket;
+        nextAt = i;
       }
     }
   }
-  return { now, next };
+  return { now: nowBucket === null ? null : row(nowBucket, nowAt, shift), next: nextBucket === null ? null : row(nextBucket, nextAt, shift) };
 }
 
 function row(bucket: EpgBucket, i: number, shift: number): EpgProgramme {

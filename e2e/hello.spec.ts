@@ -106,6 +106,12 @@ test.describe('catalog panel in the desktop browser (pnpm dev)', () => {
     const search = page.getByTestId('search-status');
     await expect(search).toHaveText(/^ok: 2 for "sports": Zoma Sports Test F?HD, Zoma Sports Test F?HD$/);
     await expect(search).toHaveAttribute('data-total', '2');
+    // Then the guide the playlist header names, in an EPG worker. The match rate doesn't depend
+    // on the clock (the mock's schedule is pinned to its own day, the browser's isn't).
+    const guide = page.getByTestId('epg-status');
+    await expect(guide).toHaveText('ok: 11 of 12 live channels have a guide (91.7%), 1 guide', { timeout: 20_000 });
+    await expect(guide).toHaveAttribute('data-matched', '11');
+    await expect(page.getByTestId('nownext-status')).toHaveText(/^(ok: Zoma Sports Test F?HD: |none: )/);
 
     // A remote key marks the UI busy (a running refresh would pause), then idle again.
     await page.keyboard.press('ArrowDown');
@@ -116,6 +122,7 @@ test.describe('catalog panel in the desktop browser (pnpm dev)', () => {
     await page.goto('/?q=sports');
     await expect(page.getByTestId('data-status')).toHaveText(`ok: 1 source, ${entries} items`);
     await expect(search).toHaveAttribute('data-total', '2');
+    await expect(guide).toHaveAttribute('data-matched', '11');
     await page.goto(`/?source=${encodeURIComponent(playlist)}`);
     await expect(ingest).toHaveText(new RegExp(`^ok: unchanged gen 1, ${entries} items`), { timeout: 20_000 });
     expect(errors).toEqual([]);

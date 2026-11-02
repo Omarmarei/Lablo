@@ -1,11 +1,12 @@
-// RELAY step 8b: the app's DataEngine (apps/tv/src/data/engine.ts) against the real query and
-// ingest services, each served over its own MessageChannel the way a worker would serve it, on
-// one fake-indexeddb database. It checks the wiring the old-engine harness then runs for real
-// in Chromium 53/56/68: prune at start, one ingest worker per refresh (terminated after),
-// `swapped` → the query worker's `reload`, and remote keys → `setBusy`.
+// RELAY steps 8b and 9b: the app's DataEngine (apps/tv/src/data/engine.ts) against the real
+// query, ingest and EPG services, each served over its own MessageChannel the way a worker would
+// serve it, on one fake-indexeddb database. It checks the wiring the old-engine harness then runs
+// for real in Chromium 53/56/68: prune at start, one ingest or EPG worker per refresh (terminated
+// after), one refresh at a time, `swapped` → the query worker's `reload`, remote keys →
+// `setBusy`, and now/next from the stored guides.
 
 import type { RpcHandlers } from '@zoma/data';
-import { IngestService, QueryService, STORE, getSources, openDatabase, serveRpc } from '@zoma/data';
+import { EPG_REFRESH_MS, EpgService, IngestService, QueryService, STORE, getSources, openDatabase, serveRpc } from '@zoma/data';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { WorkerLike } from '../apps/tv/src/data/engine';
 import { DataEngine } from '../apps/tv/src/data/engine';
@@ -22,9 +23,12 @@ afterEach(() => {
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+const NOW = Date.UTC(2026, 10, 2, 12);
+const GUIDE_URL = 'http://p.test/guide.xml';
+
 /** An M3U playlist: `news` channels named "Sky News n", the rest "Channel n". */
-function playlist(count: number, newsEvery = 4): string {
-  const lines = ['#EXTM3U'];
+function playlist(count: number, newsEvery = 4, guide = false): string {
+  const lines = [guide ? `#EXTM3U url-tvg="${GUIDE_URL}"` : '#EXTM3U'];
   for (let i = 1; i <= count; i++) {
     const name = i % newsEvery === 0 ? `Sky News ${i}` : `Channel ${i}`;
     lines.push(`#EXTINF:-1 tvg-id="ch${i}" group-title="Group ${i % 3}",${name}`, `http://p.test/live/${i}.ts`);
@@ -32,10 +36,26 @@ function playlist(count: number, newsEvery = 4): string {
   return `${lines.join('\n')}\n`;
 }
 
+/** A guide for channels ch1..chN: hourly programmes "chN at H" from yesterday to 3 days ahead. */
+function guide(count: number): string {
+  const lines = ['<?xml version="1.0"?>', '<tv>'];
+  for (let i = 1; i <= count; i++) lines.push(`<channel id="ch${i}"><display-name>Channel ${i}</display-name></channel>`);
+  const t = (ms: number): string => new Date(ms).toISOString().replace(/[-:T]/g, '').slice(0, 14) + ' +0000';
+  for (let i = 1; i <= count; i++) {
+    for (let ms = NOW - 86_400_000; ms < NOW + 3 * 86_400_000; ms += 3_600_000) {
+      lines.push(`<programme start="${t(ms)}" stop="${t(ms + 3_600_000)}" channel="ch${i}"><title>ch${i} at ${new Date(ms).getUTCHours()}</title></programme>`);
+    }
+  }
+  lines.push('</tv>');
+  return lines.join('\n');
+}
+
 interface Setup {
   engine: DataEngine;
   factory: IDBFactory;
-  started: { query: number; ingest: number };
+  started: { query: number; ingest: number; epg: number };
+  /** Moves the engine's clock (it decides which guides are due). */
+  clock: { now: number };
   /** Ingest workers still running. */
   live: () => number;
   /** Every setBusy call the ingest workers got, in order. */
@@ -46,7 +66,8 @@ interface Setup {
 function setup(respond: (url: string) => FakeResponse, idleMs = 40): Setup {
   const factory = freshFactory();
   const transport = fakeTransport(respond);
-  const started = { query: 0, ingest: 0 };
+  const started = { query: 0, ingest: 0, epg: 0 };
+  const clock = { now: NOW };
   let live = 0;
   const busyCalls: boolean[] = [];
   const busyChanges: boolean[] = [];
@@ -77,6 +98,7 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40): Setup {
 
   const engine = new DataEngine({
     idleMs,
+    now: () => clock.now,
     onBusy: (busy) => busyChanges.push(busy),
     startQueryWorker: () => {
       started.query++;
@@ -117,9 +139,37 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40): Setup {
         },
       );
     },
+    startEpgWorker: () => {
+      started.epg++;
+      live++;
+      const dbs: IDBDatabase[] = [];
+      const service = new EpgService({
+        transport,
+        now: () => clock.now,
+        openDb: async () => {
+          const db = await openDatabase(factory);
+          dbs.push(db);
+          return db;
+        },
+      });
+      const handlers = service.handlers();
+      return worker(
+        {
+          ...handlers,
+          setBusy: (arg: { busy: boolean }) => {
+            busyCalls.push(arg.busy);
+            return handlers.setBusy(arg);
+          },
+        },
+        dbs,
+        () => {
+          live--;
+        },
+      );
+    },
   });
   engines.push(engine);
-  return { engine, factory, started, live: () => live, busyCalls, busyChanges };
+  return { engine, factory, started, clock, live: () => live, busyCalls, busyChanges };
 }
 
 const job = (url = 'http://p.test/list.m3u') => ({ src: 'debug', source: { type: 'm3u' as const, url } });
@@ -134,7 +184,7 @@ describe('DataEngine (the app wiring of the data workers)', () => {
 
     expect(await s.engine.start()).toBe(1);
     expect(s.engine.start()).toBe(s.engine.start()); // one prune per app start
-    expect(s.started).toEqual({ query: 1, ingest: 1 });
+    expect(s.started).toEqual({ query: 1, ingest: 1, epg: 0 });
     expect(s.live()).toBe(0);
     expect((await getSources(db))[0]).toMatchObject({ gen: 1, building: null });
     expect(new Set((await dumpStore(db, STORE.chunks)).map(([k]) => (k as unknown[])[1]))).toEqual(new Set([1]));
@@ -154,7 +204,7 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     const result = await s.engine.refresh(job(), { onProgress: (p) => progress.push(p.items) });
     expect(result).toMatchObject({ status: 'committed', gen: 1, previous: 0, counts: { live: 1200 } });
     expect(progress.length).toBeGreaterThan(0);
-    expect(s.started).toEqual({ query: 1, ingest: 2 });
+    expect(s.started).toEqual({ query: 1, ingest: 2, epg: 0 });
     expect(s.live()).toBe(0);
     expect(s.engine.refreshing).toBe(false);
 
@@ -234,6 +284,80 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     await expect(done).resolves.toMatchObject({ status: 'committed' });
     expect(s.busyCalls[0]).toBe(true);
     expect(s.busyCalls).toContain(false);
+  });
+
+  it('refreshes the guides a playlist names in an EPG worker, and reads now/next from the store', async () => {
+    const s = setup((url) => (url === GUIDE_URL ? { body: guide(6), chunk: 2048 } : { body: playlist(8, 4, true) }));
+    await s.engine.refresh(job());
+    const catalogs = [{ src: 'debug', type: 'm3u' as const }];
+    const progress: number[] = [];
+    const r = await s.engine.refreshEpg(catalogs, { tier: 'full', due: true, onProgress: (p) => progress.push(p.kept) });
+    expect(r.outcomes.map((o) => [o.epgSrc, o.result?.status, o.result?.summary?.matched])).toEqual([['debug:tvg0', 'committed', 6]]);
+    expect(r.wanted).toBe(8);
+    expect(progress.length).toBeGreaterThan(0);
+    expect(s.started).toEqual({ query: 1, ingest: 2, epg: 1 });
+    expect(s.live()).toBe(0);
+    expect(s.engine.refreshing).toBe(false);
+
+    // The query worker reloaded on the swap: now/next comes back from the store.
+    const status = await s.engine.epgStatus();
+    expect(status).toMatchObject({ matched: 6, guides: [{ epgSrc: 'debug:tvg0', gen: 1, summary: { wanted: 8, matched: 6 } }] });
+    const keys = (await s.engine.search('channel 1', { names: 1 })).keys;
+    const [one] = await s.engine.nowNext(keys, NOW + 90 * 60_000);
+    expect(one).toMatchObject({ channel: 'ch1', method: 'id', now: { title: 'ch1 at 13' }, next: { title: 'ch1 at 14' } });
+    const [seven] = await s.engine.nowNext([(await s.engine.search('channel 7', { names: 1 })).keys[0]!], NOW);
+    expect(seven).toMatchObject({ epgSrc: null, now: null, next: null });
+
+    // Nothing is due right after: no worker starts. Twelve hours on, it is due again.
+    const quiet = await s.engine.refreshEpg(catalogs, { tier: 'full', due: true });
+    expect(quiet).toEqual({ outcomes: [], deleted: [], wanted: 0 });
+    expect(s.started.epg).toBe(1);
+    s.clock.now = NOW + EPG_REFRESH_MS;
+    const later = await s.engine.refreshEpg(catalogs, { tier: 'full', due: true });
+    expect(later.outcomes.map((o) => o.result?.status)).toEqual(['unchanged']);
+    expect(s.started.epg).toBe(2);
+  });
+
+  it('runs catalog and guide refreshes one at a time, and pauses a guide refresh for keys', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let chunks = 0;
+    const s = setup((url) =>
+      url === GUIDE_URL
+        ? {
+            body: guide(20),
+            chunk: 1024,
+            beforeChunk: async (n) => {
+              chunks = n + 1;
+              if (n === 1) await gate;
+            },
+          }
+        : { body: playlist(20, 4, true) },
+    );
+    await s.engine.refresh(job());
+    const catalogs = [{ src: 'debug', type: 'm3u' as const }];
+    const epg = s.engine.refreshEpg(catalogs, { tier: 'low' });
+    await expect(s.engine.refresh(job())).rejects.toThrow('A guide refresh is already running');
+    await expect(s.engine.refreshEpg(catalogs, { tier: 'low' })).rejects.toThrow('A guide refresh is already running');
+    while (chunks < 2) await delay(5);
+    s.engine.noteActivity();
+    await delay(10);
+    expect(s.busyCalls).toEqual([true]);
+    release();
+    await delay(25);
+    const pausedAt = chunks;
+    await delay(10);
+    expect(chunks).toBe(pausedAt);
+    const r = await epg;
+    expect(r.outcomes[0]!.result).toMatchObject({ status: 'committed', summary: { matched: 20, pastDays: 1, futureDays: 3 } });
+    expect(s.busyCalls).toEqual([true, false]);
+
+    const catalog = s.engine.refresh(job());
+    await expect(s.engine.refreshEpg(catalogs, { tier: 'low' })).rejects.toThrow('A catalog refresh is already running');
+    await catalog;
+    expect(s.live()).toBe(0);
   });
 
   it('fails every call once disposed, and keys do nothing', async () => {

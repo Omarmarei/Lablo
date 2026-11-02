@@ -112,7 +112,7 @@ Off-the-shelf libraries such as Norigin measure the DOM on every move. That figh
 | **Profile doc**: sources (credentials encrypted), favourites lists, hidden and reordered groups, channel-number overrides, EPG match overrides, audio/subtitle preferences, VOD and series progress (latest 500), last channel, recent channels, settings, parental PIN hash | Memory (signals), IDB `profile` (current plus 3 rolling snapshots), webOS DB8 mirror if spike S2 shows it survives, encrypted cloud backup | < 300 KB gzipped | Restored automatically from the cloud at startup |
 | Catalog (live, VOD, series, categories) | IDB `catalog_chunks`, 500 items per record, versioned by generation | 5–60 MB | Re-ingested from the provider |
 | Search text and key index | IDB `catalog_index` (typed arrays) plus query-worker memory | 5–15 MB | Rebuilt with the catalog |
-| EPG programmes | IDB `epg_buckets`, keyed `[epgSrc, channelKey, dayIndex]` | 10–100 MB, by tier | Re-ingested |
+| EPG programmes | IDB `epg_buckets`, keyed `[epgSrc, gen, channel, day]` (step 9b: XMLTV channel id and UTC day, by generation) | 10–100 MB, by tier | Re-ingested |
 | XMLTV channel list and match table | IDB `epg_channels` | < 5 MB | Re-ingested |
 | M3U files sent from a phone | IDB `blobs` (gzipped); included in the backup if ≤ 5 MB gzipped | ≤ 30 MB | Backup, or re-send from the phone |
 | Signed remote config | IDB `kv` plus memory | < 50 KB | Re-fetched |
@@ -125,6 +125,7 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
 - **Database version 1** (`schema.ts`): `sources_meta`, `catalog_chunks`, `catalog_cats`, `catalog_index`, `profile` and `kv`. The EPG stores come with step 9b as migration 2, and `blobs` with the phone pairing.
 - **Migrations** are an append-only list, and the database version is its length. They run inside the upgrade transaction. A migration that throws aborts the upgrade, so the old version and its data stay intact. `schema.test.ts` pins the shape of every version, and upgrades from each earlier version with seeded data.
 - **Transactions** are callback-driven inside and promise-based outside (`transact`). Never `await` inside one: on Chromium 53 a transpiled `await` can resume on a later task, after IndexedDB has committed the transaction.
+- **Database version 2** (step 9b, migration 2): `epg_meta` (keyPath `epgSrc`), `epg_buckets` (key `[epgSrc, gen, channel, day]`) and `epg_channels` (key `[epgSrc, gen]`); §1.5 "Built in step 9b". `schema.test.ts` pins it and upgrades a seeded version 1 to it.
 - **The profile document** is versioned on its own (`profile.ts`, version 1 = favourites). Older documents are upgraded on load, and the old copy goes to a snapshot. A save snapshots the replaced document at most once a day, into 3 rolling slots, and a restore can itself be undone. A document from a newer app version is shown but never overwritten.
 
 **Storage space.** On Tizen, request the `unlimitedstorage` privilege. Spike S2 measures webOS quota. Budget: catalog ≤ 60 MB; EPG ≤ 100 MB on full-tier TVs and ≤ 30 MB on low-tier ones.
@@ -264,6 +265,53 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
       - A sampled heap peak isn't limited: uncapped, V8 lets garbage grow to 200 MB or more before collecting it.
       - 96 MB is the ingest worker's share on a 1–1.5 GB low-tier TV, next to the main thread and the query worker.
     - **The slowdown factors are estimates.** S6 measures the real ones: the lab build runs the same reader on the TV. If S6 measures a larger factor, lower the limits in `EPG_LIMITS` (`tools/bench/src/suites.ts`) to match, rather than raising the TV budget.
+
+**Built in step 9b** (`packages/data/src`: `epg-store`, `epg-sources`, `epg-ingest`, `epg-service`, `epg.worker`, `ingest-errors`, now/next in `query-service`; `apps/tv/src/data/engine.ts` and the hello screen's catalog panel). The short-EPG fallback is step 9c.
+- **Storage** (database version 2, §1.3):
+  - `epg_meta`, one record per guide: the active and building generation, the fetch stamp, the basis it was matched against, `until` (the latest programme end, in UTC minutes), a summary of the match rate and the window, the guide's `rank`, and `failedAt`.
+  - `epg_buckets`: core's column bucket without `channel`, `day` and `merge` (the key holds them). The `Int32Array` and `Uint8Array` columns are stored as they are; fake-indexeddb and Chromium 53/56/68 round-trip them.
+  - `epg_channels`, one record per guide generation: the match table (each live channel's XMLTV channel, method, tie flag and tvg-shift), the XMLTV channels it uses, and the unmatched live channels (for step 24's diagnostics).
+- **Guides** (`epgGuides`), in priority order:
+  - the user's XMLTV URLs in the user's order;
+  - then each catalog source's own guide: Xtream `xmltv.php`, or the URLs its M3U header names. Those are now kept in `SourceMeta.epgUrls` by the catalog ingest.
+  - Ids are `<src>:xmltv`, `<src>:tvg<n>` and `u~<id>`; source ids can't contain `:` or `~`, so they never collide. A URL listed twice is read once.
+  - The user's guides come first because a guide added by hand is there to win. Order only breaks ties between methods of equal strength (`combineEpgMatches`).
+  - Times without an offset are read in the panel zone for an Xtream guide (`panelZone(SourceMeta.server)`, learnt at login), and in UTC for the others until step 24 adds per-guide offsets.
+- **A refresh** (`runEpgRefresh`, in a fresh **EPG worker** that is terminated afterwards):
+  1. Stored guides that are no longer listed are deleted. The others lose what a crashed refresh left behind and the past days they no longer need.
+  2. The wanted set is read once: every live item of every source's active generation, in source and storage order.
+  3. Each guide (`runEpgIngest`): conditional fetch, FNV-1a, gunzip and UTF-8 as in the catalog ingest, then `EpgGuideReader`. Buckets are written 10 per transaction, with the throttle's busy pause and low-tier duty cycle between batches.
+  4. A `merge: true` fragment is merged into the stored record, which wins on equal starts. Fragments of one channel-day in the same batch are merged in memory first: inside one transaction, a second `get` of a key is answered before the `put` that the first `get`'s callback issues.
+  5. The match table is written, one transaction swaps the generation in (the query worker reloads), and the previous one is deleted.
+- **Nothing new:** while the basis is the same (`EPG_INGEST_VERSION`, the tier, every source's active generation, the overrides), a 304 for the guide's own validators, or the same bytes, keeps the stored generation and only prunes its past days. A new catalog generation reads the same bytes again, because new channels may match.
+- **Failures:** each guide fails on its own, and its new generation is abandoned:
+  - a guide cut short (the tokenizer ended inside an element) and a body that is not XMLTV (no channel and no programme) fail with `format`;
+  - HTTP, auth and network errors fail with their own codes;
+  - `failedAt` holds a failed guide back for 2 h;
+  - a cancel stops the whole refresh;
+  - messages never contain URLs.
+- **When** (`epgRefreshDue`): a guide with no generation; 12 h after its last check; or when its programmes end less than 24 h ahead. Never within 2 h of the last check, or a guide that only covers a few hours would be fetched in a loop. The app asks with `refreshEpg(..., { due: true })`; the timer that asks while the app runs comes with the EPG screens (step 22).
+- **One refresh at a time:** `DataEngine` runs catalog and EPG refreshes in one slot and refuses a second ("A guide refresh is already running"), so a low-tier TV never runs both at once. Remote keys pause an EPG refresh as they pause a catalog one.
+- **Now/next** (`QueryService.nowNext`): the active generations' match tables are combined in guide order (`combineEpgMatches`) at each reload. For each live channel, the buckets of days `d - 1` to `d + 1` are read in one transaction, `d` being the UTC day at now minus the channel's tvg-shift. `epgStatus` lists the guides and sources fresh from IndexedDB.
+- **Workers:**
+  - With the reader inside, the ingest worker measured 159.6 KB, over its 150 KB budget. The reader therefore runs in its own worker, `@zoma/data/epg.worker` (118.8 KB): a package export, a boundary-lint entry point, and a `?worker` import in `apps/tv/src/data/workers.ts`.
+  - `ingest-errors.ts` keeps the catalog ingest out of the EPG worker.
+  - The query worker grew from 75.8 to 82.6 KB (now/next).
+  - The main bundle inlines all three workers and is now about 440 KB of its 500 KB budget (runbook tv-build.md). That leaves little room for the UI steps: see RELAY.md's note on the main budget.
+- **Found on the way:** with a tvg-shift, core's `epgNowNext` compared an unshifted start with a candidate it had already shifted, so the bucket order decided which programme came next. Fixed, with a test over shifts and bucket orders.
+- **Tests:**
+  - `epg-store.test.ts`: fragments merged across and within batches, typed columns round-tripped, generations, day pruning, failures, guide order, due rules.
+  - `epg-ingest.test.ts`:
+    - the stored buckets equal the reader's own, merged;
+    - now/next with tvg-shift;
+    - 304, unchanged bytes, a new catalog, `force`;
+    - a crash mid-ingest (the database closes) keeps the old generation serving exactly as before, and the next refresh cleans up;
+    - cut-short, non-XMLTV, 401, 404 and network failures, each on its own;
+    - gzip, deleted guides, `only`, the panel zone, cancel.
+  - `test/epg-ingest-mock.test.ts`: the mock's `url-tvg` guide, a gzipped user guide in the low tier, and an Xtream panel guide without offsets in Kathmandu time. Each stores exactly the mock's schedule, and now/next matches it for every live channel.
+  - `test/tv-data-engine.test.ts`: the EPG worker, the `due` rule, one refresh at a time, and the busy pause.
+  - e2e: the guide row in `pnpm dev` and in both built bundles.
+  - The old-engine harness: a third Blob worker reads a generated guide in Chromium 53, 56 and 68 (runbook old-engines.md).
 
 ---
 

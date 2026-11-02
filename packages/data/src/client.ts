@@ -1,8 +1,13 @@
 /**
- * The UI's side of the data workers: typed RPC clients over the query worker and the ingest
- * worker (architecture.md §1.2). `ui` imports only this part of `@zoma/data`.
+ * The UI's side of the data workers: typed RPC clients over the query worker, the ingest worker
+ * and the EPG worker (architecture.md §1.2). `ui` imports only this part of `@zoma/data`.
  */
 
+export type { EpgCatalogSource, EpgDueReason, EpgGuide, UserGuide } from './epg-sources';
+// Pure helpers the app decides EPG refreshes with (no data module behind them).
+export { EPG_AHEAD_MS, EPG_REFRESH_MS, EPG_RETRY_MS, epgGuides, epgRefreshDue } from './epg-sources';
+
+import type { EpgEvents, EpgService } from './epg-service';
 import type { IngestEvents, IngestService } from './ingest-service';
 import type { QueryService } from './query-service';
 import type { RpcPort } from './rpc';
@@ -43,6 +48,23 @@ export function createIngestClient(port: RpcPort & { onerror?: ((event: ErrorEve
   if ('onerror' in port) {
     port.onerror = (event: ErrorEvent) => {
       client.fail(new Error(`Ingest worker failed: ${event.message || 'unknown error'}`));
+    };
+  }
+  return client;
+}
+
+/** The EPG worker's RPC methods. */
+export type EpgHandlers = ReturnType<EpgService['handlers']>;
+
+/** Calls an EPG worker: `client.call('run', { job }, { cancel })`, events `progress` and `swapped`. */
+export type EpgClient = RpcClient<EpgHandlers, EpgEvents>;
+
+/** Wraps a started EPG worker. If it dies mid-refresh, the next refresh prunes what it left. */
+export function createEpgClient(port: RpcPort & { onerror?: ((event: ErrorEvent) => void) | null }): EpgClient {
+  const client = new RpcClient<EpgHandlers, EpgEvents>(port);
+  if ('onerror' in port) {
+    port.onerror = (event: ErrorEvent) => {
+      client.fail(new Error(`EPG worker failed: ${event.message || 'unknown error'}`));
     };
   }
   return client;
