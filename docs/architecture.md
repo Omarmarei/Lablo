@@ -138,6 +138,7 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
    - **Xtream:** list endpoints go through a streaming JSON-array splitter. It tracks nesting depth and strings, yields the text of each top-level object, and runs `JSON.parse` on each one, so a 60 MB response never becomes one giant string. Parsing is tolerant: Xtream panels return numbers as strings and plenty of nulls. `get_series_info` and `get_vod_info` are fetched only when the user opens an item, and cached for 24 h. `server_info.timezone` is stored because catch-up URLs need it.
 6. **Keys and normalization.**
    - **ContentKey:** `x:<src>:<kind>:<stream_id>` for Xtream, or `m:<src>:<hash(tvg-id || normName+group)>:<dup#>` for M3U. A key is never derived from the URL, because URLs contain credentials and change.
+     - **Amended by [ADR-009](adr/ADR-009-m3u-content-keys.md)** (step 5): the M3U hash covers tvg-id **plus** normName, so channel variants that share a tvg-id don't depend on playlist order. It is a 53-bit hash, and `normalizeName`, `hash53` and the key layout are frozen.
    - **Name normalization:** lowercase, Latin accents removed, Arabic normalized (diacritics and tatweel removed; أإآ become ا, ة becomes ه, ى becomes ي; Arabic-Indic digits become ASCII).
    - **`matchName`:** a separate field with quality and country tags (HD, FHD, 4K, `AR:`, `|UK|`) stripped, used for EPG matching.
 7. **Write.**

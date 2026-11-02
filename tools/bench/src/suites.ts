@@ -1,10 +1,12 @@
-// Benchmark cases over the scale fixtures (`pnpm fixtures`). These are baselines: the naive
-// way to read each input. Steps 5-9 add the real parsers here (core's M3U parser, the JSON-array
-// splitter, the XMLTV tokenizer) so they are measured on the same inputs, next to these numbers.
+// Benchmark cases over the scale fixtures (`pnpm fixtures`). The `*-scan` and `*-json-parse`
+// cases are baselines: the naive way to read each input. Steps 5-9 add the real parsers next to
+// them: core's M3U parser is `m3u-parse` (step 5); the JSON-array splitter and the XMLTV
+// tokenizer follow (steps 6 and 9).
 
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createGunzip } from 'node:zlib';
+import { M3uCatalogParser } from '@zoma/core';
 import type { BenchCase } from './harness';
 
 export interface Suite {
@@ -32,10 +34,27 @@ export async function countInStream(stream: AsyncIterable<unknown>, needle: stri
   return count;
 }
 
+/**
+ * Streams bytes through TextDecoder into core's M3U catalog parser, as the ingest worker will,
+ * dropping each chunk's items (so peak memory is the streaming cost). Returns the item count.
+ */
+export async function parseM3uStream(stream: AsyncIterable<unknown>): Promise<number> {
+  const decoder = new TextDecoder();
+  const parser = new M3uCatalogParser('bench');
+  let items = 0;
+  for await (const chunk of stream) items += parser.push(decoder.decode(chunk as Uint8Array, { stream: true })).length;
+  items += parser.push(decoder.decode()).length;
+  return items + parser.end().length;
+}
+
 export const SUITES: Record<string, Suite> = {
   'm3u-extinf-scan': {
     input: 'playlist.m3u',
     make: (path) => ({ name: 'm3u-extinf-scan', bytes: statSync(path).size, run: () => countInStream(createReadStream(path), '#EXTINF') }),
+  },
+  'm3u-parse': {
+    input: 'playlist.m3u',
+    make: (path) => ({ name: 'm3u-parse', bytes: statSync(path).size, run: () => parseM3uStream(createReadStream(path)) }),
   },
   'xtream-vod-json-parse': {
     input: 'xtream/vod_streams.json',

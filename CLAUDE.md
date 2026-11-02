@@ -39,6 +39,8 @@ Zoma IPTV is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen 
 - **Workers:** import them as `import X from './x.worker?worker'` and start them with `new X()`. Vite serves them in dev; the TV build inlines them as Blob-URL IIFEs (no `type: 'module'`, no worker files on disk).
 - **Platform choice:** `apps/tv/src/platform.ts` branches on the `__PLATFORM__` define (`tizen`, `webos`, `browser`). Keep platform-specific code behind those branches or inside the adapters, so the other adapters are tree-shaken out; `pnpm build:tv` fails if one leaks.
 - **Nothing important in localStorage** (webOS wipes it on app updates; see architecture.md §1.3).
+- **ContentKeys are stored data** ([ADR-009](docs/adr/ADR-009-m3u-content-keys.md)): `normalizeName`, `hash53` and the key layout in `packages/core` are frozen, and golden tests pin their output. Changing them needs a profile migration, so never "fix" a golden key value to make a test pass.
+- **Property tests:** `fast-check` (devDependency of `core`) for parsers and normalization: chunk-split invariance, never-throw on arbitrary input, round trips.
 
 ## Chromium 53 cheat sheet (the oldest engine: 2018 LG webOS 4)
 
