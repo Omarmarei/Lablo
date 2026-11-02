@@ -12,8 +12,15 @@
  *   (`snap:0`..`snap:2`), profile.ts;
  * - `kv`: small cached documents (the signed remote config, step 30).
  *
- * Everything except `profile` can be rebuilt from the provider. EPG stores arrive with step 9 as
- * migration 2.
+ * Stores added in version 2 (RELAY step 9b, epg-store.ts):
+ * - `epg_meta` (keyPath `epgSrc`): refresh bookkeeping per guide, including its active generation
+ *   `gen` and the one being built (`EpgMeta`);
+ * - `epg_buckets` (key `[epgSrc, gen, channel, day]`): one XMLTV channel's programmes starting on
+ *   one UTC day, as column arrays (core `EpgBucket` without `channel`, `day` and `merge`);
+ * - `epg_channels` (key `[epgSrc, gen]`): the guide's match table (which XMLTV channel feeds which
+ *   live channel, and how) and the XMLTV channels it uses.
+ *
+ * Everything except `profile` can be rebuilt from the provider.
  *
  * Rules for migrations:
  * - `MIGRATIONS[v]` upgrades version `v` to `v + 1`; the database version is the list's length.
@@ -32,6 +39,9 @@ export const STORE = {
   index: 'catalog_index',
   profile: 'profile',
   kv: 'kv',
+  epgMeta: 'epg_meta',
+  epgBuckets: 'epg_buckets',
+  epgChannels: 'epg_channels',
 } as const;
 
 export type Migration = (db: IDBDatabase, tx: IDBTransaction) => void;
@@ -45,6 +55,12 @@ export const MIGRATIONS: readonly Migration[] = [
     db.createObjectStore(STORE.index);
     db.createObjectStore(STORE.profile, { keyPath: 'id' });
     db.createObjectStore(STORE.kv);
+  },
+  // 1 → 2 (RELAY step 9b): EPG guides, programmes and match tables.
+  (db) => {
+    db.createObjectStore(STORE.epgMeta, { keyPath: 'epgSrc' });
+    db.createObjectStore(STORE.epgBuckets);
+    db.createObjectStore(STORE.epgChannels);
   },
 ];
 

@@ -1,15 +1,16 @@
-// RELAY step 8b: the old-engine harness checks exact numbers (items committed, search hits),
-// so its fixture's expectations are cross-checked here against core's real M3U parser and
-// name normalization, and its app URLs against the app's own parameter parser.
+// RELAY steps 8b and 9b: the old-engine harness checks exact numbers (items committed, search
+// hits, guide matches), so its fixture's expectations are cross-checked here against core's real
+// M3U parser, name normalization and EPG reader, and its app URLs against the app's own
+// parameter parser.
 
 import { gunzipSync } from 'node:zlib';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { normalizeName, parseM3uCatalog } from '@zoma/core';
+import { EpgGuideReader, EpgWantedSet, epgNowNext, normalizeName, parseM3uCatalog } from '@zoma/core';
 import { describe, expect, it } from 'vitest';
 import { readDebugParams } from '../apps/tv/src/data/params';
-import { FIXTURE_ORIGIN, FIXTURE_SIZE, appUrl, dataChecks, fixtureEntries, fixtureM3u, stageFixtures } from '../tools/engines/src/fixture';
+import { FIXTURE_ORIGIN, FIXTURE_SIZE, appUrl, dataChecks, fixtureEntries, fixtureM3u, fixtureXmltv, stageFixtures } from '../tools/engines/src/fixture';
 
 describe('the engines catalog fixture', () => {
   const entries = fixtureEntries();
@@ -38,15 +39,34 @@ describe('the engines catalog fixture', () => {
     expect(items.filter((i) => i.name.includes(checks.webos.query))).toHaveLength(0);
   });
 
-  it('stages the plain and gzipped playlists with the same bytes', () => {
+  it('stages the plain and gzipped playlists and guides, each playlist naming its guide', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'zoma-fixture-'));
-    stageFixtures(dir);
-    const plain = readFileSync(path.join(dir, 'fixtures', checks.tizen.file));
-    const gz = readFileSync(path.join(dir, 'fixtures', checks.webos.file));
-    expect(gz[0]).toBe(0x1f);
-    expect(gz[1]).toBe(0x8b);
-    expect(gunzipSync(gz).equals(plain)).toBe(true);
-    expect(plain.toString('utf8')).toBe(fixtureM3u(entries));
+    const now = Date.UTC(2026, 10, 2, 12, 34);
+    stageFixtures(dir, now);
+    const read = (file: string): Buffer => readFileSync(path.join(dir, 'fixtures', file));
+    const gz = read(checks.webos.file);
+    expect([gz[0], gz[1]]).toEqual([0x1f, 0x8b]);
+    expect(read(checks.tizen.file).toString('utf8')).toBe(fixtureM3u(entries, 'guide.xml'));
+    expect(gunzipSync(gz).toString('utf8')).toBe(fixtureM3u(entries, 'guide.xml.gz'));
+    expect(parseM3uCatalog('debug', gunzipSync(gz).toString('utf8')).summary.epgUrls).toEqual([`${FIXTURE_ORIGIN}/guide.xml.gz`]);
+    expect(gunzipSync(read(checks.webos.guide)).equals(read(checks.tizen.guide))).toBe(true);
+    expect(read(checks.tizen.guide).toString('utf8')).toBe(fixtureXmltv(entries, now));
+  });
+
+  it('expects the guide matches and a now/next that core gives', () => {
+    const now = Date.UTC(2026, 10, 2, 12, 34);
+    const live = items.filter((i) => i.kind === 'live');
+    const reader = new EpgGuideReader({ epgSrc: 'debug:tvg0', wanted: EpgWantedSet.fromItems(live), tier: 'low', nowMs: now + 3_600_000 });
+    const buckets = [...reader.push(fixtureXmltv(entries, now)), ...reader.end()];
+    const r = reader.report();
+    expect(r.match).toMatchObject({ wanted: checks.webos.epgWanted, matched: checks.webos.epgMatched, declared: checks.webos.epgMatched + 1, used: checks.webos.epgMatched });
+    expect(checks.tizen.epgMatched).toBe(300);
+    // The first live channel has programmes on air for days after the fixture is staged.
+    const first = buckets.filter((b) => b.channel === 'fixture.1');
+    for (const later of [0, 1, 47]) {
+      const at = now + later * 3_600_000;
+      expect(epgNowNext(first, at).now?.title).toBe(`fixture.1 ${new Date(at).getUTCHours()}h`);
+    }
   });
 
   it('builds app URLs that the app reads back as force + query + source', () => {

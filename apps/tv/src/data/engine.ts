@@ -6,15 +6,36 @@
  *   crashed or killed refreshes left behind;
  * - when a refresh swaps in a new generation (`swapped`), the query worker `reload`s;
  * - remote keys mark the UI busy: the running refresh pauses (`setBusy`) until the keys have
- *   been idle for `idleMs`.
+ *   been idle for `idleMs`;
+ * - an **EPG worker** starts for each EPG refresh (step 9b). The guides come from the catalog
+ *   sources (`epgGuides`), and `due` refreshes only those `epgRefreshDue` names. Catalog and EPG
+ *   refreshes share one slot, so a low-tier TV never runs both at once; when a guide swaps in, the
+ *   query worker reloads, and `nowNext` reads the store through it.
  *
  * Workers come from factories, so tests serve the real services over message channels; the
  * app passes the `?worker` imports (`./workers.ts`).
  */
 
-import type { CancelToken, DataClient, IngestClient, IngestJob, IngestProgress, IngestResult, ItemRef, QueryStatus, RpcPort } from '@zoma/data';
+import type { ContentKey, DeviceTier, EpgOverride } from '@zoma/core';
+import type {
+  CancelToken,
+  DataClient,
+  EpgCatalogSource,
+  EpgNowNext,
+  EpgProgress,
+  EpgRefreshResult,
+  EpgStatus,
+  IngestClient,
+  IngestJob,
+  IngestProgress,
+  IngestResult,
+  ItemRef,
+  QueryStatus,
+  RpcPort,
+  UserGuide,
+} from '@zoma/data';
 // The client entry only: the package index would pull every data module's polyfills into main.
-import { createDataClient, createIngestClient } from '@zoma/data/client';
+import { createDataClient, createEpgClient, createIngestClient, epgGuides, epgRefreshDue } from '@zoma/data/client';
 
 /** What the engine needs from a worker (a `Worker`, or a test double). */
 export interface WorkerLike extends RpcPort {
@@ -25,6 +46,9 @@ export interface WorkerLike extends RpcPort {
 export interface DataEngineOptions {
   startQueryWorker: () => WorkerLike;
   startIngestWorker: () => WorkerLike;
+  startEpgWorker: () => WorkerLike;
+  /** The clock `due` EPG refreshes are decided by (default `Date.now`). */
+  now?: () => number;
   /** How long after the last remote key the UI counts as idle again (default 1000 ms). */
   idleMs?: number;
   /** Called when the busy flag changes. */
@@ -45,12 +69,30 @@ export interface SearchSummary {
   total: number;
   /** Display names of the first hits. */
   names: string[];
+  /** Their keys, and which of them are live channels. */
+  keys: ContentKey[];
+  live: boolean[];
 }
 
 export interface RefreshOptions {
   /** A low-tier TV: the refresh runs the 50/50 duty cycle. */
   lowTier?: boolean;
   onProgress?: (progress: IngestProgress) => void;
+  cancel?: CancelToken;
+}
+
+export interface EpgRefreshOptions {
+  tier: DeviceTier;
+  /** Guides the user added, in their order (step 22). */
+  user?: UserGuide[];
+  /** UI languages, most preferred first. */
+  languages?: string[];
+  overrides?: EpgOverride[];
+  /** Read only the guides that are due (`epgRefreshDue`); without it, every guide. */
+  due?: boolean;
+  /** Ignore validators and byte hashes. */
+  force?: boolean;
+  onProgress?: (progress: EpgProgress) => void;
   cancel?: CancelToken;
 }
 
@@ -70,7 +112,10 @@ export class DataEngine {
   private queryWorker: WorkerLike | null = null;
   private queryClient: DataClient | null = null;
   private started: Promise<number> | null = null;
-  private ingest: IngestClient | null = null;
+  /** The refresh running (catalog or EPG), or `null`. */
+  private slot: 'catalog' | 'epg' | null = null;
+  /** Tells the running refresh's worker that the UI is busy. */
+  private sendBusy: ((busy: boolean) => void) | null = null;
   private busyFlag = false;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
@@ -87,9 +132,9 @@ export class DataEngine {
     return this.busyFlag;
   }
 
-  /** True while a refresh runs. */
+  /** True while a refresh (catalog or EPG) runs. */
   get refreshing(): boolean {
-    return this.ingest !== null;
+    return this.slot !== null;
   }
 
   /**
@@ -117,22 +162,16 @@ export class DataEngine {
    * reloads before this resolves, so the next read sees the new catalog.
    */
   async refresh(job: IngestJob, options: RefreshOptions = {}): Promise<IngestResult> {
-    if (this.ingest !== null) throw new Error('A catalog refresh is already running');
-    const prune = this.start();
-    // Claim the slot before waiting, so a second refresh can't slip in behind the prune.
-    this.ingest = PENDING;
-    // A failed prune (no IndexedDB, say) fails the refresh too, with its own error.
-    await prune.catch(ignore);
+    await this.claim('catalog');
     let reload: Promise<unknown> = Promise.resolve();
     try {
       return await this.withIngestWorker(async (client) => {
-        this.ingest = client;
+        this.busyTo((busy) => client.call('setBusy', { busy }).catch(ignore));
         client.on('swapped', () => {
           reload = this.query.call('reload');
           reload.catch(ignore);
         });
         if (options.onProgress) client.on('progress', options.onProgress);
-        if (this.busyFlag) client.call('setBusy', { busy: true }).catch(ignore);
         const result = await client.call('run', { job, lowTier: options.lowTier }, { cancel: options.cancel });
         // The refresh itself succeeded; a query worker that can't reload reports that on the
         // next read.
@@ -140,8 +179,55 @@ export class DataEngine {
         return result;
       });
     } finally {
-      this.ingest = null;
+      this.release();
     }
+  }
+
+  /**
+   * One EPG refresh in a fresh EPG worker, for the guides of `catalogs` (plus the user's), in
+   * the refresh slot. With `due`, only the guides `epgRefreshDue` names are read, and no worker
+   * starts when none is (stored guides that are no longer listed are still deleted then). When a
+   * guide swaps in, the query worker reloads before this resolves.
+   */
+  async refreshEpg(catalogs: readonly EpgCatalogSource[], options: EpgRefreshOptions): Promise<EpgRefreshResult> {
+    await this.claim('epg');
+    let reload: Promise<unknown> = Promise.resolve();
+    try {
+      const status = await this.query.call('epgStatus');
+      const guides = epgGuides(catalogs, status.sources, options.user);
+      const listed = guides.map((g) => g.epgSrc);
+      let only: string[] | undefined;
+      if (options.due) {
+        const now = this.options.now ? this.options.now() : Date.now();
+        only = guides.filter((g) => epgRefreshDue(findGuide(status, g.epgSrc), now) !== null).map((g) => g.epgSrc);
+        const unlisted = status.guides.some((m) => listed.indexOf(m.epgSrc) === -1);
+        if (only.length === 0 && !unlisted) return { outcomes: [], deleted: [], wanted: 0 };
+      }
+      return await this.withWorker(this.options.startEpgWorker, createEpgClient, async (client) => {
+        this.busyTo((busy) => client.call('setBusy', { busy }).catch(ignore));
+        client.on('swapped', () => {
+          reload = this.query.call('reload');
+          reload.catch(ignore);
+        });
+        if (options.onProgress) client.on('progress', options.onProgress);
+        const job = { guides, only, tier: options.tier, languages: options.languages, overrides: options.overrides, force: options.force };
+        const result = await client.call('run', { job, lowTier: options.tier === 'low' }, { cancel: options.cancel });
+        await reload.catch(ignore);
+        return result;
+      });
+    } finally {
+      this.release();
+    }
+  }
+
+  /** Now and next for live channels, from the stored guides (through the query worker). */
+  nowNext(keys: ContentKey[], at?: number): Promise<EpgNowNext[]> {
+    return this.query.call('nowNext', { keys, at });
+  }
+
+  /** The stored guides and how many live channels have one. */
+  epgStatus(): Promise<EpgStatus> {
+    return this.query.call('epgStatus');
   }
 
   /** Searches every active generation and resolves the first `names` hits to display names. */
@@ -156,7 +242,13 @@ export class DataEngine {
       slot: h.slot,
     }));
     const items = refs.length === 0 ? [] : await this.query.call('items', { refs });
-    return { query: result.query, total: result.total, names: items.map((item) => (item === null ? '?' : item.name)) };
+    return {
+      query: result.query,
+      total: result.total,
+      names: items.map((item) => (item === null ? '?' : item.name)),
+      keys: items.map((item) => (item === null ? '' : item.key)),
+      live: refs.map((r) => r.kind === 'live'),
+    };
   }
 
   /**
@@ -197,15 +289,41 @@ export class DataEngine {
 
   private setBusy(busy: boolean): void {
     this.busyFlag = busy;
-    const client = this.ingest;
-    if (client !== null && client !== PENDING) client.call('setBusy', { busy }).catch(ignore);
+    this.sendBusy?.(busy);
     this.options.onBusy?.(busy);
   }
 
+  /**
+   * Takes the one refresh slot, then waits for the start-up prune (a prune would abandon a
+   * refresh running next to it). The slot is taken first, so a second refresh can't slip in
+   * behind the prune. A failed prune (no IndexedDB, say) fails the refresh with its own error.
+   */
+  private async claim(kind: 'catalog' | 'epg'): Promise<void> {
+    if (this.slot !== null) throw new Error(`A ${this.slot === 'epg' ? 'guide' : 'catalog'} refresh is already running`);
+    this.slot = kind;
+    await this.start().catch(ignore);
+  }
+
+  private release(): void {
+    this.slot = null;
+    this.sendBusy = null;
+  }
+
+  /** Routes busy changes to the running refresh's worker; tells it at once if keys are down. */
+  private busyTo(send: (busy: boolean) => void): void {
+    this.sendBusy = send;
+    if (this.busyFlag) send(true);
+  }
+
   /** Runs `use` with a fresh ingest worker, then terminates it whatever happened. */
-  private async withIngestWorker<T>(use: (client: IngestClient) => Promise<T>): Promise<T> {
-    const worker = this.options.startIngestWorker();
-    const client = createIngestClient(worker);
+  private withIngestWorker<T>(use: (client: IngestClient) => Promise<T>): Promise<T> {
+    return this.withWorker(this.options.startIngestWorker, createIngestClient, use);
+  }
+
+  /** Runs `use` with a fresh worker and its client, then terminates it whatever happened. */
+  private async withWorker<C extends { close(): void }, T>(start: () => WorkerLike, wrap: (worker: WorkerLike) => C, use: (client: C) => Promise<T>): Promise<T> {
+    const worker = start();
+    const client = wrap(worker);
     try {
       return await use(client);
     } finally {
@@ -215,5 +333,7 @@ export class DataEngine {
   }
 }
 
-/** Marks the refresh slot as taken while the start-up prune finishes. */
-const PENDING = {} as IngestClient;
+function findGuide(status: EpgStatus, epgSrc: string): EpgStatus['guides'][number] | null {
+  for (const g of status.guides) if (g.epgSrc === epgSrc) return g;
+  return null;
+}

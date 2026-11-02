@@ -6,18 +6,25 @@
  *   by `setFavourites` boosted. Hits name their generation and chunk; `items` resolves them.
  * - `categories`, `chunk` and `items` read the active generation from IndexedDB, with a small
  *   chunk cache (the visible pages of a list touch the same few chunks).
- * - `reload` re-reads `sources_meta` and the segments, after an ingest swapped a generation.
- *   It runs lazily before the first search too.
+ * - `reload` re-reads `sources_meta` and the segments, after an ingest swapped a generation, and
+ *   the guides' match tables, after an EPG refresh swapped one. It runs lazily before the first
+ *   read too.
+ * - `nowNext` gives the programme on air and the next one for live channels (step 9b): the
+ *   guides' match tables are combined in priority order (core `combineEpgMatches`), and each
+ *   channel's buckets of the days around now are read from IndexedDB, with its tvg-shift applied.
+ * - `epgStatus` lists the guides and how many live channels have one.
  *
  * A segment that fails to load (other layout version, inconsistent data) is skipped and listed
  * in `status().stale`, so the ingest can rebuild it.
  */
 
-import type { CatalogItem, ContentKey, ContentKind, FavouriteMarks, SearchResult } from '@zoma/core';
-import { CONTENT_KINDS, SearchSegment, favouriteMarks, searchSegments } from '@zoma/core';
+import type { CatalogItem, ContentKey, ContentKind, EpgBucket, EpgMatchMethod, EpgProgramme, FavouriteMarks, SearchResult } from '@zoma/core';
+import { CONTENT_KINDS, SearchSegment, combineEpgMatches, epgDay, epgNowNext, favouriteMarks, searchSegments } from '@zoma/core';
 import type { CategoryInfo } from './chunker';
 import type { ChunkKey, SourceMeta } from './catalog-store';
 import { getSources, readCategories, readChunks, readIndexes } from './catalog-store';
+import type { EpgBucketKey, EpgMeta, StoredEpgMatch } from './epg-store';
+import { getEpgMetas, readEpgBuckets, readEpgChannels } from './epg-store';
 import type { RpcContext } from './rpc';
 
 /** Where a search hit (or any item) is stored. */
@@ -52,11 +59,42 @@ export interface QueryStatus {
   stale: { src: string; kind: ContentKind; gen: number; reason: string }[];
 }
 
+/** A live channel's programme now and next. */
+export interface EpgNowNext {
+  key: ContentKey;
+  /** The guide and its XMLTV channel (`null`: no guide matches this channel). */
+  epgSrc: string | null;
+  channel: string | null;
+  method: EpgMatchMethod | null;
+  now: EpgProgramme | null;
+  next: EpgProgramme | null;
+}
+
+export interface EpgStatus {
+  /** Every stored guide, in priority order. */
+  guides: EpgMeta[];
+  /** Live channels that have a guide channel, over every guide. */
+  matched: number;
+  /** The catalog sources (their `epgUrls` and Xtream `server` decide the guides). */
+  sources: SourceMeta[];
+}
+
+/** Where a live channel's programmes are stored. */
+interface EpgLink {
+  epgSrc: string;
+  gen: number;
+  channel: string;
+  method: EpgMatchMethod;
+  shift: number;
+}
+
 export interface QueryServiceOptions {
   /** Opens (and migrates) the database; called once, on first use. */
   openDb: () => Promise<IDBDatabase>;
   /** Chunks kept in memory (default 16, about 8,000 items). */
   chunkCache?: number;
+  /** The clock now/next is read at when the caller gives no time. */
+  now?: () => number;
 }
 
 const chunkId = (k: ChunkKey): string => `${k.src}|${k.gen}|${k.kind}|${k.catIdx}|${k.chunk}`;
@@ -72,6 +110,7 @@ export class QueryService {
   private marks: FavouriteMarks | null = null;
   private readonly cache = new Map<string, CatalogItem[]>();
   private readonly cacheSize: number;
+  private epgLinks = new Map<ContentKey, EpgLink>();
 
   constructor(private readonly options: QueryServiceOptions) {
     this.cacheSize = Math.max(1, options.chunkCache ?? 16);
@@ -87,6 +126,8 @@ export class QueryService {
       categories: (arg: { src: string; kind: ContentKind }): Promise<CategoryInfo[]> => this.categories(arg.src, arg.kind),
       chunk: (arg: { src: string; kind: ContentKind; catIdx: number; chunk: number }): Promise<CatalogItem[]> => this.chunk(arg),
       items: (arg: { refs: ItemRef[] }): Promise<(CatalogItem | null)[]> => this.items(arg.refs),
+      nowNext: (arg: { keys: ContentKey[]; at?: number }): Promise<EpgNowNext[]> => this.nowNext(arg.keys, arg.at),
+      epgStatus: (): Promise<EpgStatus> => this.epgStatus(),
     };
   }
 
@@ -151,14 +192,85 @@ export class QueryService {
         stale.push({ ...k, reason: error instanceof Error ? error.message : String(error) });
       }
     });
+    const epg = await this.loadEpg(db);
     this.sources = sources;
     this.segments = segments;
     this.stale = stale;
     this.marks = null;
+    this.epgLinks = epg.links;
     this.loaded = true;
     // Chunks of replaced generations are never asked for again; drop them.
     const live = new Set(sources.map((s) => `${s.src}|${s.gen}|`));
     for (const id of [...this.cache.keys()]) if (!live.has(id.slice(0, id.indexOf('|', id.indexOf('|') + 1) + 1))) this.cache.delete(id);
+  }
+
+  /** The active guides in priority order, and which guide channel each live channel takes. */
+  private async loadEpg(db: IDBDatabase): Promise<{ metas: EpgMeta[]; links: Map<ContentKey, EpgLink> }> {
+    const metas = (await getEpgMetas(db)).sort((a, b) => a.rank - b.rank || (a.epgSrc < b.epgSrc ? -1 : a.epgSrc > b.epgSrc ? 1 : 0));
+    const active = metas.filter((m) => m.gen > 0);
+    const tables = await readEpgChannels(
+      db,
+      active.map((m) => ({ epgSrc: m.epgSrc, gen: m.gen })),
+    );
+    const guides: { epgSrc: string; matches: StoredEpgMatch[] }[] = [];
+    const shifts = new Map<string, number>();
+    active.forEach((m, i) => {
+      const table = tables[i];
+      if (!table) return;
+      for (const x of table.matches) shifts.set(`${m.epgSrc}|${x.key}`, x.shift);
+      guides.push({ epgSrc: m.epgSrc, matches: table.matches });
+    });
+    const gens = new Map<string, number>();
+    for (const m of active) gens.set(m.epgSrc, m.gen);
+    const links = new Map<ContentKey, EpgLink>();
+    combineEpgMatches(guides).forEach((m, key) => {
+      links.set(key, { epgSrc: m.epgSrc, gen: gens.get(m.epgSrc) ?? 0, channel: m.channel, method: m.method, shift: shifts.get(`${m.epgSrc}|${key}`) ?? 0 });
+    });
+    return { metas, links };
+  }
+
+  /**
+   * The guides and sources as stored now (read fresh: a catalog refresh that found nothing new
+   * may still have updated a source's `epgUrls` without a reload), and how many live channels
+   * the loaded match tables give a guide.
+   */
+  async epgStatus(): Promise<EpgStatus> {
+    await this.ensureLoaded();
+    const db = await this.db();
+    const sources = (await getSources(db)).sort((a, b) => (a.src < b.src ? -1 : a.src > b.src ? 1 : 0));
+    const guides = (await getEpgMetas(db)).sort((a, b) => a.rank - b.rank || (a.epgSrc < b.epgSrc ? -1 : a.epgSrc > b.epgSrc ? 1 : 0));
+    return { guides, matched: this.epgLinks.size, sources };
+  }
+
+  /**
+   * Now and next for each live channel at `at` (default: now). Reads days `d - 1` to `d + 1` of
+   * its guide channel, `d` being the UTC day at `at` minus its tvg-shift: a programme from the
+   * evening before can still be on air, and the next one can start tomorrow.
+   */
+  async nowNext(keys: ContentKey[], at?: number): Promise<EpgNowNext[]> {
+    await this.ensureLoaded();
+    const nowMs = at ?? (this.options.now ? this.options.now() : Date.now());
+    const reads: EpgBucketKey[] = [];
+    const plan = keys.map((key) => {
+      const link = this.epgLinks.get(key);
+      if (link === undefined || link.gen === 0) return null;
+      const day = epgDay(Math.floor(nowMs / 60_000) - Math.round(link.shift * 60));
+      const from = reads.length;
+      for (let d = day - 1; d <= day + 1; d++) reads.push({ epgSrc: link.epgSrc, gen: link.gen, channel: link.channel, day: d });
+      return { link, from };
+    });
+    const buckets = reads.length === 0 ? [] : await readEpgBuckets(await this.db(), reads);
+    return keys.map((key, i) => {
+      const p = plan[i];
+      if (p === null || p === undefined) return { key, epgSrc: null, channel: null, method: null, now: null, next: null };
+      const found: EpgBucket[] = [];
+      for (let j = p.from; j < p.from + 3; j++) {
+        const b = buckets[j];
+        if (b) found.push(b);
+      }
+      const nn = epgNowNext(found, nowMs, p.link.shift);
+      return { key, epgSrc: p.link.epgSrc, channel: p.link.channel, method: p.link.method, now: nn.now, next: nn.next };
+    });
   }
 
   /** Sets the favourite keys boosted in search. Returns how many are in loaded segments. */

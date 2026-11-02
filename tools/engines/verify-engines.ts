@@ -43,21 +43,25 @@ interface RunReport {
   readonly variant: string;
   readonly platform: string;
   readonly userAgent: string | null;
-  /** What the catalog panel showed: the refresh and the search. */
+  /** What the catalog panel showed: the refresh, the search, the guide and now/next. */
   readonly refresh: string | null;
   readonly search: string | null;
+  readonly guide: string | null;
+  readonly nowNext: string | null;
   readonly failures: readonly string[];
   readonly mustPass: boolean;
   readonly durationMs: number;
 }
 
-/** `3000 items, gzip; "news" 308 hits` for the log, from what the page showed. */
+/** `3000 items, gzip; "news" 308 hits; guide 300/2400` for the log, from what the page showed. */
 function dataSummary(run: PlatformRun): string {
   const boot = run.boot;
   if (run.data === null || boot?.ingest?.startsWith('ok: ') !== true) return '';
   const gzip = boot.gzip === 'true' ? ', gzip' : '';
   const hits = boot.search?.startsWith('ok: ') === true ? `; "${run.data.query}" ${boot.searchTotal ?? '?'} hits` : '';
-  return `  data: ${boot.ingestItems ?? '?'} items${gzip}${hits}`;
+  const guide = boot.epg?.startsWith('ok: ') === true ? `; guide ${boot.epgMatched ?? '?'}/${boot.epgWanted ?? '?'}` : '';
+  const onAir = boot.nowNext?.startsWith('ok: ') === true ? ', now/next' : '';
+  return `  data: ${boot.ingestItems ?? '?'} items${gzip}${hits}${guide}${onAir}`;
 }
 
 async function runEngine(
@@ -101,6 +105,8 @@ async function runEngine(
             userAgent: run.boot?.userAgent ?? null,
             refresh: run.boot?.ingest ?? null,
             search: run.boot?.search ?? null,
+            guide: run.boot?.epg ?? null,
+            nowNext: run.boot?.nowNext ?? null,
             failures,
             mustPass: mustPass(variant, engine.major),
             durationMs: run.durationMs,

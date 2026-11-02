@@ -74,7 +74,7 @@ describe('package boundaries (boundaries/element-types)', () => {
 
   it('allows the data workers as entry points, and nothing else in data', async () => {
     const file = 'apps/tv/src/f.ts';
-    for (const worker of ['query', 'ingest']) {
+    for (const worker of ['query', 'ingest', 'epg']) {
       expect(await lint(file, `import W from '@zoma/data/${worker}.worker?worker';\nexport { W };\n`)).toEqual([]);
     }
     const deep = await lint(file, "import { serveRpc } from '../../../packages/data/src/rpc';\nexport { serveRpc };\n");
