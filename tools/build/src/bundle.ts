@@ -50,6 +50,35 @@ export class SyntaxGateError extends Error {
 }
 
 const EXTENSIONS = ['.ts', '.tsx', '.mjs', '.js', '.jsx'];
+
+/**
+ * Dependencies that get no core-js polyfills (see the Babel `overrides` below). Only for
+ * libraries whose used code needs nothing Chromium 53 lacks: fflate's `Gunzip` uses typed
+ * arrays only, and the bundled ingest worker runs it with the ES2017 APIs deleted
+ * (`test/ingest-worker-bundle.test.ts`).
+ */
+export const POLYFILL_FREE_DEPENDENCIES = [/[\\/]node_modules[\\/]fflate[\\/]/];
+
+/**
+ * core-js polyfills that are never injected. Babel's usage detection can't see types, so any
+ * `.map(` pulls in the ES2025 iterator helpers, any `new Set` the ES2025 Set methods and any
+ * `Uint8Array` the ES2026 base64 methods: about 30 KB of every bundle for APIs nothing calls.
+ * They are all APIs that TV code can't call anyway, because every package and `apps/tv`
+ * compile against `lib: ES2017` (pinned by `bundle.test.ts`). Polyfills for ES2017 APIs and
+ * for the few newer ones the code may use (`Promise.prototype.finally`, `Array.prototype.flat`,
+ * `globalThis`) are still injected.
+ */
+export const UNUSED_POLYFILLS: readonly RegExp[] = [
+  /^es(next)?\.iterator\./, // iterator helpers (ES2025)
+  /^es(next)?\.set\.[a-z-]+\.v2$/, // Set methods: union, intersection… (ES2025)
+  /^es(next)?\.(weak-)?map\.get-or-insert/, // Map upsert (ES2026)
+  /^es(next)?\.uint8-array\./, // Uint8Array base64 and hex (ES2026)
+  /^es(next)?\.typed-array\.(at|find-last|find-last-index|to-reversed|to-sorted|with)$/, // ES2022-ES2023
+  /^es(next)?\.array-buffer\.(detached|transfer|transfer-to-fixed-length)$/, // ES2024
+  /^es\.error\.cause$/, // ES2022
+  /^es\.json\.parse$/, // source text access (ES2026); native JSON.parse is used without a reviver anyway
+  /^es\.symbol\.description$/, // ES2019, not in lib ES2017
+];
 const WORKER_SUFFIX = '?worker';
 const WORKER_PREFIX = '\0zoma-worker:';
 
@@ -153,12 +182,22 @@ function plugins(options: BundleOptions, workers: BuiltWorker[]): Plugin[] {
           require.resolve('@babel/preset-env'),
           {
             targets: TV_TARGETS,
-            ...(options.polyfills === false ? { useBuiltIns: false } : { useBuiltIns: 'usage', corejs: CORE_JS_VERSION }),
+            ...(options.polyfills === false ? { useBuiltIns: false } : { useBuiltIns: 'usage', corejs: CORE_JS_VERSION, exclude: [...UNUSED_POLYFILLS] }),
             bugfixes: true,
             modules: false,
           },
         ],
         [require.resolve('@babel/preset-typescript'), { onlyRemoveTypeImports: true }],
+      ],
+      // Libraries already written for old engines: their syntax is still transpiled (and gated),
+      // but no polyfills are injected. Babel adds polyfill imports per file, before tree-shaking,
+      // so fflate's unused worker helper (`URL.createObjectURL`) alone would pull core-js's URL
+      // polyfill (about 25 KB minified) into the ingest worker.
+      overrides: [
+        {
+          test: POLYFILL_FREE_DEPENDENCIES,
+          presets: [[require.resolve('@babel/preset-env'), { targets: TV_TARGETS, useBuiltIns: false, bugfixes: true, modules: false }]],
+        },
       ],
       plugins: [[require.resolve('@babel/plugin-transform-react-jsx'), { runtime: 'automatic', importSource: 'preact' }]],
     }),

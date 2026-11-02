@@ -3,7 +3,7 @@
 // against the worker budget, then started in a fresh realm that stands in for a worker: `self`
 // is a message port, `indexedDB` is fake-indexeddb, and the ES2017 APIs that Chromium 53 lacks
 // are deleted. A UI-side DataClient then searches a catalog written by the data layer. Real
-// Chromium 53/56 runs of the data workers come with step 8 (engines harness, Blob worker + IDB).
+// Chromium 53/56 runs of the data workers come with step 8b (engines harness, Blob worker + IDB).
 
 import vm from 'node:vm';
 import { join } from 'node:path';

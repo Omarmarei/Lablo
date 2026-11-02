@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { MockServer } from '../src/server';
+import { etagMatches } from '../src/playlist';
 import { mock } from './helpers';
 
 let app: MockServer;
@@ -117,5 +118,35 @@ describe('get.php', () => {
         expect([200, 206], url).toContain(res.statusCode);
       }
     }
+  });
+});
+
+describe('get.php conditional GET', () => {
+  const url = '/get.php?username=zoma&password=zoma-test&type=m3u_plus';
+
+  it('answers 304 to its own ETag, and a new ETag once the catalog changes', async () => {
+    app = await mock();
+    const first = await app.inject({ url, headers: { host: HOST } });
+    const etag = String(first.headers['etag']);
+    expect(etag).toMatch(/^"[\w-]{27}"$/);
+    const again = await app.inject({ url, headers: { host: HOST, 'if-none-match': etag } });
+    expect([again.statusCode, again.body, again.headers['etag']]).toEqual([304, '', etag]);
+    expect((await app.inject({ url, headers: { host: HOST, 'if-none-match': '"other"' } })).statusCode).toBe(200);
+    // The body depends on the Host header, and so does the tag.
+    expect((await app.inject({ url, headers: { host: 'other.local', 'if-none-match': etag } })).statusCode).toBe(200);
+
+    app.mockState.catalog = { ...app.mockState.catalog, live: app.mockState.catalog.live.slice(1) };
+    const changed = await app.inject({ url, headers: { host: HOST, 'if-none-match': etag } });
+    expect(changed.statusCode).toBe(200);
+    expect(changed.headers['etag']).not.toBe(etag);
+  });
+
+  it('compares like HTTP does: weak tags, lists and *', () => {
+    expect(etagMatches('W/"a"', '"a"')).toBe(true);
+    expect(etagMatches('"x", "a"', '"a"')).toBe(true);
+    expect(etagMatches('*', '"a"')).toBe(true);
+    expect(etagMatches(['"x"', '"a"'], '"a"')).toBe(true);
+    expect(etagMatches('"b"', '"a"')).toBe(false);
+    expect(etagMatches(undefined, '"a"')).toBe(false);
   });
 });

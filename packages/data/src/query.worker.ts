@@ -1,6 +1,6 @@
 /**
  * The query worker (architecture.md §1.2): started once by the app (`import QueryWorker from
- * '@zoma/data/…?worker'` lands with the app wiring in step 8; the TV build inlines it as a Blob
+ * '@zoma/data/…?worker'` lands with the app wiring in step 8b; the TV build inlines it as a Blob
  * worker) and kept running. It serves `QueryService` over RPC; the UI talks to it through
  * `createDataClient`.
  */

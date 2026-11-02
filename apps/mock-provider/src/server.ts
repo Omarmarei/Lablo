@@ -63,7 +63,7 @@ export interface MockServer extends FastifyInstance {
 }
 
 const TEXT = 'text/plain; charset=utf-8';
-const EXPOSE_HEADERS = 'content-length, content-range, accept-ranges, x-mock-archive-channel, x-mock-archive-start, x-mock-archive-duration, x-lab-lines';
+const EXPOSE_HEADERS = 'content-length, content-range, accept-ranges, etag, x-mock-archive-channel, x-mock-archive-start, x-mock-archive-duration, x-lab-lines';
 const UNFAULTED = /^\/__(mock|lab)(\/|$)/;
 const MAX_REDIRECT_CHAINS = 1000;
 

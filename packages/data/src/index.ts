@@ -23,19 +23,23 @@ export {
   migrateProfile,
   restoreSnapshot,
   saveProfile,
+  updateProfile,
 } from './profile';
 
 export type { CatalogChunk, CategoryInfo, ChunkerOptions } from './chunker';
 export { CHUNK_SIZE, CatalogChunker, MAX_BUFFERED, indexChunk } from './chunker';
 
-export type { ChunkKey, SourceMeta } from './catalog-store';
+export type { ChunkKey, FetchStamp, SourceMeta, SourceMetaPatch } from './catalog-store';
 export {
   GenerationError,
+  abandonGeneration,
   beginGeneration,
   commitGeneration,
   deleteGeneration,
   deleteSource,
+  getSource,
   getSources,
+  markChecked,
   newSourceMeta,
   pruneGenerations,
   putCatalogKind,
@@ -51,5 +55,23 @@ export { CancelError, CancelSource, NEVER, RpcClient, RpcError, serveRpc } from 
 export type { ItemRef, QueryServiceOptions, QueryStatus, SearchRequest, SegmentStatus } from './query-service';
 export { QueryService } from './query-service';
 
-export type { DataClient, QueryHandlers } from './client';
-export { createDataClient } from './client';
+export type { ByteRequest, ByteResponse, ByteSource, ByteTransport, FetchLike, TextSource } from './bytes';
+export { Fnv1a, NetworkError, decodeUtf8, fetchTransport, tapBytes } from './bytes';
+
+export type { GunzipMode } from './gunzip';
+export { GzipError, MaybeGunzip, hasNativeGunzip } from './gunzip';
+
+export type { Clock, DutyCycle, ThrottleOptions, ThrottleStats } from './throttle';
+export { BUSY_MAX_MS, BUSY_POLL_MS, LOW_TIER_DUTY, REAL_CLOCK, Throttle, YIELD_EVERY_MS } from './throttle';
+
+export type { CatalogView, Candidate, FavouriteReport } from './favourites';
+export { FavouriteMatcher, MISSING_KEEP_MS, reconcileFavourites } from './favourites';
+
+export type { IngestErrorCode, IngestJob, IngestOptions, IngestProgress, IngestResult, IngestSource, IngestSwap } from './ingest';
+export { INGEST_VERSION, IngestError, WRITE_BATCH, runIngest } from './ingest';
+
+export type { IngestEvents, IngestRunRequest, IngestServiceOptions } from './ingest-service';
+export { IngestService } from './ingest-service';
+
+export type { DataClient, IngestClient, IngestHandlers, QueryHandlers } from './client';
+export { createDataClient, createIngestClient } from './client';

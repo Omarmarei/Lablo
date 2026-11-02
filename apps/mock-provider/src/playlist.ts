@@ -1,7 +1,9 @@
 // `get.php`: the Xtream M3U export. `type=m3u_plus` carries tvg-* attributes, group-title and
 // catch-up attributes; `type=m3u` is the bare form. Each channel advertises catch-up in the mode
-// set in the catalog, so one playlist covers every M3U catch-up flavour.
+// set in the catalog, so one playlist covers every M3U catch-up flavour. It answers conditional
+// GETs (`ETag` / `If-None-Match` → 304), like a static playlist host.
 
+import { createHash } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Account, LiveChannel } from './config';
 import type { MockState } from './state';
@@ -83,6 +85,21 @@ export function buildPlaylist(state: MockState, request: FastifyRequest, account
   return `${lines.join('\n')}\n`;
 }
 
+/** A strong ETag for a body: the same bytes always give the same tag. */
+export function etagOf(body: string): string {
+  return `"${createHash('sha1').update(body).digest('base64url')}"`;
+}
+
+/** Does an `If-None-Match` header match `etag` (weak comparison, lists and `*`)? */
+export function etagMatches(header: string | string[] | undefined, etag: string): boolean {
+  if (header === undefined) return false;
+  const strip = (t: string): string => t.trim().replace(/^W\//, '');
+  return [header]
+    .flat()
+    .flatMap((h) => h.split(','))
+    .some((t) => t.trim() === '*' || strip(t) === strip(etag));
+}
+
 export function registerPlaylist(app: FastifyInstance, state: MockState): void {
   app.get('/get.php', async (request, reply) => {
     const account = authorizeText(state, request, reply);
@@ -91,9 +108,14 @@ export function registerPlaylist(app: FastifyInstance, state: MockState): void {
     const type = p['type'] ?? 'm3u_plus';
     if (type !== 'm3u_plus' && type !== 'm3u') return reply.code(400).type('text/plain; charset=utf-8').send(`Unsupported type ${type}`);
     const output: LiveOutput = p['output'] === 'm3u8' || p['output'] === 'hls' ? 'm3u8' : 'ts';
+    const body = buildPlaylist(state, request, account, type === 'm3u_plus', output);
+    // Conditional GET, as static playlist hosts do: the ETag changes whenever the catalog does.
+    const etag = etagOf(body);
+    if (etagMatches(request.headers['if-none-match'], etag)) return reply.code(304).header('etag', etag).send();
     return reply
       .type('audio/x-mpegurl; charset=utf-8')
+      .header('etag', etag)
       .header('content-disposition', `attachment; filename="tv_channels_${type}.m3u"`)
-      .send(buildPlaylist(state, request, account, type === 'm3u_plus', output));
+      .send(body);
   });
 }

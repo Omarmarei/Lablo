@@ -17,6 +17,13 @@ How `pnpm build:tv`, `pnpm dev` and `pnpm device` work, and the manual Tizen ste
 `tools/build/build-tv.ts`, per platform (ADR-003):
 
 1. **Bundle** `apps/tv/src/main.tsx` with Rollup into one classic-script IIFE. Babel `preset-env` targets `chrome 53` with core-js 3 `useBuiltIns: 'usage'`; TypeScript and Preact JSX go through Babel too. `__PLATFORM__` becomes `"tizen"` or `"webos"`, so the other adapters are tree-shaken out.
+   - **Polyfills left out** (step 8, `tools/build/src/bundle.ts`):
+     - Babel's usage detection can't see types, so any `.map(` used to pull in the ES2025 iterator helpers, any `new Set` the ES2025 Set methods and any `Uint8Array` the ES2026 base64 methods. That was about 30 KB in every bundle.
+     - `UNUSED_POLYFILLS` excludes those, plus the ES2022–ES2026 typed-array, ArrayBuffer, error-cause, JSON-source and `Symbol.prototype.description` polyfills.
+     - It is safe because every package and `apps/tv` compile against `lib: ES2017`, so TypeScript rejects any call to those APIs. `bundle.test.ts` pins that.
+     - To use one of them later, move its entry out of the list and raise that package's `lib`.
+   - **Dependencies without polyfills:** fflate's ES build is plain ES5, and its unused worker helper calls `URL.createObjectURL`, which alone pulled in core-js's 25 KB URL polyfill. Files under `node_modules/fflate` therefore get their syntax transpiled (and gated) but no polyfill imports (`POLYFILL_FREE_DEPENDENCIES`).
+   - **Effect:** the query worker went from 100.5 to 75.8 KB, the main bundle from about 124 to 113.6 KB, and the ingest worker is 128.8 KB.
 2. **Workers.** `import X from './x.worker?worker'` (the same syntax Vite uses in dev) builds the worker as its own Chromium 53 IIFE, gates it, and inlines it as a string started from a Blob URL. No separate worker files ship.
 3. **Syntax gate.** acorn parses every worker and the main bundle at `ecmaVersion: 2016` as a script. Anything newer (async functions, object rest/spread, regex lookbehind or named groups, `?.`, `??`, ES modules) fails the build with the line, column and an excerpt. Babel transpiles most modern syntax; the gate catches what it cannot (e.g. a regex lookbehind) and anything from an untranspiled file. The inline boot-error script in `index.html` is gated too.
 4. **Budgets.** Minified bytes as shipped: main ≤ 500 KB (including inlined workers), each worker ≤ 150 KB. Over budget fails the build before anything is packaged.

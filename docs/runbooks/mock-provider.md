@@ -49,7 +49,7 @@ Dates are relative to "today" (UTC midnight), so `exp_date` stays fixed all day.
 | Endpoint | Notes |
 |---|---|
 | `GET/POST /player_api.php?username=&password=[&action=]` | No action: `user_info` + `server_info`. Actions: `get_live_categories`, `get_live_streams`, `get_vod_categories`, `get_vod_streams`, `get_vod_info&vod_id=`, `get_series_categories`, `get_series`, `get_series_info&series_id=`, `get_short_epg&stream_id=&limit=` (title and description base64), `get_simple_data_table&stream_id=` (with `now_playing`, `has_archive`). `category_id` filters the lists. Unknown actions and ids return `[]`. POST takes a form body. |
-| `GET /get.php?username=&password=&type=m3u_plus\|m3u&output=ts\|m3u8` | Live channels, then movies, then episodes. `m3u_plus` has `tvg-id`, `tvg-name`, `tvg-logo`, `group-title`, `radio="true"` and catch-up attributes (below). |
+| `GET /get.php?username=&password=&type=m3u_plus\|m3u&output=ts\|m3u8` | Live channels, then movies, then episodes. `m3u_plus` has `tvg-id`, `tvg-name`, `tvg-logo`, `group-title`, `radio="true"` and catch-up attributes (below). It answers conditional GETs like a static playlist host: a strong `ETag` (a hash of the body, so it follows the catalog and the Host header), and `If-None-Match` with that tag gets an empty 304. |
 | `GET /xmltv.php?username=&password=` | XMLTV for every channel with an EPG id. Each channel's programmes cover its archive days (at least 1) behind now and `epg_future_days` (3) ahead. |
 | `GET /epg/guide.xml`, `/epg/guide.xml.gz` | The same guide without credentials, like a standalone EPG URL; `.gz` is a raw gzip body. |
 | `GET /live/{u}/{p}/{id}.ts\|.m3u8`, `/live/{u}/{p}/{id}`, `/{u}/{p}/{id}` | Live TS (paced, endless) or a sliding-window HLS playlist (6 × 6 s segments). |
@@ -224,6 +224,8 @@ Step 6 adds the same for the other inputs (`tools/fixtures/test/xtream-oracle.ts
 - every guide must read as one contiguous schedule per channel, from the first instant of the guide to past its end. Each channel writes its own UTC offset, so a misread offset breaks it.
 
 `xtream-xmltv-scale.media.test.ts` runs both on the 200k lists and the gzipped 300 MB guide (`pnpm test:media`); `xtream-xmltv-core.test.ts` runs them on a small catalog and guide in `pnpm test`.
+
+Step 8 adds `test/ingest-200k.media.test.ts`: the 200k playlist through the real ingest pipeline (64 KB byte chunks, hash, decode, parse, chunk, index, batched writes, swap), plain and gzipped through fflate. A refresh that breaks off halfway must keep the 200k generation searchable, and the same bytes again must come back `unchanged`. About 2.6 s each on a fast PC with fake-indexeddb (2026-11-02), against the S6 target of 90 s on a 2018 TV. `test/ingest-mock.test.ts` (`pnpm test`) runs the pipeline against this mock: get.php with its ETag, the raw-gzip and reset faults, and an Xtream refresh where every id moved by 1000 while the favourites follow.
 
 Step 7 adds `test/search-200k.media.test.ts` (root, `pnpm test:media`). The 200k playlist goes through the data layer into fake-indexeddb: the chunker, the search index and the generation commit. The query service then loads the index back and must answer each typical query in ≤ 200 ms. Every result is checked against the parsed names, with the total count of every query exact. `packages/core/src/search.test.ts` runs the same timing on a generated 200k catalog in `pnpm test`, and checks the ranking against a naive oracle with fast-check.
 

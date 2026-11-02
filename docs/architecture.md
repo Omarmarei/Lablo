@@ -160,6 +160,22 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
      - `CatalogChunker` (data) numbers categories by first appearance. When more than 5,000 items are waiting, it flushes the largest category early as a partial chunk.
 9. **Swap.** One transaction sets `sources_meta.gen = new`. The query worker reloads its index and the old generation is deleted in the background. If the app crashes mid-ingest, the old generation is still intact.
 10. **Favourites survive refreshes** because they reference ContentKeys. If a key disappears, it is kept as "unavailable" for 30 days and re-matched by normalized name, which covers providers renumbering their streams.
+    - **Built in step 8** (`packages/data/src`: `bytes`, `gunzip`, `throttle`, `favourites`, `ingest`, `ingest-service`, `ingest.worker`):
+      - **One refresh** is `runIngest(job)`: prune the source's leftovers, fetch, hash, gunzip, decode, parse, chunk, index, write, swap, reconcile favourites, delete the previous generation. Only one refresh per source may run at a time; a second one supersedes the first (`IngestError('superseded')`).
+      - **Fetch** goes through an injected `ByteTransport`; the worker uses `fetchTransport` (`response.body.getReader()`, `reader.cancel()`). M3U sends the stored `ETag`/`Last-Modified` back, and a 304 ends the refresh before anything is written. Xtream panels don't send validators, so only the hash applies there; the login answer is left out of the hash because it carries the panel clock.
+      - **Unchanged bytes:** `SourceMeta.fetch` stores the FNV-1a hash and length of the raw download plus `INGEST_VERSION`. The same bytes from the same ingest version drop the new generation and report `unchanged`. A newer app version rebuilds them, so parser fixes reach cached catalogs.
+      - **Gzip** is detected by the magic bytes, then `DecompressionStream` (Chromium 80+) or fflate's `Gunzip`. A body cut short fails the refresh with `format` or `network`; it never commits a shorter catalog. Nothing parsed at all fails with `empty` (a single HLS stream gets its own message).
+      - **Failure handling:** any failure before the swap abandons the new generation at once; a crash leaves it for the next refresh's prune. The ingest worker's `prune` handler does the same for every source at app start.
+      - **Throttle:** `setBusy(true)` pauses at the next checkpoint, between network chunks and between write batches. A busy flag expires after 15 s. Low-tier TVs run 50 ms of work and 50 ms of sleep (`lowTier` on `run`). Otherwise a task is yielded every 50 ms.
+      - **Favourites** (`reconcileFavourites`, run in the same refresh right after the swap through `updateProfile`, a read-modify-write in one transaction):
+        - A missing key is re-matched only to an unambiguous successor: the same kind and normalized name, narrowed by the tvg-id and then by the group the favourite was in. If no item has that name, the same tvg-id is tried (an M3U rename, ADR-009).
+        - Keys already used by another favourite never count. Unmatched favourites get `missingSince` and are dropped after 30 days.
+        - `FavouriteRef` gained the optional `group` and `epgId` for this. That is not a profile migration: v1 hasn't shipped, and the fields are optional.
+      - **Tests:**
+        - `ingest.test.ts`: a crash mid-ingest (the database closes under the refresh) keeps the old generation serving exactly as before, and the next refresh cleans up;
+        - `test/ingest-mock.test.ts`: favourites survive a mock refresh where every Xtream id moved by 1000, including a same-name, same-tvg-id twin in another group;
+        - `test/ingest-worker-bundle.test.ts`: the bundled worker (128.8 KB) ingests from the mock with the ES2017 APIs and DecompressionStream removed;
+        - `test/ingest-200k.media.test.ts`: the 200k playlist.
 11. **Search.** `indexOf` over the search string, then a binary search over offsets to find the item.
     - **Ranking:** word-prefix matches first, then substring matches; live before VOD before series; favourites boosted.
     - **Results** are capped at 200.
@@ -167,7 +183,7 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
     - **Built in step 7:**
       - Query words are ANDed in any order.
       - The ranking is: word-prefix before substring, then favourites, then live, VOD, series, then exact, name-start, word, then source order and catalog order.
-      - The query worker (`packages/data/src/query.worker.ts`, 100.5 KB of the 150 KB worker budget) loads the active generations' segments, and resolves hits to items through a 16-chunk cache.
+      - The query worker (`packages/data/src/query.worker.ts`, 75.8 KB of the 150 KB worker budget since step 8 trimmed the polyfills) loads the active generations' segments, and resolves hits to items through a 16-chunk cache.
       - In Node, 13 typical queries over the 200k fixture take 0.3–11 ms each (`test/search-200k.media.test.ts`, `pnpm bench search-200k`).
 12. **Fallback if spike S1 or S6 fails** on webOS 4: VOD and series are fetched per category on demand (`&category_id=`), and search covers only loaded categories plus all live channels.
 
