@@ -1,7 +1,8 @@
 # Runtime for the old-engine harness (RELAY step 2b, tools/engines).
 # One container runs one Chromium snapshot (mounted at /engine.zip) under Xvfb and exposes
 # its DevTools port on 9223. The built TV apps are mounted read-only at /app and loaded from
-# file://, the way a packaged TV app loads.
+# file://, the way a packaged TV app loads. The catalog fixtures in /app/fixtures are served
+# over HTTP on 127.0.0.1:8090 (socat + serve-fixture.sh) for the data workers to ingest.
 #
 # Debian 9 "stretch" (2017) on purpose: it is the system these 2016–2018 builds were made for.
 # Chromium 53/56 export their bundled HarfBuzz symbols, and a modern system Pango (Debian 12)
@@ -40,7 +41,7 @@ RUN echo 'deb http://archive.debian.org/debian stretch main' > /etc/apt/sources.
       xvfb \
  && rm -rf /var/lib/apt/lists/*
 
-COPY run-chrome.sh /usr/local/bin/run-chrome.sh
+COPY run-chrome.sh serve-fixture.sh /usr/local/bin/
 
 EXPOSE 9223
 ENTRYPOINT ["/bin/sh", "/usr/local/bin/run-chrome.sh"]

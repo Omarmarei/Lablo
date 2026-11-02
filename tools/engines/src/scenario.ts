@@ -4,7 +4,11 @@
  *    no Runtime.exceptionThrown) and the hello screen reports `data-ready=true`.
  * 2. Web Worker and IndexedDB sanity: the inlined Blob worker answers (`worker-status` "ok in …")
  *    and completes an IndexedDB write/read inside the worker (`idb-status` "ok").
- * 3. Remote-key navigation: ArrowUp and Enter (the TV remote key codes 38 and 13) reach the app
+ * 3. The data workers (step 8b): the query worker and a start-up prune, then a refresh of the
+ *    staged fixture playlist in an ingest worker, and a search through the query worker. The
+ *    refresh must commit every item (gunzipping the .gz one), and the search must count exactly
+ *    the expected hits (`fixture.ts`).
+ * 4. Remote-key navigation: ArrowUp and Enter (the TV remote key codes 38 and 13) reach the app
  *    as the UP and OK intents.
  *
  * The pure parts (settling, exception formatting, evaluation) are unit-tested; `runPlatform`
@@ -13,6 +17,7 @@
 import type { CdpClient } from './cdp';
 import type { Engine } from './engines';
 import { chromeMajor } from './engines';
+import type { DataCheck } from './fixture';
 
 export type TvPlatform = 'tizen' | 'webos';
 export const TV_PLATFORMS: readonly TvPlatform[] = ['tizen', 'webos'];
@@ -28,6 +33,13 @@ export interface PageState {
   readonly idb: string | null;
   readonly lastIntent: string | null;
   readonly keyCount: string | null;
+  /** The catalog panel: data workers, refresh and search (null when the app has none). */
+  readonly data: string | null;
+  readonly ingest: string | null;
+  readonly ingestItems: string | null;
+  readonly gzip: string | null;
+  readonly search: string | null;
+  readonly searchTotal: string | null;
 }
 
 /**
@@ -38,6 +50,10 @@ export const STATE_EXPRESSION = `(function () {
   function text(id) {
     var el = document.querySelector('[data-testid="' + id + '"]');
     return el ? el.textContent : null;
+  }
+  function attr(id, name) {
+    var el = document.querySelector('[data-testid="' + id + '"]');
+    return el ? el.getAttribute(name) : null;
   }
   var hello = document.querySelector('[data-testid="hello"]');
   var boot = document.getElementById('boot-error');
@@ -50,7 +66,13 @@ export const STATE_EXPRESSION = `(function () {
     worker: text('worker-status'),
     idb: text('idb-status'),
     lastIntent: text('last-intent'),
-    keyCount: text('key-count')
+    keyCount: text('key-count'),
+    data: text('data-status'),
+    ingest: text('ingest-status'),
+    ingestItems: attr('ingest-status', 'data-items'),
+    gzip: attr('ingest-status', 'data-gzip'),
+    search: text('search-status'),
+    searchTotal: attr('search-status', 'data-total')
   });
 })()`;
 
@@ -75,6 +97,8 @@ export interface KeyResult {
 export interface PlatformRun {
   readonly platform: TvPlatform;
   readonly url: string;
+  /** What the catalog panel must show (null: the data workers are not checked). */
+  readonly data: DataCheck | null;
   /** The last state read while booting (null if the page could never be read). */
   readonly boot: PageState | null;
   /** False when boot neither finished nor failed before the timeout. */
@@ -88,11 +112,30 @@ export interface PlatformRun {
 const isFinal = (status: string | null): boolean =>
   status !== null && (status.startsWith('ok') || status.startsWith('failed'));
 
-/** Boot is over when it failed visibly, or when the worker and IndexedDB checks have answered. */
-export function isSettled(state: PageState, url: string): boolean {
+/**
+ * Boot is over when it failed visibly, or when the worker and IndexedDB checks have answered,
+ * and (with a data check) the refresh and the search have too.
+ */
+export function isSettled(state: PageState, url: string, data: DataCheck | null = null): boolean {
   if (state.href !== url) return false;
   if (state.bootError.trim() !== '') return true;
-  return state.ready && isFinal(state.worker) && isFinal(state.idb);
+  const booted = state.ready && isFinal(state.worker) && isFinal(state.idb);
+  if (!booted || data === null) return booted;
+  return isFinal(state.data) && isFinal(state.ingest) && isFinal(state.search);
+}
+
+/** What went wrong in the catalog panel; empty when it shows exactly what `check` expects. */
+function evaluateData(state: PageState, check: DataCheck): string[] {
+  if (state.data?.startsWith('ok: ') !== true) return [`data workers: ${state.data ?? 'missing'}`];
+  const failures: string[] = [];
+  if (state.ingest?.startsWith('ok: committed') !== true) failures.push(`refresh of ${check.file}: ${state.ingest ?? 'missing'}`);
+  else {
+    if (state.ingestItems !== String(check.items)) failures.push(`refresh of ${check.file} committed ${state.ingestItems ?? '?'} items, expected ${check.items}`);
+    if (state.gzip !== String(check.gzip)) failures.push(`refresh of ${check.file}: gzip ${state.gzip ?? '?'}, expected ${String(check.gzip)}`);
+  }
+  if (state.search?.startsWith('ok: ') !== true) failures.push(`search "${check.query}": ${state.search ?? 'missing'}`);
+  else if (state.searchTotal !== String(check.total)) failures.push(`search "${check.query}" found ${state.searchTotal ?? '?'}, expected ${check.total}`);
+  return failures;
 }
 
 interface ExceptionDetails {
@@ -143,8 +186,9 @@ export function evaluateRun(run: PlatformRun, engine: Pick<Engine, 'major'>, boo
   if (major !== engine.major) failures.push(`the engine reports Chrome ${major ?? '?'} ("${boot.userAgent}"), expected ${engine.major}`);
   if (boot.bootError.trim() !== '') failures.push(boot.bootError.trim().split('\n').join(' | '));
   else if (!run.settled) {
+    const data = run.data === null ? '' : `, data=${boot.data ?? '-'}, refresh=${boot.ingest ?? '-'}, search=${boot.search ?? '-'}`;
     failures.push(
-      `did not finish booting within ${bootTimeoutMs / 1000} s (ready=${boot.ready}, worker=${boot.worker ?? '-'}, idb=${boot.idb ?? '-'})`,
+      `did not finish booting within ${bootTimeoutMs / 1000} s (ready=${boot.ready}, worker=${boot.worker ?? '-'}, idb=${boot.idb ?? '-'}${data})`,
     );
   }
 
@@ -152,6 +196,7 @@ export function evaluateRun(run: PlatformRun, engine: Pick<Engine, 'major'>, boo
     if (boot.platformId !== run.platform) failures.push(`platform-id is "${boot.platformId ?? ''}", expected "${run.platform}"`);
     if (boot.worker?.startsWith('ok in ') !== true) failures.push(`worker: ${boot.worker ?? 'missing'}`);
     if (boot.idb !== 'ok') failures.push(`IndexedDB in the worker: ${boot.idb ?? 'missing'}`);
+    if (run.data !== null) failures.push(...evaluateData(boot, run.data));
     for (const key of run.keys) {
       if (key.observed !== key.expected) failures.push(`key ${key.key}: expected intent ${key.expected}, saw ${key.observed ?? 'nothing'}`);
     }
@@ -214,10 +259,17 @@ export interface RunOptions {
 }
 
 /**
- * Loads `url` in the connected page and runs the boot, worker/IndexedDB and key checks.
- * The caller enables the Page and Runtime domains once per connection.
+ * Loads `url` in the connected page and runs the boot, worker/IndexedDB, data-worker (when
+ * `data` is given) and key checks. The caller enables the Page and Runtime domains once per
+ * connection.
  */
-export async function runPlatform(client: CdpClient, platform: TvPlatform, url: string, options: RunOptions): Promise<PlatformRun> {
+export async function runPlatform(
+  client: CdpClient,
+  platform: TvPlatform,
+  url: string,
+  data: DataCheck | null,
+  options: RunOptions,
+): Promise<PlatformRun> {
   const started = Date.now();
   const exceptions: string[] = [];
   const consoleErrors: string[] = [];
@@ -245,7 +297,7 @@ export async function runPlatform(client: CdpClient, platform: TvPlatform, url: 
       firstErrorAt ??= Date.now();
       return Date.now() - firstErrorAt > ERROR_GRACE_MS;
     };
-    const booted = await waitFor(client, (state) => isSettled(state, url) || erroredOut(), options.bootTimeoutMs);
+    const booted = await waitFor(client, (state) => isSettled(state, url, data) || erroredOut(), options.bootTimeoutMs);
 
     const keys: KeyResult[] = [];
     let keyCount: string | null = null;
@@ -264,6 +316,7 @@ export async function runPlatform(client: CdpClient, platform: TvPlatform, url: 
     return {
       platform,
       url,
+      data,
       boot: booted.state,
       settled: booted.met,
       keys,

@@ -34,10 +34,13 @@ export function assertDockerRunning(): void {
   }
 }
 
+/** Everything the image is built from: editing any of them gives a new tag, so a rebuild. */
+export const IMAGE_FILES = ['Dockerfile', 'run-chrome.sh', 'serve-fixture.sh'] as const;
+
 /** The image tag is a hash of the build context, so editing the Dockerfile rebuilds it. */
 export function imageTag(dockerDir: string): string {
   const hash = createHash('sha256');
-  for (const name of ['Dockerfile', 'run-chrome.sh']) {
+  for (const name of IMAGE_FILES) {
     hash.update(name);
     // Line endings are normalised so a CRLF checkout produces the same tag as CI.
     hash.update(readFileSync(path.join(dockerDir, name), 'utf8').replace(/\r\n/g, '\n'));

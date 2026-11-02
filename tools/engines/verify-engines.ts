@@ -5,7 +5,8 @@
  *
  * Per engine: the pinned snapshot is downloaded once into .cache/engines (SHA-256 checked),
  * started headed under Xvfb in Docker, and driven over raw CDP. Per app: boot with no syntax or
- * runtime error, the Blob worker and an IndexedDB write/read in it, and remote keys → intents.
+ * runtime error, the Blob worker and an IndexedDB write/read in it, the data workers (refresh a
+ * fixture playlist served in the container, then search it), and remote keys → intents.
  *
  * Options:
  *   --engine chrome53|chrome56|chrome68   repeatable; default all
@@ -22,7 +23,9 @@ import { assertDockerRunning, engineLogs, ensureImage, startEngine, stopEngine }
 import type { Engine } from './src/engines';
 import { TV_RUNTIME_FLAGS, selectEngines } from './src/engines';
 import { ensureEngineZip } from './src/fetch';
-import type { PlatformRun } from './src/scenario';
+import type { DataCheck } from './src/fixture';
+import { appUrl, stageFixtures } from './src/fixture';
+import type { PlatformRun, TvPlatform } from './src/scenario';
 import { TV_PLATFORMS, evaluateRun, runPlatform } from './src/scenario';
 import type { Variant } from './src/variants';
 import { SEEDS, mustPass, stageApp, stageNoPolyfills, stageSeed } from './src/variants';
@@ -40,12 +43,31 @@ interface RunReport {
   readonly variant: string;
   readonly platform: string;
   readonly userAgent: string | null;
+  /** What the catalog panel showed: the refresh and the search. */
+  readonly refresh: string | null;
+  readonly search: string | null;
   readonly failures: readonly string[];
   readonly mustPass: boolean;
   readonly durationMs: number;
 }
 
-async function runEngine(engine: Engine, zip: string, image: string, variants: readonly Variant[], keep: boolean): Promise<RunReport[]> {
+/** `3000 items, gzip; "news" 308 hits` for the log, from what the page showed. */
+function dataSummary(run: PlatformRun): string {
+  const boot = run.boot;
+  if (run.data === null || boot?.ingest?.startsWith('ok: ') !== true) return '';
+  const gzip = boot.gzip === 'true' ? ', gzip' : '';
+  const hits = boot.search?.startsWith('ok: ') === true ? `; "${run.data.query}" ${boot.searchTotal ?? '?'} hits` : '';
+  return `  data: ${boot.ingestItems ?? '?'} items${gzip}${hits}`;
+}
+
+async function runEngine(
+  engine: Engine,
+  zip: string,
+  image: string,
+  variants: readonly Variant[],
+  checks: Record<TvPlatform, DataCheck>,
+  keep: boolean,
+): Promise<RunReport[]> {
   const running = startEngine({
     image,
     zip,
@@ -65,14 +87,20 @@ async function runEngine(engine: Engine, zip: string, image: string, variants: r
       await client.send('Console.enable').catch(() => undefined);
       for (const variant of variants) {
         for (const platform of TV_PLATFORMS) {
-          const url = `file:///app/${variant.id}/${platform}/index.html`;
-          const run: PlatformRun = await runPlatform(client, platform, url, { bootTimeoutMs: BOOT_TIMEOUT_MS, keyTimeoutMs: KEY_TIMEOUT_MS });
+          const check = checks[platform];
+          const url = appUrl(variant.id, platform, check);
+          const run: PlatformRun = await runPlatform(client, platform, url, check, {
+            bootTimeoutMs: BOOT_TIMEOUT_MS,
+            keyTimeoutMs: KEY_TIMEOUT_MS,
+          });
           const failures = evaluateRun(run, engine, BOOT_TIMEOUT_MS);
           const report: RunReport = {
             engine: engine.id,
             variant: variant.id,
             platform,
             userAgent: run.boot?.userAgent ?? null,
+            refresh: run.boot?.ingest ?? null,
+            search: run.boot?.search ?? null,
             failures,
             mustPass: mustPass(variant, engine.major),
             durationMs: run.durationMs,
@@ -80,7 +108,7 @@ async function runEngine(engine: Engine, zip: string, image: string, variants: r
           reports.push(report);
           const verdict = failures.length === 0 ? 'PASS' : 'FAIL';
           const expected = report.mustPass === (failures.length === 0) ? '' : '  <-- UNEXPECTED';
-          log(`  ${variant.id.padEnd(30)} ${platform.padEnd(6)} ${verdict} ${(run.durationMs / 1000).toFixed(1)} s${expected}`);
+          log(`  ${variant.id.padEnd(30)} ${platform.padEnd(6)} ${verdict} ${(run.durationMs / 1000).toFixed(1)} s${expected}${dataSummary(run)}`);
           for (const failure of failures) log(`      ${failure}`);
         }
       }
@@ -117,6 +145,8 @@ async function main(): Promise<void> {
   rmSync(VARIANTS_DIR, { recursive: true, force: true });
   mkdirSync(VARIANTS_DIR, { recursive: true });
   const variants: Variant[] = [stageApp(distTv, VARIANTS_DIR)];
+  // Served in each container at FIXTURE_ORIGIN; every variant's runs ingest them.
+  const checks = stageFixtures(VARIANTS_DIR);
   if (selfTest) {
     variants.push(...SEEDS.map((seed) => stageSeed(distTv, VARIANTS_DIR, seed)));
     log('\nbuilding the no-polyfills variant (test only)');
@@ -126,7 +156,7 @@ async function main(): Promise<void> {
   const reports: RunReport[] = [];
   for (const engine of engines) {
     const zip = await ensureEngineZip(engine, cacheDir, log);
-    reports.push(...(await runEngine(engine, zip, image, variants, values.keep)));
+    reports.push(...(await runEngine(engine, zip, image, variants, checks, values.keep)));
   }
 
   writeFileSync(path.join(OUT, 'report.json'), `${JSON.stringify(reports, null, 2)}\n`);

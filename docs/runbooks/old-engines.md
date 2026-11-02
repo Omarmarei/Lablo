@@ -36,14 +36,32 @@ Needs **Docker**. On Windows, start Docker Desktop first. The first run download
    - The snapshot zip and the staged apps are mounted read-only.
    - `run-chrome.sh` starts Xvfb (1920x1080) and the browser *headed*: 53/56 have no usable headless mode.
    - `socat` forwards DevTools to a random loopback port on the host.
+   - A second `socat` serves the catalog fixtures (`/app/fixtures`) on `127.0.0.1:8090` inside the container, one `serve-fixture.sh` per request: plain files, CORS headers (the page is `file://`, so the Blob worker's origin is `null`), no validators and no `Content-Encoding`. It needs no extra package, so the image's cached apt layer stays valid. The image tag hashes every file in `IMAGE_FILES` (`src/docker.ts`).
 3. The host drives each app over raw CDP (`tools/engines/src/cdp.ts`, Node's built-in WebSocket). Puppeteer 1.x starts at Chromium 66 and Playwright needs a modern protocol, so neither works here.
-4. Per app (`file:///app/<variant>/<platform>/index.html`), `src/scenario.ts` checks:
+4. Per app (`file:///app/<variant>/<platform>/index.html?force=1&q=<query>&source=<fixture URL>`), `src/scenario.ts` checks:
    - **Boot:** `#boot-error` stays empty, there is no uncaught exception (`Runtime.exceptionThrown`, or `Console.messageAdded` on Chromium 53, which reports errors only that way), and `[data-testid=hello][data-ready=true]` appears.
    - **Engine:** the user agent reports the expected major version.
    - **Worker:** `worker-status` starts with `ok in`. The Blob worker answered, so core-js reached it too.
    - **IndexedDB:** `idb-status` is `ok`. The worker opened a database, wrote a record and read it back.
+   - **Data workers** (step 8b; the hello screen's catalog panel, `apps/tv/src/DataPanel.tsx`):
+     - `data-status` is `ok`: the query worker answered and a short-lived ingest worker ran the start-up `prune`.
+     - `ingest-status` is `ok: committed`: a fresh ingest worker fetched the fixture over HTTP (streamed `response.body`), parsed it, wrote 500-item chunks to IndexedDB and swapped the generation in. `data-items` must be the fixture's 3,000 items, and `data-gzip` must be `true` for the `.gz` playlist, which only fflate can unpack before Chromium 80.
+     - `search-status` is `ok` with `data-total` exactly the expected hits: the query worker reloaded on `swapped` (it had loaded the old catalog at start) and searched it.
+     - `force=1` makes every run commit a new generation, although all runs in one engine share the `file://` IndexedDB.
    - **Remote keys:** CDP `Input.dispatchKeyEvent` ArrowUp (38) and Enter (13) show `UP` and `OK`, and `key-count` is 2.
-5. Results print as a table and go to `artifacts/engines/report.json`. CI uploads it as `old-engines-report`.
+5. Results print as a table (with each run's items and hits) and go to `artifacts/engines/report.json`. CI uploads it as `old-engines-report`.
+
+## The catalog fixture (`src/fixture.ts`)
+
+The harness writes it to `artifacts/engines/variants/fixtures/` on every run. It never ships, and it points at no real provider.
+
+| | tizen runs | webos runs |
+|---|---|---|
+| Playlist | `playlist.m3u` (plain) | `playlist.m3u.gz` (same bytes, gzipped) |
+| Items | 3,000: 2,400 live, then 600 movies (`/movie/` URLs) | the same |
+| Search | `news`: 308 hits (`Zoma News n`) | `اخبار`: 240 hits. The names say `أخبار`, so the bare-alef query only matches through normalization |
+
+Each engine runs both apps, so each engine ingests both files and runs both searches. `test/engines-fixture.test.ts` checks the expected numbers against core's real M3U parser and `normalizeName`.
 
 ## The self-test (proof that the harness catches problems)
 
@@ -70,9 +88,12 @@ Probe of 2026-11-02, IndexedDB on a `file://` page:
 
 The data engine keeps the catalog in IndexedDB inside workers, so **spike S1 must confirm IndexedDB in a Blob worker on the real TVs** (architecture.md §5). The fallbacks are a main-thread IndexedDB proxy, or a packaged worker file instead of a Blob.
 
+**The data workers with the switch (step 8b, 2026-11-02):** in Chromium 53, 56 and 68, the query worker and the ingest worker both run as Blob workers from `file://`. They stream a playlist over HTTP, gunzip it with fflate, write it to IndexedDB in 500-item chunks, swap generations, reload and search. That is S1's data path as far as an emulator can take it. Only a real webOS 4 and Tizen 4 set can confirm the switch's assumption.
+
 ## Troubleshooting
 
 - **`the Docker daemon is not reachable`:** start Docker Desktop.
 - **`DevTools … did not answer`:** the engine crashed at startup, and the harness prints the container log. Check the image (libraries) first. `docker run --rm --entrypoint /bin/sh <image> -c "unzip -q /engine.zip -d /opt/e && ldd /opt/e/chrome-linux/chrome | grep 'not found'"` with the zip mounted at `/engine.zip`.
+- **A data check fails:** `refresh of playlist.m3u.gz: failed: …` quotes the app's own error (`IngestError` codes such as `network`, `http`, `format`). The container log lists every fixture request (`fixtures: GET /playlist.m3u.gz`); no request at all means the worker never fetched. `search … found 0` with a committed refresh means the query worker did not reload after the swap.
 - **A real app run fails:** read the failure lines. `Boot error: …` is what the TV would show on screen. Reproduce with `--engine <id> --keep`, then attach Chrome DevTools from a current Chrome at `http://127.0.0.1:<port>` (old frontends may not match; the `/json` list still works).
 - **Download mismatch:** the pinned SHA-256 no longer matches. The harness deletes the file and stops; it never runs an unverified engine.

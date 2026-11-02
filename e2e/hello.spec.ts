@@ -1,5 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
+import type { MockServer } from '../apps/mock-provider/src/server';
+import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 
 /** Fails the test on any uncaught page error or console error. */
 function trackErrors(page: Page): string[] {
@@ -24,6 +26,10 @@ test.describe('hello app in the desktop browser (pnpm dev)', () => {
     await expect(page.getByTestId('info-chromiumVersion')).toHaveText(/^\d+$/);
     await expect(page.getByTestId('worker-status')).toHaveText(/^ok in \d+ ms \(.*TextDecoder.*indexedDB.*\)$/);
     await expect(page.getByTestId('idb-status')).toHaveText('ok');
+    // The data workers started: the query worker answers, and the start-up prune ran.
+    await expect(page.getByTestId('data-status')).toHaveText('ok: 0 sources, 0 items');
+    await expect(page.getByTestId('ingest-status')).toHaveText(/^none: /);
+    await expect(page.getByTestId('search-status')).toHaveText(/^none: /);
     expect(errors).toEqual([]);
   });
 
@@ -69,5 +75,49 @@ test.describe('hello app in the desktop browser (pnpm dev)', () => {
     await expect(page.getByTestId('info-tier')).toHaveText('low');
     await expect(page.getByTestId('info-locale')).toHaveText('ar-SA');
     await expect(page.getByTestId('info-country')).toHaveText('SA');
+  });
+});
+
+test.describe('catalog panel in the desktop browser (pnpm dev)', () => {
+  let app: MockServer;
+  let base: string;
+
+  test.beforeAll(async () => {
+    app = await mock();
+    base = await listen(app);
+  });
+  test.afterAll(async () => {
+    await app.close();
+  });
+
+  test('refreshes the playlist given with ?source= in the data workers and searches it', async ({ page }) => {
+    const errors = trackErrors(page);
+    const playlist = `${base}/get.php?username=${U}&password=${P}&type=m3u_plus`;
+    const body = await (await fetch(playlist)).text();
+    const entries = body.split(/\r?\n/).filter((line) => line.startsWith('#EXTINF')).length;
+    expect(entries).toBeGreaterThan(10);
+
+    // The playlist URL is pasted as it is: `source` is the last parameter.
+    await page.goto(`/?q=sports&source=${playlist}`);
+    const ingest = page.getByTestId('ingest-status');
+    await expect(ingest).toHaveText(new RegExp(`^ok: committed gen 1, ${entries} items [(]live [0-9]+`), { timeout: 20_000 });
+    await expect(ingest).toHaveAttribute('data-items', String(entries));
+    await expect(page.getByTestId('data-status')).toHaveText(`ok: 1 source, ${entries} items`);
+    const search = page.getByTestId('search-status');
+    await expect(search).toHaveText(/^ok: 2 for "sports": Zoma Sports Test F?HD, Zoma Sports Test F?HD$/);
+    await expect(search).toHaveAttribute('data-total', '2');
+
+    // A remote key marks the UI busy (a running refresh would pause), then idle again.
+    await page.keyboard.press('ArrowDown');
+    await expect(page.getByTestId('busy-status')).toHaveText('busy (refresh paused)');
+    await expect(page.getByTestId('busy-status')).toHaveText('idle');
+
+    // Without a source, the stored catalog is searched; the same playlist again is a 304.
+    await page.goto('/?q=sports');
+    await expect(page.getByTestId('data-status')).toHaveText(`ok: 1 source, ${entries} items`);
+    await expect(search).toHaveAttribute('data-total', '2');
+    await page.goto(`/?source=${encodeURIComponent(playlist)}`);
+    await expect(ingest).toHaveText(new RegExp(`^ok: unchanged gen 1, ${entries} items`), { timeout: 20_000 });
+    expect(errors).toEqual([]);
   });
 });

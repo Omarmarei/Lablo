@@ -19,6 +19,12 @@ done
 # Old Chromium binds DevTools to 127.0.0.1 only; forward it so the published port reaches it.
 socat TCP-LISTEN:9223,fork,reuseaddr TCP:127.0.0.1:9222 &
 
+# The catalog fixtures (RELAY step 8b): the data workers ingest them over HTTP, as from a
+# provider. Port 8090 is FIXTURE_ORIGIN in tools/engines/src/fixture.ts.
+if [ -d /app/fixtures ]; then
+  socat TCP-LISTEN:8090,bind=127.0.0.1,fork,reuseaddr EXEC:'/bin/sh /usr/local/bin/serve-fixture.sh /app/fixtures' &
+fi
+
 exec "$CHROME" \
   --no-sandbox \
   --user-data-dir=/tmp/profile \

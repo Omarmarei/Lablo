@@ -2,16 +2,30 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
+import type { MockServer } from '../apps/mock-provider/src/server';
+import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 
 /**
  * Boots the built TV bundles (pnpm build:tv) from file://, the way a packaged TV app loads,
- * in desktop Chromium: classic-script IIFE, core-js polyfills, the Blob-URL worker and the
- * platform adapter's feature checks when the TV APIs are absent.
+ * in desktop Chromium: classic-script IIFE, core-js polyfills, the Blob-URL workers and the
+ * platform adapter's feature checks when the TV APIs are absent. The data workers refresh the
+ * in-process mock's playlist and search it (the old engines run the same in tools/engines).
  */
 const DIST = path.resolve(import.meta.dirname, '../dist/tv');
 
+let app: MockServer;
+let base: string;
+
+test.beforeAll(async () => {
+  app = await mock();
+  base = await listen(app);
+});
+test.afterAll(async () => {
+  await app.close();
+});
+
 for (const platform of ['tizen', 'webos'] as const) {
-  test(`the ${platform} bundle boots from file:// and answers remote keys`, async ({ page }) => {
+  test(`the ${platform} bundle boots from file://, answers remote keys and runs the data workers`, async ({ page }) => {
     const index = path.join(DIST, platform, 'index.html');
     expect(existsSync(index), `${index} is missing: run pnpm build:tv before pnpm e2e`).toBe(true);
 
@@ -24,7 +38,8 @@ for (const platform of ['tizen', 'webos'] as const) {
       }
     });
 
-    await page.goto(pathToFileURL(index).href);
+    const playlist = `${base}/get.php?username=${U}&password=${P}&type=m3u_plus`;
+    await page.goto(`${pathToFileURL(index).href}?q=sports&source=${encodeURIComponent(playlist)}`);
     await expect(page.getByTestId('hello')).toHaveAttribute('data-ready', 'true');
     await expect(page.getByTestId('platform-id')).toHaveText(platform);
     await expect(page.getByTestId('info-platform')).toHaveText(platform);
@@ -34,6 +49,10 @@ for (const platform of ['tizen', 'webos'] as const) {
     // IndexedDB inside the Blob worker, from a file:// page (the TV's origin).
     await expect(page.getByTestId('idb-status')).toHaveText('ok');
     await expect(page.locator('#boot-error')).toBeHidden();
+    // Both data workers as Blob workers from file://: refresh, swap, reload, search.
+    await expect(page.getByTestId('ingest-status')).toHaveText(/^ok: committed gen 1, \d+ items/, { timeout: 20_000 });
+    await expect(page.getByTestId('data-status')).toHaveText(/^ok: 1 source, \d+ items$/);
+    await expect(page.getByTestId('search-status')).toHaveAttribute('data-total', '2');
 
     // Arrow keys share key codes with the TV remotes (37–40), so the TV key maps apply.
     await page.keyboard.press('ArrowUp');

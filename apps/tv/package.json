@@ -11,6 +11,7 @@
   "dependencies": {
     "@preact/signals": "^2.11.4",
     "@zoma/core": "workspace:*",
+    "@zoma/data": "workspace:*",
     "@zoma/platform-api": "workspace:*",
     "@zoma/platform-browser": "workspace:*",
     "@zoma/platform-tizen": "workspace:*",

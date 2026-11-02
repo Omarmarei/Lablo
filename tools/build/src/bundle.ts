@@ -76,7 +76,9 @@ export const UNUSED_POLYFILLS: readonly RegExp[] = [
   /^es(next)?\.typed-array\.(at|find-last|find-last-index|to-reversed|to-sorted|with)$/, // ES2022-ES2023
   /^es(next)?\.array-buffer\.(detached|transfer|transfer-to-fixed-length)$/, // ES2024
   /^es\.error\.cause$/, // ES2022
-  /^es\.json\.parse$/, // source text access (ES2026); native JSON.parse is used without a reviver anyway
+  // JSON.parse source text access (ES2026): Babel injects `esnext.json.parse`, which loads
+  // `es.json.parse`. Native JSON.parse is used without a reviver anyway.
+  /^es(next)?\.json\.parse$/,
   /^es\.symbol\.description$/, // ES2019, not in lib ES2017
 ];
 const WORKER_SUFFIX = '?worker';

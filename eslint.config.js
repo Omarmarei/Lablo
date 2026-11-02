@@ -113,8 +113,20 @@ export default defineConfig(
     },
     rules: {
       'boundaries/element-types': ['error', { default: 'disallow', rules: ELEMENT_RULES }],
-      // Other packages are consumed through their entry point (src/index.ts) only.
-      'boundaries/entry-point': ['error', { default: 'disallow', rules: [{ target: ['*'], allow: 'src/index.ts' }] }],
+      // Other packages are consumed through their entry point (src/index.ts) only. data has
+      // three more (package.json `exports`): its workers, which the app starts with
+      // `import QueryWorker from '@zoma/data/query.worker?worker'`, and `@zoma/data/client`,
+      // which keeps the other data modules (and their polyfills) out of the main bundle.
+      'boundaries/entry-point': [
+        'error',
+        {
+          default: 'disallow',
+          rules: [
+            { target: ['*'], allow: 'src/index.ts' },
+            { target: ['data'], allow: ['src/client.ts', 'src/query.worker.ts', 'src/ingest.worker.ts'] },
+          ],
+        },
+      ],
       ...restrictGlobals([...TIZEN_GLOBALS, ...WEBOS_GLOBALS]),
     },
   },
