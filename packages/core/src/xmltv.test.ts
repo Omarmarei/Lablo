@@ -2,7 +2,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { fixedZone, intlZone } from './timezone';
 import type { XmltvItem, XmltvOptions, XmltvProgramme, XmltvStats } from './xmltv';
-import { XmltvTokenizer, decodeXmlEntities, parseXmltv, parseXmltvTime } from './xmltv';
+import { XmltvTokenizer, decodeXmlEntities, parseXmltv, parseXmltvTime, parseXmltvTimeGeneral, xmltvTimeHasZone } from './xmltv';
 
 function tokenize(chunks: string[], options?: XmltvOptions): { items: XmltvItem[]; stats: XmltvStats } {
   const t = new XmltvTokenizer(options);
@@ -99,6 +99,24 @@ describe('XmltvTokenizer golden', () => {
     expect(stats).toMatchObject({ programmes: 1, filtered: 2, channels: 2 });
   });
 
+  it('hands items to onItem in document order, before later wantChannel calls', () => {
+    const seen: string[] = [];
+    const t = new XmltvTokenizer({
+      onItem: (item) => seen.push(item.type === 'channel' ? `channel ${item.id}` : `programme ${item.channel} ${item.title}`),
+      wantChannel: (id) => {
+        seen.push(`want ${id}`);
+        return id !== 'b';
+      },
+    });
+    const text =
+      '<tv><programme start="20261102120000" channel="a"><title>1</title></programme><channel id="a"><display-name>A</display-name></channel>' +
+      '<programme start="20261102120000" channel="b"><title>2</title></programme><channel id="b"/><programme start="20261102130000" channel="a"><title>3</title>';
+    expect(t.push(text)).toEqual([]);
+    expect(t.end()).toEqual([]);
+    expect(seen).toEqual(['want a', 'programme a 1', 'channel a', 'want b', 'channel b', 'want a']);
+    expect(t.stats).toMatchObject({ channels: 2, programmes: 1, filtered: 1, lateChannels: 2, truncated: true });
+  });
+
   it('cuts long descriptions and titles', () => {
     const long = 'word '.repeat(400);
     const { items, stats } = parseXmltv(`<tv><programme start="1" channel="c"><title>${'T'.repeat(300)}</title><desc>${long}</desc></programme></tv>`, { descLimit: 300 });
@@ -166,6 +184,33 @@ describe('parseXmltvTime', () => {
     const ny = intlZone('America/New_York')!;
     expect(parseXmltvTime('20261102070000', ny)).toBe(at(12));
     expect(parseXmltvTime('20260715080000', ny)).toBe(Date.UTC(2026, 6, 15, 12));
+  });
+
+  it('gives the same answers on its fast path as on the general one (property)', () => {
+    const digit = fc.constantFrom('0', '1', '2', '3', '5', '6', '9', 'x', ' ');
+    const field = (n: number): fc.Arbitrary<string> => fc.array(digit, { minLength: n, maxLength: n }).map((a) => a.join(''));
+    const usual = fc
+      .tuple(fc.integer({ min: 1990, max: 2099 }), fc.integer({ min: 0, max: 13 }), fc.integer({ min: 0, max: 32 }), fc.integer({ min: 0, max: 25 }), fc.integer({ min: 0, max: 61 }), fc.integer({ min: 0, max: 61 }))
+      .chain(([y, mo, d, h, mi, s]) =>
+        fc.tuple(fc.constantFrom(' +', ' -', '  ', ' x', 'Z+'), field(4)).map(([sep, off]) => `${y}${String(mo).padStart(2, '0')}${String(d).padStart(2, '0')}${String(h).padStart(2, '0')}${String(mi).padStart(2, '0')}${String(s).padStart(2, '0')}${sep}${off}`),
+      );
+    const zone = (ms: number): number => (ms % 7 === 0 ? 60 : 120);
+    fc.assert(
+      fc.property(fc.oneof(usual, field(20), fc.string({ maxLength: 24 })), (raw) => {
+        expect(parseXmltvTime(raw), raw).toBe(parseXmltvTimeGeneral(raw));
+        expect(parseXmltvTime(raw, 180), raw).toBe(parseXmltvTimeGeneral(raw, 180));
+        expect(parseXmltvTime(raw, zone), raw).toBe(parseXmltvTimeGeneral(raw, zone));
+      }),
+      { numRuns: 3000 },
+    );
+    expect(parseXmltvTime('20261102243000 -0130')).toBe(Date.UTC(2026, 10, 3, 2, 0));
+  });
+
+  it('tells whether a time states its own offset', () => {
+    for (const raw of ['20261102120000 +0300', '20261102120000 -05:00', '20261102120000 +05', '20261102120000 +3', '20261102120000Z', '20261102120000 UTC', ' 20261102120000 gmt ']) {
+      expect(xmltvTimeHasZone(raw), raw).toBe(true);
+    }
+    for (const raw of ['20261102120000', '20261102120000 EST', '20261102120000 +123', 'tomorrow', '']) expect(xmltvTimeHasZone(raw), raw).toBe(false);
   });
 
   it('is null for unreadable dates', () => {

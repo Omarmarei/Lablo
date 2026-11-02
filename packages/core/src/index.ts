@@ -82,7 +82,30 @@ export type { CatchupMode, CatchupOptions, CatchupWindow, FlussonicForm } from '
 export { catchupMode, fillCatchupTemplate, flussonicCatchupUrl, m3uCatchupUrl, xtreamCatchupUrl } from './catchup';
 
 export type { XmltvChannel, XmltvItem, XmltvOptions, XmltvProgramme, XmltvStats } from './xmltv';
-export { XmltvTokenizer, decodeXmlEntities, parseXmltv, parseXmltvTime } from './xmltv';
+export { XmltvTokenizer, decodeXmlEntities, parseXmltv, parseXmltvTime, xmltvTimeHasZone } from './xmltv';
+
+export type { EpgChannelMatch, EpgMatchMethod, EpgMatchStats, EpgOverride, EpgSourceMatch, EpgWantedChannel } from './epg-match';
+export { EPG_MATCH_METHODS, EpgMatcher, EpgWantedSet, combineEpgMatches, epgMethodRank, epgWantedChannel, xmltvIdStem } from './epg-match';
+
+export type { EpgBucket, EpgGuideOptions, EpgGuideStats, EpgProgramme, EpgSourceReport, EpgTierWindow, EpgWindow } from './epg-guide';
+export {
+  EPG_DAY_MINUTES,
+  EPG_DEFAULT_LENGTH,
+  EPG_FLAG_CUT,
+  EPG_FLAG_STOP_GUESSED,
+  EPG_FLAG_TIME_REPAIRED,
+  EPG_MAX_LENGTH,
+  EPG_WINDOWS,
+  EpgBucketBuilder,
+  EpgGuideReader,
+  buildEpgBucket,
+  epgDay,
+  epgNowNext,
+  epgProgrammes,
+  epgWindow,
+  formatEpgReport,
+  mergeEpgBuckets,
+} from './epg-guide';
 
 export type { ChunkRef, FavouriteMarks, SearchHit, SearchMatch, SearchOptions, SearchResult, SearchSegmentData } from './search';
 export {

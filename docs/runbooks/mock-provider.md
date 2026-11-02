@@ -214,8 +214,25 @@ The `*-scan` and `*-json-parse` cases are baselines (the naive way to read each 
 | `xmltv-gz-tokenize-10pct` | The same with a tenth of the channels wanted, as after EPG matching: unwanted programmes are skipped by searching for `</programme`. About 2 s. |
 | `search-index-build` | core's `SearchIndexBuilder` (step 7) over the parsed 200k playlist: one segment per kind, 500 items per chunk, as each refresh builds them. The playlist is parsed once, in the warm-up run. About 100 ms on a fast PC (2026-11-02). |
 | `search-200k` | core's `searchSegments` (step 7): each run answers the 13 queries of `SEARCH_QUERIES` (1–3 letters, Latin and Arabic, several words, a rare word, no match) over the 200k segments. About 43 ms per run, so 3 ms per query, on a fast PC (2026-11-02); the target is 200 ms per query on a 2018 TV. |
+| `epg-ingest-low-10pct` | core's `EpgGuideReader` (step 9) over the gunzipped 300 MB guide, as a low-tier TV reads it: every tenth live channel of the 200k playlist wanted (about a tenth of the guide), 1–2 past and 3 future days, 300-character descriptions. Matching, filter, window, time repair and per-channel-day buckets; the buckets are dropped. About 2.5–3 s on a fast PC (2026-11-02). **Limit: 8 s median** (S6's case, derived in architecture.md §1.5 step 10). |
+| `epg-ingest-full` | The same with all 20,000 live channels wanted (every guide channel matched) and the full tier's 7 + 7 days: 1.33 M programmes kept in 69k buckets. About 7.5 s on a fast PC (2026-11-02), against about 5.7 s for `xmltv-gz-tokenize`. **Limit: 20 s median.** |
 
-Steps 8–9 add their parts to `tools/bench/src/suites.ts` the same way. CI uploads the results as the `bench` artifact.
+Step 8 added no case (its 200k ingest is `test/ingest-200k.media.test.ts`). CI uploads the results as the `bench` artifact.
+
+**Limits.** A case may carry a median-time limit (`limit` in `tools/bench/src/suites.ts`). `pnpm bench` prints `limits: every case within its limits`, or names each case over its limit and exits with code 1, which fails the CI `media` job. The limits are set for the CI runner, the slow end; a fast PC runs well inside them. Sampled heap peaks are printed but not limited: they mostly show how lazily V8 collects garbage. Memory is bounded by running the worst case in a capped heap instead (below).
+
+**`pnpm epg:report`** prints the EPG match-rate report for a playlist and one or more guides (files or http(s) URLs, gzip sniffed), read exactly as the TV reads them:
+
+```bash
+pnpm epg:report --playlist .cache/fixtures/playlist.m3u --xmltv .cache/fixtures/xmltv-300mb.xml.gz --tier full --now 2026-11-01T00:00:00Z
+pnpm epg:report --playlist "http://127.0.0.1:8080/get.php?username=zoma&password=zoma-test&type=m3u_plus" --xmltv "http://127.0.0.1:8080/xmltv.php?username=zoma&password=zoma-test" --tier low
+```
+
+Per guide it shows the live channels matched and by which method (override, id, xtream-id, name, match-name), the guide channels used, what the channel filter and the window dropped, DST repairs, and the first unmatched channels (`--unmatched N`). Several `--xmltv` are combined in order. `--json <file>` writes the full reports. Against the mock it reports 11 of 12 live channels (10 by id, `Zoma Sports Test FHD` by match name; `18+ Test Pattern` has nothing). Against the scale fixtures: 14,013 of 20,000 by id (70.1%), 4,947 of the 5,000 guide channels used.
+
+Step 9 adds two EPG checks:
+- `test/epg-300mb.media.test.ts` (`pnpm test:media`) runs `pnpm epg:report` on the 300 MB guide and the 200k playlist in a child Node with a **96 MB heap**, and checks every number of the report against an oracle built from `catalog.json` and the generator's constants. It also checks S6's low-tier case in-process.
+- `test/epg-mock.test.ts` (`pnpm test`) reads this mock's `xmltv.php`: the matching (case-insensitive ids, a match-name match, the unmatched list), the exact schedule in the full and low windows, and the same buckets from guides written with DST offsets, without offsets (Kathmandu), and without offsets in New York, where the repeated hour is repaired from per-channel ordering.
 
 The 200k playlist is also a correctness test: `tools/fixtures/test/m3u-scale.media.test.ts` (`pnpm test:media`) checks that core's parser returns exactly the 200,000 entries that `catalog.json` lists, and that each of the 400 malformed lines has its documented effect (`MALFORMED_EFFECTS` in `tools/fixtures/test/m3u-oracle.ts`). `m3u-core.test.ts` runs the same check on a 9,000-entry catalog in `pnpm test`.
 

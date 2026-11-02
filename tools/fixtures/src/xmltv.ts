@@ -52,12 +52,16 @@ function xmltvTime(ms: number, offsetMin: number): string {
   return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}00 ${sign}${p(Math.floor(abs / 60))}${p(abs % 60)}`;
 }
 
-const slotOf = (k: number): number => SLOTS[k % SLOTS.length]!;
+/** Programme length of channel `k`, in minutes (every programme of a channel has the same). */
+export const slotOf = (k: number): number => SLOTS[k % SLOTS.length]!;
+
+/** Programmes of channel `k`: back to back from `XMLTV_ANCHOR_MS - 7 days`, `slotOf(k)` apart. */
+export const channelProgrammes = (k: number): number => Math.ceil((XMLTV_DAYS * 24 * 60) / slotOf(k));
 
 /** Programmes the spec will contain (deterministic), for sizing and for tests. */
 export function programmeCount(spec: XmltvSpec): number {
   let n = 0;
-  for (let k = 0; k < spec.channels; k++) n += Math.ceil((XMLTV_DAYS * 24 * 60) / slotOf(k));
+  for (let k = 0; k < spec.channels; k++) n += channelProgrammes(k);
   return n;
 }
 

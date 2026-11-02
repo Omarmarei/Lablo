@@ -8,6 +8,13 @@ export interface BenchCase {
   bytes: number;
   /** One run; returns how many items it produced (lines, objects, programmes...). */
   run(): Promise<number> | number;
+  /** A limit the case must stay within (`pnpm bench` fails otherwise). */
+  limit?: BenchLimit;
+}
+
+export interface BenchLimit {
+  /** Median wall time per run (ms). */
+  medianMs: number;
 }
 
 export interface BenchResult {
@@ -23,6 +30,13 @@ export interface BenchResult {
   heapPeakMb: number;
   /** Highest RSS seen (MB). */
   rssPeakMb: number;
+  limit?: BenchLimit;
+}
+
+/** What went over the case's limit (empty: within it). */
+export function overLimits(r: BenchResult): string[] {
+  const l = r.limit;
+  return l !== undefined && r.ms.median > l.medianMs ? [`${r.name}: median ${r.ms.median.toFixed(0)} ms over the ${l.medianMs} ms limit`] : [];
 }
 
 export interface MeasureOptions {
@@ -78,6 +92,7 @@ export async function measure(c: BenchCase, options: MeasureOptions = {}): Promi
     itemsPerSec: items / (med / 1000),
     heapPeakMb: heapPeak / 1e6,
     rssPeakMb: rssPeak / 1e6,
+    ...(c.limit ? { limit: c.limit } : {}),
   };
 }
 

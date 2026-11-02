@@ -122,7 +122,7 @@ Off-the-shelf libraries such as Norigin measure the DOM on every move. That figh
 Profile schema changes go through versioned migrations with fixture tests. A migration never drops data, and the 3 snapshots allow rollback. This addresses complaint #7 (updates wiping favourites).
 
 **Built in step 7** (`packages/data`):
-- **Database version 1** (`schema.ts`): `sources_meta`, `catalog_chunks`, `catalog_cats`, `catalog_index`, `profile` and `kv`. The EPG stores come with step 9 as migration 2, and `blobs` with the phone pairing.
+- **Database version 1** (`schema.ts`): `sources_meta`, `catalog_chunks`, `catalog_cats`, `catalog_index`, `profile` and `kv`. The EPG stores come with step 9b as migration 2, and `blobs` with the phone pairing.
 - **Migrations** are an append-only list, and the database version is its length. They run inside the upgrade transaction. A migration that throws aborts the upgrade, so the old version and its data stay intact. `schema.test.ts` pins the shape of every version, and upgrades from each earlier version with seeded data.
 - **Transactions** are callback-driven inside and promise-based outside (`transact`). Never `await` inside one: on Chromium 53 a transpiled `await` can resume on a later task, after IndexedDB has committed the transaction.
 - **The profile document** is versioned on its own (`profile.ts`, version 1 = favourites). Older documents are upgraded on load, and the old copy goes to a snapshot. A save snapshots the replaced document at most once a day, into 3 rolling slots, and a restore can itself be undone. A document from a newer app version is shown but never overwritten.
@@ -222,6 +222,48 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
 7. **Storage.** One record per channel per day holding column arrays (`Int32Array` start/end, `title[]`, `desc[]`, flags). A typical grid screen is the visible rows times 1–2 days, so about 20 reads.
 8. **Refresh.** Every 12 h, or sooner if less than 24 h of future data remains. Past days are pruned daily. Updates use the same generation swap as the catalog. On low-tier TVs, EPG and catalog ingest never run at the same time.
 9. **XMLTV assumptions.** The parser assumes `<channel>` elements come before `<programme>` elements, which is the standard. If they are interleaved, a telemetry flag is recorded and those programmes are buffered with a size cap.
+
+**Built in step 9** (`packages/core/src`: `epg-match.ts`, `epg-guide.ts`; storage, refresh, the short-EPG fallback and the app wiring are step 9b):
+- **Wanted set** (`EpgWantedSet`): every live channel, indexed by its playlist id (case-insensitive), the normalized name and tvg-name, and their match names. It also carries each channel's catch-up days and tvg-shift.
+- **Matching** (`EpgMatcher`, one per guide) runs as each `<channel>` is declared:
+  - The cascade is override, id, `xtream-id` (the same id, from an Xtream source), normalized display name, then match name. The match-name level also tries the XMLTV id's stem (`BBCOne.uk@HD` → `bbcone`).
+  - A stronger method later in the guide takes a playlist channel over from a weaker one. At the same level the first declared channel wins, and a tie at a name level is flagged `ambiguous`.
+  - Across guides (`combineEpgMatches`), the stronger method beats guide priority; at the same level the guide listed first wins.
+  - An override pins a playlist channel to one guide channel (or to no EPG), and blocks it everywhere else.
+- **Reading a guide** (`EpgGuideReader`): decoded text in, buckets out.
+  - The tokenizer hands each item over in document order (`onItem`), so its `wantChannel` sees every channel declared before the programme. Programmes of unmatched channels are skipped before they are tokenized.
+  - Programmes of a channel declared later wait, up to 20,000 of them, and are dropped if their channel never comes. A programme-only id that matches by id alone is declared on the spot.
+- **Times** are UTC epoch minutes.
+  - A time without an offset is read in the fallback zone and settled to the earlier instant of a repeated DST hour (`parseXmltvTime` alone gives the later one east of UTC). A start that then falls before the channel's previous stop moves forward an hour, and so does a stop that ends before its start, or one of a programme whose start moved (ADR-010).
+  - A lone boundary in the repeated hour, such as a 90-minute programme ending at the second 01:00 with the next one starting there, reads the same either way. It is taken as the earlier instant, an hour early; `test/epg-mock.test.ts` pins that case.
+  - The user's per-source correction (`shiftMinutes`, step 24) is added to every time.
+  - **tvg-shift is applied when reading, not here.** Several playlist channels can share one guide channel with different shifts (the `+1` variants), so `epgNowNext` takes the shift per playlist channel, and the window widens by the largest one.
+  - A missing stop becomes the channel's next start, or one hour for the last programme (flagged). Lengths are capped at 24 h; an overlap is cut where the next programme starts; the first of equal starts wins.
+- **Window** (`epgWindow`, `EPG_WINDOWS`): fixed when the first programme arrives, from the matched channels' longest catch-up. A programme is kept when it overlaps the window.
+- **Buckets** (`EpgBucketBuilder`): one per guide channel per UTC day of the start, as column arrays (`Int32Array` start/end, title, sub, desc, category, episode, `Uint8Array` flags) sorted by start.
+  - They are handed out every 20,000 programmes. The channel being read is kept back, so a guide grouped by channel gives one bucket per channel-day. A channel-day handed out before comes again with `merge: true` (`mergeEpgBuckets`), as in a time-sorted guide.
+  - A reader takes days `d - 1` and `d`, because a programme from the evening before can still be on air.
+- **Memory:** the reader keeps no id or time string of a programme (per-channel state is indexed by number), its texts only until their bucket is handed out, and each guide channel's id is an owned copy (`ownString`). A V8 substring keeps its whole decoded chunk alive, so one id kept per channel pinned a chunk per channel: the 300 MB guide ran out of a 160 MB heap before the fix, and fits in 96 MB after it.
+- **Match-rate report:** `EpgGuideReader.report()` and `formatEpgReport` give, per guide, the match rate, the counts by method, ties, the unmatched channels, guide channels used, programmes skipped, outside the window or with bad times, DST repairs and bucket fragments. `pnpm epg:report` prints it for any playlist and guides (runbook mock-provider.md, "Benchmarks").
+- **Tests:**
+  - `epg-match.test.ts` and `epg-guide.test.ts`, including a fast-check property: the same merged buckets for any chunking, flush size and channel order. 28/28 mutants were caught.
+  - `test/epg-mock.test.ts`: the mock's schedule exactly, in both tiers and in every offset style, including New York without offsets.
+  - `test/epg-300mb.media.test.ts`: every number of the 300 MB report exact in a 96 MB heap.
+
+10. **Benchmark limits** (step 9; `pnpm bench epg-ingest-*`, enforced in CI's `media` job). The Node benchmark reads the gunzipped 300 MB fixture guide through `EpgGuideReader` and drops the buckets. Its limits come from S6 (§5): a 150 MB gzipped guide's filtered ingest within 4 min on webOS 4.
+    - **`epg-ingest-low-10pct`, S6's case: ≤ 8 s median on the CI runner.** The low tier, with a playlist matching a tenth of the guide.
+      - The fixture is twice S6's guide, so the TV gets 8 min.
+      - The low tier's 50/50 duty cycle leaves 4 min of CPU. Half of that is kept for what Node doesn't do here: fflate's JavaScript gunzip, IndexedDB writes and structured clones. That leaves 120 s for the read.
+      - A 2018 webOS 4 core is taken as about 15x slower than the CI runner: about 10x for the SoC (a 1.x GHz Cortex-A53 class core) and 1.5x for V8 5.3 against today's V8. 120 s / 15 = 8 s.
+      - Measured: about 2.5–3 s on a fast PC (2026-11-02).
+    - **`epg-ingest-full`, the worst case: ≤ 20 s median.** Every guide channel matched, the full tier's 7 + 7 days, 1.33 M programmes kept.
+      - S6 sets no full-tier number, so the target chosen here is 4 min on a 2020 TV, with no duty cycle and half the CPU for gunzip and writes: 120 s.
+      - A 2020 TV (Chromium 68+, 1.5–2 GHz cores) is taken as about 6x slower than the CI runner. 120 s / 6 = 20 s.
+      - Measured: about 7.5 s on a fast PC, against about 5.7 s for the tokenizer alone.
+    - **Memory: the worst case runs in a 96 MB V8 heap** (`--max-old-space-size=96`), with the 200k playlist parse and its 20,000-channel wanted set in the same heap (`test/epg-300mb.media.test.ts`). It runs in about 24 s there, because the GC works harder.
+      - A sampled heap peak isn't limited: uncapped, V8 lets garbage grow to 200 MB or more before collecting it.
+      - 96 MB is the ingest worker's share on a 1–1.5 GB low-tier TV, next to the main thread and the query worker.
+    - **The slowdown factors are estimates.** S6 measures the real ones: the lab build runs the same reader on the TV. If S6 measures a larger factor, lower the limits in `EPG_LIMITS` (`tools/bench/src/suites.ts`) to match, rather than raising the TV budget.
 
 ---
 

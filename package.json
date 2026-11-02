@@ -16,6 +16,7 @@
     "mock:open-movies": "tsx apps/mock-provider/src/media-cli.ts open-movies",
     "fixtures": "tsx tools/fixtures/fixtures.ts",
     "bench": "node --expose-gc --import tsx tools/bench/bench.ts",
+    "epg:report": "node --import tsx tools/bench/epg-report.ts",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r --parallel run typecheck",
     "test": "vitest run",
