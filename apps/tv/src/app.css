@@ -119,3 +119,98 @@ body {
   font-size: 28px;
   white-space: pre-wrap;
 }
+
+/*
+ * The focus engine demo (relay step 10). Symmetric margins only: dir="rtl" on .focus
+ * mirrors the flex rows by itself (postcss-rtlcss arrives with the design system, step 11).
+ */
+.focus {
+  position: relative;
+  margin-top: 28px;
+}
+
+.focus__status {
+  margin: 0 0 16px;
+  font-size: 28px;
+}
+
+.focus__rail,
+.focus__body,
+.focus__buttons {
+  display: flex;
+}
+
+.focus__grid {
+  display: flex;
+  flex-wrap: wrap;
+  flex: 1;
+  align-content: flex-start;
+}
+
+.focus__item,
+.focus__button {
+  box-sizing: border-box;
+  height: 48px;
+  line-height: 44px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: #1d2733;
+  font-size: 22px;
+  text-align: center;
+}
+
+.focus__rail .focus__item {
+  flex: 1;
+  margin: 0 4px 12px;
+}
+
+.focus__list {
+  width: 40%;
+  margin: 0 4px;
+}
+
+.focus__list .focus__item {
+  margin-bottom: 8px;
+}
+
+.focus__grid .focus__item {
+  width: 30%;
+  margin: 0 1.5% 8px;
+}
+
+.focus__item.is-memory {
+  border-color: #3b4b5d;
+}
+
+.focus__item.is-focused,
+.focus__button.is-focused {
+  border-color: var(--accent);
+  background: #24504c;
+  color: #fff;
+}
+
+.focus.is-covered .focus__rail,
+.focus.is-covered .focus__body {
+  opacity: 0.4;
+}
+
+.focus__dialog {
+  position: absolute;
+  top: 120px;
+  left: 16px;
+  right: 16px;
+  padding: 24px;
+  background: #0f151d;
+  border: 2px solid var(--muted);
+  border-radius: 12px;
+}
+
+.focus__dialog p {
+  margin: 0 0 16px;
+  font-size: 28px;
+}
+
+.focus__button {
+  flex: 1;
+  margin: 0 6px;
+}

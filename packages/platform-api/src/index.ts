@@ -108,6 +108,13 @@ export interface Platform {
   keyToIntent(event: KeyLike): Intent | null;
   /** Subscribes to app visibility changes and relaunches; returns an unsubscribe function. */
   onLifecycle(listener: (event: LifecycleEvent) => void): () => void;
+  /**
+   * The system's own pointer shown/hidden events: the webOS Magic Remote pointer hides
+   * after a few idle seconds and on a key press, and says so. Platforms without such
+   * events never call the listener (the app then learns of a shown pointer from its moves,
+   * `@zoma/ui` `watchPointerMoves`). Returns an unsubscribe function.
+   */
+  onPointer(listener: (visible: boolean) => void): () => void;
   rootBackPolicy(): RootBackPolicy;
   /** Leaves the app the platform's way (on webOS this is Back to the launcher). */
   exitApp(): void;

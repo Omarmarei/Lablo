@@ -62,11 +62,112 @@ test.describe('hello app in the desktop browser (pnpm dev)', () => {
     await page.keyboard.press('a');
     await expect(page.getByTestId('key-count')).toHaveText(String(presses.length));
 
-    // Back at the root asks the platform to exit (a no-op in the browser).
-    await expect(page.getByTestId('exit-requested')).toHaveCount(0);
+    // Enter opened a details screen; Back closes it. Back on the root then follows the
+    // platform: the browser, like Tizen, asks first, and the dialog's Exit asks the platform
+    // to exit (a no-op in the browser).
+    const focus = page.getByTestId('focus-status');
+    await expect(focus).toHaveAttribute('data-screen', 'details');
     await page.keyboard.press('Escape');
     await expect(lastIntent).toHaveText('BACK');
+    await expect(focus).toHaveAttribute('data-screen', 'home');
+    await expect(page.getByTestId('exit-dialog')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('exit-dialog')).toBeVisible();
+    await expect(focus).toHaveText('exit · buttons 0');
+    // Stay closes the dialog.
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('exit-dialog')).toHaveCount(0);
+    await expect(page.getByTestId('exit-requested')).toHaveCount(0);
+    await page.keyboard.press('Backspace');
+    await page.keyboard.press('ArrowRight');
+    await expect(focus).toHaveText('exit · buttons 1');
+    await page.keyboard.press('Enter');
     await expect(page.getByTestId('exit-requested')).toBeVisible();
+    await expect(focus).toHaveText('home · grid 0');
+    expect(errors).toEqual([]);
+  });
+
+  test('moves the focus with the keys, the pointer and the wheel', async ({ page }) => {
+    const errors = trackErrors(page);
+    await page.goto('/');
+    await expect(page.getByTestId('hello')).toHaveAttribute('data-ready', 'true');
+    const focus = page.getByTestId('focus-status');
+    await expect(focus).toHaveText('home · list 0');
+    await expect(focus).toHaveAttribute('data-dir', 'ltr');
+
+    // Keys: the list scrolls a window of 4 rows; each zone remembers its item.
+    for (let i = 0; i < 5; i += 1) await page.keyboard.press('ArrowDown');
+    await expect(focus).toHaveText('home · list 5');
+    await expect(page.getByTestId('list-5')).toHaveClass(/is-focused/);
+    await expect(page.getByTestId('list-1')).toHaveCount(0);
+    await expect(page.getByTestId('list-2')).toBeVisible();
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await expect(focus).toHaveText('home · grid 1');
+    await expect(page.getByTestId('list-5')).toHaveClass(/is-memory/);
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('ArrowLeft');
+    await expect(focus).toHaveText('home · list 5');
+    await page.keyboard.press('PageDown');
+    await expect(focus).toHaveText('home · list 9');
+
+    // OK opens a screen over this one; Back returns to the same item.
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('details')).toContainText('Opened list 10');
+    await expect(focus).toHaveText('details · buttons 0');
+    await expect(focus).toHaveAttribute('data-depth', '2');
+    await page.keyboard.press('Escape');
+    await expect(focus).toHaveText('home · list 9');
+
+    // Magic Remote: hovering focuses (the pointer counts once it moves); keys hide it and
+    // carry on from the hovered item.
+    await page.getByTestId('rail-3').hover();
+    await expect(focus).toHaveText('home · rail 3');
+    await expect(focus).toHaveAttribute('data-pointer', 'true');
+    await page.getByTestId('grid-4').hover();
+    await expect(focus).toHaveText('home · grid 4');
+    await page.keyboard.press('ArrowLeft');
+    await expect(focus).toHaveText('home · grid 3');
+    await expect(focus).toHaveAttribute('data-pointer', 'false');
+
+    // The wheel scrolls the focused list and keeps the focus in view.
+    await page.keyboard.press('ArrowLeft');
+    await expect(focus).toHaveText('home · list 9');
+    await page.mouse.wheel(0, -120);
+    await expect(focus).toHaveText('home · list 8');
+    await expect(page.getByTestId('list-5')).toBeVisible();
+    await expect(page.getByTestId('list-9')).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test('swaps LEFT and RIGHT once in Arabic (RTL)', async ({ page }) => {
+    const errors = trackErrors(page);
+    await page.goto('/?locale=ar-SA');
+    const focus = page.getByTestId('focus-status');
+    await expect(focus).toHaveAttribute('data-dir', 'rtl');
+    await expect(page.getByTestId('focus-panel')).toHaveAttribute('dir', 'rtl');
+    // The rail runs from the right: LEFT goes towards its end, RIGHT back to its start.
+    await page.keyboard.press('ArrowUp');
+    await expect(focus).toHaveText('home · rail 0');
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('ArrowLeft');
+    await expect(focus).toHaveText('home · rail 2');
+    const r1 = await page.getByTestId('rail-1').boundingBox();
+    const r2 = await page.getByTestId('rail-2').boundingBox();
+    expect(r2!.x).toBeLessThan(r1!.x);
+    await page.keyboard.press('ArrowRight');
+    await expect(focus).toHaveText('home · rail 1');
+    // The grid sits on the list's left: LEFT enters it, RIGHT comes back. UP and DOWN don't swap.
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    await expect(focus).toHaveText('home · list 1');
+    await page.keyboard.press('ArrowLeft');
+    await expect(focus).toHaveText('home · grid 0');
+    const list = await page.getByTestId('list-1').boundingBox();
+    const grid = await page.getByTestId('grid-0').boundingBox();
+    expect(grid!.x).toBeLessThan(list!.x);
+    await page.keyboard.press('ArrowRight');
+    await expect(focus).toHaveText('home · list 1');
     expect(errors).toEqual([]);
   });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parsePalmDeviceInfo, webosChromiumVersion, webosKeyToIntent, webosModelYear } from './index';
+import { parsePalmDeviceInfo, watchCursorState, webosChromiumVersion, webosKeyToIntent, webosModelYear } from './index';
 
 describe('webOS key map', () => {
   it.each([
@@ -75,4 +75,27 @@ describe('parsePalmDeviceInfo', () => {
       expect(parsePalmDeviceInfo(raw)).toEqual({});
     },
   );
+});
+
+describe('watchCursorState (Magic Remote pointer)', () => {
+  const cursor = (detail: unknown): Event => new CustomEvent('cursorStateChange', { detail });
+
+  it('reports the pointer shown and hidden until unsubscribed', () => {
+    const target = new EventTarget();
+    const seen: boolean[] = [];
+    const stop = watchCursorState(target, (visible) => seen.push(visible));
+    target.dispatchEvent(cursor({ visibility: true }));
+    target.dispatchEvent(cursor({ visibility: false }));
+    stop();
+    target.dispatchEvent(cursor({ visibility: true }));
+    expect(seen).toEqual([true, false]);
+  });
+
+  it.each([null, undefined, {}, { visibility: 'true' }, { visibility: 1 }])('ignores the detail %j', (detail) => {
+    const target = new EventTarget();
+    const seen: boolean[] = [];
+    watchCursorState(target, (visible) => seen.push(visible));
+    target.dispatchEvent(cursor(detail));
+    expect(seen).toEqual([]);
+  });
 });

@@ -99,6 +99,51 @@ zoma/
 
 Off-the-shelf libraries such as Norigin measure the DOM on every move. That fights virtualization and is slow on 2018 TVs.
 
+**Built in step 10: the focus engine** (`packages/ui/src/focus`: `types`, `zones`, `epg`, `free`, `navigator`, `pointer`; `Platform.onPointer`; the hello screen's focus panel, `apps/tv/src/focus-demo.ts` and `FocusPanel.tsx`):
+- **Framework-free, with a listener API.** The engine is plain TypeScript with no Preact and no signals: `createNavigator(options)` returns a `Navigator`, and `subscribe(listener)` reports each change once (a key that pushes a screen is one notification). The app wraps it in a signal (`focus-demo.ts`: one `signal(nav.snapshot())`).
+  - Why: it is tested in Node with no rendering, and the self-test runner (§4) can drive it with Intents.
+  - Size is no reason either way: Preact and signals are already in main through `apps/tv`.
+  - `ui` gets `preact` and `@preact/signals` with its first components (step 11), together with a `useFocus` binding.
+- **Logical directions, one RTL swap.** `moveDirection(intent, dir)` turns UP/DOWN/LEFT/RIGHT into `up`/`down`/`start`/`end`. In RTL, LEFT is `end` and RIGHT is `start`; UP and DOWN never swap.
+  - Everything after that is logical: zones, neighbours (`neighbours: { start: 'rail' }`) and free-zone rects (`x` grows from the inline start).
+  - So the layout is written once, `dir="rtl"` mirrors it in CSS, and nothing swaps twice.
+  - The swap covers every horizontal move: a horizontal list, a grid's columns, the guide's time axis, and leaving a vertical list sideways.
+- **Zones** (`ZoneSpec`); each keeps a `ZonePosition` (`index`, `top`, and for the guide `time` and `view`):
+  - `list`: `vertical` or `horizontal`, optional `wrap`. `visible` (a layout constant) gives the scroll window: `top` moves as little as possible to keep the focus in it, which is what a virtual list renders from.
+  - `grid`: `columns`, `count`, optional `visibleRows`. Down from above a short last row lands on its last item.
+  - `epg`: rows (channels) plus a time cursor in UTC minutes. The screen supplies `cell(row, minute)`.
+    - UP and DOWN keep the cursor, so the focus doesn't drift across rows.
+    - LEFT and RIGHT go to the previous or next cell and put the cursor at its start.
+    - A row without data moves by slots (`slot`, default 30 min, counted from `from`). Cells are cut to the guide's `[from, to)`.
+    - The view (`span` minutes) jumps to the cursor's slot when the cursor leaves it.
+    - The screen must fill gaps between programmes with placeholder cells, or a move skips a short programme.
+  - `free`: logical rects from layout constants (never DOM measurements). The nearest item in the direction wins: the gap ahead plus twice the sideways offset, with the centre required to be beyond. Ties go to the lower index.
+- **Moves:**
+  - Off a zone's edge, the focus goes to the zone's neighbour that way, skipping empty zones in the same direction (with a loop guard), and lands on that zone's remembered item (per-zone memory).
+  - CH_UP and CH_DOWN page vertical lists, grids and the guide's rows by a viewport.
+  - OK goes to the screen's `onSelect`. Every Intent first goes to the screen's `onIntent` (digits, colour keys, Back to close a menu).
+  - `Screen.update(zone)` (new count) keeps each position where it still fits. An empty zone has index -1 and gets its first item when items arrive.
+- **Router:** the root screen is given at creation, so the stack is never empty; `push`, `replace`, `reset` and `pop`.
+  - A screen keeps its zones' positions while covered, so Back returns to the same item. A covered screen still takes `update`; a popped one ignores everything.
+  - Back pops. On the root it follows `Platform.rootBackPolicy()`:
+    - `exit-dialog` (Tizen, the browser) calls `exitDialog`, and the app pushes its exit screen;
+    - `platform-back` (webOS) calls `exit`, that is `Platform.exitApp()` (`PalmSystem.platformBack`).
+- **Magic Remote:**
+  - `Screen.hover(zone, index)` focuses the item under the pointer, but only on the top screen and only while the pointer is in use. Items call it from `mousemove`, which also fires when the pointer moves onto them.
+  - A key hides the pointer in the engine (`handle` calls `pointer(false)`), and the focus stays on the hovered item.
+  - The pointer counts as shown again after a real move. `watchPointerMoves` listens to `mousemove` in the capture phase and skips the ones at unchanged coordinates, which Chromium sends after a scroll or layout change under a still pointer, so a list scrolling under a hidden pointer can't take the focus.
+  - On webOS, `Platform.onPointer` adds the system's own `cursorStateChange` (the pointer hides after a few idle seconds); the other adapters have none.
+  - `Navigator.wheel(steps)` scrolls the focused zone's view and keeps the focus inside it. The app turns each `wheel` event into one step and calls `preventDefault` (non-passive), so the page itself never scrolls.
+  - Not done yet: selecting with a pointer click. webOS also sends OK (key 13) for the Magic Remote's OK button, so a click handler on items would select twice; the components step (11) decides how to dedupe.
+- **Size:** main 459.1 → 470.3 KB of 500 (tizen), about 8 KB for the engine and 3 KB for the demo panel, with no new polyfills.
+- **Dev loop:** `apps/tv/vite.config.ts` pre-bundles `fflate`. Vite's start-up scan doesn't follow `?worker` imports, so with a cold cache (as in CI) it found fflate late and reloaded every open page, which reset the app in the middle of key-driven e2e tests.
+- **Tests:**
+  - `zones.test.ts`: every zone kind, scrolling, paging, the wheel and clamping. `navigator.test.ts`: the same key sequences in LTR and RTL, the single swap, neighbours, memory, the router and both root policies, listeners, the Magic Remote.
+  - Also `pointer.test.ts`, webOS `watchCursorState`, and `apps/tv/src/focus-demo.test.ts`.
+  - e2e: keys, pointer, wheel, RTL and the exit dialog in dev; the focus moving in both built bundles.
+  - The old-engine harness now requires each key step's focus (`home · rail 0`, then `details · buttons 0`) in Chromium 53/56/68.
+  - The mutation script is `artifacts/mutate10.py`.
+
 **State:**
 - Signals hold UI and session state.
 - Domain stores are plain classes that expose signals: `ProfileStore`, `SourceStore`, `PlayerStore` (mirrors the controller) and `SettingsStore`.

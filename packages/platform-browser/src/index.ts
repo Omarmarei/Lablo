@@ -113,6 +113,8 @@ export function createBrowserPlatform(env: BrowserEnv = defaultEnv()): Platform 
       env.document.addEventListener('visibilitychange', onVisibility);
       return () => env.document.removeEventListener('visibilitychange', onVisibility);
     },
+    // A desktop mouse has no shown/hidden events; it shows itself by moving.
+    onPointer: () => () => undefined,
     rootBackPolicy: () => 'exit-dialog',
     exitApp: () => env.onExit(),
   };
