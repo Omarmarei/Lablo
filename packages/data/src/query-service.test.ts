@@ -176,4 +176,31 @@ describe('QueryService', () => {
     await expect(client.call('search', { query: 'a' }, { cancel: source.token })).rejects.toMatchObject({ name: 'CancelError' });
     db.close();
   });
+
+  it('reads and edits the profile over RPC: the first answer creates it, an older one is upgraded', async () => {
+    const { db, svc } = await service();
+    const { port1, port2 } = new MessageChannel();
+    opened.push(port1, port2);
+    serveRpc(port1, svc.handlers());
+    const client = createDataClient(port2 as unknown as RpcPort);
+    expect(await client.call('profile')).toBeNull();
+    expect(await client.call('editProfile', { kind: 'answers', answers: { language: 'ar' } })).toBe(true);
+    // The same answer again changes nothing.
+    expect(await client.call('editProfile', { kind: 'answers', answers: { language: 'ar' } })).toBe(false);
+    const source = { id: 's1', type: 'm3u', name: 'Home', url: 'http://p.test/list.m3u', epgUrl: null, added: 5 } as const;
+    expect(await client.call('editProfile', { kind: 'source', source })).toBe(true);
+    expect(await client.call('profile')).toEqual({
+      doc: { v: 2, favourites: [], sources: [source], onboarding: { language: 'ar', disclaimerAt: null, consent: null } },
+      newer: false,
+      migratedFrom: null,
+    });
+    // A version 1 profile (step 7) is upgraded when the app reads it.
+    await transact(db, STORE.profile, 'readwrite', (tx) => tx.objectStore(STORE.profile).put({ id: 'current', savedAt: 0, doc: { v: 1, favourites: [] } }));
+    expect(await client.call('profile')).toMatchObject({ migratedFrom: 1, doc: { v: 2, sources: [], onboarding: { language: null } } });
+    // A profile from a newer app version is shown and never written over.
+    await transact(db, STORE.profile, 'readwrite', (tx) => tx.objectStore(STORE.profile).put({ id: 'current', savedAt: 0, doc: { v: 9, sources: [] } }));
+    expect(await client.call('editProfile', { kind: 'answers', answers: { consent: true } })).toBe(false);
+    expect(await client.call('profile')).toEqual({ doc: { v: 9, sources: [] }, newer: true, migratedFrom: null });
+    db.close();
+  });
 });

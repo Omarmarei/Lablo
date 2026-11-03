@@ -18,6 +18,7 @@ class CodedError extends Error {
   constructor(
     message: string,
     readonly code: string,
+    readonly status: unknown = null,
   ) {
     super(message);
     this.name = 'CodedError';
@@ -37,8 +38,10 @@ function setup() {
       return arg.text.toUpperCase();
     },
     nothing: () => undefined,
-    fails: (arg: { how: 'coded' | 'plain' | 'string' | 'reject' }): unknown => {
+    fails: (arg: { how: 'coded' | 'status' | 'odd-status' | 'plain' | 'string' | 'reject' }): unknown => {
       if (arg.how === 'coded') throw new CodedError('bad source', 'auth-failed');
+      if (arg.how === 'status') throw new CodedError('not found', 'http', 404);
+      if (arg.how === 'odd-status') throw new CodedError('odd', 'http', '404');
       if (arg.how === 'plain') throw new TypeError('wrong type');
       if (arg.how === 'reject') return Promise.reject(new CodedError('async bad', 'async'));
       throw 'just a string';
@@ -80,7 +83,10 @@ describe('RPC', () => {
     const { client } = setup();
     const coded = await client.call('fails', { how: 'coded' }).catch((e: unknown) => e);
     expect(coded).toBeInstanceOf(RpcError);
-    expect(coded).toMatchObject({ message: 'bad source', code: 'auth-failed', remoteName: 'CodedError' });
+    expect(coded).toMatchObject({ message: 'bad source', code: 'auth-failed', remoteName: 'CodedError', status: null });
+    // A numeric status (an HTTP status) crosses too; anything else in `status` doesn't.
+    await expect(client.call('fails', { how: 'status' })).rejects.toMatchObject({ code: 'http', status: 404 });
+    await expect(client.call('fails', { how: 'odd-status' })).rejects.toMatchObject({ code: 'http', status: null });
     await expect(client.call('fails', { how: 'plain' })).rejects.toMatchObject({ code: 'TypeError', message: 'wrong type' });
     await expect(client.call('fails', { how: 'reject' })).rejects.toMatchObject({ code: 'async', message: 'async bad' });
     await expect(client.call('fails', { how: 'string' })).rejects.toMatchObject({ code: 'Error', message: 'just a string' });

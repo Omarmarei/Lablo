@@ -81,6 +81,23 @@ function stringList(v: unknown): string[] {
 // ---------------------------------------------------------------------------------------------
 // Login, categories, lists
 
+/** Why a panel that accepted a login serves the account nothing. */
+export type XtreamAccountProblem = 'expired' | 'blocked';
+
+/**
+ * What an accepted login's `user_info.status` says (RELAY step 13b). Panels keep accepting an
+ * expired, banned or disabled account's login but serve it no lists, so the status is the only
+ * place the user can learn why. Only the status decides: an `exp_date` in the past with an
+ * `Active` status still loads (panels update it late, or write it in another zone), and so does a
+ * status we don't know.
+ */
+export function xtreamAccountProblem(user: Pick<XtreamUserInfo, 'status'>): XtreamAccountProblem | null {
+  const status = user.status.toLowerCase();
+  if (status === 'expired') return 'expired';
+  if (status === 'banned' || status === 'disabled') return 'blocked';
+  return null;
+}
+
 export interface XtreamUserInfo {
   auth: boolean;
   /** `Active`, `Expired`, `Banned`, `Disabled`… as the panel writes it. */

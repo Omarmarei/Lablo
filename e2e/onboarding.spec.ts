@@ -2,16 +2,75 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
+import { loadCatalog } from '../apps/mock-provider/src/config';
+import type { MockServer } from '../apps/mock-provider/src/server';
+import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { stripIsolates } from '../packages/core/src/bidi';
 import { ARABIC_FACE, LATIN_FACE, renderedFontsUnder } from './fonts';
 
 /**
- * Onboarding (RELAY step 13a), the start screen of the dev app, by keys only: the language, the
- * disclaimer, the device-ID consent, the source type, the form typed on the keyboard (OK opens a
- * field, Enter ends it), then loading and done. Step 13a loads through a fake loader (1,240
- * channels, 380 films, 45 series); step 13b puts the mock provider behind it.
+ * Onboarding (RELAY steps 13a and 13b), the start screen of the dev app, by keys only: the
+ * language, the disclaimer, the device-ID consent, the source type, the form typed on the
+ * keyboard (OK opens a field, Enter ends it), then loading and done. The source loads from the
+ * mock provider, in-process on a socket, through the app's data workers; its test logins come
+ * from the mock's fixtures. A relaunch with a source stored skips onboarding.
  */
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
+const catalog = loadCatalog();
+
+let app: MockServer;
+/** The mock's `host:port`, typed the way a user would (no `http://`). */
+let host: string;
+
+test.beforeAll(async () => {
+  app = await mock();
+  host = (await listen(app)).replace(/^http:\/\//, '');
+});
+test.afterAll(async () => {
+  await app.close();
+});
+
+interface StoredProfile {
+  sources: Array<{ id: string; type: string; name: string }>;
+  onboarding: Record<string, unknown>;
+}
+
+/** The stored profile document (`null`: none). Only once the app has opened its database. */
+function storedProfile(page: Page): Promise<StoredProfile | null> {
+  return page.evaluate(
+    () =>
+      new Promise<StoredProfile | null>((resolve, reject) => {
+        const open = indexedDB.open('zoma');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          const req = db.transaction('profile').objectStore('profile').get('current');
+          req.onsuccess = () => {
+            db.close();
+            const record = req.result as { doc: unknown } | undefined;
+            resolve(record === undefined ? null : (record.doc as StoredProfile));
+          };
+          req.onerror = () => reject(req.error);
+        };
+      }),
+  );
+}
+
+/** Records each loading phase the screen shows, from before "Add source" is pressed. */
+async function recordPhases(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const seen: string[] = [];
+    (window as unknown as { phases: string[] }).phases = seen;
+    new MutationObserver(() => {
+      const phase = document.querySelector('[data-testid=load-status]')?.getAttribute('data-phase');
+      if (phase && seen[seen.length - 1] !== phase) seen.push(phase);
+    }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-phase'] });
+  });
+}
+
+function phasesSeen(page: Page): Promise<string[]> {
+  return page.evaluate(() => (window as unknown as { phases: string[] }).phases);
+}
 /** The 1920x1080 canvas less its 5% title-safe margins. */
 const SAFE = { left: 96, top: 54, right: 1824, bottom: 1026 };
 
@@ -148,14 +207,15 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
       // The Xtream form: OK opens a field (DOM focus: the TV's keyboard), Enter ends it and moves on.
       expect(await focus(root)).toBe('form · fields 0');
       await expect(page.locator('.z-field')).toHaveCount(5);
-      await typeInto(page, root, 'server', 'provider.example:8080');
+      // The mock provider's address and its test login (apps/mock-provider/fixtures).
+      await typeInto(page, root, 'server', host);
       expect(await focus(root)).toBe('form · fields 1');
-      await typeInto(page, root, 'username', 'user1');
-      await typeInto(page, root, 'password', 'pw-123');
+      await typeInto(page, root, 'username', U);
+      await typeInto(page, root, 'password', P);
       expect(await focus(root)).toBe('form · fields 3');
       await expect(page.locator('#onboarding-password')).toHaveAttribute('type', 'password');
       // A guide link with a space: refused on the TV, before anything is fetched.
-      await typeInto(page, root, 'epg', 'provider.example/xml tv.php');
+      await typeInto(page, root, 'epg', `${host}/xml tv.php`);
       await keys(page, 'ArrowDown', 'Enter');
       expect(await focus(root)).toBe('form · fields 3');
       await expect(page.getByTestId('field-epg')).toHaveClass(/is-invalid/);
@@ -165,28 +225,41 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
       // Backspace deletes inside the field (it is Back elsewhere): the form stays.
       await keys(page, 'Enter');
       for (let i = 0; i < 'xml tv.php'.length; i++) await page.keyboard.press('Backspace');
-      await page.keyboard.type('xmltv.php');
+      await page.keyboard.type(`xmltv.php?username=${U}&password=${P}`);
       await keys(page, 'Enter');
       expect(await focus(root)).toBe('form · fields 4');
-      await expect(page.locator('#onboarding-epg')).toHaveValue('provider.example/xmltv.php');
+      await expect(page.locator('#onboarding-epg')).toHaveValue(`${host}/xmltv.php?username=${U}&password=${P}`);
       await expect(page.getByTestId('field-epg')).not.toHaveClass(/is-invalid/);
       // A name in Arabic reads right to left in its own field.
       await typeInto(page, root, 'name', 'البيت');
       await expect(page.locator('#onboarding-name')).toHaveAttribute('dir', 'auto');
       await expect(page.locator('#onboarding-server')).toHaveAttribute('dir', 'ltr');
       expect(await focus(root)).toBe('form · actions 0');
+      await recordPhases(page);
       await keys(page, 'Enter');
 
-      // Loading through the fake loader, then the counts. The source's name is isolated.
+      // The login is checked, the catalog downloaded and saved, the guide read: then the mock's
+      // own counts. The source's name is isolated.
       await expect(root).toHaveAttribute('data-screen', /loading|done/);
-      await expect(root).toHaveAttribute('data-screen', 'done');
+      await expect(root).toHaveAttribute('data-screen', 'done', { timeout: 20_000 });
+      expect(await phasesSeen(page)).toEqual(expect.arrayContaining(['download', 'guide']));
       expect(await focus(root)).toBe('done · actions 0');
       const title = stripIsolates((await page.locator('.onboarding__text').first().textContent()) ?? '');
       expect(title).toBe(ar ? 'البيت جاهز.' : 'البيت is ready.');
-      await expect(page.getByTestId('done-live')).toHaveText(ar ? '1,240 قناةً' : '1,240 channels');
-      await expect(page.getByTestId('done-movies')).toHaveText(ar ? '380 فيلمًا' : '380 films');
-      await expect(page.getByTestId('done-series')).toHaveText(ar ? '45 مسلسلًا' : '45 series');
+      const counts = { live: catalog.live.length, movies: catalog.movies.length, series: catalog.series.length };
+      for (const [kind, n] of Object.entries(counts)) await expect(page.getByTestId(`done-${kind}`)).toHaveAttribute('data-n', String(n));
+      if (ar) {
+        for (const kind of Object.keys(counts)) await expect(page.getByTestId(`done-${kind}`)).toHaveText(/^[^A-Za-z]*\p{Script=Arabic}+[^A-Za-z]*$/u);
+      } else {
+        await expect(page.getByTestId('done-live')).toHaveText(`${counts.live} channels`);
+        await expect(page.getByTestId('done-movies')).toHaveText(`${counts.movies} films`);
+        await expect(page.getByTestId('done-series')).toHaveText(`${counts.series} series`);
+      }
       await checkScreen(page, `${locale}-done`);
+      // Saved: the answers and the source (its login stays in IndexedDB; not printed here).
+      const saved = await storedProfile(page);
+      expect(saved?.onboarding).toEqual({ language, disclaimerAt: expect.any(Number), consent: true });
+      expect(saved?.sources.map((s) => [s.id, s.type, s.name])).toEqual([['s1', 'xtream', 'البيت']]);
       // Every glyph from the bundled faces.
       const faces = (await renderedFontsUnder(page, '[data-testid=onboarding]')).map((f) => [f.familyName, f.isCustomFont]);
       expect(faces).toContainEqual([LATIN_FACE, true]);
@@ -201,9 +274,93 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
       // Start watching: until step 14's live screen, the hello screen.
       await keys(page, 'Enter');
       await expect(page.getByTestId('hello')).toHaveAttribute('data-ready', 'true');
+      // A relaunch: the source is stored, so onboarding is skipped.
+      await page.reload();
+      await expect(page.getByTestId('hello')).toHaveAttribute('data-ready', 'true');
+      await expect(page.getByTestId('onboarding')).toHaveCount(0);
+      expect(errors).toEqual([]);
+    });
+
+    test(`a wrong password shows the auth error; Edit details keeps the form, and the fixed login loads (${locale})`, async ({ page }) => {
+      const errors = trackErrors(page);
+      const root = await open(page, locale);
+      const ar = language === 'ar';
+      await keys(page, 'Enter', 'Enter', 'Enter', 'Enter');
+      await typeInto(page, root, 'server', host);
+      await typeInto(page, root, 'username', U);
+      await typeInto(page, root, 'password', 'wrong');
+      await keys(page, 'ArrowDown', 'ArrowDown');
+      expect(await focus(root)).toBe('form · actions 0');
+      await keys(page, 'Enter');
+      await expect(page.getByTestId('load-error')).toHaveAttribute('data-code', 'auth', { timeout: 20_000 });
+      await expect(page.getByTestId('load-error')).toHaveText(ar ? 'لم يقبل مزوّد الخدمة اسم المستخدم وكلمة المرور هذين.' : "The provider didn't accept this username and password.");
+      expect(await focus(root)).toBe('loading · actions 0');
+      await checkScreen(page, `${locale}-failed`);
+      // Edit details: back on the form, everything typed still there.
+      await keys(page, 'Enter');
+      expect(await focus(root)).toBe('form · actions 0');
+      await expect(page.locator('#onboarding-server')).toHaveValue(host);
+      await expect(page.locator('#onboarding-password')).toHaveValue('wrong');
+      await keys(page, 'ArrowUp');
+      expect(await focus(root)).toBe('form · fields 4');
+      await keys(page, 'ArrowUp', 'ArrowUp', 'Enter');
+      expect(await focus(root)).toBe('form · fields 2 editing onboarding-password');
+      for (let i = 0; i < 'wrong'.length; i++) await page.keyboard.press('Backspace');
+      await page.keyboard.type(P);
+      await keys(page, 'Enter', 'ArrowDown', 'ArrowDown', 'Enter');
+      await expect(root).toHaveAttribute('data-screen', 'done', { timeout: 20_000 });
+      await expect(page.getByTestId('done-live')).toHaveAttribute('data-n', String(catalog.live.length));
+      // The failed try saved nothing; the second is source s1.
+      expect((await storedProfile(page))?.sources.map((s) => s.id)).toEqual(['s1']);
       expect(errors).toEqual([]);
     });
   }
+
+  test("an expired or a banned account says so: the panel lets them in but serves them nothing", async ({ page }) => {
+    const root = await open(page, 'en-US');
+    await keys(page, 'Enter', 'Enter', 'Enter', 'Enter');
+    await typeInto(page, root, 'server', host);
+    // The mock's test accounts in those states (apps/mock-provider/fixtures/server.yaml).
+    await typeInto(page, root, 'username', 'banned');
+    await typeInto(page, root, 'password', 'banned-test');
+    await keys(page, 'ArrowDown', 'ArrowDown', 'Enter');
+    await expect(page.getByTestId('load-error')).toHaveAttribute('data-code', 'blocked', { timeout: 20_000 });
+    await expect(page.getByTestId('load-error')).toHaveText('Your provider has blocked or turned off this account. Contact your provider.');
+    // Edit details, then the expired account.
+    await keys(page, 'Enter', 'ArrowUp', 'ArrowUp', 'ArrowUp', 'ArrowUp');
+    expect(await focus(root)).toBe('form · fields 1');
+    await keys(page, 'Enter');
+    for (let i = 0; i < 'banned'.length; i++) await page.keyboard.press('Backspace');
+    await page.keyboard.type('expired');
+    await keys(page, 'Enter', 'Enter');
+    for (let i = 0; i < 'banned-test'.length; i++) await page.keyboard.press('Backspace');
+    await page.keyboard.type('expired-test');
+    await keys(page, 'Enter', 'ArrowDown', 'ArrowDown', 'Enter');
+    await expect(page.getByTestId('load-error')).toHaveAttribute('data-code', 'expired', { timeout: 20_000 });
+    await expect(page.getByTestId('load-error')).toHaveText('This account has expired. Contact your provider.');
+    // "Try again" asks the panel again: still expired.
+    await keys(page, 'ArrowRight', 'Enter');
+    await expect(page.getByTestId('load-error')).toHaveAttribute('data-code', 'expired', { timeout: 20_000 });
+  });
+
+  test('the language picked comes back after a relaunch before a source is added', async ({ page }) => {
+    const root = await open(page, 'en-US');
+    // Arabic, then "I understand"; the app is closed on the consent screen.
+    await keys(page, 'ArrowRight', 'Enter', 'Enter');
+    expect(await focus(root)).toBe('consent · actions 0');
+    await expect.poll(async () => (await storedProfile(page))?.onboarding).toEqual({ language: 'ar', disclaimerAt: expect.any(Number), consent: null });
+    await page.reload();
+    await expect(root).toHaveAttribute('data-ready', 'true');
+    // Onboarding again (no source yet), in Arabic, with العربية focused.
+    expect(await focus(root)).toBe('language · languages 1');
+    await expect(root).toHaveAttribute('data-language', 'ar');
+    await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+    await expect(page.locator('html')).toHaveAttribute('lang', 'ar-US');
+    // Both titles still offer themselves: Arabic is the app's language now, English the TV's.
+    await expect(page.getByTestId('choose-ar')).toHaveText('اختر لغتك');
+    await keys(page, 'Enter');
+    await expect(page.getByTestId('onboarding-title')).toHaveText('زوما مشغّل وسائط');
+  });
 
   test('picking the other language switches the app live, and Back keeps the choice', async ({ page }) => {
     const root = await open(page, 'en-US');

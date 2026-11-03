@@ -4,7 +4,8 @@
  * events: a Worker, a worker's `self`, a MessagePort.
  *
  * - Every call carries an id; the reply settles that call's promise.
- * - Errors cross as `{ name, message, code }` and are rethrown as `RpcError` (or `CancelError`).
+ * - Errors cross as `{ name, message, code, status }` and are rethrown as `RpcError` (or
+ *   `CancelError`). `status` is a numeric `status` the error had (an HTTP status), else absent.
  * - Cancellation uses our own tokens (Chromium 53 has no AbortController): cancelling rejects the
  *   call at once with `CancelError` and tells the other side, whose handler sees
  *   `ctx.token.cancelled` and can stop early. Its eventual reply is dropped.
@@ -132,6 +133,7 @@ interface WireError {
   name: string;
   message: string;
   code: string;
+  status?: number;
 }
 
 function isMsg(data: unknown): data is Msg {
@@ -146,6 +148,8 @@ export class RpcError extends Error {
     readonly code: string,
     /** The original error's name. */
     readonly remoteName: string,
+    /** The original error's numeric `status` (an HTTP status), if it had one. */
+    readonly status: number | null = null,
   ) {
     super(message);
     this.name = 'RpcError';
@@ -154,15 +158,17 @@ export class RpcError extends Error {
 
 function toWire(error: unknown): WireError {
   if (error instanceof Error) {
-    const code = (error as { code?: unknown }).code;
-    return { name: error.name, message: error.message, code: typeof code === 'string' ? code : error.name };
+    const { code, status } = error as { code?: unknown; status?: unknown };
+    const wire: WireError = { name: error.name, message: error.message, code: typeof code === 'string' ? code : error.name };
+    if (typeof status === 'number' && isFinite(status)) wire.status = status;
+    return wire;
   }
   return { name: 'Error', message: String(error), code: 'Error' };
 }
 
 function fromWire(e: WireError): Error {
   if (e.code === 'cancelled' && e.name === 'CancelError') return new CancelError(e.message);
-  return new RpcError(e.message, e.code, e.name);
+  return new RpcError(e.message, e.code, e.name, typeof e.status === 'number' ? e.status : null);
 }
 
 // ---------------------------------------------------------------------------------------------

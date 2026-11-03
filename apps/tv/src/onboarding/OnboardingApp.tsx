@@ -8,7 +8,7 @@ import type { AppI18n } from '../i18n';
 import { LANGUAGE_NAMES, appI18n, switchedTag } from '../i18n';
 import type { FieldId, FieldProblem } from './form';
 import { FORM_FIELDS } from './form';
-import type { LoadErrorCode } from './loader';
+import type { LoadErrorCode, LoadPhase } from './loader';
 import type { Onboarding } from './onboarding-state';
 import { LANGUAGES, SOURCE_TYPES, fieldDomId } from './onboarding-state';
 import './onboarding.css';
@@ -51,10 +51,18 @@ function errorText(t: Translate, code: LoadErrorCode, status: number | null): st
   if (code === 'http') return t('error.http', { status: status ?? 0 });
   if (code === 'auth') return t('error.auth');
   if (code === 'expired') return t('error.expired');
+  if (code === 'blocked') return t('error.blocked');
   if (code === 'network') return t('error.network');
   if (code === 'format') return t('error.format');
   if (code === 'empty') return t('error.empty');
   return t('error.other');
+}
+
+function phaseText(t: Translate, phase: LoadPhase, items: number): string {
+  if (phase === 'checking') return t('loading.checking');
+  if (phase === 'saving') return t('loading.saving');
+  if (phase === 'guide') return t('loading.guide');
+  return t('loading.download', { n: items });
 }
 
 function Panel({ title, children }: { title: string; children: ComponentChildren }) {
@@ -212,7 +220,7 @@ function LoadingScreen({ ob, i18n }: ScreenProps) {
   }
   const progress = state.status === 'running' ? state.progress : null;
   const phase = progress?.phase ?? 'checking';
-  const status = phase === 'checking' ? t('loading.checking') : phase === 'saving' ? t('loading.saving') : t('loading.download', { n: progress?.items ?? 0 });
+  const status = phaseText(t, phase, progress?.items ?? 0);
   const fraction = progress !== null && progress.total !== null && progress.total > 0 ? progress.bytes / progress.total : null;
   return (
     <Panel title={t('loading.title', { name })}>
@@ -240,9 +248,15 @@ function DoneScreen({ ob, i18n }: ScreenProps) {
     <Panel title={t('done.title')}>
       <p class="onboarding__text">{t('done.body', { name: ob.draft.value?.name ?? '' })}</p>
       <ul class="onboarding__counts">
-        <li data-testid="done-live">{t('done.live', { n: result.live })}</li>
-        <li data-testid="done-movies">{t('done.movies', { n: result.movies })}</li>
-        <li data-testid="done-series">{t('done.series', { n: result.series })}</li>
+        <li data-testid="done-live" data-n={result.live}>
+          {t('done.live', { n: result.live })}
+        </li>
+        <li data-testid="done-movies" data-n={result.movies}>
+          {t('done.movies', { n: result.movies })}
+        </li>
+        <li data-testid="done-series" data-n={result.series}>
+          {t('done.series', { n: result.series })}
+        </li>
       </ul>
       <div class="onboarding__actions">
         <Button label={t('done.start')} variant="primary" {...zone.item(0)} testId="action-0" />

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { FieldId } from './form';
 import type { FakeLoaderOptions, LoadResult, SourceLoader } from './loader';
 import { LoadError, createFakeLoader } from './loader';
+import type { OnboardingAnswer, OnboardingOptions } from './onboarding-state';
 import { LANGUAGES, SOURCE_TYPES, createOnboarding, fieldDomId } from './onboarding-state';
 
 const TEXT_KEYS: Record<number, TextKey> = { 13: 'done', 27: 'close', 38: 'up', 40: 'down' };
@@ -19,7 +20,7 @@ class FakeInput implements EditableLike {
   }
 }
 
-function setup(options: { rootBack?: RootBackPolicy; loader?: FakeLoaderOptions } = {}) {
+function setup(options: { rootBack?: RootBackPolicy; loader?: FakeLoaderOptions; answer?: OnboardingOptions['answer']; initial?: OnboardingOptions['initial'] } = {}) {
   const exitApp = vi.fn();
   const timers: Array<() => void> = [];
   let clock = 0;
@@ -38,6 +39,8 @@ function setup(options: { rootBack?: RootBackPolicy; loader?: FakeLoaderOptions 
       return input;
     },
     now: () => clock,
+    answer: options.answer,
+    initial: options.initial,
   });
   const at = (): string => {
     const f = ob.nav.snapshot();
@@ -151,6 +154,37 @@ describe('onboarding by remote (RELAY step 13a)', () => {
     s.ob.nav.setDir('rtl');
     s.press('LEFT');
     expect(s.at()).toBe('language · languages 1');
+  });
+});
+
+describe('the answers (RELAY step 13b)', () => {
+  it('hands out each answer as it is given: the language, when the disclaimer was accepted, the consent', () => {
+    const answers: OnboardingAnswer[] = [];
+    const s = setup({ answer: (a) => answers.push(a) });
+    s.press('RIGHT', 'OK');
+    expect(answers).toEqual([{ language: 'ar' }]);
+    s.later(1234);
+    s.press('OK');
+    expect(answers[1]).toEqual({ disclaimerAt: 1234 });
+    s.press('RIGHT', 'OK');
+    expect(answers[2]).toEqual({ consent: false });
+    expect(s.at()).toBe('source · types 0');
+    // Back and a new answer: handed out again (the profile keeps the last one).
+    s.ob.nav.handle('BACK');
+    s.press('LEFT', 'OK');
+    expect(answers.slice(3)).toEqual([{ consent: true }]);
+    expect(s.ob.consent.value).toBe(true);
+  });
+
+  it('starts in the language an earlier start saved, focused, and the TV language no longer moves the focus', () => {
+    const s = setup({ initial: { language: 'ar' } });
+    expect(s.ob.language.value).toBe('ar');
+    expect(s.at()).toBe('language · languages 1');
+    s.ob.preselect('en');
+    expect(s.at()).toBe('language · languages 1');
+    const none = setup({ initial: { language: null } });
+    expect(none.ob.language.value).toBeNull();
+    expect(none.at()).toBe('language · languages 0');
   });
 });
 

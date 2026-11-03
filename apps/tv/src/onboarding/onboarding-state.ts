@@ -20,6 +20,9 @@ import { LoadError } from './loader';
  *   form      (the fields, then "Add source": checked on the TV first)
  *   loading   (progress; on failure "Edit details" / "Try again")
  *   done      (the counts; the new root: Back no longer goes into onboarding)
+ *
+ * Each answer is handed to `answer` as it is given (step 13b saves it in the profile), so a
+ * relaunch before the source is added starts again in the language picked (`initial`).
  */
 
 /** The languages in the order the language screen shows them. */
@@ -45,7 +48,7 @@ export interface Onboarding {
   readonly home: Screen;
   /** The root screen: the language screen, then the done screen once the source is added. */
   readonly root: ReadonlySignal<Screen>;
-  /** The language picked on the first screen; `null` until then (the TV's language shows). */
+  /** The language picked on the first screen (or saved by an earlier start); `null`: the TV's shows. */
   readonly language: ReadonlySignal<Language | null>;
   /** The answer on the device-ID screen; `null` until then. */
   readonly consent: ReadonlySignal<boolean | null>;
@@ -65,9 +68,20 @@ export interface Onboarding {
   dispose(): void;
 }
 
+/** An answer as it is given: the language, when the disclaimer was accepted, the consent. */
+export interface OnboardingAnswer {
+  readonly language?: Language;
+  readonly disclaimerAt?: number;
+  readonly consent?: boolean;
+}
+
 export interface OnboardingOptions {
   readonly platform: Pick<Platform, 'rootBackPolicy' | 'exitApp' | 'textKey' | 'onSoftKeyboard'>;
   readonly loader: SourceLoader;
+  /** Called with each answer as it is given (the app saves it in the profile). */
+  readonly answer?: (answer: OnboardingAnswer) => void;
+  /** The answers saved by an earlier start that didn't finish: the language is shown and focused. */
+  readonly initial?: { readonly language: Language | null };
   /** Finds a field's input (tests); default `document.getElementById`. */
   readonly find?: TextEditorOptions['find'];
   /** The clock (the click pairing, in the navigator and the editor). */
@@ -86,7 +100,10 @@ function formZones(type: SourceType): ScreenSpec['zones'] {
 
 export function createOnboarding(options: OnboardingOptions): Onboarding {
   const { platform, loader } = options;
-  const language = signal<Language | null>(null);
+  const answer = options.answer ?? ((): void => undefined);
+  const clock = options.now ?? (() => Date.now());
+  const saved = options.initial?.language ?? null;
+  const language = signal<Language | null>(saved !== null && LANGUAGES.indexOf(saved) !== -1 ? saved : null);
   const consent = signal<boolean | null>(null);
   const type = signal<SourceType>('xtream');
   const values = signal<FormValues>({});
@@ -211,7 +228,9 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
     id: 'consent',
     zones: TWO,
     onSelect: (focus) => {
-      consent.value = focus.index === 0;
+      const allowed = focus.index === 0;
+      consent.value = allowed;
+      answer({ consent: allowed });
       nav.push(sourceSpec);
     },
   };
@@ -220,6 +239,7 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
     id: 'disclaimer',
     zones: ONE,
     onSelect: () => {
+      answer({ disclaimerAt: clock() });
       nav.push(consentSpec);
     },
   };
@@ -229,7 +249,9 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
       id: 'language',
       zones: [{ kind: 'list', id: 'languages', axis: 'horizontal', count: LANGUAGES.length }],
       onSelect: (focus) => {
-        language.value = LANGUAGES[focus.index] ?? 'en';
+        const picked = LANGUAGES[focus.index] ?? 'en';
+        language.value = picked;
+        answer({ language: picked });
         nav.push(disclaimerSpec);
       },
     },
@@ -260,6 +282,7 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
   const binding = bindFocus(nav);
   const home = nav.top;
   const root = signal<Screen>(home);
+  if (language.value !== null) home.focus('languages', LANGUAGES.indexOf(language.value));
 
   return {
     nav,

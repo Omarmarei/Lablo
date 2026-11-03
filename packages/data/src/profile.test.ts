@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { openDatabase, transact } from './idb';
-import type { AnyProfile, ProfileDoc, ProfileMigration } from './profile';
+import type { AnyProfile, ProfileDoc, ProfileMigration, SourceRecord } from './profile';
 import {
   PROFILE_MIGRATIONS,
   PROFILE_VERSION,
   ProfileError,
   SNAPSHOT_EVERY_MS,
+  applyProfileEdit,
   emptyProfile,
   listSnapshots,
   loadProfile,
@@ -19,7 +20,19 @@ import { freshFactory } from './test-support';
 
 const DAY = SNAPSHOT_EVERY_MS;
 const fav = (n: number): ProfileDoc['favourites'][number] => ({ key: `x:tv:live:${n}`, src: 'tv', kind: 'live', normName: `ch ${n}`, added: n, missingSince: null });
-const withFavs = (...ns: number[]): ProfileDoc => ({ v: 1, favourites: ns.map(fav) });
+/** A current (version 2) profile with these favourites. */
+const withFavs = (...ns: number[]): ProfileDoc => ({ ...emptyProfile(), favourites: ns.map(fav) });
+/** A version 1 document, as step 7 stored it. */
+const v1 = (...ns: number[]): AnyProfile => ({ v: 1, favourites: ns.map(fav) });
+const NO_ANSWERS = { language: null, disclaimerAt: null, consent: null };
+const xtreamSource = (id: string, name = 'Home'): SourceRecord => ({
+  id,
+  type: 'xtream',
+  name,
+  account: { base: 'http://panel.test', username: 'u', password: 'p' },
+  epgUrl: null,
+  added: 7,
+});
 
 async function writeCurrent(db: IDBDatabase, doc: unknown): Promise<void> {
   await transact(db, STORE.profile, 'readwrite', (tx) => tx.objectStore(STORE.profile).put({ id: 'current', savedAt: 0, doc }));
@@ -30,22 +43,32 @@ const toV2: ProfileMigration = ({ favourites, ...rest }) => ({ ...rest, v: 2, fa
 const toV3: ProfileMigration = (doc) => ({ ...doc, v: 3, settings: { language: 'ar' } });
 
 describe('profile migrations', () => {
-  it('is at version 1 with no migrations yet', () => {
+  it('is at version 2, with the shape of every version pinned', () => {
+    expect(PROFILE_VERSION).toBe(2);
     expect(PROFILE_VERSION).toBe(PROFILE_MIGRATIONS.length + 1);
-    expect(emptyProfile()).toEqual({ v: 1, favourites: [] });
+    expect(emptyProfile()).toEqual({ v: 2, favourites: [], sources: [], onboarding: NO_ANSWERS });
+    // 1 → 2 (step 13b): the favourites stay; no sources and no answers yet.
+    expect(migrateProfile(v1(1, 2))).toEqual({
+      doc: { v: 2, favourites: [fav(1), fav(2)], sources: [], onboarding: NO_ANSWERS },
+      from: 1,
+      migrated: true,
+      newer: false,
+    });
+    // Fields a version 1 document had that version 2 doesn't name are kept, never dropped.
+    expect(migrateProfile({ ...v1(), kept: 'x' }).doc).toMatchObject({ v: 2, kept: 'x' });
   });
 
   it('upgrades from every earlier version, step by step, without touching the input', () => {
-    const v1 = withFavs(1, 2);
-    const frozen = JSON.stringify(v1);
-    const fromV1 = migrateProfile(v1, [toV2, toV3]);
+    const start = v1(1, 2);
+    const frozen = JSON.stringify(start);
+    const fromV1 = migrateProfile(start, [toV2, toV3]);
     expect(fromV1).toEqual({
       doc: { v: 3, favouriteLists: [{ name: 'Favourites', items: [fav(1), fav(2)] }], settings: { language: 'ar' } },
       from: 1,
       migrated: true,
       newer: false,
     });
-    expect(JSON.stringify(v1)).toBe(frozen);
+    expect(JSON.stringify(start)).toBe(frozen);
     const fromV2 = migrateProfile(toV2(JSON.parse(frozen) as AnyProfile), [toV2, toV3]);
     expect(fromV2.doc).toEqual(fromV1.doc);
     expect(fromV2.from).toBe(2);
@@ -70,24 +93,34 @@ describe('profile storage', () => {
 
   it('upgrades an old stored profile in place and keeps the old document as a snapshot', async () => {
     const db = await openDatabase(freshFactory());
-    await writeCurrent(db, withFavs(1, 2));
+    await writeCurrent(db, v1(1, 2));
     const loaded = await loadProfile(db, { now: 50, migrations: [toV2, toV3] });
     expect(loaded).toMatchObject({ migratedFrom: 1, newer: false, doc: { v: 3 } });
     const snaps = await listSnapshots(db);
-    expect(snaps).toEqual([{ id: 'snap:0', savedAt: 50, doc: withFavs(1, 2), reason: 'migration' }]);
+    expect(snaps).toEqual([{ id: 'snap:0', savedAt: 50, doc: v1(1, 2), reason: 'migration' }]);
     // The upgrade was written: the next load has nothing to migrate.
     expect(await loadProfile(db, { now: 60, migrations: [toV2, toV3] })).toMatchObject({ migratedFrom: null, doc: { v: 3 } });
     db.close();
   });
 
+  it('upgrades a stored version 1 profile with the real migrations', async () => {
+    const db = await openDatabase(freshFactory());
+    await writeCurrent(db, v1(4));
+    expect(await loadProfile(db, { now: 70 })).toEqual({ doc: withFavs(4), newer: false, migratedFrom: 1 });
+    expect(await listSnapshots(db)).toEqual([{ id: 'snap:0', savedAt: 70, doc: v1(4), reason: 'migration' }]);
+    expect(await loadProfile(db)).toEqual({ doc: withFavs(4), newer: false, migratedFrom: null });
+    db.close();
+  });
+
   it('keeps the stored profile untouched when a migration fails', async () => {
     const db = await openDatabase(freshFactory());
-    await writeCurrent(db, withFavs(3));
+    await writeCurrent(db, v1(3));
     const failing: ProfileMigration = () => {
       throw new Error('bad migration');
     };
     await expect(loadProfile(db, { migrations: [failing] })).rejects.toThrow('bad migration');
-    expect(await loadProfile(db)).toEqual({ doc: withFavs(3), newer: false, migratedFrom: null });
+    // Still the version 1 document (read by an app with no migrations, so nothing is upgraded).
+    expect(await loadProfile(db, { migrations: [] })).toEqual({ doc: v1(3), newer: false, migratedFrom: null });
     expect(await listSnapshots(db)).toEqual([]);
     db.close();
   });
@@ -98,7 +131,7 @@ describe('profile storage', () => {
     expect(await loadProfile(db)).toEqual({ doc: { v: 9, favourites: [], future: true }, newer: true, migratedFrom: null });
     await expect(saveProfile(db, withFavs(1))).rejects.toThrow(/newer app version/);
     expect((await loadProfile(db))!.doc).toMatchObject({ v: 9, future: true });
-    expect(() => saveProfile(db, { v: 2 } as unknown as ProfileDoc)).toThrow(/Can't save a version 2/);
+    expect(() => saveProfile(db, { v: 3 } as unknown as ProfileDoc)).toThrow(/Can't save a version 3/);
     db.close();
   });
 
@@ -171,10 +204,18 @@ describe('updateProfile', () => {
     await updateProfile(db, (doc) => ({ ...doc, favourites: [fav(2)] }), { now: DAY });
     expect((await listSnapshots(db)).map((s) => [s.reason, s.doc])).toEqual([['daily', withFavs(1)]]);
 
-    // A version-1 document under an app that writes version 2: upgraded, the old one snapshotted.
-    expect(await updateProfile(db, (doc) => ({ ...doc, extra: true }) as ProfileDoc, { now: DAY + 1, migrations: [toV2] })).toBe(true);
-    const snaps = await listSnapshots(db);
-    expect(snaps[0]).toMatchObject({ reason: 'migration', doc: withFavs(2) });
+    // A version 1 document: upgraded before the update sees it, the old one snapshotted.
+    await writeCurrent(db, v1(2));
+    let seen: ProfileDoc | null = null;
+    const update = (doc: ProfileDoc): ProfileDoc => {
+      seen = doc;
+      return { ...doc, favourites: [fav(3)] };
+    };
+    expect(await updateProfile(db, update, { now: DAY + 1 })).toBe(true);
+    expect(seen).toEqual(withFavs(2));
+    expect((await listSnapshots(db))[0]).toMatchObject({ reason: 'migration', doc: v1(2) });
+    expect((await loadProfile(db))!.doc).toEqual(withFavs(3));
+    // An app that only knows version 1 sees a newer document and leaves it alone.
     await expect(updateProfile(db, (doc) => doc, { migrations: [] })).resolves.toBe(false);
 
     await writeCurrent(db, { v: 9, favourites: [] });
@@ -185,8 +226,63 @@ describe('updateProfile', () => {
   it('rejects (and writes nothing) when the update returns another version', async () => {
     const db = await openDatabase(freshFactory());
     await saveProfile(db, withFavs(1), { now: 0 });
-    await expect(updateProfile(db, (doc) => ({ ...doc, v: 2 }) as unknown as ProfileDoc)).rejects.toThrow(ProfileError);
+    await expect(updateProfile(db, (doc) => ({ ...doc, v: 3 }) as unknown as ProfileDoc)).rejects.toThrow(ProfileError);
     expect((await loadProfile(db))!.doc).toEqual(withFavs(1));
     db.close();
+  });
+
+  it('creates the profile from an empty one only when asked to', async () => {
+    const db = await openDatabase(freshFactory());
+    // A refresh's favourites update never creates one.
+    expect(await updateProfile(db, (doc) => ({ ...doc, favourites: [fav(1)] }))).toBe(false);
+    expect(await loadProfile(db)).toBeNull();
+    let seen: ProfileDoc | null = null;
+    const answer = (doc: ProfileDoc): ProfileDoc => {
+      seen = doc;
+      return { ...doc, onboarding: { ...doc.onboarding, language: 'ar' } };
+    };
+    expect(await updateProfile(db, answer, { create: true, now: 3 })).toBe(true);
+    expect(seen).toEqual(emptyProfile());
+    expect((await loadProfile(db))!.doc).toEqual({ ...emptyProfile(), onboarding: { ...NO_ANSWERS, language: 'ar' } });
+    // Nothing to snapshot: there was no document before.
+    expect(await listSnapshots(db)).toEqual([]);
+    // With a profile there, `create` changes nothing: the stored one is updated.
+    expect(await updateProfile(db, (doc) => ({ ...doc, favourites: [fav(2)] }), { create: true, now: 4 })).toBe(true);
+    expect((await loadProfile(db))!.doc).toMatchObject({ favourites: [fav(2)], onboarding: { language: 'ar' } });
+    db.close();
+  });
+});
+
+describe('applyProfileEdit', () => {
+  it('sets the answers given and leaves the others; the same answers change nothing', () => {
+    const doc = withFavs(1);
+    const one = applyProfileEdit(doc, { kind: 'answers', answers: { language: 'ar' } });
+    expect(one).toEqual({ ...doc, onboarding: { ...NO_ANSWERS, language: 'ar' } });
+    expect(doc.onboarding).toEqual(NO_ANSWERS);
+    const two = applyProfileEdit(one!, { kind: 'answers', answers: { disclaimerAt: 5, consent: false } });
+    expect(two!.onboarding).toEqual({ language: 'ar', disclaimerAt: 5, consent: false });
+    expect(applyProfileEdit(two!, { kind: 'answers', answers: { language: 'ar', consent: false } })).toBeNull();
+    expect(applyProfileEdit(two!, { kind: 'answers', answers: {} })).toBeNull();
+    // A language can be cleared again (back to the TV's).
+    expect(applyProfileEdit(two!, { kind: 'answers', answers: { language: null } })!.onboarding.language).toBeNull();
+    expect(applyProfileEdit(two!, { kind: 'answers', answers: { consent: true } })!.onboarding.consent).toBe(true);
+  });
+
+  it('adds a source at the end, and replaces one with the same id in place', () => {
+    const doc = withFavs(1);
+    const a = applyProfileEdit(doc, { kind: 'source', source: xtreamSource('s1', 'A') })!;
+    const b = applyProfileEdit(a, { kind: 'source', source: xtreamSource('s2', 'B') })!;
+    expect(b.sources.map((s) => [s.id, s.name])).toEqual([
+      ['s1', 'A'],
+      ['s2', 'B'],
+    ]);
+    const renamed = applyProfileEdit(b, { kind: 'source', source: xtreamSource('s1', 'A2') })!;
+    expect(renamed.sources.map((s) => [s.id, s.name])).toEqual([
+      ['s1', 'A2'],
+      ['s2', 'B'],
+    ]);
+    expect(b.sources.map((s) => s.name)).toEqual(['A', 'B']);
+    expect(renamed.favourites).toEqual([fav(1)]);
+    expect(doc.sources).toEqual([]);
   });
 });

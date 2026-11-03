@@ -10,13 +10,28 @@ export { DB_NAME, DB_VERSION, MIGRATIONS, STORE } from './schema';
 export type { OpenOptions, TxMode } from './idb';
 export { IdbError, deleteDatabase, getValue, onSuccess, openDatabase, transact } from './idb';
 
-export type { AnyProfile, FavouriteRef, LoadedProfile, ProfileDoc, ProfileMigration, ProfileOptions, ProfileSnapshot, ProfileV1, SnapshotReason } from './profile';
+export type {
+  AnyProfile,
+  FavouriteRef,
+  LoadedProfile,
+  OnboardingAnswers,
+  ProfileDoc,
+  ProfileEdit,
+  ProfileMigration,
+  ProfileOptions,
+  ProfileSnapshot,
+  ProfileV1,
+  ProfileV2,
+  SnapshotReason,
+  SourceRecord,
+} from './profile';
 export {
   PROFILE_MIGRATIONS,
   PROFILE_VERSION,
   ProfileError,
   SNAPSHOT_EVERY_MS,
   SNAPSHOT_SLOTS,
+  applyProfileEdit,
   emptyProfile,
   listSnapshots,
   loadProfile,
