@@ -381,12 +381,16 @@ UI steps also end with a short "press these keys" checklist that Omar can run in
       - `test/engines-onboarding.test.ts` pins the walk's marks to `LiveApp.tsx`.
       - 46/46 mutants caught (`artifacts/mutate14a.py`; its runner now kills a spinning mutant's process tree).
     - **Local gates:** see the leg-24 row of the progress log.
-- [ ] 14b. **`RemoteDriver`, the throttled and low-tier runs, the live screen on the old engines.**
+- [ ] 14b. **`RemoteDriver`, the throttled and low-tier runs.**
+  - Split in leg 25: the old-engine part moved to 14c.
   - `window.__ZOMA_TEST__.focusPath()`: the focus ids from the engine (screen, zone, index), not the DOM. Decide whether the TV bundles carry it (the old-engine harness could use it too).
   - `e2e/remote-driver.ts`: presses Intents through the browser adapter's keys and waits for focus paths. The live and onboarding e2e move onto it.
-  - A smoke run of the live screen at 4x CPU throttle (CDP `Emulation.setCPUThrottlingRate`) on a large catalog (the mock serves the 200k fixture with `--catalog`): a key-handling budget per press, and no long tasks while scrolling. The same run in the forced low tier (`?tier=low`).
-  - The old-engine harness: the live screen in Chromium 53/56/68, both bundles, en and ar: the rail and the list by keys, now/next from the fixture's guide, the layout checks, screenshots.
-  - **Done when:** the throttled and low-tier runs are green in `pnpm verify`; `verify:engines --self-test` green with the live-screen checks and a seeded failure caught; PR merged; a checklist.
+  - A smoke run of the live screen at 4x CPU throttle (CDP `Emulation.setCPUThrottlingRate`) on a large catalog built in-process (`pnpm verify` has no `.cache/fixtures`): a key-handling budget per press, and no long tasks while scrolling. The same run in the forced low tier (`?tier=low`), which must actually change something (the motion tokens).
+  - **Done when:** the throttled and low-tier runs are green in `pnpm verify`; a seeded slow key press fails the budget; `verify:engines --self-test` green (the boot code changes); PR merged; a checklist.
+- [ ] 14c. **The live screen on the old engines.**
+  - The old-engine harness: the live screen in Chromium 53/56/68, both bundles, en and ar: the rail and the list by keys (ArrowDown, CH−, to the rail, OK on a category, Back), now/next from the fixture's guide (every 8th channel has programmes), the layout checks kept equal to `layout()` in e2e/live.spec.ts by a root test, screenshots.
+  - A seed that must fail on every engine (e.g. a CSS seed without `live.css`, or a JS seed).
+  - **Done when:** `verify:engines --self-test` green with the live-screen checks and the seed caught; the Arabic screenshots looked at; PR merged.
 
 ### Hardware lab
 Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several layers:
