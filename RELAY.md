@@ -347,6 +347,27 @@ UI steps also end with a short "press these keys" checklist that Omar can run in
     - The PR and its CI are in the leg-23 row of the progress log.
 - [ ] 14. **Live browse screen (4.5).** Category rail, virtual channel list, now/next, `RemoteDriver` e2e, CPU-throttled smoke test. Ends with a click-through checklist for Omar.
   - **Done when:** the e2e tests are green and the checklist is in the handover.
+  - Split in leg 24 into 14a (the screen, in the app's start and in the old-engine walk) and 14b (`RemoteDriver`, the throttled and low-tier runs, the live screen's own checks on Chromium 53/56/68).
+- [ ] 14a. **The live screen: category rail, virtual channel list, now/next.**
+  - **The screen** (`apps/tv/src/live`):
+    - A category rail at the inline start: "All channels", then each stored source's live categories with their counts. A group without a name gets a catalog word.
+    - The virtual channel list: number, name, badges, the programme on now with its bar and start time, and the next one.
+    - Data through the shared `DataEngine` only: `categories` and `chunk` read on demand for the rows on show, `nowNext` for those rows (again each minute), and `focusChannel` (the short EPG after 600 ms of focus). Stale answers are dropped.
+  - **Keys:** OK on a category shows it and moves to the list. Back from the list goes to the rail. Back on the rail follows `rootBackPolicy` (an exit dialog in the browser and on Tizen). CH+/CH− page the list. OK on a channel is where the player (step 20) plugs in; until then it only marks the row.
+  - **States:** loading, no live channels, and a read failure with "Try again".
+  - **In the app:** it replaces the hello screen after "Start watching" and at a start with a stored source; `?screen=hello` stays a developer screen. It shows in the profile's language (the onboarding pick), in the TV's region.
+  - **The old-engine walk ends on it:** the live screen's ready and idle signals replace the hello screen's (`walkSteps`, `WALK_EXPRESSION`, the unit tests, `test/engines-onboarding.test.ts`, runbook item 6). e2e `onboarding.spec.ts` and `tv-bundle.spec.ts` follow.
+  - **Done when:**
+    - unit tests: the window's chunk reads, the now/next requests, the key paths, Back, stale answers;
+    - e2e `live.spec.ts` by keys against the mock in en and ar: the mock's 6 categories and 12 channels, a category picked, now/next on the 11 channels with a guide, the list paged by keys, a relaunch opening the screen;
+    - screenshots in en, ar and en-XA, with the Arabic one looked at;
+    - `pnpm verify` and `verify:engines --self-test` green; PR merged; a "press these keys" checklist.
+- [ ] 14b. **`RemoteDriver`, the throttled and low-tier runs, the live screen on the old engines.**
+  - `window.__ZOMA_TEST__.focusPath()`: the focus ids from the engine (screen, zone, index), not the DOM. Decide whether the TV bundles carry it (the old-engine harness could use it too).
+  - `e2e/remote-driver.ts`: presses Intents through the browser adapter's keys and waits for focus paths. The live and onboarding e2e move onto it.
+  - A smoke run of the live screen at 4x CPU throttle (CDP `Emulation.setCPUThrottlingRate`) on a large catalog (the mock serves the 200k fixture with `--catalog`): a key-handling budget per press, and no long tasks while scrolling. The same run in the forced low tier (`?tier=low`).
+  - The old-engine harness: the live screen in Chromium 53/56/68, both bundles, en and ar: the rail and the list by keys, now/next from the fixture's guide, the layout checks, screenshots.
+  - **Done when:** the throttled and low-tier runs are green in `pnpm verify`; `verify:engines --self-test` green with the live-screen checks and a seeded failure caught; PR merged; a checklist.
 
 ### Hardware lab
 Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several layers:
