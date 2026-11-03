@@ -13,6 +13,11 @@ import type { QueryService } from './query-service';
 import type { RpcPort } from './rpc';
 import { RpcClient } from './rpc';
 
+// Cancel tokens and the errors calls reject with (rpc.ts is bundled here anyway): the app cancels
+// a refresh and reads its error code without importing the package index (step 13b).
+export type { CancelToken } from './rpc';
+export { CancelError, CancelSource, RpcError } from './rpc';
+
 /** The query worker's RPC methods. */
 export type QueryHandlers = ReturnType<QueryService['handlers']>;
 

@@ -1,12 +1,12 @@
 import type { SourceDraft } from './form';
 
 /**
- * Loading a new source, as onboarding shows it (RELAY step 13a). Step 13b implements it with the
- * data engine against the provider; until then `createFakeLoader` stands in, so the screens and
- * their e2e run without a provider.
+ * Loading a new source, as onboarding shows it (RELAY step 13a). The app loads through the data
+ * engine (`createEngineLoader`, step 13b); `createFakeLoader` stays for the unit tests.
  */
 
-export type LoadPhase = 'checking' | 'download' | 'saving';
+/** Checking the source, reading the catalog, saving it, then reading its guides. */
+export type LoadPhase = 'checking' | 'download' | 'saving' | 'guide';
 
 export interface LoadProgress {
   readonly phase: LoadPhase;
@@ -18,8 +18,11 @@ export interface LoadProgress {
   readonly items: number;
 }
 
-/** Why a source couldn't be added. Each has its own message (`error.<code>`). */
-export type LoadErrorCode = 'auth' | 'expired' | 'network' | 'http' | 'format' | 'empty' | 'other';
+/**
+ * Why a source couldn't be added. Each has its own message (`error.<code>`). `expired` and
+ * `blocked` (banned or disabled) are what an Xtream panel says about an account it still lets in.
+ */
+export type LoadErrorCode = 'auth' | 'expired' | 'blocked' | 'network' | 'http' | 'format' | 'empty' | 'other';
 
 export class LoadError extends Error {
   constructor(

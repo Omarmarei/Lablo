@@ -8,6 +8,7 @@ import {
   decodeCategory,
   decodeListItem,
   decodeLogin,
+  xtreamAccountProblem,
   decodeSeriesInfo,
   decodeShortEpg,
   decodeVodInfo,
@@ -189,6 +190,19 @@ describe('decodeLogin', () => {
     expect(decodeLogin({ user_info: { status: 'Expired', exp_date: null } })).toMatchObject({ user: { auth: true, status: 'Expired', expDate: null } });
     expect(decodeLogin([])).toBeNull();
     expect(decodeLogin({ user_info: 'x' })).toBeNull();
+  });
+});
+
+describe('xtreamAccountProblem', () => {
+  it("reads an accepted login's status, in any case; unknown statuses and old expiry dates load", () => {
+    expect(xtreamAccountProblem({ status: 'Expired' })).toBe('expired');
+    expect(xtreamAccountProblem({ status: 'EXPIRED' })).toBe('expired');
+    expect(xtreamAccountProblem({ status: 'Banned' })).toBe('blocked');
+    expect(xtreamAccountProblem({ status: 'disabled' })).toBe('blocked');
+    for (const status of ['Active', 'active', '', 'Inactive', 'Trial', 'Expired soon']) expect(xtreamAccountProblem({ status })).toBeNull();
+    // Only the status decides: an Active account whose exp_date has passed still loads.
+    const login = decodeLogin({ user_info: { auth: 1, status: 'Active', exp_date: '1000' } });
+    expect(xtreamAccountProblem(login!.user)).toBeNull();
   });
 });
 

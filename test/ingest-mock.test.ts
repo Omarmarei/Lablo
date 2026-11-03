@@ -6,7 +6,7 @@
 
 import type { CatalogItem, ContentKind } from '@zoma/core';
 import type { FavouriteRef, IngestJob, IngestOptions, ProfileDoc } from '@zoma/data';
-import { IngestError, QueryService, fetchTransport, getSource, loadProfile, openDatabase, runIngest, saveProfile } from '@zoma/data';
+import { IngestError, QueryService, emptyProfile, fetchTransport, getSource, loadProfile, openDatabase, runIngest, saveProfile } from '@zoma/data';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Catalog } from '../apps/mock-provider/src/config';
 import { loadCatalog } from '../apps/mock-provider/src/config';
@@ -126,7 +126,7 @@ describe('ingest against the mock provider: Xtream', () => {
       movies.find((i) => i.key === 'x:xt:movie:202')!,
       series.find((i) => i.key === 'x:xt:series:302')!,
     ];
-    await saveProfile(db, { v: 1, favourites: picks.map(favourite) }, { now: NOW });
+    await saveProfile(db, { ...emptyProfile(), favourites: picks.map(favourite) }, { now: NOW });
 
     app.mockState.catalog = renumbered(catalog, 1000);
     const r = await ingest(xtream(), { now: () => NOW + DAY });
@@ -183,5 +183,19 @@ describe('ingest against the mock provider: Xtream', () => {
 
     const bad: IngestJob = { src: 'xt', source: { type: 'xtream', account: { base, username: U, password: 'nope' } } };
     await expect(ingest(bad)).rejects.toMatchObject({ code: 'auth' });
+  });
+
+  it("stops on the account's status: expired, banned or disabled accounts log in but get nothing", async () => {
+    // The mock's test accounts in every `user_info` state (apps/mock-provider/fixtures/server.yaml).
+    const job = (username: string): IngestJob => ({ src: 'xt', source: { type: 'xtream', account: { base, username, password: `${username}-test` } } });
+    await expect(ingest(job('expired'))).rejects.toMatchObject({ name: 'IngestError', code: 'expired' });
+    await expect(ingest(job('banned'))).rejects.toMatchObject({ name: 'IngestError', code: 'blocked' });
+    await expect(ingest(job('disabled'))).rejects.toMatchObject({ name: 'IngestError', code: 'blocked' });
+    // Nothing was written for them, not even the source's record.
+    expect(await getSource(db, 'xt')).toBeNull();
+    // Active accounts load, a trial and one that never expires included.
+    for (const username of ['trial', 'forever']) {
+      expect(await ingest({ ...job(username), src: username })).toMatchObject({ status: 'committed' });
+    }
   });
 });

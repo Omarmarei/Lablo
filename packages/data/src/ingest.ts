@@ -6,8 +6,8 @@
  *    refresh per source may run at a time (a second one would supersede the first).
  * 2. Fetch: M3U sends the validators of the active generation (`If-None-Match`,
  *    `If-Modified-Since`); a 304 ends the refresh as `unchanged` before anything is written.
- *    Xtream logs in (the panel's zone is kept for catch-up), then streams each kind's
- *    categories and list.
+ *    Xtream logs in (the panel's zone is kept for catch-up), stops on an expired, banned or
+ *    disabled account (`expired`, `blocked`), then streams each kind's categories and list.
  * 3. Bytes are hashed (FNV-1a) as downloaded, gunzipped when they start with `1f 8b`, decoded
  *    as UTF-8 in stream mode and parsed by core's streaming parsers.
  * 4. Items go through a chunker and search-index builder per kind; chunks are written about 10
@@ -26,7 +26,7 @@
  */
 
 import type { CatalogItem, ContentKind, M3uStats, TextTransport, XtreamAccount, XtreamListStats, XtreamServerInfo } from '@zoma/core';
-import { CONTENT_KINDS, M3uCatalogParser, SearchIndexBuilder, SearchSegment, XtreamClient } from '@zoma/core';
+import { CONTENT_KINDS, M3uCatalogParser, SearchIndexBuilder, SearchSegment, XtreamClient, xtreamAccountProblem } from '@zoma/core';
 import type { ByteResponse, ByteTransport, TextSource } from './bytes';
 import { Fnv1a, decodeUtf8, tapBytes } from './bytes';
 import type { FetchStamp, SourceMetaPatch } from './catalog-store';
@@ -355,6 +355,9 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
       const login = await client.login();
       hashing = true;
       token.throwIfCancelled();
+      // An expired, banned or disabled account still logs in, but gets no lists: say why.
+      const problem = xtreamAccountProblem(login.user);
+      if (problem !== null) throw new IngestError(problem);
       writer = new GenerationWriter(db, src, await beginGeneration(db, src), throttle, token, options.chunkSize);
       const lists: Partial<Record<ContentKind, XtreamListStats>> = {};
       for (const kind of source.kinds ?? CONTENT_KINDS) {

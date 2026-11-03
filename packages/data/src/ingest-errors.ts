@@ -10,7 +10,15 @@ import { GzipError } from './gunzip';
 import type { CancelToken } from './rpc';
 import { CancelError } from './rpc';
 
-export type IngestErrorCode = 'http' | 'auth' | 'network' | 'format' | 'empty' | 'superseded';
+/**
+ * - `auth`: the login was refused (an Xtream panel's `auth: 0`, or HTTP 401/403).
+ * - `expired`, `blocked`: an Xtream panel accepted the login but says the account is expired, or
+ *   banned or disabled (`user_info.status`), and serves it nothing (step 13b).
+ * - `http`: another status outside 2xx (`status` holds it). `network`: no answer, or a cut one.
+ * - `format`: not a playlist or panel answer. `empty`: nothing usable in it.
+ * - `superseded`: another refresh of the same source took over.
+ */
+export type IngestErrorCode = 'http' | 'auth' | 'expired' | 'blocked' | 'network' | 'format' | 'empty' | 'superseded';
 
 /** A refresh that failed; the active generation is unchanged. Never holds a URL. */
 export class IngestError extends Error {

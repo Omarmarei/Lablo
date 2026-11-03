@@ -99,6 +99,7 @@ export const EN = {
   'loading.checking': 'Checking the details',
   'loading.download': 'Loading: {n, plural, one {# item} other {# items}}',
   'loading.saving': 'Saving',
+  'loading.guide': 'Loading the guide',
   'loading.failed': "Couldn't add {name}",
   'loading.edit': 'Edit details',
   'loading.retry': 'Try again',
@@ -106,6 +107,7 @@ export const EN = {
   // Why a source couldn't be added.
   'error.auth': "The provider didn't accept this username and password.",
   'error.expired': 'This account has expired. Contact your provider.',
+  'error.blocked': 'Your provider has blocked or turned off this account. Contact your provider.',
   'error.network': "Couldn't reach the server. Check the address and your internet connection.",
   'error.http': 'The server answered with error {status, number}.',
   'error.format': "This link didn't give a playlist.",

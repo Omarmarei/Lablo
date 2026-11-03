@@ -162,14 +162,21 @@ for (const platform of ['tizen', 'webos'] as const) {
     await page.keyboard.press('Enter');
     await expect(root).toHaveAttribute('data-editing', 'onboarding-playlist');
     expect(await page.evaluate(() => document.activeElement?.id)).toBe('onboarding-playlist');
-    await page.keyboard.type('p.example/list.m3u');
+    // The mock's playlist, typed without `http://` (the form adds it).
+    const link = `${base.replace(/^http:\/\//, '')}/get.php?username=${U}&password=${P}&type=m3u_plus`;
+    await page.keyboard.type(link);
     await page.keyboard.press('Enter');
     await expect(root).toHaveAttribute('data-editing', '');
     await expect(root).toHaveAttribute('data-index', '1');
-    await expect(page.locator('#onboarding-playlist')).toHaveValue('p.example/list.m3u');
-    // The fake loader (until step 13b) lands on the done screen.
+    await expect(page.locator('#onboarding-playlist')).toHaveValue(link);
+    // The Blob data workers load it from file:// (step 13b): done with the playlist's channels.
     for (const key of ['ArrowDown', 'ArrowDown', 'Enter']) await page.keyboard.press(key);
-    await expect(root).toHaveAttribute('data-screen', 'done');
+    await expect(root).toHaveAttribute('data-screen', 'done', { timeout: 20_000 });
+    await expect(page.getByTestId('done-live')).toHaveAttribute('data-n', String(app.mockState.catalog.live.length));
+    // A relaunch with the source stored skips onboarding.
+    await page.reload();
+    await expect(page.getByTestId('hello')).toHaveAttribute('data-ready', 'true');
+    await expect(page.getByTestId('onboarding')).toHaveCount(0);
     expect(errors).toEqual([]);
   });
 }

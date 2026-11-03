@@ -8,10 +8,11 @@
  * upgrade is kept as a snapshot. A document from a newer app version is returned as it is and
  * never overwritten by this version.
  *
- * Version 1 (RELAY step 7) holds the favourites. Later steps add fields with a migration each.
+ * Version 1 (RELAY step 7) holds the favourites. Version 2 (step 13b) adds the sources the user
+ * added and the onboarding answers. Later steps add fields with a migration each.
  */
 
-import type { ContentKey, ContentKind } from '@zoma/core';
+import type { ContentKey, ContentKind, XtreamAccount } from '@zoma/core';
 import { onSuccess, transact } from './idb';
 import { STORE } from './schema';
 
@@ -40,8 +41,37 @@ export type ProfileV1 = {
   favourites: FavouriteRef[];
 };
 
+/**
+ * A source the user added (step 13b). `id` scopes its ContentKeys and catalog records (ADR-009),
+ * so it never changes and is never reused for another source.
+ *
+ * The login (an Xtream account, or an M3U link, which often holds one) is stored in IndexedDB
+ * only, in plain text for now. Step 32 encrypts it with the TV's `localKey` before the profile is
+ * written, and the cloud backup leaves it out when the user turns that off (architecture.md §3.3).
+ */
+export type SourceRecord =
+  | { id: string; type: 'xtream'; name: string; account: XtreamAccount; epgUrl: string | null; added: number }
+  | { id: string; type: 'm3u'; name: string; url: string; epgUrl: string | null; added: number };
+
+/** What the user answered during onboarding. */
+export type OnboardingAnswers = {
+  /** The language picked on the first screen (`en`, `ar`); `null`: none yet, the TV's shows. */
+  language: string | null;
+  /** When the disclaimer was accepted (epoch ms); `null`: not yet. */
+  disclaimerAt: number | null;
+  /** The device-ID consent: allowed, "not now", or not asked yet (`null`). Step 32 reads it. */
+  consent: boolean | null;
+};
+
+export type ProfileV2 = {
+  v: 2;
+  favourites: FavouriteRef[];
+  sources: SourceRecord[];
+  onboarding: OnboardingAnswers;
+};
+
 /** The current profile shape. */
-export type ProfileDoc = ProfileV1;
+export type ProfileDoc = ProfileV2;
 
 /** A stored document of any version (older ones are migrated on load). */
 export interface AnyProfile {
@@ -52,7 +82,10 @@ export interface AnyProfile {
 /** `PROFILE_MIGRATIONS[i]` upgrades a version `i + 1` document to version `i + 2`. Append only. */
 export type ProfileMigration = (doc: AnyProfile) => AnyProfile;
 
-export const PROFILE_MIGRATIONS: readonly ProfileMigration[] = [];
+export const PROFILE_MIGRATIONS: readonly ProfileMigration[] = [
+  // 1 → 2 (step 13b): no sources and no answers yet.
+  (doc) => ({ ...doc, v: 2, sources: [], onboarding: noAnswers() }),
+];
 
 export const PROFILE_VERSION = PROFILE_MIGRATIONS.length + 1;
 
@@ -76,8 +109,38 @@ export interface ProfileSnapshot extends ProfileRecord {
 const CURRENT = 'current';
 const SNAPSHOTS = (): IDBKeyRange => IDBKeyRange.bound('snap:', 'snap:~');
 
+function noAnswers(): OnboardingAnswers {
+  return { language: null, disclaimerAt: null, consent: null };
+}
+
 export function emptyProfile(): ProfileDoc {
-  return { v: 1, favourites: [] };
+  return { v: 2, favourites: [], sources: [], onboarding: noAnswers() };
+}
+
+/** A change the app makes to the profile through the query worker (step 13b). */
+export type ProfileEdit =
+  | { kind: 'answers'; answers: Partial<OnboardingAnswers> }
+  /** Adds the source, or replaces the one with its id (in place). */
+  | { kind: 'source'; source: SourceRecord };
+
+/** `doc` with `edit` applied (new objects), or `null` when it changes nothing. */
+export function applyProfileEdit(doc: ProfileDoc, edit: ProfileEdit): ProfileDoc | null {
+  if (edit.kind === 'answers') {
+    const onboarding: OnboardingAnswers = { ...doc.onboarding };
+    let changed = false;
+    for (const field of ['language', 'disclaimerAt', 'consent'] as const) {
+      const value = edit.answers[field];
+      if (value === undefined || value === onboarding[field]) continue;
+      (onboarding as Record<string, unknown>)[field] = value;
+      changed = true;
+    }
+    return changed ? { ...doc, onboarding } : null;
+  }
+  const at = doc.sources.findIndex((s) => s.id === edit.source.id);
+  const sources = doc.sources.slice();
+  if (at === -1) sources.push(edit.source);
+  else sources[at] = edit.source;
+  return { ...doc, sources };
 }
 
 /** Thrown for a stored document that is not a profile, or a migration that fails. */
@@ -207,13 +270,14 @@ function writeCurrent(store: IDBObjectStore, previous: ProfileRecord | undefined
  * the meantime is never lost (the ingest worker's favourites update uses it). `update` gets the
  * stored document upgraded to this version and returns the new one, or `null` to leave it; it
  * runs inside the transaction, so it must be synchronous. Snapshots like `saveProfile`.
- * Resolves `true` if it wrote. Nothing is written when there is no profile, or when it comes
- * from a newer app version.
+ * Resolves `true` if it wrote. Nothing is written when the stored document comes from a newer app
+ * version, or when there is none, unless `create` is set: `update` then gets `emptyProfile()`
+ * (onboarding's first answers create the profile; a refresh never does).
  */
 export function updateProfile(
   db: IDBDatabase,
   update: (doc: ProfileDoc) => ProfileDoc | null,
-  options: ProfileOptions & { snapshotEveryMs?: number } = {},
+  options: ProfileOptions & { snapshotEveryMs?: number; create?: boolean } = {},
 ): Promise<boolean> {
   const now = options.now ?? Date.now();
   const every = options.snapshotEveryMs ?? SNAPSHOT_EVERY_MS;
@@ -222,8 +286,8 @@ export function updateProfile(
     done(false);
     onSuccess(store.get(CURRENT), (value) => {
       const record = value as ProfileRecord | undefined;
-      if (!record) return;
-      const migrated = migrateProfile(record.doc, options.migrations);
+      if (!record && !options.create) return;
+      const migrated = record ? migrateProfile(record.doc, options.migrations) : { doc: emptyProfile(), migrated: false, newer: false };
       if (migrated.newer) return;
       const next = update(migrated.doc as ProfileDoc);
       if (next === null) return;

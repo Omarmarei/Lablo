@@ -16,6 +16,9 @@
  * - `shortEpg` is the fallback for a focused live channel no guide matches (step 9c): its Xtream
  *   panel's `get_short_epg`, kept 30 min per channel (`short-epg.ts`). The app asks only after
  *   600 ms of focus. A matched channel gets its guide's now/next, with no request.
+ * - `profile` and `editProfile` read and change the profile document for the app (step 13b):
+ *   onboarding's answers and the sources the user added. An edit is a read-modify-write in one
+ *   transaction, like the ingest worker's favourites update, so neither can lose the other's.
  *
  * A segment that fails to load (other layout version, inconsistent data) is skipped and listed
  * in `status().stale`, so the ingest can rebuild it.
@@ -30,6 +33,8 @@ import type { EpgBucketKey, EpgMeta, StoredEpgMatch } from './epg-store';
 import { getEpgMetas, readEpgBuckets, readEpgChannels } from './epg-store';
 import type { RpcContext } from './rpc';
 import type { ByteTransport } from './bytes';
+import type { LoadedProfile, ProfileEdit } from './profile';
+import { applyProfileEdit, loadProfile, updateProfile } from './profile';
 import type { ShortEpgRequest } from './short-epg';
 import { ShortEpgCache, shortEpgNowNext, shortEpgTarget } from './short-epg';
 
@@ -154,6 +159,8 @@ export class QueryService {
       nowNext: (arg: { keys: ContentKey[]; at?: number }): Promise<EpgNowNext[]> => this.nowNext(arg.keys, arg.at),
       epgStatus: (): Promise<EpgStatus> => this.epgStatus(),
       shortEpg: (req: ShortEpgRequest): Promise<ShortEpgNowNext> => this.shortEpg(req),
+      profile: (): Promise<LoadedProfile | null> => this.profile(),
+      editProfile: (edit: ProfileEdit): Promise<boolean> => this.editProfile(edit),
     };
   }
 
@@ -313,6 +320,24 @@ export class QueryService {
     const answer = await this.panelEpg.programmes(req.key, target);
     const nn = shortEpgNowNext(answer.programmes, req.at ?? this.clock());
     return { ...base, now: nn.now, next: nn.next, from: 'panel', cached: answer.cached };
+  }
+
+  /**
+   * The profile, upgraded in place first if an older app version wrote it; `null` when there is
+   * none yet (a fresh install, or a webOS wipe). A document from a newer app version comes back
+   * as it is, with `newer` set.
+   */
+  async profile(): Promise<LoadedProfile | null> {
+    return loadProfile(await this.db(), { now: this.clock() });
+  }
+
+  /**
+   * Applies `edit` to the profile in one read-modify-write transaction, creating the profile when
+   * there is none (onboarding's first answer does). Resolves `false` when nothing changed, or when
+   * the stored profile is from a newer app version (never written over).
+   */
+  async editProfile(edit: ProfileEdit): Promise<boolean> {
+    return updateProfile(await this.db(), (doc) => applyProfileEdit(doc, edit), { create: true, now: this.clock() });
   }
 
   /** Sets the favourite keys boosted in search. Returns how many are in loaded segments. */

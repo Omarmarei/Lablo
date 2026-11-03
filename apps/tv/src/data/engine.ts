@@ -13,7 +13,9 @@
  *   query worker reloads, and `nowNext` reads the store through it;
  * - `focusChannel` is the short-EPG fallback (step 9c): once a live channel has kept the focus
  *   for `FOCUS_MS`, the query worker gives its now/next, from its guide or, when no guide matches
- *   it, from its Xtream panel's `get_short_epg` (kept 30 min per channel in the worker).
+ *   it, from its Xtream panel's `get_short_epg` (kept 30 min per channel in the worker);
+ * - `profile` and `editProfile` read and change the profile document through the query worker
+ *   (step 13b: onboarding's answers and the sources).
  *
  * Workers come from factories, so tests serve the real services over message channels; the
  * app passes the `?worker` imports (`./workers.ts`).
@@ -33,6 +35,8 @@ import type {
   IngestProgress,
   IngestResult,
   ItemRef,
+  LoadedProfile,
+  ProfileEdit,
   QueryStatus,
   RpcPort,
   ShortEpgNowNext,
@@ -174,6 +178,27 @@ export class DataEngine {
   /** Sources and item counts, as the query worker sees them. */
   async summary(): Promise<DataSummary> {
     return summarize(await this.query.call('status'));
+  }
+
+  /** The ids of every catalog source stored (a refresh that never reached the profile included). */
+  async sourceIds(): Promise<string[]> {
+    return (await this.query.call('status')).sources.map((s) => s.src);
+  }
+
+  /**
+   * The profile (step 13b), upgraded first if an older app version wrote it; `null` when there
+   * is none yet. Read and written by the query worker.
+   */
+  profile(): Promise<LoadedProfile | null> {
+    return this.query.call('profile');
+  }
+
+  /**
+   * Changes the profile in one read-modify-write transaction (creating it when there is none).
+   * Resolves `false` when nothing changed or the stored profile is from a newer app version.
+   */
+  editProfile(edit: ProfileEdit): Promise<boolean> {
+    return this.query.call('editProfile', edit);
   }
 
   /**

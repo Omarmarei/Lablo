@@ -91,12 +91,14 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'loading.download':
     'جارٍ التحميل: {n, plural, zero {لا توجد عناصر بعد} one {عنصر واحد} two {عنصران} few {# عناصر} many {# عنصرًا} other {# عنصر}}',
   'loading.saving': 'جارٍ الحفظ',
+  'loading.guide': 'جارٍ تحميل الدليل',
   'loading.failed': 'تعذّرت إضافة {name}',
   'loading.edit': 'تعديل البيانات',
   'loading.retry': 'إعادة المحاولة',
 
   'error.auth': 'لم يقبل مزوّد الخدمة اسم المستخدم وكلمة المرور هذين.',
   'error.expired': 'انتهت صلاحية هذا الحساب. تواصل مع مزوّد الخدمة.',
+  'error.blocked': 'أوقف مزوّد الخدمة هذا الحساب أو عطّله. تواصل مع مزوّد الخدمة.',
   'error.network': 'تعذّر الوصول إلى الخادم. تحقّق من العنوان ومن اتصالك بالإنترنت.',
   'error.http': 'ردّ الخادم برمز الخطأ {status, number}.',
   'error.format': 'لم يُرجع هذا الرابط قائمة تشغيل.',

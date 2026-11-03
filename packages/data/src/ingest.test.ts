@@ -9,7 +9,7 @@ import { onSuccess, openDatabase, transact } from './idb';
 import type { IngestOptions, IngestProgress, IngestSwap } from './ingest';
 import { INGEST_VERSION, IngestError, runIngest } from './ingest';
 import type { FavouriteRef, ProfileDoc } from './profile';
-import { loadProfile, saveProfile } from './profile';
+import { emptyProfile, loadProfile, saveProfile } from './profile';
 import { QueryService } from './query-service';
 import { CancelError, CancelSource } from './rpc';
 import { STORE } from './schema';
@@ -352,7 +352,7 @@ describe('runIngest: favourites', () => {
     const k1 = keysOf(v1);
     await run(serve(v1)).result;
     const other: FavouriteRef = { key: 'x:other:live:1', src: 'other', kind: 'live', normName: 'x', added: 1, missingSince: null };
-    await saveProfile(db, { v: 1, favourites: [fav(k1.get('Alpha News')!), fav(k1.get('Beta Sport')!), fav(k1.get('Gamma Kids')!), fav(k1.get('Delta Film')!), other] }, { now: NOW });
+    await saveProfile(db, { ...emptyProfile(), favourites: [fav(k1.get('Alpha News')!), fav(k1.get('Beta Sport')!), fav(k1.get('Gamma Kids')!), fav(k1.get('Delta Film')!), other] }, { now: NOW });
 
     // v2: Beta renamed (same tvg-id, so a new key), Gamma gone.
     const v2 = playlist([base[0]!, { ...base[1]!, name: 'Beta Sports HD' }, base[3]!]);
@@ -400,7 +400,7 @@ describe('runIngest: favourites', () => {
     expect(r1.favourites).toBeNull();
     expect(await loadProfile(db)).toBeNull();
     const k = keysOf(playlist(bigList()));
-    await saveProfile(db, { v: 1, favourites: [fav(k.get('Channel 3')!)] }, { now: NOW });
+    await saveProfile(db, { ...emptyProfile(), favourites: [fav(k.get('Channel 3')!)] }, { now: NOW });
     const r2 = await run(serve(playlist(bigList())), { force: true }).result;
     expect(r2.favourites).toMatchObject({ changed: false, present: 1 });
     expect(r2.favouritesError).toBeNull();
