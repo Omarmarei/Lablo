@@ -72,6 +72,23 @@ describe('design tokens', () => {
     }
   });
 
+  it('keeps the components’ coloured text readable (step 11b)', () => {
+    const tokens = rootTokens();
+    const get = (name: string): string => tokens.get(name) ?? '';
+    // Badges and the focused primary button: dark text on a colour fill, 4.5:1.
+    for (const fill of ['--color-accent', '--color-live', '--color-warn', '--color-focus']) {
+      expect([fill, contrast(get(fill), get('--color-text-on-accent')) >= 4.5]).toEqual([fill, true]);
+    }
+    // Danger buttons (bold 28 px, large text) and the disabled label: 3:1 on what they sit on.
+    for (const surface of ['--color-surface-raised', '--color-surface-focus']) {
+      expect([surface, contrast(get(surface), get('--color-danger')) >= 3]).toEqual([surface, true]);
+    }
+    expect(contrast(get('--color-surface'), get('--color-text-disabled'))).toBeGreaterThanOrEqual(3);
+    // The memory ring (where Back returns to) shows on a row, but is quieter than the focus ring.
+    expect(contrast(get('--color-surface'), get('--color-border-memory'))).toBeGreaterThan(1.5);
+    expect(contrast(get('--color-surface'), get('--color-border-memory'))).toBeLessThan(contrast(get('--color-surface'), get('--color-focus')));
+  });
+
   it('sets no text size under 22 px', () => {
     const sizes = [...rootTokens()].filter(([name]) => name.startsWith('--font-size-')).map(([, value]) => parseInt(value, 10));
     expect(sizes.length).toBeGreaterThan(4);

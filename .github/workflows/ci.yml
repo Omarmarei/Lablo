@@ -46,6 +46,16 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      # The component gallery in en, ar and en-XA (e2e/gallery.spec.ts, RELAY step 11b).
+      - name: Upload the gallery screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gallery-screenshots
+          path: artifacts/screenshots/
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Upload the Playwright report
         if: failure()
         uses: actions/upload-artifact@v7

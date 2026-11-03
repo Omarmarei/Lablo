@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readDebugParams } from './params';
+import { readDebugParams, readScreen } from './params';
 
 const MOCK = 'http://127.0.0.1:8080/get.php?username=u&password=p&type=m3u_plus';
 
@@ -45,5 +45,21 @@ describe('readDebugParams', () => {
     expect(readDebugParams('?q=').query).toBeNull();
     expect(readDebugParams('?q=+').query).toBeNull();
     expect(readDebugParams('?q=%E0%A4%A').query).toBeNull();
+  });
+});
+
+describe('readScreen', () => {
+  it.each([
+    ['', 'hello'],
+    ['?screen=gallery', 'gallery'],
+    ['?locale=ar-SA&screen=gallery&tier=low', 'gallery'],
+    ['?screen=Gallery', 'hello'],
+    ['?screen=', 'hello'],
+    ['?myscreen=gallery', 'hello'],
+    // A source's own parameters are not the app's.
+    [`?source=${MOCK}&screen=gallery`, 'hello'],
+    [`?screen=gallery&source=${MOCK}`, 'gallery'],
+  ])('%s -> %s', (search, screen) => {
+    expect(readScreen(search)).toBe(screen);
   });
 });

@@ -190,6 +190,9 @@ importers:
 
   packages/ui:
     dependencies:
+      '@preact/signals':
+        specifier: ^2.11.4
+        version: 2.11.4(preact@10.29.8)
       '@zoma/core':
         specifier: workspace:*
         version: link:../core
@@ -202,6 +205,13 @@ importers:
       '@zoma/player':
         specifier: workspace:*
         version: link:../player
+      preact:
+        specifier: ^10.29.8
+        version: 10.29.8
+    devDependencies:
+      fast-check:
+        specifier: ^4.10.2
+        version: 4.10.2
 
   tools/bench:
     dependencies:

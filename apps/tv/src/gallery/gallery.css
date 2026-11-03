@@ -1,0 +1,188 @@
+/*
+ * The component gallery (RELAY step 11b): 1920x1080, everything inside the title-safe margins
+ * (96 x 54 px), nothing scrolls. The sizes match GALLERY in gallery.ts: a 1728 px content box,
+ * a 700 px body (7 channel rows of 88 px with 8 px gaps), 840 px columns (3 tiles of 264 px
+ * with 24 px gaps). Physical properties for LTR: postcss-rtlcss mirrors them for Arabic.
+ */
+.gallery {
+  display: flex;
+  flex-direction: column;
+  width: var(--screen-width);
+  height: var(--screen-height);
+  padding: var(--safe-y) var(--safe-x);
+  overflow: hidden;
+}
+
+.gallery.is-loading {
+  align-items: center;
+  justify-content: center;
+}
+
+.gallery__header {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  height: 56px;
+  margin-bottom: var(--space-5);
+}
+
+.gallery__title {
+  flex: none;
+  margin: 0;
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+  font-weight: var(--font-weight-bold);
+}
+
+.gallery__status,
+.gallery__meta {
+  margin: 0 0 0 var(--space-7);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+.gallery__status {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-accent);
+}
+
+.gallery__meta {
+  flex: none;
+}
+
+.gallery__actions {
+  display: flex;
+  flex: none;
+  margin-bottom: var(--space-5);
+}
+
+.gallery__actions > * + * {
+  margin-left: var(--space-4);
+}
+
+.gallery__rail {
+  flex: none;
+  margin-bottom: var(--space-6);
+}
+
+.gallery__body {
+  display: flex;
+  flex: none;
+  height: 700px;
+}
+
+.gallery__channels {
+  flex: none;
+  width: 840px;
+}
+
+.gallery__side {
+  flex: none;
+  width: 840px;
+  margin-left: var(--space-7);
+}
+
+.gallery__section {
+  margin: 0 0 var(--space-4);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.gallery__tiles {
+  display: flex;
+  flex-wrap: wrap;
+  height: 320px;
+  margin-bottom: var(--space-5);
+}
+
+.gallery__tiles > .z-tile {
+  margin: 0 var(--space-5) var(--space-5) 0;
+}
+
+.gallery__tiles > .z-tile:nth-child(3n) {
+  margin-right: 0;
+}
+
+.gallery__tiles > .z-tile:nth-child(n + 4) {
+  margin-bottom: 0;
+}
+
+/* Poster stand-ins: the demo has no images (no bundled content). */
+.gallery__tone-0 {
+  background: linear-gradient(160deg, #6b4a2b, #1d2733);
+}
+
+.gallery__tone-1 {
+  background: linear-gradient(160deg, #23506b, #141b24);
+}
+
+.gallery__tone-2 {
+  background: linear-gradient(160deg, #1f5a55, #141b24);
+}
+
+.gallery__tone-3 {
+  background: linear-gradient(160deg, #4b2f63, #141b24);
+}
+
+.gallery__tone-4 {
+  background: linear-gradient(160deg, #6b5a1f, #1d2733);
+}
+
+.gallery__tone-5 {
+  background: linear-gradient(160deg, #2b4a6b, #1d2733);
+}
+
+.gallery__meters {
+  margin-bottom: var(--space-4);
+}
+
+.gallery__loading {
+  display: flex;
+  align-items: flex-end;
+}
+
+.gallery__loading > .z-spinner {
+  flex: none;
+  margin: 0 var(--space-4) var(--space-4) 0;
+}
+
+.gallery__loading > .gallery__meter {
+  flex: 1;
+  min-width: 0;
+}
+
+.gallery__meter {
+  margin-bottom: var(--space-4);
+}
+
+.gallery__meter-head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+}
+
+.gallery__meter-value {
+  margin-left: var(--space-4);
+  color: var(--color-text);
+}
+
+/* Two lines' room: a longer language wraps them instead of running out of the safe area. */
+.gallery__badges {
+  display: flex;
+  flex-wrap: wrap;
+  height: 80px;
+  overflow: hidden;
+}
+
+.gallery__badges > .z-badge {
+  margin: 0 var(--space-3) var(--space-2) 0;
+}

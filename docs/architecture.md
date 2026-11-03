@@ -130,11 +130,11 @@ Off-the-shelf libraries such as Norigin measure the DOM on every move. That figh
     - `platform-back` (webOS) calls `exit`, that is `Platform.exitApp()` (`PalmSystem.platformBack`).
 - **Magic Remote:**
   - `Screen.hover(zone, index)` focuses the item under the pointer, but only on the top screen and only while the pointer is in use. Items call it from `mousemove`, which also fires when the pointer moves onto them.
-  - A key hides the pointer in the engine (`handle` calls `pointer(false)`), and the focus stays on the hovered item.
+  - A key that moves the focus (the arrows, CH_UP/CH_DOWN) hides the pointer in the engine, and the focus stays on the hovered item. Step 11b narrowed this from every key: OK, Back and the other keys leave the pointer shown, because the Magic Remote's own OK button sends key 13 while pointing, and webOS hides its cursor on the 5-way keys only.
   - The pointer counts as shown again after a real move. `watchPointerMoves` listens to `mousemove` in the capture phase and skips the ones at unchanged coordinates, which Chromium sends after a scroll or layout change under a still pointer, so a list scrolling under a hidden pointer can't take the focus.
   - On webOS, `Platform.onPointer` adds the system's own `cursorStateChange` (the pointer hides after a few idle seconds); the other adapters have none.
   - `Navigator.wheel(steps)` scrolls the focused zone's view and keeps the focus inside it. The app turns each `wheel` event into one step and calls `preventDefault` (non-passive), so the page itself never scrolls.
-  - Not done yet: selecting with a pointer click. webOS also sends OK (key 13) for the Magic Remote's OK button, so a click handler on items would select twice; the components step (11) decides how to dedupe.
+  - Selecting with a pointer click came in step 11b (`Screen.click`, below).
 - **Size:** main 459.1 → 470.3 KB of 500 (tizen), about 8 KB for the engine and 3 KB for the demo panel, with no new polyfills.
 - **Dev loop:** `apps/tv/vite.config.ts` pre-bundles `fflate`. Vite's start-up scan doesn't follow `?worker` imports, so with a cold cache (as in CI) it found fflate late and reloaded every open page, which reset the app in the middle of key-driven e2e tests.
 - **Tests:**
@@ -162,6 +162,63 @@ Off-the-shelf libraries such as Norigin measure the DOM on every move. That figh
     - e2e: the title "Zoma زوما" is drawn with both web faces (CDP `CSS.getPlatformFontsForNode`) in dev and from both bundles on `file://`.
     - The old-engine harness: a Latin and an Arabic face load in Chromium 53/56/68.
 - **Size:** main's own code 102.4 KB (tizen; 102.2 KB at the budget change); app.css 9.7 KB; the fonts 99 KB in `assets/`.
+
+**Built in step 11b: components, the virtual list, the pseudo-locale and the gallery** (`packages/ui/src/components`, `focus/binding.ts`, `focus/remote.ts`, `i18n/`; `apps/tv/src/gallery`):
+- **The Preact binding.** `ui` now depends on `preact` and `@preact/signals` (the versions `apps/tv` had, so the lockfile gained no package).
+  - `bindFocus(nav)` turns the engine's `subscribe` into one signal of the `Focus`, with a new value on every change, zone positions included.
+  - `useFocus(binding)` reads it. `useZone(binding, screen, zone)` gives a zone's spec, its position, whether it is active, and per item an `ItemBinding`: `state` (`focused`, `memory` or `idle`), `onHover` (`Screen.hover`) and `onPress` (`Screen.click`).
+  - Neither is a Preact hook: both only read the signal, so the calling component re-renders on every engine change, and they work in Node tests.
+  - `Screen.zone(id)` is new, so a virtual list reads its count and window from the zone itself.
+  - `connectRemote({ platform, nav, target, onIntent })` is the keys, wheel and pointer wiring that the hello screen had inline. The hello screen and the gallery both use it.
+- **Pointer click and the webOS OK key** (the open point from step 10). `Screen.click(zone, index)` focuses the item and calls `onSelect`. It works only on the top screen, and it shows the pointer.
+  - For one press of the Magic Remote's OK, webOS sends both a click and key 13, in either order. So an OK key and a click within `OK_CLICK_WINDOW_MS` (500 ms) of each other count as one press. The second one is dropped: `handle` returns `duplicate`, and `click` returns false.
+  - Each key pairs with at most one click. Two clicks, or two keys, are two presses.
+  - The click checks for a pair before anything else, even on a covered screen. So when the first half of a press opens a dialog, its twin can't select a button in that dialog.
+  - The clock is injectable (`NavigatorOptions.now`, default `performance.now`), so tests set the timing exactly.
+  - Clicks go straight to `onSelect`, never to `onIntent`.
+  - Not checked on a real LG TV yet: the order of the two events, and whether OK over an empty spot also sends key 13 (it would select the focused item). That is for the step-16 lab.
+- **Components** (`components/*.tsx`, each importing its own CSS, all on the tokens):
+  - Button: primary, secondary, danger and disabled; an optional SVG icon.
+  - Chip: one category of a rail, `selected` apart from the focus, an optional count.
+  - ListRow: a channel row (number, name, badges, now with a small bar, next), `--row-height` tall.
+  - Tile: a poster or channel tile with a caption, a badge, an optional image and a resume bar.
+  - Dialog: a scrim over the canvas, which also takes the pointer, and a centred panel.
+  - ProgressBar, Spinner (a transform animation) and Badge.
+  - **How they are built:**
+    - Focus is a class (`is-focused`, `is-memory`) and a `data-state`, never DOM focus. The focus ring is an always-present 4 px border, so focusing moves nothing.
+    - Components hold no text: every label is a prop (step 12's lint will check that).
+    - The provider's text (channel names, titles) has `dir="auto"`, so each shows in its own direction in both UIs, and `translate="no"`. So do technical marks (`Badge data`, `Chip data`).
+    - A ProgressBar's fill is a block in flow, so it fills from the inline start in both directions. `media` makes it a `dir="ltr"` island, because a video timeline runs left to right in Arabic too.
+    - In a ListRow, the name keeps its width up to the whole line, and the badges take what is left and are cut at the row's end. The en-XA gallery showed the earlier version squeezing a name to nothing.
+  - **Contrast:** `test/ui-tokens.test.ts` also checks the components' colour pairs: dark text on the accent, live, warn and focus fills at 4.5:1 (a light text on the live red would be 2.6:1), danger at 3:1 (bold 28 px), and the disabled label at 3:1.
+- **VirtualList** renders a list zone's `visible` items from `ZonePosition.top`, each of a fixed size (`itemSize`, by default `LAYOUT.rowHeight`).
+  - Vertical lists are channel lists. Horizontal lists are rails: the en-XA labels showed that a rail of natural-width chips runs off the screen, so rails scroll a window of fixed-width chips too.
+  - Items are keyed by index and laid out in normal flow, with no absolute positions, no transforms and no DOM measuring.
+  - The gap is a CSS variable used by a `margin-left` rule. postcss-rtlcss mirrors that rule, which it can't do for an inline style.
+  - The box keeps the size of a full window. `listWindow`, and `listHeight`, whose result `fits()` turns back into the same `visible`, are exported for screens to size their zones.
+- **The pseudo-locale `en-XA`** (`pseudoLocalize`):
+  - The ASCII letters with a Latin-1 or Latin Extended-A form get it (f, b, m, q, v and x have none).
+  - Words (`one two three…`) pad the text by 40% of its length, so it can still wrap. The result is bracketed.
+  - Text at an even brace depth is message text and gets accented. An odd depth is a placeholder or ICU syntax and is kept, so `{n, plural, one {# channel} other {# channels}}` accents only the branch texts.
+  - Tests: fast-check properties (the round trip, the expansion bound, placeholders kept, never throws), plus `test/ui-pseudo-glyphs.test.ts`, which checks that both Latin faces have every accented letter.
+  - `localeDir` moved here from the app.
+  - Left for step 12: isolating the provider's text inside our sentences (FSI/PDI, or `dir="auto"` spans) and the digit forms.
+- **The gallery** (`?screen=gallery`, `readScreen` in `data/params.ts`): every component on one 1920x1080 screen inside the safe area, driven by the remote. Its zones are the buttons, a rail of 9 categories (6 shown), 240 channels (7 shown) and 3 × 2 tiles; OK opens a dialog.
+  - A small en/ar text table stands in for step 12's catalogs, and `en-XA` runs the English through `pseudoLocalize`.
+  - The demo names are made up, and Latin and Arabic are mixed on purpose. The times are fixed strings, so screenshots don't change.
+  - It ships in the TV bundles (about 10 KB of main), so it can be checked on a real TV (spike S9). It starts no data workers.
+- **Checks:**
+  - Unit tests: VNode-level component tests (the components use no hooks, so they are called as functions), VirtualList windows on both axes, the binding, `connectRemote` on a Node `EventTarget`, the click pairing with an injected clock, the gallery's key paths and text table, and `readScreen`.
+  - e2e (`e2e/gallery.spec.ts`), in en, ar and en-XA:
+    - every component inside the safe area, no page scroll, and none of our labels cut;
+    - every glyph from the two bundled faces (`renderedFontsUnder`: per element, because the CDP call doesn't descend into block children);
+    - in en-XA, every text node with letters outside `translate="no"` is bracketed (the same check finds our strings in English);
+    - the mirrored positions;
+    - the virtual lists by keys and the wheel;
+    - the pointer, including a click and an Enter in either order selecting once.
+  - The screenshots (`gallery-<locale>.png` and `-dialog.png`) go to `artifacts/screenshots` on every run, and CI uploads them as `gallery-screenshots`. The step-11b ones are committed in `docs/design/`.
+  - `e2e/tv-bundle.spec.ts` opens the gallery from both bundles on `file://`.
+- **Size:** main's own code 102.4 → 121.2 KB (tizen; 119.8 KB webos) of 500: about 10 KB for the gallery and the rest for the components, the binding and the pseudo-locale, with no new polyfills. A field named `at` had pulled in core-js's `Array.prototype.at` and `String.prototype.at` (Babel detects usage by property name), so it is now named `time`. app.css 9.7 → 26.6 KB.
 
 **State:**
 - Signals hold UI and session state.
