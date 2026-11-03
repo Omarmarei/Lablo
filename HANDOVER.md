@@ -1,59 +1,44 @@
-# Zoma IPTV: relay leg 20 opening prompt
+# Zoma IPTV: relay leg 21 opening prompt
 
-You are leg 20 of relay run `iptv-20261101-214120`, building **Zoma IPTV**. It is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 21 of relay run `iptv-20261101-214120`, building **Zoma IPTV**. It is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 - **Earlier legs:**
   - Leg 0 planned the work.
-  - Legs 1–18 did steps 1–11c (PRs #1–#17). Leg 6 did no project work.
-- **Leg 19 split step 12 (i18n, PLAN 4.3) into 12a and 12b, and did 12a:** the runtime, the catalogs and the formats, with the gallery moved onto them.
-  - It was one commit, `bcb422c`. PR **#18** was merged as merge commit **`ee9059e`**, with the branch kept.
-  - CI on `bcb422c`: `verify` 5 m 9 s, `engines` 2 m 23 s and `media` 6 m 54 s, all green.
+  - Legs 1–19 did steps 1–12a (PRs #1–#18). Leg 6 did no project work.
+- **Leg 20 did step 12b, which also completes step 12 (i18n, PLAN 4.3).** Both are ticked in RELAY.md.
+  - Commits `a99a4fe` (the lint and the language switch) and `65cb2d3` (Arabic on the old engines and the bidi fix).
+  - PR **#19** was merged as merge commit **`4f90587`**, with the branch kept.
+  - CI on `65cb2d3`: `verify` 5 m 19 s, `engines` 3 m 55 s and `media` 8 m 25 s, all green.
 
-## Your step: 12b, the rest of i18n (RELAY.md, under step 12)
-Read RELAY.md's 12b entry first; it is the spec. In short:
-- **The lint** (step 12's Done-when: "lint catches a seeded hard-coded string"). It is a local ESLint rule in `eslint.config.js`, with no new plugin, e.g. `zoma/no-hard-coded-text`. It flags:
-  - JSX text with letters;
-  - string literals (and template literals with letters) in text props: `label`, `title`, `message`, `placeholder`, `aria-label`, `alt`, `subtitle`, `nextLabel`, … Read the props of `packages/ui/src/components/*.tsx` for the full list.
-  - The rule runs in Node, so `\p{L}` is fine there.
-  - **Exempt:**
-    - subtrees under `translate="no"` / `translate={false}` (Preact renders `translate="no"`);
-    - elements with a `data` prop (`<Badge label="HD" data />`);
-    - `*.test.ts(x)`, `e2e/`, `test/`, and the gallery's demo data (`gallery-data.ts` is plain TS, so the JSX rule never sees it).
-  - **Prove it** with the ESLint API on seeded code, as `test/lint-boundaries.test.ts` does (`eslint.lintText(code, { filePath })`). Seed a bad file (JSX text, `label="Play"`) and good ones (`label={t('action.play')}`, `translate={false}`, `data`). Then check that `pnpm lint` on the real tree is clean.
-  - **The hello screen** (`apps/tv/src/App.tsx`, `DataPanel.tsx`, `FocusPanel.tsx`) is full of English developer diagnostics ("Worker:", "Device", …), and steps 13–14 replace it.
-    - **My recommendation:** exempt those three files in `eslint.config.js`, with a comment saying step 13 removes the exemption. Add that to RELAY step 13.
-    - Moving about 60 debug strings into the catalogs is the alternative; it's your call.
-    - Check `packages/ui/src/components` for default labels (e.g. Spinner's) that the rule flags.
-- **The language switch** (there is no settings screen yet, so it goes on the gallery).
-  - It must flip the catalog, `lang`/`dir` on `<html>` and `nav.setDir` live, without a reload, and the focus stays put.
-  - `GalleryApp`'s `apply(tag, country)` already does all of that from the device locale (it puts a new `AppI18n` in a signal), so call it again with the other language.
-  - **The trigger.** I suggest a header button in a new zone above `actions` (UP from the buttons), labelled with the other language's own name ("العربية" / "English"; add catalog keys), so the Magic Remote can click it.
-    - Adding a 5th button to `actions` instead would break the e2e count (`.z-button` = 4) and change the layout.
-    - A colour key (e.g. YELLOW) is possible, but the browser adapter maps few colour keys; check `platform-browser`'s key map.
-  - **e2e** in dev and both bundles: switch, then check `html[dir]`, `data-language`, mirrored positions and the focused item.
-  - **Unit test:** `gallery-state.test.ts` covers the zone.
-- **The old engines** (`tools/engines/src/gallery.ts`, runbook old-engines.md).
-  - Today the harness opens only the default-locale gallery: the TV bundles take `navigator.language` (platform-tizen/webos `info()`), and `?locale=` works only in the browser adapter.
-  - Drive the switch by keys in the probe (your 12b switch tests itself on Chromium 53/56/68). Or set the container's `LANGUAGE`/`--lang`; check what works for headed Linux Chromium.
-  - **Check in Arabic:**
-    - the mirrored layout (safe area, 7 rows, nothing cut);
-    - the plural text (`240 قناةً`);
-    - **FSI/PDI on Chromium 53**: a span with the isolates is as wide as without them (no tofu). Also check whether 53's legacy bidi honours them, e.g. `Range` rects of a name ending in a digit inside Arabic.
-  - Record the result in architecture.md §1.2 ("Built in step 12a" ends with "Left for step 12b").
-  - Run `--self-test` to see which seeds fail on the Arabic gallery before you set the variants' `screens`.
-- **Done when:**
-  - the lint catches a seeded hard-coded string;
-  - the switch works by keys in e2e;
-  - `verify:engines --self-test` is green with the Arabic gallery;
-  - `pnpm verify` is green;
-  - the PR is merged on green CI;
-  - there is a "press these keys" checklist.
-  - Then **tick step 12 and 12b** in RELAY.md.
-- If 12b runs long, split off the old-engine part as 12c, as legs 16–18 did with step 11.
+## Your step: 13, onboarding (PLAN 4.4)
+RELAY.md step 13 is the spec: language, disclaimer, device-ID consent, add a source on the TV (Xtream / M3U / EPG URLs), validation and load progress.
+- **Done when:** a keys-only Playwright run passes in en and ar against the mock provider. Also a "press these keys" checklist, and, as with every UI step, look at the Arabic screenshot.
+- **Read for scope:**
+  - docs/PLAN.md: line 48 (why onboarding is the incumbents' weak point), line 187 (LG device ID needs user consent; no emulator), line 246 (legal surfaces: the in-app "Zoma provides no content" disclaimer and the device-ID consent screen);
+  - docs/architecture.md: §6, 4.4 (line 868), and line 681 (the backup is disclosed during onboarding; the backend arrives at step 29, so plan only the disclosure text and the setting's place now);
+  - CLAUDE.md's legal guardrails (no bundled or suggested playlists, no credentials in code).
+- **This step is big. Split it before you start,** as legs 16–19 did with steps 11 and 12. A possible split:
+  - 13a: the flow, its screens and the text input, on fake data;
+  - 13b: validation and load progress against the mock provider through the data engine, plus the keys-only e2e in en and ar.
+  - Write the split into RELAY.md first.
+- **Design points to settle (record them in architecture.md or an ADR):**
+  1. **Text input on a TV.** The focus engine uses a class plus `data-state`, never DOM focus. An `<input>` needs real DOM focus to open the TV's on-screen keyboard: the Tizen IME, or the webOS virtual keyboard. The desktop uses the physical keyboard.
+     - There is no text-field component in `packages/ui/src/components` yet.
+     - Decide how OK on a field gives it DOM focus, and how BACK/DONE returns control to the engine. On webOS the keyboard's own keys arrive as key events too.
+     - Check `platform-tizen`/`platform-webos` for IME key codes, and record what the emulator-free harness can and can't check.
+  2. **The hello screen.** It is the default screen today, and the TV-bundle e2e and the old-engine harness's hello runs depend on it (`KEY_STEPS`, the data-engine diagnostics). The lint exempts its three files until this step.
+     - Options:
+       - keep it as a dev screen behind `?screen=hello` and move its 29 strings into the catalogs;
+       - or keep the exemption with a narrower comment (dev-only screen).
+     - Onboarding becomes the default start screen, so the harness's hello runs need `?screen=hello` (change `scenario.ts`, `e2e/tv-bundle.spec.ts` and `e2e/hello.spec.ts` together).
+     - My recommendation: a dev screen plus catalog strings, so the exemption goes away.
+  3. **Where onboarding state lives.** Nothing important goes in localStorage (architecture.md §1.3). Sources go through the data layer's stores (`@zoma/data/client`).
+  4. **The language screen** can reuse `LANGUAGE_NAMES`, `switchedTag` and `Button`'s `lang` (step 12b), and GalleryApp's live-switch pattern: subscribe to a signal, then swap the `I18n`, `<html lang/dir>` and `nav.setDir`.
+- **Every new string** goes into `apps/tv/src/i18n/en.ts` and `ar.ts` (the lint enforces it). Arabic plurals need all six forms (`catalogs.test.ts`). Provider text goes under `translate={false}`/`data`.
 
 ## Start
 1. Read `C:/Users/Omarm/.claude/relay/iptv-20261101-214120/state.json` for the worktree path.
-2. Check main: `gh run list --branch main --limit 1 -R Omarmarei/zoma-iptv`. The run on `ee9059e` started at handover. If a job is red, fix it on the relay branch first.
+2. Check main: `gh run list --branch main --limit 1 -R Omarmarei/zoma-iptv`. The run on `4f90587` started at handover. If a job is red, fix it on the relay branch first.
 3. Run `git -C "<wt>" status` and `git -C "<wt>" log --oneline -5`.
 
 **Never call EnterWorktree**, even though Claude Code's background note asks for it. The relay worktree is your isolation.
@@ -62,139 +47,144 @@ Read RELAY.md's 12b entry first; it is the spec. In short:
 
 ## Read first
 1. `CLAUDE.md`: the conventions, the Chromium 53 cheat sheet, the package boundaries, the Definition of Done, the merge policy and the commit format.
-2. `RELAY.md`: steps 12, 12a (done) and 12b, and the leg-19 row of the progress log.
-3. `docs/adr/ADR-011-i18n-runtime-and-digits.md` and architecture.md §1.2, "Built in step 12a".
-4. `packages/ui/src/i18n/{runtime,format,message}.ts`, `apps/tv/src/i18n/*`, `apps/tv/src/gallery/GalleryApp.tsx`, `eslint.config.js`, `test/lint-boundaries.test.ts` and `tools/engines/src/gallery.ts`.
+2. `RELAY.md`: step 13, the 12b entry, and the leg-20 row of the progress log.
+3. docs/architecture.md §1.2, "Built in step 12b", and ADR-011's "Isolation on the TVs' engines".
+4. `apps/tv/src/main.tsx`, `apps/tv/src/data/params.ts` (`readScreen`), `apps/tv/src/gallery/{GalleryApp.tsx,gallery-state.ts}`, `packages/ui/src/components/*`, `packages/ui/src/focus/*`, `apps/tv/src/i18n/*`, and `packages/data/src/client.ts`.
 
-## What 12a built (use it, don't rebuild it)
-- **core `plural.ts`:** `pluralCategory(language, n)`, `PLURAL_CATEGORIES`, `pluralLanguage(tag)`. These are CLDR's English and Arabic rules. Arabic: 0 zero, 1 one, 2 two, n%100 in 3–10 few, n%100 in 11–99 many, else other. So **240 is `many`** ("240 قناةً"); use 200 for `other`.
-- **ui `i18n/message.ts`:** `parseMessage` and `formatMessage`.
-  - The subset: `{name}`, `{n, number}`, `{n, plural, =N {…} zero/one/two/few/many/other {…}}` with `#`, and `{x, select, … other {…}}`.
-  - No apostrophe quoting, so text can't contain braces.
-  - `#` counts only directly in a plural branch, as in ICU.
-  - A broken message shows as written; a missing argument shows as `{name}`.
-  - `messageArguments` and `pluralBranches` serve the catalog tests.
-- **ui `i18n/format.ts`:**
-  - `resolveLocale(tag, { country, digits, hourCycle })` → `LocaleSettings` (`tag`, `language` en|ar, `region`, `dir` from the language, `pseudo`, `digits`, `hourCycle`, `dateOrder`);
-  - `formatNumber`, `formatPercent`, `formatTime`, `formatWeekday`, `formatMonth`, `formatDate` (`day`|`full`), `formatDuration`, `shapeDigits`, `tagRegion`, `DEFAULT_DIGITS = 'latn'`.
-  - **No `Intl`.** `test/i18n-cldr.test.ts` checks the output against Node's ICU.
-- **ui `i18n/runtime.ts`:** `createI18n(catalogs, locale, { digits, isolate })` → `I18n` with `t`, `number`, `percent`, `time`, `weekday`, `date` and `duration`. Also `isolate` and `stripIsolates`.
-  - **Every text argument is wrapped in FSI U+2068 … PDI U+2069.**
-  - en-XA runs the English catalog through `pseudoLocalize`.
-- **apps/tv `i18n/`:**
-  - `en.ts`: `EN` and `MessageKey`. Keys are `area.what`: `gallery.*`, `action.*`, `category.*`, `guide.*`, `badge.*`, `play.title`, `exit.*`.
-  - `ar.ts`: `AR: Record<MessageKey, string>`, so tsc rejects a missing key.
-  - `index.ts`: `CATALOGS`, `appI18n(locale)` and `AppI18n`.
-  - `catalogs.test.ts`: the same keys and arguments in both; everything parses (en-XA too); all six Arabic plural forms; no Latin words in Arabic; nothing unfilled; no bidi controls in the catalogs.
-- **The gallery:**
-  - `GalleryApp` holds `i18n` in a signal, and `GalleryScreen` takes `{ gallery, i18n }`.
-  - `ACTIONS` and `DEMO_CATEGORIES` are `MessageKey`s.
-  - The header's locale tag has `dir="ltr"`. In Arabic the count had joined its Latin run (bidi W7); e2e now checks the order.
-  - The media timeline is 4392 s of 7200 s (61%, e2e checks the fill).
-- **e2e:** `isolated(text)` in `e2e/gallery.spec.ts` builds FSI+text+PDI, because Playwright's `toHaveText` doesn't strip them. It also checks the plural and format text in en, ar and en-XA.
+## What 12b built (use it, don't rebuild it)
+- **Lint `zoma/no-hard-coded-text`** (eslint.config.js, a local plugin `zoma`). It runs on `apps/**/*.tsx` and `packages/**/*.tsx`, except tests.
+  - Flagged: JSX text with letters, and string or template literals with letters in `TEXT_PROPS` (`label`, `title`, `subtitle`, `message`, `placeholder`, `nextLabel`, `alt`, `aria-*` text) or in child expressions, through `?:`, `&&`, `||`, `??` and `+`.
+  - Exempt: `translate="no"`/`{false}` and bare `data` subtrees.
+  - The hello screen's three files are exempt in a separate config block, which says step 13 removes it.
+  - Proof: `test/lint-text.test.ts`, which seeds TSX with declared stand-ins, not imports.
+- **Language switch** (gallery):
+  - zone `language` after `actions` (`end`/`start` neighbours);
+  - `gallery.languageSwitches` (a signal counting presses);
+  - `GalleryApp`'s effect subscribes to it, and an odd count shows `switchedTag(device)`;
+  - `LANGUAGE_NAMES`, `otherLanguage` and `switchedTag` in `apps/tv/src/i18n/index.ts`;
+  - `Button`'s `lang` prop, which sets `lang` and `translate="no"` on the label;
+  - a globe icon.
+- **core `bidi.ts`:** `isolateText(text, around)` = `outer + inner + FSI + text + PDI + inner + outer`; `firstStrongDirection`; `stripIsolates`, which strips FSI, PDI, LRM and RLM. The ui runtime calls `isolateText(value, settings.dir)` for every text argument. ui no longer exports `isolate`/`stripIsolates`: import them from `@zoma/core`.
+- **The old-engine harness** (`tools/engines/src/gallery.ts`):
+  - after ArrowDown, `SWITCH_KEYS` (ArrowUp ×3, ArrowRight ×4, Enter) switches to Arabic;
+  - `arabicFailures` checks the focus, the layout, the mirror, `ARABIC_COUNT` and the fonts;
+  - `BIDI_EXPRESSION` and `bidiFailures`: the lines are built with the real `isolateText`, and the controls must show the bug;
+  - `-ar.png` screenshots, and `bidi` numbers in report.json.
+  - `tools/engines` now depends on `@zoma/core`.
+- **e2e:**
+  - `e2e/gallery.spec.ts`: the switch by keys (no reload, focus kept, mirrored LEFT/RIGHT), the region kept (ar-SA → en-SA, en-XA → ar), and the bidi probe in current Chromium;
+  - `e2e/tv-bundle.spec.ts`: the switch by keys in both bundles.
+  - `.z-button` count is 5 (4 actions + the switch).
 
 ## Git state to expect
 - **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`.
-- **HEAD:** the commit adding this HANDOVER.md and recording PR #18's merge in RELAY.md, on top of `bcb422c`. It is pushed, and the tree is clean.
-- **main** has `ee9059e`; the branch doesn't, which is normal.
+- **HEAD:** the commit adding this HANDOVER.md and recording PR #19's merge in RELAY.md, on top of `65cb2d3`. It is pushed, and the tree is clean.
+- **main** has `4f90587`; the branch doesn't, which is normal.
 - **Gitignored but present:**
-  - `node_modules`, `dist/`, `.cache/{media,fixtures,engines,fonts}`, Playwright `chromium-1248`, and the `zoma-old-engines:*` images;
+  - `node_modules`, `dist/`, `.cache/{media,fixtures,engines,fonts}`, Playwright `chromium-1248`, the `zoma-old-engines:*` images;
   - in `artifacts/`:
-    - `mutate12a.py` (42 mutants; run one with `python -I artifacts/mutate12a.py "<snippet>"`);
-    - `make-size-probe3.py <wt>`, which writes `tools/build/src/zz-sizes-probe.ts` for any entry path (default main.tsx; delete it after);
-    - `sizes-before.txt`, `sizes-after3.txt`;
-    - `engines/` (the chrome53 run was last; the chrome56/68 screenshots were deleted by the per-engine reruns);
-    - the logs `verify.log`, `engines*.log` and `mutate12a.log`.
-- **Local gates on `bcb422c`:**
-  - `pnpm verify`: 93 test files, both builds through both gates, e2e 20/20;
+    - `mutate12b.py` (47 mutants; run one with `python -I artifacts/mutate12b.py "<snippet>"`);
+    - `mutate12a.py`;
+    - `bidi-modern.ts` (the bidi probe in current Chromium against `dist/tv/webos`);
+    - `make-size-probe3.py`;
+    - `engines/` (the last run was the no-polyfills recheck);
+    - the logs `verify12b.log`, `engines12b-*.log` and `mutate12b.log`.
+- **Local gates on `65cb2d3`:**
+  - `pnpm verify`: 1498 tests in 95 files, both builds through both gates, e2e 25/25;
   - `verify:engines --self-test`: 54 runs as expected, 38 seeded failures caught;
-  - 42/42 mutants.
-- **Sizes:** main's own code 130.0 KB (tizen) / 128.6 KB (webos) of 500, with no new polyfill.
+  - 47/47 mutants.
+- **Sizes:** main's own code 132.0 KB (tizen) / 130.6 KB (webos) of 500, with no new polyfill.
 
 ## Gotchas and lessons
-**New in leg 19 (also saved to memory):**
-- **`new RegExp(...)` in TV code pulls in core-js's RegExp constructor (+7 KB), and `.split(` pulls in `es.string.split` (+2 KB).** Use regex literals with `exec`, or a char loop.
-  - Check new files with the per-file polyfill probe (memory `iptv-tv-bundle-polyfills`).
-  - For a before/after module diff, copy the changed files aside, `git checkout HEAD -- <files>`, probe, then copy them back. Don't stash: the stash is shared across worktrees.
-- **The Write tool turns `\uXXXX` escapes in regex literals into raw characters** (bidi controls, Arabic ranges).
-  - Fix them with a Python script that replaces the `chr()` sequences with the escaped text, then scan for U+200B–206F.
-  - In TV code, build such characters with `String.fromCharCode`.
-- **Look at the Arabic screenshot after any text change.** Green tests missed the header's W7 bidi join. A Latin span followed by digits needs `dir` on the span.
-- **Node ICU oracle quirks** (`test/i18n-cldr.test.ts`):
-  - strip U+200E, U+200F and U+061C, and turn U+00A0 and U+202F into spaces;
-  - use `-u-nu-latn` / `-u-nu-arab` to force the digits;
-  - ar-SA with Western digits uses `٪` in ICU, but we use `%` (compared with ar-AE);
-  - en-CA writes `a.m.`/`p.m.` (implemented);
-  - CI runs Node 22, locally it's 24; both passed.
-- **Mutation scripts that print Arabic** need `sys.stdout.reconfigure(encoding='utf-8')`. Without it the cp1252 console crashes mid-run, and the remaining mutants are skipped.
-- **`verify:engines`:** once, Chromium 56's container never opened DevTools in 60 s and the whole run aborted. `--engine chrome56` passed on the rerun. Rerun per engine for clean summaries.
-- **Bash heredocs that hold Python with backticks and `${…}` fail to parse.** Write the script with the Write tool and run it with `python -I`.
+**New in leg 20 (also saved to memory):**
+- **Chromium 53/56/68 ignore FSI/PDI for bidi** (zero width, no tofu). The marks must sit outside the isolate; inside, 53 still split a leading digit. `<bdi>` and `dir="auto"` also work there.
+  - Any new bidi-sensitive text: check it with the harness's probe pattern (Range rects plus a control without isolation), and look at the `-ar.png` screenshots.
+- **Text comparisons:** every text argument carries six invisible characters. Use `stripIsolates` (core) or `isolated()` in e2e.
+- **A pointer click right after an OK key is dropped as the same Magic Remote press.** Unit tests need a fresh gallery for the click case.
+- **ESLint `lintText` seeds:** importing `@zoma/ui` trips the boundaries rule in other packages, so declare stand-ins and export every declared name.
+- **Bash heredocs with backticks fail even with a quoted delimiter.** Write Python patch scripts with the Write tool, then run them with `python -I`.
+  - A doubled backslash (`'\\u0600'` in the Python source) survives Write as an escape; check it with `cat -A`.
+- **Before changing an approach, run experiments on the real engines:** temporarily add fields to the probe, run `--engine chrome53`, then read `artifacts/engines/report.json`. Restore the file from a copy afterwards; don't use stash.
+- **The gallery still needs no polyfill** (rechecked with the Arabic phase): `no-polyfills` stays on hello only.
+- **Pre-existing, for step 14:** in Arabic, row 103's catch-up badge is cut mid-word ("إعاد"). The row's badges overflow hidden, and `.z-row__badges` is excluded from the cut check. The live screen's channel row should hide whole badges instead.
 
 **From earlier legs (still true):**
-- **Babel picks polyfills by property name, even on your own objects** (`at`, `values`, `includes`, `padStart`…).
-- **Root `test/` can't import `@zoma/ui`,** and the root `tsc` has no JSX. Import plain `.ts` files by relative path (as `test/i18n-cldr.test.ts` does).
-- **Components stay hook-free** (VNode-walk unit tests). Focus is a class plus `data-state`, never DOM focus.
+- **Polyfills:**
+  - `new RegExp(...)` in TV code pulls in core-js's RegExp (+7 KB), and `.split(` pulls in `es.string.split` (+2 KB). Use regex literals or char loops.
+  - Babel picks polyfills by property name, even on your own objects (`at`, `values`, `includes`, `padStart`…).
+  - Probe new files per file (memory `iptv-tv-bundle-polyfills`).
+- **The Write tool turns `\uXXXX` escapes into raw characters.** In TV code, use `String.fromCharCode`, and scan for U+200B–206F afterwards.
+- **Look at the Arabic screenshot after any text change.** A Latin span followed by digits needs `dir` on the span.
+- **Mutation scripts that print Arabic** need `sys.stdout.reconfigure(encoding='utf-8')`.
+- **`verify:engines`:** a container can miss DevTools once; rerun with `--engine`.
+- **Root `test/` can't import `@zoma/ui`** (and has no JSX in tsc): use relative non-tsx imports. e2e can import `../packages/core/src/*` and `../tools/engines/src/*`.
+- **Components stay hook-free** (VNode-walk unit tests). Focus is a class plus `data-state`, never DOM focus (see design point 1 above).
 - **CSS:** physical properties only; postcss-rtlcss never mirrors inline styles (use a CSS variable); time ranges need `dir="ltr"`; Noto Sans has no arrows.
-- **Playwright e2e:**
+- **Playwright:**
   - `force: true` to click an `aria-disabled` element;
   - `screenshot({ animations: 'disabled' })`;
   - park the mouse at `(1900, 1070)` before a wheel test.
 - **Old-engine harness:**
   - `KEY_STEPS` focus strings: change `scenario.ts`, `e2e/tv-bundle.spec.ts` and `e2e/hello.spec.ts` together.
   - Docker image: never edit the `RUN apt-get` line; list new COPY files in `IMAGE_FILES`.
-  - Engine mutants overwrite `artifacts/engines`.
+  - Engine runs overwrite `artifacts/engines`.
 - **The mutation scripts edit sources in place.** Don't edit those files while one runs.
 - **Vite:** a worker-only dependency needs an `optimizeDeps.include` entry in `apps/tv/vite.config.ts`.
-- **Node `EventTarget`:** pass `{ capture: true }`, not `true`.
-- **CI monitor:** use the Monitor poll loop on `gh pr checks N` (`sleep 25` first; no process substitution).
-- **New dependencies** must be ≥ 2 weeks old, transitive ones included.
-- **Smart App Control is on:** pin older native binaries, and never weaken lint.
+- **Node `EventTarget`:** pass `{ capture: true }`.
+- **CI monitor:** the Monitor poll loop on `gh pr checks N` (`sleep 25` first).
+- **New dependencies** must be ≥ 2 weeks old, transitive ones included. **Smart App Control is on:** pin older native binaries, and never weaken lint.
 - **TV code:** `lib: ES2017`; `Array.prototype.sort` isn't stable on Chromium 53.
 - **Commits:**
   - scoped `git add`, then `git commit -F`;
   - end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` and the harness's session line;
   - merge relay PRs with `gh pr merge --merge` on green CI, keep the branch, and list the 3 riskiest changes.
-- **CLAUDE.md edits need Omar's direct word in your own tab.** Open gaps (six now):
+- **CLAUDE.md edits need Omar's direct word in your own tab.** Open gaps (six):
   - `@zoma/data`'s extra entries;
   - `pnpm epg:report` and `pnpm fonts` in the Commands table;
   - the CSS pipeline and gate in the `build:tv` row;
   - `?screen=gallery` among the `pnpm dev` URL overrides;
-  - the `verify:engines` row should mention the gallery checks and the CSS seeds;
-  - new: a Conventions line saying UI text comes only from `apps/tv/src/i18n` catalogs through `appI18n` (ADR-011), and that the 12b lint enforces it.
+  - the `verify:engines` row should mention the gallery checks, the CSS seeds and the Arabic phase;
+  - a Conventions line: UI text comes only from the `apps/tv/src/i18n` catalogs through `appI18n` (ADR-011), `zoma/no-hard-coded-text` enforces it, and text arguments are isolated by core's `isolateText`.
 
-## The 3 riskiest changes in PR #18
-1. **Arabic shows Western digits by default** (ADR-011). This is a product choice the plan left open; it's reversible in one line.
-2. **Our own formatters replace `Intl`.** They match ICU for en-US/CA/GB and ar-AE/SA; other English regions follow simplified tables (e.g. en-AU writes AM, not am).
-3. **Every text argument now carries FSI/PDI.** Text comparisons must expect them. Chromium 53's handling of them is to be checked in 12b; they draw as nothing there today (the gallery passed).
+## The 3 riskiest changes in PR #19
+1. **Every text argument now carries six invisible characters** (LRM/RLM outside FSI/PDI). Code or tests that compare UI text must strip them. `firstStrongDirection` approximates the bidi classes; a test sweeps every BMP letter.
+2. **The lint covers every `.tsx` in `apps/` and `packages/`.** The hello-screen exemption is temporary (step 13).
+3. **First live direction flip:** `<html dir>` and `nav.setDir` change at run time, so later screens must not cache anything by direction. `tools/engines` gained a workspace dependency on `@zoma/core` (lockfile).
 
 ## Verified vs not
 - **Verified:**
-  - the plural rules and formats against Node's ICU;
-  - the gallery in en, ar and en-XA in e2e;
-  - the gallery from both bundles on Chromium 53/56/68 (default locale, English): the new text renders and the layout checks pass;
+  - the lint on seeded code (26 cases) and on the real tree;
+  - the switch by keys in e2e (dev and both bundles);
+  - the Arabic gallery on Chromium 53/56/68 (layout, mirror, plural, fonts, focus);
+  - the bidi probe on 53/56/68 and on current Chromium;
   - local gates and CI green, merged.
 - **Not done:**
-  - the Arabic gallery on the old engines and FSI/PDI there (12b);
-  - the lint and the language switch (12b);
   - anything on a real TV (step 16);
-  - CI on main at `ee9059e` (it started at handover).
+  - CI on main at `4f90587` (it started at handover).
 - **Migrations and deploys:** N/A (no backend until step 29).
 
-## Try it (Omar)
-1. `pnpm dev`, then `http://localhost:5173/?screen=gallery&locale=ar-SA`. The header reads `ar-SA · 240 قناةً` (tag on the right), the yellow badge `ينتهي خلال 3 أيام`, and the timeline `1:13:12 / 2:00:00`.
-2. Use `&locale=en-US` for `240 channels` and `Expires in 3 days`, and `&locale=en-XA` for the bracketed, accented versions.
-3. In Arabic, **Enter** on row 103 opens `تشغيل Zoma Sports 1؟`.
+## Press these keys (Omar, desktop browser)
+1. Run `pnpm dev`, then open `http://localhost:5173/?screen=gallery&locale=en-US`.
+2. Press **↑ ↑** (rail, then the actions), then **→ → → →**. The globe button **العربية** at the right end of the button row is focused.
+3. Press **Enter**. The screen flips to Arabic and mirrors, with no reload:
+   - the title reads `المكوّنات`;
+   - the header reads `ar-US · 240 قناةً` (tag on the right);
+   - the switch now reads **English**, at the left end, still focused.
+4. Press **→**: the focus moves to `تسجيل` (in Arabic, RIGHT goes back towards the buttons). Press **←**, then **Enter**: back to English, still on the switch.
+5. Open `?screen=gallery&locale=ar-SA` and press the switch (a mouse click works too): `en-SA` (the region is kept).
+6. Open `?screen=gallery&locale=en-XA`: the switch shows `العربية` without brackets (language names aren't translated).
+7. **Lint check:** add `<p>Hello</p>` inside `GalleryScreen` in `apps/tv/src/gallery/GalleryApp.tsx` and run `pnpm lint`: `zoma/no-hard-coded-text` reports "Hello". Then undo the change.
 
 ## Open decisions and gates
 - **Arabic digits** (decided in leg 19, reversible; ADR-011). Ask Omar when he is next in a tab, as a numbered list:
   1. keep Western digits everywhere (recommended; it matches Shahid, OSN+ and Netflix in Arabic, and the provider's channel numbers);
   2. Arabic-Indic digits for SA, KW, QA, BH and OM per CLDR (Western for AE);
   3. Western by default, plus a user setting later.
-- **Step 12b:** the hello screen's lint exemption versus catalog strings (recommendation above).
+- **Step 13:** the hello screen's future (design point 2), and the TV text-input approach (design point 1). These are engineering calls: decide, record, and move on.
 - **Step 16 [needs Omar]:** the LG TV's model and year, LG Developer Mode, the Samsung route and the Samsung certificate.
 - **Later gates:** steps 21, 34, 44, 46 and 47.
 - **Before the first store submission:** the final app IDs and real icons.
-- **Relay cap:** 40 legs; leg 19 was the 19th.
+- **Relay cap:** 40 legs; leg 20 was the 20th.
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
 - Submit the **Samsung Seller Office Partner application ASAP** (Samsung Gulf). It takes weeks, and Samsung in the GCC and Canada depends on it.
