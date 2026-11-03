@@ -7,7 +7,7 @@ The TV build targets Chromium 53 (LG webOS 4, 2018) and 56 (Samsung Tizen 4, 201
 | Command | What it does |
 |---|---|
 | `pnpm build:tv` | Needed first: the harness tests `dist/tv/{tizen,webos}`. |
-| `pnpm verify:engines` | Runs both TV apps in Chromium 53, 56 and 68. Fails on any problem. |
+| `pnpm verify:engines` | Runs both TV apps in Chromium 53, 56 and 68: the hello screen, then the component gallery. Fails on any problem. |
 | `pnpm verify:engines --self-test` | Also runs deliberately broken bundles that must fail (below). This is what CI runs. |
 | `pnpm verify:engines --engine chrome53` | One engine (repeatable). |
 | `pnpm verify:engines --keep` | Leaves the containers running to debug (DevTools port printed). Remove them with `docker rm -f`. |
@@ -35,6 +35,7 @@ Needs **Docker**. On Windows, start Docker Desktop first. The first run download
 2. Per engine, one container:
    - The snapshot zip and the staged apps are mounted read-only.
    - `run-chrome.sh` starts Xvfb (1920x1080) and the browser *headed*: 53/56 have no usable headless mode.
+   - The browser runs full screen, as the app does on a TV (`TV_SCREEN_FLAGS` in `src/engines.ts`, passed in by the harness, so the image doesn't change). `--kiosk` drops the tab strip and toolbar, and `--test-type` the "unsupported command-line flag: --no-sandbox" bar. Without them the page got 1919x974 of the 1920x1080 screen on Chromium 53. A CDP viewport override gave the page 1080 px, but the old engines' screenshots stayed cut at the window.
    - `socat` forwards DevTools to a random loopback port on the host.
    - A second `socat` serves the catalog fixtures (`/app/fixtures`) on `127.0.0.1:8090` inside the container, one `serve-fixture.sh` per request: plain files, CORS headers (the page is `file://`, so the Blob worker's origin is `null`), no validators and no `Content-Encoding`. It needs no extra package, so the image's cached apt layer stays valid. The image tag hashes every file in `IMAGE_FILES` (`src/docker.ts`).
 3. The host drives each app over raw CDP (`tools/engines/src/cdp.ts`, Node's built-in WebSocket). Puppeteer 1.x starts at Chromium 66 and Playwright needs a modern protocol, so neither works here.
@@ -52,7 +53,18 @@ Needs **Docker**. On Windows, start Docker Desktop first. The first run download
      - `force=1` makes every run commit a new generation (catalog and guide), although all runs in one engine share the `file://` IndexedDB.
    - **Fonts (step 11a):** boot also waits for `document.fonts.status` to leave `loading`. Then a Latin and an Arabic Zoma Sans face must be `loaded` (the title is "Zoma زوما") and none may be `error`, so the package's woff2 subsets decode and load from `file://` in each engine. The probe lists the faces as `la400:loaded ar700:loaded …`.
    - **Remote keys:** CDP `Input.dispatchKeyEvent` ArrowUp (38) and Enter (13) show `UP` and `OK`, and `key-count` is 2. The focus engine (step 10) must act on each one: `focus-status` reads `home · rail 0` after ArrowUp, then `details · buttons 0` after Enter.
-5. Results print as a table (with each run's items and hits) and go to `artifacts/engines/report.json`. CI uploads it as `old-engines-report`.
+5. Per app, the **component gallery** (step 11c; `file:///app/<variant>/<platform>/index.html?screen=gallery`, `src/gallery.ts`). It starts no data workers. The probe is plain ES5, with the selectors of `layout()` in `e2e/gallery.spec.ts`; `test/engines-gallery.test.ts` keeps both, and the numbers, equal to the app's.
+   - **Boot:** no error, `[data-testid=gallery][data-ready=true]`, and a Latin and an Arabic Zoma Sans face each `loaded` or `error` (the demo channels have Arabic names). Then a loaded face is required for each script, and none may be `error`.
+   - **Screen:** the page is 1920x1080 (`innerWidth`, `innerHeight`), and nothing scrolls.
+   - **Layout:** every component box is inside the title-safe area (96/54 px), badges hidden by their container count as outside, no label of ours is cut, and no channel name is squeezed by its badges.
+   - **Virtual list:** `[data-testid=channels] .z-row` is 7 rows, each 88 px tall. Every component's CSS reached app.css, and the engine applied it.
+   - **Focus:** ArrowDown (40) makes `row-1` `data-state="focused"`.
+   - **Screenshot:** CDP `Page.captureScreenshot` after ArrowDown and a 400 ms pause (the focus ring's 120 ms transition), as `artifacts/engines/gallery-<engine>-<platform>.png`, real app only. A failed capture fails the run. Each run deletes the old ones first.
+   - **First run (2026-11-03):** every check passed on all three engines.
+     - The engines' screenshots agree with each other (SSIM 0.995 for 53 against 68, 0.9998 for 53 against 56).
+     - Against the e2e screenshot from current Chromium on Windows, a difference image shows only glyph edges (another font rasteriser), with no box moved.
+     - `docs/design/gallery-chrome53-webos.webp` keeps the Chromium 53 one.
+6. Results print as a table (variant, platform, screen; with each run's items and hits, or rows and screenshot) and go to `artifacts/engines/report.json`. CI uploads it with the six gallery screenshots as `old-engines-report`.
 
 ## The catalog fixture (`src/fixture.ts`)
 
@@ -72,14 +84,18 @@ Each engine runs both apps, so each engine ingests both files, runs both searche
 
 ## The self-test (proof that the harness catches problems)
 
-`--self-test` stages extra variants next to the real apps in `artifacts/engines/variants/`. Each must fail on every engine below its minimum and pass on the rest:
+`--self-test` stages extra variants next to the real apps in `artifacts/engines/variants/`. Each runs on its screens and must fail on every engine below its minimum and pass on the rest:
 
-| Variant | What it is | Must fail on | Result (2026-11-02) |
-|---|---|---|---|
-| `app` | the real `dist/tv` builds | none | passes on 53, 56, 68 |
-| `seed-es2018-object-spread` | `var __zomaSeed = { ...{ seeded: true } };` prepended to `main.js` | < 60 | 53, 56: `Uncaught SyntaxError: Unexpected token ...`; 68 passes |
-| `seed-es2020-optional-chaining` | `window.__zomaMissing?.value` prepended | < 80 | 53, 56, 68: `Unexpected token .` |
-| `no-polyfills` | the app built with `build-tv --unsafe-no-polyfills` (no core-js) | < 71 | 53, 56: `padStart is not a function`; 68: `queueMicrotask is not defined` |
+| Variant | What it is | Screens | Must fail on | Result (2026-11-03) |
+|---|---|---|---|---|
+| `app` | the real `dist/tv` builds | hello, gallery | none | passes on 53, 56, 68 |
+| `seed-es2018-object-spread` | `var __zomaSeed = { ...{ seeded: true } };` prepended to `main.js` | hello, gallery | < 60 | 53, 56: `Uncaught SyntaxError: Unexpected token ...`; 68 passes |
+| `seed-es2020-optional-chaining` | `window.__zomaMissing?.value` prepended | hello, gallery | < 80 | 53, 56, 68: `Unexpected token .` |
+| `seed-css-no-list-row` | app.css without ListRow.css's rules (every `.z-row` selector, both directions) | gallery | every engine | 53, 56, 68: `channel rows 197 px; 196 px; 235 px; 114 px tall, expected 88 px` |
+| `seed-css-no-safe-area` | the `padding` of the `.gallery` rule taken out of app.css | gallery | every engine | 53, 56, 68: `outside the safe area: gallery__title: Components; …` |
+| `no-polyfills` | the app built with `build-tv --unsafe-no-polyfills` (no core-js) | hello | < 71 | 53, 56: `padStart is not a function`; 68: `queueMicrotask is not defined` |
+
+That is 54 runs, 38 of them failures that must be caught. The gallery needs no polyfill at all: without core-js it passes on all three engines (2026-11-03), so `no-polyfills` runs the hello screen only. The CSS seeds fail the staging if they find nothing to take out (a renamed class or file), so they can't silently test nothing.
 
 The seeds are prepended to the *built* bundle, because the ES2016 build gate would reject them at build time. That is the point: the harness catches what reaches the engine even if the gate were bypassed. `--unsafe-no-polyfills` is a test-only flag of `pnpm build:tv`: it requires `--out <dir>`, refuses `dist/tv` and never packages.
 
@@ -104,5 +120,6 @@ The data engine keeps the catalog in IndexedDB inside workers, so **spike S1 mus
 - **`the Docker daemon is not reachable`:** start Docker Desktop.
 - **`DevTools … did not answer`:** the engine crashed at startup, and the harness prints the container log. Check the image (libraries) first. `docker run --rm --entrypoint /bin/sh <image> -c "unzip -q /engine.zip -d /opt/e && ldd /opt/e/chrome-linux/chrome | grep 'not found'"` with the zip mounted at `/engine.zip`.
 - **A data check fails:** `refresh of playlist.m3u.gz: failed: …` quotes the app's own error (`IngestError` codes such as `network`, `http`, `format`). The container log lists every fixture request (`fixtures: GET /playlist.m3u.gz`); no request at all means the worker never fetched. `search … found 0` with a committed refresh means the query worker did not reload after the swap. `guide guide.xml.gz: failed: debug:tvg0 format` names the guide and the refresh's error code; `matched 0 of 2400` with an `ok` guide means the reader saw no channel ids (a gzip or decoding problem), and `now/next: none` with matches means the buckets didn't come back from IndexedDB or the engine's clock is outside the fixture's four days.
+- **A gallery check fails:** open `artifacts/engines/gallery-<engine>-<platform>.png` (CI: the `old-engines-report` artifact). `the viewport is 1919x974` means the engine isn't full screen (`TV_SCREEN_FLAGS`). `channel rows … px tall` means a component's CSS is missing from app.css, or the engine ignored a property it needs. `outside the safe area` and `labels cut` name the boxes (the first five). A face `unloaded` after the timeout means no Arabic text was drawn.
 - **A real app run fails:** read the failure lines. `Boot error: …` is what the TV would show on screen. Reproduce with `--engine <id> --keep`, then attach Chrome DevTools from a current Chrome at `http://127.0.0.1:<port>` (old frontends may not match; the `/json` list still works).
 - **Download mismatch:** the pinned SHA-256 no longer matches. The harness deletes the file and stops; it never runs an unverified engine.
