@@ -12,7 +12,8 @@
  * Arabic after the language switch by keys, with the bidi probe (FSI/PDI) and `-ar.png`. Then
  * onboarding, the start screen (no `?screen=`), walked by keys in English and in Arabic from a
  * fresh database: the fixture playlist's link typed into the field, loading, done with its
- * counts, and a relaunch that skips onboarding (artifacts/engines/onboarding-*.png).
+ * counts, "Start watching" to the live screen (step 14a), and a relaunch that skips onboarding
+ * to it (artifacts/engines/onboarding-*.png: the form, done and live screens).
  *
  * Options:
  *   --engine chrome53|chrome56|chrome68   repeatable; default all
@@ -101,7 +102,7 @@ interface WalkTimes {
   /** From the navigation to the first screen: the profile read behind the spinner. */
   readonly firstScreenMs: number | null;
   readonly loadMs: number | null;
-  /** From the relaunch to the hello screen. */
+  /** From the relaunch to the live screen with its data requests answered. */
   readonly relaunchMs: number | null;
   readonly phases: readonly string[] | null;
   readonly screenshots: readonly string[];

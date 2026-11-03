@@ -173,10 +173,21 @@ for (const platform of ['tizen', 'webos'] as const) {
     for (const key of ['ArrowDown', 'ArrowDown', 'Enter']) await page.keyboard.press(key);
     await expect(root).toHaveAttribute('data-screen', 'done', { timeout: 20_000 });
     await expect(page.getByTestId('done-live')).toHaveAttribute('data-n', String(app.mockState.catalog.live.length));
+    // Start watching: the live screen (step 14a) lists the playlist through the same workers.
+    await page.keyboard.press('Enter');
+    const live = page.getByTestId('live');
+    await expect(live).toHaveAttribute('data-status', 'ready');
+    await expect(live).toHaveAttribute('data-pending', '0', { timeout: 10_000 });
+    await expect(page.locator('[data-testid=rail] .z-chip').first().locator('.z-chip__count')).toHaveText(String(app.mockState.catalog.live.length));
+    await expect(page.locator('[data-testid=channels] .z-row')).toHaveCount(Math.min(9, app.mockState.catalog.live.length));
+    await expect(page.getByTestId('row-0').locator('.z-row__name')).not.toHaveText('');
+    await page.keyboard.press('ArrowDown');
+    await expect(live).toHaveAttribute('data-index', '1');
     // A relaunch with the source stored skips onboarding.
     await page.reload();
-    await expect(page.getByTestId('hello')).toHaveAttribute('data-ready', 'true');
+    await expect(page.getByTestId('live')).toHaveAttribute('data-status', 'ready');
     await expect(page.getByTestId('onboarding')).toHaveCount(0);
+    await expect(page.getByTestId('live')).toHaveAttribute('data-pending', '0', { timeout: 10_000 });
     expect(errors).toEqual([]);
   });
 }

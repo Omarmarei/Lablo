@@ -121,6 +121,16 @@ export const EN = {
   'done.movies': '{n, plural, one {# film} other {# films}}',
   'done.series': '{n, plural, one {# series} other {# series}}',
   'done.start': 'Start watching',
+
+  // The live screen (RELAY step 14a). A provider's category names are its data.
+  'live.title': 'Live TV',
+  'live.channels': '{n, plural, one {# channel} other {# channels}}',
+  'live.noGroup': 'Other channels',
+  'live.loading': 'Loading your channels',
+  'live.empty': 'Your sources have no live channels.',
+  'live.failed': "Couldn't read your channels.",
+  'live.retry': 'Try again',
+  'badge.radio': 'Radio',
 } as const;
 
 export type MessageKey = keyof typeof EN;

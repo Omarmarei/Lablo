@@ -273,13 +273,16 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
       expect(await focus(root)).toBe('exit · actions 0');
       await keys(page, 'Enter');
       expect(await focus(root)).toBe('done · actions 0');
-      // Start watching: until step 14's live screen, the hello screen.
+      // Start watching: the live screen (step 14a; e2e/live.spec.ts walks it), in the language picked.
       await keys(page, 'Enter');
-      await expect(page.getByTestId('hello')).toHaveAttribute('data-ready', 'true');
+      await expect(page.getByTestId('live')).toHaveAttribute('data-status', 'ready');
+      await expect(page.getByTestId('live')).toHaveAttribute('data-language', language);
+      await expect(page.locator('[data-testid=rail] .z-chip').first().locator('.z-chip__count')).toHaveText(String(counts.live));
       // A relaunch: the source is stored, so onboarding is skipped.
       await page.reload();
-      await expect(page.getByTestId('hello')).toHaveAttribute('data-ready', 'true');
+      await expect(page.getByTestId('live')).toHaveAttribute('data-status', 'ready');
       await expect(page.getByTestId('onboarding')).toHaveCount(0);
+      await expect(page.getByTestId('live')).toHaveAttribute('data-pending', '0', { timeout: 10_000 });
       expect(errors).toEqual([]);
     });
 

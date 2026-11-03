@@ -15,10 +15,11 @@
  *    field instead of going back, and OK (key 13) ends the edit.
  * 4. "Add source": loading, then done with the fixture's counts (`data-n`), through the real
  *    data workers. The profile read back from IndexedDB holds the source `s1` and the language.
- * 5. "Start watching" opens the hello screen (until step 14), and a relaunch skips onboarding.
- *    The walk leaves the hello screen only once its data panel has answered every row: leaving
- *    while its workers still opened the database once left Chromium 53 (on CI) with a delete
- *    that never answered.
+ * 5. "Start watching" opens the live screen (RELAY step 14a) in the language picked, with the
+ *    fixture's live channels, and a relaunch skips onboarding to it. The walk leaves the live
+ *    screen only once its data requests have all answered (`data-pending="0"`): leaving while
+ *    the workers were still in the database once left Chromium 53 (on CI) with a delete that
+ *    never answered.
  * Each screen on the way is measured as in the e2e test (1920x1080, the safe area, no label
  * cut), and the form and done screens are saved as screenshots.
  *
@@ -80,11 +81,13 @@ export interface WalkState {
   readonly bootError: string;
   /** `[data-testid=onboarding][data-ready=true]`: the profile has been read and a screen shows. */
   readonly onboarding: boolean;
-  /** `[data-testid=hello][data-ready=true]`. */
-  readonly hello: boolean;
-  /** The hello screen's data panel has answered its last row (`shortepg-status`): its workers are done with the database. */
-  readonly helloIdle: boolean;
-  /** Onboarding's `data-screen`, `data-zone`, `data-index`, `data-editing` and `data-language`. */
+  /** `[data-testid=live][data-status=ready]`: the live screen shows its channels. */
+  readonly live: boolean;
+  /** The live screen has no data request in flight (`data-pending="0"`): its workers are done with the database. */
+  readonly liveIdle: boolean;
+  /** The live screen's channel count for the category on show (its header's `data-n`; null elsewhere). */
+  readonly liveCount: number | null;
+  /** `data-screen`, `data-zone`, `data-index` and `data-language` of onboarding or the live screen; onboarding's `data-editing`. */
   readonly screen: string | null;
   readonly zone: string | null;
   readonly index: number | null;
@@ -133,13 +136,14 @@ export const WALK_EXPRESSION = `(function () {
     .map(name);
   var root = document.documentElement;
   var ob = document.querySelector('[data-testid="onboarding"]');
-  var hello = document.querySelector('[data-testid="hello"]');
+  var live = document.querySelector('[data-testid="live"]');
+  var shown = ob || live;
+  var liveCount = live ? live.querySelector('[data-testid="live-meta"] [data-n]') : null;
   var input = document.getElementById('${PLAYLIST_INPUT}');
   var status = document.querySelector('[data-testid="load-status"]');
   var error = document.querySelector('[data-testid="load-error"]');
   var active = document.activeElement;
-  var live = count('done-live');
-  var last = document.querySelector('[data-testid="shortepg-status"]');
+  var done = count('done-live');
   var boot = document.getElementById('boot-error');
   return JSON.stringify({
     href: location.href,
@@ -147,19 +151,20 @@ export const WALK_EXPRESSION = `(function () {
     userAgent: navigator.userAgent,
     bootError: boot ? boot.textContent : '',
     onboarding: ob !== null && ob.getAttribute('data-ready') === 'true',
-    hello: hello !== null && hello.getAttribute('data-ready') === 'true',
-    helloIdle: last !== null && /^(ok|none|failed)/.test(last.textContent || ''),
-    screen: ob ? ob.getAttribute('data-screen') : null,
-    zone: ob ? ob.getAttribute('data-zone') : null,
-    index: ob && ob.hasAttribute('data-index') ? Number(ob.getAttribute('data-index')) : null,
+    live: live !== null && live.getAttribute('data-status') === 'ready',
+    liveIdle: live !== null && live.getAttribute('data-status') === 'ready' && live.getAttribute('data-pending') === '0',
+    liveCount: liveCount ? Number(liveCount.getAttribute('data-n')) : null,
+    screen: shown ? shown.getAttribute('data-screen') : null,
+    zone: shown ? shown.getAttribute('data-zone') : null,
+    index: shown && shown.hasAttribute('data-index') ? Number(shown.getAttribute('data-index')) : null,
     editing: ob ? ob.getAttribute('data-editing') : null,
-    language: ob ? ob.getAttribute('data-language') : null,
+    language: shown ? shown.getAttribute('data-language') : null,
     dir: root.getAttribute('dir') || '',
     active: active ? active.id || active.tagName : null,
     value: input ? input.value : null,
     phase: status ? status.getAttribute('data-phase') : null,
     error: error ? error.getAttribute('data-code') : null,
-    counts: live === null ? null : [live, count('done-movies'), count('done-series')],
+    counts: done === null ? null : [done, count('done-movies'), count('done-series')],
     viewport: [window.innerWidth, window.innerHeight],
     scroll: [root.scrollWidth, root.scrollHeight],
     outside: outside,
@@ -247,8 +252,8 @@ export const PROFILE_RESULT = `(function () { return window.__zomaProfile || nul
 /** Where the walk must be after a step: every field given must match. */
 export interface Expectation {
   readonly onboarding?: boolean;
-  readonly hello?: boolean;
-  readonly helloIdle?: boolean;
+  readonly live?: boolean;
+  readonly liveIdle?: boolean;
   readonly screen?: string;
   readonly zone?: string;
   readonly index?: number;
@@ -262,6 +267,8 @@ export interface Expectation {
 }
 
 export type Key = { readonly key: string; readonly keyCode: number };
+/** The screens a walk saves: the typed form, the done screen, the live screen. */
+export type WalkShot = 'form' | 'done' | 'live';
 const KEY = {
   enter: { key: 'Enter', keyCode: 13 },
   up: { key: 'ArrowUp', keyCode: 38 },
@@ -304,7 +311,7 @@ export interface WalkStep {
   /** Measure the screen once there (and wait for its fonts): its name in failure messages. */
   readonly layout?: string;
   /** Save a screenshot of the screen once there. */
-  readonly shot?: 'form' | 'done';
+  readonly shot?: WalkShot;
   /** Which timeout applies: a start, a key, or the load. */
   readonly wait: 'boot' | 'key' | 'load';
 }
@@ -317,6 +324,8 @@ export function walkSteps(language: WalkLanguage, link: string): WalkStep[] {
   const ar = language === 'ar';
   const next = ar ? KEY.left : KEY.right;
   const back = ar ? KEY.right : KEY.left;
+  /** The live screen in the language picked, on the first channel. */
+  const onLive: Expectation = { screen: 'live', zone: 'channels', index: 0, language, dir: ar ? 'rtl' : 'ltr' };
   const steps: WalkStep[] = [
     {
       id: 'start',
@@ -371,8 +380,15 @@ export function walkSteps(language: WalkLanguage, link: string): WalkStep[] {
     },
     { id: 'to-add', label: 'ArrowDown twice to "Add source"', keys: [KEY.down, KEY.down], expect: { screen: 'form', zone: 'actions', index: 0 }, wait: 'key' },
     { id: 'add', label: 'OK on "Add source"', keys: [KEY.enter], expect: { screen: 'done', zone: 'actions', index: 0 }, layout: 'done', shot: 'done', wait: 'load' },
-    { id: 'start-watching', label: 'OK on "Start watching"', keys: [KEY.enter], expect: { hello: true, helloIdle: true }, wait: 'boot' },
-    { id: 'relaunch', label: 'the relaunch', navigate: true, expect: { hello: true, helloIdle: true, onboarding: false }, wait: 'boot' },
+    {
+      id: 'start-watching',
+      label: 'OK on "Start watching"',
+      keys: [KEY.enter],
+      expect: { ...onLive, live: true, liveIdle: true },
+      shot: 'live',
+      wait: 'boot',
+    },
+    { id: 'relaunch', label: 'the relaunch', navigate: true, expect: { ...onLive, live: true, liveIdle: true, onboarding: false }, wait: 'boot' },
   );
   return steps;
 }
@@ -385,10 +401,10 @@ export function matches(state: WalkState, expect: Expectation): boolean {
 export function describeState(state: WalkState): string {
   const parts: string[] = [];
   if (state.bootError.trim() !== '') parts.push(`boot error: ${state.bootError.trim().split('\n').join(' | ')}`);
-  if (state.hello) parts.push(state.helloIdle ? 'the hello screen' : 'the hello screen, its data rows still busy');
+  if (state.live) parts.push(state.liveIdle ? 'the live screen' : 'the live screen, its data requests still running');
   if (state.screen !== null) parts.push(`${state.screen} · ${state.zone ?? '-'} ${state.index ?? '-'}`);
-  else if (!state.hello) parts.push(state.onboarding ? 'onboarding' : 'no screen yet');
-  if (state.screen !== null && !state.onboarding) parts.push('not ready');
+  else if (!state.live) parts.push(state.onboarding ? 'onboarding' : 'no screen yet');
+  if (state.screen !== null && !state.onboarding && !state.live) parts.push('not ready');
   if (state.editing !== null && state.editing !== '') parts.push(`editing ${state.editing}`);
   if (state.active !== null && state.active !== 'BODY') parts.push(`DOM focus on ${state.active}`);
   else parts.push('no DOM focus');
@@ -401,7 +417,7 @@ export function describeState(state: WalkState): string {
 
 export function describeExpectation(expect: Expectation): string {
   const parts: string[] = [];
-  if (expect.hello === true) parts.push(expect.helloIdle === true ? 'the hello screen, its data rows answered' : 'the hello screen');
+  if (expect.live === true) parts.push(expect.liveIdle === true ? 'the live screen, its data requests answered' : 'the live screen');
   if (expect.onboarding === false) parts.push('no onboarding');
   if (expect.screen !== undefined) parts.push(`${expect.screen} · ${expect.zone ?? '*'} ${expect.index ?? '*'}`);
   else if (expect.index !== undefined) parts.push(`item ${expect.index}`);
@@ -512,6 +528,9 @@ export function evaluateWalk(walk: Walk, check: Pick<DataCheck, 'live' | 'movies
       }
       failures.push(...profileFailures(walk.profile, language));
     }
+    if ((step.id === 'start-watching' || step.id === 'relaunch') && step.state !== null && step.state.liveCount !== check.live) {
+      failures.push(`${step.label}: the live screen lists ${step.state.liveCount ?? 'no'} channels, expected ${check.live}`);
+    }
   }
   if (walk.steps.length < steps.length) failures.push(`only ${walk.steps.length} of ${steps.length} steps ran`);
   if (walk.screenshotError !== null) failures.push(`screenshot: ${walk.screenshotError}`);
@@ -559,7 +578,7 @@ const RESET_TIMEOUT_MS = 20_000;
 export interface OnboardingOptions extends RunOptions {
   readonly loadTimeoutMs: number;
   /** Where a walk's screenshot goes (null: none). */
-  readonly screenshot: ((language: WalkLanguage, screen: 'form' | 'done') => string) | null;
+  readonly screenshot: ((language: WalkLanguage, screen: WalkShot) => string) | null;
   readonly save: (file: string, png: Buffer) => void;
 }
 

@@ -331,6 +331,38 @@ Off-the-shelf libraries such as Norigin measure the DOM on every move. That figh
   - A TV app never deletes its database. But if a worker killed in the middle of IndexedDB work can stall the next request on that engine, an app closed while loading could hit it too. Spike S1 should try it on the sets.
 - **Seeds:** two TV faults prepended to the built `main.js`, which must fail the walk on every engine. `focus()` that does nothing (a keyboard that never opens) stops it at the playlist field. A database deleted at every start (a TV that keeps nothing between launches) stops it at the relaunch. Both are plain ES5, so only the walk can catch them. The self-test is now 72 runs, 50 of them seeded failures.
 
+**Built in step 14a: the live screen** (`apps/tv/src/live`: `channel-index.ts`, `live-state.ts`, `LiveApp.tsx`, `live.css`; `DataEngine.categories` and `chunk`):
+- **Layout** (1920x1080, inside the safe area, sizes from `LIVE` in `live-state.ts`, never measured):
+  - a header: "Live TV", the category on show with its channel count, and the clock (the minute tick);
+  - the rail at the inline start (440 px, 12 chips of 64 px shown);
+  - the channel list (9 rows of 88 px shown).
+  - In Arabic the rail is on the right. A provider's names keep their own direction (`dir="auto"`) but start on the screen's side, in the rail as in the list.
+- **The rail (decision):** a vertical column of `Chip`s at the inline start, not the gallery's horizontal rail. Providers' category names are long ("AR | MBC Group HD"), and panels often have hundreds of categories, so a column shows 12 whole names with their counts.
+  - It lists "All channels" first, then each stored source's live categories with channels, source by source, in the provider's order.
+  - A group with no name is "Other channels".
+  - OK shows a category and moves to the list's top. Moving through the rail reads nothing.
+- **The list:** a `ChannelIndex` turns row `n` into (source, category, chunk, slot) by binary search over the categories' start rows. The screen reads only the chunks of the rows from one window above to one below (`chunk`), keeps at most 8 (least recently used first), and the query worker keeps its own 16.
+  - A row whose chunk is still on its way is an empty row of the same height. A failed read is asked again when the window moves.
+  - A channel's number is the provider's (`tvg-chno`, Xtream `num`), else its place in "All channels".
+- **Now/next:** `nowNext` for the rows on show, 200 ms after the window rests (scrolling asks nothing). It is asked again on the minute tick once a row's programme has ended, and after 5 minutes otherwise.
+  - The row shows the programme on now with its start time and a bar, and the next one. A channel without a guide says "No guide for this channel".
+  - The focused channel goes to `focusChannel`, the short-EPG fallback of step 9c, after 600 ms. A panel's answer for a channel no guide matches shows on its row.
+- **Keys:** LEFT and RIGHT go between the rail and the list (mirrored in Arabic). CH+ and CH− page the list by a window. Back in the list goes to the rail, on the category on show. Back on the rail follows `rootBackPolicy` (an exit dialog on Tizen and in the browser, the launcher on webOS). OK on a channel only marks it (`data-selected`); the player opens it from step 20 on. Keys reach `DataEngine.noteActivity`, so a running refresh pauses.
+- **States:** a spinner while the profile and the categories load; "Your sources have no live channels."; and a failed read with "Try again".
+- **Stale answers:** a reload, or the screen going away, drops what is still on its way: chunks, now/next, the focus's answer.
+- **Idle:** `pending` counts the data requests in flight, the focus's 600 ms wait included, and the screen writes it as `data-pending`. The old-engine walk leaves the live screen only at `0` (step 13c's lesson: a page left while its workers were in IndexedDB stalled the next delete on Chromium 53).
+- **In the app:** the live screen replaces the hello screen after "Start watching" and at a start with a stored source (`?screen=hello` stays a developer screen). It shows in the language picked in onboarding (the profile's), in the TV's region.
+- **Size:** main's own code 166.3 → 178.0 KB (tizen) of 500, with no new polyfill (219 core-js modules before and after).
+  - A field named `at` (when a row's now/next was asked) pulled in core-js's `Array.prototype.at` and `String.prototype.at` again. It is named `asked` now.
+- **Tests:**
+  - `channel-index.test.ts`: the addresses across sources, categories and chunks, empty categories, and fast-check against the flattened list.
+  - `live-state.test.ts` (fake engine, hand-run timers): the rail, the window's chunk reads and the cache limit, now/next after the rest and again on the tick and after 5 minutes, a category by OK with its numbers, Back, the root policies, the RTL swap, the focus's short EPG through its source, `pending`, and answers dropped after a reload or after disposal. Also a failed read with "Try again", a failed chunk, and no live channels.
+  - e2e `live.spec.ts` against the mock (an Xtream login added by keys in onboarding), with the mock on the real clock so its guide covers the browser's now. In en and ar: the 6 categories and their counts; the 12 channels with the panel's numbers in category order; now/next checked against the mock's own schedule (the 18+ channel has none); paging to the end; the kids' category; Back; the exit dialog; the mirror; the layout; the fonts; and a relaunch in the language picked. In en-XA: every string of ours is bracketed (the formatter's times aside).
+  - `onboarding.spec.ts` and `tv-bundle.spec.ts`: "Start watching" and the relaunch open the live screen, from `file://` too.
+  - Screenshots `live-{en-US,ar-SA,en-XA}.png` and `-category.png`, the Arabic ones looked at.
+- **On Chromium 53/56/68:** the onboarding walk now ends on the live screen. It must be on `live · channels 0` in the walk's language, list the fixture's 2,400 channels, and be idle, both after "Start watching" and after the relaunch. A screenshot of it is saved per engine, platform and language. The live screen's own checks there (keys, layout, now/next) are step 14b.
+- **Left for step 14b:** `RemoteDriver` and `window.__ZOMA_TEST__.focusPath()`, the 4x CPU-throttled and low-tier runs on a large catalog, and the live screen's own checks on the old engines.
+
 **State:**
 - Signals hold UI and session state.
 - Domain stores are plain classes that expose signals: `ProfileStore`, `SourceStore`, `PlayerStore` (mirrors the controller) and `SettingsStore`.

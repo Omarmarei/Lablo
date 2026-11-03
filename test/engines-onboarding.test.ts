@@ -1,4 +1,4 @@
-// RELAY step 13c: the old-engine harness walks onboarding with its own ES5 probe and constants
+// RELAY steps 13c and 14a: the old-engine harness walks onboarding to the live screen with its own ES5 probe and constants
 // (tools/* may not import the app or @zoma/data). This keeps them equal to the app's, to the
 // data layer's and to the e2e test's.
 
@@ -9,7 +9,7 @@ import { readScreen } from '../apps/tv/src/data/params';
 import { FORM_FIELDS, checkForm } from '../apps/tv/src/onboarding/form';
 import { DB_NAME, STORE } from '../packages/data/src/schema';
 import { dataChecks, fixtureEntries } from '../tools/engines/src/fixture';
-import { APP_DATABASE, LAYOUT_BOXES, LAYOUT_LABELS, PLAYLIST_INPUT, SOURCE_NAME, onboardingUrl, playlistLink } from '../tools/engines/src/onboarding';
+import { APP_DATABASE, LAYOUT_BOXES, LAYOUT_LABELS, PLAYLIST_INPUT, SOURCE_NAME, WALK_EXPRESSION, onboardingUrl, playlistLink, walkSteps } from '../tools/engines/src/onboarding';
 import { WALK_SEEDS } from '../tools/engines/src/variants';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -42,6 +42,23 @@ describe('the onboarding walk of the old-engine harness', () => {
       expect(problems).toEqual({});
       expect(draft).toMatchObject({ type: 'm3u', url: `http://${link}`, name: SOURCE_NAME, epgUrl: null });
     }
+  });
+
+  it('ends on the live screen by the marks the live screen writes (RELAY step 14a)', () => {
+    const app = read('apps/tv/src/live/LiveApp.tsx');
+    // Ready: the channels show. Idle: no data request in flight, so leaving the page can't stall a database delete.
+    expect(app).toContain('data-testid="live"');
+    expect(app).toContain('data-status={status}');
+    expect(app).toContain('data-pending={live.pending.value}');
+    expect(app).toContain('data-testid="live-meta"');
+    expect(app).toContain('<span data-n={entry.count}>');
+    expect(WALK_EXPRESSION).toContain(`document.querySelector('[data-testid="live"]')`);
+    expect(WALK_EXPRESSION).toContain(`live.getAttribute('data-status') === 'ready' && live.getAttribute('data-pending') === '0'`);
+    expect(WALK_EXPRESSION).toContain(`live.querySelector('[data-testid="live-meta"] [data-n]')`);
+    // The walk expects the screen, zone and first channel the live screen starts on.
+    expect(read('apps/tv/src/live/live-state.ts')).toContain("id: 'live',");
+    expect(read('apps/tv/src/live/live-state.ts')).toContain("initial: 'channels',");
+    expect(walkSteps('en', 'x').at(-1)?.expect).toMatchObject({ screen: 'live', zone: 'channels', index: 0 });
   });
 
   it('measures the boxes and labels of e2e/onboarding.spec.ts', () => {

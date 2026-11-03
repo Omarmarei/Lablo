@@ -15,15 +15,18 @@
  *   for `FOCUS_MS`, the query worker gives its now/next, from its guide or, when no guide matches
  *   it, from its Xtream panel's `get_short_epg` (kept 30 min per channel in the worker);
  * - `profile` and `editProfile` read and change the profile document through the query worker
- *   (step 13b: onboarding's answers and the sources).
+ *   (step 13b: onboarding's answers and the sources);
+ * - `categories` and `chunk` read a source's categories and one chunk of a category (step 14a:
+ *   the live screen reads only the chunks of the rows around its window).
  *
  * Workers come from factories, so tests serve the real services over message channels; the
  * app passes the `?worker` imports (`./workers.ts`).
  */
 
-import type { ContentKey, DeviceTier, EpgOverride } from '@zoma/core';
+import type { CatalogItem, ContentKey, ContentKind, DeviceTier, EpgOverride } from '@zoma/core';
 import type {
   CancelToken,
+  CategoryInfo,
   DataClient,
   EpgCatalogSource,
   EpgNowNext,
@@ -263,6 +266,16 @@ export class DataEngine {
     } finally {
       this.release();
     }
+  }
+
+  /** A source's categories of one kind in its active generation (`[]`: none). */
+  categories(src: string, kind: ContentKind): Promise<CategoryInfo[]> {
+    return this.query.call('categories', { src, kind });
+  }
+
+  /** One chunk (up to 500 items) of a category in the source's active generation (`[]`: gone). */
+  chunk(src: string, kind: ContentKind, catIdx: number, chunk: number): Promise<CatalogItem[]> {
+    return this.query.call('chunk', { src, kind, catIdx, chunk });
   }
 
   /** Now and next for live channels, from the stored guides (through the query worker). */

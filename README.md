@@ -2,13 +2,13 @@
 
 A content-free IPTV player for Samsung Tizen and LG webOS TVs. Users bring their own M3U playlist or Xtream login; Zoma ships no channels and its servers never touch provider links. Arabic (RTL) and English from day one.
 
-**Status:** pre-alpha. The workspace scaffold, the TV build pipeline, a hello app and the mock provider exist; the data engine, player and UI are being built step by step (see [RELAY.md](RELAY.md)).
+**Status:** pre-alpha. The workspace scaffold, the TV build pipeline, the data engine, onboarding, the live screen and the mock provider exist; the player and the other screens are being built step by step (see [RELAY.md](RELAY.md)).
 
 ## Layout
 
 ```
 packages/  core, protocol, crypto, data, player, ui, platform-api, platform-{tizen,webos,browser}
-apps/      tv (hello app), mock-provider (pnpm mock); web comes later
+apps/      tv (the TV app), mock-provider (pnpm mock); web comes later
 tools/     build (pnpm build:tv), device (pnpm device), engines (pnpm verify:engines); fixtures, sign-config come later
 platforms/ tizen/config.xml, webos/appinfo.json, icons
 e2e/       Playwright smoke tests
