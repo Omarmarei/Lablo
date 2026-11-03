@@ -1,9 +1,10 @@
 import type { RootBackPolicy } from '@zoma/platform-api';
-import { LAYOUT, listHeight, pseudoLocalize } from '@zoma/ui';
+import { LAYOUT, listHeight } from '@zoma/ui';
 import { describe, expect, it, vi } from 'vitest';
 import { DEMO_CATEGORIES, DEMO_CHANNELS, DEMO_TILES } from './gallery-data';
-import { CHANNELS_VISIBLE, DISABLED_ACTION, GALLERY, RAIL_VISIBLE, createGallery } from './gallery-state';
-import { TEXT_KEYS, galleryLanguage, galleryText } from './gallery-text';
+import { appI18n } from '../i18n';
+import { EN } from '../i18n/en';
+import { ACTIONS, CHANNELS_VISIBLE, DISABLED_ACTION, GALLERY, RAIL_VISIBLE, createGallery } from './gallery-state';
 
 function setup(rootBack: RootBackPolicy = 'exit-dialog') {
   const exitApp = vi.fn();
@@ -136,32 +137,14 @@ describe('the gallery by remote', () => {
 });
 
 describe('the gallery’s words', () => {
-  it('has every text in English and Arabic, with the same placeholders', () => {
-    const en = galleryText('en-US');
-    const ar = galleryText('ar-SA');
-    for (const key of TEXT_KEYS) {
-      const english = en(key);
-      const arabic = ar(key);
-      expect(english, key).not.toBe('');
-      expect(/[؀-ۿ]/.test(arabic), `${key}: ${arabic}`).toBe(true);
-      expect((arabic.match(/\{\w+\}/g) ?? []).sort(), key).toEqual((english.match(/\{\w+\}/g) ?? []).sort());
+  it('names every action and category from the catalog, in both languages', () => {
+    const en = appI18n('en-US');
+    const ar = appI18n('ar-SA');
+    for (const key of [...ACTIONS, ...DEMO_CATEGORIES]) {
+      expect(Object.keys(EN), key).toContain(key);
+      expect(en.t(key), key).toBe(EN[key]);
+      expect(/[\u0600-\u06ff]/.test(ar.t(key)), key).toBe(true);
     }
-    // The badges and labels the components need are here.
-    for (const key of DEMO_CATEGORIES) expect(TEXT_KEYS).toContain(key);
     expect(DEMO_TILES.length).toBe(6);
-  });
-
-  it('picks the language from the locale, with en-XA as the pseudo-locale', () => {
-    expect(['en-US', 'en', 'fr-CA', 'ar-SA', 'ar', 'en-XA'].map(galleryLanguage)).toEqual(['en', 'en', 'en', 'ar', 'ar', 'pseudo']);
-    expect(galleryText('en-XA')('play')).toBe(pseudoLocalize('Play'));
-    expect(galleryText('en-XA')('channelCount', { n: 240 })).toBe(pseudoLocalize('{n} channels').replace('{n}', '240'));
-  });
-
-  it('fills placeholders and leaves unknown ones', () => {
-    const en = galleryText('en-US');
-    expect(en('playTitle', { name: 'Zoma News' })).toBe('Play Zoma News?');
-    expect(en('playTitle')).toBe('Play {name}?');
-    expect(en('playTitle', { other: 1 })).toBe('Play {name}?');
-    expect(galleryText('ar-SA')('channelCount', { n: 240 })).toBe('القنوات: 240');
   });
 });

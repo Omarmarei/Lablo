@@ -14,6 +14,11 @@ const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
 /** The 1920x1080 canvas less its 5% title-safe margins. */
 const SAFE = { left: 96, top: 54, right: 1824, bottom: 1026 };
 
+/** How the i18n runtime puts text into a sentence: between FSI and PDI (bidi isolates). */
+function isolated(text: string): string {
+  return String.fromCharCode(0x2068) + text + String.fromCharCode(0x2069);
+}
+
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
@@ -68,7 +73,7 @@ function layout(page: Page): Promise<Layout> {
 }
 
 /**
- * Text that doesn't come through the gallery's text table: in en-XA every string of ours is
+ * Text that doesn't come through the i18n catalogs: in en-XA every string of ours is
  * bracketed, so any other text with letters, outside `translate="no"` (the provider's names
  * and technical marks), is hard-coded.
  */
@@ -121,6 +126,13 @@ test.describe('the component gallery (pnpm dev, ?screen=gallery)', () => {
       await expect(page.locator('[data-testid=channels] .z-row')).toHaveCount(7);
       await expect(page.locator('[data-testid=rail] .z-chip')).toHaveCount(6);
       await expect(page.getByTestId('channels')).toHaveAttribute('data-count', '240');
+      // The catalogs' plurals and the locale's formats (Western digits in Arabic, ADR-011).
+      const formatted = {
+        'en-US': ['240 channels', '35%', '1:13:12 / 2:00:00', 'Expires in 3 days'],
+        'ar-SA': ['240 قناةً', '35%', '1:13:12 / 2:00:00', 'ينتهي خلال 3 أيام'],
+        'en-XA': ['240 çĥåññéļš', '35%', '1:13:12 / 2:00:00', 'Éxþîŕéš îñ 3 ðåýš'],
+      }[locale];
+      for (const text of formatted) await expect(gallery, text).toContainText(text);
 
       // Nothing scrolls, nothing leaves the safe area, no label of ours is cut.
       const facts = await layout(page);
@@ -172,6 +184,20 @@ test.describe('the component gallery (pnpm dev, ?screen=gallery)', () => {
       const row = page.getByTestId('row-0');
       expect(before(await box(row.locator('.z-row__number')), await box(row.locator('.z-row__name')))).toBe(true);
       expect(before(await box(row.locator('.z-row__name')), await box(row.locator('.z-row__next')))).toBe(true);
+      // The header reads "<locale> · 240 channels" from the inline start: the count must not join
+      // the Latin locale tag's run in Arabic (bidi rule W7 without the tag's dir isolation).
+      const meta = await page.locator('.gallery__meta').evaluate((p) => {
+        const tag = p.querySelector('[translate=no]');
+        const text = [...p.childNodes].find((n) => n.nodeType === Node.TEXT_NODE && (n.nodeValue ?? '').includes('240'));
+        if (tag === null || text === undefined) return null;
+        const range = document.createRange();
+        const at = (text.nodeValue ?? '').indexOf('240');
+        range.setStart(text, at);
+        range.setEnd(text, at + 3);
+        return { tag: tag.getBoundingClientRect().x, count: range.getBoundingClientRect().x };
+      });
+      expect(meta).not.toBeNull();
+      if (meta !== null) expect(before({ x: meta.tag }, { x: meta.count })).toBe(true);
       // A progress bar fills from the inline start; the media timeline always from the left.
       const loading = await box(page.getByTestId('progress-loading'));
       const loadingFill = await box(page.getByTestId('progress-loading').locator('.z-progress__fill'));
@@ -217,7 +243,7 @@ test.describe('the component gallery (pnpm dev, ?screen=gallery)', () => {
     await expect(page.getByTestId('chip-8')).toHaveAttribute('data-state', 'focused');
     await page.keyboard.press('Enter');
     await expect(page.getByTestId('chip-8')).toHaveClass(/is-selected/);
-    await expect(page.getByTestId('gallery-status')).toHaveText('Selected: Radio');
+    await expect(page.getByTestId('gallery-status')).toHaveText(`Selected: ${isolated('Radio')}`);
     expect(errors).toEqual([]);
   });
 
@@ -233,7 +259,7 @@ test.describe('the component gallery (pnpm dev, ?screen=gallery)', () => {
     // A click focuses and selects.
     await page.getByTestId('tile-2').click();
     await expect(status).toHaveAttribute('data-selects', '1');
-    await expect(status).toHaveText('Selected: Ocean Deep');
+    await expect(status).toHaveText(`Selected: ${isolated('Ocean Deep')}`);
     // The Magic Remote's OK: a click and key 13 for one press, in either order. One select each.
     await page.keyboard.press('Enter');
     await expect(status).toHaveAttribute('data-selects', '1');
@@ -241,7 +267,7 @@ test.describe('the component gallery (pnpm dev, ?screen=gallery)', () => {
     await page.keyboard.press('Enter');
     await page.getByTestId('tile-1').click();
     await expect(status).toHaveAttribute('data-selects', '2');
-    await expect(status).toHaveText('Selected: Ocean Deep');
+    await expect(status).toHaveText(`Selected: ${isolated('Ocean Deep')}`);
     await expect(gallery).toHaveAttribute('data-index', '1');
     // Two clicks are two presses.
     await page.waitForTimeout(600);
@@ -255,7 +281,7 @@ test.describe('the component gallery (pnpm dev, ?screen=gallery)', () => {
     await expect(gallery).toHaveAttribute('data-zone', 'actions');
     await expect(status).toHaveAttribute('data-selects', '3');
     await page.getByTestId('row-4').click();
-    await expect(page.getByTestId('play-dialog')).toContainText('Play Zoma Documentary Channel International Extra Long Name?');
+    await expect(page.getByTestId('play-dialog')).toContainText(`Play ${isolated('Zoma Documentary Channel International Extra Long Name')}?`);
     await page.getByTestId('dialog-1').click();
     await expect(page.getByTestId('play-dialog')).toHaveCount(0);
     await expect(status).toHaveAttribute('data-selects', '5');
