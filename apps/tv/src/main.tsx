@@ -19,11 +19,19 @@ import type { Onboarding } from './onboarding/onboarding-state';
 import { createOnboarding } from './onboarding/onboarding-state';
 import { answerEdit, readStartProfile, startPoint } from './onboarding/start';
 import { KEY_HELP, createPlatform } from './platform';
+import { installTestHook } from './test-hook';
 // Last, so the app's own CSS comes after @zoma/ui's (tokens, fonts, components) in app.css and in dev.
 import './app.css';
 
 const platform = createPlatform();
 platform.registerKeys();
+/** The focus of the screen on show, as `window.__ZOMA_TEST__.focusPath()` (RELAY step 14b). */
+const showFocus = installTestHook(window);
+// tokens.css turns motion off on the low tier (`?tier=low` forces it in the browser).
+void platform.info().then(
+  (info) => document.documentElement.setAttribute('data-tier', info.tier),
+  () => undefined,
+);
 
 const root = document.getElementById('app');
 if (root === null) throw new Error('#app element missing from index.html');
@@ -47,7 +55,9 @@ function dataEngine(): DataEngine {
 /** The hello screen: developer diagnostics of the device, the workers and the data layer. */
 function showHello(into: Element): void {
   const data: AppData = { engine: dataEngine(), params: readDebugParams(location.search), busy };
-  render(<App platform={platform} keyHelp={KEY_HELP} data={data} focus={createFocusDemo(platform)} />, into);
+  const focus = createFocusDemo(platform);
+  showFocus(focus.nav);
+  render(<App platform={platform} keyHelp={KEY_HELP} data={data} focus={focus} />, into);
 }
 
 /**
@@ -56,6 +66,7 @@ function showHello(into: Element): void {
  */
 function showLive(into: Element, language: Language | null): void {
   const live = createLive({ platform, engine: dataEngine() });
+  showFocus(live.nav);
   render(<LiveApp platform={platform} live={live} language={language} />, into);
 }
 
@@ -87,6 +98,7 @@ function showOnboarding(into: Element, language: Language | null): void {
     },
   });
   onboarding = started;
+  showFocus(started.nav);
   const finish = (): void => {
     const picked = started.language.peek();
     started.dispose();
@@ -98,7 +110,9 @@ function showOnboarding(into: Element, language: Language | null): void {
 const screen = readScreen(location.search);
 if (screen === 'gallery') {
   // The component gallery (RELAY step 11b): no data workers.
-  render(<GalleryApp platform={platform} gallery={createGallery(platform)} />, root);
+  const gallery = createGallery(platform);
+  showFocus(gallery.nav);
+  render(<GalleryApp platform={platform} gallery={gallery} />, root);
 } else if (screen === 'hello') {
   showHello(root);
 } else {

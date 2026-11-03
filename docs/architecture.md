@@ -360,8 +360,9 @@ Off-the-shelf libraries such as Norigin measure the DOM on every move. That figh
   - e2e `live.spec.ts` against the mock (an Xtream login added by keys in onboarding), with the mock on the real clock so its guide covers the browser's now. In en and ar: the 6 categories and their counts; the 12 channels with the panel's numbers in category order; now/next checked against the mock's own schedule (the 18+ channel has none); paging to the end; the kids' category; Back; the exit dialog; the mirror; the layout; the fonts; and a relaunch in the language picked. In en-XA: every string of ours is bracketed (the formatter's times aside).
   - `onboarding.spec.ts` and `tv-bundle.spec.ts`: "Start watching" and the relaunch open the live screen, from `file://` too.
   - Screenshots `live-{en-US,ar-SA,en-XA}.png` and `-category.png`, the Arabic ones looked at.
-- **On Chromium 53/56/68:** the onboarding walk now ends on the live screen. It must be on `live · channels 0` in the walk's language, list the fixture's 2,400 channels, and be idle, both after "Start watching" and after the relaunch. A screenshot of it is saved per engine, platform and language. The live screen's own checks there (keys, layout, now/next) are step 14b.
-- **Left for step 14b:** `RemoteDriver` and `window.__ZOMA_TEST__.focusPath()`, the 4x CPU-throttled and low-tier runs on a large catalog, and the live screen's own checks on the old engines.
+- **On Chromium 53/56/68:** the onboarding walk now ends on the live screen. It must be on `live · channels 0` in the walk's language, list the fixture's 2,400 channels, and be idle, both after "Start watching" and after the relaunch. A screenshot of it is saved per engine, platform and language. The live screen's own checks there (keys, layout, now/next) are step 14c.
+- **Built in step 14b** (§4): `RemoteDriver` and `window.__ZOMA_TEST__.focusPath()`, and the 4x CPU-throttled and low-tier runs on a 20,000-channel catalog.
+- **Left for step 14c:** the live screen's own checks on the old engines.
 
 **State:**
 - Signals hold UI and session state.
@@ -857,6 +858,25 @@ These are available: fetch with streams, TextDecoder, IntersectionObserver, IDB 
 - **`?remote=1`** shows a clickable virtual remote.
 - **Playwright `RemoteDriver`** presses Intents and checks `window.__ZOMA_TEST__.focusPath()` (focus IDs from the engine, not the DOM). Viewport is 1920x1080.
 - **Magic Remote** is covered by mouse-hover tests.
+
+**Built in step 14b: `RemoteDriver`, the throttled and low-tier runs:**
+- **`window.__ZOMA_TEST__.focusPath()`** (`apps/tv/src/test-hook.ts`): `screen/zone/index` of the screen on show, read from its navigator's `snapshot()` (`live/channels/3`, `exit/buttons/0`), or null while the start reads the profile. `main.tsx` hands it each screen's navigator as it shows (onboarding, live, hello, gallery).
+  - **Decision: every build carries it, the TV bundles included.** The old-engine harness tests the bundles that ship, so a hook behind a define would leave it testing another build. It is read-only and holds no data, only a screen, a zone and an index (main's own code grew by about 0.1 KB, with no new polyfill).
+- **`e2e/remote-driver.ts`:**
+  - `press(...intents)` through the browser adapter's keys (`e2e/remote-keys.ts`, kept equal to `browserKeyToIntent` by `test/remote-keys.test.ts`; BACK is Escape, since Backspace deletes in a field being edited);
+  - `expectFocus(path)` waits until the engine has the path and the screen on show (`#app > [data-screen]`) draws the same focus;
+  - `timedPress(intent, path)` times one press from its key event (`event.timeStamp`) to the end of the first frame showing the new focus (a `requestAnimationFrame`, then a task after its paint);
+  - `watchLongTasks`/`longTasks`: a `PerformanceObserver` on `longtask`.
+  - `live.spec.ts` and `onboarding.spec.ts` press and check the focus through it. Keys aimed at a field being edited (typing, Backspace, the caret's arrows) still go to the keyboard: they never reach the focus engine.
+- **The throttled run** (`e2e/live-throttled.spec.ts`, its own Playwright project `throttled`, after every other test and one test at a time, so no other browser competes for the CPU):
+  - A catalog built in-process (`e2e/big-catalog.ts`; `pnpm verify` has no `.cache/fixtures`): 20,000 live channels in 200 categories, provider-like names in English, Arabic and French, and a guide written for it (three 2-hour programmes around now for 9 channels in 10, served with the mock's `xmltvFile`).
+  - Onboarding adds it by keys at full speed. Then each tier starts the app afresh with the source stored (a TV's usual start) and, at 4x CPU throttle (`Emulation.setCPUThrottlingRate`, with the CDP session kept open: detaching it ends the emulation), presses 74 timed keys: down the list, 15 pages of CH−, to the rail and 30 down it (past the 12 it shows), OK on a category, down, Back, and RIGHT into the list where it was.
+  - **Budget:** every press ≤ 200 ms, spike S6's key-press threshold for the 2018 TVs (§5), and no main-thread task longer than that, so a key pressed at any moment waits at most as long. A fixed loop in the page must run at least twice as slow under the throttle, so a throttle that silently fell off fails the run.
+  - **Why 200 ms and not 150:** the CI runner (2 vCPUs) at 4x is about twice as slow as a desktop at 4x. Its first run had a median of 39 ms and a slowest press of 121 ms in the full tier. That run started straight after the 20,000-channel onboarding; both tiers now start afresh. A desktop at 10x had presses up to 153 ms and sporadic long tasks of 140–279 ms. Step 23's grid budget (150 ms) should be calibrated against CI the same way.
+  - **Measured locally (2026-11-04, five runs, the CPU 3.3–6x slower):** median 16–18 ms, max 30–47 ms in the full tier; median 9–13 ms, max 21–35 ms in the low tier; no long task. A report goes to `artifacts/perf/live-throttled.json`.
+  - **The seeds:** a keydown listener that spins for 250 ms (on the gallery) must fail the budget and show as a long task, and a press whose focus never lands must fail.
+  - **What the budget catches:** a list that draws 2,000 rows more than it shows (a mutant of `VirtualList`) made the median press 81–116 ms and the slowest 221–292 ms on the desktop: a few presses over 200 ms, more on the slower CI runner. A slowdown of two or three times would pass. The budget is a smoke check; the TVs' own numbers come from spike S6.
+- **The forced low tier:** nothing applied the tier before this step, so `?tier=low` changed nothing on screen. `main.tsx` now writes the platform's tier on `<html data-tier>`, and tokens.css's `[data-tier='low']` turns motion off. The throttled run checks a row's transition (0.12 s in the full tier, 0 s in the low one) and runs the same presses in the low tier.
 
 **Mock provider** (`apps/mock-provider`). It serves only legal open content and doubles as the store test account.
 - **Xtream API:**

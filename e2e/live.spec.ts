@@ -9,12 +9,15 @@ import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { stripIsolates } from '../packages/core/src/bidi';
 import { ARABIC_FACE, LATIN_FACE, renderedFontsUnder } from './fonts';
+import { addXtreamAndWatch, settled, trackErrors } from './onboard';
+import { RemoteDriver } from './remote-driver';
 
 /**
  * The live screen (RELAY step 14a) by keys, after onboarding adds the mock provider's Xtream
  * login: the category rail, the virtual channel list with the panel's numbers, and now/next from
  * the panel's guide. The mock runs on the real clock here (the other e2e tests pin it), so its
- * guide covers the browser's "now", as a real panel's does.
+ * guide covers the browser's "now", as a real panel's does. The `RemoteDriver` presses the keys
+ * and reads the focus from the focus engine (step 14b); live-throttled.spec.ts times them.
  */
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
 const catalog = loadCatalog();
@@ -59,54 +62,9 @@ function nowTitles(channel: LiveChannel, from: number, to: number): string[] {
   return [upcoming(guide, from, 1)[0]!.title, upcoming(guide, to, 1)[0]!.title];
 }
 
-function trackErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
-  page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(`console: ${message.text()}`);
-  });
-  return errors;
-}
-
-async function keys(page: Page, ...names: string[]): Promise<void> {
-  for (const name of names) await page.keyboard.press(name);
-}
-
-async function typeInto(page: Page, root: Locator, field: string, text: string): Promise<void> {
-  await page.keyboard.press('Enter');
-  await expect(root).toHaveAttribute('data-editing', `onboarding-${field}`);
-  await page.keyboard.type(text);
-  await page.keyboard.press('Enter');
-  await expect(root).toHaveAttribute('data-editing', '');
-}
-
 /** Onboarding by keys with the mock's Xtream login, then "Start watching": the live screen. */
-async function addSourceAndWatch(page: Page, locale: string): Promise<Locator> {
-  await page.goto(`/?locale=${locale}`);
-  const onboarding = page.getByTestId('onboarding');
-  await expect(onboarding).toHaveAttribute('data-ready', 'true');
-  // The TV's language, the disclaimer, "Allow", an Xtream login.
-  await keys(page, 'Enter', 'Enter', 'Enter', 'Enter');
-  await typeInto(page, onboarding, 'server', host);
-  await typeInto(page, onboarding, 'username', U);
-  await typeInto(page, onboarding, 'password', P);
-  await keys(page, 'ArrowDown', 'ArrowDown', 'Enter');
-  await expect(onboarding).toHaveAttribute('data-screen', 'done', { timeout: 20_000 });
-  await keys(page, 'Enter');
-  const live = page.getByTestId('live');
-  await expect(live).toHaveAttribute('data-status', 'ready');
-  await page.evaluate(() => document.fonts.ready.then(() => undefined));
-  return live;
-}
-
-async function focus(root: Locator): Promise<string> {
-  const [screen, zone, index] = await Promise.all(['data-screen', 'data-zone', 'data-index'].map((a) => root.getAttribute(a)));
-  return `${screen ?? ''} · ${zone ?? ''} ${index ?? ''}`;
-}
-
-/** Waits until the screen's data requests have all answered (the focus's 600 ms wait included). */
-async function settled(root: Locator): Promise<void> {
-  await expect(root).toHaveAttribute('data-pending', '0', { timeout: 10_000 });
+function addSourceAndWatch(remote: RemoteDriver, locale: string): Promise<Locator> {
+  return addXtreamAndWatch(remote, { host, username: U, password: P }, `locale=${locale}`);
 }
 
 interface Row {
@@ -213,10 +171,11 @@ test.describe('the live screen by keys (pnpm dev, after onboarding)', () => {
     test(`browses the mock's categories and channels in ${language} (${locale})`, async ({ page }) => {
       const errors = trackErrors(page);
       const ar = language === 'ar';
-      const root = await addSourceAndWatch(page, locale);
+      const remote = new RemoteDriver(page);
+      const root = await addSourceAndWatch(remote, locale);
       await expect(page.locator('html')).toHaveAttribute('dir', dir);
       await expect(root).toHaveAttribute('data-language', language);
-      expect(await focus(root)).toBe('live · channels 0');
+      await remote.expectFocus('live/channels/0');
 
       // The rail: every channel first, then the panel's categories with their counts.
       const chips = page.locator('[data-testid=rail] .z-chip');
@@ -249,26 +208,23 @@ test.describe('the live screen by keys (pnpm dev, after onboarding)', () => {
       expect(faces.every(([, custom]) => custom)).toBe(true);
 
       // Down the list, then a page (CH−) to its end: the last rows, the 18+ channel's placeholder.
-      await keys(page, 'ArrowDown', 'ArrowDown');
-      expect(await focus(root)).toBe('live · channels 2');
-      await keys(page, 'PageDown');
-      expect(await focus(root)).toBe(`live · channels ${ordered.length - 1}`);
+      await remote.press('DOWN', 'DOWN');
+      await remote.expectFocus('live/channels/2');
+      await remote.go('CH_DOWN', `live/channels/${ordered.length - 1}`);
       await expect(page.getByTestId('channels')).toHaveAttribute('data-top', String(ordered.length - VISIBLE));
       await checkRows(page, root, ordered.length - VISIBLE, placeholder);
       // CH+ pages up by a window (9 rows), then stops at the top.
-      await keys(page, 'PageUp');
-      expect(await focus(root)).toBe(`live · channels ${ordered.length - 1 - VISIBLE}`);
-      await keys(page, 'PageUp');
-      expect(await focus(root)).toBe('live · channels 0');
+      await remote.go('CH_UP', `live/channels/${ordered.length - 1 - VISIBLE}`);
+      await remote.go('CH_UP', 'live/channels/0');
 
-      // To the rail (LEFT, mirrored in Arabic), down to the kids' category, OK: its one channel.
-      await keys(page, ar ? 'ArrowRight' : 'ArrowLeft');
-      expect(await focus(root)).toBe('live · rail 0');
+      // To the rail (LEFT, mirrored in Arabic: the RIGHT key), down to the kids' category, OK: its one channel.
+      await remote.go(ar ? 'RIGHT' : 'LEFT', 'live/rail/0');
       const kids = withChannels.findIndex((c) => c.name.startsWith('Kids')) + 1;
-      for (let i = 0; i < kids; i++) await keys(page, 'ArrowDown');
-      await keys(page, 'Enter');
+      for (let i = 0; i < kids; i++) await remote.press('DOWN');
+      await remote.expectFocus(`live/rail/${kids}`);
+      await remote.press('OK');
       await expect(root).toHaveAttribute('data-category', String(kids));
-      expect(await focus(root)).toBe('live · channels 0');
+      await remote.expectFocus('live/channels/0');
       await expect(meta.locator('.live__category')).toHaveText(withChannels[kids - 1]!.name);
       await expect(meta.locator('[data-n]')).toHaveAttribute('data-n', '1');
       if (!ar) await expect(meta).toHaveText(`${withChannels[kids - 1]!.name} · 1 channel`);
@@ -279,22 +235,20 @@ test.describe('the live screen by keys (pnpm dev, after onboarding)', () => {
       await shot(page, `${locale}-category`);
 
       // OK on a channel marks it (the player opens it from step 20 on).
-      await keys(page, 'Enter');
+      await remote.press('OK');
       await expect(root).toHaveAttribute('data-selected', /^x:s1:live:/);
 
       // Back: the rail on the category on show, then the exit dialog; Stay keeps the screen.
-      await keys(page, 'Escape');
-      expect(await focus(root)).toBe(`live · rail ${kids}`);
-      await keys(page, 'Escape');
-      expect(await focus(root)).toBe('exit · buttons 0');
+      await remote.go('BACK', `live/rail/${kids}`);
+      await remote.go('BACK', 'exit/buttons/0');
       await expect(page.getByTestId('exit-dialog')).toBeVisible();
-      await keys(page, 'Enter');
-      expect(await focus(root)).toBe(`live · rail ${kids}`);
+      await remote.go('OK', `live/rail/${kids}`);
       // Back to every channel: the list starts at its top.
-      for (let i = 0; i < kids; i++) await keys(page, 'ArrowUp');
-      await keys(page, 'Enter');
+      for (let i = 0; i < kids; i++) await remote.press('UP');
+      await remote.expectFocus('live/rail/0');
+      await remote.press('OK');
       await expect(root).toHaveAttribute('data-category', '0');
-      expect(await focus(root)).toBe('live · channels 0');
+      await remote.expectFocus('live/channels/0');
       await expect(page.getByTestId('channels')).toHaveAttribute('data-top', '0');
 
       // A relaunch opens the live screen in the language picked, without onboarding.
@@ -302,13 +256,14 @@ test.describe('the live screen by keys (pnpm dev, after onboarding)', () => {
       await expect(page.getByTestId('live')).toHaveAttribute('data-status', 'ready');
       await expect(page.getByTestId('onboarding')).toHaveCount(0);
       await expect(page.getByTestId('live')).toHaveAttribute('data-language', language);
+      await remote.expectFocus('live/channels/0');
       await settled(page.getByTestId('live'));
       expect(errors).toEqual([]);
     });
   }
 
   test('shows only our strings, bracketed, in the pseudo-locale (en-XA)', async ({ page }) => {
-    const root = await addSourceAndWatch(page, 'en-XA');
+    const root = await addSourceAndWatch(new RemoteDriver(page), 'en-XA');
     await expect(root).toHaveAttribute('data-language', 'pseudo');
     await settled(root);
     expect(await untranslated(page)).toEqual([]);

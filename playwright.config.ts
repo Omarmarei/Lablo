@@ -21,7 +21,12 @@ export default defineConfig({
     baseURL: `http://localhost:${PORT}`,
     trace: 'retain-on-failure',
   },
-  projects: [{ name: 'chromium' }],
+  projects: [
+    { name: 'chromium', testIgnore: /throttled\.spec\.ts$/ },
+    // The CPU-throttled timings (RELAY step 14b) run after every other test, one test at a
+    // time, so no other browser competes for the CPU while they measure.
+    { name: 'throttled', testMatch: /throttled\.spec\.ts$/, dependencies: ['chromium'], fullyParallel: false },
+  ],
   webServer: {
     command: `pnpm --filter @zoma/app-tv exec vite --port ${PORT} --strictPort`,
     url: `http://localhost:${PORT}`,

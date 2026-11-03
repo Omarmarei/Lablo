@@ -7,13 +7,16 @@ import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { stripIsolates } from '../packages/core/src/bidi';
 import { ARABIC_FACE, LATIN_FACE, renderedFontsUnder } from './fonts';
+import { RemoteDriver } from './remote-driver';
 
 /**
  * Onboarding (RELAY steps 13a and 13b), the start screen of the dev app, by keys only: the
  * language, the disclaimer, the device-ID consent, the source type, the form typed on the
  * keyboard (OK opens a field, Enter ends it), then loading and done. The source loads from the
  * mock provider, in-process on a socket, through the app's data workers; its test logins come
- * from the mock's fixtures. A relaunch with a source stored skips onboarding.
+ * from the mock's fixtures. A relaunch with a source stored skips onboarding. The `RemoteDriver`
+ * presses the keys and reads the focus from the focus engine (step 14b); keys aimed at a field
+ * being edited (Backspace, the caret's arrows) go to the keyboard.
  */
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
 const catalog = loadCatalog();
@@ -91,16 +94,6 @@ async function open(page: Page, locale: string): Promise<Locator> {
   return root;
 }
 
-/** Where the remote's focus is: `screen · zone index`, and the field being edited. */
-async function focus(root: Locator): Promise<string> {
-  const [screen, zone, index, editing] = await Promise.all(['data-screen', 'data-zone', 'data-index', 'data-editing'].map((a) => root.getAttribute(a)));
-  return `${screen ?? ''} · ${zone ?? ''} ${index ?? ''}${editing ? ` editing ${editing}` : ''}`;
-}
-
-async function keys(page: Page, ...names: string[]): Promise<void> {
-  for (const name of names) await page.keyboard.press(name);
-}
-
 /** OK on the focused field, type, Enter: the remote's way, with the desktop keyboard. */
 async function typeInto(page: Page, root: Locator, field: string, text: string): Promise<void> {
   await page.keyboard.press('Enter');
@@ -172,80 +165,81 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
   ] as const) {
     test(`walks the whole flow in ${language}, typing the login on the keyboard (${locale})`, async ({ page }) => {
       const errors = trackErrors(page);
+      const remote = new RemoteDriver(page);
       const root = await open(page, locale);
       const ar = language === 'ar';
       // The TV's language is focused first; both languages offer themselves in their own words.
-      expect(await focus(root)).toBe(`language · languages ${ar ? 1 : 0}`);
+      await remote.expectFocus(`language/languages/${ar ? 1 : 0}`);
       await expect(page.getByTestId('choose-en')).toHaveText('Choose your language');
       await expect(page.getByTestId('choose-ar')).toHaveText('اختر لغتك');
       await expect(page.getByTestId('language-en')).toHaveText('English');
       await expect(page.getByTestId('language-ar')).toHaveText('العربية');
       await checkScreen(page, `${locale}-language`);
 
-      await keys(page, 'Enter');
+      await remote.press('OK');
       await expect(page.locator('html')).toHaveAttribute('dir', dir);
       await expect(root).toHaveAttribute('data-language', language);
-      expect(await focus(root)).toBe('disclaimer · actions 0');
+      await remote.expectFocus('disclaimer/actions/0');
       await expect(page.getByTestId('onboarding-title')).toHaveText(ar ? 'زوما مشغّل وسائط' : 'Zoma is a player');
       await expect(root).toContainText(ar ? 'لا يقدّم زوما أي قنوات' : 'Zoma provides no channels');
       await checkScreen(page, `${locale}-disclaimer`);
 
-      await keys(page, 'Enter');
-      expect(await focus(root)).toBe('consent · actions 0');
+      await remote.press('OK');
+      await remote.expectFocus('consent/actions/0');
       await expect(root).toContainText(ar ? 'النسخ الاحتياطي مفعّل افتراضيًا' : 'The backup is on by default');
       // The buttons' row mirrors in Arabic: "Not now" is to the left of "Allow" there.
-      await keys(page, ar ? 'ArrowLeft' : 'ArrowRight');
-      expect(await focus(root)).toBe('consent · actions 1');
-      await keys(page, ar ? 'ArrowRight' : 'ArrowLeft');
+      await remote.press(ar ? 'LEFT' : 'RIGHT');
+      await remote.expectFocus('consent/actions/1');
+      await remote.press(ar ? 'RIGHT' : 'LEFT');
       await checkScreen(page, `${locale}-consent`);
-      await keys(page, 'Enter');
+      await remote.press('OK');
 
-      expect(await focus(root)).toBe('source · types 0');
+      await remote.expectFocus('source/types/0');
       await expect(page.getByTestId('type-hint')).toHaveText(ar ? 'عنوان خادم واسم مستخدم وكلمة مرور' : 'A server address, a username and a password');
-      await keys(page, 'ArrowDown');
+      await remote.press('DOWN');
       await expect(page.getByTestId('type-hint')).toHaveText(ar ? 'رابط إلى ملف قائمة تشغيل' : 'A link to a playlist file');
-      await keys(page, 'ArrowUp', 'Enter');
+      await remote.press('UP', 'OK');
 
       // The Xtream form: OK opens a field (DOM focus: the TV's keyboard), Enter ends it and moves on.
-      expect(await focus(root)).toBe('form · fields 0');
+      await remote.expectFocus('form/fields/0');
       await expect(page.locator('.z-field')).toHaveCount(5);
       // The mock provider's address and its test login (apps/mock-provider/fixtures).
       await typeInto(page, root, 'server', host);
-      expect(await focus(root)).toBe('form · fields 1');
+      await remote.expectFocus('form/fields/1');
       await typeInto(page, root, 'username', U);
       await typeInto(page, root, 'password', P);
-      expect(await focus(root)).toBe('form · fields 3');
+      await remote.expectFocus('form/fields/3');
       await expect(page.locator('#onboarding-password')).toHaveAttribute('type', 'password');
       // A guide link with a space: refused on the TV, before anything is fetched.
       await typeInto(page, root, 'epg', `${host}/xml tv.php`);
-      await keys(page, 'ArrowDown', 'Enter');
-      expect(await focus(root)).toBe('form · fields 3');
+      await remote.press('DOWN', 'OK');
+      await remote.expectFocus('form/fields/3');
       await expect(page.getByTestId('field-epg')).toHaveClass(/is-invalid/);
       await expect(page.getByTestId('field-epg').locator('.z-field__note')).toHaveText(ar ? 'لا يمكن أن يحتوي الرابط على مسافات' : "A link can't contain spaces");
       await checkScreen(page, `${locale}-form-error`);
 
       // Backspace deletes inside the field (it is Back elsewhere): the form stays.
-      await keys(page, 'Enter');
+      await remote.press('OK');
       for (let i = 0; i < 'xml tv.php'.length; i++) await page.keyboard.press('Backspace');
       await page.keyboard.type(`xmltv.php?username=${U}&password=${P}`);
-      await keys(page, 'Enter');
-      expect(await focus(root)).toBe('form · fields 4');
+      await remote.press('OK');
+      await remote.expectFocus('form/fields/4');
       await expect(page.locator('#onboarding-epg')).toHaveValue(`${host}/xmltv.php?username=${U}&password=${P}`);
       await expect(page.getByTestId('field-epg')).not.toHaveClass(/is-invalid/);
       // A name in Arabic reads right to left in its own field.
       await typeInto(page, root, 'name', 'البيت');
       await expect(page.locator('#onboarding-name')).toHaveAttribute('dir', 'auto');
       await expect(page.locator('#onboarding-server')).toHaveAttribute('dir', 'ltr');
-      expect(await focus(root)).toBe('form · actions 0');
+      await remote.expectFocus('form/actions/0');
       await recordPhases(page);
-      await keys(page, 'Enter');
+      await remote.press('OK');
 
       // The login is checked, the catalog downloaded and saved, the guide read: then the mock's
       // own counts. The source's name is isolated.
       await expect(root).toHaveAttribute('data-screen', /loading|done/);
       await expect(root).toHaveAttribute('data-screen', 'done', { timeout: 20_000 });
       expect(await phasesSeen(page)).toEqual(expect.arrayContaining(['download', 'guide']));
-      expect(await focus(root)).toBe('done · actions 0');
+      await remote.expectFocus('done/actions/0');
       const title = stripIsolates((await page.locator('.onboarding__text').first().textContent()) ?? '');
       expect(title).toBe(ar ? 'البيت جاهز.' : 'البيت is ready.');
       const counts = { live: catalog.live.length, movies: catalog.movies.length, series: catalog.series.length };
@@ -269,12 +263,12 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
       expect(faces.every(([, custom]) => custom)).toBe(true);
 
       // Done is the new root: Back offers to exit instead of going back into onboarding.
-      await keys(page, 'Escape');
-      expect(await focus(root)).toBe('exit · actions 0');
-      await keys(page, 'Enter');
-      expect(await focus(root)).toBe('done · actions 0');
+      await remote.press('BACK');
+      await remote.expectFocus('exit/actions/0');
+      await remote.press('OK');
+      await remote.expectFocus('done/actions/0');
       // Start watching: the live screen (step 14a; e2e/live.spec.ts walks it), in the language picked.
-      await keys(page, 'Enter');
+      await remote.press('OK');
       await expect(page.getByTestId('live')).toHaveAttribute('data-status', 'ready');
       await expect(page.getByTestId('live')).toHaveAttribute('data-language', language);
       await expect(page.locator('[data-testid=rail] .z-chip').first().locator('.z-chip__count')).toHaveText(String(counts.live));
@@ -288,31 +282,33 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
 
     test(`a wrong password shows the auth error; Edit details keeps the form, and the fixed login loads (${locale})`, async ({ page }) => {
       const errors = trackErrors(page);
+      const remote = new RemoteDriver(page);
       const root = await open(page, locale);
       const ar = language === 'ar';
-      await keys(page, 'Enter', 'Enter', 'Enter', 'Enter');
+      await remote.press('OK', 'OK', 'OK', 'OK');
       await typeInto(page, root, 'server', host);
       await typeInto(page, root, 'username', U);
       await typeInto(page, root, 'password', 'wrong');
-      await keys(page, 'ArrowDown', 'ArrowDown');
-      expect(await focus(root)).toBe('form · actions 0');
-      await keys(page, 'Enter');
+      await remote.press('DOWN', 'DOWN');
+      await remote.expectFocus('form/actions/0');
+      await remote.press('OK');
       await expect(page.getByTestId('load-error')).toHaveAttribute('data-code', 'auth', { timeout: 20_000 });
       await expect(page.getByTestId('load-error')).toHaveText(ar ? 'لم يقبل مزوّد الخدمة اسم المستخدم وكلمة المرور هذين.' : "The provider didn't accept this username and password.");
-      expect(await focus(root)).toBe('loading · actions 0');
+      await remote.expectFocus('loading/actions/0');
       await checkScreen(page, `${locale}-failed`);
       // Edit details: back on the form, everything typed still there.
-      await keys(page, 'Enter');
-      expect(await focus(root)).toBe('form · actions 0');
+      await remote.press('OK');
+      await remote.expectFocus('form/actions/0');
       await expect(page.locator('#onboarding-server')).toHaveValue(host);
       await expect(page.locator('#onboarding-password')).toHaveValue('wrong');
-      await keys(page, 'ArrowUp');
-      expect(await focus(root)).toBe('form · fields 4');
-      await keys(page, 'ArrowUp', 'ArrowUp', 'Enter');
-      expect(await focus(root)).toBe('form · fields 2 editing onboarding-password');
+      await remote.press('UP');
+      await remote.expectFocus('form/fields/4');
+      await remote.press('UP', 'UP', 'OK');
+      await remote.expectFocus('form/fields/2');
+      await expect(root).toHaveAttribute('data-editing', 'onboarding-password');
       for (let i = 0; i < 'wrong'.length; i++) await page.keyboard.press('Backspace');
       await page.keyboard.type(P);
-      await keys(page, 'Enter', 'ArrowDown', 'ArrowDown', 'Enter');
+      await remote.press('OK', 'DOWN', 'DOWN', 'OK');
       await expect(root).toHaveAttribute('data-screen', 'done', { timeout: 20_000 });
       await expect(page.getByTestId('done-live')).toHaveAttribute('data-n', String(catalog.live.length));
       // The failed try saved nothing; the second is source s1.
@@ -322,115 +318,124 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
   }
 
   test("an expired or a banned account says so: the panel lets them in but serves them nothing", async ({ page }) => {
+    const remote = new RemoteDriver(page);
     const root = await open(page, 'en-US');
-    await keys(page, 'Enter', 'Enter', 'Enter', 'Enter');
+    await remote.press('OK', 'OK', 'OK', 'OK');
     await typeInto(page, root, 'server', host);
     // The mock's test accounts in those states (apps/mock-provider/fixtures/server.yaml).
     await typeInto(page, root, 'username', 'banned');
     await typeInto(page, root, 'password', 'banned-test');
-    await keys(page, 'ArrowDown', 'ArrowDown', 'Enter');
+    await remote.press('DOWN', 'DOWN', 'OK');
     await expect(page.getByTestId('load-error')).toHaveAttribute('data-code', 'blocked', { timeout: 20_000 });
     await expect(page.getByTestId('load-error')).toHaveText('Your provider has blocked or turned off this account. Contact your provider.');
     // Edit details, then the expired account.
-    await keys(page, 'Enter', 'ArrowUp', 'ArrowUp', 'ArrowUp', 'ArrowUp');
-    expect(await focus(root)).toBe('form · fields 1');
-    await keys(page, 'Enter');
+    await remote.press('OK', 'UP', 'UP', 'UP', 'UP');
+    await remote.expectFocus('form/fields/1');
+    await remote.press('OK');
     for (let i = 0; i < 'banned'.length; i++) await page.keyboard.press('Backspace');
     await page.keyboard.type('expired');
-    await keys(page, 'Enter', 'Enter');
+    await remote.press('OK', 'OK');
     for (let i = 0; i < 'banned-test'.length; i++) await page.keyboard.press('Backspace');
     await page.keyboard.type('expired-test');
-    await keys(page, 'Enter', 'ArrowDown', 'ArrowDown', 'Enter');
+    await remote.press('OK', 'DOWN', 'DOWN', 'OK');
     await expect(page.getByTestId('load-error')).toHaveAttribute('data-code', 'expired', { timeout: 20_000 });
     await expect(page.getByTestId('load-error')).toHaveText('This account has expired. Contact your provider.');
     // "Try again" asks the panel again: still expired.
-    await keys(page, 'ArrowRight', 'Enter');
+    await remote.press('RIGHT', 'OK');
     await expect(page.getByTestId('load-error')).toHaveAttribute('data-code', 'expired', { timeout: 20_000 });
   });
 
   test('the language picked comes back after a relaunch before a source is added', async ({ page }) => {
+    const remote = new RemoteDriver(page);
     const root = await open(page, 'en-US');
     // Arabic, then "I understand"; the app is closed on the consent screen.
-    await keys(page, 'ArrowRight', 'Enter', 'Enter');
-    expect(await focus(root)).toBe('consent · actions 0');
+    await remote.press('RIGHT', 'OK', 'OK');
+    await remote.expectFocus('consent/actions/0');
     await expect.poll(async () => (await storedProfile(page))?.onboarding).toEqual({ language: 'ar', disclaimerAt: expect.any(Number), consent: null });
     await page.reload();
     await expect(root).toHaveAttribute('data-ready', 'true');
     // Onboarding again (no source yet), in Arabic, with العربية focused.
-    expect(await focus(root)).toBe('language · languages 1');
+    await remote.expectFocus('language/languages/1');
     await expect(root).toHaveAttribute('data-language', 'ar');
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
     await expect(page.locator('html')).toHaveAttribute('lang', 'ar-US');
     // Both titles still offer themselves: Arabic is the app's language now, English the TV's.
     await expect(page.getByTestId('choose-ar')).toHaveText('اختر لغتك');
-    await keys(page, 'Enter');
+    await remote.press('OK');
     await expect(page.getByTestId('onboarding-title')).toHaveText('زوما مشغّل وسائط');
   });
 
   test('picking the other language switches the app live, and Back keeps the choice', async ({ page }) => {
+    const remote = new RemoteDriver(page);
     const root = await open(page, 'en-US');
-    await keys(page, 'ArrowRight', 'Enter');
+    await remote.press('RIGHT', 'OK');
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
     await expect(page.locator('html')).toHaveAttribute('lang', 'ar-US');
     await expect(root).toHaveAttribute('data-language', 'ar');
     await expect(page.getByTestId('onboarding-title')).toHaveText('زوما مشغّل وسائط');
-    await keys(page, 'Escape');
-    expect(await focus(root)).toBe('language · languages 1');
+    await remote.press('BACK');
+    await remote.expectFocus('language/languages/1');
     // Back on the language screen keeps Arabic until another language is picked.
     await expect(root).toHaveAttribute('data-language', 'ar');
     // In Arabic RIGHT goes back to the start of the row: English.
-    await keys(page, 'ArrowRight', 'Enter');
+    await remote.press('RIGHT', 'OK');
     await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
     await expect(page.locator('html')).toHaveAttribute('lang', 'en-US');
     await expect(page.getByTestId('onboarding-title')).toHaveText('Zoma is a player');
   });
 
   test('Back goes one screen back, through every screen to the exit dialog', async ({ page }) => {
-    const root = await open(page, 'en-US');
-    await keys(page, 'Enter', 'Enter', 'Enter', 'ArrowDown', 'Enter');
-    expect(await focus(root)).toBe('form · fields 0');
+    const remote = new RemoteDriver(page);
+    await open(page, 'en-US');
+    await remote.press('OK', 'OK', 'OK', 'DOWN', 'OK');
+    await remote.expectFocus('form/fields/0');
     await expect(page.locator('.z-field')).toHaveCount(3);
-    for (const screen of ['source · types 1', 'consent · actions 0', 'disclaimer · actions 0', 'language · languages 0', 'exit · actions 0']) {
-      await keys(page, 'Escape');
-      expect(await focus(root)).toBe(screen);
+    for (const path of ['source/types/1', 'consent/actions/0', 'disclaimer/actions/0', 'language/languages/0', 'exit/actions/0']) {
+      await remote.go('BACK', path);
     }
     await expect(page.getByTestId('exit-dialog')).toBeVisible();
   });
 
   test('a field holds the keys while it is edited: Escape ends the edit and keeps the text', async ({ page }) => {
+    const remote = new RemoteDriver(page);
     const root = await open(page, 'en-US');
-    await keys(page, 'Enter', 'Enter', 'Enter', 'ArrowDown', 'Enter');
-    await keys(page, 'Enter');
+    await remote.press('OK', 'OK', 'OK', 'DOWN', 'OK');
+    await remote.press('OK');
     await page.keyboard.type('p.example/a');
     // Arrows left and right move the caret, not the focus; Backspace deletes.
-    await keys(page, 'ArrowLeft', 'ArrowLeft', 'Backspace', 'ArrowRight');
+    for (const key of ['ArrowLeft', 'ArrowLeft', 'Backspace', 'ArrowRight']) await page.keyboard.press(key);
     await expect(page.locator('#onboarding-playlist')).toHaveValue('p.exampl/a');
-    expect(await focus(root)).toBe('form · fields 0 editing onboarding-playlist');
-    await keys(page, 'Escape');
-    expect(await focus(root)).toBe('form · fields 0');
+    await remote.expectFocus('form/fields/0');
+    await expect(root).toHaveAttribute('data-editing', 'onboarding-playlist');
+    await remote.press('BACK');
+    await remote.expectFocus('form/fields/0');
     expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('BODY');
     await expect(page.locator('#onboarding-playlist')).toHaveValue('p.exampl/a');
     // ArrowDown ends an edit too, and moves on.
-    await keys(page, 'Enter', 'ArrowDown');
-    expect(await focus(root)).toBe('form · fields 1');
+    await remote.press('OK', 'DOWN');
+    await remote.expectFocus('form/fields/1');
   });
 
   test('a pointer click opens a field, and its twin OK key is the same press', async ({ page }) => {
+    const remote = new RemoteDriver(page);
     const root = await open(page, 'en-US');
-    await keys(page, 'Enter', 'Enter', 'Enter', 'Enter');
+    await remote.press('OK', 'OK', 'OK', 'OK');
     // A click within 500 ms of the last OK key would be that key's twin (step 11b).
     await page.waitForTimeout(600);
     await page.getByTestId('field-username').click();
-    expect(await focus(root)).toBe('form · fields 1 editing onboarding-username');
+    await remote.expectFocus('form/fields/1');
+    await expect(root).toHaveAttribute('data-editing', 'onboarding-username');
     // webOS sends key 13 with the Magic Remote's click: it must not end the edit just opened.
-    await keys(page, 'Enter');
-    expect(await focus(root)).toBe('form · fields 1 editing onboarding-username');
+    await remote.press('OK');
+    await remote.expectFocus('form/fields/1');
+    await expect(root).toHaveAttribute('data-editing', 'onboarding-username');
     await page.keyboard.type('u');
-    await keys(page, 'Enter');
-    expect(await focus(root)).toBe('form · fields 2');
+    await remote.press('OK');
+    await remote.expectFocus('form/fields/2');
   });
 
   test('marks every string of ours in en-XA, on every screen, which catches hard-coded text', async ({ page }) => {
+    const remote = new RemoteDriver(page);
     const root = await open(page, 'en-XA');
     const check = async (name: string): Promise<void> => {
       expect(await untranslated(page), name).toEqual([]);
@@ -438,21 +443,21 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
     };
     await check('language');
     await shot(page, 'en-XA-language');
-    await keys(page, 'Enter');
+    await remote.press('OK');
     await check('disclaimer');
-    await keys(page, 'Enter');
+    await remote.press('OK');
     await check('consent');
     await shot(page, 'en-XA-consent');
-    await keys(page, 'Enter');
+    await remote.press('OK');
     await check('source');
-    await keys(page, 'Enter');
-    await keys(page, 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'Enter');
+    await remote.press('OK');
+    await remote.press('DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN', 'OK');
     await expect(page.getByTestId('field-server')).toHaveClass(/is-invalid/);
     await check('form');
     await shot(page, 'en-XA-form-error');
     // The same check in English finds our strings, so it can fail.
     await open(page, 'en-US');
-    await keys(page, 'Enter');
+    await remote.press('OK');
     expect(await untranslated(page)).toEqual(expect.arrayContaining(['Zoma is a player', 'I understand']));
     await expect(root).toHaveAttribute('data-language', 'en');
   });
