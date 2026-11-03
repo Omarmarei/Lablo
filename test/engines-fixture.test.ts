@@ -10,7 +10,8 @@ import path from 'node:path';
 import { EpgGuideReader, EpgWantedSet, epgNowNext, normalizeName, parseM3uCatalog } from '@zoma/core';
 import { describe, expect, it } from 'vitest';
 import { readDebugParams, readScreen } from '../apps/tv/src/data/params';
-import { FIXTURE_ORIGIN, FIXTURE_SIZE, appUrl, dataChecks, fixtureEntries, fixtureM3u, fixtureXmltv, stageFixtures } from '../tools/engines/src/fixture';
+import { CatalogChunker } from '../packages/data/src/chunker';
+import { FIXTURE_ORIGIN, FIXTURE_SIZE, appUrl, dataChecks, fixtureEntries, fixtureM3u, fixtureXmltv, liveCategories, stageFixtures } from '../tools/engines/src/fixture';
 
 describe('the engines catalog fixture', () => {
   const entries = fixtureEntries();
@@ -72,6 +73,28 @@ describe('the engines catalog fixture', () => {
       const at = now + later * 3_600_000;
       expect(epgNowNext(first, at).now?.title).toBe(`fixture.1 ${new Date(at).getUTCHours()}h`);
     }
+  });
+
+  it("lists the live screen's categories as the ingest numbers them, each channel with its guide or none (RELAY step 14c)", () => {
+    const chunker = new CatalogChunker('live');
+    const chunks = items.filter((i) => i.kind === 'live').flatMap((item) => chunker.push(item));
+    chunks.push(...chunker.end());
+    const listed = liveCategories(entries);
+    // The rail's order is the ingest's catIdx; each category's channels in chunk order.
+    expect(listed.map((c) => [c.name, c.channels.length])).toEqual(chunker.categories().map((c) => [c.name, c.count]));
+    for (const [catIdx, category] of listed.entries()) {
+      const stored = chunks.filter((c) => c.catIdx === catIdx).sort((a, b) => a.chunk - b.chunk).flatMap((c) => c.items.map((i) => i.name));
+      expect(category.channels.map((c) => c.name)).toEqual(stored);
+    }
+    // "All channels" numbers a channel by its place in it: each category starts after the ones before.
+    expect(listed.map((c) => c.allStart)).toEqual(listed.map((_c, i) => listed.slice(0, i).reduce((n, c) => n + c.channels.length, 0)));
+    expect(listed.reduce((n, c) => n + c.channels.length, 0)).toBe(checks.tizen.live);
+    expect(listed).toHaveLength(14);
+    // The guide has programmes for exactly the channels marked with one.
+    const guided = new Set([...fixtureXmltv(entries, Date.UTC(2026, 10, 2, 12)).matchAll(/<channel id="([^"]+)">/g)].map((m) => m[1]));
+    const all = listed.flatMap((c) => c.channels);
+    expect(all.filter((c) => c.guide).map((c) => c.tvgId)).toEqual(all.map((c) => c.tvgId).filter((id) => guided.has(id)));
+    expect(all.filter((c) => c.guide)).toHaveLength(checks.tizen.epgMatched);
   });
 
   it('builds app URLs that the app reads back as the hello screen + force + query + source', () => {

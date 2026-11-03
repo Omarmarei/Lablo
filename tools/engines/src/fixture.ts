@@ -88,6 +88,49 @@ export function fixtureEntries(count = FIXTURE_SIZE): FixtureEntry[] {
 /** Live channels with programmes in the fixture guide: every 8th, from the first. */
 export const hasGuide = (index: number): boolean => index % 8 === 0;
 
+/** A live channel as the live screen lists it (RELAY step 14c). */
+export interface ListedChannel {
+  readonly name: string;
+  /** Its tvg-id: the guide's channel, and the start of each of its programme titles (`fixture.9 14h`). */
+  readonly tvgId: string;
+  /** It has programmes in the guide (`hasGuide`). */
+  readonly guide: boolean;
+}
+
+/** A category of the live screen's rail. */
+export interface ListedCategory {
+  /** The playlist's `group-title`. */
+  readonly name: string;
+  /** Where its channels start in "All channels": a channel without `tvg-chno` is numbered by its place there. */
+  readonly allStart: number;
+  readonly channels: readonly ListedChannel[];
+}
+
+/**
+ * The live screen's categories for the fixture: its live channels grouped by `group-title`, the
+ * groups in the order they first appear (the ingest's `catIdx`, packages/data `CatalogChunker`),
+ * each in playlist order. "All channels" lists them one category after another.
+ */
+export function liveCategories(entries: readonly FixtureEntry[]): ListedCategory[] {
+  const byName = new Map<string, ListedChannel[]>();
+  entries.forEach((entry, i) => {
+    if (entry.kind !== 'live') return;
+    let channels = byName.get(entry.group);
+    if (channels === undefined) {
+      channels = [];
+      byName.set(entry.group, channels);
+    }
+    channels.push({ name: entry.name, tvgId: `fixture.${i + 1}`, guide: hasGuide(i) });
+  });
+  let at = 0;
+  const categories: ListedCategory[] = [];
+  for (const [name, channels] of byName) {
+    categories.push({ name, allStart: at, channels });
+    at += channels.length;
+  }
+  return categories;
+}
+
 export function fixtureM3u(entries: readonly FixtureEntry[], guide: string | null = null): string {
   const lines = [guide === null ? '#EXTM3U' : `#EXTM3U url-tvg="${FIXTURE_ORIGIN}/${guide}"`];
   entries.forEach((entry, i) => {

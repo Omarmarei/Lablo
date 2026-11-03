@@ -20,8 +20,15 @@
  *    screen only once its data requests have all answered (`data-pending="0"`): leaving while
  *    the workers were still in the database once left Chromium 53 (on CI) with a delete that
  *    never answered.
+ * 6. The live screen by the TV's keys (RELAY step 14c, live.ts): ArrowDown, CH− (a window of 9
+ *    rows further), CH+, to the rail (LEFT, or RIGHT in Arabic), down to the fifth category, OK
+ *    (its channels), Back to the rail, and Back again: the exit dialog on Tizen ("Stay" closes
+ *    it), `PalmSystem.platformBack()` on webOS. The rail, the rows and now/next are checked
+ *    against the fixture and its guide.
  * Each screen on the way is measured as in the e2e test (1920x1080, the safe area, no label
- * cut), and the form and done screens are saved as screenshots.
+ * cut), and the form, done, live, category and (Tizen) exit screens are saved as screenshots.
+ * At every step the focus engine (`window.__ZOMA_TEST__`, step 14b) and the screen drawing it
+ * must agree.
  *
  * The steps, the probes and the evaluation are unit-tested; `runOnboarding` drives a real
  * engine over CDP.
@@ -31,9 +38,11 @@ import path from 'node:path';
 import type { CdpClient } from './cdp';
 import type { Engine } from './engines';
 import { chromeMajor } from './engines';
-import type { DataCheck } from './fixture';
+import type { DataCheck, ListedCategory } from './fixture';
 import { FIXTURE_ORIGIN } from './fixture';
 import { SAFE_AREA, VIEWPORT, list } from './gallery';
+import type { LiveView } from './live';
+import { CHANNELS_VISIBLE, LIVE_BOXES, LIVE_CATEGORY, LIVE_LABELS, LIVE_VIEW_FUNCTION, PLATFORM_BACK_STUB, TV_KEYS, listedEntry, railFailures, rowFailures, rowsFilled, unfilledRows } from './live';
 import type { RunOptions, TvPlatform } from './scenario';
 import { FONT_FACES_FUNCTION, delay, evaluateFonts, fontsSettled, pressKey, readProbe, waitForProbe, watchErrors } from './scenario';
 
@@ -72,8 +81,8 @@ export const SOURCE_NAME = new URL(FIXTURE_ORIGIN).hostname;
 export const LAYOUT_BOXES = '.z-button, .z-field, .z-progress, .z-spinner, .onboarding__title, .onboarding__text, .onboarding__note, .onboarding__counts';
 export const LAYOUT_LABELS = '.z-button__label, .onboarding__title, .z-field__label, .z-field__note';
 
-/** Onboarding as the harness sees it. */
-export interface WalkState {
+/** Onboarding and the live screen as the harness sees them. */
+export interface WalkState extends LiveView {
   readonly href: string;
   /** The document the walk marked before navigating away (`STALE_MARK`): not the relaunched page yet. */
   readonly stale: boolean;
@@ -93,6 +102,8 @@ export interface WalkState {
   readonly index: number | null;
   readonly editing: string | null;
   readonly language: string | null;
+  /** The focus engine's `screen/zone/index` (`window.__ZOMA_TEST__.focusPath()`; null without the hook or a screen). */
+  readonly hook: string | null;
   /** `<html dir>`. */
   readonly dir: string;
   /** `document.activeElement`: its id, or its tag name without one. */
@@ -115,6 +126,7 @@ export interface WalkState {
 /** Evaluated inside the page on every engine, so it is plain ES5 (a unit test parses it at ecmaVersion 5). */
 export const WALK_EXPRESSION = `(function () {
   ${FONT_FACES_FUNCTION}
+  ${LIVE_VIEW_FUNCTION}
   var SAFE = ${JSON.stringify(SAFE_AREA)};
   function all(selector) {
     return Array.prototype.slice.call(document.querySelectorAll(selector));
@@ -126,18 +138,20 @@ export const WALK_EXPRESSION = `(function () {
     var el = document.querySelector('[data-testid="' + id + '"]');
     return el ? Number(el.getAttribute('data-n')) : null;
   }
-  var outside = [];
-  all('${LAYOUT_BOXES}').forEach(function (el) {
-    var r = el.getBoundingClientRect();
-    if (r.left < SAFE.left || r.top < SAFE.top || r.right > SAFE.right + 0.5 || r.bottom > SAFE.bottom + 0.5) outside.push(name(el));
-  });
-  var cut = all('${LAYOUT_LABELS}')
-    .filter(function (el) { return el.scrollWidth > el.clientWidth + 1; })
-    .map(name);
   var root = document.documentElement;
   var ob = document.querySelector('[data-testid="onboarding"]');
   var live = document.querySelector('[data-testid="live"]');
   var shown = ob || live;
+  var outside = [];
+  all(live ? '${LIVE_BOXES}' : '${LAYOUT_BOXES}').forEach(function (el) {
+    var r = el.getBoundingClientRect();
+    if (r.left < SAFE.left || r.top < SAFE.top || r.right > SAFE.right + 0.5 || r.bottom > SAFE.bottom + 0.5) outside.push(name(el));
+  });
+  var cut = all(live ? '${LIVE_LABELS}' : '${LAYOUT_LABELS}')
+    .filter(function (el) { return el.scrollWidth > el.clientWidth + 1; })
+    .map(name);
+  var view = liveView(live);
+  var hook = window.__ZOMA_TEST__;
   var liveCount = live ? live.querySelector('[data-testid="live-meta"] [data-n]') : null;
   var input = document.getElementById('${PLAYLIST_INPUT}');
   var status = document.querySelector('[data-testid="load-status"]');
@@ -159,6 +173,16 @@ export const WALK_EXPRESSION = `(function () {
     index: shown && shown.hasAttribute('data-index') ? Number(shown.getAttribute('data-index')) : null,
     editing: ob ? ob.getAttribute('data-editing') : null,
     language: shown ? shown.getAttribute('data-language') : null,
+    hook: hook && hook.focusPath ? hook.focusPath() : null,
+    category: view.category,
+    top: view.top,
+    heading: view.heading,
+    chips: view.chips,
+    rows: view.rows,
+    railSide: view.railSide,
+    dialog: view.dialog,
+    platformBack: view.platformBack,
+    clock: view.clock,
     dir: root.getAttribute('dir') || '',
     active: active ? active.id || active.tagName : null,
     value: input ? input.value : null,
@@ -264,11 +288,16 @@ export interface Expectation {
   readonly value?: string;
   readonly language?: string;
   readonly dir?: string;
+  /** The live screen: the rail entry on show, the list's first row, the exit dialog, the webOS exits. */
+  readonly category?: number;
+  readonly top?: number;
+  readonly dialog?: boolean;
+  readonly platformBack?: number;
 }
 
 export type Key = { readonly key: string; readonly keyCode: number };
-/** The screens a walk saves: the typed form, the done screen, the live screen. */
-export type WalkShot = 'form' | 'done' | 'live';
+/** The screens a walk saves: the typed form, the done screen, the live screen, a category, the exit dialog (Tizen). */
+export type WalkShot = 'form' | 'done' | 'live' | 'category' | 'exit';
 const KEY = {
   enter: { key: 'Enter', keyCode: 13 },
   up: { key: 'ArrowUp', keyCode: 38 },
@@ -295,7 +324,16 @@ export type StepId =
   | 'to-add'
   | 'add'
   | 'start-watching'
-  | 'relaunch';
+  | 'relaunch'
+  | 'live-down'
+  | 'live-page-down'
+  | 'live-page-up'
+  | 'live-rail'
+  | 'live-pick'
+  | 'live-category'
+  | 'live-back'
+  | 'live-exit'
+  | 'live-stay';
 
 export interface WalkStep {
   readonly id: StepId;
@@ -303,6 +341,8 @@ export interface WalkStep {
   readonly label: string;
   /** Navigate to the app first (a start or a relaunch). */
   readonly navigate?: boolean;
+  /** Evaluated in the page before the keys (a stand-in for a TV API). */
+  readonly before?: string;
   /** Remote keys pressed, in order. */
   readonly keys?: readonly Key[];
   /** Typed into the input with DOM focus (CDP `char` events), after the keys. */
@@ -310,17 +350,22 @@ export interface WalkStep {
   readonly expect: Expectation;
   /** Measure the screen once there (and wait for its fonts): its name in failure messages. */
   readonly layout?: string;
+  /** Check the live screen's rail and header against the fixture once there. */
+  readonly rail?: boolean;
+  /** Check the live screen's rows against the fixture once there (and wait for each to answer). */
+  readonly rows?: boolean;
   /** Save a screenshot of the screen once there. */
   readonly shot?: WalkShot;
-  /** Which timeout applies: a start, a key, or the load. */
-  readonly wait: 'boot' | 'key' | 'load';
+  /** Which timeout applies: a start, a key, the load, or a key on the live screen (which waits for its data). */
+  readonly wait: 'boot' | 'key' | 'load' | 'live';
 }
 
 /**
  * The walk, by keys only. The engine's own locale is English, so English is preselected; in
- * Arabic the app is right to left after the pick, and LEFT/RIGHT swap along a row.
+ * Arabic the app is right to left after the pick, and LEFT/RIGHT swap along a row. The live
+ * screen's CH+, CH− and Back keys are the platform's own.
  */
-export function walkSteps(language: WalkLanguage, link: string): WalkStep[] {
+export function walkSteps(language: WalkLanguage, link: string, platform: TvPlatform): WalkStep[] {
   const ar = language === 'ar';
   const next = ar ? KEY.left : KEY.right;
   const back = ar ? KEY.right : KEY.left;
@@ -388,13 +433,109 @@ export function walkSteps(language: WalkLanguage, link: string): WalkStep[] {
       shot: 'live',
       wait: 'boot',
     },
-    { id: 'relaunch', label: 'the relaunch', navigate: true, expect: { ...onLive, live: true, liveIdle: true, onboarding: false }, wait: 'boot' },
+    {
+      id: 'relaunch',
+      label: 'the relaunch',
+      navigate: true,
+      expect: { ...onLive, live: true, liveIdle: true, onboarding: false, category: 0, top: 0 },
+      layout: 'live',
+      rail: true,
+      rows: true,
+      wait: 'boot',
+    },
   );
+  steps.push(...liveSteps(language, platform));
+  return steps;
+}
+
+/**
+ * The live screen by keys, from its first channel after the relaunch. Every step waits for the
+ * screen's data requests to answer (`data-pending="0"`), so the walk never leaves it busy.
+ */
+export function liveSteps(language: WalkLanguage, platform: TvPlatform): WalkStep[] {
+  const tv = TV_KEYS[platform];
+  // The rail is at the inline start: LEFT of the list, or RIGHT of it in Arabic.
+  const toRail = language === 'ar' ? KEY.right : KEY.left;
+  const at = (zone: string, index: number, more: Expectation = {}): Expectation => ({ screen: 'live', zone, index, live: true, liveIdle: true, ...more });
+  const steps: WalkStep[] = [
+    { id: 'live-down', label: 'ArrowDown in the list', keys: [KEY.down], expect: at('channels', 1, { top: 0 }), wait: 'live' },
+    {
+      id: 'live-page-down',
+      label: `CH− (key ${tv.chDown.keyCode})`,
+      keys: [tv.chDown],
+      expect: at('channels', 1 + CHANNELS_VISIBLE, { top: CHANNELS_VISIBLE }),
+      layout: 'paged live',
+      rows: true,
+      wait: 'live',
+    },
+    { id: 'live-page-up', label: `CH+ (key ${tv.chUp.keyCode})`, keys: [tv.chUp], expect: at('channels', 1, { top: 0 }), wait: 'live' },
+    { id: 'live-rail', label: `${toRail.key} to the rail`, keys: [toRail], expect: at('rail', 0, { category: 0 }), wait: 'live' },
+    {
+      id: 'live-pick',
+      label: `ArrowDown ${LIVE_CATEGORY} times to category ${LIVE_CATEGORY}`,
+      keys: Array.from({ length: LIVE_CATEGORY }, () => KEY.down),
+      expect: at('rail', LIVE_CATEGORY, { category: 0 }),
+      wait: 'live',
+    },
+    {
+      id: 'live-category',
+      label: `OK on category ${LIVE_CATEGORY}`,
+      keys: [KEY.enter],
+      expect: at('channels', 0, { category: LIVE_CATEGORY, top: 0 }),
+      layout: 'category',
+      rail: true,
+      rows: true,
+      shot: 'category',
+      wait: 'live',
+    },
+    { id: 'live-back', label: `Back (key ${tv.back.keyCode}) to the rail`, keys: [tv.back], expect: at('rail', LIVE_CATEGORY, { category: LIVE_CATEGORY }), wait: 'live' },
+  ];
+  if (platform === 'tizen') {
+    steps.push(
+      {
+        id: 'live-exit',
+        label: `Back (key ${tv.back.keyCode}) on the rail`,
+        keys: [tv.back],
+        expect: { screen: 'exit', zone: 'buttons', index: 0, live: true, dialog: true },
+        layout: 'exit dialog',
+        shot: 'exit',
+        wait: 'live',
+      },
+      { id: 'live-stay', label: 'OK on "Stay"', keys: [KEY.enter], expect: at('rail', LIVE_CATEGORY, { category: LIVE_CATEGORY, dialog: false }), wait: 'live' },
+    );
+  } else {
+    steps.push({
+      id: 'live-exit',
+      label: `Back (key ${tv.back.keyCode}) on the rail`,
+      before: PLATFORM_BACK_STUB,
+      keys: [tv.back],
+      expect: at('rail', LIVE_CATEGORY, { category: LIVE_CATEGORY, dialog: false, platformBack: 1 }),
+      wait: 'live',
+    });
+  }
   return steps;
 }
 
 export function matches(state: WalkState, expect: Expectation): boolean {
   return (Object.keys(expect) as Array<keyof Expectation>).every((key) => expect[key] === state[key]);
+}
+
+/** The focus the screen on show draws, as a path (null: no screen draws one). */
+export const drawnPath = (state: Pick<WalkState, 'screen' | 'zone' | 'index'>): string | null =>
+  state.screen === null ? null : `${state.screen}/${state.zone ?? '-'}/${state.index ?? '-'}`;
+
+/**
+ * Why a step whose expectation holds has not landed yet (null: it has): the focus engine and the
+ * screen disagree, a measured screen's fonts are still loading, or rows still wait for their data.
+ */
+export function settling(step: Pick<WalkStep, 'layout' | 'rows'>, state: WalkState): string | null {
+  const drawn = drawnPath(state);
+  if (drawn !== null && state.hook !== drawn) return `the screen draws ${drawn}, but the focus engine is at ${state.hook ?? 'nothing'}`;
+  if (step.layout !== undefined && (state.fontsStatus === 'loading' || !fontsSettled(state.fonts))) {
+    return `the fonts did not settle (${state.fontsStatus ?? '-'}: ${state.fonts ?? '-'})`;
+  }
+  if (step.rows === true && !rowsFilled(state)) return `the rows never filled in: ${unfilledRows(state)}`;
+  return null;
 }
 
 /** `form · fields 0, editing onboarding-playlist, DOM focus on onboarding-playlist, link "…"`. */
@@ -405,6 +546,11 @@ export function describeState(state: WalkState): string {
   if (state.screen !== null) parts.push(`${state.screen} · ${state.zone ?? '-'} ${state.index ?? '-'}`);
   else if (!state.live) parts.push(state.onboarding ? 'onboarding' : 'no screen yet');
   if (state.screen !== null && !state.onboarding && !state.live) parts.push('not ready');
+  const drawn = drawnPath(state);
+  if (drawn !== null && state.hook !== drawn) parts.push(`the focus engine at ${state.hook ?? 'nothing'}`);
+  if (state.live) parts.push(`category ${state.category ?? '-'}, rows from ${state.top ?? '-'}`);
+  if (state.dialog) parts.push('the exit dialog');
+  if (state.platformBack > 0) parts.push(`platformBack() called ${state.platformBack} time${state.platformBack === 1 ? '' : 's'}`);
   if (state.editing !== null && state.editing !== '') parts.push(`editing ${state.editing}`);
   if (state.active !== null && state.active !== 'BODY') parts.push(`DOM focus on ${state.active}`);
   else parts.push('no DOM focus');
@@ -425,13 +571,18 @@ export function describeExpectation(expect: Expectation): string {
   if (expect.active !== undefined) parts.push(expect.active === 'BODY' ? 'no DOM focus' : `DOM focus on ${expect.active}`);
   if (expect.value !== undefined) parts.push(`link "${expect.value}"`);
   if (expect.language !== undefined) parts.push(`language ${expect.language}${expect.dir === undefined ? '' : `, dir="${expect.dir}"`}`);
+  if (expect.category !== undefined || expect.top !== undefined) parts.push(`category ${expect.category ?? '*'}, rows from ${expect.top ?? '*'}`);
+  if (expect.dialog !== undefined) parts.push(expect.dialog ? 'the exit dialog' : 'no exit dialog');
+  if (expect.platformBack !== undefined) parts.push(`platformBack() called ${expect.platformBack} time${expect.platformBack === 1 ? '' : 's'}`);
   return parts.join(', ');
 }
 
-/** Has the step landed? Its expectation holds, and a measured screen's fonts have settled. */
-export function stepLanded(step: Pick<WalkStep, 'expect' | 'layout'>, state: WalkState): boolean {
-  if (!matches(state, step.expect)) return false;
-  return step.layout === undefined || (state.fontsStatus !== 'loading' && fontsSettled(state.fonts));
+/**
+ * Has the step landed? Its expectation holds, the focus engine agrees with the screen, a
+ * measured screen's fonts have settled, and checked rows have their data.
+ */
+export function stepLanded(step: Pick<WalkStep, 'expect' | 'layout' | 'rows'>, state: WalkState): boolean {
+  return matches(state, step.expect) && settling(step, state) === null;
 }
 
 /**
@@ -455,6 +606,8 @@ export interface StepRecord {
 
 export interface Walk {
   readonly language: WalkLanguage;
+  /** The app walked: its live screen's keys and exit are the platform's. */
+  readonly platform: TvPlatform;
   /** How deleting the app's database before the walk went: `ok`, or what stopped it. */
   readonly reset: string;
   /** The steps that ran, in order; the walk stops at the first one that didn't land. */
@@ -500,22 +653,43 @@ export const stepTime = (walk: Walk, id: StepId): number | null => {
   return step?.met === true ? step.ms : null;
 };
 
+/** What a walk must show: the done screen's counts, and the live screen's categories (fixture.ts `liveCategories`). */
+export interface WalkCheck extends Pick<DataCheck, 'live' | 'movies'> {
+  readonly categories: readonly ListedCategory[];
+}
+
+/** The live screen's rail and rows once a step is there: what the fixture says it must show. */
+function liveFailures(step: WalkStep, state: WalkState, check: WalkCheck, language: WalkLanguage): string[] {
+  const failures: string[] = [];
+  if (step.rail === true) {
+    failures.push(...railFailures(state, check.categories, language));
+    const entry = state.category === null ? null : listedEntry(check.categories, state.category);
+    if (entry !== null && state.liveCount !== entry.channels.length) {
+      failures.push(`the header counts ${state.liveCount ?? 'no'} channels, expected ${entry.channels.length}`);
+    }
+  }
+  if (step.rows === true) failures.push(...rowFailures(state, check.categories, language));
+  return failures;
+}
+
 /** Everything wrong with one walk; empty means it passed. */
-export function evaluateWalk(walk: Walk, check: Pick<DataCheck, 'live' | 'movies'>): string[] {
+export function evaluateWalk(walk: Walk, check: WalkCheck): string[] {
   if (walk.reset !== 'ok') return [`the app's database could not be deleted before the walk (${walk.reset})`];
   const failures: string[] = [];
   const { language } = walk;
-  const steps = walkSteps(language, '');
+  const steps = walkSteps(language, '', walk.platform);
   const first = walk.steps[0];
   if (first?.state != null) failures.push(...evaluateFonts(first.state.fonts));
   for (const step of walk.steps) {
+    const spec = steps.find((s) => s.id === step.id);
     if (!step.met) {
-      const fontsOnly = step.state !== null && matches(step.state, step.expect);
-      const saw = step.state === null ? 'the page could not be read' : fontsOnly ? `the fonts did not settle (${step.state.fontsStatus ?? '-'}: ${step.state.fonts ?? '-'})` : describeState(step.state);
+      const reason = step.state !== null && spec !== undefined && matches(step.state, step.expect) ? settling(spec, step.state) : null;
+      const saw = step.state === null ? 'the page could not be read' : (reason ?? describeState(step.state));
       failures.push(`${step.label}: expected ${describeExpectation(step.expect)}; saw ${saw}`);
       return failures;
     }
     if (step.layout !== null && step.state !== null) failures.push(...screenFailures(step.state).map((f) => `on the ${step.layout} screen: ${f}`));
+    if (spec !== undefined && step.state !== null) failures.push(...liveFailures(spec, step.state, check, language).map((f) => `${step.label}: ${f}`));
     if (step.id === 'add' && step.state !== null) {
       const want = expectedCounts(check);
       const got = step.state.counts;
@@ -528,7 +702,7 @@ export function evaluateWalk(walk: Walk, check: Pick<DataCheck, 'live' | 'movies
       }
       failures.push(...profileFailures(walk.profile, language));
     }
-    if ((step.id === 'start-watching' || step.id === 'relaunch') && step.state !== null && step.state.liveCount !== check.live) {
+    if (step.id === 'start-watching' && step.state !== null && step.state.liveCount !== check.live) {
       failures.push(`${step.label}: the live screen lists ${step.state.liveCount ?? 'no'} channels, expected ${check.live}`);
     }
   }
@@ -552,7 +726,7 @@ export function profileFailures(profile: StoredProfile | null, language: WalkLan
 }
 
 /** Everything wrong with one onboarding run; empty means it passed. The Arabic walk's failures say so. */
-export function evaluateOnboarding(run: OnboardingRun, engine: Pick<Engine, 'major'>, check: Pick<DataCheck, 'live' | 'movies'>): string[] {
+export function evaluateOnboarding(run: OnboardingRun, engine: Pick<Engine, 'major'>, check: WalkCheck): string[] {
   const failures: string[] = [];
   const userAgent = run.walks.flatMap((w) => w.steps).find((s) => s.state !== null)?.state?.userAgent ?? null;
   if (userAgent === null) failures.push('the page state could not be read at all');
@@ -577,6 +751,8 @@ const RESET_TIMEOUT_MS = 20_000;
 
 export interface OnboardingOptions extends RunOptions {
   readonly loadTimeoutMs: number;
+  /** A key on the live screen: the focus moves, then its rows' data and the 600 ms focus wait answer. */
+  readonly liveTimeoutMs: number;
   /** Where a walk's screenshot goes (null: none). */
   readonly screenshot: ((language: WalkLanguage, screen: WalkShot) => string) | null;
   readonly save: (file: string, png: Buffer) => void;
@@ -604,6 +780,7 @@ async function typeText(client: CdpClient, text: string): Promise<void> {
 /** One walk in one language: a fresh database, then the steps until one doesn't land. */
 async function walkOnce(
   client: CdpClient,
+  platform: TvPlatform,
   url: string,
   language: WalkLanguage,
   link: string,
@@ -616,18 +793,20 @@ async function walkOnce(
   let screenshotError: string | null = null;
   let phases: string[] | null = null;
   let profile: StoredProfile | null = null;
-  if (reset !== 'ok') return { language, reset, steps: records, phases, profile, screenshots, screenshotError };
+  if (reset !== 'ok') return { language, platform, reset, steps: records, phases, profile, screenshots, screenshotError };
 
-  for (const step of walkSteps(language, link)) {
+  const timeouts = { boot: options.bootTimeoutMs, key: options.keyTimeoutMs, load: options.loadTimeoutMs, live: options.liveTimeoutMs };
+  for (const step of walkSteps(language, link, platform)) {
     const started = Date.now();
     if (step.id === 'add') await readProbe<string[]>(client, PHASES_EXPRESSION);
     if (step.navigate === true) {
       await readProbe<boolean>(client, STALE_MARK);
       await client.send('Page.navigate', { url });
     }
+    if (step.before !== undefined) await readProbe<unknown>(client, step.before);
     for (const key of step.keys ?? []) await pressKey(client, key);
     if (step.type !== undefined) await typeText(client, step.type);
-    const timeout = step.wait === 'boot' ? options.bootTimeoutMs : step.wait === 'load' ? options.loadTimeoutMs : options.keyTimeoutMs;
+    const timeout = timeouts[step.wait];
     const landed = await waitForProbe<WalkState>(
       client,
       WALK_EXPRESSION,
@@ -655,14 +834,14 @@ async function walkOnce(
       profile = (await waitForProbe<StoredProfile>(client, PROFILE_RESULT, () => true, options.keyTimeoutMs)).state;
     }
   }
-  return { language, reset, steps: records, phases, profile, screenshots, screenshotError };
+  return { language, platform, reset, steps: records, phases, profile, screenshots, screenshotError };
 }
 
 /**
- * Walks onboarding at `url` in English, then in Arabic, each from a fresh database, and deletes
- * the database again at the end, so later runs in the engine start without this source. The
- * caller enables the Page and Runtime domains once per connection, and starts the engine full
- * screen (`TV_SCREEN_FLAGS`).
+ * Walks onboarding at `url` in English, then in Arabic, each from a fresh database and on to
+ * the live screen's keys, and deletes the database again at the end, so later runs in the engine
+ * start without this source. The caller enables the Page and Runtime domains once per
+ * connection, and starts the engine full screen (`TV_SCREEN_FLAGS`).
  */
 export async function runOnboarding(
   client: CdpClient,
@@ -675,7 +854,7 @@ export async function runOnboarding(
   const watch = watchErrors(client);
   const walks: Walk[] = [];
   try {
-    for (const language of WALK_LANGUAGES) walks.push(await walkOnce(client, url, language, playlistLink(check), options, watch));
+    for (const language of WALK_LANGUAGES) walks.push(await walkOnce(client, platform, url, language, playlistLink(check), options, watch));
     const cleanup = await resetDatabase(client);
     return { platform, url, walks, cleanup, exceptions: watch.errors(), durationMs: Date.now() - started };
   } finally {
