@@ -207,7 +207,9 @@ UI steps also end with a short "press these keys" checklist that Omar can run in
 - Each inlined worker counts only against its own 150 KB budget.
 - The 500 KB main budget covers the main thread's own code: about 103 KB today, that is main.js minus the four worker strings.
 - He also authorised the matching edit to the CLAUDE.md `build:tv` row.
-- Leg 16 applies it in `tools/build` (the budget check, its report line and its tests) before the step-11 code.
+- Applied in leg 16 (`tools/build`, the first commit of the step-11 PR): workers go into main.js as placeholders and their code replaces them after terser, so the build knows the inlined bytes exactly.
+  - The build prints `main.js (tizen): 102.2 KB own code of 500.0 KB (20%), plus 368.1 KB of inlined workers` (webos 100.8 KB); the files stay 470.3 and 468.9 KB.
+  - The workers' own 150 KB checks are unchanged. ADR-003, CLAUDE.md's `build:tv` row and runbook tv-build.md say so.
 
 ### Phase 4: UI shell
 - [x] 10. **Focus engine (4.1).** Intents, zones (`list`/`grid`/`epg`/`free`), RTL horizontal flip, per-zone memory, router/back stack, `rootBackPolicy`, Magic Remote hover-to-focus.

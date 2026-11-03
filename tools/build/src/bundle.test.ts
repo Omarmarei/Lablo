@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
-import { SyntaxGateError, UNUSED_POLYFILLS, bundleIife } from './bundle';
+import { SyntaxGateError, UNUSED_POLYFILLS, bundleIife, stringLiteral } from './bundle';
 import { checkSyntax } from './syntax-gate';
 
 const FIXTURES = path.resolve(import.meta.dirname, '../test/fixtures');
@@ -40,6 +40,36 @@ describe('bundleIife (Rollup IIFE + Babel chrome 53 + core-js)', () => {
     // The worker travels inside the main bundle and starts from a Blob URL.
     expect(result.code).toContain('echo-worker-marker');
     expect(result.code).toContain('createObjectURL');
+    // Its string literal is in main.js exactly once, no placeholder is left, and its bytes are
+    // what the main budget leaves out.
+    const literal = stringLiteral(worker?.code ?? '');
+    expect(result.code.split(literal)).toHaveLength(2);
+    expect(result.code).not.toContain('__ZOMA_WORKER_');
+    expect(result.inlinedBytes).toBe(Buffer.byteLength(literal, 'utf8'));
+    expect(result.inlinedBytes).toBeGreaterThan(0);
+  }, 60_000);
+
+  it('writes worker strings as ES2016 literals in the quote that needs fewer escapes', () => {
+    const sep = String.fromCharCode(0x2028);
+    const cases = [
+      ['plain', '"plain"'],
+      ['say "hi"', `'say "hi"'`],
+      ["it's", `"it's"`],
+      [`a "b" 'c' "d"`, `'a "b" \\'c\\' "d"'`],
+      [`back\\slash "q" \\" end`, `'back\\\\slash "q" \\\\" end'`],
+      [`line\nbreak${sep} "x"`, `'line\\nbreak\\u2028 "x"'`],
+    ] as const;
+    for (const [text, expected] of cases) {
+      const literal = stringLiteral(text);
+      expect(literal).toBe(expected);
+      expect(checkSyntax(`var s = ${literal};`, 'literal')).toBeNull();
+      expect(vm.runInNewContext(literal)).toBe(text);
+    }
+  });
+
+  it('inlines nothing into a bundle without workers', async () => {
+    const result = await bundleIife({ input: fixture('per-platform.ts'), platform: 'webos' });
+    expect([result.workers.length, result.inlinedBytes]).toEqual([0, 0]);
   }, 60_000);
 
   it("compiles core's parsers and search to gated Chromium 53 code that gives the same results as Node", async () => {

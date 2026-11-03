@@ -342,7 +342,7 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
   - With the reader inside, the ingest worker measured 159.6 KB, over its 150 KB budget. The reader therefore runs in its own worker, `@zoma/data/epg.worker` (118.8 KB): a package export, a boundary-lint entry point, and a `?worker` import in `apps/tv/src/data/workers.ts`.
   - `ingest-errors.ts` keeps the catalog ingest out of the EPG worker.
   - The query worker grew from 75.8 to 82.6 KB (now/next).
-  - The main bundle inlines all three workers and is now about 440 KB of its 500 KB budget (runbook tv-build.md). That leaves little room for the UI steps: see RELAY.md's note on the main budget.
+  - The main bundle inlines all three workers and is now about 440 KB of its 500 KB budget (runbook tv-build.md). That leaves little room for the UI steps: see RELAY.md's note on the main budget. (Since 2026-11-03 the main budget counts only main's own code, without the inlined workers: ADR-003.)
 - **Found on the way:** with a tvg-shift, core's `epgNowNext` compared an unshifted start with a candidate it had already shifted, so the bucket order decided which programme came next. Fixed, with a test over shifts and bucket orders.
 - **Tests:**
   - `epg-store.test.ts`: fragments merged across and within batches, typed columns round-tripped, generations, day pruning, failures, guide order, due rules.
@@ -589,7 +589,7 @@ envelope   = {v:1, kdf:"scrypt-15-8-1", nonce:24B, ct: secretbox(gzip(profileJSO
 1. Build each worker as an IIFE with Rollup and Babel (`targets: {chrome:'53'}`, `useBuiltIns:'usage'`, core-js 3). Async/await becomes generators, which Chromium 53 runs natively.
 2. Run the syntax gate on the workers. It parses with acorn at `ecmaVersion: 2016` and fails on anything newer.
 3. Build the main IIFE. Workers are imported as strings and started from Blob URLs, which avoids the `file://` worker question. PostCSS runs `postcss-preset-env` (chrome 53) and `postcss-rtlcss`.
-4. Run the syntax gate on the main bundle. Check bundle budgets: main JS ≤ 500 KB minified, each worker ≤ 150 KB.
+4. Run the syntax gate on the main bundle. Check bundle budgets: main JS ≤ 500 KB minified (its own code, without the inlined workers: ADR-003), each worker ≤ 150 KB.
 5. Copy the platform files and package: `tizen package -t wgt -s <profile>` and `ares-package`.
 
 **Linting:** `eslint-plugin-compat` with browserslist `chrome 53`. The polyfill allowlist lives in CLAUDE.md.

@@ -40,8 +40,13 @@ export interface BuiltWorker {
 
 export interface BundleResult {
   readonly code: string;
-  /** Every worker inlined into `code` (already gated). */
+  /** Every worker inlined into `code` (already gated), including workers inlined into those. */
   readonly workers: readonly BuiltWorker[];
+  /**
+   * UTF-8 bytes of `code` that are the string literals of the workers inlined directly into
+   * it. They count against each worker's own budget, not this bundle's (budgets.ts).
+   */
+  readonly inlinedBytes: number;
 }
 
 /** A bundle that would not run on Chromium 53. */
@@ -83,6 +88,9 @@ export const UNUSED_POLYFILLS: readonly RegExp[] = [
 ];
 const WORKER_SUFFIX = '?worker';
 const WORKER_PREFIX = '\0zoma-worker:';
+/** Stands in for worker `n`'s code until the bundle is minified (substituteWorkers). */
+const workerPlaceholder = (n: number): string => `__ZOMA_WORKER_${n}__`;
+const WORKER_PLACEHOLDERS = /(["'])__ZOMA_WORKER_(\d+)__\1/g;
 
 /**
  * U+2028 and U+2029 end a line inside an ES2016 string literal (they became legal there
@@ -93,6 +101,25 @@ const LINE_SEPARATORS = new RegExp(`[${String.fromCharCode(0x2028, 0x2029)}]`, '
 
 function escapeLineSeparators(text: string): string {
   return text.replace(LINE_SEPARATORS, (char) => `\\u${char.charCodeAt(0).toString(16)}`);
+}
+
+const occurrences = (text: string, char: string): number => text.split(char).length - 1;
+
+/**
+ * An ES2016 string literal for `text`, in whichever quote needs fewer escapes (as terser
+ * would pick): minified code is mostly double-quoted strings, so the four workers inlined in
+ * single quotes are 5.9 KB (1.6%) smaller than in their `JSON.stringify` form.
+ */
+export function stringLiteral(text: string): string {
+  const json = escapeLineSeparators(JSON.stringify(text));
+  if (occurrences(text, "'") >= occurrences(text, '"')) return json;
+  // JSON escapes are a backslash and one character (`\u` keeps its four digits after it),
+  // so matching them as pairs never splits one.
+  const body = json.slice(1, -1).replace(/\\(.)|'/g, (match: string, escaped: string | undefined) => {
+    if (escaped === undefined) return "\\'";
+    return escaped === '"' ? '"' : match;
+  });
+  return `'${body}'`;
 }
 
 /**
@@ -115,8 +142,12 @@ function resolveCoreJs(): Plugin {
  * the worker is bundled as its own Chromium 53 IIFE, gated, and inlined as a string that is
  * started from a Blob URL. Blob workers avoid the `file://` worker question on packaged TV
  * apps (spike S1 confirms them on the TVs).
+ *
+ * The string goes in as a placeholder, and `substituteWorkers` puts the worker's code in
+ * after minification (the code is minified already), so the bundle knows exactly how many of
+ * its bytes are worker code.
  */
-function inlineWorkers(options: BundleOptions, workers: BuiltWorker[]): Plugin {
+function inlineWorkers(options: BundleOptions, workers: BuiltWorker[], literals: string[]): Plugin {
   return {
     name: 'zoma-inline-workers',
     async resolveId(source, importer) {
@@ -136,14 +167,34 @@ function inlineWorkers(options: BundleOptions, workers: BuiltWorker[]): Plugin {
         polyfills: options.polyfills,
       });
       workers.push({ entry, code: built.code }, ...built.workers);
-      const literal = escapeLineSeparators(JSON.stringify(built.code));
+      literals.push(stringLiteral(built.code));
       return [
-        `var source = ${literal};`,
+        `var source = ${JSON.stringify(workerPlaceholder(literals.length - 1))};`,
         'export default function ZomaWorker() {',
         "  var url = URL.createObjectURL(new Blob([source], { type: 'application/javascript' }));",
         '  return new Worker(url);',
         '}',
       ].join('\n');
+    },
+  };
+}
+
+/**
+ * Runs after terser: puts each inlined worker's code (a string literal) where its
+ * placeholder is, and adds up the bytes it put in. A worker that tree-shaking dropped has
+ * no placeholder left and adds nothing.
+ */
+function substituteWorkers(literals: readonly string[], inlined: { bytes: number }): Plugin {
+  return {
+    name: 'zoma-worker-literals',
+    renderChunk(code) {
+      const out = code.replace(WORKER_PLACEHOLDERS, (_match, _quote, n: string) => {
+        const literal = literals[Number(n)];
+        if (literal === undefined) throw new Error(`unknown worker placeholder ${workerPlaceholder(Number(n))}`);
+        inlined.bytes += Buffer.byteLength(literal, 'utf8');
+        return literal;
+      });
+      return { code: out, map: null };
     },
   };
 }
@@ -156,7 +207,14 @@ function onwarn(warning: RollupLog, warn: LoggingFunction): void {
   warn(warning);
 }
 
-function plugins(options: BundleOptions, workers: BuiltWorker[]): Plugin[] {
+interface Collected {
+  readonly workers: BuiltWorker[];
+  /** Worker `n`'s code as a string literal, for placeholder `n`. */
+  readonly literals: string[];
+  readonly inlined: { bytes: number };
+}
+
+function plugins(options: BundleOptions, collected: Collected): Plugin[] {
   return [
     replace({
       preventAssignment: true,
@@ -165,7 +223,7 @@ function plugins(options: BundleOptions, workers: BuiltWorker[]): Plugin[] {
         'process.env.NODE_ENV': JSON.stringify('production'),
       },
     }),
-    inlineWorkers(options, workers),
+    inlineWorkers(options, collected.workers, collected.literals),
     resolveCoreJs(),
     nodeResolve({ extensions: EXTENSIONS, browser: true }),
     // Must run before Babel so core-js (CommonJS) is converted after Babel injects its imports.
@@ -207,6 +265,8 @@ function plugins(options: BundleOptions, workers: BuiltWorker[]): Plugin[] {
       format: { comments: false, ascii_only: true },
       compress: { passes: 2 },
     }),
+    // After terser: renderChunk hooks run in plugin order.
+    substituteWorkers(collected.literals, collected.inlined),
   ];
 }
 
@@ -216,15 +276,15 @@ function plugins(options: BundleOptions, workers: BuiltWorker[]): Plugin[] {
  * Throws `SyntaxGateError` if the output would not parse on Chromium 53.
  */
 export async function bundleIife(options: BundleOptions): Promise<BundleResult> {
-  const workers: BuiltWorker[] = [];
-  const bundle = await rollup({ input: options.input, plugins: plugins(options, workers), onwarn });
+  const collected: Collected = { workers: [], literals: [], inlined: { bytes: 0 } };
+  const bundle = await rollup({ input: options.input, plugins: plugins(options, collected), onwarn });
   try {
     const { output } = await bundle.generate({ format: 'iife', inlineDynamicImports: true });
     const [chunk] = output;
     const code = chunk.code;
     const violation = checkSyntax(code, options.label ?? options.input);
     if (violation !== null) throw new SyntaxGateError(formatViolation(violation));
-    return { code, workers };
+    return { code, workers: collected.workers, inlinedBytes: collected.inlined.bytes };
   } finally {
     await bundle.close();
   }

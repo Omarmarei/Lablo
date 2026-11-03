@@ -5,7 +5,8 @@
  *   1. Bundle apps/tv/src/main.tsx as a Rollup IIFE through Babel (chrome 53) and core-js.
  *      Every `?worker` import is built the same way first and inlined as a Blob URL.
  *   2. ES2016 syntax gate on each worker and on the main bundle (inside bundleIife).
- *   3. Bundle budgets: main ≤ 500 KB, each worker ≤ 150 KB.
+ *   3. Bundle budgets: main's own code ≤ 500 KB (the inlined workers don't count there),
+ *      each worker ≤ 150 KB.
  *   4. Check that no other platform's adapter leaked into the bundle.
  *   5. Stage dist/tv/<platform>/ (index.html, main.js, app.css, manifest, icons).
  *   6. Package: webOS .ipk via ares-package; Tizen .wgt only with the Tizen CLI and a profile.
@@ -19,7 +20,7 @@ import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } f
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import type { BudgetResult } from './src/budgets';
-import { checkBudget, formatBudget } from './src/budgets';
+import { bundleBudgets, formatBudget } from './src/budgets';
 import { SyntaxGateError, bundleIife } from './src/bundle';
 import type { PackageResult } from './src/package';
 import { packageTizen, packageWebos } from './src/package';
@@ -87,17 +88,15 @@ function stage(
 
 async function buildPlatform(platform: TvPlatform, options: BuildOptions): Promise<PlatformReport> {
   const label = `main.js (${platform})`;
-  const { code, workers } = await bundleIife({
+  const bundle = await bundleIife({
     input: path.join(APP_DIR, 'src/main.tsx'),
     platform,
     label,
     polyfills: options.polyfills,
   });
+  const { code } = bundle;
 
-  const budgets = [
-    checkBudget(label, 'main', code),
-    ...workers.map((w) => checkBudget(`worker ${rel(w.entry)} (${platform})`, 'worker', w.code)),
-  ];
+  const budgets = bundleBudgets(label, bundle, (w) => `worker ${rel(w.entry)} (${platform})`);
 
   const over = budgets.filter((b) => !b.ok);
   if (over.length > 0) {
