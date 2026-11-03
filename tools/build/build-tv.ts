@@ -8,8 +8,10 @@
  *   3. Bundle budgets: main's own code ≤ 500 KB (the inlined workers don't count there),
  *      each worker ≤ 150 KB.
  *   4. Check that no other platform's adapter leaked into the bundle.
- *   5. Stage dist/tv/<platform>/ (index.html, main.js, app.css, manifest, icons).
- *   6. Package: webOS .ipk via ares-package; Tizen .wgt only with the Tizen CLI and a profile.
+ *   5. app.css from the CSS files the bundle imports: postcss-rtlcss, the url() assets copied
+ *      to assets/, the Chromium 53 CSS gate (src/css.ts).
+ *   6. Stage dist/tv/<platform>/ (index.html, main.js, app.css, assets, manifest, icons).
+ *   7. Package: webOS .ipk via ares-package; Tizen .wgt only with the Tizen CLI and a profile.
  *
  * Options: --platform tizen|webos (repeatable; default both), --skip-package.
  * Test only (the old-engine harness self-test, tools/engines): --unsafe-no-polyfills builds
@@ -20,8 +22,11 @@ import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } f
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import type { BudgetResult } from './src/budgets';
-import { bundleBudgets, formatBudget } from './src/budgets';
+import { bundleBudgets, formatBudget, kb } from './src/budgets';
 import { SyntaxGateError, bundleIife } from './src/bundle';
+import type { CssBuild } from './src/css';
+import { ASSET_DIR, buildCss } from './src/css';
+import { CssGateError } from './src/css-gate';
 import type { PackageResult } from './src/package';
 import { packageTizen, packageWebos } from './src/package';
 import type { TvPlatform } from './src/platform-files';
@@ -42,12 +47,18 @@ const APP_DIR = path.join(ROOT, 'apps/tv');
 const DIST_TV = path.join(ROOT, 'dist/tv');
 const DIST_PACKAGES = path.join(ROOT, 'dist/packages');
 const MANIFESTS = new Set(['config.xml', 'appinfo.json']);
+/**
+ * Files shipped next to the CSS assets: the fonts' licence (the SIL Open Font License asks
+ * for it to travel with the fonts).
+ */
+const LICENCES: ReadonlyArray<readonly [string, string]> = [['packages/ui/assets/fonts/OFL.txt', `${ASSET_DIR}/fonts-OFL.txt`]];
 
 const rel = (file: string): string => path.relative(ROOT, file).split(path.sep).join('/');
 
 interface PlatformReport {
   readonly platform: TvPlatform;
   readonly budgets: readonly BudgetResult[];
+  readonly css: { readonly files: number; readonly bytes: number; readonly assets: number };
   readonly packaged: PackageResult | null;
 }
 
@@ -62,6 +73,7 @@ interface BuildOptions {
 function stage(
   platform: TvPlatform,
   mainJs: string,
+  css: CssBuild,
   options: BuildOptions,
 ): { dir: string; webosApp?: { id: string; version: string } } {
   const { version } = options;
@@ -70,7 +82,11 @@ function stage(
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, 'main.js'), mainJs);
   writeFileSync(path.join(dir, 'index.html'), renderIndexHtml(platform));
-  cpSync(path.join(APP_DIR, 'src/app.css'), path.join(dir, 'app.css'));
+  writeFileSync(path.join(dir, 'app.css'), css.css);
+  for (const asset of css.assets) cpSync(asset.from, path.join(dir, asset.to));
+  if (css.assets.length > 0) {
+    for (const [from, to] of LICENCES) cpSync(path.join(ROOT, from), path.join(dir, to));
+  }
 
   const platformDir = path.join(ROOT, 'platforms', platform);
   for (const name of readdirSync(platformDir)) {
@@ -108,12 +124,13 @@ async function buildPlatform(platform: TvPlatform, options: BuildOptions): Promi
     throw new Error(`${label} contains another platform's adapter (${leaked.join(', ')}); check the __PLATFORM__ branches`);
   }
 
-  const staged = stage(platform, code, options);
+  const css = await buildCss(bundle.css, `app.css (${platform})`);
+  const staged = stage(platform, code, css, options);
   let packaged: PackageResult | null = null;
   if (!options.skipPackage) {
     packaged = staged.webosApp ? packageWebos(staged.dir, DIST_PACKAGES, staged.webosApp) : packageTizen(staged.dir, DIST_PACKAGES);
   }
-  return { platform, budgets, packaged };
+  return { platform, budgets, css: { files: bundle.css.length, bytes: Buffer.byteLength(css.css, 'utf8'), assets: css.assets.length }, packaged };
 }
 
 async function main(): Promise<void> {
@@ -155,8 +172,9 @@ async function main(): Promise<void> {
     const started = Date.now();
     const report = await buildPlatform(platform, options);
 
-    console.log(`\n[${platform}] built in ${((Date.now() - started) / 1000).toFixed(1)} s, ES2016 gate passed`);
+    console.log(`\n[${platform}] built in ${((Date.now() - started) / 1000).toFixed(1)} s, ES2016 and CSS gates passed`);
     for (const budget of report.budgets) console.log(`  ${formatBudget(budget)}`);
+    console.log(`  app.css: ${kb(report.css.bytes)} from ${report.css.files} files, ${report.css.assets} assets`);
     console.log(`  staged:  ${rel(path.join(outDir, platform))}/`);
     if (report.packaged === null) console.log('  package: skipped (--skip-package)');
     else if (report.packaged.ok) console.log(`  package: ${rel(report.packaged.file)}`);
@@ -166,7 +184,7 @@ async function main(): Promise<void> {
 
 main().catch(
   (error: unknown) => {
-    if (error instanceof SyntaxGateError) console.error(`\n${error.message}`);
+    if (error instanceof SyntaxGateError || error instanceof CssGateError) console.error(`\n${error.message}`);
     else console.error(error);
     process.exitCode = 1;
   },

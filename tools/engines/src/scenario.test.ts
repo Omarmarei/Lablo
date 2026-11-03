@@ -30,6 +30,8 @@ function state(overrides: Partial<PageState> = {}): PageState {
     epgMatched: '300',
     epgWanted: '2400',
     nowNext: 'ok: Zoma Channel 1: fixture.1 20h 20:00–21:00, next fixture.1 21h 21:00',
+    fontsStatus: 'loaded',
+    fonts: 'la400:loaded la700:loaded ar400:unloaded ar700:loaded',
     ...overrides,
   };
 }
@@ -74,6 +76,7 @@ describe('isSettled', () => {
   });
 
   it('keeps waiting while the app is still starting', () => {
+    expect(isSettled(state({ fontsStatus: 'loading' }), URL)).toBe(false);
     expect(isSettled(state({ ready: false }), URL)).toBe(false);
     expect(isSettled(state({ worker: 'starting…' }), URL)).toBe(false);
     expect(isSettled(state({ idb: 'checking…' }), URL)).toBe(false);
@@ -201,6 +204,20 @@ describe('evaluateRun', () => {
 
   it('skips the data checks for a run without one', () => {
     expect(evaluateRun(run({ data: null, boot: state({ data: null, ingest: null, search: null }) }), engine53, 20_000)).toEqual([]);
+  });
+
+  it('reports fonts that failed, did not load, or cannot be read', () => {
+    expect(evaluateRun(run({ boot: state({ fonts: 'la400:loaded la700:error ar400:unloaded ar700:loaded' }) }), engine53, 15_000)).toEqual([
+      'fonts: la700:error failed to load',
+    ]);
+    expect(evaluateRun(run({ boot: state({ fonts: 'la400:loaded la700:loaded ar400:unloaded ar700:unloaded' }) }), engine53, 15_000)).toEqual([
+      'fonts: no Arabic Zoma Sans face loaded (la400:loaded la700:loaded ar400:unloaded ar700:unloaded)',
+    ]);
+    expect(evaluateRun(run({ boot: state({ fonts: '' }) }), engine53, 15_000)).toEqual([
+      'fonts: no Latin Zoma Sans face loaded (no faces)',
+      'fonts: no Arabic Zoma Sans face loaded (no faces)',
+    ]);
+    expect(evaluateRun(run({ boot: state({ fonts: null, fontsStatus: null }) }), engine53, 15_000)).toEqual(['fonts: document.fonts is missing']);
   });
 
   it('reports worker, IndexedDB and platform problems', () => {

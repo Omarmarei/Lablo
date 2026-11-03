@@ -1,0 +1,45 @@
+{
+  "family": "Zoma Sans",
+  "faces": [
+    {
+      "file": "zoma-latin-400.woff2",
+      "weight": 400,
+      "unicodeRange": "U+0000-017F, U+0218-021B, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+1E9E, U+2000-206F, U+20A0-20C0, U+2116, U+2122, U+2212, U+2215, U+FEFF, U+FFFD",
+      "source": "NotoSans-Regular.ttf",
+      "sourceSha256": "f3961a9cde016d41a4879aecda1474d3a36d6bf54fa0e4643de029cc2248b0e8",
+      "sha256": "ee8d81556008c8461d39e08642879b6ecb770e097185d938ced1ff04c52bb69e",
+      "bytes": 24852,
+      "codePoints": 480
+    },
+    {
+      "file": "zoma-latin-700.woff2",
+      "weight": 700,
+      "unicodeRange": "U+0000-017F, U+0218-021B, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+1E9E, U+2000-206F, U+20A0-20C0, U+2116, U+2122, U+2212, U+2215, U+FEFF, U+FFFD",
+      "source": "NotoSans-Bold.ttf",
+      "sourceSha256": "87cb2d84472a7d66da659ee47b6cdb9552326e8c128245231f191b6ac72529d9",
+      "sha256": "df7c06b8120d598454673794f8e953afb4cb8b3f7b7aa88cad6d589f230b823c",
+      "bytes": 25272,
+      "codePoints": 480
+    },
+    {
+      "file": "zoma-arabic-400.woff2",
+      "weight": 400,
+      "unicodeRange": "U+0600-06FF, U+200C-200F, U+FDF2, U+FDFA, U+FDFC, U+FE70-FEFF",
+      "source": "NotoSansArabicUI-Regular.ttf",
+      "sourceSha256": "f4fe1866a64cba1e8b8d08a67cd29070f919edf778ca5de983c1f2a690fc953b",
+      "sha256": "04a4c9b126aa24d31465ebdd35d6fea54cea1d3a466c8f28e4b6c041ace8c359",
+      "bytes": 25288,
+      "codePoints": 402
+    },
+    {
+      "file": "zoma-arabic-700.woff2",
+      "weight": 700,
+      "unicodeRange": "U+0600-06FF, U+200C-200F, U+FDF2, U+FDFA, U+FDFC, U+FE70-FEFF",
+      "source": "NotoSansArabicUI-Bold.ttf",
+      "sourceSha256": "efb903b545a00a557c9d2dd739725157c04bf44215ba31b8ca3a805f099fdc33",
+      "sha256": "eb99e8fa529b59129f43a6cbf75a1c7b75b32a9a78b4bab15f06ab436f29ad0b",
+      "bytes": 25792,
+      "codePoints": 402
+    }
+  ]
+}

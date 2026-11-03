@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import { tvPostcssPlugins } from '../../tv-css.config';
 
 /**
  * Desktop development loop (`pnpm dev`): the TV app with the browser platform adapter.
@@ -11,6 +12,10 @@ export default defineConfig({
   esbuild: {
     jsx: 'automatic',
     jsxImportSource: 'preact',
+  },
+  // The TV build's PostCSS plugins (postcss-rtlcss), so dev mirrors RTL layouts as the TVs do.
+  css: {
+    postcss: { plugins: tvPostcssPlugins() },
   },
   server: {
     port: 5173,

@@ -48,6 +48,13 @@ export interface PageState {
   readonly epgMatched: string | null;
   readonly epgWanted: string | null;
   readonly nowNext: string | null;
+  /** `document.fonts.status` (step 11): `loading` until every face in use has loaded or failed. */
+  readonly fontsStatus: string | null;
+  /**
+   * The Zoma Sans faces and their status, e.g. `la400:loaded ar700:loaded ar400:unloaded`
+   * (`la` Latin, `ar` Arabic; a face loads only once text in its range is drawn).
+   */
+  readonly fonts: string | null;
 }
 
 /**
@@ -62,6 +69,16 @@ export const STATE_EXPRESSION = `(function () {
   function attr(id, name) {
     var el = document.querySelector('[data-testid="' + id + '"]');
     return el ? el.getAttribute(name) : null;
+  }
+  function fonts() {
+    if (!document.fonts || !document.fonts.forEach) return null;
+    var faces = [];
+    document.fonts.forEach(function (face) {
+      if (face.family.replace(/["']/g, '') !== 'Zoma Sans') return;
+      var script = face.unicodeRange.indexOf('U+600') === 0 || face.unicodeRange.indexOf('U+0600') === 0 ? 'ar' : 'la';
+      faces.push(script + (face.weight === 'bold' ? '700' : face.weight === 'normal' ? '400' : face.weight) + ':' + face.status);
+    });
+    return faces.join(' ');
   }
   var hello = document.querySelector('[data-testid="hello"]');
   var boot = document.getElementById('boot-error');
@@ -85,7 +102,9 @@ export const STATE_EXPRESSION = `(function () {
     epg: text('epg-status'),
     epgMatched: attr('epg-status', 'data-matched'),
     epgWanted: attr('epg-status', 'data-wanted'),
-    nowNext: text('nownext-status')
+    nowNext: text('nownext-status'),
+    fontsStatus: document.fonts ? document.fonts.status : null,
+    fonts: fonts()
   });
 })()`;
 
@@ -134,13 +153,14 @@ const isFinal = (status: string | null): boolean =>
   status !== null && (status.startsWith('ok') || status.startsWith('failed') || status.startsWith('none'));
 
 /**
- * Boot is over when it failed visibly, or when the worker and IndexedDB checks have answered,
- * and (with a data check) the refresh, the search, the guide and now/next have too.
+ * Boot is over when it failed visibly, or when the worker and IndexedDB checks have answered
+ * and the fonts in use have loaded (or failed), and (with a data check) the refresh, the
+ * search, the guide and now/next have too.
  */
 export function isSettled(state: PageState, url: string, data: DataCheck | null = null): boolean {
   if (state.href !== url) return false;
   if (state.bootError.trim() !== '') return true;
-  const booted = state.ready && isFinal(state.worker) && isFinal(state.idb);
+  const booted = state.ready && isFinal(state.worker) && isFinal(state.idb) && state.fontsStatus !== 'loading';
   if (!booted || data === null) return booted;
   if (state.data?.startsWith('failed') === true) return true;
   return isFinal(state.data) && isFinal(state.ingest) && isFinal(state.search) && isFinal(state.epg) && isFinal(state.nowNext);
@@ -162,6 +182,28 @@ function evaluateData(state: PageState, check: DataCheck): string[] {
     failures.push(`guide ${check.guide} matched ${state.epgMatched ?? '?'} of ${state.epgWanted ?? '?'}, expected ${check.epgMatched} of ${check.epgWanted}`);
   }
   if (state.nowNext?.startsWith('ok: ') !== true) failures.push(`now/next: ${state.nowNext ?? 'missing'}`);
+  return failures;
+}
+
+/**
+ * The title is "Zoma زوما", so a Latin face and an Arabic face must have loaded from the
+ * package's woff2 files, and none may have failed (a missing or unreadable file, or woff2
+ * the engine can't decode).
+ */
+function evaluateFonts(state: PageState): string[] {
+  if (state.fonts === null) return ['fonts: document.fonts is missing'];
+  const faces = state.fonts.split(' ').filter((f) => f !== '');
+  const failures: string[] = [];
+  const failed = faces.filter((f) => f.endsWith(':error'));
+  if (failed.length > 0) failures.push(`fonts: ${failed.join(', ')} failed to load`);
+  for (const [script, name] of [
+    ['la', 'Latin'],
+    ['ar', 'Arabic'],
+  ] as const) {
+    if (!faces.some((f) => f.startsWith(script) && f.endsWith(':loaded'))) {
+      failures.push(`fonts: no ${name} Zoma Sans face loaded (${state.fonts === '' ? 'no faces' : state.fonts})`);
+    }
+  }
   return failures;
 }
 
@@ -224,6 +266,7 @@ export function evaluateRun(run: PlatformRun, engine: Pick<Engine, 'major'>, boo
     if (boot.worker?.startsWith('ok in ') !== true) failures.push(`worker: ${boot.worker ?? 'missing'}`);
     if (boot.idb !== 'ok') failures.push(`IndexedDB in the worker: ${boot.idb ?? 'missing'}`);
     if (run.data !== null) failures.push(...evaluateData(boot, run.data));
+    failures.push(...evaluateFonts(boot));
     for (const key of run.keys) {
       if (key.observed !== key.expected) failures.push(`key ${key.key}: expected intent ${key.expected}, saw ${key.observed ?? 'nothing'}`);
       else if (key.focus !== key.expectedFocus) {

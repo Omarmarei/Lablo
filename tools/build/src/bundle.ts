@@ -47,6 +47,11 @@ export interface BundleResult {
    * it. They count against each worker's own budget, not this bundle's (budgets.ts).
    */
   readonly inlinedBytes: number;
+  /**
+   * The `.css` files the bundle imports (absolute paths), in the order the modules that
+   * import them run: tools/build/src/css.ts turns them into app.css. Workers may import none.
+   */
+  readonly css: readonly string[];
 }
 
 /** A bundle that would not run on Chromium 53. */
@@ -166,6 +171,7 @@ function inlineWorkers(options: BundleOptions, workers: BuiltWorker[], literals:
         label: `worker ${entry}`,
         polyfills: options.polyfills,
       });
+      if (built.css.length > 0) this.error(`Worker ${entry} imports CSS (${built.css.join(', ')}); workers have no DOM`);
       workers.push({ entry, code: built.code }, ...built.workers);
       literals.push(stringLiteral(built.code));
       return [
@@ -199,6 +205,36 @@ function substituteWorkers(literals: readonly string[], inlined: { bytes: number
   };
 }
 
+/**
+ * `import './x.css'`: the module becomes empty in the bundle, and the file is listed for
+ * app.css. The order is the modules' evaluation order (a depth-first walk of the static
+ * imports from the entry, in source order), so CSS a module imports comes before the CSS of
+ * the modules that import it, as in Vite's dev server.
+ */
+function collectCss(css: string[]): Plugin {
+  return {
+    name: 'zoma-css',
+    load(id) {
+      return id.endsWith('.css') ? { code: '', moduleSideEffects: false } : null;
+    },
+    buildEnd(error) {
+      if (error !== undefined) return;
+      const seen = new Set<string>();
+      const visit = (id: string): void => {
+        if (seen.has(id)) return;
+        seen.add(id);
+        const info = this.getModuleInfo(id);
+        if (info === null) return;
+        for (const dependency of [...info.importedIds, ...info.dynamicallyImportedIds]) visit(dependency);
+        if (id.endsWith('.css')) css.push(id);
+      };
+      for (const id of this.getModuleIds()) {
+        if (this.getModuleInfo(id)?.isEntry === true) visit(id);
+      }
+    },
+  };
+}
+
 function onwarn(warning: RollupLog, warn: LoggingFunction): void {
   // An unresolved import would silently become a global lookup that fails on the TV.
   if (warning.code === 'UNRESOLVED_IMPORT') throw new Error(warning.message);
@@ -212,6 +248,7 @@ interface Collected {
   /** Worker `n`'s code as a string literal, for placeholder `n`. */
   readonly literals: string[];
   readonly inlined: { bytes: number };
+  readonly css: string[];
 }
 
 function plugins(options: BundleOptions, collected: Collected): Plugin[] {
@@ -224,6 +261,7 @@ function plugins(options: BundleOptions, collected: Collected): Plugin[] {
       },
     }),
     inlineWorkers(options, collected.workers, collected.literals),
+    collectCss(collected.css),
     resolveCoreJs(),
     nodeResolve({ extensions: EXTENSIONS, browser: true }),
     // Must run before Babel so core-js (CommonJS) is converted after Babel injects its imports.
@@ -276,7 +314,7 @@ function plugins(options: BundleOptions, collected: Collected): Plugin[] {
  * Throws `SyntaxGateError` if the output would not parse on Chromium 53.
  */
 export async function bundleIife(options: BundleOptions): Promise<BundleResult> {
-  const collected: Collected = { workers: [], literals: [], inlined: { bytes: 0 } };
+  const collected: Collected = { workers: [], literals: [], inlined: { bytes: 0 }, css: [] };
   const bundle = await rollup({ input: options.input, plugins: plugins(options, collected), onwarn });
   try {
     const { output } = await bundle.generate({ format: 'iife', inlineDynamicImports: true });
@@ -284,7 +322,7 @@ export async function bundleIife(options: BundleOptions): Promise<BundleResult> 
     const code = chunk.code;
     const violation = checkSyntax(code, options.label ?? options.input);
     if (violation !== null) throw new SyntaxGateError(formatViolation(violation));
-    return { code, workers: collected.workers, inlinedBytes: collected.inlined.bytes };
+    return { code, workers: collected.workers, inlinedBytes: collected.inlined.bytes, css: collected.css };
   } finally {
     await bundle.close();
   }

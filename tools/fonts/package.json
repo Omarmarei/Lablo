@@ -1,0 +1,18 @@
+{
+  "name": "@zoma/tools-fonts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "pnpm fonts: the app's woff2 font subsets (Latin and Arabic) from pinned Noto sources, with a manifest the tests check.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "fontverter": "2.0.0",
+    "harfbuzzjs": "1.6.3",
+    "subset-font": "2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5"
+  }
+}

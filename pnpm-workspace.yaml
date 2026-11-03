@@ -25,3 +25,6 @@ overrides:
   # drive root and gets Windows paths, so every resolve fails. Linux CI is unaffected.
   # Lift the pin once a newer release loads under SAC (`pnpm lint` stays green locally).
   unrs-resolver: 1.12.2
+  # subset-font (tools/fonts) asks for ^1.6.1; 1.6.4 was 12 days old when the fonts tool was
+  # added (2026-11-03) and new dependencies must be two weeks old. Lift it with the next font change.
+  harfbuzzjs: 1.6.3

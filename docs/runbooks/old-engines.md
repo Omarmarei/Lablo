@@ -50,6 +50,7 @@ Needs **Docker**. On Windows, start Docker Desktop first. The first run download
      - `epg-status` is `ok` with `data-matched` and `data-wanted` exactly the fixture's (step 9b): a fresh EPG worker fetched the guide the playlist header names (`url-tvg`), gunzipped the `.gz` one, wrote its per-channel-day buckets (`Int32Array` and `Uint8Array` columns) to IndexedDB and swapped it in, and the query worker reloaded its match table.
      - `nownext-status` is `ok`: the query worker read a channel's buckets back from IndexedDB and found the programme on air.
      - `force=1` makes every run commit a new generation (catalog and guide), although all runs in one engine share the `file://` IndexedDB.
+   - **Fonts (step 11a):** boot also waits for `document.fonts.status` to leave `loading`. Then a Latin and an Arabic Zoma Sans face must be `loaded` (the title is "Zoma زوما") and none may be `error`, so the package's woff2 subsets decode and load from `file://` in each engine. The probe lists the faces as `la400:loaded ar700:loaded …`.
    - **Remote keys:** CDP `Input.dispatchKeyEvent` ArrowUp (38) and Enter (13) show `UP` and `OK`, and `key-count` is 2. The focus engine (step 10) must act on each one: `focus-status` reads `home · rail 0` after ArrowUp, then `details · buttons 0` after Enter.
 5. Results print as a table (with each run's items and hits) and go to `artifacts/engines/report.json`. CI uploads it as `old-engines-report`.
 

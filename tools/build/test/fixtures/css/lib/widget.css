@@ -1,0 +1,5 @@
+/* widget.css: second */
+.widget {
+  margin-left: var(--gap);
+  background: url(mark.svg) no-repeat;
+}

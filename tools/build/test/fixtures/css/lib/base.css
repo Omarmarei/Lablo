@@ -1,0 +1,9 @@
+/* base.css: first */
+:root {
+  --gap: 8px;
+}
+
+@font-face {
+  font-family: 'Fixture';
+  src: url('../assets/face.woff2') format('woff2');
+}

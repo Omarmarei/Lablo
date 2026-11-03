@@ -1,0 +1,154 @@
+/*
+ * Design tokens (RELAY step 11, PLAN 4.2) for a 10-foot UI on a 1920x1080 CSS-pixel canvas.
+ * Chromium 53 rules (CLAUDE.md): custom properties are fine; no Grid, no flex gap, no sticky,
+ * no logical properties, no #rgba hex. Write physical properties for the left-to-right layout:
+ * postcss-rtlcss makes the right-to-left rule (tv-css.config.ts).
+ *
+ * Layout numbers that code needs too (virtual-list rows, tiles, safe area) live in
+ * src/design/tokens.ts as well; test/ui-tokens.test.ts keeps the two equal.
+ */
+:root {
+  /* Colour: dark surfaces, one accent. Text and muted text are at least 4.5:1 on every
+     surface, the focus ring 3:1 (test/ui-tokens.test.ts). */
+  --color-bg: #0b0f14;
+  --color-surface: #141b24;
+  --color-surface-raised: #1d2733;
+  --color-surface-focus: #1c3f3c;
+  --color-border: #2a3644;
+  --color-border-memory: #3b4b5d;
+  --color-text: #e8eef5;
+  --color-text-muted: #9aabbe;
+  --color-text-disabled: #627285;
+  --color-text-on-accent: #04110f;
+  --color-accent: #2fb5a8;
+  --color-focus: #3fd0c2;
+  --color-warn: #f2b84b;
+  --color-danger: #ff6b63;
+  --color-success: #5cc98d;
+  --color-live: #ff5a5f;
+  --color-scrim: rgba(5, 8, 12, 0.78);
+
+  /* Type: Zoma Sans (fonts.css), sizes for viewing at 3 m. Nothing smaller than 22 px. */
+  --font-family: 'Zoma Sans', 'Noto Sans', 'Segoe UI', Roboto, Arial, sans-serif;
+  --font-size-display: 64px;
+  --line-height-display: 76px;
+  --font-size-title: 44px;
+  --line-height-title: 56px;
+  --font-size-heading: 34px;
+  --line-height-heading: 44px;
+  --font-size-body: 28px;
+  --line-height-body: 38px;
+  --font-size-label: 24px;
+  --line-height-label: 32px;
+  --font-size-caption: 22px;
+  --line-height-caption: 30px;
+  --font-weight-regular: 400;
+  --font-weight-bold: 700;
+
+  /* Space: a 4 px grid. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* Shape and focus. The focus ring is a border, never a box-shadow (cheap on 2018 TVs). */
+  --radius-s: 6px;
+  --radius-m: 12px;
+  --radius-l: 16px;
+  --radius-pill: 999px;
+  --focus-ring: 4px;
+
+  /* Layout: the canvas, its title-safe margins (5%), and the sizes lists are built from. */
+  --screen-width: 1920px;
+  --screen-height: 1080px;
+  --safe-x: 96px;
+  --safe-y: 54px;
+  --row-height: 88px;
+  --rail-height: 64px;
+  --tile-width: 264px;
+  --tile-height: 148px;
+
+  /* Motion: short, and none on the low tier (1 GB TVs). */
+  --motion-fast: 120ms;
+  --motion: 200ms;
+}
+
+[data-tier='low'] {
+  --motion-fast: 0ms;
+  --motion: 0ms;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-family);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  font-weight: var(--font-weight-regular);
+  /* The TV page never scrolls: lists move by the focus engine's window. */
+  overflow: hidden;
+  -webkit-user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Type styles. */
+.t-display {
+  font-size: var(--font-size-display);
+  line-height: var(--line-height-display);
+  font-weight: var(--font-weight-bold);
+}
+
+.t-title {
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+  font-weight: var(--font-weight-bold);
+}
+
+.t-heading {
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.t-body {
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.t-label {
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+.t-caption {
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+}
+
+.t-muted {
+  color: var(--color-text-muted);
+}
+
+.t-bold {
+  font-weight: var(--font-weight-bold);
+}
+
+/* One line, cut with an ellipsis (channel and programme names). */
+.t-truncate {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

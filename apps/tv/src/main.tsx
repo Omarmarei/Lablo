@@ -6,6 +6,8 @@ import { readDebugParams } from './data/params';
 import { createAppDataEngine } from './data/workers';
 import { createFocusDemo } from './focus-demo';
 import { KEY_HELP, createPlatform } from './platform';
+// Last, so the app's own CSS comes after @zoma/ui's (tokens, fonts) in app.css and in dev.
+import './app.css';
 
 const platform = createPlatform();
 platform.registerKeys();
