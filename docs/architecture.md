@@ -144,6 +144,25 @@ Off-the-shelf libraries such as Norigin measure the DOM on every move. That figh
   - The old-engine harness now requires each key step's focus (`home · rail 0`, then `details · buttons 0`) in Chromium 53/56/68.
   - The mutation script is `artifacts/mutate10.py`.
 
+**Built in step 11a: the design system's foundations** (`packages/ui/src/styles`, `packages/ui/src/design`, `packages/ui/assets/fonts`, `tools/fonts`, `tv-css.config.ts`, `tools/build/src/css.ts` and `css-gate.ts`):
+- **CSS comes from the modules.** A module imports its CSS (`import './x.css'`); `@zoma/ui`'s index imports the tokens and fonts first, and `apps/tv/src/main.tsx` imports `app.css` last.
+  - In dev, Vite injects the files in that order.
+  - The TV build lists them in the modules' evaluation order (a depth-first walk of the static imports, `collectCss` in `bundle.ts`) and writes one `app.css`. A worker that imports CSS fails the build.
+- **RTL by `dir` on `<html>`.** `postcss-rtlcss` (`combined` mode) turns every rule with a direction-dependent declaration into a `[dir="ltr"]` rule and a mirrored `[dir="rtl"]` one. The app sets `lang` and `dir` on `<html>` from the locale. So CSS is written once, left to right, with physical properties.
+  - The same plugin list (`tv-css.config.ts` at the root) runs in the Vite dev loop and in the TV build, so `pnpm dev` mirrors as the TVs do.
+  - Limits: an element that sets `dir` itself inside the page (an LTR URL field in Arabic) still matches the page's `[dir="rtl"]` rules, so keep direction-dependent CSS out of such islands or mark it `/*rtl:ignore*/`. A mirrored rule's selector is one attribute more specific than the same rule's direction-free part.
+- **The Chromium 53 CSS gate** runs on the built app.css (ADR-003 lists what it rejects). Remote `url()`s fail too (the app is packaged); local ones are copied to `assets/`.
+- **Tokens** (`styles/tokens.css`): colours, type sizes for 3 m (22 px and up), a 4 px spacing grid, radii, the focus ring, the 1920x1080 canvas with its 5% safe area, list and tile sizes, and motion (none on the low tier). The numbers code needs (`SCREEN`, `LAYOUT`, `SPACE`, `fits()`) are in `design/tokens.ts`, and `test/ui-tokens.test.ts` keeps both equal. It also checks contrast: text and muted text at least 4.5:1 on every surface, the focus ring 3:1. That check darkened `--color-surface-focus`.
+- **Fonts: Zoma Sans**, which is Noto Sans (Latin) plus Noto Sans Arabic UI (Arabic), 400 and 700.
+  - Static woff2 subsets of about 25 KB each, picked per character by `unicode-range`. A page without Arabic never loads the Arabic files.
+  - `pnpm fonts` makes them from sources pinned by commit and SHA-256, deterministically, and commits them with `fonts.json`. The licences ship as `assets/fonts-OFL.txt`.
+  - The Arabic face is the UI variant, whose vertical metrics sit on one line with Latin text.
+  - Tests:
+    - `tools/fonts/src/fonts.test.ts`: the files match the manifest; each maps exactly its range; sample texts have glyphs; Arabic keeps its joining forms and the lam-alef ligature; `fonts.css` declares the same faces.
+    - e2e: the title "Zoma زوما" is drawn with both web faces (CDP `CSS.getPlatformFontsForNode`) in dev and from both bundles on `file://`.
+    - The old-engine harness: a Latin and an Arabic face load in Chromium 53/56/68.
+- **Size:** main's own code 102.4 KB (tizen; 102.2 KB at the budget change); app.css 9.7 KB; the fonts 99 KB in `assets/`.
+
 **State:**
 - Signals hold UI and session state.
 - Domain stores are plain classes that expose signals: `ProfileStore`, `SourceStore`, `PlayerStore` (mirrors the controller) and `SettingsStore`.
@@ -342,7 +361,7 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
   - With the reader inside, the ingest worker measured 159.6 KB, over its 150 KB budget. The reader therefore runs in its own worker, `@zoma/data/epg.worker` (118.8 KB): a package export, a boundary-lint entry point, and a `?worker` import in `apps/tv/src/data/workers.ts`.
   - `ingest-errors.ts` keeps the catalog ingest out of the EPG worker.
   - The query worker grew from 75.8 to 82.6 KB (now/next).
-  - The main bundle inlines all three workers and is now about 440 KB of its 500 KB budget (runbook tv-build.md). That leaves little room for the UI steps: see RELAY.md's note on the main budget.
+  - The main bundle inlines all three workers and is now about 440 KB of its 500 KB budget (runbook tv-build.md). That leaves little room for the UI steps: see RELAY.md's note on the main budget. (Since 2026-11-03 the main budget counts only main's own code, without the inlined workers: ADR-003.)
 - **Found on the way:** with a tvg-shift, core's `epgNowNext` compared an unshifted start with a candidate it had already shifted, so the bucket order decided which programme came next. Fixed, with a test over shifts and bucket orders.
 - **Tests:**
   - `epg-store.test.ts`: fragments merged across and within batches, typed columns round-tripped, generations, day pruning, failures, guide order, due rules.
@@ -588,8 +607,8 @@ envelope   = {v:1, kdf:"scrypt-15-8-1", nonce:24B, ct: secretbox(gzip(profileJSO
 **Build pipeline** (`tools/build/build-tv.ts`):
 1. Build each worker as an IIFE with Rollup and Babel (`targets: {chrome:'53'}`, `useBuiltIns:'usage'`, core-js 3). Async/await becomes generators, which Chromium 53 runs natively.
 2. Run the syntax gate on the workers. It parses with acorn at `ecmaVersion: 2016` and fails on anything newer.
-3. Build the main IIFE. Workers are imported as strings and started from Blob URLs, which avoids the `file://` worker question. PostCSS runs `postcss-preset-env` (chrome 53) and `postcss-rtlcss`.
-4. Run the syntax gate on the main bundle. Check bundle budgets: main JS ≤ 500 KB minified, each worker ≤ 150 KB.
+3. Build the main IIFE. Workers are imported as strings and started from Blob URLs, which avoids the `file://` worker question. The CSS the modules import becomes app.css through `postcss-rtlcss` and a Chromium 53 CSS gate (since step 11a, without `postcss-preset-env`: ADR-003).
+4. Run the syntax gate on the main bundle. Check bundle budgets: main JS ≤ 500 KB minified (its own code, without the inlined workers: ADR-003), each worker ≤ 150 KB.
 5. Copy the platform files and package: `tizen package -t wgt -s <profile>` and `ares-package`.
 
 **Linting:** `eslint-plugin-compat` with browserslist `chrome 53`. The polyfill allowlist lives in CLAUDE.md.

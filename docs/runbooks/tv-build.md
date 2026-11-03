@@ -9,6 +9,7 @@ How `pnpm build:tv`, `pnpm dev` and `pnpm device` work, and the manual Tizen ste
 | `pnpm dev` | Vite dev server for `apps/tv` with the browser adapter (keyboard = remote). Open the printed URL at 1920x1080. URL overrides: `?tier=low&locale=ar-SA&country=SA`. |
 | `pnpm build:tv` | Both TV builds, the ES2016 syntax gate, bundle budgets and the webOS `.ipk`. Options: `--platform tizen` or `--platform webos` (repeatable), `--skip-package`, `--out <dir>` (staging root instead of `dist/tv`). Test only: `--unsafe-no-polyfills` builds without core-js for the old-engine self-test; it needs `--out`, refuses `dist/tv` and never packages. |
 | `pnpm verify:engines` | The built apps in Chromium 53/56/68 snapshots (Docker). See [old-engines.md](old-engines.md). |
+| `pnpm fonts` | Remakes the woff2 font subsets in `packages/ui/assets/fonts` (with `fonts.json` and `OFL.txt`) from the Noto sources pinned in `tools/fonts/src/spec.ts`, downloaded once into `.cache/fonts` and checked by SHA-256. Run it after changing a range, a weight or a source, then commit the outputs; the output is deterministic. CI never downloads fonts. |
 | `pnpm e2e` | Playwright: the dev app by keyboard, and both built TV bundles booted from `file://`. Needs `pnpm build:tv` first (`pnpm verify` runs it). |
 | `pnpm device <devices\|install\|launch\|inspect> <webos\|tizen> [device]` | Install, launch or remote-inspect the build on a TV. |
 
@@ -32,14 +33,23 @@ How `pnpm build:tv`, `pnpm dev` and `pnpm device` work, and the manual Tizen ste
    - **Sizes (step 9b):** main 449.4 KB (tizen) and 447.9 KB (webos) of 500 KB, with the EPG worker (116.0 KB) inlined too; query 80.7 KB (now/next), ingest 125.5 KB. The EPG reader got a worker of its own because the ingest worker measured 159.6 KB with it. The main budget is now 90% used, mostly by the three data workers' shared code (core-js, fflate, the IndexedDB and RPC plumbing), so the UI steps will need it changed: see RELAY.md, "Main bundle budget".
    - **Sizes (step 9c):** main 459.1 KB (tizen) and 457.5 KB (webos) of 500 KB; query 89.8 KB (it now asks panels for the short EPG), EPG 115.1 KB, ingest 124.9 KB. `XtreamClient` alone would have made the query worker 110.5 KB, because a class keeps all its methods (the list parser, the JSON splitter). The short-EPG call therefore has its own core file (`xtream-epg.ts`, with the shared plumbing in `xtream-base.ts`). Two polyfills were avoided as well: `content-key.ts` brings `es.json.stringify` (about 4 KB) for its error messages, and `Fnv1a.digest` used `padStart`.
 3. **Syntax gate.** acorn parses every worker and the main bundle at `ecmaVersion: 2016` as a script. Anything newer (async functions, object rest/spread, regex lookbehind or named groups, `?.`, `??`, ES modules) fails the build with the line, column and an excerpt. Babel transpiles most modern syntax; the gate catches what it cannot (e.g. a regex lookbehind) and anything from an untranspiled file. The inline boot-error script in `index.html` is gated too.
-4. **Budgets.** Minified bytes as shipped: main ≤ 500 KB (including inlined workers), each worker ≤ 150 KB. Over budget fails the build before anything is packaged.
-5. **Platform isolation.** The Tizen bundle must not contain webOS adapter code (`PalmSystem`, `webOSRelaunch`) and vice versa (`tvinputdevice`, `productinfo`); neither may contain the desktop adapter.
-6. **Stage** `dist/tv/<platform>/`: `index.html` (classic scripts; Tizen also loads `$WEBAPIS/webapis/webapis.js`), `main.js`, `app.css`, the platform manifest with `{{version}}` replaced by `apps/tv/package.json` `version`, and the icons from `platforms/<platform>/`.
-7. **Package** into `dist/packages/`:
+4. **Budgets.** Minified bytes as shipped. Over budget fails the build before anything is packaged.
+   - **Each worker ≤ 150 KB**, counted with anything inlined into it.
+   - **Main's own code ≤ 500 KB:** main.js minus the worker strings inlined into it (Omar's decision of 2026-11-03, RELAY.md "Main bundle budget"). A worker string is only parsed as code when its worker starts, and each worker has its own budget. The build prints both figures, e.g. `main.js (tizen): 102.2 KB own code of 500.0 KB (20%), plus 368.1 KB of inlined workers`.
+   - **How the split is measured** (`tools/build/src/bundle.ts`): a worker goes into the bundle as a placeholder string, and after terser the worker's code replaces it (`substituteWorkers`), so the bundle knows exactly how many of its bytes are worker code (`BundleResult.inlinedBytes`). `stringLiteral` writes each worker in the quote that needs fewer escapes, as terser would: single quotes save 5.9 KB over `JSON.stringify`.
+   - **Sizes (budget change, step 11):** main 102.2 KB own code (tizen) and 100.8 KB (webos), plus 368.1 KB of inlined workers; the files are 470.3 and 468.9 KB, as before.
+5. **CSS** (`tools/build/src/css.ts`, ADR-003): the `.css` files the bundle imports, in the modules' evaluation order (`BundleResult.css`), become one `app.css`.
+   - Each local `url()` (the fonts) is copied to `assets/<name>` and rewritten; a remote URL, a missing file or two different files with one name fail the build. With assets, the fonts' licence ships as `assets/fonts-OFL.txt`.
+   - `postcss-rtlcss` (`combined` mode, `tv-css.config.ts`, shared with the Vite dev loop) adds a mirrored `[dir="rtl"]` rule for every direction-dependent declaration. Write physical properties for the left-to-right layout; the app sets `dir` on `<html>`, and the TV `index.html` starts with `dir="ltr"`.
+   - The **Chromium 53 CSS gate** (`css-gate.ts`) then checks the output: Grid, flex `gap`, sticky, logical properties, `inset`, `aspect-ratio`, unprefixed `user-select`/`clip-path`/`mask`/`appearance`, `clamp()`/`min()`/`max()`, `env()`, CSS Color 4 functions, `#rgba` hex, space-separated colours, new viewport units, `:is()`/`:where()`/`:has()`/`:focus-visible`/`:focus-within`/`:dir()`, lists in `:not()`, nesting, `@layer`/`@container`/`@property` and media range syntax fail with `file:line:column`, the declaration and the reason.
+   - **Sizes (step 11a):** app.css 9.7 KB from 3 files; four fonts in `assets/`, 99 KB.
+6. **Platform isolation.** The Tizen bundle must not contain webOS adapter code (`PalmSystem`, `webOSRelaunch`) and vice versa (`tvinputdevice`, `productinfo`); neither may contain the desktop adapter.
+7. **Stage** `dist/tv/<platform>/`: `index.html` (classic scripts; Tizen also loads `$WEBAPIS/webapis/webapis.js`), `main.js`, `app.css`, `assets/` (fonts and their licence), the platform manifest with `{{version}}` replaced by `apps/tv/package.json` `version`, and the icons from `platforms/<platform>/`.
+8. **Package** into `dist/packages/`:
    - **webOS:** `ares-package --no-minify` from `@webos-tools/cli` (a devDependency; no global install). Output: `com.zoma.iptv_<version>_all.ipk`. `--no-minify` keeps the shipped bytes identical to the gated ones.
    - **Tizen:** only when the Tizen CLI is on PATH **and** `TIZEN_SIGNING_PROFILE` names a certificate profile. Otherwise the build prints why it skipped and still succeeds.
 
-When a gate failure appears: find the excerpt in the source, or the dependency it came from. Regex lookbehind and named groups cannot be transpiled; rewrite the regex. A dependency shipping new syntax is already transpiled; if it still fails, it may use something Babel has no transform for.
+When a gate failure appears: find the excerpt in the source, or the dependency it came from. Regex lookbehind and named groups cannot be transpiled; rewrite the regex. A dependency shipping new syntax is already transpiled; if it still fails, it may use something Babel has no transform for. A CSS gate failure names the source file and line: rewrite the rule with flexbox, margins, physical properties or `rgba()`, as the reason says.
 
 ## Placeholders to settle before the first store submission (RELAY step 45)
 
@@ -82,7 +92,7 @@ The Tizen Studio CLI is not installed on the build machine, and GUI tools are ne
 
 Run `pnpm dev`, open the URL at 1920x1080, then:
 
-1. The screen shows **Zoma**, "Hello from browser", a device table (model "Desktop browser", tier `full`) and **Worker: ok in N ms (TextDecoder, indexedDB, fetch)** and **IndexedDB (in the worker): ok**.
+1. The screen shows **Zoma زوما** (Latin in Noto Sans, the Arabic in teal in Noto Sans Arabic UI: DevTools → Elements → Computed → "Rendered Fonts" names both as network resources), "Hello from browser", a device table (model "Desktop browser", tier `full`) and **Worker: ok in N ms (TextDecoder, indexedDB, fetch)** and **IndexedDB (in the worker): ok**.
 2. Press the arrows, Enter, PgUp/PgDn, digits, F1–F4, Space, `i`, `g`: the big text shows `DOWN`, `OK`, `CH_UP`, `DIGIT_5`, `RED`, `PLAY_PAUSE`, `INFO`, `GUIDE`… and the key count goes up.
 3. Press `a`: nothing changes.
 4. The **Focus** block under the remote (the focus engine, step 10) starts on `home · list 0`:
@@ -92,3 +102,4 @@ Run `pnpm dev`, open the URL at 1920x1080, then:
 5. With the mouse: moving over a tile focuses it (`data-pointer` true); an arrow key carries on from there. The wheel scrolls the focused list.
 6. Esc on the main screen shows "Exit Zoma?" (Tizen and the browser ask first; webOS goes straight to the launcher). Enter on Stay closes it; Right then Enter on Exit shows "Back: exit requested".
 7. Reload with `?tier=low&locale=ar-SA`: the table shows tier `low` and locale `ar-SA`, and the Focus block runs right to left: Left moves along the rail towards its end, Right back. Up and Down don't change.
+8. In `ar-SA` the whole page is mirrored (step 11a, postcss-rtlcss): the Device panel is on the right and the catalog panel on the left, the table headings are right-aligned, and the Arabic name sits left of "Zoma". `<html>` has `dir="rtl"` and `lang="ar-SA"`.

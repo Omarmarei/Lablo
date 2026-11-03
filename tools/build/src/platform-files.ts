@@ -26,7 +26,8 @@ export function renderIndexHtml(platform: TvPlatform): string {
   const platformScripts = platform === 'tizen' ? ['<script src="$WEBAPIS/webapis/webapis.js"></script>'] : [];
   return [
     '<!DOCTYPE html>',
-    '<html lang="en">',
+    // The app sets lang and dir from the locale; app.css's mirrored rules need dir on <html>.
+    '<html lang="en" dir="ltr">',
     '<head>',
     '<meta charset="utf-8">',
     '<title>Zoma</title>',

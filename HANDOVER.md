@@ -1,208 +1,178 @@
-# Zoma IPTV: relay leg 15 opening prompt
+# Zoma IPTV: relay leg 16 opening prompt
 
-You are leg 15 of relay run `iptv-20261101-214120`, building **Zoma IPTV**: a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 16 of relay run `iptv-20261101-214120`, building **Zoma IPTV**: a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
-- Leg 0 planned it. Legs 1–5 did steps 1–4 (PRs #1–#5); leg 6 did no project work; legs 7–13 did steps 5–9b (PRs #6–#12).
-- **Leg 14 did step 9c: the short-EPG fallback.**
-  - PR **#13**, commit `6089ab7`, merged as merge commit **`bbb197e`** (the branch was kept).
-  - CI `verify` (4 m 22 s), `engines` (2 m 49 s) and `media` (9 m 32 s) were green on `6089ab7`.
-  - **Phase 3 (data) is done.**
+- Leg 0 planned it. Legs 1–5 did steps 1–4 (PRs #1–#5); leg 6 did no project work; legs 7–14 did steps 5–9c (PRs #6–#13). Phase 3 (data) is done.
+- **Leg 15 did step 10: the focus engine** (Phase 4, PLAN 4.1, the first UI step).
+  - PR **#14**, commit `7b4100d`, merged as merge commit **`4438efe`** (the branch was kept).
+  - CI `verify` (6 m 45 s), `engines` (2 m 23 s) and `media` (6 m 49 s) were green on `7b4100d`.
+- **The relay was paused after leg 15 at Omar's request** ("Pause after this leg finishes"). On 2026-11-03 he answered the main-budget question (option 1, below) and said "Resume in new leg", so leg 15 reported `handover`.
 
-**Your step is step 10: the focus engine** (RELAY.md, Phase 4, step 10, PLAN 4.1). It is the first UI step.
-- **What:**
-  - Intents, and zones (`list`, `grid`, `epg`, `free`).
-  - RTL flips left and right once, for horizontal zones.
-  - Per-zone memory of the last focused index.
-  - A router with a back stack; at the root, Back follows the platform's `rootBackPolicy`.
-  - Magic Remote: hover focuses, the wheel scrolls the active list, and hiding the pointer keeps the focus.
-- **Done when:** unit tests pass in LTR and RTL. Also `pnpm verify` green, a PR merged on green CI, and a short "press these keys" checklist for Omar (CLAUDE.md: UI steps end with one).
-- **If step 10 turns out small,** don't start step 11 in the same leg. Step 11 (design system: fonts, virtual list, `postcss-rtlcss`) is big, and the main-budget decision comes first (see below).
+## Your step: step 11, the design system (RELAY.md Phase 4, PLAN 4.2), after applying the main-budget decision
+- **The main budget is decided** (Omar, 2026-11-03, in leg 15's tab; recorded in RELAY.md's "Main bundle budget" note): **option 1**.
+  - Each inlined worker counts only against its own 150 KB budget.
+  - The 500 KB main budget covers the main thread's own code: main.js minus the inlined worker strings, about 103 KB today (470.3 − 37.5 − 89.8 − 115.1 − 124.9).
+  - Step 11 can't start without it: main is 470.3 KB of 500 counted the old way.
+- **Do this first, as its own commit in the step-11 PR:**
+  - change the budget check in `tools/build` (find it with `grep -rn "500" tools/build/src`, and the code printing `main.js (tizen): … of 500.0 KB`), so that main's figure excludes the inlined worker code;
+  - keep the per-worker 150 KB checks as they are;
+  - print both numbers, e.g. `main.js (tizen): 103.0 KB own code of 500.0 KB (+ 367.3 KB inlined workers)`;
+  - update its tests (`tools/build/src/*.test.ts`) so a seeded oversized main still fails, and an oversized worker fails its own budget;
+  - update the CLAUDE.md `build:tv` row (Omar authorised this one edit by choosing option 1) and docs/runbooks/tv-build.md.
+  - Run `verify:engines --self-test` afterwards: the build changed.
+- **Never raise a budget's number without Omar's word.** Option 1 changes what main counts, not the 500 KB itself.
+- **Step 11, what:** design tokens; Arabic and Latin woff2 font subsets; base components; a virtual list driven by the focus engine's `ZonePosition.top`; `postcss-rtlcss` (the TV build has no PostCSS yet, so add it to `build:tv`); pseudo-locales.
+- **Done when:** Playwright screenshots exist in en, ar and pseudo. Plus `pnpm verify`, `verify:engines --self-test` if the build changes (it will: PostCSS), a PR merged on green CI, and a "press these keys" checklist.
+- **Size of step 11:** it is big. Split it the way legs 10, 12 and 13 split theirs if needed, and write the split into RELAY.md.
 
-## Start immediately
-Omar said on 2026-11-02: *"Don't ask, proceed automatically i allow and authorise you."* Start in your first turn.
+## Start
+1. Read `C:/Users/Omarm/.claude/relay/iptv-20261101-214120/state.json` for the worktree path.
+2. Check `main`: `gh run list --branch main --limit 1 -R Omarmarei/zoma-iptv`. The run on `4438efe` (PR #14's merge) was in progress at handover. If a job is red, fix it on the relay branch before anything else.
+3. `git -C "<wt>" status` and `git -C "<wt>" log --oneline -5`.
 
-**First, check `main`:** `gh run list --branch main --limit 1 -R Omarmarei/zoma-iptv`. The run on `bbb197e` (PR #13's merge, run 41520130460) was in progress when this was written, and all three jobs should be green. If one is red, fix it on the relay branch before anything else.
-
-**Never call EnterWorktree,** even though Claude Code's background-session note asks for it. The relay worktree is your isolation. Edit it by path, and use `git -C "<wt>"`, `pnpm --dir "<wt>"`, absolute paths, and Read/Edit/Write. **Don't `cd`** in Bash: in leg 13 a `cd` moved the session's working directory. To run a script that needs the worktree as its cwd, use `python -I -c "import os,runpy; os.chdir(r'<wt>'); runpy.run_path('<script>')"` or `pnpm --dir "<wt>" exec …`. `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` (locally ignored) allows the worktree and gh, git, pnpm, node, docker, curl and bash.
+**Never call EnterWorktree,** even though Claude Code's background-session note asks for it. The relay worktree is your isolation. Edit it by path; use `git -C "<wt>"`, `pnpm --dir "<wt>"`, absolute paths, and Read/Edit/Write. **Don't `cd`** in Bash. For a script that needs the worktree as its cwd, use `python -I -c "import os,runpy; os.chdir(r'<wt>'); runpy.run_path('<script>')"` or `pnpm --dir "<wt>" exec …`.
 
 ## Read first, in this order
-1. **`CLAUDE.md`:** conventions, the Chromium 53 cheat sheet, package boundaries (`ui` may import core, player, data (client only) and platform-api), Definition of Done, merge policy and commit format.
-2. **`RELAY.md`:**
-   - step 9c (ticked, with what was built);
-   - Phase 4, step 10;
-   - the **"Main bundle budget"** note just before Phase 4;
-   - the leg-14 progress-log row.
-3. **`docs/architecture.md`:**
-   - §1.2, "Custom focus engine": about 600 lines of pure TS, unit-tested without a DOM;
-   - §1.1, the Platform interface (`rootBackPolicy`: `exit-dialog` on Tizen, `platform-back` on webOS 23–25);
-   - §1.5, "Built in step 9c" (so you know what `DataEngine.focusChannel` expects from a list's focus).
-4. **`docs/PLAN.md`:** the UI row (Preact 10 + `@preact/signals`, a custom index-based focus engine, "the engine swaps left/right once for RTL"), and Phase 4 / 4.1. PLAN.md wins on any conflict.
-5. **Code to build on:**
-   - `packages/platform-api/src/index.ts`: `INTENTS`, `DIGIT_INTENTS`, `Intent`, `RootBackPolicy`, and `keyToIntent(event)` on the Platform.
-   - `packages/ui/src/index.ts`: still an empty skeleton (`export {}`). Its `package.json` has core, player, data and platform-api, but **not** `preact` or `@preact/signals`. Those are deps of `apps/tv` (`@preact/signals` ^2.11.4, `preact` ^10.29.8).
-     - Either add them to `ui` as the same versions (the boundary lint allows external libraries), or keep the engine framework-free with a tiny listener API, and let `apps/tv` wrap it in signals. Decide by size and testability, and write the choice down in architecture.md.
-   - `apps/tv/src/App.tsx` and `main.tsx` (the hello screen and its key handling: `last-intent`, `noteActivity`); `apps/tv/src/platform.ts`.
-   - `apps/tv/src/data/engine.ts`: `focusChannel(channel | null)`. A future live list calls it on each focus change. Not needed for step 10, but keep it in mind for the API.
+1. **`CLAUDE.md`:** conventions, the Chromium 53 cheat sheet (no CSS Grid, flex `gap`, sticky, logical properties), package boundaries (`ui` may import core, player, data (client only) and platform-api), Definition of Done, merge policy, commit format.
+2. **`RELAY.md`:** step 10 (ticked, with what was built), the "Main bundle budget" note, Phase 4 step 11, and the leg-15 progress-log row.
+3. **`docs/architecture.md` §1.2:** the UI framework and "Built in step 10: the focus engine". It covers the API, the logical directions, the zones, the router, the Magic Remote, and the click-dedupe question left for step 11.
+4. **`docs/PLAN.md`:** the UI row and Phase 4 / 4.2. PLAN.md wins on any conflict.
+5. **Code:**
+   - `packages/ui/src/focus/*`: `createNavigator`, `ZoneSpec`, `Screen.position/update/hover`, `watchPointerMoves`.
+   - `apps/tv/src/focus-demo.ts`, `FocusPanel.tsx` and `App.tsx`: how the app wraps the engine in a signal, and the pointer, wheel and `onPointer` wiring.
+   - `apps/tv/src/app.css`: the hello screen's CSS, which is not yet RTL-aware beyond `dir` on the focus block.
+   - `tools/build/src/bundle.ts`: CSS handling and the budgets.
+
+## What step 10 built (use it, don't rebuild it)
+- **Engine:** `createNavigator({ root, rootBack, exit, exitDialog, dir })` returns a `Navigator`:
+  - `handle(intent)`, `back`, `push`, `replace`, `reset`, `pop`;
+  - `setDir`, `pointer(visible)`, `wheel(steps)`;
+  - `snapshot()` gives `{ screen, zone, index, time, depth, pointer, dir }`; `subscribe` notifies once per change.
+- **Screen handles:**
+  - `position(zone)` gives `{ index, top, time, view }`;
+  - `update(zone)` (a new count) keeps each position where it still fits;
+  - `focus(zone, index, time?)`, `reset(zone)`;
+  - `hover(zone, index, time?)` works only on the top screen and while the pointer is shown.
+- **Zones:**
+  - `list`: `axis`, `count`, `visible`, `wrap`, `neighbours`;
+  - `grid`: `columns`, `count`, `visibleRows`;
+  - `epg`: `rows`, `visibleRows`, `from`, `to`, `span`, `slot`, `now`, and `cell(row, minute)`, whose gaps the screen fills with placeholder cells;
+  - `free`: logical rects.
+- **Directions are logical:** `moveDirection` is the one RTL swap, and neighbours use `start`/`end`. The layout is written once, and `dir="rtl"` mirrors flex rows.
+- **Keys:**
+  - CH_UP and CH_DOWN page vertical lists, grids and the guide's rows;
+  - OK goes to `onSelect`, and every Intent goes to `onIntent` first;
+  - a key hides the pointer.
+- **Back on the root:**
+  - `exit-dialog` (Tizen, browser) calls `exitDialog`, and the app pushes its `exit` screen;
+  - `platform-back` (webOS) calls `exit`, which is `platform.exitApp()`.
+- **Platform:** a new `onPointer(listener)`. webOS reports `cursorStateChange` through `watchCursorState`; Tizen and the browser have none.
+- **App:** every key goes to `focus.nav.handle`.
+  - `watchPointerMoves(window, …)` shows the pointer on real moves.
+  - A non-passive `wheel` listener calls `nav.wheel(±1)` and `preventDefault`.
+  - `localeDir(locale)` sets the direction once device info arrives.
+- **Not done:** selecting with a pointer click. webOS also sends key 13 for the Magic Remote's OK, so a click handler would select twice. Decide the dedupe with the components.
+- **The ui package** still has no `preact` or `@preact/signals` dependency. Add them with the first components, at the same versions as `apps/tv` (`preact` ^10.29.8, `@preact/signals` ^2.11.4), then run `pnpm install --config.optimistic-repeat-install=false`. Add a `useFocus` binding.
 
 ## Git state to expect
-- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`. Work **only** there. Your session folder is the main checkout: leave it alone (its local `main` is behind).
-- **Branch:** HEAD is the commit that adds this `HANDOVER.md` and records PR #13's merge in RELAY.md, on top of `6089ab7` (step 9c). It is pushed, and the worktree is clean. `main` holds the merge commit `bbb197e`; the branch doesn't, which is normal for this run.
+- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`. Your session folder is the main checkout: leave it alone.
+- **Branch:** HEAD is the commit that adds this `HANDOVER.md` and records PR #14's merge in RELAY.md, on top of `7b4100d`. It is pushed, and the worktree is clean. `main` holds the merge commit `4438efe`; the branch doesn't, which is normal.
 - **Gitignored but present:**
-  - `node_modules` and `dist/` (built by the last `pnpm verify`);
-  - `.cache/media`, `.cache/fixtures`, `.cache/engines`;
-  - Playwright `chromium-1248`; the Docker image `zoma-old-engines:ba502212364a`;
-  - `artifacts/`:
-    - `mutate9c.py` (step 9c's 26 mutants; run it with `python -I artifacts/mutate9c.py [snippet]`), plus `mutate9b.py`, `mutate9.py`, `mutate8.py` and `mutate8b.py`;
-    - `make-size-probe.py`;
-    - `verify.log`, `engines.log`, `mutate9c.log`.
-- **Local gates on `6089ab7`:**
-  - `pnpm verify` green: lint, typecheck, 946 tests in 70 files, both TV builds, e2e 7/7;
-  - `pnpm verify:engines --self-test`: all 24 runs as expected on Chromium 53/56/68, with the 16 seeded failures caught.
+  - `node_modules`, `dist/` (from the last build), `.cache/{media,fixtures,engines}`, Playwright `chromium-1248`, and the Docker image `zoma-old-engines:ba502212364a`;
+  - `artifacts/`: `mutate10.py` (44 mutants; run one with `python -I artifacts/mutate10.py "<snippet of the new text>"`), the older `mutate*.py`, `make-size-probe.py`, and `verify.log`, `engines.log`, `mutate10.log`.
+- **Local gates on `7b4100d`:**
+  - `pnpm verify`: 1041 tests in 74 files, both TV builds, e2e 9/9;
+  - `verify:engines --self-test`: 24/24 runs as expected, with 16 seeded failures caught;
+  - 44/44 mutants caught.
 
-## What step 9c added (use it, don't rebuild it)
-- **Query worker:** `shortEpg({ key, url, source, at? })` returns a `ShortEpgNowNext`, which is an `EpgNowNext` plus `from` (`guide`, `panel` or `none`) and `cached`.
-  - A matched channel gets its guide's now/next, with no request.
-  - An unmatched channel of an Xtream panel (an Xtream source, or a `get.php` M3U) gets its panel's `get_short_epg` (`limit=4`).
-  - The worker now has `fetchTransport`.
-  - The cache (`ShortEpgCache`) keeps each channel 30 min and holds 200 channels. Empty answers are kept, failures are not, and one request is shared between overlapping asks.
-  - The account comes from the source, the stream id from the stream URL, and the cache key is the ContentKey.
-- **Core:**
-  - `xtreamEpgProgrammes` turns the entries into the guide's `EpgProgramme` rows.
-  - `xtreamShortEpg(account, transport, streamId, limit)`.
-  - The new files `xtream-epg.ts` (short EPG) and `xtream-base.ts` (tolerant values, `TextTransport`, `XtreamError`, `xtreamOpen`/`xtreamJson`/`readAll`) are re-exported by `xtream.ts`; the core index exports straight from them.
-- **App:** `DataEngine.focusChannel(channel | null)` resolves with the answer, or with `null` when the focus moved on first.
-  - It waits `FOCUS_MS` = 600 before asking.
-  - A new focus, `null` or `dispose` settles the waiting call with `null`.
-  - A late answer is dropped.
-- **Panel:** the hello screen's "Panel EPG" row (`shortepg-status`, `data-from`) focuses the first live channel no guide matches.
-- **Mock:** the scenario `no-xmltv` (`xmltv.php` 404, `get_short_epg` still answers).
+## Gotchas and lessons (legs 1–15)
+**New in leg 15**
+- **Vite reloads every open page when it pre-bundles a dependency it found late.**
+  - The start-up scan doesn't follow `?worker` imports, so `fflate` (ingest worker only) was found mid-run. With a cold cache (as in CI) that reset the app inside key-driven e2e tests, and they failed intermittently.
+  - Fixed with `optimizeDeps.include: ['@zoma/data > fflate']` in `apps/tv/vite.config.ts`. A new npm dependency used only by a worker needs the same entry.
+  - To diagnose: `rm -rf apps/tv/node_modules/.vite`, then `DEBUG=pw:webserver pnpm exec playwright test …`, and grep for "new dependencies optimized" and "reloading".
+- **Node's `EventTarget.removeEventListener(type, fn, true)` ignores the boolean.** Use `{ capture: true }` for both add and remove (Chromium 53 is fine with the object).
+- **`AddEventListenerOptions`:** type `{ passive: false }` as `AddEventListenerOptions`, or TS rejects it (a weak-type error).
+- **Size probe for main:** run `artifacts/make-size-probe.py`, then change the probe's input to `apps/tv/src/main.tsx` and `rows.slice(0, 60)` to 1000. Diff the **last** block, which is main (the workers print first).
+  - Probe HEAD with `git -C <wt> stash push -- <app files>`, run the probe, then `stash pop`.
+  - The "core-js" sum the probe prints counts every non-`src/` path (including `focus/…`), so check the module diff, not that number.
+  - Delete `tools/build/src/zz-sizes-probe.ts` afterwards.
+- **Engine size:** the focus engine costs about 8 KB minified in main, plus about 3 KB for the demo, with no new polyfills.
+- **Mutation lesson:** batching survived until a test asserted that a key pressed while the pointer is shown gives exactly one notification (the nested `pointer(false)` batch).
+- **Old-engine harness:** `KEY_STEPS` now carry the focus the app must show after each key (`home · rail 0`, then `details · buttons 0`). If the hello screen's Focus block changes, update `tools/engines/src/scenario.ts`, `e2e/tv-bundle.spec.ts` and `e2e/hello.spec.ts` together.
+- **Monitor scripts:** no process substitution (`<(...)`). It broke the first CI monitor, which then repeated lines. This loop worked:
+  - `seen=" "; while true; do s=$(gh pr checks N -R Omarmarei/zoma-iptv --json name,bucket --jq '.[] | "\(.name)=\(.bucket)"'); for l in $s; …; done`
+  - echo each newly finished job, then break when none is `=pending`; `sleep 45`.
+- **Pausing a relay from inside a leg:** `RELAY stop` makes the watcher kill the running leg, and a `handover` report launches the next leg. So "pause after this leg" means finishing the leg (handover written to `next.md`), then reporting `needs-you`.
 
-## Heads-up for step 10
-- **The main budget is tight:** main is 459.1 KB of 500 (92%), because it inlines all four workers (hello 37.5, query 89.8, EPG 115.1, ingest 124.9 KB).
-  - The focus engine is main-thread code. Measure main after the change (`pnpm build:tv` prints it).
-  - If step 10 would push main over 500, stop and ask Omar, as a needs-you stop, with RELAY.md's three budget options. Recommended: count inlined workers only against their own 150 KB budgets. Don't raise a budget on your own.
-  - Even if step 10 fits, put the budget question to Omar at the end of the leg, because step 11 (fonts, components) won't fit in about 40 KB.
-- **Pure TS, no DOM:** the engine is index-based (focus is a data index, not DOM focus), so Vitest runs it in Node.
-  - Test every zone kind in LTR and RTL: in RTL, LEFT and RIGHT swap for horizontal zones only, never UP and DOWN, and only once.
-  - Test per-zone memory, the router's back stack, and both `rootBackPolicy` values.
-  - Test hover-to-focus: a pointer move focuses, hiding the pointer keeps the focus.
-  - Write a mutation script like `artifacts/mutate9c.py`.
-- **`lib: ES2017`** in every package and `apps/tv` (pinned by `tools/build/src/bundle.test.ts`). `Array.prototype.sort` isn't stable on Chromium 53.
-- **A new runtime dep** (`preact` or `@preact/signals` in `ui`) must be at least 2 weeks old. Use the versions `apps/tv` already has, then run `pnpm install --config.optimistic-repeat-install=false`.
-- **`verify:engines --self-test`** is needed if you change the build, polyfills, workers or boot code (wiring the engine into `main.tsx` counts as boot code).
-
-## Gotchas and lessons (legs 1–14)
-**New in leg 14**
+**From earlier legs (still true)**
+- **Bash heredocs mangle backslashes:** `'\\n'` becomes a real newline, even in a quoted heredoc. Write patch scripts with the Write tool into `$CLAUDE_JOB_DIR/tmp` and run `python -I` on them, asserting `s.count(old) == 1`. Use Edit for text with backslashes. The Write tool turns `\uFEFF`/`\u2028` into raw characters.
 - **Bundle size:**
-  - A class keeps all its methods: `new XtreamClient(...)` for one call took the query worker from 82.6 to 110.5 KB, so one-call users need small files of their own.
-  - `content-key.ts` (`parseContentKey`) drags `es.json.stringify` (about 4 KB min) through its error messages, and `padStart` drags the pad polyfills.
-  - The fastest diagnosis is a full before/after module diff: set the probe's `rows.slice(0, 60)` to 1000, probe HEAD (`git -C <wt> stash push -- <paths>`, probe, `stash pop`) and the change, then diff `renderedLength` per module.
-  - The probe's output contains a binary byte, so use `grep -a`.
-- **Debounce tests over message channels and sockets:**
-  - fake only `setTimeout`/`clearTimeout` (`vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })`), and only around the wait;
-  - let real work run with a `setImmediate` loop;
-  - call `vi.useRealTimers()` before awaiting any network answer, and in `afterEach` too;
-  - assert "a request was made" only after the answer settles (the worker side issues it asynchronously).
-- **Mock:** `get_short_epg` answers only for channels with an EPG id, so with the full guide the one unmatched channel (18+ Test Pattern) gets an empty answer. For a non-empty one, use `mock({ scenario: 'no-xmltv' })`. A new scenario needs `faults.test.ts` (the shipped list and the `available` count) and the runbook table.
-- **Bash heredocs:**
-  - inside a Python patch, `'\\n'` became a real newline and `\\(` became `\(`, even in a quoted heredoc. Write patch scripts with the Write tool into `$CLAUDE_JOB_DIR/tmp` and run `python -I` on them, asserting `s.count(old) == 1`.
-  - For text with backslashes, use the Edit tool.
-- **Watching CI:** this Monitor (`timeout_ms` 1800000) worked first time, after one foreground `gh pr checks 13`: a `while true` loop over `gh pr checks <n> -R Omarmarei/zoma-iptv --json name,bucket --jq …`, echoing the finished jobs and breaking when none are pending, with `sleep 45`. No process substitution.
-- **Mutation runs:** the two survivors were missing cases: an end time with seconds, and a refreshed entry's place in the cache's eviction order. Rerun a single mutant with `python -I artifacts/mutate9c.py "<snippet of the new text>"`.
-
-**From leg 13**
-- **IndexedDB:** a read-modify-write of the same key twice in one transaction loses the first update. Merge in memory first.
-- **A crash test must crash after something is written.**
-- **No clock-dependent e2e:** the mock's schedule is pinned to 2026-11-02 12:00 UTC, the browser's clock isn't. e2e asserts match rates, `data-from` and text patterns, never exact now/next.
-- **A mutant that adds a second listener leaves the first one working:** mutate the original handler's body.
-
-**Shell and tools**
-- Use absolute paths, and never `cd`. The Write tool keeps `\n` literal but turns `\uFEFF`/`\u2028` into raw characters.
-- **Bundle sizes:**
-  - `artifacts/make-size-probe.py` writes `tools/build/src/zz-sizes-probe.ts` for `packages/data/src/<name>.worker.ts`; for main, edit its input to `apps/tv/src/main.tsx`.
-  - Run it with `pnpm --dir "<wt>" exec tsx tools/build/src/zz-sizes-probe.ts <name>`.
-  - Delete the probe afterwards (lint would see it).
-- **Mutation runs:** each mutant has a 180 s timeout. Restore from `.bak` if a run is killed. Never run mutations while `pnpm verify` or `verify:engines` builds from the same source.
-- **The old-engine Docker image:**
-  - never change the `RUN apt-get …` line (a rebuild takes an hour);
-  - add layers after it;
-  - list new COPY files in `IMAGE_FILES`.
-- **TaskStop on a background `verify:engines`** leaves its `docker build` running: find it with `Get-CimInstance Win32_Process -Filter "Name='docker.exe'"`.
-- **Smart App Control is ON** (Omar's choice). Pin an older version or use pure JS; never weaken lint.
-- **pnpm 11:** after a dependency edit, run `pnpm install --config.optimistic-repeat-install=false`. New dependencies must be at least 2 weeks old.
-
-**Repo layout and tests**
-- Package tsconfigs include only `src`, so package tests go there. Root `test/` holds cross-package tests (data with tools, the mock, `apps/tv`).
-- `tools/*` may import only core, protocol and crypto.
-- **New worker entries** need:
-  - a package `exports` entry;
-  - an `entry-point` rule in `eslint.config.js`;
-  - a case in `test/lint-boundaries.test.ts`;
-  - a `?worker` import in `apps/tv/src/data/workers.ts`.
-- **fake-indexeddb:** `freshFactory()` per test; close `MessageChannel` ports in `afterEach`.
-- **Mock tests:**
-  - never build URLs from `base` at module level;
-  - reset `app.mockState.catalog` in `beforeEach`;
-  - the clock is `NOW` = 2026-11-02 12:00 UTC.
-- **Polyfills:**
-  - Babel injects them per file before tree-shaking, so use narrow entries (`@zoma/data/client`) and keep shared helpers in small modules;
-  - TV code keeps `lib: ES2017`.
-
-**core and data**
-- `normalizeName`, `hash53` and the key layout are frozen (ADR-009). `core` targets ES2017.
-- Never `await` inside `transact`. Database v1 and v2 and profile v1 become stored data once a build ships; change them only through append-only migrations.
-- Keep long-lived parser strings as owned copies (`ownString`).
-
-**CI, versions, commits**
-- CI takes about 4–5 min for `verify`, 3 for `engines` and 9–11 for `media`. Wait about 20 s after `gh pr create` before reading checks.
+  - Babel injects polyfills per file before tree-shaking, so use narrow entries;
+  - a class keeps all its methods;
+  - `content-key.ts` drags `es.json.stringify`, and `padStart` drags the pad polyfills.
+- **TV code:** `lib: ES2017`; `Array.prototype.sort` isn't stable on Chromium 53; prefer `indexOf` to `includes` in hot UI code.
+- **Debounce tests over sockets:** fake only `setTimeout`/`clearTimeout`, and only around the wait; switch to real timers before awaiting the network.
+- **Mock:**
+  - the clock is pinned to 2026-11-02 12:00 UTC, so e2e asserts patterns, never exact now/next;
+  - `get_short_epg` answers only channels that have an EPG id;
+  - a new scenario needs `faults.test.ts` and the runbook table.
+- **IndexedDB:** merge in memory before writing the same key twice in one transaction. Crash tests crash after a write. Database v1/v2 and profile v1 change only through append-only migrations.
+- **Old-engine Docker image:** never edit the `RUN apt-get` line (an hour-long rebuild); add layers after it and list new COPY files in `IMAGE_FILES`. TaskStop on a background `verify:engines` leaves its `docker build` running.
+- **Mutation runs:** never while `pnpm verify` or `verify:engines` builds from the same source. Each mutant has a 180 s timeout; restore from `.bak` if a run is killed. A synchronous infinite-loop mutant hangs Vitest, so don't use one.
+- **Smart App Control is ON.** Pin older native binaries; never weaken lint. **pnpm 11:** new dependencies must be at least 2 weeks old.
+- **Repo layout:**
+  - package tests go in `src`; cross-package tests go in root `test/`;
+  - `tools/*` may import only core, protocol and crypto;
+  - a new worker entry needs an `exports` entry, an `entry-point` rule, a `lint-boundaries` case and a `?worker` import.
+- **CI:** about 5–7 min for `verify`, 2–3 for `engines`, 7–11 for `media`. Wait about 20 s after `gh pr create` before reading checks.
 - **Version pins:** TS 5.9, ESLint 9, Vitest 3.2, Babel 7.29, Vite 7.3, Preact 10, Playwright 1.64.1, fast-check 4.10, fake-indexeddb 6.2.6, fflate 0.8.3, unrs-resolver 1.12.2.
-- **Commits:** a scoped `git add` and `git commit -F <file>`. End with the `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` line and the harness's session line.
-- **CLAUDE.md edits need Omar's direct word in your own tab.** Three gaps are open:
-  - the "deep imports" convention doesn't mention `@zoma/data`'s four extra entries (client, query, ingest and epg workers);
+- **Commits:**
+  - a scoped `git add` and `git commit -F <file>`;
+  - end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` and the harness's session line;
+  - merge relay PRs with `gh pr merge --merge` on green CI (standing approval), keeping the branch, and list the 3 riskiest changes.
+- **CLAUDE.md edits need Omar's direct word in your own tab.** Two gaps are still open:
+  - the "deep imports" convention doesn't mention `@zoma/data`'s four extra entries;
   - the Commands table lacks `pnpm epg:report`;
-  - the `build:tv` row doesn't say that the main budget includes the inlined workers.
+  - the `build:tv` row: authorised on 2026-11-03 and fixed by the option-1 change (no longer waiting).
 
-## The 3 riskiest changes in PR #13
-1. **The query worker now makes network requests** (`fetchTransport`) and receives the Xtream account over RPC. Credentials go only to the source's own panel, never into a cache key or an error message.
-2. **Core's `xtream.ts` was split into three files** (moves plus re-exports), and `XtreamClient`'s `open`, `json` and `shortEpg` now delegate to the shared helpers. The ingest worker runs on this code; all its tests passed unchanged.
-3. **Main is at 459.1 of 500 KB (92%).** The budget decision is now urgent.
+## The 3 riskiest changes in PR #14
+1. **Every remote key now goes through the focus engine.** Back on the root no longer exits at once: Tizen and the browser show an exit dialog, and webOS calls `platformBack`.
+2. **The `Platform` interface gained `onPointer`.** All three adapters implement it; webOS listens to `cursorStateChange`.
+3. **Main is at 470.3 of 500 KB (94%).** The Vite dev config changed too (`fflate` pre-bundled).
 
 ## Verified vs not
 - **Verified:**
-  - local `pnpm verify` (946 tests, e2e 7/7: the panel row in dev and in both built bundles, and the `no-xmltv` fallback in dev);
-  - `verify:engines --self-test` (24/24 as expected);
-  - 26/26 mutants caught;
-  - the "done when" through the real `DataEngine` and the mock over a socket: an unmatched channel gets the mock's own now/next after 600 ms of focus, not at 599 ms, and a second focus within 30 min makes no request;
-  - the bundled Chromium 53 query worker asks with `fetch`;
-  - CI green on `6089ab7`, merged as `bbb197e`.
+  - unit tests in LTR and RTL, and the "done when";
+  - local `pnpm verify`, `verify:engines --self-test` (the focus moves in Chromium 53/56/68) and 44/44 mutants;
+  - dev e2e on a cold Vite cache, 3 times;
+  - CI green on `7b4100d`, merged as `4438efe`.
 - **Not done:**
-  - CI on `main` at `bbb197e` (run 41520130460) was in progress at handover;
-  - the short EPG on a real panel or TV;
-  - the old-engine harness doesn't exercise the short EPG (its fixtures are static files, with no `player_api.php`);
-  - the focus engine and every UI step.
-- **Migrations and deploys:** N/A (no backend until step 29; the TV "deploy" is a store submission).
+  - CI on `main` at `4438efe` (in progress at handover);
+  - the Magic Remote on a real LG TV (`cursorStateChange`, the wheel, the OK/click overlap);
+  - the exit dialog on a real Samsung;
+  - steps 11 and later.
+- **Migrations and deploys:** N/A. There is no backend until step 29, and the TV "deploy" is a store submission.
 
-## Try it (Omar, desktop, step 9c)
-1. Run `pnpm mock --host 127.0.0.1 --scenario no-xmltv`, and `pnpm dev` in another terminal.
-2. Open `http://localhost:5173/?source=http://127.0.0.1:8080/get.php?username=zoma&password=zoma-test&type=m3u_plus`.
-3. **Guide** shows `failed: debug:tvg0 http` (the panel's guide is off). **Panel EPG** shows `focused: Zoma Test 1 SMPTE…`, then about 0.6 s later `ok: Zoma Test 1 SMPTE: <title> hh:mm–hh:mm, next … (panel)`.
-4. Restart the mock without `--scenario` and reload. **Guide** shows 11 of 12, and **Panel EPG** shows `none: 18+ Test Pattern: the panel has no programmes for it now` (that channel has no EPG id, so the panel has nothing either).
+## Try it (Omar, desktop, step 10)
+`pnpm dev`, then open `http://localhost:5173/` at 1920x1080. The **Focus** block sits under the Remote panel and starts on `home · list 0`.
+1. Press Down 5 times: the list scrolls (4 rows show). Right goes to the grid; Left twice comes back to the same row (thin outline = remembered).
+2. PgDn moves a page. Enter opens "Opened list N"; Esc closes it, and the focus is where it was.
+3. Move the mouse over a tile: it takes the focus. An arrow key then carries on from it. The wheel scrolls the focused list.
+4. Esc on the main screen shows "Exit Zoma?". Enter on Stay closes it; Right then Enter on Exit shows "Back: exit requested".
+5. Open `/?locale=ar-SA`: the Focus block runs right to left. Left moves along the rail towards its end and Right comes back; Up and Down are unchanged.
 
 ## Open decisions and gates
-- **Main bundle budget** (RELAY.md note; main is now at 92%). Decide it before step 11, or sooner if step 10 overflows. The options are:
-  1. count inlined workers only against their own budgets (recommended);
-  2. ship separate worker files (needs spike S1);
-  3. raise the main budget.
+- **Main bundle budget:** decided on 2026-11-03 (option 1). Apply it first (above).
 - **Step 16 [needs Omar]:** the LG TV's model and year, LG Developer Mode, the Samsung route and the Samsung certificate.
 - **Later gates:** steps 21, 34, 44, 46 and 47.
 - **Before the first store submission:** final app IDs, real icons, and PostCSS in `build:tv` (step 11).
-- **Relay cap:** 40 legs; leg 14 was the 14th.
+- **Relay cap:** 40 legs; leg 15 was the 15th.
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
 - Submit the **Samsung Seller Office Partner application ASAP** (Samsung Gulf). It takes weeks, and Samsung in the GCC and Canada depends on it.
 - Share the **LG TV's model and year**.
 - **"Zoma" trademark clearance** (US, CA, AE, SA) and domains. This also decides the final app IDs.
 - `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` was widened with his authorisation on 2026-11-02. Prune it when the relay run ends if he wants it tighter.
-- **Three CLAUDE.md gaps** wait for his word: `@zoma/data`'s four entries, `pnpm epg:report`, and the main budget including the inlined workers.
-- **The main-budget decision** (above) is due before step 11.
+- **Two CLAUDE.md gaps** wait for his word (above).
 - No secrets have been shared, so nothing needs rotating.

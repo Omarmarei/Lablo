@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
+import { ARABIC_FACE, TITLE_FONTS, renderedFonts } from './fonts';
 
 /** Fails the test on any uncaught page error or console error. */
 function trackErrors(page: Page): string[] {
@@ -170,6 +171,36 @@ test.describe('hello app in the desktop browser (pnpm dev)', () => {
     await expect(focus).toHaveText('home · list 1');
     expect(errors).toEqual([]);
   });
+
+  for (const [locale, dir] of [
+    ['en-US', 'ltr'],
+    ['ar-SA', 'rtl'],
+  ] as const) {
+    test(`draws text in the bundled Zoma Sans faces and mirrors the layout by dir (${locale})`, async ({ page }) => {
+      const errors = trackErrors(page);
+      await page.goto(`/?locale=${locale}`);
+      await expect(page.getByTestId('hello')).toHaveAttribute('data-ready', 'true');
+      // The app puts the locale on <html>; postcss-rtlcss's rules key on that dir.
+      await expect(page.locator('html')).toHaveAttribute('dir', dir);
+      await expect(page.locator('html')).toHaveAttribute('lang', locale);
+
+      // Latin in Noto Sans and Arabic in Noto Sans Arabic UI, both web fonts (no system fallback).
+      expect(await renderedFonts(page, '[data-testid=title]')).toEqual(TITLE_FONTS);
+      expect(await renderedFonts(page, '.hello__brand-ar')).toEqual([{ familyName: ARABIC_FACE, isCustomFont: true, glyphCount: 4 }]);
+
+      // A mirrored rule: the panels' 48 px gap is on the inline end (right in LTR, left in RTL),
+      // and the first panel sits on the inline start.
+      const gaps = await page.locator('.hello__panel').first().evaluate((el) => {
+        const style = getComputedStyle(el);
+        return [style.marginLeft, style.marginRight];
+      });
+      expect(gaps).toEqual(dir === 'ltr' ? ['0px', '48px'] : ['48px', '0px']);
+      const first = await page.locator('.hello__panel').first().boundingBox();
+      const last = await page.locator('.hello__panel').last().boundingBox();
+      expect(dir === 'ltr' ? first!.x < last!.x : first!.x > last!.x).toBe(true);
+      expect(errors).toEqual([]);
+    });
+  }
 
   test('honours the forced low tier and locale overrides', async ({ page }) => {
     await page.goto('/?tier=low&locale=ar-SA&country=SA');

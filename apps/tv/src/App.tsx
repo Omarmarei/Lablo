@@ -73,7 +73,12 @@ export function App({ platform, keyHelp, data, focus }: Props) {
     platform.info().then(
       (value) => {
         info.value = value;
-        focus.nav.setDir(localeDir(value.locale));
+        const dir = localeDir(value.locale);
+        focus.nav.setDir(dir);
+        // app.css's mirrored rules (postcss-rtlcss) follow dir on <html>; lang picks the
+        // locale's glyph forms and lets :lang() rules apply.
+        document.documentElement.lang = value.locale;
+        document.documentElement.dir = dir;
       },
       (error: unknown) => {
         infoError.value = message(error);
@@ -127,7 +132,12 @@ export function App({ platform, keyHelp, data, focus }: Props) {
   const device = info.value;
   return (
     <main class="hello" data-testid="hello" data-ready={device === null ? 'false' : 'true'}>
-      <h1 class="hello__title">Zoma</h1>
+      <h1 class="hello__title" data-testid="title">
+        Zoma
+        <span class="hello__brand-ar" lang="ar">
+          زوما
+        </span>
+      </h1>
       <p class="hello__subtitle">
         Hello from <span data-testid="platform-id">{platform.id}</span> · started {startedAt}
       </p>

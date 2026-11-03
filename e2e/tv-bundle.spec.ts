@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
 import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
+import { ARABIC_FACE, TITLE_FONTS, renderedFonts } from './fonts';
 
 /**
  * Boots the built TV bundles (pnpm build:tv) from file://, the way a packaged TV app loads,
@@ -68,6 +69,11 @@ for (const platform of ['tizen', 'webos'] as const) {
     await page.keyboard.press('Enter');
     await expect(page.getByTestId('last-intent')).toHaveText('OK');
     await expect(page.getByTestId('focus-status')).toHaveText('details · buttons 0');
+
+    // app.css from the CSS build: the bundled woff2 faces load from assets/ on file://.
+    await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
+    expect(await renderedFonts(page, '[data-testid=title]')).toEqual(TITLE_FONTS);
+    expect(await renderedFonts(page, '.hello__brand-ar')).toEqual([{ familyName: ARABIC_FACE, isCustomFont: true, glyphCount: 4 }]);
     expect(errors).toEqual([]);
   });
 }

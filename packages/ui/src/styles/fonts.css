@@ -1,0 +1,38 @@
+/*
+ * Zoma Sans: Noto Sans (Latin) and Noto Sans Arabic UI (Arabic) subsets, made by `pnpm fonts`
+ * (tools/fonts). unicode-range picks the face per character, so a page without Arabic text
+ * never loads the Arabic files. woff2 and unicode-range are both fine on Chromium 53; there is
+ * no font-display (Chromium 60+), but the files are local to the package and load at once.
+ * The ranges must equal packages/ui/assets/fonts/fonts.json (tools/fonts/src/fonts.test.ts).
+ */
+@font-face {
+  font-family: 'Zoma Sans';
+  font-style: normal;
+  font-weight: 400;
+  src: url('../../assets/fonts/zoma-latin-400.woff2') format('woff2');
+  unicode-range: U+0000-017F, U+0218-021B, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+1E9E, U+2000-206F, U+20A0-20C0, U+2116, U+2122, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Zoma Sans';
+  font-style: normal;
+  font-weight: 700;
+  src: url('../../assets/fonts/zoma-latin-700.woff2') format('woff2');
+  unicode-range: U+0000-017F, U+0218-021B, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+1E9E, U+2000-206F, U+20A0-20C0, U+2116, U+2122, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Zoma Sans';
+  font-style: normal;
+  font-weight: 400;
+  src: url('../../assets/fonts/zoma-arabic-400.woff2') format('woff2');
+  unicode-range: U+0600-06FF, U+200C-200F, U+FDF2, U+FDFA, U+FDFC, U+FE70-FEFF;
+}
+
+@font-face {
+  font-family: 'Zoma Sans';
+  font-style: normal;
+  font-weight: 700;
+  src: url('../../assets/fonts/zoma-arabic-700.woff2') format('woff2');
+  unicode-range: U+0600-06FF, U+200C-200F, U+FDF2, U+FDFA, U+FDFC, U+FE70-FEFF;
+}
