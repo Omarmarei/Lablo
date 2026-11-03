@@ -1,0 +1,25 @@
+/*
+ * VirtualList (RELAY step 11b): a fixed-size box of fixed-size items in normal flow. The gap
+ * comes in as --z-vlist-gap, so the horizontal one is a margin-left that postcss-rtlcss turns
+ * into a margin-right in Arabic.
+ */
+.z-vlist {
+  overflow: hidden;
+}
+
+.z-vlist--horizontal {
+  display: flex;
+}
+
+.z-vlist__item {
+  flex: none;
+  overflow: hidden;
+}
+
+.z-vlist--vertical > .z-vlist__item + .z-vlist__item {
+  margin-top: var(--z-vlist-gap);
+}
+
+.z-vlist--horizontal > .z-vlist__item + .z-vlist__item {
+  margin-left: var(--z-vlist-gap);
+}

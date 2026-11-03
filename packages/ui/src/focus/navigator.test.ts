@@ -529,4 +529,154 @@ describe('Magic Remote', () => {
     r.nav.pointer(false);
     expect(r.seen.map((f) => f.pointer)).toEqual([true, false]);
   });
+
+  it('hides the pointer only on the keys that move the focus', () => {
+    const onSelect = vi.fn();
+    const r = rig({ root: home({ onSelect }) });
+    r.nav.pointer(true);
+    // The Magic Remote's OK sends key 13 while pointing; digits, colours and Back leave it too.
+    r.press('OK', 'DIGIT_4', 'RED', 'INFO', 'PLAY_PAUSE');
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(r.nav.snapshot().pointer).toBe(true);
+    r.nav.push(dialog());
+    expect(r.press('BACK')).toEqual(['popped']);
+    expect(r.nav.snapshot().pointer).toBe(true);
+    for (const key of ['UP', 'DOWN', 'LEFT', 'RIGHT', 'CH_UP', 'CH_DOWN'] as const) {
+      r.nav.pointer(true);
+      r.press(key);
+      expect(r.nav.snapshot().pointer, key).toBe(false);
+    }
+  });
+});
+
+describe('pointer clicks and the webOS OK key', () => {
+  /** A rig with a clock the test moves, and a log of what was selected. */
+  function clicks(window?: number) {
+    let time = 1000;
+    const selected: string[] = [];
+    const onSelect = (focus: Focus): void => {
+      selected.push(`${focus.screen} ${focus.zone} ${focus.index}`);
+    };
+    const r = rig({ root: home({ onSelect }), now: () => time, ...(window === undefined ? {} : { okClickWindowMs: window }) });
+    return {
+      ...r,
+      selected,
+      onSelect,
+      later: (ms: number) => {
+        time += ms;
+      },
+    };
+  }
+
+  it('focuses and selects the clicked item, showing the pointer', () => {
+    const r = clicks();
+    expect(r.nav.top.click('grid', 4)).toBe(true);
+    expect(r.at()).toBe('grid 4');
+    expect(r.selected).toEqual(['home grid 4']);
+    expect(r.nav.snapshot().pointer).toBe(true);
+    // Focusing, showing the pointer and selecting are one change.
+    expect(r.seen).toHaveLength(1);
+    r.later(2000);
+    expect(r.nav.top.click('rail', 1)).toBe(true);
+    expect(r.selected).toEqual(['home grid 4', 'home rail 1']);
+  });
+
+  it('ignores clicks outside the items, on a covered or closed screen, and without onSelect', () => {
+    const r = clicks();
+    expect(r.nav.top.click('grid', 8)).toBe(false);
+    expect(r.nav.top.click('grid', -1)).toBe(false);
+    expect(r.nav.top.click('nope', 0)).toBe(false);
+    expect(r.selected).toEqual([]);
+    expect(r.at()).toBe('list 0');
+    const root = r.nav.top;
+    const top = r.nav.push(dialog());
+    r.later(1000);
+    expect(root.click('grid', 2)).toBe(false);
+    expect(r.nav.snapshot()).toMatchObject({ screen: 'dialog', index: 0 });
+    // The dialog has no onSelect: the click focuses but selects nothing.
+    r.later(1000);
+    expect(top.click('buttons', 1)).toBe(false);
+    expect(r.nav.snapshot()).toMatchObject({ screen: 'dialog', index: 1 });
+    r.nav.pop();
+    expect(top.click('buttons', 0)).toBe(false);
+    expect(r.selected).toEqual([]);
+  });
+
+  it('selects once when the OK key comes first and the click follows (one Magic Remote press)', () => {
+    const r = clicks();
+    r.nav.pointer(true);
+    r.nav.top.hover('grid', 2);
+    expect(r.press('OK')).toEqual(['select']);
+    r.later(120);
+    expect(r.nav.top.click('grid', 2)).toBe(false);
+    expect(r.selected).toEqual(['home grid 2']);
+    // The next press is a new one.
+    r.later(600);
+    expect(r.press('OK')).toEqual(['select']);
+    expect(r.selected).toHaveLength(2);
+  });
+
+  it('selects once when the click comes first and the OK key follows', () => {
+    const r = clicks();
+    expect(r.nav.top.click('grid', 2)).toBe(true);
+    r.later(40);
+    expect(r.press('OK')).toEqual(['duplicate']);
+    expect(r.selected).toEqual(['home grid 2']);
+    r.later(499);
+    expect(r.press('OK')).toEqual(['select']);
+    expect(r.selected).toEqual(['home grid 2', 'home grid 2']);
+  });
+
+  it('pairs within the window only, and each key with at most one click', () => {
+    const r = clicks(300);
+    r.press('OK');
+    r.later(300);
+    expect(r.nav.top.click('grid', 1)).toBe(true);
+    r.later(10);
+    // Two clicks in a row are two presses (the second isn't a twin of the first).
+    expect(r.nav.top.click('grid', 1)).toBe(true);
+    // Two OK keys in a row too.
+    r.later(1000);
+    expect(r.press('OK', 'OK')).toEqual(['select', 'select']);
+    r.later(1);
+    expect(r.nav.top.click('grid', 0)).toBe(false);
+    r.later(1);
+    expect(r.nav.top.click('grid', 0)).toBe(true);
+    expect(r.selected).toEqual(['home list 0', 'home grid 1', 'home grid 1', 'home grid 1', 'home grid 1', 'home grid 0']);
+  });
+
+  it('drops the twin of an OK key that opened a screen, wherever it lands', () => {
+    let time = 0;
+    const onDialog = vi.fn();
+    const r = rig({
+      root: home({ onSelect: () => r.nav.push(dialog('dialog', { onSelect: onDialog })) }),
+      now: () => time,
+    });
+    const root = r.nav.top;
+    // OK opens a dialog. The click of the same press lands on the covered screen (under the
+    // dialog's scrim) and selects nothing.
+    expect(r.press('OK')).toEqual(['select']);
+    time += 50;
+    expect(root.click('list', 0)).toBe(false);
+    expect(r.nav.snapshot()).toMatchObject({ screen: 'dialog', index: 0 });
+    // The twin was used up: the next click is a press of its own.
+    time += 50;
+    expect(r.nav.top.click('buttons', 1)).toBe(true);
+    expect(onDialog).toHaveBeenCalledTimes(1);
+    // Or it lands on the new screen's item, and selects nothing there either.
+    r.nav.pop();
+    time += 1000;
+    expect(r.press('OK')).toEqual(['select']);
+    time += 50;
+    expect(r.nav.top.click('buttons', 1)).toBe(false);
+    expect(onDialog).toHaveBeenCalledTimes(1);
+    expect(r.nav.snapshot()).toMatchObject({ screen: 'dialog', index: 1, depth: 2 });
+  });
+
+  it('does not pair across a clock that went backwards', () => {
+    const r = clicks();
+    r.press('OK');
+    r.later(-100);
+    expect(r.nav.top.click('grid', 3)).toBe(true);
+  });
 });

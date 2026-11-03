@@ -1,0 +1,52 @@
+/* Chip: one category of a rail (RELAY step 11b), var(--rail-height) tall. */
+.z-chip {
+  display: inline-flex;
+  align-items: center;
+  height: var(--rail-height);
+  max-width: 400px;
+  padding: 0 var(--space-5);
+  border: var(--focus-ring) solid transparent;
+  border-radius: var(--radius-pill);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+  white-space: nowrap;
+  vertical-align: top;
+  transition: background-color var(--motion-fast), border-color var(--motion-fast);
+}
+
+.z-chip__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.z-chip__count {
+  flex: none;
+  margin-left: var(--space-3);
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.z-chip.is-selected {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-weight: var(--font-weight-bold);
+}
+
+.z-chip.is-memory {
+  border-color: var(--color-border-memory);
+}
+
+.z-chip.is-focused {
+  border-color: var(--color-focus);
+  background: var(--color-surface-focus);
+  color: var(--color-text);
+}
+
+/* In a rail (a horizontal VirtualList) a chip fills its item's fixed width. */
+.z-vlist__item > .z-chip {
+  justify-content: center;
+  width: 100%;
+  max-width: 100%;
+}

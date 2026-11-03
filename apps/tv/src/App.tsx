@@ -1,14 +1,13 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { useSignal } from '@preact/signals';
 import type { DeviceInfo, Intent, LifecycleEvent, Platform } from '@zoma/platform-api';
-import { watchPointerMoves } from '@zoma/ui';
+import { connectRemote, localeDir } from '@zoma/ui';
 import { useEffect } from 'preact/hooks';
 import { DataPanel } from './DataPanel';
 import { FocusPanel } from './FocusPanel';
 import type { DataEngine } from './data/engine';
 import type { DebugParams } from './data/params';
 import type { FocusDemo } from './focus-demo';
-import { localeDir } from './focus-demo';
 import { pingHelloWorker } from './hello-worker';
 
 /** The data workers and the catalog debug parameters (RELAY step 8b). */
@@ -96,35 +95,23 @@ export function App({ platform, keyHelp, data, focus }: Props) {
       },
     );
 
-    const onKey = (event: KeyboardEvent): void => {
-      const intent = platform.keyToIntent(event);
-      if (intent === null) return;
-      event.preventDefault();
-      // Pauses a running catalog refresh until the keys are idle (architecture.md §1.4).
-      data.engine.noteActivity();
-      lastIntent.value = intent;
-      keyCount.value += 1;
-      focus.nav.handle(intent);
-    };
-    // Magic Remote: the pointer shows itself by moving (and on webOS through the system's
-    // own events), keys hide it, and the wheel scrolls the focused list instead of the page.
-    const onWheel = (event: WheelEvent): void => {
-      event.preventDefault();
-      if (event.deltaY !== 0) focus.nav.wheel(event.deltaY > 0 ? 1 : -1);
-    };
-    const wheelOptions: AddEventListenerOptions = { passive: false };
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('wheel', onWheel, wheelOptions);
-    const stopMoves = watchPointerMoves(window, () => focus.nav.pointer(true));
-    const stopPointer = platform.onPointer((visible) => focus.nav.pointer(visible));
+    // Keys, the Magic Remote pointer and the wheel go to the focus engine.
+    const disconnect = connectRemote({
+      platform,
+      nav: focus.nav,
+      target: window,
+      onIntent: (intent) => {
+        // Pauses a running catalog refresh until the keys are idle (architecture.md §1.4).
+        data.engine.noteActivity();
+        lastIntent.value = intent;
+        keyCount.value += 1;
+      },
+    });
     const stopLifecycle = platform.onLifecycle((event) => {
       lifecycle.value = event;
     });
     return () => {
-      window.removeEventListener('keydown', onKey);
-      window.removeEventListener('wheel', onWheel, wheelOptions);
-      stopMoves();
-      stopPointer();
+      disconnect();
       stopLifecycle();
     };
   }, [platform, data, focus]);

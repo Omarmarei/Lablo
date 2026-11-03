@@ -62,3 +62,12 @@ export function readDebugParams(search: string): DebugParams {
   if (!HTTP_URL.test(source)) return { source: null, query, force, error: '?source= must be an http:// or https:// URL' };
   return { source, query, force, error: null };
 }
+
+/** The screen the app opens on: the hello screen, or the component gallery (RELAY step 11b). */
+export type AppScreen = 'hello' | 'gallery';
+
+/** `?screen=gallery` opens the component gallery; anything else the hello screen. */
+export function readScreen(search: string): AppScreen {
+  const match = SOURCE.exec(search);
+  return readParam(match === null ? search : search.slice(0, match.index), 'screen') === 'gallery' ? 'gallery' : 'hello';
+}

@@ -39,3 +39,32 @@ export const TITLE_FONTS: readonly RenderedFont[] = [
   { familyName: LATIN_FACE, isCustomFont: true, glyphCount: 4 },
   { familyName: ARABIC_FACE, isCustomFont: true, glyphCount: 4 },
 ];
+
+/**
+ * The fonts drawn anywhere under `selector`: `CSS.getPlatformFontsForNode` for each element,
+ * merged by family. Needed for a layout subtree: the CDP call covers an element's own text and
+ * its inline descendants, but not the text inside block or flex children.
+ */
+export async function renderedFontsUnder(page: Page, selector: string): Promise<RenderedFont[]> {
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    await cdp.send('DOM.enable');
+    await cdp.send('CSS.enable');
+    const { root } = await cdp.send('DOM.getDocument', { depth: 0 });
+    const { nodeIds } = await cdp.send('DOM.querySelectorAll', { nodeId: root.nodeId, selector: `${selector}, ${selector} *` });
+    if (nodeIds.length === 0) throw new Error(`no element matches ${selector}`);
+    const merged = new Map<string, RenderedFont>();
+    for (const nodeId of nodeIds) {
+      const { fonts } = await cdp.send('CSS.getPlatformFontsForNode', { nodeId });
+      for (const f of fonts) {
+        const key = `${f.familyName}|${String(f.isCustomFont)}`;
+        const seen = merged.get(key);
+        merged.set(key, { familyName: f.familyName, isCustomFont: f.isCustomFont, glyphCount: (seen?.glyphCount ?? 0) + f.glyphCount });
+      }
+    }
+    return [...merged.values()].sort((a, b) => (a.familyName < b.familyName ? -1 : a.familyName > b.familyName ? 1 : 0));
+  } finally {
+    await cdp.detach();
+  }
+}

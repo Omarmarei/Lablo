@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
 import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
-import { ARABIC_FACE, TITLE_FONTS, renderedFonts } from './fonts';
+import { ARABIC_FACE, LATIN_FACE, TITLE_FONTS, renderedFonts, renderedFontsUnder } from './fonts';
 
 /**
  * Boots the built TV bundles (pnpm build:tv) from file://, the way a packaged TV app loads,
@@ -74,6 +74,36 @@ for (const platform of ['tizen', 'webos'] as const) {
     await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
     expect(await renderedFonts(page, '[data-testid=title]')).toEqual(TITLE_FONTS);
     expect(await renderedFonts(page, '.hello__brand-ar')).toEqual([{ familyName: ARABIC_FACE, isCustomFont: true, glyphCount: 4 }]);
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const platform of ['tizen', 'webos'] as const) {
+  test(`the ${platform} bundle shows the component gallery from file:// (?screen=gallery)`, async ({ page }) => {
+    const index = path.join(DIST, platform, 'index.html');
+    expect(existsSync(index), `${index} is missing: run pnpm build:tv before pnpm e2e`).toBe(true);
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
+    page.on('console', (message) => {
+      if (message.type() === 'error' && !message.text().includes('ERR_FILE_NOT_FOUND')) errors.push(`console: ${message.text()}`);
+    });
+
+    await page.goto(`${pathToFileURL(index).href}?screen=gallery`);
+    const gallery = page.getByTestId('gallery');
+    await expect(gallery).toHaveAttribute('data-ready', 'true');
+    await expect(page.locator('#boot-error')).toBeHidden();
+    // app.css carries every component's CSS: a row is 88 px, the virtual list draws 7 of 240.
+    await expect(page.locator('[data-testid=channels] .z-row')).toHaveCount(7);
+    expect((await page.getByTestId('row-0').boundingBox())?.height).toBe(88);
+    await page.keyboard.press('ArrowDown');
+    await expect(page.getByTestId('row-1')).toHaveAttribute('data-state', 'focused');
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('play-dialog')).toBeVisible();
+    // Both bundled faces, nothing from the system.
+    expect((await renderedFontsUnder(page, '[data-testid=gallery]')).map((f) => [f.familyName, f.isCustomFont])).toEqual([
+      [LATIN_FACE, true],
+      [ARABIC_FACE, true],
+    ]);
     expect(errors).toEqual([]);
   });
 }

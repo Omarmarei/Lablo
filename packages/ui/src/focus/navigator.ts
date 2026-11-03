@@ -30,7 +30,7 @@ export interface ScreenSpec {
    * when it handled the Intent, which then goes no further.
    */
   readonly onIntent?: (intent: Intent, focus: Focus) => boolean;
-  /** OK on the focused item. */
+  /** OK on the focused item, or a pointer click on an item (which focuses it first). */
   readonly onSelect?: (focus: Focus) => void;
 }
 
@@ -42,6 +42,8 @@ export interface Screen {
   /** False once the screen has left the stack; it then ignores updates. */
   readonly open: boolean;
   position(zone: string): ZonePosition;
+  /** The zone's spec as it is now (the last `update`): a virtual list reads its count and window here. */
+  zone(id: string): ZoneSpec;
   /** Replaces a zone's spec (new count, rects…), keeping its position where it still fits. */
   update(zone: ZoneSpec): void;
   /** Focuses an item from code (e.g. the last channel watched) and makes its zone active. */
@@ -53,6 +55,13 @@ export interface Screen {
    * in use. Returns whether it was taken.
    */
   hover(zone: string, index: number, time?: number): boolean;
+  /**
+   * A pointer click on an item: on the top screen it focuses the item and selects it
+   * (`onSelect`), unless the click is the twin of an OK key that came within
+   * `okClickWindowMs` (webOS sends both for one press of the Magic Remote's OK). Returns
+   * whether it selected.
+   */
+  click(zone: string, index: number, time?: number): boolean;
 }
 
 /** What Back did: popped a screen, or at the root followed the platform's `rootBackPolicy`. */
@@ -69,6 +78,8 @@ export type HandleResult =
   | 'edge'
   /** OK went to the screen's `onSelect`. */
   | 'select'
+  /** OK was the twin of a pointer click on the same Magic Remote press: dropped. */
+  | 'duplicate'
   | BackOutcome
   /** Not a navigation Intent, or nothing to do with it here. */
   | 'ignored';
@@ -83,6 +94,22 @@ export interface NavigatorOptions {
   readonly exit: () => void;
   /** `exit-dialog`: show the exit dialog, normally by pushing its screen. */
   readonly exitDialog: () => void;
+  /** A monotonic clock in milliseconds, for pairing OK keys with clicks. Default `performance.now`. */
+  readonly now?: () => number;
+  /** How close an OK key and a click must be to count as one press. Default `OK_CLICK_WINDOW_MS`. */
+  readonly okClickWindowMs?: number;
+}
+
+/**
+ * webOS sends both a click and an OK key (13) for one press of the Magic Remote's OK while
+ * the pointer shows, in either order: a key press and a click this close together are one
+ * press. A press lasts about 100–200 ms (keydown on press, click on release).
+ */
+export const OK_CLICK_WINDOW_MS = 500;
+
+/** The keys that move the focus, which take over from the pointer (webOS hides it on them). */
+function movesFocus(intent: Intent): boolean {
+  return intent === 'CH_UP' || intent === 'CH_DOWN' || moveDirection(intent, 'ltr') !== null;
 }
 
 export interface Navigator {
@@ -92,7 +119,11 @@ export interface Navigator {
   snapshot(): Focus;
   /** Called once after each change of focus, screen, pointer or direction. */
   subscribe(listener: (focus: Focus) => void): () => void;
-  /** A remote key. Hides the pointer (keys take over from it, and the focus stays put). */
+  /**
+   * A remote key. A key that moves the focus (arrows, CH_UP/CH_DOWN) hides the pointer: the
+   * keys take over from the item it was on. OK and the other keys leave the pointer as it is,
+   * since the Magic Remote's own OK button sends key 13 while pointing.
+   */
   handle(intent: Intent): HandleResult;
   back(): BackOutcome;
   push(spec: ScreenSpec): Screen;
@@ -186,6 +217,21 @@ class ScreenState implements Screen {
     return true;
   }
 
+  click(id: string, index: number, time?: number): boolean {
+    if (!this.open) return false;
+    return this.nav.batch(() => {
+      // Pair it first: the twin of an OK key that pushed a screen lands on that screen or on
+      // this covered one, and either way it must not select a second time.
+      const twin = this.nav.pairPress('click');
+      const zone = this.zones.get(id);
+      if (this.nav.top !== this || zone === undefined || !(index >= 0 && index < zoneCount(zone))) return false;
+      // A click means the pointer is in use, even with no move before it.
+      this.nav.pointer(true);
+      this.place(id, index, time);
+      return !twin && this.nav.select(this) === 'select';
+    });
+  }
+
   private place(id: string, index: number, time: number | undefined): void {
     const zone = this.zone(id);
     const pos = this.positions.get(id)!;
@@ -213,10 +259,42 @@ class FocusNavigator implements Navigator {
   private readonly listeners: Array<(focus: Focus) => void> = [];
   private batching = 0;
   private dirty = false;
+  private readonly now: () => number;
+  private readonly okClickWindow: number;
+  /**
+   * The last OK press that wasn't a twin: by key or by click, and when. (Not named `at`:
+   * Babel's polyfill detection would read it as Array.prototype.at and add core-js's.)
+   */
+  private lastPress: { readonly by: 'key' | 'click'; readonly time: number } | null = null;
 
   constructor(private readonly options: NavigatorOptions) {
     this.dir = options.dir ?? 'ltr';
+    this.now = options.now ?? (() => performance.now());
+    this.okClickWindow = options.okClickWindowMs ?? OK_CLICK_WINDOW_MS;
     this.stack.push(new ScreenState(options.root, this));
+  }
+
+  /**
+   * Whether this OK press (a key or a click) is the twin of the previous one: the other kind,
+   * within the window. A twin is used up, so one key pairs with at most one click.
+   */
+  pairPress(by: 'key' | 'click'): boolean {
+    const time = this.now();
+    const last = this.lastPress;
+    if (last !== null && last.by !== by && time >= last.time && time - last.time < this.okClickWindow) {
+      this.lastPress = null;
+      return true;
+    }
+    this.lastPress = { by, time };
+    return false;
+  }
+
+  /** OK on the screen's focused item: its `onSelect`. */
+  select(screen: ScreenState): HandleResult {
+    const focus = this.snapshot();
+    if (focus.index < 0 || screen.spec.onSelect === undefined) return 'ignored';
+    screen.spec.onSelect(focus);
+    return 'select';
   }
 
   get top(): ScreenState {
@@ -266,16 +344,12 @@ class FocusNavigator implements Navigator {
 
   handle(intent: Intent): HandleResult {
     return this.batch((): HandleResult => {
-      this.pointer(false);
+      if (movesFocus(intent)) this.pointer(false);
+      if (intent === 'OK' && this.pairPress('key')) return 'duplicate';
       const screen = this.top;
       if (screen.spec.onIntent?.(intent, this.snapshot()) === true) return 'screen';
       if (intent === 'BACK') return this.back();
-      if (intent === 'OK') {
-        const focus = this.snapshot();
-        if (focus.index < 0 || screen.spec.onSelect === undefined) return 'ignored';
-        screen.spec.onSelect(focus);
-        return 'select';
-      }
+      if (intent === 'OK') return this.select(screen);
       if (intent === 'CH_UP' || intent === 'CH_DOWN') return this.page(screen, intent === 'CH_UP' ? -1 : 1);
       const direction = moveDirection(intent, this.dir);
       return direction === null ? 'ignored' : this.move(screen, direction);

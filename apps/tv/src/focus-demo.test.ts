@@ -1,27 +1,11 @@
 import type { RootBackPolicy } from '@zoma/platform-api';
 import { describe, expect, it, vi } from 'vitest';
-import { createFocusDemo, localeDir } from './focus-demo';
+import { createFocusDemo } from './focus-demo';
 
 function demo(rootBack: RootBackPolicy) {
   const exitApp = vi.fn();
   return { exitApp, ...createFocusDemo({ rootBackPolicy: () => rootBack, exitApp }) };
 }
-
-describe('localeDir', () => {
-  it.each([
-    ['ar-SA', 'rtl'],
-    ['ar', 'rtl'],
-    ['AR-ae', 'rtl'],
-    ['fa-IR', 'rtl'],
-    ['he', 'rtl'],
-    ['en-US', 'ltr'],
-    ['en', 'ltr'],
-    ['arn-CL', 'ltr'],
-    ['', 'ltr'],
-  ])('%s -> %s', (locale, dir) => {
-    expect(localeDir(locale)).toBe(dir);
-  });
-});
 
 describe('the hello screen’s focus demo', () => {
   it('starts on the list, and the signal follows the focus', () => {

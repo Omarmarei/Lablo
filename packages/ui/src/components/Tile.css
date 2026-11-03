@@ -1,0 +1,77 @@
+/*
+ * Tile (RELAY step 11b): var(--tile-width) × var(--tile-height) including the focus ring.
+ * The badge sits at the top left; postcss-rtlcss moves it to the top right in Arabic.
+ */
+.z-tile {
+  position: relative;
+  display: inline-block;
+  width: var(--tile-width);
+  height: var(--tile-height);
+  overflow: hidden;
+  border: var(--focus-ring) solid transparent;
+  border-radius: var(--radius-m);
+  background: var(--color-surface-raised);
+  vertical-align: top;
+  transition: border-color var(--motion-fast);
+}
+
+.z-tile__image {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.z-tile__badge {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+}
+
+.z-tile__caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: var(--space-6) var(--space-3) var(--space-2);
+  background: linear-gradient(rgba(5, 8, 12, 0), var(--color-scrim));
+}
+
+.z-tile__title,
+.z-tile__subtitle {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.z-tile__title {
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+  font-weight: var(--font-weight-bold);
+}
+
+.z-tile__subtitle {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+}
+
+.z-tile__progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 0;
+}
+
+.z-tile.is-memory {
+  border-color: var(--color-border-memory);
+}
+
+.z-tile.is-focused {
+  border-color: var(--color-focus);
+}

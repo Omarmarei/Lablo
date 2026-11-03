@@ -1,8 +1,8 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
 import type { Platform } from '@zoma/platform-api';
-import type { Focus, Navigator, Screen, ScreenSpec, TextDirection } from '@zoma/ui';
-import { createNavigator } from '@zoma/ui';
+import type { Focus, Navigator, Screen, ScreenSpec } from '@zoma/ui';
+import { bindFocus, createNavigator } from '@zoma/ui';
 
 /**
  * The focus engine on the hello screen (relay step 10): a rail of tiles, a list showing a
@@ -26,11 +26,6 @@ export interface FocusDemo {
   readonly opened: ReadonlySignal<readonly string[]>;
   /** The app asked the platform to exit. */
   readonly exitRequested: ReadonlySignal<boolean>;
-}
-
-/** `rtl` for Arabic (and the other right-to-left languages) from a BCP 47 tag. */
-export function localeDir(locale: string): TextDirection {
-  return /^(ar|fa|he|ur)(-|$)/i.test(locale) ? 'rtl' : 'ltr';
 }
 
 const HOME_ZONES: ScreenSpec['zones'] = [
@@ -90,9 +85,5 @@ export function createFocusDemo(platform: Pick<Platform, 'rootBackPolicy' | 'exi
       });
     },
   });
-  const focus = signal(nav.snapshot());
-  nav.subscribe((next) => {
-    focus.value = next;
-  });
-  return { nav, home: nav.top, focus, opened, exitRequested };
+  return { nav, home: nav.top, focus: bindFocus(nav).focus, opened, exitRequested };
 }

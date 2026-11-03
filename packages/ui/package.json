@@ -16,6 +16,11 @@
     "@zoma/core": "workspace:*",
     "@zoma/player": "workspace:*",
     "@zoma/data": "workspace:*",
-    "@zoma/platform-api": "workspace:*"
+    "@zoma/platform-api": "workspace:*",
+    "@preact/signals": "^2.11.4",
+    "preact": "^10.29.8"
+  },
+  "devDependencies": {
+    "fast-check": "^4.10.2"
   }
 }

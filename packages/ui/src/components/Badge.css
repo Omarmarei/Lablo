@@ -1,0 +1,41 @@
+/*
+ * Badge (RELAY step 11b). Coloured badges carry --color-text-on-accent: the light text would
+ * be under 3:1 on the live red (test/ui-tokens.test.ts checks every pair used here).
+ */
+.z-badge {
+  display: inline-block;
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: 2px solid transparent;
+  border-radius: var(--radius-s);
+  font-size: var(--font-size-caption);
+  line-height: 28px;
+  font-weight: var(--font-weight-bold);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.z-badge--neutral {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.z-badge--accent {
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+}
+
+.z-badge--live {
+  background: var(--color-live);
+  color: var(--color-text-on-accent);
+}
+
+.z-badge--warn {
+  background: var(--color-warn);
+  color: var(--color-text-on-accent);
+}
+
+.z-badge--outline {
+  border-color: var(--color-text-muted);
+  color: var(--color-text-muted);
+}

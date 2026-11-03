@@ -103,3 +103,17 @@ Run `pnpm dev`, open the URL at 1920x1080, then:
 6. Esc on the main screen shows "Exit Zoma?" (Tizen and the browser ask first; webOS goes straight to the launcher). Enter on Stay closes it; Right then Enter on Exit shows "Back: exit requested".
 7. Reload with `?tier=low&locale=ar-SA`: the table shows tier `low` and locale `ar-SA`, and the Focus block runs right to left: Left moves along the rail towards its end, Right back. Up and Down don't change.
 8. In `ar-SA` the whole page is mirrored (step 11a, postcss-rtlcss): the Device panel is on the right and the catalog panel on the left, the table headings are right-aligned, and the Arabic name sits left of "Zoma". `<html>` has `dir="rtl"` and `lang="ar-SA"`.
+
+### The component gallery (step 11b)
+
+Open `http://localhost:5173/?screen=gallery` at 1920x1080 (a built bundle takes the same `?screen=gallery` on its `index.html`). It shows every base component, and nothing on it scrolls or leaves the 96/54 px safe area.
+
+1. It starts on channel row **101 Zoma News** (thick teal ring). The Play button, the "All channels" chip and the first tile show a thin ring: each zone's remembered item.
+2. **Down** walks the channel list. After row 107 the list scrolls: it always shows 7 of 240 rows. **PgDn**/**PgUp** move 7 rows at a time.
+3. **Up** from the first row goes to the category rail. **Right** walks the chips, and the rail scrolls after the sixth. **Enter** selects a chip: it stays filled, and the header says "Selected: …".
+4. **Up** again reaches the buttons. Play is filled and Remove is red. **Record** is dimmed: it takes the focus, but Enter does nothing.
+5. From the list, **Right** goes to the tiles (3 × 2), and **Left** from the first column goes back to the list's remembered row.
+6. **Enter** on a row (or on Play) opens "Play …?". **Esc** or Cancel closes it, and the focus is back on the same row. **Esc** on the gallery itself shows "Exit Zoma?".
+7. **Mouse:** moving over an item focuses it, and a click selects it. The wheel scrolls the focused list. An arrow key carries on from the item the pointer was on. On a webOS TV, one press of the Magic Remote's OK selects once, though webOS sends both a click and key 13.
+8. Add `&locale=ar-SA`: the whole screen mirrors. The list is on the right, the rail and the buttons start on the right, and the channel number is at each row's right. **Left** moves towards the end of a row of items. Latin channel names stay left to right inside Arabic rows. The media timeline (01:12:30 / 01:58:00) still fills from the left; the loading bar fills from the right.
+9. Add `&locale=en-XA` (the pseudo-locale): every label of ours is accented, about 40% longer and in brackets, e.g. `[Þļåý one]`. Channel names, titles and HD/4K marks stay plain, because they are the provider's text. Nothing is cut except the chips (fixed width, with an ellipsis), and nothing leaves the safe area.

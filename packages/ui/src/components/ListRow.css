@@ -1,0 +1,114 @@
+/*
+ * ListRow: a channel row (RELAY step 11b), var(--row-height) tall including its focus ring.
+ * The name line (38 px) and the now line (30 px) fill the 80 px inside the ring. Flex items
+ * that cut their text need min-width: 0 (Chromium's flex min-width is auto).
+ */
+.z-row {
+  display: flex;
+  align-items: center;
+  height: var(--row-height);
+  padding: 0 var(--space-5);
+  overflow: hidden;
+  border: var(--focus-ring) solid transparent;
+  border-radius: var(--radius-m);
+  background: var(--color-surface);
+  transition: background-color var(--motion-fast), border-color var(--motion-fast);
+}
+
+.z-row__number {
+  flex: none;
+  width: 88px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  text-align: left;
+}
+
+.z-row__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.z-row__head,
+.z-row__now {
+  display: flex;
+  align-items: center;
+}
+
+.z-row__name {
+  flex: 0 0 auto;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+/* The name comes first: it keeps its width (up to the whole line, then it is cut), and the
+   badges take what is left and are cut at the row's end. Found by the en-XA pseudo-locale,
+   where long badges squeezed a name to nothing. */
+.z-row__badges {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  margin-left: var(--space-3);
+  white-space: nowrap;
+}
+
+.z-row__badges > * + * {
+  margin-left: var(--space-2);
+}
+
+.z-row__now {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+  white-space: nowrap;
+}
+
+.z-row__time {
+  flex: none;
+  margin-right: var(--space-3);
+}
+
+.z-row__progress {
+  flex: none;
+  width: 72px;
+  margin-right: var(--space-3);
+}
+
+.z-row__title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.z-row__next {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: 264px;
+  margin-left: var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+}
+
+.z-row__next-head {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.z-row.is-memory {
+  border-color: var(--color-border-memory);
+}
+
+.z-row.is-focused {
+  border-color: var(--color-focus);
+  background: var(--color-surface-focus);
+}
