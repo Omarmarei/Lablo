@@ -38,7 +38,14 @@ describe('the gallery by remote', () => {
     expect(g.at()).toBe('gallery · rail 0');
     g.press('UP');
     expect(g.at()).toBe('gallery · actions 0');
-    g.press('RIGHT', 'RIGHT', 'RIGHT', 'RIGHT');
+    g.press('RIGHT', 'RIGHT', 'RIGHT');
+    expect(g.at()).toBe('gallery · actions 3');
+    // The language button ends the row; LEFT comes back to the remembered action.
+    g.press('RIGHT');
+    expect(g.at()).toBe('gallery · language 0');
+    g.press('RIGHT');
+    expect(g.at()).toBe('gallery · language 0');
+    g.press('LEFT');
     expect(g.at()).toBe('gallery · actions 3');
     // Each zone comes back to its remembered item.
     g.press('DOWN', 'DOWN', 'DOWN');
@@ -62,6 +69,35 @@ describe('the gallery by remote', () => {
     expect(g.at()).toBe('gallery · tiles 1');
     g.press('RIGHT', 'RIGHT');
     expect(g.at()).toBe('gallery · channels 0');
+    // The language button is at the row's left end in Arabic.
+    g.press('UP', 'UP', 'LEFT', 'LEFT', 'LEFT', 'LEFT');
+    expect(g.at()).toBe('gallery · language 0');
+    g.press('RIGHT');
+    expect(g.at()).toBe('gallery · actions 3');
+  });
+
+  it('counts the language button’s presses, stays on it, and selects nothing else', () => {
+    const g = setup();
+    g.press('UP', 'UP', 'RIGHT', 'RIGHT', 'RIGHT', 'RIGHT');
+    expect(g.at()).toBe('gallery · language 0');
+    expect(g.languageSwitches.value).toBe(0);
+    expect(g.press('OK')).toEqual(['select']);
+    expect(g.languageSwitches.value).toBe(1);
+    expect(g.at()).toBe('gallery · language 0');
+    // The screen's direction changes with the language; the focus doesn't move.
+    g.nav.setDir('rtl');
+    expect(g.at()).toBe('gallery · language 0');
+    g.press('OK');
+    expect(g.languageSwitches.value).toBe(2);
+    expect(g.selection.value).toBeNull();
+    expect(g.nav.snapshot().depth).toBe(1);
+    g.press('DOWN');
+    expect(g.at()).toBe('gallery · rail 0');
+    // The Magic Remote's click (a fresh gallery: a click just after OK is the same press).
+    const pointer = setup();
+    expect(pointer.home.click('language', 0)).toBe(true);
+    expect(pointer.languageSwitches.value).toBe(1);
+    expect(pointer.at()).toBe('gallery · language 0');
   });
 
   it('scrolls the rail’s window towards its end', () => {

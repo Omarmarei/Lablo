@@ -9,12 +9,14 @@ import { DEMO_CATEGORIES, DEMO_CHANNELS, DEMO_TILES } from './gallery-data';
  * The component gallery (`?screen=gallery`, RELAY step 11b): every base component on one
  * 1920x1080 screen, driven by the remote. Its zones:
  *
- *   actions  (4 buttons; Record is disabled)
+ *   actions  (4 buttons; Record is disabled)            language (1 button)
  *   rail     (categories, a horizontal virtual list)
  *   channels (240 rows, a virtual list)   tiles (3 columns)
  *
  * OK on Play or a channel opens a dialog; Back closes it, and on this root screen follows the
- * platform (an exit dialog on Tizen and in the browser, the launcher on webOS).
+ * platform (an exit dialog on Tizen and in the browser, the launcher on webOS). OK on the
+ * language button, at the inline end of the actions row, switches between English and Arabic
+ * live (RELAY step 12b): the focus stays on it.
  */
 
 /** Sizes, all layout constants (no DOM measuring). gallery.css uses the same numbers. */
@@ -52,10 +54,13 @@ export interface Gallery {
   /** The channel the play dialog is about. */
   readonly playing: ReadonlySignal<number>;
   readonly exitRequested: ReadonlySignal<boolean>;
+  /** How many times the language button was pressed: odd shows the other language than the TV's. */
+  readonly languageSwitches: ReadonlySignal<number>;
 }
 
 const ZONES: ScreenSpec['zones'] = [
-  { kind: 'list', id: 'actions', axis: 'horizontal', count: ACTIONS.length, neighbours: { down: 'rail' } },
+  { kind: 'list', id: 'actions', axis: 'horizontal', count: ACTIONS.length, neighbours: { down: 'rail', end: 'language' } },
+  { kind: 'list', id: 'language', axis: 'horizontal', count: 1, neighbours: { start: 'actions', down: 'rail' } },
   {
     kind: 'list',
     id: 'rail',
@@ -82,6 +87,7 @@ export function createGallery(platform: Pick<Platform, 'rootBackPolicy' | 'exitA
   const selection = signal<Selection | null>(null);
   const playing = signal(0);
   const exitRequested = signal(false);
+  const languageSwitches = signal(0);
 
   const note = (zone: string, index: number): void => {
     selection.value = { zone, index, count: (selection.value?.count ?? 0) + 1 };
@@ -106,6 +112,10 @@ export function createGallery(platform: Pick<Platform, 'rootBackPolicy' | 'exitA
       initial: 'channels',
       onSelect: (focus) => {
         if (focus.zone === 'actions' && focus.index === DISABLED_ACTION) return;
+        if (focus.zone === 'language') {
+          languageSwitches.value += 1;
+          return;
+        }
         note(focus.zone, focus.index);
         if (focus.zone === 'rail') category.value = focus.index;
         else if (focus.zone === 'channels') openPlay(focus.index);
@@ -132,5 +142,5 @@ export function createGallery(platform: Pick<Platform, 'rootBackPolicy' | 'exitA
       });
     },
   });
-  return { nav, binding: bindFocus(nav), home: nav.top, category, selection, playing, exitRequested };
+  return { nav, binding: bindFocus(nav), home: nav.top, category, selection, playing, exitRequested, languageSwitches };
 }

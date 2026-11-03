@@ -8,7 +8,8 @@
  * runtime error, the Blob worker and an IndexedDB write/read in it, the data workers (refresh a
  * fixture playlist served in the container, then search it), and remote keys → intents. Then
  * the component gallery (`?screen=gallery`): the layout at 1920x1080, the rows, the focus, the
- * fonts, and a screenshot (artifacts/engines/gallery-<engine>-<platform>.png).
+ * fonts, and a screenshot (artifacts/engines/gallery-<engine>-<platform>.png); then the same in
+ * Arabic after the language switch by keys, with the bidi probe (FSI/PDI) and `-ar.png`.
  *
  * Options:
  *   --engine chrome53|chrome56|chrome68   repeatable; default all
@@ -28,7 +29,7 @@ import { TV_RUNTIME_FLAGS, TV_SCREEN_FLAGS, selectEngines } from './src/engines'
 import { ensureEngineZip } from './src/fetch';
 import type { DataCheck } from './src/fixture';
 import { appUrl, stageFixtures } from './src/fixture';
-import type { GalleryRun } from './src/gallery';
+import type { BidiState, GalleryRun } from './src/gallery';
 import { evaluateGallery, galleryUrl, runGallery } from './src/gallery';
 import type { PlatformRun, TvPlatform } from './src/scenario';
 import { TV_PLATFORMS, evaluateRun, runPlatform } from './src/scenario';
@@ -54,8 +55,11 @@ interface RunReport {
   readonly search: string | null;
   readonly guide: string | null;
   readonly nowNext: string | null;
-  /** The gallery's screenshot, relative to the repo (app variant only). */
+  /** The gallery's screenshots, relative to the repo (app variant only). */
   readonly screenshot: string | null;
+  readonly arabicScreenshot: string | null;
+  /** The gallery's bidi probe in Arabic: the isolation's width and run order (null on the hello screen). */
+  readonly bidi: BidiState | null;
   readonly failures: readonly string[];
   readonly mustPass: boolean;
   readonly durationMs: number;
@@ -72,19 +76,25 @@ function dataSummary(run: PlatformRun): string {
   return `  data: ${boot.ingestItems ?? '?'} items${gzip}${hits}${guide}${onAir}`;
 }
 
-/** `7 rows of 88 px; gallery-chrome53-tizen.png` for the log. */
+/** `7 rows of 88 px; gallery-chrome53-tizen.png; Arabic: isolation +0 px, gallery-chrome53-tizen-ar.png` for the log. */
 function gallerySummary(run: GalleryRun): string {
   const rows = run.boot?.rows ?? [];
   if (rows.length === 0) return '';
   const heights = [...new Set(rows)].join('/');
-  return `  ${rows.length} rows of ${heights} px${run.screenshot === null ? '' : `; ${path.basename(run.screenshot)}`}`;
+  const shot = run.screenshot === null ? '' : `; ${path.basename(run.screenshot)}`;
+  const bidi = run.bidi === null ? '' : `; Arabic: isolation +${Math.round((run.bidi.isolated - run.bidi.plain) * 10) / 10} px`;
+  const arabicShot = run.arabicScreenshot === null ? '' : `, ${path.basename(run.arabicScreenshot)}`;
+  return `  ${rows.length} rows of ${heights} px${shot}${bidi}${arabicShot}`;
 }
+
+/** A path relative to the repo, with forward slashes. */
+const repoPath = (file: string | null): string | null => (file === null ? null : path.relative(ROOT, file).split(path.sep).join('/'));
 
 interface Outcome {
   readonly failures: string[];
   readonly durationMs: number;
   readonly summary: string;
-  readonly fields: Pick<RunReport, 'userAgent' | 'refresh' | 'search' | 'guide' | 'nowNext' | 'screenshot'>;
+  readonly fields: Pick<RunReport, 'userAgent' | 'refresh' | 'search' | 'guide' | 'nowNext' | 'screenshot' | 'arabicScreenshot' | 'bidi'>;
 }
 
 async function runHello(client: CdpClient, engine: Engine, variant: Variant, platform: TvPlatform, check: DataCheck): Promise<Outcome> {
@@ -103,6 +113,8 @@ async function runHello(client: CdpClient, engine: Engine, variant: Variant, pla
       guide: run.boot?.epg ?? null,
       nowNext: run.boot?.nowNext ?? null,
       screenshot: null,
+      arabicScreenshot: null,
+      bidi: null,
     },
   };
 }
@@ -126,7 +138,9 @@ async function runGalleryScreen(client: CdpClient, engine: Engine, variant: Vari
       search: null,
       guide: null,
       nowNext: null,
-      screenshot: run.screenshot === null ? null : path.relative(ROOT, run.screenshot).split(path.sep).join('/'),
+      screenshot: repoPath(run.screenshot),
+      arabicScreenshot: repoPath(run.arabicScreenshot),
+      bidi: run.bidi,
     },
   };
 }

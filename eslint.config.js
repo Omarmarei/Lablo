@@ -69,6 +69,102 @@ const restrictGlobals = (names) => {
 const TIZEN_GLOBALS = ['tizen', 'webapis'];
 const WEBOS_GLOBALS = ['webOS', 'PalmSystem'];
 
+/**
+ * Props whose strings people read: the components' text props (packages/ui/src/components)
+ * and the HTML attributes a screen reader or a tooltip shows.
+ */
+const TEXT_PROPS = new Set([
+  'label',
+  'title',
+  'subtitle',
+  'message',
+  'placeholder',
+  'nextLabel',
+  'alt',
+  'aria-label',
+  'aria-description',
+  'aria-placeholder',
+  'aria-roledescription',
+  'aria-valuetext',
+]);
+const LETTER = /\p{L}/u;
+
+/**
+ * `zoma/no-hard-coded-text` (RELAY step 12b, ADR-011): every string of ours comes from the
+ * catalogs in apps/tv/src/i18n through `t()`. It reports JSX text with letters, and string or
+ * template literals with letters in a text prop or a child expression, including both sides of
+ * `?:`, `&&`/`||` and `+`. A call's arguments are never text (`t('action.play')` is a key).
+ * Exempt: an element with `translate="no"`/`translate={false}` and everything inside it (the
+ * provider's names and our technical marks), and an element with a bare `data` prop (`<Badge
+ * label="HD" data />`) and its children.
+ * @type {import('eslint').Rule.RuleModule}
+ */
+const noHardCodedText = {
+  meta: {
+    type: 'problem',
+    docs: { description: 'UI text comes from the i18n catalogs, never from string literals in JSX.' },
+    messages: {
+      text: 'Hard-coded UI text "{{text}}": add it to apps/tv/src/i18n (en.ts and ar.ts) and use t(). The provider\'s text and technical marks go under translate={false} or a `data` prop.',
+    },
+    schema: [],
+  },
+  create(context) {
+    /** @param {any} attribute */
+    const exempting = (attribute) => {
+      if (attribute.type !== 'JSXAttribute' || attribute.name.type !== 'JSXIdentifier') return false;
+      const value = attribute.value;
+      const literal = value?.type === 'JSXExpressionContainer' ? value.expression : value;
+      if (attribute.name.name === 'data') return value === null || (literal?.type === 'Literal' && literal.value === true);
+      if (attribute.name.name === 'translate') return literal?.type === 'Literal' && (literal.value === 'no' || literal.value === false);
+      return false;
+    };
+    /** @param {any} node */
+    const exempt = (node) => {
+      for (let n = node; n; n = n.parent) {
+        if (n.type === 'JSXElement' && n.openingElement.attributes.some(exempting)) return true;
+      }
+      return false;
+    };
+    /** @param {any} node @param {string} text */
+    const report = (node, text) => {
+      if (LETTER.test(text) && !exempt(node)) {
+        const short = text.trim().replace(/\s+/g, ' ');
+        context.report({ node, messageId: 'text', data: { text: short.length > 40 ? `${short.slice(0, 40)}…` : short } });
+      }
+    };
+    /** The strings an expression can show: literals, through `?:`, `&&`, `||`, `??` and `+`. @param {any} node */
+    const check = (node) => {
+      if (node === null || node === undefined) return;
+      if (node.type === 'Literal' && typeof node.value === 'string') report(node, node.value);
+      else if (node.type === 'TemplateLiteral') {
+        report(node, node.quasis.map((/** @type {any} */ q) => q.value.cooked ?? q.value.raw).join(' '));
+        node.expressions.forEach(check);
+      } else if (node.type === 'ConditionalExpression') {
+        check(node.consequent);
+        check(node.alternate);
+      } else if (node.type === 'LogicalExpression' || (node.type === 'BinaryExpression' && node.operator === '+')) {
+        check(node.left);
+        check(node.right);
+      } else if (node.type === 'TSAsExpression' || node.type === 'TSNonNullExpression') check(node.expression);
+    };
+    return {
+      /** @param {any} node */
+      JSXText(node) {
+        report(node, node.value);
+      },
+      /** @param {any} node */
+      JSXAttribute(node) {
+        if (node.name.type !== 'JSXIdentifier' || !TEXT_PROPS.has(node.name.name) || node.value === null) return;
+        check(node.value.type === 'JSXExpressionContainer' ? node.value.expression : node.value);
+      },
+      /** A child `{'text'}` or `{ok ? 'Yes' : 'No'}`. @param {any} node */
+      JSXExpressionContainer(node) {
+        if (node.parent?.type === 'JSXElement' || node.parent?.type === 'JSXFragment') check(node.expression);
+      },
+    };
+  },
+};
+
 export default defineConfig(
   {
     ignores: [
@@ -137,6 +233,20 @@ export default defineConfig(
   {
     files: ['packages/platform-webos/**'],
     rules: restrictGlobals(TIZEN_GLOBALS),
+  },
+  {
+    // UI text only from the catalogs (RELAY step 12b, ADR-011). Tests, e2e and test/ may hold any text.
+    files: ['apps/**/*.tsx', 'packages/**/*.tsx'],
+    ignores: ['**/*.test.tsx', '**/test/**'],
+    plugins: { zoma: { rules: { 'no-hard-coded-text': noHardCodedText } } },
+    rules: { 'zoma/no-hard-coded-text': 'error' },
+  },
+  {
+    // The hello screen: English developer diagnostics (worker, IndexedDB and data-engine status)
+    // until steps 13 and 14 replace it with onboarding and the live screen. Step 13 removes this
+    // exemption.
+    files: ['apps/tv/src/App.tsx', 'apps/tv/src/DataPanel.tsx', 'apps/tv/src/FocusPanel.tsx'],
+    rules: { 'zoma/no-hard-coded-text': 'off' },
   },
   {
     rules: {

@@ -5,7 +5,7 @@ import type { PluralCategory } from '@zoma/core';
  * TV app's sentences and the `pseudoLocalize` brace rule (text at an even brace depth is text):
  *
  * - `{name}`: an argument. A string is the provider's text or another message, and the runtime
- *   isolates it (FSI…PDI); a number is formatted in the locale's digits.
+ *   isolates it (core's isolateText: FSI…PDI plus marks); a number is formatted in the locale's digits.
  * - `{n, number}`: a number argument, said explicitly.
  * - `{n, plural, =0 {…} zero {…} one {…} two {…} few {…} many {…} other {…}}`: the branch for
  *   an exact `=N` first, then the plural category, then `other` (required). `#` in a branch is

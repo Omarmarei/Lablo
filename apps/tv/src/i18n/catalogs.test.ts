@@ -1,10 +1,10 @@
-import { PLURAL_CATEGORIES } from '@zoma/core';
-import { messageArguments, parseMessage, pluralBranches, pseudoLocalize, stripIsolates } from '@zoma/ui';
+import { PLURAL_CATEGORIES, stripIsolates } from '@zoma/core';
+import { messageArguments, parseMessage, pluralBranches, pseudoLocalize, resolveLocale } from '@zoma/ui';
 import { describe, expect, it } from 'vitest';
 import { AR } from './ar';
 import type { MessageKey } from './en';
 import { EN } from './en';
-import { CATALOGS, appI18n } from './index';
+import { CATALOGS, LANGUAGE_NAMES, appI18n, otherLanguage, switchedTag } from './index';
 
 const KEYS = Object.keys(EN) as MessageKey[];
 const ARABIC_LETTER = /[\u0621-\u064a]/;
@@ -65,5 +65,25 @@ describe('the catalogs', () => {
     for (const key of KEYS) {
       expect(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/.test(EN[key] + AR[key]), key).toBe(false);
     }
+  });
+});
+
+describe('the language switch', () => {
+  it('names each language in its own script', () => {
+    expect(LANGUAGE_NAMES.en).toBe('English');
+    expect(ARABIC_LETTER.test(LANGUAGE_NAMES.ar) && !LATIN_LETTER.test(LANGUAGE_NAMES.ar)).toBe(true);
+  });
+
+  it.each([
+    ['ar-SA', null, 'en-SA'],
+    ['en-SA', null, 'ar-SA'],
+    ['en-US', null, 'ar-US'],
+    ['ar', 'AE', 'en-AE'],
+    ['ar', null, 'en'],
+    ['en-XA', 'SA', 'ar'],
+  ])('switches %s (TV country %s) to %s, keeping the region', (tag, country, expected) => {
+    const locale = appI18n(resolveLocale(tag, { country })).locale;
+    expect(switchedTag(locale)).toBe(expected);
+    expect(otherLanguage(locale.language)).toBe(expected.slice(0, 2));
   });
 });

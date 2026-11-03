@@ -290,6 +290,9 @@ importers:
 
   tools/engines:
     dependencies:
+      '@zoma/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       acorn:
         specifier: ^8.19.0
         version: 8.19.0

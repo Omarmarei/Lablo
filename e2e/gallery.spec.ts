@@ -2,6 +2,9 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
+import { isolateText } from '../packages/core/src/bidi';
+import type { BidiState } from '../tools/engines/src/gallery';
+import { BIDI_EXPRESSION, bidiFailures } from '../tools/engines/src/gallery';
 import { ARABIC_FACE, LATIN_FACE, renderedFontsUnder } from './fonts';
 
 /**
@@ -14,9 +17,9 @@ const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
 /** The 1920x1080 canvas less its 5% title-safe margins. */
 const SAFE = { left: 96, top: 54, right: 1824, bottom: 1026 };
 
-/** How the i18n runtime puts text into a sentence: between FSI and PDI (bidi isolates). */
+/** How the i18n runtime puts text into an English sentence: FSI/PDI plus marks (core's isolateText). */
 function isolated(text: string): string {
-  return String.fromCharCode(0x2068) + text + String.fromCharCode(0x2069);
+  return isolateText(text, 'ltr');
 }
 
 function trackErrors(page: Page): string[] {
@@ -119,8 +122,10 @@ test.describe('the component gallery (pnpm dev, ?screen=gallery)', () => {
       for (const selector of ['.z-button', '.z-chip', '.z-row', '.z-tile', '.z-progress', '.z-spinner', '.z-badge']) {
         await expect(page.locator(selector).first(), selector).toBeVisible();
       }
-      await expect(page.locator('.z-button')).toHaveCount(4);
+      // The four actions and the language switch, which offers the other language by its own name.
+      await expect(page.locator('.z-button')).toHaveCount(5);
       await expect(page.locator('.z-button.is-disabled')).toHaveCount(1);
+      await expect(page.getByTestId('language')).toHaveText(language === 'ar' ? 'English' : 'العربية');
       await expect(page.locator('.z-tile')).toHaveCount(6);
       // The virtual lists draw only their windows: 7 of 240 channels, 6 of 9 categories.
       await expect(page.locator('[data-testid=channels] .z-row')).toHaveCount(7);
@@ -212,6 +217,84 @@ test.describe('the component gallery (pnpm dev, ?screen=gallery)', () => {
       await expect(page.getByTestId('exit-dialog')).toBeVisible();
       expect(before(await box(page.getByTestId('dialog-0')), await box(page.getByTestId('dialog-1')))).toBe(true);
     }
+  });
+
+  test('switches the language live by keys, with no reload, and keeps the focus on the switch', async ({ page }) => {
+    const errors = trackErrors(page);
+    const gallery = await openGallery(page, 'en-US');
+    const html = page.locator('html');
+    const button = page.getByTestId('language');
+    // A reload would drop this.
+    await page.evaluate(() => Object.assign(window, { zomaSamePage: true }));
+    // From the first channel: UP to the rail, UP to the actions, RIGHT past Record to the switch.
+    for (const key of ['ArrowUp', 'ArrowUp', 'ArrowRight', 'ArrowRight', 'ArrowRight', 'ArrowRight']) await page.keyboard.press(key);
+    await expect(gallery).toHaveAttribute('data-zone', 'language');
+    await expect(button).toHaveAttribute('data-state', 'focused');
+    await expect(button.locator('.z-button__label')).toHaveAttribute('lang', 'ar');
+    await expect(button.locator('.z-button__label')).toHaveAttribute('translate', 'no');
+
+    await page.keyboard.press('Enter');
+    await expect(html).toHaveAttribute('dir', 'rtl');
+    await expect(html).toHaveAttribute('lang', 'ar-US');
+    await expect(gallery).toHaveAttribute('data-language', 'ar');
+    await expect(gallery).toHaveAttribute('data-dir', 'rtl');
+    await expect(page.locator('.gallery__title')).toHaveText('المكوّنات');
+    await expect(gallery).toContainText('240 قناةً');
+    await expect(button).toHaveText('English');
+    // The focus stayed put, and the layout mirrored around it: the switch is now at the left end.
+    await expect(gallery).toHaveAttribute('data-zone', 'language');
+    await expect(gallery).toHaveAttribute('data-index', '0');
+    await expect(button).toHaveAttribute('data-state', 'focused');
+    expect((await box(page.getByTestId('channels'))).x).toBeGreaterThan((await box(page.getByTestId('tile-0'))).x);
+    expect((await box(page.getByTestId('action-0'))).x).toBeGreaterThan((await box(page.getByTestId('action-3'))).x);
+    expect((await box(button)).x).toBeLessThan((await box(page.getByTestId('action-3'))).x);
+    expect(await layout(page)).toEqual({ scroll: [1920, 1080], outside: [], cut: [], squeezed: [] });
+    await page.screenshot({ path: path.join(SHOTS, 'gallery-switched-ar.png'), animations: 'disabled' });
+
+    // The remote's LEFT and RIGHT mirrored with it: RIGHT now goes back towards the actions.
+    await page.keyboard.press('ArrowRight');
+    await expect(gallery).toHaveAttribute('data-zone', 'actions');
+    await expect(page.getByTestId('action-3')).toHaveAttribute('data-state', 'focused');
+    await page.keyboard.press('ArrowLeft');
+    await expect(button).toHaveAttribute('data-state', 'focused');
+
+    // And back to English, the TV's own locale.
+    await page.keyboard.press('Enter');
+    await expect(html).toHaveAttribute('dir', 'ltr');
+    await expect(html).toHaveAttribute('lang', 'en-US');
+    await expect(gallery).toHaveAttribute('data-language', 'en');
+    await expect(gallery).toContainText('240 channels');
+    await expect(button).toHaveText('العربية');
+    await expect(button).toHaveAttribute('data-state', 'focused');
+    expect((await box(page.getByTestId('channels'))).x).toBeLessThan((await box(page.getByTestId('tile-0'))).x);
+    await page.keyboard.press('ArrowLeft');
+    await expect(page.getByTestId('action-3')).toHaveAttribute('data-state', 'focused');
+    expect(await page.evaluate(() => (window as { zomaSamePage?: boolean }).zomaSamePage)).toBe(true);
+    expect(errors).toEqual([]);
+  });
+
+  test('switches from Arabic to English in the TV’s region, and from en-XA to Arabic', async ({ page }) => {
+    for (const [locale, tag, language] of [
+      ['ar-SA', 'en-SA', 'en'],
+      ['en-XA', 'ar', 'ar'],
+    ] as const) {
+      const gallery = await openGallery(page, locale);
+      await page.getByTestId('language').click();
+      await expect(page.locator('html')).toHaveAttribute('lang', tag);
+      await expect(gallery).toHaveAttribute('data-language', language);
+      await expect(gallery).toHaveAttribute('data-zone', 'language');
+      await expect(page.locator('.gallery__meta')).toContainText(tag);
+    }
+  });
+
+  test('isolates text arguments in current Chromium too (the old-engine harness’s bidi probe)', async ({ page }) => {
+    await openGallery(page, 'ar-SA');
+    const children = (): Promise<number> => page.locator('.gallery > *').count();
+    const before = await children();
+    const bidi = JSON.parse(await page.evaluate<string>(BIDI_EXPRESSION)) as BidiState;
+    expect(bidiFailures(bidi)).toEqual([]);
+    // The probe cleaned up after itself.
+    expect(await children()).toBe(before);
   });
 
   test('scrolls the virtual lists with the keys and the wheel', async ({ page }) => {

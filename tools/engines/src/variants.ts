@@ -9,7 +9,7 @@
  *   (in the worker) is missing before Chromium 54, `padStart` before 57 and `queueMicrotask`
  *   (used by the app's dependencies) before 71, so it fails on every engine we run. Only on
  *   the hello screen: the gallery needs no polyfill at all, and passes without core-js on
- *   Chromium 53, 56 and 68 (step 11c, 2026-11-03).
+ *   Chromium 53, 56 and 68 (step 11c, 2026-11-03), its Arabic phase included (step 12b).
  * - two CSS seeds (step 11c), the real app with part of app.css taken out, caught by the
  *   gallery's layout checks on every engine: ListRow.css's rules (the channel rows lose their
  *   88 px height), and the gallery's title-safe padding (its components touch the edges).

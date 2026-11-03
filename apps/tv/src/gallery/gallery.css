@@ -65,6 +65,12 @@
   margin-left: var(--space-4);
 }
 
+/* The language switch sits at the row's inline end (after the * + * rule, which it overrides). */
+.gallery__actions > .gallery__language {
+  flex: none;
+  margin-left: auto;
+}
+
 .gallery__rail {
   flex: none;
   margin-bottom: var(--space-6);

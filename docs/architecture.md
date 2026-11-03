@@ -233,7 +233,7 @@ Off-the-shelf libraries such as Norigin measure the DOM on every move. That figh
   - It fits `pseudoLocalize`'s brace rule: en-XA accents the branch texts and keeps the syntax.
   - A broken message shows as written, and a missing argument as `{name}`, so neither throws on a TV.
 - **The runtime** (`createI18n(catalogs, locale)` → `I18n`): `t(key, args)`, `number`, `percent`, `time`, `weekday`, `date` (`day`/`full`) and `duration`. One `I18n` per locale; it parses each message once. A missing translation falls back to English.
-  - **Text arguments are isolated** between FSI (U+2068) and PDI (U+2069), as Fluent does, so a Latin channel name keeps its direction inside an Arabic sentence. Numbers aren't isolated.
+  - **Text arguments are isolated** between FSI (U+2068) and PDI (U+2069), as Fluent does, so a Latin channel name keeps its direction inside an Arabic sentence. Numbers aren't isolated. Step 12b added the marks the TVs' old engines need (below).
   - en-XA runs the English catalog through `pseudoLocalize`; the arguments stay as they are.
 - **Locale settings** (`resolveLocale(tag, { country, digits, hourCycle })`): the catalog language (Arabic, else English), the direction from that language (a Hebrew TV gets English left to right), the region (from the tag, else the TV's country), the digits, the hour cycle and the date order.
 - **Formats** (`format.ts`) are ours, not `Intl`'s: the TVs' ICU is old and may be cut down (Chromium 53's CLDR gave ar-SA the Hijri calendar). Gregorian calendar, the TV's time zone.
@@ -247,6 +247,25 @@ Off-the-shelf libraries such as Norigin measure the DOM on every move. That figh
 - **The gallery runs on it.** `gallery-text.ts` is gone. The gallery shows the plural channel count (`240 channels`, `240 قناةً`), the expiry badge (`Expires in 3 days`, `ينتهي خلال 3 أيام`), the percent and the media times from the formatters, and the selected item and the play dialog's channel name are isolated.
 - **Size:** main's own code 121.2 → about 130 KB (tizen) of 500, with no new polyfill. `split` (about 2 KB) and `new RegExp` (about 7 KB of core-js) were avoided.
 - **Left for step 12b:** the lint against hard-coded strings, the live language switch, and how Chromium 53/56/68 draw the isolates.
+
+**Built in step 12b: the lint, the language switch, and Arabic on the old engines** ([ADR-011](adr/ADR-011-i18n-runtime-and-digits.md), "Isolation on the TVs' engines"):
+- **The lint** `zoma/no-hard-coded-text` (a local rule in `eslint.config.js`, no plugin) runs on every `.tsx` in `apps/` and `packages/` except tests.
+  - It reports JSX text with letters, and string or template literals with letters in a text prop (`label`, `title`, `subtitle`, `message`, `placeholder`, `nextLabel`, `alt`, `aria-label` and the other ARIA text) or in a child expression, through `?:`, `&&`, `||`, `??` and `+`. A call's arguments aren't text: `t('action.play')` passes.
+  - Exempt: an element with `translate="no"` or `translate={false}`, or a bare `data` prop, and everything inside it (the provider's names and technical marks such as `HD`).
+  - `test/lint-text.test.ts` lints seeded TSX through the ESLint API: 14 hard-coded forms are caught and 9 allowed forms pass.
+  - The hello screen (`App.tsx`, `DataPanel.tsx`, `FocusPanel.tsx`, 29 developer diagnostics) is exempt in `eslint.config.js` until step 13 replaces it. Step 13 removes the exemption.
+  - What a lint can't see (a string in a variable) is still caught at run time by the e2e en-XA check: any visible text of ours without the pseudo-locale's brackets.
+- **The language switch** is on the gallery for now (there is no settings screen yet). It is a button at the inline end of the actions row (zone `language`, RIGHT from Record): a globe and the other language under its own name (`LANGUAGE_NAMES`: "English" / "العربية", with `lang` and never translated: `Button`'s new `lang` prop).
+  - OK (or a Magic Remote click) counts a press in `gallery.languageSwitches`. `GalleryApp` subscribes to it, and on each press swaps the `I18n`, sets `lang` and `dir` on `<html>` and calls `nav.setDir` before the next key is handled. Nothing reloads: the navigator, and with it the focus and the lists' windows, stays as it was.
+  - An odd count shows the other language in the TV's region (`switchedTag`: ar-SA ↔ en-SA; en-XA and a tag without a region give the bare language), so the formats keep the region's.
+  - e2e: by keys in the dev app and in both TV bundles (the switch is the only way to Arabic there, since the TV adapters take `navigator.language`). They check `html[dir]`, `lang`, the catalog, the mirrored positions, the focus staying on the switch, the mirrored LEFT/RIGHT, and no reload.
+- **Arabic on Chromium 53, 56 and 68.** The old-engine harness now switches every gallery run to Arabic by keys (ArrowUp ×3, ArrowRight ×4, Enter), then checks the switch, the focus, the same layout (7 rows of 88 px, everything in the safe area, nothing cut, no scrolling), the mirror (the channel list on the right), the plural `240 قناةً` and the fonts. It saves a second screenshot (`gallery-<engine>-<platform>-ar.png`). All of it passed on the first run.
+- **Finding: the old engines ignore bidi isolates.** Chromium 53, 56 and 68 draw FSI/PDI at zero width (no tofu), but treat them as if they weren't there. In an RTL line, a Latin name ending in a digit followed by a count (`MBC 1 · 240 قناة`) joined the count to its run (rule W7), and a name starting with a digit (`1 Zoma`) split, exactly as without isolates. Current Chromium (156) isolates correctly. The harness measures this with `Range` rects in the gallery's font.
+  - They honour LRM and RLM. So `isolateText` (now in `core/src/bidi.ts`) wraps each text argument as `outer + inner + FSI + text + PDI + inner + outer`. `inner` is the text's first-strong direction and `outer` is the sentence's.
+  - With the inner mark inside the isolate, Chromium 53 still split the leading digit. Placed outside, both lines are right on 53, 56, 68 and current Chromium, and nothing is wider.
+  - `firstStrongDirection` approximates the UAX #9 classes with code-point ranges (no RegExp in TV code). A test sweeps every BMP letter against its Unicode script; letterlike symbols and CJK punctuation-block letters count as neutral.
+  - The harness's bidi probe builds its lines with the real `isolateText`. Each check has a control without isolation, which must show the problem, so the probe can't pass vacuously. e2e runs the same probe in current Chromium.
+- **Size:** main's own code about 130 → 132.0 KB (tizen) of 500, with no new polyfill.
 
 **State:**
 - Signals hold UI and session state.

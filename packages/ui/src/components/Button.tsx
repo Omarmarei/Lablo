@@ -11,9 +11,14 @@ export interface ButtonProps extends FocusableProps {
   readonly disabled?: boolean;
   /** An inline SVG before the label (Zoma Sans has no arrows or symbols). */
   readonly icon?: ComponentChildren;
+  /**
+   * The label's language when it isn't the screen's: a language's own name on a language switch
+   * ("English" on the Arabic screen). The label gets `lang` and is never translated.
+   */
+  readonly lang?: string;
 }
 
-export function Button({ label, variant = 'secondary', disabled = false, icon, state, onHover, onPress, testId }: ButtonProps) {
+export function Button({ label, variant = 'secondary', disabled = false, icon, lang, state, onHover, onPress, testId }: ButtonProps) {
   const base = `z-button z-button--${variant}${disabled ? ' is-disabled' : ''}`;
   return (
     <div
@@ -26,7 +31,9 @@ export function Button({ label, variant = 'secondary', disabled = false, icon, s
       onClick={disabled ? undefined : onPress}
     >
       {icon !== undefined && <span class="z-button__icon">{icon}</span>}
-      <span class="z-button__label">{label}</span>
+      <span class="z-button__label" lang={lang} translate={lang === undefined ? undefined : false}>
+        {label}
+      </span>
     </div>
   );
 }
