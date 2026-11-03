@@ -22,10 +22,16 @@ import { budgetFailures, summarize } from './remote-keys';
  */
 const CHANNELS = 20_000;
 const CATEGORIES = 200;
-const THROTTLE = 4;
+/** `ZOMA_E2E_THROTTLE` overrides it, to see the margins on a slower machine. */
+const THROTTLE = Number(process.env['ZOMA_E2E_THROTTLE'] ?? 4);
 /** The rows the list shows (`CHANNELS_VISIBLE`): CH+/CH− move by a window. */
 const VISIBLE = 9;
-const BUDGET: PressBudget = { pressMs: 150, longTaskMs: 100 };
+/**
+ * Each press within spike S6's key-press threshold for the 2018 TVs (architecture.md §5), and no
+ * main-thread task longer than that, so a key pressed at any moment waits at most as long. The
+ * CI runner at 4x is about twice as slow as a desktop at 4x (its slowest press was 121 ms).
+ */
+const BUDGET: PressBudget = { pressMs: 200, longTaskMs: 200 };
 const REPORT = path.resolve(import.meta.dirname, '../artifacts/perf');
 
 const catalog = bigCatalog({ channels: CHANNELS, categories: CATEGORIES });
@@ -59,18 +65,21 @@ async function throttle(page: Page, rate: number): Promise<() => Promise<void>> 
   };
 }
 
-/** A fixed piece of work in the page, in ms (the fastest of three): it takes longer once throttled. */
+/**
+ * A fixed piece of work in the page, in ms: it takes longer once throttled. Five runs in total:
+ * the throttle suspends the main thread in slices, and one short run can fall between them.
+ */
 function busyMs(page: Page): Promise<number> {
   return page.evaluate(() => {
-    let best = Infinity;
-    for (let run = 0; run < 3; run++) {
+    let total = 0;
+    for (let run = 0; run < 5; run++) {
       const start = performance.now();
       let x = 0;
       for (let i = 0; i < 2_000_000; i++) x += Math.sqrt(i);
       (window as unknown as { __zomaSink: number }).__zomaSink = x;
-      best = Math.min(best, performance.now() - start);
+      total += performance.now() - start;
     }
-    return best;
+    return total;
   });
 }
 
@@ -93,10 +102,18 @@ interface Run {
 /**
  * The keys of a viewer zapping through a large list, timed at 4x throttle: down the list, page
  * by page (each window reads its chunks), to the rail and down it past what it shows, OK on a
- * category, Back, and into the list again.
+ * category, Back, and into the list again. Each tier starts the app afresh with the source
+ * stored (a TV's usual start), so both runs begin alike.
  */
-async function zap(remote: RemoteDriver, root: Locator, tier: string): Promise<Run> {
+async function zap(remote: RemoteDriver, root: Locator, tier: 'full' | 'low'): Promise<Run> {
   const { page } = remote;
+  await page.goto(tier === 'low' ? '/?locale=en-US&tier=low' : '/?locale=en-US');
+  await expect(root).toHaveAttribute('data-status', 'ready');
+  await expect(page.locator('html')).toHaveAttribute('data-tier', tier);
+  await remote.expectFocus('live/channels/0');
+  await settled(root, 30_000);
+  // The tier's motion: a row's focus transition, none on the low tier.
+  expect(await rowTransition(page)).toBe(tier === 'low' ? '0s, 0s' : '0.12s, 0.12s');
   remote.timings.length = 0;
   const base = await busyMs(page);
   const release = await throttle(page, THROTTLE);
@@ -129,8 +146,6 @@ test.describe('the live screen at 4x CPU throttle on a large catalog', () => {
     const root = await addXtreamAndWatch(remote, { host, username: U, password: P }, 'locale=en-US', 120_000);
     await settled(root, 30_000);
     await expect(page.getByTestId('live-meta').locator('[data-n]')).toHaveAttribute('data-n', String(CHANNELS));
-    await expect(page.locator('html')).toHaveAttribute('data-tier', 'full');
-    expect(await rowTransition(page)).toBe('0.12s, 0.12s');
 
     const runs: Run[] = [await zap(remote, root, 'full')];
     // The rows on show after the run: the panel's numbers, names and now/next.
@@ -140,20 +155,17 @@ test.describe('the live screen at 4x CPU throttle on a large catalog', () => {
     await expect(first.locator('.z-row__next .z-row__title')).toHaveText(/\S/);
 
     // The forced low tier: the same source, motion off.
-    await page.goto('/?locale=en-US&tier=low');
-    await expect(page.getByTestId('live')).toHaveAttribute('data-status', 'ready');
-    await expect(page.locator('html')).toHaveAttribute('data-tier', 'low');
-    await remote.expectFocus('live/channels/0');
-    await settled(root, 30_000);
-    expect(await rowTransition(page)).toBe('0s, 0s');
     runs.push(await zap(remote, root, 'low'));
 
     const report = runs.map((r) => ({ tier: r.tier, slowdown: Number(r.slowdown.toFixed(1)), ...summarize(r.presses), longTasks: r.longTasks.map(Math.round), presses: r.presses.map((p) => [p.label, Math.round(p.ms)]) }));
     writeFileSync(path.join(REPORT, 'live-throttled.json'), `${JSON.stringify(report, null, 2)}\n`);
-    for (const r of report) console.log(`[${r.tier} tier, CPU ${r.slowdown}x slower] ${r.count} presses: median ${r.median.toFixed(0)} ms, p95 ${r.p95.toFixed(0)} ms, max ${r.max.toFixed(0)} ms; long tasks ${r.longTasks.join(', ') || 'none'}`);
+    for (const r of report) {
+      const slowest = [...r.presses].sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 5).map(([label, ms]) => `${label} ${ms} ms`);
+      console.log(`[${r.tier} tier, CPU ${r.slowdown}x slower] ${r.count} presses: median ${r.median.toFixed(0)} ms, p95 ${r.p95.toFixed(0)} ms, max ${r.max.toFixed(0)} ms; long tasks ${r.longTasks.join(', ') || 'none'}; slowest: ${slowest.join('; ')}`);
+    }
     for (const run of runs) {
-      // The throttle was on: the same work ran at least 2.5 times slower.
-      expect(run.slowdown, `${run.tier} tier`).toBeGreaterThan(2.5);
+      // The throttle was on: the same work ran at least twice as slow (about 4x on a quiet machine).
+      expect(run.slowdown, `${run.tier} tier`).toBeGreaterThan(2);
       expect(budgetFailures(run.presses, run.longTasks, BUDGET), `${run.tier} tier`).toEqual([]);
     }
     expect(errors).toEqual([]);
@@ -187,8 +199,8 @@ test.describe('the key-press budget can fail', () => {
     expect(ms).toBeGreaterThanOrEqual(250);
     const failures = budgetFailures(remote.timings, await remote.longTasks(), BUDGET);
     expect(failures).toHaveLength(2);
-    expect(failures[0]).toMatch(/^DOWN to gallery\/channels\/2: \d+ ms, over the 150 ms budget$/);
-    expect(failures[1]).toMatch(/^1 long task over 100 ms: \d+ ms$/);
+    expect(failures[0]).toBe(`DOWN to gallery/channels/2: ${Math.round(ms)} ms, over the ${BUDGET.pressMs} ms budget`);
+    expect(failures[1]).toMatch(new RegExp(`^1 long task over ${BUDGET.longTaskMs} ms: \\d+ ms$`));
   });
 
   test('a press is timed only once the focus is where it should be', async ({ page }) => {
