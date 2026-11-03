@@ -6,8 +6,8 @@ import { LANGUAGES } from './onboarding-state';
 
 /**
  * Where the app starts (RELAY step 13b): onboarding until a source is stored, then the app
- * itself (the hello screen until step 14's live screen). A start that didn't finish onboarding
- * comes back in the language picked then.
+ * itself (the live screen, step 14a). A start that didn't finish onboarding comes back in the
+ * language picked then.
  */
 
 export interface StartPoint {

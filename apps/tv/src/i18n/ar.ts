@@ -111,4 +111,13 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'done.movies': '{n, plural, zero {لا توجد أفلام} one {فيلم واحد} two {فيلمان} few {# أفلام} many {# فيلمًا} other {# فيلم}}',
   'done.series': '{n, plural, zero {لا توجد مسلسلات} one {مسلسل واحد} two {مسلسلان} few {# مسلسلات} many {# مسلسلًا} other {# مسلسل}}',
   'done.start': 'ابدأ المشاهدة',
+
+  'live.title': 'البث المباشر',
+  'live.channels': '{n, plural, zero {لا توجد قنوات} one {قناة واحدة} two {قناتان} few {# قنوات} many {# قناةً} other {# قناة}}',
+  'live.noGroup': 'قنوات أخرى',
+  'live.loading': 'جارٍ تحميل قنواتك',
+  'live.empty': 'لا توجد قنوات مباشرة في مصادرك.',
+  'live.failed': 'تعذّرت قراءة قنواتك.',
+  'live.retry': 'إعادة المحاولة',
+  'badge.radio': 'إذاعة',
 };

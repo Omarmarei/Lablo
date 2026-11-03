@@ -9,6 +9,8 @@ import type { DataEngine } from './data/engine';
 import { readDebugParams, readScreen } from './data/params';
 import { createAppDataEngine } from './data/workers';
 import { createFocusDemo } from './focus-demo';
+import { LiveApp } from './live/LiveApp';
+import { createLive } from './live/live-state';
 import { GalleryApp } from './gallery/GalleryApp';
 import { createGallery } from './gallery/gallery-state';
 import { createEngineLoader } from './onboarding/engine-loader';
@@ -49,9 +51,17 @@ function showHello(into: Element): void {
 }
 
 /**
+ * The live screen (RELAY step 14a): the stored sources' channels, in the language picked in
+ * onboarding (`null`: the TV's).
+ */
+function showLive(into: Element, language: Language | null): void {
+  const live = createLive({ platform, engine: dataEngine() });
+  render(<LiveApp platform={platform} live={live} language={language} />, into);
+}
+
+/**
  * Onboarding (RELAY steps 13a and 13b): the source loads through the data engine, and every
- * answer goes into the profile as it is given. Until the live screen (step 14), "Start
- * watching" opens the hello screen.
+ * answer goes into the profile as it is given. "Start watching" opens the live screen.
  */
 function showOnboarding(into: Element, language: Language | null): void {
   const data = dataEngine();
@@ -78,8 +88,9 @@ function showOnboarding(into: Element, language: Language | null): void {
   });
   onboarding = started;
   const finish = (): void => {
+    const picked = started.language.peek();
     started.dispose();
-    showHello(into);
+    showLive(into, picked);
   };
   render(<OnboardingApp platform={platform} onboarding={started} onFinish={finish} />, into);
 }
@@ -100,7 +111,7 @@ if (screen === 'gallery') {
   );
   void readStartProfile(dataEngine()).then((profile) => {
     const start = startPoint(profile);
-    if (start.screen === 'home') showHello(root);
+    if (start.screen === 'home') showLive(root, start.language);
     else showOnboarding(root, start.language);
   });
 }

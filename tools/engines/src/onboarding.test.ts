@@ -40,8 +40,9 @@ function state(overrides: Partial<WalkState> = {}): WalkState {
     userAgent: UA53,
     bootError: '',
     onboarding: true,
-    hello: false,
-    helloIdle: false,
+    live: false,
+    liveIdle: false,
+    liveCount: null,
     screen: 'language',
     zone: 'languages',
     index: 0,
@@ -63,11 +64,11 @@ function state(overrides: Partial<WalkState> = {}): WalkState {
   };
 }
 
-/** The state a step leaves when it lands: its expectation, the done screen's counts after "Add source". */
+/** The state a step leaves when it lands: its expectation, the done screen's counts after "Add source", the live screen's channels. */
 function landed(step: WalkStep): WalkState {
   const base = state({ ...step.expect });
   if (step.id === 'add') return { ...base, counts: [2400, 600, 0] };
-  if (step.expect.hello === true) return { ...base, screen: null, zone: null, index: null, editing: null, language: null, onboarding: step.expect.onboarding ?? false };
+  if (step.expect.live === true) return { ...base, editing: null, onboarding: step.expect.onboarding ?? false, liveCount: 2400 };
   return base;
 }
 
@@ -88,7 +89,7 @@ function walk(language: WalkLanguage, overrides: Partial<Walk> = {}): Walk {
     steps: walkSteps(language, LINK).map((step) => record(step)),
     phases: ['checking', 'download', 'saving', 'guide'],
     profile: PROFILE[language],
-    screenshots: ['form.png', 'done.png'],
+    screenshots: ['form.png', 'done.png', 'live.png'],
     screenshotError: null,
     ...overrides,
   };
@@ -182,11 +183,13 @@ describe('walkSteps', () => {
     expect(steps.find((s) => s.id === 'end-edit')?.expect).toMatchObject({ editing: '', active: 'BODY', value: LINK, index: 1 });
   });
 
-  it('ends on the hello screen, then relaunches into it with no onboarding, leaving each only once its data rows have answered', () => {
-    const steps = walkSteps('en', LINK);
-    expect(steps.at(-2)?.expect).toEqual({ hello: true, helloIdle: true });
-    expect(steps.at(-1)).toMatchObject({ id: 'relaunch', navigate: true, expect: { hello: true, helloIdle: true, onboarding: false }, wait: 'boot' });
-    expect(steps.find((s) => s.id === 'add')).toMatchObject({ wait: 'load', shot: 'done', layout: 'done' });
+  it('ends on the live screen in the language picked, then relaunches into it with no onboarding, leaving each only once its data requests have answered', () => {
+    const live = { screen: 'live', zone: 'channels', index: 0, live: true, liveIdle: true };
+    expect(walkSteps('en', LINK).at(-2)).toMatchObject({ id: 'start-watching', shot: 'live', wait: 'boot' });
+    expect(walkSteps('en', LINK).at(-2)?.expect).toEqual({ ...live, language: 'en', dir: 'ltr' });
+    expect(walkSteps('ar', LINK).at(-2)?.expect).toEqual({ ...live, language: 'ar', dir: 'rtl' });
+    expect(walkSteps('ar', LINK).at(-1)).toMatchObject({ id: 'relaunch', navigate: true, expect: { ...live, language: 'ar', dir: 'rtl', onboarding: false }, wait: 'boot' });
+    expect(walkSteps('en', LINK).find((s) => s.id === 'add')).toMatchObject({ wait: 'load', shot: 'done', layout: 'done' });
   });
 
   it('measures the six screens of the e2e test on the way', () => {
@@ -219,6 +222,7 @@ describe('stepLanded', () => {
   it('gives up on a relaunch as soon as onboarding is ready: the start has decided', () => {
     const relaunch = walkSteps('en', LINK).at(-1)!;
     expect(stepStuck(relaunch, state({ onboarding: false, screen: null }))).toBe(false);
+    expect(stepStuck(relaunch, state({ onboarding: false, live: true, screen: 'live', zone: 'channels', index: 0 }))).toBe(false);
     expect(stepStuck(relaunch, state())).toBe(true);
     // Elsewhere a ready onboarding is where the walk is.
     expect(stepStuck(toAdd, state())).toBe(false);
@@ -234,13 +238,17 @@ describe('describeState and describeExpectation', () => {
     expect(describeExpectation({ screen: 'consent', index: 1 })).toBe('consent · * 1');
   });
 
-  it('name the hello screen, a boot error and a failed load', () => {
-    expect(describeState(state({ hello: true, helloIdle: true, onboarding: false, screen: null, language: null }))).toBe('the hello screen, no DOM focus');
-    expect(describeState(state({ hello: true, onboarding: false, screen: null, language: null }))).toBe('the hello screen, its data rows still busy, no DOM focus');
+  it('name the live screen, a boot error and a failed load', () => {
+    const onLive = { live: true, onboarding: false, screen: 'live', zone: 'channels', index: 0, editing: null, language: 'ar', dir: 'rtl' };
+    expect(describeState(state({ ...onLive, liveIdle: true }))).toBe('the live screen, live · channels 0, no DOM focus, language ar, dir="rtl"');
+    expect(describeState(state(onLive))).toBe('the live screen, its data requests still running, live · channels 0, no DOM focus, language ar, dir="rtl"');
+    expect(describeState(state({ onboarding: false, screen: 'language', zone: 'languages', index: 0 }))).toBe('language · languages 0, not ready, no DOM focus, language en, dir="ltr"');
     expect(describeState(state({ onboarding: false, screen: null, language: null, bootError: 'SyntaxError: x\nat y' }))).toBe('boot error: SyntaxError: x | at y, no screen yet, no DOM focus');
     expect(describeState(state({ screen: 'loading', zone: 'actions', index: 0, error: 'network' }))).toContain('the load failed: network');
-    expect(describeExpectation({ hello: true, onboarding: false })).toBe('the hello screen, no onboarding');
-    expect(describeExpectation({ hello: true, helloIdle: true, onboarding: false })).toBe('the hello screen, its data rows answered, no onboarding');
+    expect(describeExpectation({ live: true, onboarding: false })).toBe('the live screen, no onboarding');
+    expect(describeExpectation({ live: true, liveIdle: true, onboarding: false, screen: 'live', zone: 'channels', index: 0 })).toBe(
+      'the live screen, its data requests answered, no onboarding, live · channels 0',
+    );
   });
 });
 
@@ -269,8 +277,22 @@ describe('evaluateWalk', () => {
   });
 
   it('reports a relaunch that showed onboarding again: the source was not kept', () => {
-    const failures = evaluateWalk(stoppedAt('ar', 'relaunch', { hello: false, onboarding: true, screen: 'language', zone: 'languages', index: 0, language: 'en' }), CHECK);
-    expect(failures).toEqual(['the relaunch: expected the hello screen, its data rows answered, no onboarding; saw language · languages 0, no DOM focus, language en, dir="ltr"']);
+    const failures = evaluateWalk(
+      stoppedAt('ar', 'relaunch', { live: false, liveIdle: false, liveCount: null, onboarding: true, screen: 'language', zone: 'languages', index: 0, editing: '', language: 'en', dir: 'ltr' }),
+      CHECK,
+    );
+    expect(failures).toEqual([
+      'the relaunch: expected the live screen, its data requests answered, no onboarding, live · channels 0, language ar, dir="rtl"; saw language · languages 0, no DOM focus, language en, dir="ltr"',
+    ]);
+  });
+
+  it('reports a live screen in the wrong language, one still busy, and one with the wrong channel count', () => {
+    expect(evaluateWalk(stoppedAt('ar', 'start-watching', { language: 'en', dir: 'ltr' }), CHECK)[0]).toMatch(
+      /^OK on "Start watching": expected the live screen, its data requests answered, live · channels 0, language ar, dir="rtl"; saw the live screen, live · channels 0, .*language en, dir="ltr"$/,
+    );
+    expect(evaluateWalk(stoppedAt('en', 'relaunch', { liveIdle: false }), CHECK)[0]).toMatch(/^the relaunch: .*; saw the live screen, its data requests still running, live · channels 0/);
+    const steps = walkSteps('en', LINK).map((s) => (s.id === 'relaunch' ? record(s, { ...landed(s), liveCount: 2399 }) : record(s)));
+    expect(evaluateWalk(walk('en', { steps }), CHECK)).toEqual(['the relaunch: the live screen lists 2399 channels, expected 2400']);
   });
 
   it('reports a failed load with its code, and a language that did not switch', () => {

@@ -309,7 +309,7 @@ function OnboardingScreen({ ob, i18n, device }: ScreenProps & { device: AppI18n 
 interface Props {
   readonly platform: Platform;
   readonly onboarding: Onboarding;
-  /** "Start watching" on the last screen (step 14's live screen takes over from here). */
+  /** "Start watching" on the last screen (the live screen takes over from here, step 14a). */
   readonly onFinish?: () => void;
 }
 

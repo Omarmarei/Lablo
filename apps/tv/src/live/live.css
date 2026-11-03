@@ -1,0 +1,105 @@
+/*
+ * The live screen (RELAY step 14a): 1920x1080, everything inside the title-safe margins
+ * (96 x 54 px), nothing scrolls. The sizes match LIVE in live-state.ts: a 1728 px content box,
+ * a 56 px header and a 24 px gap, then an 892 px body: the rail (440 px wide, 12 chips of 64 px
+ * with 8 px gaps) and, 32 px further, the channel list (9 rows of 88 px with 8 px gaps). Physical
+ * properties for LTR: postcss-rtlcss mirrors them for Arabic, which puts the rail on the right.
+ */
+.live {
+  display: flex;
+  flex-direction: column;
+  width: var(--screen-width);
+  height: var(--screen-height);
+  padding: var(--safe-y) var(--safe-x);
+  overflow: hidden;
+}
+
+.live.is-loading {
+  align-items: center;
+  justify-content: center;
+}
+
+.live__header {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  height: 56px;
+  margin-bottom: var(--space-5);
+}
+
+.live__title {
+  flex: none;
+  margin: 0;
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+  font-weight: var(--font-weight-bold);
+}
+
+.live__meta {
+  flex: 1;
+  min-width: 0;
+  margin: 0 0 0 var(--space-7);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+.live__category {
+  color: var(--color-text);
+}
+
+.live__clock {
+  flex: none;
+  margin: 0 0 0 var(--space-7);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.live__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.live__rail {
+  flex: none;
+  width: 440px;
+  margin-right: 32px;
+}
+
+/* In the rail a chip is a full-width line: the name from the inline start, the count at the end. */
+.live__rail .z-vlist__item > .z-chip {
+  justify-content: flex-start;
+}
+
+/* A provider's name keeps its own direction (dir="auto") but starts on the screen's side, as the
+   list's names do: an Arabic group in the English rail sits on the left, a Latin one in the
+   Arabic rail on the right (postcss-rtlcss mirrors text-align). */
+.live__rail .z-chip__label {
+  flex: 1;
+  text-align: left;
+}
+
+.live__channels {
+  flex: 1;
+  min-width: 0;
+}
+
+.live__message {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.live__text {
+  margin: 0 0 var(--space-6);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+}

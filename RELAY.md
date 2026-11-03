@@ -348,7 +348,7 @@ UI steps also end with a short "press these keys" checklist that Omar can run in
 - [ ] 14. **Live browse screen (4.5).** Category rail, virtual channel list, now/next, `RemoteDriver` e2e, CPU-throttled smoke test. Ends with a click-through checklist for Omar.
   - **Done when:** the e2e tests are green and the checklist is in the handover.
   - Split in leg 24 into 14a (the screen, in the app's start and in the old-engine walk) and 14b (`RemoteDriver`, the throttled and low-tier runs, the live screen's own checks on Chromium 53/56/68).
-- [ ] 14a. **The live screen: category rail, virtual channel list, now/next.**
+- [x] 14a. **The live screen: category rail, virtual channel list, now/next.**
   - **The screen** (`apps/tv/src/live`):
     - A category rail at the inline start: "All channels", then each stored source's live categories with their counts. A group without a name gets a catalog word.
     - The virtual channel list: number, name, badges, the programme on now with its bar and start time, and the next one.
@@ -362,6 +362,25 @@ UI steps also end with a short "press these keys" checklist that Omar can run in
     - e2e `live.spec.ts` by keys against the mock in en and ar: the mock's 6 categories and 12 channels, a category picked, now/next on the 11 channels with a guide, the list paged by keys, a relaunch opening the screen;
     - screenshots in en, ar and en-XA, with the Arabic one looked at;
     - `pnpm verify` and `verify:engines --self-test` green; PR merged; a "press these keys" checklist.
+  - Done in leg 24 (architecture.md §1.2 "Built in step 14a"; runbooks old-engines.md item 6 and tv-build.md).
+    - **Screen** (`apps/tv/src/live`):
+      - the header: the title, the category with its count, the clock;
+      - the rail at the inline start: "All channels", then each source's categories with counts. It is a vertical column of chips, not the gallery's horizontal rail (a decision: long provider names, often hundreds of categories);
+      - the virtual list: 9 rows of 88 px, the provider's numbers.
+      - `ChannelIndex` finds a row's chunk by binary search. The screen reads the window plus one window either side, and keeps 8 chunks.
+      - now/next 200 ms after the window rests, again when a programme ends (the minute tick) or after 5 min. The focus's short EPG through `focusChannel`.
+      - Back: list → rail → root policy. OK on a channel marks it (the player comes at step 20).
+      - Loading, empty and failed ("Try again") states. `data-pending` is the idle signal.
+    - **App:** replaces the hello screen after "Start watching" and at a start with a stored source, in the profile's language. `DataEngine.categories`/`chunk`.
+    - **Size:** main's own code 166.3 → 178.0 KB (tizen) of 500, no new polyfill (219 core-js modules). A field named `at` had pulled Array/String `at` again (renamed `asked`).
+    - **Old engines:** the walk ends on the live screen (`live · channels 0` in the walk's language, the fixture's 2,400 channels, idle) after "Start watching" and after the relaunch, with a screenshot per engine, platform and language. The relaunch takes 0.7–0.8 s (600 ms of it the focus's short-EPG wait). The Arabic live screen on Chromium 53 was looked at.
+    - **Tests:**
+      - `channel-index.test.ts` (fast-check against the flattened list); `live-state.test.ts` (26: fake engine, hand-run timers with lateness);
+      - e2e `live.spec.ts` against the mock on the real clock: en, ar, en-XA; now/next against the mock's schedule;
+      - `onboarding.spec.ts` and `tv-bundle.spec.ts` end on the live screen;
+      - `test/engines-onboarding.test.ts` pins the walk's marks to `LiveApp.tsx`.
+      - 46/46 mutants caught (`artifacts/mutate14a.py`; its runner now kills a spinning mutant's process tree).
+    - **Local gates:** see the leg-24 row of the progress log.
 - [ ] 14b. **`RemoteDriver`, the throttled and low-tier runs, the live screen on the old engines.**
   - `window.__ZOMA_TEST__.focusPath()`: the focus ids from the engine (screen, zone, index), not the DOM. Decide whether the TV bundles carry it (the old-engine harness could use it too).
   - `e2e/remote-driver.ts`: presses Intents through the browser adapter's keys and waits for focus paths. The live and onboarding e2e move onto it.
