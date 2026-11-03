@@ -11,6 +11,8 @@ export type { CatalogItem, CatchupInfo, ContentKey, ContentKind, SourceType, Str
 export { CONTENT_KINDS, MAX_TEXT } from './model';
 
 export { matchName, normalizeName } from './normalize';
+export type { PluralCategory, PluralLanguage } from './plural';
+export { PLURAL_CATEGORIES, pluralCategory, pluralLanguage } from './plural';
 export { hash53, hash53Base36 } from './hash';
 
 export type { M3uKeyFields, ParsedContentKey, XtreamKeyKind } from './content-key';

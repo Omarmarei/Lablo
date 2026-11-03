@@ -11,7 +11,7 @@ import {
   Tile,
   VirtualList,
   connectRemote,
-  localeDir,
+  resolveLocale,
   useFocus,
   useZone,
 } from '@zoma/ui';
@@ -21,9 +21,13 @@ import type { Gallery } from './gallery-state';
 import { ACTIONS, DISABLED_ACTION, GALLERY } from './gallery-state';
 import type { DemoChannel } from './gallery-data';
 import { DEMO_CATEGORIES, DEMO_CHANNELS, DEMO_TILES } from './gallery-data';
-import type { GalleryText } from './gallery-text';
-import { galleryLanguage, galleryText } from './gallery-text';
+import type { AppI18n } from '../i18n';
+import { appI18n } from '../i18n';
 import './gallery.css';
+
+/** The media timeline's demo position and length in seconds: 1:13:12 of 2:00:00, 61% (e2e checks the fill). */
+const MEDIA_POSITION = 4392;
+const MEDIA_LENGTH = 7200;
 
 /** Media play: a triangle that never mirrors (playback runs the same way in every language). */
 const PLAY_ICON = (
@@ -32,12 +36,12 @@ const PLAY_ICON = (
   </svg>
 );
 
-function ChannelRow({ channel, t, item, testId }: { channel: DemoChannel; t: GalleryText; item: ItemBinding; testId: string }) {
+function ChannelRow({ channel, t, item, testId }: { channel: DemoChannel; t: AppI18n['t']; item: ItemBinding; testId: string }) {
   const badges = channel.marks.map((mark) =>
     mark === 'hd' || mark === '4k' ? (
       <Badge key={mark} label={mark.toUpperCase()} tone="outline" data />
     ) : (
-      <Badge key={mark} label={t(mark)} tone={mark === 'live' ? 'live' : 'neutral'} />
+      <Badge key={mark} label={t(mark === 'live' ? 'badge.live' : 'badge.catchUp')} tone={mark === 'live' ? 'live' : 'neutral'} />
     ),
   );
   return (
@@ -46,8 +50,8 @@ function ChannelRow({ channel, t, item, testId }: { channel: DemoChannel; t: Gal
       name={channel.name}
       now={channel.now}
       next={channel.next}
-      nextLabel={t('next')}
-      placeholder={t('noGuide')}
+      nextLabel={t('guide.next')}
+      placeholder={t('guide.none')}
       badges={badges.length > 0 ? badges : undefined}
       {...item}
       testId={testId}
@@ -70,8 +74,8 @@ function Meter({ label, value, children, media, testId }: { label: string; value
   );
 }
 
-function GalleryScreen({ gallery, locale }: { gallery: Gallery; locale: string }) {
-  const t = galleryText(locale);
+function GalleryScreen({ gallery, i18n }: { gallery: Gallery; i18n: AppI18n }) {
+  const { t, locale } = i18n;
   const { binding, home } = gallery;
   const focus = useFocus(binding);
   const actions = useZone(binding, home, 'actions');
@@ -80,8 +84,8 @@ function GalleryScreen({ gallery, locale }: { gallery: Gallery; locale: string }
   const category = gallery.category.value;
   const dialog = focus.screen === 'play' || focus.screen === 'exit' ? useZone(binding, binding.nav.top, 'buttons') : null;
   const what = (zone: string, index: number): string => {
-    if (zone === 'actions') return t(ACTIONS[index] ?? 'play');
-    if (zone === 'rail') return t(DEMO_CATEGORIES[index] ?? 'all');
+    if (zone === 'actions') return t(ACTIONS[index] ?? 'action.play');
+    if (zone === 'rail') return t(DEMO_CATEGORIES[index] ?? 'category.all');
     if (zone === 'tiles') return DEMO_TILES[index]?.title ?? '';
     return DEMO_CHANNELS[index]?.name ?? '';
   };
@@ -91,7 +95,7 @@ function GalleryScreen({ gallery, locale }: { gallery: Gallery; locale: string }
       class="gallery"
       data-testid="gallery"
       data-ready="true"
-      data-language={galleryLanguage(locale)}
+      data-language={locale.pseudo ? 'pseudo' : locale.language}
       data-screen={focus.screen}
       data-zone={focus.zone}
       data-index={focus.index}
@@ -99,14 +103,17 @@ function GalleryScreen({ gallery, locale }: { gallery: Gallery; locale: string }
       data-dir={focus.dir}
     >
       <header class="gallery__header">
-        <h1 class="gallery__title">{t('title')}</h1>
+        <h1 class="gallery__title">{t('gallery.title')}</h1>
         <p class="gallery__status" data-testid="gallery-status" data-selects={selection?.count ?? 0}>
-          {selection === null ? t('pressOk') : t('selected', { what: what(selection.zone, selection.index) })}
+          {selection === null ? t('gallery.pressOk') : t('gallery.selected', { what: what(selection.zone, selection.index) })}
         </p>
         <p class="gallery__meta">
-          <span translate={false}>{locale}</span>
+          {/* dir isolates the tag: otherwise bidi joins the count after it into its Latin run. */}
+          <span translate={false} dir="ltr">
+            {locale.tag}
+          </span>
           {' · '}
-          {t('channelCount', { n: DEMO_CHANNELS.length })}
+          {t('gallery.channelCount', { n: DEMO_CHANNELS.length })}
         </p>
       </header>
 
@@ -115,7 +122,7 @@ function GalleryScreen({ gallery, locale }: { gallery: Gallery; locale: string }
           <Button
             key={key}
             label={t(key)}
-            variant={i === 0 ? 'primary' : key === 'remove' ? 'danger' : 'secondary'}
+            variant={i === 0 ? 'primary' : key === 'action.removeSource' ? 'danger' : 'secondary'}
             disabled={i === DISABLED_ACTION}
             icon={i === 0 ? PLAY_ICON : undefined}
             {...actions.item(i)}
@@ -134,7 +141,7 @@ function GalleryScreen({ gallery, locale }: { gallery: Gallery; locale: string }
         testId="rail"
         renderItem={(i, item) => (
           <Chip
-            label={t(DEMO_CATEGORIES[i] ?? 'all')}
+            label={t(DEMO_CATEGORIES[i] ?? 'category.all')}
             selected={category === i}
             count={i === 0 ? DEMO_CHANNELS.length : undefined}
             {...item}
@@ -158,7 +165,7 @@ function GalleryScreen({ gallery, locale }: { gallery: Gallery; locale: string }
         />
 
         <div class="gallery__side">
-          <h2 class="gallery__section">{t('continueWatching')}</h2>
+          <h2 class="gallery__section">{t('gallery.continueWatching')}</h2>
           <div class="gallery__tiles">
             {DEMO_TILES.map((tile, i) => (
               <Tile
@@ -166,7 +173,7 @@ function GalleryScreen({ gallery, locale }: { gallery: Gallery; locale: string }
                 title={tile.title}
                 subtitle={tile.subtitle}
                 progress={tile.progress}
-                badge={tile.fresh === true ? <Badge label={t('new')} tone="accent" /> : undefined}
+                badge={tile.fresh === true ? <Badge label={t('badge.new')} tone="accent" /> : undefined}
                 class={`gallery__tone-${i}`}
                 {...tiles.item(i)}
                 testId={`tile-${i}`}
@@ -174,43 +181,43 @@ function GalleryScreen({ gallery, locale }: { gallery: Gallery; locale: string }
             ))}
           </div>
 
-          <h2 class="gallery__section">{t('status')}</h2>
+          <h2 class="gallery__section">{t('gallery.status')}</h2>
           <div class="gallery__meters">
             <div class="gallery__loading">
-              <Spinner size="s" label={t('loading')} testId="spinner" />
-              <Meter label={t('loading')} value={0.35} testId="progress-loading">
-                35%
+              <Spinner size="s" label={t('gallery.loading')} testId="spinner" />
+              <Meter label={t('gallery.loading')} value={0.35} testId="progress-loading">
+                {i18n.percent(0.35)}
               </Meter>
             </div>
-            <Meter label={t('timeline')} value={0.61} media testId="progress-media">
-              01:12:30 / 01:58:00
+            <Meter label={t('gallery.timeline')} value={MEDIA_POSITION / MEDIA_LENGTH} media testId="progress-media">
+              {`${i18n.duration(MEDIA_POSITION)} / ${i18n.duration(MEDIA_LENGTH)}`}
             </Meter>
           </div>
           <div class="gallery__badges" data-testid="badges">
-            <Badge label={t('live')} tone="live" />
-            <Badge label={t('updated')} tone="accent" />
+            <Badge label={t('badge.live')} tone="live" />
+            <Badge label={t('gallery.guideUpdated')} tone="accent" />
             <Badge label="HD" tone="outline" data />
             <Badge label="5.1" data />
-            <Badge label={t('catchUp')} />
-            <Badge label={t('expires')} tone="warn" />
+            <Badge label={t('badge.catchUp')} />
+            <Badge label={t('badge.expires', { days: 3 })} tone="warn" />
           </div>
         </div>
       </div>
 
       {dialog !== null && focus.screen === 'play' && (
         <Dialog
-          title={t('playTitle', { name: DEMO_CHANNELS[gallery.playing.value]?.name ?? '' })}
-          message={t('playMessage')}
+          title={t('play.title', { name: DEMO_CHANNELS[gallery.playing.value]?.name ?? '' })}
+          message={t('gallery.playMessage')}
           testId="play-dialog"
         >
-          <Button label={t('cancel')} {...dialog.item(0)} testId="dialog-0" />
-          <Button label={t('play')} variant="primary" icon={PLAY_ICON} {...dialog.item(1)} testId="dialog-1" />
+          <Button label={t('action.cancel')} {...dialog.item(0)} testId="dialog-0" />
+          <Button label={t('action.play')} variant="primary" icon={PLAY_ICON} {...dialog.item(1)} testId="dialog-1" />
         </Dialog>
       )}
       {dialog !== null && focus.screen === 'exit' && (
-        <Dialog title={t('exitTitle')} message={t('exitMessage')} testId="exit-dialog">
-          <Button label={t('stay')} {...dialog.item(0)} testId="dialog-0" />
-          <Button label={t('exit')} {...dialog.item(1)} testId="dialog-1" />
+        <Dialog title={t('exit.title')} message={t('exit.message')} testId="exit-dialog">
+          <Button label={t('exit.stay')} {...dialog.item(0)} testId="dialog-0" />
+          <Button label={t('exit.confirm')} {...dialog.item(1)} testId="dialog-1" />
         </Dialog>
       )}
     </main>
@@ -223,32 +230,32 @@ interface Props {
 }
 
 /**
- * `?screen=gallery`: waits for the device locale (it picks the language and the direction),
- * then shows every component. `?locale=en-XA` shows the pseudo-locale.
+ * `?screen=gallery`: waits for the device locale (it picks the catalog, the direction and the
+ * formats), then shows every component. `?locale=en-XA` shows the pseudo-locale.
  */
 export function GalleryApp({ platform, gallery }: Props) {
-  const locale = useSignal<string | null>(null);
+  const i18n = useSignal<AppI18n | null>(null);
   useEffect(() => {
-    const apply = (value: string): void => {
-      const dir = localeDir(value);
-      gallery.nav.setDir(dir);
-      document.documentElement.lang = value;
-      document.documentElement.dir = dir;
-      locale.value = value;
+    const apply = (tag: string, country: string | null): void => {
+      const next = appI18n(resolveLocale(tag, { country }));
+      gallery.nav.setDir(next.locale.dir);
+      document.documentElement.lang = tag;
+      document.documentElement.dir = next.locale.dir;
+      i18n.value = next;
     };
     platform.info().then(
-      (info) => apply(info.locale),
-      () => apply('en-US'),
+      (info) => apply(info.locale, info.country),
+      () => apply('en-US', null),
     );
     return connectRemote({ platform, nav: gallery.nav, target: window });
   }, [platform, gallery]);
 
-  if (locale.value === null) {
+  if (i18n.value === null) {
     return (
       <main class="gallery is-loading" data-testid="gallery" data-ready="false">
         <Spinner size="l" />
       </main>
     );
   }
-  return <GalleryScreen gallery={gallery} locale={locale.value} />;
+  return <GalleryScreen gallery={gallery} i18n={i18n.value} />;
 }

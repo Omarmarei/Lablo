@@ -1,5 +1,5 @@
 import type { ProgrammeLine } from '@zoma/ui';
-import type { TextKey } from './gallery-text';
+import type { MessageKey } from '../i18n';
 
 /**
  * Made-up demo content for the gallery (RELAY step 11b). The names are the "provider's"
@@ -12,7 +12,7 @@ export interface DemoChannel {
   readonly name: string;
   readonly now?: ProgrammeLine;
   readonly next?: ProgrammeLine;
-  /** Badges: `hd`/`4k` are marks, `live` and `catchUp` come from the text table. */
+  /** Badges: `hd`/`4k` are marks, `live` and `catchUp` come from the catalog. */
   readonly marks: ReadonlyArray<'hd' | '4k' | 'live' | 'catchUp'>;
 }
 
@@ -45,8 +45,18 @@ export const DEMO_CHANNELS: readonly DemoChannel[] = (() => {
   return out;
 })();
 
-/** The rail's categories, from our text table (a provider's own names would be data). */
-export const DEMO_CATEGORIES: readonly TextKey[] = ['all', 'favourites', 'sports', 'news', 'movies', 'kids', 'documentaries', 'music', 'radio'];
+/** The rail's categories, from our catalog (a provider's own names would be data). */
+export const DEMO_CATEGORIES: readonly MessageKey[] = [
+  'category.all',
+  'category.favourites',
+  'category.sports',
+  'category.news',
+  'category.movies',
+  'category.kids',
+  'category.documentaries',
+  'category.music',
+  'category.radio',
+];
 
 export interface DemoTile {
   readonly title: string;

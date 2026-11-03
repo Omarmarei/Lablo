@@ -202,9 +202,9 @@ Off-the-shelf libraries such as Norigin measure the DOM on every move. That figh
   - Text at an even brace depth is message text and gets accented. An odd depth is a placeholder or ICU syntax and is kept, so `{n, plural, one {# channel} other {# channels}}` accents only the branch texts.
   - Tests: fast-check properties (the round trip, the expansion bound, placeholders kept, never throws), plus `test/ui-pseudo-glyphs.test.ts`, which checks that both Latin faces have every accented letter.
   - `localeDir` moved here from the app.
-  - Left for step 12: isolating the provider's text inside our sentences (FSI/PDI, or `dir="auto"` spans) and the digit forms.
+  - Left for step 12, done in 12a (below): isolating the provider's text inside our sentences (FSI/PDI) and the digit forms.
 - **The gallery** (`?screen=gallery`, `readScreen` in `data/params.ts`): every component on one 1920x1080 screen inside the safe area, driven by the remote. Its zones are the buttons, a rail of 9 categories (6 shown), 240 channels (7 shown) and 3 × 2 tiles; OK opens a dialog.
-  - A small en/ar text table stands in for step 12's catalogs, and `en-XA` runs the English through `pseudoLocalize`.
+  - A small en/ar text table stood in for step 12's catalogs until step 12a moved the gallery onto the runtime; `en-XA` runs the English through `pseudoLocalize`.
   - The demo names are made up, and Latin and Arabic are mixed on purpose. The times are fixed strings, so screenshots don't change.
   - It ships in the TV bundles (about 10 KB of main), so it can be checked on a real TV (spike S9). It starts no data workers.
 - **Checks:**
@@ -224,6 +224,29 @@ Off-the-shelf libraries such as Norigin measure the DOM on every move. That figh
     - The gallery needs no polyfill: a build without core-js passes it on all three engines.
     - See runbook old-engines.md.
 - **Size:** main's own code 102.4 → 121.2 KB (tizen; 119.8 KB webos) of 500: about 10 KB for the gallery and the rest for the components, the binding and the pseudo-locale, with no new polyfills. A field named `at` had pulled in core-js's `Array.prototype.at` and `String.prototype.at` (Babel detects usage by property name), so it is now named `time`. app.css 9.7 → 26.6 KB.
+
+**Built in step 12a: the i18n runtime, the catalogs and the formats** (`packages/core/src/plural.ts`; `packages/ui/src/i18n`: `message.ts`, `format.ts`, `runtime.ts`; `apps/tv/src/i18n`; [ADR-011](adr/ADR-011-i18n-runtime-and-digits.md)):
+- **Plural rules in `core`.** `pluralCategory(language, n)` has CLDR's English (one, other) and Arabic (zero, one, two, few, many, other) rules, written out because Chromium 53 has no `Intl.PluralRules`. `test/i18n-cldr.test.ts` compares them with Node's full ICU on 0–10,000, negatives and fractions.
+- **Messages** (`parseMessage`, `formatMessage`): a subset of ICU MessageFormat.
+  - `{name}`, `{n, number}`, `{n, plural, =N {…} one {…} … other {…}}` with `#`, and `{x, select, … other {…}}`.
+  - No apostrophe quoting, so text can't contain braces. `#` counts only directly in a plural branch, as in ICU.
+  - It fits `pseudoLocalize`'s brace rule: en-XA accents the branch texts and keeps the syntax.
+  - A broken message shows as written, and a missing argument as `{name}`, so neither throws on a TV.
+- **The runtime** (`createI18n(catalogs, locale)` → `I18n`): `t(key, args)`, `number`, `percent`, `time`, `weekday`, `date` (`day`/`full`) and `duration`. One `I18n` per locale; it parses each message once. A missing translation falls back to English.
+  - **Text arguments are isolated** between FSI (U+2068) and PDI (U+2069), as Fluent does, so a Latin channel name keeps its direction inside an Arabic sentence. Numbers aren't isolated.
+  - en-XA runs the English catalog through `pseudoLocalize`; the arguments stay as they are.
+- **Locale settings** (`resolveLocale(tag, { country, digits, hourCycle })`): the catalog language (Arabic, else English), the direction from that language (a Hebrew TV gets English left to right), the region (from the tag, else the TV's country), the digits, the hour cycle and the date order.
+- **Formats** (`format.ts`) are ours, not `Intl`'s: the TVs' ICU is old and may be cut down (Chromium 53's CLDR gave ar-SA the Hijri calendar). Gregorian calendar, the TV's time zone.
+  - Numbers with grouping and up to 3 fraction digits; percent.
+  - Times: 12-hour (`8:05 PM`, `8:05 م`, Canada's `p.m.`) or 24-hour with two-digit hours (`08:05`, en-GB and en-IE).
+  - Weekday and month names, a guide's day (`Tue, Nov 3`, `Tue 3 Nov`, `الثلاثاء، 3 نوفمبر`), a full date, and playback durations (`1:13:12`).
+  - The CLDR test checks them against Node's ICU for en-US, en-CA, en-GB, ar-AE and ar-SA, ignoring only ICU's bidi marks and narrow spaces.
+- **Digits:** Arabic uses Western digits by default (ADR-011, reversible: `DEFAULT_DIGITS`). Arabic-Indic digits (`digits: 'arab'`, with ٬ ٫ ٪) are implemented and tested for a later setting. The provider's numbers are never reshaped.
+- **The catalogs** (`apps/tv/src/i18n/en.ts`, `ar.ts`) are TypeScript: `MessageKey` is English's keys, and `ar.ts` is a `Record<MessageKey, string>`, so tsc rejects a missing key. Keys are `area.what` (`gallery.title`, `action.play`, `badge.expires`). `appI18n(locale)` makes the app's runtime.
+  - `catalogs.test.ts`: the same keys and arguments in both languages; everything parses, en-XA too; every plural gives all of its language's categories (all six in Arabic); Arabic messages have no Latin words of their own; no placeholder is left unfilled in en, ar or en-XA; no bidi controls in the catalogs.
+- **The gallery runs on it.** `gallery-text.ts` is gone. The gallery shows the plural channel count (`240 channels`, `240 قناةً`), the expiry badge (`Expires in 3 days`, `ينتهي خلال 3 أيام`), the percent and the media times from the formatters, and the selected item and the play dialog's channel name are isolated.
+- **Size:** main's own code 121.2 → about 130 KB (tizen) of 500, with no new polyfill. `split` (about 2 KB) and `new RegExp` (about 7 KB of core-js) were avoided.
+- **Left for step 12b:** the lint against hard-coded strings, the live language switch, and how Chromium 53/56/68 draw the isolates.
 
 **State:**
 - Signals hold UI and session state.

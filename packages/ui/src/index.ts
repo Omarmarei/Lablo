@@ -1,7 +1,8 @@
 /**
  * @zoma/ui: the focus engine (step 10), the design system (step 11: tokens, fonts, the base
- * components, the virtual list and the en-XA pseudo-locale); the i18n runtime and the EPG
- * grid come in steps 12 and 23. See docs/architecture.md §1.2.
+ * components, the virtual list and the en-XA pseudo-locale) and the i18n runtime (step 12:
+ * messages, numbers, times and dates; the catalogs are the app's). The EPG grid comes in step
+ * 23. See docs/architecture.md §1.2.
  *
  * The CSS is imported here, first, so it comes before the components' CSS and the app's own
  * in app.css and in Vite's dev server (tools/build/src/css.ts orders it by the imports).
@@ -31,8 +32,25 @@ export type {
   ZoneSpec,
 } from './focus/types';
 export { moveDirection } from './focus/types';
+export type { DateOrder, DateStyle, Digits, HourCycle, Language, LocaleOverrides, LocaleSettings, NameWidth } from './i18n/format';
+export {
+  DEFAULT_DIGITS,
+  formatDate,
+  formatDuration,
+  formatNumber,
+  formatPercent,
+  formatTime,
+  formatWeekday,
+  resolveLocale,
+  shapeDigits,
+  tagRegion,
+} from './i18n/format';
 export { localeDir } from './i18n/locale';
+export type { MessageArgs, MessagePart } from './i18n/message';
+export { MessageSyntaxError, messageArguments, parseMessage, pluralBranches } from './i18n/message';
 export { PSEUDO_LOCALE, pseudoLocalize } from './i18n/pseudo';
+export type { Catalog, Catalogs, I18n, I18nOptions } from './i18n/runtime';
+export { createI18n, isolate, stripIsolates } from './i18n/runtime';
 
 export type { BadgeProps, BadgeTone } from './components/Badge';
 export { Badge } from './components/Badge';

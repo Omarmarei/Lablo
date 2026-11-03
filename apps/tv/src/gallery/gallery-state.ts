@@ -31,7 +31,7 @@ export const GALLERY = {
 export const CHANNELS_VISIBLE = fits(GALLERY.channelsHeight, LAYOUT.rowHeight, GALLERY.rowGap);
 export const RAIL_VISIBLE = fits(GALLERY.width, GALLERY.chipWidth, GALLERY.chipGap);
 
-export const ACTIONS = ['play', 'favourite', 'remove', 'record'] as const;
+export const ACTIONS = ['action.play', 'action.favourite', 'action.removeSource', 'action.record'] as const;
 /** Record is shown disabled: it takes the focus, and OK does nothing. */
 export const DISABLED_ACTION = 3;
 

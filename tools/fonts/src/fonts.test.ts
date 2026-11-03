@@ -11,9 +11,9 @@ const ROOT = path.resolve(import.meta.dirname, '../../..');
 const FONTS = path.join(ROOT, 'packages/ui/assets/fonts');
 const manifest = JSON.parse(readFileSync(path.join(FONTS, 'fonts.json'), 'utf8')) as FontManifest;
 
-/** Text each face must show: brand, digits, the accents the en-XA pseudo-locale uses, … */
+/** Text each face must show: brand, digits (with the Arabic-Indic number signs of ADR-011), the accents the en-XA pseudo-locale uses, … */
 const LATIN_TEXT = 'Zoma IPTV 0123456789 ÀÁÂÃÄÅÇÈÉÊËÌÍÎÏÑÒÓÔÕÖØÙÚÛÜÝàáâãäåçèéêëìíîïñòóôõöøùúûüýÿ ĀāĂăĄąĆćČčĎďĘęĚěĞğİıŁłŃńŇňŐőŒœŘřŚśŞşŠšŢţŤťŰűŸŹźŻżŽž șțẞ €£¥₹₺ № ™ –—‘’“”…•';
-const ARABIC_TEXT = 'زوما ٠١٢٣٤٥٦٧٨٩ ۰۱۲۳ ،؛؟ ءآأؤإئابةتثجحخدذرزسشصضطظعغفقكلمنهوىي پچژگک ﷼ ـ';
+const ARABIC_TEXT = 'زوما ٠١٢٣٤٥٦٧٨٩ ۰۱۲۳ ٪٫٬ قناةً ،؛؟ ءآأؤإئابةتثجحخدذرزسشصضطظعغفقكلمنهوىي پچژگک ﷼ ـ';
 
 const faces = new Map<string, Promise<InspectedFont>>();
 function face(file: string): Promise<InspectedFont> {
