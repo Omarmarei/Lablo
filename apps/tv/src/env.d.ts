@@ -10,3 +10,8 @@ declare module '*?worker' {
   const WorkerFactory: new () => Worker;
   export default WorkerFactory;
 }
+
+interface Window {
+  /** The focus engine's path for the e2e `RemoteDriver` and the old-engine harness (`ZomaTestHook` in src/test-hook.ts, RELAY step 14b). */
+  __ZOMA_TEST__?: { focusPath(): string | null };
+}
