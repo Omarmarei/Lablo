@@ -16,6 +16,9 @@
  * 4. "Add source": loading, then done with the fixture's counts (`data-n`), through the real
  *    data workers. The profile read back from IndexedDB holds the source `s1` and the language.
  * 5. "Start watching" opens the hello screen (until step 14), and a relaunch skips onboarding.
+ *    The walk leaves the hello screen only once its data panel has answered every row: leaving
+ *    while its workers still opened the database once left Chromium 53 (on CI) with a delete
+ *    that never answered.
  * Each screen on the way is measured as in the e2e test (1920x1080, the safe area, no label
  * cut), and the form and done screens are saved as screenshots.
  *
@@ -79,6 +82,8 @@ export interface WalkState {
   readonly onboarding: boolean;
   /** `[data-testid=hello][data-ready=true]`. */
   readonly hello: boolean;
+  /** The hello screen's data panel has answered its last row (`shortepg-status`): its workers are done with the database. */
+  readonly helloIdle: boolean;
   /** Onboarding's `data-screen`, `data-zone`, `data-index`, `data-editing` and `data-language`. */
   readonly screen: string | null;
   readonly zone: string | null;
@@ -134,6 +139,7 @@ export const WALK_EXPRESSION = `(function () {
   var error = document.querySelector('[data-testid="load-error"]');
   var active = document.activeElement;
   var live = count('done-live');
+  var last = document.querySelector('[data-testid="shortepg-status"]');
   var boot = document.getElementById('boot-error');
   return JSON.stringify({
     href: location.href,
@@ -142,6 +148,7 @@ export const WALK_EXPRESSION = `(function () {
     bootError: boot ? boot.textContent : '',
     onboarding: ob !== null && ob.getAttribute('data-ready') === 'true',
     hello: hello !== null && hello.getAttribute('data-ready') === 'true',
+    helloIdle: last !== null && /^(ok|none|failed)/.test(last.textContent || ''),
     screen: ob ? ob.getAttribute('data-screen') : null,
     zone: ob ? ob.getAttribute('data-zone') : null,
     index: ob && ob.hasAttribute('data-index') ? Number(ob.getAttribute('data-index')) : null,
@@ -241,6 +248,7 @@ export const PROFILE_RESULT = `(function () { return window.__zomaProfile || nul
 export interface Expectation {
   readonly onboarding?: boolean;
   readonly hello?: boolean;
+  readonly helloIdle?: boolean;
   readonly screen?: string;
   readonly zone?: string;
   readonly index?: number;
@@ -363,8 +371,8 @@ export function walkSteps(language: WalkLanguage, link: string): WalkStep[] {
     },
     { id: 'to-add', label: 'ArrowDown twice to "Add source"', keys: [KEY.down, KEY.down], expect: { screen: 'form', zone: 'actions', index: 0 }, wait: 'key' },
     { id: 'add', label: 'OK on "Add source"', keys: [KEY.enter], expect: { screen: 'done', zone: 'actions', index: 0 }, layout: 'done', shot: 'done', wait: 'load' },
-    { id: 'start-watching', label: 'OK on "Start watching"', keys: [KEY.enter], expect: { hello: true }, wait: 'key' },
-    { id: 'relaunch', label: 'the relaunch', navigate: true, expect: { hello: true, onboarding: false }, wait: 'boot' },
+    { id: 'start-watching', label: 'OK on "Start watching"', keys: [KEY.enter], expect: { hello: true, helloIdle: true }, wait: 'boot' },
+    { id: 'relaunch', label: 'the relaunch', navigate: true, expect: { hello: true, helloIdle: true, onboarding: false }, wait: 'boot' },
   );
   return steps;
 }
@@ -377,7 +385,7 @@ export function matches(state: WalkState, expect: Expectation): boolean {
 export function describeState(state: WalkState): string {
   const parts: string[] = [];
   if (state.bootError.trim() !== '') parts.push(`boot error: ${state.bootError.trim().split('\n').join(' | ')}`);
-  if (state.hello) parts.push('the hello screen');
+  if (state.hello) parts.push(state.helloIdle ? 'the hello screen' : 'the hello screen, its data rows still busy');
   if (state.screen !== null) parts.push(`${state.screen} · ${state.zone ?? '-'} ${state.index ?? '-'}`);
   else if (!state.hello) parts.push(state.onboarding ? 'onboarding' : 'no screen yet');
   if (state.screen !== null && !state.onboarding) parts.push('not ready');
@@ -393,7 +401,7 @@ export function describeState(state: WalkState): string {
 
 export function describeExpectation(expect: Expectation): string {
   const parts: string[] = [];
-  if (expect.hello === true) parts.push('the hello screen');
+  if (expect.hello === true) parts.push(expect.helloIdle === true ? 'the hello screen, its data rows answered' : 'the hello screen');
   if (expect.onboarding === false) parts.push('no onboarding');
   if (expect.screen !== undefined) parts.push(`${expect.screen} · ${expect.zone ?? '*'} ${expect.index ?? '*'}`);
   else if (expect.index !== undefined) parts.push(`item ${expect.index}`);
@@ -446,6 +454,8 @@ export interface OnboardingRun {
   readonly platform: TvPlatform;
   readonly url: string;
   readonly walks: readonly Walk[];
+  /** How deleting the database after the last walk went (`ok`): later runs in the engine start without the source. */
+  readonly cleanup: string;
   readonly exceptions: readonly string[];
   readonly durationMs: number;
 }
@@ -537,13 +547,14 @@ export function evaluateOnboarding(run: OnboardingRun, engine: Pick<Engine, 'maj
     if (walk === undefined) failures.push(`${prefix}the walk did not run`);
     else failures.push(...evaluateWalk(walk, check).map((f) => `${prefix}${f}`));
   }
+  if (run.cleanup !== 'ok') failures.push(`the app's database could not be deleted after the walks (${run.cleanup})`);
   for (const exception of run.exceptions) failures.push(`uncaught: ${exception}`);
   return failures;
 }
 
 /** Long enough for the focus ring's transition (`--motion-fast`, 120 ms) to end before a screenshot. */
 const SETTLE_MS = 400;
-const RESET_TIMEOUT_MS = 10_000;
+const RESET_TIMEOUT_MS = 20_000;
 
 export interface OnboardingOptions extends RunOptions {
   readonly loadTimeoutMs: number;
@@ -646,8 +657,8 @@ export async function runOnboarding(
   const walks: Walk[] = [];
   try {
     for (const language of WALK_LANGUAGES) walks.push(await walkOnce(client, url, language, playlistLink(check), options, watch));
-    await resetDatabase(client);
-    return { platform, url, walks, exceptions: watch.errors(), durationMs: Date.now() - started };
+    const cleanup = await resetDatabase(client);
+    return { platform, url, walks, cleanup, exceptions: watch.errors(), durationMs: Date.now() - started };
   } finally {
     watch.stop();
   }

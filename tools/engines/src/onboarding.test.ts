@@ -41,6 +41,7 @@ function state(overrides: Partial<WalkState> = {}): WalkState {
     bootError: '',
     onboarding: true,
     hello: false,
+    helloIdle: false,
     screen: 'language',
     zone: 'languages',
     index: 0,
@@ -93,10 +94,11 @@ function walk(language: WalkLanguage, overrides: Partial<Walk> = {}): Walk {
   };
 }
 
-const run = (walks: Walk[] = WALK_LANGUAGES.map((l) => walk(l)), exceptions: string[] = []) => ({
+const run = (walks: Walk[] = WALK_LANGUAGES.map((l) => walk(l)), exceptions: string[] = [], cleanup = 'ok') => ({
   platform: 'tizen' as const,
   url: URL,
   walks,
+  cleanup,
   exceptions,
   durationMs: 8000,
 });
@@ -180,10 +182,10 @@ describe('walkSteps', () => {
     expect(steps.find((s) => s.id === 'end-edit')?.expect).toMatchObject({ editing: '', active: 'BODY', value: LINK, index: 1 });
   });
 
-  it('ends on the hello screen, then relaunches into it with no onboarding', () => {
+  it('ends on the hello screen, then relaunches into it with no onboarding, leaving each only once its data rows have answered', () => {
     const steps = walkSteps('en', LINK);
-    expect(steps.at(-2)?.expect).toEqual({ hello: true });
-    expect(steps.at(-1)).toMatchObject({ id: 'relaunch', navigate: true, expect: { hello: true, onboarding: false }, wait: 'boot' });
+    expect(steps.at(-2)?.expect).toEqual({ hello: true, helloIdle: true });
+    expect(steps.at(-1)).toMatchObject({ id: 'relaunch', navigate: true, expect: { hello: true, helloIdle: true, onboarding: false }, wait: 'boot' });
     expect(steps.find((s) => s.id === 'add')).toMatchObject({ wait: 'load', shot: 'done', layout: 'done' });
   });
 
@@ -233,10 +235,12 @@ describe('describeState and describeExpectation', () => {
   });
 
   it('name the hello screen, a boot error and a failed load', () => {
-    expect(describeState(state({ hello: true, onboarding: false, screen: null, language: null }))).toBe('the hello screen, no DOM focus');
+    expect(describeState(state({ hello: true, helloIdle: true, onboarding: false, screen: null, language: null }))).toBe('the hello screen, no DOM focus');
+    expect(describeState(state({ hello: true, onboarding: false, screen: null, language: null }))).toBe('the hello screen, its data rows still busy, no DOM focus');
     expect(describeState(state({ onboarding: false, screen: null, language: null, bootError: 'SyntaxError: x\nat y' }))).toBe('boot error: SyntaxError: x | at y, no screen yet, no DOM focus');
     expect(describeState(state({ screen: 'loading', zone: 'actions', index: 0, error: 'network' }))).toContain('the load failed: network');
     expect(describeExpectation({ hello: true, onboarding: false })).toBe('the hello screen, no onboarding');
+    expect(describeExpectation({ hello: true, helloIdle: true, onboarding: false })).toBe('the hello screen, its data rows answered, no onboarding');
   });
 });
 
@@ -266,7 +270,7 @@ describe('evaluateWalk', () => {
 
   it('reports a relaunch that showed onboarding again: the source was not kept', () => {
     const failures = evaluateWalk(stoppedAt('ar', 'relaunch', { hello: false, onboarding: true, screen: 'language', zone: 'languages', index: 0, language: 'en' }), CHECK);
-    expect(failures).toEqual(['the relaunch: expected the hello screen, no onboarding; saw language · languages 0, no DOM focus, language en, dir="ltr"']);
+    expect(failures).toEqual(['the relaunch: expected the hello screen, its data rows answered, no onboarding; saw language · languages 0, no DOM focus, language en, dir="ltr"']);
   });
 
   it('reports a failed load with its code, and a language that did not switch', () => {
@@ -349,6 +353,10 @@ describe('evaluateOnboarding', () => {
     const failures = evaluateOnboarding(run([walk('en'), stoppedAt('ar', 'pick-arabic', { index: 0 })]), { major: 53 }, CHECK);
     expect(failures).toEqual(['in Arabic: ArrowRight to العربية: expected language · * 1; saw language · languages 0, no DOM focus, language en, dir="ltr"']);
     expect(evaluateOnboarding(run([walk('ar')]), { major: 53 }, CHECK)).toEqual(['the walk did not run']);
+  });
+
+  it('fails when the database could not be deleted after the walks: later runs would find the source', () => {
+    expect(evaluateOnboarding(run(undefined, [], 'pending'), { major: 53 }, CHECK)).toEqual(["the app's database could not be deleted after the walks (pending)"]);
   });
 
   it('fails on an uncaught exception even when every step landed', () => {
