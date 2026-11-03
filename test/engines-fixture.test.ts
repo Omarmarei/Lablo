@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { EpgGuideReader, EpgWantedSet, epgNowNext, normalizeName, parseM3uCatalog } from '@zoma/core';
 import { describe, expect, it } from 'vitest';
-import { readDebugParams } from '../apps/tv/src/data/params';
+import { readDebugParams, readScreen } from '../apps/tv/src/data/params';
 import { FIXTURE_ORIGIN, FIXTURE_SIZE, appUrl, dataChecks, fixtureEntries, fixtureM3u, fixtureXmltv, stageFixtures } from '../tools/engines/src/fixture';
 
 describe('the engines catalog fixture', () => {
@@ -69,11 +69,12 @@ describe('the engines catalog fixture', () => {
     }
   });
 
-  it('builds app URLs that the app reads back as force + query + source', () => {
+  it('builds app URLs that the app reads back as the hello screen + force + query + source', () => {
     for (const platform of ['tizen', 'webos'] as const) {
       const check = checks[platform];
       const url = appUrl('app', platform, check);
       expect(url.startsWith(`file:///app/app/${platform}/index.html?`)).toBe(true);
+      expect(readScreen(url.slice(url.indexOf('?')))).toBe('hello');
       const params = readDebugParams(url.slice(url.indexOf('?')));
       expect(params).toEqual({ source: `${FIXTURE_ORIGIN}/${check.file}`, query: check.query, force: true, error: null });
     }

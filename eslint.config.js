@@ -242,9 +242,12 @@ export default defineConfig(
     rules: { 'zoma/no-hard-coded-text': 'error' },
   },
   {
-    // The hello screen: English developer diagnostics (worker, IndexedDB and data-engine status)
-    // until steps 13 and 14 replace it with onboarding and the live screen. Step 13 removes this
-    // exemption.
+    // The hello screen is a developer screen since step 13a: onboarding is the start screen, and
+    // the hello screen opens only with ?screen=hello (readScreen), which no user can type on a TV.
+    // Its text is English diagnostics (worker, IndexedDB, data-engine and focus status) that the
+    // e2e tests and the old-engine harness read, in its Arabic-locale runs too, so it stays out of
+    // the catalogs. Exactly these three files: user screens (onboarding, later the live screen)
+    // never import them.
     files: ['apps/tv/src/App.tsx', 'apps/tv/src/DataPanel.tsx', 'apps/tv/src/FocusPanel.tsx'],
     rules: { 'zoma/no-hard-coded-text': 'off' },
   },

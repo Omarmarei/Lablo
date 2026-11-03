@@ -13,6 +13,7 @@ import { Dialog } from './Dialog';
 import { ListRow } from './ListRow';
 import { ProgressBar } from './ProgressBar';
 import { Spinner } from './Spinner';
+import { TextField } from './TextField';
 import { Tile } from './Tile';
 import { VirtualList, listHeight, listWindow } from './VirtualList';
 import { focusClass, percent } from './focusable';
@@ -333,5 +334,83 @@ describe('VirtualList', () => {
       exitDialog: () => undefined,
     });
     expect(() => VirtualList({ binding: bindFocus(grid), screen: grid.top, zone: 'tiles', renderItem: () => h('div', null) })).toThrow(/not a list/);
+  });
+});
+
+describe('TextField (RELAY step 13a)', () => {
+  const edit = (editing: boolean) => ({
+    editing,
+    onEditKey: vi.fn(),
+    onEditInput: vi.fn(),
+    onEditFocus: vi.fn(),
+    onEditBlur: vi.fn(),
+  });
+
+  it('shows the label, the value in a native input, the hint, and the focus', () => {
+    const onHover = vi.fn();
+    const onPress = vi.fn();
+    const el = expand(TextField({ id: 'f-user', label: 'Username', value: 'omar', hint: 'From your provider', state: 'focused', onHover, onPress, testId: 'field-user' }));
+    expect(el.props).toMatchObject({ class: 'z-field is-focused', 'data-testid': 'field-user', 'data-state': 'focused', 'data-editing': 'false' });
+    expect(el.props.onMouseMove).toBe(onHover);
+    expect(el.props.onClick).toBe(onPress);
+    expect(one(el, 'z-field__label').props).toMatchObject({ for: 'f-user' });
+    expect(text(one(el, 'z-field__label'))).toBe('Username');
+    const input = one(el, 'z-field__input');
+    expect(input.tag).toBe('input');
+    // Out of Tab, no browser help with the text: the focus engine and the TV keyboard decide.
+    expect(input.props).toMatchObject({ id: 'f-user', type: 'text', value: 'omar', dir: 'auto', tabIndex: -1, spellcheck: false, autocomplete: 'off', autocapitalize: 'off', 'aria-describedby': 'f-user-note' });
+    expect(input.props['aria-invalid']).toBeUndefined();
+    expect(text(one(el, 'z-field__note'))).toBe('From your provider');
+    expect(one(el, 'z-field__note').props).toMatchObject({ id: 'f-user-note', role: undefined });
+  });
+
+  it('links and passwords read left to right; a name follows its own text', () => {
+    const at = (kind: 'text' | 'url' | 'password', dir?: 'ltr' | 'auto') => one(expand(TextField({ id: 'f', label: 'L', value: '', kind, dir })), 'z-field__input').props;
+    expect(at('url')).toMatchObject({ type: 'url', dir: 'ltr' });
+    expect(at('password')).toMatchObject({ type: 'password', dir: 'ltr' });
+    expect(at('text')).toMatchObject({ type: 'text', dir: 'auto' });
+    expect(at('text', 'ltr')).toMatchObject({ dir: 'ltr' });
+  });
+
+  it('an error replaces the hint, marks the field and is announced', () => {
+    const el = expand(TextField({ id: 'f', label: 'Server', value: 'x y', hint: 'Starts with http://', error: 'No spaces' }));
+    expect(el.props.class).toBe('z-field is-invalid');
+    expect(text(one(el, 'z-field__note'))).toBe('No spaces');
+    expect(one(el, 'z-field__note').props.role).toBe('alert');
+    expect(one(el, 'z-field__input').props['aria-invalid']).toBe('true');
+    // An empty or null error is no error.
+    for (const error of ['', null]) {
+      const ok = expand(TextField({ id: 'f', label: 'Server', value: '', hint: 'Hint', error }));
+      expect(ok.props.class).toBe('z-field');
+      expect(text(one(ok, 'z-field__note'))).toBe('Hint');
+    }
+  });
+
+  it('keeps the note line when there is nothing to say (an error appearing moves nothing)', () => {
+    const el = expand(TextField({ id: 'f', label: 'Name', value: '' }));
+    expect(one(el, 'z-field__note').children).toEqual([]);
+  });
+
+  it("hands the input's events to the editor, and each change to onValue", () => {
+    const handlers = edit(true);
+    const onValue = vi.fn();
+    const el = expand(TextField({ id: 'f', label: 'L', value: 'a', edit: handlers, onValue }));
+    expect(el.props.class).toBe('z-field is-editing');
+    expect(el.props['data-editing']).toBe('true');
+    const input = one(el, 'z-field__input').props;
+    expect(input.onKeyDown).toBe(handlers.onEditKey);
+    expect(input.onFocus).toBe(handlers.onEditFocus);
+    expect(input.onBlur).toBe(handlers.onEditBlur);
+    (input.onInput as (e: { currentTarget: { value: string } }) => void)({ currentTarget: { value: 'ab' } });
+    expect(handlers.onEditInput).toHaveBeenCalledOnce();
+    expect(onValue).toHaveBeenCalledWith('ab');
+  });
+
+  it('works without an editor (no handlers, never editing)', () => {
+    const el = expand(TextField({ id: 'f', label: 'L', value: '', edit: edit(false) }));
+    expect(el.props['data-editing']).toBe('false');
+    const bare = one(expand(TextField({ id: 'f', label: 'L', value: '' })), 'z-field__input').props;
+    expect(bare.onKeyDown).toBeUndefined();
+    expect(() => (bare.onInput as (e: { currentTarget: { value: string } }) => void)({ currentTarget: { value: 'x' } })).not.toThrow();
   });
 });

@@ -18,9 +18,21 @@ interface WheelLike {
 }
 
 /**
+ * True for a text field (`<input>`, `<textarea>`, an editable element): while it has DOM focus
+ * its keys are typing, and the field's own handler ends the edit (`TextEditor`, RELAY step 13a).
+ */
+export function isEditable(target: EventTarget | null): boolean {
+  const element = target as { readonly tagName?: unknown; readonly isContentEditable?: unknown } | null;
+  if (element === null || typeof element !== 'object') return false;
+  const tag = typeof element.tagName === 'string' ? element.tagName.toUpperCase() : '';
+  return tag === 'INPUT' || tag === 'TEXTAREA' || element.isContentEditable === true;
+}
+
+/**
  * Connects the remote to the focus engine (docs/architecture.md §1.2):
  * - keys: the platform's key map turns each into an Intent for `Navigator.handle` (and the
- *   browser's own action, such as scrolling, is cancelled);
+ *   browser's own action, such as scrolling, is cancelled). Keys aimed at a text field are
+ *   left to it: Backspace deletes there, though it is Back on the desktop keyboard;
  * - the Magic Remote: the pointer shows itself by moving (`watchPointerMoves`) and, on webOS,
  *   through the system's own events (`Platform.onPointer`); keys that move the focus hide it;
  * - the wheel scrolls the focused zone one row per event, never the page (non-passive).
@@ -29,6 +41,7 @@ interface WheelLike {
  */
 export function connectRemote({ platform, nav, target, onIntent }: RemoteOptions): () => void {
   const onKey = (event: Event): void => {
+    if (isEditable(event.target)) return;
     const key = event as KeyboardEvent;
     const intent = platform.keyToIntent(key);
     if (intent === null) return;

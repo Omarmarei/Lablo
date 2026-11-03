@@ -39,7 +39,7 @@ Needs **Docker**. On Windows, start Docker Desktop first. The first run download
    - `socat` forwards DevTools to a random loopback port on the host.
    - A second `socat` serves the catalog fixtures (`/app/fixtures`) on `127.0.0.1:8090` inside the container, one `serve-fixture.sh` per request: plain files, CORS headers (the page is `file://`, so the Blob worker's origin is `null`), no validators and no `Content-Encoding`. It needs no extra package, so the image's cached apt layer stays valid. The image tag hashes every file in `IMAGE_FILES` (`src/docker.ts`).
 3. The host drives each app over raw CDP (`tools/engines/src/cdp.ts`, Node's built-in WebSocket). Puppeteer 1.x starts at Chromium 66 and Playwright needs a modern protocol, so neither works here.
-4. Per app (`file:///app/<variant>/<platform>/index.html?force=1&q=<query>&source=<fixture URL>`), `src/scenario.ts` checks:
+4. Per app (`file:///app/<variant>/<platform>/index.html?screen=hello&force=1&q=<query>&source=<fixture URL>`; the hello screen is a developer screen since step 13a, when onboarding became the start screen), `src/scenario.ts` checks:
    - **Boot:** `#boot-error` stays empty, there is no uncaught exception (`Runtime.exceptionThrown`, or `Console.messageAdded` on Chromium 53, which reports errors only that way), and `[data-testid=hello][data-ready=true]` appears.
    - **Engine:** the user agent reports the expected major version.
    - **Worker:** `worker-status` starts with `ok in`. The Blob worker answered, so core-js reached it too.

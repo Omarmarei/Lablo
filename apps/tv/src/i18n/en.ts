@@ -51,6 +51,74 @@ export const EN = {
   'exit.message': 'You can come back any time.',
   'exit.stay': 'Stay',
   'exit.confirm': 'Exit',
+
+  // The app's name, in each language's script.
+  'app.name': 'Zoma',
+
+  // Onboarding (RELAY step 13): the first start. Brand and format names (Xtream, M3U, XMLTV,
+  // http://) are arguments, so they are isolated and the Arabic holds no Latin of its own.
+  'onboarding.chooseLanguage': 'Choose your language',
+  'onboarding.disclaimerTitle': 'Zoma is a player',
+  'onboarding.disclaimerBody': 'Zoma provides no channels, films or other content, and it is not linked to any provider.',
+  'onboarding.disclaimerAdd': 'To watch, add a playlist or a login from a provider you have the right to use. You are responsible for what you add.',
+  'onboarding.understand': 'I understand',
+  'onboarding.consentTitle': "Use this TV's ID for your backup?",
+  'onboarding.consentBody':
+    "Zoma can use this TV's device ID to encrypt a backup of your sources and favourites, so they come back after an app update or a reset. The ID itself never leaves your TV.",
+  'onboarding.backupNote':
+    "The backup is on by default and is encrypted on your TV before it is sent, so we can't read it. You can turn it off, or leave out your login details, in Settings.",
+  'onboarding.consentNo': "If you don't allow it, Settings shows a backup code for you to note down instead.",
+  'onboarding.allow': 'Allow',
+  'onboarding.notNow': 'Not now',
+  'onboarding.sourceTitle': 'Add your source',
+  'onboarding.sourceBody': 'Use the details your provider gave you. Zoma comes with no sources of its own.',
+  'onboarding.xtream': '{name} login',
+  'onboarding.xtreamHint': 'A server address, a username and a password',
+  'onboarding.m3u': '{format} playlist link',
+  'onboarding.m3uHint': 'A link to a playlist file',
+  'onboarding.typeHint': 'Press OK on a field to type, and OK again when you are done.',
+  'onboarding.add': 'Add source',
+
+  // The source form's fields.
+  'field.server': 'Server address',
+  'field.serverHint': 'As your provider sent it. {scheme} is added if you leave it out.',
+  'field.username': 'Username',
+  'field.password': 'Password',
+  'field.playlist': 'Playlist link',
+  'field.linkHint': 'Starts with {http} or {https}',
+  'field.epg': 'Guide link (optional)',
+  'field.epgHint': 'An {format} link, if your provider gave you one',
+  'field.name': 'Name (optional)',
+  'field.nameHint': 'Shown in your list of sources',
+  'field.required': 'Fill this in',
+  'field.url': 'Enter a link that starts with {http} or {https}',
+  'field.spaces': "A link can't contain spaces",
+
+  // Adding a source.
+  'loading.title': 'Adding {name}',
+  'loading.checking': 'Checking the details',
+  'loading.download': 'Loading: {n, plural, one {# item} other {# items}}',
+  'loading.saving': 'Saving',
+  'loading.failed': "Couldn't add {name}",
+  'loading.edit': 'Edit details',
+  'loading.retry': 'Try again',
+
+  // Why a source couldn't be added.
+  'error.auth': "The provider didn't accept this username and password.",
+  'error.expired': 'This account has expired. Contact your provider.',
+  'error.network': "Couldn't reach the server. Check the address and your internet connection.",
+  'error.http': 'The server answered with error {status, number}.',
+  'error.format': "This link didn't give a playlist.",
+  'error.empty': 'The playlist has no channels.',
+  'error.other': 'Something went wrong. Try again.',
+
+  // The source is added.
+  'done.title': "You're all set",
+  'done.body': '{name} is ready.',
+  'done.live': '{n, plural, one {# channel} other {# channels}}',
+  'done.movies': '{n, plural, one {# film} other {# films}}',
+  'done.series': '{n, plural, one {# series} other {# series}}',
+  'done.start': 'Start watching',
 } as const;
 
 export type MessageKey = keyof typeof EN;

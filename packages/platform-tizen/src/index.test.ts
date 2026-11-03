@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildTizenKeyMap, tizenChromiumVersion, tizenKeysToRegister, tizenModelYear } from './index';
+import { TIZEN_IME_CANCEL, TIZEN_IME_DONE, buildTizenKeyMap, tizenChromiumVersion, tizenKeysToRegister, tizenModelYear, tizenTextKey } from './index';
 
 describe('Tizen key registration', () => {
   it('registers every non-mandatory key when the supported-key list is unavailable', () => {
@@ -68,5 +68,37 @@ describe('Tizen version tables', () => {
   it.each(['unknown', '', '42.0'])('unknown version %j -> null', (version) => {
     expect(tizenModelYear(version)).toBeNull();
     expect(tizenChromiumVersion(version)).toBeNull();
+  });
+});
+
+describe('tizenTextKey (a text field being edited, RELAY step 13a)', () => {
+  const code = (keyCode: number) => ({ keyCode });
+
+  it.each([
+    [13, 'done'],
+    [TIZEN_IME_DONE, 'done'],
+    [TIZEN_IME_CANCEL, 'close'],
+    [10009, 'close'],
+    [38, 'up'],
+    [40, 'down'],
+  ] as const)('key %i ends the edit as %s', (keyCode, textKey) => {
+    expect(tizenTextKey(code(keyCode))).toBe(textKey);
+  });
+
+  it("uses the IME codes from Samsung's guide", () => {
+    expect([TIZEN_IME_DONE, TIZEN_IME_CANCEL]).toEqual([65376, 65385]);
+  });
+
+  it.each([37, 39, 8, 46, 48, 65, 427, 403])('leaves key %i to the field', (keyCode) => {
+    expect(tizenTextKey(code(keyCode))).toBeNull();
+  });
+
+  it('no remote key is an Intent and a different text key by accident', () => {
+    // Back is BACK as an Intent and close in a field; OK is OK and done.
+    const intents = buildTizenKeyMap(null);
+    expect(intents.get(10009)).toBe('BACK');
+    expect(intents.get(13)).toBe('OK');
+    expect(intents.has(TIZEN_IME_DONE)).toBe(false);
+    expect(intents.has(TIZEN_IME_CANCEL)).toBe(false);
   });
 });

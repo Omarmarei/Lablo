@@ -1,6 +1,6 @@
 /**
  * @zoma/ui: the focus engine (step 10), the design system (step 11: tokens, fonts, the base
- * components, the virtual list and the en-XA pseudo-locale) and the i18n runtime (step 12:
+ * components, the virtual list and the en-XA pseudo-locale; step 13a: the text field and its editor) and the i18n runtime (step 12:
  * messages, numbers, times and dates; the catalogs are the app's). The EPG grid comes in step
  * 23. See docs/architecture.md §1.2.
  *
@@ -11,13 +11,15 @@ import './styles/fonts.css';
 import './styles/tokens.css';
 
 export { FOCUS_RING, LAYOUT, SCREEN, SPACE, fits, pxTokens } from './design/tokens';
-export type { FocusBinding, ItemBinding, ItemState, ZoneView } from './focus/binding';
-export { bindFocus, useFocus, useZone } from './focus/binding';
+export type { EditorBinding, FocusBinding, ItemBinding, ItemState, ZoneView } from './focus/binding';
+export { bindEditor, bindFocus, useFocus, useZone } from './focus/binding';
 export type { BackOutcome, Focus, HandleResult, Navigator, NavigatorOptions, Screen, ScreenSpec } from './focus/navigator';
 export { OK_CLICK_WINDOW_MS, createNavigator } from './focus/navigator';
 export { watchPointerMoves } from './focus/pointer';
 export type { RemoteOptions } from './focus/remote';
-export { connectRemote } from './focus/remote';
+export { connectRemote, isEditable } from './focus/remote';
+export type { EditKeyEvent, EditableLike, FieldEditing, TextEditor, TextEditorOptions } from './focus/text-editor';
+export { createTextEditor } from './focus/text-editor';
 export type {
   Direction,
   EpgCell,
@@ -67,6 +69,8 @@ export type { ProgressBarProps } from './components/ProgressBar';
 export { ProgressBar } from './components/ProgressBar';
 export type { SpinnerProps } from './components/Spinner';
 export { Spinner } from './components/Spinner';
+export type { TextFieldKind, TextFieldProps } from './components/TextField';
+export { TextField } from './components/TextField';
 export type { TileProps } from './components/Tile';
 export { Tile } from './components/Tile';
 export type { ListWindow, VirtualListProps } from './components/VirtualList';

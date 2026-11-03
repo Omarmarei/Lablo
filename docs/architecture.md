@@ -267,6 +267,35 @@ Off-the-shelf libraries such as Norigin measure the DOM on every move. That figh
   - The harness's bidi probe builds its lines with the real `isolateText`. Each check has a control without isolation, which must show the problem, so the probe can't pass vacuously. e2e runs the same probe in current Chromium.
 - **Size:** main's own code about 130 → 132.0 KB (tizen) of 500, with no new polyfill.
 
+**Built in step 13a: onboarding's flow and text input on a TV** (`packages/ui/src/focus/text-editor.ts`, `components/TextField.tsx`; `Platform.textKey` and `onSoftKeyboard`; `apps/tv/src/onboarding`):
+- **Text input (decision).** The focus engine never uses DOM focus, but a native `<input>` needs it: DOM focus is what opens the TV's on-screen keyboard (the Tizen IME, the webOS virtual keyboard, Arabic included). We keep native inputs and hand DOM focus over only while a field is edited. Our own on-screen keyboard is the fallback if spike S10 finds the IME unusable (§5, +2 sessions).
+  - A `TextField` is an item of a zone like any other: the engine focuses it with a class. OK (or a click) calls `TextEditor.open(id)`, which focuses its input. Keys aimed at an editable element are the field's: `connectRemote` ignores them (`isEditable`), so Backspace deletes on the desktop, though it is Back elsewhere.
+  - The input's own key handler ends the edit on the platform's text keys (`Platform.textKey` → `done`, `close`, `up`, `down`). `done` and `down` move the engine's focus down, to the next field or the buttons; `up` moves it up; `close` keeps it. The input is blurred, and the typed text is always kept: a stray Back must never throw away a URL typed on a remote.
+  - Per platform: the desktop maps Enter, Escape and the vertical arrows. Tizen maps 13, the IME's Done (65376) and Cancel (65385), Back (10009) and the arrows. webOS maps 13, Back (461) and the arrows.
+  - The edit also ends on a blur from elsewhere, and when the platform says its keyboard hid (webOS `keyboardStateChange`, `Platform.onSoftKeyboard`). Otherwise the arrows would move the caret of a field nobody sees.
+  - A Magic Remote OK sends a click and key 13 (step 11b). When the click opens a field, its twin key 13 reaches the input as `done`. One that comes within `OK_CLICK_WINDOW_MS` of the open, with nothing typed yet, is the same press and is ignored.
+  - Links, logins and passwords are `dir="ltr"` islands; a name is `dir="auto"`. The box's text-align is mirrored with the page, so a link sits on the label's side in Arabic and still reads left to right.
+  - The inputs are out of Tab (`tabIndex -1`), with no spellcheck, autocomplete or autocapitalize.
+  - **What the harness can't check:** whether the TVs open their keyboards on a programmatic `focus()`, which keys they send while it is up, and Arabic input. That is spike S10 on the real TVs (step 16). The key codes come from Samsung's and LG's documentation.
+- **The start screen.** Onboarding opens by default (`readScreen`). The hello screen is now a developer screen behind `?screen=hello`: the old-engine harness's data runs and the hello e2e add it.
+  - Its English diagnostics stay out of the catalogs, and its lint exemption stays, narrowed to its three files with a new reason. The e2e tests and the harness read that text, in its Arabic-locale runs too, and no user can reach the screen on a TV.
+- **The flow** (`onboarding-state.ts`), on the router's back stack. Back goes one screen back; on the first screen it follows `rootBackPolicy`.
+  1. Language: both languages' own words, the TV's language first and focused. Picking one switches the catalog, `<html lang/dir>` and `nav.setDir` live, in the TV's region (the gallery's pattern, step 12b).
+  2. Disclaimer: "Zoma provides no content", and the user is responsible for what they add (PLAN line 246).
+  3. Device-ID consent: what the ID is for (encrypting the backup; it never leaves the TV) and the backup disclosure (on by default, encrypted on the TV, off or without logins in Settings, §3.3 B). It is shown on both platforms. "Not now" means Settings shows a backup code instead. The answer is kept in the state; step 13b saves it, and step 32 reads the ID only after "Allow".
+  4. Source type: an Xtream login or an M3U link (the phone pairing comes at step 31).
+  5. The form: Xtream (server, username, password) or M3U (playlist link), plus an optional guide link and name on both. "Add source" checks it on the TV first (`checkForm`): required fields, and links that are http(s) addresses without spaces or a login in them (`http://` is assumed when no scheme is typed). The server goes through core's `normalizeXtreamBase`, logins are trimmed, and a missing name becomes the host. A refused field shows its problem under the box and takes the focus.
+  6. Loading: phase, item count and a bar (bytes of the size when the server sent one). Cancel and Back stop it. On failure, a message per `LoadErrorCode` and "Edit details" / "Try again".
+  7. Done: the counts. It becomes the new root (`nav.reset`), so Back no longer goes into onboarding.
+  - Step 13a loads through `createFakeLoader` (no network; 1,240 channels, 380 films, 45 series). Step 13b replaces it with the data engine against the provider, saves the answers and the source in the profile, and skips onboarding when a source exists. Until the live screen (step 14), "Start watching" opens the hello screen.
+- **Text:** about 50 new catalog strings. Brand and format names (Xtream, M3U, XMLTV, `http://`) are arguments, so the runtime isolates them in Arabic and the Arabic catalog holds no Latin of its own.
+- **Size:** main's own code 132.0 → 161.9 KB (tizen) of 500, with no new polyfill. Onboarding is about 16 KB of that, and the new catalog strings most of the rest.
+  - Terser writes main.js `ascii_only`, so each Arabic character costs 6 bytes (`\uXXXX`): about 2,000 Arabic characters made 12 KB. If the catalogs grow much, ship them as a UTF-8 file instead.
+- **Tests:** the text keys per adapter; `isEditable` and `connectRemote` ignoring a field's keys; the editor (open, every way to end, the click twin, a blur, the hidden keyboard, switching fields); `TextField` at VNode level; the form checks (with fast-check); the flow by keys with the fake loader (Back through every screen, the root policies, failure, retry, cancel, stale answers).
+  - e2e `onboarding.spec.ts`, by keys only: the whole flow in English and in Arabic, typing on the keyboard, a refused guide link fixed with Backspace, an Arabic name. Also the live language switch, Back through every screen, the caret keys staying in a field, a click and its twin key, and the en-XA check on every screen.
+  - Every screen inside the safe area, with screenshots in en, ar and en-XA (`artifacts/screenshots/onboarding-*.png`).
+  - `tv-bundle.spec.ts`: both bundles start on onboarding from `file://` and type into a field by key codes.
+
 **State:**
 - Signals hold UI and session state.
 - Domain stores are plain classes that expose signals: `ProfileStore`, `SourceStore`, `PlayerStore` (mirrors the controller) and `SettingsStore`.
@@ -350,7 +379,7 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
       - On `swapped`, the query worker `reload`s before the refresh resolves, so the next read sees the new catalog.
       - Remote keys call `noteActivity()`: `setBusy(true)` once per burst of keys and `setBusy(false)` 1 s after the last one. A refresh that starts mid-burst is told at once. Sending busy only once per burst keeps the worker's 15 s expiry meaningful, so endless key presses can't starve a refresh.
       - The workers come from `@zoma/data/query.worker?worker` and `@zoma/data/ingest.worker?worker` (package `exports`, allowed by the boundary lint). The RPC clients come from `@zoma/data/client`, because the package index would pull every data module's polyfills into the main bundle.
-      - The hello screen's catalog panel drives it until onboarding (step 13) replaces it: `?q=<words>`, `?force=1` and `?source=<playlist URL>` as the last parameter.
+      - The hello screen's catalog panel drives it: `?q=<words>`, `?force=1` and `?source=<playlist URL>` as the last parameter. Since step 13a, onboarding is the start screen and the hello screen a developer screen, so these come after `?screen=hello`.
       - Tests: `test/tv-data-engine.test.ts` runs the real services over message channels (9/9 mutants caught); e2e refreshes the mock's playlist in `pnpm dev` and in both built bundles from `file://`; the old-engine harness does it in Chromium 53, 56 and 68 (§5, S1).
 11. **Search.** `indexOf` over the search string, then a binary search over offsets to find the item.
     - **Ranking:** word-prefix matches first, then substring matches; live before VOD before series; favourites boosted.

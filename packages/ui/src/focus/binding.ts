@@ -1,6 +1,7 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
 import type { Focus, Navigator, Screen } from './navigator';
+import type { FieldEditing, TextEditor } from './text-editor';
 import type { ZonePosition, ZoneSpec } from './types';
 
 /**
@@ -82,5 +83,35 @@ export function useZone(binding: FocusBinding, screen: Screen, zone: string): Zo
         screen.click(zone, index, time);
       },
     }),
+  };
+}
+
+/**
+ * The text editor as a signal (RELAY step 13a): `field(id)` reads it, so the component that
+ * calls it re-renders when an edit starts or ends.
+ */
+export interface EditorBinding {
+  readonly editor: TextEditor;
+  /** The field being edited, or `null`. */
+  readonly editing: ReadonlySignal<string | null>;
+  /** What a `TextField` takes for field `id` (its `edit` prop). */
+  field(id: string): FieldEditing;
+  /** Stops following the editor. */
+  dispose(): void;
+}
+
+export function bindEditor(editor: TextEditor): EditorBinding {
+  const editing = signal(editor.editing);
+  const stop = editor.subscribe((next) => {
+    editing.value = next;
+  });
+  return {
+    editor,
+    editing,
+    field(id: string): FieldEditing {
+      const handlers = editor.field(id);
+      return { ...handlers, editing: editing.value === id };
+    },
+    dispose: stop,
   };
 }

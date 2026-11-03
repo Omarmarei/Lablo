@@ -40,7 +40,7 @@ for (const platform of ['tizen', 'webos'] as const) {
     });
 
     const playlist = `${base}/get.php?username=${U}&password=${P}&type=m3u_plus`;
-    await page.goto(`${pathToFileURL(index).href}?q=sports&source=${encodeURIComponent(playlist)}`);
+    await page.goto(`${pathToFileURL(index).href}?screen=hello&q=sports&source=${encodeURIComponent(playlist)}`);
     await expect(page.getByTestId('hello')).toHaveAttribute('data-ready', 'true');
     await expect(page.getByTestId('platform-id')).toHaveText(platform);
     await expect(page.getByTestId('info-platform')).toHaveText(platform);
@@ -135,6 +135,41 @@ for (const platform of ['tizen', 'webos'] as const) {
     await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
     await expect(gallery).toHaveAttribute('data-language', 'en');
     await expect(page.getByTestId('language')).toHaveAttribute('data-state', 'focused');
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const platform of ['tizen', 'webos'] as const) {
+  test(`the ${platform} bundle starts on onboarding from file:// and types into a field by remote keys`, async ({ page }) => {
+    const index = path.join(DIST, platform, 'index.html');
+    expect(existsSync(index), `${index} is missing: run pnpm build:tv before pnpm e2e`).toBe(true);
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
+    page.on('console', (message) => {
+      if (message.type() === 'error' && !message.text().includes('ERR_FILE_NOT_FOUND')) errors.push(`console: ${message.text()}`);
+    });
+
+    // No parameters: what a TV opens (RELAY step 13a).
+    await page.goto(pathToFileURL(index).href);
+    const root = page.getByTestId('onboarding');
+    await expect(root).toHaveAttribute('data-ready', 'true');
+    await expect(page.locator('#boot-error')).toBeHidden();
+    await expect(root).toHaveAttribute('data-screen', 'language');
+    // English, I understand, Allow, M3U link: the form, by the remote's own key codes.
+    for (const key of ['Enter', 'Enter', 'Enter', 'ArrowDown', 'Enter']) await page.keyboard.press(key);
+    await expect(root).toHaveAttribute('data-screen', 'form');
+    // OK gives the field DOM focus (the TV's keyboard), Enter (key 13) ends the edit and moves on.
+    await page.keyboard.press('Enter');
+    await expect(root).toHaveAttribute('data-editing', 'onboarding-playlist');
+    expect(await page.evaluate(() => document.activeElement?.id)).toBe('onboarding-playlist');
+    await page.keyboard.type('p.example/list.m3u');
+    await page.keyboard.press('Enter');
+    await expect(root).toHaveAttribute('data-editing', '');
+    await expect(root).toHaveAttribute('data-index', '1');
+    await expect(page.locator('#onboarding-playlist')).toHaveValue('p.example/list.m3u');
+    // The fake loader (until step 13b) lands on the done screen.
+    for (const key of ['ArrowDown', 'ArrowDown', 'Enter']) await page.keyboard.press(key);
+    await expect(root).toHaveAttribute('data-screen', 'done');
     expect(errors).toEqual([]);
   });
 }

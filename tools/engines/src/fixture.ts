@@ -2,7 +2,8 @@
  * The catalog the data workers ingest in each engine (RELAY step 8b, the data layer's part of
  * spike S1). The harness writes a deterministic playlist next to the staged apps, and
  * `serve-fixture.sh` serves it inside the container on 127.0.0.1:8090. Each app run is opened
- * with `?force=1&q=<query>&source=<playlist URL>`, so the hello screen's catalog panel:
+ * with `?screen=hello&force=1&q=<query>&source=<playlist URL>` (the hello screen is a developer
+ * screen since step 13a, when onboarding became the start screen), so its catalog panel:
  * 1. prunes at start and starts the query worker (both Blob workers, IndexedDB in each);
  * 2. refreshes the playlist in a fresh ingest worker: streamed fetch, gunzip, parse, 500-item
  *    chunks, generation swap (`force` makes every run commit, whatever an earlier run stored);
@@ -171,5 +172,5 @@ export function stageFixtures(root: string, nowMs = Date.now()): Record<TvPlatfo
 /** The app URL for one run: the catalog parameters, with `source` last (apps/tv/src/data/params.ts). */
 export function appUrl(variant: string, platform: TvPlatform, check: DataCheck): string {
   const source = `${FIXTURE_ORIGIN}/${check.file}`;
-  return `file:///app/${variant}/${platform}/index.html?force=1&q=${encodeURIComponent(check.query)}&source=${encodeURIComponent(source)}`;
+  return `file:///app/${variant}/${platform}/index.html?screen=hello&force=1&q=${encodeURIComponent(check.query)}&source=${encodeURIComponent(source)}`;
 }

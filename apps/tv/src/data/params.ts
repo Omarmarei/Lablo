@@ -1,7 +1,7 @@
 /**
  * The hello screen's catalog debug parameters (RELAY step 8b), read from `location.search`:
  *
- *   ?q=news&source=http://127.0.0.1:8080/get.php?username=…&password=…&type=m3u_plus
+ *   ?screen=hello&q=news&source=http://127.0.0.1:8080/get.php?username=…&password=…&type=m3u_plus
  *
  * - `source` must come **last**: its value runs to the end of the address, so a playlist URL
  *   with its own `?` and `&` can be pasted as it is. A percent-encoded value works too.
@@ -63,11 +63,16 @@ export function readDebugParams(search: string): DebugParams {
   return { source, query, force, error: null };
 }
 
-/** The screen the app opens on: the hello screen, or the component gallery (RELAY step 11b). */
-export type AppScreen = 'hello' | 'gallery';
+/**
+ * The screen the app opens on: onboarding (RELAY step 13a), or a developer screen: the hello
+ * screen's diagnostics (`?screen=hello`, which the old-engine harness's data runs use) or the
+ * component gallery (`?screen=gallery`, step 11b).
+ */
+export type AppScreen = 'onboarding' | 'hello' | 'gallery';
 
-/** `?screen=gallery` opens the component gallery; anything else the hello screen. */
+/** `?screen=hello` or `?screen=gallery` open those screens; anything else onboarding. */
 export function readScreen(search: string): AppScreen {
   const match = SOURCE.exec(search);
-  return readParam(match === null ? search : search.slice(0, match.index), 'screen') === 'gallery' ? 'gallery' : 'hello';
+  const screen = readParam(match === null ? search : search.slice(0, match.index), 'screen');
+  return screen === 'gallery' || screen === 'hello' ? screen : 'onboarding';
 }
