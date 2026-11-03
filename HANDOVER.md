@@ -6,18 +6,21 @@ You are leg 16 of relay run `iptv-20261101-214120`, building **Zoma IPTV**: a co
 - **Leg 15 did step 10: the focus engine** (Phase 4, PLAN 4.1, the first UI step).
   - PR **#14**, commit `7b4100d`, merged as merge commit **`4438efe`** (the branch was kept).
   - CI `verify` (6 m 45 s), `engines` (2 m 23 s) and `media` (6 m 49 s) were green on `7b4100d`.
-- **The relay was paused after leg 15 at Omar's request** ("Pause after this leg finishes"). Leg 15 reported `needs-you` with the main-budget question below, so no leg started by itself. If you are running, Omar resumed the relay.
+- **The relay was paused after leg 15 at Omar's request** ("Pause after this leg finishes"). On 2026-11-03 he answered the main-budget question (option 1, below) and said "Resume in new leg", so leg 15 reported `handover`.
 
-## Your step: step 11, the design system (RELAY.md Phase 4, PLAN 4.2), but only once the main budget is decided
-- **Gate first.** Read RELAY.md's "Main bundle budget" note and the progress log.
-  - If a decision is recorded there (or in Omar's message that started you), follow it.
-  - If not, **stop as needs-you before writing step-11 code**, with the three options below as a numbered list.
-  - Main is **470.3 KB of 500** (tizen; webos 468.9). Step 11 (components, a virtual list, tokens; fonts and CSS may count too, so check how `tools/build` ships CSS) will not fit in about 30 KB.
-- **The budget options:**
-  1. **(recommended)** count inlined workers only against their own 150 KB budgets, and keep the 500 KB for the main thread's own code (a worker string isn't parsed as code until the worker starts);
-  2. ship the workers as separate files (needs spike S1: `file://` workers on the TVs);
-  3. raise the main budget.
-- **Never raise or redefine a budget without Omar's word.** Option 1 means changing `tools/build` (the budget check) plus its tests, and the CLAUDE.md `build:tv` row; CLAUDE.md edits need his direct word.
+## Your step: step 11, the design system (RELAY.md Phase 4, PLAN 4.2), after applying the main-budget decision
+- **The main budget is decided** (Omar, 2026-11-03, in leg 15's tab; recorded in RELAY.md's "Main bundle budget" note): **option 1**.
+  - Each inlined worker counts only against its own 150 KB budget.
+  - The 500 KB main budget covers the main thread's own code: main.js minus the inlined worker strings, about 103 KB today (470.3 − 37.5 − 89.8 − 115.1 − 124.9).
+  - Step 11 can't start without it: main is 470.3 KB of 500 counted the old way.
+- **Do this first, as its own commit in the step-11 PR:**
+  - change the budget check in `tools/build` (find it with `grep -rn "500" tools/build/src`, and the code printing `main.js (tizen): … of 500.0 KB`), so that main's figure excludes the inlined worker code;
+  - keep the per-worker 150 KB checks as they are;
+  - print both numbers, e.g. `main.js (tizen): 103.0 KB own code of 500.0 KB (+ 367.3 KB inlined workers)`;
+  - update its tests (`tools/build/src/*.test.ts`) so a seeded oversized main still fails, and an oversized worker fails its own budget;
+  - update the CLAUDE.md `build:tv` row (Omar authorised this one edit by choosing option 1) and docs/runbooks/tv-build.md.
+  - Run `verify:engines --self-test` afterwards: the build changed.
+- **Never raise a budget's number without Omar's word.** Option 1 changes what main counts, not the 500 KB itself.
 - **Step 11, what:** design tokens; Arabic and Latin woff2 font subsets; base components; a virtual list driven by the focus engine's `ZonePosition.top`; `postcss-rtlcss` (the TV build has no PostCSS yet, so add it to `build:tv`); pseudo-locales.
 - **Done when:** Playwright screenshots exist in en, ar and pseudo. Plus `pnpm verify`, `verify:engines --self-test` if the build changes (it will: PostCSS), a PR merged on green CI, and a "press these keys" checklist.
 - **Size of step 11:** it is big. Split it the way legs 10, 12 and 13 split theirs if needed, and write the split into RELAY.md.
@@ -128,10 +131,10 @@ You are leg 16 of relay run `iptv-20261101-214120`, building **Zoma IPTV**: a co
   - a scoped `git add` and `git commit -F <file>`;
   - end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` and the harness's session line;
   - merge relay PRs with `gh pr merge --merge` on green CI (standing approval), keeping the branch, and list the 3 riskiest changes.
-- **CLAUDE.md edits need Omar's direct word in your own tab.** Three gaps are open:
+- **CLAUDE.md edits need Omar's direct word in your own tab.** Two gaps are still open:
   - the "deep imports" convention doesn't mention `@zoma/data`'s four extra entries;
   - the Commands table lacks `pnpm epg:report`;
-  - the `build:tv` row doesn't say the main budget includes the inlined workers.
+  - the `build:tv` row: authorised on 2026-11-03 and fixed by the option-1 change (no longer waiting).
 
 ## The 3 riskiest changes in PR #14
 1. **Every remote key now goes through the focus engine.** Back on the root no longer exits at once: Tizen and the browser show an exit dialog, and webOS calls `platformBack`.
@@ -160,7 +163,7 @@ You are leg 16 of relay run `iptv-20261101-214120`, building **Zoma IPTV**: a co
 5. Open `/?locale=ar-SA`: the Focus block runs right to left. Left moves along the rail towards its end and Right comes back; Up and Down are unchanged.
 
 ## Open decisions and gates
-- **Main bundle budget:** blocks step 11 (options above; option 1 recommended).
+- **Main bundle budget:** decided on 2026-11-03 (option 1). Apply it first (above).
 - **Step 16 [needs Omar]:** the LG TV's model and year, LG Developer Mode, the Samsung route and the Samsung certificate.
 - **Later gates:** steps 21, 34, 44, 46 and 47.
 - **Before the first store submission:** final app IDs, real icons, and PostCSS in `build:tv` (step 11).
@@ -171,6 +174,5 @@ You are leg 16 of relay run `iptv-20261101-214120`, building **Zoma IPTV**: a co
 - Share the **LG TV's model and year**.
 - **"Zoma" trademark clearance** (US, CA, AE, SA) and domains. This also decides the final app IDs.
 - `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` was widened with his authorisation on 2026-11-02. Prune it when the relay run ends if he wants it tighter.
-- **Three CLAUDE.md gaps** wait for his word (above).
-- **The main-budget decision** is due now, before step 11.
+- **Two CLAUDE.md gaps** wait for his word (above).
 - No secrets have been shared, so nothing needs rotating.

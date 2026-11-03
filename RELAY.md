@@ -203,6 +203,12 @@ UI steps also end with a short "press these keys" checklist that Omar can run in
 2. ship the workers as separate files in the package (needs spike S1 to show `file://` workers on the TVs);
 3. raise the main budget.
 
+**Decided by Omar on 2026-11-03 (in leg 15's tab): option 1.**
+- Each inlined worker counts only against its own 150 KB budget.
+- The 500 KB main budget covers the main thread's own code: about 103 KB today, that is main.js minus the four worker strings.
+- He also authorised the matching edit to the CLAUDE.md `build:tv` row.
+- Leg 16 applies it in `tools/build` (the budget check, its report line and its tests) before the step-11 code.
+
 ### Phase 4: UI shell
 - [x] 10. **Focus engine (4.1).** Intents, zones (`list`/`grid`/`epg`/`free`), RTL horizontal flip, per-zone memory, router/back stack, `rootBackPolicy`, Magic Remote hover-to-focus.
   - **Done when:** unit tests pass in LTR and RTL.
