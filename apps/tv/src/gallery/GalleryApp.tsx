@@ -1,5 +1,5 @@
 import type { Platform } from '@zoma/platform-api';
-import type { ItemBinding } from '@zoma/ui';
+import type { ItemBinding, LocaleSettings } from '@zoma/ui';
 import {
   Badge,
   Button,
@@ -22,7 +22,7 @@ import { ACTIONS, DISABLED_ACTION, GALLERY } from './gallery-state';
 import type { DemoChannel } from './gallery-data';
 import { DEMO_CATEGORIES, DEMO_CHANNELS, DEMO_TILES } from './gallery-data';
 import type { AppI18n } from '../i18n';
-import { appI18n } from '../i18n';
+import { LANGUAGE_NAMES, appI18n, otherLanguage, switchedTag } from '../i18n';
 import './gallery.css';
 
 /** The media timeline's demo position and length in seconds: 1:13:12 of 2:00:00, 61% (e2e checks the fill). */
@@ -33,6 +33,17 @@ const MEDIA_LENGTH = 7200;
 const PLAY_ICON = (
   <svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="M7 4.5v15l13-7.5z" />
+  </svg>
+);
+
+/** The language switch's globe: findable by someone who can't read the language on show. */
+const GLOBE_ICON = (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <g fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="9" />
+      <ellipse cx="12" cy="12" rx="4" ry="9" />
+      <path d="M3 12h18" />
+    </g>
   </svg>
 );
 
@@ -79,6 +90,8 @@ function GalleryScreen({ gallery, i18n }: { gallery: Gallery; i18n: AppI18n }) {
   const { binding, home } = gallery;
   const focus = useFocus(binding);
   const actions = useZone(binding, home, 'actions');
+  const language = useZone(binding, home, 'language');
+  const other = otherLanguage(locale.language);
   const tiles = useZone(binding, home, 'tiles');
   const selection = gallery.selection.value;
   const category = gallery.category.value;
@@ -129,6 +142,10 @@ function GalleryScreen({ gallery, i18n }: { gallery: Gallery; i18n: AppI18n }) {
             testId={`action-${i}`}
           />
         ))}
+        {/* The other language under its own name, at the row's inline end. */}
+        <div class="gallery__language">
+          <Button label={LANGUAGE_NAMES[other]} lang={other} icon={GLOBE_ICON} {...language.item(0)} testId="language" />
+        </div>
       </div>
 
       <VirtualList
@@ -231,23 +248,39 @@ interface Props {
 
 /**
  * `?screen=gallery`: waits for the device locale (it picks the catalog, the direction and the
- * formats), then shows every component. `?locale=en-XA` shows the pseudo-locale.
+ * formats), then shows every component. `?locale=en-XA` shows the pseudo-locale. The language
+ * button flips the catalog, `lang`/`dir` on `<html>` and the remote's LEFT/RIGHT live, with no
+ * reload: the navigator, and so the focus, stay as they were.
  */
 export function GalleryApp({ platform, gallery }: Props) {
   const i18n = useSignal<AppI18n | null>(null);
   useEffect(() => {
-    const apply = (tag: string, country: string | null): void => {
-      const next = appI18n(resolveLocale(tag, { country }));
-      gallery.nav.setDir(next.locale.dir);
-      document.documentElement.lang = tag;
-      document.documentElement.dir = next.locale.dir;
-      i18n.value = next;
+    let device: LocaleSettings | null = null;
+    let country: string | null = null;
+    const show = (switches: number): void => {
+      if (device === null) return;
+      const locale = switches % 2 === 0 ? device : resolveLocale(switchedTag(device), { country });
+      gallery.nav.setDir(locale.dir);
+      document.documentElement.lang = locale.tag;
+      document.documentElement.dir = locale.dir;
+      i18n.value = appI18n(locale);
+    };
+    const start = (tag: string, from: string | null): void => {
+      country = from;
+      device = resolveLocale(tag, { country });
+      show(gallery.languageSwitches.peek());
     };
     platform.info().then(
-      (info) => apply(info.locale, info.country),
-      () => apply('en-US', null),
+      (info) => start(info.locale, info.country),
+      () => start('en-US', null),
     );
-    return connectRemote({ platform, nav: gallery.nav, target: window });
+    // Runs on every press, before the next key is handled.
+    const stop = gallery.languageSwitches.subscribe(show);
+    const disconnect = connectRemote({ platform, nav: gallery.nav, target: window });
+    return () => {
+      stop();
+      disconnect();
+    };
   }, [platform, gallery]);
 
   if (i18n.value === null) {

@@ -106,4 +106,35 @@ for (const platform of ['tizen', 'webos'] as const) {
     ]);
     expect(errors).toEqual([]);
   });
+
+  test(`the ${platform} bundle switches the gallery to Arabic and back by remote keys`, async ({ page }) => {
+    const index = path.join(DIST, platform, 'index.html');
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
+    page.on('console', (message) => {
+      if (message.type() === 'error' && !message.text().includes('ERR_FILE_NOT_FOUND')) errors.push(`console: ${message.text()}`);
+    });
+    // The TV adapters take the locale from navigator.language (en-US here): the switch is the only way to Arabic.
+    await page.goto(`${pathToFileURL(index).href}?screen=gallery`);
+    const gallery = page.getByTestId('gallery');
+    await expect(gallery).toHaveAttribute('data-language', 'en');
+    for (const key of ['ArrowUp', 'ArrowUp', 'ArrowRight', 'ArrowRight', 'ArrowRight', 'ArrowRight']) await page.keyboard.press(key);
+    await expect(page.getByTestId('language')).toHaveAttribute('data-state', 'focused');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+    await expect(gallery).toHaveAttribute('data-language', 'ar');
+    await expect(gallery).toContainText('240 قناةً');
+    await expect(page.getByTestId('language')).toHaveAttribute('data-state', 'focused');
+    // app.css's RTL rules apply live: the channel list moved to the right.
+    expect((await page.getByTestId('channels').boundingBox())?.x).toBeGreaterThan((await page.getByTestId('tile-0').boundingBox())?.x ?? 1920);
+    // LEFT and RIGHT mirrored: RIGHT goes back to the actions.
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('action-3')).toHaveAttribute('data-state', 'focused');
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
+    await expect(gallery).toHaveAttribute('data-language', 'en');
+    await expect(page.getByTestId('language')).toHaveAttribute('data-state', 'focused');
+    expect(errors).toEqual([]);
+  });
 }

@@ -50,6 +50,13 @@ describe('Button', () => {
     expect(el.props.onMouseMove).toBe(onHover);
     expect(el.props.onClick).toBe(onPress);
     expect(byClass(el, 'z-button__icon')).toHaveLength(0);
+    expect(one(el, 'z-button__label').props).toMatchObject({ lang: undefined, translate: undefined });
+  });
+
+  it('marks a label in another language: its lang, never translated', () => {
+    const el = expand(Button({ label: 'English', lang: 'en' }));
+    expect(text(el)).toBe('English');
+    expect(one(el, 'z-button__label').props).toMatchObject({ lang: 'en', translate: false });
   });
 
   it('defaults to secondary and idle, and draws an icon before the label', () => {
