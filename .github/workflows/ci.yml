@@ -97,8 +97,9 @@ jobs:
 
       - run: pnpm verify:engines --self-test
 
-      # The report, and the component gallery as each engine drew it (RELAY step 11c).
-      - name: Upload the old-engine report and gallery screenshots
+      # The report, and the component gallery (RELAY step 11c) and onboarding's form and done
+      # screens (step 13c) as each engine drew them.
+      - name: Upload the old-engine report and screenshots
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -106,6 +107,7 @@ jobs:
           path: |
             artifacts/engines/report.json
             artifacts/engines/gallery-*.png
+            artifacts/engines/onboarding-*.png
           if-no-files-found: ignore
           retention-days: 14
 

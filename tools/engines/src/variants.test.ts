@@ -9,6 +9,8 @@ import {
   CSS_SEEDS,
   NO_POLYFILLS_VARIANT,
   SEEDS,
+  SYNTAX_SEED_SCREENS,
+  WALK_SEEDS,
   mustPass,
   removeDeclarations,
   removeRules,
@@ -19,7 +21,7 @@ import {
   stageSeed,
 } from './variants';
 
-const parses = (code: string, ecmaVersion: 2016 | 2017 | 2018 | 2019 | 2020): boolean => {
+const parses = (code: string, ecmaVersion: 5 | 2016 | 2017 | 2018 | 2019 | 2020): boolean => {
   try {
     parse(code, { ecmaVersion, sourceType: 'script' });
     return true;
@@ -144,10 +146,14 @@ describe('seeded variants', () => {
 });
 
 describe('the screens each variant runs', () => {
-  it('runs the real app and the syntax seeds on both screens', () => {
-    expect(APP_SCREENS).toEqual(['hello', 'gallery']);
+  it('runs the real app on every screen, onboarding included', () => {
+    expect(APP_SCREENS).toEqual(['hello', 'gallery', 'onboarding']);
     expect(APP_VARIANT.screens).toEqual(APP_SCREENS);
-    for (const seed of SEEDS) expect(seed.screens).toEqual(APP_SCREENS);
+  });
+
+  it('runs the syntax seeds on the two developer screens: a parse error fails whatever opens', () => {
+    expect(SYNTAX_SEED_SCREENS).toEqual(['hello', 'gallery']);
+    for (const seed of SEEDS) expect(seed.screens).toEqual(SYNTAX_SEED_SCREENS);
   });
 
   it('runs the no-polyfills build on the hello screen only: the gallery needs no polyfill', () => {
@@ -159,6 +165,35 @@ describe('the screens each variant runs', () => {
     for (const seed of CSS_SEEDS) {
       expect(seed.screens).toEqual(['gallery']);
       expect([53, 56, 68, 140].map((major) => mustPass(seed, major))).toEqual([false, false, false, false]);
+    }
+  });
+});
+
+describe('the walk seeds', () => {
+  it('break onboarding only, and must fail on every engine', () => {
+    expect(WALK_SEEDS.map((seed) => seed.id)).toEqual(['seed-walk-no-input-focus', 'seed-walk-forgets-profile']);
+    for (const seed of WALK_SEEDS) {
+      expect(seed.screens).toEqual(['onboarding']);
+      expect([53, 56, 68, 140].map((major) => mustPass(seed, major))).toEqual([false, false, false, false]);
+    }
+  });
+
+  it.each(WALK_SEEDS)('$id is plain ES5, so only the walk can fail it, not the parser', (seed) => {
+    expect(parses(seed.code, 5)).toBe(true);
+  });
+
+  it('turn off DOM focus, and delete the app database at every start', () => {
+    const [noFocus, forgets] = WALK_SEEDS;
+    expect(noFocus!.code).toBe('HTMLElement.prototype.focus = function () {};');
+    expect(forgets!.code).toBe("indexedDB.deleteDatabase('zoma');");
+  });
+
+  it('are staged like the syntax seeds: prepended to a copy of main.js', () => {
+    const dist = fakeDist();
+    const root = mkdtempSync(path.join(tmpdir(), 'zoma-variants-'));
+    for (const seed of WALK_SEEDS) {
+      stageSeed(dist, root, seed);
+      expect(readFileSync(path.join(root, seed.id, 'tizen', 'main.js'), 'utf8')).toBe(`${seed.code}\n!function(){window.app="tizen"}();`);
     }
   });
 });

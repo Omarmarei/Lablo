@@ -127,7 +127,9 @@ function layout(page: Page): Promise<Layout> {
       const r = el.getBoundingClientRect();
       if (r.left < safe.left || r.top < safe.top || r.right > safe.right + 0.5 || r.bottom > safe.bottom + 0.5) outside.push(name(el));
     }
-    const cut = Array.from(document.querySelectorAll('.z-button__label, .onboarding__title, .z-field__label, .z-field__note'))
+    // tools/engines/src/onboarding.ts measures the same boxes and labels in Chromium 53/56/68.
+    const labels = '.z-button__label, .onboarding__title, .z-field__label, .z-field__note';
+    const cut = Array.from(document.querySelectorAll(labels))
       .filter((el) => el.scrollWidth > el.clientWidth + 1)
       .map(name);
     return { scroll: [document.documentElement.scrollWidth, document.documentElement.scrollHeight] as const, outside, cut };

@@ -6,7 +6,7 @@ import { KEY_STEPS, STATE_EXPRESSION, evaluateRun, fontsSettled, formatConsoleEr
 
 const URL = 'file:///app/app/webos/index.html';
 const UA53 = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.0 Safari/537.36';
-const CHECK: DataCheck = { file: 'playlist.m3u.gz', query: 'اخبار', items: 3000, total: 240, gzip: true, guide: 'guide.xml.gz', epgMatched: 300, epgWanted: 2400 };
+const CHECK: DataCheck = { file: 'playlist.m3u.gz', query: 'اخبار', items: 3000, live: 2400, movies: 600, total: 240, gzip: true, guide: 'guide.xml.gz', epgMatched: 300, epgWanted: 2400 };
 
 function state(overrides: Partial<PageState> = {}): PageState {
   return {
