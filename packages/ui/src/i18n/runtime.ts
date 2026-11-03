@@ -1,4 +1,4 @@
-import { pluralCategory } from '@zoma/core';
+import { isolateText, pluralCategory } from '@zoma/core';
 import type { DateStyle, LocaleOverrides, LocaleSettings, NameWidth } from './format';
 import { formatDate, formatDuration, formatNumber, formatPercent, formatTime, formatWeekday, resolveLocale } from './format';
 import type { MessageArgs, MessageEnv, MessagePart } from './message';
@@ -36,33 +36,11 @@ export interface I18n<K extends string> {
   duration(seconds: number): string;
 }
 
-const FSI = String.fromCharCode(0x2068);
-const PDI = String.fromCharCode(0x2069);
-
-/**
- * Wraps text in FIRST STRONG ISOLATE … POP DIRECTIONAL ISOLATE, so a Latin channel name in an
- * Arabic sentence (or the other way round) keeps its own direction and doesn't reorder the
- * punctuation around it. Fluent does the same for every placeable.
- */
-export function isolate(text: string): string {
-  return FSI + text + PDI;
-}
-
-/**
- * Removes the isolation marks again (for tests and for comparing text). A loop: `new RegExp`
- * would bring core-js's RegExp constructor (about 7 KB) into main.
- */
-export function stripIsolates(text: string): string {
-  let out = '';
-  for (let i = 0; i < text.length; i += 1) {
-    const c = text.charAt(i);
-    if (c !== FSI && c !== PDI) out += c;
-  }
-  return out;
-}
-
 export interface I18nOptions extends LocaleOverrides {
-  /** Off only for tests that compare plain text; the app always isolates. */
+  /**
+   * Off only for tests that compare plain text. The app always isolates each text argument
+   * (core's `isolateText`: FSI/PDI plus the marks the TVs' old engines need, ADR-011).
+   */
   readonly isolate?: boolean;
 }
 
@@ -73,7 +51,7 @@ export function createI18n<K extends string>(catalogs: Catalogs<K>, locale: stri
   const env: MessageEnv = {
     plural: (n) => pluralCategory(settings.language, n),
     number: (n) => formatNumber(n, settings),
-    text: options.isolate === false ? (value) => value : isolate,
+    text: options.isolate === false ? (value) => value : (value) => isolateText(value, settings.dir),
   };
 
   const message = (key: K): readonly MessagePart[] => {

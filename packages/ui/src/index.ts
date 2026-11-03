@@ -50,7 +50,7 @@ export type { MessageArgs, MessagePart } from './i18n/message';
 export { MessageSyntaxError, messageArguments, parseMessage, pluralBranches } from './i18n/message';
 export { PSEUDO_LOCALE, pseudoLocalize } from './i18n/pseudo';
 export type { Catalog, Catalogs, I18n, I18nOptions } from './i18n/runtime';
-export { createI18n, isolate, stripIsolates } from './i18n/runtime';
+export { createI18n } from './i18n/runtime';
 
 export type { BadgeProps, BadgeTone } from './components/Badge';
 export { Badge } from './components/Badge';

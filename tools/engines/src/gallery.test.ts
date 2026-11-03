@@ -1,7 +1,25 @@
+import { isolateText, stripIsolates } from '@zoma/core';
 import { parse } from 'acorn';
 import { describe, expect, it } from 'vitest';
-import type { GalleryRun, GalleryState } from './gallery';
-import { GALLERY_EXPRESSION, GALLERY_ROWS, ROW_HEIGHT, SAFE_AREA, VIEWPORT, evaluateGallery, galleryUrl, isGallerySettled } from './gallery';
+import type { BidiState, GalleryRun, GalleryState } from './gallery';
+import {
+  ARABIC_COUNT,
+  BIDI_EXPRESSION,
+  BIDI_LINES,
+  GALLERY_EXPRESSION,
+  GALLERY_ROWS,
+  ROW_HEIGHT,
+  SAFE_AREA,
+  SWITCH_KEYS,
+  VIEWPORT,
+  arabicScreenshot,
+  bidiFailures,
+  evaluateGallery,
+  galleryUrl,
+  isArabicSettled,
+  isGallerySettled,
+  jsString,
+} from './gallery';
 
 const URL = galleryUrl('app', 'tizen');
 const UA56 = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.0 Safari/537.36';
@@ -22,6 +40,40 @@ function state(overrides: Partial<GalleryState> = {}): GalleryState {
     row1: 'idle',
     fontsStatus: 'loaded',
     fonts: 'la400:loaded la700:loaded ar400:loaded ar700:unloaded',
+    dir: 'ltr',
+    language: 'en',
+    zone: 'channels',
+    switchState: 'idle',
+    meta: 'en-US · 240 channels',
+    columns: [96, 984],
+    ...overrides,
+  };
+}
+
+/** After the switch: Arabic, the focus on the language button, the columns swapped. */
+function arabic(overrides: Partial<GalleryState> = {}): GalleryState {
+  return state({
+    row1: 'idle',
+    fonts: 'la400:loaded la700:loaded ar400:loaded ar700:loaded',
+    dir: 'rtl',
+    language: 'ar',
+    zone: 'language',
+    switchState: 'focused',
+    meta: `ar-US · ${ARABIC_COUNT}`,
+    columns: [984, 96],
+    ...overrides,
+  });
+}
+
+/** What Chromium 53 measures with isolateText's marks: no width, both lines isolated; the controls show the problem. */
+function bidi(overrides: Partial<BidiState> = {}): BidiState {
+  return {
+    plain: 114,
+    isolated: 114,
+    trailing: { first: 137, second: 56 },
+    trailingControl: { first: 56, second: 177 },
+    leading: { first: 120, second: 147 },
+    leadingControl: { first: 215, second: 120 },
     ...overrides,
   };
 }
@@ -33,7 +85,11 @@ function run(overrides: Partial<GalleryRun> = {}): GalleryRun {
     boot: state(),
     settled: true,
     afterKey: 'focused',
+    arabic: arabic(),
+    switched: true,
+    bidi: bidi(),
     screenshot: SHOT,
+    arabicScreenshot: arabicScreenshot(SHOT),
     screenshotError: null,
     exceptions: [],
     durationMs: 800,
@@ -56,6 +112,44 @@ describe('the gallery probe', () => {
   it('opens the gallery screen of the staged app', () => {
     expect(galleryUrl('seed-css-no-list-row', 'webos')).toBe('file:///app/seed-css-no-list-row/webos/index.html?screen=gallery');
   });
+
+  it('has a bidi probe in plain ES5 and printable ASCII, so nothing in it is invisible', () => {
+    expect(() => parse(BIDI_EXPRESSION, { ecmaVersion: 5 })).not.toThrow();
+    expect(/[^ -~\n]/.test(BIDI_EXPRESSION)).toBe(false);
+    for (const line of Object.values(BIDI_LINES)) expect(BIDI_EXPRESSION).toContain(jsString(line));
+  });
+
+  it('isolates its lines exactly as the i18n runtime does in Arabic, and nothing else differs from the controls', () => {
+    expect(BIDI_LINES.isolated).toBe(isolateText('Zoma 1', 'rtl'));
+    expect(BIDI_LINES.trailing.startsWith(isolateText('MBC 1', 'rtl'))).toBe(true);
+    expect(BIDI_LINES.leading.startsWith(isolateText('1 Zoma', 'rtl'))).toBe(true);
+    expect(stripIsolates(BIDI_LINES.isolated)).toBe(BIDI_LINES.plain);
+    expect(stripIsolates(BIDI_LINES.trailing)).toBe(BIDI_LINES.trailingControl);
+    expect(stripIsolates(BIDI_LINES.leading)).toBe(BIDI_LINES.leadingControl);
+    expect(BIDI_LINES.trailingControl).toBe('MBC 1 · 240 قناة');
+  });
+
+  it('writes string literals that read back as the same text', () => {
+    for (const text of ["it's", 'a\\b', BIDI_LINES.trailing, '', 'x\ny']) {
+      const literal = jsString(text);
+      expect(/[^ -~]/.test(literal), literal).toBe(false);
+      expect(new Function(`return ${literal};`)()).toBe(text);
+    }
+  });
+
+  it('switches the language with the remote: up to the actions, right past Record, OK', () => {
+    expect(SWITCH_KEYS.map((k) => `${k.key}:${k.keyCode}`)).toEqual([
+      'ArrowUp:38',
+      'ArrowUp:38',
+      'ArrowUp:38',
+      'ArrowRight:39',
+      'ArrowRight:39',
+      'ArrowRight:39',
+      'ArrowRight:39',
+      'Enter:13',
+    ]);
+    expect(arabicScreenshot(SHOT)).toBe('/repo/artifacts/engines/gallery-chrome56-tizen-ar.png');
+  });
 });
 
 describe('isGallerySettled', () => {
@@ -73,6 +167,15 @@ describe('isGallerySettled', () => {
     // A face that failed is final: evaluateGallery reports it.
     expect(isGallerySettled(state({ fonts: 'la400:loaded ar400:error' }), URL)).toBe(true);
     expect(isGallerySettled(state({ fonts: null, fontsStatus: null }), URL)).toBe(true);
+  });
+
+  it('waits for Arabic and its fonts after the switch', () => {
+    expect(isArabicSettled(arabic())).toBe(true);
+    expect(isArabicSettled(state())).toBe(false);
+    expect(isArabicSettled(arabic({ language: 'en' }))).toBe(false);
+    expect(isArabicSettled(arabic({ dir: 'ltr' }))).toBe(false);
+    expect(isArabicSettled(arabic({ fontsStatus: 'loading' }))).toBe(false);
+    expect(isArabicSettled(arabic({ fonts: 'la400:loaded ar700:loading' }))).toBe(false);
   });
 
   it('settles at once on a boot error', () => {
@@ -173,6 +276,64 @@ describe('evaluateGallery', () => {
   it('fails on an uncaught exception even when the screen looks fine', () => {
     const noisy = run({ exceptions: ['TypeError: x.padStart is not a function (main.js:1)'], afterKey: null, screenshot: null });
     expect(evaluateGallery(noisy, engine56, 20_000)).toEqual(['uncaught: TypeError: x.padStart is not a function (main.js:1)']);
+  });
+
+  it('reports a language switch that never happened, and nothing after it', () => {
+    expect(evaluateGallery(run({ arabic: state(), switched: false, bidi: null, arabicScreenshot: null }), engine56, 20_000)).toEqual([
+      'language switch (ArrowUp x3, ArrowRight x4, Enter): the page is dir="ltr", language "en", expected "rtl", "ar"',
+    ]);
+    expect(evaluateGallery(run({ arabic: null, switched: false, bidi: null }), engine56, 20_000)).toEqual([
+      'language switch (ArrowUp x3, ArrowRight x4, Enter): the page could not be read',
+    ]);
+    // When ArrowDown already failed, the switch isn't tried and isn't reported.
+    expect(evaluateGallery(run({ afterKey: 'idle', arabic: null, switched: false, bidi: null }), engine56, 20_000)).toEqual([
+      'key ArrowDown: row 1 is "idle", expected "focused"',
+    ]);
+  });
+
+  it('checks the Arabic screen: the focus, the layout, the mirror, the plural and the fonts', () => {
+    expect(evaluateGallery(run({ arabic: arabic({ zone: 'actions', switchState: 'memory' }) }), engine56, 20_000)).toEqual([
+      'in Arabic: the focus moved to actions (language button "memory"), expected it to stay on the language button',
+    ]);
+    // The zone is right but the button didn't draw its focus.
+    expect(evaluateGallery(run({ arabic: arabic({ switchState: 'idle' }) }), engine56, 20_000)).toEqual([
+      'in Arabic: the focus moved to language (language button "idle"), expected it to stay on the language button',
+    ]);
+    expect(evaluateGallery(run({ arabic: arabic({ cut: ['z-button__label: إزالة المصدر'], scroll: [1920, 1131] }) }), engine56, 20_000)).toEqual([
+      'in Arabic: the page scrolls: it is 1920x1131',
+      'in Arabic: labels cut: z-button__label: إزالة المصدر',
+    ]);
+    expect(evaluateGallery(run({ arabic: arabic({ columns: [96, 984] }) }), engine56, 20_000)).toEqual([
+      'in Arabic: the layout did not mirror (channels at x=96, tiles at x=984)',
+    ]);
+    expect(evaluateGallery(run({ arabic: arabic({ columns: null }) }), engine56, 20_000)).toEqual(['in Arabic: the layout did not mirror (missing)']);
+    expect(evaluateGallery(run({ arabic: arabic({ meta: 'ar-US · 240 قناة' }) }), engine56, 20_000)).toEqual([
+      `in Arabic: the header reads "ar-US · 240 قناة", expected the count "${ARABIC_COUNT}"`,
+    ]);
+    const slowFonts = run({ arabic: arabic({ fonts: 'la400:loaded ar400:loaded ar700:loading' }), switched: false, bidi: null });
+    expect(evaluateGallery(slowFonts, engine56, 20_000)).toEqual(['in Arabic: the fonts did not settle (loaded: la400:loaded ar400:loaded ar700:loading)']);
+    expect(evaluateGallery(run({ bidi: null }), engine56, 20_000)).toEqual(['in Arabic: the bidi probe could not be read']);
+  });
+
+  it('checks that the isolation draws nothing and isolates both lines, against controls that show the problem', () => {
+    expect(bidiFailures(bidi())).toEqual([]);
+    expect(bidiFailures(bidi({ isolated: 114.5 }))).toEqual([]);
+    expect(bidiFailures(bidi({ isolated: 138 }))).toEqual(['the isolation is drawn: 24 px wider (114 to 138), expected no width']);
+    // What Chromium 53, 56 and 68 measured with FSI/PDI alone: the isolated lines as the controls.
+    const isolatesOnly = bidi({ trailing: { first: 56, second: 177 }, leading: { first: 215, second: 120 } });
+    expect(bidiFailures(isolatesOnly)).toEqual([
+      'a name ending in a digit: the count joined it (the name at x=56, left of the count at 177)',
+      'a name starting with a digit: the digit split off (at x=215, right of the name at 120)',
+    ]);
+    // A line that looks the same either way proves nothing.
+    expect(bidiFailures(bidi({ trailingControl: { first: 137, second: 56 }, leadingControl: { first: 120, second: 147 } }))).toEqual([
+      'the control for a name ending in a digit did not join (x=137 vs 56): the line proves nothing',
+      'the control for a name starting with a digit did not split (x=120 vs 147): the line proves nothing',
+    ]);
+    expect(evaluateGallery(run({ bidi: isolatesOnly }), engine56, 20_000)).toEqual([
+      'in Arabic: a name ending in a digit: the count joined it (the name at x=56, left of the count at 177)',
+      'in Arabic: a name starting with a digit: the digit split off (at x=215, right of the name at 120)',
+    ]);
   });
 
   it('fails when the page could not be read at all', () => {

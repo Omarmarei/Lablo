@@ -29,13 +29,23 @@ v1 ships English and Arabic (RTL) from day one, on TV engines as old as Chromium
 - Why: a channel row or the info bar would otherwise mix two digit forms (the provider's channel number "101" next to our time "٨:٠٥"). The remote's digits are Western, and so are most numbers inside provider titles. The GCC's big streaming apps (Shahid, OSN+, Netflix in Arabic) show Western digits in their Arabic UIs.
 - Channel numbers and other provider data are never reshaped, in either mode.
 
-**The provider's text is isolated in our sentences.** Every text argument goes in between FIRST STRONG ISOLATE (U+2068) and POP DIRECTIONAL ISOLATE (U+2069), as Mozilla's Fluent does for every placeable. Numbers aren't isolated. Components still put `dir="auto"` and `translate="no"` on provider text they show on its own (step 11b).
+**The provider's text is isolated in our sentences.** Every text argument goes in between FIRST STRONG ISOLATE (U+2068) and POP DIRECTIONAL ISOLATE (U+2069), as Mozilla's Fluent does for every placeable. Numbers aren't isolated. Components still put `dir="auto"` and `translate="no"` on provider text they show on its own (step 11b). Step 12b added marks around the isolate for the TVs' engines (below).
+
+### Isolation on the TVs' engines (step 12b, 2026-11-03)
+The old-engine harness measured it: **Chromium 53, 56 and 68 draw FSI/PDI at zero width but ignore them for bidi.** In an RTL line, a count after a Latin name ending in a digit joined the name's run (`MBC 1 · 240`, rule W7), and a name starting with a digit split, the same as with no isolates. Current Chromium isolates correctly. Those TVs (webOS 4–5, Tizen 4–5.5, 2018–2020) are much of the GCC's installed base.
+
+They do honour LRM and RLM. So core's `isolateText(text, around)` writes `outer + inner + FSI + text + PDI + inner + outer`:
+- `inner` is the text's first-strong direction, the one FSI would pick: the text's own leading and trailing digits and punctuation stay with it.
+- `outer` is the sentence's direction: what follows sees a strong character of the sentence, not the text's last one.
+- The marks must be outside the isolate: with the inner mark inside it, Chromium 53 still split a leading digit.
+
+The harness checks both lines on every engine, each against a control without isolation that must show the problem, and e2e runs the same probe in current Chromium. Elements (`<bdi>`, `dir="auto"`) also isolate on Chromium 53, but `t()` returns strings, and the components take string labels.
 
 ## Consequences
 - Adding a language means a catalog, its plural rule in `core`, and its names and formats in `format.ts`. That is the price of not trusting the TVs' ICU.
 - Main's own code grew by about 9 KB (the runtime, the formats and the catalogs; Arabic text is `\uXXXX`-escaped by terser's `ascii_only`). No new core-js polyfill: `split` and `new RegExp` were avoided because their polyfills cost about 2 KB and 7 KB.
-- Older engines whose layout predates bidi isolates may treat FSI/PDI as plain neutral characters: no isolation there, and no harm (HarfBuzz draws them as nothing). Step 12b checks how Chromium 53, 56 and 68 draw them.
-- e2e tests that read text must expect the isolates around names (`isolated()` in `e2e/gallery.spec.ts`).
+- Each text argument carries six invisible characters. Tests and code that compare text use core's `stripIsolates`, which also removes LRM and RLM (the provider's own included).
+- e2e tests that read text must expect the isolation around names (`isolated()` in `e2e/gallery.spec.ts` calls `isolateText`).
 
 ### Reversing the digit default
 Set `DEFAULT_DIGITS = 'arab'` in `packages/ui/src/i18n/format.ts`, or pass `{ digits: 'arab' }` from a settings screen through `resolveLocale`. Nothing else changes: the formatters, tests and fonts (U+0660–066C are in the Arabic subset) already handle it.

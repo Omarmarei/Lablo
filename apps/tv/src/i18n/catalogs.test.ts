@@ -1,5 +1,5 @@
-import { PLURAL_CATEGORIES } from '@zoma/core';
-import { messageArguments, parseMessage, pluralBranches, pseudoLocalize, resolveLocale, stripIsolates } from '@zoma/ui';
+import { PLURAL_CATEGORIES, stripIsolates } from '@zoma/core';
+import { messageArguments, parseMessage, pluralBranches, pseudoLocalize, resolveLocale } from '@zoma/ui';
 import { describe, expect, it } from 'vitest';
 import { AR } from './ar';
 import type { MessageKey } from './en';

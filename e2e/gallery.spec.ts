@@ -2,6 +2,9 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
+import { isolateText } from '../packages/core/src/bidi';
+import type { BidiState } from '../tools/engines/src/gallery';
+import { BIDI_EXPRESSION, bidiFailures } from '../tools/engines/src/gallery';
 import { ARABIC_FACE, LATIN_FACE, renderedFontsUnder } from './fonts';
 
 /**
@@ -14,9 +17,9 @@ const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
 /** The 1920x1080 canvas less its 5% title-safe margins. */
 const SAFE = { left: 96, top: 54, right: 1824, bottom: 1026 };
 
-/** How the i18n runtime puts text into a sentence: between FSI and PDI (bidi isolates). */
+/** How the i18n runtime puts text into an English sentence: FSI/PDI plus marks (core's isolateText). */
 function isolated(text: string): string {
-  return String.fromCharCode(0x2068) + text + String.fromCharCode(0x2069);
+  return isolateText(text, 'ltr');
 }
 
 function trackErrors(page: Page): string[] {
@@ -282,6 +285,16 @@ test.describe('the component gallery (pnpm dev, ?screen=gallery)', () => {
       await expect(gallery).toHaveAttribute('data-zone', 'language');
       await expect(page.locator('.gallery__meta')).toContainText(tag);
     }
+  });
+
+  test('isolates text arguments in current Chromium too (the old-engine harness’s bidi probe)', async ({ page }) => {
+    await openGallery(page, 'ar-SA');
+    const children = (): Promise<number> => page.locator('.gallery > *').count();
+    const before = await children();
+    const bidi = JSON.parse(await page.evaluate<string>(BIDI_EXPRESSION)) as BidiState;
+    expect(bidiFailures(bidi)).toEqual([]);
+    // The probe cleaned up after itself.
+    expect(await children()).toBe(before);
   });
 
   test('scrolls the virtual lists with the keys and the wheel', async ({ page }) => {
