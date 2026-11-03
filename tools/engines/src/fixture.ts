@@ -46,6 +46,9 @@ export interface DataCheck {
   readonly query: string;
   /** Items the refresh must commit. */
   readonly items: number;
+  /** Of those, live channels and films (onboarding's done screen counts them, step 13c). */
+  readonly live: number;
+  readonly movies: number;
   /** Hits the search must count. */
   readonly total: number;
   /** The download is gzip, so the ingest worker gunzips it. */
@@ -126,12 +129,15 @@ export function fixtureXmltv(entries: readonly FixtureEntry[], nowMs: number): s
 /** The expected results, counted from the entries (test/engines-fixture.test.ts cross-checks them with core). */
 export function dataChecks(entries: readonly FixtureEntry[]): Record<TvPlatform, DataCheck> {
   const live = entries.filter((e) => e.kind === 'live').length;
+  const movies = entries.filter((e) => e.kind === 'movie').length;
   const matched = entries.filter((e, i) => e.kind === 'live' && hasGuide(i)).length;
   return {
     tizen: {
       file: 'playlist.m3u',
       query: 'news',
       items: entries.length,
+      live,
+      movies,
       total: entries.filter((e) => e.name.startsWith('Zoma News ')).length,
       gzip: false,
       guide: 'guide.xml',
@@ -143,6 +149,8 @@ export function dataChecks(entries: readonly FixtureEntry[]): Record<TvPlatform,
       file: 'playlist.m3u.gz',
       query: 'اخبار',
       items: entries.length,
+      live,
+      movies,
       total: entries.filter((e) => e.name.startsWith(ARABIC_NEWS)).length,
       gzip: true,
       guide: 'guide.xml.gz',

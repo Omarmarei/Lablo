@@ -305,7 +305,7 @@ export function isGallerySettled(state: GalleryState, url: string): boolean {
 const LISTED = 5;
 
 /** The first few, then a count: a broken layout can put every box outside. */
-const list = (items: readonly string[]): string =>
+export const list = (items: readonly string[]): string =>
   items.length <= LISTED ? items.join('; ') : `${items.slice(0, LISTED).join('; ')} and ${items.length - LISTED} more`;
 
 /** The layout checks of one state: viewport, rows, safe area, labels, names, fonts. */

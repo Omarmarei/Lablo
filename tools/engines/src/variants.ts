@@ -13,6 +13,9 @@
  * - two CSS seeds (step 11c), the real app with part of app.css taken out, caught by the
  *   gallery's layout checks on every engine: ListRow.css's rules (the channel rows lose their
  *   88 px height), and the gallery's title-safe padding (its components touch the edges).
+ * - two walk seeds (step 13c), the real app with a TV fault prepended to main.js, caught by the
+ *   onboarding walk on every engine: inputs that never take DOM focus (a TV keyboard that never
+ *   opens), and a database deleted at every start (a TV that keeps nothing between launches).
  * Each variant must fail on every engine older than `minChrome` and pass on the rest, on each
  * of its screens.
  */
@@ -21,9 +24,14 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import path from 'node:path';
 import { TV_PLATFORMS } from './scenario';
 
-/** The app's start screens the harness opens: the hello screen and the component gallery. */
-export type AppScreen = 'hello' | 'gallery';
-export const APP_SCREENS: readonly AppScreen[] = ['hello', 'gallery'];
+/**
+ * The app's screens the harness opens: the hello screen and the component gallery (developer
+ * screens behind `?screen=`), and onboarding, the start screen a TV opens (step 13c).
+ */
+export type AppScreen = 'hello' | 'gallery' | 'onboarding';
+export const APP_SCREENS: readonly AppScreen[] = ['hello', 'gallery', 'onboarding'];
+/** The syntax seeds fail at parse time on whatever screen opens: the two developer screens show it. */
+export const SYNTAX_SEED_SCREENS: readonly AppScreen[] = ['hello', 'gallery'];
 
 export interface Variant {
   readonly id: string;
@@ -34,11 +42,15 @@ export interface Variant {
   readonly screens: readonly AppScreen[];
 }
 
-export interface Seed extends Variant {
-  /** The ECMAScript edition that introduced the seeded syntax. */
-  readonly ecmaVersion: 2018 | 2020;
-  /** A complete statement using only that syntax, prepended to main.js. */
+/** A variant made by prepending code to the real main.js. */
+export interface ScriptSeed extends Variant {
+  /** A complete statement, prepended to main.js. */
   readonly code: string;
+}
+
+export interface Seed extends ScriptSeed {
+  /** The ECMAScript edition that introduced the seeded syntax (`code` uses only that). */
+  readonly ecmaVersion: 2018 | 2020;
 }
 
 export const APP_VARIANT: Variant = { id: 'app', description: 'the TV builds from pnpm build:tv', minChrome: 0, screens: APP_SCREENS };
@@ -49,7 +61,7 @@ export const SEEDS: readonly Seed[] = [
     description: 'ES2018 object spread prepended to main.js',
     ecmaVersion: 2018,
     minChrome: 60,
-    screens: APP_SCREENS,
+    screens: SYNTAX_SEED_SCREENS,
     code: 'var __zomaSeed = { ...{ seeded: true } };',
   },
   {
@@ -57,8 +69,29 @@ export const SEEDS: readonly Seed[] = [
     description: 'ES2020 optional chaining prepended to main.js',
     ecmaVersion: 2020,
     minChrome: 80,
-    screens: APP_SCREENS,
+    screens: SYNTAX_SEED_SCREENS,
     code: 'var __zomaSeed = window.__zomaMissing?.value;',
+  },
+];
+
+/**
+ * TV faults the onboarding walk must catch on every engine (plain ES5, so they parse
+ * everywhere and only the walk can fail them).
+ */
+export const WALK_SEEDS: readonly ScriptSeed[] = [
+  {
+    id: 'seed-walk-no-input-focus',
+    description: "focus() does nothing: the playlist field's input never takes DOM focus, so a TV's keyboard would never open",
+    minChrome: Number.POSITIVE_INFINITY,
+    screens: ['onboarding'],
+    code: 'HTMLElement.prototype.focus = function () {};',
+  },
+  {
+    id: 'seed-walk-forgets-profile',
+    description: "the app's database is deleted at every start, as on a TV that keeps nothing between launches: the relaunch shows onboarding again",
+    minChrome: Number.POSITIVE_INFINITY,
+    screens: ['onboarding'],
+    code: "indexedDB.deleteDatabase('zoma');",
   },
 ];
 
@@ -143,7 +176,7 @@ export function seedCss(css: string, seed: CssSeed): string {
   return result.css;
 }
 
-export function seedBundle(mainJs: string, seed: Seed): string {
+export function seedBundle(mainJs: string, seed: Pick<ScriptSeed, 'code'>): string {
   return `${seed.code}\n${mainJs}`;
 }
 
@@ -174,7 +207,7 @@ export function stageApp(distTv: string, root: string): Variant {
 }
 
 /** Copies the real builds to `<root>/<seed>` and prepends the seed to each main.js. */
-export function stageSeed(distTv: string, root: string, seed: Seed): Variant {
+export function stageSeed(distTv: string, root: string, seed: ScriptSeed): Variant {
   assertBuilt(distTv);
   const target = path.join(root, seed.id);
   copyPlatforms(distTv, target);

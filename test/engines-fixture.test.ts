@@ -23,6 +23,11 @@ describe('the engines catalog fixture', () => {
     expect(checks.webos.items).toBe(FIXTURE_SIZE);
     expect(items.filter((i) => i.kind === 'live')).toHaveLength(2400);
     expect(items.filter((i) => i.kind === 'movie')).toHaveLength(600);
+    // Onboarding's done screen counts them (step 13c).
+    for (const check of [checks.tizen, checks.webos]) {
+      expect(check.live).toBe(items.filter((i) => i.kind === 'live').length);
+      expect(check.movies).toBe(items.filter((i) => i.kind === 'movie').length);
+    }
     expect(new Set(items.map((i) => i.key)).size).toBe(FIXTURE_SIZE);
   });
 
