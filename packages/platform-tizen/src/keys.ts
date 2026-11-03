@@ -1,4 +1,4 @@
-import type { Intent } from '@zoma/platform-api';
+import type { Intent, KeyLike, TextKey } from '@zoma/platform-api';
 
 /** A key as `tizen.tvinputdevice.getSupportedKeys()` reports it. */
 export interface TizenKey {
@@ -68,4 +68,26 @@ export function buildTizenKeyMap(supported: readonly TizenKey[] | null): Map<num
   const map = new Map<number, Intent>();
   for (const key of TIZEN_KEYS) map.set(reported.get(key.name) ?? key.code, key.intent);
   return map;
+}
+
+/**
+ * The Samsung IME's own keys: while a text field has DOM focus, the on-screen keyboard sends
+ * Done and Cancel to it as these key codes (Samsung's "Keyboard/IME" guide). Not checked on a
+ * TV yet: spike S10 (docs/architecture.md §5).
+ */
+export const TIZEN_IME_DONE = 65376;
+export const TIZEN_IME_CANCEL = 65385;
+
+const TIZEN_TEXT_KEYS: ReadonlyMap<number, TextKey> = new Map<number, TextKey>([
+  [13, 'done'],
+  [TIZEN_IME_DONE, 'done'],
+  [TIZEN_IME_CANCEL, 'close'],
+  [10009, 'close'],
+  [38, 'up'],
+  [40, 'down'],
+]);
+
+/** What a remote or IME key does in a text field being edited (every other key types). */
+export function tizenTextKey(event: KeyLike): TextKey | null {
+  return TIZEN_TEXT_KEYS.get(event.keyCode) ?? null;
 }

@@ -1,0 +1,90 @@
+/*
+ * TextField (RELAY step 13a). The focus ring is the box's border, always there (transparent
+ * when idle), so focusing never moves the layout. The note line keeps its height when empty,
+ * so an error appearing moves nothing either.
+ *
+ * The input is a dir="ltr" island for links and logins. postcss-rtlcss still mirrors the rules
+ * here by the page's direction (docs/architecture.md §1.2, step 11a), which is what text-align
+ * wants: the text sits on the label's side in both languages. Nothing else here depends on the
+ * direction.
+ */
+.z-field {
+  display: block;
+  width: 100%;
+}
+
+.z-field__label {
+  display: block;
+  margin-bottom: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+  font-weight: var(--font-weight-bold);
+}
+
+.z-field__box {
+  display: flex;
+  align-items: center;
+  height: 72px;
+  padding: 0 var(--space-5);
+  border: var(--focus-ring) solid var(--color-border);
+  border-radius: var(--radius-m);
+  background: var(--color-surface-raised);
+  transition: background-color var(--motion-fast), border-color var(--motion-fast);
+}
+
+.z-field__input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: var(--line-height-body);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  text-align: left;
+}
+
+.z-field__note {
+  min-height: var(--line-height-caption);
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+}
+
+.z-field.is-memory .z-field__box {
+  border-color: var(--color-border-memory);
+}
+
+.z-field.is-focused .z-field__box {
+  border-color: var(--color-focus);
+  background: var(--color-surface-focus);
+}
+
+.z-field.is-focused .z-field__label {
+  color: var(--color-text);
+}
+
+/* Typing: the TV's keyboard is up and the caret shows. */
+.z-field.is-editing .z-field__box {
+  border-color: var(--color-accent);
+  background: var(--color-bg);
+}
+
+.z-field.is-invalid .z-field__note {
+  color: var(--color-danger);
+}
+
+.z-field.is-invalid .z-field__box {
+  border-color: var(--color-danger);
+}
+
+.z-field.is-invalid.is-focused .z-field__box {
+  border-color: var(--color-focus);
+}

@@ -17,7 +17,7 @@ function trackErrors(page: Page): string[] {
 test.describe('hello app in the desktop browser (pnpm dev)', () => {
   test('shows device info and the worker round trip', async ({ page }) => {
     const errors = trackErrors(page);
-    await page.goto('/');
+    await page.goto('/?screen=hello');
 
     await expect(page.getByTestId('hello')).toHaveAttribute('data-ready', 'true');
     await expect(page.getByTestId('platform-id')).toHaveText('browser');
@@ -36,7 +36,7 @@ test.describe('hello app in the desktop browser (pnpm dev)', () => {
 
   test('maps the keyboard to remote Intents', async ({ page }) => {
     const errors = trackErrors(page);
-    await page.goto('/');
+    await page.goto('/?screen=hello');
     await expect(page.getByTestId('hello')).toHaveAttribute('data-ready', 'true');
     const lastIntent = page.getByTestId('last-intent');
     await expect(lastIntent).toHaveText('Press a key');
@@ -90,7 +90,7 @@ test.describe('hello app in the desktop browser (pnpm dev)', () => {
 
   test('moves the focus with the keys, the pointer and the wheel', async ({ page }) => {
     const errors = trackErrors(page);
-    await page.goto('/');
+    await page.goto('/?screen=hello');
     await expect(page.getByTestId('hello')).toHaveAttribute('data-ready', 'true');
     const focus = page.getByTestId('focus-status');
     await expect(focus).toHaveText('home · list 0');
@@ -143,7 +143,7 @@ test.describe('hello app in the desktop browser (pnpm dev)', () => {
 
   test('swaps LEFT and RIGHT once in Arabic (RTL)', async ({ page }) => {
     const errors = trackErrors(page);
-    await page.goto('/?locale=ar-SA');
+    await page.goto('/?screen=hello&locale=ar-SA');
     const focus = page.getByTestId('focus-status');
     await expect(focus).toHaveAttribute('data-dir', 'rtl');
     await expect(page.getByTestId('focus-panel')).toHaveAttribute('dir', 'rtl');
@@ -178,7 +178,7 @@ test.describe('hello app in the desktop browser (pnpm dev)', () => {
   ] as const) {
     test(`draws text in the bundled Zoma Sans faces and mirrors the layout by dir (${locale})`, async ({ page }) => {
       const errors = trackErrors(page);
-      await page.goto(`/?locale=${locale}`);
+      await page.goto(`/?screen=hello&locale=${locale}`);
       await expect(page.getByTestId('hello')).toHaveAttribute('data-ready', 'true');
       // The app puts the locale on <html>; postcss-rtlcss's rules key on that dir.
       await expect(page.locator('html')).toHaveAttribute('dir', dir);
@@ -203,7 +203,7 @@ test.describe('hello app in the desktop browser (pnpm dev)', () => {
   }
 
   test('honours the forced low tier and locale overrides', async ({ page }) => {
-    await page.goto('/?tier=low&locale=ar-SA&country=SA');
+    await page.goto('/?screen=hello&tier=low&locale=ar-SA&country=SA');
     await expect(page.getByTestId('info-tier')).toHaveText('low');
     await expect(page.getByTestId('info-locale')).toHaveText('ar-SA');
     await expect(page.getByTestId('info-country')).toHaveText('SA');
@@ -230,7 +230,7 @@ test.describe('catalog panel in the desktop browser (pnpm dev)', () => {
     expect(entries).toBeGreaterThan(10);
 
     // The playlist URL is pasted as it is: `source` is the last parameter.
-    await page.goto(`/?q=sports&source=${playlist}`);
+    await page.goto(`/?screen=hello&q=sports&source=${playlist}`);
     const ingest = page.getByTestId('ingest-status');
     await expect(ingest).toHaveText(new RegExp(`^ok: committed gen 1, ${entries} items [(]live [0-9]+`), { timeout: 20_000 });
     await expect(ingest).toHaveAttribute('data-items', String(entries));
@@ -256,12 +256,12 @@ test.describe('catalog panel in the desktop browser (pnpm dev)', () => {
     await expect(page.getByTestId('busy-status')).toHaveText('idle');
 
     // Without a source, the stored catalog is searched; the same playlist again is a 304.
-    await page.goto('/?q=sports');
+    await page.goto('/?screen=hello&q=sports');
     await expect(page.getByTestId('data-status')).toHaveText(`ok: 1 source, ${entries} items`);
     await expect(search).toHaveAttribute('data-total', '2');
     await expect(guide).toHaveAttribute('data-matched', '11');
     await expect(panelEpg).toHaveText("none: needs ?source=<an Xtream panel's get.php URL>");
-    await page.goto(`/?source=${encodeURIComponent(playlist)}`);
+    await page.goto(`/?screen=hello&source=${encodeURIComponent(playlist)}`);
     await expect(ingest).toHaveText(new RegExp(`^ok: unchanged gen 1, ${entries} items`), { timeout: 20_000 });
     expect(errors).toEqual([]);
   });
@@ -271,7 +271,7 @@ test.describe('catalog panel in the desktop browser (pnpm dev)', () => {
     const noGuide = await mock({ scenario: 'no-xmltv' });
     try {
       const playlist = `${await listen(noGuide)}/get.php?username=${U}&password=${P}&type=m3u_plus`;
-      await page.goto(`/?source=${playlist}`);
+      await page.goto(`/?screen=hello&source=${playlist}`);
       await expect(page.getByTestId('epg-status')).toHaveText('failed: debug:tvg0 http', { timeout: 20_000 });
       const panelEpg = page.getByTestId('shortepg-status');
       await expect(panelEpg).toHaveAttribute('data-from', 'panel', { timeout: 20_000 });

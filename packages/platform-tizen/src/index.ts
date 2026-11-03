@@ -7,14 +7,14 @@
  * Every API is feature-checked, so the bundle also boots in a desktop browser.
  */
 import { chromiumMajorFromUserAgent, deviceTier } from '@zoma/core';
-import type { DeviceInfo, Intent, KeyLike, LifecycleEvent, Platform } from '@zoma/platform-api';
+import type { DeviceInfo, Intent, KeyLike, LifecycleEvent, Platform, TextKey } from '@zoma/platform-api';
 import { tizenChromiumVersion, tizenModelYear } from './device';
 import type { TizenKey } from './keys';
-import { buildTizenKeyMap, tizenKeysToRegister } from './keys';
+import { buildTizenKeyMap, tizenKeysToRegister, tizenTextKey } from './keys';
 
 export { tizenChromiumVersion, tizenModelYear } from './device';
 export type { TizenKey } from './keys';
-export { buildTizenKeyMap, tizenKeysToRegister } from './keys';
+export { TIZEN_IME_CANCEL, TIZEN_IME_DONE, buildTizenKeyMap, tizenKeysToRegister, tizenTextKey } from './keys';
 
 /** The slice of the Tizen Web Device API this adapter uses. */
 interface TizenApi {
@@ -97,6 +97,7 @@ export function createTizenPlatform(): Platform {
       }
     },
     keyToIntent: (event: KeyLike): Intent | null => getKeyMap().get(event.keyCode) ?? null,
+    textKey: (event: KeyLike): TextKey | null => tizenTextKey(event),
     onLifecycle(listener: (event: LifecycleEvent) => void): () => void {
       const onVisibility = (): void => listener(document.hidden ? 'hidden' : 'visible');
       const onAppControl = (): void => listener('relaunch');
@@ -109,6 +110,8 @@ export function createTizenPlatform(): Platform {
     },
     // Tizen remotes have no system pointer events; a mouse shows itself by moving.
     onPointer: () => () => undefined,
+    // The IME tells the field itself, with its Done and Cancel keys (tizenTextKey).
+    onSoftKeyboard: () => () => undefined,
     rootBackPolicy: () => 'exit-dialog',
     exitApp(): void {
       attempt(() => globals().tizen?.application?.getCurrentApplication().exit(), undefined);

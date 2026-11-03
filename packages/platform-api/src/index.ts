@@ -88,6 +88,17 @@ export interface KeyLike {
 export type LifecycleEvent = 'hidden' | 'visible' | 'relaunch';
 
 /**
+ * What a key does while a text field is being edited, that is while its `<input>` has DOM
+ * focus and the TV's on-screen keyboard is up (RELAY step 13a, docs/architecture.md §1.2):
+ * - `done`: Enter, or the on-screen keyboard's Done key: the edit ends and the focus moves on;
+ * - `close`: Back, Escape or the keyboard's Cancel key: the edit ends and the focus stays (the
+ *   typed text is kept: a stray Back must never throw away a long URL typed on a remote);
+ * - `up` / `down`: the edit ends and the focus moves up or down.
+ * Every other key (letters, Backspace, the caret keys) belongs to the field.
+ */
+export type TextKey = 'done' | 'close' | 'up' | 'down';
+
+/**
  * What Back does on the root screen: Tizen apps show an exit dialog; webOS apps hand Back
  * to the system (`platformBack`), which webOS 23+ requires.
  */
@@ -106,6 +117,14 @@ export interface Platform {
   registerKeys(): void;
   /** The Intent for a key event, or `null` for keys the app does not handle. */
   keyToIntent(event: KeyLike): Intent | null;
+  /** What a key does in a text field being edited, or `null` when the field takes it (see `TextKey`). */
+  textKey(event: KeyLike): TextKey | null;
+  /**
+   * The system's on-screen keyboard shown or hidden: webOS sends `keyboardStateChange`. A text
+   * edit ends when the keyboard hides, or the arrows would move the caret of a field nobody
+   * sees. Platforms without such events never call the listener. Returns an unsubscribe function.
+   */
+  onSoftKeyboard(listener: (visible: boolean) => void): () => void;
   /** Subscribes to app visibility changes and relaunches; returns an unsubscribe function. */
   onLifecycle(listener: (event: LifecycleEvent) => void): () => void;
   /**

@@ -104,6 +104,9 @@ importers:
       fake-indexeddb:
         specifier: ^6.2.7
         version: 6.2.7
+      fast-check:
+        specifier: ^4.10.2
+        version: 4.10.2
       vite:
         specifier: ^7.3.7
         version: 7.3.7(@types/node@22.20.5)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)

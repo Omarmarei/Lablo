@@ -50,15 +50,23 @@ describe('readDebugParams', () => {
 
 describe('readScreen', () => {
   it.each([
-    ['', 'hello'],
+    // Onboarding is the start screen (RELAY step 13a); the others are developer screens.
+    ['', 'onboarding'],
+    ['?locale=ar-SA', 'onboarding'],
     ['?screen=gallery', 'gallery'],
     ['?locale=ar-SA&screen=gallery&tier=low', 'gallery'],
-    ['?screen=Gallery', 'hello'],
-    ['?screen=', 'hello'],
-    ['?myscreen=gallery', 'hello'],
+    ['?screen=hello', 'hello'],
+    ['?screen=hello&force=1&q=news', 'hello'],
+    ['?screen=Gallery', 'onboarding'],
+    ['?screen=HELLO', 'onboarding'],
+    ['?screen=onboarding', 'onboarding'],
+    ['?screen=', 'onboarding'],
+    ['?myscreen=gallery', 'onboarding'],
     // A source's own parameters are not the app's.
-    [`?source=${MOCK}&screen=gallery`, 'hello'],
+    [`?source=${MOCK}&screen=gallery`, 'onboarding'],
+    [`?source=${MOCK}&screen=hello`, 'onboarding'],
     [`?screen=gallery&source=${MOCK}`, 'gallery'],
+    [`?screen=hello&q=news&source=${MOCK}`, 'hello'],
   ])('%s -> %s', (search, screen) => {
     expect(readScreen(search)).toBe(screen);
   });

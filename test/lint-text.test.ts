@@ -77,9 +77,15 @@ describe('zoma/no-hard-coded-text', () => {
     }
   });
 
-  it('skips tests, and the hello screen until step 13 replaces it', async () => {
+  it('skips tests, and the hello screen (a developer screen behind ?screen=hello since step 13a)', async () => {
     for (const file of ['apps/tv/src/gallery/Seeded.test.tsx', 'packages/ui/test/Seeded.tsx', 'apps/tv/src/App.tsx', 'apps/tv/src/DataPanel.tsx', 'apps/tv/src/FocusPanel.tsx']) {
       expect(await hardCoded('<p>Worker: ok</p>', file), file).toEqual([]);
+    }
+  });
+
+  it('checks the user screens next to the hello screen: onboarding, the gallery, main.tsx', async () => {
+    for (const file of ['apps/tv/src/onboarding/OnboardingApp.tsx', 'apps/tv/src/gallery/GalleryApp.tsx', 'apps/tv/src/main.tsx', 'apps/tv/src/Hello.tsx']) {
+      expect(await hardCoded('<p>Worker: ok</p>', file), file).toEqual(['Worker: ok']);
     }
   });
 

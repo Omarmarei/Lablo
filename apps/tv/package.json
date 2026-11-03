@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "fake-indexeddb": "^6.2.7",
+    "fast-check": "^4.10.2",
     "vite": "^7.3.7"
   }
 }

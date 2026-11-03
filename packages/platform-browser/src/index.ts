@@ -6,7 +6,7 @@
  * `?tier=low&locale=ar-SA&country=SA`.
  */
 import { chromiumMajorFromUserAgent } from '@zoma/core';
-import type { DeviceInfo, Intent, KeyLike, LifecycleEvent, Platform } from '@zoma/platform-api';
+import type { DeviceInfo, Intent, KeyLike, LifecycleEvent, Platform, TextKey } from '@zoma/platform-api';
 import { DIGIT_INTENTS } from '@zoma/platform-api';
 
 /** `KeyboardEvent.key` values and the Intent each one stands for. */
@@ -56,6 +56,20 @@ export function browserKeyToIntent(event: KeyLike): Intent | null {
   if (key === undefined) return null;
   if (key.length === 1 && key >= '0' && key <= '9') return DIGIT_INTENTS[Number(key)] ?? null;
   return KEY_INTENTS.get(key) ?? KEY_INTENTS.get(key.toLowerCase()) ?? null;
+}
+
+/** Keys that end a text edit on the desktop keyboard (every other key types). */
+const TEXT_KEYS: ReadonlyMap<string, TextKey> = new Map<string, TextKey>([
+  ['Enter', 'done'],
+  ['Escape', 'close'],
+  ['ArrowUp', 'up'],
+  ['ArrowDown', 'down'],
+]);
+
+/** What a desktop key does in a text field being edited: Backspace deletes, so it is not Back here. */
+export function browserTextKey(event: KeyLike): TextKey | null {
+  if (event.ctrlKey === true || event.altKey === true || event.metaKey === true) return null;
+  return event.key === undefined ? null : (TEXT_KEYS.get(event.key) ?? null);
 }
 
 /** The minimal document surface the adapter needs; tests pass a fake. */
@@ -108,6 +122,7 @@ export function createBrowserPlatform(env: BrowserEnv = defaultEnv()): Platform 
     info: () => Promise.resolve(fakeDeviceInfo(env)),
     registerKeys: () => undefined,
     keyToIntent: browserKeyToIntent,
+    textKey: browserTextKey,
     onLifecycle(listener: (event: LifecycleEvent) => void): () => void {
       const onVisibility = (): void => listener(env.document.hidden ? 'hidden' : 'visible');
       env.document.addEventListener('visibilitychange', onVisibility);
@@ -115,6 +130,8 @@ export function createBrowserPlatform(env: BrowserEnv = defaultEnv()): Platform 
     },
     // A desktop mouse has no shown/hidden events; it shows itself by moving.
     onPointer: () => () => undefined,
+    // The desktop keyboard is a physical one.
+    onSoftKeyboard: () => () => undefined,
     rootBackPolicy: () => 'exit-dialog',
     exitApp: () => env.onExit(),
   };

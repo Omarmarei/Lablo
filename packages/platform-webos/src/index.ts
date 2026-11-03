@@ -8,7 +8,7 @@
  * desktop browser.
  */
 import { chromiumMajorFromUserAgent, deviceTier } from '@zoma/core';
-import type { DeviceInfo, Intent, KeyLike, LifecycleEvent, Platform } from '@zoma/platform-api';
+import type { DeviceInfo, Intent, KeyLike, LifecycleEvent, Platform, TextKey } from '@zoma/platform-api';
 import { DIGIT_INTENTS } from '@zoma/platform-api';
 import { parsePalmDeviceInfo, webosChromiumVersion, webosModelYear } from './device';
 
@@ -43,6 +43,23 @@ export function webosKeyToIntent(event: KeyLike): Intent | null {
   return WEBOS_KEYS.get(event.keyCode) ?? null;
 }
 
+/**
+ * Keys that end a text edit. The virtual keyboard sends its Enter as key 13; Back (461) closes
+ * it first, and its hiding ends the edit (`watchKeyboardState`). Not checked on a TV yet:
+ * spike S10 (docs/architecture.md §5).
+ */
+const WEBOS_TEXT_KEYS: ReadonlyMap<number, TextKey> = new Map<number, TextKey>([
+  [13, 'done'],
+  [461, 'close'],
+  [38, 'up'],
+  [40, 'down'],
+]);
+
+/** What a remote key does in a text field being edited (every other key types). */
+export function webosTextKey(event: KeyLike): TextKey | null {
+  return WEBOS_TEXT_KEYS.get(event.keyCode) ?? null;
+}
+
 /** The slice of the native `PalmSystem` object this adapter uses. */
 interface PalmSystemApi {
   readonly deviceInfo?: string;
@@ -61,6 +78,20 @@ export function watchCursorState(target: EventTarget, listener: (visible: boolea
   };
   target.addEventListener('cursorStateChange', onChange);
   return () => target.removeEventListener('cursorStateChange', onChange);
+}
+
+/**
+ * Reports the virtual keyboard's `keyboardStateChange` events (`detail.visibility`), which
+ * webOS sends when the on-screen keyboard opens or closes. Returns a function that stops
+ * listening.
+ */
+export function watchKeyboardState(target: EventTarget, listener: (visible: boolean) => void): () => void {
+  const onChange = (event: Event): void => {
+    const visibility = (event as CustomEvent<{ readonly visibility?: unknown } | null>).detail?.visibility;
+    if (typeof visibility === 'boolean') listener(visibility);
+  };
+  target.addEventListener('keyboardStateChange', onChange);
+  return () => target.removeEventListener('keyboardStateChange', onChange);
 }
 
 function palmSystem(): PalmSystemApi | undefined {
@@ -91,6 +122,7 @@ export function createWebosPlatform(): Platform {
     info: () => Promise.resolve(readDeviceInfo()),
     registerKeys: () => undefined,
     keyToIntent: webosKeyToIntent,
+    textKey: webosTextKey,
     onLifecycle(listener: (event: LifecycleEvent) => void): () => void {
       const onVisibility = (): void => listener(document.hidden ? 'hidden' : 'visible');
       const onRelaunch = (): void => listener('relaunch');
@@ -102,6 +134,7 @@ export function createWebosPlatform(): Platform {
       };
     },
     onPointer: (listener: (visible: boolean) => void): (() => void) => watchCursorState(document, listener),
+    onSoftKeyboard: (listener: (visible: boolean) => void): (() => void) => watchKeyboardState(document, listener),
     rootBackPolicy: () => 'platform-back',
     exitApp(): void {
       // appinfo.json sets disableBackHistoryAPI, so the app owns Back; at the root it hands

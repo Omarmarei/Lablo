@@ -1,7 +1,7 @@
 import type { LifecycleEvent } from '@zoma/platform-api';
 import { describe, expect, it, vi } from 'vitest';
 import type { BrowserEnv } from './index';
-import { browserKeyToIntent, createBrowserPlatform } from './index';
+import { browserKeyToIntent, browserTextKey, createBrowserPlatform } from './index';
 
 const key = (k: string, mods: { ctrlKey?: boolean; altKey?: boolean; metaKey?: boolean } = {}) => ({
   keyCode: 0,
@@ -108,9 +108,44 @@ describe('createBrowserPlatform', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
+  it('has no soft keyboard (the desktop types on a real one)', () => {
+    const listener = vi.fn();
+    const off = createBrowserPlatform(fakeEnv()).onSoftKeyboard(listener);
+    expect(off()).toBeUndefined();
+    expect(listener).not.toHaveBeenCalled();
+  });
+
   it('routes exitApp to the injected handler', () => {
     const onExit = vi.fn();
     createBrowserPlatform(fakeEnv({ onExit })).exitApp();
     expect(onExit).toHaveBeenCalledOnce();
+  });
+});
+
+describe('browserTextKey (a text field being edited, RELAY step 13a)', () => {
+  it.each([
+    ['Enter', 'done'],
+    ['Escape', 'close'],
+    ['ArrowUp', 'up'],
+    ['ArrowDown', 'down'],
+  ] as const)('%s ends the edit as %s', (k, textKey) => {
+    expect(browserTextKey(key(k))).toBe(textKey);
+    expect(createBrowserPlatform(fakeEnv()).textKey(key(k))).toBe(textKey);
+  });
+
+  it.each(['Backspace', 'ArrowLeft', 'ArrowRight', 'a', 'ض', '1', ' ', 'Home', 'Delete'])('leaves %j to the field', (k) => {
+    expect(browserTextKey(key(k))).toBeNull();
+  });
+
+  it('Backspace deletes in a field although it is Back elsewhere', () => {
+    expect(browserKeyToIntent(key('Backspace'))).toBe('BACK');
+    expect(browserTextKey(key('Backspace'))).toBeNull();
+  });
+
+  it('leaves shortcuts (Ctrl+Enter, Alt+ArrowUp) and key-less events alone', () => {
+    expect(browserTextKey(key('Enter', { ctrlKey: true }))).toBeNull();
+    expect(browserTextKey(key('ArrowUp', { altKey: true }))).toBeNull();
+    expect(browserTextKey(key('Escape', { metaKey: true }))).toBeNull();
+    expect(browserTextKey({ keyCode: 13 })).toBeNull();
   });
 });

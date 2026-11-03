@@ -1,0 +1,146 @@
+/*
+ * Onboarding (RELAY step 13a): one centred panel per screen on the 1920x1080 canvas, inside the
+ * title-safe margins (96 x 54 px), nothing scrolls. Physical properties for LTR: postcss-rtlcss
+ * mirrors them for Arabic (CLAUDE.md, Chromium 53 cheat sheet: flexbox with margins).
+ *
+ * The Xtream form has five fields and must fit the 972 px safe height, so a field's label sits
+ * beside its box (a 360 px column) and its note under the box: about 822 px in all.
+ */
+.onboarding {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--screen-width);
+  height: var(--screen-height);
+  padding: var(--safe-y) var(--safe-x);
+  overflow: hidden;
+}
+
+.onboarding__panel {
+  width: 1320px;
+}
+
+/* The language screen: both languages' words, centred (neither side is "the start" yet). */
+.onboarding__panel--center {
+  text-align: center;
+}
+
+.onboarding__title {
+  margin: 0 0 var(--space-6);
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+  font-weight: var(--font-weight-bold);
+}
+
+.onboarding__title--second {
+  margin-top: -16px;
+  color: var(--color-text-muted);
+}
+
+.onboarding__text {
+  margin: 0 0 var(--space-5);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.onboarding__note {
+  margin: 0 0 var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+.onboarding__error {
+  color: var(--color-danger);
+}
+
+.onboarding__actions {
+  display: flex;
+  margin-top: var(--space-7);
+}
+
+.onboarding__actions > * + * {
+  margin-left: var(--space-4);
+}
+
+.onboarding__panel--center .onboarding__actions {
+  justify-content: center;
+}
+
+.onboarding__types {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin: var(--space-6) 0 var(--space-5);
+}
+
+.onboarding__types > * + * {
+  margin-top: var(--space-4);
+}
+
+.onboarding__types .z-button {
+  width: 640px;
+}
+
+.onboarding__fields .z-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.onboarding__fields .z-field + .z-field {
+  margin-top: var(--space-2);
+}
+
+.onboarding__fields .z-field__label {
+  flex: none;
+  width: 360px;
+  margin: 0;
+  padding-right: var(--space-5);
+}
+
+.onboarding__fields .z-field__box {
+  flex: none;
+  width: 960px;
+}
+
+.onboarding__fields .z-field__note {
+  flex: none;
+  width: 960px;
+  margin-left: 360px;
+}
+
+.onboarding__actions--form {
+  margin-top: var(--space-5);
+  padding-left: 360px;
+}
+
+.onboarding__progress {
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--space-5);
+}
+
+.onboarding__progress .z-spinner {
+  flex: none;
+  margin-right: var(--space-4);
+}
+
+.onboarding__status {
+  margin: 0;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.onboarding__counts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.onboarding__counts li + li {
+  margin-top: var(--space-2);
+}

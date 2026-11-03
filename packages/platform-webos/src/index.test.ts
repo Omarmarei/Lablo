@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parsePalmDeviceInfo, watchCursorState, webosChromiumVersion, webosKeyToIntent, webosModelYear } from './index';
+import { parsePalmDeviceInfo, watchCursorState, watchKeyboardState, webosChromiumVersion, webosKeyToIntent, webosModelYear, webosTextKey } from './index';
 
 describe('webOS key map', () => {
   it.each([
@@ -96,6 +96,54 @@ describe('watchCursorState (Magic Remote pointer)', () => {
     const seen: boolean[] = [];
     watchCursorState(target, (visible) => seen.push(visible));
     target.dispatchEvent(cursor(detail));
+    expect(seen).toEqual([]);
+  });
+});
+
+describe('webosTextKey (a text field being edited, RELAY step 13a)', () => {
+  const code = (keyCode: number) => ({ keyCode });
+
+  it.each([
+    [13, 'done'],
+    [461, 'close'],
+    [38, 'up'],
+    [40, 'down'],
+  ] as const)('key %i ends the edit as %s', (keyCode, textKey) => {
+    expect(webosTextKey(code(keyCode))).toBe(textKey);
+  });
+
+  it.each([37, 39, 8, 46, 48, 65, 33, 403])('leaves key %i to the field', (keyCode) => {
+    expect(webosTextKey(code(keyCode))).toBeNull();
+  });
+});
+
+describe('watchKeyboardState (the virtual keyboard, RELAY step 13a)', () => {
+  const keyboard = (detail: unknown): Event => new CustomEvent('keyboardStateChange', { detail });
+
+  it('reports the keyboard shown and hidden until unsubscribed', () => {
+    const target = new EventTarget();
+    const seen: boolean[] = [];
+    const stop = watchKeyboardState(target, (visible) => seen.push(visible));
+    target.dispatchEvent(keyboard({ visibility: true }));
+    target.dispatchEvent(keyboard({ visibility: false }));
+    stop();
+    target.dispatchEvent(keyboard({ visibility: true }));
+    expect(seen).toEqual([true, false]);
+  });
+
+  it.each([null, undefined, {}, { visibility: 'false' }, { visibility: 0 }])('ignores the detail %j', (detail) => {
+    const target = new EventTarget();
+    const seen: boolean[] = [];
+    watchKeyboardState(target, (visible) => seen.push(visible));
+    target.dispatchEvent(keyboard(detail));
+    expect(seen).toEqual([]);
+  });
+
+  it('is not the pointer event', () => {
+    const target = new EventTarget();
+    const seen: boolean[] = [];
+    watchKeyboardState(target, (visible) => seen.push(visible));
+    target.dispatchEvent(new CustomEvent('cursorStateChange', { detail: { visibility: true } }));
     expect(seen).toEqual([]);
   });
 });

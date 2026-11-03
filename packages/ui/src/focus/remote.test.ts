@@ -1,11 +1,11 @@
 import type { Intent, KeyLike } from '@zoma/platform-api';
 import { describe, expect, it } from 'vitest';
 import { createNavigator } from './navigator';
-import { connectRemote } from './remote';
+import { connectRemote, isEditable } from './remote';
 
 const KEYS: Record<number, Intent> = { 13: 'OK', 37: 'LEFT', 38: 'UP', 39: 'RIGHT', 40: 'DOWN' };
 
-function setup() {
+function setup(target: EventTarget = new EventTarget()) {
   const nav = createNavigator({
     root: {
       id: 'home',
@@ -19,7 +19,6 @@ function setup() {
     exit: () => undefined,
     exitDialog: () => undefined,
   });
-  const target = new EventTarget();
   const pointerListeners: Array<(visible: boolean) => void> = [];
   const seen: Intent[] = [];
   const disconnect = connectRemote({
@@ -42,7 +41,51 @@ function setup() {
   return { nav, seen, pointerListeners, disconnect, fire };
 }
 
+/** A stand-in for a text field's element: keys dispatched on it have it as their target. */
+class FakeElement extends EventTarget {
+  constructor(
+    readonly tagName: string,
+    readonly isContentEditable = false,
+  ) {
+    super();
+  }
+}
+
+describe('isEditable (keys typed into a text field, RELAY step 13a)', () => {
+  it.each([
+    ['INPUT', false, true],
+    ['input', false, true],
+    ['TEXTAREA', false, true],
+    ['DIV', true, true],
+    ['DIV', false, false],
+    ['BUTTON', false, false],
+    ['BODY', false, false],
+  ] as const)('%s (contenteditable %s) -> %s', (tag, editable, expected) => {
+    expect(isEditable(new FakeElement(tag, editable))).toBe(expected);
+  });
+
+  it('is false for the window, null and targets without a tag', () => {
+    expect(isEditable(null)).toBe(false);
+    expect(isEditable(new EventTarget())).toBe(false);
+  });
+});
+
 describe('connectRemote', () => {
+  it('leaves keys aimed at a text field to it (Backspace deletes there)', () => {
+    const r = setup(new FakeElement('INPUT'));
+    const down = r.fire('keydown', { keyCode: 40 });
+    expect(down.defaultPrevented).toBe(false);
+    expect(r.nav.snapshot()).toMatchObject({ zone: 'list', index: 0 });
+    expect(r.seen).toEqual([]);
+  });
+
+  it('still takes keys aimed at other elements', () => {
+    const r = setup(new FakeElement('DIV'));
+    r.fire('keydown', { keyCode: 40 });
+    expect(r.nav.snapshot()).toMatchObject({ zone: 'list', index: 1 });
+    expect(r.seen).toEqual(['DOWN']);
+  });
+
   it('turns mapped keys into Intents for the navigator and cancels their browser action', () => {
     const r = setup();
     const down = r.fire('keydown', { keyCode: 40 });
