@@ -58,6 +58,21 @@ export interface PageState {
 }
 
 /**
+ * In-page helper (plain ES5, shared by the probes): the Zoma Sans faces and their status, as
+ * `la400:loaded ar700:unloaded …`, or null without `document.fonts`.
+ */
+export const FONT_FACES_FUNCTION = `function fonts() {
+    if (!document.fonts || !document.fonts.forEach) return null;
+    var faces = [];
+    document.fonts.forEach(function (face) {
+      if (face.family.replace(/["']/g, '') !== 'Zoma Sans') return;
+      var script = face.unicodeRange.indexOf('U+600') === 0 || face.unicodeRange.indexOf('U+0600') === 0 ? 'ar' : 'la';
+      faces.push(script + (face.weight === 'bold' ? '700' : face.weight === 'normal' ? '400' : face.weight) + ':' + face.status);
+    });
+    return faces.join(' ');
+  }`;
+
+/**
  * Evaluated inside the page on every engine, so it is plain ES5 (a unit test parses it at
  * ecmaVersion 5). It returns a JSON string because returnByValue on old engines is limited.
  */
@@ -70,16 +85,7 @@ export const STATE_EXPRESSION = `(function () {
     var el = document.querySelector('[data-testid="' + id + '"]');
     return el ? el.getAttribute(name) : null;
   }
-  function fonts() {
-    if (!document.fonts || !document.fonts.forEach) return null;
-    var faces = [];
-    document.fonts.forEach(function (face) {
-      if (face.family.replace(/["']/g, '') !== 'Zoma Sans') return;
-      var script = face.unicodeRange.indexOf('U+600') === 0 || face.unicodeRange.indexOf('U+0600') === 0 ? 'ar' : 'la';
-      faces.push(script + (face.weight === 'bold' ? '700' : face.weight === 'normal' ? '400' : face.weight) + ':' + face.status);
-    });
-    return faces.join(' ');
-  }
+  ${FONT_FACES_FUNCTION}
   var hello = document.querySelector('[data-testid="hello"]');
   var boot = document.getElementById('boot-error');
   return JSON.stringify({
@@ -185,26 +191,41 @@ function evaluateData(state: PageState, check: DataCheck): string[] {
   return failures;
 }
 
+const SCRIPTS = [
+  ['la', 'Latin'],
+  ['ar', 'Arabic'],
+] as const;
+
 /**
- * The title is "Zoma زوما", so a Latin face and an Arabic face must have loaded from the
- * package's woff2 files, and none may have failed (a missing or unreadable file, or woff2
- * the engine can't decode).
+ * The page shows Latin and Arabic text (the hello title is "Zoma زوما"; the gallery has
+ * Arabic channel names), so a Latin face and an Arabic face must have loaded from the
+ * package's woff2 files (`fonts` from FONT_FACES_FUNCTION), and none may have failed (a
+ * missing or unreadable file, or woff2 the engine can't decode).
  */
-function evaluateFonts(state: PageState): string[] {
-  if (state.fonts === null) return ['fonts: document.fonts is missing'];
-  const faces = state.fonts.split(' ').filter((f) => f !== '');
+export function evaluateFonts(fonts: string | null): string[] {
+  if (fonts === null) return ['fonts: document.fonts is missing'];
+  const faces = fonts.split(' ').filter((f) => f !== '');
   const failures: string[] = [];
   const failed = faces.filter((f) => f.endsWith(':error'));
   if (failed.length > 0) failures.push(`fonts: ${failed.join(', ')} failed to load`);
-  for (const [script, name] of [
-    ['la', 'Latin'],
-    ['ar', 'Arabic'],
-  ] as const) {
+  for (const [script, name] of SCRIPTS) {
     if (!faces.some((f) => f.startsWith(script) && f.endsWith(':loaded'))) {
-      failures.push(`fonts: no ${name} Zoma Sans face loaded (${state.fonts === '' ? 'no faces' : state.fonts})`);
+      failures.push(`fonts: no ${name} Zoma Sans face loaded (${fonts === '' ? 'no faces' : fonts})`);
     }
   }
   return failures;
+}
+
+/**
+ * Have the faces the page needs finished, one way or the other? A Latin and an Arabic face
+ * each `loaded` or `error`, and none still `loading`. Without `document.fonts` there is
+ * nothing to wait for (evaluateFonts reports it).
+ */
+export function fontsSettled(fonts: string | null): boolean {
+  if (fonts === null) return true;
+  const faces = fonts.split(' ').filter((f) => f !== '');
+  if (faces.some((f) => f.endsWith(':loading'))) return false;
+  return SCRIPTS.every(([script]) => faces.some((f) => f.startsWith(script) && (f.endsWith(':loaded') || f.endsWith(':error'))));
 }
 
 interface ExceptionDetails {
@@ -266,7 +287,7 @@ export function evaluateRun(run: PlatformRun, engine: Pick<Engine, 'major'>, boo
     if (boot.worker?.startsWith('ok in ') !== true) failures.push(`worker: ${boot.worker ?? 'missing'}`);
     if (boot.idb !== 'ok') failures.push(`IndexedDB in the worker: ${boot.idb ?? 'missing'}`);
     if (run.data !== null) failures.push(...evaluateData(boot, run.data));
-    failures.push(...evaluateFonts(boot));
+    failures.push(...evaluateFonts(boot.fonts));
     for (const key of run.keys) {
       if (key.observed !== key.expected) failures.push(`key ${key.key}: expected intent ${key.expected}, saw ${key.observed ?? 'nothing'}`);
       else if (key.focus !== key.expectedFocus) {
@@ -284,33 +305,33 @@ export function evaluateRun(run: PlatformRun, engine: Pick<Engine, 'major'>, boo
   return failures;
 }
 
-const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+export const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 const ERROR_GRACE_MS = 2_000;
 
-async function readState(client: CdpClient): Promise<PageState | null> {
+/** Evaluates a probe that returns a JSON string; null while the document is being replaced. */
+export async function readProbe<T>(client: CdpClient, expression: string): Promise<T | null> {
   try {
-    const reply = await client.send<{ result?: { value?: unknown } }>('Runtime.evaluate', {
-      expression: STATE_EXPRESSION,
-      returnByValue: true,
-    });
+    const reply = await client.send<{ result?: { value?: unknown } }>('Runtime.evaluate', { expression, returnByValue: true });
     const value = reply.result?.value;
-    return typeof value === 'string' ? (JSON.parse(value) as PageState) : null;
+    return typeof value === 'string' ? (JSON.parse(value) as T) : null;
   } catch {
     // The document is being replaced (navigation in progress).
     return null;
   }
 }
 
-async function waitFor(
+/** Polls the probe until `predicate` holds or the time is up; returns the last state read. */
+export async function waitForProbe<T>(
   client: CdpClient,
-  predicate: (state: PageState) => boolean,
+  expression: string,
+  predicate: (state: T) => boolean,
   timeoutMs: number,
-): Promise<{ state: PageState | null; met: boolean }> {
+): Promise<{ state: T | null; met: boolean }> {
   const deadline = Date.now() + timeoutMs;
-  let last: PageState | null = null;
+  let last: T | null = null;
   while (Date.now() < deadline) {
-    const state = await readState(client);
+    const state = await readProbe<T>(client, expression);
     if (state !== null) {
       last = state;
       if (predicate(state)) return { state, met: true };
@@ -320,10 +341,68 @@ async function waitFor(
   return { state: last, met: false };
 }
 
-async function pressKey(client: CdpClient, step: KeyStep): Promise<void> {
+const readState = (client: CdpClient): Promise<PageState | null> => readProbe<PageState>(client, STATE_EXPRESSION);
+
+const waitFor = (
+  client: CdpClient,
+  predicate: (state: PageState) => boolean,
+  timeoutMs: number,
+): Promise<{ state: PageState | null; met: boolean }> => waitForProbe(client, STATE_EXPRESSION, predicate, timeoutMs);
+
+/** A remote key as the TV sends it: the key code is what the app reads. */
+export async function pressKey(client: CdpClient, step: Pick<KeyStep, 'key' | 'keyCode'>): Promise<void> {
   const key = { key: step.key, code: step.key, windowsVirtualKeyCode: step.keyCode, nativeVirtualKeyCode: step.keyCode };
   await client.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...key });
   await client.send('Input.dispatchKeyEvent', { type: 'keyUp', ...key });
+}
+
+/** The uncaught errors of one page load, from both CDP channels. */
+export interface ErrorWatch {
+  /** Runtime exceptions, or (Chromium 53, which reports them only that way) console errors. */
+  errors(): string[];
+  /**
+   * True once the page has had an error for longer than the grace period: an uncaught error
+   * in a promise chain can stall boot without touching #boot-error, so a wait ends early.
+   */
+  erroredOut(): boolean;
+  /** Has erroredOut() seen an error yet? */
+  sawError(): boolean;
+  stop(): void;
+}
+
+export function watchErrors(client: CdpClient): ErrorWatch {
+  const exceptions: string[] = [];
+  const consoleErrors: string[] = [];
+  let firstErrorAt: number | null = null;
+  const collect = (params: unknown): void => {
+    exceptions.push(formatException(params));
+  };
+  const collectConsole = (params: unknown): void => {
+    const error = formatConsoleError(params);
+    if (error !== null) consoleErrors.push(error);
+  };
+  client.on('Runtime.exceptionThrown', collect);
+  client.on('Console.messageAdded', collectConsole);
+  return {
+    // Engines that report exceptions both ways would list each one twice.
+    errors: () => (exceptions.length > 0 ? [...exceptions] : [...consoleErrors]),
+    erroredOut: () => {
+      if (exceptions.length + consoleErrors.length === 0) return false;
+      firstErrorAt ??= Date.now();
+      return Date.now() - firstErrorAt > ERROR_GRACE_MS;
+    },
+    sawError: () => firstErrorAt !== null,
+    stop: () => {
+      client.off('Runtime.exceptionThrown', collect);
+      client.off('Console.messageAdded', collectConsole);
+    },
+  };
+}
+
+/** Starts from a blank document, so a previous app's state can never be mistaken for this one. */
+export async function blankPage(client: CdpClient): Promise<void> {
+  await client.send('Page.navigate', { url: 'about:blank' });
+  await waitFor(client, (state) => state.href === 'about:blank', 5_000);
 }
 
 export interface RunOptions {
@@ -344,37 +423,16 @@ export async function runPlatform(
   options: RunOptions,
 ): Promise<PlatformRun> {
   const started = Date.now();
-  const exceptions: string[] = [];
-  const consoleErrors: string[] = [];
-  const collect = (params: unknown): void => {
-    exceptions.push(formatException(params));
-  };
-  const collectConsole = (params: unknown): void => {
-    const error = formatConsoleError(params);
-    if (error !== null) consoleErrors.push(error);
-  };
+  await blankPage(client);
 
-  // Start from a blank document so a previous app's state can never be mistaken for this one.
-  await client.send('Page.navigate', { url: 'about:blank' });
-  await waitFor(client, (state) => state.href === 'about:blank', 5_000);
-
-  client.on('Runtime.exceptionThrown', collect);
-  client.on('Console.messageAdded', collectConsole);
+  const watch = watchErrors(client);
   try {
     await client.send('Page.navigate', { url });
-    // An uncaught error in a promise chain can stall boot without touching #boot-error: give
-    // the page a short grace period after the first one instead of the full boot timeout.
-    let firstErrorAt: number | null = null;
-    const erroredOut = (): boolean => {
-      if (exceptions.length + consoleErrors.length === 0) return false;
-      firstErrorAt ??= Date.now();
-      return Date.now() - firstErrorAt > ERROR_GRACE_MS;
-    };
-    const booted = await waitFor(client, (state) => isSettled(state, url, data) || erroredOut(), options.bootTimeoutMs);
+    const booted = await waitFor(client, (state) => isSettled(state, url, data) || watch.erroredOut(), options.bootTimeoutMs);
 
     const keys: KeyResult[] = [];
     let keyCount: string | null = null;
-    if (booted.met && booted.state !== null && booted.state.bootError.trim() === '' && firstErrorAt === null) {
+    if (booted.met && booted.state !== null && booted.state.bootError.trim() === '' && !watch.sawError()) {
       for (const step of KEY_STEPS) {
         await pressKey(client, step);
         const after = await waitFor(
@@ -404,12 +462,10 @@ export async function runPlatform(
       settled: booted.met,
       keys,
       keyCount,
-      // Engines that report exceptions both ways would list each one twice.
-      exceptions: exceptions.length > 0 ? exceptions : consoleErrors,
+      exceptions: watch.errors(),
       durationMs: Date.now() - started,
     };
   } finally {
-    client.off('Runtime.exceptionThrown', collect);
-    client.off('Console.messageAdded', collectConsole);
+    watch.stop();
   }
 }

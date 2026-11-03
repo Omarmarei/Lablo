@@ -218,6 +218,11 @@ Off-the-shelf libraries such as Norigin measure the DOM on every move. That figh
     - the pointer, including a click and an Enter in either order selecting once.
   - The screenshots (`gallery-<locale>.png` and `-dialog.png`) go to `artifacts/screenshots` on every run, and CI uploads them as `gallery-screenshots`. The step-11b ones are committed in `docs/design/`.
   - `e2e/tv-bundle.spec.ts` opens the gallery from both bundles on `file://`.
+  - Step 11c: the old-engine harness opens it from both bundles in Chromium 53, 56 and 68, full screen at 1920x1080. The checks are the e2e layout ones (safe area, no scroll, nothing cut or squeezed), 7 rows of 88 px, ArrowDown focusing row 1, and both faces loaded. It saves a screenshot per engine and platform (CI artifact `old-engines-report`).
+    - Two CSS seeds prove those checks catch a component's CSS missing from app.css and a lost safe area.
+    - The layout matched current Chromium on all three engines the first time.
+    - The gallery needs no polyfill: a build without core-js passes it on all three engines.
+    - See runbook old-engines.md.
 - **Size:** main's own code 102.4 → 121.2 KB (tizen; 119.8 KB webos) of 500: about 10 KB for the gallery and the rest for the components, the binding and the pseudo-locale, with no new polyfills. A field named `at` had pulled in core-js's `Array.prototype.at` and `String.prototype.at` (Babel detects usage by property name), so it is now named `time`. app.css 9.7 → 26.6 KB.
 
 **State:**

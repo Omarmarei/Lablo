@@ -65,9 +65,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # Old-engine harness (RELAY step 2b, docs/runbooks/old-engines.md): the built TV apps in
-  # Chromium 53/56/68 snapshots under Docker, plus the self-test that seeded ES2018/ES2020
-  # syntax and a build without polyfills are caught. Separate job so `verify` stays fast.
+  # Old-engine harness (RELAY steps 2b and 11c, docs/runbooks/old-engines.md): the built TV
+  # apps in Chromium 53/56/68 snapshots under Docker, the hello screen and the component
+  # gallery, plus the self-test that seeded ES2018/ES2020 syntax, a build without polyfills and
+  # two seeded CSS breakages are caught. Separate job so `verify` stays fast.
   engines:
     # The engines run inside a pinned Debian 9 container, so the host image barely matters;
     # pinned anyway (ubuntu-latest moves to 26.04).
@@ -96,12 +97,15 @@ jobs:
 
       - run: pnpm verify:engines --self-test
 
-      - name: Upload the old-engine report
+      # The report, and the component gallery as each engine drew it (RELAY step 11c).
+      - name: Upload the old-engine report and gallery screenshots
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: old-engines-report
-          path: artifacts/engines/report.json
+          path: |
+            artifacts/engines/report.json
+            artifacts/engines/gallery-*.png
           if-no-files-found: ignore
           retention-days: 14
 

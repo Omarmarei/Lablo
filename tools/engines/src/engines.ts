@@ -56,6 +56,15 @@ export const ENGINES: readonly Engine[] = [
  */
 export const TV_RUNTIME_FLAGS: readonly string[] = ['--allow-file-access-from-files'];
 
+/**
+ * The app owns the whole 1920x1080 screen, as on a TV, so layout and screenshots see the full
+ * canvas (step 11c). Without these the headed window kept 974 px of 1080 on Chromium 53:
+ * `--kiosk` drops the tab strip and toolbar, and `--test-type` (as chromedriver passes it) the
+ * 39 px "unsupported command-line flag: --no-sandbox" bar. A CDP viewport override instead
+ * would let the page lay out at 1080 px, but the old engines' screenshots would still be cut.
+ */
+export const TV_SCREEN_FLAGS: readonly string[] = ['--kiosk', '--test-type'];
+
 export function snapshotUrl(engine: Pick<Engine, 'position'>): string {
   return `https://commondatastorage.googleapis.com/chromium-browser-snapshots/Linux_x64/${engine.position}/chrome-linux.zip`;
 }

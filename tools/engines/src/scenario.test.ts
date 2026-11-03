@@ -2,7 +2,7 @@ import { parse } from 'acorn';
 import { describe, expect, it } from 'vitest';
 import type { DataCheck } from './fixture';
 import type { PageState, PlatformRun } from './scenario';
-import { KEY_STEPS, STATE_EXPRESSION, evaluateRun, formatConsoleError, formatException, isSettled } from './scenario';
+import { KEY_STEPS, STATE_EXPRESSION, evaluateRun, fontsSettled, formatConsoleError, formatException, isSettled } from './scenario';
 
 const URL = 'file:///app/app/webos/index.html';
 const UA53 = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.0 Safari/537.36';
@@ -103,6 +103,21 @@ describe('isSettled', () => {
     expect(isSettled(state({ nowNext: 'waiting…' }), URL, CHECK)).toBe(false);
     expect(isSettled(state({ epg: 'running…' }), URL)).toBe(true);
     expect(isSettled(state({ epg: 'none: no guide stored (the playlist names none)', nowNext: 'none: no channel here has programmes now' }), URL, CHECK)).toBe(true);
+  });
+});
+
+describe('fontsSettled', () => {
+  it('waits until a Latin and an Arabic face have each loaded or failed', () => {
+    expect(fontsSettled('la400:loaded la700:unloaded ar400:loaded ar700:unloaded')).toBe(true);
+    expect(fontsSettled('la400:loaded ar400:error')).toBe(true);
+    expect(fontsSettled('la400:loaded la700:loading ar400:loaded')).toBe(false);
+    expect(fontsSettled('la400:loaded ar400:unloaded ar700:unloaded')).toBe(false);
+    expect(fontsSettled('la400:unloaded ar400:loaded')).toBe(false);
+    expect(fontsSettled('')).toBe(false);
+  });
+
+  it('has nothing to wait for without document.fonts', () => {
+    expect(fontsSettled(null)).toBe(true);
   });
 });
 
