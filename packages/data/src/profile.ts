@@ -10,10 +10,12 @@
  *
  * Version 1 (RELAY step 7) holds the favourites. Version 2 (step 13b) adds the sources the user
  * added and the onboarding answers. Version 3 (step 20c1) adds what the player keeps
- * (`PlayerMemoryDoc`). Later steps add fields with a migration each.
+ * (`PlayerMemoryDoc`). Version 4 (step 22b) keeps the user's guides as one list (`guides`),
+ * moved from each source's `epgUrl`. Later steps add fields with a migration each.
  */
 
 import type { CatalogItem, ContentKey, ContentKind, XtreamAccount } from '@zoma/core';
+import type { UserGuide } from './epg-sources';
 import { onSuccess, transact } from './idb';
 import { STORE } from './schema';
 
@@ -51,8 +53,14 @@ export type ProfileV1 = {
  * written, and the cloud backup leaves it out when the user turns that off (architecture.md §3.3).
  */
 export type SourceRecord =
-  | { id: string; type: 'xtream'; name: string; account: XtreamAccount; epgUrl: string | null; added: number }
-  | { id: string; type: 'm3u'; name: string; url: string; epgUrl: string | null; added: number };
+  | { id: string; type: 'xtream'; name: string; account: XtreamAccount; added: number }
+  | { id: string; type: 'm3u'; name: string; url: string; added: number };
+
+/**
+ * A source as versions 2 and 3 stored it: with the guide link typed in onboarding (`null`: none).
+ * Version 4 moved the links to the profile's `guides`.
+ */
+export type SourceRecordV3 = SourceRecord & { epgUrl: string | null };
 
 /** What the user answered during onboarding. */
 export type OnboardingAnswers = {
@@ -67,7 +75,7 @@ export type OnboardingAnswers = {
 export type ProfileV2 = {
   v: 2;
   favourites: FavouriteRef[];
-  sources: SourceRecord[];
+  sources: SourceRecordV3[];
   onboarding: OnboardingAnswers;
 };
 
@@ -125,13 +133,28 @@ export type PlayerMemoryDoc = {
 export type ProfileV3 = {
   v: 3;
   favourites: FavouriteRef[];
-  sources: SourceRecord[];
+  sources: SourceRecordV3[];
   onboarding: OnboardingAnswers;
   player: PlayerMemoryDoc;
 };
 
+export type ProfileV4 = {
+  v: 4;
+  favourites: FavouriteRef[];
+  sources: SourceRecord[];
+  onboarding: OnboardingAnswers;
+  player: PlayerMemoryDoc;
+  /**
+   * The XMLTV guides the user added (step 22b), in the user's order: they come before every
+   * source's own guide (epg-sources.ts). An id names the guide's stored records (`u~<id>`), so it
+   * never changes; a guide moved from a source (version 3) or typed in onboarding has its
+   * source's id, one added on the guides screen `g<n>`.
+   */
+  guides: UserGuide[];
+};
+
 /** The current profile shape. */
-export type ProfileDoc = ProfileV3;
+export type ProfileDoc = ProfileV4;
 
 /** Track choices kept; a new content past this drops the one changed longest ago. */
 export const MAX_TRACK_CHOICES = 300;
@@ -150,6 +173,8 @@ export const PROFILE_MIGRATIONS: readonly ProfileMigration[] = [
   (doc) => ({ ...doc, v: 2, sources: [], onboarding: noAnswers() }),
   // 2 → 3 (step 20c1): nothing kept for the player yet.
   (doc) => ({ ...doc, v: 3, player: noPlayerMemory() }),
+  // 3 → 4 (step 22b): each source's guide link moves to the guide list.
+  (doc) => ({ ...doc, ...guidesFromSources(doc.sources), v: 4 }),
 ];
 
 export const PROFILE_VERSION = PROFILE_MIGRATIONS.length + 1;
@@ -183,7 +208,29 @@ export function noPlayerMemory(): PlayerMemoryDoc {
 }
 
 export function emptyProfile(): ProfileDoc {
-  return { v: 3, favourites: [], sources: [], onboarding: noAnswers(), player: noPlayerMemory() };
+  return { v: 4, favourites: [], sources: [], onboarding: noAnswers(), player: noPlayerMemory(), guides: [] };
+}
+
+/**
+ * Version 3's sources without their `epgUrl`, and the links as guides, in source order. Each guide
+ * keeps its source's id, so its stored records (`u~<id>`) stay and nothing is downloaded again. A
+ * link two sources share is listed once, under the first (the one the refresh kept). Sources that
+ * aren't a list are left as they are (never dropped).
+ */
+function guidesFromSources(stored: unknown): { sources?: unknown[]; guides: UserGuide[] } {
+  const guides: UserGuide[] = [];
+  if (!Array.isArray(stored)) return { guides };
+  const sources = stored.map((source: unknown) => {
+    if (typeof source !== 'object' || source === null) return source;
+    // Copied field by field: an object rest would bring Babel's helper into the TV workers.
+    const record = source as Record<string, unknown>;
+    const rest: Record<string, unknown> = {};
+    for (const field of Object.keys(record)) if (field !== 'epgUrl') rest[field] = record[field];
+    const { id, epgUrl } = record;
+    if (typeof epgUrl === 'string' && epgUrl !== '' && typeof id === 'string' && !guides.some((g) => g.url === epgUrl)) guides.push({ id, url: epgUrl });
+    return rest;
+  });
+  return { sources, guides };
 }
 
 /** One thing the player keeps (step 20c1). */
@@ -195,13 +242,41 @@ export type PlayerChange =
   | { field: 'subtitleSize'; size: string }
   | { field: 'picture'; mode: string };
 
+/** A change to the user's guide list (step 22b). */
+export type GuideChange =
+  /** Adds the guide at the end; an id or a link already listed changes nothing. */
+  | { op: 'add'; guide: UserGuide }
+  | { op: 'remove'; id: string }
+  /** Moves the guide to place `to` in the list (clamped to it). */
+  | { op: 'move'; id: string; to: number };
+
 /** A change the app makes to the profile through the query worker (step 13b). */
 export type ProfileEdit =
   | { kind: 'answers'; answers: Partial<OnboardingAnswers> }
   /** Adds the source, or replaces the one with its id (in place). */
   | { kind: 'source'; source: SourceRecord }
   /** One thing the player keeps (step 20c1). */
-  | { kind: 'player'; change: PlayerChange };
+  | { kind: 'player'; change: PlayerChange }
+  /** The user's guide list (step 22b). */
+  | { kind: 'guide'; change: GuideChange };
+
+/** The guide list with `change` applied (a new array), or `null` when it changes nothing. */
+function applyGuideChange(guides: readonly UserGuide[], change: GuideChange): UserGuide[] | null {
+  let at = -1;
+  for (let i = 0; i < guides.length; i += 1) if (guides[i]!.id === (change.op === 'add' ? change.guide.id : change.id)) at = i;
+  if (change.op === 'add') {
+    if (at !== -1 || guides.some((g) => g.url === change.guide.url)) return null;
+    return guides.concat([change.guide]);
+  }
+  if (at === -1) return null;
+  const next = guides.slice();
+  const guide = next.splice(at, 1)[0]!;
+  if (change.op === 'remove') return next;
+  const to = Math.max(0, Math.min(next.length, Math.floor(change.to)));
+  if (to === at) return null;
+  next.splice(to, 0, guide);
+  return next;
+}
 
 /** `record` with `key` set to `value` (a new object), or `null` when it holds that already. */
 function withEntry<T>(record: Record<string, T>, key: string, value: T): Record<string, T> | null {
@@ -261,6 +336,10 @@ export function applyProfileEdit(doc: ProfileDoc, edit: ProfileEdit): ProfileDoc
   if (edit.kind === 'player') {
     const player = applyPlayerChange(doc.player, edit.change);
     return player === null ? null : { ...doc, player };
+  }
+  if (edit.kind === 'guide') {
+    const guides = applyGuideChange(doc.guides, edit.change);
+    return guides === null ? null : { ...doc, guides };
   }
   const at = doc.sources.findIndex((s) => s.id === edit.source.id);
   const sources = doc.sources.slice();

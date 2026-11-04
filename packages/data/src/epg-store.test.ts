@@ -12,6 +12,7 @@ import {
   getEpgMeta,
   markEpgChecked,
   markEpgFailed,
+  setEpgRank,
   pruneEpgDays,
   pruneEpgGenerations,
   putEpgBuckets,
@@ -145,17 +146,30 @@ describe('EPG generations', () => {
     expect(await pruneEpgDays(db, 'missing', D0)).toBe(0);
   });
 
-  it('records checks and failures', async () => {
+  it('records checks and failures, with why it failed', async () => {
     await markEpgChecked(db, 'none', 5);
     expect(await getEpgMeta(db, 'none')).toBeNull();
-    await markEpgFailed(db, 'new', 10, 3);
-    expect(await getEpgMeta(db, 'new')).toMatchObject({ gen: 0, failedAt: 10, rank: 3 });
+    await markEpgFailed(db, 'new', 10, 3, { code: 'http', status: 404 });
+    expect(await getEpgMeta(db, 'new')).toMatchObject({ gen: 0, failedAt: 10, rank: 3, failure: { code: 'http', status: 404 } });
     const gen = await beginEpgGeneration(db, 'new');
     await commitEpgGeneration(db, 'new', gen, 20);
-    expect(await getEpgMeta(db, 'new')).toMatchObject({ gen: 1, failedAt: null, checkedAt: 20 });
-    await markEpgFailed(db, 'new', 30);
+    expect(await getEpgMeta(db, 'new')).toMatchObject({ gen: 1, failedAt: null, failure: null, checkedAt: 20 });
+    await markEpgFailed(db, 'new', 30, 0, { code: 'network', status: null });
+    expect(await getEpgMeta(db, 'new')).toMatchObject({ failedAt: 30, failure: { code: 'network', status: null } });
     await markEpgChecked(db, 'new', 40, { until: 9 });
-    expect(await getEpgMeta(db, 'new')).toMatchObject({ failedAt: null, checkedAt: 40, until: 9, updatedAt: 20 });
+    expect(await getEpgMeta(db, 'new')).toMatchObject({ failedAt: null, failure: null, checkedAt: 40, until: 9, updatedAt: 20 });
+    // A failure without a reason stores none (and replaces an older one).
+    await markEpgFailed(db, 'new', 50, 0, { code: 'format', status: null });
+    await markEpgFailed(db, 'new', 60);
+    expect(await getEpgMeta(db, 'new')).toMatchObject({ failedAt: 60, failure: null });
+  });
+
+  it("sets a stored guide's rank, and nothing for an unknown one", async () => {
+    await markEpgFailed(db, 'g', 10, 3);
+    await setEpgRank(db, 'g', 0);
+    expect(await getEpgMeta(db, 'g')).toMatchObject({ rank: 0, failedAt: 10, gen: 0 });
+    await setEpgRank(db, 'none', 2);
+    expect(await getEpgMeta(db, 'none')).toBeNull();
   });
 });
 

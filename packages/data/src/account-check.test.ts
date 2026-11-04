@@ -49,9 +49,9 @@ describe('checkAccount (the player error card, RELAY step 20a)', () => {
   });
 
   it("finds the panel of an Xtream source and of an M3U source's get.php link; a plain playlist has none", () => {
-    const xtream: SourceRecord = { id: 's1', type: 'xtream', name: 'P', account: ACCOUNT, epgUrl: null, added: 1 };
-    const getPhp: SourceRecord = { id: 's2', type: 'm3u', name: 'G', url: 'http://panel.test:8080/get.php?username=u1&password=p%201&type=m3u_plus', epgUrl: null, added: 1 };
-    const plain: SourceRecord = { id: 's3', type: 'm3u', name: 'L', url: 'http://lists.test/tv.m3u', epgUrl: null, added: 1 };
+    const xtream: SourceRecord = { id: 's1', type: 'xtream', name: 'P', account: ACCOUNT, added: 1 };
+    const getPhp: SourceRecord = { id: 's2', type: 'm3u', name: 'G', url: 'http://panel.test:8080/get.php?username=u1&password=p%201&type=m3u_plus', added: 1 };
+    const plain: SourceRecord = { id: 's3', type: 'm3u', name: 'L', url: 'http://lists.test/tv.m3u', added: 1 };
     expect(sourceAccount(xtream)).toBe(ACCOUNT);
     expect(sourceAccount(getPhp)).toMatchObject({ base: 'http://panel.test:8080', username: 'u1', password: 'p 1' });
     expect(sourceAccount(plain)).toBeNull();
@@ -70,8 +70,8 @@ describe("QueryService.account: the source's account over RPC", () => {
     const client = createDataClient(port2 as unknown as RpcPort);
     // No profile yet.
     expect(await client.call('account', { src: 's1' })).toBeNull();
-    await client.call('editProfile', { kind: 'source', source: { id: 's1', type: 'xtream', name: 'P', account: ACCOUNT, epgUrl: null, added: 1 } });
-    await client.call('editProfile', { kind: 'source', source: { id: 's2', type: 'm3u', name: 'L', url: 'http://lists.test/tv.m3u', epgUrl: null, added: 2 } });
+    await client.call('editProfile', { kind: 'source', source: { id: 's1', type: 'xtream', name: 'P', account: ACCOUNT, added: 1 } });
+    await client.call('editProfile', { kind: 'source', source: { id: 's2', type: 'm3u', name: 'L', url: 'http://lists.test/tv.m3u', added: 2 } });
     expect(await client.call('account', { src: 's1' })).toEqual({ auth: true, status: 'Active', expDate: null, activeCons: 2, maxConnections: 2 });
     expect(await client.call('account', { src: 's2' })).toBeNull();
     expect(await client.call('account', { src: 's9' })).toBeNull();

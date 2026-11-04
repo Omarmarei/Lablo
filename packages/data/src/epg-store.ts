@@ -39,6 +39,15 @@ export interface EpgSummary {
   futureDays: number;
 }
 
+/**
+ * Why a guide's refresh failed: the ingest's code (`http` with its status; `network`, `format`,
+ * `auth`…), or `failed` for anything else. Never a URL or a message.
+ */
+export interface EpgFailure {
+  code: string;
+  status: number | null;
+}
+
 /** Refresh bookkeeping for one guide. */
 export interface EpgMeta {
   epgSrc: string;
@@ -53,6 +62,11 @@ export interface EpgMeta {
   checkedAt: number | null;
   /** Epoch ms of the last refresh that failed (cleared by one that finishes). */
   failedAt?: number | null;
+  /**
+   * Why the last refresh failed (step 22b: the guides screen says it), cleared with `failedAt`.
+   * Optional: records written before it have none (the store is schemaless, so no migration).
+   */
+  failure?: EpgFailure | null;
   /** Priority among the guides at the last refresh (0 first): the tie-break between them. */
   rank: number;
   /** The download the active generation was built from (conditional fetch). */
@@ -183,7 +197,7 @@ export function commitEpgGeneration(db: IDBDatabase, epgSrc: string, gen: number
     onSuccess(store.get(epgSrc), (value) => {
       const meta = value as EpgMeta | undefined;
       if (!meta || meta.building !== gen) throw new GenerationError(`Generation ${gen} of guide ${epgSrc} is not being built`);
-      store.put({ ...meta, ...patch, gen, building: null, updatedAt: now, checkedAt: now, failedAt: null } satisfies EpgMeta);
+      store.put({ ...meta, ...patch, gen, building: null, updatedAt: now, checkedAt: now, failedAt: null, failure: null } satisfies EpgMeta);
       done(meta.gen);
     });
   });
@@ -195,18 +209,32 @@ export function markEpgChecked(db: IDBDatabase, epgSrc: string, now: number, pat
     const store = tx.objectStore(STORE.epgMeta);
     onSuccess(store.get(epgSrc), (value) => {
       const meta = value as EpgMeta | undefined;
-      if (meta) store.put({ ...meta, ...patch, checkedAt: now, failedAt: null } satisfies EpgMeta);
+      if (meta) store.put({ ...meta, ...patch, checkedAt: now, failedAt: null, failure: null } satisfies EpgMeta);
     });
   });
 }
 
-/** Records a refresh that failed, so it isn't retried at once (`epgRefreshDue`). */
-export function markEpgFailed(db: IDBDatabase, epgSrc: string, now: number, rank = 0): Promise<void> {
+/** Records a refresh that failed and why, so it isn't retried at once (`epgRefreshDue`). */
+export function markEpgFailed(db: IDBDatabase, epgSrc: string, now: number, rank = 0, failure: EpgFailure | null = null): Promise<void> {
   return transact<void>(db, STORE.epgMeta, 'readwrite', (tx) => {
     const store = tx.objectStore(STORE.epgMeta);
     onSuccess(store.get(epgSrc), (value) => {
       const meta = (value as EpgMeta | undefined) ?? newEpgMeta(epgSrc, rank);
-      store.put({ ...meta, failedAt: now } satisfies EpgMeta);
+      store.put({ ...meta, failedAt: now, failure } satisfies EpgMeta);
+    });
+  });
+}
+
+/**
+ * Sets a stored guide's priority (step 22b: the user moved a guide), with no download: the query
+ * worker orders the guides by it at its next reload. No-op for an unknown guide.
+ */
+export function setEpgRank(db: IDBDatabase, epgSrc: string, rank: number): Promise<void> {
+  return transact<void>(db, STORE.epgMeta, 'readwrite', (tx) => {
+    const store = tx.objectStore(STORE.epgMeta);
+    onSuccess(store.get(epgSrc), (value) => {
+      const meta = value as EpgMeta | undefined;
+      if (meta) store.put({ ...meta, rank } satisfies EpgMeta);
     });
   });
 }
