@@ -6,7 +6,7 @@
  * `?tier=low&locale=ar-SA&country=SA`.
  */
 import { chromiumMajorFromUserAgent } from '@zoma/core';
-import type { DeviceInfo, Intent, KeyLike, LifecycleEvent, Platform, PlatformCall, ScreenReaderState, TextKey } from '@zoma/platform-api';
+import type { DeviceInfo, Intent, KeyLike, KeyRegistration, LifecycleEvent, Platform, PlatformCall, ScreenReaderState, TextKey } from '@zoma/platform-api';
 import { DIGIT_INTENTS } from '@zoma/platform-api';
 
 /** `KeyboardEvent.key` values and the Intent each one stands for. */
@@ -120,7 +120,7 @@ export function createBrowserPlatform(env: BrowserEnv = defaultEnv()): Platform 
   return {
     id: 'browser',
     info: () => Promise.resolve(fakeDeviceInfo(env)),
-    registerKeys: () => undefined,
+    registerKeys: (): KeyRegistration => ({ skipped: 'a desktop keyboard delivers every key', supported: null, registered: [], unsupported: [], refused: [] }),
     keyToIntent: browserKeyToIntent,
     textKey: browserTextKey,
     onLifecycle(listener: (event: LifecycleEvent) => void): () => void {

@@ -273,3 +273,44 @@
   font-size: var(--font-size-caption);
   color: var(--color-text-muted);
 }
+
+/* S10's key tester: a box per remote key, eight to a row (flex-wrap: no grid or gap on Chromium 53). */
+.lab__keys {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lab__key {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 152px;
+  height: 72px;
+  margin: 0 var(--space-2) var(--space-2) 0;
+  border-radius: var(--radius-m);
+  background: var(--color-surface-focus);
+}
+
+.lab__key.is-seen {
+  background: var(--color-success);
+  color: var(--color-text-on-accent);
+}
+
+.lab__key-name {
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-bold);
+}
+
+.lab__key-code {
+  font-size: var(--font-size-caption);
+}
+
+.lab__keys-line {
+  margin: var(--space-4) 0 0;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}

@@ -5,7 +5,8 @@ The Zoma Lab is a separate TV build that answers the hardware spikes of [archite
 - **Built in step 15a:** the build, the runner and the runtime spikes S0, S1, S2, S3 and S7.
 - **Built in step 15b:** S6, scale (below).
 - **Built in step 15b2:** S9, Arabic, and S11, lifecycle and accessibility (below).
-- **Coming:** S10, input (step 15b3), then the player batteries S4, S5 and S8 (step 15c).
+- **Built in step 15b3:** S10, input: the remote's keys, the pointer and the TV's keyboard (below).
+- **Coming:** the player batteries S4, S5 and S8 (step 15c).
 - **Setting up the TVs and emulators:** `docs/runbooks/tv-setup.md` (step 15d).
 
 ## Quick start (a TV on the LAN)
@@ -80,6 +81,37 @@ The app bundles its fonts (Zoma Sans), isolates the text it puts into sentences 
 - The notes show the Arabic words, so a person in front of the TV sees them drawn: they must join, and read right to left.
 - Desktop Chromium (2026-11-04): `مسلسلات` 197.6 px joined against 268.9 px apart, `لا` 28.8 against 44.8. `Intl` there gives ar-SA the Gregorian calendar with Arabic-Indic digits, and ar-AE and ar Western digits; the app writes Western digits for all of them.
 - In the old-engine harness (Chromium 53, 56, 68, 2026-11-04): fonts, shaping and bidi pass on all three; `مسلسلات` 198 px against 261 apart, `لا` 28 against 44. `Intl` gives every Arabic tag Arabic-Indic digits, ar-AE included, and ar-SA the Gregorian calendar on 53 and 56 but the Hijri one (islamic-umalqura) on 68. S9 records what each TV's ICU does.
+
+## S10: input (step 15b3)
+
+The app turns each remote key into an Intent through its platform adapter (`Platform.keyToIntent`). On Tizen only the arrows, Enter and Back arrive unless the app registers each other key (`Platform.registerKeys`). A text field hands DOM focus to a native `<input>`, which should open the TV's own keyboard (`TextField`, `createTextEditor`, architecture.md §1.2). S10 checks both on the TV.
+
+| Check | What it does | Pass |
+|---|---|---|
+| `registration` | What `Platform.registerKeys()` did when the lab started. On Tizen: the keys the TV lists (`tvinputdevice.getSupportedKeys()`, names and codes), the keys registered, the app's keys the TV doesn't list, and any it refused. webOS and a desktop browser deliver every key. | Tizen `pass` when the TV refused nothing (the note names the keys it lacks); webOS `info` |
+| `keys` | **By hand** (below): the key tester. A box for each of the 29 Intents lights up with its key code when its key comes. Keys the adapter has no Intent for are listed with their codes and `key` names. The record has each distinct key (code, `key`, Intent, count), the codes per Intent and the missing Intents. | `pass` when a key came for every Intent; `fail` names the missing ones |
+| `pointer` | Measured while the key tester is open: the system's pointer shown and hidden events (webOS `cursorStateChange`), real moves, clicks and wheel turns. | `pass` when the pointer moved and clicked; `info` otherwise; `skip` without a pointer |
+| `keyboard` | **By hand**: the app's own text field. OK gives its input DOM focus, which should open the TV's keyboard. Type Arabic and English, press the keyboard's Done key, then answer. The record has the text, which scripts it has letters of, how each edit ended (`done`, `close`, `up`, `down`) with the keys the field saw, and webOS's `keyboardStateChange` events. Tizen's Done and Cancel are expected as 65376 and 65385 (Samsung's guide, never checked on a TV). | GREEN with Arabic and Latin letters typed: `pass`; GREEN without one of them, or RED: `fail` |
+
+- **The key tester takes every key.** None moves the focus or leaves the lab, so Back is a key under test too: Back twice in a row ends the tester, and so does 5 minutes without that.
+- **webOS has no PRE-CH Intent yet** (`WEBOS_KEYS`). Whatever LG's remote sends for it shows under "Keys with no action", as does any key the adapters don't know.
+- **The fallbacks** (architecture.md §5): a key that never comes needs another way to its action in the app; a keyboard that won't open, or won't type Arabic, means an on-screen keyboard of our own (+2 sessions).
+- **Desktop Chromium** (e2e, 2026-11-04): every Intent's key came, `q` (81) as a key with no action, two pointer moves, a click and a wheel turn, and the field typed `زوما Zoma` and ended with Enter (`done`), then a second edit closed with Escape (`close`, the text kept).
+
+### S10 by hand (step 16)
+
+The key tester and the keyboard test run only when a person starts S10 from its row. "Run all" and the run at launch skip them.
+
+1. On the lab, go to S10 and press OK. The key tester opens.
+2. Press each key on the remote once: the arrows, OK, the numbers 0 to 9, CH + and CH −, the four colours, play/pause, stop, forward, rewind, info, guide, PRE-CH (or the remote's "previous channel" key) and Back. Each box lights up with its code.
+3. Then press the keys that have no box, except Home and the settings key, which may leave the lab. Note what "Keys with no action" lists.
+4. With a Magic Remote (LG): move the pointer, click somewhere on the screen and turn the wheel. The pointer line counts each.
+5. Press Back twice in a row. The keyboard test opens.
+6. Press OK on the field. The TV's keyboard should open. Type زوما, switch the keyboard to English, type Zoma, then press the keyboard's Done key. The lines under the field show how the edit ended and the keys the field saw.
+7. Press GREEN if both words were typed, RED if the keyboard didn't open or couldn't type one of them, or Back to skip.
+8. S10 shows its result. `keys` names any key that never came, and the collector has every code.
+
+Samsung's Smart Remote has no number or colour buttons; its 123 (or colour) button opens an on-screen pad. Note which keys came that way.
 
 ## S11: lifecycle and accessibility (step 15b2)
 
@@ -165,13 +197,14 @@ The lab needs no test account: the mock answers it on `/__lab/` (docs/runbooks/m
 
 - **e2e** (`e2e/lab.spec.ts`):
   - the dev page by keys, every record checked in the collector (S6 against the mock's small catalog, S9's faces, widths and the app's own formats);
+  - S10 alone by keys: every Intent's key and one with no action, the pointer, Back twice, then the keyboard test typing `زوما Zoma` and answering GREEN;
   - S11 alone by keys: a hidden-and-back trip logged as `event` records, both questions answered (DOM focus on the labelled button, then the live region saying the focused name);
   - an "update" from 0.1.0 to 0.1.1 (S2); the collector down, then up;
   - both TV bundles from `file://`.
 
   S6 at scale: `pnpm lab:scale` (`e2e/lab-scale.spec.ts`, its own Playwright project, never part of `pnpm e2e`).
 - **The old-engine harness** (`pnpm verify:engines`, docs/runbooks/old-engines.md): both lab bundles in Chromium 53, 56 and 68, reporting to a mock started on the host through `host.docker.internal`.
-  - S1 and S9 must pass on every engine; S6 runs its checks against the host mock's small catalog (all `info`); S11 finds no TV APIs (Tizen's screensaver check fails, webOS's is `info`) and skips its questions.
+  - S1 and S9 must pass on every engine; S6 runs its checks against the host mock's small catalog (all `info`); S10 and S11 find no TV APIs (Tizen's key registration and screensaver checks fail, webOS's are `info`) and skip everything that needs a person.
   - The harness deletes the app's database before each lab run: the app's screens ran on the same `file://` origin first.
   - The polyfills the bundle filled must be exactly the built-ins that engine lacks.
   - Every record must reach the collector.

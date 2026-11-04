@@ -7,25 +7,22 @@
  * Every API is feature-checked, so the bundle also boots in a desktop browser.
  */
 import { chromiumMajorFromUserAgent, deviceTier } from '@zoma/core';
-import type { DeviceInfo, Intent, KeyLike, LifecycleEvent, Platform, PlatformCall, ScreenReaderState, TextKey } from '@zoma/platform-api';
+import type { DeviceInfo, Intent, KeyLike, KeyRegistration, LifecycleEvent, Platform, PlatformCall, ScreenReaderState, TextKey } from '@zoma/platform-api';
 import { tizenChromiumVersion, tizenModelYear } from './device';
-import type { TizenKey } from './keys';
-import { buildTizenKeyMap, tizenKeysToRegister, tizenTextKey } from './keys';
+import type { TizenKey, TvInputDevice } from './keys';
+import { buildTizenKeyMap, registerTizenKeys, tizenTextKey } from './keys';
 import type { TvSettingsApi } from './tv-settings';
 import { tizenScreenReader, tizenSetScreenSaver } from './tv-settings';
 
 export { tizenChromiumVersion, tizenModelYear } from './device';
-export type { TizenKey } from './keys';
-export { TIZEN_IME_CANCEL, TIZEN_IME_DONE, buildTizenKeyMap, tizenKeysToRegister, tizenTextKey } from './keys';
+export type { TizenKey, TvInputDevice } from './keys';
+export { TIZEN_IME_CANCEL, TIZEN_IME_DONE, buildTizenKeyMap, registerTizenKeys, tizenKeysToRegister, tizenTextKey } from './keys';
 export type { TvSettingsApi } from './tv-settings';
 export { tizenScreenReader, tizenSetScreenSaver, voiceGuideOn } from './tv-settings';
 
 /** The slice of the Tizen Web Device API this adapter uses. */
 interface TizenApi {
-  readonly tvinputdevice?: {
-    getSupportedKeys(): TizenKey[];
-    registerKey(name: string): void;
-  };
+  readonly tvinputdevice?: TvInputDevice;
   readonly systeminfo?: {
     getCapability(key: string): unknown;
   };
@@ -93,14 +90,7 @@ export function createTizenPlatform(): Platform {
   return {
     id: 'tizen',
     info: () => Promise.resolve(readDeviceInfo()),
-    registerKeys(): void {
-      const input = globals().tizen?.tvinputdevice;
-      if (input === undefined) return;
-      // One call per key: a batch call fails as a whole if any one key is unsupported.
-      for (const name of tizenKeysToRegister(supportedKeys())) {
-        attempt(() => input.registerKey(name), undefined);
-      }
-    },
+    registerKeys: (): KeyRegistration => registerTizenKeys(attempt(() => globals().tizen?.tvinputdevice, undefined)),
     keyToIntent: (event: KeyLike): Intent | null => getKeyMap().get(event.keyCode) ?? null,
     textKey: (event: KeyLike): TextKey | null => tizenTextKey(event),
     onLifecycle(listener: (event: LifecycleEvent) => void): () => void {

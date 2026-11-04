@@ -1,4 +1,4 @@
-import type { Intent, KeyLike, TextKey } from '@zoma/platform-api';
+import type { Intent, KeyLike, KeyRegistration, TextKey } from '@zoma/platform-api';
 
 /** A key as `tizen.tvinputdevice.getSupportedKeys()` reports it. */
 export interface TizenKey {
@@ -59,6 +59,51 @@ export function tizenKeysToRegister(supported: readonly TizenKey[] | null): stri
   return TIZEN_KEYS.filter((k) => k.mandatory !== true && (available === null || available.has(k.name))).map(
     (k) => k.name,
   );
+}
+
+/** The slice of `tizen.tvinputdevice` that key registration uses. */
+export interface TvInputDevice {
+  getSupportedKeys(): TizenKey[];
+  registerKey(name: string): void;
+}
+
+/** A Tizen `WebAPIException` is no `Error`, but it has a name and a message. */
+function reason(error: unknown): string {
+  const e = error as { readonly name?: unknown; readonly message?: unknown } | null;
+  if (e !== null && typeof e === 'object' && typeof e.message === 'string') return typeof e.name === 'string' ? `${e.name}: ${e.message}` : e.message;
+  return String(error);
+}
+
+/**
+ * Registers each key the app handles that the TV supports, one call per key (a batch call fails
+ * as a whole if any one key is unsupported), and says what happened (spike S10).
+ */
+export function registerTizenKeys(input: TvInputDevice | undefined): KeyRegistration {
+  if (input === undefined) return { skipped: 'no tizen.tvinputdevice', supported: null, registered: [], unsupported: [], refused: [] };
+  let supported: TizenKey[] | null = null;
+  try {
+    supported = input.getSupportedKeys();
+  } catch {
+    // Unknown: every key is tried.
+  }
+  const wanted = tizenKeysToRegister(supported);
+  const registered: string[] = [];
+  const refused: Array<{ name: string; error: string }> = [];
+  for (const name of wanted) {
+    try {
+      input.registerKey(name);
+      registered.push(name);
+    } catch (error) {
+      refused.push({ name, error: reason(error) });
+    }
+  }
+  return {
+    skipped: null,
+    supported: supported === null ? null : supported.map((k) => ({ name: k.name, code: k.code })),
+    registered,
+    unsupported: tizenKeysToRegister(null).filter((name) => wanted.indexOf(name) === -1),
+    refused,
+  };
 }
 
 /** Key code → Intent, using the TV's reported codes where it has them. */

@@ -215,7 +215,7 @@ export const NATIVE_SINCE: Readonly<Record<string, number>> = {
 
 /**
  * What each check must answer in a desktop engine running a TV bundle: S7's no-CORS checks fail
- * (it enforces CORS), S3 finds no device ID and S11 no TV APIs. `expectedStatuses` adds what
+ * (it enforces CORS), S3 finds no device ID, S10 and S11 no TV APIs. `expectedStatuses` adds what
  * differs per platform.
  */
 export const EXPECTED_STATUSES: ReadonlyArray<readonly [string, string]> = [
@@ -249,6 +249,12 @@ export const EXPECTED_STATUSES: ReadonlyArray<readonly [string, string]> = [
   ['S9/shaping', 'pass'],
   ['S9/bidi', 'pass'],
   ['S9/intl', 'info'],
+  // Tizen's key API is missing here (a fail on a TV); webOS has nothing to register (see
+  // expectedStatuses). A launch run asks nobody to press keys or type.
+  ['S10/registration', 'fail'],
+  ['S10/keys', 'skip'],
+  ['S10/pointer', 'skip'],
+  ['S10/keyboard', 'skip'],
   // No TV APIs here; a launch run asks nobody. Tizen's screensaver call is missing (a fail on a
   // TV); webOS has none to call (see expectedStatuses).
   ['S11/lifecycle', 'info'],
@@ -267,10 +273,10 @@ export const EXPECTED_STATUSES: ReadonlyArray<readonly [string, string]> = [
   ['S6/cleanup', 'info'],
 ];
 
-/** Where a platform's bundle answers otherwise: webOS has no screensaver API (an `info`). */
+/** Where a platform's bundle answers otherwise: webOS registers no keys and has no screensaver API (`info`). */
 const PLATFORM_STATUSES: Readonly<Record<TvPlatform, Readonly<Record<string, string>>>> = {
   tizen: {},
-  webos: { 'S11/screensaver': 'info' },
+  webos: { 'S10/registration': 'info', 'S11/screensaver': 'info' },
 };
 
 export function expectedStatuses(platform: TvPlatform): Array<readonly [string, string]> {

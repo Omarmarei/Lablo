@@ -1,11 +1,11 @@
-import type { Platform } from '@zoma/platform-api';
+import type { Intent, Platform } from '@zoma/platform-api';
 import type { ItemBinding, ZoneView } from '@zoma/ui';
-import { Button, Dialog, connectRemote, useFocus, useZone } from '@zoma/ui';
+import { Button, Dialog, TextField, connectRemote, useFocus, useZone } from '@zoma/ui';
 import { useEffect } from 'preact/hooks';
-import type { Lab } from './lab-state';
-import { ASK_SCREEN, outcomeKey } from './lab-state';
+import type { KeyTestView, Lab, TextTestView } from './lab-state';
+import { ASK_SCREEN, KEYS_SCREEN, TYPE_FIELD, TYPE_SCREEN, outcomeKey } from './lab-state';
 import { spikeStatus } from './runner';
-import type { LabQuestion, LabStatus, Spike } from './types';
+import type { KeyPress, LabQuestion, LabStatus, Spike } from './types';
 
 /**
  * The Zoma Lab screen (RELAY step 15a). A developer tool in English only (the
@@ -114,6 +114,97 @@ function Question({ question, zone, index }: { question: LabQuestion; zone: Zone
   );
 }
 
+/** How the key tester names each Intent: the remote's button. */
+const KEY_NAMES: Partial<Record<Intent, string>> = {
+  UP: 'Up',
+  DOWN: 'Down',
+  LEFT: 'Left',
+  RIGHT: 'Right',
+  CH_UP: 'CH +',
+  CH_DOWN: 'CH -',
+  PLAY_PAUSE: 'Play/Pause',
+  STOP: 'Stop',
+  FF: 'Forward',
+  RW: 'Rewind',
+  INFO: 'Info',
+  GUIDE: 'Guide',
+  RED: 'Red',
+  GREEN: 'Green',
+  YELLOW: 'Yellow',
+  BLUE: 'Blue',
+  PREV_CH: 'PRE-CH',
+  BACK: 'Back',
+};
+
+const keyName = (intent: Intent): string => KEY_NAMES[intent] ?? (intent.indexOf('DIGIT_') === 0 ? intent.slice(6) : intent);
+
+const pressText = (press: KeyPress): string => `${press.keyCode}${press.key === '' ? '' : ` ${press.key}`}`;
+
+/** How many keys with no Intent the tester lists (the latest ones). */
+const OTHERS_SHOWN = 10;
+
+/**
+ * S10's key tester: a box per Intent, lit with its key code once its key came; the keys the
+ * adapter has no Intent for, with their codes; the pointer's counts.
+ */
+function KeyTester({ view }: { view: KeyTestView }) {
+  const first = new Map<Intent, KeyPress>();
+  const others: KeyPress[] = [];
+  for (const press of view.presses) {
+    if (press.intent === null) others.push(press);
+    else if (!first.has(press.intent)) first.set(press.intent, press);
+  }
+  const { pointer } = view;
+  return (
+    <section class="lab__ask" data-testid="keys" data-seen={first.size} data-presses={view.presses.length} data-backs={view.backs} role="dialog" aria-label={view.test.title}>
+      <div class="lab__ask-panel">
+        <h2 class="lab__ask-title">{view.test.title}</h2>
+        <p class="lab__ask-prompt">{view.test.prompt}</p>
+        <ul class="lab__keys">
+          {view.test.intents.map((intent) => {
+            const press = first.get(intent);
+            return (
+              <li key={intent} class={`lab__key${press === undefined ? '' : ' is-seen'}`} data-testid={`key-${intent}`} data-seen={press === undefined ? 'false' : 'true'}>
+                <span class="lab__key-name">{keyName(intent)}</span>
+                <span class="lab__key-code">{press === undefined ? '' : press.keyCode}</span>
+              </li>
+            );
+          })}
+        </ul>
+        <p class="lab__keys-line" data-testid="keys-other">
+          Keys with no action: {others.length === 0 ? 'none yet' : others.slice(-OTHERS_SHOWN).map(pressText).join(', ')}
+        </p>
+        <p class="lab__keys-line" data-testid="keys-pointer">
+          Pointer: shown {pointer.shown}, hidden {pointer.hidden}, moves {pointer.moves}, clicks {pointer.clicks}, wheel {pointer.wheel}
+        </p>
+        <p class="lab__keys-line" data-testid="keys-back">
+          {first.size} of {view.test.intents.length} keys · Back {view.backs} of 2 to finish
+        </p>
+      </div>
+    </section>
+  );
+}
+
+/** S10's keyboard test: the app's own text field, the keys it saw, the keyboard's events. */
+function TypeTest({ view, zone }: { view: TextTestView; zone: ZoneView }) {
+  const last = view.edits[view.edits.length - 1];
+  return (
+    <section class="lab__ask" data-testid="type" data-editing={view.field.editing ? 'true' : 'false'} data-edits={view.edits.length} role="dialog" aria-label={view.test.title}>
+      <div class="lab__ask-panel">
+        <h2 class="lab__ask-title">{view.test.title}</h2>
+        <p class="lab__ask-prompt">{view.test.prompt}</p>
+        <TextField id={TYPE_FIELD} label="Type here" value={view.text} hint="OK opens the keyboard" onValue={view.onValue} edit={view.field} {...zone.item(0)} testId="type-field" />
+        <p class="lab__keys-line" data-testid="type-keys">
+          {last === undefined ? 'No edit yet' : `Edit ${view.edits.length} ended with ${last.how}; its keys: ${last.keys.length === 0 ? 'none' : last.keys.map(pressText).join(', ')}`}
+        </p>
+        <p class="lab__keys-line" data-testid="type-keyboard">
+          Keyboard events: {view.keyboard.length === 0 ? 'none' : view.keyboard.map((shown) => (shown ? 'shown' : 'hidden')).join(', ')}
+        </p>
+      </div>
+    </section>
+  );
+}
+
 function LabScreen({ lab }: { lab: Lab }) {
   const { binding, home, context, reporter } = lab;
   const focus = useFocus(binding);
@@ -122,6 +213,9 @@ function LabScreen({ lab }: { lab: Lab }) {
   const dialog = focus.screen === 'exit' ? useZone(binding, binding.nav.top, 'buttons') : null;
   const question = lab.question.value;
   const asking = focus.screen === ASK_SCREEN && question !== null ? useZone(binding, binding.nav.top, 'items') : null;
+  const keyTest = focus.screen === KEYS_SCREEN ? lab.keyTest.value : null;
+  const textTest = focus.screen === TYPE_SCREEN ? lab.textTest.value : null;
+  const typing = textTest !== null ? useZone(binding, binding.nav.top, 'field') : null;
   // A question in focus mode: DOM focus follows the remote's, for the TV's screen reader.
   const domFocus = asking !== null && question?.mode === 'focus' ? focus.index : -1;
   useEffect(() => {
@@ -181,6 +275,8 @@ function LabScreen({ lab }: { lab: Lab }) {
       </div>
 
       {asking !== null && question !== null && <Question question={question} zone={asking} index={focus.index} />}
+      {keyTest !== null && <KeyTester view={keyTest} />}
+      {textTest !== null && typing !== null && <TypeTest view={textTest} zone={typing} />}
 
       {dialog !== null && (
         <Dialog title="Leave the lab?" message="The records already sent stay in the collector." testId="exit-dialog">

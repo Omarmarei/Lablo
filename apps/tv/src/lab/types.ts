@@ -2,7 +2,7 @@
  * The Zoma Lab's vocabulary (RELAY step 15a, docs/architecture.md §5): spikes made of checks,
  * each check ending as one record that goes to the LAN log collector.
  */
-import type { DeviceInfo, Platform } from '@zoma/platform-api';
+import type { DeviceInfo, Intent, KeyRegistration, Platform, TextKey } from '@zoma/platform-api';
 import type { LifecycleEntry } from './lifecycle';
 import type { LabWorkerClient } from './worker-client';
 
@@ -59,6 +59,91 @@ export interface LabContext {
   readonly interactive: boolean;
   /** Asks the person in front of the TV (only when `interactive`): see `LabQuestion`. */
   ask(question: LabQuestion): Promise<LabAnswer>;
+  /** What `Platform.registerKeys()` did when the lab started (S10). */
+  readonly keys: KeyRegistration;
+  /** S10's key tester (only when `interactive`): see `KeyTest`. */
+  testKeys(test: KeyTest): Promise<KeyTestResult>;
+  /** S10's keyboard test (only when `interactive`): see `TextTest`. */
+  typeText(test: TextTest): Promise<TextTestResult>;
+}
+
+/** What each run adds to the lab's context: whether a person started it, and the screens that need one. */
+export type LabRunExtras = 'interactive' | 'ask' | 'testKeys' | 'typeText';
+
+/** The context the lab starts with (`createLab`), before a run adds `LabRunExtras`. */
+export type LabBaseContext = Omit<LabContext, LabRunExtras>;
+
+/**
+ * S10's key tester: a screen that takes every key (none moves the focus or leaves) and ticks off
+ * `intents` as their keys come. Back is a key under test too, so Back twice in a row ends it.
+ */
+export interface KeyTest {
+  readonly title: string;
+  readonly prompt: string;
+  readonly intents: readonly Intent[];
+  /** After this, the tester closes as `timeout`. */
+  readonly timeoutMs: number;
+}
+
+/** One key as it reached the page (`keydown`). */
+export interface KeyPress {
+  readonly keyCode: number;
+  /** `KeyboardEvent.key`, or '' where the engine gives none. */
+  readonly key: string;
+  /** What the platform adapter makes of it, or null. */
+  readonly intent: Intent | null;
+  /** ms since the screen opened. */
+  readonly ms: number;
+}
+
+/** The pointer while the key tester was open: the Magic Remote, or a mouse. */
+export interface PointerLog {
+  /** The system said the pointer showed or hid (webOS `cursorStateChange`). */
+  readonly shown: number;
+  readonly hidden: number;
+  /** Real moves (`watchPointerMoves`), clicks and wheel turns. */
+  readonly moves: number;
+  readonly clicks: number;
+  readonly wheel: number;
+}
+
+export interface KeyTestResult {
+  /** `back`: Back twice in a row; `timeout`: nobody ended it in time. */
+  readonly ended: 'back' | 'timeout';
+  readonly presses: readonly KeyPress[];
+  readonly pointer: PointerLog;
+}
+
+/**
+ * S10's keyboard test: a text field (`TextField`, `createTextEditor`), opened with OK as in the
+ * app, typed into with the TV's on-screen keyboard, then answered with the colour keys.
+ */
+export interface TextTest {
+  readonly title: string;
+  readonly prompt: string;
+  /** After this, the test closes as `timeout`. */
+  readonly timeoutMs: number;
+}
+
+/** One edit of the field, from OK to its end. */
+export interface TextEdit {
+  /** How it ended: `Platform.textKey`'s answer, or `close` for a blur or a hidden keyboard. */
+  readonly how: TextKey;
+  /** The keys the field saw (the TV's keyboard sends some of its own: Tizen Done 65376, Cancel 65385). */
+  readonly keys: readonly KeyPress[];
+  /** Changes of the text. */
+  readonly inputs: number;
+  /** The text when the edit ended. */
+  readonly text: string;
+}
+
+export interface TextTestResult {
+  /** GREEN `yes` (both languages typed), RED `no`, BACK `skip`, or nobody answered in time. */
+  readonly answer: LabAnswerKind;
+  readonly text: string;
+  readonly edits: readonly TextEdit[];
+  /** The system's keyboard shown (true) or hidden (false), in order (webOS `keyboardStateChange`). */
+  readonly keyboard: readonly boolean[];
 }
 
 /**

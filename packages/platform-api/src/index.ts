@@ -111,6 +111,30 @@ export type RootBackPolicy = 'exit-dialog' | 'platform-back';
  */
 export type PlatformCall = 'done' | 'unsupported';
 
+/** A remote key as the TV names it: Tizen `tvinputdevice.getSupportedKeys()`. */
+export interface RemoteKey {
+  readonly name: string;
+  readonly code: number;
+}
+
+/**
+ * What `registerKeys()` did (RELAY step 15b3: spike S10 records it). Tizen delivers only the
+ * arrows, Enter and Back unless the app registers each other key; webOS and the desktop deliver
+ * every key.
+ */
+export interface KeyRegistration {
+  /** Why nothing was registered (`webOS delivers every key`, `no tizen.tvinputdevice`), or null. */
+  readonly skipped: string | null;
+  /** The keys the TV says it has, or null where it doesn't say. */
+  readonly supported: readonly RemoteKey[] | null;
+  /** The keys registered. */
+  readonly registered: readonly string[];
+  /** The app's keys the TV doesn't list (never asked for). */
+  readonly unsupported: readonly string[];
+  /** The keys the TV refused, with its reason. */
+  readonly refused: ReadonlyArray<{ readonly name: string; readonly error: string }>;
+}
+
 /** The TV's screen reader (Samsung Voice Guide, LG Audio Guidance), as far as the TV says. */
 export interface ScreenReaderState {
   /** On or off; `null` when the TV doesn't say (no API, a refusal, an answer we can't read). */
@@ -127,8 +151,11 @@ export interface Platform {
   readonly id: PlatformId;
   /** Device facts. Async because some TV APIs answer through callbacks. */
   info(): Promise<DeviceInfo>;
-  /** Asks the TV to deliver the remote keys the app handles (Tizen needs this; others no-op). */
-  registerKeys(): void;
+  /**
+   * Asks the TV to deliver the remote keys the app handles (Tizen needs this; the others have
+   * nothing to do), and says what it did.
+   */
+  registerKeys(): KeyRegistration;
   /** The Intent for a key event, or `null` for keys the app does not handle. */
   keyToIntent(event: KeyLike): Intent | null;
   /** What a key does in a text field being edited, or `null` when the field takes it (see `TextKey`). */

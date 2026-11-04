@@ -124,6 +124,8 @@ describe('createBrowserPlatform', () => {
 
   it('has no device ID (deviceSecret)', async () => {
     expect(await createBrowserPlatform(fakeEnv()).deviceSecret()).toBeNull();
+    // Nor keys to register (spike S10).
+    expect(createBrowserPlatform(fakeEnv()).registerKeys()).toEqual({ skipped: 'a desktop keyboard delivers every key', supported: null, registered: [], unsupported: [], refused: [] });
   });
 
   it('routes exitApp to the injected handler', () => {
