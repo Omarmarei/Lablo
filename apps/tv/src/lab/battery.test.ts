@@ -1,23 +1,13 @@
 import type { LifecycleEvent } from '@zoma/platform-api';
 import { describe, expect, it } from 'vitest';
-import type { BatteryClock, FrameResult, SoakResult } from './battery';
-import { BATTERY, PLACEHOLDER_NOTE, STALLS_RECORDED, batteryChecks, frameVerdict, lifecycleEvent, noPicture, openAndWait, soak, soakVerdict, switchAudio } from './battery';
-import type { LabMedia, LabMediaItem } from './media';
-import type { LabPlayer, LabPlayerEvent, LabTrack, OpenOptions, PlayerError } from './player';
+import type { FrameResult, SoakResult } from './battery';
+import { BATTERY, PLACEHOLDER_NOTE, STALLS_RECORDED, batteryChecks, frameVerdict, lifecycleEvent, noPicture, openAndWait, soak, soakVerdict, switchAudio, switchByService, switchOutcome } from './battery';
+import type { LabMedia } from './media';
+import type { LabPlayer, LabPlayerEvent, LabTrack, OpenOptions, PlayerError, TrackService } from './player';
+import type { RedirectProbe } from './http';
+import { FIVE_AUDIO, FakeClock, LAB_MEDIA_FIXTURE as MEDIA, labMediaItem as item } from './fakes';
 import { runSpikes } from './runner';
 import type { CheckResult, LabContext } from './types';
-
-/** A clock the battery's sleeps move; every sleep runs the ticks (the fake players' timelines). */
-class FakeClock implements BatteryClock {
-  t = 1000;
-  readonly ticks: Array<(t: number) => void> = [];
-  now = (): number => this.t;
-  sleep = (ms: number): Promise<void> => {
-    this.t += ms;
-    for (const tick of this.ticks.slice()) tick(this.t);
-    return Promise.resolve();
-  };
-}
 
 /** How the fake engine answers one open. */
 interface Plan {
@@ -54,6 +44,8 @@ class FakePlayer implements LabPlayer {
   /** The clock goes back by this much on a switch. */
   backOnSwitchMs = 0;
   error: PlayerError | null = null;
+  /** The platform's track service (webOS luna), or none. */
+  service: TrackService | null = null;
   private readonly listeners: Array<(event: LabPlayerEvent) => void> = [];
   private plan: Plan = { frameAfterMs: null };
   private openedAt = 0;
@@ -144,6 +136,13 @@ class FakePlayer implements LabPlayer {
     if (this.backOnSwitchMs > 0) this.positionBase -= this.backOnSwitchMs;
     if (this.restartOnSwitch) this.emit({ type: 'restart' });
     return true;
+  }
+  audioService(): TrackService | null {
+    return this.service;
+  }
+  /** The stream starts over without a word: the clock back to 0. */
+  restartClock(): void {
+    this.positionBase -= this.snapshot().positionMs;
   }
   textTracks(): readonly LabTrack[] | null {
     return this.text;
@@ -379,32 +378,6 @@ describe('the lifecycle wait', () => {
 // ---------------------------------------------------------------------------------------------
 // The checks
 
-const item = (url: string, over: Partial<LabMediaItem> = {}): LabMediaItem => ({ url, kind: 'live', container: 'ts', fault: null, video: null, audio: null, subtitles: null, ...over });
-
-const FIVE = [
-  { lang: 'ara', codec: 'aac', channels: 2 },
-  { lang: 'eng', codec: 'aac', channels: 2 },
-  { lang: 'spa', codec: 'aac', channels: 2 },
-  { lang: 'eng', codec: 'ac3', channels: 6 },
-  { lang: 'eng', codec: 'eac3', channels: 6 },
-];
-
-const MEDIA: LabMedia = {
-  media: 'files',
-  items: {
-    'live-ts': item('http://lab/live/104.ts'),
-    'live-hls': item('http://lab/live/104.m3u8', { container: 'hls' }),
-    'redirect-ts': item('http://lab/live/104.ts?mock_fault=redirect:hops=3', { fault: 'redirect:hops=3' }),
-    'redirect-hls': item('http://lab/live/104.m3u8?mock_fault=redirect:hops=3', { container: 'hls', fault: 'redirect:hops=3' }),
-    'stall-ts': item('http://lab/live/104.ts?mock_fault=stall:after_bytes=600000', { fault: 'stall:after_bytes=600000' }),
-    'stall-vod': item('http://lab/series/3011.mp4?mock_fault=stall:after_bytes=1000000', { kind: 'vod', container: 'mp4', fault: 'stall:after_bytes=1000000' }),
-    'hevc-4k': item('http://lab/movie/205.mp4', { kind: 'vod', container: 'mp4', video: { codec: 'hevc', width: 3840, height: 2160 } }),
-    'multi-audio': item('http://lab/movie/206.mkv', { kind: 'vod', container: 'mkv', audio: FIVE }),
-    'subs-mkv': item('http://lab/series/3001.mkv', { kind: 'vod', container: 'mkv' }),
-    'subs-mp4': item('http://lab/series/3011.mp4', { kind: 'vod', container: 'mp4' }),
-  },
-};
-
 /** How the fake engine plays each URL in a battery run (a desktop browser: no TS). */
 const DESKTOP_PLAN = (url: string): Plan => {
   if (url.indexOf('.ts') !== -1) return { frameAfterMs: null };
@@ -412,7 +385,7 @@ const DESKTOP_PLAN = (url: string): Plan => {
   return { frameAfterMs: 900, stallAfterMs: url.indexOf('stall') !== -1 ? 18_000 : undefined };
 };
 
-function battery(options: { media?: unknown; plan?: (url: string, o: OpenOptions, n: number) => Plan; setup?: (p: FakePlayer) => void; lifecycle?: Array<[number, LifecycleEvent]> } = {}) {
+function battery(options: { media?: unknown; plan?: (url: string, o: OpenOptions, n: number) => Plan; setup?: (p: FakePlayer) => void; lifecycle?: Array<[number, LifecycleEvent]>; probe?: (url: string) => Promise<RedirectProbe> } = {}) {
   const clock = new FakeClock();
   const players: FakePlayer[] = [];
   const urls: string[] = [];
@@ -427,6 +400,7 @@ function battery(options: { media?: unknown; plan?: (url: string, o: OpenOptions
       urls.push(url);
       return options.media instanceof Error ? Promise.reject(options.media) : Promise.resolve(options.media ?? MEDIA);
     },
+    ...(options.probe === undefined ? {} : { probeRedirect: options.probe }),
     clock,
   });
   const listeners: Array<(event: LifecycleEvent) => void> = [];
@@ -585,7 +559,7 @@ describe('the battery checks', () => {
   it('plays the AC3 and E-AC3 tracks when the engine lists all five', async () => {
     const b = battery({ setup: (p) => (p.audio = AUDIO(5)) });
     const results = await b.runAll();
-    expect(results['ac3']).toMatchObject({ status: 'pass', note: 'ac3 in 200 ms, eac3 in 200 ms; both played on (whether they sound right is for the ear)' });
+    expect(results['ac3']).toMatchObject({ status: 'pass', note: 'ac3 in 200 ms, eac3 in 200 ms (audioTracks); both played on (whether they sound right is for the ear)' });
     expect(b.players[6]?.calls).toEqual(['audio 3', 'audio 4']);
     // A track that stops the clock didn't play.
     const failing = battery({
@@ -599,7 +573,7 @@ describe('the battery checks', () => {
         };
       },
     });
-    expect((await failing.runAll())['ac3']).toMatchObject({ status: 'fail', note: 'eac3 did not play' });
+    expect((await failing.runAll())['ac3']).toMatchObject({ status: 'fail', note: 'eac3 did not play (audioTracks)' });
     // A 5.1 track that takes over but stops the clock didn't play either.
     const stalling = battery({
       setup: (p) => {
@@ -615,7 +589,7 @@ describe('the battery checks', () => {
         p.snapshot = () => (frozen === null ? snapshot() : { ...snapshot(), positionMs: Math.min(snapshot().positionMs, frozen) });
       },
     });
-    expect((await stalling.runAll())['ac3']).toMatchObject({ status: 'fail', note: 'ac3 and eac3 did not play' });
+    expect((await stalling.runAll())['ac3']).toMatchObject({ status: 'fail', note: 'ac3 and eac3 did not play (audioTracks)' });
     // One that never takes over (the engine keeps the first track) didn't play, whatever the clock does.
     const ignored = battery({
       setup: (p) => {
@@ -623,11 +597,11 @@ describe('the battery checks', () => {
         p.audioTracks = () => AUDIO(5);
       },
     });
-    expect((await ignored.runAll())['ac3']).toMatchObject({ status: 'fail', note: 'ac3 and eac3 did not play' });
+    expect((await ignored.runAll())['ac3']).toMatchObject({ status: 'fail', note: 'ac3 and eac3 did not play (audioTracks)' });
   });
 
   it('skips AC3 when the media lists none', async () => {
-    const media: LabMedia = { ...MEDIA, items: { ...MEDIA.items, 'multi-audio': item('http://lab/movie/206.mkv', { kind: 'vod', container: 'mkv', audio: FIVE.slice(0, 3) }) } };
+    const media: LabMedia = { ...MEDIA, items: { ...MEDIA.items, 'multi-audio': item('http://lab/movie/206.mkv', { kind: 'vod', container: 'mkv', audio: FIVE_AUDIO.slice(0, 3) }) } };
     expect((await battery({ media }).runAll())['ac3']).toEqual({ status: 'skip', note: 'the lab media lists no AC3 or E-AC3 track' });
   });
 
@@ -754,6 +728,25 @@ describe('the battery checks', () => {
       [4000, 'visible'],
     ]);
     expect(never).toMatchObject({ status: 'fail', note: 'no picture within 10000 ms of coming back', value: { resumeMs: null } });
+    // AVPlay's restore can refuse: the row says so at once, not after the wait.
+    const refused: PlayerError = { code: null, message: 'restore: InvalidStateError', unsupported: false };
+    const broken = await run((_u, _o, n) => (n === 1 ? { frameAfterMs: 900 } : { frameAfterMs: null, error: { afterMs: 300, error: refused } }), [
+      [2000, 'hidden'],
+      [4000, 'visible'],
+    ]);
+    expect(broken).toEqual({ status: 'fail', note: 'coming back failed: restore: InvalidStateError', value: { container: 'ts', awayMs: 2000, resumeMs: null, error: refused } });
+    // An error after the picture is back changes nothing.
+    // An error first, then a picture after all: the error ends the wait.
+    const first = await run((_u, _o, n) => (n === 1 ? { frameAfterMs: 900 } : { frameAfterMs: 400, error: { afterMs: 300, error: refused } }), [
+      [2000, 'hidden'],
+      [4000, 'visible'],
+    ]);
+    expect(first).toMatchObject({ status: 'fail', value: { resumeMs: null, error: refused } });
+    const late = await run((_u, _o, n) => (n === 1 ? { frameAfterMs: 900 } : { frameAfterMs: 400, error: { afterMs: 450, error: refused } }), [
+      [2000, 'hidden'],
+      [4000, 'visible'],
+    ]);
+    expect(late).toMatchObject({ status: 'pass', value: { resumeMs: 400, error: null } });
     const nobody = await run(() => ({ frameAfterMs: 900 }), []);
     expect(nobody).toEqual({ status: 'skip', note: 'nobody pressed Home within 5 min' });
     const gone = await run(() => ({ frameAfterMs: 900 }), [[2000, 'hidden']]);
@@ -783,5 +776,240 @@ describe('the battery checks', () => {
     tsPlays = false;
     const second = await b.runAll();
     expect(second['redirect']?.value).toMatchObject({ container: 'hls' });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The platform's track service (webOS luna selectTrack, RELAY step 15c2)
+
+/** A service that answers each call with what `answer` gives. */
+function fakeService(answer: (index: number) => Promise<string>) {
+  const calls: number[] = [];
+  const service: TrackService = {
+    name: 'luna',
+    selectAudio: (index) => {
+      calls.push(index);
+      return answer(index);
+    },
+  };
+  return { service, calls };
+}
+
+describe("the platform's track service", () => {
+  const playing = async () => {
+    const clock = new FakeClock();
+    const player = new FakePlayer(clock, () => ({ frameAfterMs: 100 }));
+    await openAndWait(player, URL_, { live: false }, 10_000, clock);
+    await clock.sleep(1000);
+    return { clock, player };
+  };
+
+  it('times the switch to the service accepting and playback moving on', async () => {
+    const { clock, player } = await playing();
+    const s = fakeService(() => Promise.resolve('{"returnValue":true}'));
+    expect(await switchByService(player, s.service, 2, clock)).toEqual({ accepted: true, ms: 200, restarted: false, beforeMs: 1000, afterMs: 1200, detail: '{"returnValue":true}' });
+    expect(s.calls).toEqual([2]);
+  });
+
+  it('waits for a late answer, and stops at a refusal', async () => {
+    const { clock, player } = await playing();
+    const start = clock.t;
+    let release: (answer: string) => void = () => undefined;
+    const late = fakeService(() => new Promise<string>((resolve) => (release = resolve)));
+    clock.ticks.push((t) => {
+      if (t - start === 1500) release('ok');
+    });
+    expect(await switchByService(player, late.service, 1, clock)).toMatchObject({ accepted: true, ms: 1500, detail: 'ok' });
+    const refused = await playing();
+    const no = fakeService(() => Promise.reject(new Error('luna://com.webos.media/selectTrack failed: invalid mediaId (-1)')));
+    expect(await switchByService(refused.player, no.service, 1, refused.clock)).toEqual({
+      accepted: false,
+      ms: null,
+      restarted: false,
+      beforeMs: 1000,
+      afterMs: 1050,
+      detail: 'luna://com.webos.media/selectTrack failed: invalid mediaId (-1)',
+    });
+    const odd = await playing();
+    const busy = fakeService(() => Promise.reject('busy'));
+    expect(await switchByService(odd.player, busy.service, 1, odd.clock)).toMatchObject({ accepted: false, detail: 'busy' });
+  });
+
+  it('gives up on a service that never answers, and notices a restart', async () => {
+    const silent = await playing();
+    const never = fakeService(() => new Promise<string>(() => undefined));
+    expect(await switchByService(silent.player, never.service, 1, silent.clock, 600)).toEqual({ accepted: false, ms: null, restarted: false, beforeMs: 1000, afterMs: 1600, detail: 'no answer' });
+    const restarting = await playing();
+    const s = fakeService(() => {
+      (restarting.player as unknown as { emit(e: LabPlayerEvent): void }).emit({ type: 'restart' });
+      return Promise.resolve('ok');
+    });
+    expect(await switchByService(restarting.player, s.service, 1, restarting.clock)).toMatchObject({ accepted: true, restarted: true });
+  });
+
+  it('says how a switch went', () => {
+    const base = { beforeMs: 0, afterMs: 0 };
+    expect(switchOutcome({ ...base, accepted: false, ms: null, restarted: false }, 'x')).toEqual({ ok: false, text: 'the switch was refused' });
+    expect(switchOutcome({ ...base, accepted: false, ms: null, restarted: false, detail: 'no answer' }, 'x')).toEqual({ ok: false, text: 'the switch was refused (no answer)' });
+    expect(switchOutcome({ ...base, accepted: true, ms: null, restarted: false }, 'x')).toEqual({ ok: false, text: 'the second track never took over' });
+    expect(switchOutcome({ ...base, accepted: true, ms: 300, restarted: true }, 'x')).toEqual({ ok: false, text: 'the switch took 300 ms and the stream started over' });
+    expect(switchOutcome({ ...base, accepted: true, ms: 300, restarted: false }, 'eng "Track 2"')).toEqual({ ok: true, text: 'switched to eng "Track 2" in 300 ms' });
+  });
+
+  it('switches by the service where the engine has no audioTracks', async () => {
+    const s = fakeService(() => Promise.resolve('{"returnValue":true}'));
+    const b = battery({ setup: (p) => (p.service = s.service) });
+    const results = await b.runAll();
+    expect(results['audio-tracks']).toMatchObject({
+      status: 'pass',
+      note: 'this engine has no audioTracks API; luna: switched to the second track in 200 ms (by ear: the second language?)',
+      value: { api: false, route: 'luna', service: { accepted: true, ms: 200, detail: '{"returnValue":true}' } },
+    });
+    expect((results['audio-tracks']?.value as { switch?: unknown }).switch).toBeUndefined();
+    // Straight to the service: the file was opened once.
+    expect(b.players[5]?.opens).toHaveLength(1);
+    // The AC3 row chooses the 5.1 tracks by their place in the file.
+    expect(results['ac3']).toMatchObject({ status: 'pass', note: 'ac3 in 200 ms, eac3 in 200 ms (luna); both played on (whether they sound right is for the ear)', value: { listed: null, route: 'luna' } });
+    expect(s.calls).toEqual([1, 3, 4]);
+  });
+
+  it("tries the service on the file opened again when the engine's own switch fails", async () => {
+    const s = fakeService(() => Promise.resolve('ok'));
+    const b = battery({
+      setup: (p) => {
+        p.audio = AUDIO(5);
+        p.acceptSwitch = false;
+        p.service = s.service;
+      },
+    });
+    const results = await b.runAll();
+    expect(results['audio-tracks']).toMatchObject({ status: 'pass', value: { api: true, route: 'luna', switch: { accepted: false }, service: { accepted: true } } });
+    expect(results['audio-tracks']?.note).toBe('5 of 5 tracks listed (ara "Track 1", eng "Track 2", spa "Track 3", eng "Track 4", eng "Track 5"); the switch was refused; luna: switched to the second track in 200 ms (by ear: the second language?)');
+    expect(b.players[5]?.opens).toHaveLength(2);
+    expect(b.players[5]?.captions).toEqual(['S5: audio tracks', 'S5: audio tracks (luna)']);
+    // The engine lists every track: AC3 keeps to the list, and the service isn't asked.
+    expect(results['ac3']?.value).toMatchObject({ route: 'audioTracks' });
+    expect(s.calls).toEqual([1]);
+  });
+
+  it('keeps the engine route when it works, and fails a refusing service', async () => {
+    const unused = fakeService(() => Promise.resolve('ok'));
+    const fine = await battery({ setup: (p) => ((p.audio = AUDIO(5)), (p.service = unused.service)) }).runAll();
+    expect(fine['audio-tracks']).toMatchObject({ status: 'pass', value: { route: 'audioTracks' } });
+    expect(unused.calls).toEqual([]);
+    const no = fakeService(() => Promise.reject(new Error('invalid mediaId')));
+    const refused = await battery({ setup: (p) => (p.service = no.service) }).runAll();
+    expect(refused['audio-tracks']).toMatchObject({ status: 'fail', note: 'this engine has no audioTracks API; luna: the switch was refused (invalid mediaId)', value: { route: null } });
+    const none = await battery().runAll();
+    expect(none['audio-tracks']).toEqual({ status: 'fail', value: { api: false, expected: FIVE_AUDIO.map((a) => `${a.lang}:${a.codec}`), route: null }, note: 'this engine has no audioTracks API' });
+  });
+
+  it('judges the service switch against 2 s', async () => {
+    const answerAfter = async (ms: number) => {
+      let release: ((answer: string) => void) | null = null;
+      let askedAt = 0;
+      const b = battery({
+        setup: (p) =>
+          (p.service = fakeService(() => {
+            askedAt = b.clock.t;
+            return new Promise<string>((resolve) => (release = resolve));
+          }).service),
+      });
+      b.clock.ticks.push((t) => {
+        if (release !== null && t - askedAt >= ms) {
+          release('ok');
+          release = null;
+        }
+      });
+      return (await b.runAll())['audio-tracks'];
+    };
+    expect(await answerAfter(1950)).toMatchObject({ status: 'pass', value: { service: { ms: 1950 } } });
+    expect(await answerAfter(2000)).toMatchObject({ status: 'fail', value: { route: 'luna', service: { ms: 2000 } }, note: 'this engine has no audioTracks API; luna: switched to the second track in 2000 ms (by ear: the second language?)' });
+  });
+
+  it('sees a service switch that starts the stream over, after 2 s of play', async () => {
+    const b = battery({
+      setup: (p) =>
+        (p.service = fakeService(() => {
+          p.restartClock();
+          return Promise.resolve('ok');
+        }).service),
+    });
+    const results = await b.runAll();
+    expect(results['audio-tracks']).toMatchObject({ status: 'fail', value: { route: null, service: { restarted: true } } });
+    expect(results['audio-tracks']?.note).toMatch(/; luna: the switch took \d+ ms and the stream started over$/);
+  });
+
+  it('ends the row when the file does not play again for the service', async () => {
+    const s = fakeService(() => Promise.resolve('ok'));
+    const multi = (url: string, _o: OpenOptions, n: number): Plan => (url.indexOf('206') !== -1 && n === 2 ? { frameAfterMs: null, error: { afterMs: 300, error: UNSUPPORTED } } : DESKTOP_PLAN(url));
+    const results = await battery({ plan: multi, setup: (p) => ((p.audio = AUDIO(2)), (p.acceptSwitch = false), (p.service = s.service)) }).runAll();
+    expect(results['audio-tracks']).toMatchObject({ status: 'fail', note: '2 of 5 tracks listed (ara "Track 1", eng "Track 2"); the switch was refused; the MKV never played: MEDIA_ERR_SRC_NOT_SUPPORTED' });
+    expect(s.calls).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The redirect probe's row (AVPlay, S4: RELAY step 15c2)
+
+describe('the redirect probe row', () => {
+  const FOUND = (over: Partial<RedirectProbe> = {}): RedirectProbe => ({ finalUrl: 'http://lab/live/zoma/zoma-test/104.m3u8', redirected: true, status: 200, ms: 40, ...over });
+
+  it('comes after redirect, and plays the URL the probe found', async () => {
+    const asked: string[] = [];
+    const b = battery({
+      probe: (url) => {
+        asked.push(url);
+        return Promise.resolve(FOUND());
+      },
+    });
+    expect(b.checks.map((c) => c.id)).toEqual(['formats', 'ts', 'hls', 'redirect', 'redirect-probe', 'hevc-4k', 'audio-tracks', 'ac3', 'subtitles', 'suspend', 'soak']);
+    const results = await b.runAll();
+    // TS never played (the desktop plan): HLS through the probe.
+    expect(asked).toEqual(['http://lab/live/104.m3u8?mock_fault=redirect:hops=3']);
+    expect(results['redirect-probe']).toEqual({
+      status: 'pass',
+      value: { container: 'hls', probeMs: 40, status: 200, redirected: true, withoutProbe: 'played', played: true, ms: 900 },
+      note: 'probe 40 ms (HTTP 200), then the first frame in 900 ms; it played without the probe too',
+    });
+    expect(b.players[4]?.opens[0]?.url).toBe('http://lab/live/zoma/zoma-test/104.m3u8');
+    expect(b.players[4]?.captions).toEqual(['S5: live HLS at the URL the probe found']);
+    expect(JSON.stringify(results)).not.toMatch(/http:|zoma-test/);
+  });
+
+  it('notes the freeze without the probe (AVPlay on a 302), or a failure', async () => {
+    const froze = await battery({ plan: (url) => ({ frameAfterMs: url.indexOf('redirect') !== -1 ? null : 900 }), probe: () => Promise.resolve(FOUND()) }).runAll();
+    expect(froze['redirect']).toMatchObject({ status: 'fail', value: { container: 'ts', played: false, error: null } });
+    expect(froze['redirect-probe']).toMatchObject({ status: 'pass', value: { container: 'ts', withoutProbe: 'froze' }, note: 'probe 40 ms (HTTP 200), then the first frame in 900 ms; without the probe it froze' });
+    const failed = await battery({
+      plan: (url) => (url.indexOf('redirect') !== -1 ? { frameAfterMs: null, error: { afterMs: 300, error: { code: null, message: 'PLAYER_ERROR_CONNECTION_FAILED', unsupported: false } } } : { frameAfterMs: 900 }),
+      probe: () => Promise.resolve(FOUND()),
+    }).runAll();
+    expect(failed['redirect-probe']).toMatchObject({ status: 'pass', value: { withoutProbe: 'error' }, note: 'probe 40 ms (HTTP 200), then the first frame in 900 ms; without the probe it failed' });
+  });
+
+  it('fails a probe that fails, sees no redirect, or leads to nothing that plays', async () => {
+    const failing = await battery({ probe: () => Promise.reject(new Error('no headers within 8000 ms')) }).runAll();
+    expect(failing['redirect-probe']).toEqual({ status: 'fail', value: { container: 'hls' }, note: 'the probe failed: no headers within 8000 ms' });
+    const odd = await battery({ probe: () => Promise.reject('down') }).runAll();
+    expect(odd['redirect-probe']?.note).toBe('the probe failed: down');
+    const direct = battery({ probe: () => Promise.resolve(FOUND({ redirected: false, status: 302 })) });
+    const straight = await direct.runAll();
+    expect(straight['redirect-probe']).toMatchObject({ status: 'fail', note: 'the probe saw no redirect (HTTP 302, responseURL unchanged)', value: { redirected: false } });
+    // Nothing was opened for it.
+    expect(direct.players.map((p) => p.captions[0])).not.toContain('S5: live HLS at the URL the probe found');
+    const dead = await battery({ plan: (url) => ({ frameAfterMs: url.indexOf('zoma-test') !== -1 || url.indexOf('.ts') !== -1 ? null : 900 }), probe: () => Promise.resolve(FOUND()) }).runAll();
+    expect(dead['redirect-probe']).toMatchObject({ status: 'fail', note: 'probe 40 ms, then no picture within 10000 ms: no answer', value: { played: false, ms: 10_000, unsupported: false } });
+  });
+
+  it('skips on placeholder bytes, and forgets an earlier run', async () => {
+    const placeholder = await battery({ media: { ...MEDIA, media: 'placeholder' }, probe: () => Promise.resolve(FOUND()) }).runAll();
+    expect(placeholder['redirect-probe']).toEqual({ status: 'skip', note: PLACEHOLDER_NOTE });
+    const b = battery({ probe: () => Promise.resolve(FOUND()) });
+    await b.runAll();
+    // A new run without the redirect row: nothing to compare with.
+    const context = b.context();
+    await b.checks[0]!.run(context);
+    expect(await b.checks[4]!.run(context)).toMatchObject({ status: 'pass', value: { container: 'ts', withoutProbe: null }, note: 'probe 40 ms (HTTP 200), then the first frame in 900 ms' });
   });
 });

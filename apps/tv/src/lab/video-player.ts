@@ -68,6 +68,8 @@ export type VideoLike = Pick<
 > & {
   src: string;
   readonly audioTracks?: TrackListLike<AudioTrackLike>;
+  /** webOS: the media pipeline's id for this element, once it loads (luna `com.webos.media`). */
+  readonly mediaId?: string;
   readonly webkitDecodedFrameCount?: number;
   getVideoPlaybackQuality?(): { readonly totalVideoFrames: number };
 };
@@ -87,11 +89,17 @@ export interface VideoEnv {
   readonly timers: VideoTimers;
   /** `window.MediaSource`, for the record. */
   readonly mediaSource: { isTypeSupported?(type: string): boolean } | null;
+  /**
+   * The platform's audio track service by `mediaId` (webOS: luna `com.webos.media/selectTrack`,
+   * through the adapter), or null. Resolves a few words of its answer.
+   */
+  readonly selectTrack?: ((mediaId: string, index: number) => Promise<string>) | null;
 }
 
-const PAGE_ENV = (): VideoEnv => ({
+const PAGE_ENV = (selectTrack: VideoEnv['selectTrack'] = null): VideoEnv => ({
   timers: { setInterval: (handler, ms) => window.setInterval(handler, ms), clearInterval: (id) => window.clearInterval(id) },
   mediaSource: typeof MediaSource === 'undefined' ? null : MediaSource,
+  selectTrack,
 });
 
 function framesOf(video: VideoLike): number | null {
@@ -222,6 +230,8 @@ export function createVideoPlayer(video: VideoLike, stage: VideoStage, env: Vide
           audioTracks: video.audioTracks !== undefined,
           textTracks: video.textTracks !== undefined,
           getVideoPlaybackQuality: typeof video.getVideoPlaybackQuality === 'function',
+          mediaId: typeof video.mediaId === 'string',
+          selectTrack: typeof env.selectTrack === 'function',
           webkitDecodedFrameCount: typeof video.webkitDecodedFrameCount === 'number',
           MediaSource: mse !== null,
         },
@@ -271,6 +281,12 @@ export function createVideoPlayer(video: VideoLike, stage: VideoStage, env: Vide
         if (i !== index && t !== undefined) t.enabled = false;
       }
       return true;
+    },
+    audioService: () => {
+      const select = env.selectTrack;
+      const mediaId = video.mediaId;
+      if (typeof select !== 'function' || typeof mediaId !== 'string' || mediaId === '') return null;
+      return { name: 'luna', selectAudio: (index: number) => select(mediaId, index) };
     },
     textTracks: () => {
       const list = video.textTracks as TextTrackList | undefined;
@@ -354,8 +370,8 @@ export function mountVideoStage(doc: Document): { readonly video: HTMLVideoEleme
   };
 }
 
-/** A `<video>` player on this page. */
-export function pageVideoPlayer(): LabPlayer {
+/** A `<video>` player on this page; `selectTrack` is the platform's track service (webOS). */
+export function pageVideoPlayer(selectTrack: VideoEnv['selectTrack'] = null): LabPlayer {
   const { video, stage } = mountVideoStage(document);
-  return createVideoPlayer(video as VideoLike, stage);
+  return createVideoPlayer(video as VideoLike, stage, PAGE_ENV(selectTrack));
 }

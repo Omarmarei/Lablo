@@ -374,7 +374,7 @@ Spike S6 ingests a real source through the app's data engine, and the lab still 
 
 ### The player batteries' media (RELAY step 15c)
 
-The batteries (S5 now, S4 and S8 in step 15c2) play the mock's own media, and the lab still holds no account: `GET /__lab/media` (`src/lab-media.ts`) answers with `media` (`files` or `placeholder`, as `/__mock/health` says) and one item per row of the battery, each with its `url`, `kind` (`live`/`vod`), `container`, the `mock_fault` it carries (`fault`), and from the manifest the `video`, `audio` and `subtitles` it holds (null with placeholder bytes).
+The batteries (S5 on `<video>`, S4 and S8 on AVPlay; S8 uses `live-ts` twice at once, which the test account's two connections allow) play the mock's own media, and the lab still holds no account: `GET /__lab/media` (`src/lab-media.ts`) answers with `media` (`files` or `placeholder`, as `/__mock/health` says) and one item per row of the battery, each with its `url`, `kind` (`live`/`vod`), `container`, the `mock_fault` it carries (`fault`), and from the manifest the `video`, `audio` and `subtitles` it holds (null with placeholder bytes).
 
 | Item | URL | Holds |
 |---|---|---|

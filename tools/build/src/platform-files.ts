@@ -91,8 +91,10 @@ export function checkConfigXml(text: string, version: string): { appId: string }
  * define should have removed it).
  */
 const FOREIGN_MARKERS: Record<TvPlatform, readonly string[]> = {
-  tizen: ['PalmSystem', 'webOSRelaunch', 'Desktop browser'],
-  webos: ['tvinputdevice', 'productinfo', 'Desktop browser'],
+  // `com.webos.media`: the lab's luna selectTrack (S5, step 15c2).
+  tizen: ['PalmSystem', 'webOSRelaunch', 'com.webos.media', 'Desktop browser'],
+  // `application/avplayer` and `getTotalTrackInfo`: the lab's AVPlay player (S4, S8, step 15c2).
+  webos: ['tvinputdevice', 'productinfo', 'application/avplayer', 'getTotalTrackInfo', 'Desktop browser'],
 };
 
 export function foreignCode(platform: TvPlatform, code: string): string[] {

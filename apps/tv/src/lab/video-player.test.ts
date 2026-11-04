@@ -45,6 +45,7 @@ class FakeVideo extends EventTarget {
   audioTracks?: FakeAudioTrack[];
   getVideoPlaybackQuality?: () => { totalVideoFrames: number };
   webkitDecodedFrameCount?: number;
+  mediaId?: string;
   /** What `play()` answers, in order; then a resolved promise. */
   playAnswers: Array<Promise<void>> = [];
   canPlay: Record<string, string> = {};
@@ -364,7 +365,7 @@ describe('the <video> player', () => {
     expect(facts.canPlayType['video/mp2t']).toBe('');
     expect(facts.canPlayType['application/vnd.apple.mpegurl']).toBe('maybe');
     expect(Object.keys(facts.canPlayType)).toHaveLength(12);
-    expect(facts.apis).toEqual({ audioTracks: false, textTracks: true, getVideoPlaybackQuality: true, webkitDecodedFrameCount: true, MediaSource: true });
+    expect(facts.apis).toEqual({ audioTracks: false, textTracks: true, getVideoPlaybackQuality: true, webkitDecodedFrameCount: true, mediaId: false, selectTrack: false, MediaSource: true });
     expect(facts.mse).toEqual({ h264: true, hevc: false, ac3: false });
     expect(setup().player.describe()).toMatchObject({ mse: null, apis: { MediaSource: false } });
   });
@@ -392,5 +393,29 @@ describe('the <video> player', () => {
     off();
     video.fire('waiting');
     expect(heard).toEqual(['waiting']);
+  });
+
+  it("offers webOS's track service once the element has a mediaId (RELAY step 15c2)", async () => {
+    const asked: Array<[string, number]> = [];
+    const selectTrack = (mediaId: string, index: number): Promise<string> => {
+      asked.push([mediaId, index]);
+      return Promise.resolve('{"returnValue":true}');
+    };
+    const { video, player } = setup({ selectTrack });
+    // Not loaded yet: no mediaId, no service.
+    expect(player.audioService()).toBeNull();
+    video.mediaId = '';
+    expect(player.audioService()).toBeNull();
+    video.mediaId = '_Mo4aBx9';
+    const service = player.audioService();
+    expect(service?.name).toBe('luna');
+    expect(await service?.selectAudio(2)).toBe('{"returnValue":true}');
+    expect(asked).toEqual([['_Mo4aBx9', 2]]);
+    expect((player.describe() as { apis: Record<string, boolean> }).apis).toMatchObject({ mediaId: true, selectTrack: true });
+    // Without the platform's service (the desktop, Tizen) there is none, mediaId or not.
+    const desktop = setup();
+    desktop.video.mediaId = '_Mo4aBx9';
+    expect(desktop.player.audioService()).toBeNull();
+    expect(setup({ selectTrack: null }).player.audioService()).toBeNull();
   });
 });

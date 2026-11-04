@@ -132,7 +132,7 @@ describe('evaluateLab (RELAY step 15a)', () => {
     const wrong = goodRun(56, (records) => records.map((r) => (r.check === 'blob-worker' ? { ...r, status: 'fail', note: 'threw Error: no Worker' } : r)));
     expect(evaluateLab(wrong, { major: 56 })).toEqual(['S1/blob-worker: fail, expected pass (threw Error: no Worker)']);
     const missing = goodRun(56, (records) => records.filter((r) => r.check !== 'write-test'));
-    expect(evaluateLab(missing, { major: 56 })).toEqual(['53 check records, expected 54', 'S2/write-test: no record']);
+    expect(evaluateLab(missing, { major: 56 })).toEqual(['67 check records, expected 68', 'S2/write-test: no record']);
     // A browser that let a no-CORS request through would be news, not a pass.
     const open = goodRun(56, (records) => records.map((r) => (r.check === 'xhr-no-cors' ? { ...r, status: 'pass' } : r)));
     expect(evaluateLab(open, { major: 56 })).toEqual(['S7/xhr-no-cors: pass, expected fail']);
@@ -141,7 +141,7 @@ describe('evaluateLab (RELAY step 15a)', () => {
   it('needs every record in the collector, in order', () => {
     const run = goodRun(53);
     expect(evaluateLab({ ...run, collected: null }, { major: 53 })).toEqual(['the collector has no file for this session']);
-    expect(evaluateLab({ ...run, collected: run.collected?.slice(1) ?? [] }, { major: 53 })).toEqual([expect.stringMatching(/^the collector has 55 records, the page 56/)]);
+    expect(evaluateLab({ ...run, collected: run.collected?.slice(1) ?? [] }, { major: 53 })).toEqual([expect.stringMatching(/^the collector has 69 records, the page 70/)]);
   });
 
   it('fails a run that never finished, crashed or threw', () => {
@@ -166,7 +166,7 @@ describe('evaluateLab (RELAY step 15a)', () => {
   });
 
   it('sums a run up for the log', () => {
-    expect(labSummary(goodRun(53))).toBe('  [fail 4, info 19, pass 16, skip 15; 10k items 202 ms; IDB ? MB/s; 56 records collected]');
+    expect(labSummary(goodRun(53))).toBe('  [fail 4, info 19, pass 16, skip 29; 10k items 202 ms; IDB ? MB/s; 70 records collected]');
   });
 });
 

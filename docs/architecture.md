@@ -1000,6 +1000,16 @@ All spikes run in a "Zoma Lab" build that posts results to the log collector. Th
 - **The spike list:** rows are now 52 + 8 px, so 12 spikes fit the title-safe height (S4 and S8 come in 15c2), and a check with its note takes 64 px, so S5's ten checks fit under a one-line question. Run order: `[S0, S1, S2, S3, S7, S9, S10, S11, S5, S6]`.
 - **Not yet:** S4 and S8 on AVPlay, S5's luna `selectTrack` route on webOS (15c2), and any real TV (16).
 
+**Built in step 15c2: S4 and S8 on AVPlay, and S5's luna route** (`apps/tv/src/lab/avplay-player.ts`, `spikes/s4.ts`, `spikes/s8.ts`; `packages/platform-tizen/src/avplay.ts`; runbook `docs/runbooks/lab.md` "S4" and "S8"):
+- **AVPlay typed in platform-tizen** (`avplay.ts`): the slice of `webapis.avplay` and `webapis.avplaystore` the lab uses, the accessors (`tizenAvplay()`, `tizenAvplayStore()`), `getTotalTrackInfo`'s `extra_info` read into tracks, AVPlay's error names (which ones mean "can't play this"). Step 19's AvplayEngine builds on it. The app's bundles are byte-for-byte unchanged.
+- **The AVPlay `LabPlayer`** (lab): open, listener, display rect, `prepareAsync`, play; a frame is the clock moving while `PLAYING` (AVPlay paints under the page, so no pixel can be read); tracks and the switch through `setSelectTrack`; cues from `onsubtitlechange`; Home and back through `suspend`/`restore`; `stop` and `close`. The page turns transparent while its `<object type="application/avplayer">` shows (§2, "AVPlay layering"). Only the Tizen build reaches it; `pnpm build:tv` fails if it leaks into webOS.
+- **S4** = S5's ten rows on AVPlay plus `redirect-probe`: the live stream at the URL the redirect probe found (§2, "Redirect handling": an XHR aborted at `readyState` 2, `responseURL`), compared with `redirect` (AVPlay's freeze on the 302s themselves).
+- **S8**: two players from `avplaystore`; both prepare the live TS at once; three switches from the playing one to the prepared one, each ≤ 700 ms on a 2020+ TV (`info` before 2020).
+- **S5's second track route:** luna `com.webos.media/selectTrack` with the element's `mediaId` (platform-webos `webosSelectTrack`), tried on the file opened again when `audioTracks` is missing or its switch fails; `ac3` uses it where the engine lists no tracks. The record's `route` says which worked. Both batteries now let the file play 2 s before the switch, so a switch that restarts the stream shows as the clock going back (AVPlay sends no event for it).
+- **Off a TV** every S4 and S8 row skips with the reason (the desktop, both bundles in e2e, Chromium 53/56/68). The whole AVPlay battery runs in unit tests against a fake AVPlay (`fakes.ts`).
+- **Run order:** `[S0, S1, S2, S3, S7, S9, S10, S11, S4, S5, S8, S6]`: twelve rows, the list's limit (it ends at 1002 of 1026 px). A check with its note now takes 60 px, so S4's eleven fit under its question (996 px); e2e measures both. Lab main 243.4 → 260.7 KB (Tizen), 251.8 KB (webOS) of its own code.
+- **Not yet:** any real TV (step 16): whether AVPlay's clock moves for live TS, which `restore` arguments a TV takes, whether `avplaystore` players share the plane, and luna's answer on each webOS version.
+
 ---
 
 ## 6. Phased roadmap
