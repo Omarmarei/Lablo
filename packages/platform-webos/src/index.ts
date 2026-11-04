@@ -3,21 +3,23 @@
  *
  * Step 2 covers what the hello app needs: device info from `PalmSystem.deviceInfo`, remote
  * key codes, lifecycle and exit; step 15a the LGUDID (`deviceSecret`) through a luna call
- * (`lunaRequest`, over `PalmServiceBridge`). The DB8 mirror and the track-switch strategy
+ * (`lunaRequest`, over `PalmServiceBridge`); step 15b2 Audio Guidance and speech (`speech.ts`). The DB8 mirror and the track-switch strategy
  * follow in later steps. The only package allowed to touch `webOS`, `PalmSystem` and
  * `PalmServiceBridge` (lint-enforced). Every API is feature-checked, so the bundle also boots in a
  * desktop browser.
  */
 import { chromiumMajorFromUserAgent, deviceTier } from '@zoma/core';
-import type { DeviceInfo, Intent, KeyLike, LifecycleEvent, Platform, TextKey } from '@zoma/platform-api';
+import type { DeviceInfo, Intent, KeyLike, LifecycleEvent, Platform, PlatformCall, TextKey } from '@zoma/platform-api';
 import { DIGIT_INTENTS } from '@zoma/platform-api';
 import { parsePalmDeviceInfo, webosChromiumVersion, webosModelYear } from './device';
 import { readLgudid } from './luna';
+import { readAudioGuidance, webosSpeak } from './speech';
 
 export type { WebosDeviceInfo } from './device';
 export { parsePalmDeviceInfo, webosChromiumVersion, webosModelYear } from './device';
 export type { BridgeFactory, ServiceBridge } from './luna';
-export { DEVICE_ID_URI, LunaError, lgudidFrom, lunaRequest, palmServiceBridge, readLgudid } from './luna';
+export { DEVICE_ID_URI, LunaError, jsonText, lgudidFrom, lunaRequest, palmServiceBridge, readLgudid } from './luna';
+export { AUDIO_GUIDANCE_URI, TTS_URI, audioGuidanceFrom, readAudioGuidance, webosSpeak } from './speech';
 
 /** LG remote key codes. webOS delivers every key without registration. */
 const WEBOS_KEYS: ReadonlyMap<number, Intent> = new Map<number, Intent>([
@@ -141,6 +143,10 @@ export function createWebosPlatform(): Platform {
     onSoftKeyboard: (listener: (visible: boolean) => void): (() => void) => watchKeyboardState(document, listener),
     rootBackPolicy: () => 'platform-back',
     deviceSecret: () => readLgudid(),
+    // No screensaver API for webOS apps: full-screen video keeps it away (LG's screensaver guide).
+    setScreenSaver: (): Promise<PlatformCall> => Promise.resolve('unsupported'),
+    screenReader: () => readAudioGuidance(),
+    speak: (text: string) => webosSpeak(text),
     exitApp(): void {
       // appinfo.json sets disableBackHistoryAPI, so the app owns Back; at the root it hands
       // Back to the system (the launcher), as LG's guidelines require. `window.close()` is

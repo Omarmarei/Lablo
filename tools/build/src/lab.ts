@@ -3,7 +3,8 @@
  * (apps/tv/src/lab/lab-main.tsx) bundled like the app, staged in `dist/tv-lab/<platform>` as its
  * own app, so it installs next to Zoma instead of over it:
  *
- * - the manifests are the app's with the lab's id and name (`labManifest`);
+ * - the manifests are the app's with the lab's id and name, and on webOS Audio Guidance on
+ *   (`labManifest`: spike S11 asks whether it reads the lab's labels);
  * - index.html runs the native-feature probe before the bundle (`renderLabIndexHtml`);
  * - `lab-config.js` holds the lab server's address (the mock provider on this PC, which collects
  *   the results), the lab's version and whether it runs everything at launch (`labConfigScript`).
@@ -37,11 +38,15 @@ function replaceOnce(text: string, pattern: RegExp, replacement: string, what: s
   return text.replace(pattern, replacement);
 }
 
-/** The app's manifest (already filled in) turned into the lab's: another id and name. */
+/**
+ * The app's manifest (already filled in) turned into the lab's: another id and name. On webOS
+ * also `accessibility.supportsAudioGuidance`, without which LG's Audio Guidance reads nothing of
+ * an app (appinfo.json reference, webOS TV 3.0+); S11 tests it before the app takes it.
+ */
 export function labManifest(platform: TvPlatform, text: string): string {
   if (platform === 'webos') {
     const info = JSON.parse(text) as Record<string, unknown>;
-    return `${JSON.stringify({ ...info, id: LAB_IDS.webosId, title: LAB_IDS.title }, null, 2)}\n`;
+    return `${JSON.stringify({ ...info, id: LAB_IDS.webosId, title: LAB_IDS.title, accessibility: { supportsAudioGuidance: true } }, null, 2)}\n`;
   }
   let out = replaceOnce(text, /(<widget\b[^>]*\bid=")[^"]*(")/, `$1${LAB_IDS.tizenWidget}$2`, 'the widget id');
   out = replaceOnce(out, /(<tizen:application\s+id=")[^"]*("\s+package=")[^"]*(")/, `$1${LAB_IDS.tizenApplication}$2${LAB_IDS.tizenPackage}$3`, 'the application id');

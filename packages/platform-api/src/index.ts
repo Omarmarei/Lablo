@@ -105,8 +105,23 @@ export type TextKey = 'done' | 'close' | 'up' | 'down';
 export type RootBackPolicy = 'exit-dialog' | 'platform-back';
 
 /**
- * The only seam between the app and a TV platform. Later steps add `setScreenSaver()`,
- * `createEngines()` and the optional extras listed in docs/architecture.md §1.1.
+ * A platform call this TV may not offer: `done` when the TV took it, `unsupported` when the TV,
+ * its firmware or the desktop browser has no such API. A TV that has the API and refuses the
+ * call rejects with its reason.
+ */
+export type PlatformCall = 'done' | 'unsupported';
+
+/** The TV's screen reader (Samsung Voice Guide, LG Audio Guidance), as far as the TV says. */
+export interface ScreenReaderState {
+  /** On or off; `null` when the TV doesn't say (no API, a refusal, an answer we can't read). */
+  readonly on: boolean | null;
+  /** What the TV answered, or why there is no answer: for the lab's records (spike S11). */
+  readonly detail: string;
+}
+
+/**
+ * The only seam between the app and a TV platform. Later steps add `createEngines()` and the
+ * optional extras listed in docs/architecture.md §1.1.
  */
 export interface Platform {
   readonly id: PlatformId;
@@ -141,6 +156,22 @@ export interface Platform {
    * reports only a hash of it.
    */
   deviceSecret(): Promise<string | null>;
+  /**
+   * Lets the TV's screensaver come (`true`) or keeps it away (`false`) while the app is in the
+   * foreground (RELAY step 15b2, spike S11). Tizen: `webapis.appcommon.setScreenSaver`, which
+   * Samsung's certification wants back on whenever playback pauses or stops. webOS has no API
+   * for it (`unsupported`): full-screen video keeps the screensaver away there (LG's guide).
+   */
+  setScreenSaver(allowed: boolean): Promise<PlatformCall>;
+  /** Whether the TV's screen reader is on (Samsung Voice Guide, LG Audio Guidance). */
+  screenReader(): Promise<ScreenReaderState>;
+  /**
+   * Says `text` with the TV's own speech, for a screen reader that doesn't read our focus
+   * (docs/architecture.md §5, S11's fallback). webOS: the `com.webos.service.tts` luna service
+   * (used by LG's Enact, not in the TV docs); Tizen has no speech API for web apps
+   * (`unsupported`: Voice Guide reads `aria-live` regions instead).
+   */
+  speak(text: string): Promise<PlatformCall>;
   /** Leaves the app the platform's way (on webOS this is Back to the launcher). */
   exitApp(): void;
 }

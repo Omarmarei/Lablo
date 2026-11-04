@@ -6,7 +6,7 @@
  * `?tier=low&locale=ar-SA&country=SA`.
  */
 import { chromiumMajorFromUserAgent } from '@zoma/core';
-import type { DeviceInfo, Intent, KeyLike, LifecycleEvent, Platform, TextKey } from '@zoma/platform-api';
+import type { DeviceInfo, Intent, KeyLike, LifecycleEvent, Platform, PlatformCall, ScreenReaderState, TextKey } from '@zoma/platform-api';
 import { DIGIT_INTENTS } from '@zoma/platform-api';
 
 /** `KeyboardEvent.key` values and the Intent each one stands for. */
@@ -135,6 +135,10 @@ export function createBrowserPlatform(env: BrowserEnv = defaultEnv()): Platform 
     rootBackPolicy: () => 'exit-dialog',
     // A desktop browser has no device ID of its own.
     deviceSecret: () => Promise.resolve(null),
+    // Nor a screensaver, a screen reader setting or TV speech the page may use.
+    setScreenSaver: (): Promise<PlatformCall> => Promise.resolve('unsupported'),
+    screenReader: (): Promise<ScreenReaderState> => Promise.resolve({ on: null, detail: 'a desktop browser has no screen reader setting' }),
+    speak: (): Promise<PlatformCall> => Promise.resolve('unsupported'),
     exitApp: () => env.onExit(),
   };
 }

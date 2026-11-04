@@ -1,11 +1,11 @@
 import type { Platform } from '@zoma/platform-api';
-import type { ItemBinding } from '@zoma/ui';
+import type { ItemBinding, ZoneView } from '@zoma/ui';
 import { Button, Dialog, connectRemote, useFocus, useZone } from '@zoma/ui';
 import { useEffect } from 'preact/hooks';
 import type { Lab } from './lab-state';
-import { outcomeKey } from './lab-state';
+import { ASK_SCREEN, outcomeKey } from './lab-state';
 import { spikeStatus } from './runner';
-import type { LabStatus, Spike } from './types';
+import type { LabQuestion, LabStatus, Spike } from './types';
 
 /**
  * The Zoma Lab screen (RELAY step 15a). A developer tool in English only (the
@@ -72,12 +72,63 @@ function Checks({ lab, spike }: { lab: Lab; spike: Spike }) {
   );
 }
 
+/**
+ * A question for the person in front of the TV (S11): one button per label, each with its
+ * `aria-label`. In `focus` mode DOM focus follows the remote's focus onto the button (the
+ * effect in `LabScreen`); in `live` mode an `aria-live` region says the focused label instead.
+ */
+function Question({ question, zone, index }: { question: LabQuestion; zone: ZoneView; index: number }) {
+  const live = question.mode === 'live';
+  return (
+    <section class="lab__ask" data-testid="ask" data-mode={question.mode} role="dialog" aria-label={question.title}>
+      <div class="lab__ask-panel">
+        <h2 class="lab__ask-title">{question.title}</h2>
+        <p class="lab__ask-prompt">{question.prompt}</p>
+        <div class="lab__ask-items">
+          {question.labels.map((label, i) => {
+            const item = zone.item(i);
+            return (
+              <div
+                key={label}
+                class={`lab__ask-item${item.state === 'focused' ? ' is-focused' : ''}`}
+                role="button"
+                tabIndex={-1}
+                aria-label={label}
+                data-testid={`ask-item-${i}`}
+                data-state={item.state}
+                onMouseMove={item.onHover}
+                onClick={item.onPress}
+              >
+                {label}
+              </div>
+            );
+          })}
+        </div>
+        {live && (
+          <p class="lab__ask-live" aria-live="assertive" data-testid="ask-live">
+            {question.labels[index] ?? ''}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function LabScreen({ lab }: { lab: Lab }) {
   const { binding, home, context, reporter } = lab;
   const focus = useFocus(binding);
   const actions = useZone(binding, home, 'actions');
   const spikes = useZone(binding, home, 'spikes');
   const dialog = focus.screen === 'exit' ? useZone(binding, binding.nav.top, 'buttons') : null;
+  const question = lab.question.value;
+  const asking = focus.screen === ASK_SCREEN && question !== null ? useZone(binding, binding.nav.top, 'items') : null;
+  // A question in focus mode: DOM focus follows the remote's, for the TV's screen reader.
+  const domFocus = asking !== null && question?.mode === 'focus' ? focus.index : -1;
+  useEffect(() => {
+    if (domFocus < 0) return;
+    const button = document.querySelector(`[data-testid="ask-item-${domFocus}"]`) as HTMLElement | null;
+    if (button !== null) button.focus();
+  }, [domFocus]);
   const shown = lab.spikes[Math.max(0, home.position('spikes').index)] ?? lab.spikes[0];
   const sent = reporter.state.value;
   const phase = lab.phase.value;
@@ -128,6 +179,8 @@ function LabScreen({ lab }: { lab: Lab }) {
         </ul>
         {shown !== undefined && <Checks lab={lab} spike={shown} />}
       </div>
+
+      {asking !== null && question !== null && <Question question={question} zone={asking} index={focus.index} />}
 
       {dialog !== null && (
         <Dialog title="Leave the lab?" message="The records already sent stay in the collector." testId="exit-dialog">

@@ -2,19 +2,23 @@
  * @zoma/platform-tizen: the Samsung Tizen adapter.
  *
  * Step 2 covers what the hello app needs: device info, remote-key registration through
- * `tizen.tvinputdevice`, lifecycle and exit; step 15a the DUID (`deviceSecret`). Screensaver,
- * AvplayEngine and TTS follow in later steps. The only package allowed to touch `tizen` and `webapis` (lint-enforced).
+ * `tizen.tvinputdevice`, lifecycle and exit; step 15a the DUID (`deviceSecret`); step 15b2 the
+ * screensaver and Voice Guide (`tv-settings.ts`). AvplayEngine follows in a later step. The only package allowed to touch `tizen` and `webapis` (lint-enforced).
  * Every API is feature-checked, so the bundle also boots in a desktop browser.
  */
 import { chromiumMajorFromUserAgent, deviceTier } from '@zoma/core';
-import type { DeviceInfo, Intent, KeyLike, LifecycleEvent, Platform, TextKey } from '@zoma/platform-api';
+import type { DeviceInfo, Intent, KeyLike, LifecycleEvent, Platform, PlatformCall, ScreenReaderState, TextKey } from '@zoma/platform-api';
 import { tizenChromiumVersion, tizenModelYear } from './device';
 import type { TizenKey } from './keys';
 import { buildTizenKeyMap, tizenKeysToRegister, tizenTextKey } from './keys';
+import type { TvSettingsApi } from './tv-settings';
+import { tizenScreenReader, tizenSetScreenSaver } from './tv-settings';
 
 export { tizenChromiumVersion, tizenModelYear } from './device';
 export type { TizenKey } from './keys';
 export { TIZEN_IME_CANCEL, TIZEN_IME_DONE, buildTizenKeyMap, tizenKeysToRegister, tizenTextKey } from './keys';
+export type { TvSettingsApi } from './tv-settings';
+export { tizenScreenReader, tizenSetScreenSaver, voiceGuideOn } from './tv-settings';
 
 /** The slice of the Tizen Web Device API this adapter uses. */
 interface TizenApi {
@@ -31,7 +35,7 @@ interface TizenApi {
 }
 
 /** The slice of Samsung's TV Product API (`$WEBAPIS/webapis/webapis.js`) this adapter uses. */
-interface WebApis {
+interface WebApis extends TvSettingsApi {
   readonly productinfo?: {
     getRealModel?(): string;
     getModel?(): string;
@@ -118,6 +122,10 @@ export function createTizenPlatform(): Platform {
       const duid = attempt(() => globals().webapis?.productinfo?.getDuid?.(), '');
       return Promise.resolve(typeof duid === 'string' && duid.trim() !== '' ? duid.trim() : null);
     },
+    setScreenSaver: (allowed: boolean): Promise<PlatformCall> => tizenSetScreenSaver(globals().webapis, allowed),
+    screenReader: (): Promise<ScreenReaderState> => Promise.resolve(tizenScreenReader(globals().webapis)),
+    // No speech API for Tizen web apps: Voice Guide reads the focused element and aria-live regions.
+    speak: (): Promise<PlatformCall> => Promise.resolve('unsupported'),
     exitApp(): void {
       attempt(() => globals().tizen?.application?.getCurrentApplication().exit(), undefined);
     },

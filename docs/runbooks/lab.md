@@ -4,7 +4,8 @@ The Zoma Lab is a separate TV build that answers the hardware spikes of [archite
 
 - **Built in step 15a:** the build, the runner and the runtime spikes S0, S1, S2, S3 and S7.
 - **Built in step 15b:** S6, scale (below).
-- **Coming:** S9–S11 (step 15b2), then the player batteries S4, S5 and S8 (step 15c).
+- **Built in step 15b2:** S9, Arabic, and S11, lifecycle and accessibility (below).
+- **Coming:** S10, input (step 15b3), then the player batteries S4, S5 and S8 (step 15c).
 - **Setting up the TVs and emulators:** `docs/runbooks/tv-setup.md` (step 15d).
 
 ## Quick start (a TV on the LAN)
@@ -65,6 +66,47 @@ A developer reinstall may behave differently from a store update. Repeat S2 afte
 
 Run the lab, **uninstall** it, install it again and run it. An uninstall wipes the lab's storage, so `stable` can't compare on the TV. Compare the `device-id` hash of the two sessions in `artifacts/lab-logs` instead: it must be the same. The raw ID never leaves the TV.
 
+## S9: Arabic (step 15b2)
+
+The app bundles its fonts (Zoma Sans), isolates the text it puts into sentences (core's `isolateText`) and formats dates and numbers without `Intl` (ADR-011). S9 checks those choices on the TV.
+
+| Check | What it does | Pass |
+|---|---|---|
+| `fonts` | Asks `document.fonts` for both weights of the Latin and the Arabic Zoma Sans faces, then reads every face's status. | all four `loaded` |
+| `shaping` | Draws `مسلسلات` and `لا` in Zoma Sans at 48 px, joined and with a zero-width non-joiner between their letters. Joined Arabic is narrower: the letters lose their tails, and lam-alef becomes one glyph. Fails when the Arabic face isn't loaded, since then a fallback font was measured. | the word under 95 % of its letters apart, lam-alef under 90 % |
+| `bidi` | The old-engine harness's bidi probe: a Latin name ending in a digit before a count (`MBC 1 · 240 قناة`), and a name starting with a digit (`1 Zoma قناة`), in a right-to-left line, isolated by `isolateText` and not (the controls). The isolation must keep each name in one piece, and draw nothing. | both lines isolated, both controls showing the problem |
+| `intl` | For `ar-SA`, `ar-AE`, `ar` and `en-US`: the calendar and digits `Intl` picks, its date, time and number, the app's own, and whether they match (`sameAsIntl`). Also `Intl.PluralRules` and the time zone. | `info` |
+
+- The notes show the Arabic words, so a person in front of the TV sees them drawn: they must join, and read right to left.
+- Desktop Chromium (2026-11-04): `مسلسلات` 197.6 px joined against 268.9 px apart, `لا` 28.8 against 44.8. `Intl` there gives ar-SA the Gregorian calendar with Arabic-Indic digits, and ar-AE and ar Western digits; the app writes Western digits for all of them.
+- In the old-engine harness (Chromium 53, 56, 68, 2026-11-04): fonts, shaping and bidi pass on all three; `مسلسلات` 198 px against 261 apart, `لا` 28 against 44. `Intl` gives every Arabic tag Arabic-Indic digits, ar-AE included, and ar-SA the Gregorian calendar on 53 and 56 but the Hijri one (islamic-umalqura) on 68. S9 records what each TV's ICU does.
+
+## S11: lifecycle and accessibility (step 15b2)
+
+| Check | What it does | On a TV |
+|---|---|---|
+| `lifecycle` | The lifecycle events since the lab started (`Platform.onLifecycle`): hidden, visible, relaunch, with the time away and the heartbeats (one a second) that ran meanwhile. Each event also goes to the collector the moment it happens, as an `event` record. | `info` |
+| `screensaver` | `Platform.setScreenSaver(false)`: Tizen's `webapis.appcommon.setScreenSaver`. The lab then keeps it off while it's open. webOS has no API for this: LG's guide says full-screen video keeps the screensaver away. | Tizen `pass`; webOS `info` |
+| `screen-reader` | `Platform.screenReader()`: Tizen's Voice Guide setting (`webapis.tvinfo.getMenuValue(VOICE_GUIDE_KEY)`), webOS's Audio Guidance (`settingsservice` `getSystemSettings`, `option`/`audioGuidance`). | `info`: on, off, or why unknown |
+| `speech` | `Platform.speak("Zoma Lab, spike S11")`: webOS's `com.webos.service.tts` luna service (LG's Enact uses it; LG's TV docs don't list it). Tizen has no speech API for web apps. | webOS `pass` if the TV takes it (listen); Tizen `info` |
+| `focus-reading` | **By ear** (below): three buttons with an `aria-label` each, DOM focus following the remote. Does the screen reader read each one? | GREEN `pass`, RED `fail` |
+| `live-reading` | **By ear**: the same buttons without DOM focus; an `aria-live` region says the focused one's name instead. | GREEN `pass`, RED `fail` |
+
+- **The app's focus is the focus engine's, not the DOM's:** nothing on the app's screens has DOM focus today, so a screen reader has nothing to read. S11 tells which of the two ways a TV reads. If neither works, the plan's fallback is `Platform.speak()` on each focus change (architecture.md §5).
+- **The lab's webOS manifest** sets `accessibility.supportsAudioGuidance`, without which Audio Guidance reads nothing of an app. The app's doesn't yet: it waits for S11's answer. Samsung asks for an element with focus at launch, or Voice Guide "behaves unexpectedly"; the lab has none until a question opens.
+
+### S11 by ear (step 16)
+
+The two questions run only when a person starts S11 from its row. "Run all" and the run at launch skip them, since nobody may be watching.
+
+1. Turn on Voice Guide (Samsung) or Audio Guidance (LG) in the TV's accessibility settings.
+2. On the lab, go to S11 and press OK.
+3. The first question shows three buttons. Move left and right. Each button's name should be read. Press GREEN if it was, RED if not, Back to skip.
+4. The second question shows the same buttons, now without DOM focus. Answer it the same way.
+5. Also listen for "Zoma Lab, spike S11" while S11 starts: that is `speech` (webOS).
+6. For the lifecycle log: press Home, wait about 30 seconds, go back to the lab (or launch it again), then run S11 alone. `lifecycle` lists the trips, and the collector has them as `event` records. A visible after a hidden shows the time away and the heartbeats in it. No heartbeats means the TV paused the lab's scripts (Samsung says Tizen does).
+7. For the screensaver (Tizen): leave the TV untouched for longer than its screensaver delay while the lab is open. No screensaver should come.
+
 ## S6: scale (step 15b)
 
 S6 runs last, since on a TV it takes minutes. It uses the app's own data engine (its real query, ingest and EPG workers, inlined in the lab bundle as in the app) and the app's live screen, mounted over the lab screen while S6 presses keys on it.
@@ -109,6 +151,7 @@ One NDJSON line per record, with `_received` added by the collector:
 - **Session:** platform, model, the TV's local time and four random characters. One session per launch.
 - **The first record** is `start`: the lab version, the server, the write target, the device and the markers found.
 - **Each check** gives one `check` record. A run ends with an `end` record: the counts per status and the run's time.
+- **Each lifecycle event** (S11) gives one `event` record when it happens, between the others: `check: "lifecycle"`, the event in `note`, and in `value` its time since the start, the visibility, and on a return the time away and the heartbeats.
 - **Sending:** in order, at most 50 records per request. A failed request is retried after 1, 2, 4… s (at most 30 s), and nothing is dropped, so the collector can be started after the lab.
 
 ## The lab server's probes
@@ -120,9 +163,15 @@ The lab needs no test account: the mock answers it on `/__lab/` (docs/runbooks/m
 
 ## Where else the lab runs
 
-- **e2e** (`e2e/lab.spec.ts`): the dev page by keys, every record checked in the collector (S6 against the mock's small catalog); an "update" from 0.1.0 to 0.1.1 (S2); the collector down, then up; both TV bundles from `file://`. S6 at scale: `pnpm lab:scale` (`e2e/lab-scale.spec.ts`, its own Playwright project, never part of `pnpm e2e`).
+- **e2e** (`e2e/lab.spec.ts`):
+  - the dev page by keys, every record checked in the collector (S6 against the mock's small catalog, S9's faces, widths and the app's own formats);
+  - S11 alone by keys: a hidden-and-back trip logged as `event` records, both questions answered (DOM focus on the labelled button, then the live region saying the focused name);
+  - an "update" from 0.1.0 to 0.1.1 (S2); the collector down, then up;
+  - both TV bundles from `file://`.
+
+  S6 at scale: `pnpm lab:scale` (`e2e/lab-scale.spec.ts`, its own Playwright project, never part of `pnpm e2e`).
 - **The old-engine harness** (`pnpm verify:engines`, docs/runbooks/old-engines.md): both lab bundles in Chromium 53, 56 and 68, reporting to a mock started on the host through `host.docker.internal`.
-  - S1 must pass on every engine; S6 runs its checks against the host mock's small catalog (all `info`).
+  - S1 and S9 must pass on every engine; S6 runs its checks against the host mock's small catalog (all `info`); S11 finds no TV APIs (Tizen's screensaver check fails, webOS's is `info`) and skips its questions.
   - The harness deletes the app's database before each lab run: the app's screens ran on the same `file://` origin first.
   - The polyfills the bundle filled must be exactly the built-ins that engine lacks.
   - Every record must reach the collector.
