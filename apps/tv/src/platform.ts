@@ -1,4 +1,4 @@
-import type { Platform } from '@zoma/platform-api';
+import type { Platform, PlatformOptions } from '@zoma/platform-api';
 import { BROWSER_KEY_HELP, createBrowserPlatform } from '@zoma/platform-browser';
 import { createTizenPlatform } from '@zoma/platform-tizen';
 import { createWebosPlatform } from '@zoma/platform-webos';
@@ -6,9 +6,10 @@ import { createWebosPlatform } from '@zoma/platform-webos';
 /**
  * The platform for this build. `__PLATFORM__` is a literal after replacement, so the
  * bundler drops the other adapters (tools/build checks that they are really gone).
+ * `options.redirects`: where Tizen's redirect probe keeps its answers (the profile, step 20c1).
  */
-export function createPlatform(): Platform {
-  if (__PLATFORM__ === 'tizen') return createTizenPlatform();
+export function createPlatform(options: PlatformOptions = {}): Platform {
+  if (__PLATFORM__ === 'tizen') return createTizenPlatform(options);
   if (__PLATFORM__ === 'webos') return createWebosPlatform();
   return createBrowserPlatform();
 }

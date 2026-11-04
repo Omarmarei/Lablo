@@ -255,12 +255,16 @@ test.describe('the live screen by keys (pnpm dev, after onboarding)', () => {
       await remote.expectFocus('live/channels/0');
       await expect(page.getByTestId('channels')).toHaveAttribute('data-top', '0');
 
-      // A relaunch opens the live screen in the language picked, without onboarding.
+      // A relaunch, without onboarding and in the language picked, plays the channel watched last
+      // (the kids' one: step 20c1, e2e/resume.spec.ts); Back shows the live screen on its category.
       await page.reload();
-      await expect(page.getByTestId('live')).toHaveAttribute('data-status', 'ready');
+      await remote.expectFocus('player/actions/0');
       await expect(page.getByTestId('onboarding')).toHaveCount(0);
+      await expect(page.getByTestId('player')).toHaveAttribute('data-language', language);
+      await remote.go('BACK', 'live/channels/0');
+      await expect(page.getByTestId('live')).toHaveAttribute('data-status', 'ready');
+      await expect(page.getByTestId('live')).toHaveAttribute('data-category', String(kids));
       await expect(page.getByTestId('live')).toHaveAttribute('data-language', language);
-      await remote.expectFocus('live/channels/0');
       await settled(page.getByTestId('live'));
       expect(errors).toEqual([]);
     });

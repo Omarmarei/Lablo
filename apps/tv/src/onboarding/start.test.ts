@@ -7,9 +7,9 @@ const SOURCE = { id: 's1', type: 'm3u', name: 'A', url: 'http://a.test', epgUrl:
 
 describe('startPoint', () => {
   it('starts onboarding until a source is stored, then skips it', () => {
-    expect(startPoint(null)).toEqual({ screen: 'onboarding', language: null });
-    expect(startPoint(loaded({ sources: [], onboarding: { language: null } }))).toEqual({ screen: 'onboarding', language: null });
-    expect(startPoint(loaded({ sources: [SOURCE], onboarding: { language: 'en' } }))).toEqual({ screen: 'home', language: 'en' });
+    expect(startPoint(null)).toEqual({ screen: 'onboarding', language: null, resume: null });
+    expect(startPoint(loaded({ sources: [], onboarding: { language: null } }))).toEqual({ screen: 'onboarding', language: null, resume: null });
+    expect(startPoint(loaded({ sources: [SOURCE], onboarding: { language: 'en' } }))).toEqual({ screen: 'home', language: 'en', resume: null });
     // A newer app version's profile with sources: still skipped.
     expect(startPoint({ doc: { v: 9, sources: [SOURCE] }, newer: true, migratedFrom: null }).screen).toBe('home');
   });
@@ -18,7 +18,19 @@ describe('startPoint', () => {
     expect(startPoint(loaded({ sources: [], onboarding: { language: 'ar' } })).language).toBe('ar');
     expect(startPoint(loaded({ sources: [], onboarding: { language: 'fr' } })).language).toBeNull();
     expect(startPoint(loaded({ sources: [] })).language).toBeNull();
-    expect(startPoint({ doc: { v: 1, favourites: [] }, newer: false, migratedFrom: null })).toEqual({ screen: 'onboarding', language: null });
+    expect(startPoint({ doc: { v: 1, favourites: [] }, newer: false, migratedFrom: null })).toEqual({ screen: 'onboarding', language: null, resume: null });
+  });
+
+  it("plays the last channel when its source is still stored (step 20c1)", () => {
+    const item = { key: 's1:live:5', src: 's1', kind: 'live', name: 'Five', url: 'http://a.test/5.ts', chno: 5 };
+    const last = { item, number: 5, category: { src: 's1', name: 'News' }, index: 4, started: 9 };
+    expect(startPoint(loaded({ sources: [SOURCE], player: { last } }))).toEqual({ screen: 'home', language: null, resume: last });
+    // Its source was removed: the live screen, no player.
+    expect(startPoint(loaded({ sources: [SOURCE], player: { last: { ...last, item: { ...item, src: 's2' } } } })).resume).toBeNull();
+    // Onboarding never plays.
+    expect(startPoint(loaded({ sources: [], player: { last } })).resume).toBeNull();
+    // "All channels", a newer app version's profile: still played.
+    expect(startPoint({ doc: { v: 9, sources: [SOURCE], player: { last: { ...last, category: null } } }, newer: true, migratedFrom: null }).resume).toMatchObject({ category: null, index: 4 });
   });
 });
 

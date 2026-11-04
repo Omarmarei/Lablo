@@ -147,7 +147,7 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
   // A zap that waits hides the old channel's card and spinner: the bar shows the new one.
   const current = target === playing;
   const failure = current && status.state === 'failed' ? status.failure : null;
-  const row = live.row(target);
+  const row = player.row(target);
   const guide = row === null ? undefined : live.guide(row.item.key);
   const waiting = current && (status.state === 'opening' || status.state === 'buffering');
   const menu = player.menu.screen.value;

@@ -166,6 +166,25 @@ export type EngineFactory = (stage: HTMLElement) => PlayerEngine[];
  */
 export type UrlResolver = (url: string, src: string, fresh: boolean) => Promise<string>;
 
+/** What a redirect probe learned about a source's stream URLs (`unknown`: nothing yet). */
+export type RedirectMode = 'unknown' | 'none' | 'redirects';
+
+/**
+ * Where a platform's redirect probe (`resolveUrl`) keeps what it learned per source. The app
+ * hands the platform one that the profile keeps (RELAY step 20c1); the probe's default keeps it
+ * for the app's run.
+ */
+export interface RedirectMemory {
+  mode(src: string): RedirectMode;
+  remember(src: string, mode: 'none' | 'redirects'): void;
+}
+
+/** What the app hands a platform adapter when it makes it. */
+export interface PlatformOptions {
+  /** Where the redirect probe keeps its answers (Tizen; the others have no probe). */
+  readonly redirects?: RedirectMemory;
+}
+
 /**
  * The only seam between the app and a TV platform. Later steps add the optional extras listed
  * in docs/architecture.md §1.1.

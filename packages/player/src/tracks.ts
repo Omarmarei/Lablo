@@ -53,15 +53,19 @@ export interface TrackPick {
   readonly label: string;
 }
 
-/** A channel's choice: a track, `off` (subtitles only), or `null` (never chosen). */
+/**
+ * A content's choice: a track, `off` (subtitles only), or `null` (never chosen); and its subtitle
+ * files' timing (`setSubtitleDelay`, step 20c1; absent: none).
+ */
 export interface TrackChoice {
   readonly audio: TrackPick | null;
   readonly text: TrackPick | 'off' | null;
+  readonly delayMs?: number;
 }
 
 /**
- * Where the player keeps each channel's choice. `MemoryTrackMemory` keeps it for the app's run;
- * the profile keeps it later (step 20c).
+ * Where the player keeps each content's choice. `MemoryTrackMemory` keeps it for the app's run;
+ * the app hands the controller one the profile keeps (step 20c1).
  */
 export interface TrackMemory {
   choice(key: ContentKey): TrackChoice | null;

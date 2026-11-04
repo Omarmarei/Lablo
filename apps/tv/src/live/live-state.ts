@@ -6,6 +6,7 @@ import type { Platform } from '@zoma/platform-api';
 import type { Focus, FocusBinding, Navigator, Screen, ScreenSpec, ZoneSpec } from '@zoma/ui';
 import { LAYOUT, SCREEN, bindFocus, createNavigator, fits } from '@zoma/ui';
 import type { FocusedChannel } from '../data/engine';
+import { mark } from '../marks';
 import type { ZapList } from '../player/player-state';
 import { storedSources } from '../onboarding/engine-loader';
 import type { ChunkRef, ListPart } from './channel-index';
@@ -31,6 +32,9 @@ import { ChannelIndex, chunkId } from './channel-index';
  *   screen's workers are done with the database (the old-engine walk waits for it).
  * - **The player** (step 20a) zaps through the category on show: `list` reads its rows (whole
  *   chunks), finds a channel by number and asks now/next for channels the list never showed.
+ * - **The start on the last channel** (step 20c1): the first load shows the category the last
+ *   channel played from (`startCategory`), and `list.locate` finds the channel's row once the list
+ *   is in, for the player that is already playing it.
  */
 
 /** Sizes, all layout constants (no DOM measuring). live.css uses the same numbers. */
@@ -106,7 +110,15 @@ export interface LiveOptions {
   readonly navNow?: () => number;
   /** OK on row `index` of the list on show: the player opens it (step 20a). */
   readonly play?: (index: number) => void;
+  /**
+   * The category the first load shows: a source's by its name (the last channel's, step 20c1);
+   * `null`, absent or gone: "All channels".
+   */
+  readonly startCategory?: RailRef;
 }
+
+/** A rail entry as the profile keeps it: a source's category by its name; `null` is "All channels". */
+export type RailRef = { readonly src: string; readonly name: string } | null;
 
 export interface Live {
   readonly nav: Navigator;
@@ -133,6 +145,8 @@ export interface Live {
   guide(key: ContentKey): EpgNowNext | undefined;
   /** Focuses row `index` of the list (the channel the player played last). */
   focusRow(index: number): void;
+  /** The rail entry on show as the profile keeps it (`null`: "All channels", or nothing yet). */
+  shownCategory(): RailRef;
   /** A remote key was pressed (a running refresh pauses). */
   activity(): void;
   /** Reads the sources and categories again (the failure screen's "Try again"). */
@@ -179,6 +193,15 @@ export function railEntries(sources: readonly { src: string; categories: readonl
   return [every].concat(categories);
 }
 
+/** The entry of `entries` that `ref` names: a category of that source with that name (`-1`: none). */
+export function findEntry(entries: readonly RailEntry[], ref: NonNullable<RailRef>): number {
+  for (let i = 0; i < entries.length; i += 1) {
+    const e = entries[i]!;
+    if (e.kind === 'category' && e.name === ref.name && e.parts[0]?.src === ref.src) return i;
+  }
+  return -1;
+}
+
 /** The source a focused channel's short EPG is asked through (its panel's login, or its link). */
 function epgSourceOf(record: SourceRecord): ShortEpgSource {
   return record.type === 'xtream' ? { type: 'xtream', account: record.account } : { type: 'm3u', url: record.url };
@@ -206,6 +229,10 @@ export function createLive(options: LiveOptions): Live {
   let disposed = false;
   /** Bumps on each (re)load: answers of an older load are dropped. */
   let loadSeq = 0;
+  /** Settles when the newest load has its categories, or failed. */
+  let loaded: Promise<void> = Promise.resolve();
+  /** The category the first load that succeeds shows. */
+  let wantCategory: RailRef = options.startCategory ?? null;
   let sources = new Map<string, ShortEpgSource>();
   let index = new ChannelIndex([]);
   /** Loaded chunks, oldest use first (a Map keeps insertion order). */
@@ -406,17 +433,17 @@ export function createLive(options: LiveOptions): Live {
   };
 
   /**
-   * The row of the channel numbered `n` in the list on show (`-1`: none), for the player's number
-   * entry. A row's number is its provider's (`chno`), else its place in "All channels", so the row
-   * that place gives is read first, then every chunk from that one outwards: a cached chunk costs
-   * nothing, any other one read.
+   * The first row of the list on show that `test` takes (`-1`: none), reading the chunk of row
+   * `from` first, then every chunk from that one outwards: a cached chunk costs nothing, any
+   * other one read. `-1` too when the list changed meanwhile.
    */
-  const findNumber = async (n: number): Promise<number> => {
+  const findRow = async (from: number, test: (item: CatalogItem, row: number, shown: RailEntry) => boolean): Promise<number> => {
     const shown = entry();
-    if (shown === undefined || status.value !== 'ready' || !(n > 0) || index.count === 0) return -1;
+    if (shown === undefined || status.value !== 'ready' || index.count === 0) return -1;
     const seq = loadSeq;
     const list = index;
-    const guess = Math.min(Math.max(n - 1 - shown.allStart, 0), list.count - 1);
+    // A row before the first has no chunk: the search then starts at the first.
+    const guess = Math.min(from, list.count - 1);
     const refs = list.chunksFor(0, list.count);
     const home = list.locate(guess);
     let first = 0;
@@ -430,12 +457,30 @@ export function createLive(options: LiveOptions): Live {
       const items = chunks.get(chunkId(ref)) ?? (await track(() => engine.chunk(ref.src, LIVE_KIND, ref.catIdx, ref.chunk)));
       if (disposed || seq !== loadSeq || list !== index) return -1;
       const start = list.firstRow(ref);
-      for (let slot = 0; slot < items.length; slot += 1) {
-        const item = items[slot]!;
-        if ((item.chno !== null ? item.chno : shown.allStart + start + slot + 1) === n) return start + slot;
-      }
+      for (let slot = 0; slot < items.length; slot += 1) if (test(items[slot]!, start + slot, shown)) return start + slot;
     }
     return -1;
+  };
+
+  /**
+   * The row of the channel numbered `n` in the list on show (`-1`: none), for the player's number
+   * entry. A row's number is its provider's (`chno`), else its place in "All channels", so the
+   * search starts at the row that place gives.
+   */
+  const findNumber = (n: number): Promise<number> => {
+    const shown = entry();
+    if (shown === undefined || !(n > 0)) return Promise.resolve(-1);
+    return findRow(n - 1 - shown.allStart, (item, row, on) => (item.chno !== null ? item.chno : on.allStart + row + 1) === n);
+  };
+
+  /**
+   * The row of the channel `key` in the list on show (`-1`: not in it), once the load running now
+   * is done: the start's player is already playing it (step 20c1). The search starts at `guess`,
+   * its row when it last played.
+   */
+  const locate = async (key: ContentKey, guess: number): Promise<number> => {
+    await loaded;
+    return findRow(guess, (item) => item.key === key);
   };
 
   /** Now/next for one channel the list didn't ask (the player's info bar). */
@@ -449,6 +494,7 @@ export function createLive(options: LiveOptions): Live {
     row: rowAt,
     load: loadRow,
     find: findNumber,
+    locate,
     guide: (key) => guides.get(key)?.value,
     askGuide,
   };
@@ -474,6 +520,10 @@ export function createLive(options: LiveOptions): Live {
   const load = (): void => {
     loadSeq += 1;
     const seq = loadSeq;
+    let settle: () => void = () => undefined;
+    loaded = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
     status.value = 'loading';
     chunks.clear();
     guides.clear();
@@ -484,18 +534,26 @@ export function createLive(options: LiveOptions): Live {
       return { records, lists };
     }).then(
       ({ records, lists }) => {
-        if (disposed || seq !== loadSeq) return;
+        if (disposed || seq !== loadSeq) {
+          settle();
+          return;
+        }
         sources = new Map<string, ShortEpgSource>();
         for (const record of records) sources.set(record.id, epgSourceOf(record));
         const entries = railEntries(records.map((r, i) => ({ src: r.id, categories: lists[i] ?? [] })));
         rail.value = entries;
         home.update(railZone(entries.length));
         status.value = entries.length > 0 ? 'ready' : 'empty';
+        if (wantCategory !== null) category.value = Math.max(0, findEntry(entries, wantCategory));
+        wantCategory = null;
         if (entries.length > 0) showCategory(Math.min(category.value, entries.length - 1));
         else home.update(channelsZone(0));
+        mark('zoma:live-ready');
+        settle();
         afterChange();
       },
       (error: unknown) => {
+        settle();
         if (disposed || seq !== loadSeq) return;
         console.warn('The live categories could not be read', error);
         status.value = 'failed';
@@ -572,6 +630,11 @@ export function createLive(options: LiveOptions): Live {
     row: rowAt,
     guide: (key) => guides.get(key)?.value,
     focusRow: (i) => home.focus('channels', i),
+    shownCategory: (): RailRef => {
+      const shown = entry();
+      const part = shown === undefined || shown.kind === 'all' ? undefined : shown.parts[0];
+      return part === undefined || shown === undefined ? null : { src: part.src, name: shown.name };
+    },
     activity: () => engine.noteActivity(),
     reload: load,
     dispose(): void {

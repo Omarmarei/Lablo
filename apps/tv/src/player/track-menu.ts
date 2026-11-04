@@ -21,8 +21,9 @@ import type { Focus, Navigator, Screen, ZoneSpec } from '@zoma/ui';
  * player too.
  *
  * The style rows change with LEFT and RIGHT (towards the reading end: larger, later); OK on
- * "Size" goes round the sizes and OK on "Timing" puts the file back in time. Both are kept for
- * the app's run until the profile keeps them (step 20c or the settings screen).
+ * "Size" goes round the sizes and OK on "Timing" puts the file back in time. The profile keeps
+ * the size (`sized`, step 20c1); the timing is the content's, kept by the controller with its
+ * track choice, so the player shows each content's (`showDelay`).
  */
 
 export type TrackSection = 'audio' | 'text';
@@ -61,6 +62,10 @@ export interface TrackMenuOptions {
   readonly switcher: () => TrackSwitcher;
   /** The timing changed: the player moves a file's cues. */
   readonly delayed: (ms: number) => void;
+  /** The size to start with (the profile's; default `DEFAULT_SUBTITLE_SIZE`). */
+  readonly size?: SubtitleSize;
+  /** The size changed (the app keeps it). */
+  readonly sized?: (size: SubtitleSize) => void;
   /** The menu closed (the player shows its info bar again). */
   readonly closed: () => void;
   /** STOP in the menu: the player closes. */
@@ -82,6 +87,8 @@ export interface TrackMenu {
   readonly delay: ReadonlySignal<number>;
   /** Opens the menu on `section` (or moves to it). */
   show(section: TrackSection): void;
+  /** The content playing has this timing (a play brings the content's back): shown, not sent back. */
+  showDelay(ms: number): void;
   close(): void;
   /** The tracks changed: the lists follow. */
   sync(): void;
@@ -114,7 +121,7 @@ export function createTrackMenu(options: TrackMenuOptions): TrackMenu {
   const screen = signal<Screen | null>(null);
   const refused = signal<TrackSection | 'file' | null>(null);
   const pending = signal(0);
-  const size = signal<SubtitleSize>(DEFAULT_SUBTITLE_SIZE);
+  const size = signal<SubtitleSize>(options.size ?? DEFAULT_SUBTITLE_SIZE);
   const delay = signal(0);
   /** Bumps when the menu opens or closes: the answer of a switch from an earlier menu is dropped. */
   let seq = 0;
@@ -156,9 +163,15 @@ export function createTrackMenu(options: TrackMenuOptions): TrackMenu {
     options.delayed(ms);
   };
 
+  const setSize = (next: SubtitleSize): void => {
+    if (next === size.value) return;
+    size.value = next;
+    if (options.sized !== undefined) options.sized(next);
+  };
+
   /** LEFT or RIGHT on a style row: `step` 1 is larger or later. */
   const adjust = (row: number, step: 1 | -1): void => {
-    if (row === STYLE_SIZE) size.value = SUBTITLE_SIZES[clamp(SUBTITLE_SIZES.indexOf(size.value) + step, 0, SUBTITLE_SIZES.length - 1)]!;
+    if (row === STYLE_SIZE) setSize(SUBTITLE_SIZES[clamp(SUBTITLE_SIZES.indexOf(size.value) + step, 0, SUBTITLE_SIZES.length - 1)]!);
     else setDelay(clamp(delay.value + step * DELAY_STEP_MS, -MAX_DELAY_MS, MAX_DELAY_MS));
   };
 
@@ -175,7 +188,7 @@ export function createTrackMenu(options: TrackMenuOptions): TrackMenu {
       const track = tracks.text[focus.index - 1];
       if (track !== undefined && !track.selected) run(fileIndex(track.id) === -1 ? 'text' : 'file', options.switcher().selectText(track.id));
     } else if (focus.index === STYLE_SIZE) {
-      size.value = SUBTITLE_SIZES[(SUBTITLE_SIZES.indexOf(size.value) + 1) % SUBTITLE_SIZES.length]!;
+      setSize(SUBTITLE_SIZES[(SUBTITLE_SIZES.indexOf(size.value) + 1) % SUBTITLE_SIZES.length]!);
     } else {
       setDelay(0);
     }
@@ -231,6 +244,9 @@ export function createTrackMenu(options: TrackMenuOptions): TrackMenu {
       focusOn(pushed, section);
     },
     close,
+    showDelay(ms: number): void {
+      delay.value = ms;
+    },
     sync(): void {
       const shown = screen.value;
       if (shown === null || !shown.open) return;

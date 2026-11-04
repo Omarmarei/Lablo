@@ -9,7 +9,7 @@
  * Every API is feature-checked, so the bundle also boots in a desktop browser.
  */
 import { chromiumMajorFromUserAgent, deviceTier } from '@zoma/core';
-import type { DeviceInfo, Intent, KeyLike, KeyRegistration, LifecycleEvent, Platform, PlatformCall, ScreenReaderState, TextKey } from '@zoma/platform-api';
+import type { DeviceInfo, Intent, KeyLike, KeyRegistration, LifecycleEvent, Platform, PlatformCall, PlatformOptions, ScreenReaderState, TextKey } from '@zoma/platform-api';
 import type { PlayerEngine } from '@zoma/player';
 import { FallbackEngine, Html5Engine, createStageVideo } from '@zoma/player';
 import { tizenAvplay } from './avplay';
@@ -111,7 +111,8 @@ export function createTizenEngines(stage: HTMLElement, avplay = tizenAvplay()): 
   return [new FallbackEngine(new AvplayEngine(avplay), html5, { onActive: show })];
 }
 
-export function createTizenPlatform(): Platform {
+/** `options.redirects`: where the redirect probe keeps its answers (the app's profile, step 20c1). */
+export function createTizenPlatform(options: PlatformOptions = {}): Platform {
   let keyMap: Map<number, Intent> | null = null;
   const supportedKeys = (): TizenKey[] | null =>
     attempt(() => globals().tizen?.tvinputdevice?.getSupportedKeys() ?? null, null);
@@ -121,7 +122,7 @@ export function createTizenPlatform(): Platform {
     id: 'tizen',
     createEngines: (stage) => createTizenEngines(stage),
     // AVPlay may freeze on a 302: it gets the URL the probe found (architecture.md §2).
-    resolveUrl: createRedirectProbe(),
+    resolveUrl: createRedirectProbe(options.redirects === undefined ? {} : { memory: options.redirects }),
     info: () => Promise.resolve(readDeviceInfo()),
     registerKeys: (): KeyRegistration => registerTizenKeys(attempt(() => globals().tizen?.tvinputdevice, undefined)),
     keyToIntent: (event: KeyLike): Intent | null => getKeyMap().get(event.keyCode) ?? null,

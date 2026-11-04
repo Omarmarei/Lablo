@@ -239,7 +239,7 @@ export class PlayerController {
 
   private subtitleView: SubtitleView = NO_SUBTITLES;
   private subtitleListeners: ((view: SubtitleView) => void)[] = [];
-  /** A file's cues show this much later (negative: earlier). */
+  /** A file's cues show this much later (negative: earlier): the content's timing. */
   private delayMs = 0;
   private cueTimer: unknown = null;
   /** The engine's cues showing, oldest first, and the timer of the first to go. */
@@ -289,11 +289,24 @@ export class PlayerController {
   }
 
   /**
-   * Shows a subtitle file's cues `ms` later (negative: earlier), for every file until changed.
-   * An engine's cues (AVPlay) arrive as the stream plays and can't be moved.
+   * The subtitle timing of the content playing (ms; negative: earlier). A `play` sets it to the
+   * timing remembered for its content, else 0 (step 20c1).
+   */
+  get subtitleDelay(): number {
+    return this.delayMs;
+  }
+
+  /**
+   * Shows the subtitle files' cues of the content playing `ms` later (negative: earlier), and
+   * remembers that timing with the content's track choice (`TrackMemory`): it is a file's against
+   * its stream, so another content starts at no delay. An engine's cues (AVPlay) arrive as the
+   * stream plays and can't be moved.
    */
   setSubtitleDelay(ms: number): void {
+    if (ms === this.delayMs) return;
     this.delayMs = ms;
+    const s = this.s;
+    if (s !== null) this.trackMemory.remember(s.req.key, { ...this.choice(s), delayMs: ms });
     this.updateSubtitles();
   }
 
@@ -328,6 +341,7 @@ export class PlayerController {
     this.s = s;
     this.liveToken = 0;
     this.hidden = null;
+    this.delayMs = this.choice(s).delayMs ?? 0;
     this.clearTimers();
     this.clearSubtitles();
     this.setState('opening');
@@ -429,7 +443,7 @@ export class PlayerController {
     if (s === null || track === null) return false;
     const ok = await this.engine.selectAudio(id).catch(() => false);
     if (this.s !== s) return false;
-    if (ok) this.trackMemory.remember(s.req.key, { audio: trackPick(track), text: this.choice(s).text });
+    if (ok) this.trackMemory.remember(s.req.key, { ...this.choice(s), audio: trackPick(track) });
     this.readTracks(s);
     this.publish();
     return ok;
@@ -446,7 +460,7 @@ export class PlayerController {
     if (s === null || (id !== null && track === null)) return false;
     const ok = await this.switchText(s, id);
     if (this.s !== s) return false;
-    if (ok) this.trackMemory.remember(s.req.key, { audio: this.choice(s).audio, text: track === null ? 'off' : trackPick(track) });
+    if (ok) this.trackMemory.remember(s.req.key, { ...this.choice(s), text: track === null ? 'off' : trackPick(track) });
     this.readTracks(s);
     this.publish();
     return ok;

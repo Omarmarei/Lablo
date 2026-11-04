@@ -218,4 +218,19 @@ describe('createEngines (RELAY steps 18 and 19)', () => {
   it('gives the controller the redirect probe', () => {
     expect(typeof createTizenPlatform().resolveUrl).toBe('function');
   });
+
+  it("keeps the probe's answers where the app says (the profile, step 20c1)", async () => {
+    const asked: string[] = [];
+    const redirects = {
+      mode: (src: string) => {
+        asked.push(src);
+        return src === 's1' ? ('none' as const) : ('unknown' as const);
+      },
+      remember: () => undefined,
+    };
+    // A source the app's memory says doesn't redirect plays without a probe (no XHR exists here).
+    const resolve = createTizenPlatform({ redirects }).resolveUrl!;
+    expect(await resolve('http://panel.example/live/u/p/1.ts', 's1', false)).toBe('http://panel.example/live/u/p/1.ts');
+    expect(asked).toEqual(['s1']);
+  });
 });

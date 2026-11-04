@@ -1,5 +1,6 @@
-import type { LoadedProfile } from '@zoma/data';
+import type { LastChannel, LoadedProfile } from '@zoma/data';
 import type { Language } from '@zoma/ui';
+import { lastChannelOf } from '../player/player-memory';
 import { storedSources } from './engine-loader';
 import type { OnboardingAnswer } from './onboarding-state';
 import { LANGUAGES } from './onboarding-state';
@@ -7,7 +8,8 @@ import { LANGUAGES } from './onboarding-state';
 /**
  * Where the app starts (RELAY step 13b): onboarding until a source is stored, then the app
  * itself (the live screen, step 14a). A start that didn't finish onboarding comes back in the
- * language picked then.
+ * language picked then. A start with a source plays the channel watched last at once, before
+ * the live screen's catalog loads (step 20c1, architecture.md §2 "Start on last channel").
  */
 
 export interface StartPoint {
@@ -15,6 +17,8 @@ export interface StartPoint {
   readonly screen: 'onboarding' | 'home';
   /** The language saved in the profile (`null`: none yet; the TV's language shows). */
   readonly language: Language | null;
+  /** `home` only: the channel watched last, when its source is still stored (`null`: none). */
+  readonly resume: LastChannel | null;
 }
 
 /** How long the app waits for the profile before it starts onboarding without it. */
@@ -25,7 +29,11 @@ export function startPoint(profile: LoadedProfile | null): StartPoint {
   const saved = answers?.language;
   let language: Language | null = null;
   for (const known of LANGUAGES) if (known === saved) language = known;
-  return { screen: storedSources(profile).length > 0 ? 'home' : 'onboarding', language };
+  const sources = storedSources(profile);
+  if (sources.length === 0) return { screen: 'onboarding', language, resume: null };
+  const last = lastChannelOf(profile);
+  const stored = last !== null && sources.some((s) => s.id === last.item.src);
+  return { screen: 'home', language, resume: stored ? last : null };
 }
 
 export interface ProfileReader {
