@@ -105,12 +105,15 @@ interface Layout {
 function layout(page: Page): Promise<Layout> {
   return page.evaluate((safe) => {
     const name = (el: Element): string => `${el.className}: ${(el.textContent ?? '').slice(0, 40)}`;
+    const boxes = '.z-chip, .z-row, .live__title, .live__meta, .live__clock, .z-button';
     const outside: string[] = [];
-    for (const el of Array.from(document.querySelectorAll('.z-chip, .z-row, .live__title, .live__meta, .live__clock, .z-button'))) {
+    for (const el of Array.from(document.querySelectorAll(boxes))) {
       const r = el.getBoundingClientRect();
       if (r.left < safe.left || r.top < safe.top || r.right > safe.right + 0.5 || r.bottom > safe.bottom + 0.5) outside.push(name(el));
     }
-    const cut = Array.from(document.querySelectorAll('.live__title, .live__clock, .z-chip__label:not([translate="no"]), .z-row__next-head'))
+    // tools/engines/src/live.ts measures the same boxes and labels in Chromium 53/56/68.
+    const labels = '.live__title, .live__clock, .z-chip__label:not([translate="no"]), .z-row__next-head';
+    const cut = Array.from(document.querySelectorAll(labels))
       .filter((el) => el.scrollWidth > el.clientWidth + 1)
       .map(name);
     return { scroll: [document.documentElement.scrollWidth, document.documentElement.scrollHeight] as const, outside, cut };

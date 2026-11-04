@@ -16,6 +16,10 @@
  * - two walk seeds (step 13c), the real app with a TV fault prepended to main.js, caught by the
  *   onboarding walk on every engine: inputs that never take DOM focus (a TV keyboard that never
  *   opens), and a database deleted at every start (a TV that keeps nothing between launches).
+ * - two live-screen seeds (step 14c), caught where the walk goes on to the live screen, on every
+ *   engine: app.css without live.css (the screen's layout), and a Back key that never reaches
+ *   the app (its keys). And a focus engine whose path stays on the first focus while the screen
+ *   draws the moves, caught by the walk's check that the engine and the screen agree.
  * Each variant must fail on every engine older than `minChrome` and pass on the rest, on each
  * of its screens.
  */
@@ -93,6 +97,20 @@ export const WALK_SEEDS: readonly ScriptSeed[] = [
     screens: ['onboarding'],
     code: "indexedDB.deleteDatabase('zoma');",
   },
+  {
+    id: 'seed-live-no-back-key',
+    description: "the remote's Back key (Tizen 10009, webOS 461) never reaches the app: Back in the live screen's list doesn't go to the rail",
+    minChrome: Number.POSITIVE_INFINITY,
+    screens: ['onboarding'],
+    code: "window.addEventListener('keydown', function (event) { if (event.keyCode === 10009 || event.keyCode === 461) event.stopImmediatePropagation(); }, true);",
+  },
+  {
+    id: 'seed-focus-engine-stuck',
+    description: "window.__ZOMA_TEST__ keeps answering the first focus it saw: the screen draws each move, but the focus engine's path stays put, so the two disagree",
+    minChrome: Number.POSITIVE_INFINITY,
+    screens: ['onboarding'],
+    code: "(function () { var hook; Object.defineProperty(window, '__ZOMA_TEST__', { configurable: true, get: function () { return hook; }, set: function (real) { var first = null; hook = { focusPath: function () { var path = real.focusPath(); if (first === null) first = path; return first; } }; } }); })();",
+  },
 ];
 
 export const NO_POLYFILLS_VARIANT: Variant = {
@@ -150,8 +168,13 @@ export interface CssSeed extends Variant {
 
 /** Every ListRow.css selector: `.z-row` itself and its `.z-row__*` parts, in both directions. */
 const LIST_ROW_SELECTOR = /\.z-row(?:__|(?![\w-]))/;
+/** Every live.css selector: `.live` itself and its `.live__*` parts, in both directions. */
+const LIVE_SELECTOR = /\.live(?:__|(?![\w-]))/;
 
-/** Part of app.css missing: only the gallery shows every component, so only it runs them. */
+/**
+ * Part of app.css missing. The gallery shows every component, so it runs the component seeds;
+ * the live screen's own CSS shows only where the walk reaches the live screen.
+ */
 export const CSS_SEEDS: readonly CssSeed[] = [
   {
     id: 'seed-css-no-list-row',
@@ -166,6 +189,13 @@ export const CSS_SEEDS: readonly CssSeed[] = [
     minChrome: Number.POSITIVE_INFINITY,
     screens: ['gallery'],
     edit: (css) => removeDeclarations(css, '.gallery', (declaration) => declaration.startsWith('padding')),
+  },
+  {
+    id: 'seed-css-no-live',
+    description: "app.css without live.css's rules: the live screen loses its title-safe padding and its rail beside the list",
+    minChrome: Number.POSITIVE_INFINITY,
+    screens: ['onboarding'],
+    edit: (css) => removeRules(css, (selector) => LIVE_SELECTOR.test(selector)),
   },
 ];
 

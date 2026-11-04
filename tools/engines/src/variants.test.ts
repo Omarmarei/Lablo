@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { runInNewContext } from 'node:vm';
 import { parse } from 'acorn';
 import { describe, expect, it } from 'vitest';
 import {
@@ -74,6 +75,28 @@ const APP_CSS = `/* tokens */
 
 .z-rowset {
   color: red;
+}
+
+/* The live screen (live.css). */
+.live {
+  display: flex;
+  padding: var(--safe-y) var(--safe-x);
+}
+
+[dir="ltr"] .live__rail {
+  margin-right: 32px;
+}
+
+[dir="rtl"] .live__rail {
+  margin-left: 32px;
+}
+
+.live__rail .z-vlist__item > .z-chip {
+  justify-content: flex-start;
+}
+
+.lively {
+  color: blue;
 }
 
 .gallery {
@@ -160,18 +183,21 @@ describe('the screens each variant runs', () => {
     expect(NO_POLYFILLS_VARIANT.screens).toEqual(['hello']);
   });
 
-  it('runs the CSS seeds on the gallery, and they must fail on every engine', () => {
-    expect(CSS_SEEDS.map((seed) => seed.id)).toEqual(['seed-css-no-list-row', 'seed-css-no-safe-area']);
+  it("runs the component CSS seeds on the gallery and live.css's on the walk to the live screen, and they must fail on every engine", () => {
+    expect(CSS_SEEDS.map((seed) => [seed.id, seed.screens])).toEqual([
+      ['seed-css-no-list-row', ['gallery']],
+      ['seed-css-no-safe-area', ['gallery']],
+      ['seed-css-no-live', ['onboarding']],
+    ]);
     for (const seed of CSS_SEEDS) {
-      expect(seed.screens).toEqual(['gallery']);
       expect([53, 56, 68, 140].map((major) => mustPass(seed, major))).toEqual([false, false, false, false]);
     }
   });
 });
 
 describe('the walk seeds', () => {
-  it('break onboarding only, and must fail on every engine', () => {
-    expect(WALK_SEEDS.map((seed) => seed.id)).toEqual(['seed-walk-no-input-focus', 'seed-walk-forgets-profile']);
+  it('break onboarding or the live screen it ends on, and must fail on every engine', () => {
+    expect(WALK_SEEDS.map((seed) => seed.id)).toEqual(['seed-walk-no-input-focus', 'seed-walk-forgets-profile', 'seed-live-no-back-key', 'seed-focus-engine-stuck']);
     for (const seed of WALK_SEEDS) {
       expect(seed.screens).toEqual(['onboarding']);
       expect([53, 56, 68, 140].map((major) => mustPass(seed, major))).toEqual([false, false, false, false]);
@@ -188,6 +214,34 @@ describe('the walk seeds', () => {
     expect(forgets!.code).toBe("indexedDB.deleteDatabase('zoma');");
   });
 
+  it("keep the TVs' Back keys (Tizen 10009, webOS 461) from the app, and every other key reaches it", () => {
+    const seed = WALK_SEEDS.find((s) => s.id === 'seed-live-no-back-key')!;
+    const listeners: Array<{ type: string; listener: (event: unknown) => void; capture: unknown }> = [];
+    const window = { addEventListener: (type: string, listener: (event: unknown) => void, capture: unknown) => listeners.push({ type, listener, capture }) };
+    runInNewContext(seed.code, { window });
+    expect(listeners.map((l) => [l.type, l.capture])).toEqual([['keydown', true]]);
+    const stopped = (keyCode: number): boolean => {
+      let stop = false;
+      listeners[0]!.listener({ keyCode, stopImmediatePropagation: () => (stop = true) });
+      return stop;
+    };
+    expect([10009, 461, 13, 37, 8, 428, 34].map(stopped)).toEqual([true, true, false, false, false, false, false]);
+  });
+
+  it("keep window.__ZOMA_TEST__ on the first focus it saw, whatever the focus engine does next", () => {
+    const seed = WALK_SEEDS.find((s) => s.id === 'seed-focus-engine-stuck')!;
+    const window: { __ZOMA_TEST__?: { focusPath(): string | null } } = {};
+    runInNewContext(seed.code, { window, Object });
+    let path: string | null = null;
+    // The app installs its hook as main.tsx does, and its focus then moves.
+    window.__ZOMA_TEST__ = { focusPath: () => path };
+    expect(window.__ZOMA_TEST__.focusPath()).toBeNull();
+    path = 'language/languages/0';
+    expect(window.__ZOMA_TEST__.focusPath()).toBe('language/languages/0');
+    path = 'disclaimer/actions/0';
+    expect(window.__ZOMA_TEST__.focusPath()).toBe('language/languages/0');
+  });
+
   it('are staged like the syntax seeds: prepended to a copy of main.js', () => {
     const dist = fakeDist();
     const root = mkdtempSync(path.join(tmpdir(), 'zoma-variants-'));
@@ -199,7 +253,7 @@ describe('the walk seeds', () => {
 });
 
 describe('the CSS seeds', () => {
-  const [noListRow, noSafeArea] = CSS_SEEDS as readonly [(typeof CSS_SEEDS)[number], (typeof CSS_SEEDS)[number]];
+  const [noListRow, noSafeArea, noLive] = CSS_SEEDS as readonly [(typeof CSS_SEEDS)[number], (typeof CSS_SEEDS)[number], (typeof CSS_SEEDS)[number]];
 
   it('removeRules takes out whole rules and keeps at-rules and the other rules', () => {
     const result = removeRules(APP_CSS, (selector) => selector.startsWith('.gallery'));
@@ -234,12 +288,21 @@ describe('the CSS seeds', () => {
 
   it('seed-css-no-safe-area takes out the gallery padding only', () => {
     const css = seedCss(APP_CSS, noSafeArea);
-    expect(css).not.toContain('padding: var(--safe-y) var(--safe-x);');
+    expect(css).not.toMatch(/\.gallery \{[^}]*padding/);
     expect(css).toContain('height: var(--row-height);');
   });
 
+  it('seed-css-no-live takes out every live.css rule in both directions, and nothing else', () => {
+    const css = seedCss(APP_CSS, noLive);
+    expect(css).not.toMatch(/\.live(__|[^\w-])/);
+    expect(css).toContain('.lively {\n  color: blue;\n}');
+    expect(css).toContain('.gallery {\n  display: flex;');
+    expect(css).toContain('.z-row {\n  display: flex;');
+    expect(noLive.edit(APP_CSS).removed).toBe(4);
+  });
+
   it('fails the staging when a seed finds nothing to take out (a renamed class)', () => {
-    const renamed = APP_CSS.replace(/z-row/g, 'z-line').replace(/\.gallery \{/g, '.showcase {');
+    const renamed = APP_CSS.replace(/z-row/g, 'z-line').replace(/\.gallery \{/g, '.showcase {').replace(/\.live/g, '.watch');
     for (const seed of CSS_SEEDS) expect(() => seedCss(renamed, seed)).toThrow(new RegExp(`${seed.id}: nothing to take out`));
   });
 

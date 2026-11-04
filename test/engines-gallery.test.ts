@@ -40,8 +40,11 @@ describe('the gallery checks of the old-engine harness', () => {
 
   it('seed failures into the real component and gallery CSS', () => {
     const css = `${read('packages/ui/src/components/ListRow.css')}\n${read('apps/tv/src/gallery/gallery.css')}`;
-    for (const seed of CSS_SEEDS) expect(seed.edit(css).removed, seed.id).toBeGreaterThan(0);
-    const [noListRow, noSafeArea] = CSS_SEEDS;
+    // live.css's seed runs on the walk to the live screen: test/engines-onboarding.test.ts seeds it.
+    const gallerySeeds = CSS_SEEDS.filter((seed) => seed.screens.includes('gallery'));
+    expect(gallerySeeds.map((seed) => seed.id)).toEqual(['seed-css-no-list-row', 'seed-css-no-safe-area']);
+    for (const seed of gallerySeeds) expect(seed.edit(css).removed, seed.id).toBeGreaterThan(0);
+    const [noListRow, noSafeArea] = gallerySeeds;
     expect(seedCss(css, noListRow!)).not.toContain('.z-row');
     expect(seedCss(css, noSafeArea!)).not.toContain('padding: var(--safe-y) var(--safe-x)');
   });

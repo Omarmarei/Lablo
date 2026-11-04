@@ -13,7 +13,8 @@
  * onboarding, the start screen (no `?screen=`), walked by keys in English and in Arabic from a
  * fresh database: the fixture playlist's link typed into the field, loading, done with its
  * counts, "Start watching" to the live screen (step 14a), and a relaunch that skips onboarding
- * to it (artifacts/engines/onboarding-*.png: the form, done and live screens).
+ * to it, then the live screen by keys: CH−/CH+, the rail, a category, Back and the exit
+ * (artifacts/engines/onboarding-*.png: the form, done, live, category and, on Tizen, exit screens).
  *
  * Options:
  *   --engine chrome53|chrome56|chrome68   repeatable; default all
@@ -32,10 +33,10 @@ import type { Engine } from './src/engines';
 import { TV_RUNTIME_FLAGS, TV_SCREEN_FLAGS, selectEngines } from './src/engines';
 import { ensureEngineZip } from './src/fetch';
 import type { DataCheck } from './src/fixture';
-import { appUrl, stageFixtures } from './src/fixture';
+import { appUrl, fixtureEntries, liveCategories, stageFixtures } from './src/fixture';
 import type { BidiState, GalleryRun } from './src/gallery';
 import { evaluateGallery, galleryUrl, runGallery } from './src/gallery';
-import type { OnboardingRun, WalkLanguage } from './src/onboarding';
+import type { OnboardingRun, WalkCheck, WalkLanguage } from './src/onboarding';
 import { evaluateOnboarding, onboardingUrl, runOnboarding, stageBlankPage, stepTime } from './src/onboarding';
 import type { PlatformRun, TvPlatform } from './src/scenario';
 import { TV_PLATFORMS, evaluateRun, runPlatform } from './src/scenario';
@@ -49,8 +50,13 @@ const BOOT_TIMEOUT_MS = 20_000;
 const KEY_TIMEOUT_MS = 3_000;
 /** "Add source" to the done screen: the fixture's 3,000 items and its guide, in the old engine. */
 const LOAD_TIMEOUT_MS = 60_000;
+/** A key on the live screen to its data answered: the focus, the rows' now/next and the 600 ms focus wait. */
+const LIVE_TIMEOUT_MS = 8_000;
 
 const log = (line: string): void => console.log(line);
+
+/** One platform's data check, plus what its live screen must list. */
+type WalkData = DataCheck & WalkCheck;
 
 interface RunReport {
   readonly engine: string;
@@ -104,17 +110,23 @@ interface WalkTimes {
   readonly loadMs: number | null;
   /** From the relaunch to the live screen with its data requests answered. */
   readonly relaunchMs: number | null;
+  /** On the live screen, from the key to its data answered: CH− (a window further) and OK on a category. */
+  readonly pageMs: number | null;
+  readonly categoryMs: number | null;
   readonly phases: readonly string[] | null;
   readonly screenshots: readonly string[];
 }
 
 const seconds = (ms: number | null): string => (ms === null ? '-' : `${(ms / 1000).toFixed(1)} s`);
 
-/** `en: first screen 0.2 s, load 2.0 s, relaunch 0.2 s; ar: …` for the log. */
+/** `en: first screen 0.2 s, load 2.0 s, relaunch 0.2 s, CH− 0.7 s, category 0.8 s; ar: …` for the log. */
 function onboardingSummary(run: OnboardingRun): string {
   const walks = run.walks
     .filter((walk) => walk.steps.length > 0)
-    .map((walk) => `${walk.language}: first screen ${seconds(stepTime(walk, 'start'))}, load ${seconds(stepTime(walk, 'add'))}, relaunch ${seconds(stepTime(walk, 'relaunch'))}`);
+    .map(
+      (walk) =>
+        `${walk.language}: first screen ${seconds(stepTime(walk, 'start'))}, load ${seconds(stepTime(walk, 'add'))}, relaunch ${seconds(stepTime(walk, 'relaunch'))}, CH− ${seconds(stepTime(walk, 'live-page-down'))}, category ${seconds(stepTime(walk, 'live-category'))}`,
+    );
   return walks.length === 0 ? '' : `  ${walks.join('; ')}`;
 }
 
@@ -178,7 +190,7 @@ async function runGalleryScreen(client: CdpClient, engine: Engine, variant: Vari
   };
 }
 
-async function runOnboardingScreen(client: CdpClient, engine: Engine, variant: Variant, platform: TvPlatform, check: DataCheck): Promise<Outcome> {
+async function runOnboardingScreen(client: CdpClient, engine: Engine, variant: Variant, platform: TvPlatform, check: WalkData): Promise<Outcome> {
   // Only the real app's screens are kept, as for the gallery.
   const shot =
     variant.id === APP_VARIANT.id
@@ -188,6 +200,7 @@ async function runOnboardingScreen(client: CdpClient, engine: Engine, variant: V
     bootTimeoutMs: BOOT_TIMEOUT_MS,
     keyTimeoutMs: KEY_TIMEOUT_MS,
     loadTimeoutMs: LOAD_TIMEOUT_MS,
+    liveTimeoutMs: LIVE_TIMEOUT_MS,
     screenshot: shot,
     save: (file, png) => writeFileSync(file, png),
   });
@@ -210,6 +223,8 @@ async function runOnboardingScreen(client: CdpClient, engine: Engine, variant: V
         firstScreenMs: stepTime(walk, 'start'),
         loadMs: stepTime(walk, 'add'),
         relaunchMs: stepTime(walk, 'relaunch'),
+        pageMs: stepTime(walk, 'live-page-down'),
+        categoryMs: stepTime(walk, 'live-category'),
         phases: walk.phases,
         screenshots: walk.screenshots.map((file) => repoPath(file) ?? file),
       })),
@@ -222,7 +237,7 @@ async function runEngine(
   zip: string,
   image: string,
   variants: readonly Variant[],
-  checks: Record<TvPlatform, DataCheck>,
+  checks: Record<TvPlatform, WalkData>,
   keep: boolean,
 ): Promise<RunReport[]> {
   const running = startEngine({
@@ -308,7 +323,10 @@ async function main(): Promise<void> {
   for (const file of readdirSync(OUT)) if (/^(gallery|onboarding)-.*\.png$/.test(file)) rmSync(path.join(OUT, file));
   const variants: Variant[] = [stageApp(distTv, VARIANTS_DIR)];
   // Served in each container at FIXTURE_ORIGIN; every variant's runs ingest them.
-  const checks = stageFixtures(VARIANTS_DIR);
+  const staged = stageFixtures(VARIANTS_DIR);
+  // The live screen's rail and rows, as the walk checks them (step 14c).
+  const categories = liveCategories(fixtureEntries());
+  const checks: Record<TvPlatform, WalkData> = { tizen: { ...staged.tizen, categories }, webos: { ...staged.webos, categories } };
   // The onboarding walk deletes the app's database from a page of the same file:// origin.
   stageBlankPage(VARIANTS_DIR);
   if (selfTest) {
