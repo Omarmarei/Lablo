@@ -461,11 +461,13 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - **Tests:** e2e `lab.spec.ts` (S6's records in dev and both bundles: counts, every press drawn, the guide moved and kept, cold start = boot + data, cleanup, no URL; the stage gone); unit `scale.test.ts`, `stage-probe.test.ts`, `spikes/s6.test.ts` (fake engine: judging, the guard, failures, tiers), mock `lab-source.test.ts`, harness `lab.test.ts`. 52/52 mutants caught (`artifacts/mutate15b.py`), after the error gate's test was made to advance its clock. Not in the script: removing the harness's pre-lab reset survives locally (nothing to reset there); CI's first run is its proof.
     - **Merged:** PR #27 as merge commit `7d55357` (CI on `0790e11`: verify 8 m 31 s, engines 14 m 3 s of its 25, media 8 m 31 s). The first CI run failed only on Chromium 68, where an app screen left a source on the lab's `file://` origin; fixed in `0790e11`.
     - **Also fixed (15a code):** S1's bulk write and S2's write test counted a delete's `blocked` event as "not deleted"; a connection just closed still finishes its transactions, and the delete then succeeds. Under the heavier e2e load S1 reported `deleted: false` once. All lab deletes now wait past `blocked` (`idb-delete.ts`).
-- [ ] 15b2. **The UI spikes (S9–S11).**
-  - S9: Arabic (the fonts loaded and shaped, the bidi probe, what `Intl` makes of `ar`, the calendar).
-  - S10: input (a key tester with each platform's expected keys, PRE-CH, the Magic Remote pointer, the native keyboard in Arabic and English).
-  - S11: lifecycle and accessibility (a lifecycle log, screensaver control, Voice Guide/TTS reading the focused label).
-  - **Done when:** e2e drives each screen by keys in the desktop browser and finds its records; PR merged.
+- [ ] 15b2. **The Arabic and lifecycle spikes (S9, S11).** Leg 29 split the old 15b2: S9 and S11 here, S10 in 15b3.
+  - S9: Arabic (the fonts loaded and shaped, the bidi probe, what `Intl` makes of `ar`, the calendar), against the app's own formatters (ADR-011).
+  - S11: lifecycle and accessibility (a lifecycle log, screensaver control, Voice Guide/TTS reading the focused label), each platform API through `Platform` in every adapter.
+  - **Done when:** e2e runs S9 and S11 by keys in the desktop browser and finds their records; the old-engine harness runs them in Chromium 53/56/68; PR merged.
+- [ ] 15b3. **The input spike (S10).**
+  - A key tester screen (its own navigator screen) with each platform's expected keys, PRE-CH, the Magic Remote pointer, Back, and the native keyboard in Arabic and English (`TextField` / `createTextEditor`).
+  - **Done when:** e2e drives the key tester by keys in the desktop browser and finds its records; PR merged.
 - [ ] 15c. **The player batteries (S4, S5, S8).**
   - Lab player wrappers: AVPlay (Tizen, through the adapter) and `<video>` (webOS and the desktop).
   - The battery: TS and HLS first frame, the 302 freeze with and without the probe, 60 min of endless TS with stalls, 4K HEVC, AC3/E-AC3, the audio track switch, subtitles, suspend/restore; S8 `avplaystore` pre-buffering.
