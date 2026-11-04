@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import type { LiveRow, Timers } from '../live/live-state';
 import type { PlayerLike, ZapList } from './player-state';
 import { DIGITS_MS, INFO_MS, MISSING_MS, TRACKS_ACTION, ZAP_DELAY_MS, createPlayer, liveRequest } from './player-state';
+import type { SubtitleSize } from './track-menu';
 import { DEFAULT_SUBTITLE_SIZE, DELAY_STEP_MS, MAX_DELAY_MS, MENU_ROWS } from './track-menu';
 
 const COUNT = 20;
@@ -41,11 +42,14 @@ class FakeList implements ZapList {
   /** One read per row while it is on its way (the live screen joins reads of a chunk). */
   private readonly reading = new Map<number, Promise<LiveRow | null>>();
   readonly finds: { n: number; answer: (index: number) => void; fail: () => void }[] = [];
+  readonly locates: { key: ContentKey; guess: number; answer: (index: number) => void; fail: () => void }[] = [];
   readonly guides = new Map<ContentKey, EpgNowNext>();
   readonly asked: ContentKey[] = [];
+  /** The live screen's list is in (else it has no rows to zap through). */
+  ready = true;
 
   count(): number {
-    return COUNT;
+    return this.ready ? COUNT : 0;
   }
 
   row(index: number): LiveRow | null {
@@ -76,6 +80,12 @@ class FakeList implements ZapList {
     });
   }
 
+  locate(key: ContentKey, guess: number): Promise<number> {
+    return new Promise((resolve, reject) => {
+      this.locates.push({ key, guess, answer: resolve, fail: () => reject(new Error('read failed')) });
+    });
+  }
+
   guide(key: ContentKey): EpgNowNext | undefined {
     return this.guides.get(key);
   }
@@ -101,6 +111,9 @@ class FakeController implements PlayerLike {
   subtitles: SubtitleView = { feed: null, cues: [] };
   /** The timings the menu set. */
   readonly delays: number[] = [];
+  /** The content playing's timing; a play sets the one in `delayFor` (else 0), like the controller. */
+  subtitleDelay = 0;
+  readonly delayFor: Record<string, number> = {};
   private subtitleListeners: ((view: SubtitleView) => void)[] = [];
 
   subscribeSubtitles(listener: (view: SubtitleView) => void): () => void {
@@ -137,6 +150,7 @@ class FakeController implements PlayerLike {
 
   play(req: PlayRequest): Promise<void> {
     this.plays.push(req);
+    this.subtitleDelay = this.delayFor[req.key] ?? 0;
     this.set('opening', null, req.key);
     return Promise.resolve();
   }
@@ -213,8 +227,11 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i += 1) await Promise.resolve();
 };
 
-function setup(dir: 'ltr' | 'rtl' = 'ltr') {
+function setup(dir: 'ltr' | 'rtl' = 'ltr', kept: { subtitleSize?: SubtitleSize } = {}) {
   const list = new FakeList();
+  /** Each `tuned` call: the channel's key and its row. */
+  const tuned: string[] = [];
+  const sized: SubtitleSize[] = [];
   const controller = new FakeController();
   const clock = manualTimers();
   const nav = createNavigator({
@@ -236,6 +253,9 @@ function setup(dir: 'ltr' | 'rtl' = 'ltr') {
     },
     chrome: (on) => chrome.push(on),
     closed: (index) => closed.push(index),
+    tuned: (r, index) => tuned.push(`${r.item.key} @${index}`),
+    sized: (size) => sized.push(size),
+    ...kept,
     timers: clock.timers,
   });
   const press = async (...keys: Intent[]): Promise<void> => {
@@ -246,7 +266,7 @@ function setup(dir: 'ltr' | 'rtl' = 'ltr') {
     const f = nav.snapshot();
     return `${f.screen} · ${f.zone} ${f.index}`;
   };
-  return { list, controller, clock, nav, player, chrome, closed, press, at, made: () => made };
+  return { list, controller, clock, nav, player, chrome, closed, tuned, sized, press, at, made: () => made };
 }
 
 describe('the player: opening and closing (RELAY step 20a)', () => {
@@ -922,5 +942,204 @@ describe('subtitle files and the subtitle style in the track menu (RELAY step 20
     expect(t.controller.subtitleListening).toBe(1);
     t.player.dispose();
     expect(t.controller.subtitleListening).toBe(0);
+  });
+});
+
+describe('the player: what the app keeps (RELAY step 20c1)', () => {
+  it('tells the app each channel whose stream opens, with its row, and shows its timing', async () => {
+    const t = setup();
+    t.controller.delayFor['x:s1:live:3'] = 750;
+    t.player.show(2);
+    expect(t.tuned).toEqual(['x:s1:live:2 @2']);
+    expect(t.player.menu.delay.value).toBe(0);
+    await t.press('CH_UP');
+    // Not before the debounce: the bar moved, the stream not yet.
+    expect(t.tuned).toEqual(['x:s1:live:2 @2']);
+    t.clock.advance(ZAP_DELAY_MS);
+    expect(t.tuned).toEqual(['x:s1:live:2 @2', 'x:s1:live:3 @3']);
+    expect(t.player.menu.delay.value).toBe(750);
+    // Shown, not sent back.
+    expect(t.controller.delays).toEqual([]);
+    await t.press('PREV_CH');
+    expect(t.tuned).toEqual(['x:s1:live:2 @2', 'x:s1:live:3 @3', 'x:s1:live:2 @2']);
+    expect(t.player.menu.delay.value).toBe(0);
+  });
+
+  it("starts with the kept subtitle size and tells the app each change", async () => {
+    const t = setup('ltr', { subtitleSize: 'l' });
+    expect(t.player.menu.size.value).toBe('l');
+    t.player.show(1);
+    t.controller.setTracks(withFiles(0));
+    t.controller.set('playing');
+    t.controller.setSubtitles({ feed: 'file', cues: [] });
+    await t.press('SUBTITLES', 'DOWN', 'DOWN');
+    expect(t.at()).toBe('tracks · style 0');
+    await t.press('RIGHT');
+    expect(t.sized).toEqual([]);
+    await t.press('LEFT', 'OK', 'OK');
+    expect(t.player.menu.size.value).toBe('s');
+    expect(t.sized).toEqual(['m', 'l', 's']);
+  });
+});
+
+describe('the player: the start on the last channel (RELAY step 20c1)', () => {
+  /** The profile's channel: row 12's, with the name and URL it had when it last played. */
+  const KEPT: LiveRow = { item: { ...row(12).item, name: 'Kept 12', url: 'http://panel.test/live/u/p/912.ts' }, number: 13 };
+
+  function resumed() {
+    const t = setup();
+    t.list.ready = false;
+    t.player.resume(KEPT, 12);
+    return t;
+  }
+
+  /** Answers every row read on its way (rows 10 and up aren't loaded). */
+  async function answerReads(t: ReturnType<typeof setup>): Promise<void> {
+    for (const read of t.list.loads.splice(0)) read.resolve();
+    await flush();
+  }
+
+  it('plays the kept channel at once, before the list has it, and shows it at its row', async () => {
+    performance.clearMarks('zoma:resume');
+    const t = resumed();
+    expect(t.at()).toBe('player · actions 0');
+    expect(t.chrome).toEqual([true]);
+    expect(t.player.info.value).toBe(true);
+    expect(t.controller.plays).toEqual([liveRequest(KEPT)]);
+    expect([t.player.target.value, t.player.playing.value, t.player.previous.value]).toEqual([12, 12, -1]);
+    expect(t.player.row(12)).toBe(KEPT);
+    expect(t.player.row(11)).toBeNull();
+    // It was the last channel already.
+    expect(t.tuned).toEqual([]);
+    expect(t.list.locates.map((l) => [l.key, l.guess])).toEqual([['x:s1:live:12', 12]]);
+    expect(performance.getEntriesByName('zoma:resume')).toHaveLength(1);
+    // No rows to zap through yet.
+    await t.press('CH_UP');
+    t.clock.advance(ZAP_DELAY_MS);
+    expect(t.controller.plays).toHaveLength(1);
+    expect(t.player.target.value).toBe(12);
+    // A second resume or a show changes nothing while it shows.
+    t.player.resume(row(3), 3);
+    t.player.show(3);
+    expect(t.controller.plays).toHaveLength(1);
+  });
+
+  it("moves to the row the list found it at, showing it until that row's chunk is in, then zaps from there", async () => {
+    const t = resumed();
+    t.list.ready = true;
+    t.list.locates[0]!.answer(15);
+    await flush();
+    expect([t.player.target.value, t.player.playing.value]).toEqual([15, 15]);
+    // Row 15's chunk is on its way: still the kept row, never an empty bar.
+    expect(t.player.row(15)).toBe(KEPT);
+    expect(t.player.row(12)).toBeNull();
+    expect(t.tuned).toEqual([]);
+    await answerReads(t);
+    // (The fake list's row 15 stands for the channel it found there.)
+    expect(t.player.row(15)).toEqual(row(15));
+    expect(t.tuned).toEqual(['x:s1:live:15 @15']);
+    expect(t.controller.plays).toHaveLength(1);
+    await t.press('CH_UP');
+    t.clock.advance(ZAP_DELAY_MS);
+    await answerReads(t);
+    expect(t.controller.played()).toEqual([812, 16]);
+    expect(t.player.previous.value).toBe(15);
+    expect(t.tuned).toEqual(['x:s1:live:15 @15', 'x:s1:live:16 @16']);
+    await t.press('PREV_CH');
+    expect(t.controller.plays[2]).toEqual(liveRequest(row(15)));
+  });
+
+  it('found at its own row, a loaded one: the list takes over at once', async () => {
+    const t = resumed();
+    t.list.ready = true;
+    t.list.loaded.add(12);
+    t.list.locates[0]!.answer(12);
+    await flush();
+    expect(t.player.row(12)).toEqual(row(12));
+    expect(t.tuned).toEqual(['x:s1:live:12 @12']);
+  });
+
+  it("not in the list: keeps showing it, zaps from its row, and Try again plays it again", async () => {
+    const t = resumed();
+    t.list.ready = true;
+    t.list.locates[0]!.answer(-1);
+    await flush();
+    expect(t.player.row(12)).toBe(KEPT);
+    t.controller.set('failed', NOT_FOUND);
+    expect(t.at()).toBe('player · card 0');
+    await t.press('OK');
+    expect(t.controller.plays).toEqual([liveRequest(KEPT), liveRequest(KEPT)]);
+    expect(t.tuned).toEqual([]);
+    await t.press('CH_DOWN');
+    t.clock.advance(ZAP_DELAY_MS);
+    await answerReads(t);
+    expect(t.controller.played()).toEqual([812, 812, 11]);
+    // Back on row 12 now: the list's own channel.
+    t.list.loaded.add(12);
+    await t.press('CH_UP');
+    t.clock.advance(ZAP_DELAY_MS);
+    expect(t.controller.plays[3]).toEqual(liveRequest(row(12)));
+  });
+
+  it('a zap before the list found it wins; so does a close', async () => {
+    const t = resumed();
+    t.list.ready = true;
+    await t.press('CH_UP');
+    // The bar moved on: a late answer moves nothing.
+    t.list.locates[0]!.answer(15);
+    await flush();
+    expect(t.player.target.value).toBe(13);
+    t.clock.advance(ZAP_DELAY_MS);
+    await answerReads(t);
+    expect(t.controller.played()).toEqual([812, 13]);
+    expect(t.player.previous.value).toBe(12);
+    expect(t.tuned).toEqual(['x:s1:live:13 @13']);
+    // Row 12 is the list's own now.
+    expect(t.player.row(12)).toBeNull();
+
+    const c = resumed();
+    await c.press('BACK');
+    expect(c.closed).toEqual([12]);
+    c.list.ready = true;
+    c.list.locates[0]!.answer(15);
+    await flush();
+    expect([c.player.target.value, c.player.playing.value]).toEqual([12, 12]);
+    expect(c.tuned).toEqual([]);
+  });
+
+  it("says nothing of a row found after another play or a close, and nothing when the search fails", async () => {
+    const t = resumed();
+    t.list.ready = true;
+    t.list.locates[0]!.answer(15);
+    await flush();
+    // The chunk is still on its way when the user zaps.
+    await t.press('CH_UP');
+    t.clock.advance(ZAP_DELAY_MS);
+    // Row 15's read answers first, then row 16's.
+    await answerReads(t);
+    expect(t.list.loads).toEqual([]);
+    expect(t.tuned).toEqual(['x:s1:live:16 @16']);
+    const f = resumed();
+    f.list.locates[0]!.fail();
+    await flush();
+    expect([f.player.target.value, f.player.row(12)]).toEqual([12, KEPT]);
+  });
+
+  it('marks the kept channel\'s first frame once, and no other', () => {
+    performance.clearMarks('zoma:resume-frame');
+    const t = resumed();
+    t.controller.set('playing');
+    t.controller.set('buffering');
+    t.controller.set('playing');
+    expect(performance.getEntriesByName('zoma:resume-frame')).toHaveLength(1);
+    const s = setup();
+    s.player.show(2);
+    s.controller.set('playing');
+    // A zap before its frame: no mark.
+    const z = resumed();
+    z.list.ready = true;
+    z.player.close();
+    z.controller.set('playing');
+    expect(performance.getEntriesByName('zoma:resume-frame')).toHaveLength(1);
   });
 });

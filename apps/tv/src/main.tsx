@@ -1,6 +1,7 @@
 import { signal } from '@preact/signals';
 import { render } from 'preact';
 import type { DeviceTier } from '@zoma/core';
+import type { LastChannel } from '@zoma/data';
 import type { Language } from '@zoma/ui';
 import { Spinner } from '@zoma/ui';
 import type { AppData } from './App';
@@ -17,6 +18,7 @@ import { createEngineLoader } from './onboarding/engine-loader';
 import { OnboardingApp } from './onboarding/OnboardingApp';
 import type { Onboarding } from './onboarding/onboarding-state';
 import { appPlayer, uiTrackPreferences } from './player/app-player';
+import { createPlayerMemory } from './player/player-memory';
 import type { Player } from './player/player-state';
 import { createPlayer } from './player/player-state';
 import { createStage, setPlayerChrome } from './player/stage';
@@ -27,7 +29,12 @@ import { installTestHook } from './test-hook';
 // Last, so the app's own CSS comes after @zoma/ui's (tokens, fonts, components) in app.css and in dev.
 import './app.css';
 
-const platform = createPlatform();
+/**
+ * What the player keeps in the profile (RELAY step 20c1): filled from the start's profile, written
+ * through the data engine (made by then: only a play writes).
+ */
+const memory = createPlayerMemory({ edit: (edit) => dataEngine().editProfile(edit) });
+const platform = createPlatform({ redirects: memory.redirects });
 platform.registerKeys();
 /** The focus of the screen on show, as `window.__ZOMA_TEST__.focusPath()` (RELAY step 14b). */
 const showFocus = installTestHook(window);
@@ -67,6 +74,8 @@ const playerController = appPlayer({
   online: () => navigator.onLine,
   // The live screen sets the page's language (LiveApp): sound in it first.
   preferences: () => uiTrackPreferences(document.documentElement.lang),
+  memory: memory.sources,
+  trackMemory: memory.tracks,
 });
 
 /** The hello screen: developer diagnostics of the device, the workers and the data layer. */
@@ -79,19 +88,25 @@ function showHello(into: Element): void {
 
 /**
  * The live screen (RELAY step 14a): the stored sources' channels, in the language picked in
- * onboarding (`null`: the TV's). OK on a channel opens the player (step 20a).
+ * onboarding (`null`: the TV's). OK on a channel opens the player (step 20a). `resume` (step
+ * 20c1): the channel watched last plays at once, over the live screen, before its catalog loads.
  */
-function showLive(into: Element, language: Language | null): void {
+function showLive(into: Element, language: Language | null, resume: LastChannel | null = null): void {
   let player: Player | null = null;
-  const live = createLive({ platform, engine: dataEngine(), play: (index) => player?.show(index) });
+  const live = createLive({ platform, engine: dataEngine(), play: (index) => player?.show(index), startCategory: resume === null ? null : resume.category });
   // OK on a channel opens the player on the live navigator (step 20a); Back returns to its row.
+  const kept = memory.subtitleSize();
   player = createPlayer({
     nav: live.nav,
     list: live.list,
     player: playerController,
     chrome: (on) => setPlayerChrome(document, on),
     closed: (index) => live.focusRow(index),
+    tuned: (row, index) => memory.tuned(row.item, row.number, live.shownCategory(), index),
+    ...(kept === null ? {} : { subtitleSize: kept }),
+    sized: (size) => memory.setSubtitleSize(size),
   });
+  if (resume !== null) player.resume({ item: resume.item, number: resume.number }, resume.index);
   showFocus(live.nav);
   render(<LiveApp platform={platform} live={live} language={language} player={player} />, into);
 }
@@ -150,8 +165,9 @@ if (screen === 'gallery') {
     root,
   );
   void readStartProfile(dataEngine()).then((profile) => {
+    memory.load(profile);
     const start = startPoint(profile);
-    if (start.screen === 'home') showLive(root, start.language);
+    if (start.screen === 'home') showLive(root, start.language, start.resume);
     else showOnboarding(root, start.language);
   });
 }

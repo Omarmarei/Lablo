@@ -1,7 +1,7 @@
 import { normalizeLang } from '@zoma/core';
 import type { Platform } from '@zoma/platform-api';
 import type { SubtitleCue } from '@zoma/core';
-import type { AccountStatus, Clock, ControllerOptions, ExternalSub, TrackPreferences } from '@zoma/player';
+import type { AccountStatus, Clock, ControllerOptions, ExternalSub, SourceMemory, TrackMemory, TrackPreferences } from '@zoma/player';
 import { PlayerController } from '@zoma/player';
 import { createSubtitleLoader } from './subtitle-loader';
 
@@ -17,7 +17,8 @@ import { createSubtitleLoader } from './subtitle-loader';
  * - the lifecycle: `hidden` and `visible` go to the controller's `hide` and `show`;
  * - `preferences` (step 20b): the track languages to prefer, read when a stream's tracks appear;
  * - `loadSubtitles` (step 20b2b): a request's subtitle files, fetched and parsed by the app
- *   (`subtitle-loader.ts`).
+ *   (`subtitle-loader.ts`);
+ * - `memory` and `trackMemory` (step 20c1): the profile's, through `player-memory.ts`.
  */
 export interface AppPlayerDeps {
   readonly platform: Pick<Platform, 'id' | 'createEngines' | 'resolveUrl' | 'setScreenSaver' | 'onLifecycle'>;
@@ -31,6 +32,10 @@ export interface AppPlayerDeps {
   readonly preferences?: () => TrackPreferences;
   /** Fetches and parses a subtitle file (default: `createSubtitleLoader()`). */
   readonly loadSubtitles?: (sub: ExternalSub) => Promise<readonly SubtitleCue[]>;
+  /** The container that played per source (the profile's; default: for the app's run). */
+  readonly memory?: SourceMemory;
+  /** Each content's track choice and timing (the profile's; default: for the app's run). */
+  readonly trackMemory?: TrackMemory;
   /** Tests pin the clock. */
   readonly clock?: Clock;
 }
@@ -58,6 +63,8 @@ export function appPlayer(deps: AppPlayerDeps): () => PlayerController {
       checkAccount: deps.checkAccount,
       loadSubtitles: deps.loadSubtitles ?? createSubtitleLoader(),
       ...(deps.preferences === undefined ? {} : { preferences: deps.preferences }),
+      ...(deps.memory === undefined ? {} : { memory: deps.memory }),
+      ...(deps.trackMemory === undefined ? {} : { trackMemory: deps.trackMemory }),
       screenSaver: (allowed) => {
         platform.setScreenSaver(allowed).catch((error: unknown) => console.warn('The screensaver setting was refused', error));
       },

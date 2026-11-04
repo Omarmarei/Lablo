@@ -8,7 +8,8 @@ import type { PlayerStatus, PlayRequest, SubtitleView } from '@zoma/player';
 import { NO_TRACKS, streamCandidates } from '@zoma/player';
 import type { Focus, Navigator, Screen, ZoneSpec } from '@zoma/ui';
 import type { LiveRow, Timers } from '../live/live-state';
-import type { TrackMenu, TrackSection } from './track-menu';
+import { mark } from '../marks';
+import type { SubtitleSize, TrackMenu, TrackSection } from './track-menu';
 import { createTrackMenu } from './track-menu';
 
 /**
@@ -34,7 +35,11 @@ import { createTrackMenu } from './track-menu';
  *   remote's audio (MTS) and subtitle (Caption) keys. The info bar hides while it shows; the menu
  *   closes when the player gives up (the card shows) or closes.
  * - **The subtitles** (step 20b2b): what the controller says to draw (`subtitles`), in the size
- *   the menu sets; the menu's timing goes to the controller.
+ *   the menu sets; the menu's timing goes to the controller, which keeps it per content (20c1).
+ * - **The start on the last channel** (step 20c1): `resume` opens the player on a channel the
+ *   list doesn't have yet (the profile's), plays it at once, and moves to its row once the list
+ *   finds it (`locate`). Until then the info bar shows the profile's row, and zapping starts once
+ *   the list is in. `tuned` tells the app each channel whose stream opens, with its row.
  */
 
 /** The info bar's stream opens this long after the last zap key. */
@@ -58,6 +63,8 @@ export interface ZapList {
   load(index: number): Promise<LiveRow | null>;
   /** The row of the channel numbered `n` (`-1`: no channel has it). */
   find(n: number): Promise<number>;
+  /** The row of channel `key` once the list is in, looked for from row `guess` (`-1`: not in it). */
+  locate(key: ContentKey, guess: number): Promise<number>;
   /** A channel's now/next, once asked. */
   guide(key: ContentKey): EpgNowNext | undefined;
   /** Asks a channel's now/next (the info bar of a channel the list never showed). */
@@ -74,6 +81,8 @@ export interface PlayerLike {
   selectText(id: string | null): Promise<boolean>;
   readonly subtitles: SubtitleView;
   subscribeSubtitles(listener: (view: SubtitleView) => void): () => void;
+  /** The content playing's subtitle timing (a play sets the content's). */
+  readonly subtitleDelay: number;
   setSubtitleDelay(ms: number): void;
 }
 
@@ -93,6 +102,12 @@ export interface PlayerOptions {
   readonly chrome: (on: boolean) => void;
   /** The player closed; `index` is the row that played last (the live list focuses it). */
   readonly closed: (index: number) => void;
+  /** A channel's stream opened: row `index` of the list (step 20c1: the app keeps the last channel). */
+  readonly tuned?: (row: LiveRow, index: number) => void;
+  /** The subtitles' size to start with (the profile's). */
+  readonly subtitleSize?: SubtitleSize;
+  /** The subtitles' size changed (the app keeps it). */
+  readonly sized?: (size: SubtitleSize) => void;
   readonly timers?: Timers;
 }
 
@@ -118,6 +133,13 @@ export interface Player {
   readonly subtitles: ReadonlySignal<SubtitleView>;
   /** Opens the player on row `index` of the list and plays it at once. */
   show(index: number): void;
+  /**
+   * Opens the player on `row`, a channel the list may not have yet (the start's last channel,
+   * step 20c1), plays it at once, and moves to its row when the list finds it from row `guess`.
+   */
+  resume(row: LiveRow, guess: number): void;
+  /** Row `index` as the player shows it: the resumed channel until the list has found it. */
+  row(index: number): LiveRow | null;
   close(): void;
   dispose(): void;
 }
@@ -169,6 +191,13 @@ export function createPlayer(options: PlayerOptions): Player {
   let zapTimer: unknown = null;
   let entryTimer: unknown = null;
   let infoTimer: unknown = null;
+  /**
+   * The resumed channel, shown at row `index` until the list finds it (step 20c1); dropped when
+   * another row plays.
+   */
+  let pinned: { readonly index: number; readonly row: LiveRow } | null = null;
+  /** The resumed channel's first frame is still to be marked. */
+  let resumeFrame = false;
   /** Bumps on every play, close and entry: late row reads and searches are dropped. */
   let seq = 0;
   /** The card's zone has its buttons. */
@@ -195,17 +224,20 @@ export function createPlayer(options: PlayerOptions): Player {
     armInfo();
   };
 
+  /** Row `index`: the resumed channel at its row until the list found it, else the list's. */
+  const rowAt = (index: number): LiveRow | null => (pinned !== null && pinned.index === index ? pinned.row : list.row(index));
+
   /** The info bar's channel: its now/next is asked when the list never asked it. */
   const aim = (index: number): void => {
     target.value = index;
-    const row = list.row(index);
+    const row = rowAt(index);
     if (row !== null && list.guide(row.item.key) === undefined) list.askGuide(row.item.key);
   };
 
   /** The bar shows row `index`; a row the list never read is read now, for its name and now/next. */
   const point = (index: number): void => {
     aim(index);
-    if (list.row(index) !== null) return;
+    if (rowAt(index) !== null) return;
     list.load(index).then(
       () => {
         if (target.value === index) aim(index);
@@ -216,6 +248,10 @@ export function createPlayer(options: PlayerOptions): Player {
 
   const onStatus = (s: PlayerStatus): void => {
     status.value = s;
+    if (resumeFrame && s.state === 'playing') {
+      resumeFrame = false;
+      mark('zoma:resume-frame');
+    }
     const failed = s.state === 'failed';
     // The card takes over from the menu.
     if (failed) menu.close();
@@ -258,11 +294,19 @@ export function createPlayer(options: PlayerOptions): Player {
     const start = (row: LiveRow | null): void => {
       if (mine !== seq || !open.value || row === null) return;
       if (playing.value !== -1 && playing.value !== index) previous.value = playing.value;
+      const resumed = pinned !== null && pinned.row === row;
+      // Another row: the resumed channel is the list's own from now on.
+      if (!resumed) pinned = null;
+      resumeFrame = false;
       playing.value = index;
       plays.value += 1;
-      void ctrl().play(liveRequest(row));
+      const c = ctrl();
+      void c.play(liveRequest(row));
+      menu.showDelay(c.subtitleDelay);
+      // The resumed channel was the last channel already: the list's row says where it is now.
+      if (!resumed && options.tuned !== undefined) options.tuned(row, index);
     };
-    const row = list.row(index);
+    const row = rowAt(index);
     if (row !== null) start(row);
     else list.load(index).then(start, () => undefined);
   };
@@ -295,6 +339,8 @@ export function createPlayer(options: PlayerOptions): Player {
     feed: () => subtitles.value.feed,
     switcher: () => ctrl(),
     delayed: (ms) => ctrl().setSubtitleDelay(ms),
+    ...(options.subtitleSize === undefined ? {} : { size: options.subtitleSize }),
+    ...(options.sized === undefined ? {} : { sized: options.sized }),
     closed: () => {
       if (open.value) showInfo();
     },
@@ -377,7 +423,28 @@ export function createPlayer(options: PlayerOptions): Player {
     if (shown !== null && shown.open) nav.pop();
     options.chrome(false);
     if (controller !== null) void controller.stop();
+    resumeFrame = false;
     options.closed(playing.value !== -1 ? playing.value : target.value);
+  };
+
+  /** The list found the resumed channel at row `found` (`-1`: it isn't in the list). */
+  const located = (found: number, mine: { readonly index: number; readonly row: LiveRow }): void => {
+    // Something else plays, or a zap waits: the resumed channel is no longer the one shown.
+    if (pinned !== mine || !open.value || found === -1 || target.value !== mine.index || playing.value !== mine.index) return;
+    // At its row now; the list's own row takes over once its chunk is in (no empty bar meanwhile).
+    const moved = { index: found, row: mine.row };
+    pinned = moved;
+    target.value = found;
+    playing.value = found;
+    const at = seq;
+    list.load(found).then(
+      (row) => {
+        if (pinned === moved && row !== null) pinned = null;
+        // Where the last channel is now, unless another play or a close came first.
+        if (at === seq && row !== null && options.tuned !== undefined) options.tuned(row, found);
+      },
+      () => undefined,
+    );
   };
 
   const onIntent = (intent: Intent, focus: Focus): boolean => {
@@ -470,6 +537,23 @@ export function createPlayer(options: PlayerOptions): Player {
       options.chrome(true);
       go(index);
     },
+    resume(row: LiveRow, guess: number): void {
+      if (open.value) return;
+      const mine = { index: Math.max(0, guess), row };
+      pinned = mine;
+      open.value = true;
+      carded = false;
+      screen.value = nav.push({ id: 'player', zones: [actionsZone(), cardZone(0)], initial: 'actions', onIntent, onSelect });
+      options.chrome(true);
+      go(mine.index);
+      mark('zoma:resume');
+      resumeFrame = true;
+      list.locate(row.item.key, mine.index).then(
+        (found) => located(found, mine),
+        () => undefined,
+      );
+    },
+    row: rowAt,
     close,
     dispose(): void {
       close();

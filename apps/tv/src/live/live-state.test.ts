@@ -4,7 +4,7 @@ import type { Intent, RootBackPolicy } from '@zoma/platform-api';
 import { LAYOUT, SCREEN, listHeight } from '@zoma/ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FocusedChannel } from '../data/engine';
-import type { LiveEngine, Timers } from './live-state';
+import type { LiveEngine, RailRef, Timers } from './live-state';
 import {
   CHANNELS_VISIBLE,
   CHUNK_CACHE,
@@ -14,6 +14,7 @@ import {
   LIVE_BODY,
   RAIL_VISIBLE,
   createLive,
+  findEntry,
   railEntries,
 } from './live-state';
 
@@ -217,7 +218,7 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i += 1) await Promise.resolve();
 };
 
-async function setup(options: { rootBack?: RootBackPolicy; engine?: FakeEngine; settle?: boolean; play?: (index: number) => void } = {}) {
+async function setup(options: { rootBack?: RootBackPolicy; engine?: FakeEngine; settle?: boolean; play?: (index: number) => void; startCategory?: RailRef } = {}) {
   const engine = options.engine ?? new FakeEngine();
   const clock = manualTimers(T0);
   const exitApp = vi.fn();
@@ -227,6 +228,7 @@ async function setup(options: { rootBack?: RootBackPolicy; engine?: FakeEngine; 
     now: clock.now,
     timers: clock.timers,
     ...(options.play === undefined ? {} : { play: options.play }),
+    ...(options.startCategory === undefined ? {} : { startCategory: options.startCategory }),
   });
   if (options.settle !== false) await flush();
   const at = (): string => {
@@ -809,5 +811,121 @@ describe("the player's list (RELAY step 20a)", () => {
     expect(t.live.list.count()).toBe(0);
     expect(await t.live.list.load(0)).toBeNull();
     expect(await t.live.list.find(1)).toBe(-1);
+  });
+});
+
+describe('the start on the last channel (RELAY step 20c1)', () => {
+  const SPORTS_KEY = 'x:s1:live:2-1097';
+
+  it('shows the category the last channel played from, by its source and name, and names the one on show', async () => {
+    const sports = await setup({ startCategory: { src: 's1', name: 'Sports' } });
+    expect(sports.live.category.value).toBe(2);
+    expect(sports.live.shownCategory()).toEqual({ src: 's1', name: 'Sports' });
+    expect(sports.at()).toBe('live · channels 0');
+    expect(sports.rows()[0]).toBe('4 Channel s1 2-0');
+    expect((await setup({ startCategory: { src: 's2', name: 'Kids' } })).live.shownCategory()).toEqual({ src: 's2', name: 'Kids' });
+    // Gone, another source's, or none: "All channels".
+    for (const ref of [{ src: 's1', name: 'Movies' }, { src: 's2', name: 'News' }, null]) {
+      const t = await setup({ startCategory: ref });
+      expect(t.live.category.value).toBe(0);
+      expect(t.live.shownCategory()).toBeNull();
+    }
+    // Only the first load: a reload keeps the category picked since.
+    sports.live.home.focus('rail', 1);
+    await sports.press('OK');
+    expect(sports.live.shownCategory()).toEqual({ src: 's1', name: 'News' });
+    sports.live.reload();
+    await flush();
+    expect(sports.live.shownCategory()).toEqual({ src: 's1', name: 'News' });
+  });
+
+  it('keeps the wish for the load that succeeds, after one that failed', async () => {
+    const engine = new FakeEngine();
+    engine.failProfile = true;
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const t = await setup({ engine, startCategory: { src: 's1', name: 'Sports' } });
+    expect(t.live.status.value).toBe('failed');
+    expect(t.live.shownCategory()).toBeNull();
+    engine.failProfile = false;
+    t.live.reload();
+    await flush();
+    expect(t.live.shownCategory()).toEqual({ src: 's1', name: 'Sports' });
+  });
+
+  it('names the categories by source and name', () => {
+    const entries = railEntries([
+      { src: 's1', categories: CATEGORIES['s1']! },
+      { src: 's2', categories: [info(0, 'News', [1]), info(1, '', [1])] },
+    ]);
+    expect(findEntry(entries, { src: 's2', name: 'News' })).toBe(3);
+    expect(findEntry(entries, { src: 's1', name: 'News' })).toBe(1);
+    expect(findEntry(entries, { src: 's2', name: '' })).toBe(4);
+    expect(findEntry(entries, { src: 's1', name: '' })).toBe(-1);
+    expect(findEntry(entries, { src: 's3', name: 'News' })).toBe(-1);
+  });
+
+  it("finds the channel's row once the list is in, from its last row outwards", async () => {
+    const engine = new FakeEngine();
+    engine.hold.add('profile');
+    const t = await setup({ engine });
+    // Asked before the list is in: it waits for it.
+    const early = t.live.list.locate(SPORTS_KEY, 1100);
+    await flush();
+    engine.held.profile!.splice(0).forEach((held) => held.resolve(engine.profileDoc));
+    await flush();
+    expect(await early).toBe(1100);
+    // The guess's chunk is read first: the chunk between it and the window's never is.
+    expect(engine.chunkCalls).toContain('s1|2|2');
+    expect(engine.chunkCalls).not.toContain('s1|2|1');
+    // It moved: found from the guess outwards (the guess's chunk is the window's, already read).
+    const from = engine.chunkCalls.length;
+    expect(await t.live.list.locate(SPORTS_KEY, 5)).toBe(1100);
+    expect(engine.chunkCalls.slice(from)).toEqual(['s1|2|1', 's1|2|2']);
+    expect(await t.live.list.locate('x:s1:live:0-2', 9999)).toBe(2);
+    expect(await t.live.list.locate('x:s1:live:9-9', 0)).toBe(-1);
+    expect(await t.live.list.locate('x:s2:live:0-1', -5)).toBe(1204);
+  });
+
+  it('finds it in the category on show', async () => {
+    const t = await setup({ startCategory: { src: 's1', name: 'Sports' } });
+    expect(await t.live.list.locate(SPORTS_KEY, 0)).toBe(1097);
+    expect(await t.live.list.locate('x:s2:live:0-1', 0)).toBe(-1);
+  });
+
+  it("gives -1 for a list that couldn't load, reloaded under it, or was disposed", async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const failing = new FakeEngine();
+    failing.failProfile = true;
+    const failed = await setup({ engine: failing });
+    expect(await failed.live.list.locate('x:s1:live:0-2', 2)).toBe(-1);
+    const t = await setup();
+    t.engine.hold.add('chunk');
+    const found = t.live.list.locate(SPORTS_KEY, 1100);
+    await flush();
+    t.live.reload();
+    for (const held of t.engine.held.chunk!.splice(0)) held.resolve(chunkItems('s1', 2, 2));
+    expect(await found).toBe(-1);
+    const engine = new FakeEngine();
+    engine.hold.add('profile');
+    const gone = await setup({ engine });
+    const asked = gone.live.list.locate('x:s1:live:0-2', 2);
+    gone.live.dispose();
+    engine.held.profile!.splice(0).forEach((held) => held.resolve(engine.profileDoc));
+    expect(await asked).toBe(-1);
+  });
+
+  it('marks the moment its categories are in, once per load that succeeds', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    performance.clearMarks('zoma:live-ready');
+    const t = await setup();
+    expect(performance.getEntriesByName('zoma:live-ready')).toHaveLength(1);
+    t.engine.failProfile = true;
+    t.live.reload();
+    await flush();
+    expect(performance.getEntriesByName('zoma:live-ready')).toHaveLength(1);
+    t.engine.failProfile = false;
+    t.live.reload();
+    await flush();
+    expect(performance.getEntriesByName('zoma:live-ready')).toHaveLength(2);
   });
 });

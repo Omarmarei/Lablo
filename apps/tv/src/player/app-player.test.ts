@@ -68,7 +68,17 @@ const flush = async (): Promise<void> => {
 
 const live = (url: string) => ({ key: 'x:s1:live:1', src: 's1', mode: 'live' as const, candidates: [{ url, container: 'ts' as const }] });
 
-function setup(options: { resolveUrl?: AppPlayerDeps['platform']['resolveUrl']; engines?: PlayerEngine[]; refuseScreenSaver?: boolean; preferences?: () => TrackPreferences; loadSubtitles?: AppPlayerDeps['loadSubtitles'] } = {}) {
+function setup(
+  options: {
+    resolveUrl?: AppPlayerDeps['platform']['resolveUrl'];
+    engines?: PlayerEngine[];
+    refuseScreenSaver?: boolean;
+    preferences?: () => TrackPreferences;
+    loadSubtitles?: AppPlayerDeps['loadSubtitles'];
+    memory?: AppPlayerDeps['memory'];
+    trackMemory?: AppPlayerDeps['trackMemory'];
+  } = {},
+) {
   const engine = new StubEngine();
   const stages: object[] = [];
   const screenSaver: boolean[] = [];
@@ -102,6 +112,8 @@ function setup(options: { resolveUrl?: AppPlayerDeps['platform']['resolveUrl']; 
     online: () => true,
     ...(options.preferences === undefined ? {} : { preferences: options.preferences }),
     ...(options.loadSubtitles === undefined ? {} : { loadSubtitles: options.loadSubtitles }),
+    ...(options.memory === undefined ? {} : { memory: options.memory }),
+    ...(options.trackMemory === undefined ? {} : { trackMemory: options.trackMemory }),
   });
   return { engine, stages, screenSaver, accounts, make, stage, lifecycle: (event: LifecycleEvent) => lifecycle?.(event) };
 }
@@ -113,6 +125,21 @@ describe('appPlayer (RELAY step 20a)', () => {
     const first = t.make();
     expect(t.make()).toBe(first);
     expect(t.stages).toEqual([t.stage]);
+  });
+
+  it("plays from the memories it is given: the source's container first, the content's choice (step 20c1)", async () => {
+    const remembered: string[] = [];
+    const t = setup({
+      memory: { preferred: (src) => (src === 's1' ? 'hls' : null), remember: (src, container) => remembered.push(`${src} ${container}`) },
+      trackMemory: { choice: () => ({ audio: { id: '1', lang: 'en', label: '' }, text: null, delayMs: 500 }), remember: () => undefined },
+    });
+    const controller = t.make();
+    void controller.play({ ...live('http://panel.test/live/u/p/1.ts'), candidates: [{ url: 'http://panel.test/live/u/p/1.ts', container: 'ts' }, { url: 'http://panel.test/live/u/p/1.m3u8', container: 'hls' }] });
+    await flush();
+    // The channel's remembered English, switched to when the tracks appear.
+    expect(t.engine.log).toEqual(['stop', 'load http://panel.test/live/u/p/1.m3u8', 'selectAudio 1']);
+    expect(remembered).toEqual(['s1 hls']);
+    expect(controller.subtitleDelay).toBe(500);
   });
 
   it('throws when the platform builds no engine', () => {
