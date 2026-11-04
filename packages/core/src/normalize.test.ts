@@ -178,7 +178,10 @@ describe('matchName properties', () => {
   });
 
   it('ignores quality tokens and country prefixes', () => {
-    const word = fc.stringMatching(/^[a-z][a-z0-9]{1,6}$/).filter((w) => !['hd', 'sd', 'fhd', 'uhd', 'hq', 'lq', 'avc', 'fps', 'sdr', 'hdr', 'hevc'].includes(w));
+    // Every quality token the word pattern can spell (a name of quality tokens only keeps them all).
+    const word = fc
+      .stringMatching(/^[a-z][a-z0-9]{1,6}$/)
+      .filter((w) => !['hd', 'sd', 'fhd', 'uhd', 'hq', 'lq', 'avc', 'fps', 'sdr', 'hdr', 'hdr10', 'hevc', 'h264', 'h265', 'x264', 'x265'].includes(w));
     const tag = fc.constantFrom('HD', 'FHD', 'UHD', '4K', 'HEVC', '1080p', 'ᴴᴰ', 'H.265');
     const prefix = fc.constantFrom('', 'AR: ', '|UK| ', 'FR | ', 'US - ', '[DE] ', 'KSA: ');
     fc.assert(
