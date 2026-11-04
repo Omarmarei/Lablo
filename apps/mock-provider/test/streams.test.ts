@@ -47,6 +47,10 @@ describe('live', () => {
     // The formats it allows are the ones user_info names.
     expect(JSON.parse((await get('/player_api.php?username=hls&password=hls-test')).body).user_info.allowed_output_formats).toEqual(['m3u8']);
     expect(JSON.parse((await get('/player_api.php?username=zoma&password=zoma-test')).body).user_info.allowed_output_formats).toEqual(['m3u8', 'ts']);
+    // An account that allows TS only gets no HLS.
+    app.mockState.fixture.accounts.find((a) => a.username === 'hls')!.outputFormats = ['ts'];
+    expect((await get('/live/hls/hls-test/101.m3u8')).statusCode).toBe(403);
+    expect((await get('/live/hls/hls-test/101.ts')).statusCode).toBe(200);
   });
 
   it('serves a sliding-window HLS playlist whose segments resolve', async () => {

@@ -149,6 +149,23 @@ describe('the stream info: reading the player (RELAY step 20c2a)', () => {
     expect(r.clock.pending()).toBe(0);
   });
 
+  it('starts afresh when it opens again, and counts a paused stream as no frames', () => {
+    const r = rig();
+    r.panel.toggle();
+    r.play();
+    expect(r.panel.info.value!.fps).toBe(25);
+    r.panel.toggle();
+    // Opened again later: the readings before it closed don't count.
+    r.play(100, 8_000_000);
+    r.panel.toggle();
+    expect(r.panel.info.value).toMatchObject({ fps: null, bitrate: null });
+    r.play(25, 1_000_000);
+    // Paused: the counters stand still, which is no reset.
+    r.play(0, 0);
+    r.play(0, 0);
+    expect(r.panel.info.value).toMatchObject({ fps: 25 / 3, bitrate: 1_000_000 / 3 });
+  });
+
   it('measures over the last readings only', () => {
     const r = rig();
     r.panel.toggle();
