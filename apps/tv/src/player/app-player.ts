@@ -1,7 +1,9 @@
 import { normalizeLang } from '@zoma/core';
 import type { Platform } from '@zoma/platform-api';
-import type { AccountStatus, Clock, ControllerOptions, TrackPreferences } from '@zoma/player';
+import type { SubtitleCue } from '@zoma/core';
+import type { AccountStatus, Clock, ControllerOptions, ExternalSub, TrackPreferences } from '@zoma/player';
 import { PlayerController } from '@zoma/player';
+import { createSubtitleLoader } from './subtitle-loader';
 
 /**
  * The app's one `PlayerController` (RELAY step 20a, ADR-008), made on the first play so that a
@@ -13,7 +15,9 @@ import { PlayerController } from '@zoma/player';
  * - `screenSaver`: `Platform.setScreenSaver` (a TV that refuses it changes nothing);
  * - `online` and `checkAccount` (the error card's facts) from the app;
  * - the lifecycle: `hidden` and `visible` go to the controller's `hide` and `show`;
- * - `preferences` (step 20b): the track languages to prefer, read when a stream's tracks appear.
+ * - `preferences` (step 20b): the track languages to prefer, read when a stream's tracks appear;
+ * - `loadSubtitles` (step 20b2b): a request's subtitle files, fetched and parsed by the app
+ *   (`subtitle-loader.ts`).
  */
 export interface AppPlayerDeps {
   readonly platform: Pick<Platform, 'id' | 'createEngines' | 'resolveUrl' | 'setScreenSaver' | 'onLifecycle'>;
@@ -25,6 +29,8 @@ export interface AppPlayerDeps {
   readonly online: () => boolean;
   /** The audio and subtitle languages to prefer (`uiTrackPreferences` of the UI's language). */
   readonly preferences?: () => TrackPreferences;
+  /** Fetches and parses a subtitle file (default: `createSubtitleLoader()`). */
+  readonly loadSubtitles?: (sub: ExternalSub) => Promise<readonly SubtitleCue[]>;
   /** Tests pin the clock. */
   readonly clock?: Clock;
 }
@@ -50,6 +56,7 @@ export function appPlayer(deps: AppPlayerDeps): () => PlayerController {
     const options: ControllerOptions = {
       online: deps.online,
       checkAccount: deps.checkAccount,
+      loadSubtitles: deps.loadSubtitles ?? createSubtitleLoader(),
       ...(deps.preferences === undefined ? {} : { preferences: deps.preferences }),
       screenSaver: (allowed) => {
         platform.setScreenSaver(allowed).catch((error: unknown) => console.warn('The screensaver setting was refused', error));
