@@ -25,6 +25,8 @@ import { RemoteDriver } from './remote-driver';
  *
  * The stream info (RELAY step 20c2a) on real live channels: the picture size, the frame rate and
  * the bitrate measured from the `<video>`'s counters, the format and the player.
+ *
+ * The picture's 4:3 mode (RELAY step 20c2b) on a real picture, read from the screen's pixels.
  */
 const MEDIA_DIR = path.resolve(import.meta.dirname, '../.cache/media');
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
@@ -229,5 +231,64 @@ test('the stream info on real live channels: the size, a measured frame rate and
 
   await remote.press('BACK');
   await remote.expectFocus('live/channels/8');
+  expect(errors).toEqual([]);
+});
+
+/** The screen's colour (r, g, b) at each point, from a screenshot the page decodes itself. */
+async function colours(page: Page, points: ReadonlyArray<readonly [number, number]>): Promise<number[][]> {
+  const png = (await page.screenshot({ animations: 'disabled' })).toString('base64');
+  return page.evaluate(
+    async ({ png, points }) => {
+      const img = new Image();
+      img.src = `data:image/png;base64,${png}`;
+      await img.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (ctx === null) return [];
+      ctx.drawImage(img, 0, 0);
+      return points.map(([x, y]) => Array.from(ctx.getImageData(x, y, 1, 1).data.slice(0, 3)));
+    },
+    { png, points },
+  );
+}
+
+/** Black: the side bars. The SMPTE HD bars' edges are 40% grey. */
+const dark = (rgb: number[]): boolean => rgb.every((v) => v < 24);
+
+test('the picture in 4:3 on a real live channel: the 16:9 bars squeezed into the middle, black at the sides', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = trackErrors(page);
+  const remote = new RemoteDriver(page);
+  await addXtreamAndWatch(remote, { host, username: U, password: P }, 'locale=en-US');
+  // Zoma Test 1 SMPTE: 960x540 HD colour bars, grey at both edges.
+  await remote.press('OK');
+  const player = page.getByTestId('player');
+  await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
+  await expectMoving(page);
+  // Fit: the 16:9 picture fills the 16:9 screen, edge to edge (above the info bar).
+  const edges = [[24, 200], [1896, 200]] as const;
+  expect((await colours(page, edges)).map(dark)).toEqual([false, false]);
+  await remote.expectFocus('player/actions/0');
+  await remote.go('RIGHT', 'player/actions/1');
+  await remote.go('RIGHT', 'player/actions/2');
+  await remote.go('RIGHT', 'player/actions/3');
+  await remote.press('OK');
+  await remote.press('OK');
+  await remote.press('OK');
+  await expect(player).toHaveAttribute('data-picture', '4:3');
+  // The picture between x 240 and 1680, black beside it; the stream plays on.
+  const shown = await colours(page, [...edges, [216, 200], [264, 200], [1656, 200], [1704, 200]]);
+  expect(shown.map(dark)).toEqual([true, true, true, false, false, true]);
+  await expectMoving(page);
+  await expect(player).toHaveAttribute('data-plays', '1');
+  await page.screenshot({ path: path.join(SHOTS, 'player-picture-43-live-en.png'), animations: 'disabled' });
+  // Fit again: edge to edge.
+  await remote.press('OK');
+  await expect(player).toHaveAttribute('data-picture', 'fit');
+  expect((await colours(page, edges)).map(dark)).toEqual([false, false]);
+  await remote.press('BACK');
+  await remote.expectFocus('live/channels/0');
   expect(errors).toEqual([]);
 });

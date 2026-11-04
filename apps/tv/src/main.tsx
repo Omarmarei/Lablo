@@ -110,6 +110,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   const live = createLive({ platform, engine: dataEngine(), play: (index) => player?.show(index), startCategory: resume === null ? null : resume.category });
   // OK on a channel opens the player on the live navigator (step 20a); Back returns to its row.
   const kept = memory.subtitleSize();
+  const picture = memory.picture();
   player = createPlayer({
     nav: live.nav,
     list: live.list,
@@ -120,6 +121,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     outputFormats: (src) => outputFormats.get(src) ?? null,
     ...(kept === null ? {} : { subtitleSize: kept }),
     sized: (size) => memory.setSubtitleSize(size),
+    ...(picture === null ? {} : { picture }),
+    pictured: (mode) => memory.setPicture(mode),
   });
   if (resume !== null) player.resume({ item: resume.item, number: resume.number }, resume.index);
   showFocus(live.nav);

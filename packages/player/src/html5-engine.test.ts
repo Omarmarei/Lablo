@@ -409,9 +409,23 @@ describe('Html5Engine: play, pause, seek, rect, stats, position', () => {
   it('places the picture in pixels, or fills the stage', () => {
     const r = rig();
     r.engine.setRect({ x: 1200.4, y: 80, width: 640, height: 360.6 });
-    expect(r.video.style).toEqual({ left: '1200px', top: '80px', width: '640px', height: '361px' });
+    expect(r.video.style).toEqual({ left: '1200px', top: '80px', width: '640px', height: '361px', objectFit: '' });
     r.engine.setRect('full');
-    expect(r.video.style).toEqual({ left: '0', top: '0', width: '100%', height: '100%' });
+    expect(r.video.style).toEqual({ left: '0', top: '0', width: '100%', height: '100%', objectFit: '' });
+  });
+
+  it('does every fit through object-fit, and keeps it across loads', async () => {
+    const r = rig();
+    expect(r.engine.caps.fits).toEqual(['contain', 'fill', 'cover']);
+    r.engine.setFit('cover');
+    expect(r.video.style.objectFit).toBe('cover');
+    quiet(r.engine.load(MP4, 1));
+    await r.engine.stop();
+    expect(r.video.style.objectFit).toBe('cover');
+    r.engine.setFit('fill');
+    expect(r.video.style.objectFit).toBe('fill');
+    r.engine.setFit('contain');
+    expect(r.video.style.objectFit).toBe('contain');
   });
 
   it('reports the picture size, and the frames and bytes where the element counts them', () => {
@@ -438,7 +452,7 @@ describe('Html5Engine: play, pause, seek, rect, stats, position', () => {
   it('declares one engine of kind html5 with no preload and one rate', () => {
     const r = rig({ maxHeight: 1080 });
     expect(r.engine.kind).toBe('html5');
-    expect(r.engine.caps).toEqual({ maxHeight: 1080, trackSwitch: 'none', deliversSubtitleText: false, preloadSlots: 0, rates: [1] });
+    expect(r.engine.caps).toEqual({ maxHeight: 1080, trackSwitch: 'none', deliversSubtitleText: false, preloadSlots: 0, rates: [1], fits: ['contain', 'fill', 'cover'] });
     expect(rig().engine.caps.maxHeight).toBe(2160);
   });
 });
@@ -705,7 +719,7 @@ describe('createStageVideo', () => {
     expect(made[0]).toMatchObject({
       tag: 'video',
       attrs: { playsinline: '', 'data-testid': 'player-video' },
-      style: { position: 'absolute', left: '0', top: '0', width: '100%', height: '100%', backgroundColor: '#000' },
+      style: { position: 'absolute', left: '0', top: '0', width: '100%', height: '100%', objectFit: 'contain', backgroundColor: '#000' },
     });
   });
 });

@@ -30,6 +30,8 @@ import type { Clock } from './clock';
 import { SYSTEM_CLOCK } from './clock';
 import type { Container, EngineEvent, EngineStats, PlaybackError, PlayerEngine } from './engine';
 import { isPlaybackError } from './engine';
+import type { PictureMode } from './picture';
+import { pictureLayout, pictureModes } from './picture';
 import type { AccountStatus, PlaybackFailure } from './failure';
 import { classifyFailure, wantsAccountCheck } from './failure';
 import type { WatchdogConfig } from './ladder';
@@ -499,6 +501,23 @@ export class PlayerController {
       engine: this.engine.kind,
       load: this.liveToken,
     };
+  }
+
+  /** The picture modes the engine can show (step 20c2b): `fit` always, `zoom` only where it crops (not AVPlay). */
+  get pictureModes(): PictureMode[] {
+    return pictureModes(this.engine.caps.fits);
+  }
+
+  /**
+   * Shows every stream from now on in `mode` (step 20c2b): its rect and fit go to the engine,
+   * which keeps them for every load. A mode the engine can't show is `fit`. Returns the mode shown.
+   */
+  setPicture(mode: PictureMode): PictureMode {
+    const shown = this.pictureModes.indexOf(mode) === -1 ? 'fit' : mode;
+    const layout = pictureLayout(shown);
+    this.engine.setRect(layout.rect);
+    this.engine.setFit(layout.fit);
+    return shown;
   }
 
   /** Stops playback and lets go of the engine (the platform owns and destroys it). */

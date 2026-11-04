@@ -1,13 +1,13 @@
 import type { CatalogItem, ContentKey } from '@zoma/core';
 import type { EpgNowNext } from '@zoma/data';
 import type { Intent } from '@zoma/platform-api';
-import type { PlaybackFailure, PlayerState, PlayerStatus, PlayerTracks, PlayRequest, StreamStats, SubtitleView } from '@zoma/player';
+import type { PictureMode, PlaybackFailure, PlayerState, PlayerStatus, PlayerTracks, PlayRequest, StreamStats, SubtitleView } from '@zoma/player';
 import { NO_STATS, NO_TRACKS } from '@zoma/player';
 import { createNavigator } from '@zoma/ui';
 import { describe, expect, it } from 'vitest';
 import type { LiveRow, Timers } from '../live/live-state';
 import type { PlayerLike, ZapList } from './player-state';
-import { DIGITS_MS, INFO_MS, MISSING_MS, STATS_ACTION, TRACKS_ACTION, ZAP_DELAY_MS, createPlayer, liveRequest } from './player-state';
+import { DIGITS_MS, INFO_MS, MISSING_MS, PICTURE_ACTION, STATS_ACTION, TRACKS_ACTION, ZAP_DELAY_MS, createPlayer, liveRequest } from './player-state';
 import { STATS_MS } from './stream-info';
 import type { SubtitleSize } from './track-menu';
 import { DEFAULT_SUBTITLE_SIZE, DELAY_STEP_MS, MAX_DELAY_MS, MENU_ROWS } from './track-menu';
@@ -119,6 +119,14 @@ class FakeController implements PlayerLike {
   /** What `stats()` answers, and how often it was asked. */
   statsValue: StreamStats | null = null;
   statsReads = 0;
+  /** The modes the engine can show, and each mode the player asked for. */
+  pictureModes: PictureMode[] = ['fit', 'zoom', 'stretch', '4:3'];
+  readonly pictures: PictureMode[] = [];
+
+  setPicture(mode: PictureMode): PictureMode {
+    this.pictures.push(mode);
+    return this.pictureModes.indexOf(mode) === -1 ? 'fit' : mode;
+  }
 
   stats(): StreamStats | null {
     this.statsReads += 1;
@@ -237,11 +245,12 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i += 1) await Promise.resolve();
 };
 
-function setup(dir: 'ltr' | 'rtl' = 'ltr', kept: { subtitleSize?: SubtitleSize; outputFormats?: (src: string) => readonly string[] | null } = {}) {
+function setup(dir: 'ltr' | 'rtl' = 'ltr', kept: { subtitleSize?: SubtitleSize; outputFormats?: (src: string) => readonly string[] | null; picture?: PictureMode } = {}) {
   const list = new FakeList();
   /** Each `tuned` call: the channel's key and its row. */
   const tuned: string[] = [];
   const sized: SubtitleSize[] = [];
+  const pictured: PictureMode[] = [];
   const controller = new FakeController();
   const clock = manualTimers();
   const nav = createNavigator({
@@ -265,6 +274,7 @@ function setup(dir: 'ltr' | 'rtl' = 'ltr', kept: { subtitleSize?: SubtitleSize; 
     closed: (index) => closed.push(index),
     tuned: (r, index) => tuned.push(`${r.item.key} @${index}`),
     sized: (size) => sized.push(size),
+    pictured: (mode) => pictured.push(mode),
     ...kept,
     timers: clock.timers,
     now: clock.now,
@@ -277,7 +287,7 @@ function setup(dir: 'ltr' | 'rtl' = 'ltr', kept: { subtitleSize?: SubtitleSize; 
     const f = nav.snapshot();
     return `${f.screen} · ${f.zone} ${f.index}`;
   };
-  return { list, controller, clock, nav, player, chrome, closed, tuned, sized, press, at, made: () => made };
+  return { list, controller, clock, nav, player, chrome, closed, tuned, sized, pictured, press, at, made: () => made };
 }
 
 describe('the player: opening and closing (RELAY step 20a)', () => {
@@ -1021,6 +1031,55 @@ describe('the player: the stream info (RELAY step 20c2a)', () => {
     expect(t.made()).toBe(0);
     expect(t.player.streamInfo.info.value).toBeNull();
     t.player.streamInfo.hide();
+  });
+});
+
+describe('the player: the picture (RELAY step 20c2b)', () => {
+  it("goes round the modes from the info bar's fourth button, for every channel, and tells the app each one", async () => {
+    const t = setup();
+    expect(t.player.picture.value).toBe('fit');
+    t.player.show(2);
+    // The controller gets the mode when it is made, before the first play.
+    expect(t.controller.pictures).toEqual(['fit']);
+    expect(t.controller.plays).toHaveLength(1);
+    await t.press('RIGHT', 'RIGHT', 'RIGHT');
+    expect(t.at()).toBe(`player · actions ${PICTURE_ACTION}`);
+    await t.press('OK');
+    expect([t.player.picture.value, t.controller.pictures.slice(1), t.pictured]).toEqual(['zoom', ['zoom'], ['zoom']]);
+    // The bar stays, with the focus on the button; the stream isn't touched.
+    expect(t.player.info.value).toBe(true);
+    expect(t.at()).toBe(`player · actions ${PICTURE_ACTION}`);
+    expect(t.controller.plays).toHaveLength(1);
+    expect(t.controller.stops).toBe(0);
+    await t.press('OK', 'OK', 'OK');
+    expect(t.pictured).toEqual(['zoom', 'stretch', '4:3', 'fit']);
+    // A zap keeps the mode (the engine does), and nothing is asked again.
+    await t.press('OK', 'CH_UP');
+    t.clock.advance(ZAP_DELAY_MS);
+    expect(t.controller.played()).toEqual([2, 3]);
+    expect(t.player.picture.value).toBe('zoom');
+    expect(t.controller.pictures).toEqual(['fit', 'zoom', 'stretch', '4:3', 'fit', 'zoom']);
+    // Closed and opened again: the same mode, still not asked again.
+    await t.press('BACK');
+    t.player.show(1);
+    expect(t.player.picture.value).toBe('zoom');
+    expect(t.controller.pictures).toHaveLength(6);
+  });
+
+  it("starts with the kept mode, or shows fit where the engine can't show it (keeping the kept one)", async () => {
+    const kept = setup('ltr', { picture: '4:3' });
+    expect(kept.player.picture.value).toBe('4:3');
+    kept.player.show(1);
+    expect(kept.controller.pictures).toEqual(['4:3']);
+    expect(kept.player.picture.value).toBe('4:3');
+    const t = setup('ltr', { picture: 'zoom' });
+    t.controller.pictureModes = ['fit', 'stretch', '4:3'];
+    t.player.show(1);
+    expect(t.player.picture.value).toBe('fit');
+    expect(t.pictured).toEqual([]);
+    // AVPlay's round: fit, stretch, 4:3.
+    await t.press('RIGHT', 'RIGHT', 'RIGHT', 'OK', 'OK', 'OK');
+    expect(t.pictured).toEqual(['stretch', '4:3', 'fit']);
   });
 });
 

@@ -8,7 +8,7 @@ import { appPlayer, uiTrackPreferences } from './app-player';
 /** An engine whose loads show a frame at once, recording what the controller asks of it. */
 class StubEngine implements PlayerEngine {
   readonly kind = 'html5' as const;
-  readonly caps: EngineCaps = { maxHeight: 1080, trackSwitch: 'none', deliversSubtitleText: false, preloadSlots: 0, rates: [1] };
+  readonly caps: EngineCaps = { maxHeight: 1080, trackSwitch: 'none', deliversSubtitleText: false, preloadSlots: 0, rates: [1], fits: ['contain', 'fill', 'cover'] };
   readonly log: string[] = [];
   failLoads = false;
   /** Arabic sound (playing) and English. */
@@ -34,6 +34,7 @@ class StubEngine implements PlayerEngine {
     return Promise.resolve();
   }
   setRect(): void {}
+  setFit(): void {}
   getTracks() {
     return { audio: this.audio, text: [] };
   }

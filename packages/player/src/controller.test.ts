@@ -844,3 +844,35 @@ describe('PlayerController: the app lifecycle (RELAY step 20a)', () => {
     expect(r.player.status.state).toBe('idle');
   });
 });
+
+describe('PlayerController: the picture (RELAY step 20c2b)', () => {
+  it('lists the modes the engine can show, and gives the engine each one as a rect and a fit', async () => {
+    const r = rig();
+    expect(r.player.pictureModes).toEqual(['fit', 'zoom', 'stretch', '4:3']);
+    expect(r.player.setPicture('4:3')).toBe('4:3');
+    expect([r.engine.rect, r.engine.fit]).toEqual([{ x: 240, y: 0, width: 1440, height: 1080 }, 'fill']);
+    expect(r.player.setPicture('zoom')).toBe('zoom');
+    expect([r.engine.rect, r.engine.fit]).toEqual(['full', 'cover']);
+    // A mode changes nothing else: the stream plays on.
+    void r.player.play(live(1));
+    await r.clock.advance(500);
+    expect(r.player.setPicture('stretch')).toBe('stretch');
+    expect([r.engine.rect, r.engine.fit]).toEqual(['full', 'fill']);
+    expect(r.player.status.state).toBe('playing');
+    expect(r.engine.log.filter((entry) => entry.startsWith('load'))).toHaveLength(1);
+    expect(r.player.setPicture('fit')).toBe('fit');
+    expect([r.engine.rect, r.engine.fit]).toEqual(['full', 'contain']);
+  });
+
+  it('shows a mode the engine lacks as fit (AVPlay has no zoom)', () => {
+    const r = rig();
+    r.engine.fits = ['contain', 'fill'];
+    expect(r.player.pictureModes).toEqual(['fit', 'stretch', '4:3']);
+    r.player.setPicture('4:3');
+    expect(r.player.setPicture('zoom')).toBe('fit');
+    expect([r.engine.rect, r.engine.fit]).toEqual(['full', 'contain']);
+    r.engine.fits = ['contain'];
+    expect(r.player.pictureModes).toEqual(['fit']);
+    expect(r.player.setPicture('stretch')).toBe('fit');
+  });
+});

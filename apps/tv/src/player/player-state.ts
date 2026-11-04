@@ -4,8 +4,8 @@ import type { ContentKey } from '@zoma/core';
 import type { EpgNowNext } from '@zoma/data';
 import type { Intent } from '@zoma/platform-api';
 import { DIGIT_INTENTS } from '@zoma/platform-api';
-import type { PlayerStatus, PlayRequest, StreamStats, SubtitleView } from '@zoma/player';
-import { NO_TRACKS, streamCandidates } from '@zoma/player';
+import type { PictureMode, PlayerStatus, PlayRequest, StreamStats, SubtitleView } from '@zoma/player';
+import { NO_TRACKS, nextPicture, streamCandidates } from '@zoma/player';
 import type { Focus, Navigator, Screen, ZoneSpec } from '@zoma/ui';
 import type { LiveRow, Timers } from '../live/live-state';
 import { mark } from '../marks';
@@ -18,7 +18,8 @@ import { createTrackMenu } from './track-menu';
  * The player (RELAY step 20a, architecture.md §2 "Zapping"): the full-screen route that OK on a
  * channel of the live screen opens. It is a screen on the live screen's navigator:
  *
- *   actions  (the info bar's buttons: "Previous channel", "Audio and subtitles", "Stream info")
+ *   actions  (the info bar's buttons: "Previous channel", "Audio and subtitles", "Stream info",
+ *            "Picture")
  *   card     (the error card's "Try again" and "Channels", only once the player gave up)
  *
  * - **Zapping:** CH+/CH− and UP/DOWN move through the list the live screen showed, wrapping at
@@ -45,6 +46,9 @@ import { createTrackMenu } from './track-menu';
  * - **The stream info** (step 20c2a, `stream-info.ts`): the info bar's "Stream info" turns the
  *   panel on and off; it stays through zaps and goes when the player closes. Each play asks only
  *   for the formats the source's account allows (`outputFormats`).
+ * - **The picture** (step 20c2b): the info bar's "Picture" goes round the modes the engine can
+ *   show (fit, zoom, stretch, 4:3; no zoom on AVPlay), for every channel from then on. The
+ *   controller gets the kept mode when it is made (`picture`), and each change is kept (`pictured`).
  */
 
 /** The info bar's stream opens this long after the last zap key. */
@@ -91,6 +95,10 @@ export interface PlayerLike {
   setSubtitleDelay(ms: number): void;
   /** The stream on show's figures (`null`: no picture), for the stream info. */
   stats(): StreamStats | null;
+  /** The picture modes the engine can show. */
+  readonly pictureModes: readonly PictureMode[];
+  /** Shows every stream in `mode` from now on; returns the mode shown (`fit` for one the engine lacks). */
+  setPicture(mode: PictureMode): PictureMode;
 }
 
 /** Number entry: the digits typed, then the search, then (maybe) "no channel has it". */
@@ -117,6 +125,10 @@ export interface PlayerOptions {
   readonly subtitleSize?: SubtitleSize;
   /** The subtitles' size changed (the app keeps it). */
   readonly sized?: (size: SubtitleSize) => void;
+  /** The picture's mode to start with (the profile's; default `fit`). */
+  readonly picture?: PictureMode;
+  /** The user chose another picture mode (the app keeps it). */
+  readonly pictured?: (mode: PictureMode) => void;
   readonly timers?: Timers;
   /** The clock the stream info measures its rates by (ms; default `Date.now`). */
   readonly now?: () => number;
@@ -144,6 +156,8 @@ export interface Player {
   readonly subtitles: ReadonlySignal<SubtitleView>;
   /** The stream info panel (on and off, and its figures). */
   readonly streamInfo: StreamInfoPanel;
+  /** The picture's mode on show (the kept one until the controller is made). */
+  readonly picture: ReadonlySignal<PictureMode>;
   /** Opens the player on row `index` of the list and plays it at once. */
   show(index: number): void;
   /**
@@ -160,12 +174,14 @@ export interface Player {
 const IDLE: PlayerStatus = { state: 'idle', session: 0, key: null, container: null, attempt: 0, failure: null, tracks: NO_TRACKS };
 const NO_SUBTITLES: SubtitleView = { feed: null, cues: [] };
 
-/** The info bar's buttons: "Previous channel", "Audio and subtitles" and "Stream info". */
-export const ACTIONS = 3;
+/** The info bar's buttons: "Previous channel", "Audio and subtitles", "Stream info" and "Picture". */
+export const ACTIONS = 4;
 /** The info bar's "Audio and subtitles". */
 export const TRACKS_ACTION = 1;
 /** The info bar's "Stream info". */
 export const STATS_ACTION = 2;
+/** The info bar's "Picture" (step 20c2b). */
+export const PICTURE_ACTION = 3;
 
 function actionsZone(): ZoneSpec {
   return { kind: 'list', id: 'actions', axis: 'horizontal', count: ACTIONS };
@@ -202,6 +218,7 @@ export function createPlayer(options: PlayerOptions): Player {
   const entry = signal<NumberEntry | null>(null);
   const plays = signal(0);
   const subtitles = signal<SubtitleView>(NO_SUBTITLES);
+  const picture = signal<PictureMode>(options.picture ?? 'fit');
 
   let controller: PlayerLike | null = null;
   const streamInfo = createStreamInfo({
@@ -305,8 +322,18 @@ export function createPlayer(options: PlayerOptions): Player {
       unsubscribeSubtitles = controller.subscribeSubtitles(onSubtitles);
       status.value = controller.status;
       subtitles.value = controller.subtitles;
+      // The kept mode, or `fit` where this engine can't show it (the kept one stays kept).
+      picture.value = controller.setPicture(picture.value);
     }
     return controller;
+  };
+
+  /** The next picture mode the engine can show, kept for every channel. */
+  const nextMode = (): void => {
+    const c = ctrl();
+    const shown = c.setPicture(nextPicture(picture.value, c.pictureModes));
+    picture.value = shown;
+    if (options.pictured !== undefined) options.pictured(shown);
   };
 
   /** Opens row `index`'s stream now (reading its chunk first when needed). */
@@ -537,6 +564,7 @@ export function createPlayer(options: PlayerOptions): Player {
   const onSelect = (focus: Focus): void => {
     if (focus.zone === 'actions' && focus.index === TRACKS_ACTION) openMenu('audio');
     else if (focus.zone === 'actions' && focus.index === STATS_ACTION) streamInfo.toggle();
+    else if (focus.zone === 'actions' && focus.index === PICTURE_ACTION) nextMode();
     else if (focus.zone === 'actions') previousChannel();
     else if (focus.zone === 'card' && focus.index === 0) go(playing.value !== -1 ? playing.value : target.value);
     else if (focus.zone === 'card') close();
@@ -555,6 +583,7 @@ export function createPlayer(options: PlayerOptions): Player {
     menu,
     subtitles,
     streamInfo,
+    picture,
     show(index: number): void {
       if (open.value) return;
       open.value = true;

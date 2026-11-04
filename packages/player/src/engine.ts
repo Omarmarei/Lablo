@@ -97,12 +97,20 @@ export interface Track {
   readonly selected: boolean;
 }
 
+/** A place on the screen, in its 1920×1080 space (AVPlay's `setDisplayRect` space; the app's CSS pixels). */
 export interface Rect {
   readonly x: number;
   readonly y: number;
   readonly width: number;
   readonly height: number;
 }
+
+/**
+ * How the picture fills its rect (RELAY step 20c2b), in CSS `object-fit`'s words: `contain` keeps
+ * its shape with bars, `fill` stretches it to the rect, `cover` keeps its shape and crops what
+ * overflows.
+ */
+export type PictureFit = 'contain' | 'fill' | 'cover';
 
 /**
  * What an engine says about the stream it plays (the stream info, RELAY step 20c2a). Each engine
@@ -147,6 +155,8 @@ export interface EngineCaps {
   readonly deliversSubtitleText: boolean;
   readonly preloadSlots: number;
   readonly rates: readonly number[];
+  /** The fits `setFit` can do; `contain` always (the `<video>`: all three; AVPlay: no `cover`). */
+  readonly fits: readonly PictureFit[];
 }
 
 export interface LoadOptions {
@@ -171,8 +181,13 @@ export interface PlayerEngine {
    * A pending `load` settles. Safe to call when nothing is loaded.
    */
   stop(): Promise<void>;
-  /** AVPlay `setDisplayRect`, or CSS on the single `<video>`. */
+  /** AVPlay `setDisplayRect`, or CSS on the single `<video>`. Kept for every later load. */
   setRect(r: Rect | 'full'): void;
+  /**
+   * How the picture fills the rect: AVPlay `setDisplayMethod`, or the `<video>`'s `object-fit`.
+   * Kept for every later load. A fit the engine lacks (not in `caps.fits`) is `contain`.
+   */
+  setFit(fit: PictureFit): void;
   getTracks(): { audio: Track[]; text: Track[] };
   selectAudio(id: string): Promise<boolean>;
   selectText(id: string | null): Promise<boolean>;

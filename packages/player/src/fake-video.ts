@@ -83,7 +83,7 @@ export class FakeVideo implements MediaElementLike {
   videoWidth = 0;
   videoHeight = 0;
   error: { readonly code: number } | null = null;
-  readonly style = { left: '', top: '', width: '', height: '' };
+  readonly style = { left: '', top: '', width: '', height: '', objectFit: '' };
   audioTracks?: AudioTrackListLike;
   textTracks?: TrackListLike<TextTrackLike>;
   mediaId?: string;

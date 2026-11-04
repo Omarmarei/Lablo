@@ -90,7 +90,7 @@ export const STREAMS: readonly AvplayStreamInfo[] = [
 ];
 
 export class FakeAvplay implements AvplayManager {
-  /** Every call, in order: `open <url>`, `setListener`, `setDisplayRect x,y,w,h`, `prepareAsync`, `play`, `seekTo <ms>`, `restore`, `restore null <ms>`… */
+  /** Every call, in order: `open <url>`, `setListener`, `setDisplayRect x,y,w,h`, `setDisplayMethod <mode>`, `prepareAsync`, `play`, `seekTo <ms>`, `restore`, `restore null <ms>`… */
   readonly log: string[] = [];
   /** Methods that throw this `WebAPIException` name instead of running. */
   readonly throws: { [method: string]: string } = {};
@@ -173,6 +173,10 @@ export class FakeAvplay implements AvplayManager {
 
   setDisplayRect(x: number, y: number, width: number, height: number): void {
     this.call('setDisplayRect ' + [x, y, width, height].join(','), 'setDisplayRect');
+  }
+
+  setDisplayMethod(mode: string): void {
+    this.call('setDisplayMethod ' + mode, 'setDisplayMethod');
   }
 
   setListener(listener: AvplayListener): void {

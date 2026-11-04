@@ -1,12 +1,12 @@
 import type { EpgProgramme } from '@zoma/core';
 import type { EpgNowNext } from '@zoma/data';
-import type { PlaybackFailure } from '@zoma/player';
+import type { PictureMode, PlaybackFailure } from '@zoma/player';
 import type { FocusBinding, Screen } from '@zoma/ui';
 import { Badge, Button, ProgressBar, Spinner, useFocus, useZone } from '@zoma/ui';
 import type { AppI18n, MessageKey } from '../i18n';
 import type { Live, LiveRow } from '../live/live-state';
 import type { Player } from './player-state';
-import { STATS_ACTION, TRACKS_ACTION } from './player-state';
+import { PICTURE_ACTION, STATS_ACTION, TRACKS_ACTION } from './player-state';
 import { StreamInfoPanel } from './StreamInfoPanel';
 import { SubtitleOverlay } from './SubtitleOverlay';
 import { TrackMenuPanel } from './TrackMenuPanel';
@@ -28,6 +28,14 @@ const ACCOUNT_TEXT: Readonly<Record<string, MessageKey>> = {
   'PRV-EXPIRED': 'player.account.expired',
   'PRV-BLOCKED': 'player.account.blocked',
   'PRV-MAX-CONNECTIONS': 'player.account.full',
+};
+
+/** Each picture mode's name on the info bar's "Picture" button (step 20c2b). */
+const PICTURE_TEXT: Readonly<Record<PictureMode, MessageKey>> = {
+  fit: 'player.picture.fit',
+  zoom: 'player.picture.zoom',
+  stretch: 'player.picture.stretch',
+  '4:3': 'player.picture.43',
 };
 
 /** A programme's start and end in the locale's time, and how far it has gone. */
@@ -93,6 +101,7 @@ function InfoBar({ live, player, i18n, screen, binding, row, guide }: InfoBarPro
         <Button label={t('player.previous')} disabled={player.previous.value === -1} {...actions.item(0)} testId="player-previous" />
         <Button label={t('player.tracks')} {...actions.item(TRACKS_ACTION)} testId="player-tracks" />
         <Button label={t('player.streamInfo')} {...actions.item(STATS_ACTION)} testId="player-stats" />
+        <Button label={t('player.picture', { mode: t(PICTURE_TEXT[player.picture.value]) })} {...actions.item(PICTURE_ACTION)} testId="player-picture" />
       </div>
     </section>
   );
@@ -135,6 +144,9 @@ function ErrorCard({ failure, i18n, screen, binding }: { failure: PlaybackFailur
  * card. Its root carries the focus (`data-screen/zone/index`) and the player's state for tests.
  * The subtitles (step 20b2b) share the bottom of the safe area with the info bar, above it. The
  * stream info (step 20c2a) sits under the badge; the error card replaces it while it shows.
+ * The picture's mode (step 20c2b) is on the info bar's fourth button. In 4:3 the screen draws the
+ * black side bars itself, under everything else: outside its 4:3 box the `<video>` leaves the
+ * stage transparent, and so the page's own colour would show (AVPlay's plane is black there).
  */
 export function PlayerScreen({ live, player, i18n }: { live: Live; player: Player; i18n: AppI18n }) {
   const { t } = i18n;
@@ -182,7 +194,14 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
       data-menu={String(menu !== null)}
       data-subtitles={subtitles.feed ?? ''}
       data-stats={String(stats)}
+      data-picture={player.picture.value}
     >
+      {player.picture.value === '4:3' && (
+        <div class="player__pillars" aria-hidden="true" data-testid="player-pillars">
+          <div class="player__pillar player__pillar--left" />
+          <div class="player__pillar player__pillar--right" />
+        </div>
+      )}
       {waiting && (
         <div class="player__wait" data-testid="player-wait">
           <Spinner size="l" label={t('player.connecting')} />

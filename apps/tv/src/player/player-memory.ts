@@ -1,7 +1,8 @@
 import type { CatalogItem, ContentKey } from '@zoma/core';
 import type { LastChannel, LoadedProfile, PlayerChange, ProfileEdit, StoredTrackChoice, StoredTrackPick } from '@zoma/data';
 import type { RedirectMemory, RedirectMode } from '@zoma/platform-api';
-import type { Container, SourceMemory, TrackChoice, TrackMemory, TrackPick } from '@zoma/player';
+import type { Container, PictureMode, SourceMemory, TrackChoice, TrackMemory, TrackPick } from '@zoma/player';
+import { asPictureMode } from '@zoma/player';
 import type { SubtitleSize } from './track-menu';
 
 /**
@@ -13,7 +14,8 @@ import type { SubtitleSize } from './track-menu';
  * - `sources` to the controller: the container that last played, per source (`SourceMemory`);
  * - `redirects` to the Tizen platform: what its redirect probe learned, per source;
  * - `tracks` to the controller: each content's track choice and subtitle timing (`TrackMemory`);
- * - the last channel (the start plays it) and the subtitle size, to the app.
+ * - the last channel (the start plays it), the subtitle size and the picture's mode (step
+ *   20c2b), to the app.
  *
  * Reads never wait: what the start's profile said, plus every change since. A change equal to
  * what is kept writes nothing. A write that fails is logged and kept for the app's run.
@@ -39,6 +41,9 @@ export interface PlayerMemory {
   /** The subtitles' size (`null`: never set). */
   subtitleSize(): SubtitleSize | null;
   setSubtitleSize(size: SubtitleSize): void;
+  /** The picture's mode for every channel (`null`: never set). */
+  picture(): PictureMode | null;
+  setPicture(mode: PictureMode): void;
 }
 
 const CONTAINERS: readonly Container[] = ['ts', 'hls', 'mp4', 'mkv', 'other'];
@@ -111,6 +116,7 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
   let choices: Record<string, TrackChoice> = {};
   let last: LastChannel | null = null;
   let size: SubtitleSize | null = null;
+  let picture: PictureMode | null = null;
 
   const write = (change: PlayerChange): void => {
     options.edit({ kind: 'player', change }).catch((error: unknown) => console.warn('The player memory was not saved', error));
@@ -185,6 +191,7 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
       }
       const storedSize = doc['subtitleSize'];
       size = SIZES.indexOf(storedSize as SubtitleSize) !== -1 ? (storedSize as SubtitleSize) : null;
+      picture = asPictureMode(doc['picture']);
       last = lastChannelOf(profile);
     },
     last: () => last,
@@ -198,6 +205,12 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
       if (next === size) return;
       size = next;
       write({ field: 'subtitleSize', size: next });
+    },
+    picture: () => picture,
+    setPicture(next: PictureMode): void {
+      if (next === picture) return;
+      picture = next;
+      write({ field: 'picture', mode: next });
     },
   };
 }
