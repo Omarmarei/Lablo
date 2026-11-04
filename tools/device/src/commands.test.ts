@@ -33,17 +33,19 @@ describe('Tizen device commands (tizen / sdb)', () => {
     expect(deviceCommand('devices', 'tizen', '', tizenApp)).toEqual({ bin: 'sdb', args: ['devices'] });
   });
 
+  // The device is always the sdb serial: `tizen install|run` take it with `-s` (`-t` is the
+  // target *name*, a different column of `sdb devices`), and sdb itself with `-s`.
   it('installs the .wgt by name from its folder (Windows paths too)', () => {
     expect(deviceCommand('install', 'tizen', '192.168.1.20:26101', tizenApp)).toEqual({
       bin: 'tizen',
-      args: ['install', '-n', 'Zoma.wgt', '-t', '192.168.1.20:26101', '--', 'D:/repo/dist/packages'],
+      args: ['install', '-n', 'Zoma.wgt', '-s', '192.168.1.20:26101', '--', 'D:/repo/dist/packages'],
     });
   });
 
   it('launches with tizen run and inspects with sdb debug', () => {
-    expect(deviceCommand('launch', 'tizen', 'UE43NU7100', tizenApp)).toEqual({
+    expect(deviceCommand('launch', 'tizen', '192.168.1.20:26101', tizenApp)).toEqual({
       bin: 'tizen',
-      args: ['run', '-p', 'ZomaIPTV01.Zoma', '-t', 'UE43NU7100'],
+      args: ['run', '-p', 'ZomaIPTV01.Zoma', '-s', '192.168.1.20:26101'],
     });
     expect(deviceCommand('inspect', 'tizen', '192.168.1.20:26101', tizenApp)).toEqual({
       bin: 'sdb',

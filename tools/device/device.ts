@@ -11,7 +11,7 @@
  * step 15a, docs/runbooks/lab.md) instead of the app.
  *
  * Setting up a TV (Developer Mode, ares-setup-device, Samsung certificates) is in
- * docs/runbooks/tv-build.md.
+ * docs/runbooks/tv-setup.md.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -70,7 +70,7 @@ function run(command: DeviceCommand): number {
   if (probe.status !== 0) {
     fail(
       [
-        `"${command.bin}" is not on PATH. Install the Tizen Studio CLI (docs/runbooks/tv-build.md), then run:`,
+        `"${command.bin}" is not on PATH. Install the Tizen CLI (docs/runbooks/tv-setup.md, 3.1), then run:`,
         `  ${command.bin} ${quoted.join(' ')}`,
       ].join('\n'),
     );
