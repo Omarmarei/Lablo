@@ -529,6 +529,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - The Tizen emulator needs HAXM with Hyper-V off, which stops Docker. Don't, without Omar's word.
     - Smart App Control may block any of these downloads: report it, never turn SAC off.
   - **Done when:** the lab runs in at least one emulator or simulator and its records reach the collector.
+  - **Leg 34 (2026-11-04):** Omar accepted LG's SDK license. Simulator 6.0 and 24 (Windows) were downloaded by script (no browser) to `D:/tools/webos-sim/`. **Smart App Control blocks both** (unsigned; Code Integrity events 3033/3077): 6.0's unpacked inner `.exe`, and 24's own `.exe`. No lab session reached the collector. Details in tv-setup.md 2.4. Waiting on Omar for the route.
 - [ ] 16. **[needs Omar] Run the spikes on the available hardware.**
   - **Omar:**
     - tell the relay the LG TV's model and year (which webOS version)

@@ -19,7 +19,8 @@ Emulators and simulators answer syntax and API questions, never media ones ([arc
 
 **This PC** (checked 2026-11-04): Intel Core Ultra 7 255H, 32 GB, with Hyper-V running (Docker Desktop and WSL 2 use it). That matters for both emulators:
 - the Tizen emulator's HAXM needs Hyper-V off, which would stop Docker and with it `pnpm verify:engines`;
-- the webOS Emulator needs VirtualBox 6.1, and whether it runs beside Hyper-V is unconfirmed (step 15e finds out).
+- the webOS Emulator needs VirtualBox 6.1, and whether it runs beside Hyper-V is unconfirmed;
+- **Smart App Control blocks the webOS Simulator** (6.0 and 24 tried in step 15e, 2026-11-04; 2.4 has the details).
 
 ## 1. The lab server (every device)
 
@@ -122,6 +123,14 @@ All quotes in this section are from LG's [Developer Mode app page](https://webos
   Use absolute paths: `pnpm --filter … exec` runs in `tools/device`. `-sp` is the folder holding `webOS_TV_24_Simulator_1.4.1.exe`. The CLI saves it, so later runs need only `-s 24` ([launch.js](https://github.com/webos-tools/cli/blob/main/lib/launch.js); `ares-launch --help`). `pnpm device` doesn't wrap the simulator.
 - **Limits** ([simulator introduction](https://webostv.developer.lge.com/develop/tools/simulator-introduction)): "Some of luna API and webOSSystem API are not supported", "The video and audio specifications are different from actual TV devices", "It does not support DRM function". LG publishes no list of what is mocked. Expect S3 (LGUDID) and S5's luna route to skip or fail, and treat any media answer as the PC's, not a TV's.
 - **What it is good for:** the engines of 2021–2026 (Chromium 79–132) in one place: S1's runtime checks, S9's text and S10's keys on each webOS generation newer than our Docker snapshots (53/56/68).
+- **On this PC (step 15e, 2026-11-04): Smart App Control blocks it.**
+  - **The download:** the zips need no browser. The page's button makes two POSTs: `https://webostv.developer.lge.com/api/downloadSDK` with `{"fileId": "RF…"}` returns `fileIdEnc`, and `https://developer.lge.com/common/file/DownloadFilePath.ajax` with `fileId=<fileIdEnc>` returns XML whose `gftsUrl` attribute is the file's URL on `gfts.lge.com`. The file ids are in the page's `__NEXT_DATA__` (Windows: 6.0 `RF00021083`, 22 `RF00021084`, 23 `RF00021085`, 24 `RF00021086`, 25 `RF00021087`, 26 `RF00021104`). Downloading accepts LG's SDK License Agreement (shown in the page's dialog): Omar accepted it for step 15e.
+  - **What is in a zip:** one `webOS_TV_<version>_Simulator_<release>.exe` (57 MB for 6.0, 73 MB for 24) and an OSS notice. The `.exe` files are **not signed** (`Get-AuthenticodeSignature`: `NotSigned`).
+  - **What happened:**
+    - 6.0: the outer `.exe` started, unpacked an unsigned `webOS_TV_6.0_Simulator.exe` to `%TEMP%`, and Code Integrity refused to load that one. The process exited with code 1, with no output and no window.
+    - 24: Code Integrity refused the outer `.exe` itself (exit 126).
+    - Both are logged in Event Viewer, `Microsoft-Windows-CodeIntegrity/Operational`, events 3033 and 3077: "did not meet the Enterprise signing level requirements". Smart App Control is on (`HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy`, `VerifiedAndReputablePolicyState` = 1). SAC has no per-app exception. Omar keeps SAC on: don't turn it off or work around it.
+  - **`ares-launch -s` on Windows** runs the simulator as a child of its own process (`exec` in [launch.js](https://github.com/webos-tools/cli/blob/main/lib/launch.js)) and prints "Launched" at once. A tool that ends the command's process tree when the command returns also ends the simulator. From an agent's shell, start the `.exe` detached instead, with the arguments the CLI passes: `"<app folder>" "{}"`.
 
 ### 2.5 webOS Studio (optional)
 
