@@ -109,10 +109,28 @@ describe('ingest against the mock provider: Xtream', () => {
     expect(r).toMatchObject({ status: 'committed', counts: { live: catalog.live.length, movie: catalog.movies.length, series: catalog.series.length } });
     expect(r.xtream?.server?.timezone).toBeTruthy();
     expect((await getSource(db, 'xt'))?.server).toEqual(r.xtream?.server);
+    // The account's allowed_output_formats, for the player (step 20c2a).
+    expect((await getSource(db, 'xt'))?.outputFormats).toEqual(['m3u8', 'ts']);
     const live = await allItems('xt', 'live');
     expect(live.find((i) => i.key === 'x:xt:live:101')).toMatchObject({ name: 'Zoma Test 1 SMPTE', group: 'Test News', epgId: 'zoma.test1' });
     // The panel clock in the login answer isn't hashed: a second refresh is unchanged.
     expect((await ingest(xtream())).status).toBe('unchanged');
+  });
+
+  it("keeps the account's allowed_output_formats on every login, unchanged refreshes included", async () => {
+    const hls: IngestJob = { src: 'xt', source: { type: 'xtream', account: { base, username: 'hls', password: 'hls-test' } } };
+    expect((await ingest(hls)).xtream?.outputFormats).toEqual(['m3u8']);
+    expect((await getSource(db, 'xt'))?.outputFormats).toEqual(['m3u8']);
+    // The panel changed the account (the same catalog): an unchanged refresh still takes it.
+    const account = app.mockState.fixture.accounts.find((a) => a.username === 'hls')!;
+    const before = account.outputFormats;
+    account.outputFormats = ['m3u8', 'ts'];
+    try {
+      expect((await ingest(hls)).status).toBe('unchanged');
+      expect((await getSource(db, 'xt'))?.outputFormats).toEqual(['m3u8', 'ts']);
+    } finally {
+      account.outputFormats = before;
+    }
   });
 
   it('keeps favourites through a refresh where the provider renumbered every stream', async () => {

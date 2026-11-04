@@ -26,7 +26,7 @@
  */
 
 import type { Clock, EngineCaps, EngineEvent, EngineSource, EngineStats, LoadOptions, PlaybackError, PlayerEngine, Rect, Track } from '@zoma/player';
-import { SYSTEM_CLOCK } from '@zoma/player';
+import { NO_STATS, SYSTEM_CLOCK } from '@zoma/player';
 import type { AvplayListener, AvplayManager, AvplayTrack } from './avplay';
 import { avplayTracks, avplayUnsupported } from './avplay';
 
@@ -265,13 +265,31 @@ export class AvplayEngine implements PlayerEngine {
     return this.lastPos;
   }
 
+  /**
+   * From the first frame on: the playing video stream's size, codec and declared bitrate, and the
+   * playing audio stream's codec and channels (step 20c2a). AVPlay counts no frames or bytes.
+   */
   stats(): EngineStats {
     const l = this.cur;
+    if (l === null || !l.framed) return NO_STATS;
     let video: AvplayTrack | null = null;
-    if (l !== null && l.framed) for (const t of this.streams(true)) if (t.type === 'VIDEO') video = t;
-    if (video === null) return { width: 0, height: 0, bitrate: null, droppedFrames: null };
-    const bitrate = Number(video.extra.Bit_rate);
-    return { width: video.width ?? 0, height: video.height ?? 0, bitrate: bitrate > 0 ? bitrate : null, droppedFrames: null };
+    let audio: AvplayTrack | null = null;
+    for (const t of this.streams(true)) {
+      if (t.type === 'VIDEO') video = t;
+      if (t.type === 'AUDIO') audio = t;
+    }
+    const bitrate = video === null ? 0 : Number(video.extra.Bit_rate);
+    return {
+      width: video?.width ?? 0,
+      height: video?.height ?? 0,
+      bitrate: bitrate > 0 ? bitrate : null,
+      droppedFrames: null,
+      decodedFrames: null,
+      decodedBytes: null,
+      videoCodec: video?.codec ?? '',
+      audioCodec: audio?.codec ?? '',
+      audioChannels: audio?.channels ?? null,
+    };
   }
 
   suspend(): void {

@@ -24,7 +24,7 @@ export function userInfo(state: MockState, account: Account): Record<string, unk
     active_cons: String(account.activeCons + state.connections.count(account.username)),
     created_at: String(dayOffsetSec(state, -account.createdDaysAgo)),
     max_connections: String(account.maxConnections),
-    allowed_output_formats: ['m3u8', 'ts'],
+    allowed_output_formats: account.outputFormats.slice(),
   };
 }
 

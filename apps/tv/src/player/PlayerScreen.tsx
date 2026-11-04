@@ -6,7 +6,8 @@ import { Badge, Button, ProgressBar, Spinner, useFocus, useZone } from '@zoma/ui
 import type { AppI18n, MessageKey } from '../i18n';
 import type { Live, LiveRow } from '../live/live-state';
 import type { Player } from './player-state';
-import { TRACKS_ACTION } from './player-state';
+import { STATS_ACTION, TRACKS_ACTION } from './player-state';
+import { StreamInfoPanel } from './StreamInfoPanel';
 import { SubtitleOverlay } from './SubtitleOverlay';
 import { TrackMenuPanel } from './TrackMenuPanel';
 import './player.css';
@@ -91,6 +92,7 @@ function InfoBar({ live, player, i18n, screen, binding, row, guide }: InfoBarPro
       <div class="player__actions">
         <Button label={t('player.previous')} disabled={player.previous.value === -1} {...actions.item(0)} testId="player-previous" />
         <Button label={t('player.tracks')} {...actions.item(TRACKS_ACTION)} testId="player-tracks" />
+        <Button label={t('player.streamInfo')} {...actions.item(STATS_ACTION)} testId="player-stats" />
       </div>
     </section>
   );
@@ -131,7 +133,8 @@ function ErrorCard({ failure, i18n, screen, binding }: { failure: PlaybackFailur
  * The player route (RELAY step 20a): drawn over the stage, so the page itself stays transparent.
  * The info bar, the number being typed, "Connecting…", the "Reconnecting…" badge and the error
  * card. Its root carries the focus (`data-screen/zone/index`) and the player's state for tests.
- * The subtitles (step 20b2b) share the bottom of the safe area with the info bar, above it.
+ * The subtitles (step 20b2b) share the bottom of the safe area with the info bar, above it. The
+ * stream info (step 20c2a) sits under the badge; the error card replaces it while it shows.
  */
 export function PlayerScreen({ live, player, i18n }: { live: Live; player: Player; i18n: AppI18n }) {
   const { t } = i18n;
@@ -152,6 +155,8 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
   const waiting = current && (status.state === 'opening' || status.state === 'buffering');
   const menu = player.menu.screen.value;
   const subtitles = player.subtitles.value;
+  const stats = player.streamInfo.shown.value;
+  const info = player.streamInfo.info.value;
   return (
     <main
       class="player"
@@ -176,6 +181,7 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
       data-pending={live.pending.value}
       data-menu={String(menu !== null)}
       data-subtitles={subtitles.feed ?? ''}
+      data-stats={String(stats)}
     >
       {waiting && (
         <div class="player__wait" data-testid="player-wait">
@@ -183,11 +189,14 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
           <p class="player__wait-text">{t('player.connecting')}</p>
         </div>
       )}
-      {current && status.state === 'reconnecting' && (
-        <div class="player__badge" data-testid="player-reconnecting">
-          <Badge label={t('player.reconnecting')} tone="warn" />
-        </div>
-      )}
+      <div class="player__top">
+        {current && status.state === 'reconnecting' && (
+          <div class="player__badge" data-testid="player-reconnecting">
+            <Badge label={t('player.reconnecting')} tone="warn" />
+          </div>
+        )}
+        {stats && failure === null && <StreamInfoPanel info={info} container={status.container} i18n={i18n} />}
+      </div>
       {entry !== null && (
         <div class="player__entry" data-testid="player-entry">
           <span class="player__digits" dir="ltr">

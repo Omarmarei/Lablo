@@ -4,11 +4,13 @@ import type { ContentKey } from '@zoma/core';
 import type { EpgNowNext } from '@zoma/data';
 import type { Intent } from '@zoma/platform-api';
 import { DIGIT_INTENTS } from '@zoma/platform-api';
-import type { PlayerStatus, PlayRequest, SubtitleView } from '@zoma/player';
+import type { PlayerStatus, PlayRequest, StreamStats, SubtitleView } from '@zoma/player';
 import { NO_TRACKS, streamCandidates } from '@zoma/player';
 import type { Focus, Navigator, Screen, ZoneSpec } from '@zoma/ui';
 import type { LiveRow, Timers } from '../live/live-state';
 import { mark } from '../marks';
+import type { StreamInfoPanel } from './stream-info';
+import { createStreamInfo } from './stream-info';
 import type { SubtitleSize, TrackMenu, TrackSection } from './track-menu';
 import { createTrackMenu } from './track-menu';
 
@@ -16,7 +18,7 @@ import { createTrackMenu } from './track-menu';
  * The player (RELAY step 20a, architecture.md §2 "Zapping"): the full-screen route that OK on a
  * channel of the live screen opens. It is a screen on the live screen's navigator:
  *
- *   actions  (the info bar's buttons: "Previous channel", "Audio and subtitles")
+ *   actions  (the info bar's buttons: "Previous channel", "Audio and subtitles", "Stream info")
  *   card     (the error card's "Try again" and "Channels", only once the player gave up)
  *
  * - **Zapping:** CH+/CH− and UP/DOWN move through the list the live screen showed, wrapping at
@@ -40,6 +42,9 @@ import { createTrackMenu } from './track-menu';
  *   list doesn't have yet (the profile's), plays it at once, and moves to its row once the list
  *   finds it (`locate`). Until then the info bar shows the profile's row, and zapping starts once
  *   the list is in. `tuned` tells the app each channel whose stream opens, with its row.
+ * - **The stream info** (step 20c2a, `stream-info.ts`): the info bar's "Stream info" turns the
+ *   panel on and off; it stays through zaps and goes when the player closes. Each play asks only
+ *   for the formats the source's account allows (`outputFormats`).
  */
 
 /** The info bar's stream opens this long after the last zap key. */
@@ -84,6 +89,8 @@ export interface PlayerLike {
   /** The content playing's subtitle timing (a play sets the content's). */
   readonly subtitleDelay: number;
   setSubtitleDelay(ms: number): void;
+  /** The stream on show's figures (`null`: no picture), for the stream info. */
+  stats(): StreamStats | null;
 }
 
 /** Number entry: the digits typed, then the search, then (maybe) "no channel has it". */
@@ -104,11 +111,15 @@ export interface PlayerOptions {
   readonly closed: (index: number) => void;
   /** A channel's stream opened: row `index` of the list (step 20c1: the app keeps the last channel). */
   readonly tuned?: (row: LiveRow, index: number) => void;
+  /** A source's `allowed_output_formats` (step 20c2a; `null`: not known, every format is tried). */
+  readonly outputFormats?: (src: string) => readonly string[] | null;
   /** The subtitles' size to start with (the profile's). */
   readonly subtitleSize?: SubtitleSize;
   /** The subtitles' size changed (the app keeps it). */
   readonly sized?: (size: SubtitleSize) => void;
   readonly timers?: Timers;
+  /** The clock the stream info measures its rates by (ms; default `Date.now`). */
+  readonly now?: () => number;
 }
 
 export interface Player {
@@ -131,6 +142,8 @@ export interface Player {
   readonly menu: TrackMenu;
   /** The subtitles to draw now. */
   readonly subtitles: ReadonlySignal<SubtitleView>;
+  /** The stream info panel (on and off, and its figures). */
+  readonly streamInfo: StreamInfoPanel;
   /** Opens the player on row `index` of the list and plays it at once. */
   show(index: number): void;
   /**
@@ -147,10 +160,12 @@ export interface Player {
 const IDLE: PlayerStatus = { state: 'idle', session: 0, key: null, container: null, attempt: 0, failure: null, tracks: NO_TRACKS };
 const NO_SUBTITLES: SubtitleView = { feed: null, cues: [] };
 
-/** The info bar's buttons: "Previous channel" and "Audio and subtitles". */
-export const ACTIONS = 2;
+/** The info bar's buttons: "Previous channel", "Audio and subtitles" and "Stream info". */
+export const ACTIONS = 3;
 /** The info bar's "Audio and subtitles". */
 export const TRACKS_ACTION = 1;
+/** The info bar's "Stream info". */
+export const STATS_ACTION = 2;
 
 function actionsZone(): ZoneSpec {
   return { kind: 'list', id: 'actions', axis: 'horizontal', count: ACTIONS };
@@ -160,9 +175,12 @@ function cardZone(count: number): ZoneSpec {
   return { kind: 'list', id: 'card', axis: 'horizontal', count };
 }
 
-/** A live channel's request: Xtream live tries `.ts`, then `.m3u8` (`streamCandidates`). */
-export function liveRequest(row: LiveRow): PlayRequest {
-  return { key: row.item.key, src: row.item.src, mode: 'live', candidates: streamCandidates(row.item.url, 'live') };
+/**
+ * A live channel's request: Xtream live tries `.ts`, then `.m3u8` (`streamCandidates`), only
+ * those of the two the account's `allowed_output_formats` allow when it names either.
+ */
+export function liveRequest(row: LiveRow, outputFormats: readonly string[] | null = null): PlayRequest {
+  return { key: row.item.key, src: row.item.src, mode: 'live', candidates: streamCandidates(row.item.url, 'live', outputFormats) };
 }
 
 const defaultTimers: Timers = {
@@ -186,6 +204,11 @@ export function createPlayer(options: PlayerOptions): Player {
   const subtitles = signal<SubtitleView>(NO_SUBTITLES);
 
   let controller: PlayerLike | null = null;
+  const streamInfo = createStreamInfo({
+    stats: () => (controller === null ? null : controller.stats()),
+    timers,
+    ...(options.now === undefined ? {} : { now: options.now }),
+  });
   let unsubscribe: (() => void) | null = null;
   let unsubscribeSubtitles: (() => void) | null = null;
   let zapTimer: unknown = null;
@@ -301,7 +324,7 @@ export function createPlayer(options: PlayerOptions): Player {
       playing.value = index;
       plays.value += 1;
       const c = ctrl();
-      void c.play(liveRequest(row));
+      void c.play(liveRequest(row, options.outputFormats === undefined ? null : options.outputFormats(row.item.src)));
       menu.showDelay(c.subtitleDelay);
       // The resumed channel was the last channel already: the list's row says where it is now.
       if (!resumed && options.tuned !== undefined) options.tuned(row, index);
@@ -410,6 +433,7 @@ export function createPlayer(options: PlayerOptions): Player {
     if (!open.value) return;
     // The menu's screen is on top of the player's: it goes first.
     menu.close();
+    streamInfo.hide();
     seq += 1;
     zapTimer = clear(zapTimer);
     entryTimer = clear(entryTimer);
@@ -512,6 +536,7 @@ export function createPlayer(options: PlayerOptions): Player {
 
   const onSelect = (focus: Focus): void => {
     if (focus.zone === 'actions' && focus.index === TRACKS_ACTION) openMenu('audio');
+    else if (focus.zone === 'actions' && focus.index === STATS_ACTION) streamInfo.toggle();
     else if (focus.zone === 'actions') previousChannel();
     else if (focus.zone === 'card' && focus.index === 0) go(playing.value !== -1 ? playing.value : target.value);
     else if (focus.zone === 'card') close();
@@ -529,6 +554,7 @@ export function createPlayer(options: PlayerOptions): Player {
     plays,
     menu,
     subtitles,
+    streamInfo,
     show(index: number): void {
       if (open.value) return;
       open.value = true;

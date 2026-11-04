@@ -1,5 +1,6 @@
 import type { LifecycleEvent, PlatformCall } from '@zoma/platform-api';
 import type { AccountStatus, EngineCaps, EngineEvent, EngineSource, PlayerEngine, Track, TrackPreferences } from '@zoma/player';
+import { NO_STATS } from '@zoma/player';
 import { describe, expect, it, vi } from 'vitest';
 import type { AppPlayerDeps } from './app-player';
 import { appPlayer, uiTrackPreferences } from './app-player';
@@ -47,7 +48,7 @@ class StubEngine implements PlayerEngine {
     return 0;
   }
   stats() {
-    return { width: 0, height: 0, bitrate: null, droppedFrames: null };
+    return NO_STATS;
   }
   suspend(): void {
     this.log.push('suspend');

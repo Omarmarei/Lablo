@@ -185,6 +185,16 @@ export class DataEngine {
     return summarize(await this.query.call('status'));
   }
 
+  /**
+   * Each Xtream source's `allowed_output_formats` from its last login (step 20c2a), for the
+   * player's `streamCandidates`. Playlists, and sources no refresh has logged in to yet, have none.
+   */
+  async outputFormats(): Promise<Map<string, readonly string[]>> {
+    const formats = new Map<string, readonly string[]>();
+    for (const s of (await this.query.call('status')).sources) if (s.outputFormats !== undefined) formats.set(s.src, s.outputFormats);
+    return formats;
+  }
+
   /** The ids of every catalog source stored (a refresh that never reached the profile included). */
   async sourceIds(): Promise<string[]> {
     return (await this.query.call('status')).sources.map((s) => s.src);

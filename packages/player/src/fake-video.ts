@@ -87,7 +87,11 @@ export class FakeVideo implements MediaElementLike {
   audioTracks?: AudioTrackListLike;
   textTracks?: TrackListLike<TextTrackLike>;
   mediaId?: string;
-  getVideoPlaybackQuality?: () => { readonly droppedVideoFrames: number };
+  getVideoPlaybackQuality?: () => { readonly droppedVideoFrames: number; readonly totalVideoFrames?: number };
+  webkitDecodedFrameCount?: number;
+  webkitDroppedFrameCount?: number;
+  webkitVideoDecodedByteCount?: number;
+  webkitAudioDecodedByteCount?: number;
   /** What the engine did to the element, in order: `src <url>`, `play`, `pause`, `removeAttribute src`, `load`, `seek <s>`, `muted`. */
   readonly log: string[] = [];
   /** `canPlayType` answers by MIME type ('' for any other). */

@@ -22,6 +22,9 @@ import { RemoteDriver } from './remote-driver';
  * appear, a pick from the menu, and the channel's choice kept across a zap and, through the
  * profile, across a relaunch that starts on that channel (step 20c1). `audioTracks` is behind a
  * Blink flag on the desktop (webOS ships it), turned on here.
+ *
+ * The stream info (RELAY step 20c2a) on real live channels: the picture size, the frame rate and
+ * the bitrate measured from the `<video>`'s counters, the format and the player.
  */
 const MEDIA_DIR = path.resolve(import.meta.dirname, '../.cache/media');
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
@@ -172,5 +175,59 @@ test("the audio menu on a stream with three languages: the UI's language first, 
   await expect.poll(() => enabledAudio(page)).toEqual(['ara']);
   await remote.press('BACK');
   await remote.expectFocus('live/channels/5');
+  expect(errors).toEqual([]);
+});
+
+/** A figure of the stream info panel. */
+function figure(page: Page, id: string) {
+  return page.getByTestId(`stream-info-${id}`).locator('.stream-info__value');
+}
+
+/** The panel's bitrate in kb/s. */
+async function kbps(page: Page): Promise<number> {
+  const shown = (await figure(page, 'bitrate').textContent()) ?? '';
+  const m = /^([\d.]+) (kb|Mb)\/s$/.exec(shown.replace(/[\u2066-\u2069]/g, ''));
+  if (m === null) return NaN;
+  return Number(m[1]) * (m[2] === 'Mb' ? 1000 : 1);
+}
+
+test('the stream info on real live channels: the size, a measured frame rate and bitrate, the format and the player, following a channel change', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = trackErrors(page);
+  const remote = new RemoteDriver(page);
+  await addXtreamAndWatch(remote, { host, username: U, password: P }, 'locale=en-US');
+  // Zoma Test 1 SMPTE: 960x540 at 25 fps, about 0.5 Mb/s of video.
+  await remote.press('OK');
+  const player = page.getByTestId('player');
+  await remote.expectFocus('player/actions/0');
+  await remote.go('RIGHT', 'player/actions/1');
+  await remote.go('RIGHT', 'player/actions/2');
+  await remote.press('OK');
+  await expect(player).toHaveAttribute('data-stats', 'true');
+  await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
+  const info = page.getByTestId('player-stream-info');
+  await expect(info).toHaveAttribute('data-picture', 'true');
+  await expect(figure(page, 'resolution')).toHaveText('960×540');
+  await expect(figure(page, 'format')).toHaveText('HLS');
+  await expect(figure(page, 'engine')).toHaveText('HTML5');
+  // Measured over a few seconds of playback.
+  await expect(figure(page, 'fps')).toHaveText(/^(2[2-8]) fps$/, { timeout: 10_000 });
+  await expect.poll(() => kbps(page), { timeout: 10_000 }).toBeGreaterThan(200);
+  expect(await kbps(page)).toBeLessThan(2000);
+  // The <video> names no codec.
+  await expect(page.getByTestId('stream-info-video')).toHaveCount(0);
+  await page.screenshot({ path: path.join(SHOTS, 'player-stream-info-live-en.png'), animations: 'disabled' });
+
+  // The number 6: Zoma Sports Test HD, 1280x720 at 50 fps, about 1.8 Mb/s of video.
+  await remote.press('DIGIT_6');
+  await expect(player).toHaveAttribute('data-playing', '8', { timeout: 5_000 });
+  await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
+  await expect(player).toHaveAttribute('data-stats', 'true');
+  await expect(figure(page, 'resolution')).toHaveText('1280×720', { timeout: 10_000 });
+  await expect(figure(page, 'fps')).toHaveText(/^(4[5-9]|5[0-5]) fps$/, { timeout: 10_000 });
+  await expect.poll(() => kbps(page), { timeout: 10_000 }).toBeGreaterThan(1000);
+
+  await remote.press('BACK');
+  await remote.expectFocus('live/channels/8');
   expect(errors).toEqual([]);
 });

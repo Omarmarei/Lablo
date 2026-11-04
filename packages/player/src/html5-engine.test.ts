@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PlayerController } from './controller';
 import type { EngineEvent, EngineSource, PlaybackError } from './engine';
+import { NO_STATS } from './engine';
 import { FakeClock, settle } from './fake-engine';
 import { FakeAudioTrack, FakeTextTrack, FakeVideo, audioTrackList, textTrackList } from './fake-video';
 import type { Html5EngineOptions } from './html5-engine';
@@ -413,12 +414,25 @@ describe('Html5Engine: play, pause, seek, rect, stats, position', () => {
     expect(r.video.style).toEqual({ left: '0', top: '0', width: '100%', height: '100%' });
   });
 
-  it('reports the picture size and dropped frames where the element counts them', () => {
+  it('reports the picture size, and the frames and bytes where the element counts them', () => {
     const r = rig();
     r.video.showPicture(960, 540);
-    expect(r.engine.stats()).toEqual({ width: 960, height: 540, bitrate: null, droppedFrames: null });
+    // An element with no counters: the size only, and no codec or declared bitrate ever.
+    expect(r.engine.stats()).toEqual({ ...NO_STATS, width: 960, height: 540 });
+    // Chromium's own counters (old engines have no getVideoPlaybackQuality).
+    r.video.webkitDecodedFrameCount = 250;
+    r.video.webkitDroppedFrameCount = 2;
+    r.video.webkitVideoDecodedByteCount = 900_000;
+    expect(r.engine.stats()).toEqual({ ...NO_STATS, width: 960, height: 540, droppedFrames: 2, decodedFrames: 250, decodedBytes: 900_000 });
+    r.video.webkitAudioDecodedByteCount = 100_000;
+    expect(r.engine.stats().decodedBytes).toBe(1_000_000);
+    r.video.webkitVideoDecodedByteCount = undefined;
+    expect(r.engine.stats().decodedBytes).toBe(100_000);
+    // getVideoPlaybackQuality wins where it exists; an old one without totalVideoFrames leaves the frames to Chromium's counter.
     r.video.getVideoPlaybackQuality = () => ({ droppedVideoFrames: 3 });
-    expect(r.engine.stats()).toEqual({ width: 960, height: 540, bitrate: null, droppedFrames: 3 });
+    expect(r.engine.stats()).toMatchObject({ droppedFrames: 3, decodedFrames: 250 });
+    r.video.getVideoPlaybackQuality = () => ({ droppedVideoFrames: 4, totalVideoFrames: 300 });
+    expect(r.engine.stats()).toMatchObject({ droppedFrames: 4, decodedFrames: 300 });
   });
 
   it('declares one engine of kind html5 with no preload and one rate', () => {

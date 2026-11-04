@@ -25,6 +25,11 @@ export interface Account {
   activeCons: number;
   /** HTTP status for a stream request once `max_connections` is reached. */
   overLimitStatus: number;
+  /**
+   * `allowed_output_formats` (`ts`, `m3u8`): a live stream in another format is refused with 403
+   * (the mock's choice; real panels differ). Default: both.
+   */
+  outputFormats: string[];
   message: string;
 }
 
@@ -274,6 +279,7 @@ export function parseServerFixture(value: unknown, where = 'server.yaml'): Serve
       maxConnections: a.int('max_connections', 1, 1),
       activeCons: a.int('active_cons', 0),
       overLimitStatus: a.int('over_limit_status', 403, 400),
+      outputFormats: a.strings('output_formats') ?? ['m3u8', 'ts'],
       message: a.str('message', ''),
     };
   });
@@ -281,7 +287,7 @@ export function parseServerFixture(value: unknown, where = 'server.yaml'): Serve
   return { server, accounts };
 }
 
-const ACCOUNT_KEYS = ['username', 'password', 'status', 'exp_days', 'created_days_ago', 'is_trial', 'max_connections', 'active_cons', 'over_limit_status', 'message'];
+const ACCOUNT_KEYS = ['username', 'password', 'status', 'exp_days', 'created_days_ago', 'is_trial', 'max_connections', 'active_cons', 'over_limit_status', 'output_formats', 'message'];
 const LIVE_KEYS = ['id', 'num', 'name', 'category', 'epg_id', 'xmltv_id', 'logo', 'archive_days', 'catchup', 'radio', 'adult', 'added_days_ago', 'media'];
 const MOVIE_KEYS = ['id', 'num', 'name', 'category', 'ext', 'year', 'duration_secs', 'rating', 'genre', 'plot', 'added_days_ago', 'media'];
 const SERIES_KEYS = ['id', 'num', 'name', 'category', 'year', 'rating', 'genre', 'plot', 'added_days_ago', 'seasons'];

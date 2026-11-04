@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ControllerOptions, PlayerStatus } from './controller';
 import { PlayerController } from './controller';
-import type { EngineSource, PlaybackError } from './engine';
+import type { EngineSource, EngineStats, PlaybackError } from './engine';
 import type { FakeScript } from './fake-engine';
 import { FakeClock, FakeEngine } from './fake-engine';
 import type { AccountStatus } from './failure';
@@ -417,6 +417,60 @@ describe('PlayerController: the watchdog', () => {
     await r.clock.advance(10_000);
     expect(r.engine.loads.map((l) => l.source.container)).toEqual(['ts', 'ts', 'ts', 'ts', 'ts']);
     expect(r.player.status).toMatchObject({ state: 'failed', failure: { code: 'PRV-UNREACHABLE' } });
+  });
+});
+
+describe('PlayerController: the stream stats (RELAY step 20c2a)', () => {
+  const FIGURES: EngineStats = {
+    width: 1280,
+    height: 720,
+    bitrate: 2_000_000,
+    droppedFrames: 1,
+    decodedFrames: 50,
+    decodedBytes: 400_000,
+    videoCodec: 'H264',
+    audioCodec: 'AAC',
+    audioChannels: 2,
+  };
+
+  it("hands out the engine's figures with the container, the engine and the load while a picture shows", async () => {
+    const r = rig(() => ({ bufferingMs: 1000, playingMs: 2000 }));
+    r.engine.statsValue = FIGURES;
+    expect(r.player.stats()).toBeNull();
+    void r.player.play(live(1));
+    // Opening: no picture yet.
+    expect(r.player.stats()).toBeNull();
+    await r.clock.advance(500);
+    const load = r.engine.loads[0]!.token;
+    expect(r.player.stats()).toEqual({ ...FIGURES, container: 'ts', engine: 'html5', load });
+    await r.clock.advance(500);
+    expect(r.player.status.state).toBe('buffering');
+    expect(r.player.stats()).toMatchObject({ load });
+    await r.clock.advance(1000);
+    r.player.pause();
+    expect(r.player.stats()).toMatchObject({ load });
+    void r.player.stop();
+    expect(r.player.stats()).toBeNull();
+  });
+
+  it('says nothing while it reconnects or after it failed, and names the new load after a retry', async () => {
+    const r = rig((_s, n) => (n === 1 ? { error: { atMs: 1000, error: NETWORK } } : n === 2 ? {} : { loadError: NETWORK }));
+    r.engine.statsValue = FIGURES;
+    void r.player.play(live(1));
+    await r.clock.advance(1000);
+    expect(r.player.status.state).toBe('reconnecting');
+    expect(r.player.stats()).toBeNull();
+    await r.clock.advance(1000);
+    expect(r.player.status.state).toBe('playing');
+    const second = r.engine.loads[1]!.token;
+    expect(second).not.toBe(r.engine.loads[0]!.token);
+    expect(r.player.stats()).toMatchObject({ load: second, container: 'ts' });
+    const failed = rig(() => ({ loadError: { kind: 'unsupported', code: 'NOPE' } }));
+    failed.engine.statsValue = FIGURES;
+    void failed.player.play(live(2));
+    await failed.clock.advance(100);
+    expect(failed.player.status.state).toBe('failed');
+    expect(failed.player.stats()).toBeNull();
   });
 });
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EngineEvent, EngineSource, PlaybackError } from '@zoma/player';
+import { NO_STATS } from '@zoma/player';
 import type { AvplayEngineOptions } from './avplay-engine';
 import { AvplayEngine, PREPARE_TIMEOUT_MS, avplayError, createAvplayPlane } from './avplay-engine';
 import { FakeAvplay, FakeClock } from './fake-avplay';
@@ -372,18 +373,25 @@ describe('AvplayEngine: while it plays', () => {
     expect(r.avplay.log.filter((e) => e === 'play')).toHaveLength(2);
   });
 
-  it('gives the picture size and bitrate from the first frame on', async () => {
+  it('gives the picture size, the codecs, the audio channels and the declared bitrate from the first frame on', async () => {
     const r = rig();
     void r.engine.load(LIVE, 1);
     r.avplay.answerPrepare();
-    expect(r.engine.stats()).toEqual({ width: 0, height: 0, bitrate: null, droppedFrames: null });
+    expect(r.engine.stats()).toEqual(NO_STATS);
     r.avplay.move();
     await r.clock.advance(100);
-    expect(r.engine.stats()).toEqual({ width: 1920, height: 1080, bitrate: 4_500_000, droppedFrames: null });
+    // The playing streams: the video, and the first audio (AAC stereo).
+    expect(r.engine.stats()).toEqual({ ...NO_STATS, width: 1920, height: 1080, bitrate: 4_500_000, videoCodec: 'H264', audioCodec: 'AAC', audioChannels: 2 });
+    await r.engine.selectAudio('2');
+    expect(r.engine.stats()).toMatchObject({ audioCodec: 'AC3', audioChannels: 6 });
     r.avplay.streams = [{ index: 0, type: 'VIDEO', extra_info: '{"fourCC":"HEVC","Width":"3840","Height":"2160"}' }];
-    expect(r.engine.stats()).toEqual({ width: 3840, height: 2160, bitrate: null, droppedFrames: null });
-    r.avplay.streams = [{ index: 0, type: 'AUDIO', extra_info: '{"language":"ara"}' }];
-    expect(r.engine.stats()).toEqual({ width: 0, height: 0, bitrate: null, droppedFrames: null });
+    expect(r.engine.stats()).toEqual({ ...NO_STATS, width: 3840, height: 2160, videoCodec: 'HEVC' });
+    // Radio: no picture, the audio still named.
+    // (The fake's playing audio is stream 2 now.)
+    r.avplay.streams = [{ index: 2, type: 'AUDIO', extra_info: '{"language":"ara","fourCC":"MP3","channels":"2"}' }];
+    expect(r.engine.stats()).toEqual({ ...NO_STATS, audioCodec: 'MP3', audioChannels: 2 });
+    r.avplay.streams = [{ index: 2, type: 'AUDIO', extra_info: '{"language":"ara"}' }];
+    expect(r.engine.stats()).toEqual(NO_STATS);
   });
 
   it('seeks with seekTo, rejecting what AVPlay refuses', async () => {

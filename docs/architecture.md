@@ -924,6 +924,41 @@ export type PlayRequest = { key: ContentKey; src: string; mode: 'live'|'vod'|'ca
 - **TV bundle:** main's own code 259.0 → 264.0 KB on Tizen and 247.6 → 252.4 KB on webOS, with the same 219 core-js modules on both. The last channel's time was first a field named `at`: reading it as `last['at']` pulled in `es.array.at` and `es.string.at-alternative` (225 modules), so it is `started`. A per-file Babel probe (each changed file's injected polyfills against the 20b2b merge) found it.
 - **Not yet:** the subtitle size and the audio choice after a relaunch can't be tried by hand in `pnpm dev` (no subtitle file in the app before VOD, step 26; desktop Chromium lists one unnamed audio track without its Blink flag); the start on a TV (step 21 measures it from the marks); the old-engine walk never plays a channel, so its relaunch still lands on the live screen. e2e `resume.spec.ts` (`pnpm e2e`): a channel played from "Test News" is kept; a relaunch opens the player on it at once, asks for its stream before the live screen's categories are read (the marks), finds its row in "Test News", Back lands on it; a channel zapped to is the next start's, and zapping goes on from it. `live.spec.ts`'s relaunch now opens the player on the kids' channel it played, and Back shows the kids' category. `player-media.spec.ts` (`pnpm e2e:media`): after the relaunch the multi-audio channel plays in the Arabic picked from the menu before it (the profile's `TrackMemory`).
 
+**Built in step 20c2a: the account's output formats and the stream info** (step 20c2 was split in leg 44 into 20c2a and 20c2b, aspect/zoom and the full checklist; `packages/data`: `SourceMeta.outputFormats`; `packages/player`: `EngineStats`, `PlayerController.stats`; `apps/tv/src/player`: `stream-info.ts`, `StreamInfoPanel.tsx`; the mock's `output_formats`):
+- **Where the formats live:** in `SourceMeta.outputFormats`, the ingest's record beside the panel's `server` facts.
+  - They are the account's facts from its login, not the user's choices, so they stay out of the profile (the user's document, which is backed up).
+  - Every Xtream refresh writes them, a refresh that found nothing new included (the login answer isn't hashed), so a panel that changes them is followed at the next refresh.
+  - Playlists have none: an M3U `get.php` link names its own `output=`, and the source's remembered container (`SourceMemory`) learns the rest.
+- **To the player:**
+  - `DataEngine.outputFormats()` reads them from the query worker's `status` each time the live screen opens (the start, and after onboarding).
+  - `createPlayer`'s `outputFormats(src)` hands them to `liveRequest` on every play, and `liveRequest` passes them to `streamCandidates`. An account that names only `m3u8` never gets a `.ts` request, nor a switch rung to one.
+  - Until they are read (the start's last channel), both forms are tried, the remembered one first.
+- **The mock:** `output_formats` per account (default `m3u8, ts`) is its `allowed_output_formats`, and a live stream in another format gets 403 (the mock's choice; real panels differ). The `hls` account allows HLS only.
+- **What the engines say (`EngineStats`):**
+  - **The `<video>` (Html5Engine):** the picture size; decoded frames (`getVideoPlaybackQuality().totalVideoFrames`, else Chromium's `webkitDecodedFrameCount`); dropped frames (the same two ways); decoded bytes (Chromium's `webkitVideoDecodedByteCount` plus `webkitAudioDecodedByteCount`). No codec, and no declared bitrate. Playwright's Chromium has every counter.
+  - **AVPlay:** from the first frame on, the playing video stream's size, `fourCC` and `Bit_rate`, and the playing audio stream's `fourCC` and channels. It counts no frames or bytes.
+  - `NO_STATS` is the empty answer.
+- **The controller's `stats()`:** the engine's figures, the container of the URL that plays, the engine that plays it (`FallbackEngine.kind` is the active one's), and `load` (the load's token, new with each retry and zap). It is `null` unless a picture shows (playing, paused or buffering).
+- **The panel** (`stream-info.ts`, `StreamInfoPanel`):
+  - **On and off:** the info bar's third button, "Stream info" (no remote key: a new intent would make S10's battery ask every TV for it). It stays on through zaps, the menu and the bar hiding, and goes when the player closes. The error card replaces it while it shows.
+  - **Reading:** while on, it reads `stats()` at once and then every second (`STATS_MS`).
+  - **Measuring:** the frame rate and the bitrate are measured between the first and the last of the last 6 readings of one load (about 5 s). A new load, counters that went back (a reopen within one load), a moment with no picture, or the panel opening again start the measure afresh; a paused stream's still counters don't. A bitrate the stream declares (AVPlay) wins over a measured one.
+  - **Where:** the top-start corner of the safe area, under the "Reconnecting…" badge (`.player__top`): the left in English, the right in Arabic.
+  - **The rows, in order:** Resolution (`960×540`), Frame rate (`25 fps`), Bitrate (`286 kb/s`; from 1 Mb/s, `4.5 Mb/s`), Video (the codec), Audio (`AAC · 2.0`, `E-AC3 · 5.1`), Format (from the status, so it shows while the stream opens: `MPEG-TS`, `HLS`, `MP4`, `MKV`), Player (`AVPlay`, `HTML5`) and Dropped frames.
+  - A row the engine has no figure for is left out, and "Waiting for the picture…" shows until a picture does.
+  - Technical names are shown as they are (`dir=ltr`, `translate=false`). The units are in the catalogs (`fps` and `إطار/ث`, `Mb/s` and `ميغابت/ث`, `kb/s` and `كيلوبت/ث`).
+- **Found on the way:** a fast-check seed in `normalize.test.ts` drew the word `x264`, a quality token the property's word filter missed. A name made only of quality tokens keeps them all, so `x264 HD` gave `x264hd`. The filter now leaves out every quality token the pattern can spell; `matchName` is unchanged.
+- **Not yet:**
+  - The codecs on the `<video>` (webOS): the element doesn't name them.
+  - A frame rate on AVPlay: its `extra_info` names none in Samsung's reference; a TV run may find a field.
+  - The panel on any TV (19b, 21).
+  - Aspect and zoom (20c2b).
+- **Tests:**
+  - **Unit:** `stream-info.test.ts` (10: the figures, the sampler's timing and resets, the words, the rows in English and Arabic), `player-state.test.ts` (+3: the formats on every play, the button, nothing read before the first play), `controller.test.ts` (+2), the `<video>`'s and AVPlay's stats (rewritten), `test/ingest-mock.test.ts` (+1: the formats on every login, an unchanged refresh included), `test/tv-data-engine.test.ts` (+1) and the mock's `streams.test.ts` (+1).
+  - **e2e:** `player.spec.ts` (+3): the `hls` account's two plays ask for `.m3u8` only (the test fails with the app's wiring removed); the panel by keys in English and Arabic (the third button, "Waiting for the picture…", the format, the corner, kept through a zap, off, gone with the player). `player-media.spec.ts` (+1): on the SMPTE channel 960×540, 22–28 fps, 200–2,000 kb/s, HLS, HTML5; after the number 6, the HD channel's 1280×720, 45–55 fps and over 1 Mb/s.
+  - **Mutation:** 53/53 caught. The first run caught 51/53; the two test gaps are closed: a new load whose counters are already past the old ones (the byte counter's fall had masked the load check), and a picture with no bitrate yet.
+- **TV bundle:** main's own code 264.0 → 270.4 KB on Tizen and 252.4 → 258.3 KB on webOS, with the same 219 core-js modules on both. A reading's time is `time`, not `at` (leg 43's lesson).
+
 ---
 
 ## 3. Backend (minimal)

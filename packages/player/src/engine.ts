@@ -104,14 +104,41 @@ export interface Rect {
   readonly height: number;
 }
 
+/**
+ * What an engine says about the stream it plays (the stream info, RELAY step 20c2a). Each engine
+ * says what it can: the `<video>` counts frames and bytes (the app measures the frame rate and
+ * bitrate between two readings), AVPlay names the codecs and declares a bitrate.
+ */
 export interface EngineStats {
   /** Picture size; 0 before the first frame or for audio-only streams. */
   readonly width: number;
   readonly height: number;
-  /** Bits per second, or `null` when the engine doesn't say. */
+  /** The bitrate the stream declares (AVPlay's `Bit_rate`), in bits per second; `null` when the engine doesn't say. */
   readonly bitrate: number | null;
   readonly droppedFrames: number | null;
+  /** Video frames decoded since this load began; `null` where the engine doesn't count them (AVPlay). */
+  readonly decodedFrames: number | null;
+  /** Media bytes (video and audio) decoded since this load began; `null` where the engine doesn't count them. */
+  readonly decodedBytes: number | null;
+  /** The codecs as the engine names them (AVPlay's `fourCC`: `H264`, `HEVC`, `AAC`); '' when it doesn't say (the `<video>`). */
+  readonly videoCodec: string;
+  readonly audioCodec: string;
+  /** The audio's channels (2, 6); `null` when the engine doesn't say. */
+  readonly audioChannels: number | null;
 }
+
+/** The stats of an engine with nothing to say (nothing playing yet). */
+export const NO_STATS: EngineStats = {
+  width: 0,
+  height: 0,
+  bitrate: null,
+  droppedFrames: null,
+  decodedFrames: null,
+  decodedBytes: null,
+  videoCodec: '',
+  audioCodec: '',
+  audioChannels: null,
+};
 
 export interface EngineCaps {
   readonly maxHeight: number;

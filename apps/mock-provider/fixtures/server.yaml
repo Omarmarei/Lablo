@@ -4,6 +4,7 @@
 # exp_days: days from today (UTC) to the expiry date; omit for "never expires" (exp_date null).
 # active_cons: connections "from other devices", added to the streams this server holds open.
 # over_limit_status: HTTP status for a stream once max_connections is reached (default 403).
+# output_formats: allowed_output_formats; a live stream in another format gets 403 (default m3u8, ts).
 
 server:
   timezone: UTC
@@ -57,6 +58,14 @@ accounts:
     max_connections: 1
     active_cons: 1
     over_limit_status: 509
+
+  # Live in HLS only: a .ts stream is refused with 403 (RELAY step 20c2a).
+  - username: hls
+    password: hls-test
+    status: Active
+    exp_days: 365
+    max_connections: 2
+    output_formats: [m3u8]
 
   # Characters a client must percent-encode in paths and queries: + @ / & ? # space and non-ASCII.
   - username: "special+user@zoma.test"

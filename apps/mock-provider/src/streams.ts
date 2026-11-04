@@ -77,12 +77,21 @@ function hlsPlaylist(base: string, u: string, p: string, channelId: number, firs
   return `${lines.join('\n')}\n`;
 }
 
+/** A live format the account's `allowed_output_formats` leaves out is refused with 403. */
+function refuseFormat(reply: FastifyReply, account: Account, format: 'ts' | 'm3u8'): boolean {
+  if (account.outputFormats.includes(format)) return false;
+  void reply.code(403).type(TEXT).send(`Output format ${format} not allowed`);
+  return true;
+}
+
 function sendLiveTs(state: MockState, reply: FastifyReply, account: Account, channel: LiveChannel): FastifyReply {
+  if (refuseFormat(reply, account, 'ts')) return reply;
   if (!hold(state, reply, account)) return reply;
   return reply.type('video/mp2t').send(state.media.liveTs(channel.id));
 }
 
 function sendLiveHls(state: MockState, request: FastifyRequest, reply: FastifyReply, account: Account, channel: LiveChannel): FastifyReply {
+  if (refuseFormat(reply, account, 'm3u8')) return reply;
   const nowSeq = Math.floor(state.now() / 1000 / HLS_SEGMENT_SECONDS);
   return reply
     .type(HLS)

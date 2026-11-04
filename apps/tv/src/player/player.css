@@ -56,11 +56,61 @@ html[data-player='on'] .player-stage {
   text-shadow: 0 2px 8px #000;
 }
 
-/* "Reconnecting…": the top-start corner, over the picture that stays. */
-.player__badge {
+/* The top-start corner: "Reconnecting…" over the picture that stays, and the stream info under it. */
+.player__top {
   position: absolute;
   left: var(--safe-x);
   top: var(--safe-y);
+}
+
+.player__badge + .stream-info {
+  margin-top: var(--space-4);
+}
+
+/* The stream info (step 20c2a): label at the start, the figure after it. */
+.stream-info {
+  width: 560px;
+  padding: var(--space-5) var(--space-6);
+  background: var(--color-scrim);
+  border-radius: var(--radius-l);
+}
+
+.stream-info__title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.stream-info__note {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.stream-info__row {
+  display: flex;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.stream-info__label {
+  flex: none;
+  width: 260px;
+  color: var(--color-text-muted);
+  text-align: left;
+}
+
+/* A technical name keeps left to right (dir="ltr") but starts on the screen's side. */
+.stream-info__value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  font-weight: var(--font-weight-bold);
 }
 
 /* The number being typed: the top-end corner. */

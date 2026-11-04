@@ -155,6 +155,20 @@ export const EN = {
   'player.account.expiry': 'Subscription ends {date}',
   'player.account.connections': 'Connections in use: {active, number} of {max, number}',
   'player.tracks': 'Audio and subtitles',
+  // The stream info (RELAY step 20c2a): technical names (codecs, formats) are shown as they are.
+  'player.streamInfo': 'Stream info',
+  'player.info.waiting': 'Waiting for the picture…',
+  'player.info.resolution': 'Resolution',
+  'player.info.frameRate': 'Frame rate',
+  'player.info.bitrate': 'Bitrate',
+  'player.info.video': 'Video',
+  'player.info.audio': 'Audio',
+  'player.info.format': 'Format',
+  'player.info.engine': 'Player',
+  'player.info.dropped': 'Dropped frames',
+  'player.info.fps': '{fps, number} fps',
+  'player.info.mbps': '{value, number} Mb/s',
+  'player.info.kbps': '{value, number} kb/s',
 
   // The track menu (RELAY step 20b).
   'tracks.audio': 'Audio',
