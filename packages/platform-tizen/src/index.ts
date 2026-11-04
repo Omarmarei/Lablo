@@ -2,8 +2,8 @@
  * @zoma/platform-tizen: the Samsung Tizen adapter.
  *
  * Step 2 covers what the hello app needs: device info, remote-key registration through
- * `tizen.tvinputdevice`, lifecycle and exit. DUID, screensaver, AvplayEngine and TTS follow
- * in later steps. The only package allowed to touch `tizen` and `webapis` (lint-enforced).
+ * `tizen.tvinputdevice`, lifecycle and exit; step 15a the DUID (`deviceSecret`). Screensaver,
+ * AvplayEngine and TTS follow in later steps. The only package allowed to touch `tizen` and `webapis` (lint-enforced).
  * Every API is feature-checked, so the bundle also boots in a desktop browser.
  */
 import { chromiumMajorFromUserAgent, deviceTier } from '@zoma/core';
@@ -36,6 +36,7 @@ interface WebApis {
     getRealModel?(): string;
     getModel?(): string;
     getFirmware?(): string;
+    getDuid?(): string;
   };
 }
 
@@ -113,6 +114,10 @@ export function createTizenPlatform(): Platform {
     // The IME tells the field itself, with its Done and Cancel keys (tizenTextKey).
     onSoftKeyboard: () => () => undefined,
     rootBackPolicy: () => 'exit-dialog',
+    deviceSecret(): Promise<string | null> {
+      const duid = attempt(() => globals().webapis?.productinfo?.getDuid?.(), '');
+      return Promise.resolve(typeof duid === 'string' && duid.trim() !== '' ? duid.trim() : null);
+    },
     exitApp(): void {
       attempt(() => globals().tizen?.application?.getCurrentApplication().exit(), undefined);
     },

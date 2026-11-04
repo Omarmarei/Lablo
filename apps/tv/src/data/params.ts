@@ -35,7 +35,8 @@ function decode(value: string, plusIsSpace: boolean): string | null {
   }
 }
 
-function readParam(head: string, name: string): string | null {
+/** One parameter of a query string (`?a=1&b=2`), decoded (`+` as a space), or null when absent. */
+export function readParam(head: string, name: string): string | null {
   const pairs = head.replace(/^\?/, '').split('&');
   for (const pair of pairs) {
     const eq = pair.indexOf('=');

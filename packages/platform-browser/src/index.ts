@@ -133,6 +133,8 @@ export function createBrowserPlatform(env: BrowserEnv = defaultEnv()): Platform 
     // The desktop keyboard is a physical one.
     onSoftKeyboard: () => () => undefined,
     rootBackPolicy: () => 'exit-dialog',
+    // A desktop browser has no device ID of its own.
+    deviceSecret: () => Promise.resolve(null),
     exitApp: () => env.onExit(),
   };
 }

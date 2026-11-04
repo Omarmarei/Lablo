@@ -115,6 +115,10 @@ describe('createBrowserPlatform', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
+  it('has no device ID (deviceSecret)', async () => {
+    expect(await createBrowserPlatform(fakeEnv()).deviceSecret()).toBeNull();
+  });
+
   it('routes exitApp to the injected handler', () => {
     const onExit = vi.fn();
     createBrowserPlatform(fakeEnv({ onExit })).exitApp();

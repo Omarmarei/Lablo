@@ -15,10 +15,14 @@
  * counts, "Start watching" to the live screen (step 14a), and a relaunch that skips onboarding
  * to it, then the live screen by keys: CH−/CH+, the rail, a category, Back and the exit
  * (artifacts/engines/onboarding-*.png: the form, done, live, category and, on Tizen, exit screens).
+ * Last, the Zoma Lab (dist/tv-lab, step 15a) runs its spikes at launch and reports to a mock
+ * provider on the host (artifacts/engines/lab-logs): S1 must pass on every engine, and the
+ * polyfills it filled must be exactly the ones the engine lacks.
  *
  * Options:
  *   --engine chrome53|chrome56|chrome68   repeatable; default all
  *   --dist <dir>                          the builds to test (default dist/tv)
+ *   --dist-lab <dir>                      the lab builds (default dist/tv-lab)
  *   --self-test                           also run seeded broken bundles that must fail
  *   --keep                                leave the containers running (for debugging)
  * Environment: ZOMA_ENGINE_CACHE overrides the download cache directory.
@@ -36,6 +40,8 @@ import type { DataCheck } from './src/fixture';
 import { appUrl, fixtureEntries, liveCategories, stageFixtures } from './src/fixture';
 import type { BidiState, GalleryRun } from './src/gallery';
 import { evaluateGallery, galleryUrl, runGallery } from './src/gallery';
+import type { LabServer } from './src/lab';
+import { LAB_DIR, LAB_SEED, evaluateLab, labSummary, labUrl, runLab, stageLab, stageLabSeed, startLabServer } from './src/lab';
 import type { OnboardingRun, WalkCheck, WalkLanguage } from './src/onboarding';
 import { evaluateOnboarding, onboardingUrl, runOnboarding, stageBlankPage, stepTime } from './src/onboarding';
 import type { PlatformRun, TvPlatform } from './src/scenario';
@@ -52,6 +58,8 @@ const KEY_TIMEOUT_MS = 3_000;
 const LOAD_TIMEOUT_MS = 60_000;
 /** A key on the live screen to its data answered: the focus, the rows' now/next and the 600 ms focus wait. */
 const LIVE_TIMEOUT_MS = 8_000;
+/** The lab's whole run at launch, S2's write test included. */
+const LAB_TIMEOUT_MS = 120_000;
 
 const log = (line: string): void => console.log(line);
 
@@ -62,7 +70,7 @@ interface RunReport {
   readonly engine: string;
   readonly variant: string;
   readonly platform: string;
-  readonly screen: AppScreen;
+  readonly screen: AppScreen | 'lab';
   readonly userAgent: string | null;
   /** What the catalog panel showed: the refresh, the search, the guide and now/next. */
   readonly refresh: string | null;
@@ -76,6 +84,8 @@ interface RunReport {
   readonly bidi: BidiState | null;
   /** Onboarding's walks: the time to the first screen, the load and the relaunch, in ms (null elsewhere). */
   readonly onboarding: readonly WalkTimes[] | null;
+  /** The lab's session in artifacts/engines/lab-logs, and its counts (lab runs only). */
+  readonly lab: { readonly session: string | null; readonly summary: string } | null;
   readonly failures: readonly string[];
   readonly mustPass: boolean;
   readonly durationMs: number;
@@ -232,12 +242,55 @@ async function runOnboardingScreen(client: CdpClient, engine: Engine, variant: V
   };
 }
 
+/** A lab build to run: the real one must pass, the seed must fail. */
+interface LabTarget {
+  readonly variant: string;
+  readonly dir: string;
+  readonly mustPass: boolean;
+}
+
+async function runLabs(client: CdpClient, engine: Engine, server: LabServer, labs: readonly LabTarget[]): Promise<RunReport[]> {
+  const reports: RunReport[] = [];
+  for (const lab of labs) {
+    for (const platform of TV_PLATFORMS) {
+      const run = await runLab(client, platform, labUrl(lab.dir, platform, server.port), server.logDir, LAB_TIMEOUT_MS);
+      const failures = evaluateLab(run, engine);
+      const summary = labSummary(run);
+      reports.push({
+        engine: engine.id,
+        variant: lab.variant,
+        platform,
+        screen: 'lab',
+        userAgent: run.state?.userAgent ?? null,
+        refresh: null,
+        search: null,
+        guide: null,
+        nowNext: null,
+        screenshot: null,
+        arabicScreenshot: null,
+        bidi: null,
+        onboarding: null,
+        lab: { session: run.state?.session ?? null, summary },
+        failures,
+        mustPass: lab.mustPass,
+        durationMs: run.durationMs,
+      });
+      const verdict = failures.length === 0 ? 'PASS' : 'FAIL';
+      const expected = lab.mustPass === (failures.length === 0) ? '' : '  <-- UNEXPECTED';
+      log(`  ${lab.variant.padEnd(30)} ${platform.padEnd(6)} ${'lab'.padEnd(10)} ${verdict} ${(run.durationMs / 1000).toFixed(1)} s${expected}${summary}`);
+      for (const failure of failures) log(`      ${failure}`);
+    }
+  }
+  return reports;
+}
+
 async function runEngine(
   engine: Engine,
   zip: string,
   image: string,
   variants: readonly Variant[],
   checks: Record<TvPlatform, WalkData>,
+  labs: { readonly server: LabServer; readonly targets: readonly LabTarget[] },
   keep: boolean,
 ): Promise<RunReport[]> {
   const running = startEngine({
@@ -273,6 +326,7 @@ async function runEngine(
               platform,
               screen,
               ...outcome.fields,
+              lab: null,
               failures,
               mustPass: mustPass(variant, engine.major),
               durationMs: outcome.durationMs,
@@ -287,6 +341,7 @@ async function runEngine(
           }
         }
       }
+      reports.push(...(await runLabs(client, engine, labs.server, labs.targets)));
     } finally {
       client.close();
     }
@@ -305,6 +360,7 @@ async function main(): Promise<void> {
     options: {
       engine: { type: 'string', multiple: true },
       dist: { type: 'string', default: 'dist/tv' },
+      'dist-lab': { type: 'string', default: 'dist/tv-lab' },
       'self-test': { type: 'boolean', default: false },
       keep: { type: 'boolean', default: false },
     },
@@ -312,6 +368,7 @@ async function main(): Promise<void> {
   const engines = selectEngines(values.engine ?? []);
   const selfTest = values['self-test'];
   const distTv = path.resolve(ROOT, values.dist);
+  const distLab = path.resolve(ROOT, values['dist-lab']);
   const cacheDir = path.resolve(ROOT, process.env.ZOMA_ENGINE_CACHE ?? '.cache/engines');
 
   assertDockerRunning();
@@ -322,6 +379,9 @@ async function main(): Promise<void> {
   // A screenshot that a run didn't write again must not pass for a fresh one.
   for (const file of readdirSync(OUT)) if (/^(gallery|onboarding)-.*\.png$/.test(file)) rmSync(path.join(OUT, file));
   const variants: Variant[] = [stageApp(distTv, VARIANTS_DIR)];
+  const labDir = stageLab(distLab, VARIANTS_DIR);
+  if (labDir === null) throw new Error(`${path.relative(ROOT, distLab)} has no lab builds: run pnpm build:tv first`);
+  const labTargets: LabTarget[] = [{ variant: 'lab', dir: LAB_DIR, mustPass: true }];
   // Served in each container at FIXTURE_ORIGIN; every variant's runs ingest them.
   const staged = stageFixtures(VARIANTS_DIR);
   // The live screen's rail and rows, as the walk checks them (step 14c).
@@ -333,14 +393,25 @@ async function main(): Promise<void> {
     variants.push(...SEEDS.map((seed) => stageSeed(distTv, VARIANTS_DIR, seed)));
     variants.push(...CSS_SEEDS.map((seed) => stageCssSeed(distTv, VARIANTS_DIR, seed)));
     variants.push(...WALK_SEEDS.map((seed) => stageSeed(distTv, VARIANTS_DIR, seed)));
+    stageLabSeed(labDir, VARIANTS_DIR);
+    labTargets.push({ variant: LAB_SEED.id, dir: LAB_SEED.id, mustPass: false });
     log('\nbuilding the no-polyfills variant (test only)');
     variants.push(stageNoPolyfills(ROOT, VARIANTS_DIR));
   }
 
+  // The lab's collector: a fresh folder per run, read back by the lab checks.
+  const labLogs = path.join(OUT, 'lab-logs');
+  rmSync(labLogs, { recursive: true, force: true });
+  const server = await startLabServer(ROOT, labLogs);
+  log(`lab: mock provider on port ${server.port}, records in ${path.relative(ROOT, labLogs)}`);
   const reports: RunReport[] = [];
-  for (const engine of engines) {
-    const zip = await ensureEngineZip(engine, cacheDir, log);
-    reports.push(...(await runEngine(engine, zip, image, variants, checks, values.keep)));
+  try {
+    for (const engine of engines) {
+      const zip = await ensureEngineZip(engine, cacheDir, log);
+      reports.push(...(await runEngine(engine, zip, image, variants, checks, { server, targets: labTargets }, values.keep)));
+    }
+  } finally {
+    server.stop();
   }
 
   writeFileSync(path.join(OUT, 'report.json'), `${JSON.stringify(reports, null, 2)}\n`);

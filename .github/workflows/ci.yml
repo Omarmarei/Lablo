@@ -108,6 +108,7 @@ jobs:
             artifacts/engines/report.json
             artifacts/engines/gallery-*.png
             artifacts/engines/onboarding-*.png
+            artifacts/engines/lab-logs/
           if-no-files-found: ignore
           retention-days: 14
 

@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<!-- The Zoma Lab under `pnpm dev` (RELAY step 15a): http://localhost:5173/lab.html?server=http://127.0.0.1:8080
+     The TV build generates its own page (tools/build: dist/tv-lab), with native-probe.js inlined
+     and lab-config.js beside it. -->
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="utf-8" />
+    <title>Zoma Lab</title>
+    <script src="/src/lab/native-probe.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/lab/lab-main.tsx"></script>
+  </body>
+</html>

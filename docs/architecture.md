@@ -950,6 +950,21 @@ All spikes run in a "Zoma Lab" build that posts results to the log collector. Th
 
 **The data layer in the harness (relay step 8b, 2026-11-02).** With that switch, the real data workers run as Blob workers from `file://` in Chromium 53, 56 and 68. They prune at start, then stream a 3,000-item playlist over HTTP: plain for the tizen app, and gzipped (through fflate) for the webos app. They write it to IndexedDB in 500-item chunks, swap generations, reload the query worker and search it, and the hit counts are exact (a Latin word, and an Arabic word that matches only through normalization). What S1 still has to show on the TVs is the switch's assumption (Blob-worker IndexedDB from a packaged app) and the speed on real hardware. The harness serves the playlist with CORS headers; whether packaged apps need none is S7.
 
+**Built in step 15a: the Zoma Lab** (`apps/tv/src/lab`, runbook `docs/runbooks/lab.md`):
+- **A separate TV build** (`pnpm build:tv` → `dist/tv-lab`, `tools/build/src/lab.ts`) with its own app id (`com.zoma.iptv.lab`, `ZomaLab001.ZomaLab`), so installing it leaves the app and its data alone. The lab server's address (the mock provider on the PC), the version and the write test's size are set at build time in `lab-config.js`. It runs every spike at launch.
+- **The runner:** spikes made of checks, run one at a time, each with a timeout. A check that throws fails with the reason; it never stops the run. Each check ends as one record (`pass`/`fail` against its criterion, `info` for a measurement step 16 judges, `skip` where it doesn't apply). The records are posted as NDJSON to the LAN log collector, in order, retried with backoff and never dropped, and kept on `window.__ZOMA_LAB__` for the tests and the harness. A screen driven by the remote shows each spike's status and the focused spike's checks.
+- **The spikes so far:**
+  - **S0:** the device facts.
+  - **S1:** the polyfills (a native probe in index.html runs before the bundle, so the record says which built-ins the engine lacked), the web APIs and CSS features present, Preact, a Blob worker, TextDecoder across every split of multi-byte text, `response.body` streaming on the page and in the worker, IndexedDB on the page, and a 10,000-item bulk write in 500-item transactions in the worker.
+  - **S2:** markers in localStorage and IndexedDB read back by the next run with the version that wrote them (install a higher `--lab-version` over the lab to test an update), the quota, and a 200 MB write test.
+  - **S3:** the DUID or LGUDID through the new `Platform.deviceSecret()`. Only a hash and the ID's format leave the TV; `stable` compares the hash with the last run's.
+  - **S7:** XHR and fetch with and without CORS headers, and a 302 with `responseURL` / `response.url`.
+- **The lab server's probes:** the mock answers the lab on `/__lab/bytes`, `/__lab/echo` and `/__lab/redirect`, so the lab holds no test account.
+- **`Platform.deviceSecret()`:** Tizen `webapis.productinfo.getDuid()`; webOS luna `com.webos.service.sm/deviceid/getIDs` through `PalmServiceBridge` (`lunaRequest`, no webOSTV.js), which only the webOS adapter may touch; `null` in the browser.
+- **Desktop answers:** S7's no-CORS checks fail there (a browser enforces CORS; a packaged app is expected not to), and S3 has no ID. The e2e test and the old-engine harness both require exactly that, which also shows the checks can fail.
+- **In Chromium 53, 56 and 68** (the old-engine harness, reporting through `host.docker.internal` to a mock on the host), every check answered as expected. The bundle filled exactly the built-ins each engine lacks: 8 on 53, 6 on 56, 4 on 68. A whole lab run took about a second on Chromium 53.
+- **Not yet:** S6, S9–S11 (step 15b), the player batteries S4, S5 and S8 (step 15c), DB8 for S2 on webOS, and any real TV (step 16).
+
 ---
 
 ## 6. Phased roadmap

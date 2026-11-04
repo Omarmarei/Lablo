@@ -27,6 +27,7 @@ import {
   transformBody,
 } from './faults';
 import { DEFAULT_LAB_LOG_DIR, registerLabLogs } from './lab-logs';
+import { NO_CORS_REQUESTS, registerLabProbes } from './lab-probes';
 import { attributionHtml } from './open-movies';
 import type { MediaSource } from './media';
 import { PlaceholderMedia } from './media';
@@ -180,7 +181,7 @@ export async function buildServer(options: MockServerOptions = {}): Promise<Mock
 
   app.addHook('onSend', async (request, reply, payload) => {
     const plan = request.mock?.plan;
-    if (!plan?.noCors) {
+    if (!plan?.noCors && !NO_CORS_REQUESTS.has(request)) {
       void reply.header('access-control-allow-origin', '*').header('access-control-expose-headers', EXPOSE_HEADERS);
     }
     if (!plan || request.method === 'HEAD' || payload === null || payload === undefined) return payload;
@@ -242,6 +243,8 @@ export async function buildServer(options: MockServerOptions = {}): Promise<Mock
   registerXmltv(app, state);
   registerStreams(app, state);
   if (options.labLogDir !== null) registerLabLogs(app, options.labLogDir ?? DEFAULT_LAB_LOG_DIR);
+  // The lab's probes store nothing, so they stay on with the collector off.
+  registerLabProbes(app);
 
   // ---- Control endpoints --------------------------------------------------------------------
   app.get<{ Params: { token: string; n: string } }>('/__mock/redirect/:token/:n', async (request, reply) => {
@@ -296,6 +299,7 @@ export async function buildServer(options: MockServerOptions = {}): Promise<Mock
         `XMLTV:    ${base}/xmltv.php?username=U&password=P   (also ${base}/epg/guide.xml[.gz])`,
         `Faults:   ?mock_fault=status:509 | redirect:hops=3 | stall:after_bytes=4096 | ...   scenario: ${state.scenario?.name ?? 'none'}`,
         `Lab logs: POST ${base}/__lab/logs/<session>   GET ${base}/__lab/logs`,
+        `Lab:      ${base}/__lab/bytes?lines=N   ${base}/__lab/echo?cors=0   ${base}/__lab/redirect?to=/__lab/echo`,
         `Media:    ${state.media.kind}   Credits: ${base}/attribution`,
         '',
         'Test accounts (fixtures/server.yaml):',

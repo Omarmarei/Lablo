@@ -7,11 +7,11 @@ How `pnpm build:tv`, `pnpm dev` and `pnpm device` work, and the manual Tizen ste
 | Command | What it does |
 |---|---|
 | `pnpm dev` | Vite dev server for `apps/tv` with the browser adapter (keyboard = remote). Open the printed URL at 1920x1080: it starts on onboarding (step 13a), or on the live screen once a source is stored (step 14a). URL overrides: `?tier=low&locale=ar-SA&country=SA`; developer screens `?screen=hello` (device, workers, data layer) and `?screen=gallery` (components). |
-| `pnpm build:tv` | Both TV builds, the ES2016 syntax gate, bundle budgets and the webOS `.ipk`. Options: `--platform tizen` or `--platform webos` (repeatable), `--skip-package`, `--out <dir>` (staging root instead of `dist/tv`). Test only: `--unsafe-no-polyfills` builds without core-js for the old-engine self-test; it needs `--out`, refuses `dist/tv` and never packages. |
+| `pnpm build:tv` | Both TV builds of the app and of the Zoma Lab (`dist/tv-lab`, step 15a, [lab.md](lab.md)), the ES2016 syntax gate, bundle budgets and the webOS `.ipk`s. Options: `--platform tizen` or `--platform webos` (repeatable), `--target app` or `--target lab` (repeatable), `--skip-package`, `--out <dir>` (staging root instead of `dist/tv`; the app only). Lab options: `--lab-server`, `--lab-version`, `--lab-write-mb`, `--lab-no-auto` (lab.md). Test only: `--unsafe-no-polyfills` builds without core-js for the old-engine self-test; it needs `--out`, refuses `dist/tv` and never packages. |
 | `pnpm verify:engines` | The built apps in Chromium 53/56/68 snapshots (Docker). See [old-engines.md](old-engines.md). |
 | `pnpm fonts` | Remakes the woff2 font subsets in `packages/ui/assets/fonts` (with `fonts.json` and `OFL.txt`) from the Noto sources pinned in `tools/fonts/src/spec.ts`, downloaded once into `.cache/fonts` and checked by SHA-256. Run it after changing a range, a weight or a source, then commit the outputs; the output is deterministic. CI never downloads fonts. |
 | `pnpm e2e` | Playwright: the dev app by keyboard, and both built TV bundles booted from `file://`. Needs `pnpm build:tv` first (`pnpm verify` runs it). The specs press keys through `e2e/remote-driver.ts` and read the focus from `window.__ZOMA_TEST__.focusPath()` (step 14b). The project `throttled` runs last, alone: the live screen on 20,000 channels at 4x CPU throttle, each key press ≤ 200 ms and no longer main-thread task, in the full and the forced low tier (report: `artifacts/perf/live-throttled.json`). Run it by itself with `pnpm exec playwright test --project=throttled --no-deps` (no TV build needed). |
-| `pnpm device <devices\|install\|launch\|inspect> <webos\|tizen> [device]` | Install, launch or remote-inspect the build on a TV. |
+| `pnpm device <devices\|install\|launch\|inspect> <webos\|tizen> [device] [--lab]` | Install, launch or remote-inspect the build on a TV; `--lab` does it for the Zoma Lab. |
 
 ## What `pnpm build:tv` does
 
@@ -50,6 +50,16 @@ How `pnpm build:tv`, `pnpm dev` and `pnpm device` work, and the manual Tizen ste
    - **Tizen:** only when the Tizen CLI is on PATH **and** `TIZEN_SIGNING_PROFILE` names a certificate profile. Otherwise the build prints why it skipped and still succeeds.
 
 When a gate failure appears: find the excerpt in the source, or the dependency it came from. Regex lookbehind and named groups cannot be transpiled; rewrite the regex. A dependency shipping new syntax is already transpiled; if it still fails, it may use something Babel has no transform for. A CSS gate failure names the source file and line: rewrite the rule with flexbox, margins, physical properties or `rgba()`, as the reason says.
+
+## The Zoma Lab build (step 15a)
+
+The same pipeline builds `apps/tv/src/lab/lab-main.tsx` per platform, with its own budgets (the same limits) and gates, into `dist/tv-lab/<platform>/` (`tools/build/src/lab.ts`):
+- **The manifests** are the app's with another id and name: webOS `com.zoma.iptv.lab`, "Zoma Lab"; Tizen widget `https://zoma-iptv.invalid/lab`, package `ZomaLab001`, app `ZomaLab001.ZomaLab`. So a lab install never replaces the app or its data.
+- **index.html** runs the boot-error handler, then the native-feature probe (`apps/tv/src/lab/native-probe.js`, inlined and syntax-gated: which built-ins the engine has before core-js), then `lab-config.js`, then `main.js`.
+- **lab-config.js** holds `window.ZOMA_LAB_CONFIG`: the server (`--lab-server`, default this PC's first private IPv4 address on port 8080), the version (`--lab-version`, default the app's), the write test's size and whether to run at launch.
+- **Package:** `dist/packages/com.zoma.iptv.lab_<version>_all.ipk`. Tizen as for the app, once the CLI exists.
+- **Sizes (2026-11-04):** lab main.js 131.7 KB own code (tizen), plus the lab worker (33.0 KB); app.css 23.6 KB.
+- **The app's own bundle** gained 0.3 KB (tizen) and 1.5 KB (webos) from `Platform.deviceSecret()`. The webOS luna helper takes its parameters as JSON text: a `JSON.stringify` there would have pulled `es.json.stringify` (about 4 KB) into main.
 
 ## Placeholders to settle before the first store submission (RELAY step 45)
 

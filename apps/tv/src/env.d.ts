@@ -15,3 +15,18 @@ interface Window {
   /** The focus engine's path for the e2e `RemoteDriver` and the old-engine harness (`ZomaTestHook` in src/test-hook.ts, RELAY step 14b). */
   __ZOMA_TEST__?: { focusPath(): string | null };
 }
+
+interface Window {
+  /** The Zoma Lab's session and records, for the e2e tests and the old-engine harness (src/lab/lab-main.tsx, RELAY step 15a). */
+  __ZOMA_LAB__?: {
+    readonly session: string;
+    readonly server: string;
+    /** Every record of the session (`LabRecord` in src/lab/types.ts). */
+    readonly records: ReadonlyArray<{ readonly type: string; readonly spike?: string; readonly check?: string; readonly status?: string }>;
+    /** `ready`, `running` or `done` (`LabPhase`). */
+    phase(): string;
+    runs(): number;
+    /** The reporter's counts (`ReporterState` in src/lab/reporter.ts). */
+    sent(): { readonly sent: number; readonly pending: number; readonly failures: number; readonly lastError: string | null };
+  };
+}

@@ -1,0 +1,197 @@
+/*
+ * The Zoma Lab screen (RELAY step 15a): 1920x1080 inside the title-safe margins, nothing
+ * scrolls. Physical properties and flexbox with margins only (the Chromium 53 CSS gate); the
+ * lab is English only, so nothing here needs mirroring.
+ */
+.lab {
+  display: flex;
+  flex-direction: column;
+  width: var(--screen-width);
+  height: var(--screen-height);
+  padding: var(--safe-y) var(--safe-x);
+  overflow: hidden;
+}
+
+.lab.is-loading {
+  align-items: center;
+  justify-content: center;
+}
+
+.lab__error {
+  max-width: 1200px;
+  color: var(--color-danger);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+}
+
+.lab__header {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+}
+
+.lab__title {
+  flex: none;
+  margin: 0;
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+  font-weight: var(--font-weight-bold);
+}
+
+.lab__meta {
+  flex: 1;
+  margin: 0 0 0 var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+}
+
+.lab__session,
+.lab__sent {
+  flex: none;
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+}
+
+.lab__sent.is-failing {
+  color: var(--color-warn);
+}
+
+.lab__actions {
+  display: flex;
+  flex: none;
+  margin: var(--space-4) 0;
+}
+
+.lab__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.lab__spikes {
+  flex: none;
+  width: 520px;
+  margin: 0 var(--space-6) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lab__spike {
+  display: flex;
+  align-items: center;
+  height: 72px;
+  margin: 0 0 var(--space-2);
+  padding: 0 var(--space-4);
+  border: 3px solid transparent;
+  border-radius: var(--radius-m);
+  background: var(--color-surface);
+  font-size: var(--font-size-label);
+}
+
+.lab__spike.is-focused {
+  border-color: var(--color-focus);
+  background: var(--color-surface-focus);
+}
+
+.lab__spike.is-memory {
+  border-color: var(--color-border-memory);
+}
+
+.lab__spike-id {
+  flex: none;
+  width: 64px;
+  font-weight: var(--font-weight-bold);
+}
+
+.lab__spike-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.lab__spike-count {
+  flex: none;
+  margin: 0 var(--space-3);
+  color: var(--color-text-muted);
+}
+
+.lab__checks {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.lab__question {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-text-muted);
+}
+
+.lab__check-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lab__check {
+  display: flex;
+  align-items: flex-start;
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+}
+
+.lab__check-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0 var(--space-3);
+}
+
+.lab__check-note {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.lab__check-ms {
+  flex: none;
+  width: 120px;
+  color: var(--color-text-muted);
+  text-align: right;
+}
+
+.lab__status {
+  flex: none;
+  width: 72px;
+  padding: 2px 0;
+  border-radius: var(--radius-s);
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-bold);
+  text-align: center;
+}
+
+.lab__status--pass {
+  background: var(--color-success);
+  color: var(--color-text-on-accent);
+}
+
+.lab__status--fail {
+  background: var(--color-danger);
+  color: var(--color-text-on-accent);
+}
+
+.lab__status--info {
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+}

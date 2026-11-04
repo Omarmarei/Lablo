@@ -67,7 +67,7 @@ const restrictGlobals = (names) => {
   };
 };
 const TIZEN_GLOBALS = ['tizen', 'webapis'];
-const WEBOS_GLOBALS = ['webOS', 'PalmSystem'];
+const WEBOS_GLOBALS = ['webOS', 'PalmSystem', 'PalmServiceBridge'];
 
 /**
  * Props whose strings people read: the components' text props (packages/ui/src/components)
@@ -249,6 +249,13 @@ export default defineConfig(
     // the catalogs. Exactly these three files: user screens (onboarding, later the live screen)
     // never import them.
     files: ['apps/tv/src/App.tsx', 'apps/tv/src/DataPanel.tsx', 'apps/tv/src/FocusPanel.tsx'],
+    rules: { 'zoma/no-hard-coded-text': 'off' },
+  },
+  {
+    // The Zoma Lab (RELAY step 15a) is its own TV build (dist/tv-lab, its own app id) for
+    // answering the hardware spikes: an English developer tool that never ships to users, and
+    // whose text the e2e tests and the collector's records repeat. The app's entry never imports it.
+    files: ['apps/tv/src/lab/**/*.tsx'],
     rules: { 'zoma/no-hard-coded-text': 'off' },
   },
   {
