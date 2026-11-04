@@ -1,6 +1,6 @@
 # Runbook: TV builds, packaging and device commands
 
-How `pnpm build:tv`, `pnpm dev` and `pnpm device` work, and the manual Tizen steps. Full TV setup (Developer Mode, emulators, Samsung certificates) comes in `docs/runbooks/tv-setup.md` (RELAY step 15).
+How `pnpm build:tv`, `pnpm dev` and `pnpm device` work, and the manual Tizen steps. Setting up the TVs themselves (Developer Mode, emulators and simulators, Samsung certificates) is in [tv-setup.md](tv-setup.md).
 
 ## Commands
 
@@ -73,8 +73,8 @@ The same pipeline builds `apps/tv/src/lab/lab-main.tsx` per platform, with its o
 
 The Tizen Studio CLI is not installed on the build machine, and GUI tools are never installed unattended. To build a signed `.wgt` by hand:
 
-1. Install Tizen Studio with the **TV Extensions** and the CLI (`tizen-studio/tools/ide/bin` on PATH, plus `tizen-studio/tools` for `sdb`).
-2. Create a **Samsung certificate profile** in Certificate Manager (Samsung, not Tizen, for TVs; it needs a Samsung account and the TV's DUID for a distributor certificate). Name it, e.g. `zoma-dev`. Never commit `*.p12` files (`.gitignore` blocks them).
+1. Install the Tizen CLI: the Tizen SDK 10 CLI installer, or Tizen Studio 6.1 with the **TV Extensions** ([tv-setup.md](tv-setup.md) 3.1; `<sdk>/tools/ide/bin` on PATH, plus `<sdk>/tools` for `sdb`).
+2. Create a **Samsung certificate profile** in Certificate Manager, with the Samsung Certificate Extension 2.0.74 or newer ([tv-setup.md](tv-setup.md) 3.2; Samsung, not Tizen, for TVs; it needs a Samsung account and the TV's DUID for a distributor certificate). Name it, e.g. `zoma-dev`. Never commit `*.p12` files (`.gitignore` blocks them).
 3. Build and package:
 
    ```bash
@@ -87,7 +87,7 @@ The Tizen Studio CLI is not installed on the build machine, and GUI tools are ne
 
 ## webOS `.ipk` on a TV or the emulator
 
-1. LG TV: install the **Developer Mode** app from the LG Content Store, sign in with the LG developer account, turn on Dev Mode and the key server. Dev Mode lasts about 50 hours; extend it in the app.
+1. LG TV: install the **Developer Mode** app from LG Apps (formerly the LG Content Store), sign in with the LG developer account, turn on Dev Mode and the key server. The session lasts up to 1,000 hours by LG's forum (no official figure); extend it in the app or from this PC ([tv-setup.md](tv-setup.md) 2.2).
 2. Register the TV once. The ares-* commands live in `tools/device`, so run them through pnpm:
 
    ```bash

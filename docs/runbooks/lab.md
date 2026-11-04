@@ -8,7 +8,7 @@ The Zoma Lab is a separate TV build that answers the hardware spikes of [archite
 - **Built in step 15b3:** S10, input: the remote's keys, the pointer and the TV's keyboard (below).
 - **Built in step 15c:** S5, the `<video>` battery (below).
 - **Built in step 15c2:** the AVPlay batteries S4 and S8, and S5's luna track route (below).
-- **Setting up the TVs and emulators:** `docs/runbooks/tv-setup.md` (step 15d).
+- **Setting up the TVs and emulators:** [tv-setup.md](tv-setup.md) (step 15d). Samsung options without a Samsung TV: [testing-without-tvs.md](../testing-without-tvs.md).
 
 ## Quick start (a TV on the LAN)
 

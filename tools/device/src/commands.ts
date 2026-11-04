@@ -1,8 +1,8 @@
 /**
  * The device commands behind `pnpm device`, as plain argument lists so they can be tested
  * without a TV. webOS uses the ares-* CLI from @webos-tools/cli (installed with the repo);
- * Tizen uses the `tizen` and `sdb` CLIs from Tizen Studio (installed by hand, see
- * docs/runbooks/tv-build.md).
+ * Tizen uses the `tizen` and `sdb` CLIs from the Tizen SDK (installed by hand, see
+ * docs/runbooks/tv-setup.md).
  */
 export type DevicePlatform = 'webos' | 'tizen';
 export type DeviceAction = 'devices' | 'install' | 'launch' | 'inspect';
@@ -25,7 +25,8 @@ export interface AppTarget {
 
 /**
  * `device` is the ares device name (`ares-setup-device`) on webOS, or the sdb serial
- * (`sdb devices`, e.g. `192.168.1.20:26101`) on Tizen. It is not needed for `devices`.
+ * (the first column of `sdb devices`, e.g. `192.168.1.20:26101`, or `emulator-26101`) on
+ * Tizen. It is not needed for `devices`.
  */
 export function deviceCommand(
   action: DeviceAction,
@@ -48,10 +49,12 @@ export function deviceCommand(
   switch (action) {
     case 'devices':
       return { bin: 'sdb', args: ['devices'] };
+    // `-s` takes the serial (`192.168.1.20:26101`); `-t` would take the target *name* (the third
+    // column of `sdb devices`, e.g. `UE43NU7100`). Samsung's CLI page, read 2026-11-04.
     case 'install':
-      return { bin: 'tizen', args: ['install', '-n', basename(app.packageFile), '-t', device, '--', dirname(app.packageFile)] };
+      return { bin: 'tizen', args: ['install', '-n', basename(app.packageFile), '-s', device, '--', dirname(app.packageFile)] };
     case 'launch':
-      return { bin: 'tizen', args: ['run', '-p', app.appId, '-t', device] };
+      return { bin: 'tizen', args: ['run', '-p', app.appId, '-s', device] };
     case 'inspect':
       // Prints the remote-inspector port; open http://<tv-ip>:<port> in Chrome.
       return { bin: 'sdb', args: ['-s', device, 'shell', '0', 'debug', app.appId] };
