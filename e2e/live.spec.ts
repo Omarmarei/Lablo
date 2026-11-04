@@ -237,8 +237,9 @@ test.describe('the live screen by keys (pnpm dev, after onboarding)', () => {
       expect(nowTitles(catalog.live.find((c) => c.name === 'Zoma Kids Test')!, Date.now() - 60_000, Date.now())).toContain(kidsRows[0]!.nowTitle);
       await shot(page, `${locale}-category`);
 
-      // OK on a channel marks it (the player opens it from step 20 on).
-      await remote.press('OK');
+      // OK on a channel opens the player (step 20a, e2e/player.spec.ts); Back returns to its row.
+      await remote.go('OK', 'player/actions/0');
+      await remote.go('BACK', 'live/channels/0');
       await expect(root).toHaveAttribute('data-selected', /^x:s1:live:/);
 
       // Back: the rail on the category on show, then the exit dialog; Stay keeps the screen.
