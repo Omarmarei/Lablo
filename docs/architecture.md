@@ -626,7 +626,7 @@ export interface PlayerEngine {
   readonly kind: 'avplay' | 'html5' | 'mse';
   readonly caps: { maxHeight: number; trackSwitch: 'reliable'|'unreliable'|'none';
                    deliversSubtitleText: boolean; preloadSlots: number; rates: number[] };
-  load(req: PlayRequest, token: number, opts?: { startMs?: number; preload?: boolean }): Promise<void>;
+  load(source: EngineSource, token: number, opts?: { startMs?: number }): Promise<void>;  // one URL: the controller picks it
   play(): void; pause(): void; seek(ms: number): Promise<void>;
   stop(): Promise<void>;                 // must close the network connection (provider connection limits)
   setRect(r: Rect | 'full'): void;       // AVPlay setDisplayRect / CSS on the single <video>
@@ -637,8 +637,11 @@ export interface PlayerEngine {
   on(cb: (e: EngineEvent & { token: number }) => void): () => void;
   destroy(): void;
 }
-export type PlayRequest = { key: ContentKey; mode: 'live'|'vod'|'catchup';
-  candidates: { url: string; container: 'ts'|'hls'|'mp4'|'mkv' }[];  // ordered fallbacks
+export type EngineSource = { url: string; container: Container; live: boolean };
+export type Container = 'ts'|'hls'|'mp4'|'mkv'|'other';
+// packages/player/src/request.ts
+export type PlayRequest = { key: ContentKey; src: string; mode: 'live'|'vod'|'catchup';
+  candidates: { url: string; container: Container }[];  // ordered fallbacks (streamCandidates)
   externalSubs?: { lang: string; url: string; fmt: 'srt'|'vtt' }[]; hints?: { uhd?: boolean } };
 ```
 
@@ -704,6 +707,44 @@ export type PlayRequest = { key: ContentKey; mode: 'live'|'vod'|'catchup';
   - **Screensaver:** off while playing, on when stopped.
   - **VOD progress** is saved every 10 s.
 - **Start on last channel.** At startup the controller reads the profile, decrypts that source's credentials, builds the URL and starts playback before the catalog has loaded. Target: first frame within 4 s on 2020+ TVs.
+
+**Built in step 17: PlayerController** (`packages/player/src`: `engine.ts`, `request.ts`, `failure.ts`, `ladder.ts`, `clock.ts`, `controller.ts`; the test doubles in `fake-engine.ts`, not exported):
+- **Changes to the sketch above:**
+  - `load` takes one `EngineSource` (URL, container, live), not the whole request: the controller owns the list of URLs and the order it tries them in.
+  - `PlayRequest` gained `src`, the source id, because the URL strategy is remembered per source. Reading it out of the ContentKey would need `parseContentKey`, whose file brings core-js's `JSON.stringify` polyfill into the TV bundle (step 9c).
+  - `Container` gained `'other'`, for URLs whose path names no known container. `preload` waits for pre-buffered zapping (S8, Samsung).
+  - Engine errors are a `PlaybackError`: a kind (`network`, `http` with a status, `timeout`, `stall`, `unsupported`, `decode`, `app`) and the engine's own code for support. `load` rejects with one when the source can't be opened; later failures arrive as `error` events.
+- **Session tokens and close-before-open:** every `load` gets the next token, and the controller keeps the one whose events count (0 between loads). It drops every other event, every late `load` result, and every probe answer that arrives after a newer `play`, `stop` or retry.
+  - Before every load it awaits `engine.stop()`. A stop already under way is joined, not overtaken, so a zap never loads while the previous connection is still closing, even when an engine's second `stop()` returns at once.
+  - Zaps that arrive while a stop runs are skipped: only the newest loads.
+- **The URL strategy** (`streamCandidates`, `orderCandidates`, `SourceMemory`):
+  - An Xtream live URL (`/live/u/p/1.ts`, its `.m3u8` form, or the short `/u/p/1`) gives the `.ts` form, then the `.m3u8` form, keeping only what `allowed_output_formats` allows when it names either. The playlist's own spelling is kept for its own container. Anything else plays as it is.
+  - When a request has more than one URL, the container that showed a frame is remembered for its source, and that source's next requests try it first. A single-URL play (VOD) never changes it.
+  - `MemorySourceMemory` keeps it for the app's run. Keeping it in the profile is step 20's wiring.
+- **The watchdog** (`DEFAULT_WATCHDOG`, all tunable per model):
+  - It reads `positionMs()` every 500 ms from the first frame.
+  - **Live:** a stall when the position hasn't moved for 6 s while playing, or after 12 s of buffering. The frozen rule doesn't run while buffering, and both rules count again from a `playing` event or a resume.
+  - **VOD and catch-up:** after 20 s of buffering only.
+  - **No first frame within 10 s** of an attempt is an open timeout. The LG TV's three-302 chain took up to 4.1 s (docs/spikes/results.md).
+  - It rests while paused and after a VOD's end. A live stream that ends is a stall.
+- **The retry ladder** (`RetryLadder`):
+  - While nothing has played on the current URL, the next untried URL goes first, at once.
+  - Otherwise, from the first rung: reopen, re-probe (only where a `resolveUrl` probe is configured, Tizen in step 19), switch container (only with a second URL), then reopen after 1, 2 and 4 s (the last repeats).
+  - A **definitive** error (`unsupported`, or HTTP 4xx other than 408 and 429) only tries untried URLs.
+  - A frame on the screen starts the ladder again from its first rung, but attempts keep counting: the controller gives up when 4 attempts were made within the last 60 s.
+  - Live reopens at the live edge; VOD and catch-up reopen at the last position the watchdog saw (or the requested start, before anything played).
+  - The state is `opening` until the session's first frame, and `reconnecting` (the badge) for retries after it.
+- **The error classifier** (`classifyFailure`), on giving up:
+  - The order: offline is `internet` (`NET-OFFLINE`); `app` errors are `app` (`APP-ERROR`); then the account re-check: `PRV-AUTH`, `PRV-EXPIRED`, `PRV-BLOCKED`, `PRV-MAX-CONNECTIONS`; then `unsupported` is `device` (`TV-UNSUPPORTED`); everything else is `provider` (`PRV-HTTP-<status>`, `PRV-UNREACHABLE`, `PRV-TIMEOUT`, `PRV-STALLED`, `PRV-BAD-STREAM`).
+  - The account is re-checked (`checkAccount`, the app's Xtream `player_api.php` call) after `provider` and `device` verdicts. Account problems come before `unsupported` because panels answer an expired account with an error page or an "expired" clip, which a `<video>` reports as an unsupported format.
+  - The failure carries the engine's own code (`detail`) and the account's answer for the error card. A verdict that arrives after a zap is dropped.
+- **Dependencies are callbacks** (ADR-008): `clock`, `memory`, `config`, `online` (the app's connectivity check; default: online), `checkAccount` and `resolveUrl`.
+- **Not in step 17:** the engines (18, 19), debounced zapping, number entry and previous channel (20), tracks and language preferences (18, 20), subtitles (20), the lifecycle and the screensaver (18, 19), start-on-last-channel (20), and seeking (VOD, phase 7).
+- **Tests:** 62 in `packages/player` (the URL strategy, the classifier, the ladder, and the controller on `FakeEngine` and `FakeClock`).
+  - The engine counts open connections, and a stop closes its connection `stopMs` after it is called, so a load during a closing stop shows up as two connections at once.
+  - The zapping races: three zaps in one stop, stale events from a leaky engine, a zap while the probe or a retry waits, a verdict that arrives after a zap, and 50 seeded random zaps. In every one, a connection is closed before the next opens and only the newest request ever shows as playing.
+  - Mutation check: 77/77 mutants caught. The first run's four survivors were three test gaps (a zap while the old load is still pending, a timer left running while paused, the playlist's spelling of a URL) and one equivalent mutant, replaced.
+- **TV bundle:** bundled beside `main.tsx` (a probe; the app wires the player in step 20), the player adds about 10.3 KB minified to main on both platforms, with the same 219 core-js modules.
 
 ---
 

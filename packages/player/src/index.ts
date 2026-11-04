@@ -1,7 +1,37 @@
 /**
  * @zoma/player: PlayerController, PlayerEngine interface, Html5Engine, watchdog, error classifier, subtitle parsing.
  *
- * Skeleton created in relay step 1. Allowed imports are listed in CLAUDE.md
- * ("Package boundaries") and enforced by eslint-plugin-boundaries.
+ * Allowed imports are listed in CLAUDE.md ("Package boundaries") and enforced by
+ * eslint-plugin-boundaries: `core` only (ADR-008). The engines arrive in steps 18 (Html5Engine)
+ * and 19 (AvplayEngine, in platform-tizen).
  */
-export {};
+export type { Clock } from './clock';
+export { SYSTEM_CLOCK } from './clock';
+
+export type {
+  Container,
+  EngineCaps,
+  EngineEvent,
+  EngineSource,
+  EngineStats,
+  LoadOptions,
+  PlaybackError,
+  PlaybackErrorKind,
+  PlayerEngine,
+  PlayMode,
+  Rect,
+  Track,
+} from './engine';
+export { PLAYBACK_ERROR_KINDS, isPlaybackError } from './engine';
+
+export type { PlayCandidate, PlayRequest, SourceMemory } from './request';
+export { MemorySourceMemory, containerOf, orderCandidates, streamCandidates } from './request';
+
+export type { AccountStatus, FailureCategory, FailureFacts, PlaybackFailure } from './failure';
+export { classifyFailure, isDefinitive, wantsAccountCheck } from './failure';
+
+export type { LadderOptions, RetryPlan, Rung, WatchdogConfig } from './ladder';
+export { DEFAULT_WATCHDOG, RetryLadder } from './ladder';
+
+export type { ControllerOptions, PlayOptions, PlayerState, PlayerStatus } from './controller';
+export { PlayerController } from './controller';

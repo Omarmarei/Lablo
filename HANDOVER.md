@@ -1,207 +1,208 @@
-# Zoma IPTV: relay leg 35 opening prompt
+# Zoma IPTV: relay leg 36 opening prompt
 
-You are leg 35 of relay run `iptv-20261101-214120`, building **Zoma IPTV**. It is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 36 of relay run `iptv-20261101-214120`, building **Zoma IPTV**. It is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
-- **Earlier legs:** leg 0 planned the work. Legs 1–33 did steps 1–15d (PRs #1–#32). Leg 6 did no project work.
-- **Leg 34** (with Omar in the tab for most of it):
-  - **Step 15e:** the lab in LG's webOS TV Simulator.
-    - Smart App Control blocks the Simulator's Windows build, so its Linux AppImage runs in Docker (`tools/engines/webos-sim/`).
-    - Simulator 6.0 (Chromium 79) and 24 (Chromium 108) ran every spike, and every record reached the collector.
-    - PR **#33**, merged as **`d580643`** (branch kept). CI on `277307f` was green on the first run: verify 8 m, media 12 m, engines 13 m.
-    - Steps 15e and 15 are ticked.
-  - **Omar's decisions** (commit `bb86d9c`):
-    - Samsung: the Remote Test Lab now, plus one used 2018 set;
-    - the RTL lab server: a tunnel from this PC during a session;
-    - Arabic digits: Western everywhere (ADR-011 updated);
-    - **the LG minimum is raised to 2020 (webOS 5+)** (RELAY.md step 16, not written up yet).
-  - **Step 16, LG part:** Omar's LG TV is paired from this PC and ran the whole lab (commit `9d4cd4f`).
-    - That run found a bug: the webOS model year is read from the firmware number.
-    - Leg 34 added **step 16a** to fix it.
-    - Omar set the order: 16a, then step 17 onward, while the rest of 16 waits for him.
-  - Main's CI was green on PR #32's merge (`f232657`) and on PR #33's (`d580643`, 13 m 43 s).
+- **Earlier legs:**
+  - Leg 0 planned the work. Leg 6 did no project work.
+  - Legs 1–34 did steps 1–15e and step 16's LG part (PRs #1–#33).
+- **Leg 35 did step 16a**, merged as PR **#34** (merge commit **`0f5a692`**, branch kept):
+  - CI on `1f1fe6f` was green on the first run: verify 8 m 51 s, media 9 m 13 s, engines 13 m 37 s.
+  - When leg 35 ended, main's CI on `0f5a692` was still running.
+- **What 16a changed:**
+  - **The webOS model year:** it now comes from `sdkVersion`, else the engine, never from `platformVersion` (that holds the firmware). On Omar's LG TV, S0 now says **2021, tier `full`**.
+  - **S1's CSS probe** is fixed.
+  - **LG's ACG:** `requiredACG` is in both webOS manifests, and the build checks it.
+  - **ADR-012:** the LG minimum is webOS 5 (2020), and the old-engine harness keeps Chromium 53.
+  - **`docs/spikes/results.md`** is started.
+  - **Extra TV runs:** S2's stores survive an update, and S3's LGUDID survives a reinstall.
 
-## Your step: 16a (RELAY.md is the spec)
-"The webOS model year, the LG minimum, and the first results." **Skip step 16 itself:** it stays open until Omar says the Samsung route is ready or he has time at the TV. In order:
+## Your step: 17, PlayerController (RELAY.md is the spec; architecture.md §2 is the design)
+**Skip step 16:** it stays open until Omar says the Samsung route is ready or he has time at the TV.
 
-1. **The bug.**
-   - `packages/platform-webos/src/index.ts` `readDeviceInfo()` sets `osVersion` from `PalmSystem.deviceInfo.platformVersion`.
-   - On the TV that is the firmware, `03.53.45`. `webosModelYear()` (`src/device.ts`, `WEBOS_MAJORS`) reads major 3, minor ≥ 5 as 2017, so `deviceTier()` (`packages/core/src/device.ts`, full from 2020) gives `low`.
-   - LG's webOSTV.js reference (https://webostv.developer.lge.com/develop/references/webostvjs-webos#deviceinfo) says `version` is the TV's software version and `sdkVersion` is "the webOS TV SDK version". `ares-device --system-info` on the TV prints `sdkVersion : 6.5.3`, `firmwareVersion : 03.53.45`.
-   - The Simulators reported `02.00.94` (6.0) and `02.11.66` (24): firmware-like too, and `modelYear` came out null.
-2. **The fix:**
-   - Make `parsePalmDeviceInfo` keep `sdkVersion` (and whatever version keys the raw string really has).
-   - Take the year from `sdkVersion`.
-   - Fall back to the user agent's Chromium major when it's missing: 68 → webOS 5 → 2020, 79 → 6 → 2021, 87 → 2022, 94 → 2023, 108 → 2024, 120 → 2025.
-   - Keep `firmware` as the firmware.
-   - Make S0 record the raw `deviceInfo` keys, so the next TV run shows what is there.
-   - Unit tests in `packages/platform-webos/src/index.test.ts` (or a new `device.test.ts`): `sdkVersion` present, absent with a Chromium UA, both absent, and the 03.53.45 case that must no longer give 2017.
-   - Platform adapter code reaches the app's main bundle, so probe it for core-js polyfills (memory `iptv-tv-bundle-polyfills`). Keep the main bundle's size steady.
-3. **The ADR:** the next number is **ADR-012**, "LG minimum webOS 5 (2020)". Omar decided it in leg 34. Samsung keeps 2018 (Tizen 4, Chromium 56). Update:
-   - `architecture.md` (support matrix, tiers);
-   - tv-setup.md "At a glance" and section 4;
-   - `docs/testing-without-tvs.md` where it mentions LG 2018;
-   - the build's webOS notes;
-   - RELAY.md's later steps (store listing minimum, step 45).
-   - **Decide and record:** does the old-engine harness keep Chromium 53? It was LG webOS 4's engine. Samsung 2018's is 56. Dropping 53 changes `verify:engines`, CI time and the ES/bundle targets. If the trade-off isn't clear-cut, keep 53 and note it as a later cleanup.
-4. **`docs/spikes/results.md`:** a row per spike per device, from `artifacts/lab-logs/` (gitignored, still in the worktree): the LG TV, Simulator 6.0 and 24. Add the desktop and the Docker 53/56/68 rows if cheap. Mark what is still to run (step 16's list).
-5. **Re-run on the TV:**
-   - Extend Developer Mode first:
+Step 17 in RELAY.md reads: "PlayerController (5.1). Session tokens, close-before-open, URL strategy (`.ts`→`.m3u8`, remembered per source), watchdog retry ladder, error classifier; FakeEngine tests. Done when: state-machine and zapping-race tests pass."
 
-     ```bash
-     pnpm --filter @zoma/tools-device exec ares-launch --device tv com.palmdts.devmode --params "extend=true"
-     ```
-
-     That command is forum-sourced; note whether it works.
-   - Then `pnpm mock` (background), `pnpm build:tv --platform webos --target lab --lab-server http://192.168.1.3:8080`, `pnpm device install webos tv --lab`, `pnpm device launch webos tv --lab`.
-   - The TV must be on. If it doesn't answer (`ares-device --system-info --device tv`), leave this check for Omar and say so.
-   - S0 must say 2021 and `full`. The run takes about 75 s; wait for the `end` record.
-6. **Finish:** verify (`pnpm verify`; `verify:engines` if the harness changed), then a PR, merge on green, tick 16a, a log row, the handover.
-
-Then **step 17** (PlayerController) is next.
+1. **Check for existing work first:** `git log --oneline -50` and grep for `PlayerController` and `PlayerEngine`. Today `packages/player/src/index.ts` is an empty skeleton (`export {};`).
+2. **Read the design:** architecture.md **§2 "Player abstraction"**. It has:
+   - the `PlayerEngine` interface and `PlayRequest`;
+   - the engines;
+   - the controller's duties (session tokens, close-before-open, URL strategy, the redirect probe, the watchdog's stall definitions and retry ladder, the error classifier's four categories, zapping, tracks, subtitles, lifecycle).
+3. **Respect the boundaries:**
+   - `player` imports `core` only (ADR-008: `platform-api` imports `player` types, not the reverse).
+   - Engines come in steps 18 (Html5Engine) and 19 (AvplayEngine), so 17 is the controller plus a `FakeEngine` for tests.
+4. **Use what the spikes found** (`docs/spikes/results.md`):
+   - The webOS `<video>` follows 302s natively. A 3-hop chain took 1.1–4.1 s on the TV, so the first-frame timeout must allow it.
+   - `audioTracks` switches in about 0.2 s with no restart; luna `selectTrack` is a fallback only (ADR-012: not in LG's ACG table).
+   - Desktop stalls recovered in about 6.1 s with the lab's 6 s watchdog.
+5. **Tests to write:**
+   - state-machine tests;
+   - zapping races: stale tokens dropped, and `stop()` awaited before every `load`;
+   - the retry ladder with a fake clock (keep test times on the 50 ms grid);
+   - the error classifier's categories;
+   - the URL strategy remembered per source.
+   - Mutation-check the guards (memory `iptv-parser-test-patterns`).
+6. **Watch the TV bundle:**
+   - Probe the new files for core-js polyfills before they reach the main bundle (memory `iptv-tv-bundle-polyfills`; the probe method is below).
+   - TV code is `lib: ES2017`.
+   - Avoid `JSON.stringify`, `new RegExp` and `.split(` in TV code where possible.
+7. **Finish:**
+   - `pnpm verify`, then a PR.
+   - Merge on green (`gh pr merge --merge`, after checking the run's `headSha` is the PR's head).
+   - Tick 17, add a log row, write the handover.
+   - Run `verify:engines` locally only if the build, polyfills, workers or boot code change; CI's `engines` job runs it anyway.
 
 ## Start
 1. Read `C:/Users/Omarm/.claude/relay/iptv-20261101-214120/state.json` for the worktree path.
 2. Check main: `gh run list --branch main --limit 1 -R Omarmarei/zoma-iptv`.
-   - The run on `d580643` was green when leg 34 ended.
+   - The run on `0f5a692` was in progress when leg 35 ended.
    - If only `engines` is red with "DevTools … did not answer", rerun it with `gh run rerun <id> --failed`.
 3. Run `git -C "<wt>" status` and `git -C "<wt>" log --oneline -5`.
 
-**Never call EnterWorktree**, even though Claude Code's background note asks for it. The relay worktree is your isolation. Use `git -C`, `pnpm --dir` and absolute paths. Never use bare `git stash`.
+**Never call EnterWorktree**, even though Claude Code's background note asks for it. The relay worktree is your isolation.
+- Use `git -C`, `pnpm --dir`, `gh -R` and absolute paths.
+- **Never `cd`:** leg 35's `cd /tmp` moved the session's working directory.
+- Never use bare `git stash`.
 
 ## Read first
 1. `CLAUDE.md`: the conventions, the Definition of Done, the merge policy and the commit format.
-2. `RELAY.md`: step 16 (its leg-34 notes), **16a**, 17, and the log rows for legs 33–34.
-3. `docs/runbooks/tv-setup.md` 2.2 (the LG TV, now with our TV's facts) and 2.4 (the Simulator in Docker, with results).
-4. `docs/adr/ADR-011-*` (as a template) and `docs/architecture.md`'s support matrix.
+2. `RELAY.md`: step 16's notes, 16a's "Done in leg 35", 17–21, and the log rows for legs 34–35.
+3. `docs/architecture.md` §2 (the player), plus the §5 S4/S5 rows.
+4. `docs/spikes/results.md` and `docs/adr/ADR-008-*` (the player/platform-api direction).
 5. Memory:
-   - `iptv-webos-simulator-docker` (new);
-   - `iptv-lg-tv-devmode` (new);
-   - `iptv-dev-toolchain`;
-   - `iptv-tv-bundle-polyfills`.
+   - `iptv-tv-bundle-polyfills`;
+   - `iptv-parser-test-patterns`;
+   - `iptv-data-layer-test-gotchas` (fake clocks, fakes that separate a state change from its callback);
+   - `iptv-webos-acg` (new);
+   - `iptv-lg-tv-devmode`.
 
 ## Git state to expect
 - **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`.
-- **HEAD:** the commit adding this HANDOVER.md, on top of `9d4cd4f`. It is pushed, and the tree is clean.
-- **main** has `d580643` (PR #33). The branch is ahead by `bb86d9c`, `9d4cd4f` and the handover commit, all docs; they go to main with 16a's PR.
+- **HEAD:** the commit adding this HANDOVER.md, on top of `f646ee0` ("docs: record PR #34's merge"). It is pushed, and the tree is clean.
+- **main** has `0f5a692` (PR #34). The branch is ahead by `f646ee0` and the handover commit, both docs; they go to main with step 17's PR.
 - **The main checkout** (`D:/Claude Code PlayGround/IPTV`) was not touched.
 - **Gitignored but present:**
   - `node_modules`, `.cache/*` (media included);
-  - `dist/`: the webOS lab was last built for `http://192.168.1.3:8080`, rebuild for your target;
-  - `artifacts/lab-logs/`: the sessions `webos-OLED55A1PVA-20261104-113731-h2rj`, `webos-WEBOS6.0_SIMULATOR-*` (two) and `webos-WEBOS24_SIMULATOR-20261104-085511-qtsi`.
-- **Outside the repo** (never commit; LG's license forbids redistribution):
-  - `D:/tools/webos-sim/`: the Windows zips (SAC-blocked);
-  - `D:/tools/webos-sim/linux/`: the 6.0 and 24 AppImages.
-- **Docker image:** `zoma-webos-sim:local` (local only, never push).
-- **On the TV:** the lab `com.zoma.iptv.lab` 0.1.0 is installed.
-- **The CLI:** device `tv` = `prisoner@192.168.1.8:9922`, key `%USERPROFILE%\.ssh\tv_webos`.
+  - `dist/`: the last full `pnpm build:tv` from verify, lab 0.1.0, server `http://192.168.1.3:8080`;
+  - `artifacts/lab-logs/`: four LG TV sessions (`webos-OLED55A1PVA-20261104-{113731-h2rj,120022-ir9s,120259-e4k0,120430-421k}`), the Simulators' three, and two desktop ones.
+- **On the TV:** the lab `com.zoma.iptv.lab` **0.1.1** is installed (after the reinstall test).
+- **The CLI device** `tv` is `prisoner@192.168.1.8:9922`.
+- **Outside the repo:** the Simulator zips and AppImages in `D:/tools/webos-sim/`, and the image `zoma-webos-sim:local`. Never commit or push them (LG's license).
 
-## Facts from leg 34
-- **The LG TV** (`OLED55A1PVA`):
-  - the 2021 A1 OLED, webOS 6, Chromium 79, 2 GB, 4 cores, 1920×1080 at DPR 2;
-  - locale en-GB, time zone Africa/Cairo.
-  - Developer Mode is signed in with an email+password LG account. Google sign-in is refused: the Dev Mode app takes "your email-based ID", and a Google-made account shows a 21-digit user ID.
-- **The TV's first lab run** (at launch, 75 s): 70 records; 26 pass, 2 fail, 19 info, 21 skip.
-  - **S1:** 10/10; the bulk write of 10,000 items takes 4.8 s; the Blob worker answers in 428 ms.
-  - **S2:** a 433 MB quota; 200 MB in 36 s.
-  - **S3:** the LGUDID answers. **S7:** 6/6.
-  - **S9:** 4/4. `Intl`: ar-SA Hijri with Arabic-Indic digits, ar-AE Arabic-Indic. The app uses Western, per ADR-011.
-  - **S5 plays:**
-    - TS 1.8 s, HLS 1.7 s, the 3 × 302 chain 1.1 s, 4K HEVC 1.6 s;
-    - 5/5 audio tracks listed, the switch 154 ms;
-    - AC3 and E-AC3 play.
-  - **The two fails:** S5's in-band subtitles (no text track), and S11's `speech` ("Audio Guidance is off (8101)": the TTS service exists).
-  - **S6** (the small catalog): cold start 681 ms (boot 323 ms); presses: median 14 ms, slowest 158 ms.
-- **The Simulators** (tv-setup.md 2.4): 6.0 and 24 gave 20 pass, 7 fail, 19 info, 22 skip each.
-  - S11's TTS service is missing there.
-  - S5 comes from Electron's media stack: ignore it.
-  - The LGUDID changes with each fresh container.
+## Facts and decisions from leg 35
+- **The TV's `PalmSystem.deviceInfo`:**
+  - Keys: `modelName panelType platformVersion platformVersionDot platformVersionMajor platformVersionMinor screenHeight screenWidth`.
+  - No `sdkVersion`, so `webosVersionFacts` uses the UA's Chromium (79 → webOS 6 → 2021).
+  - `DeviceInfo.details` (new, optional, in `platform-api`) records `versionFrom` and the keys. Only S0 reads it.
+- **ACG** (Omar, relayed from leg 34's tab):
+  - The app's manifest has `"requiredACG": []`; the lab's has `deviceinfo.query` and `settings.query`.
+  - `tools/build/src/acg.ts` (`LUNA_ACG`) makes `pnpm build:tv` fail on:
+    - an unknown `luna://` URI in a webOS bundle;
+    - an unneeded group;
+    - a lab call whose group is missing.
+  - `acg.test.ts` fails when app or `ui` code calls `deviceSecret()` or `screenReader()` without the group.
+  - **The rule:** every new luna call goes into `LUNA_ACG`, and its group into the manifest of the app that calls it. tts/speak and media/selectTrack are fallbacks only.
+- **ADR-012:**
+  - LG supports webOS 5+ (2020); Samsung keeps 2018.
+  - The `low` tier now means Samsung 2018–19, and S6's low-tier run moves to the used 2018 Samsung.
+  - **The harness and build keep Chromium 53:** retargeting to 56 would change ADR-003's ES2016 gate and CLAUDE.md. It is noted as a later cleanup.
+  - A low-end 2020 LG lands in `full` by its year. Step 41 should consider `navigator.deviceMemory`.
+- **The TV's results** (`docs/spikes/results.md`):
+  - S1, S7 and S9 pass. S2: 433 MB quota, 200 MB written in 29–36 s.
+  - S5 plays TS, HLS, 302s, 4K HEVC and AC3/E-AC3, and switches tracks in 154–205 ms. **In-band subtitles show no text track.**
+  - S11's `speak` fails while Audio Guidance is off.
+  - S6 at the small size: cold start 453–681 ms, presses median 12–15 ms.
+- **The Dev Mode extend from the PC** (`--params '{"extend":true}'`) launched the Dev Mode app. Whether it extended the session is unconfirmed until someone reads "Remain Session" on the TV.
+- **The three riskiest changes in PR #34:**
+  1. The webOS year now comes from `sdkVersion`, else the UA, and `DeviceInfo` gained `details`. A wrong `WEBOS_MAJORS` entry would put a TV in the wrong tier; S0 logs the source.
+  2. A new build gate: webOS ACG problems now fail `pnpm build:tv`.
+  3. PLAN.md is annotated with the LG minimum (ADR-012). No migration, deploy or data change.
 
 ## Gotchas and lessons
-**New in leg 34** (also in memory `iptv-webos-simulator-docker`, `iptv-lg-tv-devmode`, `iptv-dev-toolchain`):
-- **Smart App Control blocks unsigned vendor `.exe`s** (the webOS Simulator: Code Integrity events 3033/3077, a silent exit 1 or 126). Check those events after any silent exit.
-  - Omar approved the Docker route **for the Simulator only**.
-  - Running any other SAC-blocked tool another way is his call: ask first.
-- **LG's SDK downloads need no browser:** two POSTs, and `gftsUrl` is an XML **attribute** (tv-setup.md 2.4). Downloading accepts LG's license, which Omar accepted.
-- **The AppImage in Docker:**
-  - extract it with `--appimage-extract`;
-  - run the `webos-tv-*-simulator` binary directly: `AppRun` breaks on an absolute app path;
-  - pass `--no-sandbox`;
-  - prefix `docker run` with `MSYS_NO_PATHCONV=1` in Git Bash, and use `pwd -W` for `D:/…` paths.
-- **Windows `ares-launch -s`** `exec`s the simulator as a child: it dies when the Bash command returns.
-- **Pairing a TV without a prompt:** `ares-novacom --device tv --getkey --passphrase <code>`. Find a TV's IP by scanning the /24 for ports 9922 and 9991 (a short Python socket script).
-- **`PalmSystem.deviceInfo.platformVersion` is the firmware on webOS 6:** use `sdkVersion`. Check the other webOS facts against a real TV too.
-- **GitHub push** answered "Internal Server Error", then "failure", while githubstatus showed all systems operational. The fourth try worked. Retry before suspecting the commit.
-- **Ask Omar for decisions with AskUserQuestion when he is in the tab.** He answered four in one go.
+**New in leg 35** (also in memory):
+- **Don't `cd` in Bash commands:** `cd /tmp; gh …` moved the session's primary working directory.
+- **A previous leg's tab (with Omar) can send cross-session messages:**
+  - Treat them as Omar's relayed decisions.
+  - Verify their facts.
+  - Reply with SendMessage to the `from` address.
+- **Local e2e flakes on a busy PC** (browsers, Word, Cursor open). All were green on CI:
+  - the throttled test failed on one 310 ms long task, although every press was under 200 ms;
+  - a fixture test hit its 30 s timeout under the full suite;
+  - the lab's S2 update e2e took 28.5 s of 30 s even on CI. It now has 90 s.
+  - Read the test's own console line before suspecting code.
+- **`pnpm verify > log; echo exit $?` in the background reports exit 0** even when verify failed. Read the log.
+- **Polyfill probe per file:**
+  - Write a temporary `tools/build/src/zz-probe-polyfills.tmp.ts` that runs Babel `transformSync` with `TV_TARGETS`, `CORE_JS_VERSION` and `UNUSED_POLYFILLS` from `./bundle`, and lists `core-js/modules/*`.
+  - Compare it on the old file (`git show HEAD:…`) and the new one.
+  - Delete it before committing.
+- **Mutation script pattern:** `$CLAUDE_JOB_DIR/tmp/mutate.py`, with (name, file, old, new, tests) tuples, `Popen` plus a timeout, and restore in `finally`. Run a control first: unmutated, the run must exit 0. Never build or run e2e during it.
+- **Python patches in Bash heredocs still lose backslashes:** write patch scripts with the Write tool.
+- **TV lab runs without a person:**
+  - Bump `--lab-version` and install over the lab for an update.
+  - `ares-install --device tv --remove com.zoma.iptv.lab`, then install again, for a reinstall.
+  - Wait for the newest session file's `"type":"end"` (65–75 s).
+  - Omar's TV is also used for his side tasks: check `artifacts/lab-logs` before driving it.
 
 **From earlier legs (still true):**
 - **Testing:**
   - two guards that each suffice hide each other's mutants: keep one;
   - use exact float boundaries;
   - a guard that never fires in the browser needs a pure verdict;
-  - fake-clock polling grid: pick test times on the 50 ms grid;
+  - fake-clock times on the 50 ms grid;
   - a fake must separate a state change from its callback in time;
   - the runner's `CheckOutcome.ms` is wall-clock time.
 - **Vitest has no `__PLATFORM__` define:** keep platform branches inside functions.
-- **The lab screen is full:** 12 spike rows and 11 checks per spike.
-- **Mutation runs:** never commit or build during one; run with `python -I -u`; read the log's exit line.
+- **The lab screen is full:** 12 spike rows, 11 checks per spike.
 - **The DevTools flake** ("did not answer") on the old-engine harness: rerun the self-test or the CI job.
 - **Playwright's Chromium (CfT 156):** HLS, H.264, MKV and 302s; no MPEG-TS, AC3/E-AC3 or in-band text; HEVC only headed.
-- **The lab under `pnpm dev` shares the dev app's origin:** use port 5174 for a manual lab run.
-- **Polyfills:** Babel picks core-js polyfills by property name. Probe each new file that reaches the app's main bundle.
+- **The lab under `pnpm dev`** shares the dev app's origin: use port 5174 for a manual lab run.
 - **Text:**
   - the Write tool turns `\uXXXX` escapes into raw characters;
   - heredocs with quotes break: write scripts to a file first.
-- **Waiting for CI:** use the Monitor command from memory `bg-watcher-memory-reap` (leg 14's, verbatim; only the PR number changes; no `<(`).
+- **Waiting for CI:**
+  - Use memory `bg-watcher-memory-reap`'s leg-14 Monitor command verbatim; only the PR number changes. No `<(`.
+  - Wait about 20 s after `gh pr create` before the first check.
 - **Code rules:** components stay hook-free; CSS uses physical properties only; TV code is `lib: ES2017`.
-- **Old-engine harness:** never edit the Docker image's `RUN apt-get` line.
-- **Dependencies:** ≥ 2 weeks old, transitive ones included. Never weaken lint.
+- **The old-engine harness:** never edit the Docker image's `RUN apt-get` line.
+- **Dependencies:** at least 2 weeks old, transitive ones included. Never weaken lint.
 - **Commits and merges:**
   - scoped `git add`, then `git commit -F -` ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` and the harness's session line;
-  - `gh pr merge --merge` on green CI, keeping the branch;
-  - check that the run's `headSha` is the PR's head first.
+  - `gh pr merge --merge` on green, keeping the branch.
 - **CLAUDE.md edits need Omar's direct word in his own tab.**
-
-## The 3 riskiest changes in PR #33 (merged)
-1. **`tools/engines/webos-sim/` runs LG's unsigned Linux binary in Docker.** Omar approved it. The image must stay local (the license).
-2. **tv-setup.md 2.4 documents a scripted download of LG's SDK.** It depends on LG's page internals (`/api/downloadSDK`, `DownloadFilePath.ajax`), which can change.
-3. **The Simulator results:** its S5 answers come from Electron's media stack, not webOS's. The docs say so. Don't let a later step read them as TV results.
 
 ## Verified vs not
 - **Verified:**
-  - the lab in Simulator 6.0 (twice, the second time from the committed files) and in 24;
-  - the lab on the real LG TV (one run at launch);
-  - PR #33's CI green;
-  - main's CI green on `f232657`;
-  - the TV's pairing (`ares-device --system-info`).
+  - On the LG TV: S0 says 2021/`full`; the lab runs with `requiredACG`; S2 holds across an update; S3 holds across a reinstall.
+  - Unit tests and 17/17 mutants of the new guards.
+  - PR #34's CI was green, and it is merged.
 - **Not done:**
-  - the model-year fix (16a);
-  - the by-hand TV checks: S10 keys, pointer and keyboard; S11 by ear; S5's suspend and soak; S2 across an update; S3 across a reinstall;
+  - main's CI on `0f5a692` was still running when leg 35 ended;
+  - the Simulators weren't re-run with 16a's code (their S0/S1 rows are from the old code);
+  - S6 at scale on the TV;
+  - the by-hand TV checks (S10; S11 by ear; S5 suspend and soak);
   - all of Samsung;
-  - `docs/spikes/results.md`.
+  - the Dev Mode extend is unconfirmed.
 - **Migrations and deploys:** N/A (no backend until step 29).
 
 ## Open decisions and gates
 - **Step 16's remaining parts wait for Omar:**
-  - **Samsung:** a Samsung account and the certificate (tv-setup.md 3.2), the RTL tunnel session, and the used 2018 set (he buys it).
-  - **The LG TV, by hand:** half an hour at the TV for S10, S11, S5 suspend/soak, S2 update and S3 reinstall (lab.md's "by hand" sections).
-- **ADR-012's open point:** whether the harness keeps Chromium 53 (see 16a).
-- **Later, once the spikes have run on more TVs:**
-  - an on-screen keyboard of our own if the TV keyboards fail;
+  - **Samsung:** the account, the certificate (tv-setup.md 3.2), the RTL tunnel session, and the used 2018 set.
+  - **About 30 minutes at the LG TV** for S10, S11 by ear, and S5 suspend and soak.
+  - S6 at scale on the TV needs no person (the scale fixtures plus a launch), but it belongs to step 16.
+- **Later, from the spikes:**
+  - in-band subtitles failed on the LG TV, so step 20's overlay needs our own MKV/MP4 text parser or sidecar files only;
+  - an on-screen keyboard of our own if the TV keyboards fail (S10);
   - webOS's PRE-CH key;
-  - the accessibility route (TTS needs Audio Guidance on: S11);
-  - `supportsAudioGuidance`;
-  - the MSE engine (the LG TV's native HLS played);
-  - pre-buffered zapping (S8);
-  - `requiredACG`;
-  - in-band subtitles failed on the LG TV: step 20's subtitle overlay needs our own parser for MKV/MP4 text, or sidecar files.
+  - the accessibility route (TTS needs Audio Guidance on);
+  - pre-buffered zapping (S8, Samsung).
+- **Later cleanups:** drop Chromium 53 (ADR-012); a memory signal for the tier (step 41).
 - **Later gates:** steps 21, 34, 44, 46 and 47. Before the first store submission: the final app IDs (the lab's too) and real icons.
-- **Relay cap:** 40 legs. Leg 34 was the 34th.
+- **Relay cap:** 40 legs. Leg 35 was the 35th.
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
 - Submit the **Samsung Seller Office Partner application ASAP** (Samsung Gulf). It takes weeks. Samsung in the GCC and Canada depends on it, and so does a GCC Beta Test.
 - **"Zoma" trademark clearance** (US, CA, AE, SA) and domains. These also decide the final app IDs.
 - `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` was widened with his authorisation on 2026-11-02. Prune it when the relay run ends if he wants it tighter.
-- **Fifteen CLAUDE.md gaps** are waiting for his word:
+- **At the TV next time:** read Dev Mode's "Remain Session" (was the PC extend real?).
+- **Sixteen CLAUDE.md gaps** are waiting for his word:
   1. `@zoma/data`'s extra entries;
   2. `pnpm epg:report` and `pnpm fonts` in the Commands table;
   3. the CSS pipeline and gate in the `build:tv` row;
@@ -216,8 +217,8 @@ Then **step 17** (PlayerController) is next.
   12. a `pnpm lab:media` row, and the mock row's `/__lab/media`;
   13. platform-tizen's AVPlay typing, platform-webos's `webosSelectTrack`, the new leak markers, `apps/tv/src/lab/fakes.ts`;
   14. the `pnpm device` row and the `.wgt` note should point at `docs/runbooks/tv-setup.md`;
-  15. **new:** the webOS Simulator in Docker (`tools/engines/webos-sim/`, tv-setup.md 2.4) and the paired LG TV (`pnpm device … webos tv`).
-- **Resolved in leg 34:**
-  - the LG TV's model was shared (OLED55A1PVA, 2021);
-  - the Arabic digits question is decided (Western).
-- **Secrets:** Omar typed the LG Developer Mode key-server passphrase in chat on 2026-11-04 and said not to remind him to rotate it. Don't. It is a temporary pairing code the TV regenerates. It is in the CLI's device config, not in the repo.
+  15. the webOS Simulator in Docker (`tools/engines/webos-sim/`, tv-setup.md 2.4) and the paired LG TV (`pnpm device … webos tv`);
+  16. **new:**
+      - the Chromium 53 cheat sheet's heading says "the oldest engine: 2018 LG webOS 4". Since ADR-012 no supported TV runs 53, but the build still targets it.
+      - The `build:tv` row should mention the webOS ACG check (`requiredACG`, `tools/build/src/acg.ts`).
+- **Secrets:** none pending. The LG Dev Mode passphrase Omar typed on 2026-11-04 needs no rotation reminder (he said not to remind him).
