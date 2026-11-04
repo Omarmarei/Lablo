@@ -92,6 +92,7 @@ describe('the account the lab uses', () => {
     maxConnections: 1,
     activeCons: 0,
     overLimitStatus: 403,
+    outputFormats: ['m3u8', 'ts'],
     message: '',
     ...over,
   });
