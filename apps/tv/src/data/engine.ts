@@ -10,7 +10,8 @@
  * - an **EPG worker** starts for each EPG refresh (step 9b). The guides come from the catalog
  *   sources (`epgGuides`), and `due` refreshes only those `epgRefreshDue` names. Catalog and EPG
  *   refreshes share one slot, so a low-tier TV never runs both at once; when a guide swaps in, the
- *   query worker reloads, and `nowNext` reads the store through it;
+ *   query worker reloads, and `nowNext` reads the store through it (`guide`, the grid guide's
+ *   rows over a time range, too: step 23a);
  * - `focusChannel` is the short-EPG fallback (step 9c): once a live channel has kept the focus
  *   for `FOCUS_MS`, the query worker gives its now/next, from its guide or, when no guide matches
  *   it, from its Xtream panel's `get_short_epg` (kept 30 min per channel in the worker);
@@ -35,6 +36,8 @@ import type {
   EpgProgress,
   EpgRefreshResult,
   EpgStatus,
+  GuideRequest,
+  GuideRow,
   IngestClient,
   IngestJob,
   IngestProgress,
@@ -303,6 +306,14 @@ export class DataEngine {
   /** Now and next for live channels, from the stored guides (through the query worker). */
   nowNext(keys: ContentKey[], at?: number): Promise<EpgNowNext[]> {
     return this.query.call('nowNext', { keys, at });
+  }
+
+  /**
+   * The grid guide's rows: each live channel's programmes over `[from, to)` (UTC minutes), from the
+   * guide channel its now/next comes from. Rejects an ask of too many channel-days at once.
+   */
+  guide(req: GuideRequest): Promise<GuideRow[]> {
+    return this.query.call('guide', req);
   }
 
   /** The stored guides and how many live channels have one. */

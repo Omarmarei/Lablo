@@ -196,6 +196,42 @@ describe('runEpgRefresh', () => {
     expect((await q.epgStatus())).toMatchObject({ matched: 4, guides: [{ epgSrc: G.epgSrc, gen: 1 }] });
   });
 
+  it('gives the grid guide the stored programmes over a range, as now/next has them', async () => {
+    const text = guide();
+    await refresh(() => ({ body: text })).result;
+    const q = new QueryService({ openDb: async () => db });
+    const reader = new EpgGuideReader({ epgSrc: G.epgSrc, wanted: EpgWantedSet.fromItems(catalogItems()), tier: 'full', nowMs: NOW, languages: ['en'] });
+    const all = [...reader.push(text), ...reader.end()];
+    const keys = ['x:tv:live:1', 'x:tv:live:2', 'x:tv:live:3', 'x:tv:live:4', 'x:tv:live:5'];
+    const channels = ['a.tv', 'a.tv', 'b.tv', 'c.tv'];
+    const shifts = [0, 60, 0, 0];
+    // Across midnight UTC, five hours.
+    const from = Math.floor(NOW / DAY + 1) * 1440 - 150;
+    const to = from + 300;
+    const rows = await q.guide({ keys, from, to });
+    expect(rows.map((r) => r.epgSrc)).toEqual([G.epgSrc, G.epgSrc, G.epgSrc, G.epgSrc, null]);
+    channels.forEach((channel, i) => {
+      const s = shifts[i]!;
+      const want = all
+        .filter((b) => b.channel === channel)
+        .sort((x, y) => x.day - y.day)
+        .flatMap((b) => epgProgrammes(b))
+        .filter((p) => p.start + s < to && p.end + s > from)
+        .map((p) => `${p.start + s}-${p.end + s} ${p.title}`);
+      const r = rows[i]!;
+      expect(want.length, channel).toBeGreaterThan(2);
+      expect(r.start.map((t, j) => `${t}-${r.end[j]} ${r.title[j]}`), keys[i]).toEqual(want);
+    });
+    for (let t = from; t < to; t += 25) {
+      const nn = await q.nowNext(keys.slice(0, 4), t * MIN);
+      nn.forEach((n, i) => {
+        const r = rows[i]!;
+        const on = r.start.findIndex((st, j) => st <= t && t < r.end[j]!);
+        expect(r.title[on], `${keys[i]} at ${t}`).toBe(n.now!.title);
+      });
+    }
+  });
+
   it('finds a programme that started the day before, and prefers the guide listed first', async () => {
     // 100-minute slots from 3 days back: one starts 20 minutes before midnight UTC of NOW's day.
     const spanning = guide({ slot: () => 100, tag: 'first ' });

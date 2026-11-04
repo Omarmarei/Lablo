@@ -275,6 +275,50 @@ export function epgNowNext(buckets: readonly EpgBucket[], nowMs: number, shiftHo
   return { now: nowBucket === null ? null : row(nowBucket, nowAt, shift), next: nextBucket === null ? null : row(nextBucket, nextAt, shift) };
 }
 
+/** A channel's programmes over a time range, as plain columns: a row of the grid guide. */
+export interface EpgSchedule {
+  /** UTC epoch minutes, sorted; `end[i] <= start[i + 1]`. */
+  start: number[];
+  end: number[];
+  title: string[];
+}
+
+/**
+ * The programmes of a playlist channel that overlap `[from, to)` (UTC epoch minutes), from its
+ * XMLTV channel's buckets in day order (the day before `from`'s is enough to find one on air at
+ * `from`), shifted by its tvg-shift `shiftHours`. Times aren't cut to the range. Each bucket is
+ * sorted with no overlap, but one day's last programme can run past the next day's first: it ends
+ * where that one starts. Plain arrays, so the grid's code (main thread) never touches a typed one.
+ */
+export function epgSchedule(buckets: readonly EpgBucket[], from: number, to: number, shiftHours = 0): EpgSchedule {
+  const shift = Math.round(shiftHours * 60);
+  const out: EpgSchedule = { start: [], end: [], title: [] };
+  if (to <= from) return out;
+  // Compared in guide time.
+  const lo = from - shift;
+  const hi = to - shift;
+  for (const bucket of buckets) {
+    for (let i = 0; i < bucket.start.length; i++) {
+      const start = bucket.start[i]!;
+      const last = out.start.length - 1;
+      if (last >= 0 && out.end[last]! > start + shift) {
+        out.end[last] = start + shift;
+        // Cut, it may now end before the range.
+        if (start <= lo) {
+          out.start.pop();
+          out.end.pop();
+          out.title.pop();
+        }
+      }
+      if (start >= hi || bucket.end[i]! <= lo) continue;
+      out.start.push(start + shift);
+      out.end.push(bucket.end[i]! + shift);
+      out.title.push(bucket.title[i] ?? '');
+    }
+  }
+  return out;
+}
+
 function row(bucket: EpgBucket, i: number, shift: number): EpgProgramme {
   return {
     start: bucket.start[i]! + shift,

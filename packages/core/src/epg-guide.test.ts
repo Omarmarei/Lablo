@@ -9,6 +9,7 @@ import {
   buildEpgBucket,
   epgNowNext,
   epgProgrammes,
+  epgSchedule,
   epgWindow,
   formatEpgReport,
   mergeEpgBuckets,
@@ -402,5 +403,94 @@ describe('buckets', () => {
         expect(got.next!.start).toBe(guideNow + 30 + Math.round(shift * 60));
       }
     }
+  });
+});
+
+describe('epgSchedule', () => {
+  const row = (start: number, end: number, title: string): EpgProgramme => ({ start, end, title, sub: '', desc: '', category: '', episode: '', flags: 0 });
+  const day = Math.floor(nowMin / 1440);
+  const show = (s: { start: number[]; end: number[]; title: string[] }): string[] => s.start.map((t, i) => `${t - nowMin}..${s.end[i]! - nowMin} ${s.title[i]}`);
+
+  it('keeps the programmes that overlap the range, uncut, as plain arrays', () => {
+    const b = buildEpgBucket('c', day, [row(nowMin - 60, nowMin, 'ends at from'), row(nowMin, nowMin + 30, 'a'), row(nowMin + 30, nowMin + 61, 'b'), row(nowMin + 61, nowMin + 90, 'starts at to')]);
+    const got = epgSchedule([b], nowMin, nowMin + 61);
+    expect(show(got)).toEqual(['0..30 a', '30..61 b']);
+    expect(Array.isArray(got.start) && Array.isArray(got.end)).toBe(true);
+    // One minute either side takes in the neighbours.
+    expect(show(epgSchedule([b], nowMin - 1, nowMin + 62))).toEqual(['-60..0 ends at from', '0..30 a', '30..61 b', '61..90 starts at to']);
+    expect(show(epgSchedule([b], nowMin + 29, nowMin + 30))).toEqual(['0..30 a']);
+  });
+
+  it('gives nothing for an empty range, and an empty title for a missing one', () => {
+    const b = buildEpgBucket('c', day, [row(nowMin, nowMin + 30, 'a')]);
+    expect(epgSchedule([b], nowMin + 10, nowMin + 10)).toEqual({ start: [], end: [], title: [] });
+    expect(epgSchedule([b], nowMin + 20, nowMin + 10)).toEqual({ start: [], end: [], title: [] });
+    expect(epgSchedule([], nowMin, nowMin + 60)).toEqual({ start: [], end: [], title: [] });
+    const untitled = { ...b, title: [] };
+    expect(epgSchedule([untitled], nowMin, nowMin + 60).title).toEqual(['']);
+  });
+
+  it('reads the range in guide time and shifts what it gives back', () => {
+    const b = buildEpgBucket('c', day, [row(nowMin - 60, nowMin, 'before'), row(nowMin, nowMin + 60, 'on'), row(nowMin + 60, nowMin + 120, 'after')]);
+    // An hour later: 'before' runs from now to an hour on.
+    expect(show(epgSchedule([b], nowMin, nowMin + 60, 1))).toEqual(['0..60 before']);
+    expect(show(epgSchedule([b], nowMin + 59, nowMin + 61, 1))).toEqual(['0..60 before', '60..120 on']);
+    // Two and a half hours earlier: 'after' runs from 90 minutes ago to 30 minutes ago.
+    expect(show(epgSchedule([b], nowMin - 31, nowMin - 30, -2.5))).toEqual(['-90..-30 after']);
+    expect(show(epgSchedule([b], nowMin - 30, nowMin, -2.5))).toEqual([]);
+  });
+
+  it('ends a programme running past the next day\'s first where that one starts', () => {
+    const midnight = (day + 1) * 1440;
+    const today = buildEpgBucket('c', day, [row(midnight - 120, midnight - 60, 'early'), row(midnight - 60, midnight + 90, 'late')]);
+    const tomorrow = buildEpgBucket('c', day + 1, [row(midnight + 30, midnight + 60, 'first'), row(midnight + 60, midnight + 120, 'second')]);
+    const at = (s: { start: number[]; end: number[]; title: string[] }): string[] => s.start.map((t, i) => `${t - midnight}..${s.end[i]! - midnight} ${s.title[i]}`);
+    expect(at(epgSchedule([today, tomorrow], midnight - 120, midnight + 120))).toEqual(['-120..-60 early', '-60..30 late', '30..60 first', '60..120 second']);
+    // Cut, 'late' ends at 30: a range from 30 on doesn't hold it, one from 29 does.
+    expect(at(epgSchedule([today, tomorrow], midnight + 30, midnight + 45))).toEqual(['30..60 first']);
+    expect(at(epgSchedule([today, tomorrow], midnight + 29, midnight + 30))).toEqual(['-60..30 late']);
+    // A range that ends before 'first' still gets 'late' cut where 'first' starts.
+    expect(at(epgSchedule([today, tomorrow], midnight - 10, midnight))).toEqual(['-60..30 late']);
+    // Shifted an hour, the same cut, an hour later.
+    expect(at(epgSchedule([today, tomorrow], midnight + 89, midnight + 90, 1))).toEqual(['0..90 late']);
+    expect(at(epgSchedule([today, tomorrow], midnight + 90, midnight + 91, 1))).toEqual(['90..120 first']);
+  });
+
+  it('equals the guide cut by each next programme and filtered, for any days, range and shift', () => {
+    // A day's programmes: sorted distinct starts in the day, none running into the next of the
+    // same day, the last one up to 24 h long (it can run into the next day's).
+    const dayRows = (d: number) =>
+      fc.uniqueArray(fc.integer({ min: 0, max: 1439 }), { maxLength: 8 }).chain((offsets) => {
+        const starts = [...offsets].sort((a, b) => a - b).map((o) => d * 1440 + o);
+        return fc.tuple(...starts.map((s, i) => fc.integer({ min: 1, max: i + 1 < starts.length ? starts[i + 1]! - s : 1440 }))).map((lengths) =>
+          starts.map((s, i) => row(s, s + lengths[i]!, `${d}.${i}`)),
+        );
+      });
+    const first = 20_000;
+    const input = fc.record({
+      days: fc.tuple(dayRows(first), dayRows(first + 1), dayRows(first + 2), dayRows(first + 3)),
+      present: fc.tuple(fc.boolean(), fc.boolean(), fc.boolean(), fc.boolean()),
+      from: fc.integer({ min: (first - 1) * 1440, max: (first + 5) * 1440 }),
+      length: fc.integer({ min: 1, max: 3 * 1440 }),
+      shift: fc.constantFrom(0, 1, -1, 2.5, -3.25, 14),
+    });
+    fc.assert(
+      fc.property(input, ({ days, present, from, length, shift }) => {
+        const buckets = days.map((rows, i) => buildEpgBucket('c', first + i, rows.slice())).filter((_, i) => present[i]);
+        const to = from + length;
+        const s = Math.round(shift * 60);
+        const all = buckets.flatMap((b) => epgProgrammes(b));
+        const want: string[] = [];
+        all.forEach((p, i) => {
+          const next = all[i + 1];
+          const end = next !== undefined && next.start < p.end ? next.start : p.end;
+          if (p.start + s < to && end + s > from) want.push(`${p.start + s}..${end + s} ${p.title}`);
+        });
+        const got = epgSchedule(buckets, from, to, shift);
+        expect(got.start.map((t, i) => `${t}..${got.end[i]} ${got.title[i]}`)).toEqual(want);
+        for (let i = 0; i + 1 < got.start.length; i++) expect(got.end[i]!).toBeLessThanOrEqual(got.start[i + 1]!);
+      }),
+      { numRuns: 1000 },
+    );
   });
 });

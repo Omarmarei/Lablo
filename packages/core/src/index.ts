@@ -81,7 +81,7 @@ export { XmltvTokenizer, decodeXmlEntities, parseXmltv, parseXmltvTime, xmltvTim
 export type { EpgChannelMatch, EpgMatchMethod, EpgMatchStats, EpgOverride, EpgSourceMatch, EpgWantedChannel } from './epg-match';
 export { EPG_MATCH_METHODS, EpgMatcher, EpgWantedSet, combineEpgMatches, epgMethodRank, epgWantedChannel, xmltvIdStem } from './epg-match';
 
-export type { EpgBucket, EpgGuideOptions, EpgGuideStats, EpgProgramme, EpgSourceReport, EpgTierWindow, EpgWindow } from './epg-guide';
+export type { EpgBucket, EpgGuideOptions, EpgGuideStats, EpgProgramme, EpgSchedule, EpgSourceReport, EpgTierWindow, EpgWindow } from './epg-guide';
 export {
   EPG_DAY_MINUTES,
   EPG_DEFAULT_LENGTH,
@@ -96,6 +96,7 @@ export {
   epgDay,
   epgNowNext,
   epgProgrammes,
+  epgSchedule,
   epgWindow,
   formatEpgReport,
   mergeEpgBuckets,
