@@ -161,6 +161,12 @@ Covered in [tv-setup.md](runbooks/tv-setup.md) 3.4–3.5:
 
 ## Questions for Omar at step 16
 
+**Decided by Omar on 2026-11-04 (relay leg 34):**
+- route **(a)**: the Remote Test Lab now, plus one used 2018 set;
+- lab server **(a)**: a tunnel from this PC while a session runs.
+
+The accounts (3) are still his to create.
+
 1. **The Samsung route:**
    - (a) the Remote Test Lab now plus one used 2018 set (recommended);
    - (b) the Remote Test Lab only, and accept no Tizen 4.0 hardware coverage before launch;
