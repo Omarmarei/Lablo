@@ -101,7 +101,7 @@ async function playing(r: Rig, req: PlayRequest = vod(7)): Promise<void> {
 
 describe('fileIndex and fileTracks', () => {
   it('reads only the ids it wrote', () => {
-    expect([fileIndex('ext:0'), fileIndex('ext:12'), fileIndex('3'), fileIndex('ext:'), fileIndex('ext:01'), fileIndex('ext:-2'), fileIndex('ext:1.5'), fileIndex('ext:1e1'), fileIndex('xext:1')]).toEqual([0, 12, -1, -1, -1, -1, -1, -1, -1]);
+    expect([fileIndex('ext:0'), fileIndex('ext:12'), fileIndex('3'), fileIndex('ext:'), fileIndex('ext:01'), fileIndex('ext:-2'), fileIndex('ext:1.5'), fileIndex('ext:1e1'), fileIndex('xext:1'), fileIndex('12345')]).toEqual([0, 12, -1, -1, -1, -1, -1, -1, -1, -1]);
   });
 
   it("lists files with their languages normalized and as the provider wrote them, no label, the shown one on", () => {
@@ -277,6 +277,37 @@ describe('PlayerController: choosing a subtitle file', () => {
     expect(await own).toBe(false);
     expect(await file).toBe(true);
     expect(shown(r)).toBe('file: one');
+  });
+
+  it("leaves the next stream's cues alone when the last stream's file, or its own-subtitles switch, ends after a zap", async () => {
+    const r = rig();
+    r.engine.deliversText = true;
+    await playing(r);
+    r.loadMs = 2000;
+    const late = r.player.selectText('ext:0');
+    void r.player.play(vod(8));
+    await r.clock.advance(600);
+    await r.player.selectText('3');
+    r.engine.emit(r.token(), { type: 'cue', text: 'New', durationMs: 5000 });
+    await r.clock.advance(1400);
+    expect(await late).toBe(false);
+    expect(r.player.subtitles).toEqual({ feed: 'engine', cues: ['New'] });
+    // The same with a slow switch of the stream's own subtitles off.
+    r.loadMs = 0;
+    r.engine.switchMs = 2000;
+    const turning = r.player.selectText('ext:0');
+    // The file is loaded; the stream's own subtitles are still going off.
+    await r.clock.advance(100);
+    expect(r.switches().slice(-1)).toEqual(['selectText null']);
+    void r.player.play(vod(9));
+    await r.clock.advance(600);
+    r.engine.switchMs = 0;
+    r.engine.text = [track('3', 'eng', true)];
+    await r.player.selectText('3');
+    r.engine.emit(r.token(), { type: 'cue', text: 'Newer', durationMs: 5000 });
+    await r.clock.advance(1400);
+    expect(await turning).toBe(false);
+    expect(r.player.subtitles).toEqual({ feed: 'engine', cues: ['Newer'] });
   });
 
   it('lets a newer choice win over a file whose own-subtitles switch was still running', async () => {
@@ -499,6 +530,7 @@ describe("PlayerController: an engine's cues (AVPlay)", () => {
     const r = await avplay();
     r.engine.emit(r.token(), { type: 'cue', text: 'Hello', durationMs: 0 });
     await r.clock.advance(1000);
+    expect(r.player.subtitles.cues).toEqual(['Hello']);
     r.engine.emit(r.token(), { type: 'cue', text: 'Hello', durationMs: 2000 });
     r.engine.emit(r.token(), { type: 'cue', text: 'World', durationMs: 500 });
     expect(r.player.subtitles.cues).toEqual(['Hello', 'World']);
@@ -516,6 +548,16 @@ describe("PlayerController: an engine's cues (AVPlay)", () => {
     expect(r.player.subtitles.cues).toEqual([]);
   });
 
+  it('lets each cue go at its own time, to the millisecond', async () => {
+    const r = await avplay();
+    r.engine.emit(r.token(), { type: 'cue', text: 'A', durationMs: 1000 });
+    r.engine.emit(r.token(), { type: 'cue', text: 'B', durationMs: 1001 });
+    await r.clock.advance(1000);
+    expect(r.player.subtitles.cues).toEqual(['B']);
+    await r.clock.advance(1);
+    expect(r.player.subtitles.cues).toEqual([]);
+  });
+
   it(`shows at most ${MAX_ENGINE_CUES} at once, the oldest going first`, async () => {
     const r = await avplay();
     for (let i = 1; i <= MAX_ENGINE_CUES + 1; i++) r.engine.emit(r.token(), { type: 'cue', text: `cue ${i}`, durationMs: 1000 });
@@ -527,11 +569,10 @@ describe("PlayerController: an engine's cues (AVPlay)", () => {
     r.engine.emit(r.token(), { type: 'cue', text: '<b> </b>', durationMs: 1000 });
     expect(r.player.subtitles.cues).toEqual([]);
     await r.player.selectText(null);
+    const pending = r.clock.pending;
     r.engine.emit(r.token(), { type: 'cue', text: 'Off', durationMs: 1000 });
     expect(r.player.subtitles).toEqual({ feed: null, cues: [] });
     // Not even kept for later: no timer for it.
-    const pending = r.clock.pending;
-    r.engine.emit(r.token(), { type: 'cue', text: 'Off', durationMs: 1000 });
     expect(r.clock.pending).toBe(pending);
     await r.player.selectText('ext:0');
     r.engine.emit(r.token(), { type: 'cue', text: 'Under the file', durationMs: 1000 });
@@ -558,7 +599,9 @@ describe("PlayerController: an engine's cues (AVPlay)", () => {
     await r.clock.advance(1400);
     expect(r.player.status.state).toBe('reconnecting');
     expect(r.player.subtitles.cues).toEqual([]);
+    // The reopened stream lists the same subtitle on: the failed load's cue is gone.
     await r.clock.advance(600);
+    expect(r.player.subtitles).toEqual({ feed: 'engine', cues: [] });
     r.engine.text = [track('3', 'eng', true)];
     await r.player.selectText('3');
     r.engine.emit(r.token(), { type: 'cue', text: 'Three', durationMs: 5000 });
@@ -570,9 +613,8 @@ describe("PlayerController: an engine's cues (AVPlay)", () => {
     expect(r.player.subtitles.cues).toEqual(['Four']);
     void r.player.play(vod(8));
     expect(r.player.subtitles).toEqual({ feed: null, cues: [] });
-    // The next stream's own subtitles start with none of the last one's cues.
+    // The next stream shows its own subtitles by default: none of the last one's cues.
     await r.clock.advance(600);
-    await r.player.selectText('3');
     expect(r.player.subtitles).toEqual({ feed: 'engine', cues: [] });
     void r.player.stop();
     await r.clock.advance(100);

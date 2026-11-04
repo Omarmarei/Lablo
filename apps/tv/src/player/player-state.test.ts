@@ -898,12 +898,13 @@ describe('subtitle files and the subtitle style in the track menu (RELAY step 20
   it("leaves LEFT and RIGHT to the navigator outside the style rows, and keeps the size and timing for the player's run", async () => {
     const t = await playing(withFiles(0));
     t.controller.setSubtitles({ feed: 'file', cues: [] });
-    await t.press('AUDIO', 'RIGHT', 'LEFT');
+    await t.press('AUDIO', 'RIGHT');
     expect(t.at()).toBe('tracks · audio 0');
-    await t.press('SUBTITLES', 'RIGHT', 'LEFT');
+    await t.press('SUBTITLES', 'RIGHT');
     expect(t.at()).toBe('tracks · text 3');
     expect(t.player.menu.size.value).toBe(DEFAULT_SUBTITLE_SIZE);
     expect(t.player.menu.delay.value).toBe(0);
+    expect(t.controller.delays).toEqual([]);
     await t.press('DOWN', 'DOWN', 'RIGHT', 'DOWN', 'RIGHT', 'BACK');
     expect(t.player.menu.screen.value).toBeNull();
     await t.press('SUBTITLES');

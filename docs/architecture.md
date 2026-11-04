@@ -29,7 +29,7 @@ zoma/
 │  └─ mock-provider/    Node (Fastify): Xtream/M3U/XMLTV/HLS/TS emulator, fault injection, LAN log collector
 ├─ packages/
 │  ├─ core/             Pure TS: models, ContentKey, Arabic/Latin normalization, M3U/Xtream/XMLTV parsers,
-│  │                    streaming JSON-array splitter, catch-up URL builders, search, EPG matcher,
+│  │                    streaming JSON-array splitter, subtitle parser, catch-up URL builders, search, EPG matcher,
 │  │                    plural rules, entitlements seam
 │  ├─ data/             Workers: IDB schema and migrations, ingest pipeline, query service, typed RPC, DataClient
 │  ├─ player/           PlayerController, PlayerEngine interface, Html5Engine, watchdog, error classifier,
@@ -842,6 +842,59 @@ export type PlayRequest = { key: ContentKey; src: string; mode: 'live'|'vod'|'ca
   - `subtitles.test.ts` covers: golden SRT, WebVTT and ASS files with every tolerance rule; the same results in any chunks (empty ones kept) and character by character; never-throw on arbitrary and fragment-built text; an SRT/WebVTT/ASS writer round trip; the limits; the clock table; `cueText`; and `SubtitleTrack` against a filter oracle.
   - `test/subtitles-mock.test.ts` runs the mock provider's own `srtText`, in English and Arabic: every cue names its own start.
 - **TV bundle:** not in main yet (20b2b imports it). A probe bundle that uses every export adds 8.0 KB before terser and no core-js module on either platform. A method named `at` had pulled in `es.array.at` and `es.string.at-alternative`, so it is `cuesAt`.
+
+**Built in step 20b2b: the overlay and its feeds** (`packages/player/src`: `controller.ts`, `tracks.ts`; `apps/tv/src/player`: `subtitle-loader.ts`, `SubtitleOverlay.tsx`, the track menu's file rows and style rows; the mock's `/subtitles/` route; the playback harness's overlay):
+- **Subtitle files in the track list:** a request's `externalSubs` (`ExternalSub`) follow the stream's own subtitles in `status.tracks.text` as `ext:0`, `ext:1`… (`lang` normalized, `streamLang` as the provider wrote it, no label). They are listed only where `ControllerOptions.loadSubtitles` exists, from the start of the session and through retries.
+  - **Choosing one:** they are chosen like any track: `selectText('ext:n')` from the menu, the channel's `TrackMemory` choice, or a preferred language when the tracks appear. Choosing one loads it, turns the stream's own subtitles off (`engine.selectText(null)`) and shows it.
+  - **Loading:** each file is loaded once per session; a failed load is tried again the next time it is chosen. A file that can't be loaded, or has no cues, makes `selectText` `false` and changes nothing.
+  - **Off:** turning off a file that shows alone needs no engine call.
+  - **Races:** a newer subtitle choice overtakes a slower one (a sequence number per session), and a choice that finishes after a zap is dropped. Both engines switch text tracks at once (`Promise.resolve`), so an own-track switch can't overlap a file's; an engine that switched slowly would need the switches queued.
+  - **Retries:** a file still showing after a retry turns the new load's default subtitles off.
+- **The feed:** `subtitles` and `subscribeSubtitles`, kept apart from the status so that cues don't make the status churn. A view is `{ feed: 'file' | 'engine' | null, cues: string[] }`, and listeners hear only changes.
+  - **A file:** `SubtitleTrack.cuesAt(positionMs − delay)`, looked up every 250 ms (`CUE_TICK_MS`) while the stream plays, is paused or buffers. No cues show while it opens, reconnects, has ended or failed, or while the app is hidden. The lookups stop while hidden and on a zap or a stop.
+  - **An engine's cues** (AVPlay's `cue` events): taken when `caps.deliversSubtitleText` is true and one of the stream's own subtitles is on. Each is cleaned with `cueText` and shows for its `durationMs`, or 5 s without one (`ENGINE_CUE_MS`). The same text again only stays longer, and at most 4 show at once (`MAX_ENGINE_CUES`). They are dropped on a subtitle switch, a retry, a zap, a stop and `hide()`; a stale load's cues never arrive (tokens).
+  - **`setSubtitleDelay(ms)`** shows a file's cues later (negative: earlier), for every file until it is changed. It can't move an engine's cues: AVPlay delivers each one as it plays, so they can't come earlier, and holding them back isn't done.
+- **The loader** (`subtitle-loader.ts`, `appPlayer`'s default `loadSubtitles`):
+  - **The fetch:** an XHR GET for an `ArrayBuffer`, refused past 4 MB (`MAX_SUBTITLE_BYTES`: by the length header, as the bytes arrive, and on the body) or after 20 s. The request is aborted at once, and the error never holds the URL.
+  - **The charset:** UTF-16 by its byte-order mark (either way round); else strict UTF-8; else Windows-1256 for Arabic, Persian, Urdu or a file whose language isn't known; else Windows-1252.
+  - **The parse:** `parseSubtitles(text, { format: fmt })`, on the main thread.
+  - **Why XHR and `DataView`:** a probe showed that a `Uint8Array` pulls 35 core-js modules (+13.9 KB) into main, and a `DataView` none. XHR's progress events count the bytes with no typed array at all.
+- **The overlay** (`SubtitleOverlay`, hook-free, in `PlayerScreen`):
+  - **Placement:** bottom-centre in the safe area. It shares a bottom stack (`.player__bottom`) with the info bar, so it rises above the bar while the bar shows. The track menu and the error card paint over it.
+  - **Each cue** is a block with `dir=auto` and `translate=false`, its lines kept (`white-space: pre-line`), white with a shadow, on the scrim.
+  - **Sizes:** S, M and L are 40, 52 and 64 px. The CSS is physical only.
+  - **Cue positions** (WebVTT settings, ASS alignment) are ignored: every cue is drawn bottom-centre.
+- **The menu:**
+  - **File rows** come after the stream's own subtitles, with "File" after the name. A file that can't be loaded says "This subtitle file couldn't be loaded." (`refused: 'file'`). When two switches overlap, only the newest one's refusal shows.
+  - **"Subtitle style"** is a third zone, `style`, shown while the app draws subtitles: "Size" for either feed, and "Timing" for a file only.
+  - **LEFT and RIGHT** change a row towards the reading end: RIGHT in English, LEFT in Arabic. The size goes S–M–L and stops at the ends. The timing moves in 250 ms steps up to ±30 s ("No delay", "0.5 s later", "1.25 s earlier").
+  - **OK** goes round the sizes, or puts the timing back to no delay.
+  - **Memory:** both settings are kept in the menu for the app's run. The profile keeps them later (20c, or the settings screen).
+- **The e2e:** before VOD (step 26) the app makes no request with files, and `window.__ZOMA_TEST__` is read-only.
+  - **Where it runs:** so the playback harness (`playback.html`) draws the app's overlay, with the app's loader and `player.css` on the tokens. `selectText`, `setSubtitleDelay` and `setSubtitleSize` drive it.
+  - **The files:** the mock serves them at `/subtitles/<u>/<p>/<id>.<eng|ara>.<srt|vtt>` (its `srtText` for the item's catalog duration). `?charset=windows-1256` sends an old Arabic file, with ASCII digits.
+- **Not yet:**
+  - **In a browser:** the menu's file rows and style rows have unit tests only. The first real files come with VOD (step 26), and AVPlay's cues with a Samsung TV (19b, 21).
+  - **The profile** keeping the size, the timing and a content's file choice (20c).
+  - **Settings:** a background setting for the subtitles.
+  - **Performance:** parsing off the main thread (a 4 MB file parses on the UI thread).
+- **Tests:**
+  - `controller-subtitles.test.ts` (31): the file rows, choosing and loading, refusals, races, choices made by the player, the feed by the media clock, the delay, hide and zap, and AVPlay's cues.
+  - `subtitle-loader.test.ts` (7): the charsets, and the fetch's limits on a fake XHR.
+  - `subtitle-overlay.test.ts` (3).
+  - The menu's file rows and style rows: 8 in `player-state.test.ts`.
+  - `app-player.test.ts` (+1).
+  - The mock: `subtitle-files.test.ts` (7) and the endpoint table; `test/subtitles-mock.test.ts` (+2: its WebVTT, and its Windows-1256 file through the app's charset fallback).
+  - e2e: `playback-media.spec.ts`, on the multi-audio MKV with three files:
+    - the English cue the media clock is in, then the next one;
+    - bottom-centre in the safe area at 52 px;
+    - a minute earlier;
+    - the Windows-1256 Arabic file drawn right to left at 64 px;
+    - a missing file refused, with the Arabic kept;
+    - each file fetched once;
+    - nothing drawn after Off or a stop.
+  - **Mutation:** 99/99 caught. The first run caught 90/100: eight test gaps were closed (late answers after a zap, an ignored cue's timer, a cue with no duration, two cues ending 1 ms apart, the cues a retry and a zap drop, the menu's LEFT/RIGHT outside the style rows). One equivalent mutant was dropped (dispose's listener reset can't be seen afterwards), and one was replaced (the `ext:` prefix guard).
+- **TV bundle:** main grew from 242.8 to 259.0 KB of its own code on Tizen and from 231.3 to 247.6 KB on webOS, with the same 219 core-js modules on both. That includes the parser (first imported here), the controller's feed, the loader, the overlay, the menu rows and the new catalog strings.
 
 ---
 
