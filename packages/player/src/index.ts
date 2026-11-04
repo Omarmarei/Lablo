@@ -2,8 +2,8 @@
  * @zoma/player: PlayerController, PlayerEngine interface, Html5Engine, watchdog, error classifier, subtitle parsing.
  *
  * Allowed imports are listed in CLAUDE.md ("Package boundaries") and enforced by
- * eslint-plugin-boundaries: `core` only (ADR-008). The engines arrive in steps 18 (Html5Engine)
- * and 19 (AvplayEngine, in platform-tizen).
+ * eslint-plugin-boundaries: `core` only (ADR-008). Html5Engine is here (step 18); AvplayEngine
+ * arrives in step 19, in platform-tizen. The platform adapters construct the engines.
  */
 export type { Clock } from './clock';
 export { SYSTEM_CLOCK } from './clock';
@@ -35,3 +35,6 @@ export { DEFAULT_WATCHDOG, RetryLadder } from './ladder';
 
 export type { ControllerOptions, PlayOptions, PlayerState, PlayerStatus } from './controller';
 export { PlayerController } from './controller';
+
+export type { AudioTrackLike, AudioTrackListLike, Html5EngineOptions, MediaElementLike, TextTrackLike, TrackListLike } from './html5-engine';
+export { CONTAINER_MIME, FRAME_POLL_MS, Html5Engine, NO_PICTURE_MS, createStageVideo, mediaError } from './html5-engine';

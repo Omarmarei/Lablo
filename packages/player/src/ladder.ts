@@ -9,7 +9,10 @@
  * 1. Before the stream has shown a frame on a URL, the next untried URL (the URL strategy).
  * 2. Otherwise: reopen the same URL, re-run the redirect probe (only where the platform probes),
  *    switch container (only with a second URL), then reopen with backoff (1, 2, 4 s).
- * 3. A failure that a retry of the same URL can't fix (`isDefinitive`) only tries untried URLs.
+ * 3. A failure that a retry of the same URL can't fix (`isDefinitive`) only tries untried URLs,
+ *    and the URL stays out of the session: the switch rung never goes back to it (on the desktop
+ *    a `.ts` URL the browser can't play would otherwise take an attempt, and its "unsupported"
+ *    would hide the provider's failure on `.m3u8`).
  * It gives up when 4 attempts have been made within the last 60 s. A frame on the screen
  * starts the ladder again from its first rung; the attempts keep counting in the window.
  *
@@ -70,6 +73,8 @@ export class RetryLadder {
   private attempts: number[] = [];
   /** URLs opened in this play session. */
   private readonly opened: boolean[] = [];
+  /** URLs that failed definitively in this play session. */
+  private readonly dead: boolean[] = [];
   /** Rungs climbed since the stream last showed a frame. */
   private step = 0;
 
@@ -93,6 +98,7 @@ export class RetryLadder {
     const windowStart = now - this.config.windowMs;
     this.attempts = this.attempts.filter((t) => t > windowStart);
     if (this.attempts.length >= this.config.maxAttempts) return null;
+    if (isDefinitive(error)) this.dead[current] = true;
     const plan = this.plan(error, current, framed);
     if (plan !== null) {
       this.attempts.push(now);
@@ -106,17 +112,28 @@ export class RetryLadder {
     return -1;
   }
 
+  /** The next URL after `current` (wrapping) that hasn't failed definitively, or -1. */
+  private other(current: number): number {
+    const n = this.options.candidates;
+    for (let k = 1; k < n; k++) {
+      const i = (current + k) % n;
+      if (this.dead[i] !== true) return i;
+    }
+    return -1;
+  }
+
   private plan(error: PlaybackError, current: number, framed: boolean): RetryPlan | null {
     const untried = this.untried();
     if (untried !== -1 && (!framed || isDefinitive(error))) return { rung: 'next-url', candidate: untried, delayMs: 0 };
     if (isDefinitive(error)) return null;
     const rungs: Rung[] = ['reopen'];
     if (this.options.canReprobe) rungs.push('reprobe');
-    if (this.options.candidates > 1) rungs.push('switch');
+    const other = this.other(current);
+    if (other !== -1) rungs.push('switch');
     const step = this.step++;
     if (step < rungs.length) {
       const rung = rungs[step]!;
-      return { rung, candidate: rung === 'switch' ? (current + 1) % this.options.candidates : current, delayMs: 0 };
+      return { rung, candidate: rung === 'switch' ? other : current, delayMs: 0 };
     }
     const backoff = this.config.backoffMs;
     const delayMs = backoff.length === 0 ? 0 : backoff[Math.min(step - rungs.length, backoff.length - 1)]!;

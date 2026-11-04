@@ -94,6 +94,9 @@ importers:
       '@zoma/platform-webos':
         specifier: workspace:*
         version: link:../../packages/platform-webos
+      '@zoma/player':
+        specifier: workspace:*
+        version: link:../../packages/player
       '@zoma/ui':
         specifier: workspace:*
         version: link:../../packages/ui

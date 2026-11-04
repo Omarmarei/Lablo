@@ -26,9 +26,10 @@
     "e2e": "playwright test",
     "lab:scale": "playwright test --project lab-scale",
     "lab:media": "playwright test --project lab-media",
+    "e2e:media": "playwright test --project playback-media",
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build:tv && pnpm e2e",
     "verify:engines": "tsx tools/engines/verify-engines.ts",
-    "verify:media": "pnpm fixtures && pnpm test:media && pnpm lab:media"
+    "verify:media": "pnpm fixtures && pnpm test:media && pnpm lab:media && pnpm e2e:media"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

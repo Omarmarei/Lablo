@@ -106,4 +106,35 @@ describe('RetryLadder', () => {
     expect(l.next(unsupported, 1, false, 1000)).toBeNull();
     expect(ladder(1, true).next(unsupported, 0, false, 0)).toBeNull();
   });
+
+  it('never switches back to a URL that failed definitively in the session', () => {
+    // The desktop: .ts unsupported, then .m3u8 times out (placeholder bytes): reopen and back off on .m3u8 only.
+    const timeout: PlaybackError = { kind: 'timeout', code: 'OPEN' };
+    const l = ladder(2, false);
+    expect(l.next(unsupported, 0, false, 0)).toEqual({ rung: 'next-url', candidate: 1, delayMs: 0 });
+    expect(l.next(timeout, 1, false, 10_000)).toEqual({ rung: 'reopen', candidate: 1, delayMs: 0 });
+    expect(l.next(timeout, 1, false, 20_000)).toEqual({ rung: 'reopen', candidate: 1, delayMs: 1000 });
+    // With three URLs, the switch skips the dead one.
+    const three = ladder(3, false, { ...DEFAULT_WATCHDOG, maxAttempts: 10 });
+    expect(three.next(stall, 0, true, 0)).toEqual({ rung: 'reopen', candidate: 0, delayMs: 0 });
+    expect(three.next(notFound, 0, true, 1000)).toEqual({ rung: 'next-url', candidate: 1, delayMs: 0 });
+    expect(three.next(stall, 1, false, 2000)).toEqual({ rung: 'next-url', candidate: 2, delayMs: 0 });
+    three.recovered();
+    expect(three.next(stall, 2, true, 3000)).toEqual({ rung: 'reopen', candidate: 2, delayMs: 0 });
+    // 2 + 1 wraps to 0, which answered 404: 1.
+    expect(three.next(stall, 2, true, 4000)).toEqual({ rung: 'switch', candidate: 1, delayMs: 0 });
+  });
+
+  it('switches to the next live URL, wrapping and skipping a dead one', () => {
+    const l = ladder(3, false, { ...DEFAULT_WATCHDOG, maxAttempts: 10 });
+    expect(l.next(stall, 0, false, 0)).toEqual({ rung: 'next-url', candidate: 1, delayMs: 0 });
+    expect(l.next(unsupported, 1, false, 1000)).toEqual({ rung: 'next-url', candidate: 2, delayMs: 0 });
+    expect(l.next(stall, 2, false, 2000)).toEqual({ rung: 'reopen', candidate: 2, delayMs: 0 });
+    // 2 + 1 wraps to 0.
+    expect(l.next(stall, 2, false, 3000)).toEqual({ rung: 'switch', candidate: 0, delayMs: 0 });
+    l.recovered();
+    expect(l.next(stall, 0, true, 4000)).toEqual({ rung: 'reopen', candidate: 0, delayMs: 0 });
+    // 1 is dead: 2.
+    expect(l.next(stall, 0, true, 5000)).toEqual({ rung: 'switch', candidate: 2, delayMs: 0 });
+  });
 });

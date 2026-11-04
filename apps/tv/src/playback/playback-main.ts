@@ -1,0 +1,83 @@
+/**
+ * The playback harness (RELAY step 18): a dev-only page (`pnpm dev`, `/playback.html`) that hands
+ * the platform's engines (`Platform.createEngines`) to a `PlayerController`, for the desktop
+ * playback e2e (e2e/playback.spec.ts, e2e/playback-media.spec.ts). It has no UI of its own (the
+ * player UI is step 20) and no TV build includes it: the app and the lab are the only TV entries.
+ *
+ * `window.__ZOMA_PLAYBACK__` (`PlaybackHarness`) plays and reports. The root element carries the
+ * state for Playwright's waits: `data-state`, `data-container`, `data-session` and, once it gave
+ * up, `data-failure` (the diagnostic code).
+ */
+import type { PlayerEngine, PlayRequest } from '@zoma/player';
+import { PlayerController, isPlaybackError, streamCandidates } from '@zoma/player';
+import { createPlatform } from '../platform';
+import type { PlaybackHarness, PlaybackInput, PlaybackSnapshot, PlaybackTarget } from './harness';
+
+const root = document.getElementById('playback');
+const stage = document.getElementById('stage');
+if (root === null || stage === null) throw new Error('#playback or #stage missing from playback.html');
+
+const platform = createPlatform();
+const engines = platform.createEngines(stage);
+const engine: PlayerEngine | undefined = engines[0];
+if (engine === undefined) throw new Error(`the ${platform.id} platform built no engine`);
+
+const trace: string[] = [];
+const history: string[] = [];
+
+// The engine's side of each attempt, for the e2e: what it was asked to load and how that ended.
+const load = engine.load.bind(engine);
+engine.load = (source, token, opts) => {
+  trace.push(`load ${token} ${source.container}`);
+  const result = load(source, token, opts);
+  result.then(
+    () => trace.push(`loaded ${token}`),
+    (error: unknown) => trace.push(`rejected ${token} ${isPlaybackError(error) ? `${error.kind}/${error.code}` : 'other'}`),
+  );
+  return result;
+};
+engine.on((e) => trace.push(e.type === 'error' ? `error ${e.token} ${e.error.kind}/${e.error.code}` : `${e.type} ${e.token}`));
+
+const controller = new PlayerController(engine, { online: () => navigator.onLine });
+controller.subscribe((s) => {
+  history.push(`${s.state} ${s.container ?? '-'}`);
+  root.setAttribute('data-state', s.state);
+  root.setAttribute('data-container', s.container ?? '');
+  root.setAttribute('data-session', String(s.session));
+  if (s.failure === null) root.removeAttribute('data-failure');
+  else root.setAttribute('data-failure', s.failure.code);
+});
+
+const harness: PlaybackHarness = {
+  play(input: PlaybackInput): void {
+    const url = input.url ?? '';
+    const candidates = input.candidates ?? streamCandidates(url, input.mode);
+    const req: PlayRequest = { key: `${input.mode}:${url}`, src: input.src ?? 'mock', mode: input.mode, candidates };
+    void controller.play(req, input.startMs === undefined ? {} : { startMs: input.startMs });
+  },
+  stop: () => controller.stop(),
+  snapshot(): PlaybackSnapshot {
+    const status = controller.status;
+    return {
+      state: status.state,
+      session: status.session,
+      container: status.container,
+      attempt: status.attempt,
+      failure: status.failure,
+      positionMs: engine.positionMs(),
+      history: history.slice(),
+      trace: trace.slice(),
+      tracks: engine.getTracks(),
+      stats: engine.stats(),
+      engines: engines.map((e) => e.kind),
+      trackSwitch: engine.caps.trackSwitch,
+    };
+  },
+  selectAudio: (id) => engine.selectAudio(id),
+  canPlayType: (mime) => {
+    const video = stage.querySelector('video');
+    return video === null ? '' : video.canPlayType(mime);
+  },
+};
+(window as PlaybackTarget).__ZOMA_PLAYBACK__ = harness;
+root.setAttribute('data-ready', 'true');

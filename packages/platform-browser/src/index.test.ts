@@ -162,3 +162,29 @@ describe('browserTextKey (a text field being edited, RELAY step 13a)', () => {
     expect(browserTextKey({ keyCode: 13 })).toBeNull();
   });
 });
+
+/** A stage whose document makes elements with what `createStageVideo` and `Html5Engine` touch. */
+function fakeStage(mediaId?: string): { stage: HTMLElement; made: Array<{ tag: string }> } {
+  const made: Array<{ tag: string }> = [];
+  const stage = {
+    ownerDocument: {
+      createElement: (tag: string) => {
+        const el = { tag, mediaId, style: {}, setAttribute: () => undefined, addEventListener: () => undefined, removeEventListener: () => undefined };
+        made.push(el);
+        return el;
+      },
+    },
+    appendChild: () => undefined,
+  } as unknown as HTMLElement;
+  return { stage, made };
+}
+
+describe('createEngines (RELAY step 18)', () => {
+  it('gives one Html5Engine on a <video> in the stage; desktop Chromium has no audioTracks unless flagged', () => {
+    const { stage, made } = fakeStage();
+    const engines = createBrowserPlatform(fakeEnv()).createEngines(stage);
+    expect(engines.map((e) => e.kind)).toEqual(['html5']);
+    expect(made.map((el) => el.tag)).toEqual(['video']);
+    expect(engines[0]!.caps.trackSwitch).toBe('none');
+  });
+});

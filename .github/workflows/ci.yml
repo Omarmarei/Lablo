@@ -151,7 +151,8 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
 
       # pnpm fixtures (fails over 2 minutes) + pnpm test:media (ffprobe on everything served)
-      # + pnpm lab:media (RELAY step 15c).
+      # + pnpm lab:media (RELAY step 15c) + pnpm e2e:media (live, VOD and catch-up through
+      # Html5Engine and the PlayerController, step 18).
       - run: pnpm verify:media
 
       - name: Benchmark baselines

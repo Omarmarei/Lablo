@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TizenKey } from './index';
-import { TIZEN_IME_CANCEL, TIZEN_IME_DONE, buildTizenKeyMap, registerTizenKeys, tizenChromiumVersion, tizenKeysToRegister, tizenModelYear, tizenTextKey } from './index';
+import { TIZEN_IME_CANCEL, TIZEN_IME_DONE, buildTizenKeyMap, createTizenPlatform, registerTizenKeys, tizenChromiumVersion, tizenKeysToRegister, tizenModelYear, tizenTextKey } from './index';
 
 describe('Tizen key registration', () => {
   it('registers every non-mandatory key when the supported-key list is unavailable', () => {
@@ -166,5 +166,30 @@ describe('tizenTextKey (a text field being edited, RELAY step 13a)', () => {
     expect(intents.get(13)).toBe('OK');
     expect(intents.has(TIZEN_IME_DONE)).toBe(false);
     expect(intents.has(TIZEN_IME_CANCEL)).toBe(false);
+  });
+});
+
+/** A stage whose document makes elements with what `createStageVideo` and `Html5Engine` touch. */
+function fakeStage(mediaId?: string): { stage: HTMLElement; made: Array<{ tag: string }> } {
+  const made: Array<{ tag: string }> = [];
+  const stage = {
+    ownerDocument: {
+      createElement: (tag: string) => {
+        const el = { tag, mediaId, style: {}, setAttribute: () => undefined, addEventListener: () => undefined, removeEventListener: () => undefined };
+        made.push(el);
+        return el;
+      },
+    },
+    appendChild: () => undefined,
+  } as unknown as HTMLElement;
+  return { stage, made };
+}
+
+describe('createEngines (RELAY step 18; AVPlay first from step 19)', () => {
+  it("gives the <video> engine, Tizen's HLS fallback", () => {
+    const { stage, made } = fakeStage();
+    const engines = createTizenPlatform().createEngines(stage);
+    expect(engines.map((e) => e.kind)).toEqual(['html5']);
+    expect(made.map((el) => el.tag)).toEqual(['video']);
   });
 });
