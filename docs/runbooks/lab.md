@@ -51,7 +51,7 @@ Each check ends as one record: `pass`/`fail` against its criterion, `info` for a
 
 | Spike | Checks | What a TV should answer |
 |---|---|---|
-| S0 Device | `device`: model, OS, firmware, Chromium, tier, screen, cores, memory, languages, time zone | info |
+| S0 Device | `device`: model, OS, model year, firmware, Chromium, tier, the platform's raw facts (`details`: on webOS the keys of `PalmSystem.deviceInfo` and where the version came from, ADR-012), screen, cores, memory, languages, time zone | info |
 | S1 Runtime | `boot`, `polyfills` (what works, and what the engine lacked before the bundle: `native-probe.js` runs first), `apis` (which web APIs and CSS features exist), `preact`, `blob-worker`, `text-decoder` (every split of multi-byte text), `fetch-stream` and `fetch-stream-worker` (`response.body` read in pieces, 600 KB from `/__lab/bytes`), `idb`, `idb-bulk-worker` (10,000 items in 500-item transactions, as the ingest writes) | all pass. A fail here is a blocker (architecture.md §5 lists the fallbacks) |
 | S2 Storage | `local-storage` and `indexeddb` (a marker from the last run), `quota`, `write-test` (200 MB of incompressible 1 MB records, then deleted) | pass after an update (below); write-test pass |
 | S3 Device IDs | `device-id` (DUID or LGUDID through the adapter; only a hash and the format are sent), `stable` (the same hash as the marker of the last run) | pass |
