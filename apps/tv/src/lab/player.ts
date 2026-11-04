@@ -60,6 +60,17 @@ export interface OpenOptions {
   readonly startMs?: number;
 }
 
+/**
+ * A platform's own way to choose a track by its place in the stream, beside the engine's track
+ * list (webOS: luna `com.webos.media/selectTrack` with the element's `mediaId`, RELAY step 15c2).
+ */
+export interface TrackService {
+  /** For the record: `luna`. */
+  readonly name: string;
+  /** Resolves a few words from the service when it took the call; rejects with why not. */
+  selectAudio(index: number): Promise<string>;
+}
+
 export interface LabPlayer {
   readonly kind: 'video' | 'avplay';
   /** Facts about the engine for the record: the formats it says it plays, the APIs it has. */
@@ -74,6 +85,8 @@ export interface LabPlayer {
   audioTracks(): readonly LabTrack[] | null;
   /** Selects audio track `index` alone; false when the engine refused or has no such track. */
   selectAudio(index: number): boolean;
+  /** The platform's second route to the audio tracks, or null where it has none (not webOS, or no `mediaId` yet). */
+  audioService(): TrackService | null;
   /** The in-band text tracks, or null when the engine has no API for them. */
   textTracks(): readonly LabTrack[] | null;
   /** Shows text track `index` and reports its cues as `cue` events; null shows none. */

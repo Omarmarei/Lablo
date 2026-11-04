@@ -7,12 +7,12 @@ The Zoma Lab is a separate TV build that answers the hardware spikes of [archite
 - **Built in step 15b2:** S9, Arabic, and S11, lifecycle and accessibility (below).
 - **Built in step 15b3:** S10, input: the remote's keys, the pointer and the TV's keyboard (below).
 - **Built in step 15c:** S5, the `<video>` battery (below).
-- **Coming:** the AVPlay batteries S4 and S8, and S5's luna track route (step 15c2).
+- **Built in step 15c2:** the AVPlay batteries S4 and S8, and S5's luna track route (below).
 - **Setting up the TVs and emulators:** `docs/runbooks/tv-setup.md` (step 15d).
 
 ## Quick start (a TV on the LAN)
 
-1. **Start the collector** on this PC: `pnpm mock`. It listens on `0.0.0.0:8080` and prints the addresses a TV can use. Windows may ask once to let Node through the firewall: allow it on private networks. Run `pnpm mock:media` once before, or the player battery (S5) has nothing to play and skips.
+1. **Start the collector** on this PC: `pnpm mock`. It listens on `0.0.0.0:8080` and prints the addresses a TV can use. Windows may ask once to let Node through the firewall: allow it on private networks. Run `pnpm mock:media` once before, or the player batteries (S4, S5, S8) have nothing to play and skip.
 2. **Build:** `pnpm build:tv`. It builds the app and the lab. The lab goes to `dist/tv-lab/{tizen,webos}`, with the webOS package at `dist/packages/com.zoma.iptv.lab_<version>_all.ipk`. The build prints the address the lab will report to (`Zoma Lab 0.1.0: results to http://192.168.1.3:8080`): this PC's first private IPv4 address.
 3. **Install and launch:**
    - webOS: `pnpm device install webos tv --lab`, then `pnpm device launch webos tv --lab`;
@@ -143,7 +143,7 @@ The two questions run only when a person starts S11 from its row. "Run all" and 
 
 ## S5: the `<video>` battery (step 15c)
 
-The player batteries ask each player the questions of architecture.md §5's S4 and S5 rows. The checks are written once (`battery.ts`) against a small player interface (`LabPlayer`, `player.ts`). S5 runs them on a `<video>` element (`video-player.ts`), the player webOS uses for everything, Tizen falls back to for HLS, and the desktop dev loop plays through. S4 runs the same checks on AVPlay (step 15c2). While a check plays, its picture shows in a box at the bottom right, with a caption naming the row.
+The player batteries ask each player the questions of architecture.md §5's S4 and S5 rows. The checks are written once (`battery.ts`) against a small player interface (`LabPlayer`, `player.ts`). S5 runs them on a `<video>` element (`video-player.ts`), the player webOS uses for everything, Tizen falls back to for HLS, and the desktop dev loop plays through. S4 runs the same checks on AVPlay (below). While a check plays, its picture shows in a box at the bottom right, with a caption naming the row.
 
 The media comes from the lab server (`/__lab/media`, docs/runbooks/mock-provider.md). The URLs carry the mock's test account, so no record holds one. Without generated media (`pnpm mock:media`) the mock sends placeholder bytes, and every playback check skips with the reason.
 
@@ -154,14 +154,14 @@ The media comes from the lab server (`/__lab/media`, docs/runbooks/mock-provider
 | `hls` | The same channel as live HLS. | < 4 s |
 | `redirect` | The live channel through three 302s (`mock_fault=redirect:hops=3`), in TS if `ts` played, else HLS. | it plays (redirects followed natively) |
 | `hevc-4k` | Movie 205, 4K HEVC. | 3840×2160 frames (2020+ TVs only) |
-| `audio-tracks` | Movie 206 (MKV: AAC ara, eng, spa, then AC3 and E-AC3 5.1): the tracks the engine lists, and a switch to the second one, timed until it is the only one enabled and playback moved on 200 ms. The clock going back over 1 s, or the engine reloading the stream, is a restart. Whether the sound changed is for the ear. | < 2 s, no restart |
-| `ac3` | The same file: the AC3 and the E-AC3 track each chosen and played for 2 s. An engine that lists fewer than the file's five tracks drops the ones it can't decode. | both play on |
+| `audio-tracks` | Movie 206 (MKV: AAC ara, eng, spa, then AC3 and E-AC3 5.1): the tracks the engine lists, 2 s of play, and a switch to the second one, timed until it is the only one enabled and playback moved on 200 ms. The clock going back over 1 s, or the engine reloading the stream, is a restart. If that route fails or is missing, webOS's luna route (below) on the file opened again. The record's `route` says which worked (`audioTracks`, `luna`, AVPlay's `setSelectTrack`, or null). Whether the sound changed is for the ear. | < 2 s, no restart |
+| `ac3` | The same file: the AC3 and the E-AC3 track each chosen and played for 2 s (through the luna route by their place in the file where the engine lists no tracks). An engine that lists fewer than the file's five tracks drops the ones it can't decode. | both play on |
 | `subtitles` | Episodes 3001 (SRT in MKV) and 3011 (mov_text in MP4): the in-band text tracks the engine lists, the first one shown, and its first cue (one every 5 s). | both files give a cue |
 | `suspend` | **A person** (below): the live channel plays, then Home and back. On hide the player stops (the webOS policy, architecture.md §2); on show it reopens at the live edge. | playing again < 5 s |
 | `soak` | **A person starts it**: the live TS with a stall after every 600 KB of each response (about every 18 s of play) for `soak` minutes (60 by default). A watchdog reopens the stream after 6 s without progress, again every 6 s until a frame comes, as the app's PlayerController will. An engine without TS (a desktop browser) soaks on VOD file 3011 with a stall every 1 MB, reopened where it stopped. | every stall back to a picture < 10 s |
 
 - **The lab's watchdog is not the app's.** It reopens the same URL; the app's retry ladder (redirect probe, container switch, backoff) is step 17. The soak shows whether this engine recovers from a stalled stream at all, and how fast.
-- **`audioTracks` is the only track route here.** webOS's other route, luna `com.webos.media/selectTrack` with `video.mediaId`, comes in step 15c2 through the webOS adapter.
+- **The luna route (webOS, step 15c2).** Where `audioTracks` is missing or its switch fails, the battery asks luna `com.webos.media/selectTrack` with the element's `mediaId` (`{ mediaId, type: 'audio', index }`, `webosSelectTrack` in platform-webos), on the file opened again so the first try's track can't pass for luna's. The switch counts once luna accepted and playback moved on; luna gives no list to read back, so whether the language changed is for the ear. Only the webOS build has the route (`pnpm build:tv` fails if `com.webos.media` shows up in a Tizen bundle); the desktop has no `mediaId`.
 - **Sound before a key press:** a desktop browser may refuse to play with sound when nobody pressed a key (a run at launch). The player then plays muted and the record says `muted: true`. TVs don't refuse.
 - **Desktop Chromium 156** (headless, `pnpm lab:media`, 2026-11-04):
   - no MPEG-TS (an error after about 3 s) and no AC3 or E-AC3: it lists 3 of the MKV's 5 audio tracks;
@@ -179,6 +179,50 @@ The media comes from the lab server (`/__lab/media`, docs/runbooks/mock-provider
 3. When the caption says "press Home…", press Home, wait a few seconds, and open the Zoma Lab again from the launcher.
 4. The soak follows: 60 minutes, with a stall every 18 seconds or so. Leave the TV alone. (On a TV it is always 60 minutes; in a browser, `&soak=` in the URL shortens it.)
 5. S5 shows its result; the collector has every row.
+
+## S4: the AVPlay battery (step 15c2)
+
+S4 asks Samsung's native player, AVPlay, the same questions as S5 (`batteryChecks('S4', …)`), plus one row of its own. The AVPlay player (`avplay-player.ts`) implements `LabPlayer` on platform-tizen's typed AVPlay (`packages/platform-tizen/src/avplay.ts`: `tizenAvplay()`, `avplayTracks()`, `avplayErrorText()`); the lab never touches `webapis` itself. Only the Tizen build reaches it (`avplay-deps.ts`, behind `__PLATFORM__ === 'tizen'`), and `pnpm build:tv` fails if `application/avplayer` or `getTotalTrackInfo` shows up in a webOS bundle.
+
+How AVPlay answers the battery:
+- **Open:** `open`, `setListener`, `setDisplayRect`, `prepareAsync`, then `play`. A prepare that never answers is AVPlay's 302 freeze: the row's 10 s wait runs out with "no answer".
+- **First frame:** AVPlay paints on the TV's video plane, which the page can't read, so a frame is the clock moving while `PLAYING`: two readings of `getCurrentTime()` 50 ms apart (or two `oncurrentplaytime` calls) that differ. The size is the video stream's `Width` and `Height` from `getCurrentStreamInfo()`.
+- **No `canPlayType`:** AVPlay says what it can't play by failing. `PLAYER_ERROR_NOT_SUPPORTED_FILE`, `_FORMAT`, `_AUDIO_CODEC` and `_VIDEO_CODEC` count as `unsupported`.
+- **Tracks:** `getTotalTrackInfo()` (AUDIO, TEXT, with `extra_info` read), the selection from `getCurrentStreamInfo()`, and `setSelectTrack(type, stream index)`. The record's `route` says `setSelectTrack`.
+- **Subtitles:** `setSelectTrack('TEXT', …)` and `setSilentSubtitle(false)`; each `onsubtitlechange` text is a cue.
+- **Home and back:** `suspend()` on hide, then `restore()` on show: no resume time for live (it means nothing there), the position for VOD (never 0). A refused `restore` fails the row at once ("coming back failed: …").
+- **Stop:** `stop` and `close`, which ends the connection.
+- **The picture:** AVPlay's `<object type="application/avplayer">` in the same box at the bottom right as S5's. While it shows, `<html>` gets `lab--avplay`, which makes the page and the box transparent (architecture.md §2, "AVPlay layering"): the lab's background turns black, its rows keep their colours.
+
+| Check | What it does | Pass |
+|---|---|---|
+| S5's ten rows | as in S5 above, on AVPlay | as in S5 |
+| `redirect-probe` | The redirect probe first (`http.ts`): an XHR GET that follows the 302s and is aborted when the final answer's headers come (`readyState` 2), so no body is downloaded; then AVPlay opens `responseURL`. The note compares it with `redirect`, the same stream without the probe ("without the probe it froze"). No URL is recorded. | it plays |
+
+- **The audio switch waits 2 s first** (both batteries): AVPlay sends no event when a switch starts the stream over, so the file plays 2 s and a restart shows as the clock going back.
+- **Without AVPlay** (the desktop, a webOS TV, the Tizen bundle in a desktop engine, the old-engine harness) every row skips: "no webapis.avplay here (a Samsung TV has it)" in the Tizen bundle, "no AVPlay: this is not the Tizen build" elsewhere.
+- **Unit tests** run the whole battery on a fake AVPlay (`fakes.ts`: its state machine, callbacks on a fake clock, streams as `extra_info` JSON) in `spikes/s4.test.ts`, including the 302 freeze, the probe, `setSelectTrack`, cues, suspend/restore and a soak.
+
+### S4 by hand (step 16)
+
+1. As for S5: `pnpm mock:media` once, then `pnpm mock` (`Media: files`).
+2. On the Samsung TV, go to S4 and press OK. The rows play in the box at the bottom right; the rest of the screen is black while they do.
+3. Listen during `audio-tracks` (Arabic to English) and `ac3` (a 5.1 tone per channel). During `subtitles` no text shows on the TV (the lab only records the callback's text).
+4. When the caption says "press Home…", press Home, wait a few seconds, and open the Zoma Lab again.
+5. The soak follows (60 minutes). Then S4 shows its result.
+
+## S8: AVPlay pre-buffering (step 15c2)
+
+Investigational: can a second AVPlay instance (`webapis.avplaystore.getPlayer()`, up to four) prepare the next channel while one plays, and how fast is the switch to it? Pre-buffered zapping (v1.2) ships only if it passes and the provider allows two connections (the mock's test account allows two).
+
+| Check | What it does | Pass |
+|---|---|---|
+| `store` | Fetches the media list; two players from `avplaystore.getPlayer()`, each described. | both created |
+| `prebuffer` | Both `prepareAsync` the live TS at once, without playing. | both prepared within 10 s |
+| `switch` | One plays the live TS, the other prepares it; the switch stops the first and plays the second, timed to its first frame. Three times, each time preparing the stopped one again. | each ≤ 700 ms on a 2020+ TV; older TVs: `info` |
+
+- Without `avplaystore` (the desktop, a webOS TV, older Samsungs) every row skips. `prebuffer` and `switch` skip on placeholder bytes.
+- Unit tests: `spikes/s8.test.ts` on two fake AVPlay instances.
 
 ## S6: scale (step 15b)
 
@@ -245,14 +289,14 @@ The lab needs no test account: the mock answers it on `/__lab/` (docs/runbooks/m
   - an "update" from 0.1.0 to 0.1.1 (S2); the collector down, then up;
   - both TV bundles from `file://`.
 
-  `pnpm e2e`'s mock sends placeholder bytes, so S5 describes the engine there and skips the rest.
+  `pnpm e2e`'s mock sends placeholder bytes, so S5 describes the engine there and skips the rest. S4 and S8 skip every row with the reason (no AVPlay in a desktop engine; the Tizen bundle finds no `webapis`).
 
   S6 at scale: `pnpm lab:scale` (`e2e/lab-scale.spec.ts`, its own Playwright project, never part of `pnpm e2e`).
 
   S5 on the generated media: `pnpm lab:media` (`e2e/lab-media.spec.ts`, its own Playwright project, part of `pnpm verify:media` and CI job `media`). S5 alone by keys (a hidden-and-back trip for `suspend`, a 1-minute soak) and a run at launch; every row's status and value checked.
 - **The old-engine harness** (`pnpm verify:engines`, docs/runbooks/old-engines.md): both lab bundles in Chromium 53, 56 and 68, reporting to a mock started on the host through `host.docker.internal`.
   - S1 and S9 must pass on every engine; S6 runs its checks against the host mock's small catalog (all `info`); S10 and S11 find no TV APIs (Tizen's key registration and screensaver checks fail, webOS's are `info`) and skip everything that needs a person.
-  - S5: the host mock runs with `--no-media`, and these Chromium builds have no H.264 either, so `formats` records the engine and every playback check skips. The batteries' first old-engine runs are a TV's (step 16).
+  - S5: the host mock runs with `--no-media`, and these Chromium builds have no H.264 either, so `formats` records the engine and every playback check skips. S4 and S8 skip every row (no AVPlay). The batteries' first old-engine runs are a TV's (step 16).
   - The harness deletes the app's database before each lab run: the app's screens ran on the same `file://` origin first.
   - The polyfills the bundle filled must be exactly the built-ins that engine lacks.
   - Every record must reach the collector.

@@ -3,7 +3,9 @@
  *
  * Step 2 covers what the hello app needs: device info, remote-key registration through
  * `tizen.tvinputdevice`, lifecycle and exit; step 15a the DUID (`deviceSecret`); step 15b2 the
- * screensaver and Voice Guide (`tv-settings.ts`). AvplayEngine follows in a later step. The only package allowed to touch `tizen` and `webapis` (lint-enforced).
+ * screensaver and Voice Guide (`tv-settings.ts`); step 15c2 AVPlay typed for the lab's S4 and S8
+ * (`avplay.ts`), which the AvplayEngine (step 19) will build on. The only package allowed to touch
+ * `tizen` and `webapis` (lint-enforced).
  * Every API is feature-checked, so the bundle also boots in a desktop browser.
  */
 import { chromiumMajorFromUserAgent, deviceTier } from '@zoma/core';
@@ -14,6 +16,8 @@ import { buildTizenKeyMap, registerTizenKeys, tizenTextKey } from './keys';
 import type { TvSettingsApi } from './tv-settings';
 import { tizenScreenReader, tizenSetScreenSaver } from './tv-settings';
 
+export type { AvplayError, AvplayListener, AvplayManager, AvplayState, AvplayStore, AvplayStreamInfo, AvplayTrack, AvplayWebApis } from './avplay';
+export { avplayErrorText, avplayExtraInfo, avplayTracks, avplayUnsupported, tizenAvplay, tizenAvplayStore } from './avplay';
 export { tizenChromiumVersion, tizenModelYear } from './device';
 export type { TizenKey, TvInputDevice } from './keys';
 export { TIZEN_IME_CANCEL, TIZEN_IME_DONE, buildTizenKeyMap, registerTizenKeys, tizenKeysToRegister, tizenTextKey } from './keys';

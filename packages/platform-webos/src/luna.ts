@@ -130,3 +130,16 @@ export function lgudidFrom(answer: Record<string, unknown>): string | null {
 export function readLgudid(bridge: BridgeFactory = palmServiceBridge, timeoutMs = 3000): Promise<string | null> {
   return lunaRequest(DEVICE_ID_URI, '{"idType":["LGUDID"]}', { bridge, timeoutMs }).then(lgudidFrom, () => null);
 }
+
+export const SELECT_TRACK_URI = 'luna://com.webos.media/selectTrack';
+
+/**
+ * Chooses a track of the media a `<video>` element plays, by the element's webOS `mediaId`
+ * (RELAY step 15c2, spike S5): `{ mediaId, type, index }`, `index` counting that type's tracks
+ * from 0. The route community players use where `audioTracks` is missing or does nothing; S5
+ * finds out which one each webOS version honours. Resolves the service's answer.
+ */
+export function webosSelectTrack(mediaId: string, type: 'audio' | 'text', index: number, bridge: BridgeFactory = palmServiceBridge, timeoutMs = 3000): Promise<Record<string, unknown>> {
+  if (!(index >= 0 && Math.floor(index) === index)) return Promise.reject(new LunaError(`selectTrack: no track ${String(index)}`));
+  return lunaRequest(SELECT_TRACK_URI, `{"mediaId":${jsonText(mediaId)},"type":"${type}","index":${String(index)}}`, { bridge, timeoutMs });
+}

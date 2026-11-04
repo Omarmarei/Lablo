@@ -18,7 +18,7 @@ import { readAudioGuidance, webosSpeak } from './speech';
 export type { WebosDeviceInfo } from './device';
 export { parsePalmDeviceInfo, webosChromiumVersion, webosModelYear } from './device';
 export type { BridgeFactory, ServiceBridge } from './luna';
-export { DEVICE_ID_URI, LunaError, jsonText, lgudidFrom, lunaRequest, palmServiceBridge, readLgudid } from './luna';
+export { DEVICE_ID_URI, LunaError, SELECT_TRACK_URI, jsonText, lgudidFrom, lunaRequest, palmServiceBridge, readLgudid, webosSelectTrack } from './luna';
 export { AUDIO_GUIDANCE_URI, TTS_URI, audioGuidanceFrom, readAudioGuidance, webosSpeak } from './speech';
 
 /** LG remote key codes. webOS delivers every key without registration. */

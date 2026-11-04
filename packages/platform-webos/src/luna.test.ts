@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ServiceBridge } from './luna';
-import { DEVICE_ID_URI, LunaError, lgudidFrom, lunaRequest, readLgudid } from './luna';
+import { DEVICE_ID_URI, LunaError, lgudidFrom, lunaRequest, readLgudid, webosSelectTrack } from './luna';
 
 /** A bridge that answers `reply` (or nothing) after `delayMs`, and records its calls. */
 function fakeBridge(reply: string | null, delayMs = 0) {
@@ -99,5 +99,23 @@ describe('the LGUDID (deviceSecret on webOS)', () => {
   it('is null when the service fails or is missing', async () => {
     expect(await readLgudid(() => fakeBridge(JSON.stringify({ returnValue: false, errorText: 'Denied' })).bridge)).toBeNull();
     expect(await readLgudid(() => null)).toBeNull();
+  });
+});
+
+describe("selectTrack by the element's mediaId (RELAY step 15c2, S5)", () => {
+  it('asks com.webos.media for the type and index, quoting the mediaId', async () => {
+    const fake = fakeBridge('{"returnValue":true}');
+    expect(await webosSelectTrack('_Mo4aBx"9', 'audio', 2, () => fake.bridge)).toEqual({ returnValue: true });
+    expect(fake.calls).toEqual([{ uri: 'luna://com.webos.media/selectTrack', params: '{"mediaId":"_Mo4aBx\\"9","type":"audio","index":2}' }]);
+    expect(JSON.parse(fake.calls[0]?.params ?? '')).toEqual({ mediaId: '_Mo4aBx"9', type: 'audio', index: 2 });
+    await webosSelectTrack('m', 'text', 0, () => fake.bridge);
+    expect(fake.calls[1]?.params).toBe('{"mediaId":"m","type":"text","index":0}');
+  });
+
+  it("passes the service's refusal on, and refuses an index that is no track's", async () => {
+    const fake = fakeBridge('{"returnValue":false,"errorCode":-1,"errorText":"invalid mediaId"}');
+    await expect(webosSelectTrack('m', 'audio', 1, () => fake.bridge)).rejects.toThrow('luna://com.webos.media/selectTrack failed: invalid mediaId (-1)');
+    for (const index of [-1, 1.5, Number.NaN]) await expect(webosSelectTrack('m', 'audio', index, () => fake.bridge)).rejects.toThrow(`selectTrack: no track ${String(index)}`);
+    expect(fake.calls).toHaveLength(1);
   });
 });

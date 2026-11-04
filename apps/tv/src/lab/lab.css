@@ -143,7 +143,7 @@
 .lab__check {
   display: flex;
   align-items: flex-start;
-  /* 64 px a check with its note: S5's ten fit under a one-line question (step 15c). */
+  /* 60 px a check with its note (30 + 26 + 4): S4's eleven fit under a one-line question (step 15c2). */
   margin: 0 0 var(--space-1);
   font-size: var(--font-size-caption);
   line-height: var(--line-height-caption);
@@ -159,6 +159,7 @@
 
 .lab__check-note {
   overflow: hidden;
+  line-height: 26px;
   color: var(--color-text-muted);
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -334,6 +335,21 @@
   width: 768px;
   height: 432px;
   background: #000;
+}
+
+/*
+ * AVPlay (S4, S8: step 15c2) paints on the TV's video plane, under the page: while its stage
+ * shows, the page and the box are transparent, and its <object> is the hole the picture shows in
+ * (docs/architecture.md §2, "AVPlay layering"). The lab's own surfaces keep their colours.
+ */
+html.lab--avplay,
+html.lab--avplay body {
+  background: transparent;
+}
+
+.lab__player--avplay,
+.lab__avplay {
+  background: transparent;
 }
 
 .lab__player-caption {

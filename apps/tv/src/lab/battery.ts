@@ -1,15 +1,18 @@
 /**
  * The player battery (RELAY step 15c, docs/architecture.md §5 S4 and S5): one check per row of
  * the matrix, written once against `LabPlayer`, so the `<video>` element (S5) and AVPlay (S4,
- * step 15c2) answer the same questions:
+ * step 15c2, `avplay-player.ts`) answer the same questions:
  *
  * - `formats`: the lab server's media (`/__lab/media`) and what the engine says it plays;
  * - `ts`, `hls`: a live channel's first frame (TS < 2.5 s, < 4 s on the low tier; HLS < 4 s);
  * - `redirect`: the live channel through 3 × 302, in the first container that played;
+ * - `redirect-probe` (with `probeRedirect`: AVPlay, S4): the same at the URL the redirect probe
+ *   found, where AVPlay may freeze on the 302s themselves;
  * - `hevc-4k`: the 4K HEVC file shows 3840×2160 frames (needed on 2020+ TVs);
  * - `audio-tracks`: the MKV's audio tracks listed, and a switch to another one in < 2 s without
- *   the stream starting over;
- * - `ac3`: its AC3 and E-AC3 5.1 tracks play;
+ *   the stream starting over: through the engine's list, else the platform's service (webOS luna
+ *   `selectTrack`, step 15c2); the record says which route worked;
+ * - `ac3`: its AC3 and E-AC3 5.1 tracks play (chosen the same way);
  * - `subtitles`: in-band SRT (MKV) and mov_text (MP4) tracks listed and their cues arriving;
  * - `suspend` (a person): Home and back, playing again in < 5 s;
  * - `soak` (a person starts it; 60 min by default): the live TS with a stall every ~18 s, each one
@@ -20,9 +23,10 @@
  * skips. No record holds a URL: they carry the mock's test account.
  */
 import type { LifecycleEvent, Platform } from '@zoma/platform-api';
+import type { RedirectProbe } from './http';
 import type { LabMedia, LabMediaId, LabMediaItem } from './media';
 import { CONTAINER_MIME, HEVC_MIME, parseLabMedia } from './media';
-import type { LabPlayer, LabTrack, OpenOptions, PlayerError } from './player';
+import type { LabPlayer, LabTrack, OpenOptions, PlayerError, TrackService } from './player';
 import type { Check, CheckResult, LabContext } from './types';
 
 export interface BatteryClock {
@@ -36,6 +40,11 @@ export interface BatteryDeps {
   /** GET and parse JSON (rejects on a network error or a non-200). */
   getJson(url: string): Promise<unknown>;
   readonly clock: BatteryClock;
+  /**
+   * The redirect probe (`http.ts`), for an engine that may freeze on a 302 (AVPlay, S4): with
+   * it the battery adds `redirect-probe`, the redirect row again with the probe's URL.
+   */
+  probeRedirect?(url: string): Promise<RedirectProbe>;
 }
 
 /** The criteria (architecture.md §5) and the battery's own waits. */
@@ -52,6 +61,11 @@ export const BATTERY = {
   stallMs: 6000,
   /** How long an AC3 track must play on its own to count. */
   trackPlayMs: 2000,
+  /**
+   * How long the file plays before an audio switch, so that a switch that starts it over shows
+   * as the clock going back (AVPlay sends no event for that).
+   */
+  settleMs: 2000,
   /** Subtitle cues come every 5 s in the generated files. */
   cueWaitMs: 12_000,
   /** The person's Home trip: to leave, then to come back. */
@@ -135,6 +149,8 @@ export interface SwitchResult {
   readonly restarted: boolean;
   readonly beforeMs: number;
   readonly afterMs: number;
+  /** A service's answer, or why it refused (`switchByService`). */
+  readonly detail?: string;
 }
 
 /** How far playback must move on after a switch. */
@@ -166,6 +182,50 @@ export async function switchAudio(player: LabPlayer, index: number, clock: Batte
     off();
   }
   return { accepted: true, ms, restarted: wentBack || seen.restart, beforeMs, afterMs };
+}
+
+/**
+ * The same switch through the platform's service (webOS luna `selectTrack`): it took over once
+ * the service accepted and playback moved on. Which track sounds is for the ear: the service
+ * gives no list to read back.
+ */
+export async function switchByService(player: LabPlayer, service: TrackService, index: number, clock: BatteryClock, timeoutMs = 5000): Promise<SwitchResult> {
+  const seen: { restart: boolean; answer: string | null; refusal: string | null } = { restart: false, answer: null, refusal: null };
+  const off = player.on((event) => {
+    if (event.type === 'restart') seen.restart = true;
+  });
+  const beforeMs = player.snapshot().positionMs;
+  const started = clock.now();
+  let ms: number | null = null;
+  let wentBack = false;
+  let afterMs = beforeMs;
+  try {
+    service.selectAudio(index).then(
+      (answer) => (seen.answer = answer),
+      (error: unknown) => (seen.refusal = error instanceof Error ? error.message : String(error)),
+    );
+    while (seen.refusal === null && clock.now() - started < timeoutMs) {
+      await clock.sleep(BATTERY.pollMs);
+      afterMs = player.snapshot().positionMs;
+      if (afterMs < beforeMs - 1000) wentBack = true;
+      if (seen.answer !== null && afterMs >= beforeMs + MOVED_ON_MS) {
+        ms = Math.round(clock.now() - started);
+        break;
+      }
+    }
+  } finally {
+    off();
+  }
+  const detail = seen.refusal ?? seen.answer ?? 'no answer';
+  return { accepted: seen.refusal === null && seen.answer !== null, ms, restarted: wentBack || seen.restart, beforeMs, afterMs, detail };
+}
+
+/** A switch in a few words; `ok` when the track took over without a restart (then it is judged by its time). */
+export function switchOutcome(s: SwitchResult, to: string): { readonly ok: boolean; readonly text: string } {
+  if (!s.accepted) return { ok: false, text: `the switch was refused${s.detail === undefined ? '' : ` (${s.detail})`}` };
+  if (s.ms === null) return { ok: false, text: 'the second track never took over' };
+  if (s.restarted) return { ok: false, text: `the switch took ${s.ms} ms and the stream started over` };
+  return { ok: true, text: `switched to ${to} in ${s.ms} ms` };
 }
 
 /** One stall of the soak: when it began (ms into the soak), how long it took back to a picture. */
@@ -309,11 +369,13 @@ interface BatteryRun {
   media: LabMedia | null;
   /** The live containers that showed a picture (`redirect`, `suspend` and `soak` use the first). */
   played: { ts: boolean; hls: boolean };
+  /** How `redirect` went without the probe, for `redirect-probe`'s note: null before it ran. */
+  redirect: 'played' | 'froze' | 'error' | null;
 }
 
 export function batteryChecks(spike: string, deps: BatteryDeps): Check[] {
   const { clock } = deps;
-  let run: BatteryRun = { media: null, played: { ts: false, hls: false } };
+  let run: BatteryRun = { media: null, played: { ts: false, hls: false }, redirect: null };
 
   /** The row's media item, or why the row skips. */
   const itemFor = (id: LabMediaId): LabMediaItem | CheckResult => {
@@ -356,7 +418,7 @@ export function batteryChecks(spike: string, deps: BatteryDeps): Check[] {
     id: 'formats',
     title: "The lab server's media and the formats the engine plays",
     run: async (context) => {
-      run = { media: null, played: { ts: false, hls: false } };
+      run = { media: null, played: { ts: false, hls: false }, redirect: null };
       const media = parseLabMedia(await deps.getJson(`${context.server}/__lab/media`));
       if (media === null) return { status: 'fail', note: 'the lab server answered something else than a media list' };
       run.media = media;
@@ -378,6 +440,7 @@ export function batteryChecks(spike: string, deps: BatteryDeps): Check[] {
       return withPlayer(async (player) => {
         player.caption(`${spike}: live ${container.toUpperCase()} through redirects`);
         const r = await openAndWait(player, item.url, { live: true }, BATTERY.frameWaitMs, clock);
+        run.redirect = r.played ? 'played' : r.error === null ? 'froze' : 'error';
         const value = { container, fault: item.fault, played: r.played, ms: r.ms };
         if (r.played) return { status: 'pass', value, note: `${container.toUpperCase()} through ${item.fault ?? 'redirects'}: first frame in ${r.ms} ms` };
         const why = noPicture(r, player.canPlay(CONTAINER_MIME[item.container]), CONTAINER_MIME[item.container]);
@@ -385,6 +448,34 @@ export function batteryChecks(spike: string, deps: BatteryDeps): Check[] {
       });
     },
   };
+
+  const probeRow = (probe: (url: string) => Promise<RedirectProbe>): Check => ({
+    id: 'redirect-probe',
+    title: 'The same with the redirect probe first (responseURL at readyState 2)',
+    run: async () => {
+      const container = liveContainer();
+      const item = itemFor(container === 'ts' ? 'redirect-ts' : 'redirect-hls');
+      if (!isItem(item)) return item;
+      let found: RedirectProbe;
+      try {
+        found = await probe(item.url);
+      } catch (error) {
+        return { status: 'fail', value: { container }, note: `the probe failed: ${error instanceof Error ? error.message : String(error)}` };
+      }
+      // No URL in the record: the final one carries the account too.
+      const value = { container, probeMs: found.ms, status: found.status, redirected: found.redirected, withoutProbe: run.redirect };
+      if (!found.redirected) return { status: 'fail', value, note: `the probe saw no redirect (HTTP ${found.status}, responseURL unchanged)` };
+      const without = run.redirect === 'froze' ? '; without the probe it froze' : run.redirect === 'played' ? '; it played without the probe too' : run.redirect === 'error' ? '; without the probe it failed' : '';
+      return withPlayer(async (player) => {
+        player.caption(`${spike}: live ${container.toUpperCase()} at the URL the probe found`);
+        const r = await openAndWait(player, found.finalUrl, { live: true }, BATTERY.frameWaitMs, clock);
+        if (r.played) return { status: 'pass', value: { ...value, played: true, ms: r.ms }, note: `probe ${found.ms} ms (HTTP ${found.status}), then the first frame in ${r.ms} ms${without}` };
+        const mime = CONTAINER_MIME[item.container];
+        const why = noPicture(r, player.canPlay(mime), mime);
+        return { status: 'fail', value: { ...value, played: false, ms: r.ms, error: r.error, unsupported: why.unsupported }, note: `probe ${found.ms} ms, then no picture within ${r.ms} ms: ${why.reason}` };
+      });
+    },
+  });
 
   const hevc: Check = {
     id: 'hevc-4k',
@@ -420,6 +511,9 @@ export function batteryChecks(spike: string, deps: BatteryDeps): Check[] {
   };
   const isResult = (x: CheckResult | readonly LabTrack[] | null): x is CheckResult => x !== null && !Array.isArray(x);
 
+  /** The engine's own track route, for the record: AVPlay's `setSelectTrack`, or the element's `audioTracks`. */
+  const listRoute = (player: LabPlayer): string => (player.kind === 'avplay' ? 'setSelectTrack' : 'audioTracks');
+
   const audioTracks: Check = {
     id: 'audio-tracks',
     title: 'Audio track switch < 2 s, no restart (MKV multi-audio)',
@@ -427,21 +521,42 @@ export function batteryChecks(spike: string, deps: BatteryDeps): Check[] {
     run: async () => {
       const item = itemFor('multi-audio');
       if (!isItem(item)) return item;
+      const expected = (item.audio ?? []).map((a) => `${a.lang}:${a.codec}`);
       return withPlayer(async (player) => {
         const tracks = await openMultiAudio(player, item, 'audio tracks');
         if (isResult(tracks)) return tracks;
-        const expected = (item.audio ?? []).map((a) => `${a.lang}:${a.codec}`);
-        if (tracks === null) return { status: 'fail', value: { api: false, expected }, note: 'this engine has no audioTracks API' };
-        const value = { api: true, listed: tracksValue(tracks), expected };
-        if (tracks.length < 2) return { status: 'fail', value, note: `the engine lists ${tracks.length} of the file's ${expected.length} audio tracks: nothing to switch to` };
-        const switched = await switchAudio(player, 1, clock);
-        const all = { ...value, switch: switched };
-        const listed = `${tracks.length} of ${expected.length} tracks listed (${tracks.map(trackText).join(', ')})`;
-        if (!switched.accepted) return { status: 'fail', value: all, note: `${listed}; the switch was refused` };
-        if (switched.ms === null) return { status: 'fail', value: all, note: `${listed}; the second track never took over` };
-        if (switched.restarted) return { status: 'fail', value: all, note: `${listed}; the switch took ${switched.ms} ms and the stream started over` };
-        const status = switched.ms < BATTERY.switchMs ? 'pass' : 'fail';
-        return { status, value: all, note: `${listed}; switched to ${trackText(tracks[1] as LabTrack)} in ${switched.ms} ms` };
+        const base = tracks === null ? { api: false, expected } : { api: true, listed: tracksValue(tracks), expected };
+        // The engine's own list first (audioTracks; AVPlay's track info and setSelectTrack)…
+        let first: string;
+        let viaList: SwitchResult | null = null;
+        if (tracks === null) first = 'this engine has no audioTracks API';
+        else if (tracks.length < 2) first = `the engine lists ${tracks.length} of the file's ${expected.length} audio tracks: nothing to switch to`;
+        else {
+          await clock.sleep(BATTERY.settleMs);
+          viaList = await switchAudio(player, 1, clock);
+          const listed = `${tracks.length} of ${expected.length} tracks listed (${tracks.map(trackText).join(', ')})`;
+          const outcome = switchOutcome(viaList, trackText(tracks[1] as LabTrack));
+          if (outcome.ok && viaList.ms !== null) {
+            const route = listRoute(player);
+            return { status: viaList.ms < BATTERY.switchMs ? 'pass' : 'fail', value: { ...base, switch: viaList, route }, note: `${listed}; ${outcome.text}` };
+          }
+          first = `${listed}; ${outcome.text}`;
+        }
+        const listed = viaList === null ? base : { ...base, switch: viaList };
+        // …then the platform's own service (webOS: luna selectTrack with the element's mediaId),
+        // on the file opened again, so the first try's track can't pass for the service's.
+        const service = player.audioService();
+        if (service === null) return { status: 'fail', value: { ...listed, route: null }, note: first };
+        if (viaList !== null) {
+          const again = await openMultiAudio(player, item, `audio tracks (${service.name})`);
+          if (isResult(again)) return { ...again, note: `${first}; ${again.note ?? ''}` };
+        }
+        await clock.sleep(BATTERY.settleMs);
+        const viaService = await switchByService(player, service, 1, clock);
+        const outcome = switchOutcome(viaService, 'the second track');
+        const value = { ...listed, service: viaService, route: outcome.ok ? service.name : null };
+        if (!outcome.ok || viaService.ms === null) return { status: 'fail', value, note: `${first}; ${service.name}: ${outcome.text}` };
+        return { status: viaService.ms < BATTERY.switchMs ? 'pass' : 'fail', value, note: `${first}; ${service.name}: ${outcome.text} (by ear: the second language?)` };
       });
     },
   };
@@ -459,26 +574,29 @@ export function batteryChecks(spike: string, deps: BatteryDeps): Check[] {
       return withPlayer(async (player) => {
         const tracks = await openMultiAudio(player, item, 'AC3 and E-AC3');
         if (isResult(tracks)) return tracks;
-        if (tracks === null) return { status: 'skip', note: 'this engine has no audioTracks API, so the 5.1 tracks cannot be chosen' };
-        if (tracks.length !== expected.length) {
+        // Without a track list, the platform's service chooses by the file's order (webOS luna).
+        const service = tracks === null ? player.audioService() : null;
+        if (tracks === null && service === null) return { status: 'skip', note: 'this engine has no audioTracks API, so the 5.1 tracks cannot be chosen' };
+        if (tracks !== null && tracks.length !== expected.length) {
           return {
             status: 'fail',
             value: { listed: tracksValue(tracks), expected: expected.map((a) => `${a.lang}:${a.codec}`), unsupported: true },
             note: `the engine lists ${tracks.length} of the file's ${expected.length} audio tracks: it drops the ones it can't decode (AC3, E-AC3)`,
           };
         }
+        const route = service === null ? listRoute(player) : service.name;
         const results: Array<{ codec: string; switchMs: number | null; played: boolean; error: PlayerError | null }> = [];
         for (const w of wanted) {
-          const switched = await switchAudio(player, w.index, clock);
+          const switched = service === null ? await switchAudio(player, w.index, clock) : await switchByService(player, service, w.index, clock);
           const from = player.snapshot().positionMs;
           await clock.sleep(BATTERY.trackPlayMs);
           const after = player.snapshot();
           results.push({ codec: w.codec, switchMs: switched.ms, played: switched.ms !== null && after.error === null && after.positionMs >= from + BATTERY.trackPlayMs / 2, error: after.error });
         }
         const failed = results.filter((r) => !r.played).map((r) => r.codec);
-        const value = { listed: tracksValue(tracks), results };
-        if (failed.length > 0) return { status: 'fail', value, note: `${failed.join(' and ')} did not play` };
-        return { status: 'pass', value, note: `${results.map((r) => `${r.codec} in ${r.switchMs} ms`).join(', ')}; both played on (whether they sound right is for the ear)` };
+        const value = { listed: tracks === null ? null : tracksValue(tracks), route, results };
+        if (failed.length > 0) return { status: 'fail', value, note: `${failed.join(' and ')} did not play (${route})` };
+        return { status: 'pass', value, note: `${results.map((r) => `${r.codec} in ${r.switchMs} ms`).join(', ')} (${route}); both played on (whether they sound right is for the ear)` };
       });
     },
   };
@@ -547,19 +665,21 @@ export function batteryChecks(spike: string, deps: BatteryDeps): Check[] {
         player.suspend();
         if (!(await lifecycleEvent(context.platform, ['visible', 'relaunch'], BATTERY.backWaitMs, clock))) return { status: 'fail', note: 'the lab never came back within 30 min' };
         const awayMs = Math.round(clock.now() - hiddenAt);
-        const seen: { frameAt: number | null } = { frameAt: null };
+        const seen: { frameAt: number | null; error: PlayerError | null } = { frameAt: null, error: null };
         const off = player.on((event) => {
           if (event.type === 'frame' && seen.frameAt === null) seen.frameAt = clock.now();
+          else if (event.type === 'error' && seen.error === null) seen.error = event.error;
         });
         const started = clock.now();
         try {
           player.resume();
-          while (seen.frameAt === null && clock.now() - started < BATTERY.frameWaitMs) await clock.sleep(BATTERY.pollMs);
+          while (seen.frameAt === null && seen.error === null && clock.now() - started < BATTERY.frameWaitMs) await clock.sleep(BATTERY.pollMs);
         } finally {
           off();
         }
         const ms = seen.frameAt === null ? null : Math.round(seen.frameAt - started);
-        const value = { container, awayMs, resumeMs: ms };
+        const value = { container, awayMs, resumeMs: ms, error: seen.error };
+        if (seen.error !== null) return { status: 'fail', value, note: `coming back failed: ${seen.error.message}` };
         if (ms === null) return { status: 'fail', value, note: `no picture within ${BATTERY.frameWaitMs} ms of coming back` };
         return { status: ms < BATTERY.resumeMs ? 'pass' : 'fail', value, note: `back after ${(awayMs / 1000).toFixed(1)} s away: playing again in ${ms} ms` };
       });
@@ -584,11 +704,13 @@ export function batteryChecks(spike: string, deps: BatteryDeps): Check[] {
     },
   };
 
+  const probe = deps.probeRedirect;
   return [
     formats,
     firstFrameRow('ts', 'Live TS first frame < 2.5 s (< 4 s on the low tier)'),
     firstFrameRow('hls', 'Live HLS first frame < 4 s'),
     redirect,
+    ...(probe === undefined ? [] : [probeRow((url) => probe(url))]),
     hevc,
     audioTracks,
     ac3,

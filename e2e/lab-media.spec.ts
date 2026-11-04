@@ -97,7 +97,7 @@ function expectBattery(records: readonly Record[]): { readonly [check: string]: 
   expect([can[CONTAINER_MIME.ts], can[HEVC_MIME]]).toEqual(['', '']);
   expect(can[CONTAINER_MIME.hls]).not.toBe('');
   expect(can[CONTAINER_MIME.mkv]).not.toBe('');
-  expect(formats.engine.apis).toMatchObject({ audioTracks: true, textTracks: true, MediaSource: true });
+  expect(formats.engine.apis).toMatchObject({ audioTracks: true, textTracks: true, mediaId: false, selectTrack: false, MediaSource: true });
 
   // No MPEG-TS in a desktop browser: recorded as unsupported, within the frame wait.
   expect(row['ts']).toMatchObject({ status: 'fail', value: { played: false, unsupported: true, canPlay: '', limitMs: BATTERY.tsFirstFrameMs } });
@@ -110,8 +110,11 @@ function expectBattery(records: readonly Record[]): { readonly [check: string]: 
   // HEVC: no picture headless (canPlayType ''); the 4K row says the engine can't.
   expect(row['hevc-4k']).toMatchObject({ status: 'fail', value: { played: false, unsupported: true, canPlay: '', expected: { codec: 'hevc', width: 3840, height: 2160 } } });
   // Three AAC tracks of the five (AC3 and E-AC3 dropped); the switch to the second, in time.
-  const audio = row['audio-tracks']?.value as { listed: Array<{ lang: string }>; expected: string[]; switch: { accepted: boolean; ms: number; restarted: boolean } };
+  const audio = row['audio-tracks']?.value as { listed: Array<{ lang: string }>; expected: string[]; switch: { accepted: boolean; ms: number; restarted: boolean }; route: string | null };
   expect(row['audio-tracks']?.status).toBe('pass');
+  // The element's own list did it; the desktop has no mediaId, so no luna route.
+  expect(audio.route).toBe('audioTracks');
+  expect(audio).not.toHaveProperty('service');
   expect(audio.listed.map((t) => t.lang)).toEqual(['ara', 'eng', 'spa']);
   expect(audio.expected).toEqual(['ara:aac', 'eng:aac', 'spa:aac', 'eng:ac3', 'eng:eac3']);
   expect(audio.switch).toMatchObject({ accepted: true, restarted: false });
@@ -134,9 +137,9 @@ test.describe('S5 on the generated media in the desktop browser', () => {
     await page.goto(`/lab.html?server=${base}&auto=0&soak=1`);
     const lab = page.getByTestId('lab');
     await expect(lab).toHaveAttribute('data-ready', 'true');
-    // To S5 (the ninth row) and OK: S5 alone, so the rows that need a person run too.
-    await remote.press('DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN');
-    await remote.go('DOWN', 'lab/spikes/8');
+    // To S5 (the tenth row, after S4) and OK: S5 alone, so the rows that need a person run too.
+    await remote.press('DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN');
+    await remote.go('DOWN', 'lab/spikes/9');
     await remote.press('OK');
     // The picture box shows each row; the suspend row asks for Home.
     const caption = page.getByTestId('lab-player-caption');

@@ -75,5 +75,10 @@ describe('foreignCode', () => {
     expect(foreignCode('webos', 'tizen.tvinputdevice.registerKey')).toEqual(['tvinputdevice']);
     expect(foreignCode('webos', 'model:"Desktop browser"')).toEqual(['Desktop browser']);
     expect(foreignCode('tizen', 'tizen.tvinputdevice')).toEqual([]);
+    // The lab's players (RELAY step 15c2): AVPlay only in Tizen's bundle, luna's media service only in webOS's.
+    expect(foreignCode('webos', 'o.setAttribute("type","application/avplayer");a.getTotalTrackInfo()')).toEqual(['application/avplayer', 'getTotalTrackInfo']);
+    expect(foreignCode('tizen', '"luna://com.webos.media/selectTrack"')).toEqual(['com.webos.media']);
+    expect(foreignCode('tizen', 'a.getTotalTrackInfo()')).toEqual([]);
+    expect(foreignCode('webos', '"luna://com.webos.media/selectTrack"')).toEqual([]);
   });
 });

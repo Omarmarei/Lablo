@@ -74,6 +74,18 @@ const DESKTOP: ReadonlyArray<readonly [string, string]> = [
   ['S11/speech', 'skip'],
   ['S11/focus-reading', 'skip'],
   ['S11/live-reading', 'skip'],
+  // AVPlay exists only on a Samsung TV: S4 and S8 skip every row (the Tizen bundle too, without webapis).
+  ['S4/formats', 'skip'],
+  ['S4/ts', 'skip'],
+  ['S4/hls', 'skip'],
+  ['S4/redirect', 'skip'],
+  ['S4/redirect-probe', 'skip'],
+  ['S4/hevc-4k', 'skip'],
+  ['S4/audio-tracks', 'skip'],
+  ['S4/ac3', 'skip'],
+  ['S4/subtitles', 'skip'],
+  ['S4/suspend', 'skip'],
+  ['S4/soak', 'skip'],
   // The in-process mock sends placeholder bytes: S5 describes the engine and plays nothing
   // (e2e/lab-media.spec.ts runs it on the generated media, in pnpm verify:media).
   ['S5/formats', 'info'],
@@ -86,6 +98,9 @@ const DESKTOP: ReadonlyArray<readonly [string, string]> = [
   ['S5/subtitles', 'skip'],
   ['S5/suspend', 'skip'],
   ['S5/soak', 'skip'],
+  ['S8/store', 'skip'],
+  ['S8/prebuffer', 'skip'],
+  ['S8/switch', 'skip'],
   // The mock's own small catalog: S6 measures everything and judges nothing (pnpm lab:scale judges).
   ['S6/source', 'info'],
   ['S6/ingest', 'info'],
@@ -200,6 +215,16 @@ function expectS5(records: readonly Record[]): void {
   expect(JSON.stringify(s5)).not.toMatch(/zoma-test|\/live\/|\/movie\//);
 }
 
+/**
+ * S4 and S8 without AVPlay: every row skips, saying why. Only the Tizen bundle reaches AVPlay, and
+ * finds no `webapis` in a desktop engine; the other builds have no AVPlay at all.
+ */
+function expectAvplaySkips(records: readonly Record[], platform: 'tizen' | 'webos' | 'browser'): void {
+  const notes = (spike: string): string[] => Array.from(new Set(records.filter((r) => r.spike === spike && r.type === 'check').map((r) => r.note ?? '')));
+  expect(notes('S4')).toEqual([platform === 'tizen' ? 'no webapis.avplay here (a Samsung TV has it)' : 'no AVPlay: this is not the Tizen build']);
+  expect(notes('S8')).toEqual([platform === 'tizen' ? 'no webapis.avplaystore here (a 2020+ Samsung TV should have it)' : 'no avplaystore: this is not the Tizen build']);
+}
+
 /** S9's records: every face loaded, the word joined, the lines in order, and Intl beside the app. */
 function expectS9(records: readonly Record[]): void {
   const s9 = (id: string): Record | undefined => records.find((r) => r.spike === 'S9' && r.check === id);
@@ -250,7 +275,7 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     expect(statuses(records)).toEqual(DESKTOP);
     const end = records[records.length - 1];
     expect(end?.type).toBe('end');
-    expect(end?.value).toMatchObject({ run: 1, spikes: ['S0', 'S1', 'S2', 'S3', 'S7', 'S9', 'S10', 'S11', 'S5', 'S6'], counts: { pass: 16, fail: 3, info: 15, skip: 20 } });
+    expect(end?.value).toMatchObject({ run: 1, spikes: ['S0', 'S1', 'S2', 'S3', 'S7', 'S9', 'S10', 'S11', 'S4', 'S5', 'S8', 'S6'], counts: { pass: 16, fail: 3, info: 15, skip: 34 } });
 
     // What the records say, beyond the status.
     const check = (key: string): Record | undefined => records.find((r) => `${r.spike ?? ''}/${r.check ?? ''}` === key);
@@ -264,12 +289,13 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     expect(check('S7/xhr-no-cors')?.note).toMatch(/^no readable answer/);
     expectS9(records);
     expect(check('S11/lifecycle')?.note).toMatch(/^no lifecycle events yet/);
+    expectAvplaySkips(records, 'browser');
     expectS5(records);
     expectS6(records);
 
     // The screen: each spike's overall status, and the checks of the spike in focus.
     const spikeStatus = async (id: string): Promise<string | null> => page.getByTestId(`spike-${id}`).getAttribute('data-status');
-    expect(await Promise.all(['S0', 'S1', 'S2', 'S3', 'S7', 'S9', 'S10', 'S11', 'S5', 'S6'].map(spikeStatus))).toEqual(['info', 'pass', 'pass', 'skip', 'fail', 'pass', 'skip', 'info', 'info', 'info']);
+    expect(await Promise.all(['S0', 'S1', 'S2', 'S3', 'S7', 'S9', 'S10', 'S11', 'S4', 'S5', 'S8', 'S6'].map(spikeStatus))).toEqual(['info', 'pass', 'pass', 'skip', 'fail', 'pass', 'skip', 'info', 'skip', 'info', 'skip', 'info']);
     await remote.go('DOWN', 'lab/spikes/0');
     await remote.go('DOWN', 'lab/spikes/1');
     await expect(page.getByTestId('checks')).toHaveAttribute('data-spike', 'S1');
@@ -295,6 +321,17 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     // Back on the root asks first (the browser, like Tizen); Stay keeps the lab.
     await remote.go('BACK', 'exit/buttons/0');
     await remote.go('OK', 'lab/spikes/2');
+
+    // The longest lists fit the title-safe height (1080 - 54): twelve spikes, and S4's eleven
+    // checks with their notes.
+    for (let i = 3; i <= 8; i += 1) await remote.go('DOWN', `lab/spikes/${i}`);
+    await expect(page.getByTestId('checks')).toHaveAttribute('data-spike', 'S4');
+    const bottom = async (testId: string): Promise<number> => {
+      const box = await page.getByTestId(testId).boundingBox();
+      return box === null ? Number.POSITIVE_INFINITY : box.y + box.height;
+    };
+    expect(await bottom('check-S4-soak')).toBeLessThanOrEqual(1026);
+    expect(await bottom('spike-S6')).toBeLessThanOrEqual(1026);
     expect(errors).toEqual([]);
   });
 
@@ -522,6 +559,7 @@ for (const platform of ['tizen', 'webos'] as const) {
     expect(statuses(records)).toEqual(DESKTOP.map(([key, status]) => [key, BUNDLE[platform][key] ?? status]));
     expect(records.find((r) => r.check === 'screen-reader')?.note).toBe(platform === 'tizen' ? 'unknown: no webapis.tvinfo' : 'unknown: no PalmServiceBridge for luna://com.webos.settingsservice/getSystemSettings');
     expectS9(records);
+    expectAvplaySkips(records, platform);
     expectS5(records);
     expect(records.find((r) => r.check === 'device-id')?.note).toBe(`the ${platform === 'tizen' ? 'DUID' : 'LGUDID'} is not available`);
     // S6 in the bundle: its inlined data workers from file://, and the app's live screen.
