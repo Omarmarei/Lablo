@@ -110,7 +110,7 @@ const ABORTED: PlaybackError = { kind: 'app', code: 'ABORTED' };
 export class FakeEngine implements PlayerEngine {
   readonly kind = 'html5' as const;
   get caps(): EngineCaps {
-    return { maxHeight: 1080, trackSwitch: this.trackSwitch, deliversSubtitleText: false, preloadSlots: 0, rates: [1] };
+    return { maxHeight: 1080, trackSwitch: this.trackSwitch, deliversSubtitleText: this.deliversText, preloadSlots: 0, rates: [1] };
   }
   /** What the controller called, in order: `load <token> <container>`, `stop`, `closed`, `pause`, `play`. */
   readonly log: string[] = [];
@@ -135,6 +135,8 @@ export class FakeEngine implements PlayerEngine {
   switchMs = 0;
   /** `caps.trackSwitch`. */
   trackSwitch: EngineCaps['trackSwitch'] = 'reliable';
+  /** `caps.deliversSubtitleText` (AVPlay: the test sends `cue` events with `emit`). */
+  deliversText = false;
   private playback: Playback | null = null;
   /** The load `suspend()` closed, until `resume()`. */
   private suspended: Playback | null = null;

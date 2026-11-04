@@ -4,7 +4,7 @@ import type { ContentKey } from '@zoma/core';
 import type { EpgNowNext } from '@zoma/data';
 import type { Intent } from '@zoma/platform-api';
 import { DIGIT_INTENTS } from '@zoma/platform-api';
-import type { PlayerStatus, PlayRequest } from '@zoma/player';
+import type { PlayerStatus, PlayRequest, SubtitleView } from '@zoma/player';
 import { NO_TRACKS, streamCandidates } from '@zoma/player';
 import type { Focus, Navigator, Screen, ZoneSpec } from '@zoma/ui';
 import type { LiveRow, Timers } from '../live/live-state';
@@ -33,6 +33,8 @@ import { createTrackMenu } from './track-menu';
  * - **The track menu** (step 20b, `track-menu.ts`): the info bar's "Audio and subtitles", or the
  *   remote's audio (MTS) and subtitle (Caption) keys. The info bar hides while it shows; the menu
  *   closes when the player gives up (the card shows) or closes.
+ * - **The subtitles** (step 20b2b): what the controller says to draw (`subtitles`), in the size
+ *   the menu sets; the menu's timing goes to the controller.
  */
 
 /** The info bar's stream opens this long after the last zap key. */
@@ -70,6 +72,9 @@ export interface PlayerLike {
   stop(): Promise<void>;
   selectAudio(id: string): Promise<boolean>;
   selectText(id: string | null): Promise<boolean>;
+  readonly subtitles: SubtitleView;
+  subscribeSubtitles(listener: (view: SubtitleView) => void): () => void;
+  setSubtitleDelay(ms: number): void;
 }
 
 /** Number entry: the digits typed, then the search, then (maybe) "no channel has it". */
@@ -107,8 +112,10 @@ export interface Player {
   readonly entry: ReadonlySignal<NumberEntry | null>;
   /** Streams opened since the app started (the e2e checks the debounce with it). */
   readonly plays: ReadonlySignal<number>;
-  /** The audio and subtitle menu over the player. */
+  /** The audio and subtitle menu over the player (it also holds the subtitles' size and timing). */
   readonly menu: TrackMenu;
+  /** The subtitles to draw now. */
+  readonly subtitles: ReadonlySignal<SubtitleView>;
   /** Opens the player on row `index` of the list and plays it at once. */
   show(index: number): void;
   close(): void;
@@ -116,6 +123,7 @@ export interface Player {
 }
 
 const IDLE: PlayerStatus = { state: 'idle', session: 0, key: null, container: null, attempt: 0, failure: null, tracks: NO_TRACKS };
+const NO_SUBTITLES: SubtitleView = { feed: null, cues: [] };
 
 /** The info bar's buttons: "Previous channel" and "Audio and subtitles". */
 export const ACTIONS = 2;
@@ -153,9 +161,11 @@ export function createPlayer(options: PlayerOptions): Player {
   const info = signal(false);
   const entry = signal<NumberEntry | null>(null);
   const plays = signal(0);
+  const subtitles = signal<SubtitleView>(NO_SUBTITLES);
 
   let controller: PlayerLike | null = null;
   let unsubscribe: (() => void) | null = null;
+  let unsubscribeSubtitles: (() => void) | null = null;
   let zapTimer: unknown = null;
   let entryTimer: unknown = null;
   let infoTimer: unknown = null;
@@ -222,11 +232,20 @@ export function createPlayer(options: PlayerOptions): Player {
     }
   };
 
+  /** The menu's style rows follow where the subtitles come from. */
+  const onSubtitles = (view: SubtitleView): void => {
+    const moved = view.feed !== subtitles.value.feed;
+    subtitles.value = view;
+    if (moved) menu.sync();
+  };
+
   const ctrl = (): PlayerLike => {
     if (controller === null) {
       controller = options.player();
       unsubscribe = controller.subscribe(onStatus);
+      unsubscribeSubtitles = controller.subscribeSubtitles(onSubtitles);
       status.value = controller.status;
+      subtitles.value = controller.subtitles;
     }
     return controller;
   };
@@ -273,7 +292,9 @@ export function createPlayer(options: PlayerOptions): Player {
   const menu = createTrackMenu({
     nav,
     tracks: () => status.value.tracks,
+    feed: () => subtitles.value.feed,
     switcher: () => ctrl(),
+    delayed: (ms) => ctrl().setSubtitleDelay(ms),
     closed: () => {
       if (open.value) showInfo();
     },
@@ -440,6 +461,7 @@ export function createPlayer(options: PlayerOptions): Player {
     entry,
     plays,
     menu,
+    subtitles,
     show(index: number): void {
       if (open.value) return;
       open.value = true;
@@ -452,7 +474,9 @@ export function createPlayer(options: PlayerOptions): Player {
     dispose(): void {
       close();
       if (unsubscribe !== null) unsubscribe();
+      if (unsubscribeSubtitles !== null) unsubscribeSubtitles();
       unsubscribe = null;
+      unsubscribeSubtitles = null;
     },
   };
 }

@@ -24,11 +24,11 @@ export type {
 } from './engine';
 export { PLAYBACK_ERROR_KINDS, isPlaybackError } from './engine';
 
-export type { PlayCandidate, PlayRequest, SourceMemory } from './request';
+export type { ExternalSub, PlayCandidate, PlayRequest, SourceMemory } from './request';
 export { MemorySourceMemory, containerOf, orderCandidates, streamCandidates } from './request';
 
 export type { PlayerTrack, PlayerTracks, TrackChoice, TrackMemory, TrackPick, TrackPreferences } from './tracks';
-export { MemoryTrackMemory, NO_PREFERENCES, NO_TRACKS, findPick, playerTracks, preferredTrack, trackPick } from './tracks';
+export { FILE_TRACK, MemoryTrackMemory, NO_PREFERENCES, NO_TRACKS, fileIndex, fileTracks, findPick, playerTracks, preferredTrack, trackPick } from './tracks';
 
 export type { AccountStatus, FailureCategory, FailureFacts, PlaybackFailure } from './failure';
 export { classifyFailure, isDefinitive, wantsAccountCheck } from './failure';
@@ -36,8 +36,8 @@ export { classifyFailure, isDefinitive, wantsAccountCheck } from './failure';
 export type { LadderOptions, RetryPlan, Rung, WatchdogConfig } from './ladder';
 export { DEFAULT_WATCHDOG, RetryLadder } from './ladder';
 
-export type { ControllerOptions, PlayOptions, PlayerState, PlayerStatus } from './controller';
-export { PlayerController } from './controller';
+export type { ControllerOptions, PlayOptions, PlayerState, PlayerStatus, SubtitleFeed, SubtitleView } from './controller';
+export { CUE_TICK_MS, ENGINE_CUE_MS, MAX_ENGINE_CUES, PlayerController } from './controller';
 
 export type { AudioTrackLike, AudioTrackListLike, Html5EngineOptions, MediaElementLike, TextTrackLike, TrackListLike } from './html5-engine';
 export { CONTAINER_MIME, FRAME_POLL_MS, Html5Engine, NO_PICTURE_MS, createStageVideo, mediaError } from './html5-engine';

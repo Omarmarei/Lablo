@@ -68,7 +68,7 @@ const flush = async (): Promise<void> => {
 
 const live = (url: string) => ({ key: 'x:s1:live:1', src: 's1', mode: 'live' as const, candidates: [{ url, container: 'ts' as const }] });
 
-function setup(options: { resolveUrl?: AppPlayerDeps['platform']['resolveUrl']; engines?: PlayerEngine[]; refuseScreenSaver?: boolean; preferences?: () => TrackPreferences } = {}) {
+function setup(options: { resolveUrl?: AppPlayerDeps['platform']['resolveUrl']; engines?: PlayerEngine[]; refuseScreenSaver?: boolean; preferences?: () => TrackPreferences; loadSubtitles?: AppPlayerDeps['loadSubtitles'] } = {}) {
   const engine = new StubEngine();
   const stages: object[] = [];
   const screenSaver: boolean[] = [];
@@ -101,6 +101,7 @@ function setup(options: { resolveUrl?: AppPlayerDeps['platform']['resolveUrl']; 
     },
     online: () => true,
     ...(options.preferences === undefined ? {} : { preferences: options.preferences }),
+    ...(options.loadSubtitles === undefined ? {} : { loadSubtitles: options.loadSubtitles }),
   });
   return { engine, stages, screenSaver, accounts, make, stage, lifecycle: (event: LifecycleEvent) => lifecycle?.(event) };
 }
@@ -203,5 +204,24 @@ describe('the track languages (RELAY step 20b)', () => {
     void other.play(live('http://panel.test/1.ts'));
     await flush();
     expect(plain.engine.log.filter((e) => e.indexOf('select') === 0)).toEqual([]);
+  });
+
+  it("lists a request's subtitle files with the app's loader, and loads one when it is chosen", async () => {
+    const subs = [{ lang: 'ara', url: 'http://panel.test/subs/1.srt', fmt: 'srt' as const }];
+    const plain = setup().make();
+    void plain.play({ ...live('http://panel.test/1.ts'), externalSubs: subs });
+    expect(plain.status.tracks.text.map((t) => `${t.id} ${t.lang}`)).toEqual(['ext:0 ar']);
+    const asked: string[] = [];
+    const controller = setup({
+      loadSubtitles: (sub) => {
+        asked.push(sub.url);
+        return Promise.resolve([{ startMs: 0, endMs: 1000, text: 'cue' }]);
+      },
+    }).make();
+    void controller.play({ ...live('http://panel.test/1.ts'), externalSubs: subs });
+    await flush();
+    expect(await controller.selectText('ext:0')).toBe(true);
+    expect(asked).toEqual(['http://panel.test/subs/1.srt']);
+    expect(controller.subtitles).toEqual({ feed: 'file', cues: ['cue'] });
   });
 });

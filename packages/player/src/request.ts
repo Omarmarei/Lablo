@@ -12,6 +12,17 @@ import type { ContentKey } from '@zoma/core';
 import { parseXtreamStreamUrl, xtreamStreamUrl } from '@zoma/core';
 import type { Container, PlayMode } from './engine';
 
+/**
+ * A subtitle file beside the stream (RELAY step 20b2b): fetched and parsed by the app
+ * (`ControllerOptions.loadSubtitles`), listed in the menu after the stream's own subtitles.
+ * `lang` is as the provider wrote it; `url` may hold credentials (never log it).
+ */
+export interface ExternalSub {
+  readonly lang: string;
+  readonly url: string;
+  readonly fmt: 'srt' | 'vtt';
+}
+
 /** One URL to try. Holds credentials: never log it. */
 export interface PlayCandidate {
   readonly url: string;
@@ -25,7 +36,7 @@ export interface PlayRequest {
   readonly mode: PlayMode;
   /** The URLs to try, in order (`streamCandidates`). */
   readonly candidates: readonly PlayCandidate[];
-  readonly externalSubs?: readonly { readonly lang: string; readonly url: string; readonly fmt: 'srt' | 'vtt' }[];
+  readonly externalSubs?: readonly ExternalSub[];
   readonly hints?: { readonly uhd?: boolean };
 }
 

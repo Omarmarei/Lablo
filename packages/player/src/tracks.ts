@@ -8,11 +8,15 @@
  * 2. else the first preferred language the stream has (`TrackPreferences`, e.g. `['ar', 'en']`);
  * 3. else the stream's own default.
  * A remembered "subtitles off" wins over the subtitle preferences.
+ *
+ * Subtitle files beside the stream (`PlayRequest.externalSubs`, step 20b2b) are subtitle tracks
+ * too, after the stream's own: `ext:0`, `ext:1`…, remembered and preferred like the others.
  */
 
 import type { ContentKey } from '@zoma/core';
 import { normalizeLang } from '@zoma/core';
 import type { EngineCaps, Track } from './engine';
+import type { ExternalSub } from './request';
 
 export interface PlayerTrack {
   readonly id: string;
@@ -79,6 +83,22 @@ export class MemoryTrackMemory implements TrackMemory {
 /** The engine's tracks with their languages normalized. */
 export function playerTracks(list: readonly Track[]): PlayerTrack[] {
   return list.map((t) => ({ id: t.id, lang: normalizeLang(t.lang), streamLang: t.lang, label: t.label, selected: t.selected }));
+}
+
+/** Subtitle files (`PlayRequest.externalSubs`) follow the stream's own subtitles as `ext:0`, `ext:1`… */
+export const FILE_TRACK = 'ext:';
+
+/** The file a subtitle id names (`ext:2` is 2), or -1 for one of the stream's own tracks. */
+export function fileIndex(id: string): number {
+  if (id.indexOf(FILE_TRACK) !== 0) return -1;
+  const digits = id.slice(FILE_TRACK.length);
+  const n = Number(digits);
+  return String(n) === digits && n >= 0 && Math.floor(n) === n ? n : -1;
+}
+
+/** A request's subtitle files as subtitle tracks; file `shown` is the one on (-1: none). */
+export function fileTracks(subs: readonly ExternalSub[], shown: number): PlayerTrack[] {
+  return subs.map((sub, i) => ({ id: FILE_TRACK + String(i), lang: normalizeLang(sub.lang), streamLang: sub.lang, label: '', selected: i === shown }));
 }
 
 export function trackPick(track: PlayerTrack): TrackPick {

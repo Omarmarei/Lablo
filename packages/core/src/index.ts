@@ -1,5 +1,5 @@
 /**
- * @zoma/core: Pure TypeScript domain logic: models, ContentKey, normalization, M3U/Xtream/XMLTV parsers, search, EPG matching. No DOM, no platform globals, no fetch.
+ * @zoma/core: Pure TypeScript domain logic: models, ContentKey, normalization, M3U/Xtream/XMLTV and subtitle (SRT/WebVTT/ASS) parsers, search, EPG matching. No DOM, no platform globals, no fetch.
  *
  * Allowed imports are listed in CLAUDE.md ("Package boundaries") and enforced by
  * eslint-plugin-boundaries.

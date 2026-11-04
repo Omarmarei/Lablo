@@ -1,11 +1,12 @@
 import type { VNode } from 'preact';
 import { normalizeLang } from '@zoma/core';
-import type { PlayerTrack, PlayerTracks } from '@zoma/player';
+import type { PlayerTrack, PlayerTracks, SubtitleFeed } from '@zoma/player';
+import { fileIndex } from '@zoma/player';
 import type { FocusBinding, ItemBinding, Screen } from '@zoma/ui';
 import { useZone } from '@zoma/ui';
 import type { AppI18n, MessageKey } from '../i18n';
-import type { TrackMenu } from './track-menu';
-import { MENU_ROWS } from './track-menu';
+import type { SubtitleSize, TrackMenu } from './track-menu';
+import { MENU_ROWS, STYLE_SIZE, STYLE_TIMING, styleRows } from './track-menu';
 
 /** The languages the catalogs name; any other shows as the stream wrote it. */
 const LANGUAGE_KEYS: Readonly<Record<string, MessageKey>> = {
@@ -53,11 +54,13 @@ interface RowProps {
   readonly provider: boolean;
   /** The stream's label, shown after the name ('' for none). Provider text. */
   readonly label: string;
+  /** Our own words after the name (a subtitle file says "File"), or ''. */
+  readonly note: string;
   readonly selected: boolean;
   readonly testId: string;
 }
 
-function Row({ item, name, provider, label, selected, testId }: RowProps) {
+function Row({ item, name, provider, label, note, selected, testId }: RowProps) {
   const state = item.state;
   const classes = `tracks__row${selected ? ' is-selected' : ''}${state === 'focused' ? ' is-focused' : state === 'memory' ? ' is-memory' : ''}`;
   return (
@@ -80,6 +83,7 @@ function Row({ item, name, provider, label, selected, testId }: RowProps) {
           {label}
         </span>
       )}
+      {note !== '' && <span class="tracks__label">{note}</span>}
     </div>
   );
 }
@@ -113,13 +117,22 @@ function TrackList({ i18n, screen, binding, zone, tracks }: ListProps) {
   const rows: VNode[] = [];
   for (let i = top; i < Math.min(count, top + MENU_ROWS); i++) {
     if (i < offset) {
-      rows.push(<Row key="off" item={view.item(0)} name={i18n.t('tracks.off')} provider={false} label="" selected={!tracks.some((t) => t.selected)} testId="tracks-text-off" />);
+      rows.push(<Row key="off" item={view.item(0)} name={i18n.t('tracks.off')} provider={false} label="" note="" selected={!tracks.some((t) => t.selected)} testId="tracks-text-off" />);
       continue;
     }
     const track = tracks[i - offset]!;
     const name = trackName(i18n, track, i - offset);
     rows.push(
-      <Row key={track.id} item={view.item(i)} name={name.text} provider={name.provider} label={extraLabel(track, name.text)} selected={track.selected} testId={`tracks-${zone}-${track.id}`} />,
+      <Row
+        key={track.id}
+        item={view.item(i)}
+        name={name.text}
+        provider={name.provider}
+        label={extraLabel(track, name.text)}
+        note={fileIndex(track.id) === -1 ? '' : i18n.t('tracks.file')}
+        selected={track.selected}
+        testId={`tracks-${zone}-${track.id}`}
+      />,
     );
   }
   return (
@@ -129,10 +142,59 @@ function TrackList({ i18n, screen, binding, zone, tracks }: ListProps) {
   );
 }
 
+const SIZE_KEYS: Readonly<Record<SubtitleSize, MessageKey>> = { s: 'tracks.size.s', m: 'tracks.size.m', l: 'tracks.size.l' };
+
+/** A file's timing in words: "No delay", "0.5 s later", "1.25 s earlier". */
+export function timingText(i18n: AppI18n, delayMs: number): string {
+  if (delayMs === 0) return i18n.t('tracks.timing.none');
+  const seconds = Math.abs(delayMs) / 1000;
+  return delayMs > 0 ? i18n.t('tracks.timing.later', { seconds }) : i18n.t('tracks.timing.earlier', { seconds });
+}
+
+function StyleRow({ item, name, value, testId }: { item: ItemBinding; name: string; value: string; testId: string }) {
+  const state = item.state;
+  return (
+    <div
+      class={`tracks__row tracks__row--style${state === 'focused' ? ' is-focused' : state === 'memory' ? ' is-memory' : ''}`}
+      role="menuitem"
+      data-testid={testId}
+      data-state={state}
+      onMouseMove={item.onHover}
+      onClick={item.onPress}
+    >
+      <span class="tracks__name">{name}</span>
+      <span class="tracks__value">{value}</span>
+    </div>
+  );
+}
+
+interface StyleProps {
+  readonly i18n: AppI18n;
+  readonly screen: Screen;
+  readonly binding: FocusBinding;
+  readonly feed: SubtitleFeed;
+  readonly size: SubtitleSize;
+  readonly delay: number;
+}
+
+/** "Size", and "Timing" for a file: changed by LEFT and RIGHT. */
+function StyleList({ i18n, screen, binding, feed, size, delay }: StyleProps) {
+  const view = useZone(binding, screen, 'style');
+  const { t } = i18n;
+  return (
+    <div class="tracks__list" role="menu" data-testid="tracks-style-list">
+      <StyleRow item={view.item(STYLE_SIZE)} name={t('tracks.size')} value={t(SIZE_KEYS[size])} testId="tracks-style-size" />
+      {styleRows(feed) > STYLE_TIMING && <StyleRow item={view.item(STYLE_TIMING)} name={t('tracks.timing')} value={timingText(i18n, delay)} testId="tracks-style-timing" />}
+    </div>
+  );
+}
+
 interface Props {
   readonly menu: TrackMenu;
   /** The status's tracks, as a prop: @preact/signals skips a child whose props didn't change. */
   readonly tracks: PlayerTracks;
+  /** Where the subtitles the app draws come from (the style rows show only while it draws them). */
+  readonly feed: SubtitleFeed;
   readonly i18n: AppI18n;
   readonly screen: Screen;
   readonly binding: FocusBinding;
@@ -140,9 +202,10 @@ interface Props {
 
 /**
  * The track menu (RELAY step 20b): a panel at the inline end over the picture, the audio list
- * ("Not supported on this TV" where the engine can't switch) and the subtitles ("Off" first).
+ * ("Not supported on this TV" where the engine can't switch), the subtitles ("Off" first, the
+ * subtitle files last) and, while the app draws subtitles, their style (step 20b2b).
  */
-export function TrackMenuPanel({ menu, tracks, i18n, screen, binding }: Props) {
+export function TrackMenuPanel({ menu, tracks, feed, i18n, screen, binding }: Props) {
   const { t } = i18n;
   const refused = menu.refused.value;
   return (
@@ -171,9 +234,16 @@ export function TrackMenuPanel({ menu, tracks, i18n, screen, binding }: Props) {
           </p>
         )}
       </section>
+      {styleRows(feed) > 0 && (
+        <section class="tracks__section" data-testid="tracks-style">
+          <h3 class="tracks__heading">{t('tracks.style')}</h3>
+          <StyleList i18n={i18n} screen={screen} binding={binding} feed={feed} size={menu.size.value} delay={menu.delay.value} />
+          <p class="tracks__hint">{t('tracks.styleHint')}</p>
+        </section>
+      )}
       {refused !== null && (
         <p class="tracks__refused" role="status" data-testid="tracks-refused">
-          {t('tracks.refused')}
+          {t(refused === 'file' ? 'tracks.fileFailed' : 'tracks.refused')}
         </p>
       )}
     </aside>

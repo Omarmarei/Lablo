@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
@@ -17,6 +17,7 @@ import type { PlaybackInput, PlaybackSnapshot, PlaybackTarget } from '../apps/tv
  * headless; `audioTracks` is behind a Blink flag (webOS ships it), turned on here.
  */
 const MEDIA_DIR = path.resolve(import.meta.dirname, '../.cache/media');
+const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
 const HEVC_MIME = 'video/mp4; codecs="hvc1.1.6.L150.B0"';
 
 test.use({ launchOptions: { args: ['--enable-blink-features=AudioVideoTracks'] } });
@@ -65,6 +66,32 @@ async function moving(page: Page, ms = 1500): Promise<[number, number]> {
   const after = (await snapshot(page)).positionMs;
   expect(after - before, `the position moved from ${before} to ${after} in ${ms} ms`).toBeGreaterThan(ms / 2);
   return [before, after];
+}
+
+/** The cue on the overlay now, the start (in s) its text names, and the media clock, read together. */
+async function subtitleNow(page: Page): Promise<{ text: string | null; named: number | null; positionMs: number }> {
+  return page.evaluate(() => {
+    const cue = document.querySelector('[data-testid="subtitle-cue"]');
+    const text = cue === null ? null : cue.textContent;
+    const m = text === null ? null : /(\d\d):(\d\d)$/.exec(text);
+    const positionMs = (window as PlaybackTarget).__ZOMA_PLAYBACK__?.snapshot().positionMs ?? -1;
+    return { text, named: m === null ? null : Number(m[1]) * 60 + Number(m[2]), positionMs };
+  });
+}
+
+/**
+ * Waits for a cue starting with `prefix` and checks it is the file's cue for the media clock
+ * moved by `delayMs`: the mock's cues start every 5 s and last 4 s, and the overlay looks them up
+ * every 250 ms, so the one showing may be up to a lookup (and the round trip) behind.
+ */
+async function expectCueInTime(page: Page, prefix: string, delayMs = 0): Promise<string> {
+  await expect.poll(async () => (await subtitleNow(page)).text?.indexOf(prefix) === 0, { timeout: 10_000 }).toBe(true);
+  const now = await subtitleNow(page);
+  const t = now.positionMs - delayMs;
+  expect(now.named, `${String(now.text)} at ${now.positionMs} ms`).not.toBeNull();
+  expect(now.named! * 1000, `${String(now.text)} at ${now.positionMs} ms`).toBeLessThanOrEqual(t);
+  expect(t, `${String(now.text)} at ${now.positionMs} ms`).toBeLessThan(now.named! * 1000 + 4400);
+  return now.text!;
 }
 
 /** The mock's open streams per account (`GET /__mock/connections`). */
@@ -158,5 +185,80 @@ test.describe('Playback on the desktop: Html5Engine and the PlayerController on 
     // Sound played with no picture: unsupported, so the URL wasn't retried.
     expect(s.trace.filter((t) => t.indexOf('load ') === 0)).toEqual(['load 1 mp4']);
     expect(s.trace).toContain('error 1 unsupported/NO_PICTURE');
+  });
+
+  test("subtitle files (RELAY step 20b2b): listed after the stream's own, drawn by the media clock, an old Arabic file right to left, the timing and the size", async ({ page }) => {
+    test.setTimeout(90_000);
+    mkdirSync(SHOTS, { recursive: true });
+    const fetched: string[] = [];
+    page.on('request', (request) => {
+      const m = /\/subtitles\/[^/]+\/[^/]+\/([^?]+)/.exec(request.url());
+      if (m !== null) fetched.push(m[1]!);
+    });
+    await open(page);
+    const file = (name: string): string => `${base}/subtitles/${U}/${P}/${name}`;
+    await play(page, {
+      url: `${base}/movie/${U}/${P}/206.mkv`,
+      mode: 'vod',
+      externalSubs: [
+        { lang: 'eng', url: file('206.eng.srt'), fmt: 'srt' },
+        { lang: 'ara', url: file('206.ara.srt?charset=windows-1256'), fmt: 'srt' },
+        { lang: 'eng', url: file('999.eng.vtt'), fmt: 'vtt' },
+      ],
+    });
+    const s = await state(page, 'playing');
+    // Desktop Chromium lists none of the MKV's own subtitles (no in-band text): the files only, none loaded yet.
+    expect(s.textTracks.map((t) => `${t.id} ${t.lang} ${String(t.selected)}`)).toEqual(['ext:0 en false', 'ext:1 ar false', 'ext:2 en false']);
+    expect(s.subtitles).toEqual({ feed: null, cues: [] });
+    expect(fetched).toEqual([]);
+    const harness = page.getByTestId('playback');
+    const selectText = (id: string | null): Promise<boolean | undefined> => page.evaluate((i) => (window as PlaybackTarget).__ZOMA_PLAYBACK__?.selectText(i), id);
+
+    // English: the cue the media clock is in, then the next one.
+    expect(await selectText('ext:0')).toBe(true);
+    await expect(harness).toHaveAttribute('data-subtitles', 'file');
+    const first = await expectCueInTime(page, 'English subtitle ');
+    await expect(page.getByTestId('subtitle-cue')).not.toHaveText(first, { timeout: 10_000 });
+    await expectCueInTime(page, 'English subtitle ');
+    // Bottom centre, inside the title-safe area, in the medium size.
+    const box = (await page.getByTestId('subtitle-cue').boundingBox())!;
+    expect(Math.abs(box.x + box.width / 2 - 960)).toBeLessThan(2);
+    expect(box.y + box.height).toBeLessThanOrEqual(1080 - 54);
+    expect(await page.getByTestId('subtitles').evaluate((el) => getComputedStyle(el).fontSize)).toBe('52px');
+    await page.screenshot({ path: path.join(SHOTS, 'subtitles-file-en.png'), animations: 'disabled' });
+
+    // Earlier by a minute: the cues of a minute later show now.
+    await page.evaluate(() => (window as PlaybackTarget).__ZOMA_PLAYBACK__?.setSubtitleDelay(-60_000));
+    await expectCueInTime(page, 'English subtitle 01:', -60_000);
+    await page.evaluate(() => (window as PlaybackTarget).__ZOMA_PLAYBACK__?.setSubtitleDelay(0));
+
+    // The Windows-1256 Arabic file: decoded by the fallback, drawn right to left, in the large size.
+    expect(await selectText('ext:1')).toBe(true);
+    await page.evaluate(() => (window as PlaybackTarget).__ZOMA_PLAYBACK__?.setSubtitleSize('l'));
+    const arabic = await expectCueInTime(page, 'ترجمة عربية ');
+    expect(arabic).toMatch(/^ترجمة عربية \d\d:\d\d$/);
+    expect(await page.getByTestId('subtitle-cue').evaluate((el) => getComputedStyle(el).direction)).toBe('rtl');
+    expect(await page.getByTestId('subtitles').evaluate((el) => getComputedStyle(el).fontSize)).toBe('64px');
+    await page.screenshot({ path: path.join(SHOTS, 'subtitles-file-ar.png'), animations: 'disabled' });
+
+    // A file the provider doesn't have: refused, and the Arabic stays.
+    expect(await selectText('ext:2')).toBe(false);
+    expect((await snapshot(page)).textTracks.filter((t) => t.selected).map((t) => t.id)).toEqual(['ext:1']);
+    await expectCueInTime(page, 'ترجمة عربية ');
+    // English again: loaded once in this session.
+    expect(await selectText('ext:0')).toBe(true);
+    await expectCueInTime(page, 'English subtitle ');
+    expect(fetched).toEqual(['206.eng.srt', '206.ara.srt', '999.eng.vtt']);
+
+    // Off, then a stop: nothing drawn.
+    expect(await selectText(null)).toBe(true);
+    await expect(harness).toHaveAttribute('data-subtitles', '');
+    await expect(page.getByTestId('subtitles')).toHaveCount(0);
+    expect(await selectText('ext:0')).toBe(true);
+    await expect(page.getByTestId('subtitle-cue')).toHaveCount(1, { timeout: 10_000 });
+    await stop(page);
+    await state(page, 'idle');
+    await expect(page.getByTestId('subtitles')).toHaveCount(0);
+    await expect(harness).toHaveAttribute('data-subtitles', '');
   });
 });

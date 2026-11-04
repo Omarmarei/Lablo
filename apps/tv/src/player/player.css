@@ -89,12 +89,54 @@ html[data-player='on'] .player-stage {
   line-height: var(--line-height-label);
 }
 
-/* The info bar: along the bottom of the safe area. */
-.player__bar {
+/*
+ * The bottom of the safe area (step 20b2b): the subtitles, then the info bar under them, so
+ * the subtitles rise above the bar while it shows. The menu and the card paint over both.
+ */
+.player__bottom {
   position: absolute;
   left: var(--safe-x);
   right: var(--safe-x);
   bottom: var(--safe-y);
+}
+
+/* The subtitles: centred, each cue a block in its own direction on a scrim. */
+.subtitles {
+  margin-bottom: var(--space-5);
+  text-align: center;
+  font-size: var(--subtitle-size);
+  line-height: 1.3;
+}
+
+.subtitles--s {
+  --subtitle-size: 40px;
+}
+
+.subtitles--m {
+  --subtitle-size: 52px;
+}
+
+.subtitles--l {
+  --subtitle-size: 64px;
+}
+
+.subtitles__cue + .subtitles__cue {
+  margin-top: var(--space-2);
+}
+
+.subtitles__text {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0 var(--space-3);
+  background: var(--color-scrim);
+  border-radius: var(--radius-m);
+  color: #fff;
+  text-shadow: 0 2px 4px #000;
+  white-space: pre-line;
+}
+
+/* The info bar: along the bottom of the safe area. */
+.player__bar {
   padding: var(--space-5) var(--space-6);
   background: var(--color-scrim);
   border-radius: var(--radius-l);
@@ -316,6 +358,24 @@ html[data-player='on'] .player-stage {
 
 .tracks__row.is-selected .tracks__name {
   font-weight: var(--font-weight-bold);
+}
+
+/* The style rows: the setting's name, its value at the end. */
+.tracks__value {
+  flex: 1;
+  min-width: 0;
+  margin-left: var(--space-4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+  font-weight: var(--font-weight-bold);
+}
+
+.tracks__hint {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
 }
 
 /* A stream's own text keeps its direction but starts on the screen's side. */

@@ -15,14 +15,17 @@
  * - **the app lifecycle** (`hide`/`show`, step 20a): the watchdog rests while the app is hidden;
  * - **tracks** (step 20b, `tracks.ts`): the stream's audio and subtitle tracks in the status, the
  *   channel's remembered choice or the preferred languages applied when they appear, and the
- *   menu's switches remembered for the channel.
+ *   menu's switches remembered for the channel;
+ * - **the subtitles to draw** (step 20b2b, `subtitles`/`subscribeSubtitles`): a subtitle file
+ *   beside the stream (`PlayRequest.externalSubs`, loaded by the app's `loadSubtitles`) timed by
+ *   the media clock, or the text an engine delivers for the stream's own subtitles (AVPlay).
  *
- * Debounced zapping, number entry, the info bar and the track menu are the app's
- * (apps/tv/src/player); the subtitle overlay comes with step 20b2. Platform-specific needs arrive
- * as callbacks (ADR-008).
+ * Debounced zapping, number entry, the info bar, the track menu and the subtitle overlay are the
+ * app's (apps/tv/src/player). Platform-specific needs arrive as callbacks (ADR-008).
  */
 
-import type { ContentKey } from '@zoma/core';
+import type { ContentKey, SubtitleCue } from '@zoma/core';
+import { SubtitleTrack, cueText } from '@zoma/core';
 import type { Clock } from './clock';
 import { SYSTEM_CLOCK } from './clock';
 import type { Container, EngineEvent, PlaybackError, PlayerEngine } from './engine';
@@ -31,10 +34,10 @@ import type { AccountStatus, PlaybackFailure } from './failure';
 import { classifyFailure, wantsAccountCheck } from './failure';
 import type { WatchdogConfig } from './ladder';
 import { DEFAULT_WATCHDOG, RetryLadder } from './ladder';
-import type { PlayCandidate, PlayRequest, SourceMemory } from './request';
+import type { ExternalSub, PlayCandidate, PlayRequest, SourceMemory } from './request';
 import { MemorySourceMemory, orderCandidates } from './request';
 import type { PlayerTrack, PlayerTracks, TrackChoice, TrackMemory, TrackPreferences } from './tracks';
-import { MemoryTrackMemory, NO_PREFERENCES, NO_TRACKS, findPick, playerTracks, preferredTrack, trackPick } from './tracks';
+import { MemoryTrackMemory, NO_PREFERENCES, NO_TRACKS, fileIndex, fileTracks, findPick, playerTracks, preferredTrack, trackPick } from './tracks';
 
 export type PlayerState =
   /** Nothing is loaded. */
@@ -92,7 +95,39 @@ export interface ControllerOptions {
   readonly preferences?: () => TrackPreferences;
   /** Each channel's track choice (default: kept for the app's run). */
   readonly trackMemory?: TrackMemory;
+  /**
+   * Fetches and parses a subtitle file of `PlayRequest.externalSubs` (the app: `fetch`, a size
+   * cap, the charset, `parseSubtitles`). A rejection or no cues means it can't be shown. Without
+   * it, a request's files aren't listed.
+   */
+  readonly loadSubtitles?: (sub: ExternalSub) => Promise<readonly SubtitleCue[]>;
 }
+
+/**
+ * Where the subtitles the app draws come from: a file beside the stream, the text an engine
+ * delivers for the stream's own subtitles (`caps.deliversSubtitleText`: AVPlay), or nowhere
+ * (`null`: subtitles off, or drawn by the TV itself as webOS does).
+ */
+export type SubtitleFeed = 'file' | 'engine' | null;
+
+/** What the subtitle overlay draws now. */
+export interface SubtitleView {
+  readonly feed: SubtitleFeed;
+  /** The cues showing, top to bottom: plain text, lines joined by `\n` (empty: nothing to draw). */
+  readonly cues: readonly string[];
+}
+
+/** A file's cues are looked up this often while it shows. */
+export const CUE_TICK_MS = 250;
+/** An engine cue that gives no duration shows this long. */
+export const ENGINE_CUE_MS = 5000;
+/** Engine cues showing at once (a newer one pushes the oldest out). */
+export const MAX_ENGINE_CUES = 4;
+
+const NO_SUBTITLES: SubtitleView = { feed: null, cues: [] };
+
+/** The states in which a file's cues show. */
+const SHOWS_CUES: readonly PlayerState[] = ['playing', 'paused', 'buffering'];
 
 /** The states in which the screensaver is kept away. */
 const KEEPS_SCREENSAVER_AWAY: readonly PlayerState[] = ['opening', 'playing', 'buffering', 'reconnecting'];
@@ -122,6 +157,15 @@ interface Session {
   tracksToken: number;
   audioChosen: boolean;
   textChosen: boolean;
+  /** The request's subtitle files (none without `loadSubtitles`). */
+  readonly subs: readonly ExternalSub[];
+  /** Each file's load, made once per session (a failed one is tried again next time). */
+  readonly loads: (Promise<SubtitleTrack | null> | undefined)[];
+  /** The file showing (-1: none) and its cues. */
+  fileShown: number;
+  file: SubtitleTrack | null;
+  /** Counts subtitle switches: a slower one that a newer one overtook changes nothing. */
+  textSeq: number;
 }
 
 const IDLE: PlayerStatus = { state: 'idle', session: 0, key: null, container: null, attempt: 0, failure: null, tracks: NO_TRACKS };
@@ -132,6 +176,23 @@ const NO_CHOICE: TrackChoice = { audio: null, text: null };
 function byId(tracks: readonly PlayerTrack[], id: string): PlayerTrack | null {
   for (const t of tracks) if (t.id === id) return t;
   return null;
+}
+
+/** One of the stream's own subtitle tracks is on (not a file). */
+function ownTextOn(s: Session): boolean {
+  return s.tracks.text.some((t) => t.selected && fileIndex(t.id) === -1);
+}
+
+function sameTexts(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/** An engine cue showing until `until` (the controller's clock). */
+interface EngineCue {
+  readonly text: string;
+  readonly until: number;
 }
 
 /** A rejection from an engine or probe as a `PlaybackError` (anything unexpected is an app error). */
@@ -149,6 +210,7 @@ export class PlayerController {
   private readonly screenSaver: ((allowed: boolean) => void) | undefined;
   private readonly preferences: () => TrackPreferences;
   private readonly trackMemory: TrackMemory;
+  private readonly loadSubtitles: ((sub: ExternalSub) => Promise<readonly SubtitleCue[]>) | undefined;
   /** What the screensaver was last told (the TV's default: allowed). */
   private screenSaverAllowed = true;
   private readonly unsubscribe: () => void;
@@ -175,6 +237,15 @@ export class PlayerController {
   private lastMoveAt = 0;
   private bufferingSince = 0;
 
+  private subtitleView: SubtitleView = NO_SUBTITLES;
+  private subtitleListeners: ((view: SubtitleView) => void)[] = [];
+  /** A file's cues show this much later (negative: earlier). */
+  private delayMs = 0;
+  private cueTimer: unknown = null;
+  /** The engine's cues showing, oldest first, and the timer of the first to go. */
+  private engineCues: EngineCue[] = [];
+  private engineCueTimer: unknown = null;
+
   constructor(
     private readonly engine: PlayerEngine,
     options: ControllerOptions = {},
@@ -188,6 +259,7 @@ export class PlayerController {
     this.screenSaver = options.screenSaver;
     this.preferences = options.preferences ?? (() => NO_PREFERENCES);
     this.trackMemory = options.trackMemory ?? new MemoryTrackMemory();
+    this.loadSubtitles = options.loadSubtitles;
     this.unsubscribe = engine.on((e) => this.onEvent(e));
   }
 
@@ -201,6 +273,28 @@ export class PlayerController {
     return () => {
       this.listeners = this.listeners.filter((l) => l !== listener);
     };
+  }
+
+  /** The subtitles to draw now (apart from the status, which would change with every cue). */
+  get subtitles(): SubtitleView {
+    return this.subtitleView;
+  }
+
+  /** Calls `listener` whenever the subtitles to draw change; returns its removal. */
+  subscribeSubtitles(listener: (view: SubtitleView) => void): () => void {
+    this.subtitleListeners.push(listener);
+    return () => {
+      this.subtitleListeners = this.subtitleListeners.filter((l) => l !== listener);
+    };
+  }
+
+  /**
+   * Shows a subtitle file's cues `ms` later (negative: earlier), for every file until changed.
+   * An engine's cues (AVPlay) arrive as the stream plays and can't be moved.
+   */
+  setSubtitleDelay(ms: number): void {
+    this.delayMs = ms;
+    this.updateSubtitles();
   }
 
   /**
@@ -220,15 +314,22 @@ export class PlayerController {
       played: false,
       resumeMs: req.mode === 'live' ? undefined : opts.startMs,
       attempt: 0,
-      tracks: this.noTracks(),
+      tracks: NO_TRACKS,
       tracksToken: 0,
       audioChosen: false,
       textChosen: false,
+      subs: this.loadSubtitles === undefined ? [] : (req.externalSubs ?? []),
+      loads: [],
+      fileShown: -1,
+      file: null,
+      textSeq: 0,
     };
+    this.setTracks(s, [], []);
     this.s = s;
     this.liveToken = 0;
     this.hidden = null;
     this.clearTimers();
+    this.clearSubtitles();
     this.setState('opening');
     if (candidates.length === 0) {
       void this.closeEngine();
@@ -244,6 +345,7 @@ export class PlayerController {
     this.liveToken = 0;
     this.hidden = null;
     this.clearTimers();
+    this.clearSubtitles();
     this.setState('idle');
     return this.closeEngine();
   }
@@ -256,9 +358,12 @@ export class PlayerController {
    *   connection and reopen the same URL.
    * - A stream still opening or waiting for a retry is closed (its load, probe or backoff is
    *   dropped) and opened again on show.
+   *
+   * No subtitles show while hidden; a file's come back with the picture.
    */
   hide(): void {
     if (this.hidden !== null) return;
+    this.clearSubtitles();
     const state = this.current.state;
     if (this.s !== null && (state === 'playing' || state === 'buffering' || state === 'paused')) {
       this.clearTimers();
@@ -272,6 +377,7 @@ export class PlayerController {
     } else {
       this.hidden = 'idle';
     }
+    this.updateSubtitles();
   }
 
   /**
@@ -329,12 +435,16 @@ export class PlayerController {
     return ok;
   }
 
-  /** Shows subtitle track `id` of `status.tracks.text` (`null`: none), remembered like `selectAudio`. */
+  /**
+   * Shows subtitle track `id` of `status.tracks.text` (`null`: none), remembered like
+   * `selectAudio`. A file (`ext:n`) is loaded first (once per session) and the stream's own
+   * subtitles go off; `false` when it can't be loaded or has no cues, or a newer choice overtook it.
+   */
   async selectText(id: string | null): Promise<boolean> {
     const s = this.s;
     const track = s === null || id === null ? null : byId(s.tracks.text, id);
     if (s === null || (id !== null && track === null)) return false;
-    const ok = await this.engine.selectText(id).catch(() => false);
+    const ok = await this.switchText(s, id);
     if (this.s !== s) return false;
     if (ok) this.trackMemory.remember(s.req.key, { audio: this.choice(s).audio, text: track === null ? 'off' : trackPick(track) });
     this.readTracks(s);
@@ -347,6 +457,60 @@ export class PlayerController {
     void this.stop();
     this.unsubscribe();
     this.listeners = [];
+    this.subtitleListeners = [];
+  }
+
+  /**
+   * Shows subtitle `id`: one of the stream's tracks (through the engine), a file (`ext:n`, with
+   * the stream's own subtitles turned off), or none (`null`).
+   */
+  private async switchText(s: Session, id: string | null): Promise<boolean> {
+    const mine = ++s.textSeq;
+    const n = id === null ? -1 : fileIndex(id);
+    if (n === -1) {
+      // Off while only a file shows: the engine has nothing to turn off.
+      const ok = id === null && !ownTextOn(s) ? true : await this.engine.selectText(id).catch(() => false);
+      if (this.s !== s || s.textSeq !== mine) return false;
+      if (ok) this.showFile(s, -1, null);
+      return ok;
+    }
+    const file = await this.file(s, n);
+    if (this.s !== s || s.textSeq !== mine || file === null) return false;
+    if (ownTextOn(s)) {
+      await this.engine.selectText(null).catch(() => false);
+      if (this.s !== s || s.textSeq !== mine) return false;
+    }
+    this.showFile(s, n, file);
+    return true;
+  }
+
+  /** File `n`'s cues: loaded once per session; `null` when it can't be loaded or has none (tried again next time). */
+  private file(s: Session, n: number): Promise<SubtitleTrack | null> {
+    const known = s.loads[n];
+    if (known !== undefined) return known;
+    const load = this.loadSubtitles!;
+    const sub = s.subs[n]!;
+    const loading = Promise.resolve()
+      .then(() => load(sub))
+      .then(
+        (cues) => (cues.length > 0 ? new SubtitleTrack(cues) : null),
+        () => null,
+      )
+      .then((track) => {
+        if (track === null) s.loads[n] = undefined;
+        return track;
+      });
+    s.loads[n] = loading;
+    return loading;
+  }
+
+  /** File `n` shows (-1: none); the engine's cues go, since the subtitles changed. */
+  private showFile(s: Session, n: number, file: SubtitleTrack | null): void {
+    s.fileShown = n;
+    s.file = file;
+    this.dropEngineCues();
+    this.setTracks(s, s.tracks.audio, s.tracks.text.filter((t) => fileIndex(t.id) === -1));
+    this.updateSubtitles();
   }
 
   /** Opens the session's current URL: close first, then probe (where the platform probes), then load. */
@@ -427,9 +591,83 @@ export class PlayerController {
         this.publish();
         return;
       case 'cue':
-        // The subtitle overlay comes with step 20b2.
+        this.onCue(s, e.text, e.durationMs);
         return;
     }
+  }
+
+  /**
+   * An engine delivered a cue of the stream's own subtitles (AVPlay): it shows for its duration
+   * (a file showing instead turned them off). The same text again only stays longer.
+   */
+  private onCue(s: Session, raw: string, durationMs: number): void {
+    if (!this.engine.caps.deliversSubtitleText || !ownTextOn(s)) return;
+    const text = cueText(raw);
+    if (text === '') return;
+    const until = this.clock.now() + (durationMs > 0 ? durationMs : ENGINE_CUE_MS);
+    const kept = this.engineCues.filter((c) => c.text !== text);
+    kept.push({ text, until });
+    this.engineCues = kept.slice(-MAX_ENGINE_CUES);
+    this.armEngineCueTimer();
+    this.updateSubtitles();
+  }
+
+  /** The next engine cue to go goes when its time is up. */
+  private armEngineCueTimer(): void {
+    this.clock.clearTimeout(this.engineCueTimer);
+    this.engineCueTimer = null;
+    if (this.engineCues.length === 0) return;
+    let first = this.engineCues[0]!.until;
+    for (const c of this.engineCues) if (c.until < first) first = c.until;
+    this.engineCueTimer = this.clock.setTimeout(() => {
+      const now = this.clock.now();
+      this.engineCues = this.engineCues.filter((c) => c.until > now);
+      this.armEngineCueTimer();
+      this.updateSubtitles();
+    }, first - this.clock.now());
+  }
+
+  private dropEngineCues(): void {
+    this.engineCues = [];
+    this.armEngineCueTimer();
+  }
+
+  /** Nothing shows: the engine's cues go and a file's lookups stop (`updateSubtitles` starts them again). */
+  private clearSubtitles(): void {
+    this.dropEngineCues();
+    this.clock.clearTimeout(this.cueTimer);
+    this.cueTimer = null;
+  }
+
+  /** While a file shows and the app is in view, its cues are looked up every `CUE_TICK_MS`. */
+  private armCueTick(): void {
+    const s = this.s;
+    if (this.cueTimer !== null || s === null || s.file === null || this.hidden !== null) return;
+    this.cueTimer = this.clock.setTimeout(() => {
+      this.cueTimer = null;
+      this.updateSubtitles();
+    }, CUE_TICK_MS);
+  }
+
+  /** Works out what the overlay draws, and tells the listeners when that changed. */
+  private updateSubtitles(): void {
+    const s = this.s;
+    let feed: SubtitleFeed = null;
+    let cues: readonly string[] = [];
+    if (s !== null && s.file !== null) {
+      feed = 'file';
+      if (this.hidden === null && SHOWS_CUES.indexOf(this.current.state) !== -1) {
+        cues = s.file.cuesAt(this.engine.positionMs() - this.delayMs).map((c) => c.text);
+      }
+    } else if (s !== null && this.engine.caps.deliversSubtitleText && ownTextOn(s)) {
+      feed = 'engine';
+      cues = this.engineCues.map((c) => c.text);
+    }
+    this.armCueTick();
+    const view = this.subtitleView;
+    if (feed === view.feed && sameTexts(cues, view.cues)) return;
+    this.subtitleView = { feed, cues };
+    for (const listener of this.subtitleListeners.slice()) listener(this.subtitleView);
   }
 
   private onFirstFrame(s: Session): void {
@@ -449,17 +687,20 @@ export class PlayerController {
     this.scheduleTick();
   }
 
-  /** No tracks yet, with the engine's switching as it is now (Tizen's engine changes with the URL). */
-  private noTracks(): PlayerTracks {
-    return { audio: [], text: [], switching: this.engine.caps.trackSwitch };
+  /**
+   * The session's tracks: the stream's own (none yet: `[]`), its subtitle files after its own
+   * subtitles, and the engine's switching as it is now (Tizen's engine changes with the URL).
+   */
+  private setTracks(s: Session, audio: readonly PlayerTrack[], text: readonly PlayerTrack[]): void {
+    s.tracks = { audio, text: s.subs.length === 0 ? text : text.concat(fileTracks(s.subs, s.fileShown)), switching: this.engine.caps.trackSwitch };
   }
 
   private readTracks(s: Session): void {
     try {
       const listed = this.engine.getTracks();
-      s.tracks = { audio: playerTracks(listed.audio), text: playerTracks(listed.text), switching: this.engine.caps.trackSwitch };
+      this.setTracks(s, playerTracks(listed.audio), playerTracks(listed.text));
     } catch {
-      s.tracks = this.noTracks();
+      this.setTracks(s, [], []);
     }
   }
 
@@ -489,10 +730,11 @@ export class PlayerController {
     if (!s.textChosen && text.length > 0) {
       s.textChosen = true;
       if (choice.text === 'off') {
-        if (text.some((t) => t.selected)) this.autoSwitch(s, token, this.engine.selectText(null));
+        if (text.some((t) => t.selected)) this.autoSwitch(s, token, this.switchText(s, null));
       } else {
         const want = (choice.text === null ? null : findPick(text, choice.text)) ?? preferredTrack(text, this.preferences().text);
-        if (want !== null && !want.selected) this.autoSwitch(s, token, this.engine.selectText(want.id));
+        // A file that still shows after a retry: the new load's own default subtitles go off.
+        if (want !== null && (!want.selected || (fileIndex(want.id) !== -1 && ownTextOn(s)))) this.autoSwitch(s, token, this.switchText(s, want.id));
       }
     }
   }
@@ -548,7 +790,8 @@ export class PlayerController {
     this.liveToken = 0;
     this.clearTimers();
     void this.closeEngine();
-    s.tracks = this.noTracks();
+    this.dropEngineCues();
+    this.setTracks(s, [], []);
     const plan = s.ladder.next(error, s.current, s.framed[s.current] === true, this.clock.now());
     if (plan === null) {
       void this.giveUp(s, error);
@@ -611,5 +854,6 @@ export class PlayerController {
       if (this.screenSaver !== undefined) this.screenSaver(allowed);
     }
     for (const listener of this.listeners.slice()) listener(this.current);
+    this.updateSubtitles();
   }
 }
