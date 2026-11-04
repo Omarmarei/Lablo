@@ -221,7 +221,15 @@ const flush = async (): Promise<void> => {
 };
 
 async function setup(
-  options: { rootBack?: RootBackPolicy; engine?: FakeEngine; settle?: boolean; play?: (index: number) => void; startCategory?: RailRef; listChanging?: () => void } = {},
+  options: {
+    rootBack?: RootBackPolicy;
+    engine?: FakeEngine;
+    settle?: boolean;
+    play?: (index: number) => void;
+    startCategory?: RailRef;
+    listChanging?: () => void;
+    openSettings?: () => void;
+  } = {},
 ) {
   const engine = options.engine ?? new FakeEngine();
   const clock = manualTimers(T0);
@@ -234,6 +242,7 @@ async function setup(
     ...(options.play === undefined ? {} : { play: options.play }),
     ...(options.startCategory === undefined ? {} : { startCategory: options.startCategory }),
     ...(options.listChanging === undefined ? {} : { listChanging: options.listChanging }),
+    ...(options.openSettings === undefined ? {} : { openSettings: options.openSettings }),
   });
   if (options.settle !== false) await flush();
   const at = (): string => {
@@ -1412,5 +1421,99 @@ describe('a guide refresh while the screen shows (RELAY step 22a)', () => {
     t.clock.advance(GUIDE_DELAY_MS);
     await flush();
     expect(t.engine.nowNextCalls).toHaveLength(1);
+  });
+});
+
+describe("the header's Settings button (RELAY step 22b2)", () => {
+  it('is reached with UP from the first row of the list or the rail; DOWN and Back go back there', async () => {
+    const t = await setup();
+    await t.press('DOWN', 'UP');
+    expect(t.at()).toBe('live · channels 0');
+    await t.press('UP');
+    expect(t.at()).toBe('live · header 0');
+    await t.press('DOWN');
+    expect(t.at()).toBe('live · channels 0');
+    await t.press('UP', 'BACK');
+    expect(t.at()).toBe('live · channels 0');
+    // From the rail, on the category it shows.
+    await t.press('LEFT', 'DOWN', 'DOWN', 'OK', 'LEFT', 'UP', 'UP', 'UP');
+    expect(t.at()).toBe('live · header 0');
+    await t.press('DOWN');
+    expect(t.at()).toBe('live · rail 0');
+    await t.press('UP', 'BACK');
+    expect(t.at()).toBe('live · rail 0');
+    // Back from the rail still follows the platform.
+    await t.press('BACK');
+    expect(t.at()).toBe('exit · buttons 0');
+  });
+
+  it('goes back to the row the pointer left, in the zone it left', async () => {
+    const t = await setup();
+    await t.press('DOWN', 'DOWN', 'DOWN');
+    t.live.nav.pointer(true);
+    expect(t.live.home.hover('header', 0)).toBe(true);
+    expect(t.at()).toBe('live · header 0');
+    await t.press('DOWN');
+    expect(t.at()).toBe('live · channels 3');
+    await t.press('LEFT', 'DOWN');
+    t.live.nav.pointer(true);
+    t.live.home.hover('header', 0);
+    await t.press('BACK');
+    expect(t.at()).toBe('live · rail 1');
+  });
+
+  it('opens the settings on OK, and nothing else does', async () => {
+    const openSettings = vi.fn();
+    const t = await setup({ openSettings });
+    await t.press('OK', 'LEFT', 'OK');
+    expect(openSettings).not.toHaveBeenCalled();
+    await t.press('RIGHT', 'UP', 'OK');
+    expect(t.at()).toBe('live · header 0');
+    expect(openSettings).toHaveBeenCalledTimes(1);
+    // A screen pushed from the header and closed: DOWN goes back to the list.
+    const pushed = await setup({ openSettings: () => pushed.live.nav.push({ id: 'settings', zones: [{ kind: 'list', id: 'items', axis: 'vertical', count: 1 }] }) });
+    await pushed.press('UP', 'OK');
+    expect(pushed.at()).toBe('settings · items 0');
+    await pushed.press('BACK');
+    expect(pushed.at()).toBe('live · header 0');
+    await pushed.press('DOWN');
+    expect(pushed.at()).toBe('live · channels 0');
+    // Without a settings screen, OK there does nothing.
+    const bare = await setup();
+    await bare.press('UP', 'OK');
+    expect(bare.at()).toBe('live · header 0');
+  });
+
+  it('asks no short guide while it has the focus', async () => {
+    const t = await setup();
+    expect(t.engine.focusCalls.map((c) => c?.key ?? null)).toEqual(['x:s1:live:0-0']);
+    await t.press('UP');
+    expect(t.engine.focusCalls.map((c) => c?.key ?? null)).toEqual(['x:s1:live:0-0', null]);
+    await t.press('DOWN');
+    expect(t.engine.focusCalls.map((c) => c?.key ?? null)).toEqual(['x:s1:live:0-0', null, 'x:s1:live:0-0']);
+  });
+
+  it('is reached while the screen loads, and from "Try again"; DOWN stays while nothing is below', async () => {
+    const engine = new FakeEngine();
+    engine.hold = new Set(['profile']);
+    const t = await setup({ engine });
+    expect(t.at()).toBe('live · channels -1');
+    await t.press('UP');
+    expect(t.at()).toBe('live · header 0');
+    await t.press('DOWN');
+    expect(t.at()).toBe('live · header 0');
+    // Back with nothing below: the platform's (the exit dialog).
+    await t.press('BACK');
+    expect(t.at()).toBe('exit · buttons 0');
+
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const failing = new FakeEngine();
+    failing.failProfile = true;
+    const f = await setup({ engine: failing });
+    expect(f.at()).toBe('live · retry 0');
+    await f.press('UP');
+    expect(f.at()).toBe('live · header 0');
+    await f.press('DOWN');
+    expect(f.at()).toBe('live · retry 0');
   });
 });

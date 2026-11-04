@@ -19,6 +19,8 @@ import { ChannelIndex, chunkId } from './channel-index';
  *   rail      ("All channels", then each source's live categories; OK shows one)
  *   channels  (the category's channels: a virtual list; OK opens the player, step 20a)
  *   retry     (one button, only when the categories couldn't be read)
+ *   header    (the "Settings" button at the header's end, step 22b2: UP from the first row of
+ *              the rail, the list or "Try again"; DOWN or Back goes back where it came from)
  *
  * - **Data:** the profile gives the sources, the query worker each source's live categories. The
  *   list reads only the chunks the rows around the window need (`CHUNK_CACHE` kept), now/next for
@@ -126,6 +128,8 @@ export interface LiveOptions {
    * old list now, then finds them with `list.locate` (which waits for the new list).
    */
   readonly listChanging?: () => void;
+  /** OK on the header's "Settings" button (step 22b2): the settings screen opens. */
+  readonly openSettings?: () => void;
 }
 
 /** A rail entry as the profile keeps it: a source's category by its name; `null` is "All channels". */
@@ -183,16 +187,21 @@ const EXTRA_GUIDES = 4;
 const BUTTONS: ScreenSpec['zones'] = [{ kind: 'list', id: 'buttons', axis: 'horizontal', count: 2 }];
 
 function railZone(count: number): ZoneSpec {
-  return { kind: 'list', id: 'rail', axis: 'vertical', count, visible: RAIL_VISIBLE, neighbours: { end: 'channels' } };
+  return { kind: 'list', id: 'rail', axis: 'vertical', count, visible: RAIL_VISIBLE, neighbours: { end: 'channels', up: 'header' } };
 }
 
 function channelsZone(count: number): ZoneSpec {
-  return { kind: 'list', id: 'channels', axis: 'vertical', count, visible: CHANNELS_VISIBLE, neighbours: { start: 'rail' } };
+  return { kind: 'list', id: 'channels', axis: 'vertical', count, visible: CHANNELS_VISIBLE, neighbours: { start: 'rail', up: 'header' } };
 }
 
 function retryZone(count: number): ZoneSpec {
-  return { kind: 'list', id: 'retry', axis: 'horizontal', count };
+  return { kind: 'list', id: 'retry', axis: 'horizontal', count, neighbours: { up: 'header' } };
 }
+
+/** The header's buttons: "Settings" (step 22b2). DOWN is the screen's (back where it came from). */
+const HEADER_ZONE: ZoneSpec = { kind: 'list', id: 'header', axis: 'horizontal', count: 1 };
+/** The header's "Settings" button. */
+export const HEADER_SETTINGS = 0;
 
 /** The rail: "All channels", then every category with channels, source by source. */
 export function railEntries(sources: readonly { src: string; categories: readonly CategoryInfo[] }[]): RailEntry[] {
@@ -269,6 +278,8 @@ export function createLive(options: LiveOptions): Live {
   let minuteTimer: unknown = null;
   /** The channel the short EPG was last asked for (`null`: none). */
   let focusedKey: ContentKey | null = null;
+  /** The zone under the header the focus was in last: DOWN from the header goes back to it. */
+  let lastBody = 'channels';
 
   const bump = (): void => {
     version.value += 1;
@@ -433,6 +444,17 @@ export function createLive(options: LiveOptions): Live {
         if (!disposed) console.warn("The channel's short guide could not be read", error);
       },
     );
+  };
+
+  /**
+   * Leaves the header for the zone it came from, on its item (the pointer may have taken the
+   * focus there from any row); `false` while that zone is empty (the screen is loading: a load
+   * that ends puts the focus on the list or on "Try again" by itself).
+   */
+  const leaveHeader = (): boolean => {
+    if ((home.zone(lastBody) as { count: number }).count === 0) return false;
+    home.focus(lastBody, home.position(lastBody).index);
+    return true;
   };
 
   /** After a key, a click or new data: read what the window needs, follow the focus. */
@@ -695,18 +717,21 @@ export function createLive(options: LiveOptions): Live {
   const nav = createNavigator({
     root: {
       id: 'live',
-      zones: [railZone(0), channelsZone(0), retryZone(0)],
+      zones: [railZone(0), channelsZone(0), retryZone(0), HEADER_ZONE],
       initial: 'channels',
       onIntent: (intent, focus) => {
         // Back in the list goes to the rail, on the category on show.
-        if (intent === 'BACK' && focus.screen === 'live' && focus.zone === 'channels' && rail.value.length > 0) {
+        if (intent === 'BACK' && focus.zone === 'channels' && rail.value.length > 0) {
           home.focus('rail', category.value);
           return true;
         }
+        // DOWN or Back in the header: back to the zone the focus came from.
+        if ((intent === 'DOWN' || intent === 'BACK') && focus.zone === 'header') return leaveHeader();
         return false;
       },
       onSelect: (focus) => {
-        if (focus.zone === 'rail') showCategory(focus.index);
+        if (focus.zone === 'header') options.openSettings?.();
+        else if (focus.zone === 'rail') showCategory(focus.index);
         else if (focus.zone === 'retry') load();
         else if (focus.zone === 'channels') {
           const row = rowAt(focus.index);
@@ -737,7 +762,10 @@ export function createLive(options: LiveOptions): Live {
     },
   });
   const home = nav.top;
-  const stopFollowing = nav.subscribe(() => afterChange());
+  const stopFollowing = nav.subscribe((focus) => {
+    if (focus.screen === 'live' && focus.zone !== 'header') lastBody = focus.zone;
+    afterChange();
+  });
   const binding = bindFocus(nav);
 
   load();
