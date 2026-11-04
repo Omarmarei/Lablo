@@ -51,10 +51,15 @@ function xmltvTime(ms: number): string {
   return `${new Date(ms).toISOString().replace(/[-:T]/g, '').slice(0, 14)} +0000`;
 }
 
+/** Programmes per channel: the one before `now`, the one on, and two after. */
+const GUIDE_SLOTS = 4;
+
 /**
- * Writes a guide for every channel with a guide id: three 2-hour programmes around `now` (the
- * one before, the one on, the next), so each row has now/next. A short window keeps the file
- * small (the mock's own guide covers days per channel).
+ * Writes a guide for every channel with a guide id: four 2-hour programmes around `now` (the
+ * one before, the one on, and two after), so each row has now/next. Two after, because a run
+ * that starts just before a slot ends (CI once started at 23:59:50 UTC) still needs a next one
+ * once the clock passes it. A short window keeps the file small (the mock's own guide covers
+ * days per channel).
  */
 export function writeBigGuide(catalog: Catalog, now: number, file: string): number {
   const first = Math.floor(now / SLOT_MS) * SLOT_MS - SLOT_MS;
@@ -63,7 +68,7 @@ export function writeBigGuide(catalog: Catalog, now: number, file: string): numb
   for (const c of guided) out.push(`<channel id="${c.epgId!}"><display-name>${escapeXml(c.name)}</display-name></channel>`);
   let count = 0;
   for (const c of guided) {
-    for (let k = 0; k < 3; k++) {
+    for (let k = 0; k < GUIDE_SLOTS; k++) {
       const start = first + k * SLOT_MS;
       const title = `${TITLES[(c.id + k) % TITLES.length]!} ${k + 1}`;
       out.push(`<programme start="${xmltvTime(start)}" stop="${xmltvTime(start + SLOT_MS)}" channel="${c.epgId!}"><title>${escapeXml(title)}</title></programme>`);
