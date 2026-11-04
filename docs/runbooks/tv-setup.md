@@ -10,7 +10,7 @@ How to get the Zoma Lab (and later the app) onto each device we test on: an LG T
 |---|---|---|---|---|
 | **LG TV**, webOS 4+ (2018+) | The Developer Mode app, an LG developer account, the TV on the LAN | the TV's own (webOS 4 = Chromium 53) | the TV's own | `pnpm device install webos tv --lab` |
 | **webOS TV Emulator** 1.2–6.0 | VirtualBox 6.1 | 4.0 = Chromium 53 | **no HLS before 5.0**, no DRM | `pnpm device install webos emulator --lab` |
-| **webOS TV Simulator** 6.0, 22–26 | a zip from LG | 6.0 = Chromium 79 | "different from actual TV devices", no DRM | `ares-launch -s <version> … dist/tv-lab/webos` (an app folder, no `.ipk`) |
+| **webOS TV Simulator** 6.0, 22–26 | a zip from LG | 6.0 = Chromium 79 | "different from actual TV devices", no DRM | `ares-launch -s <version> … dist/tv-lab/webos` (an app folder, no `.ipk`); on this PC, the Linux build in Docker (2.4) |
 | **Samsung TV**, Tizen 4+ (2018+) | the Tizen CLI, a Samsung certificate with the TV's DUID, Developer Mode | the TV's own (2018 = Chromium 56) | the TV's own (AVPlay) | `pnpm device install tizen <serial> --lab` |
 | **Tizen TV Emulator** | the Tizen SDK, an Intel CPU with HAXM (Hyper-V off) | **TV 10.0 only = Chromium 130** | no DRM, no 4K; AVPlay unconfirmed | `pnpm device install tizen emulator-26101 --lab` |
 | **Samsung Remote Test Lab TV**, Tizen 5.0+ (2019+) | as for a Samsung TV, plus RTL TV Tools and a public lab server | 2019 = Chromium 63 | the TV's own | the same, through sdbproxy (3.6) |
@@ -19,7 +19,8 @@ Emulators and simulators answer syntax and API questions, never media ones ([arc
 
 **This PC** (checked 2026-11-04): Intel Core Ultra 7 255H, 32 GB, with Hyper-V running (Docker Desktop and WSL 2 use it). That matters for both emulators:
 - the Tizen emulator's HAXM needs Hyper-V off, which would stop Docker and with it `pnpm verify:engines`;
-- the webOS Emulator needs VirtualBox 6.1, and whether it runs beside Hyper-V is unconfirmed (step 15e finds out).
+- the webOS Emulator needs VirtualBox 6.1, and whether it runs beside Hyper-V is unconfirmed;
+- **Smart App Control blocks the webOS Simulator's Windows build** (6.0 and 24, step 15e, 2026-11-04). Its Linux build runs in Docker instead, and the lab ran there (2.4).
 
 ## 1. The lab server (every device)
 
@@ -120,8 +121,74 @@ All quotes in this section are from LG's [Developer Mode app page](https://webos
   ```
 
   Use absolute paths: `pnpm --filter … exec` runs in `tools/device`. `-sp` is the folder holding `webOS_TV_24_Simulator_1.4.1.exe`. The CLI saves it, so later runs need only `-s 24` ([launch.js](https://github.com/webos-tools/cli/blob/main/lib/launch.js); `ares-launch --help`). `pnpm device` doesn't wrap the simulator.
-- **Limits** ([simulator introduction](https://webostv.developer.lge.com/develop/tools/simulator-introduction)): "Some of luna API and webOSSystem API are not supported", "The video and audio specifications are different from actual TV devices", "It does not support DRM function". LG publishes no list of what is mocked. Expect S3 (LGUDID) and S5's luna route to skip or fail, and treat any media answer as the PC's, not a TV's.
+- **Limits** ([simulator introduction](https://webostv.developer.lge.com/develop/tools/simulator-introduction)): "Some of luna API and webOSSystem API are not supported", "The video and audio specifications are different from actual TV devices", "It does not support DRM function". LG publishes no list of what is mocked. In step 15e the LGUDID (S3) answered, a new one in each fresh container, and the TTS service (S11) was missing. Treat any media answer as the PC's, not a TV's.
 - **What it is good for:** the engines of 2021–2026 (Chromium 79–132) in one place: S1's runtime checks, S9's text and S10's keys on each webOS generation newer than our Docker snapshots (53/56/68).
+- **On this PC (step 15e, 2026-11-04): Smart App Control blocks the Windows build, so the Linux build runs in Docker.**
+  - **The download:**
+    - The zips need no browser. The page's button makes two POSTs. `https://webostv.developer.lge.com/api/downloadSDK` with `{"fileId": "RF…"}` returns `fileIdEnc`. Then `https://developer.lge.com/common/file/DownloadFilePath.ajax` with `fileId=<fileIdEnc>` returns XML whose `gftsUrl` attribute is the file's URL on `gfts.lge.com`.
+    - The file ids are in the page's `__NEXT_DATA__`:
+
+      | Version | Windows | Linux |
+      |---|---|---|
+      | 6.0 | `RF00021083` | `RF00021098` |
+      | 22 | `RF00021084` | `RF00021099` |
+      | 23 | `RF00021085` | `RF00021100` |
+      | 24 | `RF00021086` | `RF00021101` |
+      | 25 | `RF00021087` | `RF00021102` |
+      | 26 | `RF00021104` | `RF00021103` |
+
+    - Downloading accepts LG's SDK License Agreement (the page's dialog shows it). Omar accepted it for step 15e.
+    - On this PC the Simulators are outside the repo: Windows builds in `D:/tools/webos-sim/`, Linux builds in `D:/tools/webos-sim/linux/` (6.0 and 24).
+    - The license forbids redistributing the SDK: never commit a Simulator or push an image that holds one.
+  - **The Windows build is blocked.**
+    - A Windows zip holds one `webOS_TV_<version>_Simulator_<release>.exe` (57 MB for 6.0, 73 MB for 24) and an OSS notice. The `.exe` files are **not signed** (`Get-AuthenticodeSignature`: `NotSigned`).
+    - 6.0's `.exe` unpacks an unsigned `webOS_TV_6.0_Simulator.exe` to `%TEMP%`, and Code Integrity refuses to load that one. The process exits with code 1, with no output and no window.
+    - For 24, Code Integrity refuses the `.exe` itself (exit 126).
+    - Event Viewer logs both in `Microsoft-Windows-CodeIntegrity/Operational`, events 3033 and 3077: "did not meet the Enterprise signing level requirements". Smart App Control is on (`HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy`, `VerifiedAndReputablePolicyState` = 1), with no per-app exception. Omar keeps SAC on: don't turn it off.
+  - **The Linux build in Docker** (Omar chose this route in leg 34). A Linux zip holds one `.appimage` (an Electron app). `tools/engines/webos-sim/` runs it under Xvfb, the way the old-engine harness runs old Chromium builds:
+
+    ```bash
+    pnpm mock                       # the collector, in its own terminal
+    pnpm build:tv --platform webos --target lab --lab-server http://host.docker.internal:8080
+    docker build -t zoma-webos-sim:local tools/engines/webos-sim
+    MSYS_NO_PATHCONV=1 docker run --rm -d --name zoma-websim --shm-size=1g \
+      --add-host host.docker.internal:host-gateway \
+      -v "D:/tools/webos-sim/linux/webOS_TV_6.0_Simulator_1.4.1/webOS_TV_6.0_Simulator_1.4.1.appimage:/sim.appimage:ro" \
+      -v "$(pwd -W)/dist/tv-lab/webos:/app:ro" \
+      zoma-webos-sim:local
+    ```
+
+    - **The image:** only the runtime libraries. The AppImage is mounted, extracted at start and opened with the lab folder, as `ares-launch` would pass it.
+    - **The run:** the lab runs at launch. Its session (`webos-WEBOS6.0_SIMULATOR-…`) is in `artifacts/lab-logs/` about 30 s later. Stop it with `docker rm -f zoma-websim`.
+    - **To look at the screen:**
+
+      ```bash
+      docker exec -e DISPLAY=:99 zoma-websim sh -c 'xwd -root -silent > /tmp/s.xwd'
+      docker cp zoma-websim:/tmp/s.xwd s.xwd
+      ffmpeg -i s.xwd s.png
+      ```
+
+      It shows the lab in the Simulator's window with LG's on-screen remote beside it.
+    - **Commands:** `MSYS_NO_PATHCONV=1` keeps Git Bash from rewriting the container paths; `pwd -W` gives the repo's path as `D:/…`.
+  - **Results** (leg 34, every spike, all records in the collector, run at launch):
+
+    | | Simulator 6.0 (1.4.1) | Simulator 24 (1.4.1) |
+    |---|---|---|
+    | S0 | `WEBOS6.0_SIMULATOR`, OS 02.00.94, `Chrome/79.0.3945.79` | `WEBOS24_SIMULATOR`, OS 02.11.66, `Chrome/108.0.5359.211` |
+    | Records, time | 70 in 26 s (a second run from the committed files: the same counts) | 71 (one lifecycle `event`) in 25 s |
+    | Counts | 20 pass, 7 fail, 19 info, 22 skip | the same |
+    | S1 | 10/10 pass, no polyfill needed; `DecompressionStream` and `structuredClone` missing | 10/10 pass, all APIs present |
+    | S2 | a first run (no markers yet); 200 MB written in 1.8 s | 200 MB in 0.9 s |
+    | S3 | an LGUDID answers, but **a fresh container gives a new one**: `stable` means nothing here | the same |
+    | S7 | 6/6 pass: no CORS enforced, as expected of a packaged TV app | the same |
+    | S9 | 4/4 pass; `Intl` gives Arabic-Indic digits for ar-SA (Hijri) and ar-AE | 4/4 pass; Arabic-Indic for ar-SA (Hijri), Western for ar-AE |
+    | S10, S11 | key registration `info`; S11 `speech` **fails**: `com.webos.service.tts` does not exist here; the screen reader reads "off" | the same |
+    | S4, S8 | every row skips (not the Tizen build) | the same |
+    | S5 | Electron's Chromium, not a TV's: no MPEG-TS, no native HLS, sound but no picture for HEVC, no `audioTracks` (the luna route recorded no answer), no in-band text | the same |
+    | S6 | the mock's small catalog (`info`): cold start 124 ms | 114 ms |
+
+    **What it is good for:** S1, S2, S7, S9 and the key registration on webOS's own runtime (`PalmSystem`, the luna bus, `webOSSystem`) at Chromium 79 and 108. S5's answers come from the Simulator's Electron build, not from webOS's media pipeline: ignore them.
+  - **`ares-launch -s` on Windows** runs the simulator as a child of its own process (`exec` in [launch.js](https://github.com/webos-tools/cli/blob/main/lib/launch.js)) and prints "Launched" at once. A tool that ends the command's process tree when the command returns also ends the simulator. From an agent's shell, start the `.exe` detached instead, with the arguments the CLI passes: `"<app folder>" "{}"`.
 
 ### 2.5 webOS Studio (optional)
 

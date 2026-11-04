@@ -301,6 +301,13 @@ The lab needs no test account: the mock answers it on `/__lab/` (docs/runbooks/m
   - The polyfills the bundle filled must be exactly the built-ins that engine lacks.
   - Every record must reach the collector.
   - The self-test adds `lab-seed-no-worker`, which must fail.
+- **LG's webOS TV Simulator** (step 15e). On this PC its Linux build runs in Docker (`tools/engines/webos-sim/`), because Smart App Control blocks the Windows build. The commands and the full results are in [tv-setup.md 2.4](tv-setup.md#24-the-webos-tv-simulator-2226).
+  - Simulator 6.0 (Chromium 79) and 24 (Chromium 108) each ran every spike at launch and sent 70–71 records to the collector.
+  - S1, S2, S7 and S9 pass there, on webOS's own runtime.
+  - S3's LGUDID answers, but each fresh container gives a new one.
+  - S11's speech fails (no TTS service).
+  - S5 reflects the Simulator's Electron build, not a TV: no MPEG-TS, HLS or HEVC picture.
+  - Manual runs only; not in CI. LG's license forbids redistributing the Simulator.
 
 ## Troubleshooting
 
