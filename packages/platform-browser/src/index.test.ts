@@ -115,6 +115,13 @@ describe('createBrowserPlatform', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
+  it('has no screensaver, screen reader setting or TV speech (RELAY step 15b2)', async () => {
+    const platform = createBrowserPlatform(fakeEnv());
+    expect(await platform.setScreenSaver(false)).toBe('unsupported');
+    expect(await platform.screenReader()).toEqual({ on: null, detail: 'a desktop browser has no screen reader setting' });
+    expect(await platform.speak('x')).toBe('unsupported');
+  });
+
   it('has no device ID (deviceSecret)', async () => {
     expect(await createBrowserPlatform(fakeEnv()).deviceSecret()).toBeNull();
   });

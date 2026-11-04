@@ -10,6 +10,7 @@ import {
   LAB_STATE_EXPRESSION,
   NATIVE_SINCE,
   evaluateLab,
+  expectedStatuses,
   isExpectedRefusal,
   labErrorGate,
   labSummary,
@@ -34,9 +35,9 @@ afterEach(() => {
 const lacking = (major: number): string[] => Object.keys(NATIVE_SINCE).filter((name) => (NATIVE_SINCE[name] ?? 0) > major);
 
 /** A finished lab run as a correct bundle gives it on an engine of `major`. */
-function goodRun(major: number, edit: (records: LabRecord[]) => LabRecord[] = (r) => r): LabRun {
-  const session = 'webos-unknown-20261104-030000-abcd';
-  const checks: LabRecord[] = EXPECTED_STATUSES.map(([key, status], i) => {
+function goodRun(major: number, edit: (records: LabRecord[]) => LabRecord[] = (r) => r, platform: 'tizen' | 'webos' = 'webos'): LabRun {
+  const session = `${platform}-unknown-20261104-030000-abcd`;
+  const checks: LabRecord[] = expectedStatuses(platform).map(([key, status], i) => {
     const [spike, check] = key.split('/');
     return {
       type: 'check',
@@ -61,12 +62,30 @@ function goodRun(major: number, edit: (records: LabRecord[]) => LabRecord[] = (r
     records,
     userAgent: 'Chrome/53',
   };
-  return { platform: 'webos', url: state.href, state, finished: true, collected: records, exceptions: [], durationMs: 900, reset: 'ok' };
+  return { platform, url: state.href, state, finished: true, collected: records, exceptions: [], durationMs: 900, reset: 'ok' };
 }
 
 describe('evaluateLab (RELAY step 15a)', () => {
   it('passes a run with every expected answer, on each engine', () => {
     for (const major of [53, 56, 68]) expect(evaluateLab(goodRun(major), { major })).toEqual([]);
+    expect(evaluateLab(goodRun(56, undefined, 'tizen'), { major: 56 })).toEqual([]);
+  });
+
+  it("expects each platform's own screensaver answer (RELAY step 15b2)", () => {
+    // Tizen has the call, so its absence fails; webOS has none to call.
+    expect(expectedStatuses('tizen').find(([k]) => k === 'S11/screensaver')?.[1]).toBe('fail');
+    expect(expectedStatuses('webos').find(([k]) => k === 'S11/screensaver')?.[1]).toBe('info');
+    expect(expectedStatuses('webos').filter(([k, s]) => EXPECTED_STATUSES.find(([key]) => key === k)?.[1] !== s)).toEqual([['S11/screensaver', 'info']]);
+    const webosFailing = goodRun(53, (records) => records.map((r) => (r.check === 'screensaver' ? { ...r, status: 'fail' } : r)));
+    expect(evaluateLab(webosFailing, { major: 53 })).toEqual(['S11/screensaver: fail, expected info']);
+    // S9 must pass on every engine: a font that did not load is a failure.
+    const noFont = goodRun(53, (records) => records.map((r) => (r.check === 'fonts' ? { ...r, status: 'fail', note: 'ar700 is error' } : r)));
+    expect(evaluateLab(noFont, { major: 53 })).toEqual(['S9/fonts: fail, expected pass (ar700 is error)']);
+  });
+
+  it('takes lifecycle event records between the others', () => {
+    const run = goodRun(53, (records) => [records[0] as LabRecord, { type: 'event', session: 's', seq: 2, check: 'lifecycle', note: 'hidden' }, ...records.slice(1).map((r) => ({ ...r, seq: r.seq + 1 }))]);
+    expect(evaluateLab(run, { major: 53 })).toEqual([]);
   });
 
   it('wants exactly the polyfills the engine lacks', () => {
@@ -106,7 +125,7 @@ describe('evaluateLab (RELAY step 15a)', () => {
     const wrong = goodRun(56, (records) => records.map((r) => (r.check === 'blob-worker' ? { ...r, status: 'fail', note: 'threw Error: no Worker' } : r)));
     expect(evaluateLab(wrong, { major: 56 })).toEqual(['S1/blob-worker: fail, expected pass (threw Error: no Worker)']);
     const missing = goodRun(56, (records) => records.filter((r) => r.check !== 'write-test'));
-    expect(evaluateLab(missing, { major: 56 })).toEqual(['29 check records, expected 30', 'S2/write-test: no record']);
+    expect(evaluateLab(missing, { major: 56 })).toEqual(['39 check records, expected 40', 'S2/write-test: no record']);
     // A browser that let a no-CORS request through would be news, not a pass.
     const open = goodRun(56, (records) => records.map((r) => (r.check === 'xhr-no-cors' ? { ...r, status: 'pass' } : r)));
     expect(evaluateLab(open, { major: 56 })).toEqual(['S7/xhr-no-cors: pass, expected fail']);
@@ -115,7 +134,7 @@ describe('evaluateLab (RELAY step 15a)', () => {
   it('needs every record in the collector, in order', () => {
     const run = goodRun(53);
     expect(evaluateLab({ ...run, collected: null }, { major: 53 })).toEqual(['the collector has no file for this session']);
-    expect(evaluateLab({ ...run, collected: run.collected?.slice(1) ?? [] }, { major: 53 })).toEqual([expect.stringMatching(/^the collector has 31 records, the page 32/)]);
+    expect(evaluateLab({ ...run, collected: run.collected?.slice(1) ?? [] }, { major: 53 })).toEqual([expect.stringMatching(/^the collector has 41 records, the page 42/)]);
   });
 
   it('fails a run that never finished, crashed or threw', () => {
@@ -140,17 +159,23 @@ describe('evaluateLab (RELAY step 15a)', () => {
   });
 
   it('sums a run up for the log', () => {
-    expect(labSummary(goodRun(53))).toBe('  [fail 4, info 12, pass 13, skip 1; 10k items 202 ms; IDB ? MB/s; 32 records collected]');
+    expect(labSummary(goodRun(53))).toBe('  [fail 4, info 17, pass 16, skip 3; 10k items 202 ms; IDB ? MB/s; 42 records collected]');
   });
 });
 
 describe('the lab in the harness', () => {
   it('keeps the expected statuses equal to the e2e test of the bundles', () => {
-    // e2e/lab.spec.ts's DESKTOP list, with S3/device-id failing for a TV platform.
+    // e2e/lab.spec.ts's DESKTOP list, with what its BUNDLE table changes for each TV platform.
     const spec = readFileSync(path.join(ROOT, 'e2e/lab.spec.ts'), 'utf8');
     const table = spec.slice(spec.indexOf('const DESKTOP'), spec.indexOf('];', spec.indexOf('const DESKTOP')));
-    const desktop = [...table.matchAll(/\['(S\d\/[a-z-]+)', '(pass|fail|info|skip)'\]/g)].map((m) => [m[1], m[2] === 'skip' && m[1] === 'S3/device-id' ? 'fail' : m[2]]);
-    expect(desktop).toEqual(EXPECTED_STATUSES.map(([k, s]) => [k, s]));
+    const desktop = [...table.matchAll(/\['(S\d+\/[a-z-]+)', '(pass|fail|info|skip)'\]/g)].map((m) => [m[1] ?? '', m[2] ?? ''] as const);
+    expect(desktop).toHaveLength(EXPECTED_STATUSES.length);
+    for (const platform of ['tizen', 'webos'] as const) {
+      const bundle = spec.slice(spec.indexOf(`  ${platform}: {`), spec.indexOf('},', spec.indexOf(`  ${platform}: {`)));
+      const changes = new Map([...bundle.matchAll(/'(S\d+\/[a-z-]+)': '(pass|fail|info|skip)'/g)].map((m) => [m[1] ?? '', m[2] ?? '']));
+      expect(changes.size).toBeGreaterThan(0);
+      expect(desktop.map(([k, s]) => [k, changes.get(k) ?? s])).toEqual(expectedStatuses(platform).map(([k, s]) => [k, s]));
+    }
   });
 
   it('knows each built-in the native probe records', () => {

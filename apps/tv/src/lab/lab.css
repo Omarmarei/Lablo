@@ -207,3 +207,69 @@
   overflow: hidden;
   background: var(--color-bg);
 }
+
+/* A question for the person in front of the TV (S11), over the lab. */
+.lab__ask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: var(--color-scrim);
+}
+
+.lab__ask-panel {
+  width: 1400px;
+  padding: var(--space-7);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-l);
+  background: var(--color-surface);
+}
+
+.lab__ask-title {
+  margin: 0;
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+  font-weight: var(--font-weight-bold);
+}
+
+.lab__ask-prompt {
+  margin: var(--space-4) 0 var(--space-6);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  color: var(--color-text-muted);
+}
+
+.lab__ask-items {
+  display: flex;
+}
+
+.lab__ask-item {
+  flex: 1;
+  margin: 0 var(--space-4) 0 0;
+  padding: var(--space-4);
+  border: 3px solid transparent;
+  border-radius: var(--radius-m);
+  background: var(--color-surface-focus);
+  font-size: var(--font-size-label);
+  text-align: center;
+  outline: none;
+}
+
+.lab__ask-item:last-child {
+  margin-right: 0;
+}
+
+.lab__ask-item.is-focused {
+  border-color: var(--color-focus);
+}
+
+.lab__ask-live {
+  margin: var(--space-5) 0 0;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}

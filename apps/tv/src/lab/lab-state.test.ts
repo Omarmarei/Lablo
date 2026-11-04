@@ -4,7 +4,7 @@ import { createLab, outcomeKey } from './lab-state';
 import type { Post } from './reporter';
 import { createReporter } from './reporter';
 import { S3 } from './spikes/s2-s3';
-import type { Check, LabContext, LabMarker, Spike } from './types';
+import type { Check, LabAnswer, LabContext, LabMarker, LabQuestion, Spike } from './types';
 
 const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -95,6 +95,106 @@ describe('the lab screen state', () => {
     const { lab, platform } = setup(SPIKES, { rootBackPolicy: () => 'platform-back' as const, exitApp: vi.fn() });
     lab.nav.handle('BACK');
     expect(platform.exitApp).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a question for the person in front of the TV (RELAY step 15b2)', () => {
+  const QUESTION: LabQuestion = { title: 'Heard?', prompt: 'GREEN yes', labels: ['a', 'b', 'c'], mode: 'focus', timeoutMs: 60_000 };
+
+  /** A spike whose one check asks QUESTION (when it may) and keeps the context it was given. */
+  function asking() {
+    const seen: LabContext[] = [];
+    const answers: LabAnswer[] = [];
+    const ask = check('ask', 'pass', async () => {
+      return { status: 'pass' };
+    });
+    const spike: Spike = {
+      id: 'S11',
+      title: '',
+      question: '',
+      checks: [
+        {
+          ...ask,
+          run: async (context) => {
+            seen.push(context);
+            if (context.interactive) answers.push(await context.ask(QUESTION));
+            return { status: 'pass' };
+          },
+        },
+      ],
+    };
+    return { spike, seen, answers };
+  }
+
+  it('lets only a run started from a spike row ask', async () => {
+    const { spike, seen, answers } = asking();
+    const { lab } = setup([spike]);
+    await lab.runAll();
+    expect(seen[0]?.interactive).toBe(false);
+    expect(answers).toEqual([]);
+    expect(lab.nav.snapshot().screen).toBe('lab');
+  });
+
+  it('shows the question on its own screen and takes GREEN as yes, counting the moves', async () => {
+    const { spike, answers } = asking();
+    const { lab } = setup([spike]);
+    const running = lab.runSpike('S11');
+    await tick();
+    expect(lab.nav.snapshot()).toMatchObject({ screen: 'ask', zone: 'items', index: 0 });
+    expect(lab.question.value).toEqual(QUESTION);
+    lab.nav.handle('RIGHT');
+    lab.nav.handle('RIGHT');
+    lab.nav.handle('RIGHT');
+    lab.nav.handle('LEFT');
+    // The pointer showing and hiding changes the focus state, not the button: no move.
+    lab.nav.pointer(true);
+    lab.nav.pointer(false);
+    // OK and other keys are no answer.
+    lab.nav.handle('OK');
+    lab.nav.handle('YELLOW');
+    expect(lab.nav.snapshot().screen).toBe('ask');
+    lab.nav.handle('GREEN');
+    await running;
+    // Right twice (the third press hit the edge), then left.
+    expect(answers).toEqual([{ answer: 'yes', moves: 3 }]);
+    expect(lab.question.value).toBeNull();
+    expect(lab.nav.snapshot()).toMatchObject({ screen: 'lab', depth: 1 });
+  });
+
+  it('takes RED as no and Back as skip, closing the question either way', async () => {
+    for (const [key, answer] of [
+      ['RED', 'no'],
+      ['BACK', 'skip'],
+    ] as const) {
+      const { spike, answers } = asking();
+      const { lab, platform } = setup([spike]);
+      const running = lab.runSpike('S11');
+      await tick();
+      lab.nav.handle(key);
+      await running;
+      expect(answers).toEqual([{ answer, moves: 0 }]);
+      expect(lab.nav.snapshot()).toMatchObject({ screen: 'lab', depth: 1 });
+      // Back answered the question: it never reached the root (no exit dialog).
+      expect(platform.exitApp).not.toHaveBeenCalled();
+    }
+  });
+
+  it('closes as timeout when nobody answers, and ignores keys after', async () => {
+    vi.useFakeTimers();
+    try {
+      const { spike, answers } = asking();
+      const { lab } = setup([spike]);
+      const running = lab.runSpike('S11');
+      await vi.advanceTimersByTimeAsync(59_999);
+      expect(lab.nav.snapshot().screen).toBe('ask');
+      await vi.advanceTimersByTimeAsync(1);
+      await running;
+      expect(answers).toEqual([{ answer: 'timeout', moves: 0 }]);
+      expect(lab.nav.snapshot().screen).toBe('lab');
+      expect(lab.question.value).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -3,6 +3,7 @@
  * each check ending as one record that goes to the LAN log collector.
  */
 import type { DeviceInfo, Platform } from '@zoma/platform-api';
+import type { LifecycleEntry } from './lifecycle';
 import type { LabWorkerClient } from './worker-client';
 
 /**
@@ -48,6 +49,44 @@ export interface LabContext {
   /** ms from the page's start to the lab's script running: this launch's boot (S0, S6's cold start). */
   readonly bootMs: number;
   readonly worker: LabWorkerClient;
+  /** S11: the lifecycle events since the lab started (each one also went to the collector). */
+  readonly lifecycle: { readonly entries: readonly LifecycleEntry[] };
+  /**
+   * A person started this run from the screen (OK on one spike's row), so a check may ask them
+   * something (S11: did the TV read the label?). False for "Run all" and the run at launch,
+   * which nobody may be watching.
+   */
+  readonly interactive: boolean;
+  /** Asks the person in front of the TV (only when `interactive`): see `LabQuestion`. */
+  ask(question: LabQuestion): Promise<LabAnswer>;
+}
+
+/**
+ * A question for the person in front of the TV: a screen with one button per label (each the
+ * button's `aria-label` too, and DOM focus follows the remote's focus, so a screen reader can
+ * read it), answered with the colour keys.
+ */
+export interface LabQuestion {
+  readonly title: string;
+  /** What to do, and which key answers what. */
+  readonly prompt: string;
+  readonly labels: readonly string[];
+  /**
+   * `focus`: DOM focus follows the remote's focus onto the labelled buttons. `live`: the buttons
+   * never take DOM focus; an `aria-live` region says the focused one's label instead.
+   */
+  readonly mode: 'focus' | 'live';
+  /** After this, the question closes as `timeout`. */
+  readonly timeoutMs: number;
+}
+
+/** GREEN `yes`, RED `no`, BACK `skip`, or nobody answered in time. */
+export type LabAnswerKind = 'yes' | 'no' | 'skip' | 'timeout';
+
+export interface LabAnswer {
+  readonly answer: LabAnswerKind;
+  /** How often the focus moved between the buttons before the answer. */
+  readonly moves: number;
 }
 
 export interface Check {
@@ -68,9 +107,13 @@ export interface Spike {
   readonly checks: readonly Check[];
 }
 
-/** One line in the collector's NDJSON (`artifacts/lab-logs/<session>.ndjson`). */
+/**
+ * One line in the collector's NDJSON (`artifacts/lab-logs/<session>.ndjson`): the session's
+ * `start`, a `check` each, a run's `end`, and an `event` for each lifecycle event (S11) as it
+ * happens, between the others.
+ */
 export interface LabRecord {
-  readonly type: 'start' | 'check' | 'end';
+  readonly type: 'start' | 'check' | 'end' | 'event';
   readonly session: string;
   /** 1 for the first record of the session, then counting. */
   readonly seq: number;

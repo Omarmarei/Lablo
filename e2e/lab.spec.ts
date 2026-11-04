@@ -18,7 +18,7 @@ import { RemoteDriver } from './remote-driver';
 const LAB_DIST = path.resolve(import.meta.dirname, '../dist/tv-lab');
 
 interface Record {
-  readonly type: 'start' | 'check' | 'end';
+  readonly type: 'start' | 'check' | 'end' | 'event';
   readonly session: string;
   readonly seq: number;
   readonly spike?: string;
@@ -54,6 +54,18 @@ const DESKTOP: ReadonlyArray<readonly [string, string]> = [
   ['S7/xhr-redirect', 'pass'],
   ['S7/fetch-redirect', 'pass'],
   ['S7/xhr-redirect-no-cors', 'fail'],
+  // Arabic: the app's own faces, shaping and isolation must work; Intl is only measured.
+  ['S9/fonts', 'pass'],
+  ['S9/shaping', 'pass'],
+  ['S9/bidi', 'pass'],
+  ['S9/intl', 'info'],
+  // A desktop browser has no screensaver, screen reader setting or TV speech, and "Run all" asks nobody.
+  ['S11/lifecycle', 'info'],
+  ['S11/screensaver', 'skip'],
+  ['S11/screen-reader', 'skip'],
+  ['S11/speech', 'skip'],
+  ['S11/focus-reading', 'skip'],
+  ['S11/live-reading', 'skip'],
   // The mock's own small catalog: S6 measures everything and judges nothing (pnpm lab:scale judges).
   ['S6/source', 'info'],
   ['S6/ingest', 'info'],
@@ -63,6 +75,15 @@ const DESKTOP: ReadonlyArray<readonly [string, string]> = [
   ['S6/cold-start', 'info'],
   ['S6/cleanup', 'info'],
 ];
+
+/**
+ * What a TV bundle answers differently in a desktop engine: S3 finds no device ID, and the
+ * adapters find no TV APIs (webOS has no screensaver API at all).
+ */
+const BUNDLE: { readonly [platform in 'tizen' | 'webos']: { readonly [key: string]: string } } = {
+  tizen: { 'S3/device-id': 'fail', 'S11/screensaver': 'fail', 'S11/screen-reader': 'info', 'S11/speech': 'info' },
+  webos: { 'S3/device-id': 'fail', 'S11/screensaver': 'info', 'S11/screen-reader': 'info', 'S11/speech': 'info' },
+};
 
 let app: MockServer;
 let base: string;
@@ -147,6 +168,27 @@ function expectS6(records: readonly Record[]): void {
 }
 
 
+/** S9's records: every face loaded, the word joined, the lines in order, and Intl beside the app. */
+function expectS9(records: readonly Record[]): void {
+  const s9 = (id: string): Record | undefined => records.find((r) => r.spike === 'S9' && r.check === id);
+  expect(s9('fonts')?.value).toEqual({ faces: expect.arrayContaining(['la400:loaded', 'la700:loaded', 'ar400:loaded', 'ar700:loaded']) });
+  const shaping = s9('shaping')?.value as { word: number; wordApart: number; ligature: number; ligatureApart: number; arabicFaceLoaded: boolean };
+  expect(shaping.arabicFaceLoaded).toBe(true);
+  expect(shaping.word).toBeLessThan(shaping.wordApart * 0.95);
+  expect(shaping.ligature).toBeLessThan(shaping.ligatureApart * 0.9);
+  expect(s9('bidi')?.value).toMatchObject({ trailing: { first: expect.any(Number) } });
+  const intl = s9('intl')?.value as { hasIntl: boolean; locales: { tag: string; app: { date: string; time: string; number: string; digits: string } }[] };
+  expect(intl.hasIntl).toBe(true);
+  // The app's own output (ADR-011): Gregorian, Western digits, the same on every engine.
+  expect(intl.locales.map((l) => [l.tag, l.app.date, l.app.time, l.app.number])).toEqual([
+    ['ar-SA', 'الأربعاء، 4 نوفمبر 2026', '8:05 م', '1,234.5'],
+    ['ar-AE', 'الأربعاء، 4 نوفمبر 2026', '8:05 م', '1,234.5'],
+    ['ar', 'الأربعاء، 4 نوفمبر 2026', '8:05 م', '1,234.5'],
+    ['en-US', 'Wednesday, November 4, 2026', '8:05 PM', '1,234.5'],
+  ]);
+  expect(s9('intl')?.note).toMatch(/^Intl: ar-SA [a-z-]+·[a-z]+, ar-AE .*; the app: Gregorian, latn digits in Arabic \(ADR-011\)$/);
+}
+
 function statuses(records: readonly Record[]): Array<[string, string]> {
   return records.filter((r) => r.type === 'check').map((r) => [`${r.spike ?? ''}/${r.check ?? ''}`, r.status ?? '']);
 }
@@ -174,7 +216,7 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     expect(statuses(records)).toEqual(DESKTOP);
     const end = records[records.length - 1];
     expect(end?.type).toBe('end');
-    expect(end?.value).toMatchObject({ run: 1, spikes: ['S0', 'S1', 'S2', 'S3', 'S7', 'S6'], counts: { pass: 13, fail: 3, info: 12, skip: 2 } });
+    expect(end?.value).toMatchObject({ run: 1, spikes: ['S0', 'S1', 'S2', 'S3', 'S7', 'S9', 'S11', 'S6'], counts: { pass: 16, fail: 3, info: 14, skip: 7 } });
 
     // What the records say, beyond the status.
     const check = (key: string): Record | undefined => records.find((r) => `${r.spike ?? ''}/${r.check ?? ''}` === key);
@@ -186,11 +228,13 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     expect(check('S2/write-test')?.value).toMatchObject({ targetMb: 8, writtenMb: 8, error: null, deleted: true });
     expect(check('S7/xhr-redirect')?.value).toEqual({ status: 200, responseURL: `${base}/__lab/echo` });
     expect(check('S7/xhr-no-cors')?.note).toMatch(/^no readable answer/);
+    expectS9(records);
+    expect(check('S11/lifecycle')?.note).toMatch(/^no lifecycle events yet/);
     expectS6(records);
 
     // The screen: each spike's overall status, and the checks of the spike in focus.
     const spikeStatus = async (id: string): Promise<string | null> => page.getByTestId(`spike-${id}`).getAttribute('data-status');
-    expect(await Promise.all(['S0', 'S1', 'S2', 'S3', 'S7', 'S6'].map(spikeStatus))).toEqual(['info', 'pass', 'pass', 'skip', 'fail', 'info']);
+    expect(await Promise.all(['S0', 'S1', 'S2', 'S3', 'S7', 'S9', 'S11', 'S6'].map(spikeStatus))).toEqual(['info', 'pass', 'pass', 'skip', 'fail', 'pass', 'info', 'info']);
     await remote.go('DOWN', 'lab/spikes/0');
     await remote.go('DOWN', 'lab/spikes/1');
     await expect(page.getByTestId('checks')).toHaveAttribute('data-spike', 'S1');
@@ -216,6 +260,75 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     // Back on the root asks first (the browser, like Tizen); Stay keeps the lab.
     await remote.go('BACK', 'exit/buttons/0');
     await remote.go('OK', 'lab/spikes/2');
+    expect(errors).toEqual([]);
+  });
+
+  test('logs lifecycle events as they come, and asks by ear when S11 runs alone (S11)', async ({ page }) => {
+    const errors = trackErrors(page);
+    const remote = new RemoteDriver(page);
+    await page.goto(`/lab.html?server=${base}&auto=0`);
+    const lab = page.getByTestId('lab');
+    await expect(lab).toHaveAttribute('data-ready', 'true');
+    // The tab hidden, then back after a while (the browser adapter reads document.hidden).
+    const setHidden = (hidden: boolean): Promise<void> =>
+      page.evaluate((value) => {
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => value });
+        document.dispatchEvent(new Event('visibilitychange'));
+      }, hidden);
+    await setHidden(true);
+    await page.waitForTimeout(1100);
+    await setHidden(false);
+
+    // To S11 (the seventh row) and OK: S11 alone, so its questions are asked.
+    await remote.press('DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN');
+    await remote.go('DOWN', 'lab/spikes/6');
+    await remote.go('OK', 'ask/items/0');
+    const ask = page.getByTestId('ask');
+    await expect(ask).toHaveAttribute('data-mode', 'focus');
+    const focused = (): Promise<string | null> => page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? null);
+    // DOM focus follows the remote, so a screen reader can read the label.
+    await expect.poll(focused).toBe('Zoma Lab first button');
+    await remote.go('RIGHT', 'ask/items/1');
+    await expect.poll(focused).toBe('Zoma Lab second button');
+    await expect(page.getByTestId('ask-item-1')).toHaveAttribute('role', 'button');
+    // GREEN: read. The second question comes up.
+    await remote.press('GREEN');
+    await expect(ask).toHaveAttribute('data-mode', 'live');
+    await remote.expectFocus('ask/items/0');
+    await remote.go('RIGHT', 'ask/items/1');
+    await remote.go('RIGHT', 'ask/items/2');
+    // No DOM focus here: the live region says the focused label.
+    await expect(page.getByTestId('ask-live')).toHaveText('Zoma Lab third button');
+    await expect(page.getByTestId('ask-live')).toHaveAttribute('aria-live', 'assertive');
+    expect(await focused()).toBeNull();
+    // RED: not read.
+    await remote.press('RED');
+    const { records } = await finishedRun(page, 1);
+    await expect(ask).toHaveCount(0);
+    await remote.expectFocus('lab/spikes/6');
+
+    // The lifecycle events went out as they came, before the run.
+    const events = records.filter((r) => r.type === 'event');
+    expect(events.map((r) => [r.check, r.note])).toEqual([
+      ['lifecycle', 'hidden'],
+      ['lifecycle', 'visible'],
+    ]);
+    const back = events[1]?.value as { away: { ms: number; beats: number }; visibility: string };
+    expect(back.away.ms).toBeGreaterThanOrEqual(1000);
+    expect(back.away.beats).toBeGreaterThanOrEqual(1);
+    const s11 = records.filter((r) => r.type === 'check');
+    expect(s11.map((r) => [r.check, r.status])).toEqual([
+      ['lifecycle', 'info'],
+      ['screensaver', 'skip'],
+      ['screen-reader', 'skip'],
+      ['speech', 'skip'],
+      ['focus-reading', 'pass'],
+      ['live-reading', 'fail'],
+    ]);
+    expect(s11[0]?.note).toMatch(/^hidden at \d+\.\d s, visible at \d+\.\d s \(away \d+\.\d s, \d+ beats?\)$/);
+    expect(s11[4]?.value).toMatchObject({ answer: 'yes', moves: 1 });
+    expect(s11[5]?.value).toMatchObject({ answer: 'no', moves: 2 });
+    expect(records[records.length - 1]).toMatchObject({ type: 'end', note: 'S11', value: { counts: { pass: 1, fail: 1, info: 1, skip: 3 } } });
     expect(errors).toEqual([]);
   });
 
@@ -288,8 +401,10 @@ for (const platform of ['tizen', 'webos'] as const) {
     await expect(page.locator('#boot-error')).toBeHidden();
     const { records } = await finishedRun(page, 1);
     expect(records[0]?.value).toMatchObject({ server: base, writeMb: 8, autoRun: true, device: { platform, model: 'unknown' } });
-    // A TV platform without its device ID fails S3 (the adapter finds no webapis or luna here).
-    expect(statuses(records)).toEqual(DESKTOP.map(([key, status]) => [key, key === 'S3/device-id' ? 'fail' : status]));
+    // A TV platform without its TV APIs: no device ID (S3), no screensaver control or speech (S11).
+    expect(statuses(records)).toEqual(DESKTOP.map(([key, status]) => [key, BUNDLE[platform][key] ?? status]));
+    expect(records.find((r) => r.check === 'screen-reader')?.note).toBe(platform === 'tizen' ? 'unknown: no webapis.tvinfo' : 'unknown: no PalmServiceBridge for luna://com.webos.settingsservice/getSystemSettings');
+    expectS9(records);
     expect(records.find((r) => r.check === 'device-id')?.note).toBe(`the ${platform === 'tizen' ? 'DUID' : 'LGUDID'} is not available`);
     // S6 in the bundle: its inlined data workers from file://, and the app's live screen.
     expectS6(records);

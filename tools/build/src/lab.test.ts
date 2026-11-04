@@ -18,7 +18,10 @@ describe('the lab manifests (RELAY step 15a)', () => {
     expect(checkAppinfo(lab, '0.1.3')).toEqual({ id: 'com.zoma.iptv.lab', version: '0.1.3' });
     const parsed = JSON.parse(lab) as Record<string, unknown>;
     expect(parsed.title).toBe('Zoma Lab');
-    expect({ ...parsed, id: 'com.zoma.iptv', title: 'Zoma' }).toEqual(JSON.parse(app));
+    // LG's Audio Guidance reads an app only with this (spike S11).
+    expect(parsed.accessibility).toEqual({ supportsAudioGuidance: true });
+    const { accessibility: _added, ...rest } = parsed;
+    expect({ ...rest, id: 'com.zoma.iptv', title: 'Zoma' }).toEqual(JSON.parse(app));
   });
 
   it('give Tizen the lab widget, package and application ids and name, nothing else', () => {

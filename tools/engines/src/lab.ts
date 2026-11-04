@@ -23,7 +23,7 @@ export const LAB_HOST = 'host.docker.internal';
 export const LAB_WRITE_MB = 16;
 
 export interface LabRecord {
-  readonly type: 'start' | 'check' | 'end';
+  readonly type: 'start' | 'check' | 'end' | 'event';
   readonly session: string;
   readonly seq: number;
   readonly spike?: string;
@@ -215,7 +215,8 @@ export const NATIVE_SINCE: Readonly<Record<string, number>> = {
 
 /**
  * What each check must answer in a desktop engine running a TV bundle: S7's no-CORS checks fail
- * (it enforces CORS), and S3 finds no device ID (no TV APIs).
+ * (it enforces CORS), S3 finds no device ID and S11 no TV APIs. `expectedStatuses` adds what
+ * differs per platform.
  */
 export const EXPECTED_STATUSES: ReadonlyArray<readonly [string, string]> = [
   ['S0/device', 'info'],
@@ -243,6 +244,19 @@ export const EXPECTED_STATUSES: ReadonlyArray<readonly [string, string]> = [
   ['S7/xhr-redirect', 'pass'],
   ['S7/fetch-redirect', 'pass'],
   ['S7/xhr-redirect-no-cors', 'fail'],
+  // Arabic in the app's own faces: they load, shape and isolate on every engine.
+  ['S9/fonts', 'pass'],
+  ['S9/shaping', 'pass'],
+  ['S9/bidi', 'pass'],
+  ['S9/intl', 'info'],
+  // No TV APIs here; a launch run asks nobody. Tizen's screensaver call is missing (a fail on a
+  // TV); webOS has none to call (see expectedStatuses).
+  ['S11/lifecycle', 'info'],
+  ['S11/screensaver', 'fail'],
+  ['S11/screen-reader', 'info'],
+  ['S11/speech', 'info'],
+  ['S11/focus-reading', 'skip'],
+  ['S11/live-reading', 'skip'],
   // The host mock's own small catalog: S6 measures and judges nothing.
   ['S6/source', 'info'],
   ['S6/ingest', 'info'],
@@ -252,6 +266,16 @@ export const EXPECTED_STATUSES: ReadonlyArray<readonly [string, string]> = [
   ['S6/cold-start', 'info'],
   ['S6/cleanup', 'info'],
 ];
+
+/** Where a platform's bundle answers otherwise: webOS has no screensaver API (an `info`). */
+const PLATFORM_STATUSES: Readonly<Record<TvPlatform, Readonly<Record<string, string>>>> = {
+  tizen: {},
+  webos: { 'S11/screensaver': 'info' },
+};
+
+export function expectedStatuses(platform: TvPlatform): Array<readonly [string, string]> {
+  return EXPECTED_STATUSES.map(([key, status]) => [key, PLATFORM_STATUSES[platform][key] ?? status] as const);
+}
 
 const keyOf = (record: LabRecord): string => `${record.spike ?? ''}/${record.check ?? ''}`;
 
@@ -293,7 +317,7 @@ export function evaluateLab(run: LabRun, engine: Pick<Engine, 'major'>): string[
   }
   const records = state.records;
   const checks = records.filter((r) => r.type === 'check');
-  const expected = EXPECTED_STATUSES;
+  const expected = expectedStatuses(run.platform);
   if (checks.length !== expected.length) failures.push(`${checks.length} check records, expected ${expected.length}`);
   for (const [key, status] of expected) {
     const record = checks.find((r) => keyOf(r) === key);

@@ -94,6 +94,24 @@ export function lunaRequest(
   });
 }
 
+const QUOTE = 0x22;
+const BACKSLASH = 0x5c;
+
+/**
+ * `text` as a JSON string literal, for a luna call's params without `JSON.stringify` (see
+ * `lunaRequest`): quotes, backslashes and control characters escaped, the rest as it is.
+ */
+export function jsonText(text: string): string {
+  let out = '"';
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text.charCodeAt(i);
+    if (c === QUOTE || c === BACKSLASH) out += String.fromCharCode(BACKSLASH, c);
+    else if (c < 0x20) out += String.fromCharCode(BACKSLASH) + 'u00' + (c < 0x10 ? '0' : '') + c.toString(16);
+    else out += text.charAt(i);
+  }
+  return out + '"';
+}
+
 export const DEVICE_ID_URI = 'luna://com.webos.service.sm/deviceid/getIDs';
 
 /** The LGUDID from a `deviceid/getIDs` answer (`idList: [{ idType: 'LGUDID', idValue }]`), or `null`. */
