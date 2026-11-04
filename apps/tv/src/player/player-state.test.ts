@@ -1,14 +1,14 @@
 import type { CatalogItem, ContentKey } from '@zoma/core';
 import type { EpgNowNext } from '@zoma/data';
 import type { Intent } from '@zoma/platform-api';
-import type { PlaybackFailure, PlayerState, PlayerStatus, PlayerTracks, PlayRequest } from '@zoma/player';
+import type { PlaybackFailure, PlayerState, PlayerStatus, PlayerTracks, PlayRequest, SubtitleView } from '@zoma/player';
 import { NO_TRACKS } from '@zoma/player';
 import { createNavigator } from '@zoma/ui';
 import { describe, expect, it } from 'vitest';
 import type { LiveRow, Timers } from '../live/live-state';
 import type { PlayerLike, ZapList } from './player-state';
 import { DIGITS_MS, INFO_MS, MISSING_MS, TRACKS_ACTION, ZAP_DELAY_MS, createPlayer, liveRequest } from './player-state';
-import { MENU_ROWS } from './track-menu';
+import { DEFAULT_SUBTITLE_SIZE, DELAY_STEP_MS, MAX_DELAY_MS, MENU_ROWS } from './track-menu';
 
 const COUNT = 20;
 
@@ -98,6 +98,31 @@ class FakeController implements PlayerLike {
   /** Track switches the menu asked for, answered by the test. */
   readonly switches: { readonly call: string; readonly answer: (ok: boolean) => void }[] = [];
   private listeners: ((status: PlayerStatus) => void)[] = [];
+  subtitles: SubtitleView = { feed: null, cues: [] };
+  /** The timings the menu set. */
+  readonly delays: number[] = [];
+  private subtitleListeners: ((view: SubtitleView) => void)[] = [];
+
+  subscribeSubtitles(listener: (view: SubtitleView) => void): () => void {
+    this.subtitleListeners.push(listener);
+    return () => {
+      this.subtitleListeners = this.subtitleListeners.filter((l) => l !== listener);
+    };
+  }
+
+  /** What to draw, published like the controller does. */
+  setSubtitles(view: SubtitleView): void {
+    this.subtitles = view;
+    for (const listener of this.subtitleListeners.slice()) listener(view);
+  }
+
+  get subtitleListening(): number {
+    return this.subtitleListeners.length;
+  }
+
+  setSubtitleDelay(ms: number): void {
+    this.delays.push(ms);
+  }
 
   subscribe(listener: (status: PlayerStatus) => void): () => void {
     this.listeners.push(listener);
@@ -188,12 +213,13 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i += 1) await Promise.resolve();
 };
 
-function setup() {
+function setup(dir: 'ltr' | 'rtl' = 'ltr') {
   const list = new FakeList();
   const controller = new FakeController();
   const clock = manualTimers();
   const nav = createNavigator({
     root: { id: 'live', zones: [{ kind: 'list', id: 'channels', axis: 'vertical', count: COUNT }] },
+    dir,
     rootBack: 'exit-dialog',
     exit: () => undefined,
     exitDialog: () => undefined,
@@ -583,8 +609,8 @@ function choose(audio: number, text: number | null): PlayerTracks {
 }
 
 /** The player on row 1, playing, with `tracks`. */
-async function playing(tracks: PlayerTracks = TRACKS) {
-  const t = setup();
+async function playing(tracks: PlayerTracks = TRACKS, dir: 'ltr' | 'rtl' = 'ltr') {
+  const t = setup(dir);
   t.player.show(1);
   t.controller.set('playing');
   t.controller.setTracks(tracks);
@@ -750,5 +776,150 @@ describe('the track menu (RELAY step 20b)', () => {
     await flush();
     expect(t.list.finds).toEqual([]);
     expect(t.controller.played()).toEqual([1]);
+  });
+});
+
+/** TRACKS with an English and an Arabic subtitle file after the stream's own subtitles (file `on` showing). */
+function withFiles(on: number | null): PlayerTracks {
+  const files = [
+    { id: 'ext:0', lang: 'en', streamLang: 'eng', label: '', selected: on === 0 },
+    { id: 'ext:1', lang: 'ar', streamLang: 'ara', label: '', selected: on === 1 },
+  ];
+  return { ...TRACKS, text: TRACKS.text.concat(files) };
+}
+
+describe('subtitle files and the subtitle style in the track menu (RELAY step 20b2b)', () => {
+  it("lists the files after the stream's own subtitles and switches to one like a track", async () => {
+    const t = await playing(withFiles(null));
+    await t.press('SUBTITLES');
+    expect(t.player.menu.screen.value!.zone('text')).toMatchObject({ count: 5 });
+    await t.press('DOWN', 'DOWN', 'DOWN', 'OK');
+    expect(t.controller.calls()).toEqual(['text ext:0']);
+    t.controller.switches[0]!.answer(true);
+    await flush();
+    expect(t.player.menu.refused.value).toBeNull();
+  });
+
+  it("says when a file couldn't be loaded, apart from the TV's refusals, and only for the newest switch", async () => {
+    const t = await playing(withFiles(null));
+    await t.press('SUBTITLES', 'DOWN', 'DOWN', 'DOWN', 'OK');
+    t.controller.switches[0]!.answer(false);
+    await flush();
+    expect(t.player.menu.refused.value).toBe('file');
+    // Two switches at once: the older one's refusal arrives last and isn't shown.
+    await t.press('DOWN', 'OK', 'UP', 'UP', 'OK');
+    expect(t.controller.calls()).toEqual(['text ext:0', 'text ext:1', 'text 3']);
+    t.controller.switches[2]!.answer(true);
+    t.controller.switches[1]!.answer(false);
+    await flush();
+    expect(t.player.menu.refused.value).toBeNull();
+    expect(t.player.menu.pending.value).toBe(0);
+  });
+
+  it('shows no style rows while the app draws no subtitles; "Size" for an engine\'s, "Size" and "Timing" for a file', async () => {
+    const t = await playing(withFiles(null));
+    await t.press('SUBTITLES');
+    const menu = t.player.menu.screen.value!;
+    expect(menu.zone('style')).toMatchObject({ count: 0 });
+    // Down past the last subtitle: nowhere to go.
+    for (let i = 0; i < 6; i += 1) await t.press('DOWN');
+    expect(t.at()).toBe('tracks · text 4');
+    t.controller.setSubtitles({ feed: 'engine', cues: [] });
+    expect(menu.zone('style')).toMatchObject({ count: 1 });
+    t.controller.setSubtitles({ feed: 'file', cues: ['Hello'] });
+    expect(menu.zone('style')).toMatchObject({ count: 2 });
+    await t.press('DOWN');
+    expect(t.at()).toBe('tracks · style 0');
+    await t.press('DOWN');
+    expect(t.at()).toBe('tracks · style 1');
+    await t.press('UP', 'UP');
+    expect(t.at()).toBe('tracks · text 4');
+    t.controller.setSubtitles({ feed: null, cues: [] });
+    expect(menu.zone('style')).toMatchObject({ count: 0 });
+  });
+
+  it('changes the size with LEFT and RIGHT, stopping at the ends, and goes round them with OK', async () => {
+    const t = await playing(withFiles(0));
+    t.controller.setSubtitles({ feed: 'file', cues: [] });
+    expect(t.player.menu.size.value).toBe(DEFAULT_SUBTITLE_SIZE);
+    await t.press('SUBTITLES', 'DOWN', 'DOWN');
+    expect(t.at()).toBe('tracks · style 0');
+    await t.press('RIGHT');
+    expect(t.player.menu.size.value).toBe('l');
+    await t.press('RIGHT');
+    expect(t.player.menu.size.value).toBe('l');
+    await t.press('LEFT', 'LEFT', 'LEFT');
+    expect(t.player.menu.size.value).toBe('s');
+    await t.press('OK');
+    expect(t.player.menu.size.value).toBe('m');
+    await t.press('OK', 'OK');
+    expect(t.player.menu.size.value).toBe('s');
+    // The focus stayed on the row.
+    expect(t.at()).toBe('tracks · style 0');
+    expect(t.controller.delays).toEqual([]);
+    expect(t.controller.calls()).toEqual([]);
+  });
+
+  it("moves a file's timing by steps with LEFT and RIGHT up to the limit, tells the controller, and OK puts it back", async () => {
+    const t = await playing(withFiles(1));
+    t.controller.setSubtitles({ feed: 'file', cues: [] });
+    await t.press('SUBTITLES', 'DOWN', 'DOWN');
+    expect(t.at()).toBe('tracks · style 1');
+    await t.press('RIGHT', 'RIGHT');
+    expect(t.player.menu.delay.value).toBe(2 * DELAY_STEP_MS);
+    await t.press('LEFT', 'LEFT', 'LEFT');
+    expect(t.player.menu.delay.value).toBe(-DELAY_STEP_MS);
+    expect(t.controller.delays).toEqual([DELAY_STEP_MS, 2 * DELAY_STEP_MS, DELAY_STEP_MS, 0, -DELAY_STEP_MS]);
+    await t.press('OK');
+    expect(t.player.menu.delay.value).toBe(0);
+    // Already on time: nothing to tell.
+    await t.press('OK');
+    expect(t.controller.delays).toEqual([DELAY_STEP_MS, 2 * DELAY_STEP_MS, DELAY_STEP_MS, 0, -DELAY_STEP_MS, 0]);
+    for (let i = 0; i < MAX_DELAY_MS / DELAY_STEP_MS + 3; i += 1) await t.press('LEFT');
+    expect(t.player.menu.delay.value).toBe(-MAX_DELAY_MS);
+    for (let i = 0; i < (2 * MAX_DELAY_MS) / DELAY_STEP_MS + 3; i += 1) await t.press('RIGHT');
+    expect(t.player.menu.delay.value).toBe(MAX_DELAY_MS);
+    expect(t.controller.delays[t.controller.delays.length - 1]).toBe(MAX_DELAY_MS);
+    expect(t.controller.delays.filter((d) => d === MAX_DELAY_MS)).toHaveLength(1);
+  });
+
+  it('goes the other way in Arabic: LEFT is larger and later', async () => {
+    const t = await playing(withFiles(0), 'rtl');
+    t.controller.setSubtitles({ feed: 'file', cues: [] });
+    await t.press('SUBTITLES', 'DOWN', 'DOWN');
+    await t.press('LEFT');
+    expect(t.player.menu.size.value).toBe('l');
+    await t.press('DOWN', 'LEFT');
+    expect(t.player.menu.delay.value).toBe(DELAY_STEP_MS);
+    await t.press('RIGHT', 'RIGHT');
+    expect(t.player.menu.delay.value).toBe(-DELAY_STEP_MS);
+  });
+
+  it("leaves LEFT and RIGHT to the navigator outside the style rows, and keeps the size and timing for the player's run", async () => {
+    const t = await playing(withFiles(0));
+    t.controller.setSubtitles({ feed: 'file', cues: [] });
+    await t.press('AUDIO', 'RIGHT', 'LEFT');
+    expect(t.at()).toBe('tracks · audio 0');
+    await t.press('SUBTITLES', 'RIGHT', 'LEFT');
+    expect(t.at()).toBe('tracks · text 3');
+    expect(t.player.menu.size.value).toBe(DEFAULT_SUBTITLE_SIZE);
+    expect(t.player.menu.delay.value).toBe(0);
+    await t.press('DOWN', 'DOWN', 'RIGHT', 'DOWN', 'RIGHT', 'BACK');
+    expect(t.player.menu.screen.value).toBeNull();
+    await t.press('SUBTITLES');
+    expect(t.player.menu).toMatchObject({ size: { value: 'l' }, delay: { value: DELAY_STEP_MS } });
+  });
+
+  it("follows the controller's subtitles from the first play, and stops listening when disposed", async () => {
+    const t = setup();
+    expect(t.player.subtitles.value).toEqual({ feed: null, cues: [] });
+    t.controller.subtitles = { feed: 'engine', cues: ['Before'] };
+    t.player.show(1);
+    expect(t.player.subtitles.value).toEqual({ feed: 'engine', cues: ['Before'] });
+    t.controller.setSubtitles({ feed: 'engine', cues: ['Hello'] });
+    expect(t.player.subtitles.value.cues).toEqual(['Hello']);
+    expect(t.controller.subtitleListening).toBe(1);
+    t.player.dispose();
+    expect(t.controller.subtitleListening).toBe(0);
   });
 });

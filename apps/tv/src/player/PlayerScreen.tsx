@@ -7,6 +7,7 @@ import type { AppI18n, MessageKey } from '../i18n';
 import type { Live, LiveRow } from '../live/live-state';
 import type { Player } from './player-state';
 import { TRACKS_ACTION } from './player-state';
+import { SubtitleOverlay } from './SubtitleOverlay';
 import { TrackMenuPanel } from './TrackMenuPanel';
 import './player.css';
 
@@ -130,6 +131,7 @@ function ErrorCard({ failure, i18n, screen, binding }: { failure: PlaybackFailur
  * The player route (RELAY step 20a): drawn over the stage, so the page itself stays transparent.
  * The info bar, the number being typed, "Connecting…", the "Reconnecting…" badge and the error
  * card. Its root carries the focus (`data-screen/zone/index`) and the player's state for tests.
+ * The subtitles (step 20b2b) share the bottom of the safe area with the info bar, above it.
  */
 export function PlayerScreen({ live, player, i18n }: { live: Live; player: Player; i18n: AppI18n }) {
   const { t } = i18n;
@@ -149,6 +151,7 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
   const guide = row === null ? undefined : live.guide(row.item.key);
   const waiting = current && (status.state === 'opening' || status.state === 'buffering');
   const menu = player.menu.screen.value;
+  const subtitles = player.subtitles.value;
   return (
     <main
       class="player"
@@ -172,6 +175,7 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
       data-version={version}
       data-pending={live.pending.value}
       data-menu={String(menu !== null)}
+      data-subtitles={subtitles.feed ?? ''}
     >
       {waiting && (
         <div class="player__wait" data-testid="player-wait">
@@ -192,8 +196,11 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
           {entry.phase === 'missing' && <p class="player__entry-text">{t('player.noChannel', { number: entry.digits })}</p>}
         </div>
       )}
-      {screen !== null && menu === null && player.info.value && <InfoBar live={live} player={player} i18n={i18n} screen={screen} binding={binding} row={row} guide={guide} />}
-      {menu !== null && <TrackMenuPanel menu={player.menu} tracks={status.tracks} i18n={i18n} screen={menu} binding={binding} />}
+      <div class="player__bottom">
+        {subtitles.cues.length > 0 && <SubtitleOverlay cues={subtitles.cues} size={player.menu.size.value} />}
+        {screen !== null && menu === null && player.info.value && <InfoBar live={live} player={player} i18n={i18n} screen={screen} binding={binding} row={row} guide={guide} />}
+      </div>
+      {menu !== null && <TrackMenuPanel menu={player.menu} tracks={status.tracks} feed={subtitles.feed} i18n={i18n} screen={menu} binding={binding} />}
       {screen !== null && failure !== null && <ErrorCard failure={failure} i18n={i18n} screen={screen} binding={binding} />}
     </main>
   );

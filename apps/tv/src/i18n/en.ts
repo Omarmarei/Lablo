@@ -164,6 +164,19 @@ export const EN = {
   'tracks.none': 'None in this stream',
   'tracks.refused': "The TV didn't switch to it. Try again.",
   'tracks.track': 'Track {n, number}',
+  // Subtitle files and the subtitle style (RELAY step 20b2b).
+  'tracks.file': 'File',
+  'tracks.fileFailed': "This subtitle file couldn't be loaded.",
+  'tracks.style': 'Subtitle style',
+  'tracks.styleHint': 'Press left or right to change',
+  'tracks.size': 'Size',
+  'tracks.size.s': 'Small',
+  'tracks.size.m': 'Medium',
+  'tracks.size.l': 'Large',
+  'tracks.timing': 'Timing',
+  'tracks.timing.none': 'No delay',
+  'tracks.timing.later': '{seconds, number} s later',
+  'tracks.timing.earlier': '{seconds, number} s earlier',
 
   // Language names, for audio and subtitle tracks.
   'lang.ar': 'Arabic',
