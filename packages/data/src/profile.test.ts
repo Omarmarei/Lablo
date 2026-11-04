@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { openDatabase, transact } from './idb';
-import type { AnyProfile, ProfileDoc, ProfileMigration, SourceRecord } from './profile';
+import type { AnyProfile, LastChannel, PlayerChange, ProfileDoc, ProfileMigration, SourceRecord, StoredTrackChoice } from './profile';
 import {
+  MAX_TRACK_CHOICES,
   PROFILE_MIGRATIONS,
   PROFILE_VERSION,
   ProfileError,
@@ -11,6 +12,7 @@ import {
   listSnapshots,
   loadProfile,
   migrateProfile,
+  noPlayerMemory,
   restoreSnapshot,
   saveProfile,
   updateProfile,
@@ -20,7 +22,7 @@ import { freshFactory } from './test-support';
 
 const DAY = SNAPSHOT_EVERY_MS;
 const fav = (n: number): ProfileDoc['favourites'][number] => ({ key: `x:tv:live:${n}`, src: 'tv', kind: 'live', normName: `ch ${n}`, added: n, missingSince: null });
-/** A current (version 2) profile with these favourites. */
+/** A current (version 3) profile with these favourites. */
 const withFavs = (...ns: number[]): ProfileDoc => ({ ...emptyProfile(), favourites: ns.map(fav) });
 /** A version 1 document, as step 7 stored it. */
 const v1 = (...ns: number[]): AnyProfile => ({ v: 1, favourites: ns.map(fav) });
@@ -43,19 +45,26 @@ const toV2: ProfileMigration = ({ favourites, ...rest }) => ({ ...rest, v: 2, fa
 const toV3: ProfileMigration = (doc) => ({ ...doc, v: 3, settings: { language: 'ar' } });
 
 describe('profile migrations', () => {
-  it('is at version 2, with the shape of every version pinned', () => {
-    expect(PROFILE_VERSION).toBe(2);
+  it('is at version 3, with the shape of every version pinned', () => {
+    expect(PROFILE_VERSION).toBe(3);
     expect(PROFILE_VERSION).toBe(PROFILE_MIGRATIONS.length + 1);
-    expect(emptyProfile()).toEqual({ v: 2, favourites: [], sources: [], onboarding: NO_ANSWERS });
+    const NOTHING_KEPT = { last: null, containers: {}, redirects: {}, tracks: {}, subtitleSize: null };
+    expect(noPlayerMemory()).toEqual(NOTHING_KEPT);
+    expect(emptyProfile()).toEqual({ v: 3, favourites: [], sources: [], onboarding: NO_ANSWERS, player: NOTHING_KEPT });
     // 1 → 2 (step 13b): the favourites stay; no sources and no answers yet.
+    expect(PROFILE_MIGRATIONS[0]!(v1(1, 2))).toEqual({ v: 2, favourites: [fav(1), fav(2)], sources: [], onboarding: NO_ANSWERS });
+    // 2 → 3 (step 20c1): nothing kept for the player yet; the rest stays.
+    const v2 = { v: 2, favourites: [fav(1)], sources: [xtreamSource('s1')], onboarding: { ...NO_ANSWERS, language: 'ar' } };
+    expect(PROFILE_MIGRATIONS[1]!(v2)).toEqual({ ...v2, v: 3, player: NOTHING_KEPT });
     expect(migrateProfile(v1(1, 2))).toEqual({
-      doc: { v: 2, favourites: [fav(1), fav(2)], sources: [], onboarding: NO_ANSWERS },
+      doc: { v: 3, favourites: [fav(1), fav(2)], sources: [], onboarding: NO_ANSWERS, player: NOTHING_KEPT },
       from: 1,
       migrated: true,
       newer: false,
     });
-    // Fields a version 1 document had that version 2 doesn't name are kept, never dropped.
-    expect(migrateProfile({ ...v1(), kept: 'x' }).doc).toMatchObject({ v: 2, kept: 'x' });
+    expect(migrateProfile(v2)).toMatchObject({ doc: { ...v2, v: 3, player: NOTHING_KEPT }, from: 2, migrated: true });
+    // Fields an older document had that the new version doesn't name are kept, never dropped.
+    expect(migrateProfile({ ...v1(), kept: 'x' }).doc).toMatchObject({ v: 3, kept: 'x' });
   });
 
   it('upgrades from every earlier version, step by step, without touching the input', () => {
@@ -131,7 +140,7 @@ describe('profile storage', () => {
     expect(await loadProfile(db)).toEqual({ doc: { v: 9, favourites: [], future: true }, newer: true, migratedFrom: null });
     await expect(saveProfile(db, withFavs(1))).rejects.toThrow(/newer app version/);
     expect((await loadProfile(db))!.doc).toMatchObject({ v: 9, future: true });
-    expect(() => saveProfile(db, { v: 3 } as unknown as ProfileDoc)).toThrow(/Can't save a version 3/);
+    expect(() => saveProfile(db, { v: 4 } as unknown as ProfileDoc)).toThrow(/Can't save a version 4/);
     db.close();
   });
 
@@ -226,7 +235,7 @@ describe('updateProfile', () => {
   it('rejects (and writes nothing) when the update returns another version', async () => {
     const db = await openDatabase(freshFactory());
     await saveProfile(db, withFavs(1), { now: 0 });
-    await expect(updateProfile(db, (doc) => ({ ...doc, v: 3 }) as unknown as ProfileDoc)).rejects.toThrow(ProfileError);
+    await expect(updateProfile(db, (doc) => ({ ...doc, v: 4 }) as unknown as ProfileDoc)).rejects.toThrow(ProfileError);
     expect((await loadProfile(db))!.doc).toEqual(withFavs(1));
     db.close();
   });
@@ -284,5 +293,79 @@ describe('applyProfileEdit', () => {
     expect(b.sources.map((s) => s.name)).toEqual(['A', 'B']);
     expect(renamed.favourites).toEqual([fav(1)]);
     expect(doc.sources).toEqual([]);
+  });
+});
+
+describe('applyProfileEdit: what the player keeps (step 20c1)', () => {
+  const item = (n: number): LastChannel['item'] => ({
+    key: `s1:live:${n}`,
+    src: 's1',
+    kind: 'live',
+    name: `Channel ${n}`,
+    normName: `channel ${n}`,
+    group: 'News',
+    url: `http://panel.test/live/u/p/${n}.ts`,
+    logo: null,
+    epgId: null,
+    tvgName: null,
+    matchName: `channel ${n}`,
+    chno: n,
+    tvgShift: 0,
+    catchup: null,
+    radio: false,
+    hints: null,
+  });
+  const last = (n: number): LastChannel => ({ item: item(n), number: n, category: { src: 's1', name: 'News' }, index: n - 1, at: 1000 + n });
+  const choice = (lang: string, used: number): StoredTrackChoice => ({ audio: { id: '1', lang, label: '' }, text: 'off', used });
+  const player = (doc: ProfileDoc, change: PlayerChange): ProfileDoc | null => applyProfileEdit(doc, { kind: 'player', change });
+
+  it('keeps the last channel, replacing the one before', () => {
+    const doc = emptyProfile();
+    const one = player(doc, { field: 'last', last: last(5) })!;
+    expect(one.player).toEqual({ ...noPlayerMemory(), last: last(5) });
+    expect(player(one, { field: 'last', last: last(6) })!.player.last).toEqual(last(6));
+    // The input is left alone, and the rest of the profile kept.
+    expect(doc.player.last).toBeNull();
+    expect(player(withFavs(1), { field: 'last', last: last(5) })!.favourites).toEqual([fav(1)]);
+  });
+
+  it("keeps each source's container and redirect answer; the same answer changes nothing", () => {
+    const a = player(emptyProfile(), { field: 'container', src: 's1', container: 'hls' })!;
+    const b = player(a, { field: 'container', src: 's2', container: 'ts' })!;
+    expect(b.player.containers).toEqual({ s1: 'hls', s2: 'ts' });
+    expect(player(b, { field: 'container', src: 's1', container: 'hls' })).toBeNull();
+    expect(player(b, { field: 'container', src: 's1', container: 'ts' })!.player.containers).toEqual({ s1: 'ts', s2: 'ts' });
+    expect(a.player.containers).toEqual({ s1: 'hls' });
+    const r = player(b, { field: 'redirect', src: 's1', mode: 'redirects' })!;
+    expect(r.player.redirects).toEqual({ s1: 'redirects' });
+    expect(r.player.containers).toEqual({ s1: 'hls', s2: 'ts' });
+    expect(player(r, { field: 'redirect', src: 's1', mode: 'redirects' })).toBeNull();
+    expect(player(r, { field: 'redirect', src: 's1', mode: 'none' })!.player.redirects).toEqual({ s1: 'none' });
+    // An inherited name is no entry.
+    expect(player(emptyProfile(), { field: 'container', src: 'toString', container: 'ts' })!.player.containers).toEqual({ toString: 'ts' });
+  });
+
+  it('keeps the subtitle size; the same size changes nothing', () => {
+    const l = player(emptyProfile(), { field: 'subtitleSize', size: 'l' })!;
+    expect(l.player.subtitleSize).toBe('l');
+    expect(player(l, { field: 'subtitleSize', size: 'l' })).toBeNull();
+    expect(player(l, { field: 'subtitleSize', size: 's' })!.player.subtitleSize).toBe('s');
+  });
+
+  it("keeps each content's track choice, dropping the one changed longest ago past the cap", () => {
+    let doc = emptyProfile();
+    for (let i = 0; i < MAX_TRACK_CHOICES; i++) doc = player(doc, { field: 'track', key: `k${i}`, choice: choice('ar', 1000 - i) })!;
+    expect(Object.keys(doc.player.tracks)).toHaveLength(MAX_TRACK_CHOICES);
+    // Changing a kept one drops nothing.
+    const same = player(doc, { field: 'track', key: 'k3', choice: choice('en', 5000) })!;
+    expect(Object.keys(same.player.tracks)).toHaveLength(MAX_TRACK_CHOICES);
+    expect(same.player.tracks['k3']).toEqual(choice('en', 5000));
+    // A new one drops the oldest (`k299`, used 701), never itself.
+    const more = player(same, { field: 'track', key: 'new', choice: choice('en', 1) })!;
+    expect(Object.keys(more.player.tracks)).toHaveLength(MAX_TRACK_CHOICES);
+    expect(more.player.tracks['new']).toEqual(choice('en', 1));
+    expect(more.player.tracks['k299']).toBeUndefined();
+    expect(more.player.tracks['k298']).toEqual(choice('ar', 702));
+    expect(same.player.tracks['k299']).toEqual(choice('ar', 701));
   });
 });

@@ -105,7 +105,7 @@ describe("onboarding's loader against the mock provider", () => {
     expect(status.guides.map((g) => [g.epgSrc, g.gen > 0])).toEqual([['s1:xmltv', true]]);
     expect(status.matched).toBeGreaterThan(0);
     const profile = await data.profile();
-    expect(profile?.doc).toMatchObject({ v: 2, sources: [{ id: 's1', type: 'xtream', name: 'Mock', account: { base, username: U, password: P }, epgUrl: null, added: NOW }] });
+    expect(profile?.doc).toMatchObject({ v: 3, sources: [{ id: 's1', type: 'xtream', name: 'Mock', account: { base, username: U, password: P }, epgUrl: null, added: NOW }] });
     expect(await data.summary()).toEqual({ sources: 1, items: catalog.live.length + catalog.movies.length + catalog.series.length, stale: 0 });
   });
 

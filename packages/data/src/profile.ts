@@ -9,10 +9,11 @@
  * never overwritten by this version.
  *
  * Version 1 (RELAY step 7) holds the favourites. Version 2 (step 13b) adds the sources the user
- * added and the onboarding answers. Later steps add fields with a migration each.
+ * added and the onboarding answers. Version 3 (step 20c1) adds what the player keeps
+ * (`PlayerMemoryDoc`). Later steps add fields with a migration each.
  */
 
-import type { ContentKey, ContentKind, XtreamAccount } from '@zoma/core';
+import type { CatalogItem, ContentKey, ContentKind, XtreamAccount } from '@zoma/core';
 import { onSuccess, transact } from './idb';
 import { STORE } from './schema';
 
@@ -70,8 +71,65 @@ export type ProfileV2 = {
   onboarding: OnboardingAnswers;
 };
 
+/**
+ * A track picked for a content (the player's `TrackPick`; `data` doesn't import `player`, so the
+ * shape is repeated here).
+ */
+export type StoredTrackPick = { id: string; lang: string; label: string };
+
+/** A content's track choice (the player's `TrackChoice`) and when it was last made. */
+export type StoredTrackChoice = {
+  audio: StoredTrackPick | null;
+  text: StoredTrackPick | 'off' | null;
+  /** A subtitle file's timing for this content, in ms (negative: earlier). Absent: none. */
+  delayMs?: number;
+  /** When it was last changed (epoch ms): past `MAX_TRACK_CHOICES`, the oldest go. */
+  used: number;
+};
+
+/**
+ * The channel watched last (start-on-last-channel, architecture.md §2): the start plays it before
+ * the catalog loads, so the item itself is kept. Its `url` holds credentials, like the source's
+ * login: step 32 encrypts it with them.
+ */
+export type LastChannel = {
+  item: CatalogItem;
+  /** The number the info bar showed. */
+  number: number;
+  /** The live screen's rail entry it played from: a source's category (by name), or `null` for "All channels". */
+  category: { src: string; name: string } | null;
+  /** Its row in that list then (where the start looks for it first). */
+  index: number;
+  /** When it started (epoch ms). */
+  at: number;
+};
+
+/** What the player keeps across starts (step 20c1). */
+export type PlayerMemoryDoc = {
+  last: LastChannel | null;
+  /** The container (`ts`, `hls`…) that last played, per source: the player's `SourceMemory`. */
+  containers: Record<string, string>;
+  /** What the redirect probe (Tizen) learned, per source. */
+  redirects: Record<string, 'none' | 'redirects'>;
+  /** Each content's track choice, by ContentKey: the player's `TrackMemory`. */
+  tracks: Record<string, StoredTrackChoice>;
+  /** The subtitles' size (`s`, `m`, `l`); `null`: never set. */
+  subtitleSize: string | null;
+};
+
+export type ProfileV3 = {
+  v: 3;
+  favourites: FavouriteRef[];
+  sources: SourceRecord[];
+  onboarding: OnboardingAnswers;
+  player: PlayerMemoryDoc;
+};
+
 /** The current profile shape. */
-export type ProfileDoc = ProfileV2;
+export type ProfileDoc = ProfileV3;
+
+/** Track choices kept; a new content past this drops the one changed longest ago. */
+export const MAX_TRACK_CHOICES = 300;
 
 /** A stored document of any version (older ones are migrated on load). */
 export interface AnyProfile {
@@ -85,6 +143,8 @@ export type ProfileMigration = (doc: AnyProfile) => AnyProfile;
 export const PROFILE_MIGRATIONS: readonly ProfileMigration[] = [
   // 1 → 2 (step 13b): no sources and no answers yet.
   (doc) => ({ ...doc, v: 2, sources: [], onboarding: noAnswers() }),
+  // 2 → 3 (step 20c1): nothing kept for the player yet.
+  (doc) => ({ ...doc, v: 3, player: noPlayerMemory() }),
 ];
 
 export const PROFILE_VERSION = PROFILE_MIGRATIONS.length + 1;
@@ -113,15 +173,73 @@ function noAnswers(): OnboardingAnswers {
   return { language: null, disclaimerAt: null, consent: null };
 }
 
-export function emptyProfile(): ProfileDoc {
-  return { v: 2, favourites: [], sources: [], onboarding: noAnswers() };
+export function noPlayerMemory(): PlayerMemoryDoc {
+  return { last: null, containers: {}, redirects: {}, tracks: {}, subtitleSize: null };
 }
+
+export function emptyProfile(): ProfileDoc {
+  return { v: 3, favourites: [], sources: [], onboarding: noAnswers(), player: noPlayerMemory() };
+}
+
+/** One thing the player keeps (step 20c1). */
+export type PlayerChange =
+  | { field: 'last'; last: LastChannel }
+  | { field: 'container'; src: string; container: string }
+  | { field: 'redirect'; src: string; mode: 'none' | 'redirects' }
+  | { field: 'track'; key: ContentKey; choice: StoredTrackChoice }
+  | { field: 'subtitleSize'; size: string };
 
 /** A change the app makes to the profile through the query worker (step 13b). */
 export type ProfileEdit =
   | { kind: 'answers'; answers: Partial<OnboardingAnswers> }
   /** Adds the source, or replaces the one with its id (in place). */
-  | { kind: 'source'; source: SourceRecord };
+  | { kind: 'source'; source: SourceRecord }
+  /** One thing the player keeps (step 20c1). */
+  | { kind: 'player'; change: PlayerChange };
+
+function has(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+/** `record` with `key` set to `value` (a new object), or `null` when it holds that already. */
+function withEntry<T>(record: Record<string, T>, key: string, value: T): Record<string, T> | null {
+  if (has(record, key) && record[key] === value) return null;
+  const next: Record<string, T> = { ...record };
+  next[key] = value;
+  return next;
+}
+
+/** `tracks` with `key`'s choice set, dropping the one changed longest ago past `MAX_TRACK_CHOICES`. */
+function withTrack(tracks: Record<string, StoredTrackChoice>, key: string, choice: StoredTrackChoice): Record<string, StoredTrackChoice> {
+  const next: Record<string, StoredTrackChoice> = { ...tracks };
+  next[key] = choice;
+  const keys = Object.keys(next);
+  if (keys.length <= MAX_TRACK_CHOICES) return next;
+  let oldest: string | null = null;
+  for (const k of keys) if (k !== key && (oldest === null || next[k]!.used < next[oldest]!.used)) oldest = k;
+  if (oldest !== null) delete next[oldest];
+  return next;
+}
+
+/** The player section with `change` applied (new objects), or `null` when it changes nothing. */
+function applyPlayerChange(player: PlayerMemoryDoc, change: PlayerChange): PlayerMemoryDoc | null {
+  switch (change.field) {
+    case 'last':
+      return { ...player, last: change.last };
+    case 'container': {
+      const containers = withEntry(player.containers, change.src, change.container);
+      return containers === null ? null : { ...player, containers };
+    }
+    case 'redirect': {
+      const redirects = withEntry(player.redirects, change.src, change.mode);
+      return redirects === null ? null : { ...player, redirects };
+    }
+    case 'track':
+      return { ...player, tracks: withTrack(player.tracks, change.key, change.choice) };
+    case 'subtitleSize':
+      return change.size === player.subtitleSize ? null : { ...player, subtitleSize: change.size };
+  }
+}
 
 /** `doc` with `edit` applied (new objects), or `null` when it changes nothing. */
 export function applyProfileEdit(doc: ProfileDoc, edit: ProfileEdit): ProfileDoc | null {
@@ -135,6 +253,10 @@ export function applyProfileEdit(doc: ProfileDoc, edit: ProfileEdit): ProfileDoc
       changed = true;
     }
     return changed ? { ...doc, onboarding } : null;
+  }
+  if (edit.kind === 'player') {
+    const player = applyPlayerChange(doc.player, edit.change);
+    return player === null ? null : { ...doc, player };
   }
   const at = doc.sources.findIndex((s) => s.id === edit.source.id);
   const sources = doc.sources.slice();
