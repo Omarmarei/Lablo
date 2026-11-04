@@ -6,7 +6,7 @@
 // `setBusy`, and now/next from the stored guides.
 
 import type { RpcHandlers } from '@zoma/data';
-import { EPG_REFRESH_MS, EpgService, IngestService, QueryService, STORE, getSources, openDatabase, serveRpc } from '@zoma/data';
+import { EPG_REFRESH_MS, EpgService, IngestService, QueryService, STORE, getSources, newSourceMeta, openDatabase, serveRpc } from '@zoma/data';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { WorkerLike } from '../apps/tv/src/data/engine';
 import { DataEngine } from '../apps/tv/src/data/engine';
@@ -219,6 +219,24 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     expect(again).toMatchObject({ status: 'unchanged', gen: 1 });
     expect(s.started.ingest).toBe(3);
     expect((await s.engine.search('news')).total).toBe(300);
+  });
+
+  it("hands out each Xtream source's allowed_output_formats from the sources' records (step 20c2a)", async () => {
+    const s = setup(() => ({ body: playlist(10) }));
+    await s.engine.refresh(job());
+    // A playlist has none.
+    expect([...(await s.engine.outputFormats())]).toEqual([]);
+    // An Xtream source's record, as its ingest leaves it.
+    const db = await openDatabase(s.factory);
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE.sources, 'readwrite');
+      tx.objectStore(STORE.sources).put({ ...newSourceMeta('xt'), outputFormats: ['m3u8'] });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+    await s.engine.query.call('reload');
+    expect([...(await s.engine.outputFormats())]).toEqual([['xt', ['m3u8']]]);
   });
 
   it('reports a failed refresh, terminates its worker and keeps serving the old catalog', async () => {

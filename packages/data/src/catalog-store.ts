@@ -39,6 +39,11 @@ export interface SourceMeta {
   /** The Xtream panel's server facts from the last login (catch-up needs its zone; step 8). */
   server?: XtreamServerInfo | null;
   /**
+   * The account's `allowed_output_formats` from the last Xtream login (`ts`, `m3u8`; step 20c2a):
+   * the player keeps to them (`streamCandidates`). Absent for playlists and for older records.
+   */
+  outputFormats?: string[];
+  /**
    * EPG URLs from the M3U header (`url-tvg`, `x-tvg-url`), added as guides automatically (step
    * 9b). They may carry credentials, like the stream URLs in the chunks: never log them.
    */
@@ -61,7 +66,7 @@ export interface FetchStamp {
 }
 
 /** Optional fields `commitGeneration` and `markChecked` also set. */
-export type SourceMetaPatch = Partial<Pick<SourceMeta, 'fetch' | 'checkedAt' | 'server' | 'epgUrls'>>;
+export type SourceMetaPatch = Partial<Pick<SourceMeta, 'fetch' | 'checkedAt' | 'server' | 'outputFormats' | 'epgUrls'>>;
 
 /** Thrown when a commit finds another refresh took over the source. */
 export class GenerationError extends Error {

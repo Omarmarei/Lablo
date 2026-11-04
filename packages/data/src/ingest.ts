@@ -117,7 +117,8 @@ export interface IngestResult {
   gzipped: boolean;
   elapsedMs: number;
   m3u: { epgUrls: string[]; userAgents: string[]; looksLikeHls: boolean; stats: M3uStats } | null;
-  xtream: { server: XtreamServerInfo | null; lists: Partial<Record<ContentKind, XtreamListStats>> } | null;
+  /** `outputFormats`: the account's `allowed_output_formats` (kept in `SourceMeta`). */
+  xtream: { server: XtreamServerInfo | null; outputFormats: string[]; lists: Partial<Record<ContentKind, XtreamListStats>> } | null;
   /** What happened to the favourites (`null`: no profile, or unchanged catalog). */
   favourites: FavouriteReport | null;
   /** Why the favourites couldn't be updated (the swap still happened). */
@@ -367,7 +368,7 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
         token.throwIfCancelled();
         await writer.finishKind(kind);
       }
-      xtream = { server: login.server, lists };
+      xtream = { server: login.server, outputFormats: login.user.outputFormats, lists };
     }
 
     await writer.finish();
@@ -378,7 +379,7 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
     const stamp: FetchStamp = { v: INGEST_VERSION, hash: hasher.digest(), bytes: hasher.bytes, etag, lastModified };
     const server = xtream ? xtream.server : null;
     // The guides an M3U header names (step 9b reads them as EPG sources).
-    const extra: SourceMetaPatch = m3u ? { server, epgUrls: m3u.epgUrls.slice() } : { server };
+    const extra: SourceMetaPatch = m3u ? { server, epgUrls: m3u.epgUrls.slice() } : { server, outputFormats: xtream!.outputFormats };
 
     if (known && known.hash === stamp.hash && known.bytes === stamp.bytes) {
       const unused = writer.gen;

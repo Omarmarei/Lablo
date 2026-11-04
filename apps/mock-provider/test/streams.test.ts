@@ -40,6 +40,15 @@ describe('live', () => {
     }
   });
 
+  it("refuses a live format the account's allowed_output_formats leave out (the hls account: no .ts)", async () => {
+    app = await mock();
+    for (const url of ['/live/hls/hls-test/101.ts', '/live/hls/hls-test/101', '/hls/hls-test/101']) expect((await get(url)).statusCode, url).toBe(403);
+    expect((await get('/live/hls/hls-test/101.m3u8')).statusCode).toBe(200);
+    // The formats it allows are the ones user_info names.
+    expect(JSON.parse((await get('/player_api.php?username=hls&password=hls-test')).body).user_info.allowed_output_formats).toEqual(['m3u8']);
+    expect(JSON.parse((await get('/player_api.php?username=zoma&password=zoma-test')).body).user_info.allowed_output_formats).toEqual(['m3u8', 'ts']);
+  });
+
   it('serves a sliding-window HLS playlist whose segments resolve', async () => {
     app = await mock();
     const res = await get('/live/zoma/zoma-test/101.m3u8');
