@@ -1,205 +1,211 @@
-# Zoma IPTV: relay leg 40 opening prompt
+# Zoma IPTV: relay leg 41 opening prompt
 
-You are leg 40 of relay run `iptv-20261101-214120`, building **Zoma IPTV**. It is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 41 of relay run `iptv-20261101-214120`, building **Zoma IPTV**. It is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 - **Earlier legs:**
   - Leg 0 planned the work. Leg 6 did no project work.
-  - Legs 1–38 did steps 1–19, except step 16's Samsung part and its by-hand TV checks, and 19b (PRs #1–#37).
-- **Leg 39 split step 20 into 20a, 20b and 20c, and did 20a:** the player in the app. It merged as PR **#38** (merge commit **`aa299fb`**, branch kept).
-  - CI on `1b192b5`: verify 9 m 48 s, media 11 m 47 s, engines 12 m 5 s, all green on the first run.
-  - Main's CI on `aa299fb` (run `41844516860`) had just started when leg 39 ended.
+  - Legs 1–39 did steps 1–20a, except step 16's Samsung part and its by-hand TV checks, and 19b (PRs #1–#38).
+- **Leg 40 split step 20b into 20b1 and 20b2, and did 20b1:** the track menu and the language preferences. It merged as PR **#39** (merge commit **`853bdfb`**, branch kept).
+  - CI on `363a7cf`: verify 10 m, media 9 m 27 s, engines 13 m 35 s, all green.
+  - The first CI run's `media` job failed: the playback harness counted track-only statuses as history (fixed in `363a7cf`, see the gotchas).
+  - Main's CI on `853bdfb` had not been checked when leg 40 ended.
 - **Steps 16 and 19b stay open** until Omar says the Samsung route is ready or has time at the TV.
 
-## Your step: 20b, tracks and subtitles (RELAY.md is the spec)
-RELAY.md, step 20b: "The track menu (audio and subtitles; 'Not supported on this TV' where `caps.trackSwitch` is `none`), the language preferences (`ar`/`ara`/`arb`/`Arabic`/`عربي` → `ar`) applied when tracks appear, the per-channel choice remembered. The subtitle overlay: an SRT/VTT/ASS parser in `core` (fast-check chunk-split and never-throw tests), size and timing offset, `dir=auto` per cue, fed by external files (`PlayRequest.externalSubs`) and by AVPlay's `cue` events. Samsung's MTS/Caption keys need new intents (S10's battery then asks every TV for them). Done when: unit tests, e2e of the menu and the overlay (an external SRT on the mock's VOD in `e2e:media`), PR merged, checklist."
+## Your step: 20b2, the subtitle overlay (RELAY.md is the spec)
+RELAY.md, step 20b2:
+- An SRT/VTT/ASS parser in `core`: pure, ES2017, with fast-check chunk-split and never-throw tests.
+- The overlay over the player: size and timing offset, `dir=auto` per cue.
+- It is fed by AVPlay's `cue` events (a subtitle chosen on Tizen shows nothing until this step) and by external files (`PlayRequest.externalSubs`, fetched by the app and listed in the menu's subtitles).
+- webOS draws embedded subtitles itself.
+
+**Done when:**
+- unit tests for the parser, the overlay's timing and the cue feed;
+- an e2e of the overlay with an external SRT in `e2e:media`. VOD reaches the app only in step 26, so either give a live channel's request `externalSubs` or use the playback harness;
+- the PR merged;
+- the menu-and-subtitles checklist in the handover.
 
 1. **Check for existing work first:**
    - Run `git log --oneline -50`.
-   - Grep for `selectAudio`, `selectText`, `externalSubs`, `cue` and `normalizeLang`/`languageCode` under `packages/core/src`, `packages/player/src` and `apps/tv/src`.
+   - Grep for `externalSubs`, `'cue'`, `parseSrt`/`parseVtt`/`subtitle` under `packages/core/src`, `packages/player/src` and `apps/tv/src`.
    - What exists today:
-     - the engines' `getTracks`/`selectAudio`/`selectText`;
-     - the `tracks` and `cue` engine events, which the controller ignores (`packages/player/src/controller.ts`, `onEvent`);
-     - no language normalizer, no subtitle parser, no menu.
-2. **If 20b is too big for one leg, split it** (20b1: the track menu and the language preferences; 20b2: the subtitle parser and the overlay), record the split in RELAY.md, and do the first part.
-3. **Where the pieces go:**
-   - **The track menu** is a new screen pushed on the live navigator over the player, like the player itself (see "Built in step 20a").
-     - Reach it from a new info-bar action next to "Previous channel" (the `actions` zone's count goes from 1 to 2).
-     - Samsung's MTS and Caption keys only with new intents. A new intent makes S10's key battery ask every TV for it, webOS included; decide and record it.
-   - **The controller** should expose tracks and the selection.
-     - Events: `tracks` after `firstFrame`; `selectAudio`/`selectText` through the engine.
-     - The preferences (`['ar','en']`) apply when tracks appear, and the per-channel choice wins.
-     - The per-channel memory: the profile is 20c's job, so keep it in memory now behind an interface, like `SourceMemory`.
-   - **The overlay:** the SRT/VTT/ASS parser goes in `core` (pure, ES2017, no DOM).
-     - External subtitle files are fetched by the app; the URL comes from the provider. Run it through the query worker or a plain `fetch`, and keep the main bundle's polyfills in mind.
-     - AVPlay's `cue` (`text`, `durationMs`) feeds the same overlay.
-     - The webOS embedded subtitles are left to the TV (architecture.md §2 "Subtitles").
-4. **The controller's own tests** use `FakeEngine` (`packages/player/src/fake-engine.ts`, not exported). The app's player tests use hand fakes (`apps/tv/src/player/player-state.test.ts`).
+     - `PlayRequest.externalSubs` (`{ lang, url, fmt: 'srt' | 'vtt' }[]`, unused);
+     - the engines' `cue` event (AvplayEngine sends `text` and `durationMs`), which the controller drops (`controller.ts`, `onEvent`, `case 'cue'`);
+     - the menu's subtitle list (engine text tracks only);
+     - the mock's SRT text generator (`apps/mock-provider/src/media-plan.ts`, `srtText`). No parser, no overlay.
+2. **If 20b2 is too big for one leg, split it:** 20b2a, the parser in `core` with its tests, then 20b2b, the overlay and its feeds. Record the split in RELAY.md.
+3. **Where the pieces go (decide and record):**
+   - **The parser:** `packages/core/src/subtitles.ts`. Use the patterns in memory `iptv-parser-test-patterns`: fixture oracle, chunk splits that keep empty chunks, mutation run. No `new RegExp` and no `.split(` in TV code: they pull polyfills into main (memory `iptv-tv-bundle-polyfills`).
+   - **The cue feed:** the controller could expose the current cue (`status.cue`, or a separate subscription so the status doesn't churn). AVPlay's `cue` is "show this text for `durationMs`". External files need the media clock: `engine.positionMs()` polled at ~250 ms while a file's track is selected.
+   - **External tracks in the menu:** the controller's `status.tracks.text` lists engine tracks only today. External files could join it with ids like `ext:0`, and `selectText` would route them to the overlay instead of the engine. Keep `TrackMemory`'s picks working: `findPick` matches on id, language and label.
+   - **Size and timing offset:** in memory now, the profile later (20c or settings). The offset needs a key or a menu row; keep it small.
+   - **The overlay:** in `PlayerScreen` (`apps/tv/src/player/`), above the picture and under the info bar and the menu. Use physical CSS (postcss-rtlcss mirrors it), `dir=auto` and `translate=false` per cue, and the safe area.
 
 ## Read first
-1. `CLAUDE.md`: the conventions, the Definition of Done, the merge policy and the commit format.
-2. `RELAY.md`: step 20 and its split (20a–c), and the progress-log rows for legs 37–39.
-3. `docs/architecture.md` §2: "Tracks", "Subtitles", and "Built in step 18/19/20a".
-4. `apps/tv/src/player/`: `player-state.ts`, `PlayerScreen.tsx`, `app-player.ts`, `stage.ts`, `player.css`. Also `apps/tv/src/live/live-state.ts` (`list`, `focusRow`) and `LiveApp.tsx`.
-5. `packages/player/src/`: `controller.ts` (`hide`/`show` are new), `engine.ts`, `html5-engine.ts` (tracks), `ladder.ts` (the 20a fix); and `packages/platform-tizen/src/avplay-engine.ts` (tracks, `cue`).
-6. `e2e/player.spec.ts`, `e2e/player-media.spec.ts`, and `e2e/playback-media.spec.ts`, which switches the MKV's three audio tracks through the harness.
-7. Memory:
-   - `iptv-ui-test-gotchas` (leg 39 included);
-   - `iptv-playwright-chromium-media`: no in-band text tracks on the desktop; `audioTracks` needs the Blink flag;
+1. `CLAUDE.md`: conventions, Definition of Done, merge policy, commit format.
+2. `RELAY.md`: step 20 and its splits (20a, 20b1, 20b2, 20c), and the progress-log rows for legs 38–40.
+3. `docs/architecture.md` §2: "Subtitles", "Built in step 20a" and **"Built in step 20b1"**.
+4. The code:
+   - `packages/player/src/tracks.ts`, and `controller.ts` (`onTracks`, `selectText`, `autoSwitch`, `case 'cue'`);
+   - `packages/platform-tizen/src/avplay-engine.ts` (the `cue` emit, `selectText`, `setSilentSubtitle`);
+   - `apps/tv/src/player/`: `track-menu.ts`, `TrackMenuPanel.tsx`, `PlayerScreen.tsx`, `player-state.ts`, `player.css`.
+5. The e2e:
+   - `e2e/player.spec.ts` (the menu tests at the end);
+   - `e2e/player-media.spec.ts` (the MKV routed in for channel 104);
+   - `e2e/playback-media.spec.ts` and `apps/tv/src/playback/playback-main.ts` (the harness, for an external-SRT e2e).
+6. Memory:
+   - `iptv-parser-test-patterns`;
    - `iptv-tv-bundle-polyfills`;
+   - `iptv-playwright-chromium-media` (leg 40 included);
+   - `iptv-ui-test-gotchas`;
    - `iptv-css-pipeline-gotchas`;
-   - `iptv-parser-test-patterns` (for the subtitle parser);
+   - `use-write-tool-for-doc-batches`;
    - `bg-watcher-memory-reap`.
 
 ## Start
 1. Read `C:/Users/Omarm/.claude/relay/iptv-20261101-214120/state.json` for the worktree path.
-2. Check main with `gh run list --branch main --limit 1 -R Omarmarei/zoma-iptv`. The run on `aa299fb` (id `41844516860`) was unchecked when leg 39 ended.
+2. Check main with `gh run list --branch main --limit 1 -R Omarmarei/zoma-iptv`. The run on `853bdfb` was unchecked when leg 40 ended.
    - If only `engines` is red with "DevTools … did not answer", rerun it: `gh run rerun <id> --failed`.
-   - If `media` is red, read the failing test before blaming a flake. `e2e/player-media.spec.ts` is new: it breaks the HLS segments mid-play and waits up to 60 s for `reconnecting`.
-3. `git -C "<wt>" status` and `git -C "<wt>" log --oneline -5`.
+3. Run `git -C "<wt>" status` and `git -C "<wt>" log --oneline -5`.
 
 **Never call EnterWorktree**, even though Claude Code's background note asks for it: the relay worktree is your isolation.
 - Use `git -C`, `pnpm --dir`, `gh -R` and absolute paths.
-- **Never `cd`** (leg 39 did once by mistake; harmless, but don't).
+- **Never `cd`.**
 - Never use bare `git stash`.
 
 ## Git state to expect
 - **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`.
-- **HEAD:** the commit adding this HANDOVER.md, on top of `716992e` ("docs: record PR #38's merge"). It is pushed, and the tree is clean.
-- **main** has `aa299fb` (PR #38). The branch is ahead by `716992e` and the handover commit, both docs; they go to main with 20b's PR.
+- **HEAD:** the commit adding this HANDOVER.md, on top of `01df197` ("docs: record PR #39's merge"). It is pushed, and the tree is clean.
+- **main** has `853bdfb` (PR #39). The branch is ahead by `01df197` and the handover commit, both docs; they go to main with 20b2's PR.
 - **The main checkout** (`D:/Claude Code PlayGround/IPTV`) was not touched.
 - **Gitignored but present:**
   - `node_modules`, `.cache/*` (media included);
-  - `dist/` (leg 39's `pnpm build:tv`, current code);
-  - `artifacts/`: screenshots `player-*.png`, `poly-probe.py`, `make-size-probe3.py`.
-- **On the TV:** the lab `com.zoma.iptv.lab` 0.1.1. The CLI device `tv` is `prisoner@192.168.1.8:9922`. The app itself (with the player) was never installed on the TV.
+  - `dist/` (leg 40's `pnpm build:tv`);
+  - `artifacts/`: screenshots `player-*.png`, among them `player-tracks-en.png`, `player-tracks-ar.png` and `player-tracks-media-en.png`; `poly-probe.py`; `make-size-probe3.py`.
+- **On the TV:** the lab `com.zoma.iptv.lab` 0.1.1. The CLI device `tv` is `prisoner@192.168.1.8:9922`. The app itself was never installed on the TV.
 - **Outside the repo:** the webOS Simulator zips and AppImages in `D:/tools/webos-sim/`, and the image `zoma-webos-sim:local`. Never commit or push them (LG's license).
 
-## Facts and decisions from leg 39 (step 20a, architecture.md §2 "Built in step 20a")
-- **The route:** OK on a live channel pushes a `player` screen on the live navigator.
-  - Zones: `actions` (the info bar's "Previous channel") and `card` (the error card's "Try again" and "Channels").
-  - `LiveApp` draws `PlayerScreen` instead of the live screen while it is on top.
-  - Back or STOP closes it: playback stops, and `live.focusRow(row played)`. Back during number entry only cancels the entry.
-- **The stage:** `#stage` is made on the first play (`createStage`) as the body's first child.
-  - `#app` is now `position: relative; z-index: 1`.
-  - `html[data-player='on']` makes `html` and `body` transparent and shows the stage.
-- **`appPlayer`** (one controller for the app, made on the first play):
-  - `createEngines(stage)[0]` and `resolveUrl` where the platform has it;
-  - `screenSaver` → `setScreenSaver` (a refusal is logged);
-  - `online: navigator.onLine`;
-  - `checkAccount` → the query worker's new `account` RPC (`packages/data/src/account-check.ts`: HTTP 401/403 = a refused login, a plain playlist = `null`);
-  - `onLifecycle` → `hide`/`show`.
-- **Keys:**
-  - CH±/UP/DOWN zap through the category on show, wrapping, with a 350 ms debounce.
-  - Digits: 1.5 s, at most 4. The lookup is `Live.list.find`: the guessed row by place, then chunks outwards. Two rows can share a number (provider numbers against places); the guessed chunk wins.
-  - PRE-CH and the bar's button go to the channel watched before.
-  - INFO toggles the bar.
-- **The info bar** hides 5 s after the last key once the stream has a picture, and stays while opening or failed.
-- **The controller's `hide()`/`show()`:**
-  - A stream with a picture is suspended in the engine; `show` arms the open timeout and says `reconnecting`.
-  - A stream still opening, or waiting out a backoff, is closed and reopened on show.
-  - Engine events are dropped while hidden.
-- **The ladder fix** (found by the media e2e): a definitive failure on a URL now hands the ladder to a living URL with backoff, instead of giving up. Before it, a switch from a broken `.m3u8` to the refused `.ts` ended with "this TV can't play this".
-- **Known gaps:**
-  - The picture goes **black while reconnecting** (Html5Engine closes before each reopen; keeping the last frame is later work).
-  - Radio channels fail as `TV-UNSUPPORTED`/`NO_PICTURE` (step 37).
-  - `allowed_output_formats` isn't used yet (20c).
-  - No colour-key shortcut for the previous channel (step 39).
-- **Size:** main's own code is 225.8 KB on Tizen and 214.4 KB on webOS (+26.8/+26.9 KB), with the same 219 core-js modules on both (`python -I artifacts/poly-probe.py <wt> <out>`; count the `core-js` lines of the two `main.tsx` tables).
-- **The three riskiest changes in PR #38:**
-  1. `main.tsx` now brings the player code into every start, and main is about 27 KB bigger. `verify:engines` wasn't run locally; CI's `engines` job passed.
-  2. The ladder's definitive-failure rule changed (`packages/player/src/ladder.ts`).
-  3. `#app` got `position: relative; z-index: 1` for the stage.
+## Facts and decisions from leg 40 (step 20b1, architecture.md §2 "Built in step 20b1")
+- **`normalizeLang`** (`packages/core/src/language.ts`) returns `''` or a lower-case code:
+  - the primary subtag of a tag;
+  - 639-1 codes as they are (`iw` → `he`);
+  - 639-2/T and /B codes and the Arabic and Chinese individual languages to 639-1;
+  - other three-letter codes as they are;
+  - English and native names (`Arabic`, `عربي`, `العربية`, `Français`) to their code;
+  - `''` for `und`, `qaa`–`qtz` and unknown names.
+- **The controller:**
+  - `status.tracks` holds `{ audio, text, switching }`. Each track's `lang` is normalized, `streamLang` keeps the stream's own text, and `switching` is `caps.trackSwitch` at the time.
+  - Each kind is chosen once per load when the tracks appear (a `tracks` event or the first frame): the channel's choice (`TrackMemory`), else the first preferred language, else the stream's own. A remembered `off` turns subtitles off.
+  - A retry or a resume chooses again.
+  - The menu's `selectAudio`/`selectText` remember the choice per channel when the engine took it.
+  - An automatic switch's answer is dropped by its load's token (tokens are never reused).
+  - The controller now **publishes a status when the tracks change with the state unchanged**.
+- **The app:**
+  - `uiTrackPreferences(document.documentElement.lang)` gives `['ar','en']` or `['en','ar']`, and no subtitles.
+  - The menu is a `tracks` screen over the player, with zones `audio` and `text` ("Off" first), 5 rows each.
+  - It opens from the info bar's "Audio and subtitles" (the `actions` zone count is 2, `TRACKS_ACTION = 1`), from `AUDIO` (Tizen `MTS` 10195, desktop `a`) and from `SUBTITLES` (`Caption` 10221, desktop `c`). webOS maps neither key.
+  - It shows "Not supported on this TV" where `switching` is `none`.
+  - Back or the same key closes it, and STOP closes the player. It closes when the player gives up, and the info bar hides while it shows.
+  - `LiveApp` draws `PlayerScreen` for the `player` and `tracks` screens.
+- **S10:** the key battery asks every TV for the two new keys. On webOS they are reported missing, like PRE-CH, until a TV run finds their codes.
+- **Size:** main is 242.8 KB on Tizen and 231.3 KB on webOS (+17 KB each), with the same 219 core-js modules. About 4 KB of the growth is non-ASCII text (terser's `ascii_only`).
+- **The three riskiest changes in PR #39:**
+  1. `PlayerStatus.tracks`, and the automatic switches on every play with a preferred language.
+  2. The new intents: Tizen registers MTS and Caption, and `a`/`c` are taken on the desktop.
+  3. The +17 KB in main.
 
-## The "press these keys" checklist for Omar (step 20a, `pnpm dev`)
-Set up two terminals: `pnpm mock` in one and `pnpm dev` in the other. Open http://localhost:5173, onboard with server `localhost:8080`, user `zoma`, password `zoma-test`, then "Start watching". For real pictures, run `pnpm mock:media` once first.
+## The "press these keys" checklist for Omar (step 20b1, `pnpm dev`)
+Set up two terminals: `pnpm mock` in one and `pnpm dev` in the other. Run `pnpm mock:media` once first for real pictures. Open http://localhost:5173 and onboard with server `localhost:8080`, user `zoma`, password `zoma-test`, then "Start watching".
 
-**Keys:** Enter = OK, Escape = Back, PageUp/PageDown = CH+/CH−, digits, `p` = PRE-CH, `i` = INFO, `s` = STOP.
+**Keys:** Enter = OK, Escape = Back, arrows, `a` = audio key, `c` = subtitle key, `s` = STOP, PageUp/PageDown = CH±.
 
-1. **ArrowDown, Enter:** the player opens. The info bar shows "2 Zoma Test 2 Clock", now/next and the clock; the picture plays (HLS) with media, or "Connecting…" without.
-2. **PageUp three times quickly:** the bar shows each channel at once. Only "زوما تجريبي ٣" (3) opens.
-3. **`5`:** after 1.5 s, "Zoma Kids Test" opens.
-4. **`p`:** back to channel 3. **`p`** again: back to 5.
-5. **`9`, `9`, Enter:** "No channel 99" for 2 s.
-6. **Wait 5 s while it plays:** the bar hides. **`i`** shows it; **Enter** on a hidden bar shows it, and then presses "Previous channel".
-7. **A broken channel:** restart the mock with `pnpm mock --scenario provider-errors`, then go to channel 4 (row 6, stream 104, which answers 509). After a few seconds the error card shows "Your provider isn't sending this channel", the subscription end, "Connections in use: 0 of 2" and the code. Enter = Try again; ArrowRight + Enter = Channels.
-8. **On a card, PageUp:** the card goes at once and the next channel opens.
-9. **Escape:** back to the list, on the channel that played.
-10. **Arabic:** the same in Arabic (`?locale=ar-SA` on a fresh profile, or pick العربية in onboarding). The bar is mirrored (number on the right), and the card's buttons start from the right (ArrowLeft goes to "القنوات").
+The desktop lists audio tracks only with Chromium's flag. Without it, every channel shows "Not supported on this TV". To see real tracks, start Chrome with `--enable-blink-features=AudioVideoTracks`; the e2e plays the multi-audio MKV that way.
+
+1. **ArrowDown, Enter:** the player opens. **ArrowRight, Enter** on "Audio and subtitles": the panel opens on the right, the info bar hides, and focus is on the subtitles' "Off". Audio says "Not supported on this TV" without the flag.
+2. **Escape:** the panel closes, and the bar comes back with "Audio and subtitles" focused.
+3. **`c`:** the panel opens on the subtitles. **`a`** closes it when there is no audio list. With the flag and tracks, `a` moves to the audio list instead.
+4. **`a`, then `s`:** the menu and the player both close; you are back on the channel list.
+5. **Arabic** (`?locale=ar-SA` on a fresh profile, or pick العربية in onboarding): the panel is on the left, and ArrowLeft reaches the bar's second button.
+6. **With the flag and the MKV:** see `e2e/player-media.spec.ts`. Channel 104 is routed to `/movie/zoma/zoma-test/206.mkv`. English is chosen over the file's Arabic. Picking Arabic sticks after CH+ then CH−.
 
 ## Gotchas and lessons
-**New in leg 39** (also in memory):
-- **@preact/signals skips redrawing a child component whose props didn't change** (it patches `shouldComponentUpdate`). A child that reads plain data behind a version signal (`live.row()`, `live.guide()` behind `live.version`) never updates. Pass the data as props, or read the version signal in the child. The info bar kept "no guide" forever until its row and guide became props.
-- **The mock can switch faults mid-test in-process:** `app.mockState.scenario = parseScenario({...}, name)`, then `= null`. HLS segments are `/hls/:u/:p/:id/:seg` (6 s each).
-- **Expected browser console errors:** e2e that make a channel fail must filter the browser's "Failed to load resource … status of 404/503" lines out of `trackErrors`.
-- **Heredoc patches again:** `\\n` inside a heredoc'd Python script became a raw newline (a SyntaxError). Use `NL = chr(10)` in patch scripts, or write them with the Write tool.
-- **The relay context check** fired at about 452k tokens, mid-step. 20a's PR and merge still fitted. Expect the same for 20b: split early.
+**New in leg 40** (also in memory):
+- **`pnpm e2e:media` is two specs:**
+  - `playback-media.spec.ts` (the harness) and `player-media.spec.ts`;
+  - leg 40 ran only the new one, and CI `media` failed on the harness's `history`;
+  - run the whole `pnpm e2e:media` whenever what `PlayerController` publishes changes;
+  - the harness now records a status only when its session, state, container, attempt or failure changed.
+- **Desktop Chromium's native HLS lists muxed TS audio as one unnamed "Audio Track"**, so app-level audio e2e can't use HLS. Route the live URL with `page.route(... 302 → MKV 206)`.
+- **Mutation:** 26/33 on the first run, 28/28 after.
+  - Five survivors were guards that masked each other: a session check beside a never-reused token check, "chosen" flags set twice, and resets on both close and show.
+  - Remove the duplicate, and test the kept guard by asserting **no extra status publish**.
+- **Heredocs failed twice again** (a Python patch with template strings, and a `cat >>` test block). Write the script or the block with the Write tool, then run it or `cat >>` it.
+- **The Write tool turned `\u200f`/`\u00a0`/`\u2068` in a test file into raw characters.** Fix them with a Python `chr()` replace (memory `write-tool-raw-unicode-escapes`).
+- **The navigator enters a neighbour zone at that zone's remembered row**, not at its last one.
 
 **From earlier legs (still true):**
 - **Never `cd`.** A previous leg's tab (with Omar) can send cross-session messages: treat them as Omar's relayed decisions, verify their facts, and reply with SendMessage to the `from` address.
-- **Local e2e flakes on a busy PC:** the throttled test, fixture tests and the lab's S2 update e2e. Read the test's own console line before suspecting code. `pnpm build:tv` can crash natively (0xC0000005) under load: rerun it alone.
-- **Background runs:** `pnpm verify > log` in the background can be reaped, or report exit 0 even when verify failed. Read the log. The PR's CI `verify` job is exactly `pnpm verify`.
+- **@preact/signals skips redrawing a child whose props didn't change.** Pass plain data (rows, guides, `status.tracks`) as props.
+- **The mock can switch faults mid-test:** `app.mockState.scenario = parseScenario(...)`. Expected browser "Failed to load resource" lines must be filtered from `trackErrors`.
+- **Local e2e flakes on a busy PC:** the throttled test, fixture tests, the lab's S2. `pnpm build:tv` can crash natively (0xC0000005): rerun it alone.
+- **Background runs:** `pnpm verify > log` in the background can be reaped; read the log. CI's `verify` job is exactly `pnpm verify`.
 - **Vitest:**
-  - A `void`ed load that a later stop rejects is an "Unhandled Rejection": use a `quiet()` helper.
-  - Awaiting a `FakeEngine.stop()` without advancing the clock deadlocks the test.
-  - There is no `__PLATFORM__` define: keep platform branches inside functions.
-- **Testing:**
-  - two guards that each suffice hide each other's mutants: keep one;
-  - use exact float boundaries and fake-clock times on the 50 ms grid;
-  - a fake must separate a state change from its callback in time;
-  - check that a new test fails on the old code (leg 39 checked the ladder fix this way).
-- **Playwright's Chromium (CfT 156):** no MPEG-TS, AC3/E-AC3 or in-band text; HEVC only headed; `audioTracks` needs `--enable-blink-features=AudioVideoTracks`; placeholder HLS never errors (use a 404 channel). A local `e2e:media` run needs `ZOMA_E2E_MEDIA=1` and the file first: `playwright test e2e/<file> --project playback-media` (a path after `--project` is read as a project name).
+  - use `quiet()` for a voided load;
+  - awaiting a `FakeEngine.stop()` without advancing the clock deadlocks;
+  - there is no `__PLATFORM__` define;
+  - `FakeEngine` now has `audio`/`text`/`switchOk`/`switchMs`/`trackSwitch` and the `tracksMs` script option.
+- **Playwright's Chromium (CfT 156):**
+  - no MPEG-TS, AC3/E-AC3 or in-band text;
+  - `audioTracks` needs `--enable-blink-features=AudioVideoTracks`;
+  - a local `e2e:media` run needs `ZOMA_E2E_MEDIA=1` and the file first, or simply `pnpm e2e:media`.
 - **The DevTools flake** ("did not answer") on the old-engine harness: rerun the self-test or the CI job.
-- **The lab under `pnpm dev`** shares the app's origin: use port 5174 for a manual lab run.
-- **The Write tool turns `\uXXXX` escapes into raw characters.**
-- **Waiting for CI:** check `gh pr checks <n>` once in the foreground, then Monitor with leg 14's command verbatim (it is in memory `bg-watcher-memory-reap`; worked again for PR #38). Never `<(`.
+- **Waiting for CI:** run `gh pr checks <n>` once, then Monitor with leg 14's command verbatim (memory `bg-watcher-memory-reap`; worked for PR #39). Never use `<(`.
 - **Code rules:**
-  - Components in `packages/ui` stay hook-free.
-  - Text only from the catalogs (`zoma/no-hard-coded-text`); provider text goes through `isolateText` (the `t()` arguments are isolated) or `dir=auto` + `translate=false`.
-  - CSS uses physical properties only.
-  - TV code is `lib: ES2017`; avoid `JSON.stringify`, `new RegExp`, `.split(` and fields named like built-ins.
-  - A new screen root needs `data-screen/zone/index`.
+  - components in `packages/ui` stay hook-free;
+  - UI text comes only from the catalogs, and Arabic catalog text has no Latin words of its own (the catalog test checks it);
+  - provider text uses `dir=auto` + `translate=false` or `isolateText`;
+  - CSS uses physical properties only;
+  - TV code is `lib: ES2017`; avoid `JSON.stringify`, `new RegExp`, `.split(` and fields named like built-ins;
+  - a new screen root needs `data-screen/zone/index`.
 - **Dependencies** must be at least 2 weeks old, transitive ones included. Never weaken lint.
 - **Commits:** scoped `git add`, then `git commit -F -` ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` and the harness's `Claude-Session` line.
 - **CLAUDE.md edits need Omar's direct word in his own tab.**
 
 ## Verified vs not
 - **Verified:**
-  - Locally: lint, typecheck, 2,770 unit tests, both TV builds, and e2e for `player.spec.ts` (3) plus live/onboarding/tv-bundle (25) and `player-media.spec.ts` (1).
-  - The ladder fix's tests fail on the old ladder.
-  - PR #38's CI green on all three jobs (verify ran the full e2e; engines ran Chromium 53/56/68). Merged as `aa299fb`.
-  - Screenshots looked at: `artifacts/screenshots/player-bar-en.png`, `player-card-ar.png` (mirrored correctly), `player-live-en.png` (real bars with the bar over them), `player-reconnecting-en.png` (black with the badge).
+  - Locally: lint, typecheck, 2,939 unit tests, both TV builds, `pnpm e2e` (57), and `pnpm e2e:media` (7, after the fix).
+  - Mutation 28/28 on the new track code.
+  - Screenshots looked at: `player-tracks-en.png` (right), `player-tracks-ar.png` (mirrored left), `player-tracks-media-en.png` (Arabic/English/Spanish over the MKV, English selected).
+  - PR #39's CI green on all three jobs; merged as `853bdfb`.
 - **Not done:**
-  - Main's CI on `aa299fb` is unchecked.
+  - Main's CI on `853bdfb` is unchecked.
   - `verify:engines` wasn't run locally (CI's `engines` passed).
-  - No mutation run for 20a's new code (the player state, the live list, `hide`/`show`). Leg 39 stopped at the context check; consider one for 20a's files when 20b touches them.
+  - The menu hasn't run on any TV, so the S10 run for the MTS/Caption codes hasn't happened.
+  - Subtitles aren't drawn anywhere (20b2).
   - The player hasn't run on the LG TV (step 21) or any Samsung (19b).
-  - The Simulators weren't re-run. S6 at scale on the TV.
-  - The by-hand TV checks: S10, S11 by ear, and S5's suspend and soak.
-  - All of Samsung.
 - **Migrations and deploys:** N/A (no backend until step 29).
 
 ## Open decisions and gates
-- **20b's split** and the new intents (MTS, Caption) are the leg's judgement; record them.
+- **20b2's split** and the overlay's design (the cue feed, external tracks in the menu, the offset key) are the leg's judgement; record them.
 - **Steps 16 and 19b wait for Omar:**
   - **Samsung:** the account, the certificate (tv-setup.md 3.2), the RTL tunnel session, and the used 2018 set.
-  - **About 30 minutes at the LG TV** for S10, S11 by ear, and S5's suspend and soak. Now also the player itself (step 21).
+  - **About 30 minutes at the LG TV** for S10 (now also the audio and subtitle keys' codes), S11 by ear, S5's suspend and soak, and the player itself (step 21).
 - **Later, from the spikes:**
-  - in-band subtitles failed on the LG TV, so 20b's overlay is fed by sidecar files and AVPlay's cues;
   - an on-screen keyboard of our own if the TV keyboards fail (S10);
   - webOS's PRE-CH key;
   - the accessibility route (TTS needs Audio Guidance on);
   - pre-buffered zapping (S8, Samsung);
-  - the last frame kept while reconnecting.
+  - the last frame kept while reconnecting;
+  - a settings screen for the track languages.
 - **Later cleanups:** drop Chromium 53 (ADR-012); a memory signal for the tier (step 41).
 - **Later gates:** steps 19b, 21, 34, 44, 46 and 47. Before the first store submission: the final app IDs (the lab's too) and real icons.
-- **Relay cap:** 60 legs (state.json). Leg 39 was the 39th.
+- **Relay cap:** 60 legs (state.json). Leg 40 was the 40th.
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
 - Submit the **Samsung Seller Office Partner application ASAP** (Samsung Gulf). It takes weeks, and Samsung in the GCC and Canada depends on it, and so does a GCC Beta Test.
 - **"Zoma" trademark clearance** (US, CA, AE, SA) and domains. These also decide the final app IDs.
 - `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` was widened with his authorisation on 2026-11-02. Prune it when the relay run ends if he wants it tighter.
 - **At the TV next time:** read Dev Mode's "Remain Session" (was the PC extend real?).
-- **Nineteen CLAUDE.md gaps** are waiting for his word:
+- **Twenty CLAUDE.md gaps** are waiting for his word:
   1. `@zoma/data`'s extra entries;
   2. `pnpm epg:report` and `pnpm fonts` in the Commands table;
   3. the CSS pipeline and gate in the `build:tv` row;
@@ -218,5 +224,6 @@ Set up two terminals: `pnpm mock` in one and `pnpm dev` in the other. Open http:
   16. the Chromium 53 cheat sheet's heading (since ADR-012 no supported TV runs 53, but the build still targets it), and the `build:tv` row should mention the webOS ACG check (`requiredACG`, `tools/build/src/acg.ts`);
   17. a `pnpm e2e:media` row (`verify:media` is now fixtures + test:media + lab:media + e2e:media), the playback harness `apps/tv/playback.html` (`window.__ZOMA_PLAYBACK__`) in the `pnpm dev` row, and `Platform.createEngines(stage)`;
   18. platform-tizen's `AvplayEngine` and `createRedirectProbe` (`Platform.resolveUrl`), `FallbackEngine` in `player`, and the `ZOMA_E2E_MEDIA=1` switch for running one `playback-media` test locally;
-  19. **new (leg 39):** the player in the app (`apps/tv/src/player`: the stage, `appPlayer`, the keys) in the `pnpm dev` row, the query worker's `account` call, and `e2e/player-media.spec.ts` in the `e2e:media` row.
+  19. the player in the app (`apps/tv/src/player`: the stage, `appPlayer`, the keys) in the `pnpm dev` row, the query worker's `account` call, and `e2e/player-media.spec.ts` in the `e2e:media` row;
+  20. **new (leg 40):** the desktop keys `a` (audio) and `c` (subtitles) in the `pnpm dev` row's key list, and the `AUDIO`/`SUBTITLES` intents (Tizen MTS/Caption) next to the remote-keys note.
 - **Secrets:** none pending. The LG Dev Mode passphrase from 2026-11-04 needs no reminder (Omar said so).
