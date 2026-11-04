@@ -80,6 +80,12 @@ export type EngineEvent =
   | { readonly type: 'ended' }
   /** The audio or text track list changed. */
   | { readonly type: 'tracks' }
+  /**
+   * An embedded subtitle's text, for the app's overlay to draw for `durationMs`, from engines
+   * that deliver it (`caps.deliversSubtitleText`: AVPlay's `onsubtitlechange`) while a text
+   * track is selected.
+   */
+  | { readonly type: 'cue'; readonly text: string; readonly durationMs: number }
   /** Playback failed; the load is over. */
   | { readonly type: 'error'; readonly error: PlaybackError };
 

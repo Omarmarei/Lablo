@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TizenKey } from './index';
-import { TIZEN_IME_CANCEL, TIZEN_IME_DONE, buildTizenKeyMap, createTizenPlatform, registerTizenKeys, tizenChromiumVersion, tizenKeysToRegister, tizenModelYear, tizenTextKey } from './index';
+import { FakeAvplay, FakeClock, settle } from './fake-avplay';
+import { TIZEN_IME_CANCEL, TIZEN_IME_DONE, buildTizenKeyMap, createTizenEngines, createTizenPlatform, registerTizenKeys, tizenChromiumVersion, tizenKeysToRegister, tizenModelYear, tizenTextKey } from './index';
 
 describe('Tizen key registration', () => {
   it('registers every non-mandatory key when the supported-key list is unavailable', () => {
@@ -170,12 +171,12 @@ describe('tizenTextKey (a text field being edited, RELAY step 13a)', () => {
 });
 
 /** A stage whose document makes elements with what `createStageVideo` and `Html5Engine` touch. */
-function fakeStage(mediaId?: string): { stage: HTMLElement; made: Array<{ tag: string }> } {
-  const made: Array<{ tag: string }> = [];
+function fakeStage(mediaId?: string): { stage: HTMLElement; made: Array<{ tag: string; style: Record<string, string> }> } {
+  const made: Array<{ tag: string; style: Record<string, string> }> = [];
   const stage = {
     ownerDocument: {
       createElement: (tag: string) => {
-        const el = { tag, mediaId, style: {}, setAttribute: () => undefined, addEventListener: () => undefined, removeEventListener: () => undefined };
+        const el = { tag, mediaId, style: {} as Record<string, string>, setAttribute: () => undefined, addEventListener: () => undefined, removeEventListener: () => undefined };
         made.push(el);
         return el;
       },
@@ -185,11 +186,34 @@ function fakeStage(mediaId?: string): { stage: HTMLElement; made: Array<{ tag: s
   return { stage, made };
 }
 
-describe('createEngines (RELAY step 18; AVPlay first from step 19)', () => {
-  it("gives the <video> engine, Tizen's HLS fallback", () => {
+describe('createEngines (RELAY steps 18 and 19)', () => {
+  it('gives AVPlay with the <video> engine as its HLS fallback, the <video> hidden while AVPlay plays', async () => {
+    const { stage, made } = fakeStage();
+    const avplay = new FakeAvplay(new FakeClock());
+    const engines = createTizenEngines(stage, avplay);
+    expect(engines.map((e) => e.kind)).toEqual(['avplay']);
+    expect(made.map((el) => el.tag)).toEqual(['video', 'object']);
+    const video = made[0]!;
+    expect(video.style.display).toBe('none');
+    // AVPlay refuses an HLS stream: the <video> engine takes it, and shows.
+    const engine = engines[0]!;
+    void engine.load({ url: 'http://panel.example/live/u/p/1.m3u8', container: 'hls', live: true }, 1).then(undefined, () => undefined);
+    avplay.failPrepare({ name: 'PLAYER_ERROR_NOT_SUPPORTED_FORMAT' });
+    await settle();
+    expect(engine.kind).toBe('html5');
+    expect(video.style.display).toBe('');
+    expect(avplay.connections).toBe(0);
+  });
+
+  it('gives the <video> engine alone where there is no AVPlay (a desktop browser, the old-engine harness)', () => {
     const { stage, made } = fakeStage();
     const engines = createTizenPlatform().createEngines(stage);
     expect(engines.map((e) => e.kind)).toEqual(['html5']);
     expect(made.map((el) => el.tag)).toEqual(['video']);
+    expect(made[0]!.style.display).toBeUndefined();
+  });
+
+  it('gives the controller the redirect probe', () => {
+    expect(typeof createTizenPlatform().resolveUrl).toBe('function');
   });
 });

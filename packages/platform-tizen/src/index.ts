@@ -4,25 +4,33 @@
  * Step 2 covers what the hello app needs: device info, remote-key registration through
  * `tizen.tvinputdevice`, lifecycle and exit; step 15a the DUID (`deviceSecret`); step 15b2 the
  * screensaver and Voice Guide (`tv-settings.ts`); step 15c2 AVPlay typed for the lab's S4 and S8
- * (`avplay.ts`), which the AvplayEngine (step 19) will build on. The only package allowed to touch
- * `tizen` and `webapis` (lint-enforced).
+ * (`avplay.ts`); step 19 the AvplayEngine (`avplay-engine.ts`) and the redirect probe
+ * (`redirect-probe.ts`). The only package allowed to touch `tizen` and `webapis` (lint-enforced).
  * Every API is feature-checked, so the bundle also boots in a desktop browser.
  */
 import { chromiumMajorFromUserAgent, deviceTier } from '@zoma/core';
 import type { DeviceInfo, Intent, KeyLike, KeyRegistration, LifecycleEvent, Platform, PlatformCall, ScreenReaderState, TextKey } from '@zoma/platform-api';
-import { Html5Engine, createStageVideo } from '@zoma/player';
+import type { PlayerEngine } from '@zoma/player';
+import { FallbackEngine, Html5Engine, createStageVideo } from '@zoma/player';
+import { tizenAvplay } from './avplay';
+import { AvplayEngine, createAvplayPlane } from './avplay-engine';
 import { tizenChromiumVersion, tizenModelYear } from './device';
 import type { TizenKey, TvInputDevice } from './keys';
+import { createRedirectProbe } from './redirect-probe';
 import { buildTizenKeyMap, registerTizenKeys, tizenTextKey } from './keys';
 import type { TvSettingsApi } from './tv-settings';
 import { tizenScreenReader, tizenSetScreenSaver } from './tv-settings';
 
 export type { AvplayError, AvplayListener, AvplayManager, AvplayState, AvplayStore, AvplayStreamInfo, AvplayTrack, AvplayWebApis } from './avplay';
 export { avplayErrorText, avplayExtraInfo, avplayTracks, avplayUnsupported, tizenAvplay, tizenAvplayStore } from './avplay';
+export type { AvplayEngineOptions } from './avplay-engine';
+export { AVPLAY_FRAME_POLL_MS, AvplayEngine, PREPARE_TIMEOUT_MS, avplayError, createAvplayPlane } from './avplay-engine';
 export { tizenChromiumVersion, tizenModelYear } from './device';
 export type { TizenKey, TvInputDevice } from './keys';
 export { TIZEN_IME_CANCEL, TIZEN_IME_DONE, buildTizenKeyMap, registerTizenKeys, tizenKeysToRegister, tizenTextKey } from './keys';
 export type { TvSettingsApi } from './tv-settings';
+export type { ProbeXhr, RedirectMemory, RedirectMode, RedirectProbeOptions } from './redirect-probe';
+export { MemoryRedirectMemory, PROBE_TIMEOUT_MS, createRedirectProbe } from './redirect-probe';
 export { tizenScreenReader, tizenSetScreenSaver, voiceGuideOn } from './tv-settings';
 
 /** The slice of the Tizen Web Device API this adapter uses. */
@@ -86,6 +94,23 @@ function readDeviceInfo(): DeviceInfo {
   };
 }
 
+/**
+ * AVPlay, with the `<video>` engine as its fallback for HLS it refuses, as one engine
+ * (`FallbackEngine`); the `<video>` engine alone where there is no AVPlay (a desktop browser,
+ * the old-engine harness). The `<video>` is hidden while AVPlay plays: AVPlay paints under the
+ * page, and the element's black background would cover it.
+ */
+export function createTizenEngines(stage: HTMLElement, avplay = tizenAvplay()): PlayerEngine[] {
+  const video = createStageVideo(stage);
+  const html5 = new Html5Engine(video);
+  if (avplay === null) return [html5];
+  createAvplayPlane(stage);
+  const show = (engine: PlayerEngine): void => {
+    video.style.display = engine === html5 ? '' : 'none';
+  };
+  return [new FallbackEngine(new AvplayEngine(avplay), html5, { onActive: show })];
+}
+
 export function createTizenPlatform(): Platform {
   let keyMap: Map<number, Intent> | null = null;
   const supportedKeys = (): TizenKey[] | null =>
@@ -94,8 +119,9 @@ export function createTizenPlatform(): Platform {
 
   return {
     id: 'tizen',
-    // AVPlay comes first from step 19; until then the `<video>` engine, which on Tizen plays HLS.
-    createEngines: (stage) => [new Html5Engine(createStageVideo(stage))],
+    createEngines: (stage) => createTizenEngines(stage),
+    // AVPlay may freeze on a 302: it gets the URL the probe found (architecture.md §2).
+    resolveUrl: createRedirectProbe(),
     info: () => Promise.resolve(readDeviceInfo()),
     registerKeys: (): KeyRegistration => registerTizenKeys(attempt(() => globals().tizen?.tvinputdevice, undefined)),
     keyToIntent: (event: KeyLike): Intent | null => getKeyMap().get(event.keyCode) ?? null,

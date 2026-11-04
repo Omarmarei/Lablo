@@ -598,3 +598,42 @@ describe('PlayerController: the error card', () => {
     }
   });
 });
+
+describe('PlayerController: the screensaver (RELAY step 19)', () => {
+  it('keeps it away while a stream opens, plays and buffers, and lets it back when paused, ended or stopped', async () => {
+    const calls: boolean[] = [];
+    const r = rig(() => ({ frameMs: 500, bufferingMs: 1000, playingMs: 1500, endMs: 4000 }), { screenSaver: (allowed) => calls.push(allowed) });
+    // The TV's default (allowed) is where it starts: nothing to say yet.
+    expect(calls).toEqual([]);
+    void r.player.play(vod(1));
+    expect(calls).toEqual([false]);
+    await r.clock.advance(2000);
+    expect(r.states()).toEqual(['opening', 'playing', 'buffering', 'playing']);
+    expect(calls).toEqual([false]);
+    r.player.pause();
+    expect(calls).toEqual([false, true]);
+    r.player.resume();
+    expect(calls).toEqual([false, true, false]);
+    await r.clock.advance(2000);
+    expect(r.player.status.state).toBe('ended');
+    expect(calls).toEqual([false, true, false, true]);
+    void r.player.play(live(2));
+    void r.player.play(live(3));
+    expect(calls).toEqual([false, true, false, true, false]);
+    void r.player.stop();
+    expect(calls).toEqual([false, true, false, true, false, true]);
+  });
+
+  it('stays away through a reconnect, and comes back when the player gives up', async () => {
+    const calls: boolean[] = [];
+    const unsupported: PlaybackError = { kind: 'unsupported', code: 'PLAYER_ERROR_NOT_SUPPORTED_FORMAT' };
+    const r = rig((_source, n) => (n === 1 ? { error: { atMs: 1000, error: NETWORK } } : { loadError: unsupported }), { screenSaver: (allowed) => calls.push(allowed) });
+    void r.player.play(live(1));
+    await r.clock.advance(1000);
+    expect(r.player.status.state).toBe('reconnecting');
+    expect(calls).toEqual([false]);
+    await r.clock.advance(20_000);
+    expect(r.player.status.state).toBe('failed');
+    expect(calls).toEqual([false, true]);
+  });
+});

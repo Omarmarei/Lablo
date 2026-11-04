@@ -152,10 +152,15 @@ export interface ScreenReaderState {
 /**
  * Builds the platform's playback engines, best first (ADR-008: the adapters construct them, and
  * apps/tv hands them to the `PlayerController`). `stage` is the app's player layer: each engine
- * puts its picture there (the one app-wide `<video>`, or AVPlay's `<object>` in step 19). Called
- * once.
+ * puts its picture there (the one app-wide `<video>`, or AVPlay's `<object>`). Called once.
  */
 export type EngineFactory = (stage: HTMLElement) => PlayerEngine[];
+
+/**
+ * The URL to give the engine for a stream URL of source `src` (`PlayerController`'s
+ * `resolveUrl`); `fresh` asks for a new answer instead of the source's remembered one.
+ */
+export type UrlResolver = (url: string, src: string, fresh: boolean) => Promise<string>;
 
 /**
  * The only seam between the app and a TV platform. Later steps add the optional extras listed
@@ -163,8 +168,17 @@ export type EngineFactory = (stage: HTMLElement) => PlayerEngine[];
  */
 export interface Platform {
   readonly id: PlatformId;
-  /** The playback engines (see `EngineFactory`): webOS and the desktop `Html5Engine`; Tizen AVPlay, then `Html5Engine` for HLS. */
+  /**
+   * The playback engines (see `EngineFactory`): webOS and the desktop `Html5Engine`; Tizen one
+   * `FallbackEngine` (AVPlay, then `Html5Engine` for HLS AVPlay refuses), or `Html5Engine` where
+   * there is no AVPlay.
+   */
   readonly createEngines: EngineFactory;
+  /**
+   * Tizen: the redirect probe (architecture.md §2 "Redirect handling"), for the controller's
+   * `resolveUrl`. Absent where the engine follows redirects itself (webOS, the desktop).
+   */
+  readonly resolveUrl?: UrlResolver;
   /** Device facts. Async because some TV APIs answer through callbacks. */
   info(): Promise<DeviceInfo>;
   /**
