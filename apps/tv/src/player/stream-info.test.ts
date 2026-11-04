@@ -182,8 +182,8 @@ describe('the stream info: reading the player (RELAY step 20c2a)', () => {
     r.panel.toggle();
     r.play(25, 1_000_000);
     r.play(25, 1_000_000);
-    // A retry: a new load whose counters start again, read before any time passed in it.
-    r.set({ load: 2, decodedFrames: 200, decodedBytes: 0 });
+    // A retry: a new load, read before any time passed in it (its counters already past the old ones).
+    r.set({ load: 2, decodedFrames: 200, decodedBytes: 1_000_000 });
     r.clock.advance(STATS_MS);
     expect(r.panel.info.value).toMatchObject({ fps: null, bitrate: null });
     r.play(50, 2_000_000);
@@ -216,6 +216,8 @@ describe('the stream info: its rows (RELAY step 20c2a)', () => {
   it('lists the figures it has, technical names as they are, and the format while the stream opens', () => {
     expect(streamInfoRows(null, 'hls', en)).toEqual([{ id: 'format', label: 'player.info.format', value: 'HLS', technical: true }]);
     expect(streamInfoRows(null, null, en)).toEqual([]);
+    // A picture, and no rate measured yet.
+    expect(streamInfoRows(streamInfo(STATS, []), 'hls', en).map((r) => r.id)).toEqual(['resolution', 'format', 'engine']);
     const avplay = streamInfo({ ...STATS, bitrate: 4_500_000, videoCodec: 'HEVC', audioCodec: 'E-AC3', audioChannels: 6, droppedFrames: null, engine: 'avplay' }, []);
     expect(streamInfoRows(avplay, 'ts', en).map((r) => [r.id, r.value, r.technical])).toEqual([
       ['resolution', '960×540', true],
