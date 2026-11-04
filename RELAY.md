@@ -547,7 +547,43 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - the lab server for the RTL TVs: a tunnel from this PC during a session;
     - the LG TV: he follows tv-setup.md 2.2 (step-by-step list given in leg 34), pairs it with `ares-novacom --getkey` in his own terminal, and sends the model and IP.
   - **Gaps:** if the LG TV is 2020 or newer, no 2018 low-end LG exists to test S6, so decide between buying one or raising the LG minimum year.
+    - **Decided by Omar (2026-11-04, leg 34): raise the LG minimum to 2020 (webOS 5+, Chromium 68+).** Samsung keeps 2018 (Tizen 4, Chromium 56). Step 16a writes the ADR.
+  - **Leg 34: the LG TV is paired and ran the lab.**
+    - **The TV:** `OLED55A1PVA` (2021 A1 OLED), webOS 6 (`sdkVersion` 6.5.3), firmware 03.53.45, Chromium 79, 2 GB, 4 cores. Device `tv`, at 192.168.1.8; the key is in `%USERPROFILE%\.ssh\tv_webos`.
+    - **Signing in:** Developer Mode needed a second LG account with an email and a password (Google sign-in is refused; tv-setup.md 2.2).
+    - **First run** (session `webos-OLED55A1PVA-20261104-113731-h2rj`, run at launch, 75 s): 70 records; 26 pass, 2 fail, 19 info, 21 skip.
+      - S1 10/10: the 10,000-item bulk write takes 4.8 s.
+      - S2: a 433 MB quota; 200 MB written in 36 s.
+      - S3: the LGUDID answers.
+      - S7: 6/6.
+      - S9: 4/4. `Intl` gives Arabic-Indic digits for ar-SA (Hijri) and ar-AE.
+      - **S5 on the TV:**
+        - TS 1.8 s, HLS 1.7 s, the 302 chain 1.1 s, 4K HEVC 1.6 s;
+        - 5 of 5 audio tracks listed, the switch 154 ms;
+        - AC3 and E-AC3 play;
+        - **in-band subtitles: no text track** (fail).
+      - **S11 `speech` fails:** "Audio Guidance is off (8101)" (the TTS service exists).
+      - S6 (the small catalog): cold start 681 ms.
+    - **Found: the webOS model year is wrong.** `PalmSystem.deviceInfo.platformVersion` is the firmware (`03.53.45`), so `webosModelYear` read 2017 and the tier `low`. LG's webOSTV.js reference: `version` is the TV's software version, and `sdkVersion` is "the webOS TV SDK version". Fixed in 16a.
+    - **Not run yet:** S10 by hand (keys, pointer, keyboard), S11 by ear, S5's suspend and soak, S2 across an update, S3 across a reinstall (Omar at the TV), and all of Samsung (the RTL with the Samsung account, certificate and tunnel; the used 2018 set).
+  - **Order (Omar, leg 34):** 16a next, then step 17 onward while the rest of 16 waits for Omar. Legs skip step 16 until Omar says the Samsung route is ready or he has time at the TV.
   - **Done when:** results.md has a row per spike per device. Spikes that couldn't be run are listed with the plan to cover them.
+- [ ] 16a. **The webOS model year, the LG minimum, and the first results.**
+  - **The year:**
+    - Read the webOS version from `sdkVersion` (in `PalmSystem.deviceInfo` if present; check what the TV's raw `deviceInfo` holds and record its keys in S0), not `platformVersion`.
+    - Fall back to the user agent's Chromium (79 → webOS 6 → 2021) when there is no `sdkVersion`.
+    - The tier follows.
+    - Check the Simulator answers too (they reported `02.00.94` / `02.11.66`).
+  - **The LG minimum:** an ADR raising it to webOS 5 (2020, Chromium 68).
+    - Update architecture.md, tv-setup.md's tables, the build's webOS target notes and the plan's later steps.
+    - Decide whether the old-engine harness keeps Chromium 53. Samsung 2018 is Chromium 56.
+  - **Start `docs/spikes/results.md`:** a row per spike for the LG TV and the two Simulators, from `artifacts/lab-logs/`.
+  - **Re-run on the TV** (`pnpm device install|launch webos tv --lab`; the TV must be on): S0 must say 2021 and `full`. Extend Developer Mode first (tv-setup.md 2.2).
+  - **Done when:**
+    - unit tests cover the year from `sdkVersion` and the fallback;
+    - the TV's new session says 2021/`full`;
+    - the ADR and results.md are written;
+    - PR merged.
 
 ### Phase 5: Player and live TV
 - [ ] 17. **PlayerController (5.1).** Session tokens, close-before-open, URL strategy (`.ts`→`.m3u8`, remembered per source), watchdog retry ladder, error classifier; FakeEngine tests.
@@ -654,3 +690,4 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 | 33 | 2026-11-04 | 15d | The docs: `docs/runbooks/tv-setup.md`, how to put the lab on each device. It covers the LG TV in Developer Mode (account, key server, `--getkey`, the session: 1,000 h by LG's forum, extended from the PC), the webOS Emulator 1.2–6.0 (4.0 = Chromium 53, no HLS) and Simulator 6.0/22–26, the Tizen SDK 10 or Studio 6.1, the Samsung certificate (extension ≥ 2.0.74; Partner level for 2018 sets), Samsung Developer Mode, the Tizen emulator (TV 10.0 only), the Remote Test Lab, engines by year and troubleshooting. `docs/testing-without-tvs.md` compares the Remote Test Lab (142 TVs, 2019–2026, free), a used 2018 set, Beta Test (2021+), Suitest and TV Labs, and recommends RTL plus one used 2018 set. Every claim sourced and dated, the unconfirmed ones marked; 94 links checked. Fix: `pnpm device`'s Tizen install/launch now pass the sdb serial with `-s`. lint, typecheck and tests green (2,403 tests) | 2576e0d |
 | 26 | 2026-11-04 | 14c (and 14) | The live screen on Chromium 53/56/68, both bundles, en and ar, as walk steps after the relaunch (tools/engines/src/live.ts, liveSteps in onboarding.ts): ArrowDown, CH− (Tizen 428, webOS 34: channels 10, data-top 9), CH+ (427, 33), LEFT/RIGHT to the rail, ArrowDown ×5 and OK on Group 5, Back (10009, 461) to the rail, Back again (Tizen: the exit dialog, OK on Stay; webOS: PalmSystem.platformBack() through a counting stand-in). At every walk step the focus engine (window.__ZOMA_TEST__) must equal the screen's data-screen/zone/index. Rows (window, numbers by place in All channels: Group 5 from 618, names, now/next from the guide at the page's clock or the placeholder), the rail (inline start, names, counts, selection, header) and the layout (LIVE_BOXES/LABELS = layout() in e2e/live.spec.ts) checked; each live step waits for data-pending=0 (8 s). Fixture: liveCategories, cross-checked with CatalogChunker. Seeds: seed-css-no-live, seed-live-no-back-key, seed-focus-engine-stuck (the last because a probe reading the DOM's path instead of the hook passed the real app). Found: nothing in the app needed a change; all checks passed first time; CH− and a category 0.7 s to idle. Arabic category/exit (53), live (56), category (68) looked at. 44/44 mutants (one first counted caught was a flake: rerun, it survived until the focus seed). Local: pnpm verify green (2074 tests in 108 files, main 178.3 KB unchanged, e2e 44/44); verify:engines --self-test 90 runs as expected, 68 seeds, in one run. CI's first run (f1beddd/be4d735) red in verify only: the throttled e2e (step 14b) started at 23:59:50 UTC and lost the first row's next programme at midnight (writeBigGuide wrote three 2-hour programmes); four now, pinned by test/big-guide.test.ts (fails on three). PR #25 merged as 2f66902 (CI on 4e24f66: verify 6 m 10 s, engines 10 m 18 s, media 7 m 3 s, green; engines was 6 m before the live steps) | f1beddd, 4e24f66 |
 | 34 | 2026-11-04 | 15e (and 15) | The lab in LG's webOS TV Simulator. Omar accepted LG's SDK license; the zips download by script. Smart App Control blocks the Windows Simulator (unsigned; events 3033/3077), so its Linux AppImage runs in Docker under Xvfb (`tools/engines/webos-sim/`, local image only). Simulator 6.0 (Chromium 79) and 24 (Chromium 108): every spike at launch, 70/71 records in the collector, 20 pass / 7 fail / 19 info / 22 skip each (S11 speech: no TTS service; S5: Electron media; S3: a new LGUDID per container). Step 15 done: desktop lab, old engines, a simulator, both docs. Omar decided: Samsung = RTL + a used 2018 set, a tunnel as the RTL lab server, Western digits (ADR-011). PR #33 merged as `d580643` | 277307f |
+| 34 | 2026-11-04 | 16 (LG part), 16a added | Omar's LG TV paired from this PC (OLED55A1PVA, 2021, webOS 6 / Chromium 79; Dev Mode needed an email+password LG account, Google sign-in refused; `--getkey --passphrase`). The lab ran on it at launch: 70 records, 26 pass / 2 fail / 19 info / 21 skip; S5 plays TS, HLS, 302s, 4K HEVC, AC3/E-AC3 and switches tracks in 154 ms; in-band subtitles and TTS (Audio Guidance off) fail. Found: webOS model year read from the firmware (2017, tier low): step 16a. Omar raised the LG minimum to 2020 (webOS 5+) | (this commit) |

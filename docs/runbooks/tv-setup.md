@@ -62,6 +62,10 @@ All quotes in this section are from LG's [Developer Mode app page](https://webos
 **One-time setup:**
 1. **Account.** Create an LG developer account on [webostv.developer.lge.com](https://webostv.developer.lge.com) ("SIGN IN" at the top right).
 2. **The app.** On the TV, open **LG Apps** (formerly the LG Content Store), search for **"Developer Mode"** and install it. Sign in with the developer account.
+   - **Use an account with an email address and a password.** The app asks for "your email-based ID and password of the LG Developer site" ([Developer Mode app](https://webostv.developer.lge.com/develop/getting-started/developer-mode-app)).
+   - **A Google (or other social) sign-in doesn't work there.** In the forum, LG answered: "You can log in to the Developer Mode app with your LG account, not your SNS account" ([LG forum](https://forum.webostv.developer.lge.com/t/dev-mode-login-with-google-account/25212)).
+   - **How to tell:** such an account shows a 21-digit "User ID" in the site's Profile. That is Google's account number, not an ID the TV accepts.
+   - **What worked in step 16 (2026-11-04):** a second LG account, created with an email address and a password, then typed as the full email on the TV.
 3. **Turn it on.** Press **Dev Mode Status**; "The TV will reboot." Open the app again and turn on the **Key Server**. The app shows the TV's IP address and a 6-character **passphrase** at the bottom left.
 4. **Network.** The TV and this PC must be on the same network. This PC connects out to the TV on TCP **9922** (SSH, user `prisoner`) and **9991** (the key server); LG documents no ports, these come from the CLI's source ([novacom.js](https://github.com/webos-tools/cli/blob/main/lib/base/novacom.js)).
 5. **Register the TV** with the CLI, as `tv` (the name `pnpm device` examples use):
@@ -72,7 +76,10 @@ All quotes in this section are from LG's [Developer Mode app page](https://webos
    ```
 
    `--getkey` asks for the passphrase ("Enter the exact characters (case sensitive)") and saves the key as `%USERPROFILE%\.ssh\tv_webos`. "When using the Developer Mode app, a password is not required."
-6. **Check:** `pnpm --filter @zoma/tools-device exec ares-device --system-info --device tv` prints the TV's model and webOS version. Note both for step 16.
+   - **Without the prompt** (an agent's shell): `ares-novacom --device tv --getkey --passphrase <the 6 characters>`. The flag is in the CLI's `bin/ares-novacom.js`.
+   - **To find the TV's IP from this PC:** look for a LAN host with ports 9922 and 9991 open.
+6. **Check:** `pnpm --filter @zoma/tools-device exec ares-device --system-info --device tv` prints the TV's model, `sdkVersion` (the webOS version) and `firmwareVersion`. Note them for step 16.
+   - **Our TV** (paired 2026-11-04 as `tv`, at 192.168.1.8): `OLED55A1PVA` (LG's 2021 A1 OLED), `sdkVersion` 6.5.3 (webOS 6), `firmwareVersion` 03.53.45, Chromium 79.
 
 **Then the lab:** `pnpm mock`, `pnpm build:tv`, `pnpm device install webos tv --lab`, `pnpm device launch webos tv --lab` (lab.md, "Quick start"). Remote DevTools: `pnpm device inspect webos tv --lab`. The inspector runs through the SSH tunnel (the TV's port 9998 forwarded to a local one; [inspect.js](https://github.com/webos-tools/cli/blob/main/lib/inspect.js)).
 
