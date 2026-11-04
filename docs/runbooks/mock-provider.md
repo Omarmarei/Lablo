@@ -62,6 +62,7 @@ Dates are relative to "today" (UTC midnight), so `exp_date` stays fixed all day.
 | `GET /images/{kind}-{id}.png` | Logos and posters (a 1×1 PNG). |
 | `GET /attribution` | Credits for the Blender open movies (CC BY) and a note on the generated media. |
 | `POST/GET /__lab/logs[/{session}]` | LAN log collector (below). |
+| `GET /__lab/bytes`, `/__lab/echo`, `/__lab/redirect` | The Zoma Lab's probes (below). |
 | `GET /__mock/health`, `/__mock/scenarios`, `/__mock/connections`; `PUT /__mock/scenario` | Control (below). |
 | `GET /` | A text page with the endpoints and test accounts. |
 
@@ -344,6 +345,18 @@ Lab builds and the on-TV self-test send results here, and Claude reads them back
 | `GET /__lab/logs/{session}?since=N` | The NDJSON from line N on; `X-Lab-Lines` gives the total. |
 
 Session names are letters, digits, `.`, `_` and `-` (max 64, no leading dot). Posts to one session are written in order, never interleaved. No IP addresses are stored. Claude can also just read the files in `artifacts/lab-logs/`.
+
+## Lab probes (RELAY step 15a)
+
+The Zoma Lab (docs/runbooks/lab.md) asks these to answer spikes S1 and S7. They need no test account, so the lab's code holds none. They store nothing and stay on with `--no-lab-logs`. Like the collector, they are never faulted (`src/lab-probes.ts`).
+
+| Request | Answer |
+|---|---|
+| `GET /__lab/bytes?lines=N&chunk=B&delay=MS` | N numbered lines (`000042 Zoma زوما ✓ 😀`, 30 bytes in UTF-8: Latin, Arabic, a 3-byte and a 4-byte character), written B bytes at a time (1,009 by default, a prime, so the chunks end inside characters), MS ms apart. With `Content-Length` and `no-store`. Defaults: 1,000 lines, no delay. At most 1,000,000 lines, 1 MB chunks and 1 s of delay. |
+| `GET /__lab/echo` | `{"ok":true,"path":"/__lab/echo","cors":true}`. With `?cors=0` the same without any CORS header: a packaged TV app must still read it, and a web page can't. |
+| `GET /__lab/redirect?to=/__lab/echo&cors=0` | A 302 to `to`, which must be another `/__lab/` path (no `..`, never `/__lab/redirect` itself), so it can't serve as an open redirect. `cors=0` leaves out the CORS headers here too. |
+
+`labLine` is written separately in the mock and in the lab (`apps/tv/src/lab/probes.ts`); `test/lab-probes.test.ts` checks that both agree.
 
 ## Public test server (later, RELAY step 44, needs Omar)
 

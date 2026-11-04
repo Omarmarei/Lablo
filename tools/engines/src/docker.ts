@@ -85,6 +85,9 @@ export function startEngine(options: {
     '1g',
     '--publish',
     '127.0.0.1::9223',
+    // The Zoma Lab reports to a mock provider on the host (step 15a, src/lab.ts).
+    '--add-host',
+    'host.docker.internal:host-gateway',
     '--mount',
     `type=bind,source=${path.resolve(options.zip)},target=/engine.zip,readonly`,
     '--mount',

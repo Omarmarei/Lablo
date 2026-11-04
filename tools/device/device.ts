@@ -7,6 +7,9 @@
  *   pnpm device inspect webos <name>        remote DevTools (ares-inspect --open)
  *   pnpm device install tizen <serial>      needs Tizen Studio's `tizen` CLI on PATH
  *
+ * Add `--lab` to install, launch or inspect the Zoma Lab (dist/tv-lab, its own app id; RELAY
+ * step 15a, docs/runbooks/lab.md) instead of the app.
+ *
  * Setting up a TV (Developer Mode, ares-setup-device, Samsung certificates) is in
  * docs/runbooks/tv-build.md.
  */
@@ -19,6 +22,9 @@ import { DEVICE_ACTIONS, DEVICE_PLATFORMS, deviceCommand } from './src/commands'
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
 const PACKAGES = path.join(ROOT, 'dist/packages');
+const DIST_LAB = path.join(ROOT, 'dist/tv-lab');
+/** The lab's Tizen package is named after its widget ("Zoma Lab"); the app's is not. */
+const isLabWgt = (name: string): boolean => name.endsWith('.wgt') && /lab/i.test(name);
 const require = createRequire(import.meta.url);
 
 function fail(message: string): never {
@@ -35,8 +41,22 @@ function appTarget(platform: DevicePlatform): AppTarget {
   }
   const config = readFileSync(path.join(ROOT, 'platforms/tizen/config.xml'), 'utf8');
   const appId = /<tizen:application\s+id="([^"]+)"/.exec(config)?.[1] ?? fail('No application id in config.xml');
-  const wgt = existsSync(PACKAGES) ? readdirSync(PACKAGES).find((name) => name.endsWith('.wgt')) : undefined;
+  const wgt = existsSync(PACKAGES) ? readdirSync(PACKAGES).find((name) => name.endsWith('.wgt') && !isLabWgt(name)) : undefined;
   return { appId, packageFile: path.join(PACKAGES, wgt ?? 'Zoma.wgt') };
+}
+
+/** The lab's ids and package, read from its staged manifests (its version can differ from the app's). */
+function labTarget(platform: DevicePlatform): AppTarget {
+  const staged = path.join(DIST_LAB, platform);
+  if (!existsSync(staged)) fail(`${path.relative(ROOT, staged)} does not exist. Run pnpm build:tv first.`);
+  if (platform === 'webos') {
+    const appinfo = JSON.parse(readFileSync(path.join(staged, 'appinfo.json'), 'utf8')) as { id: string; version: string };
+    return { appId: appinfo.id, packageFile: path.join(PACKAGES, `${appinfo.id}_${appinfo.version}_all.ipk`) };
+  }
+  const config = readFileSync(path.join(staged, 'config.xml'), 'utf8');
+  const appId = /<tizen:application\s+id="([^"]+)"/.exec(config)?.[1] ?? fail('No application id in the lab config.xml');
+  const wgt = existsSync(PACKAGES) ? readdirSync(PACKAGES).find(isLabWgt) : undefined;
+  return { appId, packageFile: path.join(PACKAGES, wgt ?? 'ZomaLab.wgt') };
 }
 
 function run(command: DeviceCommand): number {
@@ -59,14 +79,16 @@ function run(command: DeviceCommand): number {
 }
 
 function main(): void {
-  const [action, platform, device = ''] = process.argv.slice(2);
-  const usage = `Usage: pnpm device <${DEVICE_ACTIONS.join('|')}> <${DEVICE_PLATFORMS.join('|')}> [device]`;
+  const args = process.argv.slice(2);
+  const lab = args.includes('--lab');
+  const [action, platform, device = ''] = args.filter((arg) => arg !== '--lab');
+  const usage = `Usage: pnpm device <${DEVICE_ACTIONS.join('|')}> <${DEVICE_PLATFORMS.join('|')}> [device] [--lab]`;
   if (!DEVICE_ACTIONS.includes(action as DeviceAction) || !DEVICE_PLATFORMS.includes(platform as DevicePlatform)) {
     fail(usage);
   }
   if (action !== 'devices' && device === '') fail(`${usage}\nName the device (ares device name or sdb serial).`);
 
-  const app = appTarget(platform as DevicePlatform);
+  const app = lab ? labTarget(platform as DevicePlatform) : appTarget(platform as DevicePlatform);
   if (action === 'install' && !existsSync(app.packageFile)) {
     const how =
       platform === 'tizen'

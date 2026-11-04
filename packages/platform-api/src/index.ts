@@ -105,9 +105,8 @@ export type TextKey = 'done' | 'close' | 'up' | 'down';
 export type RootBackPolicy = 'exit-dialog' | 'platform-back';
 
 /**
- * The only seam between the app and a TV platform. Later steps add `deviceSecret()`,
- * `setScreenSaver()`, `createEngines()` and the optional extras listed in
- * docs/architecture.md §1.1.
+ * The only seam between the app and a TV platform. Later steps add `setScreenSaver()`,
+ * `createEngines()` and the optional extras listed in docs/architecture.md §1.1.
  */
 export interface Platform {
   readonly id: PlatformId;
@@ -135,6 +134,13 @@ export interface Platform {
    */
   onPointer(listener: (visible: boolean) => void): () => void;
   rootBackPolicy(): RootBackPolicy;
+  /**
+   * The TV's own stable device ID: the DUID on Tizen, the LGUDID on webOS; `null` in a desktop
+   * browser, or when the TV has none or refuses it. It will key the encrypted backup
+   * (docs/architecture.md §3.3), so it is never sent or logged as it is: the lab's spike S3
+   * reports only a hash of it.
+   */
+  deviceSecret(): Promise<string | null>;
   /** Leaves the app the platform's way (on webOS this is Back to the launcher). */
   exitApp(): void;
 }

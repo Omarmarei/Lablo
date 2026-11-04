@@ -92,6 +92,8 @@ describe('platform globals (no-restricted-globals / no-restricted-properties)', 
     ['packages/platform-browser/src/f.ts', 'export const a = typeof PalmSystem;\n', 'no-restricted-globals'],
     ['packages/platform-tizen/src/f.ts', 'export const a = typeof webOS;\n', 'no-restricted-globals'],
     ['packages/platform-webos/src/f.ts', 'export const a = globalThis.tizen;\n', 'no-restricted-properties'],
+    ['apps/tv/src/f.ts', 'export const a = typeof PalmServiceBridge;\n', 'no-restricted-globals'],
+    ['apps/tv/src/f.ts', 'export const a = window.PalmServiceBridge;\n', 'no-restricted-properties'],
   ])('rejects %s: %s', async (file, code, rule) => {
     const messages = await lint(file, code);
     expect(messages.some((m) => m.startsWith(rule))).toBe(true);
@@ -99,7 +101,7 @@ describe('platform globals (no-restricted-globals / no-restricted-properties)', 
 
   it.each([
     ['packages/platform-tizen/src/f.ts', 'export const a = typeof tizen + typeof webapis;\n'],
-    ['packages/platform-webos/src/f.ts', 'export const a = typeof webOS + typeof PalmSystem;\n'],
+    ['packages/platform-webos/src/f.ts', 'export const a = typeof webOS + typeof PalmSystem + typeof PalmServiceBridge;\n'],
   ])('allows %s to use its own platform globals', async (file, code) => {
     expect(await lint(file, code)).toEqual([]);
   });
