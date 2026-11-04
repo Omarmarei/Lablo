@@ -169,6 +169,12 @@ export const EN = {
   'player.info.fps': '{fps, number} fps',
   'player.info.mbps': '{value, number} Mb/s',
   'player.info.kbps': '{value, number} kb/s',
+  // The picture's mode (RELAY step 20c2b): the info bar's fourth button goes round them.
+  'player.picture': 'Picture: {mode}',
+  'player.picture.fit': 'Fit',
+  'player.picture.zoom': 'Zoom',
+  'player.picture.stretch': 'Stretch',
+  'player.picture.43': '4:3',
 
   // The track menu (RELAY step 20b).
   'tracks.audio': 'Audio',

@@ -9,7 +9,7 @@
  */
 
 import type { Clock } from './clock';
-import type { EngineCaps, EngineEvent, EngineSource, EngineStats, LoadOptions, PlaybackError, PlayerEngine, Rect, Track } from './engine';
+import type { EngineCaps, EngineEvent, EngineSource, EngineStats, LoadOptions, PictureFit, PlaybackError, PlayerEngine, Rect, Track } from './engine';
 import { NO_STATS } from './engine';
 
 /** Node's `setImmediate` (not in the DOM lib); Windows clamps `setTimeout(0)` to its timer tick. */
@@ -111,8 +111,13 @@ const ABORTED: PlaybackError = { kind: 'app', code: 'ABORTED' };
 export class FakeEngine implements PlayerEngine {
   readonly kind = 'html5' as const;
   get caps(): EngineCaps {
-    return { maxHeight: 1080, trackSwitch: this.trackSwitch, deliversSubtitleText: this.deliversText, preloadSlots: 0, rates: [1] };
+    return { maxHeight: 1080, trackSwitch: this.trackSwitch, deliversSubtitleText: this.deliversText, preloadSlots: 0, rates: [1], fits: this.fits };
   }
+  /** `caps.fits`. */
+  fits: readonly PictureFit[] = ['contain', 'fill', 'cover'];
+  /** The rect and fit the engine was last given. */
+  rect: Rect | 'full' = 'full';
+  fit: PictureFit = 'contain';
   /** What the controller called, in order: `load <token> <container>`, `stop`, `closed`, `pause`, `play`. */
   readonly log: string[] = [];
   readonly loads: FakeLoad[] = [];
@@ -240,7 +245,13 @@ export class FakeEngine implements PlayerEngine {
     return Promise.resolve();
   }
 
-  setRect(_r: Rect | 'full'): void {}
+  setRect(r: Rect | 'full'): void {
+    this.rect = r;
+  }
+
+  setFit(fit: PictureFit): void {
+    this.fit = fit;
+  }
 
   getTracks(): { audio: Track[]; text: Track[] } {
     return { audio: this.audio.slice(), text: this.text.slice() };

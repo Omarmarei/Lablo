@@ -20,6 +20,7 @@ import { RemoteDriver } from './remote-driver';
  * themselves are in player-media.spec.ts. Channel 104 is gone from the panel (a 404), for the
  * error card. The stream info (step 20c2a) waits for a picture here; its figures are in
  * player-media.spec.ts. The mock's `hls` account allows HLS only (`allowed_output_formats`).
+ * The picture's modes (step 20c2b) are read off the `<video>`'s fit and box.
  *
  * "All channels" lists the mock's channels category by category: 101, 102, 110, 111 (Test News),
  * 103, 104, 112, 105, 106, 107, 108, 109, numbered by the panel (`num`).
@@ -345,6 +346,125 @@ for (const locale of ['en-US', 'ar-SA'] as const) {
     await remote.press('OK');
     await expect(player).toHaveAttribute('data-plays', '3');
     await expect(player).toHaveAttribute('data-stats', 'false');
+    expect(errors).toEqual([]);
+  });
+}
+
+/** The `<video>`'s fit and box on the stage (`null`: no video yet). */
+function picture(page: Page) {
+  return page.evaluate(() => {
+    const video = document.querySelector('#stage video');
+    if (video === null) return null;
+    const r = video.getBoundingClientRect();
+    return { fit: getComputedStyle(video).objectFit, left: r.left, top: r.top, width: r.width, height: r.height };
+  });
+}
+
+/** The picture's mode the profile keeps (`null`: none yet), read from IndexedDB. */
+function storedPicture(page: Page): Promise<unknown> {
+  return page.evaluate(
+    () =>
+      new Promise<unknown>((resolve) => {
+        const open = indexedDB.open('zoma');
+        open.onerror = () => resolve(null);
+        open.onsuccess = () => {
+          const db = open.result;
+          const get = db.transaction('profile', 'readonly').objectStore('profile').get('current');
+          get.onerror = () => {
+            db.close();
+            resolve(null);
+          };
+          get.onsuccess = () => {
+            db.close();
+            resolve((get.result as { doc?: { player?: { picture?: string } } } | undefined)?.doc?.player?.picture ?? null);
+          };
+        };
+      }),
+  );
+}
+
+const SCREEN = { left: 0, top: 0, width: 1920, height: 1080 };
+
+/** The 4:3 side bars the player draws: their boxes and colours. */
+function pillars(page: Page) {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll('.player__pillar')).map((el) => {
+      const r = el.getBoundingClientRect();
+      return { left: r.left, width: r.width, height: r.height, color: getComputedStyle(el).backgroundColor };
+    }),
+  );
+}
+
+const BARS = [
+  { left: 0, width: 240, height: 1080, color: 'rgb(0, 0, 0)' },
+  { left: 1680, width: 240, height: 1080, color: 'rgb(0, 0, 0)' },
+];
+
+for (const locale of ['en-US', 'ar-SA'] as const) {
+  test(`the picture: the info bar's fourth button goes round fit, zoom, stretch and 4:3, kept through a zap and a relaunch, in ${locale}`, async ({ page }) => {
+    const errors = trackErrors(page);
+    const catalog = locale === 'ar-SA' ? AR : EN;
+    const next = locale === 'ar-SA' ? 'LEFT' : 'RIGHT';
+    const label = (mode: 'fit' | 'zoom' | 'stretch' | '43'): string => catalog['player.picture'].replace('{mode}', catalog[`player.picture.${mode}`]);
+    const remote = new RemoteDriver(page);
+    await addXtreamAndWatch(remote, { host, username: U, password: P }, `locale=${locale}`);
+    await remote.go('DOWN', 'live/channels/1');
+    await remote.press('OK');
+    const player = page.getByTestId('player');
+    await remote.expectFocus('player/actions/0');
+    await remote.go(next, 'player/actions/1');
+    await remote.go(next, 'player/actions/2');
+    await remote.go(next, 'player/actions/3');
+    // Fit: the whole picture in its own shape, on the whole screen.
+    expect(await text(page, 'player-picture')).toBe(label('fit'));
+    await expect(player).toHaveAttribute('data-picture', 'fit');
+    expect(await picture(page)).toEqual({ fit: 'contain', ...SCREEN });
+    await expectInSafeArea(page);
+    await page.screenshot({ path: path.join(SHOTS, `player-picture-${locale === 'ar-SA' ? 'ar' : 'en'}.png`), animations: 'disabled' });
+    const round = [
+      { mode: 'zoom', name: 'zoom', fit: 'cover', box: SCREEN },
+      { mode: 'stretch', name: 'stretch', fit: 'fill', box: SCREEN },
+      { mode: '4:3', name: '43', fit: 'fill', box: { left: 240, top: 0, width: 1440, height: 1080 } },
+      { mode: 'fit', name: 'fit', fit: 'contain', box: SCREEN },
+    ] as const;
+    for (const step of round) {
+      await remote.press('OK');
+      await expect(player).toHaveAttribute('data-picture', step.mode);
+      expect(await text(page, 'player-picture')).toBe(label(step.name));
+      expect(await picture(page)).toEqual({ fit: step.fit, ...step.box });
+      // Black side bars beside the 4:3 window only.
+      const bars = await pillars(page);
+      expect(bars.sort((a, b) => a.left - b.left)).toEqual(step.mode === '4:3' ? BARS : []);
+      // The stream isn't touched, and the focus stays on the button.
+      await expect(player).toHaveAttribute('data-plays', '1');
+      await remote.expectFocus('player/actions/3');
+    }
+
+    // 4:3, then a zap: the next channel in 4:3 too.
+    await remote.press('OK');
+    await remote.press('OK');
+    await remote.press('OK');
+    await expect(player).toHaveAttribute('data-picture', '4:3');
+    await expectInSafeArea(page);
+    await page.screenshot({ path: path.join(SHOTS, `player-picture-43-${locale === 'ar-SA' ? 'ar' : 'en'}.png`), animations: 'disabled' });
+    await remote.press('CH_UP');
+    await expect(player).toHaveAttribute('data-playing', '2');
+    expect(await picture(page)).toEqual({ fit: 'fill', left: 240, top: 0, width: 1440, height: 1080 });
+    await expect.poll(() => storedPicture(page)).toBe('4:3');
+
+    // A relaunch: the last channel plays at once, in 4:3.
+    await page.reload();
+    await remote.expectFocus('player/actions/0');
+    await expect(player).toHaveAttribute('data-picture', '4:3');
+    expect(await picture(page)).toEqual({ fit: 'fill', left: 240, top: 0, width: 1440, height: 1080 });
+    expect((await pillars(page)).sort((a, b) => a.left - b.left)).toEqual(BARS);
+    await remote.go(next, 'player/actions/1');
+    await remote.go(next, 'player/actions/2');
+    await remote.go(next, 'player/actions/3');
+    expect(await text(page, 'player-picture')).toBe(label('43'));
+    await remote.press('OK');
+    await expect(player).toHaveAttribute('data-picture', 'fit');
+    await expect.poll(() => storedPicture(page)).toBe('fit');
     expect(errors).toEqual([]);
   });
 }

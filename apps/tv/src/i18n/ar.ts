@@ -156,6 +156,11 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'player.info.fps': '{fps, number} إطار/ث',
   'player.info.mbps': '{value, number} ميغابت/ث',
   'player.info.kbps': '{value, number} كيلوبت/ث',
+  'player.picture': 'الصورة: {mode}',
+  'player.picture.fit': 'ملاءمة',
+  'player.picture.zoom': 'تكبير',
+  'player.picture.stretch': 'تمديد',
+  'player.picture.43': 'نسبة 4:3',
 
   'tracks.audio': 'الصوت',
   'tracks.subtitles': 'الترجمة',

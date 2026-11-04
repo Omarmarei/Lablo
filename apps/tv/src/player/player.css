@@ -40,6 +40,26 @@ html[data-player='on'] .player-stage {
   overflow: hidden;
 }
 
+/*
+ * The 4:3 picture's side bars (step 20c2b): black, beside the 1440 px window in the middle
+ * (FOUR_THREE in packages/player/src/picture.ts), under the player's other parts.
+ */
+.player__pillar {
+  position: absolute;
+  top: 0;
+  width: 240px;
+  height: var(--screen-height);
+  background: #000;
+}
+
+.player__pillar--left {
+  left: 0;
+}
+
+.player__pillar--right {
+  right: 0;
+}
+
 /* "Connecting…": in the middle of the picture. */
 .player__wait {
   position: absolute;

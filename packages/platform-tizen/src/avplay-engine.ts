@@ -6,8 +6,8 @@
  * no Samsung TV has run it yet (step 19b).
  *
  * - **Open:** `open`, `setListener`, `setDisplayRect` (the rect `setRect` gave, in AVPlay's
- *   1920×1080 space), `prepareAsync`, then `play`. `load()` resolves once `play` was called and
- *   rejects with the error that comes before it. A prepare that hasn't answered within 8 s
+ *   1920×1080 space), `setDisplayMethod` (the fit `setFit` gave), `prepareAsync`, then `play`.
+ *   `load()` resolves once `play` was called and rejects with the error that comes before it. A prepare that hasn't answered within 8 s
  *   (AVPlay freezes on some 302s) fails as `timeout`/`PREPARE_TIMEOUT`; the controller's ladder
  *   then re-runs the redirect probe (`redirect-probe.ts`).
  * - **The first frame:** AVPlay paints on the TV's video plane, which the page can't see, so a
@@ -25,7 +25,7 @@
  *   (`setSilentSubtitle(false)`): AVPlay draws none itself.
  */
 
-import type { Clock, EngineCaps, EngineEvent, EngineSource, EngineStats, LoadOptions, PlaybackError, PlayerEngine, Rect, Track } from '@zoma/player';
+import type { Clock, EngineCaps, EngineEvent, EngineSource, EngineStats, LoadOptions, PictureFit, PlaybackError, PlayerEngine, Rect, Track } from '@zoma/player';
 import { NO_STATS, SYSTEM_CLOCK } from '@zoma/player';
 import type { AvplayListener, AvplayManager, AvplayTrack } from './avplay';
 import { avplayTracks, avplayUnsupported } from './avplay';
@@ -37,6 +37,16 @@ export const PREPARE_TIMEOUT_MS = 8000;
 
 /** `setDisplayRect` for the whole screen (AVPlay's 1920×1080 space). */
 const FULL: Rect = { x: 0, y: 0, width: 1920, height: 1080 };
+
+/**
+ * `setDisplayMethod`'s mode for each fit AVPlay has (RELAY step 20c2b). `contain` is the letterbox,
+ * the mode Samsung's samples use; whether `PLAYER_DISPLAY_MODE_AUTO_ASPECT_RATIO` draws an
+ * anamorphic SD stream better is a TV run's answer (step 21). No `cover`: AVPlay can't crop.
+ */
+const DISPLAY_MODES: Readonly<Record<'contain' | 'fill', string>> = {
+  contain: 'PLAYER_DISPLAY_MODE_LETTER_BOX',
+  fill: 'PLAYER_DISPLAY_MODE_FULL_SCREEN',
+};
 
 /** AVPlay's catch-all during playback: the data arrived, the player failed on it. */
 const DECODE_ERRORS = ['PLAYER_ERROR_GENEREIC', 'PLAYER_ERROR_GENERIC'];
@@ -144,6 +154,7 @@ export class AvplayEngine implements PlayerEngine {
   private opened = false;
   private destroyed = false;
   private rect: Rect | 'full' = 'full';
+  private fit: 'contain' | 'fill' = 'contain';
   private lastPos = 0;
   private pollTimer: unknown = null;
   private prepareTimer: unknown = null;
@@ -155,7 +166,9 @@ export class AvplayEngine implements PlayerEngine {
     this.clock = options.clock ?? SYSTEM_CLOCK;
     this.framePollMs = options.framePollMs ?? AVPLAY_FRAME_POLL_MS;
     this.prepareTimeoutMs = options.prepareTimeoutMs ?? PREPARE_TIMEOUT_MS;
-    this.caps = { maxHeight: options.maxHeight ?? 2160, trackSwitch: 'reliable', deliversSubtitleText: true, preloadSlots: 0, rates: [1] };
+    // A firmware without `setDisplayMethod` shows the picture its own way: nothing to choose.
+    const fits: readonly PictureFit[] = typeof api.setDisplayMethod === 'function' ? ['contain', 'fill'] : ['contain'];
+    this.caps = { maxHeight: options.maxHeight ?? 2160, trackSwitch: 'reliable', deliversSubtitleText: true, preloadSlots: 0, rates: [1], fits };
   }
 
   load(source: EngineSource, token: number, opts: LoadOptions = {}): Promise<void> {
@@ -220,6 +233,12 @@ export class AvplayEngine implements PlayerEngine {
   setRect(r: Rect | 'full'): void {
     this.rect = r;
     if (this.opened) this.applyRect();
+  }
+
+  /** `cover` (a crop) is `contain`: AVPlay can't crop. */
+  setFit(fit: PictureFit): void {
+    this.fit = fit === 'fill' ? 'fill' : 'contain';
+    if (this.opened) this.applyFit();
   }
 
   getTracks(): { audio: Track[]; text: Track[] } {
@@ -366,6 +385,7 @@ export class AvplayEngine implements PlayerEngine {
       return;
     }
     this.applyRect();
+    this.applyFit();
     this.prepareTimer = this.clock.setTimeout(() => this.fail(l, PREPARE_TIMEOUT), this.prepareTimeoutMs);
     try {
       api.prepareAsync(
@@ -480,6 +500,11 @@ export class AvplayEngine implements PlayerEngine {
     const r = this.rect === 'full' ? FULL : this.rect;
     // A rect AVPlay refuses leaves the picture where it was.
     attempt(() => this.api.setDisplayRect(Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)));
+  }
+
+  /** A firmware without `setDisplayMethod` has nothing to call; a mode AVPlay refuses leaves the picture as it was. */
+  private applyFit(): void {
+    attempt(() => this.api.setDisplayMethod?.(DISPLAY_MODES[this.fit]));
   }
 
   /** The file's streams (`current`: the ones playing), or none in a state that has no list. */

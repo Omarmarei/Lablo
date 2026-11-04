@@ -115,6 +115,11 @@ export type PlayerMemoryDoc = {
   tracks: Record<string, StoredTrackChoice>;
   /** The subtitles' size (`s`, `m`, `l`); `null`: never set. */
   subtitleSize: string | null;
+  /**
+   * The picture's mode for every channel (`fit`, `zoom`, `stretch`, `4:3`; step 20c2b). Absent:
+   * never set. Optional, so version 3 documents written before it need no migration.
+   */
+  picture?: string;
 };
 
 export type ProfileV3 = {
@@ -187,7 +192,8 @@ export type PlayerChange =
   | { field: 'container'; src: string; container: string }
   | { field: 'redirect'; src: string; mode: 'none' | 'redirects' }
   | { field: 'track'; key: ContentKey; choice: StoredTrackChoice }
-  | { field: 'subtitleSize'; size: string };
+  | { field: 'subtitleSize'; size: string }
+  | { field: 'picture'; mode: string };
 
 /** A change the app makes to the profile through the query worker (step 13b). */
 export type ProfileEdit =
@@ -234,6 +240,8 @@ function applyPlayerChange(player: PlayerMemoryDoc, change: PlayerChange): Playe
       return { ...player, tracks: withTrack(player.tracks, change.key, change.choice) };
     case 'subtitleSize':
       return change.size === player.subtitleSize ? null : { ...player, subtitleSize: change.size };
+    case 'picture':
+      return change.mode === player.picture ? null : { ...player, picture: change.mode };
   }
 }
 

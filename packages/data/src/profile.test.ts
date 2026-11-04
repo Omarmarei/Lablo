@@ -352,6 +352,17 @@ describe('applyProfileEdit: what the player keeps (step 20c1)', () => {
     expect(player(l, { field: 'subtitleSize', size: 's' })!.player.subtitleSize).toBe('s');
   });
 
+  it('keeps the picture mode in a version 3 document without one (no migration); the same mode changes nothing', () => {
+    const before = emptyProfile();
+    expect('picture' in before.player).toBe(false);
+    const zoom = player(before, { field: 'picture', mode: 'zoom' })!;
+    expect(zoom.v).toBe(3);
+    expect(zoom.player).toEqual({ ...before.player, picture: 'zoom' });
+    expect(player(zoom, { field: 'picture', mode: 'zoom' })).toBeNull();
+    expect(player(zoom, { field: 'picture', mode: '4:3' })!.player.picture).toBe('4:3');
+    expect(before.player.picture).toBeUndefined();
+  });
+
   it("keeps each content's track choice, dropping the one changed longest ago past the cap", () => {
     let doc = emptyProfile();
     for (let i = 0; i < MAX_TRACK_CHOICES; i++) doc = player(doc, { field: 'track', key: `k${i}`, choice: choice('ar', 1000 - i) })!;

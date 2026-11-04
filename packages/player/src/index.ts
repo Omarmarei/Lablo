@@ -15,6 +15,7 @@ export type {
   EngineSource,
   EngineStats,
   LoadOptions,
+  PictureFit,
   PlaybackError,
   PlaybackErrorKind,
   PlayerEngine,
@@ -23,6 +24,9 @@ export type {
   Track,
 } from './engine';
 export { NO_STATS, PLAYBACK_ERROR_KINDS, isPlaybackError } from './engine';
+
+export type { PictureLayout, PictureMode } from './picture';
+export { FOUR_THREE, PICTURE_MODES, asPictureMode, nextPicture, pictureLayout, pictureModes } from './picture';
 
 export type { ExternalSub, PlayCandidate, PlayRequest, SourceMemory } from './request';
 export { MemorySourceMemory, containerOf, orderCandidates, streamCandidates } from './request';

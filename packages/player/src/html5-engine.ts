@@ -30,7 +30,7 @@
 
 import type { Clock } from './clock';
 import { SYSTEM_CLOCK } from './clock';
-import type { Container, EngineCaps, EngineEvent, EngineSource, EngineStats, LoadOptions, PlaybackError, PlayerEngine, Rect, Track } from './engine';
+import type { Container, EngineCaps, EngineEvent, EngineSource, EngineStats, LoadOptions, PictureFit, PlaybackError, PlayerEngine, Rect, Track } from './engine';
 
 /** How often the engine looks for the first frame after `playing`. */
 export const FRAME_POLL_MS = 50;
@@ -98,7 +98,7 @@ export interface MediaElementLike {
   readonly videoWidth: number;
   readonly videoHeight: number;
   readonly error: { readonly code: number } | null;
-  readonly style: { left: string; top: string; width: string; height: string };
+  readonly style: { left: string; top: string; width: string; height: string; objectFit: string };
   readonly audioTracks?: AudioTrackListLike;
   readonly textTracks?: TrackListLike<TextTrackLike>;
   /** webOS: the media pipeline's id for this element, once it loads (luna `com.webos.media`). */
@@ -156,6 +156,9 @@ function trackIndex(id: string): number {
   return id !== '' && index >= 0 && Math.floor(index) === index ? index : -1;
 }
 
+/** The `<video>` does every fit (CSS `object-fit`, in Chromium since 31). */
+const HTML5_FITS: readonly PictureFit[] = ['contain', 'fill', 'cover'];
+
 function px(value: number): string {
   return String(Math.round(value)) + 'px';
 }
@@ -200,6 +203,7 @@ export class Html5Engine implements PlayerEngine {
       deliversSubtitleText: false,
       preloadSlots: 0,
       rates: [1],
+      fits: HTML5_FITS,
     };
     for (const [type, handler] of this.handlers) video.addEventListener(type, handler);
     if (audio !== undefined && audio.addEventListener !== undefined) {
@@ -264,6 +268,10 @@ export class Html5Engine implements PlayerEngine {
     style.top = px(r.y);
     style.width = px(r.width);
     style.height = px(r.height);
+  }
+
+  setFit(fit: PictureFit): void {
+    this.video.style.objectFit = fit;
   }
 
   getTracks(): { audio: Track[]; text: Track[] } {
@@ -544,6 +552,7 @@ export function createStageVideo(stage: HTMLElement): HTMLVideoElement {
   style.top = '0';
   style.width = '100%';
   style.height = '100%';
+  style.objectFit = 'contain';
   style.backgroundColor = '#000';
   stage.appendChild(video);
   return video;

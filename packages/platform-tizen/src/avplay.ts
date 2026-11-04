@@ -54,6 +54,14 @@ export interface AvplayManager {
   close(): void;
   prepareAsync(onsuccess?: () => void, onerror?: (error: AvplayError) => void): void;
   setDisplayRect(x: number, y: number, width: number, height: number): void;
+  /**
+   * How the picture fills the display rect: `PLAYER_DISPLAY_MODE_LETTER_BOX`,
+   * `PLAYER_DISPLAY_MODE_FULL_SCREEN` (stretched to the rect) or
+   * `PLAYER_DISPLAY_MODE_AUTO_ASPECT_RATIO` (from the stream's DAR/PAR). IDLE to PAUSED; an
+   * unknown mode throws `TypeMismatchError` since Tizen 6.0. No crop: `setVideoRoi` is for
+   * signage (LFD) only, and `setDisplayRect` refuses negative values.
+   */
+  setDisplayMethod?(mode: string): void;
   setListener(listener: AvplayListener): void;
   play(): void;
   pause(): void;

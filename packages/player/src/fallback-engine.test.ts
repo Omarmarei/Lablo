@@ -200,7 +200,7 @@ describe('FallbackEngine', () => {
     const r = rig();
     const calls = (engine: FakeEngine): string[] => {
       const out: string[] = [];
-      for (const name of ['seek', 'setRect', 'getTracks', 'selectAudio', 'selectText', 'positionMs', 'stats', 'suspend', 'resume', 'destroy'] as const) {
+      for (const name of ['seek', 'setRect', 'setFit', 'getTracks', 'selectAudio', 'selectText', 'positionMs', 'stats', 'suspend', 'resume', 'destroy'] as const) {
         vi.spyOn(engine, name).mockImplementation(((...args: unknown[]) => {
           out.push(name + (args.length === 0 ? '' : ' ' + args.map((a) => String(typeof a === 'object' && a !== null ? 'rect' : a)).join(',')));
           return name === 'positionMs' ? 42 : name === 'getTracks' ? { audio: [], text: [] } : name === 'stats' ? { width: 1, height: 1, bitrate: null, droppedFrames: null } : Promise.resolve(true);
@@ -224,8 +224,9 @@ describe('FallbackEngine', () => {
     };
     await use();
     r.engine.setRect('full');
-    expect(primary).toEqual(['seek 5', 'getTracks', 'selectAudio 1', 'selectText null', 'positionMs', 'stats', 'suspend', 'resume', 'setRect full']);
-    expect(fallback).toEqual(['setRect full']);
+    r.engine.setFit('fill');
+    expect(primary).toEqual(['seek 5', 'getTracks', 'selectAudio 1', 'selectText null', 'positionMs', 'stats', 'suspend', 'resume', 'setRect full', 'setFit fill']);
+    expect(fallback).toEqual(['setRect full', 'setFit fill']);
     expect(r.primary.log).toEqual(['play', 'pause']);
     void r.engine.load(HLS, 1);
     await r.clock.advance(150);
@@ -253,5 +254,28 @@ describe('FallbackEngine', () => {
     await r.clock.advance(500);
     expect(mine).toEqual([]);
     expect(r.events).toEqual(['firstFrame 1']);
+  });
+});
+
+describe('FallbackEngine: the picture (RELAY step 20c2b)', () => {
+  it('offers only the fits both engines have, whichever plays, with the active engine caps otherwise', async () => {
+    const clock = new FakeClock();
+    const primary = new FakeEngine(clock, (s) => (s.container === 'hls' ? { loadMs: 100, loadError: UNSUPPORTED, frameMs: null } : {}));
+    const fallback = new FakeEngine(clock);
+    primary.fits = ['contain', 'fill'];
+    primary.trackSwitch = 'reliable';
+    fallback.trackSwitch = 'none';
+    const engine = new FallbackEngine(primary, fallback);
+    expect(engine.caps.fits).toEqual(['contain', 'fill']);
+    expect(engine.caps.trackSwitch).toBe('reliable');
+    void engine.load(HLS, 1);
+    await clock.advance(150);
+    expect(engine.current).toBe(fallback);
+    expect(engine.caps.fits).toEqual(['contain', 'fill']);
+    expect(engine.caps.trackSwitch).toBe('none');
+    fallback.fits = ['contain', 'cover'];
+    expect(engine.caps.fits).toEqual(['contain']);
+    engine.setFit('fill');
+    expect([primary.fit, fallback.fit]).toEqual(['fill', 'fill']);
   });
 });

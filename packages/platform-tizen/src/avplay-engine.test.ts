@@ -99,17 +99,17 @@ describe('AvplayEngine: opening a source', () => {
   it('opens, sets its listener and the full-screen rect, prepares, then plays; load() resolves at play', async () => {
     const r = rig();
     const load = watch(r.engine.load(LIVE, 1));
-    expect(r.avplay.log).toEqual(['open ' + LIVE.url, 'setListener', 'setDisplayRect 0,0,1920,1080', 'prepareAsync']);
+    expect(r.avplay.log).toEqual(['open ' + LIVE.url, 'setListener', 'setDisplayRect 0,0,1920,1080', 'setDisplayMethod PLAYER_DISPLAY_MODE_LETTER_BOX', 'prepareAsync']);
     await r.clock.advance(1000);
     expect(load.state).toBe('pending');
     r.avplay.answerPrepare();
-    expect(r.avplay.log.slice(4)).toEqual(['play']);
+    expect(r.avplay.log.slice(5)).toEqual(['play']);
     await r.clock.advance(0);
     expect(load.state).toBe('resolved');
     // The track list is readable from READY on.
     expect(r.events()).toEqual(['tracks']);
     expect(r.engine.kind).toBe('avplay');
-    expect(r.engine.caps).toEqual({ maxHeight: 2160, trackSwitch: 'reliable', deliversSubtitleText: true, preloadSlots: 0, rates: [1] });
+    expect(r.engine.caps).toEqual({ maxHeight: 2160, trackSwitch: 'reliable', deliversSubtitleText: true, preloadSlots: 0, rates: [1], fits: ['contain', 'fill'] });
   });
 
   it('sees the first frame when the clock moves while PLAYING, once, with the load token', async () => {
@@ -178,6 +178,48 @@ describe('AvplayEngine: opening a source', () => {
     const r = rig();
     r.avplay.throws.setDisplayRect = 'InvalidValuesError';
     await playing(r);
+  });
+
+  it('keeps the fit setFit gave for the next open (cover is the letterbox), and changes the picture of an open one', async () => {
+    const r = rig();
+    expect(r.engine.caps.fits).toEqual(['contain', 'fill']);
+    r.engine.setFit('fill');
+    expect(r.avplay.log).toEqual([]);
+    quiet(r.engine.load(LIVE, 1));
+    expect(r.avplay.log.slice(2, 4)).toEqual(['setDisplayRect 0,0,1920,1080', 'setDisplayMethod PLAYER_DISPLAY_MODE_FULL_SCREEN']);
+    r.engine.setFit('cover');
+    expect(r.avplay.log[r.avplay.log.length - 1]).toBe('setDisplayMethod PLAYER_DISPLAY_MODE_LETTER_BOX');
+    r.engine.setFit('fill');
+    expect(r.avplay.log[r.avplay.log.length - 1]).toBe('setDisplayMethod PLAYER_DISPLAY_MODE_FULL_SCREEN');
+    await r.engine.stop();
+    r.avplay.log.length = 0;
+    r.engine.setFit('contain');
+    expect(r.avplay.log).toEqual([]);
+    quiet(r.engine.load(LIVE, 2));
+    expect(r.avplay.log).toContain('setDisplayMethod PLAYER_DISPLAY_MODE_LETTER_BOX');
+  });
+
+  it('plays on when AVPlay refuses the fit', async () => {
+    const r = rig();
+    r.avplay.throws.setDisplayMethod = 'TypeMismatchError';
+    r.engine.setFit('fill');
+    await playing(r);
+    r.engine.setFit('contain');
+    expect(r.avplay.log[r.avplay.log.length - 1]).toBe('setDisplayMethod PLAYER_DISPLAY_MODE_LETTER_BOX');
+  });
+
+  it('has only the letterbox on a firmware without setDisplayMethod, and calls nothing for a fit', async () => {
+    const clock = new FakeClock();
+    const avplay = new FakeAvplay(clock);
+    Object.defineProperty(avplay, 'setDisplayMethod', { value: undefined });
+    const engine = new AvplayEngine(avplay, { clock });
+    expect(engine.caps.fits).toEqual(['contain']);
+    engine.setFit('fill');
+    quiet(engine.load(LIVE, 1));
+    expect(avplay.log).toEqual(['open ' + LIVE.url, 'setListener', 'setDisplayRect 0,0,1920,1080', 'prepareAsync']);
+    engine.setFit('contain');
+    expect(avplay.log.length).toBe(4);
+    await engine.stop();
   });
 });
 
@@ -290,7 +332,7 @@ describe('AvplayEngine: stop', () => {
     await late.clock.advance(0);
     expect(first.error).toEqual({ kind: 'app', code: 'ABORTED' });
     // A load without a stop closed the first open before opening the second.
-    expect(late.avplay.log).toEqual(['open ' + LIVE.url, 'setListener', 'setDisplayRect 0,0,1920,1080', 'prepareAsync', 'stop', 'close', 'open ' + VOD.url, 'setListener', 'setDisplayRect 0,0,1920,1080', 'prepareAsync']);
+    expect(late.avplay.log).toEqual(['open ' + LIVE.url, 'setListener', 'setDisplayRect 0,0,1920,1080', 'setDisplayMethod PLAYER_DISPLAY_MODE_LETTER_BOX', 'prepareAsync', 'stop', 'close', 'open ' + VOD.url, 'setListener', 'setDisplayRect 0,0,1920,1080', 'setDisplayMethod PLAYER_DISPLAY_MODE_LETTER_BOX', 'prepareAsync']);
     late.avplay.answerPrepare();
     await late.clock.advance(0);
     expect(second.state).toBe('resolved');
@@ -538,7 +580,7 @@ describe('AvplayEngine: suspend and resume (app hidden and shown)', () => {
     await r.clock.advance(PREPARE_TIMEOUT_MS * 2);
     expect(load.state).toBe('pending');
     r.engine.resume();
-    expect(r.avplay.log.slice(-4)).toEqual(['open ' + VOD.url, 'setListener', 'setDisplayRect 0,0,1920,1080', 'prepareAsync']);
+    expect(r.avplay.log.slice(-5)).toEqual(['open ' + VOD.url, 'setListener', 'setDisplayRect 0,0,1920,1080', 'setDisplayMethod PLAYER_DISPLAY_MODE_LETTER_BOX', 'prepareAsync']);
     r.avplay.answerPrepare();
     await r.clock.advance(0);
     expect(load.state).toBe('resolved');

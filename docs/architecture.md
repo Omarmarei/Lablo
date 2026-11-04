@@ -625,11 +625,12 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
 export interface PlayerEngine {
   readonly kind: 'avplay' | 'html5' | 'mse';
   readonly caps: { maxHeight: number; trackSwitch: 'reliable'|'unreliable'|'none';
-                   deliversSubtitleText: boolean; preloadSlots: number; rates: number[] };
+                   deliversSubtitleText: boolean; preloadSlots: number; rates: number[]; fits: PictureFit[] };
   load(source: EngineSource, token: number, opts?: { startMs?: number }): Promise<void>;  // one URL: the controller picks it
   play(): void; pause(): void; seek(ms: number): Promise<void>;
   stop(): Promise<void>;                 // must close the network connection (provider connection limits)
   setRect(r: Rect | 'full'): void;       // AVPlay setDisplayRect / CSS on the single <video>
+  setFit(fit: 'contain'|'fill'|'cover'): void;  // AVPlay setDisplayMethod / object-fit (step 20c2b)
   getTracks(): { audio: Track[]; text: Track[] };
   selectAudio(id: string): Promise<boolean>; selectText(id: string | null): Promise<boolean>;
   positionMs(): number; stats(): EngineStats;
@@ -952,12 +953,46 @@ export type PlayRequest = { key: ContentKey; src: string; mode: 'live'|'vod'|'ca
   - The codecs on the `<video>` (webOS): the element doesn't name them.
   - A frame rate on AVPlay: its `extra_info` names none in Samsung's reference; a TV run may find a field.
   - The panel on any TV (19b, 21).
-  - Aspect and zoom (20c2b).
+  - Aspect and zoom (20c2b, below).
 - **Tests:**
   - **Unit:** `stream-info.test.ts` (10: the figures, the sampler's timing and resets, the words, the rows in English and Arabic), `player-state.test.ts` (+3: the formats on every play, the button, nothing read before the first play), `controller.test.ts` (+2), the `<video>`'s and AVPlay's stats (rewritten), `test/ingest-mock.test.ts` (+1: the formats on every login, an unchanged refresh included), `test/tv-data-engine.test.ts` (+1) and the mock's `streams.test.ts` (+1).
   - **e2e:** `player.spec.ts` (+3): the `hls` account's two plays ask for `.m3u8` only (the test fails with the app's wiring removed); the panel by keys in English and Arabic (the third button, "Waiting for the picture…", the format, the corner, kept through a zap, off, gone with the player). `player-media.spec.ts` (+1): on the SMPTE channel 960×540, 22–28 fps, 200–2,000 kb/s, HLS, HTML5; after the number 6, the HD channel's 1280×720, 45–55 fps and over 1 Mb/s.
   - **Mutation:** 53/53 caught. The first run caught 51/53; the two test gaps are closed: a new load whose counters are already past the old ones (the byte counter's fall had masked the load check), and a picture with no bitrate yet.
 - **TV bundle:** main's own code 264.0 → 270.4 KB on Tizen and 252.4 → 258.3 KB on webOS, with the same 219 core-js modules on both. A reading's time is `time`, not `at` (leg 43's lesson).
+
+**Built in step 20c2b: the picture's mode** (`packages/player/src/picture.ts`; `PlayerEngine.setFit` and `EngineCaps.fits` in the three engines; `PlayerController.pictureModes` and `setPicture`; the info bar's "Picture" button; profile version 3's optional `player.picture`):
+- **The modes:** four, each a rect on the 1920×1080 screen and a fit in it (`pictureLayout`):
+  - **Fit** (the default): the whole picture in its own shape, with bars where its shape isn't the screen's. The `<video>`'s `object-fit: contain`; AVPlay's `PLAYER_DISPLAY_MODE_LETTER_BOX`.
+  - **Zoom:** the screen filled in the picture's shape, its edges cropped. `object-fit: cover`, on the `<video>` only.
+  - **Stretch:** the picture stretched to the screen. `object-fit: fill`; AVPlay's `PLAYER_DISPLAY_MODE_FULL_SCREEN`.
+  - **4:3:** the picture stretched into a 1440×1080 window in the middle (`FOUR_THREE`: `setRect` 240, 0, 1440, 1080, with the fill), for a 4:3 broadcast sent stretched to 16:9.
+  - No 16:9 mode: on a 16:9 TV it is Stretch.
+- **The 4:3 side bars:** the player screen draws them itself, black, under its other parts (`.player__pillar`). Outside its box the `<video>` leaves the stage transparent, so the page's own colour would show (white on the desktop). Over AVPlay's plane, black outside its rect, they change nothing. `setRect` keeps meaning the picture's box and nothing else, which a preview window will need.
+- **AVPlay** (Samsung's reference):
+  - `setDisplayMethod` has `LETTER_BOX`, `FULL_SCREEN` and `AUTO_ASPECT_RATIO` ("based on the video's DAR/PAR"), in the states IDLE to PAUSED. Since Tizen 6.0 an unknown mode throws `TypeMismatchError`.
+  - **No crop in a TV app:** `setVideoRoi` is for signage (LFD) and throws `NotSupportedError` in a TV app, and `setDisplayRect` refuses negative values.
+  - So AVPlay's `caps.fits` is `contain` and `fill`, and a firmware without `setDisplayMethod` has `contain` only. The engine calls it at every open, after `setDisplayRect`, and on a change while a source is open; a refusal leaves the picture as it was.
+  - `contain` is the letterbox, the mode Samsung's samples use. Whether `AUTO_ASPECT_RATIO` draws an anamorphic SD stream better is a TV run's answer (step 21).
+- **The engines keep the rect and the fit for every later load,** so the controller sets them once per change:
+  - `setPicture(mode)` gives the engine the mode's rect and fit and answers the mode shown: Fit for one the engine lacks.
+  - `pictureModes` lists the modes the engine's fits allow, Fit always.
+  - `FallbackEngine.caps.fits` is the fits both its engines have, because either may play the next channel. On Tizen that leaves no Zoom.
+- **The control:** the info bar's fourth button, "Picture: Fit" (`PICTURE_ACTION`; `ACTIONS` is 4).
+  - OK goes round Fit, Zoom, Stretch, 4:3 and back to Fit, skipping what the engine can't show (AVPlay: Fit, Stretch, 4:3).
+  - The picture changes at once, the stream isn't touched, and the focus stays on the button.
+  - No remote key: Samsung's `PictureSize` key would need a new intent, and S10's battery would then ask every TV for it (as with "Stream info").
+- **Where it's kept:** one mode for every channel, like the subtitle size, in the profile's `player.picture`.
+  - It is an optional field of version 3: a document without it reads as never set, so no migration.
+  - A mode per channel was left out: the mode is mostly the viewer's taste (bars or a crop), and a channel that needs 4:3 is one press away.
+  - The app gives the controller the kept mode when it is made, before the first play. A kept mode this TV's engine can't show plays as Fit and stays kept.
+- **Not yet:**
+  - The modes on a TV (19b, 21): AVPlay's letterbox against its auto aspect, and its plane outside a 4:3 rect.
+  - A picture setting in the settings screen.
+- **Tests:**
+  - **Unit:** `picture.test.ts` (4: the layouts, the modes per engine, the round, a stored mode), the controller (+2), the `<video>` (+1, and its caps), AVPlay (+3: the fit kept for the next open, a refusal, a firmware without the call; the open's order), `FallbackEngine` (+1: the fits both have, whichever plays), `player-state.test.ts` (+2: the round from the fourth button, the kept mode and AVPlay's round), `player-memory.test.ts` (the mode read, written once, an unknown one skipped) and `profile.test.ts` (+1: no migration).
+  - **e2e** (`pnpm verify`'s 63 and `pnpm e2e:media`'s 10 green locally): `player.spec.ts` (+2): the round by keys in English and Arabic, read off the `<video>`'s `object-fit` and box and the side bars (4:3 only), with the button's name, kept through a zap and a relaunch (the profile). `player-media.spec.ts` (+1): 4:3 on the SMPTE channel, read from the screen's pixels: grey edge to edge in Fit, black beside the 1440 px window in 4:3, the stream playing on.
+  - **Mutation:** 42/42 caught on the first run. Two guards that couldn't change an outcome went before it: `nextPicture`'s branch for a mode not among the modes (they start with Fit, where the lookup lands anyway), and AVPlay's `typeof` check before `setDisplayMethod` (the call's own `attempt` swallows a missing method; it is an optional call now).
+- **TV bundle:** main's own code 270.4 → 272.9 KB on Tizen and 258.3 → 260.3 KB on webOS, with the same 219 core-js modules on both.
 
 ---
 

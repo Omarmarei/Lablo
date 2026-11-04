@@ -15,7 +15,7 @@
  *   while AVPlay plays: AVPlay paints under the page).
  */
 
-import type { EngineCaps, EngineEvent, EngineSource, EngineStats, LoadOptions, PlaybackError, PlayerEngine, Rect, Track } from './engine';
+import type { EngineCaps, EngineEvent, EngineSource, EngineStats, LoadOptions, PictureFit, PlaybackError, PlayerEngine, Rect, Track } from './engine';
 import { isPlaybackError } from './engine';
 
 export interface FallbackOptions {
@@ -62,8 +62,13 @@ export class FallbackEngine implements PlayerEngine {
     return this.active.kind;
   }
 
+  /**
+   * The active engine's, but the fits both have: the picture's mode is chosen once for every
+   * channel, and either engine may play the next one.
+   */
   get caps(): EngineCaps {
-    return this.active.caps;
+    const fallback = this.fallback.caps.fits;
+    return { ...this.active.caps, fits: this.primary.caps.fits.filter((fit) => fallback.indexOf(fit) !== -1) };
   }
 
   /** The engine that plays now (for the platform's picture and tests). */
@@ -106,6 +111,12 @@ export class FallbackEngine implements PlayerEngine {
   setRect(r: Rect | 'full'): void {
     this.primary.setRect(r);
     this.fallback.setRect(r);
+  }
+
+  /** Both engines keep the fit, like the rect. */
+  setFit(fit: PictureFit): void {
+    this.primary.setFit(fit);
+    this.fallback.setFit(fit);
   }
 
   getTracks(): { audio: Track[]; text: Track[] } {

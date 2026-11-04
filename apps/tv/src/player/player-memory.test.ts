@@ -44,10 +44,10 @@ const changes = (edits: ProfileEdit[]): unknown[] => edits.map((e) => (e.kind ==
 describe('createPlayerMemory', () => {
   it('knows nothing before the profile, and nothing from a profile without a player section', () => {
     const { memory, edits } = rig();
-    expect([memory.sources.preferred('s1'), memory.redirects.mode('s1'), memory.tracks.choice('s1:live:1'), memory.last(), memory.subtitleSize()]).toEqual([null, 'unknown', null, null, null]);
+    expect([memory.sources.preferred('s1'), memory.redirects.mode('s1'), memory.tracks.choice('s1:live:1'), memory.last(), memory.subtitleSize(), memory.picture()]).toEqual([null, 'unknown', null, null, null, null]);
     memory.load(null);
     memory.load({ doc: { v: 2, sources: [] }, newer: false, migratedFrom: null });
-    expect([memory.sources.preferred('s1'), memory.redirects.mode('s1'), memory.tracks.choice('s1:live:1'), memory.last(), memory.subtitleSize()]).toEqual([null, 'unknown', null, null, null]);
+    expect([memory.sources.preferred('s1'), memory.redirects.mode('s1'), memory.tracks.choice('s1:live:1'), memory.last(), memory.subtitleSize(), memory.picture()]).toEqual([null, 'unknown', null, null, null, null]);
     expect(edits).toEqual([]);
   });
 
@@ -72,6 +72,7 @@ describe('createPlayerMemory', () => {
           f: { audio: null, text: null, delayMs: 'late', used: 5 },
         },
         subtitleSize: 'l',
+        picture: '4:3',
       }),
     );
     expect(['s1', 's2', 's3', 's4', 'hasOwnProperty'].map((s) => memory.sources.preferred(s))).toEqual(['hls', 'ts', null, null, null]);
@@ -83,18 +84,20 @@ describe('createPlayerMemory', () => {
     expect(['c', 'c2', 'c3', 'c4', 'd', 'e', 'valueOf'].map((k) => memory.tracks.choice(k))).toEqual([null, null, null, null, null, null, null]);
     expect(memory.tracks.choice('f')).toEqual({ audio: null, text: null });
     expect(memory.subtitleSize()).toBe('l');
+    expect(memory.picture()).toBe('4:3');
     expect(memory.last()).toEqual(last);
     // A second load replaces everything.
-    memory.load(profile({ containers: {}, subtitleSize: 'xl' }));
-    expect([memory.sources.preferred('s1'), memory.redirects.mode('s1'), memory.tracks.choice('a'), memory.last(), memory.subtitleSize()]).toEqual([null, 'unknown', null, null, null]);
+    memory.load(profile({ containers: {}, subtitleSize: 'xl', picture: '16:9' }));
+    expect([memory.sources.preferred('s1'), memory.redirects.mode('s1'), memory.tracks.choice('a'), memory.last(), memory.subtitleSize(), memory.picture()]).toEqual([null, 'unknown', null, null, null, null]);
   });
 
   it('writes each change once, as a player edit; the same answer again writes nothing', () => {
     const { memory, edits, clock } = rig();
-    memory.load(profile({ containers: { s1: 'ts' }, redirects: { s1: 'none' }, subtitleSize: 'm' }));
+    memory.load(profile({ containers: { s1: 'ts' }, redirects: { s1: 'none' }, subtitleSize: 'm', picture: 'zoom' }));
     memory.sources.remember('s1', 'ts');
     memory.redirects.remember('s1', 'none');
     memory.setSubtitleSize('m');
+    memory.setPicture('zoom');
     expect(edits).toEqual([]);
     memory.sources.remember('s1', 'hls');
     memory.sources.remember('s1', 'hls');
@@ -102,6 +105,8 @@ describe('createPlayerMemory', () => {
     memory.redirects.remember('s2', 'redirects');
     memory.setSubtitleSize('s');
     memory.setSubtitleSize('s');
+    memory.setPicture('stretch');
+    memory.setPicture('stretch');
     clock.t = 2000;
     memory.tracks.remember('s1:live:5', { audio: { id: '1', lang: 'en', label: '' }, text: null });
     clock.t = 3000;
@@ -110,10 +115,11 @@ describe('createPlayerMemory', () => {
       { field: 'container', src: 's1', container: 'hls' },
       { field: 'redirect', src: 's2', mode: 'redirects' },
       { field: 'subtitleSize', size: 's' },
+      { field: 'picture', mode: 'stretch' },
       { field: 'track', key: 's1:live:5', choice: { audio: { id: '1', lang: 'en', label: '' }, text: null, used: 2000 } },
       { field: 'track', key: 's1:vod:7', choice: { audio: null, text: 'off', delayMs: 250, used: 3000 } },
     ]);
-    expect([memory.sources.preferred('s1'), memory.redirects.mode('s2'), memory.subtitleSize()]).toEqual(['hls', 'redirects', 's']);
+    expect([memory.sources.preferred('s1'), memory.redirects.mode('s2'), memory.subtitleSize(), memory.picture()]).toEqual(['hls', 'redirects', 's', 'stretch']);
     expect(memory.tracks.choice('s1:vod:7')).toEqual({ audio: null, text: 'off', delayMs: 250 });
   });
 
