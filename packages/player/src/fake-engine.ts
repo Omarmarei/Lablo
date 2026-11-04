@@ -120,7 +120,11 @@ export class FakeEngine implements PlayerEngine {
   leaky = false;
   /** `play()` after a pause starts the position moving (false: an engine that resumes stuck). */
   resumeMoves = true;
+  /** A `resume()` shows its first frame this long after the call (`null`: never). */
+  resumeFrameMs: number | null = 500;
   private playback: Playback | null = null;
+  /** The load `suspend()` closed, until `resume()`. */
+  private suspended: Playback | null = null;
   private listeners: ((e: EngineEvent & { readonly token: number }) => void)[] = [];
 
   constructor(
@@ -169,11 +173,14 @@ export class FakeEngine implements PlayerEngine {
     const p = this.playback;
     this.playback = null;
     if (p === null) return Promise.resolve();
+    // A suspended load's connection is closed already.
+    const closed = this.suspended === p;
+    this.suspended = null;
     if (!this.leaky) for (const timer of p.timers) this.clock.clearTimeout(timer);
     p.abort();
     return new Promise((resolve) => {
       this.clock.setTimeout(() => {
-        this.open--;
+        if (!closed) this.open--;
         this.log.push('closed');
         resolve();
       }, this.stopMs);
@@ -234,9 +241,37 @@ export class FakeEngine implements PlayerEngine {
     return { width: 0, height: 0, bitrate: null, droppedFrames: null };
   }
 
-  suspend(): void {}
+  /**
+   * The app went to the background: the load's scripted events stop, the position stops and the
+   * connection closes at once (the TV's own suspend), until `resume`.
+   */
+  suspend(): void {
+    this.log.push('suspend');
+    const p = this.playback;
+    if (p === null || this.suspended !== null) return;
+    for (const timer of p.timers) this.clock.clearTimeout(timer);
+    p.timers.length = 0;
+    this.still(p);
+    this.open--;
+    this.suspended = p;
+  }
 
-  resume(): void {}
+  /** Opens the connection again: a new first frame `resumeFrameMs` later (`null`: never), with the load's token. */
+  resume(): void {
+    this.log.push('resume');
+    const p = this.suspended;
+    this.suspended = null;
+    if (p === null || this.playback !== p) return;
+    this.open++;
+    this.maxOpen = Math.max(this.maxOpen, this.open);
+    if (this.resumeFrameMs === null) return;
+    p.timers.push(
+      this.clock.setTimeout(() => {
+        p.movingSince = this.clock.now();
+        this.emit(p.token, { type: 'firstFrame' });
+      }, this.resumeFrameMs),
+    );
+  }
 
   destroy(): void {}
 

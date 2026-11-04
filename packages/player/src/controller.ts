@@ -12,8 +12,10 @@
  * - **the error classifier** (`failure.ts`): giving up yields a category and a code, with the
  *   account re-checked after a provider failure.
  *
- * Debounced zapping, tracks, subtitles and the app lifecycle come with the engines and the
- * player UI (steps 18–20). Platform-specific needs arrive as callbacks (ADR-008).
+ * - **the app lifecycle** (`hide`/`show`, step 20a): the watchdog rests while the app is hidden.
+ *
+ * Debounced zapping, number entry and the info bar are the app's (apps/tv/src/player); tracks
+ * and subtitles come with step 20b. Platform-specific needs arrive as callbacks (ADR-008).
  */
 
 import type { ContentKey } from '@zoma/core';
@@ -132,6 +134,12 @@ export class PlayerController {
   /** The token whose engine events count; 0 between loads. */
   private liveToken = 0;
   private stopping: Promise<void> | null = null;
+  /**
+   * While the app is hidden: `engine` (the engine holds the suspended stream), `reopen` (the
+   * stream was still opening: closed, opened again on show) or `idle` (nothing to do). `null`
+   * while shown.
+   */
+  private hidden: 'engine' | 'reopen' | 'idle' | null = null;
 
   private openTimer: unknown = null;
   private tickTimer: unknown = null;
@@ -186,6 +194,7 @@ export class PlayerController {
     };
     this.s = s;
     this.liveToken = 0;
+    this.hidden = null;
     this.clearTimers();
     this.setState('opening');
     if (candidates.length === 0) {
@@ -200,9 +209,55 @@ export class PlayerController {
     ++this.sessionSeq;
     this.s = null;
     this.liveToken = 0;
+    this.hidden = null;
     this.clearTimers();
     this.setState('idle');
     return this.closeEngine();
+  }
+
+  /**
+   * The app went to the background (`Platform.onLifecycle` `hidden`, RELAY step 20a): the
+   * watchdog rests and engine events are dropped until `show()`.
+   * - A stream that showed a picture (playing, buffering, paused) is suspended in the engine:
+   *   Tizen keeps AVPlay's player (`suspend`/`restore`), webOS and the desktop close the
+   *   connection and reopen the same URL.
+   * - A stream still opening or waiting for a retry is closed (its load, probe or backoff is
+   *   dropped) and opened again on show.
+   */
+  hide(): void {
+    if (this.hidden !== null) return;
+    const state = this.current.state;
+    if (this.s !== null && (state === 'playing' || state === 'buffering' || state === 'paused')) {
+      this.clearTimers();
+      this.engine.suspend();
+      this.hidden = 'engine';
+    } else if (this.s !== null && (state === 'opening' || state === 'reconnecting')) {
+      this.liveToken = 0;
+      this.clearTimers();
+      void this.closeEngine();
+      this.hidden = 'reopen';
+    } else {
+      this.hidden = 'idle';
+    }
+  }
+
+  /**
+   * The app is back (`visible`). A suspended stream resumes in the engine, which shows a new first
+   * frame: until then the state is `reconnecting` and the open timeout runs (a paused stream plays
+   * again). A stream that was opening opens its URL again.
+   */
+  show(): void {
+    const how = this.hidden;
+    this.hidden = null;
+    const s = this.s;
+    if (s === null) return;
+    if (how === 'engine') {
+      this.engine.resume();
+      this.armOpenTimer(this.liveToken);
+      this.setState('reconnecting');
+    } else if (how === 'reopen' && (this.current.state === 'opening' || this.current.state === 'reconnecting')) {
+      void this.open(s, false);
+    }
   }
 
   /** Pauses a playing stream; the watchdog rests while paused. */
@@ -234,7 +289,7 @@ export class PlayerController {
     const token = ++this.tokenSeq;
     this.liveToken = token;
     this.clearTimers();
-    this.openTimer = this.clock.setTimeout(() => this.fail(token, { kind: 'timeout', code: 'OPEN' }), this.config.openTimeoutMs);
+    this.armOpenTimer(token);
     await this.closeEngine();
     if (token !== this.liveToken) return;
     const candidate = s.candidates[s.current]!;
@@ -255,6 +310,11 @@ export class PlayerController {
     }
   }
 
+  /** No first frame for the load `token` within the open timeout fails it. */
+  private armOpenTimer(token: number): void {
+    this.openTimer = this.clock.setTimeout(() => this.fail(token, { kind: 'timeout', code: 'OPEN' }), this.config.openTimeoutMs);
+  }
+
   /** Stops the engine, or joins the stop already under way. */
   private closeEngine(): Promise<void> {
     if (this.stopping === null) {
@@ -270,7 +330,7 @@ export class PlayerController {
   }
 
   private onEvent(e: EngineEvent & { readonly token: number }): void {
-    if (e.token !== this.liveToken) return;
+    if (e.token !== this.liveToken || this.hidden !== null) return;
     const s = this.s!;
     switch (e.type) {
       case 'firstFrame':

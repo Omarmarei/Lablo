@@ -16,6 +16,10 @@ import { createGallery } from './gallery/gallery-state';
 import { createEngineLoader } from './onboarding/engine-loader';
 import { OnboardingApp } from './onboarding/OnboardingApp';
 import type { Onboarding } from './onboarding/onboarding-state';
+import { appPlayer } from './player/app-player';
+import type { Player } from './player/player-state';
+import { createPlayer } from './player/player-state';
+import { createStage, setPlayerChrome } from './player/stage';
 import { createOnboarding } from './onboarding/onboarding-state';
 import { answerEdit, readStartProfile, startPoint } from './onboarding/start';
 import { KEY_HELP, createPlatform } from './platform';
@@ -52,6 +56,17 @@ function dataEngine(): DataEngine {
   return engine;
 }
 
+/**
+ * The app's player controller, made on the first play (RELAY step 20a): the stage under the page,
+ * the platform's engines on it, and the platform's probe, screensaver and lifecycle.
+ */
+const playerController = appPlayer({
+  platform,
+  stage: () => createStage(document),
+  checkAccount: (src) => dataEngine().account(src),
+  online: () => navigator.onLine,
+});
+
 /** The hello screen: developer diagnostics of the device, the workers and the data layer. */
 function showHello(into: Element): void {
   const data: AppData = { engine: dataEngine(), params: readDebugParams(location.search), busy };
@@ -62,12 +77,21 @@ function showHello(into: Element): void {
 
 /**
  * The live screen (RELAY step 14a): the stored sources' channels, in the language picked in
- * onboarding (`null`: the TV's).
+ * onboarding (`null`: the TV's). OK on a channel opens the player (step 20a).
  */
 function showLive(into: Element, language: Language | null): void {
-  const live = createLive({ platform, engine: dataEngine() });
+  let player: Player | null = null;
+  const live = createLive({ platform, engine: dataEngine(), play: (index) => player?.show(index) });
+  // OK on a channel opens the player on the live navigator (step 20a); Back returns to its row.
+  player = createPlayer({
+    nav: live.nav,
+    list: live.list,
+    player: playerController,
+    chrome: (on) => setPlayerChrome(document, on),
+    closed: (index) => live.focusRow(index),
+  });
   showFocus(live.nav);
-  render(<LiveApp platform={platform} live={live} language={language} />, into);
+  render(<LiveApp platform={platform} live={live} language={language} player={player} />, into);
 }
 
 /**

@@ -61,6 +61,17 @@ describe('ChannelIndex', () => {
     expect(ids(5, 5)).toEqual([]);
   });
 
+  it("gives a chunk's first row, and -1 for a chunk the list doesn't hold", () => {
+    const index = new ChannelIndex(parts);
+    expect(index.firstRow({ src: 's1', catIdx: 2, chunk: 0 })).toBe(3);
+    expect(index.firstRow({ src: 's1', catIdx: 2, chunk: 2 })).toBe(1003);
+    expect(index.firstRow({ src: 's2', catIdx: 4, chunk: 0 })).toBe(1203);
+    expect(index.firstRow({ src: 's1', catIdx: 2, chunk: 3 })).toBe(-1);
+    expect(index.firstRow({ src: 's1', catIdx: 2, chunk: -1 })).toBe(-1);
+    expect(index.firstRow({ src: 's2', catIdx: 2, chunk: 0 })).toBe(-1);
+    expect(index.firstRow({ src: 's3', catIdx: 0, chunk: 0 })).toBe(-1);
+  });
+
   it('matches the flattened list for any categories and chunk sizes', () => {
     const part = fc.record({
       src: fc.constantFrom('s1', 's2', 's10'),
@@ -82,6 +93,11 @@ describe('ChannelIndex', () => {
           if (expected[expected.length - 1] !== id) expected.push(id);
         }
         expect(index.chunksFor(from, to).map(chunkId)).toEqual(expected);
+        // Each row is its chunk's first row plus its slot.
+        for (let i = 0; i < rows.length; i += 1) {
+          const at = index.locate(i)!;
+          expect(index.firstRow(at) + at.slot).toBe(i);
+        }
       }),
     );
   });

@@ -131,6 +131,29 @@ export const EN = {
   'live.failed': "Couldn't read your channels.",
   'live.retry': 'Try again',
   'badge.radio': 'Radio',
+
+  // The player (RELAY step 20a). Codes are data (PRV-HTTP-404): they stay as they are.
+  'player.connecting': 'Connecting…',
+  'player.reconnecting': 'Reconnecting…',
+  'player.previous': 'Previous channel',
+  'player.noChannel': 'No channel {number}',
+  'player.retry': 'Try again',
+  'player.channels': 'Channels',
+  'player.code': 'Code {code}',
+  'player.internet.title': 'No internet connection',
+  'player.internet.advice': 'Check that the TV is connected to the internet, then try again.',
+  'player.provider.title': "Your provider isn't sending this channel",
+  'player.provider.advice': "The problem is on the provider's side. Try again later, or contact your provider.",
+  'player.device.title': "This TV can't play this channel",
+  'player.device.advice': "The channel uses a format this TV doesn't support. Try another channel.",
+  'player.app.title': 'Something went wrong in Zoma',
+  'player.app.advice': 'Try again. If it keeps happening, restart the app.',
+  'player.account.refused': "Your provider didn't accept the login. Check the username and password.",
+  'player.account.expired': 'Your subscription with this provider has expired.',
+  'player.account.blocked': 'Your provider has blocked or turned off this account.',
+  'player.account.full': 'Your account is already watching on other screens.',
+  'player.account.expiry': 'Subscription ends {date}',
+  'player.account.connections': 'Connections in use: {active, number} of {max, number}',
 } as const;
 
 export type MessageKey = keyof typeof EN;
