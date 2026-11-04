@@ -4,9 +4,10 @@
  * Interfaces only, plus the Intent vocabulary as a constant list. Adapters
  * (platform-tizen, platform-webos, platform-browser) implement `Platform`; apps/tv
  * picks one per build through the `__PLATFORM__` define. See docs/architecture.md §1.1
- * and §1.2. Player types will be imported here with `import type` only (ADR-008).
+ * and §1.2. Player types are imported here with `import type` only (ADR-008).
  */
 import type { DeviceTier } from '@zoma/core';
+import type { PlayerEngine } from '@zoma/player';
 
 export type { DeviceTier };
 
@@ -149,11 +150,21 @@ export interface ScreenReaderState {
 }
 
 /**
- * The only seam between the app and a TV platform. Later steps add `createEngines()` and the
- * optional extras listed in docs/architecture.md §1.1.
+ * Builds the platform's playback engines, best first (ADR-008: the adapters construct them, and
+ * apps/tv hands them to the `PlayerController`). `stage` is the app's player layer: each engine
+ * puts its picture there (the one app-wide `<video>`, or AVPlay's `<object>` in step 19). Called
+ * once.
+ */
+export type EngineFactory = (stage: HTMLElement) => PlayerEngine[];
+
+/**
+ * The only seam between the app and a TV platform. Later steps add the optional extras listed
+ * in docs/architecture.md §1.1.
  */
 export interface Platform {
   readonly id: PlatformId;
+  /** The playback engines (see `EngineFactory`): webOS and the desktop `Html5Engine`; Tizen AVPlay, then `Html5Engine` for HLS. */
+  readonly createEngines: EngineFactory;
   /** Device facts. Async because some TV APIs answer through callbacks. */
   info(): Promise<DeviceInfo>;
   /**

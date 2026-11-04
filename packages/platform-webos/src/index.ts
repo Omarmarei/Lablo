@@ -3,16 +3,18 @@
  *
  * Step 2 covers what the hello app needs: device info from `PalmSystem.deviceInfo`, remote
  * key codes, lifecycle and exit; step 15a the LGUDID (`deviceSecret`) through a luna call
- * (`lunaRequest`, over `PalmServiceBridge`); step 15b2 Audio Guidance and speech (`speech.ts`). The DB8 mirror and the track-switch strategy
- * follow in later steps. The only package allowed to touch `webOS`, `PalmSystem` and
+ * (`lunaRequest`, over `PalmServiceBridge`); step 15b2 Audio Guidance and speech (`speech.ts`); step 18 the
+ * playback engine (`createEngines`: `Html5Engine`, with luna `selectTrack` as its track-switch fallback). The DB8 mirror
+ * follows in a later step. The only package allowed to touch `webOS`, `PalmSystem` and
  * `PalmServiceBridge` (lint-enforced). Every API is feature-checked, so the bundle also boots in a
  * desktop browser.
  */
 import { chromiumMajorFromUserAgent, deviceTier } from '@zoma/core';
 import type { DeviceInfo, Intent, KeyLike, KeyRegistration, LifecycleEvent, Platform, PlatformCall, TextKey } from '@zoma/platform-api';
 import { DIGIT_INTENTS } from '@zoma/platform-api';
+import { Html5Engine, createStageVideo } from '@zoma/player';
 import { parsePalmDeviceInfo, webosVersionFacts } from './device';
-import { readLgudid } from './luna';
+import { readLgudid, webosSelectTrack } from './luna';
 import { readAudioGuidance, webosSpeak } from './speech';
 
 export type { WebosDeviceInfo, WebosVersionFacts, WebosVersionSource } from './device';
@@ -127,6 +129,10 @@ function readDeviceInfo(): DeviceInfo {
 export function createWebosPlatform(): Platform {
   return {
     id: 'webos',
+    // One app-wide `<video>`. Audio tracks switch through its `audioTracks` (154–205 ms on the LG
+    // TV, S5); luna `selectTrack` only where the element ignores a switch (ADR-012: LG's ACG table
+    // doesn't list it).
+    createEngines: (stage) => [new Html5Engine(createStageVideo(stage), { selectAudioTrack: (mediaId, index) => webosSelectTrack(mediaId, 'audio', index) })],
     info: () => Promise.resolve(readDeviceInfo()),
     registerKeys: (): KeyRegistration => ({ skipped: 'webOS delivers every key', supported: null, registered: [], unsupported: [], refused: [] }),
     keyToIntent: webosKeyToIntent,

@@ -16,6 +16,7 @@
     "@zoma/platform-browser": "workspace:*",
     "@zoma/platform-tizen": "workspace:*",
     "@zoma/platform-webos": "workspace:*",
+    "@zoma/player": "workspace:*",
     "@zoma/ui": "workspace:*",
     "preact": "^10.29.8"
   },

@@ -8,6 +8,7 @@
 import { chromiumMajorFromUserAgent } from '@zoma/core';
 import type { DeviceInfo, Intent, KeyLike, KeyRegistration, LifecycleEvent, Platform, PlatformCall, ScreenReaderState, TextKey } from '@zoma/platform-api';
 import { DIGIT_INTENTS } from '@zoma/platform-api';
+import { Html5Engine, createStageVideo } from '@zoma/player';
 
 /** `KeyboardEvent.key` values and the Intent each one stands for. */
 const KEY_INTENTS: ReadonlyMap<string, Intent> = new Map<string, Intent>([
@@ -119,6 +120,8 @@ function fakeDeviceInfo(env: BrowserEnv): DeviceInfo {
 export function createBrowserPlatform(env: BrowserEnv = defaultEnv()): Platform {
   return {
     id: 'browser',
+    // Desktop Chromium plays HLS, MP4 and MKV natively, but no MPEG-TS (the controller moves to `.m3u8`).
+    createEngines: (stage) => [new Html5Engine(createStageVideo(stage))],
     info: () => Promise.resolve(fakeDeviceInfo(env)),
     registerKeys: (): KeyRegistration => ({ skipped: 'a desktop keyboard delivers every key', supported: null, registered: [], unsupported: [], refused: [] }),
     keyToIntent: browserKeyToIntent,

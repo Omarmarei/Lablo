@@ -20,7 +20,8 @@ export const LUNA_ACG: Readonly<Record<string, string | null>> = {
   'luna://com.webos.service.tv.systemproperty/getSystemInfo': 'systemconfig.query',
   // speak: S11. Not in LG's table; Audio Guidance reads labelled focus by itself.
   'luna://com.webos.service.tts/speak': null,
-  // webosSelectTrack: S5. Not in LG's table; `audioTracks` switched in 154 ms on the LG TV.
+  // webosSelectTrack: S5, and Html5Engine's track-switch fallback (step 18). Not in LG's table;
+  // `audioTracks` switched in 154 ms on the LG TV.
   'luna://com.webos.media/selectTrack': null,
 };
 

@@ -10,6 +10,7 @@
  */
 import { chromiumMajorFromUserAgent, deviceTier } from '@zoma/core';
 import type { DeviceInfo, Intent, KeyLike, KeyRegistration, LifecycleEvent, Platform, PlatformCall, ScreenReaderState, TextKey } from '@zoma/platform-api';
+import { Html5Engine, createStageVideo } from '@zoma/player';
 import { tizenChromiumVersion, tizenModelYear } from './device';
 import type { TizenKey, TvInputDevice } from './keys';
 import { buildTizenKeyMap, registerTizenKeys, tizenTextKey } from './keys';
@@ -93,6 +94,8 @@ export function createTizenPlatform(): Platform {
 
   return {
     id: 'tizen',
+    // AVPlay comes first from step 19; until then the `<video>` engine, which on Tizen plays HLS.
+    createEngines: (stage) => [new Html5Engine(createStageVideo(stage))],
     info: () => Promise.resolve(readDeviceInfo()),
     registerKeys: (): KeyRegistration => registerTizenKeys(attempt(() => globals().tizen?.tvinputdevice, undefined)),
     keyToIntent: (event: KeyLike): Intent | null => getKeyMap().get(event.keyCode) ?? null,

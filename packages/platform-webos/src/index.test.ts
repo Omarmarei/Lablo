@@ -282,3 +282,45 @@ describe('watchKeyboardState (the virtual keyboard, RELAY step 13a)', () => {
     expect(seen).toEqual([]);
   });
 });
+
+/** A stage whose document makes elements with what `createStageVideo` and `Html5Engine` touch. */
+function fakeStage(mediaId?: string): { stage: HTMLElement; made: Array<{ tag: string }> } {
+  const made: Array<{ tag: string }> = [];
+  const stage = {
+    ownerDocument: {
+      createElement: (tag: string) => {
+        const el = { tag, mediaId, style: {}, setAttribute: () => undefined, addEventListener: () => undefined, removeEventListener: () => undefined };
+        made.push(el);
+        return el;
+      },
+    },
+    appendChild: () => undefined,
+  } as unknown as HTMLElement;
+  return { stage, made };
+}
+
+describe('createEngines (RELAY step 18)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("gives one Html5Engine whose audio fallback is luna selectTrack by the element's mediaId", async () => {
+    const calls: Array<{ uri: string; params: string }> = [];
+    class Bridge {
+      onservicecallback: ((message: string) => void) | null = null;
+      call(uri: string, params: string): void {
+        calls.push({ uri, params });
+        setTimeout(() => this.onservicecallback?.('{"returnValue":true}'), 0);
+      }
+    }
+    vi.stubGlobal('window', { PalmServiceBridge: Bridge });
+    const { stage, made } = fakeStage('_media7');
+    const engines = createWebosPlatform().createEngines(stage);
+    expect(engines.map((e) => e.kind)).toEqual(['html5']);
+    expect(made.map((el) => el.tag)).toEqual(['video']);
+    // The fake element has no audioTracks, so the luna route is all it has.
+    expect(engines[0]!.caps.trackSwitch).toBe('unreliable');
+    expect(await engines[0]!.selectAudio('2')).toBe(true);
+    expect(calls).toEqual([{ uri: 'luna://com.webos.media/selectTrack', params: '{"mediaId":"_media7","type":"audio","index":2}' }]);
+  });
+});
