@@ -37,6 +37,7 @@ import type { CssBuild } from './src/css';
 import { ASSET_DIR, buildCss } from './src/css';
 import { CssGateError } from './src/css-gate';
 import type { LabConfigFile } from './src/lab';
+import { checkAcg } from './src/acg';
 import { DEFAULT_LAB_WRITE_MB, checkLabServer, labConfigScript, labManifest, lanAddress, renderLabIndexHtml } from './src/lab';
 import type { PackageResult } from './src/package';
 import { packageTizen, packageWebos } from './src/package';
@@ -130,7 +131,12 @@ function stage(
     checkConfigXml(readFileSync(path.join(dir, 'config.xml'), 'utf8'), version);
     return { dir };
   }
-  return { dir, webosApp: checkAppinfo(readFileSync(path.join(dir, 'appinfo.json'), 'utf8'), version) };
+  const { id, requiredACG } = checkAppinfo(readFileSync(path.join(dir, 'appinfo.json'), 'utf8'), version);
+  const acgProblems = checkAcg(mainJs, requiredACG, { declareBundle: lab });
+  if (acgProblems.length > 0) {
+    throw new Error(`${lab ? 'lab ' : ''}appinfo.json (webos), requiredACG:\n${acgProblems.map((p) => `  ${p}`).join('\n')}`);
+  }
+  return { dir, webosApp: { id, version } };
 }
 
 async function buildPlatform(platform: TvPlatform, target: Target, options: BuildOptions): Promise<PlatformReport> {

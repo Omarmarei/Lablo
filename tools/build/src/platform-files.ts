@@ -61,7 +61,7 @@ export function fillTemplate(template: string, version: string): string {
 }
 
 /** Checks the rules the webOS build relies on; returns the parsed manifest. */
-export function checkAppinfo(text: string, version: string): { id: string; version: string } {
+export function checkAppinfo(text: string, version: string): { id: string; version: string; requiredACG: readonly string[] } {
   const info = JSON.parse(text) as Record<string, unknown>;
   const problems: string[] = [];
   if (typeof info.id !== 'string' || info.id === '') problems.push('"id" is missing');
@@ -70,8 +70,11 @@ export function checkAppinfo(text: string, version: string): { id: string; versi
   if (info.type !== 'web') problems.push('"type" must be "web"');
   // The app handles Back itself (root Back policy, architecture.md §1.2).
   if (info.disableBackHistoryAPI !== true) problems.push('"disableBackHistoryAPI" must be true');
+  // LG's ACG (ADR-012): mandatory on webOS 27+ and in the Seller Lounge; [] when no luna API is called.
+  const acg = info.requiredACG;
+  if (!Array.isArray(acg) || !acg.every((group) => typeof group === 'string')) problems.push('"requiredACG" must be an array of ACG group names');
   if (problems.length > 0) throw new Error(`platforms/webos/appinfo.json: ${problems.join('; ')}`);
-  return { id: info.id as string, version };
+  return { id: info.id as string, version, requiredACG: acg as string[] };
 }
 
 /** Checks the Tizen manifest; returns the application id used to launch the app. */
