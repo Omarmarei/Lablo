@@ -698,6 +698,19 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 
 ### Phase 6: EPG and catch-up
 - [ ] 22. **EPG sources (6.1).** EPG source management, refresh scheduling, now/next in the list, short-EPG fallback.
+  - **Already built:** now/next in the list (step 14a) and the short-EPG fallback (step 9c); the EPG refresh itself, `epgGuides` and `epgRefreshDue` (step 9b). Leg 46 found that nothing refreshes anything while the app runs, or at a later start: `refreshEpg` is called only by onboarding, the hello screen and the lab, and the catalog's "at launch if stale" (architecture.md §1.4 item 1) has no caller at all. The user's guide is one `epgUrl` per source (onboarding's "guide" field), and nothing can change it after onboarding.
+  - Split in leg 46 into 22a (the refresh schedule) and 22b (the guides screen).
+- [ ] 22a. **The refresh schedule in the running app.** A scheduler in the app (`apps/tv/src/data/refresh-scheduler.ts`):
+  - **When:** a first check 15 s after the live screen opens (the start on the last channel and the first list stay fast), then every 15 min, and 15 s after the app is visible again.
+  - **Catalog** (architecture.md §1.4 item 1; no step owned it): each stored source whose last check is 12 h old is refreshed, one at a time. A failure waits 2 h (kept in memory).
+  - **Guides:** `refreshEpg(..., { due: true })` for every source's guides and the user's. After a catalog refresh that committed, every guide is read (new channels may match).
+  - **One at a time:** the data engine's refresh slot (a low-tier TV never runs both); a slot held by another refresh (onboarding, the hello screen) moves the work to the next check.
+  - **The screens pick it up:** the live screen re-asks now/next after a guide swaps in (rows keep their old answer until the new one comes); after a catalog swap it reads its categories again quietly, on the same category and the same focused channel. The player keeps playing, and finds its channel's row (and the previous channel's) in the new list.
+  - **Done when:**
+    - unit tests: the scheduler (the delays, the 12 h rule, failures, the slot, the guides after a commit, hidden and visible, dispose), the live screen (now/next re-asked after a guide swap, stale answers dropped; the category and focus kept after a catalog swap), the player (its row found again, no new play);
+    - e2e by keys against the mock with the page clock moved: a guide that failed at onboarding comes in 2 h later and the rows show its now/next; 12 h later the catalog is refreshed by itself;
+    - `pnpm verify` green, a mutation run, the PR merged.
+- [ ] 22b. **The guides screen.** A screen that lists the guides (each source's own and the user's: programmes until, match rate, the last failure) and lets the user add, remove and order XMLTV URLs; the profile keeps the user's guides as a list (a profile migration from the per-source `epgUrl`); a change starts a refresh. Decide where it opens from (a first settings screen, or the live screen's header or rail) and keep it small.
 - [ ] 23. **Grid guide (6.2).** Virtualized on both axes, time cursor, RTL.
   - **Done when:** each key press in the grid is handled in ≤ 150 ms in the throttled e2e.
 - [ ] 24. **Programme details (6.3).** Details, manual EPG-to-channel mapping, match diagnostics, per-source time offset.
