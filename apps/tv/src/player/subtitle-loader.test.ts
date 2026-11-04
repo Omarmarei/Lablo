@@ -115,7 +115,8 @@ describe('fetchBytes', () => {
     byHeader.xhr.head(200, { 'content-length': '11' });
     await expect(byHeader.result).rejects.toThrow('too big');
     expect(byHeader.xhr.calls).toContain('abort');
-    // A later load changes nothing.
+    // Later progress and a load change nothing.
+    byHeader.xhr.progress(20);
     byHeader.xhr.load(bytes([1]));
     expect(byHeader.xhr.calls.filter((c) => c === 'abort')).toHaveLength(1);
 
@@ -166,7 +167,7 @@ describe('createSubtitleLoader', () => {
   it('fetches with the app limits, decodes by the language and parses in the file format', async () => {
     const asked: string[] = [];
     const files: Record<string, ArrayBuffer> = {
-      'http://p/en.vtt': utf8('1\n00:00:01.000 --> 00:00:02.000\nHello\n'),
+      'http://p/en.vtt': utf8('1\n00:00:01.000 --> 00:00:02.000\nHello &amp; bye\n'),
       'http://p/ar.srt': bytes([...Array.from(Buffer.from('1\n00:00:01,000 --> 00:00:02,000\n', 'ascii')), ...SALAM_1256, 0x0a]),
     };
     const load = createSubtitleLoader((url, limits) => {
@@ -174,7 +175,8 @@ describe('createSubtitleLoader', () => {
       const file = files[url];
       return file === undefined ? Promise.reject(new Error('404')) : Promise.resolve(file);
     });
-    expect(await load({ lang: 'en', url: 'http://p/en.vtt', fmt: 'vtt' })).toEqual([{ startMs: 1000, endMs: 2000, text: 'Hello' }]);
+    // In the file's format: only WebVTT decodes entities (this one has no header to say so).
+    expect(await load({ lang: 'en', url: 'http://p/en.vtt', fmt: 'vtt' })).toEqual([{ startMs: 1000, endMs: 2000, text: 'Hello & bye' }]);
     expect(await load({ lang: 'ara', url: 'http://p/ar.srt', fmt: 'srt' })).toEqual([{ startMs: 1000, endMs: 2000, text: SALAM }]);
     await expect(load({ lang: 'en', url: 'http://p/none.srt', fmt: 'srt' })).rejects.toThrow('404');
     expect(asked).toEqual([`http://p/en.vtt ${MAX_SUBTITLE_BYTES} ${SUBTITLE_TIMEOUT_MS}`, `http://p/ar.srt ${MAX_SUBTITLE_BYTES} ${SUBTITLE_TIMEOUT_MS}`, `http://p/none.srt ${MAX_SUBTITLE_BYTES} ${SUBTITLE_TIMEOUT_MS}`]);

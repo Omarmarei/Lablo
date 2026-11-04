@@ -597,11 +597,11 @@ export class PlayerController {
   }
 
   /**
-   * An engine delivered a cue of the stream's own subtitles (AVPlay): it shows for its duration,
-   * unless a file shows instead. The same text again only stays longer.
+   * An engine delivered a cue of the stream's own subtitles (AVPlay): it shows for its duration
+   * (a file showing instead turned them off). The same text again only stays longer.
    */
   private onCue(s: Session, raw: string, durationMs: number): void {
-    if (s.file !== null || !this.engine.caps.deliversSubtitleText || !ownTextOn(s)) return;
+    if (!this.engine.caps.deliversSubtitleText || !ownTextOn(s)) return;
     const text = cueText(raw);
     if (text === '') return;
     const until = this.clock.now() + (durationMs > 0 ? durationMs : ENGINE_CUE_MS);

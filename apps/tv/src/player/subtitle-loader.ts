@@ -93,7 +93,6 @@ export function fetchBytes(url: string, limits: FetchLimits, createXhr: () => Xh
       tooBig(event.loaded);
     };
     xhr.onload = () => {
-      if (settled) return;
       // With responseType 'arraybuffer': an ArrayBuffer, or null. (No `instanceof ArrayBuffer`: the global's name pulls polyfills.)
       const body = xhr.response as ArrayBuffer | null;
       if (xhr.status < 200 || xhr.status > 299 || body === null) {

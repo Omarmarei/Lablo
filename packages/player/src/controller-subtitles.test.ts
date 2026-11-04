@@ -101,7 +101,7 @@ async function playing(r: Rig, req: PlayRequest = vod(7)): Promise<void> {
 
 describe('fileIndex and fileTracks', () => {
   it('reads only the ids it wrote', () => {
-    expect([fileIndex('ext:0'), fileIndex('ext:12'), fileIndex('3'), fileIndex('ext:'), fileIndex('ext:01'), fileIndex('ext:-1'), fileIndex('ext:1.5'), fileIndex('ext:1e1'), fileIndex('xext:1')]).toEqual([0, 12, -1, -1, -1, -1, -1, -1, -1]);
+    expect([fileIndex('ext:0'), fileIndex('ext:12'), fileIndex('3'), fileIndex('ext:'), fileIndex('ext:01'), fileIndex('ext:-2'), fileIndex('ext:1.5'), fileIndex('ext:1e1'), fileIndex('xext:1')]).toEqual([0, 12, -1, -1, -1, -1, -1, -1, -1]);
   });
 
   it("lists files with their languages normalized and as the provider wrote them, no label, the shown one on", () => {
@@ -265,6 +265,18 @@ describe('PlayerController: choosing a subtitle file', () => {
     await r.clock.advance(200);
     expect(await turning).toBe(false);
     expect(r.player.subtitles.feed).toBeNull();
+  });
+
+  it("lets a file win over a slower switch to the stream's own subtitles", async () => {
+    const r = rig();
+    await playing(r);
+    r.engine.switchMs = 300;
+    const own = r.player.selectText('3');
+    const file = r.player.selectText('ext:0');
+    await r.clock.advance(300);
+    expect(await own).toBe(false);
+    expect(await file).toBe(true);
+    expect(shown(r)).toBe('file: one');
   });
 
   it('lets a newer choice win over a file whose own-subtitles switch was still running', async () => {
@@ -517,15 +529,21 @@ describe("PlayerController: an engine's cues (AVPlay)", () => {
     await r.player.selectText(null);
     r.engine.emit(r.token(), { type: 'cue', text: 'Off', durationMs: 1000 });
     expect(r.player.subtitles).toEqual({ feed: null, cues: [] });
+    // Not even kept for later: no timer for it.
+    const pending = r.clock.pending;
+    r.engine.emit(r.token(), { type: 'cue', text: 'Off', durationMs: 1000 });
+    expect(r.clock.pending).toBe(pending);
     await r.player.selectText('ext:0');
     r.engine.emit(r.token(), { type: 'cue', text: 'Under the file', durationMs: 1000 });
     expect(shown(r)).toBe('file: one');
     const webos = rig();
     await playing(webos);
     await webos.player.selectText('3');
+    const before = webos.clock.pending;
     webos.engine.emit(webos.token(), { type: 'cue', text: 'Drawn by the TV', durationMs: 1000 });
     expect(webos.player.subtitles).toEqual({ feed: null, cues: [] });
     expect(webos.views).toEqual([]);
+    expect(webos.clock.pending).toBe(before);
   });
 
   it("drops a stale load's cues, and the cues showing on a track switch, a retry, a zap or a hide", async () => {
@@ -552,8 +570,10 @@ describe("PlayerController: an engine's cues (AVPlay)", () => {
     expect(r.player.subtitles.cues).toEqual(['Four']);
     void r.player.play(vod(8));
     expect(r.player.subtitles).toEqual({ feed: null, cues: [] });
-    await r.clock.advance(100);
-    expect(r.clock.pending).toBeGreaterThan(0);
+    // The next stream's own subtitles start with none of the last one's cues.
+    await r.clock.advance(600);
+    await r.player.selectText('3');
+    expect(r.player.subtitles).toEqual({ feed: 'engine', cues: [] });
     void r.player.stop();
     await r.clock.advance(100);
     expect(r.clock.pending).toBe(0);
