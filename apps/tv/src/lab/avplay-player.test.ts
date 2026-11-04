@@ -72,6 +72,23 @@ describe('the AVPlay player (RELAY step 15c2)', () => {
     expect(paused.player.snapshot()).toMatchObject({ paused: true, state: 'PAUSED' });
   });
 
+  it('takes no time callback for a frame while it is not playing: prepared, jumping, or away', async () => {
+    const held = setup();
+    held.player.prepare(LIVE, { live: true });
+    await wait(held.clock, 200);
+    held.api.fire('oncurrentplaytime', 0);
+    held.api.fire('oncurrentplaytime', 40);
+    expect(held.events).toEqual([]);
+    const away = setup();
+    await openAndWait(away.player, LIVE, { live: true }, 10_000, away.clock);
+    away.player.suspend();
+    away.player.resume();
+    away.player.suspend();
+    away.api.fire('oncurrentplaytime', 1000);
+    away.api.fire('oncurrentplaytime', 1040);
+    expect(away.events).toEqual([{ type: 'frame' }]);
+  });
+
   it("is AVPlay's 302 freeze when the prepare never answers", async () => {
     const { clock, player } = setup(() => ({ prepareAfterMs: null }));
     const r = await openAndWait(player, LIVE, { live: true }, 10_000, clock);
@@ -173,8 +190,9 @@ describe('the AVPlay player (RELAY step 15c2)', () => {
     const { clock, api, player } = setup();
     const r = await openAndWait(player, VOD, { live: false, startMs: 30_000 }, 10_000, clock);
     expect(api.calls.slice(-2)).toEqual(['play', 'seekTo 30000']);
-    // Prepared at 100, the jump lands at 150 (as the clock starts at 200): the frame at 250.
-    expect(r).toMatchObject({ played: true, ms: 250 });
+    // Prepared and playing at 100; the clock jumps at 200 and the jump's callback comes at 300:
+    // the jump itself is no frame, the clock moving after the callback is (two readings, 400).
+    expect(r).toMatchObject({ played: true, ms: 400 });
     expect(r.positionMs).toBeGreaterThanOrEqual(30_000);
     // A refused jump plays from the start rather than not at all.
     const refused = setup();

@@ -33,12 +33,23 @@ function s8(options: { plan?: (player: number, url: string, n: number) => Avplay
     clock,
   };
   const spike = createS8(() => deps);
+  /** How long each check took on the fake clock, from the last run. */
+  const took: Record<string, number> = {};
   const runAll = async (modelYear: number | null = 2021): Promise<Record<string, CheckResult>> => {
     const out: Record<string, CheckResult> = {};
-    await runSpikes([spike], { server: 'http://lab:8080', info: { tier: 'full', modelYear }, interactive: false } as unknown as LabContext, (o) => (out[o.check] = o.result));
+    let started = 0;
+    await runSpikes(
+      [spike],
+      { server: 'http://lab:8080', info: { tier: 'full', modelYear }, interactive: false } as unknown as LabContext,
+      (o) => {
+        out[o.check] = o.result;
+        took[o.check] = clock.t - started;
+      },
+      () => (started = clock.t),
+    );
     return out;
   };
-  return { clock, apis, stages, spike, runAll };
+  return { clock, apis, stages, spike, runAll, took };
 }
 
 describe('S8, pre-buffering with avplaystore (RELAY step 15c2)', () => {
@@ -93,8 +104,11 @@ describe('S8, pre-buffering with avplaystore (RELAY step 15c2)', () => {
   });
 
   it("fails a prepare that fails or never ends, and a switch that doesn't come", async () => {
-    const failing = await s8({ plan: (p) => (p === 3 ? { prepareAfterMs: 300, prepareError: { name: 'PLAYER_ERROR_CONNECTION_FAILED' } } : { prepareAfterMs: 100 }) }).runAll();
+    const failingRun = s8({ plan: (p) => (p === 3 ? { prepareAfterMs: 300, prepareError: { name: 'PLAYER_ERROR_CONNECTION_FAILED' } } : { prepareAfterMs: 100 }) });
+    const failing = await failingRun.runAll();
     expect(failing['prebuffer']).toMatchObject({ status: 'fail', note: 'a prepare failed: prepareAsync: PLAYER_ERROR_CONNECTION_FAILED' });
+    // It ends at the failure, not after the whole wait.
+    expect(failingRun.took['prebuffer']).toBe(300);
     // Prepared, then an error before it ever played.
     const broke = await s8({ plan: (p) => ({ prepareAfterMs: 100, readyError: p === 3 ? 'PLAYER_ERROR_CONNECTION_FAILED' : undefined }) }).runAll();
     expect(broke['prebuffer']).toMatchObject({ status: 'fail', value: { prepareMs: [100, 100] }, note: 'a prepare failed: PLAYER_ERROR_CONNECTION_FAILED' });

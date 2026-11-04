@@ -138,7 +138,8 @@ export class FakeAvplay implements AvplayManager {
   private textIndex: number | null = null;
   private silent = true;
   private nextCue: number | null = null;
-  private seek: { at: number; ms: number; ok?: () => void } | null = null;
+  /** A jump: the clock lands 100 ms after the call, the success callback 100 ms after that. */
+  private seek: { at: number; ms: number; landed: boolean; ok?: () => void } | null = null;
 
   constructor(
     private readonly clock: FakeClock,
@@ -188,10 +189,13 @@ export class FakeAvplay implements AvplayManager {
       }
     }
     const seek = this.seek;
-    if (seek !== null && t - seek.at >= 100) {
-      this.seek = null;
+    if (seek !== null && !seek.landed && t - seek.at >= 100) {
+      seek.landed = true;
       this.base = seek.ms;
       if (this.movingAt !== null) this.movingAt = t;
+    }
+    if (seek !== null && t - seek.at >= 200) {
+      this.seek = null;
       seek.ok?.();
     }
     if (this.state !== 'PLAYING' || this.playAt === null) return;
@@ -275,7 +279,7 @@ export class FakeAvplay implements AvplayManager {
   }
   seekTo(ms: number, onsuccess?: () => void): void {
     this.call('seekTo', String(ms));
-    this.seek = { at: this.clock.t, ms, ok: onsuccess };
+    this.seek = { at: this.clock.t, ms, landed: false, ok: onsuccess };
   }
   getState(): string {
     return this.state;
