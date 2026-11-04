@@ -19,8 +19,9 @@ import { RemoteDriver } from './remote-driver';
  * last frame kept on screen is later work).
  *
  * The track menu (RELAY step 20b) on the multi-audio MKV: the UI's language chosen as the tracks
- * appear, a pick from the menu, and the channel's choice kept across a zap. `audioTracks` is
- * behind a Blink flag on the desktop (webOS ships it), turned on here.
+ * appear, a pick from the menu, and the channel's choice kept across a zap and, through the
+ * profile, across a relaunch that starts on that channel (step 20c1). `audioTracks` is behind a
+ * Blink flag on the desktop (webOS ships it), turned on here.
  */
 const MEDIA_DIR = path.resolve(import.meta.dirname, '../.cache/media');
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
@@ -112,7 +113,7 @@ function enabledAudio(page: Page) {
   });
 }
 
-test("the audio menu on a stream with three languages: the UI's language first, a pick from the menu, remembered for the channel", async ({ page }) => {
+test("the audio menu on a stream with three languages: the UI's language first, a pick from the menu, remembered for the channel across a relaunch", async ({ page }) => {
   test.setTimeout(120_000);
   const errors = trackErrors(page);
   // Channel 104 (row 5) answers with the multi-audio MKV (AAC ara, eng, spa; ara is its default):
@@ -161,6 +162,15 @@ test("the audio menu on a stream with three languages: the UI's language first, 
   await remote.press('AUDIO');
   await remote.expectFocus('tracks/audio/0');
   await remote.press('BACK', 'BACK');
+  await remote.expectFocus('live/channels/5');
+
+  // A relaunch (step 20c1): the last channel plays at once, in the Arabic the profile kept for it.
+  await page.reload();
+  await remote.expectFocus('player/actions/0');
+  await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
+  await expect(player).toHaveAttribute('data-playing', '5');
+  await expect.poll(() => enabledAudio(page)).toEqual(['ara']);
+  await remote.press('BACK');
   await remote.expectFocus('live/channels/5');
   expect(errors).toEqual([]);
 });
