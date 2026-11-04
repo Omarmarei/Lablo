@@ -12,10 +12,14 @@
  * - **the error classifier** (`failure.ts`): giving up yields a category and a code, with the
  *   account re-checked after a provider failure.
  *
- * - **the app lifecycle** (`hide`/`show`, step 20a): the watchdog rests while the app is hidden.
+ * - **the app lifecycle** (`hide`/`show`, step 20a): the watchdog rests while the app is hidden;
+ * - **tracks** (step 20b, `tracks.ts`): the stream's audio and subtitle tracks in the status, the
+ *   channel's remembered choice or the preferred languages applied when they appear, and the
+ *   menu's switches remembered for the channel.
  *
- * Debounced zapping, number entry and the info bar are the app's (apps/tv/src/player); tracks
- * and subtitles come with step 20b. Platform-specific needs arrive as callbacks (ADR-008).
+ * Debounced zapping, number entry, the info bar and the track menu are the app's
+ * (apps/tv/src/player); the subtitle overlay comes with step 20b2. Platform-specific needs arrive
+ * as callbacks (ADR-008).
  */
 
 import type { ContentKey } from '@zoma/core';
@@ -29,6 +33,8 @@ import type { WatchdogConfig } from './ladder';
 import { DEFAULT_WATCHDOG, RetryLadder } from './ladder';
 import type { PlayCandidate, PlayRequest, SourceMemory } from './request';
 import { MemorySourceMemory, orderCandidates } from './request';
+import type { PlayerTrack, PlayerTracks, TrackChoice, TrackMemory, TrackPreferences } from './tracks';
+import { MemoryTrackMemory, NO_PREFERENCES, NO_TRACKS, findPick, playerTracks, preferredTrack, trackPick } from './tracks';
 
 export type PlayerState =
   /** Nothing is loaded. */
@@ -57,6 +63,8 @@ export interface PlayerStatus {
   /** Retries since the stream last showed a frame. */
   readonly attempt: number;
   readonly failure: PlaybackFailure | null;
+  /** The stream's audio and subtitle tracks (empty until the engine lists them). */
+  readonly tracks: PlayerTracks;
 }
 
 export interface ControllerOptions {
@@ -80,6 +88,10 @@ export interface ControllerOptions {
    * allowed, is where it starts.
    */
   readonly screenSaver?: (allowed: boolean) => void;
+  /** The preferred audio and subtitle languages, read each time a stream's tracks appear. */
+  readonly preferences?: () => TrackPreferences;
+  /** Each channel's track choice (default: kept for the app's run). */
+  readonly trackMemory?: TrackMemory;
 }
 
 /** The states in which the screensaver is kept away. */
@@ -105,9 +117,22 @@ interface Session {
   resumeMs: number | undefined;
   /** Retries since the last frame. */
   attempt: number;
+  tracks: PlayerTracks;
+  /** The load whose tracks were looked at, and whether its audio and subtitles were chosen. */
+  tracksToken: number;
+  audioChosen: boolean;
+  textChosen: boolean;
 }
 
-const IDLE: PlayerStatus = { state: 'idle', session: 0, key: null, container: null, attempt: 0, failure: null };
+const IDLE: PlayerStatus = { state: 'idle', session: 0, key: null, container: null, attempt: 0, failure: null, tracks: NO_TRACKS };
+
+const NO_CHOICE: TrackChoice = { audio: null, text: null };
+
+/** The track with `id`, or `null`. */
+function byId(tracks: readonly PlayerTrack[], id: string): PlayerTrack | null {
+  for (const t of tracks) if (t.id === id) return t;
+  return null;
+}
 
 /** A rejection from an engine or probe as a `PlaybackError` (anything unexpected is an app error). */
 function asPlaybackError(reason: unknown): PlaybackError {
@@ -122,6 +147,8 @@ export class PlayerController {
   private readonly checkAccount: ((src: string) => Promise<AccountStatus | null>) | undefined;
   private readonly resolveUrl: ((url: string, src: string, fresh: boolean) => Promise<string>) | undefined;
   private readonly screenSaver: ((allowed: boolean) => void) | undefined;
+  private readonly preferences: () => TrackPreferences;
+  private readonly trackMemory: TrackMemory;
   /** What the screensaver was last told (the TV's default: allowed). */
   private screenSaverAllowed = true;
   private readonly unsubscribe: () => void;
@@ -159,6 +186,8 @@ export class PlayerController {
     this.checkAccount = options.checkAccount;
     this.resolveUrl = options.resolveUrl;
     this.screenSaver = options.screenSaver;
+    this.preferences = options.preferences ?? (() => NO_PREFERENCES);
+    this.trackMemory = options.trackMemory ?? new MemoryTrackMemory();
     this.unsubscribe = engine.on((e) => this.onEvent(e));
   }
 
@@ -191,6 +220,10 @@ export class PlayerController {
       played: false,
       resumeMs: req.mode === 'live' ? undefined : opts.startMs,
       attempt: 0,
+      tracks: this.noTracks(),
+      tracksToken: 0,
+      audioChosen: false,
+      textChosen: false,
     };
     this.s = s;
     this.liveToken = 0;
@@ -252,6 +285,8 @@ export class PlayerController {
     const s = this.s;
     if (s === null) return;
     if (how === 'engine') {
+      // webOS opens the stream again, with its default tracks: choose again when they come.
+      s.tracksToken = 0;
       this.engine.resume();
       this.armOpenTimer(this.liveToken);
       this.setState('reconnecting');
@@ -277,6 +312,39 @@ export class PlayerController {
     this.scheduleTick();
   }
 
+  /**
+   * Switches the audio to track `id` of `status.tracks.audio`, and remembers it for the channel
+   * when the engine took it. `false` when nothing plays, the track isn't listed, or the engine
+   * refused (the status's tracks say what plays).
+   */
+  async selectAudio(id: string): Promise<boolean> {
+    const s = this.s;
+    const track = s === null ? null : byId(s.tracks.audio, id);
+    if (s === null || track === null) return false;
+    // The user's choice: a later list of this load doesn't override it.
+    s.audioChosen = true;
+    const ok = await this.engine.selectAudio(id).catch(() => false);
+    if (this.s !== s) return false;
+    if (ok) this.trackMemory.remember(s.req.key, { audio: trackPick(track), text: this.choice(s).text });
+    this.readTracks(s);
+    this.publish();
+    return ok;
+  }
+
+  /** Shows subtitle track `id` of `status.tracks.text` (`null`: none), remembered like `selectAudio`. */
+  async selectText(id: string | null): Promise<boolean> {
+    const s = this.s;
+    const track = s === null || id === null ? null : byId(s.tracks.text, id);
+    if (s === null || (id !== null && track === null)) return false;
+    s.textChosen = true;
+    const ok = await this.engine.selectText(id).catch(() => false);
+    if (this.s !== s) return false;
+    if (ok) this.trackMemory.remember(s.req.key, { audio: this.choice(s).audio, text: track === null ? 'off' : trackPick(track) });
+    this.readTracks(s);
+    this.publish();
+    return ok;
+  }
+
   /** Stops playback and lets go of the engine (the platform owns and destroys it). */
   dispose(): void {
     void this.stop();
@@ -290,6 +358,7 @@ export class PlayerController {
     this.liveToken = token;
     this.clearTimers();
     this.armOpenTimer(token);
+    s.tracks = this.noTracks();
     await this.closeEngine();
     if (token !== this.liveToken) return;
     const candidate = s.candidates[s.current]!;
@@ -358,8 +427,11 @@ export class PlayerController {
         this.fail(e.token, e.error);
         return;
       case 'tracks':
+        this.onTracks(s, e.token);
+        this.publish();
+        return;
       case 'cue':
-        // Track preferences and the subtitle overlay come with the player UI (step 20).
+        // The subtitle overlay comes with step 20b2.
         return;
     }
   }
@@ -373,10 +445,75 @@ export class PlayerController {
     s.ladder.recovered();
     // Only a choice between URLs is worth remembering (a VOD play must not reset a live preference).
     if (s.candidates.length > 1) this.memory.remember(s.req.src, s.candidates[s.current]!.container);
+    // An engine may list its tracks before the picture without an event.
+    this.onTracks(s, this.liveToken);
     this.lastPos = this.engine.positionMs();
     this.lastMoveAt = this.clock.now();
     this.setState('playing');
     this.scheduleTick();
+  }
+
+  /** No tracks yet, with the engine's switching as it is now (Tizen's engine changes with the URL). */
+  private noTracks(): PlayerTracks {
+    return { audio: [], text: [], switching: this.engine.caps.trackSwitch };
+  }
+
+  private readTracks(s: Session): void {
+    try {
+      const listed = this.engine.getTracks();
+      s.tracks = { audio: playerTracks(listed.audio), text: playerTracks(listed.text), switching: this.engine.caps.trackSwitch };
+    } catch {
+      s.tracks = this.noTracks();
+    }
+  }
+
+  private choice(s: Session): TrackChoice {
+    return this.trackMemory.choice(s.req.key) ?? NO_CHOICE;
+  }
+
+  /**
+   * The load `token` listed its tracks: the first time each kind appears, the channel's
+   * remembered choice, else the first preferred language the stream has, is switched on (a
+   * remembered "off" turns subtitles off).
+   */
+  private onTracks(s: Session, token: number): void {
+    this.readTracks(s);
+    if (s.tracksToken !== token) {
+      s.tracksToken = token;
+      s.audioChosen = false;
+      s.textChosen = false;
+    }
+    const { audio, text } = s.tracks;
+    const choice = this.choice(s);
+    if (!s.audioChosen && audio.length > 0) {
+      s.audioChosen = true;
+      const want = (choice.audio === null ? null : findPick(audio, choice.audio)) ?? preferredTrack(audio, this.preferences().audio);
+      if (want !== null && !want.selected) this.autoSwitch(s, token, this.engine.selectAudio(want.id));
+    }
+    if (!s.textChosen && text.length > 0) {
+      s.textChosen = true;
+      if (choice.text === 'off') {
+        if (text.some((t) => t.selected)) this.autoSwitch(s, token, this.engine.selectText(null));
+      } else {
+        const want = (choice.text === null ? null : findPick(text, choice.text)) ?? preferredTrack(text, this.preferences().text);
+        if (want !== null && !want.selected) this.autoSwitch(s, token, this.engine.selectText(want.id));
+      }
+    }
+  }
+
+  /** A switch the player made itself: the status shows the tracks once it settles (not remembered). */
+  private autoSwitch(s: Session, token: number, switched: Promise<boolean>): void {
+    const settled = (): void => {
+      if (this.s !== s || this.liveToken !== token) return;
+      this.readTracks(s);
+      this.publish();
+    };
+    switched.then(settled, settled);
+  }
+
+  /** Tells the listeners about a change that kept the state (the tracks). */
+  private publish(): void {
+    this.setState(this.current.state, this.current.failure);
   }
 
   private scheduleTick(): void {
@@ -412,6 +549,7 @@ export class PlayerController {
     this.liveToken = 0;
     this.clearTimers();
     void this.closeEngine();
+    s.tracks = this.noTracks();
     const plan = s.ladder.next(error, s.current, s.framed[s.current] === true, this.clock.now());
     if (plan === null) {
       void this.giveUp(s, error);
@@ -466,6 +604,7 @@ export class PlayerController {
       container: s === null ? null : (s.candidates[s.current]?.container ?? null),
       attempt: s === null ? 0 : s.attempt,
       failure,
+      tracks: s === null ? NO_TRACKS : s.tracks,
     };
     const allowed = KEEPS_SCREENSAVER_AWAY.indexOf(state) === -1;
     if (allowed !== this.screenSaverAllowed) {

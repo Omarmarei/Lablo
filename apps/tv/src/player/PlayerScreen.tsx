@@ -6,6 +6,8 @@ import { Badge, Button, ProgressBar, Spinner, useFocus, useZone } from '@zoma/ui
 import type { AppI18n, MessageKey } from '../i18n';
 import type { Live, LiveRow } from '../live/live-state';
 import type { Player } from './player-state';
+import { TRACKS_ACTION } from './player-state';
+import { TrackMenuPanel } from './TrackMenuPanel';
 import './player.css';
 
 const MINUTE_MS = 60_000;
@@ -87,6 +89,7 @@ function InfoBar({ live, player, i18n, screen, binding, row, guide }: InfoBarPro
       )}
       <div class="player__actions">
         <Button label={t('player.previous')} disabled={player.previous.value === -1} {...actions.item(0)} testId="player-previous" />
+        <Button label={t('player.tracks')} {...actions.item(TRACKS_ACTION)} testId="player-tracks" />
       </div>
     </section>
   );
@@ -145,6 +148,7 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
   const row = live.row(target);
   const guide = row === null ? undefined : live.guide(row.item.key);
   const waiting = current && (status.state === 'opening' || status.state === 'buffering');
+  const menu = player.menu.screen.value;
   return (
     <main
       class="player"
@@ -167,6 +171,7 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
       data-entry={entry === null ? '' : entry.phase}
       data-version={version}
       data-pending={live.pending.value}
+      data-menu={String(menu !== null)}
     >
       {waiting && (
         <div class="player__wait" data-testid="player-wait">
@@ -187,7 +192,8 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
           {entry.phase === 'missing' && <p class="player__entry-text">{t('player.noChannel', { number: entry.digits })}</p>}
         </div>
       )}
-      {screen !== null && player.info.value && <InfoBar live={live} player={player} i18n={i18n} screen={screen} binding={binding} row={row} guide={guide} />}
+      {screen !== null && menu === null && player.info.value && <InfoBar live={live} player={player} i18n={i18n} screen={screen} binding={binding} row={row} guide={guide} />}
+      {menu !== null && <TrackMenuPanel menu={player.menu} tracks={status.tracks} i18n={i18n} screen={menu} binding={binding} />}
       {screen !== null && failure !== null && <ErrorCard failure={failure} i18n={i18n} screen={screen} binding={binding} />}
     </main>
   );

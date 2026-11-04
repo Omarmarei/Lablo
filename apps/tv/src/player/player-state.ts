@@ -5,15 +5,17 @@ import type { EpgNowNext } from '@zoma/data';
 import type { Intent } from '@zoma/platform-api';
 import { DIGIT_INTENTS } from '@zoma/platform-api';
 import type { PlayerStatus, PlayRequest } from '@zoma/player';
-import { streamCandidates } from '@zoma/player';
+import { NO_TRACKS, streamCandidates } from '@zoma/player';
 import type { Focus, Navigator, Screen, ZoneSpec } from '@zoma/ui';
 import type { LiveRow, Timers } from '../live/live-state';
+import type { TrackMenu, TrackSection } from './track-menu';
+import { createTrackMenu } from './track-menu';
 
 /**
  * The player (RELAY step 20a, architecture.md §2 "Zapping"): the full-screen route that OK on a
  * channel of the live screen opens. It is a screen on the live screen's navigator:
  *
- *   actions  (the info bar's buttons: "Previous channel")
+ *   actions  (the info bar's buttons: "Previous channel", "Audio and subtitles")
  *   card     (the error card's "Try again" and "Channels", only once the player gave up)
  *
  * - **Zapping:** CH+/CH− and UP/DOWN move through the list the live screen showed, wrapping at
@@ -28,6 +30,9 @@ import type { LiveRow, Timers } from '../live/live-state';
  *   channel that played. Back during number entry only cancels the entry.
  * - The controller comes from `player()`, made on the first play (the stage and the engines with
  *   it). Its states give "Connecting…", the "Reconnecting…" badge and the error card.
+ * - **The track menu** (step 20b, `track-menu.ts`): the info bar's "Audio and subtitles", or the
+ *   remote's audio (MTS) and subtitle (Caption) keys. The info bar hides while it shows; the menu
+ *   closes when the player gives up (the card shows) or closes.
  */
 
 /** The info bar's stream opens this long after the last zap key. */
@@ -63,6 +68,8 @@ export interface PlayerLike {
   subscribe(listener: (status: PlayerStatus) => void): () => void;
   play(req: PlayRequest): Promise<void>;
   stop(): Promise<void>;
+  selectAudio(id: string): Promise<boolean>;
+  selectText(id: string | null): Promise<boolean>;
 }
 
 /** Number entry: the digits typed, then the search, then (maybe) "no channel has it". */
@@ -100,16 +107,23 @@ export interface Player {
   readonly entry: ReadonlySignal<NumberEntry | null>;
   /** Streams opened since the app started (the e2e checks the debounce with it). */
   readonly plays: ReadonlySignal<number>;
+  /** The audio and subtitle menu over the player. */
+  readonly menu: TrackMenu;
   /** Opens the player on row `index` of the list and plays it at once. */
   show(index: number): void;
   close(): void;
   dispose(): void;
 }
 
-const IDLE: PlayerStatus = { state: 'idle', session: 0, key: null, container: null, attempt: 0, failure: null };
+const IDLE: PlayerStatus = { state: 'idle', session: 0, key: null, container: null, attempt: 0, failure: null, tracks: NO_TRACKS };
+
+/** The info bar's buttons: "Previous channel" and "Audio and subtitles". */
+export const ACTIONS = 2;
+/** The info bar's "Audio and subtitles". */
+export const TRACKS_ACTION = 1;
 
 function actionsZone(): ZoneSpec {
-  return { kind: 'list', id: 'actions', axis: 'horizontal', count: 1 };
+  return { kind: 'list', id: 'actions', axis: 'horizontal', count: ACTIONS };
 }
 
 function cardZone(count: number): ZoneSpec {
@@ -193,6 +207,9 @@ export function createPlayer(options: PlayerOptions): Player {
   const onStatus = (s: PlayerStatus): void => {
     status.value = s;
     const failed = s.state === 'failed';
+    // The card takes over from the menu.
+    if (failed) menu.close();
+    else menu.sync();
     const top = screen.value;
     if (top === null || failed === carded) return;
     carded = failed;
@@ -253,6 +270,25 @@ export function createPlayer(options: PlayerOptions): Player {
     playRow(index);
   };
 
+  const menu = createTrackMenu({
+    nav,
+    tracks: () => status.value.tracks,
+    switcher: () => ctrl(),
+    closed: () => {
+      if (open.value) showInfo();
+    },
+    stop: () => close(),
+  });
+
+  /** The track menu over the player; the info bar makes room for it. */
+  const openMenu = (section: TrackSection): void => {
+    if (!open.value || status.value.state === 'failed') return;
+    cancelEntry();
+    infoTimer = clear(infoTimer);
+    info.value = false;
+    menu.show(section);
+  };
+
   const previousChannel = (): void => {
     showInfo();
     if (previous.value !== -1 && previous.value < list.count()) go(previous.value);
@@ -305,6 +341,8 @@ export function createPlayer(options: PlayerOptions): Player {
 
   const close = (): void => {
     if (!open.value) return;
+    // The menu's screen is on top of the player's: it goes first.
+    menu.close();
     seq += 1;
     zapTimer = clear(zapTimer);
     entryTimer = clear(entryTimer);
@@ -339,6 +377,12 @@ export function createPlayer(options: PlayerOptions): Player {
       case 'PREV_CH':
         cancelEntry();
         previousChannel();
+        return true;
+      case 'AUDIO':
+        openMenu('audio');
+        return true;
+      case 'SUBTITLES':
+        openMenu('text');
         return true;
       case 'INFO':
         if (info.value) {
@@ -379,7 +423,8 @@ export function createPlayer(options: PlayerOptions): Player {
   };
 
   const onSelect = (focus: Focus): void => {
-    if (focus.zone === 'actions') previousChannel();
+    if (focus.zone === 'actions' && focus.index === TRACKS_ACTION) openMenu('audio');
+    else if (focus.zone === 'actions') previousChannel();
     else if (focus.zone === 'card' && focus.index === 0) go(playing.value !== -1 ? playing.value : target.value);
     else if (focus.zone === 'card') close();
   };
@@ -394,6 +439,7 @@ export function createPlayer(options: PlayerOptions): Player {
     info,
     entry,
     plays,
+    menu,
     show(index: number): void {
       if (open.value) return;
       open.value = true;

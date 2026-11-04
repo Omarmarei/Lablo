@@ -59,8 +59,8 @@ function LiveScreen({ live, i18n, player }: { live: Live; i18n: AppI18n; player:
   const { t } = i18n;
   const { binding, home } = live;
   const focus = useFocus(binding);
-  // The player covers the live screen (step 20a): only its own parts paint, over the stage.
-  if (focus.screen === 'player' && player !== null) return <PlayerScreen live={live} player={player} i18n={i18n} />;
+  // The player covers the live screen (step 20a), its track menu too (20b): only their own parts paint, over the stage.
+  if ((focus.screen === 'player' || focus.screen === 'tracks') && player !== null) return <PlayerScreen live={live} player={player} i18n={i18n} />;
   const status = live.status.value;
   const entries = live.rail.value;
   const shown = live.category.value;

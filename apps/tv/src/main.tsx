@@ -16,7 +16,7 @@ import { createGallery } from './gallery/gallery-state';
 import { createEngineLoader } from './onboarding/engine-loader';
 import { OnboardingApp } from './onboarding/OnboardingApp';
 import type { Onboarding } from './onboarding/onboarding-state';
-import { appPlayer } from './player/app-player';
+import { appPlayer, uiTrackPreferences } from './player/app-player';
 import type { Player } from './player/player-state';
 import { createPlayer } from './player/player-state';
 import { createStage, setPlayerChrome } from './player/stage';
@@ -65,6 +65,8 @@ const playerController = appPlayer({
   stage: () => createStage(document),
   checkAccount: (src) => dataEngine().account(src),
   online: () => navigator.onLine,
+  // The live screen sets the page's language (LiveApp): sound in it first.
+  preferences: () => uiTrackPreferences(document.documentElement.lang),
 });
 
 /** The hello screen: developer diagnostics of the device, the workers and the data layer. */

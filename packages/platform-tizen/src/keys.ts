@@ -48,6 +48,8 @@ const TIZEN_KEYS: readonly TizenKeySpec[] = [
   { name: 'ColorF2Yellow', code: 405, intent: 'YELLOW' },
   { name: 'ColorF3Blue', code: 406, intent: 'BLUE' },
   { name: 'PreviousChannel', code: 10190, intent: 'PREV_CH' },
+  { name: 'MTS', code: 10195, intent: 'AUDIO' },
+  { name: 'Caption', code: 10221, intent: 'SUBTITLES' },
 ];
 
 /**

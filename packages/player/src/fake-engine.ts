@@ -84,6 +84,8 @@ export interface FakeScript {
   readonly playingMs?: number;
   /** An `ended` event. */
   readonly endMs?: number;
+  /** A `tracks` event (the engine's track lists are `FakeEngine.audio` and `.text`). */
+  readonly tracksMs?: number;
 }
 
 export interface FakeLoad {
@@ -107,7 +109,9 @@ const ABORTED: PlaybackError = { kind: 'app', code: 'ABORTED' };
 
 export class FakeEngine implements PlayerEngine {
   readonly kind = 'html5' as const;
-  readonly caps: EngineCaps = { maxHeight: 1080, trackSwitch: 'reliable', deliversSubtitleText: false, preloadSlots: 0, rates: [1] };
+  get caps(): EngineCaps {
+    return { maxHeight: 1080, trackSwitch: this.trackSwitch, deliversSubtitleText: false, preloadSlots: 0, rates: [1] };
+  }
   /** What the controller called, in order: `load <token> <container>`, `stop`, `closed`, `pause`, `play`. */
   readonly log: string[] = [];
   readonly loads: FakeLoad[] = [];
@@ -122,6 +126,15 @@ export class FakeEngine implements PlayerEngine {
   resumeMoves = true;
   /** A `resume()` shows its first frame this long after the call (`null`: never). */
   resumeFrameMs: number | null = 500;
+  /** The tracks `getTracks()` lists; a switch moves `selected`. */
+  audio: Track[] = [];
+  text: Track[] = [];
+  /** Switches succeed (false: the engine refuses them, nothing moves). */
+  switchOk = true;
+  /** A switch settles this long after the call. */
+  switchMs = 0;
+  /** `caps.trackSwitch`. */
+  trackSwitch: EngineCaps['trackSwitch'] = 'reliable';
   private playback: Playback | null = null;
   /** The load `suspend()` closed, until `resume()`. */
   private suspended: Playback | null = null;
@@ -163,6 +176,7 @@ export class FakeEngine implements PlayerEngine {
         this.still(p);
         this.emit(token, { type: 'ended' });
       });
+      at(script.tracksMs, () => this.emit(token, { type: 'tracks' }));
       const failure = script.error;
       if (failure !== undefined) at(failure.atMs, () => this.emit(token, { type: 'error', error: failure.error }));
     });
@@ -226,15 +240,34 @@ export class FakeEngine implements PlayerEngine {
   setRect(_r: Rect | 'full'): void {}
 
   getTracks(): { audio: Track[]; text: Track[] } {
-    return { audio: [], text: [] };
+    return { audio: this.audio.slice(), text: this.text.slice() };
   }
 
-  selectAudio(): Promise<boolean> {
-    return Promise.resolve(false);
+  /** Logged `selectAudio <id>`; moves `selected` to the track when it exists and `switchOk`. */
+  selectAudio(id: string): Promise<boolean> {
+    this.log.push(`selectAudio ${id}`);
+    return this.switchTo('audio', id);
   }
 
-  selectText(): Promise<boolean> {
-    return Promise.resolve(false);
+  /** Logged `selectText <id|null>`; `null` turns every text track off. */
+  selectText(id: string | null): Promise<boolean> {
+    this.log.push(`selectText ${String(id)}`);
+    return this.switchTo('text', id);
+  }
+
+  private switchTo(kind: 'audio' | 'text', id: string | null): Promise<boolean> {
+    const done = (): boolean => {
+      const list = kind === 'audio' ? this.audio : this.text;
+      if (!this.switchOk || (id !== null && !list.some((t) => t.id === id))) return false;
+      const moved = list.map((t) => ({ ...t, selected: t.id === id }));
+      if (kind === 'audio') this.audio = moved;
+      else this.text = moved;
+      return true;
+    };
+    if (this.switchMs === 0) return Promise.resolve(done());
+    return new Promise((resolve) => {
+      this.clock.setTimeout(() => resolve(done()), this.switchMs);
+    });
   }
 
   stats(): EngineStats {

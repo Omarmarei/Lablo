@@ -6,7 +6,7 @@ import { TIZEN_IME_CANCEL, TIZEN_IME_DONE, buildTizenKeyMap, createTizenEngines,
 describe('Tizen key registration', () => {
   it('registers every non-mandatory key when the supported-key list is unavailable', () => {
     const names = tizenKeysToRegister(null);
-    expect(names).toEqual(expect.arrayContaining(['ChannelUp', 'ChannelDown', 'ColorF0Red', '0', '9', 'PreviousChannel']));
+    expect(names).toEqual(expect.arrayContaining(['ChannelUp', 'ChannelDown', 'ColorF0Red', '0', '9', 'PreviousChannel', 'MTS', 'Caption']));
     // Arrows, Enter and Back always reach the app and cannot be registered.
     expect(names).not.toContain('ArrowUp');
     expect(names).not.toContain('Enter');
@@ -108,6 +108,8 @@ describe('Tizen key map', () => {
     [403, 'RED'],
     [406, 'BLUE'],
     [10190, 'PREV_CH'],
+    [10195, 'AUDIO'],
+    [10221, 'SUBTITLES'],
   ])('default code %i -> %s', (code, intent) => {
     expect(buildTizenKeyMap(null).get(code)).toBe(intent);
   });
