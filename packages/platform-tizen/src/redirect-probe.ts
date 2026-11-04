@@ -21,16 +21,12 @@
  * side before AVPlay opens: the on-TV check (step 21) says whether that happens.
  */
 
+import type { RedirectMemory, RedirectMode } from '@zoma/platform-api';
 import type { PlaybackError } from '@zoma/player';
 
-export type RedirectMode = 'unknown' | 'none' | 'redirects';
+export type { RedirectMemory, RedirectMode };
 
-/** What the probe learned per source; `MemoryRedirectMemory` for the app's run (the profile keeps it from step 20). */
-export interface RedirectMemory {
-  mode(src: string): RedirectMode;
-  remember(src: string, mode: 'none' | 'redirects'): void;
-}
-
+/** What the probe learned per source, for the app's run (the app hands the platform the profile's, step 20c1). */
 export class MemoryRedirectMemory implements RedirectMemory {
   private readonly modes = new Map<string, 'none' | 'redirects'>();
 

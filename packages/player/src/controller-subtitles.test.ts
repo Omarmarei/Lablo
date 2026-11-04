@@ -413,16 +413,52 @@ describe('PlayerController: the file feed', () => {
     expect(shown(r)).toBe('file: two | overlap');
     r.player.setSubtitleDelay(500);
     expect(shown(r)).toBe('file: ');
-    // For every file until changed.
+    // For every file of the content until changed.
     await r.player.selectText('ext:1');
     expect(shown(r)).toBe('file: ');
     await r.clock.advance(2 * CUE_TICK_MS);
     expect(shown(r)).toBe('file: واحد');
-    await playing(r, vod(8));
-    await r.player.selectText('ext:0');
-    expect(shown(r)).toBe('file: ');
     r.player.setSubtitleDelay(0);
+    expect(shown(r)).toBe('file: واحد');
+    r.player.setSubtitleDelay(1000);
+    expect(shown(r)).toBe('file: ');
+  });
+
+  it("keeps the timing with the content's choice: another content starts at none, the content's comes back (step 20c1)", async () => {
+    const r = rig();
+    expect(r.player.subtitleDelay).toBe(0);
+    await playing(r);
+    await r.player.selectText('ext:0');
+    r.player.setSubtitleDelay(500);
+    expect(r.player.subtitleDelay).toBe(500);
+    expect(r.memory.choice('s1:vod:7')).toEqual({ audio: null, text: { id: 'ext:0', lang: 'en', label: '' }, delayMs: 500 });
+    // A switch keeps the timing in the choice, and the timing keeps the switch.
+    await r.player.selectText('ext:1');
+    expect(r.memory.choice('s1:vod:7')).toEqual({ audio: null, text: { id: 'ext:1', lang: 'ar', label: '' }, delayMs: 500 });
+    r.player.setSubtitleDelay(250);
+    expect(r.memory.choice('s1:vod:7')).toEqual({ audio: null, text: { id: 'ext:1', lang: 'ar', label: '' }, delayMs: 250 });
+    // The same timing again remembers nothing new.
+    r.memory.remember('s1:vod:7', { audio: null, text: null, delayMs: 250 });
+    r.player.setSubtitleDelay(250);
+    expect(r.memory.choice('s1:vod:7')).toEqual({ audio: null, text: null, delayMs: 250 });
+    r.memory.remember('s1:vod:7', { audio: null, text: { id: 'ext:0', lang: 'en', label: '' }, delayMs: 250 });
+    // Another content: no delay, and its own choice made without one.
+    await playing(r, vod(8));
+    expect(r.player.subtitleDelay).toBe(0);
+    await r.player.selectText('ext:0');
     expect(shown(r)).toBe('file: one');
+    expect(r.memory.choice('s1:vod:8')).toEqual({ audio: null, text: { id: 'ext:0', lang: 'en', label: '' } });
+    // The first again: its file and its timing come back (at media time 100 ms, 'one' shows 250 ms later).
+    await playing(r);
+    expect(r.player.subtitleDelay).toBe(250);
+    expect(shown(r)).toBe('file: ');
+    await r.clock.advance(2 * CUE_TICK_MS);
+    expect(shown(r)).toBe('file: one');
+    // Nothing playing: the timing applies, and nothing is remembered.
+    void r.player.stop();
+    r.player.setSubtitleDelay(1000);
+    expect(r.player.subtitleDelay).toBe(1000);
+    expect(r.memory.choice('s1:vod:7')).toEqual({ audio: null, text: { id: 'ext:0', lang: 'en', label: '' }, delayMs: 250 });
   });
 
   it('keeps the cues while paused or buffering, and shows none while it reconnects or after the end', async () => {
