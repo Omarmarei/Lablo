@@ -8,6 +8,7 @@ import { expect, test } from '@playwright/test';
 import type { MockServer } from '../apps/mock-provider/src/server';
 import { listen, mock } from '../apps/mock-provider/test/helpers';
 import { S6_PRESSES, S6_QUERIES } from '../apps/tv/src/lab/scale';
+import { INTENTS } from '../packages/platform-api/src/index';
 import { RemoteDriver } from './remote-driver';
 
 /**
@@ -59,6 +60,11 @@ const DESKTOP: ReadonlyArray<readonly [string, string]> = [
   ['S9/shaping', 'pass'],
   ['S9/bidi', 'pass'],
   ['S9/intl', 'info'],
+  // Input: only the registration runs unattended, and a desktop keyboard has nothing to register.
+  ['S10/registration', 'skip'],
+  ['S10/keys', 'skip'],
+  ['S10/pointer', 'skip'],
+  ['S10/keyboard', 'skip'],
   // A desktop browser has no screensaver, screen reader setting or TV speech, and "Run all" asks nobody.
   ['S11/lifecycle', 'info'],
   ['S11/screensaver', 'skip'],
@@ -78,11 +84,12 @@ const DESKTOP: ReadonlyArray<readonly [string, string]> = [
 
 /**
  * What a TV bundle answers differently in a desktop engine: S3 finds no device ID, and the
- * adapters find no TV APIs (webOS has no screensaver API at all).
+ * adapters find no TV APIs (Tizen no key registration; webOS needs none, and has no screensaver
+ * API at all).
  */
 const BUNDLE: { readonly [platform in 'tizen' | 'webos']: { readonly [key: string]: string } } = {
-  tizen: { 'S3/device-id': 'fail', 'S11/screensaver': 'fail', 'S11/screen-reader': 'info', 'S11/speech': 'info' },
-  webos: { 'S3/device-id': 'fail', 'S11/screensaver': 'info', 'S11/screen-reader': 'info', 'S11/speech': 'info' },
+  tizen: { 'S3/device-id': 'fail', 'S10/registration': 'fail', 'S11/screensaver': 'fail', 'S11/screen-reader': 'info', 'S11/speech': 'info' },
+  webos: { 'S3/device-id': 'fail', 'S10/registration': 'info', 'S11/screensaver': 'info', 'S11/screen-reader': 'info', 'S11/speech': 'info' },
 };
 
 let app: MockServer;
@@ -216,7 +223,7 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     expect(statuses(records)).toEqual(DESKTOP);
     const end = records[records.length - 1];
     expect(end?.type).toBe('end');
-    expect(end?.value).toMatchObject({ run: 1, spikes: ['S0', 'S1', 'S2', 'S3', 'S7', 'S9', 'S11', 'S6'], counts: { pass: 16, fail: 3, info: 14, skip: 7 } });
+    expect(end?.value).toMatchObject({ run: 1, spikes: ['S0', 'S1', 'S2', 'S3', 'S7', 'S9', 'S10', 'S11', 'S6'], counts: { pass: 16, fail: 3, info: 14, skip: 11 } });
 
     // What the records say, beyond the status.
     const check = (key: string): Record | undefined => records.find((r) => `${r.spike ?? ''}/${r.check ?? ''}` === key);
@@ -234,7 +241,7 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
 
     // The screen: each spike's overall status, and the checks of the spike in focus.
     const spikeStatus = async (id: string): Promise<string | null> => page.getByTestId(`spike-${id}`).getAttribute('data-status');
-    expect(await Promise.all(['S0', 'S1', 'S2', 'S3', 'S7', 'S9', 'S11', 'S6'].map(spikeStatus))).toEqual(['info', 'pass', 'pass', 'skip', 'fail', 'pass', 'info', 'info']);
+    expect(await Promise.all(['S0', 'S1', 'S2', 'S3', 'S7', 'S9', 'S10', 'S11', 'S6'].map(spikeStatus))).toEqual(['info', 'pass', 'pass', 'skip', 'fail', 'pass', 'skip', 'info', 'info']);
     await remote.go('DOWN', 'lab/spikes/0');
     await remote.go('DOWN', 'lab/spikes/1');
     await expect(page.getByTestId('checks')).toHaveAttribute('data-spike', 'S1');
@@ -279,9 +286,9 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     await page.waitForTimeout(1100);
     await setHidden(false);
 
-    // To S11 (the seventh row) and OK: S11 alone, so its questions are asked.
-    await remote.press('DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN');
-    await remote.go('DOWN', 'lab/spikes/6');
+    // To S11 (the eighth row) and OK: S11 alone, so its questions are asked.
+    await remote.press('DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN');
+    await remote.go('DOWN', 'lab/spikes/7');
     await remote.go('OK', 'ask/items/0');
     const ask = page.getByTestId('ask');
     await expect(ask).toHaveAttribute('data-mode', 'focus');
@@ -305,7 +312,7 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     await remote.press('RED');
     const { records } = await finishedRun(page, 1);
     await expect(ask).toHaveCount(0);
-    await remote.expectFocus('lab/spikes/6');
+    await remote.expectFocus('lab/spikes/7');
 
     // The lifecycle events went out as they came, before the run.
     const events = records.filter((r) => r.type === 'event');
@@ -329,6 +336,88 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     expect(s11[4]?.value).toMatchObject({ answer: 'yes', moves: 1 });
     expect(s11[5]?.value).toMatchObject({ answer: 'no', moves: 2 });
     expect(records[records.length - 1]).toMatchObject({ type: 'end', note: 'S11', value: { counts: { pass: 1, fail: 1, info: 1, skip: 3 } } });
+    expect(errors).toEqual([]);
+  });
+
+  test('tests every key, the pointer and the keyboard when S10 runs alone (S10)', async ({ page }) => {
+    const errors = trackErrors(page);
+    const remote = new RemoteDriver(page);
+    await page.goto(`/lab.html?server=${base}&auto=0`);
+    const lab = page.getByTestId('lab');
+    await expect(lab).toHaveAttribute('data-ready', 'true');
+    // To S10 (the seventh row) and OK: S10 alone, so the key tester opens.
+    await remote.press('DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN');
+    await remote.go('DOWN', 'lab/spikes/6');
+    await remote.go('OK', 'keys/keys/0');
+    const keys = page.getByTestId('keys');
+    await expect(keys).toHaveAttribute('data-seen', '0');
+    // Every Intent's key on the desktop keyboard, Back last: it is a key under test too.
+    const intents = INTENTS.filter((intent) => intent !== 'BACK');
+    for (const intent of intents) await remote.press(intent);
+    // A key the adapter has no Intent for.
+    await page.keyboard.press('q');
+    await expect(keys).toHaveAttribute('data-seen', String(intents.length));
+    await expect(page.getByTestId('key-PREV_CH')).toHaveAttribute('data-seen', 'true');
+    await expect(page.getByTestId('key-BACK')).toHaveAttribute('data-seen', 'false');
+    await expect(page.getByTestId('keys-other')).toHaveText('Keys with no action: 81 q');
+    // The pointer: two moves, a click, the wheel.
+    await page.mouse.move(400, 400);
+    await page.mouse.move(600, 500);
+    await page.mouse.click(600, 500);
+    await page.mouse.wheel(0, 100);
+    await expect(page.getByTestId('keys-pointer')).toHaveText(/^Pointer: shown 0, hidden 0, moves [1-9]\d*, clicks 1, wheel 1$/);
+    // No key moved the focus or left; Back once is a key, twice in a row ends the tester.
+    await remote.press('BACK');
+    await expect(keys).toHaveAttribute('data-backs', '1');
+    await remote.expectFocus('keys/keys/0');
+    await remote.press('BACK');
+
+    // The keyboard test: OK gives the field DOM focus, as in the app.
+    await remote.expectFocus('type/field/0');
+    const field = page.getByTestId('type-field');
+    await expect(field).toHaveAttribute('data-state', 'focused');
+    await remote.press('OK');
+    await expect(field).toHaveAttribute('data-editing', 'true');
+    await expect.poll(() => page.evaluate(() => document.activeElement?.id ?? null)).toBe('lab-type-field');
+    await page.keyboard.insertText('زوما Zoma');
+    await page.keyboard.press('Enter');
+    await expect(field).toHaveAttribute('data-editing', 'false');
+    await expect(page.getByTestId('type-keys')).toHaveText('Edit 1 ended with done; its keys: 13 Enter');
+    await expect(page.getByTestId('type-keyboard')).toHaveText('Keyboard events: none');
+    // A second edit, closed with Escape: the text stays, and the key goes no further (no exit dialog).
+    await remote.press('OK');
+    await expect(field).toHaveAttribute('data-editing', 'true');
+    await page.keyboard.press('Escape');
+    await expect(field).toHaveAttribute('data-editing', 'false');
+    await expect(page.getByTestId('type-keys')).toHaveText('Edit 2 ended with close; its keys: 27 Escape');
+    await remote.expectFocus('type/field/0');
+    await remote.press('GREEN');
+    const { records } = await finishedRun(page, 1);
+    await expect(page.getByTestId('type')).toHaveCount(0);
+    await remote.expectFocus('lab/spikes/6');
+    await expect(page.getByTestId('spike-S10')).toHaveAttribute('data-status', 'pass');
+
+    const s10 = records.filter((r) => r.type === 'check');
+    expect(s10.map((r) => [r.check, r.status, r.note])).toEqual([
+      ['registration', 'skip', 'a desktop keyboard delivers every key'],
+      ['keys', 'pass', `every key came (${INTENTS.length}); keys with no action: 81 q`],
+      ['pointer', 'pass', expect.stringMatching(/^shown 0, hidden 0, moves \d+, clicks 1, wheel 1$/)],
+      ['keyboard', 'pass', 'typed "زوما Zoma" in Arabic and English (2 edits)'],
+    ]);
+    const tested = s10[1]?.value as { ended: string; presses: number; missing: string[]; codes: { readonly [intent: string]: number[] }; others: unknown[] };
+    expect(tested).toMatchObject({ ended: 'back', presses: intents.length + 3, missing: [], codes: { PREV_CH: [80], BACK: [27], RED: [112], PLAY_PAUSE: [32], DIGIT_0: [48] } });
+    expect(tested.others).toEqual([{ keyCode: 81, key: 'q', intent: null, count: 1 }]);
+    expect(s10[3]?.value).toMatchObject({
+      answer: 'yes',
+      text: 'زوما Zoma',
+      scripts: { arabic: true, latin: true },
+      keyboard: [],
+      edits: [
+        { how: 'done', inputs: 1, text: 'زوما Zoma', keys: [{ keyCode: 13, key: 'Enter', intent: 'OK' }] },
+        { how: 'close', inputs: 0, text: 'زوما Zoma', keys: [{ keyCode: 27, key: 'Escape', intent: 'BACK' }] },
+      ],
+    });
+    expect(records[records.length - 1]).toMatchObject({ type: 'end', note: 'S10', value: { counts: { pass: 3, fail: 0, info: 0, skip: 1 } } });
     expect(errors).toEqual([]);
   });
 

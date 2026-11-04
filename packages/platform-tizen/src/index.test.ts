@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { TIZEN_IME_CANCEL, TIZEN_IME_DONE, buildTizenKeyMap, tizenChromiumVersion, tizenKeysToRegister, tizenModelYear, tizenTextKey } from './index';
+import type { TizenKey } from './index';
+import { TIZEN_IME_CANCEL, TIZEN_IME_DONE, buildTizenKeyMap, registerTizenKeys, tizenChromiumVersion, tizenKeysToRegister, tizenModelYear, tizenTextKey } from './index';
 
 describe('Tizen key registration', () => {
   it('registers every non-mandatory key when the supported-key list is unavailable', () => {
@@ -18,6 +19,71 @@ describe('Tizen key registration', () => {
       { name: 'Exit', code: 10182 },
     ];
     expect(tizenKeysToRegister(supported)).toEqual(['ChannelUp', 'ColorF0Red']);
+  });
+});
+
+describe('registerTizenKeys (what spike S10 records)', () => {
+  /** A fake `tizen.tvinputdevice`: the keys it lists, the ones it refuses, the calls it got. */
+  function device(supported: TizenKey[] | Error, refuse: Record<string, unknown> = {}) {
+    const calls: string[] = [];
+    return {
+      calls,
+      input: {
+        getSupportedKeys: (): TizenKey[] => {
+          if (supported instanceof Error) throw supported;
+          return supported;
+        },
+        registerKey: (name: string): void => {
+          calls.push(name);
+          if (name in refuse) throw refuse[name];
+        },
+      },
+    };
+  }
+
+  it('registers each supported key, one call each, and names ours the TV lacks', () => {
+    // The TV's key objects keep their fields on a prototype (host objects): the report copies them.
+    const hostKey = (name: string, code: number): TizenKey => Object.create({ name, code }) as TizenKey;
+    const { input, calls } = device([hostKey('ChannelUp', 427), hostKey('ColorF0Red', 403), hostKey('Exit', 10182)]);
+    const report = registerTizenKeys(input);
+    expect(calls).toEqual(['ChannelUp', 'ColorF0Red']);
+    expect(report).toMatchObject({ skipped: null, registered: ['ChannelUp', 'ColorF0Red'], refused: [] });
+    expect(report.supported).toEqual([
+      { name: 'ChannelUp', code: 427 },
+      { name: 'ColorF0Red', code: 403 },
+      { name: 'Exit', code: 10182 },
+    ]);
+    expect(report.unsupported).toEqual(tizenKeysToRegister(null).filter((n) => n !== 'ChannelUp' && n !== 'ColorF0Red'));
+    expect(report.unsupported).toContain('PreviousChannel');
+  });
+
+  it('keeps going past a refused key, with the reason of a WebAPIException or an Error', () => {
+    const { input, calls } = device([], {});
+    // No supported list: every key is tried, and none is called unsupported.
+    const unknown = device(new Error('SecurityError'), { Guide: { name: 'NotSupportedError', message: 'no Guide' }, Info: new Error('busy'), '0': 'plain' });
+    const report = registerTizenKeys(unknown.input);
+    expect(unknown.calls).toEqual(tizenKeysToRegister(null));
+    expect(report.supported).toBeNull();
+    expect(report.unsupported).toEqual([]);
+    expect(report.refused).toEqual([
+      { name: '0', error: 'plain' },
+      { name: 'Info', error: 'Error: busy' },
+      { name: 'Guide', error: 'NotSupportedError: no Guide' },
+    ]);
+    expect(report.registered).toHaveLength(tizenKeysToRegister(null).length - 3);
+    expect(report.registered).not.toContain('Guide');
+    // An empty list means the TV has none of them.
+    expect(registerTizenKeys(input)).toMatchObject({ supported: [], registered: [], unsupported: tizenKeysToRegister(null) });
+    expect(calls).toEqual([]);
+  });
+
+  it('says so when the key API is missing', () => {
+    expect(registerTizenKeys(undefined)).toEqual({ skipped: 'no tizen.tvinputdevice', supported: null, registered: [], unsupported: [], refused: [] });
+  });
+
+  it('keeps a message that has no name', () => {
+    const { input } = device(new Error('x'), { Guide: { message: 'just a message' } });
+    expect(registerTizenKeys(input).refused).toEqual([{ name: 'Guide', error: 'just a message' }]);
   });
 });
 

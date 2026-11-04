@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parsePalmDeviceInfo, watchCursorState, watchKeyboardState, webosChromiumVersion, webosKeyToIntent, webosModelYear, webosTextKey } from './index';
+import { createWebosPlatform, parsePalmDeviceInfo, watchCursorState, watchKeyboardState, webosChromiumVersion, webosKeyToIntent, webosModelYear, webosTextKey } from './index';
 
 describe('webOS key map', () => {
   it.each([
@@ -30,6 +30,12 @@ describe('webOS key map', () => {
 
   it.each([8, 27, 65, 10009])('ignores code %i', (keyCode) => {
     expect(webosKeyToIntent({ keyCode })).toBeNull();
+  });
+});
+
+describe('webOS key registration (spike S10)', () => {
+  it('has nothing to register: webOS delivers every key', () => {
+    expect(createWebosPlatform().registerKeys()).toEqual({ skipped: 'webOS delivers every key', supported: null, registered: [], unsupported: [], refused: [] });
   });
 });
 

@@ -17,7 +17,7 @@ import { createReporter, xhrPost } from './reporter';
 import { deviceIdHash } from './spikes/s2-s3';
 import { SPIKES } from './spikes';
 import { readIdbMarker, readLocalMarker } from './storage';
-import type { LabContext } from './types';
+import type { LabBaseContext } from './types';
 import { createLabWorkerClient } from './worker-client';
 // Last, so the lab's CSS comes after @zoma/ui's.
 import './lab.css';
@@ -26,7 +26,7 @@ import './lab.css';
 const BOOT_MS = performance.now();
 
 const platform = createPlatform();
-platform.registerKeys();
+const keys = platform.registerKeys();
 const showFocus = installTestHook(window);
 // From the first moment: a relaunch or a trip to Home during start-up counts too (S11).
 const lifecycle = createLifecycleLog(platform);
@@ -61,7 +61,7 @@ async function start(): Promise<void> {
   const id = await platform.deviceSecret().catch(() => null);
   // What earlier runs left here, read before any check writes this run's markers.
   const previous = { localStorage: readLocalMarker(localStorageOrNull()), indexedDB: await readIdbMarker(window.indexedDB ?? null) };
-  const context: Omit<LabContext, 'interactive' | 'ask'> = {
+  const context: LabBaseContext = {
     platform,
     info,
     server: config.server,
@@ -73,11 +73,12 @@ async function start(): Promise<void> {
     bootMs: BOOT_MS,
     worker: createLabWorkerClient(() => new LabWorker()),
     lifecycle,
+    keys,
   };
   const reporter = createReporter({ server: config.server, session, post: xhrPost });
   reporter.add({ type: 'start', value: { version: config.version, server: config.server, writeMb: config.writeMb, autoRun: config.autoRun, device: info, previous } });
   lifecycle.attach((entry) => reporter.add({ type: 'event', check: 'lifecycle', value: entry, note: entry.event }));
-  const lab = createLab({ platform, spikes: SPIKES, context, reporter });
+  const lab = createLab({ platform, spikes: SPIKES, context, reporter, target: window });
   window.__ZOMA_LAB__ = {
     session,
     server: config.server,

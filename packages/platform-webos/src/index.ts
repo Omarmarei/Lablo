@@ -9,7 +9,7 @@
  * desktop browser.
  */
 import { chromiumMajorFromUserAgent, deviceTier } from '@zoma/core';
-import type { DeviceInfo, Intent, KeyLike, LifecycleEvent, Platform, PlatformCall, TextKey } from '@zoma/platform-api';
+import type { DeviceInfo, Intent, KeyLike, KeyRegistration, LifecycleEvent, Platform, PlatformCall, TextKey } from '@zoma/platform-api';
 import { DIGIT_INTENTS } from '@zoma/platform-api';
 import { parsePalmDeviceInfo, webosChromiumVersion, webosModelYear } from './device';
 import { readLgudid } from './luna';
@@ -126,7 +126,7 @@ export function createWebosPlatform(): Platform {
   return {
     id: 'webos',
     info: () => Promise.resolve(readDeviceInfo()),
-    registerKeys: () => undefined,
+    registerKeys: (): KeyRegistration => ({ skipped: 'webOS delivers every key', supported: null, registered: [], unsupported: [], refused: [] }),
     keyToIntent: webosKeyToIntent,
     textKey: webosTextKey,
     onLifecycle(listener: (event: LifecycleEvent) => void): () => void {

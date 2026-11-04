@@ -9,6 +9,7 @@ import { S2, S3 } from './s2-s3';
 import { S6 } from './s6';
 import { S7 } from './s7';
 import { S9 } from './s9';
+import { S10 } from './s10';
 import { S11 } from './s11';
 
-export const SPIKES: readonly Spike[] = [S0, S1, S2, S3, S7, S9, S11, S6];
+export const SPIKES: readonly Spike[] = [S0, S1, S2, S3, S7, S9, S10, S11, S6];
