@@ -1,5 +1,17 @@
-import { describe, expect, it } from 'vitest';
-import { createWebosPlatform, parsePalmDeviceInfo, watchCursorState, watchKeyboardState, webosChromiumVersion, webosKeyToIntent, webosModelYear, webosTextKey } from './index';
+import { deviceTier } from '@zoma/core';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  createWebosPlatform,
+  parsePalmDeviceInfo,
+  watchCursorState,
+  watchKeyboardState,
+  webosChromiumVersion,
+  webosKeyToIntent,
+  webosMajorFromChromium,
+  webosModelYear,
+  webosTextKey,
+  webosVersionFacts,
+} from './index';
 
 describe('webOS key map', () => {
   it.each([
@@ -61,26 +73,143 @@ describe('webOS version tables', () => {
 });
 
 describe('parsePalmDeviceInfo', () => {
-  it('reads the model, platform version and firmware', () => {
+  it('reads the model, the two version fields, the firmware and the keys', () => {
     const raw = JSON.stringify({
       modelName: '43UK6300PLB',
       platformVersion: '4.1.0',
       platformVersionMajor: '4',
       firmwareVersion: '05.10.20',
+      sdkVersion: '4.1.0',
     });
     expect(parsePalmDeviceInfo(raw)).toEqual({
       modelName: '43UK6300PLB',
       platformVersion: '4.1.0',
       firmwareVersion: '05.10.20',
+      sdkVersion: '4.1.0',
+      keys: ['modelName', 'platformVersion', 'platformVersionMajor', 'firmwareVersion', 'sdkVersion'],
     });
   });
 
-  it.each([undefined, null, 42, '', 'not json', '"a string"', 'null', '{"modelName": 7}'])(
-    'tolerates %j',
-    (raw) => {
-      expect(parsePalmDeviceInfo(raw)).toEqual({});
-    },
-  );
+  it('keeps the keys of an object whose values it cannot use', () => {
+    expect(parsePalmDeviceInfo('{"modelName": 7}')).toEqual({ keys: ['modelName'] });
+  });
+
+  it.each([undefined, null, 42, '', 'not json', '"a string"', 'null'])('tolerates %j', (raw) => {
+    expect(parsePalmDeviceInfo(raw)).toEqual({});
+  });
+});
+
+describe('webosMajorFromChromium', () => {
+  it.each([
+    [38, 3],
+    [53, 4],
+    [68, 5],
+    [79, 6],
+    [87, 7],
+    [94, 8],
+    [108, 9],
+    [120, 10],
+  ])('Chromium %i -> webOS %i', (chromium, major) => {
+    expect(webosMajorFromChromium(chromium)).toBe(major);
+  });
+
+  it.each([0, 52, 54, 80, 156])('Chromium %i ships with no webOS release -> null', (chromium) => {
+    expect(webosMajorFromChromium(chromium)).toBeNull();
+  });
+});
+
+describe('webosVersionFacts (relay step 16a: the year is not the firmware)', () => {
+  /** What the 2021 OLED55A1PVA reported in leg 34: `platformVersion` is its firmware. */
+  const OLED_2021 = { modelName: 'OLED55A1PVA', platformVersion: '03.53.45' };
+
+  it('takes the year from sdkVersion when the TV gives one', () => {
+    expect(webosVersionFacts({ ...OLED_2021, sdkVersion: '6.5.3' }, 79)).toEqual({
+      osVersion: '6.5.3',
+      modelYear: 2021,
+      chromiumVersion: 79,
+      firmware: '03.53.45',
+      versionFrom: 'sdkVersion',
+    });
+  });
+
+  it('prefers sdkVersion to the engine, and takes the engine from it without a user agent', () => {
+    expect(webosVersionFacts({ sdkVersion: '4.5.0' }, 53)).toMatchObject({ modelYear: 2019, versionFrom: 'sdkVersion' });
+    expect(webosVersionFacts({ sdkVersion: '5.0.0' }, null)).toMatchObject({ modelYear: 2020, chromiumVersion: 68, versionFrom: 'sdkVersion' });
+  });
+
+  it('never reads the firmware in platformVersion as the version: 03.53.45 is not 2017', () => {
+    const facts = webosVersionFacts(OLED_2021, 79);
+    expect(facts).toEqual({ osVersion: '6', modelYear: 2021, chromiumVersion: 79, firmware: '03.53.45', versionFrom: 'chromium' });
+    expect(deviceTier(facts)).toBe('full');
+  });
+
+  it.each([
+    [53, 2018],
+    [68, 2020],
+    [79, 2021],
+    [87, 2022],
+    [94, 2023],
+    [108, 2024],
+    [120, 2025],
+  ])('without sdkVersion, the user agent Chromium %i gives %i', (chromium, year) => {
+    expect(webosVersionFacts({}, chromium)).toMatchObject({ modelYear: year, chromiumVersion: chromium, versionFrom: 'chromium' });
+  });
+
+  it('falls back to the engine when sdkVersion is one the table does not know', () => {
+    expect(webosVersionFacts({ sdkVersion: '24.1.0' }, 108)).toMatchObject({ osVersion: '9', modelYear: 2024, versionFrom: 'chromium' });
+  });
+
+  it('knows no year when neither names a release, and the tier then follows the engine', () => {
+    expect(webosVersionFacts({}, null)).toEqual({ osVersion: 'unknown', modelYear: null, chromiumVersion: null, firmware: 'unknown', versionFrom: 'none' });
+    const desktop = webosVersionFacts({}, 156);
+    expect(desktop).toMatchObject({ modelYear: null, chromiumVersion: 156, versionFrom: 'none' });
+    expect(deviceTier(desktop)).toBe('full');
+  });
+
+  it('takes the firmware from firmwareVersion first, then platformVersion', () => {
+    expect(webosVersionFacts({ firmwareVersion: '05.10.20', platformVersion: '03.53.45' }, 79).firmware).toBe('05.10.20');
+    expect(webosVersionFacts({ platformVersion: '03.53.45' }, null).firmware).toBe('03.53.45');
+  });
+});
+
+describe('createWebosPlatform().info() on a webOS 6 TV', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const tv = (deviceInfo: string): void => {
+    vi.stubGlobal('window', { PalmSystem: { deviceInfo } });
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.79 Safari/537.36 WebAppManager',
+      language: 'en-GB',
+    });
+  };
+
+  it('reports 2021 and the full tier, and records where the version came from', async () => {
+    tv(JSON.stringify({ modelName: 'OLED55A1PVA', platformVersion: '03.53.45', platformVersionMajor: '3' }));
+    expect(await createWebosPlatform().info()).toEqual({
+      platform: 'webos',
+      model: 'OLED55A1PVA',
+      modelYear: 2021,
+      osVersion: '6',
+      firmware: '03.53.45',
+      chromiumVersion: 79,
+      tier: 'full',
+      locale: 'en-GB',
+      country: null,
+      details: { versionFrom: 'chromium', deviceInfoKeys: 'modelName platformVersion platformVersionMajor', platformVersion: '03.53.45' },
+    });
+  });
+
+  it('uses sdkVersion when deviceInfo has it', async () => {
+    tv(JSON.stringify({ modelName: 'OLED55A1PVA', platformVersion: '03.53.45', sdkVersion: '6.5.3' }));
+    expect(await createWebosPlatform().info()).toMatchObject({
+      modelYear: 2021,
+      osVersion: '6.5.3',
+      tier: 'full',
+      details: { versionFrom: 'sdkVersion', sdkVersion: '6.5.3' },
+    });
+  });
 });
 
 describe('watchCursorState (Magic Remote pointer)', () => {

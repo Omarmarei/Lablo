@@ -3,8 +3,8 @@
  */
 
 /**
- * Performance tier. `low` covers 2018–2019 TVs (about 1–1.5 GB RAM, Chromium 53–63);
- * `full` covers 2020 and newer. Tier-dependent limits (EPG window, image caps, ingest duty
+ * Performance tier. `low` covers 2018–2019 TVs (about 1–1.5 GB RAM, Chromium 53–63; since
+ * ADR-012 only Samsung's, as LG starts at 2020); `full` covers 2020 and newer. Tier-dependent limits (EPG window, image caps, ingest duty
  * cycle) key off this value.
  */
 export type DeviceTier = 'low' | 'full';

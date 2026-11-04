@@ -15,13 +15,15 @@ describe('the lab manifests (RELAY step 15a)', () => {
   it('give webOS the lab id and name and keep the rest of appinfo.json', () => {
     const app = fillTemplate(read('platforms/webos/appinfo.json'), '0.1.3');
     const lab = labManifest('webos', app);
-    expect(checkAppinfo(lab, '0.1.3')).toEqual({ id: 'com.zoma.iptv.lab', version: '0.1.3' });
+    expect(checkAppinfo(lab, '0.1.3')).toEqual({ id: 'com.zoma.iptv.lab', version: '0.1.3', requiredACG: ['deviceinfo.query', 'settings.query'] });
     const parsed = JSON.parse(lab) as Record<string, unknown>;
     expect(parsed.title).toBe('Zoma Lab');
     // LG's Audio Guidance reads an app only with this (spike S11).
     expect(parsed.accessibility).toEqual({ supportsAudioGuidance: true });
     const { accessibility: _added, ...rest } = parsed;
-    expect({ ...rest, id: 'com.zoma.iptv', title: 'Zoma' }).toEqual(JSON.parse(app));
+    // The lab's luna calls (S3, S11) and their ACG groups; the app's manifest declares none (ADR-012).
+    expect((JSON.parse(app) as Record<string, unknown>).requiredACG).toEqual([]);
+    expect({ ...rest, id: 'com.zoma.iptv', title: 'Zoma', requiredACG: [] }).toEqual(JSON.parse(app));
   });
 
   it('give Tizen the lab widget, package and application ids and name, nothing else', () => {

@@ -154,7 +154,7 @@ Samsung's web engine never gets upgraded after the TV ships, so each model year 
 | 2024 | 8.0 | Chromium 108 | 24 | Chromium 108 |
 | 2026 | 10.0 | Chromium 130 | 26 | Chromium 132 |
 
-- **Minimum supported: 2018 models** (Tizen 4 / webOS 4). The build is compiled down to what Chrome 53 understands, shipped as classic scripts (no ES modules), with polyfills.
+- **Minimum supported: 2018 models** (Tizen 4 / webOS 4). **LG since 2026-11-04: 2020 models (webOS 5)**, Omar's decision after S6 had no 2018 LG to run on ([ADR-012](adr/ADR-012-lg-minimum-webos5.md)); Samsung keeps 2018. The build is compiled down to what Chrome 53 understands, shipped as classic scripts (no ES modules), with polyfills.
 - **Full-feature tier: 2020+ models.**
 - **2015–2017 models are skipped.** Samsung's current SDK can't build for 2015–16 TVs, and 2016–17 LG TVs (Chromium 38) need ES5, which makes modern frameworks very painful.
 
@@ -404,7 +404,7 @@ Each session ends with `pnpm verify` green (lint, typecheck, tests, both TV buil
 | S3 | DUID / LGUDID stable across reinstalls | "Backup code" fallback |
 | S4 | AVPlay: TS/HLS start time, 302 freeze vs probe, 60-min endless TS, 4K HEVC, AC3/E-AC3, track switch, suspend/restore | Per-model tuning through remote config; honest "not supported" UI |
 | S5 | webOS `<video>`: same tests + audio-track switching API | "Audio track not switchable on this TV" message; evaluate the MSE engine for HLS |
-| S6 | 2018 low-end LG: 200k ingest, 150 MB EPG, cold start ≤ 3 s, search ≤ 200 ms | Lighter low tier (lazy VOD, smaller EPG window), or **raise the LG minimum to 2019/2020** (I'll ask you first) |
+| S6 | 2018 low-end LG: 200k ingest, 150 MB EPG, cold start ≤ 3 s, search ≤ 200 ms | Lighter low tier (lazy VOD, smaller EPG window), or **raise the LG minimum to 2019/2020** (I'll ask you first). **Done: LG minimum 2020, ADR-012**; the low tier is measured on the 2018 Samsung |
 | S7 | Cross-origin `http://` calls from packaged apps | Build a webOS luna JS-service relay (+2 sessions) |
 | S8 | Tizen `avplaystore` pre-buffering | Drop pre-buffered zapping from post-launch |
 | S9–S11 | Arabic font shaping/bidi; number, colour, PRE-CH keys, Magic Remote, Arabic IME; screensaver, Voice Guide | Own on-screen keyboard (+2 sessions) / explicit TTS adapter (+1) |

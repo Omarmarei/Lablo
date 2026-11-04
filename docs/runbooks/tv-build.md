@@ -44,6 +44,8 @@ How `pnpm build:tv`, `pnpm dev` and `pnpm device` work, and the manual Tizen ste
    - The **Chromium 53 CSS gate** (`css-gate.ts`) then checks the output: Grid, flex `gap`, sticky, logical properties, `inset`, `aspect-ratio`, unprefixed `user-select`/`clip-path`/`mask`/`appearance`, `clamp()`/`min()`/`max()`, `env()`, CSS Color 4 functions, `#rgba` hex, space-separated colours, new viewport units, `:is()`/`:where()`/`:has()`/`:focus-visible`/`:focus-within`/`:dir()`, lists in `:not()`, nesting, `@layer`/`@container`/`@property` and media range syntax fail with `file:line:column`, the declaration and the reason.
    - **Sizes (step 11a):** app.css 9.7 KB from 3 files; four fonts in `assets/`, 99 KB.
 6. **Platform isolation.** The Tizen bundle must not contain webOS adapter code (`PalmSystem`, `webOSRelaunch`) and vice versa (`tvinputdevice`, `productinfo`); neither may contain the desktop adapter.
+   - **webOS ACG (step 16a, [ADR-012](../adr/ADR-012-lg-minimum-webos5.md)):** every webOS manifest has `requiredACG` (the app `[]`, the lab `deviceinfo.query` and `settings.query`). The build fails when a webOS bundle has a `luna://` URI missing from `LUNA_ACG` (`tools/build/src/acg.ts`), when a manifest declares a group no known call needs, or when the lab misses the group of a call it carries. `acg.test.ts` fails when app or `ui` code calls a luna-backed `Platform` method (`deviceSecret`, `screenReader`) without its group in `platforms/webos/appinfo.json`.
+   - **The rule:** a new luna call goes into `LUNA_ACG` with its group from [LG's ACG guide](https://webostv.developer.lge.com/develop/guides/acg-guide), and the group into the manifest of each app that calls it. webOS TV 27+ denies a call whose group is missing (errorCode -1) and the Seller Lounge refuses a manifest without the field. Services LG's ACG table doesn't list (`com.webos.service.tts/speak`, `com.webos.media/selectTrack`) are fallbacks only, never the primary route.
 7. **Stage** `dist/tv/<platform>/`: `index.html` (classic scripts; Tizen also loads `$WEBAPIS/webapis/webapis.js`), `main.js`, `app.css`, `assets/` (fonts and their licence), the platform manifest with `{{version}}` replaced by `apps/tv/package.json` `version`, and the icons from `platforms/<platform>/`.
 8. **Package** into `dist/packages/`:
    - **webOS:** `ares-package --no-minify` from `@webos-tools/cli` (a devDependency; no global install). Output: `com.zoma.iptv_<version>_all.ipk`. `--no-minify` keeps the shipped bytes identical to the gated ones.
@@ -54,7 +56,7 @@ When a gate failure appears: find the excerpt in the source, or the dependency i
 ## The Zoma Lab build (step 15a)
 
 The same pipeline builds `apps/tv/src/lab/lab-main.tsx` per platform, with its own budgets (the same limits) and gates, into `dist/tv-lab/<platform>/` (`tools/build/src/lab.ts`):
-- **The manifests** are the app's with another id and name: webOS `com.zoma.iptv.lab`, "Zoma Lab"; Tizen widget `https://zoma-iptv.invalid/lab`, package `ZomaLab001`, app `ZomaLab001.ZomaLab`. So a lab install never replaces the app or its data.
+- **The manifests** are the app's with another id and name: webOS `com.zoma.iptv.lab`, "Zoma Lab"; Tizen widget `https://zoma-iptv.invalid/lab`, package `ZomaLab001`, app `ZomaLab001.ZomaLab`. So a lab install never replaces the app or its data. On webOS the lab also gets `accessibility.supportsAudioGuidance` and its ACG groups (`LAB_ACG`).
 - **index.html** runs the boot-error handler, then the native-feature probe (`apps/tv/src/lab/native-probe.js`, inlined and syntax-gated: which built-ins the engine has before core-js), then `lab-config.js`, then `main.js`.
 - **lab-config.js** holds `window.ZOMA_LAB_CONFIG`: the server (`--lab-server`, default this PC's first private IPv4 address on port 8080), the version (`--lab-version`, default the app's), the write test's size and whether to run at launch.
 - **Package:** `dist/packages/com.zoma.iptv.lab_<version>_all.ipk`. Tizen as for the app, once the CLI exists.
@@ -68,6 +70,8 @@ The same pipeline builds `apps/tv/src/lab/lab-main.tsx` per platform, with its o
 | `platforms/webos/appinfo.json` | `"id": "com.zoma.iptv"` | Permanent once published on LG. Depends on the final name and domain (trademark check pending). |
 | `platforms/tizen/config.xml` | widget id `https://zoma-iptv.invalid/tv`, package `ZomaIPTV01`, app id `ZomaIPTV01.Zoma` | Permanent once published on Samsung. |
 | `platforms/*/icon*.png` | Flat teal squares | Real icons: Tizen 512x423; webOS 80x80 (`icon`) and 130x130 (`largeIcon`). |
+
+Already settled: `requiredACG` (step 16a, build-checked). The LG listing declares webOS 5.0+ ([ADR-012](../adr/ADR-012-lg-minimum-webos5.md)).
 
 ## Tizen `.wgt` (manual until the Tizen CLI is installed)
 

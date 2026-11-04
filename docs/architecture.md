@@ -69,7 +69,7 @@ zoma/
 | apps/web | protocol, crypto | core, data, and outbound `fetch` (only listed SDKs are allowed) |
 
 **The Platform interface** is the only seam between platforms:
-- `info()`: model, model year, firmware, Chromium version, tier (`low` for 2018–19, `full` for 2020+), locale, country
+- `info()`: model, model year, firmware, Chromium version, tier (`low` for 2018–19, `full` for 2020+; since ADR-012 only Samsung has 2018–19 sets), locale, country
 - `deviceSecret()`: DUID or LGUDID, or `null`
 - key-to-Intent mapping and key registration
 - `onLifecycle` (hidden, visible, relaunch)
@@ -918,12 +918,14 @@ These are available: fetch with streams, TextDecoder, IntersectionObserver, IDB 
 
 | Tier | Samsung | LG |
 |---|---|---|
-| Minimum (must own) | 2018 Tizen 4.0, e.g. NU7100 | 2018 webOS 4.x low-end 1 GB, e.g. UK6300 |
+| Minimum (must own) | 2018 Tizen 4.0, e.g. NU7100 | ~~2018 webOS 4.x low-end 1 GB, e.g. UK6300~~ 2020 webOS 5 since [ADR-012](adr/ADR-012-lg-minimum-webos5.md) (none owned; see below) |
 | Mid (borrow or later) | 2020 Tizen 5.5, e.g. TU7000 | 2020 webOS 5, e.g. UN7300 |
 | Current (must own) | 2023/24 Tizen 7/8 (DTS dropped) | 2023/24 webOS 23/24 (Back goes Home) |
 | Emulators | Tizen Studio TV emulator | webOS TV Emulator 4.x + Simulator 22–24 |
 
 Emulators are for syntax and API checks only, never media.
+
+**The LG minimum is webOS 5 (2020) since [ADR-012](adr/ADR-012-lg-minimum-webos5.md)** (Omar, 2026-11-04). The TV we have is a 2021 OLED (OLED55A1PVA, webOS 6, Chromium 79), and every LG TV we support is in the `full` tier, so S6's low-tier run moves to the 2018 Samsung. The build and the old-engine harness still target Chromium 53 (stricter than any supported TV; ADR-012 says why). Results per device: [spikes/results.md](spikes/results.md).
 
 ---
 
@@ -939,7 +941,7 @@ All spikes run in a "Zoma Lab" build that posts results to the log collector. Th
 | S3 | Are the device IDs available and stable (DUID, LGUDID) across reinstalls? | Available and stable | Use the "Backup code" fallback, which the user photographs |
 | S4 | AVPlay battery (2018 and 2023 Samsung) | TS first frame < 2.5 s (< 4 s on 2018), HLS < 4 s. The 302 freeze reproduces without the probe and plays with it. 60 min endless TS: every stall recovered in < 10 s. 4K HEVC VOD plays on 2020+. AC3/E-AC3 5.1 plays. `setSelectTrack` audio switch < 2 s with no restart. Subtitle text callback fires. suspend/restore after Home < 5 s | Stalls not recoverable: shorter watchdog and proactive reconnect, tuned by remote config per model. Track switch broken on a model: per-model flag and honest UI |
 | S5 | webOS `<video>` battery (2018 and 2023 LG) | Same matrix, plus audio switch via `audioTracks` or luna `selectTrack`; 302 followed natively; MKV multi-audio | No working track API: ship "audio track not switchable on this TV" for those firmwares, and evaluate the MSE engine for HLS sources only |
-| S6 | Scale on the low-end webOS 4 TV | 200k M3U ingest ≤ 90 s with no crash. Key press to focus move < 200 ms during ingest. 150 MB gzipped XMLTV filtered ingest ≤ 4 min. Cached cold start to usable ≤ 3 s. Search ≤ 200 ms | Low tier gets: lazy VOD/series per category, 24 h + 2 day EPG window, no posters in lists. If it still fails, raise the LG minimum to 2019/2020 (product decision) |
+| S6 | Scale on the low-end webOS 4 TV (since ADR-012: the 2018 Samsung for the low tier, the LG TV as a full-tier set) | 200k M3U ingest ≤ 90 s with no crash. Key press to focus move < 200 ms during ingest. 150 MB gzipped XMLTV filtered ingest ≤ 4 min. Cached cold start to usable ≤ 3 s. Search ≤ 200 ms | Low tier gets: lazy VOD/series per category, 24 h + 2 day EPG window, no posters in lists. If it still fails, raise the LG minimum to 2019/2020 (product decision) |
 | S7 | Can packaged apps make cross-origin `http://` calls (no CORS headers, redirects, `responseURL`)? | Works on both | webOS: build the luna JS service relay (+2 sessions) |
 | S8 | Tizen `avplaystore` pre-buffering (investigational) | Two instances prepare at once; switching to the prepared one ≤ 700 ms on 2020+ | Drop pre-buffered zapping from the post-launch list |
 | S9 | Arabic text: bundled woff2 font shaping, bidi mixed names, `Intl` with `ar` | Correct rendering | Bundle fonts and own date/number formatters (already planned, so this only confirms) |
@@ -1142,7 +1144,7 @@ That totals about 47 sessions plus 4 held back for store QA feedback.
 | Store rejects or removes the app, as has happened to IPTV players | No content or default lists; disclaimers; adult groups hidden behind a PIN; test-pattern screenshots; a working test server; LG submitted first; complete LG UX doc and checklist; no proxy SDKs; kill-switch and blocklist runbook ready |
 | Samsung Partner approval is slow (GCC and Canada) | Apply on day 1; launch LG GCC and Samsung US first |
 | webOS update wipes data | Cloud backup with auto-restore from v1; DB8 mirror if S2 passes; profile migrations and snapshots; first-update test via beta |
-| 2018 low-end TVs run out of memory or lag | Worker plus chunked IDB; ingest worker killed after use; tier gating; image caps (no server-side resizing is allowed, so caps are client-side); S6 thresholds as release gates; option to raise the LG minimum |
+| 2018 low-end TVs run out of memory or lag | Worker plus chunked IDB; ingest worker killed after use; tier gating; image caps (no server-side resizing is allowed, so caps are client-side); S6 thresholds as release gates; the LG minimum raised to 2020 (ADR-012) |
 | AVPlay stalls and 302 freezes | Watchdog, retry ladder and learned redirect probe, tuned per model by remote config; 8 h soak gate |
 | webOS audio-track switching unreliable | S5 picks the working API; per-language auto-preference; honest UI on firmware where it fails |
 | Legal action or court orders | Servers never fetch provider URLs or relay streams; end-to-end relay with short TTL; hashed blocklist and kill-switch; DMCA agent; company entity; counsel review; no piracy-flavoured marketing |

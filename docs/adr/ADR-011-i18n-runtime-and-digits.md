@@ -1,6 +1,6 @@
 # ADR-011: The i18n runtime, our own formats, and Western digits in Arabic
 
-- **Status:** Accepted (the digit default is reversible; see "Reversing the digit default")
+- **Status:** Accepted. Omar confirmed Western digits everywhere on 2026-11-04 (relay leg 34), choosing it over Arabic-Indic per CLDR and over a user setting. The default stays reversible; see "Reversing the digit default".
 - **Date:** 2026-11-03
 - **Amends:** docs/architecture.md §1.2 (i18n runtime in `ui`, plural rules in `core`); implemented in RELAY step 12a (`packages/core/src/plural.ts`, `packages/ui/src/i18n/{message,format,runtime}.ts`, `apps/tv/src/i18n`)
 

@@ -47,14 +47,19 @@ describe('platform manifests', () => {
     expect(() => fillTemplate('no placeholder', '1.2.3')).toThrow(/placeholder/);
   });
 
-  it('the real webOS appinfo.json passes and keeps disableBackHistoryAPI', () => {
+  it('the real webOS appinfo.json passes, keeps disableBackHistoryAPI and declares no ACG group', () => {
     const info = checkAppinfo(fillTemplate(read('platforms/webos/appinfo.json'), '0.1.0'), '0.1.0');
-    expect(info).toEqual({ id: 'com.zoma.iptv', version: '0.1.0' });
+    expect(info).toEqual({ id: 'com.zoma.iptv', version: '0.1.0', requiredACG: [] });
   });
 
   it('rejects an appinfo.json without disableBackHistoryAPI', () => {
-    const text = JSON.stringify({ id: 'a.b', version: '1.0.0', main: 'index.html', type: 'web' });
+    const text = JSON.stringify({ id: 'a.b', version: '1.0.0', main: 'index.html', type: 'web', requiredACG: [] });
     expect(() => checkAppinfo(text, '1.0.0')).toThrow(/disableBackHistoryAPI/);
+  });
+
+  it.each([undefined, 'deviceinfo.query', [7]])('rejects an appinfo.json whose requiredACG is %j (ADR-012)', (requiredACG) => {
+    const text = JSON.stringify({ id: 'a.b', version: '1.0.0', main: 'index.html', type: 'web', disableBackHistoryAPI: true, requiredACG });
+    expect(() => checkAppinfo(text, '1.0.0')).toThrow(/requiredACG/);
   });
 
   it('the real Tizen config.xml passes', () => {

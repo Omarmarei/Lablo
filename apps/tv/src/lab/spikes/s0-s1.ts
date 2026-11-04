@@ -56,7 +56,7 @@ const device: Check = {
         timeZone,
         utcOffsetMinutes: -new Date().getTimezoneOffset(),
       },
-      note: `${info.platform} ${info.model}, OS ${info.osVersion}, Chromium ${info.chromiumVersion ?? '?'}, tier ${info.tier}`,
+      note: `${info.platform} ${info.model}, OS ${info.osVersion}, year ${info.modelYear ?? '?'}, Chromium ${info.chromiumVersion ?? '?'}, tier ${info.tier}`,
     });
   },
 };
@@ -140,6 +140,25 @@ const API_NAMES = [
   'performance.now',
 ];
 
+/**
+ * Which CSS features `CSS.supports` reports, or `null` without it. The first version asked for
+ * `typeof CSS === 'object'` and reported every feature missing on Chromium 79 (the LG TV and
+ * Simulator 6.0, relay leg 34), which has them all: older Blink most likely exposes `CSS` as a
+ * function object (an interface with static methods), so only `supports` is checked now.
+ */
+export function cssFeatures(cssApi: unknown): Record<string, boolean> | null {
+  const supports = (cssApi as { supports?: unknown } | null | undefined)?.supports;
+  if (typeof supports !== 'function') return null;
+  const has = (property: string, value: string): boolean => (supports as (p: string, v: string) => boolean).call(cssApi, property, value);
+  return {
+    grid: has('display', 'grid'),
+    'flex gap': has('gap', '1px') && has('display', 'flex'),
+    sticky: has('position', 'sticky'),
+    'logical properties': has('margin-inline-start', '1px'),
+    'custom properties': has('--x', '1'),
+  };
+}
+
 const apis: Check = {
   id: 'apis',
   title: 'Which web APIs the engine has',
@@ -147,15 +166,11 @@ const apis: Check = {
     const present: string[] = [];
     const missing: string[] = [];
     for (const name of API_NAMES) (has(name) ? present : missing).push(name);
-    const css = typeof CSS === 'object' && typeof CSS.supports === 'function';
-    const cssFeatures: Record<string, boolean> = {
-      grid: css && CSS.supports('display', 'grid'),
-      'flex gap': css && CSS.supports('gap', '1px') && CSS.supports('display', 'flex'),
-      sticky: css && CSS.supports('position', 'sticky'),
-      'logical properties': css && CSS.supports('margin-inline-start', '1px'),
-      'custom properties': css && CSS.supports('--x', '1'),
-    };
-    return Promise.resolve<CheckResult>({ status: 'info', value: { present, missing, css: cssFeatures }, note: missing.length === 0 ? 'all present' : `missing: ${missing.join(', ')}` });
+    return Promise.resolve<CheckResult>({
+      status: 'info',
+      value: { present, missing, css: cssFeatures(typeof CSS === 'undefined' ? undefined : CSS) },
+      note: missing.length === 0 ? 'all present' : `missing: ${missing.join(', ')}`,
+    });
   },
 };
 

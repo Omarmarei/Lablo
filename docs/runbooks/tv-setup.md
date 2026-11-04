@@ -8,7 +8,7 @@ How to get the Zoma Lab (and later the app) onto each device we test on: an LG T
 
 | Device | What it needs | Oldest engine it gives | Media | How the lab gets there |
 |---|---|---|---|---|
-| **LG TV**, webOS 4+ (2018+) | The Developer Mode app, an LG developer account, the TV on the LAN | the TV's own (webOS 4 = Chromium 53) | the TV's own | `pnpm device install webos tv --lab` |
+| **LG TV**, webOS 5+ (2020+, [ADR-012](../adr/ADR-012-lg-minimum-webos5.md)) | The Developer Mode app, an LG developer account, the TV on the LAN | the TV's own (webOS 5 = Chromium 68; ours: webOS 6 = Chromium 79) | the TV's own | `pnpm device install webos tv --lab` |
 | **webOS TV Emulator** 1.2–6.0 | VirtualBox 6.1 | 4.0 = Chromium 53 | **no HLS before 5.0**, no DRM | `pnpm device install webos emulator --lab` |
 | **webOS TV Simulator** 6.0, 22–26 | a zip from LG | 6.0 = Chromium 79 | "different from actual TV devices", no DRM | `ares-launch -s <version> … dist/tv-lab/webos` (an app folder, no `.ipk`); on this PC, the Linux build in Docker (2.4) |
 | **Samsung TV**, Tizen 4+ (2018+) | the Tizen CLI, a Samsung certificate with the TV's DUID, Developer Mode | the TV's own (2018 = Chromium 56) | the TV's own (AVPlay) | `pnpm device install tizen <serial> --lab` |
@@ -53,7 +53,7 @@ Records arrive in `artifacts/lab-logs/<session>.ndjson` (lab.md, "Quick start").
   ```
 
   `pnpm device devices|install|launch|inspect webos …` wraps the four commands we use daily (tv-build.md).
-- **New in 3.2.6:** `ares-package` warns when `appinfo.json` has no `requiredACG`, which "may be required to pass the webOS submission eligibility check" (release notes above). Ours has none yet. It doesn't block a dev install; it is a store-submission item (RELAY step 45).
+- **New in 3.2.6:** `ares-package` warns when `appinfo.json` has no `requiredACG`, which "may be required to pass the webOS submission eligibility check" (release notes above). **Done in step 16a:** both manifests have it (the app `[]`, the lab its two groups), the build checks it ([tv-build.md](tv-build.md), item 6; [ADR-012](../adr/ADR-012-lg-minimum-webos5.md)), and the lab installed and ran with it on the webOS 6 TV as before.
 
 ### 2.2 An LG TV in Developer Mode
 
@@ -62,6 +62,10 @@ All quotes in this section are from LG's [Developer Mode app page](https://webos
 **One-time setup:**
 1. **Account.** Create an LG developer account on [webostv.developer.lge.com](https://webostv.developer.lge.com) ("SIGN IN" at the top right).
 2. **The app.** On the TV, open **LG Apps** (formerly the LG Content Store), search for **"Developer Mode"** and install it. Sign in with the developer account.
+   - **Use an account with an email address and a password.** The app asks for "your email-based ID and password of the LG Developer site" ([Developer Mode app](https://webostv.developer.lge.com/develop/getting-started/developer-mode-app)).
+   - **A Google (or other social) sign-in doesn't work there.** In the forum, LG answered: "You can log in to the Developer Mode app with your LG account, not your SNS account" ([LG forum](https://forum.webostv.developer.lge.com/t/dev-mode-login-with-google-account/25212)).
+   - **How to tell:** such an account shows a 21-digit "User ID" in the site's Profile. That is Google's account number, not an ID the TV accepts.
+   - **What worked in step 16 (2026-11-04):** a second LG account, created with an email address and a password, then typed as the full email on the TV.
 3. **Turn it on.** Press **Dev Mode Status**; "The TV will reboot." Open the app again and turn on the **Key Server**. The app shows the TV's IP address and a 6-character **passphrase** at the bottom left.
 4. **Network.** The TV and this PC must be on the same network. This PC connects out to the TV on TCP **9922** (SSH, user `prisoner`) and **9991** (the key server); LG documents no ports, these come from the CLI's source ([novacom.js](https://github.com/webos-tools/cli/blob/main/lib/base/novacom.js)).
 5. **Register the TV** with the CLI, as `tv` (the name `pnpm device` examples use):
@@ -72,7 +76,11 @@ All quotes in this section are from LG's [Developer Mode app page](https://webos
    ```
 
    `--getkey` asks for the passphrase ("Enter the exact characters (case sensitive)") and saves the key as `%USERPROFILE%\.ssh\tv_webos`. "When using the Developer Mode app, a password is not required."
-6. **Check:** `pnpm --filter @zoma/tools-device exec ares-device --system-info --device tv` prints the TV's model and webOS version. Note both for step 16.
+   - **Without the prompt** (an agent's shell): `ares-novacom --device tv --getkey --passphrase <the 6 characters>`. The flag is in the CLI's `bin/ares-novacom.js`.
+   - **To find the TV's IP from this PC:** look for a LAN host with ports 9922 and 9991 open.
+6. **Check:** `pnpm --filter @zoma/tools-device exec ares-device --system-info --device tv` prints the TV's model, `sdkVersion` (the webOS version) and `firmwareVersion`. Note them for step 16.
+   - **Our TV** (paired 2026-11-04 as `tv`, at 192.168.1.8): `OLED55A1PVA` (LG's 2021 A1 OLED), `sdkVersion` 6.5.3 (webOS 6), `firmwareVersion` 03.53.45, Chromium 79.
+     - Inside an app, `PalmSystem.deviceInfo` has no `sdkVersion`, and its `platformVersion` is the firmware (`03.53.45`). Its keys: `modelName panelType platformVersion platformVersionDot platformVersionMajor platformVersionMinor screenHeight screenWidth`. So the adapter takes the year from the engine (Chromium 79 → webOS 6 → 2021; [ADR-012](../adr/ADR-012-lg-minimum-webos5.md)).
 
 **Then the lab:** `pnpm mock`, `pnpm build:tv`, `pnpm device install webos tv --lab`, `pnpm device launch webos tv --lab` (lab.md, "Quick start"). Remote DevTools: `pnpm device inspect webos tv --lab`. The inspector runs through the SSH tunnel (the TV's port 9998 forwarded to a local one; [inspect.js](https://github.com/webos-tools/cli/blob/main/lib/inspect.js)).
 
@@ -87,16 +95,17 @@ All quotes in this section are from LG's [Developer Mode app page](https://webos
   ```
 
   Community reports say it "works even when the TV is sleeping", and that the timer on the TV only updates after a reboot ([dev-manager-desktop #256](https://github.com/webosbrew/dev-manager-desktop/issues/256)). The old `ares-extend-dev` command was removed in CLI 3.0. A community script calls an undocumented LG URL with the TV's session token (`ResetDevModeSession.dev`); reports say it answers 200 without extending anything, and its own author advises against it. Don't use it.
+- **Tried in leg 35** (2026-11-04, on OLED55A1PVA): `--params '{"extend":true}'` answered "Launched application com.palmdts.devmode" and brought the Dev Mode app to the front. Whether it extended the session is **unconfirmed**: the timer only shows it after a reboot, so read "Remain Session" at the next visit to the TV.
 - **When the session ends** (the time runs out and the TV reboots, or "After the TV reboot ten times while the TV is not connected to a network"), Developer Mode turns off and "the installed apps that you were using on Developer Mode are uninstalled." The lab's records already on this PC are safe; anything only on the TV (S2's markers, S3's stored hash) is lost, so S2 and S3 restart from a first run.
 - **One TV per account:** signing in to Developer Mode on a second TV with the same account ends the first TV's session: "only the session of the latest TV that you sign in to is maintained" ([LG forum](https://forum.webostv.developer.lge.com/t/developer-mode-keeps-login-me-out-before-999h-run-out/6428)). Use one LG developer account per TV.
 - **Habit for the relay:** extend the session at the start of every TV session (the command above), and note the remaining time in the handover.
 
-**Minimum version:** LG names none for the Developer Mode app. Community guides list "any webOS 4 or later TV (except for K5LP based TVs)" ([Kodi wiki](https://kodi.wiki/view/HOW-TO:Install_Kodi_for_webOS)), which covers our minimum.
+**Minimum version:** LG names none for the Developer Mode app. Community guides list "any webOS 4 or later TV (except for K5LP based TVs)" ([Kodi wiki](https://kodi.wiki/view/HOW-TO:Install_Kodi_for_webOS)), which covers our minimum (webOS 5 since ADR-012).
 
 ### 2.3 The webOS TV Emulator (4.0 for Chromium 53)
 
 - **Status:** "From webOS TV 22, Emulator will not be provided" ([emulator installation](https://webostv.developer.lge.com/develop/tools/emulator-installation)). Versions **1.2, 2.0, 3.0, 4.0, 5.0 and 6.0** are still offered there (`Emulator_tv_win_v4.0.0.zip` plus `Resources_win.zip`, behind a terms dialog).
-- **Why we want it:** Emulator 4.0 is the only way to run webOS 4's Chromium 53 without a TV (the Simulator starts at 6.0). Our Docker harness already runs plain Chromium 53, so the emulator adds webOS's own runtime: `PalmSystem`, the luna bus, the app manager's lifecycle.
+- **Why we want it:** Emulator 4.0 is the only way to run webOS 4's Chromium 53 without a TV (the Simulator starts at 6.0). Since ADR-012 webOS 4 is below our LG minimum, so 5.0 (Chromium 68) is the emulator that matters. Our Docker harness already runs plain Chromium 53, so the emulator adds webOS's own runtime: `PalmSystem`, the luna bus, the app manager's lifecycle.
 - **Requirements** (same page): 64-bit Windows 7 or later, 3 GB of RAM or more, **VirtualBox 6.1**. LG says nothing on VirtualBox 7, Hyper-V or VT-x. A forum reply suggests 6.1.30 over 6.1.46 ([LG forum](https://forum.webostv.developer.lge.com/t/can-not-run-an-emulator/1076)). **Unconfirmed on this PC**, which runs Hyper-V (see "At a glance").
 - **Start it** (Windows, same page):
   1. Unzip `Emulator` and `Resources` under one folder and point `LG_WEBOS_TV_SDK_HOME` at it.
@@ -291,7 +300,7 @@ Sources: Samsung's [web engine specifications](https://developer.samsung.com/sma
 
 | Engine | Docker harness (`verify:engines`) | Emulator / simulator | Needs a TV |
 |---|---|---|---|
-| Chromium 53 (LG 2018–19) | plain Chromium 53 | webOS Emulator 4.0 (no HLS) | media, memory, LGUDID, keys |
+| Chromium 53 (LG 2018–19: below our minimum since ADR-012; the build still targets it) | plain Chromium 53 | webOS Emulator 4.0 (no HLS) | nothing: no supported TV |
 | Chromium 56 (Samsung 2018) | plain Chromium 56 | none | everything Samsung-specific (AVPlay, DUID, keys) |
 | Chromium 63–69 (2019–20) | plain Chromium 68 | webOS Emulator 5.0 (68) | as above |
 | Chromium 76–132 (2021+) | none | webOS Simulator 6.0–26, Tizen Emulator 10.0 | media, memory, AVPlay |

@@ -10,6 +10,7 @@
  *   the results), the lab's version and whether it runs everything at launch (`labConfigScript`).
  */
 import type { NetworkInterfaceInfo } from 'node:os';
+import { LAB_ACG } from './acg';
 import type { TvPlatform } from './platform-files';
 import { BOOT_ERROR_SCRIPT } from './platform-files';
 
@@ -41,12 +42,13 @@ function replaceOnce(text: string, pattern: RegExp, replacement: string, what: s
 /**
  * The app's manifest (already filled in) turned into the lab's: another id and name. On webOS
  * also `accessibility.supportsAudioGuidance`, without which LG's Audio Guidance reads nothing of
- * an app (appinfo.json reference, webOS TV 3.0+); S11 tests it before the app takes it.
+ * an app (appinfo.json reference, webOS TV 3.0+; S11 tests it before the app takes it), and the
+ * ACG groups of the lab's luna calls (`LAB_ACG`, ADR-012).
  */
 export function labManifest(platform: TvPlatform, text: string): string {
   if (platform === 'webos') {
     const info = JSON.parse(text) as Record<string, unknown>;
-    return `${JSON.stringify({ ...info, id: LAB_IDS.webosId, title: LAB_IDS.title, accessibility: { supportsAudioGuidance: true } }, null, 2)}\n`;
+    return `${JSON.stringify({ ...info, id: LAB_IDS.webosId, title: LAB_IDS.title, accessibility: { supportsAudioGuidance: true }, requiredACG: [...LAB_ACG] }, null, 2)}\n`;
   }
   let out = replaceOnce(text, /(<widget\b[^>]*\bid=")[^"]*(")/, `$1${LAB_IDS.tizenWidget}$2`, 'the widget id');
   out = replaceOnce(out, /(<tizen:application\s+id=")[^"]*("\s+package=")[^"]*(")/, `$1${LAB_IDS.tizenApplication}$2${LAB_IDS.tizenPackage}$3`, 'the application id');

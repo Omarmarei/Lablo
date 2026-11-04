@@ -15,3 +15,4 @@ One file per decision, numbered in order. Format: Status, Date, Context, Decisio
 | [009](ADR-009-m3u-content-keys.md) | M3U ContentKeys hash tvg-id plus name; key functions are frozen | Accepted |
 | [010](ADR-010-catchup-time-zones.md) | Catch-up time zones (Intl, then the panel clock, then UTC) and M3U catch-up mode inference | Accepted |
 | [011](ADR-011-i18n-runtime-and-digits.md) | i18n: CLDR plurals in core, an ICU message subset, our own formats instead of `Intl`, Western digits in Arabic by default (reversible), provider text isolated | Accepted |
+| [012](ADR-012-lg-minimum-webos5.md) | LG minimum webOS 5 (2020); the webOS year from `sdkVersion` or the engine; `requiredACG` in every webOS manifest, checked by the build; the harness keeps Chromium 53 | Accepted |
