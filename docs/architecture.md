@@ -649,7 +649,7 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
     - PRE-CH's channel moves too, or goes when it is gone;
     - a zap that waits plays the new list's row when it fires.
 - **Not yet:**
-  - the guides screen (22b): list, add, remove and order the user's XMLTV links, with a refresh after a change;
+  - the guides screen (22b): list, add, remove and order the user's XMLTV links, with a refresh after a change (built in 22b1 and 22b2a, below);
   - a refresh while the app is closed (§7);
   - holding refreshes while a low-tier TV plays (step 41): the duty cycle and the busy pause are all there is;
   - a catalog change in e2e: the mock serves one catalog, so the quiet reload is covered by the unit tests only.
@@ -681,6 +681,29 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
   - **e2e:** `onboarding.spec.ts` reads back profile version 4 with the typed link in `guides` and no `epgUrl` on the source, in English and Arabic. `pnpm verify` green locally (3,330 unit tests, 64 e2e).
   - **Mutation:** 60/60 on the first run (`artifacts/mutate22b1.py`). Before it, two guards that the tests would have masked got their cases: a move rounded down or clamped to its own place changes nothing (`Math.floor`, `Math.max`: `splice` rounds and clamps on its own), and a guides-only pass doesn't read the sources' status.
 - **TV bundle:** main's own code 276.6 → 277.0 KB on Tizen and 264.0 → 264.4 KB on webOS, 219 core-js modules on both; the query worker 98.8 → 99.6 KB, the ingest worker 125.6 → 126.0 KB (it carries the profile's migrations for the favourites update), the EPG worker 115.2 → 115.6 KB. The migration copies the fields of a source one by one: an object rest or an array destructuring would bring Babel's helpers into the workers.
+
+**Built in step 22b2a: the settings screen and the guides screen** (step 22b2 was split in leg 48 into 22b2a and 22b2b, the full e2e and the checklist; `apps/tv/src/settings`: `settings-state.ts`, `guides-state.ts`, `SettingsScreen.tsx`, `settings.css`; the live screen's `header` zone):
+- **The way in:** the live screen's header ends with a "Settings" button (zone `header`), reached with UP from the first row of the rail, the list or "Try again" (each zone's `up` neighbour).
+  - DOWN or Back goes back to the zone the focus was in last, on its item (the Magic Remote's pointer can take the focus there from any row). While the screen loads nothing is below: DOWN stays, and Back follows the platform.
+  - OK opens the settings screen (`LiveOptions.openSettings`). No new remote key.
+- **The settings screen** (`settings`, pushed on the live navigator) has one row, "TV guides". Step 38 adds the track languages, the subtitle style and the picture mode. The live screen paints the settings screens instead of its own (`SETTINGS_SCREENS`), as it does for the player.
+- **The guides screen** (`guides`): "Add a guide" in the header, a line on how the order counts, then one list of 6 rows of 120 px:
+  - the user's guides in their order, then each source's own in the refresh's order (`epgGuides`: a panel's `xmltv.php`, a playlist's `url-tvg`). A source's guide with the same link as one of the user's is read, and listed, once, as the user's;
+  - each row: the link as host and path (`shownLink`: no scheme, query, fragment or login; an Xtream guide's login is in its query), and "Added by you" or "From <source>";
+  - then what `guideState` says: `read` (the programmes' end in the TV's day and time, and "Channels matched: n of m (p%)" from the summary), `failed` (nothing stored, and the last try failed), `reading` ("Reading…": nothing stored while a change's refresh runs) or `unread` ("Not read yet");
+  - a failure line says why the last try failed (`EpgMeta.failure`: the HTTP status, refused access, unreachable, not an XMLTV guide, no live channels to match; anything else is "tried again later"), on a read guide too.
+- **Changes:**
+  - OK on one of the user's guides opens its menu (`guide-menu`): Move up and Move down (only where the guide can go), Remove, Cancel. A source's guide has no menu.
+  - "Add a guide" opens the form (`guide-add`): a link field (`TextField` and the text editor: Done moves to "Add") and Add / Cancel. `checkLink` refuses, on the field: nothing typed, spaces, not an http(s) link or a login in it (onboarding's `normalizeLink`), or a link already on the screen (the user's or a source's).
+  - A new guide's id (`nextGuideId`): one past the highest `g<n>` among the list's ids, the stored guides' (`u~g<n>`) and the ids given out since the last read.
+  - Each change runs after the one before: `editProfile({ kind: 'guide', change })`, then the list read again, then `refreshNow` ("Reading…" until it settles), then the status read again. The focus follows a moved or added guide; after a remove it stays on its place, and goes to "Add a guide" when none is left.
+  - A read that a newer one replaced is dropped. A change is saved even when the screen went meanwhile. `pending` counts the reads, edits and refreshes (`data-pending` on the screen's root, for the e2e).
+- **Not yet (22b2b):** the e2e in Arabic, a move and a remove by keys, a failing link, the checklist.
+- **Tests:**
+  - **Unit:** `guides-state.test.ts` (52: the layout numbers, `shownLink`, `nextGuideId`, `menuActions`, `checkLink`, `guideState`, `guideList`; the screen by keys: loading, empty, failed reads, stale reads, the menu, each move and remove with its edit, refresh and read, the focus after each, changes in turn, failed edits and refreshes, the add form's checks and ids, dispose at each point; the settings screen), `settings-screen.test.ts` (3: the failure and status text), `live-state.test.ts` (+5: the header from the list, the rail, "Try again" and while loading; the pointer's row; a screen pushed from it; no short guide asked).
+  - **e2e** `guides.spec.ts` (English, by keys against the in-process mock on the real clock): UP to the header's "Settings", "TV guides", the panel's own guide read at onboarding (its host and path, no login on the screen), then "Add a guide" with the mock's `/epg/guide.xml`: it comes first, focused, read at once ("Channels matched: 11 of 12 (92%)"), and the profile holds it as `g1`; Back to the settings, then to the header. Screenshots `live-header-en.png`, `guides-en.png`, `guides-add-en.png`, `guides-added-en.png` in `artifacts/screenshots`.
+  - **Mutation:** `artifacts/mutate22b2a.py`, written before the run with the guards other code covers already removed (the menu's and the form's own "on top" checks, a closed screen's check that `Screen` does itself, a source row's kind next to the id it never has, the active-zone check before "Add a guide"). 93 of 94 caught; the survivor was the "not while loading" check, which can never be false once `open` stopped placing the focus before the first read: removed, 93/93. The same pass found four test gaps first (a `?` before a `#` in a link, UP from the form's buttons, a followed guide's focus left alone at the next read, an id only the profile holds).
+- **TV bundle:** main's own code 277.0 → 294.5 KB on Tizen and 264.4 → 281.9 KB on webOS, 219 core-js modules on both: about 6.6 KB is the 32 new strings in each catalog (terser's `ascii_only` writes each Arabic letter in 6 bytes) and 11 KB the screens. The workers didn't change.
 
 ---
 

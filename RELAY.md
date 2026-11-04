@@ -735,6 +735,17 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - unit tests: the screen's state (rows and statuses, the menu, the add form's checks, ids, each change's edit and refresh, the focus after a move or a remove);
     - e2e by keys against the mock in English and Arabic: open it from the header, add the mock's guide and see it read (its match rate and end), move it, remove it, a link that fails shows why, the profile read back;
     - screenshots looked at; `pnpm verify` green; a mutation run; the PR merged; the "press these keys" checklist in the handover.
+  - Split in leg 48 into 22b2a (the screens, their state and unit tests, one English e2e) and 22b2b (the full e2e in English and Arabic, screenshots, the checklist).
+- [x] 22b2a. **The settings and guides screens.**
+  - Everything in 22b2's way in, screen and changes above: the header's "Settings" button, the settings screen, the guides screen (rows and statuses, the row menu, the add form, `g<n>` ids, each change's edit, `refreshNow` and the status read again).
+  - **Done when:** unit tests (the header zone and its keys; the guides screen's state: rows and statuses, the menu, the add form's checks, ids, each change's edit and refresh, the focus after a move or a remove, stale reads); an English e2e by keys: open the guides screen from the header, add the mock's guide and see it read; `pnpm verify` green; a mutation run; the PR merged.
+  - Done in leg 48 (architecture.md §1.5 "Built in step 22b2a").
+    - **The way in:** the header's "Settings" (zone `header`: UP from the first row of the rail, the list or "Try again"; DOWN and Back go back to the zone and item the focus came from). The settings screen has one row, "TV guides".
+    - **The guides screen:** the user's guides, then each source's own; each row's link (host and path), owner, and state (read: the programmes' end and "Channels matched: n of m (p%)"; failed; "Reading…"; "Not read yet"), with why the last try failed. The row menu (Move up/down where possible, Remove, Cancel) and the add form (`checkLink`, `nextGuideId`); each change: edit, read, `refreshNow`, read.
+    - **Tests:** 3,518 unit tests (+188: 60 of the screens' own, 128 the catalog's per-key checks of 32 new strings); `pnpm verify` green (65 e2e, +1: `guides.spec.ts`). Mutation 93/94, then 93/93 (`artifacts/mutate22b2a.py`; the survivor was a guard made dead by a cleanup).
+    - **Size:** main 277.0 → 294.5 KB (Tizen) and 264.4 → 281.9 KB (webOS), 219 core-js modules on both (6.6 KB of it the new strings).
+- [ ] 22b2b. **The guides screen's full e2e and checklist.**
+  - **Done when:** e2e by keys against the mock in English and Arabic (move, remove, a link that fails shows why, the profile read back; the screen inside the safe area); screenshots looked at; `pnpm verify` green; the PR merged; the "press these keys" checklist in the handover.
 - [ ] 23. **Grid guide (6.2).** Virtualized on both axes, time cursor, RTL.
   - **Done when:** each key press in the grid is handled in ≤ 150 ms in the throttled e2e.
 - [ ] 24. **Programme details (6.3).** Details, manual EPG-to-channel mapping, match diagnostics, per-source time offset.
