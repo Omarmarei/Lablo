@@ -700,7 +700,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 - [ ] 22. **EPG sources (6.1).** EPG source management, refresh scheduling, now/next in the list, short-EPG fallback.
   - **Already built:** now/next in the list (step 14a) and the short-EPG fallback (step 9c); the EPG refresh itself, `epgGuides` and `epgRefreshDue` (step 9b). Leg 46 found that nothing refreshes anything while the app runs, or at a later start: `refreshEpg` is called only by onboarding, the hello screen and the lab, and the catalog's "at launch if stale" (architecture.md §1.4 item 1) has no caller at all. The user's guide is one `epgUrl` per source (onboarding's "guide" field), and nothing can change it after onboarding.
   - Split in leg 46 into 22a (the refresh schedule) and 22b (the guides screen).
-- [ ] 22a. **The refresh schedule in the running app.** A scheduler in the app (`apps/tv/src/data/refresh-scheduler.ts`):
+- [x] 22a. **The refresh schedule in the running app.** A scheduler in the app (`apps/tv/src/data/refresh-scheduler.ts`):
   - **When:** a first check 15 s after the live screen opens (the start on the last channel and the first list stay fast), then every 15 min, and 15 s after the app is visible again.
   - **Catalog** (architecture.md §1.4 item 1; no step owned it): each stored source whose last check is 12 h old is refreshed, one at a time. A failure waits 2 h (kept in memory).
   - **Guides:** `refreshEpg(..., { due: true })` for every source's guides and the user's. After a catalog refresh that committed, every guide is read (new channels may match).
@@ -710,6 +710,12 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - unit tests: the scheduler (the delays, the 12 h rule, failures, the slot, the guides after a commit, hidden and visible, dispose), the live screen (now/next re-asked after a guide swap, stale answers dropped; the category and focus kept after a catalog swap), the player (its row found again, no new play);
     - e2e by keys against the mock with the page clock moved: a guide that failed at onboarding comes in 2 h later and the rows show its now/next; 12 h later the catalog is refreshed by itself;
     - `pnpm verify` green, a mutation run, the PR merged.
+  - Done in leg 46 (architecture.md §1.5 "Built in step 22a"; §1.4 item 1 points to it).
+    - **Scheduler** (`createRefreshScheduler`, started with the live screen): 15 s, then every 15 min from the end of a pass, 15 s after the app is visible again; stale catalogs (12 h, or none stored) one at a time, a failure held 2 h; then the due guides, or every guide after a catalog committed; a busy slot retries in a minute. `DataEngine.sourceStatus`; onboarding's `catalogOf`, `guidesOf` and the new `ingestSourceOf` are shared.
+    - **Live screen:** `guidesChanged` (a guide epoch; rows keep their answer until the new one; the player's last 4 channels too) and `catalogChanged` (a quiet reload on the same rail entry; the focus follows its channel unless it moves meanwhile).
+    - **Player:** `listChanging` pins the row playing and moves it, and PRE-CH's channel, to their rows in the new list; the stream isn't touched.
+    - **Tests:** 3,312 unit tests (+60); `pnpm verify` green (64 e2e, +1: `refresh.spec.ts`, the page's clock fast-forwarded 2 h and 12 h, the mock counting requests; it fails with the scheduler off). Mutation 82/85, then 84/84 (`artifacts/mutate22a.py`).
+    - **Size:** main 272.9 → 276.6 KB (Tizen) and 260.3 → 264.0 KB (webOS), 219 core-js modules on both.
 - [ ] 22b. **The guides screen.** A screen that lists the guides (each source's own and the user's: programmes until, match rate, the last failure) and lets the user add, remove and order XMLTV URLs; the profile keeps the user's guides as a list (a profile migration from the per-source `epgUrl`); a change starts a refresh. Decide where it opens from (a first settings screen, or the live screen's header or rail) and keep it small.
 - [ ] 23. **Grid guide (6.2).** Virtualized on both axes, time cursor, RTL.
   - **Done when:** each key press in the grid is handled in ≤ 150 ms in the throttled e2e.

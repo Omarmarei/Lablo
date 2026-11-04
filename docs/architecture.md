@@ -397,7 +397,7 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
 
 ### 1.4 Catalog pipeline (ingest worker)
 
-1. **Trigger.** A refresh runs when a source is added, when the user asks, or at launch if the cache is stale (live after 12 h, VOD and series after 24 h; both values come from remote config). Startup always shows the cached generation immediately.
+1. **Trigger.** A refresh runs when a source is added, when the user asks, or at launch if the cache is stale (live after 12 h, VOD and series after 24 h; both values come from remote config). Startup always shows the cached generation immediately. Built in step 22a (§1.5 "Built in step 22a"): a source's lists come in one refresh, so a source is refreshed 12 h after its last check, at the start and while the app runs.
 2. **Spawn.** A fresh ingest worker starts for each refresh and is terminated when done, which frees its whole heap.
 3. **Fetch.** Use `fetch()` and read `response.body.getReader()` as a stream. Send ETag/If-Modified-Since where the server supports it, and compare an FNV-1a hash of the bytes with the previous generation; if unchanged, stop. Chromium 53 has no AbortController, so cancel with `reader.cancel()` or by aborting an XHR.
 4. **Decode.** `TextDecoder({stream:true})`, tolerant of BOM and CRLF. If the file starts with the gzip magic bytes `1f 8b`, decompress with `DecompressionStream` when available (Chromium 80+) or fflate's streaming `Gunzip` otherwise.
@@ -555,7 +555,7 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
   - `failedAt` holds a failed guide back for 2 h;
   - a cancel stops the whole refresh;
   - messages never contain URLs.
-- **When** (`epgRefreshDue`): a guide with no generation; 12 h after its last check; or when its programmes end less than 24 h ahead. Never within 2 h of the last check, or a guide that only covers a few hours would be fetched in a loop. The app asks with `refreshEpg(..., { due: true })`; the timer that asks while the app runs comes with the EPG screens (step 22).
+- **When** (`epgRefreshDue`): a guide with no generation; 12 h after its last check; or when its programmes end less than 24 h ahead. Never within 2 h of the last check, or a guide that only covers a few hours would be fetched in a loop. The app asks with `refreshEpg(..., { due: true })`; the schedule that asks while the app runs is step 22a's (below).
 - **One refresh at a time:** `DataEngine` runs catalog and EPG refreshes in one slot and refuses a second ("A guide refresh is already running"), so a low-tier TV never runs both at once. Remote keys pause an EPG refresh as they pause a catalog one.
 - **Now/next** (`QueryService.nowNext`): the active generations' match tables are combined in guide order (`combineEpgMatches`) at each reload. For each live channel, the buckets of days `d - 1` to `d + 1` are read in one transaction, `d` being the UTC day at now minus the channel's tvg-shift. `epgStatus` lists the guides and sources fresh from IndexedDB.
 - **Workers:**
@@ -615,6 +615,51 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
   - `test/query-worker-bundle.test.ts`: the bundled Chromium 53 worker asks with `fetch` and `TextDecoder`, then answers from its cache.
   - e2e, in `pnpm dev` and both built bundles: the mock's unmatched channel asks the panel. In dev, a `no-xmltv` panel gives `from: panel`.
   - 26/26 mutants caught (`artifacts/mutate9c.py`).
+
+**Built in step 22a: the refresh schedule in the running app** (step 22 was split in leg 46 into 22a and 22b, the guides screen; `apps/tv/src/data/refresh-scheduler.ts`; `DataEngine.sourceStatus`; the live screen's `guidesChanged` and `catalogChanged`; the player's `listChanging`):
+- **What leg 46 found:** nothing refreshed anything after onboarding. `refreshEpg` had three callers (onboarding, the hello screen, the lab), and the catalog's "at launch if stale" (§1.4 item 1) had none.
+- **When** (`createRefreshScheduler`, started by the app with the live screen):
+  - a first check 15 s after the live screen opens (`FIRST_CHECK_MS`), so the start on the last channel and the first list stay fast;
+  - then every 15 min (`CHECK_MS`), counted from the end of a pass, never two at once;
+  - nothing while the app is hidden (`Platform.onLifecycle`); a check 15 s after it is visible again (a relaunch counts).
+- **A pass:**
+  1. **Catalogs:** each stored source whose last check (`SourceMeta.checkedAt`, else `updatedAt`) is 12 h old (`CATALOG_REFRESH_MS`), or that has no catalog at all (webOS may wipe the database on an update), is refreshed through `DataEngine.refresh`, one at a time, at the duty cycle on a low-tier TV.
+     - A failure holds that source for 2 h (`CATALOG_RETRY_MS`). It is kept in memory, so a relaunch tries again.
+     - PLAN.md's separate "VOD after 24 h" doesn't apply: a source's lists come in one refresh.
+  2. **The screens hear of new catalogs** (`onCatalog`).
+  3. **Guides:** `refreshEpg(..., { due: true })` for every source's guides and the user's.
+     - After a catalog committed, every guide is read instead: new channels may match. The basis changed, so each guide is downloaded again (at most every 12 h, with the catalog).
+     - When a guide swapped in, or one no longer listed was deleted, the screens hear of it (`onGuides`).
+- **One refresh at a time:** the data engine's slot (§1.5, "One refresh at a time").
+  - When something else holds it (onboarding, the hello screen), the pass stops and the next check comes in a minute (`BUSY_RETRY_MS`).
+  - The catalogs that committed before it stopped are told at once, and the next pass reads every guide.
+- **The live screen:**
+  - **A guide swapped in** (`guidesChanged`):
+    - every answer becomes stale (a guide epoch), and the rows on show are asked again after the 200 ms rest; each row keeps its old answer until the new one comes;
+    - an answer asked before the swap is shown when it comes, then asked again;
+    - the player's channels (the last 4 asked through `list.askGuide`, the info bar's) are asked with the rows, and from now on also at the minute tick once their programme has ended.
+  - **A catalog swapped in** (`catalogChanged`):
+    - the sources and categories are read again without the loading screen; a screen still loading, or failed, loads the usual way;
+    - the rail entry on show stays (by source and name; "All channels" when it is gone);
+    - the chunks are read again from the new generation, and now/next stays (ContentKeys don't change);
+    - the focus follows the channel it is on when the new list comes, found from its row outwards as `locate` does. It stays on its row when the channel is gone, or when the focus moves while the channel is being found.
+  - **The player** (`listChanging`, called while the old list can still be read):
+    - the stream isn't touched;
+    - the row playing is pinned (the start's mechanism, step 20c1) and moves to its row in the new list once `locate` finds it;
+    - PRE-CH's channel moves too, or goes when it is gone;
+    - a zap that waits plays the new list's row when it fires.
+- **Not yet:**
+  - the guides screen (22b): list, add, remove and order the user's XMLTV links, with a refresh after a change;
+  - a refresh while the app is closed (§7);
+  - holding refreshes while a low-tier TV plays (step 41): the duty cycle and the busy pause are all there is;
+  - a catalog change in e2e: the mock serves one catalog, so the quiet reload is covered by the unit tests only.
+- **Tests:**
+  - **Unit:** `refresh-scheduler.test.ts` (29: the 12 h and 2 h rules to the millisecond, the delays, the order, the job, every guide after a commit, the busy slot before a catalog and before the guides, failures, hidden and visible, dispose at each point), `live-state.test.ts` (+24: the catalog swap's category, focus, chunks, the player's turn, empty, loading, failed, stale answers; the guide swap's re-asks, stale answers, the player's channels, a panel's answer from before), `player-state.test.ts` (+7).
+  - **e2e** `refresh.spec.ts` (`pnpm verify`'s 64 green locally): onboarding on a panel whose guide is off (scenario `no-xmltv`); the panel turns it on; the page's Playwright clock jumps 2 h and the app reads the guide by itself, and every row shows the mock's programme at the page's time; 12 h after the start it reads the catalog and the guides again, on the same focus. It fails with the scheduler off. The mock's row helpers moved from `live.spec.ts` to `e2e/live-rows.ts`.
+  - **Mutation:** 82/85 on the first run (`artifacts/mutate22a.py`), then 84/84.
+    - Before the run, guards that others mask went: the scheduler's checks for a disposed, hidden or busy state at a check (nothing schedules one then), a second dispose's, the lifecycle listener's after dispose, a separate busy flag, and clearing a failure on success (a failure is always 2 h old by the next try); the live screen's "on the list" check (the found row's own check covers it), the empty list's reset index, and `guidesChanged`'s own state checks (`askGuides` has them); the player's `-1` checks (no row is -1).
+    - The three survivors: re-asking the oldest of the player's channels hid the list's de-duplication, and the "channel gone" test lost its row to clamping, which hid the `found === -1` check (two new test cases). The `bump()` after the swap was masked by the new rail, which redraws the screen anyway, and went.
+- **TV bundle:** main's own code 272.9 → 276.6 KB on Tizen and 260.3 → 264.0 KB on webOS; 219 core-js modules on both.
 
 ---
 
