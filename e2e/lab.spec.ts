@@ -7,6 +7,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import type { MockServer } from '../apps/mock-provider/src/server';
 import { listen, mock } from '../apps/mock-provider/test/helpers';
+import { S6_PRESSES, S6_QUERIES } from '../apps/tv/src/lab/scale';
 import { RemoteDriver } from './remote-driver';
 
 /**
@@ -53,6 +54,14 @@ const DESKTOP: ReadonlyArray<readonly [string, string]> = [
   ['S7/xhr-redirect', 'pass'],
   ['S7/fetch-redirect', 'pass'],
   ['S7/xhr-redirect-no-cors', 'fail'],
+  // The mock's own small catalog: S6 measures everything and judges nothing (pnpm lab:scale judges).
+  ['S6/source', 'info'],
+  ['S6/ingest', 'info'],
+  ['S6/search', 'info'],
+  ['S6/keys', 'info'],
+  ['S6/guide', 'info'],
+  ['S6/cold-start', 'info'],
+  ['S6/cleanup', 'info'],
 ];
 
 let app: MockServer;
@@ -103,6 +112,41 @@ async function finishedRun(page: Page, runs: number): Promise<{ session: string;
   return { session, records };
 }
 
+/**
+ * S6 against the in-process mock's own catalog (25 entries, 12 live channels): the app's data
+ * engine and live screen ran every step, and the records say what they measured.
+ */
+function expectS6(records: readonly Record[]): void {
+  const s6 = (id: string): Record | undefined => records.find((r) => r.spike === 'S6' && r.check === id);
+  expect(s6('source')?.value).toMatchObject({ items: 25, live: 12, guide: { static: false }, atScale: { catalog: false, guide: false } });
+  // The test account's URLs never reach the records.
+  expect(JSON.stringify(records.filter((r) => r.spike === 'S6'))).not.toMatch(/zoma-test|password=/);
+  expect(s6('ingest')?.value).toMatchObject({ items: 25, expected: 25, counts: { live: 12, movie: 6, series: 7 } });
+  const search = s6('search')?.value as { queries: { q: string; total: number }[] };
+  expect(search.queries.map((q) => q.q)).toEqual(S6_QUERIES);
+  expect(search.queries.find((q) => q.q === 'zoma')?.total).toBeGreaterThan(0);
+  expect(search.queries.find((q) => q.q === 'زوما')?.total).toBe(1);
+  // Every press timed to its painted focus, on the app's live screen.
+  const keys = s6('keys')?.value as { count: number; presses: [string, string, number | null][]; refresh: { ended: string } };
+  expect(keys.count).toBe(S6_PRESSES.length);
+  expect(keys.presses.map((p) => p[0])).toEqual(S6_PRESSES);
+  expect(keys.presses.every((p) => typeof p[2] === 'number')).toBe(true);
+  expect(keys.presses[0]?.[1]).toBe('live/channels/1');
+  expect(keys.presses.find((p) => p[0] === 'LEFT')?.[1]).toBe('live/rail/0');
+  // A small refresh may end before the presses do, or (paused by them on the low tier) be cancelled.
+  expect(['finished', 'cancelled']).toContain(keys.refresh.ended);
+  // The guide moved to today: the mock's guide matched and kept programmes.
+  expect(s6('guide')?.value).toMatchObject({ wanted: 12, matched: 11, gzipped: true });
+  expect((s6('guide')?.value as { kept: number }).kept).toBeGreaterThan(0);
+  const cold = s6('cold-start')?.value as { bootMs: number; dataMs: number; totalMs: number; idleMs: number; start: string };
+  expect(cold.start).toBe('home');
+  expect(cold.totalMs).toBe(cold.bootMs + cold.dataMs);
+  expect(cold.bootMs).toBeGreaterThan(0);
+  expect(cold.idleMs).toBeGreaterThanOrEqual(cold.dataMs);
+  expect(s6('cleanup')?.note).toBe('deleted "zoma"');
+}
+
+
 function statuses(records: readonly Record[]): Array<[string, string]> {
   return records.filter((r) => r.type === 'check').map((r) => [`${r.spike ?? ''}/${r.check ?? ''}`, r.status ?? '']);
 }
@@ -119,6 +163,8 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     // Run all.
     await remote.press('OK');
     const { session, records } = await finishedRun(page, 1);
+    // S6's live screen is gone again: the lab shows alone.
+    await expect(page.getByTestId('lab-stage')).toHaveCount(0);
 
     // In order: the start, one record per check, the end.
     expect(records.map((r) => r.seq)).toEqual(records.map((_, i) => i + 1));
@@ -128,7 +174,7 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     expect(statuses(records)).toEqual(DESKTOP);
     const end = records[records.length - 1];
     expect(end?.type).toBe('end');
-    expect(end?.value).toMatchObject({ run: 1, spikes: ['S0', 'S1', 'S2', 'S3', 'S7'], counts: { pass: 13, fail: 3, info: 5, skip: 2 } });
+    expect(end?.value).toMatchObject({ run: 1, spikes: ['S0', 'S1', 'S2', 'S3', 'S7', 'S6'], counts: { pass: 13, fail: 3, info: 12, skip: 2 } });
 
     // What the records say, beyond the status.
     const check = (key: string): Record | undefined => records.find((r) => `${r.spike ?? ''}/${r.check ?? ''}` === key);
@@ -140,10 +186,11 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     expect(check('S2/write-test')?.value).toMatchObject({ targetMb: 8, writtenMb: 8, error: null, deleted: true });
     expect(check('S7/xhr-redirect')?.value).toEqual({ status: 200, responseURL: `${base}/__lab/echo` });
     expect(check('S7/xhr-no-cors')?.note).toMatch(/^no readable answer/);
+    expectS6(records);
 
     // The screen: each spike's overall status, and the checks of the spike in focus.
     const spikeStatus = async (id: string): Promise<string | null> => page.getByTestId(`spike-${id}`).getAttribute('data-status');
-    expect(await Promise.all(['S0', 'S1', 'S2', 'S3', 'S7'].map(spikeStatus))).toEqual(['info', 'pass', 'pass', 'skip', 'fail']);
+    expect(await Promise.all(['S0', 'S1', 'S2', 'S3', 'S7', 'S6'].map(spikeStatus))).toEqual(['info', 'pass', 'pass', 'skip', 'fail', 'info']);
     await remote.go('DOWN', 'lab/spikes/0');
     await remote.go('DOWN', 'lab/spikes/1');
     await expect(page.getByTestId('checks')).toHaveAttribute('data-spike', 'S1');
@@ -244,6 +291,8 @@ for (const platform of ['tizen', 'webos'] as const) {
     // A TV platform without its device ID fails S3 (the adapter finds no webapis or luna here).
     expect(statuses(records)).toEqual(DESKTOP.map(([key, status]) => [key, key === 'S3/device-id' ? 'fail' : status]));
     expect(records.find((r) => r.check === 'device-id')?.note).toBe(`the ${platform === 'tizen' ? 'DUID' : 'LGUDID'} is not available`);
+    // S6 in the bundle: its inlined data workers from file://, and the app's live screen.
+    expectS6(records);
     // The native probe ran before the bundle; current Chromium needed no polyfill.
     expect(records.find((r) => r.check === 'polyfills')?.value).toMatchObject({ broken: [], polyfilled: [] });
     expect(errors).toEqual([]);

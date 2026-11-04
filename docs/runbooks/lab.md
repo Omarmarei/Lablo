@@ -3,7 +3,8 @@
 The Zoma Lab is a separate TV build that answers the hardware spikes of [architecture.md §5](../architecture.md#5-hardware-spikes-weeks-12-the-four-must-own-tvs-are-needed-on-day-1) on a real TV, in an emulator, in the old-engine harness and in the desktop browser. Every result goes to the **LAN log collector** of the mock provider on this PC. Claude can't see the TV, so this is how results come back.
 
 - **Built in step 15a:** the build, the runner and the runtime spikes S0, S1, S2, S3 and S7.
-- **Coming:** S6 and S9–S11 (step 15b), then the player batteries S4, S5 and S8 (step 15c).
+- **Built in step 15b:** S6, scale (below).
+- **Coming:** S9–S11 (step 15b2), then the player batteries S4, S5 and S8 (step 15c).
 - **Setting up the TVs and emulators:** `docs/runbooks/tv-setup.md` (step 15d).
 
 ## Quick start (a TV on the LAN)
@@ -64,6 +65,39 @@ A developer reinstall may behave differently from a store update. Repeat S2 afte
 
 Run the lab, **uninstall** it, install it again and run it. An uninstall wipes the lab's storage, so `stable` can't compare on the TV. Compare the `device-id` hash of the two sessions in `artifacts/lab-logs` instead: it must be the same. The raw ID never leaves the TV.
 
+## S6: scale (step 15b)
+
+S6 runs last, since on a TV it takes minutes. It uses the app's own data engine (its real query, ingest and EPG workers, inlined in the lab bundle as in the app) and the app's live screen, mounted over the lab screen while S6 presses keys on it.
+
+| Check | What it does | Pass (architecture.md §5) |
+|---|---|---|
+| `source` | Asks the lab server for a source (`/__lab/source`, docs/runbooks/mock-provider.md): an M3U of the mock's test account and a guide moved to this TV's days. Only counts and sizes go into the record, never the URLs. | `pass` with the scale fixtures, `info` otherwise |
+| `ingest` | Stores the source as S6's own source (`lab-s6`) and ingests the M3U through the data engine, in the TV's tier. | ≤ 90 s, no crash |
+| `search` | Six searches through the app's search path: `zoma`, `sport`, `زوما`, `night`, `ki`, `الليل`. | each ≤ 200 ms |
+| `keys` | Shows the live screen on the stored catalog, starts a refresh of the source, and while it runs presses 35 keys at a viewer's pace (down the list, CH− page by page, to the rail, OK on a category, back into the list). Each press is timed from the key to the end of the first frame that draws the new focus. The refresh is then cancelled. | each < 200 ms, all during the refresh |
+| `guide` | The guide's filtered ingest through the data engine (only the stored live channels' programmes, in the tier's window). | ≤ 4 min, programmes kept |
+| `cold-start` | This launch's boot (the page to the lab's script, the part a bundle's parse takes) plus a fresh data engine (no workers running) to the live screen's painted rows, as the app starts with a source stored. Also records when the screen went idle (its 600 ms focus wait included). | ≤ 3 s |
+| `cleanup` | Deletes the lab's copy of the app database (`zoma`), so the TV's storage is free again for S2. | `info` (housekeeping) |
+
+- **Judged only at scale:** the criteria are about 200,000 items and the 150 MB guide. Against the mock's own small catalog every check measures and reports `info` (that is what e2e and the old-engine harness see). For a judged run on a TV, start the mock with the scale fixtures:
+
+  ```
+  pnpm fixtures
+  pnpm mock --catalog .cache/fixtures/catalog.json --xmltv .cache/fixtures/xmltv-150mb.xml.gz
+  ```
+- **Never over the app's data:** under `pnpm dev` the lab page shares the dev app's origin and its database. If S6 finds a source there that isn't its own, it skips (every check, cleanup included) and deletes nothing. Open the lab on another origin instead, a second dev server on another port: `pnpm --filter @zoma/app-tv exec vite --port 5174`, then `http://localhost:5174/lab.html?server=http://127.0.0.1:8080`. On a TV the lab has its own storage.
+- **In the desktop browser at scale:** `pnpm lab:scale` (after `pnpm fixtures`) runs S6 by the remote against an in-process mock with the scale fixtures, requires every check to pass, and writes `artifacts/lab-scale.json`. On this PC (2026-11-04, desktop Chromium, full tier):
+
+  | Check | Result |
+  |---|---|
+  | ingest | 200,000 items in 1.9 s |
+  | search | median 3 ms, slowest 6 ms |
+  | keys | 35 presses, all during the refresh: median 11 ms, slowest 18 ms |
+  | guide | 666,666 programmes kept for 7,079 of 20,000 channels in 5.2 s (148 MB, 10.5 MB gzipped) |
+  | cold start | 194 ms: boot 109 ms, data to painted rows 85 ms (idle at 699 ms) |
+
+  These are a smoke check of the lab at scale, not a TV's numbers: a 2018 TV is many times slower (step 16).
+
 ## Records
 
 One NDJSON line per record, with `_received` added by the collector:
@@ -86,9 +120,9 @@ The lab needs no test account: the mock answers it on `/__lab/` (docs/runbooks/m
 
 ## Where else the lab runs
 
-- **e2e** (`e2e/lab.spec.ts`): the dev page by keys, every record checked in the collector; an "update" from 0.1.0 to 0.1.1 (S2); the collector down, then up; both TV bundles from `file://`.
+- **e2e** (`e2e/lab.spec.ts`): the dev page by keys, every record checked in the collector (S6 against the mock's small catalog); an "update" from 0.1.0 to 0.1.1 (S2); the collector down, then up; both TV bundles from `file://`. S6 at scale: `pnpm lab:scale` (`e2e/lab-scale.spec.ts`, its own Playwright project, never part of `pnpm e2e`).
 - **The old-engine harness** (`pnpm verify:engines`, docs/runbooks/old-engines.md): both lab bundles in Chromium 53, 56 and 68, reporting to a mock started on the host through `host.docker.internal`.
-  - S1 must pass on every engine.
+  - S1 must pass on every engine; S6 runs its checks against the host mock's small catalog (all `info`).
   - The polyfills the bundle filled must be exactly the built-ins that engine lacks.
   - Every record must reach the collector.
   - The self-test adds `lab-seed-no-worker`, which must fail.

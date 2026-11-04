@@ -167,12 +167,13 @@ export async function runLab(client: CdpClient, platform: TvPlatform, url: strin
   const started = Date.now();
   await blankPage(client);
   const watch = watchErrors(client);
+  const erroredOut = labErrorGate(() => watch.errors());
   try {
     await client.send('Page.navigate', { url });
     const done = await waitForProbe<LabState>(
       client,
       LAB_STATE_EXPRESSION,
-      (state) => state.records !== null || state.ready === 'error' || state.bootError.trim() !== '' || watch.erroredOut(),
+      (state) => state.records !== null || state.ready === 'error' || state.bootError.trim() !== '' || erroredOut(),
       timeoutMs,
     );
     const session = done.state?.session ?? null;
@@ -233,6 +234,14 @@ export const EXPECTED_STATUSES: ReadonlyArray<readonly [string, string]> = [
   ['S7/xhr-redirect', 'pass'],
   ['S7/fetch-redirect', 'pass'],
   ['S7/xhr-redirect-no-cors', 'fail'],
+  // The host mock's own small catalog: S6 measures and judges nothing.
+  ['S6/source', 'info'],
+  ['S6/ingest', 'info'],
+  ['S6/search', 'info'],
+  ['S6/keys', 'info'],
+  ['S6/guide', 'info'],
+  ['S6/cold-start', 'info'],
+  ['S6/cleanup', 'info'],
 ];
 
 const keyOf = (record: LabRecord): string => `${record.spike ?? ''}/${record.check ?? ''}`;
@@ -243,6 +252,22 @@ const keyOf = (record: LabRecord): string => `${record.spike ?? ''}/${record.che
  */
 export function isExpectedRefusal(error: string): boolean {
   return /No 'Access-Control-Allow-Origin' header/.test(error) && /\/__lab\/(echo|redirect)\?[^ ]*cors=0/.test(error);
+}
+
+/** How long an unexpected error may stand before the wait for the run gives up (scenario.ts's grace). */
+export const LAB_ERROR_GRACE_MS = 2_000;
+
+/**
+ * The lab run's "errored out": like `watchErrors().erroredOut()`, but S7's own refusals don't
+ * count. They come mid-run since S6 runs after S7, and the run goes on for minutes after them.
+ */
+export function labErrorGate(errors: () => readonly string[], now: () => number = Date.now, graceMs = LAB_ERROR_GRACE_MS): () => boolean {
+  let firstAt: number | null = null;
+  return () => {
+    if (!errors().some((error) => !isExpectedRefusal(error))) return false;
+    firstAt ??= now();
+    return now() - firstAt > graceMs;
+  };
 }
 
 export function evaluateLab(run: LabRun, engine: Pick<Engine, 'major'>): string[] {

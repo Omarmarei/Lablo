@@ -11,6 +11,7 @@ import {
   NATIVE_SINCE,
   evaluateLab,
   isExpectedRefusal,
+  labErrorGate,
   labSummary,
   labUrl,
   readCollected,
@@ -79,11 +80,28 @@ describe('evaluateLab (RELAY step 15a)', () => {
     expect(evaluateLab(noProbe, { major: 53 })).toEqual(['S1/polyfills: no native-probe record (the probe did not run before the bundle)']);
   });
 
+  it("waits out S7's own refusals, and gives up on any other error after the grace", () => {
+    const refusal = "Fetch API cannot load http://host.docker.internal:8080/__lab/echo?cors=0. No 'Access-Control-Allow-Origin' header is present on the requested resource.";
+    const errors: string[] = [refusal];
+    let now = 0;
+    const gate = labErrorGate(() => errors, () => now, 2000);
+    expect(gate()).toBe(false);
+    // A minute of S6 after S7's refusals: still waiting.
+    now = 60_000;
+    expect(gate()).toBe(false);
+    errors.push('Uncaught TypeError: x is not a function');
+    expect(gate()).toBe(false);
+    now += 2000;
+    expect(gate()).toBe(false);
+    now += 1;
+    expect(gate()).toBe(true);
+  });
+
   it('names a check with the wrong answer, or none', () => {
     const wrong = goodRun(56, (records) => records.map((r) => (r.check === 'blob-worker' ? { ...r, status: 'fail', note: 'threw Error: no Worker' } : r)));
     expect(evaluateLab(wrong, { major: 56 })).toEqual(['S1/blob-worker: fail, expected pass (threw Error: no Worker)']);
     const missing = goodRun(56, (records) => records.filter((r) => r.check !== 'write-test'));
-    expect(evaluateLab(missing, { major: 56 })).toEqual(['22 check records, expected 23', 'S2/write-test: no record']);
+    expect(evaluateLab(missing, { major: 56 })).toEqual(['29 check records, expected 30', 'S2/write-test: no record']);
     // A browser that let a no-CORS request through would be news, not a pass.
     const open = goodRun(56, (records) => records.map((r) => (r.check === 'xhr-no-cors' ? { ...r, status: 'pass' } : r)));
     expect(evaluateLab(open, { major: 56 })).toEqual(['S7/xhr-no-cors: pass, expected fail']);
@@ -92,7 +110,7 @@ describe('evaluateLab (RELAY step 15a)', () => {
   it('needs every record in the collector, in order', () => {
     const run = goodRun(53);
     expect(evaluateLab({ ...run, collected: null }, { major: 53 })).toEqual(['the collector has no file for this session']);
-    expect(evaluateLab({ ...run, collected: run.collected?.slice(1) ?? [] }, { major: 53 })).toEqual([expect.stringMatching(/^the collector has 24 records, the page 25/)]);
+    expect(evaluateLab({ ...run, collected: run.collected?.slice(1) ?? [] }, { major: 53 })).toEqual([expect.stringMatching(/^the collector has 31 records, the page 32/)]);
   });
 
   it('fails a run that never finished, crashed or threw', () => {
@@ -117,7 +135,7 @@ describe('evaluateLab (RELAY step 15a)', () => {
   });
 
   it('sums a run up for the log', () => {
-    expect(labSummary(goodRun(53))).toBe('  [fail 4, info 5, pass 13, skip 1; 10k items 202 ms; IDB ? MB/s; 25 records collected]');
+    expect(labSummary(goodRun(53))).toBe('  [fail 4, info 12, pass 13, skip 1; 10k items 202 ms; IDB ? MB/s; 32 records collected]');
   });
 });
 

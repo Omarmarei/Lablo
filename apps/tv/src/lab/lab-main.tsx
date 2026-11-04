@@ -21,6 +21,9 @@ import { createLabWorkerClient } from './worker-client';
 // Last, so the lab's CSS comes after @zoma/ui's.
 import './lab.css';
 
+/** This launch's boot: the page's start (navigation) to here, after every module has run. */
+const BOOT_MS = performance.now();
+
 const platform = createPlatform();
 platform.registerKeys();
 const showFocus = installTestHook(window);
@@ -64,6 +67,7 @@ async function start(): Promise<void> {
     writeMb: config.writeMb,
     previous,
     deviceIdHash: deviceIdHash(id),
+    bootMs: BOOT_MS,
     worker: createLabWorkerClient(() => new LabWorker()),
   };
   const reporter = createReporter({ server: config.server, session, post: xhrPost });

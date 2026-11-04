@@ -3,6 +3,7 @@
  * `chunk`-sized readwrite transactions, then a count, a getAll over one chunk, and the database
  * deleted again. Runs in the lab worker (and in Node over fake-indexeddb in the tests).
  */
+import { deleteDatabaseAndWait } from './idb-delete';
 import type { BulkReport } from './worker-protocol';
 
 export const BULK_DB = 'zoma-lab-s1';
@@ -34,13 +35,8 @@ function open(factory: IDBFactory): Promise<IDBDatabase> {
   });
 }
 
-function remove(factory: IDBFactory): Promise<boolean> {
-  return new Promise((resolve) => {
-    const req = factory.deleteDatabase(BULK_DB);
-    req.onsuccess = () => resolve(true);
-    req.onerror = () => resolve(false);
-    req.onblocked = () => resolve(false);
-  });
+async function remove(factory: IDBFactory): Promise<boolean> {
+  return (await deleteDatabaseAndWait(factory, BULK_DB)) === null;
 }
 
 /** A catalog-like record (about 130 bytes). */

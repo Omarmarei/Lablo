@@ -53,6 +53,8 @@ const PROBES: Record<string, Probe> = {
   'GET /__lab/bytes': { url: '/__lab/bytes?lines=3', status: 200 },
   'GET /__lab/echo': { url: '/__lab/echo', status: 200 },
   'GET /__lab/redirect': { url: '/__lab/redirect', status: 302 },
+  'GET /__lab/source': { url: '/__lab/source', status: 200 },
+  'GET /__lab/guide.xml.gz': { url: '/__lab/guide.xml.gz?days=1', status: 200 },
   'GET /__mock/redirect/:token/:n': { url: '/__mock/redirect/0000000000000000/1', status: 404 },
   'GET /__mock/health': { url: '/__mock/health', status: 200 },
   'GET /__mock/scenarios': { url: '/__mock/scenarios', status: 200 },

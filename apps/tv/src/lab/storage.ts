@@ -6,6 +6,7 @@
  * higher version), run it again. A marker written by the older version means the store survived
  * the update (docs/runbooks/tv-setup.md describes the steps).
  */
+import { deleteDatabaseAndWait } from './idb-delete';
 import type { CheckResult, LabMarker } from './types';
 
 export const MARKER_KEY = 'zoma-lab-marker';
@@ -161,13 +162,8 @@ export interface WriteTestReport {
   readonly deleted: boolean;
 }
 
-function deleteDb(factory: IDBFactory, name: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const req = factory.deleteDatabase(name);
-    req.onsuccess = () => resolve(true);
-    req.onerror = () => resolve(false);
-    req.onblocked = () => resolve(false);
-  });
+async function deleteDb(factory: IDBFactory, name: string): Promise<boolean> {
+  return (await deleteDatabaseAndWait(factory, name)) === null;
 }
 
 /** A megabyte that doesn't compress (xorshift), so the store really holds what is written. */
