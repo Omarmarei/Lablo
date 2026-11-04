@@ -8,6 +8,8 @@
 import { SubtitleParser, SubtitleTrack, parseSubtitles } from '@zoma/core';
 import { describe, expect, it } from 'vitest';
 import { srtText } from '../apps/mock-provider/src/media-plan';
+import { encode1256, srtToVtt } from '../apps/mock-provider/src/subtitle-files';
+import { decodeSubtitleBytes } from '../apps/tv/src/player/subtitle-loader';
 
 const ARABIC_INDIC_ZERO = 0x660;
 
@@ -55,4 +57,24 @@ describe('the subtitle parser on the mock provider’s SRT', () => {
       }
     });
   }
+});
+
+describe('the mock provider’s subtitle files through the app’s decoding (RELAY step 20b2b)', () => {
+  /** A Node Buffer's bytes as their own ArrayBuffer. */
+  const bytesOf = (buffer: Buffer): ArrayBuffer => buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
+
+  it('reads the WebVTT form the same as the SRT', () => {
+    const srt = srtText('ara', 63);
+    const vtt = parseSubtitles(srtToVtt(srt), { format: 'srt' });
+    expect(vtt.format).toBe('vtt');
+    expect(vtt.cues).toEqual(parseSubtitles(srt).cues);
+  });
+
+  it('reads the Windows-1256 Arabic file through the charset fallback, digits as ASCII', () => {
+    const bytes = bytesOf(encode1256(srtText('ara', 20)));
+    const parsed = parseSubtitles(decodeSubtitleBytes(bytes, 'ara'));
+    expect(parsed.cues.map((c) => c.text)).toEqual(['ترجمة عربية 00:00', 'ترجمة عربية 00:05', 'ترجمة عربية 00:10', 'ترجمة عربية 00:15']);
+    // The same bytes read as UTF-8 would fail; read as an English file they are Windows-1252 mojibake.
+    expect(parseSubtitles(decodeSubtitleBytes(bytes, 'eng')).cues[0]!.text).not.toContain('ترجمة');
+  });
 });

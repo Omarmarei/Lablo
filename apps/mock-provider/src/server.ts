@@ -37,6 +37,7 @@ import { registerPlaylist } from './playlist';
 import type { MockState } from './state';
 import { ConnectionTracker, baseUrl, requestParams } from './state';
 import { registerStreams } from './streams';
+import { registerSubtitleFiles } from './subtitle-files';
 import { registerXmltv } from './xmltv';
 import { registerXtream } from './xtream';
 
@@ -244,6 +245,7 @@ export async function buildServer(options: MockServerOptions = {}): Promise<Mock
   registerPlaylist(app, state);
   registerXmltv(app, state);
   registerStreams(app, state);
+  registerSubtitleFiles(app, state);
   if (options.labLogDir !== null) registerLabLogs(app, options.labLogDir ?? DEFAULT_LAB_LOG_DIR);
   // The lab's probes and its scale source store nothing, so they stay on with the collector off.
   registerLabProbes(app);
@@ -305,6 +307,7 @@ export async function buildServer(options: MockServerOptions = {}): Promise<Mock
         `Lab logs: POST ${base}/__lab/logs/<session>   GET ${base}/__lab/logs`,
         `Lab:      ${base}/__lab/bytes?lines=N   ${base}/__lab/echo?cors=0   ${base}/__lab/redirect?to=/__lab/echo`,
         `Lab:      ${base}/__lab/source   ${base}/__lab/media   (the S6 source and the player batteries' media)`,
+        `Subtitles: ${base}/subtitles/U/P/<id>.<eng|ara>.<srt|vtt>[?charset=windows-1256]   (beside a film or an episode)`,
         `Media:    ${state.media.kind}   Credits: ${base}/attribution`,
         '',
         'Test accounts (fixtures/server.yaml):',

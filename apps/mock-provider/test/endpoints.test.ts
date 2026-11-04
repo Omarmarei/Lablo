@@ -46,6 +46,7 @@ const PROBES: Record<string, Probe> = {
   'GET /catchup/:u/:p/:file': { url: `/catchup/zoma/zoma-test/102.ts?start=${T}&end=${T + 600}`, status: 200 },
   'GET /flussonic/:u/:p/:id/:file': { url: `/flussonic/zoma/zoma-test/106/archive-${T}-600.ts`, status: 200 },
   'GET /images/:file': { url: '/images/movie-201.png', status: 200 },
+  'GET /subtitles/:u/:p/:file': { url: '/subtitles/zoma/zoma-test/206.eng.srt', status: 200 },
   'GET /attribution': { url: '/attribution', status: 200 },
   'POST /__lab/logs/:session': { method: 'POST', url: '/__lab/logs/endpoints', payload: '{"ok":true}', contentType: 'application/json', status: 200 },
   'GET /__lab/logs': { url: '/__lab/logs', status: 200 },

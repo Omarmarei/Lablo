@@ -7,15 +7,27 @@
  * `window.__ZOMA_PLAYBACK__` (`PlaybackHarness`) plays and reports. The root element carries the
  * state for Playwright's waits: `data-state`, `data-container`, `data-session` and, once it gave
  * up, `data-failure` (the diagnostic code).
+ *
+ * Subtitle files (step 20b2b): the app's loader (`createSubtitleLoader`) and the app's overlay
+ * (`SubtitleOverlay` with player.css on the design tokens), drawn over the stage as in the player;
+ * `data-subtitles` says where they come from.
  */
-import type { PlayerEngine, PlayRequest } from '@zoma/player';
+import { h, render } from 'preact';
+import type { PlayerEngine, PlayRequest, SubtitleView } from '@zoma/player';
 import { PlayerController, isPlaybackError, streamCandidates } from '@zoma/player';
+// The design tokens and fonts (the package's styles) and the player's own CSS, for the overlay.
+import '@zoma/ui';
+import '../player/player.css';
+import { SubtitleOverlay } from '../player/SubtitleOverlay';
+import { createSubtitleLoader } from '../player/subtitle-loader';
+import type { SubtitleSize } from '../player/track-menu';
 import { createPlatform } from '../platform';
 import type { PlaybackHarness, PlaybackInput, PlaybackSnapshot, PlaybackTarget } from './harness';
 
 const root = document.getElementById('playback');
 const stage = document.getElementById('stage');
-if (root === null || stage === null) throw new Error('#playback or #stage missing from playback.html');
+const bottom = document.getElementById('bottom');
+if (root === null || stage === null || bottom === null) throw new Error('#playback, #stage or #bottom missing from playback.html');
 
 const platform = createPlatform();
 const engines = platform.createEngines(stage);
@@ -38,7 +50,14 @@ engine.load = (source, token, opts) => {
 };
 engine.on((e) => trace.push(e.type === 'error' ? `error ${e.token} ${e.error.kind}/${e.error.code}` : `${e.type} ${e.token}`));
 
-const controller = new PlayerController(engine, { online: () => navigator.onLine });
+const controller = new PlayerController(engine, { online: () => navigator.onLine, loadSubtitles: createSubtitleLoader() });
+
+let size: SubtitleSize = 'm';
+const drawSubtitles = (view: SubtitleView): void => {
+  root.setAttribute('data-subtitles', view.feed ?? '');
+  render(view.cues.length > 0 ? h(SubtitleOverlay, { cues: view.cues, size }) : null, bottom);
+};
+controller.subscribeSubtitles(drawSubtitles);
 /** The last status's own facts: a status that only brings new track lists (step 20b) isn't history. */
 let last = '';
 controller.subscribe((s) => {
@@ -56,7 +75,7 @@ const harness: PlaybackHarness = {
   play(input: PlaybackInput): void {
     const url = input.url ?? '';
     const candidates = input.candidates ?? streamCandidates(url, input.mode);
-    const req: PlayRequest = { key: `${input.mode}:${url}`, src: input.src ?? 'mock', mode: input.mode, candidates };
+    const req: PlayRequest = { key: `${input.mode}:${url}`, src: input.src ?? 'mock', mode: input.mode, candidates, ...(input.externalSubs === undefined ? {} : { externalSubs: input.externalSubs }) };
     void controller.play(req, input.startMs === undefined ? {} : { startMs: input.startMs });
   },
   stop: () => controller.stop(),
@@ -75,9 +94,17 @@ const harness: PlaybackHarness = {
       stats: engine.stats(),
       engines: engines.map((e) => e.kind),
       trackSwitch: engine.caps.trackSwitch,
+      textTracks: status.tracks.text,
+      subtitles: controller.subtitles,
     };
   },
   selectAudio: (id) => engine.selectAudio(id),
+  selectText: (id) => controller.selectText(id),
+  setSubtitleDelay: (ms) => controller.setSubtitleDelay(ms),
+  setSubtitleSize(next) {
+    size = next;
+    drawSubtitles(controller.subtitles);
+  },
   canPlayType: (mime) => {
     const video = stage.querySelector('video');
     return video === null ? '' : video.canPlayType(mime);
