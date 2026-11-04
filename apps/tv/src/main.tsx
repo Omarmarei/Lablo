@@ -1,6 +1,7 @@
 import { signal } from '@preact/signals';
 import { render } from 'preact';
 import type { DeviceTier } from '@zoma/core';
+import { normalizeLang } from '@zoma/core';
 import type { LastChannel } from '@zoma/data';
 import type { Language } from '@zoma/ui';
 import { Spinner } from '@zoma/ui';
@@ -8,9 +9,12 @@ import type { AppData } from './App';
 import { App } from './App';
 import type { DataEngine } from './data/engine';
 import { readDebugParams, readScreen } from './data/params';
+import type { RefreshScheduler } from './data/refresh-scheduler';
+import { createRefreshScheduler } from './data/refresh-scheduler';
 import { createAppDataEngine } from './data/workers';
 import { createFocusDemo } from './focus-demo';
 import { LiveApp } from './live/LiveApp';
+import type { Live } from './live/live-state';
 import { createLive } from './live/live-state';
 import { GalleryApp } from './gallery/GalleryApp';
 import { createGallery } from './gallery/gallery-state';
@@ -84,6 +88,37 @@ const playerController = appPlayer({
   trackMemory: memory.tracks,
 });
 
+/** The background refreshes while the live screen shows (RELAY step 22a). */
+let refreshes: RefreshScheduler | null = null;
+
+/**
+ * Starts the refresh schedule for the live screen: stale catalogs and due guides are read in the
+ * background, and the screen picks up what swapped in (`readFormats`: the accounts' formats again).
+ */
+function startRefreshes(live: Live, readFormats: () => void): void {
+  refreshes?.dispose();
+  refreshes = createRefreshScheduler({
+    engine: dataEngine(),
+    tier: () =>
+      platform.info().then(
+        (info) => info.tier,
+        (): DeviceTier => 'full',
+      ),
+    // The live screen sets the page's language (LiveApp): the guides' titles in it first.
+    languages: () => {
+      const ui = normalizeLang(document.documentElement.lang);
+      return ui === '' ? [] : [ui];
+    },
+    lifecycle: (listener) => platform.onLifecycle(listener),
+    onCatalog: () => {
+      readFormats();
+      live.catalogChanged();
+    },
+    onGuides: () => live.guidesChanged(),
+  });
+  refreshes.start();
+}
+
 /** The hello screen: developer diagnostics of the device, the workers and the data layer. */
 function showHello(into: Element): void {
   const data: AppData = { engine: dataEngine(), params: readDebugParams(location.search), busy };
@@ -99,15 +134,24 @@ function showHello(into: Element): void {
  */
 function showLive(into: Element, language: Language | null, resume: LastChannel | null = null): void {
   let player: Player | null = null;
-  dataEngine()
-    .outputFormats()
-    .then(
-      (formats) => {
-        outputFormats = formats;
-      },
-      (error: unknown) => console.warn('The output formats were not read', error),
-    );
-  const live = createLive({ platform, engine: dataEngine(), play: (index) => player?.show(index), startCategory: resume === null ? null : resume.category });
+  const readFormats = (): void => {
+    dataEngine()
+      .outputFormats()
+      .then(
+        (formats) => {
+          outputFormats = formats;
+        },
+        (error: unknown) => console.warn('The output formats were not read', error),
+      );
+  };
+  readFormats();
+  const live = createLive({
+    platform,
+    engine: dataEngine(),
+    play: (index) => player?.show(index),
+    startCategory: resume === null ? null : resume.category,
+    listChanging: () => player?.listChanging(),
+  });
   // OK on a channel opens the player on the live navigator (step 20a); Back returns to its row.
   const kept = memory.subtitleSize();
   const picture = memory.picture();
@@ -127,6 +171,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   if (resume !== null) player.resume({ item: resume.item, number: resume.number }, resume.index);
   showFocus(live.nav);
   render(<LiveApp platform={platform} live={live} language={language} player={player} />, into);
+  startRefreshes(live, readFormats);
 }
 
 /**

@@ -84,11 +84,18 @@ function count(counts: Partial<Record<ContentKind, number>>, kind: ContentKind):
   return counts[kind] ?? 0;
 }
 
-function catalogOf(record: SourceRecord): EpgCatalogSource {
+/** A stored source as the guides need it (its Xtream login brings the panel's guide). */
+export function catalogOf(record: SourceRecord): EpgCatalogSource {
   return record.type === 'xtream' ? { src: record.id, type: 'xtream', account: record.account } : { src: record.id, type: 'm3u' };
 }
 
-function guidesOf(records: readonly SourceRecord[]): UserGuide[] {
+/** A stored source as its catalog refresh reads it. */
+export function ingestSourceOf(record: SourceRecord): IngestSource {
+  return record.type === 'xtream' ? { type: 'xtream', account: record.account } : { type: 'm3u', url: record.url };
+}
+
+/** The guide links typed in onboarding, one per source at most (step 22b makes them a list). */
+export function guidesOf(records: readonly SourceRecord[]): UserGuide[] {
   const out: UserGuide[] = [];
   for (const r of records) if (r.epgUrl !== null) out.push({ id: r.id, url: r.epgUrl });
   return out;
@@ -111,7 +118,7 @@ export function createEngineLoader(options: EngineLoaderOptions): SourceLoader {
       draft.type === 'xtream'
         ? { id, type: 'xtream', name: draft.name, account: draft.account, epgUrl: draft.epgUrl, added: now() }
         : { id, type: 'm3u', name: draft.name, url: draft.url, epgUrl: draft.epgUrl, added: now() };
-    const source: IngestSource = record.type === 'xtream' ? { type: 'xtream', account: record.account } : { type: 'm3u', url: record.url };
+    const source = ingestSourceOf(record);
 
     const result = await engine.refresh(
       { src: id, source },

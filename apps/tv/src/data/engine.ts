@@ -46,6 +46,7 @@ import type {
   RpcPort,
   ShortEpgNowNext,
   ShortEpgSource,
+  SourceMeta,
   UserGuide,
 } from '@zoma/data';
 // The client entry only: the package index would pull every data module's polyfills into main.
@@ -198,6 +199,11 @@ export class DataEngine {
   /** The ids of every catalog source stored (a refresh that never reached the profile included). */
   async sourceIds(): Promise<string[]> {
     return (await this.query.call('status')).sources.map((s) => s.src);
+  }
+
+  /** Every catalog source's record: its generation and when it was last checked (step 22a's schedule). */
+  async sourceStatus(): Promise<SourceMeta[]> {
+    return (await this.query.call('status')).sources;
   }
 
   /**
