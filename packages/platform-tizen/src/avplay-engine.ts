@@ -502,11 +502,9 @@ export class AvplayEngine implements PlayerEngine {
     attempt(() => this.api.setDisplayRect(Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)));
   }
 
+  /** A firmware without `setDisplayMethod` has nothing to call; a mode AVPlay refuses leaves the picture as it was. */
   private applyFit(): void {
-    const api = this.api;
-    const setDisplayMethod = api.setDisplayMethod;
-    // A mode AVPlay refuses leaves the picture as it was.
-    if (typeof setDisplayMethod === 'function') attempt(() => setDisplayMethod.call(api, DISPLAY_MODES[this.fit]));
+    attempt(() => this.api.setDisplayMethod?.(DISPLAY_MODES[this.fit]));
   }
 
   /** The file's streams (`current`: the ones playing), or none in a state that has no list. */

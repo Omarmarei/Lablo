@@ -42,11 +42,12 @@ export function pictureModes(fits: readonly PictureFit[]): PictureMode[] {
   return PICTURE_MODES.filter((mode) => mode === 'fit' || fits.indexOf(LAYOUTS[mode].fit) !== -1);
 }
 
-/** The mode after `mode` among `modes`, going round; `fit` when `mode` isn't one of them. */
+/**
+ * The mode after `mode` among `modes` (`pictureModes`: `fit` first): back to `fit` after the
+ * last, and the first for a mode that isn't among them.
+ */
 export function nextPicture(mode: PictureMode, modes: readonly PictureMode[]): PictureMode {
-  const at = modes.indexOf(mode);
-  if (at === -1) return 'fit';
-  return modes[(at + 1) % modes.length] ?? 'fit';
+  return modes[modes.indexOf(mode) + 1] ?? 'fit';
 }
 
 /** A stored value as a mode, or `null` when it isn't one. */
