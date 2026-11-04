@@ -197,18 +197,30 @@ describe('PlayerController: the preferred languages', () => {
     expect(r.switches()).toEqual(['selectAudio 1', 'selectAudio 1']);
   });
 
-  it("drops an automatic switch's answer once the stream changed", async () => {
-    const r = rig({ preferences: () => PREFER_EN });
+  it("drops an automatic switch's answer once the stream changed (a zap)", async () => {
+    // The second stream lists nothing and shows no frame: any status after the zap is the old switch's.
+    const r = rig({ preferences: () => PREFER_EN }, (_s, n) => (n === 1 ? { tracksMs: 200 } : { frameMs: null }));
     r.engine.switchMs = 300;
     void r.player.play(live(1));
     await r.clock.advance(200);
     void r.player.play(live(2));
-    await r.clock.advance(100);
     const before = r.statuses.length;
-    // The first stream's switch settles: the second stream's status doesn't change.
-    await r.clock.advance(200);
-    expect(r.statuses.slice(before).every((s) => s.key === 's1:live:2')).toBe(true);
-    expect(r.statuses.slice(before).every((s) => s.tracks.audio.length === 0 || s.tracks.audio.some((t) => t.selected))).toBe(true);
+    await r.clock.advance(300);
+    expect(r.engine.log).toContain('selectAudio 1');
+    expect(r.statuses.length).toBe(before);
+    expect(r.player.status.tracks.audio).toEqual([]);
+  });
+
+  it("drops an automatic switch's answer once its load was left for a retry", async () => {
+    const r = rig({ preferences: () => PREFER_EN }, (_s, n) => (n === 1 ? { tracksMs: 200, error: { atMs: 300, error: { kind: 'network', code: 'X' } } } : { frameMs: null }));
+    r.engine.switchMs = 300;
+    void r.player.play(live(1));
+    await r.clock.advance(300);
+    expect(r.player.status.state).toBe('opening');
+    const before = r.statuses.length;
+    await r.clock.advance(300);
+    expect(r.engine.loads).toHaveLength(2);
+    expect(r.statuses.length).toBe(before);
   });
 });
 
@@ -340,6 +352,12 @@ describe('tracks.ts', () => {
     expect(findPick(tracks, { id: '1', lang: 'en', label: 'Commentary' })?.id).toBe('2');
     expect(findPick(tracks, { id: '5', lang: 'en', label: 'Other' })?.id).toBe('1');
     expect(findPick(tracks, { id: '0', lang: 'fr', label: 'Arabic' })).toBeNull();
+  });
+
+  it('finds the very track among two with the same language and label', () => {
+    const twins = playerTracks([track('4', 'eng', false, 'Stereo'), track('5', 'eng', false, 'Stereo')]);
+    expect(findPick(twins, { id: '5', lang: 'en', label: 'Stereo' })?.id).toBe('5');
+    expect(findPick(twins, { id: '6', lang: 'en', label: 'Stereo' })?.id).toBe('4');
   });
 
   it('finds a pick with no language only by its label', () => {

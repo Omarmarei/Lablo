@@ -60,7 +60,7 @@ test.describe('hello app in the desktop browser (pnpm dev)', () => {
     await expect(page.getByTestId('key-count')).toHaveText(String(presses.length));
 
     // Unmapped keys change nothing.
-    await page.keyboard.press('a');
+    await page.keyboard.press('q');
     await expect(page.getByTestId('key-count')).toHaveText(String(presses.length));
 
     // Enter opened a details screen; Back closes it. Back on the root then follows the

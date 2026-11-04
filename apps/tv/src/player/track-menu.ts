@@ -91,8 +91,6 @@ export function createTrackMenu(options: TrackMenuOptions): TrackMenu {
     if (shown === null) return;
     seq += 1;
     screen.value = null;
-    refused.value = null;
-    pending.value = 0;
     if (shown.open && nav.top === shown) nav.pop();
     options.closed();
   };

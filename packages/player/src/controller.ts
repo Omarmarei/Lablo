@@ -321,8 +321,6 @@ export class PlayerController {
     const s = this.s;
     const track = s === null ? null : byId(s.tracks.audio, id);
     if (s === null || track === null) return false;
-    // The user's choice: a later list of this load doesn't override it.
-    s.audioChosen = true;
     const ok = await this.engine.selectAudio(id).catch(() => false);
     if (this.s !== s) return false;
     if (ok) this.trackMemory.remember(s.req.key, { audio: trackPick(track), text: this.choice(s).text });
@@ -336,7 +334,6 @@ export class PlayerController {
     const s = this.s;
     const track = s === null || id === null ? null : byId(s.tracks.text, id);
     if (s === null || (id !== null && track === null)) return false;
-    s.textChosen = true;
     const ok = await this.engine.selectText(id).catch(() => false);
     if (this.s !== s) return false;
     if (ok) this.trackMemory.remember(s.req.key, { audio: this.choice(s).audio, text: track === null ? 'off' : trackPick(track) });
@@ -358,7 +355,6 @@ export class PlayerController {
     this.liveToken = token;
     this.clearTimers();
     this.armOpenTimer(token);
-    s.tracks = this.noTracks();
     await this.closeEngine();
     if (token !== this.liveToken) return;
     const candidate = s.candidates[s.current]!;
@@ -501,10 +497,13 @@ export class PlayerController {
     }
   }
 
-  /** A switch the player made itself: the status shows the tracks once it settles (not remembered). */
+  /**
+   * A switch the player made itself: the status shows the tracks once it settles (not
+   * remembered), unless the load changed meanwhile (a zap or a retry: tokens are never reused).
+   */
   private autoSwitch(s: Session, token: number, switched: Promise<boolean>): void {
     const settled = (): void => {
-      if (this.s !== s || this.liveToken !== token) return;
+      if (this.liveToken !== token) return;
       this.readTracks(s);
       this.publish();
     };
