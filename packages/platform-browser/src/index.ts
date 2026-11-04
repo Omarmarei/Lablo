@@ -32,6 +32,8 @@ const KEY_INTENTS: ReadonlyMap<string, Intent> = new Map<string, Intent>([
   ['f', 'FF'],
   ['r', 'RW'],
   ['p', 'PREV_CH'],
+  ['a', 'AUDIO'],
+  ['c', 'SUBTITLES'],
 ]);
 
 /** The desktop keyboard layout, for on-screen help. */
@@ -45,6 +47,7 @@ export const BROWSER_KEY_HELP: ReadonlyArray<readonly [keys: string, intent: str
   ['Space', 'Play / Pause'],
   ['i / g', 'Info / Guide'],
   ['s / f / r / p', 'Stop / FF / Rewind / Previous channel'],
+  ['a / c', 'Audio / Subtitles'],
 ];
 
 /**

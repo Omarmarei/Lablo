@@ -35,6 +35,8 @@ export const INTENT_KEYS: Readonly<Record<Intent, string>> = {
   YELLOW: 'F3',
   BLUE: 'F4',
   PREV_CH: 'p',
+  AUDIO: 'a',
+  SUBTITLES: 'c',
 };
 
 /** One timed key press: what it was, and how long until the frame showing its focus was painted. */

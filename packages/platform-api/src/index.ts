@@ -78,6 +78,10 @@ export const INTENTS = [
   'YELLOW',
   'BLUE',
   'PREV_CH',
+  /** The audio track key (Samsung MTS): the player's track menu on its audio list. */
+  'AUDIO',
+  /** The subtitle key (Samsung Caption): the player's track menu on its subtitles. */
+  'SUBTITLES',
 ] as const;
 
 export type Intent = (typeof INTENTS)[number];

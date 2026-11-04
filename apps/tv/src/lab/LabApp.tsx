@@ -133,6 +133,8 @@ const KEY_NAMES: Partial<Record<Intent, string>> = {
   YELLOW: 'Yellow',
   BLUE: 'Blue',
   PREV_CH: 'PRE-CH',
+  AUDIO: 'Audio',
+  SUBTITLES: 'Subtitles',
   BACK: 'Back',
 };
 

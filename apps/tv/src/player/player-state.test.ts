@@ -1,12 +1,14 @@
 import type { CatalogItem, ContentKey } from '@zoma/core';
 import type { EpgNowNext } from '@zoma/data';
 import type { Intent } from '@zoma/platform-api';
-import type { PlaybackFailure, PlayerState, PlayerStatus, PlayRequest } from '@zoma/player';
+import type { PlaybackFailure, PlayerState, PlayerStatus, PlayerTracks, PlayRequest } from '@zoma/player';
+import { NO_TRACKS } from '@zoma/player';
 import { createNavigator } from '@zoma/ui';
 import { describe, expect, it } from 'vitest';
 import type { LiveRow, Timers } from '../live/live-state';
 import type { PlayerLike, ZapList } from './player-state';
-import { DIGITS_MS, INFO_MS, MISSING_MS, ZAP_DELAY_MS, createPlayer, liveRequest } from './player-state';
+import { DIGITS_MS, INFO_MS, MISSING_MS, TRACKS_ACTION, ZAP_DELAY_MS, createPlayer, liveRequest } from './player-state';
+import { MENU_ROWS } from './track-menu';
 
 const COUNT = 20;
 
@@ -83,7 +85,7 @@ class FakeList implements ZapList {
   }
 }
 
-const IDLE: PlayerStatus = { state: 'idle', session: 0, key: null, container: null, attempt: 0, failure: null };
+const IDLE: PlayerStatus = { state: 'idle', session: 0, key: null, container: null, attempt: 0, failure: null, tracks: NO_TRACKS };
 const NOT_FOUND: PlaybackFailure = { category: 'provider', code: 'PRV-HTTP-404', detail: 'MEDIA_ERR_SRC_NOT_SUPPORTED', account: null };
 
 /** The controller, as the player sees it: it records plays and stops, and the test sets its state. */
@@ -91,6 +93,10 @@ class FakeController implements PlayerLike {
   status: PlayerStatus = IDLE;
   readonly plays: PlayRequest[] = [];
   stops = 0;
+  /** The stream's tracks, in every status from `set` on. */
+  tracks: PlayerTracks = NO_TRACKS;
+  /** Track switches the menu asked for, answered by the test. */
+  readonly switches: { readonly call: string; readonly answer: (ok: boolean) => void }[] = [];
   private listeners: ((status: PlayerStatus) => void)[] = [];
 
   subscribe(listener: (status: PlayerStatus) => void): () => void {
@@ -117,8 +123,26 @@ class FakeController implements PlayerLike {
   }
 
   set(state: PlayerState, failure: PlaybackFailure | null = null, key: ContentKey | null = this.status.key): void {
-    this.status = { state, session: this.status.session + (state === 'opening' && failure === null ? 1 : 0), key, container: 'ts', attempt: 0, failure };
+    this.status = { state, session: this.status.session + (state === 'opening' && failure === null ? 1 : 0), key, container: 'ts', attempt: 0, failure, tracks: this.tracks };
     for (const listener of this.listeners.slice()) listener(this.status);
+  }
+
+  /** New track lists, published like the controller does (the state stays). */
+  setTracks(tracks: PlayerTracks): void {
+    this.tracks = tracks;
+    this.set(this.status.state, this.status.failure);
+  }
+
+  selectAudio(id: string): Promise<boolean> {
+    return new Promise((resolve) => this.switches.push({ call: `audio ${id}`, answer: resolve }));
+  }
+
+  selectText(id: string | null): Promise<boolean> {
+    return new Promise((resolve) => this.switches.push({ call: `text ${String(id)}`, answer: resolve }));
+  }
+
+  calls(): string[] {
+    return this.switches.map((s) => s.call);
   }
 
   /** The rows played, by their stream URL's id. */
@@ -533,5 +557,198 @@ describe('the player: previous channel, the info bar and the card', () => {
     await t.press('GUIDE', 'RED', 'FF');
     expect(t.at()).toBe('player · card 0');
     expect(t.controller.played()).toEqual([3]);
+  });
+});
+
+/** A stream with Arabic (playing) and English sound, and English and Arabic subtitles (off). */
+const TRACKS: PlayerTracks = {
+  audio: [
+    { id: '0', lang: 'ar', streamLang: 'ara', label: '', selected: true },
+    { id: '1', lang: 'en', streamLang: 'eng', label: '', selected: false },
+  ],
+  text: [
+    { id: '2', lang: 'en', streamLang: 'eng', label: '', selected: false },
+    { id: '3', lang: 'ar', streamLang: 'ara', label: '', selected: false },
+  ],
+  switching: 'reliable',
+};
+
+/** TRACKS with the audio track `audio` and the subtitle `text` (`null`: none) selected. */
+function choose(audio: number, text: number | null): PlayerTracks {
+  return {
+    audio: TRACKS.audio.map((t, i) => ({ ...t, selected: i === audio })),
+    text: TRACKS.text.map((t, i) => ({ ...t, selected: i === text })),
+    switching: 'reliable',
+  };
+}
+
+/** The player on row 1, playing, with `tracks`. */
+async function playing(tracks: PlayerTracks = TRACKS) {
+  const t = setup();
+  t.player.show(1);
+  t.controller.set('playing');
+  t.controller.setTracks(tracks);
+  await flush();
+  return t;
+}
+
+describe('the track menu (RELAY step 20b)', () => {
+  it("opens from the info bar's button on the playing audio track; the bar makes room, and Back brings it back", async () => {
+    const t = await playing();
+    await t.press('RIGHT');
+    expect(t.at()).toBe(`player · actions ${TRACKS_ACTION}`);
+    await t.press('OK');
+    expect(t.at()).toBe('tracks · audio 0');
+    expect(t.nav.snapshot().depth).toBe(3);
+    expect(t.player.info.value).toBe(false);
+    expect(t.player.menu.screen.value).not.toBeNull();
+    await t.press('BACK');
+    expect(t.at()).toBe(`player · actions ${TRACKS_ACTION}`);
+    expect(t.player.menu.screen.value).toBeNull();
+    expect(t.player.info.value).toBe(true);
+    // Still playing: Back closed only the menu.
+    expect(t.controller.stops).toBe(0);
+  });
+
+  it('opens on the audio list with the audio key and on the subtitles with the subtitle key; the same key closes, the other moves', async () => {
+    const t = await playing(choose(1, null));
+    await t.press('AUDIO');
+    expect(t.at()).toBe('tracks · audio 1');
+    await t.press('SUBTITLES');
+    // No subtitles show: "Off".
+    expect(t.at()).toBe('tracks · text 0');
+    await t.press('AUDIO');
+    expect(t.at()).toBe('tracks · audio 1');
+    await t.press('AUDIO');
+    expect(t.at()).toBe('player · actions 0');
+    await t.press('SUBTITLES');
+    expect(t.at()).toBe('tracks · text 0');
+    await t.press('SUBTITLES');
+    expect(t.player.menu.screen.value).toBeNull();
+    // A subtitle that shows is where the subtitle key lands.
+    t.controller.setTracks(choose(1, 1));
+    await t.press('SUBTITLES');
+    expect(t.at()).toBe('tracks · text 2');
+  });
+
+  it('switches to the track OK is pressed on and stays open; the selected track and an "Off" with nothing showing do nothing', async () => {
+    const t = await playing();
+    await t.press('AUDIO', 'OK');
+    expect(t.controller.calls()).toEqual([]);
+    await t.press('DOWN', 'OK');
+    expect(t.controller.calls()).toEqual(['audio 1']);
+    expect(t.player.menu.pending.value).toBe(1);
+    t.controller.switches[0]!.answer(true);
+    await flush();
+    expect(t.player.menu.pending.value).toBe(0);
+    expect(t.player.menu.refused.value).toBeNull();
+    expect(t.at()).toBe('tracks · audio 1');
+    // Down from the audio list to the subtitles: "Off" with none showing, then Arabic.
+    await t.press('DOWN', 'OK');
+    expect(t.at()).toBe('tracks · text 0');
+    expect(t.controller.calls()).toEqual(['audio 1']);
+    await t.press('DOWN', 'DOWN', 'OK');
+    expect(t.controller.calls()).toEqual(['audio 1', 'text 3']);
+    // With a subtitle showing, "Off" turns it off.
+    t.controller.setTracks(choose(0, 1));
+    await t.press('UP', 'UP', 'OK');
+    expect(t.controller.calls()).toEqual(['audio 1', 'text 3', 'text null']);
+  });
+
+  it('says when the TV refused a switch, until the next one', async () => {
+    const t = await playing();
+    await t.press('AUDIO', 'DOWN', 'OK');
+    t.controller.switches[0]!.answer(false);
+    await flush();
+    expect(t.player.menu.refused.value).toBe('audio');
+    await t.press('OK');
+    expect(t.player.menu.refused.value).toBeNull();
+    t.controller.switches[1]!.answer(true);
+    await flush();
+    expect(t.player.menu.refused.value).toBeNull();
+    // On its own list.
+    await t.press('DOWN', 'DOWN', 'OK');
+    t.controller.switches[2]!.answer(false);
+    await flush();
+    expect(t.player.menu.refused.value).toBe('text');
+  });
+
+  it('drops the answer of a switch from a menu that closed', async () => {
+    const t = await playing();
+    await t.press('AUDIO', 'DOWN', 'OK', 'BACK');
+    await t.press('AUDIO');
+    t.controller.switches[0]!.answer(false);
+    await flush();
+    expect(t.player.menu.refused.value).toBeNull();
+    expect(t.player.menu.pending.value).toBe(0);
+  });
+
+  it("has no audio list where the TV can't switch: it opens on the subtitles, and the audio key closes it", async () => {
+    const t = await playing({ ...TRACKS, switching: 'none' });
+    await t.press('AUDIO');
+    expect(t.at()).toBe('tracks · text 0');
+    await t.press('UP');
+    expect(t.at()).toBe('tracks · text 0');
+    await t.press('AUDIO');
+    expect(t.player.menu.screen.value).toBeNull();
+    // With no tracks at all: the subtitles' "Off".
+    const none = await playing({ audio: [], text: [], switching: 'reliable' });
+    await none.press('AUDIO');
+    expect(none.at()).toBe('tracks · text 0');
+  });
+
+  it('follows the tracks while it shows: a longer list scrolls by the visible rows', async () => {
+    const t = await playing({ audio: [], text: [], switching: 'reliable' });
+    await t.press('SUBTITLES');
+    const many = Array.from({ length: 8 }, (_, i) => ({ id: String(i), lang: 'en', streamLang: 'eng', label: `Sub ${i}`, selected: false }));
+    t.controller.setTracks({ audio: TRACKS.audio, text: many, switching: 'reliable' });
+    const menu = t.player.menu.screen.value!;
+    expect(menu.zone('text')).toMatchObject({ count: 9, visible: MENU_ROWS });
+    expect(menu.zone('audio')).toMatchObject({ count: 2 });
+    for (let i = 0; i < 8; i += 1) await t.press('DOWN');
+    expect(t.at()).toBe('tracks · text 8');
+    expect(menu.position('text').top).toBe(9 - MENU_ROWS);
+    for (let i = 0; i < 9; i += 1) await t.press('UP');
+    // Into the audio list at its remembered row.
+    expect(t.at()).toBe('tracks · audio 0');
+  });
+
+  it("closes when the player gives up (the card takes the focus), and doesn't open over the card", async () => {
+    const t = await playing();
+    await t.press('AUDIO');
+    t.controller.set('failed', NOT_FOUND);
+    expect(t.player.menu.screen.value).toBeNull();
+    expect(t.at()).toBe('player · card 0');
+    expect(t.nav.snapshot().depth).toBe(2);
+    await t.press('AUDIO', 'SUBTITLES');
+    expect(t.at()).toBe('player · card 0');
+  });
+
+  it('closes the player on STOP, and with the player', async () => {
+    const t = await playing();
+    await t.press('AUDIO', 'STOP');
+    expect(t.player.menu.screen.value).toBeNull();
+    expect(t.closed).toEqual([1]);
+    expect(t.at()).toBe('live · channels 0');
+    expect(t.controller.stops).toBe(1);
+    const u = await playing();
+    await u.press('SUBTITLES');
+    u.player.close();
+    expect(u.at()).toBe('live · channels 0');
+    expect(u.nav.snapshot().depth).toBe(1);
+    expect(u.player.info.value).toBe(false);
+    expect(u.clock.pending()).toBe(0);
+  });
+
+  it('ignores the keys it has no use for, and number entry ends when it opens', async () => {
+    const t = await playing();
+    await t.press('DIGIT_4', 'AUDIO');
+    expect(t.player.entry.value).toBeNull();
+    await t.press('DIGIT_7', 'PREV_CH', 'INFO', 'RED');
+    expect(t.at()).toBe('tracks · audio 0');
+    t.clock.advance(DIGITS_MS * 2);
+    await flush();
+    expect(t.list.finds).toEqual([]);
+    expect(t.controller.played()).toEqual([1]);
   });
 });

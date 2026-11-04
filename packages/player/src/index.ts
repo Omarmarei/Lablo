@@ -27,6 +27,9 @@ export { PLAYBACK_ERROR_KINDS, isPlaybackError } from './engine';
 export type { PlayCandidate, PlayRequest, SourceMemory } from './request';
 export { MemorySourceMemory, containerOf, orderCandidates, streamCandidates } from './request';
 
+export type { PlayerTrack, PlayerTracks, TrackChoice, TrackMemory, TrackPick, TrackPreferences } from './tracks';
+export { MemoryTrackMemory, NO_PREFERENCES, NO_TRACKS, findPick, playerTracks, preferredTrack, trackPick } from './tracks';
+
 export type { AccountStatus, FailureCategory, FailureFacts, PlaybackFailure } from './failure';
 export { classifyFailure, isDefinitive, wantsAccountCheck } from './failure';
 

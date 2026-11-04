@@ -233,3 +233,113 @@ html[data-player='on'] .player-stage {
 .player__card-buttons .z-button {
   margin-right: var(--space-5);
 }
+
+.player__actions .z-button {
+  margin-right: var(--space-5);
+}
+
+/* The track menu (step 20b): a panel at the end side of the safe area, over the picture. */
+.tracks {
+  position: absolute;
+  right: var(--safe-x);
+  top: var(--safe-y);
+  width: 640px;
+  max-height: calc(var(--screen-height) - 2 * var(--safe-y));
+  padding: var(--space-6);
+  background: var(--color-scrim);
+  border-radius: var(--radius-l);
+  overflow: hidden;
+}
+
+.tracks__title {
+  margin: 0 0 var(--space-5);
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+  font-weight: var(--font-weight-bold);
+}
+
+.tracks__section {
+  margin-bottom: var(--space-5);
+}
+
+.tracks__heading {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+  font-weight: var(--font-weight-bold);
+}
+
+.tracks__note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+/* The focus ring is a border that is always there, so focusing never moves the rows. */
+.tracks__row {
+  display: flex;
+  align-items: center;
+  height: 64px;
+  padding: 0 var(--space-4);
+  border: var(--focus-ring) solid transparent;
+  border-radius: var(--radius-m);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  white-space: nowrap;
+}
+
+.tracks__row.is-memory {
+  border-color: var(--color-border-memory);
+}
+
+.tracks__row.is-focused {
+  border-color: var(--color-focus);
+  background: var(--color-surface-focus);
+}
+
+.tracks__check {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-right: var(--space-3);
+  color: var(--color-accent);
+}
+
+.tracks__check svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+
+.tracks__row.is-selected .tracks__name {
+  font-weight: var(--font-weight-bold);
+}
+
+/* A stream's own text keeps its direction but starts on the screen's side. */
+.tracks__name {
+  flex: none;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.tracks__label {
+  flex: 1;
+  min-width: 0;
+  margin-left: var(--space-4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text-muted);
+  text-align: left;
+}
+
+.tracks__refused {
+  margin: 0;
+  color: var(--color-warn);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}

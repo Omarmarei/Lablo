@@ -1,8 +1,8 @@
 import type { LifecycleEvent, PlatformCall } from '@zoma/platform-api';
-import type { AccountStatus, EngineCaps, EngineEvent, EngineSource, PlayerEngine } from '@zoma/player';
+import type { AccountStatus, EngineCaps, EngineEvent, EngineSource, PlayerEngine, Track, TrackPreferences } from '@zoma/player';
 import { describe, expect, it, vi } from 'vitest';
 import type { AppPlayerDeps } from './app-player';
-import { appPlayer } from './app-player';
+import { appPlayer, uiTrackPreferences } from './app-player';
 
 /** An engine whose loads show a frame at once, recording what the controller asks of it. */
 class StubEngine implements PlayerEngine {
@@ -10,6 +10,11 @@ class StubEngine implements PlayerEngine {
   readonly caps: EngineCaps = { maxHeight: 1080, trackSwitch: 'none', deliversSubtitleText: false, preloadSlots: 0, rates: [1] };
   readonly log: string[] = [];
   failLoads = false;
+  /** Arabic sound (playing) and English. */
+  audio: Track[] = [
+    { id: '0', lang: 'ara', label: '', selected: true },
+    { id: '1', lang: 'eng', label: '', selected: false },
+  ];
   private listeners: ((e: EngineEvent & { readonly token: number }) => void)[] = [];
 
   load(source: EngineSource, token: number): Promise<void> {
@@ -29,9 +34,10 @@ class StubEngine implements PlayerEngine {
   }
   setRect(): void {}
   getTracks() {
-    return { audio: [], text: [] };
+    return { audio: this.audio, text: [] };
   }
-  selectAudio(): Promise<boolean> {
+  selectAudio(id: string): Promise<boolean> {
+    this.log.push(`selectAudio ${id}`);
     return Promise.resolve(false);
   }
   selectText(): Promise<boolean> {
@@ -62,7 +68,7 @@ const flush = async (): Promise<void> => {
 
 const live = (url: string) => ({ key: 'x:s1:live:1', src: 's1', mode: 'live' as const, candidates: [{ url, container: 'ts' as const }] });
 
-function setup(options: { resolveUrl?: AppPlayerDeps['platform']['resolveUrl']; engines?: PlayerEngine[]; refuseScreenSaver?: boolean } = {}) {
+function setup(options: { resolveUrl?: AppPlayerDeps['platform']['resolveUrl']; engines?: PlayerEngine[]; refuseScreenSaver?: boolean; preferences?: () => TrackPreferences } = {}) {
   const engine = new StubEngine();
   const stages: object[] = [];
   const screenSaver: boolean[] = [];
@@ -94,6 +100,7 @@ function setup(options: { resolveUrl?: AppPlayerDeps['platform']['resolveUrl']; 
       return Promise.resolve(account);
     },
     online: () => true,
+    ...(options.preferences === undefined ? {} : { preferences: options.preferences }),
   });
   return { engine, stages, screenSaver, accounts, make, stage, lifecycle: (event: LifecycleEvent) => lifecycle?.(event) };
 }
@@ -164,5 +171,37 @@ describe('appPlayer (RELAY step 20a)', () => {
     await flush();
     expect(t.accounts).toEqual(['s1']);
     expect(controller.status.failure).toMatchObject({ category: 'provider', code: 'PRV-EXPIRED' });
+  });
+});
+
+describe('the track languages (RELAY step 20b)', () => {
+  it("prefers sound in the UI's language, then the other one the app speaks, and no subtitles", () => {
+    expect(uiTrackPreferences('ar-SA')).toEqual({ audio: ['ar', 'en'], text: [] });
+    expect(uiTrackPreferences('en-US')).toEqual({ audio: ['en', 'ar'], text: [] });
+    expect(uiTrackPreferences('en-XA')).toEqual({ audio: ['en', 'ar'], text: [] });
+    expect(uiTrackPreferences('fr-CA')).toEqual({ audio: ['fr', 'en', 'ar'], text: [] });
+    expect(uiTrackPreferences('')).toEqual({ audio: [], text: [] });
+  });
+
+  it('hands them to the controller, which reads them when a stream lists its tracks', async () => {
+    const asked: string[] = [];
+    const t = setup({
+      preferences: () => {
+        asked.push('asked');
+        return uiTrackPreferences('en-GB');
+      },
+    });
+    const controller = t.make();
+    expect(asked).toEqual([]);
+    void controller.play(live('http://panel.test/1.ts'));
+    await flush();
+    expect(asked).toEqual(['asked']);
+    expect(t.engine.log).toContain('selectAudio 1');
+    // Without them, the stream's own sound stays.
+    const plain = setup();
+    const other = plain.make();
+    void other.play(live('http://panel.test/1.ts'));
+    await flush();
+    expect(plain.engine.log.filter((e) => e.indexOf('select') === 0)).toEqual([]);
   });
 });

@@ -126,7 +126,7 @@ export function createS10(): Spike {
 
   const keys: Check = {
     id: 'keys',
-    title: 'Every remote key reaches the app: numbers, CH, colours, media, PRE-CH, Back',
+    title: 'Every remote key reaches the app: numbers, CH, colours, media, PRE-CH, audio, subtitles, Back',
     timeoutMs: INPUT_TIMEOUT_MS + 10_000,
     run: async (context: LabContext): Promise<CheckResult> => {
       tested = null;
@@ -134,7 +134,7 @@ export function createS10(): Spike {
       tested = await context.testKeys({
         title: 'Press every key on the remote',
         prompt:
-          'A box lights up with its key code when its key comes: the numbers, CH, the colours, the media keys, PRE-CH and Back. Keys with no action are listed with their codes. With a Magic Remote, also move the pointer, click and turn the wheel. Back twice in a row finishes.',
+          'A box lights up with its key code when its key comes: the numbers, CH, the colours, the media keys, PRE-CH, the audio and subtitle keys (Samsung: MTS and CC, often on the 123 pad) and Back. Keys with no action are listed with their codes. With a Magic Remote, also move the pointer, click and turn the wheel. Back twice in a row finishes.',
         intents: INTENTS,
         timeoutMs: INPUT_TIMEOUT_MS,
       });

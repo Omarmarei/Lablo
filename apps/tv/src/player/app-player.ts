@@ -1,5 +1,6 @@
+import { normalizeLang } from '@zoma/core';
 import type { Platform } from '@zoma/platform-api';
-import type { AccountStatus, Clock, ControllerOptions } from '@zoma/player';
+import type { AccountStatus, Clock, ControllerOptions, TrackPreferences } from '@zoma/player';
 import { PlayerController } from '@zoma/player';
 
 /**
@@ -11,7 +12,8 @@ import { PlayerController } from '@zoma/player';
  * - `resolveUrl`: the platform's redirect probe, where it has one (Tizen);
  * - `screenSaver`: `Platform.setScreenSaver` (a TV that refuses it changes nothing);
  * - `online` and `checkAccount` (the error card's facts) from the app;
- * - the lifecycle: `hidden` and `visible` go to the controller's `hide` and `show`.
+ * - the lifecycle: `hidden` and `visible` go to the controller's `hide` and `show`;
+ * - `preferences` (step 20b): the track languages to prefer, read when a stream's tracks appear.
  */
 export interface AppPlayerDeps {
   readonly platform: Pick<Platform, 'id' | 'createEngines' | 'resolveUrl' | 'setScreenSaver' | 'onLifecycle'>;
@@ -21,8 +23,21 @@ export interface AppPlayerDeps {
   readonly checkAccount: (src: string) => Promise<AccountStatus | null>;
   /** Whether the TV is online (the app passes `navigator.onLine`). */
   readonly online: () => boolean;
+  /** The audio and subtitle languages to prefer (`uiTrackPreferences` of the UI's language). */
+  readonly preferences?: () => TrackPreferences;
   /** Tests pin the clock. */
   readonly clock?: Clock;
+}
+
+/**
+ * The track languages for a UI language tag (RELAY step 20b): sound in the UI's language, then the
+ * other one the app speaks (Arabic and English); no subtitles until the user turns them on (the
+ * settings screen sets the lists later).
+ */
+export function uiTrackPreferences(tag: string): TrackPreferences {
+  const ui = normalizeLang(tag);
+  if (ui === '') return { audio: [], text: [] };
+  return { audio: ui === 'ar' ? ['ar', 'en'] : ui === 'en' ? ['en', 'ar'] : [ui, 'en', 'ar'], text: [] };
 }
 
 export function appPlayer(deps: AppPlayerDeps): () => PlayerController {
@@ -35,6 +50,7 @@ export function appPlayer(deps: AppPlayerDeps): () => PlayerController {
     const options: ControllerOptions = {
       online: deps.online,
       checkAccount: deps.checkAccount,
+      ...(deps.preferences === undefined ? {} : { preferences: deps.preferences }),
       screenSaver: (allowed) => {
         platform.setScreenSaver(allowed).catch((error: unknown) => console.warn('The screensaver setting was refused', error));
       },

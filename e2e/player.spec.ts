@@ -195,3 +195,69 @@ for (const locale of ['en-US', 'ar-SA'] as const) {
     expect(unexpected()).toEqual([]);
   });
 }
+
+/** The track menu's panel box. */
+function panel(page: Page) {
+  return page.evaluate(() => {
+    const el = document.querySelector('[data-testid=tracks]');
+    if (el === null) return null;
+    const r = el.getBoundingClientRect();
+    return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+  });
+}
+
+for (const locale of ['en-US', 'ar-SA'] as const) {
+  test(`the audio and subtitles menu: from the info bar and the remote's keys, "Not supported" without a track API, in ${locale}`, async ({ page }) => {
+    const errors = trackErrors(page);
+    const catalog = locale === 'ar-SA' ? AR : EN;
+    const remote = new RemoteDriver(page);
+    await addXtreamAndWatch(remote, { host, username: U, password: P }, `locale=${locale}`);
+    await remote.go('DOWN', 'live/channels/1');
+    await remote.press('OK');
+    const player = page.getByTestId('player');
+    await remote.expectFocus('player/actions/0');
+    // The info bar's second button; the buttons run from the inline start.
+    await remote.go(locale === 'ar-SA' ? 'LEFT' : 'RIGHT', 'player/actions/1');
+    expect(await text(page, 'player-tracks')).toBe(catalog['player.tracks']);
+    await remote.press('OK');
+    // Desktop Chromium has no audioTracks without its Blink flag: no audio list, so the
+    // subtitles' "Off" takes the focus.
+    await remote.expectFocus('tracks/text/0');
+    await expect(player).toHaveAttribute('data-menu', 'true');
+    const menu = page.getByTestId('tracks');
+    await expect(menu).toHaveAttribute('data-switching', 'none');
+    await expect(page.getByTestId('player-bar')).toHaveCount(0);
+    expect(await text(page, 'tracks-audio-note')).toBe(catalog['tracks.unsupported']);
+    expect(await text(page, 'tracks-text-note')).toBe(catalog['tracks.none']);
+    await expect(page.getByTestId('tracks-text-off')).toHaveAttribute('data-selected', 'true');
+    expect(stripIsolates((await menu.locator('h2').textContent()) ?? '')).toBe(catalog['player.tracks']);
+    // The panel sits in the safe area at the inline end: the right in English, the left in Arabic.
+    const box = await panel(page);
+    expect(box).not.toBeNull();
+    expect(box!.top).toBeGreaterThanOrEqual(SAFE.top);
+    expect(box!.bottom).toBeLessThanOrEqual(SAFE.bottom);
+    if (locale === 'ar-SA') expect(box!.left).toBe(SAFE.left);
+    else expect(box!.right).toBe(SAFE.right);
+    await page.screenshot({ path: path.join(SHOTS, `player-tracks-${locale === 'ar-SA' ? 'ar' : 'en'}.png`), animations: 'disabled' });
+
+    // OK on "Off" with nothing showing does nothing; Back closes only the menu, and the bar is back.
+    await remote.press('OK');
+    await expect(menu).toHaveAttribute('data-pending', '0');
+    await remote.press('BACK');
+    await remote.expectFocus('player/actions/1');
+    await expect(page.getByTestId('player-bar')).toBeVisible();
+    await expect(player).toHaveAttribute('data-menu', 'false');
+
+    // The remote's subtitle key opens it; the audio key, with no audio list, closes it.
+    await remote.press('SUBTITLES');
+    await remote.expectFocus('tracks/text/0');
+    await remote.press('AUDIO');
+    await expect(player).toHaveAttribute('data-menu', 'false');
+    // STOP in the menu closes the player.
+    await remote.press('AUDIO');
+    await remote.expectFocus('tracks/text/0');
+    await remote.press('STOP');
+    await remote.expectFocus('live/channels/1');
+    expect(errors).toEqual([]);
+  });
+}

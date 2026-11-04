@@ -17,9 +17,15 @@ import { RemoteDriver } from './remote-driver';
  * player retries under the "Reconnecting…" badge (no error card) until the stream comes back.
  * The picture goes black meanwhile: Html5Engine closes the connection before each reopen (the
  * last frame kept on screen is later work).
+ *
+ * The track menu (RELAY step 20b) on the multi-audio MKV: the UI's language chosen as the tracks
+ * appear, a pick from the menu, and the channel's choice kept across a zap. `audioTracks` is
+ * behind a Blink flag on the desktop (webOS ships it), turned on here.
  */
 const MEDIA_DIR = path.resolve(import.meta.dirname, '../.cache/media');
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
+
+test.use({ launchOptions: { args: ['--enable-blink-features=AudioVideoTracks'] } });
 
 let app: MockServer;
 let host: string;
@@ -92,4 +98,69 @@ test('plays a live channel in the app, zaps to the next, and shows "Reconnecting
   expect(await page.evaluate(() => (document.querySelector('#stage video') as HTMLVideoElement).getAttribute('src'))).toBeNull();
   // The failed segments are logged by the browser.
   expect(errors.filter((e) => e.indexOf('status of 503') === -1)).toEqual([]);
+});
+
+/** The stage's `<video>`: which of its audio tracks plays (the Blink flag lists them). */
+function enabledAudio(page: Page) {
+  return page.evaluate(() => {
+    const v = document.querySelector('#stage video') as (HTMLVideoElement & { audioTracks?: { length: number; [i: number]: { enabled: boolean; language: string } } }) | null;
+    const list = v?.audioTracks;
+    if (list === undefined) return null;
+    const out: string[] = [];
+    for (let i = 0; i < list.length; i += 1) if (list[i]!.enabled) out.push(list[i]!.language);
+    return out;
+  });
+}
+
+test("the audio menu on a stream with three languages: the UI's language first, a pick from the menu, remembered for the channel", async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = trackErrors(page);
+  // Channel 104 (row 5) answers with the multi-audio MKV (AAC ara, eng, spa; ara is its default):
+  // desktop Chromium lists no languages for HLS audio, but it does for Matroska.
+  const mkv = `http://${host}/movie/${U}/${P}/206.mkv`;
+  await page.route(`**/live/${U}/${P}/104.*`, (route) => route.fulfill({ status: 302, headers: { location: mkv } }));
+  const remote = new RemoteDriver(page);
+  await addXtreamAndWatch(remote, { host, username: U, password: P }, 'locale=en-US');
+  for (let i = 0; i < 5; i += 1) await remote.press('DOWN');
+  await remote.expectFocus('live/channels/5');
+  await remote.press('OK');
+  const player = page.getByTestId('player');
+  await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
+  // English, the UI's language, took over from the file's Arabic as the tracks appeared.
+  await expect.poll(() => enabledAudio(page)).toEqual(['eng']);
+  await expectMoving(page);
+
+  await remote.press('AUDIO');
+  await remote.expectFocus('tracks/audio/1');
+  const menu = page.getByTestId('tracks');
+  await expect(menu).toHaveAttribute('data-switching', 'reliable');
+  expect(await page.getByTestId('tracks-audio-list').locator('[role=menuitemradio]').allTextContents()).toEqual(['Arabic', 'English', 'Spanish']);
+  await expect(page.getByTestId('tracks-audio-1')).toHaveAttribute('data-selected', 'true');
+  // No in-band subtitles on the desktop.
+  await expect(page.getByTestId('tracks-text-note')).toBeVisible();
+  await page.screenshot({ path: path.join(SHOTS, 'player-tracks-media-en.png'), animations: 'disabled' });
+
+  // Arabic from the menu: it plays at once, without a restart, and the menu stays.
+  await remote.press('UP', 'OK');
+  await expect(page.getByTestId('tracks-audio-0')).toHaveAttribute('data-selected', 'true');
+  await expect.poll(() => enabledAudio(page)).toEqual(['ara']);
+  await expect(menu).toHaveAttribute('data-refused', '');
+  await expect(player).toHaveAttribute('data-state', 'playing');
+  await expect(player).toHaveAttribute('data-session', '1');
+  await remote.press('BACK');
+  await expect(player).toHaveAttribute('data-menu', 'false');
+
+  // Away to the next channel and back: the channel's own choice wins over the UI's language.
+  await remote.press('CH_UP');
+  await expect(player).toHaveAttribute('data-playing', '6');
+  await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
+  await remote.press('CH_DOWN');
+  await expect(player).toHaveAttribute('data-playing', '5');
+  await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
+  await expect.poll(() => enabledAudio(page)).toEqual(['ara']);
+  await remote.press('AUDIO');
+  await remote.expectFocus('tracks/audio/0');
+  await remote.press('BACK', 'BACK');
+  await remote.expectFocus('live/channels/5');
+  expect(errors).toEqual([]);
 });

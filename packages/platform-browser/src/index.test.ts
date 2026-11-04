@@ -35,11 +35,13 @@ describe('browserKeyToIntent (keyboard as remote, architecture.md §4)', () => {
     ['f', 'FF'],
     ['r', 'RW'],
     ['p', 'PREV_CH'],
+    ['a', 'AUDIO'],
+    ['c', 'SUBTITLES'],
   ])('%j -> %s', (k, intent) => {
     expect(browserKeyToIntent(key(k))).toBe(intent);
   });
 
-  it.each(['a', 'F5', 'Tab', 'Shift', 'constructor', '__proto__'])('ignores %j', (k) => {
+  it.each(['q', 'F5', 'Tab', 'Shift', 'constructor', '__proto__'])('ignores %j', (k) => {
     expect(browserKeyToIntent(key(k))).toBeNull();
   });
 

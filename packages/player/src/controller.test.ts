@@ -113,7 +113,7 @@ describe('PlayerController: the state machine', () => {
     void r.player.play(live(1));
     await r.clock.advance(100);
     const stopped = r.player.stop();
-    expect(r.player.status).toEqual({ state: 'idle', session: 2, key: null, container: null, attempt: 0, failure: null });
+    expect(r.player.status).toEqual({ state: 'idle', session: 2, key: null, container: null, attempt: 0, failure: null, tracks: { audio: [], text: [], switching: 'none' } });
     await r.clock.advance(50);
     await stopped;
     expect(r.engine.open).toBe(0);

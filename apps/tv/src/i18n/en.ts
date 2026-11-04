@@ -154,6 +154,38 @@ export const EN = {
   'player.account.full': 'Your account is already watching on other screens.',
   'player.account.expiry': 'Subscription ends {date}',
   'player.account.connections': 'Connections in use: {active, number} of {max, number}',
+  'player.tracks': 'Audio and subtitles',
+
+  // The track menu (RELAY step 20b).
+  'tracks.audio': 'Audio',
+  'tracks.subtitles': 'Subtitles',
+  'tracks.off': 'Off',
+  'tracks.unsupported': 'Not supported on this TV',
+  'tracks.none': 'None in this stream',
+  'tracks.refused': "The TV didn't switch to it. Try again.",
+  'tracks.track': 'Track {n, number}',
+
+  // Language names, for audio and subtitle tracks.
+  'lang.ar': 'Arabic',
+  'lang.en': 'English',
+  'lang.fr': 'French',
+  'lang.es': 'Spanish',
+  'lang.de': 'German',
+  'lang.it': 'Italian',
+  'lang.pt': 'Portuguese',
+  'lang.ru': 'Russian',
+  'lang.tr': 'Turkish',
+  'lang.fa': 'Persian',
+  'lang.ur': 'Urdu',
+  'lang.hi': 'Hindi',
+  'lang.zh': 'Chinese',
+  'lang.ja': 'Japanese',
+  'lang.ko': 'Korean',
+  'lang.bn': 'Bengali',
+  'lang.ta': 'Tamil',
+  'lang.ml': 'Malayalam',
+  'lang.tl': 'Filipino',
+  'lang.ku': 'Kurdish',
 } as const;
 
 export type MessageKey = keyof typeof EN;
