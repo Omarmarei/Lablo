@@ -172,11 +172,15 @@
   color: var(--color-warn);
 }
 
-/* The row menu: its actions in a column, as wide as the dialog. */
+/* The row menu: its actions in a column, as wide as the dialog (past a button's own 640 px cap). */
 .guides__menu {
   display: flex;
   flex: 1;
   flex-direction: column;
+}
+
+.guides__menu .z-button {
+  max-width: none;
 }
 
 .guides__menu > * + * {
