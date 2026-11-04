@@ -28,7 +28,7 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [
-    { name: 'chromium', testIgnore: /(throttled|lab-scale|lab-media|playback-media)\.spec\.ts$/ },
+    { name: 'chromium', testIgnore: /(throttled|lab-scale|lab-media|playback-media|player-media)\.spec\.ts$/ },
     // The CPU-throttled timings (RELAY step 14b) run after every other test, one test at a
     // time, so no other browser competes for the CPU while they measure.
     { name: 'throttled', testMatch: /throttled\.spec\.ts$/, dependencies: ['chromium'], fullyParallel: false },
@@ -36,8 +36,9 @@ export default defineConfig({
     ...(LAB_SCALE ? [{ name: 'lab-scale', testMatch: /lab-scale\.spec\.ts$/, fullyParallel: false }] : []),
     // S5 on the generated media (needs `pnpm mock:media`, which pnpm test:media runs first; about 2 min).
     ...(LAB_MEDIA ? [{ name: 'lab-media', testMatch: /lab-media\.spec\.ts$/, fullyParallel: false }] : []),
-    // Live, VOD and catch-up through Html5Engine and the PlayerController (needs `pnpm mock:media`).
-    ...(E2E_MEDIA ? [{ name: 'playback-media', testMatch: /playback-media\.spec\.ts$/, fullyParallel: false }] : []),
+    // Live, VOD and catch-up through Html5Engine and the PlayerController, and the player in the
+    // app (RELAY step 20a) (needs `pnpm mock:media`).
+    ...(E2E_MEDIA ? [{ name: 'playback-media', testMatch: /(playback|player)-media\.spec\.ts$/, fullyParallel: false }] : []),
   ],
   webServer: {
     command: `pnpm --filter @zoma/app-tv exec vite --port ${PORT} --strictPort`,

@@ -9,10 +9,13 @@
  * 1. Before the stream has shown a frame on a URL, the next untried URL (the URL strategy).
  * 2. Otherwise: reopen the same URL, re-run the redirect probe (only where the platform probes),
  *    switch container (only with a second URL), then reopen with backoff (1, 2, 4 s).
- * 3. A failure that a retry of the same URL can't fix (`isDefinitive`) only tries untried URLs,
- *    and the URL stays out of the session: the switch rung never goes back to it (on the desktop
- *    a `.ts` URL the browser can't play would otherwise take an attempt, and its "unsupported"
- *    would hide the provider's failure on `.m3u8`).
+ * 3. A failure that a retry of the same URL can't fix (`isDefinitive`) tries an untried URL
+ *    first, and the URL stays out of the session: the switch rung never goes back to it (on the
+ *    desktop a `.ts` URL the browser can't play would otherwise take an attempt, and its
+ *    "unsupported" would hide the provider's failure on `.m3u8`). With no untried URL left, the
+ *    ladder goes on with a URL that hasn't failed that way (RELAY step 20a: a switch from a
+ *    broken `.m3u8` to a `.ts` the TV refuses goes back to the `.m3u8` with backoff), and gives
+ *    up only when every URL has.
  * It gives up when 4 attempts have been made within the last 60 s. A frame on the screen
  * starts the ladder again from its first rung; the attempts keep counting in the window.
  *
@@ -122,10 +125,12 @@ export class RetryLadder {
     return -1;
   }
 
-  private plan(error: PlaybackError, current: number, framed: boolean): RetryPlan | null {
+  private plan(error: PlaybackError, failed: number, framed: boolean): RetryPlan | null {
     const untried = this.untried();
     if (untried !== -1 && (!framed || isDefinitive(error))) return { rung: 'next-url', candidate: untried, delayMs: 0 };
-    if (isDefinitive(error)) return null;
+    // A URL that failed for good hands the ladder to one that hasn't.
+    const current = isDefinitive(error) ? this.other(failed) : failed;
+    if (current === -1) return null;
     const rungs: Rung[] = ['reopen'];
     if (this.options.canReprobe) rungs.push('reprobe');
     const other = this.other(current);

@@ -463,6 +463,28 @@ describe('PlayerController: retries and URLs', () => {
     expect(r.engine.loads.map((l) => l.source.container)).toEqual(['ts', 'hls', 'mp4', 'hls', 'ts', 'hls']);
   });
 
+  it('goes back to the .m3u8 that played when the switch to .ts fails for good (RELAY step 20a)', async () => {
+    const unsupported: PlaybackError = { kind: 'unsupported', code: 'MEDIA_ERR_SRC_NOT_SUPPORTED' };
+    const memory = new MemorySourceMemory();
+    memory.remember('s1', 'hls');
+    const script = (recovers: boolean) => (source: EngineSource, n: number): FakeScript => {
+      if (source.container === 'ts') return { loadError: unsupported };
+      if (n === 1) return { error: { atMs: 1000, error: NETWORK } };
+      return recovers && n === 4 ? {} : { loadError: NETWORK };
+    };
+    const back = rig(script(true), { memory });
+    void back.player.play(live(1));
+    await back.clock.advance(20_000);
+    expect(back.engine.loads.map((l) => l.source.container)).toEqual(['hls', 'hls', 'ts', 'hls']);
+    expect(back.player.status).toMatchObject({ state: 'playing', container: 'hls' });
+    // When the .m3u8 never comes back, the verdict is the provider's, not "this TV can't play this".
+    const gone = rig(script(false), { memory });
+    void gone.player.play(live(1));
+    await gone.clock.advance(30_000);
+    expect(gone.engine.loads.map((l) => l.source.container)).toEqual(['hls', 'hls', 'ts', 'hls', 'hls']);
+    expect(gone.player.status).toMatchObject({ state: 'failed', failure: { category: 'provider', code: 'PRV-UNREACHABLE' } });
+  });
+
   it('gives up at once when every URL failed definitively', async () => {
     const r = rig(() => ({ loadError: { kind: 'http', code: 'PROBE', status: 404 } }));
     void r.player.play(live(1));
