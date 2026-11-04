@@ -102,6 +102,9 @@ class FakeEngine implements LiveEngine {
   readonly focusCalls: (FocusedChannel | null)[] = [];
   activity = 0;
   failChunks = false;
+  /** The stored categories and their chunks (a test swaps in a refreshed catalog, step 22a). */
+  catalog: Record<string, CategoryInfo[]> = CATEGORIES;
+  items: (src: string, catIdx: number, chunk: number) => CatalogItem[] = chunkItems;
   /** The answer a focused channel gets (default: no guide, no panel). */
   focusAnswer: (channel: FocusedChannel) => ShortEpgNowNext = (channel) => ({
     key: channel.key,
@@ -136,7 +139,7 @@ class FakeEngine implements LiveEngine {
 
   categories(src: string, kind: ContentKind): Promise<CategoryInfo[]> {
     expect(kind).toBe('live');
-    return Promise.resolve(CATEGORIES[src] ?? []);
+    return Promise.resolve(this.catalog[src] ?? []);
   }
 
   chunk(src: string, kind: ContentKind, catIdx: number, chunk: number): Promise<CatalogItem[]> {
@@ -144,7 +147,7 @@ class FakeEngine implements LiveEngine {
     this.chunkCalls.push(`${src}|${catIdx}|${chunk}`);
     return this.answer('chunk', `${src}|${catIdx}|${chunk}`, () => {
       if (this.failChunks) throw new Error('read failed');
-      return chunkItems(src, catIdx, chunk);
+      return this.items(src, catIdx, chunk);
     });
   }
 
@@ -218,7 +221,9 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i += 1) await Promise.resolve();
 };
 
-async function setup(options: { rootBack?: RootBackPolicy; engine?: FakeEngine; settle?: boolean; play?: (index: number) => void; startCategory?: RailRef } = {}) {
+async function setup(
+  options: { rootBack?: RootBackPolicy; engine?: FakeEngine; settle?: boolean; play?: (index: number) => void; startCategory?: RailRef; listChanging?: () => void } = {},
+) {
   const engine = options.engine ?? new FakeEngine();
   const clock = manualTimers(T0);
   const exitApp = vi.fn();
@@ -229,6 +234,7 @@ async function setup(options: { rootBack?: RootBackPolicy; engine?: FakeEngine; 
     timers: clock.timers,
     ...(options.play === undefined ? {} : { play: options.play }),
     ...(options.startCategory === undefined ? {} : { startCategory: options.startCategory }),
+    ...(options.listChanging === undefined ? {} : { listChanging: options.listChanging }),
   });
   if (options.settle !== false) await flush();
   const at = (): string => {
@@ -930,5 +936,393 @@ describe('the start on the last channel (RELAY step 20c1)', () => {
     t.live.reload();
     await flush();
     expect(performance.getEntriesByName('zoma:live-ready')).toHaveLength(2);
+  });
+});
+
+/**
+ * A refreshed catalog (step 22a): s1's empty group is gone, so its Sports group is now catIdx 1
+ * (named `sports`), with a new channel first; every other channel keeps its key. s2 is unchanged,
+ * or gone with `withKids: false`.
+ */
+function refreshedCatalog(sports = 'Sports', withKids = true): { catalog: Record<string, CategoryInfo[]>; items: (src: string, catIdx: number, chunk: number) => CatalogItem[] } {
+  return {
+    catalog: { s1: [info(0, 'News', [3]), info(1, sports, [500, 500, 201])], ...(withKids ? { s2: [info(0, 'Kids', [2])] } : {}) },
+    items: (src, catIdx, chunk) => {
+      if (src !== 's1' || catIdx !== 1) return chunkItems(src, catIdx, chunk);
+      const size = [500, 500, 201][chunk] ?? 0;
+      const out: CatalogItem[] = [];
+      for (let slot = 0; slot < size; slot += 1) {
+        const n = chunk * 500 + slot;
+        out.push(n === 0 ? { ...item('s1', 1, 0), key: 'x:s1:live:new', name: 'New channel' } : item('s1', 2, n - 1));
+      }
+      return out;
+    },
+  };
+}
+
+function swapCatalog(engine: FakeEngine, refreshed: ReturnType<typeof refreshedCatalog>): void {
+  engine.catalog = refreshed.catalog;
+  engine.items = refreshed.items;
+}
+
+const settleAll = async (): Promise<void> => {
+  for (let i = 0; i < 5; i += 1) await flush();
+};
+
+describe('a catalog refresh while the screen shows (RELAY step 22a)', () => {
+  it('reads it again without the loading screen, on the same category, and finds the focused channel', async () => {
+    const t = await setup({ startCategory: { src: 's1', name: 'Sports' } });
+    expect(t.live.category.value).toBe(2);
+    t.live.focusRow(600);
+    await flush();
+    expect(t.live.row(600)?.item.key).toBe('x:s1:live:2-600');
+    const version = t.live.version.value;
+    swapCatalog(t.engine, refreshedCatalog());
+    const reads = t.engine.chunkCalls.length;
+    t.live.catalogChanged();
+    // No spinner: the old rows show while the new categories are read.
+    expect(t.live.status.value).toBe('ready');
+    expect(t.live.pending.value).toBeGreaterThan(0);
+    await settleAll();
+    expect(t.live.status.value).toBe('ready');
+    expect(t.live.rail.value.map((e) => `${e.name}:${e.count}`)).toEqual([':1206', 'News:3', 'Sports:1201', 'Kids:2']);
+    expect(t.live.category.value).toBe(2);
+    expect(t.at()).toBe('live · channels 601');
+    expect(t.live.row(601)?.item.key).toBe('x:s1:live:2-600');
+    expect(t.live.row(600)?.item.key).toBe('x:s1:live:2-599');
+    // Chunks of the new catalog only.
+    expect(t.engine.chunkCalls.slice(reads).every((c) => c.startsWith('s1|1|'))).toBe(true);
+    expect(t.live.version.value).toBeGreaterThan(version);
+    await t.clock.advance(GUIDE_DELAY_MS);
+    await flush();
+    expect(t.live.pending.value).toBe(0);
+  });
+
+  it('shows every channel when its category is gone, and finds the focused channel there', async () => {
+    const t = await setup({ startCategory: { src: 's1', name: 'Sports' } });
+    t.live.focusRow(600);
+    await flush();
+    swapCatalog(t.engine, refreshedCatalog('Sport'));
+    t.live.catalogChanged();
+    await settleAll();
+    expect(t.live.category.value).toBe(0);
+    // News (3), then Sport: the new channel, then the old 600 at 3 + 1 + 600.
+    expect(t.at()).toBe('live · channels 604');
+    expect(t.live.row(604)?.item.key).toBe('x:s1:live:2-600');
+  });
+
+  it('keeps every channel on show as it was', async () => {
+    const t = await setup();
+    t.live.focusRow(1203);
+    await flush();
+    expect(t.live.row(1203)?.item.key).toBe('x:s2:live:0-0');
+    swapCatalog(t.engine, refreshedCatalog());
+    t.live.catalogChanged();
+    await settleAll();
+    expect(t.live.category.value).toBe(0);
+    expect(t.at()).toBe('live · channels 1204');
+    expect(t.live.row(1204)?.item.key).toBe('x:s2:live:0-0');
+  });
+
+  it('leaves the focus on its row when its channel is gone, inside the shorter list', async () => {
+    const t = await setup();
+    t.live.focusRow(1204);
+    await flush();
+    swapCatalog(t.engine, refreshedCatalog('Sports', false));
+    t.live.catalogChanged();
+    await settleAll();
+    expect(t.live.rail.value[0]!.count).toBe(1204);
+    expect(t.at()).toBe('live · channels 1203');
+  });
+
+  it('follows the channel the focus is on when the new list comes, unless the focus moves while its row is found', async () => {
+    const answerChunks = (engine: FakeEngine): void => {
+      engine.hold.delete('chunk');
+      for (const held of engine.held.chunk!.splice(0)) {
+        const [src, catIdx, chunk] = String(held.arg).split('|');
+        held.resolve(engine.items(src!, Number(catIdx), Number(chunk)));
+      }
+    };
+    const t = await setup({ startCategory: { src: 's1', name: 'Sports' } });
+    t.live.focusRow(600);
+    await flush();
+    swapCatalog(t.engine, refreshedCatalog());
+    t.engine.hold.add('profile');
+    t.live.catalogChanged();
+    // Moved while the categories are read: the channel it is on when they come is followed.
+    await t.press('DOWN');
+    t.engine.hold.delete('profile');
+    t.engine.held.profile!.splice(0).forEach((held) => held.resolve(t.engine.profileDoc));
+    await settleAll();
+    expect(t.at()).toBe('live · channels 602');
+    expect(t.live.row(602)?.item.key).toBe('x:s1:live:2-601');
+
+    const u = await setup({ startCategory: { src: 's1', name: 'Sports' } });
+    u.live.focusRow(600);
+    await flush();
+    swapCatalog(u.engine, refreshedCatalog());
+    u.engine.hold.add('chunk');
+    u.live.catalogChanged();
+    await settleAll();
+    // The new list is in and its row is being found: a move now wins.
+    await u.press('UP');
+    expect(u.at()).toBe('live · channels 599');
+    answerChunks(u.engine);
+    await settleAll();
+    expect(u.at()).toBe('live · channels 599');
+  });
+
+  it('leaves a focus on the rail alone', async () => {
+    const t = await setup({ startCategory: { src: 's1', name: 'Sports' } });
+    t.live.focusRow(600);
+    await t.press('BACK');
+    expect(t.at()).toBe('live · rail 2');
+    swapCatalog(t.engine, refreshedCatalog());
+    t.live.catalogChanged();
+    await settleAll();
+    expect(t.at()).toBe('live · rail 2');
+    expect(t.live.category.value).toBe(2);
+  });
+
+  it('tells the player first, while the old rows can still be read, and once per refresh', async () => {
+    const seen: (string | undefined)[] = [];
+    let live: ReturnType<typeof createLive> | null = null;
+    const t = await setup({ startCategory: { src: 's1', name: 'Sports' }, listChanging: () => seen.push(live?.row(600)?.item.key) });
+    live = t.live;
+    t.live.focusRow(600);
+    await flush();
+    swapCatalog(t.engine, refreshedCatalog());
+    t.engine.hold.add('profile');
+    t.live.catalogChanged();
+    t.live.catalogChanged();
+    t.engine.hold.delete('profile');
+    t.engine.held.profile!.splice(0).forEach((held) => held.resolve(t.engine.profileDoc));
+    await settleAll();
+    expect(seen).toEqual(['x:s1:live:2-600']);
+    // The player's search waits for the new list.
+    expect(await t.live.list.locate('x:s1:live:2-600', 600)).toBe(601);
+  });
+
+  it("makes the player's search wait for the new list", async () => {
+    const t = await setup({ startCategory: { src: 's1', name: 'Sports' } });
+    swapCatalog(t.engine, refreshedCatalog());
+    t.engine.hold.add('profile');
+    t.live.catalogChanged();
+    const found = t.live.list.locate('x:s1:live:2-10', 10);
+    await flush();
+    t.engine.hold.delete('profile');
+    t.engine.held.profile!.splice(0).forEach((held) => held.resolve(t.engine.profileDoc));
+    expect(await found).toBe(11);
+  });
+
+  it('is empty when the refresh left no live channel', async () => {
+    const t = await setup();
+    t.engine.catalog = {};
+    t.live.catalogChanged();
+    await settleAll();
+    expect(t.live.status.value).toBe('empty');
+    expect(t.live.rail.value).toEqual([]);
+    expect(t.live.list.count()).toBe(0);
+    expect(t.live.home.zone('channels')).toMatchObject({ count: 0 });
+  });
+
+  it('loads a screen that is still loading, or failed, the usual way', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const engine = new FakeEngine();
+    engine.hold.add('profile');
+    const t = await setup({ engine, settle: false });
+    t.live.catalogChanged();
+    expect(t.live.status.value).toBe('loading');
+    expect(engine.held.profile).toHaveLength(2);
+    engine.hold.delete('profile');
+    engine.held.profile!.splice(0).forEach((held) => held.resolve(engine.profileDoc));
+    await settleAll();
+    expect(t.live.status.value).toBe('ready');
+
+    const failing = new FakeEngine();
+    failing.failProfile = true;
+    const f = await setup({ engine: failing });
+    expect(f.live.status.value).toBe('failed');
+    failing.failProfile = false;
+    f.live.catalogChanged();
+    expect(f.live.status.value).toBe('loading');
+    await settleAll();
+    expect(f.live.status.value).toBe('ready');
+  });
+
+  it('shows "Try again" when the new categories cannot be read', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const t = await setup();
+    t.engine.failProfile = true;
+    t.live.catalogChanged();
+    await settleAll();
+    expect(t.live.status.value).toBe('failed');
+    expect(t.at()).toBe('live · retry 0');
+    expect(warn).toHaveBeenCalledWith('The live categories could not be read', expect.any(Error));
+  });
+
+  it('drops the answer of a refresh that a reload or dispose replaced', async () => {
+    const t = await setup();
+    t.engine.hold.add('profile');
+    t.live.catalogChanged();
+    t.live.reload();
+    expect(t.live.status.value).toBe('loading');
+    t.engine.hold.delete('profile');
+    const [first, second] = t.engine.held.profile!.splice(0);
+    second!.resolve(t.engine.profileDoc);
+    await settleAll();
+    expect(t.live.status.value).toBe('ready');
+    swapCatalog(t.engine, refreshedCatalog());
+    first!.resolve(t.engine.profileDoc);
+    await settleAll();
+    // The old catalog's rail.
+    expect(t.live.rail.value.map((e) => e.count)).toEqual([1205, 3, 1200, 2]);
+
+    const d = await setup();
+    d.engine.hold.add('profile');
+    d.live.catalogChanged();
+    d.live.dispose();
+    swapCatalog(d.engine, refreshedCatalog());
+    d.engine.held.profile!.splice(0).forEach((held) => held.resolve(d.engine.profileDoc));
+    await settleAll();
+    expect(d.live.rail.value.map((e) => e.count)).toEqual([1205, 3, 1200, 2]);
+    d.live.catalogChanged();
+    expect(d.engine.held.profile).toHaveLength(0);
+  });
+
+  it('keeps now/next it has (the channels keep their keys)', async () => {
+    const t = await setup();
+    t.clock.advance(GUIDE_DELAY_MS);
+    await flush();
+    expect(t.live.guide('x:s1:live:0-0')?.now?.title).toBe('Now on x:s1:live:0-0');
+    swapCatalog(t.engine, refreshedCatalog());
+    t.live.catalogChanged();
+    await settleAll();
+    expect(t.live.guide('x:s1:live:0-0')?.now?.title).toBe('Now on x:s1:live:0-0');
+  });
+});
+
+describe('a guide refresh while the screen shows (RELAY step 22a)', () => {
+  const WINDOW = Array.from({ length: CHANNELS_VISIBLE }, (_, i) => (i < 3 ? `x:s1:live:0-${i}` : `x:s1:live:2-${i - 3}`));
+
+  it("asks now/next again for the rows on show once the window rests; each row keeps its answer until then", async () => {
+    const t = await setup();
+    t.clock.advance(GUIDE_DELAY_MS);
+    await flush();
+    expect(t.engine.nowNextCalls).toEqual([WINDOW]);
+    t.engine.hold.add('nowNext');
+    t.live.guidesChanged();
+    t.clock.advance(GUIDE_DELAY_MS - 1);
+    await flush();
+    expect(t.engine.nowNextCalls).toHaveLength(1);
+    t.clock.advance(1);
+    await flush();
+    expect(t.engine.nowNextCalls).toEqual([WINDOW, WINDOW]);
+    expect(t.live.guide('x:s1:live:0-0')?.now?.title).toBe('Now on x:s1:live:0-0');
+    const held = t.engine.held.nowNext!.splice(0)[0]!;
+    held.resolve(WINDOW.map((key) => ({ key, epgSrc: 'g2', channel: key, method: 'id', now: programme(`New on ${key}`, 0, 1e9), next: null })));
+    await flush();
+    expect(t.live.guide('x:s1:live:0-0')?.now?.title).toBe('New on x:s1:live:0-0');
+    // Fresh again: the next rest asks nothing.
+    t.engine.hold.delete('nowNext');
+    await t.press('DOWN');
+    t.clock.advance(GUIDE_DELAY_MS);
+    await flush();
+    expect(t.engine.nowNextCalls).toHaveLength(2);
+  });
+
+  it('shows an answer asked before the swap, then asks again', async () => {
+    const engine = new FakeEngine();
+    engine.hold.add('nowNext');
+    const t = await setup({ engine });
+    t.clock.advance(GUIDE_DELAY_MS);
+    await flush();
+    expect(engine.nowNextCalls).toEqual([WINDOW]);
+    t.live.guidesChanged();
+    t.clock.advance(GUIDE_DELAY_MS);
+    await flush();
+    // Still on its way: not asked twice.
+    expect(engine.nowNextCalls).toEqual([WINDOW]);
+    engine.hold.delete('nowNext');
+    engine.held.nowNext!.splice(0)[0]!.resolve(WINDOW.map((key) => ({ key, epgSrc: null, channel: null, method: null, now: programme('Old', 0, 1e9), next: null })));
+    await flush();
+    expect(t.live.guide(WINDOW[0]!)?.now?.title).toBe('Old');
+    t.clock.advance(GUIDE_DELAY_MS - 1);
+    await flush();
+    expect(engine.nowNextCalls).toHaveLength(1);
+    t.clock.advance(1);
+    await flush();
+    expect(engine.nowNextCalls).toEqual([WINDOW, WINDOW]);
+    expect(t.live.guide(WINDOW[0]!)?.now?.title).toBe(`Now on ${WINDOW[0]!}`);
+  });
+
+  it("asks again for the player's channels too: the newest four", async () => {
+    const t = await setup();
+    t.clock.advance(GUIDE_DELAY_MS);
+    await flush();
+    const extra = ['x:s1:live:2-500', 'x:s1:live:2-501', 'x:s1:live:2-502', 'x:s1:live:2-503', 'x:s1:live:2-504'];
+    for (const key of extra) t.live.list.askGuide(key);
+    await flush();
+    expect(t.engine.nowNextCalls.slice(1)).toEqual(extra.map((key) => [key]));
+    // Asked again: the newest, not a fifth.
+    t.live.list.askGuide(extra[1]!);
+    t.live.guidesChanged();
+    t.clock.advance(GUIDE_DELAY_MS);
+    await flush();
+    expect(t.engine.nowNextCalls.at(-1)).toEqual([...WINDOW, extra[2], extra[3], extra[4], extra[1]]);
+  });
+
+  it("keeps the player's channels fresh at the minute tick once their programme ended", async () => {
+    const t = await setup();
+    t.clock.advance(GUIDE_DELAY_MS);
+    await flush();
+    t.live.list.askGuide('x:s1:live:2-500');
+    await flush();
+    const calls = t.engine.nowNextCalls.length;
+    // The fake's programmes end 5 minutes after the minute they were asked in.
+    t.clock.advance(6 * MINUTE);
+    await flush();
+    expect(t.engine.nowNextCalls.slice(calls).some((keys) => keys.indexOf('x:s1:live:2-500') !== -1)).toBe(true);
+  });
+
+  it("asks again for a panel's answer that came from before the swap", async () => {
+    const engine = new FakeEngine();
+    engine.hold.add('focus');
+    const key = 'x:s1:live:0-0';
+    engine.focusAnswer = (channel) => ({ key: channel.key, epgSrc: null, channel: null, method: null, now: programme('Panel now', 0, 1e9), next: null, from: 'panel', cached: false });
+    const t = await setup({ engine });
+    t.clock.advance(GUIDE_DELAY_MS);
+    await flush();
+    t.live.guidesChanged();
+    t.clock.advance(GUIDE_DELAY_MS);
+    await flush();
+    expect(engine.nowNextCalls).toEqual([WINDOW, WINDOW]);
+    const focus = engine.held.focus!.splice(0)[0]!;
+    focus.resolve(engine.focusAnswer(focus.arg as FocusedChannel));
+    await flush();
+    expect(t.live.guide(key)?.now?.title).toBe('Panel now');
+    // The next minute tick asks for it again (it predates the new guide), and for nothing else.
+    t.clock.advance(MINUTE);
+    await flush();
+    expect(engine.nowNextCalls.slice(2)).toEqual([[key]]);
+  });
+
+  it('asks nothing while the screen loads, failed, or after dispose', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const failing = new FakeEngine();
+    failing.failProfile = true;
+    const f = await setup({ engine: failing });
+    f.live.guidesChanged();
+    f.clock.advance(GUIDE_DELAY_MS);
+    await flush();
+    expect(failing.nowNextCalls).toEqual([]);
+    const t = await setup();
+    t.clock.advance(GUIDE_DELAY_MS);
+    await flush();
+    t.live.dispose();
+    t.live.guidesChanged();
+    t.clock.advance(GUIDE_DELAY_MS);
+    await flush();
+    expect(t.engine.nowNextCalls).toHaveLength(1);
   });
 });

@@ -35,6 +35,12 @@ import { ChannelIndex, chunkId } from './channel-index';
  * - **The start on the last channel** (step 20c1): the first load shows the category the last
  *   channel played from (`startCategory`), and `list.locate` finds the channel's row once the list
  *   is in, for the player that is already playing it.
+ * - **Refreshes while it shows** (step 22a): after a guide swapped in (`guidesChanged`), now/next
+ *   is asked again for the rows on show and the player's channels; each row keeps its answer
+ *   until the new one comes. After a catalog swapped in (`catalogChanged`), the sources and
+ *   categories are read again without the loading screen, on the same rail entry, and the focus
+ *   finds its channel in the new list. `listChanging` tells the player first, while the old
+ *   list can still be read.
  */
 
 /** Sizes, all layout constants (no DOM measuring). live.css uses the same numbers. */
@@ -115,6 +121,11 @@ export interface LiveOptions {
    * `null`, absent or gone: "All channels".
    */
   readonly startCategory?: RailRef;
+  /**
+   * A catalog swap is about to replace the list (step 22a): the player reads its rows from the
+   * old list now, then finds them with `list.locate` (which waits for the new list).
+   */
+  readonly listChanging?: () => void;
 }
 
 /** A rail entry as the profile keeps it: a source's category by its name; `null` is "All channels". */
@@ -151,6 +162,10 @@ export interface Live {
   activity(): void;
   /** Reads the sources and categories again (the failure screen's "Try again"). */
   reload(): void;
+  /** A guide swapped in (step 22a): now/next is asked again. */
+  guidesChanged(): void;
+  /** A catalog swapped in (step 22a): the list is read again where it stands. */
+  catalogChanged(): void;
   dispose(): void;
 }
 
@@ -158,7 +173,12 @@ interface GuideEntry {
   readonly value: EpgNowNext;
   /** When it was asked (a field named `at` would pull core-js's Array/String `at` into main). */
   readonly asked: number;
+  /** The guides' epoch it was asked in: an older one is asked again (step 22a). */
+  readonly epoch: number;
 }
+
+/** The player's channels kept fresh beside the rows on show (the info bar's, the previous one…). */
+const EXTRA_GUIDES = 4;
 
 const BUTTONS: ScreenSpec['zones'] = [{ kind: 'list', id: 'buttons', axis: 'horizontal', count: 2 }];
 
@@ -241,6 +261,10 @@ export function createLive(options: LiveOptions): Live {
   const loadingChunks = new Map<string, { readonly seq: number; readonly done: Promise<void> }>();
   const guides = new Map<ContentKey, GuideEntry>();
   const askingGuides = new Map<ContentKey, number>();
+  /** Bumps when a guide swaps in: every answer from before is stale. */
+  let guideEpoch = 0;
+  /** Channels the player asked for (`askGuide`), newest last: kept fresh with the rows on show. */
+  const extraGuides: ContentKey[] = [];
   let guideTimer: unknown = null;
   let minuteTimer: unknown = null;
   /** The channel the short EPG was last asked for (`null`: none). */
@@ -333,7 +357,7 @@ export function createLive(options: LiveOptions): Live {
 
   const guideStale = (key: ContentKey, now: number): boolean => {
     const known = guides.get(key);
-    if (known === undefined) return true;
+    if (known === undefined || known.epoch !== guideEpoch) return true;
     if (now - known.asked >= GUIDE_TTL_MS) return true;
     const on = known.value.now;
     return on !== null && on.end * MINUTE_MS <= now;
@@ -353,6 +377,7 @@ export function createLive(options: LiveOptions): Live {
       if (askingGuides.has(key) || keys.indexOf(key) !== -1 || !guideStale(key, now)) continue;
       keys.push(key);
     }
+    for (const key of extraGuides) if (!askingGuides.has(key) && keys.indexOf(key) === -1 && guideStale(key, now)) keys.push(key);
     requestGuides(keys, now);
   };
 
@@ -360,13 +385,16 @@ export function createLive(options: LiveOptions): Live {
   const requestGuides = (keys: ContentKey[], now: number): void => {
     if (keys.length === 0) return;
     const seq = loadSeq;
+    const epoch = guideEpoch;
     for (const key of keys) askingGuides.set(key, seq);
     track(() => engine.nowNext(keys, now)).then(
       (answers) => {
         for (const key of keys) if (askingGuides.get(key) === seq) askingGuides.delete(key);
         if (disposed || seq !== loadSeq) return;
-        for (const answer of answers) guides.set(answer.key, { value: answer, asked: now });
+        for (const answer of answers) guides.set(answer.key, { value: answer, asked: now, epoch });
         bump();
+        // Asked before a guide swapped in: shown until the newer answer comes.
+        if (epoch !== guideEpoch) scheduleGuides();
       },
       (error: unknown) => {
         for (const key of keys) if (askingGuides.get(key) === seq) askingGuides.delete(key);
@@ -393,11 +421,12 @@ export function createLive(options: LiveOptions): Live {
       return;
     }
     const seq = loadSeq;
+    const epoch = guideEpoch;
     track(() => engine.focusChannel({ key: item.key, url: item.url, source })).then(
       (answer) => {
         // A panel's answer for a channel no guide matches: the row shows it.
         if (answer === null || disposed || seq !== loadSeq || answer.from !== 'panel') return;
-        guides.set(answer.key, { value: answer, asked: clockNow() });
+        guides.set(answer.key, { value: answer, asked: clockNow(), epoch });
         bump();
       },
       (error: unknown) => {
@@ -483,8 +512,12 @@ export function createLive(options: LiveOptions): Live {
     return findRow(guess, (item) => item.key === key);
   };
 
-  /** Now/next for one channel the list didn't ask (the player's info bar). */
+  /** Now/next for one channel the list didn't ask (the player's info bar); kept fresh from then on. */
   const askGuide = (key: ContentKey): void => {
+    const known = extraGuides.indexOf(key);
+    if (known !== -1) extraGuides.splice(known, 1);
+    extraGuides.push(key);
+    if (extraGuides.length > EXTRA_GUIDES) extraGuides.shift();
     if (disposed || askingGuides.has(key) || !guideStale(key, clockNow())) return;
     requestGuides([key], clockNow());
   };
@@ -517,32 +550,54 @@ export function createLive(options: LiveOptions): Live {
     if (status.value === 'ready') askGuides();
   };
 
-  const load = (): void => {
+  /** A new load starts: `loaded` waits for it; call the result once its categories are in (or failed). */
+  const nextLoad = (): (() => void) => {
     loadSeq += 1;
-    const seq = loadSeq;
     let settle: () => void = () => undefined;
     loaded = new Promise<void>((resolve) => {
       settle = resolve;
     });
+    return settle;
+  };
+
+  /** The stored sources and each one's live categories. */
+  const readSources = async (): Promise<{ records: SourceRecord[]; lists: CategoryInfo[][] }> => {
+    const records = storedSources(await engine.profile());
+    const lists = await Promise.all(records.map((r) => engine.categories(r.id, LIVE_KIND)));
+    return { records, lists };
+  };
+
+  /** Takes the sources read: their short-EPG logins and the rail (the list isn't touched). */
+  const takeSources = (records: readonly SourceRecord[], lists: readonly CategoryInfo[][]): RailEntry[] => {
+    sources = new Map<string, ShortEpgSource>();
+    for (const record of records) sources.set(record.id, epgSourceOf(record));
+    const entries = railEntries(records.map((r, i) => ({ src: r.id, categories: lists[i] ?? [] })));
+    rail.value = entries;
+    home.update(railZone(entries.length));
+    return entries;
+  };
+
+  const loadFailed = (error: unknown): void => {
+    console.warn('The live categories could not be read', error);
+    status.value = 'failed';
+    home.update(retryZone(1));
+    home.focus('retry', 0);
+  };
+
+  const load = (): void => {
+    const settle = nextLoad();
+    const seq = loadSeq;
     status.value = 'loading';
     chunks.clear();
     guides.clear();
     home.update(retryZone(0));
-    track(async () => {
-      const records = storedSources(await engine.profile());
-      const lists = await Promise.all(records.map((r) => engine.categories(r.id, LIVE_KIND)));
-      return { records, lists };
-    }).then(
+    track(readSources).then(
       ({ records, lists }) => {
         if (disposed || seq !== loadSeq) {
           settle();
           return;
         }
-        sources = new Map<string, ShortEpgSource>();
-        for (const record of records) sources.set(record.id, epgSourceOf(record));
-        const entries = railEntries(records.map((r, i) => ({ src: r.id, categories: lists[i] ?? [] })));
-        rail.value = entries;
-        home.update(railZone(entries.length));
+        const entries = takeSources(records, lists);
         status.value = entries.length > 0 ? 'ready' : 'empty';
         if (wantCategory !== null) category.value = Math.max(0, findEntry(entries, wantCategory));
         wantCategory = null;
@@ -555,12 +610,83 @@ export function createLive(options: LiveOptions): Live {
       (error: unknown) => {
         settle();
         if (disposed || seq !== loadSeq) return;
-        console.warn('The live categories could not be read', error);
-        status.value = 'failed';
-        home.update(retryZone(1));
-        home.focus('retry', 0);
+        loadFailed(error);
       },
     );
+  };
+
+  /** The rail entry on show as the profile keeps it (`null`: "All channels", or nothing yet). */
+  const shownCategory = (): RailRef => {
+    const shown = entry();
+    const part = shown === undefined || shown.kind === 'all' ? undefined : shown.parts[0];
+    return part === undefined || shown === undefined ? null : { src: part.src, name: shown.name };
+  };
+
+  /**
+   * A catalog swapped in (step 22a): the sources and categories are read again without the
+   * loading screen. The rail entry on show stays (by name; "All channels" when it is gone), and
+   * the focused channel's row is found in the new list, unless the focus moved meanwhile. A
+   * screen still loading, or failed, loads again.
+   */
+  const catalogChanged = (): void => {
+    if (disposed) return;
+    if (status.value === 'loading' || status.value === 'failed') {
+      load();
+      return;
+    }
+    const settle = nextLoad();
+    const seq = loadSeq;
+    const keep = shownCategory();
+    track(readSources).then(
+      ({ records, lists }) => {
+        if (disposed || seq !== loadSeq) {
+          settle();
+          return;
+        }
+        // Where the focus stands, read from the old list before it goes.
+        const place = home.position('channels').index;
+        const onList = home.active === 'channels';
+        const key = rowAt(place)?.item.key ?? null;
+        options.listChanging?.();
+        const entries = takeSources(records, lists);
+        chunks.clear();
+        if (entries.length === 0) {
+          status.value = 'empty';
+          index = new ChannelIndex([]);
+          home.update(channelsZone(0));
+        } else {
+          status.value = 'ready';
+          const pick = keep === null ? 0 : Math.max(0, findEntry(entries, keep));
+          category.value = pick;
+          index = new ChannelIndex(entries[pick]!.parts);
+          home.update(channelsZone(index.count));
+        }
+        bump();
+        settle();
+        afterChange();
+        if (key === null || !onList) return;
+        findRow(place, (item) => item.key === key).then(
+          (found) => {
+            // Gone from the list, or the focus moved meanwhile: it stays where it is.
+            if (found === -1 || seq !== loadSeq || home.active !== 'channels' || home.position('channels').index !== place) return;
+            home.focus('channels', found);
+          },
+          () => undefined,
+        );
+      },
+      (error: unknown) => {
+        settle();
+        if (disposed || seq !== loadSeq) return;
+        loadFailed(error);
+      },
+    );
+  };
+
+  /** A guide swapped in (step 22a): every answer is stale; the rows on show keep theirs until asked again. */
+  const guidesChanged = (): void => {
+    if (disposed) return;
+    guideEpoch += 1;
+    if (status.value === 'ready') scheduleGuides();
   };
 
   const nav = createNavigator({
@@ -630,13 +756,11 @@ export function createLive(options: LiveOptions): Live {
     row: rowAt,
     guide: (key) => guides.get(key)?.value,
     focusRow: (i) => home.focus('channels', i),
-    shownCategory: (): RailRef => {
-      const shown = entry();
-      const part = shown === undefined || shown.kind === 'all' ? undefined : shown.parts[0];
-      return part === undefined || shown === undefined ? null : { src: part.src, name: shown.name };
-    },
+    shownCategory,
     activity: () => engine.noteActivity(),
     reload: load,
+    guidesChanged,
+    catalogChanged,
     dispose(): void {
       if (disposed) return;
       disposed = true;

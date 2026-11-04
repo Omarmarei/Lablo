@@ -1316,3 +1316,122 @@ describe('the player: the start on the last channel (RELAY step 20c1)', () => {
     expect(t.tuned).toEqual([]);
   });
 });
+
+describe('the player: a catalog refresh while it plays (RELAY step 22a)', () => {
+  /** Row 1 played, then row 2 (row 1 is PRE-CH's). */
+  async function zapped() {
+    const t = setup();
+    t.player.show(1);
+    await t.press('CH_UP');
+    t.clock.advance(ZAP_DELAY_MS);
+    await flush();
+    expect(t.controller.played()).toEqual([1, 2]);
+    expect([t.player.playing.value, t.player.previous.value]).toEqual([2, 1]);
+    t.tuned.length = 0;
+    return t;
+  }
+
+  /** The list is replaced: no row is known until it is read again. */
+  function replaced(t: ReturnType<typeof setup>): void {
+    t.list.loaded.clear();
+  }
+
+  it("keeps the stream and its row on show, then moves it and PRE-CH's channel to their rows in the new list", async () => {
+    const t = await zapped();
+    t.player.listChanging();
+    replaced(t);
+    expect(t.list.locates.map((l) => [l.key, l.guess])).toEqual([
+      ['x:s1:live:2', 2],
+      ['x:s1:live:1', 1],
+    ]);
+    // Until the new list answers, the bar keeps the channel playing.
+    expect(t.player.row(2)).toEqual(row(2));
+    t.list.locates[0]!.answer(7);
+    t.list.locates[1]!.answer(5);
+    await flush();
+    expect([t.player.target.value, t.player.playing.value, t.player.previous.value]).toEqual([7, 7, 5]);
+    expect(t.player.row(7)).toEqual(row(2));
+    for (const read of t.list.loads.splice(0)) read.resolve();
+    await flush();
+    // (The fake list's row 7 stands for the channel it found there.)
+    expect(t.player.row(7)).toEqual(row(7));
+    expect(t.tuned).toEqual(['x:s1:live:7 @7']);
+    // Never played again, never stopped.
+    expect(t.controller.played()).toEqual([1, 2]);
+    expect(t.controller.stops).toBe(0);
+    await t.press('PREV_CH');
+    for (const read of t.list.loads.splice(0)) read.resolve();
+    await flush();
+    expect(t.controller.played()).toEqual([1, 2, 5]);
+  });
+
+  it("keeps a channel gone from the new list on show at its row; PRE-CH's goes", async () => {
+    const t = await zapped();
+    t.player.listChanging();
+    replaced(t);
+    t.list.locates[0]!.answer(-1);
+    t.list.locates[1]!.answer(-1);
+    await flush();
+    expect([t.player.target.value, t.player.playing.value, t.player.previous.value]).toEqual([2, 2, -1]);
+    expect(t.player.row(2)).toEqual(row(2));
+    await t.press('PREV_CH');
+    expect(t.controller.played()).toEqual([1, 2]);
+  });
+
+  it('a zap or PRE-CH before the new list answers wins', async () => {
+    const t = await zapped();
+    t.player.listChanging();
+    await t.press('PREV_CH');
+    expect(t.controller.played()).toEqual([1, 2, 1]);
+    expect(t.player.previous.value).toBe(2);
+    t.list.locates[0]!.answer(9);
+    t.list.locates[1]!.answer(8);
+    await flush();
+    expect([t.player.target.value, t.player.playing.value, t.player.previous.value]).toEqual([1, 1, 2]);
+    expect(t.tuned).toEqual(['x:s1:live:1 @1']);
+  });
+
+  it("leaves PRE-CH's channel as it is when its row isn't known", async () => {
+    const t = await zapped();
+    t.list.loaded.delete(1);
+    t.player.listChanging();
+    expect(t.list.locates.map((l) => l.key)).toEqual(['x:s1:live:2']);
+    expect(t.player.previous.value).toBe(1);
+  });
+
+  it('a search that fails changes nothing', async () => {
+    const t = await zapped();
+    t.player.listChanging();
+    t.list.locates[0]!.fail();
+    t.list.locates[1]!.fail();
+    await flush();
+    expect([t.player.target.value, t.player.playing.value, t.player.previous.value]).toEqual([2, 2, 1]);
+  });
+
+  it('asks nothing while closed, and nothing for PRE-CH before a second channel', async () => {
+    const t = setup();
+    t.player.listChanging();
+    expect(t.list.locates).toEqual([]);
+    t.player.show(3);
+    t.player.listChanging();
+    expect(t.list.locates.map((l) => [l.key, l.guess])).toEqual([['x:s1:live:3', 3]]);
+    t.player.close();
+    t.player.listChanging();
+    expect(t.list.locates).toHaveLength(1);
+  });
+
+  it("pins nothing before a stream opened: a waiting zap plays the new list's row, and the app hears of it", async () => {
+    const t = setup();
+    t.list.loaded.delete(4);
+    t.player.show(4);
+    // Row 4's chunk is on its way: nothing plays yet.
+    expect(t.controller.plays).toEqual([]);
+    await t.press('CH_UP');
+    t.player.listChanging();
+    expect(t.list.locates).toEqual([]);
+    t.clock.advance(ZAP_DELAY_MS);
+    await flush();
+    expect(t.controller.played()).toEqual([5]);
+    expect(t.tuned).toEqual(['x:s1:live:5 @5']);
+  });
+});
