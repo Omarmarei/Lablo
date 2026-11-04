@@ -443,12 +443,21 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - **Found:** `JSON.stringify` in the luna helper pulled `es.json.stringify` (about 4 KB) into the app's main bundle; it now takes JSON text. A put that throws synchronously would have rejected S2's write test; it now reports the reason.
     - **Old engines:** the harness stages the lab, starts the mock as a child process (127.0.0.1 with Docker Desktop, 0.0.0.0 on Linux) and gives each container `--add-host host.docker.internal:host-gateway`. On 53/56/68 every check answered as expected on the first run; the bundle filled exactly the built-ins each engine lacks (8, 6, 4); a lab run took about 0.9 s. Seed `lab-seed-no-worker` (Worker removed) caught on every engine.
     - **Tests:** e2e `lab.spec.ts` (5: by keys in dev with all 23 statuses and the collector's records, an "update" 0.1.0 → 0.1.1 for S2, the collector down then up, both bundles from file://); unit tests for the reporter, runner, storage, bulk write, config, worker client, screen state, S3, luna, the DUID, the build's lab module, the harness's evaluation; `test/lab-probes.test.ts` (the lab's reader against the mock over a socket). 58/58 mutants caught (`artifacts/mutate15a.py`), after two tests were added for survivors.
-- [ ] 15b. **The UI spikes (S6, S9–S11).**
-  - S6: scale against the mock's 200k catalog and the 150 MB gzipped guide: ingest time, key to focus during the ingest, the guide's ingest, search, a cached cold start (a reload measured to the idle live screen).
+- [ ] 15b. **The scale spike (S6).** Leg 28 split the old 15b: S6 here, S9–S11 in 15b2.
+  - S6 in the lab on the app's own data engine (its real workers) and live screen, against a source the mock hands out, so the lab still holds no test account: `/__lab/source` gives an M3U URL of the mock's test account and a guide whose dates are moved to the TV's (the scale guide is dated around 2026-11-01).
+  - The checks, judged against architecture.md §5 only when the source is the scale catalog (200k items) and the 150 MB guide; against a smaller source they measure and report `info`:
+    - the 200k M3U ingest (≤ 90 s, no crash);
+    - search (≤ 200 ms);
+    - key press to focus on the live screen while a refresh runs (< 200 ms each);
+    - the guide's filtered ingest (≤ 4 min);
+    - a cached cold start (≤ 3 s): this launch's boot (the page to the lab's script) plus a fresh data engine to the painted live screen. This replaces the reload the old 15b named: a reload mid-run would have to resume the run after it;
+    - cleanup (the lab's copy of the app database deleted).
+  - **Done when:** e2e runs S6 by keys in the desktop browser against the in-process mock and finds its records; `pnpm lab:scale` runs it on the scale fixtures (the 200k catalog, the 150 MB guide gzipped) in the desktop browser, with its numbers recorded in the runbook; the old-engine harness runs it in Chromium 53/56/68; PR merged.
+- [ ] 15b2. **The UI spikes (S9–S11).**
   - S9: Arabic (the fonts loaded and shaped, the bidi probe, what `Intl` makes of `ar`, the calendar).
   - S10: input (a key tester with each platform's expected keys, PRE-CH, the Magic Remote pointer, the native keyboard in Arabic and English).
   - S11: lifecycle and accessibility (a lifecycle log, screensaver control, Voice Guide/TTS reading the focused label).
-  - **Done when:** e2e drives each screen by keys in the desktop browser and finds its records; S6 runs in the desktop browser on the scale fixtures with its numbers recorded; PR merged.
+  - **Done when:** e2e drives each screen by keys in the desktop browser and finds its records; PR merged.
 - [ ] 15c. **The player batteries (S4, S5, S8).**
   - Lab player wrappers: AVPlay (Tizen, through the adapter) and `<video>` (webOS and the desktop).
   - The battery: TS and HLS first frame, the 302 freeze with and without the probe, 60 min of endless TS with stalls, 4K HEVC, AC3/E-AC3, the audio track switch, subtitles, suspend/restore; S8 `avplaystore` pre-buffering.
