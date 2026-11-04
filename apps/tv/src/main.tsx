@@ -47,6 +47,12 @@ void platform.info().then(
 const root = document.getElementById('app');
 if (root === null) throw new Error('#app element missing from index.html');
 
+/**
+ * Each Xtream source's `allowed_output_formats` (RELAY step 20c2a), read when the live screen
+ * opens: until then (the start's last channel) every format is tried, the one that played first.
+ */
+let outputFormats = new Map<string, readonly string[]>();
+
 /** Remote keys are being pressed (a running refresh pauses). */
 const busy = signal(false);
 let engine: DataEngine | null = null;
@@ -93,6 +99,14 @@ function showHello(into: Element): void {
  */
 function showLive(into: Element, language: Language | null, resume: LastChannel | null = null): void {
   let player: Player | null = null;
+  dataEngine()
+    .outputFormats()
+    .then(
+      (formats) => {
+        outputFormats = formats;
+      },
+      (error: unknown) => console.warn('The output formats were not read', error),
+    );
   const live = createLive({ platform, engine: dataEngine(), play: (index) => player?.show(index), startCategory: resume === null ? null : resume.category });
   // OK on a channel opens the player on the live navigator (step 20a); Back returns to its row.
   const kept = memory.subtitleSize();
@@ -103,6 +117,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     chrome: (on) => setPlayerChrome(document, on),
     closed: (index) => live.focusRow(index),
     tuned: (row, index) => memory.tuned(row.item, row.number, live.shownCategory(), index),
+    outputFormats: (src) => outputFormats.get(src) ?? null,
     ...(kept === null ? {} : { subtitleSize: kept }),
     sized: (size) => memory.setSubtitleSize(size),
   });

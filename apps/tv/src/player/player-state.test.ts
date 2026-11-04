@@ -1,13 +1,14 @@
 import type { CatalogItem, ContentKey } from '@zoma/core';
 import type { EpgNowNext } from '@zoma/data';
 import type { Intent } from '@zoma/platform-api';
-import type { PlaybackFailure, PlayerState, PlayerStatus, PlayerTracks, PlayRequest, SubtitleView } from '@zoma/player';
-import { NO_TRACKS } from '@zoma/player';
+import type { PlaybackFailure, PlayerState, PlayerStatus, PlayerTracks, PlayRequest, StreamStats, SubtitleView } from '@zoma/player';
+import { NO_STATS, NO_TRACKS } from '@zoma/player';
 import { createNavigator } from '@zoma/ui';
 import { describe, expect, it } from 'vitest';
 import type { LiveRow, Timers } from '../live/live-state';
 import type { PlayerLike, ZapList } from './player-state';
-import { DIGITS_MS, INFO_MS, MISSING_MS, TRACKS_ACTION, ZAP_DELAY_MS, createPlayer, liveRequest } from './player-state';
+import { DIGITS_MS, INFO_MS, MISSING_MS, STATS_ACTION, TRACKS_ACTION, ZAP_DELAY_MS, createPlayer, liveRequest } from './player-state';
+import { STATS_MS } from './stream-info';
 import type { SubtitleSize } from './track-menu';
 import { DEFAULT_SUBTITLE_SIZE, DELAY_STEP_MS, MAX_DELAY_MS, MENU_ROWS } from './track-menu';
 
@@ -115,6 +116,14 @@ class FakeController implements PlayerLike {
   subtitleDelay = 0;
   readonly delayFor: Record<string, number> = {};
   private subtitleListeners: ((view: SubtitleView) => void)[] = [];
+  /** What `stats()` answers, and how often it was asked. */
+  statsValue: StreamStats | null = null;
+  statsReads = 0;
+
+  stats(): StreamStats | null {
+    this.statsReads += 1;
+    return this.statsValue;
+  }
 
   subscribeSubtitles(listener: (view: SubtitleView) => void): () => void {
     this.subtitleListeners.push(listener);
@@ -207,6 +216,7 @@ function manualTimers() {
   };
   return {
     timers,
+    now: () => now,
     pending: () => queue.length,
     advance(ms: number): void {
       const end = now + ms;
@@ -227,7 +237,7 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i += 1) await Promise.resolve();
 };
 
-function setup(dir: 'ltr' | 'rtl' = 'ltr', kept: { subtitleSize?: SubtitleSize } = {}) {
+function setup(dir: 'ltr' | 'rtl' = 'ltr', kept: { subtitleSize?: SubtitleSize; outputFormats?: (src: string) => readonly string[] | null } = {}) {
   const list = new FakeList();
   /** Each `tuned` call: the channel's key and its row. */
   const tuned: string[] = [];
@@ -257,6 +267,7 @@ function setup(dir: 'ltr' | 'rtl' = 'ltr', kept: { subtitleSize?: SubtitleSize }
     sized: (size) => sized.push(size),
     ...kept,
     timers: clock.timers,
+    now: clock.now,
   });
   const press = async (...keys: Intent[]): Promise<void> => {
     for (const key of keys) nav.handle(key);
@@ -282,6 +293,27 @@ describe('the player: opening and closing (RELAY step 20a)', () => {
     expect(t.player).toMatchObject({ target: { value: 2 }, playing: { value: 2 }, previous: { value: -1 }, plays: { value: 1 }, info: { value: true } });
     expect(t.player.status.value.state).toBe('opening');
     expect(t.list.asked).toEqual(['x:s1:live:2']);
+  });
+
+  it("asks only for the formats the source's account allows, read again on every play (step 20c2a)", async () => {
+    const asked: string[] = [];
+    let formats: readonly string[] | null = ['m3u8'];
+    const t = setup('ltr', {
+      outputFormats: (src) => {
+        asked.push(src);
+        return formats;
+      },
+    });
+    t.player.show(2);
+    expect(t.controller.plays[0]!.candidates).toEqual([{ url: 'http://panel.test/live/u/p/102.m3u8', container: 'hls' }]);
+    expect(t.controller.plays[0]).toEqual(liveRequest(row(2), ['m3u8']));
+    expect(asked).toEqual(['s1']);
+    // The account's formats came in late (or changed): the next play takes them.
+    formats = null;
+    await t.press('CH_UP');
+    t.clock.advance(ZAP_DELAY_MS);
+    expect(t.controller.plays[1]!.candidates.map((c) => c.container)).toEqual(['ts', 'hls']);
+    expect(asked).toEqual(['s1', 's1']);
   });
 
   it('makes the controller once, on the first play', async () => {
@@ -942,6 +974,53 @@ describe('subtitle files and the subtitle style in the track menu (RELAY step 20
     expect(t.controller.subtitleListening).toBe(1);
     t.player.dispose();
     expect(t.controller.subtitleListening).toBe(0);
+  });
+});
+
+describe('the player: the stream info (RELAY step 20c2a)', () => {
+  it("turns on and off from the info bar's third button, stays through a zap, and goes with the player", async () => {
+    const t = setup();
+    t.player.show(2);
+    t.controller.statsValue = { ...NO_STATS, width: 960, height: 540, decodedFrames: 0, container: 'ts', engine: 'html5', load: 1 };
+    await t.press('RIGHT', 'RIGHT');
+    expect(t.at()).toBe(`player · actions ${STATS_ACTION}`);
+    expect(t.controller.statsReads).toBe(0);
+    await t.press('OK');
+    expect(t.player.streamInfo.shown.value).toBe(true);
+    expect(t.player.streamInfo.info.value).toMatchObject({ width: 960, fps: null });
+    // The bar stays, and the focus on the button.
+    expect(t.player.info.value).toBe(true);
+    expect(t.at()).toBe(`player · actions ${STATS_ACTION}`);
+    // Measured by the player's clock.
+    t.controller.statsValue = { ...t.controller.statsValue, decodedFrames: 25 };
+    t.clock.advance(STATS_MS);
+    expect(t.player.streamInfo.info.value).toMatchObject({ fps: 25 });
+    // A zap: still on.
+    await t.press('CH_UP');
+    t.clock.advance(ZAP_DELAY_MS);
+    expect(t.controller.played()).toEqual([2, 3]);
+    expect(t.player.streamInfo.shown.value).toBe(true);
+    // OK again: off, and nothing is read any more.
+    await t.press('OK');
+    expect(t.player.streamInfo.shown.value).toBe(false);
+    const reads = t.controller.statsReads;
+    t.clock.advance(5 * STATS_MS);
+    expect(t.controller.statsReads).toBe(reads);
+    // On again, then Back: the player closes and the panel with it.
+    await t.press('OK');
+    expect(t.player.streamInfo.shown.value).toBe(true);
+    await t.press('BACK');
+    expect(t.player.open.value).toBe(false);
+    expect(t.player.streamInfo.shown.value).toBe(false);
+    expect(t.clock.pending()).toBe(0);
+  });
+
+  it('reads nothing before the first play made the controller', () => {
+    const t = setup();
+    t.player.streamInfo.toggle();
+    expect(t.made()).toBe(0);
+    expect(t.player.streamInfo.info.value).toBeNull();
+    t.player.streamInfo.hide();
   });
 });
 

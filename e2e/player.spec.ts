@@ -18,7 +18,8 @@ import { RemoteDriver } from './remote-driver';
  * placeholder streams never play on the desktop (no TS, and placeholder HLS never errors), so
  * these tests read what the player asked for (`data-plays`, `data-playing`); the plays
  * themselves are in player-media.spec.ts. Channel 104 is gone from the panel (a 404), for the
- * error card.
+ * error card. The stream info (step 20c2a) waits for a picture here; its figures are in
+ * player-media.spec.ts. The mock's `hls` account allows HLS only (`allowed_output_formats`).
  *
  * "All channels" lists the mock's channels category by category: 101, 102, 110, 111 (Test News),
  * 103, 104, 112, 105, 106, 107, 108, 109, numbered by the panel (`num`).
@@ -63,7 +64,7 @@ function chrome(page: Page) {
 /** Every box of the player's parts on show, to check they sit in the safe area. */
 function boxes(page: Page) {
   return page.evaluate(() =>
-    Array.from(document.querySelectorAll('[data-testid=player-bar], [data-testid=player-card], [data-testid=player-entry], [data-testid=player-reconnecting]')).map((el) => {
+    Array.from(document.querySelectorAll('[data-testid=player-bar], [data-testid=player-card], [data-testid=player-entry], [data-testid=player-reconnecting], [data-testid=player-stream-info]')).map((el) => {
       const r = el.getBoundingClientRect();
       return { id: el.getAttribute('data-testid'), left: r.left, top: r.top, right: r.right, bottom: r.bottom };
     }),
@@ -258,6 +259,92 @@ for (const locale of ['en-US', 'ar-SA'] as const) {
     await remote.expectFocus('tracks/text/0');
     await remote.press('STOP');
     await remote.expectFocus('live/channels/1');
+    expect(errors).toEqual([]);
+  });
+}
+
+test("an account that allows HLS only: the player never asks it for .ts (allowed_output_formats)", async ({ page }) => {
+  const errors = trackErrors(page);
+  /** The live stream URLs the page asked the mock for (Vite's own /src/live/ files are on another host). */
+  const live: string[] = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.host === host && url.pathname.indexOf('/live/') === 0) live.push(url.pathname);
+  });
+  const remote = new RemoteDriver(page);
+  await addXtreamAndWatch(remote, { host, username: 'hls', password: 'hls-test' }, 'locale=en-US');
+  await remote.go('DOWN', 'live/channels/1');
+  await remote.press('OK');
+  const player = page.getByTestId('player');
+  await expect(player).toHaveAttribute('data-plays', '1');
+  await expect(player).toHaveAttribute('data-container', 'hls');
+  await remote.press('CH_UP');
+  await expect(player).toHaveAttribute('data-plays', '2');
+  await expect(player).toHaveAttribute('data-container', 'hls');
+  await expect.poll(() => live.filter((p) => p === '/live/hls/hls-test/110.m3u8').length).toBeGreaterThan(0);
+  expect(live).toContain('/live/hls/hls-test/102.m3u8');
+  // The mock refuses .ts to this account (403): the player never tried it.
+  expect(live.filter((p) => p.slice(-5) !== '.m3u8')).toEqual([]);
+  await remote.press('BACK');
+  await remote.expectFocus('live/channels/2');
+  expect(errors).toEqual([]);
+});
+
+for (const locale of ['en-US', 'ar-SA'] as const) {
+  test(`the stream info: the info bar's third button, the format while the stream opens, kept through a zap, gone with the player, in ${locale}`, async ({ page }) => {
+    const errors = trackErrors(page);
+    const catalog = locale === 'ar-SA' ? AR : EN;
+    const next = locale === 'ar-SA' ? 'LEFT' : 'RIGHT';
+    const remote = new RemoteDriver(page);
+    await addXtreamAndWatch(remote, { host, username: U, password: P }, `locale=${locale}`);
+    await remote.go('DOWN', 'live/channels/1');
+    await remote.press('OK');
+    const player = page.getByTestId('player');
+    await remote.expectFocus('player/actions/0');
+    // The info bar's third button.
+    await remote.go(next, 'player/actions/1');
+    await remote.go(next, 'player/actions/2');
+    expect(await text(page, 'player-stats')).toBe(catalog['player.streamInfo']);
+    await expect(player).toHaveAttribute('data-stats', 'false');
+    await remote.press('OK');
+    await expect(player).toHaveAttribute('data-stats', 'true');
+    await remote.expectFocus('player/actions/2');
+    const info = page.getByTestId('player-stream-info');
+    // The placeholder streams never show a picture: the panel waits, with the format the player tries.
+    await expect(info).toHaveAttribute('data-picture', 'false');
+    expect(stripIsolates((await info.locator('h2').textContent()) ?? '')).toBe(catalog['player.streamInfo']);
+    expect(stripIsolates((await info.locator('.stream-info__note').textContent()) ?? '')).toBe(catalog['player.info.waiting']);
+    // Desktop Chromium refuses the .ts form: the .m3u8 is tried next.
+    const format = page.getByTestId('stream-info-format');
+    await expect(format.locator('.stream-info__value')).toHaveText('HLS', { timeout: 10_000 });
+    await expect(format.locator('.stream-info__value')).toHaveAttribute('dir', 'ltr');
+    expect(stripIsolates((await format.locator('.stream-info__label').textContent()) ?? '')).toBe(catalog['player.info.format']);
+    // The top-start corner of the safe area: the left in English, the right in Arabic.
+    const box = await info.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.y).toBe(SAFE.top);
+    if (locale === 'ar-SA') expect(box!.x + box!.width).toBe(SAFE.right);
+    else expect(box!.x).toBe(SAFE.left);
+    await expectInSafeArea(page);
+    await page.screenshot({ path: path.join(SHOTS, `player-stream-info-${locale === 'ar-SA' ? 'ar' : 'en'}.png`), animations: 'disabled' });
+
+    // A zap: the panel stays.
+    await remote.press('CH_UP');
+    await expect(player).toHaveAttribute('data-playing', '2');
+    await expect(player).toHaveAttribute('data-stats', 'true');
+    // The button again: off.
+    await remote.expectFocus('player/actions/2');
+    await remote.press('OK');
+    await expect(player).toHaveAttribute('data-stats', 'false');
+    await expect(info).toHaveCount(0);
+    // On again, then Back: the player closes, and the next play starts without the panel.
+    await remote.press('OK');
+    await expect(player).toHaveAttribute('data-stats', 'true');
+    await remote.press('BACK');
+    await remote.expectFocus('live/channels/2');
+    await remote.press('OK');
+    await expect(player).toHaveAttribute('data-plays', '3');
+    await expect(player).toHaveAttribute('data-stats', 'false');
     expect(errors).toEqual([]);
   });
 }
