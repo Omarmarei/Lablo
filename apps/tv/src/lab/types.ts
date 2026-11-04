@@ -45,6 +45,8 @@ export interface LabContext {
   readonly previous: { readonly localStorage: LabMarker | null; readonly indexedDB: LabMarker | null };
   /** S3: hash of this TV's device ID, or null. */
   readonly deviceIdHash: string | null;
+  /** ms from the page's start to the lab's script running: this launch's boot (S0, S6's cold start). */
+  readonly bootMs: number;
   readonly worker: LabWorkerClient;
 }
 

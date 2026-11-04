@@ -47,6 +47,7 @@ const device: Check = {
       value: {
         ...info,
         labVersion: context.version,
+        bootMs: Math.round(context.bootMs),
         userAgent: navigator.userAgent,
         screen: { width: screen.width, height: screen.height, devicePixelRatio: window.devicePixelRatio, inner: [window.innerWidth, window.innerHeight] },
         cores: typeof nav.hardwareConcurrency === 'number' ? nav.hardwareConcurrency : null,

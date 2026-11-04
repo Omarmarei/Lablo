@@ -12,6 +12,7 @@ import path from 'node:path';
 import type { CdpClient } from './cdp';
 import type { Engine } from './engines';
 import type { TvPlatform } from './scenario';
+import { resetDatabase } from './onboarding';
 import { blankPage, waitForProbe, watchErrors } from './scenario';
 
 /** The lab bundles' folder in the container's /app. */
@@ -55,6 +56,12 @@ export interface LabRun {
   readonly collected: readonly LabRecord[] | null;
   readonly exceptions: readonly string[];
   readonly durationMs: number;
+  /**
+   * The app's database deleted before the lab ran (`ok`, or why not). On a TV the lab has its
+   * own storage; here the app's screens ran on the same file:// origin first and may leave a
+   * source behind (CI's Chromium 68 did, 2026-11-04), where S6 would skip.
+   */
+  readonly reset: string;
 }
 
 /** ES5: the probe runs in Chromium 53. */
@@ -165,14 +172,16 @@ export function readCollected(logDir: string, session: string): LabRecord[] | nu
 
 export async function runLab(client: CdpClient, platform: TvPlatform, url: string, logDir: string, timeoutMs: number): Promise<LabRun> {
   const started = Date.now();
+  const reset = await resetDatabase(client);
   await blankPage(client);
   const watch = watchErrors(client);
+  const erroredOut = labErrorGate(() => watch.errors());
   try {
     await client.send('Page.navigate', { url });
     const done = await waitForProbe<LabState>(
       client,
       LAB_STATE_EXPRESSION,
-      (state) => state.records !== null || state.ready === 'error' || state.bootError.trim() !== '' || watch.erroredOut(),
+      (state) => state.records !== null || state.ready === 'error' || state.bootError.trim() !== '' || erroredOut(),
       timeoutMs,
     );
     const session = done.state?.session ?? null;
@@ -184,6 +193,7 @@ export async function runLab(client: CdpClient, platform: TvPlatform, url: strin
       collected: session === null ? null : readCollected(logDir, session),
       exceptions: watch.errors(),
       durationMs: Date.now() - started,
+      reset,
     };
   } finally {
     watch.stop();
@@ -233,6 +243,14 @@ export const EXPECTED_STATUSES: ReadonlyArray<readonly [string, string]> = [
   ['S7/xhr-redirect', 'pass'],
   ['S7/fetch-redirect', 'pass'],
   ['S7/xhr-redirect-no-cors', 'fail'],
+  // The host mock's own small catalog: S6 measures and judges nothing.
+  ['S6/source', 'info'],
+  ['S6/ingest', 'info'],
+  ['S6/search', 'info'],
+  ['S6/keys', 'info'],
+  ['S6/guide', 'info'],
+  ['S6/cold-start', 'info'],
+  ['S6/cleanup', 'info'],
 ];
 
 const keyOf = (record: LabRecord): string => `${record.spike ?? ''}/${record.check ?? ''}`;
@@ -245,10 +263,27 @@ export function isExpectedRefusal(error: string): boolean {
   return /No 'Access-Control-Allow-Origin' header/.test(error) && /\/__lab\/(echo|redirect)\?[^ ]*cors=0/.test(error);
 }
 
+/** How long an unexpected error may stand before the wait for the run gives up (scenario.ts's grace). */
+export const LAB_ERROR_GRACE_MS = 2_000;
+
+/**
+ * The lab run's "errored out": like `watchErrors().erroredOut()`, but S7's own refusals don't
+ * count. They come mid-run since S6 runs after S7, and the run goes on for minutes after them.
+ */
+export function labErrorGate(errors: () => readonly string[], now: () => number = Date.now, graceMs = LAB_ERROR_GRACE_MS): () => boolean {
+  let firstAt: number | null = null;
+  return () => {
+    if (!errors().some((error) => !isExpectedRefusal(error))) return false;
+    firstAt ??= now();
+    return now() - firstAt > graceMs;
+  };
+}
+
 export function evaluateLab(run: LabRun, engine: Pick<Engine, 'major'>): string[] {
   const failures: string[] = [];
   const { state } = run;
-  if (state === null) return ['the lab page never answered the probe'];
+  if (run.reset !== 'ok') failures.push(`the app's database was not deleted before the lab: ${run.reset}`);
+  if (state === null) return [...failures, 'the lab page never answered the probe'];
   if (state.bootError.trim() !== '') failures.push(`boot error: ${state.bootError.trim()}`);
   if (state.ready === 'error') failures.push(`the lab could not start: ${state.error ?? ''}`);
   for (const exception of run.exceptions) if (!isExpectedRefusal(exception)) failures.push(`uncaught: ${exception}`);

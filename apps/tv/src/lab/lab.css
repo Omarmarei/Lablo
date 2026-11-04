@@ -195,3 +195,15 @@
   background: var(--color-accent);
   color: var(--color-text-on-accent);
 }
+
+/* S6 (RELAY step 15b): the app's live screen over the lab while S6 presses keys on it. */
+.lab-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  width: var(--screen-width);
+  height: var(--screen-height);
+  overflow: hidden;
+  background: var(--color-bg);
+}

@@ -965,6 +965,14 @@ All spikes run in a "Zoma Lab" build that posts results to the log collector. Th
 - **In Chromium 53, 56 and 68** (the old-engine harness, reporting through `host.docker.internal` to a mock on the host), every check answered as expected. The bundle filled exactly the built-ins each engine lacks: 8 on 53, 6 on 56, 4 on 68. A whole lab run took about a second on Chromium 53.
 - **Not yet:** S6, S9–S11 (step 15b), the player batteries S4, S5 and S8 (step 15c), DB8 for S2 on webOS, and any real TV (step 16).
 
+**Built in step 15b: S6, scale** (`apps/tv/src/lab/spikes/s6.ts`, runbook `docs/runbooks/lab.md` "S6: scale"):
+- **The app's own code at scale:** the lab bundle now carries the app's data engine with its three real workers and the app's live screen (`live-stage.tsx` mounts it over the lab screen). Lab main grew from 131.9 to 195.5 KB of its own code; the app's bundle is unchanged.
+- **A source without an account in the lab:** the mock's `/__lab/source` hands out its test account's M3U and a guide moved by whole days to the TV's clock (the scale guide is dated around 2026-11-01, and an ingest keeps only the days around now).
+- **The checks:** the M3U ingest, six searches, 35 key presses on the live screen while a refresh runs (each timed to the painted focus, then the refresh is cancelled), the guide's filtered ingest, a cached cold start, and cleanup. They judge against the table above only at scale (200k items, the 150 MB guide); against the mock's small catalog they report `info`.
+- **Cold start, measured in two parts:** this launch's boot (navigation to the lab's script: the bundle's parse and run) plus a fresh data engine to the live screen's painted rows. A reload in the middle of a run would have had to resume the run after it. A real relaunch on the TV may still differ (code caches, flash reads): step 16 should time one app launch with a source stored too.
+- **Safety:** S6 stores its data in the lab's copy of the app database, skips (and deletes nothing) where it finds a source that isn't its own (the dev app's origin under `pnpm dev`), and deletes the database when it is done.
+- **On the desktop at scale** (`pnpm lab:scale`, desktop Chromium, 2026-11-04): ingest 200,000 items in 1.9 s, searches ≤ 6 ms, presses during the refresh ≤ 18 ms, the 150 MB guide in 5.2 s, cold start 194 ms. Every criterion passes by a wide margin there; the TVs decide (step 16).
+
 ---
 
 ## 6. Phased roadmap

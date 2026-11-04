@@ -358,6 +358,19 @@ The Zoma Lab (docs/runbooks/lab.md) asks these to answer spikes S1 and S7. They 
 
 `labLine` is written separately in the mock and in the lab (`apps/tv/src/lab/probes.ts`); `test/lab-probes.test.ts` checks that both agree.
 
+### The lab's scale source (RELAY step 15b)
+
+Spike S6 ingests a real source through the app's data engine, and the lab still holds no test account: the mock hands one out (`src/lab-source.ts`).
+
+| Request | Answer |
+|---|---|
+| `GET /__lab/source?around=MS` | JSON for a TV whose clock reads MS (epoch ms; default the mock's clock): `m3u` (the `get.php` M3U of the first active test account that hasn't expired), `items` (the entries it lists: live channels, movies and episodes), `live`, and `guide` (`url`, `static`, `bytes`, `gzBytes`, `shiftDays`, `from`, `to`). 503 when no test account is active. |
+| `GET /__lab/guide.xml.gz?days=D` | The guide with every `start` and `stop` moved D whole days (at most 3,650 either way), gzipped: the `--xmltv` file when the mock has one, otherwise the guide it generates from its catalog. |
+
+- **Why the guide moves:** an EPG ingest keeps only the days around the TV's clock, and the scale guide is dated around 2026-11-01 (`tools/fixtures`). The `--xmltv` guide moves by the whole days that put its middle on the TV's day; the generated one, built around the mock's clock, by the days from the mock's day to the TV's. Whole days keep each programme at its time of day, and the offsets (`+0300`) stay as written.
+- **Built before the answer:** `/__lab/source` prepares the moved `--xmltv` guide (gunzip, move, gzip: about 4 s for the 150 MB guide on this PC), so the lab's guide timing never includes the mock's work. The last prepared guide stays in memory (about 10 MB).
+- **For S6 at scale:** `pnpm mock --catalog .cache/fixtures/catalog.json --xmltv .cache/fixtures/xmltv-150mb.xml.gz` (after `pnpm fixtures`).
+
 ## Public test server (later, RELAY step 44, needs Omar)
 
 The plan puts this mock on a small VPS with its own clearly labelled test-signal domain, as the store testers' account. Run it there from the Docker image with `--no-lab-logs`, behind HTTPS, and never link it from the app. Consider fetching the open movies there, so testers see real films. The redirect chains use server-side tokens, so `/__mock/redirect` can't be used as an open redirect.

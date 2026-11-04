@@ -28,6 +28,7 @@ import {
 } from './faults';
 import { DEFAULT_LAB_LOG_DIR, registerLabLogs } from './lab-logs';
 import { NO_CORS_REQUESTS, registerLabProbes } from './lab-probes';
+import { registerLabSource } from './lab-source';
 import { attributionHtml } from './open-movies';
 import type { MediaSource } from './media';
 import { PlaceholderMedia } from './media';
@@ -243,8 +244,9 @@ export async function buildServer(options: MockServerOptions = {}): Promise<Mock
   registerXmltv(app, state);
   registerStreams(app, state);
   if (options.labLogDir !== null) registerLabLogs(app, options.labLogDir ?? DEFAULT_LAB_LOG_DIR);
-  // The lab's probes store nothing, so they stay on with the collector off.
+  // The lab's probes and its scale source store nothing, so they stay on with the collector off.
   registerLabProbes(app);
+  registerLabSource(app, state);
 
   // ---- Control endpoints --------------------------------------------------------------------
   app.get<{ Params: { token: string; n: string } }>('/__mock/redirect/:token/:n', async (request, reply) => {
