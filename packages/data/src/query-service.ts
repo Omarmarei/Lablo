@@ -16,6 +16,8 @@
  * - `shortEpg` is the fallback for a focused live channel no guide matches (step 9c): its Xtream
  *   panel's `get_short_epg`, kept 30 min per channel (`short-epg.ts`). The app asks only after
  *   600 ms of focus. A matched channel gets its guide's now/next, with no request.
+ * - `account` re-checks a source's Xtream account for the player's error card (step 20a,
+ *   `account-check.ts`).
  * - `profile` and `editProfile` read and change the profile document for the app (step 13b):
  *   onboarding's answers and the sources the user added. An edit is a read-modify-write in one
  *   transaction, like the ingest worker's favourites update, so neither can lose the other's.
@@ -36,7 +38,10 @@ import type { ByteTransport } from './bytes';
 import type { LoadedProfile, ProfileEdit } from './profile';
 import { applyProfileEdit, loadProfile, updateProfile } from './profile';
 import type { ShortEpgRequest } from './short-epg';
-import { ShortEpgCache, shortEpgNowNext, shortEpgTarget } from './short-epg';
+import { ShortEpgCache, shortEpgNowNext, shortEpgTarget, textTransport } from './short-epg';
+import type { AccountCheck } from './account-check';
+import { checkAccount, sourceAccount } from './account-check';
+import type { SourceRecord } from './profile';
 
 /** Where a search hit (or any item) is stored. */
 export interface ItemRef {
@@ -159,6 +164,7 @@ export class QueryService {
       nowNext: (arg: { keys: ContentKey[]; at?: number }): Promise<EpgNowNext[]> => this.nowNext(arg.keys, arg.at),
       epgStatus: (): Promise<EpgStatus> => this.epgStatus(),
       shortEpg: (req: ShortEpgRequest): Promise<ShortEpgNowNext> => this.shortEpg(req),
+      account: (arg: { src: string }): Promise<AccountCheck | null> => this.account(arg.src),
       profile: (): Promise<LoadedProfile | null> => this.profile(),
       editProfile: (edit: ProfileEdit): Promise<boolean> => this.editProfile(edit),
     };
@@ -320,6 +326,26 @@ export class QueryService {
     const answer = await this.panelEpg.programmes(req.key, target);
     const nn = shortEpgNowNext(answer.programmes, req.at ?? this.clock());
     return { ...base, now: nn.now, next: nn.next, from: 'panel', cached: answer.cached };
+  }
+
+  /**
+   * How the account behind source `src` stands, for the player's error card (step 20a): its Xtream
+   * panel's answer (`auth: false` when the panel refuses the login), or `null` when the source
+   * isn't stored, has no panel (a plain playlist), or the worker has no network. Rejects with the
+   * panel's other errors (`XtreamError`, `NetworkError`), which never hold the URL.
+   */
+  async account(src: string): Promise<AccountCheck | null> {
+    const transport = this.options.transport;
+    if (transport === undefined) return null;
+    const profile = await this.profile();
+    const sources = profile === null ? null : (profile.doc as { sources?: unknown }).sources;
+    const records: SourceRecord[] = Array.isArray(sources) ? (sources as SourceRecord[]) : [];
+    for (const record of records) {
+      if (record.id !== src) continue;
+      const account = sourceAccount(record);
+      return account === null ? null : checkAccount(account, textTransport(transport));
+    }
+    return null;
   }
 
   /**

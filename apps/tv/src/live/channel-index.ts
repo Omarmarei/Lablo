@@ -82,6 +82,22 @@ export class ChannelIndex {
     return null;
   }
 
+  /**
+   * The row of the first item of chunk `ref`, or -1 when the list doesn't hold it (the player's
+   * number entry reads whole chunks, RELAY step 20a).
+   */
+  firstRow(ref: ChunkRef): number {
+    for (let p = 0; p < this.parts.length; p += 1) {
+      const part = this.parts[p]!;
+      if (part.src !== ref.src || part.catIdx !== ref.catIdx) continue;
+      if (!(ref.chunk >= 0 && ref.chunk < part.chunks.length)) return -1;
+      let row = this.starts[p] ?? 0;
+      for (let c = 0; c < ref.chunk; c += 1) row += Math.max(0, part.chunks[c] ?? 0);
+      return row;
+    }
+    return -1;
+  }
+
   /** The chunks rows `[from, to)` are stored in, in row order, each once. */
   chunksFor(from: number, to: number): ChunkRef[] {
     const out: ChunkRef[] = [];

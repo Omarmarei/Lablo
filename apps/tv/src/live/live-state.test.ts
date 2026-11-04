@@ -217,7 +217,7 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i += 1) await Promise.resolve();
 };
 
-async function setup(options: { rootBack?: RootBackPolicy; engine?: FakeEngine; settle?: boolean } = {}) {
+async function setup(options: { rootBack?: RootBackPolicy; engine?: FakeEngine; settle?: boolean; play?: (index: number) => void } = {}) {
   const engine = options.engine ?? new FakeEngine();
   const clock = manualTimers(T0);
   const exitApp = vi.fn();
@@ -226,6 +226,7 @@ async function setup(options: { rootBack?: RootBackPolicy; engine?: FakeEngine; 
     engine,
     now: clock.now,
     timers: clock.timers,
+    ...(options.play === undefined ? {} : { play: options.play }),
   });
   if (options.settle !== false) await flush();
   const at = (): string => {
@@ -552,7 +553,7 @@ describe('the live screen', () => {
     expect(webos.at()).toBe('live · rail 0');
   });
 
-  it('marks the channel OK picks (the player plugs in here)', async () => {
+  it('marks the channel OK picks', async () => {
     const t = await setup();
     await t.press('DOWN', 'OK');
     expect(t.live.selected.value).toBe('x:s1:live:0-1');
@@ -700,5 +701,113 @@ describe('the live screen', () => {
     t.live.activity();
     t.live.activity();
     expect(t.engine.activity).toBe(2);
+  });
+});
+
+/** Answers every chunk read the engine holds. */
+function answerChunks(engine: FakeEngine): void {
+  for (const held of engine.held.chunk!.splice(0)) {
+    const [src, catIdx, chunk] = String(held.arg).split('|');
+    held.resolve(chunkItems(src!, Number(catIdx), Number(chunk)));
+  }
+}
+
+describe("the player's list (RELAY step 20a)", () => {
+  it('opens the player on the row OK picks, loaded or not', async () => {
+    const opened: number[] = [];
+    const t = await setup({ play: (index) => opened.push(index) });
+    await t.press('DOWN', 'OK');
+    expect(opened).toEqual([1]);
+    expect(t.live.selected.value).toBe('x:s1:live:0-1');
+    t.engine.hold.add('chunk');
+    t.live.focusRow(1100);
+    await t.press('OK');
+    // Its chunk is still on its way: the player reads the row itself.
+    expect(t.live.row(1100)).toBeNull();
+    expect(opened).toEqual([1, 1100]);
+    expect(t.at()).toBe('live · channels 1100');
+  });
+
+  it("reads a row the window never showed, sharing a read that's on its way", async () => {
+    const t = await setup();
+    expect(t.live.list.count()).toBe(1205);
+    t.engine.hold.add('chunk');
+    const first = t.live.list.load(1100);
+    const second = t.live.list.load(1100);
+    await flush();
+    expect(t.engine.chunkCalls.filter((c) => c === 's1|2|2')).toEqual(['s1|2|2']);
+    answerChunks(t.engine);
+    const [a, b] = await Promise.all([first, second]);
+    expect(a).toEqual({ item: expect.objectContaining({ name: 'Channel s1 2-1097' }), number: 1101 });
+    expect(b).toEqual(a);
+    expect(t.live.list.row(1100)).toEqual(a);
+    expect(await t.live.list.load(1100)).toEqual(a);
+    expect(await t.live.list.load(-1)).toBeNull();
+    expect(await t.live.list.load(1205)).toBeNull();
+  });
+
+  it("finds a channel by its number: the provider's, else its place, from the guessed chunk outwards", async () => {
+    const t = await setup();
+    // News is numbered 7–9 by the provider, every other row by its place in "All channels": rows
+    // 1 and 7 both say 8, and the guessed row's chunk is read first.
+    expect(await t.live.list.find(8)).toBe(7);
+    expect(await t.live.list.find(4)).toBe(3);
+    const before = t.engine.chunkCalls.length;
+    expect(await t.live.list.find(1101)).toBe(1100);
+    expect(t.engine.chunkCalls.slice(before)).toEqual(['s1|2|2']);
+    // No row is numbered 1: every chunk is read, the guessed one first, then outwards.
+    const from = t.engine.chunkCalls.length;
+    expect(await t.live.list.find(1)).toBe(-1);
+    expect(t.engine.chunkCalls.slice(from)).toEqual(['s1|2|1', 's1|2|2', 's2|0|0']);
+    expect(await t.live.list.find(0)).toBe(-1);
+    expect(await t.live.list.find(9999)).toBe(-1);
+    expect(await t.live.list.find(1205)).toBe(1204);
+    // In News, the provider's numbers.
+    await t.press('LEFT', 'DOWN', 'OK');
+    expect(t.live.category.value).toBe(1);
+    expect(await t.live.list.find(8)).toBe(1);
+    expect(await t.live.list.find(1)).toBe(-1);
+    // In a category, a row without a provider number keeps its place in "All channels".
+    await t.press('LEFT', 'DOWN', 'OK');
+    expect(t.live.category.value).toBe(2);
+    expect(await t.live.list.find(4)).toBe(0);
+    expect(await t.live.list.find(1203)).toBe(1199);
+    expect(await t.live.list.find(1204)).toBe(-1);
+  });
+
+  it('drops a search when the list reloads under it', async () => {
+    const t = await setup();
+    t.engine.hold.add('chunk');
+    const found = t.live.list.find(1);
+    await flush();
+    t.live.reload();
+    for (const held of t.engine.held.chunk!.splice(0)) held.resolve([]);
+    expect(await found).toBe(-1);
+  });
+
+  it('asks now/next for one channel, once while it is on its way, and again when it is old', async () => {
+    const t = await setup();
+    const key = 'x:s1:live:2-1097';
+    t.engine.hold.add('nowNext');
+    t.live.list.askGuide(key);
+    t.live.list.askGuide(key);
+    expect(t.engine.nowNextCalls.filter((keys) => keys.indexOf(key) !== -1)).toEqual([[key]]);
+    t.engine.held.nowNext!.splice(0).forEach((held) => held.resolve([{ key, epgSrc: 'g1', channel: key, method: 'id', now: null, next: null }]));
+    await flush();
+    expect(t.live.list.guide(key)).toMatchObject({ key, epgSrc: 'g1' });
+    t.live.list.askGuide(key);
+    expect(t.engine.nowNextCalls.filter((keys) => keys.indexOf(key) !== -1)).toHaveLength(1);
+    t.clock.advance(GUIDE_TTL_MS);
+    t.live.list.askGuide(key);
+    expect(t.engine.nowNextCalls.filter((keys) => keys.indexOf(key) !== -1)).toHaveLength(2);
+  });
+
+  it('has no rows to zap through until the list is ready', async () => {
+    const engine = new FakeEngine();
+    engine.hold.add('profile');
+    const t = await setup({ engine });
+    expect(t.live.list.count()).toBe(0);
+    expect(await t.live.list.load(0)).toBeNull();
+    expect(await t.live.list.find(1)).toBe(-1);
   });
 });

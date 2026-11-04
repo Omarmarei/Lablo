@@ -57,7 +57,7 @@ export function shortEpgTarget(url: string, source: ShortEpgSource): ShortEpgTar
 }
 
 /** Text over a byte transport (fetch already undoes a `Content-Encoding: gzip`). */
-function textTransport(bytes: ByteTransport): TextTransport {
+export function textTransport(bytes: ByteTransport): TextTransport {
   return {
     async get(url) {
       const res = await bytes.get(url);

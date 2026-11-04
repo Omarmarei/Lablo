@@ -1,56 +1,58 @@
-# Zoma IPTV: relay leg 38 opening prompt
+# Zoma IPTV: relay leg 39 opening prompt
 
-You are leg 38 of relay run `iptv-20261101-214120`, building **Zoma IPTV**. It is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 39 of relay run `iptv-20261101-214120`, building **Zoma IPTV**. It is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 - **Earlier legs:**
   - Leg 0 planned the work. Leg 6 did no project work.
-  - Legs 1–36 did steps 1–17, except step 16's Samsung part and its by-hand TV checks (PRs #1–#35).
-- **Leg 37 did step 18, the Html5Engine.** It merged as PR **#36** (merge commit **`1d4fea2`**, branch kept).
-  - CI on `d77fe00`: verify 9 m 55 s, media 7 m 44 s, engines 11 m 35 s. The first engines run hit the known Chromium 53 "DevTools … did not answer" flake; `gh run rerun <id> --failed` passed.
-  - Main's CI on `b53f000` (PR #35) finished green on all three jobs. Main's CI on `1d4fea2` started at the merge; leg 37 didn't check it.
+  - Legs 1–37 did steps 1–18, except step 16's Samsung part and its by-hand TV checks (PRs #1–#36).
+- **Leg 38 did step 19, the AvplayEngine.** It merged as PR **#37** (merge commit **`1834451`**, branch kept).
+  - CI on `dd14341`: verify 9 m, media 10 m, engines 11 m, all green on the first run.
+  - Main's CI on `1d4fea2` (PR #36) was **red in `media`**: step 18's VOD e2e raced (fixed in PR #37, see below). Main's CI on `1834451` was still running when leg 38 ended (run `41836126783`).
+- **Step 19b was split out** `[needs Omar]`: the TV smoke install on a Samsung TV.
 
-## Your step: 19, AvplayEngine (RELAY.md is the spec; architecture.md §2 is the design)
-**Skip step 16:** it stays open until Omar says the Samsung route is ready or has time at the TV.
+## Your step: 20, Player UI (RELAY.md is the spec; architecture.md §2 is the design)
+**Skip steps 16 and 19b:** they stay open until Omar says the Samsung route is ready or has time at the TV.
 
-RELAY.md, step 19: "AvplayEngine (5.3). AvplayEngine plus the redirect probe (from S4), suspend/restore, screensaver, key registration; unit tests with an AVPlay fake. Done when: the tests pass and a TV smoke install plays a mock channel."
+RELAY.md, step 20: "Player UI (5.4). Info bar, debounced zapping, number entry, previous channel, track menu, subtitle overlay (SRT/VTT/ASS, size + timing), aspect/zoom, stream info, reconnect badge, error cards, start-on-last-channel. Done when: e2e passes and the click-through checklist is in the handover."
 
-1. **Check for existing work first:** `git log --oneline -50`, and grep for `AvplayEngine` and `resolveUrl`. AvplayEngine doesn't exist yet; `resolveUrl` is the controller's hook for the probe.
+1. **Check for existing work first:** `git log --oneline -50`, and grep for `PlayerController` and `createEngines` under `apps/tv/src` and `packages/ui/src`. Today only the dev-only harness (`apps/tv/src/playback/playback-main.ts`) uses them; nothing plays in the app.
 
-2. **The "TV smoke install" can't happen in this leg:** there is no Samsung TV yet (step 16's Samsung route waits for Omar: the account, the certificate, the Remote Test Lab tunnel, or the used 2018 set), and S4/S8 never ran on AVPlay (`docs/spikes/results.md`: skip everywhere).
-   - **Recommended:** do the code and the unit tests, merge, and split the smoke install out as `19b [needs Omar]` (or fold it into step 21's on-TV check), the way legs 22 and 31 split steps. Record the split in RELAY.md.
-   - Don't stop needs-you just for this: the code and tests are a full leg.
+2. **Split step 20 first.** It is far more than one leg. Split it the way legs 22, 27 and 31 split steps (11a–c, 13a–c, 14a–c, 15a–e), record the split in RELAY.md, and do the first part. A suggested split (your judgement):
+   - **20a: the player in the app.**
+     - The player route and its stage. On Tizen it needs a transparent `html`/`body` (AVPlay paints under the page; the stage has its `<object>` and a hidden `<video>`).
+     - `Platform.createEngines(stage)` and a `PlayerController` with `resolveUrl: platform.resolveUrl`, `screenSaver: (a) => void platform.setScreenSaver(a)`, `online` and `checkAccount`.
+     - Live: play a channel from the live screen, the info bar, debounced zapping (350 ms) with CH+/CH−, number entry (1.5 s), previous channel, the reconnect badge and the error cards. The four categories and their codes come from `classifyFailure`.
+     - The lifecycle: `onLifecycle` hidden/visible to the engine's `suspend`/`resume`, with the watchdog resting while hidden.
+     - e2e on the desktop (`pnpm e2e`, with the 404 trick for fast errors) and on real media (`pnpm e2e:media`).
+   - **20b: tracks and subtitles.**
+     - The track menu, the language preferences (`ar`/`ara`/`arb`/`Arabic`/`عربي` → `ar`), and the per-channel choice.
+     - The subtitle overlay: an SRT/VTT/ASS parser in `core`, size and timing, `dir=auto` per cue. It is fed by external files and by AVPlay's new `cue` engine event.
+   - **20c: the rest.** Aspect/zoom, stream info (`engine.stats()`), start-on-last-channel (≤ 4 s to the first frame), persisting `SourceMemory` and the redirect memory in the profile, and the click-through checklist for Omar.
 
-3. **The contract the engine honours:** `packages/player/src/engine.ts`, architecture.md §2 "Built in step 17" and "Built in step 18".
-   - `load(source, token, opts)` resolves once playback started and rejects with a `PlaybackError` before that; later failures are `error` events; every event carries its load's token.
-   - `stop()` closes the connection (AVPlay `stop()` + `close()`); a pending `load` rejects with `{ kind: 'app', code: 'ABORTED' }`.
-   - **Error kinds:** AVPlay's `PLAYER_ERROR_*` codes map to `network`, `decode`, `unsupported` (only when sure: definitive, never retried on the URL), `app`. Keep the engine's own code in `code`.
-   - `firstFrame` once per load; `buffering`/`playing` around waits after it; `ended`.
-   - `positionMs()` = AVPlay `getCurrentTime()`.
-   - **`suspend()`/`resume()`** on Tizen = AVPlay `suspend()`/`restore()` (keeps the player; webOS's Html5Engine closes and reopens instead).
-   - Html5Engine (`packages/player/src/html5-engine.ts`) is the model: read it, its tests and `fake-video.ts` (a fake that keeps state changes and their events apart in time).
+3. **The engine contract** (`packages/player/src/engine.ts`; architecture.md §2 "Built in step 17/18/19"):
+   - The controller takes one engine. **Tizen's `createEngines` returns one `FallbackEngine`** (AVPlay, then the `<video>` for HLS AVPlay refuses). It returns `Html5Engine` alone where there is no `webapis.avplay` (the desktop, the old-engine harness). webOS and the browser return one `Html5Engine`.
+   - Events: `firstFrame`, `buffering`/`playing`, `ended`, `tracks`, `error`, and the new **`cue`** (`text`, `durationMs`), which only AVPlay sends (`caps.deliversSubtitleText`).
+   - `suspend`/`resume`: Tizen keeps the player (`restore`); webOS closes and reopens. The controller's side (resting the watchdog while hidden) is still to do.
+   - **`Platform.resolveUrl`** (new, optional) is set on Tizen only, and `ControllerOptions.screenSaver` is new.
 
-4. **Reuse what exists:**
-   - `packages/platform-tizen/src/avplay.ts` (AVPlay typed for the lab's S4/S8);
-   - `apps/tv/src/lab/avplay-player.ts` and `avplay-deps.ts` (the lab's AVPlay wrapper);
-   - `packages/platform-tizen/src/tv-settings.ts` (`tizenSetScreenSaver`) and `keys.ts` (`registerTizenKeys`, which already registers the media and colour keys: check what "key registration" still needs);
-   - architecture.md §2 "Redirect handling (Tizen)": an XHR GET aborted at `readyState 2`, read `responseURL`; per source `redirectMode` `unknown`/`none`/`redirects`; re-probe when AVPlay hasn't prepared within 8 s. The controller calls `resolveUrl(url, src, fresh)` before each load (`fresh` on the re-probe rung).
+4. **UI rules:**
+   - Components stay hook-free.
+   - Text only from the catalogs (`appI18n`, lint `zoma/no-hard-coded-text`); provider text through `isolateText`.
+   - CSS uses physical properties only (rtlcss mirrors them).
+   - A new screen needs `data-screen`/`zone`/`index` on its root and `showFocus` (memory `iptv-throttled-e2e`).
+   - TV code is `lib: ES2017`. Probe the TV bundle for new core-js modules (memory `iptv-tv-bundle-polyfills`). Avoid `JSON.stringify`, `new RegExp`, `.split(` and fields named like built-ins in TV code.
+   - Today main has **219 core-js modules on both platforms**, **199.0 KB own code on Tizen, 187.5 KB on webOS**.
 
-5. **Where it lives and how it's wired:**
-   - **AvplayEngine in `platform-tizen`** (architecture.md; the only package allowed `webapis`/`tizen`). It imports `player` types and helpers.
-   - **`createEngines(stage)` on Tizen** today returns `[new Html5Engine(createStageVideo(stage))]`. Step 19 makes it `[AvplayEngine, Html5Engine]`: AVPlay renders below the HTML, so it needs an `<object type="application/avplayer">` in the stage, and the player route needs transparent `html`/`body` (architecture.md §2).
-   - **Open design point (the leg's judgement):** "Html5Engine is the HLS fallback, used when AVPlay fails with specific error codes". The controller takes one engine. Options: a small composite engine in `player` that switches to the second engine for an HLS URL after such an error, or leaving the fallback for step 20. Say which in the handover.
-   - **The screensaver** (Samsung wants it back on whenever playback pauses or stops): a callback the controller or the app calls (ADR-008: platform needs reach the controller as callbacks defined in `player`).
-   - **The redirect probe:** a `resolveUrl` implementation in `platform-tizen` (XHR on a TV, so a fake XHR in tests), remembered per source.
-
-6. **Unit tests:** an AVPlay fake (the `webapis.avplay` surface the engine uses) that separates each state change from its callback in time, like `fake-video.ts`. Error mapping, stop and its abort, the first frame, suspend/restore, the probe (redirect, none, re-probe, errors). Mutation-check the guards (pattern below).
-
-7. **The TV bundle:** AvplayEngine lands in the Tizen main bundle only (webOS must not grow: the build's platform-isolation check). Probe for new core-js modules (memory `iptv-tv-bundle-polyfills`; leg 37's figure: main has 219 core-js modules on both platforms, 187.3 KB tizen / 187.5 KB webOS own code). Avoid `JSON.stringify`, `new RegExp`, `.split(` and fields named like built-ins.
-
-8. **Finish:** `pnpm verify`, then a PR. Merge on green with `gh pr merge --merge` after checking that the run's `headSha` is the PR's head. Tick step 19, add a progress-log row, record the merge, write the handover. Run `verify:engines` locally only if the build, polyfills, workers or boot code change.
+5. **Finish:**
+   - `pnpm verify`, then a PR. Merge on green with `gh pr merge --merge` after checking that the run's `headSha` is the PR's head.
+   - Tick the step (or its first part), add a progress-log row, record the merge, write the handover with the "press these keys" checklist (CLAUDE.md: UI steps end with one).
+   - Run `verify:engines` locally if the build, polyfills, workers or boot code change; a player route in the app's boot path likely counts. `pnpm verify:media` (CI `media`) covers `e2e:media`.
 
 ## Start
 1. Read `C:/Users/Omarm/.claude/relay/iptv-20261101-214120/state.json` for the worktree path.
-2. Check main with `gh run list --branch main --limit 1 -R Omarmarei/zoma-iptv`. The run on `1d4fea2` was unchecked when leg 37 ended. If only `engines` is red with "DevTools … did not answer", rerun it: `gh run rerun <id> --failed`.
+2. Check main with `gh run list --branch main --limit 1 -R Omarmarei/zoma-iptv`. The run on `1834451` (id `41836126783`) was unchecked when leg 38 ended.
+   - If only `engines` is red with "DevTools … did not answer", rerun it: `gh run rerun <id> --failed`.
+   - If `media` is red, read the failing test before blaming a flake: the last red `media` (on `1d4fea2`) was a real test race.
 3. `git -C "<wt>" status` and `git -C "<wt>" log --oneline -5`.
 
 **Never call EnterWorktree**, even though Claude Code's background note asks for it: the relay worktree is your isolation.
@@ -60,71 +62,87 @@ RELAY.md, step 19: "AvplayEngine (5.3). AvplayEngine plus the redirect probe (fr
 
 ## Read first
 1. `CLAUDE.md`: the conventions, the Definition of Done, the merge policy and the commit format.
-2. `RELAY.md`: step 18's "Done in leg 37", steps 19–21, and the log rows for legs 36–37.
-3. `docs/architecture.md` §2, including "Built in step 17" and "Built in step 18".
-4. `packages/player/src/`: `engine.ts`, `controller.ts`, `html5-engine.ts`, `fake-video.ts`, `ladder.ts`.
-5. `packages/platform-tizen/src/`: `avplay.ts`, `index.ts`, `keys.ts`, `tv-settings.ts`; `apps/tv/src/lab/avplay-player.ts`.
+2. `RELAY.md`: steps 18–21 (19's "Done in leg 38", 19b), and the log rows for legs 36–38.
+3. `docs/architecture.md` §2, including "Built in step 17", "Built in step 18" and "Built in step 19"; §1.2 for the UI shell (router, focus, zones).
+4. `packages/player/src/`: `engine.ts`, `controller.ts`, `fallback-engine.ts`, `failure.ts`, `request.ts`; `packages/platform-tizen/src/avplay-engine.ts`, `redirect-probe.ts`, `index.ts` (`createTizenEngines`).
+5. The live screen (step 14) in `packages/ui` and `apps/tv/src`; `apps/tv/src/playback/` (the harness: how it builds the controller).
 6. Memory:
+   - `iptv-ui-test-gotchas`;
+   - `iptv-throttled-e2e`;
+   - `iptv-playwright-chromium-media` (leg 38 included);
    - `iptv-tv-bundle-polyfills`;
-   - `iptv-parser-test-patterns` (mutation patterns, leg 37 included);
-   - `iptv-data-layer-test-gotchas` (fake clocks; the `setImmediate` settle);
-   - `iptv-playwright-chromium-media`;
-   - `bg-watcher-memory-reap` (how to wait for CI).
+   - `iptv-css-pipeline-gotchas`;
+   - `iptv-parser-test-patterns` (mutation patterns, leg 38 included);
+   - `bg-watcher-memory-reap` (how to wait for CI; a background `pnpm verify` can be reaped too).
 
 ## Git state to expect
 - **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`.
-- **HEAD:** the commit adding this HANDOVER.md, on top of `f1630bb` ("docs: record PR #36's merge"). It is pushed, and the tree is clean.
-- **main** has `1d4fea2` (PR #36). The branch is ahead by `f1630bb` and the handover commit, both docs; they go to main with step 19's PR.
+- **HEAD:** the commit adding this HANDOVER.md, on top of `c837695` ("docs: record PR #37's merge"). It is pushed, and the tree is clean.
+- **main** has `1834451` (PR #37). The branch is ahead by `c837695` and the handover commit, both docs; they go to main with step 20's PR.
 - **The main checkout** (`D:/Claude Code PlayGround/IPTV`) was not touched.
-- **Gitignored but present:** `node_modules`, `.cache/*` (media included), `dist/` (leg 37's `pnpm build:tv` from `pnpm verify`), and `artifacts/` (lab logs; probe scripts such as `poly-probe.py` and `make-size-probe3.py`).
+- **Gitignored but present:**
+  - `node_modules`, `.cache/*` (media included);
+  - `dist/` (leg 38's `pnpm build:tv` from the interrupted `pnpm verify`; current code);
+  - `artifacts/` (lab logs; probe scripts such as `poly-probe.py`, `make-size-probe3.py`).
 - **On the TV:** the lab `com.zoma.iptv.lab` 0.1.1. The CLI device `tv` is `prisoner@192.168.1.8:9922`.
 - **Outside the repo:** the webOS Simulator zips and AppImages in `D:/tools/webos-sim/`, and the image `zoma-webos-sim:local`. Never commit or push them (LG's license).
 
-## Facts and decisions from leg 37 (step 18)
-- **Html5Engine** (`packages/player/src/html5-engine.ts`):
-  - **First frame** = a picture size plus a clock that moved since `playing`, polled every 50 ms. **Sound with no picture for 5 s of media** fails as `unsupported`/`NO_PICTURE`: a codec the TV can't decode is the TV's limit, not a provider timeout. Audio-only streams (radio) need a request hint first (step 37).
-  - **Errors:** `MEDIA_ERR_SRC_NOT_SUPPORTED` is `unsupported` only when `canPlayType` says '' for TS, HLS or MP4 (`CONTAINER_MIME`). **The LG TV answers '' for `video/x-matroska` and plays MKV**, so MKV and `other` count as `network`.
-  - **Tracks:** `audioTracks` first, the new track on before the others go off; webOS passes luna `selectTrack` as the fallback, used only when the element has no list or ignores the switch. `caps.trackSwitch` is `reliable`, `unreliable` or `none`.
-  - **`suspend`/`resume`** close and reopen (live at the edge, VOD where it was). Muted autoplay when a desktop browser refuses sound.
-- **`Platform.createEngines(stage)`** (`EngineFactory` in `platform-api`), implemented by all three adapters; `createStageVideo(stage)` makes the one `<video>`. The app wires it in step 20, so the engine sits unused in both TV bundles (+7 KB minified, no new core-js module).
-- **Step 17's ladder changed:** a URL that failed definitively stays out of the session's switch rung. Found by the first real-browser run: `.ts` unsupported, `.m3u8` timing out, and the switch going back to `.ts` made the verdict "this TV can't play this".
-- **The playback harness:** `apps/tv/playback.html` (Vite only; the TV builds have just the app and lab entries) → `apps/tv/src/playback/playback-main.ts`, `window.__ZOMA_PLAYBACK__` (types in `harness.ts`, importable by e2e). `apps/tv` now depends on `@zoma/player`.
-- **e2e:**
-  - `e2e/playback.spec.ts` (`pnpm e2e`): a channel the panel lacks fails in about 3 s as the provider's fault.
-  - `e2e/playback-media.spec.ts` in the new **`pnpm e2e:media`** (Playwright project `playback-media`, gated like `lab-media`; now part of `pnpm verify:media`, CI job `media`): live (TS refused, HLS remembered), VOD from 20 s with its connection closed on stop, Xtream catch-up as HLS, MKV audio switch, 4K HEVC as `TV-UNSUPPORTED`.
-- **Left for later:** the controller's side of the lifecycle and wiring the player into the app (step 20); catch-up candidates `.ts` then `.m3u8` (step 25: `streamCandidates` gives catch-up one URL, and the desktop and HLS-only TVs need the `.m3u8` form); audio-only streams (step 37); the engine on the LG TV itself (step 21).
-- **The three riskiest changes in PR #36:**
-  1. `Platform` gained a required `createEngines`; Html5Engine now sits in both TV bundles (unused until step 20).
-  2. The ladder's switch rung skips definitively failed URLs (a step 17 behaviour change).
-  3. `verify:media` (CI `media`) now also runs the playback e2e on real media.
+## Facts and decisions from leg 38 (step 19)
+- **AvplayEngine** (`packages/platform-tizen/src/avplay-engine.ts`):
+  - **Open:** `open`, `setListener`, `setDisplayRect`, `prepareAsync`, then `play`. `load` resolves at `play`.
+  - **The first frame** is the clock moving while `PLAYING`. A VOD start is a `seekTo` after `play`; the jump is no frame.
+  - **The 302 freeze:** an 8 s prepare timeout fails as `timeout`/`PREPARE_TIMEOUT`, and the ladder's re-probe rung follows.
+  - **Errors:** only `PLAYER_ERROR_NOT_SUPPORTED_*` is `unsupported`; `GENEREIC` is `decode`; wrong calls are `app`; everything else is `network`.
+  - **Suspend/resume:** AVPlay's `suspend`/`restore`, falling back to close and reopen. VOD comes back at its position, or at the start a jump was still going to.
+  - **Tracks:** by stream index. Subtitle text arrives as `cue` events while a text track is shown.
+- **The redirect probe** (`createRedirectProbe` = `Platform.resolveUrl` on Tizen):
+  - It is an XHR aborted at `readyState` 2.
+  - It remembers `none`/`redirects` per source, in memory (the profile is 20c's job). A `redirects` source is probed before every play.
+  - HTTP ≥ 400 rejects as `http`, so the card says `PRV-HTTP-404`.
+  - No answer within 5 s gives the URL as it is.
+- **`FallbackEngine`** (`player`): the design decision for "Html5Engine is the HLS fallback". The default rule is `hlsRefused` (HLS refused as `unsupported`). The TV tells which codes really call for it (step 21).
+- **The screensaver:** `ControllerOptions.screenSaver(allowed)`, called on changes only. It stays away while the stream opens, plays, buffers or reconnects, and comes back when it is paused, ended, failed or stopped.
+- **Key registration:** nothing new. Every key the player handles was already registered.
+  - Samsung's MTS, Caption and PictureSize keys would need new intents (step 20b/20c may want them).
+  - A new intent makes S10's key battery ask every TV for it, webOS included.
+- **Fixed:** step 18's VOD e2e "stop closes its connection". A fast CI runner downloaded the whole 12 MB file, and the browser closed the connection itself. The mock now holds the response after 4 MB (`?mock_fault=stall:after_bytes=4000000`).
+- **Not done:** `setStreamingProperty` (4K mode on older sets, adaptive HLS) and `setBufferingParam` (step 39's "Fast start / Stable").
+- **Unknown until a Samsung TV runs it:** AVPlay's real error names, `suspend` while preparing, and the probe's connection on a one-connection account.
+- **The three riskiest changes in PR #37:**
+  1. Tizen's `createEngines` now returns `FallbackEngine(AvplayEngine, Html5Engine)`, and the Tizen main bundle grew 11.7 KB. The code is unused until step 20 and untested on a Samsung TV.
+  2. `Platform` gained an optional `resolveUrl`, and `EngineEvent` gained `cue`. Every consumer's `switch` must handle `cue` (the controller ignores it).
+  3. Step 18's VOD e2e now plays through the mock's stall fault.
 
 ## Gotchas and lessons
-**New in leg 37** (also in memory):
-- **Real browser vs fakes:** placeholder-byte HLS never errors, it only never plays (an open timeout, about 40 s through the ladder). Fast error-path e2e: a channel id the mock lacks (a 404 errors in about 1 s).
-- **A VOD MP4 holds one mock connection while it plays** (`GET /__mock/connections` → `{ zoma: 1 }`) and drops it right after stop: a cheap e2e check that stop closes the connection.
-- **Vitest:** a test that `void`s a `load()` which a later stop rejects causes an "Unhandled Rejection" error; attach a catch (`quiet()` in `html5-engine.test.ts`).
-- **Equivalent mutant:** a guard made redundant by a downstream guard (a second `suspend` meets `close()`'s `loaded` flag and a zeroed clock). Replace it with a mutant that matters.
-- **Python heredocs ate backslashes again:** `\\n` became a newline in a mutate-script tuple, and `\\'` came out as a bare `'` in a TS title (an esbuild transform error). Write scripts with the Write tool; use double-quoted TS strings for titles with apostrophes.
-- **The Bash tool blocks `sleep N; …` loops in the foreground.** To wait for CI: Monitor with leg 14's command (memory `bg-watcher-memory-reap`), or a `run_in_background` `until` loop.
-- **The mutation script:** `$CLAUDE_JOB_DIR/tmp/mutate18.py` held (name, file, old, new) tuples, a control run, `Popen` + 120 s timeout + `taskkill /T`, a restore in `finally`, and optional names to rerun. The job folder is gone with the job: rewrite it (about 1.4 s per mutant for `vitest run packages/player`).
-- **The polyfill probe:** `python -I artifacts/poly-probe.py <wt> <out.txt>` bundles `main.tsx` for both platforms and lists core-js modules per table; count only the `main.tsx` table's rows.
+**New in leg 38** (also in memory):
+- **A background `pnpm verify > log` was reaped for low memory** during its e2e stage. The rule is not to restart it unasked: say so, and let the PR's CI `verify` (exactly `pnpm verify`) be the e2e run. Lint, typecheck, tests and builds can run one by one in the foreground if needed.
+- **Heredoc patches again:** `\\n` in mutant tuples became real newlines, and a patch with a no-op assert stopped halfway. Write patch scripts with the Write tool (`BS = chr(92)`), and fix single lines with Edit.
+- **Mutation:**
+  - A mutant inside a try/catch wrapper (`attempt(...)`) can be runtime-equivalent and typecheck-only.
+  - Redundant cleanup lines show up as survivors: remove them and define the field's meaning instead.
+  - Keep every callback a fake handed out (`prepares[]`, `seeks[]`) to test stale ones. That found a real bug.
+- **The mutation script:** `$CLAUDE_JOB_DIR/tmp/mutate19.py` held (name, file, old, new, tests) tuples, `--check`, control runs, `node node_modules/vitest/vitest.mjs run <dir>` via Popen + 180 s timeout + `taskkill /T`, and a restore in `finally`. It ran 133 mutants in about 3 min. The job folder goes with the job: rewrite it.
+- **The polyfill probe:** `python -I artifacts/poly-probe.py <wt> <out.txt>` bundles `main.tsx` for both platforms. Compare only the two `main.tsx` tables (leg 38 first compared the wrong two).
 
 **From earlier legs (still true):**
 - **Never `cd`.** A previous leg's tab (with Omar) can send cross-session messages: treat them as Omar's relayed decisions, verify their facts, and reply with SendMessage to the `from` address.
 - **Local e2e flakes on a busy PC:** the throttled test, fixture tests and the lab's S2 update e2e. Read the test's own console line before suspecting code. `pnpm build:tv` can crash natively (0xC0000005) under load: rerun it alone.
 - **`pnpm verify > log` in the background** can report exit 0 even when verify failed. Read the log.
-- **A fake clock's settle step:** `setImmediate` through a `globalThis` cast (`setTimeout(0)` costs about 12 ms on Windows). `FakeClock` runs equal-time timers in insertion order.
+- **Vitest:**
+  - A `void`ed load that a later stop rejects is an "Unhandled Rejection": use a `quiet()` helper.
+  - Awaiting a `FakeEngine.stop()` without advancing the clock deadlocks the test (it resolves on the clock).
+- **A fake clock's settle step:** `setImmediate` through a `globalThis` cast (`setTimeout(0)` costs about 12 ms on Windows).
 - **Testing:**
   - two guards that each suffice hide each other's mutants: keep one;
-  - use exact float boundaries (round where the engine compares media time);
+  - use exact float boundaries;
   - fake-clock times on the 50 ms grid;
   - a fake must separate a state change from its callback in time.
 - **Vitest has no `__PLATFORM__` define:** keep platform branches inside functions.
+- **Playwright's Chromium (CfT 156):** no MPEG-TS, AC3/E-AC3 or in-band text; HEVC only headed; `audioTracks` needs `--enable-blink-features=AudioVideoTracks`; placeholder HLS never errors (use a 404 channel for fast error e2e). `pnpm e2e:media` locally needs `ZOMA_E2E_MEDIA=1` for `playwright test --project playback-media -g …`.
 - **The DevTools flake** ("did not answer") on the old-engine harness: rerun the self-test or the CI job.
-- **Playwright's Chromium (CfT 156):** no MPEG-TS, AC3/E-AC3 or in-band text; HEVC only headed; `audioTracks` needs `--enable-blink-features=AudioVideoTracks`.
 - **The lab under `pnpm dev`** shares the app's origin: use port 5174 for a manual lab run.
 - **The Write tool turns `\uXXXX` escapes into raw characters.**
-- **Waiting for CI:** wait about 20 s after `gh pr create`, check `gh pr checks <n>` once in the foreground, then Monitor with leg 14's command verbatim (only the PR number changes). Never `<(`.
+- **Waiting for CI:** wait about 20 s after `gh pr create`, check `gh pr checks <n>` once in the foreground, then Monitor with leg 14's command verbatim (only the PR number changes; it is in memory `bg-watcher-memory-reap`). Never `<(`.
 - **Code rules:** components stay hook-free; CSS uses physical properties only; TV code is `lib: ES2017`. Never edit the engines Docker image's `RUN apt-get` line.
 - **Dependencies** must be at least 2 weeks old, transitive ones included. Never weaken lint.
 - **Commits:** scoped `git add`, then `git commit -F -` ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` and the harness's `Claude-Session` line.
@@ -132,23 +150,23 @@ RELAY.md, step 19: "AvplayEngine (5.3). AvplayEngine plus the redirect probe (fr
 
 ## Verified vs not
 - **Verified:**
-  - Locally: `pnpm verify` (lint, typecheck, 2,570 tests, both TV builds, 52 e2e); `pnpm e2e:media` 5/5, twice.
-  - The player: 112 tests; 68/68 mutants caught.
-  - PR #36's CI green (engines on a rerun), merged as `1d4fea2`. Main's CI on `b53f000` green.
+  - Locally: lint, typecheck, 2,639 tests and both TV builds (from `pnpm verify`, whose e2e stage was cut off by the memory reap). The fixed VOD e2e passed 3/3 alone.
+  - platform-tizen 124 tests, player 127. Mutation 133/133 caught.
+  - The Tizen and webOS main bundles have the same 219 core-js modules.
+  - PR #37's CI green on all three jobs (`verify` ran the full e2e). Merged as `1834451`.
 - **Not done:**
-  - Main's CI on `1d4fea2` is unchecked.
-  - `verify:engines` wasn't run locally (no build, polyfill, worker or boot change; CI's engines job passed).
-  - Nothing plays in the app yet (step 20 wires the player). Html5Engine hasn't run on the LG TV (step 21).
+  - Main's CI on `1834451` is unchecked. The red `media` on `1d4fea2` is superseded by the fix.
+  - `verify:engines` wasn't run locally: the CI `engines` job passed, and no build, polyfill, worker or boot code changed.
+  - Nothing plays in the app yet (step 20). Html5Engine hasn't run on the LG TV (step 21). AvplayEngine hasn't run on any Samsung TV (19b).
   - The Simulators weren't re-run with 16a's code. S6 at scale on the TV.
   - The by-hand TV checks: S10, S11 by ear, and S5's suspend and soak.
   - All of Samsung. The Dev Mode extend from the PC is unconfirmed.
 - **Migrations and deploys:** N/A (no backend until step 29).
 
 ## Open decisions and gates
-- **Step 19's TV smoke install** needs a Samsung TV: split it out as `[needs Omar]` (recommended) or fold it into step 21.
-- **Step 19's HLS fallback design** (a composite engine or later): the leg's judgement; write it down.
-- **Step 16's remaining parts wait for Omar:**
-  - **Samsung:** the account, the certificate (tv-setup.md 3.2), the RTL tunnel session, and the used 2018 set.
+- **Step 20's split** (the leg's judgement; suggested above).
+- **Steps 16 and 19b wait for Omar:**
+  - **Samsung:** the account, the certificate (tv-setup.md 3.2), the RTL tunnel session, and the used 2018 set. 19b also needs the player in the app (step 20) or a lab spike for the engine.
   - **About 30 minutes at the LG TV** for S10, S11 by ear, and S5's suspend and soak.
   - S6 at scale on the TV needs no person.
 - **Later, from the spikes:**
@@ -158,15 +176,15 @@ RELAY.md, step 19: "AvplayEngine (5.3). AvplayEngine plus the redirect probe (fr
   - the accessibility route (TTS needs Audio Guidance on);
   - pre-buffered zapping (S8, Samsung).
 - **Later cleanups:** drop Chromium 53 (ADR-012); a memory signal for the tier (step 41).
-- **Later gates:** steps 21, 34, 44, 46 and 47. Before the first store submission: the final app IDs (the lab's too) and real icons.
-- **Relay cap:** 60 legs (state.json). Leg 37 was the 37th.
+- **Later gates:** steps 19b, 21, 34, 44, 46 and 47. Before the first store submission: the final app IDs (the lab's too) and real icons.
+- **Relay cap:** 60 legs (state.json). Leg 38 was the 38th.
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
 - Submit the **Samsung Seller Office Partner application ASAP** (Samsung Gulf). It takes weeks, and Samsung in the GCC and Canada depends on it, and so does a GCC Beta Test.
 - **"Zoma" trademark clearance** (US, CA, AE, SA) and domains. These also decide the final app IDs.
 - `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` was widened with his authorisation on 2026-11-02. Prune it when the relay run ends if he wants it tighter.
 - **At the TV next time:** read Dev Mode's "Remain Session" (was the PC extend real?).
-- **Seventeen CLAUDE.md gaps** are waiting for his word:
+- **Eighteen CLAUDE.md gaps** are waiting for his word:
   1. `@zoma/data`'s extra entries;
   2. `pnpm epg:report` and `pnpm fonts` in the Commands table;
   3. the CSS pipeline and gate in the `build:tv` row;
@@ -183,5 +201,6 @@ RELAY.md, step 19: "AvplayEngine (5.3). AvplayEngine plus the redirect probe (fr
   14. the `pnpm device` row and the `.wgt` note should point at `docs/runbooks/tv-setup.md`;
   15. the webOS Simulator in Docker (`tools/engines/webos-sim/`, tv-setup.md 2.4) and the paired LG TV (`pnpm device … webos tv`);
   16. the Chromium 53 cheat sheet's heading (since ADR-012 no supported TV runs 53, but the build still targets it), and the `build:tv` row should mention the webOS ACG check (`requiredACG`, `tools/build/src/acg.ts`);
-  17. **new (leg 37):** a `pnpm e2e:media` row (`verify:media` is now fixtures + test:media + lab:media + e2e:media), the playback harness `apps/tv/playback.html` (`window.__ZOMA_PLAYBACK__`) in the `pnpm dev` row, and `Platform.createEngines(stage)`.
+  17. a `pnpm e2e:media` row (`verify:media` is now fixtures + test:media + lab:media + e2e:media), the playback harness `apps/tv/playback.html` (`window.__ZOMA_PLAYBACK__`) in the `pnpm dev` row, and `Platform.createEngines(stage)`;
+  18. **new (leg 38):** platform-tizen's `AvplayEngine` and `createRedirectProbe` (`Platform.resolveUrl`), `FallbackEngine` in `player`, and the `ZOMA_E2E_MEDIA=1` switch for running one `playback-media` test locally.
 - **Secrets:** none pending. The LG Dev Mode passphrase from 2026-11-04 needs no reminder (Omar said so).

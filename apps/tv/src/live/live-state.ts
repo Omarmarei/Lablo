@@ -6,6 +6,7 @@ import type { Platform } from '@zoma/platform-api';
 import type { Focus, FocusBinding, Navigator, Screen, ScreenSpec, ZoneSpec } from '@zoma/ui';
 import { LAYOUT, SCREEN, bindFocus, createNavigator, fits } from '@zoma/ui';
 import type { FocusedChannel } from '../data/engine';
+import type { ZapList } from '../player/player-state';
 import { storedSources } from '../onboarding/engine-loader';
 import type { ChunkRef, ListPart } from './channel-index';
 import { ChannelIndex, chunkId } from './channel-index';
@@ -15,7 +16,7 @@ import { ChannelIndex, chunkId } from './channel-index';
  * virtual channel list, on the shared data engine.
  *
  *   rail      ("All channels", then each source's live categories; OK shows one)
- *   channels  (the category's channels: a virtual list; OK is where the player plugs in)
+ *   channels  (the category's channels: a virtual list; OK opens the player, step 20a)
  *   retry     (one button, only when the categories couldn't be read)
  *
  * - **Data:** the profile gives the sources, the query worker each source's live categories. The
@@ -28,6 +29,8 @@ import { ChannelIndex, chunkId } from './channel-index';
  *   dialog on Tizen and in the browser, the launcher on webOS).
  * - `pending` counts the data requests in flight, the 600 ms focus wait included: 0 means the
  *   screen's workers are done with the database (the old-engine walk waits for it).
+ * - **The player** (step 20a) zaps through the category on show: `list` reads its rows (whole
+ *   chunks), finds a channel by number and asks now/next for channels the list never showed.
  */
 
 /** Sizes, all layout constants (no DOM measuring). live.css uses the same numbers. */
@@ -101,6 +104,8 @@ export interface LiveOptions {
   readonly timers?: Timers;
   /** The navigator's clock (the click pairing). */
   readonly navNow?: () => number;
+  /** OK on row `index` of the list on show: the player opens it (step 20a). */
+  readonly play?: (index: number) => void;
 }
 
 export interface Live {
@@ -117,13 +122,17 @@ export interface Live {
   readonly clock: ReadonlySignal<number>;
   /** Data requests in flight (the focus wait included). */
   readonly pending: ReadonlySignal<number>;
-  /** The channel OK last picked (the player opens it from step 20 on). */
+  /** The channel OK last picked (the player opens it). */
   readonly selected: ReadonlySignal<ContentKey | null>;
+  /** The list on show, for the player's zapping and number entry. */
+  readonly list: ZapList;
   readonly exitRequested: ReadonlySignal<boolean>;
   /** Row `index` of the list on show, or `null` while its chunk loads. */
   row(index: number): LiveRow | null;
   /** A channel's now/next (`undefined`: not asked yet). */
   guide(key: ContentKey): EpgNowNext | undefined;
+  /** Focuses row `index` of the list (the channel the player played last). */
+  focusRow(index: number): void;
   /** A remote key was pressed (a running refresh pauses). */
   activity(): void;
   /** Reads the sources and categories again (the failure screen's "Try again"). */
@@ -201,7 +210,8 @@ export function createLive(options: LiveOptions): Live {
   let index = new ChannelIndex([]);
   /** Loaded chunks, oldest use first (a Map keeps insertion order). */
   const chunks = new Map<string, CatalogItem[]>();
-  const loadingChunks = new Map<string, number>();
+  /** Chunk reads running, with the load they belong to. */
+  const loadingChunks = new Map<string, { readonly seq: number; readonly done: Promise<void> }>();
   const guides = new Map<ContentKey, GuideEntry>();
   const askingGuides = new Map<ContentKey, number>();
   let guideTimer: unknown = null;
@@ -246,12 +256,16 @@ export function createLive(options: LiveOptions): Live {
     return { from: top - CHANNELS_VISIBLE, to: top + 2 * CHANNELS_VISIBLE, showFrom: top, showTo: top + CHANNELS_VISIBLE };
   };
 
-  const loadChunk = (ref: ChunkRef, seq: number): void => {
+  /** Reads chunk `ref` for load `seq`, or joins its read already running; settles once it is in. */
+  const loadChunk = (ref: ChunkRef, seq: number): Promise<void> => {
     const id = chunkId(ref);
-    loadingChunks.set(id, seq);
-    track(() => engine.chunk(ref.src, LIVE_KIND, ref.catIdx, ref.chunk)).then(
+    const running = loadingChunks.get(id);
+    if (running !== undefined && running.seq === seq) return running.done;
+    let done: Promise<void> | null = null;
+    const mine = (): boolean => loadingChunks.get(id)?.done === done;
+    done = track(() => engine.chunk(ref.src, LIVE_KIND, ref.catIdx, ref.chunk)).then(
       (items) => {
-        if (loadingChunks.get(id) !== seq) return;
+        if (!mine()) return;
         loadingChunks.delete(id);
         if (disposed || seq !== loadSeq) return;
         chunks.set(id, items);
@@ -259,11 +273,13 @@ export function createLive(options: LiveOptions): Live {
         afterChange();
       },
       (error: unknown) => {
-        if (loadingChunks.get(id) === seq) loadingChunks.delete(id);
+        if (mine()) loadingChunks.delete(id);
         // The next move of the window asks again.
         if (!disposed) console.warn('A channel chunk could not be read', error);
       },
     );
+    loadingChunks.set(id, { seq, done });
+    return done;
   };
 
   /** Keeps the chunks the window needs and drops the least recently used beyond `CHUNK_CACHE`. */
@@ -310,6 +326,11 @@ export function createLive(options: LiveOptions): Live {
       if (askingGuides.has(key) || keys.indexOf(key) !== -1 || !guideStale(key, now)) continue;
       keys.push(key);
     }
+    requestGuides(keys, now);
+  };
+
+  /** Asks now/next for `keys` (none of them asked already). */
+  const requestGuides = (keys: ContentKey[], now: number): void => {
     if (keys.length === 0) return;
     const seq = loadSeq;
     for (const key of keys) askingGuides.set(key, seq);
@@ -368,12 +389,69 @@ export function createLive(options: LiveOptions): Live {
       const seq = loadSeq;
       for (const ref of needed) {
         const id = chunkId(ref);
-        if (!chunks.has(id) && loadingChunks.get(id) !== seq) loadChunk(ref, seq);
+        if (!chunks.has(id) && loadingChunks.get(id)?.seq !== seq) void loadChunk(ref, seq);
       }
       scheduleGuides();
     }
     followFocus(nav.snapshot());
   }
+
+  /** Row `i` of the list on show, reading its chunk when needed (the player's zapping). */
+  const loadRow = (i: number): Promise<LiveRow | null> => {
+    const known = rowAt(i);
+    if (known !== null) return Promise.resolve(known);
+    const at = index.locate(i);
+    if (at === null || disposed || status.value !== 'ready') return Promise.resolve(null);
+    return loadChunk(at, loadSeq).then(() => rowAt(i));
+  };
+
+  /**
+   * The row of the channel numbered `n` in the list on show (`-1`: none), for the player's number
+   * entry. A row's number is its provider's (`chno`), else its place in "All channels", so the row
+   * that place gives is read first, then every chunk from that one outwards: a cached chunk costs
+   * nothing, any other one read.
+   */
+  const findNumber = async (n: number): Promise<number> => {
+    const shown = entry();
+    if (shown === undefined || status.value !== 'ready' || !(n > 0) || index.count === 0) return -1;
+    const seq = loadSeq;
+    const list = index;
+    const guess = Math.min(Math.max(n - 1 - shown.allStart, 0), list.count - 1);
+    const refs = list.chunksFor(0, list.count);
+    const home = list.locate(guess);
+    let first = 0;
+    for (let i = 0; i < refs.length; i += 1) if (home !== null && chunkId(refs[i]!) === chunkId(home)) first = i;
+    const order: ChunkRef[] = [];
+    for (let d = 0; d < refs.length; d += 1) {
+      if (first + d < refs.length) order.push(refs[first + d]!);
+      if (d > 0 && first - d >= 0) order.push(refs[first - d]!);
+    }
+    for (const ref of order) {
+      const items = chunks.get(chunkId(ref)) ?? (await track(() => engine.chunk(ref.src, LIVE_KIND, ref.catIdx, ref.chunk)));
+      if (disposed || seq !== loadSeq || list !== index) return -1;
+      const start = list.firstRow(ref);
+      for (let slot = 0; slot < items.length; slot += 1) {
+        const item = items[slot]!;
+        if ((item.chno !== null ? item.chno : shown.allStart + start + slot + 1) === n) return start + slot;
+      }
+    }
+    return -1;
+  };
+
+  /** Now/next for one channel the list didn't ask (the player's info bar). */
+  const askGuide = (key: ContentKey): void => {
+    if (disposed || askingGuides.has(key) || !guideStale(key, clockNow())) return;
+    requestGuides([key], clockNow());
+  };
+
+  const list: ZapList = {
+    count: () => (status.value === 'ready' ? index.count : 0),
+    row: rowAt,
+    load: loadRow,
+    find: findNumber,
+    guide: (key) => guides.get(key)?.value,
+    askGuide,
+  };
 
   const showCategory = (i: number): void => {
     const picked = rail.value[i];
@@ -446,6 +524,7 @@ export function createLive(options: LiveOptions): Live {
         else if (focus.zone === 'channels') {
           const row = rowAt(focus.index);
           if (row !== null) selected.value = row.item.key;
+          if (options.play !== undefined && focus.index >= 0 && focus.index < index.count) options.play(focus.index);
         }
       },
     },
@@ -489,8 +568,10 @@ export function createLive(options: LiveOptions): Live {
     pending,
     selected,
     exitRequested,
+    list,
     row: rowAt,
     guide: (key) => guides.get(key)?.value,
+    focusRow: (i) => home.focus('channels', i),
     activity: () => engine.noteActivity(),
     reload: load,
     dispose(): void {

@@ -45,7 +45,7 @@ export {
 } from './xtream-url';
 
 export type { TextResponse, TextTransport, XtreamErrorCode } from './xtream-base';
-export { XtreamError, xFlag, xId, xInt, xNumber, xText } from './xtream-base';
+export { XtreamError, xFlag, xId, xInt, xNumber, xText, xtreamJson } from './xtream-base';
 export type { XtreamEpgEntry } from './xtream-epg';
 export { decodeShortEpg, xtreamEpgProgrammes, xtreamShortEpg } from './xtream-epg';
 export type {

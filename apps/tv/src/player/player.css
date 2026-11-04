@@ -1,0 +1,235 @@
+/*
+ * The player (RELAY step 20a). The picture is on the stage under the page: Html5Engine's <video>
+ * in #stage, or AVPlay's plane under the whole browser on Tizen. So while the player shows,
+ * nothing above the stage paints a background (html[data-player='on']), and the player's own
+ * parts sit inside the title-safe margins (96 x 54 px). Physical properties for LTR:
+ * postcss-rtlcss mirrors them for Arabic (the badge moves to the right, the number to the left).
+ */
+
+/* The stage: the platform's engines put their picture here (createStage in stage.ts). */
+.player-stage {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: var(--screen-width);
+  height: var(--screen-height);
+  overflow: hidden;
+  visibility: hidden;
+  z-index: 0;
+}
+
+/* The app's screens paint above the stage. */
+#app {
+  position: relative;
+  z-index: 1;
+}
+
+html[data-player='on'],
+html[data-player='on'] body {
+  background: transparent;
+}
+
+html[data-player='on'] .player-stage {
+  visibility: visible;
+}
+
+.player {
+  position: relative;
+  width: var(--screen-width);
+  height: var(--screen-height);
+  overflow: hidden;
+}
+
+/* "Connecting…": in the middle of the picture. */
+.player__wait {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 420px;
+  text-align: center;
+}
+
+.player__wait-text {
+  margin: var(--space-5) 0 0;
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  text-shadow: 0 2px 8px #000;
+}
+
+/* "Reconnecting…": the top-start corner, over the picture that stays. */
+.player__badge {
+  position: absolute;
+  left: var(--safe-x);
+  top: var(--safe-y);
+}
+
+/* The number being typed: the top-end corner. */
+.player__entry {
+  position: absolute;
+  right: var(--safe-x);
+  top: var(--safe-y);
+  min-width: 200px;
+  padding: var(--space-4) var(--space-6);
+  background: var(--color-scrim);
+  border-radius: var(--radius-l);
+  text-align: right;
+}
+
+.player__digits {
+  display: block;
+  font-size: var(--font-size-display);
+  line-height: var(--line-height-display);
+  font-weight: var(--font-weight-bold);
+}
+
+.player__entry-text {
+  margin: var(--space-2) 0 0;
+  color: var(--color-warn);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+/* The info bar: along the bottom of the safe area. */
+.player__bar {
+  position: absolute;
+  left: var(--safe-x);
+  right: var(--safe-x);
+  bottom: var(--safe-y);
+  padding: var(--space-5) var(--space-6);
+  background: var(--color-scrim);
+  border-radius: var(--radius-l);
+}
+
+.player__head {
+  display: flex;
+  align-items: baseline;
+  margin-bottom: var(--space-3);
+}
+
+.player__number {
+  flex: none;
+  min-width: 96px;
+  margin-right: var(--space-5);
+  color: var(--color-accent);
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+  font-weight: var(--font-weight-bold);
+}
+
+/* A provider's name keeps its own direction but starts on the screen's side. */
+.player__name {
+  flex: 1;
+  min-width: 0;
+  margin-right: var(--space-5);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+  font-weight: var(--font-weight-bold);
+}
+
+.player__head .z-badge {
+  flex: none;
+  margin-right: var(--space-5);
+}
+
+.player__clock {
+  flex: none;
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.player__now,
+.player__next {
+  display: flex;
+  align-items: center;
+  height: var(--line-height-body);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.player__now--none {
+  color: var(--color-text-muted);
+}
+
+.player__next {
+  margin-top: var(--space-2);
+  color: var(--color-text-muted);
+}
+
+.player__time {
+  flex: none;
+  margin-right: var(--space-5);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.player__progress {
+  flex: none;
+  width: 160px;
+  margin-right: var(--space-5);
+}
+
+.player__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.player__actions {
+  display: flex;
+  margin-top: var(--space-4);
+}
+
+/* The error card: in the middle, above the info bar. */
+.player__card {
+  position: absolute;
+  left: 440px;
+  right: 440px;
+  top: 150px;
+  padding: var(--space-7);
+  background: var(--color-surface);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-l);
+}
+
+.player__card-title {
+  margin: 0 0 var(--space-4);
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+  font-weight: var(--font-weight-bold);
+}
+
+.player__card-text {
+  margin: 0 0 var(--space-4);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.player__card-detail {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.player__card-code {
+  margin: var(--space-4) 0 var(--space-6);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+.player__card-buttons {
+  display: flex;
+}
+
+.player__card-buttons .z-button {
+  margin-right: var(--space-5);
+}

@@ -17,7 +17,8 @@
  * - `profile` and `editProfile` read and change the profile document through the query worker
  *   (step 13b: onboarding's answers and the sources);
  * - `categories` and `chunk` read a source's categories and one chunk of a category (step 14a:
- *   the live screen reads only the chunks of the rows around its window).
+ *   the live screen reads only the chunks of the rows around its window);
+ * - `account` re-checks a source's Xtream account for the player's error card (step 20a).
  *
  * Workers come from factories, so tests serve the real services over message channels; the
  * app passes the `?worker` imports (`./workers.ts`).
@@ -25,6 +26,7 @@
 
 import type { CatalogItem, ContentKey, ContentKind, DeviceTier, EpgOverride } from '@zoma/core';
 import type {
+  AccountCheck,
   CancelToken,
   CategoryInfo,
   DataClient,
@@ -318,6 +320,15 @@ export class DataEngine {
         );
       }, FOCUS_MS);
     });
+  }
+
+  /**
+   * How the account behind source `src` stands, for the player's error card (step 20a): its
+   * Xtream panel's `player_api.php` answer through the query worker, or `null` for a playlist with
+   * no panel. Rejects with the panel's error.
+   */
+  account(src: string): Promise<AccountCheck | null> {
+    return this.query.call('account', { src });
   }
 
   /** Searches every active generation and resolves the first `names` hits to display names. */

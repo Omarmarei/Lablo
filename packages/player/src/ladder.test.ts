@@ -125,6 +125,21 @@ describe('RetryLadder', () => {
     expect(three.next(stall, 2, true, 4000)).toEqual({ rung: 'switch', candidate: 1, delayMs: 0 });
   });
 
+  it('goes back to a URL that works when the switch lands on one that fails for good (RELAY step 20a)', () => {
+    // The desktop app: the remembered .m3u8 played, its segments broke, and the switch tried the
+    // .ts the browser refuses. The ladder goes on with the .m3u8, never with the .ts again.
+    const l = ladder(2, false);
+    expect(l.next(stall, 0, true, 0)).toEqual({ rung: 'reopen', candidate: 0, delayMs: 0 });
+    expect(l.next(stall, 0, true, 1000)).toEqual({ rung: 'switch', candidate: 1, delayMs: 0 });
+    expect(l.next(unsupported, 1, false, 2000)).toEqual({ rung: 'reopen', candidate: 0, delayMs: 2000 });
+    expect(l.next(stall, 0, true, 3000)).toEqual({ rung: 'reopen', candidate: 0, delayMs: 4000 });
+    expect(l.next(stall, 0, true, 4000)).toBeNull();
+    // Every URL failed for good: nothing to go on with.
+    const both = ladder(2, false);
+    expect(both.next(notFound, 0, false, 0)).toEqual({ rung: 'next-url', candidate: 1, delayMs: 0 });
+    expect(both.next(unsupported, 1, false, 1000)).toBeNull();
+  });
+
   it('switches to the next live URL, wrapping and skipping a dead one', () => {
     const l = ladder(3, false, { ...DEFAULT_WATCHDOG, maxAttempts: 10 });
     expect(l.next(stall, 0, false, 0)).toEqual({ rung: 'next-url', candidate: 1, delayMs: 0 });

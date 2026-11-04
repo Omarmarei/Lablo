@@ -1,0 +1,168 @@
+import type { LifecycleEvent, PlatformCall } from '@zoma/platform-api';
+import type { AccountStatus, EngineCaps, EngineEvent, EngineSource, PlayerEngine } from '@zoma/player';
+import { describe, expect, it, vi } from 'vitest';
+import type { AppPlayerDeps } from './app-player';
+import { appPlayer } from './app-player';
+
+/** An engine whose loads show a frame at once, recording what the controller asks of it. */
+class StubEngine implements PlayerEngine {
+  readonly kind = 'html5' as const;
+  readonly caps: EngineCaps = { maxHeight: 1080, trackSwitch: 'none', deliversSubtitleText: false, preloadSlots: 0, rates: [1] };
+  readonly log: string[] = [];
+  failLoads = false;
+  private listeners: ((e: EngineEvent & { readonly token: number }) => void)[] = [];
+
+  load(source: EngineSource, token: number): Promise<void> {
+    this.log.push(`load ${source.url}`);
+    if (this.failLoads) return Promise.reject({ kind: 'http', code: 'HTTP', status: 404 });
+    for (const listener of this.listeners.slice()) listener({ type: 'firstFrame', token });
+    return Promise.resolve();
+  }
+  play(): void {}
+  pause(): void {}
+  seek(): Promise<void> {
+    return Promise.resolve();
+  }
+  stop(): Promise<void> {
+    this.log.push('stop');
+    return Promise.resolve();
+  }
+  setRect(): void {}
+  getTracks() {
+    return { audio: [], text: [] };
+  }
+  selectAudio(): Promise<boolean> {
+    return Promise.resolve(false);
+  }
+  selectText(): Promise<boolean> {
+    return Promise.resolve(false);
+  }
+  positionMs(): number {
+    return 0;
+  }
+  stats() {
+    return { width: 0, height: 0, bitrate: null, droppedFrames: null };
+  }
+  suspend(): void {
+    this.log.push('suspend');
+  }
+  resume(): void {
+    this.log.push('resume');
+  }
+  on(cb: (e: EngineEvent & { readonly token: number }) => void): () => void {
+    this.listeners.push(cb);
+    return () => undefined;
+  }
+  destroy(): void {}
+}
+
+const flush = async (): Promise<void> => {
+  for (let i = 0; i < 20; i += 1) await Promise.resolve();
+};
+
+const live = (url: string) => ({ key: 'x:s1:live:1', src: 's1', mode: 'live' as const, candidates: [{ url, container: 'ts' as const }] });
+
+function setup(options: { resolveUrl?: AppPlayerDeps['platform']['resolveUrl']; engines?: PlayerEngine[]; refuseScreenSaver?: boolean } = {}) {
+  const engine = new StubEngine();
+  const stages: object[] = [];
+  const screenSaver: boolean[] = [];
+  let lifecycle: ((event: LifecycleEvent) => void) | null = null;
+  const accounts: string[] = [];
+  const account: AccountStatus = { auth: true, status: 'Expired', expDate: null, activeCons: null, maxConnections: null };
+  const platform: AppPlayerDeps['platform'] = {
+    id: 'browser',
+    createEngines: (stage) => {
+      stages.push(stage);
+      return options.engines ?? [engine];
+    },
+    setScreenSaver: (allowed): Promise<PlatformCall> => {
+      screenSaver.push(allowed);
+      return options.refuseScreenSaver === true ? Promise.reject(new Error('refused')) : Promise.resolve('done');
+    },
+    onLifecycle: (listener) => {
+      lifecycle = listener;
+      return () => undefined;
+    },
+    ...(options.resolveUrl === undefined ? {} : { resolveUrl: options.resolveUrl }),
+  };
+  const stage = {} as HTMLElement;
+  const make = appPlayer({
+    platform,
+    stage: () => stage,
+    checkAccount: (src) => {
+      accounts.push(src);
+      return Promise.resolve(account);
+    },
+    online: () => true,
+  });
+  return { engine, stages, screenSaver, accounts, make, stage, lifecycle: (event: LifecycleEvent) => lifecycle?.(event) };
+}
+
+describe('appPlayer (RELAY step 20a)', () => {
+  it('makes one controller on the first call: the stage and the engines once', () => {
+    const t = setup();
+    expect(t.stages).toEqual([]);
+    const first = t.make();
+    expect(t.make()).toBe(first);
+    expect(t.stages).toEqual([t.stage]);
+  });
+
+  it('throws when the platform builds no engine', () => {
+    expect(() => setup({ engines: [] }).make()).toThrow(/browser platform built no playback engine/);
+  });
+
+  it("plays through the platform's redirect probe when it has one", async () => {
+    const probed: string[] = [];
+    const t = setup({
+      resolveUrl: (url, src, fresh) => {
+        probed.push(`${src} ${String(fresh)}`);
+        return Promise.resolve(url.replace('panel', 'edge'));
+      },
+    });
+    void t.make().play(live('http://panel.test/live/u/p/1.ts'));
+    await flush();
+    expect(probed).toEqual(['s1 false']);
+    expect(t.engine.log).toEqual(['stop', 'load http://edge.test/live/u/p/1.ts']);
+    const plain = setup();
+    void plain.make().play(live('http://panel.test/live/u/p/1.ts'));
+    await flush();
+    expect(plain.engine.log).toEqual(['stop', 'load http://panel.test/live/u/p/1.ts']);
+  });
+
+  it('keeps the screensaver away while it plays and lets it back on stop; a refusal changes nothing', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const t = setup({ refuseScreenSaver: true });
+    const controller = t.make();
+    void controller.play(live('http://panel.test/1.ts'));
+    await flush();
+    expect(controller.status.state).toBe('playing');
+    void controller.stop();
+    await flush();
+    expect(t.screenSaver).toEqual([false, true]);
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+
+  it('passes the lifecycle to the controller: hidden suspends the stream, visible resumes it', async () => {
+    const t = setup();
+    const controller = t.make();
+    void controller.play(live('http://panel.test/1.ts'));
+    await flush();
+    t.lifecycle('hidden');
+    t.lifecycle('relaunch');
+    t.lifecycle('visible');
+    expect(t.engine.log.slice(-2)).toEqual(['suspend', 'resume']);
+    expect(controller.status.state).toBe('reconnecting');
+    void controller.stop();
+  });
+
+  it("re-checks the source's account when it gives up on the provider", async () => {
+    const t = setup();
+    t.engine.failLoads = true;
+    const controller = t.make();
+    void controller.play(live('http://panel.test/1.ts'));
+    await flush();
+    expect(t.accounts).toEqual(['s1']);
+    expect(controller.status.failure).toMatchObject({ category: 'provider', code: 'PRV-EXPIRED' });
+  });
+});

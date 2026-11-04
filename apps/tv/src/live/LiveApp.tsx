@@ -6,6 +6,8 @@ import type { ItemBinding, Language, ProgrammeLine } from '@zoma/ui';
 import { Badge, Button, Chip, Dialog, LAYOUT, ListRow, Spinner, VirtualList, connectRemote, resolveLocale, useFocus, useZone } from '@zoma/ui';
 import type { AppI18n } from '../i18n';
 import { appI18n, switchedTag } from '../i18n';
+import type { Player } from '../player/player-state';
+import { PlayerScreen } from '../player/PlayerScreen';
 import type { Live, LiveRow, RailEntry } from './live-state';
 import { LIVE } from './live-state';
 import './live.css';
@@ -53,10 +55,12 @@ function entryLabel(entry: RailEntry, t: AppI18n['t']): { label: string; data: b
   return { label: entry.name, data: true };
 }
 
-function LiveScreen({ live, i18n }: { live: Live; i18n: AppI18n }) {
+function LiveScreen({ live, i18n, player }: { live: Live; i18n: AppI18n; player: Player | null }) {
   const { t } = i18n;
   const { binding, home } = live;
   const focus = useFocus(binding);
+  // The player covers the live screen (step 20a): only its own parts paint, over the stage.
+  if (focus.screen === 'player' && player !== null) return <PlayerScreen live={live} player={player} i18n={i18n} />;
   const status = live.status.value;
   const entries = live.rail.value;
   const shown = live.category.value;
@@ -163,13 +167,15 @@ interface Props {
   readonly live: Live;
   /** The language picked in onboarding (`null`: the TV's). */
   readonly language: Language | null;
+  /** The player OK on a channel opens (step 20a; `null`: the row is only marked). */
+  readonly player?: Player | null;
 }
 
 /**
  * The live screen in the language picked in onboarding, in the TV's region (the formats keep
  * the region's), or the TV's own when none was picked.
  */
-export function LiveApp({ platform, live, language }: Props) {
+export function LiveApp({ platform, live, language, player = null }: Props) {
   const i18n = useSignal<AppI18n | null>(null);
   useEffect(() => {
     let closed = false;
@@ -200,5 +206,5 @@ export function LiveApp({ platform, live, language }: Props) {
       </main>
     );
   }
-  return <LiveScreen live={live} i18n={i18n.value} />;
+  return <LiveScreen live={live} i18n={i18n.value} player={player} />;
 }

@@ -463,6 +463,28 @@ describe('PlayerController: retries and URLs', () => {
     expect(r.engine.loads.map((l) => l.source.container)).toEqual(['ts', 'hls', 'mp4', 'hls', 'ts', 'hls']);
   });
 
+  it('goes back to the .m3u8 that played when the switch to .ts fails for good (RELAY step 20a)', async () => {
+    const unsupported: PlaybackError = { kind: 'unsupported', code: 'MEDIA_ERR_SRC_NOT_SUPPORTED' };
+    const memory = new MemorySourceMemory();
+    memory.remember('s1', 'hls');
+    const script = (recovers: boolean) => (source: EngineSource, n: number): FakeScript => {
+      if (source.container === 'ts') return { loadError: unsupported };
+      if (n === 1) return { error: { atMs: 1000, error: NETWORK } };
+      return recovers && n === 4 ? {} : { loadError: NETWORK };
+    };
+    const back = rig(script(true), { memory });
+    void back.player.play(live(1));
+    await back.clock.advance(20_000);
+    expect(back.engine.loads.map((l) => l.source.container)).toEqual(['hls', 'hls', 'ts', 'hls']);
+    expect(back.player.status).toMatchObject({ state: 'playing', container: 'hls' });
+    // When the .m3u8 never comes back, the verdict is the provider's, not "this TV can't play this".
+    const gone = rig(script(false), { memory });
+    void gone.player.play(live(1));
+    await gone.clock.advance(30_000);
+    expect(gone.engine.loads.map((l) => l.source.container)).toEqual(['hls', 'hls', 'ts', 'hls', 'hls']);
+    expect(gone.player.status).toMatchObject({ state: 'failed', failure: { category: 'provider', code: 'PRV-UNREACHABLE' } });
+  });
+
   it('gives up at once when every URL failed definitively', async () => {
     const r = rig(() => ({ loadError: { kind: 'http', code: 'PROBE', status: 404 } }));
     void r.player.play(live(1));
@@ -635,5 +657,136 @@ describe('PlayerController: the screensaver (RELAY step 19)', () => {
     await r.clock.advance(20_000);
     expect(r.player.status.state).toBe('failed');
     expect(calls).toEqual([false, true]);
+  });
+});
+
+describe('PlayerController: the app lifecycle (RELAY step 20a)', () => {
+  it('suspends a stream that plays while hidden: the watchdog rests, its events are dropped, and show resumes it', async () => {
+    const r = rig();
+    void r.player.play(live(1));
+    await r.clock.advance(500);
+    expect(r.player.status.state).toBe('playing');
+    r.player.hide();
+    expect(r.engine.log.slice(-1)).toEqual(['suspend']);
+    expect(r.engine.open).toBe(0);
+    // Far past the 6 s frozen rule and the open timeout: nothing happens while hidden.
+    await r.clock.advance(30_000);
+    r.engine.emit(1, { type: 'error', error: NETWORK });
+    r.engine.emit(1, { type: 'ended' });
+    expect(r.engine.loads).toHaveLength(1);
+    expect(r.player.status.state).toBe('playing');
+    r.player.show();
+    expect(r.engine.log.slice(-1)).toEqual(['resume']);
+    expect(r.player.status).toMatchObject({ state: 'reconnecting', attempt: 0 });
+    await r.clock.advance(500);
+    expect(r.player.status.state).toBe('playing');
+    expect(r.engine.loads).toHaveLength(1);
+    expect(r.states()).toEqual(['opening', 'playing', 'reconnecting', 'playing']);
+  });
+
+  it('suspends a buffering or paused stream too, and only once', async () => {
+    const buffering = rig(() => ({ bufferingMs: 1000 }));
+    void buffering.player.play(live(1));
+    await buffering.clock.advance(1000);
+    expect(buffering.player.status.state).toBe('buffering');
+    buffering.player.hide();
+    buffering.player.hide();
+    await buffering.clock.advance(30_000);
+    expect(buffering.engine.log.filter((e) => e === 'suspend')).toHaveLength(1);
+    expect(buffering.engine.loads).toHaveLength(1);
+    const paused = rig();
+    void paused.player.play(vod(1));
+    await paused.clock.advance(500);
+    paused.player.pause();
+    paused.player.hide();
+    expect(paused.engine.log.slice(-1)).toEqual(['suspend']);
+    paused.player.show();
+    await paused.clock.advance(500);
+    expect(paused.player.status.state).toBe('playing');
+  });
+
+  it('times out a resume that shows no picture, and reopens by the ladder', async () => {
+    const r = rig();
+    r.engine.resumeFrameMs = null;
+    void r.player.play(live(1));
+    await r.clock.advance(500);
+    r.player.hide();
+    r.player.show();
+    await r.clock.advance(9_950);
+    expect(r.engine.loads).toHaveLength(1);
+    await r.clock.advance(100);
+    expect(r.engine.loads).toHaveLength(2);
+    expect(r.engine.loads[1]?.source.container).toBe('ts');
+    expect(r.player.status).toMatchObject({ state: 'reconnecting', attempt: 1 });
+  });
+
+  it('closes a stream that is still opening, and opens it again on show', async () => {
+    const r = rig(() => ({ frameMs: 2000 }));
+    void r.player.play(live(1));
+    await r.clock.advance(300);
+    r.player.hide();
+    await r.clock.advance(30_000);
+    expect(r.engine.log).toEqual(['stop', 'load 1 ts', 'stop', 'closed']);
+    expect(r.player.status.state).toBe('opening');
+    r.player.show();
+    await r.clock.advance(2000);
+    expect(r.engine.loads.map((l) => l.source.url)).toEqual([`${BASE}/live/u/p/1.ts`, `${BASE}/live/u/p/1.ts`]);
+    expect(r.player.status).toMatchObject({ state: 'playing', attempt: 0 });
+    expectCloseBeforeOpen(r.engine);
+  });
+
+  it('drops a retry waiting out its backoff while hidden, and retries on show', async () => {
+    const r = rig((_source, n) => (n === 1 ? { error: { atMs: 1000, error: NETWORK } } : { loadError: NETWORK }));
+    void r.player.play(vod(1));
+    await r.clock.advance(1100);
+    // The first rung reopened at once and failed: a 1 s backoff waits.
+    expect(r.engine.loads).toHaveLength(2);
+    expect(r.player.status.state).toBe('reconnecting');
+    r.player.hide();
+    await r.clock.advance(30_000);
+    expect(r.engine.loads).toHaveLength(2);
+    r.player.show();
+    await r.clock.advance(100);
+    expect(r.engine.loads).toHaveLength(3);
+    expectCloseBeforeOpen(r.engine);
+  });
+
+  it("doesn't reopen a stream that gave up while hidden", async () => {
+    let answer: (account: AccountStatus | null) => void = () => undefined;
+    const r = rig(() => ({ loadError: { kind: 'http', code: 'HTTP', status: 404 } }), {
+      checkAccount: () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    });
+    void r.player.play({ key: 's1:live:1', src: 's1', mode: 'live', candidates: [{ url: `${BASE}/live/u/p/1.ts`, container: 'ts' }] });
+    await r.clock.advance(100);
+    // The verdict waits for the account check: still opening.
+    expect(r.player.status.state).toBe('opening');
+    r.player.hide();
+    answer(null);
+    await r.clock.advance(100);
+    expect(r.player.status.state).toBe('failed');
+    r.player.show();
+    await r.clock.advance(20_000);
+    expect(r.engine.loads).toHaveLength(1);
+    expect(r.player.status.state).toBe('failed');
+  });
+
+  it('has nothing to do while idle, and a play or stop while hidden forgets the hide', async () => {
+    const r = rig();
+    r.player.hide();
+    r.player.show();
+    r.player.hide();
+    void r.player.play(live(1));
+    await r.clock.advance(500);
+    // Its events count: the hide before the play is forgotten.
+    expect(r.player.status.state).toBe('playing');
+    r.player.hide();
+    void r.player.stop();
+    r.player.show();
+    await r.clock.advance(1000);
+    expect(r.engine.log.indexOf('resume')).toBe(-1);
+    expect(r.player.status.state).toBe('idle');
   });
 });
