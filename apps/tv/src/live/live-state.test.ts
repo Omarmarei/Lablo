@@ -47,13 +47,12 @@ function info(catIdx: number, name: string, chunks: number[]): CategoryInfo {
   return { catIdx, name, count: chunks.reduce((a, b) => a + b, 0), chunks };
 }
 
-const S1: SourceRecord = { id: 's1', type: 'm3u', name: 'Home', url: 'http://lists.test/a.m3u', epgUrl: null, added: 1 };
+const S1: SourceRecord = { id: 's1', type: 'm3u', name: 'Home', url: 'http://lists.test/a.m3u', added: 1 };
 const S2: SourceRecord = {
   id: 's2',
   type: 'xtream',
   name: 'Panel',
   account: { base: 'http://panel.test', username: 'u', password: 'p' },
-  epgUrl: null,
   added: 2,
 };
 

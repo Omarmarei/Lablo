@@ -10,13 +10,12 @@ const HOUR = 3_600_000;
 /** 2026-11-04 20:00 UTC. */
 const T0 = Date.UTC(2026, 10, 4, 20, 0, 0);
 
-const S1: SourceRecord = { id: 's1', type: 'm3u', name: 'Home', url: 'http://lists.test/a.m3u', epgUrl: 'http://guides.test/a.xml', added: 1 };
+const S1: SourceRecord = { id: 's1', type: 'm3u', name: 'Home', url: 'http://lists.test/a.m3u', added: 1 };
 const S2: SourceRecord = {
   id: 's2',
   type: 'xtream',
   name: 'Panel',
   account: { base: 'http://panel.test', username: 'u', password: 'p' },
-  epgUrl: null,
   added: 2,
 };
 
@@ -32,7 +31,7 @@ function ingestResult(src: string, status: 'committed' | 'unchanged'): IngestRes
 
 const committedGuide = (epgSrc: string): EpgOutcome => ({ epgSrc, result: { status: 'committed' } as EpgOutcome['result'] & object, error: null }) as EpgOutcome;
 const unchangedGuide = (epgSrc: string): EpgOutcome => ({ epgSrc, result: { status: 'unchanged' } as EpgOutcome['result'] & object, error: null }) as EpgOutcome;
-const failedGuide = (epgSrc: string): EpgOutcome => ({ epgSrc, result: null, error: { code: 'network', message: 'down' } });
+const failedGuide = (epgSrc: string): EpgOutcome => ({ epgSrc, result: null, error: { code: 'network', status: null, message: 'down' } });
 
 interface Held<T> {
   resolve(value: T): void;
@@ -52,12 +51,13 @@ interface EpgCall {
 /** A data engine whose refreshes answer at once (unchanged, nothing new), or are held when asked. */
 class FakeEngine implements SchedulerEngine {
   refreshing = false;
-  profileDoc: LoadedProfile | null = { doc: { v: 3, sources: [S1, S2] }, newer: false, migratedFrom: null };
+  /** The guide typed in onboarding with s1 (profile version 4 keeps it in `guides`, under s1's id). */
+  profileDoc: LoadedProfile | null = { doc: { v: 4, sources: [S1, S2], guides: [{ id: 's1', url: 'http://guides.test/a.xml' }] }, newer: false, migratedFrom: null };
   failProfile = false;
   metas: SourceMeta[] = [meta('s1', T0), meta('s2', T0)];
   /** Each source's answer: a status, an error, or `hold` (settled by hand through `held`). */
   answers = new Map<string, 'committed' | 'unchanged' | Error | 'hold'>();
-  epgAnswer: EpgRefreshResult | Error | 'hold' = { outcomes: [], deleted: [], wanted: 0 };
+  epgAnswer: EpgRefreshResult | Error | 'hold' = { outcomes: [], deleted: [], reranked: [], wanted: 0 };
   readonly refreshCalls: RefreshCall[] = [];
   readonly epgCalls: EpgCall[] = [];
   readonly heldRefresh: Held<IngestResult>[] = [];
@@ -255,7 +255,7 @@ describe('the refresh schedule', () => {
     expect(options.due).toBe(true);
     expect(options.tier).toBe('full');
     expect(options.languages).toEqual(['ar']);
-    // The guide typed in onboarding (s1's).
+    // The user's guides, from the profile's list.
     expect(options.user).toEqual([{ id: 's1', url: 'http://guides.test/a.xml' }]);
     expect(options.cancel?.cancelled).toBe(false);
     expect(t.catalogs).toEqual([]);
@@ -357,19 +357,31 @@ describe('the refresh schedule', () => {
     expect(engine.refreshCalls.map((c) => c.job.src)).toEqual(['s1', 's1']);
   });
 
-  it('tells the screens when a guide swapped in or one was deleted, not when nothing changed', async () => {
+  it('tells the screens when a guide swapped in, was deleted or moved, not when nothing changed', async () => {
     const engine = new FakeEngine();
     const t = setup({ engine });
     t.scheduler.start();
-    engine.epgAnswer = { outcomes: [unchangedGuide('s2:xmltv'), failedGuide('u~s1')], deleted: [], wanted: 10 };
+    engine.epgAnswer = { outcomes: [unchangedGuide('s2:xmltv'), failedGuide('u~s1')], deleted: [], reranked: [], wanted: 10 };
     await t.run(FIRST_CHECK_MS);
     expect(t.guides()).toBe(0);
-    engine.epgAnswer = { outcomes: [unchangedGuide('s2:xmltv'), committedGuide('u~s1')], deleted: [], wanted: 10 };
+    engine.epgAnswer = { outcomes: [unchangedGuide('s2:xmltv'), committedGuide('u~s1')], deleted: [], reranked: [], wanted: 10 };
     await t.run(CHECK_MS);
     expect(t.guides()).toBe(1);
-    engine.epgAnswer = { outcomes: [], deleted: ['s3:xmltv'], wanted: 10 };
+    engine.epgAnswer = { outcomes: [], deleted: ['s3:xmltv'], reranked: [], wanted: 10 };
     await t.run(CHECK_MS);
     expect(t.guides()).toBe(2);
+    engine.epgAnswer = { outcomes: [], deleted: [], reranked: ['u~g1'], wanted: 0 };
+    await t.run(CHECK_MS);
+    expect(t.guides()).toBe(3);
+  });
+
+  it('reads no guide list from a profile without one', async () => {
+    const engine = new FakeEngine();
+    engine.profileDoc = { doc: { v: 4, sources: [S1, S2], guides: 'odd' }, newer: false, migratedFrom: null };
+    const t = setup({ engine });
+    t.scheduler.start();
+    await t.run(FIRST_CHECK_MS);
+    expect(engine.epgCalls[0]!.options.user).toEqual([]);
   });
 
   it('when another refresh holds the slot, tries again in a minute', async () => {
@@ -447,7 +459,7 @@ describe('the refresh schedule', () => {
     expect(warn).toHaveBeenCalledWith('The scheduled refresh failed', expect.any(Error));
     expect(t.clock.due()).toEqual([CHECK_MS]);
     engine.metas = [meta('s1', T0 + FIRST_CHECK_MS), meta('s2', T0)];
-    engine.epgAnswer = { outcomes: [], deleted: [], wanted: 0 };
+    engine.epgAnswer = { outcomes: [], deleted: [], reranked: [], wanted: 0 };
     await t.run(CHECK_MS);
     expect(engine.epgCalls.map((c) => c.options.due)).toEqual([false, false]);
     await t.run(CHECK_MS);
@@ -467,7 +479,7 @@ describe('the refresh schedule', () => {
     await t.run(FIRST_CHECK_MS);
     expect(engine.profiles).toBe(1);
     await t.run(20 * 60_000);
-    engine.heldEpg[0]!.resolve({ outcomes: [], deleted: [], wanted: 0 });
+    engine.heldEpg[0]!.resolve({ outcomes: [], deleted: [], reranked: [], wanted: 0 });
     await settle();
     expect(t.clock.due()).toEqual([CHECK_MS]);
   });
@@ -514,7 +526,7 @@ describe('the refresh schedule', () => {
     t.scheduler.start();
     await t.run(FIRST_CHECK_MS);
     t.emit('hidden');
-    engine.heldEpg[0]!.resolve({ outcomes: [], deleted: [], wanted: 0 });
+    engine.heldEpg[0]!.resolve({ outcomes: [], deleted: [], reranked: [], wanted: 0 });
     await settle();
     expect(t.clock.due()).toEqual([]);
     t.emit('visible');
@@ -604,8 +616,137 @@ describe('the refresh schedule', () => {
     t.scheduler.start();
     await t.run(FIRST_CHECK_MS);
     t.scheduler.dispose();
-    engine.heldEpg[0]!.resolve({ outcomes: [committedGuide('u~s1')], deleted: [], wanted: 1 });
+    engine.heldEpg[0]!.resolve({ outcomes: [committedGuide('u~s1')], deleted: [], reranked: [], wanted: 1 });
     await settle();
     expect(t.guides()).toBe(0);
+  });
+});
+
+describe('refreshNow (the guides screen, step 22b)', () => {
+  const EMPTY: EpgRefreshResult = { outcomes: [], deleted: [], reranked: [], wanted: 0 };
+
+  it('reads the due guides at once, and no catalog, even a stale one; the next check comes 15 min later', async () => {
+    const engine = new FakeEngine();
+    engine.metas = [meta('s1', T0 - CATALOG_REFRESH_MS), meta('s2', T0)];
+    const t = setup({ engine });
+    t.scheduler.start();
+    await t.run(5_000);
+    let settled = false;
+    const now = t.scheduler.refreshNow().then(() => {
+      settled = true;
+    });
+    // The first check's timer is replaced by the pass that runs now.
+    expect(t.clock.due()).toEqual([]);
+    await now;
+    expect(settled).toBe(true);
+    expect(engine.refreshCalls).toEqual([]);
+    expect(engine.epgCalls).toHaveLength(1);
+    expect(engine.epgCalls[0]!.options).toMatchObject({ due: true, user: [{ id: 's1', url: 'http://guides.test/a.xml' }] });
+    expect(t.clock.due()).toEqual([CHECK_MS]);
+    // The stale catalog waits for that check.
+    await t.run(CHECK_MS);
+    expect(engine.refreshCalls.map((c) => c.job.src)).toEqual(['s1']);
+  });
+
+  it('settles only once its pass has ended', async () => {
+    const engine = new FakeEngine();
+    engine.epgAnswer = 'hold';
+    const t = setup({ engine });
+    t.scheduler.start();
+    let settled = false;
+    void t.scheduler.refreshNow().then(() => {
+      settled = true;
+    });
+    await settle();
+    expect(engine.epgCalls).toHaveLength(1);
+    expect(settled).toBe(false);
+    engine.heldEpg[0]!.resolve(EMPTY);
+    await settle();
+    expect(settled).toBe(true);
+  });
+
+  it('during a pass: one guides pass right after it for every call meanwhile, settled by that pass', async () => {
+    const engine = new FakeEngine();
+    engine.epgAnswer = 'hold';
+    const t = setup({ engine });
+    t.scheduler.start();
+    await t.run(FIRST_CHECK_MS);
+    expect(engine.epgCalls).toHaveLength(1);
+    const settled: number[] = [];
+    void t.scheduler.refreshNow().then(() => settled.push(1));
+    void t.scheduler.refreshNow().then(() => settled.push(2));
+    await settle();
+    expect(engine.epgCalls).toHaveLength(1);
+    engine.metas = [meta('s1', T0 - CATALOG_REFRESH_MS), meta('s2', T0)];
+    engine.heldEpg[0]!.resolve(EMPTY);
+    await settle();
+    // The first pass's end settles nothing; the guides pass starts at once, with no catalog.
+    expect(settled).toEqual([]);
+    expect(engine.epgCalls).toHaveLength(2);
+    expect(engine.refreshCalls).toEqual([]);
+    expect(t.clock.due()).toEqual([]);
+    engine.heldEpg[1]!.resolve(EMPTY);
+    await settle();
+    expect(settled).toEqual([1, 2]);
+    expect(engine.epgCalls).toHaveLength(2);
+    expect(t.clock.due()).toEqual([CHECK_MS]);
+  });
+
+  it('a call during the pass it started waits for one more pass', async () => {
+    const engine = new FakeEngine();
+    engine.epgAnswer = 'hold';
+    const t = setup({ engine });
+    t.scheduler.start();
+    const settled: number[] = [];
+    void t.scheduler.refreshNow().then(() => settled.push(1));
+    await settle();
+    void t.scheduler.refreshNow().then(() => settled.push(2));
+    engine.heldEpg[0]!.resolve(EMPTY);
+    await settle();
+    expect(settled).toEqual([1]);
+    expect(engine.epgCalls).toHaveLength(2);
+    engine.heldEpg[1]!.resolve(EMPTY);
+    await settle();
+    expect(settled).toEqual([1, 2]);
+  });
+
+  it('a pass that fails settles it too', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const engine = new FakeEngine();
+    engine.epgAnswer = new Error('no worker');
+    const t = setup({ engine });
+    t.scheduler.start();
+    await t.scheduler.refreshNow();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(t.clock.due()).toEqual([CHECK_MS]);
+  });
+
+  it('hidden: reads at once, and the next check waits for visible', async () => {
+    const t = setup();
+    t.scheduler.start();
+    t.emit('hidden');
+    await t.scheduler.refreshNow();
+    expect(t.engine.epgCalls).toHaveLength(1);
+    expect(t.clock.due()).toEqual([]);
+    t.emit('visible');
+    expect(t.clock.due()).toEqual([FIRST_CHECK_MS]);
+  });
+
+  it('after dispose settles at once and reads nothing; dispose settles the calls still waiting', async () => {
+    const engine = new FakeEngine();
+    engine.epgAnswer = 'hold';
+    const t = setup({ engine });
+    t.scheduler.start();
+    await t.run(FIRST_CHECK_MS);
+    const settled: number[] = [];
+    void t.scheduler.refreshNow().then(() => settled.push(1));
+    t.scheduler.dispose();
+    await settle();
+    expect(settled).toEqual([1]);
+    await t.scheduler.refreshNow();
+    engine.heldEpg[0]!.resolve(EMPTY);
+    await settle();
+    expect(engine.epgCalls).toHaveLength(1);
+    expect(t.clock.due()).toEqual([]);
   });
 });

@@ -16,10 +16,11 @@ import { LoadError } from './loader';
  *    (`user_info.status`) is `expired` or `blocked`, before any list is read.
  * 2. `download`, `saving`: the catalog refresh's progress (`IngestProgress`: download, commit).
  * 3. `guide`: the guides of the playlist or panel, and the guide link typed in the form (a
- *    `UserGuide`), read through `refreshEpg` with `due`. A guide that fails doesn't fail the
- *    source: the EPG refresh keeps its failure and retries it later (step 9b).
+ *    `UserGuide` with the source's id, after the user's guides already listed), read through
+ *    `refreshEpg` with `due`. A guide that fails doesn't fail the source: the EPG refresh keeps
+ *    its failure and retries it later (step 9b).
  * 4. The source goes into the profile (the login with it, in IndexedDB only until step 32
- *    encrypts it), then the counts.
+ *    encrypts it), then the typed guide into the guide list (step 22b), then the counts.
  *
  * Cancel stops the running refresh in its worker; the load then never settles. A new load waits
  * for the cancelled one to let go of the refresh slot.
@@ -94,11 +95,19 @@ export function ingestSourceOf(record: SourceRecord): IngestSource {
   return record.type === 'xtream' ? { type: 'xtream', account: record.account } : { type: 'm3u', url: record.url };
 }
 
-/** The guide links typed in onboarding, one per source at most (step 22b makes them a list). */
-export function guidesOf(records: readonly SourceRecord[]): UserGuide[] {
-  const out: UserGuide[] = [];
-  for (const r of records) if (r.epgUrl !== null) out.push({ id: r.id, url: r.epgUrl });
-  return out;
+/** The user's guides of a profile, in the user's order (`[]` when it has none; step 22b). */
+export function userGuides(profile: LoadedProfile | null): UserGuide[] {
+  const guides = profile === null ? null : (profile.doc as { guides?: unknown }).guides;
+  return Array.isArray(guides) ? (guides as UserGuide[]) : [];
+}
+
+/**
+ * The guide link typed with a new source, as a guide with the source's id (source ids are never
+ * reused, so neither is the guide's); `null` when none was typed, or the list has it already.
+ */
+export function typedGuide(id: string, url: string | null, listed: readonly UserGuide[]): UserGuide | null {
+  if (url === null || listed.some((g) => g.url === url)) return null;
+  return { id, url };
 }
 
 export function createEngineLoader(options: EngineLoaderOptions): SourceLoader {
@@ -116,8 +125,10 @@ export function createEngineLoader(options: EngineLoaderOptions): SourceLoader {
     const id = nextSourceId(stored.map((s) => s.id).concat(catalog));
     const record: SourceRecord =
       draft.type === 'xtream'
-        ? { id, type: 'xtream', name: draft.name, account: draft.account, epgUrl: draft.epgUrl, added: now() }
-        : { id, type: 'm3u', name: draft.name, url: draft.url, epgUrl: draft.epgUrl, added: now() };
+        ? { id, type: 'xtream', name: draft.name, account: draft.account, added: now() }
+        : { id, type: 'm3u', name: draft.name, url: draft.url, added: now() };
+    const listed = userGuides(profile);
+    const guide = typedGuide(id, draft.epgUrl, listed);
     const source = ingestSourceOf(record);
 
     const result = await engine.refresh(
@@ -138,7 +149,7 @@ export function createEngineLoader(options: EngineLoaderOptions): SourceLoader {
     try {
       await engine.refreshEpg(all.map(catalogOf), {
         tier,
-        user: guidesOf(all),
+        user: guide === null ? listed : listed.concat([guide]),
         languages: options.languages(),
         due: true,
         cancel: cancel.token,
@@ -150,6 +161,7 @@ export function createEngineLoader(options: EngineLoaderOptions): SourceLoader {
     }
     cancel.token.throwIfCancelled();
     await engine.editProfile({ kind: 'source', source: record });
+    if (guide !== null) await engine.editProfile({ kind: 'guide', change: { op: 'add', guide } });
     return counts;
   };
 

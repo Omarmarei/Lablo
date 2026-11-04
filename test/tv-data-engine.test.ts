@@ -328,12 +328,55 @@ describe('DataEngine (the app wiring of the data workers)', () => {
 
     // Nothing is due right after: no worker starts. Twelve hours on, it is due again.
     const quiet = await s.engine.refreshEpg(catalogs, { tier: 'full', due: true });
-    expect(quiet).toEqual({ outcomes: [], deleted: [], wanted: 0 });
+    expect(quiet).toEqual({ outcomes: [], deleted: [], reranked: [], wanted: 0 });
     expect(s.started.epg).toBe(1);
     s.clock.now = NOW + EPG_REFRESH_MS;
     const later = await s.engine.refreshEpg(catalogs, { tier: 'full', due: true });
     expect(later.outcomes.map((o) => o.result?.status)).toEqual(['unchanged']);
     expect(s.started.epg).toBe(2);
+  });
+
+  it("sets a moved user guide's rank with no download, deletes a removed one, and reloads the query worker (step 22b)", async () => {
+    const asked: string[] = [];
+    const s = setup((url) => {
+      asked.push(url);
+      return url.startsWith('http://u.test/') ? { body: guide(6) } : { body: playlist(8, 4) };
+    });
+    await s.engine.refresh(job());
+    const catalogs = [{ src: 'debug', type: 'm3u' as const }];
+    const a = { id: 'g1', url: 'http://u.test/a.xml' };
+    const b = { id: 'g2', url: 'http://u.test/b.xml' };
+    const ch1 = (await s.engine.search('channel 1', { names: 1 })).keys;
+    const first = await s.engine.refreshEpg(catalogs, { tier: 'full', due: true, user: [a, b] });
+    expect(first.outcomes.map((o) => [o.epgSrc, o.result?.status])).toEqual([
+      ['u~g1', 'committed'],
+      ['u~g2', 'committed'],
+    ]);
+    // Both guides match ch1 by id: the first in the order wins.
+    expect((await s.engine.nowNext(ch1, NOW))[0]).toMatchObject({ epgSrc: 'u~g1' });
+    const downloads = asked.length;
+
+    // Moved: nothing is due, yet a worker starts to set the ranks; nothing is downloaded.
+    const moved = await s.engine.refreshEpg(catalogs, { tier: 'full', due: true, user: [b, a] });
+    expect(moved).toEqual({ outcomes: [], deleted: [], reranked: ['u~g1', 'u~g2'], wanted: 0 });
+    expect(s.started.epg).toBe(2);
+    expect(asked.length).toBe(downloads);
+    expect((await s.engine.epgStatus()).guides.map((g) => [g.epgSrc, g.rank])).toEqual([
+      ['u~g2', 0],
+      ['u~g1', 1],
+    ]);
+    expect((await s.engine.nowNext(ch1, NOW))[0]).toMatchObject({ epgSrc: 'u~g2' });
+
+    // Removed: deleted, the other moves up, still no download.
+    const removed = await s.engine.refreshEpg(catalogs, { tier: 'full', due: true, user: [a] });
+    expect(removed).toEqual({ outcomes: [], deleted: ['u~g2'], reranked: ['u~g1'], wanted: 0 });
+    expect(asked.length).toBe(downloads);
+    expect((await s.engine.epgStatus()).guides.map((g) => [g.epgSrc, g.rank])).toEqual([['u~g1', 0]]);
+    expect((await s.engine.nowNext(ch1, NOW))[0]).toMatchObject({ epgSrc: 'u~g1' });
+
+    // The same list again: no worker at all.
+    expect(await s.engine.refreshEpg(catalogs, { tier: 'full', due: true, user: [a] })).toEqual({ outcomes: [], deleted: [], reranked: [], wanted: 0 });
+    expect(s.started.epg).toBe(3);
   });
 
   it('runs catalog and guide refreshes one at a time, and pauses a guide refresh for keys', async () => {

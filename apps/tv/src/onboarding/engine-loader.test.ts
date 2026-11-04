@@ -3,7 +3,7 @@ import { CancelError, RpcError } from '@zoma/data/client';
 import { describe, expect, it } from 'vitest';
 import type { EpgRefreshOptions, RefreshOptions } from '../data/engine';
 import type { LoaderEngine } from './engine-loader';
-import { createEngineLoader, loadError, nextSourceId, storedSources } from './engine-loader';
+import { createEngineLoader, loadError, nextSourceId, storedSources, typedGuide, userGuides } from './engine-loader';
 import type { SourceDraft } from './form';
 import type { LoadProgress, LoadResult } from './loader';
 import { LoadError } from './loader';
@@ -75,7 +75,7 @@ function fake(options: FakeOptions = {}) {
       calls.epg.push({ catalogs, options: opts });
       if (options.refreshEpg) return options.refreshEpg(catalogs, opts);
       opts.onProgress?.({ epgSrc: 'x', bytes: 40, total: 80, kept: 7 });
-      return Promise.resolve({ outcomes: [], deleted: [], wanted: 0 });
+      return Promise.resolve({ outcomes: [], deleted: [], reranked: [], wanted: 0 });
     },
     sourceIds: () => Promise.resolve(options.ids ?? []),
     profile: () => {
@@ -107,11 +107,34 @@ describe('nextSourceId', () => {
 
 describe('storedSources', () => {
   it('reads the sources of any profile version that has them', () => {
-    const source: SourceRecord = { id: 's1', type: 'm3u', name: 'A', url: 'http://a.test', epgUrl: null, added: 1 };
+    const source: SourceRecord = { id: 's1', type: 'm3u', name: 'A', url: 'http://a.test', added: 1 };
     expect(storedSources(null)).toEqual([]);
     expect(storedSources({ doc: { v: 1, favourites: [] }, newer: false, migratedFrom: null })).toEqual([]);
     expect(storedSources({ doc: { v: 2, sources: [source] }, newer: false, migratedFrom: null })).toEqual([source]);
     expect(storedSources({ doc: { v: 9, sources: 'x' }, newer: true, migratedFrom: null })).toEqual([]);
+  });
+});
+
+describe('userGuides', () => {
+  it("reads the user's guide list of a profile that has one (version 4)", () => {
+    const guides = [
+      { id: 's1', url: 'http://g.test/a.xml' },
+      { id: 'g1', url: 'http://g.test/b.xml', offsetMinutes: 60 },
+    ];
+    expect(userGuides(null)).toEqual([]);
+    expect(userGuides({ doc: { v: 3, sources: [] }, newer: false, migratedFrom: null })).toEqual([]);
+    expect(userGuides({ doc: { v: 4, guides }, newer: false, migratedFrom: null })).toEqual(guides);
+    expect(userGuides({ doc: { v: 9, guides: 'x' }, newer: true, migratedFrom: null })).toEqual([]);
+  });
+});
+
+describe('typedGuide', () => {
+  it("is the guide link typed with a new source, under the source's id; none when none was typed or it is listed", () => {
+    const listed = [{ id: 's1', url: 'http://g.test/a.xml' }];
+    expect(typedGuide('s2', 'http://g.test/b.xml', listed)).toEqual({ id: 's2', url: 'http://g.test/b.xml' });
+    expect(typedGuide('s2', null, listed)).toBeNull();
+    expect(typedGuide('s2', 'http://g.test/a.xml', listed)).toBeNull();
+    expect(typedGuide('s1', 'http://g.test/b.xml', [])).toEqual({ id: 's1', url: 'http://g.test/b.xml' });
   });
 });
 
@@ -148,13 +171,18 @@ describe('createEngineLoader', () => {
     expect(calls.refresh[0]!.options.lowTier).toBe(false);
     expect(calls.epg[0]!.catalogs).toEqual([{ src: 's1', type: 'xtream', account: ACCOUNT }]);
     expect(calls.epg[0]!.options).toMatchObject({ tier: 'full', due: true, languages: ['ar'], user: [{ id: 's1', url: 'http://guide.test/x.xml' }] });
-    expect(calls.edits).toEqual([{ kind: 'source', source: { id: 's1', type: 'xtream', name: 'Home', account: ACCOUNT, epgUrl: 'http://guide.test/x.xml', added: 777 } }]);
+    // The source, then its guide link in the guide list (profile version 4), under the source's id.
+    expect(calls.edits).toEqual([
+      { kind: 'source', source: { id: 's1', type: 'xtream', name: 'Home', account: ACCOUNT, added: 777 } },
+      { kind: 'guide', change: { op: 'add', guide: { id: 's1', url: 'http://guide.test/x.xml' } } },
+    ]);
   });
 
-  it("takes the next free id, lists every stored source's guides, and runs at the duty cycle on a low-tier TV", async () => {
-    const old: SourceRecord = { id: 's1', type: 'm3u', name: 'Old', url: 'http://o.test/l.m3u', epgUrl: 'http://o.test/g.xml', added: 1 };
+  it("takes the next free id, lists every stored source's guides and the user's, and runs at the duty cycle on a low-tier TV", async () => {
+    const old: SourceRecord = { id: 's1', type: 'm3u', name: 'Old', url: 'http://o.test/l.m3u', added: 1 };
     // `s2` has a catalog but never reached the profile (a crash): its id isn't reused.
-    const { engine, calls } = fake({ profile: { doc: { v: 2, sources: [old] }, newer: false, migratedFrom: null }, ids: ['s1', 's2'] });
+    const doc = { v: 4, sources: [old], guides: [{ id: 's1', url: 'http://o.test/g.xml' }] };
+    const { engine, calls } = fake({ profile: { doc, newer: false, migratedFrom: null }, ids: ['s1', 's2'] });
     await loaderFor(engine, 'low').start(M3U, () => undefined).done;
     expect(calls.refresh[0]!.job).toEqual({ src: 's3', source: { type: 'm3u', url: 'http://p.test/l.m3u' } });
     expect(calls.refresh[0]!.options.lowTier).toBe(true);
@@ -163,7 +191,23 @@ describe('createEngineLoader', () => {
       { src: 's3', type: 'm3u' },
     ]);
     expect(calls.epg[0]!.options).toMatchObject({ tier: 'low', user: [{ id: 's1', url: 'http://o.test/g.xml' }] });
-    expect(calls.edits).toEqual([{ kind: 'source', source: { id: 's3', type: 'm3u', name: 'List', url: 'http://p.test/l.m3u', epgUrl: null, added: 777 } }]);
+    // No guide typed: only the source.
+    expect(calls.edits).toEqual([{ kind: 'source', source: { id: 's3', type: 'm3u', name: 'List', url: 'http://p.test/l.m3u', added: 777 } }]);
+  });
+
+  it("puts a typed guide after the user's guides, and one already listed in no second time", async () => {
+    const doc = { v: 4, sources: [], guides: [{ id: 'g1', url: 'http://g.test/a.xml' }] };
+    const { engine, calls } = fake({ profile: { doc, newer: false, migratedFrom: null } });
+    await loaderFor(engine).start({ ...M3U, epgUrl: 'http://g.test/b.xml' }, () => undefined).done;
+    expect(calls.epg[0]!.options.user).toEqual([
+      { id: 'g1', url: 'http://g.test/a.xml' },
+      { id: 's1', url: 'http://g.test/b.xml' },
+    ]);
+    expect(calls.edits[1]).toEqual({ kind: 'guide', change: { op: 'add', guide: { id: 's1', url: 'http://g.test/b.xml' } } });
+    const again = fake({ profile: { doc, newer: false, migratedFrom: null } });
+    await loaderFor(again.engine).start({ ...M3U, epgUrl: 'http://g.test/a.xml' }, () => undefined).done;
+    expect(again.calls.epg[0]!.options.user).toEqual([{ id: 'g1', url: 'http://g.test/a.xml' }]);
+    expect(again.calls.edits.map((e) => e.kind)).toEqual(['source']);
   });
 
   it("fails with the refresh's error and saves nothing", async () => {
@@ -175,10 +219,10 @@ describe('createEngineLoader', () => {
     await expect(loaderFor(expired.engine).start(XTREAM, () => undefined).done).rejects.toMatchObject({ code: 'expired' });
   });
 
-  it("adds the source even when its guide can't be read", async () => {
+  it("adds the source even when its guide can't be read, and keeps the guide (a later refresh tries it again)", async () => {
     const { engine, calls } = fake({ refreshEpg: () => Promise.reject(new RpcError('guide down', 'network', 'IngestError')) });
     await expect(loaderFor(engine).start(XTREAM, () => undefined).done).resolves.toEqual({ live: 3, movies: 2, series: 1 });
-    expect(calls.edits).toHaveLength(1);
+    expect(calls.edits.map((e) => e.kind)).toEqual(['source', 'guide']);
   });
 
   it('fails as other when the profile write fails', async () => {
@@ -225,7 +269,7 @@ describe('createEngineLoader', () => {
     await settle();
     expect(calls.epg).toHaveLength(1);
     handle.cancel();
-    guide.resolve({ outcomes: [], deleted: [], wanted: 0 });
+    guide.resolve({ outcomes: [], deleted: [], reranked: [], wanted: 0 });
     expect(await settled(handle.done)).toBe(false);
     expect(calls.edits).toEqual([]);
   });
