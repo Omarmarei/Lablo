@@ -716,6 +716,24 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
 - **Checks:** 3,518 unit tests (unchanged); `pnpm verify` green (68 e2e, +3).
 - **TV bundle:** main's own code unchanged (294.5 KB on Tizen, 281.9 KB on webOS): the CSS isn't in main.js, and no TV script changed.
 
+**Built in step 23a: the grid guide's data** (step 23 was split in leg 50 into 23a, the data; 23b, the grid component; 23c, the guide screen; 23d, the throttled e2e; core `epgSchedule`; `QueryService.guide`; `DataEngine.guide`):
+- **The ask:** `guide({ keys, from, to })`, live channels over `[from, to)` in UTC epoch minutes. Each answer row is `{ key, epgSrc, start[], end[], title[] }`: the programmes that end after `from` and start before `to`, uncut, in plain arrays.
+  - **Titles only.** Programme details (step 24) will ask for one programme's description and episode on their own.
+  - **No typed arrays leave the worker**, so the grid's code on the main thread never names one and pulls no typed-array polyfill (35 core-js modules).
+- **Which guide:** the same rule as now/next. The match tables are combined at each reload (`combineEpgMatches`: the stronger method, then the guide listed first), so a channel's row and its now/next in the list always come from one guide channel. A lower guide doesn't fill hours the winning one lacks: placeholders show there (step 23b), as the list shows the placeholder for an unmatched now.
+- **Reads:** the channel's buckets of the days the range covers in its own time (the range moved back by its tvg-shift), and the day before: a programme from the evening before can still be on at `from`. One transaction for every row. A channel no guide matches gets `epgSrc: null` and no programmes.
+- **The cut across days:** each stored bucket is sorted with no overlap, but one day's last programme can run past the next day's first. `epgSchedule` ends it where that one starts (and drops it when that leaves it before the range), as the reader does inside a day.
+- **A cap:** an ask of more than `GUIDE_MAX_READS` (2,000) channel-days is refused (`RangeError`) before anything is read, not cut, so a caller can't take part of an answer for the whole. A screen's rows and a page either side over two or three days is a few hundred.
+- **Tests:**
+  - core `epg-guide.test.ts` (+5): the range's edges, an empty range, the shift both ways, the cut across days (with the shift too), and a fast-check property (1,000 runs: up to four days of random programmes, some days missing, any range and shift) against a naive oracle (the programmes in order, each cut by the next, then filtered).
+  - `query-guide.test.ts` (5, guides written straight into the store): the rank rule against a stronger method in the second guide, a shift of +1, unmatched and unknown channels, every minute agreeing with now/next; the day before, a channel three hours early whose range is tomorrow in the guide, one an hour late whose programme is stored under the day before; an empty range; the cap at exactly 2,000 reads, counted over every channel; a new generation after a reload.
+  - `epg-ingest.test.ts` (+1): after a real refresh, five hours across midnight equal the reader's own buckets for every channel (the +1 copy shifted), and agree with now/next.
+  - `test/tv-data-engine.test.ts`: the app's call through the real worker services, and the cap's error across the RPC.
+  - **At scale** (`test/guide-300mb.media.test.ts`, `pnpm test:media`): the 300 MB guide read as the EPG worker reads it (every live channel of the 200k playlist wanted, the full tier: 1,331,136 programmes of 5,000 channels) and written into fake-indexeddb as the refresh writes it (7.2 s). 24 live channels in a row of the playlist (some unmatched, one with 150-minute slots that run across midnight), over the hours in view, two days ahead, and three catch-up days: every programme's times equal the fixture generator's schedule, and each window answers in ≤ 20 ms (best of 3). Measured on a desktop: 1.2–4.1 ms over four runs.
+  - **Why 20 ms:** a page of new rows should fill within about 300 ms on a 2018 TV, taken as about 15 times slower than the CI runner (§1.5 step 10's factor). It is a smoke check against reading far more than the range needs; the TVs' own IndexedDB times come from spike S6.
+  - **Mutation:** `artifacts/mutate23a.py`, 34 mutants written before the run (the cut's `>` against `>=` and its `last >= 0` check left out: both equivalent). 33 caught on the first run; the survivor dropped the day before, and the scale test missed it because its rows had no channel whose programmes run across midnight (only the fixture's 150-minute slots do; the others divide a day). The rows moved to a run that has one: 34/34.
+- **Size:** the query worker 99.6 → 100.8 KB (Tizen and webOS); main's own code 294.5 → 294.6 KB (Tizen) and 281.9 → 282.0 KB (webOS), 219 core-js modules on both.
+
 ---
 
 ## 2. Player abstraction
