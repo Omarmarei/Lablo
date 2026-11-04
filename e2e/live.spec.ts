@@ -2,13 +2,11 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
-import type { LiveChannel } from '../apps/mock-provider/src/config';
-import { loadCatalog } from '../apps/mock-provider/src/config';
-import { upcoming } from '../apps/mock-provider/src/epg';
 import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { stripIsolates } from '../packages/core/src/bidi';
 import { ARABIC_FACE, LATIN_FACE, renderedFontsUnder } from './fonts';
+import { catalog, nowTitles, ordered, rows } from './live-rows';
 import { addXtreamAndWatch, settled, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
 
@@ -20,7 +18,6 @@ import { RemoteDriver } from './remote-driver';
  * and reads the focus from the focus engine (step 14b); live-throttled.spec.ts times them.
  */
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
-const catalog = loadCatalog();
 /** The 1920x1080 canvas less its 5% title-safe margins. */
 const SAFE = { left: 96, top: 54, right: 1824, bottom: 1026 };
 const VISIBLE = 9;
@@ -38,61 +35,11 @@ test.afterAll(async () => {
   await app.close();
 });
 
-/** The channels in the order "All channels" lists them: category by category, as the panel lists them. */
-const ordered: LiveChannel[] = catalog.liveCategories.flatMap((c) => catalog.live.filter((ch) => ch.categoryId === c.id));
 const withChannels = catalog.liveCategories.filter((c) => catalog.live.some((ch) => ch.categoryId === c.id));
-
-/**
- * The channel whose programmes a channel shows: the guide's channel of its id (the first channel
- * that declares it, as the mock writes its XMLTV), or by its match name ("Zoma Sports Test FHD"
- * has no id but matches "Zoma Sports Test HD"). `null`: no guide ("18+ Test Pattern").
- */
-function guideOf(channel: LiveChannel): LiveChannel | null {
-  const id = (c: LiveChannel): string | null => (c.xmltvId ?? c.epgId)?.toLowerCase() ?? null;
-  const own = id(channel);
-  if (own !== null) return catalog.live.find((c) => id(c) === own) ?? null;
-  if (channel.name === 'Zoma Sports Test FHD') return catalog.live.find((c) => c.name === 'Zoma Sports Test HD') ?? null;
-  return null;
-}
-
-/** The titles a row may show now: the programme on air when the check started or when it ended. */
-function nowTitles(channel: LiveChannel, from: number, to: number): string[] {
-  const guide = guideOf(channel);
-  if (guide === null) return [];
-  return [upcoming(guide, from, 1)[0]!.title, upcoming(guide, to, 1)[0]!.title];
-}
 
 /** Onboarding by keys with the mock's Xtream login, then "Start watching": the live screen. */
 function addSourceAndWatch(remote: RemoteDriver, locale: string): Promise<Locator> {
   return addXtreamAndWatch(remote, { host, username: U, password: P }, `locale=${locale}`);
-}
-
-interface Row {
-  readonly index: number;
-  readonly number: string;
-  readonly name: string;
-  readonly now: string;
-  readonly nowTitle: string | null;
-  readonly next: string | null;
-  readonly state: string;
-}
-
-/** The rows the list draws, in order. */
-function rows(page: Page): Promise<Row[]> {
-  return page.evaluate(() =>
-    Array.from(document.querySelectorAll('[data-testid=channels] .z-vlist__item')).map((item) => {
-      const text = (selector: string): string | null => item.querySelector(selector)?.textContent ?? null;
-      return {
-        index: Number(item.getAttribute('data-index')),
-        number: text('.z-row__number') ?? '',
-        name: text('.z-row__name') ?? '',
-        now: text('.z-row__now') ?? '',
-        nowTitle: text('.z-row__now .z-row__title'),
-        next: text('.z-row__next .z-row__title'),
-        state: item.querySelector('.z-row')?.getAttribute('data-state') ?? '',
-      };
-    }),
-  );
 }
 
 interface Layout {
