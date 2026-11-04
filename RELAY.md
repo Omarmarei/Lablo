@@ -416,7 +416,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 3. Omar's LG TV, for real webOS media.
 4. A Samsung real-device option that Omar chooses at step 16.
 
-- [ ] 15. **Zoma Lab build and test strategy without TVs (1.2 + 1.3).**
+- [ ] 15. **Zoma Lab build and test strategy without TVs (1.2 + 1.3).** Leg 27 split it into 15a–15e.
   - Spike screens S1–S3, S6, S7, S9–S11 and the player batteries S4, S5, S8, all posting JSON to the LAN log collector, runnable in emulators and simulators too.
   - `docs/runbooks/tv-setup.md`: Tizen Studio + Samsung certificate + TV Emulator; webOS CLI + Emulator 4.x + Simulator 22–24; LG Developer Mode and how to extend it.
   - `docs/testing-without-tvs.md`: research and compare Samsung real-device options with cost and coverage for each.
@@ -425,6 +425,30 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - Samsung Beta Test on friends' and family's 2021+ TVs
     - a recommendation
   - **Done when:** the lab runs in the desktop browser and in at least one emulator, and both docs are complete.
+- [ ] 15a. **The Zoma Lab build and the runtime spikes (S0–S3, S7).**
+  - **The build:** `pnpm build:tv --lab` stages `dist/tv-lab/{tizen,webos}`: its own entry, app id and title (installs next to the app), the lab server's address fixed at build time (default: this PC's LAN address, port 8080). `apps/tv/lab.html` runs it under `pnpm dev`.
+  - **The runner:** checks grouped by spike; one session per run; each record (`spike`, `check`, `status`, `value`, `ms`) posted as NDJSON to the collector (`POST /__lab/logs/<session>`, retried) and kept on `window.__ZOMA_LAB__`; a screen driven by keys (run all, each spike's results).
+  - **The spikes:**
+    - S0: the device facts;
+    - S1: the runtime (polyfills, Preact, Blob worker, `response.body` streaming, TextDecoder, an IndexedDB bulk write, IndexedDB in the Blob worker);
+    - S2: storage (markers in localStorage and IndexedDB read back on the next run, with the version that wrote them; the quota; a write test up to 200 MB);
+    - S3: device IDs (Tizen DUID, webOS LGUDID through the adapters, hashed, compared across runs);
+    - S7: cross-origin `http://` calls (no CORS headers, a redirect, `responseURL`).
+  - **Done when:** e2e runs the lab in the desktop browser against the in-process mock and finds its records in the collector; the lab bundle runs in Chromium 53/56/68 (`verify:engines`) with S1 passing; PR merged.
+- [ ] 15b. **The UI spikes (S6, S9–S11).**
+  - S6: scale against the mock's 200k catalog and the 150 MB gzipped guide: ingest time, key to focus during the ingest, the guide's ingest, search, a cached cold start (a reload measured to the idle live screen).
+  - S9: Arabic (the fonts loaded and shaped, the bidi probe, what `Intl` makes of `ar`, the calendar).
+  - S10: input (a key tester with each platform's expected keys, PRE-CH, the Magic Remote pointer, the native keyboard in Arabic and English).
+  - S11: lifecycle and accessibility (a lifecycle log, screensaver control, Voice Guide/TTS reading the focused label).
+  - **Done when:** e2e drives each screen by keys in the desktop browser and finds its records; S6 runs in the desktop browser on the scale fixtures with its numbers recorded; PR merged.
+- [ ] 15c. **The player batteries (S4, S5, S8).**
+  - Lab player wrappers: AVPlay (Tizen, through the adapter) and `<video>` (webOS and the desktop).
+  - The battery: TS and HLS first frame, the 302 freeze with and without the probe, 60 min of endless TS with stalls, 4K HEVC, AC3/E-AC3, the audio track switch, subtitles, suspend/restore; S8 `avplaystore` pre-buffering.
+  - **Done when:** the `<video>` battery runs in the desktop browser against the mock's media and posts every row (codecs the browser lacks recorded as such); the AVPlay battery runs against an AVPlay fake in unit tests; PR merged.
+- [ ] 15d. **The docs (research).** `docs/runbooks/tv-setup.md` and `docs/testing-without-tvs.md` as listed under step 15, with sources, prices and dates.
+  - **Done when:** both docs are complete; PR merged.
+- [ ] 15e. **The lab in an emulator.** The webOS TV Simulator or Emulator, or the Tizen TV Emulator, following tv-setup.md. Likely `[needs Omar]`: VirtualBox, Tizen Studio and a Samsung account need installs or sign-ups. Try first whatever needs none.
+  - **Done when:** the lab runs in at least one emulator or simulator and its records reach the collector.
 - [ ] 16. **[needs Omar] Run the spikes on the available hardware.**
   - **Omar:**
     - tell the relay the LG TV's model and year (which webOS version)
