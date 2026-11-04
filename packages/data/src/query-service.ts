@@ -12,6 +12,8 @@
  * - `nowNext` gives the programme on air and the next one for live channels (step 9b): the
  *   guides' match tables are combined in priority order (core `combineEpgMatches`), and each
  *   channel's buckets of the days around now are read from IndexedDB, with its tvg-shift applied.
+ * - `guide` gives the grid guide its rows (step 23a): each live channel's programmes over a time
+ *   range, from the same guide channel as its now/next, as plain arrays.
  * - `epgStatus` lists the guides and how many live channels have one.
  * - `shortEpg` is the fallback for a focused live channel no guide matches (step 9c): its Xtream
  *   panel's `get_short_epg`, kept 30 min per channel (`short-epg.ts`). The app asks only after
@@ -26,8 +28,8 @@
  * in `status().stale`, so the ingest can rebuild it.
  */
 
-import type { CatalogItem, ContentKey, ContentKind, EpgBucket, EpgMatchMethod, EpgProgramme, FavouriteMarks, SearchResult } from '@zoma/core';
-import { CONTENT_KINDS, SearchSegment, combineEpgMatches, epgDay, epgNowNext, favouriteMarks, searchSegments } from '@zoma/core';
+import type { CatalogItem, ContentKey, ContentKind, EpgBucket, EpgMatchMethod, EpgProgramme, EpgSchedule, FavouriteMarks, SearchResult } from '@zoma/core';
+import { CONTENT_KINDS, SearchSegment, combineEpgMatches, epgDay, epgNowNext, epgSchedule, favouriteMarks, searchSegments } from '@zoma/core';
 import type { CategoryInfo } from './chunker';
 import type { ChunkKey, SourceMeta } from './catalog-store';
 import { getSources, readCategories, readChunks, readIndexes } from './catalog-store';
@@ -97,6 +99,28 @@ export interface ShortEpgNowNext extends EpgNowNext {
   cached: boolean;
 }
 
+/** The grid guide's ask: these live channels over `[from, to)`. */
+export interface GuideRequest {
+  keys: ContentKey[];
+  /** UTC epoch minutes: the programmes that end after `from` and start before `to`. */
+  from: number;
+  to: number;
+}
+
+/** One live channel's row of the grid guide. */
+export interface GuideRow extends EpgSchedule {
+  key: ContentKey;
+  /** The guide its programmes come from (`null`: no guide matches it, so the row is empty). */
+  epgSrc: string | null;
+}
+
+/**
+ * Most channel-day buckets one `guide` call reads: a screen's rows and a page either side over
+ * two or three days is a few hundred. A larger ask is refused, not cut, so the caller can't take
+ * a partial answer for the whole one.
+ */
+export const GUIDE_MAX_READS = 2_000;
+
 export interface EpgStatus {
   /** Every stored guide, in priority order. */
   guides: EpgMeta[];
@@ -162,6 +186,7 @@ export class QueryService {
       chunk: (arg: { src: string; kind: ContentKind; catIdx: number; chunk: number }): Promise<CatalogItem[]> => this.chunk(arg),
       items: (arg: { refs: ItemRef[] }): Promise<(CatalogItem | null)[]> => this.items(arg.refs),
       nowNext: (arg: { keys: ContentKey[]; at?: number }): Promise<EpgNowNext[]> => this.nowNext(arg.keys, arg.at),
+      guide: (req: GuideRequest): Promise<GuideRow[]> => this.guide(req),
       epgStatus: (): Promise<EpgStatus> => this.epgStatus(),
       shortEpg: (req: ShortEpgRequest): Promise<ShortEpgNowNext> => this.shortEpg(req),
       account: (arg: { src: string }): Promise<AccountCheck | null> => this.account(arg.src),
@@ -309,6 +334,40 @@ export class QueryService {
       }
       const nn = epgNowNext(found, nowMs, p.link.shift);
       return { key, epgSrc: p.link.epgSrc, channel: p.link.channel, method: p.link.method, now: nn.now, next: nn.next };
+    });
+  }
+
+  /**
+   * The grid guide's rows: for each live channel, its programmes that overlap `[from, to)`, read
+   * from the guide channel now/next uses (the stronger match, then the guide listed first) and
+   * shifted by its tvg-shift. Its buckets of the days the range covers in guide time are read,
+   * and the day before: a programme from the evening before can still be on at `from`. Rejects
+   * an ask of more than `GUIDE_MAX_READS` buckets.
+   */
+  async guide(req: GuideRequest): Promise<GuideRow[]> {
+    await this.ensureLoaded();
+    const reads: EpgBucketKey[] = [];
+    const plan = req.keys.map((key) => {
+      const link = this.epgLinks.get(key);
+      if (link === undefined) return null;
+      const shift = Math.round(link.shift * 60);
+      const first = epgDay(req.from - shift) - 1;
+      const last = epgDay(req.to - 1 - shift);
+      if (reads.length + (last - first + 1) > GUIDE_MAX_READS) throw new RangeError(`The guide was asked for more than ${GUIDE_MAX_READS} channel-days`);
+      const at = reads.length;
+      for (let d = first; d <= last; d++) reads.push({ epgSrc: link.epgSrc, gen: link.gen, channel: link.channel, day: d });
+      return { link, at, count: reads.length - at };
+    });
+    const buckets = await readEpgBuckets(await this.db(), reads);
+    return req.keys.map((key, i) => {
+      const p = plan[i];
+      if (!p) return { key, epgSrc: null, start: [], end: [], title: [] };
+      const found: EpgBucket[] = [];
+      for (let j = p.at; j < p.at + p.count; j++) {
+        const b = buckets[j];
+        if (b) found.push(b);
+      }
+      return { key, epgSrc: p.link.epgSrc, ...epgSchedule(found, req.from, req.to, p.link.shift) };
     });
   }
 

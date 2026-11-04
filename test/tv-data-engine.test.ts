@@ -325,6 +325,12 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     expect(one).toMatchObject({ channel: 'ch1', method: 'id', now: { title: 'ch1 at 13' }, next: { title: 'ch1 at 14' } });
     const [seven] = await s.engine.nowNext([(await s.engine.search('channel 7', { names: 1 })).keys[0]!], NOW);
     expect(seven).toMatchObject({ epgSrc: null, now: null, next: null });
+    // The grid guide's rows come through the same worker (step 23a), as plain arrays.
+    const nowMin = NOW / 60_000;
+    const [row, none] = await s.engine.guide({ keys: [keys[0]!, seven!.key], from: nowMin + 60, to: nowMin + 180 });
+    expect(row).toEqual({ key: keys[0], epgSrc: 'debug:tvg0', start: [nowMin + 60, nowMin + 120], end: [nowMin + 120, nowMin + 180], title: ['ch1 at 13', 'ch1 at 14'] });
+    expect(none).toEqual({ key: seven!.key, epgSrc: null, start: [], end: [], title: [] });
+    await expect(s.engine.guide({ keys: [keys[0]!], from: nowMin, to: nowMin + 2_000 * 1440 })).rejects.toThrow('channel-days');
 
     // Nothing is due right after: no worker starts. Twelve hours on, it is due again.
     const quiet = await s.engine.refreshEpg(catalogs, { tier: 'full', due: true });
