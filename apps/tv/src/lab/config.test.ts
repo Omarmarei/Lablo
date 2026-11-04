@@ -8,14 +8,21 @@ const SESSION = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 describe('the lab config', () => {
   it('takes the URL first, then the build, then the mock on this page host', () => {
     const built = { server: 'http://192.168.1.3:8080', version: '0.1.2', writeMb: 64, autoRun: true };
-    expect(readLabConfig('', built, '')).toEqual({ server: 'http://192.168.1.3:8080', version: '0.1.2', writeMb: 64, autoRun: true });
-    expect(readLabConfig('?server=http://127.0.0.1:9000/&mb=8&auto=0', built, '')).toEqual({ server: 'http://127.0.0.1:9000', version: '0.1.2', writeMb: 8, autoRun: false });
-    expect(readLabConfig('', undefined, 'localhost')).toEqual({ server: 'http://localhost:8080', version: 'dev', writeMb: 200, autoRun: false });
+    expect(readLabConfig('', built, '')).toEqual({ server: 'http://192.168.1.3:8080', version: '0.1.2', writeMb: 64, soakMinutes: 60, autoRun: true });
+    expect(readLabConfig('?server=http://127.0.0.1:9000/&mb=8&auto=0&soak=0.5', built, '')).toEqual({ server: 'http://127.0.0.1:9000', version: '0.1.2', writeMb: 8, soakMinutes: 0.5, autoRun: false });
+    expect(readLabConfig('', undefined, 'localhost')).toEqual({ server: 'http://localhost:8080', version: 'dev', writeMb: 200, soakMinutes: 60, autoRun: false });
     expect(readLabConfig('?auto=1', undefined, '')).toMatchObject({ server: 'http://127.0.0.1:8080', autoRun: true });
   });
 
   it('ignores a write target that is not a whole number of MB', () => {
     for (const mb of ['0', '-5', 'x', '2.5']) expect(readLabConfig(`?mb=${mb}`, undefined, '').writeMb).toBe(200);
+  });
+
+  it('takes a soak of up to 180 minutes, decimals too, and ignores anything else', () => {
+    expect(readLabConfig('?soak=180', undefined, '').soakMinutes).toBe(180);
+    expect(readLabConfig('?soak=181', undefined, '').soakMinutes).toBe(180);
+    expect(readLabConfig('?soak=2', undefined, '').soakMinutes).toBe(2);
+    for (const soak of ['0', '0.0', '-5', 'x', '1e2', '.5', '5.']) expect(readLabConfig(`?soak=${soak}`, undefined, '').soakMinutes).toBe(60);
   });
 
   it('refuses a server that is not http(s)://host[:port]', () => {

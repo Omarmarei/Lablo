@@ -7,6 +7,8 @@ import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import type { MockServer } from '../apps/mock-provider/src/server';
 import { listen, mock } from '../apps/mock-provider/test/helpers';
+import { PLACEHOLDER_NOTE } from '../apps/tv/src/lab/battery';
+import { LAB_MEDIA_IDS } from '../apps/tv/src/lab/media';
 import { S6_PRESSES, S6_QUERIES } from '../apps/tv/src/lab/scale';
 import { INTENTS } from '../packages/platform-api/src/index';
 import { RemoteDriver } from './remote-driver';
@@ -72,6 +74,18 @@ const DESKTOP: ReadonlyArray<readonly [string, string]> = [
   ['S11/speech', 'skip'],
   ['S11/focus-reading', 'skip'],
   ['S11/live-reading', 'skip'],
+  // The in-process mock sends placeholder bytes: S5 describes the engine and plays nothing
+  // (e2e/lab-media.spec.ts runs it on the generated media, in pnpm verify:media).
+  ['S5/formats', 'info'],
+  ['S5/ts', 'skip'],
+  ['S5/hls', 'skip'],
+  ['S5/redirect', 'skip'],
+  ['S5/hevc-4k', 'skip'],
+  ['S5/audio-tracks', 'skip'],
+  ['S5/ac3', 'skip'],
+  ['S5/subtitles', 'skip'],
+  ['S5/suspend', 'skip'],
+  ['S5/soak', 'skip'],
   // The mock's own small catalog: S6 measures everything and judges nothing (pnpm lab:scale judges).
   ['S6/source', 'info'],
   ['S6/ingest', 'info'],
@@ -174,6 +188,17 @@ function expectS6(records: readonly Record[]): void {
   expect(s6('cleanup')?.note).toBe('deleted "zoma"');
 }
 
+/**
+ * S5 against placeholder bytes: the lab server's media list arrived (no URL of it in any record),
+ * the engine was described, and every playback row skipped with the reason.
+ */
+function expectS5(records: readonly Record[]): void {
+  const s5 = records.filter((r) => r.spike === 'S5');
+  expect(s5[0]?.value).toMatchObject({ media: 'placeholder', items: LAB_MEDIA_IDS.slice(), engine: { apis: { textTracks: true }, canPlayType: { 'video/mp2t': '' } } });
+  expect(s5[0]?.note).toBe(PLACEHOLDER_NOTE);
+  expect(s5.slice(1, 8).map((r) => r.note)).toEqual(Array.from({ length: 7 }, () => PLACEHOLDER_NOTE));
+  expect(JSON.stringify(s5)).not.toMatch(/zoma-test|\/live\/|\/movie\//);
+}
 
 /** S9's records: every face loaded, the word joined, the lines in order, and Intl beside the app. */
 function expectS9(records: readonly Record[]): void {
@@ -214,6 +239,8 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     const { session, records } = await finishedRun(page, 1);
     // S6's live screen is gone again: the lab shows alone.
     await expect(page.getByTestId('lab-stage')).toHaveCount(0);
+    // So is S5's picture box (`formats` made one to describe the engine).
+    await expect(page.getByTestId('lab-player')).toHaveCount(0);
 
     // In order: the start, one record per check, the end.
     expect(records.map((r) => r.seq)).toEqual(records.map((_, i) => i + 1));
@@ -223,7 +250,7 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     expect(statuses(records)).toEqual(DESKTOP);
     const end = records[records.length - 1];
     expect(end?.type).toBe('end');
-    expect(end?.value).toMatchObject({ run: 1, spikes: ['S0', 'S1', 'S2', 'S3', 'S7', 'S9', 'S10', 'S11', 'S6'], counts: { pass: 16, fail: 3, info: 14, skip: 11 } });
+    expect(end?.value).toMatchObject({ run: 1, spikes: ['S0', 'S1', 'S2', 'S3', 'S7', 'S9', 'S10', 'S11', 'S5', 'S6'], counts: { pass: 16, fail: 3, info: 15, skip: 20 } });
 
     // What the records say, beyond the status.
     const check = (key: string): Record | undefined => records.find((r) => `${r.spike ?? ''}/${r.check ?? ''}` === key);
@@ -237,11 +264,12 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     expect(check('S7/xhr-no-cors')?.note).toMatch(/^no readable answer/);
     expectS9(records);
     expect(check('S11/lifecycle')?.note).toMatch(/^no lifecycle events yet/);
+    expectS5(records);
     expectS6(records);
 
     // The screen: each spike's overall status, and the checks of the spike in focus.
     const spikeStatus = async (id: string): Promise<string | null> => page.getByTestId(`spike-${id}`).getAttribute('data-status');
-    expect(await Promise.all(['S0', 'S1', 'S2', 'S3', 'S7', 'S9', 'S10', 'S11', 'S6'].map(spikeStatus))).toEqual(['info', 'pass', 'pass', 'skip', 'fail', 'pass', 'skip', 'info', 'info']);
+    expect(await Promise.all(['S0', 'S1', 'S2', 'S3', 'S7', 'S9', 'S10', 'S11', 'S5', 'S6'].map(spikeStatus))).toEqual(['info', 'pass', 'pass', 'skip', 'fail', 'pass', 'skip', 'info', 'info', 'info']);
     await remote.go('DOWN', 'lab/spikes/0');
     await remote.go('DOWN', 'lab/spikes/1');
     await expect(page.getByTestId('checks')).toHaveAttribute('data-spike', 'S1');
@@ -494,6 +522,7 @@ for (const platform of ['tizen', 'webos'] as const) {
     expect(statuses(records)).toEqual(DESKTOP.map(([key, status]) => [key, BUNDLE[platform][key] ?? status]));
     expect(records.find((r) => r.check === 'screen-reader')?.note).toBe(platform === 'tizen' ? 'unknown: no webapis.tvinfo' : 'unknown: no PalmServiceBridge for luna://com.webos.settingsservice/getSystemSettings');
     expectS9(records);
+    expectS5(records);
     expect(records.find((r) => r.check === 'device-id')?.note).toBe(`the ${platform === 'tizen' ? 'DUID' : 'LGUDID'} is not available`);
     // S6 in the bundle: its inlined data workers from file://, and the app's live screen.
     expectS6(records);

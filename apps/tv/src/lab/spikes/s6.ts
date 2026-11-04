@@ -28,6 +28,7 @@ import { createAppDataEngine } from '../../data/workers';
 import type { LiveEngine } from '../../live/live-state';
 import { storedSources } from '../../onboarding/engine-loader';
 import { readStartProfile, startPoint } from '../../onboarding/start';
+import { xhrJson } from '../http';
 import { deleteDatabaseAndWait } from '../idb-delete';
 import type { LiveStage, PressTiming } from '../live-stage';
 import { mountLiveStage } from '../live-stage';
@@ -86,28 +87,6 @@ interface S6Run {
 }
 
 const MINUTE_MS = 60_000;
-
-function xhrJson(url: string, timeoutMs = 2 * MINUTE_MS): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', url, true);
-    xhr.timeout = timeoutMs;
-    xhr.onload = () => {
-      if (xhr.status !== 200) {
-        reject(new Error(`HTTP ${xhr.status}`));
-        return;
-      }
-      try {
-        resolve(JSON.parse(xhr.responseText));
-      } catch {
-        reject(new Error('the answer is not JSON'));
-      }
-    };
-    xhr.onerror = () => reject(new Error('no answer'));
-    xhr.ontimeout = () => reject(new Error(`no answer within ${timeoutMs} ms`));
-    xhr.send();
-  });
-}
 
 export const DEFAULT_S6_DEPS: S6Deps = {
   createEngine: () => createAppDataEngine(),

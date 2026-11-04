@@ -25,9 +25,10 @@
     "test:media": "vitest run -c vitest.media.config.ts",
     "e2e": "playwright test",
     "lab:scale": "playwright test --project lab-scale",
+    "lab:media": "playwright test --project lab-media",
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build:tv && pnpm e2e",
     "verify:engines": "tsx tools/engines/verify-engines.ts",
-    "verify:media": "pnpm fixtures && pnpm test:media"
+    "verify:media": "pnpm fixtures && pnpm test:media && pnpm lab:media"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

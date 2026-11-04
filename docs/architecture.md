@@ -992,6 +992,14 @@ All spikes run in a "Zoma Lab" build that posts results to the log collector. Th
 - **Run order:** `[S0, S1, S2, S3, S7, S9, S10, S11, S6]`. Nine spike rows fill the list to 1010 of the 1026 px title-safe height: step 15c's S4, S5 and S8 need shorter rows or a paged list. Lab main 210.4 → 222.3 KB of its own code.
 - **Not yet:** the player batteries (15c), and any real TV (16). S10's answers need a person with each TV's remote.
 
+**Built in step 15c: S5, the `<video>` battery** (`apps/tv/src/lab/battery.ts`, `video-player.ts`, `spikes/s5.ts`; runbook `docs/runbooks/lab.md` "S5"):
+- **One battery, two players.** The checks are written once against a small lab interface (`LabPlayer`: open, snapshot, events, tracks, suspend/resume, stop). S5 runs them on a `<video>` element; S4 will run the same checks on AVPlay (step 15c2), so the two TVs answer the same questions. It is a lab tool, not the app's `PlayerEngine` (steps 17–19), which will be written from its answers.
+- **The rows:** live TS and HLS first frames (a frame counts once the picture has a size and the clock moved after `playing`, so sound alone never counts), a live stream through three 302s, 4K HEVC at 3840×2160, the MKV's audio tracks and a switch (< 2 s, no restart), AC3 and E-AC3 5.1, in-band SRT and mov_text cues, and two that need a person: Home and back (< 5 s, the webOS policy of stop on hide, reopen on show) and the soak with a stall every ~18 s of live TS (each recovered in < 10 s by a watchdog that reopens after 6 s without progress; 60 minutes by default).
+- **The media without an account in the lab:** the mock's `/__lab/media` hands out the URLs (its test account), with what each file holds from the generated manifest. Against placeholder bytes every playback row skips: `pnpm e2e`'s mock and the old-engine harness (`--no-media`; its Chromium builds have no H.264 either) see only `formats`.
+- **On the generated media:** `pnpm lab:media` (part of `pnpm verify:media`, CI job `media`) runs S5 in desktop Chromium. Chromium 156 plays HLS natively (first frame 150–210 ms), follows the 302s, switches audio tracks with `audioTracks` behind a Blink flag (265–370 ms, no restart), and recovers from every stall in about 6.1 s. It has no MPEG-TS, no AC3 or E-AC3 (it lists 3 of the MKV's 5 tracks), no in-band text tracks, and (headless) no HEVC picture: those rows fail, marked `unsupported`. A TV is expected to answer most of them differently (step 16).
+- **The spike list:** rows are now 52 + 8 px, so 12 spikes fit the title-safe height (S4 and S8 come in 15c2), and a check with its note takes 64 px, so S5's ten checks fit under a one-line question. Run order: `[S0, S1, S2, S3, S7, S9, S10, S11, S5, S6]`.
+- **Not yet:** S4 and S8 on AVPlay, S5's luna `selectTrack` route on webOS (15c2), and any real TV (16).
+
 ---
 
 ## 6. Phased roadmap

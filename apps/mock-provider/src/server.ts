@@ -27,6 +27,7 @@ import {
   transformBody,
 } from './faults';
 import { DEFAULT_LAB_LOG_DIR, registerLabLogs } from './lab-logs';
+import { registerLabMedia } from './lab-media';
 import { NO_CORS_REQUESTS, registerLabProbes } from './lab-probes';
 import { registerLabSource } from './lab-source';
 import { attributionHtml } from './open-movies';
@@ -247,6 +248,7 @@ export async function buildServer(options: MockServerOptions = {}): Promise<Mock
   // The lab's probes and its scale source store nothing, so they stay on with the collector off.
   registerLabProbes(app);
   registerLabSource(app, state);
+  registerLabMedia(app, state);
 
   // ---- Control endpoints --------------------------------------------------------------------
   app.get<{ Params: { token: string; n: string } }>('/__mock/redirect/:token/:n', async (request, reply) => {
@@ -302,6 +304,7 @@ export async function buildServer(options: MockServerOptions = {}): Promise<Mock
         `Faults:   ?mock_fault=status:509 | redirect:hops=3 | stall:after_bytes=4096 | ...   scenario: ${state.scenario?.name ?? 'none'}`,
         `Lab logs: POST ${base}/__lab/logs/<session>   GET ${base}/__lab/logs`,
         `Lab:      ${base}/__lab/bytes?lines=N   ${base}/__lab/echo?cors=0   ${base}/__lab/redirect?to=/__lab/echo`,
+        `Lab:      ${base}/__lab/source   ${base}/__lab/media   (the S6 source and the player batteries' media)`,
         `Media:    ${state.media.kind}   Credits: ${base}/attribution`,
         '',
         'Test accounts (fixtures/server.yaml):',

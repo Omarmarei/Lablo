@@ -3,10 +3,11 @@
  * (`window.ZOMA_LAB_CONFIG`, from `pnpm build:tv --lab-server …`); URL parameters override them
  * where a page has a URL of its own (`pnpm dev`, the e2e tests, the old-engine harness):
  *
- *   lab.html?server=http://127.0.0.1:8080&mb=16&auto=1
+ *   lab.html?server=http://127.0.0.1:8080&mb=16&auto=1&soak=60
  */
 import type { DeviceInfo } from '@zoma/platform-api';
 import { readParam } from '../data/params';
+import { SOAK_DEFAULT_MINUTES, SOAK_MAX_MINUTES } from './battery';
 import { WRITE_TARGET_MB } from './spikes/s2-s3';
 
 export interface LabBuildConfig {
@@ -21,6 +22,8 @@ export interface LabConfig {
   readonly server: string;
   readonly version: string;
   readonly writeMb: number;
+  /** The player batteries' soak in minutes (a decimal is fine: `soak=0.5`), at most 180. */
+  readonly soakMinutes: number;
   /** Run every spike as soon as the lab starts (the TV build's default: launch it and wait). */
   readonly autoRun: boolean;
 }
@@ -39,8 +42,10 @@ export function readLabConfig(search: string, built: LabBuildConfig | undefined,
   if (!HTTP_URL.test(server)) throw new Error(`the lab server must be http(s)://host[:port], not "${server}"`);
   const mb = readParam(search, 'mb');
   const writeMb = mb !== null && /^\d+$/.test(mb) && Number(mb) > 0 ? Number(mb) : (built?.writeMb ?? WRITE_TARGET_MB);
+  const soak = readParam(search, 'soak');
+  const soakMinutes = soak !== null && /^\d+(\.\d+)?$/.test(soak) && Number(soak) > 0 ? Math.min(Number(soak), SOAK_MAX_MINUTES) : SOAK_DEFAULT_MINUTES;
   const auto = readParam(search, 'auto');
-  return { server, version: built?.version ?? 'dev', writeMb, autoRun: auto === null ? built?.autoRun === true : auto === '1' };
+  return { server, version: built?.version ?? 'dev', writeMb, soakMinutes, autoRun: auto === null ? built?.autoRun === true : auto === '1' };
 }
 
 /** `webos-43UK6300PLB-20261104-023012-k3f9`: the collector's file name for this run. */

@@ -42,6 +42,8 @@ export interface LabContext {
   readonly version: string;
   /** S2's write test target in MB. */
   readonly writeMb: number;
+  /** S5's soak (and S4's, step 15c2): minutes of live TS with stalls, when a person starts the spike. */
+  readonly soakMinutes: number;
   /** The markers found at start, before this run wrote its own. */
   readonly previous: { readonly localStorage: LabMarker | null; readonly indexedDB: LabMarker | null };
   /** S3: hash of this TV's device ID, or null. */
