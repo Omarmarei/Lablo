@@ -11,6 +11,7 @@ import type { DataEngine } from './data/engine';
 import { readDebugParams, readScreen } from './data/params';
 import type { RefreshScheduler } from './data/refresh-scheduler';
 import { createRefreshScheduler } from './data/refresh-scheduler';
+import { createSettings } from './settings/settings-state';
 import { createAppDataEngine } from './data/workers';
 import { createFocusDemo } from './focus-demo';
 import { LiveApp } from './live/LiveApp';
@@ -145,13 +146,23 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       );
   };
   readFormats();
+  let openSettings: () => void = () => undefined;
   const live = createLive({
     platform,
     engine: dataEngine(),
     play: (index) => player?.show(index),
     startCategory: resume === null ? null : resume.category,
     listChanging: () => player?.listChanging(),
+    openSettings: () => openSettings(),
   });
+  // The header's "Settings" (step 22b2): the guides screen changes the guide list, then reads it.
+  const settings = createSettings({
+    nav: live.nav,
+    engine: dataEngine(),
+    refreshNow: () => (refreshes === null ? Promise.resolve() : refreshes.refreshNow()),
+    platform,
+  });
+  openSettings = () => settings.open();
   // OK on a channel opens the player on the live navigator (step 20a); Back returns to its row.
   const kept = memory.subtitleSize();
   const picture = memory.picture();
@@ -170,7 +181,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   });
   if (resume !== null) player.resume({ item: resume.item, number: resume.number }, resume.index);
   showFocus(live.nav);
-  render(<LiveApp platform={platform} live={live} language={language} player={player} />, into);
+  render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} />, into);
   startRefreshes(live, readFormats);
 }
 

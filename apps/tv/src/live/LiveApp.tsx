@@ -8,8 +8,11 @@ import type { AppI18n } from '../i18n';
 import { appI18n, switchedTag } from '../i18n';
 import type { Player } from '../player/player-state';
 import { PlayerScreen } from '../player/PlayerScreen';
+import { SettingsScreen } from '../settings/SettingsScreen';
+import type { Settings } from '../settings/settings-state';
+import { SETTINGS_SCREENS } from '../settings/settings-state';
 import type { Live, LiveRow, RailEntry } from './live-state';
-import { LIVE } from './live-state';
+import { HEADER_SETTINGS, LIVE } from './live-state';
 import './live.css';
 
 const MINUTE_MS = 60_000;
@@ -55,12 +58,14 @@ function entryLabel(entry: RailEntry, t: AppI18n['t']): { label: string; data: b
   return { label: entry.name, data: true };
 }
 
-function LiveScreen({ live, i18n, player }: { live: Live; i18n: AppI18n; player: Player | null }) {
+function LiveScreen({ live, i18n, player, settings }: { live: Live; i18n: AppI18n; player: Player | null; settings: Settings | null }) {
   const { t } = i18n;
   const { binding, home } = live;
   const focus = useFocus(binding);
   // The player covers the live screen (step 20a), its track menu too (20b): only their own parts paint, over the stage.
   if ((focus.screen === 'player' || focus.screen === 'tracks') && player !== null) return <PlayerScreen live={live} player={player} i18n={i18n} />;
+  // The settings screens (step 22b2) paint instead of the live screen.
+  if (settings !== null && SETTINGS_SCREENS.indexOf(focus.screen) !== -1) return <SettingsScreen settings={settings} i18n={i18n} binding={binding} focus={focus} />;
   const status = live.status.value;
   const entries = live.rail.value;
   const shown = live.category.value;
@@ -69,6 +74,7 @@ function LiveScreen({ live, i18n, player }: { live: Live; i18n: AppI18n; player:
   // Read here so that the rows render again when chunks or now/next arrive.
   const version = live.version.value;
   const retry = useZone(binding, home, 'retry');
+  const header = useZone(binding, home, 'header');
   const dialog = focus.screen === 'exit' ? useZone(binding, binding.nav.top, 'buttons') : null;
   const heading = entry === undefined ? null : entryLabel(entry, t);
 
@@ -105,6 +111,9 @@ function LiveScreen({ live, i18n, player }: { live: Live; i18n: AppI18n; player:
         <p class="live__clock" data-testid="live-clock">
           {i18n.time(new Date(live.clock.value))}
         </p>
+        <div class="live__end">
+          <Button label={t('settings.open')} {...header.item(HEADER_SETTINGS)} testId="live-settings" />
+        </div>
       </header>
 
       {status === 'loading' && (
@@ -169,13 +178,15 @@ interface Props {
   readonly language: Language | null;
   /** The player OK on a channel opens (step 20a; `null`: the row is only marked). */
   readonly player?: Player | null;
+  /** The settings the header's button opens (step 22b2; `null`: none paint). */
+  readonly settings?: Settings | null;
 }
 
 /**
  * The live screen in the language picked in onboarding, in the TV's region (the formats keep
  * the region's), or the TV's own when none was picked.
  */
-export function LiveApp({ platform, live, language, player = null }: Props) {
+export function LiveApp({ platform, live, language, player = null, settings = null }: Props) {
   const i18n = useSignal<AppI18n | null>(null);
   useEffect(() => {
     let closed = false;
@@ -206,5 +217,5 @@ export function LiveApp({ platform, live, language, player = null }: Props) {
       </main>
     );
   }
-  return <LiveScreen live={live} i18n={i18n.value} player={player} />;
+  return <LiveScreen live={live} i18n={i18n.value} player={player} settings={settings} />;
 }

@@ -1,0 +1,198 @@
+/*
+ * The settings screen and the guides screen (RELAY step 22b2): 1920x1080, everything inside the
+ * title-safe margins (96 x 54 px), as the live screen. The sizes match GUIDES in
+ * guides-state.ts: a 56 px header and a 24 px gap, a 56 px line on the order, then the guides
+ * (6 rows of 120 px with 8 px gaps). Physical properties for LTR: postcss-rtlcss mirrors them.
+ */
+.settings {
+  display: flex;
+  flex-direction: column;
+  width: var(--screen-width);
+  height: var(--screen-height);
+  padding: var(--safe-y) var(--safe-x);
+  overflow: hidden;
+}
+
+.settings__page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.settings__header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: 56px;
+  margin-bottom: var(--space-5);
+}
+
+.settings__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+  font-weight: var(--font-weight-bold);
+}
+
+.settings__end {
+  flex: none;
+  margin-left: var(--space-7);
+}
+
+.settings__end .z-button {
+  height: 56px;
+}
+
+.settings__items {
+  width: 1200px;
+}
+
+.settings__row,
+.guides__row {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 0 var(--space-6);
+  border: var(--focus-ring) solid transparent;
+  border-radius: var(--radius-m);
+  background: var(--color-surface);
+}
+
+.settings__row {
+  height: 120px;
+}
+
+.settings__row.is-memory,
+.guides__row.is-memory {
+  border-color: var(--color-border-memory);
+}
+
+.settings__row.is-focused,
+.guides__row.is-focused {
+  border-color: var(--color-focus);
+  background: var(--color-surface-focus);
+}
+
+.settings__name {
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.settings__hint {
+  margin-top: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.settings__message {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings__text {
+  margin: 0;
+  max-width: 1200px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  text-align: center;
+}
+
+.guides__intro {
+  flex: none;
+  height: 56px;
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.guides__list {
+  flex: none;
+}
+
+.guides__row {
+  height: 100%;
+}
+
+.guides__top {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+}
+
+/* A link reads left to right in both languages (dir="ltr") but starts on the screen's side. */
+.guides__link {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.guides__owner {
+  flex: none;
+  margin-left: var(--space-6);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+.guides__status,
+.guides__failure {
+  margin: var(--space-1) 0 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.guides__status {
+  color: var(--color-text-muted);
+}
+
+.guides__failure {
+  color: var(--color-warn);
+}
+
+/* The row menu: its actions in a column, as wide as the dialog. */
+.guides__menu {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.guides__menu > * + * {
+  margin-top: var(--space-3);
+}
+
+.guides__form {
+  flex: 1;
+  min-width: 0;
+}
+
+.guides__actions {
+  display: flex;
+  margin-top: var(--space-6);
+}
+
+.guides__actions > * + * {
+  margin-left: var(--space-4);
+}

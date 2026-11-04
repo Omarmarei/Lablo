@@ -59,6 +59,17 @@
   font-weight: var(--font-weight-bold);
 }
 
+/* The header's buttons (step 22b2): "Settings", as tall as the header. */
+.live__end {
+  flex: none;
+  align-self: center;
+  margin-left: var(--space-7);
+}
+
+.live__end .z-button {
+  height: 56px;
+}
+
 .live__body {
   display: flex;
   flex: 1;
