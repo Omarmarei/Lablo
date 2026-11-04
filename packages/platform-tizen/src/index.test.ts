@@ -42,7 +42,7 @@ describe('registerTizenKeys (what spike S10 records)', () => {
   }
 
   it('registers each supported key, one call each, and names ours the TV lacks', () => {
-    // The TV's key objects keep their fields on a prototype (host objects): the report copies them.
+    // A TV's key objects may keep their fields on a prototype (host objects): the report copies them out.
     const hostKey = (name: string, code: number): TizenKey => Object.create({ name, code }) as TizenKey;
     const { input, calls } = device([hostKey('ChannelUp', 427), hostKey('ColorF0Red', 403), hostKey('Exit', 10182)]);
     const report = registerTizenKeys(input);
