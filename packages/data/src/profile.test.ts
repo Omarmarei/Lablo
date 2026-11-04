@@ -315,7 +315,7 @@ describe('applyProfileEdit: what the player keeps (step 20c1)', () => {
     radio: false,
     hints: null,
   });
-  const last = (n: number): LastChannel => ({ item: item(n), number: n, category: { src: 's1', name: 'News' }, index: n - 1, at: 1000 + n });
+  const last = (n: number): LastChannel => ({ item: item(n), number: n, category: { src: 's1', name: 'News' }, index: n - 1, started: 1000 + n });
   const choice = (lang: string, used: number): StoredTrackChoice => ({ audio: { id: '1', lang, label: '' }, text: 'off', used });
   const player = (doc: ProfileDoc, change: PlayerChange): ProfileDoc | null => applyProfileEdit(doc, { kind: 'player', change });
 

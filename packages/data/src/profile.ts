@@ -100,8 +100,8 @@ export type LastChannel = {
   category: { src: string; name: string } | null;
   /** Its row in that list then (where the start looks for it first). */
   index: number;
-  /** When it started (epoch ms). */
-  at: number;
+  /** When it started (epoch ms). Not `at`: a member named like `Array.prototype.at` pulls core-js's polyfill into the TV bundle. */
+  started: number;
 };
 
 /** What the player keeps across starts (step 20c1). */
@@ -197,13 +197,9 @@ export type ProfileEdit =
   /** One thing the player keeps (step 20c1). */
   | { kind: 'player'; change: PlayerChange };
 
-function has(record: Record<string, unknown>, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(record, key);
-}
-
 /** `record` with `key` set to `value` (a new object), or `null` when it holds that already. */
 function withEntry<T>(record: Record<string, T>, key: string, value: T): Record<string, T> | null {
-  if (has(record, key) && record[key] === value) return null;
+  if (record[key] === value) return null;
   const next: Record<string, T> = { ...record };
   next[key] = value;
   return next;

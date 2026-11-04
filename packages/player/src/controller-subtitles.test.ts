@@ -426,6 +426,7 @@ describe('PlayerController: the file feed', () => {
 
   it("keeps the timing with the content's choice: another content starts at none, the content's comes back (step 20c1)", async () => {
     const r = rig();
+    r.engine.audio = [track('1', 'eng', true), track('2', 'ara')];
     expect(r.player.subtitleDelay).toBe(0);
     await playing(r);
     await r.player.selectText('ext:0');
@@ -437,10 +438,19 @@ describe('PlayerController: the file feed', () => {
     expect(r.memory.choice('s1:vod:7')).toEqual({ audio: null, text: { id: 'ext:1', lang: 'ar', label: '' }, delayMs: 500 });
     r.player.setSubtitleDelay(250);
     expect(r.memory.choice('s1:vod:7')).toEqual({ audio: null, text: { id: 'ext:1', lang: 'ar', label: '' }, delayMs: 250 });
-    // The same timing again remembers nothing new.
-    r.memory.remember('s1:vod:7', { audio: null, text: null, delayMs: 250 });
+    // An audio switch keeps it too.
+    expect(await r.player.selectAudio('2')).toBe(true);
+    expect(r.memory.choice('s1:vod:7')).toEqual({ audio: { id: '2', lang: 'ar', label: '' }, text: { id: 'ext:1', lang: 'ar', label: '' }, delayMs: 250 });
+    // The same timing again remembers nothing (each remember is a profile write).
+    const kept = r.memory.remember.bind(r.memory);
+    const writes: string[] = [];
+    r.memory.remember = (key, choice) => {
+      writes.push(key);
+      kept(key, choice);
+    };
     r.player.setSubtitleDelay(250);
-    expect(r.memory.choice('s1:vod:7')).toEqual({ audio: null, text: null, delayMs: 250 });
+    expect(writes).toEqual([]);
+    r.memory.remember = kept;
     r.memory.remember('s1:vod:7', { audio: null, text: { id: 'ext:0', lang: 'en', label: '' }, delayMs: 250 });
     // Another content: no delay, and its own choice made without one.
     await playing(r, vod(8));

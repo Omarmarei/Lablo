@@ -45,7 +45,7 @@ const CONTAINERS: readonly Container[] = ['ts', 'hls', 'mp4', 'mkv', 'other'];
 const SIZES: readonly SubtitleSize[] = ['s', 'm', 'l'];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  return typeof value === 'object' && value !== null;
 }
 
 function own(record: Record<string, unknown>, key: string): unknown {
@@ -71,7 +71,7 @@ function readChoice(value: unknown): TrackChoice | null {
   if (storedText === null || storedText === 'off') text = storedText;
   else if (isPick(storedText)) text = pick(storedText);
   else return null;
-  return typeof delay === 'number' && isFinite(delay) ? { audio, text, delayMs: delay } : { audio, text };
+  return typeof delay === 'number' ? { audio, text, delayMs: delay } : { audio, text };
 }
 
 /**
@@ -88,7 +88,7 @@ export function lastChannelOf(profile: LoadedProfile | null): LastChannel | null
   for (const field of ['key', 'src', 'url', 'name']) if (typeof item[field] !== 'string') return null;
   const number = last['number'];
   const index = last['index'];
-  const at = last['at'];
+  const started = last['started'];
   if (typeof number !== 'number' || !isFinite(number) || typeof index !== 'number' || !(index >= 0) || Math.floor(index) !== index) return null;
   if (category !== null && !(isRecord(category) && typeof category['src'] === 'string' && typeof category['name'] === 'string')) return null;
   return {
@@ -96,7 +96,7 @@ export function lastChannelOf(profile: LoadedProfile | null): LastChannel | null
     number,
     category: category === null ? null : { src: category['src'] as string, name: category['name'] as string },
     index,
-    at: typeof at === 'number' ? at : 0,
+    started: typeof started === 'number' ? started : 0,
   };
 }
 
@@ -146,9 +146,8 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
       return kept === undefined ? null : (kept as TrackChoice);
     },
     remember: (key: ContentKey, choice: TrackChoice) => {
-      const kept: TrackChoice = choice.delayMs === undefined ? { audio: choice.audio, text: choice.text } : { audio: choice.audio, text: choice.text, delayMs: choice.delayMs };
-      choices = { ...choices, [key]: kept };
-      const stored: StoredTrackChoice = { ...kept, used: now() };
+      choices = { ...choices, [key]: choice };
+      const stored: StoredTrackChoice = { ...choice, used: now() };
       write({ field: 'track', key, choice: stored });
     },
   };
@@ -191,7 +190,7 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
     last: () => last,
     tuned(item: CatalogItem, number: number, category: LastChannel['category'], index: number): void {
       if (last !== null && last.item.key === item.key && last.number === number && last.index === index && sameCategory(last.category, category)) return;
-      last = { item, number, category, index, at: now() };
+      last = { item, number, category, index, started: now() };
       write({ field: 'last', last });
     },
     subtitleSize: () => size,

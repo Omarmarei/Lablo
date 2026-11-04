@@ -429,8 +429,8 @@ export function createPlayer(options: PlayerOptions): Player {
 
   /** The list found the resumed channel at row `found` (`-1`: it isn't in the list). */
   const located = (found: number, mine: { readonly index: number; readonly row: LiveRow }): void => {
-    // Something else plays, or a zap waits: the resumed channel is no longer the one shown.
-    if (pinned !== mine || !open.value || found === -1 || target.value !== mine.index || playing.value !== mine.index) return;
+    // Another row played (it dropped `pinned`), or a zap waits: the resumed channel isn't the one shown.
+    if (pinned !== mine || !open.value || found === -1 || target.value !== mine.index) return;
     // At its row now; the list's own row takes over once its chunk is in (no empty bar meanwhile).
     const moved = { index: found, row: mine.row };
     pinned = moved;
@@ -439,7 +439,7 @@ export function createPlayer(options: PlayerOptions): Player {
     const at = seq;
     list.load(found).then(
       (row) => {
-        if (pinned === moved && row !== null) pinned = null;
+        if (row !== null) pinned = null;
         // Where the last channel is now, unless another play or a close came first.
         if (at === seq && row !== null && options.tuned !== undefined) options.tuned(row, found);
       },
@@ -539,7 +539,7 @@ export function createPlayer(options: PlayerOptions): Player {
     },
     resume(row: LiveRow, guess: number): void {
       if (open.value) return;
-      const mine = { index: Math.max(0, guess), row };
+      const mine = { index: guess, row };
       pinned = mine;
       open.value = true;
       carded = false;

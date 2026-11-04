@@ -23,7 +23,7 @@ describe('startPoint', () => {
 
   it("plays the last channel when its source is still stored (step 20c1)", () => {
     const item = { key: 's1:live:5', src: 's1', kind: 'live', name: 'Five', url: 'http://a.test/5.ts', chno: 5 };
-    const last = { item, number: 5, category: { src: 's1', name: 'News' }, index: 4, at: 9 };
+    const last = { item, number: 5, category: { src: 's1', name: 'News' }, index: 4, started: 9 };
     expect(startPoint(loaded({ sources: [SOURCE], player: { last } }))).toEqual({ screen: 'home', language: null, resume: last });
     // Its source was removed: the live screen, no player.
     expect(startPoint(loaded({ sources: [SOURCE], player: { last: { ...last, item: { ...item, src: 's2' } } } })).resume).toBeNull();

@@ -54,7 +54,7 @@ describe('createPlayerMemory', () => {
   it("reads what the profile kept, skipping entries this app can't use", () => {
     const { memory } = rig();
     const audio = { id: '2', lang: 'ar', label: 'AAC' };
-    const last = { item: item(5), number: 5, category: { src: 's1', name: 'News' }, index: 4, at: 7 };
+    const last = { item: item(5), number: 5, category: { src: 's1', name: 'News' }, index: 4, started: 7 };
     memory.load(
       profile({
         last,
@@ -63,7 +63,10 @@ describe('createPlayerMemory', () => {
         tracks: {
           a: { audio, text: 'off', used: 1 },
           b: { audio: null, text: { id: 'ext:0', lang: 'en', label: '' }, delayMs: -750, used: 2 },
-          c: { audio: { id: 1 }, text: null, used: 3 },
+          c: { audio: { id: 1, lang: 'en', label: '' }, text: null, used: 3 },
+          c2: { audio: { id: '1', lang: 'en' }, text: null, used: 3 },
+          c3: { audio: { id: '1', label: '' }, text: null, used: 3 },
+          c4: { audio: null, text: { lang: 'en', label: '' }, used: 3 },
           d: { audio: null, text: 'on', used: 4 },
           e: 'off',
           f: { audio: null, text: null, delayMs: 'late', used: 5 },
@@ -77,7 +80,7 @@ describe('createPlayerMemory', () => {
     // The choices come back without their `used` time.
     expect(memory.tracks.choice('a')).toEqual({ audio, text: 'off' });
     expect(memory.tracks.choice('b')).toEqual({ audio: null, text: { id: 'ext:0', lang: 'en', label: '' }, delayMs: -750 });
-    expect(['c', 'd', 'e', 'valueOf'].map((k) => memory.tracks.choice(k))).toEqual([null, null, null, null]);
+    expect(['c', 'c2', 'c3', 'c4', 'd', 'e', 'valueOf'].map((k) => memory.tracks.choice(k))).toEqual([null, null, null, null, null, null, null]);
     expect(memory.tracks.choice('f')).toEqual({ audio: null, text: null });
     expect(memory.subtitleSize()).toBe('l');
     expect(memory.last()).toEqual(last);
@@ -125,9 +128,10 @@ describe('createPlayerMemory', () => {
     memory.tuned(item(5), 6, null, 40);
     memory.tuned(item(6), 6, null, 40);
     memory.tuned(item(6), 6, { src: 's2', name: 'Sport' }, 40);
+    memory.tuned(item(6), 6, { src: 's1', name: 'Sport' }, 40);
     const lasts = changes(edits).map((c) => {
-      const l = (c as { last: { item: CatalogItem; number: number; category: unknown; index: number; at: number } }).last;
-      return [l.item.key, l.number, l.category, l.index, l.at];
+      const l = (c as { last: { item: CatalogItem; number: number; category: unknown; index: number; started: number } }).last;
+      return [l.item.key, l.number, l.category, l.index, l.started];
     });
     expect(lasts).toEqual([
       ['s1:live:5', 5, { src: 's1', name: 'News' }, 4, 1000],
@@ -137,8 +141,9 @@ describe('createPlayerMemory', () => {
       ['s1:live:5', 6, null, 40, 2000],
       ['s1:live:6', 6, null, 40, 2000],
       ['s1:live:6', 6, { src: 's2', name: 'Sport' }, 40, 2000],
+      ['s1:live:6', 6, { src: 's1', name: 'Sport' }, 40, 2000],
     ]);
-    expect(memory.last()).toEqual({ item: item(6), number: 6, category: { src: 's2', name: 'Sport' }, index: 40, at: 2000 });
+    expect(memory.last()).toEqual({ item: item(6), number: 6, category: { src: 's1', name: 'Sport' }, index: 40, started: 2000 });
   });
 
   it('keeps a change for the run when the write fails, and says so', async () => {
@@ -154,10 +159,10 @@ describe('createPlayerMemory', () => {
 });
 
 describe('lastChannelOf', () => {
-  const last = { item: item(5), number: 5, category: { src: 's1', name: 'News' }, index: 4, at: 7 };
+  const last = { item: item(5), number: 5, category: { src: 's1', name: 'News' }, index: 4, started: 7 };
   it('reads a live channel with its key, source, URL and name, a number and a row', () => {
     expect(lastChannelOf(profile({ last }))).toEqual(last);
-    expect(lastChannelOf(profile({ last: { ...last, category: null, at: undefined } }))).toEqual({ ...last, category: null, at: 0 });
+    expect(lastChannelOf(profile({ last: { ...last, category: null, started: undefined } }))).toEqual({ ...last, category: null, started: 0 });
     expect(lastChannelOf(null)).toBeNull();
     expect(lastChannelOf(profile(undefined))).toBeNull();
     expect(lastChannelOf(profile({ last: null }))).toBeNull();
@@ -174,6 +179,7 @@ describe('lastChannelOf', () => {
       { ...last, index: 1.5 },
       { ...last, index: '4' },
       { ...last, category: { src: 's1' } },
+      { ...last, category: { name: 'News' } },
       { ...last, category: 'News' },
       [last],
     ];

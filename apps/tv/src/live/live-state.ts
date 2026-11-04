@@ -442,7 +442,8 @@ export function createLive(options: LiveOptions): Live {
     if (shown === undefined || status.value !== 'ready' || index.count === 0) return -1;
     const seq = loadSeq;
     const list = index;
-    const guess = Math.min(Math.max(from, 0), list.count - 1);
+    // A row before the first has no chunk: the search then starts at the first.
+    const guess = Math.min(from, list.count - 1);
     const refs = list.chunksFor(0, list.count);
     const home = list.locate(guess);
     let first = 0;
@@ -479,7 +480,6 @@ export function createLive(options: LiveOptions): Live {
    */
   const locate = async (key: ContentKey, guess: number): Promise<number> => {
     await loaded;
-    if (disposed) return -1;
     return findRow(guess, (item) => item.key === key);
   };
 

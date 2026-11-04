@@ -1125,9 +1125,11 @@ describe('the player: the start on the last channel (RELAY step 20c1)', () => {
     expect([f.player.target.value, f.player.row(12)]).toEqual([12, KEPT]);
   });
 
-  it('marks the kept channel\'s first frame once, and no other', () => {
+  it('marks the kept channel\'s first frame once, and no other', async () => {
     performance.clearMarks('zoma:resume-frame');
     const t = resumed();
+    t.controller.set('opening');
+    expect(performance.getEntriesByName('zoma:resume-frame')).toHaveLength(0);
     t.controller.set('playing');
     t.controller.set('buffering');
     t.controller.set('playing');
@@ -1135,11 +1137,44 @@ describe('the player: the start on the last channel (RELAY step 20c1)', () => {
     const s = setup();
     s.player.show(2);
     s.controller.set('playing');
-    // A zap before its frame: no mark.
+    // A zap or a close before its frame: no mark.
     const z = resumed();
     z.list.ready = true;
-    z.player.close();
+    z.list.loaded.add(13);
+    await z.press('CH_UP');
+    z.clock.advance(ZAP_DELAY_MS);
+    expect(z.controller.played()).toEqual([812, 13]);
     z.controller.set('playing');
+    const c = resumed();
+    c.player.close();
+    c.controller.set('playing');
     expect(performance.getEntriesByName('zoma:resume-frame')).toHaveLength(1);
+  });
+
+  it('moves nothing when the channel played again is the list\'s own row', async () => {
+    const t = resumed();
+    t.list.ready = true;
+    t.list.loaded.add(12);
+    t.list.loaded.add(13);
+    await t.press('CH_UP');
+    t.clock.advance(ZAP_DELAY_MS);
+    await t.press('CH_DOWN');
+    t.clock.advance(ZAP_DELAY_MS);
+    expect(t.controller.plays.slice(1)).toEqual([liveRequest(row(13)), liveRequest(row(12))]);
+    t.list.locates[0]!.answer(15);
+    await flush();
+    expect([t.player.target.value, t.player.playing.value]).toEqual([12, 12]);
+    expect(t.player.row(12)).toEqual(row(12));
+  });
+
+  it("keeps showing the kept channel when its found row can't be read, and says nothing", async () => {
+    const t = resumed();
+    t.list.ready = true;
+    // (The fake's reads of rows past its end answer nothing, as a failed chunk read does.)
+    t.list.locates[0]!.answer(25);
+    await flush();
+    await answerReads(t);
+    expect([t.player.target.value, t.player.row(25)]).toEqual([25, KEPT]);
+    expect(t.tuned).toEqual([]);
   });
 });

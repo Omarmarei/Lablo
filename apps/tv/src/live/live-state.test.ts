@@ -881,7 +881,10 @@ describe('the start on the last channel (RELAY step 20c1)', () => {
     const from = engine.chunkCalls.length;
     expect(await t.live.list.locate(SPORTS_KEY, 5)).toBe(1100);
     expect(engine.chunkCalls.slice(from)).toEqual(['s1|2|1', 's1|2|2']);
+    // A row past the end: from the last chunk inwards (the window's two chunks are the screen's own).
+    const past = engine.chunkCalls.length;
     expect(await t.live.list.locate('x:s1:live:0-2', 9999)).toBe(2);
+    expect(engine.chunkCalls.slice(past)).toEqual(['s2|0|0', 's1|2|2', 's1|2|1']);
     expect(await t.live.list.locate('x:s1:live:9-9', 0)).toBe(-1);
     expect(await t.live.list.locate('x:s2:live:0-1', -5)).toBe(1204);
   });
