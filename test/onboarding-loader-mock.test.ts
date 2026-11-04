@@ -105,7 +105,7 @@ describe("onboarding's loader against the mock provider", () => {
     expect(status.guides.map((g) => [g.epgSrc, g.gen > 0])).toEqual([['s1:xmltv', true]]);
     expect(status.matched).toBeGreaterThan(0);
     const profile = await data.profile();
-    expect(profile?.doc).toMatchObject({ v: 3, sources: [{ id: 's1', type: 'xtream', name: 'Mock', account: { base, username: U, password: P }, epgUrl: null, added: NOW }] });
+    expect(profile?.doc).toMatchObject({ v: 4, sources: [{ id: 's1', type: 'xtream', name: 'Mock', account: { base, username: U, password: P }, added: NOW }], guides: [] });
     expect(await data.summary()).toEqual({ sources: 1, items: catalog.live.length + catalog.movies.length + catalog.series.length, stale: 0 });
   });
 
@@ -118,7 +118,10 @@ describe("onboarding's loader against the mock provider", () => {
     // The typed guide first (`u~s1`); the playlist's own url-tvg is the same address, read once.
     expect(guides).toEqual(['u~s1']);
     await loader(data).start(xtream(), () => undefined).done;
-    expect((await data.profile())?.doc).toMatchObject({ sources: [{ id: 's1', type: 'm3u' }, { id: 's2', type: 'xtream' }] });
+    // The typed link is in the profile's guide list (version 4), under its source's id.
+    expect((await data.profile())?.doc).toMatchObject({ sources: [{ id: 's1', type: 'm3u' }, { id: 's2', type: 'xtream' }], guides: [{ id: 's1', url: guide }] });
+    // The panel's own guide is the same address as the typed one: still read once, as `u~s1`.
+    expect((await data.epgStatus()).guides.map((g) => g.epgSrc)).toEqual(['u~s1']);
   });
 
   it("names each failure: a wrong password, an expired, banned or disabled account, a link that isn't there", async () => {

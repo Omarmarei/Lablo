@@ -187,25 +187,33 @@ describe('QueryService', () => {
     expect(await client.call('editProfile', { kind: 'answers', answers: { language: 'ar' } })).toBe(true);
     // The same answer again changes nothing.
     expect(await client.call('editProfile', { kind: 'answers', answers: { language: 'ar' } })).toBe(false);
-    const source = { id: 's1', type: 'm3u', name: 'Home', url: 'http://p.test/list.m3u', epgUrl: null, added: 5 } as const;
+    const source = { id: 's1', type: 'm3u', name: 'Home', url: 'http://p.test/list.m3u', added: 5 } as const;
     expect(await client.call('editProfile', { kind: 'source', source })).toBe(true);
     // What the player keeps (step 20c1); the same answer again changes nothing.
     expect(await client.call('editProfile', { kind: 'player', change: { field: 'container', src: 's1', container: 'hls' } })).toBe(true);
     expect(await client.call('editProfile', { kind: 'player', change: { field: 'container', src: 's1', container: 'hls' } })).toBe(false);
+    // The user's guides (step 22b); a link already listed changes nothing.
+    expect(await client.call('editProfile', { kind: 'guide', change: { op: 'add', guide: { id: 'g1', url: 'http://g.test/a.xml' } } })).toBe(true);
+    expect(await client.call('editProfile', { kind: 'guide', change: { op: 'add', guide: { id: 'g2', url: 'http://g.test/a.xml' } } })).toBe(false);
     expect(await client.call('profile')).toEqual({
       doc: {
-        v: 3,
+        v: 4,
         favourites: [],
         sources: [source],
         onboarding: { language: 'ar', disclaimerAt: null, consent: null },
         player: { last: null, containers: { s1: 'hls' }, redirects: {}, tracks: {}, subtitleSize: null },
+        guides: [{ id: 'g1', url: 'http://g.test/a.xml' }],
       },
       newer: false,
       migratedFrom: null,
     });
     // A version 1 profile (step 7) is upgraded when the app reads it.
     await transact(db, STORE.profile, 'readwrite', (tx) => tx.objectStore(STORE.profile).put({ id: 'current', savedAt: 0, doc: { v: 1, favourites: [] } }));
-    expect(await client.call('profile')).toMatchObject({ migratedFrom: 1, doc: { v: 3, sources: [], onboarding: { language: null }, player: { last: null } } });
+    expect(await client.call('profile')).toMatchObject({ migratedFrom: 1, doc: { v: 4, sources: [], onboarding: { language: null }, player: { last: null }, guides: [] } });
+    // A version 3 profile's guide link moves to the guide list.
+    const v3 = { v: 3, favourites: [], sources: [{ ...source, epgUrl: 'http://g.test/b.xml' }], onboarding: { language: null, disclaimerAt: null, consent: null }, player: {} };
+    await transact(db, STORE.profile, 'readwrite', (tx) => tx.objectStore(STORE.profile).put({ id: 'current', savedAt: 0, doc: v3 }));
+    expect(await client.call('profile')).toMatchObject({ migratedFrom: 3, doc: { v: 4, sources: [source], guides: [{ id: 's1', url: 'http://g.test/b.xml' }] } });
     // A profile from a newer app version is shown and never written over.
     await transact(db, STORE.profile, 'readwrite', (tx) => tx.objectStore(STORE.profile).put({ id: 'current', savedAt: 0, doc: { v: 9, sources: [] } }));
     expect(await client.call('editProfile', { kind: 'answers', answers: { consent: true } })).toBe(false);

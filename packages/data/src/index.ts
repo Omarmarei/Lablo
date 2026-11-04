@@ -13,6 +13,7 @@ export { IdbError, deleteDatabase, getValue, onSuccess, openDatabase, transact }
 export type {
   AnyProfile,
   FavouriteRef,
+  GuideChange,
   LastChannel,
   LoadedProfile,
   OnboardingAnswers,
@@ -26,8 +27,10 @@ export type {
   ProfileV1,
   ProfileV2,
   ProfileV3,
+  ProfileV4,
   SnapshotReason,
   SourceRecord,
+  SourceRecordV3,
   StoredTrackChoice,
   StoredTrackPick,
 } from './profile';
@@ -93,7 +96,7 @@ export { FavouriteMatcher, MISSING_KEEP_MS, reconcileFavourites } from './favour
 export type { IngestErrorCode, IngestJob, IngestOptions, IngestProgress, IngestResult, IngestSource, IngestSwap } from './ingest';
 export { INGEST_VERSION, IngestError, WRITE_BATCH, runIngest } from './ingest';
 
-export type { EpgBucketKey, EpgChannelTable, EpgMeta, EpgMetaPatch, EpgSummary, StoredEpgMatch } from './epg-store';
+export type { EpgBucketKey, EpgChannelTable, EpgFailure, EpgMeta, EpgMetaPatch, EpgSummary, StoredEpgMatch } from './epg-store';
 export {
   abandonEpgGeneration,
   beginEpgGeneration,
@@ -112,6 +115,7 @@ export {
   putEpgChannels,
   readEpgBuckets,
   readEpgChannels,
+  setEpgRank,
 } from './epg-store';
 
 export type { EpgCatalogSource, EpgDueReason, EpgGuide, UserGuide } from './epg-sources';

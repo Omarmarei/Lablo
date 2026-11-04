@@ -252,8 +252,9 @@ export class DataEngine {
   /**
    * One EPG refresh in a fresh EPG worker, for the guides of `catalogs` (plus the user's), in
    * the refresh slot. With `due`, only the guides `epgRefreshDue` names are read, and no worker
-   * starts when none is (stored guides that are no longer listed are still deleted then). When a
-   * guide swaps in, the query worker reloads before this resolves.
+   * starts when none is, unless a stored guide is no longer listed (it is deleted) or has moved
+   * in the order (step 22b: its rank is set, with no download). When a guide swaps in or moves,
+   * the query worker reloads before this resolves.
    */
   async refreshEpg(catalogs: readonly EpgCatalogSource[], options: EpgRefreshOptions): Promise<EpgRefreshResult> {
     await this.claim('epg');
@@ -266,8 +267,9 @@ export class DataEngine {
       if (options.due) {
         const now = this.options.now ? this.options.now() : Date.now();
         only = guides.filter((g) => epgRefreshDue(findGuide(status, g.epgSrc), now) !== null).map((g) => g.epgSrc);
-        const unlisted = status.guides.some((m) => listed.indexOf(m.epgSrc) === -1);
-        if (only.length === 0 && !unlisted) return { outcomes: [], deleted: [], wanted: 0 };
+        // A guide gone from the list, or one in another place (its rank is its place).
+        const changed = status.guides.some((m) => listed.indexOf(m.epgSrc) !== m.rank);
+        if (only.length === 0 && !changed) return { outcomes: [], deleted: [], reranked: [], wanted: 0 };
       }
       return await this.withWorker(this.options.startEpgWorker, createEpgClient, async (client) => {
         this.busyTo((busy) => client.call('setBusy', { busy }).catch(ignore));
@@ -278,6 +280,8 @@ export class DataEngine {
         if (options.onProgress) client.on('progress', options.onProgress);
         const job = { guides, only, tier: options.tier, languages: options.languages, overrides: options.overrides, force: options.force };
         const result = await client.call('run', { job, lowTier: options.tier === 'low' }, { cancel: options.cancel });
+        // A guide that only moved sends no swap: the query worker orders the guides by rank.
+        if (result.reranked.length > 0) reload = this.query.call('reload');
         await reload.catch(ignore);
         return result;
       });

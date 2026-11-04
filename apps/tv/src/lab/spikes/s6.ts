@@ -152,7 +152,7 @@ export function createS6(deps: S6Deps = DEFAULT_S6_DEPS): Spike {
       if (blocked !== null) return blocked;
       const engine = engineOf();
       const lowTier = context.info.tier === 'low';
-      await engine.editProfile({ kind: 'source', source: { id: S6_SOURCE_ID, type: 'm3u', name: 'Zoma Lab S6', url: sourceOf().m3u, epgUrl: null, added: Date.now() } });
+      await engine.editProfile({ kind: 'source', source: { id: S6_SOURCE_ID, type: 'm3u', name: 'Zoma Lab S6', url: sourceOf().m3u, added: Date.now() } });
       let events = 0;
       const started = deps.now();
       let result: IngestResult;

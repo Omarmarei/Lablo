@@ -43,6 +43,7 @@ import {
   pruneEpgGenerations,
   putEpgBuckets,
   putEpgChannels,
+  setEpgRank,
 } from './epg-store';
 import type { EpgGuide } from './epg-sources';
 import type { GunzipMode } from './gunzip';
@@ -107,12 +108,19 @@ export interface EpgResult {
 }
 
 /** One guide's outcome: its result, or why it failed (the others still ran). */
-export type EpgOutcome = { epgSrc: string; result: EpgResult; error: null } | { epgSrc: string; result: null; error: { code: IngestErrorCode | 'failed'; message: string } };
+export type EpgOutcome =
+  | { epgSrc: string; result: EpgResult; error: null }
+  | { epgSrc: string; result: null; error: { code: IngestErrorCode | 'failed'; status: number | null; message: string } };
 
 export interface EpgRefreshResult {
   outcomes: EpgOutcome[];
   /** Guides deleted because they are no longer listed. */
   deleted: string[];
+  /**
+   * Stored guides whose priority changed (the user moved one, step 22b): set without a download.
+   * The caller reloads the query worker, which orders the guides by it.
+   */
+  reranked: string[];
   /** Live channels in the wanted set. */
   wanted: number;
 }
@@ -381,8 +389,14 @@ export async function runEpgRefresh(job: EpgRefreshJob, options: EpgIngestOption
   token.throwIfCancelled();
   const listed = job.guides.map((g) => g.epgSrc);
   const deleted: string[] = [];
+  const reranked: string[] = [];
   for (const meta of await getEpgMetas(db)) {
-    if (listed.indexOf(meta.epgSrc) !== -1) {
+    const rank = listed.indexOf(meta.epgSrc);
+    if (rank !== -1) {
+      if (meta.rank !== rank) {
+        await setEpgRank(db, meta.epgSrc, rank);
+        reranked.push(meta.epgSrc);
+      }
       await pruneEpgGenerations(db, meta.epgSrc, { abandon: true });
       if (meta.summary) await pruneEpgDays(db, meta.epgSrc, epgFirstDay(now(), meta.summary.pastDays));
       continue;
@@ -391,6 +405,8 @@ export async function runEpgRefresh(job: EpgRefreshJob, options: EpgIngestOption
     deleted.push(meta.epgSrc);
     options.onSwap?.({ epgSrc: meta.epgSrc, gen: 0, previous: meta.gen });
   }
+  // Nothing to read (a guide was only removed or moved): the live items aren't read either.
+  if (job.only !== undefined && job.only.length === 0) return { outcomes: [], deleted, reranked, wanted: 0 };
   const wanted = await readEpgWanted(db, job.tier, job.overrides);
   const outcomes: EpgOutcome[] = [];
   for (let rank = 0; rank < job.guides.length; rank++) {
@@ -401,13 +417,10 @@ export async function runEpgRefresh(job: EpgRefreshJob, options: EpgIngestOption
       outcomes.push({ epgSrc: guide.epgSrc, result, error: null });
     } catch (error) {
       if (error instanceof CancelError) throw error;
-      await markEpgFailed(db, guide.epgSrc, now(), rank).catch(() => undefined);
-      outcomes.push({
-        epgSrc: guide.epgSrc,
-        result: null,
-        error: { code: error instanceof IngestError ? error.code : 'failed', message: error instanceof Error ? error.message : String(error) },
-      });
+      const failure = error instanceof IngestError ? { code: error.code, status: error.status } : { code: 'failed' as const, status: null };
+      await markEpgFailed(db, guide.epgSrc, now(), rank, failure).catch(() => undefined);
+      outcomes.push({ epgSrc: guide.epgSrc, result: null, error: { ...failure, message: error instanceof Error ? error.message : String(error) } });
     }
   }
-  return { outcomes, deleted, wanted: wanted.wanted.size };
+  return { outcomes, deleted, reranked, wanted: wanted.wanted.size };
 }

@@ -309,12 +309,58 @@ describe('runEpgRefresh', () => {
       [G.epgSrc, 'committed', ''],
     ]);
     for (const o of r.outcomes) expect(o.error?.message ?? '').not.toContain('p.test');
+    expect(r.outcomes.map((o) => o.error?.status ?? null)).toEqual([null, null, 401, 404, null, null]);
     const metas = await getEpgMetas(db);
     expect(metas.filter((m) => m.failedAt === NOW + 1).map((m) => m.epgSrc).sort()).toEqual(['u~401', 'u~404', 'u~cut', 'u~html', 'u~net']);
+    // Why each one failed is kept for the guides screen (step 22b), never a message or a URL.
+    expect(metas.map((m) => [m.epgSrc, m.failure ?? null]).sort()).toEqual([
+      [G.epgSrc, null],
+      ['u~401', { code: 'auth', status: 401 }],
+      ['u~404', { code: 'http', status: 404 }],
+      ['u~cut', { code: 'format', status: null }],
+      ['u~html', { code: 'format', status: null }],
+      ['u~net', { code: 'network', status: null }],
+    ]);
     expect(metas.every((m) => m.building === null)).toBe(true);
     expect(epgRefreshDue(metas.find((m) => m.epgSrc === 'u~cut'), NOW + 2)).toBeNull();
     // Nothing of the failed guides was kept.
     expect((await dumpStore(db, STORE.epgBuckets)).every(([k]) => (k as unknown[])[0] === G.epgSrc)).toBe(true);
+    // A refresh that works clears the failure.
+    await refresh(() => ({ body: good }), { guides, only: ['u~404'] }, { now: () => NOW + 3 * 3_600_000 }).result;
+    expect(await getEpgMeta(db, 'u~404')).toMatchObject({ gen: 1, failedAt: null, failure: null });
+    expect(await getEpgMeta(db, 'u~401')).toMatchObject({ failure: { code: 'auth', status: 401 } });
+  });
+
+  it('sets the ranks of listed guides with no download, and reads no live item when it reads no guide (step 22b)', async () => {
+    const text = guide();
+    const other: EpgGuide = { epgSrc: 'u~x', url: 'http://p.test/x.xml', zone: { minutes: 0 } };
+    const first = await refresh(() => ({ body: text }), { guides: [other, G] }).result;
+    expect(first.reranked).toEqual([]);
+    expect(first.wanted).toBeGreaterThan(0);
+    const ranks = async (): Promise<string[]> => (await getEpgMetas(db)).map((m) => `${m.epgSrc} ${m.rank}`).sort();
+    expect(await ranks()).toEqual(['tv:tvg0 1', 'u~x 0']);
+    const before = await stored(1);
+    let asked = 0;
+    const swaps: EpgSwap[] = [];
+    const moved = await refresh(
+      () => {
+        asked += 1;
+        return { body: text };
+      },
+      { guides: [G, other], only: [] },
+      { onSwap: (s) => swaps.push(s) },
+    ).result;
+    expect(moved).toEqual({ outcomes: [], deleted: [], reranked: [G.epgSrc, 'u~x'], wanted: 0 });
+    expect(asked).toBe(0);
+    expect(swaps).toEqual([]);
+    expect(await ranks()).toEqual(['tv:tvg0 0', 'u~x 1']);
+    expect(await stored(1)).toEqual(before);
+    // The same order again: nothing to set.
+    expect((await refresh(() => ({ body: text }), { guides: [G, other], only: [] }).result).reranked).toEqual([]);
+    // A guide read in its new place gets that rank too, and the one not read is set beside it.
+    const read = await refresh(() => ({ body: text }), { guides: [other, G], only: ['u~x'] }).result;
+    expect(read.reranked.sort()).toEqual([G.epgSrc, 'u~x']);
+    expect(await ranks()).toEqual(['tv:tvg0 1', 'u~x 0']);
   });
 
   it('reads gzip, deletes guides no longer listed, and reports nothing to match', async () => {
@@ -343,7 +389,7 @@ describe('runEpgRefresh', () => {
     const empty = await openDatabase(freshFactory());
     try {
       const r4 = await refresh(() => ({ body: text }), {}, {}, empty).result;
-      expect(r4.outcomes[0]!.error).toEqual({ code: 'empty', message: 'There are no live channels to match a guide to' });
+      expect(r4.outcomes[0]!.error).toEqual({ code: 'empty', status: null, message: 'There are no live channels to match a guide to' });
     } finally {
       empty.close();
     }

@@ -3,7 +3,7 @@ import type { EpgCatalogSource, EpgRefreshResult, IngestResult, IngestSource, Lo
 import type { LifecycleEvent } from '@zoma/platform-api';
 // The client entry only: the package index would pull every data module's polyfills into main.
 import { CancelSource } from '@zoma/data/client';
-import { catalogOf, guidesOf, ingestSourceOf, storedSources } from '../onboarding/engine-loader';
+import { catalogOf, ingestSourceOf, storedSources, userGuides } from '../onboarding/engine-loader';
 import type { EpgRefreshOptions, RefreshOptions } from './engine';
 
 /**
@@ -23,7 +23,10 @@ import type { EpgRefreshOptions, RefreshOptions } from './engine';
  *   catalog and a guide refresh at once. When something else holds it (onboarding, the hello
  *   screen), the work waits `BUSY_RETRY_MS`.
  * - **The screens:** `onCatalog` after a catalog swapped in (the live screen reads it again),
- *   `onGuides` after a guide swapped in or was deleted (now/next is asked again).
+ *   `onGuides` after a guide swapped in, was deleted or moved (now/next is asked again).
+ * - **Now** (step 22b): `refreshNow` reads the guides at once when the user changed the list, or
+ *   right after the pass running. A new guide is due at once, a removed one is deleted and a
+ *   moved one gets its new rank, with no download. The catalogs wait for the next check.
  */
 
 /** The first check after the start, and after the app is visible again. */
@@ -61,7 +64,7 @@ export interface SchedulerOptions {
   readonly lifecycle?: (listener: (event: LifecycleEvent) => void) => () => void;
   /** Catalogs swapped in: the sources' ids. */
   readonly onCatalog?: (srcs: string[]) => void;
-  /** A guide swapped in, or one no longer listed was deleted. */
+  /** A guide swapped in, one no longer listed was deleted, or one moved in the order. */
   readonly onGuides?: () => void;
   readonly now?: () => number;
   readonly timers?: SchedulerTimers;
@@ -70,6 +73,13 @@ export interface SchedulerOptions {
 export interface RefreshScheduler {
   /** Checks `FIRST_CHECK_MS` from now, then every `CHECK_MS`. */
   start(): void;
+  /**
+   * Reads the guides now (the user changed the list): at once, or right after the pass running
+   * (several calls meanwhile share one pass). Only the guides: a catalog that is due waits for
+   * the next check, `CHECK_MS` after this pass. Resolves when that pass has ended, whatever it
+   * did; at once when disposed.
+   */
+  refreshNow(): Promise<void>;
   /** Stops the checks and cancels a refresh it runs. */
   dispose(): void;
 }
@@ -101,19 +111,27 @@ export function createRefreshScheduler(options: SchedulerOptions): RefreshSchedu
   let unsubscribe: (() => void) | null = null;
   /** A catalog committed since the guides were last read: every guide is read next. */
   let readAll = false;
+  /** `refreshNow` came while a pass ran: a guides pass follows it. */
+  let again = false;
+  /** `refreshNow` calls the next pass settles. */
+  let waiting: (() => void)[] = [];
 
   const schedule = (ms: number): void => {
     if (timer !== null) timers.clear(timer);
-    timer = timers.set(check, ms);
+    timer = timers.set(() => check(), ms);
   };
 
-  /** One pass: the catalogs that are due, then the guides. Resolves `true` when the slot was busy. */
-  const pass = async (): Promise<boolean> => {
-    const records = storedSources(await engine.profile());
+  /**
+   * One pass: the catalogs that are due (unless `catalogs` is false), then the guides. Resolves
+   * `true` when the slot was busy.
+   */
+  const pass = async (catalogs: boolean): Promise<boolean> => {
+    const profile = await engine.profile();
+    const records = storedSources(profile);
     if (records.length === 0) return false;
-    const [metas, tier] = await Promise.all([engine.sourceStatus(), options.tier()]);
+    const [metas, tier] = await Promise.all([catalogs ? engine.sourceStatus() : Promise.resolve([]), options.tier()]);
     const committed: string[] = [];
-    for (const record of records) {
+    for (const record of catalogs ? records : []) {
       if (disposed) return false;
       let meta: SourceMeta | undefined;
       for (const m of metas) if (m.src === record.id) meta = m;
@@ -139,36 +157,52 @@ export function createRefreshScheduler(options: SchedulerOptions): RefreshSchedu
     if (engine.refreshing) return true;
     const result = await engine.refreshEpg(records.map(catalogOf), {
       tier,
-      user: guidesOf(records),
+      user: userGuides(profile),
       languages: options.languages(),
       // A new catalog: every guide is read again (new channels may match).
       due: !readAll,
       cancel: cancel.token,
     });
     readAll = false;
-    let swapped = result.deleted.length > 0;
+    let swapped = result.deleted.length > 0 || result.reranked.length > 0;
     for (const outcome of result.outcomes) if (outcome.result !== null && outcome.result.status === 'committed') swapped = true;
     if (swapped && !disposed) options.onGuides?.();
     return false;
   };
 
-  /** Only ever scheduled while visible, not disposed and with no pass running. */
-  function check(): void {
+  /**
+   * A pass now, settling the `refreshNow` calls made so far. Only ever run with no pass running,
+   * not disposed, and visible (`refreshNow` aside).
+   */
+  function check(catalogs = true): void {
+    if (timer !== null) timers.clear(timer);
     timer = null;
     running = true;
-    pass().then(
-      (busy) => after(busy),
+    const settles = waiting;
+    waiting = [];
+    pass(catalogs).then(
+      (busy) => after(busy, settles),
       (error: unknown) => {
         if (!disposed) console.warn('The scheduled refresh failed', error);
-        after(false);
+        after(false, settles);
       },
     );
   }
 
-  /** A pass ended: the next check, unless hidden (the next visible schedules it) or disposed. */
-  const after = (busy: boolean): void => {
+  /**
+   * A pass ended: its `refreshNow` calls settle, then a guides pass when one was asked for
+   * meanwhile, else the next check, unless hidden (the next visible schedules it) or disposed.
+   */
+  const after = (busy: boolean, settles: readonly (() => void)[]): void => {
     running = false;
-    if (disposed || hidden) return;
+    for (const settle of settles) settle();
+    if (disposed) return;
+    if (again) {
+      again = false;
+      check(false);
+      return;
+    }
+    if (hidden) return;
     schedule(busy ? BUSY_RETRY_MS : CHECK_MS);
   };
 
@@ -189,6 +223,14 @@ export function createRefreshScheduler(options: SchedulerOptions): RefreshSchedu
         }) ?? (() => undefined);
       schedule(FIRST_CHECK_MS);
     },
+    refreshNow(): Promise<void> {
+      if (disposed) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        waiting.push(resolve);
+        if (running) again = true;
+        else check(false);
+      });
+    },
     dispose(): void {
       disposed = true;
       if (timer !== null) timers.clear(timer);
@@ -196,6 +238,9 @@ export function createRefreshScheduler(options: SchedulerOptions): RefreshSchedu
       unsubscribe?.();
       unsubscribe = null;
       cancel.cancel();
+      const settles = waiting;
+      waiting = [];
+      for (const settle of settles) settle();
     },
   };
 }

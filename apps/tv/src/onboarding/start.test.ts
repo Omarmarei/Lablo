@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { PROFILE_WAIT_MS, answerEdit, readStartProfile, startPoint } from './start';
 
 const loaded = (doc: Record<string, unknown>): LoadedProfile => ({ doc: { v: 2, ...doc }, newer: false, migratedFrom: null });
-const SOURCE = { id: 's1', type: 'm3u', name: 'A', url: 'http://a.test', epgUrl: null, added: 1 };
+const SOURCE = { id: 's1', type: 'm3u', name: 'A', url: 'http://a.test', added: 1 };
 
 describe('startPoint', () => {
   it('starts onboarding until a source is stored, then skips it', () => {

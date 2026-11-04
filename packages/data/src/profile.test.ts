@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { openDatabase, transact } from './idb';
-import type { AnyProfile, LastChannel, PlayerChange, ProfileDoc, ProfileMigration, SourceRecord, StoredTrackChoice } from './profile';
+import type { UserGuide } from './epg-sources';
+import type { AnyProfile, GuideChange, LastChannel, PlayerChange, ProfileDoc, ProfileMigration, SourceRecord, SourceRecordV3, StoredTrackChoice } from './profile';
 import {
   MAX_TRACK_CHOICES,
   PROFILE_MIGRATIONS,
@@ -22,7 +23,7 @@ import { freshFactory } from './test-support';
 
 const DAY = SNAPSHOT_EVERY_MS;
 const fav = (n: number): ProfileDoc['favourites'][number] => ({ key: `x:tv:live:${n}`, src: 'tv', kind: 'live', normName: `ch ${n}`, added: n, missingSince: null });
-/** A current (version 3) profile with these favourites. */
+/** A current (version 4) profile with these favourites. */
 const withFavs = (...ns: number[]): ProfileDoc => ({ ...emptyProfile(), favourites: ns.map(fav) });
 /** A version 1 document, as step 7 stored it. */
 const v1 = (...ns: number[]): AnyProfile => ({ v: 1, favourites: ns.map(fav) });
@@ -32,9 +33,10 @@ const xtreamSource = (id: string, name = 'Home'): SourceRecord => ({
   type: 'xtream',
   name,
   account: { base: 'http://panel.test', username: 'u', password: 'p' },
-  epgUrl: null,
   added: 7,
 });
+/** A source as versions 2 and 3 stored it, with the guide link typed in onboarding. */
+const v3Source = (id: string, epgUrl: string | null = null): SourceRecordV3 => ({ ...xtreamSource(id), epgUrl });
 
 async function writeCurrent(db: IDBDatabase, doc: unknown): Promise<void> {
   await transact(db, STORE.profile, 'readwrite', (tx) => tx.objectStore(STORE.profile).put({ id: 'current', savedAt: 0, doc }));
@@ -45,26 +47,58 @@ const toV2: ProfileMigration = ({ favourites, ...rest }) => ({ ...rest, v: 2, fa
 const toV3: ProfileMigration = (doc) => ({ ...doc, v: 3, settings: { language: 'ar' } });
 
 describe('profile migrations', () => {
-  it('is at version 3, with the shape of every version pinned', () => {
-    expect(PROFILE_VERSION).toBe(3);
+  it('is at version 4, with the shape of every version pinned', () => {
+    expect(PROFILE_VERSION).toBe(4);
     expect(PROFILE_VERSION).toBe(PROFILE_MIGRATIONS.length + 1);
     const NOTHING_KEPT = { last: null, containers: {}, redirects: {}, tracks: {}, subtitleSize: null };
     expect(noPlayerMemory()).toEqual(NOTHING_KEPT);
-    expect(emptyProfile()).toEqual({ v: 3, favourites: [], sources: [], onboarding: NO_ANSWERS, player: NOTHING_KEPT });
+    expect(emptyProfile()).toEqual({ v: 4, favourites: [], sources: [], onboarding: NO_ANSWERS, player: NOTHING_KEPT, guides: [] });
     // 1 → 2 (step 13b): the favourites stay; no sources and no answers yet.
     expect(PROFILE_MIGRATIONS[0]!(v1(1, 2))).toEqual({ v: 2, favourites: [fav(1), fav(2)], sources: [], onboarding: NO_ANSWERS });
     // 2 → 3 (step 20c1): nothing kept for the player yet; the rest stays.
-    const v2 = { v: 2, favourites: [fav(1)], sources: [xtreamSource('s1')], onboarding: { ...NO_ANSWERS, language: 'ar' } };
+    const v2 = { v: 2, favourites: [fav(1)], sources: [v3Source('s1', 'http://g.test/a.xml')], onboarding: { ...NO_ANSWERS, language: 'ar' } };
     expect(PROFILE_MIGRATIONS[1]!(v2)).toEqual({ ...v2, v: 3, player: NOTHING_KEPT });
+    // 3 → 4 (step 22b): the sources' guide links become the guide list, under the sources' ids.
+    const v3 = { ...v2, v: 3, player: NOTHING_KEPT };
+    expect(PROFILE_MIGRATIONS[2]!(v3)).toEqual({ ...v3, v: 4, sources: [xtreamSource('s1')], guides: [{ id: 's1', url: 'http://g.test/a.xml' }] });
     expect(migrateProfile(v1(1, 2))).toEqual({
-      doc: { v: 3, favourites: [fav(1), fav(2)], sources: [], onboarding: NO_ANSWERS, player: NOTHING_KEPT },
+      doc: { v: 4, favourites: [fav(1), fav(2)], sources: [], onboarding: NO_ANSWERS, player: NOTHING_KEPT, guides: [] },
       from: 1,
       migrated: true,
       newer: false,
     });
-    expect(migrateProfile(v2)).toMatchObject({ doc: { ...v2, v: 3, player: NOTHING_KEPT }, from: 2, migrated: true });
+    expect(migrateProfile(v2)).toMatchObject({
+      doc: { ...v2, v: 4, sources: [xtreamSource('s1')], player: NOTHING_KEPT, guides: [{ id: 's1', url: 'http://g.test/a.xml' }] },
+      from: 2,
+      migrated: true,
+    });
     // Fields an older document had that the new version doesn't name are kept, never dropped.
-    expect(migrateProfile({ ...v1(), kept: 'x' }).doc).toMatchObject({ v: 3, kept: 'x' });
+    expect(migrateProfile({ ...v1(), kept: 'x' }).doc).toMatchObject({ v: 4, kept: 'x' });
+  });
+
+  it("moves each source's guide link to the guide list in source order, once per link (3 to 4)", () => {
+    const migrate = PROFILE_MIGRATIONS[2]!;
+    const v3 = (sources: unknown): AnyProfile => ({ v: 3, favourites: [], sources, onboarding: NO_ANSWERS, player: noPlayerMemory(), kept: 1 });
+    const start = v3([v3Source('s1', 'http://g.test/a.xml'), v3Source('s2'), v3Source('s3', 'http://g.test/b.xml'), v3Source('s4', 'http://g.test/a.xml'), v3Source('s5', '')]);
+    const frozen = JSON.stringify(start);
+    const out = migrate(start);
+    expect(out).toEqual({
+      ...start,
+      v: 4,
+      // Every field but the link stays on each source.
+      sources: ['s1', 's2', 's3', 's4', 's5'].map((id) => xtreamSource(id)),
+      // s4 shares s1's link (the refresh read it once, as `u~s1`); s2 has none, s5 an empty one.
+      guides: [
+        { id: 's1', url: 'http://g.test/a.xml' },
+        { id: 's3', url: 'http://g.test/b.xml' },
+      ],
+    });
+    expect(JSON.stringify(start)).toBe(frozen);
+    // Sources that aren't a list, or entries that aren't records, stay as they are.
+    expect(migrate(v3('odd'))).toEqual({ ...v3('odd'), v: 4, guides: [] });
+    expect(migrate(v3([null, 7, { epgUrl: 'http://g.test/c.xml' }]))).toEqual({ ...v3([null, 7, {}]), v: 4, guides: [] });
+    const none: AnyProfile = { v: 3, favourites: [], onboarding: NO_ANSWERS, player: noPlayerMemory() };
+    expect(migrate(none)).toEqual({ ...none, v: 4, guides: [] });
   });
 
   it('upgrades from every earlier version, step by step, without touching the input', () => {
@@ -140,7 +174,7 @@ describe('profile storage', () => {
     expect(await loadProfile(db)).toEqual({ doc: { v: 9, favourites: [], future: true }, newer: true, migratedFrom: null });
     await expect(saveProfile(db, withFavs(1))).rejects.toThrow(/newer app version/);
     expect((await loadProfile(db))!.doc).toMatchObject({ v: 9, future: true });
-    expect(() => saveProfile(db, { v: 4 } as unknown as ProfileDoc)).toThrow(/Can't save a version 4/);
+    expect(() => saveProfile(db, { v: 5 } as unknown as ProfileDoc)).toThrow(/Can't save a version 5/);
     db.close();
   });
 
@@ -235,7 +269,7 @@ describe('updateProfile', () => {
   it('rejects (and writes nothing) when the update returns another version', async () => {
     const db = await openDatabase(freshFactory());
     await saveProfile(db, withFavs(1), { now: 0 });
-    await expect(updateProfile(db, (doc) => ({ ...doc, v: 4 }) as unknown as ProfileDoc)).rejects.toThrow(ProfileError);
+    await expect(updateProfile(db, (doc) => ({ ...doc, v: 5 }) as unknown as ProfileDoc)).rejects.toThrow(ProfileError);
     expect((await loadProfile(db))!.doc).toEqual(withFavs(1));
     db.close();
   });
@@ -296,6 +330,50 @@ describe('applyProfileEdit', () => {
   });
 });
 
+describe("applyProfileEdit: the user's guides (step 22b)", () => {
+  const guide = (id: string, url = `http://g.test/${id}.xml`): UserGuide => ({ id, url });
+  const ids = (doc: ProfileDoc | null): string[] | null => (doc === null ? null : doc.guides.map((g) => g.id));
+  const edit = (doc: ProfileDoc, change: GuideChange): ProfileDoc | null => applyProfileEdit(doc, { kind: 'guide', change });
+  const listed = (...names: string[]): ProfileDoc => ({ ...withFavs(1), guides: names.map((n) => guide(n)) });
+
+  it('adds a guide at the end; an id or a link already listed changes nothing', () => {
+    const doc = listed('s1', 'g1');
+    const added = edit(doc, { op: 'add', guide: { id: 'g2', url: 'http://g.test/new.xml', offsetMinutes: 180 } });
+    expect(added!.guides).toEqual([guide('s1'), guide('g1'), { id: 'g2', url: 'http://g.test/new.xml', offsetMinutes: 180 }]);
+    expect(added!.favourites).toEqual([fav(1)]);
+    expect(ids(doc)).toEqual(['s1', 'g1']);
+    expect(edit(doc, { op: 'add', guide: guide('g1', 'http://g.test/other.xml') })).toBeNull();
+    expect(edit(doc, { op: 'add', guide: guide('g9', 'http://g.test/s1.xml') })).toBeNull();
+    expect(ids(edit(emptyProfile(), { op: 'add', guide: guide('g1') }))).toEqual(['g1']);
+  });
+
+  it('removes a guide by its id; an unknown id changes nothing', () => {
+    const doc = listed('s1', 'g1', 'g2');
+    expect(ids(edit(doc, { op: 'remove', id: 'g1' }))).toEqual(['s1', 'g2']);
+    expect(ids(edit(doc, { op: 'remove', id: 's1' }))).toEqual(['g1', 'g2']);
+    expect(ids(edit(doc, { op: 'remove', id: 'g2' }))).toEqual(['s1', 'g1']);
+    expect(edit(doc, { op: 'remove', id: 'g3' })).toBeNull();
+    expect(ids(doc)).toEqual(['s1', 'g1', 'g2']);
+  });
+
+  it('moves a guide to a place, clamped to the list; its own place changes nothing', () => {
+    const doc = listed('a', 'b', 'c', 'd');
+    expect(ids(edit(doc, { op: 'move', id: 'c', to: 0 }))).toEqual(['c', 'a', 'b', 'd']);
+    expect(ids(edit(doc, { op: 'move', id: 'b', to: 2 }))).toEqual(['a', 'c', 'b', 'd']);
+    expect(ids(edit(doc, { op: 'move', id: 'a', to: 3 }))).toEqual(['b', 'c', 'd', 'a']);
+    expect(ids(edit(doc, { op: 'move', id: 'b', to: 99 }))).toEqual(['a', 'c', 'd', 'b']);
+    expect(ids(edit(doc, { op: 'move', id: 'c', to: -4 }))).toEqual(['c', 'a', 'b', 'd']);
+    expect(ids(edit(doc, { op: 'move', id: 'd', to: 1.7 }))).toEqual(['a', 'd', 'b', 'c']);
+    expect(edit(doc, { op: 'move', id: 'b', to: 1 })).toBeNull();
+    // Clamped or rounded down to its own place: no change either.
+    expect(edit(doc, { op: 'move', id: 'b', to: 1.2 })).toBeNull();
+    expect(edit(doc, { op: 'move', id: 'a', to: -1 })).toBeNull();
+    expect(edit(doc, { op: 'move', id: 'd', to: 9 })).toBeNull();
+    expect(edit(doc, { op: 'move', id: 'x', to: 0 })).toBeNull();
+    expect(ids(doc)).toEqual(['a', 'b', 'c', 'd']);
+  });
+});
+
 describe('applyProfileEdit: what the player keeps (step 20c1)', () => {
   const item = (n: number): LastChannel['item'] => ({
     key: `s1:live:${n}`,
@@ -352,11 +430,11 @@ describe('applyProfileEdit: what the player keeps (step 20c1)', () => {
     expect(player(l, { field: 'subtitleSize', size: 's' })!.player.subtitleSize).toBe('s');
   });
 
-  it('keeps the picture mode in a version 3 document without one (no migration); the same mode changes nothing', () => {
+  it('keeps the picture mode in a document without one (no migration); the same mode changes nothing', () => {
     const before = emptyProfile();
     expect('picture' in before.player).toBe(false);
     const zoom = player(before, { field: 'picture', mode: 'zoom' })!;
-    expect(zoom.v).toBe(3);
+    expect(zoom.v).toBe(PROFILE_VERSION);
     expect(zoom.player).toEqual({ ...before.player, picture: 'zoom' });
     expect(player(zoom, { field: 'picture', mode: 'zoom' })).toBeNull();
     expect(player(zoom, { field: 'picture', mode: '4:3' })!.player.picture).toBe('4:3');
