@@ -17,9 +17,9 @@ export interface DeviceInfo {
   readonly platform: PlatformId;
   /** Model code as the TV reports it, e.g. `UE43NU7100` or `43UK6300PLB`. */
   readonly model: string;
-  /** Model year (2018, 2020, …) derived from the OS version, or `null` when unknown. */
+  /** Model year (2018, 2020, …) derived from the OS version (webOS: or the engine), or `null` when unknown. */
   readonly modelYear: number | null;
-  /** OS version: Tizen `4.0`, webOS `4.1.0`, or `n/a` in a desktop browser. */
+  /** OS version: Tizen `4.0`, webOS `6.5.3` (or just the major, `6`, when only the engine names it), or `n/a` in a desktop browser. */
   readonly osVersion: string;
   /** Firmware build string, or the OS version when the TV exposes no separate firmware id. */
   readonly firmware: string;
@@ -30,6 +30,11 @@ export interface DeviceInfo {
   readonly locale: string;
   /** ISO 3166-1 alpha-2 country, or `null` until the adapter can read it. */
   readonly country: string | null;
+  /**
+   * The platform's own facts behind the fields above, as it gave them (webOS: where the version
+   * came from and the keys of `PalmSystem.deviceInfo`). Spike S0 records them; nothing decides on them.
+   */
+  readonly details?: Readonly<Record<string, string>>;
 }
 
 /** Number keys 0–9, indexed by digit: `DIGIT_INTENTS[7] === 'DIGIT_7'`. */

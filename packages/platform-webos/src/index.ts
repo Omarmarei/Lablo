@@ -11,12 +11,12 @@
 import { chromiumMajorFromUserAgent, deviceTier } from '@zoma/core';
 import type { DeviceInfo, Intent, KeyLike, KeyRegistration, LifecycleEvent, Platform, PlatformCall, TextKey } from '@zoma/platform-api';
 import { DIGIT_INTENTS } from '@zoma/platform-api';
-import { parsePalmDeviceInfo, webosChromiumVersion, webosModelYear } from './device';
+import { parsePalmDeviceInfo, webosVersionFacts } from './device';
 import { readLgudid } from './luna';
 import { readAudioGuidance, webosSpeak } from './speech';
 
-export type { WebosDeviceInfo } from './device';
-export { parsePalmDeviceInfo, webosChromiumVersion, webosModelYear } from './device';
+export type { WebosDeviceInfo, WebosVersionFacts, WebosVersionSource } from './device';
+export { parsePalmDeviceInfo, webosChromiumVersion, webosMajorFromChromium, webosModelYear, webosVersionFacts } from './device';
 export type { BridgeFactory, ServiceBridge } from './luna';
 export { DEVICE_ID_URI, LunaError, SELECT_TRACK_URI, jsonText, lgudidFrom, lunaRequest, palmServiceBridge, readLgudid, webosSelectTrack } from './luna';
 export { AUDIO_GUIDANCE_URI, TTS_URI, audioGuidanceFrom, readAudioGuidance, webosSpeak } from './speech';
@@ -106,19 +106,21 @@ function palmSystem(): PalmSystemApi | undefined {
 
 function readDeviceInfo(): DeviceInfo {
   const raw = parsePalmDeviceInfo(palmSystem()?.deviceInfo);
-  const osVersion = raw.platformVersion ?? 'unknown';
-  const modelYear = webosModelYear(osVersion);
-  const chromiumVersion = chromiumMajorFromUserAgent(navigator.userAgent) ?? webosChromiumVersion(osVersion);
+  const facts = webosVersionFacts(raw, chromiumMajorFromUserAgent(navigator.userAgent));
+  const details: Record<string, string> = { versionFrom: facts.versionFrom, deviceInfoKeys: raw.keys === undefined ? '' : raw.keys.join(' ') };
+  if (raw.platformVersion !== undefined) details.platformVersion = raw.platformVersion;
+  if (raw.sdkVersion !== undefined) details.sdkVersion = raw.sdkVersion;
   return {
     platform: 'webos',
     model: raw.modelName ?? 'unknown',
-    modelYear,
-    osVersion,
-    firmware: raw.firmwareVersion ?? osVersion,
-    chromiumVersion,
-    tier: deviceTier({ modelYear, chromiumVersion }),
+    modelYear: facts.modelYear,
+    osVersion: facts.osVersion,
+    firmware: facts.firmware,
+    chromiumVersion: facts.chromiumVersion,
+    tier: deviceTier({ modelYear: facts.modelYear, chromiumVersion: facts.chromiumVersion }),
     locale: navigator.language || 'en-US',
     country: null,
+    details,
   };
 }
 
