@@ -596,6 +596,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - **Extra TV runs (no person needed):** lab 0.1.1 over 0.1.0 (S2 update: both stores kept; session `…-120259-e4k0`), then an uninstall and reinstall (S3: the same LGUDID; `…-120430-421k`).
     - **Dev Mode extend from the PC:** `ares-launch --device tv com.palmdts.devmode --params '{"extend":true}'` launched the Dev Mode app; whether it extended is unconfirmed until someone reads "Remain Session" on the TV (tv-setup.md 2.2).
     - **The harness keeps Chromium 53** (ADR-012): stricter than any supported TV; retargeting to 56 would change ADR-003's ES2016 gate and CLAUDE.md, for about a third of the `engines` job. A later cleanup.
+    - **Checks:** lint, typecheck, 2,455 tests (one fixture test timed out under load, then passed alone in 3.7 s), build, e2e; 17/17 mutants of the new guards caught. e2e on a loaded PC: the lab's S2 update test took 28.5 s of its 30 s on main's CI too, so it now has 90 s (three whole lab runs); the throttled live-screen test failed locally on one 310 ms long task (every press within 200 ms; the screen is untouched here) and is left to CI.
 
 ### Phase 5: Player and live TV
 - [ ] 17. **PlayerController (5.1).** Session tokens, close-before-open, URL strategy (`.ts`→`.m3u8`, remembered per source), watchdog retry ladder, error classifier; FakeEngine tests.

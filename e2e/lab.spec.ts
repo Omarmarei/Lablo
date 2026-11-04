@@ -487,6 +487,8 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
   });
 
   test('finds the markers of an older version after an "update" (S2), and of the same version after a relaunch', async ({ page }) => {
+    // Three whole lab runs: 28.5 s on CI (main, 2026-11-04) against the default 30 s, and over it on a busy PC.
+    test.setTimeout(90_000);
     const errors = trackErrors(page);
     // The TV build's lab-config.js, as an older lab would have had it.
     await page.addInitScript(() => {
