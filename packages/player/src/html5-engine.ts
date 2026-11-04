@@ -110,7 +110,12 @@ export interface MediaElementLike {
   play(): Promise<void> | undefined;
   pause(): void;
   canPlayType(type: string): string;
-  getVideoPlaybackQuality?(): { readonly droppedVideoFrames: number };
+  getVideoPlaybackQuality?(): { readonly droppedVideoFrames: number; readonly totalVideoFrames?: number };
+  /** Chromium's own counters: old engines have them where `getVideoPlaybackQuality` is missing, and only they count bytes. */
+  readonly webkitDecodedFrameCount?: number;
+  readonly webkitDroppedFrameCount?: number;
+  readonly webkitVideoDecodedByteCount?: number;
+  readonly webkitAudioDecodedByteCount?: number;
 }
 
 export interface Html5EngineOptions {
@@ -324,10 +329,28 @@ export class Html5Engine implements PlayerEngine {
     return this.video.currentTime * 1000;
   }
 
+  /**
+   * The picture size, and the element's counters (step 20c2a): frames from
+   * `getVideoPlaybackQuality` or Chromium's own counters, bytes from Chromium's only. The element
+   * names no codec and declares no bitrate.
+   */
   stats(): EngineStats {
     const video = this.video;
     const quality = video.getVideoPlaybackQuality === undefined ? null : video.getVideoPlaybackQuality();
-    return { width: video.videoWidth, height: video.videoHeight, bitrate: null, droppedFrames: quality === null ? null : quality.droppedVideoFrames };
+    const total = quality === null ? undefined : quality.totalVideoFrames;
+    const videoBytes = counter(video.webkitVideoDecodedByteCount);
+    const audioBytes = counter(video.webkitAudioDecodedByteCount);
+    return {
+      width: video.videoWidth,
+      height: video.videoHeight,
+      bitrate: null,
+      droppedFrames: counter(quality === null ? video.webkitDroppedFrameCount : quality.droppedVideoFrames),
+      decodedFrames: counter(total === undefined ? video.webkitDecodedFrameCount : total),
+      decodedBytes: videoBytes === null && audioBytes === null ? null : (videoBytes ?? 0) + (audioBytes ?? 0),
+      videoCodec: '',
+      audioCodec: '',
+      audioChannels: null,
+    };
   }
 
   suspend(): void {
@@ -500,6 +523,11 @@ export class Html5Engine implements PlayerEngine {
   private emit(e: EngineEvent & { readonly token: number }): void {
     for (const listener of this.listeners.slice()) listener(e);
   }
+}
+
+/** A counter the element has, or `null`. */
+function counter(value: number | undefined): number | null {
+  return typeof value === 'number' ? value : null;
 }
 
 /**

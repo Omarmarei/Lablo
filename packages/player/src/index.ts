@@ -22,7 +22,7 @@ export type {
   Rect,
   Track,
 } from './engine';
-export { PLAYBACK_ERROR_KINDS, isPlaybackError } from './engine';
+export { NO_STATS, PLAYBACK_ERROR_KINDS, isPlaybackError } from './engine';
 
 export type { ExternalSub, PlayCandidate, PlayRequest, SourceMemory } from './request';
 export { MemorySourceMemory, containerOf, orderCandidates, streamCandidates } from './request';
@@ -36,7 +36,7 @@ export { classifyFailure, isDefinitive, wantsAccountCheck } from './failure';
 export type { LadderOptions, RetryPlan, Rung, WatchdogConfig } from './ladder';
 export { DEFAULT_WATCHDOG, RetryLadder } from './ladder';
 
-export type { ControllerOptions, PlayOptions, PlayerState, PlayerStatus, SubtitleFeed, SubtitleView } from './controller';
+export type { ControllerOptions, PlayOptions, PlayerState, PlayerStatus, StreamStats, SubtitleFeed, SubtitleView } from './controller';
 export { CUE_TICK_MS, ENGINE_CUE_MS, MAX_ENGINE_CUES, PlayerController } from './controller';
 
 export type { AudioTrackLike, AudioTrackListLike, Html5EngineOptions, MediaElementLike, TextTrackLike, TrackListLike } from './html5-engine';

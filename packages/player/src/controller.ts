@@ -28,7 +28,7 @@ import type { ContentKey, SubtitleCue } from '@zoma/core';
 import { SubtitleTrack, cueText } from '@zoma/core';
 import type { Clock } from './clock';
 import { SYSTEM_CLOCK } from './clock';
-import type { Container, EngineEvent, PlaybackError, PlayerEngine } from './engine';
+import type { Container, EngineEvent, EngineStats, PlaybackError, PlayerEngine } from './engine';
 import { isPlaybackError } from './engine';
 import type { AccountStatus, PlaybackFailure } from './failure';
 import { classifyFailure, wantsAccountCheck } from './failure';
@@ -68,6 +68,17 @@ export interface PlayerStatus {
   readonly failure: PlaybackFailure | null;
   /** The stream's audio and subtitle tracks (empty until the engine lists them). */
   readonly tracks: PlayerTracks;
+}
+
+/**
+ * The stream on show, for the stream info (RELAY step 20c2a): the engine's figures, the container
+ * of the URL that plays, the engine that plays it, and `load`, which is new with every load (a
+ * retry, a zap): the engine's counters start again with it.
+ */
+export interface StreamStats extends EngineStats {
+  readonly container: Container | null;
+  readonly engine: PlayerEngine['kind'];
+  readonly load: number;
 }
 
 export interface ControllerOptions {
@@ -464,6 +475,30 @@ export class PlayerController {
     this.readTracks(s);
     this.publish();
     return ok;
+  }
+
+  /**
+   * The stream on show (step 20c2a): `null` unless it shows a picture (playing, paused or
+   * buffering): nothing while it opens, reconnects, has ended or failed.
+   */
+  stats(): StreamStats | null {
+    const state = this.current.state;
+    if (state !== 'playing' && state !== 'paused' && state !== 'buffering') return null;
+    const e = this.engine.stats();
+    return {
+      width: e.width,
+      height: e.height,
+      bitrate: e.bitrate,
+      droppedFrames: e.droppedFrames,
+      decodedFrames: e.decodedFrames,
+      decodedBytes: e.decodedBytes,
+      videoCodec: e.videoCodec,
+      audioCodec: e.audioCodec,
+      audioChannels: e.audioChannels,
+      container: this.current.container,
+      engine: this.engine.kind,
+      load: this.liveToken,
+    };
   }
 
   /** Stops playback and lets go of the engine (the platform owns and destroys it). */

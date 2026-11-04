@@ -10,6 +10,7 @@
 
 import type { Clock } from './clock';
 import type { EngineCaps, EngineEvent, EngineSource, EngineStats, LoadOptions, PlaybackError, PlayerEngine, Rect, Track } from './engine';
+import { NO_STATS } from './engine';
 
 /** Node's `setImmediate` (not in the DOM lib); Windows clamps `setTimeout(0)` to its timer tick. */
 const immediate = (globalThis as unknown as { setImmediate?: (fn: () => void) => void }).setImmediate ?? ((fn: () => void) => setTimeout(fn, 0));
@@ -272,8 +273,11 @@ export class FakeEngine implements PlayerEngine {
     });
   }
 
+  /** What `stats()` answers (tests set it). */
+  statsValue: EngineStats = NO_STATS;
+
   stats(): EngineStats {
-    return { width: 0, height: 0, bitrate: null, droppedFrames: null };
+    return this.statsValue;
   }
 
   /**
