@@ -69,7 +69,10 @@ class FakeEngine implements SchedulerEngine {
     return this.failProfile ? Promise.reject(new Error('no IndexedDB')) : Promise.resolve(this.profileDoc);
   }
 
+  statusReads = 0;
+
   sourceStatus(): Promise<SourceMeta[]> {
+    this.statusReads += 1;
     return Promise.resolve(this.metas);
   }
 
@@ -640,6 +643,8 @@ describe('refreshNow (the guides screen, step 22b)', () => {
     await now;
     expect(settled).toBe(true);
     expect(engine.refreshCalls).toEqual([]);
+    // The catalogs aren't even looked at.
+    expect(engine.statusReads).toBe(0);
     expect(engine.epgCalls).toHaveLength(1);
     expect(engine.epgCalls[0]!.options).toMatchObject({ due: true, user: [{ id: 's1', url: 'http://guides.test/a.xml' }] });
     expect(t.clock.due()).toEqual([CHECK_MS]);

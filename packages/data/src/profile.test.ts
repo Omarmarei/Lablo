@@ -365,6 +365,9 @@ describe("applyProfileEdit: the user's guides (step 22b)", () => {
     expect(ids(edit(doc, { op: 'move', id: 'c', to: -4 }))).toEqual(['c', 'a', 'b', 'd']);
     expect(ids(edit(doc, { op: 'move', id: 'd', to: 1.7 }))).toEqual(['a', 'd', 'b', 'c']);
     expect(edit(doc, { op: 'move', id: 'b', to: 1 })).toBeNull();
+    // Clamped or rounded down to its own place: no change either.
+    expect(edit(doc, { op: 'move', id: 'b', to: 1.2 })).toBeNull();
+    expect(edit(doc, { op: 'move', id: 'a', to: -1 })).toBeNull();
     expect(edit(doc, { op: 'move', id: 'd', to: 9 })).toBeNull();
     expect(edit(doc, { op: 'move', id: 'x', to: 0 })).toBeNull();
     expect(ids(doc)).toEqual(['a', 'b', 'c', 'd']);
