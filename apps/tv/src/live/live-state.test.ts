@@ -1024,6 +1024,21 @@ describe('a catalog refresh while the screen shows (RELAY step 22a)', () => {
     expect(t.live.row(1204)?.item.key).toBe('x:s2:live:0-0');
   });
 
+  it('leaves the focus on its row when its channel is gone', async () => {
+    const t = await setup();
+    t.live.focusRow(1);
+    await flush();
+    const refreshed = refreshedCatalog();
+    swapCatalog(t.engine, {
+      catalog: refreshed.catalog,
+      items: (src, catIdx, chunk) => refreshed.items(src, catIdx, chunk).map((i) => (i.key === 'x:s1:live:0-1' ? { ...i, key: 'x:s1:live:0-9' } : i)),
+    });
+    t.live.catalogChanged();
+    await settleAll();
+    expect(t.at()).toBe('live · channels 1');
+    expect(t.live.row(1)?.item.key).toBe('x:s1:live:0-9');
+  });
+
   it('leaves the focus on its row when its channel is gone, inside the shorter list', async () => {
     const t = await setup();
     t.live.focusRow(1204);
@@ -1130,7 +1145,7 @@ describe('a catalog refresh while the screen shows (RELAY step 22a)', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const engine = new FakeEngine();
     engine.hold.add('profile');
-    const t = await setup({ engine, settle: false });
+    const t = await setup({ engine, settle: false, startCategory: { src: 's1', name: 'Sports' } });
     t.live.catalogChanged();
     expect(t.live.status.value).toBe('loading');
     expect(engine.held.profile).toHaveLength(2);
@@ -1138,6 +1153,8 @@ describe('a catalog refresh while the screen shows (RELAY step 22a)', () => {
     engine.held.profile!.splice(0).forEach((held) => held.resolve(engine.profileDoc));
     await settleAll();
     expect(t.live.status.value).toBe('ready');
+    // The start's wish holds for the load that succeeds.
+    expect(t.live.category.value).toBe(2);
 
     const failing = new FakeEngine();
     failing.failProfile = true;
@@ -1159,6 +1176,49 @@ describe('a catalog refresh while the screen shows (RELAY step 22a)', () => {
     expect(t.live.status.value).toBe('failed');
     expect(t.at()).toBe('live · retry 0');
     expect(warn).toHaveBeenCalledWith('The live categories could not be read', expect.any(Error));
+    // The player's search doesn't wait for ever.
+    expect(await t.live.list.locate('x:s1:live:0-0', 0)).toBe(-1);
+  });
+
+  it('reads the rows on show again from the new catalog', async () => {
+    const t = await setup();
+    expect(t.live.row(0)?.item.name).toBe('Channel s1 0-0');
+    const refreshed = refreshedCatalog();
+    swapCatalog(t.engine, {
+      catalog: refreshed.catalog,
+      items: (src, catIdx, chunk) => refreshed.items(src, catIdx, chunk).map((i) => (src === 's1' && catIdx === 0 ? { ...i, name: `${i.name} (new)` } : i)),
+    });
+    t.live.catalogChanged();
+    await settleAll();
+    expect(t.at()).toBe('live · channels 0');
+    expect(t.live.row(0)?.item.name).toBe('Channel s1 0-0 (new)');
+  });
+
+  it('reads only the window of a list that was empty', async () => {
+    const engine = new FakeEngine();
+    engine.catalog = {};
+    const t = await setup({ engine });
+    expect(t.live.status.value).toBe('empty');
+    engine.catalog = CATEGORIES;
+    t.live.catalogChanged();
+    await settleAll();
+    expect(t.live.status.value).toBe('ready');
+    expect(t.at()).toBe('live · channels 0');
+    expect(engine.chunkCalls).toEqual(['s1|0|0', 's1|2|0']);
+  });
+
+  it('drops the failure of a refresh that a reload replaced', async () => {
+    const t = await setup();
+    t.engine.hold.add('profile');
+    t.live.catalogChanged();
+    t.live.reload();
+    t.engine.hold.delete('profile');
+    const [first, second] = t.engine.held.profile!.splice(0);
+    second!.resolve(t.engine.profileDoc);
+    await settleAll();
+    first!.reject(new Error('no IndexedDB'));
+    await settleAll();
+    expect(t.live.status.value).toBe('ready');
   });
 
   it('drops the answer of a refresh that a reload or dispose replaced', async () => {
@@ -1265,11 +1325,40 @@ describe('a guide refresh while the screen shows (RELAY step 22a)', () => {
     await flush();
     expect(t.engine.nowNextCalls.slice(1)).toEqual(extra.map((key) => [key]));
     // Asked again: the newest, not a fifth.
-    t.live.list.askGuide(extra[1]!);
+    t.live.list.askGuide(extra[3]!);
     t.live.guidesChanged();
     t.clock.advance(GUIDE_DELAY_MS);
     await flush();
-    expect(t.engine.nowNextCalls.at(-1)).toEqual([...WINDOW, extra[2], extra[3], extra[4], extra[1]]);
+    expect(t.engine.nowNextCalls.at(-1)).toEqual([...WINDOW, extra[1], extra[2], extra[4], extra[3]]);
+  });
+
+  it("asks a channel of the player's once: not while on its way, not when fresh, not twice when on show", async () => {
+    const t = await setup();
+    t.clock.advance(GUIDE_DELAY_MS);
+    await flush();
+    t.engine.hold.add('nowNext');
+    t.live.list.askGuide('x:s1:live:2-500');
+    await t.press('DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN');
+    t.clock.advance(GUIDE_DELAY_MS);
+    await flush();
+    // Row 9 came into the window; the player's channel is still on its way.
+    expect(t.engine.nowNextCalls.slice(1)).toEqual([['x:s1:live:2-500'], ['x:s1:live:2-6']]);
+    t.engine.hold.delete('nowNext');
+    for (const held of t.engine.held.nowNext!.splice(0)) held.resolve((held.arg as ContentKey[]).map((key) => ({ key, epgSrc: null, channel: null, method: null, now: programme('On', 0, 1e9), next: null })));
+    await flush();
+    await t.press('DOWN');
+    t.clock.advance(GUIDE_DELAY_MS);
+    await flush();
+    expect(t.engine.nowNextCalls.slice(3)).toEqual([['x:s1:live:2-7']]);
+    // A channel on show the player asked for (fresh, so not asked now) is asked once after a swap.
+    const shown = t.live.row(10)!.item.key;
+    t.live.list.askGuide(shown);
+    t.live.guidesChanged();
+    t.clock.advance(GUIDE_DELAY_MS);
+    await flush();
+    const last = t.engine.nowNextCalls.at(-1)!;
+    expect(last.filter((key) => key === shown)).toEqual([shown]);
+    expect(last.filter((key) => key === 'x:s1:live:2-500')).toEqual(['x:s1:live:2-500']);
   });
 
   it("keeps the player's channels fresh at the minute tick once their programme ended", async () => {

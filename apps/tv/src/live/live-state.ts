@@ -639,20 +639,20 @@ export function createLive(options: LiveOptions): Live {
     const keep = shownCategory();
     track(readSources).then(
       ({ records, lists }) => {
-        if (disposed || seq !== loadSeq) {
+        // (dispose bumps `loadSeq` too.)
+        if (seq !== loadSeq) {
           settle();
           return;
         }
         // Where the focus stands, read from the old list before it goes.
         const place = home.position('channels').index;
-        const onList = home.active === 'channels';
         const key = rowAt(place)?.item.key ?? null;
         options.listChanging?.();
         const entries = takeSources(records, lists);
         chunks.clear();
         if (entries.length === 0) {
+          // The old index stays, unread: nothing reads an index while the screen is empty.
           status.value = 'empty';
-          index = new ChannelIndex([]);
           home.update(channelsZone(0));
         } else {
           status.value = 'ready';
@@ -661,14 +661,15 @@ export function createLive(options: LiveOptions): Live {
           index = new ChannelIndex(entries[pick]!.parts);
           home.update(channelsZone(index.count));
         }
-        bump();
+        // (No bump: the new rail redraws the screen, and each chunk read bumps.)
         settle();
         afterChange();
-        if (key === null || !onList) return;
+        // No channel there (a list that was empty): nothing to look for in every chunk.
+        if (key === null) return;
         findRow(place, (item) => item.key === key).then(
           (found) => {
-            // Gone from the list, or the focus moved meanwhile: it stays where it is.
-            if (found === -1 || seq !== loadSeq || home.active !== 'channels' || home.position('channels').index !== place) return;
+            // Gone from the list (or a newer load came), or the focus is elsewhere now: it stays.
+            if (found === -1 || home.active !== 'channels' || home.position('channels').index !== place) return;
             home.focus('channels', found);
           },
           () => undefined,
@@ -676,17 +677,19 @@ export function createLive(options: LiveOptions): Live {
       },
       (error: unknown) => {
         settle();
-        if (disposed || seq !== loadSeq) return;
+        if (seq !== loadSeq) return;
         loadFailed(error);
       },
     );
   };
 
-  /** A guide swapped in (step 22a): every answer is stale; the rows on show keep theirs until asked again. */
+  /**
+   * A guide swapped in (step 22a): every answer is stale; the rows on show keep theirs until
+   * asked again (`askGuides` asks nothing while the screen isn't ready, or once disposed).
+   */
   const guidesChanged = (): void => {
-    if (disposed) return;
     guideEpoch += 1;
-    if (status.value === 'ready') scheduleGuides();
+    scheduleGuides();
   };
 
   const nav = createNavigator({

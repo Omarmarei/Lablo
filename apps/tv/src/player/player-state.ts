@@ -619,9 +619,9 @@ export function createPlayer(options: PlayerOptions): Player {
     row: rowAt,
     listChanging(): void {
       if (!open.value) return;
-      // The stream playing (a zap that waits plays the new list's row when it fires).
+      // The stream playing (none: -1, no row; a zap that waits plays the new list's row when it fires).
       const at = playing.value;
-      const row = at === -1 ? null : rowAt(at);
+      const row = rowAt(at);
       if (row !== null) {
         const mine = { index: at, row };
         pinned = mine;
@@ -632,7 +632,7 @@ export function createPlayer(options: PlayerOptions): Player {
       }
       // PRE-CH's channel: its row in the new list, or none when it is gone.
       const before = previous.value;
-      const earlier = before === -1 ? null : list.row(before);
+      const earlier = list.row(before);
       if (earlier === null) return;
       list.locate(earlier.item.key, before).then(
         (found) => {

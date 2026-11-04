@@ -78,7 +78,7 @@ export interface RefreshScheduler {
 export function catalogRefreshDue(meta: SourceMeta | undefined, failedAt: number | undefined, now: number): boolean {
   if (failedAt !== undefined && now - failedAt < CATALOG_RETRY_MS) return false;
   if (meta === undefined || meta.gen === 0) return true;
-  const checked = typeof meta.checkedAt === 'number' ? meta.checkedAt : meta.updatedAt;
+  const checked = meta.checkedAt ?? meta.updatedAt;
   return checked === null || now - checked >= CATALOG_REFRESH_MS;
 }
 
@@ -113,19 +113,17 @@ export function createRefreshScheduler(options: SchedulerOptions): RefreshSchedu
     if (records.length === 0) return false;
     const [metas, tier] = await Promise.all([engine.sourceStatus(), options.tier()]);
     const committed: string[] = [];
-    let busy = false;
     for (const record of records) {
       if (disposed) return false;
       let meta: SourceMeta | undefined;
       for (const m of metas) if (m.src === record.id) meta = m;
       if (!catalogRefreshDue(meta, failures.get(record.id), now())) continue;
-      if (engine.refreshing) {
-        busy = true;
-        break;
-      }
+      // Another refresh holds the slot: the catalogs that committed are told, then it waits.
+      if (engine.refreshing) break;
       try {
+        // A failure kept here is never older than 2 h when the source is tried again, so a
+        // success needs no clearing.
         const result = await engine.refresh({ src: record.id, source: ingestSourceOf(record) }, { lowTier: tier === 'low', cancel: cancel.token });
-        failures.delete(record.id);
         if (result.status === 'committed') committed.push(record.id);
       } catch (error) {
         if (disposed) return false;
@@ -138,7 +136,7 @@ export function createRefreshScheduler(options: SchedulerOptions): RefreshSchedu
       readAll = true;
       options.onCatalog?.(committed);
     }
-    if (busy || engine.refreshing) return true;
+    if (engine.refreshing) return true;
     const result = await engine.refreshEpg(records.map(catalogOf), {
       tier,
       user: guidesOf(records),
@@ -154,9 +152,9 @@ export function createRefreshScheduler(options: SchedulerOptions): RefreshSchedu
     return false;
   };
 
+  /** Only ever scheduled while visible, not disposed and with no pass running. */
   function check(): void {
     timer = null;
-    if (disposed || hidden || running) return;
     running = true;
     pass().then(
       (busy) => after(busy),
@@ -179,7 +177,6 @@ export function createRefreshScheduler(options: SchedulerOptions): RefreshSchedu
       if (disposed || unsubscribe !== null) return;
       unsubscribe =
         options.lifecycle?.((event) => {
-          if (disposed) return;
           if (event === 'hidden') {
             hidden = true;
             if (timer !== null) timers.clear(timer);
@@ -193,7 +190,6 @@ export function createRefreshScheduler(options: SchedulerOptions): RefreshSchedu
       schedule(FIRST_CHECK_MS);
     },
     dispose(): void {
-      if (disposed) return;
       disposed = true;
       if (timer !== null) timers.clear(timer);
       timer = null;

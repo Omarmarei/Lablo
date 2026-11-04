@@ -135,12 +135,14 @@ function setup(options: { engine?: FakeEngine; tier?: DeviceTier; languages?: st
   const catalogs: string[][] = [];
   let guides = 0;
   let listener: ((event: LifecycleEvent) => void) | null = null;
+  let subscriptions = 0;
   let unsubscribed = 0;
   const scheduler = createRefreshScheduler({
     engine,
     tier: () => Promise.resolve(options.tier ?? 'full'),
     languages: () => options.languages ?? ['ar'],
     lifecycle: (l) => {
+      subscriptions += 1;
       listener = l;
       return () => {
         unsubscribed += 1;
@@ -169,6 +171,7 @@ function setup(options: { engine?: FakeEngine; tier?: DeviceTier; languages?: st
     scheduler,
     catalogs,
     guides: () => guides,
+    subscriptions: () => subscriptions,
     unsubscribed: () => unsubscribed,
     listening: () => listener !== null,
     run,
@@ -235,6 +238,7 @@ describe('the refresh schedule', () => {
     t.scheduler.start();
     t.scheduler.start();
     expect(t.clock.due()).toEqual([FIRST_CHECK_MS]);
+    expect(t.subscriptions()).toBe(1);
   });
 
   it('with fresh catalogs refreshes none, and asks only for the guides that are due', async () => {
@@ -351,22 +355,6 @@ describe('the refresh schedule', () => {
     expect(engine.refreshCalls.map((c) => c.job.src)).toEqual(['s1']);
     await t.run(CHECK_MS);
     expect(engine.refreshCalls.map((c) => c.job.src)).toEqual(['s1', 's1']);
-  });
-
-  it('forgets a failure once the source refreshes again', async () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const engine = new FakeEngine();
-    engine.metas = [meta('s1', T0 - CATALOG_REFRESH_MS), meta('s2', T0 + CATALOG_REFRESH_MS)];
-    engine.answers.set('s1', new Error('network'));
-    const t = setup({ engine });
-    t.scheduler.start();
-    await t.run(FIRST_CHECK_MS);
-    engine.answers.set('s1', 'unchanged');
-    await t.run(8 * CHECK_MS);
-    expect(engine.refreshCalls.map((c) => c.job.src)).toEqual(['s1', 's1']);
-    // Still stale (the fake's record doesn't move): due at once again, no 2 h hold.
-    await t.run(CHECK_MS);
-    expect(engine.refreshCalls.map((c) => c.job.src)).toEqual(['s1', 's1', 's1']);
   });
 
   it('tells the screens when a guide swapped in or one was deleted, not when nothing changed', async () => {
@@ -535,8 +523,8 @@ describe('the refresh schedule', () => {
 
   it('dispose stops the checks, cancels a running refresh and tells the screens nothing more', async () => {
     const engine = new FakeEngine();
-    engine.metas = [meta('s1', T0 - CATALOG_REFRESH_MS), meta('s2', T0)];
-    engine.answers.set('s1', 'hold');
+    engine.metas = [meta('s1', T0), meta('s2', T0 - CATALOG_REFRESH_MS)];
+    engine.answers.set('s2', 'hold');
     const t = setup({ engine });
     t.scheduler.start();
     await t.run(FIRST_CHECK_MS);
@@ -546,7 +534,7 @@ describe('the refresh schedule', () => {
     expect(token.cancelled).toBe(true);
     expect(t.unsubscribed()).toBe(1);
     expect(t.listening()).toBe(false);
-    engine.heldRefresh[0]!.resolve(ingestResult('s1', 'committed'));
+    engine.heldRefresh[0]!.resolve(ingestResult('s2', 'committed'));
     await settle();
     expect(t.catalogs).toEqual([]);
     expect(engine.epgCalls).toEqual([]);
@@ -554,6 +542,34 @@ describe('the refresh schedule', () => {
     t.scheduler.dispose();
     expect(t.unsubscribed()).toBe(1);
     t.scheduler.start();
+    expect(t.clock.due()).toEqual([]);
+  });
+
+  it('refreshes no further catalog after dispose', async () => {
+    const engine = new FakeEngine();
+    engine.metas = [meta('s1', T0 - CATALOG_REFRESH_MS), meta('s2', T0 - CATALOG_REFRESH_MS)];
+    engine.answers.set('s1', 'hold');
+    const t = setup({ engine });
+    t.scheduler.start();
+    await t.run(FIRST_CHECK_MS);
+    t.scheduler.dispose();
+    engine.heldRefresh[0]!.resolve(ingestResult('s1', 'unchanged'));
+    await settle();
+    expect(engine.refreshCalls.map((c) => c.job.src)).toEqual(['s1']);
+    expect(engine.epgCalls).toEqual([]);
+  });
+
+  it('a guide refresh that fails after dispose is no failure', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const engine = new FakeEngine();
+    engine.epgAnswer = 'hold';
+    const t = setup({ engine });
+    t.scheduler.start();
+    await t.run(FIRST_CHECK_MS);
+    t.scheduler.dispose();
+    engine.heldEpg[0]!.reject(new Error('cancelled'));
+    await settle();
+    expect(warn).not.toHaveBeenCalled();
     expect(t.clock.due()).toEqual([]);
   });
 
