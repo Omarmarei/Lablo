@@ -61,7 +61,7 @@ function goodRun(major: number, edit: (records: LabRecord[]) => LabRecord[] = (r
     records,
     userAgent: 'Chrome/53',
   };
-  return { platform: 'webos', url: state.href, state, finished: true, collected: records, exceptions: [], durationMs: 900 };
+  return { platform: 'webos', url: state.href, state, finished: true, collected: records, exceptions: [], durationMs: 900, reset: 'ok' };
 }
 
 describe('evaluateLab (RELAY step 15a)', () => {
@@ -95,6 +95,11 @@ describe('evaluateLab (RELAY step 15a)', () => {
     expect(gate()).toBe(false);
     now += 1;
     expect(gate()).toBe(true);
+  });
+
+  it("fails a lab run whose app database could not be deleted first", () => {
+    expect(evaluateLab({ ...goodRun(53), reset: 'error: blocked' }, { major: 53 })).toEqual(["the app's database was not deleted before the lab: error: blocked"]);
+    expect(evaluateLab({ ...goodRun(53), reset: 'no answer', state: null }, { major: 53 })).toEqual(["the app's database was not deleted before the lab: no answer", 'the lab page never answered the probe']);
   });
 
   it('names a check with the wrong answer, or none', () => {

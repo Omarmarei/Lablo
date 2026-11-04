@@ -123,6 +123,7 @@ The lab needs no test account: the mock answers it on `/__lab/` (docs/runbooks/m
 - **e2e** (`e2e/lab.spec.ts`): the dev page by keys, every record checked in the collector (S6 against the mock's small catalog); an "update" from 0.1.0 to 0.1.1 (S2); the collector down, then up; both TV bundles from `file://`. S6 at scale: `pnpm lab:scale` (`e2e/lab-scale.spec.ts`, its own Playwright project, never part of `pnpm e2e`).
 - **The old-engine harness** (`pnpm verify:engines`, docs/runbooks/old-engines.md): both lab bundles in Chromium 53, 56 and 68, reporting to a mock started on the host through `host.docker.internal`.
   - S1 must pass on every engine; S6 runs its checks against the host mock's small catalog (all `info`).
+  - The harness deletes the app's database before each lab run: the app's screens ran on the same `file://` origin first.
   - The polyfills the bundle filled must be exactly the built-ins that engine lacks.
   - Every record must reach the collector.
   - The self-test adds `lab-seed-no-worker`, which must fail.

@@ -12,6 +12,7 @@ import path from 'node:path';
 import type { CdpClient } from './cdp';
 import type { Engine } from './engines';
 import type { TvPlatform } from './scenario';
+import { resetDatabase } from './onboarding';
 import { blankPage, waitForProbe, watchErrors } from './scenario';
 
 /** The lab bundles' folder in the container's /app. */
@@ -55,6 +56,12 @@ export interface LabRun {
   readonly collected: readonly LabRecord[] | null;
   readonly exceptions: readonly string[];
   readonly durationMs: number;
+  /**
+   * The app's database deleted before the lab ran (`ok`, or why not). On a TV the lab has its
+   * own storage; here the app's screens ran on the same file:// origin first and may leave a
+   * source behind (CI's Chromium 68 did, 2026-11-04), where S6 would skip.
+   */
+  readonly reset: string;
 }
 
 /** ES5: the probe runs in Chromium 53. */
@@ -165,6 +172,7 @@ export function readCollected(logDir: string, session: string): LabRecord[] | nu
 
 export async function runLab(client: CdpClient, platform: TvPlatform, url: string, logDir: string, timeoutMs: number): Promise<LabRun> {
   const started = Date.now();
+  const reset = await resetDatabase(client);
   await blankPage(client);
   const watch = watchErrors(client);
   const erroredOut = labErrorGate(() => watch.errors());
@@ -185,6 +193,7 @@ export async function runLab(client: CdpClient, platform: TvPlatform, url: strin
       collected: session === null ? null : readCollected(logDir, session),
       exceptions: watch.errors(),
       durationMs: Date.now() - started,
+      reset,
     };
   } finally {
     watch.stop();
@@ -273,7 +282,8 @@ export function labErrorGate(errors: () => readonly string[], now: () => number 
 export function evaluateLab(run: LabRun, engine: Pick<Engine, 'major'>): string[] {
   const failures: string[] = [];
   const { state } = run;
-  if (state === null) return ['the lab page never answered the probe'];
+  if (run.reset !== 'ok') failures.push(`the app's database was not deleted before the lab: ${run.reset}`);
+  if (state === null) return [...failures, 'the lab page never answered the probe'];
   if (state.bootError.trim() !== '') failures.push(`boot error: ${state.bootError.trim()}`);
   if (state.ready === 'error') failures.push(`the lab could not start: ${state.error ?? ''}`);
   for (const exception of run.exceptions) if (!isExpectedRefusal(exception)) failures.push(`uncaught: ${exception}`);
