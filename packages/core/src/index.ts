@@ -29,6 +29,9 @@ export { M3uCatalogParser, classifyStreamUrl, parseM3uCatalog } from './m3u-cata
 
 export { collapseSpace, cutText, decodeBase64Utf8 } from './text';
 
+export type { ParsedSubtitles, SubtitleCue, SubtitleFormat, SubtitleParserOptions, SubtitleStats } from './subtitles';
+export { DEFAULT_MAX_CUES, DEFAULT_SUBTITLE_LINE_LENGTH, MAX_CUE_TEXT, SubtitleParser, SubtitleTrack, cueText, parseSubtitleClock, parseSubtitles } from './subtitles';
+
 export type { JsonShape, JsonSplitterOptions, JsonSplitterStats } from './json-splitter';
 export { DEFAULT_MAX_ELEMENT_LENGTH, JsonArraySplitter, splitJsonArray } from './json-splitter';
 

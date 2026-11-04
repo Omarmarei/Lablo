@@ -816,6 +816,33 @@ export type PlayRequest = { key: ContentKey; src: string; mode: 'live'|'vod'|'ca
 - **Tests:** `language.test.ts` (7), `controller-tracks.test.ts` (28: the lists, the preferences, once per load, retries and resumes, the channel's choice and "off", refusals, stale answers), the menu in `player-state.test.ts` (10), `track-name.test.ts` (6), `app-player.test.ts` (+2). e2e: `player.spec.ts` (the menu by keys in en and ar: "Not supported on this TV", the bar's button, the audio and subtitle keys, Back, STOP) and `player-media.spec.ts` (English chosen over the file's Arabic as the tracks appear, Arabic from the menu with no restart, kept across a zap). Mutation 28/28.
 - **TV bundle:** main 225.8 → 242.8 KB on Tizen and 214.4 → 231.3 KB on webOS, the same 219 core-js modules; about 4 KB of it is the language names and Arabic strings (terser's `ascii_only` writes each non-ASCII character as 6 bytes).
 
+**Built in step 20b2a: the subtitle parser** (`packages/core/src/subtitles.ts`; step 20b2 was split in leg 41 into 20b2a, the parser, and 20b2b, the overlay and its feeds):
+- **What it reads:** SRT, WebVTT and ASS/SSA, through a streaming parser fed string chunks like `M3uParser` (`SubtitleParser.push`/`end`; `parseSubtitles(text)` for a whole file). The first line that isn't blank picks the format: `WEBVTT` is WebVTT, a `[section]` header is ASS, and anything else is the caller's `format` (`srt` by default, or `vtt` from `PlayRequest.externalSubs`' `fmt`). SRT and WebVTT cues are read alike; only WebVTT decodes entities and skips `NOTE`/`STYLE`/`REGION` blocks.
+- **Tolerance:**
+  - CR, CRLF and LF line ends, split anywhere between chunks, and a BOM.
+  - A timing line starts a cue wherever it is, so a file that lost the blank line between two cues keeps both; a number line just before it is the next cue's index, not text.
+  - Clocks: one- or two-digit minutes and seconds up to 59, `,` or `.`, the hours optional, and a decimal fraction of 1 to 9 digits (`.5` = 500 ms).
+  - WebVTT's header, blocks and cue settings (after a space or a tab).
+  - ASS's `Format:` field order (v4's `Marked` too), commas in the text, `Comment:` lines, and a section header without its `]`.
+  - Junk blocks, bad timings (an end not after its start included), empty cues, overlong lines (16 KiB) and cues past 20,000 are counted in `stats`, never thrown.
+- **The text:** plain, its lines trimmed and joined by `\n`, cut to 2,000 code units:
+  - HTML-like tags (`<i>`, `<font …>`, WebVTT's `<v …>`, `<c.…>` and timestamps) and `{\…}` override blocks are removed; in ASS, any `{…}` block is.
+  - WebVTT's entities are decoded: the named ones subtitles use, and numeric ones, with surrogates and out-of-range ones becoming U+FFFD.
+  - ASS's `\N`, `\n` and `\h` become a line break, a space and a no-break space.
+  - Drawings (`{\p1}` up to `{\p0}`) are dropped.
+  - Marks such as RLM stay, because the overlay draws each cue with `dir=auto`. SRT keeps `&amp;` and backslashes as written.
+- **For the overlay:**
+  - `SubtitleTrack` sorts a file's cues by start. The sort is stable on every engine through an index tie-break, because Chromium before 70 sorts unstably.
+  - `cuesAt(ms)` gives the cues showing (start ≤ `ms` < end), through a binary search and a look back that stops where the running latest end doesn't reach `ms`. A text already showing isn't repeated (ASS layers).
+  - `cueText(raw)` cleans an engine's cue text (AVPlay's `onsubtitlechange`) the same way.
+- **Not yet (20b2b):** fetching and decoding the files (the charset), the controller's cue feed, the menu's external rows, and the overlay.
+- **Tests:** `subtitles.test.ts` (60) and `test/subtitles-mock.test.ts` (8).
+  - Mutation 105/105. The first run caught 100/105; the five test gaps it found are closed: a clock character below `0`, upper-case tags, an overlong line's tail held while it is skipped, the limit on a line held across chunks, and an ASS `Format:` without `End`.
+  - The sort's index tie-break can't fail under Node, because V8 sorts stably since 7.0; only the old TVs need it.
+  - `subtitles.test.ts` covers: golden SRT, WebVTT and ASS files with every tolerance rule; the same results in any chunks (empty ones kept) and character by character; never-throw on arbitrary and fragment-built text; an SRT/WebVTT/ASS writer round trip; the limits; the clock table; `cueText`; and `SubtitleTrack` against a filter oracle.
+  - `test/subtitles-mock.test.ts` runs the mock provider's own `srtText`, in English and Arabic: every cue names its own start.
+- **TV bundle:** not in main yet (20b2b imports it). A probe bundle that uses every export adds 8.0 KB before terser and no core-js module on either platform. A method named `at` had pulled in `es.array.at` and `es.string.at-alternative`, so it is `cuesAt`.
+
 ---
 
 ## 3. Backend (minimal)
