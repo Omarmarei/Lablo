@@ -9,6 +9,8 @@ import { defineConfig, devices } from '@playwright/test';
 const PORT = Number(process.env.ZOMA_E2E_PORT ?? 5391);
 /** S6 at scale (RELAY step 15b) only on request: `pnpm lab:scale`, or `ZOMA_LAB_SCALE=1`. */
 const LAB_SCALE = process.env.npm_lifecycle_event === 'lab:scale' || process.env.ZOMA_LAB_SCALE === '1';
+/** S5 on the generated media (RELAY step 15c) only on request: `pnpm lab:media` (in `pnpm verify:media`), or `ZOMA_LAB_MEDIA=1`. */
+const LAB_MEDIA = process.env.npm_lifecycle_event === 'lab:media' || process.env.ZOMA_LAB_MEDIA === '1';
 
 export default defineConfig({
   testDir: 'e2e',
@@ -24,12 +26,14 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [
-    { name: 'chromium', testIgnore: /(throttled|lab-scale)\.spec\.ts$/ },
+    { name: 'chromium', testIgnore: /(throttled|lab-scale|lab-media)\.spec\.ts$/ },
     // The CPU-throttled timings (RELAY step 14b) run after every other test, one test at a
     // time, so no other browser competes for the CPU while they measure.
     { name: 'throttled', testMatch: /throttled\.spec\.ts$/, dependencies: ['chromium'], fullyParallel: false },
     // S6 on the scale fixtures (needs `pnpm fixtures`; minutes, so never part of `pnpm e2e`).
     ...(LAB_SCALE ? [{ name: 'lab-scale', testMatch: /lab-scale\.spec\.ts$/, fullyParallel: false }] : []),
+    // S5 on the generated media (needs `pnpm mock:media`, which pnpm test:media runs first; about 2 min).
+    ...(LAB_MEDIA ? [{ name: 'lab-media', testMatch: /lab-media\.spec\.ts$/, fullyParallel: false }] : []),
   ],
   webServer: {
     command: `pnpm --filter @zoma/app-tv exec vite --port ${PORT} --strictPort`,

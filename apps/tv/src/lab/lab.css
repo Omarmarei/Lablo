@@ -81,7 +81,8 @@
 .lab__spike {
   display: flex;
   align-items: center;
-  height: 72px;
+  /* 52 + 8 px: twelve spikes fit the title-safe height (step 15c). */
+  height: 52px;
   margin: 0 0 var(--space-2);
   padding: 0 var(--space-4);
   border: 3px solid transparent;
@@ -142,7 +143,8 @@
 .lab__check {
   display: flex;
   align-items: flex-start;
-  margin: 0 0 var(--space-2);
+  /* 64 px a check with its note: S5's ten fit under a one-line question (step 15c). */
+  margin: 0 0 var(--space-1);
   font-size: var(--font-size-caption);
   line-height: var(--line-height-caption);
 }
@@ -313,4 +315,30 @@
   margin: var(--space-4) 0 0;
   font-size: var(--font-size-caption);
   color: var(--color-text-muted);
+}
+
+/* The player batteries' picture (S5, step 15c): a box over the checks while a row plays. */
+.lab__player {
+  position: fixed;
+  right: var(--safe-x);
+  bottom: var(--safe-y);
+  z-index: 5;
+  width: 768px;
+  padding: var(--space-2);
+  border-radius: var(--radius-m);
+  background: #000;
+}
+
+.lab__video {
+  display: block;
+  width: 768px;
+  height: 432px;
+  background: #000;
+}
+
+.lab__player-caption {
+  margin: var(--space-2) 0 0;
+  color: #fff;
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
 }

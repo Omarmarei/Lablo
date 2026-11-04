@@ -67,7 +67,7 @@ export interface TvInputDevice {
   registerKey(name: string): void;
 }
 
-/** A Tizen `WebAPIException` is no `Error`, but it has a name and a message. */
+/** A Tizen `WebAPIException` may not be an `Error`, but it has a name and a message. */
 function reason(error: unknown): string {
   const e = error as { readonly name?: unknown; readonly message?: unknown } | null;
   if (e !== null && typeof e === 'object' && typeof e.message === 'string') return typeof e.name === 'string' ? `${e.name}: ${e.message}` : e.message;

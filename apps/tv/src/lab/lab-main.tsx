@@ -68,6 +68,7 @@ async function start(): Promise<void> {
     session,
     version: config.version,
     writeMb: config.writeMb,
+    soakMinutes: config.soakMinutes,
     previous,
     deviceIdHash: deviceIdHash(id),
     bootMs: BOOT_MS,
@@ -76,7 +77,7 @@ async function start(): Promise<void> {
     keys,
   };
   const reporter = createReporter({ server: config.server, session, post: xhrPost });
-  reporter.add({ type: 'start', value: { version: config.version, server: config.server, writeMb: config.writeMb, autoRun: config.autoRun, device: info, previous } });
+  reporter.add({ type: 'start', value: { version: config.version, server: config.server, writeMb: config.writeMb, soakMinutes: config.soakMinutes, autoRun: config.autoRun, device: info, previous } });
   lifecycle.attach((entry) => reporter.add({ type: 'event', check: 'lifecycle', value: entry, note: entry.event }));
   const lab = createLab({ platform, spikes: SPIKES, context, reporter, target: window });
   window.__ZOMA_LAB__ = {

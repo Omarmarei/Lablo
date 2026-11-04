@@ -215,7 +215,7 @@ export const NATIVE_SINCE: Readonly<Record<string, number>> = {
 
 /**
  * What each check must answer in a desktop engine running a TV bundle: S7's no-CORS checks fail
- * (it enforces CORS), S3 finds no device ID, S10 and S11 no TV APIs. `expectedStatuses` adds what
+ * (it enforces CORS), S3 finds no device ID, S10 and S11 no TV APIs, S5 no media. `expectedStatuses` adds what
  * differs per platform.
  */
 export const EXPECTED_STATUSES: ReadonlyArray<readonly [string, string]> = [
@@ -263,6 +263,18 @@ export const EXPECTED_STATUSES: ReadonlyArray<readonly [string, string]> = [
   ['S11/speech', 'info'],
   ['S11/focus-reading', 'skip'],
   ['S11/live-reading', 'skip'],
+  // The host mock runs with --no-media (placeholder bytes, and these Chromium builds have no
+  // H.264 anyway): S5 describes the engine and skips every playback row.
+  ['S5/formats', 'info'],
+  ['S5/ts', 'skip'],
+  ['S5/hls', 'skip'],
+  ['S5/redirect', 'skip'],
+  ['S5/hevc-4k', 'skip'],
+  ['S5/audio-tracks', 'skip'],
+  ['S5/ac3', 'skip'],
+  ['S5/subtitles', 'skip'],
+  ['S5/suspend', 'skip'],
+  ['S5/soak', 'skip'],
   // The host mock's own small catalog: S6 measures and judges nothing.
   ['S6/source', 'info'],
   ['S6/ingest', 'info'],

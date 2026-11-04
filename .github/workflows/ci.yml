@@ -147,7 +147,11 @@ jobs:
           key: media-${{ hashFiles('apps/mock-provider/src/media-plan.ts', 'apps/mock-provider/src/media-gen.ts', 'apps/mock-provider/fixtures/catalog.yaml') }}
           restore-keys: media-
 
-      # pnpm fixtures (fails over 2 minutes) + pnpm test:media (ffprobe on everything served).
+      # Chromium for pnpm lab:media (S5, the lab's <video> battery, on the generated media).
+      - run: pnpm exec playwright install --with-deps chromium
+
+      # pnpm fixtures (fails over 2 minutes) + pnpm test:media (ffprobe on everything served)
+      # + pnpm lab:media (RELAY step 15c).
       - run: pnpm verify:media
 
       - name: Benchmark baselines

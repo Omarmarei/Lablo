@@ -63,6 +63,7 @@ Dates are relative to "today" (UTC midnight), so `exp_date` stays fixed all day.
 | `GET /attribution` | Credits for the Blender open movies (CC BY) and a note on the generated media. |
 | `POST/GET /__lab/logs[/{session}]` | LAN log collector (below). |
 | `GET /__lab/bytes`, `/__lab/echo`, `/__lab/redirect` | The Zoma Lab's probes (below). |
+| `GET /__lab/source`, `/__lab/guide.xml.gz`, `/__lab/media` | The lab's scale source (S6) and the player batteries' media (S4, S5, S8), below. |
 | `GET /__mock/health`, `/__mock/scenarios`, `/__mock/connections`; `PUT /__mock/scenario` | Control (below). |
 | `GET /` | A text page with the endpoints and test accounts. |
 
@@ -370,6 +371,22 @@ Spike S6 ingests a real source through the app's data engine, and the lab still 
 - **Why the guide moves:** an EPG ingest keeps only the days around the TV's clock, and the scale guide is dated around 2026-11-01 (`tools/fixtures`). The `--xmltv` guide moves by the whole days that put its middle on the TV's day; the generated one, built around the mock's clock, by the days from the mock's day to the TV's. Whole days keep each programme at its time of day, and the offsets (`+0300`) stay as written.
 - **Built before the answer:** `/__lab/source` prepares the moved `--xmltv` guide (gunzip, move, gzip: about 4 s for the 150 MB guide on this PC), so the lab's guide timing never includes the mock's work. The last prepared guide stays in memory (about 10 MB).
 - **For S6 at scale:** `pnpm mock --catalog .cache/fixtures/catalog.json --xmltv .cache/fixtures/xmltv-150mb.xml.gz` (after `pnpm fixtures`).
+
+### The player batteries' media (RELAY step 15c)
+
+The batteries (S5 now, S4 and S8 in step 15c2) play the mock's own media, and the lab still holds no account: `GET /__lab/media` (`src/lab-media.ts`) answers with `media` (`files` or `placeholder`, as `/__mock/health` says) and one item per row of the battery, each with its `url`, `kind` (`live`/`vod`), `container`, the `mock_fault` it carries (`fault`), and from the manifest the `video`, `audio` and `subtitles` it holds (null with placeholder bytes).
+
+| Item | URL | Holds |
+|---|---|---|
+| `live-ts`, `live-hls` | `/live/{u}/{p}/104.ts`, `.m3u8` | the bilingual channel (AAC ara + eng) |
+| `redirect-ts`, `redirect-hls` | the same with `mock_fault=redirect:hops=3` | three 302s first |
+| `stall-ts` | `104.ts?mock_fault=stall:after_bytes=600000` | each response stalls after 600 KB (about 18 s of play) |
+| `stall-vod` | `/series/{u}/{p}/3011.mp4?mock_fault=stall:after_bytes=1000000` | the same for an engine without TS (about 20 s each) |
+| `hevc-4k` | `/movie/{u}/{p}/205.mp4` | 4K HEVC |
+| `multi-audio` | `/movie/{u}/{p}/206.mkv` | AAC ara/eng/spa, AC3 5.1, E-AC3 5.1, SRT ara + eng |
+| `subs-mkv`, `subs-mp4` | `/series/{u}/{p}/3001.mkv`, `3011.mp4` | SRT in MKV, mov_text in MP4 |
+
+The account is the first active test account (as for `/__lab/source`). A catalog without one of these entries (`--catalog` with the scale fixtures) leaves that item out, and the lab skips its row. 503 without an active test account.
 
 ## Public test server (later, RELAY step 44, needs Omar)
 
