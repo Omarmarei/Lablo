@@ -49,6 +49,9 @@ import { createTrackMenu } from './track-menu';
  * - **The picture** (step 20c2b): the info bar's "Picture" goes round the modes the engine can
  *   show (fit, zoom, stretch, 4:3; no zoom on AVPlay), for every channel from then on. The
  *   controller gets the kept mode when it is made (`picture`), and each change is kept (`pictured`).
+ * - **A catalog refresh while it plays** (step 22a): `listChanging` comes before the live screen's
+ *   list is replaced. The channel playing stays pinned at its row and the stream isn't touched;
+ *   `locate` then moves it (and the previous channel) to their rows in the new list.
  */
 
 /** The info bar's stream opens this long after the last zap key. */
@@ -167,6 +170,11 @@ export interface Player {
   resume(row: LiveRow, guess: number): void;
   /** Row `index` as the player shows it: the resumed channel until the list has found it. */
   row(index: number): LiveRow | null;
+  /**
+   * The list is about to be replaced by a refreshed catalog (step 22a; the old one can still be
+   * read): the channel playing stays as it is, and moves to its row once the new list finds it.
+   */
+  listChanging(): void;
   close(): void;
   dispose(): void;
 }
@@ -478,7 +486,7 @@ export function createPlayer(options: PlayerOptions): Player {
     options.closed(playing.value !== -1 ? playing.value : target.value);
   };
 
-  /** The list found the resumed channel at row `found` (`-1`: it isn't in the list). */
+  /** The list found the pinned channel (resumed, or kept through a catalog refresh) at row `found` (`-1`: it isn't in the list). */
   const located = (found: number, mine: { readonly index: number; readonly row: LiveRow }): void => {
     // Another row played (it dropped `pinned`), or a zap waits: the resumed channel isn't the one shown.
     if (pinned !== mine || !open.value || found === -1 || target.value !== mine.index) return;
@@ -609,6 +617,30 @@ export function createPlayer(options: PlayerOptions): Player {
       );
     },
     row: rowAt,
+    listChanging(): void {
+      if (!open.value) return;
+      // The stream playing (none: -1, no row; a zap that waits plays the new list's row when it fires).
+      const at = playing.value;
+      const row = rowAt(at);
+      if (row !== null) {
+        const mine = { index: at, row };
+        pinned = mine;
+        list.locate(row.item.key, at).then(
+          (found) => located(found, mine),
+          () => undefined,
+        );
+      }
+      // PRE-CH's channel: its row in the new list, or none when it is gone.
+      const before = previous.value;
+      const earlier = list.row(before);
+      if (earlier === null) return;
+      list.locate(earlier.item.key, before).then(
+        (found) => {
+          if (previous.value === before) previous.value = found;
+        },
+        () => undefined,
+      );
+    },
     close,
     dispose(): void {
       close();
