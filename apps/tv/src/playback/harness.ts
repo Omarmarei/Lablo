@@ -23,7 +23,7 @@ export interface PlaybackSnapshot {
   readonly attempt: number;
   readonly failure: PlaybackFailure | null;
   readonly positionMs: number;
-  /** Every status the controller reported: `state container`. */
+  /** Every status the controller reported (`state container`), but those that only brought new track lists. */
   readonly history: readonly string[];
   /** The engine: `load <token> <container>`, `loaded <token>`, `rejected <token> <kind>/<code>`, and its events (`firstFrame <token>`). */
   readonly trace: readonly string[];

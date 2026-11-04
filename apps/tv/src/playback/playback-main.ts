@@ -39,8 +39,12 @@ engine.load = (source, token, opts) => {
 engine.on((e) => trace.push(e.type === 'error' ? `error ${e.token} ${e.error.kind}/${e.error.code}` : `${e.type} ${e.token}`));
 
 const controller = new PlayerController(engine, { online: () => navigator.onLine });
+/** The last status's own facts: a status that only brings new track lists (step 20b) isn't history. */
+let last = '';
 controller.subscribe((s) => {
-  history.push(`${s.state} ${s.container ?? '-'}`);
+  const facts = `${s.session} ${s.state} ${s.container ?? '-'} ${s.attempt} ${s.failure === null ? '' : s.failure.code}`;
+  if (facts !== last) history.push(`${s.state} ${s.container ?? '-'}`);
+  last = facts;
   root.setAttribute('data-state', s.state);
   root.setAttribute('data-container', s.container ?? '');
   root.setAttribute('data-session', String(s.session));
