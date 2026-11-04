@@ -98,7 +98,10 @@ test.describe('Playback on the desktop: Html5Engine and the PlayerController on 
 
   test('VOD: an episode from 20 s in, and stop closes its connection', async ({ page }) => {
     await open(page);
-    await play(page, { url: `${base}/series/${U}/${P}/3011.mp4`, mode: 'vod', startMs: 20_000 });
+    // The mock holds each response open after 4 MB (about 80 s of this file): without that, a
+    // fast runner downloads all 12 MB at once, the browser closes the connection itself, and the
+    // check below would see none while it plays (main's CI on 1d4fea2).
+    await play(page, { url: `${base}/series/${U}/${P}/3011.mp4?mock_fault=stall:after_bytes=4000000`, mode: 'vod', startMs: 20_000 });
     const s = await state(page, 'playing');
     expect(s.history).toEqual(['opening mp4', 'playing mp4']);
     expect(s.positionMs).toBeGreaterThanOrEqual(20_000);

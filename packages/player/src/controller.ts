@@ -70,7 +70,18 @@ export interface ControllerOptions {
    * a new probe (a retry rung) instead of the source's remembered answer.
    */
   readonly resolveUrl?: (url: string, src: string, fresh: boolean) => Promise<string>;
+  /**
+   * Lets the TV's screensaver come (`true`) or keeps it away (`false`), called when that changes
+   * (step 19; the app passes `Platform.setScreenSaver`). Away while a stream opens, plays,
+   * buffers or reconnects; back when it is paused, ended, failed or stopped (Samsung's
+   * certification wants it back whenever playback pauses or stops). The TV's own default,
+   * allowed, is where it starts.
+   */
+  readonly screenSaver?: (allowed: boolean) => void;
 }
+
+/** The states in which the screensaver is kept away. */
+const KEEPS_SCREENSAVER_AWAY: readonly PlayerState[] = ['opening', 'playing', 'buffering', 'reconnecting'];
 
 export interface PlayOptions {
   /** A VOD or catch-up position to start from, in ms (live streams always start at the live edge). */
@@ -108,6 +119,9 @@ export class PlayerController {
   private readonly online: () => boolean | Promise<boolean>;
   private readonly checkAccount: ((src: string) => Promise<AccountStatus | null>) | undefined;
   private readonly resolveUrl: ((url: string, src: string, fresh: boolean) => Promise<string>) | undefined;
+  private readonly screenSaver: ((allowed: boolean) => void) | undefined;
+  /** What the screensaver was last told (the TV's default: allowed). */
+  private screenSaverAllowed = true;
   private readonly unsubscribe: () => void;
   private listeners: ((status: PlayerStatus) => void)[] = [];
 
@@ -136,6 +150,7 @@ export class PlayerController {
     this.online = options.online ?? (() => true);
     this.checkAccount = options.checkAccount;
     this.resolveUrl = options.resolveUrl;
+    this.screenSaver = options.screenSaver;
     this.unsubscribe = engine.on((e) => this.onEvent(e));
   }
 
@@ -283,7 +298,8 @@ export class PlayerController {
         this.fail(e.token, e.error);
         return;
       case 'tracks':
-        // Track preferences come with the engines and the track menu (steps 18 and 20).
+      case 'cue':
+        // Track preferences and the subtitle overlay come with the player UI (step 20).
         return;
     }
   }
@@ -391,6 +407,11 @@ export class PlayerController {
       attempt: s === null ? 0 : s.attempt,
       failure,
     };
+    const allowed = KEEPS_SCREENSAVER_AWAY.indexOf(state) === -1;
+    if (allowed !== this.screenSaverAllowed) {
+      this.screenSaverAllowed = allowed;
+      if (this.screenSaver !== undefined) this.screenSaver(allowed);
+    }
     for (const listener of this.listeners.slice()) listener(this.current);
   }
 }
