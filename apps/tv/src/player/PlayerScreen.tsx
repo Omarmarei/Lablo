@@ -5,6 +5,7 @@ import type { FocusBinding, Screen } from '@zoma/ui';
 import { Badge, Button, ProgressBar, Spinner, useFocus, useZone } from '@zoma/ui';
 import type { AppI18n, MessageKey } from '../i18n';
 import type { Live, LiveRow } from '../live/live-state';
+import type { ArchiveProgramme } from './catchup';
 import type { Player } from './player-state';
 import { PICTURE_ACTION, STATS_ACTION, TRACKS_ACTION } from './player-state';
 import { StreamInfoPanel } from './StreamInfoPanel';
@@ -38,8 +39,8 @@ const PICTURE_TEXT: Readonly<Record<PictureMode, MessageKey>> = {
   '4:3': 'player.picture.43',
 };
 
-/** A programme's start and end in the locale's time, and how far it has gone. */
-function span(i18n: AppI18n, programme: EpgProgramme): string {
+/** A programme's start and end in the locale's time. */
+function span(i18n: AppI18n, programme: Pick<EpgProgramme, 'start' | 'end'>): string {
   return `${i18n.time(new Date(programme.start * MINUTE_MS))} – ${i18n.time(new Date(programme.end * MINUTE_MS))}`;
 }
 
@@ -55,9 +56,11 @@ interface InfoBarProps {
    */
   readonly row: LiveRow | null;
   readonly guide: EpgNowNext | undefined;
+  /** The programme playing from the archive (step 25a), in place of the live now/next. */
+  readonly archive: ArchiveProgramme | null;
 }
 
-function InfoBar({ live, player, i18n, screen, binding, row, guide }: InfoBarProps) {
+function InfoBar({ live, player, i18n, screen, binding, row, guide, archive }: InfoBarProps) {
   const { t } = i18n;
   const clock = live.clock.value;
   const now = guide === undefined ? null : guide.now;
@@ -76,7 +79,16 @@ function InfoBar({ live, player, i18n, screen, binding, row, guide }: InfoBarPro
         {row !== null && row.item.catchup !== null && <Badge label={t('badge.catchUp')} />}
         <span class="player__clock">{i18n.time(new Date(clock))}</span>
       </div>
-      {now !== null ? (
+      {archive !== null ? (
+        <div class="player__now" data-testid="player-archive">
+          <span class="player__time">
+            {i18n.date(new Date(archive.start * MINUTE_MS), 'day')} · {span(i18n, archive)}
+          </span>
+          <span class="player__title" dir="auto" translate={false}>
+            {archive.title === '' ? t('guide.noInfo') : archive.title}
+          </span>
+        </div>
+      ) : now !== null ? (
         <div class="player__now" data-testid="player-now">
           <span class="player__time">{span(i18n, now)}</span>
           <ProgressBar value={progress} size="s" class="player__progress" />
@@ -87,7 +99,7 @@ function InfoBar({ live, player, i18n, screen, binding, row, guide }: InfoBarPro
       ) : (
         <div class="player__now player__now--none">{guide === undefined ? '' : t('guide.none')}</div>
       )}
-      {next !== null && (
+      {archive === null && next !== null && (
         <div class="player__next" data-testid="player-next">
           <span class="player__time">
             {t('guide.next')} · {i18n.time(new Date(next.start * MINUTE_MS))}
@@ -164,6 +176,8 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
   const failure = current && status.state === 'failed' ? status.failure : null;
   const row = player.row(target);
   const guide = row === null ? undefined : live.guide(row.item.key);
+  // A zap that waits shows the new channel live.
+  const archive = current ? player.archive.value : null;
   const waiting = current && (status.state === 'opening' || status.state === 'buffering');
   const menu = player.menu.screen.value;
   const subtitles = player.subtitles.value;
@@ -195,6 +209,7 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
       data-subtitles={subtitles.feed ?? ''}
       data-stats={String(stats)}
       data-picture={player.picture.value}
+      data-archive={archive === null ? '' : archive.start}
     >
       {player.picture.value === '4:3' && (
         <div class="player__pillars" aria-hidden="true" data-testid="player-pillars">
@@ -226,7 +241,7 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
       )}
       <div class="player__bottom">
         {subtitles.cues.length > 0 && <SubtitleOverlay cues={subtitles.cues} size={player.menu.size.value} />}
-        {screen !== null && menu === null && player.info.value && <InfoBar live={live} player={player} i18n={i18n} screen={screen} binding={binding} row={row} guide={guide} />}
+        {screen !== null && menu === null && player.info.value && <InfoBar live={live} player={player} i18n={i18n} screen={screen} binding={binding} row={row} guide={guide} archive={archive} />}
       </div>
       {menu !== null && <TrackMenuPanel menu={player.menu} tracks={status.tracks} feed={subtitles.feed} i18n={i18n} screen={menu} binding={binding} />}
       {screen !== null && failure !== null && <ErrorCard failure={failure} i18n={i18n} screen={screen} binding={binding} />}

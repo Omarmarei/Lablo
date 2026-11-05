@@ -7,7 +7,7 @@ import type { Language } from '@zoma/ui';
 import { Spinner } from '@zoma/ui';
 import type { AppData } from './App';
 import { App } from './App';
-import type { DataEngine } from './data/engine';
+import type { DataEngine, SourceFacts } from './data/engine';
 import { readDebugParams, readScreen } from './data/params';
 import type { RefreshScheduler } from './data/refresh-scheduler';
 import { createRefreshScheduler } from './data/refresh-scheduler';
@@ -27,6 +27,7 @@ import { createEngineLoader } from './onboarding/engine-loader';
 import { OnboardingApp } from './onboarding/OnboardingApp';
 import type { Onboarding } from './onboarding/onboarding-state';
 import { appPlayer, uiTrackPreferences } from './player/app-player';
+import { catchupRequest } from './player/catchup';
 import { createPlayerMemory } from './player/player-memory';
 import type { Player } from './player/player-state';
 import { createPlayer } from './player/player-state';
@@ -62,10 +63,12 @@ const root = document.getElementById('app');
 if (root === null) throw new Error('#app element missing from index.html');
 
 /**
- * Each Xtream source's `allowed_output_formats` (RELAY step 20c2a), read when the live screen
- * opens: until then (the start's last channel) every format is tried, the one that played first.
+ * Each source's facts (`DataEngine.sourceFacts`), read when the live screen opens and after a
+ * catalog refresh: an Xtream account's `allowed_output_formats` (RELAY step 20c2a; until they are
+ * read, the start's last channel tries every format, the one that played first) and the panel's
+ * zone for catch-up (step 25a).
  */
-let outputFormats = new Map<string, readonly string[]>();
+let sourceFacts = new Map<string, SourceFacts>();
 
 /** Remote keys are being pressed (a running refresh pauses). */
 const busy = signal(false);
@@ -105,7 +108,7 @@ let refreshes: RefreshScheduler | null = null;
  * Starts the refresh schedule for the live screen: stale catalogs and due guides are read in the
  * background, and the screen picks up what swapped in (`readFormats`: the accounts' formats again).
  */
-function startRefreshes(live: Live, guide: Guide, readFormats: () => void): void {
+function startRefreshes(live: Live, guide: Guide, readFacts: () => void): void {
   refreshes?.dispose();
   refreshes = createRefreshScheduler({
     engine: dataEngine(),
@@ -121,7 +124,7 @@ function startRefreshes(live: Live, guide: Guide, readFormats: () => void): void
     },
     lifecycle: (listener) => platform.onLifecycle(listener),
     onCatalog: () => {
-      readFormats();
+      readFacts();
       live.catalogChanged();
     },
     onGuides: () => {
@@ -147,17 +150,17 @@ function showHello(into: Element): void {
  */
 function showLive(into: Element, language: Language | null, resume: LastChannel | null = null): void {
   let player: Player | null = null;
-  const readFormats = (): void => {
+  const readFacts = (): void => {
     dataEngine()
-      .outputFormats()
+      .sourceFacts()
       .then(
-        (formats) => {
-          outputFormats = formats;
+        (facts) => {
+          sourceFacts = facts;
         },
-        (error: unknown) => console.warn('The output formats were not read', error),
+        (error: unknown) => console.warn("The sources' facts were not read", error),
       );
   };
-  readFormats();
+  readFacts();
   let openSettings: () => void = () => undefined;
   const live = createLive({
     platform,
@@ -181,6 +184,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     closed: (index) => live.focusRow(index),
     // "Guide channel" in the programme details (step 24e): the manual mapping's picker over the guide.
     map: (target) => settings.mapping.open(target),
+    // "Watch from the start" (step 25a): the programme from the channel's archive, the player over the guide.
+    catchup: (index, programme) => player?.catchup(index, programme),
   });
   // The header's "Settings" (step 22b2): the guides screen changes the guide list, then reads it.
   // A guide's time offset (step 24b) needs no refresh: the screens ask their programmes again.
@@ -209,7 +214,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       guide.follow(index);
     },
     tuned: (row, index) => memory.tuned(row.item, row.number, live.shownCategory(), index),
-    outputFormats: (src) => outputFormats.get(src) ?? null,
+    outputFormats: (src) => sourceFacts.get(src)?.outputFormats ?? null,
+    catchupRequest: (row, programme) => catchupRequest(row, programme, sourceFacts.get(row.item.src), Date.now()),
     ...(kept === null ? {} : { subtitleSize: kept }),
     sized: (size) => memory.setSubtitleSize(size),
     ...(picture === null ? {} : { picture }),
@@ -218,7 +224,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   if (resume !== null) player.resume({ item: resume.item, number: resume.number }, resume.index);
   showFocus(live.nav);
   render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} guide={guide} />, into);
-  startRefreshes(live, guide, readFormats);
+  startRefreshes(live, guide, readFacts);
 }
 
 /**

@@ -40,6 +40,7 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'guide.noInfo': 'لا توجد معلومات',
   'guide.open': 'الدليل',
   'guide.title': 'دليل البرامج',
+  'details.archive': 'شاهد من البداية',
   'details.watch': 'شاهد القناة',
   'details.close': 'إغلاق',
   'details.mapping': 'قناة الدليل',

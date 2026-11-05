@@ -138,6 +138,8 @@ class FakeList implements GuideList {
   findAt: (key: ContentKey) => number = (key) => numberOf(key) - this.shift;
   /** The new list's rows start `shift` channels later (a swap). */
   shift = 0;
+  /** Channels with a day of Xtream catch-up (step 25a). */
+  readonly catchup = new Set<number>();
 
   constructor(
     public total: number,
@@ -153,7 +155,8 @@ class FakeList implements GuideList {
   row(index: number): LiveRow | null {
     if (!(index >= 0 && index < this.total) || !this.loaded.has(Math.floor(index / 100))) return null;
     const n = index + this.shift;
-    return { item: item(n), number: n + 1 };
+    const own = item(n);
+    return { item: this.catchup.has(n) ? { ...own, catchup: { mode: 'xc', days: 1, source: null } } : own, number: n + 1 };
   }
 
   load(index: number): Promise<LiveRow | null> {
@@ -240,7 +243,8 @@ function setup(options: { count?: number; chunks?: number[]; start?: number; eng
   const play = vi.fn();
   const closed = vi.fn();
   const map = vi.fn();
-  const guide = createGuide({ nav, engine, list, play, closed, map, now: clock.now, timers: clock.timers, days: () => GUIDE_DAYS[options.tier ?? 'full'] });
+  const catchup = vi.fn();
+  const guide = createGuide({ nav, engine, list, play, closed, map, catchup, now: clock.now, timers: clock.timers, days: () => GUIDE_DAYS[options.tier ?? 'full'] });
   const at = (): string => {
     const f = nav.snapshot();
     return `${f.screen} · ${f.zone} ${f.index}${f.time === null ? '' : ` @${f.time - midnight(0)}`}`;
@@ -260,7 +264,7 @@ function setup(options: { count?: number; chunks?: number[]; start?: number; eng
     guide.open(row);
     clock.advance(0);
   };
-  return { guide, engine, list, clock, nav, play, closed, map, at, press, rest, position, open };
+  return { guide, engine, list, clock, nav, play, closed, map, catchup, at, press, rest, position, open };
 }
 
 afterEach(() => {
@@ -666,7 +670,7 @@ describe('OK and Back in the guide', () => {
     await t.press('RIGHT', 'OK');
     expect(t.at()).toBe('programme · actions 0');
     expect(t.guide.details.shown.value).toEqual({
-      target: { key: keyOf(2), channel: { number: 3, name: 'Channel 2' }, start: next, end: next + length, title: `P2-${next / length}` },
+      target: { key: keyOf(2), channel: { number: 3, name: 'Channel 2' }, start: next, end: next + length, title: `P2-${next / length}`, archive: false },
       status: 'read',
       programme: programmeFor(keyOf(2), next),
     });
@@ -765,6 +769,88 @@ describe('OK and Back in the guide', () => {
     await flush();
     expect(nav.top.id).toBe(GUIDE_SCREEN);
     expect(bare.details.shown.value).toBeNull();
+  });
+
+  it('offers "Watch from the start" for a programme gone by on a channel with catch-up, and plays it from the archive (step 25a)', async () => {
+    const t = setup();
+    t.list.catchup.add(4);
+    t.open(4);
+    await flush();
+    const length = lengthOf(4);
+    await t.press('LEFT', 'LEFT');
+    // The cell under the focus: a programme gone by.
+    const before = Math.floor(t.position().time! / length) * length;
+    expect(before + length).toBeLessThanOrEqual(NOW);
+    await t.press('OK');
+    expect(t.guide.details.shown.value?.target).toMatchObject({ key: keyOf(4), start: before, end: before + length, archive: true });
+    expect(t.nav.top.zone('actions')).toMatchObject({ count: 4 });
+    let top = '';
+    t.catchup.mockImplementation(() => {
+      top = t.nav.top.id;
+    });
+    await t.press('OK');
+    expect(t.catchup).toHaveBeenCalledTimes(1);
+    expect(t.catchup).toHaveBeenCalledWith(4, { start: before, end: before + length, title: `P4-${before / length}` });
+    expect(top).toBe(GUIDE_SCREEN);
+    expect(t.guide.details.shown.value).toBeNull();
+    expect(t.play).not.toHaveBeenCalled();
+    // "Watch the channel" is the second button now.
+    await t.press('OK', 'RIGHT', 'OK');
+    expect(t.play).toHaveBeenCalledWith(4);
+    expect(t.catchup).toHaveBeenCalledTimes(1);
+  });
+
+  it('has no "Watch from the start" for a programme to come, on a channel without catch-up, or in a guide that has no catch-up', async () => {
+    const t = setup();
+    t.list.catchup.add(4);
+    t.open(4);
+    await flush();
+    await t.press('RIGHT', 'OK');
+    expect(t.guide.details.shown.value?.target.archive).toBe(false);
+    await t.press('BACK');
+    t.guide.follow(2);
+    await t.rest();
+    await t.press('LEFT', 'LEFT', 'LEFT', 'OK');
+    expect(t.guide.details.shown.value?.target).toMatchObject({ key: keyOf(2), archive: false });
+    // A guide the app gave no `catchup`.
+    const nav = createNavigator({ root: { id: 'live', zones: [{ kind: 'list', id: 'channels', axis: 'vertical', count: 10 }] }, rootBack: 'exit-dialog', exit: () => undefined, exitDialog: () => undefined, now: () => 0 });
+    const clock = manualTimers(T0);
+    const list = new FakeList(10, [0]);
+    list.catchup.add(4);
+    const bare = createGuide({ nav, engine: new FakeEngine(), list, play: vi.fn(), closed: vi.fn(), now: clock.now, timers: clock.timers });
+    bare.open(4);
+    clock.advance(0);
+    await flush();
+    for (const key of ['LEFT', 'LEFT', 'OK'] as const) nav.handle(key);
+    await flush();
+    expect(bare.details.shown.value?.target.archive).toBe(false);
+  });
+
+  it('plays from the start only the channel the details are about, after a catalog swap under them', async () => {
+    const t = setup();
+    t.list.catchup.add(4);
+    t.open(4);
+    await flush();
+    await t.press('LEFT', 'LEFT', 'OK');
+    expect(t.guide.details.shown.value?.target.archive).toBe(true);
+    // The channel moved a row up in the new list: the guide's focus follows it.
+    t.guide.listChanging();
+    t.list.shift = 1;
+    await flush();
+    expect(t.position().index).toBe(3);
+    await t.press('OK');
+    expect(t.catchup).toHaveBeenCalledTimes(1);
+    expect(t.catchup.mock.calls[0]![0]).toBe(3);
+    // The channel gone: its row holds another channel now, which doesn't play.
+    await t.press('OK');
+    expect(t.guide.details.shown.value?.target.archive).toBe(true);
+    t.list.findAt = () => -1;
+    t.guide.listChanging();
+    t.list.shift = 2;
+    await flush();
+    await t.press('OK');
+    expect(t.nav.top.id).toBe(GUIDE_SCREEN);
+    expect(t.catchup).toHaveBeenCalledTimes(1);
   });
 
   it('plays from the details only the channel they are about, after a catalog swap under them', async () => {

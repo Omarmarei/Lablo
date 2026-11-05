@@ -5,11 +5,17 @@ import type { Intent } from '@zoma/platform-api';
 import { bindFocus, createNavigator } from '@zoma/ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DetailsShown, DetailsTarget } from './programme-details';
-import { DETAILS_ACTIONS, DETAILS_CLOSE, DETAILS_MAP, DETAILS_SCREEN, DETAILS_WATCH, createDetails } from './programme-details';
+import { DETAILS_ACTIONS, DETAILS_SCREEN, createDetails, detailsActions } from './programme-details';
 import { appI18n } from '../i18n';
 import { ProgrammeDialog, detailsLines } from './ProgrammeDialog';
 
 const target = (start: number, title = `At ${start}`): DetailsTarget => ({ key: 'x:s1:live:0-1', channel: { number: 2, name: 'Channel 1' }, start, end: start + 30, title });
+/** A programme in the channel's archive (step 25a). */
+const archived = (start: number): DetailsTarget => ({ ...target(start), archive: true });
+/** The buttons of a dialog without "Watch from the start". */
+const DETAILS_WATCH = 0;
+const DETAILS_MAP = 1;
+const DETAILS_CLOSE = 2;
 const programme = (start: number, desc = `About ${start}`): EpgProgramme => ({ start, end: start + 30, title: `At ${start}`, sub: ' Part one ', desc, category: 'News', episode: 'S1 E2', flags: 0 });
 
 interface Held {
@@ -32,12 +38,14 @@ function setup() {
   });
   const watch = vi.fn();
   const map = vi.fn();
+  const fromStart = vi.fn();
   let tracked = 0;
   const details = createDetails({
     nav,
     engine,
     watch,
     map,
+    fromStart,
     track: (request) => {
       tracked += 1;
       return request();
@@ -51,7 +59,7 @@ function setup() {
     const f = nav.snapshot();
     return `${f.screen} · ${f.zone} ${f.index}`;
   };
-  return { held, nav, watch, map, details, press, at, tracked: () => tracked };
+  return { held, nav, watch, map, fromStart, details, press, at, tracked: () => tracked };
 }
 
 const settle = async (): Promise<void> => {
@@ -68,7 +76,7 @@ describe('the programme details (RELAY step 24a)', () => {
     t.details.open(target(600));
     expect(t.at()).toBe(`${DETAILS_SCREEN} · ${DETAILS_ACTIONS} ${DETAILS_WATCH}`);
     expect(t.nav.top.zone(DETAILS_ACTIONS)).toMatchObject({ kind: 'list', axis: 'horizontal', count: 3 });
-    expect([DETAILS_WATCH, DETAILS_MAP, DETAILS_CLOSE]).toEqual([0, 1, 2]);
+    expect(detailsActions(false)).toEqual(['watch', 'map', 'close']);
     expect(t.details.shown.value).toEqual({ target: target(600), status: 'reading', programme: null });
     expect(t.held.map((h) => h.req)).toEqual([{ key: 'x:s1:live:0-1', start: 600 }]);
     expect(t.tracked()).toBe(1);
@@ -190,6 +198,61 @@ describe('the programme details (RELAY step 24a)', () => {
   });
 });
 
+describe('"Watch from the start" in the details (RELAY step 25a)', () => {
+  it('comes first, focused, for a programme in the archive, and hands it over once the dialog has closed', async () => {
+    expect(detailsActions(true)).toEqual(['archive', 'watch', 'map', 'close']);
+    const t = setup();
+    t.details.open(archived(600));
+    expect(t.at()).toBe(`${DETAILS_SCREEN} · ${DETAILS_ACTIONS} 0`);
+    expect(t.nav.top.zone(DETAILS_ACTIONS)).toMatchObject({ kind: 'list', axis: 'horizontal', count: 4 });
+    let top = '';
+    let shown: DetailsShown | null | undefined;
+    t.fromStart.mockImplementation(() => {
+      top = t.nav.top.id;
+      shown = t.details.shown.value;
+    });
+    await t.press('OK');
+    expect(t.fromStart).toHaveBeenCalledTimes(1);
+    expect(t.fromStart).toHaveBeenCalledWith(archived(600));
+    expect([top, shown]).toEqual(['guide', null]);
+    expect(t.watch).not.toHaveBeenCalled();
+    expect(t.map).not.toHaveBeenCalled();
+  });
+
+  it('moves the other buttons one on: "Watch the channel", "Guide channel" and "Close"', async () => {
+    const t = setup();
+    t.details.open(archived(600));
+    await t.press('RIGHT', 'OK');
+    expect(t.watch).toHaveBeenCalledWith(archived(600));
+    t.details.open(archived(630));
+    await t.press('RIGHT', 'RIGHT', 'OK');
+    expect(t.map).toHaveBeenCalledWith(archived(630));
+    t.details.open(archived(660));
+    await t.press('RIGHT', 'RIGHT', 'RIGHT');
+    expect(t.at()).toBe(`${DETAILS_SCREEN} · ${DETAILS_ACTIONS} 3`);
+    await t.press('OK');
+    expect(t.at()).toBe('guide · grid 0');
+    expect([t.watch.mock.calls.length, t.map.mock.calls.length, t.fromStart.mock.calls.length]).toEqual([1, 1, 0]);
+    // A target that says it isn't in the archive gets the three buttons.
+    t.details.open({ ...target(690), archive: false });
+    expect(t.nav.top.zone(DETAILS_ACTIONS)).toMatchObject({ count: 3 });
+    await t.press('OK');
+    expect(t.watch).toHaveBeenCalledTimes(2);
+    expect(t.fromStart).not.toHaveBeenCalled();
+  });
+
+  it('closes on it all the same without a `fromStart`', () => {
+    const nav = createNavigator({ root: { id: 'guide', zones: [{ kind: 'list', id: 'grid', axis: 'vertical', count: 1 }] }, rootBack: 'exit-dialog', exit: () => undefined, exitDialog: () => undefined, now: () => 0 });
+    const watch = vi.fn();
+    const bare = createDetails({ nav, engine: { programme: () => Promise.resolve(null) }, watch });
+    bare.open(archived(1));
+    nav.handle('OK');
+    expect(nav.top.id).toBe('guide');
+    expect(bare.shown.value).toBeNull();
+    expect(watch).not.toHaveBeenCalled();
+  });
+});
+
 describe('the details’ lines', () => {
   it('are the read programme’s texts, trimmed, and empty before it is read', () => {
     expect(detailsLines({ target: target(1), status: 'reading', programme: null })).toEqual({ sub: '', category: '', episode: '', desc: '' });
@@ -258,9 +321,25 @@ describe('the details dialog as drawn', () => {
     const buttons = walk(props.children).filter((v) => typeof v.type === 'function');
     expect(buttons.map((b) => [(b.props as Props).label, (b.props as Props).testId, (b.props as Props).variant])).toEqual([
       ['Watch the channel', 'programme-watch', 'primary'],
-      ['Guide channel', 'programme-map', undefined],
-      ['Close', 'programme-close', undefined],
+      ['Guide channel', 'programme-map', 'secondary'],
+      ['Close', 'programme-close', 'secondary'],
     ]);
+  });
+
+  it('draws "Watch from the start" first, as the primary, for a programme in the archive (step 25a)', () => {
+    const t = setup();
+    t.details.open(archived(600));
+    const draw = (locale: string) => {
+      const dialog = ProgrammeDialog({ details: t.details, i18n: appI18n(locale, { isolate: false }), binding: bindFocus(t.nav) })!;
+      return walk((dialog.props as Props).children).filter((v) => typeof v.type === 'function').map((b) => [(b.props as Props).label, (b.props as Props).testId, (b.props as Props).variant, (b.props as Props).state]);
+    };
+    expect(draw('en-US')).toEqual([
+      ['Watch from the start', 'programme-archive', 'primary', 'focused'],
+      ['Watch the channel', 'programme-watch', 'secondary', 'idle'],
+      ['Guide channel', 'programme-map', 'secondary', 'idle'],
+      ['Close', 'programme-close', 'secondary', 'idle'],
+    ]);
+    expect(draw('ar-SA').map((b) => b[0])).toEqual(['شاهد من البداية', 'شاهد القناة', 'قناة الدليل', 'إغلاق']);
   });
 
   it('leaves out the lines the guide doesn’t have, and says so for the description', async () => {

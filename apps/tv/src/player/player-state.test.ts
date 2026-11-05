@@ -6,7 +6,8 @@ import { NO_STATS, NO_TRACKS } from '@zoma/player';
 import { createNavigator } from '@zoma/ui';
 import { describe, expect, it } from 'vitest';
 import type { LiveRow, Timers } from '../live/live-state';
-import type { PlayerLike, ZapList } from './player-state';
+import type { ArchiveProgramme } from './catchup';
+import type { PlayerLike, PlayerOptions, ZapList } from './player-state';
 import { DIGITS_MS, INFO_MS, MISSING_MS, PICTURE_ACTION, STATS_ACTION, TRACKS_ACTION, ZAP_DELAY_MS, createPlayer, liveRequest } from './player-state';
 import { STATS_MS } from './stream-info';
 import type { SubtitleSize } from './track-menu';
@@ -245,7 +246,10 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i += 1) await Promise.resolve();
 };
 
-function setup(dir: 'ltr' | 'rtl' = 'ltr', kept: { subtitleSize?: SubtitleSize; outputFormats?: (src: string) => readonly string[] | null; picture?: PictureMode } = {}) {
+function setup(
+  dir: 'ltr' | 'rtl' = 'ltr',
+  kept: { subtitleSize?: SubtitleSize; outputFormats?: (src: string) => readonly string[] | null; picture?: PictureMode; catchupRequest?: PlayerOptions['catchupRequest'] } = {},
+) {
   const list = new FakeList();
   /** Each `tuned` call: the channel's key and its row. */
   const tuned: string[] = [];
@@ -1433,5 +1437,107 @@ describe('the player: a catalog refresh while it plays (RELAY step 22a)', () => 
     await flush();
     expect(t.controller.played()).toEqual([5]);
     expect(t.tuned).toEqual(['x:s1:live:5 @5']);
+  });
+});
+
+describe('the player: catch-up (RELAY step 25a)', () => {
+  const EVENING: ArchiveProgramme = { start: 29_000_000, end: 29_000_060, title: 'Evening News' };
+  /** The app's request: a timeshift URL named by the row and the programme's start (`null` for row 9). */
+  const archiveOf = (r: LiveRow, p: ArchiveProgramme): PlayRequest | null =>
+    r.number === 10 ? null : { key: r.item.key, src: r.item.src, mode: 'catchup', candidates: [{ url: `http://panel.test/timeshift/u/p/60/${p.start}/${r.number + 99}.ts`, container: 'ts' }] };
+  const asked: string[] = [];
+  const catchupRequest = (r: LiveRow, p: ArchiveProgramme): PlayRequest | null => {
+    asked.push(`${r.item.key} ${p.start}`);
+    return archiveOf(r, p);
+  };
+
+  it("opens on a row and plays the programme from its archive: the info bar shows it, the last channel isn't changed", () => {
+    asked.length = 0;
+    const t = setup('ltr', { catchupRequest });
+    t.player.catchup(4, EVENING);
+    expect(t.at()).toBe('player · actions 0');
+    expect(t.chrome).toEqual([true]);
+    expect(asked).toEqual([`x:s1:live:4 ${EVENING.start}`]);
+    expect(t.controller.plays).toEqual([archiveOf(row(4), EVENING)]);
+    expect(t.player.archive.value).toEqual(EVENING);
+    expect(t.player).toMatchObject({ target: { value: 4 }, playing: { value: 4 }, plays: { value: 1 }, info: { value: true } });
+    expect(t.tuned).toEqual([]);
+    // A second open while it shows does nothing.
+    t.player.catchup(5, EVENING);
+    t.player.show(5);
+    expect(t.controller.plays).toHaveLength(1);
+  });
+
+  it('plays the channel live when its URL carries no catch-up, or the app has no catch-up', () => {
+    const t = setup('ltr', { catchupRequest });
+    t.player.catchup(9, EVENING);
+    expect(t.controller.plays).toEqual([liveRequest(row(9))]);
+    expect(t.player.archive.value).toBeNull();
+    expect(t.tuned).toEqual(['x:s1:live:9 @9']);
+    const bare = setup();
+    bare.player.catchup(2, EVENING);
+    expect(bare.controller.plays).toEqual([liveRequest(row(2))]);
+    expect(bare.player.archive.value).toBeNull();
+  });
+
+  it("reads the row's chunk first when the list hasn't it yet", async () => {
+    const t = setup('ltr', { catchupRequest });
+    t.player.catchup(12, EVENING);
+    expect(t.controller.plays).toEqual([]);
+    t.list.loads[0]!.resolve();
+    await flush();
+    expect(t.controller.plays).toEqual([archiveOf(row(12), EVENING)]);
+    expect(t.player.archive.value).toEqual(EVENING);
+  });
+
+  it('leaves the archive for the live channels on a zap, a number or the previous channel', async () => {
+    const t = setup('ltr', { catchupRequest });
+    t.player.show(2);
+    t.player.close();
+    t.player.catchup(4, EVENING);
+    // The channel watched before (it stays across a close).
+    expect(t.player.previous.value).toBe(2);
+    // A zap: the archive's programme stays until the new channel's stream opens.
+    await t.press('CH_UP');
+    expect(t.player.archive.value).toEqual(EVENING);
+    t.clock.advance(ZAP_DELAY_MS);
+    expect(t.controller.plays[2]).toEqual(liveRequest(row(5)));
+    expect(t.player.archive.value).toBeNull();
+    expect(t.player.previous.value).toBe(4);
+    // The previous channel is row 4, live.
+    await t.press('PREV_CH');
+    expect(t.controller.plays[3]).toEqual(liveRequest(row(4)));
+    expect(t.player.archive.value).toBeNull();
+    t.player.close();
+    // A number.
+    t.player.catchup(4, EVENING);
+    await t.press('DIGIT_7');
+    t.clock.advance(DIGITS_MS);
+    await flush();
+    t.list.finds[0]!.answer(6);
+    await flush();
+    expect(t.controller.plays[5]).toEqual(liveRequest(row(6)));
+    expect(t.player.archive.value).toBeNull();
+  });
+
+  it('plays the programme again from "Try again", and closes on Back without it', async () => {
+    asked.length = 0;
+    const t = setup('ltr', { catchupRequest });
+    t.player.catchup(4, EVENING);
+    t.controller.set('failed', NOT_FOUND);
+    expect(t.at()).toBe('player · card 0');
+    await t.press('OK');
+    expect(t.controller.plays).toEqual([archiveOf(row(4), EVENING), archiveOf(row(4), EVENING)]);
+    expect(asked).toHaveLength(2);
+    expect(t.player.archive.value).toEqual(EVENING);
+    expect(t.player.previous.value).toBe(-1);
+    await t.press('BACK');
+    expect(t.closed).toEqual([4]);
+    expect(t.controller.stops).toBe(1);
+    expect(t.player.archive.value).toBeNull();
+    // Opened live afterwards, nothing of the archive is left.
+    t.player.show(4);
+    expect(t.controller.plays[2]).toEqual(liveRequest(row(4)));
+    expect(t.player.archive.value).toBeNull();
   });
 });

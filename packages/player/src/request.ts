@@ -8,8 +8,8 @@
  * a source whose `.m3u8` played puts `.m3u8` first from then on.
  */
 
-import type { ContentKey } from '@zoma/core';
-import { parseXtreamStreamUrl, xtreamStreamUrl } from '@zoma/core';
+import type { CatchupInfo, CatchupWindow, ContentKey, ZoneOffset } from '@zoma/core';
+import { UTC_ZONE, catchupMode, m3uCatchupUrl, parseXtreamStreamUrl, xtreamCatchupUrl, xtreamStreamUrl } from '@zoma/core';
 import type { Container, PlayMode } from './engine';
 
 /**
@@ -79,12 +79,46 @@ export function streamCandidates(url: string, mode: PlayMode, outputFormats?: re
   // The short form (no extension) serves MPEG-TS.
   const ts: PlayCandidate = parsed.ext === 'm3u8' ? { url: xtreamStreamUrl(parsed, 'live', parsed.id, 'ts'), container: 'ts' } : { url, container: 'ts' };
   const hls: PlayCandidate = parsed.ext === 'm3u8' ? { url, container: 'hls' } : { url: xtreamStreamUrl(parsed, 'live', parsed.id, 'm3u8'), container: 'hls' };
+  return allowedForms(ts, hls, outputFormats);
+}
+
+/** `.ts` then `.m3u8`, keeping only the one `outputFormats` allows when it names one and not the other. */
+function allowedForms(ts: PlayCandidate, hls: PlayCandidate, outputFormats: readonly string[] | null | undefined): PlayCandidate[] {
   const formats = outputFormats ?? [];
   const allowsTs = formats.indexOf('ts') !== -1;
   const allowsHls = formats.indexOf('m3u8') !== -1;
   if (allowsTs && !allowsHls) return [ts];
   if (allowsHls && !allowsTs) return [hls];
   return [ts, hls];
+}
+
+export interface CatchupCandidateOptions {
+  /** The panel's zone (`panelZone` of the source's `server_info`): Xtream starts are wall time there. Default UTC. */
+  readonly zone?: ZoneOffset;
+  /** The account's `allowed_output_formats` (`null`: not known, both forms are tried). */
+  readonly outputFormats?: readonly string[] | null;
+}
+
+/**
+ * The URLs to try for a programme from a live channel's archive (RELAY step 25a, ADR-010), or
+ * none when the channel has no catch-up its URL can carry:
+ * - an `xc` channel (every Xtream source's channel, and an M3U channel with an Xtream-shaped
+ *   URL) gives the `/timeshift/` URL as `.ts`, then as `.m3u8`, keeping to `outputFormats` as live
+ *   does; the start is written as wall time in `zone`;
+ * - every other M3U mode gives the one URL its template or rewrite makes (`m3uCatchupUrl`).
+ */
+export function catchupCandidates(url: string, info: CatchupInfo | null, window: CatchupWindow, options: CatchupCandidateOptions = {}): PlayCandidate[] {
+  if (info === null) return [];
+  const zone = options.zone ?? UTC_ZONE;
+  if (catchupMode(info, url) === 'xc') {
+    const parsed = parseXtreamStreamUrl(url);
+    if (parsed === null || parsed.kind !== 'live') return [];
+    const ts: PlayCandidate = { url: xtreamCatchupUrl(parsed, parsed.id, window, zone, 'ts'), container: 'ts' };
+    const hls: PlayCandidate = { url: xtreamCatchupUrl(parsed, parsed.id, window, zone, 'm3u8'), container: 'hls' };
+    return allowedForms(ts, hls, options.outputFormats);
+  }
+  const one = m3uCatchupUrl(url, info, window, { zone });
+  return one === null ? [] : [{ url: one, container: containerOf(one) }];
 }
 
 /** `candidates` with those of the `preferred` container first, the rest in their order. */

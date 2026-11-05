@@ -5,6 +5,8 @@ import type { GuideRequest, GuideRow } from '@zoma/data';
 import type { EpgZone, Focus, GuideChannel, GuideSchedule, Navigator, Screen } from '@zoma/ui';
 import { SCREEN, guideCellAt, guideFits, guideZone } from '@zoma/ui';
 import type { Timers } from '../live/live-state';
+import type { ArchiveProgramme } from '../player/catchup';
+import { canWatchFromStart } from '../player/catchup';
 import type { ZapList } from '../player/player-state';
 import type { MappingTarget } from '../settings/mapping-state';
 import type { Details, DetailsEngine } from './programme-details';
@@ -155,6 +157,11 @@ export interface GuideOptions {
   readonly closed: (index: number) => void;
   /** "Guide channel" in the programme details (step 24e): the manual mapping's picker over the guide. */
   readonly map?: (target: MappingTarget) => void;
+  /**
+   * "Watch from the start" in the programme details (step 25a): the player opens row `index` of the
+   * list and plays `programme` from the channel's archive.
+   */
+  readonly catchup?: (index: number, programme: ArchiveProgramme) => void;
   /** The wall clock in ms (the range, the cursor's start, what is on air). */
   readonly now?: () => number;
   readonly timers?: Timers;
@@ -431,6 +438,11 @@ export function createGuide(options: GuideOptions): Guide {
       if (list.row(index)?.item.key === target.key) options.play(index);
     },
     map: (target) => options.map?.({ key: target.key, name: target.channel.name }),
+    // "Watch from the start" (step 25a): the programme from the archive, while the focus is still on its channel.
+    fromStart: (target) => {
+      const index = screen.value?.position(GUIDE_GRID).index ?? -1;
+      if (list.row(index)?.item.key === target.key) options.catchup?.(index, { start: target.start, end: target.end, title: target.title });
+    },
   });
 
   const onSelect = (focus: Focus): void => {
@@ -445,7 +457,11 @@ export function createGuide(options: GuideOptions): Guide {
     const p = cell.programme;
     const row = list.row(focus.index);
     if (p < 0 || programmes === null || row === null) return;
-    details.open({ key: row.item.key, channel: channel(focus.index), start: programmes.start[p]!, end: programmes.end[p]!, title: programmes.title[p] ?? '' });
+    const start = programmes.start[p]!;
+    const end = programmes.end[p]!;
+    // A programme gone by in the channel's archive can be watched from the start (step 25a).
+    const archive = options.catchup !== undefined && canWatchFromStart(row, { start, end }, clockNow());
+    details.open({ key: row.item.key, channel: channel(focus.index), start, end, title: programmes.title[p] ?? '', archive });
   };
 
   const stopFollowing = nav.subscribe((focus) => {
