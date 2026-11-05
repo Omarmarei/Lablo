@@ -533,6 +533,19 @@ describe('moving in the guide', () => {
     expect(late.loads).toEqual(range(100, 105));
   });
 
+  it('reads the range’s last day', async () => {
+    const t = setup({ tier: 'low' });
+    t.guide.open(0);
+    await flush();
+    // To the guide's end: the view is its last two hours.
+    t.guide.screen.value!.focus(GUIDE_GRID, 0, midnight(4) - 1);
+    await t.rest();
+    expect(t.position().view).toBe(midnight(4) - GUIDE.span);
+    expect(t.engine.asked()[1]).toBe(`d3:${asked(0, 18)}`);
+    const row = t.guide.schedule(0)!;
+    expect(row.start[row.start.length - 1]).toBeGreaterThanOrEqual(midnight(4) - 30);
+  });
+
   it('asks again after a failed read', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const t = setup();

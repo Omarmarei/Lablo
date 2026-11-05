@@ -6,7 +6,7 @@ import { programmes } from '../apps/mock-provider/src/epg';
 import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import type { Grid } from './guide-grid';
-import { ROWS, SPAN, checkGeometry, focused, readGrid as readAny } from './guide-grid';
+import { ROWS, SAFE, SPAN, checkGeometry, focused, readGrid as readAny } from './guide-grid';
 import { guideOf, ordered } from './live-rows';
 import { addXtreamAndWatch, settled, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
@@ -20,6 +20,8 @@ import { RemoteDriver } from './remote-driver';
  */
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
 const MINUTE = 60_000;
+/** The header above the grid: `GUIDE.headerHeight` in guide-state.ts (its 9 rows fit under it). */
+const HEADER = 110;
 
 let app: MockServer;
 /** The mock's `host:port`, typed the way a user would (no `http://`). */
@@ -107,6 +109,7 @@ test.describe('the guide screen by keys (pnpm dev, after onboarding)', () => {
       let g = await readGrid(page);
       expect(g.dir).toBe(dir);
       expect(g.count).toBe(ordered.length);
+      expect(g.box.top - SAFE.top).toBeCloseTo(HEADER, 0);
       expect(Math.abs(g.time - opened)).toBeLessThanOrEqual(1);
       expect(g.time - g.view).toBeGreaterThanOrEqual(0);
       expect(g.time - g.view).toBeLessThan(30);

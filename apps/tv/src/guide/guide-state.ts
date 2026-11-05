@@ -154,7 +154,7 @@ export interface GuideOptions {
 export interface Guide {
   /** The guide's screen while it is on the stack (the player can cover it). */
   readonly screen: ReadonlySignal<Screen | null>;
-  /** Bumps when programmes or channels arrive: rows are read again through `schedule` and `channel`. */
+  /** Bumps when programmes arrive, or a new list is in: rows are read again through `schedule` and `channel`. */
   readonly version: ReadonlySignal<number>;
   /** Requests in flight, and an ask waiting for the view to rest. */
   readonly pending: ReadonlySignal<number>;
@@ -303,7 +303,10 @@ export function createGuide(options: GuideOptions): Guide {
     );
   };
 
-  /** Keeps the days `wanted` names (as the most recently wanted) and drops the oldest past `GUIDE_KEEP`. */
+  /**
+   * Keeps the days `wanted` names (as the most recently wanted) and drops the oldest past
+   * `GUIDE_KEEP`. (An ask adds at most 54 days, so the trim never reaches the wanted ones.)
+   */
   const keep = (wanted: readonly string[]): void => {
     for (let i = 0; i < wanted.length; i += 1) {
       const known = data.get(wanted[i]!);
@@ -314,7 +317,7 @@ export function createGuide(options: GuideOptions): Guide {
     let excess = data.size - GUIDE_KEEP;
     const drop: string[] = [];
     data.forEach((_entry, id) => {
-      if (excess > 0 && wanted.indexOf(id) === -1) {
+      if (excess > 0) {
         drop.push(id);
         excess -= 1;
       }
@@ -362,7 +365,10 @@ export function createGuide(options: GuideOptions): Guide {
     readRows(unread);
   }
 
-  /** Reads the list's chunks for `rows`, then draws their channels and asks their days. */
+  /**
+   * Reads the list's chunks for `rows`, then asks their days. (The live list's version draws their
+   * channels: `GuideScreen` gets it.)
+   */
   const readRows = (rows: readonly number[]): void => {
     if (rows.length === 0) return;
     const reads: Promise<unknown>[] = [];
@@ -371,7 +377,6 @@ export function createGuide(options: GuideOptions): Guide {
       () => {
         // (After a close, `ask` asks nothing; after a new list, it asks the new rows.)
         if (disposed) return;
-        bump();
         ask();
       },
       (error: unknown) => {
