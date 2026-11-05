@@ -908,11 +908,20 @@ export interface OnboardingOptions extends RunOptions {
   readonly save: (file: string, png: Buffer) => void;
 }
 
-/** Deletes the app's database from the blank page (no app page open, or the delete would wait for it). */
+/** The page's address, and whether it is the document marked before navigating away (`STALE_MARK`). */
+export const PAGE_STATE = `JSON.stringify({ href: location.href, stale: window.__zomaStale === true })`;
+
+/**
+ * Deletes the app's database from the blank page (no app page open, or the delete would wait for
+ * it). The page may be the blank page already (a walk's clean-up, then the next run's reset), so
+ * it is marked first: until the new document replaces it, the old one answers with the same
+ * address, and a delete started there is lost with it (seen on Chromium 53, 2026-11-05).
+ */
 export async function resetDatabase(client: CdpClient): Promise<string> {
+  await readProbe<boolean>(client, STALE_MARK);
   await client.send('Page.navigate', { url: BLANK_URL });
-  const blank = await waitForProbe<string>(client, 'JSON.stringify(location.href)', (href) => href === BLANK_URL, 5_000);
-  if (!blank.met) return `the blank page did not open (at ${blank.state ?? 'nothing'})`;
+  const blank = await waitForProbe<{ href: string; stale: boolean }>(client, PAGE_STATE, (page) => page.href === BLANK_URL && !page.stale, 5_000);
+  if (!blank.met) return `the blank page did not open (at ${blank.state === null ? 'nothing' : `${blank.state.href}${blank.state.stale ? ', the old page' : ''}`})`;
   await readProbe<string>(client, RESET_EXPRESSION);
   const done = await waitForProbe<{ href: string; reset: string }>(
     client,

@@ -1,5 +1,7 @@
+import { runInNewContext } from 'node:vm';
 import { parse } from 'acorn';
 import { describe, expect, it } from 'vitest';
+import type { CdpClient } from './cdp';
 import { fixtureEntries, liveCategories } from './fixture';
 import { drawnGrid } from './guide-drawn';
 import type { LiveView } from './live';
@@ -7,6 +9,7 @@ import { CHANNELS_VISIBLE, LIVE_CATEGORY, LIVE_TEXT, PLATFORM_BACK_STUB, listedE
 import type { StepRecord, StoredProfile, Walk, WalkLanguage, WalkState, WalkStep } from './onboarding';
 import {
   BLANK_URL,
+  PAGE_STATE,
   PHASES_EXPRESSION,
   PHASES_RESULT,
   PLAYLIST_INPUT,
@@ -31,6 +34,7 @@ import {
   onboardingUrl,
   playlistLink,
   profileFailures,
+  resetDatabase,
   settling,
   stepLanded,
   stepStuck,
@@ -820,6 +824,62 @@ describe('evaluateWalk on the guide (RELAY step 23e)', () => {
     expect(at(later, { clock: CLOCK + 200 * 60_000 })).toEqual(['the view starts at 17:00, expected after now (17:50): it never moved on']);
     expect(guideFailures(later, { ...still, grid: null }, CHECK, 'en')).toEqual(['the guide draws no grid']);
     expect(guideFailures(stepOf('guide-list'), still, CHECK, 'en')).toEqual([]);
+  });
+});
+
+describe('resetDatabase', () => {
+  /**
+   * A page over CDP: each document has its address and its window's globals. A navigation lands
+   * only after `lag` more evaluations, so until then the old document answers, as a busy engine's
+   * does; deleting the database answers `ok` on the next turn.
+   */
+  function fakePage(start: string, lag: number) {
+    let doc = { href: start, window: {} as Record<string, unknown> };
+    let going: { url: string; reads: number } | null = null;
+    const deletes: string[] = [];
+    const client = {
+      send: (method: string, params: { url?: string; expression?: string } = {}): Promise<unknown> => {
+        if (method === 'Page.navigate') {
+          going = { url: params.url!, reads: lag };
+          return Promise.resolve({});
+        }
+        if (going !== null && going.reads-- <= 0) {
+          doc = { href: going.url, window: {} };
+          going = null;
+        }
+        const window = doc.window;
+        const indexedDB = {
+          deleteDatabase: (name: string) => {
+            deletes.push(`${name} on ${doc.href}`);
+            const request: { onsuccess?: () => void } = {};
+            setTimeout(() => request.onsuccess?.(), 0);
+            return request;
+          },
+        };
+        const value: unknown = runInNewContext(params.expression!, { window, location: { href: doc.href }, indexedDB, JSON, String });
+        return Promise.resolve({ result: { value } });
+      },
+    };
+    return { client: client as unknown as CdpClient, deletes };
+  }
+
+  it('deletes the database from a new blank page, even when the page is the blank page already', async () => {
+    const page = fakePage(BLANK_URL, 3);
+    expect(await resetDatabase(page.client)).toBe('ok');
+    expect(page.deletes).toEqual([`zoma on ${BLANK_URL}`]);
+  });
+
+  it('comes from an app page as well', async () => {
+    const page = fakePage(URL, 2);
+    expect(await resetDatabase(page.client)).toBe('ok');
+    expect(page.deletes).toEqual([`zoma on ${BLANK_URL}`]);
+  });
+
+  it('reads the marked old document as stale', () => {
+    const window: Record<string, unknown> = {};
+    runInNewContext(STALE_MARK, { window, JSON });
+    expect(JSON.parse(runInNewContext(PAGE_STATE, { window, location: { href: BLANK_URL }, JSON }) as string)).toEqual({ href: BLANK_URL, stale: true });
+    expect(JSON.parse(runInNewContext(PAGE_STATE, { window: {}, location: { href: BLANK_URL }, JSON }) as string)).toEqual({ href: BLANK_URL, stale: false });
   });
 });
 
