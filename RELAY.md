@@ -1037,6 +1037,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 - [ ] 41. **[needs TV] Performance.** 2018-tier performance and memory pass against the S6 thresholds.
   - Since ADR-012 the low tier is Samsung 2018–2019 only (the used 2018 set). Consider a memory signal for the tier (`navigator.deviceMemory`, Chromium 63+) for low-end 2020 LG sets, which the year rule puts in `full`.
   - From step 25c (architecture.md §4, "Built in step 25c"): the guide's two days back with archive marks, each press within 150 ms over channels with catch-up; the marks drawn; holding LEFT across a day; two past days of a large guide with catch-up channels within the tier's memory.
+  - From step 25d (architecture.md §1.2, "Built in step 25d"), on each TV: a catch-up's position (an HLS archive's and a TS timeshift's media time must start at 0 at the URL's start, or "Aired at" is off); RIGHT inside an HLS archive (AVPlay `seekTo`, webOS's `<video>`); a seek by URL's reconnect time; the remote's PLAY and PAUSE keys (webOS maps both to one toggle); a programme's end card from a real archive.
 - [ ] 42. **[needs TV] Resilience.** 8 h soaks, network-drop tests, update-in-place data survival on both platforms.
 - [ ] 43. **Accessibility.** Voice Guide/TTS, captions, large text, Magic Remote polish.
 - [ ] 44. **Store documents.**
