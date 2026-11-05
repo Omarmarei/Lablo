@@ -1,9 +1,11 @@
 name: CI
 
+# Pull requests only (Omar 2026-11-05, CI minutes): the relay merges one pull request at a time
+# into a main that hasn't moved, so a run on main after the merge tested the same code again.
+# A full run of main or any branch: Actions -> CI -> Run workflow.
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,7 +15,49 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # What a pull request changes decides which jobs run: docs alone run none, the old engines run
+  # when the TV bundles or their harness can change, and media when the code it exercises does
+  # (the mock, the data layer at scale, the player and the lab). A run by hand runs all three.
+  # A skipped job counts as passed.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+      engines: ${{ steps.diff.outputs.engines }}
+      media: ${{ steps.diff.outputs.media }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            printf 'code=true\nengines=true\nmedia=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --name-only "$BASE" HEAD > changed.txt
+          echo "Changed files:"; cat changed.txt
+          # Not docs; then not tests either (what ends up in a build or a tool).
+          grep -vE '\.md$|^docs/|^LICENSE' changed.txt > code.txt || true
+          grep -vE '\.test\.tsx?$|^test/|^e2e/' code.txt > source.txt || true
+          shared='^package\.json$|^pnpm-lock\.yaml$|^pnpm-workspace\.yaml$|^\.github/workflows/'
+          engines="$shared|^apps/tv/|^packages/[^/]+/src/|^tools/(engines|build|fonts)/"
+          media="$shared|^apps/mock-provider/|^tools/(fixtures|bench)/|^packages/[^/]+/src/|^apps/tv/src/(player|lab|data)/|^apps/tv/(playback|lab)\.html$|^apps/tv/vite\.config\.ts$|^vitest\.media\.config\.ts$|^playwright\.config\.ts$"
+          hit() { if grep -qE "$1" "$2"; then echo true; else echo false; fi; }
+          {
+            echo "code=$(if [ -s code.txt ]; then echo true; else echo false; fi)"
+            echo "engines=$(hit "$engines" source.txt)"
+            if [ "$(hit "$media" source.txt)" = true ] || [ "$(hit '\.media\.test\.ts$|-media\.spec\.ts$' code.txt)" = true ]; then echo media=true; else echo media=false; fi
+          } | tee -a "$GITHUB_OUTPUT"
+
   verify:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -70,6 +114,8 @@ jobs:
   # gallery, plus the self-test that seeded ES2018/ES2020 syntax, a build without polyfills and
   # two seeded CSS breakages are caught. Separate job so `verify` stays fast.
   engines:
+    needs: changes
+    if: needs.changes.outputs.engines == 'true'
     # The engines run inside a pinned Debian 9 container, so the host image barely matters;
     # pinned anyway (ubuntu-latest moves to 26.04).
     runs-on: ubuntu-24.04
@@ -117,6 +163,8 @@ jobs:
   # 200k catalog plus the 50/150/300 MB XMLTV must generate in under 2 minutes. Then the
   # benchmark baselines, and the mock's Docker image is built and probed.
   media:
+    needs: changes
+    if: needs.changes.outputs.media == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
