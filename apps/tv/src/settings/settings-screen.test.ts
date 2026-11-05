@@ -3,7 +3,7 @@ import type { EpgMeta, EpgSummary } from '@zoma/data';
 import { describe, expect, it } from 'vitest';
 import { appI18n } from '../i18n';
 import type { GuideRow } from './guides-state';
-import { failureText, offsetText, readText } from './SettingsScreen';
+import { failureText, matchLines, offsetText, readText, unmatchedLabel } from './SettingsScreen';
 
 const en = appI18n('en-US', { isolate: false });
 const ar = appI18n('ar-SA');
@@ -79,5 +79,34 @@ describe("a guide's time offset as the screens write it (RELAY step 24b)", () =>
     // ar-SA writes Western digits (ADR-011); Arabic-Indic ones when the TV asks for them.
     expect(offsetText(ar, -150)).toBe(`${minus}2:30`);
     expect(offsetText(appI18n('ar-SA', { digits: 'arab' }), 570)).toBe('+٩:٣٠');
+  });
+});
+
+describe("a guide's matches and the channels without a guide, as the screens write them (RELAY step 24c)", () => {
+  const counted: EpgSummary = { ...summary(11, 12), byMethod: { override: 5, id: 1, 'xtream-id': 2, name: 3, 'match-name': 4 }, ambiguous: 6, declared: 1234, used: 8 };
+
+  it('lists the methods by id, panel id, name, name without tags and set by you, then the ties and the channels declared and used', () => {
+    expect(matchLines(en, counted).map((l) => [l.id, l.label, l.n, l.value])).toEqual([
+      ['id', 'By channel ID', 1, '1'],
+      ['xtream-id', "By the panel's channel ID", 2, '2'],
+      ['name', 'By name', 3, '3'],
+      ['match-name', 'By name without tags such as HD, FHD', 4, '4'],
+      ['override', 'Set by you', 5, '5'],
+      ['ties', 'Ties (another guide channel fit as well)', 6, '6'],
+      ['declared', 'Channels in the guide', 1234, '1,234'],
+      ['used', 'Guide channels in use', 8, '8'],
+    ]);
+    // In Arabic: the tags isolated, the numbers in the locale's digits.
+    const arabic = matchLines(ar, counted);
+    expect(stripIsolates(arabic[3]!.label)).toBe('حسب الاسم دون علامات مثل HD, FHD');
+    expect(arabic[6]!.value).toBe(ar.number(1234));
+    expect(matchLines(appI18n('ar-SA', { digits: 'arab' }), counted)[0]!.value).toBe('١');
+  });
+
+  it('counts the channels without a guide on the header’s button once counted', () => {
+    expect(unmatchedLabel(en, null)).toBe('Channels without a guide');
+    expect(unmatchedLabel(en, 0)).toBe('Channels without a guide: 0');
+    expect(unmatchedLabel(en, 20000)).toBe('Channels without a guide: 20,000');
+    expect(stripIsolates(unmatchedLabel(ar, 1))).toBe('قنوات بلا دليل: 1');
   });
 });

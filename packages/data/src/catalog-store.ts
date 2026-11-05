@@ -257,6 +257,22 @@ export function readChunks(db: IDBDatabase, keys: readonly ChunkKey[]): Promise<
   });
 }
 
+/**
+ * Visits every chunk of one kind of a generation in key order (category, then chunk), one cursor
+ * step at a time in one transaction, so only the chunk visited is held (a 20,000-channel list
+ * is 40 chunks). `visit` must not start other requests: the cursor moves on when it returns.
+ */
+export function scanChunks(db: IDBDatabase, src: string, gen: number, kind: ContentKind, visit: (catIdx: number, chunk: number, items: CatalogItem[]) => void): Promise<void> {
+  return transact(db, STORE.chunks, 'readonly', (tx) => {
+    onSuccess(tx.objectStore(STORE.chunks).openCursor(IDBKeyRange.bound([src, gen, kind], [src, gen, kind, []])), (cursor) => {
+      if (cursor === null) return;
+      const key = cursor.primaryKey as [string, number, ContentKind, number, number];
+      visit(key[3], key[4], (cursor.value as { items: CatalogItem[] }).items);
+      cursor.continue();
+    });
+  });
+}
+
 export function readCategories(db: IDBDatabase, src: string, gen: number, kind: ContentKind): Promise<CategoryInfo[] | null> {
   return transact<CategoryInfo[] | null>(db, STORE.cats, 'readonly', (tx, done) => {
     onSuccess(tx.objectStore(STORE.cats).get([src, gen, kind]), (value) => done(value ? (value as { cats: CategoryInfo[] }).cats : null));

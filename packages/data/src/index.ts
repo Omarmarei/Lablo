@@ -79,8 +79,8 @@ export {
 export type { CallOptions, CancelToken, RpcContext, RpcHandler, RpcHandlers, RpcPort, RpcServer } from './rpc';
 export { CancelError, CancelSource, NEVER, RpcClient, RpcError, serveRpc } from './rpc';
 
-export type { EpgNowNext, EpgStatus, GuideRequest, GuideRow, ItemRef, ProgrammeRequest, QueryServiceOptions, QueryStatus, SearchRequest, SegmentStatus, ShortEpgNowNext } from './query-service';
-export { GUIDE_MAX_READS, QueryService } from './query-service';
+export type { EpgNowNext, EpgStatus, GuideRequest, GuideRow, ItemRef, ProgrammeRequest, QueryServiceOptions, QueryStatus, SearchRequest, SegmentStatus, ShortEpgNowNext, UnmatchedChannel, UnmatchedPage, UnmatchedRequest } from './query-service';
+export { GUIDE_MAX_READS, QueryService, UNMATCHED_MAX_ROWS } from './query-service';
 
 export type { ByteRequest, ByteResponse, ByteSource, ByteTransport, FetchLike, TextSource } from './bytes';
 export { Fnv1a, NetworkError, decodeUtf8, fetchTransport, tapBytes } from './bytes';

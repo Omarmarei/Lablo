@@ -1,6 +1,6 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { EpgMeta, EpgStatus, GuideChange, LoadedProfile, ProfileEdit } from '@zoma/data';
+import type { EpgMeta, EpgStatus, EpgSummary, GuideChange, LoadedProfile, ProfileEdit, UnmatchedPage, UnmatchedRequest } from '@zoma/data';
 // The client entry only: the package index would pull every data module's polyfills into main.
 import { EPG_OFFSET_MAX, EPG_OFFSET_STEP, epgGuides, epgOffsetsOf } from '@zoma/data/client';
 import type { Platform } from '@zoma/platform-api';
@@ -13,15 +13,21 @@ import { normalizeLink } from '../onboarding/form';
  * The guides screen (RELAY step 22b2, architecture.md §1.5 "Built in step 22b2"): the guides the
  * programmes come from, in their order, pushed on the live navigator from the settings screen.
  *
- *   add     ("Add a guide", in the header)
+ *   header  ("Add a guide", then "Channels without a guide: n", step 24c)
  *   guides  (the user's guides in their order, then each source's own: a playlist's `url-tvg`,
- *            a panel's `xmltv.php`; OK on one of the user's opens its menu)
+ *            a panel's `xmltv.php`; OK on one opens its menu)
  *
  * - **Rows:** the link (the host and path: never a login or a query), and what the refresh kept
  *   of it (`EpgStatus`): the programmes' end, the match rate, why the last try failed; or
  *   "Reading…" while a change's refresh runs, or "Not read yet".
  * - **The menu** (`guide-menu`): for the user's guide Move up, Move down (each only where the
- *   guide can go), Time offset, Remove, Cancel; for a source's own guide Time offset, Cancel.
+ *   guide can go), Time offset, Matches, Remove, Cancel; for a source's own guide Time offset,
+ *   Matches, Cancel. "Matches" is there only for a guide read (one with a summary).
+ * - **Matches** (`guide-matches`, step 24c): the guide's summary as the refresh left it: the
+ *   match rate, the counts by method, the ties, and its XMLTV channels declared and used. No read.
+ * - **Channels without a guide** (step 24c): the header's second button says how many live
+ *   channels no guide matches (`unmatched`, counted at each read of the list), and opens their
+ *   list (`unmatched-state.ts`).
  * - **The time offset** (`guide-offset`, step 24b): the steps from −12 h to +12 h in half hours,
  *   the guide's own one focused (and as near the middle of the list as it can be). OK on another
  *   saves it (`editProfile`), reads the list again and tells the live screen and an open guide
@@ -68,6 +74,10 @@ export const LINK_FIELD_ID = 'guides-link';
 export const ADD_CONFIRM = 0;
 export const ADD_CANCEL = 1;
 
+/** The header's buttons: "Add a guide", then "Channels without a guide" (step 24c). */
+export const HEADER_ADD = 0;
+export const HEADER_UNMATCHED = 1;
+
 /** One row of the guides screen. */
 export interface GuideRow {
   /** `mine`: the user's (OK opens its menu); `source`: a playlist's or panel's own. */
@@ -86,7 +96,7 @@ export interface GuideRow {
   readonly offset: number;
 }
 
-export type GuideAction = 'up' | 'down' | 'offset' | 'remove' | 'cancel';
+export type GuideAction = 'up' | 'down' | 'offset' | 'matches' | 'remove' | 'cancel';
 
 /** Why the add form refused the link. */
 export type AddProblem = 'required' | 'url' | 'spaces' | 'listed';
@@ -98,6 +108,8 @@ export interface GuidesEngine {
   profile(): Promise<LoadedProfile | null>;
   epgStatus(): Promise<EpgStatus>;
   editProfile(edit: ProfileEdit): Promise<boolean>;
+  /** The count of the live channels no guide matches (a page of 0 rows). */
+  unmatched(req: UnmatchedRequest): Promise<UnmatchedPage>;
 }
 
 export interface GuidesOptions {
@@ -107,6 +119,8 @@ export interface GuidesOptions {
   readonly refreshNow: () => Promise<void>;
   /** A guide's time offset was saved: the live screen and an open guide ask their programmes again. */
   readonly offsetChanged: () => void;
+  /** Opens "Channels without a guide" (the header's second button). */
+  readonly openUnmatched: () => void;
   readonly platform: Pick<Platform, 'textKey' | 'onSoftKeyboard'>;
   /** Finds the link's input (tests); default `document.getElementById`. */
   readonly find?: TextEditorOptions['find'];
@@ -139,6 +153,10 @@ export interface Guides {
   readonly menu: ReadonlySignal<GuidesMenu | null>;
   /** The time offset's chooser while it shows. */
   readonly chooser: ReadonlySignal<OffsetChooser | null>;
+  /** The guide whose matches show, while they do (step 24c). */
+  readonly matches: ReadonlySignal<GuideRow | null>;
+  /** The live channels no guide matches, as the last read counted them (`null`: not counted). */
+  readonly unmatched: ReadonlySignal<number | null>;
   /** The add form's link and why it was refused. */
   readonly text: ReadonlySignal<string>;
   readonly problem: ReadonlySignal<AddProblem | null>;
@@ -234,16 +252,24 @@ export function guideState(row: GuideRow, reading: number): GuideState {
   return reading > 0 ? 'reading' : 'unread';
 }
 
+/** What the refresh kept of a guide's matches (`null`: it wasn't read yet). */
+export function summaryOf(row: GuideRow): EpgSummary | null {
+  return row.meta?.summary ?? null;
+}
+
 /**
  * The menu's actions for the user's guide at `place` of the user's `count`: a move only where it
- * can go. A source's own guide (`kind: 'source'`) can't move or go: its time offset only.
+ * can go. A source's own guide (`kind: 'source'`) can't move or go. "Matches" only for a guide
+ * with a summary (`matches`).
  */
-export function menuActions(place: number, count: number, kind: GuideRow['kind'] = 'mine'): GuideAction[] {
-  if (kind === 'source') return ['offset', 'cancel'];
+export function menuActions(place: number, count: number, kind: GuideRow['kind'] = 'mine', matches = false): GuideAction[] {
   const actions: GuideAction[] = [];
-  if (place > 0) actions.push('up');
-  if (place < count - 1) actions.push('down');
-  actions.push('offset', 'remove', 'cancel');
+  if (kind === 'mine' && place > 0) actions.push('up');
+  if (kind === 'mine' && place < count - 1) actions.push('down');
+  actions.push('offset');
+  if (matches) actions.push('matches');
+  if (kind === 'mine') actions.push('remove');
+  actions.push('cancel');
   return actions;
 }
 
@@ -259,10 +285,10 @@ export function checkLink(text: string, listed: readonly string[]): { readonly l
   return { link, problem: null };
 }
 
-const ADD_ZONE: ZoneSpec = { kind: 'list', id: 'add', axis: 'horizontal', count: 1, neighbours: { down: 'guides' } };
+const HEADER_ZONE: ZoneSpec = { kind: 'list', id: 'header', axis: 'horizontal', count: 2, neighbours: { down: 'guides' } };
 
 function guidesZone(count: number): ZoneSpec {
-  return { kind: 'list', id: 'guides', axis: 'vertical', count, visible: GUIDES_VISIBLE, neighbours: { up: 'add' } };
+  return { kind: 'list', id: 'guides', axis: 'vertical', count, visible: GUIDES_VISIBLE, neighbours: { up: 'header' } };
 }
 
 const FORM_ZONES: ScreenSpec['zones'] = [
@@ -281,6 +307,8 @@ export function createGuides(options: GuidesOptions): Guides {
   const pending = signal(0);
   const menu = signal<GuidesMenu | null>(null);
   const chooser = signal<OffsetChooser | null>(null);
+  const matches = signal<GuideRow | null>(null);
+  const unmatched = signal<number | null>(null);
   const text = signal('');
   const problem = signal<AddProblem | null>(null);
 
@@ -315,7 +343,7 @@ export function createGuides(options: GuidesOptions): Guides {
     return running;
   }
 
-  /** The guides screen's zones for the rows read; the focus on `follow`'s row, or on "Add" when none. */
+  /** The guides screen's zones for the rows read; the focus on `follow`'s row, or on "Add a guide" when none. */
   const place = (): void => {
     const shown = screen.value;
     // (A closed screen ignores updates and focus moves itself.)
@@ -328,10 +356,23 @@ export function createGuides(options: GuidesOptions): Guides {
       for (let i = 0; i < list.length; i += 1) if (list[i]!.epgSrc === wanted.epgSrc) shown.focus('guides', i);
     }
     // An empty list (only reads call this: never while loading): the focus on "Add a guide".
-    if (list.length === 0) shown.focus('add', 0);
+    if (list.length === 0) shown.focus('header', HEADER_ADD);
   };
 
-  /** Reads the list and the guides' status again; settles either way. */
+  /** Counts the live channels no guide matches over the profile's sources, for read `seq`. */
+  const count = (profile: LoadedProfile | null, seq: number): void => {
+    track(() => engine.unmatched({ sources: storedSources(profile).map((r) => r.id), offset: 0, limit: 0 })).then(
+      (page) => {
+        if (disposed || seq !== readSeq) return;
+        unmatched.value = page.count;
+      },
+      (error: unknown) => {
+        if (!disposed) console.warn('The channels without a guide could not be counted', error);
+      },
+    );
+  };
+
+  /** Reads the list and the guides' status again, then counts the channels without a guide; settles once the list is in, either way. */
   const read = (): Promise<void> => {
     readSeq += 1;
     const seq = readSeq;
@@ -345,6 +386,7 @@ export function createGuides(options: GuidesOptions): Guides {
         status.value = 'ready';
         rows.value = list.rows;
         place();
+        count(profile, seq);
       },
       (error: unknown) => {
         if (disposed || seq !== readSeq) return;
@@ -440,11 +482,32 @@ export function createGuides(options: GuidesOptions): Guides {
     shown.focus('steps', at);
   };
 
+  /** Closes the matches (they are on top: only their own keys call this). */
+  const closeMatches = (): void => {
+    matches.value = null;
+    nav.pop();
+  };
+
+  const openMatches = (row: GuideRow): void => {
+    matches.value = row;
+    nav.push({
+      id: 'guide-matches',
+      zones: [{ kind: 'list', id: 'actions', axis: 'horizontal', count: 1 }],
+      onIntent: (intent) => {
+        if (intent !== 'BACK') return false;
+        closeMatches();
+        return true;
+      },
+      onSelect: () => closeMatches(),
+    });
+  };
+
   const act = (action: GuideAction | undefined, row: GuideRow, index: number): void => {
     closeMenu();
     if (action === 'up') change({ op: 'move', id: row.id, to: index - 1 }, { epgSrc: row.epgSrc });
     else if (action === 'down') change({ op: 'move', id: row.id, to: index + 1 }, { epgSrc: row.epgSrc });
     else if (action === 'offset') openChooser(row);
+    else if (action === 'matches') openMatches(row);
     else if (action === 'remove') change({ op: 'remove', id: row.id }, null);
   };
 
@@ -454,7 +517,7 @@ export function createGuides(options: GuidesOptions): Guides {
     if (row === undefined) return;
     let mine = 0;
     for (const r of list) if (r.kind === 'mine') mine += 1;
-    const actions = menuActions(index, mine, row.kind);
+    const actions = menuActions(index, mine, row.kind, summaryOf(row) !== null);
     menu.value = { row, actions };
     nav.push({
       id: 'guide-menu',
@@ -519,17 +582,20 @@ export function createGuides(options: GuidesOptions): Guides {
     pending,
     menu,
     chooser,
+    matches,
+    unmatched,
     text,
     problem,
     open(): void {
       if (disposed) return;
       screen.value = nav.push({
         id: 'guides',
-        zones: [ADD_ZONE, guidesZone(rows.value.length)],
+        zones: [HEADER_ZONE, guidesZone(rows.value.length)],
         initial: 'guides',
         onSelect: (focus) => {
-          if (focus.zone === 'add') openForm();
-          else openMenu(focus.index);
+          if (focus.zone === 'guides') openMenu(focus.index);
+          else if (focus.index === HEADER_ADD) openForm();
+          else options.openUnmatched();
         },
       });
       void read();
