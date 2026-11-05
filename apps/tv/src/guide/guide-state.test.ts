@@ -7,7 +7,7 @@ import { SCREEN, createNavigator, guideCellAt, guideHeight, guideWidth } from '@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LiveRow, Timers } from '../live/live-state';
 import type { GuideEngine, GuideList } from './guide-state';
-import { GUIDE, GUIDE_ASK_MS, GUIDE_DAYS, GUIDE_GRID, GUIDE_KEEP, GUIDE_SCREEN, GUIDE_VISIBLE, createGuide, dayOf, guideDays, mergeDays } from './guide-state';
+import { GUIDE, GUIDE_ASK_MS, GUIDE_DAYS, GUIDE_GRID, GUIDE_KEEP, GUIDE_REACH, GUIDE_SCREEN, GUIDE_VISIBLE, createGuide, dayOf, guideDays, guideRange, mergeDays } from './guide-state';
 import { DETAILS_SCREEN } from './programme-details';
 
 const MINUTE = 60_000;
@@ -90,6 +90,8 @@ class FakeEngine implements GuideEngine {
   readonly programmes: ProgrammeRequest[] = [];
   holdProgramme = false;
   readonly heldProgrammes: { resolve(p: EpgProgramme | null): void; req: ProgrammeRequest }[] = [];
+  /** The stored guides' past days (step 25c); a test sets it (without it, the guide keeps the tier's one day). */
+  guidePastDays?: () => Promise<number>;
 
   programme(req: ProgrammeRequest): Promise<EpgProgramme | null> {
     this.programmes.push({ key: req.key, start: req.start });
@@ -120,7 +122,7 @@ class FakeEngine implements GuideEngine {
 
 /** A call's day by its start: `d0` is 2026-11-05. */
 function dayName(from: number): string {
-  for (let d = -2; d < 10; d += 1) if (midnight(d) === from) return `d${d}`;
+  for (let d = -8; d < 10; d += 1) if (midnight(d) === from) return `d${d}`;
   return `?${from}`;
 }
 
@@ -140,6 +142,8 @@ class FakeList implements GuideList {
   shift = 0;
   /** Channels with a day of Xtream catch-up (step 25a). */
   readonly catchup = new Set<number>();
+  /** Channels with Xtream catch-up of other days (step 25c; `null`: none stated). */
+  readonly catchupDays = new Map<number, number | null>();
 
   constructor(
     public total: number,
@@ -156,6 +160,7 @@ class FakeList implements GuideList {
     if (!(index >= 0 && index < this.total) || !this.loaded.has(Math.floor(index / 100))) return null;
     const n = index + this.shift;
     const own = item(n);
+    if (this.catchupDays.has(n)) return { item: { ...own, catchup: { mode: 'xc', days: this.catchupDays.get(n)!, source: null } }, number: n + 1 };
     return { item: this.catchup.has(n) ? { ...own, catchup: { mode: 'xc', days: 1, source: null } } : own, number: n + 1 };
   }
 
@@ -228,7 +233,7 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i += 1) await Promise.resolve();
 };
 
-function setup(options: { count?: number; chunks?: number[]; start?: number; engine?: FakeEngine; list?: FakeList; tier?: 'full' | 'low' } = {}) {
+function setupGuide(options: { count?: number; chunks?: number[]; start?: number; engine?: FakeEngine; list?: FakeList; tier?: 'full' | 'low' } = {}) {
   const engine = options.engine ?? new FakeEngine();
   const count = options.count ?? 1000;
   const list = options.list ?? new FakeList(count, options.chunks ?? range(0, Math.ceil(count / 100)));
@@ -244,7 +249,7 @@ function setup(options: { count?: number; chunks?: number[]; start?: number; eng
   const closed = vi.fn();
   const map = vi.fn();
   const catchup = vi.fn();
-  const guide = createGuide({ nav, engine, list, play, closed, map, catchup, now: clock.now, timers: clock.timers, days: () => GUIDE_DAYS[options.tier ?? 'full'] });
+  const guide = createGuide({ nav, engine, list, play, closed, map, catchup, now: clock.now, timers: clock.timers, tier: () => options.tier ?? 'full' });
   const at = (): string => {
     const f = nav.snapshot();
     return `${f.screen} · ${f.zone} ${f.index}${f.time === null ? '' : ` @${f.time - midnight(0)}`}`;
@@ -266,6 +271,8 @@ function setup(options: { count?: number; chunks?: number[]; start?: number; eng
   };
   return { guide, engine, list, clock, nav, play, closed, map, catchup, at, press, rest, position, open };
 }
+
+const setup = setupGuide;
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -1112,5 +1119,215 @@ describe('the rows’ days', () => {
     expect(row.end[row.end.length - 1]).toBeGreaterThanOrEqual(midnight(1));
     expect(row.start.length).toBe(Math.ceil(midnight(1) / 45) - Math.floor(midnight(0) / 45));
     expect(t.guide.schedule(9)).toEqual({ start: [], end: [], title: [] });
+  });
+});
+
+describe('the catch-up days and the archive marks (RELAY step 25c)', () => {
+  /** An engine whose stored guides keep `days` back, its reads counted (and held while `hold`). */
+  function pastEngine(days: number) {
+    const engine = new FakeEngine();
+    const reads = { count: 0, days, hold: false, held: [] as Array<(n: number) => void> };
+    engine.guidePastDays = () => {
+      reads.count += 1;
+      if (!reads.hold) return Promise.resolve(reads.days);
+      return new Promise<number>((resolve) => reads.held.push(resolve));
+    };
+    return { engine, reads };
+  }
+
+  function setup(options: ReturnType<typeof pastEngine> & { tier?: 'full' | 'low' }) {
+    const t = setupGuide({ engine: options.engine, ...(options.tier === undefined ? {} : { tier: options.tier }) });
+    return { ...t, reads: options.reads };
+  }
+
+  it('reaches back as far as the stored guides keep, within each tier’s limit (the EPG window’s)', () => {
+    for (const tier of ['full', 'low'] as const) expect(GUIDE_REACH[tier]).toBe(EPG_WINDOWS[tier].maxPastDays);
+    expect([0, 1, 2, 2.9, 3, 7, 8, 30, Number.NaN, -1].map((d) => guideRange('full', d).past)).toEqual([1, 1, 2, 2, 3, 7, 7, 7, 1, 1]);
+    expect([0, 1, 2, 3, 7, Number.NaN].map((d) => guideRange('low', d).past)).toEqual([1, 1, 2, 2, 2, 1]);
+    expect(guideRange('full', 7).future).toBe(GUIDE_DAYS.full.future);
+    expect(guideRange('low', 7).future).toBe(GUIDE_DAYS.low.future);
+  });
+
+  it('opens on the range the stored guides keep: seven days back in the full tier, two in the low one', async () => {
+    const full = setup(pastEngine(7));
+    await flush();
+    full.open(4);
+    expect([full.guide.zone().from, full.guide.zone().to]).toEqual([midnight(-7), midnight(8)]);
+    const low = setup({ ...pastEngine(7), tier: 'low' });
+    await flush();
+    low.open(4);
+    expect([low.guide.zone().from, low.guide.zone().to]).toEqual([midnight(-2), midnight(4)]);
+    // Guides kept for three days.
+    const three = setup(pastEngine(3));
+    await flush();
+    three.open(4);
+    expect(three.guide.zone().from).toBe(midnight(-3));
+    // The focus opens at now all the same, the view on its slot.
+    expect(full.position()).toEqual({ index: 4, top: 0, time: NOW, view: midnight(0) + 20 * 60 });
+  });
+
+  it('widens an open guide once the read comes, the focus where it was and the days read kept', async () => {
+    const p = pastEngine(7);
+    p.reads.hold = true;
+    const t = setup(p);
+    // The read went out when the guide was made, and counts as pending until it answers.
+    expect(t.reads.count).toBe(1);
+    expect(t.guide.pending.value).toBe(1);
+    t.open(4);
+    await flush();
+    expect(t.guide.zone().from).toBe(midnight(-1));
+    await t.press('LEFT', 'LEFT');
+    const before = t.position();
+    const read = t.engine.calls.length;
+    const row = t.guide.schedule(4);
+    expect(row).not.toBeNull();
+    const version = t.guide.version.value;
+    t.reads.held.shift()!(7);
+    await flush();
+    expect([t.guide.zone().from, t.guide.zone().to]).toEqual([midnight(-7), midnight(8)]);
+    expect(t.position()).toEqual(before);
+    // The row's programmes stay (the days are kept by their midnight), and the grid draws again.
+    expect(t.guide.schedule(4)).toEqual(row);
+    expect(t.guide.version.value).toBeGreaterThan(version);
+    // The view rested after the frame: only the days not read yet are asked (none here).
+    t.clock.advance(0);
+    await flush();
+    expect(t.engine.calls.length).toBe(read);
+    // Now the cursor can go back past yesterday: 120 programmes of half an hour, 60 hours back.
+    for (let i = 0; i < 120; i += 1) t.nav.handle('LEFT');
+    await flush();
+    expect(t.position().time!).toBeLessThan(midnight(-1));
+    await t.rest();
+    expect(t.engine.asked().some((a) => a.startsWith('d-2:'))).toBe(true);
+    expect(t.guide.schedule(4)!.start[0]).toBeLessThanOrEqual(midnight(-2));
+  });
+
+  it('reads the past days again after a guide swap, and drops an older answer', async () => {
+    const t = setup(pastEngine(2));
+    await flush();
+    t.open(4);
+    expect(t.guide.zone().from).toBe(midnight(-2));
+    // Two swaps: the first read answers last, and is dropped.
+    t.reads.hold = true;
+    t.guide.guidesChanged();
+    t.guide.guidesChanged();
+    expect(t.reads.count).toBe(3);
+    const [first, second] = t.reads.held.splice(0);
+    second!(5);
+    await flush();
+    expect(t.guide.zone().from).toBe(midnight(-5));
+    first!(1);
+    await flush();
+    expect(t.guide.zone().from).toBe(midnight(-5));
+    // A closed guide takes the new days at its next open, and an unchanged range keeps the zone.
+    await t.press('BACK');
+    t.guide.guidesChanged();
+    t.reads.held.shift()!(3);
+    await flush();
+    t.open(4);
+    expect(t.guide.zone().from).toBe(midnight(-3));
+    const zone = t.guide.zone();
+    t.guide.guidesChanged();
+    t.reads.held.shift()!(3);
+    await flush();
+    expect(t.guide.zone()).toBe(zone);
+  });
+
+  it('keeps one day back when the read fails, or the engine has none', async () => {
+    const p = pastEngine(7);
+    p.engine.guidePastDays = () => Promise.reject(new Error('no status'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const t = setup(p);
+    await flush();
+    t.open(4);
+    expect(t.guide.zone().from).toBe(midnight(-1));
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(t.guide.pending.value).toBe(1);
+    const plain = setupGuide();
+    plain.open(4);
+    expect(plain.guide.zone().from).toBe(midnight(-1));
+  });
+
+  it('gives each row’s archive: from the first minute its days keep, or none', () => {
+    const t = setupGuide({ count: 300, chunks: [0, 1] });
+    t.list.catchupDays.set(4, 7);
+    t.list.catchupDays.set(5, null);
+    t.list.catchup.add(6);
+    expect(t.guide.archive(4)).toBe(Math.ceil((T0 - 7 * 86_400_000) / MINUTE));
+    expect(t.guide.archive(5)).toBe(-Infinity);
+    expect(t.guide.archive(6)).toBe(Math.ceil((T0 - 86_400_000) / MINUTE));
+    // No catch-up, and a row the list hasn't read.
+    expect(t.guide.archive(7)).toBeNull();
+    expect(t.guide.archive(250)).toBeNull();
+    // It moves with the clock.
+    t.clock.advance(30_000);
+    expect(t.guide.archive(4)).toBe(Math.ceil((T0 + 30_000 - 7 * 86_400_000) / MINUTE));
+    // A guide the app gave no `catchup` marks nothing.
+    const nav = createNavigator({ root: { id: 'live', zones: [{ kind: 'list', id: 'channels', axis: 'vertical', count: 10 }] }, rootBack: 'exit-dialog', exit: () => undefined, exitDialog: () => undefined, now: () => 0 });
+    const list = new FakeList(10, [0]);
+    list.catchupDays.set(4, 7);
+    const bare = createGuide({ nav, engine: new FakeEngine(), list, play: vi.fn(), closed: vi.fn() });
+    expect(bare.archive(4)).toBeNull();
+  });
+
+  it('keeps a row’s archive until the rows change', async () => {
+    const t = setupGuide();
+    t.list.catchupDays.set(4, 7);
+    t.open(4);
+    await flush();
+    const from = t.guide.archive(4);
+    t.list.catchupDays.set(4, 2);
+    // Read once per row: the list's later answer isn't asked.
+    expect(t.guide.archive(4)).toBe(from);
+    // A catalog swap: asked again (the channel is a row up in the new list).
+    t.guide.listChanging();
+    t.list.shift = 1;
+    t.list.catchupDays.set(5, 3);
+    await flush();
+    expect(t.guide.archive(4)).toBe(Math.ceil((T0 - 3 * 86_400_000) / MINUTE));
+    expect(t.guide.archive(3)).toBe(Math.ceil((T0 - 2 * 86_400_000) / MINUTE));
+    // A close forgets them too.
+    await t.press('BACK');
+    t.list.catchupDays.set(4, 1);
+    t.open(3);
+    expect(t.guide.archive(3)).toBe(Math.ceil((T0 - 86_400_000) / MINUTE));
+  });
+
+  it('says in the details how many days a programme in the archive has left, and nothing when the channel states none', async () => {
+    const t = setupGuide();
+    t.list.catchupDays.set(4, 7);
+    t.list.catchupDays.set(5, null);
+    t.list.catchupDays.set(6, 1);
+    t.open(4);
+    await flush();
+    // Channel 4's programme before the one on air: it ended today, so it leaves in seven days.
+    await t.press('LEFT', 'LEFT', 'OK');
+    expect(t.guide.details.shown.value?.target).toMatchObject({ key: keyOf(4), archive: true, daysLeft: 7 });
+    await t.press('BACK', 'DOWN');
+    await t.rest();
+    await t.press('LEFT', 'OK');
+    expect(t.guide.details.shown.value?.target.archive).toBe(true);
+    expect(t.guide.details.shown.value?.target).not.toHaveProperty('daysLeft');
+    await t.press('BACK', 'DOWN');
+    await t.rest();
+    // Channel 6 (a day): yesterday evening's programme after 20:17 leaves today; this morning's tomorrow.
+    while (t.position().time! > NOW - 23 * 60) t.nav.handle('LEFT');
+    await t.rest();
+    await t.press('OK');
+    const shown = t.guide.details.shown.value!.target;
+    expect(shown.start).toBeGreaterThanOrEqual(NOW - 24 * 60);
+    expect(shown).toMatchObject({ archive: true, daysLeft: 0 });
+    await t.press('BACK');
+    while (t.position().time! < midnight(0) + 6 * 60) t.nav.handle('RIGHT');
+    await t.rest();
+    await t.press('OK');
+    expect(t.guide.details.shown.value!.target).toMatchObject({ archive: true, daysLeft: 1 });
+    // A programme older than the day: no "From the start", no days.
+    await t.press('BACK');
+    while (t.position().time! > NOW - 25 * 60) t.nav.handle('LEFT');
+    await t.rest();
+    await t.press('OK');
+    expect(t.guide.details.shown.value!.target.archive).toBe(false);
+    expect(t.guide.details.shown.value!.target).not.toHaveProperty('daysLeft');
   });
 });

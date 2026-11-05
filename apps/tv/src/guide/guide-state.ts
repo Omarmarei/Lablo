@@ -6,10 +6,10 @@ import type { EpgZone, Focus, GuideChannel, GuideSchedule, Navigator, Screen } f
 import { SCREEN, guideCellAt, guideFits, guideZone } from '@zoma/ui';
 import type { Timers } from '../live/live-state';
 import type { ArchiveProgramme } from '../player/catchup';
-import { canWatchFromStart } from '../player/catchup';
+import { archiveDays, archiveDaysLeft, archiveFrom, inArchive } from '../player/catchup';
 import type { ZapList } from '../player/player-state';
 import type { MappingTarget } from '../settings/mapping-state';
-import type { Details, DetailsEngine } from './programme-details';
+import type { Details, DetailsEngine, DetailsTarget } from './programme-details';
 import { createDetails } from './programme-details';
 
 /**
@@ -22,8 +22,14 @@ import { createDetails } from './programme-details';
  * - **The first focus** is on the channel the list had focused, at now; the view starts at the
  *   slot that holds now.
  * - **The range:** from local midnight `past` days before today to the end of the day `future`
- *   days after it (`GUIDE_DAYS`: what the tier's EPG window keeps), in 30-minute slots counted
- *   from that midnight, two hours in view.
+ *   days after it (`guideRange`: what the tier's EPG window keeps, the past days as far back as
+ *   the stored guides keep, which is their channels' longest catch-up, step 25c), in 30-minute
+ *   slots counted from that midnight, two hours in view. The stored guides' past days are read
+ *   when the guide is made and after each guide swap; an open guide whose range they change
+ *   gets the new range at once (the focus stays), and keeps the days it read.
+ * - **The archive marks** (step 25c): `archive` gives each row's first archive minute, from the
+ *   row's catch-up days (`archiveDays`, kept per row until the rows change), so the grid marks
+ *   the programmes gone by that the details offer from the start.
  * - **The data** is kept per channel-day (a local day of the range): the rows in view and a page
  *   either side are asked for the days the view crosses, once the view has rested
  *   `GUIDE_ASK_MS` (when the screen opens, on a 0 ms timer: the key press that opens it draws
@@ -79,13 +85,27 @@ export interface GuideDays {
 }
 
 /**
- * What each tier's EPG window keeps (core's `EPG_WINDOWS`): one past day without catch-up (step
- * 25 shows the catch-up days), and the future days the refresh stores.
+ * What each tier's EPG window keeps without catch-up (core's `EPG_WINDOWS`): one past day, and
+ * the future days the refresh stores.
  */
 export const GUIDE_DAYS: Readonly<Record<DeviceTier, GuideDays>> = {
   full: { past: 1, future: 7 },
   low: { past: 1, future: 3 },
 };
+
+/** The most past days each tier's EPG window keeps for catch-up (core's `EPG_WINDOWS[tier].maxPastDays`). */
+export const GUIDE_REACH: Readonly<Record<DeviceTier, number>> = { full: 7, low: 2 };
+
+/**
+ * The range's days on `tier` when the stored guides keep `pastDays` back (step 25c): at least
+ * the tier's one past day, at most its `GUIDE_REACH`, and all its future days.
+ */
+export function guideRange(tier: DeviceTier, pastDays: number): GuideDays {
+  const floor = GUIDE_DAYS[tier];
+  // (NaN, from a summary that has none, keeps the floor.)
+  const past = pastDays > floor.past ? Math.min(GUIDE_REACH[tier], Math.floor(pastDays)) : floor.past;
+  return { past, future: floor.future };
+}
 
 /**
  * The local midnights from `past` days before the day of `nowMs` to the one after the day
@@ -136,6 +156,8 @@ export function mergeDays(days: readonly (GuideSchedule | undefined)[]): GuideSc
 /** What the guide needs from the data engine (a `DataEngine` fits; tests pass a fake). */
 export interface GuideEngine extends DetailsEngine {
   guide(req: GuideRequest): Promise<GuideRow[]>;
+  /** The past days the stored guides keep: their longest (0 without one). Without it, the tier's one day. */
+  guidePastDays?(): Promise<number>;
 }
 
 /** The live list on show: its rows, and the channel's row after a catalog swap (`locate`, `ready`). */
@@ -149,8 +171,8 @@ export interface GuideOptions {
   readonly nav: Navigator;
   readonly engine: GuideEngine;
   readonly list: GuideList;
-  /** The days the range shows (default: the full tier's). */
-  readonly days?: () => GuideDays;
+  /** The device's tier (default: full): the days the range can show (`guideRange`). */
+  readonly tier?: () => DeviceTier;
   /** OK on the programme on air: the player opens row `index` of the list. */
   readonly play: (index: number) => void;
   /** The guide closed with the focus on row `index` (the live list focuses it). */
@@ -182,6 +204,12 @@ export interface Guide {
   schedule(row: number): GuideSchedule | null;
   /** Row `row`'s channel (an empty name while the list reads its chunk). */
   channel(row: number): GuideChannel;
+  /**
+   * Row `row`'s archive now (step 25c): the first minute (UTC) a programme gone by may have
+   * started at to be in it (`-Infinity`: the channel states no days), or `null` when the row has
+   * no catch-up (or isn't read yet, or catch-up isn't wired). The grid marks those programmes.
+   */
+  archive(row: number): number | null;
   /** Opens the guide on row `row` of the live list, at now. */
   open(row: number): void;
   /** Focuses row `row` (the channel the player played last), keeping the time. */
@@ -204,7 +232,8 @@ interface DayEntry {
   readonly epoch: number;
 }
 
-const cellId = (row: number, day: number): string => `${row}:${day}`;
+/** A row's day, by the day's first minute (its local midnight): a wider range keeps the days read. */
+const cellId = (row: number, midnight: number): string => `${row}:${midnight}`;
 
 const EMPTY_RANGE: EpgZone = guideZone({ id: GUIDE_GRID, rows: 0, visibleRows: GUIDE_VISIBLE, from: 0, to: GUIDE.span, span: GUIDE.span, slot: GUIDE.slot, now: 0 }, () => null);
 
@@ -212,7 +241,12 @@ export function createGuide(options: GuideOptions): Guide {
   const { nav, engine, list } = options;
   const clockNow = options.now ?? (() => Date.now());
   const timers = options.timers ?? defaultTimers;
-  const days = options.days ?? (() => GUIDE_DAYS.full);
+  const tier = options.tier ?? ((): DeviceTier => 'full');
+  /** The past days the stored guides keep, as last read (`guidePastDays`). */
+  let pastDays = 0;
+  /** Bumps on each read of them: an older answer is dropped. */
+  let pastRead = 0;
+  const range = (): GuideDays => guideRange(tier(), pastDays);
 
   const screen = signal<Screen | null>(null);
   const version = signal(0);
@@ -232,6 +266,8 @@ export function createGuide(options: GuideOptions): Guide {
   const asking = new Map<string, number>();
   /** Each row's days merged into one schedule (dropped when one of its days changes). */
   const merged = new Map<number, GuideSchedule | null>();
+  /** Each read row's archive days (`archiveDays`), until the rows change. */
+  const archives = new Map<number, number | null>();
   let askTimer: unknown = null;
 
   const bump = (): void => {
@@ -258,7 +294,7 @@ export function createGuide(options: GuideOptions): Guide {
     const known = merged.get(row);
     if (known !== undefined) return known;
     const parts: (GuideSchedule | undefined)[] = [];
-    for (let d = 0; d < bounds.length - 1; d += 1) parts.push(data.get(cellId(row, d))?.value);
+    for (let d = 0; d < bounds.length - 1; d += 1) parts.push(data.get(cellId(row, bounds[d]!))?.value);
     const value = mergeDays(parts);
     merged.set(row, value);
     return value;
@@ -269,11 +305,24 @@ export function createGuide(options: GuideOptions): Guide {
     return known === null ? { name: '' } : { number: known.number, name: known.item.name };
   };
 
-  /** Forgets every day read and asked (a close, or a new list). */
+  /** Row `row`'s archive days (`archiveDays`; `null` while its row isn't read, or without catch-up wired). */
+  const daysOf = (row: number): number | null => {
+    if (options.catchup === undefined) return null;
+    const known = archives.get(row);
+    if (known !== undefined) return known;
+    const item = list.row(row);
+    if (item === null) return null;
+    const days = archiveDays(item);
+    archives.set(row, days);
+    return days;
+  };
+
+  /** Forgets every day read and asked, and the rows' archives (a close, or a new list). */
   const forget = (): void => {
     data.clear();
     asking.clear();
     merged.clear();
+    archives.clear();
   };
 
   const stopTimer = (): void => {
@@ -290,7 +339,7 @@ export function createGuide(options: GuideOptions): Guide {
     const asked = epoch;
     const ids: string[] = [];
     for (let i = 0; i < rows.length; i += 1) {
-      const id = cellId(rows[i]!, day);
+      const id = cellId(rows[i]!, bounds[day]!);
       ids.push(id);
       asking.set(id, mine);
     }
@@ -365,7 +414,7 @@ export function createGuide(options: GuideOptions): Guide {
       const rows: number[] = [];
       const keys: ContentKey[] = [];
       for (let r = from; r < to; r += 1) {
-        const id = cellId(r, day);
+        const id = cellId(r, bounds[day]!);
         wanted.push(id);
         const known = data.get(id);
         if (asking.has(id) || (known !== undefined && known.epoch === epoch)) continue;
@@ -459,10 +508,47 @@ export function createGuide(options: GuideOptions): Guide {
     if (p < 0 || programmes === null || row === null) return;
     const start = programmes.start[p]!;
     const end = programmes.end[p]!;
-    // A programme gone by in the channel's archive can be watched from the start (step 25a).
-    const archive = options.catchup !== undefined && canWatchFromStart(row, { start, end }, clockNow());
-    details.open({ key: row.item.key, channel: channel(focus.index), start, end, title: programmes.title[p] ?? '', archive });
+    const target: DetailsTarget = { key: row.item.key, channel: channel(focus.index), start, end, title: programmes.title[p] ?? '', archive: false };
+    // A programme gone by in the channel's archive can be watched from the start (step 25a), for as many days as are left (25c).
+    const days = daysOf(focus.index);
+    const nowMs = clockNow();
+    if (days !== null && inArchive(archiveFrom(days, nowMs), { start, end }, nowMs)) {
+      const left = archiveDaysLeft(days, { start }, nowMs);
+      details.open(left === null ? { ...target, archive: true } : { ...target, archive: true, daysLeft: left });
+      return;
+    }
+    details.open(target);
   };
+
+  /** Widens (or narrows) the open guide's range to the stored guides' past days: the focus stays, and the days read are kept. */
+  const setPastDays = (days: number): void => {
+    pastDays = days;
+    const shown = screen.value;
+    const want = range();
+    if (shown === null || bounds[0] === guideDays(clockNow(), want)[0]) return;
+    bounds = guideDays(clockNow(), want);
+    zone = guideZone({ ...zone, from: bounds[0]!, to: bounds[bounds.length - 1]! }, schedule);
+    merged.clear();
+    shown.update(zone);
+    bump();
+    scheduleAsk(0);
+  };
+
+  /** Reads the stored guides' past days (when the guide is made, and after a guide swap). */
+  const readPastDays = (): void => {
+    if (engine.guidePastDays === undefined) return;
+    pastRead += 1;
+    const mine = pastRead;
+    track(() => engine.guidePastDays!()).then(
+      (days) => {
+        if (!disposed && mine === pastRead) setPastDays(days);
+      },
+      (error: unknown) => {
+        if (!disposed) console.warn("The guides' past days could not be read", error);
+      },
+    );
+  };
+  readPastDays();
 
   const stopFollowing = nav.subscribe((focus) => {
     if (focus.screen === GUIDE_SCREEN) scheduleAsk();
@@ -476,10 +562,14 @@ export function createGuide(options: GuideOptions): Guide {
     zone: () => zone,
     schedule,
     channel,
+    archive(row: number): number | null {
+      const days = daysOf(row);
+      return days === null ? null : archiveFrom(days, clockNow());
+    },
     open(row: number): void {
       if (disposed || screen.value !== null) return;
       const nowMs = clockNow();
-      bounds = guideDays(nowMs, days());
+      bounds = guideDays(nowMs, range());
       zone = guideZone(
         { id: GUIDE_GRID, rows: list.count(), visibleRows: GUIDE_VISIBLE, from: bounds[0]!, to: bounds[bounds.length - 1]!, span: GUIDE.span, slot: GUIDE.slot, now: Math.floor(nowMs / MINUTE_MS) },
         schedule,
@@ -505,6 +595,8 @@ export function createGuide(options: GuideOptions): Guide {
     guidesChanged(): void {
       if (disposed) return;
       epoch += 1;
+      // A new guide may keep more days back (or fewer).
+      readPastDays();
       scheduleAsk();
     },
     listChanging(): void {

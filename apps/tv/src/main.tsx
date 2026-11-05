@@ -22,7 +22,7 @@ import { createGallery } from './gallery/gallery-state';
 import { GuideGalleryApp } from './gallery/GuideGalleryApp';
 import { createGuideGallery } from './gallery/guide-gallery';
 import type { Guide } from './guide/guide-state';
-import { GUIDE_DAYS, createGuide } from './guide/guide-state';
+import { createGuide } from './guide/guide-state';
 import { createEngineLoader } from './onboarding/engine-loader';
 import { OnboardingApp } from './onboarding/OnboardingApp';
 import type { Onboarding } from './onboarding/onboarding-state';
@@ -179,7 +179,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     nav: live.nav,
     engine: dataEngine(),
     list: live.list,
-    days: () => GUIDE_DAYS[tier],
+    tier: () => tier,
     play: (index) => player?.show(index),
     closed: (index) => live.focusRow(index),
     // "Guide channel" in the programme details (step 24e): the manual mapping's picker over the guide.

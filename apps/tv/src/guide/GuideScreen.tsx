@@ -118,6 +118,8 @@ export function GuideScreen({ guide, i18n, binding, focus, clock, listVersion, m
         formatTime={time}
         formatDay={(minute) => i18n.date(new Date(minute * MINUTE_MS), 'day')}
         placeholder={t('guide.noInfo')}
+        archive={(row) => guide.archive(row)}
+        archiveName={t('badge.catchUp')}
         testId="guide"
       />
       {focus.screen === DETAILS_SCREEN && <ProgrammeDialog details={guide.details} i18n={i18n} binding={binding} />}

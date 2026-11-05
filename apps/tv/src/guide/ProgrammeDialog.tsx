@@ -37,7 +37,8 @@ interface Props {
 
 /**
  * The programme details (RELAY step 24a) over the guide screen: the title, the channel, the day,
- * times and length (the grid's), then the sub-title, the category and episode, and the
+ * times and length (the grid's), for a programme in the archive the days left to watch it (step
+ * 25c), then the sub-title, the category and episode, and the
  * description as the guide gives them. The guide's texts are the provider's data (`dir="auto"`,
  * `translate=false`); the times follow the page's direction, as in the guide's header.
  */
@@ -69,6 +70,12 @@ export function ProgrammeDialog({ details, i18n, binding }: Props) {
         <span class="details__length" data-n={target.end - target.start}>
           {t('details.length', { n: target.end - target.start })}
         </span>
+        {/* How long it can still be watched from the archive (step 25c). */}
+        {target.archive === true && target.daysLeft !== undefined && (
+          <span class="details__left" data-testid="programme-left" data-days={target.daysLeft}>
+            {t('badge.expires', { days: target.daysLeft })}
+          </span>
+        )}
       </p>
       {tags.length > 0 && (
         <p class="details__tags" data-testid="programme-tags">

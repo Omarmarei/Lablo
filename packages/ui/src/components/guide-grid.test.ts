@@ -36,7 +36,7 @@ for (let row = 2; row < ROWS; row += 1) {
   SCHEDULES.push(schedule(rows));
 }
 
-function setup(dir: TextDirection = 'ltr', now = NOW) {
+function setup(dir: TextDirection = 'ltr', now = NOW, archive?: (row: number) => number | null) {
   const scheduleOf = (row: number): GuideSchedule | null => SCHEDULES[row] ?? null;
   const zone = guideZone(
     { id: 'guide', rows: ROWS, visibleRows: VISIBLE, from: t(18), to: t(24), span: 120, slot: 30, now, neighbours: { up: 'top' } },
@@ -68,6 +68,7 @@ function setup(dir: TextDirection = 'ltr', now = NOW) {
         formatTime: (minute) => `${Math.floor(minute / H)}:${String(minute % H).padStart(2, '0')}`,
         formatDay: (minute) => `day of ${minute}`,
         placeholder: 'No information',
+        ...(archive === undefined ? {} : { archive, archiveName: 'Catch-up' }),
         testId: 'grid',
       }),
     );
@@ -340,5 +341,60 @@ describe('GuideGrid (RELAY step 23b)', () => {
     expect(() =>
       GuideGrid({ binding: bindFocus(nav), screen: nav.top, zone: 'top', channel: () => ({ name: '' }), schedule: () => null, now: 0, formatTime: String, placeholder: '' }),
     ).toThrow(/not an epg zone/);
+  });
+});
+
+describe('GuideGrid’s archive marks (RELAY step 25c)', () => {
+  /** Row 0's first cell: 18:30–20:15, gone by at 20:17; its second, 20:15–20:45, on air. */
+  const row0 = (el: El): El[] => byClass(byClass(el, 'z-guide__row')[0]!, 'z-guide__cell');
+
+  it('marks a programme gone by that started within the row’s archive, named after its title', () => {
+    const asked: number[] = [];
+    const { render } = setup('ltr', NOW, (row) => {
+      asked.push(row);
+      return row === 0 ? t(18, 30) : null;
+    });
+    const el = render();
+    const [gone, onAir] = row0(el);
+    expect(gone!.props.class).toBe('z-guide__cell is-past is-cut-start is-archive');
+    // The mark comes after the title, so the cell's text names it second.
+    expect(gone!.children.map((c) => (c as El).props.class)).toEqual(['z-guide__title', 'z-guide__mark']);
+    expect(text(one(gone!, 'z-guide__mark'))).toBe('Catch-up');
+    expect(text(gone!)).toBe('Started before the viewCatch-up');
+    // On air: no mark, nor on a row without an archive.
+    expect(onAir!.props.class).toBe('z-guide__cell is-focused is-now');
+    expect(byClass(el, 'z-guide__mark')).toHaveLength(1);
+    expect(byClass(el, 'is-archive')).toHaveLength(1);
+    // Asked once per drawn row with programmes: row 1 has none.
+    expect(asked).toEqual([0, 2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it('marks nothing older than the archive, or anything when the row has no archive', () => {
+    expect(byClass(setup('ltr', NOW, () => t(18, 31)).render(), 'z-guide__mark')).toHaveLength(0);
+    expect(byClass(setup('ltr', NOW, () => null).render(), 'z-guide__mark')).toHaveLength(0);
+    expect(byClass(setup().render(), 'z-guide__mark')).toHaveLength(0);
+    // No limit: as far back as the guide reaches.
+    expect(row0(setup('ltr', NOW, () => -Infinity).render())[0]!.props.class).toContain('is-archive');
+  });
+
+  it('marks a programme from the minute it ends, never a placeholder', () => {
+    const { render } = setup('ltr', NOW, () => -Infinity);
+    // At 21:00 the programme to 20:45 has ended, and row 2's 20:00–21:00 too; 21:00–22:00 is on air.
+    const later = render(t(21));
+    expect(row0(later).map((c) => String(c.props.class).indexOf('is-archive') !== -1)).toEqual([true, true, false, false, false]);
+    const row2 = byClass(byClass(later, 'z-guide__row')[2]!, 'z-guide__cell');
+    expect(row2.map((c) => [c.props['data-start'], String(c.props.class).indexOf('is-archive') !== -1])).toEqual([
+      [t(20), true],
+      [t(21), false],
+    ]);
+    // A minute before, 20:45's programme is still on.
+    expect(row0(render(t(20, 44)))[1]!.props.class).not.toContain('is-archive');
+    // Row 1 has no guide: its placeholders are never marked.
+    expect(byClass(byClass(later, 'z-guide__row')[1]!, 'z-guide__mark')).toHaveLength(0);
+  });
+
+  it('gives the range on the grid', () => {
+    const el = setup().render();
+    expect([el.props['data-from'], el.props['data-to']]).toEqual([t(18), t(24)]);
   });
 });

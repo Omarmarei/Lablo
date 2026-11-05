@@ -34,12 +34,49 @@ function windowOf(programme: Pick<ArchiveProgramme, 'start' | 'end'>, nowMs: num
   return { startMs: programme.start * MINUTE_MS, endMs: programme.end * MINUTE_MS, nowMs };
 }
 
+/** Any programme's window: whether a URL can carry catch-up doesn't depend on the programme. */
+const PROBE: CatchupWindow = { startMs: 0, endMs: MINUTE_MS, nowMs: MINUTE_MS };
+
+/**
+ * The days `row`'s archive holds (`Infinity`: the channel states none, so as far back as the
+ * guide reaches), or `null` when its URL can carry no catch-up. The guide keeps it per row
+ * (step 25c): the grid's marks and the details ask it for every programme.
+ */
+export function archiveDays(row: LiveRow): number | null {
+  const info = row.item.catchup;
+  if (info === null || catchupCandidates(row.item.url, info, PROBE).length === 0) return null;
+  return info.days === null ? Infinity : info.days;
+}
+
+/** The first minute (UTC) a programme may start at to be in an archive of `days` at `nowMs`. */
+export function archiveFrom(days: number, nowMs: number): number {
+  return days === Infinity ? -Infinity : Math.ceil((nowMs - days * DAY_MS) / MINUTE_MS);
+}
+
+/** Whether `programme` is in an archive starting at minute `from` (`archiveFrom`) at `nowMs`: it has ended, and it started then or later. */
+export function inArchive(from: number, programme: Pick<ArchiveProgramme, 'start' | 'end'>, nowMs: number): boolean {
+  return programme.end * MINUTE_MS <= nowMs && programme.start >= from;
+}
+
 /** Whether `programme` on `row`'s channel can be watched from the start at `nowMs`. */
 export function canWatchFromStart(row: LiveRow, programme: Pick<ArchiveProgramme, 'start' | 'end'>, nowMs: number): boolean {
-  const info = row.item.catchup;
-  if (info === null || programme.end * MINUTE_MS > nowMs) return false;
-  if (info.days !== null && programme.start * MINUTE_MS < nowMs - info.days * DAY_MS) return false;
-  return catchupCandidates(row.item.url, info, windowOf(programme, nowMs)).length > 0;
+  const days = archiveDays(row);
+  return days !== null && inArchive(archiveFrom(days, nowMs), programme, nowMs);
+}
+
+/**
+ * How many days are left to watch `programme` from an archive of `days` at `nowMs`: the local
+ * calendar days from today to the day it leaves the archive (0: it leaves today). `null` when
+ * the channel states no days.
+ */
+export function archiveDaysLeft(days: number, programme: Pick<ArchiveProgramme, 'start'>, nowMs: number): number | null {
+  if (days === Infinity) return null;
+  const leaves = new Date(programme.start * MINUTE_MS + days * DAY_MS);
+  const today = new Date(nowMs);
+  // Local midnights as UTC dates: whole days, whatever daylight saving time does between them.
+  const from = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  const to = Date.UTC(leaves.getFullYear(), leaves.getMonth(), leaves.getDate());
+  return Math.max(0, Math.round((to - from) / DAY_MS));
 }
 
 /** The request that plays `programme` from `row`'s archive (`null`: the channel's URL can't carry one). */
