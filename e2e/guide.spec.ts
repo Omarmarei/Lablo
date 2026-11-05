@@ -403,9 +403,14 @@ test.describe('the guide screen by keys (pnpm dev, after onboarding)', () => {
       expect(d.cut).toEqual([]);
       await page.screenshot({ path: path.join(SHOTS, `guide-details-past-${locale}.png`), animations: 'disabled' });
 
-      // "Watch the channel": the player over the guide, and Back from it to the guide.
+      // On this channel (seven days of catch-up) "From the start" comes first (step 25a,
+      // guide-catchup.spec.ts); "Watch the channel" is next: the player over the guide, live,
+      // and Back from it to the guide.
+      expect(d.buttons.map((b) => b.id)).toEqual(['programme-archive', 'programme-watch', 'programme-map', 'programme-close']);
+      await remote.go(forward, 'programme/actions/1');
       await remote.go('OK', 'player/actions/0');
       await expect(page.getByTestId('player')).toHaveAttribute('data-playing', '0');
+      await expect(page.getByTestId('player')).toHaveAttribute('data-archive', '');
       await remote.go('BACK', 'guide/grid/0');
       await expect(page.getByTestId('player')).toHaveCount(0);
       await expect(page.getByTestId('programme')).toHaveCount(0);

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { MemorySourceMemory, containerOf, orderCandidates, streamCandidates } from './request';
+import type { ZoneOffset } from '@zoma/core';
+import { fixedZone, intlZone } from '@zoma/core';
+import { MemorySourceMemory, catchupCandidates, containerOf, orderCandidates, streamCandidates } from './request';
 
 const BASE = 'http://panel.example:8080';
 
@@ -89,5 +91,77 @@ describe('orderCandidates and the per-source memory', () => {
     expect(memory.preferred('s2')).toBe('ts');
     // Not fooled by inherited names.
     expect(memory.preferred('constructor')).toBeNull();
+  });
+});
+
+describe('catchupCandidates (RELAY step 25a)', () => {
+  // 2026-11-03 18:00 to 19:30 UTC (winter in New York), and a July evening (summer).
+  const START = Date.UTC(2026, 10, 3, 18, 0);
+  const WINDOW = { startMs: START, endMs: START + 90 * 60_000, nowMs: START + 26 * 3_600_000 };
+  const XC = { mode: 'xc', days: 7, source: null };
+
+  it("gives an Xtream channel's /timeshift/ URL as .ts, then .m3u8, in UTC by default", () => {
+    expect(catchupCandidates(`${BASE}/live/u/p/101.ts`, XC, WINDOW)).toEqual([
+      { url: `${BASE}/timeshift/u/p/90/2026-11-03:18-00/101.ts`, container: 'ts' },
+      { url: `${BASE}/timeshift/u/p/90/2026-11-03:18-00/101.m3u8`, container: 'hls' },
+    ]);
+    // The live URL's own form doesn't change the order; credentials are encoded.
+    expect(catchupCandidates(`${BASE}/live/u@x/p/101.m3u8`, XC, WINDOW)).toEqual([
+      { url: `${BASE}/timeshift/u%40x/p/90/2026-11-03:18-00/101.ts`, container: 'ts' },
+      { url: `${BASE}/timeshift/u%40x/p/90/2026-11-03:18-00/101.m3u8`, container: 'hls' },
+    ]);
+    // The short live form, and an M3U channel with days only (no mode) and an Xtream-shaped URL.
+    expect(catchupCandidates(`${BASE}/u/p/101`, XC, WINDOW)[0]!.url).toBe(`${BASE}/timeshift/u/p/90/2026-11-03:18-00/101.ts`);
+    expect(catchupCandidates(`${BASE}/live/u/p/101.ts`, { mode: null, days: 3, source: null }, WINDOW)).toHaveLength(2);
+  });
+
+  it("writes the start as wall time in the panel's zone, DST included", () => {
+    const at = (zone: ZoneOffset, window = WINDOW): string => catchupCandidates(`${BASE}/live/u/p/101.ts`, XC, window, { zone })[0]!.url;
+    expect(at(fixedZone(180))).toBe(`${BASE}/timeshift/u/p/90/2026-11-03:21-00/101.ts`);
+    // Both forms.
+    expect(catchupCandidates(`${BASE}/live/u/p/101.ts`, XC, WINDOW, { zone: fixedZone(180) }).map((c) => c.url)).toEqual([
+      `${BASE}/timeshift/u/p/90/2026-11-03:21-00/101.ts`,
+      `${BASE}/timeshift/u/p/90/2026-11-03:21-00/101.m3u8`,
+    ]);
+    expect(at(fixedZone(345))).toBe(`${BASE}/timeshift/u/p/90/2026-11-03:23-45/101.ts`);
+    const newYork = intlZone('America/New_York')!;
+    expect(at(newYork)).toBe(`${BASE}/timeshift/u/p/90/2026-11-03:13-00/101.ts`);
+    const july = Date.UTC(2026, 6, 1, 18, 0);
+    expect(at(newYork, { startMs: july, endMs: july + 30 * 60_000, nowMs: july + 3_600_000 })).toBe(`${BASE}/timeshift/u/p/30/2026-07-01:14-00/101.ts`);
+  });
+
+  it("keeps to the account's allowed_output_formats as live does", () => {
+    const url = `${BASE}/live/u/p/101.ts`;
+    expect(catchupCandidates(url, XC, WINDOW, { outputFormats: ['m3u8'] })).toEqual([{ url: `${BASE}/timeshift/u/p/90/2026-11-03:18-00/101.m3u8`, container: 'hls' }]);
+    expect(catchupCandidates(url, XC, WINDOW, { outputFormats: ['ts'] })).toEqual([{ url: `${BASE}/timeshift/u/p/90/2026-11-03:18-00/101.ts`, container: 'ts' }]);
+    expect(catchupCandidates(url, XC, WINDOW, { outputFormats: ['ts', 'm3u8'] })).toHaveLength(2);
+    expect(catchupCandidates(url, XC, WINDOW, { outputFormats: ['rtmp'] })).toHaveLength(2);
+    expect(catchupCandidates(url, XC, WINDOW, { outputFormats: null })).toHaveLength(2);
+  });
+
+  it('gives the one URL of every other M3U mode, with its container', () => {
+    const start = START / 1000;
+    const shift = catchupCandidates('http://cdn.example/ch/index.m3u8', { mode: 'shift', days: 1, source: null }, WINDOW);
+    expect(shift).toEqual([{ url: `http://cdn.example/ch/index.m3u8?utc=${start}&lutc=${start + 26 * 3600}`, container: 'hls' }]);
+    const source = 'http://cdn.example/catchup/7.ts?start={utc}&end={utcend}';
+    expect(catchupCandidates('http://cdn.example/live/7', { mode: 'default', days: 3, source }, WINDOW)).toEqual([
+      { url: `http://cdn.example/catchup/7.ts?start=${start}&end=${start + 5400}`, container: 'ts' },
+    ]);
+    // The template's date parts in the zone given.
+    const dated = catchupCandidates('http://cdn.example/live/7', { mode: 'default', days: 3, source: 'http://cdn.example/a/{Y}{m}{d}-{H}{M}.ts' }, WINDOW, { zone: fixedZone(180) });
+    expect(dated).toEqual([{ url: 'http://cdn.example/a/20261103-2100.ts', container: 'ts' }]);
+    expect(catchupCandidates('http://fl.example/ch/index.m3u8', { mode: 'flussonic', days: 2, source: null }, WINDOW)).toEqual([
+      { url: `http://fl.example/ch/index-${start}-5400.m3u8`, container: 'hls' },
+    ]);
+  });
+
+  it('gives none for a channel without catch-up, an unknown mode, or a URL the mode cannot carry', () => {
+    expect(catchupCandidates(`${BASE}/live/u/p/101.ts`, null, WINDOW)).toEqual([]);
+    expect(catchupCandidates(`${BASE}/live/u/p/101.ts`, { mode: 'archive-ftp', days: 3, source: null }, WINDOW)).toEqual([]);
+    // `xc` needs an Xtream live URL.
+    expect(catchupCandidates('http://cdn.example/ch/index.m3u8', XC, WINDOW)).toEqual([]);
+    expect(catchupCandidates(`${BASE}/movie/u/p/5.mp4`, XC, WINDOW)).toEqual([]);
+    // Flussonic needs a channel directory below the host.
+    expect(catchupCandidates('http://fl.example/mpegts', { mode: 'flussonic', days: 2, source: null }, WINDOW)).toEqual([]);
   });
 });

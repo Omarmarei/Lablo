@@ -1,10 +1,18 @@
 import type { FocusBinding } from '@zoma/ui';
 import { Button, Dialog, Spinner, useZone } from '@zoma/ui';
-import type { AppI18n } from '../i18n';
-import type { Details, DetailsShown } from './programme-details';
-import { DETAILS_ACTIONS, DETAILS_CLOSE, DETAILS_MAP, DETAILS_WATCH } from './programme-details';
+import type { AppI18n, MessageKey } from '../i18n';
+import type { DetailsAction, Details, DetailsShown } from './programme-details';
+import { DETAILS_ACTIONS, detailsActions } from './programme-details';
 
 const MINUTE_MS = 60_000;
+
+/** Each button's text and test id; the first one is the primary. */
+const ACTION_TEXT: Readonly<Record<DetailsAction, readonly [MessageKey, string]>> = {
+  archive: ['details.archive', 'programme-archive'],
+  watch: ['details.watch', 'programme-watch'],
+  map: ['details.mapping', 'programme-map'],
+  close: ['details.close', 'programme-close'],
+};
 
 /** The texts of the dialog's lines that come from the guide (`''`: the guide has none). */
 export interface DetailsLines {
@@ -94,11 +102,13 @@ export function ProgrammeDialog({ details, i18n, binding }: Props) {
       )}
     </div>
   );
+  const buttons = detailsActions(target.archive === true);
   return (
     <Dialog title={target.title === '' ? t('guide.noInfo') : target.title} data={target.title !== ''} body={body} wide testId="programme">
-      <Button label={t('details.watch')} variant="primary" {...actions.item(DETAILS_WATCH)} testId="programme-watch" />
-      <Button label={t('details.mapping')} {...actions.item(DETAILS_MAP)} testId="programme-map" />
-      <Button label={t('details.close')} {...actions.item(DETAILS_CLOSE)} testId="programme-close" />
+      {buttons.map((action, i) => {
+        const [label, testId] = ACTION_TEXT[action];
+        return <Button key={action} label={t(label)} variant={i === 0 ? 'primary' : 'secondary'} {...actions.item(i)} testId={testId} />;
+      })}
     </Dialog>
   );
 }

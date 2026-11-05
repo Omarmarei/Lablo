@@ -48,6 +48,10 @@ Template placeholders follow Kodi's names (`{utc}`, `${start}`, `{utcend}`, `{lu
 - The offset is fixed: it has no DST. A guide written in a DST zone without offsets stays an hour off for half the year until the user changes it. The fallback zone of a user's guide (`UserGuide.offsetMinutes`) exists, but no screen sets it yet.
 - **For step 25:** catch-up should ask for the programme's time as shown, with the offset. The offset is there to make the guide match what the channel aired, and the archive holds what aired. Confirm this against the mock.
 
+**Applied in step 25a (2026-11-05):**
+- The app's catch-up (`catchupRequest`, `apps/tv/src/player/catchup.ts`) takes the programme's times as the guide shows them, tvg-shift and offset included, and the source's panel zone from `DataEngine.sourceFacts` (`panelZone` of the last login's `server_info`; UTC before it is read, and for playlists until step 25b).
+- The e2e checks it against the mock on a UTC panel and on a Kathmandu one (+05:45, the `odd-timezone` scenario, XMLTV without offsets): the timeshift URL's start is the panel's wall time, and the mock serves the programme's own start. The +1:00 offset case is step 25b's e2e.
+
 ## Consequences
 - On engines with zone data, Xtream catch-up is exact across DST. Without it, DST zones are an hour off for archive programmes across a DST change, and the diagnostics screen (step 40) should show the zone source (`intl`/`clock`/`utc`).
 - The time offset per guide (step 24b) also lets users fix a panel whose zone is simply wrong.

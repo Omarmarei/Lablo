@@ -28,8 +28,8 @@ export { NO_STATS, PLAYBACK_ERROR_KINDS, isPlaybackError } from './engine';
 export type { PictureLayout, PictureMode } from './picture';
 export { FOUR_THREE, PICTURE_MODES, asPictureMode, nextPicture, pictureLayout, pictureModes } from './picture';
 
-export type { ExternalSub, PlayCandidate, PlayRequest, SourceMemory } from './request';
-export { MemorySourceMemory, containerOf, orderCandidates, streamCandidates } from './request';
+export type { CatchupCandidateOptions, ExternalSub, PlayCandidate, PlayRequest, SourceMemory } from './request';
+export { MemorySourceMemory, catchupCandidates, containerOf, orderCandidates, streamCandidates } from './request';
 
 export type { PlayerTrack, PlayerTracks, TrackChoice, TrackMemory, TrackPick, TrackPreferences } from './tracks';
 export { FILE_TRACK, MemoryTrackMemory, NO_PREFERENCES, NO_TRACKS, fileIndex, fileTracks, findPick, playerTracks, preferredTrack, trackPick } from './tracks';

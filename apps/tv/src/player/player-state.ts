@@ -9,6 +9,7 @@ import { NO_TRACKS, nextPicture, streamCandidates } from '@zoma/player';
 import type { Focus, Navigator, Screen, ZoneSpec } from '@zoma/ui';
 import type { LiveRow, Timers } from '../live/live-state';
 import { mark } from '../marks';
+import type { ArchiveProgramme } from './catchup';
 import type { StreamInfoPanel } from './stream-info';
 import { createStreamInfo } from './stream-info';
 import type { SubtitleSize, TrackMenu, TrackSection } from './track-menu';
@@ -52,6 +53,11 @@ import { createTrackMenu } from './track-menu';
  * - **A catalog refresh while it plays** (step 22a): `listChanging` comes before the live screen's
  *   list is replaced. The channel playing stays pinned at its row and the stream isn't touched;
  *   `locate` then moves it (and the previous channel) to their rows in the new list.
+ * - **Catch-up** (step 25a): `catchup` opens the player on a channel and plays a programme gone by
+ *   from its archive (`catchupRequest`, the app's). The info bar shows that programme (`archive`)
+ *   instead of the live now/next. A zap, a number, the previous channel or the card's "Channels"
+ *   leave it; the card's "Try again" plays the programme again. A catch-up play doesn't change
+ *   the profile's last channel (`tuned`): the start always plays live.
  */
 
 /** The info bar's stream opens this long after the last zap key. */
@@ -132,6 +138,8 @@ export interface PlayerOptions {
   readonly picture?: PictureMode;
   /** The user chose another picture mode (the app keeps it). */
   readonly pictured?: (mode: PictureMode) => void;
+  /** A programme's request from a channel's archive (step 25a; `null`: its URL can't carry one). */
+  readonly catchupRequest?: (row: LiveRow, programme: ArchiveProgramme) => PlayRequest | null;
   readonly timers?: Timers;
   /** The clock the stream info measures its rates by (ms; default `Date.now`). */
   readonly now?: () => number;
@@ -161,8 +169,15 @@ export interface Player {
   readonly streamInfo: StreamInfoPanel;
   /** The picture's mode on show (the kept one until the controller is made). */
   readonly picture: ReadonlySignal<PictureMode>;
+  /** The programme playing from the archive (step 25a; `null`: live). */
+  readonly archive: ReadonlySignal<ArchiveProgramme | null>;
   /** Opens the player on row `index` of the list and plays it at once. */
   show(index: number): void;
+  /**
+   * Opens the player on row `index` of the list and plays `programme` from the channel's archive
+   * (step 25a); the channel live when its URL can't carry catch-up.
+   */
+  catchup(index: number, programme: ArchiveProgramme): void;
   /**
    * Opens the player on `row`, a channel the list may not have yet (the start's last channel,
    * step 20c1), plays it at once, and moves to its row when the list finds it from row `guess`.
@@ -227,6 +242,7 @@ export function createPlayer(options: PlayerOptions): Player {
   const plays = signal(0);
   const subtitles = signal<SubtitleView>(NO_SUBTITLES);
   const picture = signal<PictureMode>(options.picture ?? 'fit');
+  const archive = signal<ArchiveProgramme | null>(null);
 
   let controller: PlayerLike | null = null;
   const streamInfo = createStreamInfo({
@@ -344,13 +360,17 @@ export function createPlayer(options: PlayerOptions): Player {
     if (options.pictured !== undefined) options.pictured(shown);
   };
 
-  /** Opens row `index`'s stream now (reading its chunk first when needed). */
-  const playRow = (index: number): void => {
+  /**
+   * Opens row `index`'s stream now (reading its chunk first when needed): live, or `programme`
+   * from the channel's archive (step 25a).
+   */
+  const playRow = (index: number, programme: ArchiveProgramme | null = null): void => {
     zapTimer = clear(zapTimer);
     seq += 1;
     const mine = seq;
     const start = (row: LiveRow | null): void => {
       if (mine !== seq || !open.value || row === null) return;
+      const request = programme === null || options.catchupRequest === undefined ? null : options.catchupRequest(row, programme);
       if (playing.value !== -1 && playing.value !== index) previous.value = playing.value;
       const resumed = pinned !== null && pinned.row === row;
       // Another row: the resumed channel is the list's own from now on.
@@ -358,11 +378,13 @@ export function createPlayer(options: PlayerOptions): Player {
       resumeFrame = false;
       playing.value = index;
       plays.value += 1;
+      archive.value = request === null ? null : programme;
       const c = ctrl();
-      void c.play(liveRequest(row, options.outputFormats === undefined ? null : options.outputFormats(row.item.src)));
+      void c.play(request ?? liveRequest(row, options.outputFormats === undefined ? null : options.outputFormats(row.item.src)));
       menu.showDelay(c.subtitleDelay);
       // The resumed channel was the last channel already: the list's row says where it is now.
-      if (!resumed && options.tuned !== undefined) options.tuned(row, index);
+      // A catch-up play isn't the last channel: the start plays live.
+      if (!resumed && request === null && options.tuned !== undefined) options.tuned(row, index);
     };
     const row = rowAt(index);
     if (row !== null) start(row);
@@ -384,11 +406,21 @@ export function createPlayer(options: PlayerOptions): Player {
     }, ZAP_DELAY_MS);
   };
 
-  /** Goes straight to row `index` (no debounce: one deliberate action). */
-  const go = (index: number): void => {
+  /** Puts the player's screen on the navigator and the page over the stage (`false`: it is open already). */
+  const openScreen = (): boolean => {
+    if (open.value) return false;
+    open.value = true;
+    carded = false;
+    screen.value = nav.push({ id: 'player', zones: [actionsZone(), cardZone(0)], initial: 'actions', onIntent, onSelect });
+    options.chrome(true);
+    return true;
+  };
+
+  /** Goes straight to row `index` (no debounce: one deliberate action), or to `programme` in its archive. */
+  const go = (index: number, programme: ArchiveProgramme | null = null): void => {
     point(index);
     showInfo();
-    playRow(index);
+    playRow(index, programme);
   };
 
   const menu = createTrackMenu({
@@ -476,6 +508,7 @@ export function createPlayer(options: PlayerOptions): Player {
     entry.value = null;
     info.value = false;
     open.value = false;
+    archive.value = null;
     const shown = screen.value;
     screen.value = null;
     carded = false;
@@ -574,7 +607,7 @@ export function createPlayer(options: PlayerOptions): Player {
     else if (focus.zone === 'actions' && focus.index === STATS_ACTION) streamInfo.toggle();
     else if (focus.zone === 'actions' && focus.index === PICTURE_ACTION) nextMode();
     else if (focus.zone === 'actions') previousChannel();
-    else if (focus.zone === 'card' && focus.index === 0) go(playing.value !== -1 ? playing.value : target.value);
+    else if (focus.zone === 'card' && focus.index === 0) go(playing.value !== -1 ? playing.value : target.value, archive.value);
     else if (focus.zone === 'card') close();
   };
 
@@ -592,22 +625,18 @@ export function createPlayer(options: PlayerOptions): Player {
     subtitles,
     streamInfo,
     picture,
+    archive,
     show(index: number): void {
-      if (open.value) return;
-      open.value = true;
-      carded = false;
-      screen.value = nav.push({ id: 'player', zones: [actionsZone(), cardZone(0)], initial: 'actions', onIntent, onSelect });
-      options.chrome(true);
-      go(index);
+      if (openScreen()) go(index);
+    },
+    catchup(index: number, programme: ArchiveProgramme): void {
+      if (openScreen()) go(index, programme);
     },
     resume(row: LiveRow, guess: number): void {
       if (open.value) return;
       const mine = { index: guess, row };
       pinned = mine;
-      open.value = true;
-      carded = false;
-      screen.value = nav.push({ id: 'player', zones: [actionsZone(), cardZone(0)], initial: 'actions', onIntent, onSelect });
-      options.chrome(true);
+      openScreen();
       go(mine.index);
       mark('zoma:resume');
       resumeFrame = true;

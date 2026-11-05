@@ -27,7 +27,8 @@
  * app passes the `?worker` imports (`./workers.ts`).
  */
 
-import type { CatalogItem, ContentKey, ContentKind, DeviceTier, EpgProgramme } from '@zoma/core';
+import type { CatalogItem, ContentKey, ContentKind, DeviceTier, EpgProgramme, ZoneOffset } from '@zoma/core';
+import { panelZone } from '@zoma/core';
 import type {
   AccountCheck,
   CancelToken,
@@ -61,6 +62,14 @@ import type {
 } from '@zoma/data';
 // The client entry only: the package index would pull every data module's polyfills into main.
 import { createDataClient, createEpgClient, createIngestClient, epgGuides, epgRefreshDue } from '@zoma/data/client';
+
+/** What a source's stream and catch-up URLs need from its last login (`DataEngine.sourceFacts`). */
+export interface SourceFacts {
+  /** The account's `allowed_output_formats` (`null`: a playlist, or no login yet). */
+  readonly outputFormats: readonly string[] | null;
+  /** The panel's zone (`panelZone` of its `server_info`, ADR-010; UTC without one). */
+  readonly zone: ZoneOffset;
+}
 
 /** What the engine needs from a worker (a `Worker`, or a test double). */
 export interface WorkerLike extends RpcPort {
@@ -196,13 +205,19 @@ export class DataEngine {
   }
 
   /**
-   * Each Xtream source's `allowed_output_formats` from its last login (step 20c2a), for the
-   * player's `streamCandidates`. Playlists, and sources no refresh has logged in to yet, have none.
+   * Each source's facts from its last login, for the player's URLs:
+   * - `outputFormats`: an Xtream account's `allowed_output_formats` (step 20c2a), for
+   *   `streamCandidates` and `catchupCandidates`; `null` for playlists and sources no refresh has
+   *   logged in to yet;
+   * - `zone` (step 25a): the panel's zone (`panelZone` of its `server_info`, ADR-010), in which
+   *   Xtream catch-up starts are written; UTC without one.
    */
-  async outputFormats(): Promise<Map<string, readonly string[]>> {
-    const formats = new Map<string, readonly string[]>();
-    for (const s of (await this.query.call('status')).sources) if (s.outputFormats !== undefined) formats.set(s.src, s.outputFormats);
-    return formats;
+  async sourceFacts(): Promise<Map<string, SourceFacts>> {
+    const facts = new Map<string, SourceFacts>();
+    for (const s of (await this.query.call('status')).sources) {
+      facts.set(s.src, { outputFormats: s.outputFormats ?? null, zone: panelZone(s.server ?? null).offset });
+    }
+    return facts;
   }
 
   /** The ids of every catalog source stored (a refresh that never reached the profile included). */

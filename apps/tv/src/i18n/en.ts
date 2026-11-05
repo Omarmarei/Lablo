@@ -45,6 +45,7 @@ export const EN = {
   'guide.open': 'Guide',
   'guide.title': 'Guide',
   // The programme details (RELAY step 24a): a dialog over the guide.
+  'details.archive': 'From the start',
   'details.watch': 'Watch the channel',
   'details.close': 'Close',
   'details.mapping': 'Guide channel',

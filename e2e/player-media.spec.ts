@@ -27,6 +27,10 @@ import { RemoteDriver } from './remote-driver';
  * the bitrate measured from the `<video>`'s counters, the format and the player.
  *
  * The picture's 4:3 mode (RELAY step 20c2b) on a real picture, read from the screen's pixels.
+ *
+ * Catch-up from the guide (RELAY step 25a): "From the start" in a programme's details plays it
+ * from the archive (the desktop refuses the `.ts` timeshift; its `.m3u8` form plays), and the
+ * mock served the programme's own start.
  */
 const MEDIA_DIR = path.resolve(import.meta.dirname, '../.cache/media');
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
@@ -35,12 +39,18 @@ test.use({ launchOptions: { args: ['--enable-blink-features=AudioVideoTracks'] }
 
 let app: MockServer;
 let host: string;
+/** The archive windows the mock served (`X-Mock-Archive-Start`, epoch seconds), in order. */
+const archiveStarts: number[] = [];
 
 test.beforeAll(async () => {
   expect(existsSync(path.join(MEDIA_DIR, 'manifest.json')), `no generated media in ${MEDIA_DIR}: run pnpm mock:media first`).toBe(true);
   mkdirSync(SHOTS, { recursive: true });
   // The real clock: live streams sit on the epoch timeline.
   app = await mock({ now: Date.now, media: new FileMedia({ dir: MEDIA_DIR }) });
+  app.addHook('onResponse', async (_request, reply) => {
+    const start = reply.getHeader('x-mock-archive-start');
+    if (start !== undefined) archiveStarts.push(Number(start));
+  });
   host = (await listen(app)).replace(/^http:\/\//, '');
 });
 test.afterAll(async () => {
@@ -290,5 +300,39 @@ test('the picture in 4:3 on a real live channel: the 16:9 bars squeezed into the
   expect((await colours(page, edges)).map(dark)).toEqual([false, false]);
   await remote.press('BACK');
   await remote.expectFocus('live/channels/0');
+  expect(errors).toEqual([]);
+});
+
+test('plays a programme gone by from the archive: "From the start" in its details, the picture moving (step 25a)', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = trackErrors(page);
+  const remote = new RemoteDriver(page);
+  await addXtreamAndWatch(remote, { host, username: U, password: P }, 'locale=en-US');
+  // The guide on the first channel (Zoma Test 1 SMPTE: seven days of archive, colour bars), a cell back from now.
+  await remote.go('UP', 'live/header/0');
+  await remote.go('OK', 'guide/grid/0');
+  const screen = page.getByTestId('guide-screen');
+  await expect(screen).toHaveAttribute('data-pending', '0', { timeout: 10_000 });
+  const focusedStart = (): Promise<number> =>
+    page.evaluate(() => Number(document.querySelector('[data-testid=guide-screen] .z-guide__cell[data-state=focused]')?.getAttribute('data-start') ?? NaN));
+  const onAir = await focusedStart();
+  await remote.press('LEFT');
+  await expect.poll(focusedStart).toBeLessThan(onAir);
+  const start = await focusedStart();
+  await remote.go('OK', 'programme/actions/0');
+  await expect(page.getByTestId('programme-archive')).toHaveText('From the start');
+  const asked = archiveStarts.length;
+  await remote.go('OK', 'player/actions/0');
+  const player = page.getByTestId('player');
+  await expect(player).toHaveAttribute('data-archive', String(start));
+  await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
+  await expect(player).toHaveAttribute('data-container', 'hls');
+  await expectMoving(page);
+  // Every archive answer was the programme's own start.
+  const served = archiveStarts.slice(asked);
+  expect(served.length).toBeGreaterThan(0);
+  expect(served.every((s) => s === start * 60)).toBe(true);
+  await page.screenshot({ path: path.join(SHOTS, 'player-catchup-en.png'), animations: 'disabled' });
+  await remote.go('BACK', 'guide/grid/0');
   expect(errors).toEqual([]);
 });

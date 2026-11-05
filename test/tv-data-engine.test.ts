@@ -221,22 +221,33 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     expect((await s.engine.search('news')).total).toBe(300);
   });
 
-  it("hands out each Xtream source's allowed_output_formats from the sources' records (step 20c2a)", async () => {
+  it("hands out each source's allowed_output_formats and panel zone from the sources' records (steps 20c2a, 25a)", async () => {
     const s = setup(() => ({ body: playlist(10) }));
     await s.engine.refresh(job());
-    // A playlist has none.
-    expect([...(await s.engine.outputFormats())]).toEqual([]);
+    // A playlist has no formats, and UTC.
+    const own = await s.engine.sourceFacts();
+    expect([...own.keys()]).toHaveLength(1);
+    const [playlistFacts] = [...own.values()];
+    expect(playlistFacts!.outputFormats).toBeNull();
+    expect(playlistFacts!.zone(Date.UTC(2026, 10, 3))).toBe(0);
     // An Xtream source's record, as its ingest leaves it.
     const db = await openDatabase(s.factory);
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE.sources, 'readwrite');
-      tx.objectStore(STORE.sources).put({ ...newSourceMeta('xt'), outputFormats: ['m3u8'] });
+      tx.objectStore(STORE.sources).put({
+        ...newSourceMeta('xt'),
+        outputFormats: ['m3u8'],
+        server: { url: 'panel', port: '80', httpsPort: '443', protocol: 'http', timezone: null, timeNow: '2026-11-03 21:00:00', timestampNow: Date.UTC(2026, 10, 3, 18) / 1000 },
+      });
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
     db.close();
     await s.engine.query.call('reload');
-    expect([...(await s.engine.outputFormats())]).toEqual([['xt', ['m3u8']]]);
+    const xt = (await s.engine.sourceFacts()).get('xt')!;
+    expect(xt.outputFormats).toEqual(['m3u8']);
+    // The panel's clock: three hours ahead of UTC.
+    expect(xt.zone(Date.UTC(2026, 10, 3))).toBe(180);
   });
 
   it('reports a failed refresh, terminates its worker and keeps serving the old catalog', async () => {
