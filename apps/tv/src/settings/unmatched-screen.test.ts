@@ -46,8 +46,8 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 20; i += 1) await Promise.resolve();
 };
 
-/** A list over a worker that has `total` channels (`category` for each), or fails. */
-async function draw(total: number, options: { fail?: boolean; hold?: boolean; category?: string } = {}) {
+/** A list over a worker that has `total` channels (`category` for each), or fails; `overrides`: the profile's mappings. */
+async function draw(total: number, options: { fail?: boolean; hold?: boolean; category?: string; overrides?: Record<string, unknown> } = {}) {
   const nav = createNavigator({
     root: { id: 'guides', zones: [{ kind: 'list', id: 'header', axis: 'horizontal', count: 2 }] },
     rootBack: 'exit-dialog',
@@ -56,7 +56,8 @@ async function draw(total: number, options: { fail?: boolean; hold?: boolean; ca
   });
   let release: () => void = () => undefined;
   const engine = {
-    profile: (): Promise<LoadedProfile | null> => Promise.resolve({ doc: { ...emptyProfile(), sources: [PANEL] }, newer: false, migratedFrom: null }),
+    profile: (): Promise<LoadedProfile | null> =>
+      Promise.resolve({ doc: { ...emptyProfile(), sources: [PANEL], ...(options.overrides === undefined ? {} : { epgOverrides: options.overrides }) } as LoadedProfile['doc'], newer: false, migratedFrom: null }),
     unmatched: (req: UnmatchedRequest): Promise<UnmatchedPage> => {
       if (options.fail === true) return Promise.reject(new Error('worker gone'));
       const rows = [];
@@ -70,7 +71,7 @@ async function draw(total: number, options: { fail?: boolean; hold?: boolean; ca
   await flush();
   const i18n = appI18n('en-US', { isolate: false });
   const binding = bindFocus(nav);
-  return { nav, list, i18n, binding, release, page: () => Page({ i18n, binding, list }) };
+  return { nav, list, i18n, binding, release, page: (reading = 0) => Page({ i18n, binding, list, reading }) };
 }
 
 const item = (state: ItemBinding['state']): ItemBinding => ({ state, onHover: () => undefined, onPress: () => undefined });
@@ -120,6 +121,19 @@ describe('"Channels without a guide" as drawn (step 24c)', () => {
     expect(vlist!.props).toMatchObject({ zone: 'channels', itemSize: UNMATCHED.rowHeight, gap: UNMATCHED.rowGap, screen: t.list.screen.value });
     expect(byTestId(page, 'unmatched-none')).toHaveLength(0);
     expect(byTestId(page, 'unmatched-spinner')).toHaveLength(0);
+    // (The reading line is a component, not expanded here: it draws nothing at 0.)
+    expect(byTestId(page, 'unmatched-reading').map((v) => (v.props as Props).reading)).toEqual([0]);
+  });
+
+  it('says "Reading the guides…" after the title while a mapping\'s refresh runs (step 24e)', async () => {
+    const t = await draw(3);
+    const page = t.page(1);
+    expect((page!.props as Props)['data-reading']).toBe(1);
+    const header = byClass(page, 'settings__header')[0]!;
+    const children = (header.props as Props).children as unknown[];
+    // The title, then the reading line (a component, not expanded here), then the count.
+    expect((children[1] as VNode).props).toMatchObject({ reading: 1, testId: 'unmatched-reading' });
+    expect(textOf(byTestId(page, 'unmatched-count'))).toBe('3 channels');
   });
 
   it('draws a row: the name and category as data, the source by its name; "Other channels" for none; empty until read', async () => {
@@ -142,14 +156,39 @@ describe('"Channels without a guide" as drawn (step 24c)', () => {
     const other = UnmatchedItem({ i18n: none.i18n, list: none.list, index: 0, item: item('idle') });
     expect(textOf(byClass(other, 'unmatched__where'))).toBe('From My list · Other channels');
     expect((byClass(other, 'unmatched__category')[0]!.props as Props).translate).toBeUndefined();
+    expect((row.props as Props)['data-off']).toBe('false');
+    expect(byClass(row, 'unmatched__off')).toHaveLength(0);
   });
 
-  it("counts the list's reads in the settings screens' data-pending, with the guides screen's", async () => {
+  it('marks a channel the profile maps to no guide, and only that one (step 24e)', async () => {
+    const t = await draw(3, { overrides: { k1: { epgSrc: '', channel: null }, k2: { epgSrc: 's1:xmltv', channel: 'zoma.kids' } } });
+    const off = UnmatchedItem({ i18n: t.i18n, list: t.list, index: 1, item: item('idle') });
+    expect((off.props as Props)['data-off']).toBe('true');
+    expect(textOf(byClass(off, 'unmatched__where'))).toBe('From My list · News · No guide, set by you');
+    expect(byTestId(off, 'unmatched-1-off')).toHaveLength(1);
+    for (const index of [0, 2]) {
+      const other = UnmatchedItem({ i18n: t.i18n, list: t.list, index, item: item('idle') });
+      expect((other.props as Props)['data-off'], String(index)).toBe('false');
+      expect(textOf(byClass(other, 'unmatched__where'))).toBe('From My list · News');
+    }
+  });
+
+  it("counts the list's reads in the settings screens' data-pending, with the guides screen's and the mapping's", async () => {
     const t = await draw(3, { hold: true });
     expect(t.list.pending.value).toBe(1);
-    const settings = { guides: { pending: signal(2), editor: { editing: signal(null) } }, unmatched: t.list } as unknown as Settings;
-    const root = SettingsScreen({ settings, i18n: t.i18n, binding: t.binding, focus: t.nav.snapshot() });
-    expect((root.props as Props)['data-pending']).toBe(3);
+    const mapping = { pending: signal(4), reading: signal(1), editor: { editing: signal<string | null>(null) } };
+    const settings = { guides: { pending: signal(2), editor: { editing: signal<string | null>(null) } }, unmatched: t.list, mapping } as unknown as Settings;
+    const draw2 = () => SettingsScreen({ settings, i18n: t.i18n, binding: t.binding, focus: t.nav.snapshot() });
+    let root = draw2();
+    expect((root.props as Props)['data-pending']).toBe(7);
     expect((root.props as Props)['data-screen']).toBe('unmatched');
+    expect((root.props as Props)['data-editing']).toBe('');
+    // The list's page gets the mapping's reading count.
+    const [page] = walk(root).filter((v) => v.type === Page);
+    expect((page!.props as Props).reading).toBe(1);
+    // The picker's search field being edited shows as the guides' link does.
+    mapping.editor.editing.value = 'mapping-search';
+    root = draw2();
+    expect((root.props as Props)['data-editing']).toBe('mapping-search');
   });
 });

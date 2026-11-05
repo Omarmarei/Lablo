@@ -71,7 +71,7 @@ function LiveScreen({ live, i18n, player, settings, guide }: { live: Live; i18n:
   // The settings screens (step 22b2) paint instead of the live screen.
   if (settings !== null && SETTINGS_SCREENS.indexOf(focus.screen) !== -1) return <SettingsScreen settings={settings} i18n={i18n} binding={binding} focus={focus} />;
   // The guide (step 23c) paints instead of the live screen, with its programme details (24a) over it; the player opens over it.
-  if (guide !== null && (focus.screen === GUIDE_SCREEN || focus.screen === DETAILS_SCREEN)) return <GuideScreen guide={guide} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} listVersion={live.version.value} />;
+  if (guide !== null && (focus.screen === GUIDE_SCREEN || focus.screen === DETAILS_SCREEN)) return <GuideScreen guide={guide} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} listVersion={live.version.value} mapping={settings?.mapping ?? null} />;
   const status = live.status.value;
   const entries = live.rail.value;
   const shown = live.category.value;

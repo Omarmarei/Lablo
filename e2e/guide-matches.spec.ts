@@ -307,10 +307,11 @@ test.describe('match diagnostics by keys (pnpm dev, after onboarding)', () => {
         await layout(page, '.settings__header, .guides__intro, .unmatched__row', '.settings__title, .unmatched__count, .guides__intro, .unmatched__name, .unmatched__where'),
       ).toEqual({ outside: [], cut: [] });
       await shot(page, `unmatched-${language}`);
-      // OK does nothing yet (step 24e maps the channel); the keys stay on the one row.
-      await remote.press('OK');
+      // The keys stay on the one row; OK opens the manual mapping (step 24e, guide-mapping.spec.ts), Back comes back.
       await remote.press('DOWN');
       await remote.expectFocus('unmatched/channels/0');
+      await remote.go('OK', 'guide-map/search/0');
+      await remote.go('BACK', 'unmatched/channels/0');
 
       // Back: the header's button, the settings, the live screen.
       await remote.go('BACK', 'guides/header/1');
@@ -338,6 +339,12 @@ test.describe('match diagnostics by keys (pnpm dev, after onboarding)', () => {
     await remote.go('OK', 'unmatched/channels/0');
     await expect(page.getByTestId('unmatched')).toHaveAttribute('data-status', 'ready');
     await settled(root);
+    expect(await unbracketed(page)).toEqual([]);
+    // The manual mapping's picker (step 24e): the guide's channels, ids and links are data.
+    await remote.go('OK', 'guide-map/search/0');
+    await expect(page.getByTestId('mapping')).toHaveAttribute('data-status', 'ready');
+    await settled(root);
+    await expect(page.locator('[data-testid=mapping-1] .mapping__name')).toHaveCount(1);
     expect(await unbracketed(page)).toEqual([]);
   });
 });

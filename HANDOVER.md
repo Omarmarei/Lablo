@@ -1,148 +1,124 @@
-# Zoma IPTV: relay leg 58 opening prompt
+# Zoma IPTV: relay leg 59 opening prompt
 
-You are leg 58 of relay run `iptv-20261101-214120`, building **Zoma IPTV**. It is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 59 of relay run `iptv-20261101-214120`, building **Zoma IPTV**. It is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 - **Earlier legs:**
   - Leg 0 planned the work. Leg 6 did no project work.
-  - Legs 1–56 did steps 1–23, 24a and 24b, except step 16's Samsung part, 19b and 21 (PRs #1–#55).
-- **Leg 57 did step 24c, match diagnostics:**
-  - It merged as PR **#56** (merge commit **`4673a87`**, branch kept). CI on `cc01e70` was green on the first run: verify 12 m 44 s, media 12 m 42 s, engines 17 m 31 s.
-  - Main's CI on `7e36fe7` (PR #55) was green. **Check main's run on `4673a87`.**
+  - Legs 1–57 did steps 1–23 and 24a–24c, except step 16's Samsung part, 19b and 21 (PRs #1–#56).
+- **Leg 58 did step 24d, manual mapping: the data:**
+  - It merged as PR **#57** (merge commit **`f39b7b4`**, branch kept). CI on `8119dee` was green: verify 5 m 41 s, media 8 m 31 s, engines 15 m 27 s.
+  - The leg stopped once as needs-you: GitHub Actions wouldn't start jobs (the private repo's minutes and budget ran out). **Omar renamed the repo `Omarmarei/Lablo` and made it public**; the run then passed.
 - **Steps 16, 19b and 21 stay open** until Omar says the Samsung route is ready or has time at the TV. Leave them open, as earlier legs did.
-- **Relay cap:** 60 legs. Leg 57 was the 57th, so 3 remain: 24d, 24e, and one more.
+- **Relay cap:** 60 legs. Leg 58 was the 58th, so 2 remain: 24e, and one more.
 
-## Your step: 24d, manual mapping: the data (RELAY.md, Phase 6)
-Read RELAY.md's step 24 block first: the "Already built" note, the order and its reasons, the common Done-when items, and 24d's own text.
+## The repo is public now (`Omarmarei/Lablo`)
+- **Use `-R Omarmarei/Lablo`** with `gh`. The old name `zoma-iptv` redirects; the worktree's `origin` is already `https://github.com/Omarmarei/Lablo.git`.
+- **The product is still "Zoma"** in code, app IDs and docs.
+- **CI runs on `pull_request` and `workflow_dispatch` only.** There is no run on main after a merge, so don't look for one.
+- **A `changes` job picks the jobs:**
+  - docs alone run none;
+  - `engines` runs when the TV bundles or their harness change;
+  - `media` runs when the mock, data layer, player, lab or scale tests change.
+  - A skipped job shows as "skipping" in `gh pr checks`.
+- **Commits use the no-reply email** `58913863+Omarmarei@users.noreply.github.com`. The repo-local config already sets it; leg 58's first two commits still carry the Gmail, and history is deliberately not rewritten.
+- **It is public:** no secrets, no LG binaries, no personal data in commits.
 
-1. **First check what exists:**
-   - **Core's matcher already takes overrides:** `EpgOverride` and the `override` method (`packages/core/src/epg-match.ts`: `EpgWantedSet(channels, overrides)`, pins to one guide's channel or to none, ranked first).
-   - **The refresh job has an `overrides` field** (`EpgRefreshJob.overrides` in `epg-ingest.ts`), and `readEpgWanted` puts their hash in the basis. **Nothing stores or sends any yet.** `DataEngine.refreshEpg` (`apps/tv/src/data/engine.ts`) is where the scheduler and the guides screen's `refreshNow` start a refresh.
-   - **Each generation's `epg_channels`** (`EpgChannelTable` in `epg-store.ts`, written by `channelTable` in `epg-ingest.ts`) keeps `matches`, `channels` (only the XMLTV channels **in use**: `reader.matcher.usedChannels()`) and `unmatched`. 24d must keep **every declared** channel (id and display name).
-   - **The profile** (`packages/data/src/profile.ts`, v4): the optional-field pattern of step 24b's `epgOffsets` (no migration), its `ProfileEdit` kinds, `applyProfileEdit`, and `readEpgOffsets`.
-2. **RELAY's 24d text, in short:**
-   - **The guides' channels:** each generation keeps every XMLTV channel its guide declares (id and display name), so a channel can be mapped to one nothing matched.
-   - **Overrides** in the profile (optional, no migration): a live channel (by ContentKey) pinned to a guide's XMLTV channel, or to no guide. The app's refresh calls (the scheduler, the guides screen's `refreshNow`) send them. They are in the basis already, so a change reads the guides again.
-   - **A query** to search a guide's declared channels by name (normalized, as the matcher does), paged.
-   - **Done when:** unit tests (the declared channels stored and searched; the overrides edited, sent and honoured after a refresh: the channel's now/next and grid row come from the pinned channel, and "no guide" leaves it empty; an override to a channel a newer guide no longer declares). At scale: the 300 MB guide's 5,000 declared channels stored and searched within a set time. Plus the common items, **e2e excepted** (24e has it).
-3. **Likely shape** (your call):
-   - **Storage:** a new store or a field in `epg_channels`.
-     - A DB version bump needs a migration test (`schema.test.ts`).
-     - A new field in the stored table may not need one. But old generations lack it, so bump `EPG_INGEST_VERSION` to make unchanged guides read again.
-   - **The search:** in the query worker, over the active generations' declared channels, by `normalizeName` / match name, paged like `QueryService.unmatched` (step 24c).
-   - **At scale:** see `test/guide-300mb.media.test.ts` and `test/epg-300mb.media.test.ts` (`test:media`).
-4. **Done when (common):**
-   - Unit tests.
-   - A mutation run with the list written first.
-   - `pnpm verify` green.
-   - Main within budget with 219 core-js modules on both platforms (`python -I -u artifacts/poly-count20c2a.py`).
-   - The PR merged, and the handover.
-   - No e2e, no screen: 24e does those.
-5. **Don't start 24e in the same leg** unless 24d was light.
+## Your step: 24e, manual mapping: the screens (RELAY.md, Phase 6)
+Read RELAY.md's step 24 block first: the "Already built" note, the common Done-when items, 24d's "Done in leg 58" block, and 24e's own text.
 
-## Facts and decisions from leg 57 (step 24c)
-- **The data:**
-  - `QueryService.unmatched({ sources, offset, limit })`, `UNMATCHED_MAX_ROWS` (500) and `DataEngine.unmatched`.
-  - It lists the live channels of the sources asked (the app passes the profile's, so "All channels" order) that the combined `epgLinks` lack. It counts from the catalogs, not from the guides' own unmatched lists.
-  - **The walk:** `catalog-store.ts` `scanChunks`, one cursor with one chunk held at a time, runs once per source per reload, into flat chunk addresses (category, chunk, slot). A failed walk is tried again at the next ask.
-  - **Each row:** key, name, `src`, and `category` (the item's `group`, which is its category's name).
-  - **`version`** bumps at each reload, and the screen drops its pages when it changes.
-- **The screens** (`apps/tv/src/settings`):
-  - **The menu:** "Matches" (`guide-matches`, from `EpgMeta.summary`, no read) for a guide that was read (`summaryOf`):
-    - the user's guides: up?, down?, offset, matches, remove, cancel;
-    - a source's own guide: offset, matches, cancel.
-  - **The guides screen's header zone is now `header`** (it was `add`): `HEADER_ADD` 0, `HEADER_UNMATCHED` 1 ("Channels without a guide: n", counted at each read with a 0-row page).
-  - **The list screen** is `unmatched-state.ts` (screen `unmatched`, zone `channels`):
-    - eight 88 px rows;
-    - pages of 50 around the window, six kept;
-    - a newer version drops every page and every ask in flight; an older answer is dropped.
-  - **OK on a row does nothing:** 24e adds the picker there.
-  - `SETTINGS_SCREENS` gained `guide-matches` and `unmatched`. The settings root's `data-pending` sums the guides' and the list's.
-  - **Catalogs:** 15 new keys, `guides.matches`, `guides.by*`, `guides.ties`, `guides.declared`, `guides.used`, `guides.unmatched`, `unmatched.*`, plus `action.close`.
-- **The mock:** the panel's guide matches 10 by `xtream-id` (an Xtream source's id match) and 1 by `match-name`, with 9 declared and 9 used. "18+ Test Pattern" (`x:s1:live:109`, category "18+ Test (lock check)") is the one channel without a guide.
-- **Checks:**
-  - 3,854 unit tests (+100).
-  - e2e `guide-matches.spec.ts` (3 tests).
-  - Mutation `artifacts/mutate24c.py` 110/110 and `artifacts/mutate24c-e2e.py` 21/21. Both scripts take `--from=N --to=M` (a range by position).
-  - Main 327.5 KB on Tizen, 314.9 KB on webOS; the query worker 103.8 KB; app.css 69.0 KB; 219 core-js modules.
-- **The 3 riskiest changes in PR #56:**
-  1. The header zone was renamed and the menu gained an item, so key paths changed.
-  2. A per-reload chunk walk runs when the list or its count is first asked for.
-  3. A new full screen is painted inside the settings, and `data-pending` sums two sources.
-
-### "Press these keys" (desktop, step 24c)
-1. Run `pnpm mock` and `pnpm dev`. Open `http://localhost:5173/` and onboard with the mock's Xtream login (host `localhost:8080`; the user and password are in `apps/mock-provider/test/helpers.ts`).
-2. On the live screen, press UP from the first channel, RIGHT to "Settings" (LEFT in Arabic), OK, then OK on "TV guides". The header reads "Add a guide" and "Channels without a guide: 1".
-3. OK on the panel's guide: its menu is Time offset, Matches, Cancel. DOWN, then OK on "Matches":
-   - "Channels matched: 11 of 12 (92%)";
-   - by the panel's channel ID 10, by name without tags 1, the others 0;
-   - channels in the guide 9, in use 9.
-4. OK on "Close" returns to the row; Back does too.
-5. UP to "Add a guide", RIGHT (LEFT in Arabic) to "Channels without a guide: 1", then OK. The list shows "18+ Test Pattern", "From <host> · 18+ Test (lock check)", and "1 channel" in the header.
-6. Back returns to the header's button.
-7. Add `?locale=ar-SA`: everything is mirrored, and the numbers sit at each line's left end.
-
-## Read first
-1. `CLAUDE.md`: conventions, Definition of Done, merge policy, commit format.
-2. `RELAY.md`: step 24 (24a–24c done; 24d, 24e), and the progress-log rows for legs 55–57.
-3. `docs/architecture.md`:
-   - §1.2 "Built in step 24c" and "Built in step 24b";
-   - §1.3 (storage);
-   - §1.5 (the EPG pipeline, matching cascade, overrides).
-4. The code:
-   - `packages/core/src/epg-match.ts` (overrides, `EpgWantedSet`, `EpgMatcher`, `usedChannels`);
-   - `packages/data/src`: `epg-ingest.ts` (`readEpgWanted`, `channelTable`, `EPG_INGEST_VERSION`), `epg-store.ts`, `schema.ts`, `profile.ts`, `query-service.ts`;
-   - `apps/tv/src/data/engine.ts` (`refreshEpg`) and the refresh scheduler.
-5. Memory:
-   - `iptv-parser-test-patterns` (mutation lessons, leg 57's included);
-   - `iptv-data-layer-test-gotchas`, `iptv-v8-substring-retention` (declared channels' ids must be owned strings);
-   - `bg-watcher-memory-reap`, `use-write-tool-for-doc-batches`, `write-tool-raw-unicode-escapes`, `gh-pr-checks-watch-race`.
+1. **24e's text, in short:**
+   - **Where it opens:**
+     - from a channel in the "without a guide" list (24c's `unmatched` screen: OK on a row does nothing today);
+     - from the details dialog's channel (24a), for a channel matched wrongly.
+   - **The picker:** over the guides' channels, with a search field (the text editor), "No guide" first, and the current match marked.
+   - **Choosing** saves the mapping and starts the guides' refresh ("Reading…" until it settles). The list and the grid show the new match after it.
+   - **Done when:**
+     - unit tests of the picker's state;
+     - e2e in English and Arabic: the mock's unmatched channel mapped to a guide channel shows that channel's schedule in the grid after the refresh; "No guide" takes a matched channel's programmes away; Back changes nothing;
+     - plus the common items: a mutation run with the list written first, `pnpm verify` green, main within budget with 219 core-js modules on both platforms (`python -I -u artifacts/poly-count20c2a.py`), screenshots looked at, the PR merged, and a "press these keys" checklist in the handover.
+2. **What 24d gives you** (architecture.md §1.2 "Built in step 24d"):
+   - **The search:** `DataEngine.guideChannels({ epgSrc?, query, offset, limit })` returns `{ version, count, offset, rows: { epgSrc, id, name }[] }`.
+     - It covers every active guide in priority order, or one guide (`epgSrc`).
+     - A channel is listed when each word of the query, normalized as the matcher does, is in one of its names or its id. An empty query lists every channel.
+     - Pages hold at most `GUIDE_CHANNELS_MAX_ROWS` (500); a limit of 0 gives the count alone.
+     - `version` bumps at each query-worker reload (drop the held pages, as `unmatched-state.ts` does).
+   - **Saving:** `engine.editProfile({ kind: 'epgOverride', key, pin })`:
+     - `pin` is `{ epgSrc, channel }` (the XMLTV id as declared), `{ epgSrc: '', channel: null }` for "No guide", or `null` to take the mapping away (the guides match the channel again);
+     - it resolves `false` when nothing changed.
+   - **The refresh:** then the scheduler's `refreshNow()`.
+     - Every guide is due at once: `epgStatus.mapping` differs from each guide's `EpgMeta.mapping`, so `epgRefreshDue` says `mapping`. The EPG worker reads the mappings from the profile itself.
+     - `refreshNow` settles when its pass has ended, which is your "Reading…" end. `onGuides` tells the live screen afterwards.
+   - **The current match:**
+     - `nowNext`/`shortEpg` give `{ epgSrc, channel, method }`, and `method === 'override'` marks a mapping.
+     - "No guide" isn't visible there (`epgSrc` is `null`, as for an unmatched channel), so read the profile's `epgOverrides`.
+     - **`epgOverridesOf` is exported from the package index only, not from `@zoma/data/client`.** The app imports only types from `@zoma/data`. Add it to `client.ts` and count main's core-js modules after, or read `profile.doc.epgOverrides[key]` directly (it's typed on `ProfileV4`).
+   - **"No guide"** also stops the panel's short EPG for that channel (the query worker, no request).
+3. **Where to look:**
+   - The list screen: `apps/tv/src/settings/unmatched-state.ts` and its page in `SettingsScreen.tsx` (CRLF).
+   - The text editor and a form: the guides screen's "Add a guide" form in `guides-state.ts` (step 22b2).
+   - The details dialog: `apps/tv/src/guide/programme-details.ts`, `ProgrammeDialog.tsx` (find them with Glob).
+   - The scheduler: `apps/tv/src/data/refresh-scheduler.ts` (`refreshNow`).
+   - The mock: the panel's guide declares 9 channels, all used. "18+ Test Pattern" (`x:s1:live:109`, category "18+ Test (lock check)") is the one live channel without a guide.
+   - The e2e to copy from: `e2e/guide-matches.spec.ts`, `guide-offset.spec.ts`, `guides.spec.ts`.
+4. **First check what exists:** `git log --oneline -10` and a grep for `guideChannels`/`epgOverride` in `apps/tv/src` (24d added only the engine method).
 
 ## Start
 1. Read `C:/Users/Omarm/.claude/relay/iptv-20261101-214120/state.json` for the worktree path.
-2. Check main with `gh run list --branch main --limit 2 -R Omarmarei/zoma-iptv` (the run on `4673a87`).
-   - If only `engines` is red with "DevTools … did not answer", rerun it: `gh run rerun <id> --failed`.
-   - If `media` shows `cancelled`, read its step times first (a slow apt mirror).
-3. Run `git -C "<wt>" status` and `git -C "<wt>" log --oneline -5`.
+2. Run `git -C "<wt>" status` and `git -C "<wt>" log --oneline -5`.
+3. Main has no CI run after merges (above): nothing to check there.
 
 **Never call EnterWorktree**, even though Claude Code's background note asks for it: the relay worktree is your isolation.
-- Use `git -C`, `pnpm --dir`, `gh -R` and absolute paths.
+- Use `git -C`, `pnpm --dir`, `gh -R Omarmarei/Lablo` and absolute paths.
 - **Never `cd`**, not even at the head of a Bash call.
 - A one-off script runs as `pnpm --dir "<wt>" exec node --import tsx <path>`.
 - Never use bare `git stash`.
 
 ## Git state to expect
 - **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`.
-- **HEAD:** the commit adding this HANDOVER.md, on top of `78c15f8` ("docs: record PR #56's merge, tick step 24c"). It is pushed, and the tree is clean.
-- **main** has `4673a87` (PR #56). The branch is ahead by `78c15f8` and the handover commit, both docs; they go to main with 24d's PR.
-- **The main checkout** (`D:/Claude Code PlayGround/IPTV`) was not touched.
+- **HEAD:** the commit adding this HANDOVER.md, on top of `8985a34` ("docs: record PR #57's merge, tick step 24d"), on top of `f39b7b4` (main: the branch was fast-forwarded to it, PR #58's CI change included). It is pushed, and the tree is clean.
+- **main** has `f39b7b4`. The branch is ahead by `8985a34` and the handover commit, both docs; they go to main with 24e's PR.
+- **The main checkout** (`D:/Claude Code PlayGround/IPTV`) was not touched by the relay.
 - **Gitignored but present:**
-  - `node_modules`, `.cache/*`, `dist/` (built from the current code);
+  - `node_modules`, `.cache/*` (the 300 MB fixtures), `dist/` (built from the current code);
   - `artifacts/`, which includes:
-    - `mutate24c.py` (the newest unit template, with `--from`/`--to` ranges and "taken out" and "left out" notes) and `mutate24c-e2e.py`, with their logs `mutate24c*.log`;
-    - `poly-count20c2a.py`;
-    - `screenshots/guide-matches-{en,ar}.png` and `unmatched-{en,ar}.png`.
+    - `mutate24d.py` (the newest unit template: `--check`, `--from`/`--to` ranges, positions printed per mutant, "taken out" and "left out" notes) and its logs `mutate24d-{a,b,c}.log`;
+    - `mutate24c-e2e.py` (the newest e2e template);
+    - `poly-count20c2a.py`.
 - **On the TV:** the lab `com.zoma.iptv.lab` 0.1.1 (CLI device `tv`, `prisoner@192.168.1.8:9922`). The app itself was never installed on the TV.
-- **Outside the repo:** the webOS Simulator in `D:/tools/webos-sim/` and the image `zoma-webos-sim:local`. Never commit or push them (LG's license).
+- **Outside the repo:** the webOS Simulator in `D:/tools/webos-sim/` and the image `zoma-webos-sim:local`. Never commit or push them (LG's license; the repo is public).
+
+## Facts from leg 58 (step 24d)
+- **Storage:** `[epgSrc, gen, 'declared']` in `epg_channels`, beside the match table: `{ ids, names, search }`. No migration. `EPG_INGEST_VERSION` is 2, so every user's guides are downloaded and read again once.
+- **A mapping stays when a newer guide drops its channel.** The channel then has no guide and shows in 24c's list. A removed user's guide takes the mappings into it away.
+- **`normalizeName` drops dots** (`BBCOne.uk` → `bbconeuk`); it doesn't make them spaces.
+- **Xtream sources' id matches are `xtream-id`**, not `id` (keys `x:…`), in now/next's `method` and the summary's `byMethod`.
+- **Checks:**
+  - 3,887 unit tests;
+  - `pnpm e2e` 84/84 locally, in 1.6 min;
+  - the 300 MB scale numbers: store 8.4 ms, first search 2.2 ms, each later search ≤ 0.5 ms;
+  - mutation 76/76.
+- **Size:** main 327.6 KB (Tizen) and 315.0 KB (webOS); the query worker 107.2 KB; the EPG worker 117.3 KB; app.css 69.0 KB; 219 core-js modules.
 
 ## Gotchas and lessons
-**New in leg 57:**
-- **Claude Code stopped the background mutation run for low memory**, while the session was idle waiting on it.
-  - It left a file mutated next to its `.mutbak`. Check `git status` for `*.mutbak`, diff the backup against HEAD, then `mv` it back.
-  - Don't relaunch the run in the background. Check free memory, then run the rest in the foreground in ranges (`--from=N --to=M`, about 25 unit mutants or 12 e2e mutants per call, each under the 10-minute limit).
-- **Pushing a screen tells the focus listeners before `nav.push` returns**, so a listener that reads the screen signal must handle `null`.
-- **An e2e can't see a `data-pending` sum:** the mock answers before any wait looks. Unit-test the root by calling `SettingsScreen(...)` as a function with a fake `settings`.
-- **Components that read focus through `useZone` can be called as functions in unit tests** (`unmatched-screen.test.ts`), with an in-order text walk.
-- **A Button's `data-state`:** `idle` for the zone's other items while the focus is in the zone; `memory` only once the focus has left the zone.
-- **A list page that was dropped (LRU) and is wanted again** must be asked again: test that "in flight" bookkeeping is cleared on success.
-- **The relay context check fired at about 451k tokens,** after the e2e mutation run. Budget a step's mutation runs and the PR's CI wait (about 18 minutes) inside it.
+**New in leg 58:**
+- **A mutation run in the foreground in ranges of 25** (`--from=0 --to=25` …) took about 8 minutes per range, with no low-memory stop.
+- **The lazy first load hid an edit path again** (the short EPG's "no guide" set): `await q.reload()` before the edit in such tests.
+- **A `typeof x === 'object' &&` guard before reading a field of an `unknown` is masked.** Primitives have no such field; only `null` and `undefined` throw. Write `x === null || x === undefined ? … : …`.
+- **`tsc -b` at the root leaves an untracked `tsconfig.tsbuildinfo`.** Use `pnpm typecheck`, and delete the file if it appears.
+- **A run GitHub refused for billing can be rerun later**; it keeps its run id.
 
 **From earlier legs (still true):**
 - **The Edit tool (and Write) decode `\u` escapes.** Build the escape as `chr(92) + 'u2212'` in a Write-tool script.
 - **Git Bash's quoted heredoc turns `\\` into `\`.** Write multi-line scripts with the Write tool, then run them.
 - **Line endings:** `SettingsScreen.tsx` and `settings.css` are checked out CRLF; most other files are LF. The patch scripts detect the ending and restore it.
-- **A lazy first load hides edit-path mutants:** read once before the edits.
+- **Pushing a screen tells the focus listeners before `nav.push` returns**, so a listener that reads the screen signal must handle `null`.
+- **An e2e can't see a `data-pending` sum:** the mock answers before any wait looks. Unit-test the root by calling `SettingsScreen(...)` as a function with a fake `settings`.
+- **Components that read focus through `useZone` can be called as functions in unit tests** (`unmatched-screen.test.ts`).
+- **A Button's `data-state`:** `idle` for the zone's other items while the focus is in the zone; `memory` once the focus has left the zone.
+- **A list page that was dropped (LRU) and is wanted again** must be asked again.
 - **The navigator clamps and floors any focus index.**
 - **Never edit source while `pnpm verify`, `e2e:media` or a mutation run is going.** Docs are safe.
+- **If Claude Code stops a background run for low memory**, check `git status` for `*.mutbak`, diff the backup against HEAD, `mv` it back, and go on in the foreground in ranges.
 - **TV bundle polyfills:**
   - no member named `at`, no `Uint8Array`, `JSON.stringify`, `new RegExp`, `.split(`, `Array.from` or iterator calls (`map.keys().next()`) in TV files;
   - count main after any TV-file change (219).
@@ -155,16 +131,16 @@ Read RELAY.md's step 24 block first: the "Already built" note, the order and its
   - the app imports only types from `@zoma/data` (values from narrow entries);
   - a new screen root needs `data-screen/zone/index`.
 - **Dependencies** must be at least 2 weeks old. Never weaken lint.
-- **Commits:** scoped `git add`, `git commit -F -` ending with the `Co-Authored-By` line and the harness's `Claude-Session` line.
+- **Commits:** scoped `git add`, `git commit -F -` ending with the `Co-Authored-By` line.
 - **CLAUDE.md edits need Omar's direct word in his own tab.**
+- **The relay context check fired at about 451k tokens in leg 57.** Budget 24e's e2e, two mutation runs and the PR's CI wait (about 16 minutes) inside it.
 
 ## Verified vs not
 - **Verified:**
-  - Locally: lint, typecheck, 3,854 unit tests, both TV builds and the core-js count; `guide-matches`, `guides` and `guide-offset` specs in en, ar and en-XA; both mutation runs; screenshots looked at.
-  - PR #56's CI green on all three jobs; merged as `4673a87`.
+  - Locally: lint, typecheck, 3,887 unit tests, both TV builds and the core-js count; `pnpm e2e` 84/84; the 300 MB EPG media tests; mutation 76/76.
+  - PR #57's CI green on all three jobs; merged as `f39b7b4`.
 - **Not done:**
-  - A full local `pnpm verify` (CI's verify ran it).
-  - Main's CI on `4673a87` is unchecked.
+  - The rest of `test:media`, `e2e:media` and `verify:engines` locally (CI's media and engines jobs ran them).
   - The settings screens have never run on a TV or on Chromium 53/56/68.
 - **Migrations and deploys:** N/A (no backend until step 29).
 
@@ -188,7 +164,8 @@ Read RELAY.md's step 24 block first: the "Already built" note, the order and its
   - the catalogs as a UTF-8 file;
   - a "loading" look for rows not read yet (the guide's and the unmatched list's);
   - the details dialog and the settings on the old-engine walk;
-  - a screen for a user's guide's own zone (`UserGuide.offsetMinutes`).
+  - a screen for a user's guide's own zone (`UserGuide.offsetMinutes`);
+  - whether a channel mapped to "No guide" should stay in 24c's "without a guide" list (it does now; 24e may mark it).
 - **Later gates:** steps 19b, 21, 34, 44, 46 and 47. Before the first store submission: the final app IDs and real icons.
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
@@ -200,5 +177,5 @@ Read RELAY.md's step 24 block first: the "Already built" note, the order and its
   - 1–28: as listed in leg 51's handover (`git -C "<wt>" show d05d5fd:HANDOVER.md`, "Carry-forward reminders");
   - 29: the `pnpm dev` row should name the live header's "Guide";
   - 30: the `pnpm verify:engines` row's self-test description (108 runs, 80 that must fail).
-- **The relay cap:** 60 legs, with 3 left after leg 57. Steps 24d and 24e fit; step 25 and beyond need `/relay continue iptv-20261101-214120`.
+- **The relay cap:** 60 legs, with 2 left after leg 58. Step 24e fits; step 25 and beyond need `/relay continue iptv-20261101-214120`.
 - **Secrets:** none pending.

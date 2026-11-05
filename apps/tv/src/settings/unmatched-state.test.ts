@@ -85,7 +85,7 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 20; i += 1) await Promise.resolve();
 };
 
-function setup(engine = new FakeEngine()) {
+function setup(engine = new FakeEngine(), map?: (target: { key: string; name: string }) => void) {
   const nav = createNavigator({
     root: { id: 'guides', zones: [{ kind: 'list', id: 'header', axis: 'horizontal', count: 2 }] },
     rootBack: 'exit-dialog',
@@ -93,7 +93,7 @@ function setup(engine = new FakeEngine()) {
     exitDialog: () => undefined,
   });
   nav.top.focus('header', 1);
-  const list = createUnmatchedList({ nav, engine });
+  const list = createUnmatchedList({ nav, engine, ...(map === undefined ? {} : { map }) });
   const at = (): string => {
     const f = nav.snapshot();
     return `${f.screen} · ${f.zone} ${f.index}`;
@@ -318,7 +318,7 @@ describe('"Channels without a guide" (step 24c)', () => {
     expect(t.list.row(50)?.name).toBe('Channel 50');
   });
 
-  it('lists none with a count of 0, and OK on a row does nothing yet (step 24e maps it)', async () => {
+  it('lists none with a count of 0, and OK on a row of a list with no mapping does nothing', async () => {
     const empty = new FakeEngine();
     empty.total = 0;
     let t = await opened(empty);
@@ -443,5 +443,132 @@ describe('"Channels without a guide" (step 24c)', () => {
     failing.held.profile.splice(0)[0]!.reject(new Error('late'));
     await flush();
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+/** An engine whose profile holds `overrides` (step 24d's mappings), counting its reads. */
+function mappedEngine(overrides: Record<string, unknown> | null) {
+  const engine = new FakeEngine();
+  const state = { overrides, reads: 0, none: false };
+  // Through the engine's own read: held and failed as it is.
+  const read = engine.profile.bind(engine);
+  engine.profile = (): Promise<LoadedProfile | null> => {
+    state.reads += 1;
+    return read().then((loaded) => {
+      if (state.none || loaded === null) return null;
+      const doc = { ...loaded.doc, ...(state.overrides === null ? {} : { epgOverrides: state.overrides }) };
+      return { ...loaded, doc: doc as LoadedProfile['doc'] };
+    });
+  };
+  return { engine, state };
+}
+
+describe('"Channels without a guide" and the manual mapping (step 24e)', () => {
+  it('opens the mapping on OK with the channel’s key and name; a row not read yet opens nothing', async () => {
+    const map = vi.fn();
+    const engine = new FakeEngine();
+    engine.total = 20_000;
+    const t = setup(engine, map);
+    t.list.open();
+    await flush();
+    await t.press('DOWN', 'OK');
+    expect(map).toHaveBeenCalledTimes(1);
+    expect(map).toHaveBeenCalledWith({ key: 'k1', name: 'Channel 1' });
+    // The list stays: the mapping goes over it.
+    expect(t.at()).toBe('unmatched · channels 1');
+    // Far down, before its page is read.
+    engine.hold = new Set(['page']);
+    t.nav.top.focus('channels', 10_000);
+    await flush();
+    await t.press('OK');
+    expect(map).toHaveBeenCalledTimes(1);
+  });
+
+  it('says which channels the profile maps to no guide, from its read at the opening', async () => {
+    const { engine } = mappedEngine({ k1: { epgSrc: '', channel: null }, k2: { epgSrc: 's1:xmltv', channel: 'zoma.kids' }, k3: 7 });
+    engine.hold = new Set(['profile']);
+    const t = setup(engine);
+    t.list.open();
+    await flush();
+    // Not read yet: none.
+    expect(t.list.noGuide('k1')).toBe(false);
+    engine.held.profile.splice(0)[0]!.resolve();
+    await flush();
+    expect(['k0', 'k1', 'k2', 'k3'].map((key) => t.list.noGuide(key))).toEqual([false, true, false, false]);
+    // A profile without mappings, or none at all.
+    const bare = await opened(mappedEngine(null).engine);
+    expect(bare.list.noGuide('k1')).toBe(false);
+    const gone = mappedEngine({ k1: { epgSrc: '', channel: null } });
+    gone.state.none = true;
+    const none = await opened(gone.engine);
+    expect(none.list.noGuide('k1')).toBe(false);
+  });
+
+  it('reads the profile and the window again on reload, dropping the pages held and the answers still out', async () => {
+    const { engine, state } = mappedEngine({});
+    engine.total = 20_000;
+    const t = await opened(engine);
+    t.nav.top.focus('channels', 10_000);
+    await flush();
+    expect(engine.pages()).toEqual([0, 199, 200]);
+    // A page out when the reload comes: its answer is dropped.
+    engine.hold = new Set(['page']);
+    t.nav.top.focus('channels', 15_000);
+    await flush();
+    expect(engine.held.page).toHaveLength(2);
+    const drawn = t.list.drawn.value;
+    state.overrides = { k10000: { epgSrc: '', channel: null } };
+    engine.total = 19_999;
+    engine.hold = new Set();
+    t.list.reload();
+    expect(t.list.drawn.value).toBe(drawn + 1);
+    // Every page held went at once; the profile is read again, then the window asked again.
+    expect(t.list.row(15_000)).toBeNull();
+    expect(t.list.row(10_000)).toBeNull();
+    await flush();
+    expect(state.reads).toBe(2);
+    expect(engine.pages().slice(5)).toEqual([0, 299, 300]);
+    expect(t.list.count.value).toBe(19_999);
+    expect(t.list.noGuide('k10000')).toBe(true);
+    expect(t.list.row(15_000)?.name).toBe('Channel 15000');
+    // The answers of before the reload land late (from a newer version, a longer list): dropped.
+    engine.version = 2;
+    engine.total = 20_000;
+    engine.held.page.splice(0).forEach((h) => h.resolve());
+    await flush();
+    expect(t.list.count.value).toBe(19_999);
+    expect(t.list.row(15_000)?.name).toBe('Channel 15000');
+    expect(t.list.status.value).toBe('ready');
+  });
+
+  it('reloads nothing once closed, never opened or disposed', async () => {
+    const { engine, state } = mappedEngine({});
+    const t = await opened(engine);
+    await t.press('BACK');
+    t.list.reload();
+    await flush();
+    expect(state.reads).toBe(1);
+    const fresh = mappedEngine({});
+    const never = setup(fresh.engine);
+    never.list.reload();
+    await flush();
+    expect(fresh.state.reads).toBe(0);
+    const gone = mappedEngine({});
+    const d = await opened(gone.engine);
+    d.list.dispose();
+    d.list.reload();
+    await flush();
+    expect(gone.state.reads).toBe(1);
+  });
+
+  it('says it could not read the list when the profile read of a reload fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const engine = new FakeEngine();
+    const t = await opened(engine);
+    engine.failProfile = true;
+    t.list.reload();
+    await flush();
+    expect(t.list.status.value).toBe('failed');
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 });

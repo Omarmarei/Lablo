@@ -1,4 +1,19 @@
-import type { EpgMeta, EpgStatus, EpgSummary, LoadedProfile, ProfileDoc, ProfileEdit, SourceMeta, SourceRecord, UnmatchedPage, UnmatchedRequest, UserGuide } from '@zoma/data';
+import type {
+  EpgMeta,
+  EpgNowNext,
+  EpgStatus,
+  EpgSummary,
+  GuideChannelsPage,
+  GuideChannelsRequest,
+  LoadedProfile,
+  ProfileDoc,
+  ProfileEdit,
+  SourceMeta,
+  SourceRecord,
+  UnmatchedPage,
+  UnmatchedRequest,
+  UserGuide,
+} from '@zoma/data';
 import { applyProfileEdit, emptyProfile } from '@zoma/data';
 import type { Intent, KeyLike, TextKey } from '@zoma/platform-api';
 import type { EditableLike } from '@zoma/ui';
@@ -117,6 +132,15 @@ class FakeEngine implements GuidesEngine {
       if (this.failCount) throw new Error('worker gone');
       return { version: 1, count: this.unmatchedCount, offset: req.offset, rows: [] };
     });
+  }
+
+  /** The manual mapping's reads (step 24e: the settings' picker shares this engine): no match, no channels. */
+  nowNext(keys: string[]): Promise<EpgNowNext[]> {
+    return Promise.resolve(keys.map((key) => ({ key, epgSrc: null, channel: null, method: null, now: null, next: null })));
+  }
+
+  guideChannels(req: GuideChannelsRequest): Promise<GuideChannelsPage> {
+    return Promise.resolve({ version: 1, count: 0, offset: req.offset, rows: [] });
   }
 
   editProfile(edit: ProfileEdit): Promise<boolean> {
@@ -755,7 +779,7 @@ describe('the settings screen', () => {
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
     });
     expect(SETTINGS_ITEMS).toEqual(['guides']);
-    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched']);
+    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map']);
     settings.open();
     expect(t.at()).toBe('settings · items 0');
     expect((t.nav.top.zone('items') as { count: number }).count).toBe(1);
@@ -773,6 +797,43 @@ describe('the settings screen', () => {
     expect(t.at()).toBe('settings · items 0');
     await t.press('BACK');
     expect(t.at()).toBe('live · channels 0');
+    settings.dispose();
+  });
+
+  it('opens the manual mapping from a channel of "Channels without a guide", and reads both lists again once its refresh settles (step 24e)', async () => {
+    const t = setup();
+    const unmatched: UnmatchedPage = { version: 1, count: 1, offset: 0, rows: [{ key: 'x:s1:live:9', name: 'Test Pattern', src: 's1', category: 'Tests' }] };
+    t.engine.unmatched = (req: UnmatchedRequest): Promise<UnmatchedPage> => {
+      t.engine.counts.push(req);
+      return Promise.resolve({ ...unmatched, rows: req.limit === 0 ? [] : unmatched.rows });
+    };
+    const settings = createSettings({
+      nav: t.nav,
+      engine: t.engine,
+      refreshNow: t.refresh.refreshNow,
+      offsetChanged: t.offsetChanged,
+      platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+    });
+    settings.open();
+    await t.press('OK', 'UP', 'RIGHT', 'OK');
+    expect(t.at()).toBe('unmatched · channels 0');
+    await t.press('OK');
+    expect(t.at()).toBe('guide-map · search 0');
+    expect(settings.mapping.target.value).toEqual({ key: 'x:s1:live:9', name: 'Test Pattern' });
+    // "No guide": saved, then the guides read again; both lists read again once that settles.
+    await t.press('DOWN', 'OK');
+    expect(t.at()).toBe('unmatched · channels 0');
+    expect(t.engine.edits[t.engine.edits.length - 1]).toEqual({ kind: 'epgOverride', key: 'x:s1:live:9', pin: { epgSrc: '', channel: null } });
+    expect(t.refresh.refreshNow).toHaveBeenCalledTimes(1);
+    const reads = t.engine.profileCalls;
+    const counts = t.engine.counts.length;
+    t.refresh.calls[0]!.resolve();
+    await flush();
+    expect(settings.mapping.reading.value).toBe(0);
+    // The list's profile and page, and the guides screen's read and count (it is on the stack).
+    expect(t.engine.profileCalls).toBe(reads + 2);
+    expect(t.engine.counts.length).toBe(counts + 2);
+    expect(settings.unmatched.noGuide('x:s1:live:9')).toBe(true);
     settings.dispose();
   });
 });
@@ -837,6 +898,31 @@ describe("a guide's matches (step 24c)", () => {
     expect(t.engine.statusCalls).toBe(reads);
     expect(t.engine.edits).toEqual([]);
     expect(t.refresh.refreshNow).not.toHaveBeenCalled();
+  });
+});
+
+describe('matchesChanged (step 24e)', () => {
+  it('reads the list and its counts again while the guides screen is on the stack, and not once it has closed', async () => {
+    const t = await opened();
+    const reads = t.engine.profileCalls;
+    const counts = t.engine.counts.length;
+    // Covered by the list without a guide: still on the stack.
+    t.nav.push({ id: 'unmatched', zones: [{ kind: 'list', id: 'channels', axis: 'vertical', count: 1 }] });
+    t.guides.matchesChanged();
+    await flush();
+    expect(t.engine.profileCalls).toBe(reads + 1);
+    expect(t.engine.counts.length).toBe(counts + 1);
+    t.nav.pop();
+    await t.press('BACK');
+    expect(t.at()).toBe('live · channels 0');
+    t.guides.matchesChanged();
+    await flush();
+    expect(t.engine.profileCalls).toBe(reads + 1);
+    // Never opened: nothing either.
+    const fresh = setup();
+    fresh.guides.matchesChanged();
+    await flush();
+    expect(fresh.engine.profileCalls).toBe(0);
   });
 });
 

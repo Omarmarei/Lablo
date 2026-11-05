@@ -5,6 +5,8 @@ import type { Navigator, Screen } from '@zoma/ui';
 import { SCREEN, fits } from '@zoma/ui';
 import { storedSources } from '../onboarding/engine-loader';
 import { GUIDES } from './guides-state';
+import type { MappingTarget } from './mapping-state';
+import { pinOf } from './mapping-state';
 
 /**
  * "Channels without a guide" (RELAY step 24c, architecture.md §1.5 "Built in step 24c"): the
@@ -12,7 +14,7 @@ import { GUIDES } from './guides-state';
  * screen's header and pushed on the live navigator.
  *
  *   channels  (one row per channel: its name, its source and its category, in the order "All
- *              channels" lists them; step 24e makes OK map one to a guide channel)
+ *              channels" lists them; OK opens the manual mapping's picker on it, step 24e)
  *
  * - **Reads:** the profile first (the sources' order and names), then pages of `UNMATCHED.page`
  *   rows from the query worker (`unmatched`). Only the pages around the window are asked for and
@@ -20,6 +22,9 @@ import { GUIDES } from './guides-state';
  * - **A new version** (a catalog or a guide swapped in the worker since the last page): every
  *   page held is dropped, the count and the list take the new answer, and the window is asked
  *   for again. An answer for an older version, a closed screen or an older opening is dropped.
+ * - **A mapping** (step 24e): a channel mapped to no guide is still listed, marked so (the
+ *   profile read at the opening says it). Once a mapping's refresh settles, `reload` reads the
+ *   profile and the window again.
  * - Back closes it.
  */
 
@@ -49,6 +54,8 @@ export interface UnmatchedEngine {
 export interface UnmatchedOptions {
   readonly nav: Navigator;
   readonly engine: UnmatchedEngine;
+  /** OK on a channel: the manual mapping's picker (step 24e). */
+  readonly map?: (target: MappingTarget) => void;
 }
 
 export interface UnmatchedList {
@@ -65,8 +72,12 @@ export interface UnmatchedList {
   row(index: number): UnmatchedChannel | null;
   /** A source's name as the profile gives it (`''`: not there). */
   sourceName(src: string): string;
+  /** Whether the profile maps channel `key` to no guide (step 24e). */
+  noGuide(key: string): boolean;
   /** Opens the screen and reads the list. */
   open(): void;
+  /** A mapping changed the matches: the profile and the window are read again (open only). */
+  reload(): void;
   dispose(): void;
 }
 
@@ -84,6 +95,8 @@ export function createUnmatchedList(options: UnmatchedOptions): UnmatchedList {
   let openSeq = 0;
   /** The sources asked for, in their order (the profile's). */
   let records: SourceRecord[] = [];
+  /** The profile's document as last read (its mappings). */
+  let doc: unknown = null;
   /** The worker's version the pages are from (-1: none yet). */
   let version = -1;
   /** The pages held, by page number, least recently wanted first (a Map keeps insertion order). */
@@ -185,6 +198,23 @@ export function createUnmatchedList(options: UnmatchedOptions): UnmatchedList {
     nav.pop();
   };
 
+  /** Reads the profile (the sources and their order, the mappings), then the window from `ask(0)`, for opening `seq`. */
+  const readProfile = (seq: number): void => {
+    track(() => engine.profile()).then(
+      (profile) => {
+        if (disposed || seq !== openSeq) return;
+        records = storedSources(profile);
+        doc = profile === null ? null : profile.doc;
+        ask(0);
+      },
+      (error: unknown) => {
+        if (disposed || seq !== openSeq) return;
+        console.warn('The sources could not be read', error);
+        status.value = 'failed';
+      },
+    );
+  };
+
   // (A focus move elsewhere finds the list closed: fill does nothing then.)
   const stopFollowing = nav.subscribe(() => fill());
 
@@ -200,6 +230,9 @@ export function createUnmatchedList(options: UnmatchedOptions): UnmatchedList {
     sourceName(src: string): string {
       for (let i = 0; i < records.length; i += 1) if (records[i]!.id === src) return records[i]!.name;
       return '';
+    },
+    noGuide(key: string): boolean {
+      return pinOf(doc, key)?.channel === null;
     },
     open(): void {
       if (disposed) return;
@@ -217,19 +250,21 @@ export function createUnmatchedList(options: UnmatchedOptions): UnmatchedList {
           close();
           return true;
         },
+        onSelect: (focus) => {
+          const row = pages.get(Math.floor(focus.index / UNMATCHED.page))?.[focus.index % UNMATCHED.page];
+          if (row !== undefined) options.map?.({ key: row.key, name: row.name });
+        },
       });
-      track(() => engine.profile()).then(
-        (profile) => {
-          if (disposed || seq !== openSeq) return;
-          records = storedSources(profile);
-          ask(0);
-        },
-        (error: unknown) => {
-          if (disposed || seq !== openSeq) return;
-          console.warn('The sources could not be read', error);
-          status.value = 'failed';
-        },
-      );
+      readProfile(seq);
+    },
+    reload(): void {
+      if (disposed || screen.value === null) return;
+      // A new opening's reads: what an older one still has out is dropped.
+      openSeq += 1;
+      pages = new Map();
+      asking = new Set();
+      drawn.value += 1;
+      readProfile(openSeq);
     },
     dispose(): void {
       disposed = true;

@@ -41,9 +41,9 @@ test.afterAll(async () => {
 });
 
 const SAYS = {
-  en: { open: 'Guide', title: 'Guide', noInfo: 'No information', watch: 'Watch the channel', close: 'Close', minutes: (n: number) => `${n} minutes`, filler: 'A long description of the programme. ' },
+  en: { open: 'Guide', title: 'Guide', noInfo: 'No information', watch: 'Watch the channel', mapping: 'Guide channel', close: 'Close', minutes: (n: number) => `${n} minutes`, filler: 'A long description of the programme. ' },
   // Every mock slot (30, 45, 60, 90 minutes) takes Arabic's "many" form (11–99).
-  ar: { open: 'الدليل', title: 'دليل البرامج', noInfo: 'لا توجد معلومات', watch: 'شاهد القناة', close: 'إغلاق', minutes: (n: number) => `${n} دقيقةً`, filler: 'وصف طويل للبرنامج على هذه القناة. ' },
+  ar: { open: 'الدليل', title: 'دليل البرامج', noInfo: 'لا توجد معلومات', watch: 'شاهد القناة', mapping: 'قناة الدليل', close: 'إغلاق', minutes: (n: number) => `${n} دقيقةً`, filler: 'وصف طويل للبرنامج على هذه القناة. ' },
 } as const;
 
 /** The mock's programme of `channel` (through its guide's channel) that starts at `start` (UTC minutes). */
@@ -342,11 +342,12 @@ test.describe('the guide screen by keys (pnpm dev, after onboarding)', () => {
       expect(d.cut).toEqual([]);
       expect(d.buttons.map((b) => [b.id, b.text])).toEqual([
         ['programme-watch', says.watch],
+        ['programme-map', says.mapping],
         ['programme-close', says.close],
       ]);
-      const [watch, close] = d.buttons;
-      if (dir === 'ltr') expect(watch!.box.right).toBeLessThan(close!.box.left);
-      else expect(watch!.box.left).toBeGreaterThan(close!.box.right);
+      const [watch, map, close] = d.buttons;
+      if (dir === 'ltr') expect(watch!.box.right < map!.box.left && map!.box.right < close!.box.left).toBe(true);
+      else expect(watch!.box.left > map!.box.right && map!.box.left > close!.box.right).toBe(true);
       // A description at the full tier's cap (1,000 characters), on a copy of the dialog (the
       // app's own nodes untouched): cut at eight lines of 38 px, the panel inside the safe area.
       const long = await page.evaluate(
@@ -377,8 +378,9 @@ test.describe('the guide screen by keys (pnpm dev, after onboarding)', () => {
       expect((await readGrid(page)).cells.filter((c) => c.state !== 'idle').map((c) => [c.state, c.start])).toEqual([['memory', next.start]]);
       await page.screenshot({ path: path.join(SHOTS, `guide-details-${locale}.png`), animations: 'disabled' });
 
-      // "Close" (the forward arrow, the language's way) and Back close it on the same cell.
+      // "Close" (the forward arrow twice, the language's way) and Back close it on the same cell.
       await remote.go(forward, 'programme/actions/1');
+      await remote.go(forward, 'programme/actions/2');
       await remote.go('OK', 'guide/grid/0');
       await expect(page.getByTestId('programme')).toHaveCount(0);
       expect((await readGrid(page)).time).toBe(next.start);

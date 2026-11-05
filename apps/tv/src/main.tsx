@@ -179,6 +179,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     days: () => GUIDE_DAYS[tier],
     play: (index) => player?.show(index),
     closed: (index) => live.focusRow(index),
+    // "Guide channel" in the programme details (step 24e): the manual mapping's picker over the guide.
+    map: (target) => settings.mapping.open(target),
   });
   // The header's "Settings" (step 22b2): the guides screen changes the guide list, then reads it.
   // A guide's time offset (step 24b) needs no refresh: the screens ask their programmes again.

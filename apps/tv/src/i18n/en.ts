@@ -47,6 +47,7 @@ export const EN = {
   // The programme details (RELAY step 24a): a dialog over the guide.
   'details.watch': 'Watch the channel',
   'details.close': 'Close',
+  'details.mapping': 'Guide channel',
   'details.length': '{n, plural, one {# minute} other {# minutes}}',
   'details.noDescription': 'No description',
   'details.failed': "Couldn't read the details.",
@@ -196,6 +197,24 @@ export const EN = {
   'unmatched.intro': 'No guide in your list has programmes for these live channels.',
   'unmatched.none': 'Every live channel has a guide.',
   'unmatched.failed': "Couldn't read the channels.",
+  'unmatched.noGuide': 'No guide, set by you',
+  // The manual mapping (RELAY step 24e): which guide channel a live channel's programmes come from.
+  'mapping.title': 'Guide channel',
+  'mapping.channel': 'Channel: {name}',
+  'mapping.nowNone': 'no guide has it yet',
+  'mapping.nowAuto': 'now {name}, found by the guides',
+  'mapping.nowPin': 'now {name}, set by you',
+  'mapping.nowOff': 'now no guide, set by you',
+  'mapping.search': "Search the guides' channels",
+  'mapping.searchHint': 'Part of a name or an ID',
+  'mapping.none': 'No guide channel has these words.',
+  'mapping.empty': 'Your guides have no channels yet.',
+  'mapping.failed': "Couldn't read the guides' channels.",
+  'mapping.off': 'No guide',
+  'mapping.offHint': 'Show no programmes for this channel',
+  'mapping.auto': 'Match automatically',
+  'mapping.autoHint': 'Let the guides find its channel again',
+  'mapping.reading': 'Reading the guides…',
 
   // The player (RELAY step 20a). Codes are data (PRV-HTTP-404): they stay as they are.
   'player.connecting': 'Connecting…',

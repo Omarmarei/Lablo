@@ -1,6 +1,8 @@
 import type { Focus, FocusBinding } from '@zoma/ui';
 import { GuideGrid, guideCellAt } from '@zoma/ui';
 import type { AppI18n } from '../i18n';
+import type { Mapping } from '../settings/mapping-state';
+import { MappingReading } from '../settings/MappingPage';
 import type { Guide } from './guide-state';
 import { GUIDE_GRID } from './guide-state';
 import { ProgrammeDialog } from './ProgrammeDialog';
@@ -37,6 +39,8 @@ interface Props {
   readonly clock: number;
   /** The live list's version: the channels' names come from its chunks. */
   readonly listVersion: number;
+  /** The manual mapping (step 24e): "Reading the guides…" while its refresh runs, counted in `data-pending`. */
+  readonly mapping?: Pick<Mapping, 'reading' | 'pending'> | null;
 }
 
 /**
@@ -46,7 +50,7 @@ interface Props {
  * then the grid. Channel names and titles are the provider's data (`dir="auto"`,
  * `translate=false`); the times follow the page's direction.
  */
-export function GuideScreen({ guide, i18n, binding, focus, clock, listVersion }: Props) {
+export function GuideScreen({ guide, i18n, binding, focus, clock, listVersion, mapping }: Props) {
   const { t } = i18n;
   const screen = guide.screen.value;
   if (screen === null) return null;
@@ -58,6 +62,8 @@ export function GuideScreen({ guide, i18n, binding, focus, clock, listVersion }:
   const place = focus.screen === screen.id ? focus : screen.position(GUIDE_GRID);
   const details = guideDetails(guide, place, now);
   const head = guide.channel(place.index);
+  const reading = mapping === undefined || mapping === null ? 0 : mapping.reading.value;
+  const mappingPending = mapping === undefined || mapping === null ? 0 : mapping.pending.value;
 
   return (
     <main
@@ -65,7 +71,8 @@ export function GuideScreen({ guide, i18n, binding, focus, clock, listVersion }:
       data-testid="guide-screen"
       data-ready="true"
       data-language={i18n.locale.pseudo ? 'pseudo' : i18n.locale.language}
-      data-pending={guide.pending.value}
+      data-pending={guide.pending.value + mappingPending}
+      data-reading={reading}
       data-version={version}
       data-list-version={listVersion}
       data-screen={focus.screen}
@@ -84,6 +91,7 @@ export function GuideScreen({ guide, i18n, binding, focus, clock, listVersion }:
               {head.name}
             </span>
           </p>
+          <MappingReading i18n={i18n} reading={reading} testId="guide-reading" />
           <p class="guide__clock" data-testid="guide-clock">
             {i18n.time(new Date(clock))}
           </p>
