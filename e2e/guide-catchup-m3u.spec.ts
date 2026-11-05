@@ -125,7 +125,10 @@ async function playFromStart(remote: RemoteDriver, screen: Locator, c: LiveChann
   await expect(page.getByTestId('programme-archive')).toHaveAttribute('data-state', 'focused');
   if (shot !== null) await page.screenshot({ path: path.join(SHOTS, `${shot}-details.png`), animations: 'disabled' });
   const asked = answers.length;
-  await remote.go('OK', 'player/actions/0');
+  await remote.press('OK');
+  // The info bar's first button, or already the error card's: the mock's synthetic media fails
+  // at once, and an M3U mode has one URL to try (an Xtream channel tries .ts, then .m3u8).
+  await expect.poll(() => remote.focusPath()).toMatch(/^player\/(?:actions|card)\/0$/);
   const player = page.getByTestId('player');
   await expect(player).toHaveAttribute('data-archive', String(cell.start));
   await expect(page.getByTestId('player-archive')).toContainText(cell.title);
