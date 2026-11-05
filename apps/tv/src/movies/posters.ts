@@ -53,11 +53,6 @@ export class PosterLoader {
     return url !== null && this.given.indexOf(url) !== -1 ? url : undefined;
   }
 
-  /** Whether poster `url` failed (its tile draws no image). */
-  failedOnce(url: string): boolean {
-    return this.done.get(url) === 'failed';
-  }
-
   /** Posters downloading now. */
   inFlight(): number {
     return this.loading.length;

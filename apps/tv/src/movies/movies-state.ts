@@ -268,9 +268,9 @@ export function createMovies(options: MoviesOptions): Movies {
   };
 
   /**
-   * Shows rail entry `i` with movie `place` focused. From its first movie the grid starts at the
-   * top (so no step reads chunks for the old view in the new grid); a swap's kept place keeps the
-   * view where it was (clamped to the new grid), so no step reads the top's chunks either.
+   * Shows rail entry `i` with movie `place` focused (the focus engine clamps it to the new grid and
+   * scrolls the view as little as it can: to the top for the first movie, and where it was for a
+   * swap's kept place, so no step reads the top's chunks).
    */
   const showCategory = (i: number, place = 0): void => {
     const shown = screen.value;
@@ -278,9 +278,8 @@ export function createMovies(options: MoviesOptions): Movies {
     if (shown === null || picked === undefined) return;
     category.value = i;
     index = new ChannelIndex(picked.parts);
-    if (place <= 0) shown.reset(MOVIES_GRID);
     shown.update(gridZone(index.count));
-    shown.focus(MOVIES_GRID, Math.min(Math.max(0, place), index.count - 1));
+    shown.focus(MOVIES_GRID, place);
   };
 
   /** The stored sources and each one's movie categories. */
@@ -335,8 +334,8 @@ export function createMovies(options: MoviesOptions): Movies {
         showCategory(pick, place);
         if (onRail) shown.focus(MOVIES_RAIL, pick);
         bump();
+        // (Its chunks' arrival asks the posters: the load cleared them all.)
         readView();
-        scheduleRest();
       },
       (error: unknown) => {
         const shown = screen.value;

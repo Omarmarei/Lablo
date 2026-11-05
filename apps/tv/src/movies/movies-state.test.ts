@@ -268,6 +268,44 @@ describe('the movies screen (RELAY step 26a)', () => {
     expect(t.engine.chunkCalls).toEqual(['s1|0|0']);
   });
 
+  it('keeps the chunks used last, not those read first', async () => {
+    const engine = new FakeEngine();
+    // Chunks of 30, five rows each: a view at tile 30k needs chunks k-1 and k.
+    engine.catalog = { s1: [info(0, 'Big', Array.from({ length: 12 }, () => 30))], s2: [] };
+    const t = await setup({ engine });
+    for (let i = 30; i <= 210; i += 30) {
+      t.movies.screen.value!.focus(MOVIES_GRID, i);
+      await flush();
+    }
+    // Chunks 0-7 are kept: back at the top, nothing is read.
+    let calls = t.engine.chunkCalls.length;
+    t.movies.screen.value!.focus(MOVIES_GRID, 0);
+    await flush();
+    expect(t.engine.chunkCalls).toHaveLength(calls);
+    // Chunk 0 is the one used last: two new chunks push out chunks 1 and 2, not 0.
+    t.movies.screen.value!.focus(MOVIES_GRID, 270);
+    await flush();
+    await t.press('RIGHT');
+    calls = t.engine.chunkCalls.length;
+    t.movies.screen.value!.focus(MOVIES_GRID, 0);
+    await flush();
+    expect(t.engine.chunkCalls).toHaveLength(calls);
+    t.movies.screen.value!.focus(MOVIES_GRID, 60);
+    await flush();
+    expect(t.engine.chunkCalls.slice(calls)).toEqual(['s1|0|1', 's1|0|2']);
+  });
+
+  it("never drops a chunk the view needs, even when it needs more than CHUNK_CACHE", async () => {
+    const engine = new FakeEngine();
+    // A movie a chunk (a provider's partial chunks): the view and its margins need 24.
+    engine.catalog = { s1: [info(0, 'Tiny', Array.from({ length: 40 }, () => 1))], s2: [] };
+    const t = await setup({ engine });
+    expect(t.engine.chunkCalls).toHaveLength(24);
+    await t.press('RIGHT', 'LEFT');
+    expect(t.engine.chunkCalls).toHaveLength(24);
+    expect(t.tiles(0, 2)).toEqual(['s1 0-0', 's1 0-500']);
+  });
+
   it('drops the least recently used chunks beyond CHUNK_CACHE', async () => {
     const engine = new FakeEngine();
     engine.catalog = { s1: [info(0, 'Big', Array.from({ length: 12 }, () => 30))], s2: [] };
@@ -365,8 +403,10 @@ describe('the movies screen (RELAY step 26a)', () => {
     await t.rest();
     expect(t.withPosters(0, 18)).toEqual([]);
     expect(t.movies.pending.value).toBe(1);
+    const before = t.movies.version.value;
     engine.held.chunk.shift()!.resolve(engine.items('s1', 0, 0));
     await flush();
+    expect(t.movies.version.value).toBeGreaterThan(before);
     expect(t.tiles(0, 1)).toEqual(['s1 0-0']);
     expect(t.withPosters(0, 18)).toEqual([]);
     await t.rest();
@@ -531,6 +571,22 @@ describe('the movies screen (RELAY step 26a)', () => {
     engine.held.profile.shift()!.resolve(engine.profileDoc);
     await flush();
     expect(t.movies.status.value).toBe('loading');
+    engine.held.profile.shift()!.resolve(engine.profileDoc);
+    await flush();
+    expect(t.movies.status.value).toBe('ready');
+  });
+
+  it("drops the failure of an earlier open's read", async () => {
+    const engine = new FakeEngine();
+    engine.hold = new Set(['profile']);
+    const t = await setup({ engine });
+    await t.press('BACK');
+    t.movies.open();
+    await flush();
+    engine.held.profile.shift()!.reject(new Error('no IndexedDB'));
+    await flush();
+    expect(t.movies.status.value).toBe('loading');
+    expect(t.at()).toBe('movies · grid -1');
     engine.held.profile.shift()!.resolve(engine.profileDoc);
     await flush();
     expect(t.movies.status.value).toBe('ready');

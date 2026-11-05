@@ -55,6 +55,16 @@ describe('the posters a grid draws (RELAY step 26a)', () => {
     expect(drawn(p, 2, 5)).toEqual([2, 5]);
   });
 
+  it("asks nothing the view moved away from before its turn came", () => {
+    const p = new PosterLoader(1);
+    p.rest(urls(1, 2, 3));
+    p.rest(urls(4));
+    expect(drawn(p, 1, 2, 3, 4)).toEqual([4]);
+    p.loaded(u(4));
+    expect(drawn(p, 1, 2, 3, 4)).toEqual([4]);
+    expect(p.inFlight()).toBe(0);
+  });
+
   it('keeps a poster that is still downloading through a rest that still wants it', () => {
     const p = new PosterLoader(1);
     p.rest(urls(1, 2));
@@ -70,8 +80,6 @@ describe('the posters a grid draws (RELAY step 26a)', () => {
     const p = new PosterLoader(2);
     p.rest(urls(1, 2, 3));
     p.failed(u(1));
-    expect(p.failedOnce(u(1))).toBe(true);
-    expect(p.failedOnce(u(2))).toBe(false);
     expect(drawn(p, 1, 2, 3)).toEqual([2, 3]);
     p.rest(urls(1, 2, 3));
     expect(drawn(p, 1, 2, 3)).toEqual([2, 3]);
@@ -86,7 +94,6 @@ describe('the posters a grid draws (RELAY step 26a)', () => {
     p.loaded(u(2));
     p.rest(urls(3));
     p.loaded(u(3));
-    expect(p.failedOnce(u(1))).toBe(false);
     p.rest(urls(1));
     expect(drawn(p, 1)).toEqual([1]);
     expect(p.inFlight()).toBe(1);
@@ -118,7 +125,6 @@ describe('the posters a grid draws (RELAY step 26a)', () => {
     p.clear();
     expect(drawn(p, 1, 2, 3)).toEqual([]);
     expect(p.inFlight()).toBe(0);
-    expect(p.failedOnce(u(2))).toBe(false);
     p.rest(urls(2));
     expect(drawn(p, 2)).toEqual([2]);
   });
