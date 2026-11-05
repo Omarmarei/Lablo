@@ -20,6 +20,8 @@
  *   engine: app.css without live.css (the screen's layout), and a Back key that never reaches
  *   the app (its keys). And a focus engine whose path stays on the first focus while the screen
  *   draws the moves, caught by the walk's check that the engine and the screen agree.
+ * - a grid guide seed (step 23e): app.css without the cells' `left: var(--x)` (and its mirror,
+ *   `right`), caught by the walk's grid geometry on every engine, in both languages.
  * Each variant must fail on every engine older than `minChrome` and pass on the rest, on each
  * of its screens.
  */
@@ -197,7 +199,36 @@ export const CSS_SEEDS: readonly CssSeed[] = [
     screens: ['onboarding'],
     edit: (css) => removeRules(css, (selector) => LIVE_SELECTOR.test(selector)),
   },
+  {
+    id: 'seed-css-no-guide-x',
+    description: "app.css without the grid guide's cell positions (`left: var(--x)`, mirrored to `right` in Arabic): every cell of a row at its timeline's start",
+    minChrome: Number.POSITIVE_INFINITY,
+    screens: ['onboarding'],
+    edit: dropGuideCellX,
+  },
 ];
+
+/** The rules postcss-rtlcss makes of `.z-guide__cell { left: var(--x) }`, one per direction. */
+export const GUIDE_CELL_X: ReadonlyArray<readonly [selector: string, property: string]> = [
+  ['[dir="ltr"] .z-guide__cell', 'left'],
+  ['[dir="rtl"] .z-guide__cell', 'right'],
+];
+
+/**
+ * Takes the cells' `left: var(--x)` and its mirror `right: var(--x)` out of app.css. Both must be
+ * there (else it takes out nothing, and staging fails), so neither language can pass untested.
+ */
+export function dropGuideCellX(css: string): CssEdit {
+  let out = css;
+  let removed = 0;
+  for (const [selector, property] of GUIDE_CELL_X) {
+    const edit = removeDeclarations(out, selector, (declaration) => declaration.replace(/\s/g, '') === `${property}:var(--x)`);
+    if (edit.removed === 0) return { css, removed: 0 };
+    out = edit.css;
+    removed += edit.removed;
+  }
+  return { css: out, removed };
+}
 
 /** Applies a CSS seed to app.css; throws when it took nothing out (a renamed class or file). */
 export function seedCss(css: string, seed: CssSeed): string {

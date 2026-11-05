@@ -1,7 +1,7 @@
-// RELAY steps 13c, 14a and 14c: the old-engine harness walks onboarding to the live screen, and
-// the live screen by keys, with its own ES5 probe and constants (tools/* may not import the app,
-// @zoma/ui or @zoma/data). This keeps them equal to the app's, to the data layer's, to the TV
-// adapters' and to the e2e tests'.
+// RELAY steps 13c, 14a, 14c and 23e: the old-engine harness walks onboarding to the live screen,
+// the live screen by keys and the grid guide, with its own ES5 probes and constants (tools/* may
+// not import the app, @zoma/ui or @zoma/data). This keeps them equal to the app's, to the data
+// layer's, to the TV adapters' and to the e2e tests'.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -13,10 +13,25 @@ import { FORM_FIELDS, checkForm } from '../apps/tv/src/onboarding/form';
 import { DB_NAME, STORE } from '../packages/data/src/schema';
 import { buildTizenKeyMap } from '../packages/platform-tizen/src/keys';
 import { webosKeyToIntent } from '../packages/platform-webos/src/index';
+import { GUIDE_LAYOUT, guideFits, guideWidth } from '../packages/ui/src/components/guide-layout';
+import { buildCss } from '../tools/build/src/css';
 import { dataChecks, fixtureEntries } from '../tools/engines/src/fixture';
+import { SAFE_AREA, VIEWPORT } from '../tools/engines/src/gallery';
+import {
+  GRID_VIEW_FUNCTION,
+  GUIDE_BOXES,
+  GUIDE_HEADER,
+  GUIDE_LABELS,
+  GUIDE_ROWS,
+  GUIDE_SLOT,
+  GUIDE_SPAN,
+  GUIDE_TEXT,
+  GUIDE_LAYOUT as HARNESS_LAYOUT,
+  guideWidth as harnessWidth,
+} from '../tools/engines/src/guide';
 import { CHANNELS_VISIBLE, LIVE_BOXES, LIVE_LABELS, LIVE_TEXT, LIVE_VIEW_FUNCTION, PLATFORM_BACK_STUB, TV_KEYS } from '../tools/engines/src/live';
-import { APP_DATABASE, LAYOUT_BOXES, LAYOUT_LABELS, PLAYLIST_INPUT, SOURCE_NAME, WALK_EXPRESSION, onboardingUrl, playlistLink, walkSteps } from '../tools/engines/src/onboarding';
-import { CSS_SEEDS, WALK_SEEDS, seedCss } from '../tools/engines/src/variants';
+import { APP_DATABASE, LAYOUT_BOXES, LAYOUT_LABELS, PLAYLIST_INPUT, SOURCE_NAME, WALK_EXPRESSION, guideSteps, onboardingUrl, playlistLink, walkSteps } from '../tools/engines/src/onboarding';
+import { CSS_SEEDS, GUIDE_CELL_X, WALK_SEEDS, seedCss } from '../tools/engines/src/variants';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const read = (file: string): string => readFileSync(path.join(ROOT, file), 'utf8');
@@ -138,5 +153,92 @@ describe('the live screen of the old-engine harness (RELAY step 14c)', () => {
     const result = seed.edit(css);
     expect(result.removed).toBeGreaterThanOrEqual(10);
     expect(seedCss(css, seed)).not.toMatch(/\.live(__|[^\w-])/);
+  });
+});
+
+describe('the grid guide of the old-engine harness (RELAY step 23e)', () => {
+  it("measures against packages/ui's GUIDE_LAYOUT and the guide screen's sizes", () => {
+    expect(HARNESS_LAYOUT).toEqual(GUIDE_LAYOUT);
+    for (const span of [60, GUIDE_SPAN, 180]) expect(harnessWidth(span)).toBe(guideWidth(span));
+    const state = read('apps/tv/src/guide/guide-state.ts');
+    for (const mark of [`headerHeight: ${GUIDE_HEADER},`, `span: ${GUIDE_SPAN},`, `slot: ${GUIDE_SLOT},`, 'export const GUIDE_VISIBLE = guideFits(SCREEN.height - 2 * SCREEN.safeY - GUIDE.headerHeight);']) {
+      expect(state, mark).toContain(mark);
+    }
+    expect(guideFits(VIEWPORT.height - 2 * SAFE_AREA.top - GUIDE_HEADER)).toBe(GUIDE_ROWS);
+    // The e2e's GuideGrid reader measures the same view.
+    expect(read('e2e/guide-grid.ts')).toContain(`export const SPAN = ${GUIDE_SPAN};\nexport const ROWS = ${GUIDE_ROWS};`);
+    expect(read('e2e/guide.spec.ts')).toContain(`const HEADER = ${GUIDE_HEADER};`);
+  });
+
+  it("expects our own words as the catalogs have them, and opens the guide by the header's first button", () => {
+    expect(GUIDE_TEXT.en).toEqual({ open: EN['guide.open'], noInfo: EN['guide.noInfo'] });
+    expect(GUIDE_TEXT.ar).toEqual({ open: AR['guide.open'], noInfo: AR['guide.noInfo'] });
+    expect(read('apps/tv/src/live/live-state.ts')).toContain('export const HEADER_GUIDE = 0;');
+    expect(read('apps/tv/src/live/LiveApp.tsx')).toContain('<Button label={t(\'guide.open\')} {...header.item(HEADER_GUIDE)} testId="live-guide" />');
+    expect(read('apps/tv/src/live/live-state.ts')).toContain("neighbours: { start: 'rail', up: 'header' }");
+    expect(guideSteps('en', 'tizen').find((s) => s.id === 'guide-header')?.expect).toMatchObject({ zone: 'header', index: 0 });
+  });
+
+  it('measures the boxes and labels of the e2e test', () => {
+    expect(read('e2e/guide-grid.ts')).toContain('document.querySelectorAll(`[data-testid=guide], .z-guide__row, .z-guide__cell, .z-guide__slot, .z-guide__now, ${header}`)');
+    expect(read('e2e/guide.spec.ts')).toContain("return readAny(page, 'guide-screen', '.guide__header > *');");
+    expect(GUIDE_BOXES).toBe('[data-testid=guide], .z-guide__row, .z-guide__cell, .z-guide__slot, .z-guide__now, .guide__header > *');
+    expect(read('e2e/guide.spec.ts')).toContain(`document.querySelectorAll('${GUIDE_LABELS}')`);
+  });
+
+  it('reads the marks the guide screen and its grid draw', () => {
+    const marks: Array<[string, string[]]> = [
+      [
+        'apps/tv/src/guide/GuideScreen.tsx',
+        ['data-testid="guide-screen"', 'data-ready="true"', 'data-pending={guide.pending.value}', 'data-screen={focus.screen}', 'data-zone={focus.zone}', 'data-index={focus.index}', "data-time={focus.time ?? ''}", 'testId="guide"', "data-language={i18n.locale.pseudo ? 'pseudo' : i18n.locale.language}"],
+      ],
+      ['apps/tv/src/guide/guide-state.ts', ["export const GUIDE_SCREEN = 'guide';", "export const GUIDE_GRID = 'grid';"]],
+      [
+        'packages/ui/src/components/GuideGrid.tsx',
+        [
+          'data-testid={testId}',
+          'data-top={shown.from}',
+          'data-count={rows}',
+          'data-view={first}',
+          'data-span={span}',
+          'data-row={row}',
+          '<div class="z-guide__channel"',
+          '<div class="z-guide__line"',
+          '<span class="z-guide__number">',
+          '<span class="z-guide__name"',
+          'data-start={cell.start}',
+          'data-end={cell.end}',
+          'data-programme={p}',
+          'data-state={state}',
+          '<span key={minute} class="z-guide__slot" data-minute={minute}',
+          '<div class="z-guide__now" data-minute={now}',
+          "let cls = focusClass('z-guide__cell', state);",
+        ],
+      ],
+    ];
+    for (const [file, wanted] of marks) {
+      const source = read(file);
+      for (const mark of wanted) expect(source, `${file}: ${mark}`).toContain(mark);
+    }
+    for (const mark of ['[data-testid="guide"]', "'.z-guide__row'", "'.z-guide__cell'", "'.z-guide__slot'", "'.z-guide__now'", "'data-programme'", "'data-state'"]) expect(GRID_VIEW_FUNCTION).toContain(mark);
+    expect(WALK_EXPRESSION).toContain(`var guide = document.querySelector('[data-testid="guide-screen"]');`);
+    expect(WALK_EXPRESSION).toContain(`guide.getAttribute('data-pending') === '0'`);
+    expect(WALK_EXPRESSION).toContain('var shown = ob || live || guide;');
+  });
+
+  it("takes the cells' left: var(--x) and its mirror out of GuideGrid.css as the TV build makes it, and nothing else", async () => {
+    const built = (await buildCss([path.join(ROOT, 'packages/ui/src/components/GuideGrid.css')])).css;
+    const seed = CSS_SEEDS.find((s) => s.id === 'seed-css-no-guide-x')!;
+    expect(seed.edit(built).removed).toBe(2);
+    const seeded = seedCss(built, seed);
+    // The mirrored rules are there, and empty after the seed: nothing else positions a cell.
+    for (const [selector] of GUIDE_CELL_X) {
+      expect(built).toContain(`${selector} {`);
+      expect(seeded).toMatch(new RegExp(`${selector.replace(/[[\]".]/g, '\\$&')} \\{\\s*\\}`));
+    }
+    expect(seeded).not.toMatch(/\.z-guide__cell \{[^}]*(left|right):/);
+    // The slot labels and the now line keep theirs, so only the cells move.
+    expect(seeded.match(/(left|right): var\(--x\)/g)?.length).toBe(4);
+    expect(built.replace(/\/\*[\s\S]*?\*\//g, '').match(/(left|right): var\(--x\)/g)?.length).toBe(6);
   });
 });

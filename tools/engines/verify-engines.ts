@@ -13,8 +13,10 @@
  * onboarding, the start screen (no `?screen=`), walked by keys in English and in Arabic from a
  * fresh database: the fixture playlist's link typed into the field, loading, done with its
  * counts, "Start watching" to the live screen (step 14a), and a relaunch that skips onboarding
- * to it, then the live screen by keys: CH−/CH+, the rail, a category, Back and the exit
- * (artifacts/engines/onboarding-*.png: the form, done, live, category and, on Tizen, exit screens).
+ * to it, then the live screen by keys: CH−/CH+, the rail, a category, Back and the exit, then
+ * the grid guide from the header's "Guide" (step 23e: every cell, slot label and the now line
+ * against GUIDE_LAYOUT, across rows and time) (artifacts/engines/onboarding-*.png: the form,
+ * done, live, category, on Tizen exit, and guide screens).
  * Last, the Zoma Lab (dist/tv-lab, step 15a) runs its spikes at launch and reports to a mock
  * provider on the host (artifacts/engines/lab-logs): S1 must pass on every engine, and the
  * polyfills it filled must be exactly the ones the engine lacks.
@@ -123,6 +125,9 @@ interface WalkTimes {
   /** On the live screen, from the key to its data answered: CH− (a window further) and OK on a category. */
   readonly pageMs: number | null;
   readonly categoryMs: number | null;
+  /** OK on the header's "Guide" to the grid with its data, and CH− in the grid to a page with its data (step 23e). */
+  readonly guideMs: number | null;
+  readonly guidePageMs: number | null;
   readonly phases: readonly string[] | null;
   readonly screenshots: readonly string[];
 }
@@ -135,7 +140,7 @@ function onboardingSummary(run: OnboardingRun): string {
     .filter((walk) => walk.steps.length > 0)
     .map(
       (walk) =>
-        `${walk.language}: first screen ${seconds(stepTime(walk, 'start'))}, load ${seconds(stepTime(walk, 'add'))}, relaunch ${seconds(stepTime(walk, 'relaunch'))}, CH− ${seconds(stepTime(walk, 'live-page-down'))}, category ${seconds(stepTime(walk, 'live-category'))}`,
+        `${walk.language}: first screen ${seconds(stepTime(walk, 'start'))}, load ${seconds(stepTime(walk, 'add'))}, relaunch ${seconds(stepTime(walk, 'relaunch'))}, CH− ${seconds(stepTime(walk, 'live-page-down'))}, category ${seconds(stepTime(walk, 'live-category'))}, guide ${seconds(stepTime(walk, 'guide-open'))}, guide CH− ${seconds(stepTime(walk, 'guide-page'))}`,
     );
   return walks.length === 0 ? '' : `  ${walks.join('; ')}`;
 }
@@ -235,6 +240,8 @@ async function runOnboardingScreen(client: CdpClient, engine: Engine, variant: V
         relaunchMs: stepTime(walk, 'relaunch'),
         pageMs: stepTime(walk, 'live-page-down'),
         categoryMs: stepTime(walk, 'live-category'),
+        guideMs: stepTime(walk, 'guide-open'),
+        guidePageMs: stepTime(walk, 'guide-page'),
         phases: walk.phases,
         screenshots: walk.screenshots.map((file) => repoPath(file) ?? file),
       })),
