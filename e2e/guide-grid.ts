@@ -23,7 +23,10 @@ export interface Cell {
   readonly programme: number;
   readonly state: string;
   readonly cls: string;
+  /** The title's text (the mark's name, in the cell's text after it, left out). */
   readonly title: string;
+  /** The catch-up mark (RELAY step 25c): its text (the name a screen reader reads), or null without one. */
+  readonly mark: string | null;
   readonly left: number;
   readonly right: number;
   readonly top: number;
@@ -32,6 +35,9 @@ export interface Cell {
 
 export interface Grid {
   readonly view: number;
+  /** The guide's range (UTC minutes): `data-from`, `data-to`. */
+  readonly from: number;
+  readonly to: number;
   readonly top: number;
   /** The grid's rows (`data-count`). */
   readonly count: number;
@@ -82,7 +88,8 @@ export function readGrid(page: Page, root: string, header: string): Promise<Grid
           programme: num(cell, 'data-programme'),
           state: cell.getAttribute('data-state') ?? '',
           cls: cell.className,
-          title: cell.textContent ?? '',
+          title: cell.querySelector('.z-guide__title')?.textContent ?? '',
+          mark: cell.querySelector('.z-guide__mark')?.textContent ?? null,
           left: r.left,
           right: r.right,
           top: r.top,
@@ -104,6 +111,8 @@ export function readGrid(page: Page, root: string, header: string): Promise<Grid
       const g = rect(grid);
       return {
         view: num(grid, 'data-view'),
+        from: num(grid, 'data-from'),
+        to: num(grid, 'data-to'),
         top: num(grid, 'data-top'),
         count: num(grid, 'data-count'),
         time: num(screen, 'data-time'),
