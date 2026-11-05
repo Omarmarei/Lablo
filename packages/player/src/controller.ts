@@ -18,7 +18,9 @@
  *   menu's switches remembered for the channel;
  * - **the subtitles to draw** (step 20b2b, `subtitles`/`subscribeSubtitles`): a subtitle file
  *   beside the stream (`PlayRequest.externalSubs`, loaded by the app's `loadSubtitles`) timed by
- *   the media clock, or the text an engine delivers for the stream's own subtitles (AVPlay).
+ *   the media clock, or the text an engine delivers for the stream's own subtitles (AVPlay);
+ * - **pause, the position and seeking** (step 25d): `pause`/`resume`, and `positionMs`/`seek`
+ *   inside a VOD or catch-up stream on show (the app seeks a stream it can't seek by a new URL).
  *
  * Debounced zapping, number entry, the info bar, the track menu and the subtitle overlay are the
  * app's (apps/tv/src/player). Platform-specific needs arrive as callbacks (ADR-008).
@@ -446,6 +448,43 @@ export class PlayerController {
   }
 
   /**
+   * Where the stream on show is, in ms of its media time (RELAY step 25d: a catch-up's from the
+   * start its URL asked for): the engine's clock while it shows a picture (playing, paused or
+   * buffering), else 0.
+   */
+  positionMs(): number {
+    return this.showsPicture() ? this.engine.positionMs() : 0;
+  }
+
+  /**
+   * Moves a VOD or catch-up stream on show to `ms` of its media time (RELAY step 25d), inside
+   * the stream: the engine seeks, a later reopen starts there, and a paused stream stays paused.
+   * `false` when nothing seekable shows (a live stream, or no picture yet), the engine refused,
+   * or another load came first.
+   */
+  async seek(ms: number): Promise<boolean> {
+    const s = this.s;
+    if (s === null || s.live || !this.showsPicture()) return false;
+    const token = this.liveToken;
+    const to = Math.max(0, ms);
+    const ok = await this.engine.seek(to).then(
+      () => true,
+      () => false,
+    );
+    if (this.s !== s || this.liveToken !== token || !ok) return false;
+    s.resumeMs = to;
+    this.lastPos = this.engine.positionMs();
+    this.lastMoveAt = this.clock.now();
+    return true;
+  }
+
+  /** A stream shows its picture: playing, paused or buffering. */
+  private showsPicture(): boolean {
+    const state = this.current.state;
+    return this.s !== null && (state === 'playing' || state === 'paused' || state === 'buffering');
+  }
+
+  /**
    * Switches the audio to track `id` of `status.tracks.audio`, and remembers it for the channel
    * when the engine took it. `false` when nothing plays, the track isn't listed, or the engine
    * refused (the status's tracks say what plays).
@@ -484,8 +523,7 @@ export class PlayerController {
    * buffering): nothing while it opens, reconnects, has ended or failed.
    */
   stats(): StreamStats | null {
-    const state = this.current.state;
-    if (state !== 'playing' && state !== 'paused' && state !== 'buffering') return null;
+    if (!this.showsPicture()) return null;
     const e = this.engine.stats();
     return {
       width: e.width,

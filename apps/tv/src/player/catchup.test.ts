@@ -2,7 +2,7 @@ import type { CatalogItem, CatchupInfo } from '@zoma/core';
 import { fixedZone } from '@zoma/core';
 import { describe, expect, it } from 'vitest';
 import type { LiveRow } from '../live/live-state';
-import { archiveDays, archiveDaysLeft, archiveFrom, canWatchFromStart, catchupRequest, inArchive } from './catchup';
+import { HELD_PRESSES, JUMP_STEP_MS, SEEK_STEP_MS, archiveDays, archiveDaysLeft, archiveFrom, canWatchFromStart, catchupRequest, inArchive, seekStep } from './catchup';
 
 const MINUTE_MS = 60_000;
 const DAY = 1440;
@@ -161,5 +161,35 @@ describe("a channel's archive, as the guide marks it (RELAY step 25c)", () => {
       expect(archiveDaysLeft(7, { start }, now)).toBe(want);
       expect(Number.isInteger(want)).toBe(true);
     }
+  });
+});
+
+describe("a seek by URL: the programme from a later start, in each mode (RELAY step 25d)", () => {
+  /** A 90-minute programme two hours ago, played from 25 minutes in. */
+  const p = programme(120, 90);
+  const from = (p.start + 25) * MINUTE_MS;
+  const url = (info: CatchupInfo, stream: string): string => catchupRequest(row(info, stream), p, undefined, NOW_MS, from)!.candidates[0]!.url;
+  const start = from / 1000;
+  const end = p.end * 60;
+
+  it("asks each mode for the new start, to the programme's end", () => {
+    // Xtream: the minutes left, from 10:25 (UTC here).
+    expect(catchupRequest(row(XC7), p, { outputFormats: null, zone: fixedZone(180) }, NOW_MS, from)!.candidates.map((c) => c.url)).toEqual([
+      'http://panel.test:8080/timeshift/u/p/65/2026-11-05:13-25/101.ts',
+      'http://panel.test:8080/timeshift/u/p/65/2026-11-05:13-25/101.m3u8',
+    ]);
+    expect(url({ mode: 'default', days: 3, source: 'http://cdn.example/arc/{utc}-{utcend}.ts' }, 'http://cdn.example/ch/102.ts')).toBe(`http://cdn.example/arc/${start}-${end}.ts`);
+    expect(url({ mode: 'append', days: 3, source: '?start={utc}&dur={duration}' }, 'http://cdn.example/ch/103.ts')).toBe(`http://cdn.example/ch/103.ts?start=${start}&dur=${end - start}`);
+    expect(url({ mode: 'shift', days: 1, source: null }, 'http://cdn.example/ch/105.ts')).toBe(`http://cdn.example/ch/105.ts?utc=${start}&lutc=${NOW * 60}`);
+    expect(url({ mode: 'flussonic', days: 2, source: null }, 'http://cdn.example/ch106/index.m3u8')).toBe(`http://cdn.example/ch106/index-${start}-${end - start}.m3u8`);
+    expect(url({ mode: 'flussonic', days: 2, source: null }, 'http://cdn.example/ch106/mpegts')).toBe(`http://cdn.example/ch106/timeshift_abs-${start}.ts`);
+    // No start given: the programme's own.
+    expect(catchupRequest(row({ mode: 'shift', days: 1, source: null }, 'http://cdn.example/ch/105.ts'), p, undefined, NOW_MS)!.candidates[0]!.url).toBe(`http://cdn.example/ch/105.ts?utc=${p.start * 60}&lutc=${NOW * 60}`);
+  });
+
+  it('moves a minute per LEFT or RIGHT and five per FF or RW, five and ten once a key is held', () => {
+    expect([SEEK_STEP_MS, JUMP_STEP_MS, HELD_PRESSES]).toEqual([60_000, 300_000, 8]);
+    expect([0, HELD_PRESSES - 1, HELD_PRESSES, 40].map((n) => seekStep('step', n))).toEqual([60_000, 60_000, 300_000, 300_000]);
+    expect([0, HELD_PRESSES - 1, HELD_PRESSES, 40].map((n) => seekStep('jump', n))).toEqual([300_000, 300_000, 600_000, 600_000]);
   });
 });

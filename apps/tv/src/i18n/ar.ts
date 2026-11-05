@@ -241,6 +241,13 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'player.picture.zoom': 'تكبير',
   'player.picture.stretch': 'تمديد',
   'player.picture.43': 'نسبة 4:3',
+  'player.paused': 'متوقف مؤقتًا',
+  'player.position': 'الموضع في البرنامج',
+  'player.aired': 'وقت البث {time}',
+  'player.live': 'مباشر',
+  'player.ended': 'انتهى البرنامج',
+  'player.watchLive': 'شاهد البث المباشر',
+  'player.toGuide': 'العودة إلى الدليل',
 
   'tracks.audio': 'الصوت',
   'tracks.subtitles': 'الترجمة',

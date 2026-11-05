@@ -299,6 +299,63 @@ html[data-player='on'] .player-stage {
   margin-top: var(--space-4);
 }
 
+/*
+ * A catch-up's seek bar (step 25d): the paused mark, the timeline and the time it aired there.
+ * The timeline (elapsed, bar, length) is a `dir="ltr"` island, as video timelines are in every
+ * language: its margins are the same on both sides, so mirroring changes nothing in it. Its
+ * focus ring is a border that is always there, as a button's.
+ */
+.player__seek {
+  display: flex;
+  align-items: center;
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border: var(--focus-ring) solid transparent;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.player__seek.is-focused {
+  border-color: var(--color-focus);
+  background: var(--color-surface-focus);
+}
+
+.player__seek .z-badge {
+  flex: none;
+  margin-right: var(--space-5);
+}
+
+.player__timeline {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+}
+
+.player__elapsed,
+.player__length {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* A seek that waits for the keys to rest: its target in the accent colour. */
+.player__seek.is-seeking .player__elapsed {
+  color: var(--color-accent);
+}
+
+.player__seekbar {
+  flex: 1;
+  margin: 0 var(--space-4);
+}
+
+.player__aired {
+  flex: none;
+  margin-left: var(--space-5);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
 /* The error card: in the middle, above the info bar. */
 .player__card {
   position: absolute;

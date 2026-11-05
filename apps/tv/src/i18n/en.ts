@@ -260,6 +260,14 @@ export const EN = {
   'player.picture.zoom': 'Zoom',
   'player.picture.stretch': 'Stretch',
   'player.picture.43': '4:3',
+  // A catch-up's seek bar and end (RELAY step 25d).
+  'player.paused': 'Paused',
+  'player.position': 'Position in the programme',
+  'player.aired': 'Aired at {time}',
+  'player.live': 'Live',
+  'player.ended': 'The programme has ended',
+  'player.watchLive': 'Watch live',
+  'player.toGuide': 'Back to the guide',
 
   // The track menu (RELAY step 20b).
   'tracks.audio': 'Audio',

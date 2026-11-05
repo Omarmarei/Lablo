@@ -1,7 +1,7 @@
 import type { EpgProgramme } from '@zoma/core';
 import type { EpgNowNext } from '@zoma/data';
 import type { PictureMode, PlaybackFailure } from '@zoma/player';
-import type { FocusBinding, Screen } from '@zoma/ui';
+import type { FocusBinding, ItemState, Screen } from '@zoma/ui';
 import { Badge, Button, ProgressBar, Spinner, useFocus, useZone } from '@zoma/ui';
 import type { AppI18n, MessageKey } from '../i18n';
 import type { Live, LiveRow } from '../live/live-state';
@@ -44,6 +44,46 @@ function span(i18n: AppI18n, programme: Pick<EpgProgramme, 'start' | 'end'>): st
   return `${i18n.time(new Date(programme.start * MINUTE_MS))} – ${i18n.time(new Date(programme.end * MINUTE_MS))}`;
 }
 
+/**
+ * A catch-up's seek bar (step 25d): "Paused" while paused, the time from the programme's start
+ * and its length around the bar (left to right in every language), and the time it aired there.
+ * A waiting seek shows its target; past now, "Live". It reads the position itself, so only it
+ * draws again every second.
+ */
+function SeekBar({ player, i18n, archive, state, onHover, onPress }: { player: Player; i18n: AppI18n; archive: ArchiveProgramme; state: ItemState; onHover: () => void; onPress: () => void }) {
+  const { t } = i18n;
+  const position = player.position.value;
+  const start = archive.start * MINUTE_MS;
+  const length = Math.max(0, (archive.end - archive.start) * MINUTE_MS);
+  const at = position === null ? start : position.time;
+  const elapsed = Math.min(length, Math.max(0, at - start));
+  const seeking = position !== null && position.seeking;
+  const live = position !== null && position.live;
+  return (
+    <div
+      class={`player__seek${seeking ? ' is-seeking' : ''}${state === 'focused' ? ' is-focused' : state === 'memory' ? ' is-memory' : ''}`}
+      data-testid="player-seek"
+      data-at={at}
+      data-seeking={String(seeking)}
+      data-live={String(live)}
+      onMouseEnter={onHover}
+      onClick={onPress}
+    >
+      {player.status.value.state === 'paused' && <Badge label={t('player.paused')} />}
+      <div class="player__timeline" dir="ltr">
+        <span class="player__elapsed" data-testid="player-elapsed">
+          {i18n.duration(elapsed / 1000)}
+        </span>
+        <ProgressBar value={length > 0 ? elapsed / length : 0} media size="s" label={t('player.position')} class="player__seekbar" />
+        <span class="player__length">{i18n.duration(length / 1000)}</span>
+      </div>
+      <span class="player__aired" data-testid="player-aired">
+        {live ? t('player.live') : t('player.aired', { time: i18n.time(new Date(at)) })}
+      </span>
+    </div>
+  );
+}
+
 interface InfoBarProps {
   readonly live: Live;
   readonly player: Player;
@@ -67,6 +107,7 @@ function InfoBar({ live, player, i18n, screen, binding, row, guide, archive }: I
   const next = guide === undefined ? null : guide.next;
   const progress = now === null || now.end <= now.start ? 0 : (clock - now.start * MINUTE_MS) / ((now.end - now.start) * MINUTE_MS);
   const actions = useZone(binding, screen, 'actions');
+  const seek = useZone(binding, screen, 'seek');
   return (
     <section class="player__bar" data-testid="player-bar">
       <div class="player__head">
@@ -99,6 +140,7 @@ function InfoBar({ live, player, i18n, screen, binding, row, guide, archive }: I
       ) : (
         <div class="player__now player__now--none">{guide === undefined ? '' : t('guide.none')}</div>
       )}
+      {archive !== null && <SeekBar player={player} i18n={i18n} archive={archive} {...seek.item(0)} state={seek.state(0)} />}
       {archive === null && next !== null && (
         <div class="player__next" data-testid="player-next">
           <span class="player__time">
@@ -150,6 +192,24 @@ function ErrorCard({ failure, i18n, screen, binding }: { failure: PlaybackFailur
   );
 }
 
+/** A catch-up's end (step 25d): "The programme has ended", with "Watch live" and "Back to the guide". */
+function EndCard({ archive, i18n, screen, binding }: { archive: ArchiveProgramme; i18n: AppI18n; screen: Screen; binding: FocusBinding }) {
+  const { t } = i18n;
+  const buttons = useZone(binding, screen, 'card');
+  return (
+    <section class="player__card" role="alertdialog" data-testid="player-ended">
+      <h2 class="player__card-title">{t('player.ended')}</h2>
+      <p class="player__card-text" dir="auto" translate={false}>
+        {archive.title === '' ? t('guide.noInfo') : archive.title}
+      </p>
+      <div class="player__card-buttons">
+        <Button label={t('player.watchLive')} variant="primary" {...buttons.item(0)} testId="player-live" />
+        <Button label={t('player.toGuide')} {...buttons.item(1)} testId="player-guide" />
+      </div>
+    </section>
+  );
+}
+
 /**
  * The player route (RELAY step 20a): drawn over the stage, so the page itself stays transparent.
  * The info bar, the number being typed, "Connecting…", the "Reconnecting…" badge and the error
@@ -174,6 +234,7 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
   // A zap that waits hides the old channel's card and spinner: the bar shows the new one.
   const current = target === playing;
   const failure = current && status.state === 'failed' ? status.failure : null;
+  const ended = current && status.state === 'ended';
   const row = player.row(target);
   const guide = row === null ? undefined : live.guide(row.item.key);
   // A zap that waits shows the new channel live.
@@ -245,6 +306,7 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
       </div>
       {menu !== null && <TrackMenuPanel menu={player.menu} tracks={status.tracks} feed={subtitles.feed} i18n={i18n} screen={menu} binding={binding} />}
       {screen !== null && failure !== null && <ErrorCard failure={failure} i18n={i18n} screen={screen} binding={binding} />}
+      {screen !== null && ended && archive !== null && <EndCard archive={archive} i18n={i18n} screen={screen} binding={binding} />}
     </main>
   );
 }

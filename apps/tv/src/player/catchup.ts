@@ -18,6 +18,9 @@ import type { LiveRow } from '../live/live-state';
  *   and the archive holds what aired (ADR-010, amended in step 24b).
  * - **The URLs** (`catchupCandidates`): an Xtream channel's `/timeshift/` URL in the panel's zone,
  *   `.ts` then `.m3u8` as the account allows; an M3U mode's one URL.
+ * - **Seeking** (step 25d): LEFT and RIGHT move `SEEK_STEP_MS`, FF and RW `JUMP_STEP_MS`, further
+ *   while a key is held (`seekStep`). A stream that can't seek inside itself plays again from the
+ *   new start, cut to the minute (`catchupRequest`'s `from`).
  */
 
 const MINUTE_MS = 60_000;
@@ -30,8 +33,21 @@ export interface ArchiveProgramme {
   readonly title: string;
 }
 
-function windowOf(programme: Pick<ArchiveProgramme, 'start' | 'end'>, nowMs: number): CatchupWindow {
-  return { startMs: programme.start * MINUTE_MS, endMs: programme.end * MINUTE_MS, nowMs };
+function windowOf(programme: Pick<ArchiveProgramme, 'start' | 'end'>, nowMs: number, fromMs?: number): CatchupWindow {
+  return { startMs: fromMs === undefined ? programme.start * MINUTE_MS : fromMs, endMs: programme.end * MINUTE_MS, nowMs };
+}
+
+/** A press of LEFT or RIGHT moves a catch-up this far (step 25d)… */
+export const SEEK_STEP_MS = 60_000;
+/** …and a press of FF or RW this far. */
+export const JUMP_STEP_MS = 300_000;
+/** A held key's presses after this many move further: LEFT/RIGHT five minutes, FF/RW ten. */
+export const HELD_PRESSES = 8;
+
+/** How far press `run` (0: the first) of a run of LEFT/RIGHT presses (`step`) or FF/RW presses (`jump`) moves. */
+export function seekStep(kind: 'step' | 'jump', run: number): number {
+  if (run < HELD_PRESSES) return kind === 'step' ? SEEK_STEP_MS : JUMP_STEP_MS;
+  return kind === 'step' ? 5 * SEEK_STEP_MS : 2 * JUMP_STEP_MS;
 }
 
 /** Any programme's window: whether a URL can carry catch-up doesn't depend on the programme. */
@@ -79,9 +95,12 @@ export function archiveDaysLeft(days: number, programme: Pick<ArchiveProgramme, 
   return Math.max(0, Math.round((to - from) / DAY_MS));
 }
 
-/** The request that plays `programme` from `row`'s archive (`null`: the channel's URL can't carry one). */
-export function catchupRequest(row: LiveRow, programme: Pick<ArchiveProgramme, 'start' | 'end'>, facts: SourceFacts | undefined, nowMs: number): PlayRequest | null {
-  const candidates = catchupCandidates(row.item.url, row.item.catchup, windowOf(programme, nowMs), facts === undefined ? {} : { zone: facts.zone, outputFormats: facts.outputFormats });
+/**
+ * The request that plays `programme` from `row`'s archive (`null`: the channel's URL can't carry
+ * one), from its start or from `fromMs` (epoch ms; step 25d's seek by URL) to its end.
+ */
+export function catchupRequest(row: LiveRow, programme: Pick<ArchiveProgramme, 'start' | 'end'>, facts: SourceFacts | undefined, nowMs: number, fromMs?: number): PlayRequest | null {
+  const candidates = catchupCandidates(row.item.url, row.item.catchup, windowOf(programme, nowMs, fromMs), facts === undefined ? {} : { zone: facts.zone, outputFormats: facts.outputFormats });
   if (candidates.length === 0) return null;
   return { key: row.item.key, src: row.item.src, mode: 'catchup', candidates };
 }
