@@ -192,3 +192,42 @@
 .gallery__badges > .z-badge {
   margin: 0 var(--space-3) var(--space-2) 0;
 }
+
+/*
+ * The grid guide's page (?screen=gallery-guide, RELAY step 23b): a 110 px header
+ * (GUIDE_GALLERY.headerHeight: a 56 px title line, 16 px, a 38 px details line), then the
+ * grid's 56 px time header and 9 rows of 88 px: 958 of the 972 px inside the safe area.
+ */
+.guide-gallery__header {
+  flex: none;
+  height: 110px;
+}
+
+.guide-gallery__top {
+  display: flex;
+  align-items: baseline;
+  height: 56px;
+  margin-bottom: var(--space-4);
+}
+
+.guide-gallery__details {
+  display: flex;
+  height: 38px;
+  margin: 0;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  white-space: nowrap;
+}
+
+.guide-gallery__what {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.guide-gallery__when {
+  flex: none;
+  margin-left: var(--space-6);
+  color: var(--color-text-muted);
+}

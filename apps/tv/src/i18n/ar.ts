@@ -10,6 +10,7 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'gallery.channelCount': '{n, plural, zero {لا توجد قنوات} one {قناة واحدة} two {قناتان} few {# قنوات} many {# قناةً} other {# قناة}}',
   'gallery.selected': 'المحدّد: {what}',
   'gallery.pressOk': 'اضغط «موافق» على أي عنصر',
+  'gallery.guideTitle': 'دليل البرامج',
   'gallery.continueWatching': 'متابعة المشاهدة',
   'gallery.status': 'التقدّم والحالة',
   'gallery.loading': 'جارٍ تحميل القنوات',
@@ -35,6 +36,7 @@ export const AR: Readonly<Record<MessageKey, string>> = {
 
   'guide.next': 'التالي',
   'guide.none': 'لا يوجد دليل لهذه القناة',
+  'guide.noInfo': 'لا توجد معلومات',
 
   'badge.live': 'مباشر',
   'badge.new': 'جديد',

@@ -1,0 +1,188 @@
+/*
+ * GuideGrid (RELAY step 23b): flex rows of a channel column and a timeline. The cells, the
+ * header's times and the now line sit at `left: var(--x)`, which postcss-rtlcss turns into
+ * `right: var(--x)` in Arabic (an inline `left` would never be mirrored). The sizes come in as
+ * custom properties from GUIDE_LAYOUT, so no number here has a twin in the code.
+ */
+.z-guide {
+  position: relative;
+  overflow: hidden;
+}
+
+/* The day and the times sit on the header's bottom edge, over the rows. */
+.z-guide__head {
+  display: flex;
+  align-items: flex-end;
+}
+
+.z-guide__day {
+  flex: none;
+  width: var(--z-guide-channel);
+  margin-right: var(--z-guide-gap);
+  padding: 0 var(--space-4);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+}
+
+.z-guide__times {
+  position: relative;
+  flex: none;
+  align-self: stretch;
+  overflow: hidden;
+}
+
+/* A slot's time starts at its boundary, the line before it marking the boundary. */
+.z-guide__slot {
+  position: absolute;
+  bottom: 0;
+  left: var(--x);
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--color-border);
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+}
+
+.z-guide__row {
+  display: flex;
+  margin-top: var(--z-guide-row-gap);
+}
+
+.z-guide__channel {
+  display: flex;
+  align-items: center;
+  flex: none;
+  width: var(--z-guide-channel);
+  margin-right: var(--z-guide-gap);
+  padding: 0 var(--space-4);
+  overflow: hidden;
+  border-radius: var(--radius-s);
+  background: var(--color-surface);
+}
+
+.z-guide__row.is-current > .z-guide__channel {
+  background: var(--color-surface-raised);
+}
+
+.z-guide__number {
+  flex: none;
+  width: 72px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+  text-align: left;
+}
+
+.z-guide__name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+.z-guide__line {
+  position: relative;
+  flex: none;
+  overflow: hidden;
+}
+
+/* The focus ring is the cell's border, so the text's padding is on the title: a cell a few
+   minutes long is then only its border wide, never wider than its time. */
+.z-guide__cell {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--x);
+  width: var(--w);
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border: var(--focus-ring) solid transparent;
+  border-radius: var(--radius-s);
+  background: var(--color-surface);
+  transition: background-color var(--motion-fast), border-color var(--motion-fast);
+}
+
+.z-guide__title {
+  min-width: 0;
+  padding: 0 var(--space-3);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+.z-guide__cell.is-now {
+  background: var(--color-surface-raised);
+}
+
+.z-guide__cell.is-past,
+.z-guide__cell.is-gap {
+  color: var(--color-text-muted);
+}
+
+.z-guide__cell.is-gap {
+  background: transparent;
+  border-color: var(--color-border);
+}
+
+/* A programme that goes on past the view's edge: a small triangle pointing that way. */
+.z-guide__cell.is-cut-start::before,
+.z-guide__cell.is-cut-end::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  margin-top: -8px;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+}
+
+.z-guide__cell.is-cut-start::before {
+  left: 2px;
+  border-right: 8px solid var(--color-text-muted);
+}
+
+.z-guide__cell.is-cut-end::after {
+  right: 2px;
+  border-left: 8px solid var(--color-text-muted);
+}
+
+.z-guide__cell.is-cut-start > .z-guide__title {
+  padding-left: var(--space-5);
+}
+
+.z-guide__cell.is-cut-end > .z-guide__title {
+  padding-right: var(--space-5);
+}
+
+.z-guide__cell.is-memory {
+  border-color: var(--color-border-memory);
+}
+
+.z-guide__cell.is-focused {
+  border-color: var(--color-focus);
+  background: var(--color-surface-focus);
+  color: var(--color-text);
+}
+
+.z-guide__now {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--x);
+  width: 4px;
+  margin-left: -2px;
+  background: var(--color-live);
+  pointer-events: none;
+}
