@@ -322,7 +322,7 @@ test('plays a programme gone by from the archive: "From the start" in its detail
   await remote.go('OK', 'programme/actions/0');
   await expect(page.getByTestId('programme-archive')).toHaveText('From the start');
   const asked = archiveStarts.length;
-  await remote.go('OK', 'player/actions/0');
+  await remote.go('OK', 'player/seek/0');
   const player = page.getByTestId('player');
   await expect(player).toHaveAttribute('data-archive', String(start));
   await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
@@ -333,6 +333,30 @@ test('plays a programme gone by from the archive: "From the start" in its detail
   expect(served.length).toBeGreaterThan(0);
   expect(served.every((s) => s === start * 60)).toBe(true);
   await page.screenshot({ path: path.join(SHOTS, 'player-catchup-en.png'), animations: 'disabled' });
+
+  // Step 25d: RIGHT on the seek bar seeks inside the archive's HLS (no new URL): the clock jumps a
+  // minute on, the seek bar says so, and the picture moves on from there.
+  const seek = page.getByTestId('player-seek');
+  const from = (await video(page))!.time;
+  const answered = archiveStarts.length;
+  await remote.press('RIGHT');
+  await expect.poll(async () => (await video(page))!.time, { timeout: 15_000 }).toBeGreaterThan(from + 55);
+  await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
+  await expectMoving(page);
+  expect(archiveStarts.length).toBe(answered);
+  await expect.poll(async () => Number(await seek.getAttribute('data-at')) - start * 60_000, { timeout: 5000 }).toBeGreaterThan(60_000);
+  await expect(seek).toHaveAttribute('data-seeking', 'false');
+  // PLAY/PAUSE pauses the picture ("Paused" on the bar), and plays it on.
+  await remote.press('PLAY_PAUSE');
+  await expect(player).toHaveAttribute('data-state', 'paused');
+  await expect(seek).toContainText('Paused');
+  const still = (await video(page))!;
+  await page.waitForTimeout(1000);
+  expect((await video(page))!).toMatchObject({ paused: true, time: still.time });
+  await page.screenshot({ path: path.join(SHOTS, 'player-catchup-paused-en.png'), animations: 'disabled' });
+  await remote.press('PLAY_PAUSE');
+  await expect(player).toHaveAttribute('data-state', 'playing');
+  await expectMoving(page);
   await remote.go('BACK', 'guide/grid/0');
   expect(errors).toEqual([]);
 });

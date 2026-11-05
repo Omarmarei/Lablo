@@ -106,6 +106,7 @@ interface Playback {
   movingSince: number | null;
 }
 
+const NO_SEEK: PlaybackError = { kind: 'app', code: 'SEEK' };
 const ABORTED: PlaybackError = { kind: 'app', code: 'ABORTED' };
 
 export class FakeEngine implements PlayerEngine {
@@ -241,7 +242,16 @@ export class FakeEngine implements PlayerEngine {
     return this.listeners.length;
   }
 
-  seek(): Promise<void> {
+  /** A seek's answer (false: the engine refuses it, the position stays). */
+  seekOk = true;
+
+  /** Moves the position to `ms` (logged `seek <ms>`); a moving clock keeps moving from there. */
+  seek(ms: number): Promise<void> {
+    this.log.push(`seek ${ms}`);
+    const p = this.playback;
+    if (!this.seekOk || p === null) return Promise.reject(NO_SEEK);
+    p.base = ms;
+    if (p.movingSince !== null) p.movingSince = this.clock.now();
     return Promise.resolve();
   }
 

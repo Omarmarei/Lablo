@@ -215,7 +215,15 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     },
     tuned: (row, index) => memory.tuned(row.item, row.number, live.shownCategory(), index),
     outputFormats: (src) => sourceFacts.get(src)?.outputFormats ?? null,
-    catchupRequest: (row, programme) => catchupRequest(row, programme, sourceFacts.get(row.item.src), Date.now()),
+    catchupRequest: (row, programme, from) => catchupRequest(row, programme, sourceFacts.get(row.item.src), Date.now(), from),
+    // A catch-up playing on past its programme (step 25d): the programme aired then, as the guide shows it.
+    programmeAt: (row, at) =>
+      dataEngine()
+        .nowNext([row.item.key], at)
+        .then((found) => {
+          const now = found.length === 0 ? null : found[0]!.now;
+          return now === null ? null : { start: now.start, end: now.end, title: now.title };
+        }),
     ...(kept === null ? {} : { subtitleSize: kept }),
     sized: (size) => memory.setSubtitleSize(size),
     ...(picture === null ? {} : { picture }),

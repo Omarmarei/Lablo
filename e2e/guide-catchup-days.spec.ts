@@ -196,7 +196,7 @@ test.describe('the catch-up days in the guide and the archive marks (RELAY step 
 
       // OK: the mock's archive serves the programme from its start.
       const asked = answers.length;
-      await remote.go('OK', 'player/actions/0');
+      await remote.go('OK', 'player/seek/0');
       const player = page.getByTestId('player');
       await expect(player).toHaveAttribute('data-archive', String(target));
       await expect.poll(() => answers.length).toBeGreaterThan(asked);

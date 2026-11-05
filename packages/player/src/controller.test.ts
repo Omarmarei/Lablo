@@ -876,3 +876,91 @@ describe('PlayerController: the picture (RELAY step 20c2b)', () => {
     expect(r.player.setPicture('stretch')).toBe('fit');
   });
 });
+
+describe('PlayerController: the position and seeking (RELAY step 25d)', () => {
+  /** A catch-up programme from its archive's HLS playlist. */
+  const archive: PlayRequest = { key: 's1:live:7', src: 's1', mode: 'catchup', candidates: [{ url: `${BASE}/timeshift/u/p/60/2026-11-05:20-00/7.m3u8`, container: 'hls' }] };
+
+  it('reads the media position only while a picture shows', async () => {
+    const r = rig();
+    expect(r.player.positionMs()).toBe(0);
+    void r.player.play(archive, { startMs: 5000 });
+    // The engine has the stream at 5 s, but no picture shows yet.
+    await r.clock.advance(100);
+    expect(r.engine.positionMs()).toBe(5000);
+    expect(r.player.positionMs()).toBe(0);
+    await r.clock.advance(400);
+    expect(r.player.status.state).toBe('playing');
+    await r.clock.advance(2000);
+    expect(r.player.positionMs()).toBe(7000);
+    r.player.pause();
+    await r.clock.advance(3000);
+    expect(r.player.positionMs()).toBe(7000);
+    void r.player.stop();
+    expect(r.player.positionMs()).toBe(0);
+  });
+
+  it('seeks inside a catch-up stream on show; a reopen then starts there, and a pause stays a pause', async () => {
+    const r = rig((_s, n) => ({ error: n === 1 ? { atMs: 6000, error: NETWORK } : undefined }));
+    void r.player.play(archive);
+    await r.clock.advance(1500);
+    expect(r.player.positionMs()).toBe(1000);
+    expect(await r.player.seek(600_000)).toBe(true);
+    expect(r.engine.log).toContain('seek 600000');
+    expect(r.player.status.state).toBe('playing');
+    await r.clock.advance(1000);
+    expect(r.player.positionMs()).toBe(601_000);
+    // Paused, a seek keeps it paused and still.
+    r.player.pause();
+    expect(await r.player.seek(300_000)).toBe(true);
+    expect(r.player.status.state).toBe('paused');
+    await r.clock.advance(2000);
+    expect(r.player.positionMs()).toBe(300_000);
+    r.player.resume();
+    // The network error at 6 s reopens the stream at the position the seek set, not where it was.
+    await r.clock.advance(2000);
+    expect(r.player.status.state).toBe('reconnecting');
+    await r.clock.advance(1100);
+    expect(r.engine.loads).toHaveLength(2);
+    expect(r.engine.loads[1]!.opts.startMs).toBeGreaterThanOrEqual(300_000);
+    expect(r.engine.loads[1]!.opts.startMs).toBeLessThan(302_000);
+  });
+
+  it('reopens a stream that fails while paused right after a seek at the seek, not before it', async () => {
+    const r = rig();
+    void r.player.play(archive);
+    await r.clock.advance(1500);
+    r.player.pause();
+    expect(await r.player.seek(300_000)).toBe(true);
+    r.engine.emit(r.engine.loads[0]!.token, { type: 'error', error: NETWORK });
+    await r.clock.advance(1100);
+    expect(r.engine.loads).toHaveLength(2);
+    expect(r.engine.loads[1]!.opts).toEqual({ startMs: 300_000 });
+  });
+
+  it('refuses to seek live, before the picture, a negative time as 0, and a refusal by the engine', async () => {
+    const r = rig();
+    void r.player.play(live(1));
+    await r.clock.advance(1000);
+    expect(await r.player.seek(5000)).toBe(false);
+    void r.player.play(archive);
+    expect(await r.player.seek(5000)).toBe(false);
+    expect(r.engine.log.filter((l) => l.startsWith('seek'))).toEqual([]);
+    await r.clock.advance(1000);
+    expect(await r.player.seek(-4000)).toBe(true);
+    expect(r.engine.log).toContain('seek 0');
+    r.engine.seekOk = false;
+    await r.clock.advance(1000);
+    expect(await r.player.seek(9000)).toBe(false);
+    expect(r.player.positionMs()).toBe(1000);
+  });
+
+  it('drops a seek that another play overtook', async () => {
+    const r = rig();
+    void r.player.play(archive);
+    await r.clock.advance(1000);
+    const seeking = r.player.seek(120_000);
+    void r.player.play(vod(2));
+    expect(await seeking).toBe(false);
+  });
+});

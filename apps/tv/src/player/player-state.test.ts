@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import type { LiveRow, Timers } from '../live/live-state';
 import type { ArchiveProgramme } from './catchup';
 import type { PlayerLike, PlayerOptions, ZapList } from './player-state';
-import { DIGITS_MS, INFO_MS, MISSING_MS, PICTURE_ACTION, STATS_ACTION, TRACKS_ACTION, ZAP_DELAY_MS, createPlayer, liveRequest } from './player-state';
+import { DIGITS_MS, INFO_MS, MISSING_MS, PICTURE_ACTION, PLAY_ON_MS, POSITION_MS, SEEK_DELAY_MS, STATS_ACTION, TRACKS_ACTION, ZAP_DELAY_MS, createPlayer, liveRequest } from './player-state';
 import { STATS_MS } from './stream-info';
 import type { SubtitleSize } from './track-menu';
 import { DEFAULT_SUBTITLE_SIZE, DELAY_STEP_MS, MAX_DELAY_MS, MENU_ROWS } from './track-menu';
@@ -123,6 +123,34 @@ class FakeController implements PlayerLike {
   /** The modes the engine can show, and each mode the player asked for. */
   pictureModes: PictureMode[] = ['fit', 'zoom', 'stretch', '4:3'];
   readonly pictures: PictureMode[] = [];
+  /** The stream's container in every status from `set` on (`hls`: a catch-up seeks inside it). */
+  container: PlayerStatus['container'] = 'ts';
+  /** The media time a picture shows at; each seek asked for, answered by `seekOk`; pauses and resumes. */
+  media = 0;
+  readonly seeks: number[] = [];
+  seekOk = true;
+  readonly pauses: string[] = [];
+
+  pause(): void {
+    this.pauses.push('pause');
+    if (this.status.state === 'playing' || this.status.state === 'buffering') this.set('paused');
+  }
+
+  resume(): void {
+    this.pauses.push('resume');
+    if (this.status.state === 'paused') this.set('playing');
+  }
+
+  positionMs(): number {
+    const state = this.status.state;
+    return state === 'playing' || state === 'paused' || state === 'buffering' ? this.media : 0;
+  }
+
+  seek(ms: number): Promise<boolean> {
+    this.seeks.push(ms);
+    if (this.seekOk) this.media = ms;
+    return Promise.resolve(this.seekOk);
+  }
 
   setPicture(mode: PictureMode): PictureMode {
     this.pictures.push(mode);
@@ -180,7 +208,7 @@ class FakeController implements PlayerLike {
   }
 
   set(state: PlayerState, failure: PlaybackFailure | null = null, key: ContentKey | null = this.status.key): void {
-    this.status = { state, session: this.status.session + (state === 'opening' && failure === null ? 1 : 0), key, container: 'ts', attempt: 0, failure, tracks: this.tracks };
+    this.status = { state, session: this.status.session + (state === 'opening' && failure === null ? 1 : 0), key, container: this.container, attempt: 0, failure, tracks: this.tracks };
     for (const listener of this.listeners.slice()) listener(this.status);
   }
 
@@ -248,7 +276,15 @@ const flush = async (): Promise<void> => {
 
 function setup(
   dir: 'ltr' | 'rtl' = 'ltr',
-  kept: { subtitleSize?: SubtitleSize; outputFormats?: (src: string) => readonly string[] | null; picture?: PictureMode; catchupRequest?: PlayerOptions['catchupRequest'] } = {},
+  kept: {
+    subtitleSize?: SubtitleSize;
+    outputFormats?: (src: string) => readonly string[] | null;
+    picture?: PictureMode;
+    catchupRequest?: PlayerOptions['catchupRequest'];
+    programmeAt?: PlayerOptions['programmeAt'];
+    /** The wall clock's time when the test starts (it moves with the test's clock). */
+    wallAt?: number;
+  } = {},
 ) {
   const list = new FakeList();
   /** Each `tuned` call: the channel's key and its row. */
@@ -279,7 +315,12 @@ function setup(
     tuned: (r, index) => tuned.push(`${r.item.key} @${index}`),
     sized: (size) => sized.push(size),
     pictured: (mode) => pictured.push(mode),
-    ...kept,
+    ...(kept.subtitleSize === undefined ? {} : { subtitleSize: kept.subtitleSize }),
+    ...(kept.outputFormats === undefined ? {} : { outputFormats: kept.outputFormats }),
+    ...(kept.picture === undefined ? {} : { picture: kept.picture }),
+    ...(kept.catchupRequest === undefined ? {} : { catchupRequest: kept.catchupRequest }),
+    ...(kept.programmeAt === undefined ? {} : { programmeAt: kept.programmeAt }),
+    ...(kept.wallAt === undefined ? {} : { clock: () => kept.wallAt! + clock.now() }),
     timers: clock.timers,
     now: clock.now,
   });
@@ -1455,7 +1496,8 @@ describe('the player: catch-up (RELAY step 25a)', () => {
     asked.length = 0;
     const t = setup('ltr', { catchupRequest });
     t.player.catchup(4, EVENING);
-    expect(t.at()).toBe('player · actions 0');
+    // Step 25d: on the seek bar.
+    expect(t.at()).toBe('player · seek 0');
     expect(t.chrome).toEqual([true]);
     expect(asked).toEqual([`x:s1:live:4 ${EVENING.start}`]);
     expect(t.controller.plays).toEqual([archiveOf(row(4), EVENING)]);
@@ -1539,5 +1581,370 @@ describe('the player: catch-up (RELAY step 25a)', () => {
     t.player.show(4);
     expect(t.controller.plays[2]).toEqual(liveRequest(row(4)));
     expect(t.player.archive.value).toBeNull();
+  });
+});
+
+describe("the player: catch-up's position, pause, seeking and end (RELAY step 25d)", () => {
+  const MIN = 60_000;
+  const EVENING: ArchiveProgramme = { start: 29_000_000, end: 29_000_060, title: 'Evening News' };
+  const START = EVENING.start * MIN;
+  /** Two days after the evening: every seek stays in the archive. */
+  const LATER = (EVENING.end + 2 * 1440) * MIN;
+  /** The app's request: a timeshift URL naming its start (epoch ms) and the row. */
+  const archiveOf = (r: LiveRow, p: ArchiveProgramme, from?: number): PlayRequest => ({
+    key: r.item.key,
+    src: r.item.src,
+    mode: 'catchup',
+    candidates: [{ url: `http://panel.test/timeshift/${from ?? p.start * MIN}/${r.number}.ts`, container: 'ts' }],
+  });
+  /** Each play's start: a catch-up's (epoch ms), or `live`. */
+  const starts = (t: ReturnType<typeof setup>): (number | string)[] => t.controller.plays.map((p) => (p.mode === 'catchup' ? Number(p.candidates[0]!.url.split('/')[4]) : 'live'));
+  /** Opens row 4's evening and shows its picture at `media` ms. */
+  const opened = (options: Parameters<typeof setup>[1] = {}, programme = EVENING, media = 90_000, dir: 'ltr' | 'rtl' = 'ltr') => {
+    const t = setup(dir, { catchupRequest: archiveOf, wallAt: LATER, ...options });
+    t.player.catchup(4, programme);
+    t.controller.media = media;
+    t.controller.set('playing');
+    return t;
+  };
+
+  it('opens on the seek bar, reads the position every second, and moves between the bar and the buttons with UP and DOWN', async () => {
+    const t = setup('ltr', { catchupRequest: archiveOf, wallAt: LATER });
+    t.player.catchup(4, EVENING);
+    expect(t.at()).toBe('player · seek 0');
+    // Until the picture shows, the position is the stream's start.
+    expect(t.player.position.value).toEqual({ time: START, seeking: false, live: false });
+    t.controller.media = 90_000;
+    t.controller.set('playing');
+    t.clock.advance(POSITION_MS);
+    expect(t.player.position.value).toEqual({ time: START + 90_000, seeking: false, live: false });
+    // UP and DOWN: the bar and its buttons, no zap; CH+ still zaps.
+    await t.press('DOWN');
+    expect(t.at()).toBe('player · actions 0');
+    await t.press('DOWN');
+    expect(t.at()).toBe('player · actions 0');
+    await t.press('UP');
+    expect(t.at()).toBe('player · seek 0');
+    await t.press('UP');
+    expect(t.at()).toBe('player · seek 0');
+    t.clock.advance(ZAP_DELAY_MS);
+    expect(t.controller.plays).toHaveLength(1);
+    // LEFT and RIGHT on the buttons move between them.
+    await t.press('DOWN', 'RIGHT');
+    expect(t.at()).toBe('player · actions 1');
+    // The bar hides: the keys are the seek bar's again.
+    t.clock.advance(INFO_MS);
+    expect(t.player.info.value).toBe(false);
+    expect(t.at()).toBe('player · seek 0');
+    // Hidden, UP or DOWN only shows the bar.
+    await t.press('DOWN');
+    expect(t.player.info.value).toBe(true);
+    expect(t.at()).toBe('player · seek 0');
+    await t.press('CH_UP');
+    t.clock.advance(ZAP_DELAY_MS);
+    expect(starts(t)).toEqual([START, 'live']);
+    expect(t.player.position.value).toBeNull();
+    expect(t.at()).toBe('player · actions 0');
+    expect(t.player.screen.value!.zone('seek')).toMatchObject({ count: 0 });
+    // Live, the bar hides with the focus on its buttons, and no position is read.
+    t.controller.set('playing');
+    t.clock.advance(INFO_MS);
+    expect(t.player.info.value).toBe(false);
+    expect(t.at()).toBe('player · actions 0');
+    expect(t.clock.pending()).toBe(0);
+  });
+
+  it('takes the focus to the seek bar on FF from the buttons, and pauses on a pointer click on the bar', async () => {
+    const t = opened();
+    await t.press('DOWN', 'FF');
+    expect(t.at()).toBe('player · seek 0');
+    expect(t.player.position.value).toEqual({ time: START + 90_000 + 5 * MIN, seeking: true, live: false });
+    t.player.screen.value!.click('seek', 0);
+    expect(t.controller.pauses).toEqual(['pause']);
+  });
+
+  it('pauses and plays on: OK on the seek bar or with the bar hidden, and PLAY/PAUSE; the bar stays while paused', async () => {
+    const t = opened();
+    await t.press('OK');
+    expect(t.controller.pauses).toEqual(['pause']);
+    expect(t.controller.status.state).toBe('paused');
+    // Paused, the bar stays up.
+    t.clock.advance(3 * INFO_MS);
+    expect(t.player.info.value).toBe(true);
+    await t.press('PLAY_PAUSE');
+    expect(t.controller.pauses).toEqual(['pause', 'resume']);
+    t.clock.advance(INFO_MS);
+    expect(t.player.info.value).toBe(false);
+    // Hidden: OK pauses and shows the bar.
+    await t.press('OK');
+    expect(t.controller.pauses).toEqual(['pause', 'resume', 'pause']);
+    expect(t.player.info.value).toBe(true);
+    // On a button, OK presses it ("Stream info").
+    await t.press('PLAY_PAUSE', 'DOWN', 'RIGHT', 'RIGHT', 'OK');
+    expect(t.controller.pauses).toHaveLength(4);
+    expect(t.player.streamInfo.shown.value).toBe(true);
+    // Buffering pauses too.
+    t.controller.set('buffering');
+    await t.press('PLAY_PAUSE');
+    expect(t.controller.status.state).toBe('paused');
+    // Before the picture, nothing to pause.
+    const early = setup('ltr', { catchupRequest: archiveOf, wallAt: LATER });
+    early.player.catchup(4, EVENING);
+    await early.press('OK');
+    expect(early.controller.pauses).toEqual([]);
+  });
+
+  it('seeks a stream that cannot seek inside by a new URL from the target cut to the minute, once the keys rest', async () => {
+    const t = opened();
+    await t.press('RIGHT', 'RIGHT', 'RIGHT');
+    // The bar shows the target while it waits; the stream is untouched.
+    expect(t.player.position.value).toEqual({ time: START + 90_000 + 3 * MIN, seeking: true, live: false });
+    expect(t.player.info.value).toBe(true);
+    t.clock.advance(SEEK_DELAY_MS - 1);
+    expect(t.controller.plays).toHaveLength(1);
+    t.clock.advance(1);
+    // 4:30 in: the new URL starts at 5:00, and the position is there until the picture shows.
+    expect(starts(t)).toEqual([START, START + 5 * MIN]);
+    expect(t.controller.seeks).toEqual([]);
+    expect(t.player.position.value).toEqual({ time: START + 5 * MIN, seeking: false, live: false });
+    expect(t.player.archive.value).toEqual(EVENING);
+    expect(t.at()).toBe('player · seek 0');
+    // The new stream's media time counts from its own start.
+    t.controller.media = 30_000;
+    t.controller.set('playing');
+    t.clock.advance(POSITION_MS);
+    expect(t.player.position.value!.time).toBe(START + 5 * MIN + 30_000);
+    // Back past the programme's start stops there.
+    for (let i = 0; i < 7; i += 1) await t.press('LEFT');
+    expect(t.player.position.value!.time).toBe(START);
+    t.clock.advance(SEEK_DELAY_MS);
+    expect(starts(t)).toEqual([START, START + 5 * MIN, START]);
+  });
+
+  it('moves further while a key is held, FF and RW further still, and stops at the last minute', async () => {
+    const t = opened();
+    // Ten RIGHTs 100 ms apart: eight minutes, then five minutes each.
+    for (let i = 0; i < 10; i += 1) {
+      await t.press('RIGHT');
+      t.clock.advance(100);
+    }
+    expect(t.player.position.value!.time).toBe(START + 90_000 + 8 * MIN + 2 * 5 * MIN);
+    // A pause longer than a held key's starts a new run: one minute again.
+    t.clock.advance(250);
+    await t.press('RIGHT');
+    expect(t.player.position.value!.time).toBe(START + 90_000 + 19 * MIN);
+    // A turn back starts a new run: one minute, even straight after a held RIGHT (eight minutes, then five).
+    t.clock.advance(400);
+    for (let i = 0; i < 9; i += 1) await t.press('RIGHT');
+    await t.press('LEFT');
+    expect(t.player.position.value!.time).toBe(START + 90_000 + 31 * MIN);
+    // So does another key: RW straight after a held LEFT moves five minutes, not ten.
+    for (let i = 0; i < 8; i += 1) await t.press('LEFT');
+    expect(t.player.position.value!.time).toBe(START + 90_000 + 19 * MIN);
+    await t.press('RW');
+    expect(t.player.position.value!.time).toBe(START + 90_000 + 14 * MIN);
+    // FF held: five minutes, then ten, to the programme's last minute at most.
+    for (let i = 0; i < 12; i += 1) await t.press('FF');
+    expect(t.player.position.value!.time).toBe(START + 59 * MIN);
+    t.clock.advance(SEEK_DELAY_MS);
+    expect(starts(t)).toEqual([START, START + 59 * MIN]);
+  });
+
+  it('seeks inside an HLS archive on show, playing or paused, and by URL where the engine refuses or the target is before its start', async () => {
+    const t = opened();
+    t.controller.container = 'hls';
+    t.controller.set('playing');
+    await t.press('RIGHT');
+    t.clock.advance(SEEK_DELAY_MS);
+    await flush();
+    expect(t.controller.seeks).toEqual([90_000 + MIN]);
+    expect(t.controller.plays).toHaveLength(1);
+    expect(t.player.position.value).toEqual({ time: START + 90_000 + MIN, seeking: false, live: false });
+    // Paused: the seek keeps it paused.
+    await t.press('OK', 'LEFT', 'LEFT');
+    t.clock.advance(SEEK_DELAY_MS);
+    await flush();
+    expect(t.controller.seeks).toEqual([150_000, 30_000]);
+    expect(t.controller.status.state).toBe('paused');
+    // The engine refuses: the URL from the target, to the minute.
+    t.controller.seekOk = false;
+    await t.press('FF');
+    t.clock.advance(SEEK_DELAY_MS);
+    await flush();
+    expect(t.controller.seeks).toEqual([150_000, 30_000, 330_000]);
+    expect(starts(t)).toEqual([START, START + 6 * MIN]);
+    // An HLS stream from 6:00: back to 1:00 is before its start, so a URL.
+    t.controller.seekOk = true;
+    t.controller.media = 0;
+    t.controller.set('playing');
+    await t.press('RW');
+    t.clock.advance(SEEK_DELAY_MS);
+    await flush();
+    expect(t.controller.seeks).toHaveLength(3);
+    expect(starts(t)).toEqual([START, START + 6 * MIN, START + MIN]);
+    // Before the picture, a URL too.
+    await t.press('RIGHT');
+    t.clock.advance(SEEK_DELAY_MS);
+    expect(starts(t)).toEqual([START, START + 6 * MIN, START + MIN, START + 2 * MIN]);
+  });
+
+  it('goes live when a seek passes now, and comes back from "Live" with a step back', async () => {
+    // A programme on air, reached from 25 minutes in: now is 5 minutes ahead.
+    const wallMin = 29_500_000;
+    const onAir: ArchiveProgramme = { start: wallMin - 30, end: wallMin + 30, title: 'On Air' };
+    const t = opened({ wallAt: wallMin * MIN }, onAir, 25 * MIN);
+    await t.press('FF');
+    expect(t.player.position.value).toEqual({ time: wallMin * MIN, seeking: true, live: true });
+    // A close drops it: opened again, the position is the stream's start, not "Live".
+    t.player.close();
+    t.player.catchup(4, onAir);
+    t.controller.set('playing');
+    expect(t.player.position.value).toEqual({ time: onAir.start * MIN, seeking: false, live: false });
+    await t.press('FF');
+    // A step back leaves "Live": a minute before now.
+    await t.press('LEFT');
+    expect(t.player.position.value).toEqual({ time: (wallMin - 1) * MIN, seeking: true, live: false });
+    await t.press('RIGHT', 'RIGHT');
+    expect(t.player.position.value!.live).toBe(true);
+    t.clock.advance(SEEK_DELAY_MS);
+    expect(starts(t)).toEqual([onAir.start * MIN, onAir.start * MIN, 'live']);
+    expect(t.controller.plays[2]).toEqual(liveRequest(row(4)));
+    expect(t.player.archive.value).toBeNull();
+    expect(t.player.position.value).toBeNull();
+    expect(t.tuned).toEqual(['x:s1:live:4 @4']);
+    expect(t.at()).toBe('player · actions 0');
+    // Live, the catch-up's keys do nothing.
+    t.controller.set('playing');
+    await t.press('FF', 'PLAY_PAUSE');
+    t.clock.advance(SEEK_DELAY_MS);
+    expect(t.controller.plays).toHaveLength(3);
+    expect(t.controller.pauses).toEqual([]);
+  });
+
+  it('runs the timeline left to right in Arabic too: RIGHT goes forward', async () => {
+    const t = opened({}, EVENING, 90_000, 'rtl');
+    await t.press('RIGHT');
+    expect(t.player.position.value!.time).toBe(START + 90_000 + MIN);
+  });
+
+  it('plays on past the programme: the info bar moves on to the programme aired then, asked once per end', async () => {
+    const asked: number[] = [];
+    const answers: ((p: ArchiveProgramme | null) => void)[] = [];
+    const programmeAt = (r: LiveRow, at: number): Promise<ArchiveProgramme | null> => {
+      asked.push(at);
+      expect(r.item.key).toBe('x:s1:live:4');
+      return new Promise((resolve) => answers.push(resolve));
+    };
+    const t = opened({ programmeAt }, EVENING, 59 * MIN);
+    t.clock.advance(POSITION_MS);
+    expect(asked).toEqual([]);
+    // At the end and just past it, a stream that ends may still send `ended`.
+    t.controller.media = 60 * MIN + PLAY_ON_MS - 1000;
+    t.clock.advance(POSITION_MS);
+    expect(asked).toEqual([]);
+    t.controller.media = 60 * MIN + PLAY_ON_MS;
+    t.clock.advance(POSITION_MS);
+    t.clock.advance(POSITION_MS);
+    expect(asked).toEqual([START + 60 * MIN + PLAY_ON_MS]);
+    const next: ArchiveProgramme = { start: EVENING.end, end: EVENING.end + 30, title: 'Late Show' };
+    answers[0]!(next);
+    await flush();
+    expect(t.player.archive.value).toEqual(next);
+    // Its own end later asks again; an answer that isn't later keeps the programme, and isn't asked again.
+    t.controller.media = 90 * MIN + PLAY_ON_MS;
+    t.clock.advance(POSITION_MS);
+    answers[1]!(EVENING);
+    await flush();
+    t.clock.advance(3 * POSITION_MS);
+    expect(asked).toHaveLength(2);
+    expect(t.player.archive.value).toEqual(next);
+    // Seeks within the new programme stop at its start.
+    for (let i = 0; i < 40; i += 1) await t.press('LEFT');
+    expect(t.player.position.value!.time).toBe(next.start * MIN);
+  });
+
+  it("doesn't move on past the programme while a seek waits", async () => {
+    const asked: number[] = [];
+    const programmeAt = (_r: LiveRow, at: number): Promise<ArchiveProgramme | null> => {
+      asked.push(at);
+      return Promise.resolve(null);
+    };
+    // Past the end; the first reading comes at 1 s, while a LEFT pressed at 0.5 s waits.
+    const t = opened({ programmeAt }, EVENING, 60 * MIN + PLAY_ON_MS);
+    t.clock.advance(500);
+    await t.press('LEFT');
+    t.clock.advance(500);
+    expect(asked).toEqual([]);
+    t.clock.advance(100);
+    expect(starts(t)).toEqual([START, START + 59 * MIN]);
+    expect(asked).toEqual([]);
+  });
+
+  it('shows the end card when the stream ends: "Watch live" plays the channel live, "Back to the guide" closes', async () => {
+    const t = opened();
+    await t.press('RIGHT');
+    t.controller.set('ended');
+    // The card takes over: no seek waits.
+    expect(t.at()).toBe('player · card 0');
+    expect(t.player.info.value).toBe(true);
+    t.clock.advance(SEEK_DELAY_MS + INFO_MS);
+    expect(t.controller.plays).toHaveLength(1);
+    expect(t.player.info.value).toBe(true);
+    // The catch-up's keys are the card's: FF seeks nothing.
+    await t.press('FF');
+    t.clock.advance(SEEK_DELAY_MS);
+    expect(t.controller.plays).toHaveLength(1);
+    await t.press('OK');
+    expect(starts(t)).toEqual([START, 'live']);
+    expect(t.player.archive.value).toBeNull();
+    t.player.close();
+    t.player.catchup(4, EVENING);
+    t.controller.set('ended');
+    await t.press('RIGHT');
+    expect(t.at()).toBe('player · card 1');
+    await t.press('OK');
+    expect(t.closed).toEqual([4, 4]);
+    expect(t.player.open.value).toBe(false);
+    // Live, an end shows no card (the controller calls a live end a failure).
+    t.player.show(2);
+    t.controller.set('ended');
+    expect(t.at()).toBe('player · actions 0');
+  });
+
+  it('drops a waiting seek on a zap, a number, the previous channel or a close', async () => {
+    const t = opened();
+    // Zapping for longer than the seek's delay: the zap plays, the seek never does.
+    await t.press('RIGHT', 'CH_DOWN');
+    t.clock.advance(300);
+    await t.press('CH_DOWN');
+    t.clock.advance(300);
+    await t.press('CH_DOWN');
+    t.clock.advance(ZAP_DELAY_MS + SEEK_DELAY_MS);
+    expect(starts(t)).toEqual([START, 'live']);
+    expect(t.player.playing.value).toBe(1);
+    t.player.close();
+    t.player.catchup(4, EVENING);
+    await t.press('RIGHT', 'DIGIT_3');
+    t.clock.advance(SEEK_DELAY_MS);
+    expect(t.controller.plays).toHaveLength(3);
+    await t.press('BACK', 'RIGHT', 'PREV_CH');
+    t.clock.advance(SEEK_DELAY_MS);
+    expect(starts(t)).toEqual([START, 'live', START, 'live']);
+    t.player.close();
+    t.player.catchup(4, EVENING);
+    await t.press('RIGHT');
+    t.player.close();
+    expect(t.clock.pending()).toBe(0);
+    expect(t.controller.plays).toHaveLength(5);
+    expect(t.player.position.value).toBeNull();
+    // A zap to a row still being read: the seek doesn't come first and drop it.
+    t.player.catchup(9, EVENING);
+    t.controller.set('playing');
+    await t.press('RIGHT', 'CH_UP');
+    t.clock.advance(ZAP_DELAY_MS + SEEK_DELAY_MS);
+    expect(t.controller.plays).toHaveLength(6);
+    t.list.loads[0]!.resolve();
+    await flush();
+    expect(starts(t)).toEqual([START, 'live', START, 'live', START, START, 'live']);
   });
 });
