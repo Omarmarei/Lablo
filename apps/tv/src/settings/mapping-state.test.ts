@@ -421,6 +421,41 @@ describe('the picker (step 24e)', () => {
     expect(engine.asks.length).toBe(asked);
   });
 
+  it('asks the window and a window either side of it, counted past the fixed rows', async () => {
+    const engine = new FakeEngine();
+    engine.total = 20_000;
+    const t = await opened(engine);
+    // Row 43: the window starts at 37 (channel 36): channels 29 to 49 are wanted, page 0 alone.
+    t.nav.top.focus(MAPPING_CHANNELS, 43);
+    await flush();
+    expect(t.nav.top.position(MAPPING_CHANNELS).top).toBe(37);
+    expect(engine.pages()).toEqual([0]);
+    // Row 44: channels 30 to 50, page 1 too.
+    t.nav.top.focus(MAPPING_CHANNELS, 44);
+    await flush();
+    expect(engine.pages()).toEqual([0, 1]);
+    // Row 10,010: the window starts at channel 10,003: 9,996 to 10,016 are wanted.
+    t.nav.top.focus(MAPPING_CHANNELS, 10_010);
+    await flush();
+    expect(engine.pages().slice(2)).toEqual([199, 200]);
+  });
+
+  it('keeps a page wanted again over older ones', async () => {
+    const engine = new FakeEngine();
+    engine.total = 20_000;
+    const t = await opened(engine);
+    // Pages 100, 200, 300, then 0 again, then 390, 50 and 150: one page too many.
+    for (const row of [5_021, 10_021, 15_021, 1, 19_521, 2_521, 7_521]) {
+      t.nav.top.focus(MAPPING_CHANNELS, row);
+      await flush();
+    }
+    expect(engine.pages()).toEqual([0, 100, 200, 300, 390, 50, 150]);
+    // Page 0 was wanted again after 100: page 100 went instead.
+    expect(t.mapping.row(1)).not.toBeNull();
+    expect(t.mapping.row(5_021)).toBeNull();
+    expect(t.mapping.row(10_021)).not.toBeNull();
+  });
+
   it('never asks a page past the end', async () => {
     const engine = new FakeEngine();
     engine.total = 50;
@@ -543,6 +578,19 @@ describe('the picker (step 24e)', () => {
     expect(t.mapping.status.value).toBe('loading');
   });
 
+  it('drops the first reads when they land after the picker closed', async () => {
+    const engine = new FakeEngine();
+    engine.hold = new Set(['read']);
+    const t = setup(engine);
+    t.mapping.open(TARGET);
+    await t.press('BACK');
+    engine.held.read.splice(0).forEach((h) => h.resolve());
+    await flush();
+    expect(t.mapping.current.value).toBeNull();
+    expect(engine.asks).toEqual([]);
+    expect(t.at()).toBe('unmatched · channels 0');
+  });
+
   it('opens afresh: the last opening’s words, match and rows are gone, and its answers dropped', async () => {
     const engine = new FakeEngine();
     engine.match = { epgSrc: 's1:xmltv', channel: 'c3' };
@@ -550,18 +598,46 @@ describe('the picker (step 24e)', () => {
     t.mapping.setQuery('guide 3');
     await flush();
     await t.press('BACK');
+    // Opened again with its lookup held: it lands after a newer opening, and is dropped.
+    engine.hold = new Set(['lookup']);
+    t.mapping.open(TARGET);
+    await flush();
+    await t.press('BACK');
     expect(t.mapping.screen.value).toBeNull();
     expect(t.mapping.target.value).toBeNull();
     expect(t.at()).toBe('unmatched · channels 0');
     engine.match = { epgSrc: null, channel: null };
-    engine.hold = new Set(['read', 'lookup']);
+    engine.hold = new Set(['read', 'page']);
     t.mapping.open({ key: 'x:s1:live:1', name: 'Other' });
     expect([t.mapping.query.value, t.mapping.current.value, t.mapping.currentName.value, t.mapping.count.value, t.mapping.status.value]).toEqual(['', null, '', 0, 'loading']);
     expect(t.mapping.row(1)).toBeNull();
+    engine.held.lookup.splice(0).forEach((h) => h.resolve());
     engine.held.read.splice(0).forEach((h) => h.resolve());
     await flush();
     expect(t.mapping.current.value).toEqual({ kind: 'none' });
-    expect(engine.nowNexts[1]).toEqual(['x:s1:live:1']);
+    expect(t.mapping.currentName.value).toBe('');
+    expect(engine.nowNexts[engine.nowNexts.length - 1]).toEqual(['x:s1:live:1']);
+    // The first page of this opening not read yet: none of the last opening's rows.
+    expect(t.rows(0, 2)).toEqual(['off', '-']);
+  });
+
+  it('asks again, once open again, a page still out when it closed', async () => {
+    const engine = new FakeEngine();
+    const t = await opened(engine);
+    engine.hold = new Set(['page']);
+    t.nav.top.focus(MAPPING_CHANNELS, 60);
+    await flush();
+    expect(engine.pages()).toEqual([0, 1]);
+    await t.press('BACK');
+    engine.held.page.splice(0)[0]!.resolve();
+    await flush();
+    engine.hold = new Set();
+    t.mapping.open(TARGET);
+    await flush();
+    t.nav.top.focus(MAPPING_CHANNELS, 60);
+    await flush();
+    expect(engine.pages()).toEqual([0, 1, 0, 1]);
+    expect(t.mapping.row(61)).toEqual({ kind: 'channel', channel: guideChannel(60) });
   });
 
   it('opens the TV’s keyboard on OK on the search field', async () => {
@@ -637,13 +713,15 @@ describe('the picker (step 24e)', () => {
     await t.press('OK');
     expect(t.at()).toBe('guide-map · channels 10001');
     expect(engine.edits).toEqual([]);
-    // Before the match is read, nothing either.
+    // Before the match is read, nothing either, and nothing is asked.
     await t.press('BACK');
     engine.hold = new Set(['read']);
     t.mapping.open(TARGET);
+    const asked = engine.asks.length;
     t.nav.top.focus(MAPPING_CHANNELS, 0);
     await t.press('OK');
     expect(t.nav.top.id).toBe(MAPPING_SCREEN);
+    expect(engine.asks.length).toBe(asked);
   });
 
   it('reads nothing again when the edit changed nothing or failed; a failed refresh still settles', async () => {
@@ -716,6 +794,13 @@ describe('the picker (step 24e)', () => {
     expect(s.mapped).not.toHaveBeenCalled();
     s.mapping.open(TARGET);
     expect(s.mapping.screen.value).toBeNull();
+    // A picker with its rows read, disposed while it shows: the focus asks nothing more.
+    const r = await opened();
+    r.mapping.dispose();
+    const before = r.engine.asks.length;
+    r.nav.top.focus(MAPPING_CHANNELS, 60);
+    await flush();
+    expect(r.engine.asks.length).toBe(before);
     // The focus no longer asks pages either.
     const pages = engine.asks.length;
     t.nav.top.focus(MAPPING_CHANNELS, 60);

@@ -255,8 +255,8 @@ export function createMapping(options: MappingOptions): Mapping {
    */
   const fill = (): void => {
     const shown = screen.value;
-    // (Closed, or the match not read yet: its read asks the first page.)
-    if (shown === null || current.value === null) return;
+    // (Closed. Before the match is read the count is 0: no page is wanted, its read asks the first.)
+    if (shown === null) return;
     wanted(shown).forEach((p) => {
       const held = pages.get(p);
       if (held !== undefined) {
@@ -356,13 +356,13 @@ export function createMapping(options: MappingOptions): Mapping {
   };
 
   const choose = (index: number): void => {
-    const mapped = target.value;
-    const match = current.value;
     const row = api.row(index);
-    // (Rows show only once the match is read; a channel's page may still be on its way.)
-    if (mapped === null || match === null || row === null) return;
+    // A channel's page may still be on its way.
+    if (row === null) return;
+    // (Only the open picker takes OK, and a row shows only once the match is read.)
+    const mapped = target.value!;
+    const pin = pinFor(row, current.value!);
     close();
-    const pin = pinFor(row, match);
     if (pin !== undefined) save(mapped.key, pin);
   };
 
@@ -396,8 +396,8 @@ export function createMapping(options: MappingOptions): Mapping {
       return channel === undefined ? null : { kind: 'channel', channel };
     },
     marked(row: MappingRow): boolean {
-      const known = current.value;
-      return known !== null && isCurrent(row, known);
+      // (A row shows only once the match is read.)
+      return isCurrent(row, current.value!);
     },
     link(epgSrc: string): string {
       return links.get(epgSrc) ?? '';
@@ -405,7 +405,6 @@ export function createMapping(options: MappingOptions): Mapping {
     open(next: MappingTarget): void {
       if (disposed) return;
       openSeq += 1;
-      querySeq += 1;
       const seq = openSeq;
       target.value = next;
       status.value = 'loading';
@@ -433,8 +432,9 @@ export function createMapping(options: MappingOptions): Mapping {
           if (disposed || seq !== openSeq) return;
           const match = currentOf(pinOf(profile === null ? null : profile.doc, next.key), nowNext[0] ?? null);
           current.value = match;
-          links = new Map();
-          guideList(profile, epg).rows.forEach((row) => links.set(row.epgSrc, row.link));
+          const read = new Map<string, string>();
+          guideList(profile, epg).rows.forEach((row) => read.set(row.epgSrc, row.link));
+          links = read;
           screen.value!.update(channelsZone(fixedRows(match)));
           lookUp(match, seq);
           ask(0);
@@ -452,15 +452,15 @@ export function createMapping(options: MappingOptions): Mapping {
       pages = new Map();
       asking = new Set();
       const shown = screen.value;
-      // (Before the match is read, its read asks the first page with this query.)
-      if (shown === null || current.value === null) return;
-      // The list from its top for the new words (a focus listener may ask its first page already).
+      // (The field shows only with the picker.)
+      if (shown === null) return;
+      // The list from its top for the new words; before the match is read, its read asks the
+      // first page with them (`fill` waits for it).
       shown.reset(MAPPING_CHANNELS);
       drawn.value += 1;
       fill();
     },
     dispose(): void {
-      if (disposed) return;
       disposed = true;
       stopFollowing();
       editor.dispose();

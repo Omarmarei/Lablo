@@ -139,6 +139,7 @@ describe('the picker as drawn (step 24e)', () => {
     expect((page!.props as Props)['data-count']).toBe(3);
     expect(textOf(byTestId(page, 'mapping-count'))).toBe('3 channels');
     expect(byTestId(page, 'mapping-spinner')).toHaveLength(0);
+    expect((byTestId(page, 'mapping-search')[0]!.props as Props).hint).toBe('Part of a name or an ID');
   });
 
   it('says why nothing is listed in the field’s line, and when the channels couldn’t be read', async () => {

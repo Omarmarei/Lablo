@@ -190,7 +190,7 @@ describe('the grid guide of the old-engine harness (RELAY step 23e)', () => {
     const marks: Array<[string, string[]]> = [
       [
         'apps/tv/src/guide/GuideScreen.tsx',
-        ['data-testid="guide-screen"', 'data-ready="true"', 'data-pending={guide.pending.value}', 'data-screen={focus.screen}', 'data-zone={focus.zone}', 'data-index={focus.index}', "data-time={focus.time ?? ''}", 'testId="guide"', "data-language={i18n.locale.pseudo ? 'pseudo' : i18n.locale.language}"],
+        ['data-testid="guide-screen"', 'data-ready="true"', 'data-pending={guide.pending.value + mappingPending}', 'data-screen={focus.screen}', 'data-zone={focus.zone}', 'data-index={focus.index}', "data-time={focus.time ?? ''}", 'testId="guide"', "data-language={i18n.locale.pseudo ? 'pseudo' : i18n.locale.language}"],
       ],
       ['apps/tv/src/guide/guide-state.ts', ["export const GUIDE_SCREEN = 'guide';", "export const GUIDE_GRID = 'grid';"]],
       [

@@ -519,7 +519,6 @@ describe('"Channels without a guide" and the manual mapping (step 24e)', () => {
     const drawn = t.list.drawn.value;
     state.overrides = { k10000: { epgSrc: '', channel: null } };
     engine.total = 19_999;
-    engine.version = 2;
     engine.hold = new Set();
     t.list.reload();
     expect(t.list.drawn.value).toBe(drawn + 1);
@@ -532,10 +531,13 @@ describe('"Channels without a guide" and the manual mapping (step 24e)', () => {
     expect(t.list.count.value).toBe(19_999);
     expect(t.list.noGuide('k10000')).toBe(true);
     expect(t.list.row(15_000)?.name).toBe('Channel 15000');
-    // The answers of before the reload land late: dropped.
+    // The answers of before the reload land late (from a newer version, a longer list): dropped.
+    engine.version = 2;
+    engine.total = 20_000;
     engine.held.page.splice(0).forEach((h) => h.resolve());
     await flush();
-    expect(t.list.row(10_000)).toBeNull();
+    expect(t.list.count.value).toBe(19_999);
+    expect(t.list.row(15_000)?.name).toBe('Channel 15000');
     expect(t.list.status.value).toBe('ready');
   });
 
