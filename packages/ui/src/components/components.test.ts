@@ -172,6 +172,18 @@ describe('Dialog, Spinner and Badge', () => {
     expect(text(one(el, 'z-dialog__message'))).toBe('See you soon');
     expect(byClass(one(el, 'z-dialog__actions'), 'z-button').map(text)).toEqual(['Stay', 'Exit']);
     expect(byClass(expand(Dialog({ title: 'T', children: null })), 'z-dialog__message')).toHaveLength(0);
+    // Ours: translated, in the page's direction, in the 1,000 px panel.
+    expect(one(el, 'z-dialog__title').props).toMatchObject({ dir: undefined, translate: undefined });
+    expect(byClass(el, 'z-dialog__panel')[0]!.props.class).toBe('z-dialog__panel');
+  });
+
+  it('renders a data title, a body between the message and the actions, and the wide panel', () => {
+    const el = expand(Dialog({ title: 'أخبار المساء', data: true, wide: true, body: Badge({ label: 'Body' }), children: [Button({ label: 'Close' })] }));
+    expect(one(el, 'z-dialog__title').props).toMatchObject({ dir: 'auto', translate: false });
+    expect(text(one(el, 'z-dialog__title'))).toBe('أخبار المساء');
+    const panel = byClass(el, 'z-dialog__panel')[0]!;
+    expect(panel.props.class).toBe('z-dialog__panel z-dialog__panel--wide');
+    expect((panel.children as El[]).map((c) => c.props.class)).toEqual(['z-dialog__title', 'z-badge z-badge--neutral', 'z-dialog__actions']);
   });
 
   it('sizes the spinner and tones the badge', () => {

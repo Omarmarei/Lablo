@@ -332,6 +332,25 @@ function row(bucket: EpgBucket, i: number, shift: number): EpgProgramme {
   };
 }
 
+/**
+ * The programme of `bucket` that starts at `start` (UTC minutes, after the channel's tvg-shift), as
+ * a whole row (the programme details, step 24a), or `null` when none starts then. The bucket is
+ * the one of the start's day in guide time (`epgDay(start - shift)`), sorted by start.
+ */
+export function epgProgrammeAt(bucket: EpgBucket, start: number, shiftHours = 0): EpgProgramme | null {
+  const shift = Math.round(shiftHours * 60);
+  const at = start - shift;
+  let lo = 0;
+  let hi = bucket.start.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (bucket.start[mid]! < at) lo = mid + 1;
+    else hi = mid;
+  }
+  // (Past the last start, the typed array gives undefined.)
+  return bucket.start[lo] === at ? row(bucket, lo, shift) : null;
+}
+
 // ---- Reading a guide ------------------------------------------------------------------------
 
 export interface EpgGuideOptions {

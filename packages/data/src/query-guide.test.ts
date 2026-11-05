@@ -158,3 +158,57 @@ describe('QueryService.guide', () => {
     expect((await q.guide({ keys: ['a'], from: NOW, to: NOW + 60 }))[0]!.title).toEqual(['new0']);
   });
 });
+
+describe('QueryService.programme', () => {
+  /** A programme with every text the details show. */
+  const full = (start: number, end: number, title: string): EpgProgramme => ({ start, end, title, sub: `${title}, the sub-title`, desc: `About ${title}`, category: 'News', episode: 'S2 E5', flags: 4 });
+
+  it('gives the whole programme that starts then, from the guide the grid row comes from', async () => {
+    // The user's guide is listed first, but the panel's matches both channels more strongly.
+    await storeGuide(db, 'u~g1', 0, [match('a', 'user.a', 'match-name'), match('b', 'user.b', 'name')], {
+      'user.a': slots(MIDNIGHT, MIDNIGHT + 1440, 60, 'ua'),
+      'user.b': slots(MIDNIGHT, MIDNIGHT + 1440, 60, 'ub'),
+    });
+    await storeGuide(db, 'tv:xmltv', 1, [match('a', 'panel.a', 'xtream-id'), match('b', 'panel.b', 'id')], {
+      'panel.a': [full(NOW - 30, NOW + 30, 'first'), full(NOW + 30, NOW + 100, 'second'), full(NOW + 100, NOW + 160, 'last')],
+      'panel.b': slots(MIDNIGHT, MIDNIGHT + 1440, 60, 'pb'),
+    });
+    expect(await q.programme({ key: 'a', start: NOW + 30 })).toEqual(full(NOW + 30, NOW + 100, 'second'));
+    // The bucket's first and last, and no start between, before or after them.
+    expect((await q.programme({ key: 'a', start: NOW - 30 }))?.title).toBe('first');
+    expect((await q.programme({ key: 'a', start: NOW + 100 }))?.title).toBe('last');
+    for (const start of [NOW - 31, NOW - 29, NOW + 31, NOW + 99, NOW + 101, NOW + 160]) expect(await q.programme({ key: 'a', start }), `${start - NOW}`).toBeNull();
+    // The row's own guide only: the user's has a programme at 12:00 and the same starts as `b`'s.
+    expect(await q.programme({ key: 'a', start: NOW })).toBeNull();
+    expect((await q.programme({ key: 'b', start: MIDNIGHT + 60 }))?.title).toBe(`pb${MIDNIGHT + 60 - NOW}`);
+    // A channel no guide matches, and a day its guide has nothing on.
+    expect(await q.programme({ key: 'nothing', start: NOW })).toBeNull();
+    expect(await q.programme({ key: 'b', start: MIDNIGHT + 5 * 1440 })).toBeNull();
+  });
+
+  it("finds a start in the bucket of its day in the channel's own time", async () => {
+    await storeGuide(db, 'g', 0, [match('a', 'a.tv', 'id'), match('east', 'a.tv', 'id', -3), match('west', 'w.tv', 'id', 1)], {
+      // 23:00 the day before to 01:00: stored under the day before.
+      'a.tv': [full(MIDNIGHT - 60, MIDNIGHT + 60, 'late'), ...slots(MIDNIGHT + 60, MIDNIGHT + 2880, 60, 'h')],
+      // 23:30 to 00:30 today: an hour late, it starts at 00:30 tomorrow.
+      'w.tv': [full(MIDNIGHT + 1410, MIDNIGHT + 1470, 'night')],
+    });
+    // Its stored end, not cut where the next day's first starts.
+    expect(await q.programme({ key: 'a', start: MIDNIGHT - 60 })).toEqual(full(MIDNIGHT - 60, MIDNIGHT + 60, 'late'));
+    // Three hours early: 23:00 today is the guide's 02:00 tomorrow.
+    expect(await q.programme({ key: 'east', start: MIDNIGHT + 1440 - 60 })).toMatchObject({ start: MIDNIGHT + 1440 - 60, end: MIDNIGHT + 1440, title: `h${MIDNIGHT + 1440 + 120 - NOW}` });
+    expect(await q.programme({ key: 'east', start: MIDNIGHT + 1440 + 120 })).toMatchObject({ start: MIDNIGHT + 1440 + 120 });
+    // An hour late: 00:30 tomorrow is the guide's 23:30 today.
+    expect(await q.programme({ key: 'west', start: MIDNIGHT + 1470 })).toEqual(full(MIDNIGHT + 1470, MIDNIGHT + 1530, 'night'));
+    expect(await q.programme({ key: 'west', start: MIDNIGHT + 1410 })).toBeNull();
+  });
+
+  it('reads the new generation once the worker reloads', async () => {
+    await storeGuide(db, 'g', 0, [match('a', 'a.tv', 'id')], { 'a.tv': [full(NOW, NOW + 60, 'old')] });
+    expect((await q.programme({ key: 'a', start: NOW }))?.title).toBe('old');
+    await storeGuide(db, 'g', 0, [match('a', 'a.tv', 'id')], { 'a.tv': [full(NOW, NOW + 60, 'new')] });
+    expect((await q.programme({ key: 'a', start: NOW }))?.title).toBe('old');
+    await q.reload();
+    expect((await q.programme({ key: 'a', start: NOW }))?.title).toBe('new');
+  });
+});

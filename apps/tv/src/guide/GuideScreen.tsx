@@ -3,6 +3,8 @@ import { GuideGrid, guideCellAt } from '@zoma/ui';
 import type { AppI18n } from '../i18n';
 import type { Guide } from './guide-state';
 import { GUIDE_GRID } from './guide-state';
+import { ProgrammeDialog } from './ProgrammeDialog';
+import { DETAILS_SCREEN } from './programme-details';
 import './guide.css';
 
 const MINUTE_MS = 60_000;
@@ -38,10 +40,11 @@ interface Props {
 }
 
 /**
- * The guide screen (RELAY step 23c), painted instead of the live screen while it is on top of
- * the live navigator: a header with the title, the focused channel and the clock, a line with
- * the focused programme and its times, then the grid. Channel names and titles are the
- * provider's data (`dir="auto"`, `translate=false`); the times follow the page's direction.
+ * The guide screen (RELAY step 23c), painted instead of the live screen while it, or the
+ * programme details over it (step 24a), is on top of the live navigator: a header with the
+ * title, the focused channel and the clock, a line with the focused programme and its times,
+ * then the grid. Channel names and titles are the provider's data (`dir="auto"`,
+ * `translate=false`); the times follow the page's direction.
  */
 export function GuideScreen({ guide, i18n, binding, focus, clock, listVersion }: Props) {
   const { t } = i18n;
@@ -51,9 +54,10 @@ export function GuideScreen({ guide, i18n, binding, focus, clock, listVersion }:
   const version = guide.version.value;
   const now = Math.floor(clock / MINUTE_MS);
   const time = (minute: number): string => i18n.time(new Date(minute * MINUTE_MS));
-  const onGrid = focus.screen === screen.id;
-  const details = onGrid ? guideDetails(guide, focus, now) : null;
-  const head = onGrid ? guide.channel(focus.index) : null;
+  // Under the details dialog, the header keeps the grid's focus.
+  const place = focus.screen === screen.id ? focus : screen.position(GUIDE_GRID);
+  const details = guideDetails(guide, place, now);
+  const head = guide.channel(place.index);
 
   return (
     <main
@@ -75,28 +79,25 @@ export function GuideScreen({ guide, i18n, binding, focus, clock, listVersion }:
         <div class="guide__top">
           <h1 class="guide__title">{t('guide.title')}</h1>
           <p class="guide__channel" data-testid="guide-channel">
-            {head !== null && head.number !== undefined && <span class="guide__number">{head.number}</span>}
-            {head !== null && (
-              <span class="guide__name" dir="auto" translate={false}>
-                {head.name}
-              </span>
-            )}
+            {head.number !== undefined && <span class="guide__number">{head.number}</span>}
+            <span class="guide__name" dir="auto" translate={false}>
+              {head.name}
+            </span>
           </p>
           <p class="guide__clock" data-testid="guide-clock">
             {i18n.time(new Date(clock))}
           </p>
         </div>
         <p class="guide__details" data-testid="guide-details">
-          {details !== null &&
-            (details.title === null ? (
-              <span class="guide__what">{t('guide.noInfo')}</span>
-            ) : (
-              <span class="guide__what" dir="auto" translate={false}>
-                {details.title}
-              </span>
-            ))}
+          {details.title === null ? (
+            <span class="guide__what">{t('guide.noInfo')}</span>
+          ) : (
+            <span class="guide__what" dir="auto" translate={false}>
+              {details.title}
+            </span>
+          )}
           {/* In the page's direction, as the player's info bar: in Arabic the start is on the right, read first. */}
-          {details !== null && <span class="guide__when" data-testid="guide-when">{`${time(details.from)} – ${time(details.to)}`}</span>}
+          <span class="guide__when" data-testid="guide-when">{`${time(details.from)} – ${time(details.to)}`}</span>
         </p>
       </header>
       <GuideGrid
@@ -111,6 +112,7 @@ export function GuideScreen({ guide, i18n, binding, focus, clock, listVersion }:
         placeholder={t('guide.noInfo')}
         testId="guide"
       />
+      {focus.screen === DETAILS_SCREEN && <ProgrammeDialog details={guide.details} i18n={i18n} binding={binding} />}
     </main>
   );
 }

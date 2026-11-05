@@ -6,6 +6,8 @@ import type { EpgZone, Focus, GuideChannel, GuideSchedule, Navigator, Screen } f
 import { SCREEN, guideCellAt, guideFits, guideZone } from '@zoma/ui';
 import type { Timers } from '../live/live-state';
 import type { ZapList } from '../player/player-state';
+import type { Details, DetailsEngine } from './programme-details';
+import { createDetails } from './programme-details';
 
 /**
  * The guide screen (RELAY step 23c, PLAN 6.2): the grid guide over the live screen's category on
@@ -30,8 +32,10 @@ import type { ZapList } from '../player/player-state';
  *   list that changed, are dropped.
  * - **OK** on the cell that holds now (the programme on air, or a channel with no guide) plays
  *   the channel: the player opens over the guide, and Back from it comes back here, on the
- *   channel that played. OK on a programme gone by or to come does nothing yet (details are
- *   step 24, catch-up step 25).
+ *   channel that played. OK on a programme gone by or to come opens its details (step 24a,
+ *   `programme-details.ts`), whose "Watch the channel" plays the channel the guide has focused
+ *   when it is still that programme's; OK on a placeholder elsewhere does nothing (catch-up is
+ *   step 25).
  * - **Back** closes the guide: the live list focuses the channel the guide had focused.
  * - **A catalog swap** (`listChanging`, before the live list is replaced): once the new list is
  *   in, the rows are its own and asked again, the focus on the same channel when the new list
@@ -126,7 +130,7 @@ export function mergeDays(days: readonly (GuideSchedule | undefined)[]): GuideSc
 }
 
 /** What the guide needs from the data engine (a `DataEngine` fits; tests pass a fake). */
-export interface GuideEngine {
+export interface GuideEngine extends DetailsEngine {
   guide(req: GuideRequest): Promise<GuideRow[]>;
 }
 
@@ -157,8 +161,10 @@ export interface Guide {
   readonly screen: ReadonlySignal<Screen | null>;
   /** Bumps when programmes arrive, or a new list is in: rows are read again through `schedule` and `channel`. */
   readonly version: ReadonlySignal<number>;
-  /** Requests in flight, and an ask waiting for the view to rest. */
+  /** Requests in flight (the details' read too), and an ask waiting for the view to rest. */
   readonly pending: ReadonlySignal<number>;
+  /** The programme details dialog over the guide. */
+  readonly details: Details;
   /** The grid's zone as it is now (its range, rows and cell). */
   zone(): EpgZone;
   /** Row `row`'s programmes over the days read (`null`: none read yet: placeholders). */
@@ -411,10 +417,30 @@ export function createGuide(options: GuideOptions): Guide {
     options.closed(row);
   };
 
+  const details = createDetails({
+    nav,
+    engine,
+    track,
+    // The guide is on top again; a catalog swap may have moved its focus to another channel.
+    watch: (target) => {
+      const index = screen.value?.position(GUIDE_GRID).index ?? -1;
+      if (list.row(index)?.item.key === target.key) options.play(index);
+    },
+  });
+
   const onSelect = (focus: Focus): void => {
     const now = Math.floor(clockNow() / MINUTE_MS);
-    const cell = guideCellAt(schedule(focus.index), zone, focus.time ?? now);
-    if (cell !== null && cell.start <= now && now < cell.end) options.play(focus.index);
+    const programmes = schedule(focus.index);
+    const cell = guideCellAt(programmes, zone, focus.time ?? now);
+    if (cell === null) return;
+    if (cell.start <= now && now < cell.end) {
+      options.play(focus.index);
+      return;
+    }
+    const p = cell.programme;
+    const row = list.row(focus.index);
+    if (p < 0 || programmes === null || row === null) return;
+    details.open({ key: row.item.key, channel: channel(focus.index), start: programmes.start[p]!, end: programmes.end[p]!, title: programmes.title[p] ?? '' });
   };
 
   const stopFollowing = nav.subscribe((focus) => {
@@ -425,6 +451,7 @@ export function createGuide(options: GuideOptions): Guide {
     screen,
     version,
     pending,
+    details,
     zone: () => zone,
     schedule,
     channel,
@@ -487,6 +514,7 @@ export function createGuide(options: GuideOptions): Guide {
       seq += 1;
       stopTimer();
       stopFollowing();
+      details.dispose();
     },
   };
 }

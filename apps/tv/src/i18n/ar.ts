@@ -39,6 +39,11 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'guide.noInfo': 'لا توجد معلومات',
   'guide.open': 'الدليل',
   'guide.title': 'دليل البرامج',
+  'details.watch': 'شاهد القناة',
+  'details.close': 'إغلاق',
+  'details.length': '{n, plural, zero {# دقيقة} one {دقيقة واحدة} two {دقيقتان} few {# دقائق} many {# دقيقةً} other {# دقيقة}}',
+  'details.noDescription': 'لا يوجد وصف',
+  'details.failed': 'تعذّرت قراءة التفاصيل.',
 
   'badge.live': 'مباشر',
   'badge.new': 'جديد',
