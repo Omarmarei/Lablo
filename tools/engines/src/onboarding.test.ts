@@ -1,6 +1,7 @@
 import { parse } from 'acorn';
 import { describe, expect, it } from 'vitest';
 import { fixtureEntries, liveCategories } from './fixture';
+import { drawnGrid } from './guide-drawn';
 import type { LiveView } from './live';
 import { CHANNELS_VISIBLE, LIVE_CATEGORY, LIVE_TEXT, PLATFORM_BACK_STUB, listedEntry, programmeTitle } from './live';
 import type { StepRecord, StoredProfile, Walk, WalkLanguage, WalkState, WalkStep } from './onboarding';
@@ -20,8 +21,11 @@ import {
   describeExpectation,
   describeState,
   drawnPath,
+  GUIDE_ENTRY,
   evaluateOnboarding,
   evaluateWalk,
+  guideFailures,
+  guideSteps,
   liveSteps,
   matches,
   onboardingUrl,
@@ -31,7 +35,9 @@ import {
   stepLanded,
   stepStuck,
   stepTime,
+  timeAfter,
   walkSteps,
+  withCursor,
 } from './onboarding';
 import type { TvPlatform } from './scenario';
 
@@ -99,7 +105,31 @@ const BASE: WalkState = {
   dialog: false,
   platformBack: 0,
   clock: CLOCK,
+  guide: false,
+  guideIdle: false,
+  time: null,
+  gridTop: null,
+  grid: null,
 };
+
+/** CLOCK in minutes: the guide opens on it. */
+const NOW = CLOCK / 60_000;
+/**
+ * Where each guide step leaves the grid at CLOCK (14:30 UTC): the cursor opens on now; a
+ * programme on is 15:00; three more are 18:00, and the view (two hours from 14:30) moved to the
+ * cursor's slot on the way, at 17:00.
+ */
+const GUIDE_AT: Record<string, { time: number; view: number }> = {
+  'guide-open': { time: NOW, view: NOW },
+  'guide-down': { time: NOW, view: NOW },
+  'guide-next': { time: NOW + 30, view: NOW },
+  'guide-page': { time: NOW + 30, view: NOW },
+  'guide-later': { time: NOW + 210, view: NOW + 150 },
+};
+/** The guide's cursor before each step along the time (the walk reads it before the keys). */
+const CURSOR_BEFORE: Record<string, number> = { 'guide-next': NOW, 'guide-later': NOW + 30 };
+/** The step as the walk runs it: a step along the time expects the cursor its keys lead to. */
+const atRun = (step: WalkStep): WalkStep => withCursor(step, CURSOR_BEFORE[step.id] ?? null);
 
 /** `base` with `overrides`, the focus engine agreeing with the screen unless `overrides` names its own. */
 function patch(base: WalkState, overrides: Partial<WalkState>): WalkState {
@@ -116,6 +146,12 @@ const state = (overrides: Partial<WalkState> = {}): WalkState => patch(BASE, ove
 function landed(step: WalkStep, language: WalkLanguage = 'en'): WalkState {
   const base = state({ ...step.expect });
   if (step.id === 'add') return { ...base, counts: [2400, 600, 0] };
+  if (step.expect.guide === true) {
+    const at = GUIDE_AT[step.id]!;
+    const top = step.expect.gridTop ?? 0;
+    const grid = drawnGrid({ language, entry: listedEntry(CATEGORIES, GUIDE_ENTRY)!, top, index: step.expect.index ?? 0, time: at.time, view: at.view, now: NOW });
+    return patch(base, { editing: null, onboarding: false, time: at.time, grid });
+  }
   if (step.expect.live === true) {
     const category = step.expect.category ?? 0;
     const top = step.expect.top ?? 0;
@@ -140,10 +176,12 @@ function walk(language: WalkLanguage, overrides: Partial<Walk> = {}, platform: T
     language,
     platform,
     reset: 'ok',
-    steps: walkSteps(language, LINK, platform).map((step) => record(step, landed(step, language))),
+    steps: walkSteps(language, LINK, platform)
+      .map(atRun)
+      .map((step) => record(step, landed(step, language))),
     phases: ['checking', 'download', 'saving', 'guide'],
     profile: PROFILE[language],
-    screenshots: ['form.png', 'done.png', 'live.png', 'category.png', 'exit.png'],
+    screenshots: ['form.png', 'done.png', 'live.png', 'category.png', 'exit.png', 'guide.png', 'guide-later.png'],
     screenshotError: null,
     ...overrides,
   };
@@ -160,7 +198,7 @@ const run = (walks: Walk[] = WALK_LANGUAGES.map((l) => walk(l)), exceptions: str
 
 /** The walk with one step replaced by what the engine showed instead, and the steps after it gone. */
 function stoppedAt(language: WalkLanguage, id: string, at: Partial<WalkState>, platform: TvPlatform = 'tizen'): Walk {
-  const steps = walkSteps(language, LINK, platform);
+  const steps = walkSteps(language, LINK, platform).map(atRun);
   const i = steps.findIndex((s) => s.id === id);
   const step = steps[i]!;
   const before = steps.slice(0, i).map((s) => record(s, landed(s, language)));
@@ -169,10 +207,12 @@ function stoppedAt(language: WalkLanguage, id: string, at: Partial<WalkState>, p
 
 /** A clean walk, but step `id` landed on a state changed by `at`. */
 function changedAt(language: WalkLanguage, id: string, at: (landed: WalkState) => Partial<WalkState>, platform: TvPlatform = 'tizen'): Walk {
-  const steps = walkSteps(language, LINK, platform).map((s) => {
-    const there = landed(s, language);
-    return record(s, s.id === id ? patch(there, at(there)) : there);
-  });
+  const steps = walkSteps(language, LINK, platform)
+    .map(atRun)
+    .map((s) => {
+      const there = landed(s, language);
+      return record(s, s.id === id ? patch(there, at(there)) : there);
+    });
   return walk(language, { steps }, platform);
 }
 
@@ -251,8 +291,19 @@ describe('walkSteps', () => {
       'Back',
       'Back',
       'Enter',
+      'ArrowRight',
+      'ArrowUp',
+      'Enter',
+      'ArrowDown',
+      'ArrowRight',
+      'ChannelDown',
+      'ArrowRight',
+      'ArrowRight',
+      'ArrowRight',
+      'Back',
     ]);
-    expect(walkSteps('en', LINK, 'webos').slice(-liveSteps('en', 'webos').length)).toEqual(liveSteps('en', 'webos'));
+    const tail = [...liveSteps('en', 'webos'), ...guideSteps('en', 'webos')];
+    expect(walkSteps('en', LINK, 'webos').slice(-tail.length)).toEqual(tail);
   });
 
   it('picks Arabic with ArrowRight, and swaps LEFT and RIGHT along a row once it is right to left', () => {
@@ -285,12 +336,13 @@ describe('walkSteps', () => {
     expect(stepOf('add')).toMatchObject({ wait: 'load', shot: 'done', layout: 'done' });
   });
 
-  it('measures the six screens of the e2e test on the way, then the live screen, its next window, a category and (Tizen) the exit dialog', () => {
+  it('measures the six screens of the e2e test on the way, then the live screen, its next window, a category, (Tizen) the exit dialog and the guide', () => {
     const six = ['language', 'disclaimer', 'consent', 'source', 'form', 'done'];
-    expect(walkSteps('ar', LINK, 'tizen').flatMap((s) => (s.layout === undefined ? [] : [s.layout]))).toEqual([...six, 'live', 'paged live', 'category', 'exit dialog']);
-    expect(walkSteps('en', LINK, 'webos').flatMap((s) => (s.layout === undefined ? [] : [s.layout]))).toEqual([...six, 'live', 'paged live', 'category']);
-    expect(walkSteps('en', LINK, 'tizen').flatMap((s) => (s.shot === undefined ? [] : [s.shot]))).toEqual(['form', 'done', 'live', 'category', 'exit']);
-    expect(walkSteps('en', LINK, 'webos').flatMap((s) => (s.shot === undefined ? [] : [s.shot]))).toEqual(['form', 'done', 'live', 'category']);
+    const guide = ['guide', 'paged guide', 'later guide'];
+    expect(walkSteps('ar', LINK, 'tizen').flatMap((s) => (s.layout === undefined ? [] : [s.layout]))).toEqual([...six, 'live', 'paged live', 'category', 'exit dialog', ...guide]);
+    expect(walkSteps('en', LINK, 'webos').flatMap((s) => (s.layout === undefined ? [] : [s.layout]))).toEqual([...six, 'live', 'paged live', 'category', ...guide]);
+    expect(walkSteps('en', LINK, 'tizen').flatMap((s) => (s.shot === undefined ? [] : [s.shot]))).toEqual(['form', 'done', 'live', 'category', 'exit', 'guide', 'guide-later']);
+    expect(walkSteps('en', LINK, 'webos').flatMap((s) => (s.shot === undefined ? [] : [s.shot]))).toEqual(['form', 'done', 'live', 'category', 'guide', 'guide-later']);
   });
 });
 
@@ -337,8 +389,86 @@ describe('liveSteps', () => {
 
   it('checks the rows where the window or the category changes, and the rail where the category does', () => {
     const steps = walkSteps('en', LINK, 'tizen');
-    expect(steps.filter((s) => s.rows === true).map((s) => s.id)).toEqual(['relaunch', 'live-page-down', 'live-category']);
+    expect(steps.filter((s) => s.rows === true).map((s) => s.id)).toEqual(['relaunch', 'live-page-down', 'live-category', 'guide-back']);
     expect(steps.filter((s) => s.rail === true).map((s) => s.id)).toEqual(['relaunch', 'live-category']);
+  });
+});
+
+describe('guideSteps', () => {
+  const codes = (platform: TvPlatform, language: WalkLanguage = 'en'): number[] => guideSteps(language, platform).flatMap((s) => (s.keys ?? []).map((k) => k.keyCode));
+
+  it("goes from the rail to the list's first channel, UP to the header's Guide, OK, then across rows and time with the TV's own CH− and Back", () => {
+    expect(codes('tizen')).toEqual([39, 38, 13, 40, 39, 428, 39, 39, 39, 10009]);
+    expect(codes('webos')).toEqual([39, 38, 13, 40, 39, 34, 39, 39, 39, 461]);
+  });
+
+  it('goes to the list and later in time with LEFT in Arabic, where the rail is on the right and time runs leftwards', () => {
+    expect(codes('webos', 'ar')).toEqual([37, 38, 13, 40, 37, 34, 37, 37, 37, 461]);
+    expect(guideSteps('ar', 'tizen').find((s) => s.id === 'guide-next')?.label).toBe('ArrowLeft to the next programme');
+  });
+
+  it('starts where the live steps end: the rail on the category whose channels the guide lists', () => {
+    for (const platform of ['tizen', 'webos'] as const) {
+      expect(liveSteps('en', platform).at(-1)?.expect).toMatchObject({ screen: 'live', zone: 'rail', index: GUIDE_ENTRY });
+    }
+    expect(stepOf('guide-list').expect).toEqual({ screen: 'live', zone: 'channels', index: 0, live: true, liveIdle: true, category: GUIDE_ENTRY, top: 0 });
+    expect(stepOf('guide-header').expect).toEqual({ screen: 'live', zone: 'header', index: 0, live: true, liveIdle: true, category: GUIDE_ENTRY });
+  });
+
+  it('expects the guide with its data at every step in the grid, in the language walked, and Back on the channel it had focused', () => {
+    const grid = guideSteps('ar', 'webos').filter((s) => s.expect.screen === 'guide');
+    expect(grid.map((s) => [s.id, s.expect.index, s.expect.gridTop])).toEqual([
+      ['guide-open', 0, 0],
+      ['guide-down', 1, 0],
+      ['guide-next', 1, 0],
+      ['guide-page', 10, 9],
+      ['guide-later', 10, 9],
+    ]);
+    for (const step of grid) {
+      expect(step.expect).toMatchObject({ zone: 'grid', guide: true, guideIdle: true, language: 'ar', dir: 'rtl' });
+      expect(step.grid).toBeDefined();
+      expect(step.wait).toBe('live');
+    }
+    expect(grid.map((s) => s.grid)).toEqual(['open', 'now', 'now', 'now', 'later']);
+    expect(stepOf('guide-back', 'webos', 'ar').expect).toEqual({ screen: 'live', zone: 'channels', index: 10, live: true, liveIdle: true, category: GUIDE_ENTRY });
+  });
+
+  it('moves along the time only on rows whose channels have the hourly programmes the cursor is worked out from', () => {
+    const along = guideSteps('en', 'tizen').filter((s) => s.along !== undefined);
+    expect(along.map((s) => [s.id, s.along, s.keys?.length])).toEqual([
+      ['guide-next', 1, 1],
+      ['guide-later', 3, 3],
+    ]);
+    const entry = listedEntry(CATEGORIES, GUIDE_ENTRY)!;
+    for (const step of along) expect(entry.channels[step.expect.index!]?.guide, step.id).toBe(true);
+  });
+
+  it('expects the cursor at the start of the programme the keys lead to, read before them', () => {
+    expect(timeAfter(NOW, 1)).toBe(NOW + 30);
+    expect(timeAfter(NOW - 30, 1)).toBe(NOW + 30);
+    expect(timeAfter(NOW + 30, 3)).toBe(NOW + 210);
+    const next = stepOf('guide-next');
+    expect(withCursor(next, NOW).expect).toEqual({ ...next.expect, time: NOW + 30 });
+    // A cursor that could not be read never lands, and says so.
+    expect(withCursor(next, null).expect.time).toBe(-1);
+    expect(describeExpectation(withCursor(next, null).expect)).toContain('the cursor at a programme on (the cursor before the keys was not read)');
+    // The other steps are run as they are.
+    const page = stepOf('guide-page');
+    expect(withCursor(page, NOW)).toBe(page);
+    expect(page.expect.time).toBeUndefined();
+  });
+
+  it('measures the guide as it opens, after CH− and after the view moved on, and saves the first and the last', () => {
+    const steps = guideSteps('en', 'tizen');
+    expect(steps.filter((s) => s.layout !== undefined).map((s) => [s.id, s.layout])).toEqual([
+      ['guide-open', 'guide'],
+      ['guide-page', 'paged guide'],
+      ['guide-later', 'later guide'],
+    ]);
+    expect(steps.filter((s) => s.shot !== undefined).map((s) => [s.id, s.shot])).toEqual([
+      ['guide-open', 'guide'],
+      ['guide-later', 'guide-later'],
+    ]);
   });
 });
 
@@ -612,6 +742,84 @@ describe('evaluateWalk on the live screen', () => {
     expect(evaluateWalk(changedAt('en', 'relaunch', () => ({ outside: ['z-chip: All channels'] })), CHECK)).toEqual(['on the live screen: outside the safe area: z-chip: All channels']);
     expect(evaluateWalk(changedAt('ar', 'live-exit', () => ({ cut: ['z-button__label: البقاء'] })), CHECK)).toEqual(['on the exit dialog screen: labels cut: z-button__label: البقاء']);
     expect(evaluateWalk(changedAt('en', 'live-page-down', () => ({ scroll: [1920, 1100] })), CHECK)).toEqual(['on the paged live screen: the page scrolls: it is 1920x1100']);
+  });
+});
+
+describe('evaluateWalk on the guide (RELAY step 23e)', () => {
+  /** The grid of `there` with every cell at its timeline's inline start, as without `left: var(--x)`. */
+  const stacked = (there: WalkState, rtl: boolean): Partial<WalkState> => ({
+    grid: {
+      ...there.grid!,
+      rows: there.grid!.rows.map((row) => ({
+        ...row,
+        cells: row.cells.map((c) => (rtl ? { ...c, right: row.line!.right, left: row.line!.right - (c.right - c.left) } : { ...c, left: row.line!.left, right: row.line!.left + (c.right - c.left) })),
+      })),
+    },
+  });
+
+  it("catches the cells' left: var(--x) missing at every guide step, in both languages", () => {
+    for (const language of WALK_LANGUAGES) {
+      const steps = walkSteps(language, LINK, 'webos')
+        .map(atRun)
+        .map((s) => {
+          const there = landed(s, language);
+          return record(s, s.grid === undefined ? there : patch(there, stacked(there, language === 'ar')));
+        });
+      const failures = evaluateWalk(walk(language, { steps }, 'webos'), CHECK);
+      expect(failures.map((f) => f.slice(0, f.indexOf(':')))).toEqual(['OK on "Guide"', 'ArrowDown in the grid', `${language === 'ar' ? 'ArrowLeft' : 'ArrowRight'} to the next programme`, 'CH− (key 34) in the grid', `${language === 'ar' ? 'ArrowLeft' : 'ArrowRight'} three programmes on`]);
+      expect(failures[0]).toMatch(/^OK on "Guide": \d+ misplaced: row 0 cell 15:00 starts 0 px from the timeline's inline start, expected 330/);
+    }
+  });
+
+  it("reports an OK on Guide that opened nothing, and a guide still busy", () => {
+    const header = { screen: 'live', zone: 'header', index: 0, live: true, liveIdle: true, category: 5, top: 0, guide: false, guideIdle: false, grid: null, time: null, gridTop: null };
+    expect(evaluateWalk(stoppedAt('en', 'guide-open', header), CHECK)).toEqual([
+      'OK on "Guide": expected the guide, its data requests answered, guide · grid 0, language en, dir="ltr", rows from 0; saw the live screen, live · header 0, category 5, rows from 0, no DOM focus, language en, dir="ltr"',
+    ]);
+    expect(evaluateWalk(stoppedAt('ar', 'guide-open', { guideIdle: false }), CHECK)[0]).toMatch(/^OK on "Guide": expected .*; saw the guide, its data requests still running, guide · grid 0, rows from 0, view from 14:30, the cursor at 14:30,/);
+  });
+
+  it('reports a cursor that never moved along the time, and a focus engine that disagrees with the grid', () => {
+    expect(evaluateWalk(stoppedAt('en', 'guide-next', { time: NOW }), CHECK)[0]).toMatch(/^ArrowRight to the next programme: expected .*rows from 0, the cursor at 15:00; saw the guide, guide · grid 1, rows from 0, view from 14:30, the cursor at 14:30,/);
+    expect(evaluateWalk(stoppedAt('en', 'guide-down', { hook: 'guide/grid/0' }), CHECK)).toEqual([
+      'ArrowDown in the grid: expected the guide, its data requests answered, guide · grid 1, language en, dir="ltr", rows from 0; saw the screen draws guide/grid/1, but the focus engine is at guide/grid/0',
+    ]);
+    expect(evaluateWalk(stoppedAt('en', 'guide-page', { index: 1, gridTop: 0 }, 'webos'), CHECK)[0]).toMatch(/^CH− \(key 34\) in the grid: expected .*guide · grid 10, .*rows from 9; saw the guide, guide · grid 1, rows from 0,/);
+    expect(evaluateWalk(stoppedAt('ar', 'guide-back', { screen: 'guide', zone: 'grid', live: false, liveIdle: false }), CHECK)[0]).toMatch(/^Back \(key 10009\) to the list: expected the live screen, its data requests answered, live · channels 10, category 5, rows from \*; saw guide · grid 10, not ready/);
+  });
+
+  it('checks the focused cell: on the focused row, holding the cursor', () => {
+    const elsewhere = changedAt('en', 'guide-down', (there) => ({
+      grid: { ...there.grid!, rows: there.grid!.rows.map((row) => ({ ...row, cells: row.cells.map((c) => ({ ...c, state: row.row === 0 && c.start === NOW ? 'focused' : 'idle' })) })) },
+    }));
+    expect(evaluateWalk(elsewhere, CHECK)).toEqual(['ArrowDown in the grid: the focused cell is on row 0, expected 1 (the focus)']);
+  });
+
+  it("checks the rows' programmes against the fixture, and the measured guide like any screen", () => {
+    const wrong = changedAt('en', 'guide-page', (there) => ({
+      grid: { ...there.grid!, rows: there.grid!.rows.map((row) => (row.row === 10 ? { ...row, cells: row.cells.map((c) => ({ ...c, title: 'fixture.137 9h' })) } : row)) },
+    }));
+    expect(evaluateWalk(wrong, CHECK)).toEqual([expect.stringMatching(/^CH− \(key 428\) in the grid: 1 of 9 rows wrong: row 10 \(Zoma Channel 137\): draws 14:00–15:00 "fixture\.137 9h"/)]);
+    expect(evaluateWalk(changedAt('ar', 'guide-open', () => ({ cut: ['guide__clock: ٢:٣٠ م'] })), CHECK)).toEqual(['on the guide screen: labels cut: guide__clock: ٢:٣٠ م']);
+    expect(evaluateWalk(changedAt('en', 'guide-later', () => ({ outside: ['z-guide__now: '] })), CHECK)).toEqual(['on the later guide screen: outside the safe area: z-guide__now: ']);
+  });
+
+  it('checks where now is: on the cursor and its slot as it opens, the now line while the view holds it, gone once the view moved on', () => {
+    const open = stepOf('guide-open');
+    const at = (step: WalkStep, more: Partial<WalkState> = {}): string[] => guideFailures(step, patch(landed(atRun(step)), more), CHECK, 'en');
+    expect(at(open)).toEqual([]);
+    expect(at(open, { clock: CLOCK + 5 * 60_000 })).toEqual(['the now line is at 14:30, but the page\'s clock says 14:35', 'the cursor opened at 14:30, expected now (14:35)']);
+    const late = landed(open);
+    expect(at(open, { grid: { ...late.grid!, view: NOW - 30 } }).join('; ')).toContain("the view starts at 14:00, expected the start of the cursor's slot (14:30)");
+    expect(at(open, { grid: { ...late.grid!, view: NOW + 1 } }).join('; ')).toContain("the view starts at 14:31, expected the start of the cursor's slot (14:30)");
+    expect(at(stepOf('guide-down'), { grid: { ...landed(stepOf('guide-down')).grid!, now: null } })).toEqual(['no now line, though the view (from 14:30) holds now (14:30)']);
+    const later = stepOf('guide-later');
+    expect(at(later)).toEqual([]);
+    const still = landed(atRun(later));
+    expect(at(later, { grid: { ...still.grid!, now: { minute: NOW, centre: 0 } } })).toContain('the view (from 17:00) still draws the now line');
+    expect(at(later, { clock: CLOCK + 200 * 60_000 })).toEqual(['the view starts at 17:00, expected after now (17:50): it never moved on']);
+    expect(guideFailures(later, { ...still, grid: null }, CHECK, 'en')).toEqual(['the guide draws no grid']);
+    expect(guideFailures(stepOf('guide-list'), still, CHECK, 'en')).toEqual([]);
   });
 });
 

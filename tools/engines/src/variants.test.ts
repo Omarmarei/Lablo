@@ -12,6 +12,7 @@ import {
   SEEDS,
   SYNTAX_SEED_SCREENS,
   WALK_SEEDS,
+  dropGuideCellX,
   mustPass,
   removeDeclarations,
   removeRules,
@@ -109,6 +110,28 @@ const APP_CSS = `/* tokens */
 .gallery.is-loading {
   padding: 0;
 }
+
+/* The grid guide's cells (GuideGrid.css), placed by a custom property. */
+.z-guide__cell {
+  position: absolute;
+  width: var(--w);
+}
+
+[dir="ltr"] .z-guide__cell {
+  left: var(--x);
+}
+
+[dir="rtl"] .z-guide__cell {
+  right: var(--x);
+}
+
+[dir="ltr"] .z-guide__slot {
+  left: var(--x);
+}
+
+[dir="rtl"] .z-guide__slot {
+  right: var(--x);
+}
 `;
 
 function fakeDist(): string {
@@ -183,11 +206,12 @@ describe('the screens each variant runs', () => {
     expect(NO_POLYFILLS_VARIANT.screens).toEqual(['hello']);
   });
 
-  it("runs the component CSS seeds on the gallery and live.css's on the walk to the live screen, and they must fail on every engine", () => {
+  it("runs the component CSS seeds on the gallery, and live.css's and the grid guide's on the walk to them, and they must fail on every engine", () => {
     expect(CSS_SEEDS.map((seed) => [seed.id, seed.screens])).toEqual([
       ['seed-css-no-list-row', ['gallery']],
       ['seed-css-no-safe-area', ['gallery']],
       ['seed-css-no-live', ['onboarding']],
+      ['seed-css-no-guide-x', ['onboarding']],
     ]);
     for (const seed of CSS_SEEDS) {
       expect([53, 56, 68, 140].map((major) => mustPass(seed, major))).toEqual([false, false, false, false]);
@@ -253,7 +277,7 @@ describe('the walk seeds', () => {
 });
 
 describe('the CSS seeds', () => {
-  const [noListRow, noSafeArea, noLive] = CSS_SEEDS as readonly [(typeof CSS_SEEDS)[number], (typeof CSS_SEEDS)[number], (typeof CSS_SEEDS)[number]];
+  const [noListRow, noSafeArea, noLive, noGuideX] = CSS_SEEDS as readonly [(typeof CSS_SEEDS)[number], (typeof CSS_SEEDS)[number], (typeof CSS_SEEDS)[number], (typeof CSS_SEEDS)[number]];
 
   it('removeRules takes out whole rules and keeps at-rules and the other rules', () => {
     const result = removeRules(APP_CSS, (selector) => selector.startsWith('.gallery'));
@@ -301,8 +325,29 @@ describe('the CSS seeds', () => {
     expect(noLive.edit(APP_CSS).removed).toBe(4);
   });
 
+  it("seed-css-no-guide-x takes out the cells' left: var(--x) and its mirror, and nothing else", () => {
+    const css = seedCss(APP_CSS, noGuideX);
+    expect(noGuideX.edit(APP_CSS).removed).toBe(2);
+    expect(css).not.toMatch(/\.z-guide__cell \{[^}]*(left|right):/);
+    // The rest of the cell's rule, and the slot labels' positions, stay.
+    expect(css).toContain('.z-guide__cell {\n  position: absolute;\n  width: var(--w);\n}');
+    expect(css).toContain('[dir="ltr"] .z-guide__slot {\n  left: var(--x);\n}');
+    expect(css).toContain('[dir="rtl"] .z-guide__slot {\n  right: var(--x);\n}');
+    expect(css).toContain('.gallery {\n  display: flex;');
+  });
+
+  it('seed-css-no-guide-x takes out nothing unless both directions are there: neither language may pass untested', () => {
+    const ltrOnly = APP_CSS.replace('[dir="rtl"] .z-guide__cell {\n  right: var(--x);\n}', '');
+    const rtlOnly = APP_CSS.replace('[dir="ltr"] .z-guide__cell {\n  left: var(--x);\n}', '');
+    for (const css of [ltrOnly, rtlOnly]) {
+      expect(css).not.toBe(APP_CSS);
+      expect(dropGuideCellX(css)).toEqual({ css, removed: 0 });
+      expect(() => seedCss(css, noGuideX)).toThrow(/seed-css-no-guide-x: nothing to take out/);
+    }
+  });
+
   it('fails the staging when a seed finds nothing to take out (a renamed class)', () => {
-    const renamed = APP_CSS.replace(/z-row/g, 'z-line').replace(/\.gallery \{/g, '.showcase {').replace(/\.live/g, '.watch');
+    const renamed = APP_CSS.replace(/z-row/g, 'z-line').replace(/\.gallery \{/g, '.showcase {').replace(/\.live/g, '.watch').replace(/z-guide__cell/g, 'z-epg__cell');
     for (const seed of CSS_SEEDS) expect(() => seedCss(renamed, seed)).toThrow(new RegExp(`${seed.id}: nothing to take out`));
   });
 
