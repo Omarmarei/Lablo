@@ -95,6 +95,12 @@ describe('the engines catalog fixture', () => {
     const all = listed.flatMap((c) => c.channels);
     expect(all.filter((c) => c.guide).map((c) => c.tvgId)).toEqual(all.map((c) => c.tvgId).filter((id) => guided.has(id)));
     expect(all.filter((c) => c.guide)).toHaveLength(checks.tizen.epgMatched);
+    // Catch-up (step 25c): the playlist gives exactly the channels the walk expects marks on seven days of `shift`.
+    const archived = new Map(items.filter((i) => i.kind === 'live' && i.catchup !== null).map((i) => [i.epgId, i.catchup]));
+    expect(all.filter((c) => c.catchup > 0).map((c) => c.tvgId)).toEqual(all.map((c) => c.tvgId).filter((id) => archived.has(id)));
+    for (const info of archived.values()) expect(info).toMatchObject({ mode: 'shift', days: 7 });
+    expect(all.filter((c) => c.catchup > 0).every((c) => c.guide && c.catchup === 7)).toBe(true);
+    expect(archived.size).toBe(all.filter((c) => c.guide).length / 2);
   });
 
   it('builds app URLs that the app reads back as the hello screen + force + query + source', () => {

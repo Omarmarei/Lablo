@@ -27,6 +27,7 @@ import {
   GUIDE_SPAN,
   GUIDE_TEXT,
   GUIDE_LAYOUT as HARNESS_LAYOUT,
+  MARK_SIZE,
   guideWidth as harnessWidth,
 } from '../tools/engines/src/guide';
 import { CHANNELS_VISIBLE, LIVE_BOXES, LIVE_LABELS, LIVE_TEXT, LIVE_VIEW_FUNCTION, PLATFORM_BACK_STUB, TV_KEYS } from '../tools/engines/src/live';
@@ -171,8 +172,19 @@ describe('the grid guide of the old-engine harness (RELAY step 23e)', () => {
   });
 
   it("expects our own words as the catalogs have them, and opens the guide by the header's first button", () => {
-    expect(GUIDE_TEXT.en).toEqual({ open: EN['guide.open'], noInfo: EN['guide.noInfo'] });
-    expect(GUIDE_TEXT.ar).toEqual({ open: AR['guide.open'], noInfo: AR['guide.noInfo'] });
+    expect(GUIDE_TEXT.en).toEqual({ open: EN['guide.open'], noInfo: EN['guide.noInfo'], catchUp: EN['badge.catchUp'] });
+    expect(GUIDE_TEXT.ar).toEqual({ open: AR['guide.open'], noInfo: AR['guide.noInfo'], catchUp: AR['badge.catchUp'] });
+    // The archive mark (step 25c): named from the catalogs, drawn at the harness's size, read by its class.
+    expect(read('apps/tv/src/guide/GuideScreen.tsx')).toContain("archiveName={t('badge.catchUp')}");
+    expect(read('packages/ui/src/components/GuideGrid.css')).toContain(`.z-guide__mark {
+  order: -1;
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  width: ${MARK_SIZE}px;
+  height: ${MARK_SIZE}px;`);
+    expect(read('packages/ui/src/components/GuideGrid.tsx')).toContain(`{marked && <span class="z-guide__mark">{archiveName ?? ''}</span>}`);
+    expect(read('e2e/guide-grid.ts')).toContain("mark: cell.querySelector('.z-guide__mark')?.textContent ?? null,");
     expect(read('apps/tv/src/live/live-state.ts')).toContain('export const HEADER_GUIDE = 0;');
     expect(read('apps/tv/src/live/LiveApp.tsx')).toContain('<Button label={t(\'guide.open\')} {...header.item(HEADER_GUIDE)} testId="live-guide" />');
     expect(read('apps/tv/src/live/live-state.ts')).toContain("neighbours: { start: 'rail', up: 'header' }");
