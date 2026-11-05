@@ -234,7 +234,12 @@ function setup(options: { count?: number; chunks?: number[]; start?: number; eng
     await flush();
   };
   const position = () => guide.screen.value!.position(GUIDE_GRID);
-  return { guide, engine, list, clock, nav, play, closed, at, press, rest, position };
+  /** Opens the guide on `row`, and lets its first ask go (a 0 ms timer, after the opening frame). */
+  const open = (row: number): void => {
+    guide.open(row);
+    clock.advance(0);
+  };
+  return { guide, engine, list, clock, nav, play, closed, at, press, rest, position, open };
 }
 
 afterEach(() => {
@@ -305,7 +310,7 @@ describe('mergeDays', () => {
 describe('opening the guide', () => {
   it('shows the list’s rows, focused on the row given at now, the view on the slot of now', async () => {
     const t = setup();
-    t.guide.open(42);
+    t.open(42);
     expect(t.at()).toBe(`guide · grid 42 @${20 * 60 + 17}`);
     const zone = t.guide.zone();
     expect([zone.rows, zone.visibleRows, zone.span, zone.slot, zone.now]).toEqual([1000, 9, 120, 30, NOW]);
@@ -314,16 +319,21 @@ describe('opening the guide', () => {
     expect(t.guide.screen.value?.id).toBe(GUIDE_SCREEN);
     // The low tier keeps three days ahead.
     const low = setup({ tier: 'low' });
-    low.guide.open(0);
+    low.open(0);
     expect([low.guide.zone().from, low.guide.zone().to]).toEqual([midnight(-1), midnight(4)]);
     // A second open while it shows does nothing.
-    t.guide.open(7);
+    t.open(7);
     expect(t.at()).toBe(`guide · grid 42 @${20 * 60 + 17}`);
   });
 
-  it('asks the day in view for the rows in view and a page either side, at once', async () => {
+  it('asks the day in view for the rows in view and a page either side, after the opening frame', async () => {
     const t = setup();
     t.guide.open(42);
+    // The press that opens it draws its frame first: the ask waits on a 0 ms timer, counted as pending.
+    expect(t.engine.calls).toEqual([]);
+    expect(t.guide.pending.value).toBe(1);
+    t.clock.advance(0);
+    expect(t.guide.pending.value).toBe(1);
     // Rows 34–42 in view: 25 to 51.
     expect(t.engine.asked()).toEqual([`d0:${asked(25, 52)}`]);
     expect(t.engine.calls[0]).toMatchObject({ from: midnight(0), to: midnight(1) });
@@ -338,23 +348,44 @@ describe('opening the guide', () => {
     expect(t.guide.channel(42)).toEqual({ number: 43, name: 'Channel 42' });
     // Rows out of the list are never asked: near its top and its end.
     const top = setup();
-    top.guide.open(0);
+    top.open(0);
     expect(top.engine.asked()).toEqual([`d0:${asked(0, 18)}`]);
     const end = setup();
-    end.guide.open(999);
+    end.open(999);
     expect(end.engine.asked()).toEqual([`d0:${asked(982, 1000)}`]);
     await flush();
     expect([top.list.loads, end.list.loads]).toEqual([[], []]);
   });
 
+  it('waits for the view to rest when a key comes before the first ask, and asks nothing once closed', async () => {
+    const t = setup();
+    t.guide.open(42);
+    await t.press('DOWN');
+    t.clock.advance(0);
+    expect(t.engine.calls).toEqual([]);
+    expect(t.guide.pending.value).toBe(1);
+    t.clock.advance(GUIDE_ASK_MS - 1);
+    expect(t.engine.calls).toEqual([]);
+    t.clock.advance(1);
+    // Row 43 in view under rows 35–43: 26 to 52.
+    expect(t.engine.asked()).toEqual([`d0:${asked(26, 53)}`]);
+    // Back before the first ask: nothing asked, nothing pending.
+    const back = setup();
+    back.guide.open(42);
+    await back.press('BACK');
+    expect(back.guide.pending.value).toBe(0);
+    back.clock.advance(GUIDE_ASK_MS);
+    expect([back.engine.calls, back.clock.pending()]).toEqual([[], 0]);
+  });
+
   it('asks both days when the view crosses midnight, one call each', async () => {
     // A view that ends at midnight asks one day.
     const ten = setup({ start: new Date(2026, 10, 5, 22, 10).getTime() });
-    ten.guide.open(0);
+    ten.open(0);
     expect(ten.position().view + GUIDE.span).toBe(midnight(1));
     expect(ten.engine.asked()).toEqual([`d0:${asked(0, 18)}`]);
     const t = setup({ start: new Date(2026, 10, 5, 23, 40).getTime() });
-    t.guide.open(0);
+    t.open(0);
     expect(t.position().view).toBe(midnight(0) + 23 * 60 + 30);
     expect(t.engine.asked()).toEqual([`d0:${asked(0, 18)}`, `d1:${asked(0, 18)}`]);
     expect(t.engine.calls[1]).toMatchObject({ from: midnight(1), to: midnight(2) });
@@ -379,7 +410,7 @@ describe('opening the guide', () => {
 describe('moving in the guide', () => {
   it('asks nothing for moves inside what it read, and new rows only once the view rests', async () => {
     const t = setup();
-    t.guide.open(42);
+    t.open(42);
     await flush();
     // One programme on stays in a view short of midnight; row 42 is the view's last, so UP first.
     await t.press('RIGHT', 'UP', 'DOWN', 'LEFT');
@@ -404,7 +435,7 @@ describe('moving in the guide', () => {
 
   it('asks the next day once the view goes past midnight, for the same rows', async () => {
     const t = setup();
-    t.guide.open(0);
+    t.open(0);
     await flush();
     // Each RIGHT goes a programme on: channel 0's are 30 minutes, the view moves by slots.
     for (let i = 0; i < 12; i += 1) await t.press('RIGHT');
@@ -420,7 +451,7 @@ describe('moving in the guide', () => {
   it('draws the programmes asked before a guide swapped in until the new ones come, then asks again', async () => {
     const t = setup();
     t.engine.hold = true;
-    t.guide.open(0);
+    t.open(0);
     t.guide.guidesChanged();
     // The rest comes while the days are still being asked: nothing more is asked yet.
     await t.rest();
@@ -448,7 +479,7 @@ describe('moving in the guide', () => {
 
   it('keeps the newest channel-days and asks again for rows it dropped', async () => {
     const t = setup({ count: 3000 });
-    t.guide.open(0);
+    t.open(0);
     await flush();
     expect(t.guide.schedule(0)).not.toBeNull();
     // The open asks 18 rows, each page 9 it lacks; an ask drops the oldest past GUIDE_KEEP, so the
@@ -472,7 +503,7 @@ describe('moving in the guide', () => {
 
   it('keeps each row’s merged programmes until one of its days changes', async () => {
     const t = setup();
-    t.guide.open(0);
+    t.open(0);
     await flush();
     const first = t.guide.schedule(0);
     expect(first).not.toBeNull();
@@ -487,7 +518,7 @@ describe('moving in the guide', () => {
 
   it('drops the least recently wanted days first', async () => {
     const t = setup({ count: 3000 });
-    t.guide.open(0);
+    t.open(0);
     await flush();
     // Down to rows 0–125, then back to the top: rows 0–17 are wanted again.
     for (let i = 0; i < 12; i += 1) {
@@ -513,7 +544,7 @@ describe('moving in the guide', () => {
     const list = new FakeList(1000, [0]);
     list.hold = true;
     const t = setup({ list });
-    t.guide.open(95);
+    t.open(95);
     // Rows 87–95 in view: 78–99 are in chunk 0, 100–104 not yet.
     expect(t.engine.asked()).toEqual([`d0:${asked(78, 100)}`]);
     expect(list.loads).toEqual(range(100, 105));
@@ -529,13 +560,13 @@ describe('moving in the guide', () => {
     // Over two days, each row's chunk is read once.
     const late = new FakeList(1000, [0]);
     const two = setup({ list: late, start: new Date(2026, 10, 5, 23, 40).getTime() });
-    two.guide.open(95);
+    two.open(95);
     expect(late.loads).toEqual(range(100, 105));
   });
 
   it('reads the range’s last day', async () => {
     const t = setup({ tier: 'low' });
-    t.guide.open(0);
+    t.open(0);
     await flush();
     // To the guide's end: the view is its last two hours.
     t.guide.screen.value!.focus(GUIDE_GRID, 0, midnight(4) - 1);
@@ -550,7 +581,7 @@ describe('moving in the guide', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const t = setup();
     t.engine.fail = true;
-    t.guide.open(0);
+    t.open(0);
     await flush();
     expect(console.warn).toHaveBeenCalled();
     expect(t.guide.pending.value).toBe(0);
@@ -564,7 +595,7 @@ describe('moving in the guide', () => {
   it('asks a day being asked only once', async () => {
     const t = setup();
     t.engine.hold = true;
-    t.guide.open(0);
+    t.open(0);
     await t.press('DOWN', 'UP');
     await t.rest();
     expect(t.engine.calls).toHaveLength(1);
@@ -582,7 +613,7 @@ describe('moving in the guide', () => {
 describe('OK and Back in the guide', () => {
   it('plays the channel on OK on the programme on air, and nothing on one to come or gone by', async () => {
     const t = setup();
-    t.guide.open(2);
+    t.open(2);
     await flush();
     await t.press('OK');
     expect(t.play).toHaveBeenCalledWith(2);
@@ -594,7 +625,7 @@ describe('OK and Back in the guide', () => {
     expect(t.play).toHaveBeenCalledTimes(1);
     // A channel with no guide plays from the placeholder that holds now.
     const none = setup();
-    none.guide.open(9);
+    none.open(9);
     await flush();
     expect(none.guide.schedule(9)).toEqual({ start: [], end: [], title: [] });
     await none.press('OK');
@@ -606,7 +637,7 @@ describe('OK and Back in the guide', () => {
   it('counts a programme on air from its first minute to the one before its end', async () => {
     const start = onAir(0, NOW) * 30;
     const t = setup({ start: start * MINUTE });
-    t.guide.open(0);
+    t.open(0);
     await flush();
     expect(guideCellAt(t.guide.schedule(0), t.guide.zone(), t.position().time)).toMatchObject({ start, end: start + 30 });
     await t.press('OK');
@@ -620,14 +651,14 @@ describe('OK and Back in the guide', () => {
   it('plays from the programme on air even before its programmes are read, by its slot', async () => {
     const t = setup();
     t.engine.hold = true;
-    t.guide.open(5);
+    t.open(5);
     await t.press('OK');
     expect(t.play).toHaveBeenCalledWith(5);
   });
 
   it('goes back to the list on the row it had focused, and forgets what it read', async () => {
     const t = setup();
-    t.guide.open(42);
+    t.open(42);
     await flush();
     await t.press('DOWN', 'DOWN', 'RIGHT', 'BACK');
     expect(t.at()).toBe('live · channels 0');
@@ -635,7 +666,7 @@ describe('OK and Back in the guide', () => {
     expect(t.guide.screen.value).toBeNull();
     expect(t.guide.schedule(44)).toBeNull();
     // The next open asks afresh, at now.
-    t.guide.open(44);
+    t.open(44);
     expect(t.guide.schedule(44)).toBeNull();
     expect(t.position().time).toBe(NOW);
     expect(t.engine.calls).toHaveLength(2);
@@ -644,7 +675,7 @@ describe('OK and Back in the guide', () => {
   it('drops the answers of a guide that closed, and asks nothing after', async () => {
     const t = setup();
     t.engine.hold = true;
-    t.guide.open(0);
+    t.open(0);
     await t.press('CH_DOWN', 'BACK');
     expect(t.clock.pending()).toBe(0);
     t.engine.answerAll();
@@ -655,16 +686,16 @@ describe('OK and Back in the guide', () => {
     expect(t.clock.pending()).toBe(0);
     t.guide.guidesChanged();
     expect(t.clock.pending()).toBe(0);
-    t.guide.open(0);
+    t.open(0);
     expect(t.guide.schedule(0)).toBeNull();
   });
 
   it('asks afresh when it opens again while the closed one’s asks are out, and their late answers free nothing', async () => {
     const t = setup();
     t.engine.hold = true;
-    t.guide.open(0);
+    t.open(0);
     await t.press('BACK');
-    t.guide.open(0);
+    t.open(0);
     expect(t.engine.calls).toHaveLength(2);
     // The closed one's answer: dropped, and the new ask still counts as out.
     t.engine.held.shift()!.resolve([]);
@@ -678,7 +709,7 @@ describe('OK and Back in the guide', () => {
 
   it('follows the channel the player played last, at the same time', async () => {
     const t = setup();
-    t.guide.open(3);
+    t.open(3);
     await t.press('RIGHT');
     const time = t.position().time;
     t.guide.follow(8);
@@ -700,7 +731,7 @@ describe('a catalog swap while the guide shows', () => {
   it('reads the new list, on the same channel, and asks its rows again', async () => {
     const list = new FakeList(1000, range(0, 10));
     const t = setup({ list });
-    t.guide.open(42);
+    t.open(42);
     await flush();
     await t.press('RIGHT');
     const time = t.position().time;
@@ -724,7 +755,7 @@ describe('a catalog swap while the guide shows', () => {
     const list = new FakeList(1000, range(0, 10));
     const t = setup({ list });
     t.engine.hold = true;
-    t.guide.open(42);
+    t.open(42);
     const version = t.guide.version.value;
     list.findAt = () => -1;
     t.guide.listChanging();
@@ -744,7 +775,7 @@ describe('a catalog swap while the guide shows', () => {
     const list = new FakeList(1000, []);
     list.hold = true;
     const t = setup({ list });
-    t.guide.open(42);
+    t.open(42);
     t.guide.listChanging();
     list.total = 500;
     await flush();
@@ -764,7 +795,7 @@ describe('a catalog swap while the guide shows', () => {
 describe('dispose', () => {
   it('stops asking', async () => {
     const t = setup();
-    t.guide.open(0);
+    t.open(0);
     await flush();
     await t.press('CH_DOWN');
     t.guide.dispose();
@@ -783,7 +814,7 @@ describe('dispose', () => {
     list.hold = true;
     const t = setup({ list });
     t.engine.hold = true;
-    t.guide.open(95);
+    t.open(95);
     const version = t.guide.version.value;
     t.guide.dispose();
     t.engine.answerAll();
@@ -793,17 +824,17 @@ describe('dispose', () => {
     expect(t.engine.calls).toHaveLength(1);
     // A swap's new list that comes after it.
     const s = setup();
-    s.guide.open(0);
+    s.open(0);
     s.guide.listChanging();
     s.guide.dispose();
     await flush();
     expect(s.engine.calls).toHaveLength(1);
     // Closed, then disposed: no more opens.
     const c = setup();
-    c.guide.open(0);
+    c.open(0);
     await c.press('BACK');
     c.guide.dispose();
-    c.guide.open(0);
+    c.open(0);
     expect(c.guide.screen.value).toBeNull();
   });
 });
@@ -811,7 +842,7 @@ describe('dispose', () => {
 describe('the rows’ days', () => {
   it('cover a whole day each, for the channel’s programmes that overlap it', async () => {
     const t = setup();
-    t.guide.open(1);
+    t.open(1);
     await flush();
     const row = t.guide.schedule(1)!;
     // Channel 1's 45-minute programmes over the day: the first starts before midnight or at it.

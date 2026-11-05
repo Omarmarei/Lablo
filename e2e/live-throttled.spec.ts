@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { Locator, Page } from '@playwright/test';
+import type { Locator } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
@@ -10,6 +10,7 @@ import { addXtreamAndWatch, settled, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
 import type { PressBudget, PressTiming } from './remote-keys';
 import { budgetFailures, summarize } from './remote-keys';
+import { THROTTLE, busyMs, throttle, transitionOf } from './throttle';
 
 /**
  * The live screen on a large catalog at 4x CPU throttle (RELAY step 14b, architecture.md §4):
@@ -22,8 +23,6 @@ import { budgetFailures, summarize } from './remote-keys';
  */
 const CHANNELS = 20_000;
 const CATEGORIES = 200;
-/** `ZOMA_E2E_THROTTLE` overrides it, to see the margins on a slower machine. */
-const THROTTLE = Number(process.env['ZOMA_E2E_THROTTLE'] ?? 4);
 /** The rows the list shows (`CHANNELS_VISIBLE`): CH+/CH− move by a window. */
 const VISIBLE = 9;
 /**
@@ -52,45 +51,6 @@ test.afterAll(async () => {
   rmSync(guideDir, { recursive: true, force: true });
 });
 
-/**
- * Slows the page's CPU `rate` times until the returned function is called. The CDP session
- * stays attached meanwhile: detaching it ends the emulation.
- */
-async function throttle(page: Page, rate: number): Promise<() => Promise<void>> {
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send('Emulation.setCPUThrottlingRate', { rate });
-  return async () => {
-    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
-    await cdp.detach();
-  };
-}
-
-/**
- * A fixed piece of work in the page, in ms: it takes longer once throttled. Five runs in total:
- * the throttle suspends the main thread in slices, and one short run can fall between them.
- */
-function busyMs(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    let total = 0;
-    for (let run = 0; run < 5; run++) {
-      const start = performance.now();
-      let x = 0;
-      for (let i = 0; i < 2_000_000; i++) x += Math.sqrt(i);
-      (window as unknown as { __zomaSink: number }).__zomaSink = x;
-      total += performance.now() - start;
-    }
-    return total;
-  });
-}
-
-/** The duration of a list row's focus transition: the motion tokens of the tier. */
-function rowTransition(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const row = document.querySelector('[data-testid=channels] .z-row');
-    return row === null ? 'no row' : getComputedStyle(row).transitionDuration;
-  });
-}
-
 interface Run {
   readonly tier: string;
   readonly presses: readonly PressTiming[];
@@ -113,7 +73,7 @@ async function zap(remote: RemoteDriver, root: Locator, tier: 'full' | 'low'): P
   await remote.expectFocus('live/channels/0');
   await settled(root, 30_000);
   // The tier's motion: a row's focus transition, none on the low tier.
-  expect(await rowTransition(page)).toBe(tier === 'low' ? '0s, 0s' : '0.12s, 0.12s');
+  expect(await transitionOf(page, '[data-testid=channels] .z-row')).toBe(tier === 'low' ? '0s, 0s' : '0.12s, 0.12s');
   remote.timings.length = 0;
   const base = await busyMs(page);
   const release = await throttle(page, THROTTLE);

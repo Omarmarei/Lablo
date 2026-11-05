@@ -21,7 +21,8 @@ import type { ZapList } from '../player/player-state';
  *   from that midnight, two hours in view.
  * - **The data** is kept per channel-day (a local day of the range): the rows in view and a page
  *   either side are asked for the days the view crosses, once the view has rested
- *   `GUIDE_ASK_MS` (at once when the screen opens). One query-worker call per day. The channels'
+ *   `GUIDE_ASK_MS` (when the screen opens, on a 0 ms timer: the key press that opens it draws
+ *   its first frame without waiting for the ask, or for an answer). One query-worker call per day. The channels'
  *   rows come from the live list (a chunk it hasn't read is read first). `GUIDE_KEEP`
  *   channel-days are kept, the least recently wanted dropped first; all of it goes when the
  *   screen closes. After a guide swapped in (`guidesChanged`), every day is asked again, and a
@@ -385,7 +386,8 @@ export function createGuide(options: GuideOptions): Guide {
     );
   };
 
-  const scheduleAsk = (): void => {
+  /** Asks once the view has rested `ms` (a newer call starts the wait again). */
+  const scheduleAsk = (ms: number = GUIDE_ASK_MS): void => {
     if (screen.value === null) return;
     if (askTimer !== null) timers.clear(askTimer);
     else pending.value += 1;
@@ -393,7 +395,7 @@ export function createGuide(options: GuideOptions): Guide {
       askTimer = null;
       pending.value -= 1;
       ask();
-    }, GUIDE_ASK_MS);
+    }, ms);
   };
 
   const close = (): void => {
@@ -446,7 +448,8 @@ export function createGuide(options: GuideOptions): Guide {
       });
       screen.value = shown;
       shown.focus(GUIDE_GRID, row);
-      ask();
+      // After the press's frame (a key pressed before it waits for the view to rest instead).
+      scheduleAsk(0);
     },
     follow(row: number): void {
       screen.value?.focus(GUIDE_GRID, row);
