@@ -6,15 +6,15 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Timers } from '../live/live-state';
 import { CHUNK_CACHE, LIVE, LIVE_BODY } from '../live/live-state';
 import type { MoviesEngine } from './movies-state';
-import { MOVIES, MOVIES_GRID, MOVIES_GRID_WIDTH, MOVIES_RAIL, MOVIES_ROWS, MOVIES_SCREEN, createMovies } from './movies-state';
+import { MOVIES, MOVIES_GRID, MOVIES_GRID_WIDTH, MOVIES_RAIL, MOVIES_RETRY, MOVIES_ROWS, MOVIES_SCREEN, createMovies } from './movies-state';
 import { POSTER_TIERS } from './posters';
 
-function movie(src: string, catIdx: number, n: number, logo = true): CatalogItem {
+function movie(src: string, catIdx: number, n: number, logo = true, label = ''): CatalogItem {
   return {
     key: `x:${src}:movie:${catIdx}-${n}`,
     src,
     kind: 'movie',
-    name: `Movie ${src} ${catIdx}-${n}`,
+    name: `Movie ${label}${src} ${catIdx}-${n}`,
     normName: '',
     group: '',
     url: `http://panel.test/movie/u/p/${catIdx * 10_000 + n}.mp4`,
@@ -58,6 +58,16 @@ class FakeEngine implements MoviesEngine {
   readonly held: { profile: Held<LoadedProfile | null>[]; chunk: Held<CatalogItem[]>[] } = { profile: [], chunk: [] };
   readonly chunkCalls: string[] = [];
   catalog: Record<string, CategoryInfo[]> = CATEGORIES;
+  /** Put before each movie's name: a newer catalog's items differ from an older one's. */
+  label = '';
+
+  /** The items of a chunk of the catalog as it is now. */
+  items(src: string, catIdx: number, chunk: number): CatalogItem[] {
+    const cat = this.catalog[src]?.find((c) => c.catIdx === catIdx);
+    const out: CatalogItem[] = [];
+    for (let slot = 0; slot < (cat?.chunks[chunk] ?? 0); slot += 1) out.push(movie(src, catIdx, chunk * 500 + slot, !(src === 's2' && slot === 3), this.label));
+    return out;
+  }
 
   profile(): Promise<LoadedProfile | null> {
     if (this.hold.has('profile')) return new Promise((resolve, reject) => this.held.profile.push({ arg: '', resolve, reject }));
@@ -73,14 +83,8 @@ class FakeEngine implements MoviesEngine {
     expect(kind).toBe('movie');
     const id = `${src}|${catIdx}|${chunk}`;
     this.chunkCalls.push(id);
-    const items = (): CatalogItem[] => {
-      const cat = this.catalog[src]?.find((c) => c.catIdx === catIdx);
-      const out: CatalogItem[] = [];
-      for (let slot = 0; slot < (cat?.chunks[chunk] ?? 0); slot += 1) out.push(movie(src, catIdx, chunk * 500 + slot, !(src === 's2' && slot === 3)));
-      return out;
-    };
     if (this.hold.has('chunk')) return new Promise((resolve, reject) => this.held.chunk.push({ arg: id, resolve, reject }));
-    return this.failChunks ? Promise.reject(new Error('read failed')) : Promise.resolve(items());
+    return this.failChunks ? Promise.reject(new Error('read failed')) : Promise.resolve(this.items(src, catIdx, chunk));
   }
 }
 
@@ -239,6 +243,31 @@ describe('the movies screen (RELAY step 26a)', () => {
     expect(CHUNK_CACHE).toBe(8);
   });
 
+  it('reads the row below the view and the row above it, when they are in other chunks', async () => {
+    const engine = new FakeEngine();
+    // Chunks of 18: three rows each.
+    engine.catalog = { s1: [info(0, 'Rows', [18, 18, 18])], s2: [] };
+    const t = await setup({ engine });
+    // Rows 0-2 in view (chunk 0); row 3 below it is chunk 1's.
+    expect(t.engine.chunkCalls).toEqual(['s1|0|0', 's1|0|1']);
+    t.movies.screen.value!.focus(MOVIES_GRID, 53);
+    await flush();
+    expect(t.movies.screen.value!.position(MOVIES_GRID).top).toBe(6);
+    // A swap reads the view again from nothing: rows 6-8 (chunk 2), and row 5 above them (chunk 1).
+    t.movies.catalogChanged();
+    await flush();
+    expect(t.at()).toBe('movies · grid 53');
+    expect(t.engine.chunkCalls).toEqual(['s1|0|0', 's1|0|1', 's1|0|2', 's1|0|1', 's1|0|2']);
+  });
+
+  it('reads a chunk once while its read is out', async () => {
+    const engine = new FakeEngine();
+    engine.hold = new Set(['chunk']);
+    const t = await setup({ engine });
+    await t.press('RIGHT', 'RIGHT', 'DOWN');
+    expect(t.engine.chunkCalls).toEqual(['s1|0|0']);
+  });
+
   it('drops the least recently used chunks beyond CHUNK_CACHE', async () => {
     const engine = new FakeEngine();
     engine.catalog = { s1: [info(0, 'Big', Array.from({ length: 12 }, () => 30))], s2: [] };
@@ -313,6 +342,22 @@ describe('the movies screen (RELAY step 26a)', () => {
     expect(t.withPosters(12, 30)).toEqual(t.range(12, 18).concat(t.range(24, 30)));
   });
 
+  it('waits for the view to rest from the last key, not the first', async () => {
+    const t = await setup();
+    await t.rest();
+    t.loadAll(0, 18);
+    await t.press('DOWN', 'DOWN', 'DOWN');
+    for (let i = 0; i < 3; i += 1) {
+      t.clock.advance(POSTER_TIERS.full.restMs - 50);
+      await t.press('DOWN');
+    }
+    // Row 6 in view since the last key, rows 4 and 5 before it: none asked yet.
+    expect(t.movies.screen.value!.position(MOVIES_GRID).top).toBe(4);
+    expect(t.withPosters(24, 42)).toEqual([]);
+    await t.rest();
+    expect(t.withPosters(24, 42)).toEqual(t.range(36, 42));
+  });
+
   it('asks the posters of tiles whose chunk came after the rest', async () => {
     const engine = new FakeEngine();
     engine.hold = new Set(['chunk']);
@@ -320,7 +365,7 @@ describe('the movies screen (RELAY step 26a)', () => {
     await t.rest();
     expect(t.withPosters(0, 18)).toEqual([]);
     expect(t.movies.pending.value).toBe(1);
-    engine.held.chunk.shift()!.resolve((await new FakeEngine().chunk('s1', 'movie', 0, 0)).slice());
+    engine.held.chunk.shift()!.resolve(engine.items('s1', 0, 0));
     await flush();
     expect(t.tiles(0, 1)).toEqual(['s1 0-0']);
     expect(t.withPosters(0, 18)).toEqual([]);
@@ -335,8 +380,14 @@ describe('the movies screen (RELAY step 26a)', () => {
     await t.rest();
     // Kids' fourth movie has no poster.
     expect(t.withPosters(0, 4)).toEqual([0, 1, 2]);
+    const before = t.movies.version.value;
     t.movies.posterFailed(t.movies.poster(1)!);
     expect(t.withPosters(0, 4)).toEqual([0, 2]);
+    expect(t.movies.version.value).toBe(before + 1);
+    expect(t.movies.pending.value).toBe(2);
+    t.movies.posterLoaded(t.movies.poster(0)!);
+    expect(t.movies.version.value).toBe(before + 2);
+    expect(t.movies.pending.value).toBe(1);
     await t.press('RIGHT');
     await t.rest();
     expect(t.withPosters(0, 4)).toEqual([0, 2]);
@@ -378,6 +429,7 @@ describe('the movies screen (RELAY step 26a)', () => {
     await t.rest();
     expect(t.withPosters(0, 6)).toEqual(t.range(0, 6));
     await t.press('BACK', 'BACK');
+    expect(t.movies.pending.value).toBe(0);
     t.movies.open();
     await flush();
     expect(t.at()).toBe('movies · grid 0');
@@ -416,7 +468,12 @@ describe('the movies screen (RELAY step 26a)', () => {
     expect(t.movies.status.value).toBe('failed');
     expect(t.at()).toBe('movies · retry 0');
     engine.failProfile = false;
+    engine.hold = new Set(['profile']);
     await t.press('OK');
+    expect(t.movies.status.value).toBe('loading');
+    expect(t.movies.screen.value!.zone(MOVIES_RETRY)).toMatchObject({ count: 0 });
+    engine.held.profile.shift()!.resolve(engine.profileDoc);
+    await flush();
     expect(t.movies.status.value).toBe('ready');
     expect(t.at()).toBe('movies · grid 0');
     expect(warn).toHaveBeenCalledTimes(1);
@@ -443,7 +500,7 @@ describe('the movies screen (RELAY step 26a)', () => {
     const t = await setup({ engine, select });
     await t.press('OK');
     expect(select).not.toHaveBeenCalled();
-    engine.held.chunk.shift()!.resolve(await new FakeEngine().chunk('s1', 'movie', 0, 0));
+    engine.held.chunk.shift()!.resolve(engine.items('s1', 0, 0));
     await flush();
     await t.press('RIGHT', 'OK');
     expect(select).toHaveBeenCalledTimes(1);
@@ -463,6 +520,36 @@ describe('the movies screen (RELAY step 26a)', () => {
     expect(t.clock.pending()).toBe(0);
   });
 
+  it("drops the answer of an earlier open's read", async () => {
+    const engine = new FakeEngine();
+    engine.hold = new Set(['profile']);
+    const t = await setup({ engine });
+    await t.press('BACK');
+    t.movies.open();
+    await flush();
+    expect(engine.held.profile).toHaveLength(2);
+    engine.held.profile.shift()!.resolve(engine.profileDoc);
+    await flush();
+    expect(t.movies.status.value).toBe('loading');
+    engine.held.profile.shift()!.resolve(engine.profileDoc);
+    await flush();
+    expect(t.movies.status.value).toBe('ready');
+  });
+
+  it('closes on Back while it loads again, though an earlier open had a rail', async () => {
+    const engine = new FakeEngine();
+    const t = await setup({ engine });
+    await t.press('LEFT', 'BACK');
+    expect(t.movies.screen.value).toBeNull();
+    engine.hold = new Set(['profile']);
+    t.movies.open();
+    await flush();
+    expect(t.movies.rail.value).toEqual([]);
+    await t.press('BACK');
+    expect(t.movies.screen.value).toBeNull();
+    expect(t.at()).toBe('live · header 1');
+  });
+
   it('keeps the category on show and the focus through a catalog swap', async () => {
     const t = await setup();
     await t.press('LEFT', 'DOWN', 'DOWN', 'OK', 'RIGHT', 'RIGHT');
@@ -476,12 +563,45 @@ describe('the movies screen (RELAY step 26a)', () => {
     expect(t.movies.category.value).toBe(1);
     expect(t.at()).toBe('movies · grid 2');
     expect(t.movies.screen.value!.zone(MOVIES_GRID)).toMatchObject({ count: 710 });
+    // The new catalog's chunks are read, not the old ones' kept.
+    expect(t.engine.chunkCalls.slice(-1)).toEqual(['s1|0|0']);
+    expect(t.tiles(0, 1)).toEqual(['s1 0-0']);
     // The category gone: "All movies" from its first movie.
     t.engine.catalog = { s1: [info(0, 'Comedy', [10])], s2: [] };
     t.movies.catalogChanged();
     await flush();
     expect(t.movies.category.value).toBe(0);
     expect(t.at()).toBe('movies · grid 0');
+  });
+
+  it("drops a chunk read before a catalog swap, and shows the new catalog's", async () => {
+    const engine = new FakeEngine();
+    engine.hold = new Set(['chunk']);
+    const t = await setup({ engine });
+    expect(engine.held.chunk.map((h) => h.arg)).toEqual(['s1|0|0']);
+    const old = engine.items('s1', 0, 0);
+    engine.label = 'new ';
+    t.movies.catalogChanged();
+    await flush();
+    expect(engine.held.chunk.map((h) => h.arg)).toEqual(['s1|0|0', 's1|0|0']);
+    engine.held.chunk.shift()!.resolve(old);
+    await flush();
+    expect(t.tiles(0, 1)).toEqual(['…']);
+    engine.held.chunk.shift()!.resolve(engine.items('s1', 0, 0));
+    await flush();
+    expect(t.tiles(0, 1)).toEqual(['new s1 0-0']);
+  });
+
+  it('says so when a swap leaves no movies', async () => {
+    const t = await setup();
+    await t.press('RIGHT');
+    t.engine.catalog = { s1: [], s2: [] };
+    t.movies.catalogChanged();
+    await flush();
+    expect(t.movies.status.value).toBe('empty');
+    expect(t.movies.screen.value!.zone(MOVIES_GRID)).toMatchObject({ count: 0 });
+    await t.press('BACK');
+    expect(t.movies.screen.value).toBeNull();
   });
 
   it('keeps the focus on the rail through a catalog swap, and ignores a swap while closed', async () => {
@@ -511,6 +631,7 @@ describe('the movies screen (RELAY step 26a)', () => {
     await flush();
     expect(t.movies.status.value).toBe('ready');
     expect(t.at()).toBe('movies · grid 0');
+    expect(t.movies.screen.value!.zone(MOVIES_RETRY)).toMatchObject({ count: 0 });
     warn.mockRestore();
   });
 

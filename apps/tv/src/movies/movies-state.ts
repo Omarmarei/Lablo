@@ -133,7 +133,7 @@ export function createMovies(options: MoviesOptions): Movies {
   const pending = signal(0);
 
   let disposed = false;
-  /** Bumps on each open, close and (re)load: answers from before are dropped. */
+  /** Bumps on each (re)load: answers from before are dropped. */
   let seq = 0;
   let index = new ChannelIndex([]);
   /** Loaded chunks, oldest use first (a Map keeps insertion order). */
@@ -245,8 +245,9 @@ export function createMovies(options: MoviesOptions): Movies {
     const top = topRow();
     const focused = screen.value.position(MOVIES_GRID).index;
     const focusRow = focused < 0 ? top : Math.floor(focused / MOVIES.columns);
+    // (The focused row comes again among the others: the loader asks a poster once.)
     const rows = [focusRow];
-    for (let r = top; r < top + MOVIES_ROWS; r += 1) if (r !== focusRow) rows.push(r);
+    for (let r = top; r < top + MOVIES_ROWS; r += 1) rows.push(r);
     const urls: (string | null)[] = [];
     for (const r of rows) for (let i = r * MOVIES.columns; i < (r + 1) * MOVIES.columns; i += 1) urls.push(movieAt(i)?.logo ?? null);
     posters.rest(urls);
@@ -266,14 +267,18 @@ export function createMovies(options: MoviesOptions): Movies {
     restTimer = null;
   };
 
+  /**
+   * Shows rail entry `i` with movie `place` focused. From its first movie the grid starts at the
+   * top (so no step reads chunks for the old view in the new grid); a swap's kept place keeps the
+   * view where it was (clamped to the new grid), so no step reads the top's chunks either.
+   */
   const showCategory = (i: number, place = 0): void => {
     const shown = screen.value;
     const picked = rail.value[i];
     if (shown === null || picked === undefined) return;
     category.value = i;
     index = new ChannelIndex(picked.parts);
-    // Back to the top first, so no step reads chunks for the old view in the new grid.
-    shown.reset(MOVIES_GRID);
+    if (place <= 0) shown.reset(MOVIES_GRID);
     shown.update(gridZone(index.count));
     shown.focus(MOVIES_GRID, Math.min(Math.max(0, place), index.count - 1));
   };
@@ -301,7 +306,6 @@ export function createMovies(options: MoviesOptions): Movies {
     const mine = seq;
     loadingChunks.clear();
     if (keep === undefined) {
-      chunks.clear();
       status.value = 'loading';
       screen.value?.update(retryZone(0));
     }
@@ -313,7 +317,6 @@ export function createMovies(options: MoviesOptions): Movies {
         // (A swap's old tiles show until here.)
         chunks.clear();
         rail.value = entries;
-        shown.update(retryZone(0));
         shown.update(railZone(entries.length));
         if (entries.length === 0) {
           status.value = 'empty';
@@ -350,7 +353,6 @@ export function createMovies(options: MoviesOptions): Movies {
   const close = (): void => {
     const shown = screen.value;
     if (shown === null) return;
-    seq += 1;
     stopRest();
     screen.value = null;
     chunks.clear();
@@ -400,13 +402,11 @@ export function createMovies(options: MoviesOptions): Movies {
       return item === null ? undefined : posters.src(item.logo);
     },
     posterLoaded(url: string): void {
-      if (screen.value === null) return;
       posters.loaded(url);
       syncPending();
       bump();
     },
     posterFailed(url: string): void {
-      if (screen.value === null) return;
       posters.failed(url);
       syncPending();
       bump();
@@ -414,9 +414,8 @@ export function createMovies(options: MoviesOptions): Movies {
     open(): void {
       if (disposed || screen.value !== null) return;
       posters = new PosterLoader(POSTER_TIERS[tier()].parallel);
-      category.value = 0;
+      // Back while it loads closes it (an old rail would send the focus there).
       rail.value = [];
-      index = new ChannelIndex([]);
       const shown = nav.push({
         id: MOVIES_SCREEN,
         zones: [railZone(0), gridZone(0), retryZone(0)],
