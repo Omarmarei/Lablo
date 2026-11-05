@@ -273,6 +273,8 @@ test.describe('match diagnostics by keys (pnpm dev, after onboarding)', () => {
       // The header's second button: the list of the channels no guide has.
       await remote.go('UP', 'guides/header/0');
       await remote.go(rtl ? 'LEFT' : 'RIGHT', 'guides/header/1');
+      await expect(page.getByTestId('guides-unmatched')).toHaveAttribute('data-state', 'focused');
+      await expect(page.getByTestId('guides-add')).toHaveAttribute('data-state', 'idle');
       await remote.go('OK', 'unmatched/channels/0');
       const list = page.getByTestId('unmatched');
       await expect(list).toHaveAttribute('data-status', 'ready');
@@ -291,7 +293,8 @@ test.describe('match diagnostics by keys (pnpm dev, after onboarding)', () => {
       const name = await sourceName(page);
       expect(await plainText(row.locator('.unmatched__where'))).toBe(`${says.from}${name} · ${UNMATCHED.category}`);
       await expect(row.locator('.unmatched__category')).toHaveAttribute('translate', 'no');
-      // The name and the line under it on the screen's side.
+      // The row is 88 px (UNMATCHED.rowHeight); the name and the line under it on the screen's side.
+      expect((await row.boundingBox())!.height).toBe(88);
       const rowAt = await boxSpan(row);
       for (const part of ['.unmatched__name', '.unmatched__where']) {
         const at = await textSpan(row.locator(part));

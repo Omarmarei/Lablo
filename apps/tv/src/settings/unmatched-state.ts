@@ -185,9 +185,8 @@ export function createUnmatchedList(options: UnmatchedOptions): UnmatchedList {
     nav.pop();
   };
 
-  const stopFollowing = nav.subscribe((focus) => {
-    if (focus.screen === 'unmatched') fill();
-  });
+  // (A focus move elsewhere finds the list closed: fill does nothing then.)
+  const stopFollowing = nav.subscribe(() => fill());
 
   return {
     screen,

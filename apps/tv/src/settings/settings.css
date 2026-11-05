@@ -40,7 +40,6 @@
 }
 
 .settings__end {
-  display: flex;
   flex: none;
   margin-left: var(--space-7);
 }

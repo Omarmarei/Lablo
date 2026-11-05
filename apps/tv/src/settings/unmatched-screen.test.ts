@@ -3,9 +3,11 @@ import type { LoadedProfile, SourceRecord, UnmatchedPage, UnmatchedRequest } fro
 import { emptyProfile } from '@zoma/data';
 import type { ItemBinding } from '@zoma/ui';
 import { bindFocus, createNavigator } from '@zoma/ui';
+import { signal } from '@preact/signals';
 import { describe, expect, it, vi } from 'vitest';
 import { appI18n } from '../i18n';
-import { UnmatchedItem, UnmatchedPage as Page } from './SettingsScreen';
+import { SettingsScreen, UnmatchedItem, UnmatchedPage as Page } from './SettingsScreen';
+import type { Settings } from './settings-state';
 import { UNMATCHED, createUnmatchedList } from './unmatched-state';
 
 /**
@@ -140,5 +142,14 @@ describe('"Channels without a guide" as drawn (step 24c)', () => {
     const other = UnmatchedItem({ i18n: none.i18n, list: none.list, index: 0, item: item('idle') });
     expect(textOf(byClass(other, 'unmatched__where'))).toBe('From My list · Other channels');
     expect((byClass(other, 'unmatched__category')[0]!.props as Props).translate).toBeUndefined();
+  });
+
+  it("counts the list's reads in the settings screens' data-pending, with the guides screen's", async () => {
+    const t = await draw(3, { hold: true });
+    expect(t.list.pending.value).toBe(1);
+    const settings = { guides: { pending: signal(2), editor: { editing: signal(null) } }, unmatched: t.list } as unknown as Settings;
+    const root = SettingsScreen({ settings, i18n: t.i18n, binding: t.binding, focus: t.nav.snapshot() });
+    expect((root.props as Props)['data-pending']).toBe(3);
+    expect((root.props as Props)['data-screen']).toBe('unmatched');
   });
 });

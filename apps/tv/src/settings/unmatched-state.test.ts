@@ -199,6 +199,11 @@ describe('"Channels without a guide" (step 24c)', () => {
     t.nav.top.focus('channels', 5_010);
     await flush();
     expect(engine.asks.length).toBe(asked);
+    // Page 1 went: wanted again, it is asked again.
+    t.nav.top.focus('channels', 60);
+    await flush();
+    expect(engine.pages().slice(asked)).toEqual([1]);
+    expect(t.list.row(60)?.name).toBe('Channel 60');
   });
 
   it('never asks a page past the end, also when the list ends on a page boundary', async () => {
@@ -391,6 +396,21 @@ describe('"Channels without a guide" (step 24c)', () => {
     engine.held.page.splice(0)[0]!.resolve();
     await flush();
     expect([t.list.status.value, t.list.count.value, t.list.row(0)?.name]).toEqual(['ready', 120, 'Channel 0']);
+  });
+
+  it('asks again, after reopening, a page that was still being read when the list closed', async () => {
+    const engine = new FakeEngine();
+    const t = await opened(engine);
+    engine.hold = new Set(['page']);
+    for (let i = 0; i < 42; i += 1) await t.press('DOWN');
+    expect(engine.pages()).toEqual([0, 1]);
+    await t.press('BACK');
+    engine.hold = new Set();
+    t.list.open();
+    await flush();
+    for (let i = 0; i < 42; i += 1) await t.press('DOWN');
+    expect(engine.pages()).toEqual([0, 1, 0, 1]);
+    expect(t.list.row(50)?.name).toBe('Channel 50');
   });
 
   it('stops following the focus and drops every answer once disposed; it no longer opens', async () => {

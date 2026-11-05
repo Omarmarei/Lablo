@@ -450,7 +450,8 @@ export function UnmatchedPage({ i18n, binding, list }: { i18n: AppI18n; binding:
           <p class="settings__text">{t('unmatched.none')}</p>
         </div>
       )}
-      {status === 'ready' && count > 0 && (
+      {/* (A count comes only with a ready list.) */}
+      {count > 0 && (
         <VirtualList
           binding={binding}
           screen={screen}
