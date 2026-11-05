@@ -380,6 +380,25 @@ describe('the movies screen (RELAY step 26a)', () => {
     expect(t.withPosters(12, 30)).toEqual(t.range(12, 18).concat(t.range(24, 30)));
   });
 
+  it('starts no download after a key, though downloads under way end: the posters left wait for the next rest (RELAY step 26b)', async () => {
+    const t = await setup();
+    await t.rest();
+    expect(t.withPosters(0, 18)).toEqual(t.range(0, 6));
+    // RIGHT keeps the view: the six under way end, and the twelve waiting wait for the rest.
+    await t.press('RIGHT');
+    for (let i = 0; i < 6; i += 1) t.movies.posterLoaded(t.movies.poster(i)!);
+    expect(t.withPosters(0, 18)).toEqual(t.range(0, 6));
+    expect(t.movies.pending.value).toBe(1);
+    await t.rest();
+    expect(t.withPosters(0, 18)).toEqual(t.range(0, 12));
+    // A move to the next row while those six download: the rows left of the view wait too.
+    await t.press('DOWN');
+    for (let i = 6; i < 12; i += 1) t.movies.posterLoaded(t.movies.poster(i)!);
+    expect(t.withPosters(0, 18)).toEqual(t.range(0, 12));
+    await t.rest();
+    expect(t.withPosters(0, 18)).toEqual(t.range(0, 18));
+  });
+
   it('waits for the view to rest from the last key, not the first', async () => {
     const t = await setup();
     await t.rest();

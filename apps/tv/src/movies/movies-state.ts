@@ -384,6 +384,8 @@ export function createMovies(options: MoviesOptions): Movies {
 
   const stopFollowing = nav.subscribe((focus) => {
     if (focus.screen !== MOVIES_SCREEN || screen.value === null) return;
+    // No poster starts while the keys go down: the ones still waiting wait for the next rest.
+    posters.hold();
     readView();
     scheduleRest();
   });
