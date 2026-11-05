@@ -882,7 +882,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - **Mutation:** `artifacts/mutate24e.py` 124/124 (126 written first, five masked guards taken out and five test gaps closed while writing it; the first run caught 119: two more masked guards taken out, five test gaps closed, all five caught on the re-run, `mutate24e-b.log`). No e2e mutation list (the relay's context check came first): the e2e's own layout and "Reading…" checks stand for the drawing.
     - **Size:** main 327.6 → 339.8 KB (Tizen), 315.0 → 327.2 KB (webOS); app.css 69.0 → 71.6 KB; workers unchanged; 219 core-js modules on both.
     - **Merged:** PR #59 as merge commit `baddf70` (CI on `899a42c`: verify 7 m 43 s, engines 17 m 15 s, media skipped (none of its code changed); green on the first run). Locally `pnpm verify` passed lint, typecheck, 4,023 unit tests and both TV builds; Claude Code stopped its e2e stage for low memory, and CI's verify ran the full e2e (the three specs touched passed locally).
-- [ ] 25. **Catch-up and tuning (6.4).** Catch-up from the grid (Xtream timeshift + M3U modes) and low-tier tuning.
+- [x] 25. **Catch-up and tuning (6.4).** Catch-up from the grid (Xtream timeshift + M3U modes) and low-tier tuning. Done in 25a–25d (legs 60–63, PRs #60–#63): catch-up plays from the mock in e2e in every mode, with seeking; the low-tier device pass is step 41's.
   - **Done when:** catch-up plays from the mock provider in e2e.
   - **Already built** (checked in leg 60):
     - **core** (step 6, ADR-010): `catchupMode`, `m3uCatchupUrl` (`default`, `append`, `shift`, `flussonic`, `xc`), `xtreamCatchupUrl` (the start in the panel's zone), `fillCatchupTemplate`, `panelZone`; checked against the mock's `X-Mock-Archive-*` headers in `test/core-mock.test.ts`.
@@ -981,7 +981,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - **Old engines:** the fixture's every other guided channel has seven days of `shift` catch-up; the walk's new `guide-earlier` step (six back) and every guide step check the marks. Local run: every walk green on Chromium 53, 56 and 68, both bundles and languages; the marks drawn (and mirrored in Arabic) in the screenshots.
     - **Mutation:** `artifacts/mutate25c.py` 60 written first (four test gaps closed while writing it); 57 caught on the first run: a real gap (the merge on a range change, now tested), a redundant ask (taken out) and one equivalent; re-run of the guide's 19: 19/19 (`mutate25c-b.log`). `artifacts/mutate25c-e2e.py` 4/5 (the swap's re-read is out of the e2e's reach: onboarding stores the guide first; the unit tests catch it).
     - **Merged:** PR #62 as merge commit `7a045d7` (CI on `15566e1`: verify 6 m 50 s, media 10 m 16 s, engines 17 m 05 s, all green). The run on `df5b314` passed verify and engines, but its media job failed twice at "Install ffmpeg" (the Azure apt mirror crawled to the 30-minute limit) and its third try was cancelled by the handover's push; the run on the handover commit passed everything.
-- [ ] 25d. **The catch-up player: position, pause, seeking and the end.**
+- [x] 25d. **The catch-up player: position, pause, seeking and the end.**
   - **The info bar:** the progress through the programme (elapsed of its length) and the time it aired at the current position.
   - **Pause and play:** OK, PLAY and PAUSE.
   - **Seeking:** LEFT and RIGHT (and FF/REW) in steps (longer when a key is held).
@@ -1004,9 +1004,79 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - **Mutation:** `artifacts/mutate25d.py` 76 written first; 66 caught (`mutate25d.log`): six test gaps closed, four redundant pieces of code taken out; re-run 10/10 (`mutate25d-b.log`). No e2e list.
     - **Size:** main 348.7 → 354.8 KB (Tizen), 336.1 → 342.2 KB (webOS); app.css 73.9 → 75.4 KB; workers unchanged; 219 core-js modules on both (built before the mutation fixes, which only took code out).
     - **Verify:** locally lint, typecheck, the full unit suite and both TV builds green, and every catch-up, player, live and guide e2e spec (29 tests) plus the media catch-up test. The full `pnpm verify` after the mutation fixes was stopped by Claude Code for low memory at its unit stage (workers failed to start); CI's verify runs it all.
+    - **Merged:** PR #63 as merge commit `e36c10e` (CI on `c503184`: verify 6 m 57 s, engines 14 m 51 s, media 10 m 32 s on its second try: the first spent 29 minutes in "Install ffmpeg" on the Azure apt mirror and hit the job's 30-minute limit before any test ran).
 
 ### Phase 7: Movies, series, search
 - [ ] 26. **Movies.** Poster grids with tiered image caps, details, resume, "Recently added".
+  - **Done when** (no Done-when of its own in leg 0; phase 7's gate is PLAN.md's "resume accurate to ±5 s"): a movie found in the poster grid plays from the mock in e2e, resumes within 5 s of where it stopped, and "Recently added" lists the newest movies first.
+  - **Already built** (checked in leg 64):
+    - **core:** movies are `CatalogItem`s of kind `movie`, from the Xtream path (`/movie/`) or the file extension in an M3U, and from `get_vod_streams` (`decodeListItem`: the poster in `logo`, from `stream_icon`, else `cover`; the URL with `container_extension`). `XtreamListItem` also has `added`, `rating` and `year`, but the ingest keeps only `.item`: nothing stores them. `decodeVodInfo` reads `get_vod_info` (plot, genre, cast, director, release date, duration, rating, cover, backdrops, trailer, container) and `XtreamClient.vodInfo` asks it, but nothing in the data layer or the app calls it.
+    - **data:** each kind is stored in chunks of up to 500 per category, with its categories record and search segment (`putCatalogKind`); the query worker's `categories(src, kind)` and `chunk(src, kind, catIdx, chunk)` read any kind (`DataEngine.categories`/`chunk`). The profile has no VOD progress (architecture.md §1.3 plans "VOD and series progress (latest 500)").
+    - **The app:** live only. The live screen's header has "Guide" (0) and "Settings" (1). `ChannelIndex` maps rows to chunks for any kind. The player plays live rows and catch-up (`mode: 'live' | 'catchup'`); its seek bar, pause and seeking (25d) are catch-up's.
+    - **The player package:** `PlayRequest.mode: 'vod'`, `startMs`, the watchdog's 20 s VOD rule, a reopen at the last position, `positionMs()` and `seek(ms)` (25d). `e2e/playback-media.spec.ts` plays a VOD from 20 s through the controller, not through the app.
+    - **ui:** `Tile` (a title, a subtitle, an image, a badge, a progress bar; 264×148, a landscape tile), the `grid` focus zone (`columns`, `count`, `visibleRows`), `VirtualList` (a list, not a grid). CSS Grid is missing on Chromium 53 and 56 (CLAUDE.md's cheat sheet): rows of tiles with margins.
+    - **The mock:** six movies in two VOD categories (201–206: the four Blender films, the 4K HEVC pattern and the multi-audio file), `added` days ago, rating, year, `get_vod_info`, posters at `/images/movie-<id>.png` (a 1×1 PNG), and the M3U's movie lines. `?scale=` makes 120k VOD (step 4).
+  - Split in leg 64 into 26a–26e, in this order:
+    - **26a**, the movies screen and its poster grid, first: everything else opens from it.
+    - **26b**, the grid at scale and on the old engines, next, while the grid is fresh: it is the first screen of images, and Chromium 53/56 lack CSS Grid.
+    - **26c**, the details and playing a movie: the screen that resume and "Recently added" build on.
+    - **26d**, resume, after playing.
+    - **26e**, "Recently added", last: it needs a stored field and a query of its own.
+  - Each sub-step's Done-when also includes, as step 25's did:
+    - unit tests;
+    - e2e by keys in English and Arabic against the mock, with the screenshots looked at;
+    - a mutation run with the mutant list written first;
+    - `pnpm verify` green;
+    - main within its budget, with 219 core-js modules on both platforms (`python -I -u artifacts/poly-count20c2a.py`);
+    - the PR merged;
+    - a "press these keys" checklist in the handover.
+- [ ] 26a. **The movies screen: categories and a poster grid, with tiered image caps.**
+  - **The header:** a "Movies" button between "Guide" and "Settings" (Guide 0, Movies 1, Settings 2; the specs and the old-engine walk that reach "Settings" follow).
+  - **The screen** (pushed on the live navigator, as the guide is): a rail of "All movies" and each source's VOD categories at the inline start, and a grid of poster tiles (portrait, 2:3) beside it, filled from the inline start (mirrored in Arabic), its rows virtualized (only the rows in view are drawn), its chunks read through `ChannelIndex` for kind `movie`. A tile shows the poster, else the title on its background. Back in the grid goes to the rail; Back on the rail closes the screen (the header's "Movies" keeps the focus). An empty source says so.
+  - **The image caps:** no server-side resizing is allowed (architecture.md risk table), so the caps are the client's:
+    - a poster loads only for the rows in view, once the view has rested (a held key starts no downloads);
+    - the posters kept are capped by tier (the rows in view plus a margin in the full tier, the rows in view only in the low tier); a poster outside the cap leaves the DOM, so its decoded image can go;
+    - a poster that fails shows the title tile.
+    - Decide the numbers, and whether the low tier shows posters at all (S6's fallback is "no posters in lists").
+  - **Done when:**
+    - **Unit tests:** the rail from the sources' VOD categories; the grid's rows from the chunks; the posters wanted by view, rest and tier; a failed poster; Back; an empty catalog.
+    - **e2e** in English and Arabic: onboard the mock, "Movies" in the header, the rail's categories, the grid's posters (one request per poster in view, none beyond the cap), DOWN through the rows (the drawn rows follow), the grid mirrored in Arabic, Back to the rail and to the header.
+    - Plus the common items above.
+  - Done in leg 64 (architecture.md §1.2 "Built in step 26a"):
+    - **The screen:** "Movies" in the header (Guide 0, Movies 1, Settings 2) opens a rail ("All movies", then each source's VOD categories) and a grid of 2:3 poster tiles, 6 a row and 3 rows in view, filled from the inline start (`VirtualGrid`: flexbox rows, the rows in view only). Chunks for the view and a row either side; a catalog swap keeps the category, the focus and the view.
+    - **The caps:** posters load once the view rests (150 ms full, 300 ms low), 6 or 2 at a time, the focused row first; at most the view's 18 drawn; a failed poster shows the title.
+    - **Decided (not a gate):** the tiers differ in the rest and the downloads at once, not in the posters drawn; "no posters in lists" (S6's fallback) waits for the 2018 Samsung's numbers. The decoded size of big panel posters is step 41's to measure (a canvas downscale is the next cap if needed).
+    - **Tests:** 4,226 unit tests (+84: `posters.test.ts` 10, `movies-state.test.ts` 34, `components.test.ts` +7, `live-state.test.ts` +1); e2e `movies.spec.ts` (en-US, ar-SA: the rail and counts, three rows of six, each poster in view asked once and none below, an aborted poster's title, the layout from the inline start, four rows down, the rail and a category, Back); the specs that reach "Settings" press once more. Screenshots `movies-{en-US,ar-SA}` looked at.
+    - **Mutation:** `artifacts/mutate26a.py` 89 written first (six redundant pieces out and eleven test gaps closed while writing it); 79 caught (`mutate26a.log`): six test gaps closed, four redundant pieces out; re-run 10/10 (`mutate26a-b.log`); `artifacts/mutate26a-e2e.py` 6/6.
+    - **Size:** main 354.8 → 365.2 KB (Tizen), 342.2 → 352.6 KB (webOS); app.css 75.4 → 78.9 KB; workers unchanged; 219 core-js modules on both.
+    - **Verify:** locally lint, typecheck, the full unit suite (4,226), both TV builds, and the touched e2e specs (49: movies, the five that reach "Settings", live, guide, player, resume, gallery).
+- [ ] 26b. **The poster grid at scale and on the old engines.**
+  - **The throttled run:** a catalog of 20,000 movies in 100 categories at 4x CPU, both tiers: timed presses through the grid (rows, pages, the rail) within 150 ms each (calibrated on CI, as 23d's), the posters requested within the tier's cap at every rest.
+  - **The old-engine harness** (`tools/engines`): both bundles, English and Arabic, on Chromium 53, 56 and 68: "Movies" by the TVs' keys, the grid's tiles measured against the layout constants from the inline start (no CSS Grid), the posters drawn, the focus engine equal to the screen's `data-screen/zone/index` at every step.
+  - **Done when:** the throttled run green in both tiers on CI; the old-engine walk green on all three engines; plus the common items above.
+- [ ] 26c. **The movie details and playing a movie.**
+  - **The details:** OK on a poster opens the movie's details: the poster, the title, year, length, rating, genre and plot. An Xtream movie's come from `get_vod_info`, read when the details open and kept 24 h (architecture.md §1.4); an M3U movie shows what its line has. A spinner while the read is out; the catalog's facts when it fails. Buttons: "Play" (first) and "Back".
+  - **Playing:** "Play" opens the player on a `mode: 'vod'` request with the movie's URL (its `container_extension`). The info bar shows the movie; the seek bar (25d's) shows its position and length; LEFT/RIGHT and FF/RW seek inside the stream (`controller.seek`), PLAY/PAUSE and OK pause. CH± and number entry do nothing in a movie (or leave for live: decide). Back returns to the details. The end shows "The movie has ended" with "Back".
+  - **Done when:**
+    - **Unit tests:** the details from `get_vod_info` and from an M3U line, its cache, a failed read; the request; the player's VOD state (the bar, a seek, the end, Back).
+    - **e2e** in English and Arabic: a movie's details by keys (the mock's facts), "Play" asks the mock for `/movie/…` with the right extension, a seek, Back to the details and the grid.
+    - **`e2e:media`:** a Blender film's frames move after a seek.
+    - Plus the common items above.
+- [ ] 26d. **Resume.**
+  - **The progress:** the profile keeps each movie's position (latest 500, architecture.md §1.3): every 10 s while it plays, and when it stops, is left or the app hides. A movie within its last 2 minutes (or past 95 %) is watched and keeps no position.
+  - **The screens:** the details offer "Resume from 12:34" first and "Play from the start"; a tile shows its progress bar (`Tile.progress`).
+  - **Done when:**
+    - **Unit tests:** the saves (interval, stop, hide), the watched rule, the cap of 500, the details' buttons, the tiles' bars, a profile migration.
+    - **e2e** in English and Arabic: play, leave at a known position, the bar on the tile, "Resume" asks the stream from within 5 s of it; a relaunch keeps it.
+    - **`e2e:media`:** resume lands within 5 s of the position left (PLAN.md's gate).
+    - Plus the common items above.
+- [ ] 26e. **"Recently added".**
+  - **The data:** the movies' `added` (Xtream `added`) is stored; an M3U movie has none (decide: the first refresh that saw it, or left out). The query worker answers the newest movies across the sources (a capped list kept at ingest, so nothing scans 120k items).
+  - **The screen:** "Recently added" first in the movies rail, newest first.
+  - **Done when:**
+    - **Unit tests:** the stored field (an ingest version bump re-reads the catalogs), the newest across sources, the cap, M3U.
+    - **e2e** in English and Arabic: the mock's movies in their `added` order.
+    - Plus the common items above.
 - [ ] 27. **Series.** Seasons and episodes, progress, "Continue watching", auto-next.
   - **Done when:** resume is accurate to ±5 s.
 - [ ] 28. **Search and Home.** Global search UI (≤ 300 ms with 200k items) and the Home screen.
@@ -1036,6 +1106,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 - [ ] 41. **[needs TV] Performance.** 2018-tier performance and memory pass against the S6 thresholds.
   - Since ADR-012 the low tier is Samsung 2018–2019 only (the used 2018 set). Consider a memory signal for the tier (`navigator.deviceMemory`, Chromium 63+) for low-end 2020 LG sets, which the year rule puts in `full`.
   - From step 25c (architecture.md §4, "Built in step 25c"): the guide's two days back with archive marks, each press within 150 ms over channels with catch-up; the marks drawn; holding LEFT across a day; two past days of a large guide with catch-up channels within the tier's memory.
+  - From step 25d (architecture.md §1.2, "Built in step 25d"), on each TV: a catch-up's position (an HLS archive's and a TS timeshift's media time must start at 0 at the URL's start, or "Aired at" is off); RIGHT inside an HLS archive (AVPlay `seekTo`, webOS's `<video>`); a seek by URL's reconnect time; the remote's PLAY and PAUSE keys (webOS maps both to one toggle); a programme's end card from a real archive.
 - [ ] 42. **[needs TV] Resilience.** 8 h soaks, network-drop tests, update-in-place data survival on both platforms.
 - [ ] 43. **Accessibility.** Voice Guide/TTS, captions, large text, Magic Remote polish.
 - [ ] 44. **Store documents.**
@@ -1125,4 +1196,4 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 | 61 | 2026-11-05 | 25b | An M3U `get.php` link's ingest logs in to its panel once per refresh before the playlist (`panelLogin`, 10 s limit, never fails the refresh; the last login's facts stay, UTC without one) and keeps the panel's `server` and the account's formats; a playlist's own panel `xmltv.php` is read in the panel's zone. No app code changed. 4,066 unit tests (+16; `test/catchup-m3u-mock.test.ts` checks every mode against the mock in UTC and Riyadh panels); e2e `guide-catchup-m3u.spec.ts` (en, ar on a Riyadh panel: 101 xc, 102 default, 103 append, 105 shift, 106 flussonic; +1:00 an hour later); mutation 26/27 (one equivalent) and 3/3. Main 346.9 / 334.3 KB, ingest worker 127.9 KB, 219 core-js modules. Stopped once at the usage limit. PR #61 merged as `c144172` (CI green on the first run) | 3e28f88, a8d7835 |
 | 62 | 2026-11-05 | 25c | The guide reaches back as far as the stored guides keep (7 days full, 2 low; read when made and after each guide swap; an open guide widens at once, its days kept by midnight); programmes in a channel's archive carry a circular-arrow mark named "Catch-up" in the cell's text; the details say "Expires in N days". 4,095 unit tests (+29); e2e `guide-catchup-days.spec.ts` (en, ar); the throttled run with 7/2 catch-up days and marks, every press within 150 ms (marks about +5 ms at the low tier's median); the old-engine walk's new `guide-earlier` step checks the marks, green on Chromium 53/56/68 locally. Mutation 57/60 then 19/19 (a gap tested, a redundant ask removed, one equivalent), e2e 4/5. Main 348.7 / 336.1 KB, 219 core-js modules. Local `pnpm verify`: lint, typecheck, unit, builds green; its e2e stage was cut by low memory (worker processes failed to start), so CI runs it | 21bacd4, fecd177, 5351cf0, eaf9ca4 |
 | 63 | 2026-11-05 | 25c merge | PR #62 merged as `7a045d7` after the run on the handover commit passed everything (the earlier run's media job failed twice at "Install ffmpeg" on the Azure apt mirror). Step 25c ticked | 7a045d7 |
-| 63 | 2026-11-05 | 25d | The catch-up player: a seek bar (time from the start, length, "Aired at"; left to right in every language) above the info bar's buttons; OK/PLAY_PAUSE pause; LEFT/RIGHT a minute, FF/RW five (5/10 held), one seek 600 ms after the last key, inside an HLS archive or by a new URL from the minute; forward past now goes live; play-on moves to the next programme, an ended stream shows "The programme has ended" with "Watch live" / "Back to the guide". Unit +20; e2e `guide-catchup-seek.spec.ts` (en, ar) and `e2e:media`'s in-stream seek and pause; mutation 66/76 then 10/10. Main 354.8 / 342.2 KB, 219 core-js modules | 95dbdfe, 1dd0600, 7d2fdfb, 1837b7b |
+| 63 | 2026-11-05 | 25d | The catch-up player: a seek bar (time from the start, length, "Aired at"; left to right in every language) above the info bar's buttons; OK/PLAY_PAUSE pause; LEFT/RIGHT a minute, FF/RW five (5/10 held), one seek 600 ms after the last key, inside an HLS archive or by a new URL from the minute; forward past now goes live; play-on moves to the next programme, an ended stream shows "The programme has ended" with "Watch live" / "Back to the guide". Unit +20; e2e `guide-catchup-seek.spec.ts` (en, ar) and `e2e:media`'s in-stream seek and pause; mutation 66/76 then 10/10. Main 354.8 / 342.2 KB, 219 core-js modules. PR #63 merged as `e36c10e` (media green on a re-run after an ffmpeg-install hang). Steps 25d and 25 ticked | 95dbdfe, 1dd0600, 7d2fdfb, 1837b7b |

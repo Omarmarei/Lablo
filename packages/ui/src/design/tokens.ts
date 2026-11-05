@@ -8,8 +8,8 @@
 /** The TV canvas in CSS pixels, and its title-safe margins (5%). */
 export const SCREEN = { width: 1920, height: 1080, safeX: 96, safeY: 54 } as const;
 
-/** Sizes lists are built from: a list row, a rail chip, a poster or channel tile. */
-export const LAYOUT = { rowHeight: 88, railHeight: 64, tileWidth: 264, tileHeight: 148 } as const;
+/** Sizes lists are built from: a list row, a rail chip, a channel tile, a poster tile (2:3, RELAY step 26a). */
+export const LAYOUT = { rowHeight: 88, railHeight: 64, tileWidth: 264, tileHeight: 148, posterWidth: 184, posterHeight: 276 } as const;
 
 /** The 4 px spacing grid: SPACE[n] is `--space-n`. */
 export const SPACE = [0, 4, 8, 12, 16, 24, 32, 48, 64] as const;
@@ -27,6 +27,8 @@ export function pxTokens(): Record<string, number> {
     '--rail-height': LAYOUT.railHeight,
     '--tile-width': LAYOUT.tileWidth,
     '--tile-height': LAYOUT.tileHeight,
+    '--poster-width': LAYOUT.posterWidth,
+    '--poster-height': LAYOUT.posterHeight,
     '--focus-ring': FOCUS_RING,
   };
   for (let n = 1; n < SPACE.length; n += 1) tokens[`--space-${n}`] = SPACE[n] ?? 0;

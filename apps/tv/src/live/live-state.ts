@@ -136,6 +136,8 @@ export interface LiveOptions {
    * on the category on show, on `row`, the list's focused row.
    */
   readonly openGuide?: (row: number) => void;
+  /** OK on the header's "Movies" button (step 26a): the movies screen opens. */
+  readonly openMovies?: () => void;
 }
 
 /** The list on show as the player (`ZapList`) and the guide (step 23c) read it. */
@@ -210,12 +212,14 @@ function retryZone(count: number): ZoneSpec {
   return { kind: 'list', id: 'retry', axis: 'horizontal', count, neighbours: { up: 'header' } };
 }
 
-/** The header's buttons: "Guide" (step 23c), then "Settings" (step 22b2). DOWN is the screen's (back where it came from). */
-const HEADER_ZONE: ZoneSpec = { kind: 'list', id: 'header', axis: 'horizontal', count: 2 };
+/** The header's buttons: "Guide" (step 23c), "Movies" (step 26a), then "Settings" (step 22b2). DOWN is the screen's (back where it came from). */
+const HEADER_ZONE: ZoneSpec = { kind: 'list', id: 'header', axis: 'horizontal', count: 3 };
 /** The header's "Guide" button. */
 export const HEADER_GUIDE = 0;
+/** The header's "Movies" button. */
+export const HEADER_MOVIES = 1;
 /** The header's "Settings" button. */
-export const HEADER_SETTINGS = 1;
+export const HEADER_SETTINGS = 2;
 
 /** The rail: "All channels", then every category with channels, source by source. */
 export function railEntries(sources: readonly { src: string; categories: readonly CategoryInfo[] }[]): RailEntry[] {
@@ -747,6 +751,8 @@ export function createLive(options: LiveOptions): Live {
       onSelect: (focus) => {
         if (focus.zone === 'header') {
           if (focus.index === HEADER_SETTINGS) options.openSettings?.();
+          // The movies screen reads its own data: it opens in every state of the list.
+          else if (focus.index === HEADER_MOVIES) options.openMovies?.();
           // The guide shows the list's channels: none while it loads, failed or is empty.
           else if (status.value === 'ready') options.openGuide?.(home.position('channels').index);
         } else if (focus.zone === 'rail') showCategory(focus.index);

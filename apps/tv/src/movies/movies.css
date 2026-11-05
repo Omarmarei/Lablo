@@ -1,0 +1,96 @@
+/*
+ * The movies screen (RELAY step 26a): the live screen's frame (live.css): a 1728 px content box
+ * inside the title-safe margins, a 56 px header and a 24 px gap, then the 892 px body: the rail
+ * (440 px) and, 32 px further, the poster grid: 6 tiles of 184 x 276 px with 24 px gaps (1224
+ * px), 3 rows with 24 px between them. Physical properties for LTR: postcss-rtlcss mirrors them
+ * for Arabic, which puts the rail on the right and fills the grid's rows from the right.
+ */
+.movies {
+  display: flex;
+  flex-direction: column;
+  width: var(--screen-width);
+  height: var(--screen-height);
+  padding: var(--safe-y) var(--safe-x);
+  overflow: hidden;
+}
+
+.movies__header {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  height: 56px;
+  margin-bottom: var(--space-5);
+}
+
+.movies__title {
+  flex: none;
+  margin: 0;
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+  font-weight: var(--font-weight-bold);
+}
+
+.movies__meta {
+  flex: 1;
+  min-width: 0;
+  margin: 0 0 0 var(--space-7);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+.movies__category {
+  color: var(--color-text);
+}
+
+.movies__clock {
+  flex: none;
+  margin: 0 0 0 var(--space-7);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.movies__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.movies__rail {
+  flex: none;
+  width: 440px;
+  margin-right: 32px;
+}
+
+.movies__rail .z-vlist__item > .z-chip {
+  justify-content: flex-start;
+}
+
+/* A provider's category name starts on the screen's side, as in the live rail. */
+.movies__rail .z-chip__label {
+  flex: 1;
+  text-align: left;
+}
+
+.movies__grid {
+  flex: none;
+}
+
+.movies__message {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.movies__text {
+  margin: 0 0 var(--space-6);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+}

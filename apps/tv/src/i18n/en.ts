@@ -144,6 +144,16 @@ export const EN = {
   'live.empty': 'Your sources have no live channels.',
   'live.failed': "Couldn't read your channels.",
   'live.retry': 'Try again',
+
+  // The movies screen (RELAY step 26a).
+  'movies.open': 'Movies',
+  'movies.title': 'Movies',
+  'movies.all': 'All movies',
+  'movies.count': '{n, plural, one {# movie} other {# movies}}',
+  'movies.noGroup': 'Other movies',
+  'movies.loading': 'Loading your movies',
+  'movies.empty': 'Your sources have no movies.',
+  'movies.failed': "Couldn't read your movies.",
   'badge.radio': 'Radio',
 
   // The settings screen and the guides screen (RELAY step 22b2). Links are data; XMLTV is an argument.

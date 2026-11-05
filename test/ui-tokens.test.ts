@@ -38,12 +38,12 @@ describe('design tokens', () => {
   it('has every layout number in tokens.css with the same value', () => {
     const tokens = rootTokens();
     const numbers = pxTokens();
-    expect(Object.keys(numbers)).toHaveLength(17);
+    expect(Object.keys(numbers)).toHaveLength(19);
     for (const [name, px] of Object.entries(numbers)) {
       expect([name, tokens.get(name)]).toEqual([name, `${px}px`]);
     }
     // Every px token in the CSS layout and space groups is known to code too.
-    const cssPx = [...tokens].filter(([name, value]) => /^--(space|screen|safe|row|rail|tile|focus)-/.test(name) && /px$/.test(value));
+    const cssPx = [...tokens].filter(([name, value]) => /^--(space|screen|safe|row|rail|tile|poster|focus)-/.test(name) && /px$/.test(value));
     expect(cssPx.map(([name]) => name).sort()).toEqual(Object.keys(numbers).sort());
   });
 

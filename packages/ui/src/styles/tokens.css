@@ -71,6 +71,8 @@
   --rail-height: 64px;
   --tile-width: 264px;
   --tile-height: 148px;
+  --poster-width: 184px;
+  --poster-height: 276px;
 
   /* Motion: short, and none on the low tier (1 GB TVs). */
   --motion-fast: 120ms;

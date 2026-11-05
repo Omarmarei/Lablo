@@ -1,0 +1,25 @@
+/*
+ * VirtualGrid (RELAY step 26a): a fixed-size box of rows of fixed-size items in normal flow. The
+ * gaps come in as custom properties, so an item's margin-left becomes a margin-right in Arabic
+ * (postcss-rtlcss) and a row fills from the right.
+ */
+.z-vgrid {
+  overflow: hidden;
+}
+
+.z-vgrid__row {
+  display: flex;
+}
+
+.z-vgrid__row + .z-vgrid__row {
+  margin-top: var(--z-vgrid-row-gap);
+}
+
+.z-vgrid__item {
+  flex: none;
+  overflow: hidden;
+}
+
+.z-vgrid__item + .z-vgrid__item {
+  margin-left: var(--z-vgrid-column-gap);
+}
