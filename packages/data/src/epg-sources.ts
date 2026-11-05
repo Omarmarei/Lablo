@@ -10,7 +10,9 @@
  * - **Ids** (`epgSrc`): `<src>:xmltv`, `<src>:tvg<n>` and `u~<id>`. Source ids can't hold `:` or
  *   `~` (content-key.ts), so the three never collide.
  * - **Zones** for times written without an offset: the panel zone of an Xtream source (learnt at
- *   login, `SourceMeta.server`); UTC for every other guide.
+ *   login, `SourceMeta.server`), and of a playlist whose header names its panel's `xmltv.php`
+ *   (step 25b: a `get.php` link's ingest logs in for it; UTC until it has); UTC for every other
+ *   guide.
  * - **The user's time offset** per guide (step 24b): a whole number of half hours from −12 h to
  *   +12 h, kept in the profile by guide id (`epgOffsets`) and added to every time the guide gives
  *   when the query worker reads it, as a channel's tvg-shift is. It is never applied at ingest:
@@ -22,7 +24,7 @@
  */
 
 import type { XtreamAccount } from '@zoma/core';
-import { xtreamXmltvUrl } from '@zoma/core';
+import { xtreamFromM3uUrl, xtreamXmltvUrl } from '@zoma/core';
 import type { SourceMeta } from './catalog-store';
 import type { EpgMeta } from './epg-store';
 
@@ -41,7 +43,7 @@ export interface EpgGuide {
   epgSrc: string;
   /** May carry credentials (Xtream `xmltv.php`): never log it. */
   url: string;
-  /** Times without an offset: the panel zone of this Xtream catalog source, or fixed minutes east of UTC. */
+  /** Times without an offset: the panel zone of this catalog source (Xtream, or a playlist naming its panel's guide), or fixed minutes east of UTC. */
   zone: { panel: string } | { minutes: number };
 }
 
@@ -74,7 +76,8 @@ export function epgGuides(catalogs: readonly EpgCatalogSource[], sources: readon
     let meta: SourceMeta | undefined;
     for (const s of sources) if (s.src === c.src) meta = s;
     const named = meta && meta.epgUrls ? meta.epgUrls : [];
-    named.forEach((url, i) => add({ epgSrc: `${c.src}:tvg${i}`, url, zone: { minutes: 0 } }));
+    // A panel's own guide (`xmltv.php` with a login) writes its times in the panel's zone.
+    named.forEach((url, i) => add({ epgSrc: `${c.src}:tvg${i}`, url, zone: xtreamFromM3uUrl(url) === null ? { minutes: 0 } : { panel: c.src } }));
   }
   return out;
 }
