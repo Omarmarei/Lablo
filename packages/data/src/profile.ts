@@ -11,11 +11,13 @@
  * Version 1 (RELAY step 7) holds the favourites. Version 2 (step 13b) adds the sources the user
  * added and the onboarding answers. Version 3 (step 20c1) adds what the player keeps
  * (`PlayerMemoryDoc`). Version 4 (step 22b) keeps the user's guides as one list (`guides`),
- * moved from each source's `epgUrl`. Later steps add fields with a migration each.
+ * moved from each source's `epgUrl`. Later steps add fields with a migration each, or as optional
+ * fields that need none (`PlayerMemoryDoc.picture`, step 20c2b; `epgOffsets`, step 24b).
  */
 
 import type { CatalogItem, ContentKey, ContentKind, XtreamAccount } from '@zoma/core';
 import type { UserGuide } from './epg-sources';
+import { epgOffsetsOf, isEpgOffset } from './epg-sources';
 import { onSuccess, transact } from './idb';
 import { STORE } from './schema';
 
@@ -151,6 +153,13 @@ export type ProfileV4 = {
    * source's id, one added on the guides screen `g<n>`.
    */
   guides: UserGuide[];
+  /**
+   * The user's time offset per guide (step 24b), in minutes by guide id (`u~<id>`, `<src>:xmltv`,
+   * `<src>:tvg<n>`): a whole number of half hours up to 12 h either way, never 0 (a guide without
+   * one has no entry). Optional, so version 4 documents written before it need no migration. The
+   * query worker reads it (`epgOffsetsOf`).
+   */
+  epgOffsets?: Record<string, number>;
 };
 
 /** The current profile shape. */
@@ -258,7 +267,21 @@ export type ProfileEdit =
   /** One thing the player keeps (step 20c1). */
   | { kind: 'player'; change: PlayerChange }
   /** The user's guide list (step 22b). */
-  | { kind: 'guide'; change: GuideChange };
+  | { kind: 'guide'; change: GuideChange }
+  /** A guide's time offset in minutes (step 24b): 0 takes it away; one that isn't an offset changes nothing. */
+  | { kind: 'epgOffset'; epgSrc: string; minutes: number };
+
+const USER_GUIDE = 'u~';
+
+/** `offsets` with `epgSrc`'s offset set to `minutes` (0: taken out), or `null` when it holds that already. */
+function withOffset(offsets: Record<string, number> | undefined, epgSrc: string, minutes: number): Record<string, number> | null {
+  const before = offsets !== undefined && Object.prototype.hasOwnProperty.call(offsets, epgSrc) ? offsets[epgSrc] : 0;
+  if (before === minutes) return null;
+  const next: Record<string, number> = { ...offsets };
+  if (minutes === 0) delete next[epgSrc];
+  else next[epgSrc] = minutes;
+  return next;
+}
 
 /** The guide list with `change` applied (a new array), or `null` when it changes nothing. */
 function applyGuideChange(guides: readonly UserGuide[], change: GuideChange): UserGuide[] | null {
@@ -339,7 +362,16 @@ export function applyProfileEdit(doc: ProfileDoc, edit: ProfileEdit): ProfileDoc
   }
   if (edit.kind === 'guide') {
     const guides = applyGuideChange(doc.guides, edit.change);
-    return guides === null ? null : { ...doc, guides };
+    if (guides === null) return null;
+    // A removed guide's offset goes with it: its id may be given to a new guide later.
+    const offsets = edit.change.op === 'remove' ? withOffset(doc.epgOffsets, `${USER_GUIDE}${edit.change.id}`, 0) : null;
+    return offsets === null ? { ...doc, guides } : { ...doc, guides, epgOffsets: offsets };
+  }
+  if (edit.kind === 'epgOffset') {
+    // (-0 is stored as 0: no entry.)
+    if (!isEpgOffset(edit.minutes)) return null;
+    const offsets = withOffset(doc.epgOffsets, edit.epgSrc, edit.minutes === 0 ? 0 : edit.minutes);
+    return offsets === null ? null : { ...doc, epgOffsets: offsets };
   }
   const at = doc.sources.findIndex((s) => s.id === edit.source.id);
   const sources = doc.sources.slice();
@@ -500,6 +532,20 @@ export function updateProfile(
       if (checkVersion(next).v !== latest) throw new ProfileError(`Can't save a version ${next.v} profile (this app writes ${latest})`);
       writeCurrent(store, record, next, now, every, migrated.migrated ? 'migration' : 'daily');
       done(true);
+    });
+  });
+}
+
+/**
+ * The guides' time offsets in the current profile (step 24b; `epgOffsetsOf`), read without
+ * upgrading or writing it: `{}` when there is no profile. The query worker reads them at each
+ * reload.
+ */
+export function readEpgOffsets(db: IDBDatabase): Promise<Record<string, number>> {
+  return transact<Record<string, number>>(db, STORE.profile, 'readonly', (tx, done) => {
+    onSuccess(tx.objectStore(STORE.profile).get(CURRENT), (value) => {
+      const record = value as ProfileRecord | undefined;
+      done(epgOffsetsOf(record === undefined ? null : record.doc));
     });
   });
 }

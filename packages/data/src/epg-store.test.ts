@@ -185,10 +185,10 @@ describe('which guides, and when', () => {
         { src: 'none', type: 'm3u' },
       ],
       [meta('xt'), meta('pl', { epgUrls: ['http://a.test/guide.xml', 'http://u.test/mine.xml.gz'] }), meta('none')],
-      [{ id: 'mine', url: 'http://u.test/mine.xml.gz', offsetMinutes: 180, shiftMinutes: -5 }],
+      [{ id: 'mine', url: 'http://u.test/mine.xml.gz', offsetMinutes: 180 }],
     );
     expect(guides).toEqual([
-      { epgSrc: 'u~mine', url: 'http://u.test/mine.xml.gz', zone: { minutes: 180 }, shiftMinutes: -5 },
+      { epgSrc: 'u~mine', url: 'http://u.test/mine.xml.gz', zone: { minutes: 180 } },
       { epgSrc: 'pl:tvg0', url: 'http://a.test/guide.xml', zone: { minutes: 0 } },
       { epgSrc: 'xt:xmltv', url: 'http://panel.test:8080/xmltv.php?username=u&password=p%20w', zone: { panel: 'xt' } },
     ]);

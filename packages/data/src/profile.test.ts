@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { openDatabase, transact } from './idb';
 import type { UserGuide } from './epg-sources';
+import { EPG_OFFSET_MAX, EPG_OFFSET_STEP, epgOffsetsOf, isEpgOffset } from './epg-sources';
 import type { AnyProfile, GuideChange, LastChannel, PlayerChange, ProfileDoc, ProfileMigration, SourceRecord, SourceRecordV3, StoredTrackChoice } from './profile';
 import {
   MAX_TRACK_CHOICES,
@@ -14,6 +15,7 @@ import {
   loadProfile,
   migrateProfile,
   noPlayerMemory,
+  readEpgOffsets,
   restoreSnapshot,
   saveProfile,
   updateProfile,
@@ -456,5 +458,95 @@ describe('applyProfileEdit: what the player keeps (step 20c1)', () => {
     expect(more.player.tracks['k299']).toBeUndefined();
     expect(more.player.tracks['k298']).toEqual(choice('ar', 702));
     expect(same.player.tracks['k299']).toEqual(choice('ar', 701));
+  });
+});
+
+describe("applyProfileEdit: the guides' time offsets (step 24b)", () => {
+  const offset = (doc: ProfileDoc, epgSrc: string, minutes: number): ProfileDoc | null => applyProfileEdit(doc, { kind: 'epgOffset', epgSrc, minutes });
+  const listed = (...names: string[]): ProfileDoc => ({ ...withFavs(1), guides: names.map((n) => ({ id: n, url: `http://g.test/${n}.xml` })) });
+
+  it("sets, changes and takes away a guide's offset in a document without any (no migration)", () => {
+    const doc = listed('g1');
+    expect(doc.epgOffsets).toBeUndefined();
+    const one = offset(doc, 'u~g1', 60)!;
+    expect(one.epgOffsets).toEqual({ 'u~g1': 60 });
+    expect(one.guides).toEqual(doc.guides);
+    expect(one.favourites).toEqual([fav(1)]);
+    expect(one.v).toBe(4);
+    // A source's own guide, by its id; the other offsets stay.
+    const two = offset(one, 'tv:xmltv', -720)!;
+    expect(two.epgOffsets).toEqual({ 'u~g1': 60, 'tv:xmltv': -720 });
+    expect(offset(two, 'tv:xmltv', 720)!.epgOffsets).toEqual({ 'u~g1': 60, 'tv:xmltv': 720 });
+    // 0 takes it away (no entry), and -0 is 0.
+    expect(offset(two, 'u~g1', 0)!.epgOffsets).toEqual({ 'tv:xmltv': -720 });
+    expect(offset(two, 'u~g1', -0)!.epgOffsets).toEqual({ 'tv:xmltv': -720 });
+    // The input is left alone.
+    expect(one.epgOffsets).toEqual({ 'u~g1': 60 });
+    expect(doc.epgOffsets).toBeUndefined();
+  });
+
+  it('changes nothing for the offset a guide has already, or for one that is not an offset', () => {
+    const doc = offset(listed('g1'), 'u~g1', 90)!;
+    expect(offset(doc, 'u~g1', 90)).toBeNull();
+    expect(offset(listed('g1'), 'u~g1', 0)).toBeNull();
+    expect(offset(listed('g1'), 'u~g1', -0)).toBeNull();
+    for (const bad of [15, 31, 30.5, 750, -750, 12 * 60 + 30, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(offset(doc, 'u~g1', bad), String(bad)).toBeNull();
+    }
+    expect(applyProfileEdit(doc, { kind: 'epgOffset', epgSrc: 'u~g1', minutes: '60' as unknown as number })).toBeNull();
+  });
+
+  it("takes a removed guide's offset away with it, and keeps every other", () => {
+    let doc = listed('g1', 'g2');
+    doc = offset(doc, 'u~g1', 30)!;
+    doc = offset(doc, 'u~g2', -30)!;
+    doc = offset(doc, 'tv:xmltv', 60)!;
+    const removed = applyProfileEdit(doc, { kind: 'guide', change: { op: 'remove', id: 'g1' } })!;
+    expect(removed.guides.map((g) => g.id)).toEqual(['g2']);
+    expect(removed.epgOffsets).toEqual({ 'u~g2': -30, 'tv:xmltv': 60 });
+    // A guide added again with that id starts with none.
+    const again = applyProfileEdit(removed, { kind: 'guide', change: { op: 'add', guide: { id: 'g1', url: 'http://g.test/new.xml' } } })!;
+    expect(again.epgOffsets).toEqual({ 'u~g2': -30, 'tv:xmltv': 60 });
+    // Removing a guide without one, and moving one, leave the offsets as they are.
+    const plain = applyProfileEdit(offset(listed('g1', 'g2'), 'u~g2', 30)!, { kind: 'guide', change: { op: 'remove', id: 'g1' } })!;
+    expect(plain.epgOffsets).toEqual({ 'u~g2': 30 });
+    expect(applyProfileEdit(listed('g1', 'g2'), { kind: 'guide', change: { op: 'remove', id: 'g1' } })!.epgOffsets).toBeUndefined();
+    const moved = applyProfileEdit(doc, { kind: 'guide', change: { op: 'move', id: 'g2', to: 0 } })!;
+    expect(moved.epgOffsets).toBe(doc.epgOffsets);
+  });
+});
+
+describe("the guides' time offsets as stored (step 24b)", () => {
+  it('isEpgOffset: whole half hours up to 12 hours either way', () => {
+    const steps: number[] = [];
+    for (let m = -720; m <= 720; m += 30) steps.push(m);
+    expect(steps).toHaveLength(49);
+    expect(steps.every((m) => isEpgOffset(m))).toBe(true);
+    expect(EPG_OFFSET_STEP).toBe(30);
+    expect(EPG_OFFSET_MAX).toBe(720);
+    for (const bad of [-750, 750, 1, 29, 45, 30.5, -0.5, Number.NaN, Number.POSITIVE_INFINITY, '30', null, undefined, {}]) expect(isEpgOffset(bad), String(bad)).toBe(false);
+  });
+
+  it('epgOffsetsOf keeps the offsets that are offsets and not 0, from a document of any version', () => {
+    expect(epgOffsetsOf({ v: 4, epgOffsets: { a: 30, b: 0, c: 45, d: -720, e: '60', f: 750, g: null } })).toEqual({ a: 30, d: -720 });
+    // A newer app's document keeps the field's meaning (fields are only added).
+    expect(epgOffsetsOf({ v: 9, epgOffsets: { a: -30 } })).toEqual({ a: -30 });
+    for (const none of [null, undefined, 3, 'x', { v: 3 }, { v: 4, epgOffsets: null }, { v: 4, epgOffsets: 5 }, emptyProfile()]) expect(epgOffsetsOf(none)).toEqual({});
+    // Inherited keys aren't offsets.
+    expect(epgOffsetsOf({ v: 4, epgOffsets: Object.create({ inherited: 30 }) as object })).toEqual({});
+  });
+
+  it('readEpgOffsets reads the current profile without writing it: {} when there is none', async () => {
+    const db = await openDatabase(freshFactory());
+    expect(await readEpgOffsets(db)).toEqual({});
+    // A version 1 document: read as it is (no upgrade, no snapshot).
+    await transact(db, STORE.profile, 'readwrite', (tx) => {
+      tx.objectStore(STORE.profile).put({ id: 'current', savedAt: 1, doc: v1(1) });
+    });
+    expect(await readEpgOffsets(db)).toEqual({});
+    expect(await listSnapshots(db)).toEqual([]);
+    await saveProfile(db, { ...emptyProfile(), epgOffsets: { 'u~g1': 90, 'tv:xmltv': -60 } }, { now: 2 });
+    expect(await readEpgOffsets(db)).toEqual({ 'u~g1': 90, 'tv:xmltv': -60 });
+    db.close();
   });
 });

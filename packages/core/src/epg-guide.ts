@@ -8,8 +8,9 @@
  * - **Times** become UTC epoch minutes. A time without an offset is read in the fallback zone
  *   (the source's time offset, or the panel zone for an Xtream guide). In a DST zone the repeated
  *   hour is ambiguous: it is read as the earlier instant, and a start that then falls before the
- *   channel's previous stop moves forward an hour, as does its stop (ADR-010). A user correction
- *   (`shiftMinutes`, step 24) is added to every time.
+ *   channel's previous stop moves forward an hour, as does its stop (ADR-010). The user's time
+ *   offset per guide (step 24b) isn't applied here either: the query worker adds it when reading,
+ *   with the tvg-shift, so a change needs no download.
  * - **tvg-shift is not applied here.** Several playlist channels can share one XMLTV channel
  *   with different shifts (the `+1` variants), so it is applied per playlist channel when
  *   reading (`epgNowNext`); the window widens by the largest shift instead.
@@ -364,8 +365,6 @@ export interface EpgGuideOptions {
   languages?: string[];
   /** Zone of times written without an offset: fixed minutes east of UTC, or an offset function. */
   fallback?: number | ZoneOffset;
-  /** User correction added to every time, in minutes (step 24). */
-  shiftMinutes?: number;
   windows?: Record<DeviceTier, EpgTierWindow>;
   /** Programmes held before buckets are handed out (default 20,000). */
   flushAt?: number;
@@ -430,7 +429,6 @@ export class EpgGuideReader {
   private readonly orphanCap: number;
   private readonly fallback: number | ZoneOffset;
   private readonly zone: ZoneOffset | null;
-  private readonly shiftMinutes: number;
   private win: EpgWindow | null = null;
   /** Buckets handed out during the current `push` or `end`. */
   private out: EpgBucket[] = [];
@@ -448,7 +446,6 @@ export class EpgGuideReader {
     this.orphanCap = options.orphanCap ?? 20_000;
     this.fallback = options.fallback ?? 0;
     this.zone = typeof this.fallback === 'function' ? this.fallback : null;
-    this.shiftMinutes = Math.round(options.shiftMinutes ?? 0);
   }
 
   /** The window, fixed when the first programme arrives (`null` before). */
@@ -598,10 +595,10 @@ export class EpgGuideReader {
     }
     if (flags !== 0) this.stats.repaired++;
     this.lastStop[c] = stop ?? start;
-    const startMin = Math.floor(start / MINUTE) + this.shiftMinutes;
+    const startMin = Math.floor(start / MINUTE);
     const programme: EpgProgramme = {
       start: startMin,
-      end: stop === null ? startMin : Math.floor(stop / MINUTE) + this.shiftMinutes,
+      end: stop === null ? startMin : Math.floor(stop / MINUTE),
       title: p.title,
       sub: p.subTitle ?? '',
       desc: p.desc ?? '',
