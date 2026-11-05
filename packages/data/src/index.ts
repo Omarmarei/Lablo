@@ -47,6 +47,7 @@ export {
   loadProfile,
   migrateProfile,
   noPlayerMemory,
+  readEpgOffsets,
   restoreSnapshot,
   saveProfile,
   updateProfile,
@@ -119,7 +120,7 @@ export {
 } from './epg-store';
 
 export type { EpgCatalogSource, EpgDueReason, EpgGuide, UserGuide } from './epg-sources';
-export { EPG_AHEAD_MS, EPG_REFRESH_MS, EPG_RETRY_MS, epgGuides, epgRefreshDue } from './epg-sources';
+export { EPG_AHEAD_MS, EPG_OFFSET_MAX, EPG_OFFSET_STEP, EPG_REFRESH_MS, EPG_RETRY_MS, epgGuides, epgOffsetsOf, epgRefreshDue, isEpgOffset } from './epg-sources';
 
 export type { ShortEpgAnswer, ShortEpgRequest, ShortEpgSource, ShortEpgTarget } from './short-epg';
 export { SHORT_EPG_LIMIT, SHORT_EPG_TTL_MS, ShortEpgCache, shortEpgNowNext, shortEpgTarget, textTransport } from './short-epg';

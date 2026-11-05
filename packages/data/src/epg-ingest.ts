@@ -327,7 +327,6 @@ export async function runEpgIngest(
       nowMs,
       languages: job.languages,
       fallback: fallbackZone(guide, wanted.sources),
-      shiftMinutes: guide.shiftMinutes,
       flushAt: options.flushAt,
     });
     const progress = (force = false): void => {

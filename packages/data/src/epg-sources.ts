@@ -10,7 +10,11 @@
  * - **Ids** (`epgSrc`): `<src>:xmltv`, `<src>:tvg<n>` and `u~<id>`. Source ids can't hold `:` or
  *   `~` (content-key.ts), so the three never collide.
  * - **Zones** for times written without an offset: the panel zone of an Xtream source (learnt at
- *   login, `SourceMeta.server`); UTC for every other guide until step 24 adds per-guide offsets.
+ *   login, `SourceMeta.server`); UTC for every other guide.
+ * - **The user's time offset** per guide (step 24b): a whole number of half hours from −12 h to
+ *   +12 h, kept in the profile by guide id (`epgOffsets`) and added to every time the guide gives
+ *   when the query worker reads it, as a channel's tvg-shift is. It is never applied at ingest:
+ *   a change shows at once, with nothing downloaded or read again.
  * - **Due:** a guide is refreshed every 12 h, or sooner when its stored programmes end less than
  *   24 h ahead (but not more than every 2 h, or a guide that only ever covers a few hours would
  *   be fetched in a loop). After a failure it waits 2 h too.
@@ -38,8 +42,6 @@ export interface EpgGuide {
   url: string;
   /** Times without an offset: the panel zone of this Xtream catalog source, or fixed minutes east of UTC. */
   zone: { panel: string } | { minutes: number };
-  /** The user's correction added to every time, in minutes (step 24). */
-  shiftMinutes?: number;
 }
 
 /** A guide the user added (step 22 manages the list). */
@@ -48,7 +50,6 @@ export interface UserGuide {
   url: string;
   /** Zone of times written without an offset, in minutes east of UTC (default UTC). */
   offsetMinutes?: number;
-  shiftMinutes?: number;
 }
 
 /** A catalog source as the guides need it: Xtream sources bring their account. */
@@ -63,7 +64,7 @@ export function epgGuides(catalogs: readonly EpgCatalogSource[], sources: readon
     urls.push(guide.url);
     out.push(guide);
   };
-  for (const u of user) add({ epgSrc: `u~${u.id}`, url: u.url, zone: { minutes: u.offsetMinutes ?? 0 }, shiftMinutes: u.shiftMinutes });
+  for (const u of user) add({ epgSrc: `u~${u.id}`, url: u.url, zone: { minutes: u.offsetMinutes ?? 0 } });
   for (const c of catalogs) {
     if (c.type === 'xtream') {
       add({ epgSrc: `${c.src}:xmltv`, url: xtreamXmltvUrl(c.account), zone: { panel: c.src } });
@@ -73,6 +74,33 @@ export function epgGuides(catalogs: readonly EpgCatalogSource[], sources: readon
     for (const s of sources) if (s.src === c.src) meta = s;
     const named = meta && meta.epgUrls ? meta.epgUrls : [];
     named.forEach((url, i) => add({ epgSrc: `${c.src}:tvg${i}`, url, zone: { minutes: 0 } }));
+  }
+  return out;
+}
+
+/** The time offset's step and its largest size either way, in minutes (step 24b). */
+export const EPG_OFFSET_STEP = 30;
+export const EPG_OFFSET_MAX = 12 * 60;
+
+/** Whether `minutes` is a time offset a guide can have: a whole number of steps up to 12 h either way. */
+export function isEpgOffset(minutes: unknown): minutes is number {
+  return typeof minutes === 'number' && minutes % EPG_OFFSET_STEP === 0 && Math.abs(minutes) <= EPG_OFFSET_MAX;
+}
+
+/**
+ * The guides' time offsets in a profile document of any version (`epgOffsets`), in minutes by
+ * guide id: only the ones that are offsets (`isEpgOffset`) and not 0. A document without them
+ * (written before step 24b) has none.
+ */
+export function epgOffsetsOf(doc: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  const stored = typeof doc === 'object' && doc !== null ? (doc as { epgOffsets?: unknown }).epgOffsets : undefined;
+  if (typeof stored !== 'object' || stored === null) return out;
+  const record = stored as Record<string, unknown>;
+  const ids = Object.keys(record);
+  for (let i = 0; i < ids.length; i += 1) {
+    const value = record[ids[i]!];
+    if (isEpgOffset(value) && value !== 0) out[ids[i]!] = value;
   }
   return out;
 }

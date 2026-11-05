@@ -2,7 +2,7 @@ import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
 import type { EpgMeta, EpgStatus, GuideChange, LoadedProfile, ProfileEdit } from '@zoma/data';
 // The client entry only: the package index would pull every data module's polyfills into main.
-import { epgGuides } from '@zoma/data/client';
+import { EPG_OFFSET_MAX, EPG_OFFSET_STEP, epgGuides, epgOffsetsOf } from '@zoma/data/client';
 import type { Platform } from '@zoma/platform-api';
 import type { EditorBinding, Focus, Navigator, Screen, ScreenSpec, TextEditorOptions, ZoneSpec } from '@zoma/ui';
 import { SCREEN, bindEditor, createTextEditor, fits } from '@zoma/ui';
@@ -20,16 +20,21 @@ import { normalizeLink } from '../onboarding/form';
  * - **Rows:** the link (the host and path: never a login or a query), and what the refresh kept
  *   of it (`EpgStatus`): the programmes' end, the match rate, why the last try failed; or
  *   "Reading…" while a change's refresh runs, or "Not read yet".
- * - **The menu** (`guide-menu`): Move up, Move down (each only where the guide can go), Remove,
- *   Cancel.
+ * - **The menu** (`guide-menu`): for the user's guide Move up, Move down (each only where the
+ *   guide can go), Time offset, Remove, Cancel; for a source's own guide Time offset, Cancel.
+ * - **The time offset** (`guide-offset`, step 24b): the steps from −12 h to +12 h in half hours,
+ *   the guide's own one focused (and as near the middle of the list as it can be). OK on another
+ *   saves it (`editProfile`), reads the list again and tells the live screen and an open guide
+ *   (`offsetChanged`): the query worker applies it at once, so nothing is downloaded. OK on the
+ *   guide's own one, or Back, changes nothing.
  * - **The add form** (`guide-add`): a link field (onboarding's `normalizeLink`) and Add / Cancel.
  *   A link already on the screen is refused. A new guide's id is `g<n>`, one past the highest
  *   `g` id in the list and in the stored guides (`u~g<n>`), so an id whose records weren't
  *   deleted yet is never reused.
- * - **Each change:** `editProfile`, the list read again (the focus follows a moved or added
- *   guide), then the scheduler's `refreshNow` (a new guide is read, a removed one deleted, a
- *   moved one gets its rank), then the status read again once it settles. Changes run one
- *   after another; reads that a newer one replaced are dropped.
+ * - **Each change of the list:** `editProfile`, the list read again (the focus follows a moved
+ *   or added guide), then the scheduler's `refreshNow` (a new guide is read, a removed one
+ *   deleted, a moved one gets its rank), then the status read again once it settles. Changes
+ *   run one after another; reads that a newer one replaced are dropped.
  */
 
 /** Sizes, all layout constants (no DOM measuring). settings.css uses the same numbers. */
@@ -45,6 +50,16 @@ export const GUIDES = {
 
 export const GUIDES_BODY = SCREEN.height - 2 * SCREEN.safeY - GUIDES.headerHeight - GUIDES.headerGap - GUIDES.introHeight;
 export const GUIDES_VISIBLE = fits(GUIDES_BODY, GUIDES.rowHeight, GUIDES.rowGap);
+
+/** The time offset's chooser: seven steps of 64 px with 8 px gaps in the dialog (settings.css). */
+export const OFFSETS = { rowHeight: 64, rowGap: 8, visible: 7 } as const;
+
+/** Every time offset a guide can have, in minutes, from −12 h to +12 h. */
+export const OFFSET_STEPS: readonly number[] = ((): number[] => {
+  const steps: number[] = [];
+  for (let minutes = -EPG_OFFSET_MAX; minutes <= EPG_OFFSET_MAX; minutes += EPG_OFFSET_STEP) steps.push(minutes);
+  return steps;
+})();
 
 /** The DOM id of the add form's link input (the text editor finds it by this). */
 export const LINK_FIELD_ID = 'guides-link';
@@ -67,9 +82,11 @@ export interface GuideRow {
   readonly source: string;
   /** What the refresh keeps of it (`null`: nothing stored yet). */
   readonly meta: EpgMeta | null;
+  /** The user's time offset for it, in minutes (0: none; step 24b). */
+  readonly offset: number;
 }
 
-export type GuideAction = 'up' | 'down' | 'remove' | 'cancel';
+export type GuideAction = 'up' | 'down' | 'offset' | 'remove' | 'cancel';
 
 /** Why the add form refused the link. */
 export type AddProblem = 'required' | 'url' | 'spaces' | 'listed';
@@ -88,6 +105,8 @@ export interface GuidesOptions {
   readonly engine: GuidesEngine;
   /** Reads the guides now (`RefreshScheduler.refreshNow`): settles when that pass has ended. */
   readonly refreshNow: () => Promise<void>;
+  /** A guide's time offset was saved: the live screen and an open guide ask their programmes again. */
+  readonly offsetChanged: () => void;
   readonly platform: Pick<Platform, 'textKey' | 'onSoftKeyboard'>;
   /** Finds the link's input (tests); default `document.getElementById`. */
   readonly find?: TextEditorOptions['find'];
@@ -98,6 +117,12 @@ export interface GuidesOptions {
 export interface GuidesMenu {
   readonly row: GuideRow;
   readonly actions: readonly GuideAction[];
+}
+
+/** The time offset's chooser while it shows: the guide's row, and the steps it lists. */
+export interface OffsetChooser {
+  readonly row: GuideRow;
+  readonly steps: readonly number[];
 }
 
 export interface Guides {
@@ -112,6 +137,8 @@ export interface Guides {
   readonly pending: ReadonlySignal<number>;
   /** The menu while it shows. */
   readonly menu: ReadonlySignal<GuidesMenu | null>;
+  /** The time offset's chooser while it shows. */
+  readonly chooser: ReadonlySignal<OffsetChooser | null>;
   /** The add form's link and why it was refused. */
   readonly text: ReadonlySignal<string>;
   readonly problem: ReadonlySignal<AddProblem | null>;
@@ -171,11 +198,14 @@ export interface GuideList {
 export function guideList(profile: LoadedProfile | null, status: EpgStatus): GuideList {
   const user = userGuides(profile);
   const records = storedSources(profile);
+  const offsets = epgOffsetsOf(profile === null ? null : profile.doc);
+  // (Guide ids hold `:` or `~`: never a name an object inherits.)
+  const offsetOf = (epgSrc: string): number => offsets[epgSrc] ?? 0;
   const rows: GuideRow[] = [];
   const urls: string[] = [];
   for (const guide of user) {
     const epgSrc = `${USER_PREFIX}${guide.id}`;
-    rows.push({ kind: 'mine', epgSrc, id: guide.id, link: shownLink(guide.url), source: '', meta: metaOf(status, epgSrc) });
+    rows.push({ kind: 'mine', epgSrc, id: guide.id, link: shownLink(guide.url), source: '', meta: metaOf(status, epgSrc), offset: offsetOf(epgSrc) });
     urls.push(guide.url);
   }
   for (const guide of epgGuides(records.map(catalogOf), status.sources, user)) {
@@ -183,7 +213,7 @@ export function guideList(profile: LoadedProfile | null, status: EpgStatus): Gui
     const src = guide.epgSrc.slice(0, guide.epgSrc.indexOf(':'));
     let source = '';
     for (const record of records) if (record.id === src) source = record.name;
-    rows.push({ kind: 'source', epgSrc: guide.epgSrc, id: '', link: shownLink(guide.url), source, meta: metaOf(status, guide.epgSrc) });
+    rows.push({ kind: 'source', epgSrc: guide.epgSrc, id: '', link: shownLink(guide.url), source, meta: metaOf(status, guide.epgSrc), offset: offsetOf(guide.epgSrc) });
     urls.push(guide.url);
   }
   return { rows, urls };
@@ -204,12 +234,16 @@ export function guideState(row: GuideRow, reading: number): GuideState {
   return reading > 0 ? 'reading' : 'unread';
 }
 
-/** The menu's actions for the user's guide at `place` of `count`: a move only where it can go. */
-export function menuActions(place: number, count: number): GuideAction[] {
+/**
+ * The menu's actions for the user's guide at `place` of the user's `count`: a move only where it
+ * can go. A source's own guide (`kind: 'source'`) can't move or go: its time offset only.
+ */
+export function menuActions(place: number, count: number, kind: GuideRow['kind'] = 'mine'): GuideAction[] {
+  if (kind === 'source') return ['offset', 'cancel'];
   const actions: GuideAction[] = [];
   if (place > 0) actions.push('up');
   if (place < count - 1) actions.push('down');
-  actions.push('remove', 'cancel');
+  actions.push('offset', 'remove', 'cancel');
   return actions;
 }
 
@@ -236,8 +270,8 @@ const FORM_ZONES: ScreenSpec['zones'] = [
   { kind: 'list', id: 'actions', axis: 'horizontal', count: 2, neighbours: { up: 'field' } },
 ];
 
-/** Where the focus goes once the list is read again: a guide's row by its id. */
-type Follow = { readonly id: string } | null;
+/** Where the focus goes once the list is read again: a guide's row by its guide id. */
+type Follow = { readonly epgSrc: string } | null;
 
 export function createGuides(options: GuidesOptions): Guides {
   const { nav, engine } = options;
@@ -246,6 +280,7 @@ export function createGuides(options: GuidesOptions): Guides {
   const reading = signal(0);
   const pending = signal(0);
   const menu = signal<GuidesMenu | null>(null);
+  const chooser = signal<OffsetChooser | null>(null);
   const text = signal('');
   const problem = signal<AddProblem | null>(null);
 
@@ -290,8 +325,7 @@ export function createGuides(options: GuidesOptions): Guides {
     const wanted = follow;
     follow = null;
     if (wanted !== null) {
-      // (A source's row has no id.)
-      for (let i = 0; i < list.length; i += 1) if (list[i]!.id === wanted.id) shown.focus('guides', i);
+      for (let i = 0; i < list.length; i += 1) if (list[i]!.epgSrc === wanted.epgSrc) shown.focus('guides', i);
     }
     // An empty list (only reads call this: never while loading): the focus on "Add a guide".
     if (list.length === 0) shown.focus('add', 0);
@@ -356,20 +390,71 @@ export function createGuides(options: GuidesOptions): Guides {
     nav.pop();
   };
 
+  /**
+   * Saves a guide's time offset after the changes before it, then tells the live screen and the
+   * guide, and reads the list again (the focus on the guide's row). No refresh: the query worker
+   * applies the offset when it reads.
+   */
+  const setOffset = (row: GuideRow, minutes: number): void => {
+    chain = chain.then(async () => {
+      let saved = false;
+      try {
+        saved = await track(() => engine.editProfile({ kind: 'epgOffset', epgSrc: row.epgSrc, minutes }));
+      } catch (error) {
+        console.warn('The time offset was not saved', error);
+      }
+      // Even when the screen went meanwhile: the programmes on the live screen moved.
+      if (saved) options.offsetChanged();
+      if (disposed) return;
+      follow = { epgSrc: row.epgSrc };
+      await read();
+    });
+  };
+
+  /** Closes the chooser (it is on top: only its own keys call this). */
+  const closeChooser = (): void => {
+    chooser.value = null;
+    nav.pop();
+  };
+
+  const openChooser = (row: GuideRow): void => {
+    chooser.value = { row, steps: OFFSET_STEPS };
+    const shown = nav.push({
+      id: 'guide-offset',
+      zones: [{ kind: 'list', id: 'steps', axis: 'vertical', count: OFFSET_STEPS.length, visible: OFFSETS.visible }],
+      onIntent: (intent) => {
+        if (intent !== 'BACK') return false;
+        closeChooser();
+        return true;
+      },
+      onSelect: (focus) => {
+        const minutes = OFFSET_STEPS[focus.index]!;
+        closeChooser();
+        if (minutes !== row.offset) setOffset(row, minutes);
+      },
+    });
+    // The guide's own step, with the steps either side of it in view: the list first scrolls to
+    // three past it (the navigator stops at the last), so the focus lands in the middle of the seven.
+    const at = OFFSET_STEPS.indexOf(row.offset);
+    shown.focus('steps', at + (OFFSETS.visible - 1) / 2);
+    shown.focus('steps', at);
+  };
+
   const act = (action: GuideAction | undefined, row: GuideRow, index: number): void => {
     closeMenu();
-    if (action === 'up') change({ op: 'move', id: row.id, to: index - 1 }, { id: row.id });
-    else if (action === 'down') change({ op: 'move', id: row.id, to: index + 1 }, { id: row.id });
+    if (action === 'up') change({ op: 'move', id: row.id, to: index - 1 }, { epgSrc: row.epgSrc });
+    else if (action === 'down') change({ op: 'move', id: row.id, to: index + 1 }, { epgSrc: row.epgSrc });
+    else if (action === 'offset') openChooser(row);
     else if (action === 'remove') change({ op: 'remove', id: row.id }, null);
   };
 
   const openMenu = (index: number): void => {
     const list = rows.value;
     const row = list[index];
-    if (row === undefined || row.kind !== 'mine') return;
+    if (row === undefined) return;
     let mine = 0;
     for (const r of list) if (r.kind === 'mine') mine += 1;
-    const actions = menuActions(index, mine);
+    const actions = menuActions(index, mine, row.kind);
     menu.value = { row, actions };
     nav.push({
       id: 'guide-menu',
@@ -400,7 +485,7 @@ export function createGuides(options: GuidesOptions): Guides {
     given.push(id);
     urls = urls.concat([checked.link]);
     closeForm();
-    change({ op: 'add', guide: { id, url: checked.link } }, { id });
+    change({ op: 'add', guide: { id, url: checked.link } }, { epgSrc: `${USER_PREFIX}${id}` });
   };
 
   const openForm = (): void => {
@@ -433,6 +518,7 @@ export function createGuides(options: GuidesOptions): Guides {
     reading,
     pending,
     menu,
+    chooser,
     text,
     problem,
     open(): void {

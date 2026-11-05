@@ -10,6 +10,8 @@ import {
   GUIDES_BODY,
   GUIDES_VISIBLE,
   LINK_FIELD_ID,
+  OFFSETS,
+  OFFSET_STEPS,
   checkLink,
   createGuides,
   guideList,
@@ -150,7 +152,8 @@ function setup(engine = new FakeEngine()) {
     textKey: (event: KeyLike): TextKey | null => (event.key === 'Enter' ? 'done' : event.key === 'Escape' ? 'close' : null),
     onSoftKeyboard: () => stopKeyboard,
   };
-  const guides = createGuides({ nav, engine, refreshNow: refresh.refreshNow, platform, find, now: () => 10_000 });
+  const offsetChanged = vi.fn();
+  const guides = createGuides({ nav, engine, refreshNow: refresh.refreshNow, offsetChanged, platform, find, now: () => 10_000 });
   const at = (): string => {
     const f = nav.snapshot();
     return `${f.screen} · ${f.zone} ${f.index}`;
@@ -160,7 +163,7 @@ function setup(engine = new FakeEngine()) {
     await flush();
   };
   const sources = (): string[] => guides.rows.value.map((r) => r.epgSrc);
-  return { nav, engine, refresh, guides, input, find, stopKeyboard, at, press, sources };
+  return { nav, engine, refresh, offsetChanged, guides, input, find, stopKeyboard, at, press, sources };
 }
 
 /** Opens the guides screen and lets its first read land. */
@@ -210,11 +213,17 @@ describe('nextGuideId', () => {
 });
 
 describe('menuActions', () => {
-  it('offers a move only where the guide can go', () => {
-    expect(menuActions(0, 1)).toEqual(['remove', 'cancel']);
-    expect(menuActions(0, 3)).toEqual(['down', 'remove', 'cancel']);
-    expect(menuActions(1, 3)).toEqual(['up', 'down', 'remove', 'cancel']);
-    expect(menuActions(2, 3)).toEqual(['up', 'remove', 'cancel']);
+  it('offers a move only where the guide can go, then the time offset', () => {
+    expect(menuActions(0, 1)).toEqual(['offset', 'remove', 'cancel']);
+    expect(menuActions(0, 3)).toEqual(['down', 'offset', 'remove', 'cancel']);
+    expect(menuActions(1, 3)).toEqual(['up', 'down', 'offset', 'remove', 'cancel']);
+    expect(menuActions(2, 3)).toEqual(['up', 'offset', 'remove', 'cancel']);
+    expect(menuActions(2, 3, 'mine')).toEqual(['up', 'offset', 'remove', 'cancel']);
+  });
+
+  it("offers a source's own guide its time offset alone", () => {
+    expect(menuActions(0, 0, 'source')).toEqual(['offset', 'cancel']);
+    expect(menuActions(3, 5, 'source')).toEqual(['offset', 'cancel']);
   });
 });
 
@@ -239,7 +248,7 @@ describe('checkLink', () => {
 });
 
 describe('guideState', () => {
-  const row = (m: EpgMeta | null): GuideRow => ({ kind: 'mine', epgSrc: 'u~g1', id: 'g1', link: '', source: '', meta: m });
+  const row = (m: EpgMeta | null): GuideRow => ({ kind: 'mine', epgSrc: 'u~g1', id: 'g1', link: '', source: '', meta: m, offset: 0 });
   it('is read once programmes are stored, failed or not', () => {
     expect(guideState(row(meta('u~g1')), 0)).toBe('read');
     expect(guideState(row(meta('u~g1', { failure: { code: 'network', status: null } })), 1)).toBe('read');
@@ -381,24 +390,28 @@ describe('the guides screen', () => {
     expect(t.guides.status.value).toBe('ready');
   });
 
-  it('opens no menu for a source’s guide', async () => {
+  it('opens a menu with the time offset alone for a source’s guide', async () => {
     const t = await opened();
     await t.press('DOWN', 'DOWN', 'OK');
+    expect(t.at()).toBe('guide-menu · actions 0');
+    expect(t.guides.menu.value).toEqual({ row: t.guides.rows.value[2], actions: ['offset', 'cancel'] });
+    await t.press('DOWN', 'OK');
     expect(t.at()).toBe('guides · guides 2');
     expect(t.guides.menu.value).toBeNull();
+    expect(t.engine.edits).toEqual([]);
   });
 
   it('opens the menu of the user’s guide on OK, and closes it with Back or Cancel without a change', async () => {
     const t = await opened();
     await t.press('OK');
     expect(t.at()).toBe('guide-menu · actions 0');
-    expect(t.guides.menu.value).toEqual({ row: t.guides.rows.value[0], actions: ['down', 'remove', 'cancel'] });
+    expect(t.guides.menu.value).toEqual({ row: t.guides.rows.value[0], actions: ['down', 'offset', 'remove', 'cancel'] });
     await t.press('BACK');
     expect(t.at()).toBe('guides · guides 0');
     expect(t.guides.menu.value).toBeNull();
     await t.press('DOWN', 'OK');
-    expect(t.guides.menu.value?.actions).toEqual(['up', 'remove', 'cancel']);
-    await t.press('DOWN', 'DOWN', 'OK');
+    expect(t.guides.menu.value?.actions).toEqual(['up', 'offset', 'remove', 'cancel']);
+    await t.press('DOWN', 'DOWN', 'DOWN', 'OK');
     expect(t.at()).toBe('guides · guides 1');
     expect(t.guides.menu.value).toBeNull();
     expect(t.engine.edits).toEqual([]);
@@ -460,12 +473,12 @@ describe('the guides screen', () => {
     engine.doc = doc([{ id: 's1', url: 'http://guides.test/a.xml' }, { id: 'g2', url: 'http://guides.test/b.xml' }], []);
     engine.status = { guides: [], matched: 0, sources: [] };
     const t = await opened(engine);
-    await t.press('DOWN', 'OK', 'DOWN', 'OK');
+    await t.press('DOWN', 'OK', 'DOWN', 'DOWN', 'OK');
     expect(t.engine.edits).toEqual([{ kind: 'guide', change: { op: 'remove', id: 'g2' } }]);
     expect(t.sources()).toEqual(['u~s1']);
     expect(t.at()).toBe('guides · guides 0');
     expect(t.refresh.refreshNow).toHaveBeenCalledTimes(1);
-    await t.press('OK', 'OK');
+    await t.press('OK', 'DOWN', 'OK');
     expect(t.engine.edits[1]).toEqual({ kind: 'guide', change: { op: 'remove', id: 's1' } });
     expect(t.sources()).toEqual([]);
     expect(t.at()).toBe('guides · add 0');
@@ -478,7 +491,7 @@ describe('the guides screen', () => {
     engine.hold = new Set(['edit']);
     // Move s1 down, then remove it before the move is saved.
     await t.press('OK', 'OK');
-    await t.press('OK', 'DOWN', 'OK');
+    await t.press('OK', 'DOWN', 'DOWN', 'OK');
     expect(engine.edits).toHaveLength(1);
     engine.held.edit.splice(0)[0]!.resolve();
     await flush();
@@ -710,9 +723,15 @@ describe('the add form', () => {
 describe('the settings screen', () => {
   it('lists "TV guides", which opens the guides screen; Back goes back one screen at a time', async () => {
     const t = setup();
-    const settings = createSettings({ nav: t.nav, engine: t.engine, refreshNow: t.refresh.refreshNow, platform: { textKey: () => null, onSoftKeyboard: () => () => undefined } });
+    const settings = createSettings({
+      nav: t.nav,
+      engine: t.engine,
+      refreshNow: t.refresh.refreshNow,
+      offsetChanged: t.offsetChanged,
+      platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+    });
     expect(SETTINGS_ITEMS).toEqual(['guides']);
-    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-add']);
+    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-add']);
     settings.open();
     expect(t.at()).toBe('settings · items 0');
     expect((t.nav.top.zone('items') as { count: number }).count).toBe(1);
@@ -724,5 +743,179 @@ describe('the settings screen', () => {
     await t.press('BACK');
     expect(t.at()).toBe('live · channels 0');
     settings.dispose();
+  });
+});
+
+describe("a guide's time offset (step 24b)", () => {
+  /** The chooser's focused step and the first step in view. */
+  const chooserAt = (t: ReturnType<typeof setup>): [number, number] => {
+    const p = t.nav.top.position('steps');
+    return [p.index, p.top];
+  };
+
+  it('lists the steps from -12 h to +12 h in half hours, seven in view', () => {
+    expect(OFFSET_STEPS).toHaveLength(49);
+    expect(OFFSET_STEPS.every((minutes, i) => minutes === -720 + 30 * i)).toBe(true);
+    expect(OFFSET_STEPS[24]).toBe(0);
+    expect(OFFSETS.visible).toBe(7);
+  });
+
+  it('gives each row its offset from the profile, 0 for none', () => {
+    const engine = new FakeEngine();
+    engine.doc = { ...engine.doc, epgOffsets: { 'u~g2': -90, 's1:xmltv': 60, 'u~gone': 30 } };
+    const { rows } = guideList({ doc: engine.doc, newer: false, migratedFrom: null }, engine.status);
+    expect(rows.map((r) => [r.epgSrc, r.offset])).toEqual([
+      ['u~s1', 0],
+      ['u~g2', -90],
+      ['s1:xmltv', 60],
+      ['s2:tvg0', 0],
+    ]);
+    // A stored entry that is no offset reads as none.
+    const odd = guideList({ doc: { ...engine.doc, epgOffsets: { 'u~s1': 45 } }, newer: false, migratedFrom: null }, engine.status);
+    expect(odd.rows[0]!.offset).toBe(0);
+  });
+
+  it("opens from the menu on the guide's own step, in the middle of the seven in view where it can", async () => {
+    const engine = new FakeEngine();
+    engine.doc = { ...engine.doc, epgOffsets: { 'u~g2': 720, 's1:xmltv': -720 } };
+    const t = await opened(engine);
+    // s1's menu: Move down, Time offset, Remove, Cancel.
+    await t.press('OK', 'DOWN', 'OK');
+    expect(t.at()).toBe('guide-offset · steps 24');
+    expect(chooserAt(t)).toEqual([24, 21]);
+    expect(t.guides.chooser.value).toEqual({ row: t.guides.rows.value[0], steps: OFFSET_STEPS });
+    expect(t.guides.menu.value).toBeNull();
+    await t.press('BACK');
+    expect(t.at()).toBe('guides · guides 0');
+    expect(t.guides.chooser.value).toBeNull();
+    // g2 at +12 h: the last step, the list at its end.
+    await t.press('DOWN', 'OK', 'DOWN', 'OK');
+    expect(t.at()).toBe('guide-offset · steps 48');
+    expect(chooserAt(t)).toEqual([48, 42]);
+    await t.press('BACK');
+    // The panel's own guide at -12 h: its menu has the offset first.
+    await t.press('DOWN', 'OK', 'OK');
+    expect(t.at()).toBe('guide-offset · steps 0');
+    expect(chooserAt(t)).toEqual([0, 0]);
+    await t.press('BACK');
+    expect(t.at()).toBe('guides · guides 2');
+    expect(engine.edits).toEqual([]);
+  });
+
+  it('saves another step: the edit, the screens told, the list read again, and nothing refreshed', async () => {
+    const t = await opened();
+    // The panel's own guide.
+    await t.press('DOWN', 'DOWN', 'OK', 'OK');
+    expect(t.at()).toBe('guide-offset · steps 24');
+    const reads = t.engine.profileCalls;
+    await t.press('DOWN', 'DOWN', 'OK');
+    expect(t.engine.edits).toEqual([{ kind: 'epgOffset', epgSrc: 's1:xmltv', minutes: 60 }]);
+    expect(t.offsetChanged).toHaveBeenCalledTimes(1);
+    expect(t.engine.profileCalls).toBe(reads + 1);
+    expect(t.guides.rows.value[2]!.offset).toBe(60);
+    expect(t.at()).toBe('guides · guides 2');
+    expect(t.refresh.refreshNow).not.toHaveBeenCalled();
+    expect(t.guides.reading.value).toBe(0);
+    expect(t.guides.pending.value).toBe(0);
+    // Opened again on +1:00, and back to none.
+    await t.press('OK', 'OK');
+    expect(t.at()).toBe('guide-offset · steps 26');
+    await t.press('UP', 'UP', 'OK');
+    expect(t.engine.edits[1]).toEqual({ kind: 'epgOffset', epgSrc: 's1:xmltv', minutes: 0 });
+    expect(t.guides.rows.value[2]!.offset).toBe(0);
+    expect(t.offsetChanged).toHaveBeenCalledTimes(2);
+    expect(t.refresh.refreshNow).not.toHaveBeenCalled();
+  });
+
+  it("changes nothing on the guide's own step, or with Back", async () => {
+    const t = await opened();
+    await t.press('OK', 'DOWN', 'OK', 'OK');
+    expect(t.at()).toBe('guides · guides 0');
+    expect(t.guides.chooser.value).toBeNull();
+    await t.press('OK', 'DOWN', 'OK', 'DOWN', 'BACK');
+    expect(t.at()).toBe('guides · guides 0');
+    expect(t.guides.chooser.value).toBeNull();
+    await flush();
+    expect(t.engine.edits).toEqual([]);
+    expect(t.offsetChanged).not.toHaveBeenCalled();
+  });
+
+  it("follows the guide's row once the list is read again, though the focus moved meanwhile", async () => {
+    const engine = new FakeEngine();
+    const t = await opened(engine);
+    engine.hold = new Set(['edit']);
+    // g2's menu: Move up, Time offset…; one step up: -0:30.
+    await t.press('DOWN', 'OK', 'DOWN', 'OK', 'UP', 'OK');
+    await t.press('DOWN', 'DOWN');
+    expect(t.at()).toBe('guides · guides 3');
+    expect(t.offsetChanged).not.toHaveBeenCalled();
+    // The edit counts as a request in flight until it settles.
+    expect(t.guides.pending.value).toBe(1);
+    engine.held.edit.splice(0)[0]!.resolve();
+    await flush();
+    expect(engine.edits).toEqual([{ kind: 'epgOffset', epgSrc: 'u~g2', minutes: -30 }]);
+    expect(t.offsetChanged).toHaveBeenCalledTimes(1);
+    expect(t.at()).toBe('guides · guides 1');
+    expect(t.guides.pending.value).toBe(0);
+    // A source's own guide (its row has no id of the user's) is followed too.
+    await t.press('DOWN', 'OK', 'OK', 'DOWN', 'OK');
+    await t.press('UP', 'UP');
+    expect(t.at()).toBe('guides · guides 0');
+    engine.held.edit.splice(0)[0]!.resolve();
+    await flush();
+    expect(engine.edits[1]).toEqual({ kind: 'epgOffset', epgSrc: 's1:xmltv', minutes: 30 });
+    expect(t.at()).toBe('guides · guides 2');
+  });
+
+  it('tells no screen when the edit failed or saved nothing, and still reads the list', async () => {
+    const t = await opened();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    t.engine.failEdit = true;
+    const reads = t.engine.profileCalls;
+    await t.press('OK', 'DOWN', 'OK', 'DOWN', 'OK');
+    expect(warn).toHaveBeenCalledWith('The time offset was not saved', expect.any(Error));
+    expect(t.offsetChanged).not.toHaveBeenCalled();
+    expect(t.engine.profileCalls).toBe(reads + 1);
+    expect(t.guides.pending.value).toBe(0);
+    // Saved nothing: the profile had that offset already (set meanwhile, the row not read since).
+    t.engine.failEdit = false;
+    t.engine.doc = { ...t.engine.doc, epgOffsets: { 'u~s1': 30 } };
+    await t.press('OK', 'DOWN', 'OK', 'DOWN', 'OK');
+    expect(t.engine.edits[1]).toEqual({ kind: 'epgOffset', epgSrc: 'u~s1', minutes: 30 });
+    expect(t.offsetChanged).not.toHaveBeenCalled();
+    expect(t.guides.rows.value[0]!.offset).toBe(30);
+  });
+
+  it('tells the screens of an offset saved after the screen went, and reads nothing then', async () => {
+    const engine = new FakeEngine();
+    const t = await opened(engine);
+    engine.hold = new Set(['edit']);
+    await t.press('OK', 'DOWN', 'OK', 'DOWN', 'OK');
+    t.guides.dispose();
+    const reads = engine.profileCalls;
+    engine.held.edit.splice(0)[0]!.resolve();
+    await flush();
+    expect(engine.edits).toEqual([{ kind: 'epgOffset', epgSrc: 'u~s1', minutes: 30 }]);
+    expect(t.offsetChanged).toHaveBeenCalledTimes(1);
+    expect(engine.profileCalls).toBe(reads);
+  });
+
+  it('is saved after the changes before it', async () => {
+    const engine = new FakeEngine();
+    const t = await opened(engine);
+    engine.hold = new Set(['edit']);
+    // Move s1 down (held), then its offset (the row is still first: the list wasn't read again).
+    await t.press('OK', 'OK');
+    await t.press('OK', 'DOWN', 'OK', 'DOWN', 'OK');
+    expect(engine.edits).toHaveLength(1);
+    engine.held.edit.splice(0)[0]!.resolve();
+    await flush();
+    expect(engine.edits).toHaveLength(2);
+    expect(engine.edits[1]).toEqual({ kind: 'epgOffset', epgSrc: 'u~s1', minutes: 30 });
+    expect(t.offsetChanged).not.toHaveBeenCalled();
+    engine.held.edit.splice(0)[0]!.resolve();
+    await flush();
+    expect(t.offsetChanged).toHaveBeenCalledTimes(1);
+    expect(t.at()).toBe('guides · guides 1');
   });
 });

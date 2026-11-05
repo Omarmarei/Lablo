@@ -202,13 +202,11 @@ describe('EpgGuideReader', () => {
     expect(reader.stats).toMatchObject({ invalidTime: 3, stopGuessed: 3, kept: 8 });
   });
 
-  it('reads times without an offset in the fallback zone, and adds the user correction to all', () => {
+  it('reads times without an offset in the fallback zone', () => {
     const a = live('A', { epgId: 'a' });
     const guide = tv(ch('a'), pr('a', wall(2026, 11, 2, 15, 0), wall(2026, 11, 2, 16, 0), 'riyadh'), pr('a', xt(NOW + 2 * HOUR, 60), xt(NOW + 3 * HOUR, 60), 'stated'));
     const fixed = read(guide, { wanted: EpgWantedSet.fromItems([a]), fallback: 180 });
     expect(Object.values(fixed.buckets).flatMap(slim)).toEqual(['0..60 riyadh', '120..180 stated']);
-    const shifted = read(guide, { wanted: EpgWantedSet.fromItems([a]), fallback: 180, shiftMinutes: -30 });
-    expect(Object.values(shifted.buckets).flatMap(slim)).toEqual(['-30..30 riyadh', '90..150 stated']);
   });
 
   describe('repairs the repeated DST hour from per-channel ordering (ADR-010)', () => {

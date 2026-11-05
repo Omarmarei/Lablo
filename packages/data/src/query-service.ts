@@ -12,6 +12,9 @@
  * - `nowNext` gives the programme on air and the next one for live channels (step 9b): the
  *   guides' match tables are combined in priority order (core `combineEpgMatches`), and each
  *   channel's buckets of the days around now are read from IndexedDB, with its tvg-shift applied.
+ *   Every read of a guide's programmes adds the user's time offset for that guide (step 24b) to
+ *   the tvg-shift: the offsets are read from the profile at each reload, and an `editProfile`
+ *   that changes them applies them at once (no reload; an older read answering later is dropped).
  * - `guide` gives the grid guide its rows (step 23a): each live channel's programmes over a time
  *   range, from the same guide channel as its now/next, as plain arrays.
  * - `programme` gives the programme details one programme (step 24a): its description, episode
@@ -39,8 +42,9 @@ import type { EpgBucketKey, EpgMeta, StoredEpgMatch } from './epg-store';
 import { getEpgMetas, readEpgBuckets, readEpgChannels } from './epg-store';
 import type { RpcContext } from './rpc';
 import type { ByteTransport } from './bytes';
-import type { LoadedProfile, ProfileEdit } from './profile';
-import { applyProfileEdit, loadProfile, updateProfile } from './profile';
+import type { LoadedProfile, ProfileDoc, ProfileEdit } from './profile';
+import { applyProfileEdit, loadProfile, readEpgOffsets, updateProfile } from './profile';
+import { epgOffsetsOf } from './epg-sources';
 import type { ShortEpgRequest } from './short-epg';
 import { ShortEpgCache, shortEpgNowNext, shortEpgTarget, textTransport } from './short-epg';
 import type { AccountCheck } from './account-check';
@@ -119,7 +123,7 @@ export interface GuideRow extends EpgSchedule {
 /** The programme details' ask (step 24a): a live channel's programme that starts at `start`. */
 export interface ProgrammeRequest {
   key: ContentKey;
-  /** UTC epoch minutes, after the channel's tvg-shift (as `guide` gives it). */
+  /** UTC epoch minutes, after the channel's tvg-shift and its guide's offset (as `guide` gives it). */
   start: number;
 }
 
@@ -145,6 +149,7 @@ interface EpgLink {
   gen: number;
   channel: string;
   method: EpgMatchMethod;
+  /** The live channel's tvg-shift, in hours. */
   shift: number;
 }
 
@@ -173,6 +178,15 @@ export class QueryService {
   private readonly cache = new Map<string, CatalogItem[]>();
   private readonly cacheSize: number;
   private epgLinks = new Map<ContentKey, EpgLink>();
+  /** The user's time offset per guide, in minutes (step 24b). */
+  private epgOffsets: Record<string, number> = {};
+  /**
+   * Bumps when an edit's write starts. A read takes the number as it is: it sees that edit's
+   * write (IndexedDB runs them in the order they start) and none after, so an answer with a
+   * lower number than the offsets held is older than them.
+   */
+  private offsetSeq = 0;
+  private offsetsFrom = 0;
   private readonly panelEpg: ShortEpgCache | null;
 
   constructor(private readonly options: QueryServiceOptions) {
@@ -248,6 +262,9 @@ export class QueryService {
 
   private async load(): Promise<void> {
     const db = await this.db();
+    // First, so that an edit of the offsets made while this load runs is ordered after it.
+    const offsetSeq = this.offsetSeq;
+    const offsets = readEpgOffsets(db);
     const sources = (await getSources(db)).sort((a, b) => (a.src < b.src ? -1 : a.src > b.src ? 1 : 0));
     const keys: { src: string; gen: number; kind: ContentKind }[] = [];
     for (const s of sources) if (s.gen > 0) for (const kind of CONTENT_KINDS) if ((s.counts[kind] ?? 0) > 0) keys.push({ src: s.src, gen: s.gen, kind });
@@ -267,6 +284,7 @@ export class QueryService {
       }
     });
     const epg = await this.loadEpg(db);
+    this.setOffsets(await offsets, offsetSeq);
     this.sources = sources;
     this.segments = segments;
     this.stale = stale;
@@ -303,6 +321,19 @@ export class QueryService {
     return { metas, links };
   }
 
+  /** Takes the offsets read or written at `seq`, unless ones from a later edit are held already. */
+  private setOffsets(offsets: Record<string, number>, seq: number): void {
+    if (seq < this.offsetsFrom) return;
+    this.offsetsFrom = seq;
+    this.epgOffsets = offsets;
+  }
+
+  /** A link's whole shift in minutes: its channel's tvg-shift and its guide's time offset. */
+  private shiftOf(link: EpgLink): number {
+    // (Guide ids hold `:` or `~`: never a name an object inherits.)
+    return Math.round(link.shift * 60) + (this.epgOffsets[link.epgSrc] ?? 0);
+  }
+
   /**
    * The guides and sources as stored now (read fresh: a catalog refresh that found nothing new
    * may still have updated a source's `epgUrls` without a reload), and how many live channels
@@ -318,8 +349,9 @@ export class QueryService {
 
   /**
    * Now and next for each live channel at `at` (default: now). Reads days `d - 1` to `d + 1` of
-   * its guide channel, `d` being the UTC day at `at` minus its tvg-shift: a programme from the
-   * evening before can still be on air, and the next one can start tomorrow.
+   * its guide channel, `d` being the UTC day at `at` minus its shift (the tvg-shift and the
+   * guide's offset): a programme from the evening before can still be on air, and the next one
+   * can start tomorrow.
    */
   async nowNext(keys: ContentKey[], at?: number): Promise<EpgNowNext[]> {
     await this.ensureLoaded();
@@ -328,10 +360,11 @@ export class QueryService {
     const plan = keys.map((key) => {
       const link = this.epgLinks.get(key);
       if (link === undefined || link.gen === 0) return null;
-      const day = epgDay(Math.floor(nowMs / 60_000) - Math.round(link.shift * 60));
+      const shift = this.shiftOf(link);
+      const day = epgDay(Math.floor(nowMs / 60_000) - shift);
       const from = reads.length;
       for (let d = day - 1; d <= day + 1; d++) reads.push({ epgSrc: link.epgSrc, gen: link.gen, channel: link.channel, day: d });
-      return { link, from };
+      return { link, shift, from };
     });
     const buckets = reads.length === 0 ? [] : await readEpgBuckets(await this.db(), reads);
     return keys.map((key, i) => {
@@ -342,7 +375,8 @@ export class QueryService {
         const b = buckets[j];
         if (b) found.push(b);
       }
-      const nn = epgNowNext(found, nowMs, p.link.shift);
+      // Core takes hours: minutes / 60 * 60 rounds back to the same whole minutes.
+      const nn = epgNowNext(found, nowMs, p.shift / 60);
       return { key, epgSrc: p.link.epgSrc, channel: p.link.channel, method: p.link.method, now: nn.now, next: nn.next };
     });
   }
@@ -350,7 +384,7 @@ export class QueryService {
   /**
    * The grid guide's rows: for each live channel, its programmes that overlap `[from, to)`, read
    * from the guide channel now/next uses (the stronger match, then the guide listed first) and
-   * shifted by its tvg-shift. Its buckets of the days the range covers in guide time are read,
+   * shifted by its tvg-shift and its guide's offset. Its buckets of the days the range covers in guide time are read,
    * and the day before: a programme from the evening before can still be on at `from`. Rejects
    * an ask of more than `GUIDE_MAX_READS` buckets.
    */
@@ -360,13 +394,13 @@ export class QueryService {
     const plan = req.keys.map((key) => {
       const link = this.epgLinks.get(key);
       if (link === undefined) return null;
-      const shift = Math.round(link.shift * 60);
+      const shift = this.shiftOf(link);
       const first = epgDay(req.from - shift) - 1;
       const last = epgDay(req.to - 1 - shift);
       if (reads.length + (last - first + 1) > GUIDE_MAX_READS) throw new RangeError(`The guide was asked for more than ${GUIDE_MAX_READS} channel-days`);
       const at = reads.length;
       for (let d = first; d <= last; d++) reads.push({ epgSrc: link.epgSrc, gen: link.gen, channel: link.channel, day: d });
-      return { link, at, count: reads.length - at };
+      return { link, shift, at, count: reads.length - at };
     });
     const buckets = await readEpgBuckets(await this.db(), reads);
     return req.keys.map((key, i) => {
@@ -377,13 +411,14 @@ export class QueryService {
         const b = buckets[j];
         if (b) found.push(b);
       }
-      return { key, epgSrc: p.link.epgSrc, ...epgSchedule(found, req.from, req.to, p.link.shift) };
+      return { key, epgSrc: p.link.epgSrc, ...epgSchedule(found, req.from, req.to, p.shift / 60) };
     });
   }
 
   /**
    * The programme details (step 24a): the whole programme of a live channel's guide channel (the
-   * one its now/next and grid row come from) that starts at `start`, shifted by its tvg-shift, or
+   * one its now/next and grid row come from) that starts at `start`, shifted by its tvg-shift and
+   * its guide's offset, or
    * `null` (no guide matches the channel, or no programme starts then). One bucket is read: the
    * one of the start's day in guide time. Its end is the stored one (the grid cuts a programme
    * that runs into the next day's first one; the screen shows the grid's times).
@@ -392,9 +427,10 @@ export class QueryService {
     await this.ensureLoaded();
     const link = this.epgLinks.get(req.key);
     if (link === undefined) return null;
-    const day = epgDay(req.start - Math.round(link.shift * 60));
+    const shift = this.shiftOf(link);
+    const day = epgDay(req.start - shift);
     const [bucket] = await readEpgBuckets(await this.db(), [{ epgSrc: link.epgSrc, gen: link.gen, channel: link.channel, day }]);
-    return bucket ? epgProgrammeAt(bucket, req.start, link.shift) : null;
+    return bucket ? epgProgrammeAt(bucket, req.start, shift / 60) : null;
   }
 
   /**
@@ -445,10 +481,23 @@ export class QueryService {
   /**
    * Applies `edit` to the profile in one read-modify-write transaction, creating the profile when
    * there is none (onboarding's first answer does). Resolves `false` when nothing changed, or when
-   * the stored profile is from a newer app version (never written over).
+   * the stored profile is from a newer app version (never written over). The guides' time offsets
+   * the written document holds are applied at once (step 24b): the next read has them.
    */
   async editProfile(edit: ProfileEdit): Promise<boolean> {
-    return updateProfile(await this.db(), (doc) => applyProfileEdit(doc, edit), { create: true, now: this.clock() });
+    const db = await this.db();
+    let written: ProfileDoc | null = null;
+    const seq = ++this.offsetSeq;
+    const wrote = await updateProfile(
+      db,
+      (doc) => {
+        written = applyProfileEdit(doc, edit);
+        return written;
+      },
+      { create: true, now: this.clock() },
+    );
+    if (wrote) this.setOffsets(epgOffsetsOf(written), seq);
+    return wrote;
   }
 
   /** Sets the favourite keys boosted in search. Returns how many are in loaded segments. */

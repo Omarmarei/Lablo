@@ -5,7 +5,7 @@
 
 export type { EpgCatalogSource, EpgDueReason, EpgGuide, UserGuide } from './epg-sources';
 // Pure helpers the app decides EPG refreshes with (no data module behind them).
-export { EPG_AHEAD_MS, EPG_REFRESH_MS, EPG_RETRY_MS, epgGuides, epgRefreshDue } from './epg-sources';
+export { EPG_AHEAD_MS, EPG_OFFSET_MAX, EPG_OFFSET_STEP, EPG_REFRESH_MS, EPG_RETRY_MS, epgGuides, epgOffsetsOf, epgRefreshDue, isEpgOffset } from './epg-sources';
 
 import type { EpgEvents, EpgService } from './epg-service';
 import type { IngestEvents, IngestService } from './ingest-service';

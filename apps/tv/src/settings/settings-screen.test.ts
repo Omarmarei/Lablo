@@ -3,7 +3,7 @@ import type { EpgMeta, EpgSummary } from '@zoma/data';
 import { describe, expect, it } from 'vitest';
 import { appI18n } from '../i18n';
 import type { GuideRow } from './guides-state';
-import { failureText, readText } from './SettingsScreen';
+import { failureText, offsetText, readText } from './SettingsScreen';
 
 const en = appI18n('en-US', { isolate: false });
 const ar = appI18n('ar-SA');
@@ -26,7 +26,7 @@ function summary(matched: number, wanted: number): EpgSummary {
 
 function row(patch: Partial<EpgMeta>): GuideRow {
   const meta: EpgMeta = { epgSrc: 'u~g1', gen: 1, building: null, nextGen: 2, updatedAt: 1, checkedAt: 1, rank: 0, ...patch };
-  return { kind: 'mine', epgSrc: 'u~g1', id: 'g1', link: 'guides.test/a.xml', source: '', meta };
+  return { kind: 'mine', epgSrc: 'u~g1', id: 'g1', link: 'guides.test/a.xml', source: '', meta, offset: 0 };
 }
 
 /** 2026-11-05 21:30 UTC, in UTC minutes. */
@@ -57,5 +57,27 @@ describe('a guide’s row text (RELAY step 22b2)', () => {
     expect(readText(en, row({ until: null, summary: null }))).toEqual({ until: 'No programmes ahead', matched: '' });
     expect(readText(en, row({}))).toEqual({ until: 'No programmes ahead', matched: '' });
     expect(readText(en, row({ until: UNTIL, summary: summary(0, 0) })).matched).toBe('Channels matched: 0 of 0 (0%)');
+  });
+});
+
+describe("a guide's time offset as the screens write it (RELAY step 24b)", () => {
+  it('writes the sign, the hours and the minutes, and says when there is none', () => {
+    const minus = String.fromCharCode(0x2212);
+    expect([0, 30, -30, 60, 90, -90, 600, 690, 720, -720].map((m) => offsetText(en, m))).toEqual([
+      'No offset',
+      '+0:30',
+      `${minus}0:30`,
+      '+1:00',
+      '+1:30',
+      `${minus}1:30`,
+      '+10:00',
+      '+11:30',
+      '+12:00',
+      `${minus}12:00`,
+    ]);
+    expect(offsetText(ar, 0)).toBe('بلا فرق');
+    // ar-SA writes Western digits (ADR-011); Arabic-Indic ones when the TV asks for them.
+    expect(offsetText(ar, -150)).toBe(`${minus}2:30`);
+    expect(offsetText(appI18n('ar-SA', { digits: 'arab' }), 570)).toBe('+٩:٣٠');
   });
 });

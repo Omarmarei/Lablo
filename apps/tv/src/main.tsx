@@ -181,10 +181,15 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     closed: (index) => live.focusRow(index),
   });
   // The header's "Settings" (step 22b2): the guides screen changes the guide list, then reads it.
+  // A guide's time offset (step 24b) needs no refresh: the screens ask their programmes again.
   const settings = createSettings({
     nav: live.nav,
     engine: dataEngine(),
     refreshNow: () => (refreshes === null ? Promise.resolve() : refreshes.refreshNow()),
+    offsetChanged: () => {
+      live.guidesChanged();
+      guide.guidesChanged();
+    },
     platform,
   });
   openSettings = () => settings.open();
