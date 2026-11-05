@@ -460,21 +460,18 @@ export class PlayerController {
    * Moves a VOD or catch-up stream on show to `ms` of its media time (RELAY step 25d), inside
    * the stream: the engine seeks, a later reopen starts there, and a paused stream stays paused.
    * `false` when nothing seekable shows (a live stream, or no picture yet), the engine refused,
-   * or another load came first.
+   * or another play came first.
    */
   async seek(ms: number): Promise<boolean> {
     const s = this.s;
     if (s === null || s.live || !this.showsPicture()) return false;
-    const token = this.liveToken;
     const to = Math.max(0, ms);
     const ok = await this.engine.seek(to).then(
       () => true,
       () => false,
     );
-    if (this.s !== s || this.liveToken !== token || !ok) return false;
+    if (this.s !== s || !ok) return false;
     s.resumeMs = to;
-    this.lastPos = this.engine.positionMs();
-    this.lastMoveAt = this.clock.now();
     return true;
   }
 

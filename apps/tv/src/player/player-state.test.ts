@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import type { LiveRow, Timers } from '../live/live-state';
 import type { ArchiveProgramme } from './catchup';
 import type { PlayerLike, PlayerOptions, ZapList } from './player-state';
-import { DIGITS_MS, INFO_MS, MISSING_MS, PICTURE_ACTION, POSITION_MS, SEEK_DELAY_MS, STATS_ACTION, TRACKS_ACTION, ZAP_DELAY_MS, createPlayer, liveRequest } from './player-state';
+import { DIGITS_MS, INFO_MS, MISSING_MS, PICTURE_ACTION, PLAY_ON_MS, POSITION_MS, SEEK_DELAY_MS, STATS_ACTION, TRACKS_ACTION, ZAP_DELAY_MS, createPlayer, liveRequest } from './player-state';
 import { STATS_MS } from './stream-info';
 import type { SubtitleSize } from './track-menu';
 import { DEFAULT_SUBTITLE_SIZE, DELAY_STEP_MS, MAX_DELAY_MS, MENU_ROWS } from './track-menu';
@@ -1645,6 +1645,22 @@ describe("the player: catch-up's position, pause, seeking and end (RELAY step 25
     expect(starts(t)).toEqual([START, 'live']);
     expect(t.player.position.value).toBeNull();
     expect(t.at()).toBe('player · actions 0');
+    expect(t.player.screen.value!.zone('seek').count).toBe(0);
+    // Live, the bar hides with the focus on its buttons, and no position is read.
+    t.controller.set('playing');
+    t.clock.advance(INFO_MS);
+    expect(t.player.info.value).toBe(false);
+    expect(t.at()).toBe('player · actions 0');
+    expect(t.clock.pending()).toBe(0);
+  });
+
+  it('takes the focus to the seek bar on FF from the buttons, and pauses on a pointer click on the bar', async () => {
+    const t = opened();
+    await t.press('DOWN', 'FF');
+    expect(t.at()).toBe('player · seek 0');
+    expect(t.player.position.value).toEqual({ time: START + 90_000 + 5 * MIN, seeking: true, live: false });
+    t.player.screen.value!.click('seek', 0);
+    expect(t.controller.pauses).toEqual(['pause']);
   });
 
   it('pauses and plays on: OK on the seek bar or with the bar hidden, and PLAY/PAUSE; the bar stays while paused', async () => {
@@ -1667,6 +1683,10 @@ describe("the player: catch-up's position, pause, seeking and end (RELAY step 25
     await t.press('PLAY_PAUSE', 'DOWN', 'RIGHT', 'RIGHT', 'OK');
     expect(t.controller.pauses).toHaveLength(4);
     expect(t.player.streamInfo.shown.value).toBe(true);
+    // Buffering pauses too.
+    t.controller.set('buffering');
+    await t.press('PLAY_PAUSE');
+    expect(t.controller.status.state).toBe('paused');
     // Before the picture, nothing to pause.
     const early = setup('ltr', { catchupRequest: archiveOf, wallAt: LATER });
     early.player.catchup(4, EVENING);
@@ -1713,7 +1733,14 @@ describe("the player: catch-up's position, pause, seeking and end (RELAY step 25
     t.clock.advance(250);
     await t.press('RIGHT');
     expect(t.player.position.value!.time).toBe(START + 90_000 + 19 * MIN);
-    // RW: five minutes back.
+    // A turn back starts a new run: one minute, even straight after a held RIGHT (eight minutes, then five).
+    t.clock.advance(400);
+    for (let i = 0; i < 9; i += 1) await t.press('RIGHT');
+    await t.press('LEFT');
+    expect(t.player.position.value!.time).toBe(START + 90_000 + 31 * MIN);
+    // So does another key: RW straight after a held LEFT moves five minutes, not ten.
+    for (let i = 0; i < 8; i += 1) await t.press('LEFT');
+    expect(t.player.position.value!.time).toBe(START + 90_000 + 19 * MIN);
     await t.press('RW');
     expect(t.player.position.value!.time).toBe(START + 90_000 + 14 * MIN);
     // FF held: five minutes, then ten, to the programme's last minute at most.
@@ -1768,22 +1795,29 @@ describe("the player: catch-up's position, pause, seeking and end (RELAY step 25
     const t = opened({ wallAt: wallMin * MIN }, onAir, 25 * MIN);
     await t.press('FF');
     expect(t.player.position.value).toEqual({ time: wallMin * MIN, seeking: true, live: true });
+    // A close drops it: opened again, the position is the stream's start, not "Live".
+    t.player.close();
+    t.player.catchup(4, onAir);
+    t.controller.set('playing');
+    expect(t.player.position.value).toEqual({ time: onAir.start * MIN, seeking: false, live: false });
+    await t.press('FF');
     // A step back leaves "Live": a minute before now.
     await t.press('LEFT');
     expect(t.player.position.value).toEqual({ time: (wallMin - 1) * MIN, seeking: true, live: false });
     await t.press('RIGHT', 'RIGHT');
     expect(t.player.position.value!.live).toBe(true);
     t.clock.advance(SEEK_DELAY_MS);
-    expect(starts(t)).toEqual([onAir.start * MIN, 'live']);
-    expect(t.controller.plays[1]).toEqual(liveRequest(row(4)));
+    expect(starts(t)).toEqual([onAir.start * MIN, onAir.start * MIN, 'live']);
+    expect(t.controller.plays[2]).toEqual(liveRequest(row(4)));
     expect(t.player.archive.value).toBeNull();
     expect(t.player.position.value).toBeNull();
     expect(t.tuned).toEqual(['x:s1:live:4 @4']);
     expect(t.at()).toBe('player · actions 0');
     // Live, the catch-up's keys do nothing.
+    t.controller.set('playing');
     await t.press('FF', 'PLAY_PAUSE');
     t.clock.advance(SEEK_DELAY_MS);
-    expect(t.controller.plays).toHaveLength(2);
+    expect(t.controller.plays).toHaveLength(3);
     expect(t.controller.pauses).toEqual([]);
   });
 
@@ -1804,18 +1838,22 @@ describe("the player: catch-up's position, pause, seeking and end (RELAY step 25
     const t = opened({ programmeAt }, EVENING, 59 * MIN);
     t.clock.advance(POSITION_MS);
     expect(asked).toEqual([]);
-    t.controller.media = 60 * MIN + 5000;
+    // At the end and just past it, a stream that ends may still send `ended`.
+    t.controller.media = 60 * MIN + PLAY_ON_MS - 1000;
+    t.clock.advance(POSITION_MS);
+    expect(asked).toEqual([]);
+    t.controller.media = 60 * MIN + PLAY_ON_MS;
     t.clock.advance(POSITION_MS);
     t.clock.advance(POSITION_MS);
-    expect(asked).toEqual([START + 60 * MIN + 5000]);
+    expect(asked).toEqual([START + 60 * MIN + PLAY_ON_MS]);
     const next: ArchiveProgramme = { start: EVENING.end, end: EVENING.end + 30, title: 'Late Show' };
     answers[0]!(next);
     await flush();
     expect(t.player.archive.value).toEqual(next);
-    // Its own end later asks again; no answer keeps the programme and isn't asked again.
-    t.controller.media = 90 * MIN + 5000;
+    // Its own end later asks again; an answer that isn't later keeps the programme, and isn't asked again.
+    t.controller.media = 90 * MIN + PLAY_ON_MS;
     t.clock.advance(POSITION_MS);
-    answers[1]!(null);
+    answers[1]!(EVENING);
     await flush();
     t.clock.advance(3 * POSITION_MS);
     expect(asked).toHaveLength(2);
@@ -1823,6 +1861,23 @@ describe("the player: catch-up's position, pause, seeking and end (RELAY step 25
     // Seeks within the new programme stop at its start.
     for (let i = 0; i < 40; i += 1) await t.press('LEFT');
     expect(t.player.position.value!.time).toBe(next.start * MIN);
+  });
+
+  it("doesn't move on past the programme while a seek waits", async () => {
+    const asked: number[] = [];
+    const programmeAt = (_r: LiveRow, at: number): Promise<ArchiveProgramme | null> => {
+      asked.push(at);
+      return Promise.resolve(null);
+    };
+    // Past the end; the first reading comes at 1 s, while a LEFT pressed at 0.5 s waits.
+    const t = opened({ programmeAt }, EVENING, 60 * MIN + PLAY_ON_MS);
+    t.clock.advance(500);
+    await t.press('LEFT');
+    t.clock.advance(500);
+    expect(asked).toEqual([]);
+    t.clock.advance(100);
+    expect(starts(t)).toEqual([START, START + 59 * MIN]);
+    expect(asked).toEqual([]);
   });
 
   it('shows the end card when the stream ends: "Watch live" plays the channel live, "Back to the guide" closes', async () => {
@@ -1835,7 +1890,10 @@ describe("the player: catch-up's position, pause, seeking and end (RELAY step 25
     t.clock.advance(SEEK_DELAY_MS + INFO_MS);
     expect(t.controller.plays).toHaveLength(1);
     expect(t.player.info.value).toBe(true);
-    // The catch-up's keys are the card's: RIGHT moves to "Back to the guide", UP zaps.
+    // The catch-up's keys are the card's: FF seeks nothing.
+    await t.press('FF');
+    t.clock.advance(SEEK_DELAY_MS);
+    expect(t.controller.plays).toHaveLength(1);
     await t.press('OK');
     expect(starts(t)).toEqual([START, 'live']);
     expect(t.player.archive.value).toBeNull();
@@ -1847,13 +1905,23 @@ describe("the player: catch-up's position, pause, seeking and end (RELAY step 25
     await t.press('OK');
     expect(t.closed).toEqual([4, 4]);
     expect(t.player.open.value).toBe(false);
+    // Live, an end shows no card (the controller calls a live end a failure).
+    t.player.show(2);
+    t.controller.set('ended');
+    expect(t.at()).toBe('player · actions 0');
   });
 
   it('drops a waiting seek on a zap, a number, the previous channel or a close', async () => {
     const t = opened();
+    // Zapping for longer than the seek's delay: the zap plays, the seek never does.
     await t.press('RIGHT', 'CH_DOWN');
+    t.clock.advance(300);
+    await t.press('CH_DOWN');
+    t.clock.advance(300);
+    await t.press('CH_DOWN');
     t.clock.advance(ZAP_DELAY_MS + SEEK_DELAY_MS);
     expect(starts(t)).toEqual([START, 'live']);
+    expect(t.player.playing.value).toBe(1);
     t.player.close();
     t.player.catchup(4, EVENING);
     await t.press('RIGHT', 'DIGIT_3');
@@ -1866,8 +1934,17 @@ describe("the player: catch-up's position, pause, seeking and end (RELAY step 25
     t.player.catchup(4, EVENING);
     await t.press('RIGHT');
     t.player.close();
-    t.clock.advance(SEEK_DELAY_MS + POSITION_MS);
+    expect(t.clock.pending()).toBe(0);
     expect(t.controller.plays).toHaveLength(5);
     expect(t.player.position.value).toBeNull();
+    // A zap to a row still being read: the seek doesn't come first and drop it.
+    t.player.catchup(9, EVENING);
+    t.controller.set('playing');
+    await t.press('RIGHT', 'CH_UP');
+    t.clock.advance(ZAP_DELAY_MS + SEEK_DELAY_MS);
+    expect(t.controller.plays).toHaveLength(6);
+    t.list.loads[0]!.resolve();
+    await flush();
+    expect(starts(t)).toEqual([START, 'live', START, 'live', START, START, 'live']);
   });
 });

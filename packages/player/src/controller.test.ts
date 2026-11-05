@@ -885,9 +885,11 @@ describe('PlayerController: the position and seeking (RELAY step 25d)', () => {
     const r = rig();
     expect(r.player.positionMs()).toBe(0);
     void r.player.play(archive, { startMs: 5000 });
-    // The engine starts at 5 s, but no picture shows yet.
+    // The engine has the stream at 5 s, but no picture shows yet.
+    await r.clock.advance(100);
+    expect(r.engine.positionMs()).toBe(5000);
     expect(r.player.positionMs()).toBe(0);
-    await r.clock.advance(500);
+    await r.clock.advance(400);
     expect(r.player.status.state).toBe('playing');
     await r.clock.advance(2000);
     expect(r.player.positionMs()).toBe(7000);
@@ -922,6 +924,18 @@ describe('PlayerController: the position and seeking (RELAY step 25d)', () => {
     expect(r.engine.loads).toHaveLength(2);
     expect(r.engine.loads[1]!.opts.startMs).toBeGreaterThanOrEqual(300_000);
     expect(r.engine.loads[1]!.opts.startMs).toBeLessThan(302_000);
+  });
+
+  it('reopens a stream that fails while paused right after a seek at the seek, not before it', async () => {
+    const r = rig();
+    void r.player.play(archive);
+    await r.clock.advance(1500);
+    r.player.pause();
+    expect(await r.player.seek(300_000)).toBe(true);
+    r.engine.emit(r.engine.loads[0]!.token, { type: 'error', error: NETWORK });
+    await r.clock.advance(1100);
+    expect(r.engine.loads).toHaveLength(2);
+    expect(r.engine.loads[1]!.opts).toEqual({ startMs: 300_000 });
   });
 
   it('refuses to seek live, before the picture, a negative time as 0, and a refusal by the engine', async () => {

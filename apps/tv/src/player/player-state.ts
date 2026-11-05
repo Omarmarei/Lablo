@@ -89,6 +89,11 @@ export const SEEK_DELAY_MS = 600;
 export const HOLD_MS = 300;
 /** The catch-up's position is read this often. */
 export const POSITION_MS = 1000;
+/**
+ * A catch-up this far past its programme's end plays on (a stream that ends stops at the end:
+ * its `ended` comes before the position gets this far).
+ */
+export const PLAY_ON_MS = 5000;
 
 const MINUTE_MS = 60_000;
 
@@ -339,13 +344,13 @@ export function createPlayer(options: PlayerOptions): Player {
     return null;
   };
 
-  /** Hides the info bar `INFO_MS` from now, unless the stream is opening, paused, ended or failed, or a seek waits. */
+  /** Hides the info bar `INFO_MS` from now, unless the stream is opening, paused, ended or failed. */
   const armInfo = (): void => {
     infoTimer = clear(infoTimer);
     infoTimer = timers.set(() => {
       infoTimer = null;
       const state = status.value.state;
-      if (state === 'opening' || state === 'failed' || state === 'paused' || state === 'ended' || seekTo !== null || seekLive) {
+      if (state === 'opening' || state === 'failed' || state === 'paused' || state === 'ended') {
         armInfo();
         return;
       }
@@ -402,7 +407,7 @@ export function createPlayer(options: PlayerOptions): Player {
       top.focus('card', 0);
       showInfo();
     } else if (top.active === 'card') {
-      top.focus(archive.value !== null ? 'seek' : 'actions', 0);
+      top.focus('actions', 0);
     }
   };
 
@@ -457,7 +462,6 @@ export function createPlayer(options: PlayerOptions): Player {
       // Step 25d: where the stream starts, and so where it is until it shows a picture.
       streamFrom = request === null || programme === null ? 0 : from === undefined ? programme.start * MINUTE_MS : from;
       lastAt = streamFrom;
-      playedOn = null;
       const c = ctrl();
       void c.play(request ?? liveRequest(row, options.outputFormats === undefined ? null : options.outputFormats(row.item.src)));
       seekBar(request !== null);
@@ -490,7 +494,7 @@ export function createPlayer(options: PlayerOptions): Player {
   const playOn = (): void => {
     const shown = archive.value;
     const at = lastAt;
-    if (shown === null || options.programmeAt === undefined || seekTo !== null || seekLive || playedOn === shown || status.value.state !== 'playing' || at < shown.end * MINUTE_MS) return;
+    if (shown === null || options.programmeAt === undefined || seekTo !== null || seekLive || playedOn === shown || at < shown.end * MINUTE_MS + PLAY_ON_MS) return;
     const row = rowAt(playing.value);
     if (row === null) return;
     playedOn = shown;
@@ -523,15 +527,15 @@ export function createPlayer(options: PlayerOptions): Player {
     if (top !== null) {
       if (!on && top.active === 'seek') top.focus('actions', 0);
       top.update(seekZone(on ? 1 : 0));
-      if (on && !carded) top.focus('seek', 0);
+      if (on) top.focus('seek', 0);
     }
     tickPosition();
   }
 
-  /** A catch-up's keys go to the seek bar (not while a card shows). */
+  /** A catch-up's keys go to the seek bar (never while a card shows: a stream that failed or ended keeps the bar up). */
   function focusSeek(): void {
     const top = screen.value;
-    if (top !== null && archive.value !== null && !carded && top.active !== 'seek') top.focus('seek', 0);
+    if (top !== null && archive.value !== null && top.active !== 'seek') top.focus('seek', 0);
   }
 
   /** Drops a waiting seek and its key run. */
@@ -596,16 +600,15 @@ export function createPlayer(options: PlayerOptions): Player {
     if (c !== null && status.value.container === 'hls' && to >= streamFrom && (state === 'playing' || state === 'paused' || state === 'buffering')) {
       const mine = seq;
       void c.seek(to - streamFrom).then((ok) => {
-        if (mine !== seq || archive.value !== shown) return;
-        if (ok) showPosition();
         // The engine refused: a new URL from there.
-        else playRow(index, shown, Math.max(shown.start * MINUTE_MS, Math.round(to / MINUTE_MS) * MINUTE_MS));
+        if (!ok && mine === seq && archive.value === shown) playRow(index, shown, Math.round(to / MINUTE_MS) * MINUTE_MS);
       });
       // The target until the engine has moved.
       position.value = { time: to, seeking: false, live: false };
       return;
     }
-    playRow(index, shown, Math.max(shown.start * MINUTE_MS, Math.round(to / MINUTE_MS) * MINUTE_MS));
+    // Whole minutes: the target is within the programme, which starts on one.
+    playRow(index, shown, Math.round(to / MINUTE_MS) * MINUTE_MS);
   };
 
   /** UP and DOWN in a catch-up: between the seek bar and the buttons once the bar shows (`false`: the navigator moves). */
@@ -828,11 +831,6 @@ export function createPlayer(options: PlayerOptions): Player {
           commit();
           return true;
         }
-        // A catch-up pauses or plays on: on the seek bar, or with the bar hidden.
-        if (archived && (!info.value || focus.zone === 'seek')) {
-          togglePause();
-          return true;
-        }
         // The first OK shows the info bar; with it up, OK presses the focused button.
         if (!info.value && focus.zone === 'actions') {
           showInfo();
@@ -863,6 +861,7 @@ export function createPlayer(options: PlayerOptions): Player {
     else if (focus.zone === 'actions' && focus.index === STATS_ACTION) streamInfo.toggle();
     else if (focus.zone === 'actions' && focus.index === PICTURE_ACTION) nextMode();
     else if (focus.zone === 'actions') previousChannel();
+    // OK on a catch-up's seek bar (step 25d; hidden, the focus is on it) pauses it or plays it on.
     else if (focus.zone === 'seek') togglePause();
     // The end's card (step 25d): "Watch live" and "Back to the guide".
     else if (focus.zone === 'card' && focus.index === 0 && status.value.state === 'ended') go(playing.value);
