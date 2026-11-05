@@ -1008,6 +1008,67 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 
 ### Phase 7: Movies, series, search
 - [ ] 26. **Movies.** Poster grids with tiered image caps, details, resume, "Recently added".
+  - **Done when** (no Done-when of its own in leg 0; phase 7's gate is PLAN.md's "resume accurate to ±5 s"): a movie found in the poster grid plays from the mock in e2e, resumes within 5 s of where it stopped, and "Recently added" lists the newest movies first.
+  - **Already built** (checked in leg 64):
+    - **core:** movies are `CatalogItem`s of kind `movie`, from the Xtream path (`/movie/`) or the file extension in an M3U, and from `get_vod_streams` (`decodeListItem`: the poster in `logo`, from `stream_icon`, else `cover`; the URL with `container_extension`). `XtreamListItem` also has `added`, `rating` and `year`, but the ingest keeps only `.item`: nothing stores them. `decodeVodInfo` reads `get_vod_info` (plot, genre, cast, director, release date, duration, rating, cover, backdrops, trailer, container) and `XtreamClient.vodInfo` asks it, but nothing in the data layer or the app calls it.
+    - **data:** each kind is stored in chunks of up to 500 per category, with its categories record and search segment (`putCatalogKind`); the query worker's `categories(src, kind)` and `chunk(src, kind, catIdx, chunk)` read any kind (`DataEngine.categories`/`chunk`). The profile has no VOD progress (architecture.md §1.3 plans "VOD and series progress (latest 500)").
+    - **The app:** live only. The live screen's header has "Guide" (0) and "Settings" (1). `ChannelIndex` maps rows to chunks for any kind. The player plays live rows and catch-up (`mode: 'live' | 'catchup'`); its seek bar, pause and seeking (25d) are catch-up's.
+    - **The player package:** `PlayRequest.mode: 'vod'`, `startMs`, the watchdog's 20 s VOD rule, a reopen at the last position, `positionMs()` and `seek(ms)` (25d). `e2e/playback-media.spec.ts` plays a VOD from 20 s through the controller, not through the app.
+    - **ui:** `Tile` (a title, a subtitle, an image, a badge, a progress bar; 264×148, a landscape tile), the `grid` focus zone (`columns`, `count`, `visibleRows`), `VirtualList` (a list, not a grid). CSS Grid is missing on Chromium 53 and 56 (CLAUDE.md's cheat sheet): rows of tiles with margins.
+    - **The mock:** six movies in two VOD categories (201–206: the four Blender films, the 4K HEVC pattern and the multi-audio file), `added` days ago, rating, year, `get_vod_info`, posters at `/images/movie-<id>.png` (a 1×1 PNG), and the M3U's movie lines. `?scale=` makes 120k VOD (step 4).
+  - Split in leg 64 into 26a–26e, in this order:
+    - **26a**, the movies screen and its poster grid, first: everything else opens from it.
+    - **26b**, the grid at scale and on the old engines, next, while the grid is fresh: it is the first screen of images, and Chromium 53/56 lack CSS Grid.
+    - **26c**, the details and playing a movie: the screen that resume and "Recently added" build on.
+    - **26d**, resume, after playing.
+    - **26e**, "Recently added", last: it needs a stored field and a query of its own.
+  - Each sub-step's Done-when also includes, as step 25's did:
+    - unit tests;
+    - e2e by keys in English and Arabic against the mock, with the screenshots looked at;
+    - a mutation run with the mutant list written first;
+    - `pnpm verify` green;
+    - main within its budget, with 219 core-js modules on both platforms (`python -I -u artifacts/poly-count20c2a.py`);
+    - the PR merged;
+    - a "press these keys" checklist in the handover.
+- [ ] 26a. **The movies screen: categories and a poster grid, with tiered image caps.**
+  - **The header:** a "Movies" button between "Guide" and "Settings" (Guide 0, Movies 1, Settings 2; the specs and the old-engine walk that reach "Settings" follow).
+  - **The screen** (pushed on the live navigator, as the guide is): a rail of "All movies" and each source's VOD categories at the inline start, and a grid of poster tiles (portrait, 2:3) beside it, filled from the inline start (mirrored in Arabic), its rows virtualized (only the rows in view are drawn), its chunks read through `ChannelIndex` for kind `movie`. A tile shows the poster, else the title on its background. Back in the grid goes to the rail; Back on the rail closes the screen (the header's "Movies" keeps the focus). An empty source says so.
+  - **The image caps:** no server-side resizing is allowed (architecture.md risk table), so the caps are the client's:
+    - a poster loads only for the rows in view, once the view has rested (a held key starts no downloads);
+    - the posters kept are capped by tier (the rows in view plus a margin in the full tier, the rows in view only in the low tier); a poster outside the cap leaves the DOM, so its decoded image can go;
+    - a poster that fails shows the title tile.
+    - Decide the numbers, and whether the low tier shows posters at all (S6's fallback is "no posters in lists").
+  - **Done when:**
+    - **Unit tests:** the rail from the sources' VOD categories; the grid's rows from the chunks; the posters wanted by view, rest and tier; a failed poster; Back; an empty catalog.
+    - **e2e** in English and Arabic: onboard the mock, "Movies" in the header, the rail's categories, the grid's posters (one request per poster in view, none beyond the cap), DOWN through the rows (the drawn rows follow), the grid mirrored in Arabic, Back to the rail and to the header.
+    - Plus the common items above.
+- [ ] 26b. **The poster grid at scale and on the old engines.**
+  - **The throttled run:** a catalog of 20,000 movies in 100 categories at 4x CPU, both tiers: timed presses through the grid (rows, pages, the rail) within 150 ms each (calibrated on CI, as 23d's), the posters requested within the tier's cap at every rest.
+  - **The old-engine harness** (`tools/engines`): both bundles, English and Arabic, on Chromium 53, 56 and 68: "Movies" by the TVs' keys, the grid's tiles measured against the layout constants from the inline start (no CSS Grid), the posters drawn, the focus engine equal to the screen's `data-screen/zone/index` at every step.
+  - **Done when:** the throttled run green in both tiers on CI; the old-engine walk green on all three engines; plus the common items above.
+- [ ] 26c. **The movie details and playing a movie.**
+  - **The details:** OK on a poster opens the movie's details: the poster, the title, year, length, rating, genre and plot. An Xtream movie's come from `get_vod_info`, read when the details open and kept 24 h (architecture.md §1.4); an M3U movie shows what its line has. A spinner while the read is out; the catalog's facts when it fails. Buttons: "Play" (first) and "Back".
+  - **Playing:** "Play" opens the player on a `mode: 'vod'` request with the movie's URL (its `container_extension`). The info bar shows the movie; the seek bar (25d's) shows its position and length; LEFT/RIGHT and FF/RW seek inside the stream (`controller.seek`), PLAY/PAUSE and OK pause. CH± and number entry do nothing in a movie (or leave for live: decide). Back returns to the details. The end shows "The movie has ended" with "Back".
+  - **Done when:**
+    - **Unit tests:** the details from `get_vod_info` and from an M3U line, its cache, a failed read; the request; the player's VOD state (the bar, a seek, the end, Back).
+    - **e2e** in English and Arabic: a movie's details by keys (the mock's facts), "Play" asks the mock for `/movie/…` with the right extension, a seek, Back to the details and the grid.
+    - **`e2e:media`:** a Blender film's frames move after a seek.
+    - Plus the common items above.
+- [ ] 26d. **Resume.**
+  - **The progress:** the profile keeps each movie's position (latest 500, architecture.md §1.3): every 10 s while it plays, and when it stops, is left or the app hides. A movie within its last 2 minutes (or past 95 %) is watched and keeps no position.
+  - **The screens:** the details offer "Resume from 12:34" first and "Play from the start"; a tile shows its progress bar (`Tile.progress`).
+  - **Done when:**
+    - **Unit tests:** the saves (interval, stop, hide), the watched rule, the cap of 500, the details' buttons, the tiles' bars, a profile migration.
+    - **e2e** in English and Arabic: play, leave at a known position, the bar on the tile, "Resume" asks the stream from within 5 s of it; a relaunch keeps it.
+    - **`e2e:media`:** resume lands within 5 s of the position left (PLAN.md's gate).
+    - Plus the common items above.
+- [ ] 26e. **"Recently added".**
+  - **The data:** the movies' `added` (Xtream `added`) is stored; an M3U movie has none (decide: the first refresh that saw it, or left out). The query worker answers the newest movies across the sources (a capped list kept at ingest, so nothing scans 120k items).
+  - **The screen:** "Recently added" first in the movies rail, newest first.
+  - **Done when:**
+    - **Unit tests:** the stored field (an ingest version bump re-reads the catalogs), the newest across sources, the cap, M3U.
+    - **e2e** in English and Arabic: the mock's movies in their `added` order.
+    - Plus the common items above.
 - [ ] 27. **Series.** Seasons and episodes, progress, "Continue watching", auto-next.
   - **Done when:** resume is accurate to ±5 s.
 - [ ] 28. **Search and Home.** Global search UI (≤ 300 ms with 200k items) and the Home screen.
