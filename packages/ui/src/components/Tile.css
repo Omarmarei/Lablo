@@ -20,6 +20,14 @@
   height: var(--poster-height);
 }
 
+/* A poster is narrow: its title takes two lines before it is cut (Chromium 53 has the line clamp). */
+.z-tile--poster .z-tile__title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+}
+
 .z-tile__image {
   position: absolute;
   top: 0;

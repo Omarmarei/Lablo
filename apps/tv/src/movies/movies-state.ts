@@ -266,7 +266,7 @@ export function createMovies(options: MoviesOptions): Movies {
     restTimer = null;
   };
 
-  const showCategory = (i: number, at = 0): void => {
+  const showCategory = (i: number, place = 0): void => {
     const shown = screen.value;
     const picked = rail.value[i];
     if (shown === null || picked === undefined) return;
@@ -275,7 +275,7 @@ export function createMovies(options: MoviesOptions): Movies {
     // Back to the top first, so no step reads chunks for the old view in the new grid.
     shown.reset(MOVIES_GRID);
     shown.update(gridZone(index.count));
-    shown.focus(MOVIES_GRID, Math.min(Math.max(0, at), index.count - 1));
+    shown.focus(MOVIES_GRID, Math.min(Math.max(0, place), index.count - 1));
   };
 
   /** The stored sources and each one's movie categories. */
@@ -296,7 +296,7 @@ export function createMovies(options: MoviesOptions): Movies {
    * Reads the sources and their categories. `keep`: the category to show again (a catalog swap),
    * and the grid's place to focus there; without it, the loading screen first.
    */
-  const load = (keep?: { readonly ref: RailRef; readonly at: number }): void => {
+  const load = (keep?: { readonly ref: RailRef; readonly place: number }): void => {
     seq += 1;
     const mine = seq;
     loadingChunks.clear();
@@ -326,10 +326,10 @@ export function createMovies(options: MoviesOptions): Movies {
         const found = ref === null ? 0 : findEntry(entries, ref);
         const pick = Math.max(0, found);
         // The same category: the same place in it (the grid clamps it); another one: its first movie.
-        const at = keep !== undefined && found !== -1 ? keep.at : 0;
+        const place = keep !== undefined && found !== -1 ? keep.place : 0;
         // A swap keeps the focus where it was: on the rail it stays there.
         const onRail = keep !== undefined && shown.active === MOVIES_RAIL;
-        showCategory(pick, at);
+        showCategory(pick, place);
         if (onRail) shown.focus(MOVIES_RAIL, pick);
         bump();
         readView();
@@ -434,7 +434,7 @@ export function createMovies(options: MoviesOptions): Movies {
         load();
         return;
       }
-      load({ ref: shownRef(), at: shown.position(MOVIES_GRID).index });
+      load({ ref: shownRef(), place: shown.position(MOVIES_GRID).index });
     },
     dispose(): void {
       if (disposed) return;
