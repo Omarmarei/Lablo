@@ -1,4 +1,4 @@
-import type { EpgMeta, EpgStatus, LoadedProfile, ProfileDoc, ProfileEdit, SourceMeta, SourceRecord, UserGuide } from '@zoma/data';
+import type { EpgMeta, EpgStatus, EpgSummary, LoadedProfile, ProfileDoc, ProfileEdit, SourceMeta, SourceRecord, UnmatchedPage, UnmatchedRequest, UserGuide } from '@zoma/data';
 import { applyProfileEdit, emptyProfile } from '@zoma/data';
 import type { Intent, KeyLike, TextKey } from '@zoma/platform-api';
 import type { EditableLike } from '@zoma/ui';
@@ -10,6 +10,8 @@ import {
   GUIDES_BODY,
   GUIDES_VISIBLE,
   LINK_FIELD_ID,
+  HEADER_ADD,
+  HEADER_UNMATCHED,
   OFFSETS,
   OFFSET_STEPS,
   checkLink,
@@ -19,6 +21,7 @@ import {
   menuActions,
   nextGuideId,
   shownLink,
+  summaryOf,
 } from './guides-state';
 import { SETTINGS_ITEMS, SETTINGS_SCREENS, createSettings } from './settings-state';
 
@@ -65,10 +68,14 @@ class FakeEngine implements GuidesEngine {
   statusCalls = 0;
   failRead = false;
   failEdit = false;
-  hold = new Set<'read' | 'edit'>();
-  readonly held: Record<'read' | 'edit', Held[]> = { read: [], edit: [] };
+  /** What `unmatched` counts (step 24c), the asks it had, and whether it fails. */
+  unmatchedCount = 4;
+  readonly counts: UnmatchedRequest[] = [];
+  failCount = false;
+  hold = new Set<'read' | 'edit' | 'count'>();
+  readonly held: Record<'read' | 'edit' | 'count', Held[]> = { read: [], edit: [], count: [] };
 
-  private answer<T>(kind: 'read' | 'edit', value: () => T): Promise<T> {
+  private answer<T>(kind: 'read' | 'edit' | 'count', value: () => T): Promise<T> {
     if (!this.hold.has(kind)) {
       try {
         return Promise.resolve(value());
@@ -101,6 +108,14 @@ class FakeEngine implements GuidesEngine {
   epgStatus(): Promise<EpgStatus> {
     this.statusCalls += 1;
     return this.answer('read', () => this.status);
+  }
+
+  unmatched(req: UnmatchedRequest): Promise<UnmatchedPage> {
+    this.counts.push(req);
+    return this.answer('count', () => {
+      if (this.failCount) throw new Error('worker gone');
+      return { version: 1, count: this.unmatchedCount, offset: req.offset, rows: [] };
+    });
   }
 
   editProfile(edit: ProfileEdit): Promise<boolean> {
@@ -153,7 +168,8 @@ function setup(engine = new FakeEngine()) {
     onSoftKeyboard: () => stopKeyboard,
   };
   const offsetChanged = vi.fn();
-  const guides = createGuides({ nav, engine, refreshNow: refresh.refreshNow, offsetChanged, platform, find, now: () => 10_000 });
+  const openUnmatched = vi.fn();
+  const guides = createGuides({ nav, engine, refreshNow: refresh.refreshNow, offsetChanged, openUnmatched, platform, find, now: () => 10_000 });
   const at = (): string => {
     const f = nav.snapshot();
     return `${f.screen} · ${f.zone} ${f.index}`;
@@ -163,7 +179,7 @@ function setup(engine = new FakeEngine()) {
     await flush();
   };
   const sources = (): string[] => guides.rows.value.map((r) => r.epgSrc);
-  return { nav, engine, refresh, offsetChanged, guides, input, find, stopKeyboard, at, press, sources };
+  return { nav, engine, refresh, offsetChanged, openUnmatched, guides, input, find, stopKeyboard, at, press, sources };
 }
 
 /** Opens the guides screen and lets its first read land. */
@@ -224,6 +240,13 @@ describe('menuActions', () => {
   it("offers a source's own guide its time offset alone", () => {
     expect(menuActions(0, 0, 'source')).toEqual(['offset', 'cancel']);
     expect(menuActions(3, 5, 'source')).toEqual(['offset', 'cancel']);
+  });
+
+  it('offers the matches after the time offset for a guide that was read (step 24c)', () => {
+    expect(menuActions(0, 1, 'mine', true)).toEqual(['offset', 'matches', 'remove', 'cancel']);
+    expect(menuActions(1, 3, 'mine', true)).toEqual(['up', 'down', 'offset', 'matches', 'remove', 'cancel']);
+    expect(menuActions(3, 5, 'source', true)).toEqual(['offset', 'matches', 'cancel']);
+    expect(menuActions(1, 3, 'mine', false)).toEqual(['up', 'down', 'offset', 'remove', 'cancel']);
   });
 });
 
@@ -311,9 +334,9 @@ describe('the guides screen', () => {
     expect(t.at()).toBe('guides · guides 0');
     expect(t.guides.pending.value).toBe(0);
     expect(t.guides.screen.value).toBe(t.nav.top);
-    // UP: "Add a guide"; DOWN: back to the list.
+    // UP: "Add a guide" (the header's first); DOWN: back to the list.
     await t.press('UP');
-    expect(t.at()).toBe('guides · add 0');
+    expect(t.at()).toBe('guides · header 0');
     await t.press('DOWN');
     expect(t.at()).toBe('guides · guides 0');
   });
@@ -324,14 +347,14 @@ describe('the guides screen', () => {
     engine.status = { guides: [], matched: 0, sources: [] };
     const t = await opened(engine);
     expect(t.guides.status.value).toBe('ready');
-    expect(t.at()).toBe('guides · add 0');
+    expect(t.at()).toBe('guides · header 0');
 
     const failing = new FakeEngine();
     failing.failRead = true;
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const f = await opened(failing);
     expect(f.guides.status.value).toBe('failed');
-    expect(f.at()).toBe('guides · add 0');
+    expect(f.at()).toBe('guides · header 0');
     expect(warn).toHaveBeenCalledWith('The guides could not be read', expect.any(Error));
   });
 
@@ -481,7 +504,7 @@ describe('the guides screen', () => {
     await t.press('OK', 'DOWN', 'OK');
     expect(t.engine.edits[1]).toEqual({ kind: 'guide', change: { op: 'remove', id: 's1' } });
     expect(t.sources()).toEqual([]);
-    expect(t.at()).toBe('guides · add 0');
+    expect(t.at()).toBe('guides · header 0');
     expect(t.refresh.refreshNow).toHaveBeenCalledTimes(2);
   });
 
@@ -631,7 +654,7 @@ describe('the add form', () => {
     await t.press('DOWN', 'OK');
     expect(t.guides.problem.value).toBe('listed');
     await t.press('DOWN', 'RIGHT', 'OK');
-    expect(t.at()).toBe('guides · add 0');
+    expect(t.at()).toBe('guides · header 0');
     await t.press('OK');
     expect(t.guides.text.value).toBe('');
     expect(t.guides.problem.value).toBeNull();
@@ -639,7 +662,7 @@ describe('the add form', () => {
     expect(t.guides.editor.editing.value).toBe(LINK_FIELD_ID);
     await t.press('BACK');
     expect(t.guides.editor.editing.value).toBeNull();
-    expect(t.at()).toBe('guides · add 0');
+    expect(t.at()).toBe('guides · header 0');
     expect(t.engine.edits).toEqual([]);
   });
 
@@ -731,18 +754,165 @@ describe('the settings screen', () => {
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
     });
     expect(SETTINGS_ITEMS).toEqual(['guides']);
-    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-add']);
+    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched']);
     settings.open();
     expect(t.at()).toBe('settings · items 0');
     expect((t.nav.top.zone('items') as { count: number }).count).toBe(1);
     await t.press('OK');
     expect(t.at()).toBe('guides · guides 0');
     expect(settings.guides.rows.value).toHaveLength(4);
+    // The header's second button opens "Channels without a guide" (step 24c); Back comes back to it.
+    await t.press('UP', 'RIGHT', 'OK');
+    expect(t.at()).toBe('unmatched · channels 0');
+    expect(settings.unmatched.screen.value).toBe(t.nav.top);
+    await t.press('BACK');
+    expect(t.at()).toBe('guides · header 1');
+    expect(settings.unmatched.screen.value).toBeNull();
     await t.press('BACK');
     expect(t.at()).toBe('settings · items 0');
     await t.press('BACK');
     expect(t.at()).toBe('live · channels 0');
     settings.dispose();
+  });
+});
+
+/** A read guide's summary: 11 of 12, mostly by id. */
+const SUMMARY: EpgSummary = {
+  wanted: 12,
+  matched: 11,
+  byMethod: { override: 0, id: 10, 'xtream-id': 0, name: 0, 'match-name': 1 },
+  ambiguous: 0,
+  declared: 9,
+  used: 9,
+  programmes: 900,
+  kept: 800,
+  buckets: 40,
+  pastDays: 1,
+  futureDays: 7,
+};
+
+describe("a guide's matches (step 24c)", () => {
+  /** The fake's guides with summaries on the user's first and on the panel's. */
+  function summarized(): FakeEngine {
+    const engine = new FakeEngine();
+    engine.status = { ...engine.status, guides: engine.status.guides.map((m) => (m.epgSrc === 'u~s1' || m.epgSrc === 's1:xmltv' ? { ...m, summary: SUMMARY } : m)) };
+    return engine;
+  }
+
+  it('is in the menu of a guide that was read, and nowhere else', async () => {
+    const t = await opened(summarized());
+    expect(t.guides.rows.value.map((r) => summaryOf(r) !== null)).toEqual([true, false, true, false]);
+    await t.press('OK');
+    expect(t.guides.menu.value?.actions).toEqual(['down', 'offset', 'matches', 'remove', 'cancel']);
+    await t.press('BACK', 'DOWN', 'OK');
+    expect(t.guides.menu.value?.actions).toEqual(['up', 'offset', 'remove', 'cancel']);
+    await t.press('BACK', 'DOWN', 'OK');
+    expect(t.guides.menu.value?.actions).toEqual(['offset', 'matches', 'cancel']);
+    await t.press('BACK', 'DOWN', 'OK');
+    expect(t.guides.menu.value?.actions).toEqual(['offset', 'cancel']);
+  });
+
+  it('shows the guide of the row it opened from; OK on Close or Back closes it on that row, with no read', async () => {
+    const t = await opened(summarized());
+    const reads = t.engine.statusCalls;
+    // The panel's guide: Time offset, Matches, Cancel.
+    await t.press('DOWN', 'DOWN', 'OK', 'DOWN', 'OK');
+    expect(t.at()).toBe('guide-matches · actions 0');
+    expect(t.guides.matches.value).toBe(t.guides.rows.value[2]);
+    expect(t.guides.menu.value).toBeNull();
+    await t.press('OK');
+    expect(t.at()).toBe('guides · guides 2');
+    expect(t.guides.matches.value).toBeNull();
+    // The user's first: Move down, Time offset, Matches…
+    await t.press('UP', 'UP', 'OK', 'DOWN', 'DOWN', 'OK');
+    expect(t.at()).toBe('guide-matches · actions 0');
+    expect(t.guides.matches.value?.epgSrc).toBe('u~s1');
+    // Other keys do nothing; Back closes.
+    await t.press('LEFT', 'DOWN');
+    expect(t.at()).toBe('guide-matches · actions 0');
+    await t.press('BACK');
+    expect(t.at()).toBe('guides · guides 0');
+    expect(t.guides.matches.value).toBeNull();
+    expect(t.engine.statusCalls).toBe(reads);
+    expect(t.engine.edits).toEqual([]);
+    expect(t.refresh.refreshNow).not.toHaveBeenCalled();
+  });
+});
+
+describe('the header’s "Channels without a guide" (step 24c)', () => {
+  it('is the header’s second button: counted over the profile’s sources at each read, OK opens the list', async () => {
+    expect([HEADER_ADD, HEADER_UNMATCHED]).toEqual([0, 1]);
+    const t = await opened();
+    expect(t.guides.unmatched.value).toBe(4);
+    expect(t.engine.counts).toEqual([{ sources: ['s1', 's2'], offset: 0, limit: 0 }]);
+    expect(t.guides.pending.value).toBe(0);
+    await t.press('UP', 'RIGHT');
+    expect(t.at()).toBe('guides · header 1');
+    await t.press('OK');
+    expect(t.openUnmatched).toHaveBeenCalledTimes(1);
+    expect(t.at()).toBe('guides · header 1');
+    // A change's refresh settles: the list is read again, and counted again.
+    t.engine.unmatchedCount = 2;
+    // (Move down: the first action of the first guide's menu.)
+    await t.press('DOWN', 'OK', 'OK');
+    t.refresh.calls[0]!.resolve();
+    await flush();
+    expect(t.guides.unmatched.value).toBe(2);
+    expect(t.engine.counts.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('is not counted until a read lands, and keeps the newest read’s count', async () => {
+    const engine = new FakeEngine();
+    engine.hold = new Set(['count']);
+    const t = await opened(engine);
+    expect(t.guides.status.value).toBe('ready');
+    expect(t.guides.unmatched.value).toBeNull();
+    expect(t.guides.pending.value).toBe(1);
+    // A move: the list is read again before the first count answers.
+    await t.press('OK', 'OK');
+    expect(engine.held.count).toHaveLength(2);
+    engine.unmatchedCount = 7;
+    engine.held.count[1]!.resolve();
+    await flush();
+    expect(t.guides.unmatched.value).toBe(7);
+    engine.unmatchedCount = 4;
+    engine.held.count[0]!.resolve();
+    await flush();
+    expect(t.guides.unmatched.value).toBe(7);
+  });
+
+  it('says why a count failed and keeps the last one; after the screen goes, nothing', async () => {
+    const engine = new FakeEngine();
+    const t = await opened(engine);
+    expect(t.guides.unmatched.value).toBe(4);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    engine.failCount = true;
+    await t.press('OK', 'OK');
+    expect(warn).toHaveBeenCalledWith('The channels without a guide could not be counted', expect.any(Error));
+    expect(t.guides.unmatched.value).toBe(4);
+    expect(t.guides.pending.value).toBe(1);
+
+    warn.mockClear();
+    engine.failCount = false;
+    engine.hold = new Set(['count']);
+    t.refresh.calls[0]!.resolve();
+    await flush();
+    engine.held.count[0]!.reject(new Error('late'));
+    engine.unmatchedCount = 9;
+    t.guides.dispose();
+    await flush();
+    expect(warn).not.toHaveBeenCalled();
+    expect(t.guides.unmatched.value).toBe(4);
+  });
+
+  it('drops a count that lands after the screen went', async () => {
+    const engine = new FakeEngine();
+    engine.hold = new Set(['count']);
+    const t = await opened(engine);
+    t.guides.dispose();
+    engine.held.count[0]!.resolve();
+    await flush();
+    expect(t.guides.unmatched.value).toBeNull();
   });
 });
 

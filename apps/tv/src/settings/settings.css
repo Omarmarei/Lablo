@@ -2,7 +2,9 @@
  * The settings screen and the guides screen (RELAY step 22b2): 1920x1080, everything inside the
  * title-safe margins (96 x 54 px), as the live screen. The sizes match GUIDES in
  * guides-state.ts: a 56 px header and a 24 px gap, a 56 px line on the order, then the guides
- * (6 rows of 120 px with 8 px gaps). Physical properties for LTR: postcss-rtlcss mirrors them.
+ * (6 rows of 120 px with 8 px gaps). "Channels without a guide" (step 24c) has the same header
+ * and line, then 8 rows of 88 px with 8 px gaps (UNMATCHED in unmatched-state.ts). Physical
+ * properties for LTR: postcss-rtlcss mirrors them.
  */
 .settings {
   display: flex;
@@ -40,6 +42,10 @@
 .settings__end {
   flex: none;
   margin-left: var(--space-7);
+}
+
+.settings__end > * + * {
+  margin-left: var(--space-4);
 }
 
 .settings__end .z-button {
@@ -260,4 +266,104 @@
 
 .guides__actions > * + * {
   margin-left: var(--space-4);
+}
+
+/* A guide's matches (step 24c): the rate, then a line per count, its number at the line's end. */
+.matches {
+  margin-top: var(--space-5);
+}
+
+.matches__rate {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  font-weight: var(--font-weight-bold);
+}
+
+.matches__lines {
+  margin: 0;
+}
+
+.matches__line {
+  display: flex;
+  align-items: baseline;
+  padding: var(--space-1) 0;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  white-space: nowrap;
+}
+
+/* The ties and the guide's own channels, apart from the methods. */
+.matches__line--ties {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 2px solid var(--color-border);
+}
+
+.matches__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text-muted);
+}
+
+.matches__value {
+  flex: none;
+  margin: 0 0 0 var(--space-6);
+  font-weight: var(--font-weight-bold);
+}
+
+/* Channels without a guide (step 24c): the count at the header's end, then the rows. */
+.unmatched__count {
+  flex: none;
+  margin-left: var(--space-7);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+}
+
+.unmatched__list {
+  flex: none;
+}
+
+.unmatched__row {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 100%;
+  padding: 0 var(--space-6);
+  border: var(--focus-ring) solid transparent;
+  border-radius: var(--radius-m);
+  background: var(--color-surface);
+}
+
+.unmatched__row.is-memory {
+  border-color: var(--color-border-memory);
+}
+
+.unmatched__row.is-focused {
+  border-color: var(--color-focus);
+  background: var(--color-surface-focus);
+}
+
+/* A channel's name is data (dir=auto): on the page's side all the same. */
+.unmatched__name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.unmatched__where {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
 }

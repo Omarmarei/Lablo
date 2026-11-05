@@ -20,6 +20,10 @@
  * - `programme` gives the programme details one programme (step 24a): its description, episode
  *   and the rest, from the one bucket that holds its start.
  * - `epgStatus` lists the guides and how many live channels have one.
+ * - `unmatched` pages through the live channels that no guide matches once the guides are
+ *   combined (step 24c), in the order "All channels" lists them. Each source's list is walked
+ *   once after a reload, when it is first asked for, and kept as chunk addresses; a page reads
+ *   the few chunks its rows are in.
  * - `shortEpg` is the fallback for a focused live channel no guide matches (step 9c): its Xtream
  *   panel's `get_short_epg`, kept 30 min per channel (`short-epg.ts`). The app asks only after
  *   600 ms of focus. A matched channel gets its guide's now/next, with no request.
@@ -37,7 +41,7 @@ import type { CatalogItem, ContentKey, ContentKind, EpgBucket, EpgMatchMethod, E
 import { CONTENT_KINDS, SearchSegment, combineEpgMatches, epgDay, epgNowNext, epgProgrammeAt, epgSchedule, favouriteMarks, searchSegments } from '@zoma/core';
 import type { CategoryInfo } from './chunker';
 import type { ChunkKey, SourceMeta } from './catalog-store';
-import { getSources, readCategories, readChunks, readIndexes } from './catalog-store';
+import { getSources, readCategories, readChunks, readIndexes, scanChunks } from './catalog-store';
 import type { EpgBucketKey, EpgMeta, StoredEpgMatch } from './epg-store';
 import { getEpgMetas, readEpgBuckets, readEpgChannels } from './epg-store';
 import type { RpcContext } from './rpc';
@@ -134,6 +138,50 @@ export interface ProgrammeRequest {
  */
 export const GUIDE_MAX_READS = 2_000;
 
+/** The "Channels without a guide" list's ask (step 24c): rows `[offset, offset + limit)`. */
+export interface UnmatchedRequest {
+  /**
+   * The sources in the order "All channels" lists them (the profile's); the list goes source by
+   * source in this order. A source with no catalog stored adds nothing.
+   */
+  sources: string[];
+  offset: number;
+  /** 0 asks for the count alone (no chunk is read). */
+  limit: number;
+}
+
+/** A live channel that no guide matches, once the guides are combined. */
+export interface UnmatchedChannel {
+  key: ContentKey;
+  name: string;
+  src: string;
+  /** Its category's name as the provider wrote it (`''`: none). */
+  category: string;
+}
+
+export interface UnmatchedPage {
+  /**
+   * Bumps at each reload (a catalog or a guide swapped): a list read at another version may
+   * hold other rows now, so the caller drops its pages and asks again.
+   */
+  version: number;
+  /** The live channels without a guide over the sources asked. */
+  count: number;
+  offset: number;
+  /** Rows `offset` to `offset + limit` (fewer at the end, or where a chunk is gone). */
+  rows: UnmatchedChannel[];
+}
+
+/** Most rows one `unmatched` call gives (a larger ask is refused, not cut, as `guide`'s). */
+export const UNMATCHED_MAX_ROWS = 500;
+
+/** One source's live channels without a guide, in "All channels" order. */
+interface UnmatchedIndex {
+  gen: number;
+  /** Each one's category, chunk and slot, flat (three numbers per channel). */
+  refs: number[];
+}
+
 export interface EpgStatus {
   /** Every stored guide, in priority order. */
   guides: EpgMeta[];
@@ -187,6 +235,10 @@ export class QueryService {
    */
   private offsetSeq = 0;
   private offsetsFrom = 0;
+  /** Bumps at each reload (`UnmatchedPage.version`). */
+  private version = 0;
+  /** Each source's list of channels without a guide, built when first asked after a reload. */
+  private unmatchedIndexes = new Map<string, Promise<UnmatchedIndex>>();
   private readonly panelEpg: ShortEpgCache | null;
 
   constructor(private readonly options: QueryServiceOptions) {
@@ -212,6 +264,7 @@ export class QueryService {
       guide: (req: GuideRequest): Promise<GuideRow[]> => this.guide(req),
       programme: (req: ProgrammeRequest): Promise<EpgProgramme | null> => this.programme(req),
       epgStatus: (): Promise<EpgStatus> => this.epgStatus(),
+      unmatched: (req: UnmatchedRequest): Promise<UnmatchedPage> => this.unmatched(req),
       shortEpg: (req: ShortEpgRequest): Promise<ShortEpgNowNext> => this.shortEpg(req),
       account: (arg: { src: string }): Promise<AccountCheck | null> => this.account(arg.src),
       profile: (): Promise<LoadedProfile | null> => this.profile(),
@@ -290,6 +343,8 @@ export class QueryService {
     this.stale = stale;
     this.marks = null;
     this.epgLinks = epg.links;
+    this.version += 1;
+    this.unmatchedIndexes = new Map();
     this.loaded = true;
     // Chunks of replaced generations are never asked for again; drop them.
     const live = new Set(sources.map((s) => `${s.src}|${s.gen}|`));
@@ -345,6 +400,72 @@ export class QueryService {
     const sources = (await getSources(db)).sort((a, b) => (a.src < b.src ? -1 : a.src > b.src ? 1 : 0));
     const guides = (await getEpgMetas(db)).sort((a, b) => a.rank - b.rank || (a.epgSrc < b.epgSrc ? -1 : a.epgSrc > b.epgSrc ? 1 : 0));
     return { guides, matched: this.epgLinks.size, sources };
+  }
+
+  /**
+   * The live channels without a guide (step 24c): those of `req.sources`' active catalogs that
+   * the combined match tables don't have, source by source in that order and, in each, category
+   * by category as "All channels" lists them. Rejects an `offset` that isn't a whole number from
+   * 0, or a `limit` above `UNMATCHED_MAX_ROWS`.
+   */
+  async unmatched(req: UnmatchedRequest): Promise<UnmatchedPage> {
+    const { offset, limit } = req;
+    if (!(offset >= 0 && Math.floor(offset) === offset && limit >= 0 && limit <= UNMATCHED_MAX_ROWS)) {
+      throw new RangeError(`A page of channels without a guide is up to ${UNMATCHED_MAX_ROWS} rows from a whole row number`);
+    }
+    await this.ensureLoaded();
+    const version = this.version;
+    const lists = await Promise.all(req.sources.map((src) => this.unmatchedOf(src)));
+    const keys: ChunkKey[] = [];
+    const slots: number[] = [];
+    // The list's first row of each source as it goes, and the whole count at the end.
+    let count = 0;
+    lists.forEach((list, i) => {
+      const src = req.sources[i]!;
+      const size = list.refs.length / 3;
+      for (let row = Math.max(offset, count); row < Math.min(offset + limit, count + size); row += 1) {
+        const at = (row - count) * 3;
+        keys.push({ src, gen: list.gen, kind: 'live', catIdx: list.refs[at]!, chunk: list.refs[at + 1]! });
+        slots.push(list.refs[at + 2]!);
+      }
+      count += size;
+    });
+    const chunks = await this.readCached(keys);
+    const rows: UnmatchedChannel[] = [];
+    slots.forEach((slot, i) => {
+      const item = chunks[i]?.[slot];
+      // (An item's group is its category's name: the ingest files it under it.)
+      if (item !== undefined) rows.push({ key: item.key, name: item.name, src: item.src, category: item.group });
+    });
+    return { version, count, offset, rows };
+  }
+
+  /** Source `src`'s live channels without a guide, walked once per reload (none with no catalog stored: generation 0 has no chunks). */
+  private unmatchedOf(src: string): Promise<UnmatchedIndex> {
+    const indexes = this.unmatchedIndexes;
+    const known = indexes.get(src);
+    if (known !== undefined) return known;
+    const built = this.buildUnmatched(src, this.activeGen(src), this.epgLinks);
+    indexes.set(src, built);
+    // A walk that failed is tried again at the next ask (until it settles, every ask shares it).
+    built.catch(() => indexes.delete(src));
+    return built;
+  }
+
+  /**
+   * Walks generation `gen` of `src`'s live chunks for the channels `links` lacks. The chunks'
+   * key order (category, then chunk) is the order "All channels" lists them: categories are
+   * numbered as they first appear, and the live screen lists them by that number.
+   */
+  private async buildUnmatched(src: string, gen: number, links: ReadonlyMap<ContentKey, EpgLink>): Promise<UnmatchedIndex> {
+    const db = await this.db();
+    const refs: number[] = [];
+    await scanChunks(db, src, gen, 'live', (catIdx, chunk, items) => {
+      items.forEach((item, slot) => {
+        if (!links.has(item.key)) refs.push(catIdx, chunk, slot);
+      });
+    });
+    return { gen, refs };
   }
 
   /**

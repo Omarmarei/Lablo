@@ -24,6 +24,7 @@ export const EN = {
   'action.removeSource': 'Remove source',
   'action.record': 'Record',
   'action.cancel': 'Cancel',
+  'action.close': 'Close',
 
   // Channel categories of our own (a provider's category names are its data).
   'category.all': 'All channels',
@@ -180,6 +181,21 @@ export const EN = {
   'guides.link': 'Guide link',
   'guides.listed': 'This guide is already in the list.',
   'guides.addConfirm': 'Add',
+  // Match diagnostics (RELAY step 24c): a guide's matches, and the live channels no guide has.
+  'guides.matches': 'Matches',
+  'guides.byId': 'By channel ID',
+  'guides.byXtreamId': "By the panel's channel ID",
+  'guides.byName': 'By name',
+  'guides.byMatchName': 'By name without tags such as {tags}',
+  'guides.byOverride': 'Set by you',
+  'guides.ties': 'Ties (another guide channel fit as well)',
+  'guides.declared': 'Channels in the guide',
+  'guides.used': 'Guide channels in use',
+  'guides.unmatched': 'Channels without a guide: {count, number}',
+  'unmatched.title': 'Channels without a guide',
+  'unmatched.intro': 'No guide in your list has programmes for these live channels.',
+  'unmatched.none': 'Every live channel has a guide.',
+  'unmatched.failed': "Couldn't read the channels.",
 
   // The player (RELAY step 20a). Codes are data (PRV-HTTP-404): they stay as they are.
   'player.connecting': 'Connecting…',

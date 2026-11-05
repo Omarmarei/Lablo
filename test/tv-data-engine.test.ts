@@ -335,6 +335,15 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     expect(await s.engine.programme({ key: keys[0]!, start: nowMin + 120 })).toEqual({ start: nowMin + 120, end: nowMin + 180, title: 'ch1 at 14', sub: '', desc: 'About ch1 at 14', category: 'Test', episode: '', flags: 0 });
     expect(await s.engine.programme({ key: keys[0]!, start: nowMin + 121 })).toBeNull();
     expect(await s.engine.programme({ key: seven!.key, start: nowMin + 120 })).toBeNull();
+    // And the live channels no guide matches (step 24c), category by category as first seen.
+    expect(await s.engine.unmatched({ sources: ['debug'], offset: 0, limit: 10 })).toMatchObject({
+      count: 2,
+      offset: 0,
+      rows: [
+        { key: seven!.key, name: 'Channel 7', src: 'debug', category: 'Group 1' },
+        { name: 'Sky News 8', src: 'debug', category: 'Group 2' },
+      ],
+    });
 
     // Nothing is due right after: no worker starts. Twelve hours on, it is due again.
     const quiet = await s.engine.refreshEpg(catalogs, { tier: 'full', due: true });

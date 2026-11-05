@@ -12,7 +12,9 @@ import { RemoteDriver } from './remote-driver';
  * The guides screen (RELAY steps 22b2a and 22b2b) by keys, in English and Arabic: the live
  * screen's header "Settings", the settings screen's "TV guides", then guides added by their links
  * and read at once by the app's refresh scheduler, moved and removed from a row's menu, and links
- * that fail, each with why. The menu's time offset (step 24b) is in guide-offset.spec.ts. The mock runs on the real clock, so its guide covers the browser's
+ * that fail, each with why. The menu's time offset (step 24b) is in guide-offset.spec.ts, its
+ * matches and the header's "Channels without a guide" (step 24c) in guide-matches.spec.ts. The
+ * mock runs on the real clock, so its guide covers the browser's
  * "now". Every change is read back from the profile in IndexedDB.
  */
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
@@ -39,7 +41,7 @@ const LOCALES = [
   { locale: 'ar-SA', language: 'ar', dir: 'rtl' },
 ] as const;
 type Language = (typeof LOCALES)[number]['language'];
-type Action = 'up' | 'down' | 'offset' | 'remove' | 'cancel';
+type Action = 'up' | 'down' | 'offset' | 'matches' | 'remove' | 'cancel';
 
 /**
  * What the screens say, written out here rather than read from the catalogs. ar-SA writes
@@ -66,7 +68,7 @@ const SAYS: Record<
     http404: "Couldn't read it: the server answered with error 404.",
     format: "Couldn't read it: this link didn't give an XMLTV guide.",
     listed: 'This guide is already in the list.',
-    actions: { up: 'Move up', down: 'Move down', offset: 'Time offset', remove: 'Remove', cancel: 'Cancel' },
+    actions: { up: 'Move up', down: 'Move down', offset: 'Time offset', matches: 'Matches', remove: 'Remove', cancel: 'Cancel' },
   },
   ar: {
     settings: 'أدلة التلفزيون',
@@ -76,7 +78,7 @@ const SAYS: Record<
     http404: 'تعذّرت قراءته: ردّ الخادم برمز الخطأ 404.',
     format: 'تعذّرت قراءته: لم يُرجع هذا الرابط دليل XMLTV.',
     listed: 'هذا الدليل موجود في القائمة.',
-    actions: { up: 'نقل إلى الأعلى', down: 'نقل إلى الأسفل', offset: 'فرق التوقيت', remove: 'إزالة', cancel: 'إلغاء' },
+    actions: { up: 'نقل إلى الأعلى', down: 'نقل إلى الأسفل', offset: 'فرق التوقيت', matches: 'المطابقة', remove: 'إزالة', cancel: 'إلغاء' },
   },
 };
 
@@ -152,7 +154,7 @@ async function focusedRow(remote: RemoteDriver): Promise<number> {
 async function openAddForm(remote: RemoteDriver): Promise<void> {
   const place = await focusedRow(remote);
   for (let i = 0; i <= place; i++) await remote.press('UP');
-  await remote.expectFocus('guides/add/0');
+  await remote.expectFocus('guides/header/0');
   await remote.go('OK', 'guide-add/field/0');
 }
 
@@ -319,9 +321,9 @@ test.describe('the guides screen by keys (pnpm dev, after onboarding)', () => {
       await expect(page.getByTestId('guide-0-link')).toHaveAttribute('dir', 'ltr');
       await checkRead(page, language, 0);
       await expect(page.getByTestId('guides-list')).not.toContainText(P);
-      // OK on a source's guide: its menu has the time offset alone (step 24b; guide-offset.spec.ts
-      // sets one). Back closes it.
-      await openMenu(remote, language, 0, ['offset', 'cancel']);
+      // OK on a source's guide: its menu has the time offset (step 24b; guide-offset.spec.ts sets
+      // one) and, as it was read, its matches (step 24c). Back closes it.
+      await openMenu(remote, language, 0, ['offset', 'matches', 'cancel']);
       await remote.go('BACK', 'guides/guides/0');
       await expect(page.getByTestId('guide-menu')).toHaveCount(0);
       expect(await layout(page)).toEqual({ scroll: [1920, 1080], outside: [], cut: [] });
@@ -355,12 +357,12 @@ test.describe('the guides screen by keys (pnpm dev, after onboarding)', () => {
       expect(await listed(page)).toEqual(['u~g1', 'u~g2', 's1:xmltv']);
       expect(await savedGuides(page)).toEqual([`g1 http://${host}/epg/guide.xml`, `g2 http://${host}/epg/guide.xml.gz`]);
 
-      // The second one's menu: Move up (it can't go down past the panel's), Time offset, Remove, Cancel.
-      await openMenu(remote, language, 1, ['up', 'offset', 'remove', 'cancel']);
+      // The second one's menu: Move up (it can't go down past the panel's), Time offset, Matches, Remove, Cancel.
+      await openMenu(remote, language, 1, ['up', 'offset', 'matches', 'remove', 'cancel']);
       await expect(page.getByTestId('guide-menu')).toContainText(`${host}/epg/guide.xml.gz`);
       // Its buttons are as wide as the dialog, each label on the screen's side (the right in Arabic).
       const menuBox = await boxSpan(page.locator('[data-testid=guide-menu] .guides__menu'));
-      for (const action of ['up', 'offset', 'remove', 'cancel'] as const) {
+      for (const action of ['up', 'offset', 'matches', 'remove', 'cancel'] as const) {
         const button = await boxSpan(page.getByTestId(`guide-menu-${action}`));
         expect([button.left, button.right]).toEqual([menuBox.left, menuBox.right]);
         const label = await textSpan(page.getByTestId(`guide-menu-${action}`).locator('.z-button__label'));
@@ -369,7 +371,7 @@ test.describe('the guides screen by keys (pnpm dev, after onboarding)', () => {
       expect(await layout(page)).toEqual({ scroll: [1920, 1080], outside: [], cut: [] });
       await shot(page, `guides-menu-${language}`);
       // Move up: it goes first, with the focus, still read (a move downloads nothing).
-      await choose(remote, ['up', 'offset', 'remove', 'cancel'], 'up');
+      await choose(remote, ['up', 'offset', 'matches', 'remove', 'cancel'], 'up');
       await remote.expectFocus('guides/guides/0');
       await expect.poll(() => listed(page)).toEqual(['u~g2', 'u~g1', 's1:xmltv']);
       await settled(root, 20_000);
@@ -377,19 +379,19 @@ test.describe('the guides screen by keys (pnpm dev, after onboarding)', () => {
       await checkRead(page, language, 0);
       await checkRead(page, language, 1);
 
-      // The first one's menu: Move down, Time offset, Remove, Cancel. Move down puts it back, the focus with it.
-      await openMenu(remote, language, 0, ['down', 'offset', 'remove', 'cancel']);
-      await choose(remote, ['down', 'offset', 'remove', 'cancel'], 'down');
+      // The first one's menu: Move down, Time offset, Matches, Remove, Cancel. Move down puts it back, the focus with it.
+      await openMenu(remote, language, 0, ['down', 'offset', 'matches', 'remove', 'cancel']);
+      await choose(remote, ['down', 'offset', 'matches', 'remove', 'cancel'], 'down');
       await remote.expectFocus('guides/guides/1');
       await expect.poll(() => listed(page)).toEqual(['u~g1', 'u~g2', 's1:xmltv']);
       await settled(root, 20_000);
       expect(await savedGuides(page)).toEqual([`g1 http://${host}/epg/guide.xml`, `g2 http://${host}/epg/guide.xml.gz`]);
 
       // Cancel, and Back, close the menu and change nothing.
-      await openMenu(remote, language, 1, ['up', 'offset', 'remove', 'cancel']);
-      await choose(remote, ['up', 'offset', 'remove', 'cancel'], 'cancel');
+      await openMenu(remote, language, 1, ['up', 'offset', 'matches', 'remove', 'cancel']);
+      await choose(remote, ['up', 'offset', 'matches', 'remove', 'cancel'], 'cancel');
       await remote.expectFocus('guides/guides/1');
-      await openMenu(remote, language, 1, ['up', 'offset', 'remove', 'cancel']);
+      await openMenu(remote, language, 1, ['up', 'offset', 'matches', 'remove', 'cancel']);
       await remote.go('BACK', 'guides/guides/1');
       await expect(page.getByTestId('guide-menu')).toHaveCount(0);
       await settled(root);
@@ -397,8 +399,8 @@ test.describe('the guides screen by keys (pnpm dev, after onboarding)', () => {
 
       // Remove (no confirmation: the link is all it takes to add it again): the row goes, the
       // focus stays on its place (now the panel's guide), and the profile lists one guide.
-      await openMenu(remote, language, 1, ['up', 'offset', 'remove', 'cancel']);
-      await choose(remote, ['up', 'offset', 'remove', 'cancel'], 'remove');
+      await openMenu(remote, language, 1, ['up', 'offset', 'matches', 'remove', 'cancel']);
+      await choose(remote, ['up', 'offset', 'matches', 'remove', 'cancel'], 'remove');
       await expect.poll(() => listed(page)).toEqual(['u~g1', 's1:xmltv']);
       await remote.expectFocus('guides/guides/1');
       await settled(root, 20_000);
@@ -453,7 +455,7 @@ test.describe('the guides screen by keys (pnpm dev, after onboarding)', () => {
       await expect(page.getByTestId('guide-add-link')).toContainText(SAYS[language].listed);
       expect(await layout(page)).toEqual({ scroll: [1920, 1080], outside: [], cut: [] });
       await shot(page, `guides-listed-${language}`);
-      await remote.go('BACK', 'guides/add/0');
+      await remote.go('BACK', 'guides/header/0');
       await expect(page.getByTestId('guide-add')).toHaveCount(0);
       await settled(root);
       expect(await listed(page)).toEqual(['u~g1', 'u~g2', 's1:xmltv']);

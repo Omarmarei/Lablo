@@ -31,8 +31,8 @@ const EDGE = 72;
 const MINUS = String.fromCharCode(0x2212);
 
 const SAYS = {
-  en: { offset: 'Time offset', cancel: 'Cancel', label: 'Time offset:', none: 'No offset', noInfo: 'No information' },
-  ar: { offset: 'فرق التوقيت', cancel: 'إلغاء', label: 'فرق التوقيت:', none: 'بلا فرق', noInfo: 'لا توجد معلومات' },
+  en: { offset: 'Time offset', matches: 'Matches', cancel: 'Cancel', label: 'Time offset:', none: 'No offset', noInfo: 'No information' },
+  ar: { offset: 'فرق التوقيت', matches: 'المطابقة', cancel: 'إلغاء', label: 'فرق التوقيت:', none: 'بلا فرق', noInfo: 'لا توجد معلومات' },
 } as const;
 type Language = keyof typeof SAYS;
 
@@ -163,15 +163,16 @@ function readChooser(page: Page): Promise<Chooser> {
   }, SAFE);
 }
 
-/** OK on the panel's guide (its menu: Time offset, Cancel), then "Time offset": the chooser on `from`'s step. */
+/** OK on the panel's guide (its menu: Time offset, Matches, Cancel), then "Time offset": the chooser on `from`'s step. */
 async function openChooser(remote: RemoteDriver, language: Language, from: number): Promise<void> {
   const { page } = remote;
   await remote.go('OK', 'guide-menu/actions/0');
   const buttons = page.locator('[data-testid=guide-menu] .z-button');
-  await expect(buttons).toHaveCount(2);
+  await expect(buttons).toHaveCount(3);
   await expect(buttons.nth(0)).toHaveAttribute('data-testid', 'guide-menu-offset');
   await expect(buttons.nth(0)).toHaveText(SAYS[language].offset);
-  await expect(buttons.nth(1)).toHaveText(SAYS[language].cancel);
+  await expect(buttons.nth(1)).toHaveText(SAYS[language].matches);
+  await expect(buttons.nth(2)).toHaveText(SAYS[language].cancel);
   await remote.go('OK', `guide-offset/steps/${NONE + from / 30}`);
 }
 
@@ -291,7 +292,7 @@ test.describe("a guide's time offset by keys (pnpm dev, after onboarding)", () =
         const read = guideRequests(m);
         expect(read).toBe(1);
 
-        // The panel's own guide: a menu with the time offset alone, then the chooser on "No offset".
+        // The panel's own guide: a menu with the time offset first, then the chooser on "No offset".
         const root = await openGuides(remote, language);
         await expect(page.getByTestId('guide-0')).toHaveAttribute('data-offset', '0');
         await expect(page.getByTestId('guide-0-offset')).toHaveCount(0);

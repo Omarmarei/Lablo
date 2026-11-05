@@ -51,6 +51,8 @@ import type {
   ShortEpgNowNext,
   ShortEpgSource,
   SourceMeta,
+  UnmatchedPage,
+  UnmatchedRequest,
   UserGuide,
 } from '@zoma/data';
 // The client entry only: the package index would pull every data module's polyfills into main.
@@ -328,6 +330,14 @@ export class DataEngine {
   /** The stored guides and how many live channels have one. */
   epgStatus(): Promise<EpgStatus> {
     return this.query.call('epgStatus');
+  }
+
+  /**
+   * A page of the live channels no guide matches (step 24c), over the sources in the order
+   * given, as "All channels" lists them; its `count` is the whole list's.
+   */
+  unmatched(req: UnmatchedRequest): Promise<UnmatchedPage> {
+    return this.query.call('unmatched', req);
   }
 
   /**
