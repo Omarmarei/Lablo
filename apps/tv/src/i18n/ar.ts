@@ -37,6 +37,8 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'guide.next': 'التالي',
   'guide.none': 'لا يوجد دليل لهذه القناة',
   'guide.noInfo': 'لا توجد معلومات',
+  'guide.open': 'الدليل',
+  'guide.title': 'دليل البرامج',
 
   'badge.live': 'مباشر',
   'badge.new': 'جديد',

@@ -4,6 +4,9 @@ import type { EpgNowNext } from '@zoma/data';
 import type { Platform } from '@zoma/platform-api';
 import type { ItemBinding, Language, ProgrammeLine } from '@zoma/ui';
 import { Badge, Button, Chip, Dialog, LAYOUT, ListRow, Spinner, VirtualList, connectRemote, resolveLocale, useFocus, useZone } from '@zoma/ui';
+import { GuideScreen } from '../guide/GuideScreen';
+import type { Guide } from '../guide/guide-state';
+import { GUIDE_SCREEN } from '../guide/guide-state';
 import type { AppI18n } from '../i18n';
 import { appI18n, switchedTag } from '../i18n';
 import type { Player } from '../player/player-state';
@@ -12,7 +15,7 @@ import { SettingsScreen } from '../settings/SettingsScreen';
 import type { Settings } from '../settings/settings-state';
 import { SETTINGS_SCREENS } from '../settings/settings-state';
 import type { Live, LiveRow, RailEntry } from './live-state';
-import { HEADER_SETTINGS, LIVE } from './live-state';
+import { HEADER_GUIDE, HEADER_SETTINGS, LIVE } from './live-state';
 import './live.css';
 
 const MINUTE_MS = 60_000;
@@ -58,7 +61,7 @@ function entryLabel(entry: RailEntry, t: AppI18n['t']): { label: string; data: b
   return { label: entry.name, data: true };
 }
 
-function LiveScreen({ live, i18n, player, settings }: { live: Live; i18n: AppI18n; player: Player | null; settings: Settings | null }) {
+function LiveScreen({ live, i18n, player, settings, guide }: { live: Live; i18n: AppI18n; player: Player | null; settings: Settings | null; guide: Guide | null }) {
   const { t } = i18n;
   const { binding, home } = live;
   const focus = useFocus(binding);
@@ -66,6 +69,8 @@ function LiveScreen({ live, i18n, player, settings }: { live: Live; i18n: AppI18
   if ((focus.screen === 'player' || focus.screen === 'tracks') && player !== null) return <PlayerScreen live={live} player={player} i18n={i18n} />;
   // The settings screens (step 22b2) paint instead of the live screen.
   if (settings !== null && SETTINGS_SCREENS.indexOf(focus.screen) !== -1) return <SettingsScreen settings={settings} i18n={i18n} binding={binding} focus={focus} />;
+  // The guide (step 23c) paints instead of the live screen; the player opens over it.
+  if (guide !== null && focus.screen === GUIDE_SCREEN) return <GuideScreen guide={guide} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} listVersion={live.version.value} />;
   const status = live.status.value;
   const entries = live.rail.value;
   const shown = live.category.value;
@@ -112,6 +117,7 @@ function LiveScreen({ live, i18n, player, settings }: { live: Live; i18n: AppI18
           {i18n.time(new Date(live.clock.value))}
         </p>
         <div class="live__end">
+          <Button label={t('guide.open')} {...header.item(HEADER_GUIDE)} testId="live-guide" />
           <Button label={t('settings.open')} {...header.item(HEADER_SETTINGS)} testId="live-settings" />
         </div>
       </header>
@@ -180,13 +186,15 @@ interface Props {
   readonly player?: Player | null;
   /** The settings the header's button opens (step 22b2; `null`: none paint). */
   readonly settings?: Settings | null;
+  /** The guide the header's "Guide" opens (step 23c; `null`: none paints). */
+  readonly guide?: Guide | null;
 }
 
 /**
  * The live screen in the language picked in onboarding, in the TV's region (the formats keep
  * the region's), or the TV's own when none was picked.
  */
-export function LiveApp({ platform, live, language, player = null, settings = null }: Props) {
+export function LiveApp({ platform, live, language, player = null, settings = null, guide = null }: Props) {
   const i18n = useSignal<AppI18n | null>(null);
   useEffect(() => {
     let closed = false;
@@ -217,5 +225,5 @@ export function LiveApp({ platform, live, language, player = null, settings = nu
       </main>
     );
   }
-  return <LiveScreen live={live} i18n={i18n.value} player={player} settings={settings} />;
+  return <LiveScreen live={live} i18n={i18n.value} player={player} settings={settings} guide={guide} />;
 }
