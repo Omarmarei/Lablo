@@ -7,6 +7,7 @@ import { Badge, Button, Chip, Dialog, LAYOUT, ListRow, Spinner, VirtualList, con
 import { GuideScreen } from '../guide/GuideScreen';
 import type { Guide } from '../guide/guide-state';
 import { GUIDE_SCREEN } from '../guide/guide-state';
+import { DETAILS_SCREEN } from '../guide/programme-details';
 import type { AppI18n } from '../i18n';
 import { appI18n, switchedTag } from '../i18n';
 import type { Player } from '../player/player-state';
@@ -69,8 +70,8 @@ function LiveScreen({ live, i18n, player, settings, guide }: { live: Live; i18n:
   if ((focus.screen === 'player' || focus.screen === 'tracks') && player !== null) return <PlayerScreen live={live} player={player} i18n={i18n} />;
   // The settings screens (step 22b2) paint instead of the live screen.
   if (settings !== null && SETTINGS_SCREENS.indexOf(focus.screen) !== -1) return <SettingsScreen settings={settings} i18n={i18n} binding={binding} focus={focus} />;
-  // The guide (step 23c) paints instead of the live screen; the player opens over it.
-  if (guide !== null && focus.screen === GUIDE_SCREEN) return <GuideScreen guide={guide} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} listVersion={live.version.value} />;
+  // The guide (step 23c) paints instead of the live screen, with its programme details (24a) over it; the player opens over it.
+  if (guide !== null && (focus.screen === GUIDE_SCREEN || focus.screen === DETAILS_SCREEN)) return <GuideScreen guide={guide} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} listVersion={live.version.value} />;
   const status = live.status.value;
   const entries = live.rail.value;
   const shown = live.category.value;

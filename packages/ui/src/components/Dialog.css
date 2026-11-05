@@ -20,8 +20,15 @@
   background: var(--color-surface);
 }
 
+/* The programme details (step 24a): room for a description over several lines. */
+.z-dialog__panel--wide {
+  width: 1200px;
+}
+
+/* On the page's side, also for a title that is data (dir=auto): rtlcss mirrors it. */
 .z-dialog__title {
   margin: 0;
+  text-align: left;
   font-size: var(--font-size-title);
   line-height: var(--line-height-title);
   font-weight: var(--font-weight-bold);

@@ -88,3 +88,112 @@
   margin-left: var(--space-6);
   color: var(--color-text-muted);
 }
+
+/*
+ * The programme details (RELAY step 24a) in the Dialog's wide panel: 1,200 px, so 1,104 px of
+ * text between its 48 px paddings. At most 1,000 characters of description (the full tier's
+ * cap) take about 13 lines; 8 show, the rest is cut with an ellipsis, so the panel stays about
+ * 760 px tall, inside the 972 px of the safe area.
+ */
+.details {
+  margin-top: var(--space-4);
+}
+
+.details__channel,
+.details__when,
+.details__tags {
+  display: flex;
+  align-items: baseline;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.details__channel {
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+.details__number {
+  flex: none;
+  margin-right: var(--space-4);
+  color: var(--color-text-muted);
+}
+
+/* A flex item as wide as its text: it starts on the page's side whatever its own direction. */
+.details__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.details__sub {
+  margin: var(--space-3) 0 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  font-weight: var(--font-weight-bold);
+}
+
+.details__when {
+  margin-top: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.details__when > * + * {
+  margin-left: var(--space-5);
+}
+
+.details__tags {
+  margin-top: var(--space-4);
+}
+
+.details__tag {
+  min-width: 0;
+  max-width: 540px;
+  height: 36px;
+  padding: 0 var(--space-4);
+  overflow: hidden;
+  border-radius: var(--radius-s);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-size: var(--font-size-label);
+  line-height: 36px;
+  text-overflow: ellipsis;
+}
+
+.details__tag + .details__tag {
+  margin-left: var(--space-3);
+}
+
+.details__reading {
+  margin-top: var(--space-5);
+  height: 38px;
+}
+
+/*
+ * Eight lines at most (304 px), the last one ending with an ellipsis: -webkit-line-clamp needs
+ * the old flexbox's display, as on Chromium 53. (No max-height beside it: the e2e measures the
+ * clamp's own height.)
+ */
+.details__desc {
+  display: -webkit-box;
+  margin: var(--space-5) 0 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 8;
+  text-align: left;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.details__note {
+  margin: var(--space-5) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}

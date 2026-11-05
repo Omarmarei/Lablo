@@ -43,6 +43,12 @@ export const EN = {
   // The guide screen (RELAY step 23c): the live screen's header button, and the screen's title.
   'guide.open': 'Guide',
   'guide.title': 'Guide',
+  // The programme details (RELAY step 24a): a dialog over the guide.
+  'details.watch': 'Watch the channel',
+  'details.close': 'Close',
+  'details.length': '{n, plural, one {# minute} other {# minutes}}',
+  'details.noDescription': 'No description',
+  'details.failed': "Couldn't read the details.",
 
   // Badges.
   'badge.live': 'LIVE',

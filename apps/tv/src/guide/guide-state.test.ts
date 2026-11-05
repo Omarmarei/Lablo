@@ -1,6 +1,6 @@
-import type { CatalogItem, ContentKey } from '@zoma/core';
+import type { CatalogItem, ContentKey, EpgProgramme } from '@zoma/core';
 import { EPG_WINDOWS } from '@zoma/core';
-import type { GuideRequest, GuideRow } from '@zoma/data';
+import type { GuideRequest, GuideRow, ProgrammeRequest } from '@zoma/data';
 import type { Intent } from '@zoma/platform-api';
 import type { EpgZone } from '@zoma/ui';
 import { SCREEN, createNavigator, guideCellAt, guideHeight, guideWidth } from '@zoma/ui';
@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LiveRow, Timers } from '../live/live-state';
 import type { GuideEngine, GuideList } from './guide-state';
 import { GUIDE, GUIDE_ASK_MS, GUIDE_DAYS, GUIDE_GRID, GUIDE_KEEP, GUIDE_SCREEN, GUIDE_VISIBLE, createGuide, dayOf, guideDays, mergeDays } from './guide-state';
+import { DETAILS_SCREEN } from './programme-details';
 
 const MINUTE = 60_000;
 
@@ -65,6 +66,15 @@ function rowFor(key: ContentKey, from: number, to: number): GuideRow {
 /** A channel's programme on air at `minute`: its index from the epoch. */
 const onAir = (n: number, minute: number): number => Math.floor(minute / lengthOf(n));
 
+/** Channel `n`'s programme that starts at `start`, whole, as the query worker gives it (`null`: none starts then). */
+function programmeFor(key: ContentKey, start: number): EpgProgramme | null {
+  const n = numberOf(key);
+  const length = lengthOf(n);
+  if (!guided(n) || start % length !== 0) return null;
+  const title = `P${n}-${start / length}`;
+  return { start, end: start + length, title, sub: '', desc: `About ${title}`, category: 'Test', episode: '', flags: 0 };
+}
+
 interface Held {
   readonly req: GuideRequest;
   resolve(rows: GuideRow[]): void;
@@ -76,6 +86,16 @@ class FakeEngine implements GuideEngine {
   fail = false;
   readonly calls: GuideRequest[] = [];
   readonly held: Held[] = [];
+  /** The details' reads, and those held while `holdProgramme`. */
+  readonly programmes: ProgrammeRequest[] = [];
+  holdProgramme = false;
+  readonly heldProgrammes: { resolve(p: EpgProgramme | null): void; req: ProgrammeRequest }[] = [];
+
+  programme(req: ProgrammeRequest): Promise<EpgProgramme | null> {
+    this.programmes.push({ key: req.key, start: req.start });
+    if (!this.holdProgramme) return Promise.resolve(programmeFor(req.key, req.start));
+    return new Promise((resolve) => this.heldProgrammes.push({ resolve, req }));
+  }
 
   guide(req: GuideRequest): Promise<GuideRow[]> {
     this.calls.push({ keys: req.keys.slice(), from: req.from, to: req.to });
@@ -611,19 +631,19 @@ describe('moving in the guide', () => {
 });
 
 describe('OK and Back in the guide', () => {
-  it('plays the channel on OK on the programme on air, and nothing on one to come or gone by', async () => {
+  it('plays the channel on OK on the programme on air, and not on one to come or gone by', async () => {
     const t = setup();
     t.open(2);
     await flush();
     await t.press('OK');
     expect(t.play).toHaveBeenCalledWith(2);
-    await t.press('RIGHT', 'OK');
+    await t.press('RIGHT', 'OK', 'BACK');
     expect(t.play).toHaveBeenCalledTimes(1);
-    await t.press('LEFT', 'LEFT', 'OK');
+    await t.press('LEFT', 'LEFT', 'OK', 'BACK');
     expect(t.at()).toMatch(/^guide · grid 2 @/);
     expect(t.position().time).toBeLessThan(NOW);
     expect(t.play).toHaveBeenCalledTimes(1);
-    // A channel with no guide plays from the placeholder that holds now.
+    // A channel with no guide plays from the placeholder that holds now, and opens nothing elsewhere.
     const none = setup();
     none.open(9);
     await flush();
@@ -632,6 +652,133 @@ describe('OK and Back in the guide', () => {
     expect(none.play).toHaveBeenCalledWith(9);
     await none.press('RIGHT', 'OK');
     expect(none.play).toHaveBeenCalledTimes(1);
+    expect(none.at()).toMatch(/^guide · grid 9 @/);
+    expect(none.engine.programmes).toEqual([]);
+  });
+
+  it('opens the details on OK on a programme to come or gone by, with the grid’s channel, title and times', async () => {
+    const t = setup();
+    t.open(2);
+    await flush();
+    const length = lengthOf(2);
+    const next = (onAir(2, NOW) + 1) * length;
+    await t.press('RIGHT', 'OK');
+    expect(t.at()).toBe('programme · actions 0');
+    expect(t.guide.details.shown.value).toEqual({
+      target: { key: keyOf(2), channel: { number: 3, name: 'Channel 2' }, start: next, end: next + length, title: `P2-${next / length}` },
+      status: 'read',
+      programme: programmeFor(keyOf(2), next),
+    });
+    expect(t.engine.programmes).toEqual([{ key: keyOf(2), start: next }]);
+    expect(t.play).not.toHaveBeenCalled();
+    // Back: the guide on the same cell.
+    await t.press('BACK');
+    expect(t.at()).toBe(`guide · grid 2 @${next - midnight(0)}`);
+    expect(t.guide.details.shown.value).toBeNull();
+    // One gone by.
+    const before = (onAir(2, NOW) - 1) * length;
+    await t.press('LEFT', 'LEFT', 'OK');
+    expect(t.guide.details.shown.value?.target).toMatchObject({ start: before, title: `P2-${before / length}` });
+    expect(t.engine.programmes[1]).toEqual({ key: keyOf(2), start: before });
+  });
+
+  it('gives the details the programme’s own times where the range cuts its cell', async () => {
+    const t = setup({ tier: 'low' });
+    t.open(0);
+    await flush();
+    const { from, to } = t.guide.zone();
+    // A channel whose programmes cross both ends of the range (50 and 70 minutes don't divide a day).
+    const n = [2, 3, 6, 7].find((c) => from % lengthOf(c) !== 0 && to % lengthOf(c) !== 0)!;
+    const length = lengthOf(n);
+    t.guide.follow(n);
+    // Back to the range's start (over placeholders until the days are read), then the first cell.
+    for (let i = 0; i < 400 && t.position().time! > from; i += 1) await t.press('LEFT');
+    await t.rest();
+    await t.press('LEFT');
+    expect(t.position().time).toBe(from);
+    await t.press('OK');
+    const first = Math.floor(from / length) * length;
+    expect(first).toBeLessThan(from);
+    expect(t.guide.details.shown.value?.target).toMatchObject({ start: first, end: first + length, title: `P${n}-${first / length}` });
+    await t.press('BACK');
+    // On to the range's end, then the last cell.
+    for (let i = 0; i < 800 && t.position().time! < to - GUIDE.slot; i += 1) await t.press('RIGHT');
+    await t.rest();
+    await t.press('RIGHT', 'RIGHT', 'RIGHT');
+    await t.press('OK');
+    const last = Math.floor((to - 1) / length) * length;
+    expect(last + length).toBeGreaterThan(to);
+    expect(t.guide.details.shown.value?.target).toMatchObject({ start: last, end: last + length });
+  });
+
+  it('opens nothing on a programme whose days are not read yet, and on a placeholder', async () => {
+    const t = setup();
+    t.engine.hold = true;
+    t.open(2);
+    await t.press('RIGHT', 'OK');
+    expect(t.at()).toMatch(/^guide · grid 2 @/);
+    expect(t.engine.programmes).toEqual([]);
+  });
+
+  it('plays the channel from the details’ "Watch the channel", the dialog closed first', async () => {
+    const t = setup();
+    t.open(4);
+    await flush();
+    let top = '';
+    t.play.mockImplementation(() => {
+      top = t.nav.top.id;
+    });
+    await t.press('RIGHT', 'OK', 'OK');
+    expect(t.play).toHaveBeenCalledWith(4);
+    expect(top).toBe(GUIDE_SCREEN);
+    expect(t.guide.details.shown.value).toBeNull();
+    // "Close" closes it, and plays nothing.
+    await t.press('OK', 'RIGHT', 'OK');
+    expect(t.at()).toMatch(/^guide · grid 4 @/);
+    expect(t.play).toHaveBeenCalledTimes(1);
+  });
+
+  it('plays from the details only the channel they are about, after a catalog swap under them', async () => {
+    const t = setup();
+    t.open(4);
+    await flush();
+    await t.press('RIGHT', 'OK');
+    // The channel moved a row up in the new list: the guide's focus follows it.
+    t.guide.listChanging();
+    t.list.shift = 1;
+    await flush();
+    expect(t.position().index).toBe(3);
+    expect(t.nav.top.id).toBe(DETAILS_SCREEN);
+    await t.press('OK');
+    expect(t.play).toHaveBeenCalledWith(3);
+    // The channel gone: the focus stays on its row, which another channel holds now.
+    await t.press('RIGHT', 'OK');
+    expect(t.nav.top.id).toBe(DETAILS_SCREEN);
+    t.list.findAt = () => -1;
+    t.guide.listChanging();
+    t.list.shift = 2;
+    await flush();
+    expect(t.position().index).toBe(3);
+    await t.press('OK');
+    expect(t.nav.top.id).toBe(GUIDE_SCREEN);
+    expect(t.play).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts the details’ read as pending, and drops its answer once the guide is disposed', async () => {
+    const t = setup();
+    t.open(2);
+    await flush();
+    t.engine.holdProgramme = true;
+    // (The move waits for the view to rest: that counts too.)
+    await t.press('RIGHT');
+    const before = t.guide.pending.value;
+    await t.press('OK');
+    expect(t.guide.pending.value).toBe(before + 1);
+    t.guide.dispose();
+    t.engine.heldProgrammes[0]!.resolve(null);
+    await flush();
+    expect(t.guide.pending.value).toBe(0);
+    expect(t.guide.details.shown.value?.status).toBe('reading');
   });
 
   it('counts a programme on air from its first minute to the one before its end', async () => {
