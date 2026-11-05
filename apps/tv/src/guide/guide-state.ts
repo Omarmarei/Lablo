@@ -6,6 +6,7 @@ import type { EpgZone, Focus, GuideChannel, GuideSchedule, Navigator, Screen } f
 import { SCREEN, guideCellAt, guideFits, guideZone } from '@zoma/ui';
 import type { Timers } from '../live/live-state';
 import type { ZapList } from '../player/player-state';
+import type { MappingTarget } from '../settings/mapping-state';
 import type { Details, DetailsEngine } from './programme-details';
 import { createDetails } from './programme-details';
 
@@ -34,7 +35,8 @@ import { createDetails } from './programme-details';
  *   the channel: the player opens over the guide, and Back from it comes back here, on the
  *   channel that played. OK on a programme gone by or to come opens its details (step 24a,
  *   `programme-details.ts`), whose "Watch the channel" plays the channel the guide has focused
- *   when it is still that programme's; OK on a placeholder elsewhere does nothing (catch-up is
+ *   when it is still that programme's, and whose "Guide channel" opens the manual mapping's
+ *   picker on its channel (step 24e); OK on a placeholder elsewhere does nothing (catch-up is
  *   step 25).
  * - **Back** closes the guide: the live list focuses the channel the guide had focused.
  * - **A catalog swap** (`listChanging`, before the live list is replaced): once the new list is
@@ -151,6 +153,8 @@ export interface GuideOptions {
   readonly play: (index: number) => void;
   /** The guide closed with the focus on row `index` (the live list focuses it). */
   readonly closed: (index: number) => void;
+  /** "Guide channel" in the programme details (step 24e): the manual mapping's picker over the guide. */
+  readonly map?: (target: MappingTarget) => void;
   /** The wall clock in ms (the range, the cursor's start, what is on air). */
   readonly now?: () => number;
   readonly timers?: Timers;
@@ -426,6 +430,7 @@ export function createGuide(options: GuideOptions): Guide {
       const index = screen.value?.position(GUIDE_GRID).index ?? -1;
       if (list.row(index)?.item.key === target.key) options.play(index);
     },
+    map: (target) => options.map?.({ key: target.key, name: target.channel.name }),
   });
 
   const onSelect = (focus: Focus): void => {

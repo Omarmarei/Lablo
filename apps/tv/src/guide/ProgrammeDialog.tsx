@@ -2,7 +2,7 @@ import type { FocusBinding } from '@zoma/ui';
 import { Button, Dialog, Spinner, useZone } from '@zoma/ui';
 import type { AppI18n } from '../i18n';
 import type { Details, DetailsShown } from './programme-details';
-import { DETAILS_ACTIONS, DETAILS_CLOSE, DETAILS_WATCH } from './programme-details';
+import { DETAILS_ACTIONS, DETAILS_CLOSE, DETAILS_MAP, DETAILS_WATCH } from './programme-details';
 
 const MINUTE_MS = 60_000;
 
@@ -97,6 +97,7 @@ export function ProgrammeDialog({ details, i18n, binding }: Props) {
   return (
     <Dialog title={target.title === '' ? t('guide.noInfo') : target.title} data={target.title !== ''} body={body} wide testId="programme">
       <Button label={t('details.watch')} variant="primary" {...actions.item(DETAILS_WATCH)} testId="programme-watch" />
+      <Button label={t('details.mapping')} {...actions.item(DETAILS_MAP)} testId="programme-map" />
       <Button label={t('details.close')} {...actions.item(DETAILS_CLOSE)} testId="programme-close" />
     </Dialog>
   );

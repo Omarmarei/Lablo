@@ -4,6 +4,8 @@ import { Button, Dialog, Spinner, TextField, VirtualList, shapeDigits, useZone }
 import type { AppI18n } from '../i18n';
 import type { AddProblem, GuideRow, GuideState, Guides, GuidesMenu, OffsetChooser } from './guides-state';
 import { ADD_CANCEL, ADD_CONFIRM, GUIDES, HEADER_ADD, HEADER_UNMATCHED, LINK_FIELD_ID, OFFSETS, guideState, summaryOf } from './guides-state';
+import { MAPPING_SCREEN } from './mapping-state';
+import { MappingPage, MappingReading } from './MappingPage';
 import type { Settings } from './settings-state';
 import { SETTINGS_ITEMS } from './settings-state';
 import type { UnmatchedList } from './unmatched-state';
@@ -11,8 +13,9 @@ import { UNMATCHED } from './unmatched-state';
 import './settings.css';
 
 /**
- * The settings screen, the guides screen (RELAY step 22b2) and "Channels without a guide" (step
- * 24c), painted instead of the live screen while one of them is on top of the live navigator.
+ * The settings screen, the guides screen (RELAY step 22b2), "Channels without a guide" (step 24c)
+ * and the manual mapping's picker (step 24e, `MappingPage.tsx`), painted instead of the live
+ * screen while one of them is on top of the live navigator.
  * Every text comes from the catalogs; links, channels and the sources' and categories' names are
  * data (`dir`, `translate=false`, or isolated arguments).
  */
@@ -381,6 +384,7 @@ function GuidesPage({ i18n, binding, focus, guides }: PageProps & { guides: Guid
 export function UnmatchedItem({ i18n, list, index, item }: { i18n: AppI18n; list: UnmatchedList; index: number; item: ItemBinding }) {
   const { t } = i18n;
   const row = list.row(index);
+  const off = row !== null && list.noGuide(row.key);
   return (
     <div
       class={rowClass('unmatched__row', item)}
@@ -390,6 +394,7 @@ export function UnmatchedItem({ i18n, list, index, item }: { i18n: AppI18n; list
       data-state={item.state}
       data-key={row === null ? '' : row.key}
       data-src={row === null ? '' : row.src}
+      data-off={String(off)}
       onMouseMove={item.onHover}
       onClick={item.onPress}
     >
@@ -409,14 +414,23 @@ export function UnmatchedItem({ i18n, list, index, item }: { i18n: AppI18n; list
               {row.category}
             </span>
           )}
+          {off && ' · '}
+          {off && (
+            <span class="unmatched__off" data-testid={`unmatched-${index}-off`}>
+              {t('unmatched.noGuide')}
+            </span>
+          )}
         </span>
       )}
     </div>
   );
 }
 
-/** "Channels without a guide" (step 24c): the live channels no guide matches, read a page at a time. */
-export function UnmatchedPage({ i18n, binding, list }: { i18n: AppI18n; binding: FocusBinding; list: UnmatchedList }) {
+/**
+ * "Channels without a guide" (step 24c): the live channels no guide matches, read a page at a
+ * time; "Reading the guides…" while a mapping's refresh runs (`reading`, step 24e).
+ */
+export function UnmatchedPage({ i18n, binding, list, reading }: { i18n: AppI18n; binding: FocusBinding; list: UnmatchedList; reading: number }) {
   const { t } = i18n;
   const screen = list.screen.value;
   if (screen === null) return null;
@@ -425,9 +439,10 @@ export function UnmatchedPage({ i18n, binding, list }: { i18n: AppI18n; binding:
   // (Read so that new rows draw the list again: the rows come from `row()`.)
   const drawn = list.drawn.value;
   return (
-    <div class="settings__page" data-testid="unmatched" data-status={status} data-count={count} data-drawn={drawn}>
+    <div class="settings__page" data-testid="unmatched" data-status={status} data-count={count} data-drawn={drawn} data-reading={reading}>
       <header class="settings__header">
         <h1 class="settings__title">{t('unmatched.title')}</h1>
+        <MappingReading i18n={i18n} reading={reading} testId="unmatched-reading" />
         {status === 'ready' && (
           <span class="unmatched__count" data-testid="unmatched-count" data-n={count}>
             {t('live.channels', { n: count })}
@@ -477,6 +492,7 @@ interface Props {
 /** The settings screens: the one on top, and the guides screen under its menu or add form. */
 export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
   const guides = settings.guides;
+  const mapping = settings.mapping;
   const onGuides = focus.screen === 'guides' || focus.screen === 'guide-menu' || focus.screen === 'guide-offset' || focus.screen === 'guide-matches' || focus.screen === 'guide-add';
   return (
     <main
@@ -484,8 +500,8 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       data-testid="settings-screen"
       data-ready="true"
       data-language={i18n.locale.pseudo ? 'pseudo' : i18n.locale.language}
-      data-pending={guides.pending.value + settings.unmatched.pending.value}
-      data-editing={guides.editor.editing.value ?? ''}
+      data-pending={guides.pending.value + settings.unmatched.pending.value + mapping.pending.value}
+      data-editing={guides.editor.editing.value ?? mapping.editor.editing.value ?? ''}
       data-screen={focus.screen}
       data-zone={focus.zone}
       data-index={focus.index}
@@ -494,7 +510,8 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
     >
       {focus.screen === 'settings' && <SettingsPage i18n={i18n} binding={binding} focus={focus} />}
       {onGuides && <GuidesPage i18n={i18n} binding={binding} focus={focus} guides={guides} />}
-      {focus.screen === 'unmatched' && <UnmatchedPage i18n={i18n} binding={binding} list={settings.unmatched} />}
+      {focus.screen === 'unmatched' && <UnmatchedPage i18n={i18n} binding={binding} list={settings.unmatched} reading={mapping.reading.value} />}
+      {focus.screen === MAPPING_SCREEN && <MappingPage i18n={i18n} binding={binding} mapping={mapping} />}
     </main>
   );
 }

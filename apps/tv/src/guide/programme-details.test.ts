@@ -5,7 +5,7 @@ import type { Intent } from '@zoma/platform-api';
 import { bindFocus, createNavigator } from '@zoma/ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DetailsShown, DetailsTarget } from './programme-details';
-import { DETAILS_ACTIONS, DETAILS_CLOSE, DETAILS_SCREEN, DETAILS_WATCH, createDetails } from './programme-details';
+import { DETAILS_ACTIONS, DETAILS_CLOSE, DETAILS_MAP, DETAILS_SCREEN, DETAILS_WATCH, createDetails } from './programme-details';
 import { appI18n } from '../i18n';
 import { ProgrammeDialog, detailsLines } from './ProgrammeDialog';
 
@@ -31,11 +31,13 @@ function setup() {
     now: () => 0,
   });
   const watch = vi.fn();
+  const map = vi.fn();
   let tracked = 0;
   const details = createDetails({
     nav,
     engine,
     watch,
+    map,
     track: (request) => {
       tracked += 1;
       return request();
@@ -49,7 +51,7 @@ function setup() {
     const f = nav.snapshot();
     return `${f.screen} · ${f.zone} ${f.index}`;
   };
-  return { held, nav, watch, details, press, at, tracked: () => tracked };
+  return { held, nav, watch, map, details, press, at, tracked: () => tracked };
 }
 
 const settle = async (): Promise<void> => {
@@ -65,7 +67,8 @@ describe('the programme details (RELAY step 24a)', () => {
     const t = setup();
     t.details.open(target(600));
     expect(t.at()).toBe(`${DETAILS_SCREEN} · ${DETAILS_ACTIONS} ${DETAILS_WATCH}`);
-    expect(t.nav.top.zone(DETAILS_ACTIONS)).toMatchObject({ kind: 'list', axis: 'horizontal', count: 2 });
+    expect(t.nav.top.zone(DETAILS_ACTIONS)).toMatchObject({ kind: 'list', axis: 'horizontal', count: 3 });
+    expect([DETAILS_WATCH, DETAILS_MAP, DETAILS_CLOSE]).toEqual([0, 1, 2]);
     expect(t.details.shown.value).toEqual({ target: target(600), status: 'reading', programme: null });
     expect(t.held.map((h) => h.req)).toEqual([{ key: 'x:s1:live:0-1', start: 600 }]);
     expect(t.tracked()).toBe(1);
@@ -100,11 +103,12 @@ describe('the programme details (RELAY step 24a)', () => {
     expect(t.at()).toBe('guide · grid 0');
     expect(t.details.shown.value).toBeNull();
     t.details.open(target(600));
-    await t.press('RIGHT');
+    await t.press('RIGHT', 'RIGHT');
     expect(t.at()).toBe(`${DETAILS_SCREEN} · ${DETAILS_ACTIONS} ${DETAILS_CLOSE}`);
     await t.press('OK');
     expect(t.at()).toBe('guide · grid 0');
     expect(t.watch).not.toHaveBeenCalled();
+    expect(t.map).not.toHaveBeenCalled();
     t.details.open(target(660));
     let top = '';
     let shown: DetailsShown | null | undefined;
@@ -115,10 +119,39 @@ describe('the programme details (RELAY step 24a)', () => {
     await t.press('OK');
     expect(t.watch).toHaveBeenCalledWith(target(660));
     expect([top, shown]).toEqual(['guide', null]);
+    expect(t.map).not.toHaveBeenCalled();
     // Other keys are the dialog's own: they don't reach the guide.
     t.details.open(target(690));
     await t.press('DOWN', 'UP');
     expect(t.at()).toBe(`${DETAILS_SCREEN} · ${DETAILS_ACTIONS} ${DETAILS_WATCH}`);
+  });
+
+  it('hands the programme to "Guide channel" once it has closed (step 24e), and to nothing without one', async () => {
+    const t = setup();
+    t.details.open(target(600));
+    let top = '';
+    let shown: DetailsShown | null | undefined;
+    t.map.mockImplementation(() => {
+      top = t.nav.top.id;
+      shown = t.details.shown.value;
+    });
+    await t.press('RIGHT');
+    expect(t.at()).toBe(`${DETAILS_SCREEN} · ${DETAILS_ACTIONS} ${DETAILS_MAP}`);
+    await t.press('OK');
+    expect(t.map).toHaveBeenCalledTimes(1);
+    expect(t.map).toHaveBeenCalledWith(target(600));
+    expect([top, shown]).toEqual(['guide', null]);
+    expect(t.watch).not.toHaveBeenCalled();
+    // A dialog with no `map` closes on it all the same.
+    const nav = createNavigator({ root: { id: 'guide', zones: [{ kind: 'list', id: 'grid', axis: 'vertical', count: 1 }] }, rootBack: 'exit-dialog', exit: () => undefined, exitDialog: () => undefined, now: () => 0 });
+    const watch = vi.fn();
+    const bare = createDetails({ nav, engine: { programme: () => Promise.resolve(null) }, watch });
+    bare.open(target(1));
+    nav.handle('RIGHT');
+    nav.handle('OK');
+    expect(nav.top.id).toBe('guide');
+    expect(bare.shown.value).toBeNull();
+    expect(watch).not.toHaveBeenCalled();
   });
 
   it('drops an answer for a dialog that closed, or that opened again since', async () => {
@@ -225,6 +258,7 @@ describe('the details dialog as drawn', () => {
     const buttons = walk(props.children).filter((v) => typeof v.type === 'function');
     expect(buttons.map((b) => [(b.props as Props).label, (b.props as Props).testId, (b.props as Props).variant])).toEqual([
       ['Watch the channel', 'programme-watch', 'primary'],
+      ['Guide channel', 'programme-map', undefined],
       ['Close', 'programme-close', undefined],
     ]);
   });

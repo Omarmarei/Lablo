@@ -162,6 +162,8 @@ export interface Guides {
   readonly problem: ReadonlySignal<AddProblem | null>;
   /** Opens the screen and reads the guides. */
   open(): void;
+  /** A manual mapping changed the matches (step 24e): the list and its counts are read again while it is on the stack. */
+  matchesChanged(): void;
   setText(value: string): void;
   dispose(): void;
 }
@@ -599,6 +601,10 @@ export function createGuides(options: GuidesOptions): Guides {
         },
       });
       void read();
+    },
+    matchesChanged(): void {
+      // (The settings dispose together: the mapping tells no screen once disposed.)
+      if (screen.value !== null && screen.value.open) void read();
     },
     setText(value: string): void {
       text.value = value;

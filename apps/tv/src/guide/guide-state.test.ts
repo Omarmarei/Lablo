@@ -239,7 +239,8 @@ function setup(options: { count?: number; chunks?: number[]; start?: number; eng
   });
   const play = vi.fn();
   const closed = vi.fn();
-  const guide = createGuide({ nav, engine, list, play, closed, now: clock.now, timers: clock.timers, days: () => GUIDE_DAYS[options.tier ?? 'full'] });
+  const map = vi.fn();
+  const guide = createGuide({ nav, engine, list, play, closed, map, now: clock.now, timers: clock.timers, days: () => GUIDE_DAYS[options.tier ?? 'full'] });
   const at = (): string => {
     const f = nav.snapshot();
     return `${f.screen} · ${f.zone} ${f.index}${f.time === null ? '' : ` @${f.time - midnight(0)}`}`;
@@ -259,7 +260,7 @@ function setup(options: { count?: number; chunks?: number[]; start?: number; eng
     guide.open(row);
     clock.advance(0);
   };
-  return { guide, engine, list, clock, nav, play, closed, at, press, rest, position, open };
+  return { guide, engine, list, clock, nav, play, closed, map, at, press, rest, position, open };
 }
 
 afterEach(() => {
@@ -733,9 +734,37 @@ describe('OK and Back in the guide', () => {
     expect(top).toBe(GUIDE_SCREEN);
     expect(t.guide.details.shown.value).toBeNull();
     // "Close" closes it, and plays nothing.
-    await t.press('OK', 'RIGHT', 'OK');
+    await t.press('OK', 'RIGHT', 'RIGHT', 'OK');
     expect(t.at()).toMatch(/^guide · grid 4 @/);
     expect(t.play).toHaveBeenCalledTimes(1);
+    expect(t.map).not.toHaveBeenCalled();
+  });
+
+  it('opens the manual mapping on the details’ channel from "Guide channel" (step 24e), the dialog closed first', async () => {
+    const t = setup();
+    t.open(4);
+    await flush();
+    let top = '';
+    t.map.mockImplementation(() => {
+      top = t.nav.top.id;
+    });
+    await t.press('RIGHT', 'OK', 'RIGHT', 'OK');
+    expect(t.map).toHaveBeenCalledTimes(1);
+    expect(t.map).toHaveBeenCalledWith({ key: keyOf(4), name: 'Channel 4' });
+    expect(top).toBe(GUIDE_SCREEN);
+    expect(t.guide.details.shown.value).toBeNull();
+    expect(t.play).not.toHaveBeenCalled();
+    // A guide with no `map`: the button closes the dialog, nothing else.
+    const nav = createNavigator({ root: { id: 'live', zones: [{ kind: 'list', id: 'channels', axis: 'vertical', count: 10 }] }, rootBack: 'exit-dialog', exit: () => undefined, exitDialog: () => undefined, now: () => 0 });
+    const clock = manualTimers(T0);
+    const bare = createGuide({ nav, engine: new FakeEngine(), list: new FakeList(10, [0]), play: vi.fn(), closed: vi.fn(), now: clock.now, timers: clock.timers });
+    bare.open(4);
+    clock.advance(0);
+    await flush();
+    for (const key of ['RIGHT', 'OK', 'RIGHT', 'OK'] as const) nav.handle(key);
+    await flush();
+    expect(nav.top.id).toBe(GUIDE_SCREEN);
+    expect(bare.details.shown.value).toBeNull();
   });
 
   it('plays from the details only the channel they are about, after a catalog swap under them', async () => {

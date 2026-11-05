@@ -1,0 +1,94 @@
+/*
+ * The manual mapping's picker (RELAY step 24e): the settings screens' 56 px header, 24 px gap and
+ * 56 px line, then the search field (150 px) and a 16 px gap, then 7 rows of 88 px with 8 px gaps
+ * (MAPPING in mapping-state.ts). Physical properties for LTR: postcss-rtlcss mirrors them.
+ */
+.mapping__search {
+  flex: none;
+  height: 150px;
+  margin-bottom: var(--space-4);
+}
+
+.mapping__list {
+  flex: none;
+}
+
+.mapping__row {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 100%;
+  padding: 0 var(--space-6);
+  border: var(--focus-ring) solid transparent;
+  border-radius: var(--radius-m);
+  background: var(--color-surface);
+}
+
+.mapping__row.is-memory {
+  border-color: var(--color-border-memory);
+}
+
+.mapping__row.is-focused {
+  border-color: var(--color-focus);
+  background: var(--color-surface-focus);
+}
+
+/* The current match's check, on the screen's side (an empty box keeps the rows' text aligned). */
+.mapping__check {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-right: var(--space-4);
+  color: var(--color-accent);
+}
+
+.mapping__check svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+
+.mapping__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* A guide channel's name is data (dir=auto): on the page's side all the same. */
+.mapping__name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.mapping__where {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+/* "Reading the guides…" after a mapping (the list without a guide, the guide screen). */
+.mapping__reading {
+  display: flex;
+  flex: none;
+  align-items: center;
+  margin: 0 0 0 var(--space-7);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+  white-space: nowrap;
+}
+
+.mapping__reading .z-spinner {
+  margin-right: var(--space-3);
+}
