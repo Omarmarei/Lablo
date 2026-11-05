@@ -398,6 +398,52 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     expect(s.started.epg).toBe(3);
   });
 
+  it('reads every guide again once the manual mappings change, and searches the guides’ channels (step 24d)', async () => {
+    const asked: string[] = [];
+    const s = setup((url) => {
+      asked.push(url);
+      return url.startsWith('http://u.test/') ? { body: guide(6) } : { body: playlist(8, 4) };
+    });
+    await s.engine.refresh(job());
+    const catalogs = [{ src: 'debug', type: 'm3u' as const }];
+    const user = [
+      { id: 'g1', url: 'http://u.test/a.xml' },
+      { id: 'g2', url: 'http://u.test/b.xml' },
+    ];
+    await s.engine.refreshEpg(catalogs, { tier: 'full', due: true, user });
+    const downloads = asked.length;
+    const [seven] = (await s.engine.search('channel 7', { names: 1 })).keys;
+    expect((await s.engine.nowNext([seven!], NOW))[0]).toMatchObject({ epgSrc: null });
+    expect((await s.engine.epgStatus()).mapping).toBe('-');
+
+    // Channel 7 (no guide has ch7) mapped to the second guide's ch3: both guides are due at once.
+    expect(await s.engine.editProfile({ kind: 'epgOverride', key: seven!, pin: { epgSrc: 'u~g2', channel: 'ch3' } })).toBe(true);
+    expect((await s.engine.epgStatus()).mapping).not.toBe('-');
+    const again = await s.engine.refreshEpg(catalogs, { tier: 'full', due: true, user });
+    expect(again.outcomes.map((o) => [o.epgSrc, o.result?.status])).toEqual([
+      ['u~g1', 'committed'],
+      ['u~g2', 'committed'],
+    ]);
+    expect(asked.length).toBe(downloads + 2);
+    expect((await s.engine.nowNext([seven!], NOW))[0]).toMatchObject({ epgSrc: 'u~g2', channel: 'ch3', method: 'override', now: { title: 'ch3 at 12' } });
+    // Then nothing is due: no worker starts.
+    const started = s.started.epg;
+    expect(await s.engine.refreshEpg(catalogs, { tier: 'full', due: true, user })).toEqual({ outcomes: [], deleted: [], reranked: [], wanted: 0 });
+    expect(s.started.epg).toBe(started);
+
+    // The picker's search over both guides' declared channels, through the query worker.
+    expect(await s.engine.guideChannels({ query: 'channel 3', offset: 0, limit: 10 })).toEqual({
+      version: expect.any(Number) as number,
+      count: 2,
+      offset: 0,
+      rows: [
+        { epgSrc: 'u~g1', id: 'ch3', name: 'Channel 3' },
+        { epgSrc: 'u~g2', id: 'ch3', name: 'Channel 3' },
+      ],
+    });
+    expect((await s.engine.guideChannels({ epgSrc: 'u~g2', query: '', offset: 0, limit: 0 })).count).toBe(6);
+  });
+
   it('runs catalog and guide refreshes one at a time, and pauses a guide refresh for keys', async () => {
     let release: () => void = () => undefined;
     const gate = new Promise<void>((resolve) => {

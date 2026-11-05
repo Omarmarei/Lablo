@@ -19,14 +19,19 @@
  *   range, from the same guide channel as its now/next, as plain arrays.
  * - `programme` gives the programme details one programme (step 24a): its description, episode
  *   and the rest, from the one bucket that holds its start.
- * - `epgStatus` lists the guides and how many live channels have one.
+ * - `epgStatus` lists the guides and how many live channels have one, and the key of the profile's
+ *   manual mappings (step 24d): a guide matched with others is due for a refresh.
+ * - `guideChannels` searches the XMLTV channels the guides declare (step 24d: the manual mapping's
+ *   picker), by their names normalized as the matcher does, paged. Each guide's list is read once
+ *   after a reload, when it is first asked for.
  * - `unmatched` pages through the live channels that no guide matches once the guides are
  *   combined (step 24c), in the order "All channels" lists them. Each source's list is walked
  *   once after a reload, when it is first asked for, and kept as chunk addresses; a page reads
  *   the few chunks its rows are in.
  * - `shortEpg` is the fallback for a focused live channel no guide matches (step 9c): its Xtream
  *   panel's `get_short_epg`, kept 30 min per channel (`short-epg.ts`). The app asks only after
- *   600 ms of focus. A matched channel gets its guide's now/next, with no request.
+ *   600 ms of focus. A matched channel gets its guide's now/next, with no request; a channel the
+ *   user mapped to no guide (step 24d) gets none, with no request either.
  * - `account` re-checks a source's Xtream account for the player's error card (step 20a,
  *   `account-check.ts`).
  * - `profile` and `editProfile` read and change the profile document for the app (step 13b):
@@ -37,17 +42,18 @@
  * in `status().stale`, so the ingest can rebuild it.
  */
 
-import type { CatalogItem, ContentKey, ContentKind, EpgBucket, EpgMatchMethod, EpgProgramme, EpgSchedule, FavouriteMarks, SearchResult } from '@zoma/core';
-import { CONTENT_KINDS, SearchSegment, combineEpgMatches, epgDay, epgNowNext, epgProgrammeAt, epgSchedule, favouriteMarks, searchSegments } from '@zoma/core';
+import type { CatalogItem, ContentKey, ContentKind, EpgBucket, EpgMatchMethod, EpgOverride, EpgProgramme, EpgSchedule, FavouriteMarks, SearchResult } from '@zoma/core';
+import { CONTENT_KINDS, SearchSegment, combineEpgMatches, epgDay, epgNowNext, epgProgrammeAt, epgSchedule, favouriteMarks, normalizeName, searchSegments } from '@zoma/core';
 import type { CategoryInfo } from './chunker';
 import type { ChunkKey, SourceMeta } from './catalog-store';
 import { getSources, readCategories, readChunks, readIndexes, scanChunks } from './catalog-store';
-import type { EpgBucketKey, EpgMeta, StoredEpgMatch } from './epg-store';
-import { getEpgMetas, readEpgBuckets, readEpgChannels } from './epg-store';
+import type { EpgBucketKey, EpgDeclaredChannels, EpgMeta, StoredEpgMatch } from './epg-store';
+import { epgDeclared, getEpgMetas, readEpgBuckets, readEpgChannels, readEpgDeclared } from './epg-store';
+import { epgMappingKey, epgOverridesOf } from './epg-overrides';
 import type { RpcContext } from './rpc';
 import type { ByteTransport } from './bytes';
 import type { LoadedProfile, ProfileDoc, ProfileEdit } from './profile';
-import { applyProfileEdit, loadProfile, readEpgOffsets, updateProfile } from './profile';
+import { applyProfileEdit, loadProfile, readEpgOffsets, readEpgOverrides, updateProfile } from './profile';
 import { epgOffsetsOf } from './epg-sources';
 import type { ShortEpgRequest } from './short-epg';
 import { ShortEpgCache, shortEpgNowNext, shortEpgTarget, textTransport } from './short-epg';
@@ -189,6 +195,60 @@ export interface EpgStatus {
   matched: number;
   /** The catalog sources (their `epgUrls` and Xtream `server` decide the guides). */
   sources: SourceMeta[];
+  /**
+   * The key of the profile's manual mappings now (`epgMappingKey`, step 24d): a guide matched
+   * with another (`EpgMeta.mapping`) is due (`epgRefreshDue`).
+   */
+  mapping: string;
+}
+
+/** The manual mapping picker's search (step 24d): the guides' declared channels, rows `[offset, offset + limit)`. */
+export interface GuideChannelsRequest {
+  /** One guide's channels; default: every active guide's, in priority order. */
+  epgSrc?: string;
+  /**
+   * Words to look for, normalized as the matcher normalizes names: a channel is listed when each
+   * word is in one of its display names or its id. Empty: every channel.
+   */
+  query: string;
+  offset: number;
+  /** 0 asks for the count alone. */
+  limit: number;
+}
+
+/** An XMLTV channel a guide declares. */
+export interface GuideChannel {
+  epgSrc: string;
+  /** Its id, as the guide declares it (what a mapping keeps). */
+  id: string;
+  /** The display name for the UI languages (the id when it has none). */
+  name: string;
+}
+
+export interface GuideChannelsPage {
+  /** Bumps at each reload (`UnmatchedPage.version`): the caller drops its pages and asks again. */
+  version: number;
+  /** The channels found, over the guides asked. */
+  count: number;
+  offset: number;
+  /** Rows `offset` to `offset + limit`, guide by guide in priority order, each in the order it declares them. */
+  rows: GuideChannel[];
+}
+
+/** Most rows one `guideChannels` call gives (a larger ask is refused, not cut). */
+export const GUIDE_CHANNELS_MAX_ROWS = 500;
+
+/** The words of a normalized name (single spaces between them, none at either end). */
+function wordsOf(normalized: string): string[] {
+  const out: string[] = [];
+  let from = 0;
+  while (from < normalized.length) {
+    const space = normalized.indexOf(' ', from);
+    const to = space === -1 ? normalized.length : space;
+    out.push(normalized.slice(from, to));
+    from = to + 1;
+  }
+  return out;
 }
 
 /** Where a live channel's programmes are stored. */
@@ -228,10 +288,12 @@ export class QueryService {
   private epgLinks = new Map<ContentKey, EpgLink>();
   /** The user's time offset per guide, in minutes (step 24b). */
   private epgOffsets: Record<string, number> = {};
+  /** The live channels the user mapped to no guide (step 24d): no panel's short EPG either. */
+  private noGuide = new Set<ContentKey>();
   /**
    * Bumps when an edit's write starts. A read takes the number as it is: it sees that edit's
    * write (IndexedDB runs them in the order they start) and none after, so an answer with a
-   * lower number than the offsets held is older than them.
+   * lower number than the offsets (and mappings) held is older than them.
    */
   private offsetSeq = 0;
   private offsetsFrom = 0;
@@ -239,6 +301,10 @@ export class QueryService {
   private version = 0;
   /** Each source's list of channels without a guide, built when first asked after a reload. */
   private unmatchedIndexes = new Map<string, Promise<UnmatchedIndex>>();
+  /** The active guides in priority order, as loaded. */
+  private epgActive: { epgSrc: string; gen: number }[] = [];
+  /** Each guide's declared channels, read when first asked after a reload. */
+  private declaredLists = new Map<string, Promise<EpgDeclaredChannels>>();
   private readonly panelEpg: ShortEpgCache | null;
 
   constructor(private readonly options: QueryServiceOptions) {
@@ -264,6 +330,7 @@ export class QueryService {
       guide: (req: GuideRequest): Promise<GuideRow[]> => this.guide(req),
       programme: (req: ProgrammeRequest): Promise<EpgProgramme | null> => this.programme(req),
       epgStatus: (): Promise<EpgStatus> => this.epgStatus(),
+      guideChannels: (req: GuideChannelsRequest): Promise<GuideChannelsPage> => this.guideChannels(req),
       unmatched: (req: UnmatchedRequest): Promise<UnmatchedPage> => this.unmatched(req),
       shortEpg: (req: ShortEpgRequest): Promise<ShortEpgNowNext> => this.shortEpg(req),
       account: (arg: { src: string }): Promise<AccountCheck | null> => this.account(arg.src),
@@ -315,9 +382,10 @@ export class QueryService {
 
   private async load(): Promise<void> {
     const db = await this.db();
-    // First, so that an edit of the offsets made while this load runs is ordered after it.
+    // First, so that an edit of the offsets or mappings made while this load runs is ordered after it.
     const offsetSeq = this.offsetSeq;
     const offsets = readEpgOffsets(db);
+    const overrides = readEpgOverrides(db);
     const sources = (await getSources(db)).sort((a, b) => (a.src < b.src ? -1 : a.src > b.src ? 1 : 0));
     const keys: { src: string; gen: number; kind: ContentKind }[] = [];
     for (const s of sources) if (s.gen > 0) for (const kind of CONTENT_KINDS) if ((s.counts[kind] ?? 0) > 0) keys.push({ src: s.src, gen: s.gen, kind });
@@ -337,14 +405,17 @@ export class QueryService {
       }
     });
     const epg = await this.loadEpg(db);
-    this.setOffsets(await offsets, offsetSeq);
+    this.setOffsets(await offsets, await overrides, offsetSeq);
     this.sources = sources;
     this.segments = segments;
     this.stale = stale;
     this.marks = null;
     this.epgLinks = epg.links;
+    // (A guide never read has generation 0, which holds nothing.)
+    this.epgActive = epg.metas.map((m) => ({ epgSrc: m.epgSrc, gen: m.gen }));
     this.version += 1;
     this.unmatchedIndexes = new Map();
+    this.declaredLists = new Map();
     this.loaded = true;
     // Chunks of replaced generations are never asked for again; drop them.
     const live = new Set(sources.map((s) => `${s.src}|${s.gen}|`));
@@ -376,11 +447,14 @@ export class QueryService {
     return { metas, links };
   }
 
-  /** Takes the offsets read or written at `seq`, unless ones from a later edit are held already. */
-  private setOffsets(offsets: Record<string, number>, seq: number): void {
+  /** Takes the offsets and mappings read or written at `seq`, unless ones from a later edit are held already. */
+  private setOffsets(offsets: Record<string, number>, overrides: readonly EpgOverride[], seq: number): void {
     if (seq < this.offsetsFrom) return;
     this.offsetsFrom = seq;
     this.epgOffsets = offsets;
+    const none = new Set<ContentKey>();
+    for (const o of overrides) if (o.channel === null) none.add(o.key);
+    this.noGuide = none;
   }
 
   /** A link's whole shift in minutes: its channel's tvg-shift and its guide's time offset. */
@@ -399,7 +473,63 @@ export class QueryService {
     const db = await this.db();
     const sources = (await getSources(db)).sort((a, b) => (a.src < b.src ? -1 : a.src > b.src ? 1 : 0));
     const guides = (await getEpgMetas(db)).sort((a, b) => a.rank - b.rank || (a.epgSrc < b.epgSrc ? -1 : a.epgSrc > b.epgSrc ? 1 : 0));
-    return { guides, matched: this.epgLinks.size, sources };
+    return { guides, matched: this.epgLinks.size, sources, mapping: epgMappingKey(await readEpgOverrides(db)) };
+  }
+
+  /**
+   * The manual mapping picker's search (step 24d): the XMLTV channels the active guides declare
+   * (or `req.epgSrc`'s alone) whose display names or id hold each word of `req.query`, normalized
+   * as the matcher normalizes names, guide by guide in priority order. Rejects an `offset` that
+   * isn't a whole number from 0, or a `limit` above `GUIDE_CHANNELS_MAX_ROWS`.
+   */
+  async guideChannels(req: GuideChannelsRequest): Promise<GuideChannelsPage> {
+    const { offset, limit } = req;
+    if (!(offset >= 0 && Math.floor(offset) === offset && limit >= 0 && limit <= GUIDE_CHANNELS_MAX_ROWS)) {
+      throw new RangeError(`A page of a guide's channels is up to ${GUIDE_CHANNELS_MAX_ROWS} rows from a whole row number`);
+    }
+    await this.ensureLoaded();
+    const version = this.version;
+    const guides = this.epgActive.filter((g) => req.epgSrc === undefined || g.epgSrc === req.epgSrc);
+    const lists = await Promise.all(guides.map((g) => this.declaredOf(g.epgSrc, g.gen)));
+    const words = wordsOf(normalizeName(req.query));
+    const rows: GuideChannel[] = [];
+    let count = 0;
+    lists.forEach((list, i) => {
+      const epgSrc = guides[i]!.epgSrc;
+      for (let c = 0; c < list.ids.length; c += 1) {
+        const search = list.search[c]!;
+        let found = true;
+        for (let w = 0; w < words.length && found; w += 1) found = search.indexOf(words[w]!) !== -1;
+        if (!found) continue;
+        if (count >= offset && count < offset + limit) rows.push({ epgSrc, id: list.ids[c]!, name: list.names[c]! });
+        count += 1;
+      }
+    });
+    return { version, count, offset, rows };
+  }
+
+  /** Guide `epgSrc`'s declared channels in generation `gen`, read once per reload. */
+  private declaredOf(epgSrc: string, gen: number): Promise<EpgDeclaredChannels> {
+    const lists = this.declaredLists;
+    const known = lists.get(epgSrc);
+    if (known !== undefined) return known;
+    const read = this.readDeclared(epgSrc, gen);
+    lists.set(epgSrc, read);
+    // A read that failed is tried again at the next ask.
+    read.catch(() => lists.delete(epgSrc));
+    return read;
+  }
+
+  /**
+   * A generation's declared channels; for one read before step 24d, which has none stored, the
+   * channels in use from its match table (the guide is read again with the next refresh).
+   */
+  private async readDeclared(epgSrc: string, gen: number): Promise<EpgDeclaredChannels> {
+    const db = await this.db();
+    const declared = await readEpgDeclared(db, epgSrc, gen);
+    if (declared !== null) return declared;
+    const [table] = await readEpgChannels(db, [{ epgSrc, gen }]);
+    return epgDeclared(table ? table.channels.map((c) => ({ id: c.id, name: c.name, names: [c.name] })) : []);
   }
 
   /**
@@ -563,7 +693,8 @@ export class QueryService {
     const [stored] = await this.nowNext([req.key], req.at);
     const base = stored ?? { key: req.key, epgSrc: null, channel: null, method: null, now: null, next: null };
     if (base.epgSrc !== null) return { ...base, from: 'guide', cached: false };
-    const target = this.panelEpg === null ? null : shortEpgTarget(req.url, req.source);
+    // Mapped to no guide by the user: the panel's guide isn't asked either.
+    const target = this.panelEpg === null || this.noGuide.has(req.key) ? null : shortEpgTarget(req.url, req.source);
     if (target === null || this.panelEpg === null) return { ...base, from: 'none', cached: false };
     const answer = await this.panelEpg.programmes(req.key, target);
     const nn = shortEpgNowNext(answer.programmes, req.at ?? this.clock());
@@ -603,7 +734,8 @@ export class QueryService {
    * Applies `edit` to the profile in one read-modify-write transaction, creating the profile when
    * there is none (onboarding's first answer does). Resolves `false` when nothing changed, or when
    * the stored profile is from a newer app version (never written over). The guides' time offsets
-   * the written document holds are applied at once (step 24b): the next read has them.
+   * the written document holds are applied at once (step 24b): the next read has them; so is a
+   * mapping to no guide (step 24d) in the short EPG. Other mappings need the guides read again.
    */
   async editProfile(edit: ProfileEdit): Promise<boolean> {
     const db = await this.db();
@@ -617,7 +749,7 @@ export class QueryService {
       },
       { create: true, now: this.clock() },
     );
-    if (wrote) this.setOffsets(epgOffsetsOf(written), seq);
+    if (wrote) this.setOffsets(epgOffsetsOf(written), epgOverridesOf(written), seq);
     return wrote;
   }
 

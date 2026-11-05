@@ -62,6 +62,7 @@ class FakeEngine implements GuidesEngine {
     guides: [meta('u~s1'), meta('u~g2', { gen: 0, failure: { code: 'http', status: 404 }, failedAt: 5 }), meta('s1:xmltv'), meta('s2:tvg0', { gen: 0 })],
     matched: 3,
     sources: [sourceMeta('s1'), sourceMeta('s2', ['http://lists.test/guide.xml'])],
+    mapping: '-',
   };
   readonly edits: ProfileEdit[] = [];
   profileCalls = 0;
@@ -303,14 +304,14 @@ describe('guideList', () => {
   });
 
   it('lists a source’s guide that has the user’s link once, as the user’s, and a guide never stored with nothing', () => {
-    const status: EpgStatus = { guides: [], matched: 0, sources: [sourceMeta('s1'), sourceMeta('s2', ['http://lists.test/guide.xml', 'http://guides.test/a.xml'])] };
+    const status: EpgStatus = { guides: [], matched: 0, sources: [sourceMeta('s1'), sourceMeta('s2', ['http://lists.test/guide.xml', 'http://guides.test/a.xml'])], mapping: '-' };
     const { rows } = guideList({ doc: doc([{ id: 'g1', url: PANEL_GUIDE }, { id: 'g2', url: 'http://guides.test/a.xml' }]), newer: false, migratedFrom: null }, status);
     expect(rows.map((r) => r.epgSrc)).toEqual(['u~g1', 'u~g2', 's2:tvg0']);
     expect(rows.every((r) => r.meta === null)).toBe(true);
   });
 
   it('is empty with no profile, and names nothing for a guide whose source is gone', () => {
-    const status: EpgStatus = { guides: [], matched: 0, sources: [] };
+    const status: EpgStatus = { guides: [], matched: 0, sources: [], mapping: '-' };
     expect(guideList(null, status)).toEqual({ rows: [], urls: [] });
     const gone = guideList({ doc: doc([], [PANEL]), newer: false, migratedFrom: null }, { ...status, sources: [sourceMeta('s9', ['http://x.test/g.xml'])] });
     expect(gone.rows.map((r) => r.epgSrc)).toEqual(['s1:xmltv']);
@@ -344,7 +345,7 @@ describe('the guides screen', () => {
   it('puts the focus on "Add a guide" when there is none, and when they could not be read', async () => {
     const engine = new FakeEngine();
     engine.doc = doc([], []);
-    engine.status = { guides: [], matched: 0, sources: [] };
+    engine.status = { guides: [], matched: 0, sources: [], mapping: '-' };
     const t = await opened(engine);
     expect(t.guides.status.value).toBe('ready');
     expect(t.at()).toBe('guides · header 0');
@@ -494,7 +495,7 @@ describe('the guides screen', () => {
   it('removes a guide: the focus stays on its place, and goes to "Add a guide" with the last one gone', async () => {
     const engine = new FakeEngine();
     engine.doc = doc([{ id: 's1', url: 'http://guides.test/a.xml' }, { id: 'g2', url: 'http://guides.test/b.xml' }], []);
-    engine.status = { guides: [], matched: 0, sources: [] };
+    engine.status = { guides: [], matched: 0, sources: [], mapping: '-' };
     const t = await opened(engine);
     await t.press('DOWN', 'OK', 'DOWN', 'DOWN', 'OK');
     expect(t.engine.edits).toEqual([{ kind: 'guide', change: { op: 'remove', id: 'g2' } }]);

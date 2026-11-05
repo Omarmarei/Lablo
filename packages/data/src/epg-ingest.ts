@@ -6,15 +6,17 @@
  * 1. Guides stored but no longer listed are deleted. Every other stored guide loses what a crashed
  *    refresh left behind and the past days it no longer needs, whether it is read this time or not.
  * 2. The wanted set is every live channel of every catalog source's active generation, read once
- *    per refresh. Its basis (the generations, the tier, the overrides and `EPG_INGEST_VERSION`)
- *    is stored with each guide: while it is the same, a guide whose server answers 304 or whose
- *    bytes hash the same is left as it is, and only its past days are pruned.
+ *    per refresh, with the user's manual mappings from the profile (step 24d, epg-overrides.ts).
+ *    Its basis (the generations, the tier, the mappings and `EPG_INGEST_VERSION`) is stored with
+ *    each guide: while it is the same, a guide whose server answers 304 or whose bytes hash the
+ *    same is left as it is, and only its past days are pruned.
  * 3. Fetch, FNV-1a, gunzip and UTF-8 as the catalog ingest does, into core's `EpgGuideReader`.
  *    Its buckets are written about 10 per transaction (fragments merged with the stored record),
  *    with the throttle's busy pause and low-tier duty cycle between batches.
  * 4. A guide cut short, or one that isn't XMLTV at all, fails (`format`); nothing is written then.
- * 5. Swap: the match table, then one transaction makes the new generation active (`onSwap`: the
- *    query worker reloads), and the previous one is deleted.
+ * 5. Swap: the match table and every XMLTV channel the guide declares (step 24d: a channel can be
+ *    mapped by hand to one nothing matched), then one transaction makes the new generation active
+ *    (`onSwap`: the query worker reloads), and the previous one is deleted.
  *
  * A failure before the swap abandons the new generation and keeps the active one; a crash keeps it
  * too, and the next refresh prunes what was half written. One guide's failure doesn't stop the
@@ -22,7 +24,7 @@
  */
 
 import type { CatalogItem, DeviceTier, EpgBucket, EpgOverride, EpgWantedChannel, ZoneOffset } from '@zoma/core';
-import { EPG_WINDOWS, EpgGuideReader, EpgWantedSet, epgWantedChannel, epgWindow, hash53Base36, panelZone } from '@zoma/core';
+import { EPG_WINDOWS, EpgGuideReader, EpgWantedSet, epgWantedChannel, epgWindow, panelZone } from '@zoma/core';
 import type { ByteTransport } from './bytes';
 import { Fnv1a, decodeUtf8, tapBytes } from './bytes';
 import type { FetchStamp, SourceMeta } from './catalog-store';
@@ -34,6 +36,7 @@ import {
   commitEpgGeneration,
   deleteEpgGeneration,
   deleteEpgSource,
+  epgDeclared,
   epgFirstDay,
   getEpgMeta,
   getEpgMetas,
@@ -43,12 +46,15 @@ import {
   pruneEpgGenerations,
   putEpgBuckets,
   putEpgChannels,
+  putEpgDeclared,
   setEpgRank,
 } from './epg-store';
+import { epgMappingKey } from './epg-overrides';
 import type { EpgGuide } from './epg-sources';
 import type { GunzipMode } from './gunzip';
 import { MaybeGunzip } from './gunzip';
 import { onSuccess, transact } from './idb';
+import { readEpgOverrides } from './profile';
 import type { IngestErrorCode } from './ingest-errors';
 import { IngestError, headerNumber, ingestError } from './ingest-errors';
 import type { CancelToken } from './rpc';
@@ -57,8 +63,11 @@ import { STORE } from './schema';
 import type { ThrottleStats } from './throttle';
 import { Throttle } from './throttle';
 
-/** Bump when reading or the stored bucket shape changes: unchanged guides are then read again. */
-export const EPG_INGEST_VERSION = 1;
+/**
+ * Bump when reading or the stored shape changes: unchanged guides are then read again. 2 (step
+ * 24d): every generation stores its guide's declared channels.
+ */
+export const EPG_INGEST_VERSION = 2;
 /** Buckets per write transaction. */
 export const EPG_WRITE_BATCH = 10;
 const PROGRESS_EVERY_MS = 250;
@@ -71,7 +80,7 @@ export interface EpgRefreshJob {
   tier: DeviceTier;
   /** UI languages, most preferred first (titles in them win). */
   languages?: string[];
-  /** The user's manual mappings (step 24). */
+  /** The user's manual mappings (step 24d) instead of the profile's (tests). */
   overrides?: EpgOverride[];
   /** Ignore validators and the byte hash: read every guide again. */
   force?: boolean;
@@ -142,8 +151,10 @@ export interface EpgIngestOptions {
 /** The live channels a refresh matches against, and what they were read from. */
 export interface EpgWanted {
   wanted: EpgWantedSet;
-  /** `EPG_INGEST_VERSION`, tier, catalog generations and overrides. */
+  /** `EPG_INGEST_VERSION`, tier, catalog generations and the mappings' key. */
   basis: string;
+  /** The mappings' key (`epgMappingKey`), stored with each guide read. */
+  mapping: string;
   sources: SourceMeta[];
 }
 
@@ -174,8 +185,9 @@ export async function readEpgWanted(db: IDBDatabase, tier: DeviceTier, overrides
     next(0);
   });
   const gens = sources.map((s) => `${s.src}:${s.gen}`).join(',');
-  const basis = `v${EPG_INGEST_VERSION}|${tier}|${gens}|${overrides.length === 0 ? '-' : hash53Base36(JSON.stringify(overrides))}`;
-  return { wanted: new EpgWantedSet(channels, overrides), basis, sources };
+  const mapping = epgMappingKey(overrides);
+  const basis = `v${EPG_INGEST_VERSION}|${tier}|${gens}|${mapping}`;
+  return { wanted: new EpgWantedSet(channels, overrides), basis, mapping, sources };
 }
 
 /** Writes buckets in batches and tracks the latest programme end. */
@@ -362,7 +374,8 @@ export async function runEpgIngest(
     const gen = writer.gen;
     const summary = summarize(reader, job.tier, nowMs);
     await putEpgChannels(db, epgSrc, gen, channelTable(reader, wanted.wanted));
-    const previous = await commitEpgGeneration(db, epgSrc, gen, now(), { fetch: stamp, basis: wanted.basis, until: writer.until, summary, rank });
+    await putEpgDeclared(db, epgSrc, gen, epgDeclared(reader.matcher.declaredChannels()));
+    const previous = await commitEpgGeneration(db, epgSrc, gen, now(), { fetch: stamp, basis: wanted.basis, mapping: wanted.mapping, until: writer.until, summary, rank });
     committed = true;
     options.onSwap?.({ epgSrc, gen, previous });
     // Best effort: a previous generation left behind is pruned by the next refresh.
@@ -406,7 +419,7 @@ export async function runEpgRefresh(job: EpgRefreshJob, options: EpgIngestOption
   }
   // Nothing to read (a guide was only removed or moved): the live items aren't read either.
   if (job.only !== undefined && job.only.length === 0) return { outcomes: [], deleted, reranked, wanted: 0 };
-  const wanted = await readEpgWanted(db, job.tier, job.overrides);
+  const wanted = await readEpgWanted(db, job.tier, job.overrides ?? (await readEpgOverrides(db)));
   const outcomes: EpgOutcome[] = [];
   for (let rank = 0; rank < job.guides.length; rank++) {
     const guide = job.guides[rank]!;

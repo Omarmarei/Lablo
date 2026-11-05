@@ -12,10 +12,13 @@
  * added and the onboarding answers. Version 3 (step 20c1) adds what the player keeps
  * (`PlayerMemoryDoc`). Version 4 (step 22b) keeps the user's guides as one list (`guides`),
  * moved from each source's `epgUrl`. Later steps add fields with a migration each, or as optional
- * fields that need none (`PlayerMemoryDoc.picture`, step 20c2b; `epgOffsets`, step 24b).
+ * fields that need none (`PlayerMemoryDoc.picture`, step 20c2b; `epgOffsets`, step 24b;
+ * `epgOverrides`, step 24d).
  */
 
-import type { CatalogItem, ContentKey, ContentKind, XtreamAccount } from '@zoma/core';
+import type { CatalogItem, ContentKey, ContentKind, EpgOverride, XtreamAccount } from '@zoma/core';
+import type { EpgPin } from './epg-overrides';
+import { epgOverridesOf, isEpgPin } from './epg-overrides';
 import type { UserGuide } from './epg-sources';
 import { epgOffsetsOf, isEpgOffset } from './epg-sources';
 import { onSuccess, transact } from './idb';
@@ -160,6 +163,13 @@ export type ProfileV4 = {
    * query worker reads it (`epgOffsetsOf`).
    */
   epgOffsets?: Record<string, number>;
+  /**
+   * The user's manual EPG mappings (step 24d), by live channel's ContentKey: a guide's XMLTV
+   * channel, or no guide (epg-overrides.ts). A channel without one has no entry, and is matched as
+   * the guides say. Optional, so version 4 documents written before it need no migration. The EPG
+   * worker reads it at each refresh, the query worker at each reload (`epgOverridesOf`).
+   */
+  epgOverrides?: Record<string, EpgPin>;
 };
 
 /** The current profile shape. */
@@ -269,7 +279,13 @@ export type ProfileEdit =
   /** The user's guide list (step 22b). */
   | { kind: 'guide'; change: GuideChange }
   /** A guide's time offset in minutes (step 24b): 0 takes it away; one that isn't an offset changes nothing. */
-  | { kind: 'epgOffset'; epgSrc: string; minutes: number };
+  | { kind: 'epgOffset'; epgSrc: string; minutes: number }
+  /**
+   * A live channel's manual EPG mapping (step 24d): a guide's XMLTV channel, or no guide
+   * (`channel: null`, whatever `epgSrc` says); `null` takes it away (the guides match it again).
+   * One that isn't a mapping changes nothing.
+   */
+  | { kind: 'epgOverride'; key: ContentKey; pin: EpgPin | null };
 
 const USER_GUIDE = 'u~';
 
@@ -281,6 +297,32 @@ function withOffset(offsets: Record<string, number> | undefined, epgSrc: string,
   const next: Record<string, number> = { ...offsets };
   if (minutes === 0) delete next[epgSrc];
   else next[epgSrc] = minutes;
+  return next;
+}
+
+/** `overrides` with `key`'s mapping set to `pin` (`null`: taken out), or `null` when it holds that already. */
+function withPin(overrides: Record<string, EpgPin> | undefined, key: ContentKey, pin: EpgPin | null): Record<string, EpgPin> | null {
+  // (ContentKeys hold `:`: never a name an object inherits.)
+  const before = overrides === undefined ? undefined : overrides[key];
+  if (before === undefined ? pin === null : pin !== null && before.epgSrc === pin.epgSrc && before.channel === pin.channel) return null;
+  const next: Record<string, EpgPin> = { ...overrides };
+  if (pin === null) delete next[key];
+  else next[key] = { epgSrc: pin.epgSrc, channel: pin.channel };
+  return next;
+}
+
+/** `overrides` without the mappings into guide `epgSrc`, or `null` when it has none. */
+function withoutGuide(overrides: Record<string, EpgPin> | undefined, epgSrc: string): Record<string, EpgPin> | null {
+  if (overrides === undefined) return null;
+  let next: Record<string, EpgPin> | null = null;
+  const keys = Object.keys(overrides);
+  for (let i = 0; i < keys.length; i += 1) {
+    const pin = overrides[keys[i]!]!;
+    // (A mapping to no guide names none: `epgSrc` is ''.)
+    if (pin.epgSrc !== epgSrc) continue;
+    if (next === null) next = { ...overrides };
+    delete next[keys[i]!];
+  }
   return next;
 }
 
@@ -364,9 +406,23 @@ export function applyProfileEdit(doc: ProfileDoc, edit: ProfileEdit): ProfileDoc
   if (edit.kind === 'guide') {
     const guides = applyGuideChange(doc.guides, edit.change);
     if (guides === null) return null;
-    // A removed guide's offset goes with it: its id may be given to a new guide later.
-    const offsets = edit.change.op === 'remove' ? withOffset(doc.epgOffsets, `${USER_GUIDE}${edit.change.id}`, 0) : null;
-    return offsets === null ? { ...doc, guides } : { ...doc, guides, epgOffsets: offsets };
+    if (edit.change.op !== 'remove') return { ...doc, guides };
+    // A removed guide's offset and the mappings into it go with it: its id may be given to a new
+    // guide later, and a channel mapped to a guide that is gone would never get one again.
+    const next: ProfileDoc = { ...doc, guides };
+    const epgSrc = `${USER_GUIDE}${edit.change.id}`;
+    const offsets = withOffset(doc.epgOffsets, epgSrc, 0);
+    if (offsets !== null) next.epgOffsets = offsets;
+    const overrides = withoutGuide(doc.epgOverrides, epgSrc);
+    if (overrides !== null) next.epgOverrides = overrides;
+    return next;
+  }
+  if (edit.kind === 'epgOverride') {
+    // A mapping to no guide is kept as `{ epgSrc: '', channel: null }`, whichever guide it names.
+    const pin = edit.pin === null ? null : edit.pin.channel === null ? { epgSrc: '', channel: null } : edit.pin;
+    if (pin !== null && !isEpgPin(pin)) return null;
+    const overrides = withPin(doc.epgOverrides, edit.key, pin);
+    return overrides === null ? null : { ...doc, epgOverrides: overrides };
   }
   if (edit.kind === 'epgOffset') {
     if (!isEpgOffset(edit.minutes)) return null;
@@ -547,6 +603,20 @@ export function readEpgOffsets(db: IDBDatabase): Promise<Record<string, number>>
     onSuccess(tx.objectStore(STORE.profile).get(CURRENT), (value) => {
       const record = value as ProfileRecord | undefined;
       done(epgOffsetsOf(record === undefined ? null : record.doc));
+    });
+  });
+}
+
+/**
+ * The user's manual EPG mappings in the current profile (step 24d; `epgOverridesOf`), read without
+ * upgrading or writing it: `[]` when there is no profile. The EPG worker reads them at each
+ * refresh, the query worker at each reload.
+ */
+export function readEpgOverrides(db: IDBDatabase): Promise<EpgOverride[]> {
+  return transact<EpgOverride[]>(db, STORE.profile, 'readonly', (tx, done) => {
+    onSuccess(tx.objectStore(STORE.profile).get(CURRENT), (value) => {
+      const record = value as ProfileRecord | undefined;
+      done(epgOverridesOf(record === undefined ? null : record.doc));
     });
   });
 }

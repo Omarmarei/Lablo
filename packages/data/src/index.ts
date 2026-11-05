@@ -48,6 +48,7 @@ export {
   migrateProfile,
   noPlayerMemory,
   readEpgOffsets,
+  readEpgOverrides,
   restoreSnapshot,
   saveProfile,
   updateProfile,
@@ -79,8 +80,26 @@ export {
 export type { CallOptions, CancelToken, RpcContext, RpcHandler, RpcHandlers, RpcPort, RpcServer } from './rpc';
 export { CancelError, CancelSource, NEVER, RpcClient, RpcError, serveRpc } from './rpc';
 
-export type { EpgNowNext, EpgStatus, GuideRequest, GuideRow, ItemRef, ProgrammeRequest, QueryServiceOptions, QueryStatus, SearchRequest, SegmentStatus, ShortEpgNowNext, UnmatchedChannel, UnmatchedPage, UnmatchedRequest } from './query-service';
-export { GUIDE_MAX_READS, QueryService, UNMATCHED_MAX_ROWS } from './query-service';
+export type {
+  EpgNowNext,
+  EpgStatus,
+  GuideChannel,
+  GuideChannelsPage,
+  GuideChannelsRequest,
+  GuideRequest,
+  GuideRow,
+  ItemRef,
+  ProgrammeRequest,
+  QueryServiceOptions,
+  QueryStatus,
+  SearchRequest,
+  SegmentStatus,
+  ShortEpgNowNext,
+  UnmatchedChannel,
+  UnmatchedPage,
+  UnmatchedRequest,
+} from './query-service';
+export { GUIDE_CHANNELS_MAX_ROWS, GUIDE_MAX_READS, QueryService, UNMATCHED_MAX_ROWS } from './query-service';
 
 export type { ByteRequest, ByteResponse, ByteSource, ByteTransport, FetchLike, TextSource } from './bytes';
 export { Fnv1a, NetworkError, decodeUtf8, fetchTransport, tapBytes } from './bytes';
@@ -97,13 +116,14 @@ export { FavouriteMatcher, MISSING_KEEP_MS, reconcileFavourites } from './favour
 export type { IngestErrorCode, IngestJob, IngestOptions, IngestProgress, IngestResult, IngestSource, IngestSwap } from './ingest';
 export { INGEST_VERSION, IngestError, WRITE_BATCH, runIngest } from './ingest';
 
-export type { EpgBucketKey, EpgChannelTable, EpgFailure, EpgMeta, EpgMetaPatch, EpgSummary, StoredEpgMatch } from './epg-store';
+export type { DeclaredChannel, EpgBucketKey, EpgChannelTable, EpgDeclaredChannels, EpgFailure, EpgMeta, EpgMetaPatch, EpgSummary, StoredEpgMatch } from './epg-store';
 export {
   abandonEpgGeneration,
   beginEpgGeneration,
   commitEpgGeneration,
   deleteEpgGeneration,
   deleteEpgSource,
+  epgDeclared,
   epgFirstDay,
   getEpgMeta,
   getEpgMetas,
@@ -114,10 +134,15 @@ export {
   pruneEpgGenerations,
   putEpgBuckets,
   putEpgChannels,
+  putEpgDeclared,
   readEpgBuckets,
   readEpgChannels,
+  readEpgDeclared,
   setEpgRank,
 } from './epg-store';
+
+export type { EpgPin } from './epg-overrides';
+export { NO_MAPPING, epgMappingKey, epgOverridesOf, isEpgPin } from './epg-overrides';
 
 export type { EpgCatalogSource, EpgDueReason, EpgGuide, UserGuide } from './epg-sources';
 export { EPG_AHEAD_MS, EPG_OFFSET_MAX, EPG_OFFSET_STEP, EPG_REFRESH_MS, EPG_RETRY_MS, epgGuides, epgOffsetsOf, epgRefreshDue, isEpgOffset } from './epg-sources';

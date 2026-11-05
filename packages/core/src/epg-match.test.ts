@@ -141,6 +141,20 @@ describe('EpgMatcher: the cascade', () => {
     expect(m.declareById('ONLY.programmes')).toBe(true);
   });
 
+  it('lists every declared channel, used or not, in declaration order (step 24d)', () => {
+    const a = liveItem('Zoma One', { epgId: 'only.programmes' });
+    const m = matcherFor([a], [channel('c2', 'Second'), channel('c1', 'First', 'Premier'), channel('c2', 'Deuxième'), channel('Zoma1', 'Zoma One')]);
+    m.declareById('nobody');
+    m.declareById('only.programmes');
+    expect(m.declaredChannels()).toEqual([
+      { type: 'channel', id: 'c2', name: 'Second', names: ['Second', 'Deuxième'], icon: null },
+      { type: 'channel', id: 'c1', name: 'First', names: ['First', 'Premier'], icon: null },
+      { type: 'channel', id: 'Zoma1', name: 'Zoma One', names: ['Zoma One'], icon: null },
+      { type: 'channel', id: 'only.programmes', name: 'only.programmes', names: [], icon: null },
+    ]);
+    expect(m.usedChannels().map((c) => c.id)).toEqual(['only.programmes']);
+  });
+
   it('reports catch-up days and tvg-shift of matched channels only', () => {
     const matched = liveItem('A', { epgId: 'a', catchup: { mode: null, days: 4, source: null }, tvgShift: -3 });
     const other = liveItem('B', { epgId: 'b', catchup: { mode: null, days: 7, source: null }, tvgShift: 5 });

@@ -17,7 +17,8 @@
  *   a change shows at once, with nothing downloaded or read again.
  * - **Due:** a guide is refreshed every 12 h, or sooner when its stored programmes end less than
  *   24 h ahead (but not more than every 2 h, or a guide that only ever covers a few hours would
- *   be fetched in a loop). After a failure it waits 2 h too.
+ *   be fetched in a loop). After a failure it waits 2 h too. A guide matched with other manual
+ *   mappings than the profile's (step 24d, epg-overrides.ts) is due at once.
  */
 
 import type { XtreamAccount } from '@zoma/core';
@@ -105,12 +106,18 @@ export function epgOffsetsOf(doc: unknown): Record<string, number> {
   return out;
 }
 
-export type EpgDueReason = 'new' | 'stale' | 'running-out';
+export type EpgDueReason = 'new' | 'mapping' | 'stale' | 'running-out';
 
-/** Why a guide should be refreshed now (`null`: it shouldn't). */
-export function epgRefreshDue(meta: EpgMeta | null | undefined, nowMs: number): EpgDueReason | null {
+/**
+ * Why a guide should be refreshed now (`null`: it shouldn't). `mapping` is the key of the
+ * profile's manual mappings (`EpgStatus.mapping`; `-`: none): a guide matched with others is due
+ * at once, unless it failed less than 2 h ago.
+ */
+export function epgRefreshDue(meta: EpgMeta | null | undefined, nowMs: number, mapping = '-'): EpgDueReason | null {
   if (meta && typeof meta.failedAt === 'number' && nowMs - meta.failedAt < EPG_RETRY_MS) return null;
   if (!meta || meta.gen === 0) return 'new';
+  // (A generation committed before step 24d has no key: it was matched with none.)
+  if ((meta.mapping ?? '-') !== mapping) return 'mapping';
   if (meta.checkedAt === null || nowMs - meta.checkedAt >= EPG_REFRESH_MS) return 'stale';
   if (nowMs - meta.checkedAt < EPG_RETRY_MS) return null;
   if (typeof meta.until !== 'number' || meta.until * MINUTE - nowMs < EPG_AHEAD_MS) return 'running-out';
