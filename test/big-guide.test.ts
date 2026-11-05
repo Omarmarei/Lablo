@@ -7,7 +7,8 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { bigCatalog, writeBigGuide } from '../e2e/big-catalog';
+import { DENSE_MINUTES, bigCatalog, denseProgrammes, gridGuide, writeBigGuide } from '../e2e/big-catalog';
+import { epgWindow } from '../packages/core/src/epg-guide';
 
 /** `20261104000000` (XMLTV, UTC) in ms. */
 function xmltvMs(stamp: string): number {
@@ -24,6 +25,19 @@ function programmes(xml: string, channel: string): Array<[number, number]> {
       const m = /start="(\d{14}) \+0000" stop="(\d{14}) \+0000"/.exec(line);
       return [xmltvMs(m![1]!), xmltvMs(m![2]!)] as [number, number];
     });
+}
+
+/** Every channel's programmes in the guide file, read in one pass. */
+function byChannel(xml: string): Map<string, Array<[number, number]>> {
+  const out = new Map<string, Array<[number, number]>>();
+  for (const line of xml.split('\n')) {
+    const m = /^<programme start="(\d{14}) \+0000" stop="(\d{14}) \+0000" channel="([^"]+)"/.exec(line);
+    if (m === null) continue;
+    const list = out.get(m[3]!) ?? [];
+    list.push([xmltvMs(m[1]!), xmltvMs(m[2]!)]);
+    out.set(m[3]!, list);
+  }
+  return out;
 }
 
 describe('the big catalog guide of the throttled run', () => {
@@ -49,5 +63,63 @@ describe('the big catalog guide of the throttled run', () => {
         expect(slots[on + 1], `${channel.epgId!}: a next programme at ${new Date(at).toISOString()}`).toBeDefined();
       }
     }
+  });
+});
+
+describe("the dense guide of the grid's throttled run (step 23d)", () => {
+  const catalog = bigCatalog({ channels: 300, categories: 3 });
+  const dir = mkdtempSync(path.join(tmpdir(), 'zoma-grid-guide-'));
+  const MINUTE_MS = 60_000;
+
+  it.each([
+    ['at midnight UTC', Date.UTC(2026, 10, 5, 0, 0, 0)],
+    ['in the evening', Date.UTC(2026, 10, 5, 19, 47, 13)],
+  ])('gives the first 200 rows programmes back to back over the full tier EPG window, started %s', (_when, now) => {
+    const dense = gridGuide(now);
+    expect(dense.channels).toBe(200);
+    const file = path.join(dir, `grid-${now}.xml`);
+    writeBigGuide(catalog, now, file, dense);
+    const guide = byChannel(readFileSync(file, 'utf8'));
+    // What the full tier's store keeps (a day back, 7 on), in ms.
+    const window = epgWindow(now, 'full', 0);
+    const lengths = new Set<number>();
+    for (let j = 0; j < catalog.live.length; j += 1) {
+      const channel = catalog.live[j]!;
+      if (channel.epgId === null) {
+        expect(guide.has(`big${j + 1}.zoma`)).toBe(false);
+        continue;
+      }
+      const slots = guide.get(channel.epgId) ?? [];
+      if (j >= dense.channels) {
+        expect(slots, channel.epgId).toHaveLength(4);
+        continue;
+      }
+      expect(slots[0]![0]).toBeLessThanOrEqual(window.from * MINUTE_MS);
+      expect(slots[0]![0]).toBeGreaterThan(dense.fromMs - 35 * MINUTE_MS);
+      expect(slots[slots.length - 1]![1]).toBeGreaterThanOrEqual(window.to * MINUTE_MS);
+      for (let i = 0; i < slots.length; i += 1) {
+        const [start, stop] = slots[i]!;
+        lengths.add((stop - start) / MINUTE_MS);
+        if (i > 0) expect(start, `${channel.epgId} ${i}`).toBe(slots[i - 1]![1]);
+      }
+      // A TV channel's density: about 33 programmes a day.
+      expect(slots.length / ((dense.toMs - dense.fromMs) / 86_400_000)).toBeGreaterThan(30);
+    }
+    expect([...lengths].sort((a, b) => a - b)).toEqual([...new Set(DENSE_MINUTES)].sort((a, b) => a - b));
+  });
+
+  it("draws neighbouring rows' programmes at different times, some across midnight", () => {
+    const now = Date.UTC(2026, 10, 5, 12, 0, 0);
+    const { fromMs, toMs } = gridGuide(now);
+    // The first programme to start after now, on each of 9 rows.
+    const next = new Set<number>();
+    let acrossMidnight = 0;
+    for (let id = 100_000; id < 100_009; id += 1) {
+      const rows = denseProgrammes(id, fromMs, toMs);
+      next.add(rows.find((p) => p.start > now)!.start);
+      acrossMidnight += rows.filter((p) => Math.floor(p.start / 86_400_000) !== Math.floor((p.stop - 1) / 86_400_000)).length;
+    }
+    expect(next.size).toBeGreaterThanOrEqual(5);
+    expect(acrossMidnight).toBeGreaterThan(0);
   });
 });

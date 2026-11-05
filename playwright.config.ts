@@ -29,9 +29,10 @@ export default defineConfig({
   },
   projects: [
     { name: 'chromium', testIgnore: /(throttled|lab-scale|lab-media|playback-media|player-media)\.spec\.ts$/ },
-    // The CPU-throttled timings (RELAY step 14b) run after every other test, one test at a
-    // time, so no other browser competes for the CPU while they measure.
-    { name: 'throttled', testMatch: /throttled\.spec\.ts$/, dependencies: ['chromium'], fullyParallel: false },
+    // The CPU-throttled timings (RELAY steps 14b and 23d) run after every other test, one test
+    // at a time (one worker: the live list's file and the grid's never overlap), so no other
+    // browser competes for the CPU while they measure.
+    { name: 'throttled', testMatch: /throttled\.spec\.ts$/, dependencies: ['chromium'], fullyParallel: false, workers: 1 },
     // S6 on the scale fixtures (needs `pnpm fixtures`; minutes, so never part of `pnpm e2e`).
     ...(LAB_SCALE ? [{ name: 'lab-scale', testMatch: /lab-scale\.spec\.ts$/, fullyParallel: false }] : []),
     // S5 on the generated media (needs `pnpm mock:media`, which pnpm test:media runs first; about 2 min).
