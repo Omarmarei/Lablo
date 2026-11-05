@@ -14,6 +14,7 @@ import { DB_NAME, STORE } from '../packages/data/src/schema';
 import { buildTizenKeyMap } from '../packages/platform-tizen/src/keys';
 import { webosKeyToIntent } from '../packages/platform-webos/src/index';
 import { GUIDE_LAYOUT, guideFits, guideWidth } from '../packages/ui/src/components/guide-layout';
+import { LAYOUT } from '../packages/ui/src/design/tokens';
 import { buildCss } from '../tools/build/src/css';
 import { dataChecks, fixtureEntries } from '../tools/engines/src/fixture';
 import { SAFE_AREA, VIEWPORT } from '../tools/engines/src/gallery';
@@ -31,6 +32,7 @@ import {
   guideWidth as harnessWidth,
 } from '../tools/engines/src/guide';
 import { CHANNELS_VISIBLE, LIVE_BOXES, LIVE_LABELS, LIVE_TEXT, LIVE_VIEW_FUNCTION, PLATFORM_BACK_STUB, TV_KEYS } from '../tools/engines/src/live';
+import { MOVIES_BOXES, MOVIES_GRID_SIZE, MOVIES_LABELS, MOVIES_LAYOUT, MOVIES_TEXT, MOVIES_VIEW_FUNCTION } from '../tools/engines/src/movies';
 import { APP_DATABASE, LAYOUT_BOXES, LAYOUT_LABELS, PLAYLIST_INPUT, SOURCE_NAME, WALK_EXPRESSION, guideSteps, onboardingUrl, playlistLink, walkSteps } from '../tools/engines/src/onboarding';
 import { CSS_SEEDS, GUIDE_CELL_X, WALK_SEEDS, seedCss } from '../tools/engines/src/variants';
 
@@ -235,7 +237,7 @@ describe('the grid guide of the old-engine harness (RELAY step 23e)', () => {
     for (const mark of ['[data-testid="guide"]', "'.z-guide__row'", "'.z-guide__cell'", "'.z-guide__slot'", "'.z-guide__now'", "'data-programme'", "'data-state'"]) expect(GRID_VIEW_FUNCTION).toContain(mark);
     expect(WALK_EXPRESSION).toContain(`var guide = document.querySelector('[data-testid="guide-screen"]');`);
     expect(WALK_EXPRESSION).toContain(`guide.getAttribute('data-pending') === '0'`);
-    expect(WALK_EXPRESSION).toContain('var shown = ob || live || guide;');
+    expect(WALK_EXPRESSION).toContain('var shown = ob || live || guide || movies;');
   });
 
   it("takes the cells' left: var(--x) and its mirror out of GuideGrid.css as the TV build makes it, and nothing else", async () => {
@@ -252,5 +254,74 @@ describe('the grid guide of the old-engine harness (RELAY step 23e)', () => {
     // The slot labels and the now line keep theirs, so only the cells move.
     expect(seeded.match(/(left|right): var\(--x\)/g)?.length).toBe(4);
     expect(built.replace(/\/\*[\s\S]*?\*\//g, '').match(/(left|right): var\(--x\)/g)?.length).toBe(6);
+  });
+});
+
+describe('the movies screen of the old-engine harness (RELAY step 26b)', () => {
+  it("measures against packages/ui's poster size, the movies screen's grid and the live frame it shares", () => {
+    expect([MOVIES_LAYOUT.posterWidth, MOVIES_LAYOUT.posterHeight]).toEqual([LAYOUT.posterWidth, LAYOUT.posterHeight]);
+    const state = read('apps/tv/src/movies/movies-state.ts');
+    for (const mark of [`columns: ${MOVIES_LAYOUT.columns},`, `tileGap: ${MOVIES_LAYOUT.tileGap},`, `rowGap: ${MOVIES_LAYOUT.rowGap},`, 'export const MOVIES_ROWS = fits(LIVE_BODY, LAYOUT.posterHeight, MOVIES.rowGap);']) {
+      expect(state, mark).toContain(mark);
+    }
+    const live = read('apps/tv/src/live/live-state.ts');
+    for (const mark of ['headerHeight: 56,', 'headerGap: 24,', `railWidth: ${MOVIES_LAYOUT.railWidth},`, `columnGap: ${MOVIES_LAYOUT.railGap},`]) expect(live, mark).toContain(mark);
+    expect(MOVIES_LAYOUT.header).toBe(56 + 24);
+    // The rows that fit the body under the header: 3.
+    const body = VIEWPORT.height - 2 * SAFE_AREA.top - MOVIES_LAYOUT.header;
+    expect(Math.floor((body + MOVIES_LAYOUT.rowGap) / (MOVIES_LAYOUT.posterHeight + MOVIES_LAYOUT.rowGap))).toBe(MOVIES_LAYOUT.rows);
+    // movies.css draws the rail and its gap so; the e2e measures the same tiles.
+    expect(read('apps/tv/src/movies/movies.css')).toContain(`.movies__rail {
+  flex: none;
+  width: ${MOVIES_LAYOUT.railWidth}px;
+  margin-right: ${MOVIES_LAYOUT.railGap}px;
+}`);
+    expect(read('e2e/movies.spec.ts')).toContain(`expect(grid.tiles[COLUMNS]!.top - first.top).toBeCloseTo(${MOVIES_LAYOUT.posterHeight} + ${MOVIES_LAYOUT.rowGap}, 0);`);
+    expect(MOVIES_GRID_SIZE.width).toBe(6 * 184 + 5 * 24);
+  });
+
+  it("expects our own words as the catalogs have them, and opens the screen by the header's second button", () => {
+    expect(MOVIES_TEXT.en).toEqual({ open: EN['movies.open'], all: EN['movies.all'] });
+    expect(MOVIES_TEXT.ar).toEqual({ open: AR['movies.open'], all: AR['movies.all'] });
+    expect(read('apps/tv/src/live/live-state.ts')).toContain('export const HEADER_MOVIES = 1;');
+    expect(read('apps/tv/src/live/LiveApp.tsx')).toContain("<Button label={t('movies.open')} {...header.item(HEADER_MOVIES)} testId=\"live-movies\" />");
+    expect(walkSteps('en', '', 'tizen').find((s) => s.id === 'movies-to')?.expect).toMatchObject({ zone: 'header', index: 1 });
+  });
+
+  it('reads the marks the movies screen, its grid and its tiles draw', () => {
+    const marks: Array<[string, string[]]> = [
+      [
+        'apps/tv/src/movies/MoviesScreen.tsx',
+        [
+          'data-testid="movies-screen"',
+          'data-status={status}',
+          'data-pending={movies.pending.value}',
+          'data-category={shown}',
+          'data-screen={focus.screen}',
+          'data-zone={focus.zone}',
+          'data-index={focus.index}',
+          'data-testid="movies-meta"',
+          '<span class="movies__category"',
+          '<span data-n={entry.count}>',
+          'testId="movies-rail"',
+          'testId="movies-grid"',
+          'class="movies__header"',
+        ],
+      ],
+      ['apps/tv/src/movies/movies-state.ts', ["export const MOVIES_SCREEN = 'movies';", "export const MOVIES_RAIL = 'rail';", "export const MOVIES_GRID = 'grid';"]],
+      ['packages/ui/src/components/VirtualGrid.tsx', ['data-testid={testId}', 'data-top={from}', 'data-count={count}', 'data-columns={columns}', '<div key={i} class="z-vgrid__item" data-index={i}', '<div key={r} class="z-vgrid__row" data-row={r}']],
+      ['packages/ui/src/components/Tile.tsx', ['<img class="z-tile__image" src={image}']],
+    ];
+    for (const [file, wanted] of marks) {
+      const source = read(file);
+      for (const mark of wanted) expect(source, `${file}: ${mark}`).toContain(mark);
+    }
+    for (const mark of ['[data-testid="movies-grid"]', '[data-testid="movies-rail"]', "'.z-vgrid__item'", "'.z-tile__title'", "'is-focused'", "'is-selected'", "'.movies__category'", "'data-top'", "'data-columns'"]) {
+      expect(MOVIES_VIEW_FUNCTION).toContain(mark);
+    }
+    expect(WALK_EXPRESSION).toContain(`var movies = document.querySelector('[data-testid="movies-screen"]');`);
+    expect(WALK_EXPRESSION).toContain(`movies.getAttribute('data-pending') === '0'`);
+    expect(MOVIES_BOXES).toBe('.z-chip, .z-tile, .movies__header > *');
+    expect(MOVIES_LABELS).toBe('.movies__title, .movies__clock, .z-chip__label:not([translate="no"])');
   });
 });

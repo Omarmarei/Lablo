@@ -2,11 +2,12 @@ import { runInNewContext } from 'node:vm';
 import { parse } from 'acorn';
 import { describe, expect, it } from 'vitest';
 import type { CdpClient } from './cdp';
-import { fixtureEntries, liveCategories } from './fixture';
+import { fixtureEntries, liveCategories, movieCategories } from './fixture';
 import type { GridCell } from './guide';
 import { drawnGrid } from './guide-drawn';
 import type { LiveView } from './live';
 import { CHANNELS_VISIBLE, LIVE_CATEGORY, LIVE_TEXT, PLATFORM_BACK_STUB, listedEntry, programmeTitle } from './live';
+import { drawnMovies } from './movies-drawn';
 import type { StepRecord, StoredProfile, Walk, WalkLanguage, WalkState, WalkStep } from './onboarding';
 import {
   BLANK_URL,
@@ -26,12 +27,14 @@ import {
   describeState,
   drawnPath,
   GUIDE_ENTRY,
+  FILMS_ENTRY,
   evaluateOnboarding,
   evaluateWalk,
   guideFailures,
   guideSteps,
   liveSteps,
   matches,
+  moviesSteps,
   onboardingUrl,
   playlistLink,
   profileFailures,
@@ -49,7 +52,8 @@ import type { TvPlatform } from './scenario';
 const URL = onboardingUrl('app', 'tizen');
 const LINK = playlistLink({ file: 'playlist.m3u' });
 const CATEGORIES = liveCategories(fixtureEntries());
-const CHECK = { live: 2400, movies: 600, categories: CATEGORIES };
+const FILMS = movieCategories(fixtureEntries());
+const CHECK = { live: 2400, movies: 600, categories: CATEGORIES, films: FILMS };
 const UA53 = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.0 Safari/537.36';
 /** 14:30 UTC: the fixture guide's `… 14h` programmes are on now, `… 15h` next. */
 const CLOCK = Date.UTC(2026, 10, 4, 14, 30);
@@ -115,6 +119,11 @@ const BASE: WalkState = {
   time: null,
   gridTop: null,
   grid: null,
+  movies: false,
+  moviesIdle: false,
+  moviesCategory: null,
+  moviesTop: null,
+  films: null,
 };
 
 /** CLOCK in minutes: the guide opens on it. */
@@ -159,6 +168,14 @@ function landed(step: WalkStep, language: WalkLanguage = 'en'): WalkState {
     const grid = drawnGrid({ language, entry: listedEntry(CATEGORIES, GUIDE_ENTRY)!, top, index: step.expect.index ?? 0, time: at.time, view: at.view, now: NOW });
     return patch(base, { editing: null, onboarding: false, time: at.time, grid });
   }
+  if (step.expect.movies === true) {
+    const category = step.expect.moviesCategory ?? 0;
+    // The rail keeps the grid's rows where they were (rows 3-5 after CH−, on the first entry).
+    const top = step.expect.moviesTop ?? (category === 0 ? 3 : 0);
+    const zone = step.expect.zone === 'rail' ? 'rail' : 'grid';
+    const films = drawnMovies({ language, categories: FILMS, category, top, zone, index: step.expect.index ?? 0 });
+    return patch(base, { editing: null, onboarding: false, moviesCategory: category, moviesTop: top, films });
+  }
   if (step.expect.live === true) {
     const category = step.expect.category ?? 0;
     const top = step.expect.top ?? 0;
@@ -188,7 +205,7 @@ function walk(language: WalkLanguage, overrides: Partial<Walk> = {}, platform: T
       .map((step) => record(step, landed(step, language))),
     phases: ['checking', 'download', 'saving', 'guide'],
     profile: PROFILE[language],
-    screenshots: ['form.png', 'done.png', 'live.png', 'category.png', 'exit.png', 'guide.png', 'guide-later.png', 'guide-earlier.png'],
+    screenshots: ['form.png', 'done.png', 'live.png', 'category.png', 'exit.png', 'guide.png', 'guide-later.png', 'guide-earlier.png', 'movies.png', 'movies-category.png'],
     screenshotError: null,
     ...overrides,
   };
@@ -314,8 +331,23 @@ describe('walkSteps', () => {
       'ArrowLeft',
       'ArrowLeft',
       'Back',
+      'ChannelUp',
+      'ArrowUp',
+      'ArrowUp',
+      'ArrowRight',
+      'Enter',
+      'ArrowDown',
+      'ChannelDown',
+      'ArrowRight',
+      'ArrowLeft',
+      'ArrowLeft',
+      'ArrowDown',
+      'ArrowDown',
+      'Enter',
+      'Back',
+      'Back',
     ]);
-    const tail = [...liveSteps('en', 'webos'), ...guideSteps('en', 'webos')];
+    const tail = [...liveSteps('en', 'webos'), ...guideSteps('en', 'webos'), ...moviesSteps('en', 'webos')];
     expect(walkSteps('en', LINK, 'webos').slice(-tail.length)).toEqual(tail);
   });
 
@@ -349,13 +381,14 @@ describe('walkSteps', () => {
     expect(stepOf('add')).toMatchObject({ wait: 'load', shot: 'done', layout: 'done' });
   });
 
-  it('measures the six screens of the e2e test on the way, then the live screen, its next window, a category, (Tizen) the exit dialog and the guide', () => {
+  it('measures the six screens of the e2e test on the way, then the live screen, its next window, a category, (Tizen) the exit dialog, the guide and the movies screen', () => {
     const six = ['language', 'disclaimer', 'consent', 'source', 'form', 'done'];
     const guide = ['guide', 'paged guide', 'later guide', 'earlier guide'];
-    expect(walkSteps('ar', LINK, 'tizen').flatMap((s) => (s.layout === undefined ? [] : [s.layout]))).toEqual([...six, 'live', 'paged live', 'category', 'exit dialog', ...guide]);
-    expect(walkSteps('en', LINK, 'webos').flatMap((s) => (s.layout === undefined ? [] : [s.layout]))).toEqual([...six, 'live', 'paged live', 'category', ...guide]);
-    expect(walkSteps('en', LINK, 'tizen').flatMap((s) => (s.shot === undefined ? [] : [s.shot]))).toEqual(['form', 'done', 'live', 'category', 'exit', 'guide', 'guide-later', 'guide-earlier']);
-    expect(walkSteps('en', LINK, 'webos').flatMap((s) => (s.shot === undefined ? [] : [s.shot]))).toEqual(['form', 'done', 'live', 'category', 'guide', 'guide-later', 'guide-earlier']);
+    const movies = ['movies', 'paged movies', 'movies category'];
+    expect(walkSteps('ar', LINK, 'tizen').flatMap((s) => (s.layout === undefined ? [] : [s.layout]))).toEqual([...six, 'live', 'paged live', 'category', 'exit dialog', ...guide, ...movies]);
+    expect(walkSteps('en', LINK, 'webos').flatMap((s) => (s.layout === undefined ? [] : [s.layout]))).toEqual([...six, 'live', 'paged live', 'category', ...guide, ...movies]);
+    expect(walkSteps('en', LINK, 'tizen').flatMap((s) => (s.shot === undefined ? [] : [s.shot]))).toEqual(['form', 'done', 'live', 'category', 'exit', 'guide', 'guide-later', 'guide-earlier', 'movies', 'movies-category']);
+    expect(walkSteps('en', LINK, 'webos').flatMap((s) => (s.shot === undefined ? [] : [s.shot]))).toEqual(['form', 'done', 'live', 'category', 'guide', 'guide-later', 'guide-earlier', 'movies', 'movies-category']);
   });
 });
 
@@ -489,6 +522,80 @@ describe('guideSteps', () => {
       ['guide-later', 'guide-later'],
       ['guide-earlier', 'guide-earlier'],
     ]);
+  });
+});
+
+describe('moviesSteps (RELAY step 26b)', () => {
+  const codes = (platform: TvPlatform, language: WalkLanguage = 'en'): number[] => moviesSteps(language, platform).flatMap((s) => (s.keys ?? []).map((k) => k.keyCode));
+
+  it("goes up to the header's second button, OK, then through the grid and the rail with the TV's own CH+, CH− and Back", () => {
+    expect(codes('tizen')).toEqual([427, 38, 38, 39, 13, 40, 428, 39, 37, 37, 40, 40, 13, 10009, 10009]);
+    expect(codes('webos')).toEqual([33, 38, 38, 39, 13, 40, 34, 39, 37, 37, 40, 40, 13, 461, 461]);
+  });
+
+  it('goes along the header and the rows with LEFT in Arabic, and to the rail with RIGHT', () => {
+    expect(codes('webos', 'ar')).toEqual([33, 38, 38, 37, 13, 40, 34, 37, 39, 39, 40, 40, 13, 461, 461]);
+    expect(moviesSteps('ar', 'tizen').find((s) => s.id === 'movies-rail')?.label).toBe('ArrowRight twice to the rail');
+  });
+
+  it("starts where the guide steps end, and opens the header's second button", () => {
+    for (const platform of ['tizen', 'webos'] as const) expect(guideSteps('en', platform).at(-1)?.expect).toMatchObject({ screen: 'live', zone: 'channels', index: 10, category: GUIDE_ENTRY });
+    expect(stepOf('movies-list').expect).toEqual({ screen: 'live', zone: 'channels', index: 0, live: true, liveIdle: true, category: GUIDE_ENTRY, top: 0 });
+    expect(stepOf('movies-to').expect).toEqual({ screen: 'live', zone: 'header', index: 1, live: true, liveIdle: true, category: GUIDE_ENTRY });
+    // Back on the rail closes the screen on "Movies".
+    expect(stepOf('movies-close', 'webos', 'ar').expect).toEqual({ screen: 'live', zone: 'header', index: 1, live: true, liveIdle: true, category: GUIDE_ENTRY, movies: false });
+  });
+
+  it('expects the screen settled at every step in it, in the language walked, a page of 3 rows on CH−, and the Arabic category', () => {
+    const inside = moviesSteps('ar', 'webos').filter((s) => s.expect.screen === 'movies');
+    expect(inside.map((s) => [s.id, s.expect.zone, s.expect.index, s.expect.moviesCategory, s.expect.moviesTop])).toEqual([
+      ['movies-open', 'grid', 0, 0, 0],
+      ['movies-down', 'grid', 6, 0, 0],
+      ['movies-page', 'grid', 24, 0, 3],
+      ['movies-next', 'grid', 25, 0, 3],
+      ['movies-rail', 'rail', 0, 0, 3],
+      ['movies-pick', 'rail', FILMS_ENTRY, 0, undefined],
+      ['movies-category', 'grid', 0, FILMS_ENTRY, 0],
+      ['movies-back', 'rail', FILMS_ENTRY, FILMS_ENTRY, undefined],
+    ]);
+    for (const step of inside) {
+      expect(step.expect).toMatchObject({ movies: true, moviesIdle: true, language: 'ar', dir: 'rtl' });
+      expect(step.wait).toBe('live');
+    }
+    expect(inside.filter((s) => s.films === true).map((s) => s.id)).toEqual(['movies-open', 'movies-down', 'movies-page', 'movies-next', 'movies-rail', 'movies-category', 'movies-back']);
+    expect(FILMS[FILMS_ENTRY - 1]?.name).toBe('أفلام عربية');
+  });
+
+  it('measures the screen as it opens, after CH− and on the Arabic category, and saves the first and the last', () => {
+    const steps = moviesSteps('en', 'tizen');
+    expect(steps.filter((s) => s.layout !== undefined).map((s) => [s.id, s.layout])).toEqual([
+      ['movies-open', 'movies'],
+      ['movies-page', 'paged movies'],
+      ['movies-category', 'movies category'],
+    ]);
+    expect(steps.filter((s) => s.shot !== undefined).map((s) => [s.id, s.shot])).toEqual([
+      ['movies-open', 'movies'],
+      ['movies-category', 'movies-category'],
+    ]);
+  });
+
+  it("fails a walk whose movies screen draws a tile out of place or misses a poster, naming the step", () => {
+    const shifted = changedAt('en', 'movies-page', (s) => ({ films: { ...s.films!, tiles: s.films!.tiles.map((t) => (t.index === 20 ? { ...t, left: t.left + 30, right: t.right + 30 } : t)) } }));
+    expect(evaluateWalk(shifted, CHECK)).toEqual([
+      "CH− (key 428) in the grid: 1 misplaced: tile 20 starts 446 px from the grid's inline start, expected 416",
+      'CH− (key 428) in the grid: 1 of 18 tiles wrong: tile 20 (Zoma Film 2421): the poster is drawn at 176x268 px, outside its tile',
+    ]);
+    const blank = changedAt('ar', 'movies-category', (s) => ({ films: { ...s.films!, tiles: s.films!.tiles.map((t) => (t.index === 0 ? { ...t, poster: null } : t)) } }));
+    expect(evaluateWalk(blank, CHECK)).toEqual(['OK on category 2: 1 of 18 tiles wrong: tile 0 (فيلم زوما 2701): no poster']);
+    // A step without the check (the rail pick) is not measured.
+    expect(evaluateWalk(changedAt('en', 'movies-pick', (s) => ({ films: { ...s.films!, tiles: [] } })), CHECK)).toEqual([]);
+  });
+
+  it('stops a walk whose movies screen never settled, and says so', () => {
+    const walk = stoppedAt('en', 'movies-open', { moviesIdle: false });
+    expect(evaluateWalk(walk, CHECK)[0]).toBe(
+      'OK on "Movies": expected movies · grid 0, language en, dir="ltr", the movies screen, its reads and posters done, movies category 0, rows from 0; saw movies · grid 0, the movies screen, its reads or posters still running: category 0, rows from 0, no DOM focus, language en, dir="ltr"',
+    );
   });
 });
 

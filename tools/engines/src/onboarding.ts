@@ -31,8 +31,15 @@
  *    the list. At each step every cell, slot label and the now line is measured against
  *    GUIDE_LAYOUT from the timeline's inline start, the cells are checked against the fixture's
  *    guide, and the archive marks against its channels' catch-up (`markFailures`).
+ * 8. The movies screen (RELAY step 26b, movies.ts): CH+ and up to the list's first channel, up to
+ *    the header, along it to "Movies" (RIGHT, or LEFT in Arabic), OK; then ArrowDown, CH− (a page
+ *    of 3 rows), a tile along the row, twice towards the inline start to the rail, down to the
+ *    Arabic category, OK, Back to the rail and Back to the header. At each step in the screen its
+ *    grid is measured against MOVIES_LAYOUT from the inline start, each tile's title and poster
+ *    checked against the fixture (the posters drawn, decoded at their files' size; the movies
+ *    without one, or whose poster fails, show the title), and the rail and the focused tile.
  * Each screen on the way is measured as in the e2e test (1920x1080, the safe area, no label
- * cut), and the form, done, live, category, (Tizen) exit and guide screens are saved as
+ * cut), and the form, done, live, category, (Tizen) exit, guide and movies screens are saved as
  * screenshots.
  * At every step the focus engine (`window.__ZOMA_TEST__`, step 14b) and the screen drawing it
  * must agree.
@@ -45,12 +52,14 @@ import path from 'node:path';
 import type { CdpClient } from './cdp';
 import type { Engine } from './engines';
 import { chromeMajor } from './engines';
-import type { DataCheck, ListedCategory } from './fixture';
+import type { DataCheck, ListedCategory, ListedFilmCategory } from './fixture';
 import { FIXTURE_ORIGIN } from './fixture';
 import { SAFE_AREA, VIEWPORT, list } from './gallery';
 import type { GridView } from './guide';
 import { GRID_VIEW_FUNCTION, GUIDE_BOXES, GUIDE_LABELS, GUIDE_ROWS, GUIDE_SLOT, GUIDE_SPAN, cursorFailures, gridFailures, markFailures, programmeStart, scheduleFailures, utcTime } from './guide';
 import type { LiveView } from './live';
+import type { MoviesView } from './movies';
+import { MOVIES_BOXES, MOVIES_LABELS, MOVIES_VIEW_FUNCTION, moviesFailures } from './movies';
 import { CHANNELS_VISIBLE, LIVE_BOXES, LIVE_CATEGORY, LIVE_LABELS, LIVE_VIEW_FUNCTION, PLATFORM_BACK_STUB, TV_KEYS, listedEntry, railFailures, rowFailures, rowsFilled, unfilledRows } from './live';
 import type { RunOptions, TvPlatform } from './scenario';
 import { FONT_FACES_FUNCTION, delay, evaluateFonts, fontsSettled, pressKey, readProbe, waitForProbe, watchErrors } from './scenario';
@@ -115,6 +124,15 @@ export interface WalkState extends LiveView {
   readonly gridTop: number | null;
   /** The grid as drawn (null: no guide screen). */
   readonly grid: GridView | null;
+  /** `[data-testid=movies-screen][data-status=ready]`: the movies screen shows its grid (RELAY step 26b). */
+  readonly movies: boolean;
+  /** The movies screen has no read, rest or poster download in flight (`data-pending="0"`). */
+  readonly moviesIdle: boolean;
+  /** The movies screen's rail entry on show and its grid's first row (null elsewhere). */
+  readonly moviesCategory: number | null;
+  readonly moviesTop: number | null;
+  /** The movies screen as drawn (null: none). */
+  readonly films: MoviesView | null;
   /** `data-screen`, `data-zone`, `data-index` and `data-language` of onboarding, the live screen or the guide; onboarding's `data-editing`. */
   readonly screen: string | null;
   readonly zone: string | null;
@@ -147,6 +165,7 @@ export const WALK_EXPRESSION = `(function () {
   ${FONT_FACES_FUNCTION}
   ${LIVE_VIEW_FUNCTION}
   ${GRID_VIEW_FUNCTION}
+  ${MOVIES_VIEW_FUNCTION}
   var SAFE = ${JSON.stringify(SAFE_AREA)};
   function all(selector) {
     return Array.prototype.slice.call(document.querySelectorAll(selector));
@@ -162,17 +181,19 @@ export const WALK_EXPRESSION = `(function () {
   var ob = document.querySelector('[data-testid="onboarding"]');
   var live = document.querySelector('[data-testid="live"]');
   var guide = document.querySelector('[data-testid="guide-screen"]');
-  var shown = ob || live || guide;
+  var movies = document.querySelector('[data-testid="movies-screen"]');
+  var shown = ob || live || guide || movies;
   var outside = [];
-  all(live ? '${LIVE_BOXES}' : guide ? '${GUIDE_BOXES}' : '${LAYOUT_BOXES}').forEach(function (el) {
+  all(live ? '${LIVE_BOXES}' : guide ? '${GUIDE_BOXES}' : movies ? '${MOVIES_BOXES}' : '${LAYOUT_BOXES}').forEach(function (el) {
     var r = el.getBoundingClientRect();
     if (r.left < SAFE.left || r.top < SAFE.top || r.right > SAFE.right + 0.5 || r.bottom > SAFE.bottom + 0.5) outside.push(name(el));
   });
-  var cut = all(live ? '${LIVE_LABELS}' : guide ? '${GUIDE_LABELS}' : '${LAYOUT_LABELS}')
+  var cut = all(live ? '${LIVE_LABELS}' : guide ? '${GUIDE_LABELS}' : movies ? '${MOVIES_LABELS}' : '${LAYOUT_LABELS}')
     .filter(function (el) { return el.scrollWidth > el.clientWidth + 1; })
     .map(name);
   var view = liveView(live);
   var grid = gridView(guide);
+  var films = moviesView(movies);
   var time = guide ? guide.getAttribute('data-time') : null;
   var hook = window.__ZOMA_TEST__;
   var liveCount = live ? live.querySelector('[data-testid="live-meta"] [data-n]') : null;
@@ -196,6 +217,11 @@ export const WALK_EXPRESSION = `(function () {
     time: time === null || time === '' ? null : Number(time),
     gridTop: grid ? grid.top : null,
     grid: grid,
+    movies: movies !== null && movies.getAttribute('data-status') === 'ready',
+    moviesIdle: movies !== null && movies.getAttribute('data-status') === 'ready' && movies.getAttribute('data-pending') === '0',
+    moviesCategory: films ? films.category : null,
+    moviesTop: films ? films.top : null,
+    films: films,
     screen: shown ? shown.getAttribute('data-screen') : null,
     zone: shown ? shown.getAttribute('data-zone') : null,
     index: shown && shown.hasAttribute('data-index') ? Number(shown.getAttribute('data-index')) : null,
@@ -326,11 +352,16 @@ export interface Expectation {
   readonly guideIdle?: boolean;
   readonly gridTop?: number;
   readonly time?: number;
+  /** The movies screen: it shows and has settled, the rail entry on show, the grid's first row. */
+  readonly movies?: boolean;
+  readonly moviesIdle?: boolean;
+  readonly moviesCategory?: number;
+  readonly moviesTop?: number;
 }
 
 export type Key = { readonly key: string; readonly keyCode: number };
-/** The screens a walk saves: the typed form, the done screen, the live screen, a category, the exit dialog (Tizen), the guide as it opens and later on. */
-export type WalkShot = 'form' | 'done' | 'live' | 'category' | 'exit' | 'guide' | 'guide-later' | 'guide-earlier';
+/** The screens a walk saves: the typed form, the done screen, the live screen, a category, the exit dialog (Tizen), the guide as it opens, later on and earlier, and the movies screen and a category of it. */
+export type WalkShot = 'form' | 'done' | 'live' | 'category' | 'exit' | 'guide' | 'guide-later' | 'guide-earlier' | 'movies' | 'movies-category';
 const KEY = {
   enter: { key: 'Enter', keyCode: 13 },
   up: { key: 'ArrowUp', keyCode: 38 },
@@ -375,7 +406,19 @@ export type StepId =
   | 'guide-page'
   | 'guide-later'
   | 'guide-earlier'
-  | 'guide-back';
+  | 'guide-back'
+  | 'movies-list'
+  | 'movies-header'
+  | 'movies-to'
+  | 'movies-open'
+  | 'movies-down'
+  | 'movies-page'
+  | 'movies-next'
+  | 'movies-rail'
+  | 'movies-pick'
+  | 'movies-category'
+  | 'movies-back'
+  | 'movies-close';
 
 /**
  * How a step checks the grid once there (RELAY step 23e): `open`, the screen as it opens (the
@@ -407,6 +450,8 @@ export interface WalkStep {
   readonly rows?: boolean;
   /** Check the guide's grid once there: its geometry, its rows against the fixture, the focus. */
   readonly grid?: GridCheck;
+  /** Check the movies screen once there: its grid's geometry, its tiles and posters against the fixture, the rail, the focus. */
+  readonly films?: boolean;
   /**
    * The keys move the guide's time cursor this many programmes on, along a row with the
    * fixture's hourly programmes: the step expects the cursor at that programme's start, worked
@@ -503,7 +548,7 @@ export function walkSteps(language: WalkLanguage, link: string, platform: TvPlat
       wait: 'boot',
     },
   );
-  steps.push(...liveSteps(language, platform), ...guideSteps(language, platform));
+  steps.push(...liveSteps(language, platform), ...guideSteps(language, platform), ...moviesSteps(language, platform));
   return steps;
 }
 
@@ -559,6 +604,63 @@ export function guideSteps(language: WalkLanguage, platform: TvPlatform): WalkSt
       wait: 'live',
     },
     { id: 'guide-back', label: `Back (key ${tv.back.keyCode}) to the list`, keys: [tv.back], expect: onLive('channels', paged, { category: GUIDE_ENTRY }), rows: true, wait: 'live' },
+  ];
+}
+
+/** The movies screen's rail entry the walk opens: the fixture's Arabic movies (fixture.ts `ARABIC_FILMS`). */
+export const FILMS_ENTRY = 2;
+/** The grid's columns and rows in view (apps/tv `MOVIES.columns`, `MOVIES_ROWS`): CH± page by the rows. */
+export const FILM_COLUMNS = 6;
+export const FILM_ROWS = 3;
+
+/**
+ * The movies screen by keys (RELAY step 26b), from the list where the guide steps end (row 10 of
+ * category 5): CH+ and ArrowUp to the first channel, ArrowUp to the header, along it to "Movies"
+ * (the second button: RIGHT, or LEFT in Arabic), OK. In the grid: ArrowDown, CH− (a page of 3
+ * rows), a tile along the row, twice towards the inline start to the rail (the second press
+ * leaves the first column), down to the Arabic category, OK (its movies), Back to the rail, and
+ * Back again, which closes the screen on the header's "Movies".
+ */
+export function moviesSteps(language: WalkLanguage, platform: TvPlatform): WalkStep[] {
+  const tv = TV_KEYS[platform];
+  const ar = language === 'ar';
+  const along = ar ? KEY.left : KEY.right;
+  const toRail = ar ? KEY.right : KEY.left;
+  const dir = ar ? 'rtl' : 'ltr';
+  const onMovies = (zone: string, index: number, more: Expectation): Expectation => ({ screen: 'movies', zone, index, movies: true, moviesIdle: true, language, dir, ...more });
+  const onLive = (zone: string, index: number, more: Expectation = {}): Expectation => ({ screen: 'live', zone, index, live: true, liveIdle: true, category: GUIDE_ENTRY, ...more });
+  const down = FILM_COLUMNS;
+  const paged = down + FILM_ROWS * FILM_COLUMNS;
+  return [
+    { id: 'movies-list', label: `CH+ (key ${tv.chUp.keyCode}) and ArrowUp to the first channel`, keys: [tv.chUp, KEY.up], expect: onLive('channels', 0, { top: 0 }), wait: 'live' },
+    { id: 'movies-header', label: 'ArrowUp to the header', keys: [KEY.up], expect: onLive('header', 0), wait: 'live' },
+    { id: 'movies-to', label: `${along.key} to "Movies"`, keys: [along], expect: onLive('header', 1), wait: 'live' },
+    { id: 'movies-open', label: 'OK on "Movies"', keys: [KEY.enter], expect: onMovies('grid', 0, { moviesCategory: 0, moviesTop: 0 }), layout: 'movies', films: true, shot: 'movies', wait: 'live' },
+    { id: 'movies-down', label: 'ArrowDown in the grid', keys: [KEY.down], expect: onMovies('grid', down, { moviesCategory: 0, moviesTop: 0 }), films: true, wait: 'live' },
+    {
+      id: 'movies-page',
+      label: `CH− (key ${tv.chDown.keyCode}) in the grid`,
+      keys: [tv.chDown],
+      expect: onMovies('grid', paged, { moviesCategory: 0, moviesTop: FILM_ROWS }),
+      layout: 'paged movies',
+      films: true,
+      wait: 'live',
+    },
+    { id: 'movies-next', label: `${along.key} along the row`, keys: [along], expect: onMovies('grid', paged + 1, { moviesCategory: 0, moviesTop: FILM_ROWS }), films: true, wait: 'live' },
+    { id: 'movies-rail', label: `${toRail.key} twice to the rail`, keys: [toRail, toRail], expect: onMovies('rail', 0, { moviesCategory: 0, moviesTop: FILM_ROWS }), films: true, wait: 'live' },
+    { id: 'movies-pick', label: `ArrowDown ${FILMS_ENTRY} times to category ${FILMS_ENTRY}`, keys: [KEY.down, KEY.down], expect: onMovies('rail', FILMS_ENTRY, { moviesCategory: 0 }), wait: 'live' },
+    {
+      id: 'movies-category',
+      label: `OK on category ${FILMS_ENTRY}`,
+      keys: [KEY.enter],
+      expect: onMovies('grid', 0, { moviesCategory: FILMS_ENTRY, moviesTop: 0 }),
+      layout: 'movies category',
+      films: true,
+      shot: 'movies-category',
+      wait: 'live',
+    },
+    { id: 'movies-back', label: `Back (key ${tv.back.keyCode}) to the rail`, keys: [tv.back], expect: onMovies('rail', FILMS_ENTRY, { moviesCategory: FILMS_ENTRY }), films: true, wait: 'live' },
+    { id: 'movies-close', label: `Back (key ${tv.back.keyCode}) on the rail`, keys: [tv.back], expect: { ...onLive('header', 1), movies: false }, wait: 'live' },
   ];
 }
 
@@ -675,13 +777,14 @@ export function describeState(state: WalkState): string {
   if (state.guide) parts.push(state.guideIdle ? 'the guide' : 'the guide, its data requests still running');
   if (state.screen !== null) parts.push(`${state.screen} · ${state.zone ?? '-'} ${state.index ?? '-'}`);
   else if (!state.live) parts.push(state.onboarding ? 'onboarding' : 'no screen yet');
-  if (state.screen !== null && !state.onboarding && !state.live && !state.guide) parts.push('not ready');
+  if (state.screen !== null && !state.onboarding && !state.live && !state.guide && !state.movies) parts.push('not ready');
   const drawn = drawnPath(state);
   if (drawn !== null && state.hook !== drawn) parts.push(`the focus engine at ${state.hook ?? 'nothing'}`);
   if (state.live) parts.push(`category ${state.category ?? '-'}, rows from ${state.top ?? '-'}`);
   if (state.guide) {
     parts.push(`rows from ${state.gridTop ?? '-'}, view from ${state.grid === null ? '-' : utcTime(state.grid.view)}, the cursor at ${state.time === null ? '-' : utcTime(state.time)}`);
   }
+  if (state.movies) parts.push(`${state.moviesIdle ? 'the movies screen' : 'the movies screen, its reads or posters still running'}: category ${state.moviesCategory ?? '-'}, rows from ${state.moviesTop ?? '-'}`);
   if (state.dialog) parts.push('the exit dialog');
   if (state.platformBack > 0) parts.push(`platformBack() called ${state.platformBack} time${state.platformBack === 1 ? '' : 's'}`);
   if (state.editing !== null && state.editing !== '') parts.push(`editing ${state.editing}`);
@@ -707,6 +810,9 @@ export function describeExpectation(expect: Expectation): string {
   if (expect.language !== undefined) parts.push(`language ${expect.language}${expect.dir === undefined ? '' : `, dir="${expect.dir}"`}`);
   if (expect.category !== undefined || expect.top !== undefined) parts.push(`category ${expect.category ?? '*'}, rows from ${expect.top ?? '*'}`);
   if (expect.gridTop !== undefined) parts.push(`rows from ${expect.gridTop}`);
+  if (expect.movies === true) parts.push(expect.moviesIdle === true ? 'the movies screen, its reads and posters done' : 'the movies screen');
+  if (expect.movies === false) parts.push('no movies screen');
+  if (expect.moviesCategory !== undefined || expect.moviesTop !== undefined) parts.push(`movies category ${expect.moviesCategory ?? '*'}, rows from ${expect.moviesTop ?? '*'}`);
   if (expect.time !== undefined) parts.push(`the cursor at ${expect.time < 0 ? 'the programme the keys lead to (the cursor before the keys was not read)' : utcTime(expect.time)}`);
   if (expect.dialog !== undefined) parts.push(expect.dialog ? 'the exit dialog' : 'no exit dialog');
   if (expect.platformBack !== undefined) parts.push(`platformBack() called ${expect.platformBack} time${expect.platformBack === 1 ? '' : 's'}`);
@@ -792,6 +898,8 @@ export const stepTime = (walk: Walk, id: StepId): number | null => {
 /** What a walk must show: the done screen's counts, and the live screen's categories (fixture.ts `liveCategories`). */
 export interface WalkCheck extends Pick<DataCheck, 'live' | 'movies'> {
   readonly categories: readonly ListedCategory[];
+  /** The movies screen's categories (fixture.ts `movieCategories`, RELAY step 26b). */
+  readonly films: readonly ListedFilmCategory[];
 }
 
 /** The live screen's rail and rows once a step is there: what the fixture says it must show. */
@@ -863,6 +971,7 @@ export function evaluateWalk(walk: Walk, check: WalkCheck): string[] {
     if (spec !== undefined && step.state !== null) {
       failures.push(...liveFailures(spec, step.state, check, language).map((f) => `${step.label}: ${f}`));
       failures.push(...guideFailures(spec, step.state, check, language).map((f) => `${step.label}: ${f}`));
+      if (spec.films === true) failures.push(...moviesFailures(step.state.films, step.state, check.films, language).map((f) => `${step.label}: ${f}`));
     }
     if (step.id === 'add' && step.state !== null) {
       const want = expectedCounts(check);

@@ -11,7 +11,8 @@ import { EpgGuideReader, EpgWantedSet, epgNowNext, normalizeName, parseM3uCatalo
 import { describe, expect, it } from 'vitest';
 import { readDebugParams, readScreen } from '../apps/tv/src/data/params';
 import { CatalogChunker } from '../packages/data/src/chunker';
-import { FIXTURE_ORIGIN, FIXTURE_SIZE, appUrl, dataChecks, fixtureEntries, fixtureM3u, fixtureXmltv, liveCategories, stageFixtures } from '../tools/engines/src/fixture';
+import { FIXTURE_ORIGIN, FIXTURE_SIZE, POSTER_FILES, POSTER_SIZE, appUrl, dataChecks, fixtureEntries, fixtureM3u, fixtureXmltv, liveCategories, movieCategories, stageFixtures } from '../tools/engines/src/fixture';
+import { pngSize } from '../tools/engines/src/poster';
 
 describe('the engines catalog fixture', () => {
   const entries = fixtureEntries();
@@ -45,6 +46,14 @@ describe('the engines catalog fixture', () => {
     expect(items.filter((i) => i.name.includes(checks.webos.query))).toHaveLength(0);
   });
 
+  it("gives core's parser the movies' groups and posters the movies screen is checked against (RELAY step 26b)", () => {
+    const movies = items.filter((i) => i.kind === 'movie');
+    const listed = movieCategories(entries);
+    expect(listed.map((c) => c.name)).toEqual([...new Set(movies.map((m) => m.group))]);
+    expect(movies.map((m) => [m.name, m.logo ?? null])).toEqual(listed.flatMap((c) => c.movies.map((m) => [m.name, m.poster])));
+    expect(movies.filter((m) => m.logo === undefined || m.logo === null)).toHaveLength(12);
+  });
+
   it('stages the plain and gzipped playlists and guides, each playlist naming its guide', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'zoma-fixture-'));
     const now = Date.UTC(2026, 10, 2, 12, 34);
@@ -57,6 +66,8 @@ describe('the engines catalog fixture', () => {
     expect(parseM3uCatalog('debug', gunzipSync(gz).toString('utf8')).summary.epgUrls).toEqual([`${FIXTURE_ORIGIN}/guide.xml.gz`]);
     expect(gunzipSync(read(checks.webos.guide)).equals(read(checks.tizen.guide))).toBe(true);
     expect(read(checks.tizen.guide).toString('utf8')).toBe(fixtureXmltv(entries, now));
+    // The posters: real PNGs at the tile's size.
+    for (const poster of POSTER_FILES) expect(pngSize(read(poster.file))).toEqual(POSTER_SIZE);
   });
 
   it('expects the guide matches and a now/next that core gives', () => {
