@@ -3,6 +3,7 @@ import { parse } from 'acorn';
 import { describe, expect, it } from 'vitest';
 import type { CdpClient } from './cdp';
 import { fixtureEntries, liveCategories } from './fixture';
+import type { GridCell } from './guide';
 import { drawnGrid } from './guide-drawn';
 import type { LiveView } from './live';
 import { CHANNELS_VISIBLE, LIVE_CATEGORY, LIVE_TEXT, PLATFORM_BACK_STUB, listedEntry, programmeTitle } from './live';
@@ -129,9 +130,11 @@ const GUIDE_AT: Record<string, { time: number; view: number }> = {
   'guide-next': { time: NOW + 30, view: NOW },
   'guide-page': { time: NOW + 30, view: NOW },
   'guide-later': { time: NOW + 210, view: NOW + 150 },
+  // Six back from 18:00: 12:00, the view from its slot, all gone by.
+  'guide-earlier': { time: NOW - 150, view: NOW - 150 },
 };
 /** The guide's cursor before each step along the time (the walk reads it before the keys). */
-const CURSOR_BEFORE: Record<string, number> = { 'guide-next': NOW, 'guide-later': NOW + 30 };
+const CURSOR_BEFORE: Record<string, number> = { 'guide-next': NOW, 'guide-later': NOW + 30, 'guide-earlier': NOW + 210 };
 /** The step as the walk runs it: a step along the time expects the cursor its keys lead to. */
 const atRun = (step: WalkStep): WalkStep => withCursor(step, CURSOR_BEFORE[step.id] ?? null);
 
@@ -185,7 +188,7 @@ function walk(language: WalkLanguage, overrides: Partial<Walk> = {}, platform: T
       .map((step) => record(step, landed(step, language))),
     phases: ['checking', 'download', 'saving', 'guide'],
     profile: PROFILE[language],
-    screenshots: ['form.png', 'done.png', 'live.png', 'category.png', 'exit.png', 'guide.png', 'guide-later.png'],
+    screenshots: ['form.png', 'done.png', 'live.png', 'category.png', 'exit.png', 'guide.png', 'guide-later.png', 'guide-earlier.png'],
     screenshotError: null,
     ...overrides,
   };
@@ -304,6 +307,12 @@ describe('walkSteps', () => {
       'ArrowRight',
       'ArrowRight',
       'ArrowRight',
+      'ArrowLeft',
+      'ArrowLeft',
+      'ArrowLeft',
+      'ArrowLeft',
+      'ArrowLeft',
+      'ArrowLeft',
       'Back',
     ]);
     const tail = [...liveSteps('en', 'webos'), ...guideSteps('en', 'webos')];
@@ -342,11 +351,11 @@ describe('walkSteps', () => {
 
   it('measures the six screens of the e2e test on the way, then the live screen, its next window, a category, (Tizen) the exit dialog and the guide', () => {
     const six = ['language', 'disclaimer', 'consent', 'source', 'form', 'done'];
-    const guide = ['guide', 'paged guide', 'later guide'];
+    const guide = ['guide', 'paged guide', 'later guide', 'earlier guide'];
     expect(walkSteps('ar', LINK, 'tizen').flatMap((s) => (s.layout === undefined ? [] : [s.layout]))).toEqual([...six, 'live', 'paged live', 'category', 'exit dialog', ...guide]);
     expect(walkSteps('en', LINK, 'webos').flatMap((s) => (s.layout === undefined ? [] : [s.layout]))).toEqual([...six, 'live', 'paged live', 'category', ...guide]);
-    expect(walkSteps('en', LINK, 'tizen').flatMap((s) => (s.shot === undefined ? [] : [s.shot]))).toEqual(['form', 'done', 'live', 'category', 'exit', 'guide', 'guide-later']);
-    expect(walkSteps('en', LINK, 'webos').flatMap((s) => (s.shot === undefined ? [] : [s.shot]))).toEqual(['form', 'done', 'live', 'category', 'guide', 'guide-later']);
+    expect(walkSteps('en', LINK, 'tizen').flatMap((s) => (s.shot === undefined ? [] : [s.shot]))).toEqual(['form', 'done', 'live', 'category', 'exit', 'guide', 'guide-later', 'guide-earlier']);
+    expect(walkSteps('en', LINK, 'webos').flatMap((s) => (s.shot === undefined ? [] : [s.shot]))).toEqual(['form', 'done', 'live', 'category', 'guide', 'guide-later', 'guide-earlier']);
   });
 });
 
@@ -402,12 +411,12 @@ describe('guideSteps', () => {
   const codes = (platform: TvPlatform, language: WalkLanguage = 'en'): number[] => guideSteps(language, platform).flatMap((s) => (s.keys ?? []).map((k) => k.keyCode));
 
   it("goes from the rail to the list's first channel, UP to the header's Guide, OK, then across rows and time with the TV's own CH− and Back", () => {
-    expect(codes('tizen')).toEqual([39, 38, 13, 40, 39, 428, 39, 39, 39, 10009]);
-    expect(codes('webos')).toEqual([39, 38, 13, 40, 39, 34, 39, 39, 39, 461]);
+    expect(codes('tizen')).toEqual([39, 38, 13, 40, 39, 428, 39, 39, 39, 37, 37, 37, 37, 37, 37, 10009]);
+    expect(codes('webos')).toEqual([39, 38, 13, 40, 39, 34, 39, 39, 39, 37, 37, 37, 37, 37, 37, 461]);
   });
 
   it('goes to the list and later in time with LEFT in Arabic, where the rail is on the right and time runs leftwards', () => {
-    expect(codes('webos', 'ar')).toEqual([37, 38, 13, 40, 37, 34, 37, 37, 37, 461]);
+    expect(codes('webos', 'ar')).toEqual([37, 38, 13, 40, 37, 34, 37, 37, 37, 39, 39, 39, 39, 39, 39, 461]);
     expect(guideSteps('ar', 'tizen').find((s) => s.id === 'guide-next')?.label).toBe('ArrowLeft to the next programme');
   });
 
@@ -427,13 +436,14 @@ describe('guideSteps', () => {
       ['guide-next', 1, 0],
       ['guide-page', 10, 9],
       ['guide-later', 10, 9],
+      ['guide-earlier', 10, 9],
     ]);
     for (const step of grid) {
       expect(step.expect).toMatchObject({ zone: 'grid', guide: true, guideIdle: true, language: 'ar', dir: 'rtl' });
       expect(step.grid).toBeDefined();
       expect(step.wait).toBe('live');
     }
-    expect(grid.map((s) => s.grid)).toEqual(['open', 'now', 'now', 'now', 'later']);
+    expect(grid.map((s) => s.grid)).toEqual(['open', 'now', 'now', 'now', 'later', 'earlier']);
     expect(stepOf('guide-back', 'webos', 'ar').expect).toEqual({ screen: 'live', zone: 'channels', index: 10, live: true, liveIdle: true, category: GUIDE_ENTRY });
   });
 
@@ -442,6 +452,7 @@ describe('guideSteps', () => {
     expect(along.map((s) => [s.id, s.along, s.keys?.length])).toEqual([
       ['guide-next', 1, 1],
       ['guide-later', 3, 3],
+      ['guide-earlier', -6, 6],
     ]);
     const entry = listedEntry(CATEGORIES, GUIDE_ENTRY)!;
     for (const step of along) expect(entry.channels[step.expect.index!]?.guide, step.id).toBe(true);
@@ -451,11 +462,14 @@ describe('guideSteps', () => {
     expect(timeAfter(NOW, 1)).toBe(NOW + 30);
     expect(timeAfter(NOW - 30, 1)).toBe(NOW + 30);
     expect(timeAfter(NOW + 30, 3)).toBe(NOW + 210);
+    // Back: six programmes before the one holding 18:00.
+    expect(timeAfter(NOW + 210, -6)).toBe(NOW - 150);
+    expect(timeAfter(NOW + 215, -6)).toBe(NOW - 150);
     const next = stepOf('guide-next');
     expect(withCursor(next, NOW).expect).toEqual({ ...next.expect, time: NOW + 30 });
     // A cursor that could not be read never lands, and says so.
     expect(withCursor(next, null).expect.time).toBe(-1);
-    expect(describeExpectation(withCursor(next, null).expect)).toContain('the cursor at a programme on (the cursor before the keys was not read)');
+    expect(describeExpectation(withCursor(next, null).expect)).toContain('the cursor at the programme the keys lead to (the cursor before the keys was not read)');
     // The other steps are run as they are.
     const page = stepOf('guide-page');
     expect(withCursor(page, NOW)).toBe(page);
@@ -468,10 +482,12 @@ describe('guideSteps', () => {
       ['guide-open', 'guide'],
       ['guide-page', 'paged guide'],
       ['guide-later', 'later guide'],
+      ['guide-earlier', 'earlier guide'],
     ]);
     expect(steps.filter((s) => s.shot !== undefined).map((s) => [s.id, s.shot])).toEqual([
       ['guide-open', 'guide'],
       ['guide-later', 'guide-later'],
+      ['guide-earlier', 'guide-earlier'],
     ]);
   });
 });
@@ -750,13 +766,20 @@ describe('evaluateWalk on the live screen', () => {
 });
 
 describe('evaluateWalk on the guide (RELAY step 23e)', () => {
+  /** `cell` moved `dx` px, its archive mark with it. */
+  const moved = (cell: GridCell, dx: number): GridCell => ({
+    ...cell,
+    left: cell.left + dx,
+    right: cell.right + dx,
+    mark: cell.mark === null ? null : { ...cell.mark, left: cell.mark.left + dx, right: cell.mark.right + dx },
+  });
   /** The grid of `there` with every cell at its timeline's inline start, as without `left: var(--x)`. */
   const stacked = (there: WalkState, rtl: boolean): Partial<WalkState> => ({
     grid: {
       ...there.grid!,
       rows: there.grid!.rows.map((row) => ({
         ...row,
-        cells: row.cells.map((c) => (rtl ? { ...c, right: row.line!.right, left: row.line!.right - (c.right - c.left) } : { ...c, left: row.line!.left, right: row.line!.left + (c.right - c.left) })),
+        cells: row.cells.map((c) => moved(c, rtl ? row.line!.right - c.right : row.line!.left - c.left)),
       })),
     },
   });
@@ -770,7 +793,14 @@ describe('evaluateWalk on the guide (RELAY step 23e)', () => {
           return record(s, s.grid === undefined ? there : patch(there, stacked(there, language === 'ar')));
         });
       const failures = evaluateWalk(walk(language, { steps }, 'webos'), CHECK);
-      expect(failures.map((f) => f.slice(0, f.indexOf(':')))).toEqual(['OK on "Guide"', 'ArrowDown in the grid', `${language === 'ar' ? 'ArrowLeft' : 'ArrowRight'} to the next programme`, 'CH− (key 34) in the grid', `${language === 'ar' ? 'ArrowLeft' : 'ArrowRight'} three programmes on`]);
+      expect(failures.map((f) => f.slice(0, f.indexOf(':')))).toEqual([
+        'OK on "Guide"',
+        'ArrowDown in the grid',
+        `${language === 'ar' ? 'ArrowLeft' : 'ArrowRight'} to the next programme`,
+        'CH− (key 34) in the grid',
+        `${language === 'ar' ? 'ArrowLeft' : 'ArrowRight'} three programmes on`,
+        `${language === 'ar' ? 'ArrowRight' : 'ArrowLeft'} six programmes back`,
+      ]);
       expect(failures[0]).toMatch(/^OK on "Guide": \d+ misplaced: row 0 cell 15:00 starts 0 px from the timeline's inline start, expected 330/);
     }
   });
@@ -824,6 +854,28 @@ describe('evaluateWalk on the guide (RELAY step 23e)', () => {
     expect(at(later, { clock: CLOCK + 200 * 60_000 })).toEqual(['the view starts at 17:00, expected after now (17:50): it never moved on']);
     expect(guideFailures(later, { ...still, grid: null }, CHECK, 'en')).toEqual(['the guide draws no grid']);
     expect(guideFailures(stepOf('guide-list'), still, CHECK, 'en')).toEqual([]);
+  });
+
+  it('checks the view six programmes back (step 25c): all gone by, no now line, and archive marks to check', () => {
+    const earlier = stepOf('guide-earlier');
+    const there = landed(atRun(earlier));
+    const at = (more: Partial<WalkState> = {}): string[] => guideFailures(earlier, patch(there, more), CHECK, 'en');
+    expect(at()).toEqual([]);
+    expect(at({ grid: { ...there.grid!, now: { minute: NOW, centre: 0 } } })).toContain('the view (from 12:00) still draws the now line');
+    // At 13:00 the view (12:00 to 14:00) would hold now.
+    expect(at({ clock: CLOCK - 90 * 60_000 })).toContain('the view ends at 14:00, expected by now (13:00): it never went back');
+    // No marks: named one by one, and none at all is a failure of its own (ten days on, none is due).
+    const bare = { ...there.grid!, rows: there.grid!.rows.map((row) => ({ ...row, cells: row.cells.map((c) => ({ ...c, mark: null })) })) };
+    expect(at({ grid: bare })).toEqual([expect.stringMatching(/^2 archive marks wrong: row 15 cell 12:00 \(gone by, in Zoma Channel 209's archive\) has no archive mark/), 'the view draws no archive marks, though its rows have catch-up']);
+    expect(at({ grid: bare, clock: CLOCK + 10 * 86_400_000 })).toEqual(['the view draws no archive marks, though its rows have catch-up']);
+  });
+
+  it('checks the archive marks at every guide step', () => {
+    const mark = { left: 0, right: 20, top: 0, bottom: 20, text: 'Catch-up' };
+    const marked = changedAt('en', 'guide-down', (there) => ({
+      grid: { ...there.grid!, rows: there.grid!.rows.map((row) => (row.row === 0 ? { ...row, cells: row.cells.map((c) => ({ ...c, mark })) } : row)) },
+    }));
+    expect(evaluateWalk(marked, CHECK)).toEqual([expect.stringMatching(/^ArrowDown in the grid: \d+ archive marks wrong: row 0 cell 14:30 has the archive mark, but is a placeholder/)]);
   });
 });
 

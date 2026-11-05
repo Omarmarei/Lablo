@@ -80,8 +80,9 @@ describe("the dense guide of the grid's throttled run (step 23d)", () => {
     const file = path.join(dir, `grid-${now}.xml`);
     writeBigGuide(catalog, now, file, dense);
     const guide = byChannel(readFileSync(file, 'utf8'));
-    // What the full tier's store keeps (a day back, 7 on), in ms.
-    const window = epgWindow(now, 'full', 0);
+    // What the full tier's store keeps with seven days of catch-up (7 days back, 7 on, step 25c), in ms.
+    const window = epgWindow(now, 'full', 7);
+    expect(window.pastDays).toBe(7);
     const lengths = new Set<number>();
     for (let j = 0; j < catalog.live.length; j += 1) {
       const channel = catalog.live[j]!;
@@ -106,6 +107,13 @@ describe("the dense guide of the grid's throttled run (step 23d)", () => {
       expect(slots.length / ((dense.toMs - dense.fromMs) / 86_400_000)).toBeGreaterThan(30);
     }
     expect([...lengths].sort((a, b) => a - b)).toEqual([...new Set(DENSE_MINUTES)].sort((a, b) => a - b));
+  });
+
+  it('gives the first channels seven days of catch-up when asked (step 25c), and none by default', () => {
+    const archived = bigCatalog({ channels: 300, categories: 3, archive: { channels: 100, days: 7 } });
+    expect(archived.live.slice(0, 100).every((c) => c.archiveDays === 7 && c.catchup === 'xc')).toBe(true);
+    expect(archived.live.slice(100).every((c) => c.archiveDays === 0 && c.catchup === null)).toBe(true);
+    expect(catalog.live.every((c) => c.archiveDays === 0 && c.catchup === null)).toBe(true);
   });
 
   it("draws neighbouring rows' programmes at different times, some across midnight", () => {

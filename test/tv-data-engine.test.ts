@@ -378,6 +378,26 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     expect(s.started.epg).toBe(2);
   });
 
+  it("gives the past days the stored guides keep: their channels' longest catch-up within the tier's limit (step 25c)", async () => {
+    // Channel 1 has five days of catch-up.
+    const archive = (): string => playlist(8, 4, true).replace('tvg-id="ch1"', 'tvg-id="ch1" catchup="shift" catchup-days="5"');
+    const s = setup((url) => (url === GUIDE_URL ? { body: guide(6) } : { body: archive() }));
+    await s.engine.refresh(job());
+    expect(await s.engine.guidePastDays()).toBe(0);
+    const catalogs = [{ src: 'debug', type: 'm3u' as const }];
+    await s.engine.refreshEpg(catalogs, { tier: 'full' });
+    expect((await s.engine.epgStatus()).guides.map((g) => g.summary?.pastDays)).toEqual([5]);
+    expect(await s.engine.guidePastDays()).toBe(5);
+    // The low tier keeps two.
+    await s.engine.refreshEpg(catalogs, { tier: 'low', force: true });
+    expect(await s.engine.guidePastDays()).toBe(2);
+    // A playlist without catch-up: the one day every window keeps.
+    const plain = setup((url) => (url === GUIDE_URL ? { body: guide(6) } : { body: playlist(8, 4, true) }));
+    await plain.engine.refresh(job());
+    await plain.engine.refreshEpg(catalogs, { tier: 'full' });
+    expect(await plain.engine.guidePastDays()).toBe(1);
+  });
+
   it("sets a moved user guide's rank with no download, deletes a removed one, and reloads the query worker (step 22b)", async () => {
     const asked: string[] = [];
     const s = setup((url) => {

@@ -2,7 +2,7 @@ import type { CatalogItem, CatchupInfo } from '@zoma/core';
 import { fixedZone } from '@zoma/core';
 import { describe, expect, it } from 'vitest';
 import type { LiveRow } from '../live/live-state';
-import { canWatchFromStart, catchupRequest } from './catchup';
+import { archiveDays, archiveDaysLeft, archiveFrom, canWatchFromStart, catchupRequest, inArchive } from './catchup';
 
 const MINUTE_MS = 60_000;
 const DAY = 1440;
@@ -89,5 +89,77 @@ describe("a programme's catch-up request (RELAY step 25a)", () => {
   it("is null when the channel's URL can't carry one", () => {
     expect(catchupRequest(row(null), programme(120), undefined, NOW_MS)).toBeNull();
     expect(catchupRequest(row(XC7, 'http://cdn.example/ch/index.m3u8'), programme(120), { outputFormats: null, zone: fixedZone(0) }, NOW_MS)).toBeNull();
+  });
+});
+
+describe("a channel's archive, as the guide marks it (RELAY step 25c)", () => {
+  it('holds the stated days, every day the guide reaches when none are stated, and none without a usable URL', () => {
+    expect(archiveDays(row(XC7))).toBe(7);
+    expect(archiveDays(row({ mode: 'shift', days: 1.5, source: null }))).toBe(1.5);
+    expect(archiveDays(row({ mode: 'xc', days: null, source: null }))).toBe(Infinity);
+    expect(archiveDays(row(null))).toBeNull();
+    expect(archiveDays(row({ mode: 'ftp-archive', days: 3, source: null }))).toBeNull();
+    expect(archiveDays(row(XC7, 'http://cdn.example/ch/index.m3u8'))).toBeNull();
+  });
+
+  it('starts at the first whole minute the archive keeps', () => {
+    expect(archiveFrom(7, NOW_MS)).toBe(NOW - 7 * DAY);
+    // Half a minute on: a programme that started at the minute before is half a minute too old.
+    expect(archiveFrom(7, NOW_MS + 30_000)).toBe(NOW - 7 * DAY + 1);
+    expect(archiveFrom(0.5, NOW_MS)).toBe(NOW - DAY / 2);
+    expect(archiveFrom(Infinity, NOW_MS)).toBe(-Infinity);
+  });
+
+  it('holds a programme that has ended and started at its first minute or later, as canWatchFromStart', () => {
+    const from = archiveFrom(7, NOW_MS);
+    for (const [ago, length] of [
+      [120, 60],
+      [60, 60],
+      [59, 60],
+      [-30, 60],
+      [7 * DAY, 60],
+      [7 * DAY + 1, 60],
+      [7 * DAY + 1, 2],
+    ] as const) {
+      const p = programme(ago, length);
+      expect(inArchive(from, p, NOW_MS), `${ago} ${length}`).toBe(canWatchFromStart(row(XC7), p, NOW_MS));
+    }
+    expect(inArchive(from, programme(120), NOW_MS)).toBe(true);
+    expect(inArchive(from, programme(7 * DAY + 1), NOW_MS)).toBe(false);
+    expect(inArchive(from, programme(59), NOW_MS)).toBe(false);
+    expect(inArchive(-Infinity, programme(300 * DAY), NOW_MS)).toBe(true);
+  });
+
+  it('counts the local calendar days left before a programme leaves the archive', () => {
+    const local = (d: number, h: number, m = 0): number => new Date(2026, 10, d, h, m).getTime();
+    const at = (ms: number) => ({ start: Math.floor(ms / MINUTE_MS) });
+    const now = local(5, 20, 17);
+    // It leaves at 21:00 today, at 19:00 tomorrow, and at 01:00 the day after tomorrow.
+    expect(archiveDaysLeft(1, at(local(4, 21)), now)).toBe(0);
+    expect(archiveDaysLeft(1, at(local(5, 19)), now)).toBe(1);
+    expect(archiveDaysLeft(7, at(local(5, 19)), now)).toBe(7);
+    expect(archiveDaysLeft(2, at(local(5, 1)), now)).toBe(2);
+    expect(archiveDaysLeft(1, at(local(5, 1)), now)).toBe(1);
+    // Left already (the guide never asks then): no fewer than none.
+    expect(archiveDaysLeft(1, at(local(3, 19)), now)).toBe(0);
+    expect(archiveDaysLeft(Infinity, at(local(5, 19)), now)).toBeNull();
+  });
+
+  it('counts whole days across a change of daylight saving time', () => {
+    // 2026-03-29 and 2026-10-25 change the clocks in Europe, 2026-03-08 and 2026-11-01 in North America.
+    for (const [month, day] of [
+      [2, 29],
+      [9, 25],
+      [2, 8],
+      [10, 1],
+    ] as const) {
+      const now = new Date(2026, month, day - 2, 12).getTime();
+      const start = Math.floor(new Date(2026, month, day - 3, 23, 30).getTime() / MINUTE_MS);
+      // Seven days of archive from 23:30 three days before the change: it leaves about 23:30 four days after it.
+      const leaves = new Date(start * MINUTE_MS + 7 * 86_400_000);
+      const want = Math.round((Date.UTC(leaves.getFullYear(), leaves.getMonth(), leaves.getDate()) - Date.UTC(2026, month, day - 2)) / 86_400_000);
+      expect(archiveDaysLeft(7, { start }, now)).toBe(want);
+      expect(Number.isInteger(want)).toBe(true);
+    }
   });
 });

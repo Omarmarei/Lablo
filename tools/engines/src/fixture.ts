@@ -88,6 +88,15 @@ export function fixtureEntries(count = FIXTURE_SIZE): FixtureEntry[] {
 /** Live channels with programmes in the fixture guide: every 8th, from the first. */
 export const hasGuide = (index: number): boolean => index % 8 === 0;
 
+/** Days of catch-up the fixture gives a channel (`catchup="shift"`, RELAY step 25c). */
+export const FIXTURE_CATCHUP_DAYS = 7;
+
+/**
+ * Live channels with catch-up: every other one with a guide (every 16th), so the guide walk's
+ * views mix guided rows with archive marks and without them.
+ */
+export const hasCatchup = (index: number): boolean => hasGuide(index) && index % 16 === 0;
+
 /** A live channel as the live screen lists it (RELAY step 14c). */
 export interface ListedChannel {
   readonly name: string;
@@ -95,6 +104,8 @@ export interface ListedChannel {
   readonly tvgId: string;
   /** It has programmes in the guide (`hasGuide`). */
   readonly guide: boolean;
+  /** Its days of catch-up (`hasCatchup`; 0: none): the guide marks its programmes gone by within them. */
+  readonly catchup: number;
 }
 
 /** A category of the live screen's rail. */
@@ -120,7 +131,7 @@ export function liveCategories(entries: readonly FixtureEntry[]): ListedCategory
       channels = [];
       byName.set(entry.group, channels);
     }
-    channels.push({ name: entry.name, tvgId: `fixture.${i + 1}`, guide: hasGuide(i) });
+    channels.push({ name: entry.name, tvgId: `fixture.${i + 1}`, guide: hasGuide(i), catchup: hasCatchup(i) ? FIXTURE_CATCHUP_DAYS : 0 });
   });
   let at = 0;
   const categories: ListedCategory[] = [];
@@ -134,7 +145,8 @@ export function liveCategories(entries: readonly FixtureEntry[]): ListedCategory
 export function fixtureM3u(entries: readonly FixtureEntry[], guide: string | null = null): string {
   const lines = [guide === null ? '#EXTM3U' : `#EXTM3U url-tvg="${FIXTURE_ORIGIN}/${guide}"`];
   entries.forEach((entry, i) => {
-    lines.push(`#EXTINF:-1 tvg-id="fixture.${i + 1}" group-title="${entry.group}",${entry.name}`, entry.url);
+    const catchup = entry.kind === 'live' && hasCatchup(i) ? ` catchup="shift" catchup-days="${FIXTURE_CATCHUP_DAYS}"` : '';
+    lines.push(`#EXTINF:-1 tvg-id="fixture.${i + 1}"${catchup} group-title="${entry.group}",${entry.name}`, entry.url);
   });
   return `${lines.join('\n')}\n`;
 }

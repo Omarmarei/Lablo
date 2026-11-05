@@ -34,6 +34,14 @@ export interface GuideGridProps {
   readonly formatDay?: (minute: number) => string;
   /** A placeholder cell's text ("No information"), from the catalogs. */
   readonly placeholder: string;
+  /**
+   * Row `row`'s archive (RELAY step 25c): the first minute (UTC) a programme may have started at
+   * to be in it (`-Infinity`: no limit), or `null` for none. Its programmes that started then or
+   * later and ended by `now` get the catch-up mark. Read once per drawn row.
+   */
+  readonly archive?: (row: number) => number | null;
+  /** The mark's name in a cell's text ("Catch-up"), for the screen reader. */
+  readonly archiveName?: string;
   readonly class?: string;
   readonly testId?: string;
 }
@@ -52,8 +60,12 @@ const px = (n: number): string => `${n}px`;
  * an inline `left`, so in Arabic the channels are on the right and time runs leftwards. The
  * rows are flex rows in normal flow; only the cells, the header's times and the now line are
  * placed absolutely. No CSS Grid, no flex gap (Chromium 53).
+ *
+ * A programme in its channel's archive (`archive`, step 25c) has the class `is-archive` and a
+ * mark: a span after the title holding `archiveName`, so the cell's text names it after the
+ * title, drawn before the title (flex `order`) as a small circular arrow that hides its text.
  */
-export function GuideGrid({ binding, screen, zone, channel, schedule, now, formatTime, formatDay, placeholder, class: extra, testId }: GuideGridProps) {
+export function GuideGrid({ binding, screen, zone, channel, schedule, now, formatTime, formatDay, placeholder, archive, archiveName, class: extra, testId }: GuideGridProps) {
   const view = useZone(binding, screen, zone);
   const spec = view.spec;
   if (spec.kind !== 'epg') throw new Error(`GuideGrid: zone ${zone} is not an epg zone`);
@@ -74,6 +86,8 @@ export function GuideGrid({ binding, screen, zone, channel, schedule, now, forma
     const rowItem = view.item(row);
     const cells: VNode[] = [];
     const inView = guideCellsIn(programmes, spec, first, last);
+    // (A row without programmes has nothing to mark.)
+    const archiveFrom = archive === undefined || programmes === null ? null : archive(row);
     for (let c = 0; c < inView.length; c += 1) {
       const cell = inView[c]!;
       const left = Math.max(cell.start, first);
@@ -86,11 +100,14 @@ export function GuideGrid({ binding, screen, zone, channel, schedule, now, forma
       const isProgramme = p >= 0 && programmes !== null;
       const begins = isProgramme ? (programmes.start[p] ?? cell.start) : cell.start;
       const ends = isProgramme ? (programmes.end[p] ?? cell.end) : cell.end;
+      // In the archive: a programme gone by (its own end) that started within the channel's days.
+      const marked = isProgramme && archiveFrom !== null && ends <= now && begins >= archiveFrom;
       let cls = focusClass('z-guide__cell', state);
       if (!isProgramme) cls += ' is-gap';
       cls += cell.end <= now ? ' is-past' : cell.start <= now ? ' is-now' : '';
       if (begins < left) cls += ' is-cut-start';
       if (ends > right) cls += ' is-cut-end';
+      if (marked) cls += ' is-archive';
       cells.push(
         <div
           key={cell.start}
@@ -112,6 +129,7 @@ export function GuideGrid({ binding, screen, zone, channel, schedule, now, forma
           ) : (
             <span class="z-guide__title">{placeholder}</span>
           )}
+          {marked && <span class="z-guide__mark">{archiveName ?? ''}</span>}
         </div>,
       );
     }
@@ -147,6 +165,8 @@ export function GuideGrid({ binding, screen, zone, channel, schedule, now, forma
       data-count={rows}
       data-view={first}
       data-span={span}
+      data-from={spec.from}
+      data-to={spec.to}
       style={{
         width: px(guideWidth(span)),
         height: px(guideHeight(visible)),

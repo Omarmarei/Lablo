@@ -10,6 +10,11 @@ import { escapeXml } from '../apps/mock-provider/src/xmltv';
 export interface BigCatalogOptions {
   readonly channels: number;
   readonly categories: number;
+  /**
+   * The first `archive.channels` channels have `archive.days` of Xtream catch-up (`tv_archive`,
+   * RELAY step 25c: the grid's throttled run). Default: none.
+   */
+  readonly archive?: { readonly channels: number; readonly days: number };
 }
 
 /** Every `NO_GUIDE_EVERY`th channel has no guide id: its row says so. */
@@ -23,7 +28,7 @@ function fill(pattern: string, n: number): string {
 }
 
 /** `channels` live channels spread evenly over `categories` categories, numbered 1… in category order. */
-export function bigCatalog({ channels, categories }: BigCatalogOptions): Catalog {
+export function bigCatalog({ channels, categories, archive }: BigCatalogOptions): Catalog {
   const liveCategories: Category[] = Array.from({ length: categories }, (_v, i) => ({ id: 1000 + i, name: `${GROUPS[i % GROUPS.length]} ${i + 1}`, parentId: 0 }));
   const live: LiveChannel[] = Array.from({ length: channels }, (_v, j) => ({
     id: 100_000 + j,
@@ -33,8 +38,8 @@ export function bigCatalog({ channels, categories }: BigCatalogOptions): Catalog
     epgId: j % NO_GUIDE_EVERY === NO_GUIDE_EVERY - 1 ? null : `big${j + 1}.zoma`,
     xmltvId: null,
     logo: false,
-    archiveDays: 0,
-    catchup: null,
+    archiveDays: archive !== undefined && j < archive.channels ? archive.days : 0,
+    catchup: archive !== undefined && j < archive.channels ? 'xc' : null,
     radio: false,
     adult: false,
     addedDaysAgo: 1,
@@ -103,12 +108,12 @@ const DAY_MS = 86_400_000;
 
 /**
  * The dense guide of the grid's throttled run (guide-throttled.spec.ts): "All channels" rows
- * 0–199 (the presses walk to row 155 and ask to row 173), from 2 days before `now` to 8 days
- * after: the full tier's EPG window (a day back, 7 on, which the store keeps) with a day's
- * margin either side.
+ * 0–199 (the presses walk to row 155 and ask to row 173), from 8 days before `now` to 8 days
+ * after: the full tier's EPG window with seven days of catch-up (7 days back, 7 on, which the
+ * store keeps, RELAY step 25c) with a day's margin either side.
  */
 export function gridGuide(now: number): DenseGuide {
-  return { channels: 200, fromMs: now - 2 * DAY_MS, toMs: now + 8 * DAY_MS };
+  return { channels: 200, fromMs: now - 8 * DAY_MS, toMs: now + 8 * DAY_MS };
 }
 
 /** The first `dense.channels` channels with a guide id (by the catalog's order). */

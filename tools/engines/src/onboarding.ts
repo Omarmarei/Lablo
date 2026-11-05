@@ -27,9 +27,10 @@
  *    against the fixture and its guide.
  * 7. The grid guide (RELAY step 23e, guide.ts): back to the list's first channel, UP to the
  *    header's "Guide", OK; then ArrowDown, a programme on (RIGHT, or LEFT in Arabic), CH−, three
- *    programmes on (the view moves past now), and Back to the list. At each step every cell,
- *    slot label and the now line is measured against GUIDE_LAYOUT from the timeline's inline
- *    start, and the cells are checked against the fixture's guide.
+ *    programmes on (the view moves past now), six back (the view gone by, step 25c), and Back to
+ *    the list. At each step every cell, slot label and the now line is measured against
+ *    GUIDE_LAYOUT from the timeline's inline start, the cells are checked against the fixture's
+ *    guide, and the archive marks against its channels' catch-up (`markFailures`).
  * Each screen on the way is measured as in the e2e test (1920x1080, the safe area, no label
  * cut), and the form, done, live, category, (Tizen) exit and guide screens are saved as
  * screenshots.
@@ -48,7 +49,7 @@ import type { DataCheck, ListedCategory } from './fixture';
 import { FIXTURE_ORIGIN } from './fixture';
 import { SAFE_AREA, VIEWPORT, list } from './gallery';
 import type { GridView } from './guide';
-import { GRID_VIEW_FUNCTION, GUIDE_BOXES, GUIDE_LABELS, GUIDE_ROWS, GUIDE_SLOT, cursorFailures, gridFailures, programmeStart, scheduleFailures, utcTime } from './guide';
+import { GRID_VIEW_FUNCTION, GUIDE_BOXES, GUIDE_LABELS, GUIDE_ROWS, GUIDE_SLOT, GUIDE_SPAN, cursorFailures, gridFailures, markFailures, programmeStart, scheduleFailures, utcTime } from './guide';
 import type { LiveView } from './live';
 import { CHANNELS_VISIBLE, LIVE_BOXES, LIVE_CATEGORY, LIVE_LABELS, LIVE_VIEW_FUNCTION, PLATFORM_BACK_STUB, TV_KEYS, listedEntry, railFailures, rowFailures, rowsFilled, unfilledRows } from './live';
 import type { RunOptions, TvPlatform } from './scenario';
@@ -329,7 +330,7 @@ export interface Expectation {
 
 export type Key = { readonly key: string; readonly keyCode: number };
 /** The screens a walk saves: the typed form, the done screen, the live screen, a category, the exit dialog (Tizen), the guide as it opens and later on. */
-export type WalkShot = 'form' | 'done' | 'live' | 'category' | 'exit' | 'guide' | 'guide-later';
+export type WalkShot = 'form' | 'done' | 'live' | 'category' | 'exit' | 'guide' | 'guide-later' | 'guide-earlier';
 const KEY = {
   enter: { key: 'Enter', keyCode: 13 },
   up: { key: 'ArrowUp', keyCode: 38 },
@@ -373,15 +374,17 @@ export type StepId =
   | 'guide-next'
   | 'guide-page'
   | 'guide-later'
+  | 'guide-earlier'
   | 'guide-back';
 
 /**
  * How a step checks the grid once there (RELAY step 23e): `open`, the screen as it opens (the
  * cursor on now, the view from its slot, the now line); `now`, the view still holding now;
- * `later`, the view moved on past now (no now line). Each also measures the grid and checks its
- * rows and the focused cell.
+ * `later`, the view moved on past now (no now line); `earlier` (step 25c), the view gone by
+ * before now (no now line), with archive marks drawn. Each also measures the grid and checks its
+ * rows, the focused cell and the archive marks.
  */
-export type GridCheck = 'open' | 'now' | 'later';
+export type GridCheck = 'open' | 'now' | 'later' | 'earlier';
 
 export interface WalkStep {
   readonly id: StepId;
@@ -511,9 +514,10 @@ export const GUIDE_ENTRY = LIVE_CATEGORY;
  * The grid guide by keys (RELAY step 23e), from the rail where the live steps end (category 5):
  * to the list's first channel, UP to the header's "Guide" (its first button), OK. In the grid:
  * ArrowDown, a programme on, CH− (a page of 9 rows), three programmes on, so the view moves past
- * now, and Back to the list on the channel the guide had focused. Time runs to the inline end:
- * RIGHT in English, LEFT in Arabic. The steps along the time are on rows 1 and 10, whose
- * channels have the fixture's hourly programmes (onboarding.test.ts checks it).
+ * now, six back, so the view is all gone by and draws the archive marks (step 25c: row 15 of the
+ * page has catch-up), and Back to the list on the channel the guide had focused. Time runs to
+ * the inline end: RIGHT in English, LEFT in Arabic. The steps along the time are on rows 1 and
+ * 10, whose channels have the fixture's hourly programmes (onboarding.test.ts checks it).
  */
 export function guideSteps(language: WalkLanguage, platform: TvPlatform): WalkStep[] {
   const tv = TV_KEYS[platform];
@@ -521,6 +525,7 @@ export function guideSteps(language: WalkLanguage, platform: TvPlatform): WalkSt
   // The list is at the rail's inline end, and later programmes too.
   const toList = ar ? KEY.left : KEY.right;
   const later = ar ? KEY.left : KEY.right;
+  const earlier = ar ? KEY.right : KEY.left;
   const paged = 1 + GUIDE_ROWS;
   const onGuide = (index: number, top: number): Expectation => ({ screen: 'guide', zone: 'grid', index, guide: true, guideIdle: true, gridTop: top, language, dir: ar ? 'rtl' : 'ltr' });
   const onLive = (zone: string, index: number, more: Expectation = {}): Expectation => ({ screen: 'live', zone, index, live: true, liveIdle: true, ...more });
@@ -542,13 +547,24 @@ export function guideSteps(language: WalkLanguage, platform: TvPlatform): WalkSt
       shot: 'guide-later',
       wait: 'live',
     },
+    {
+      id: 'guide-earlier',
+      label: `${earlier.key} six programmes back`,
+      keys: [earlier, earlier, earlier, earlier, earlier, earlier],
+      along: -6,
+      expect: onGuide(paged, GUIDE_ROWS),
+      layout: 'earlier guide',
+      grid: 'earlier',
+      shot: 'guide-earlier',
+      wait: 'live',
+    },
     { id: 'guide-back', label: `Back (key ${tv.back.keyCode}) to the list`, keys: [tv.back], expect: onLive('channels', paged, { category: GUIDE_ENTRY }), rows: true, wait: 'live' },
   ];
 }
 
 /**
  * Where an `along` step's keys take the cursor from `time` (UTC minutes): the start of the
- * programme `along` on from the one holding it (the fixture's are hourly, on the hour).
+ * programme `along` on (back when negative) from the one holding it (the fixture's are hourly, on the hour).
  */
 export const timeAfter = (time: number, along: number): number => programmeStart(time) + along * 60;
 
@@ -691,7 +707,7 @@ export function describeExpectation(expect: Expectation): string {
   if (expect.language !== undefined) parts.push(`language ${expect.language}${expect.dir === undefined ? '' : `, dir="${expect.dir}"`}`);
   if (expect.category !== undefined || expect.top !== undefined) parts.push(`category ${expect.category ?? '*'}, rows from ${expect.top ?? '*'}`);
   if (expect.gridTop !== undefined) parts.push(`rows from ${expect.gridTop}`);
-  if (expect.time !== undefined) parts.push(`the cursor at ${expect.time < 0 ? 'a programme on (the cursor before the keys was not read)' : utcTime(expect.time)}`);
+  if (expect.time !== undefined) parts.push(`the cursor at ${expect.time < 0 ? 'the programme the keys lead to (the cursor before the keys was not read)' : utcTime(expect.time)}`);
   if (expect.dialog !== undefined) parts.push(expect.dialog ? 'the exit dialog' : 'no exit dialog');
   if (expect.platformBack !== undefined) parts.push(`platformBack() called ${expect.platformBack} time${expect.platformBack === 1 ? '' : 's'}`);
   return parts.join(', ');
@@ -802,13 +818,21 @@ export function guideFailures(step: Pick<WalkStep, 'grid'>, state: WalkState, ch
   const g = state.grid;
   if (g === null) return ['the guide draws no grid'];
   // The fixture always has the category (onboarding.test.ts opens it).
-  const failures = [...gridFailures(g, state.dir), ...scheduleFailures(g, listedEntry(check.categories, GUIDE_ENTRY)!, language), ...cursorFailures(g, state.index, state.time)];
+  const entry = listedEntry(check.categories, GUIDE_ENTRY)!;
+  const failures = [...gridFailures(g, state.dir), ...scheduleFailures(g, entry, language), ...cursorFailures(g, state.index, state.time)];
   // The screen's clock is its last minute tick: up to a minute behind the page's.
   const clock = Math.floor(state.clock / 60_000);
+  const marks = markFailures(g, entry, language, clock, state.dir === 'rtl');
+  failures.push(...marks.failures);
   if (g.now !== null && Math.abs(g.now.minute - clock) > 1) failures.push(`the now line is at ${utcTime(g.now.minute)}, but the page's clock says ${utcTime(clock)}`);
   if (step.grid === 'later') {
     if (g.now !== null) failures.push(`the view (from ${utcTime(g.view)}) still draws the now line`);
     if (g.view <= clock) failures.push(`the view starts at ${utcTime(g.view)}, expected after now (${utcTime(clock)}): it never moved on`);
+  } else if (step.grid === 'earlier') {
+    if (g.now !== null) failures.push(`the view (from ${utcTime(g.view)}) still draws the now line`);
+    if (g.view + GUIDE_SPAN > clock) failures.push(`the view ends at ${utcTime(g.view + GUIDE_SPAN)}, expected by now (${utcTime(clock)}): it never went back`);
+    // (The page has a channel with catch-up: the check above must have marks to check.)
+    if (marks.marks === 0) failures.push('the view draws no archive marks, though its rows have catch-up');
   } else if (g.now === null) {
     failures.push(`no now line, though the view (from ${utcTime(g.view)}) holds now (${utcTime(clock)})`);
   }

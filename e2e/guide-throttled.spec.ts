@@ -27,10 +27,26 @@ import { THROTTLE, busyMs, throttle, transitionOf } from './throttle';
  * guide over every day the store keeps (`gridGuide`), so each view the presses draw is full of
  * programmes, as a real provider's guide is. The other channels keep the live run's four
  * programmes around now.
+ *
+ * With the catch-up days (RELAY step 25c): the first `ARCHIVED` channels have seven days of
+ * catch-up, so the store keeps seven days back in the full tier and two in the low one, and the
+ * guide reaches that far. Each run walks back in time twice before it goes down the pages: on
+ * row 20, among the channels with catch-up (every programme gone by carries the archive mark),
+ * and on row 155, among those without (no marks). The report gives both walks' timings. The
+ * first walk also pays for coming first: a control run with no catch-up channels showed the same
+ * gap between them in the full tier, so the marks' cost is the marked walk against the same walk
+ * of that control run (architecture.md §4, "Built in step 25c").
  */
 const CHANNELS = 20_000;
 const CATEGORIES = 200;
+/** "All channels" rows 0-99 have seven days of catch-up (the walk on row 20); row 155's have none. */
+const ARCHIVED = 100;
 const MINUTE = 60_000;
+/** Each tier's days back: the store keeps the channels' seven days of catch-up within its limit. */
+const DAYS_BACK = { full: 7, low: 2 } as const;
+/** The presses of each walk back in time, and the rows they walk. */
+const PAST_PRESSES = 20;
+const MARKED_ROW = 20;
 /** The row the CH− pages end on, where the time presses walk: it has a guide id. */
 const DEEPEST = 20 + 15 * ROWS;
 /**
@@ -47,7 +63,7 @@ const BUDGET: PressBudget = { pressMs: 150, longTaskMs: 150 };
 const OPEN_BUDGET: PressBudget = { pressMs: 200, longTaskMs: 200 };
 const REPORT = path.resolve(import.meta.dirname, '../artifacts/perf');
 
-const catalog = bigCatalog({ channels: CHANNELS, categories: CATEGORIES });
+const catalog = bigCatalog({ channels: CHANNELS, categories: CATEGORIES, archive: { channels: ARCHIVED, days: 7 } });
 let dense: DenseGuide;
 let app: MockServer;
 let host: string;
@@ -96,9 +112,9 @@ function focusedCell(page: Page): Promise<Focused> {
  * Programmes can arrive meanwhile (a view the presses rested on is asked after 200 ms) and
  * replace the placeholders the press moved by: then only the direction is checked.
  */
-async function timeStep(remote: RemoteDriver, intent: 'LEFT' | 'RIGHT', row: number, n: number): Promise<void> {
+async function timeStep(remote: RemoteDriver, intent: 'LEFT' | 'RIGHT', row: number, n: number, note = ''): Promise<void> {
   const before = await focusedCell(remote.page);
-  await remote.timedPress(intent, `guide/grid/${row}`, { timeMoves: true, label: `${intent} ${n} on row ${row}` });
+  await remote.timedPress(intent, `guide/grid/${row}`, { timeMoves: true, label: `${intent} ${n} on row ${row}${note === '' ? '' : ` ${note}`}` });
   const after = await focusedCell(remote.page);
   if (intent === 'RIGHT') expect(after.time, `RIGHT ${n}`).toBeGreaterThan(before.time);
   else expect(after.time, `LEFT ${n}`).toBeLessThan(before.time);
@@ -132,6 +148,19 @@ function checkDense(g: Grid): void {
   }
 }
 
+/** The archive marks drawn (`.z-guide__mark`), by the rows they are on. */
+function marksOn(g: Grid): number[] {
+  return g.cells.filter((c) => c.mark !== null).map((c) => c.row);
+}
+
+/** Local midnight `days` days back on the page, in UTC minutes. */
+function midnightBack(page: Page, days: number): Promise<number> {
+  return page.evaluate((back) => {
+    const d = new Date();
+    return Math.round(new Date(d.getFullYear(), d.getMonth(), d.getDate() - back).getTime() / 60_000);
+  }, days);
+}
+
 interface Run {
   readonly tier: string;
   /** UP to the header and OK on "Guide", on the live screen, and the long tasks until then. */
@@ -145,6 +174,12 @@ interface Run {
   /** The grid after the time presses, read once it settled. */
   readonly afterTime: Grid;
   readonly firstView: number;
+  /** The range's start, and the local midnight the tier's days back give. */
+  readonly from: number;
+  readonly wantFrom: number;
+  /** The marks drawn after each walk back in time: on row 20's view, and on row 155's. */
+  readonly marked: readonly number[];
+  readonly unmarked: readonly number[];
 }
 
 /**
@@ -178,11 +213,28 @@ async function browse(remote: RemoteDriver, live: Locator, tier: 'full' | 'low')
     await settled(screen, 30_000);
     // The tier's motion: a cell's focus transition, none on the low tier.
     expect(await transitionOf(page, '[data-testid=guide] .z-guide__cell')).toBe(tier === 'low' ? '0s, 0s' : '0.12s, 0.12s');
-    const firstView = (await readGrid(page, 'guide-screen', '.guide__header > *')).view;
-    for (let i = 1; i <= 20; i++) await remote.timedPress('DOWN', `guide/grid/${i}`);
-    for (let k = 1; k <= 15; k++) await remote.timedPress('CH_DOWN', `guide/grid/${20 + k * ROWS}`);
+    const first = await readGrid(page, 'guide-screen', '.guide__header > *');
+    const firstView = first.view;
+    const wantFrom = await midnightBack(page, DAYS_BACK[tier]);
+    for (let i = 1; i <= MARKED_ROW; i++) await remote.timedPress('DOWN', `guide/grid/${i}`);
     await settled(screen, 30_000);
-    for (let n = 1; n <= 30; n++) await timeStep(remote, 'RIGHT', DEEPEST, n);
+    // Back in time among the channels with catch-up: the programmes gone by carry the mark.
+    // (The view rests every five presses, so the days it crosses are read and drawn.)
+    for (let n = 1; n <= PAST_PRESSES; n++) {
+      await timeStep(remote, 'LEFT', MARKED_ROW, n, '(marks)');
+      if (n % 5 === 0) await settled(screen, 30_000);
+    }
+    const marked = marksOn(await readGrid(page, 'guide-screen', '.guide__header > *'));
+    for (let k = 1; k <= 15; k++) await remote.timedPress('CH_DOWN', `guide/grid/${MARKED_ROW + k * ROWS}`);
+    await settled(screen, 30_000);
+    // The same walk among the channels without catch-up: no marks.
+    for (let n = 1; n <= PAST_PRESSES; n++) {
+      await timeStep(remote, 'LEFT', DEEPEST, n, '(no marks)');
+      if (n % 5 === 0) await settled(screen, 30_000);
+    }
+    const unmarked = marksOn(await readGrid(page, 'guide-screen', '.guide__header > *'));
+    // Along the time, past now and on two hours at a time (the walks went about a day back).
+    for (let n = 1; n <= 70; n++) await timeStep(remote, 'RIGHT', DEEPEST, n);
     await settled(screen, 30_000);
     const afterTime = await readGrid(page, 'guide-screen', '.guide__header > *');
     for (let k = 1; k <= 5; k++) await remote.timedPress('CH_UP', `guide/grid/${DEEPEST - k * ROWS}`);
@@ -193,7 +245,7 @@ async function browse(remote: RemoteDriver, live: Locator, tier: 'full' | 'low')
     // Back: the live list, on the channel the guide had focused.
     await remote.timedPress('BACK', `live/channels/${top - 10}`);
     await settled(live, 30_000);
-    return { tier, opening, openingTasks, presses: [...remote.timings], longTasks: await remote.longTasks(), slowdown, afterTime, firstView };
+    return { tier, opening, openingTasks, presses: [...remote.timings], longTasks: await remote.longTasks(), slowdown, afterTime, firstView, from: first.from, wantFrom, marked, unmarked };
   } finally {
     await release();
   }
@@ -216,9 +268,16 @@ test.describe('the grid guide at 4x CPU throttle on a large catalog', () => {
     runs.push(await browse(remote, live, 'low'));
 
     // The numbers first, so a run that fails a check below still shows them.
+    const walk = (r: Run, note: string) => {
+      const s = summarize(r.presses.filter((p) => p.label.endsWith(note)));
+      return { count: s.count, median: Math.round(s.median), p95: Math.round(s.p95), max: Math.round(s.max) };
+    };
     const report = runs.map((r) => ({
       tier: r.tier,
       slowdown: Number(r.slowdown.toFixed(1)),
+      // The marks' cost (step 25c): the same walk back in time, with the marks and without.
+      pastWithMarks: { ...walk(r, '(marks)'), marks: r.marked.length },
+      pastWithoutMarks: { ...walk(r, '(no marks)'), marks: r.unmarked.length },
       opening: r.opening.map((p) => [p.label, Math.round(p.ms)]),
       openingTasks: r.openingTasks.map(Math.round),
       ...summarize(r.presses),
@@ -230,8 +289,17 @@ test.describe('the grid guide at 4x CPU throttle on a large catalog', () => {
       const slowest = [...r.presses].sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 5).map(([label, ms]) => `${label} ${ms} ms`);
       const opening = [...r.opening.map(([label, ms]) => `${label} ${ms} ms`), `long tasks ${r.openingTasks.join(', ') || 'none'}`].join(', ');
       console.log(`[grid, ${r.tier} tier, CPU ${r.slowdown}x slower] ${opening}; ${r.count} presses in the grid: median ${r.median.toFixed(0)} ms, p95 ${r.p95.toFixed(0)} ms, max ${r.max.toFixed(0)} ms; long tasks ${r.longTasks.join(', ') || 'none'}; slowest: ${slowest.join('; ')}`);
+      const a = r.pastWithMarks;
+      const b = r.pastWithoutMarks;
+      console.log(`[grid, ${r.tier} tier] back in time with ${a.marks} marks drawn: median ${a.median} ms, p95 ${a.p95} ms, max ${a.max} ms; without marks: median ${b.median} ms, p95 ${b.p95} ms, max ${b.max} ms`);
     }
     for (const run of runs) {
+      // The range reaches the tier's days back (seven in the full tier, two in the low one).
+      expect(run.from, `${run.tier} tier`).toBe(run.wantFrom);
+      // The walk among the channels with catch-up drew marks, only on their rows; the other none.
+      expect(run.marked.length, `${run.tier} tier`).toBeGreaterThan(10);
+      expect(run.marked.every((row) => row < ARCHIVED)).toBe(true);
+      expect(run.unmarked).toEqual([]);
       // The time presses moved the view on, and the rows it drew are the guide's programmes.
       expect(run.afterTime.view, `${run.tier} tier`).toBeGreaterThan(run.firstView);
       expect(run.afterTime.index).toBe(DEEPEST);

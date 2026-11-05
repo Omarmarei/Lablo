@@ -3,7 +3,7 @@ import { parse } from 'acorn';
 import { describe, expect, it } from 'vitest';
 import { fixtureEntries, liveCategories } from './fixture';
 import type { GridCell, GridRow, GridView } from './guide';
-import { GRID_VIEW_FUNCTION, GUIDE_LAYOUT, GUIDE_TEXT, cursorFailures, fixtureCells, gridFailures, programmeStart, scheduleFailures, utcTime } from './guide';
+import { GRID_VIEW_FUNCTION, GUIDE_LAYOUT, GUIDE_TEXT, MARK_SIZE, cursorFailures, fixtureCells, gridFailures, markFailures, programmeStart, scheduleFailures, utcTime } from './guide';
 import type { Drawing } from './guide-drawn';
 import { drawnGrid } from './guide-drawn';
 import type { LiveLanguage } from './live';
@@ -47,12 +47,18 @@ describe('the grid probe', () => {
       },
       querySelectorAll: (selector: string) => f.kids.filter(([s]) => s === selector).map(([, k]) => api(k)),
     });
-    const cell = el({ 'data-start': '870', 'data-end': '900', 'data-programme': '-1', 'data-state': 'focused' }, 508, 834, 'No information');
+    const cell = el({ 'data-start': '870', 'data-end': '900', 'data-programme': '-1', 'data-state': 'focused' }, 508, 834, 'No information', [['.z-guide__title', el({}, 0, 0, 'No information')]]);
+    // A programme in the archive (step 25c): the cell's text names the mark after the title.
+    const archived = el({ 'data-start': '810', 'data-end': '870', 'data-programme': '0', 'data-state': 'idle' }, 504, 504, 'fixture.41 13hCatch-up', [
+      ['.z-guide__title', el({}, 0, 0, 'fixture.41 13h')],
+      ['.z-guide__mark', el({}, 519, 539, 'Catch-up')],
+    ]);
     const row = el({ 'data-row': '3' }, 96, 1824, '', [
       ['.z-guide__channel', el({}, 96, 496)],
       ['.z-guide__line', el({}, 504, 1824)],
       ['.z-guide__number', el({}, 0, 0, '622')],
       ['.z-guide__name', el({}, 0, 0, 'Zoma Channel 41')],
+      ['.z-guide__cell', archived],
       ['.z-guide__cell', cell],
     ]);
     const grid = el({ 'data-view': '870', 'data-top': '3', 'data-count': '183', 'data-span': '120' }, 96, 1824, '', [
@@ -78,7 +84,10 @@ describe('the grid probe', () => {
           line: { left: 504, right: 1824, top: 10, bottom: 20 },
           number: '622',
           name: 'Zoma Channel 41',
-          cells: [{ start: 870, end: 900, programme: -1, state: 'focused', title: 'No information', left: 508, right: 834, top: 10, bottom: 20 }],
+          cells: [
+            { start: 810, end: 870, programme: 0, state: 'idle', title: 'fixture.41 13h', mark: { left: 519, right: 539, top: 10, bottom: 20, text: 'Catch-up' }, left: 504, right: 504, top: 10, bottom: 20 },
+            { start: 870, end: 900, programme: -1, state: 'focused', title: 'No information', mark: null, left: 508, right: 834, top: 10, bottom: 20 },
+          ],
         },
       ],
       slots: [{ minute: 870, text: '2:30 PM', left: 504, right: 570 }],
@@ -250,6 +259,62 @@ describe('scheduleFailures', () => {
     const g = draw('en');
     const past = { ...g, rows: [...g.rows, { ...g.rows[8]!, row: ENTRY.channels.length }] };
     expect(scheduleFailures(past, ENTRY, 'en')).toEqual([`1 of 10 rows wrong: row ${ENTRY.channels.length}: not in the fixture`]);
+  });
+});
+
+describe('markFailures (RELAY step 25c)', () => {
+  /** Six programmes back from 18:00 on row 10: the view from 12:00, all gone by; row 15 has catch-up. */
+  const earlier = (language: LiveLanguage): GridView => draw(language, { top: 9, index: 10, time: NOW - 150, view: NOW - 150 });
+  const rtl = (language: LiveLanguage): boolean => language === 'ar';
+
+  it('has catch-up on every other channel with a guide: rows 1, 5 and 8 of the first page, 15 of the second', () => {
+    expect(ENTRY.channels.slice(0, 18).map((c) => c.catchup)).toEqual([0, 7, 0, 0, 0, 7, 0, 0, 7, 0, 0, 0, 0, 0, 0, 7, 0, 0]);
+    expect(ENTRY.channels.every((c) => c.catchup === 0 || c.guide)).toBe(true);
+  });
+
+  it.each(['en', 'ar'] as const)('passes the marks as GuideGrid draws them (%s): on the programmes gone by of a channel with catch-up', (language) => {
+    expect(markFailures(earlier(language), ENTRY, language, NOW, rtl(language))).toEqual({ failures: [], marks: 2 });
+    const marked = earlier(language).rows.flatMap((row) => row.cells.filter((c) => c.mark !== null).map((c) => [row.row, utcTime(c.start)]));
+    expect(marked).toEqual([
+      [15, '12:00'],
+      [15, '13:00'],
+    ]);
+    // As the guide opens: nothing has ended in view.
+    expect(markFailures(draw(language), ENTRY, language, NOW, rtl(language))).toEqual({ failures: [], marks: 0 });
+  });
+
+  it('catches a mark missing, and one on a placeholder, on a channel without catch-up, on air, or older than the archive', () => {
+    const missing = withCells(earlier('en'), (c, row) => (row.row === 15 && c.start === NOW - 150 ? { ...c, mark: null } : c));
+    expect(markFailures(missing, ENTRY, 'en', NOW, false)).toEqual({ failures: ["1 archive marks wrong: row 15 cell 12:00 (gone by, in Zoma Channel 209's archive) has no archive mark"], marks: 1 });
+    const some = earlier('en').rows.find((r) => r.row === 15)!.cells[0]!.mark!;
+    const extra = withCells(earlier('en'), (c, row) => (row.row === 10 || row.row === 9 ? { ...c, mark: some } : c));
+    expect(markFailures(extra, ENTRY, 'en', NOW, false).failures[0]).toMatch(/^\d+ archive marks wrong: row 9 cell 12:00 has the archive mark, but is a placeholder; .*row 10 cell 12:00 has the archive mark, but its channel has no catch-up/);
+    const onAir = withCells(draw('en'), (c, row) => (row.row === 1 && c.start === NOW - 30 ? { ...c, mark: some } : c));
+    expect(markFailures(onAir, ENTRY, 'en', NOW, false).failures).toEqual(['1 archive marks wrong: row 1 cell 14:00 has the archive mark, but has not ended']);
+    // Eight days on, the programmes are older than the seven days.
+    expect(markFailures(earlier('en'), ENTRY, 'en', NOW + 8 * 1440, false).failures[0]).toMatch(/^2 archive marks wrong: row 15 cell 12:00 has the archive mark, but is older than the archive/);
+  });
+
+  it('catches a mark named wrong, sized wrong, outside its cell, or away from the inline start', () => {
+    const change = (language: LiveLanguage, mark: (m: NonNullable<GridCell['mark']>, c: GridCell) => NonNullable<GridCell['mark']>): string[] =>
+      markFailures(withCells(earlier(language), (c) => (c.mark === null ? c : { ...c, mark: mark(c.mark, c) })), ENTRY, language, NOW, rtl(language)).failures;
+    expect(change('en', (m) => ({ ...m, text: 'Catch-upCatch-up' }))[0]).toContain('row 15 cell 12:00: the mark is named "Catch-upCatch-up", expected "Catch-up"');
+    expect(change('ar', (m) => ({ ...m, text: GUIDE_TEXT.en.catchUp }))[0]).toContain(`expected "${GUIDE_TEXT.ar.catchUp}"`);
+    expect(change('en', (m) => ({ ...m, right: m.left + 8 }))[0]).toContain(`the mark is 8x${MARK_SIZE} px, expected ${MARK_SIZE}x${MARK_SIZE}`);
+    expect(change('ar', (m) => ({ ...m, bottom: m.top + 8 }))[0]).toContain(`the mark is ${MARK_SIZE}x8 px, expected ${MARK_SIZE}x${MARK_SIZE}`);
+    expect(change('en', (m) => ({ ...m, top: m.top - 40, bottom: m.bottom - 40 }))[0]).toContain('row 15 cell 12:00: the mark is not inside its cell');
+    // At the far end of its cell, and in Arabic on the left: away from the inline start.
+    expect(change('en', (m, c) => ({ ...m, left: c.right - 30, right: c.right - 10 }))[0]).toMatch(/row 15 cell 12:00: the mark is \d+ px from the cell's inline start \(the left\), expected at most 40/);
+    expect(change('ar', (m, c) => ({ ...m, left: c.left + 15, right: c.left + 35 }))[0]).toMatch(/the mark is \d+ px from the cell's inline start \(the right\), expected at most 40/);
+    expect(change('en', (m) => m)).toEqual([]);
+  });
+
+  it('lets a programme ending, or leaving the archive, within a minute of now be drawn either way', () => {
+    const g = earlier('en');
+    const none = withCells(g, (c) => ({ ...c, mark: null }));
+    // 13:00-14:00 ends at 14:00: a minute later it may still be drawn without its mark; 12:00 has left the archive at 12:00 seven days on.
+    expect(markFailures(none, ENTRY, 'en', NOW - 30 + 1, false).failures).toEqual(["1 archive marks wrong: row 15 cell 12:00 (gone by, in Zoma Channel 209's archive) has no archive mark"]);
+    expect(markFailures(g, ENTRY, 'en', NOW - 150 + 7 * 1440 + 1, false).failures).toEqual([]);
   });
 });
 

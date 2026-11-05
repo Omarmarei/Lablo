@@ -12,6 +12,9 @@
  * - `scheduleFailures`: each row's channel and its cells against the fixture's guide (every
  *   8th live channel has hourly programmes), or "No information" placeholders.
  * - `cursorFailures`: one focused cell, on the focused row, holding the time cursor.
+ * - `markFailures` (step 25c): the catch-up mark on every programme gone by within its
+ *   channel's archive days (the fixture's `hasCatchup` channels), inside its cell at the
+ *   title's inline start, named "Catch-up"; on no other cell.
  *
  * The layout constants, the selectors and our own words are kept equal to packages/ui's
  * guide-layout.ts, the e2e tests and the app's catalogs by test/engines-onboarding.test.ts
@@ -50,11 +53,15 @@ export const MIN_CELL = 8;
 export const GUIDE_BOXES = '[data-testid=guide], .z-guide__row, .z-guide__cell, .z-guide__slot, .z-guide__now, .guide__header > *';
 export const GUIDE_LABELS = '.guide__title, .guide__clock, .guide__when';
 
-/** Our own words in the grid, as the app's catalogs have them. */
-export const GUIDE_TEXT: Record<LiveLanguage, { readonly open: string; readonly noInfo: string }> = {
-  en: { open: 'Guide', noInfo: 'No information' },
-  ar: { open: 'الدليل', noInfo: 'لا توجد معلومات' },
+/** Our own words in the grid, as the app's catalogs have them (`catchUp`: the archive mark's name). */
+export const GUIDE_TEXT: Record<LiveLanguage, { readonly open: string; readonly noInfo: string; readonly catchUp: string }> = {
+  en: { open: 'Guide', noInfo: 'No information', catchUp: 'Catch-up' },
+  ar: { open: 'الدليل', noInfo: 'لا توجد معلومات', catchUp: 'إعادة المشاهدة' },
 };
+
+/** The archive mark's size (GuideGrid.css `.z-guide__mark`), and how far from its cell's inline start it may sit. */
+export const MARK_SIZE = 20;
+export const MARK_REACH = 40;
 
 export interface GridBox {
   readonly left: number;
@@ -63,13 +70,20 @@ export interface GridBox {
   readonly bottom: number;
 }
 
-/** A cell as drawn: its own times (UTC minutes), its programme's index (-1: a placeholder), its focus state and title. */
+/** The archive mark as drawn (step 25c): its box and its text (the name a screen reader reads). */
+export interface GridMark extends GridBox {
+  readonly text: string | null;
+}
+
+/** A cell as drawn: its own times (UTC minutes), its programme's index (-1: a placeholder), its focus state, title and mark. */
 export interface GridCell extends GridBox {
   readonly start: number;
   readonly end: number;
   readonly programme: number;
   readonly state: string | null;
+  /** The title's text (the mark's name, after it in the cell's text, left out). */
   readonly title: string | null;
+  readonly mark: GridMark | null;
 }
 
 export interface GridRow {
@@ -138,12 +152,15 @@ export const GRID_VIEW_FUNCTION = `function gridView(screen) {
           name: text(row, '.z-guide__name'),
           cells: all(row, '.z-guide__cell').map(function (cell) {
             var c = box(cell);
+            var mark = cell.querySelector('.z-guide__mark');
+            var m = mark ? box(mark) : null;
             return {
               start: num(cell, 'data-start'),
               end: num(cell, 'data-end'),
               programme: num(cell, 'data-programme'),
               state: cell.getAttribute('data-state'),
-              title: cell.textContent,
+              title: text(cell, '.z-guide__title'),
+              mark: m ? { left: m.left, right: m.right, top: m.top, bottom: m.bottom, text: mark.textContent } : null,
               left: c.left,
               right: c.right,
               top: c.top,
@@ -302,6 +319,47 @@ export function scheduleFailures(g: GridView, entry: ListedEntry, language: Live
     }
   }
   return wrong.length === 0 ? [] : [`${wrong.length} of ${g.rows.length} rows wrong: ${list(wrong)}`];
+}
+
+/**
+ * The archive marks (step 25c) against the fixture, at `now` (UTC minutes): each programme of a
+ * channel with catch-up that ended by `now` and started within its days has the mark, inside
+ * its cell, `MARK_SIZE` square, within `MARK_REACH` px of the cell's inline start, its text the
+ * language's "Catch-up"; no other cell has one. A cell that ends, or leaves the archive, within
+ * a minute of `now` may be drawn either way. `marks` counts the marks checked.
+ */
+export function markFailures(g: GridView, entry: ListedEntry, language: LiveLanguage, now: number, rtl: boolean): { failures: string[]; marks: number } {
+  const name = GUIDE_TEXT[language].catchUp;
+  const wrong: string[] = [];
+  let marks = 0;
+  for (const row of g.rows) {
+    const channel = entry.channels[row.row];
+    if (channel === undefined) continue;
+    for (const cell of row.cells) {
+      const at = `row ${row.row} cell ${utcTime(cell.start)}`;
+      const days = channel.catchup;
+      if (cell.programme >= 0 && (Math.abs(cell.end - now) <= 1 || (days > 0 && Math.abs(cell.start - (now - days * 1440)) <= 1))) continue;
+      const want = cell.programme >= 0 && days > 0 && cell.end <= now && cell.start >= now - days * 1440;
+      const mark = cell.mark;
+      if (!want) {
+        if (mark !== null) wrong.push(`${at} has the archive mark, but ${cell.programme < 0 ? 'is a placeholder' : days === 0 ? 'its channel has no catch-up' : cell.end > now ? 'has not ended' : 'is older than the archive'}`);
+        continue;
+      }
+      if (mark === null) {
+        wrong.push(`${at} (gone by, in ${channel.name}'s archive) has no archive mark`);
+        continue;
+      }
+      marks += 1;
+      if (plain(mark.text) !== name) wrong.push(`${at}: the mark is named ${mark.text === null ? 'nothing' : `"${plain(mark.text) ?? ''}"`}, expected "${name}"`);
+      const width = mark.right - mark.left;
+      const height = mark.bottom - mark.top;
+      if (!near(width, MARK_SIZE) || !near(height, MARK_SIZE)) wrong.push(`${at}: the mark is ${px(width)}x${px(height)} px, expected ${MARK_SIZE}x${MARK_SIZE}`);
+      if (mark.left < cell.left - 0.5 || mark.right > cell.right + 0.5 || mark.top < cell.top - 0.5 || mark.bottom > cell.bottom + 0.5) wrong.push(`${at}: the mark is not inside its cell`);
+      const from = rtl ? cell.right - mark.right : mark.left - cell.left;
+      if (!(from >= 0 && from <= MARK_REACH)) wrong.push(`${at}: the mark is ${px(from)} px from the cell's inline start (the ${rtl ? 'right' : 'left'}), expected at most ${MARK_REACH}`);
+    }
+  }
+  return { failures: wrong.length === 0 ? [] : [`${wrong.length} archive marks wrong: ${list(wrong)}`], marks };
 }
 
 /** One focused cell, on the focused row (`index`), holding the time cursor (`time`, UTC minutes). */

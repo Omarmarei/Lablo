@@ -19,6 +19,7 @@ import type { GuideChannel, Navigator } from '@zoma/ui';
  *   programme can be played from the channel's archive (`target.archive`: it has ended, within the
  *   channel's catch-up days). It closes the dialog and hands the programme to `fromStart` (the
  *   guide plays it from the archive: the player over the guide, Back from it back to the guide).
+ *   The dialog then says how long it can still be watched (`target.daysLeft`, step 25c).
  * - **Watch the channel** closes the dialog and hands the programme to `watch` (the guide plays
  *   the channel: the player over the guide, and Back from it comes back to the guide). **Guide
  *   channel** (step 24e) closes it and hands the programme to `map`: the manual mapping's picker
@@ -52,6 +53,11 @@ export interface DetailsTarget {
   readonly title: string;
   /** It can be watched from the start, out of the channel's archive (step 25a). */
   readonly archive?: boolean;
+  /**
+   * With `archive`, the local calendar days left before it leaves the archive (step 25c: 0, it
+   * leaves today). Absent when the channel states no days.
+   */
+  readonly daysLeft?: number;
 }
 
 /** `reading`: the read is out; `read`: it answered (`programme` may still be `null`); `failed`: it didn't. */

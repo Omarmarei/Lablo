@@ -352,6 +352,18 @@ export class DataEngine {
   }
 
   /**
+   * The past days the stored guides keep (step 25c: the grid guide reaches that far back): the
+   * longest of their last refreshes' windows, which keep their channels' longest catch-up within
+   * the tier's limit (`EPG_WINDOWS`); 0 without a stored guide.
+   */
+  async guidePastDays(): Promise<number> {
+    const guides = (await this.query.call('epgStatus')).guides;
+    let days = 0;
+    for (let i = 0; i < guides.length; i += 1) days = Math.max(days, guides[i]!.summary?.pastDays ?? 0);
+    return days;
+  }
+
+  /**
    * A page of the live channels no guide matches (step 24c), over the sources in the order
    * given, as "All channels" lists them; its `count` is the whole list's.
    */

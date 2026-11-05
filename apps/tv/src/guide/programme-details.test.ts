@@ -342,6 +342,23 @@ describe('the details dialog as drawn', () => {
     expect(draw('ar-SA').map((b) => b[0])).toEqual(['من البداية', 'شاهد القناة', 'قناة الدليل', 'إغلاق']);
   });
 
+  it('says how many days a programme in the archive has left (step 25c), and nothing without them', () => {
+    const left = (shown: DetailsTarget, locale = 'en-US'): Array<[string, unknown]> => {
+      const t = setup();
+      t.details.open(shown);
+      const dialog = ProgrammeDialog({ details: t.details, i18n: appI18n(locale, { isolate: false }), binding: bindFocus(t.nav) })!;
+      return byClass((dialog.props as Props & { body: unknown }).body, 'details__left').map((v) => [textOf(v), (v.props as Props)['data-days']]);
+    };
+    expect(left({ ...archived(600), daysLeft: 6 })).toEqual([['Expires in 6 days', 6]]);
+    expect(left({ ...archived(600), daysLeft: 1 })).toEqual([['Expires in 1 day', 1]]);
+    expect(left({ ...archived(600), daysLeft: 0 })).toEqual([['Expires today', 0]]);
+    expect(left({ ...archived(600), daysLeft: 6 }, 'ar-SA')).toEqual([['ينتهي خلال 6 أيام', 6]]);
+    expect(left({ ...archived(600), daysLeft: 0 }, 'ar-SA')).toEqual([['ينتهي اليوم', 0]]);
+    // A channel that states no days, and a programme not in the archive.
+    expect(left(archived(600))).toEqual([]);
+    expect(left({ ...target(600), daysLeft: 3 })).toEqual([]);
+  });
+
   it('leaves out the lines the guide doesn’t have, and says so for the description', async () => {
     const { props } = await draw({ ...programme(600, ' '), sub: '', category: '', episode: '' }, 'read');
     expect(byClass(props.body, 'details__sub')).toEqual([]);
