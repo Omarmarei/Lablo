@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { openDatabase, transact } from './idb';
+import type { EpgPin } from './epg-overrides';
+import { epgOverridesOf } from './epg-overrides';
 import type { UserGuide } from './epg-sources';
 import { EPG_OFFSET_MAX, EPG_OFFSET_STEP, epgOffsetsOf, isEpgOffset } from './epg-sources';
 import type { AnyProfile, GuideChange, LastChannel, PlayerChange, ProfileDoc, ProfileMigration, SourceRecord, SourceRecordV3, StoredTrackChoice } from './profile';
@@ -16,6 +18,7 @@ import {
   migrateProfile,
   noPlayerMemory,
   readEpgOffsets,
+  readEpgOverrides,
   restoreSnapshot,
   saveProfile,
   updateProfile,
@@ -550,5 +553,105 @@ describe("the guides' time offsets as stored (step 24b)", () => {
     await saveProfile(db, { ...emptyProfile(), epgOffsets: { 'u~g1': 90, 'tv:xmltv': -60 } }, { now: 2 });
     expect(await readEpgOffsets(db)).toEqual({ 'u~g1': 90, 'tv:xmltv': -60 });
     db.close();
+  });
+});
+
+describe('applyProfileEdit: manual EPG mappings (step 24d)', () => {
+  const listed = (...names: string[]): ProfileDoc => ({ ...withFavs(1), guides: names.map((n) => ({ id: n, url: `http://g.test/${n}.xml` })) });
+  const pin = (doc: ProfileDoc, key: string, to: EpgPin | null): ProfileDoc | null => applyProfileEdit(doc, { kind: 'epgOverride', key, pin: to });
+
+  it("sets, changes and takes away a channel's mapping in a document without any (no migration)", () => {
+    const doc = listed('g1');
+    expect(doc.epgOverrides).toBeUndefined();
+    const one = pin(doc, 'x:s1:live:1', { epgSrc: 'u~g1', channel: 'one.tv' })!;
+    expect(one.v).toBe(4);
+    expect(one.epgOverrides).toEqual({ 'x:s1:live:1': { epgSrc: 'u~g1', channel: 'one.tv' } });
+    expect(pin(one, 'x:s1:live:1', { epgSrc: 'u~g1', channel: 'one.tv' })).toBeNull();
+    const two = pin(one, 'x:s1:live:2', { epgSrc: 's1:xmltv', channel: 'two.tv' })!;
+    expect(two.epgOverrides).toEqual({ 'x:s1:live:1': { epgSrc: 'u~g1', channel: 'one.tv' }, 'x:s1:live:2': { epgSrc: 's1:xmltv', channel: 'two.tv' } });
+    // Another channel of the same guide, then the same channel of another guide.
+    expect(pin(two, 'x:s1:live:1', { epgSrc: 'u~g1', channel: 'three.tv' })!.epgOverrides!['x:s1:live:1']).toEqual({ epgSrc: 'u~g1', channel: 'three.tv' });
+    expect(pin(two, 'x:s1:live:1', { epgSrc: 's1:xmltv', channel: 'one.tv' })!.epgOverrides!['x:s1:live:1']).toEqual({ epgSrc: 's1:xmltv', channel: 'one.tv' });
+    expect(pin(two, 'x:s1:live:1', null)!.epgOverrides).toEqual({ 'x:s1:live:2': { epgSrc: 's1:xmltv', channel: 'two.tv' } });
+    expect(pin(one, 'x:s1:live:1', null)!.epgOverrides).toEqual({});
+    expect(pin(one, 'x:s1:live:2', null)).toBeNull();
+    expect(pin(doc, 'x:s1:live:1', null)).toBeNull();
+    // Nothing was changed in place.
+    expect(one.epgOverrides).toEqual({ 'x:s1:live:1': { epgSrc: 'u~g1', channel: 'one.tv' } });
+    expect(doc.epgOverrides).toBeUndefined();
+  });
+
+  it('keeps a mapping to no guide as no guide, whichever guide it names', () => {
+    const doc = listed('g1');
+    const off = pin(doc, 'x:s1:live:1', { epgSrc: 'u~g1', channel: null })!;
+    expect(off.epgOverrides).toEqual({ 'x:s1:live:1': { epgSrc: '', channel: null } });
+    expect(pin(off, 'x:s1:live:1', { epgSrc: '', channel: null })).toBeNull();
+    expect(pin(off, 'x:s1:live:1', { epgSrc: 's1:xmltv', channel: null })).toBeNull();
+    expect(pin(off, 'x:s1:live:1', { epgSrc: 'u~g1', channel: 'one.tv' })!.epgOverrides).toEqual({ 'x:s1:live:1': { epgSrc: 'u~g1', channel: 'one.tv' } });
+    const back = pin(pin(doc, 'x:s1:live:1', { epgSrc: 'u~g1', channel: 'one.tv' })!, 'x:s1:live:1', { epgSrc: 'u~g1', channel: null })!;
+    expect(back.epgOverrides).toEqual({ 'x:s1:live:1': { epgSrc: '', channel: null } });
+  });
+
+  it("changes nothing for a mapping that isn't one", () => {
+    const doc = pin(listed('g1'), 'x:s1:live:1', { epgSrc: 'u~g1', channel: 'one.tv' })!;
+    for (const bad of [
+      { epgSrc: '', channel: 'two.tv' },
+      { epgSrc: 'u~g1', channel: '' },
+      { epgSrc: 'u~g1', channel: '  ' },
+      { epgSrc: 'u~g1', channel: 2 as unknown as string },
+    ]) {
+      expect(pin(doc, 'x:s1:live:1', bad), JSON.stringify(bad)).toBeNull();
+      expect(pin(doc, 'x:s1:live:2', bad), JSON.stringify(bad)).toBeNull();
+    }
+  });
+
+  it("takes the mappings into a removed guide away with it, and keeps every other", () => {
+    let doc = listed('g1', 'g2');
+    doc = pin(doc, 'x:s1:live:1', { epgSrc: 'u~g1', channel: 'one.tv' })!;
+    doc = pin(doc, 'x:s1:live:2', { epgSrc: 'u~g2', channel: 'two.tv' })!;
+    doc = pin(doc, 'x:s1:live:3', { epgSrc: 'u~g1', channel: 'three.tv' })!;
+    doc = pin(doc, 'x:s1:live:4', { epgSrc: '', channel: null })!;
+    doc = pin(doc, 'x:s1:live:5', { epgSrc: 's1:xmltv', channel: 'one.tv' })!;
+    doc = applyProfileEdit(doc, { kind: 'epgOffset', epgSrc: 'u~g1', minutes: 60 })!;
+    const removed = applyProfileEdit(doc, { kind: 'guide', change: { op: 'remove', id: 'g1' } })!;
+    expect(removed.guides.map((g) => g.id)).toEqual(['g2']);
+    expect(removed.epgOverrides).toEqual({
+      'x:s1:live:2': { epgSrc: 'u~g2', channel: 'two.tv' },
+      'x:s1:live:4': { epgSrc: '', channel: null },
+      'x:s1:live:5': { epgSrc: 's1:xmltv', channel: 'one.tv' },
+    });
+    expect(removed.epgOffsets).toEqual({});
+    expect(doc.epgOverrides!['x:s1:live:1']).toEqual({ epgSrc: 'u~g1', channel: 'one.tv' });
+    // A guide removed with no mapping into it, or none at all, or a move, leave them as they are.
+    const plain = applyProfileEdit(removed, { kind: 'guide', change: { op: 'remove', id: 'g2' } })!;
+    expect(plain.epgOverrides).toEqual({ 'x:s1:live:4': { epgSrc: '', channel: null }, 'x:s1:live:5': { epgSrc: 's1:xmltv', channel: 'one.tv' } });
+    const none = applyProfileEdit(plain, { kind: 'guide', change: { op: 'add', guide: { id: 'g3', url: 'http://g.test/g3.xml' } } })!;
+    expect(applyProfileEdit(none, { kind: 'guide', change: { op: 'remove', id: 'g3' } })!.epgOverrides).toBe(plain.epgOverrides);
+    expect(applyProfileEdit(listed('g1'), { kind: 'guide', change: { op: 'remove', id: 'g1' } })!.epgOverrides).toBeUndefined();
+    const moved = applyProfileEdit(doc, { kind: 'guide', change: { op: 'move', id: 'g2', to: 0 } })!;
+    expect(moved.epgOverrides).toBe(doc.epgOverrides);
+    expect(moved.epgOffsets).toBe(doc.epgOffsets);
+  });
+});
+
+describe('manual EPG mappings as stored (step 24d)', () => {
+  it('readEpgOverrides reads the current profile without writing it: [] when there is none', async () => {
+    const db = await openDatabase(freshFactory());
+    expect(await readEpgOverrides(db)).toEqual([]);
+    await transact(db, STORE.profile, 'readwrite', (tx) => {
+      tx.objectStore(STORE.profile).put({ id: 'current', savedAt: 1, doc: v1(1) });
+    });
+    expect(await readEpgOverrides(db)).toEqual([]);
+    expect(await listSnapshots(db)).toEqual([]);
+    await saveProfile(db, { ...emptyProfile(), epgOverrides: { 'x:s1:live:1': { epgSrc: 'u~g1', channel: 'one.tv' }, 'x:s1:live:2': { epgSrc: '', channel: null } } }, { now: 2 });
+    expect(await readEpgOverrides(db)).toEqual([
+      { key: 'x:s1:live:1', epgSrc: 'u~g1', channel: 'one.tv' },
+      { key: 'x:s1:live:2', epgSrc: '', channel: null },
+    ]);
+    db.close();
+  });
+
+  it("epgOverridesOf skips inherited keys", () => {
+    expect(epgOverridesOf({ v: 4, epgOverrides: Object.create({ 'x:s1:live:1': { epgSrc: '', channel: null } }) as object })).toEqual([]);
   });
 });

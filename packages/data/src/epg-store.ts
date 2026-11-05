@@ -10,12 +10,14 @@
  *
  * If the app dies before step 3, the active generation is untouched; the half-written one is
  * removed by `pruneEpgGenerations` at the next start. Key layout: buckets
- * `[epgSrc, gen, channel, day]` (`day` = UTC day of the starts), match tables `[epgSrc, gen]`.
+ * `[epgSrc, gen, channel, day]` (`day` = UTC day of the starts), match tables `[epgSrc, gen]`, and
+ * beside each the guide's declared channels `[epgSrc, gen, 'declared']` (step 24d), which a
+ * generation's range covers too.
  * `pruneEpgDays` drops the past days a guide that can't be refreshed keeps showing.
  */
 
 import type { ContentKey, EpgBucket, EpgMatchMethod } from '@zoma/core';
-import { EPG_DAY_MINUTES, epgDay, mergeEpgBuckets } from '@zoma/core';
+import { EPG_DAY_MINUTES, epgDay, mergeEpgBuckets, normalizeName } from '@zoma/core';
 import type { FetchStamp } from './catalog-store';
 import { GenerationError, otherGenerations } from './catalog-store';
 import { onSuccess, transact } from './idb';
@@ -79,10 +81,16 @@ export interface EpgMeta {
   /** UTC epoch minutes: the latest programme end stored (refresh when under 24 h ahead). */
   until?: number | null;
   summary?: EpgSummary | null;
+  /**
+   * The user's manual mappings the active generation was matched with (`epgMappingKey`, step
+   * 24d; `-`: none). Other mappings make the guide due at once (`epgRefreshDue`). Optional:
+   * generations committed before it had none.
+   */
+  mapping?: string;
 }
 
 /** Optional fields `commitEpgGeneration` and `markEpgChecked` also set. */
-export type EpgMetaPatch = Partial<Pick<EpgMeta, 'fetch' | 'basis' | 'until' | 'summary' | 'rank'>>;
+export type EpgMetaPatch = Partial<Pick<EpgMeta, 'fetch' | 'basis' | 'until' | 'summary' | 'rank' | 'mapping'>>;
 
 /** One live channel's guide channel, as stored. */
 export interface StoredEpgMatch {
@@ -104,10 +112,50 @@ export interface EpgChannelTable {
   unmatched: { key: ContentKey; name: string; epgId: string | null }[];
 }
 
+/**
+ * Every XMLTV channel a generation's guide declares (step 24d), not only those in use, as columns
+ * in declaration order: a live channel can be mapped by hand to one that nothing matched. Stored
+ * beside the match table, so a reload never reads it.
+ */
+export interface EpgDeclaredChannels {
+  ids: string[];
+  /** The name shown: the display name for the UI languages (the id when it has none). */
+  names: string[];
+  /**
+   * What a search looks in: `normalizeName` of each display name and of the id, joined by a
+   * character no normalized name holds (so a word never runs from one name into the next). Built
+   * when the guide is read, off the screens' way.
+   */
+  search: string[];
+}
+
+/** A declared channel, as the matcher keeps it (core `XmltvChannel` fits). */
+export interface DeclaredChannel {
+  id: string;
+  /** The display name for the UI languages. */
+  name: string;
+  /** Every display name. */
+  names: readonly string[];
+}
+
+/** The declared-channels record of `channels` (see `EpgDeclaredChannels`). */
+export function epgDeclared(channels: readonly DeclaredChannel[]): EpgDeclaredChannels {
+  const out: EpgDeclaredChannels = { ids: [], names: [], search: [] };
+  for (const c of channels) {
+    let search = normalizeName(c.id);
+    for (const n of c.names) search += SEP + normalizeName(n);
+    out.ids.push(c.id);
+    out.names.push(c.name);
+    out.search.push(search);
+  }
+  return out;
+}
+
 /** A bucket as stored: the key holds its channel and day. */
 type StoredBucket = Omit<EpgBucket, 'channel' | 'day' | 'merge'>;
 
 const SEP = String.fromCharCode(1);
+const DECLARED = 'declared';
 const EPG_STORES = [STORE.epgBuckets, STORE.epgChannels];
 const generationRange = (epgSrc: string, gen: number): IDBKeyRange => IDBKeyRange.bound([epgSrc, gen], [epgSrc, gen, []]);
 const guideRange = (epgSrc: string): IDBKeyRange => IDBKeyRange.bound([epgSrc], [epgSrc, []]);
@@ -184,6 +232,13 @@ export function putEpgBuckets(db: IDBDatabase, epgSrc: string, gen: number, buck
 export function putEpgChannels(db: IDBDatabase, epgSrc: string, gen: number, table: EpgChannelTable): Promise<void> {
   return transact<void>(db, STORE.epgChannels, 'readwrite', (tx) => {
     tx.objectStore(STORE.epgChannels).put(table, [epgSrc, gen]);
+  });
+}
+
+/** Writes the declared channels of a generation (step 24d). */
+export function putEpgDeclared(db: IDBDatabase, epgSrc: string, gen: number, declared: EpgDeclaredChannels): Promise<void> {
+  return transact<void>(db, STORE.epgChannels, 'readwrite', (tx) => {
+    tx.objectStore(STORE.epgChannels).put(declared, [epgSrc, gen, DECLARED]);
   });
 }
 
@@ -331,6 +386,16 @@ export function readEpgChannels(db: IDBDatabase, keys: readonly { epgSrc: string
         out[i] = (value as EpgChannelTable | undefined) ?? null;
       });
     });
+  });
+}
+
+/**
+ * Reads the declared channels of a generation (step 24d): `null` when it has none stored, as a
+ * generation read before step 24d (`EPG_INGEST_VERSION` 1) doesn't.
+ */
+export function readEpgDeclared(db: IDBDatabase, epgSrc: string, gen: number): Promise<EpgDeclaredChannels | null> {
+  return transact<EpgDeclaredChannels | null>(db, STORE.epgChannels, 'readonly', (tx, done) => {
+    onSuccess(tx.objectStore(STORE.epgChannels).get([epgSrc, gen, DECLARED]), (value) => done((value as EpgDeclaredChannels | undefined) ?? null));
   });
 }
 

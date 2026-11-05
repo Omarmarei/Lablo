@@ -8,7 +8,9 @@
  * - remote keys mark the UI busy: the running refresh pauses (`setBusy`) until the keys have
  *   been idle for `idleMs`;
  * - an **EPG worker** starts for each EPG refresh (step 9b). The guides come from the catalog
- *   sources (`epgGuides`), and `due` refreshes only those `epgRefreshDue` names. Catalog and EPG
+ *   sources (`epgGuides`), and `due` refreshes only those `epgRefreshDue` names (a guide matched
+ *   with other manual mappings than the profile's is one: step 24d; the EPG worker reads the
+ *   mappings from the profile itself). Catalog and EPG
  *   refreshes share one slot, so a low-tier TV never runs both at once; when a guide swaps in, the
  *   query worker reloads, and `nowNext` reads the store through it (`guide`, the grid guide's
  *   rows over a time range, too: step 23a);
@@ -25,7 +27,7 @@
  * app passes the `?worker` imports (`./workers.ts`).
  */
 
-import type { CatalogItem, ContentKey, ContentKind, DeviceTier, EpgOverride, EpgProgramme } from '@zoma/core';
+import type { CatalogItem, ContentKey, ContentKind, DeviceTier, EpgProgramme } from '@zoma/core';
 import type {
   AccountCheck,
   CancelToken,
@@ -36,6 +38,8 @@ import type {
   EpgProgress,
   EpgRefreshResult,
   EpgStatus,
+  GuideChannelsPage,
+  GuideChannelsRequest,
   GuideRequest,
   GuideRow,
   IngestClient,
@@ -108,7 +112,6 @@ export interface EpgRefreshOptions {
   user?: UserGuide[];
   /** UI languages, most preferred first. */
   languages?: string[];
-  overrides?: EpgOverride[];
   /** Read only the guides that are due (`epgRefreshDue`); without it, every guide. */
   due?: boolean;
   /** Ignore validators and byte hashes. */
@@ -272,7 +275,7 @@ export class DataEngine {
       let only: string[] | undefined;
       if (options.due) {
         const now = this.options.now ? this.options.now() : Date.now();
-        only = guides.filter((g) => epgRefreshDue(findGuide(status, g.epgSrc), now) !== null).map((g) => g.epgSrc);
+        only = guides.filter((g) => epgRefreshDue(findGuide(status, g.epgSrc), now, status.mapping) !== null).map((g) => g.epgSrc);
         // A guide gone from the list, or one in another place (its rank is its place).
         const changed = status.guides.some((m) => listed.indexOf(m.epgSrc) !== m.rank);
         if (only.length === 0 && !changed) return { outcomes: [], deleted: [], reranked: [], wanted: 0 };
@@ -284,7 +287,8 @@ export class DataEngine {
           reload.catch(ignore);
         });
         if (options.onProgress) client.on('progress', options.onProgress);
-        const job = { guides, only, tier: options.tier, languages: options.languages, overrides: options.overrides, force: options.force };
+        // (No mappings in the job: the EPG worker reads the profile's.)
+        const job = { guides, only, tier: options.tier, languages: options.languages, force: options.force };
         const result = await client.call('run', { job, lowTier: options.tier === 'low' }, { cancel: options.cancel });
         // A guide that only moved sends no swap: the query worker orders the guides by rank.
         if (result.reranked.length > 0) reload = this.query.call('reload');
@@ -338,6 +342,14 @@ export class DataEngine {
    */
   unmatched(req: UnmatchedRequest): Promise<UnmatchedPage> {
     return this.query.call('unmatched', req);
+  }
+
+  /**
+   * A page of the XMLTV channels the guides declare (step 24d: the manual mapping's picker), or
+   * one guide's, whose names hold each word of the query; its `count` is the whole search's.
+   */
+  guideChannels(req: GuideChannelsRequest): Promise<GuideChannelsPage> {
+    return this.query.call('guideChannels', req);
   }
 
   /**

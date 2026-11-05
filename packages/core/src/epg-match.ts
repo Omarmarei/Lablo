@@ -342,6 +342,14 @@ export class EpgMatcher {
     return this.list.filter((_, c) => this.uses[c]! > 0);
   }
 
+  /**
+   * Every XMLTV channel declared so far, in declaration order (step 24d: a channel nothing matched
+   * can be mapped by hand). Their ids and names are owned strings (see `ownString`). Read-only.
+   */
+  declaredChannels(): readonly XmltvChannel[] {
+    return this.list;
+  }
+
   stats(): EpgMatchStats {
     const byMethod: Record<EpgMatchMethod, number> = { override: 0, id: 0, 'xtream-id': 0, name: 0, 'match-name': 0 };
     let wanted = 0;

@@ -222,6 +222,27 @@ describe('QueryService.shortEpg', () => {
     expect(await ask(offline, 1)).toMatchObject({ from: 'guide', now: { title: 'Guide 12' } });
   });
 
+  it('asks no panel for a channel the user mapped to no guide, at once and after a reload (step 24d)', async () => {
+    const panel = fakeTransport(() => ({ body: listings(NOW, 4, 30, 'Panel') }));
+    const q = new QueryService({ openDb: async () => db, transport: panel, now: () => NOW });
+    // Loaded first: the edit itself must apply it, not a first load after it.
+    await q.reload();
+    expect(await q.editProfile({ kind: 'epgOverride', key: 'x:tv:live:2', pin: { epgSrc: '', channel: null } })).toBe(true);
+    expect(await ask(q, 2)).toEqual({ key: 'x:tv:live:2', epgSrc: null, channel: null, method: null, now: null, next: null, from: 'none', cached: false });
+    expect(panel.requests).toHaveLength(0);
+    // Read from the profile at a reload (another worker's start).
+    const fresh = new QueryService({ openDb: async () => db, transport: panel, now: () => NOW });
+    expect(await ask(fresh, 2)).toMatchObject({ from: 'none', now: null });
+    expect(panel.requests).toHaveLength(0);
+    // A mapping to a guide's channel isn't "no guide": until a refresh reads it, the panel answers.
+    await q.editProfile({ kind: 'epgOverride', key: 'x:tv:live:2', pin: { epgSrc: 'tv:xmltv', channel: 'a.tv' } });
+    expect(await ask(q, 2)).toMatchObject({ from: 'panel', now: { title: 'Panel 0' } });
+    expect(panel.requests).toHaveLength(1);
+    // A matched channel mapped to no guide keeps its guide until the guide is read again.
+    await q.editProfile({ kind: 'epgOverride', key: 'x:tv:live:1', pin: { epgSrc: '', channel: null } });
+    expect(await ask(q, 1)).toMatchObject({ from: 'guide', now: { title: 'Guide 12' } });
+  });
+
   it("rejects with the panel's error, and asks again next time", async () => {
     const answers: FakeResponse[] = [{ status: 500 }, { body: listings(NOW) }];
     const panel = fakeTransport(() => answers.shift()!);

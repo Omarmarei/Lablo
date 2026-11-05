@@ -7,7 +7,9 @@ import {
   abandonEpgGeneration,
   beginEpgGeneration,
   commitEpgGeneration,
+  deleteEpgGeneration,
   deleteEpgSource,
+  epgDeclared,
   epgFirstDay,
   getEpgMeta,
   markEpgChecked,
@@ -17,8 +19,10 @@ import {
   pruneEpgGenerations,
   putEpgBuckets,
   putEpgChannels,
+  putEpgDeclared,
   readEpgBuckets,
   readEpgChannels,
+  readEpgDeclared,
 } from './epg-store';
 import { EPG_AHEAD_MS, EPG_REFRESH_MS, EPG_RETRY_MS, epgGuides, epgRefreshDue } from './epg-sources';
 import { openDatabase } from './idb';
@@ -173,6 +177,55 @@ describe('EPG generations', () => {
   });
 });
 
+describe("a guide's declared channels (step 24d)", () => {
+  const SEP = String.fromCharCode(1);
+  const declared = (...ids: string[]) => epgDeclared(ids.map((id) => ({ id, name: `Name ${id}`, names: [`Name ${id}`] })));
+
+  it('searches the id and every display name, normalized, and shows the name for the UI languages', () => {
+    expect(
+      epgDeclared([
+        { id: 'BBCOne.uk', name: 'BBC One', names: ['BBC One', 'Ãrte Ünïcode', 'قناة الجزيرة'] },
+        { id: 'only.id', name: 'only.id', names: [] },
+      ]),
+    ).toEqual({
+      ids: ['BBCOne.uk', 'only.id'],
+      names: ['BBC One', 'only.id'],
+      search: [`bbconeuk${SEP}bbc one${SEP}arte unicode${SEP}قناه الجزيره`, 'onlyid'],
+    });
+    expect(epgDeclared([])).toEqual({ ids: [], names: [], search: [] });
+  });
+
+  it('is stored beside the match table, and goes with its generation and its guide', async () => {
+    const g1 = await beginEpgGeneration(db, 'g');
+    await putEpgChannels(db, 'g', g1, table(['a']));
+    await putEpgDeclared(db, 'g', g1, declared('a', 'b', 'c'));
+    await commitEpgGeneration(db, 'g', g1, 1);
+    const g2 = await beginEpgGeneration(db, 'g');
+    await putEpgDeclared(db, 'g', g2, declared('d'));
+    const gg = await beginEpgGeneration(db, 'gg');
+    await putEpgDeclared(db, 'gg', gg, declared('e'));
+
+    expect(await readEpgDeclared(db, 'g', g1)).toEqual(declared('a', 'b', 'c'));
+    expect(await readEpgDeclared(db, 'g', g2)).toEqual(declared('d'));
+    // The match table is read as it was: the declared record is a key of its own.
+    expect((await readEpgChannels(db, [{ epgSrc: 'g', gen: g1 }]))[0]).toEqual(table(['a']));
+    expect(await readEpgDeclared(db, 'g', 9)).toBeNull();
+
+    await abandonEpgGeneration(db, 'g', g2);
+    expect(await readEpgDeclared(db, 'g', g2)).toBeNull();
+    const g3 = await beginEpgGeneration(db, 'g');
+    await putEpgDeclared(db, 'g', g3, declared('f'));
+    await pruneEpgGenerations(db, 'g', { abandon: true });
+    expect(await readEpgDeclared(db, 'g', g3)).toBeNull();
+    expect(await readEpgDeclared(db, 'g', g1)).toEqual(declared('a', 'b', 'c'));
+    await deleteEpgGeneration(db, 'g', g1);
+    expect(await readEpgDeclared(db, 'g', g1)).toBeNull();
+    expect(await readEpgDeclared(db, 'gg', gg)).toEqual(declared('e'));
+    await deleteEpgSource(db, 'gg');
+    expect(await readEpgDeclared(db, 'gg', gg)).toBeNull();
+  });
+});
+
 describe('which guides, and when', () => {
   const meta = (src: string, extra: Partial<SourceMeta> = {}): SourceMeta => ({ src, gen: 1, building: null, nextGen: 2, updatedAt: 1, counts: {}, ...extra });
 
@@ -212,5 +265,22 @@ describe('which guides, and when', () => {
     expect(epgRefreshDue({ ...base, failedAt: now + EPG_REFRESH_MS }, now + EPG_REFRESH_MS + 1)).toBeNull();
     expect(epgRefreshDue({ ...base, gen: 0, failedAt: now }, now + EPG_RETRY_MS - 1)).toBeNull();
     expect(epgRefreshDue({ ...base, gen: 0, failedAt: now }, now + EPG_RETRY_MS)).toBe('new');
+  });
+
+  it('is due at once when matched with other manual mappings, but not right after a failure (step 24d)', () => {
+    const now = Date.UTC(2026, 10, 2, 12);
+    const base: EpgMeta = { epgSrc: 'g', gen: 1, building: null, nextGen: 2, updatedAt: now, checkedAt: now, rank: 0, until: (now + 3 * 86_400_000) / 60_000, mapping: 'k1' };
+    expect(epgRefreshDue(base, now, 'k1')).toBeNull();
+    expect(epgRefreshDue(base, now, 'k2')).toBe('mapping');
+    expect(epgRefreshDue(base, now)).toBe('mapping');
+    expect(epgRefreshDue({ ...base, mapping: '-' }, now)).toBeNull();
+    // A guide read before step 24d was matched with none.
+    expect(epgRefreshDue({ ...base, mapping: undefined }, now)).toBeNull();
+    expect(epgRefreshDue({ ...base, mapping: undefined }, now, 'k1')).toBe('mapping');
+    expect(epgRefreshDue({ ...base, failedAt: now }, now + EPG_RETRY_MS - 1, 'k2')).toBeNull();
+    expect(epgRefreshDue({ ...base, failedAt: now }, now + EPG_RETRY_MS, 'k2')).toBe('mapping');
+    expect(epgRefreshDue({ ...base, gen: 0 }, now, 'k2')).toBe('new');
+    // Stale too: the mapping is told first.
+    expect(epgRefreshDue(base, now + EPG_REFRESH_MS, 'k2')).toBe('mapping');
   });
 });

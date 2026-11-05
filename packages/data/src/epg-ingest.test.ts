@@ -8,7 +8,7 @@ import type { EpgIngestOptions, EpgProgress, EpgRefreshJob, EpgSwap } from './ep
 import { EPG_INGEST_VERSION, runEpgRefresh } from './epg-ingest';
 import type { EpgGuide } from './epg-sources';
 import { epgRefreshDue } from './epg-sources';
-import { beginEpgGeneration, getEpgMeta, getEpgMetas, putEpgChannels, readEpgChannels } from './epg-store';
+import { beginEpgGeneration, epgDeclared, getEpgMeta, getEpgMetas, putEpgChannels, putEpgDeclared, readEpgChannels } from './epg-store';
 import { openDatabase } from './idb';
 import { QueryService } from './query-service';
 import { CancelError, CancelSource } from './rpc';
@@ -438,12 +438,14 @@ describe('runEpgRefresh', () => {
     // A crashed refresh of G left generation 2 half written.
     const g2 = await beginEpgGeneration(db, G.epgSrc);
     await putEpgChannels(db, G.epgSrc, g2, { matches: [], channels: [], unmatched: [] });
+    await putEpgDeclared(db, G.epgSrc, g2, epgDeclared([{ id: 'left.tv', name: 'Left', names: ['Left'] }]));
     const other: EpgGuide = { epgSrc: 'u~x', url: 'http://p.test/x.xml', zone: { minutes: 0 } };
     const later = NOW + 3 * DAY;
     const r = await refresh(() => ({ body: text }), { guides: [G, other], only: ['u~x'] }, { now: () => later }).result;
     expect(r.outcomes.map((o) => o.epgSrc)).toEqual(['u~x']);
     expect(await getEpgMeta(db, G.epgSrc)).toMatchObject({ gen: 1, building: null });
-    expect((await dumpStore(db, STORE.epgChannels)).map(([k]) => (k as unknown[]).join(' '))).toEqual(['tv:tvg0 1', 'u~x 1']);
+    // (Each generation's declared channels go with it: step 24d.)
+    expect((await dumpStore(db, STORE.epgChannels)).map(([k]) => (k as unknown[]).join(' '))).toEqual(['tv:tvg0 1', 'tv:tvg0 1 declared', 'u~x 1', 'u~x 1 declared']);
     const firstDay = Math.floor(later / DAY) - 2;
     expect([...(await stored(1)).keys()].sort()).toEqual([...before.keys()].filter((k) => Number(k.split('|')[1]) >= firstDay).sort());
   });
