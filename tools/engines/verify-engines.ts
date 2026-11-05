@@ -39,7 +39,7 @@ import type { Engine } from './src/engines';
 import { TV_RUNTIME_FLAGS, TV_SCREEN_FLAGS, selectEngines } from './src/engines';
 import { ensureEngineZip } from './src/fetch';
 import type { DataCheck } from './src/fixture';
-import { appUrl, fixtureEntries, liveCategories, stageFixtures } from './src/fixture';
+import { appUrl, fixtureEntries, liveCategories, movieCategories, stageFixtures } from './src/fixture';
 import type { BidiState, GalleryRun } from './src/gallery';
 import { evaluateGallery, galleryUrl, runGallery } from './src/gallery';
 import type { LabServer } from './src/lab';
@@ -393,7 +393,9 @@ async function main(): Promise<void> {
   const staged = stageFixtures(VARIANTS_DIR);
   // The live screen's rail and rows, as the walk checks them (step 14c).
   const categories = liveCategories(fixtureEntries());
-  const checks: Record<TvPlatform, WalkData> = { tizen: { ...staged.tizen, categories }, webos: { ...staged.webos, categories } };
+  // And the movies screen's (step 26b).
+  const films = movieCategories(fixtureEntries());
+  const checks: Record<TvPlatform, WalkData> = { tizen: { ...staged.tizen, categories, films }, webos: { ...staged.webos, categories, films } };
   // The onboarding walk deletes the app's database from a page of the same file:// origin.
   stageBlankPage(VARIANTS_DIR);
   if (selfTest) {

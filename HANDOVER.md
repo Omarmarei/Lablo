@@ -1,174 +1,196 @@
-# Zoma IPTV: relay leg 64 opening prompt
+# Zoma IPTV: relay leg 65 opening prompt
 
-You are leg 64 of relay run `iptv-20261101-214120`, building **Zoma IPTV**. It is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 65 of relay run `iptv-20261101-214120`, building **Zoma IPTV**. It is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 - **Earlier legs:**
   - Leg 0 planned the work. Leg 6 did no project work.
   - Legs 1–63 did steps 1–25 (PRs #1–#63), except step 16's Samsung part, 19b and 21.
-- **Leg 63:**
-  - merged PR #62 (step 25c) as `7a045d7`;
-  - built step 25d (the catch-up player's seek bar, pause, seeking and the programme's end);
-  - merged it as PR #63, merge commit `e36c10e`;
-  - ticked 25d and step 25 (catch-up is done).
+- **Leg 64:**
+  - checked what exists for movies and split step 26 into 26a–26e in RELAY.md (`ceec388`);
+  - built step 26a (the movies screen and its poster grid with tiered image caps);
+  - merged it as PR #64, merge commit `ac34a69`;
+  - ticked 26a (`4619c5e`).
 - **Steps 16, 19b and 21 stay open** until Omar says the Samsung route is ready or has time at the TV. Leave them open.
 - **Relay cap:** 100 legs (`relay.py status`).
 
-## Next: step 26 (RELAY.md, Phase 7: "Movies, series, search")
-Step 26 reads: "Movies. Poster grids with tiered image caps, details, resume, 'Recently added'." It has no Done-when of its own and is far bigger than one session.
-1. **Check what exists** (global CLAUDE.md, "Before Implementing Anything"):
-   - `git log --oneline -50`, and grep for `movie`, `vod`, `poster`, `resume`, `recently`;
-   - the catalog's VOD items (`packages/core`'s model, the Xtream `vod_streams` ingest in `packages/data`);
-   - the query worker's VOD queries;
-   - the player's VOD mode (`PlayRequest.mode: 'vod'`, the controller's `resumeMs` and its 20 s VOD buffering rule; 25d's `positionMs`/`seek`);
-   - PLAN.md and docs/architecture.md on movies, poster caps and resume;
-   - the header's sections in `apps/tv/src/live`.
-2. **Split step 26 into session-sized sub-steps in RELAY.md**, as leg 60 split 25 into 25a–25d. Each sub-step gets:
-   - a `Done when:` check that can be run;
-   - step 25's common items: unit tests, e2e by keys in en and ar against the mock with the screenshots looked at, a mutation run with the list written first, `pnpm verify` green, main within budget with 219 core-js modules on both, the PR merged, and a "press these keys" checklist in the handover.
+## Read first
+1. `RELAY.md`, step 26 and its sub-steps (around line 1010). It has "Already built" (what leg 64 found), the split's reasons, each sub-step's Done-when, and 26a's "Done in leg 64".
+2. `docs/architecture.md` §1.2, "Built in step 26a".
+3. For 26b, the earlier throttled and old-engine work:
+   - architecture.md §4, "Built in step 14b", "23d", "23e", "25c";
+   - `e2e/guide-throttled.spec.ts`, `e2e/live-throttled.spec.ts`, `e2e/big-catalog.ts`;
+   - `tools/engines/src/guide.ts`, `live.ts`, `onboarding.ts` (the walk);
+   - `docs/runbooks/old-engines.md`.
 
-   A possible order:
-   - 26a: the movie categories and a poster grid (tiered image caps, the old engines);
-   - 26b: the movie details and playing a movie;
-   - 26c: resume (accurate position, the profile's memory);
-   - 26d: "Recently added".
-
-   Decide the split from what exists. Commit it to RELAY.md first.
-3. Build 26a, under the same rules as every step.
+## Next: step 26b (RELAY.md), "The poster grid at scale and on the old engines"
+1. **Check first** that nothing of it exists: `git log --oneline -15`, grep `movies` in `e2e/*throttled*` and `tools/engines/src`.
+2. **The throttled run:** add a movies run, a new spec or a test in the `throttled` project (`playwright.config.ts`: `throttled.spec.ts$`, one worker, after `chromium`).
+   - The catalog: 20,000 movies in 100 categories. Add a `movies` option to `e2e/big-catalog.ts`'s `bigCatalog` (the mock's `Movie` type: `id`, `num`, `name`, `categoryId`, `ext`, `year`, `durationSecs`, `rating`, `genre`, `plot`, `addedDaysAgo`, `media: 'vod'`).
+   - The presses, at 4x CPU in both tiers (`?tier=low`), each from a fresh start with the source stored:
+     - UP, RIGHT, OK on "Movies";
+     - DOWN through rows and pages of CH−;
+     - LEFT to the rail, down it, OK on a category;
+     - Back.
+   - Each press within 150 ms (calibrate on CI as 23d did).
+   - At each rest, the image requests stay within the view's 18, and the drawn `img` count is at most 18.
+3. **The old-engine walk** (`tools/engines`): both bundles, English and Arabic, on Chromium 53, 56 and 68.
+   - "Movies" by the TVs' keys.
+   - Measure the grid's tiles against the layout from the inline start: 184 × 276, 24 px gaps, 6 a row, 3 rows, the rail 440 px plus 32 px. This is the first screen without CSS Grid in a row layout of images.
+   - Check that the posters are drawn.
+   - Check that the focus engine equals the screen's `data-screen/zone/index` at every step.
+   - The fixture (`tools/engines/src/fixture.ts`) probably needs movies with posters. It serves files from a staged origin, so a poster needs to be a real small image file, not the mock's route.
+4. **The common items** (RELAY.md step 26's list):
+   - unit tests;
+   - e2e en and ar with the screenshots looked at;
+   - a mutation run with the list written first (templates: `artifacts/mutate26a.py`, `mutate26a-e2e.py`);
+   - `pnpm verify` green;
+   - 219 core-js modules on both (`python -I -u artifacts/poly-count20c2a.py` after `pnpm build:tv`);
+   - the PR merged;
+   - a "press these keys" checklist.
+5. Then 26c (the details and playing a movie), 26d (resume) and 26e ("Recently added"), each in its own leg.
 
 ## Git state to expect
 - **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`.
 - **HEAD:** the commit adding this HANDOVER.md, on top of these (pushed; the tree is clean):
-  - `3ad6732` docs: record PR #63's merge, tick steps 25d and 25;
-  - `e36c10e` Merge pull request #63;
-  - `c503184` docs: step 25d;
-  - `1837b7b` test;
-  - `7d2fdfb` fix (the mutation findings);
-  - `1dd0600` e2e;
-  - `95dbdfe` feat;
-  - `4d355a8` docs: record PR #62's merge;
-  - `7a045d7` Merge pull request #62.
-- **main** is `e36c10e`. The branch equals main plus the docs commits.
+  - `4619c5e` docs: record PR #64's merge, tick step 26a;
+  - `ac34a69` Merge pull request #64;
+  - `7d58413` docs: step 26a;
+  - `e1c903a` fix (the mutation run's findings);
+  - `27d251d` fix (the mutation list's findings before the run);
+  - `dea688e` e2e;
+  - `8e92ab9` feat;
+  - `ceec388` docs: the step 26 split.
+- **main** is `ac34a69`. The branch equals main plus the docs commits.
 - **The main checkout** (`D:/Claude Code PlayGround/IPTV`) was not touched by the relay.
 - **Gitignored but present:**
-  - `node_modules`, `.cache/*` (`.cache/media` has the generated media for `e2e:media`), `dist/`;
+  - `node_modules`, `.cache/*` (`.cache/media` for `e2e:media`), `dist/`;
   - `artifacts/`:
-    - `mutate25d.py` (the newest unit template: 72 mutants over controller, catchup and player-state) with `mutate25d.log` and `mutate25d-b.log`;
-    - `mutate25c-e2e.py` (the newest e2e template);
-    - `verify25d.log` (cut short, see below);
-    - `poly-count20c2a.py`.
+    - `mutate26a.py` (the newest unit template: 89 mutants) with `mutate26a.log`, `mutate26a-b.py` and `mutate26a-b.log`;
+    - `mutate26a-e2e.py` and its log (the newest e2e template);
+    - `poly-count20c2a.py`;
+    - `screenshots/movies-{en-US,ar-SA}.png`.
 - **On the TV:** the lab `com.zoma.iptv.lab` 0.1.1 (CLI device `tv`). The app was never installed on the TV.
 - **Outside the repo:** the webOS Simulator in `D:/tools/webos-sim/` and the image `zoma-webos-sim:local`. Never commit them (LG's license; the repo is public).
+
+## What step 26a built (architecture.md §1.2 "Built in step 26a")
+- **The header:** "Guide" (0), "Movies" (1), "Settings" (2) (`HEADER_MOVIES` in `live-state.ts`). OK on "Movies" opens the screen in every state of the live list. The five specs that reach "Settings" press twice now.
+- **`apps/tv/src/movies/movies-state.ts`:** `createMovies({ nav, engine, tier, timers, select })`.
+  - The screen `movies` (pushed on the live navigator; `LiveApp` paints `MoviesScreen` instead of the live screen) has the zones `rail`, `grid` (a `grid` zone, 6 columns, `MOVIES_ROWS` = 3) and `retry`.
+  - The rail comes from live-state's `railEntries`, with kind `movie`.
+  - Chunks are read for the rows in view and one either side, through `ChannelIndex`, with `CHUNK_CACHE` 8 kept least-recently-used. The chunks a view needs are never dropped.
+  - `catalogChanged` keeps the category by name, the focus's place and the view (main.tsx calls it from the refresh schedule's `onCatalog`).
+  - Back in the grid goes to the rail; Back on the rail, or on an empty or failed screen, closes it.
+  - `select(item)` is the hook for 26c's details. It is not wired in `main.tsx` yet.
+  - `pending` counts the reads, a rest not over yet and the posters in flight.
+- **`posters.ts`:** `PosterLoader(parallel)` with `rest(urls)`, `src(url)`, `loaded`, `failed`, `inFlight` and `clear`. `POSTER_TIERS` is full `{ restMs: 150, parallel: 6 }` and low `{ 300, 2 }`; `POSTER_MEMORY` is 1000.
+  - Posters are asked only once the view rests, the focused row first.
+  - A download that left the view is let go.
+  - A failed poster shows the title.
+- **`@zoma/ui`:**
+  - `VirtualGrid` (with `gridRows`): flexbox rows of the rows in view, the gaps as custom-property margins so Arabic mirrors.
+  - `Tile`'s `poster` (`z-tile--poster`, a two-line clamped title) and `onImageLoad`/`onImageError`.
+  - The tokens `--poster-width` 184 and `--poster-height` 276 (`LAYOUT.posterWidth`/`posterHeight`).
+- **New catalog keys** (en, ar): `movies.open`, `movies.title`, `movies.all`, `movies.count`, `movies.noGroup`, `movies.loading`, `movies.empty`, `movies.failed`. "Try again" reuses `live.retry`.
+- **Decided (not gates):**
+  - The tiers differ in the rest and the downloads at once, not in the posters drawn.
+  - "No posters in lists" (S6's fallback) waits for the 2018 Samsung (step 41).
+  - The poster is the item's `logo`.
+  - The title sits over the poster, in two lines.
+- **Not done:** the decoded size of big panel posters. A count cap doesn't bound bytes; step 41 measures it, and a canvas downscale is the next cap.
+- **Tests:**
+  - 4,226 unit tests (+84);
+  - e2e `movies.spec.ts` (en-US, ar-SA; the mock's six films plus forty of ours; Sintel's poster aborted);
+  - mutation 79/89, then 10/10, and e2e 6/6.
+- **Size:** main 365.2 KB (Tizen) / 352.6 KB (webOS), app.css 78.9 KB, 219 core-js modules on both.
+- **CI on `7d58413`:** verify 15 m 25 s (about twice its usual 7 min, for no known reason), media 9 m 31 s, engines 17 m 04 s.
+
+## Gotchas and lessons
+**New in leg 64** (also in memory):
+- **A member named `at` pulled `Array/String.at` in a fifth time,** as an object key in a local option (`load({ ref, at })`): 225 core-js modules. Run the poly count right after the first build of new TV code, not at the end.
+- **`Screen.focus(zone, i)` clamps and scrolls minimally,** so a `reset` before it, or a clamp around it, is redundant. A reset also notifies the listeners at once: a swap that reset to the top read the top's chunks before focusing the kept place.
+- **e2e image checks:**
+  - count requests with `page.on('request')`: a `page.route` abort never reaches the mock's hooks;
+  - filter `Failed to load resource` out of `trackErrors`;
+  - the mock's posters are 1×1 PNGs (invisible in screenshots; the tiles' titles show).
+- **Long Bash heredocs feeding python failed to parse again** (quotes in test text). Write the script with the Write tool, then run `python -I <file> "$WT"`.
+- **Never `cd`:** one `cd "$WT"` in a compound moved this session's primary working directory to the worktree. It is harmless, but keep to absolute paths.
+- **Don't push to an open PR's branch while its CI runs.** The push cancels the run (concurrency), and the path filter looks at the whole PR.
+
+**From earlier legs (still true):**
+- **The relay context check fires at about 450k tokens.** Budget code and e2e first, then mutation, docs, verify, PR, merge.
+- **CI media "Install ffmpeg" can hang** on the Azure apt mirror until the 30-min cancel. Read the job's steps, then `gh run rerun <run> --failed -R Omarmarei/Lablo`.
+- **Local `pnpm verify` may die at the unit stage** (workers 0xC0000142, then the shell is reaped for low memory). Run lint, typecheck, `pnpm test`, `build:tv` and the touched e2e specs separately. In leg 64 the full `pnpm test` (4,226) ran fine on its own.
+- **Non-media e2e that presses keys in the player:** hold the stream with `page.route(..., r => r.fetch().catch(() => undefined))`, or the error card takes the keys.
+- **`ZoneSpec` is a union:** read `count` with `toMatchObject({ count })`.
+- **The mock:**
+  - Its panel zone is UTC by default (`odd-timezone` is Kathmandu).
+  - Its synthetic media never plays; real frames need `ZOMA_E2E_MEDIA=1 ... --project=playback-media`.
+  - Movies 201–206, posters at `/images/movie-<id>.png`.
+- **Tests:**
+  - Root tests can't import an apps/tv module that reaches `@zoma/ui` (TS6142 shows only in `pnpm verify`).
+  - vitest's `testTimeout` is 30 s.
+  - Playwright: `--project=chromium <pattern>`.
+- **`SettingsScreen.tsx` and `main.tsx` are CRLF in the index.** Patch scripts preserve the line ending.
+- **The Edit and Write tools decode `\u` escapes.**
+- **Never edit source while `pnpm verify`, `e2e:media` or a mutation run is going.** Docs are safe. If a mutation run is stopped, look for `*.mutbak`.
+- **TV bundle polyfills:**
+  - no member named `at`, no `Uint8Array`, `JSON.stringify`, `new RegExp`, `.split(`, `Array.from`, iterator calls (`.keys().next()`) or array destructuring in TV files;
+  - count main after any TV-file change (219);
+  - the build can crash once (0xC0000005): run it again.
+- **Code rules:**
+  - `packages/ui` components stay hook-free (`useZone` is the binding's);
+  - UI text only from the catalogs (ar.ts has no comments);
+  - provider text uses `dir=auto` + `translate=false`;
+  - physical CSS only, and no CSS Grid or flex `gap` (Chromium 53/56);
+  - TV code is ES2017;
+  - the app imports only types from `@zoma/data`;
+  - dependencies at least 2 weeks old;
+  - never weaken lint;
+  - scoped `git add`, and `git commit -F -` ending with the `Co-Authored-By` and `Claude-Session` lines.
 
 ## Working rules (unchanged)
 - **Never call EnterWorktree,** even though Claude Code's background note asks for it: the relay worktree is your isolation.
 - Use `git -C`, `pnpm --dir`, `gh -R Omarmarei/Lablo` and absolute paths. **Never `cd`.**
-- A one-off script runs as `pnpm --dir "<wt>" exec node --import tsx <path>`. Never use bare `git stash`.
+- A one-off script runs as `pnpm --dir "<wt>" exec node --import tsx <path>`, or `python -I <file>`. Never use bare `git stash`.
 - **The repo is public as `Omarmarei/Lablo`** (the product is still "Zoma"):
-  - CI runs on `pull_request` and `workflow_dispatch` only. Its jobs are path-filtered over the whole PR's diff: docs alone run none; `engines` runs on TV bundles and their harness; `media` on the mock, data layer, player, lab or scale tests.
-  - Commits use the no-reply email (the repo-local config sets it).
-  - No secrets, no LG binaries, no personal data in commits.
+  - CI runs on `pull_request` and `workflow_dispatch` only, its jobs path-filtered over the whole PR's diff;
+  - commits use the no-reply email (the repo-local config);
+  - no secrets, no LG binaries, no personal data.
 - **Merging:** IPTV PRs merge on green CI without Omar (memory: merge commit, keep the branch). Name the three riskiest changes first. Afterwards: fetch, `git -C "<wt>" merge --ff-only origin/main`, record the merge in RELAY.md.
 - **CLAUDE.md edits need Omar's direct word in his own tab.**
-
-## What step 25d built (architecture.md §1.2, "Built in step 25d"; ADR-010, "Applied in step 25d")
-- **The controller:** `positionMs()` gives the media time while a picture shows (else 0). `seek(ms)` seeks inside a VOD or catch-up stream on show: a reopen starts there, and a pause stays a pause. `FakeEngine.seek` now moves the position (`seekOk` refuses).
-- **The seek bar:**
-  - The player's screen has a zone `seek` above `actions`. It holds one item in a catch-up and none live (`seekBar(on)`).
-  - It shows "Paused", elapsed / length around a `ProgressBar media` (a `dir="ltr"` island), and "Aired at {time}" (`player.aired`).
-  - `Player.position` is `{ time, seeking, live }`, read every 1 s (`POSITION_MS`). Only `SeekBar` reads it. Note the field is `time`, not `at` (Babel polyfills).
-  - In a catch-up, UP and DOWN move between the bar and the buttons, and CH± zap. When the bar hides, the focus goes back to it.
-  - OK on the bar (through `onSelect`) and PLAY_PAUSE pause.
-- **Seeking:**
-  - LEFT/RIGHT move 1 min and FF/RW 5 (`seekStep`; from a held key's ninth press, 5 and 10). A run is presses under `HOLD_MS` 300 ms apart, same direction and kind.
-  - One seek happens `SEEK_DELAY_MS` (600 ms) after the last key.
-  - An HLS archive showing a picture, for a target after the stream's start, seeks inside it (`controller.seek`). If the engine refuses, it falls back to a URL.
-  - Anything else plays again by URL from `Math.round(target / 1 min)`: `catchupRequest(row, programme, facts, now, fromMs)`.
-  - The target is clamped to [start, end − 1 min]. A raw target at or past now goes live.
-- **The end:**
-  - Play-on: 5 s past the end (`PLAY_ON_MS`), it asks `programmeAt` (main.tsx: `DataEngine.nowNext([key], at)`) once per end, and takes only a programme starting at or after the shown one's end.
-  - The controller's `ended` with an archive shows `EndCard`: "The programme has ended" (`player.ended`), "Watch live" (`player.watchLive`, plays live) and "Back to the guide" (`player.toGuide`, closes).
-  - A card drops a waiting seek.
-- **New catalog keys** (en, ar): `player.paused`, `player.position`, `player.aired`, `player.live`, `player.ended`, `player.watchLive`, `player.toGuide`.
-- **Decided (not gates):**
-  - whole-minute steps;
-  - a URL seek rounds instead of seeking inside a TS download;
-  - PLAY_PAUSE toggles (webOS maps PLAY and PAUSE to one intent);
-  - the media timeline runs left to right in Arabic too (RIGHT is forward), while the guide's timeline mirrors.
-- **Tests:**
-  - unit +20 (controller 5, catchup 2, player 13); 4,139 in the last full local run, before 3 more;
-  - e2e `guide-catchup-seek.spec.ts` (en-US, ar-SA);
-  - `player-media.spec.ts`'s catch-up test seeks inside HLS and pauses (`e2e:media`);
-  - the 25a–25c specs open on `player/seek/0`.
-- **Mutation:** 76 written, 66 caught. Six test gaps were closed and four redundant pieces taken out; the re-run caught 10/10.
-- **Size:** main 354.8 KB (Tizen) / 342.2 KB (webOS); app.css 75.4 KB; 219 core-js modules on both.
-
-## Gotchas and lessons
-**New in leg 63** (also in memory):
-- **Don't push to an open PR's branch while its CI runs.** The push cancels the run in progress (concurrency): leg 62's handover push cancelled its media re-run. The path filter looks at the whole PR, so a docs-only commit still runs every job. Push docs or a handover only after CI finishes, or after the merge.
-- **CI media "Install ffmpeg" hung again** (29 min, cancelled at the 30-min limit). One `gh run rerun <run> --failed -R Omarmarei/Lablo` passed. Read the job's steps to see where it hung.
-- **Non-media e2e that presses keys in the player:** the synthetic media fails fast and the error card takes the keys. Hold the stream instead: `page.route('**/timeshift/**', async (r) => { await r.fetch().catch(() => undefined); })`. The mock still records the request; the page waits.
-- **Local `pnpm verify` died again**: workers exit 0xC0000142 at the unit stage, then the shell is reaped for low memory. Don't restart it. Run lint, typecheck, unit (or the touched packages) and `build:tv` separately in the foreground, run the touched e2e specs, and let CI's verify run the rest.
-- **The player's OK:** OK on a focused zone item reaches the screen's `onSelect` when `onIntent` returns false. Don't duplicate OK handling in `onIntent` (the mutation run found it equivalent).
-- **`ZoneSpec` is a union:** read a zone's `count` in tests with `toMatchObject({ count })`. `.count` fails typecheck, and only `pnpm verify`'s typecheck shows it (vitest doesn't typecheck).
-
-**From earlier legs (still true):**
-- **The relay context check fires at about 450k tokens.** Budget code and e2e first, then mutation, docs, verify, PR, merge.
-- **The guide:** days the guide hasn't read move by 30-minute slots, so press in rounds (`backTo`). The mock's guide reaches back only each channel's own archive days.
-- **The mock:**
-  - Its panel zone is UTC by default. `odd-timezone` is Kathmandu (+05:45).
-  - Its synthetic media never plays. Real frames: `ZOMA_E2E_MEDIA=1 pnpm exec playwright test --project=playback-media player-media -g "<title>"` (PowerShell: `$env:ZOMA_E2E_MEDIA = '1'`).
-- **Tests:**
-  - Root tests can't import an apps/tv module that reaches `@zoma/ui` (TS6142 shows only in `pnpm verify`).
-  - vitest's `testTimeout` is 30 s. A fake-clock promise (`await r.player.stop()` on `FakeClock`) hangs until the clock advances.
-  - Playwright `--project chromium <file>` reads the file as a project name: use `--project=chromium <pattern>`.
-- **`SettingsScreen.tsx` and `main.tsx` are CRLF in the index** (Git warns that LF will replace CRLF). Patch scripts preserve the line ending.
-- **The Edit and Write tools decode `\u` escapes.** Bash heredocs feeding python mangle non-ASCII: use Write-tool scripts.
-- **Never edit source while `pnpm verify`, `e2e:media` or a mutation run is going.** Docs are safe. If a mutation run is stopped, look for `*.mutbak`.
-- **TV bundle polyfills:**
-  - no member named `at`, no `Uint8Array`, `JSON.stringify`, `new RegExp`, `.split(`, `Array.from`, iterator calls or array destructuring in TV files;
-  - count main after any TV-file change (219 modules: `python -I -u artifacts/poly-count20c2a.py`, after `pnpm build:tv`);
-  - the build can crash once (0xC0000005): run it again.
-- **Code rules:**
-  - components in `packages/ui` stay hook-free;
-  - UI text comes only from the catalogs;
-  - provider text uses `dir=auto` + `translate=false`;
-  - physical CSS only (an LTR island needs margins that are the same on both sides);
-  - TV code is ES2017;
-  - the app imports only types from `@zoma/data`;
-  - dependencies must be at least 2 weeks old;
-  - never weaken lint;
-  - scoped `git add`, and `git commit -F -` ending with the `Co-Authored-By` and `Claude-Session` lines.
 
 ## Verified vs not
 - **Verified:**
   - **Locally:**
-    - lint, typecheck, the full unit suite (4,139) and both TV builds (219 modules), before the mutation fixes;
-    - the player tests (350) after them;
-    - e2e: every catch-up spec (11), player/live/guide (18), the seek spec (en, ar), and the media catch-up test with an in-stream seek and pause;
-    - mutation 66/76 then 10/10;
-    - screenshots `guide-catchup-seek-{en-US,ar-SA}` and `player-catchup-paused-en` looked at.
-  - **On CI (`c503184`):** verify 6 m 57 s, engines 14 m 51 s, media 10 m 32 s (second try).
+    - lint, the full typecheck, the full unit suite (4,226), both TV builds (219 modules);
+    - the touched e2e specs: 49 (movies en and ar, the five that reach "Settings", live, guide, player, resume, gallery);
+    - mutation 79/89, then 10/10, and e2e 6/6;
+    - screenshots `movies-{en-US,ar-SA}` looked at.
+  - **On CI:** all four jobs green on `7d58413`.
 - **Not done:**
-  - the full local `pnpm verify` after the mutation fixes (reaped; CI's passed);
-  - the end card and play-on in an e2e (unit only);
-  - catch-up and seeking on a TV. RELAY.md step 41 now lists what each TV must confirm: an archive's media time starting at 0, AVPlay `seekTo` and webOS seeking in HLS, a URL seek's reconnect time, the PLAY/PAUSE keys, a real end card.
+  - the full local `pnpm verify` and `pnpm e2e` (CI ran them);
+  - the movies screen on Chromium 53/56/68 (26b);
+  - any TV.
 - **Migrations and deploys:** N/A (no backend until step 29).
 
 ## Open decisions and gates
 - **Steps 16, 19b and 21 wait for Omar:**
   - **Samsung:** the account, the certificate, the RTL tunnel session, and the used 2018 set.
-  - **About 30–45 minutes at the LG TV:** S10, S11, S5's suspend and soak, and the player itself (step 21). Catch-up, its seeking and the guide's marks can join that visit.
-- **Later, from leg 63:** fine seeking (seconds) inside HLS archives; "start over" for the programme on air; separate PLAY and PAUSE intents.
-- **Later, from leg 62:** a day jump in the guide (FF/RW, a day picker, or holding LEFT faster).
+  - **About 30–45 minutes at the LG TV:** S10, S11, S5's suspend and soak, and the player (step 21). Catch-up and its seeking can join that visit, and the movies grid when 26b/26c are in.
+- **For step 41 (the 2018 Samsung):**
+  - the decoded memory of a grid of real panel posters;
+  - whether the low tier keeps posters in lists.
+- **Later, from leg 63:** fine seeking inside HLS archives; "start over"; separate PLAY and PAUSE intents.
+- **Later, from leg 62:** a day jump in the guide.
 - **Later (unchanged):**
   - an on-screen keyboard if the TV keyboards fail;
-  - webOS's PRE-CH key;
+  - webOS's PRE-CH;
   - the accessibility route;
   - pre-buffered zapping;
   - the last frame kept while reconnecting;
   - step 38's settings rows;
-  - parsing subtitle files off the main thread;
-  - a remote's own Guide or Info key;
+  - subtitle parsing off the main thread;
+  - a Guide or Info key;
   - drop Chromium 53 (ADR-012);
   - a memory signal for the tier;
   - holding refreshes while a low-tier TV plays;
@@ -179,26 +201,23 @@ Step 26 reads: "Movies. Poster grids with tiered image caps, details, resume, 'R
   - `SourceMemory` for catch-up.
 - **Later gates:** steps 19b, 21, 34, 44, 46 and 47. Before the first store submission: the final app IDs and real icons.
 
-## "Press these keys" checklist for step 25d (Omar, in `pnpm dev` with `pnpm mock`)
+## "Press these keys" checklist for step 26a (Omar, in `pnpm dev` with `pnpm mock`)
 1. Onboard with the mock's Xtream login, then "Start watching".
-2. UP to the header, then OK on "Guide". On "Zoma Test 1 SMPTE", press LEFT once, OK, then OK on "From the start".
-3. The player opens with the seek bar focused (a ring around it): "0:00", the bar, the programme's length (e.g. "1:00:00"), and "Aired at 4:00 PM".
-4. Press RIGHT three times quickly. The bar jumps to "3:00" at once (in the accent colour), and the stream reopens from 3:00 about half a second later.
-5. Press FF: "8:00". Hold LEFT: it runs back to "0:00" and stops there.
-6. DOWN moves the focus to "Previous channel"; UP brings it back to the bar. CH+ zaps to the next channel live, and the bar is gone.
-7. With real media (`pnpm mock:media` media playing, as in `e2e:media`):
-   - OK pauses ("Paused" on the bar) and OK plays on;
-   - RIGHT seeks inside the HLS archive without "Connecting…".
-8. Arabic (`?locale=ar-SA`): the timeline still runs left to right, RIGHT goes forward, and "وقت البث" sits at the bar's left end.
-9. The end: FF to the programme's last minute and let it play out. "The programme has ended" shows. OK on "Watch live" plays the channel live; "Back to the guide" returns to the guide's cell.
+2. UP to the header: "Guide", "Movies", "Settings". RIGHT to "Movies", then OK.
+3. The movies screen: "Movies · All movies · 6 movies" in the header. The rail on the left: "All movies 6", "Open Movies | أفلام مفتوحة 4", "Test Patterns 2". Six poster tiles in one row (Big Buck Bunny, Sintel, Tears of Steel, Elephants Dream, the 4K pattern, the multi-audio file), titles in up to two lines, the first one ringed.
+4. RIGHT along the row; LEFT back. LEFT from the first tile goes to the rail. DOWN twice, then OK on "Test Patterns": its two tiles, the first focused.
+5. Back goes to the rail on "Test Patterns". Back again closes the screen, and the header keeps "Movies" focused. DOWN goes to the channel list.
+6. Arabic (`?locale=ar-SA`): the rail on the right, the grid filling from the right, "الأفلام" in the header, and LEFT/RIGHT mirrored (RIGHT from the first tile goes to the rail).
+7. With many movies (the `?scale=` catalogs, or a real playlist), hold DOWN: the rows scroll with titles only, and the posters come about a sixth of a second after the key is let go.
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
 - Submit the **Samsung Seller Office Partner application ASAP** (Samsung Gulf). It takes weeks, and Samsung in the GCC and Canada depends on it, as does a GCC Beta Test.
 - **"Zoma" trademark clearance** (US, CA, AE, SA) and domains. These also decide the final app IDs.
 - `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` was widened with his authorisation on 2026-11-02. Prune it when the relay run ends if he wants it tighter.
 - **At the TV next time:** read Dev Mode's "Remain Session".
-- **Thirty CLAUDE.md gaps** are waiting for his word:
+- **Thirty-one CLAUDE.md gaps** are waiting for his word:
   - 1–28: as listed in leg 51's handover (`git -C "<wt>" show d05d5fd:HANDOVER.md`, "Carry-forward reminders");
   - 29: the `pnpm dev` row should name the live header's "Guide";
   - 30: the `pnpm verify:engines` row's self-test description (108 runs, 80 that must fail).
+  - 31 (new in leg 64): the cheat sheet's CSS row could add "and no CSS Grid in a poster grid: `VirtualGrid`'s flexbox rows".
 - **Secrets:** none pending.

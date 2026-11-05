@@ -55,6 +55,23 @@ describe('the posters a grid draws (RELAY step 26a)', () => {
     expect(drawn(p, 2, 5)).toEqual([2, 5]);
   });
 
+  it('holds the posters waiting for their turn on a key, until the next rest (RELAY step 26b)', () => {
+    const p = new PosterLoader(2);
+    p.rest(urls(1, 2, 3, 4));
+    p.hold();
+    // The two under way go on and draw; 3 and 4 start nothing when they end.
+    expect(drawn(p, 1, 2, 3, 4)).toEqual([1, 2]);
+    expect(p.inFlight()).toBe(2);
+    p.loaded(u(1));
+    p.failed(u(2));
+    expect(drawn(p, 1, 2, 3, 4)).toEqual([1]);
+    expect(p.inFlight()).toBe(0);
+    // The next rest asks them.
+    p.rest(urls(1, 2, 3, 4));
+    expect(drawn(p, 1, 2, 3, 4)).toEqual([1, 3, 4]);
+    expect(p.inFlight()).toBe(2);
+  });
+
   it("asks nothing the view moved away from before its turn came", () => {
     const p = new PosterLoader(1);
     p.rest(urls(1, 2, 3));

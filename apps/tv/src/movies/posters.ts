@@ -9,7 +9,9 @@ import type { DeviceTier } from '@zoma/core';
  *   image; a row that leaves the view leaves the DOM, and its decoded images can go.
  * - **Nothing loads while the view moves:** the posters of a view are asked once it has rested
  *   (`POSTER_TIERS[tier].restMs`). A tile that comes into view meanwhile shows its title on the
- *   tile's background; one that stays in view keeps its poster.
+ *   tile's background; one that stays in view keeps its poster. A key press holds the posters
+ *   still waiting for their turn (`hold`, RELAY step 26b): the downloads under way finish, and
+ *   no new one starts before the next rest.
  * - **A few downloads at a time** (`parallel`), the focused tile's row first, so a slow image
  *   server doesn't hold a TV's connections (a stream may be playing).
  * - **A poster that failed** stays failed (its tile shows the title) until `POSTER_MEMORY` other
@@ -76,6 +78,14 @@ export class PosterLoader {
       else this.queue.push(url);
     }
     this.fill();
+  }
+
+  /**
+   * A key moved the focus: the posters waiting for their turn wait for the next rest, so a held
+   * key starts no download. The ones downloading go on (their tiles may still be in view).
+   */
+  hold(): void {
+    this.queue = [];
   }
 
   /** Poster `url`'s image arrived. */

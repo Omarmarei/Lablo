@@ -25,6 +25,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
+import type { Rgb } from './poster';
+import { posterPng } from './poster';
 import type { TvPlatform } from './scenario';
 
 /** Where serve-fixture.sh answers inside the container (started by run-chrome.sh). */
@@ -37,6 +39,8 @@ export interface FixtureEntry {
   readonly group: string;
   readonly kind: 'live' | 'movie';
   readonly url: string;
+  /** A movie's poster (`tvg-logo`; none: the movie has no logo). */
+  readonly poster?: string;
 }
 
 /** What one app run must show after its refresh and search. */
@@ -64,16 +68,57 @@ export const FIXTURE_SIZE = 3000;
 const LIVE_SHARE = 0.8;
 const ARABIC_NEWS = 'أخبار';
 
+/** The movies' two groups (RELAY step 26b): `Films`, then an Arabic one with Arabic names. */
+export const FILMS = 'Films';
+export const ARABIC_FILMS = 'أفلام عربية';
+
+/**
+ * The poster files staged next to the playlists (`stagePosters`): real PNGs at the grid's tile
+ * size, one colour each. Each movie's `tvg-logo` names one with its own query (`?m=<n>`), so
+ * every movie has a URL of its own, as a provider's posters do.
+ */
+export const POSTER_FILES: ReadonlyArray<{ readonly file: string; readonly top: Rgb; readonly bottom: Rgb }> = [
+  { file: 'poster-0.png', top: [200, 90, 60], bottom: [60, 30, 20] },
+  { file: 'poster-1.png', top: [60, 140, 210], bottom: [20, 40, 80] },
+  { file: 'poster-2.png', top: [90, 180, 100], bottom: [20, 60, 30] },
+];
+/** The poster files' size: the poster tile's (packages/ui `LAYOUT.posterWidth` x `posterHeight`). */
+export const POSTER_SIZE = { width: 184, height: 276 } as const;
+/** A poster the fixture never stages: its download fails, and its tile shows the title. */
+export const MISSING_POSTER = 'poster-missing.png';
+/** Of every 50 movies (by their place among the movies, from 1), the 8th's poster fails and the 13th has none. */
+const FAILS_AT = 8;
+const NONE_AT = 13;
+
+/** Movie `m`'s poster (its place among the movies, from 1), for playlist entry `i`. */
+export function moviePoster(m: number, i: number): string | undefined {
+  if (m % 50 === NONE_AT) return undefined;
+  const file = m % 50 === FAILS_AT ? MISSING_POSTER : POSTER_FILES[m % POSTER_FILES.length]!.file;
+  return `${FIXTURE_ORIGIN}/${file}?m=${i}`;
+}
+
 /**
  * 3,000 entries: 2,400 live channels then 600 movies. Every 10th channel is Arabic news
  * (`أخبار زوما n`), every other 7th is Latin news (`Zoma News n`), the rest `Zoma Channel n`.
+ * The first 300 movies are `Zoma Film n` in `Films`, the others `فيلم زوما n` in `أفلام عربية`,
+ * each with a poster (`moviePoster`).
  */
 export function fixtureEntries(count = FIXTURE_SIZE): FixtureEntry[] {
   const entries: FixtureEntry[] = [];
   const live = Math.floor(count * LIVE_SHARE);
+  const films = count - live;
   for (let i = 1; i <= count; i++) {
     if (i > live) {
-      entries.push({ name: `Zoma Film ${i}`, group: 'Films', kind: 'movie', url: `${FIXTURE_ORIGIN}/movie/u/p/${i}.mp4` });
+      const m = i - live;
+      const arabic = m > films / 2;
+      const poster = moviePoster(m, i);
+      entries.push({
+        name: arabic ? `فيلم زوما ${i}` : `Zoma Film ${i}`,
+        group: arabic ? ARABIC_FILMS : FILMS,
+        kind: 'movie',
+        url: `${FIXTURE_ORIGIN}/movie/u/p/${i}.mp4`,
+        ...(poster === undefined ? {} : { poster }),
+      });
     } else if (i % 10 === 0) {
       entries.push({ name: `${ARABIC_NEWS} زوما ${i}`, group: ARABIC_NEWS, kind: 'live', url: `${FIXTURE_ORIGIN}/live/u/p/${i}.ts` });
     } else if (i % 7 === 0) {
@@ -106,6 +151,39 @@ export interface ListedChannel {
   readonly guide: boolean;
   /** Its days of catch-up (`hasCatchup`; 0: none): the guide marks its programmes gone by within them. */
   readonly catchup: number;
+}
+
+/** A movie as the movies screen shows it (RELAY step 26b). */
+export interface ListedMovie {
+  readonly name: string;
+  /** Its poster's URL (null: none, the tile shows the title). */
+  readonly poster: string | null;
+  /** The poster's file is never staged: its download fails, and the tile shows the title. */
+  readonly fails: boolean;
+}
+
+/** A category of the movies screen's rail. */
+export interface ListedFilmCategory {
+  readonly name: string;
+  readonly movies: readonly ListedMovie[];
+}
+
+/** The movies screen's categories: the fixture's movies grouped by `group-title`, in the order they first appear. */
+export function movieCategories(entries: readonly FixtureEntry[]): ListedFilmCategory[] {
+  const byName = new Map<string, ListedMovie[]>();
+  for (const entry of entries) {
+    if (entry.kind !== 'movie') continue;
+    let movies = byName.get(entry.group);
+    if (movies === undefined) {
+      movies = [];
+      byName.set(entry.group, movies);
+    }
+    const poster = entry.poster ?? null;
+    movies.push({ name: entry.name, poster, fails: poster !== null && poster.indexOf(`/${MISSING_POSTER}?`) !== -1 });
+  }
+  const categories: ListedFilmCategory[] = [];
+  for (const [name, movies] of byName) categories.push({ name, movies });
+  return categories;
 }
 
 /** A category of the live screen's rail. */
@@ -146,7 +224,8 @@ export function fixtureM3u(entries: readonly FixtureEntry[], guide: string | nul
   const lines = [guide === null ? '#EXTM3U' : `#EXTM3U url-tvg="${FIXTURE_ORIGIN}/${guide}"`];
   entries.forEach((entry, i) => {
     const catchup = entry.kind === 'live' && hasCatchup(i) ? ` catchup="shift" catchup-days="${FIXTURE_CATCHUP_DAYS}"` : '';
-    lines.push(`#EXTINF:-1 tvg-id="fixture.${i + 1}"${catchup} group-title="${entry.group}",${entry.name}`, entry.url);
+    const logo = entry.poster === undefined ? '' : ` tvg-logo="${entry.poster}"`;
+    lines.push(`#EXTINF:-1 tvg-id="fixture.${i + 1}"${logo}${catchup} group-title="${entry.group}",${entry.name}`, entry.url);
   });
   return `${lines.join('\n')}\n`;
 }
@@ -215,9 +294,14 @@ export function dataChecks(entries: readonly FixtureEntry[]): Record<TvPlatform,
   };
 }
 
+/** Writes the poster files (`POSTER_FILES`) to `dir`. */
+export function stagePosters(dir: string): void {
+  for (const poster of POSTER_FILES) writeFileSync(path.join(dir, poster.file), posterPng(POSTER_SIZE.width, POSTER_SIZE.height, poster.top, poster.bottom));
+}
+
 /**
- * Writes both playlists, each naming its guide, and both guides to `<root>/fixtures`, and
- * returns what each platform's run must show.
+ * Writes both playlists, each naming its guide, both guides and the posters to
+ * `<root>/fixtures`, and returns what each platform's run must show.
  */
 export function stageFixtures(root: string, nowMs = Date.now()): Record<TvPlatform, DataCheck> {
   const entries = fixtureEntries();
@@ -229,6 +313,7 @@ export function stageFixtures(root: string, nowMs = Date.now()): Record<TvPlatfo
   const guide = Buffer.from(fixtureXmltv(entries, nowMs), 'utf8');
   writeFileSync(path.join(dir, checks.tizen.guide), guide);
   writeFileSync(path.join(dir, checks.webos.guide), gzipSync(guide));
+  stagePosters(dir);
   return checks;
 }
 

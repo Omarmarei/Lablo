@@ -1,5 +1,5 @@
 import { writeFileSync } from 'node:fs';
-import type { Catalog, Category, LiveChannel } from '../apps/mock-provider/src/config';
+import type { Catalog, Category, LiveChannel, Movie } from '../apps/mock-provider/src/config';
 import { escapeXml } from '../apps/mock-provider/src/xmltv';
 
 /**
@@ -15,6 +15,11 @@ export interface BigCatalogOptions {
    * RELAY step 25c: the grid's throttled run). Default: none.
    */
   readonly archive?: { readonly channels: number; readonly days: number };
+  /**
+   * `movies.count` movies spread evenly over `movies.categories` VOD categories, numbered in
+   * category order (RELAY step 26b: the poster grid's throttled run). Default: none.
+   */
+  readonly movies?: { readonly count: number; readonly categories: number };
 }
 
 /** Every `NO_GUIDE_EVERY`th channel has no guide id: its row says so. */
@@ -27,8 +32,33 @@ function fill(pattern: string, n: number): string {
   return pattern.replace('{n}', String(n));
 }
 
+const MOVIE_GROUPS = ['EN | Movies', 'AR | أفلام عربية', 'Action 4K', 'FR | Films', 'Kids | أفلام أطفال'] as const;
+const MOVIE_NAMES = ['Zoma Test Film {n}', 'فيلم الاختبار {n}', 'The Long Test Film Number {n}: A Story', 'Film Test {n}'] as const;
+/** The first movie's id: a movie's poster is the mock's `/images/movie-<id>.png`. */
+export const BIG_MOVIE_ID = 500_000;
+
+/** `count` movies spread evenly over `categories` VOD categories, in category order. */
+function bigMovies(count: number, categories: number): Pick<Catalog, 'vodCategories' | 'movies'> {
+  const vodCategories: Category[] = Array.from({ length: categories }, (_v, i) => ({ id: 5000 + i, name: `${MOVIE_GROUPS[i % MOVIE_GROUPS.length]} ${i + 1}`, parentId: 0 }));
+  const movies: Movie[] = Array.from({ length: count }, (_v, j) => ({
+    id: BIG_MOVIE_ID + j,
+    num: j + 1,
+    name: fill(MOVIE_NAMES[j % MOVIE_NAMES.length]!, j + 1),
+    categoryId: 5000 + Math.floor((j * categories) / count),
+    ext: 'mp4',
+    year: 2000 + (j % 27),
+    durationSecs: 5400,
+    rating: 6,
+    genre: 'Test',
+    plot: 'A test film of the big catalog.',
+    addedDaysAgo: j % 30,
+    media: 'vod',
+  }));
+  return { vodCategories, movies };
+}
+
 /** `channels` live channels spread evenly over `categories` categories, numbered 1… in category order. */
-export function bigCatalog({ channels, categories, archive }: BigCatalogOptions): Catalog {
+export function bigCatalog({ channels, categories, archive, movies }: BigCatalogOptions): Catalog {
   const liveCategories: Category[] = Array.from({ length: categories }, (_v, i) => ({ id: 1000 + i, name: `${GROUPS[i % GROUPS.length]} ${i + 1}`, parentId: 0 }));
   const live: LiveChannel[] = Array.from({ length: channels }, (_v, j) => ({
     id: 100_000 + j,
@@ -45,7 +75,8 @@ export function bigCatalog({ channels, categories, archive }: BigCatalogOptions)
     addedDaysAgo: 1,
     media: 'clock',
   }));
-  return { liveCategories, vodCategories: [], seriesCategories: [], live, movies: [], series: [] };
+  const vod = movies === undefined ? { vodCategories: [], movies: [] } : bigMovies(movies.count, movies.categories);
+  return { liveCategories, seriesCategories: [], live, series: [], ...vod };
 }
 
 const SLOT_MS = 2 * 3_600_000;
