@@ -26,21 +26,48 @@ export interface XtreamLogin {
  * screen, its channels shown. `query` goes on the start URL (`locale=…`, `tier=low`).
  */
 export async function addXtreamAndWatch(remote: RemoteDriver, login: XtreamLogin, query: string, loadTimeout = 20_000): Promise<Locator> {
-  const { page } = remote;
-  await page.goto(`/?${query}`);
-  const onboarding = page.getByTestId('onboarding');
-  await expect(onboarding).toHaveAttribute('data-ready', 'true');
-  // The TV's language, the disclaimer, "Allow", an Xtream login.
-  await remote.expectFocus(/locale=ar/.test(query) ? 'language/languages/1' : 'language/languages/0');
-  await remote.go('OK', 'disclaimer/actions/0');
-  await remote.go('OK', 'consent/actions/0');
-  await remote.go('OK', 'source/types/0');
+  const onboarding = await toSourceTypes(remote, query);
+  // An Xtream login.
   await remote.go('OK', 'form/fields/0');
   await typeInto(remote, onboarding, 'server', login.host);
   await typeInto(remote, onboarding, 'username', login.username);
   await typeInto(remote, onboarding, 'password', login.password);
   await remote.go('DOWN', 'form/fields/4');
   await remote.go('DOWN', 'form/actions/0');
+  return startWatching(remote, onboarding, loadTimeout);
+}
+
+/**
+ * Onboarding by keys in the TV's language with an M3U link (typed the way a user would, without
+ * `http://`), then "Start watching": the live screen, its channels shown (RELAY step 25b).
+ */
+export async function addM3uAndWatch(remote: RemoteDriver, link: string, query: string, loadTimeout = 20_000): Promise<Locator> {
+  const onboarding = await toSourceTypes(remote, query);
+  await remote.go('DOWN', 'source/types/1');
+  await remote.go('OK', 'form/fields/0');
+  await typeInto(remote, onboarding, 'playlist', link);
+  await remote.expectFocus('form/fields/1');
+  await remote.go('DOWN', 'form/fields/2');
+  await remote.go('DOWN', 'form/actions/0');
+  return startWatching(remote, onboarding, loadTimeout);
+}
+
+/** The start URL with `query`, then the TV's language, the disclaimer and "Allow": the source types. */
+async function toSourceTypes(remote: RemoteDriver, query: string): Promise<Locator> {
+  const { page } = remote;
+  await page.goto(`/?${query}`);
+  const onboarding = page.getByTestId('onboarding');
+  await expect(onboarding).toHaveAttribute('data-ready', 'true');
+  await remote.expectFocus(/locale=ar/.test(query) ? 'language/languages/1' : 'language/languages/0');
+  await remote.go('OK', 'disclaimer/actions/0');
+  await remote.go('OK', 'consent/actions/0');
+  await remote.go('OK', 'source/types/0');
+  return onboarding;
+}
+
+/** OK on the form's "Add": the source loads, then "Start watching" opens the live screen. */
+async function startWatching(remote: RemoteDriver, onboarding: Locator, loadTimeout: number): Promise<Locator> {
+  const { page } = remote;
   await remote.press('OK');
   await expect(onboarding).toHaveAttribute('data-screen', 'done', { timeout: loadTimeout });
   await remote.expectFocus('done/actions/0');

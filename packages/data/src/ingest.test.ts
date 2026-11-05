@@ -2,6 +2,7 @@ import { gzipSync } from 'node:zlib';
 import type { CatalogItem } from '@zoma/core';
 import { parseM3uCatalog } from '@zoma/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { ByteTransport } from './bytes';
 import { Fnv1a } from './bytes';
 import type { SourceMeta } from './catalog-store';
 import { getSource } from './catalog-store';
@@ -19,7 +20,8 @@ import type { Clock } from './throttle';
 import { LOW_TIER_DUTY, Throttle } from './throttle';
 
 const SRC = 'pl';
-const URL = 'http://p.test/get.php?username=u&password=secret&type=m3u_plus';
+/** A plain playlist link (no panel behind it: no login); `get.php` links are in their own block. */
+const URL = 'http://p.test/playlist.m3u?token=secret';
 const NOW = Date.UTC(2026, 10, 2, 12);
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -122,6 +124,8 @@ describe('runIngest: M3U', () => {
     expect(swaps).toEqual([{ src: SRC, gen: 1, previous: 0, counts: { live: 1200, movie: 30, series: 5 } }]);
     expect(progress.some((p) => p.phase === 'download' && p.items > 0 && p.total === text.length)).toBe(true);
     expect(progress.at(-1)).toMatchObject({ phase: 'commit', items: 1235, bytes: bytes.length });
+    // A plain playlist: no panel to log in to.
+    expect(transport.requests.map((q) => q.url)).toEqual([URL]);
     expect(transport.requests[0]!.headers).toEqual({});
 
     expect(await names(db, 'channel 1199')).toEqual(['Channel 1199']);
@@ -284,6 +288,155 @@ describe('runIngest: conditional fetch', () => {
     expect(await names(db, 'chennel 7')).toEqual(matching(bigList('Chennel'), 'chennel 7'));
     const r2 = await run(serve(playlist(bigList('Kanal')))).result;
     expect(r2).toMatchObject({ status: 'committed', gen: 3, previous: 2 });
+  });
+});
+
+describe('runIngest: the panel behind an M3U get.php link (step 25b)', () => {
+  const LINK = 'http://p.test:8080/get.php?username=u&password=secret&type=m3u_plus';
+  const API = 'http://p.test:8080/player_api.php?username=u&password=secret';
+  const text = playlist(bigList().slice(0, 50));
+  /** Riyadh's wall time (+03:00, no DST) as the panel writes it. */
+  const wall = (at: number): string => new Date(at + 3 * 3_600_000).toISOString().slice(0, 19).replace('T', ' ');
+  /** The panel's login answer: a Riyadh panel, its clock at `at`. */
+  const loginBody = (at = NOW, formats = ['m3u8']): string =>
+    JSON.stringify({
+      user_info: { auth: 1, status: 'Active', allowed_output_formats: formats },
+      server_info: { url: 'p.test', port: '8080', https_port: '443', server_protocol: 'http', timezone: 'Asia/Riyadh', timestamp_now: at / 1000, time_now: wall(at) },
+    });
+  const server = (at = NOW) => ({ url: 'p.test', port: '8080', httpsPort: '443', protocol: 'http', timezone: 'Asia/Riyadh', timestampNow: at / 1000, timeNow: wall(at) });
+
+  function runPanel(login: () => FakeResponse, extra: Partial<IngestOptions> & { force?: boolean } = {}, list: (headers: Record<string, string>) => FakeResponse = () => ({ body: text })) {
+    const transport = fakeTransport((url, headers) => (url === LINK ? list(headers) : url === API ? login() : { status: 404, body: 'Not found' }));
+    const { force, ...options } = extra;
+    const result = runIngest({ src: SRC, source: { type: 'm3u', url: LINK }, force }, { db, transport, now: () => NOW, ...options });
+    return { transport, result };
+  }
+
+  it("logs in once before the playlist, and keeps the panel's server facts and the account's formats", async () => {
+    const { transport, result } = runPanel(() => ({ body: loginBody() }));
+    const r = await result;
+    expect(r).toMatchObject({ status: 'committed', counts: { live: 50 }, gzipped: false });
+    expect(transport.requests.map((q) => q.url)).toEqual([API, LINK]);
+    expect(transport.requests[1]!.headers).toEqual({});
+    const meta = await sourceMeta();
+    expect(meta.server).toEqual(server());
+    expect(meta.outputFormats).toEqual(['m3u8']);
+    expect(meta.epgUrls).toEqual(['http://p.test/xmltv.php']);
+    // The login answer isn't hashed (it carries the panel's clock): the stamp is the playlist's.
+    const bytes = new TextEncoder().encode(text);
+    expect(r.fetch).toMatchObject({ hash: hashOf(bytes), bytes: bytes.length });
+  });
+
+  it('takes the login on every refresh: a playlist unchanged by its bytes or by a 304 still keeps the newer facts', async () => {
+    await runPanel(() => ({ body: loginBody() }), {}, () => ({ body: text, headers: { ETag: '"v1"' } })).result;
+    // A 304 to the validators.
+    const t1 = NOW + DAY;
+    const r1 = runPanel(() => ({ body: loginBody(t1, ['ts']) }), { now: () => t1 }, (headers) => (headers['If-None-Match'] === '"v1"' ? { status: 304 } : { body: text }));
+    expect(await r1.result).toMatchObject({ status: 'unchanged', fetch: null });
+    expect(r1.transport.requests.map((q) => q.url)).toEqual([API, LINK]);
+    expect(await sourceMeta()).toMatchObject({ server: server(t1), outputFormats: ['ts'], checkedAt: t1, updatedAt: NOW });
+    // The same bytes again, the validators ignored.
+    const t2 = NOW + 2 * DAY;
+    const r2 = await runPanel(() => ({ body: loginBody(t2, ['m3u8', 'ts']) }), { now: () => t2 }).result;
+    expect(r2.status).toBe('unchanged');
+    expect(await sourceMeta()).toMatchObject({ server: server(t2), outputFormats: ['m3u8', 'ts'], checkedAt: t2, updatedAt: NOW });
+    expect(await storedGens()).toEqual([1]);
+  });
+
+  it("never fails the refresh on a failed login, and keeps the last login's facts (UTC without one)", async () => {
+    const failures: FakeResponse[] = [
+      { status: 500, body: 'Internal error' },
+      { status: 401, body: 'Unauthorized' },
+      { body: '<html>Not a panel</html>' },
+      { body: JSON.stringify({ user_info: { auth: 0 } }) },
+      { body: JSON.stringify({ server_info: { timezone: 'Europe/London' } }) },
+      { body: loginBody(), failAfter: 40 },
+    ];
+    // Never logged in: no facts, so the zone is UTC.
+    const first = await runPanel(() => failures[0]!).result;
+    expect(first).toMatchObject({ status: 'committed', counts: { live: 50 } });
+    let meta = await sourceMeta();
+    expect([meta.server, meta.outputFormats]).toEqual([undefined, undefined]);
+    // A login, then every kind of failure: the facts stay.
+    await runPanel(() => ({ body: loginBody() }), { force: true }).result;
+    for (const failure of failures) {
+      const r = await runPanel(() => failure, { force: true }).result;
+      expect(r.status).toBe('committed');
+      meta = await sourceMeta();
+      expect([meta.server, meta.outputFormats]).toEqual([server(), ['m3u8']]);
+    }
+  });
+
+  it('gives up on a login that takes too long, drops its request, and reads the playlist', async () => {
+    let waits = 0;
+    const { transport, result } = runPanel(
+      () => ({
+        body: loginBody(),
+        beforeChunk: () => {
+          waits += 1;
+          return new Promise<void>(() => undefined);
+        },
+      }),
+      { panelLoginMs: 20 },
+    );
+    const r = await result;
+    expect(r).toMatchObject({ status: 'committed', counts: { live: 50 } });
+    expect(waits).toBe(1);
+    expect(transport.cancelled).toBe(1);
+    expect(transport.requests.map((q) => q.url)).toEqual([API, LINK]);
+    expect((await sourceMeta()).server).toBeUndefined();
+  });
+
+  it('drops a login answer that comes after the time limit, unread', async () => {
+    let read = 0;
+    const inner = fakeTransport((url) =>
+      url === API
+        ? {
+            body: loginBody(),
+            beforeChunk: () => {
+              read += 1;
+            },
+          }
+        : { body: text },
+    );
+    // The panel answers 60 ms late: the limit is 20 ms.
+    const transport: ByteTransport = {
+      get: async (url, request) => {
+        if (url === API) await new Promise((resolve) => setTimeout(resolve, 60));
+        return inner.get(url, request);
+      },
+    };
+    const r = await runIngest({ src: SRC, source: { type: 'm3u', url: LINK } }, { db, transport, now: () => NOW, panelLoginMs: 20 });
+    expect(r.status).toBe('committed');
+    expect((await sourceMeta()).server).toBeUndefined();
+    await expect.poll(() => inner.cancelled).toBe(1);
+    expect(read).toBe(0);
+  });
+
+  it('reads a gzipped login answer', async () => {
+    await runPanel(() => ({ body: new Uint8Array(gzipSync(loginBody())) })).result;
+    expect((await sourceMeta()).server).toEqual(server());
+  });
+
+  it('stops on a cancel during the login, before the playlist is asked for', async () => {
+    const cancel = new CancelSource();
+    const { transport, result } = runPanel(
+      () => ({
+        body: loginBody(),
+        beforeChunk: () => {
+          cancel.cancel();
+          return new Promise<void>(() => undefined);
+        },
+      }),
+      // The limit far off: the cancel itself has to end the wait.
+      { token: cancel.token, panelLoginMs: 5_000 },
+    );
+    const started = Date.now();
+    await expect(result).rejects.toBeInstanceOf(CancelError);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(transport.requests.map((q) => q.url)).toEqual([API]);
+    expect(transport.cancelled).toBe(1);
+    expect(await getSource(db, SRC)).toBeNull();
   });
 });
 

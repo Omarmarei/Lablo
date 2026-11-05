@@ -8,6 +8,9 @@
  *    `If-Modified-Since`); a 304 ends the refresh as `unchanged` before anything is written.
  *    Xtream logs in (the panel's zone is kept for catch-up), stops on an expired, banned or
  *    disabled account (`expired`, `blocked`), then streams each kind's categories and list.
+ *    An M3U `get.php` link (`xtreamFromM3uUrl`) logs in to its panel once first, for the same
+ *    facts (step 25b, ADR-010): its zone for an `xc` channel's catch-up, and the account's
+ *    output formats. That login never fails the refresh (`panelLogin`).
  * 3. Bytes are hashed (FNV-1a) as downloaded, gunzipped when they start with `1f 8b`, decoded
  *    as UTF-8 in stream mode and parsed by core's streaming parsers.
  * 4. Items go through a chunker and search-index builder per kind; chunks are written about 10
@@ -25,8 +28,8 @@
  * by the next refresh. Error messages never contain URLs (they carry credentials).
  */
 
-import type { CatalogItem, ContentKind, M3uStats, TextTransport, XtreamAccount, XtreamListStats, XtreamServerInfo } from '@zoma/core';
-import { CONTENT_KINDS, M3uCatalogParser, SearchIndexBuilder, SearchSegment, XtreamClient, xtreamAccountProblem } from '@zoma/core';
+import type { CatalogItem, ContentKind, M3uStats, TextTransport, XtreamAccount, XtreamListStats, XtreamLogin, XtreamServerInfo } from '@zoma/core';
+import { CONTENT_KINDS, M3uCatalogParser, SearchIndexBuilder, SearchSegment, XtreamClient, xtreamAccountProblem, xtreamFromM3uUrl } from '@zoma/core';
 import type { ByteResponse, ByteTransport, TextSource } from './bytes';
 import { Fnv1a, decodeUtf8, tapBytes } from './bytes';
 import type { FetchStamp, SourceMetaPatch } from './catalog-store';
@@ -59,6 +62,8 @@ import { Throttle } from './throttle';
 export const INGEST_VERSION = 1;
 /** Chunks per write transaction (about 5,000 items). */
 export const WRITE_BATCH = 10;
+/** How long an M3U link's panel login may take before the refresh goes on without it. */
+export const PANEL_LOGIN_MS = 10_000;
 const PROGRESS_EVERY_MS = 250;
 
 export type IngestSource =
@@ -139,6 +144,45 @@ export interface IngestOptions {
   onProgress?: (progress: IngestProgress) => void;
   /** Right after the swap: the query worker should reload. */
   onSwap?: (swap: IngestSwap) => void;
+  /** The time limit of an M3U link's panel login (default `PANEL_LOGIN_MS`). */
+  panelLoginMs?: number;
+}
+
+/**
+ * One login to the panel behind an M3U `get.php` link (step 25b, ADR-010), for its server facts.
+ * It never throws: `null` when the panel refuses or fails it, when it takes longer than
+ * `limitMs` (its request is then dropped), and when the refresh is cancelled (the caller checks
+ * the token). Not hashed: the answer carries the panel's clock.
+ */
+async function panelLogin(account: XtreamAccount, transport: ByteTransport, token: CancelToken, limitMs: number, gunzip: GunzipMode | undefined): Promise<XtreamLogin | null> {
+  let open: { cancel(): void } | null = null;
+  let over = false;
+  const text: TextTransport = {
+    get: async (url) => {
+      const res = await transport.get(url);
+      if (over) {
+        res.cancel();
+        throw new CancelError();
+      }
+      const body = decodeUtf8(new MaybeGunzip(res, gunzip));
+      open = body;
+      return { status: res.status, read: () => body.read(), cancel: () => body.cancel() };
+    },
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let stopCancel = (): void => undefined;
+  const late = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), limitMs);
+    stopCancel = token.onCancel(() => resolve(null));
+  });
+  try {
+    return await Promise.race([new XtreamClient(account, text, '').login().catch(() => null), late]);
+  } finally {
+    clearTimeout(timer);
+    stopCancel();
+    over = true;
+    (open as { cancel(): void } | null)?.cancel();
+  }
 }
 
 class KindWriter {
@@ -307,9 +351,21 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
     let lastModified: string | null = null;
     let m3u: IngestResult['m3u'] = null;
     let xtream: IngestResult['xtream'] = null;
+    /**
+     * An M3U source's panel facts: none for a plain playlist; for a `get.php` link, its login's,
+     * or nothing to change when the login failed (the last login's facts stay, UTC without one).
+     */
+    let panel: SourceMetaPatch = { server: null };
     const source = job.source;
 
     if (source.type === 'm3u') {
+      const account = xtreamFromM3uUrl(source.url);
+      if (account !== null) {
+        panel = {};
+        const login = await panelLogin(account, transport, token, options.panelLoginMs ?? PANEL_LOGIN_MS, options.gunzip);
+        token.throwIfCancelled();
+        if (login !== null) panel = { server: login.server, outputFormats: login.user.outputFormats };
+      }
       const headers: Record<string, string> = {};
       if (known?.etag) headers['If-None-Match'] = known.etag;
       if (known?.lastModified) headers['If-Modified-Since'] = known.lastModified;
@@ -319,7 +375,7 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
       // Only an answer to our own validators means "unchanged".
       if (res.status === 304 && Object.keys(headers).length > 0) {
         res.cancel();
-        await markChecked(db, src, now());
+        await markChecked(db, src, now(), panel);
         return done('unchanged', {});
       }
       if (res.status < 200 || res.status >= 300) {
@@ -377,9 +433,8 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
       throw new IngestError('empty', null, m3u?.looksLikeHls ? 'This is a single stream, not a playlist' : 'The source has no channels or videos');
     }
     const stamp: FetchStamp = { v: INGEST_VERSION, hash: hasher.digest(), bytes: hasher.bytes, etag, lastModified };
-    const server = xtream ? xtream.server : null;
-    // The guides an M3U header names (step 9b reads them as EPG sources).
-    const extra: SourceMetaPatch = m3u ? { server, epgUrls: m3u.epgUrls.slice() } : { server, outputFormats: xtream!.outputFormats };
+    // The guides an M3U header names (step 9b reads them as EPG sources), and its panel's facts.
+    const extra: SourceMetaPatch = m3u ? { ...panel, epgUrls: m3u.epgUrls.slice() } : { server: xtream!.server, outputFormats: xtream!.outputFormats };
 
     if (known && known.hash === stamp.hash && known.bytes === stamp.bytes) {
       const unused = writer.gen;

@@ -91,7 +91,8 @@ describe('EPG refresh of the mock provider through the data layer', () => {
   it('takes the guide from the M3U header and stores exactly the mock schedule', async () => {
     await runIngest({ src: 'pl', source: { type: 'm3u', url: `${base}/get.php?username=${U}&password=${P}&type=m3u_plus` } }, { db, transport: transport(), now: () => NOW });
     const guides = epgGuides([{ src: 'pl', type: 'm3u' }], await getSources(db));
-    expect(guides).toEqual([{ epgSrc: 'pl:tvg0', url: `${base}/xmltv.php?username=${U}&password=${P}`, zone: { minutes: 0 } }]);
+    // The panel's own guide: read in its zone, which the get.php link's login keeps (step 25b).
+    expect(guides).toEqual([{ epgSrc: 'pl:tvg0', url: `${base}/xmltv.php?username=${U}&password=${P}`, zone: { panel: 'pl' } }]);
 
     const r = await refresh({ guides, tier: 'full', languages: ['ar', 'en'] });
     expect(r.wanted).toBe(12);

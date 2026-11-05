@@ -248,6 +248,17 @@ describe('which guides, and when', () => {
     expect(epgGuides([{ src: 'pl', type: 'm3u' }], [])).toEqual([]);
   });
 
+  it("reads a playlist's own panel guide (xmltv.php with a login) in its panel's zone (step 25b)", () => {
+    const panelGuide = 'http://panel.test:8080/xmltv.php?username=u&password=p';
+    const guides = epgGuides([{ src: 'pl', type: 'm3u' }], [meta('pl', { epgUrls: [panelGuide, 'http://a.test/xmltv.php', 'http://a.test/guide.xml?username=u&password=p'] })]);
+    expect(guides).toEqual([
+      { epgSrc: 'pl:tvg0', url: panelGuide, zone: { panel: 'pl' } },
+      // Without a login, or another page: not a panel's guide.
+      { epgSrc: 'pl:tvg1', url: 'http://a.test/xmltv.php', zone: { minutes: 0 } },
+      { epgSrc: 'pl:tvg2', url: 'http://a.test/guide.xml?username=u&password=p', zone: { minutes: 0 } },
+    ]);
+  });
+
   it('is due when new, stale, or running out, but never right after a refresh or a failure', () => {
     const now = Date.UTC(2026, 10, 2, 12);
     const base: EpgMeta = { epgSrc: 'g', gen: 1, building: null, nextGen: 2, updatedAt: now, checkedAt: now, rank: 0, until: (now + 3 * 86_400_000) / 60_000 };

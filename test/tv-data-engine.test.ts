@@ -250,6 +250,18 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     expect(xt.zone(Date.UTC(2026, 10, 3))).toBe(180);
   });
 
+  it("takes a get.php link's panel zone and formats from the refresh's login (step 25b)", async () => {
+    const login = JSON.stringify({
+      user_info: { auth: 1, status: 'Active', allowed_output_formats: ['ts'] },
+      server_info: { url: 'p.test', port: '80', timezone: 'Asia/Riyadh', timestamp_now: NOW / 1000, time_now: '2026-11-02 15:00:00' },
+    });
+    const s = setup((url) => (url.indexOf('/player_api.php?') !== -1 ? { body: login } : { body: playlist(10) }));
+    await s.engine.refresh(job('http://p.test/get.php?username=u&password=p&type=m3u_plus'));
+    const facts = (await s.engine.sourceFacts()).get('debug')!;
+    expect(facts.outputFormats).toEqual(['ts']);
+    expect(facts.zone(Date.UTC(2026, 10, 3))).toBe(180);
+  });
+
   it('reports a failed refresh, terminates its worker and keeps serving the old catalog', async () => {
     let status = 200;
     const s = setup(() => ({ status, body: status === 200 ? playlist(40) : 'gone' }));

@@ -949,6 +949,14 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
       - an `xc` channel on a +03:00 panel;
       - with +1:00 on the guide, the request's start is an hour later.
     - Plus the common items above.
+  - Done in leg 61 (architecture.md §1.2 "Built in step 25b"; ADR-010 "Applied in step 25b"):
+    - **The login:** a `get.php` link's ingest logs in to its panel once per refresh, before the playlist (`panelLogin`; 304 and unchanged refreshes included), and keeps the panel's `server` and the account's `allowed_output_formats`. A failed, refused or slow login (10 s, `PANEL_LOGIN_MS`) never fails the refresh: the last login's facts stay, UTC without one. No app code changed: 25a's `catchupRequest` already made every mode's URL.
+    - **Decided (not a gate):**
+      - The account's formats are kept for a `get.php` playlist too, as for Xtream: its channels are the panel's, so live and catch-up keep to the account's `.ts`/`.m3u8`.
+      - A guide the playlist names that is a panel's `xmltv.php` with a login is read in the source's panel zone, as an Xtream source's own guide is. Without it, a panel writing XMLTV without offsets showed the programmes hours off, and catch-up would ask for the wrong times.
+      - The login runs before the playlist with its own transport and a time limit, so a 304 still updates the facts and a hung panel API never holds the refresh.
+    - **Tests:** unit +17 (`ingest.test.ts` +7, `epg-store.test.ts` +1, `test/ingest-mock.test.ts` +1, `test/tv-data-engine.test.ts` +1, `test/catchup-m3u-mock.test.ts` 6 against the mock: every mode in UTC and Riyadh panels with both `output` forms, the offset, a failed login); e2e `guide-catchup-m3u.spec.ts` (en-US and ar-SA on a Riyadh panel without XMLTV offsets: 101 `xc`, 102 `default`, 103 `append`, 105 `shift`, 106 `flussonic`; en-US +1:00 on the playlist's guide). Screenshots `guide-catchup-m3u-{en-US,ar-SA}-{details,player}` looked at.
+    - **Mutation:** `artifacts/mutate25b.py` 26/27 (one equivalent; the cancel test tightened after the first run, `mutate25b-b.log`); `artifacts/mutate25b-e2e.py` 3/3.
 - [ ] 25c. **The catch-up days in the guide, the archive marks, and the low-tier tuning.**
   - **The range:** the guide reaches back as far as the longest catch-up among the channels, the EPG window's past days (up to 7 in the full tier, 2 in the low one), instead of one day (`GUIDE_DAYS.past`).
   - **The marks:** the programmes a channel's archive holds are marked in the grid: a small catch-up mark on the cell, named in the cell's text for the screen reader. The details say how long the programme can still be watched.

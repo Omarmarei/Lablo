@@ -5,11 +5,13 @@
 // the old generation (the hard-crash case is in packages/data/src/ingest.test.ts).
 
 import type { CatalogItem, ContentKind } from '@zoma/core';
+import { panelZone } from '@zoma/core';
 import type { FavouriteRef, IngestJob, IngestOptions, ProfileDoc } from '@zoma/data';
 import { IngestError, QueryService, emptyProfile, fetchTransport, getSource, loadProfile, openDatabase, runIngest, saveProfile } from '@zoma/data';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Catalog } from '../apps/mock-provider/src/config';
 import { loadCatalog } from '../apps/mock-provider/src/config';
+import { parseScenario } from '../apps/mock-provider/src/faults';
 import type { MockServer } from '../apps/mock-provider/src/server';
 import { NOW, P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { freshFactory } from '../packages/data/src/test-support';
@@ -95,6 +97,21 @@ describe('ingest against the mock provider: M3U', () => {
     expect((broken as IngestError).message).not.toContain(P);
     expect(await getSource(db, 'pl')).toMatchObject({ gen: 1, building: null });
     expect(await allItems('pl', 'live')).toEqual(before);
+  });
+
+  it("logs in to a get.php link's panel and keeps its zone and the account's formats (step 25b)", async () => {
+    app.mockState.scenario = parseScenario({ rules: [{ match: { path: '**' }, faults: [{ type: 'timezone', tz: 'Asia/Riyadh' }] }] }, 'riyadh');
+    try {
+      expect(await ingest(m3uJob())).toMatchObject({ status: 'committed', counts: { live: catalog.live.length } });
+      const meta = (await getSource(db, 'pl'))!;
+      expect(meta.server?.timezone).toBe('Asia/Riyadh');
+      expect(meta.outputFormats).toEqual(['m3u8', 'ts']);
+      // Riyadh is three hours ahead of UTC, all year.
+      const zone = panelZone(meta.server!);
+      expect([zone.source, zone.offset(NOW), zone.offset(NOW - 180 * DAY)]).toEqual(['intl', 180, 180]);
+    } finally {
+      app.mockState.scenario = null;
+    }
   });
 
   it('reports a wrong password as an auth error', async () => {
