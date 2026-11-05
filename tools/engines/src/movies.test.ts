@@ -68,6 +68,12 @@ describe('the poster PNGs', () => {
     const middle = 138 * (1 + 184 * 3);
     expect(raw[middle + 1]).toBeGreaterThan(Math.round(200 + (60 - 200) * (138 / 275)));
     expect(pngSize(Buffer.from('not a png at all, really not'))).toBeNull();
+    // 8 bits a sample, colour type 2 (RGB), deflate, no filters, no interlace.
+    expect([...png.subarray(24, 29)]).toEqual([8, 2, 0, 0, 0]);
+    // The signature, then a chunk other than IHDR first: not a PNG it can size.
+    const odd = Buffer.from(png);
+    odd.write('IDAT', 12, 'ascii');
+    expect(pngSize(odd)).toBeNull();
     expect(() => posterPng(0, 10, [0, 0, 0], [0, 0, 0])).toThrow('posterPng: 0x10 is not a size');
   });
 });
@@ -106,10 +112,25 @@ describe('the movies screen checks', () => {
     expect(moviesGridFailures(lower, 'ltr')).toContain("the grid starts 90 px below the safe area's top, expected 80 (the header)");
     expect(moviesGridFailures({ ...view, top: 1 }, 'ltr')[0]).toMatch(/^the grid draws tiles 0, 1, .* expected 6, 7, .*\(rows from 1\)$/);
     expect(moviesGridFailures({ ...view, columns: 5 }, 'ltr')).toContain('the grid has 5 columns, expected 6');
+    // Only its height, only the rail's place, only the rail's width.
+    expect(moviesGridFailures({ ...view, box: { ...view.box!, bottom: view.box!.bottom - 276 } }, 'ltr')).toEqual(['the grid is 1224x600 px, expected 1224x876']);
+    expect(moviesGridFailures({ ...view, rail: { ...view.rail!, left: view.rail!.left + 20, right: view.rail!.right + 20 } }, 'ltr')).toEqual([
+      "the rail is 440 px wide at 20 px from the safe area's inline start (the left), expected 440 at 0",
+    ]);
+    expect(moviesGridFailures({ ...view, rail: { ...view.rail!, right: view.rail!.right - 40 } }, 'ltr')).toEqual([
+      "the rail is 400 px wide at 0 px from the safe area's inline start (the left), expected 440 at 0",
+    ]);
+    // Only a tile's width.
+    expect(moviesGridFailures(withTile(view, 3, (t) => ({ right: t.right - 20 })), 'ltr')).toEqual(['1 misplaced: tile 3 is 164x276 px, expected 184x276']);
     expect(moviesGridFailures({ ...view, rail: null }, 'ltr')).toContain('the rail is missing');
     expect(moviesGridFailures({ ...view, box: null }, 'ltr')).toEqual(['the movies screen draws no grid']);
     expect(moviesGridFailures(withTile(view, 3, (t) => ({ bottom: t.bottom - 20 })), 'ltr')).toEqual(['1 misplaced: tile 3 is 184x256 px, expected 184x276']);
     expect(moviesGridFailures(withTile(view, 7, () => ({ row: 2 })), 'ltr')).toEqual(['1 misplaced: tile 7 is in row 2, expected 1']);
+    // A short last row: 20 movies from row 2 are tiles 12-19, not up to 23.
+    const few = [{ name: 'Few', movies: listedFilms(FILMS_LIST, 0)!.movies.slice(0, 20) }];
+    const short = drawnMovies({ language: 'en', categories: few, category: 1, top: 2, zone: 'grid', index: 12 });
+    expect(short.tiles.map((t) => t.index)).toEqual([12, 13, 14, 15, 16, 17, 18, 19]);
+    expect(moviesGridFailures(short, 'ltr')).toEqual([]);
   });
 
   it('fails a poster not drawn, at another size, from another movie, or an image where none should be', () => {
@@ -119,6 +140,7 @@ describe('the movies screen checks', () => {
     const poster = view.tiles[0]!.poster!;
     expect(posterFailures(withTile(view, 0, () => ({ poster: { ...poster, drawn: false } })), entry)).toEqual(['1 of 18 tiles wrong: tile 0 (Zoma Film 2401): the poster was never drawn']);
     expect(posterFailures(withTile(view, 0, () => ({ poster: { ...poster, width: 1, height: 1 } })), entry)[0]).toContain('the poster is 1x1, expected the file\'s 184x276');
+    expect(posterFailures(withTile(view, 0, () => ({ poster: { ...poster, height: 100 } })), entry)[0]).toContain("the poster is 184x100, expected the file's 184x276");
     expect(posterFailures(withTile(view, 0, () => ({ poster: { ...poster, src: view.tiles[1]!.poster!.src } })), entry)[0]).toContain(`the poster is ${view.tiles[1]!.poster!.src}, expected ${poster.src}`);
     expect(posterFailures(withTile(view, 7, () => ({ poster })), entry)[0]).toContain('tile 7 (Zoma Film 2408): draws an image');
     expect(posterFailures(withTile(view, 12, () => ({ poster })), entry)[0]).toContain('though its poster is none');
@@ -146,5 +168,8 @@ describe('the movies screen checks', () => {
     expect(filmRailFailures({ ...view, count: 600 }, FILMS_LIST, 'en')).toEqual(['the header counts 600 movies, expected 300']);
     expect(filmRailFailures({ ...view, category: 9 }, FILMS_LIST, 'en')).toContain('the screen shows rail entry 9, which the fixture does not have');
     expect(moviesFailures(null, { dir: 'ltr', zone: 'grid', index: 0 }, FILMS_LIST, 'en')).toEqual(['no movies screen']);
+    // All the checks together: the rail's, and the focus's.
+    expect(ok({ ...view, count: 1 }, 'ltr', 'grid', 0)).toEqual(['the header counts 1 movies, expected 300']);
+    expect(ok(at({ index: 3 }), 'ltr', 'grid', 0)).toEqual(['tiles 3 drawn focused, expected 0 (the focus is on the grid)']);
   });
 });
