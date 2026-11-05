@@ -529,9 +529,9 @@ export function createGuide(options: GuideOptions): Guide {
     bounds = guideDays(clockNow(), want);
     zone = guideZone({ ...zone, from: bounds[0]!, to: bounds[bounds.length - 1]! }, schedule);
     merged.clear();
+    // (A cursor the new range moves is a focus change: the view's days are asked once it rests.)
     shown.update(zone);
     bump();
-    scheduleAsk(0);
   };
 
   /** Reads the stored guides' past days (when the guide is made, and after a guide swap). */

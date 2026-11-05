@@ -1233,6 +1233,29 @@ describe('the catch-up days and the archive marks (RELAY step 25c)', () => {
     expect(t.guide.zone()).toBe(zone);
   });
 
+  it('draws the days it kept when the range narrows and widens again, before any answer', async () => {
+    const t = setup(pastEngine(5));
+    await flush();
+    t.open(4);
+    // Into the fourth day back: its programmes are read.
+    while (t.position().time! >= midnight(-3)) t.nav.handle('LEFT');
+    await t.rest();
+    expect(t.guide.schedule(4)!.start[0]).toBeLessThan(midnight(-3));
+    // The stored guides keep three days: the range narrows (the cursor into it) and the row's days are merged over it.
+    t.engine.hold = true;
+    t.reads.days = 3;
+    t.guide.guidesChanged();
+    await flush();
+    expect(t.guide.zone().from).toBe(midnight(-3));
+    expect(t.guide.schedule(4)!.start[0]).toBeGreaterThanOrEqual(midnight(-3) - lengthOf(4));
+    // Five again: the fourth day's programmes, still kept, are drawn at once.
+    t.reads.days = 5;
+    t.guide.guidesChanged();
+    await flush();
+    expect(t.guide.zone().from).toBe(midnight(-5));
+    expect(t.guide.schedule(4)!.start[0]).toBeLessThan(midnight(-3) - lengthOf(4));
+  });
+
   it('keeps one day back when the read fails, or the engine has none', async () => {
     const p = pastEngine(7);
     p.engine.guidePastDays = () => Promise.reject(new Error('no status'));
