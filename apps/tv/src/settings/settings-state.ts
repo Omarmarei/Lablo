@@ -14,7 +14,7 @@ export type SettingsItem = 'guides';
 export const SETTINGS_ITEMS: readonly SettingsItem[] = ['guides'];
 
 /** The screens the settings put on the live navigator (the live screen paints them instead of its own). */
-export const SETTINGS_SCREENS: readonly string[] = ['settings', 'guides', 'guide-menu', 'guide-add'];
+export const SETTINGS_SCREENS: readonly string[] = ['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-add'];
 
 export interface SettingsOptions extends GuidesOptions {
   readonly nav: Navigator;

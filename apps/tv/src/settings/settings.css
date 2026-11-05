@@ -172,6 +172,68 @@
   color: var(--color-warn);
 }
 
+/* A guide's time offset (step 24b), between its link and its owner when it isn't 0. */
+.guides__offset {
+  flex: none;
+  margin-left: var(--space-6);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+  font-weight: var(--font-weight-bold);
+}
+
+/* The time offset's chooser: seven 64 px steps with 8 px gaps (OFFSETS in guides-state.ts). */
+.guides__steps {
+  flex: 1;
+}
+
+.guides__step {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 100%;
+  padding: 0 var(--space-4);
+  border: var(--focus-ring) solid transparent;
+  border-radius: var(--radius-m);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  white-space: nowrap;
+}
+
+.guides__step.is-memory {
+  border-color: var(--color-border-memory);
+}
+
+.guides__step.is-focused {
+  border-color: var(--color-focus);
+  background: var(--color-surface-focus);
+}
+
+.guides__check {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-right: var(--space-3);
+  color: var(--color-accent);
+}
+
+.guides__check svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+
+/* A step's value on the screen's side (its digits are dir=ltr), bold for the guide's own. */
+.guides__value {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.guides__step.is-selected .guides__value {
+  font-weight: var(--font-weight-bold);
+}
+
 /* The row menu: its actions in a column, as wide as the dialog (past a button's own 640 px cap). */
 .guides__menu {
   display: flex;

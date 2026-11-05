@@ -1,9 +1,9 @@
 import type { EpgFailure } from '@zoma/data';
 import type { Focus, FocusBinding, ItemBinding } from '@zoma/ui';
-import { Button, Dialog, Spinner, TextField, VirtualList, useZone } from '@zoma/ui';
+import { Button, Dialog, Spinner, TextField, VirtualList, shapeDigits, useZone } from '@zoma/ui';
 import type { AppI18n } from '../i18n';
-import type { AddProblem, GuideRow, GuideState, Guides, GuidesMenu } from './guides-state';
-import { ADD_CANCEL, ADD_CONFIRM, GUIDES, LINK_FIELD_ID, guideState } from './guides-state';
+import type { AddProblem, GuideRow, GuideState, Guides, GuidesMenu, OffsetChooser } from './guides-state';
+import { ADD_CANCEL, ADD_CONFIRM, GUIDES, LINK_FIELD_ID, OFFSETS, guideState } from './guides-state';
 import type { Settings } from './settings-state';
 import { SETTINGS_ITEMS } from './settings-state';
 import './settings.css';
@@ -18,12 +18,36 @@ import './settings.css';
 const NAMES = { guide: 'XMLTV', http: 'http://', https: 'https://' } as const;
 
 const MINUTE_MS = 60_000;
+/** U+2212, in the Latin font's subset: a minus sign as wide as the plus. */
+const MINUS = '−';
 
 type Translate = AppI18n['t'];
 
 function rowClass(base: string, item: ItemBinding): string {
   return item.state === 'focused' ? `${base} is-focused` : item.state === 'memory' ? `${base} is-memory` : base;
 }
+
+/**
+ * A guide's time offset (step 24b): `+1:30`, `−0:30`, `+12:00` in the locale's digits, drawn
+ * left to right (`dir="ltr"`) in both languages; "No offset" for 0.
+ */
+export function offsetText(i18n: AppI18n, minutes: number): string {
+  if (minutes === 0) return i18n.t('guides.offsetNone');
+  const size = Math.abs(minutes);
+  const rest = size % 60;
+  return shapeDigits(`${minutes < 0 ? MINUS : '+'}${(size - rest) / 60}:${rest < 10 ? '0' : ''}${rest}`, i18n.locale.digits);
+}
+
+/** An offset as a line's content: "No offset" as text, any other in its own left-to-right span. */
+function OffsetValue({ i18n, minutes }: { i18n: AppI18n; minutes: number }) {
+  return minutes === 0 ? <span>{offsetText(i18n, 0)}</span> : <span dir="ltr">{offsetText(i18n, minutes)}</span>;
+}
+
+const CHECK = (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" />
+  </svg>
+);
 
 /** Why a guide's last try failed, in words. */
 export function failureText(t: Translate, failure: EpgFailure): string {
@@ -77,6 +101,7 @@ function GuideItem({ i18n, row, index, state, item }: { i18n: AppI18n; row: Guid
       data-matched={summary === null ? '' : summary.matched}
       data-wanted={summary === null ? '' : summary.wanted}
       data-code={failure === null ? '' : failure.code}
+      data-offset={row.offset}
       onMouseMove={item.onHover}
       onClick={item.onPress}
     >
@@ -84,6 +109,11 @@ function GuideItem({ i18n, row, index, state, item }: { i18n: AppI18n; row: Guid
         <span class="guides__link" dir="ltr" translate={false} data-testid={`guide-${index}-link`}>
           {row.link}
         </span>
+        {row.offset !== 0 && (
+          <span class="guides__offset" data-testid={`guide-${index}-offset`}>
+            {t('guides.offsetLabel')} <OffsetValue i18n={i18n} minutes={row.offset} />
+          </span>
+        )}
         <span class="guides__owner">{row.kind === 'mine' ? t('guides.mine') : t('guides.from', { name: row.source })}</span>
       </div>
       <p class="guides__status" data-testid={`guide-${index}-status`}>
@@ -140,7 +170,7 @@ function SettingsPage({ i18n, binding }: PageProps) {
 function MenuDialog({ i18n, binding, menu }: { i18n: AppI18n; binding: FocusBinding; menu: GuidesMenu }) {
   const { t } = i18n;
   const zone = useZone(binding, binding.nav.top, 'actions');
-  const labels = { up: t('guides.moveUp'), down: t('guides.moveDown'), remove: t('guides.remove'), cancel: t('action.cancel') };
+  const labels = { up: t('guides.moveUp'), down: t('guides.moveDown'), offset: t('guides.offset'), remove: t('guides.remove'), cancel: t('action.cancel') };
   return (
     <Dialog title={t('guides.menuTitle')} message={t('guides.menuLink', { link: menu.row.link })} testId="guide-menu">
       <div class="guides__menu">
@@ -148,6 +178,47 @@ function MenuDialog({ i18n, binding, menu }: { i18n: AppI18n; binding: FocusBind
           <Button key={action} label={labels[action]} variant={action === 'remove' ? 'danger' : 'secondary'} {...zone.item(i)} testId={`guide-menu-${action}`} />
         ))}
       </div>
+    </Dialog>
+  );
+}
+
+/** The time offset's chooser (step 24b): the steps, the guide's own one marked and focused at first. */
+function OffsetDialog({ i18n, binding, chooser }: { i18n: AppI18n; binding: FocusBinding; chooser: OffsetChooser }) {
+  const { t } = i18n;
+  const current = chooser.row.offset;
+  return (
+    <Dialog title={t('guides.offset')} message={t('guides.offsetBody', { link: chooser.row.link })} testId="guide-offset">
+      <VirtualList
+        binding={binding}
+        screen={binding.nav.top}
+        zone="steps"
+        itemSize={OFFSETS.rowHeight}
+        gap={OFFSETS.rowGap}
+        class="guides__steps"
+        testId="guide-offset-steps"
+        renderItem={(i, item) => {
+          const minutes = chooser.steps[i]!;
+          const selected = minutes === current;
+          return (
+            <div
+              class={`${rowClass('guides__step', item)}${selected ? ' is-selected' : ''}`}
+              role="option"
+              aria-selected={selected ? 'true' : 'false'}
+              data-testid={`guide-offset-${i}`}
+              data-minutes={minutes}
+              data-state={item.state}
+              data-selected={String(selected)}
+              onMouseMove={item.onHover}
+              onClick={item.onPress}
+            >
+              <span class="guides__check">{selected && CHECK}</span>
+              <span class="guides__value">
+                <OffsetValue i18n={i18n} minutes={minutes} />
+              </span>
+            </div>
+          );
+        }}
+      />
     </Dialog>
   );
 }
@@ -190,6 +261,7 @@ function GuidesPage({ i18n, binding, focus, guides }: PageProps & { guides: Guid
   const rows = guides.rows.value;
   const reading = guides.reading.value;
   const menu = guides.menu.value;
+  const chooser = guides.chooser.value;
   return (
     <div class="settings__page" data-testid="guides" data-status={status} data-count={rows.length} data-reading={reading}>
       <header class="settings__header">
@@ -230,6 +302,7 @@ function GuidesPage({ i18n, binding, focus, guides }: PageProps & { guides: Guid
         />
       )}
       {focus.screen === 'guide-menu' && menu !== null && <MenuDialog i18n={i18n} binding={binding} menu={menu} />}
+      {focus.screen === 'guide-offset' && chooser !== null && <OffsetDialog i18n={i18n} binding={binding} chooser={chooser} />}
       {focus.screen === 'guide-add' && <AddDialog i18n={i18n} binding={binding} guides={guides} />}
     </div>
   );
@@ -245,7 +318,7 @@ interface Props {
 /** The settings screens: the one on top, and the guides screen under its menu or add form. */
 export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
   const guides = settings.guides;
-  const onGuides = focus.screen === 'guides' || focus.screen === 'guide-menu' || focus.screen === 'guide-add';
+  const onGuides = focus.screen === 'guides' || focus.screen === 'guide-menu' || focus.screen === 'guide-offset' || focus.screen === 'guide-add';
   return (
     <main
       class="settings"
