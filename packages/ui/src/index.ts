@@ -1,8 +1,8 @@
 /**
  * @zoma/ui: the focus engine (step 10), the design system (step 11: tokens, fonts, the base
  * components, the virtual list and the en-XA pseudo-locale; step 13a: the text field and its editor) and the i18n runtime (step 12:
- * messages, numbers, times and dates; the catalogs are the app's). The EPG grid comes in step
- * 23. See docs/architecture.md §1.2.
+ * messages, numbers, times and dates; the catalogs are the app's) and the grid guide (step 23b).
+ * See docs/architecture.md §1.2.
  *
  * The CSS is imported here, first, so it comes before the components' CSS and the app's own
  * in app.css and in Vite's dev server (tools/build/src/css.ts orders it by the imports).
@@ -63,6 +63,11 @@ export { Chip } from './components/Chip';
 export type { DialogProps } from './components/Dialog';
 export { Dialog } from './components/Dialog';
 export type { FocusableProps } from './components/focusable';
+export type { GuideChannel, GuideGridProps } from './components/GuideGrid';
+export { GuideGrid } from './components/GuideGrid';
+export { GUIDE_LAYOUT, guideFits, guideHeight, guideWidth } from './components/guide-layout';
+export type { GuideCell, GuideRange, GuideSchedule } from './components/guide-cells';
+export { GUIDE_MIN_GAP, guideCellAt, guideCellsIn, guideSlots, guideZone } from './components/guide-cells';
 export type { ListRowProps, ProgrammeLine } from './components/ListRow';
 export { ListRow } from './components/ListRow';
 export type { ProgressBarProps } from './components/ProgressBar';

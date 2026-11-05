@@ -6,12 +6,13 @@ export function clamp(n: number, lo: number, hi: number): number {
   return n < lo ? lo : n > hi ? hi : n;
 }
 
-function slotLength(zone: EpgZone): number {
+/** The zone's slot length in minutes (default 30). */
+export function slotLength(zone: Pick<EpgZone, 'slot'>): number {
   return zone.slot !== undefined && zone.slot > 0 ? zone.slot : DEFAULT_SLOT;
 }
 
 /** The start of the slot that holds `minute`. Slots count from the guide's `from`. */
-function slotStart(zone: EpgZone, minute: number): number {
+export function slotStart(zone: Pick<EpgZone, 'from' | 'slot'>, minute: number): number {
   const slot = slotLength(zone);
   return minute - ((((minute - zone.from) % slot) + slot) % slot);
 }

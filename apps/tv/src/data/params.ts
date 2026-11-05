@@ -67,13 +67,14 @@ export function readDebugParams(search: string): DebugParams {
 /**
  * The screen the app opens on: onboarding (RELAY step 13a), or a developer screen: the hello
  * screen's diagnostics (`?screen=hello`, which the old-engine harness's data runs use) or the
- * component gallery (`?screen=gallery`, step 11b).
+ * component gallery (`?screen=gallery`, step 11b) and its grid guide page (`?screen=gallery-guide`,
+ * step 23b).
  */
-export type AppScreen = 'onboarding' | 'hello' | 'gallery';
+export type AppScreen = 'onboarding' | 'hello' | 'gallery' | 'gallery-guide';
 
-/** `?screen=hello` or `?screen=gallery` open those screens; anything else onboarding. */
+/** `?screen=hello`, `?screen=gallery` or `?screen=gallery-guide` open those screens; anything else onboarding. */
 export function readScreen(search: string): AppScreen {
   const match = SOURCE.exec(search);
   const screen = readParam(match === null ? search : search.slice(0, match.index), 'screen');
-  return screen === 'gallery' || screen === 'hello' ? screen : 'onboarding';
+  return screen === 'gallery' || screen === 'gallery-guide' || screen === 'hello' ? screen : 'onboarding';
 }

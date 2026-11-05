@@ -19,6 +19,8 @@ import type { Live } from './live/live-state';
 import { createLive } from './live/live-state';
 import { GalleryApp } from './gallery/GalleryApp';
 import { createGallery } from './gallery/gallery-state';
+import { GuideGalleryApp } from './gallery/GuideGalleryApp';
+import { createGuideGallery } from './gallery/guide-gallery';
 import { createEngineLoader } from './onboarding/engine-loader';
 import { OnboardingApp } from './onboarding/OnboardingApp';
 import type { Onboarding } from './onboarding/onboarding-state';
@@ -228,6 +230,11 @@ if (screen === 'gallery') {
   const gallery = createGallery(platform);
   showFocus(gallery.nav);
   render(<GalleryApp platform={platform} gallery={gallery} />, root);
+} else if (screen === 'gallery-guide') {
+  // The grid guide's gallery page (RELAY step 23b): made-up rows, no data workers.
+  const guide = createGuideGallery(platform);
+  showFocus(guide.nav);
+  render(<GuideGalleryApp platform={platform} gallery={guide} />, root);
 } else if (screen === 'hello') {
   showHello(root);
 } else {

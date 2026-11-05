@@ -10,6 +10,7 @@ export const EN = {
   'gallery.channelCount': '{n, plural, one {# channel} other {# channels}}',
   'gallery.selected': 'Selected: {what}',
   'gallery.pressOk': 'Press OK on any item',
+  'gallery.guideTitle': 'TV guide',
   'gallery.continueWatching': 'Continue watching',
   'gallery.status': 'Progress and status',
   'gallery.loading': 'Loading channels',
@@ -38,6 +39,7 @@ export const EN = {
   // The guide.
   'guide.next': 'Next',
   'guide.none': 'No guide for this channel',
+  'guide.noInfo': 'No information',
 
   // Badges.
   'badge.live': 'LIVE',
