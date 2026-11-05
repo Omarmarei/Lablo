@@ -107,6 +107,11 @@ interface Chooser {
   readonly step: { left: number; right: number };
   readonly value: { left: number; right: number };
   readonly check: { left: number; right: number };
+  /** The dialog's row under its message: the steps fill it. */
+  readonly actions: { left: number; right: number };
+  /** The focused step's height, and how many steps carry the check mark. */
+  readonly height: number;
+  readonly checks: number;
 }
 
 function readChooser(page: Page): Promise<Chooser> {
@@ -151,6 +156,9 @@ function readChooser(page: Page): Promise<Chooser> {
       step: box(on),
       value: span(on.querySelector('.guides__value > span')),
       check: box(on.querySelector('.guides__check')),
+      actions: box(root.querySelector('.z-dialog__actions')),
+      height: on.getBoundingClientRect().height,
+      checks: root.querySelectorAll('.guides__check svg').length,
     };
   }, SAFE);
 }
@@ -305,6 +313,9 @@ test.describe("a guide's time offset by keys (pnpm dev, after onboarding)", () =
         expect(c.steps.filter((s) => s.state === 'focused').map((s) => s.index)).toEqual([NONE]);
         expect(c.outside).toEqual([]);
         expect(c.cut).toEqual([]);
+        expect(c.step).toEqual(c.actions);
+        expect(c.height).toBe(64);
+        expect(c.checks).toBe(1);
         // The check, then the value, from the screen's side (the right in Arabic).
         if (rtl) {
           expect(c.step.right - c.check.right).toBeLessThan(EDGE - 28);

@@ -490,6 +490,8 @@ describe("applyProfileEdit: the guides' time offsets (step 24b)", () => {
     expect(offset(doc, 'u~g1', 90)).toBeNull();
     expect(offset(listed('g1'), 'u~g1', 0)).toBeNull();
     expect(offset(listed('g1'), 'u~g1', -0)).toBeNull();
+    // None for this guide among the others' offsets.
+    expect(offset(doc, 'tv:xmltv', 0)).toBeNull();
     for (const bad of [15, 31, 30.5, 750, -750, 12 * 60 + 30, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
       expect(offset(doc, 'u~g1', bad), String(bad)).toBeNull();
     }

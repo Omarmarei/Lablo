@@ -302,7 +302,7 @@ function GuidesPage({ i18n, binding, focus, guides }: PageProps & { guides: Guid
         />
       )}
       {focus.screen === 'guide-menu' && menu !== null && <MenuDialog i18n={i18n} binding={binding} menu={menu} />}
-      {focus.screen === 'guide-offset' && chooser !== null && <OffsetDialog i18n={i18n} binding={binding} chooser={chooser} />}
+      {chooser !== null && <OffsetDialog i18n={i18n} binding={binding} chooser={chooser} />}
       {focus.screen === 'guide-add' && <AddDialog i18n={i18n} binding={binding} guides={guides} />}
     </div>
   );

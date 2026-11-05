@@ -180,7 +180,11 @@ export class QueryService {
   private epgLinks = new Map<ContentKey, EpgLink>();
   /** The user's time offset per guide, in minutes (step 24b). */
   private epgOffsets: Record<string, number> = {};
-  /** Bumps when a read or a write of the offsets starts: one that started earlier never replaces a later one. */
+  /**
+   * Bumps when an edit's write starts. A read takes the number as it is: it sees that edit's
+   * write (IndexedDB runs them in the order they start) and none after, so an answer with a
+   * lower number than the offsets held is older than them.
+   */
   private offsetSeq = 0;
   private offsetsFrom = 0;
   private readonly panelEpg: ShortEpgCache | null;
@@ -259,7 +263,7 @@ export class QueryService {
   private async load(): Promise<void> {
     const db = await this.db();
     // First, so that an edit of the offsets made while this load runs is ordered after it.
-    const offsetSeq = ++this.offsetSeq;
+    const offsetSeq = this.offsetSeq;
     const offsets = readEpgOffsets(db);
     const sources = (await getSources(db)).sort((a, b) => (a.src < b.src ? -1 : a.src > b.src ? 1 : 0));
     const keys: { src: string; gen: number; kind: ContentKind }[] = [];
@@ -317,7 +321,7 @@ export class QueryService {
     return { metas, links };
   }
 
-  /** Takes the offsets read or written at `seq`, unless a later read or write was taken already. */
+  /** Takes the offsets read or written at `seq`, unless ones from a later edit are held already. */
   private setOffsets(offsets: Record<string, number>, seq: number): void {
     if (seq < this.offsetsFrom) return;
     this.offsetsFrom = seq;
@@ -326,8 +330,8 @@ export class QueryService {
 
   /** A link's whole shift in minutes: its channel's tvg-shift and its guide's time offset. */
   private shiftOf(link: EpgLink): number {
-    const offset = Object.prototype.hasOwnProperty.call(this.epgOffsets, link.epgSrc) ? this.epgOffsets[link.epgSrc]! : 0;
-    return Math.round(link.shift * 60) + offset;
+    // (Guide ids hold `:` or `~`: never a name an object inherits.)
+    return Math.round(link.shift * 60) + (this.epgOffsets[link.epgSrc] ?? 0);
   }
 
   /**

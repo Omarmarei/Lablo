@@ -275,7 +275,8 @@ const USER_GUIDE = 'u~';
 
 /** `offsets` with `epgSrc`'s offset set to `minutes` (0: taken out), or `null` when it holds that already. */
 function withOffset(offsets: Record<string, number> | undefined, epgSrc: string, minutes: number): Record<string, number> | null {
-  const before = offsets !== undefined && Object.prototype.hasOwnProperty.call(offsets, epgSrc) ? offsets[epgSrc] : 0;
+  // (Guide ids hold `:` or `~`: never a name an object inherits.)
+  const before = offsets === undefined ? 0 : (offsets[epgSrc] ?? 0);
   if (before === minutes) return null;
   const next: Record<string, number> = { ...offsets };
   if (minutes === 0) delete next[epgSrc];
@@ -368,9 +369,9 @@ export function applyProfileEdit(doc: ProfileDoc, edit: ProfileEdit): ProfileDoc
     return offsets === null ? { ...doc, guides } : { ...doc, guides, epgOffsets: offsets };
   }
   if (edit.kind === 'epgOffset') {
-    // (-0 is stored as 0: no entry.)
     if (!isEpgOffset(edit.minutes)) return null;
-    const offsets = withOffset(doc.epgOffsets, edit.epgSrc, edit.minutes === 0 ? 0 : edit.minutes);
+    // (-0 is 0 there: no entry.)
+    const offsets = withOffset(doc.epgOffsets, edit.epgSrc, edit.minutes);
     return offsets === null ? null : { ...doc, epgOffsets: offsets };
   }
   const at = doc.sources.findIndex((s) => s.id === edit.source.id);

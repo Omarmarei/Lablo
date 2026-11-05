@@ -223,11 +223,10 @@
   fill: currentColor;
 }
 
-/* A step's value on the screen's side (its digits are dir=ltr), bold for the guide's own. */
+/* A step's value, on the screen's side (only its digits are dir=ltr), bold for the guide's own. */
 .guides__value {
   flex: 1;
   min-width: 0;
-  text-align: left;
 }
 
 .guides__step.is-selected .guides__value {

@@ -110,6 +110,8 @@ describe("QueryService: the guides' time offsets (step 24b)", () => {
   });
 
   it('keeps the offsets when an edit writes nothing; an edit of another kind keeps them too', async () => {
+    // Loaded first, so that no later load reads the profile again.
+    expect(nowOf(await q.nowNext(['a']))).toEqual(['0..60 a0']);
     expect(await offset('g', 60)).toBe(true);
     expect(await offset('g', 60)).toBe(false);
     expect(await offset('g', 45)).toBe(false);
@@ -176,5 +178,27 @@ describe('QueryService: every offset, across midnight, is the guide read at the 
       expect(at(await q.programme({ key: 'z', start: z.start }))).toBe(at(z));
     }
     expect(checked).toBe(49 * times.length * keys.length);
+  });
+
+  it('reads the right days for programmes of up to a day, two days back in guide time', async () => {
+    // 23-hour programmes (each starts an hour earlier in the day than the one before): early in a
+    // day with +12 h, the one on air in guide time can have started two days before.
+    const long = slots(MIDNIGHT - 5 * 1440, MIDNIGHT + 5 * 1440, 1380, 'w');
+    const shown = (shift: number, from: number, to: number): string[] =>
+      long.filter((p) => p.end + shift > from && p.start + shift < to).map((p) => `${p.start + shift - NOW}..${p.end + shift - NOW} ${p.title}`);
+    await storeGuide(db, 'g', 0, [match('w', 'w.tv', 'id')], { 'w.tv': long });
+    let checked = 0;
+    for (const minutes of [-720, -360, 0, 360, 720]) {
+      await offset('g', minutes);
+      for (let t = MIDNIGHT - 1440; t < MIDNIGHT + 1440; t += 90) {
+        const [nn] = await q.nowNext(['w'], t * MIN);
+        expect(at(nn!.now), `${minutes} at ${t - MIDNIGHT}`).toBe(shown(minutes, t, t + 1)[0]);
+        expect(at(nn!.next), `${minutes} at ${t - MIDNIGHT}`).toBe(shown(minutes, t + 1380, t + 1381)[0] ?? null);
+        const [row] = await q.guide({ keys: ['w'], from: t, to: t + 60 });
+        expect(cells(row!), `${minutes} at ${t - MIDNIGHT}`).toEqual(shown(minutes, t, t + 60));
+        checked += 1;
+      }
+    }
+    expect(checked).toBe(5 * 32);
   });
 });

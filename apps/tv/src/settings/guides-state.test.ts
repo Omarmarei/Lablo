@@ -849,11 +849,22 @@ describe("a guide's time offset (step 24b)", () => {
     await t.press('DOWN', 'DOWN');
     expect(t.at()).toBe('guides · guides 3');
     expect(t.offsetChanged).not.toHaveBeenCalled();
+    // The edit counts as a request in flight until it settles.
+    expect(t.guides.pending.value).toBe(1);
     engine.held.edit.splice(0)[0]!.resolve();
     await flush();
     expect(engine.edits).toEqual([{ kind: 'epgOffset', epgSrc: 'u~g2', minutes: -30 }]);
     expect(t.offsetChanged).toHaveBeenCalledTimes(1);
     expect(t.at()).toBe('guides · guides 1');
+    expect(t.guides.pending.value).toBe(0);
+    // A source's own guide (its row has no id of the user's) is followed too.
+    await t.press('DOWN', 'OK', 'OK', 'DOWN', 'OK');
+    await t.press('UP', 'UP');
+    expect(t.at()).toBe('guides · guides 0');
+    engine.held.edit.splice(0)[0]!.resolve();
+    await flush();
+    expect(engine.edits[1]).toEqual({ kind: 'epgOffset', epgSrc: 's1:xmltv', minutes: 30 });
+    expect(t.at()).toBe('guides · guides 2');
   });
 
   it('tells no screen when the edit failed or saved nothing, and still reads the list', async () => {

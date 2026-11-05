@@ -34,7 +34,7 @@ Template placeholders follow Kodi's names (`{utc}`, `${start}`, `{utcend}`, `{lu
 
 **M3U `xc` channels on a non-UTC panel** need the panel zone, which only `player_api.php` gives. When the M3U URL is an Xtream `get.php` link (`xtreamFromM3uUrl`), the data layer logs in once and uses that zone; otherwise UTC.
 
-**XMLTV times without an offset** (the `timezone` fault's `none` style) are read in a fallback zone: the source's time offset (step 24), or the panel zone for an Xtream guide. In a DST zone the repeated hour is ambiguous. Step 9 repairs it from per-channel ordering (a start before the previous stop moves forward an hour).
+**XMLTV times without an offset** (the `timezone` fault's `none` style) are read in a fallback zone: a user's guide's own zone (`UserGuide.offsetMinutes`, which no screen sets yet; UTC), or the panel zone for an Xtream guide. In a DST zone the repeated hour is ambiguous. Step 9 repairs it from per-channel ordering (a start before the previous stop moves forward an hour).
 
 **Amended in step 9 (2026-11-02):**
 - `parseXmltvTime` alone does not always take the earlier instant. It settles the offset from the wall time read as UTC, so it gives the earlier instant west of UTC (New York) and the later one east of it (London). `EpgGuideReader` therefore first settles every offset-less time in the repeated hour to the earlier instant, then repairs from ordering:
@@ -43,7 +43,12 @@ Template placeholders follow Kodi's names (`{utc}`, `${start}`, `{utcend}`, `{lu
 - **Limit:** a lone boundary in the repeated hour reads the same with either instant. An example is a 90-minute programme ending at the second 01:00 with the next one starting there. It is taken as the earlier instant, an hour early. `test/epg-mock.test.ts` checks that only that case stays off in a New York guide written without offsets, and `epg-guide.test.ts` checks the repair for London and New York.
 - An offset stated in the guide is never repaired, and neither is a fixed fallback zone, which has no repeated hour.
 
+**Amended in step 24b (2026-11-05):**
+- The user's time offset is set per guide, not per source: a whole number of half hours from −12 h to +12 h. It is added to every time the guide gives, stated offset or not, and it is applied when the query worker reads, as the tvg-shift is, not at ingest. Times without an offset are still read in the fallback zone first: UTC for the user's guides and a playlist's own, the panel zone for an Xtream guide.
+- The offset is fixed: it has no DST. A guide written in a DST zone without offsets stays an hour off for half the year until the user changes it. The fallback zone of a user's guide (`UserGuide.offsetMinutes`) exists, but no screen sets it yet.
+- **For step 25:** catch-up should ask for the programme's time as shown, with the offset. The offset is there to make the guide match what the channel aired, and the archive holds what aired. Confirm this against the mock.
+
 ## Consequences
 - On engines with zone data, Xtream catch-up is exact across DST. Without it, DST zones are an hour off for archive programmes across a DST change, and the diagnostics screen (step 40) should show the zone source (`intl`/`clock`/`utc`).
-- The per-source time offset (step 24) also lets users fix a panel whose zone is simply wrong.
+- The time offset per guide (step 24b) also lets users fix a panel whose zone is simply wrong.
 - Tests: `packages/core/src/{timezone,catchup}.test.ts` (goldens), and `test/core-mock.test.ts`, which checks every mode against the mock's `X-Mock-Archive-*` headers in UTC, +05:45, +03:00 and New York (DST) panels.

@@ -199,7 +199,8 @@ export function guideList(profile: LoadedProfile | null, status: EpgStatus): Gui
   const user = userGuides(profile);
   const records = storedSources(profile);
   const offsets = epgOffsetsOf(profile === null ? null : profile.doc);
-  const offsetOf = (epgSrc: string): number => (Object.prototype.hasOwnProperty.call(offsets, epgSrc) ? offsets[epgSrc]! : 0);
+  // (Guide ids hold `:` or `~`: never a name an object inherits.)
+  const offsetOf = (epgSrc: string): number => offsets[epgSrc] ?? 0;
   const rows: GuideRow[] = [];
   const urls: string[] = [];
   for (const guide of user) {
@@ -433,9 +434,9 @@ export function createGuides(options: GuidesOptions): Guides {
       },
     });
     // The guide's own step, with the steps either side of it in view: the list first scrolls to
-    // three past it (as far as there are), so the focus lands in the middle of the seven.
+    // three past it (the navigator stops at the last), so the focus lands in the middle of the seven.
     const at = OFFSET_STEPS.indexOf(row.offset);
-    shown.focus('steps', Math.min(OFFSET_STEPS.length - 1, at + (OFFSETS.visible - 1) / 2));
+    shown.focus('steps', at + (OFFSETS.visible - 1) / 2);
     shown.focus('steps', at);
   };
 
