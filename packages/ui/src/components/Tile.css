@@ -15,6 +15,11 @@
   transition: border-color var(--motion-fast);
 }
 
+.z-tile--poster {
+  width: var(--poster-width);
+  height: var(--poster-height);
+}
+
 .z-tile__image {
   position: absolute;
   top: 0;

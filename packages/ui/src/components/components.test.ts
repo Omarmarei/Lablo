@@ -15,6 +15,7 @@ import { ProgressBar } from './ProgressBar';
 import { Spinner } from './Spinner';
 import { TextField } from './TextField';
 import { Tile } from './Tile';
+import { VirtualGrid, gridRows } from './VirtualGrid';
 import { VirtualList, listHeight, listWindow } from './VirtualList';
 import { focusClass, percent } from './focusable';
 import type { El } from './vnode.test-helpers';
@@ -150,6 +151,23 @@ describe('Tile', () => {
     const el = expand(Tile({ title: 'Channel' }));
     expect(el.props.class).toBe('z-tile');
     expect(all(el).map((e) => e.props.class)).toEqual(['z-tile', 'z-tile__caption', 'z-tile__title']);
+  });
+
+  it('is a portrait poster tile that tells its screen of the load and failure of its image (RELAY step 26a)', () => {
+    const onImageLoad = vi.fn();
+    const onImageError = vi.fn();
+    const el = expand(Tile({ title: 'Film', poster: true, image: 'poster.jpg', onImageLoad, onImageError, state: 'memory' }));
+    expect(el.props.class).toBe('z-tile z-tile--poster is-memory');
+    const image = one(el, 'z-tile__image');
+    (image.props.onLoad as () => void)();
+    expect(onImageLoad).toHaveBeenCalledTimes(1);
+    (image.props.onError as () => void)();
+    expect(onImageError).toHaveBeenCalledTimes(1);
+    // Without a poster: the title on the tile's background.
+    const bare = expand(Tile({ title: 'Film', poster: true }));
+    expect(bare.props.class).toBe('z-tile z-tile--poster');
+    expect(all(bare).map((e) => e.props.class)).toEqual(['z-tile z-tile--poster', 'z-tile__caption', 'z-tile__title']);
+    expect(expand(Tile({ title: 'Film', poster: false })).props.class).toBe('z-tile');
   });
 });
 
@@ -346,6 +364,115 @@ describe('VirtualList', () => {
       exitDialog: () => undefined,
     });
     expect(() => VirtualList({ binding: bindFocus(grid), screen: grid.top, zone: 'tiles', renderItem: () => h('div', null) })).toThrow(/not a list/);
+  });
+});
+
+describe('VirtualGrid (RELAY step 26a)', () => {
+  function setup(count = 40, visibleRows: number | null = 3) {
+    const selected: string[] = [];
+    const nav = createNavigator({
+      root: {
+        id: 'movies',
+        zones: [
+          { kind: 'list', id: 'rail', axis: 'vertical', count: 2, neighbours: { end: 'grid' } },
+          { kind: 'grid', id: 'grid', columns: 6, count, ...(visibleRows === null ? {} : { visibleRows }), neighbours: { start: 'rail' } },
+        ],
+        initial: 'grid',
+        onSelect: (f) => selected.push(`${f.zone} ${f.index}`),
+      },
+      rootBack: 'exit-dialog',
+      exit: () => undefined,
+      exitDialog: () => undefined,
+    });
+    const binding = bindFocus(nav);
+    const seen: Array<[number, ItemBinding]> = [];
+    const render = (): El =>
+      expand(
+        VirtualGrid({
+          binding,
+          screen: nav.top,
+          zone: 'grid',
+          itemWidth: 184,
+          itemHeight: 276,
+          columnGap: 24,
+          rowGap: 16,
+          class: 'movies__grid',
+          testId: 'grid',
+          renderItem: (i, item) => {
+            seen.push([i, item]);
+            return h('div', { class: 'tile', 'data-state': item.state }, `Movie ${i + 1}`);
+          },
+        }),
+      );
+    return { nav, render, seen, selected };
+  }
+
+  it('finds the rows a window draws', () => {
+    expect(gridRows(0, 40, 6, 3)).toEqual({ from: 0, to: 3 });
+    expect(gridRows(5, 40, 6, 3)).toEqual({ from: 5, to: 7 });
+    expect(gridRows(9, 40, 6, 3)).toEqual({ from: 7, to: 7 });
+    expect(gridRows(-2, 40, 6, 3)).toEqual({ from: 0, to: 3 });
+    expect(gridRows(0, 0, 6, 3)).toEqual({ from: 0, to: 0 });
+    expect(gridRows(1.7, 13, 0, 2.9)).toEqual({ from: 1, to: 3 });
+  });
+
+  it('draws only the rows in view, each a row of fixed-size items, in a box of a full window', () => {
+    const { render } = setup();
+    const el = render();
+    expect(el.props).toMatchObject({ class: 'z-vgrid movies__grid', role: 'grid', 'data-top': 0, 'data-count': 40, 'data-columns': 6, 'data-testid': 'grid' });
+    expect(el.props.style).toEqual({ width: `${6 * 184 + 5 * 24}px`, height: `${3 * 276 + 2 * 16}px`, '--z-vgrid-column-gap': '24px', '--z-vgrid-row-gap': '16px' });
+    const rows = byClass(el, 'z-vgrid__row');
+    expect(rows.map((r) => [r.key, r.props['data-row'], r.props.style])).toEqual([0, 1, 2].map((r) => [r, r, { height: '276px' }]));
+    const items = byClass(el, 'z-vgrid__item');
+    expect(items.map((i) => i.key)).toEqual(Array.from({ length: 18 }, (_v, i) => i));
+    expect(items.map((i) => i.props['data-index'])).toEqual(Array.from({ length: 18 }, (_v, i) => i));
+    expect(items[0]!.props.style).toEqual({ width: '184px', height: '276px' });
+    expect(byClass(el, 'tile').map((t) => t.props['data-state'])).toEqual(['focused'].concat(Array.from({ length: 17 }, () => 'idle')));
+  });
+
+  it('follows ZonePosition.top as the focus moves down, and draws the short last row as it is', () => {
+    const { nav, render } = setup();
+    for (let i = 0; i < 4; i += 1) nav.handle('DOWN');
+    let el = render();
+    expect(el.props['data-top']).toBe(2);
+    expect(byClass(el, 'z-vgrid__row').map((r) => r.key)).toEqual([2, 3, 4]);
+    expect(byClass(el, 'tile').map(text)[0]).toBe('Movie 13');
+    // The last rows: 36-39 in a short row.
+    nav.handle('DOWN');
+    nav.handle('DOWN');
+    el = render();
+    expect(el.props['data-top']).toBe(4);
+    const rows = byClass(el, 'z-vgrid__row');
+    expect(rows.map((r) => r.key)).toEqual([4, 5, 6]);
+    expect(byClass(rows[2]!, 'z-vgrid__item').map((i) => i.key)).toEqual([36, 37, 38, 39]);
+    // The rail takes the focus: the grid's item shows as memory.
+    nav.top.focus('rail', 0);
+    el = render();
+    expect(byClass(el, 'tile').filter((t) => t.props['data-state'] !== 'idle').map((t) => t.props['data-state'])).toEqual(['memory']);
+  });
+
+  it('hands each item its binding: hover and click go to the zone', () => {
+    const { nav, render, seen, selected } = setup();
+    render();
+    nav.pointer(true);
+    seen[8]![1].onHover();
+    expect(nav.snapshot()).toMatchObject({ zone: 'grid', index: 8 });
+    seen[9]![1].onPress();
+    expect(selected).toEqual(['grid 9']);
+  });
+
+  it('draws every row of a zone without a window, and nothing when empty', () => {
+    let el = setup(8, null).render();
+    expect(byClass(el, 'z-vgrid__row')).toHaveLength(2);
+    expect(el.props.style).toMatchObject({ height: `${2 * 276 + 16}px` });
+    el = setup(0).render();
+    expect(byClass(el, 'z-vgrid__row')).toHaveLength(0);
+    expect(el.props.style).toMatchObject({ height: `${3 * 276 + 2 * 16}px` });
+  });
+
+  it('refuses a zone that is not a grid', () => {
+    const { nav } = setup();
+    expect(() => VirtualGrid({ binding: bindFocus(nav), screen: nav.top, zone: 'rail', itemWidth: 1, itemHeight: 1, renderItem: () => h('div', null) })).toThrow(/not a grid/);
   });
 });
 

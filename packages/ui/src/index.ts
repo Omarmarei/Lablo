@@ -80,3 +80,5 @@ export type { TileProps } from './components/Tile';
 export { Tile } from './components/Tile';
 export type { ListWindow, VirtualListProps } from './components/VirtualList';
 export { VirtualList, listHeight, listWindow } from './components/VirtualList';
+export type { VirtualGridProps } from './components/VirtualGrid';
+export { VirtualGrid, gridRows } from './components/VirtualGrid';

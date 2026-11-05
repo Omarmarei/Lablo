@@ -23,6 +23,8 @@ import { GuideGalleryApp } from './gallery/GuideGalleryApp';
 import { createGuideGallery } from './gallery/guide-gallery';
 import type { Guide } from './guide/guide-state';
 import { createGuide } from './guide/guide-state';
+import type { Movies } from './movies/movies-state';
+import { createMovies } from './movies/movies-state';
 import { createEngineLoader } from './onboarding/engine-loader';
 import { OnboardingApp } from './onboarding/OnboardingApp';
 import type { Onboarding } from './onboarding/onboarding-state';
@@ -108,7 +110,7 @@ let refreshes: RefreshScheduler | null = null;
  * Starts the refresh schedule for the live screen: stale catalogs and due guides are read in the
  * background, and the screen picks up what swapped in (`readFormats`: the accounts' formats again).
  */
-function startRefreshes(live: Live, guide: Guide, readFacts: () => void): void {
+function startRefreshes(live: Live, guide: Guide, movies: Movies, readFacts: () => void): void {
   refreshes?.dispose();
   refreshes = createRefreshScheduler({
     engine: dataEngine(),
@@ -126,6 +128,7 @@ function startRefreshes(live: Live, guide: Guide, readFacts: () => void): void {
     onCatalog: () => {
       readFacts();
       live.catalogChanged();
+      movies.catalogChanged();
     },
     onGuides: () => {
       live.guidesChanged();
@@ -173,7 +176,10 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     },
     openSettings: () => openSettings(),
     openGuide: (row) => guide.open(row),
+    openMovies: () => movies.open(),
   });
+  // The header's "Movies" (step 26a): the poster grid of the sources' movies; Back returns to the header.
+  const movies = createMovies({ nav: live.nav, engine: dataEngine(), tier: () => tier });
   // The header's "Guide" (step 23c): the grid over the list's category; OK on air plays, Back returns to the list.
   const guide = createGuide({
     nav: live.nav,
@@ -231,8 +237,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   });
   if (resume !== null) player.resume({ item: resume.item, number: resume.number }, resume.index);
   showFocus(live.nav);
-  render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} guide={guide} />, into);
-  startRefreshes(live, guide, readFacts);
+  render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} guide={guide} movies={movies} />, into);
+  startRefreshes(live, guide, movies, readFacts);
 }
 
 /**

@@ -16,20 +16,30 @@ export interface TileProps extends FocusableProps {
   readonly badge?: ComponentChildren;
   /** Extra classes (a background tone). */
   readonly class?: string;
+  /** A portrait poster tile, `--poster-width` × `--poster-height` (RELAY step 26a), instead of a landscape one. */
+  readonly poster?: boolean;
+  /** The image arrived (its screen counts the posters loading). */
+  readonly onImageLoad?: () => void;
+  /** The image failed: its screen draws the tile without it from then on. */
+  readonly onImageError?: () => void;
 }
 
-/** A poster or channel tile, `--tile-width` × `--tile-height` (LAYOUT.tileWidth/tileHeight). */
-export function Tile({ title, subtitle, image, progress, badge, class: extra, state, onHover, onPress, testId }: TileProps) {
+/**
+ * A channel tile, `--tile-width` × `--tile-height` (LAYOUT.tileWidth/tileHeight), or a poster
+ * tile, `--poster-width` × `--poster-height` (LAYOUT.posterWidth/posterHeight).
+ */
+export function Tile({ title, subtitle, image, progress, badge, class: extra, poster, onImageLoad, onImageError, state, onHover, onPress, testId }: TileProps) {
+  const classes = `z-tile${poster === true ? ' z-tile--poster' : ''}${extra === undefined ? '' : ` ${extra}`}`;
   return (
     <div
-      class={focusClass(`z-tile${extra === undefined ? '' : ` ${extra}`}`, state)}
+      class={focusClass(classes, state)}
       role="button"
       data-testid={testId}
       data-state={state ?? 'idle'}
       onMouseMove={onHover}
       onClick={onPress}
     >
-      {image !== undefined && <img class="z-tile__image" src={image} alt="" />}
+      {image !== undefined && <img class="z-tile__image" src={image} alt="" onLoad={onImageLoad} onError={onImageError} />}
       {badge !== undefined && <span class="z-tile__badge">{badge}</span>}
       <div class="z-tile__caption">
         <span class="z-tile__title" dir="auto" translate={false}>

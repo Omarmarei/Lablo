@@ -131,6 +131,16 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'live.empty': 'لا توجد قنوات مباشرة في مصادرك.',
   'live.failed': 'تعذّرت قراءة قنواتك.',
   'live.retry': 'إعادة المحاولة',
+
+  'movies.open': 'الأفلام',
+  'movies.title': 'الأفلام',
+  'movies.all': 'كل الأفلام',
+  'movies.count': '{n, plural, zero {لا توجد أفلام} one {فيلم واحد} two {فيلمان} few {# أفلام} many {# فيلمًا} other {# فيلم}}',
+  'movies.noGroup': 'أفلام أخرى',
+  'movies.loading': 'جارٍ تحميل أفلامك',
+  'movies.empty': 'لا توجد أفلام في مصادرك.',
+  'movies.failed': 'تعذّرت قراءة أفلامك.',
+
   'badge.radio': 'إذاعة',
 
   'settings.open': 'الإعدادات',

@@ -120,6 +120,7 @@ async function openGuides(remote: RemoteDriver, locale: string, language: Langua
   await settled(live);
   await remote.go('UP', 'live/header/0');
   await remote.go(language === 'ar' ? 'LEFT' : 'RIGHT', 'live/header/1');
+  await remote.go(language === 'ar' ? 'LEFT' : 'RIGHT', 'live/header/2');
   await remote.go('OK', 'settings/items/0');
   await remote.go('OK', 'guides/guides/0');
   const root = page.getByTestId('settings-screen');
@@ -317,7 +318,7 @@ test.describe('match diagnostics by keys (pnpm dev, after onboarding)', () => {
       await remote.go('BACK', 'guides/header/1');
       await expect(list).toHaveCount(0);
       await remote.go('BACK', 'settings/items/0');
-      await remote.go('BACK', 'live/header/1');
+      await remote.go('BACK', 'live/header/2');
       expect(errors).toEqual([]);
     });
   }

@@ -9,6 +9,7 @@ import {
   CHANNELS_VISIBLE,
   CHUNK_CACHE,
   HEADER_GUIDE,
+  HEADER_MOVIES,
   HEADER_SETTINGS,
   GUIDE_DELAY_MS,
   GUIDE_TTL_MS,
@@ -232,6 +233,7 @@ async function setup(
     listChanging?: () => void;
     openSettings?: () => void;
     openGuide?: (row: number) => void;
+    openMovies?: () => void;
   } = {},
 ) {
   const engine = options.engine ?? new FakeEngine();
@@ -247,6 +249,7 @@ async function setup(
     ...(options.listChanging === undefined ? {} : { listChanging: options.listChanging }),
     ...(options.openSettings === undefined ? {} : { openSettings: options.openSettings }),
     ...(options.openGuide === undefined ? {} : { openGuide: options.openGuide }),
+    ...(options.openMovies === undefined ? {} : { openMovies: options.openMovies }),
   });
   if (options.settle !== false) await flush();
   const at = (): string => {
@@ -1471,26 +1474,51 @@ describe("the header's Guide and Settings buttons (RELAY steps 22b2 and 23c)", (
     const t = await setup({ openSettings });
     await t.press('OK', 'LEFT', 'OK');
     expect(openSettings).not.toHaveBeenCalled();
-    // "Guide" first, then "Settings" at the header's end.
-    expect([HEADER_GUIDE, HEADER_SETTINGS]).toEqual([0, 1]);
+    // "Guide" first, "Movies" (step 26a), then "Settings" at the header's end.
+    expect([HEADER_GUIDE, HEADER_MOVIES, HEADER_SETTINGS]).toEqual([0, 1, 2]);
     await t.press('RIGHT', 'UP', 'OK');
     expect(t.at()).toBe('live · header 0');
     expect(openSettings).not.toHaveBeenCalled();
-    await t.press('RIGHT', 'RIGHT', 'OK');
+    await t.press('RIGHT', 'OK');
     expect(t.at()).toBe('live · header 1');
+    expect(openSettings).not.toHaveBeenCalled();
+    await t.press('RIGHT', 'RIGHT', 'OK');
+    expect(t.at()).toBe('live · header 2');
     expect(openSettings).toHaveBeenCalledTimes(1);
     // A screen pushed from the header and closed: DOWN goes back to the list.
     const pushed = await setup({ openSettings: () => pushed.live.nav.push({ id: 'settings', zones: [{ kind: 'list', id: 'items', axis: 'vertical', count: 1 }] }) });
-    await pushed.press('UP', 'RIGHT', 'OK');
+    await pushed.press('UP', 'RIGHT', 'RIGHT', 'OK');
     expect(pushed.at()).toBe('settings · items 0');
     await pushed.press('BACK');
-    expect(pushed.at()).toBe('live · header 1');
+    expect(pushed.at()).toBe('live · header 2');
     await pushed.press('DOWN');
     expect(pushed.at()).toBe('live · channels 0');
     // Without a settings screen, OK there does nothing.
     const bare = await setup();
-    await bare.press('UP', 'RIGHT', 'OK');
-    expect(bare.at()).toBe('live · header 1');
+    await bare.press('UP', 'RIGHT', 'RIGHT', 'OK');
+    expect(bare.at()).toBe('live · header 2');
+  });
+
+  it('opens the movies on OK on "Movies", whatever the list is doing (RELAY step 26a)', async () => {
+    const openMovies = vi.fn();
+    const openSettings = vi.fn();
+    const openGuide = vi.fn();
+    const t = await setup({ openMovies, openSettings, openGuide });
+    await t.press('UP', 'RIGHT', 'OK');
+    expect(t.at()).toBe('live · header 1');
+    expect(openMovies).toHaveBeenCalledTimes(1);
+    expect(openSettings).not.toHaveBeenCalled();
+    expect(openGuide).not.toHaveBeenCalled();
+    // While the list still loads (the guide waits for it; the movies read their own data).
+    const engine = new FakeEngine();
+    engine.hold = new Set(['profile']);
+    const loading = await setup({ engine, openMovies, openGuide });
+    loading.live.home.focus('header', HEADER_MOVIES);
+    await loading.press('OK');
+    expect(openMovies).toHaveBeenCalledTimes(2);
+    loading.live.home.focus('header', HEADER_GUIDE);
+    await loading.press('OK');
+    expect(openGuide).not.toHaveBeenCalled();
   });
 
   it('says when the newest load is in (the guide waits on it after a catalog swap)', async () => {
