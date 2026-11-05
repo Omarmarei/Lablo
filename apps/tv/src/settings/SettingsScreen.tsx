@@ -111,7 +111,7 @@ function GuideItem({ i18n, row, index, state, item }: { i18n: AppI18n; row: Guid
         </span>
         {row.offset !== 0 && (
           <span class="guides__offset" data-testid={`guide-${index}-offset`}>
-            {t('guides.offsetLabel')} <OffsetValue i18n={i18n} minutes={row.offset} />
+            <span>{t('guides.offsetLabel')}</span> <OffsetValue i18n={i18n} minutes={row.offset} />
           </span>
         )}
         <span class="guides__owner">{row.kind === 'mine' ? t('guides.mine') : t('guides.from', { name: row.source })}</span>
