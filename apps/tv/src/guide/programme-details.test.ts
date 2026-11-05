@@ -334,12 +334,12 @@ describe('the details dialog as drawn', () => {
       return walk((dialog.props as Props).children).filter((v) => typeof v.type === 'function').map((b) => [(b.props as Props).label, (b.props as Props).testId, (b.props as Props).variant, (b.props as Props).state]);
     };
     expect(draw('en-US')).toEqual([
-      ['Watch from the start', 'programme-archive', 'primary', 'focused'],
+      ['From the start', 'programme-archive', 'primary', 'focused'],
       ['Watch the channel', 'programme-watch', 'secondary', 'idle'],
       ['Guide channel', 'programme-map', 'secondary', 'idle'],
       ['Close', 'programme-close', 'secondary', 'idle'],
     ]);
-    expect(draw('ar-SA').map((b) => b[0])).toEqual(['شاهد من البداية', 'شاهد القناة', 'قناة الدليل', 'إغلاق']);
+    expect(draw('ar-SA').map((b) => b[0])).toEqual(['من البداية', 'شاهد القناة', 'قناة الدليل', 'إغلاق']);
   });
 
   it('leaves out the lines the guide doesn’t have, and says so for the description', async () => {

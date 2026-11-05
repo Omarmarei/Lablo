@@ -25,6 +25,22 @@
   width: 1200px;
 }
 
+/*
+ * Its buttons (four with catch-up's "From the start", step 25a) go onto a second line in a
+ * language with longer words rather than out of the panel. Each button's leading margin is taken
+ * back by the row, so every line starts at the panel's edge (Chromium 53-68 have no flex `gap`).
+ */
+.z-dialog__panel--wide .z-dialog__actions {
+  flex-wrap: wrap;
+  margin-top: calc(var(--space-7) - var(--space-4));
+  margin-left: calc(-1 * var(--space-4));
+}
+
+.z-dialog__panel--wide .z-dialog__actions > * {
+  margin-top: var(--space-4);
+  margin-left: var(--space-4);
+}
+
 /* On the page's side, also for a title that is data (dir=auto): rtlcss mirrors it. */
 .z-dialog__title {
   margin: 0;
