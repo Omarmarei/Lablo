@@ -1645,7 +1645,7 @@ describe("the player: catch-up's position, pause, seeking and end (RELAY step 25
     expect(starts(t)).toEqual([START, 'live']);
     expect(t.player.position.value).toBeNull();
     expect(t.at()).toBe('player · actions 0');
-    expect(t.player.screen.value!.zone('seek').count).toBe(0);
+    expect(t.player.screen.value!.zone('seek')).toMatchObject({ count: 0 });
     // Live, the bar hides with the focus on its buttons, and no position is read.
     t.controller.set('playing');
     t.clock.advance(INFO_MS);
