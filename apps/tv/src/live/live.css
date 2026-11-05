@@ -59,7 +59,7 @@
   font-weight: var(--font-weight-bold);
 }
 
-/* The header's buttons (step 22b2): "Settings", as tall as the header. */
+/* The header's buttons (steps 22b2 and 23c): "Guide" and "Settings", as tall as the header. */
 .live__end {
   flex: none;
   align-self: center;
@@ -68,6 +68,11 @@
 
 .live__end .z-button {
   height: 56px;
+}
+
+/* "Guide", then "Settings" (step 23c). */
+.live__end .z-button + .z-button {
+  margin-left: var(--space-4);
 }
 
 .live__body {

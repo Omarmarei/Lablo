@@ -1,92 +1,96 @@
-# Zoma IPTV: relay leg 51 opening prompt
+# Zoma IPTV: relay leg 52 opening prompt
 
-You are leg 51 of relay run `iptv-20261101-214120`, building **Zoma IPTV**. It is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 52 of relay run `iptv-20261101-214120`, building **Zoma IPTV**. It is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 - **Earlier legs:**
   - Leg 0 planned the work. Leg 6 did no project work.
-  - Legs 1–49 did steps 1–22, except step 16's Samsung part, 19b and 21 (PRs #1–#48).
-- **Leg 50 split step 23 (the grid guide)** into 23a (the data), 23b (the grid component), 23c (the guide screen) and 23d (the throttled e2e), all written out in RELAY.md. Then it did **23a**:
-  - It merged as PR **#49** (merge commit **`33e5a51`**, branch kept).
-  - CI on `63bfcd8`: verify 9 m 1 s, media 11 m 58 s, engines 12 m 6 s, all green on the first run.
-  - Main's CI on `9ff6073` (PR #48) was green. **Check main's run on `33e5a51`.**
+  - Legs 1–50 did steps 1–22 and 23a, except step 16's Samsung part, 19b and 21 (PRs #1–#49).
+- **Leg 51 did 23b (the grid component)** and added step **23e** (the grid on Chromium 53/56/68) to RELAY.md:
+  - It merged as PR **#50** (merge commit **`58d1c47`**, branch kept).
+  - CI on `f103ae4`: verify 10 m 48 s, media 13 m 31 s, engines 14 m 13 s. Engines' first run hit the DevTools flake on Chromium 56 and was green on the rerun.
+  - Main's CI on `33e5a51` (PR #49) was green. **Check main's run on `58d1c47`.**
 - **Steps 16, 19b and 21 stay open** until Omar says the Samsung route is ready or has time at the TV. Leave them open, as earlier legs did.
 
-## Your step: 23b, the grid component (RELAY.md, Phase 6)
-RELAY.md's 23b (read the whole entry there):
-- virtualized on both axes: only the rows in view (from the `epg` zone's `top`, as `VirtualList` does) and only the cells that cross the view (`view` to `view + span`);
-- bound to the `epg` zone: the focused cell from the zone's row and cursor; a helper fills the gaps between programmes with placeholder cells, and both the zone's `cell(row, minute)` and the drawing use it, so the two agree;
-- a time header (the slots in view) and a "now" line;
-- RTL mirrored by rtlcss with physical CSS (times inside `dir=ltr`);
-- a gallery entry; unit tests (the cells drawn, the gaps filled, cut at the view's edges, the focus, the now line), screenshots in English and Arabic.
-- **Done when:** the unit tests and the gallery e2e pass, `pnpm verify` green, a mutation run, the PR merged.
-
-If 23b turns out too big for one leg, split it in RELAY.md (23b1 the pure layout helpers and the component with unit tests; 23b2 the gallery entry, e2e and screenshots), as earlier legs split theirs.
+## Your step: 23c, the guide screen in the app (RELAY.md, Phase 6)
+RELAY.md's 23c (read the whole entry there):
+- **The way in:** a "Guide" button in the live screen's header, before "Settings". No new remote key: S10 would have to ask every TV for it.
+- **The rows:** the live screen's current category. The first focus goes on the channel focused in the list, at now.
+- **The data:** kept per channel-day on the screen. Ask for the rows in view ± a page, over the days the view crosses. A guide swap re-asks.
+- **Keys:** OK on the programme on air plays its channel. Back returns to the list on the same channel.
+- **Done when:**
+  - unit tests of the screen's state: the rows, data asked for and dropped when stale, the focus, OK, Back;
+  - e2e by keys against the mock, in English and Arabic: open from the header, move across rows and time, the mock's schedule in the cells, OK plays, Back;
+  - screenshots looked at, `pnpm verify` green, a mutation run, the PR merged;
+  - the "press these keys" checklist in the handover.
+- **If 23c is too big for one leg,** split it in RELAY.md, as earlier legs did. For example: 23c1 the screen's state and data with unit tests; 23c2 the header button, the e2e and the checklist.
 
 ### What exists (check it before writing anything)
-1. **The focus engine's `epg` zone** (step 10):
-   - `packages/ui/src/focus/types.ts`: `EpgZone` has `rows`, `visibleRows`, `from`/`to` (UTC minutes; put `from` on a slot boundary), `span` (minutes in view), `slot` (default 30), `now`, and `cell(row, minute) => EpgCell | null`.
-   - `ZonePosition` keeps `index` (the row), `top`, `time` (the cursor) and `view` (the first minute in view).
-   - `packages/ui/src/focus/epg.ts`: `epgCell`, `epgClamp`, `epgTimeStep`. Where the screen gives no cell, the slot is the cell.
-   - `zones.ts` and `navigator.ts` drive it: UP/DOWN keep the cursor, LEFT/RIGHT step cells, CH± page rows. RTL is the one logical swap in `moveDirection`.
-   - Grep `kind: 'epg'` first: no screen or component uses the zone yet. The hello screen's focus demo (`apps/tv/src/focus-demo.ts`) may show how a zone is wired.
-2. **`VirtualList`** (`packages/ui/src/components/VirtualList.tsx`) is one-axis only. It shows the patterns to copy:
-   - `listWindow(top, count, visible)`;
-   - sizes from `LAYOUT` tokens, never measured;
-   - `useZone`, `ItemBinding`, `renderItem`.
-3. **The data shape from 23a**, for the props:
-   - `GuideRow { key, epgSrc, start: number[], end: number[], title: string[] }` (`packages/data/src/query-service.ts`), as plain arrays.
-   - core's `EpgSchedule` is the same columns without `key`/`epgSrc` (`packages/core/src/epg-guide.ts`).
-   - The component should take rows as props, never call the engine. The gallery feeds it made-up rows; 23c feeds it the engine's.
-   - Check what `packages/ui` may import: the boundary lint, `test/lint-boundaries.test.ts`.
-4. **The gallery:** `apps/tv/src/gallery` (`GalleryApp.tsx`, `gallery-data.ts`, `gallery-state.ts`, `gallery.css`). The old-engine harness checks the gallery on Chromium 53/56/68 (`pnpm verify:engines`, `test/engines-gallery.test.ts`). A new gallery entry may change the boxes it expects: run the harness if the gallery changes.
+1. **The component (23b)**, in `packages/ui/src/components`:
+   - **`GuideGrid` props:** `binding`, `screen`, `zone` (an `epg` zone), `channel(row) => { number?, name }`, `schedule(row) => GuideSchedule | null`, `now`, `formatTime(minute)`, `formatDay?(minute)`, `placeholder`, `testId`.
+     - A row with no schedule (`null`: not read yet, or no guide) draws placeholders.
+     - The query worker's `GuideRow` (`{ key, epgSrc, start[], end[], title[] }`) is a `GuideSchedule` as it is.
+   - **`guideZone(spec, schedule)`** makes the `epg` zone whose `cell` is `guideCellAt` over the same `schedule`. Give the grid that same function, and the focus is always on a drawn cell.
+   - **`guideCellAt(schedule, range, minute)`** gives the cell holding a minute: `{ start, end, programme }`, where `programme` is an index into the schedule's arrays, or -1 for a placeholder. OK and the details line use it, as `GuideGalleryApp.tsx` does.
+   - **Sizes** come from `guide-layout.ts`:
+     - `GUIDE_LAYOUT`: a 56 px header, 80 px rows after 8 px gaps, a 400 px channel column, 11 px a minute;
+     - `guideFits(height)` gives the zone's `visibleRows`;
+     - `guideWidth(span)`: 120 minutes give 1,728 px, the safe area's width.
+   - **The zone's `now`** is only where the cursor starts. The grid's `now` prop draws the now line and the looks of programmes gone by and on air: tick it each minute (the live screen has a clock signal).
+2. **The model to copy:** the gallery page `?screen=gallery-guide`:
+   - `apps/tv/src/gallery/guide-gallery.ts` and `GuideGalleryApp.tsx`;
+   - its header shows the focused programme with its own times, and what OK selected;
+   - `e2e/guide-gallery.spec.ts` has `readGrid` (everything in one `page.evaluate`) and `checkGeometry` (every box measured from the timeline's inline start). Reuse both for the screen's e2e.
+3. **The data (23a):** `DataEngine.guide({ keys, from, to })` in `apps/tv/src/data/engine.ts`.
+   - An ask over 2,000 channel-days is refused with a `RangeError`. A page of rows over two or three days is a few hundred.
+   - It reads the day before `from` by itself.
+   - architecture.md §1.5 "Built in step 23a" has the rules: which guide feeds a row, the tvg-shift, the cut across days.
+4. **The live screen** (`apps/tv/src/live`: `live-state.ts`, `LiveApp.tsx`, `live.css`):
+   - its `header` zone holds "Settings" (step 22b2a): UP from the first row of the rail, the list or "Try again"; DOWN and Back return;
+   - screens pushed on the live navigator paint from `LiveApp` (`SETTINGS_SCREENS`), as the player does;
+   - how OK on a row plays a channel: the live list's select into `appPlayer` / `createPlayer`;
+   - how the list re-asks now/next after a guide swap: `guidesChanged`.
+5. **The range for the screen (suggestion):** from local midnight of the first day kept (`EPG_WINDOWS` in core: past and future days per tier), to the end of the last day.
+   - `from` must sit on a slot boundary in the TV's own time: use local midnight, as `GUIDE_DAY` does (`new Date(y, m, d).getTime() / 60_000`).
+   - Slots count from `from`.
 
-### Design notes from leg 50 (suggestions; decide in the leg)
-- **One pure helper for both uses:** `gridCells(row, from, to, slot)` returns the programmes plus placeholder cells that fill each gap, cut to the slot grid.
-  - The zone's `cell(row, minute)` finds the cell holding `minute` by binary search.
-  - The drawing takes the cells that cross `[view, view + span)`.
-  - If both use one function, the focus and the drawn cells can't disagree. Test it with fast-check: every minute in `[from, to)` is held by exactly one cell, and programme cells match the input.
-- **Positions:** x = (start − view) × px per minute, from layout constants.
-  - **rtlcss never mirrors inline styles** (memory `iptv-css-pipeline-gotchas`). Put the numbers in CSS variables (`style="--x:…; --w:…"`) and write `left: var(--x)` in the CSS file. rtlcss turns that into `right: var(--x)` under `<html dir=rtl>`.
-  - No CSS Grid, flex `gap` or logical properties: Chromium 53 lacks them. Use physical properties only.
-- **Text:**
-  - Programme titles are provider text: `dir=auto` + `translate=false`, or `isolateText`.
-  - Times (the header's slots, a cell's time range) go inside `dir=ltr`.
-  - Any word of ours, such as the placeholder's "No information", comes from the catalogs (en and ar; the `zoma/no-hard-coded-text` lint). Each new key adds per-key catalog tests by itself.
-- **The now line:** take `now` as a prop (23c ticks it each minute). Draw it only while now is inside the view.
-- **Hook-free:** components in `packages/ui` stay hook-free and are tested as functions by walking the VNode tree (memory `iptv-ui-test-gotchas`; `components.test.ts`, `vnode.test-helpers.ts`).
-- **Size:** the grid will be in main.js (23c imports it).
-  - Count core-js modules after it with `python -I -u artifacts/poly-count20c2a.py`. It must stay 219 on both platforms; if it grows, find the property names that pulled the polyfills (memory `iptv-tv-bundle-polyfills`).
-  - Avoid `.at`, `Array.from`, typed arrays, `new RegExp`, `.split(` and `JSON.stringify` in TV files.
+### Design notes from leg 51 (suggestions; decide in the leg)
+- **Redraws:** `@preact/signals` skips a child whose props didn't change (memory `iptv-ui-test-gotchas`, leg 39). The grid reads only the focus signal.
+  - When a page of rows arrives, the screen must make the grid redraw: read a version signal in the screen component, and pass fresh `schedule`/`channel` functions or a version prop.
+  - The zone's `cell` reads `schedule(row)` live, so new data needs no `screen.update`. A new row count (another category) does.
+- **Data per channel-day:** key it by the channel's key and day. Drop rows far out of view, as the live list's chunk cache does (8 chunks kept).
+  - The focused row's cell can change when its data arrives: the cursor stays and the cell under it changes. That is fine.
+- **OK on air plays; OK elsewhere** (a future or past programme): do nothing for now. Programme details are step 24, catch-up step 25. Write down the choice.
+- **The header:** the focused programme (title with `dir="auto" translate=false`, its own time range in the page's direction) and the channel, as the gallery page shows it.
 
 ## Read first
 1. `CLAUDE.md`: conventions, Definition of Done, merge policy, commit format.
 2. `RELAY.md`:
-   - steps 23 and 23a–23d;
-   - the progress-log rows for legs 47–50.
+   - steps 23, 23a–23e;
+   - the progress-log rows for legs 48–51.
 3. `docs/architecture.md`:
-   - §1.2 "Built in step 10" (the focus engine, the `epg` zone bullet) and "Built in step 11b" (components, the virtual list, the gallery);
-   - §1.5 "Built in step 23a" (the data, just written);
-   - §4's throttled-run notes (for 23d later).
+   - §1.2: "Built in step 14a" (the live screen) and "Built in step 23b" (the grid, just written);
+   - §1.5: "Built in step 22b2a" (the header and pushed screens) and "Built in step 23a" (the data);
+   - §4's throttled-run notes (for 23d).
 4. The code:
-   - `packages/ui/src/focus/` (`types.ts`, `epg.ts`, `zones.ts`, `navigator.ts`, `binding.ts`);
-   - `packages/ui/src/components/` (`VirtualList.tsx` and `.css`, `ListRow.tsx`, `components.test.ts`);
-   - `packages/ui/src/design/tokens` (`LAYOUT`);
-   - `apps/tv/src/gallery/`.
+   - `packages/ui/src/components/` (`GuideGrid.tsx`, `guide-cells.ts`, `guide-layout.ts`, and their tests);
+   - `apps/tv/src/gallery/guide-gallery.ts` and `GuideGalleryApp.tsx`;
+   - `apps/tv/src/live/` and `apps/tv/src/settings/` (the header button and pushed screens);
+   - `apps/tv/src/data/engine.ts` (`guide`);
+   - `e2e/guide-gallery.spec.ts`, `e2e/live.spec.ts`, `e2e/guides.spec.ts` (opening a screen from the header).
 5. Memory:
    - `iptv-ui-test-gotchas`;
    - `iptv-css-pipeline-gotchas`;
-   - `iptv-bidi-old-engines`;
+   - `iptv-mock-provider-gotchas` (now/next e2e needs `mock({ now: Date.now })`);
    - `iptv-tv-bundle-polyfills`;
-   - `iptv-old-engine-screen`;
    - `iptv-parser-test-patterns`;
    - `use-write-tool-for-doc-batches`;
    - `gh-pr-checks-watch-race`.
 
 ## Start
 1. Read `C:/Users/Omarm/.claude/relay/iptv-20261101-214120/state.json` for the worktree path.
-2. Check main with `gh run list --branch main --limit 2 -R Omarmarei/zoma-iptv` (the run on `33e5a51`).
+2. Check main with `gh run list --branch main --limit 2 -R Omarmarei/zoma-iptv` (the run on `58d1c47`).
    - If only `engines` is red with "DevTools … did not answer", rerun it: `gh run rerun <id> --failed`.
-   - If `media` shows `cancelled`, read its step times before blaming the code (a slow apt install hit the 30-minute limit once).
+   - If `media` shows `cancelled`, read its step times before blaming the code. The ffmpeg apt install took 11.5 min on `33e5a51` and 15 min once before.
 3. Run `git -C "<wt>" status` and `git -C "<wt>" log --oneline -5`.
 
 **Never call EnterWorktree**, even though Claude Code's background note asks for it: the relay worktree is your isolation.
@@ -96,96 +100,106 @@ If 23b turns out too big for one leg, split it in RELAY.md (23b1 the pure layout
 
 ## Git state to expect
 - **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`.
-- **HEAD:** the commit adding this HANDOVER.md, on top of `36e3934` ("docs: record PR #49's merge"). It is pushed, and the tree is clean.
-- **main** has `33e5a51` (PR #49). The branch is ahead by `36e3934` and the handover commit, both docs; they go to main with 23b's PR.
+- **HEAD:** the commit adding this HANDOVER.md, on top of `c12d0e7` ("docs: record PR #50's merge"). It is pushed, and the tree is clean.
+- **main** has `58d1c47` (PR #50). The branch is ahead by `c12d0e7` and the handover commit, both docs; they go to main with 23c's PR.
 - **The main checkout** (`D:/Claude Code PlayGround/IPTV`) was not touched.
 - **Gitignored but present:**
   - `node_modules`, `.cache/*` (the generated media and the scale fixtures included), `dist/` (built from the final code);
   - `artifacts/`, which includes:
-    - `mutate23a.py` and `.log`: the newest unit-test mutation template (34/34; it also runs mutants against the media config);
-    - `mutate22b2b.py`: the e2e mutation template (one Playwright spec per mutant);
+    - `mutate23b.py` and `.log`: the newest unit mutation template (69/69; it keeps each file's CRLF or LF);
+    - `mutate23b-e2e.py` and `.log`: CSS mutants against one e2e spec (12/12);
     - `poly-count20c2a.py`: counts main's core-js modules (219 on both);
-    - `verify23a.log`;
-    - `screenshots/` from leg 49 (the guides screens in `en` and `ar`).
+    - `verify23b.log`, `verify23b-2.log`;
+    - `screenshots/guide-gallery-{en-US,ar-SA}.png` (both looked at).
 - **On the TV:** the lab `com.zoma.iptv.lab` 0.1.1. The CLI device `tv` is `prisoner@192.168.1.8:9922`. The app itself was never installed on the TV.
 - **Outside the repo:** the webOS Simulator zips and AppImages in `D:/tools/webos-sim/`, and the image `zoma-webos-sim:local`. Never commit or push them (LG's license).
 
-## Facts and decisions from leg 50 (step 23a)
-- **core `epgSchedule(buckets, from, to, shiftHours)`:**
-  - returns a channel's programmes that overlap `[from, to)` (UTC minutes), uncut, shifted by the tvg-shift, as plain arrays (`start`, `end`, `title`);
-  - the buckets come in day order; an empty range gives nothing;
-  - one day's last programme that runs past the next day's first ends where that one starts (and is dropped if that leaves it before the range).
-- **`QueryService.guide({ keys, from, to })`:**
-  - The rule for which guide feeds a channel is the one now/next uses (`combineEpgMatches`: the stronger method, then the guide listed first). A lower guide does not fill hours the winning one lacks: placeholders show there.
-  - It reads the days the range covers in the channel's own time, plus the day before, in one transaction.
-  - An ask over `GUIDE_MAX_READS` (2,000 channel-days, counted over every channel) is refused with a `RangeError` before anything is read.
-  - Channels no guide matches come back as `epgSrc: null` with empty arrays.
-  - `DataEngine.guide(req)` is the app's call.
-- **Titles only.** Step 24 (programme details) will ask for one programme's description and episode separately.
-- **No `pnpm bench` case:**
-  - it would need `@zoma/data` and fake-indexeddb in tools/bench, plus the store's 7 s setup in CI's bench step;
-  - the scale test `test/guide-300mb.media.test.ts` prints the same numbers instead.
-- **The scale test** (`test:media`):
-  - the 300 MB guide's 1,331,136 programmes (5,000 channels, the full tier) are stored in fake-indexeddb: about 7.5 s locally, 10.3 s on CI;
-  - 24 live channels (playlist rows 1,000–1,023, one with 150-minute slots that cross midnight) are read over three windows: the view, two days and three catch-up days;
-  - every time must equal the fixture generator's schedule, and each window must answer in ≤ 20 ms (1.2–4.1 ms locally, 1.8–2.3 ms on CI);
-  - the 20 ms: a page of new rows should fill within about 300 ms on a 2018 TV, taken as about 15 times slower than CI.
-- **Checks:** 3,529 unit tests (+11), `pnpm verify` green (68 e2e), mutation 34/34.
+## Facts and decisions from leg 51 (step 23b)
+- **One function for focus and drawing:** `guideCellAt` is the zone's `cell` (through `guideZone`), and `guideCellsIn` walks it to draw. The engine's LEFT/RIGHT therefore visit exactly the drawn cells (a unit test walks a row both ways).
+- **A row's cells cover the guide's `[from, to)` once:**
+  - a programme is cut to the range and at the next start (of two with one start, the last wins);
+  - a gap is filled with placeholders cut at the slot boundaries, counted from `from`, so a row with no data has the zone's own slots;
+  - nothing under `GUIDE_MIN_GAP` (5 min) stands alone: a short gap after a programme is that programme's cell, and a slot boundary within 5 min of a gap's end is skipped;
+  - only a short gap at the guide's very start stays a lone placeholder;
+  - one binary search per cell, no cache.
+- **Decided (not a gate):** slot labels and a programme's time range follow the page's direction, as the player's info bar does. In Arabic the start is on the right, read first, with «م» after its time. Only the media timeline is forced left to right. The 23b plan had said `dir=ltr`; this replaced it.
+- **RTL:** positions are CSS variables (`--x`, `--w`) written as `left: var(--x)` in `GuideGrid.css`, which rtlcss turns into `right`. The cut arrows are border triangles and mirror too. No code of ours handles the direction.
+- **The gallery page** `?screen=gallery-guide`:
+  - 40 made-up rows on a fixed evening: 20:17 on 2026-11-05 in the browser's own time zone;
+  - 9 rows in view, two hours across;
+  - Back follows the platform, with no exit dialog.
+  - It is its own route, so the component gallery and its old-engine checks are unchanged.
+- **New catalog keys:** `guide.noInfo` ("No information" / «لا توجد معلومات») and `gallery.guideTitle`.
+- **Cosmetic, known:** a cell narrower than its padding shows its title clipped without an ellipsis (a 3-minute end of a cut cell). Leave it unless it bothers Omar.
+- **Checks:**
+  - 3,574 unit tests (+45), with three fast-check properties against a minute-by-minute oracle;
+  - e2e 72 (+4: `guide-gallery.spec.ts`);
+  - `pnpm verify` green twice;
+  - mutation 67/70 on the first run, then 69/69 (a masked guard removed, a test gap closed);
+  - CSS against the e2e 12/12.
 - **Sizes now:**
-  - main: 294.6 KB (Tizen) / 282.0 KB (webOS) of 500;
-  - workers, each of 150 KB: query 100.8 KB, EPG 115.6 KB, ingest 126.0 KB;
-  - core-js modules in main: 219 on both platforms.
-- **The 3 riskiest changes that went in (PR #49):**
-  1. The new read-only `guide` RPC on the query worker (+1.2 KB). Nothing calls it yet.
-  2. A new `test:media` test: about 10 s and about 1 GB of fake-indexeddb memory in CI's `media` job.
+  - main 304.3 KB (Tizen) and 291.7 KB (webOS) of 500, +9.7 KB with the gallery page;
+  - app.css 52.3 → 58.8 KB;
+  - workers unchanged: query 100.8, EPG 115.6, ingest 126.0 KB;
+  - core-js modules in main: 219 on both.
+- **The 3 riskiest changes that went in (PR #50):**
+  1. The gallery page and its demo rows ship in main.js (+9.7 KB), as the component gallery already does.
+  2. `epg.ts` exports `slotLength`/`slotStart` (logic unchanged), and the cells depend on them.
   3. There was no migration, permission or data change.
-- **Nothing on screen changed**, so there is no new "press these keys" checklist. The guides screen's checklist is in the leg-49 handover: `git show 70b3236:HANDOVER.md`. The player's (step 20) is in `git show b3c53af:HANDOVER.md`.
+
+### "Press these keys" (step 23b, desktop)
+1. `pnpm dev`, then open `http://localhost:5173/?screen=gallery-guide`.
+2. RIGHT and LEFT go programme by programme. The line under the title shows the programme and its own times; "Evening Bulletin" reads 8:00–8:28 PM in a cell to 8:30.
+3. UP and DOWN change channel and keep the time. PageDown and PageUp page 9 channels.
+4. Past 10 PM the view moves on by half-hours, the header's times with it, and the red now line leaves.
+5. Enter shows "Selected: …".
+6. A mouse hover on the Football match (it began before the view) focuses it without scrolling.
+7. Add `&locale=ar-SA`: the channels are on the right, time runs leftwards, and LEFT goes forward. Add `&locale=en-XA`: every string of ours is bracketed.
 
 ## Gotchas and lessons
-**New in leg 50** (also in memory):
-- **A scale oracle only catches what the data exercises.** The scale test's first rows (playlist 10,000+) had no guide channel crossing midnight, so a mutant that dropped the day-before read survived.
-  - In the 300 MB fixture only 150-minute slots cross midnight (guide channel k with k % 8 == 6). `EPG_BENCH_NOW` is a midnight, and no live channel has a tvg-shift.
-  - Print what the chosen rows contain before trusting the oracle.
-- **`docs/architecture.md`'s working copy is CRLF; `RELAY.md` is LF.** Git stores both as LF. An LF anchor fails on architecture.md: detect the file's line ending and convert both the anchor and the inserted text.
-- **Heredoc'd python that patches another script's escaped text mangles it.** Write such scripts with the Write tool, using `NL = chr(10)`.
-- **fake-indexeddb holds the whole 300 MB guide**, so data-layer reads at real scale fit in `test:media`.
+**New in leg 51** (also in memory):
+- **A connection error can end a CI wait early.** `gh pr checks` printed nothing, so `until ! … | grep -q pending` ended at once. Use:
+  `until gh pr checks N -R Omarmarei/zoma-iptv > out.txt 2>&1; grep -q -E "pass|fail" out.txt && ! grep -q -E "pending|in_progress|queued" out.txt; do sleep 30; done; cat out.txt`
+  with `timeout: 600000`. It moves to the background at 10 min, which is fine.
+- **A check beside the binding's `view.state(row)` is masked:** `state` is already idle off the focused row.
+- **Cut marks:** test a programme cut by the guide's own `from`/`to`, not only by the view.
+- **Layout constants an e2e imports** go in a plain `.ts`, never a `.tsx` (root tsc has no JSX).
+- **Screenshot-stable demo times:** build them from local midnight; compare minutes relative to `data-view` in e2e.
+- **The en-XA check** must skip the locale's own formats: times, ranges and the day (`Thu, Nov 5`).
+- **Geometry e2e:** without row tops and column widths, CSS mutants of `margin-top` and `width` survived.
 
 **From earlier legs (still true):**
 - **Read a list's count and its rows in one `page.evaluate`.** Playwright's auto-wait on a row that vanished between two reads hangs `expect.poll`.
 - **RTL side checks** measure text with a Range over the element's contents. A flex item's own box spans the free space.
 - **A `cancelled` CI job** can be its `timeout-minutes` (a slow apt mirror). Read the step times, then `gh run rerun <id> --failed`. The next push to main cancels that rerun (`concurrency: ci-${{ github.ref }}`).
-- **An e2e mutation pass** (`artifacts/mutate22b2b.py`) proves layout and RTL checks can fail. It takes about 25 s per mutant (each run starts Vite).
+- **The DevTools flake** ("did not answer") on the old-engine harness: rerun the failed job.
 - **ar-SA formats Western digits** (ADR-011).
 - **e2e text checks need `stripIsolates`** (`packages/core/src/bidi`).
 - **A cleanup can make another guard dead.** After removing a call, re-check the guards in the function it called.
 - **A held test fake that throws inside its `resolve` must route the throw to `reject`.**
-- **`pathlib.write_text` on Windows writes CRLF.** Use `newline='\n'` (or `chr(10)`).
+- **Line endings:**
+  - `pathlib.write_text` on Windows writes CRLF. Use `newline=''` and write LF yourself (`chr(10)`).
+  - Working-copy CRLF files: `docs/architecture.md` and `apps/tv/src/main.tsx`. `RELAY.md` and most sources are LF. Detect the line ending before patching.
 - **Patch scripts:**
-  - Write every multi-line patch script to `$CLAUDE_JOB_DIR/tmp` (the Write tool, or a `cat > … <<'EOF'` with no apostrophes or escapes inside), then run `python -I <script> "<wt>"`.
+  - Write every multi-line patch script to `$CLAUDE_JOB_DIR/tmp` (the Write tool), then run `python -I <script> "<wt>"`.
   - A multi-file patch that stops at its first miss may already have written earlier files: check `git status` before rerunning it.
   - Use Edit for any line with a backslash.
-- **Waiting for CI:**
-  - First read `gh pr checks N -R Omarmarei/zoma-iptv` with an `until … grep -q -E "pending|pass|fail"` loop. Right after `gh pr create` it says "no checks reported".
-  - Then wait with a foreground `until ! gh pr checks N … | grep -q -E "pending|in_progress|queued"; do sleep 30; done` and `timeout: 600000`. It moves to the background at 10 min, which is fine.
-  - A bare `sleep 25; gh …` is blocked. Never `&&` on gh's exit code (it is non-zero on a failed or pending check).
 - **Playwright's page clock** (`e2e/refresh.spec.ts`):
-  - `page.clock.install()` goes before `page.goto`.
-  - `page.clock.fastForward('02:01:00')` fires each due timer once.
-  - The workers and the mock keep the real clock.
+  - `page.clock.install()` goes before `page.goto`;
+  - `page.clock.fastForward('02:01:00')` fires each due timer once;
+  - the workers and the mock keep the real clock.
 - **Counting what the app asks the mock:** `app.addHook('onRequest', …)` before `listen(app)`. Switch scenarios with `app.mockState.scenario = null`.
 - **Mutation lessons:**
   - write the mutation list first, and remove masked guards before the run;
-  - `>`/`>=` on a cut whose result is filtered by the same bound is equivalent: leave it out;
-  - the navigator clamps `focus(-1)`: test a gone item whose row still exists;
+  - the navigator clamps `focus(-1)`;
   - `splice` rounds and clamps its index by itself;
-  - a signal set to a new array redraws the screen anyway, so a `bump()` beside it is masked.
+  - a signal set to a new array redraws anyway, so a `bump()` beside it is masked.
 - **Never edit source while `pnpm verify`, `e2e:media` or a mutation run is going.** Vite serves live files, and the mutation run swaps them. Docs are safe.
-- **Local e2e flakes on a busy PC:** the throttled test, and the lab's S2. `pnpm build:tv` can crash natively (0xC0000005): rerun it.
+- **Local flakes on a busy PC:** the throttled test, and the lab's S2. `pnpm build:tv` can crash natively (0xC0000005): rerun it.
 - **TV bundle polyfills:**
   - a field or member named `at` pulls `Array.at` polyfills;
   - a `Uint8Array` in a TV file pulls 35 core-js modules;
-  - avoid `JSON.stringify`, `new RegExp` and `.split(`;
-  - avoid object rest and array destructuring in worker code;
+  - avoid `JSON.stringify`, `new RegExp`, `.split(`, `Array.from` and `for…of` in TV files;
   - count main after any TV-file change (219).
 - **Test literals:**
   - every hand-built mock `Account` needs `outputFormats`;
@@ -194,7 +208,6 @@ If 23b turns out too big for one leg, split it in RELAY.md (23b1 the pure layout
   - failed outcomes need `status: null`.
 - **The Write tool turns `\u200f`/`\u00a0`/`\u2068` escapes into raw characters.** Use `String.fromCharCode`.
 - **@preact/signals skips redrawing a child whose props didn't change.** Pass plain data as props.
-- **The DevTools flake** ("did not answer") on the old-engine harness: rerun.
 - **Code rules:**
   - components in `packages/ui` stay hook-free;
   - UI text comes only from the catalogs; Arabic catalog text needs an Arabic letter and has no Latin words of its own;
@@ -210,12 +223,13 @@ If 23b turns out too big for one leg, split it in RELAY.md (23b1 the pure layout
 
 ## Verified vs not
 - **Verified:**
-  - Locally: lint, typecheck, 3,529 unit tests, `pnpm verify` (68 e2e), the scale test, mutation 34/34, and 219 core-js modules on both platforms.
-  - PR #49's CI green on all three jobs; merged as `33e5a51`.
-  - Main's CI on `9ff6073` green.
+  - Locally: lint, typecheck, 3,574 unit tests, `pnpm verify` twice (72 e2e), mutation 69/69 and 12/12, 219 core-js modules on both platforms, and both screenshots looked at.
+  - PR #50's CI green on all three jobs (engines on a rerun); merged as `58d1c47`.
+  - Main's CI on `33e5a51` green.
 - **Not done:**
-  - Main's CI on `33e5a51` is unchecked.
-  - The query worker's `guide` has run only in Node (fake-indexeddb), never in a browser or on a TV. 23c is its first real caller, and its e2e will exercise it.
+  - Main's CI on `58d1c47` is unchecked.
+  - The grid has never run on Chromium 53/56/68 (step 23e) or on a TV.
+  - The query worker's `guide` has run only in Node. 23c's e2e is its first run in a browser.
   - The 3 → 4 profile migration and the settings screens have never run on a TV.
 - **Migrations and deploys:** N/A (no backend until step 29).
 
@@ -228,8 +242,9 @@ If 23b turns out too big for one leg, split it in RELAY.md (23b1 the pure layout
     - S5's suspend and soak;
     - the player itself (step 21): 50 rapid zaps, a soak with stalls, and launch-to-frame from the marks.
 - **Decided in leg 50 (not gates):**
-  - the grid's way in is a "Guide" button in the live screen's header, before "Settings", with no new remote key (23c);
+  - the grid's way in is a "Guide" button in the live screen's header, before "Settings";
   - a channel's row comes only from the guide its now/next uses, with placeholders where that guide has nothing.
+- **Decided in leg 51 (not a gate):** programme times follow the page's direction (see above).
 - **Later, from the spikes:**
   - an on-screen keyboard of our own if the TV keyboards fail (S10; the guides screen's link field depends on it too);
   - webOS's PRE-CH key;
@@ -244,14 +259,14 @@ If 23b turns out too big for one leg, split it in RELAY.md (23b1 the pure layout
   - whether a low-tier TV holds refreshes while it plays (step 41);
   - the catalogs as a UTF-8 file if they keep growing (each Arabic letter costs 6 bytes in main.js).
 - **Later gates:** steps 19b, 21, 34, 44, 46 and 47. Before the first store submission: the final app IDs (the lab's too) and real icons.
-- **Relay cap:** 60 legs (state.json). Leg 50 was the 50th, so 10 legs remain before the cap.
+- **Relay cap:** 60 legs (state.json). Leg 51 was the 51st, so 9 legs remain before the cap.
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
 - Submit the **Samsung Seller Office Partner application ASAP** (Samsung Gulf). It takes weeks, and Samsung in the GCC and Canada depends on it, as does a GCC Beta Test.
 - **"Zoma" trademark clearance** (US, CA, AE, SA) and domains. These also decide the final app IDs.
 - `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` was widened with his authorisation on 2026-11-02. Prune it when the relay run ends if he wants it tighter.
 - **At the TV next time:** read Dev Mode's "Remain Session" (was the PC extend real?).
-- **Twenty-seven CLAUDE.md gaps** are waiting for his word:
+- **Twenty-eight CLAUDE.md gaps** are waiting for his word:
   1. `@zoma/data`'s extra entries;
   2. `pnpm epg:report` and `pnpm fonts` in the Commands table;
   3. the CSS pipeline and gate in the `build:tv` row;
@@ -278,5 +293,6 @@ If 23b turns out too big for one leg, split it in RELAY.md (23b1 the pure layout
   24. the `pnpm dev` row's "Picture" button (Fit, Zoom, Stretch, 4:3; kept in the profile), and the engines' `setFit`/`caps.fits` beside `setRect`;
   25. the `pnpm dev` row should say the app refreshes stale catalogs (12 h) and due guides by itself, from 15 s after the live screen opens (`refresh-scheduler.ts`), and the `pnpm e2e` row should name `page.clock` in `refresh.spec.ts`;
   26. the Conventions line on profile migrations should name version 4 (the guide list);
-  27. the `pnpm dev` row should name the header's "Settings" → "TV guides" (`apps/tv/src/settings`), and the mock row its `/epg/guide.xml` link for adding a guide.
+  27. the `pnpm dev` row should name the header's "Settings" → "TV guides" (`apps/tv/src/settings`), and the mock row its `/epg/guide.xml` link for adding a guide;
+  28. the `pnpm dev` row should name `?screen=gallery-guide` (the grid guide's gallery page).
 - **Secrets:** none pending.

@@ -40,6 +40,9 @@ export const EN = {
   'guide.next': 'Next',
   'guide.none': 'No guide for this channel',
   'guide.noInfo': 'No information',
+  // The guide screen (RELAY step 23c): the live screen's header button, and the screen's title.
+  'guide.open': 'Guide',
+  'guide.title': 'Guide',
 
   // Badges.
   'badge.live': 'LIVE',

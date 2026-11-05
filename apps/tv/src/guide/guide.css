@@ -1,0 +1,90 @@
+/*
+ * The guide screen (RELAY step 23c): 1920x1080, everything inside the title-safe margins
+ * (96 x 54 px). A 110 px header (GUIDE.headerHeight in guide-state.ts: a 56 px title line, 16 px,
+ * a 38 px details line), then the grid's 56 px time header and 9 rows of 88 px: 958 of the 972 px
+ * inside the safe area, 1,728 px wide (two hours). Physical properties for LTR: postcss-rtlcss
+ * mirrors them for Arabic.
+ */
+.guide {
+  display: flex;
+  flex-direction: column;
+  width: var(--screen-width);
+  height: var(--screen-height);
+  padding: var(--safe-y) var(--safe-x);
+  overflow: hidden;
+}
+
+.guide__header {
+  flex: none;
+  height: 110px;
+}
+
+.guide__top {
+  display: flex;
+  align-items: baseline;
+  height: 56px;
+  margin-bottom: var(--space-4);
+}
+
+.guide__title {
+  flex: none;
+  margin: 0;
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+  font-weight: var(--font-weight-bold);
+}
+
+/* The focused channel: its number, then its name, from the inline start after the title. */
+.guide__channel {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  margin: 0 0 0 var(--space-7);
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+.guide__number {
+  flex: none;
+  margin-right: var(--space-4);
+  color: var(--color-text-muted);
+}
+
+.guide__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.guide__clock {
+  flex: none;
+  margin: 0 0 0 var(--space-7);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.guide__details {
+  display: flex;
+  height: 38px;
+  margin: 0;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  white-space: nowrap;
+}
+
+.guide__what {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.guide__when {
+  flex: none;
+  margin-left: var(--space-6);
+  color: var(--color-text-muted);
+}

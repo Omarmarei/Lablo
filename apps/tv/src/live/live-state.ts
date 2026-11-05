@@ -19,8 +19,9 @@ import { ChannelIndex, chunkId } from './channel-index';
  *   rail      ("All channels", then each source's live categories; OK shows one)
  *   channels  (the category's channels: a virtual list; OK opens the player, step 20a)
  *   retry     (one button, only when the categories couldn't be read)
- *   header    (the "Settings" button at the header's end, step 22b2: UP from the first row of
- *              the rail, the list or "Try again"; DOWN or Back goes back where it came from)
+ *   header    (the "Guide" and "Settings" buttons at the header's end, steps 23c and 22b2: UP
+ *              from the first row of the rail, the list or "Try again"; DOWN or Back goes back
+ *              where it came from)
  *
  * - **Data:** the profile gives the sources, the query worker each source's live categories. The
  *   list reads only the chunks the rows around the window need (`CHUNK_CACHE` kept), now/next for
@@ -130,6 +131,17 @@ export interface LiveOptions {
   readonly listChanging?: () => void;
   /** OK on the header's "Settings" button (step 22b2): the settings screen opens. */
   readonly openSettings?: () => void;
+  /**
+   * OK on the header's "Guide" button (step 23c), while the list has channels: the guide opens
+   * on the category on show, on `row`, the list's focused row.
+   */
+  readonly openGuide?: (row: number) => void;
+}
+
+/** The list on show as the player (`ZapList`) and the guide (step 23c) read it. */
+export interface LiveList extends ZapList {
+  /** Settles once the newest load (the first, or a catalog swap's) has its categories, or failed. */
+  ready(): Promise<void>;
 }
 
 /** A rail entry as the profile keeps it: a source's category by its name; `null` is "All channels". */
@@ -151,8 +163,8 @@ export interface Live {
   readonly pending: ReadonlySignal<number>;
   /** The channel OK last picked (the player opens it). */
   readonly selected: ReadonlySignal<ContentKey | null>;
-  /** The list on show, for the player's zapping and number entry. */
-  readonly list: ZapList;
+  /** The list on show, for the player's zapping and number entry, and the guide's rows. */
+  readonly list: LiveList;
   readonly exitRequested: ReadonlySignal<boolean>;
   /** Row `index` of the list on show, or `null` while its chunk loads. */
   row(index: number): LiveRow | null;
@@ -198,10 +210,12 @@ function retryZone(count: number): ZoneSpec {
   return { kind: 'list', id: 'retry', axis: 'horizontal', count, neighbours: { up: 'header' } };
 }
 
-/** The header's buttons: "Settings" (step 22b2). DOWN is the screen's (back where it came from). */
-const HEADER_ZONE: ZoneSpec = { kind: 'list', id: 'header', axis: 'horizontal', count: 1 };
+/** The header's buttons: "Guide" (step 23c), then "Settings" (step 22b2). DOWN is the screen's (back where it came from). */
+const HEADER_ZONE: ZoneSpec = { kind: 'list', id: 'header', axis: 'horizontal', count: 2 };
+/** The header's "Guide" button. */
+export const HEADER_GUIDE = 0;
 /** The header's "Settings" button. */
-export const HEADER_SETTINGS = 0;
+export const HEADER_SETTINGS = 1;
 
 /** The rail: "All channels", then every category with channels, source by source. */
 export function railEntries(sources: readonly { src: string; categories: readonly CategoryInfo[] }[]): RailEntry[] {
@@ -544,7 +558,8 @@ export function createLive(options: LiveOptions): Live {
     requestGuides([key], clockNow());
   };
 
-  const list: ZapList = {
+  const list: LiveList = {
+    ready: () => loaded,
     count: () => (status.value === 'ready' ? index.count : 0),
     row: rowAt,
     load: loadRow,
@@ -730,8 +745,11 @@ export function createLive(options: LiveOptions): Live {
         return false;
       },
       onSelect: (focus) => {
-        if (focus.zone === 'header') options.openSettings?.();
-        else if (focus.zone === 'rail') showCategory(focus.index);
+        if (focus.zone === 'header') {
+          if (focus.index === HEADER_SETTINGS) options.openSettings?.();
+          // The guide shows the list's channels: none while it loads, failed or is empty.
+          else if (status.value === 'ready') options.openGuide?.(home.position('channels').index);
+        } else if (focus.zone === 'rail') showCategory(focus.index);
         else if (focus.zone === 'retry') load();
         else if (focus.zone === 'channels') {
           const row = rowAt(focus.index);

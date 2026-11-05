@@ -8,6 +8,8 @@ import type { LiveEngine, RailRef, Timers } from './live-state';
 import {
   CHANNELS_VISIBLE,
   CHUNK_CACHE,
+  HEADER_GUIDE,
+  HEADER_SETTINGS,
   GUIDE_DELAY_MS,
   GUIDE_TTL_MS,
   LIVE,
@@ -229,6 +231,7 @@ async function setup(
     startCategory?: RailRef;
     listChanging?: () => void;
     openSettings?: () => void;
+    openGuide?: (row: number) => void;
   } = {},
 ) {
   const engine = options.engine ?? new FakeEngine();
@@ -243,6 +246,7 @@ async function setup(
     ...(options.startCategory === undefined ? {} : { startCategory: options.startCategory }),
     ...(options.listChanging === undefined ? {} : { listChanging: options.listChanging }),
     ...(options.openSettings === undefined ? {} : { openSettings: options.openSettings }),
+    ...(options.openGuide === undefined ? {} : { openGuide: options.openGuide }),
   });
   if (options.settle !== false) await flush();
   const at = (): string => {
@@ -1424,7 +1428,7 @@ describe('a guide refresh while the screen shows (RELAY step 22a)', () => {
   });
 });
 
-describe("the header's Settings button (RELAY step 22b2)", () => {
+describe("the header's Guide and Settings buttons (RELAY steps 22b2 and 23c)", () => {
   it('is reached with UP from the first row of the list or the rail; DOWN and Back go back there', async () => {
     const t = await setup();
     await t.press('DOWN', 'UP');
@@ -1467,21 +1471,89 @@ describe("the header's Settings button (RELAY step 22b2)", () => {
     const t = await setup({ openSettings });
     await t.press('OK', 'LEFT', 'OK');
     expect(openSettings).not.toHaveBeenCalled();
+    // "Guide" first, then "Settings" at the header's end.
+    expect([HEADER_GUIDE, HEADER_SETTINGS]).toEqual([0, 1]);
     await t.press('RIGHT', 'UP', 'OK');
     expect(t.at()).toBe('live · header 0');
+    expect(openSettings).not.toHaveBeenCalled();
+    await t.press('RIGHT', 'RIGHT', 'OK');
+    expect(t.at()).toBe('live · header 1');
     expect(openSettings).toHaveBeenCalledTimes(1);
     // A screen pushed from the header and closed: DOWN goes back to the list.
     const pushed = await setup({ openSettings: () => pushed.live.nav.push({ id: 'settings', zones: [{ kind: 'list', id: 'items', axis: 'vertical', count: 1 }] }) });
-    await pushed.press('UP', 'OK');
+    await pushed.press('UP', 'RIGHT', 'OK');
     expect(pushed.at()).toBe('settings · items 0');
     await pushed.press('BACK');
-    expect(pushed.at()).toBe('live · header 0');
+    expect(pushed.at()).toBe('live · header 1');
     await pushed.press('DOWN');
     expect(pushed.at()).toBe('live · channels 0');
     // Without a settings screen, OK there does nothing.
     const bare = await setup();
-    await bare.press('UP', 'OK');
-    expect(bare.at()).toBe('live · header 0');
+    await bare.press('UP', 'RIGHT', 'OK');
+    expect(bare.at()).toBe('live · header 1');
+  });
+
+  it('says when the newest load is in (the guide waits on it after a catalog swap)', async () => {
+    const engine = new FakeEngine();
+    engine.hold = new Set(['profile']);
+    const t = await setup({ engine });
+    let ready = 0;
+    void t.live.list.ready().then(() => {
+      ready += 1;
+    });
+    await flush();
+    expect(ready).toBe(0);
+    engine.held.profile!.shift()!.resolve(engine.profileDoc);
+    await flush();
+    expect(ready).toBe(1);
+    expect(t.live.status.value).toBe('ready');
+    // A catalog swap: settled once its categories are in.
+    t.live.catalogChanged();
+    void t.live.list.ready().then(() => {
+      ready += 1;
+    });
+    await flush();
+    expect(ready).toBe(1);
+    engine.held.profile!.shift()!.resolve(engine.profileDoc);
+    await flush();
+    expect(ready).toBe(2);
+  });
+
+  it("opens the guide on OK on Guide, on the list's focused row, only while the list has channels", async () => {
+    const openGuide = vi.fn();
+    const openSettings = vi.fn();
+    const t = await setup({ openGuide, openSettings });
+    await t.press('UP', 'OK');
+    expect(t.at()).toBe('live · header 0');
+    expect(openGuide).toHaveBeenCalledWith(0);
+    // From the rail: the row the list has focused.
+    await t.press('DOWN', 'DOWN', 'DOWN', 'LEFT', 'UP', 'OK');
+    expect(t.at()).toBe('live · header 0');
+    expect(openGuide).toHaveBeenLastCalledWith(2);
+    // A category's list: its own row.
+    await t.press('DOWN', 'DOWN', 'DOWN', 'OK', 'DOWN', 'UP', 'UP', 'OK');
+    expect(t.live.category.value).toBe(2);
+    expect(openGuide).toHaveBeenLastCalledWith(0);
+    expect(openGuide).toHaveBeenCalledTimes(3);
+    expect(openSettings).not.toHaveBeenCalled();
+
+    // Not while the screen loads, has failed, or has no channels.
+    const engine = new FakeEngine();
+    engine.hold = new Set(['profile']);
+    const loading = await setup({ engine, openGuide });
+    await loading.press('UP', 'OK');
+    expect(loading.at()).toBe('live · header 0');
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const failing = new FakeEngine();
+    failing.failProfile = true;
+    const failed = await setup({ engine: failing, openGuide });
+    await failed.press('UP', 'OK');
+    const none = new FakeEngine();
+    none.catalog = {};
+    const empty = await setup({ engine: none, openGuide });
+    expect(empty.live.status.value).toBe('empty');
+    await empty.press('UP', 'OK');
+    expect(openGuide).toHaveBeenCalledTimes(3);
   });
 
   it('asks no short guide while it has the focus', async () => {

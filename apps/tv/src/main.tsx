@@ -21,6 +21,8 @@ import { GalleryApp } from './gallery/GalleryApp';
 import { createGallery } from './gallery/gallery-state';
 import { GuideGalleryApp } from './gallery/GuideGalleryApp';
 import { createGuideGallery } from './gallery/guide-gallery';
+import type { Guide } from './guide/guide-state';
+import { GUIDE_DAYS, createGuide } from './guide/guide-state';
 import { createEngineLoader } from './onboarding/engine-loader';
 import { OnboardingApp } from './onboarding/OnboardingApp';
 import type { Onboarding } from './onboarding/onboarding-state';
@@ -45,9 +47,14 @@ const platform = createPlatform({ redirects: memory.redirects });
 platform.registerKeys();
 /** The focus of the screen on show, as `window.__ZOMA_TEST__.focusPath()` (RELAY step 14b). */
 const showFocus = installTestHook(window);
+/** The device's tier once the platform says it (the guide's days). */
+let tier: DeviceTier = 'full';
 // tokens.css turns motion off on the low tier (`?tier=low` forces it in the browser).
 void platform.info().then(
-  (info) => document.documentElement.setAttribute('data-tier', info.tier),
+  (info) => {
+    tier = info.tier;
+    document.documentElement.setAttribute('data-tier', info.tier);
+  },
   () => undefined,
 );
 
@@ -98,7 +105,7 @@ let refreshes: RefreshScheduler | null = null;
  * Starts the refresh schedule for the live screen: stale catalogs and due guides are read in the
  * background, and the screen picks up what swapped in (`readFormats`: the accounts' formats again).
  */
-function startRefreshes(live: Live, readFormats: () => void): void {
+function startRefreshes(live: Live, guide: Guide, readFormats: () => void): void {
   refreshes?.dispose();
   refreshes = createRefreshScheduler({
     engine: dataEngine(),
@@ -117,7 +124,10 @@ function startRefreshes(live: Live, readFormats: () => void): void {
       readFormats();
       live.catalogChanged();
     },
-    onGuides: () => live.guidesChanged(),
+    onGuides: () => {
+      live.guidesChanged();
+      guide.guidesChanged();
+    },
   });
   refreshes.start();
 }
@@ -154,8 +164,21 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     engine: dataEngine(),
     play: (index) => player?.show(index),
     startCategory: resume === null ? null : resume.category,
-    listChanging: () => player?.listChanging(),
+    listChanging: () => {
+      player?.listChanging();
+      guide.listChanging();
+    },
     openSettings: () => openSettings(),
+    openGuide: (row) => guide.open(row),
+  });
+  // The header's "Guide" (step 23c): the grid over the list's category; OK on air plays, Back returns to the list.
+  const guide = createGuide({
+    nav: live.nav,
+    engine: dataEngine(),
+    list: live.list,
+    days: () => GUIDE_DAYS[tier],
+    play: (index) => player?.show(index),
+    closed: (index) => live.focusRow(index),
   });
   // The header's "Settings" (step 22b2): the guides screen changes the guide list, then reads it.
   const settings = createSettings({
@@ -173,7 +196,11 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     list: live.list,
     player: playerController,
     chrome: (on) => setPlayerChrome(document, on),
-    closed: (index) => live.focusRow(index),
+    // Back from the player: the list on the channel that played, and the guide when the player opened from it.
+    closed: (index) => {
+      live.focusRow(index);
+      guide.follow(index);
+    },
     tuned: (row, index) => memory.tuned(row.item, row.number, live.shownCategory(), index),
     outputFormats: (src) => outputFormats.get(src) ?? null,
     ...(kept === null ? {} : { subtitleSize: kept }),
@@ -183,8 +210,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   });
   if (resume !== null) player.resume({ item: resume.item, number: resume.number }, resume.index);
   showFocus(live.nav);
-  render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} />, into);
-  startRefreshes(live, readFormats);
+  render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} guide={guide} />, into);
+  startRefreshes(live, guide, readFormats);
 }
 
 /**

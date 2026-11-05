@@ -188,18 +188,20 @@ async function choose(remote: RemoteDriver, actions: readonly Action[], action: 
 }
 
 /**
- * Onboarding with the mock's Xtream login, UP to the header's "Settings", OK, then OK on
- * "TV guides": the guides screen, settled, the focus on its first row.
+ * Onboarding with the mock's Xtream login, UP to the header's "Guide", on to "Settings" at its
+ * end, OK, then OK on "TV guides": the guides screen, settled, the focus on its first row.
  */
 async function openGuides(remote: RemoteDriver, locale: string, language: Language, shots: boolean): Promise<Locator> {
   const { page } = remote;
   const live = await addXtreamAndWatch(remote, { host, username: U, password: P }, `locale=${locale}`);
   await settled(live);
-  // UP from the list's first row: the header's "Settings"; DOWN goes back to the list.
+  // UP from the list's first row: the header's "Guide" (step 23c); DOWN goes back to the list.
+  // "Settings" is after it, at the header's end: on the left in Arabic.
   await remote.go('UP', 'live/header/0');
+  await remote.go(language === 'ar' ? 'LEFT' : 'RIGHT', 'live/header/1');
   if (shots) await shot(page, `live-header-${language}`);
   await remote.go('DOWN', 'live/channels/0');
-  await remote.go('UP', 'live/header/0');
+  await remote.go('UP', 'live/header/1');
   await remote.go('OK', 'settings/items/0');
   await expect(page.getByTestId('settings-guides')).toContainText(SAYS[language].settings);
   if (shots) await shot(page, `settings-${language}`);
@@ -407,7 +409,7 @@ test.describe('the guides screen by keys (pnpm dev, after onboarding)', () => {
 
       // Back: the settings screen, then the live screen on its header, then its list.
       await remote.go('BACK', 'settings/items/0');
-      await remote.go('BACK', 'live/header/0');
+      await remote.go('BACK', 'live/header/1');
       await remote.go('DOWN', 'live/channels/0');
       expect(errors).toEqual([]);
     });
