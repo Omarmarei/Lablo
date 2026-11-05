@@ -201,17 +201,18 @@ test.describe('the grid guide at 4x CPU throttle on a large catalog', () => {
     // The forced low tier: the same source, motion off, a shorter guide.
     runs.push(await browse(remote, live, 'low'));
 
-    for (const run of runs) {
-      // The time presses moved the view on, and the rows it drew are the guide's programmes.
-      expect(run.afterTime.view, `${run.tier} tier`).toBeGreaterThan(run.firstView);
-      expect(run.afterTime.index).toBe(DEEPEST);
-      checkDense(run.afterTime);
-    }
+    // The numbers first, so a run that fails a check below still shows them.
     const report = runs.map((r) => ({ tier: r.tier, slowdown: Number(r.slowdown.toFixed(1)), ...summarize(r.presses), longTasks: r.longTasks.map(Math.round), presses: r.presses.map((p) => [p.label, Math.round(p.ms)]) }));
     writeFileSync(path.join(REPORT, 'guide-throttled.json'), `${JSON.stringify(report, null, 2)}\n`);
     for (const r of report) {
       const slowest = [...r.presses].sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 5).map(([label, ms]) => `${label} ${ms} ms`);
       console.log(`[grid, ${r.tier} tier, CPU ${r.slowdown}x slower] ${r.count} presses: median ${r.median.toFixed(0)} ms, p95 ${r.p95.toFixed(0)} ms, max ${r.max.toFixed(0)} ms; long tasks ${r.longTasks.join(', ') || 'none'}; slowest: ${slowest.join('; ')}`);
+    }
+    for (const run of runs) {
+      // The time presses moved the view on, and the rows it drew are the guide's programmes.
+      expect(run.afterTime.view, `${run.tier} tier`).toBeGreaterThan(run.firstView);
+      expect(run.afterTime.index).toBe(DEEPEST);
+      checkDense(run.afterTime);
     }
     for (const run of runs) {
       // The throttle was on: the same work ran at least twice as slow (about 4x on a quiet machine).
