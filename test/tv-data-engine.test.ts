@@ -36,14 +36,14 @@ function playlist(count: number, newsEvery = 4, guide = false): string {
   return `${lines.join('\n')}\n`;
 }
 
-/** A guide for channels ch1..chN: hourly programmes "chN at H" from yesterday to 3 days ahead. */
+/** A guide for channels ch1..chN: hourly programmes "chN at H" (described, in "Test") from yesterday to 3 days ahead. */
 function guide(count: number): string {
   const lines = ['<?xml version="1.0"?>', '<tv>'];
   for (let i = 1; i <= count; i++) lines.push(`<channel id="ch${i}"><display-name>Channel ${i}</display-name></channel>`);
   const t = (ms: number): string => new Date(ms).toISOString().replace(/[-:T]/g, '').slice(0, 14) + ' +0000';
   for (let i = 1; i <= count; i++) {
     for (let ms = NOW - 86_400_000; ms < NOW + 3 * 86_400_000; ms += 3_600_000) {
-      lines.push(`<programme start="${t(ms)}" stop="${t(ms + 3_600_000)}" channel="ch${i}"><title>ch${i} at ${new Date(ms).getUTCHours()}</title></programme>`);
+      lines.push(`<programme start="${t(ms)}" stop="${t(ms + 3_600_000)}" channel="ch${i}"><title>ch${i} at ${new Date(ms).getUTCHours()}</title><desc>About ch${i} at ${new Date(ms).getUTCHours()}</desc><category>Test</category></programme>`);
     }
   }
   lines.push('</tv>');
@@ -331,6 +331,10 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     expect(row).toEqual({ key: keys[0], epgSrc: 'debug:tvg0', start: [nowMin + 60, nowMin + 120], end: [nowMin + 120, nowMin + 180], title: ['ch1 at 13', 'ch1 at 14'] });
     expect(none).toEqual({ key: seven!.key, epgSrc: null, start: [], end: [], title: [] });
     await expect(s.engine.guide({ keys: [keys[0]!], from: nowMin, to: nowMin + 2_000 * 1440 })).rejects.toThrow('channel-days');
+    // And one programme's details (step 24a).
+    expect(await s.engine.programme({ key: keys[0]!, start: nowMin + 120 })).toEqual({ start: nowMin + 120, end: nowMin + 180, title: 'ch1 at 14', sub: '', desc: 'About ch1 at 14', category: 'Test', episode: '', flags: 0 });
+    expect(await s.engine.programme({ key: keys[0]!, start: nowMin + 121 })).toBeNull();
+    expect(await s.engine.programme({ key: seven!.key, start: nowMin + 120 })).toBeNull();
 
     // Nothing is due right after: no worker starts. Twelve hours on, it is due again.
     const quiet = await s.engine.refreshEpg(catalogs, { tier: 'full', due: true });

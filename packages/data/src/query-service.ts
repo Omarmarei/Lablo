@@ -14,6 +14,8 @@
  *   channel's buckets of the days around now are read from IndexedDB, with its tvg-shift applied.
  * - `guide` gives the grid guide its rows (step 23a): each live channel's programmes over a time
  *   range, from the same guide channel as its now/next, as plain arrays.
+ * - `programme` gives the programme details one programme (step 24a): its description, episode
+ *   and the rest, from the one bucket that holds its start.
  * - `epgStatus` lists the guides and how many live channels have one.
  * - `shortEpg` is the fallback for a focused live channel no guide matches (step 9c): its Xtream
  *   panel's `get_short_epg`, kept 30 min per channel (`short-epg.ts`). The app asks only after
@@ -29,7 +31,7 @@
  */
 
 import type { CatalogItem, ContentKey, ContentKind, EpgBucket, EpgMatchMethod, EpgProgramme, EpgSchedule, FavouriteMarks, SearchResult } from '@zoma/core';
-import { CONTENT_KINDS, SearchSegment, combineEpgMatches, epgDay, epgNowNext, epgSchedule, favouriteMarks, searchSegments } from '@zoma/core';
+import { CONTENT_KINDS, SearchSegment, combineEpgMatches, epgDay, epgNowNext, epgProgrammeAt, epgSchedule, favouriteMarks, searchSegments } from '@zoma/core';
 import type { CategoryInfo } from './chunker';
 import type { ChunkKey, SourceMeta } from './catalog-store';
 import { getSources, readCategories, readChunks, readIndexes } from './catalog-store';
@@ -114,6 +116,13 @@ export interface GuideRow extends EpgSchedule {
   epgSrc: string | null;
 }
 
+/** The programme details' ask (step 24a): a live channel's programme that starts at `start`. */
+export interface ProgrammeRequest {
+  key: ContentKey;
+  /** UTC epoch minutes, after the channel's tvg-shift (as `guide` gives it). */
+  start: number;
+}
+
 /**
  * Most channel-day buckets one `guide` call reads: a screen's rows and a page either side over
  * two or three days is a few hundred. A larger ask is refused, not cut, so the caller can't take
@@ -187,6 +196,7 @@ export class QueryService {
       items: (arg: { refs: ItemRef[] }): Promise<(CatalogItem | null)[]> => this.items(arg.refs),
       nowNext: (arg: { keys: ContentKey[]; at?: number }): Promise<EpgNowNext[]> => this.nowNext(arg.keys, arg.at),
       guide: (req: GuideRequest): Promise<GuideRow[]> => this.guide(req),
+      programme: (req: ProgrammeRequest): Promise<EpgProgramme | null> => this.programme(req),
       epgStatus: (): Promise<EpgStatus> => this.epgStatus(),
       shortEpg: (req: ShortEpgRequest): Promise<ShortEpgNowNext> => this.shortEpg(req),
       account: (arg: { src: string }): Promise<AccountCheck | null> => this.account(arg.src),
@@ -369,6 +379,22 @@ export class QueryService {
       }
       return { key, epgSrc: p.link.epgSrc, ...epgSchedule(found, req.from, req.to, p.link.shift) };
     });
+  }
+
+  /**
+   * The programme details (step 24a): the whole programme of a live channel's guide channel (the
+   * one its now/next and grid row come from) that starts at `start`, shifted by its tvg-shift, or
+   * `null` (no guide matches the channel, or no programme starts then). One bucket is read: the
+   * one of the start's day in guide time. Its end is the stored one (the grid cuts a programme
+   * that runs into the next day's first one; the screen shows the grid's times).
+   */
+  async programme(req: ProgrammeRequest): Promise<EpgProgramme | null> {
+    await this.ensureLoaded();
+    const link = this.epgLinks.get(req.key);
+    if (link === undefined) return null;
+    const day = epgDay(req.start - Math.round(link.shift * 60));
+    const [bucket] = await readEpgBuckets(await this.db(), [{ epgSrc: link.epgSrc, gen: link.gen, channel: link.channel, day }]);
+    return bucket ? epgProgrammeAt(bucket, req.start, link.shift) : null;
   }
 
   /**

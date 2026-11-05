@@ -25,7 +25,7 @@
  * app passes the `?worker` imports (`./workers.ts`).
  */
 
-import type { CatalogItem, ContentKey, ContentKind, DeviceTier, EpgOverride } from '@zoma/core';
+import type { CatalogItem, ContentKey, ContentKind, DeviceTier, EpgOverride, EpgProgramme } from '@zoma/core';
 import type {
   AccountCheck,
   CancelToken,
@@ -45,6 +45,7 @@ import type {
   ItemRef,
   LoadedProfile,
   ProfileEdit,
+  ProgrammeRequest,
   QueryStatus,
   RpcPort,
   ShortEpgNowNext,
@@ -314,6 +315,14 @@ export class DataEngine {
    */
   guide(req: GuideRequest): Promise<GuideRow[]> {
     return this.query.call('guide', req);
+  }
+
+  /**
+   * The programme details (step 24a): the whole programme of a live channel that starts at
+   * `start` (UTC minutes, as the grid gives it), or `null` when its guide has none starting then.
+   */
+  programme(req: ProgrammeRequest): Promise<EpgProgramme | null> {
+    return this.query.call('programme', req);
   }
 
   /** The stored guides and how many live channels have one. */

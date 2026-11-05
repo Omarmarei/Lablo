@@ -8,6 +8,7 @@ import {
   EpgGuideReader,
   buildEpgBucket,
   epgNowNext,
+  epgProgrammeAt,
   epgProgrammes,
   epgSchedule,
   epgWindow,
@@ -492,5 +493,49 @@ describe('epgSchedule', () => {
       }),
       { numRuns: 1000 },
     );
+  });
+});
+
+describe('epgProgrammeAt', () => {
+  const day = Math.floor(nowMin / 1440);
+  const lengths = [5, 30, 1, 90, 45, 15, 60];
+  /** Programmes back to back from the day's midnight, each with every text. */
+  const rows = (): EpgProgramme[] => {
+    const out: EpgProgramme[] = [];
+    let t = day * 1440;
+    lengths.forEach((n, i) => {
+      out.push({ start: t, end: t + n, title: `p${i}`, sub: `sub ${i}`, desc: `desc ${i}`, category: `cat ${i}`, episode: `S1 E${i + 1}`, flags: i });
+      t += n;
+    });
+    return out;
+  };
+
+  it('finds every programme by its start, and none at any other minute', () => {
+    for (let count = 0; count <= lengths.length; count += 1) {
+      const list = rows().slice(0, count);
+      const b = buildEpgBucket('c', day, list);
+      const starts = new Set(list.map((p) => p.start));
+      for (let t = day * 1440 - 2; t <= day * 1440 + 250; t += 1) {
+        const at = epgProgrammeAt(b, t);
+        if (!starts.has(t)) expect(at, `${count} programmes, minute ${t}`).toBeNull();
+        else expect(at, `${count} programmes, minute ${t}`).toEqual(list.find((p) => p.start === t));
+      }
+    }
+  });
+
+  it('takes a start after the tvg-shift and gives the programme shifted', () => {
+    const b = buildEpgBucket('c', day, rows());
+    const p3 = rows()[3]!;
+    // Rounded to the minute, as the other readers do: 2.05 h is 122.99999999999999 minutes in floating point.
+    for (const [shift, minutes] of [
+      [-3, -180],
+      [-0.5, -30],
+      [1, 60],
+      [2.25, 135],
+      [2.05, 123],
+    ] as const) {
+      expect(epgProgrammeAt(b, p3.start + minutes, shift), `shift ${shift}`).toEqual({ ...p3, start: p3.start + minutes, end: p3.end + minutes });
+      expect(epgProgrammeAt(b, p3.start, shift), `shift ${shift}`).toBeNull();
+    }
   });
 });

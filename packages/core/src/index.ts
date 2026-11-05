@@ -95,6 +95,7 @@ export {
   buildEpgBucket,
   epgDay,
   epgNowNext,
+  epgProgrammeAt,
   epgProgrammes,
   epgSchedule,
   epgWindow,
