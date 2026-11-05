@@ -183,7 +183,7 @@ test.describe('catch-up from the guide (RELAY step 25a)', () => {
 
       // OK: the player over the guide, playing the programme from the archive.
       const asked = answers.length;
-      await remote.go('OK', 'player/actions/0');
+      await remote.go('OK', 'player/seek/0');
       const player = page.getByTestId('player');
       await expect(player).toHaveAttribute('data-playing', '0');
       await expect(player).toHaveAttribute('data-archive', String(before.start));
@@ -271,7 +271,7 @@ test.describe('catch-up from the guide (RELAY step 25a)', () => {
     await remote.go('OK', 'programme/actions/0');
     await expect(page.getByTestId('programme-archive')).toBeVisible();
     const asked = answers.length;
-    await remote.go('OK', 'player/actions/0');
+    await remote.go('OK', 'player/seek/0');
     await expect(page.getByTestId('player')).toHaveAttribute('data-archive', String(before.start));
     await expect.poll(() => answers.length).toBeGreaterThan(asked);
     // The start as Kathmandu's wall time: 5 h 45 min ahead of UTC.
