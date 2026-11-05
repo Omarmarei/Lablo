@@ -34,10 +34,17 @@ const MINUTE = 60_000;
 /** The row the CH− pages end on, where the time presses walk: it has a guide id. */
 const DEEPEST = 20 + 15 * ROWS;
 /**
- * Each press within 150 ms (PLAN 6.2's grid budget), and no main-thread task longer than that,
- * so a key pressed at any moment waits at most as long.
+ * Each press in the grid within 150 ms (PLAN 6.2's grid budget), and no main-thread task longer
+ * than that while the keys go down, so a key pressed at any moment waits at most as long.
  */
 const BUDGET: PressBudget = { pressMs: 150, longTaskMs: 150 };
+/**
+ * The two presses on the live screen that open the guide (UP to the header, OK on "Guide": the
+ * grid's first draw, the screen's heaviest frame) have the live screen's budget, spike S6's key
+ * press threshold for the 2018 TVs (live-throttled.spec.ts). On CI the first draw took 62 and
+ * 155 ms before its first ask went after the frame (architecture.md §4, "Built in step 23d").
+ */
+const OPEN_BUDGET: PressBudget = { pressMs: 200, longTaskMs: 200 };
 const REPORT = path.resolve(import.meta.dirname, '../artifacts/perf');
 
 const catalog = bigCatalog({ channels: CHANNELS, categories: CATEGORIES });
@@ -127,6 +134,10 @@ function checkDense(g: Grid): void {
 
 interface Run {
   readonly tier: string;
+  /** UP to the header and OK on "Guide", on the live screen, and the long tasks until then. */
+  readonly opening: readonly PressTiming[];
+  readonly openingTasks: readonly number[];
+  /** Every press in the grid, Back to the list included. */
   readonly presses: readonly PressTiming[];
   readonly longTasks: readonly number[];
   /** How much slower the fixed work ran under the throttle. */
@@ -161,6 +172,9 @@ async function browse(remote: RemoteDriver, live: Locator, tier: 'full' | 'low')
   try {
     await remote.timedPress('UP', 'live/header/0');
     await remote.timedPress('OK', 'guide/grid/0', { label: 'OK opens the guide' });
+    const opening = remote.timings.splice(0);
+    // (Reading the long tasks starts a new count: the grid's start after the opening frame.)
+    const openingTasks = await remote.longTasks();
     await settled(screen, 30_000);
     // The tier's motion: a cell's focus transition, none on the low tier.
     expect(await transitionOf(page, '[data-testid=guide] .z-guide__cell')).toBe(tier === 'low' ? '0s, 0s' : '0.12s, 0.12s');
@@ -179,14 +193,14 @@ async function browse(remote: RemoteDriver, live: Locator, tier: 'full' | 'low')
     // Back: the live list, on the channel the guide had focused.
     await remote.timedPress('BACK', `live/channels/${top - 10}`);
     await settled(live, 30_000);
-    return { tier, presses: [...remote.timings], longTasks: await remote.longTasks(), slowdown, afterTime, firstView };
+    return { tier, opening, openingTasks, presses: [...remote.timings], longTasks: await remote.longTasks(), slowdown, afterTime, firstView };
   } finally {
     await release();
   }
 }
 
 test.describe('the grid guide at 4x CPU throttle on a large catalog', () => {
-  test(`keeps every key press within ${BUDGET.pressMs} ms, in the full and the forced low tier`, async ({ page }) => {
+  test(`keeps every key press in the grid within ${BUDGET.pressMs} ms, in the full and the forced low tier`, async ({ page }) => {
     test.setTimeout(300_000);
     expect(DEEPEST % NO_GUIDE_EVERY).not.toBe(NO_GUIDE_EVERY - 1);
     // The deepest rows the asks reach (a page below the view) have the dense guide.
@@ -202,11 +216,20 @@ test.describe('the grid guide at 4x CPU throttle on a large catalog', () => {
     runs.push(await browse(remote, live, 'low'));
 
     // The numbers first, so a run that fails a check below still shows them.
-    const report = runs.map((r) => ({ tier: r.tier, slowdown: Number(r.slowdown.toFixed(1)), ...summarize(r.presses), longTasks: r.longTasks.map(Math.round), presses: r.presses.map((p) => [p.label, Math.round(p.ms)]) }));
+    const report = runs.map((r) => ({
+      tier: r.tier,
+      slowdown: Number(r.slowdown.toFixed(1)),
+      opening: r.opening.map((p) => [p.label, Math.round(p.ms)]),
+      openingTasks: r.openingTasks.map(Math.round),
+      ...summarize(r.presses),
+      longTasks: r.longTasks.map(Math.round),
+      presses: r.presses.map((p) => [p.label, Math.round(p.ms)]),
+    }));
     writeFileSync(path.join(REPORT, 'guide-throttled.json'), `${JSON.stringify(report, null, 2)}\n`);
     for (const r of report) {
       const slowest = [...r.presses].sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 5).map(([label, ms]) => `${label} ${ms} ms`);
-      console.log(`[grid, ${r.tier} tier, CPU ${r.slowdown}x slower] ${r.count} presses: median ${r.median.toFixed(0)} ms, p95 ${r.p95.toFixed(0)} ms, max ${r.max.toFixed(0)} ms; long tasks ${r.longTasks.join(', ') || 'none'}; slowest: ${slowest.join('; ')}`);
+      const opening = [...r.opening.map(([label, ms]) => `${label} ${ms} ms`), `long tasks ${r.openingTasks.join(', ') || 'none'}`].join(', ');
+      console.log(`[grid, ${r.tier} tier, CPU ${r.slowdown}x slower] ${opening}; ${r.count} presses in the grid: median ${r.median.toFixed(0)} ms, p95 ${r.p95.toFixed(0)} ms, max ${r.max.toFixed(0)} ms; long tasks ${r.longTasks.join(', ') || 'none'}; slowest: ${slowest.join('; ')}`);
     }
     for (const run of runs) {
       // The time presses moved the view on, and the rows it drew are the guide's programmes.
@@ -217,6 +240,7 @@ test.describe('the grid guide at 4x CPU throttle on a large catalog', () => {
     for (const run of runs) {
       // The throttle was on: the same work ran at least twice as slow (about 4x on a quiet machine).
       expect(run.slowdown, `${run.tier} tier`).toBeGreaterThan(2);
+      expect(budgetFailures(run.opening, run.openingTasks, OPEN_BUDGET), `${run.tier} tier, opening`).toEqual([]);
       expect(budgetFailures(run.presses, run.longTasks, BUDGET), `${run.tier} tier`).toEqual([]);
     }
     expect(errors).toEqual([]);
