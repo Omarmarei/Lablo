@@ -118,6 +118,11 @@ describe('catchupCandidates (RELAY step 25a)', () => {
   it("writes the start as wall time in the panel's zone, DST included", () => {
     const at = (zone: ZoneOffset, window = WINDOW): string => catchupCandidates(`${BASE}/live/u/p/101.ts`, XC, window, { zone })[0]!.url;
     expect(at(fixedZone(180))).toBe(`${BASE}/timeshift/u/p/90/2026-11-03:21-00/101.ts`);
+    // Both forms.
+    expect(catchupCandidates(`${BASE}/live/u/p/101.ts`, XC, WINDOW, { zone: fixedZone(180) }).map((c) => c.url)).toEqual([
+      `${BASE}/timeshift/u/p/90/2026-11-03:21-00/101.ts`,
+      `${BASE}/timeshift/u/p/90/2026-11-03:21-00/101.m3u8`,
+    ]);
     expect(at(fixedZone(345))).toBe(`${BASE}/timeshift/u/p/90/2026-11-03:23-45/101.ts`);
     const newYork = intlZone('America/New_York')!;
     expect(at(newYork)).toBe(`${BASE}/timeshift/u/p/90/2026-11-03:13-00/101.ts`);

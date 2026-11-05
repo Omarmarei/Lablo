@@ -18,8 +18,10 @@ import { RemoteDriver } from './remote-driver';
  * from the archive. The mock's archive answers (`X-Mock-Archive-*`) show the window it was asked
  * for: the programme's own start, and at least its length. The info bar names the programme, and
  * Back comes back to the guide on the same cell. A programme gone by on a channel without
- * catch-up has no such button. The mock's media here is synthetic (no picture): `e2e:media`
- * plays a real one. The screenshots go to artifacts/screenshots.
+ * catch-up has no such button. On a panel in Kathmandu (+05:45, the mock's `odd-timezone`), the
+ * timeshift URL's start is that zone's wall time and the mock still serves the programme's own
+ * start. The mock's media here is synthetic (no picture): `e2e:media` plays a real one. The
+ * screenshots go to artifacts/screenshots.
  */
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
 const MINUTE = 60_000;
@@ -38,14 +40,17 @@ interface ArchiveAnswer {
   readonly duration: number;
 }
 
-let app: MockServer;
-let host: string;
-const answers: ArchiveAnswer[] = [];
+interface Mock {
+  readonly app: MockServer;
+  /** `host:port`, typed the way a user would (no `http://`). */
+  readonly host: string;
+  readonly answers: ArchiveAnswer[];
+}
 
-test.beforeAll(async () => {
-  mkdirSync(SHOTS, { recursive: true });
-  // The real clock, as guide.spec.ts: the mock's guide and archive cover now.
-  app = await mock({ now: () => Date.now() });
+/** The mock on the real clock (as guide.spec.ts: its guide and archive cover now), its archive answers recorded. */
+async function startMock(scenario?: string): Promise<Mock> {
+  const app = await mock({ now: () => Date.now(), ...(scenario === undefined ? {} : { scenario }) });
+  const answers: ArchiveAnswer[] = [];
   // Before listen: the hook sees every answer.
   app.addHook('onResponse', async (request, reply) => {
     const start = reply.getHeader('x-mock-archive-start');
@@ -58,10 +63,21 @@ test.beforeAll(async () => {
       duration: Number(reply.getHeader('x-mock-archive-duration') ?? NaN),
     });
   });
-  host = (await listen(app)).replace(/^http:\/\//, '');
+  const host = (await listen(app)).replace(/^http:\/\//, '');
+  return { app, host, answers };
+}
+
+let utc: Mock;
+let kathmandu: Mock;
+
+test.beforeAll(async () => {
+  mkdirSync(SHOTS, { recursive: true });
+  utc = await startMock();
+  kathmandu = await startMock('odd-timezone');
 });
 test.afterAll(async () => {
-  await app.close();
+  await utc.app.close();
+  await kathmandu.app.close();
 });
 
 function readGrid(page: Page): Promise<Grid> {
@@ -120,6 +136,7 @@ test.describe('catch-up from the guide (RELAY step 25a)', () => {
       const errors = trackErrors(page);
       const says = SAYS[language];
       const back = dir === 'ltr' ? 'LEFT' : 'RIGHT';
+      const { host, answers } = utc;
       const remote = new RemoteDriver(page);
       const live = await addXtreamAndWatch(remote, { host, username: U, password: P }, `locale=${locale}`);
       await settled(live);
@@ -209,7 +226,7 @@ test.describe('catch-up from the guide (RELAY step 25a)', () => {
 
   test('keeps the four buttons inside the panel in the pseudo-locale, a line of their own if need be (en-XA)', async ({ page }) => {
     const remote = new RemoteDriver(page);
-    const live = await addXtreamAndWatch(remote, { host, username: U, password: P }, 'locale=en-XA');
+    const live = await addXtreamAndWatch(remote, { host: utc.host, username: U, password: P }, 'locale=en-XA');
     await settled(live);
     await remote.go('UP', 'live/header/0');
     await remote.go('OK', 'guide/grid/0');
@@ -231,5 +248,39 @@ test.describe('catch-up from the guide (RELAY step 25a)', () => {
     const lines = [...new Set(b.tops)];
     for (const top of lines) expect(Math.min(...b.lefts.filter((_left, i) => b.tops[i] === top)) - panel.x).toBeCloseTo(48 + 2, 0);
     await page.screenshot({ path: path.join(SHOTS, 'guide-catchup-details-en-XA.png'), animations: 'disabled' });
+  });
+
+  test("writes the timeshift start in the panel's zone: Kathmandu, +05:45 (en-US)", async ({ page }) => {
+    test.setTimeout(90_000);
+    const errors = trackErrors(page);
+    const { host, answers } = kathmandu;
+    const remote = new RemoteDriver(page);
+    const live = await addXtreamAndWatch(remote, { host, username: U, password: P }, 'locale=en-US');
+    await settled(live);
+    await remote.go('UP', 'live/header/0');
+    await remote.go('OK', 'guide/grid/0');
+    const screen = page.getByTestId('guide-screen');
+    await settled(screen);
+    const onAir = focused(await readGrid(page));
+    await remote.press('LEFT');
+    await expect.poll(async () => focused(await readGrid(page)).end).toBe(onAir.start);
+    const before = focused(await readGrid(page));
+    // The guide (written without offsets, read in the panel's zone) shows the mock's own times.
+    const mock = programmes(guideOf(ordered[0]!)!, before.start * MINUTE, before.start * MINUTE + 1)[0]!;
+    expect([mock.start, mock.title]).toEqual([before.start * MINUTE, before.title]);
+    await remote.go('OK', 'programme/actions/0');
+    await expect(page.getByTestId('programme-archive')).toBeVisible();
+    const asked = answers.length;
+    await remote.go('OK', 'player/actions/0');
+    await expect(page.getByTestId('player')).toHaveAttribute('data-archive', String(before.start));
+    await expect.poll(() => answers.length).toBeGreaterThan(asked);
+    // The start as Kathmandu's wall time: 5 h 45 min ahead of UTC.
+    const wall = new Date((before.start + 345) * MINUTE).toISOString();
+    const stamp = `${wall.slice(0, 10)}:${wall.slice(11, 13)}-${wall.slice(14, 16)}`;
+    const first = answers[asked]!;
+    expect(first.url).toBe(`/timeshift/${U}/${P}/${before.end - before.start}/${stamp}/101.ts`);
+    for (const a of answers.slice(asked)) expect([a.status, a.channel, a.start]).toEqual([200, 101, before.start * 60]);
+    await remote.go('BACK', 'guide/grid/0');
+    expect(errors).toEqual([]);
   });
 });

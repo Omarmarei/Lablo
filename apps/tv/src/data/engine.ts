@@ -215,7 +215,7 @@ export class DataEngine {
   async sourceFacts(): Promise<Map<string, SourceFacts>> {
     const facts = new Map<string, SourceFacts>();
     for (const s of (await this.query.call('status')).sources) {
-      facts.set(s.src, { outputFormats: s.outputFormats === undefined ? null : s.outputFormats, zone: panelZone(s.server === undefined ? null : s.server).offset });
+      facts.set(s.src, { outputFormats: s.outputFormats ?? null, zone: panelZone(s.server ?? null).offset });
     }
     return facts;
   }

@@ -406,6 +406,16 @@ export function createPlayer(options: PlayerOptions): Player {
     }, ZAP_DELAY_MS);
   };
 
+  /** Puts the player's screen on the navigator and the page over the stage (`false`: it is open already). */
+  const openScreen = (): boolean => {
+    if (open.value) return false;
+    open.value = true;
+    carded = false;
+    screen.value = nav.push({ id: 'player', zones: [actionsZone(), cardZone(0)], initial: 'actions', onIntent, onSelect });
+    options.chrome(true);
+    return true;
+  };
+
   /** Goes straight to row `index` (no debounce: one deliberate action), or to `programme` in its archive. */
   const go = (index: number, programme: ArchiveProgramme | null = null): void => {
     point(index);
@@ -617,29 +627,16 @@ export function createPlayer(options: PlayerOptions): Player {
     picture,
     archive,
     show(index: number): void {
-      if (open.value) return;
-      open.value = true;
-      carded = false;
-      screen.value = nav.push({ id: 'player', zones: [actionsZone(), cardZone(0)], initial: 'actions', onIntent, onSelect });
-      options.chrome(true);
-      go(index);
+      if (openScreen()) go(index);
     },
     catchup(index: number, programme: ArchiveProgramme): void {
-      if (open.value) return;
-      open.value = true;
-      carded = false;
-      screen.value = nav.push({ id: 'player', zones: [actionsZone(), cardZone(0)], initial: 'actions', onIntent, onSelect });
-      options.chrome(true);
-      go(index, programme);
+      if (openScreen()) go(index, programme);
     },
     resume(row: LiveRow, guess: number): void {
       if (open.value) return;
       const mine = { index: guess, row };
       pinned = mine;
-      open.value = true;
-      carded = false;
-      screen.value = nav.push({ id: 'player', zones: [actionsZone(), cardZone(0)], initial: 'actions', onIntent, onSelect });
-      options.chrome(true);
+      openScreen();
       go(mine.index);
       mark('zoma:resume');
       resumeFrame = true;
