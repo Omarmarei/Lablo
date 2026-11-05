@@ -884,6 +884,86 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - **Merged:** PR #59 as merge commit `baddf70` (CI on `899a42c`: verify 7 m 43 s, engines 17 m 15 s, media skipped (none of its code changed); green on the first run). Locally `pnpm verify` passed lint, typecheck, 4,023 unit tests and both TV builds; Claude Code stopped its e2e stage for low memory, and CI's verify ran the full e2e (the three specs touched passed locally).
 - [ ] 25. **Catch-up and tuning (6.4).** Catch-up from the grid (Xtream timeshift + M3U modes) and low-tier tuning.
   - **Done when:** catch-up plays from the mock provider in e2e.
+  - **Already built** (checked in leg 60):
+    - **core** (step 6, ADR-010): `catchupMode`, `m3uCatchupUrl` (`default`, `append`, `shift`, `flussonic`, `xc`), `xtreamCatchupUrl` (the start in the panel's zone), `fillCatchupTemplate`, `panelZone`; checked against the mock's `X-Mock-Archive-*` headers in `test/core-mock.test.ts`.
+    - **The catalog:** each live item's `catchup` (`CatchupInfo`: mode, days, source); an Xtream item gets `{ mode: 'xc', days }` when `tv_archive` is set. The live list and the player show a "Catch-up" badge.
+    - **The panel's zone:** `SourceMeta.server` is kept for Xtream sources only. An M3U source, even a `get.php` link, has `server: null`, so ADR-010's "log in once for an M3U `xc` channel's zone" isn't built.
+    - **The player:** `PlayRequest.mode: 'catchup'` and `startMs`; the watchdog's VOD and catch-up rules (20 s of buffering); a reopen at the last position. `e2e/playback-media.spec.ts` plays an Xtream timeshift as HLS through the controller, not through the app.
+    - **The mock:** an archive for every live channel with `archive_days` (101 `xc` 7 days, 102 `default` 3, 103 `append` 3, 105 `shift` 1, 106 `flussonic` 2, 112 `xc` 7). Routes: `/timeshift/…`, `/streaming/timeshift.php`, `/catchup/…`, `?utc=&lutc=` on `/live`, and the Flussonic forms. Each answer carries `X-Mock-Archive-{Channel,Start,Duration}`; a start outside the window gets 404; TS comes as a download, `.m3u8` as an HLS playlist of the media. The mock's M3U (`get.php?type=m3u_plus`) advertises the five modes.
+    - **The guide:** `GUIDE_DAYS.past` is 1 in both tiers. The EPG window keeps the longest catch-up's days (at most 7 in the full tier, 2 in the low one, `EPG_WINDOWS`). The details dialog (24a, 24e) has "Watch the channel", "Guide channel" and "Close". Its times are the shown ones, the guide's offset included (24b); ADR-010 says catch-up should ask for those.
+    - **Not built:** nothing in `apps/tv` builds a catch-up URL or plays one.
+  - Split in leg 60 into 25a–25d, in this order:
+    - **25a**, Xtream catch-up from the details, first: it is the feature, and the panel is how the e2e onboards.
+    - **25b**, the M3U modes, next: the same path with another URL, plus the zone a `get.php` playlist lacks.
+    - **25c**, the guide's catch-up days: today the guide reaches back only one day, so a 7-day archive can't be reached. The low-tier tuning goes here, because the longer range is what costs.
+    - **25d**, the catch-up player's seeking, last: it builds on all three.
+  - **Decided (not a gate):** 6.4's "low-tier tuning on the device" needs a low-tier TV, the 2018 Samsung since ADR-012 (every supported LG is in the full tier). Here it is the throttled e2e in the forced low tier (25c); the device pass is step 41's.
+  - Each sub-step's Done-when also includes:
+    - unit tests;
+    - e2e by keys in English and Arabic against the mock, with the screenshots looked at;
+    - a mutation run with the mutant list written first;
+    - `pnpm verify` green;
+    - main within its budget, with 219 core-js modules on both platforms (`python -I -u artifacts/poly-count20c2a.py`);
+    - the PR merged;
+    - a "press these keys" checklist in the handover.
+- [ ] 25a. **Catch-up from the programme details (Xtream).**
+  - **The request:** a `mode: 'catchup'` `PlayRequest` for a live row and a programme, with the programme's shown start and end (the guide's offset included).
+    - An Xtream source's channel: the `/timeshift/` URL in the panel's zone (`panelZone` of the source's `server`, read from the query worker's status as `outputFormats` is). `.ts` first, then `.m3u8`, as the account's `allowed_output_formats` allow, as live does.
+    - Other channels: `m3uCatchupUrl` in UTC until 25b.
+    - A programme can be watched from the start when the channel has a usable catch-up mode, the programme has ended, and it started within the channel's archive days.
+  - **The details:** "Watch from the start" comes first in the dialog for such a programme. Every other programme gets the dialog as it is today.
+  - **The player:**
+    - It plays the catch-up request over the guide; Back comes back to the guide on the same cell.
+    - The info bar shows the programme (its title and times, the "Catch-up" badge) instead of the live now/next.
+    - CH+/CH− and number entry leave catch-up for the live channels.
+    - The error card's "Try again" plays the catch-up again.
+    - Decide whether a catch-up play changes the profile's last channel; the start always plays live.
+  - **Done when:**
+    - **Unit tests:**
+      - the request: an Xtream channel in a UTC, a +03:00 and a DST panel; `.ts`/`.m3u8` by the allowed formats;
+      - no button for a programme on air, one to come, one older than the archive, or a channel without catch-up;
+      - the dialog's buttons for each kind of programme;
+      - the player's catch-up state: the info bar, a zap leaving it, Back, "Try again".
+    - **e2e** in English and Arabic: a programme gone by on "Zoma Test 1 SMPTE" (101, 7 days) has "Watch from the start". OK on it sends the mock a `/timeshift/` request whose `X-Mock-Archive-Start` is the programme's start, and the info bar names the programme. Back returns to the guide. A gone-by programme on a channel without catch-up has no such button.
+    - **`e2e:media`** (`player-media.spec.ts`): the same play shows frames (HLS).
+    - Plus the common items above.
+- [ ] 25b. **The M3U modes, and the zone of an Xtream-shaped playlist.**
+  - **The modes:** an M3U source's channels play catch-up from the details as in 25a, in each of the mock's modes: `default`, `append`, `shift`, `flussonic` and `xc`.
+  - **The zone:** for an M3U `get.php` link (`xtreamFromM3uUrl`), the ingest logs in once (`player_api.php`) and keeps the panel's `server` facts, so an `xc` channel's start is written in the panel's zone (ADR-010). A failed login keeps UTC and doesn't fail the ingest.
+  - **The time offset (24b):** with +1:00 on a guide, "Watch from the start" asks for the shown start (ADR-010's note for step 25). Confirm it against the mock.
+  - **Done when:**
+    - **Unit tests:** each mode's request from a stored M3U item, the login's zone kept and used, a failed login, the offset.
+    - **e2e** in English and Arabic, with the mock's M3U playlist onboarded as an M3U URL:
+      - a gone-by programme on each of 101, 102, 103, 105 and 106 sends the mock the matching request, its window equal to the programme's (the mock's headers);
+      - an `xc` channel on a +03:00 panel;
+      - with +1:00 on the guide, the request's start is an hour later.
+    - Plus the common items above.
+- [ ] 25c. **The catch-up days in the guide, the archive marks, and the low-tier tuning.**
+  - **The range:** the guide reaches back as far as the longest catch-up among the channels, the EPG window's past days (up to 7 in the full tier, 2 in the low one), instead of one day (`GUIDE_DAYS.past`).
+  - **The marks:** the programmes a channel's archive holds are marked in the grid: a small catch-up mark on the cell, named in the cell's text for the screen reader. The details say how long the programme can still be watched.
+  - **Low-tier tuning without the device:**
+    - The throttled guide run (`guide-throttled.spec.ts`) with the catch-up days in range (7 days back in the full tier, 2 in the low one) stays within 150 ms per press.
+    - Measure the marks' cost in the low tier.
+    - Note what the 2018 TV must confirm in step 41.
+  - **Done when:**
+    - **Unit tests:** the range from the catch-up days by tier; the marks (within the archive, on air, older, a channel without catch-up).
+    - **e2e** in English and Arabic: the guide reaches 7 days back on 101; marks only on gone-by programmes of catch-up channels; a programme 6 days back plays from the start.
+    - **The throttled run** green in both tiers on CI.
+    - **The old-engine harness:** its guide walk still green, with the marks drawn on Chromium 53/56/68.
+    - Plus the common items above.
+- [ ] 25d. **The catch-up player: position, pause, seeking and the end.**
+  - **The info bar:** the progress through the programme (elapsed of its length) and the time it aired at the current position.
+  - **Pause and play:** OK, PLAY and PAUSE.
+  - **Seeking:** LEFT and RIGHT (and FF/REW) in steps (longer when a key is held).
+    - Inside the stream when the engine can seek it (an HLS archive playlist).
+    - Otherwise by a new URL from the new start (a TS timeshift, `shift`, Xtream in whole minutes), keeping the position.
+    - Seeking forward past now goes live.
+  - **The programme's end:** play on into the next programme where the stream does (`timeshift_abs`, `shift`). Otherwise show a card, "The programme has ended", with "Watch live" and "Back to the guide".
+  - **Done when:**
+    - **Unit tests:** a seek by URL for each mode, a seek inside an HLS archive, pause, the end, the live edge.
+    - **e2e** in English and Arabic: a seek by keys asks the mock for the new start.
+    - **`e2e:media`:** the picture moves on after a seek.
+    - Plus the common items above.
 
 ### Phase 7: Movies, series, search
 - [ ] 26. **Movies.** Poster grids with tiered image caps, details, resume, "Recently added".
