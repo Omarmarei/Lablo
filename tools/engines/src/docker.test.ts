@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ENGINE_HOUR, IMAGE_FILES, engineZone, imageTag, zoneOffset } from './docker';
+import { ENGINE_HOUR, FIXED_ZONES, IMAGE_FILES, engineZone, imageTag, zoneOffset } from './docker';
 
 function context(dockerfile: string, script: string, server = 'echo 1\n'): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'zoma-docker-'));
@@ -53,21 +53,34 @@ describe('engineZone (RELAY step 26q)', () => {
     }
   });
 
-  it('is a fixed offset of −11 to +12 hours, whose sign is POSIX’s', () => {
+  it('is one of the fixed zones, −11 to +12 hours, each at its offset all year and named without a digit', () => {
     // 21:15 UTC (PR #66's run): UTC itself.
     expect(engineZone(Date.UTC(2026, 10, 11, 21, 15))).toBe('Etc/UTC');
-    expect(engineZone(Date.UTC(2026, 10, 11, 20, 0))).toBe('Etc/GMT-1');
-    expect(engineZone(Date.UTC(2026, 10, 11, 19, 0))).toBe('Etc/GMT-2');
-    expect(engineZone(Date.UTC(2026, 10, 11, 9, 0))).toBe('Etc/GMT-12');
-    expect(engineZone(Date.UTC(2026, 10, 11, 8, 0))).toBe('Etc/GMT+11');
-    expect(engineZone(Date.UTC(2026, 10, 11, 22, 59))).toBe('Etc/GMT+1');
-    // No daylight saving time: the same zone in summer and in winter.
-    expect(engineZone(Date.UTC(2026, 6, 1, 19, 0))).toBe('Etc/GMT-2');
-    // getTimezoneOffset's sign: UTC minus local.
-    expect(zoneOffset('Etc/GMT-2')).toBe(-120);
-    expect(zoneOffset('Etc/GMT+11')).toBe(660);
-    expect(zoneOffset('Etc/UTC')).toBe(0);
-    expect(() => zoneOffset('Asia/Dubai')).toThrow(/not an Etc\/GMT zone/);
+    expect(engineZone(Date.UTC(2026, 10, 11, 20, 0))).toBe('Africa/Lagos');
+    expect(engineZone(Date.UTC(2026, 10, 11, 9, 0))).toBe('Pacific/Tarawa');
+    expect(engineZone(Date.UTC(2026, 10, 11, 8, 0))).toBe('Pacific/Pago_Pago');
+    // PR #68's first run: 22:00 UTC, where Etc/GMT+1 left Chromium 68 in UTC.
+    expect(engineZone(Date.UTC(2026, 10, 11, 22, 0))).toBe('Atlantic/Cape_Verde');
+    const offsets = Object.keys(FIXED_ZONES).map(Number).sort((a, b) => a - b);
+    expect(offsets).toEqual(Array.from({ length: 24 }, (_v, i) => i - 11));
+    // Each zone's offset in Node's own zone data, on the first of every month of two years (no
+    // daylight saving time), against getTimezoneOffset's sign: UTC minus local.
+    const offsetAt = (ms: number, zone: string): number => {
+      const parts = new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'longOffset' }).formatToParts(ms);
+      const name = parts.find((p) => p.type === 'timeZoneName')?.value ?? '';
+      const m = /GMT(?:([+-])(\d\d):(\d\d))?$/.exec(name);
+      if (m === null) throw new Error(`${zone}: ${name}`);
+      // (`0 -`: never −0, which `toBe` tells from 0.)
+      return m[1] === undefined ? 0 : 0 - (m[1] === '+' ? 1 : -1) * (Number(m[2]) * 60 + Number(m[3]));
+    };
+    for (const hours of offsets) {
+      const zone = FIXED_ZONES[hours]!;
+      // ICU ignores a TZ with a digit (Chromium 68).
+      expect(zone, zone).not.toMatch(/\d/);
+      expect(zoneOffset(zone)).toBe(0 - hours * 60);
+      for (let month = 0; month < 24; month += 1) expect(offsetAt(Date.UTC(2026, month, 1), zone), `${zone} in month ${month}`).toBe(0 - hours * 60);
+    }
+    expect(() => zoneOffset('Asia/Riyadh')).toThrow(/not one of the engines' fixed zones/);
   });
 
   it('refuses an hour out of the day', () => {

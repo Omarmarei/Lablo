@@ -1583,22 +1583,25 @@ These are available: fetch with streams, TextDecoder, IntersectionObserver, IDB 
 - **The fix (`askedDays`):** the rows' asks cover the days the view crosses, then the days a view after it and a view before it reach, the view's own days first.
   - Within two hours of midnight, the day past it is read at the same rest.
   - Six hours cross at most one midnight, so an ask still adds at most 54 channel-days (`GUIDE_KEEP` unchanged).
-- **The walk's clock:** each engine's container now starts in a fixed-offset zone where it is 21:xx (`engineZone`: `TZ=Etc/GMT∓N`; `--hour` picks another hour).
+- **The walk's clock:** each engine's container now starts with a `TZ` where it is 21:xx (`engineZone`; `--hour` picks another hour).
   - Every run opens the guide on a view short of midnight, and its three programmes on cross it.
-  - The harness reads the page's `getTimezoneOffset()` before the first screen, stops if the zone didn't take, and logs the engine's local time.
-  - Pinning the zone, not the clock, keeps the fixture's UTC guide and the page's real clock as they were: no `Date` override in the page or its workers. Old Chromium has no CDP zone override; its V8 and ICU both read `TZ`, and the image has tzdata.
+  - The zones (`FIXED_ZONES`): one per whole-hour offset from −11 to +12, none with daylight saving time, none named with a digit.
+  - **Found on PR #68's first CI run:** `Etc/GMT+1` left Chromium 68 in UTC. Its V8 reads the zone through ICU, whose `isValidOlsonID` refuses a `TZ` with a digit. Chromium 53 and 56 (the C library's local time) took it.
+  - The harness reads the page's `getTimezoneOffset()` before the first screen, stops if the zone didn't take (that check caught 68), and logs the engine's local time.
+  - Pinning the zone, not the clock, keeps the fixture's UTC guide and the page's real clock as they were: no `Date` override in the page or its workers. Old Chromium has no CDP zone override, and the image has tzdata.
 - **Proof (local, Chromium 53):**
   - The old build, pinned to 21:48, failed as CI did, in both languages: `the cursor at 01:00; saw … view from 00:00, the cursor at 00:30`.
   - The fixed build, pinned to 21:50, passed all 8 runs.
   - Its `guide-later` screenshots show the view on the next day from 12:00 AM, and the cursor on `fixture.137 1h` (1:00–2:00 AM) under a 9:51 PM clock.
   - The walk's time is the same as before (40 s a bundle).
+  - With the digit-free zones, Chromium 53 and 68 in `Atlantic/Cape_Verde` at 21:14 and 21:16 passed all 16 runs. 68's page named the zone "Cape Verde Standard Time" (ICU).
 - **Tests:**
   - `guide-state.test.ts` +3:
     - `askedDays` two hours from midnight, within two hours of it, across it, just past it, and at the range's ends;
     - at 21:15, four quick RIGHTs over 70-minute programmes land on the next day's programme starts with no further ask;
     - at 00:40, two quick LEFTs land on the day before's.
   - `guide-state.test.ts`, one test changed: a view that ends at midnight now asks the next day too.
-  - `docker.test.ts` +3: `engineZone` puts every quarter hour of a day in the hour asked for (checked with Node's ICU); the zones and their offsets; a bad hour refused.
+  - `docker.test.ts` +3: `engineZone` puts every quarter hour of a day in the hour asked for (checked with Node's ICU); each fixed zone at its offset on the first of every month for two years, and no digit in its name; a bad hour refused.
   - e2e `guide-catchup-days.spec.ts`, found in this leg's full run at 23:5x local:
     - After the player's Back, it expected the cursor at the start of the programme six days back, and saw it half an hour in.
     - The walk back stops where its presses end. Over days not read yet they move by 30-minute slots, so the cursor can stop half an hour into the programme. Which days were read at each rest depends on the hour, and now on the day a view either side reaches.

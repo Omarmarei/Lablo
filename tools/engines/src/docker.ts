@@ -67,25 +67,57 @@ export function ensureImage(dockerDir: string, log: (line: string) => void): str
 export const ENGINE_HOUR = 21;
 
 /**
- * The engine's zone, where `nowMs` falls in hour `hour` (0–23): a fixed offset of −11 to +12
- * hours, as `Etc/GMT∓N` (no daylight saving time; the sign is POSIX's, so `Etc/GMT-2` is two
- * hours ahead of UTC). The container's `TZ`: old Chromium has no CDP zone override, and its V8
- * (the C library's local time) and ICU both read `TZ` (the image has tzdata).
+ * A zone for each whole-hour offset from UTC, −11 to +12 hours (the key, in hours ahead of UTC):
+ * none has daylight saving time or has changed its offset for years, and no name has a digit.
+ * Chromium 68's V8 takes the zone from ICU, and ICU ignores a `TZ` with a digit in it
+ * (`isValidOlsonID`): `Etc/GMT+1` left 68 in UTC on CI, while 53 and 56 (the C library's local
+ * time) took it. docker.test.ts checks each offset with Node's own zone data.
+ */
+export const FIXED_ZONES: Readonly<Record<number, string>> = {
+  [-11]: 'Pacific/Pago_Pago',
+  [-10]: 'Pacific/Honolulu',
+  [-9]: 'Pacific/Gambier',
+  [-8]: 'Pacific/Pitcairn',
+  [-7]: 'America/Phoenix',
+  [-6]: 'America/Regina',
+  [-5]: 'America/Panama',
+  [-4]: 'America/Puerto_Rico',
+  [-3]: 'America/Cayenne',
+  [-2]: 'Atlantic/South_Georgia',
+  [-1]: 'Atlantic/Cape_Verde',
+  0: 'Etc/UTC',
+  1: 'Africa/Lagos',
+  2: 'Africa/Johannesburg',
+  3: 'Africa/Nairobi',
+  4: 'Asia/Dubai',
+  5: 'Asia/Tashkent',
+  6: 'Asia/Thimphu',
+  7: 'Asia/Bangkok',
+  8: 'Asia/Shanghai',
+  9: 'Asia/Tokyo',
+  10: 'Australia/Brisbane',
+  11: 'Pacific/Guadalcanal',
+  12: 'Pacific/Tarawa',
+};
+
+/**
+ * The engine's zone, where `nowMs` falls in hour `hour` (0–23): one of `FIXED_ZONES`, −11 to +12
+ * hours from UTC. The container's `TZ`: old Chromium has no CDP zone override, and its V8 (the
+ * C library's local time on 53 and 56, ICU on 68) reads `TZ` (the image has tzdata).
  */
 export function engineZone(nowMs: number, hour: number = ENGINE_HOUR): string {
   if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error(`the engine's hour must be 0 to 23, not ${hour}`);
   let offset = (hour - new Date(nowMs).getUTCHours() + 24) % 24;
   if (offset > 12) offset -= 24;
-  if (offset === 0) return 'Etc/UTC';
-  return `Etc/GMT${offset > 0 ? '-' : '+'}${Math.abs(offset)}`;
+  return FIXED_ZONES[offset]!;
 }
 
-/** The zone's offset from UTC in minutes, as `Date.prototype.getTimezoneOffset` gives it (UTC minus local). */
+/** A `FIXED_ZONES` zone's offset from UTC in minutes, as `Date.prototype.getTimezoneOffset` gives it (UTC minus local). */
 export function zoneOffset(zone: string): number {
-  if (zone === 'Etc/UTC') return 0;
-  const m = /^Etc\/GMT([+-])(\d+)$/.exec(zone);
-  if (m === null) throw new Error(`not an Etc/GMT zone: ${zone}`);
-  return (m[1] === '+' ? 1 : -1) * Number(m[2]) * 60;
+  for (const key of Object.keys(FIXED_ZONES)) {
+    if (FIXED_ZONES[Number(key)] === zone) return 0 - Number(key) * 60;
+  }
+  throw new Error(`not one of the engines' fixed zones: ${zone}`);
 }
 
 export interface RunningEngine {
