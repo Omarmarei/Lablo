@@ -7,16 +7,16 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { CatalogItem } from '@zoma/core';
-import { normalizeName, searchTerms } from '@zoma/core';
-import { QueryService, getSources, openDatabase } from '@zoma/data';
+import type { CatalogItem } from '@lablo/core';
+import { normalizeName, searchTerms } from '@lablo/core';
+import { QueryService, getSources, openDatabase } from '@lablo/data';
 import { describe, expect, it } from 'vitest';
 import { freshFactory, ingest } from '../packages/data/src/test-support';
 import { parsePlaylistFile } from '../tools/fixtures/test/m3u-oracle';
 
-const fixtures = process.env['ZOMA_FIXTURES_DIR'] ?? join(import.meta.dirname, '..', '.cache', 'fixtures');
+const fixtures = process.env['LABLO_FIXTURES_DIR'] ?? join(import.meta.dirname, '..', '.cache', 'fixtures');
 
-const QUERIES = ['a', 'e', 'zoma', 'زوما', 'أخبار', 'الحلقة', 'news', 'golden night', 'cine', 'hd', '12', 'épisode 3', 'qqq'];
+const QUERIES = ['a', 'e', 'lablo', 'لابلو', 'أخبار', 'الحلقة', 'news', 'golden night', 'cine', 'hd', '12', 'épisode 3', 'qqq'];
 
 function bestOf<T>(runs: number, fn: () => Promise<T>): Promise<{ ms: number; value: T }> {
   return (async () => {

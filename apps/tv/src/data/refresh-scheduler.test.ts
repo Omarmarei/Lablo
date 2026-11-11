@@ -1,6 +1,6 @@
-import type { DeviceTier } from '@zoma/core';
-import type { EpgCatalogSource, EpgOutcome, EpgRefreshResult, IngestResult, IngestSource, LoadedProfile, SourceMeta, SourceRecord } from '@zoma/data';
-import type { LifecycleEvent } from '@zoma/platform-api';
+import type { DeviceTier } from '@lablo/core';
+import type { EpgCatalogSource, EpgOutcome, EpgRefreshResult, IngestResult, IngestSource, LoadedProfile, SourceMeta, SourceRecord } from '@lablo/data';
+import type { LifecycleEvent } from '@lablo/platform-api';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EpgRefreshOptions, RefreshOptions } from './engine';
 import type { SchedulerEngine, SchedulerTimers } from './refresh-scheduler';

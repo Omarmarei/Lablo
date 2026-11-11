@@ -24,12 +24,12 @@ function state(overrides: Partial<PageState> = {}): PageState {
     ingest: 'ok: committed gen 1, 3000 items (live 2400, movie 600), gzip, 840 ms',
     ingestItems: '3000',
     gzip: 'true',
-    search: 'ok: 240 for "اخبار": أخبار زوما 10, أخبار زوما 20, أخبار زوما 30',
+    search: 'ok: 240 for "اخبار": أخبار لابلو 10, أخبار لابلو 20, أخبار لابلو 30',
     searchTotal: '240',
     epg: 'ok: 300 of 2400 live channels have a guide (12.5%), 1 guide',
     epgMatched: '300',
     epgWanted: '2400',
-    nowNext: 'ok: Zoma Channel 1: fixture.1 20h 20:00–21:00, next fixture.1 21h 21:00',
+    nowNext: 'ok: Lablo Channel 1: fixture.1 20h 20:00–21:00, next fixture.1 21h 21:00',
     fontsStatus: 'loaded',
     fonts: 'la400:loaded la700:loaded ar400:unloaded ar700:loaded',
     ...overrides,
@@ -226,11 +226,11 @@ describe('evaluateRun', () => {
       'fonts: la700:error failed to load',
     ]);
     expect(evaluateRun(run({ boot: state({ fonts: 'la400:loaded la700:loaded ar400:unloaded ar700:unloaded' }) }), engine53, 15_000)).toEqual([
-      'fonts: no Arabic Zoma Sans face loaded (la400:loaded la700:loaded ar400:unloaded ar700:unloaded)',
+      'fonts: no Arabic Lablo Sans face loaded (la400:loaded la700:loaded ar400:unloaded ar700:unloaded)',
     ]);
     expect(evaluateRun(run({ boot: state({ fonts: '' }) }), engine53, 15_000)).toEqual([
-      'fonts: no Latin Zoma Sans face loaded (no faces)',
-      'fonts: no Arabic Zoma Sans face loaded (no faces)',
+      'fonts: no Latin Lablo Sans face loaded (no faces)',
+      'fonts: no Arabic Lablo Sans face loaded (no faces)',
     ]);
     expect(evaluateRun(run({ boot: state({ fonts: null, fontsStatus: null }) }), engine53, 15_000)).toEqual(['fonts: document.fonts is missing']);
   });

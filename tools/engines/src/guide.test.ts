@@ -57,7 +57,7 @@ describe('the grid probe', () => {
       ['.z-guide__channel', el({}, 96, 496)],
       ['.z-guide__line', el({}, 504, 1824)],
       ['.z-guide__number', el({}, 0, 0, '622')],
-      ['.z-guide__name', el({}, 0, 0, 'Zoma Channel 41')],
+      ['.z-guide__name', el({}, 0, 0, 'Lablo Channel 41')],
       ['.z-guide__cell', archived],
       ['.z-guide__cell', cell],
     ]);
@@ -83,7 +83,7 @@ describe('the grid probe', () => {
           channel: { left: 96, right: 496, top: 10, bottom: 20 },
           line: { left: 504, right: 1824, top: 10, bottom: 20 },
           number: '622',
-          name: 'Zoma Channel 41',
+          name: 'Lablo Channel 41',
           cells: [
             { start: 810, end: 870, programme: 0, state: 'idle', title: 'fixture.41 13h', mark: { left: 519, right: 539, top: 10, bottom: 20, text: 'Catch-up' }, left: 504, right: 504, top: 10, bottom: 20 },
             { start: 870, end: 900, programme: -1, state: 'focused', title: 'No information', mark: null, left: 508, right: 834, top: 10, bottom: 20 },
@@ -237,22 +237,22 @@ describe('scheduleFailures', () => {
 
   it('catches a wrong title, a programme missing, and the placeholder in the wrong language', () => {
     const title = withCells(draw('en'), (c, row) => (row.row === 1 && c.start === NOW + 30 ? { ...c, title: 'fixture.17 16h' } : c));
-    expect(scheduleFailures(title, ENTRY, 'en')[0]).toContain('row 1 (Zoma Channel 17): draws 14:00–15:00 "fixture.17 14h", 15:00–16:00 "fixture.17 16h", 16:00–17:00 "fixture.17 16h", expected');
+    expect(scheduleFailures(title, ENTRY, 'en')[0]).toContain('row 1 (Lablo Channel 17): draws 14:00–15:00 "fixture.17 14h", 15:00–16:00 "fixture.17 16h", 16:00–17:00 "fixture.17 16h", expected');
     const g = draw('en');
     const gone = { ...g, rows: g.rows.map((row) => (row.row === 3 ? { ...row, cells: row.cells.map((c) => ({ ...c, programme: -1, title: GUIDE_TEXT.en.noInfo })) } : row)) };
-    expect(scheduleFailures(gone, ENTRY, 'en')[0]).toMatch(/^1 of 9 rows wrong: row 3 \(Zoma Channel 41\): draws 14:00–15:00 \(No information\)/);
-    expect(scheduleFailures(draw('en'), ENTRY, 'ar')[0]).toContain(`row 0 (Zoma Channel 5): no guide, but draws 14:30–15:00 (No information)`);
+    expect(scheduleFailures(gone, ENTRY, 'en')[0]).toMatch(/^1 of 9 rows wrong: row 3 \(Lablo Channel 41\): draws 14:00–15:00 \(No information\)/);
+    expect(scheduleFailures(draw('en'), ENTRY, 'ar')[0]).toContain(`row 0 (Lablo Channel 5): no guide, but draws 14:30–15:00 (No information)`);
   });
 
   it('catches a programme on a channel without a guide, a wrong number and a wrong name', () => {
     const extra = withCells(draw('ar'), (c, row) => (row.row === 2 && c.start === NOW ? { ...c, programme: 0, title: 'fixture.29 14h' } : c));
-    expect(scheduleFailures(extra, ENTRY, 'ar')[0]).toContain('row 2 (Zoma Channel 29): no guide, but draws 14:30–15:00 "fixture.29 14h"');
+    expect(scheduleFailures(extra, ENTRY, 'ar')[0]).toContain('row 2 (Lablo Channel 29): no guide, but draws 14:30–15:00 "fixture.29 14h"');
     const g = draw('en');
-    const renamed = { ...g, rows: g.rows.map((row) => (row.row === 4 ? { ...row, number: '1', name: 'Zoma Channel 1' } : row)) };
-    expect(scheduleFailures(renamed, ENTRY, 'en')[0]).toContain(`row 4 (Zoma Channel 53): number "1", expected ${ENTRY.allStart + 5}; row 4 (Zoma Channel 53): name "Zoma Channel 1"`);
+    const renamed = { ...g, rows: g.rows.map((row) => (row.row === 4 ? { ...row, number: '1', name: 'Lablo Channel 1' } : row)) };
+    expect(scheduleFailures(renamed, ENTRY, 'en')[0]).toContain(`row 4 (Lablo Channel 53): number "1", expected ${ENTRY.allStart + 5}; row 4 (Lablo Channel 53): name "Lablo Channel 1"`);
     // A placeholder that claims a programme on a channel without a guide.
     const claimed = withCells(draw('en'), (c, row) => (row.row === 0 && c.start === NOW ? { ...c, programme: 3 } : c));
-    expect(scheduleFailures(claimed, ENTRY, 'en')[0]).toContain('row 0 (Zoma Channel 5): no guide, but draws 14:30–15:00 "No information"');
+    expect(scheduleFailures(claimed, ENTRY, 'en')[0]).toContain('row 0 (Lablo Channel 5): no guide, but draws 14:30–15:00 "No information"');
   });
 
   it('catches a row past the end of the category', () => {
@@ -285,7 +285,7 @@ describe('markFailures (RELAY step 25c)', () => {
 
   it('catches a mark missing, and one on a placeholder, on a channel without catch-up, on air, or older than the archive', () => {
     const missing = withCells(earlier('en'), (c, row) => (row.row === 15 && c.start === NOW - 150 ? { ...c, mark: null } : c));
-    expect(markFailures(missing, ENTRY, 'en', NOW, false)).toEqual({ failures: ["1 archive marks wrong: row 15 cell 12:00 (gone by, in Zoma Channel 209's archive) has no archive mark"], marks: 1 });
+    expect(markFailures(missing, ENTRY, 'en', NOW, false)).toEqual({ failures: ["1 archive marks wrong: row 15 cell 12:00 (gone by, in Lablo Channel 209's archive) has no archive mark"], marks: 1 });
     const some = earlier('en').rows.find((r) => r.row === 15)!.cells[0]!.mark!;
     const extra = withCells(earlier('en'), (c, row) => (row.row === 10 || row.row === 9 ? { ...c, mark: some } : c));
     expect(markFailures(extra, ENTRY, 'en', NOW, false).failures[0]).toMatch(/^\d+ archive marks wrong: row 9 cell 12:00 has the archive mark, but is a placeholder; .*row 10 cell 12:00 has the archive mark, but its channel has no catch-up/);
@@ -313,7 +313,7 @@ describe('markFailures (RELAY step 25c)', () => {
     const g = earlier('en');
     const none = withCells(g, (c) => ({ ...c, mark: null }));
     // 13:00-14:00 ends at 14:00: a minute later it may still be drawn without its mark; 12:00 has left the archive at 12:00 seven days on.
-    expect(markFailures(none, ENTRY, 'en', NOW - 30 + 1, false).failures).toEqual(["1 archive marks wrong: row 15 cell 12:00 (gone by, in Zoma Channel 209's archive) has no archive mark"]);
+    expect(markFailures(none, ENTRY, 'en', NOW - 30 + 1, false).failures).toEqual(["1 archive marks wrong: row 15 cell 12:00 (gone by, in Lablo Channel 209's archive) has no archive mark"]);
     expect(markFailures(g, ENTRY, 'en', NOW - 150 + 7 * 1440 + 1, false).failures).toEqual([]);
   });
 });

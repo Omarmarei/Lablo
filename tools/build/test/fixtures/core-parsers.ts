@@ -19,7 +19,7 @@ import {
   searchSegments,
   xtreamCatchupUrl,
   xtreamFromM3uUrl,
-} from '@zoma/core';
+} from '@lablo/core';
 
 const account = { base: 'http://p.test:8080', username: 'u', password: 'p@ss' };
 
@@ -31,7 +31,7 @@ export function run(): string {
   const elements = [...splitter.push(json.slice(0, 9)), ...splitter.push(json.slice(9)), ...splitter.end()];
   out.push(elements.join(';'));
 
-  const list = '[{"stream_id":"7","name":"Zoma ١ HD","tv_archive":"1","tv_archive_duration":3,"category_id":3},{"stream_id":null}]';
+  const list = '[{"stream_id":"7","name":"Lablo ١ HD","tv_archive":"1","tv_archive_duration":3,"category_id":3},{"stream_id":null}]';
   const xtream = new XtreamListParser('live', { src: 'tv', account, categories: new Map([['3', 'News']]) });
   const items = [...xtream.push(list.slice(0, 40)), ...xtream.push(list.slice(40)), ...xtream.end()];
   out.push(items.map((i) => `${i.item.key} ${i.item.group} ${i.item.normName} ${i.item.matchName} ${JSON.stringify(i.item.catchup)}`).join(';'));

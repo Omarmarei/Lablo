@@ -259,7 +259,7 @@ describe('the onboarding probes', () => {
   it('opens what a TV opens (no ?screen=), and deletes the database from a page of the same file:// origin', () => {
     expect(URL).toBe('file:///app/app/tizen/index.html');
     expect(new globalThis.URL(BLANK_URL).protocol).toBe('file:');
-    expect(RESET_EXPRESSION).toContain("indexedDB.deleteDatabase('zoma')");
+    expect(RESET_EXPRESSION).toContain("indexedDB.deleteDatabase('lablo')");
   });
 
   it('types the fixture playlist without http://, so the form adds it', () => {
@@ -583,10 +583,10 @@ describe('moviesSteps (RELAY step 26b)', () => {
     const shifted = changedAt('en', 'movies-page', (s) => ({ films: { ...s.films!, tiles: s.films!.tiles.map((t) => (t.index === 20 ? { ...t, left: t.left + 30, right: t.right + 30 } : t)) } }));
     expect(evaluateWalk(shifted, CHECK)).toEqual([
       "CH− (key 428) in the grid: 1 misplaced: tile 20 starts 446 px from the grid's inline start, expected 416",
-      'CH− (key 428) in the grid: 1 of 18 tiles wrong: tile 20 (Zoma Film 2421): the poster is drawn at 176x268 px, outside its tile',
+      'CH− (key 428) in the grid: 1 of 18 tiles wrong: tile 20 (Lablo Film 2421): the poster is drawn at 176x268 px, outside its tile',
     ]);
     const blank = changedAt('ar', 'movies-category', (s) => ({ films: { ...s.films!, tiles: s.films!.tiles.map((t) => (t.index === 0 ? { ...t, poster: null } : t)) } }));
-    expect(evaluateWalk(blank, CHECK)).toEqual(['OK on category 2: 1 of 18 tiles wrong: tile 0 (فيلم زوما 2701): no poster']);
+    expect(evaluateWalk(blank, CHECK)).toEqual(['OK on category 2: 1 of 18 tiles wrong: tile 0 (فيلم لابلو 2701): no poster']);
     // A step without the check (the rail pick) is not measured.
     expect(evaluateWalk(changedAt('en', 'movies-pick', (s) => ({ films: { ...s.films!, tiles: [] } })), CHECK)).toEqual([]);
   });
@@ -769,7 +769,7 @@ describe('evaluateWalk', () => {
   it('needs a Latin and an Arabic face on the first screen, which shows both languages', () => {
     expect(evaluateWalk(changedAt('en', 'start', () => ({ fonts: 'la400:loaded ar400:error' })), CHECK)).toEqual([
       'fonts: ar400:error failed to load',
-      'fonts: no Arabic Zoma Sans face loaded (la400:loaded ar400:error)',
+      'fonts: no Arabic Lablo Sans face loaded (la400:loaded ar400:error)',
     ]);
   });
 
@@ -825,14 +825,14 @@ describe('evaluateWalk on the live screen', () => {
   it('checks the rows against the fixture: the numbers, the names, now/next and the placeholder', () => {
     const walked = changedAt('en', 'relaunch', (there) => ({
       rows: there.rows.map((row) => {
-        if (row.i === 0) return { ...row, number: '2', name: 'Zoma Channel 2' };
+        if (row.i === 0) return { ...row, number: '2', name: 'Lablo Channel 2' };
         if (row.i === 2) return { ...row, next: 'fixture.25 16h' };
         if (row.i === 3) return { ...row, now: 'fixture.37 14h' };
         return row;
       }),
     }));
     expect(evaluateWalk(walked, CHECK)).toEqual([
-      'the relaunch: 3 of 9 rows wrong: row 0 (Zoma Channel 1): number "2", expected 1, name "Zoma Channel 2"; row 2 (Zoma Channel 25): next "fixture.25 16h", expected "fixture.25 15h"; row 3 (Zoma Channel 37): a programme "fixture.37 14h" on a channel without a guide',
+      'the relaunch: 3 of 9 rows wrong: row 0 (Lablo Channel 1): number "2", expected 1, name "Lablo Channel 2"; row 2 (Lablo Channel 25): next "fixture.25 16h", expected "fixture.25 15h"; row 3 (Lablo Channel 37): a programme "fixture.37 14h" on a channel without a guide',
     ]);
   });
 
@@ -940,7 +940,7 @@ describe('evaluateWalk on the guide (RELAY step 23e)', () => {
     const wrong = changedAt('en', 'guide-page', (there) => ({
       grid: { ...there.grid!, rows: there.grid!.rows.map((row) => (row.row === 10 ? { ...row, cells: row.cells.map((c) => ({ ...c, title: 'fixture.137 9h' })) } : row)) },
     }));
-    expect(evaluateWalk(wrong, CHECK)).toEqual([expect.stringMatching(/^CH− \(key 428\) in the grid: 1 of 9 rows wrong: row 10 \(Zoma Channel 137\): draws 14:00–15:00 "fixture\.137 9h"/)]);
+    expect(evaluateWalk(wrong, CHECK)).toEqual([expect.stringMatching(/^CH− \(key 428\) in the grid: 1 of 9 rows wrong: row 10 \(Lablo Channel 137\): draws 14:00–15:00 "fixture\.137 9h"/)]);
     expect(evaluateWalk(changedAt('ar', 'guide-open', () => ({ cut: ['guide__clock: ٢:٣٠ م'] })), CHECK)).toEqual(['on the guide screen: labels cut: guide__clock: ٢:٣٠ م']);
     expect(evaluateWalk(changedAt('en', 'guide-later', () => ({ outside: ['z-guide__now: '] })), CHECK)).toEqual(['on the later guide screen: outside the safe area: z-guide__now: ']);
   });
@@ -973,7 +973,7 @@ describe('evaluateWalk on the guide (RELAY step 23e)', () => {
     expect(at({ clock: CLOCK - 90 * 60_000 })).toContain('the view ends at 14:00, expected by now (13:00): it never went back');
     // No marks: named one by one, and none at all is a failure of its own (ten days on, none is due).
     const bare = { ...there.grid!, rows: there.grid!.rows.map((row) => ({ ...row, cells: row.cells.map((c) => ({ ...c, mark: null })) })) };
-    expect(at({ grid: bare })).toEqual([expect.stringMatching(/^2 archive marks wrong: row 15 cell 12:00 \(gone by, in Zoma Channel 209's archive\) has no archive mark/), 'the view draws no archive marks, though its rows have catch-up']);
+    expect(at({ grid: bare })).toEqual([expect.stringMatching(/^2 archive marks wrong: row 15 cell 12:00 \(gone by, in Lablo Channel 209's archive\) has no archive mark/), 'the view draws no archive marks, though its rows have catch-up']);
     expect(at({ grid: bare, clock: CLOCK + 10 * 86_400_000 })).toEqual(['the view draws no archive marks, though its rows have catch-up']);
   });
 
@@ -1025,13 +1025,13 @@ describe('resetDatabase', () => {
   it('deletes the database from a new blank page, even when the page is the blank page already', async () => {
     const page = fakePage(BLANK_URL, 3);
     expect(await resetDatabase(page.client)).toBe('ok');
-    expect(page.deletes).toEqual([`zoma on ${BLANK_URL}`]);
+    expect(page.deletes).toEqual([`lablo on ${BLANK_URL}`]);
   });
 
   it('comes from an app page as well', async () => {
     const page = fakePage(URL, 2);
     expect(await resetDatabase(page.client)).toBe('ok');
-    expect(page.deletes).toEqual([`zoma on ${BLANK_URL}`]);
+    expect(page.deletes).toEqual([`lablo on ${BLANK_URL}`]);
   });
 
   it('reads the marked old document as stale', () => {

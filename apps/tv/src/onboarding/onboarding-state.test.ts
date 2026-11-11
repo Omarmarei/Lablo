@@ -1,6 +1,6 @@
-import type { Intent, KeyLike, RootBackPolicy, TextKey } from '@zoma/platform-api';
-import type { EditableLike } from '@zoma/ui';
-import { OK_CLICK_WINDOW_MS } from '@zoma/ui';
+import type { Intent, KeyLike, RootBackPolicy, TextKey } from '@lablo/platform-api';
+import type { EditableLike } from '@lablo/ui';
+import { OK_CLICK_WINDOW_MS } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
 import type { FieldId } from './form';
 import type { FakeLoaderOptions, LoadResult, SourceLoader } from './loader';

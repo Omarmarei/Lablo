@@ -1,8 +1,8 @@
 /**
- * The Zoma Lab's vocabulary (RELAY step 15a, docs/architecture.md §5): spikes made of checks,
+ * The Lablo Lab's vocabulary (RELAY step 15a, docs/architecture.md §5): spikes made of checks,
  * each check ending as one record that goes to the LAN log collector.
  */
-import type { DeviceInfo, Intent, KeyRegistration, Platform, TextKey } from '@zoma/platform-api';
+import type { DeviceInfo, Intent, KeyRegistration, Platform, TextKey } from '@lablo/platform-api';
 import type { LifecycleEntry } from './lifecycle';
 import type { LabWorkerClient } from './worker-client';
 

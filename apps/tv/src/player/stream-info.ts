@@ -1,6 +1,6 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { Container, PlayerEngine, StreamStats } from '@zoma/player';
+import type { Container, PlayerEngine, StreamStats } from '@lablo/player';
 import type { Timers } from '../live/live-state';
 
 /**

@@ -5,11 +5,11 @@
 // facts as `DataEngine.sourceFacts` reads them), then makes each stored channel's URLs, and the
 // mock's X-Mock-Archive-* headers say which window it served. The mock imports nothing from core,
 // data or the player, so it is an independent oracle. (The app's module itself can't be imported
-// here: its types reach @zoma/ui, which the root typecheck can't read without JSX.)
+// here: its types reach @lablo/ui, which the root typecheck can't read without JSX.)
 
-import type { CatalogItem } from '@zoma/core';
-import { panelZone } from '@zoma/core';
-import { QueryService, fetchTransport, getSource, openDatabase, runIngest } from '@zoma/data';
+import type { CatalogItem } from '@lablo/core';
+import { panelZone } from '@lablo/core';
+import { QueryService, fetchTransport, getSource, openDatabase, runIngest } from '@lablo/data';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { LiveChannel } from '../apps/mock-provider/src/config';
 import { loadCatalog } from '../apps/mock-provider/src/config';

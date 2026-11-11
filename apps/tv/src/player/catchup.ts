@@ -1,6 +1,6 @@
-import type { CatchupWindow } from '@zoma/core';
-import type { PlayRequest } from '@zoma/player';
-import { catchupCandidates } from '@zoma/player';
+import type { CatchupWindow } from '@lablo/core';
+import type { PlayRequest } from '@lablo/player';
+import { catchupCandidates } from '@lablo/player';
 import type { SourceFacts } from '../data/engine';
 import type { LiveRow } from '../live/live-state';
 

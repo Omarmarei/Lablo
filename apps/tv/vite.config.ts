@@ -24,6 +24,6 @@ export default defineConfig({
   // imports. Found late, it is pre-bundled then and every open page reloads, which resets
   // the app in the middle of a key-driven e2e test (seen with a cold cache, as in CI).
   optimizeDeps: {
-    include: ['@zoma/data > fflate'],
+    include: ['@lablo/data > fflate'],
   },
 });

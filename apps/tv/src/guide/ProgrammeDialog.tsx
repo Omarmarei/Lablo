@@ -1,5 +1,5 @@
-import type { FocusBinding } from '@zoma/ui';
-import { Button, Dialog, Spinner, useZone } from '@zoma/ui';
+import type { FocusBinding } from '@lablo/ui';
+import { Button, Dialog, Spinner, useZone } from '@lablo/ui';
 import type { AppI18n, MessageKey } from '../i18n';
 import type { DetailsAction, Details, DetailsShown } from './programme-details';
 import { DETAILS_ACTIONS, detailsActions } from './programme-details';

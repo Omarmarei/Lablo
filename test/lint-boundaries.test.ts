@@ -24,46 +24,46 @@ async function lint(file: string, code: string): Promise<string[]> {
 const BOUNDARY = 'boundaries/element-types';
 
 describe('package boundaries (boundaries/element-types)', () => {
-  it('rejects the seeded forbidden import: core -> @zoma/ui', async () => {
-    const messages = await lint('packages/core/src/forbidden-import.fixture.ts', "import '@zoma/ui';\n");
+  it('rejects the seeded forbidden import: core -> @lablo/ui', async () => {
+    const messages = await lint('packages/core/src/forbidden-import.fixture.ts', "import '@lablo/ui';\n");
     expect(messages).toHaveLength(1);
     expect(messages[0]).toContain(BOUNDARY);
     expect(messages[0]).toContain("File is of type 'core'. Dependency is of type 'ui'");
   });
 
   it.each([
-    ['packages/protocol/src/f.ts', '@zoma/core'],
-    ['packages/crypto/src/f.ts', '@zoma/protocol'],
-    ['packages/data/src/f.ts', '@zoma/ui'],
-    ['packages/data/src/f.ts', '@zoma/player'],
-    ['packages/player/src/f.ts', '@zoma/platform-api'],
-    ['packages/player/src/f.ts', '@zoma/data'],
-    ['packages/ui/src/f.ts', '@zoma/platform-tizen'],
-    ['packages/platform-webos/src/f.ts', '@zoma/ui'],
-    ['packages/platform-tizen/src/f.ts', '@zoma/data'],
-    ['packages/platform-browser/src/f.ts', '@zoma/platform-webos'],
-    ['packages/platform-api/src/f.ts', '@zoma/ui'],
+    ['packages/protocol/src/f.ts', '@lablo/core'],
+    ['packages/crypto/src/f.ts', '@lablo/protocol'],
+    ['packages/data/src/f.ts', '@lablo/ui'],
+    ['packages/data/src/f.ts', '@lablo/player'],
+    ['packages/player/src/f.ts', '@lablo/platform-api'],
+    ['packages/player/src/f.ts', '@lablo/data'],
+    ['packages/ui/src/f.ts', '@lablo/platform-tizen'],
+    ['packages/platform-webos/src/f.ts', '@lablo/ui'],
+    ['packages/platform-tizen/src/f.ts', '@lablo/data'],
+    ['packages/platform-browser/src/f.ts', '@lablo/platform-webos'],
+    ['packages/platform-api/src/f.ts', '@lablo/ui'],
   ])('rejects %s importing %s', async (file, dep) => {
     const messages = await lint(file, `import '${dep}';\n`);
     expect(messages.some((m) => m.startsWith(BOUNDARY))).toBe(true);
   });
 
   it.each([
-    ['packages/data/src/f.ts', '@zoma/core'],
-    ['packages/data/src/f.ts', '@zoma/crypto'],
-    ['packages/player/src/f.ts', '@zoma/core'],
-    ['packages/ui/src/f.ts', '@zoma/data'],
-    ['packages/ui/src/f.ts', '@zoma/platform-api'],
-    ['packages/platform-tizen/src/f.ts', '@zoma/platform-api'],
-    ['packages/platform-browser/src/f.ts', '@zoma/player'],
+    ['packages/data/src/f.ts', '@lablo/core'],
+    ['packages/data/src/f.ts', '@lablo/crypto'],
+    ['packages/player/src/f.ts', '@lablo/core'],
+    ['packages/ui/src/f.ts', '@lablo/data'],
+    ['packages/ui/src/f.ts', '@lablo/platform-api'],
+    ['packages/platform-tizen/src/f.ts', '@lablo/platform-api'],
+    ['packages/platform-browser/src/f.ts', '@lablo/player'],
   ])('allows %s importing %s', async (file, dep) => {
     expect(await lint(file, `import '${dep}';\n`)).toEqual([]);
   });
 
   it('allows platform-api to import player types only (ADR-008)', async () => {
     const file = 'packages/platform-api/src/f.ts';
-    expect(await lint(file, "import type {} from '@zoma/player';\n")).toEqual([]);
-    const valueImport = await lint(file, "import * as player from '@zoma/player';\nexport { player };\n");
+    expect(await lint(file, "import type {} from '@lablo/player';\n")).toEqual([]);
+    const valueImport = await lint(file, "import * as player from '@lablo/player';\nexport { player };\n");
     expect(valueImport.some((m) => m.startsWith(BOUNDARY))).toBe(true);
   });
 
@@ -75,7 +75,7 @@ describe('package boundaries (boundaries/element-types)', () => {
   it('allows the data workers as entry points, and nothing else in data', async () => {
     const file = 'apps/tv/src/f.ts';
     for (const worker of ['query', 'ingest', 'epg']) {
-      expect(await lint(file, `import W from '@zoma/data/${worker}.worker?worker';\nexport { W };\n`)).toEqual([]);
+      expect(await lint(file, `import W from '@lablo/data/${worker}.worker?worker';\nexport { W };\n`)).toEqual([]);
     }
     const deep = await lint(file, "import { serveRpc } from '../../../packages/data/src/rpc';\nexport { serveRpc };\n");
     expect(deep.some((m) => m.startsWith('boundaries/entry-point'))).toBe(true);

@@ -1,9 +1,9 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { Intent } from '@zoma/platform-api';
-import type { PlayerTrack, PlayerTracks, SubtitleFeed } from '@zoma/player';
-import { fileIndex } from '@zoma/player';
-import type { Focus, Navigator, Screen, ZoneSpec } from '@zoma/ui';
+import type { Intent } from '@lablo/platform-api';
+import type { PlayerTrack, PlayerTracks, SubtitleFeed } from '@lablo/player';
+import { fileIndex } from '@lablo/player';
+import type { Focus, Navigator, Screen, ZoneSpec } from '@lablo/ui';
 
 /**
  * The track menu (RELAY step 20b, architecture.md §2 "Tracks"): the player's audio and subtitle

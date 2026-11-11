@@ -57,7 +57,7 @@ describe('epgWantedChannel', () => {
     expect(epgWantedChannel(liveItem('X', { epgId: '   ' }))!.epgId).toBeNull();
     expect(epgWantedChannel(liveItem('Movie', { kind: 'movie', matchName: null }))).toBeNull();
     // The same name and tvg-name collapse to one entry.
-    expect(epgWantedChannel(liveItem('Zoma', { tvgName: 'ZOMA' }))!.names).toEqual(['zoma']);
+    expect(epgWantedChannel(liveItem('Lablo', { tvgName: 'LABLO' }))!.names).toEqual(['lablo']);
   });
 });
 
@@ -67,7 +67,7 @@ describe('xmltvIdStem', () => {
     expect(xmltvIdStem('BBCOne.uk')).toBe('BBCOne');
     expect(xmltvIdStem('mbc1.ae')).toBe('mbc1');
     expect(xmltvIdStem('Channel@SD')).toBe('Channel');
-    expect(xmltvIdStem('epg1.zoma.test')).toBeNull();
+    expect(xmltvIdStem('epg1.lablo.test')).toBeNull();
     expect(xmltvIdStem('plain')).toBeNull();
     expect(xmltvIdStem('.uk')).toBeNull();
   });
@@ -75,10 +75,10 @@ describe('xmltvIdStem', () => {
 
 describe('EpgMatcher: the cascade', () => {
   it('matches the id case-insensitively, as xtream-id for Xtream channels', () => {
-    const a = liveItem('Zoma Kids', { epgId: 'Zoma.Kids' });
-    const b = liveItem('Zoma Kids', { key: 'x:tv:live:5', epgId: 'ZOMA.KIDS' });
-    const m = matcherFor([a, b], [channel('zoma.kids', 'Something Else')]);
-    expect(byKey(m)).toEqual({ [a.key]: 'zoma.kids id', [b.key]: 'zoma.kids xtream-id' });
+    const a = liveItem('Lablo Kids', { epgId: 'Lablo.Kids' });
+    const b = liveItem('Lablo Kids', { key: 'x:tv:live:5', epgId: 'LABLO.KIDS' });
+    const m = matcherFor([a, b], [channel('lablo.kids', 'Something Else')]);
+    expect(byKey(m)).toEqual({ [a.key]: 'lablo.kids id', [b.key]: 'lablo.kids xtream-id' });
   });
 
   it('matches the normalized display name, then the match name, then the id stem', () => {
@@ -101,9 +101,9 @@ describe('EpgMatcher: the cascade', () => {
   });
 
   it('lets a stronger method win over an earlier channel, and frees the earlier one', () => {
-    const a = liveItem('Zoma One', { epgId: 'z1' });
+    const a = liveItem('Lablo One', { epgId: 'z1' });
     const m = new EpgMatcher('g1', EpgWantedSet.fromItems([a]));
-    m.addChannel(channel('first', 'Zoma One'));
+    m.addChannel(channel('first', 'Lablo One'));
     expect(m.isUsed('first')).toBe(true);
     m.addChannel(channel('z1', 'Different'));
     expect(byKey(m)).toEqual({ [a.key]: 'z1 id' });
@@ -114,13 +114,13 @@ describe('EpgMatcher: the cascade', () => {
   });
 
   it('keeps the first channel at the same level, flags name ties as ambiguous, never id ties', () => {
-    const named = liveItem('Zoma One');
+    const named = liveItem('Lablo One');
     const ided = liveItem('Other', { epgId: 'dup' });
-    const m = matcherFor([named, ided], [channel('a', 'Zoma One'), channel('b', 'ZOMA ONE'), channel('dup'), channel('DUP')]);
+    const m = matcherFor([named, ided], [channel('a', 'Lablo One'), channel('b', 'LABLO ONE'), channel('dup'), channel('DUP')]);
     expect(byKey(m)).toEqual({ [named.key]: 'a name ambiguous', [ided.key]: 'dup id' });
     expect(m.stats().ambiguous).toBe(1);
     // The same channel offering the same name twice is not a tie.
-    const once = matcherFor([liveItem('Zoma One')], [channel('a', 'Zoma One', 'zoma one')]);
+    const once = matcherFor([liveItem('Lablo One')], [channel('a', 'Lablo One', 'lablo one')]);
     expect(once.stats().ambiguous).toBe(0);
   });
 
@@ -142,14 +142,14 @@ describe('EpgMatcher: the cascade', () => {
   });
 
   it('lists every declared channel, used or not, in declaration order (step 24d)', () => {
-    const a = liveItem('Zoma One', { epgId: 'only.programmes' });
-    const m = matcherFor([a], [channel('c2', 'Second'), channel('c1', 'First', 'Premier'), channel('c2', 'Deuxième'), channel('Zoma1', 'Zoma One')]);
+    const a = liveItem('Lablo One', { epgId: 'only.programmes' });
+    const m = matcherFor([a], [channel('c2', 'Second'), channel('c1', 'First', 'Premier'), channel('c2', 'Deuxième'), channel('Lablo1', 'Lablo One')]);
     m.declareById('nobody');
     m.declareById('only.programmes');
     expect(m.declaredChannels()).toEqual([
       { type: 'channel', id: 'c2', name: 'Second', names: ['Second', 'Deuxième'], icon: null },
       { type: 'channel', id: 'c1', name: 'First', names: ['First', 'Premier'], icon: null },
-      { type: 'channel', id: 'Zoma1', name: 'Zoma One', names: ['Zoma One'], icon: null },
+      { type: 'channel', id: 'Lablo1', name: 'Lablo One', names: ['Lablo One'], icon: null },
       { type: 'channel', id: 'only.programmes', name: 'only.programmes', names: [], icon: null },
     ]);
     expect(m.usedChannels().map((c) => c.id)).toEqual(['only.programmes']);
@@ -167,23 +167,23 @@ describe('EpgMatcher: the cascade', () => {
 
 describe('EpgMatcher: overrides', () => {
   it('pins a channel to one XMLTV channel of one guide, and blocks it everywhere else', () => {
-    const pinned = liveItem('Zoma One', { epgId: 'z1' });
-    const free = liveItem('Zoma Two', { epgId: 'z2' });
+    const pinned = liveItem('Lablo One', { epgId: 'z1' });
+    const free = liveItem('Lablo Two', { epgId: 'z2' });
     const overrides: EpgOverride[] = [{ key: pinned.key, epgSrc: 'g2', channel: 'Manual.Pick' }];
-    const g1 = matcherFor([pinned, free], [channel('z1', 'Zoma One'), channel('z2')], overrides, 'g1');
+    const g1 = matcherFor([pinned, free], [channel('z1', 'Lablo One'), channel('z2')], overrides, 'g1');
     expect(byKey(g1)).toEqual({ [free.key]: 'z2 id' });
     expect(g1.stats().wanted).toBe(1);
-    const g2 = matcherFor([pinned, free], [channel('z1', 'Zoma One'), channel('manual.pick', 'Whatever')], overrides, 'g2');
+    const g2 = matcherFor([pinned, free], [channel('z1', 'Lablo One'), channel('manual.pick', 'Whatever')], overrides, 'g2');
     expect(byKey(g2)).toEqual({ [pinned.key]: 'manual.pick override' });
     // Before the pinned channel is declared, nothing else may take it.
-    const early = matcherFor([pinned], [channel('z1', 'Zoma One')], overrides, 'g2');
+    const early = matcherFor([pinned], [channel('z1', 'Lablo One')], overrides, 'g2');
     expect(early.matches()).toEqual([]);
     expect(early.declareById('MANUAL.PICK')).toBe(true);
   });
 
   it('pins a channel to no EPG at all', () => {
-    const off = liveItem('Zoma One', { epgId: 'z1' });
-    const m = matcherFor([off], [channel('z1', 'Zoma One')], [{ key: off.key, epgSrc: 'g1', channel: null }]);
+    const off = liveItem('Lablo One', { epgId: 'z1' });
+    const m = matcherFor([off], [channel('z1', 'Lablo One')], [{ key: off.key, epgSrc: 'g1', channel: null }]);
     expect(m.matches()).toEqual([]);
     expect(m.unmatched()).toEqual([]);
     expect(m.stats()).toMatchObject({ wanted: 0, matched: 0 });

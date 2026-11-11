@@ -7,7 +7,7 @@ import { gunzipSync } from 'node:zlib';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { EpgGuideReader, EpgWantedSet, epgNowNext, normalizeName, parseM3uCatalog } from '@zoma/core';
+import { EpgGuideReader, EpgWantedSet, epgNowNext, normalizeName, parseM3uCatalog } from '@lablo/core';
 import { describe, expect, it } from 'vitest';
 import { readDebugParams, readScreen } from '../apps/tv/src/data/params';
 import { CatalogChunker } from '../packages/data/src/chunker';
@@ -55,7 +55,7 @@ describe('the engines catalog fixture', () => {
   });
 
   it('stages the plain and gzipped playlists and guides, each playlist naming its guide', () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'zoma-fixture-'));
+    const dir = mkdtempSync(path.join(tmpdir(), 'lablo-fixture-'));
     const now = Date.UTC(2026, 10, 2, 12, 34);
     stageFixtures(dir, now);
     const read = (file: string): Buffer => readFileSync(path.join(dir, 'fixtures', file));

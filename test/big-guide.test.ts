@@ -43,7 +43,7 @@ function byChannel(xml: string): Map<string, Array<[number, number]>> {
 describe('the big catalog guide of the throttled run', () => {
   const RUN_MS = 300_000;
   const catalog = bigCatalog({ channels: 30, categories: 3 });
-  const dir = mkdtempSync(path.join(tmpdir(), 'zoma-big-guide-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'lablo-big-guide-'));
 
   it.each([
     ['a few seconds before a slot ends (CI, 2026-11-03 23:59:50 UTC)', Date.UTC(2026, 10, 3, 23, 59, 50)],
@@ -68,7 +68,7 @@ describe('the big catalog guide of the throttled run', () => {
 
 describe("the dense guide of the grid's throttled run (step 23d)", () => {
   const catalog = bigCatalog({ channels: 300, categories: 3 });
-  const dir = mkdtempSync(path.join(tmpdir(), 'zoma-grid-guide-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'lablo-grid-guide-'));
   const MINUTE_MS = 60_000;
 
   it.each([
@@ -87,7 +87,7 @@ describe("the dense guide of the grid's throttled run (step 23d)", () => {
     for (let j = 0; j < catalog.live.length; j += 1) {
       const channel = catalog.live[j]!;
       if (channel.epgId === null) {
-        expect(guide.has(`big${j + 1}.zoma`)).toBe(false);
+        expect(guide.has(`big${j + 1}.lablo`)).toBe(false);
         continue;
       }
       const slots = guide.get(channel.epgId) ?? [];

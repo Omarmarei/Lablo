@@ -1,8 +1,8 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { Platform } from '@zoma/platform-api';
-import type { FocusBinding, Navigator, Screen, ScreenSpec } from '@zoma/ui';
-import { LAYOUT, SCREEN, bindFocus, createNavigator, fits } from '@zoma/ui';
+import type { Platform } from '@lablo/platform-api';
+import type { FocusBinding, Navigator, Screen, ScreenSpec } from '@lablo/ui';
+import { LAYOUT, SCREEN, bindFocus, createNavigator, fits } from '@lablo/ui';
 import { DEMO_CATEGORIES, DEMO_CHANNELS, DEMO_TILES } from './gallery-data';
 
 /**

@@ -1,5 +1,5 @@
-import type { Focus, FocusBinding } from '@zoma/ui';
-import { Button, Spinner, useZone } from '@zoma/ui';
+import type { Focus, FocusBinding } from '@lablo/ui';
+import { Button, Spinner, useZone } from '@lablo/ui';
 import type { AppI18n } from '../i18n';
 import type { MovieDetails } from './movie-details';
 import { BACK_ACTION, MOVIE_ACTIONS, PLAY_ACTION, movieFacts } from './movie-details';

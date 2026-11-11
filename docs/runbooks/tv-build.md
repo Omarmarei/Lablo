@@ -7,11 +7,11 @@ How `pnpm build:tv`, `pnpm dev` and `pnpm device` work, and the manual Tizen ste
 | Command | What it does |
 |---|---|
 | `pnpm dev` | Vite dev server for `apps/tv` with the browser adapter (keyboard = remote). Open the printed URL at 1920x1080: it starts on onboarding (step 13a), or on the live screen once a source is stored (step 14a). URL overrides: `?tier=low&locale=ar-SA&country=SA`; developer screens `?screen=hello` (device, workers, data layer) and `?screen=gallery` (components). |
-| `pnpm build:tv` | Both TV builds of the app and of the Zoma Lab (`dist/tv-lab`, step 15a, [lab.md](lab.md)), the ES2016 syntax gate, bundle budgets and the webOS `.ipk`s. Options: `--platform tizen` or `--platform webos` (repeatable), `--target app` or `--target lab` (repeatable), `--skip-package`, `--out <dir>` (staging root instead of `dist/tv`; the app only). Lab options: `--lab-server`, `--lab-version`, `--lab-write-mb`, `--lab-no-auto` (lab.md). Test only: `--unsafe-no-polyfills` builds without core-js for the old-engine self-test; it needs `--out`, refuses `dist/tv` and never packages. |
+| `pnpm build:tv` | Both TV builds of the app and of the Lablo Lab (`dist/tv-lab`, step 15a, [lab.md](lab.md)), the ES2016 syntax gate, bundle budgets and the webOS `.ipk`s. Options: `--platform tizen` or `--platform webos` (repeatable), `--target app` or `--target lab` (repeatable), `--skip-package`, `--out <dir>` (staging root instead of `dist/tv`; the app only). Lab options: `--lab-server`, `--lab-version`, `--lab-write-mb`, `--lab-no-auto` (lab.md). Test only: `--unsafe-no-polyfills` builds without core-js for the old-engine self-test; it needs `--out`, refuses `dist/tv` and never packages. |
 | `pnpm verify:engines` | The built apps in Chromium 53/56/68 snapshots (Docker). See [old-engines.md](old-engines.md). |
 | `pnpm fonts` | Remakes the woff2 font subsets in `packages/ui/assets/fonts` (with `fonts.json` and `OFL.txt`) from the Noto sources pinned in `tools/fonts/src/spec.ts`, downloaded once into `.cache/fonts` and checked by SHA-256. Run it after changing a range, a weight or a source, then commit the outputs; the output is deterministic. CI never downloads fonts. |
-| `pnpm e2e` | Playwright: the dev app by keyboard, and both built TV bundles booted from `file://`. Needs `pnpm build:tv` first (`pnpm verify` runs it). The specs press keys through `e2e/remote-driver.ts` and read the focus from `window.__ZOMA_TEST__.focusPath()` (step 14b). The project `throttled` runs last, alone: the live screen on 20,000 channels at 4x CPU throttle, each key press ≤ 200 ms and no longer main-thread task, in the full and the forced low tier (report: `artifacts/perf/live-throttled.json`). Run it by itself with `pnpm exec playwright test --project=throttled --no-deps` (no TV build needed). |
-| `pnpm device <devices\|install\|launch\|inspect> <webos\|tizen> [device] [--lab]` | Install, launch or remote-inspect the build on a TV; `--lab` does it for the Zoma Lab. |
+| `pnpm e2e` | Playwright: the dev app by keyboard, and both built TV bundles booted from `file://`. Needs `pnpm build:tv` first (`pnpm verify` runs it). The specs press keys through `e2e/remote-driver.ts` and read the focus from `window.__LABLO_TEST__.focusPath()` (step 14b). The project `throttled` runs last, alone: the live screen on 20,000 channels at 4x CPU throttle, each key press ≤ 200 ms and no longer main-thread task, in the full and the forced low tier (report: `artifacts/perf/live-throttled.json`). Run it by itself with `pnpm exec playwright test --project=throttled --no-deps` (no TV build needed). |
+| `pnpm device <devices\|install\|launch\|inspect> <webos\|tizen> [device] [--lab]` | Install, launch or remote-inspect the build on a TV; `--lab` does it for the Lablo Lab. |
 
 ## What `pnpm build:tv` does
 
@@ -26,9 +26,9 @@ How `pnpm build:tv`, `pnpm dev` and `pnpm device` work, and the manual Tizen ste
      - To use one of them later, move its entry out of the list and raise that package's `lib`.
    - **Dependencies without polyfills:** fflate's ES build is plain ES5, and its unused worker helper calls `URL.createObjectURL`, which alone pulled in core-js's 25 KB URL polyfill. Files under `node_modules/fflate` therefore get their syntax transpiled (and gated) but no polyfill imports (`POLYFILL_FREE_DEPENDENCIES`).
    - **Effect:** the query worker went from 100.5 to 75.8 KB, the main bundle from about 124 to 113.6 KB, and the ingest worker is 128.8 KB.
-   - **Per-file polyfills and package entries:** Babel adds polyfill imports to each file before Rollup tree-shakes, and those imports are side effects, so every module a bundle reaches keeps its polyfills even when none of its exports are used. Importing `@zoma/data`'s index into the main bundle pulled in the typed-array polyfills of every data module (about 17 KB). The app therefore imports the RPC clients from `@zoma/data/client`, which reaches only `client.ts` and `rpc.ts`. Measure with a per-module size probe (Rollup's `chunk.modules[id].renderedLength`) before you raise a budget.
+   - **Per-file polyfills and package entries:** Babel adds polyfill imports to each file before Rollup tree-shakes, and those imports are side effects, so every module a bundle reaches keeps its polyfills even when none of its exports are used. Importing `@lablo/data`'s index into the main bundle pulled in the typed-array polyfills of every data module (about 17 KB). The app therefore imports the RPC clients from `@lablo/data/client`, which reaches only `client.ts` and `rpc.ts`. Measure with a per-module size probe (Rollup's `chunk.modules[id].renderedLength`) before you raise a budget.
 2. **Workers.** `import X from './x.worker?worker'` (the same syntax Vite uses in dev) builds the worker as its own Chromium 53 IIFE, gates it, and inlines it as a string started from a Blob URL. No separate worker files ship.
-   - **The data workers** (steps 8b and 9b): `apps/tv/src/data/workers.ts` imports `@zoma/data/query.worker?worker`, `@zoma/data/ingest.worker?worker` and `@zoma/data/epg.worker?worker`. `packages/data/package.json` exports the three files (plus `./client`), and `eslint.config.js` allows them as `data` entry points. Vite resolves the same imports in `pnpm dev`.
+   - **The data workers** (steps 8b and 9b): `apps/tv/src/data/workers.ts` imports `@lablo/data/query.worker?worker`, `@lablo/data/ingest.worker?worker` and `@lablo/data/epg.worker?worker`. `packages/data/package.json` exports the three files (plus `./client`), and `eslint.config.js` allows them as `data` entry points. Vite resolves the same imports in `pnpm dev`.
    - **Sizes (step 8b):** main 323.1 KB (tizen) and 321.5 KB (webos) of 500 KB, including the inlined hello (37.5 KB), query (75.8 KB) and ingest (125.3 KB) workers. An inlined worker costs a little more than its own size, because `JSON.stringify` escapes its quotes and backslashes.
    - **Sizes (step 9b):** main 449.4 KB (tizen) and 447.9 KB (webos) of 500 KB, with the EPG worker (116.0 KB) inlined too; query 80.7 KB (now/next), ingest 125.5 KB. The EPG reader got a worker of its own because the ingest worker measured 159.6 KB with it. The main budget is now 90% used, mostly by the three data workers' shared code (core-js, fflate, the IndexedDB and RPC plumbing), so the UI steps will need it changed: see RELAY.md, "Main bundle budget".
    - **Sizes (step 9c):** main 459.1 KB (tizen) and 457.5 KB (webos) of 500 KB; query 89.8 KB (it now asks panels for the short EPG), EPG 115.1 KB, ingest 124.9 KB. `XtreamClient` alone would have made the query worker 110.5 KB, because a class keeps all its methods (the list parser, the JSON splitter). The short-EPG call therefore has its own core file (`xtream-epg.ts`, with the shared plumbing in `xtream-base.ts`). Two polyfills were avoided as well: `content-key.ts` brings `es.json.stringify` (about 4 KB) for its error messages, and `Fnv1a.digest` used `padStart`.
@@ -48,18 +48,18 @@ How `pnpm build:tv`, `pnpm dev` and `pnpm device` work, and the manual Tizen ste
    - **The rule:** a new luna call goes into `LUNA_ACG` with its group from [LG's ACG guide](https://webostv.developer.lge.com/develop/guides/acg-guide), and the group into the manifest of each app that calls it. webOS TV 27+ denies a call whose group is missing (errorCode -1) and the Seller Lounge refuses a manifest without the field. Services LG's ACG table doesn't list (`com.webos.service.tts/speak`, `com.webos.media/selectTrack`) are fallbacks only, never the primary route.
 7. **Stage** `dist/tv/<platform>/`: `index.html` (classic scripts; Tizen also loads `$WEBAPIS/webapis/webapis.js`), `main.js`, `app.css`, `assets/` (fonts and their licence), the platform manifest with `{{version}}` replaced by `apps/tv/package.json` `version`, and the icons from `platforms/<platform>/`.
 8. **Package** into `dist/packages/`:
-   - **webOS:** `ares-package --no-minify` from `@webos-tools/cli` (a devDependency; no global install). Output: `com.zoma.iptv_<version>_all.ipk`. `--no-minify` keeps the shipped bytes identical to the gated ones.
+   - **webOS:** `ares-package --no-minify` from `@webos-tools/cli` (a devDependency; no global install). Output: `com.lablo.iptv_<version>_all.ipk`. `--no-minify` keeps the shipped bytes identical to the gated ones.
    - **Tizen:** only when the Tizen CLI is on PATH **and** `TIZEN_SIGNING_PROFILE` names a certificate profile. Otherwise the build prints why it skipped and still succeeds.
 
 When a gate failure appears: find the excerpt in the source, or the dependency it came from. Regex lookbehind and named groups cannot be transpiled; rewrite the regex. A dependency shipping new syntax is already transpiled; if it still fails, it may use something Babel has no transform for. A CSS gate failure names the source file and line: rewrite the rule with flexbox, margins, physical properties or `rgba()`, as the reason says.
 
-## The Zoma Lab build (step 15a)
+## The Lablo Lab build (step 15a)
 
 The same pipeline builds `apps/tv/src/lab/lab-main.tsx` per platform, with its own budgets (the same limits) and gates, into `dist/tv-lab/<platform>/` (`tools/build/src/lab.ts`):
-- **The manifests** are the app's with another id and name: webOS `com.zoma.iptv.lab`, "Zoma Lab"; Tizen widget `https://zoma-iptv.invalid/lab`, package `ZomaLab001`, app `ZomaLab001.ZomaLab`. So a lab install never replaces the app or its data. On webOS the lab also gets `accessibility.supportsAudioGuidance` and its ACG groups (`LAB_ACG`).
+- **The manifests** are the app's with another id and name: webOS `com.lablo.iptv.lab`, "Lablo Lab"; Tizen widget `https://lablo-iptv.invalid/lab`, package `LabloLab01`, app `LabloLab01.LabloLab`. So a lab install never replaces the app or its data. On webOS the lab also gets `accessibility.supportsAudioGuidance` and its ACG groups (`LAB_ACG`).
 - **index.html** runs the boot-error handler, then the native-feature probe (`apps/tv/src/lab/native-probe.js`, inlined and syntax-gated: which built-ins the engine has before core-js), then `lab-config.js`, then `main.js`.
-- **lab-config.js** holds `window.ZOMA_LAB_CONFIG`: the server (`--lab-server`, default this PC's first private IPv4 address on port 8080), the version (`--lab-version`, default the app's), the write test's size and whether to run at launch.
-- **Package:** `dist/packages/com.zoma.iptv.lab_<version>_all.ipk`. Tizen as for the app, once the CLI exists.
+- **lab-config.js** holds `window.LABLO_LAB_CONFIG`: the server (`--lab-server`, default this PC's first private IPv4 address on port 8080), the version (`--lab-version`, default the app's), the write test's size and whether to run at launch.
+- **Package:** `dist/packages/com.lablo.iptv.lab_<version>_all.ipk`. Tizen as for the app, once the CLI exists.
 - **Sizes (2026-11-04):** lab main.js 131.7 KB own code (tizen), plus the lab worker (33.0 KB); app.css 23.6 KB.
 - **The app's own bundle** gained 0.3 KB (tizen) and 1.5 KB (webos) from `Platform.deviceSecret()`. The webOS luna helper takes its parameters as JSON text: a `JSON.stringify` there would have pulled `es.json.stringify` (about 4 KB) into main.
 
@@ -67,8 +67,8 @@ The same pipeline builds `apps/tv/src/lab/lab-main.tsx` per platform, with its o
 
 | Where | Placeholder | Note |
 |---|---|---|
-| `platforms/webos/appinfo.json` | `"id": "com.zoma.iptv"` | Permanent once published on LG. Depends on the final name and domain (trademark check pending). |
-| `platforms/tizen/config.xml` | widget id `https://zoma-iptv.invalid/tv`, package `ZomaIPTV01`, app id `ZomaIPTV01.Zoma` | Permanent once published on Samsung. |
+| `platforms/webos/appinfo.json` | `"id": "com.lablo.iptv"` | Permanent once published on LG. Depends on the final name and domain (trademark check pending). |
+| `platforms/tizen/config.xml` | widget id `https://lablo-iptv.invalid/tv`, package `LabloIPTV1`, app id `LabloIPTV1.Lablo` | Permanent once published on Samsung. |
 | `platforms/*/icon*.png` | Flat teal squares | Real icons: Tizen 512x423; webOS 80x80 (`icon`) and 130x130 (`largeIcon`). |
 
 Already settled: `requiredACG` (step 16a, build-checked). The LG listing declares webOS 5.0+ ([ADR-012](../adr/ADR-012-lg-minimum-webos5.md)).
@@ -78,15 +78,15 @@ Already settled: `requiredACG` (step 16a, build-checked). The LG listing declare
 The Tizen Studio CLI is not installed on the build machine, and GUI tools are never installed unattended. To build a signed `.wgt` by hand:
 
 1. Install the Tizen CLI: the Tizen SDK 10 CLI installer, or Tizen Studio 6.1 with the **TV Extensions** ([tv-setup.md](tv-setup.md) 3.1; `<sdk>/tools/ide/bin` on PATH, plus `<sdk>/tools` for `sdb`).
-2. Create a **Samsung certificate profile** in Certificate Manager, with the Samsung Certificate Extension 2.0.74 or newer ([tv-setup.md](tv-setup.md) 3.2; Samsung, not Tizen, for TVs; it needs a Samsung account and the TV's DUID for a distributor certificate). Name it, e.g. `zoma-dev`. Never commit `*.p12` files (`.gitignore` blocks them).
+2. Create a **Samsung certificate profile** in Certificate Manager, with the Samsung Certificate Extension 2.0.74 or newer ([tv-setup.md](tv-setup.md) 3.2; Samsung, not Tizen, for TVs; it needs a Samsung account and the TV's DUID for a distributor certificate). Name it, e.g. `lablo-dev`. Never commit `*.p12` files (`.gitignore` blocks them).
 3. Build and package:
 
    ```bash
-   TIZEN_SIGNING_PROFILE=zoma-dev pnpm build:tv --platform tizen
+   TIZEN_SIGNING_PROFILE=lablo-dev pnpm build:tv --platform tizen
    ```
 
-   This runs `tizen package -t wgt -s zoma-dev -- dist/tv/tizen` and moves the `.wgt` into `dist/packages/`.
-   Without the env var, the equivalent by hand is `tizen package -t wgt -s zoma-dev -- dist/tv/tizen`.
+   This runs `tizen package -t wgt -s lablo-dev -- dist/tv/tizen` and moves the `.wgt` into `dist/packages/`.
+   Without the env var, the equivalent by hand is `tizen package -t wgt -s lablo-dev -- dist/tv/tizen`.
 4. Install: `sdb connect <tv-ip>`, then `pnpm device install tizen <serial>` (serial from `pnpm device devices tizen`), then `pnpm device launch tizen <serial>`.
 
 ## webOS `.ipk` on a TV or the emulator
@@ -95,8 +95,8 @@ The Tizen Studio CLI is not installed on the build machine, and GUI tools are ne
 2. Register the TV once. The ares-* commands live in `tools/device`, so run them through pnpm:
 
    ```bash
-   pnpm --filter @zoma/tools-device exec ares-setup-device --add tv --info "host=<tv-ip>" --info "port=9922" --info "username=prisoner"
-   pnpm --filter @zoma/tools-device exec ares-novacom --device tv --getkey   # enter the passphrase shown on the TV
+   pnpm --filter @lablo/tools-device exec ares-setup-device --add tv --info "host=<tv-ip>" --info "port=9922" --info "username=prisoner"
+   pnpm --filter @lablo/tools-device exec ares-novacom --device tv --getkey   # enter the passphrase shown on the TV
    ```
 3. `pnpm build:tv`, then `pnpm device install webos tv`, `pnpm device launch webos tv`. `pnpm device inspect webos tv` opens remote DevTools.
 
@@ -106,7 +106,7 @@ The Tizen Studio CLI is not installed on the build machine, and GUI tools are ne
 
 Run `pnpm dev`, open the URL at 1920x1080, then:
 
-1. The screen shows **Zoma زوما** (Latin in Noto Sans, the Arabic in teal in Noto Sans Arabic UI: DevTools → Elements → Computed → "Rendered Fonts" names both as network resources), "Hello from browser", a device table (model "Desktop browser", tier `full`) and **Worker: ok in N ms (TextDecoder, indexedDB, fetch)** and **IndexedDB (in the worker): ok**.
+1. The screen shows **Lablo لابلو** (Latin in Noto Sans, the Arabic in teal in Noto Sans Arabic UI: DevTools → Elements → Computed → "Rendered Fonts" names both as network resources), "Hello from browser", a device table (model "Desktop browser", tier `full`) and **Worker: ok in N ms (TextDecoder, indexedDB, fetch)** and **IndexedDB (in the worker): ok**.
 2. Press the arrows, Enter, PgUp/PgDn, digits, F1–F4, Space, `i`, `g`: the big text shows `DOWN`, `OK`, `CH_UP`, `DIGIT_5`, `RED`, `PLAY_PAUSE`, `INFO`, `GUIDE`… and the key count goes up.
 3. Press `a`: nothing changes.
 4. The **Focus** block under the remote (the focus engine, step 10) starts on `home · list 0`:
@@ -114,22 +114,22 @@ Run `pnpm dev`, open the URL at 1920x1080, then:
    - PgDn and PgUp move a page of the list.
    - Enter opens a "details" box (`details · buttons 0`); Esc closes it, and the focus is back where it was.
 5. With the mouse: moving over a tile focuses it (`data-pointer` true); an arrow key carries on from there. The wheel scrolls the focused list.
-6. Esc on the main screen shows "Exit Zoma?" (Tizen and the browser ask first; webOS goes straight to the launcher). Enter on Stay closes it; Right then Enter on Exit shows "Back: exit requested".
+6. Esc on the main screen shows "Exit Lablo?" (Tizen and the browser ask first; webOS goes straight to the launcher). Enter on Stay closes it; Right then Enter on Exit shows "Back: exit requested".
 7. Reload with `?tier=low&locale=ar-SA`: the table shows tier `low` and locale `ar-SA`, and the Focus block runs right to left: Left moves along the rail towards its end, Right back. Up and Down don't change.
-8. In `ar-SA` the whole page is mirrored (step 11a, postcss-rtlcss): the Device panel is on the right and the catalog panel on the left, the table headings are right-aligned, and the Arabic name sits left of "Zoma". `<html>` has `dir="rtl"` and `lang="ar-SA"`.
+8. In `ar-SA` the whole page is mirrored (step 11a, postcss-rtlcss): the Device panel is on the right and the catalog panel on the left, the table headings are right-aligned, and the Arabic name sits left of "Lablo". `<html>` has `dir="rtl"` and `lang="ar-SA"`.
 
 ### The component gallery (step 11b)
 
 Open `http://localhost:5173/?screen=gallery` at 1920x1080 (a built bundle takes the same `?screen=gallery` on its `index.html`). It shows every base component, and nothing on it scrolls or leaves the 96/54 px safe area.
 
-1. It starts on channel row **101 Zoma News** (thick teal ring). The Play button, the "All channels" chip and the first tile show a thin ring: each zone's remembered item.
+1. It starts on channel row **101 Lablo News** (thick teal ring). The Play button, the "All channels" chip and the first tile show a thin ring: each zone's remembered item.
 2. **Down** walks the channel list. After row 107 the list scrolls: it always shows 7 of 240 rows. **PgDn**/**PgUp** move 7 rows at a time.
 3. **Up** from the first row goes to the category rail. **Right** walks the chips, and the rail scrolls after the sixth. **Enter** selects a chip: it stays filled, and the header says "Selected: …".
 4. **Up** again reaches the buttons. Play is filled and Remove is red. **Record** is dimmed: it takes the focus, but Enter does nothing.
 5. From the list, **Right** goes to the tiles (3 × 2), and **Left** from the first column goes back to the list's remembered row.
-6. **Enter** on a row (or on Play) opens "Play …?". **Esc** or Cancel closes it, and the focus is back on the same row. **Esc** on the gallery itself shows "Exit Zoma?".
+6. **Enter** on a row (or on Play) opens "Play …?". **Esc** or Cancel closes it, and the focus is back on the same row. **Esc** on the gallery itself shows "Exit Lablo?".
 7. **Mouse:** moving over an item focuses it, and a click selects it. The wheel scrolls the focused list. An arrow key carries on from the item the pointer was on. On a webOS TV, one press of the Magic Remote's OK selects once, though webOS sends both a click and key 13.
 8. Add `&locale=ar-SA`: the whole screen mirrors. The list is on the right, the rail and the buttons start on the right, and the channel number is at each row's right. **Left** moves towards the end of a row of items. Latin channel names stay left to right inside Arabic rows. The media timeline (1:13:12 / 2:00:00) still fills from the left; the loading bar fills from the right.
    - Since step 12a the words come from the catalogs (`apps/tv/src/i18n`): the header reads `ar-SA · 240 قناةً` with the locale tag at the right, the expiry badge `ينتهي خلال 3 أيام`, and the digits are Western (ADR-011). In English: `240 channels`, `Expires in 3 days`.
-   - **Enter** on row 103 opens `تشغيل Zoma Sports 1؟`, the Latin name in its own left-to-right order inside the Arabic sentence (the runtime isolates it between FSI and PDI).
+   - **Enter** on row 103 opens `تشغيل Lablo Sports 1؟`, the Latin name in its own left-to-right order inside the Arabic sentence (the runtime isolates it between FSI and PDI).
 9. Add `&locale=en-XA` (the pseudo-locale): every label of ours is accented, about 40% longer and in brackets, e.g. `[Þļåý one]`. Channel names, titles and HD/4K marks stay plain, because they are the provider's text. Nothing is cut except the chips (fixed width, with an ellipsis), and nothing leaves the safe area.

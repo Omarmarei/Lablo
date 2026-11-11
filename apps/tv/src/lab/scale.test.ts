@@ -1,4 +1,4 @@
-import { DB_NAME } from '@zoma/data';
+import { DB_NAME } from '@lablo/data';
 import { describe, expect, it } from 'vitest';
 import {
   APP_DB,
@@ -81,6 +81,6 @@ describe("S6's criteria and arithmetic (RELAY step 15b)", () => {
     expect(S6_PRESSES.slice(0, 10).every((i) => i === 'DOWN')).toBe(true);
     expect(S6_PRESSES.filter((i) => i === 'CH_DOWN')).toHaveLength(12);
     expect(S6_PRESSES.slice(22).join(' ')).toBe('LEFT DOWN DOWN DOWN DOWN DOWN OK RIGHT DOWN DOWN DOWN DOWN DOWN');
-    expect(S6_QUERIES).toContain('زوما');
+    expect(S6_QUERIES).toContain('لابلو');
   });
 });

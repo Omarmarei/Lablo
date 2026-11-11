@@ -23,7 +23,7 @@ export function buildXmltv(state: MockState, request: FastifyRequest): string {
   const out: string[] = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<!DOCTYPE tv SYSTEM "xmltv.dtd">',
-    `<tv generator-info-name="Zoma mock provider" generator-info-url="${escapeXml(baseUrl(request))}/">`,
+    `<tv generator-info-name="Lablo mock provider" generator-info-url="${escapeXml(baseUrl(request))}/">`,
   ];
   // Channels sharing an EPG id (duplicates in the playlist) appear once.
   const seen = new Set<string>();

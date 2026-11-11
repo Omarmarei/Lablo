@@ -5,7 +5,7 @@
 // are separate boundary elements and only root tests may use both.
 
 import { gunzipSync } from 'node:zlib';
-import type { CatalogItem, CatchupWindow, TextResponse, TextTransport, XmltvChannel, XmltvProgramme, XtreamListItem, ZoneOffset } from '@zoma/core';
+import type { CatalogItem, CatchupWindow, TextResponse, TextTransport, XmltvChannel, XmltvProgramme, XtreamListItem, ZoneOffset } from '@lablo/core';
 import {
   M3uCatalogParser,
   XmltvTokenizer,
@@ -18,7 +18,7 @@ import {
   xtreamCatchupUrl,
   xtreamFromM3uUrl,
   xtreamM3uUrl,
-} from '@zoma/core';
+} from '@lablo/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { LiveChannel } from '../apps/mock-provider/src/config';
 import { loadCatalog, loadServerFixture } from '../apps/mock-provider/src/config';
@@ -44,7 +44,7 @@ afterAll(async () => {
   await app.close();
 });
 
-const account = (username = 'zoma', password = 'zoma-test') => ({ base, username, password });
+const account = (username = 'lablo', password = 'lablo-test') => ({ base, username, password });
 
 /** Appends `?mock_fault=` (one request's faults) to a URL. */
 function withFault(url: string, fault: string | undefined): string {
@@ -136,7 +136,7 @@ describe('Xtream client against the mock', () => {
           key: `x:mock:live:${c.id}`,
           name: c.name,
           group: categoryName(catalog.liveCategories, c.categoryId),
-          url: `${base}/live/zoma/zoma-test/${c.id}.ts`,
+          url: `${base}/live/lablo/lablo-test/${c.id}.ts`,
           epgId: c.epgId,
           chno: c.num,
           catchup: c.archiveDays > 0 ? { mode: 'xc', days: c.archiveDays, source: null } : null,
@@ -146,7 +146,7 @@ describe('Xtream client against the mock', () => {
     );
     expect(lists.live.map((i) => i.adult)).toEqual(catalog.live.map((c) => c.adult));
     expect(lists.movie.map((i) => [i.item.key, i.item.name, i.item.group, i.item.url, i.year, i.rating])).toEqual(
-      catalog.movies.map((m) => [`x:mock:movie:${m.id}`, m.name, categoryName(catalog.vodCategories, m.categoryId), `${base}/movie/zoma/zoma-test/${m.id}.${m.ext}`, m.year, m.rating || null]),
+      catalog.movies.map((m) => [`x:mock:movie:${m.id}`, m.name, categoryName(catalog.vodCategories, m.categoryId), `${base}/movie/lablo/lablo-test/${m.id}.${m.ext}`, m.year, m.rating || null]),
     );
     expect(lists.series.map((i) => [i.item.key, i.item.name, i.item.group])).toEqual(
       catalog.series.map((s) => [`x:mock:series:${s.id}`, s.name, categoryName(catalog.seriesCategories, s.categoryId)]),
@@ -200,7 +200,7 @@ describe('Xtream client against the mock', () => {
     expect((await expired.login()).user).toMatchObject({ auth: true, status: 'Expired' });
     expect((await loadLists(expired)).live).toEqual([]);
 
-    const special = new XtreamClient(account('special+user@zoma.test', 'p@ss/w0rd&?# é'), transport(), 'mock');
+    const special = new XtreamClient(account('special+user@lablo.test', 'p@ss/w0rd&?# é'), transport(), 'mock');
     expect((await special.login()).user.status).toBe('Active');
 
     const busy = await new XtreamClient(account(), transport('status:509'), 'mock').login().catch((e: unknown) => e);
@@ -321,7 +321,7 @@ describe('catch-up URLs against the mock', () => {
 
 describe('get.php detection against the mock', () => {
   it('upgrades the playlist link of every test account, including one with special characters', async () => {
-    for (const [username, password] of [['zoma', 'zoma-test'], ['special+user@zoma.test', 'p@ss/w0rd&?# é']]) {
+    for (const [username, password] of [['lablo', 'lablo-test'], ['special+user@lablo.test', 'p@ss/w0rd&?# é']]) {
       const link = xtreamM3uUrl(account(username, password));
       const detected = xtreamFromM3uUrl(link);
       expect(detected).toEqual({ base, username, password });
@@ -362,7 +362,7 @@ describe('XMLTV tokenizer against the mock', () => {
     };
   }
 
-  const xmltvUrl = (): string => `${base}/xmltv.php?username=zoma&password=zoma-test`;
+  const xmltvUrl = (): string => `${base}/xmltv.php?username=lablo&password=lablo-test`;
 
   /** The panel's zone (from its login, as an Xtream source has it) and its guide, under `fault`. */
   async function guideFor(fault: string | undefined): Promise<{ zone: ZoneOffset; channels: XmltvChannel[]; progs: XmltvProgramme[]; tokenizer: XmltvTokenizer }> {
@@ -408,13 +408,13 @@ describe('XMLTV tokenizer against the mock', () => {
   it('reads the gzipped standalone guide, and skips unwanted channels', async () => {
     const res = await fetch(`${base}/epg/guide.xml.gz`);
     const text = gunzipSync(Buffer.from(await res.arrayBuffer())).toString('utf8');
-    const tokenizer = new XmltvTokenizer({ wantChannel: (id) => id.toLowerCase() === 'zoma.test1' });
+    const tokenizer = new XmltvTokenizer({ wantChannel: (id) => id.toLowerCase() === 'lablo.test1' });
     const items = [];
     for (let i = 0; i < text.length; i += 4093) items.push(...tokenizer.push(text.slice(i, i + 4093)));
     items.push(...tokenizer.end());
     const progs = items.filter((i): i is XmltvProgramme => i.type === 'programme');
     const all = expectedGuide();
-    expect(progs.map((p) => [p.channel, p.title, parseXmltvTime(p.start), parseXmltvTime(p.stop!)])).toEqual(all.filter((p) => p[0] === 'zoma.test1'));
+    expect(progs.map((p) => [p.channel, p.title, parseXmltvTime(p.start), parseXmltvTime(p.stop!)])).toEqual(all.filter((p) => p[0] === 'lablo.test1'));
     expect(tokenizer.stats.filtered).toBe(all.length - progs.length);
   });
 });

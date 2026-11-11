@@ -45,7 +45,7 @@ describe('normalizeName golden', () => {
     ['İstanbul', 'istanbul'],
     // Compatibility forms.
     ['beIN Sports 1 ᴴᴰ', 'bein sports 1 hd'],
-    ['ＺＯＭＡ ＴＶ', 'zoma tv'],
+    ['ＬＡＢＬＯ ＴＶ', 'lablo tv'],
     [`${ch(0xd835, 0xdc01, 0xd835, 0xdc01, 0xd835, 0xdc02)}`, 'bbc'], // mathematical bold B B C
     ['① Channel', '1 channel'],
     ['ﻻ', 'لا'],
@@ -56,7 +56,7 @@ describe('normalizeName golden', () => {
     ['Canal+ & Co', 'canal+ & co'],
     ["Don't Look Up", 'dont look up'],
     ['S.W.A.T.', 'swat'],
-    ['Zoma™ ®', 'zoma'],
+    ['Lablo™ ®', 'lablo'],
     [`${ch(0x26bd, 0xfe0f)} Sport ★ 24/7 ${ch(0xd83d, 0xdd25)}`, 'sport 24 7'],
     ['«خبر» ، عاجل؟', 'خبر عاجل'],
     // Invisible characters and whitespace.

@@ -1,6 +1,6 @@
 # Spike results
 
-What the Zoma Lab ([runbooks/lab.md](../runbooks/lab.md)) found on each device, spike by spike. The spikes and their pass criteria are in [architecture.md §5](../architecture.md); the decisions they led to are ADRs ([ADR-012](../adr/ADR-012-lg-minimum-webos5.md) so far).
+What the Lablo Lab ([runbooks/lab.md](../runbooks/lab.md)) found on each device, spike by spike. The spikes and their pass criteria are in [architecture.md §5](../architecture.md); the decisions they led to are ADRs ([ADR-012](../adr/ADR-012-lg-minimum-webos5.md) so far).
 
 - **Started:** 2026-11-04 (relay step 16a). Step 16 adds the Samsung TVs and the checks that need a person at the TV.
 - **The records** are the lab's NDJSON logs in `artifacts/lab-logs/<session>.ndjson` (gitignored, on the PC that ran the lab server). The session ids are below, so a later reader with the logs can check a number.

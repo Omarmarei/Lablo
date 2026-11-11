@@ -1,4 +1,4 @@
-import { pluralLanguage } from '@zoma/core';
+import { pluralLanguage } from '@lablo/core';
 import type { TextDirection } from '../focus/types';
 import { PSEUDO_LOCALE } from './pseudo';
 

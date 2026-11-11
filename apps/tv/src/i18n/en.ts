@@ -1,6 +1,6 @@
 /**
  * The English catalog: the source of every UI string and the fallback (RELAY step 12, ADR-011).
- * Messages use the ICU subset in `@zoma/ui`'s message.ts: `{name}`, `{n, plural, …}` with `#`,
+ * Messages use the ICU subset in `@lablo/ui`'s message.ts: `{name}`, `{n, plural, …}` with `#`,
  * `{x, select, …}`. Keys are `area.what`. ar.ts must have the same keys (tsc) with the same
  * arguments, and its plurals must give all six Arabic forms (`catalogs.test.ts`).
  */
@@ -61,31 +61,31 @@ export const EN = {
 
   // Dialogs.
   'play.title': 'Play {name}?',
-  'exit.title': 'Exit Zoma?',
+  'exit.title': 'Exit Lablo?',
   'exit.message': 'You can come back any time.',
   'exit.stay': 'Stay',
   'exit.confirm': 'Exit',
 
   // The app's name, in each language's script.
-  'app.name': 'Zoma',
+  'app.name': 'Lablo',
 
   // Onboarding (RELAY step 13): the first start. Brand and format names (Xtream, M3U, XMLTV,
   // http://) are arguments, so they are isolated and the Arabic holds no Latin of its own.
   'onboarding.chooseLanguage': 'Choose your language',
-  'onboarding.disclaimerTitle': 'Zoma is a player',
-  'onboarding.disclaimerBody': 'Zoma provides no channels, films or other content, and it is not linked to any provider.',
+  'onboarding.disclaimerTitle': 'Lablo is a player',
+  'onboarding.disclaimerBody': 'Lablo provides no channels, films or other content, and it is not linked to any provider.',
   'onboarding.disclaimerAdd': 'To watch, add a playlist or a login from a provider you have the right to use. You are responsible for what you add.',
   'onboarding.understand': 'I understand',
   'onboarding.consentTitle': "Use this TV's ID for your backup?",
   'onboarding.consentBody':
-    "Zoma can use this TV's device ID to encrypt a backup of your sources and favourites, so they come back after an app update or a reset. The ID itself never leaves your TV.",
+    "Lablo can use this TV's device ID to encrypt a backup of your sources and favourites, so they come back after an app update or a reset. The ID itself never leaves your TV.",
   'onboarding.backupNote':
     "The backup is on by default and is encrypted on your TV before it is sent, so we can't read it. You can turn it off, or leave out your login details, in Settings.",
   'onboarding.consentNo': "If you don't allow it, Settings shows a backup code for you to note down instead.",
   'onboarding.allow': 'Allow',
   'onboarding.notNow': 'Not now',
   'onboarding.sourceTitle': 'Add your source',
-  'onboarding.sourceBody': 'Use the details your provider gave you. Zoma comes with no sources of its own.',
+  'onboarding.sourceBody': 'Use the details your provider gave you. Lablo comes with no sources of its own.',
   'onboarding.xtream': '{name} login',
   'onboarding.xtreamHint': 'A server address, a username and a password',
   'onboarding.m3u': '{format} playlist link',
@@ -250,7 +250,7 @@ export const EN = {
   'player.provider.advice': "The problem is on the provider's side. Try again later, or contact your provider.",
   'player.device.title': "This TV can't play this channel",
   'player.device.advice': "The channel uses a format this TV doesn't support. Try another channel.",
-  'player.app.title': 'Something went wrong in Zoma',
+  'player.app.title': 'Something went wrong in Lablo',
   'player.app.advice': 'Try again. If it keeps happening, restart the app.',
   'player.account.refused': "Your provider didn't accept the login. Check the username and password.",
   'player.account.expired': 'Your subscription with this provider has expired.',

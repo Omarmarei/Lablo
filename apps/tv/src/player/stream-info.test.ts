@@ -1,5 +1,5 @@
-import type { StreamStats } from '@zoma/player';
-import { NO_STATS } from '@zoma/player';
+import type { StreamStats } from '@lablo/player';
+import { NO_STATS } from '@lablo/player';
 import { describe, expect, it } from 'vitest';
 import { appI18n } from '../i18n';
 import type { Timers } from '../live/live-state';

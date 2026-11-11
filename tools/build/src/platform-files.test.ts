@@ -49,7 +49,7 @@ describe('platform manifests', () => {
 
   it('the real webOS appinfo.json passes, keeps disableBackHistoryAPI and declares no ACG group', () => {
     const info = checkAppinfo(fillTemplate(read('platforms/webos/appinfo.json'), '0.1.0'), '0.1.0');
-    expect(info).toEqual({ id: 'com.zoma.iptv', version: '0.1.0', requiredACG: [] });
+    expect(info).toEqual({ id: 'com.lablo.iptv', version: '0.1.0', requiredACG: [] });
   });
 
   it('rejects an appinfo.json without disableBackHistoryAPI', () => {
@@ -64,7 +64,7 @@ describe('platform manifests', () => {
 
   it('the real Tizen config.xml passes', () => {
     expect(checkConfigXml(fillTemplate(read('platforms/tizen/config.xml'), '0.1.0'), '0.1.0')).toEqual({
-      appId: 'ZomaIPTV01.Zoma',
+      appId: 'LabloIPTV1.Lablo',
     });
   });
 

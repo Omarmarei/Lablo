@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
-import { searchSegments } from '@zoma/core';
+import { searchSegments } from '@lablo/core';
 import { describe, expect, it } from 'vitest';
 import { formatTable, measure, overLimits } from '../src/harness';
 import {
@@ -18,7 +18,7 @@ import {
   readEpgStream,
   tokenizeXmltvStream,
 } from '../src/suites';
-import { EpgWantedSet, matchName, normalizeName } from '@zoma/core';
+import { EpgWantedSet, matchName, normalizeName } from '@lablo/core';
 
 const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 2));
 
@@ -94,7 +94,7 @@ describe('measure', () => {
 
 describe('suites', () => {
   it('counts a needle across chunk boundaries, including split multi-byte characters', async () => {
-    const text = Buffer.from('#EXTINF:-1,زوما\n#EXTINF:-1,b\n#EXTINF:-1,c\n');
+    const text = Buffer.from('#EXTINF:-1,لابلو\n#EXTINF:-1,b\n#EXTINF:-1,c\n');
     const at = text.indexOf(Buffer.from('و')) + 1; // inside a 2-byte character
     const pieces = [text.subarray(0, 4), text.subarray(4, at), text.subarray(at, 20), text.subarray(20)];
     expect(await countInStream(Readable.from(pieces), '#EXTINF')).toBe(3);
@@ -103,7 +103,7 @@ describe('suites', () => {
   });
 
   it('parses an M3U byte stream with core, across split multi-byte characters', async () => {
-    const text = Buffer.from(['#EXTM3U', '#EXTINF:-1,زوما', 'http://h.test/1.ts', '#EXTINF:-1,b', 'http://h.test/movie/2.mp4'].join('\n'));
+    const text = Buffer.from(['#EXTM3U', '#EXTINF:-1,لابلو', 'http://h.test/1.ts', '#EXTINF:-1,b', 'http://h.test/movie/2.mp4'].join('\n'));
     const at = text.indexOf(Buffer.from('و')) + 1; // inside a 2-byte character
     expect(await parseM3uStream(Readable.from([text.subarray(0, at), text.subarray(at)]))).toBe(2);
     // An orphan URL in an extended playlist is no entry.
@@ -117,10 +117,10 @@ describe('suites', () => {
   });
 
   it('streams XMLTV through the tokenizer, keeping only wanted channels', async () => {
-    const xml = Buffer.from('<tv><programme start="1" channel="epg10.zoma.test"><title>نشرة</title></programme><programme start="1" channel="epg11.zoma.test"/></tv>');
+    const xml = Buffer.from('<tv><programme start="1" channel="epg10.lablo.test"><title>نشرة</title></programme><programme start="1" channel="epg11.lablo.test"/></tv>');
     const at = xml.indexOf(0xd9) + 1;
     expect(await tokenizeXmltvStream(Readable.from([xml.subarray(0, at), xml.subarray(at)]))).toBe(2);
-    expect(await tokenizeXmltvStream(Readable.from([xml]), (id) => id === 'epg10.zoma.test')).toBe(1);
+    expect(await tokenizeXmltvStream(Readable.from([xml]), (id) => id === 'epg10.lablo.test')).toBe(1);
   });
 
   it('reads a guide byte stream as the TV does, keeping matched channels in the window', async () => {
@@ -130,14 +130,14 @@ describe('suites', () => {
       return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}0000 +0000`;
     };
     const xml = Buffer.from(
-      `<tv><channel id="epg10.zoma.test"><display-name>نشرة</display-name></channel><channel id="epg11.zoma.test"/>` +
-        `<programme start="${t(1)}" stop="${t(2)}" channel="ghost.zoma.test"><title>ghost</title></programme>` +
-        `<programme start="${t(1)}" stop="${t(2)}" channel="epg10.zoma.test"><title>نشرة</title></programme>` +
-        `<programme start="${t(100)}" stop="${t(101)}" channel="epg10.zoma.test"><title>later</title></programme>` +
-        `<programme start="${t(1)}" stop="${t(2)}" channel="epg11.zoma.test"><title>x</title></programme></tv>`,
+      `<tv><channel id="epg10.lablo.test"><display-name>نشرة</display-name></channel><channel id="epg11.lablo.test"/>` +
+        `<programme start="${t(1)}" stop="${t(2)}" channel="ghost.lablo.test"><title>ghost</title></programme>` +
+        `<programme start="${t(1)}" stop="${t(2)}" channel="epg10.lablo.test"><title>نشرة</title></programme>` +
+        `<programme start="${t(100)}" stop="${t(101)}" channel="epg10.lablo.test"><title>later</title></programme>` +
+        `<programme start="${t(1)}" stop="${t(2)}" channel="epg11.lablo.test"><title>x</title></programme></tv>`,
     );
     const at = xml.indexOf(0xd9) + 1;
-    const live = { key: 'm:b:1:0', src: 'b', kind: 'live' as const, name: 'News', normName: normalizeName('News'), group: '', url: '', logo: null, epgId: 'epg10.zoma.test', tvgName: null, matchName: matchName('News'), chno: null, tvgShift: 0, catchup: null, radio: false, hints: null };
+    const live = { key: 'm:b:1:0', src: 'b', kind: 'live' as const, name: 'News', normName: normalizeName('News'), group: '', url: '', logo: null, epgId: 'epg10.lablo.test', tvgName: null, matchName: matchName('News'), chno: null, tvgShift: 0, catchup: null, radio: false, hints: null };
     const wanted = EpgWantedSet.fromItems([live]);
     const low = await readEpgStream(Readable.from([xml.subarray(0, at), xml.subarray(at)]), wanted, 'low');
     expect(low.programmes).toMatchObject({ kept: 1, outOfWindow: 1, orphansDropped: 1 });
@@ -146,10 +146,10 @@ describe('suites', () => {
   });
 
   it('builds search segments per kind and runs the search cases over a playlist', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'zoma-bench-'));
+    const dir = mkdtempSync(join(tmpdir(), 'lablo-bench-'));
     try {
       const lines = ['#EXTM3U'];
-      for (let i = 0; i < 1203; i++) lines.push(`#EXTINF:-1,Zoma ${i}`, `http://h.test/${i % 3 === 0 ? 'movie/' : ''}${i}.${i % 3 === 0 ? 'mp4' : 'ts'}`);
+      for (let i = 0; i < 1203; i++) lines.push(`#EXTINF:-1,Lablo ${i}`, `http://h.test/${i % 3 === 0 ? 'movie/' : ''}${i}.${i % 3 === 0 ? 'mp4' : 'ts'}`);
       writeFileSync(join(dir, 'playlist.m3u'), lines.join('\n'));
       const { cases } = availableCases(dir, ['search-index-build', 'search-200k']);
       expect(await cases[0]!.run()).toBe(1203);
@@ -157,7 +157,7 @@ describe('suites', () => {
       const segs = buildSegments(await parsePlaylistItems(join(dir, 'playlist.m3u')));
       expect(segs.map((s) => [s.kind, s.count])).toEqual([['live', 802], ['movie', 401], ['series', 0]]);
       expect(segs[0]!.chunkOf(801)).toEqual({ catIdx: 0, chunk: 1, slot: 301 });
-      expect(searchSegments(segs, 'zoma 1200').hits).toHaveLength(1);
+      expect(searchSegments(segs, 'lablo 1200').hits).toHaveLength(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

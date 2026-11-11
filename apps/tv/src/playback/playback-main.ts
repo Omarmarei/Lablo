@@ -4,7 +4,7 @@
  * playback e2e (e2e/playback.spec.ts, e2e/playback-media.spec.ts). It has no UI of its own (the
  * player UI is step 20) and no TV build includes it: the app and the lab are the only TV entries.
  *
- * `window.__ZOMA_PLAYBACK__` (`PlaybackHarness`) plays and reports. The root element carries the
+ * `window.__LABLO_PLAYBACK__` (`PlaybackHarness`) plays and reports. The root element carries the
  * state for Playwright's waits: `data-state`, `data-container`, `data-session` and, once it gave
  * up, `data-failure` (the diagnostic code).
  *
@@ -13,10 +13,10 @@
  * `data-subtitles` says where they come from.
  */
 import { h, render } from 'preact';
-import type { PlayerEngine, PlayRequest, SubtitleView } from '@zoma/player';
-import { PlayerController, isPlaybackError, streamCandidates } from '@zoma/player';
+import type { PlayerEngine, PlayRequest, SubtitleView } from '@lablo/player';
+import { PlayerController, isPlaybackError, streamCandidates } from '@lablo/player';
 // The design tokens and fonts (the package's styles) and the player's own CSS, for the overlay.
-import '@zoma/ui';
+import '@lablo/ui';
 import '../player/player.css';
 import { SubtitleOverlay } from '../player/SubtitleOverlay';
 import { createSubtitleLoader } from '../player/subtitle-loader';
@@ -110,5 +110,5 @@ const harness: PlaybackHarness = {
     return video === null ? '' : video.canPlayType(mime);
   },
 };
-(window as PlaybackTarget).__ZOMA_PLAYBACK__ = harness;
+(window as PlaybackTarget).__LABLO_PLAYBACK__ = harness;
 root.setAttribute('data-ready', 'true');

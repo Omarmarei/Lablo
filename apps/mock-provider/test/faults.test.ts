@@ -26,8 +26,8 @@ afterEach(async () => {
 });
 
 const HOST = 'tv-lab.local:8080';
-const M3U = '/get.php?username=zoma&password=zoma-test&type=m3u_plus';
-const XMLTV = '/xmltv.php?username=zoma&password=zoma-test';
+const M3U = '/get.php?username=lablo&password=lablo-test&type=m3u_plus';
+const XMLTV = '/xmltv.php?username=lablo&password=lablo-test';
 const withFault = (url: string, fault: string): string => `${url}${url.includes('?') ? '&' : '?'}mock_fault=${encodeURIComponent(fault)}`;
 
 async function inject(url: string, headers: Record<string, string> = {}) {
@@ -49,7 +49,7 @@ const isValidUtf8 = (buf: Buffer): boolean => {
 const cases: Record<FaultType, () => Promise<void>> = {
   async status() {
     app = await mock();
-    const res = await inject(withFault('/live/zoma/zoma-test/101.ts', 'status:509'));
+    const res = await inject(withFault('/live/lablo/lablo-test/101.ts', 'status:509'));
     expect(res.statusCode).toBe(509);
     expect(res.body).toBe('Bandwidth Limit Exceeded');
     for (const s of [401, 403, 404]) expect((await inject(withFault(M3U, `status:${s}`))).statusCode).toBe(s);
@@ -62,7 +62,7 @@ const cases: Record<FaultType, () => Promise<void>> = {
 
   async redirect() {
     app = await mock();
-    let url = withFault('/movie/zoma/zoma-test/201.mp4', 'redirect:hops=3');
+    let url = withFault('/movie/lablo/lablo-test/201.mp4', 'redirect:hops=3');
     const locations: string[] = [];
     let res = await inject(url, { range: 'bytes=0-3' });
     while (res.statusCode === 302 && locations.length < 10) {
@@ -74,7 +74,7 @@ const cases: Record<FaultType, () => Promise<void>> = {
     expect(locations).toHaveLength(3);
     expect(locations[0]).toMatch(/^http:\/\/tv-lab\.local:8080\/__mock\/redirect\/[0-9a-f]{16}\/2$/);
     expect(locations[1]).toMatch(/\/1$/);
-    expect(locations[2]).toBe(`http://${HOST}${withFault('/movie/zoma/zoma-test/201.mp4', 'redirect:hops=3')}&mock_hop=done`);
+    expect(locations[2]).toBe(`http://${HOST}${withFault('/movie/lablo/lablo-test/201.mp4', 'redirect:hops=3')}&mock_hop=done`);
     expect(res.statusCode).toBe(206);
 
     const relative = await inject(withFault(M3U, 'redirect:hops=1:status=301:relative=true'));
@@ -94,7 +94,7 @@ const cases: Record<FaultType, () => Promise<void>> = {
     await app.close();
     app = await mock();
     const base = await listen(app);
-    const followed = await fetch(`${base}${withFault('/movie/zoma/zoma-test/201.mp4', 'redirect:hops=3')}`, { headers: { range: 'bytes=0-3' } });
+    const followed = await fetch(`${base}${withFault('/movie/lablo/lablo-test/201.mp4', 'redirect:hops=3')}`, { headers: { range: 'bytes=0-3' } });
     expect(followed.redirected).toBe(true);
     expect(followed.status).toBe(206);
     expect(followed.url).toContain('mock_hop=done');
@@ -134,7 +134,7 @@ const cases: Record<FaultType, () => Promise<void>> = {
     await app.close();
     app = await mock({ media: new PlaceholderMedia({ liveIntervalMs: 10 }) });
     const liveBase = await listen(app);
-    const live = await rawGet(`${liveBase}${withFault('/live/zoma/zoma-test/101.ts', 'stall:after_ms=150')}`, 800);
+    const live = await rawGet(`${liveBase}${withFault('/live/lablo/lablo-test/101.ts', 'stall:after_ms=150')}`, 800);
     expect(live.status).toBe(200);
     expect(live.body.length).toBeGreaterThan(0);
     expect(live.body.length).toBeLessThan(13_160 * 35); // ~15 chunks in 150 ms; ~80 if it never stalled
@@ -172,7 +172,7 @@ const cases: Record<FaultType, () => Promise<void>> = {
     const m3u = (await plain(M3U)).toString('utf8');
     const bad = (await inject(withFault(M3U, 'invalid-utf8'))).rawPayload;
     expect(isValidUtf8(bad)).toBe(false);
-    expect(bad.indexOf(INVALID_UTF8)).toBe(Buffer.byteLength(m3u.slice(0, m3u.indexOf(',Zoma Test 1 SMPTE\n') + 1)));
+    expect(bad.indexOf(INVALID_UTF8)).toBe(Buffer.byteLength(m3u.slice(0, m3u.indexOf(',Lablo Test 1 SMPTE\n') + 1)));
     const xml = (await inject(withFault(XMLTV, 'invalid-utf8'))).rawPayload;
     expect(xml.indexOf(INVALID_UTF8)).toBe(xml.indexOf('<display-name>') + '<display-name>'.length);
     const json = (await inject(withFault(api('get_live_streams'), 'invalid-utf8'))).rawPayload;
@@ -188,7 +188,7 @@ const cases: Record<FaultType, () => Promise<void>> = {
     expect(lines.at(-1)).toBe(MALFORMED_M3U_TAIL);
     expect(text.endsWith('\n')).toBe(false);
     // The real entries are all still there.
-    expect(text.match(/\/live\/zoma\/zoma-test\/\d+\.ts$/gm)).toHaveLength(11);
+    expect(text.match(/\/live\/lablo\/lablo-test\/\d+\.ts$/gm)).toHaveLength(11);
     // JSON is left alone.
     expect((await inject(withFault(api(), 'malformed-m3u'))).body).toBe((await plain(api())).toString('utf8'));
   },
@@ -214,7 +214,7 @@ const cases: Record<FaultType, () => Promise<void>> = {
     expect(raw.headers['content-type']).toBe('application/gzip');
     expect(gunzipSync(raw.rawPayload).equals(await plain(M3U))).toBe(true);
     // Streamed media is compressed on the fly.
-    const live = await inject(withFault('/live/zoma/zoma-test/101.ts', 'gzip'));
+    const live = await inject(withFault('/live/lablo/lablo-test/101.ts', 'gzip'));
     const ts = gunzipSync(live.rawPayload);
     expect(ts).toHaveLength(4096);
     expect(ts[188]).toBe(0x47);
@@ -234,7 +234,7 @@ const cases: Record<FaultType, () => Promise<void>> = {
     expect(await firstStart(`${tz}:xmltv=colon`)).toBe('20261026174500 +05:45');
     expect(await firstStart(`${tz}:xmltv=utc`)).toBe('20261026120000 +0000');
     // Timeshift starts are read in the same zone.
-    const shift = await inject(withFault('/timeshift/zoma/zoma-test/30/2026-11-02:15-45/101.ts', tz));
+    const shift = await inject(withFault('/timeshift/lablo/lablo-test/30/2026-11-02:15-45/101.ts', tz));
     expect(shift.headers['x-mock-archive-start']).toBe(String(NOW_SEC - 7200));
   },
 
@@ -257,11 +257,11 @@ const cases: Record<FaultType, () => Promise<void>> = {
     const preflight = await app.inject({
       method: 'OPTIONS',
       url: '/player_api.php',
-      headers: { origin: 'http://localhost:5173', 'access-control-request-method': 'GET', 'access-control-request-headers': 'x-zoma-test' },
+      headers: { origin: 'http://localhost:5173', 'access-control-request-method': 'GET', 'access-control-request-headers': 'x-lablo-test' },
     });
     expect(preflight.statusCode).toBe(204);
     expect(preflight.headers['access-control-allow-origin']).toBe('*');
-    expect(preflight.headers['access-control-allow-headers']).toBe('x-zoma-test');
+    expect(preflight.headers['access-control-allow-headers']).toBe('x-lablo-test');
   },
 };
 
@@ -318,10 +318,10 @@ describe('fault parsing', () => {
 
 describe('scenario rules', () => {
   const ctx = (over: Partial<MatchContext> = {}): MatchContext => ({
-    path: '/live/zoma/zoma-test/101.ts',
+    path: '/live/lablo/lablo-test/101.ts',
     method: 'GET',
     params: {},
-    username: 'zoma',
+    username: 'lablo',
     streamId: 101,
     ...over,
   });
@@ -379,7 +379,7 @@ describe('scenario rules', () => {
     const slow = loadScenario('slow-provider');
     expect(scenarioFaults(slow, ctx({ path: '/player_api.php' }))).toEqual([{ type: 'slow-headers', delayMs: 3000 }]);
     const stalling = loadScenario('stalling-streams');
-    const vod = ctx({ path: '/movie/zoma/zoma-test/201.mp4' });
+    const vod = ctx({ path: '/movie/lablo/lablo-test/201.mp4' });
     expect([1, 2, 3, 4].map(() => scenarioFaults(stalling, vod).map((f) => f.type))).toEqual([[], [], ['reset'], []]);
   });
 });
@@ -388,7 +388,7 @@ describe('shipped scenarios against the server', () => {
   it('flaky-live: the first two live requests fail, then live works', async () => {
     app = await mock({ scenario: 'flaky-live' });
     const codes = [];
-    for (let i = 0; i < 3; i++) codes.push((await inject('/live/zoma/zoma-test/101.ts')).statusCode);
+    for (let i = 0; i < 3; i++) codes.push((await inject('/live/lablo/lablo-test/101.ts')).statusCode);
     expect(codes).toEqual([509, 509, 200]);
     expect((await inject(M3U)).statusCode).toBe(200);
   });
@@ -396,12 +396,12 @@ describe('shipped scenarios against the server', () => {
   it('provider-errors: per-channel statuses, a truncated playlist and quirky JSON', async () => {
     app = await mock({ scenario: 'provider-errors' });
     const codes = [];
-    for (const id of [101, 102, 103, 104, 105]) codes.push((await inject(`/live/zoma/zoma-test/${id}.ts`)).statusCode);
+    for (const id of [101, 102, 103, 104, 105]) codes.push((await inject(`/live/lablo/lablo-test/${id}.ts`)).statusCode);
     expect(codes).toEqual([401, 403, 404, 509, 200]);
     const m3u = await inject(M3U);
     expect(m3u.body.endsWith('\n')).toBe(false);
-    expect(m3u.body).toContain('/live/zoma/zoma-test/101.ts');
-    expect(m3u.body).not.toContain('/series/zoma/zoma-test/3022.mp4');
+    expect(m3u.body).toContain('/live/lablo/lablo-test/101.ts');
+    expect(m3u.body).not.toContain('/series/lablo/lablo-test/3022.mp4');
     expect((await inject(api())).json<{ user_info: Record<string, unknown> }>().user_info['max_connections']).toBe(2);
   });
 
@@ -425,7 +425,7 @@ describe('shipped scenarios against the server', () => {
     await app.close();
 
     app = await mock({ scenario: 'redirect-chain' });
-    expect((await inject('/series/zoma/zoma-test/3001.mkv')).statusCode).toBe(302);
+    expect((await inject('/series/lablo/lablo-test/3001.mkv')).statusCode).toBe(302);
     expect((await inject(api())).statusCode).toBe(200);
     await app.close();
 
@@ -445,14 +445,14 @@ describe('scenario control', () => {
     expect((await inject('/__mock/health')).json()).toMatchObject({ ok: true, scenario: null });
     expect((await put('flaky-live')).json()).toEqual({ active: 'flaky-live', rules: 1 });
     expect((await inject('/__mock/health')).json()).toMatchObject({ scenario: 'flaky-live' });
-    expect((await inject('/live/zoma/zoma-test/101.ts')).statusCode).toBe(509);
-    expect((await inject('/live/zoma/zoma-test/101.ts')).statusCode).toBe(509);
-    expect((await inject('/live/zoma/zoma-test/101.ts')).statusCode).toBe(200);
+    expect((await inject('/live/lablo/lablo-test/101.ts')).statusCode).toBe(509);
+    expect((await inject('/live/lablo/lablo-test/101.ts')).statusCode).toBe(509);
+    expect((await inject('/live/lablo/lablo-test/101.ts')).statusCode).toBe(200);
     await put('flaky-live');
-    expect((await inject('/live/zoma/zoma-test/101.ts')).statusCode).toBe(509);
+    expect((await inject('/live/lablo/lablo-test/101.ts')).statusCode).toBe(509);
     expect((await put('nope')).statusCode).toBe(404);
     expect((await put(null)).json()).toEqual({ active: null });
-    expect((await inject('/live/zoma/zoma-test/101.ts')).statusCode).toBe(200);
+    expect((await inject('/live/lablo/lablo-test/101.ts')).statusCode).toBe(200);
     const listed = (await inject('/__mock/scenarios')).json<{ active: null; available: { name: string }[] }>();
     expect(listed.available).toHaveLength(9);
   });

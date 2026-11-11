@@ -1,4 +1,4 @@
-The Zoma Sans font files are subsets of Noto Sans and Noto Sans Arabic UI, unmodified
+The Lablo Sans font files are subsets of Noto Sans and Noto Sans Arabic UI, unmodified
 otherwise, under the SIL Open Font License 1.1:
 
 Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic)

@@ -10,16 +10,16 @@
 import { createReadStream, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createGunzip } from 'node:zlib';
-import type { EpgBucket } from '@zoma/core';
-import { EpgGuideReader, EpgWantedSet } from '@zoma/core';
-import type { GuideRow } from '@zoma/data';
-import { QueryService, beginEpgGeneration, commitEpgGeneration, openDatabase, putEpgBuckets, putEpgChannels } from '@zoma/data';
+import type { EpgBucket } from '@lablo/core';
+import { EpgGuideReader, EpgWantedSet } from '@lablo/core';
+import type { GuideRow } from '@lablo/data';
+import { QueryService, beginEpgGeneration, commitEpgGeneration, openDatabase, putEpgBuckets, putEpgChannels } from '@lablo/data';
 import { describe, expect, it } from 'vitest';
 import { freshFactory } from '../packages/data/src/test-support';
 import { EPG_BENCH_NOW, parsePlaylistItems } from '../tools/bench/src/suites';
 import { XMLTV_ANCHOR_MS, slotOf } from '../tools/fixtures/src/xmltv';
 
-const fixtures = process.env['ZOMA_FIXTURES_DIR'] ?? join(import.meta.dirname, '..', '.cache', 'fixtures');
+const fixtures = process.env['LABLO_FIXTURES_DIR'] ?? join(import.meta.dirname, '..', '.cache', 'fixtures');
 const guide = join(fixtures, 'xmltv-300mb.xml.gz');
 const playlist = join(fixtures, 'playlist.m3u');
 const MINUTE = 60_000;
@@ -47,11 +47,11 @@ const GRID_WINDOWS: readonly { name: string; from: number; to: number }[] = [
 ];
 
 /**
- * The schedule the fixture generator wrote for guide channel `epg<k>.zoma.test` that the reader
+ * The schedule the fixture generator wrote for guide channel `epg<k>.lablo.test` that the reader
  * keeps (`win`, in guide time), over [from, to), shifted.
  */
 function generated(channel: string, win: { from: number; to: number }, from: number, to: number, shift: number): string[] {
-  const k = Number(/^epg(\d+)\.zoma\.test$/.exec(channel)![1]);
+  const k = Number(/^epg(\d+)\.lablo\.test$/.exec(channel)![1]);
   const slot = slotOf(k);
   const first = (XMLTV_ANCHOR_MS - 7 * DAY_MS) / MINUTE;
   const s = Math.round(shift * 60);

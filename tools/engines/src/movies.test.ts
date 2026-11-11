@@ -23,8 +23,8 @@ describe('the fixture movies (RELAY step 26b)', () => {
       [FILMS, 300],
       [ARABIC_FILMS, 300],
     ]);
-    expect(FILMS_LIST[0]!.movies[0]!.name).toBe('Zoma Film 2401');
-    expect(FILMS_LIST[1]!.movies[0]!.name).toBe('فيلم زوما 2701');
+    expect(FILMS_LIST[0]!.movies[0]!.name).toBe('Lablo Film 2401');
+    expect(FILMS_LIST[1]!.movies[0]!.name).toBe('فيلم لابلو 2701');
   });
 
   it('gives each movie a poster of its own address, but the 13th of every 50 none and the 8th one that fails', () => {
@@ -44,9 +44,9 @@ describe('the fixture movies (RELAY step 26b)', () => {
 
   it("writes the posters as the movies' tvg-logo", () => {
     const m3u = fixtureM3u(fixtureEntries());
-    expect(m3u).toContain(`#EXTINF:-1 tvg-id="fixture.2401" tvg-logo="${FIXTURE_ORIGIN}/poster-1.png?m=2401" group-title="Films",Zoma Film 2401`);
-    expect(m3u).toContain('#EXTINF:-1 tvg-id="fixture.2413" group-title="Films",Zoma Film 2413');
-    expect(m3u).toContain(`tvg-logo="${FIXTURE_ORIGIN}/poster-2.png?m=2702" group-title="${ARABIC_FILMS}",فيلم زوما 2702`);
+    expect(m3u).toContain(`#EXTINF:-1 tvg-id="fixture.2401" tvg-logo="${FIXTURE_ORIGIN}/poster-1.png?m=2401" group-title="Films",Lablo Film 2401`);
+    expect(m3u).toContain('#EXTINF:-1 tvg-id="fixture.2413" group-title="Films",Lablo Film 2413');
+    expect(m3u).toContain(`tvg-logo="${FIXTURE_ORIGIN}/poster-2.png?m=2702" group-title="${ARABIC_FILMS}",فيلم لابلو 2702`);
     // No live channel has one.
     expect(m3u.split('\n').filter((l) => l.includes('tvg-logo')).length).toBe(600 - 12);
   });
@@ -138,13 +138,13 @@ describe('the movies screen checks', () => {
     const entry = listedFilms(FILMS_LIST, 0)!;
     expect(posterFailures(view, entry)).toEqual([]);
     const poster = view.tiles[0]!.poster!;
-    expect(posterFailures(withTile(view, 0, () => ({ poster: { ...poster, drawn: false } })), entry)).toEqual(['1 of 18 tiles wrong: tile 0 (Zoma Film 2401): the poster was never drawn']);
+    expect(posterFailures(withTile(view, 0, () => ({ poster: { ...poster, drawn: false } })), entry)).toEqual(['1 of 18 tiles wrong: tile 0 (Lablo Film 2401): the poster was never drawn']);
     expect(posterFailures(withTile(view, 0, () => ({ poster: { ...poster, width: 1, height: 1 } })), entry)[0]).toContain('the poster is 1x1, expected the file\'s 184x276');
     expect(posterFailures(withTile(view, 0, () => ({ poster: { ...poster, height: 100 } })), entry)[0]).toContain("the poster is 184x100, expected the file's 184x276");
     expect(posterFailures(withTile(view, 0, () => ({ poster: { ...poster, src: view.tiles[1]!.poster!.src } })), entry)[0]).toContain(`the poster is ${view.tiles[1]!.poster!.src}, expected ${poster.src}`);
-    expect(posterFailures(withTile(view, 7, () => ({ poster })), entry)[0]).toContain('tile 7 (Zoma Film 2408): draws an image');
+    expect(posterFailures(withTile(view, 7, () => ({ poster })), entry)[0]).toContain('tile 7 (Lablo Film 2408): draws an image');
     expect(posterFailures(withTile(view, 12, () => ({ poster })), entry)[0]).toContain('though its poster is none');
-    expect(posterFailures(withTile(view, 2, () => ({ poster: null })), entry)[0]).toContain('tile 2 (Zoma Film 2403): no poster');
+    expect(posterFailures(withTile(view, 2, () => ({ poster: null })), entry)[0]).toContain('tile 2 (Lablo Film 2403): no poster');
     expect(posterFailures(withTile(view, 2, (t) => ({ poster: { ...t.poster!, left: t.left + 100 } })), entry)[0]).toContain('the poster is drawn at 80x268 px');
     expect(posterFailures(withTile(view, 2, (t) => ({ poster: { ...t.poster!, right: t.right + 30 } })), entry)[0]).toContain(', outside its tile');
     expect(posterFailures(withTile(view, 4, () => ({ title: 'Another' })), entry)[0]).toContain('title "Another"');

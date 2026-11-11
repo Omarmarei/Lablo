@@ -2,7 +2,7 @@
 // EPG refresh, honoured by the matcher, and seen through the query worker after the refresh (now/
 // next, the grid's rows); every declared channel of each guide is stored and can be searched.
 
-import type { CatalogItem } from '@zoma/core';
+import type { CatalogItem } from '@lablo/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { EpgIngestOptions, EpgRefreshJob } from './epg-ingest';
 import { EPG_INGEST_VERSION, runEpgRefresh } from './epg-ingest';

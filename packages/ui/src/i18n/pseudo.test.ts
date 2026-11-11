@@ -34,7 +34,7 @@ describe('pseudoLocalize (en-XA)', () => {
     expect(pseudoLocalize(message)).toBe(expected);
   });
 
-  it('only uses letters Zoma Sans has (Latin-1 and Latin Extended-A)', () => {
+  it('only uses letters Lablo Sans has (Latin-1 and Latin Extended-A)', () => {
     for (const [plain, accented] of Object.entries(PSEUDO_ACCENTS)) {
       expect(plain).toMatch(/^[A-Za-z]$/);
       expect(accented.length).toBe(1);

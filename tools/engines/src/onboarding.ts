@@ -41,7 +41,7 @@
  * Each screen on the way is measured as in the e2e test (1920x1080, the safe area, no label
  * cut), and the form, done, live, category, (Tizen) exit, guide and movies screens are saved as
  * screenshots.
- * At every step the focus engine (`window.__ZOMA_TEST__`, step 14b) and the screen drawing it
+ * At every step the focus engine (`window.__LABLO_TEST__`, step 14b) and the screen drawing it
  * must agree.
  *
  * The steps, the probes and the evaluation are unit-tested; `runOnboarding` drives a real
@@ -78,11 +78,11 @@ export const BLANK_PAGE = 'blank.html';
 export const BLANK_URL = `file:///app/${BLANK_PAGE}`;
 
 export function stageBlankPage(root: string): void {
-  writeFileSync(path.join(root, BLANK_PAGE), '<!DOCTYPE html>\n<title>Zoma engines: a page with no app</title>\n');
+  writeFileSync(path.join(root, BLANK_PAGE), '<!DOCTYPE html>\n<title>Lablo engines: a page with no app</title>\n');
 }
 
 /** The app's database (packages/data `DB_NAME`), its profile store and the profile's key. */
-export const APP_DATABASE = { name: 'zoma', profileStore: 'profile', profileKey: 'current' } as const;
+export const APP_DATABASE = { name: 'lablo', profileStore: 'profile', profileKey: 'current' } as const;
 
 /** The playlist field's input (apps/tv onboarding `fieldDomId('playlist')`). */
 export const PLAYLIST_INPUT = 'onboarding-playlist';
@@ -139,7 +139,7 @@ export interface WalkState extends LiveView {
   readonly index: number | null;
   readonly editing: string | null;
   readonly language: string | null;
-  /** The focus engine's `screen/zone/index` (`window.__ZOMA_TEST__.focusPath()`; null without the hook or a screen). */
+  /** The focus engine's `screen/zone/index` (`window.__LABLO_TEST__.focusPath()`; null without the hook or a screen). */
   readonly hook: string | null;
   /** `<html dir>`. */
   readonly dir: string;
@@ -195,7 +195,7 @@ export const WALK_EXPRESSION = `(function () {
   var grid = gridView(guide);
   var films = moviesView(movies);
   var time = guide ? guide.getAttribute('data-time') : null;
-  var hook = window.__ZOMA_TEST__;
+  var hook = window.__LABLO_TEST__;
   var liveCount = live ? live.querySelector('[data-testid="live-meta"] [data-n]') : null;
   var input = document.getElementById('${PLAYLIST_INPUT}');
   var status = document.querySelector('[data-testid="load-status"]');
@@ -205,7 +205,7 @@ export const WALK_EXPRESSION = `(function () {
   var boot = document.getElementById('boot-error');
   return JSON.stringify({
     href: location.href,
-    stale: window.__zomaStale === true,
+    stale: window.__labloStale === true,
     userAgent: navigator.userAgent,
     bootError: boot ? boot.textContent : '',
     onboarding: ob !== null && ob.getAttribute('data-ready') === 'true',
@@ -253,26 +253,26 @@ export const WALK_EXPRESSION = `(function () {
 })()`;
 
 /** Marks the page before a relaunch: the same address loads again, and the old page must not count. */
-export const STALE_MARK = `(function () { window.__zomaStale = true; return JSON.stringify(true); })()`;
+export const STALE_MARK = `(function () { window.__labloStale = true; return JSON.stringify(true); })()`;
 
 /**
  * Deletes the app's database from the blank page, then (`RESET_RESULT`) reads how it went:
  * `ok`, `error: <name>`, or `blocked` while a connection is still open (then `ok` once it closes).
  */
 export const RESET_EXPRESSION = `(function () {
-  window.__zomaReset = 'pending';
+  window.__labloReset = 'pending';
   var request = indexedDB.deleteDatabase('${APP_DATABASE.name}');
-  request.onsuccess = function () { window.__zomaReset = 'ok'; };
-  request.onerror = function () { window.__zomaReset = 'error: ' + (request.error ? request.error.name : 'unknown'); };
-  request.onblocked = function () { window.__zomaReset = 'blocked'; };
+  request.onsuccess = function () { window.__labloReset = 'ok'; };
+  request.onerror = function () { window.__labloReset = 'error: ' + (request.error ? request.error.name : 'unknown'); };
+  request.onblocked = function () { window.__labloReset = 'blocked'; };
   return JSON.stringify(location.href);
 })()`;
-export const RESET_RESULT = `JSON.stringify({ href: location.href, reset: window.__zomaReset || 'none' })`;
+export const RESET_RESULT = `JSON.stringify({ href: location.href, reset: window.__labloReset || 'none' })`;
 
 /** Records each loading phase the screen shows (as `recordPhases` in the e2e test), from before "Add source". */
 export const PHASES_EXPRESSION = `(function () {
   var seen = [];
-  window.__zomaPhases = seen;
+  window.__labloPhases = seen;
   new MutationObserver(function () {
     var el = document.querySelector('[data-testid="load-status"]');
     var phase = el ? el.getAttribute('data-phase') : null;
@@ -280,7 +280,7 @@ export const PHASES_EXPRESSION = `(function () {
   }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-phase'] });
   return JSON.stringify(seen);
 })()`;
-export const PHASES_RESULT = `JSON.stringify(window.__zomaPhases || null)`;
+export const PHASES_RESULT = `JSON.stringify(window.__labloPhases || null)`;
 
 /** The stored profile, as much of it as the walk checks (never the link or a login). */
 export interface StoredProfile {
@@ -297,8 +297,8 @@ export interface StoredProfile {
  * version before that would create an empty one). `PROFILE_RESULT` polls for the answer.
  */
 export const PROFILE_EXPRESSION = `(function () {
-  window.__zomaProfile = null;
-  function done(value) { window.__zomaProfile = JSON.stringify(value); }
+  window.__labloProfile = null;
+  function done(value) { window.__labloProfile = JSON.stringify(value); }
   function failed(error) { done({ sources: null, language: null, consent: null, error: String(error && error.name || error) }); }
   var open = indexedDB.open('${APP_DATABASE.name}');
   open.onerror = function () { failed(open.error); };
@@ -325,7 +325,7 @@ export const PROFILE_EXPRESSION = `(function () {
   };
   return JSON.stringify('reading');
 })()`;
-export const PROFILE_RESULT = `(function () { return window.__zomaProfile || null; })()`;
+export const PROFILE_RESULT = `(function () { return window.__labloProfile || null; })()`;
 
 /** Where the walk must be after a step: every field given must match. */
 export interface Expectation {
@@ -1042,7 +1042,7 @@ export interface OnboardingOptions extends RunOptions {
 }
 
 /** The page's address, and whether it is the document marked before navigating away (`STALE_MARK`). */
-export const PAGE_STATE = `JSON.stringify({ href: location.href, stale: window.__zomaStale === true })`;
+export const PAGE_STATE = `JSON.stringify({ href: location.href, stale: window.__labloStale === true })`;
 
 /**
  * Deletes the app's database from the blank page (no app page open, or the delete would wait for

@@ -90,9 +90,9 @@ interface PosterLog {
  * frame with stay as they are.
  */
 function recordPosters(): void {
-  const w = window as unknown as { __zomaPosters: PosterLog };
+  const w = window as unknown as { __labloPosters: PosterLog };
   const log: PosterLog = { keys: [], starts: [], maxImages: 0 };
-  w.__zomaPosters = log;
+  w.__labloPosters = log;
   addEventListener('keydown', (event) => log.keys.push(event.timeStamp), true);
   performance.setResourceTimingBufferSize(100_000);
   new PerformanceObserver((list) => {
@@ -110,7 +110,7 @@ function recordPosters(): void {
 /** The poster log so far; the page keeps recording. */
 function readPosterLog(page: Page): Promise<PosterLog> {
   return page.evaluate(() => {
-    const log = (window as unknown as { __zomaPosters: PosterLog }).__zomaPosters;
+    const log = (window as unknown as { __labloPosters: PosterLog }).__labloPosters;
     return { keys: log.keys.slice(), starts: log.starts.slice(), maxImages: log.maxImages };
   });
 }

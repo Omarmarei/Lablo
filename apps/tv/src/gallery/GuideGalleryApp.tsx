@@ -1,5 +1,5 @@
-import type { Platform } from '@zoma/platform-api';
-import { GuideGrid, Spinner, connectRemote, guideCellAt, resolveLocale, useFocus } from '@zoma/ui';
+import type { Platform } from '@lablo/platform-api';
+import { GuideGrid, Spinner, connectRemote, guideCellAt, resolveLocale, useFocus } from '@lablo/ui';
 import { useSignal } from '@preact/signals';
 import { useEffect } from 'preact/hooks';
 import type { AppI18n } from '../i18n';

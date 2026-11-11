@@ -14,7 +14,7 @@
  * `[src, gen]`..`[src, gen, []]` covers one generation and `[src]`..`[src, []]` a whole source.
  */
 
-import type { CatalogItem, ContentKind, SearchSegmentData, XtreamServerInfo } from '@zoma/core';
+import type { CatalogItem, ContentKind, SearchSegmentData, XtreamServerInfo } from '@lablo/core';
 import type { CatalogChunk, CategoryInfo } from './chunker';
 import { onSuccess, transact } from './idb';
 import { STORE } from './schema';

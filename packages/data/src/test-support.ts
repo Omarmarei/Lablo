@@ -1,11 +1,11 @@
-// Test helpers for @zoma/data (imported by *.test.ts only; never by package code).
+// Test helpers for @lablo/data (imported by *.test.ts only; never by package code).
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
-import type { CatalogItem, ContentKind } from '@zoma/core';
-import { normalizeName, xtreamKey } from '@zoma/core';
+import type { CatalogItem, ContentKind } from '@lablo/core';
+import { normalizeName, xtreamKey } from '@lablo/core';
 import type { CatalogChunk } from './chunker';
 import { CatalogChunker, indexChunk } from './chunker';
-import { SearchIndexBuilder } from '@zoma/core';
+import { SearchIndexBuilder } from '@lablo/core';
 import { beginGeneration, commitGeneration, putCatalogKind, putChunks } from './catalog-store';
 import type { Migration } from './schema';
 import { openDatabase, transact } from './idb';
@@ -106,7 +106,7 @@ export async function describeSchema(db: IDBDatabase): Promise<{ version: number
 }
 
 /** Opens, describes and closes. */
-export async function schemaOf(factory: IDBFactory, migrations: readonly Migration[], name = 'zoma'): Promise<Awaited<ReturnType<typeof describeSchema>>> {
+export async function schemaOf(factory: IDBFactory, migrations: readonly Migration[], name = 'lablo'): Promise<Awaited<ReturnType<typeof describeSchema>>> {
   const db = await openDatabase(factory, { migrations, name });
   try {
     return await describeSchema(db);

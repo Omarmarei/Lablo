@@ -24,7 +24,7 @@ const LAP = 10;
 /** Pinned clock: 1 s into the last segment of a lap, so live crosses a lap boundary 5 s in. */
 const SEQ = 296_000_000 + LAP - 1;
 const NOW = (SEQ * 6 + 1) * 1000;
-const AUTH = 'zoma/zoma-test';
+const AUTH = 'lablo/lablo-test';
 
 interface Stream {
   codec_type: string;

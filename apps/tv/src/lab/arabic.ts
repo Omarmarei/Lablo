@@ -1,5 +1,5 @@
 /**
- * What S9 measures in the page (RELAY step 15b2, docs/architecture.md §5): the app's Zoma Sans
+ * What S9 measures in the page (RELAY step 15b2, docs/architecture.md §5): the app's Lablo Sans
  * faces, Arabic shaping in them, the bidi isolation of text arguments (core's `isolateText`,
  * ADR-011) and what the engine's `Intl` makes of Arabic beside the app's own formatters.
  *
@@ -7,14 +7,14 @@
  * harness, a TV). The bidi probe is the old-engine harness's (tools/engines gallery.ts
  * `BIDI_EXPRESSION`), ported: tools/ can't be imported here, and the lab must run it on a TV.
  */
-import { isolateText } from '@zoma/core';
-import type { LocaleSettings } from '@zoma/ui';
-import { formatDate, formatNumber, formatTime, resolveLocale } from '@zoma/ui';
+import { isolateText } from '@lablo/core';
+import type { LocaleSettings } from '@lablo/ui';
+import { formatDate, formatNumber, formatTime, resolveLocale } from '@lablo/ui';
 
 const ZWNJ = String.fromCharCode(0x200c);
 
 /** The family the app's text uses (packages/ui/src/styles/fonts.css). */
-export const FONT_FAMILY = 'Zoma Sans';
+export const FONT_FAMILY = 'Lablo Sans';
 
 /** `Channel`, the word after a count in the app's Arabic plurals. */
 export const ARABIC_WORD = 'قناة';
@@ -32,7 +32,7 @@ export function apart(text: string): string {
 
 // --- Fonts -------------------------------------------------------------------------------
 
-/** One Zoma Sans face as the page's FontFaceSet reports it: `ar400`, `la700`. */
+/** One Lablo Sans face as the page's FontFaceSet reports it: `ar400`, `la700`. */
 export interface FaceState {
   readonly face: string;
   readonly status: string;
@@ -77,11 +77,11 @@ export function fontSet(): FontSetLike | null {
   return fonts !== undefined && typeof fonts.load === 'function' && typeof fonts.forEach === 'function' ? fonts : null;
 }
 
-/** Asks for both weights of both scripts, then reads every Zoma Sans face's status. */
+/** Asks for both weights of both scripts, then reads every Lablo Sans face's status. */
 export async function loadFaces(fonts: FontSetLike): Promise<FaceState[]> {
   const loads: Promise<unknown>[] = [];
   for (const weight of [400, 700]) {
-    for (const sample of ['Zoma', ARABIC_WORD]) loads.push(fonts.load(`${weight} 32px "${FONT_FAMILY}"`, sample).catch(() => null));
+    for (const sample of ['Lablo', ARABIC_WORD]) loads.push(fonts.load(`${weight} 32px "${FONT_FAMILY}"`, sample).catch(() => null));
   }
   await Promise.all(loads);
   const faces: FaceState[] = [];
@@ -94,7 +94,7 @@ export async function loadFaces(fonts: FontSetLike): Promise<FaceState[]> {
 
 // --- Measuring ---------------------------------------------------------------------------
 
-/** A hidden, unwrapped box in Zoma Sans for measuring text; `done()` removes it. */
+/** A hidden, unwrapped box in Lablo Sans for measuring text; `done()` removes it. */
 export function measureBox(host: HTMLElement = document.body): { readonly box: HTMLElement; width(text: string): number; done(): void } {
   const box = document.createElement('div');
   box.setAttribute('style', `position: absolute; left: 0; top: 0; visibility: hidden; white-space: nowrap; font-family: "${FONT_FAMILY}"; font-size: 48px; font-weight: 400;`);
@@ -137,7 +137,7 @@ export function shapingFailures(answer: ShapingAnswer): string[] {
 }
 
 /**
- * The shaping check's result. `arabicFaceLoaded` is `document.fonts.check` for the word in Zoma
+ * The shaping check's result. `arabicFaceLoaded` is `document.fonts.check` for the word in Lablo
  * Sans (null without the API): when false, a fallback font was measured, which says nothing
  * about ours.
  */
@@ -158,12 +158,12 @@ export function measureShaping(width: (text: string) => number): ShapingAnswer {
 
 /** The lines of the harness's bidi probe (tools/engines gallery.ts `BIDI_LINES`). */
 export const BIDI_LINES = {
-  plain: 'Zoma 1',
-  isolated: isolateText('Zoma 1', 'rtl'),
+  plain: 'Lablo 1',
+  isolated: isolateText('Lablo 1', 'rtl'),
   trailing: `${isolateText('MBC 1', 'rtl')} · 240 ${ARABIC_WORD}`,
   trailingControl: `MBC 1 · 240 ${ARABIC_WORD}`,
-  leading: `${isolateText('1 Zoma', 'rtl')} ${ARABIC_WORD}`,
-  leadingControl: `1 Zoma ${ARABIC_WORD}`,
+  leading: `${isolateText('1 Lablo', 'rtl')} ${ARABIC_WORD}`,
+  leadingControl: `1 Lablo ${ARABIC_WORD}`,
 } as const;
 
 /** The left edges of two parts of an RTL line. */
@@ -173,13 +173,13 @@ export interface BidiPair {
 }
 
 export interface BidiAnswer {
-  /** `Zoma 1`, and the same as `isolateText` gives it: equal when the isolation draws nothing. */
+  /** `Lablo 1`, and the same as `isolateText` gives it: equal when the isolation draws nothing. */
   readonly plain: number;
   readonly isolated: number;
   /** `MBC 1 · 240 قناة`: the name and the count, isolated and not (the control). */
   readonly trailing: BidiPair;
   readonly trailingControl: BidiPair;
-  /** `1 Zoma قناة`: the digit and the name, isolated and not. */
+  /** `1 Lablo قناة`: the digit and the name, isolated and not. */
   readonly leading: BidiPair;
   readonly leadingControl: BidiPair;
 }
@@ -226,8 +226,8 @@ export function measureBidi(box: HTMLElement, width: (text: string) => number): 
     isolated: width(BIDI_LINES.isolated),
     trailing: pair(BIDI_LINES.trailing, 'MBC', '240'),
     trailingControl: pair(BIDI_LINES.trailingControl, 'MBC', '240'),
-    leading: pair(BIDI_LINES.leading, '1', 'Zoma'),
-    leadingControl: pair(BIDI_LINES.leadingControl, '1', 'Zoma'),
+    leading: pair(BIDI_LINES.leading, '1', 'Lablo'),
+    leadingControl: pair(BIDI_LINES.leadingControl, '1', 'Lablo'),
   };
 }
 

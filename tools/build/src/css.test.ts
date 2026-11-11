@@ -11,7 +11,7 @@ const fixture = (name: string): string => path.join(FIXTURES, name);
 
 /** A CSS file in a fresh temporary folder. */
 function cssFile(name: string, css: string): string {
-  const file = path.join(mkdtempSync(path.join(tmpdir(), 'zoma-css-')), name);
+  const file = path.join(mkdtempSync(path.join(tmpdir(), 'lablo-css-')), name);
   writeFileSync(file, css);
   return file;
 }
@@ -59,7 +59,7 @@ describe('TV CSS (tools/build/src/css.ts)', () => {
   });
 
   it('refuses two different assets with the same name', async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'zoma-css-'));
+    const dir = mkdtempSync(path.join(tmpdir(), 'lablo-css-'));
     for (const sub of ['a', 'b']) {
       mkdirSync(path.join(dir, sub));
       writeFileSync(path.join(dir, sub, 'x.svg'), sub);

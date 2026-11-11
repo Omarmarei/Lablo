@@ -11,7 +11,7 @@ import { XMLTV_SPECS, programmeCount } from '../src/xmltv';
 import { checkXmltvFixture } from './xmltv-oracle';
 import { expectXtreamMatchesCatalog, parseXtreamFixture } from './xtream-oracle';
 
-const fixtures = process.env['ZOMA_FIXTURES_DIR'] ?? join(import.meta.dirname, '..', '..', '..', '.cache', 'fixtures');
+const fixtures = process.env['LABLO_FIXTURES_DIR'] ?? join(import.meta.dirname, '..', '..', '..', '.cache', 'fixtures');
 
 function need(path: string): string {
   if (!existsSync(path)) throw new Error(`${path} is missing: run pnpm fixtures (pnpm verify:media does)`);

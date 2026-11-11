@@ -22,7 +22,7 @@
  * Against placeholder bytes (the lab server without `pnpm mock:media`) everything but `formats`
  * skips. No record holds a URL: they carry the mock's test account.
  */
-import type { LifecycleEvent, Platform } from '@zoma/platform-api';
+import type { LifecycleEvent, Platform } from '@lablo/platform-api';
 import type { RedirectProbe } from './http';
 import type { LabMedia, LabMediaId, LabMediaItem } from './media';
 import { CONTAINER_MIME, HEVC_MIME, parseLabMedia } from './media';
@@ -657,7 +657,7 @@ export function batteryChecks(spike: string, deps: BatteryDeps): Check[] {
       const item = itemFor(container === 'ts' ? 'live-ts' : 'live-hls');
       if (!isItem(item)) return item;
       return withPlayer(async (player) => {
-        player.caption(`${spike}: press Home, wait a few seconds, then come back to the Zoma Lab`);
+        player.caption(`${spike}: press Home, wait a few seconds, then come back to the Lablo Lab`);
         const first = await openAndWait(player, item.url, { live: true }, BATTERY.frameWaitMs, clock);
         if (!first.played) return { status: 'fail', value: { container, first }, note: `the live ${container.toUpperCase()} never played` };
         if (!(await lifecycleEvent(context.platform, ['hidden'], BATTERY.leaveWaitMs, clock))) return { status: 'skip', note: 'nobody pressed Home within 5 min' };

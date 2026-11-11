@@ -8,9 +8,9 @@
 // Only setTimeout/clearTimeout are faked, and only around a focus: message channels, promises,
 // fake-indexeddb (setImmediate) and the sockets keep real time.
 
-import type { ContentKind, XtreamAccount } from '@zoma/core';
-import type { ByteTransport, IngestSource, RpcHandlers, ShortEpgNowNext } from '@zoma/data';
-import { EpgService, IngestService, QueryService, SHORT_EPG_TTL_MS, fetchTransport, openDatabase, serveRpc } from '@zoma/data';
+import type { ContentKind, XtreamAccount } from '@lablo/core';
+import type { ByteTransport, IngestSource, RpcHandlers, ShortEpgNowNext } from '@lablo/data';
+import { EpgService, IngestService, QueryService, SHORT_EPG_TTL_MS, fetchTransport, openDatabase, serveRpc } from '@lablo/data';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { FocusedChannel, WorkerLike } from '../apps/tv/src/data/engine';
 import { DataEngine, FOCUS_MS } from '../apps/tv/src/data/engine';
@@ -169,7 +169,7 @@ describe('the short-EPG fallback through the DataEngine and the mock provider', 
     expect(epg.outcomes.map((o) => [o.epgSrc, o.error?.code])).toEqual([['xt:xmltv', 'http']]);
     expect((await s.engine.epgStatus()).matched).toBe(0);
 
-    const smpte = await channel(s.engine, 'xt', 'Zoma Test 1 SMPTE', source);
+    const smpte = await channel(s.engine, 'xt', 'Lablo Test 1 SMPTE', source);
     expect(smpte.key).toBe('x:xt:live:101');
     const first = await focusFor(s, smpte);
     expect(s.asked).toEqual(['101']);
@@ -184,9 +184,9 @@ describe('the short-EPG fallback through the DataEngine and the mock provider', 
     expect(show(again!.now)).toBe(oracle(101, s.clock.now).now);
 
     // A focus that moves on before 600 ms asks nothing; the channel it moved to is asked.
-    const kids = await channel(s.engine, 'xt', 'Zoma Kids Test', source);
+    const kids = await channel(s.engine, 'xt', 'Lablo Kids Test', source);
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    const left = s.engine.focusChannel(await channel(s.engine, 'xt', 'Zoma Test 2 Clock', source));
+    const left = s.engine.focusChannel(await channel(s.engine, 'xt', 'Lablo Test 2 Clock', source));
     vi.advanceTimersByTime(FOCUS_MS / 2);
     const moved = s.engine.focusChannel(kids);
     expect(await left).toBeNull();
@@ -196,7 +196,7 @@ describe('the short-EPG fallback through the DataEngine and the mock provider', 
     expect(s.asked).toEqual(['101', '105']);
 
     // An answer that comes after the focus moved on is dropped (and still kept for next time).
-    const clock2 = await channel(s.engine, 'xt', 'Zoma Test 2 Clock', source);
+    const clock2 = await channel(s.engine, 'xt', 'Lablo Test 2 Clock', source);
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const stale = s.engine.focusChannel(clock2);
     vi.advanceTimersByTime(FOCUS_MS);
@@ -223,7 +223,7 @@ describe('the short-EPG fallback through the DataEngine and the mock provider', 
     await s.engine.refreshEpg([{ src: 'pl', type: 'm3u' }], { tier: 'full' });
     expect((await s.engine.epgStatus()).matched).toBe(11);
 
-    const matched = await focusFor(s, await channel(s.engine, 'pl', 'Zoma Test 1 SMPTE', source));
+    const matched = await focusFor(s, await channel(s.engine, 'pl', 'Lablo Test 1 SMPTE', source));
     expect(matched).toMatchObject({ epgSrc: 'pl:tvg0', from: 'guide', cached: false });
     expect({ now: show(matched!.now), next: show(matched!.next) }).toEqual(oracle(101, s.clock.now));
     expect(s.asked).toEqual([]);

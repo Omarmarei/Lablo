@@ -1,5 +1,5 @@
-import { stripIsolates } from '@zoma/core';
-import type { EpgMeta, EpgSummary } from '@zoma/data';
+import { stripIsolates } from '@lablo/core';
+import type { EpgMeta, EpgSummary } from '@lablo/data';
 import { describe, expect, it } from 'vitest';
 import { appI18n } from '../i18n';
 import type { GuideRow } from './guides-state';

@@ -8,7 +8,7 @@
  * Step 12's i18n runtime runs every catalog message through `pseudoLocalize` when the locale
  * is `en-XA`. Placeholders survive: `{name}` and ICU arguments (`{n, plural, one {…} other
  * {…}}`) keep their syntax, and only the message text inside them is accented. The accented
- * letters are all in Latin-1 and Latin Extended-A, which Zoma Sans covers (U+0000–017F).
+ * letters are all in Latin-1 and Latin Extended-A, which Lablo Sans covers (U+0000–017F).
  */
 export const PSEUDO_LOCALE = 'en-XA';
 

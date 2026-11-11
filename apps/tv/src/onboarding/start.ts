@@ -1,5 +1,5 @@
-import type { LastChannel, LoadedProfile } from '@zoma/data';
-import type { Language } from '@zoma/ui';
+import type { LastChannel, LoadedProfile } from '@lablo/data';
+import type { Language } from '@lablo/ui';
 import { lastChannelOf } from '../player/player-memory';
 import { storedSources } from './engine-loader';
 import type { OnboardingAnswer } from './onboarding-state';

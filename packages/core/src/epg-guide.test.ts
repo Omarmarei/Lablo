@@ -110,13 +110,13 @@ describe('epgWindow', () => {
 
 describe('EpgGuideReader', () => {
   it('keeps matched channels only, in UTC minutes, one bucket per channel and day of the start', () => {
-    const a = live('Zoma A', { epgId: 'a' });
+    const a = live('Lablo A', { epgId: 'a' });
     const wanted = EpgWantedSet.fromItems([a, live('Movie', { kind: 'movie' })]);
     const midnight = Date.UTC(2026, 10, 3);
     const { buckets, reader } = read(
       tv(
-        ch('a', 'Zoma A'),
-        ch('b', 'Zoma B'),
+        ch('a', 'Lablo A'),
+        ch('b', 'Lablo B'),
         pr('a', xt(NOW - HOUR, 180), xt(NOW, 180), 'One', '<title lang="ar">واحد</title><desc>First &amp; best</desc><sub-title>Pilot</sub-title><category>News</category><episode-num system="onscreen">E1</episode-num>'),
         pr('b', xt(NOW), xt(NOW + HOUR), 'Skipped'),
         pr('a', xt(midnight - 30 * MIN, -300), xt(midnight + 30 * MIN, -300), 'Late'),
@@ -334,8 +334,8 @@ describe('EpgGuideReader', () => {
   });
 
   it('reports the match rate, the methods, the unmatched channels and what was dropped', () => {
-    const items = [live('Zoma A', { epgId: 'a' }), live('Zoma B HD'), live('Nothing', { epgId: 'missing.id' }), live('Gone')];
-    const { reader } = read(tv(ch('a'), ch('b.uk', 'UK: Zoma B'), ch('c', 'Other'), pr('a', xt(NOW), xt(NOW + HOUR), 'x'), pr('c', xt(NOW), xt(NOW + HOUR), 'y')), {
+    const items = [live('Lablo A', { epgId: 'a' }), live('Lablo B HD'), live('Nothing', { epgId: 'missing.id' }), live('Gone')];
+    const { reader } = read(tv(ch('a'), ch('b.uk', 'UK: Lablo B'), ch('c', 'Other'), pr('a', xt(NOW), xt(NOW + HOUR), 'x'), pr('c', xt(NOW), xt(NOW + HOUR), 'y')), {
       wanted: EpgWantedSet.fromItems(items),
     });
     const r = reader.report();

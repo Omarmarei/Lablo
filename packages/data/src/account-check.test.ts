@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { XtreamAccount } from '@zoma/core';
+import type { XtreamAccount } from '@lablo/core';
 import { LOGIN_REFUSED, checkAccount, sourceAccount } from './account-check';
 import { createDataClient } from './client';
 import { openDatabase } from './idb';

@@ -1,5 +1,5 @@
 /**
- * @zoma/player: PlayerController, PlayerEngine interface, Html5Engine, watchdog, error classifier, subtitle parsing.
+ * @lablo/player: PlayerController, PlayerEngine interface, Html5Engine, watchdog, error classifier, subtitle parsing.
  *
  * Allowed imports are listed in CLAUDE.md ("Package boundaries") and enforced by
  * eslint-plugin-boundaries: `core` only (ADR-008). Html5Engine (step 18) and FallbackEngine

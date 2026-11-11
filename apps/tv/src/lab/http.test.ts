@@ -36,8 +36,8 @@ class FakeXhr {
   }
 }
 
-const URL_ = 'http://lab:8080/live/zoma/zoma-test/104.ts?mock_fault=redirect:hops=3';
-const FINAL = 'http://lab:8080/live/zoma/zoma-test/104.ts';
+const URL_ = 'http://lab:8080/live/lablo/lablo-test/104.ts?mock_fault=redirect:hops=3';
+const FINAL = 'http://lab:8080/live/lablo/lablo-test/104.ts';
 
 function probe(timeoutMs?: number) {
   const xhr = new FakeXhr();

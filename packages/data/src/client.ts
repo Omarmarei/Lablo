@@ -1,6 +1,6 @@
 /**
  * The UI's side of the data workers: typed RPC clients over the query worker, the ingest worker
- * and the EPG worker (architecture.md §1.2). `ui` imports only this part of `@zoma/data`.
+ * and the EPG worker (architecture.md §1.2). `ui` imports only this part of `@lablo/data`.
  */
 
 export type { EpgCatalogSource, EpgDueReason, EpgGuide, UserGuide } from './epg-sources';

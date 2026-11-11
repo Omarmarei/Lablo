@@ -1,4 +1,4 @@
-import type { CatalogItem } from '@zoma/core';
+import type { CatalogItem } from '@lablo/core';
 import { describe, expect, it } from 'vitest';
 import type { CatalogView } from './favourites';
 import { FavouriteMatcher, MISSING_KEEP_MS, reconcileFavourites } from './favourites';
@@ -32,10 +32,10 @@ const reconcile = (favourites: FavouriteRef[], items: CatalogItem[], now = NOW, 
 
 describe('reconcileFavourites', () => {
   it('re-matches a renumbered Xtream stream by name, in its old group', () => {
-    const old = item('tv', 'live', 101, 'Zoma News', 'News');
+    const old = item('tv', 'live', 101, 'Lablo News', 'News');
     const f = fav(old);
     // The same channel listed in two groups, both renumbered.
-    const { favourites, report } = reconcile([f], [item('tv', 'live', 1101, 'Zoma News', 'News'), item('tv', 'live', 1102, 'Zoma News', 'Kids')]);
+    const { favourites, report } = reconcile([f], [item('tv', 'live', 1101, 'Lablo News', 'News'), item('tv', 'live', 1102, 'Lablo News', 'Kids')]);
     expect(favourites).toEqual([{ ...f, key: 'x:tv:live:1101', group: 'News' }]);
     expect(report).toMatchObject({ changed: true, rematched: [{ from: 'x:tv:live:101', to: 'x:tv:live:1101' }], missing: [] });
   });

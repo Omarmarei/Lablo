@@ -1,8 +1,8 @@
-import type { CatalogItem, ContentKey } from '@zoma/core';
-import type { LastChannel, LoadedProfile, PlayerChange, ProfileEdit, StoredTrackChoice, StoredTrackPick } from '@zoma/data';
-import type { RedirectMemory, RedirectMode } from '@zoma/platform-api';
-import type { Container, PictureMode, SourceMemory, TrackChoice, TrackMemory, TrackPick } from '@zoma/player';
-import { asPictureMode } from '@zoma/player';
+import type { CatalogItem, ContentKey } from '@lablo/core';
+import type { LastChannel, LoadedProfile, PlayerChange, ProfileEdit, StoredTrackChoice, StoredTrackPick } from '@lablo/data';
+import type { RedirectMemory, RedirectMode } from '@lablo/platform-api';
+import type { Container, PictureMode, SourceMemory, TrackChoice, TrackMemory, TrackPick } from '@lablo/player';
+import { asPictureMode } from '@lablo/player';
 import type { SubtitleSize } from './track-menu';
 
 /**

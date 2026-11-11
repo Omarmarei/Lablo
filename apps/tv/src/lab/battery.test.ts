@@ -1,4 +1,4 @@
-import type { LifecycleEvent } from '@zoma/platform-api';
+import type { LifecycleEvent } from '@lablo/platform-api';
 import { describe, expect, it } from 'vitest';
 import type { FrameResult, SoakResult } from './battery';
 import { BATTERY, PLACEHOLDER_NOTE, STALLS_RECORDED, batteryChecks, frameVerdict, lifecycleEvent, noPicture, openAndWait, soak, soakVerdict, switchAudio, switchByService, switchOutcome } from './battery';
@@ -173,7 +173,7 @@ class FakePlayer implements LabPlayer {
   }
 }
 
-const URL_ = 'http://lab:8080/live/zoma/zoma-test/104.ts';
+const URL_ = 'http://lab:8080/live/lablo/lablo-test/104.ts';
 
 describe('the first frame', () => {
   it('times the open to the frame event', async () => {
@@ -496,7 +496,7 @@ describe('the battery checks', () => {
     expect(results['subtitles']?.note).toBe('subs-mkv: no text track; subs-mp4: no text track');
     expect(results['suspend']?.note).toBe('run S5 alone (OK on its row) and press Home while it plays');
     expect(results['soak']?.note).toBe('run S5 alone (OK on its row): 1 min of live TS with stalls');
-    expect(JSON.stringify(results)).not.toMatch(/http:|zoma-test/);
+    expect(JSON.stringify(results)).not.toMatch(/http:|lablo-test/);
     // A player per row, each gone when its row ended.
     expect(b.players.every((p) => p.disposed)).toBe(true);
     expect(b.players.map((p) => p.captions[0])).toEqual([undefined, 'S5: live TS', 'S5: live HLS', 'S5: live HLS through redirects', 'S5: 4K HEVC', 'S5: audio tracks', 'S5: AC3 and E-AC3', 'S5: subtitles (MKV)', 'S5: subtitles (MP4)']);
@@ -696,7 +696,7 @@ describe('the battery checks', () => {
     const player = b.players[b.players.length - 1]!;
     expect(player.calls).toEqual(['suspend', 'resume']);
     expect(player.opens.map((o) => o.url)).toEqual(['http://lab/live/104.m3u8', 'http://lab/live/104.m3u8']);
-    expect(player.captions[0]).toBe('S5: press Home, wait a few seconds, then come back to the Zoma Lab');
+    expect(player.captions[0]).toBe('S5: press Home, wait a few seconds, then come back to the Lablo Lab');
   });
 
   it('fails a slow or missing comeback, and skips when nobody pressed Home', async () => {
@@ -953,7 +953,7 @@ describe("the platform's track service", () => {
 // The redirect probe's row (AVPlay, S4: RELAY step 15c2)
 
 describe('the redirect probe row', () => {
-  const FOUND = (over: Partial<RedirectProbe> = {}): RedirectProbe => ({ finalUrl: 'http://lab/live/zoma/zoma-test/104.m3u8', redirected: true, status: 200, ms: 40, ...over });
+  const FOUND = (over: Partial<RedirectProbe> = {}): RedirectProbe => ({ finalUrl: 'http://lab/live/lablo/lablo-test/104.m3u8', redirected: true, status: 200, ms: 40, ...over });
 
   it('comes after redirect, and plays the URL the probe found', async () => {
     const asked: string[] = [];
@@ -972,9 +972,9 @@ describe('the redirect probe row', () => {
       value: { container: 'hls', probeMs: 40, status: 200, redirected: true, withoutProbe: 'played', played: true, ms: 900 },
       note: 'probe 40 ms (HTTP 200), then the first frame in 900 ms; it played without the probe too',
     });
-    expect(b.players[4]?.opens[0]?.url).toBe('http://lab/live/zoma/zoma-test/104.m3u8');
+    expect(b.players[4]?.opens[0]?.url).toBe('http://lab/live/lablo/lablo-test/104.m3u8');
     expect(b.players[4]?.captions).toEqual(['S5: live HLS at the URL the probe found']);
-    expect(JSON.stringify(results)).not.toMatch(/http:|zoma-test/);
+    expect(JSON.stringify(results)).not.toMatch(/http:|lablo-test/);
   });
 
   it('notes the freeze without the probe (AVPlay on a 302), or a failure', async () => {
@@ -998,7 +998,7 @@ describe('the redirect probe row', () => {
     expect(straight['redirect-probe']).toMatchObject({ status: 'fail', note: 'the probe saw no redirect (HTTP 302, responseURL unchanged)', value: { redirected: false } });
     // Nothing was opened for it.
     expect(direct.players.map((p) => p.captions[0])).not.toContain('S5: live HLS at the URL the probe found');
-    const dead = await battery({ plan: (url) => ({ frameAfterMs: url.indexOf('zoma-test') !== -1 || url.indexOf('.ts') !== -1 ? null : 900 }), probe: () => Promise.resolve(FOUND()) }).runAll();
+    const dead = await battery({ plan: (url) => ({ frameAfterMs: url.indexOf('lablo-test') !== -1 || url.indexOf('.ts') !== -1 ? null : 900 }), probe: () => Promise.resolve(FOUND()) }).runAll();
     expect(dead['redirect-probe']).toMatchObject({ status: 'fail', note: 'probe 40 ms, then no picture within 10000 ms: no answer', value: { played: false, ms: 10_000, unsupported: false } });
   });
 

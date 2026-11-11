@@ -1,4 +1,4 @@
-import type { Intent } from '@zoma/platform-api';
+import type { Intent } from '@lablo/platform-api';
 
 /** Text direction of the UI: Arabic is `rtl`, English `ltr`. */
 export type TextDirection = 'ltr' | 'rtl';

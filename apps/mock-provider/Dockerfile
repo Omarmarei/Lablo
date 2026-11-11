@@ -1,11 +1,11 @@
-# Zoma mock provider: the test-signal server (Xtream/M3U/XMLTV/catch-up, fault injection, the
+# Lablo mock provider: the test-signal server (Xtream/M3U/XMLTV/catch-up, fault injection, the
 # LAN log collector) with its ffmpeg test channels baked in. For TV lab runs on any machine with
 # Docker, and later the public test server for store testers (RELAY step 44, needs Omar).
 #
-# Build (from the repo root):  docker build -f apps/mock-provider/Dockerfile -t zoma-mock .
-# Run:                         docker run --rm -p 8080:8080 zoma-mock
-# Public server:               docker run -d -p 8080:8080 zoma-mock --no-lab-logs
-# With the open movies:        docker run ... -v <repo>/.cache/media/open-movies:/app/.cache/media/open-movies zoma-mock
+# Build (from the repo root):  docker build -f apps/mock-provider/Dockerfile -t lablo-mock .
+# Run:                         docker run --rm -p 8080:8080 lablo-mock
+# Public server:               docker run -d -p 8080:8080 lablo-mock --no-lab-logs
+# With the open movies:        docker run ... -v <repo>/.cache/media/open-movies:/app/.cache/media/open-movies lablo-mock
 #                              (fetch them on the host first: pnpm mock:open-movies)
 # Lab logs land in /app/artifacts/lab-logs (mount a volume there to keep them).
 
@@ -22,7 +22,7 @@ WORKDIR /app
 COPY . .
 # Only the mock's own dependencies (fastify, yaml, tsx): no browsers, no build tooling.
 RUN corepack install \
-  && pnpm install --frozen-lockfile --prod --filter @zoma/app-mock-provider \
+  && pnpm install --frozen-lockfile --prod --filter @lablo/app-mock-provider \
   && chown -R node:node /app
 
 USER node

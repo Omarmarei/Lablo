@@ -1,5 +1,5 @@
 /**
- * @zoma/data: IndexedDB schema and migrations, ingest and query workers, typed worker RPC, DataClient.
+ * @lablo/data: IndexedDB schema and migrations, ingest and query workers, typed worker RPC, DataClient.
  *
  * Allowed imports are listed in CLAUDE.md ("Package boundaries") and enforced by
  * eslint-plugin-boundaries. `ui` uses only the client part (`createDataClient`, the RPC types).

@@ -1,11 +1,11 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { EpgMeta, EpgStatus, EpgSummary, GuideChange, LoadedProfile, ProfileEdit, UnmatchedPage, UnmatchedRequest } from '@zoma/data';
+import type { EpgMeta, EpgStatus, EpgSummary, GuideChange, LoadedProfile, ProfileEdit, UnmatchedPage, UnmatchedRequest } from '@lablo/data';
 // The client entry only: the package index would pull every data module's polyfills into main.
-import { EPG_OFFSET_MAX, EPG_OFFSET_STEP, epgGuides, epgOffsetsOf } from '@zoma/data/client';
-import type { Platform } from '@zoma/platform-api';
-import type { EditorBinding, Focus, Navigator, Screen, ScreenSpec, TextEditorOptions, ZoneSpec } from '@zoma/ui';
-import { SCREEN, bindEditor, createTextEditor, fits } from '@zoma/ui';
+import { EPG_OFFSET_MAX, EPG_OFFSET_STEP, epgGuides, epgOffsetsOf } from '@lablo/data/client';
+import type { Platform } from '@lablo/platform-api';
+import type { EditorBinding, Focus, Navigator, Screen, ScreenSpec, TextEditorOptions, ZoneSpec } from '@lablo/ui';
+import { SCREEN, bindEditor, createTextEditor, fits } from '@lablo/ui';
 import { catalogOf, storedSources, userGuides } from '../onboarding/engine-loader';
 import { normalizeLink } from '../onboarding/form';
 

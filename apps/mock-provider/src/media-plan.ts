@@ -113,7 +113,7 @@ export function liveAsset(channel: LiveChannel): LiveAsset {
 export const GENERIC_LIVE: LiveAsset = {
   kind: 'live',
   key: 'generic',
-  label: ['Zoma test signal', 'generic channel loop'],
+  label: ['Lablo test signal', 'generic channel loop'],
   video: LIVE_PROFILES.clock.video,
   audio: LIVE_PROFILES.clock.audio,
 };
@@ -198,7 +198,7 @@ export function genericFile(ext: 'mp4' | 'mkv'): FileAsset {
     ext,
     durationSecs: GENERIC_FILE_SECONDS,
     clipSecs: STAND_IN_CLIP_SECONDS,
-    label: ['Zoma test signal', `generic ${ext.toUpperCase()} file`],
+    label: ['Lablo test signal', `generic ${ext.toUpperCase()} file`],
     video: video('testsrc2', 640, 360, 25, 250),
     audio: [stereo('eng', 'English', 440)],
     subtitles: [],

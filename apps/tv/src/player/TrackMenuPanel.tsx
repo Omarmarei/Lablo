@@ -1,9 +1,9 @@
 import type { VNode } from 'preact';
-import { normalizeLang } from '@zoma/core';
-import type { PlayerTrack, PlayerTracks, SubtitleFeed } from '@zoma/player';
-import { fileIndex } from '@zoma/player';
-import type { FocusBinding, ItemBinding, Screen } from '@zoma/ui';
-import { useZone } from '@zoma/ui';
+import { normalizeLang } from '@lablo/core';
+import type { PlayerTrack, PlayerTracks, SubtitleFeed } from '@lablo/player';
+import { fileIndex } from '@lablo/player';
+import type { FocusBinding, ItemBinding, Screen } from '@lablo/ui';
+import { useZone } from '@lablo/ui';
 import type { AppI18n, MessageKey } from '../i18n';
 import type { SubtitleSize, TrackMenu } from './track-menu';
 import { MENU_ROWS, STYLE_SIZE, STYLE_TIMING, styleRows } from './track-menu';

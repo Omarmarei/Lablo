@@ -39,8 +39,8 @@ const APP_CSS = `/* tokens */
 }
 
 @font-face {
-  font-family: 'Zoma Sans';
-  src: url("assets/zoma-latin-400.woff2") format('woff2');
+  font-family: 'Lablo Sans';
+  src: url("assets/lablo-latin-400.woff2") format('woff2');
 }
 
 @keyframes z-spin {
@@ -135,7 +135,7 @@ const APP_CSS = `/* tokens */
 `;
 
 function fakeDist(): string {
-  const dist = mkdtempSync(path.join(tmpdir(), 'zoma-engines-'));
+  const dist = mkdtempSync(path.join(tmpdir(), 'lablo-engines-'));
   for (const platform of ['tizen', 'webos']) {
     mkdirSync(path.join(dist, platform));
     writeFileSync(path.join(dist, platform, 'index.html'), '<!DOCTYPE html>');
@@ -171,7 +171,7 @@ describe('seeded variants', () => {
 
   it('stages the real builds and the seeded copies side by side', () => {
     const dist = fakeDist();
-    const root = mkdtempSync(path.join(tmpdir(), 'zoma-variants-'));
+    const root = mkdtempSync(path.join(tmpdir(), 'lablo-variants-'));
     stageApp(dist, root);
     const seed = SEEDS[0]!;
     stageSeed(dist, root, seed);
@@ -186,7 +186,7 @@ describe('seeded variants', () => {
   });
 
   it('asks for pnpm build:tv when there is nothing to test', () => {
-    const empty = mkdtempSync(path.join(tmpdir(), 'zoma-empty-'));
+    const empty = mkdtempSync(path.join(tmpdir(), 'lablo-empty-'));
     expect(() => stageApp(empty, path.join(empty, 'out'))).toThrow(/run pnpm build:tv first/);
   });
 });
@@ -235,7 +235,7 @@ describe('the walk seeds', () => {
   it('turn off DOM focus, and delete the app database at every start', () => {
     const [noFocus, forgets] = WALK_SEEDS;
     expect(noFocus!.code).toBe('HTMLElement.prototype.focus = function () {};');
-    expect(forgets!.code).toBe("indexedDB.deleteDatabase('zoma');");
+    expect(forgets!.code).toBe("indexedDB.deleteDatabase('lablo');");
   });
 
   it("keep the TVs' Back keys (Tizen 10009, webOS 461) from the app, and every other key reaches it", () => {
@@ -252,23 +252,23 @@ describe('the walk seeds', () => {
     expect([10009, 461, 13, 37, 8, 428, 34].map(stopped)).toEqual([true, true, false, false, false, false, false]);
   });
 
-  it("keep window.__ZOMA_TEST__ on the first focus it saw, whatever the focus engine does next", () => {
+  it("keep window.__LABLO_TEST__ on the first focus it saw, whatever the focus engine does next", () => {
     const seed = WALK_SEEDS.find((s) => s.id === 'seed-focus-engine-stuck')!;
-    const window: { __ZOMA_TEST__?: { focusPath(): string | null } } = {};
+    const window: { __LABLO_TEST__?: { focusPath(): string | null } } = {};
     runInNewContext(seed.code, { window, Object });
     let path: string | null = null;
     // The app installs its hook as main.tsx does, and its focus then moves.
-    window.__ZOMA_TEST__ = { focusPath: () => path };
-    expect(window.__ZOMA_TEST__.focusPath()).toBeNull();
+    window.__LABLO_TEST__ = { focusPath: () => path };
+    expect(window.__LABLO_TEST__.focusPath()).toBeNull();
     path = 'language/languages/0';
-    expect(window.__ZOMA_TEST__.focusPath()).toBe('language/languages/0');
+    expect(window.__LABLO_TEST__.focusPath()).toBe('language/languages/0');
     path = 'disclaimer/actions/0';
-    expect(window.__ZOMA_TEST__.focusPath()).toBe('language/languages/0');
+    expect(window.__LABLO_TEST__.focusPath()).toBe('language/languages/0');
   });
 
   it('are staged like the syntax seeds: prepended to a copy of main.js', () => {
     const dist = fakeDist();
-    const root = mkdtempSync(path.join(tmpdir(), 'zoma-variants-'));
+    const root = mkdtempSync(path.join(tmpdir(), 'lablo-variants-'));
     for (const seed of WALK_SEEDS) {
       stageSeed(dist, root, seed);
       expect(readFileSync(path.join(root, seed.id, 'tizen', 'main.js'), 'utf8')).toBe(`${seed.code}\n!function(){window.app="tizen"}();`);
@@ -289,7 +289,7 @@ describe('the CSS seeds', () => {
     expect(result.css).not.toContain('/*');
     // At-rules are never style rules: even a predicate that drops everything keeps them.
     const bare = removeRules(APP_CSS, () => true);
-    expect(bare.css).toContain("@font-face {\n  font-family: 'Zoma Sans';");
+    expect(bare.css).toContain("@font-face {\n  font-family: 'Lablo Sans';");
     expect(bare.css).toContain('@keyframes z-spin {');
     expect(bare.css).not.toContain('.z-row');
   });
@@ -353,7 +353,7 @@ describe('the CSS seeds', () => {
 
   it('stages seeded copies of app.css and leaves the build alone', () => {
     const dist = fakeDist();
-    const root = mkdtempSync(path.join(tmpdir(), 'zoma-css-'));
+    const root = mkdtempSync(path.join(tmpdir(), 'lablo-css-'));
     for (const seed of CSS_SEEDS) {
       expect(stageCssSeed(dist, root, seed)).toBe(seed);
       for (const platform of ['tizen', 'webos']) {

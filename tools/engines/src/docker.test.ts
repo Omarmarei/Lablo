@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ENGINE_HOUR, FIXED_ZONES, IMAGE_FILES, engineZone, imageTag, zoneOffset } from './docker';
 
 function context(dockerfile: string, script: string, server = 'echo 1\n'): string {
-  const dir = mkdtempSync(path.join(tmpdir(), 'zoma-docker-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'lablo-docker-'));
   writeFileSync(path.join(dir, 'Dockerfile'), dockerfile);
   writeFileSync(path.join(dir, 'run-chrome.sh'), script);
   writeFileSync(path.join(dir, 'serve-fixture.sh'), server);
@@ -16,7 +16,7 @@ describe('imageTag', () => {
   it('is the same for LF and CRLF checkouts, so Windows and CI share one tag', () => {
     const lf = imageTag(context('FROM debian\nRUN true\n', '#!/bin/sh\nexec chrome\n', 'a = 1\nb = 2\n'));
     const crlf = imageTag(context('FROM debian\r\nRUN true\r\n', '#!/bin/sh\r\nexec chrome\r\n', 'a = 1\r\nb = 2\r\n'));
-    expect(lf).toMatch(/^zoma-old-engines:[0-9a-f]{12}$/);
+    expect(lf).toMatch(/^lablo-old-engines:[0-9a-f]{12}$/);
     expect(crlf).toBe(lf);
   });
 

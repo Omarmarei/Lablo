@@ -51,21 +51,21 @@ export interface PageState {
   /** `document.fonts.status` (step 11): `loading` until every face in use has loaded or failed. */
   readonly fontsStatus: string | null;
   /**
-   * The Zoma Sans faces and their status, e.g. `la400:loaded ar700:loaded ar400:unloaded`
+   * The Lablo Sans faces and their status, e.g. `la400:loaded ar700:loaded ar400:unloaded`
    * (`la` Latin, `ar` Arabic; a face loads only once text in its range is drawn).
    */
   readonly fonts: string | null;
 }
 
 /**
- * In-page helper (plain ES5, shared by the probes): the Zoma Sans faces and their status, as
+ * In-page helper (plain ES5, shared by the probes): the Lablo Sans faces and their status, as
  * `la400:loaded ar700:unloaded …`, or null without `document.fonts`.
  */
 export const FONT_FACES_FUNCTION = `function fonts() {
     if (!document.fonts || !document.fonts.forEach) return null;
     var faces = [];
     document.fonts.forEach(function (face) {
-      if (face.family.replace(/["']/g, '') !== 'Zoma Sans') return;
+      if (face.family.replace(/["']/g, '') !== 'Lablo Sans') return;
       var script = face.unicodeRange.indexOf('U+600') === 0 || face.unicodeRange.indexOf('U+0600') === 0 ? 'ar' : 'la';
       faces.push(script + (face.weight === 'bold' ? '700' : face.weight === 'normal' ? '400' : face.weight) + ':' + face.status);
     });
@@ -197,7 +197,7 @@ const SCRIPTS = [
 ] as const;
 
 /**
- * The page shows Latin and Arabic text (the hello title is "Zoma زوما"; the gallery has
+ * The page shows Latin and Arabic text (the hello title is "Lablo لابلو"; the gallery has
  * Arabic channel names), so a Latin face and an Arabic face must have loaded from the
  * package's woff2 files (`fonts` from FONT_FACES_FUNCTION), and none may have failed (a
  * missing or unreadable file, or woff2 the engine can't decode).
@@ -210,7 +210,7 @@ export function evaluateFonts(fonts: string | null): string[] {
   if (failed.length > 0) failures.push(`fonts: ${failed.join(', ')} failed to load`);
   for (const [script, name] of SCRIPTS) {
     if (!faces.some((f) => f.startsWith(script) && f.endsWith(':loaded'))) {
-      failures.push(`fonts: no ${name} Zoma Sans face loaded (${fonts === '' ? 'no faces' : fonts})`);
+      failures.push(`fonts: no ${name} Lablo Sans face loaded (${fonts === '' ? 'no faces' : fonts})`);
     }
   }
   return failures;

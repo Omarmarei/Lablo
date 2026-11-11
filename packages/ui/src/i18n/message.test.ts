@@ -1,4 +1,4 @@
-import { pluralCategory } from '@zoma/core';
+import { pluralCategory } from '@lablo/core';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import type { MessageArgs, MessageEnv } from './message';
@@ -84,7 +84,7 @@ describe('parseMessage', () => {
 
 describe('formatMessage', () => {
   it('fills text and number arguments the environment’s way', () => {
-    expect(format('Play {name}?', { name: 'Zoma News' })).toBe('Play ‹Zoma News›?');
+    expect(format('Play {name}?', { name: 'Lablo News' })).toBe('Play ‹Lablo News›?');
     expect(format('{count} channels', { count: 240 })).toBe('n240 channels');
     expect(format('{size, number} MB', { size: '12' })).toBe('n12 MB');
   });

@@ -23,8 +23,8 @@
  * others; a cancel stops the whole refresh. Error messages never contain URLs.
  */
 
-import type { CatalogItem, DeviceTier, EpgBucket, EpgOverride, EpgWantedChannel, ZoneOffset } from '@zoma/core';
-import { EPG_WINDOWS, EpgGuideReader, EpgWantedSet, epgWantedChannel, epgWindow, panelZone } from '@zoma/core';
+import type { CatalogItem, DeviceTier, EpgBucket, EpgOverride, EpgWantedChannel, ZoneOffset } from '@lablo/core';
+import { EPG_WINDOWS, EpgGuideReader, EpgWantedSet, epgWantedChannel, epgWindow, panelZone } from '@lablo/core';
 import type { ByteTransport } from './bytes';
 import { Fnv1a, decodeUtf8, tapBytes } from './bytes';
 import type { FetchStamp, SourceMeta } from './catalog-store';

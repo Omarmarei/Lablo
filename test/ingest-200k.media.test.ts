@@ -9,12 +9,12 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import type { ByteRequest, ByteResponse, ByteTransport } from '@zoma/data';
-import { NetworkError, QueryService, getSource, openDatabase, runIngest } from '@zoma/data';
+import type { ByteRequest, ByteResponse, ByteTransport } from '@lablo/data';
+import { NetworkError, QueryService, getSource, openDatabase, runIngest } from '@lablo/data';
 import { describe, expect, it } from 'vitest';
 import { freshFactory } from '../packages/data/src/test-support';
 
-const fixtures = process.env['ZOMA_FIXTURES_DIR'] ?? join(import.meta.dirname, '..', '.cache', 'fixtures');
+const fixtures = process.env['LABLO_FIXTURES_DIR'] ?? join(import.meta.dirname, '..', '.cache', 'fixtures');
 const CHUNK = 64 * 1024;
 
 /** Serves `body` in 64 KB chunks; with `failAt`, the connection breaks after that many bytes. */
@@ -64,7 +64,7 @@ describe('ingest of the 200k fixture playlist', () => {
     expect(await getSource(db, 'fx')).toMatchObject({ gen: 1, building: null, counts });
     const svc = new QueryService({ openDb: async () => db });
     expect((await svc.reload()).segments.map((s) => `${s.gen}:${s.count}`)).toEqual(['1:20000', '1:120000', '1:60000']);
-    expect((await svc.search({ query: 'zoma' })).total).toBeGreaterThan(0);
+    expect((await svc.search({ query: 'lablo' })).total).toBeGreaterThan(0);
 
     // The same bytes again: recognised by the hash, the active generation stays.
     t = performance.now();

@@ -10,7 +10,7 @@
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createGunzip } from 'node:zlib';
-import type { CatalogItem, ContentKind, DeviceTier, EpgSourceReport } from '@zoma/core';
+import type { CatalogItem, ContentKind, DeviceTier, EpgSourceReport } from '@lablo/core';
 import {
   CONTENT_KINDS,
   EpgGuideReader,
@@ -21,7 +21,7 @@ import {
   XmltvTokenizer,
   XtreamListParser,
   searchSegments,
-} from '@zoma/core';
+} from '@lablo/core';
 import type { BenchCase, BenchLimit } from './harness';
 
 export interface Suite {
@@ -68,7 +68,7 @@ export async function parseM3uStream(stream: AsyncIterable<unknown>): Promise<nu
  */
 export async function parseXtreamListStream(stream: AsyncIterable<unknown>): Promise<number> {
   const decoder = new TextDecoder();
-  const parser = new XtreamListParser('movie', { src: 'bench', account: { base: 'http://127.0.0.1:8080', username: 'zoma', password: 'zoma-test' } });
+  const parser = new XtreamListParser('movie', { src: 'bench', account: { base: 'http://127.0.0.1:8080', username: 'lablo', password: 'lablo-test' } });
   let items = 0;
   for await (const chunk of stream) items += parser.push(decoder.decode(chunk as Uint8Array, { stream: true })).length;
   items += parser.push(decoder.decode()).length;
@@ -135,7 +135,7 @@ export function buildSegments(items: readonly CatalogItem[]): SearchSegment[] {
 }
 
 /** Typical queries: 1-3 letters, Latin and Arabic, several words, a rare word, no match. */
-export const SEARCH_QUERIES = ['a', 'e', 'zoma', 'زوما', 'أخبار', 'الحلقة', 'news', 'golden night', 'cine', 'hd', '12', 'épisode 3', 'qqq'];
+export const SEARCH_QUERIES = ['a', 'e', 'lablo', 'لابلو', 'أخبار', 'الحلقة', 'news', 'golden night', 'cine', 'hd', '12', 'épisode 3', 'qqq'];
 
 /** Caches the parsed playlist between runs, so the search cases time only their own work. */
 function lazy<T>(make: () => Promise<T>): () => Promise<T> {
@@ -143,8 +143,8 @@ function lazy<T>(make: () => Promise<T>): () => Promise<T> {
   return () => (value ??= make());
 }
 
-/** Every tenth EPG channel of the scale catalog (`epg{k}.zoma.test`): a typical matched share. */
-const tenthOfChannels = (id: string): boolean => /^epg\d*0\.zoma\.test$/.test(id);
+/** Every tenth EPG channel of the scale catalog (`epg{k}.lablo.test`): a typical matched share. */
+const tenthOfChannels = (id: string): boolean => /^epg\d*0\.lablo\.test$/.test(id);
 
 /**
  * The wanted sets of the EPG cases, from the 200k playlist next to the guide: all 20,000 live

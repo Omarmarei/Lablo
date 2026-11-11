@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { ZoneOffset } from '@zoma/core';
-import { fixedZone, intlZone } from '@zoma/core';
+import type { ZoneOffset } from '@lablo/core';
+import { fixedZone, intlZone } from '@lablo/core';
 import { MemorySourceMemory, catchupCandidates, containerOf, orderCandidates, streamCandidates } from './request';
 
 const BASE = 'http://panel.example:8080';

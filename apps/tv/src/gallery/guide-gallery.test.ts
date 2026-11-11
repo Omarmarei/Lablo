@@ -1,5 +1,5 @@
-import type { RootBackPolicy } from '@zoma/platform-api';
-import { SCREEN, guideCellsIn, guideHeight, guideWidth } from '@zoma/ui';
+import type { RootBackPolicy } from '@lablo/platform-api';
+import { SCREEN, guideCellsIn, guideHeight, guideWidth } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
 import { GUIDE_DAY, GUIDE_DEMO, GUIDE_GALLERY, GUIDE_NOW, GUIDE_RANGE, GUIDE_ROWS_VISIBLE, createGuideGallery } from './guide-gallery';
 
@@ -35,7 +35,7 @@ describe('the grid guide’s gallery page (RELAY step 23b)', () => {
         if (i > 0) expect(schedule.start[i]!).toBeGreaterThanOrEqual(schedule.end[i - 1]!);
       }
     }
-    expect(GUIDE_DEMO.filter((row) => row.schedule === null).map((row) => row.channel.name)).toEqual(['Zoma Test Pattern', 'Zoma Channel 14', 'Zoma Channel 23', 'Zoma Channel 32']);
+    expect(GUIDE_DEMO.filter((row) => row.schedule === null).map((row) => row.channel.name)).toEqual(['Lablo Test Pattern', 'Lablo Channel 14', 'Lablo Channel 23', 'Lablo Channel 32']);
   });
 
   it('starts on the first channel at now, and OK selects the cell with the focus', () => {

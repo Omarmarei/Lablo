@@ -13,7 +13,7 @@
  *   6. Stage dist/tv/<platform>/ (index.html, main.js, app.css, assets, manifest, icons).
  *   7. Package: webOS .ipk via ares-package; Tizen .wgt only with the Tizen CLI and a profile.
  *
- * Each platform is built twice: the app (apps/tv/src/main.tsx -> dist/tv) and the Zoma Lab
+ * Each platform is built twice: the app (apps/tv/src/main.tsx -> dist/tv) and the Lablo Lab
  * (apps/tv/src/lab/lab-main.tsx -> dist/tv-lab, its own app id; RELAY step 15a, src/lab.ts).
  *
  * Options: --platform tizen|webos (repeatable; default both), --target app|lab (repeatable;
@@ -235,8 +235,8 @@ async function main(): Promise<void> {
     polyfills,
     lab,
   };
-  console.log(`Zoma TV build ${version}: ${platforms.join(', ')}, ${targets.join(' and ')}${polyfills ? '' : ' (UNSAFE: no polyfills, test only)'}`);
-  if (targets.includes('lab')) console.log(`Zoma Lab ${lab.version}: results to ${lab.server}${lab.autoRun ? ', runs at launch' : ''}`);
+  console.log(`Lablo TV build ${version}: ${platforms.join(', ')}, ${targets.join(' and ')}${polyfills ? '' : ' (UNSAFE: no polyfills, test only)'}`);
+  if (targets.includes('lab')) console.log(`Lablo Lab ${lab.version}: results to ${lab.server}${lab.autoRun ? ', runs at launch' : ''}`);
 
   for (const target of targets) {
     for (const platform of platforms) {

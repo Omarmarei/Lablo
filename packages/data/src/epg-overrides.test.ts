@@ -1,7 +1,7 @@
 // The user's manual EPG mappings (RELAY step 24d): which stored values are mappings, how a profile
 // document's are read for the matcher, and the key a guide is matched under.
 
-import type { EpgOverride } from '@zoma/core';
+import type { EpgOverride } from '@lablo/core';
 import { describe, expect, it } from 'vitest';
 import { NO_MAPPING, epgMappingKey, epgOverridesOf, isEpgPin } from './epg-overrides';
 

@@ -9,8 +9,8 @@
  * the refresh's basis, it is read again even when its bytes are the same.
  */
 
-import type { ContentKey, EpgOverride } from '@zoma/core';
-import { hash53Base36 } from '@zoma/core';
+import type { ContentKey, EpgOverride } from '@lablo/core';
+import { hash53Base36 } from '@lablo/core';
 
 /**
  * A live channel's mapping as the profile keeps it: XMLTV channel `channel` (its id, as the guide

@@ -7,7 +7,7 @@
  *   pnpm device inspect webos <name>        remote DevTools (ares-inspect --open)
  *   pnpm device install tizen <serial>      needs Tizen Studio's `tizen` CLI on PATH
  *
- * Add `--lab` to install, launch or inspect the Zoma Lab (dist/tv-lab, its own app id; RELAY
+ * Add `--lab` to install, launch or inspect the Lablo Lab (dist/tv-lab, its own app id; RELAY
  * step 15a, docs/runbooks/lab.md) instead of the app.
  *
  * Setting up a TV (Developer Mode, ares-setup-device, Samsung certificates) is in
@@ -23,7 +23,7 @@ import { DEVICE_ACTIONS, DEVICE_PLATFORMS, deviceCommand } from './src/commands'
 const ROOT = path.resolve(import.meta.dirname, '../..');
 const PACKAGES = path.join(ROOT, 'dist/packages');
 const DIST_LAB = path.join(ROOT, 'dist/tv-lab');
-/** The lab's Tizen package is named after its widget ("Zoma Lab"); the app's is not. */
+/** The lab's Tizen package is named after its widget ("Lablo Lab"); the app's is not. */
 const isLabWgt = (name: string): boolean => name.endsWith('.wgt') && /lab/i.test(name);
 const require = createRequire(import.meta.url);
 
@@ -42,7 +42,7 @@ function appTarget(platform: DevicePlatform): AppTarget {
   const config = readFileSync(path.join(ROOT, 'platforms/tizen/config.xml'), 'utf8');
   const appId = /<tizen:application\s+id="([^"]+)"/.exec(config)?.[1] ?? fail('No application id in config.xml');
   const wgt = existsSync(PACKAGES) ? readdirSync(PACKAGES).find((name) => name.endsWith('.wgt') && !isLabWgt(name)) : undefined;
-  return { appId, packageFile: path.join(PACKAGES, wgt ?? 'Zoma.wgt') };
+  return { appId, packageFile: path.join(PACKAGES, wgt ?? 'Lablo.wgt') };
 }
 
 /** The lab's ids and package, read from its staged manifests (its version can differ from the app's). */
@@ -56,7 +56,7 @@ function labTarget(platform: DevicePlatform): AppTarget {
   const config = readFileSync(path.join(staged, 'config.xml'), 'utf8');
   const appId = /<tizen:application\s+id="([^"]+)"/.exec(config)?.[1] ?? fail('No application id in the lab config.xml');
   const wgt = existsSync(PACKAGES) ? readdirSync(PACKAGES).find(isLabWgt) : undefined;
-  return { appId, packageFile: path.join(PACKAGES, wgt ?? 'ZomaLab.wgt') };
+  return { appId, packageFile: path.join(PACKAGES, wgt ?? 'LabloLab.wgt') };
 }
 
 function run(command: DeviceCommand): number {

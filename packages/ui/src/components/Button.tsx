@@ -9,7 +9,7 @@ export interface ButtonProps extends FocusableProps {
   readonly variant?: 'primary' | 'secondary' | 'danger';
   /** Shown dimmed and not clickable. It can still take the focus (the screen's onSelect ignores it). */
   readonly disabled?: boolean;
-  /** An inline SVG before the label (Zoma Sans has no arrows or symbols). */
+  /** An inline SVG before the label (Lablo Sans has no arrows or symbols). */
   readonly icon?: ComponentChildren;
   /**
    * The label's language when it isn't the screen's: a language's own name on a language switch

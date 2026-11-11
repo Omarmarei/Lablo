@@ -14,8 +14,8 @@
  * - **Home and back:** `suspend`, then `restore` (live: no resume time; VOD: the position).
  * - **Stop:** `stop` and `close`, which ends the connection (providers allow few).
  */
-import type { AvplayError, AvplayListener, AvplayManager, AvplayTrack } from '@zoma/platform-tizen';
-import { avplayErrorText, avplayTracks, avplayUnsupported } from '@zoma/platform-tizen';
+import type { AvplayError, AvplayListener, AvplayManager, AvplayTrack } from '@lablo/platform-tizen';
+import { avplayErrorText, avplayTracks, avplayUnsupported } from '@lablo/platform-tizen';
 import type { LabPlayer, LabPlayerEvent, LabTrack, OpenOptions, PlayerError, PlayerSnapshot } from './player';
 import type { VideoTimers } from './video-player';
 

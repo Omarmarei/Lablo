@@ -1,4 +1,4 @@
-import type { PluralCategory } from '@zoma/core';
+import type { PluralCategory } from '@lablo/core';
 
 /**
  * Catalog messages: a small subset of ICU MessageFormat (RELAY step 12, ADR-011), enough for a

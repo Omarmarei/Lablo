@@ -8,7 +8,7 @@
  *   webOS OSE documents it), but LG's own Enact framework calls it on TVs when Audio Guidance is
  *   on (`@enact/webos/speech`). S11 finds out whether a TV takes it.
  */
-import type { PlatformCall, ScreenReaderState } from '@zoma/platform-api';
+import type { PlatformCall, ScreenReaderState } from '@lablo/platform-api';
 import type { BridgeFactory } from './luna';
 import { LunaError, jsonText, lunaRequest, palmServiceBridge } from './luna';
 

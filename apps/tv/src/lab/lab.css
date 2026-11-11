@@ -1,5 +1,5 @@
 /*
- * The Zoma Lab screen (RELAY step 15a): 1920x1080 inside the title-safe margins, nothing
+ * The Lablo Lab screen (RELAY step 15a): 1920x1080 inside the title-safe margins, nothing
  * scrolls. Physical properties and flexbox with margins only (the Chromium 53 CSS gate); the
  * lab is English only, so nothing here needs mirroring.
  */

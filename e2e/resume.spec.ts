@@ -38,7 +38,7 @@ function storedLast(page: Page): Promise<unknown> {
   return page.evaluate(
     () =>
       new Promise<unknown>((resolve) => {
-        const open = indexedDB.open('zoma');
+        const open = indexedDB.open('lablo');
         open.onerror = () => resolve(null);
         open.onsuccess = () => {
           const db = open.result;
@@ -64,7 +64,7 @@ function marks(page: Page): Promise<Record<string, number | null>> {
       const entry = performance.getEntriesByName(name)[0];
       return entry === undefined ? null : entry.startTime;
     };
-    return { resume: at('zoma:resume'), liveReady: at('zoma:live-ready') };
+    return { resume: at('lablo:resume'), liveReady: at('lablo:live-ready') };
   });
 }
 

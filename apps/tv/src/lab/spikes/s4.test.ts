@@ -1,4 +1,4 @@
-import type { LifecycleEvent } from '@zoma/platform-api';
+import type { LifecycleEvent } from '@lablo/platform-api';
 import { describe, expect, it } from 'vitest';
 import { createAvplayPlayer } from '../avplay-player';
 import { NO_AVPLAY } from '../avplay-deps';
@@ -114,7 +114,7 @@ describe('S4, the AVPlay battery on a fake AVPlay (RELAY step 15c2)', () => {
     expect(b.api.calls).toContain('setSelectTrack AUDIO 5');
     expect(b.api.calls).toContain('setSelectTrack TEXT 2');
     // No URL in any record; every row's stage gone, and AVPlay closed.
-    expect(JSON.stringify(results)).not.toMatch(/http:|zoma-test/);
+    expect(JSON.stringify(results)).not.toMatch(/http:|lablo-test/);
     expect(b.stages.every((s) => s.removed === 1)).toBe(true);
     expect(b.api.state).toBe('NONE');
     expect(b.clock.running).toBe(0);

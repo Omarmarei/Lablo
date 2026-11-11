@@ -1,4 +1,4 @@
-# LG's webOS TV Simulator (Linux AppImage) under Xvfb, for running the Zoma Lab without a TV
+# LG's webOS TV Simulator (Linux AppImage) under Xvfb, for running the Lablo Lab without a TV
 # (RELAY step 15e; docs/runbooks/tv-setup.md 2.4).
 #
 # Why Docker: Smart App Control on the dev PC refuses the Simulator's unsigned Windows .exe.

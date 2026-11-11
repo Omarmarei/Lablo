@@ -19,7 +19,7 @@ import {
 } from './xtream';
 import { EPG_DEFAULT_LENGTH, EPG_FLAG_CUT, EPG_FLAG_STOP_GUESSED, EPG_MAX_LENGTH } from './epg-guide';
 
-const account = { base: 'http://p.test:8080', username: 'zoma', password: 'zoma-test' };
+const account = { base: 'http://p.test:8080', username: 'lablo', password: 'lablo-test' };
 const ctx: XtreamDecodeContext = { src: 'src1', account, categories: new Map([['3', 'Kids Test | أطفال']]) };
 const b64 = (s: string): string => Buffer.from(s, 'utf8').toString('base64');
 const BOM = String.fromCharCode(0xfeff);
@@ -36,11 +36,11 @@ function quirk(v: unknown): unknown {
 
 const LIVE = {
   num: 5,
-  name: 'Zoma Kids Test',
+  name: 'Lablo Kids Test',
   stream_type: 'live',
   stream_id: 105,
   stream_icon: 'http://p.test/images/channel-105.png',
-  epg_channel_id: 'Zoma.Kids',
+  epg_channel_id: 'Lablo.Kids',
   added: '1761955200',
   is_adult: '0',
   category_id: '3',
@@ -65,7 +65,7 @@ const MOVIE = {
   category_id: '10',
   container_extension: 'MKV',
 };
-const SERIES = { num: 1, name: 'Zoma Test Series', series_id: 301, cover: 'http://p.test/images/series-301.png', rating: '8', releaseDate: '2026-01-01', last_modified: '1761955200', category_id: '20' };
+const SERIES = { num: 1, name: 'Lablo Test Series', series_id: 301, cover: 'http://p.test/images/series-301.png', rating: '8', releaseDate: '2026-01-01', last_modified: '1761955200', category_id: '20' };
 
 describe('tolerant values', () => {
   it('reads numbers and ids written either way', () => {
@@ -84,14 +84,14 @@ describe('decodeListItem', () => {
         key: 'x:src1:live:105',
         src: 'src1',
         kind: 'live',
-        name: 'Zoma Kids Test',
-        normName: 'zoma kids test',
+        name: 'Lablo Kids Test',
+        normName: 'lablo kids test',
         group: 'Kids Test | أطفال',
-        url: 'http://p.test:8080/live/zoma/zoma-test/105.ts',
+        url: 'http://p.test:8080/live/lablo/lablo-test/105.ts',
         logo: 'http://p.test/images/channel-105.png',
-        epgId: 'Zoma.Kids',
+        epgId: 'Lablo.Kids',
         tvgName: null,
-        matchName: 'zomakidstest',
+        matchName: 'lablokidstest',
         chno: 5,
         tvgShift: 0,
         catchup: { mode: 'xc', days: 1, source: null },
@@ -109,7 +109,7 @@ describe('decodeListItem', () => {
 
   it('maps movies and series', () => {
     const movie = decodeListItem('movie', MOVIE, ctx)!;
-    expect(movie.item).toMatchObject({ key: 'x:src1:movie:201', kind: 'movie', url: 'http://p.test:8080/movie/zoma/zoma-test/201.mkv', group: '', matchName: null, catchup: null });
+    expect(movie.item).toMatchObject({ key: 'x:src1:movie:201', kind: 'movie', url: 'http://p.test:8080/movie/lablo/lablo-test/201.mkv', group: '', matchName: null, catchup: null });
     expect(movie).toMatchObject({ rating: 7.5, year: 2008, added: 1761955200 });
     const series = decodeListItem('series', SERIES, ctx)!;
     expect(series.item).toMatchObject({ key: 'x:src1:series:301', kind: 'series', url: '', logo: 'http://p.test/images/series-301.png' });
@@ -126,8 +126,8 @@ describe('decodeListItem', () => {
     const radio = decodeListItem('live', { ...LIVE, stream_type: 'radio_streams', is_adult: 1, tv_archive: '0', epg_channel_id: null, num: '' }, ctx)!;
     expect(radio.item).toMatchObject({ radio: true, catchup: null, epgId: null, chno: null });
     expect(radio.adult).toBe(true);
-    expect(decodeListItem('movie', { stream_id: 1, rating: '0', rating_5based: '4.5' }, ctx)).toMatchObject({ rating: 9, item: { name: '', url: 'http://p.test:8080/movie/zoma/zoma-test/1.mp4' } });
-    expect(decodeListItem('movie', { stream_id: 1, title: 'Only a title', container_extension: 'm p4' }, ctx)!.item).toMatchObject({ name: 'Only a title', url: 'http://p.test:8080/movie/zoma/zoma-test/1.mp4' });
+    expect(decodeListItem('movie', { stream_id: 1, rating: '0', rating_5based: '4.5' }, ctx)).toMatchObject({ rating: 9, item: { name: '', url: 'http://p.test:8080/movie/lablo/lablo-test/1.mp4' } });
+    expect(decodeListItem('movie', { stream_id: 1, title: 'Only a title', container_extension: 'm p4' }, ctx)!.item).toMatchObject({ name: 'Only a title', url: 'http://p.test:8080/movie/lablo/lablo-test/1.mp4' });
   });
 
   it('skips items without a usable id', () => {
@@ -172,7 +172,7 @@ describe('XtreamListParser', () => {
 
 describe('decodeLogin', () => {
   const login = {
-    user_info: { username: 'zoma', password: 'zoma-test', message: 'Welcome', auth: 1, status: 'Active', exp_date: '1793491200', is_trial: '0', active_cons: '0', created_at: '1761955200', max_connections: '2', allowed_output_formats: ['m3u8', 'ts'] },
+    user_info: { username: 'lablo', password: 'lablo-test', message: 'Welcome', auth: 1, status: 'Active', exp_date: '1793491200', is_trial: '0', active_cons: '0', created_at: '1761955200', max_connections: '2', allowed_output_formats: ['m3u8', 'ts'] },
     server_info: { url: 'p.test', port: '8080', https_port: '8443', server_protocol: 'http', rtmp_port: '8880', timezone: 'Asia/Kathmandu', timestamp_now: 1793620800, time_now: '2026-11-02 17:45:00', process: true },
   };
 
@@ -223,7 +223,7 @@ describe('details', () => {
   const episode = (id: number, season: number, num: number) => ({ id: String(id), episode_num: num, title: `E${num}`, container_extension: 'mp4', info: { duration_secs: 300, plot: 'p', movie_image: `i${id}.png` }, season, added: '1761955200' });
   const seriesInfo = {
     seasons: [{ season_number: 1, name: 'Season 1', episode_count: 2, cover: 's1.png' }],
-    info: { name: 'Zoma Test Series', plot: 'Ours.', rating: '8', cover: 'c.png', backdrop_path: ['b.png'] },
+    info: { name: 'Lablo Test Series', plot: 'Ours.', rating: '8', cover: 'c.png', backdrop_path: ['b.png'] },
     episodes: { '2': [episode(3011, 2, 1)], '1': [episode(3002, 1, 2), episode(3001, 1, 1), episode(3001, 1, 1)] },
   };
 
@@ -234,12 +234,12 @@ describe('details', () => {
       ['x:src1:episode:3002', 1, 2],
       ['x:src1:episode:3011', 2, 1],
     ]);
-    expect(decoded.episodes[0]).toEqual({ key: 'x:src1:episode:3001', id: '3001', season: 1, episodeNum: 1, title: 'E1', url: 'http://p.test:8080/series/zoma/zoma-test/3001.mp4', durationSecs: 300, plot: 'p', image: 'i3001.png', added: 1761955200 });
+    expect(decoded.episodes[0]).toEqual({ key: 'x:src1:episode:3001', id: '3001', season: 1, episodeNum: 1, title: 'E1', url: 'http://p.test:8080/series/lablo/lablo-test/3001.mp4', durationSecs: 300, plot: 'p', image: 'i3001.png', added: 1761955200 });
     expect(decoded.seasons).toEqual([
       { number: 1, name: 'Season 1', cover: 's1.png', episodeCount: 2 },
       { number: 2, name: '', cover: null, episodeCount: null },
     ]);
-    expect(decoded).toMatchObject({ name: 'Zoma Test Series', rating: 8, cover: 'c.png', backdrops: ['b.png'], skipped: 1 });
+    expect(decoded).toMatchObject({ name: 'Lablo Test Series', rating: 8, cover: 'c.png', backdrops: ['b.png'], skipped: 1 });
   });
 
   it('reads episodes as an array of arrays, a flat array or index-keyed objects', () => {
@@ -341,9 +341,9 @@ describe('XtreamClient', () => {
     expect(client.zone()).toMatchObject({ source: 'intl', name: 'Asia/Kathmandu' });
     const start = Date.UTC(2026, 10, 2, 10, 30);
     expect(client.catchupUrl(101, { startMs: start, endMs: start + 1_800_000, nowMs: start + 3_600_000 })).toBe(
-      'http://p.test:8080/timeshift/zoma/zoma-test/30/2026-11-02:16-15/101.ts',
+      'http://p.test:8080/timeshift/lablo/lablo-test/30/2026-11-02:16-15/101.ts',
     );
-    expect(t.urls).toEqual(['http://p.test:8080/player_api.php?username=zoma&password=zoma-test']);
+    expect(t.urls).toEqual(['http://p.test:8080/player_api.php?username=lablo&password=lablo-test']);
   });
 
   it('turns refusals and broken answers into coded errors without URLs or credentials', async () => {
@@ -360,7 +360,7 @@ describe('XtreamClient', () => {
       const error = await new XtreamClient(account, t, 'src1').login().catch((e: unknown) => e);
       expect(error).toBeInstanceOf(XtreamError);
       expect(error).toMatchObject({ code, status });
-      expect(String((error as Error).message)).not.toMatch(/zoma|p\.test/);
+      expect(String((error as Error).message)).not.toMatch(/lablo|p\.test/);
     }
   });
 
@@ -375,7 +375,7 @@ describe('XtreamClient', () => {
     expect(batches.flat()).toEqual(['Kids Test | أطفال105', 'Kids Test | أطفال106', 'Kids Test | أطفال107']);
     expect(batches.length).toBeGreaterThan(1);
     expect(stats.items).toBe(3);
-    expect(t.urls[0]).toBe('http://p.test:8080/player_api.php?username=zoma&password=zoma-test&action=get_live_streams&category_id=3');
+    expect(t.urls[0]).toBe('http://p.test:8080/player_api.php?username=lablo&password=lablo-test&action=get_live_streams&category_id=3');
   });
 
   it('cancels the response when the consumer throws', async () => {
@@ -399,9 +399,9 @@ describe('XtreamClient', () => {
     expect(await client.seriesInfo(999)).toBeNull();
     expect(await client.vodInfo(999)).toBeNull();
     expect(t.urls.slice(1)).toEqual([
-      'http://p.test:8080/player_api.php?username=zoma&password=zoma-test&action=get_short_epg&stream_id=101&limit=2',
-      'http://p.test:8080/player_api.php?username=zoma&password=zoma-test&action=get_series_info&series_id=999',
-      'http://p.test:8080/player_api.php?username=zoma&password=zoma-test&action=get_vod_info&vod_id=999',
+      'http://p.test:8080/player_api.php?username=lablo&password=lablo-test&action=get_short_epg&stream_id=101&limit=2',
+      'http://p.test:8080/player_api.php?username=lablo&password=lablo-test&action=get_series_info&series_id=999',
+      'http://p.test:8080/player_api.php?username=lablo&password=lablo-test&action=get_vod_info&vod_id=999',
     ]);
   });
 });

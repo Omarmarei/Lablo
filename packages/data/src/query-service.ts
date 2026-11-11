@@ -44,8 +44,8 @@
  * in `status().stale`, so the ingest can rebuild it.
  */
 
-import type { CatalogItem, ContentKey, ContentKind, EpgBucket, EpgMatchMethod, EpgOverride, EpgProgramme, EpgSchedule, FavouriteMarks, SearchResult, XtreamVodInfo } from '@zoma/core';
-import { CONTENT_KINDS, SearchSegment, combineEpgMatches, epgDay, epgNowNext, epgProgrammeAt, epgSchedule, favouriteMarks, normalizeName, searchSegments } from '@zoma/core';
+import type { CatalogItem, ContentKey, ContentKind, EpgBucket, EpgMatchMethod, EpgOverride, EpgProgramme, EpgSchedule, FavouriteMarks, SearchResult, XtreamVodInfo } from '@lablo/core';
+import { CONTENT_KINDS, SearchSegment, combineEpgMatches, epgDay, epgNowNext, epgProgrammeAt, epgSchedule, favouriteMarks, normalizeName, searchSegments } from '@lablo/core';
 import type { CategoryInfo } from './chunker';
 import type { ChunkKey, SourceMeta } from './catalog-store';
 import { getSources, readCategories, readChunks, readIndexes, scanChunks } from './catalog-store';

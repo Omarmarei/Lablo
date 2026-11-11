@@ -1,5 +1,5 @@
-import type { Platform } from '@zoma/platform-api';
-import type { ItemBinding, LocaleSettings } from '@zoma/ui';
+import type { Platform } from '@lablo/platform-api';
+import type { ItemBinding, LocaleSettings } from '@lablo/ui';
 import {
   Badge,
   Button,
@@ -14,7 +14,7 @@ import {
   resolveLocale,
   useFocus,
   useZone,
-} from '@zoma/ui';
+} from '@lablo/ui';
 import { useSignal } from '@preact/signals';
 import { useEffect } from 'preact/hooks';
 import type { Gallery } from './gallery-state';

@@ -13,7 +13,7 @@ const N = NOW / 1000;
 const window = { startMs: START, endMs: END, nowMs: NOW };
 
 const info = (mode: string | null, source: string | null = null, days: number | null = 3): CatchupInfo => ({ mode, days, source });
-const LIVE = 'http://p.test:8080/live/zoma/zoma-test/101.ts';
+const LIVE = 'http://p.test:8080/live/lablo/lablo-test/101.ts';
 
 describe('catchupMode', () => {
   it.each([
@@ -62,10 +62,10 @@ describe('fillCatchupTemplate', () => {
 });
 
 describe('xtreamCatchupUrl', () => {
-  const account = { base: 'http://p.test:8080', username: 'special+user@zoma.test', password: 'p@ss/w0rd&?# é' };
+  const account = { base: 'http://p.test:8080', username: 'special+user@lablo.test', password: 'p@ss/w0rd&?# é' };
 
   it('writes the start as wall time in the panel zone, cut to the minute', () => {
-    const u = 'special%2Buser%40zoma.test';
+    const u = 'special%2Buser%40lablo.test';
     const p = 'p%40ss%2Fw0rd%26%3F%23%20%C3%A9';
     expect(xtreamCatchupUrl(account, 101, window, fixedZone(0))).toBe(`http://p.test:8080/timeshift/${u}/${p}/45/2026-11-02:10-30/101.ts`);
     expect(xtreamCatchupUrl(account, '101', window, fixedZone(345), 'm3u8')).toBe(`http://p.test:8080/timeshift/${u}/${p}/45/2026-11-02:16-15/101.m3u8`);
@@ -109,7 +109,7 @@ describe('m3uCatchupUrl', () => {
     expect(m3uCatchupUrl('http://f.test/u/p/106/mpegts', info('flussonic-hls'), window)).toBe(`http://f.test/u/p/106/index-${S}-2700.m3u8`);
     expect(m3uCatchupUrl('http://f.test/u/p/106/index.m3u8', info('fs'), window)).toBe(`http://f.test/u/p/106/timeshift_abs-${S}.ts`);
     expect(m3uCatchupUrl('http://f.test/u/p/106/mpegts', info('flussonic'), window, { flussonic: 'archive' })).toBe(`http://f.test/u/p/106/archive-${S}-2700.ts`);
-    expect(m3uCatchupUrl(LIVE, info('xc'), window, { zone: fixedZone(180) })).toBe('http://p.test:8080/timeshift/zoma/zoma-test/45/2026-11-02:13-30/101.ts');
+    expect(m3uCatchupUrl(LIVE, info('xc'), window, { zone: fixedZone(180) })).toBe('http://p.test:8080/timeshift/lablo/lablo-test/45/2026-11-02:13-30/101.ts');
     expect(m3uCatchupUrl('http://p.test/live/u/p/7.m3u8', info('xc'), window)).toBe('http://p.test/timeshift/u/p/45/2026-11-02:10-30/7.m3u8');
   });
 

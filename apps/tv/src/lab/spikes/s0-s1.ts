@@ -97,7 +97,7 @@ const polyfills: Check = {
   id: 'polyfills',
   title: 'Polyfilled built-ins work',
   run: async () => {
-    const native = (globals().__ZOMA_LAB_NATIVE__ ?? null) as Record<string, boolean> | null;
+    const native = (globals().__LABLO_LAB_NATIVE__ ?? null) as Record<string, boolean> | null;
     const working: string[] = [];
     const broken: string[] = [];
     for (const [name, check] of polyfillChecks()) {
@@ -239,7 +239,7 @@ const idbPage: Check = {
   id: 'idb',
   title: 'IndexedDB write and read (page)',
   run: async () => {
-    const outcome = await idbRoundTrip(window.indexedDB ?? undefined, Date.now(), 'zoma-lab-page');
+    const outcome = await idbRoundTrip(window.indexedDB ?? undefined, Date.now(), 'lablo-lab-page');
     return outcome === 'ok' ? { status: 'pass' } : { status: 'fail', note: outcome };
   },
 };

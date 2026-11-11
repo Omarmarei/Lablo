@@ -1,7 +1,7 @@
-import type { Platform, PlatformOptions } from '@zoma/platform-api';
-import { BROWSER_KEY_HELP, createBrowserPlatform } from '@zoma/platform-browser';
-import { createTizenPlatform } from '@zoma/platform-tizen';
-import { createWebosPlatform } from '@zoma/platform-webos';
+import type { Platform, PlatformOptions } from '@lablo/platform-api';
+import { BROWSER_KEY_HELP, createBrowserPlatform } from '@lablo/platform-browser';
+import { createTizenPlatform } from '@lablo/platform-tizen';
+import { createWebosPlatform } from '@lablo/platform-webos';
 
 /**
  * The platform for this build. `__PLATFORM__` is a literal after replacement, so the

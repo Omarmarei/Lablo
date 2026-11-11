@@ -22,11 +22,11 @@ test.afterAll(async () => {
 });
 
 function play(page: Page, input: PlaybackInput): Promise<void> {
-  return page.evaluate((i) => (window as PlaybackTarget).__ZOMA_PLAYBACK__?.play(i), input);
+  return page.evaluate((i) => (window as PlaybackTarget).__LABLO_PLAYBACK__?.play(i), input);
 }
 
 async function snapshot(page: Page): Promise<PlaybackSnapshot> {
-  const s = await page.evaluate(() => (window as PlaybackTarget).__ZOMA_PLAYBACK__?.snapshot());
+  const s = await page.evaluate(() => (window as PlaybackTarget).__LABLO_PLAYBACK__?.snapshot());
   if (s === undefined) throw new Error('no playback harness on the page');
   return s;
 }

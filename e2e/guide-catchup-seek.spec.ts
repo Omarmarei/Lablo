@@ -12,7 +12,7 @@ import { RemoteDriver } from './remote-driver';
 
 /**
  * A catch-up's seek bar (RELAY step 25d) by keys, in English and Arabic: a programme gone by on
- * "Zoma Test 1 SMPTE" (101, an Xtream timeshift) plays from the start, and the info bar's seek
+ * "Lablo Test 1 SMPTE" (101, an Xtream timeshift) plays from the start, and the info bar's seek
  * bar shows the time from its start, its length and the time it aired. Three RIGHTs move the
  * target three minutes on at once, and one request asks the mock for the new start once the keys
  * rest (a `.ts` timeshift can't seek inside itself: a new URL, in whole minutes); FF moves five

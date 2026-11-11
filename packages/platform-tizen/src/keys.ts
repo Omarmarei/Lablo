@@ -1,4 +1,4 @@
-import type { Intent, KeyLike, KeyRegistration, TextKey } from '@zoma/platform-api';
+import type { Intent, KeyLike, KeyRegistration, TextKey } from '@lablo/platform-api';
 
 /** A key as `tizen.tvinputdevice.getSupportedKeys()` reports it. */
 export interface TizenKey {

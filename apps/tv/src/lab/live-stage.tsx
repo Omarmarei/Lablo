@@ -8,7 +8,7 @@
  * `requestAnimationFrame`, then a task after its paint (as e2e/remote-driver.ts times a key).
  */
 import { render } from 'preact';
-import type { Intent, Platform } from '@zoma/platform-api';
+import type { Intent, Platform } from '@lablo/platform-api';
 import { LiveApp } from '../live/LiveApp';
 import type { Live, LiveEngine } from '../live/live-state';
 import { createLive } from '../live/live-state';

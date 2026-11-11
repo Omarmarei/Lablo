@@ -1,5 +1,5 @@
-import type { Intent, KeyRegistration, PlatformId } from '@zoma/platform-api';
-import { INTENTS } from '@zoma/platform-api';
+import type { Intent, KeyRegistration, PlatformId } from '@lablo/platform-api';
+import { INTENTS } from '@lablo/platform-api';
 import { describe, expect, it } from 'vitest';
 import type { Check, KeyPress, KeyTest, KeyTestResult, LabContext, PointerLog, TextTest, TextTestResult } from '../types';
 import { INPUT_TIMEOUT_MS, createS10, distinctKeys, keyboardResult, keysResult, pointerResult, registrationResult, scriptsOf } from './s10';
@@ -83,9 +83,9 @@ describe('S10 keyboard verdict', () => {
   const result = (answer: TextTestResult['answer'], text: string): TextTestResult => ({ answer, text, edits: [{ how: 'done', keys: [], inputs: 3, text }], keyboard: [true, false] });
 
   it('finds Arabic and Latin letters', () => {
-    expect(scriptsOf('زوما Zoma')).toEqual({ arabic: true, latin: true });
-    expect(scriptsOf('زوما')).toEqual({ arabic: true, latin: false });
-    expect(scriptsOf('Zoma 123')).toEqual({ arabic: false, latin: true });
+    expect(scriptsOf('لابلو Lablo')).toEqual({ arabic: true, latin: true });
+    expect(scriptsOf('لابلو')).toEqual({ arabic: true, latin: false });
+    expect(scriptsOf('Lablo 123')).toEqual({ arabic: false, latin: true });
     // Digits, punctuation, Arabic-Indic digits and the tatweel are no letters.
     expect(scriptsOf('123 ،؟ ' + String.fromCharCode(0x0660, 0x0640))).toEqual({ arabic: false, latin: false });
     // The edges of each range.
@@ -96,9 +96,9 @@ describe('S10 keyboard verdict', () => {
   });
 
   it('passes on GREEN with both languages typed, and fails without one of them', () => {
-    expect(keyboardResult(result('yes', 'زوما Zoma'))).toMatchObject({ status: 'pass', note: 'typed "زوما Zoma" in Arabic and English (1 edits)', value: { scripts: { arabic: true, latin: true }, keyboard: [true, false] } });
-    expect(keyboardResult(result('yes', 'Zoma'))).toMatchObject({ status: 'fail', note: 'answered yes, but typed "Zoma" has no Arabic letters' });
-    expect(keyboardResult(result('yes', 'زوما'))).toMatchObject({ status: 'fail', note: 'answered yes, but typed "زوما" has no English letters' });
+    expect(keyboardResult(result('yes', 'لابلو Lablo'))).toMatchObject({ status: 'pass', note: 'typed "لابلو Lablo" in Arabic and English (1 edits)', value: { scripts: { arabic: true, latin: true }, keyboard: [true, false] } });
+    expect(keyboardResult(result('yes', 'Lablo'))).toMatchObject({ status: 'fail', note: 'answered yes, but typed "Lablo" has no Arabic letters' });
+    expect(keyboardResult(result('yes', 'لابلو'))).toMatchObject({ status: 'fail', note: 'answered yes, but typed "لابلو" has no English letters' });
   });
 
   it('fails on RED, skips on Back or no answer', () => {
@@ -127,7 +127,7 @@ describe('S10 checks', () => {
     return { ctx, asked };
   }
   const ALL: KeyTestResult = { ended: 'back', presses: INTENTS.map((intent, i) => press(i, intent)), pointer: { ...NONE, moves: 4, clicks: 2 } };
-  const TYPED: TextTestResult = { answer: 'yes', text: 'زوما Zoma', edits: [], keyboard: [] };
+  const TYPED: TextTestResult = { answer: 'yes', text: 'لابلو Lablo', edits: [], keyboard: [] };
 
   it('has the four checks, the waits longer than their screens', () => {
     const spike = createS10();
@@ -155,7 +155,7 @@ describe('S10 checks', () => {
     expect(asked.map((a) => a.timeoutMs)).toEqual([INPUT_TIMEOUT_MS, INPUT_TIMEOUT_MS]);
     expect((asked[0] as KeyTest).intents).toEqual(INTENTS);
     // The prompt asks for both languages.
-    expect(asked[1]?.prompt).toMatch(/زوما.*Zoma/);
+    expect(asked[1]?.prompt).toMatch(/لابلو.*Lablo/);
   });
 
   it("forgets the last key tester when the next run's keys check skips", async () => {

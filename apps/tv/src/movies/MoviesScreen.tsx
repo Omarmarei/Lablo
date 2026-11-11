@@ -1,5 +1,5 @@
-import type { Focus, FocusBinding } from '@zoma/ui';
-import { Button, Chip, LAYOUT, Spinner, Tile, VirtualGrid, VirtualList, useZone } from '@zoma/ui';
+import type { Focus, FocusBinding } from '@lablo/ui';
+import { Button, Chip, LAYOUT, Spinner, Tile, VirtualGrid, VirtualList, useZone } from '@lablo/ui';
 import type { AppI18n } from '../i18n';
 import type { RailEntry } from '../live/live-state';
 import { LIVE } from '../live/live-state';

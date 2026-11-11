@@ -1,5 +1,5 @@
 {
-  "name": "@zoma/data",
+  "name": "@lablo/data",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -17,9 +17,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@zoma/core": "workspace:*",
-    "@zoma/protocol": "workspace:*",
-    "@zoma/crypto": "workspace:*",
+    "@lablo/core": "workspace:*",
+    "@lablo/crypto": "workspace:*",
+    "@lablo/protocol": "workspace:*",
     "fflate": "0.8.3"
   },
   "devDependencies": {

@@ -12,8 +12,8 @@ const FONTS = path.join(ROOT, 'packages/ui/assets/fonts');
 const manifest = JSON.parse(readFileSync(path.join(FONTS, 'fonts.json'), 'utf8')) as FontManifest;
 
 /** Text each face must show: brand, digits (with the Arabic-Indic number signs of ADR-011), the accents the en-XA pseudo-locale uses, … */
-const LATIN_TEXT = 'Zoma IPTV 0123456789 ÀÁÂÃÄÅÇÈÉÊËÌÍÎÏÑÒÓÔÕÖØÙÚÛÜÝàáâãäåçèéêëìíîïñòóôõöøùúûüýÿ ĀāĂăĄąĆćČčĎďĘęĚěĞğİıŁłŃńŇňŐőŒœŘřŚśŞşŠšŢţŤťŰűŸŹźŻżŽž șțẞ €£¥₹₺ № ™ –—‘’“”…•';
-const ARABIC_TEXT = 'زوما ٠١٢٣٤٥٦٧٨٩ ۰۱۲۳ ٪٫٬ قناةً ،؛؟ ءآأؤإئابةتثجحخدذرزسشصضطظعغفقكلمنهوىي پچژگک ﷼ ـ';
+const LATIN_TEXT = 'Lablo IPTV 0123456789 ÀÁÂÃÄÅÇÈÉÊËÌÍÎÏÑÒÓÔÕÖØÙÚÛÜÝàáâãäåçèéêëìíîïñòóôõöøùúûüýÿ ĀāĂăĄąĆćČčĎďĘęĚěĞğİıŁłŃńŇňŐőŒœŘřŚśŞşŠšŢţŤťŰűŸŹźŻżŽž șțẞ €£¥₹₺ № ™ –—‘’“”…•';
+const ARABIC_TEXT = 'لابلو ٠١٢٣٤٥٦٧٨٩ ۰۱۲۳ ٪٫٬ قناةً ،؛؟ ءآأؤإئابةتثجحخدذرزسشصضطظعغفقكلمنهوىي پچژگک ﷼ ـ';
 
 const faces = new Map<string, Promise<InspectedFont>>();
 function face(file: string): Promise<InspectedFont> {
@@ -61,7 +61,7 @@ describe('font subsets (pnpm fonts)', () => {
     expect(font.glyphs(text.replace(/ /g, '')).filter((g) => g === 0)).toEqual([]);
   });
 
-  it.each(['zoma-arabic-400.woff2', 'zoma-arabic-700.woff2'])('%s keeps the Arabic joining forms and the lam-alef ligature', async (file) => {
+  it.each(['lablo-arabic-400.woff2', 'lablo-arabic-700.woff2'])('%s keeps the Arabic joining forms and the lam-alef ligature', async (file) => {
     const font = await face(file);
     const [isolated] = font.glyphs('ب');
     // Initial, medial and final beh are three glyphs, none of them the isolated one.

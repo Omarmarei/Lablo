@@ -13,7 +13,7 @@ let dir: string;
 const XML = '<?xml version="1.0" encoding="UTF-8"?>\n<tv><channel id="scale.1"><display-name>Scale 1</display-name></channel></tv>\n';
 
 beforeAll(() => {
-  dir = mkdtempSync(join(tmpdir(), 'zoma-scale-flags-'));
+  dir = mkdtempSync(join(tmpdir(), 'lablo-scale-flags-'));
   writeFileSync(join(dir, 'guide.xml'), XML);
   writeFileSync(join(dir, 'guide.xml.gz'), gzipSync(XML));
   writeFileSync(
@@ -57,7 +57,7 @@ describe('--xmltv <file>', () => {
     it(`serves ${name} as plain XML and as gzip`, async () => {
       const app = await mock({ xmltvFile: join(dir, name) });
       try {
-        for (const url of ['/xmltv.php?username=zoma&password=zoma-test', '/epg/guide.xml']) {
+        for (const url of ['/xmltv.php?username=lablo&password=lablo-test', '/epg/guide.xml']) {
           const res = await app.inject({ url });
           expect(res.statusCode, url).toBe(200);
           expect(res.headers['content-type']).toBe('application/xml; charset=utf-8');
@@ -66,7 +66,7 @@ describe('--xmltv <file>', () => {
         const gz = await app.inject({ url: '/epg/guide.xml.gz' });
         expect(gz.headers['content-type']).toBe('application/gzip');
         expect(gunzipSync(gz.rawPayload).toString()).toBe(XML);
-        expect((await app.inject({ url: '/xmltv.php?username=zoma&password=nope' })).statusCode).toBe(401);
+        expect((await app.inject({ url: '/xmltv.php?username=lablo&password=nope' })).statusCode).toBe(401);
       } finally {
         await app.close();
       }

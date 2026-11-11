@@ -5,7 +5,7 @@
  *
  * Resolves `'ok'` or `'failed: <reason>'`; never rejects.
  */
-export function idbRoundTrip(factory: IDBFactory | undefined, nonce: number, name = 'zoma-hello'): Promise<string> {
+export function idbRoundTrip(factory: IDBFactory | undefined, nonce: number, name = 'lablo-hello'): Promise<string> {
   return new Promise((resolve) => {
     if (factory === undefined || factory === null) {
       resolve('failed: indexedDB is missing');

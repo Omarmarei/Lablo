@@ -13,7 +13,7 @@ import { RemoteDriver } from './remote-driver';
 
 /**
  * Catch-up from the guide (RELAY step 25a) by keys, in English and Arabic, after onboarding adds
- * the mock provider's Xtream login: a programme gone by on "Zoma Test 1 SMPTE" (101, seven days
+ * the mock provider's Xtream login: a programme gone by on "Lablo Test 1 SMPTE" (101, seven days
  * of archive) opens its details with "From the start" first; OK on it plays the programme
  * from the archive. The mock's archive answers (`X-Mock-Archive-*`) show the window it was asked
  * for: the programme's own start, and at least its length. The info bar names the programme, and
@@ -208,7 +208,7 @@ test.describe('catch-up from the guide (RELAY step 25a)', () => {
       await expect(page.getByTestId('programme')).toHaveCount(0);
       expect((await readGrid(page)).time).toBe(grid.time);
 
-      // A programme gone by on a channel without catch-up ("Zoma Test FR - Mire", row 2): no such button.
+      // A programme gone by on a channel without catch-up ("Lablo Test FR - Mire", row 2): no such button.
       expect([ordered[2]!.id, ordered[2]!.archiveDays]).toEqual([110, 0]);
       await remote.go('DOWN', 'guide/grid/1');
       await remote.go('DOWN', 'guide/grid/2');

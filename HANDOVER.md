@@ -1,8 +1,8 @@
-# Lablo (formerly Zoma) IPTV: relay leg 68 opening prompt
+# Lablo (formerly Lablo) IPTV: relay leg 68 opening prompt
 
 You are leg 68 of relay run `iptv-20261101-214120`. The product is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
-**The product is being renamed from "Zoma" to "Lablo"** (Omar, 2026-11-11). The code still says Zoma. Step 26r, this leg's step, renames it.
+**The product is being renamed from "Lablo" to "Lablo"** (Omar, 2026-11-11). The code still says Lablo. Step 26r, this leg's step, renames it.
 
 ## Status
 - **Earlier legs:**
@@ -19,36 +19,36 @@ You are leg 68 of relay run `iptv-20261101-214120`. The product is a content-fre
    - step **26r** (just above 26d): Omar's decisions, the scope and the Done-when;
    - 26q's "Done in leg 67" just above it, for context.
 2. **`docs/architecture.md` §4 "Built in step 26q"**, and the runbook `docs/runbooks/old-engines.md` "The engine's zone".
-3. **`CLAUDE.md`:** Omar gave his word in leg 66's tab to rename "Zoma" inside it as part of 26r.
+3. **`CLAUDE.md`:** Omar gave his word in leg 66's tab to rename "Lablo" inside it as part of 26r.
 
 ## Next steps, in order
-1. **Step 26r: rename "Zoma" to "Lablo" everywhere** (its own PR; this leg is for it alone).
-   - **The size on 2026-11-12:** `git grep -io zoma` gives 2,053 occurrences in 398 files.
+1. **Step 26r: rename "Lablo" to "Lablo" everywhere** (its own PR; this leg is for it alone).
+   - **The size on 2026-11-12:** `git grep -io lablo` gives 2,053 occurrences in 398 files.
    - **Omar's decisions (in RELAY.md 26r):**
-     - **The app IDs too:** `com.zoma.iptv` → `com.lablo.iptv`, the Samsung `ZomaIPTV01.Zoma`, the lab `com.zoma.iptv.lab` and `ZomaLab001.ZomaLab`.
+     - **The app IDs too:** `com.lablo.iptv` → `com.lablo.iptv`, the Samsung `LabloIPTV1.Lablo`, the lab `com.lablo.iptv.lab` and `LabloLab01.LabloLab`.
      - **Every occurrence, history included:** code, docs, CLAUDE.md, RELAY.md with its old log rows, and HANDOVER.md.
      - **Not git history:** commit messages stay as they are (no force push).
    - **The scope:**
-     - `@zoma/*` → `@lablo/*` (package names, imports, tsconfig paths, the build's aliases), then `pnpm install`;
-     - the IDB database name `zoma`. The engines harness deletes it by name, and so do `idb-delete.ts` and the lab's runs;
-     - `__ZOMA_TEST__`, `__ZOMA_PLAYBACK__`, `__ZOMA_LAB__`, `__zomaStale` and the `ZOMA_*` env vars, CI workflows included (`ZOMA_E2E_MEDIA`, `ZOMA_ENGINE_CACHE`);
-     - the mock's `zoma`/`zoma-test` logins, the "Zoma Test …" channels, the `zoma.*` guide ids and `zoma-mock`;
-     - "Zoma Sans" and its `zoma-*.woff2`;
+     - `@lablo/*` → `@lablo/*` (package names, imports, tsconfig paths, the build's aliases), then `pnpm install`;
+     - the IDB database name `lablo`. The engines harness deletes it by name, and so do `idb-delete.ts` and the lab's runs;
+     - `__LABLO_TEST__`, `__LABLO_PLAYBACK__`, `__LABLO_LAB__`, `__labloStale` and the `LABLO_*` env vars, CI workflows included (`LABLO_E2E_MEDIA`, `LABLO_ENGINE_CACHE`);
+     - the mock's `lablo`/`lablo-test` logins, the "Lablo Test …" channels, the `lablo.*` guide ids and `lablo-mock`;
+     - "Lablo Sans" and its `lablo-*.woff2`;
      - the catalogs;
-     - the old-engine harness: the fixture's "Zoma Channel n", "Zoma Film n" and `فيلم زوما n`, the container names `zoma-<engine>-…`, the image tag `zoma-old-engines:<hash>`, and the expected strings;
+     - the old-engine harness: the fixture's "Lablo Channel n", "Lablo Film n" and `فيلم لابلو n`, the container names `lablo-<engine>-…`, the image tag `lablo-old-engines:<hash>`, and the expected strings;
      - the screenshot names.
    - **Done when:**
-     - `git grep -i zoma` finds nothing (or only a deliberate list of exceptions, written in 26r);
+     - `git grep -i lablo` finds nothing (or only a deliberate list of exceptions, written in 26r);
      - `pnpm verify` and `e2e:media` are green, with 219 core-js modules on both bundles;
      - CI is green, including the engines job;
      - the PR is merged;
-     - the handover tells Omar to remove the old `com.zoma.iptv.lab` from the TV.
+     - the handover tells Omar to remove the old `com.lablo.iptv.lab` from the TV.
    - **Watch for:**
-     - **The Arabic name:** `زوما` (in the fixture's Arabic films, and maybe the catalogs) isn't caught by `git grep -i zoma`. Grep for it too, and pick the Arabic for "Lablo" (`لابلو`?). Note the choice in 26r; it's not a real trade-off, so no gate.
+     - **The Arabic name:** `لابلو` (in the fixture's Arabic films, and maybe the catalogs) isn't caught by `git grep -i lablo`. Grep for it too, and pick the Arabic for "Lablo" (`لابلو`?). Note the choice in 26r; it's not a real trade-off, so no gate.
      - **Polyfills:** a new name can pull core-js modules in. Run the poly count right after the first build.
      - **Lockfile churn** from the package renames.
-     - **The engines image tag:** the build context (Dockerfile, run-chrome.sh, serve-fixture.sh) has no "Zoma", so the hash stays. The tag's name changes to `lablo-old-engines:<hash>`, and locally `ensureImage` would then rebuild (archive.debian.org crawls). First run `docker tag zoma-old-engines:<hash> lablo-old-engines:<hash>`, where `<hash>` is the current `imageTag`, `ba502212364a` today. CI builds its image each run anyway.
-     - **`docker.test.ts`** expects `/^zoma-old-engines:/`.
+     - **The engines image tag:** the build context (Dockerfile, run-chrome.sh, serve-fixture.sh) has no "Lablo", so the hash stays. The tag's name changes to `lablo-old-engines:<hash>`, and locally `ensureImage` would then rebuild (archive.debian.org crawls). First run `docker tag lablo-old-engines:<hash> lablo-old-engines:<hash>`, where `<hash>` is the current `imageTag`, `ba502212364a` today. CI builds its image each run anyway.
+     - **`docker.test.ts`** expects `/^lablo-old-engines:/`.
      - **Screenshot names and artifacts paths** in CI's upload globs.
      - **Fonts:** the font family name lives in CSS, the TV build's font tooling (`tools/fonts`) and tests that read rendered fonts.
      - **A mutation run isn't needed** for a rename. Lean on the full gates: lint, typecheck, unit, build:tv and its poly count, `pnpm e2e`, `e2e:media`, `verify:engines --engine chrome53 --engine chrome68`, then CI.
@@ -69,8 +69,8 @@ You are leg 68 of relay run `iptv-20261101-214120`. The product is a content-fre
   - `.cache/media`, `.cache/engines`, `.cache/rollup-wasm` (see the first gotcha);
   - `artifacts/`: `poly-count20c2a.py`, the 26c mutation scripts and logs, the screenshots, and `artifacts/engines/` from the local run of Chromium 53 and 68.
 - **Docker Desktop** was not running at the start of leg 67. Start it with `Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"` (PowerShell), then wait until `docker version` answers.
-- **On the TV:** the lab `com.zoma.iptv.lab` 0.1.1 (CLI device `tv`). The app was never installed on the TV.
-- **Outside the repo:** the webOS Simulator in `D:/tools/webos-sim/` and the image `zoma-webos-sim:local`. Never commit them (LG's license; the repo is public).
+- **On the TV:** the lab `com.lablo.iptv.lab` 0.1.1 (CLI device `tv`). The app was never installed on the TV.
+- **Outside the repo:** the webOS Simulator in `D:/tools/webos-sim/` and the image `lablo-webos-sim:local`. Never commit them (LG's license; the repo is public).
 
 ## What step 26q found and built (architecture.md §4 "Built in step 26q")
 - **The cause was the app.** The guide asked only the days its 2-hour view crosses.
@@ -98,7 +98,7 @@ You are leg 68 of relay run `iptv-20261101-214120`. The product is a content-fre
   2. `pnpm build:tv`.
   3. Restore the fixed file.
   4. `verify:engines` now runs the old build while the source holds the fix.
-- **`TaskStop` on a `verify:engines` run leaves its container.** Remove it with `docker rm -f` (names start `zoma-chrome`).
+- **`TaskStop` on a `verify:engines` run leaves its container.** Remove it with `docker rm -f` (names start `lablo-chrome`).
 - **A bare `sleep N; cmd` in Bash is blocked.** Use an `until …; do sleep 5; done` loop, or the Monitor tool.
 - **Git Bash's `date` labels local time "EST"** while showing the +02:00 wall time. Trust Docker's or Node's clock.
 
@@ -131,9 +131,9 @@ You are leg 68 of relay run `iptv-20261101-214120`. The product is a content-fre
 - **Local `pnpm verify` may die at the unit stage** (low memory). Run lint, typecheck, `pnpm test`, `build:tv` and `pnpm e2e` separately.
 - **The mock:**
   - its panel zone is UTC by default;
-  - its synthetic media never plays (real frames need `ZOMA_E2E_MEDIA=1 ... --project=playback-media`, renamed in 26r);
+  - its synthetic media never plays (real frames need `LABLO_E2E_MEDIA=1 ... --project=playback-media`, renamed in 26r);
   - its movies are 201–206.
-- **Root tests can't import an apps/tv module that reaches `@zoma/ui`.** Read the source as text instead.
+- **Root tests can't import an apps/tv module that reaches `@lablo/ui`.** Read the source as text instead.
 - **Never edit source while a mutation run, `pnpm verify`, `e2e:media` or the engines run is going.** Docs are safe.
 - **Code rules:**
   - `packages/ui` components stay hook-free;
@@ -141,7 +141,7 @@ You are leg 68 of relay run `iptv-20261101-214120`. The product is a content-fre
   - provider text uses `dir=auto` + `translate=false`;
   - physical CSS only, no CSS Grid or flex `gap`;
   - TV code is ES2017;
-  - the app imports only types from `@zoma/data`;
+  - the app imports only types from `@lablo/data`;
   - dependencies at least 2 weeks old;
   - never weaken lint;
   - scoped `git add`, and `git commit -F -` ending with the `Co-Authored-By` and `Claude-Session` lines.
@@ -201,8 +201,8 @@ You are leg 68 of relay run `iptv-20261101-214120`. The product is a content-fre
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
 - Submit the **Samsung Seller Office Partner application ASAP** (Samsung Gulf). It takes weeks, and Samsung in the GCC and Canada depends on it, as does a GCC Beta Test.
-- **Trademark clearance** (US, CA, AE, SA) and domains, now for **"Lablo"** (was "Zoma"). They decide the final app IDs too (26r uses `com.lablo.*`).
-- **After step 26r, at the TV:** remove the old lab `com.zoma.iptv.lab`.
+- **Trademark clearance** (US, CA, AE, SA) and domains, now for **"Lablo"** (was "Lablo"). They decide the final app IDs too (26r uses `com.lablo.*`).
+- **After step 26r, at the TV:** remove the old lab `com.lablo.iptv.lab`.
 - `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` was widened with his authorisation on 2026-11-02. Prune it when the relay run ends if he wants it tighter.
 - **At the TV next time:** read Dev Mode's "Remain Session".
 - **Thirty-two CLAUDE.md gaps** are waiting for his word:

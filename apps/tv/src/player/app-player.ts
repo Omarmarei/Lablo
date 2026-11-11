@@ -1,8 +1,8 @@
-import { normalizeLang } from '@zoma/core';
-import type { Platform } from '@zoma/platform-api';
-import type { SubtitleCue } from '@zoma/core';
-import type { AccountStatus, Clock, ControllerOptions, ExternalSub, SourceMemory, TrackMemory, TrackPreferences } from '@zoma/player';
-import { PlayerController } from '@zoma/player';
+import { normalizeLang } from '@lablo/core';
+import type { Platform } from '@lablo/platform-api';
+import type { SubtitleCue } from '@lablo/core';
+import type { AccountStatus, Clock, ControllerOptions, ExternalSub, SourceMemory, TrackMemory, TrackPreferences } from '@lablo/player';
+import { PlayerController } from '@lablo/player';
 import { createSubtitleLoader } from './subtitle-loader';
 
 /**

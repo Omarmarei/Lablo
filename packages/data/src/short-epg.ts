@@ -11,8 +11,8 @@
  * - Error messages never hold the URL (`XtreamError`, `NetworkError`).
  */
 
-import type { ContentKey, EpgProgramme, TextTransport, XtreamAccount } from '@zoma/core';
-import { buildEpgBucket, epgNowNext, parseXtreamStreamUrl, xtreamEpgProgrammes, xtreamFromM3uUrl, xtreamShortEpg } from '@zoma/core';
+import type { ContentKey, EpgProgramme, TextTransport, XtreamAccount } from '@lablo/core';
+import { buildEpgBucket, epgNowNext, parseXtreamStreamUrl, xtreamEpgProgrammes, xtreamFromM3uUrl, xtreamShortEpg } from '@lablo/core';
 import type { ByteTransport } from './bytes';
 import { decodeUtf8 } from './bytes';
 

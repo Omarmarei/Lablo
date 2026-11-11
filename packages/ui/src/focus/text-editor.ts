@@ -1,4 +1,4 @@
-import type { KeyLike, Platform, TextKey } from '@zoma/platform-api';
+import type { KeyLike, Platform, TextKey } from '@lablo/platform-api';
 import type { Navigator } from './navigator';
 import { OK_CLICK_WINDOW_MS } from './navigator';
 

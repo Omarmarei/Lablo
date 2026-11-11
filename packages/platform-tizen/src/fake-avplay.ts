@@ -10,7 +10,7 @@
  * between them. Calls AVPlay refuses in a state throw an `InvalidStateError`, as on a TV.
  */
 
-import type { Clock } from '@zoma/player';
+import type { Clock } from '@lablo/player';
 import type { AvplayError, AvplayListener, AvplayManager, AvplayStreamInfo } from './avplay';
 import type { ProbeXhr } from './redirect-probe';
 

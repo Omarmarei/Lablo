@@ -1,4 +1,4 @@
-import type { Intent, KeyLike } from '@zoma/platform-api';
+import type { Intent, KeyLike } from '@lablo/platform-api';
 import { describe, expect, it } from 'vitest';
 import { createNavigator } from './navigator';
 import { connectRemote, isEditable } from './remote';

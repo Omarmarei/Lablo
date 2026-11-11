@@ -29,8 +29,8 @@
  * app passes the `?worker` imports (`./workers.ts`).
  */
 
-import type { CatalogItem, ContentKey, ContentKind, DeviceTier, EpgProgramme, XtreamVodInfo, ZoneOffset } from '@zoma/core';
-import { panelZone } from '@zoma/core';
+import type { CatalogItem, ContentKey, ContentKind, DeviceTier, EpgProgramme, XtreamVodInfo, ZoneOffset } from '@lablo/core';
+import { panelZone } from '@lablo/core';
 import type {
   AccountCheck,
   CancelToken,
@@ -62,9 +62,9 @@ import type {
   UnmatchedRequest,
   UserGuide,
   VodInfoRequest,
-} from '@zoma/data';
+} from '@lablo/data';
 // The client entry only: the package index would pull every data module's polyfills into main.
-import { createDataClient, createEpgClient, createIngestClient, epgGuides, epgRefreshDue } from '@zoma/data/client';
+import { createDataClient, createEpgClient, createIngestClient, epgGuides, epgRefreshDue } from '@lablo/data/client';
 
 /** What a source's stream and catch-up URLs need from its last login (`DataEngine.sourceFacts`). */
 export interface SourceFacts {

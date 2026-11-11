@@ -1,9 +1,9 @@
-import type { CatalogItem, ContentKey, EpgProgramme } from '@zoma/core';
-import { EPG_WINDOWS } from '@zoma/core';
-import type { GuideRequest, GuideRow, ProgrammeRequest } from '@zoma/data';
-import type { Intent } from '@zoma/platform-api';
-import type { EpgZone } from '@zoma/ui';
-import { SCREEN, createNavigator, guideCellAt, guideHeight, guideWidth } from '@zoma/ui';
+import type { CatalogItem, ContentKey, EpgProgramme } from '@lablo/core';
+import { EPG_WINDOWS } from '@lablo/core';
+import type { GuideRequest, GuideRow, ProgrammeRequest } from '@lablo/data';
+import type { Intent } from '@lablo/platform-api';
+import type { EpgZone } from '@lablo/ui';
+import { SCREEN, createNavigator, guideCellAt, guideHeight, guideWidth } from '@lablo/ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LiveRow, Timers } from '../live/live-state';
 import type { GuideEngine, GuideList } from './guide-state';

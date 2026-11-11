@@ -18,7 +18,7 @@ const SPEC: XmltvSpec = { name: 'xmltv-small.xml', channels: 36, targetBytes: 3e
 
 let dir: string;
 beforeAll(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'zoma-xtream-xmltv-'));
+  dir = mkdtempSync(join(tmpdir(), 'lablo-xtream-xmltv-'));
   mkdirSync(join(dir, 'xtream'));
   await writeCatalog({ outDir: dir, seed: 6, counts: COUNTS });
   await writeXmltv(dir, SPEC, 6);

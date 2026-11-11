@@ -48,7 +48,7 @@ function makeZip(entries: { name: string; data: Buffer; deflate: boolean }[]): B
 
 let dir: string;
 beforeAll(() => {
-  dir = mkdtempSync(join(tmpdir(), 'zoma-open-movies-'));
+  dir = mkdtempSync(join(tmpdir(), 'lablo-open-movies-'));
 });
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 

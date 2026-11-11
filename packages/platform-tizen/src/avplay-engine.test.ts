@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { EngineEvent, EngineSource, PlaybackError } from '@zoma/player';
-import { NO_STATS } from '@zoma/player';
+import type { EngineEvent, EngineSource, PlaybackError } from '@lablo/player';
+import { NO_STATS } from '@lablo/player';
 import type { AvplayEngineOptions } from './avplay-engine';
 import { AvplayEngine, PREPARE_TIMEOUT_MS, avplayError, createAvplayPlane } from './avplay-engine';
 import { FakeAvplay, FakeClock } from './fake-avplay';

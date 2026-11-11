@@ -1,8 +1,8 @@
 import type { VNode } from 'preact';
-import type { LoadedProfile, SourceRecord, UnmatchedPage, UnmatchedRequest } from '@zoma/data';
-import { emptyProfile } from '@zoma/data';
-import type { ItemBinding } from '@zoma/ui';
-import { bindFocus, createNavigator } from '@zoma/ui';
+import type { LoadedProfile, SourceRecord, UnmatchedPage, UnmatchedRequest } from '@lablo/data';
+import { emptyProfile } from '@lablo/data';
+import type { ItemBinding } from '@lablo/ui';
+import { bindFocus, createNavigator } from '@lablo/ui';
 import { signal } from '@preact/signals';
 import { describe, expect, it, vi } from 'vitest';
 import { appI18n } from '../i18n';
@@ -161,7 +161,7 @@ describe('"Channels without a guide" as drawn (step 24c)', () => {
   });
 
   it('marks a channel the profile maps to no guide, and only that one (step 24e)', async () => {
-    const t = await draw(3, { overrides: { k1: { epgSrc: '', channel: null }, k2: { epgSrc: 's1:xmltv', channel: 'zoma.kids' } } });
+    const t = await draw(3, { overrides: { k1: { epgSrc: '', channel: null }, k2: { epgSrc: 's1:xmltv', channel: 'lablo.kids' } } });
     const off = UnmatchedItem({ i18n: t.i18n, list: t.list, index: 1, item: item('idle') });
     expect((off.props as Props)['data-off']).toBe('true');
     expect(textOf(byClass(off, 'unmatched__where'))).toBe('From My list · News · No guide, set by you');

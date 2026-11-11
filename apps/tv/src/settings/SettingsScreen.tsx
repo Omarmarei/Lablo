@@ -1,6 +1,6 @@
-import type { EpgFailure, EpgSummary } from '@zoma/data';
-import type { Focus, FocusBinding, ItemBinding } from '@zoma/ui';
-import { Button, Dialog, Spinner, TextField, VirtualList, shapeDigits, useZone } from '@zoma/ui';
+import type { EpgFailure, EpgSummary } from '@lablo/data';
+import type { Focus, FocusBinding, ItemBinding } from '@lablo/ui';
+import { Button, Dialog, Spinner, TextField, VirtualList, shapeDigits, useZone } from '@lablo/ui';
 import type { AppI18n } from '../i18n';
 import type { AddProblem, GuideRow, GuideState, Guides, GuidesMenu, OffsetChooser } from './guides-state';
 import { ADD_CANCEL, ADD_CONFIRM, GUIDES, HEADER_ADD, HEADER_UNMATCHED, LINK_FIELD_ID, OFFSETS, guideState, summaryOf } from './guides-state';

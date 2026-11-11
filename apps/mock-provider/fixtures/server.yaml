@@ -13,12 +13,12 @@ server:
   epg_future_days: 3
 
 accounts:
-  - username: zoma
-    password: zoma-test
+  - username: lablo
+    password: lablo-test
     status: Active
     exp_days: 365
     max_connections: 2
-    message: Welcome to the Zoma test server
+    message: Welcome to the Lablo test server
 
   - username: trial
     password: trial-test
@@ -68,7 +68,7 @@ accounts:
     output_formats: [m3u8]
 
   # Characters a client must percent-encode in paths and queries: + @ / & ? # space and non-ASCII.
-  - username: "special+user@zoma.test"
+  - username: "special+user@lablo.test"
     password: "p@ss/w0rd&?# é"
     status: Active
     exp_days: 365

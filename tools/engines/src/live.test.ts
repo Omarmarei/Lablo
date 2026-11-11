@@ -61,11 +61,11 @@ describe('the live probes', () => {
   });
 
   it("puts a counting stand-in for webOS's PalmSystem.platformBack() on the page", () => {
-    const page: { PalmSystem?: { platformBack(): void }; __zomaPlatformBack?: number } = {};
+    const page: { PalmSystem?: { platformBack(): void }; __labloPlatformBack?: number } = {};
     runInNewContext(PLATFORM_BACK_STUB, { window: page, JSON });
     page.PalmSystem!.platformBack();
     page.PalmSystem!.platformBack();
-    expect(page.__zomaPlatformBack).toBe(2);
+    expect(page.__labloPlatformBack).toBe(2);
   });
 });
 
@@ -86,7 +86,7 @@ describe('the fixture as the live screen lists it', () => {
     expect(all.name).toBeNull();
     expect(all.allStart).toBe(0);
     expect(all.channels).toHaveLength(2400);
-    expect(all.channels.slice(0, 2).map((c) => c.name)).toEqual(['Zoma Channel 1', 'Zoma Channel 13']);
+    expect(all.channels.slice(0, 2).map((c) => c.name)).toEqual(['Lablo Channel 1', 'Lablo Channel 13']);
     expect(listedEntry(CATEGORIES, CATEGORIES.length + 1)).toBeNull();
   });
 
@@ -163,14 +163,14 @@ describe('rowFailures', () => {
       return row;
     });
     expect(rowFailures({ ...drawn, rows }, CATEGORIES, 'en')).toEqual([
-      '3 of 9 rows wrong: row 0 (Zoma Channel 1): now "fixture.13 14h", expected "fixture.1 14h"; row 2 (Zoma Channel 25): next missing, expected "fixture.25 15h"; row 5 (Zoma Channel 73): now "fixture.73 15h", expected "fixture.73 14h"',
+      '3 of 9 rows wrong: row 0 (Lablo Channel 1): now "fixture.13 14h", expected "fixture.1 14h"; row 2 (Lablo Channel 25): next missing, expected "fixture.25 15h"; row 5 (Lablo Channel 73): now "fixture.73 15h", expected "fixture.73 14h"',
     ]);
   });
 
   it('reports a guide row with nothing on now, and lists both hours a minute after the hour', () => {
     const drawn = view(0, 0, { clock: Date.UTC(2026, 10, 4, 15, 1) });
     const rows = drawn.rows.map((row) => (row.i === 0 ? { ...row, now: null } : row));
-    expect(rowFailures({ ...drawn, rows }, CATEGORIES, 'en')).toEqual(['1 of 9 rows wrong: row 0 (Zoma Channel 1): now missing, expected "fixture.1 14h" or "fixture.1 15h"']);
+    expect(rowFailures({ ...drawn, rows }, CATEGORIES, 'en')).toEqual(['1 of 9 rows wrong: row 0 (Lablo Channel 1): now missing, expected "fixture.1 14h" or "fixture.1 15h"']);
   });
 
   it('wants the placeholder, in the language on show, on a channel without a guide, and nothing next', () => {
@@ -182,14 +182,14 @@ describe('rowFailures', () => {
       return row;
     });
     expect(rowFailures({ ...drawn, rows }, CATEGORIES, 'ar')).toEqual([
-      `3 of 9 rows wrong: row 1 (Zoma Channel 13): now line "No guide for this channel", expected the placeholder "${LIVE_TEXT.ar.noGuide}"; row 3 (Zoma Channel 37): now line empty, expected the placeholder "${LIVE_TEXT.ar.noGuide}"; row 4 (Zoma Channel 61): a next programme "fixture.61 15h" on a channel without a guide`,
+      `3 of 9 rows wrong: row 1 (Lablo Channel 13): now line "No guide for this channel", expected the placeholder "${LIVE_TEXT.ar.noGuide}"; row 3 (Lablo Channel 37): now line empty, expected the placeholder "${LIVE_TEXT.ar.noGuide}"; row 4 (Lablo Channel 61): a next programme "fixture.61 15h" on a channel without a guide`,
     ]);
   });
 
   it('reports missing numbers and names', () => {
     const drawn = view(0, 0);
     const rows = drawn.rows.map((row) => (row.i === 1 ? { ...row, number: null, name: null } : row));
-    expect(rowFailures({ ...drawn, rows }, CATEGORIES, 'en')).toEqual(['1 of 9 rows wrong: row 1 (Zoma Channel 13): number missing, expected 2, name missing']);
+    expect(rowFailures({ ...drawn, rows }, CATEGORIES, 'en')).toEqual(['1 of 9 rows wrong: row 1 (Lablo Channel 13): number missing, expected 2, name missing']);
   });
 });
 

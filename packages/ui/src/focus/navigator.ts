@@ -1,4 +1,4 @@
-import type { Intent, RootBackPolicy } from '@zoma/platform-api';
+import type { Intent, RootBackPolicy } from '@lablo/platform-api';
 import type { Direction, TextDirection, ZonePosition, ZoneSpec } from './types';
 import { moveDirection } from './types';
 import { clampPosition, initialPosition, page, pages, scroll, step, zoneCount } from './zones';

@@ -1,5 +1,5 @@
 {
-  "name": "@zoma/tools-engines",
+  "name": "@lablo/tools-engines",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@zoma/core": "workspace:*",
+    "@lablo/core": "workspace:*",
     "acorn": "^8.19.0"
   },
   "devDependencies": {

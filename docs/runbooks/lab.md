@@ -1,6 +1,6 @@
-# Runbook: the Zoma Lab (hardware spikes)
+# Runbook: the Lablo Lab (hardware spikes)
 
-The Zoma Lab is a separate TV build that answers the hardware spikes of [architecture.md §5](../architecture.md#5-hardware-spikes-weeks-12-the-four-must-own-tvs-are-needed-on-day-1) on a real TV, in an emulator, in the old-engine harness and in the desktop browser. Every result goes to the **LAN log collector** of the mock provider on this PC. Claude can't see the TV, so this is how results come back.
+The Lablo Lab is a separate TV build that answers the hardware spikes of [architecture.md §5](../architecture.md#5-hardware-spikes-weeks-12-the-four-must-own-tvs-are-needed-on-day-1) on a real TV, in an emulator, in the old-engine harness and in the desktop browser. Every result goes to the **LAN log collector** of the mock provider on this PC. Claude can't see the TV, so this is how results come back.
 
 - **Built in step 15a:** the build, the runner and the runtime spikes S0, S1, S2, S3 and S7.
 - **Built in step 15b:** S6, scale (below).
@@ -13,7 +13,7 @@ The Zoma Lab is a separate TV build that answers the hardware spikes of [archite
 ## Quick start (a TV on the LAN)
 
 1. **Start the collector** on this PC: `pnpm mock`. It listens on `0.0.0.0:8080` and prints the addresses a TV can use. Windows may ask once to let Node through the firewall: allow it on private networks. Run `pnpm mock:media` once before, or the player batteries (S4, S5, S8) have nothing to play and skip.
-2. **Build:** `pnpm build:tv`. It builds the app and the lab. The lab goes to `dist/tv-lab/{tizen,webos}`, with the webOS package at `dist/packages/com.zoma.iptv.lab_<version>_all.ipk`. The build prints the address the lab will report to (`Zoma Lab 0.1.0: results to http://192.168.1.3:8080`): this PC's first private IPv4 address.
+2. **Build:** `pnpm build:tv`. It builds the app and the lab. The lab goes to `dist/tv-lab/{tizen,webos}`, with the webOS package at `dist/packages/com.lablo.iptv.lab_<version>_all.ipk`. The build prints the address the lab will report to (`Lablo Lab 0.1.0: results to http://192.168.1.3:8080`): this PC's first private IPv4 address.
 3. **Install and launch:**
    - webOS: `pnpm device install webos tv --lab`, then `pnpm device launch webos tv --lab`;
    - Tizen: the same with `tizen <serial>` once the Tizen CLI and a certificate exist.
@@ -21,7 +21,7 @@ The Zoma Lab is a separate TV build that answers the hardware spikes of [archite
    The lab runs every spike at launch. Nobody needs to press anything.
 4. **Read the results:** `artifacts/lab-logs/<session>.ndjson`, or `GET http://<pc>:8080/__lab/logs` (sessions, newest first) and `GET /__lab/logs/<session>`. On the TV, the screen shows each spike's status, and OK on a spike shows its checks.
 
-The lab has its own app id (`com.zoma.iptv.lab` on webOS, `ZomaLab001.ZomaLab` on Tizen). Installing it never touches the app or the app's data.
+The lab has its own app id (`com.lablo.iptv.lab` on webOS, `LabloLab01.LabloLab` on Tizen). Installing it never touches the app or the app's data.
 
 ## Build options
 
@@ -33,7 +33,7 @@ The lab has its own app id (`com.zoma.iptv.lab` on webOS, `ZomaLab001.ZomaLab` o
 | `--lab-no-auto` | Waits for "Run all" instead of running at launch. |
 | `--target app` / `--target lab` | Builds only one of them. The default builds both. |
 
-The settings land in `dist/tv-lab/<platform>/lab-config.js` (`window.ZOMA_LAB_CONFIG`). Where the page has a URL of its own (`pnpm dev`, the e2e tests, the harness), URL parameters override them: `?server=http://127.0.0.1:8080&mb=16&auto=1`.
+The settings land in `dist/tv-lab/<platform>/lab-config.js` (`window.LABLO_LAB_CONFIG`). Where the page has a URL of its own (`pnpm dev`, the e2e tests, the harness), URL parameters override them: `?server=http://127.0.0.1:8080&mb=16&auto=1`.
 
 ## In the desktop browser
 
@@ -71,13 +71,13 @@ Run the lab, **uninstall** it, install it again and run it. An uninstall wipes t
 
 ## S9: Arabic (step 15b2)
 
-The app bundles its fonts (Zoma Sans), isolates the text it puts into sentences (core's `isolateText`) and formats dates and numbers without `Intl` (ADR-011). S9 checks those choices on the TV.
+The app bundles its fonts (Lablo Sans), isolates the text it puts into sentences (core's `isolateText`) and formats dates and numbers without `Intl` (ADR-011). S9 checks those choices on the TV.
 
 | Check | What it does | Pass |
 |---|---|---|
-| `fonts` | Asks `document.fonts` for both weights of the Latin and the Arabic Zoma Sans faces, then reads every face's status. | all four `loaded` |
-| `shaping` | Draws `مسلسلات` and `لا` in Zoma Sans at 48 px, joined and with a zero-width non-joiner between their letters. Joined Arabic is narrower: the letters lose their tails, and lam-alef becomes one glyph. Fails when the Arabic face isn't loaded, since then a fallback font was measured. | the word under 95 % of its letters apart, lam-alef under 90 % |
-| `bidi` | The old-engine harness's bidi probe: a Latin name ending in a digit before a count (`MBC 1 · 240 قناة`), and a name starting with a digit (`1 Zoma قناة`), in a right-to-left line, isolated by `isolateText` and not (the controls). The isolation must keep each name in one piece, and draw nothing. | both lines isolated, both controls showing the problem |
+| `fonts` | Asks `document.fonts` for both weights of the Latin and the Arabic Lablo Sans faces, then reads every face's status. | all four `loaded` |
+| `shaping` | Draws `مسلسلات` and `لا` in Lablo Sans at 48 px, joined and with a zero-width non-joiner between their letters. Joined Arabic is narrower: the letters lose their tails, and lam-alef becomes one glyph. Fails when the Arabic face isn't loaded, since then a fallback font was measured. | the word under 95 % of its letters apart, lam-alef under 90 % |
+| `bidi` | The old-engine harness's bidi probe: a Latin name ending in a digit before a count (`MBC 1 · 240 قناة`), and a name starting with a digit (`1 Lablo قناة`), in a right-to-left line, isolated by `isolateText` and not (the controls). The isolation must keep each name in one piece, and draw nothing. | both lines isolated, both controls showing the problem |
 | `intl` | For `ar-SA`, `ar-AE`, `ar` and `en-US`: the calendar and digits `Intl` picks, its date, time and number, the app's own, and whether they match (`sameAsIntl`). Also `Intl.PluralRules` and the time zone. | `info` |
 
 - The notes show the Arabic words, so a person in front of the TV sees them drawn: they must join, and read right to left.
@@ -98,7 +98,7 @@ The app turns each remote key into an Intent through its platform adapter (`Plat
 - **The key tester takes every key.** None moves the focus or leaves the lab, so Back is a key under test too: Back twice in a row ends the tester, and so does 5 minutes without that.
 - **webOS has no PRE-CH Intent yet** (`WEBOS_KEYS`). Whatever LG's remote sends for it shows under "Keys with no action", as does any key the adapters don't know.
 - **The fallbacks** (architecture.md §5): a key that never comes needs another way to its action in the app; a keyboard that won't open, or won't type Arabic, means an on-screen keyboard of our own (+2 sessions).
-- **Desktop Chromium** (e2e, 2026-11-04): every Intent's key came, `q` (81) as a key with no action, two pointer moves, a click and a wheel turn, and the field typed `زوما Zoma` and ended with Enter (`done`), then a second edit closed with Escape (`close`, the text kept).
+- **Desktop Chromium** (e2e, 2026-11-04): every Intent's key came, `q` (81) as a key with no action, two pointer moves, a click and a wheel turn, and the field typed `لابلو Lablo` and ended with Enter (`done`), then a second edit closed with Escape (`close`, the text kept).
 
 ### S10 by hand (step 16)
 
@@ -109,7 +109,7 @@ The key tester and the keyboard test run only when a person starts S10 from its 
 3. Then press the keys that have no box, except Home and the settings key, which may leave the lab. Note what "Keys with no action" lists.
 4. With a Magic Remote (LG): move the pointer, click somewhere on the screen and turn the wheel. The pointer line counts each.
 5. Press Back twice in a row. The keyboard test opens.
-6. Press OK on the field. The TV's keyboard should open. Type زوما, switch the keyboard to English, type Zoma, then press the keyboard's Done key. The lines under the field show how the edit ended and the keys the field saw.
+6. Press OK on the field. The TV's keyboard should open. Type لابلو, switch the keyboard to English, type Lablo, then press the keyboard's Done key. The lines under the field show how the edit ended and the keys the field saw.
 7. Press GREEN if both words were typed, RED if the keyboard didn't open or couldn't type one of them, or Back to skip.
 8. S10 shows its result. `keys` names any key that never came, and the collector has every code.
 
@@ -122,7 +122,7 @@ Samsung's Smart Remote has no number or colour buttons; its 123 (or colour) butt
 | `lifecycle` | The lifecycle events since the lab started (`Platform.onLifecycle`): hidden, visible, relaunch, with the time away and the heartbeats (one a second) that ran meanwhile. Each event also goes to the collector the moment it happens, as an `event` record. | `info` |
 | `screensaver` | `Platform.setScreenSaver(false)`: Tizen's `webapis.appcommon.setScreenSaver`. The lab then keeps it off while it's open. webOS has no API for this: LG's guide says full-screen video keeps the screensaver away. | Tizen `pass`; webOS `info` |
 | `screen-reader` | `Platform.screenReader()`: Tizen's Voice Guide setting (`webapis.tvinfo.getMenuValue(VOICE_GUIDE_KEY)`), webOS's Audio Guidance (`settingsservice` `getSystemSettings`, `option`/`audioGuidance`). | `info`: on, off, or why unknown |
-| `speech` | `Platform.speak("Zoma Lab, spike S11")`: webOS's `com.webos.service.tts` luna service (LG's Enact uses it; LG's TV docs don't list it). Tizen has no speech API for web apps. | webOS `pass` if the TV takes it (listen); Tizen `info` |
+| `speech` | `Platform.speak("Lablo Lab, spike S11")`: webOS's `com.webos.service.tts` luna service (LG's Enact uses it; LG's TV docs don't list it). Tizen has no speech API for web apps. | webOS `pass` if the TV takes it (listen); Tizen `info` |
 | `focus-reading` | **By ear** (below): three buttons with an `aria-label` each, DOM focus following the remote. Does the screen reader read each one? | GREEN `pass`, RED `fail` |
 | `live-reading` | **By ear**: the same buttons without DOM focus; an `aria-live` region says the focused one's name instead. | GREEN `pass`, RED `fail` |
 
@@ -137,7 +137,7 @@ The two questions run only when a person starts S11 from its row. "Run all" and 
 2. On the lab, go to S11 and press OK.
 3. The first question shows three buttons. Move left and right. Each button's name should be read. Press GREEN if it was, RED if not, Back to skip.
 4. The second question shows the same buttons, now without DOM focus. Answer it the same way.
-5. Also listen for "Zoma Lab, spike S11" while S11 starts: that is `speech` (webOS).
+5. Also listen for "Lablo Lab, spike S11" while S11 starts: that is `speech` (webOS).
 6. For the lifecycle log: press Home, wait about 30 seconds, go back to the lab (or launch it again), then run S11 alone. `lifecycle` lists the trips, and the collector has them as `event` records. A visible after a hidden shows the time away and the heartbeats in it. No heartbeats means the TV paused the lab's scripts (Samsung says Tizen does).
 7. For the screensaver (Tizen): leave the TV untouched for longer than its screensaver delay while the lab is open. No screensaver should come.
 
@@ -176,7 +176,7 @@ The media comes from the lab server (`/__lab/media`, docs/runbooks/mock-provider
 
 1. Run `pnpm mock:media` once (about 30 s), then `pnpm mock`. Its start line must say `Media: files`.
 2. On the lab, go to S5 and press OK. The rows play one after another in the box at the bottom right. Listen during `audio-tracks`: the sound should change from the Arabic track to the English one. Listen during `ac3`: a 5.1 tone per channel.
-3. When the caption says "press Home…", press Home, wait a few seconds, and open the Zoma Lab again from the launcher.
+3. When the caption says "press Home…", press Home, wait a few seconds, and open the Lablo Lab again from the launcher.
 4. The soak follows: 60 minutes, with a stall every 18 seconds or so. Leave the TV alone. (On a TV it is always 60 minutes; in a browser, `&soak=` in the URL shortens it.)
 5. S5 shows its result; the collector has every row.
 
@@ -208,7 +208,7 @@ How AVPlay answers the battery:
 1. As for S5: `pnpm mock:media` once, then `pnpm mock` (`Media: files`).
 2. On the Samsung TV, go to S4 and press OK. The rows play in the box at the bottom right; the rest of the screen is black while they do.
 3. Listen during `audio-tracks` (Arabic to English) and `ac3` (a 5.1 tone per channel). During `subtitles` no text shows on the TV (the lab only records the callback's text).
-4. When the caption says "press Home…", press Home, wait a few seconds, and open the Zoma Lab again.
+4. When the caption says "press Home…", press Home, wait a few seconds, and open the Lablo Lab again.
 5. The soak follows (60 minutes). Then S4 shows its result.
 
 ## S8: AVPlay pre-buffering (step 15c2)
@@ -232,11 +232,11 @@ S6 runs last, since on a TV it takes minutes. It uses the app's own data engine 
 |---|---|---|
 | `source` | Asks the lab server for a source (`/__lab/source`, docs/runbooks/mock-provider.md): an M3U of the mock's test account and a guide moved to this TV's days. Only counts and sizes go into the record, never the URLs. | `pass` with the scale fixtures, `info` otherwise |
 | `ingest` | Stores the source as S6's own source (`lab-s6`) and ingests the M3U through the data engine, in the TV's tier. | ≤ 90 s, no crash |
-| `search` | Six searches through the app's search path: `zoma`, `sport`, `زوما`, `night`, `ki`, `الليل`. | each ≤ 200 ms |
+| `search` | Six searches through the app's search path: `lablo`, `sport`, `لابلو`, `night`, `ki`, `الليل`. | each ≤ 200 ms |
 | `keys` | Shows the live screen on the stored catalog, starts a refresh of the source, and while it runs presses 35 keys at a viewer's pace (down the list, CH− page by page, to the rail, OK on a category, back into the list). Each press is timed from the key to the end of the first frame that draws the new focus. The refresh is then cancelled. | each < 200 ms, all during the refresh |
 | `guide` | The guide's filtered ingest through the data engine (only the stored live channels' programmes, in the tier's window). | ≤ 4 min, programmes kept |
 | `cold-start` | This launch's boot (the page to the lab's script, the part a bundle's parse takes) plus a fresh data engine (no workers running) to the live screen's painted rows, as the app starts with a source stored. Also records when the screen went idle (its 600 ms focus wait included). | ≤ 3 s |
-| `cleanup` | Deletes the lab's copy of the app database (`zoma`), so the TV's storage is free again for S2. | `info` (housekeeping) |
+| `cleanup` | Deletes the lab's copy of the app database (`lablo`), so the TV's storage is free again for S2. | `info` (housekeeping) |
 
 - **Judged only at scale:** the criteria are about 200,000 items and the 150 MB guide. Against the mock's own small catalog every check measures and reports `info` (that is what e2e and the old-engine harness see). For a judged run on a TV, start the mock with the scale fixtures:
 
@@ -244,7 +244,7 @@ S6 runs last, since on a TV it takes minutes. It uses the app's own data engine 
   pnpm fixtures
   pnpm mock --catalog .cache/fixtures/catalog.json --xmltv .cache/fixtures/xmltv-150mb.xml.gz
   ```
-- **Never over the app's data:** under `pnpm dev` the lab page shares the dev app's origin and its database. If S6 finds a source there that isn't its own, it skips (every check, cleanup included) and deletes nothing. Open the lab on another origin instead, a second dev server on another port: `pnpm --filter @zoma/app-tv exec vite --port 5174`, then `http://localhost:5174/lab.html?server=http://127.0.0.1:8080`. On a TV the lab has its own storage.
+- **Never over the app's data:** under `pnpm dev` the lab page shares the dev app's origin and its database. If S6 finds a source there that isn't its own, it skips (every check, cleanup included) and deletes nothing. Open the lab on another origin instead, a second dev server on another port: `pnpm --filter @lablo/app-tv exec vite --port 5174`, then `http://localhost:5174/lab.html?server=http://127.0.0.1:8080`. On a TV the lab has its own storage.
 - **In the desktop browser at scale:** `pnpm lab:scale` (after `pnpm fixtures`) runs S6 by the remote against an in-process mock with the scale fixtures, requires every check to pass, and writes `artifacts/lab-scale.json`. On this PC (2026-11-04, desktop Chromium, full tier):
 
   | Check | Result |
@@ -284,7 +284,7 @@ The lab needs no test account: the mock answers it on `/__lab/` (docs/runbooks/m
 
 - **e2e** (`e2e/lab.spec.ts`):
   - the dev page by keys, every record checked in the collector (S6 against the mock's small catalog, S9's faces, widths and the app's own formats);
-  - S10 alone by keys: every Intent's key and one with no action, the pointer, Back twice, then the keyboard test typing `زوما Zoma` and answering GREEN;
+  - S10 alone by keys: every Intent's key and one with no action, the pointer, Back twice, then the keyboard test typing `لابلو Lablo` and answering GREEN;
   - S11 alone by keys: a hidden-and-back trip logged as `event` records, both questions answered (DOM focus on the labelled button, then the live region saying the focused name);
   - an "update" from 0.1.0 to 0.1.1 (S2); the collector down, then up;
   - both TV bundles from `file://`.

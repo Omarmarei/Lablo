@@ -6,11 +6,11 @@
  * one copy shows as a mismatch instead of hiding in both.
  */
 
-/** Line `n` of `/__lab/bytes`: `000042 Zoma زوما ✓ 😀\n` (30 bytes in UTF-8). */
+/** Line `n` of `/__lab/bytes`: `000042 Lablo لابلو ✓ 😀\n` (33 bytes in UTF-8). */
 export function labLine(n: number): string {
   let digits = String(n);
   while (digits.length < 6) digits = `0${digits}`;
-  return `${digits} Zoma \u0632\u0648\u0645\u0627 \u2713 \uD83D\uDE00\n`;
+  return `${digits} Lablo \u0644\u0627\u0628\u0644\u0648 \u2713 \uD83D\uDE00\n`;
 }
 
 /** What a streamed read of `/__lab/bytes` saw. */

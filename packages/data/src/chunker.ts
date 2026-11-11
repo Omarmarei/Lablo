@@ -13,7 +13,7 @@
  * index's item numbers follow the chunks.
  */
 
-import type { CatalogItem, ContentKind, SearchIndexBuilder } from '@zoma/core';
+import type { CatalogItem, ContentKind, SearchIndexBuilder } from '@lablo/core';
 
 export const CHUNK_SIZE = 500;
 export const MAX_BUFFERED = 5000;

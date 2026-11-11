@@ -16,9 +16,9 @@
  *
  * The layout constants, the selectors and our own words are kept equal to packages/ui, the
  * movies screen, the e2e test and the app's catalogs by test/engines-onboarding.test.ts
- * (tools/* may not import @zoma/ui).
+ * (tools/* may not import @lablo/ui).
  */
-import { stripIsolates } from '@zoma/core';
+import { stripIsolates } from '@lablo/core';
 import type { ListedFilmCategory, ListedMovie } from './fixture';
 import { POSTER_SIZE } from './fixture';
 import { SAFE_AREA, list } from './gallery';

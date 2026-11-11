@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { XtreamAccount } from '@zoma/core';
-import { XtreamError } from '@zoma/core';
+import type { XtreamAccount } from '@lablo/core';
+import { XtreamError } from '@lablo/core';
 import { NetworkError } from './bytes';
 import { createDataClient } from './client';
 import { openDatabase } from './idb';

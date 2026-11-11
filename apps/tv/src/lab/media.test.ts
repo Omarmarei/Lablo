@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { LAB_MEDIA_IDS, parseLabMedia } from './media';
 
 const ITEM = {
-  url: 'http://lab:8080/movie/zoma/zoma-test/206.mkv',
+  url: 'http://lab:8080/movie/lablo/lablo-test/206.mkv',
   kind: 'vod',
   container: 'mkv',
   fault: null,

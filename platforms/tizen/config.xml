@@ -3,12 +3,12 @@
   Samsung Tizen TV widget configuration. tools/build/build-tv.ts copies this file into
   dist/tv/tizen and replaces {{version}} with apps/tv/package.json "version".
   PLACEHOLDERS until release engineering (RELAY step 45): the widget id URL and the
-  10-character package id "ZomaIPTV01". Both are permanent once the app is published.
+  10-character package id "LabloIPTV1". Both are permanent once the app is published.
 -->
-<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="https://zoma-iptv.invalid/tv" version="{{version}}" viewmodes="maximized">
-    <tizen:application id="ZomaIPTV01.Zoma" package="ZomaIPTV01" required_version="4.0"/>
+<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="https://lablo-iptv.invalid/tv" version="{{version}}" viewmodes="maximized">
+    <tizen:application id="LabloIPTV1.Lablo" package="LabloIPTV1" required_version="4.0"/>
     <tizen:profile name="tv-samsung"/>
-    <name>Zoma</name>
+    <name>Lablo</name>
     <content src="index.html"/>
     <icon src="icon.png"/>
     <feature name="http://tizen.org/feature/screen.size.all"/>

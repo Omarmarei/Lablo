@@ -79,8 +79,8 @@ describe('media plan for the shipped catalog', () => {
   it('writes labels and a clock line, ASCII only', () => {
     expect(labelTexts(live('103'))).toEqual(['CH 3  #103  clock', 'Channel 3 (non-Latin name)', 'sec %{pts:gmtime:0:%S}.%{eif:mod(n,25):d:2}']);
     expect(labelTexts(live('108'))).toEqual([]);
-    expect(asciiLabel('Zoma Test', 'x')).toBe('Zoma Test');
-    expect(asciiLabel('زوما', 'x')).toBe('x');
+    expect(asciiLabel('Lablo Test', 'x')).toBe('Lablo Test');
+    expect(asciiLabel('لابلو', 'x')).toBe('x');
     expect(filterPath("C:\\a b\\it's.ttf")).toBe("'C\\:/a b/it\\'s.ttf'");
   });
 

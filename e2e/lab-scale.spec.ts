@@ -39,7 +39,7 @@ let logDir: string;
 
 test.beforeAll(async () => {
   expect(existsSync(CATALOG) && existsSync(GUIDE), `${FIXTURES} has no scale fixtures: run pnpm fixtures first`).toBe(true);
-  logDir = await mkdtemp(path.join(tmpdir(), 'zoma-lab-scale-'));
+  logDir = await mkdtemp(path.join(tmpdir(), 'lablo-lab-scale-'));
   // The real clock: the guide is moved to today, and the live screen asks now/next for today.
   app = await mock({ labLogDir: logDir, now: Date.now, catalog: loadCatalogFile(CATALOG), xmltvFile: GUIDE });
   base = await listen(app);

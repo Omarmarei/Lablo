@@ -1,5 +1,5 @@
 /**
- * The app's fonts (RELAY step 11, PLAN 4.2): one family, "Zoma Sans", made of a Latin face
+ * The app's fonts (RELAY step 11, PLAN 4.2): one family, "Lablo Sans", made of a Latin face
  * (Noto Sans) and an Arabic face (Noto Sans Arabic UI) in two weights, each subset to the
  * characters the app can show and stored as woff2 in packages/ui/assets/fonts.
  *
@@ -75,7 +75,7 @@ export const LATIN_RANGE = 'U+0000-017F, U+0218-021B, U+02BB-02BC, U+02C6, U+02D
  */
 export const ARABIC_RANGE = 'U+0600-06FF, U+200C-200F, U+FDF2, U+FDFA, U+FDFC, U+FE70-FEFF';
 
-export const FAMILY = 'Zoma Sans';
+export const FAMILY = 'Lablo Sans';
 
 export interface FaceSpec {
   /** Output file in packages/ui/assets/fonts. */
@@ -86,10 +86,10 @@ export interface FaceSpec {
 }
 
 export const FACES: readonly FaceSpec[] = [
-  { file: 'zoma-latin-400.woff2', source: 'latin400', weight: 400, unicodeRange: LATIN_RANGE },
-  { file: 'zoma-latin-700.woff2', source: 'latin700', weight: 700, unicodeRange: LATIN_RANGE },
-  { file: 'zoma-arabic-400.woff2', source: 'arabic400', weight: 400, unicodeRange: ARABIC_RANGE },
-  { file: 'zoma-arabic-700.woff2', source: 'arabic700', weight: 700, unicodeRange: ARABIC_RANGE },
+  { file: 'lablo-latin-400.woff2', source: 'latin400', weight: 400, unicodeRange: LATIN_RANGE },
+  { file: 'lablo-latin-700.woff2', source: 'latin700', weight: 700, unicodeRange: LATIN_RANGE },
+  { file: 'lablo-arabic-400.woff2', source: 'arabic400', weight: 400, unicodeRange: ARABIC_RANGE },
+  { file: 'lablo-arabic-700.woff2', source: 'arabic700', weight: 700, unicodeRange: ARABIC_RANGE },
 ];
 
 /** Every code point a CSS `unicode-range` value names, once each, in ascending order. */

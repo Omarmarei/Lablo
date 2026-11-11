@@ -1,5 +1,5 @@
 {
-  "name": "@zoma/platform-browser",
+  "name": "@lablo/platform-browser",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -14,8 +14,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@zoma/platform-api": "workspace:*",
-    "@zoma/player": "workspace:*",
-    "@zoma/core": "workspace:*"
+    "@lablo/core": "workspace:*",
+    "@lablo/platform-api": "workspace:*",
+    "@lablo/player": "workspace:*"
   }
 }

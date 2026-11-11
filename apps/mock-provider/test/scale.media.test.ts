@@ -16,7 +16,7 @@ import type { MockServer } from '../src/server';
 import { buildServer } from '../src/server';
 
 const exec = promisify(execFile);
-const fixtures = process.env['ZOMA_FIXTURES_DIR'] ?? join(import.meta.dirname, '..', '..', '..', '.cache', 'fixtures');
+const fixtures = process.env['LABLO_FIXTURES_DIR'] ?? join(import.meta.dirname, '..', '..', '..', '.cache', 'fixtures');
 const mediaDir = process.env['MOCK_MEDIA_DIR'] ?? DEFAULT_MEDIA_DIR;
 const NOW = Date.UTC(2026, 10, 2, 12, 0, 0);
 
@@ -45,7 +45,7 @@ afterAll(async () => {
   await app?.close();
 });
 
-const api = (action: string): string => `/player_api.php?username=zoma&password=zoma-test&action=${action}`;
+const api = (action: string): string => `/player_api.php?username=lablo&password=lablo-test&action=${action}`;
 
 describe('scale catalog in the mock', () => {
   it('loads 20k live, 120k movies and 3k series (60k episodes)', () => {
@@ -58,7 +58,7 @@ describe('scale catalog in the mock', () => {
     expect(((await app.inject({ url: api('get_live_streams') })).json() as unknown[]).length).toBe(20_000);
     expect(((await app.inject({ url: api('get_vod_streams') })).json() as unknown[]).length).toBe(120_000);
     expect(((await app.inject({ url: api('get_series') })).json() as unknown[]).length).toBe(3_000);
-    const m3u = (await app.inject({ url: '/get.php?username=zoma&password=zoma-test&type=m3u_plus' })).body;
+    const m3u = (await app.inject({ url: '/get.php?username=lablo&password=lablo-test&type=m3u_plus' })).body;
     expect(m3u.match(/^#EXTINF/gm)).toHaveLength(200_000);
   });
 
@@ -72,7 +72,7 @@ describe('scale catalog in the mock', () => {
     if (!ffprobe) throw new Error('ffprobe must be on PATH');
     const live = catalog.live.find((c) => !c.radio)!;
     const movie = catalog.movies.find((m) => m.ext === 'mp4')!;
-    for (const path of [`/live/zoma/zoma-test/${live.id}.ts`, `/movie/zoma/zoma-test/${movie.id}.mp4`]) {
+    for (const path of [`/live/lablo/lablo-test/${live.id}.ts`, `/movie/lablo/lablo-test/${movie.id}.mp4`]) {
       const { stdout } = await exec(ffprobe.bin, ['-v', 'error', '-print_format', 'json', '-show_streams', `${base}${path}`]);
       const streams = (JSON.parse(stdout) as { streams: { codec_type: string; codec_name: string }[] }).streams;
       expect(streams.map((s) => `${s.codec_type}:${s.codec_name}`), path).toEqual(['video:h264', 'audio:aac']);

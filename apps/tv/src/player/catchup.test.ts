@@ -1,5 +1,5 @@
-import type { CatalogItem, CatchupInfo } from '@zoma/core';
-import { fixedZone } from '@zoma/core';
+import type { CatalogItem, CatchupInfo } from '@lablo/core';
+import { fixedZone } from '@lablo/core';
 import { describe, expect, it } from 'vitest';
 import type { LiveRow } from '../live/live-state';
 import { HELD_PRESSES, JUMP_STEP_MS, SEEK_STEP_MS, archiveDays, archiveDaysLeft, archiveFrom, canWatchFromStart, catchupRequest, inArchive, seekStep } from './catchup';
@@ -15,7 +15,7 @@ function row(catchup: CatchupInfo | null, url = 'http://panel.test:8080/live/u/p
     key: 'x:s1:live:101',
     src: 's1',
     kind: 'live',
-    name: 'Zoma Test 1',
+    name: 'Lablo Test 1',
     normName: '',
     group: '',
     url,

@@ -1,6 +1,6 @@
 import { gzipSync } from 'node:zlib';
-import type { CatalogItem, EpgBucket, EpgProgramme } from '@zoma/core';
-import { EpgGuideReader, EpgWantedSet, epgNowNext, epgProgrammes, mergeEpgBuckets } from '@zoma/core';
+import type { CatalogItem, EpgBucket, EpgProgramme } from '@lablo/core';
+import { EpgGuideReader, EpgWantedSet, epgNowNext, epgProgrammes, mergeEpgBuckets } from '@lablo/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Fnv1a } from './bytes';
 import { markChecked } from './catalog-store';

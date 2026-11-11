@@ -1,4 +1,4 @@
-import type { Intent, KeyLike, TextKey } from '@zoma/platform-api';
+import type { Intent, KeyLike, TextKey } from '@lablo/platform-api';
 import { describe, expect, it } from 'vitest';
 import { bindEditor } from './binding';
 import { OK_CLICK_WINDOW_MS, createNavigator } from './navigator';

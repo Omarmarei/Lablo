@@ -1,5 +1,5 @@
-import type { Catalogs, I18n, I18nOptions, Language, LocaleSettings } from '@zoma/ui';
-import { createI18n } from '@zoma/ui';
+import type { Catalogs, I18n, I18nOptions, Language, LocaleSettings } from '@lablo/ui';
+import { createI18n } from '@lablo/ui';
 import { AR } from './ar';
 import type { MessageKey } from './en';
 import { EN } from './en';

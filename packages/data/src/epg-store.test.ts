@@ -1,5 +1,5 @@
-import type { EpgBucket, EpgProgramme } from '@zoma/core';
-import { buildEpgBucket, epgProgrammes } from '@zoma/core';
+import type { EpgBucket, EpgProgramme } from '@lablo/core';
+import { buildEpgBucket, epgProgrammes } from '@lablo/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { SourceMeta } from './catalog-store';
 import type { EpgChannelTable, EpgMeta } from './epg-store';

@@ -21,32 +21,32 @@ const T = NOW_SEC - 3600;
 
 /** Route (as Fastify registered it) -> a request that exercises it. */
 const PROBES: Record<string, Probe> = {
-  'GET /player_api.php': { url: '/player_api.php?username=zoma&password=zoma-test&action=get_live_streams', status: 200 },
+  'GET /player_api.php': { url: '/player_api.php?username=lablo&password=lablo-test&action=get_live_streams', status: 200 },
   'POST /player_api.php': {
     method: 'POST',
     url: '/player_api.php',
-    payload: 'username=zoma&password=zoma-test',
+    payload: 'username=lablo&password=lablo-test',
     contentType: 'application/x-www-form-urlencoded',
     status: 200,
   },
-  'GET /get.php': { url: '/get.php?username=zoma&password=zoma-test&type=m3u_plus', status: 200 },
-  'GET /xmltv.php': { url: '/xmltv.php?username=zoma&password=zoma-test', status: 200 },
+  'GET /get.php': { url: '/get.php?username=lablo&password=lablo-test&type=m3u_plus', status: 200 },
+  'GET /xmltv.php': { url: '/xmltv.php?username=lablo&password=lablo-test', status: 200 },
   'GET /epg/guide.xml': { url: '/epg/guide.xml', status: 200 },
   'GET /epg/guide.xml.gz': { url: '/epg/guide.xml.gz', status: 200 },
-  'GET /live/:u/:p/:file': { url: '/live/zoma/zoma-test/101.ts', status: 200 },
-  'GET /:u/:p/:id(^\\d+$)': { url: '/zoma/zoma-test/101', status: 200 },
-  'GET /hls/:u/:p/:id/:seg': { url: `/hls/zoma/zoma-test/101/${NOW_SEC / 6 - 1}.ts`, status: 200 },
-  'GET /movie/:u/:p/:file': { url: '/movie/zoma/zoma-test/201.mp4', status: 200 },
-  'GET /series/:u/:p/:file': { url: '/series/zoma/zoma-test/3001.mkv', status: 200 },
-  'GET /timeshift/:u/:p/:duration/:start/:file': { url: '/timeshift/zoma/zoma-test/30/2026-11-02:10-00/101.ts', status: 200 },
+  'GET /live/:u/:p/:file': { url: '/live/lablo/lablo-test/101.ts', status: 200 },
+  'GET /:u/:p/:id(^\\d+$)': { url: '/lablo/lablo-test/101', status: 200 },
+  'GET /hls/:u/:p/:id/:seg': { url: `/hls/lablo/lablo-test/101/${NOW_SEC / 6 - 1}.ts`, status: 200 },
+  'GET /movie/:u/:p/:file': { url: '/movie/lablo/lablo-test/201.mp4', status: 200 },
+  'GET /series/:u/:p/:file': { url: '/series/lablo/lablo-test/3001.mkv', status: 200 },
+  'GET /timeshift/:u/:p/:duration/:start/:file': { url: '/timeshift/lablo/lablo-test/30/2026-11-02:10-00/101.ts', status: 200 },
   'GET /streaming/timeshift.php': {
-    url: '/streaming/timeshift.php?username=zoma&password=zoma-test&stream=101&start=2026-11-02:10-00&duration=30',
+    url: '/streaming/timeshift.php?username=lablo&password=lablo-test&stream=101&start=2026-11-02:10-00&duration=30',
     status: 200,
   },
-  'GET /catchup/:u/:p/:file': { url: `/catchup/zoma/zoma-test/102.ts?start=${T}&end=${T + 600}`, status: 200 },
-  'GET /flussonic/:u/:p/:id/:file': { url: `/flussonic/zoma/zoma-test/106/archive-${T}-600.ts`, status: 200 },
+  'GET /catchup/:u/:p/:file': { url: `/catchup/lablo/lablo-test/102.ts?start=${T}&end=${T + 600}`, status: 200 },
+  'GET /flussonic/:u/:p/:id/:file': { url: `/flussonic/lablo/lablo-test/106/archive-${T}-600.ts`, status: 200 },
   'GET /images/:file': { url: '/images/movie-201.png', status: 200 },
-  'GET /subtitles/:u/:p/:file': { url: '/subtitles/zoma/zoma-test/206.eng.srt', status: 200 },
+  'GET /subtitles/:u/:p/:file': { url: '/subtitles/lablo/lablo-test/206.eng.srt', status: 200 },
   'GET /attribution': { url: '/attribution', status: 200 },
   'POST /__lab/logs/:session': { method: 'POST', url: '/__lab/logs/endpoints', payload: '{"ok":true}', contentType: 'application/json', status: 200 },
   'GET /__lab/logs': { url: '/__lab/logs', status: 200 },
@@ -69,7 +69,7 @@ const PROBES: Record<string, Probe> = {
 let app: MockServer;
 let dir: string;
 beforeAll(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'zoma-endpoints-'));
+  dir = await mkdtemp(join(tmpdir(), 'lablo-endpoints-'));
   app = await mock({ labLogDir: dir });
   await app.ready();
 });
@@ -101,7 +101,7 @@ describe('endpoint coverage', () => {
     const res = await app.inject({ url: '/' });
     expect(res.headers['content-type']).toBe('text/plain; charset=utf-8');
     expect(res.body).toContain('TEST-SIGNAL server');
-    expect(res.body).toContain('zoma / zoma-test  (Active, max 2)');
+    expect(res.body).toContain('lablo / lablo-test  (Active, max 2)');
     expect(res.body).toContain('maxed / maxed-test  (Active, max 1)');
   });
 

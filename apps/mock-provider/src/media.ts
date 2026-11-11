@@ -92,7 +92,7 @@ export class PlaceholderMedia implements MediaSource {
   }
 
   liveTs(channelId: number): Readable {
-    const chunk = tsPackets(this.packetsPerChunk, `ZOMA MOCK LIVE ch=${channelId}`);
+    const chunk = tsPackets(this.packetsPerChunk, `LABLO MOCK LIVE ch=${channelId}`);
     const { limit, intervalMs } = this;
     let sent = 0;
     let timer: NodeJS.Timeout | undefined;
@@ -123,11 +123,11 @@ export class PlaceholderMedia implements MediaSource {
   }
 
   hlsSegment(channelId: number, seq: number): Buffer {
-    return tsPackets(this.packetsPerSegment, `ZOMA MOCK HLS ch=${channelId} seq=${seq} t=${seq * HLS_SEGMENT_SECONDS}`);
+    return tsPackets(this.packetsPerSegment, `LABLO MOCK HLS ch=${channelId} seq=${seq} t=${seq * HLS_SEGMENT_SECONDS}`);
   }
 
   archiveTs(channelId: number, startSec: number, durationSec: number): Readable {
-    return Readable.from([tsPackets(this.packetsPerSegment, `ZOMA MOCK ARCHIVE ch=${channelId} start=${startSec} dur=${durationSec}`)]);
+    return Readable.from([tsPackets(this.packetsPerSegment, `LABLO MOCK ARCHIVE ch=${channelId} start=${startSec} dur=${durationSec}`)]);
   }
 
   file(_kind: 'movie' | 'episode', id: number, ext: string): MediaFile {

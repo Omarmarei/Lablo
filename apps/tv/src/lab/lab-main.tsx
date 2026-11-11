@@ -1,10 +1,10 @@
 /**
- * The Zoma Lab (RELAY step 15a, docs/architecture.md §5): a separate TV build (`dist/tv-lab`,
+ * The Lablo Lab (RELAY step 15a, docs/architecture.md §5): a separate TV build (`dist/tv-lab`,
  * its own app id) that answers the hardware spikes on a real TV and sends every result to the
  * LAN log collector, since Claude can't see the TV. `lab.html` runs it under `pnpm dev`.
  */
 import { render } from 'preact';
-import { Spinner } from '@zoma/ui';
+import { Spinner } from '@lablo/ui';
 import { createPlatform } from '../platform';
 import { installTestHook } from '../test-hook';
 import type { LabBuildConfig } from './config';
@@ -19,7 +19,7 @@ import { SPIKES } from './spikes';
 import { readIdbMarker, readLocalMarker } from './storage';
 import type { LabBaseContext } from './types';
 import { createLabWorkerClient } from './worker-client';
-// Last, so the lab's CSS comes after @zoma/ui's.
+// Last, so the lab's CSS comes after @lablo/ui's.
 import './lab.css';
 
 /** This launch's boot: the page's start (navigation) to here, after every module has run. */
@@ -55,7 +55,7 @@ function localStorageOrNull(): Storage | null {
 
 async function start(): Promise<void> {
   const info = await platform.info();
-  const built = (window as unknown as { ZOMA_LAB_CONFIG?: LabBuildConfig }).ZOMA_LAB_CONFIG;
+  const built = (window as unknown as { LABLO_LAB_CONFIG?: LabBuildConfig }).LABLO_LAB_CONFIG;
   const config = readLabConfig(location.search, built, location.hostname);
   const session = labSession(info, new Date(), Math.random);
   const id = await platform.deviceSecret().catch(() => null);
@@ -80,7 +80,7 @@ async function start(): Promise<void> {
   reporter.add({ type: 'start', value: { version: config.version, server: config.server, writeMb: config.writeMb, soakMinutes: config.soakMinutes, autoRun: config.autoRun, device: info, previous } });
   lifecycle.attach((entry) => reporter.add({ type: 'event', check: 'lifecycle', value: entry, note: entry.event }));
   const lab = createLab({ platform, spikes: SPIKES, context, reporter, target: window });
-  window.__ZOMA_LAB__ = {
+  window.__LABLO_LAB__ = {
     session,
     server: config.server,
     records: reporter.records,

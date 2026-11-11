@@ -14,7 +14,7 @@ import { INTENTS } from '../packages/platform-api/src/index';
 import { RemoteDriver } from './remote-driver';
 
 /**
- * The Zoma Lab (RELAY step 15a) in the desktop browser: under `pnpm dev` (lab.html) and as the
+ * The Lablo Lab (RELAY step 15a) in the desktop browser: under `pnpm dev` (lab.html) and as the
  * built TV bundle from file:// (dist/tv-lab). Every check's record must reach the in-process
  * mock's LAN log collector, which is how the lab reports from a real TV.
  */
@@ -126,7 +126,7 @@ let base: string;
 let logDir: string;
 
 test.beforeAll(async () => {
-  logDir = await mkdtemp(path.join(tmpdir(), 'zoma-lab-e2e-'));
+  logDir = await mkdtemp(path.join(tmpdir(), 'lablo-lab-e2e-'));
   app = await mock({ labLogDir: logDir });
   base = await listen(app);
 });
@@ -177,12 +177,12 @@ function expectS6(records: readonly Record[]): void {
   const s6 = (id: string): Record | undefined => records.find((r) => r.spike === 'S6' && r.check === id);
   expect(s6('source')?.value).toMatchObject({ items: 25, live: 12, guide: { static: false }, atScale: { catalog: false, guide: false } });
   // The test account's URLs never reach the records.
-  expect(JSON.stringify(records.filter((r) => r.spike === 'S6'))).not.toMatch(/zoma-test|password=/);
+  expect(JSON.stringify(records.filter((r) => r.spike === 'S6'))).not.toMatch(/lablo-test|password=/);
   expect(s6('ingest')?.value).toMatchObject({ items: 25, expected: 25, counts: { live: 12, movie: 6, series: 7 } });
   const search = s6('search')?.value as { queries: { q: string; total: number }[] };
   expect(search.queries.map((q) => q.q)).toEqual(S6_QUERIES);
-  expect(search.queries.find((q) => q.q === 'zoma')?.total).toBeGreaterThan(0);
-  expect(search.queries.find((q) => q.q === 'زوما')?.total).toBe(1);
+  expect(search.queries.find((q) => q.q === 'lablo')?.total).toBeGreaterThan(0);
+  expect(search.queries.find((q) => q.q === 'لابلو')?.total).toBe(1);
   // Every press timed to its painted focus, on the app's live screen.
   const keys = s6('keys')?.value as { count: number; presses: [string, string, number | null][]; refresh: { ended: string } };
   expect(keys.count).toBe(S6_PRESSES.length);
@@ -200,7 +200,7 @@ function expectS6(records: readonly Record[]): void {
   expect(cold.totalMs).toBe(cold.bootMs + cold.dataMs);
   expect(cold.bootMs).toBeGreaterThan(0);
   expect(cold.idleMs).toBeGreaterThanOrEqual(cold.dataMs);
-  expect(s6('cleanup')?.note).toBe('deleted "zoma"');
+  expect(s6('cleanup')?.note).toBe('deleted "lablo"');
 }
 
 /**
@@ -212,7 +212,7 @@ function expectS5(records: readonly Record[]): void {
   expect(s5[0]?.value).toMatchObject({ media: 'placeholder', items: LAB_MEDIA_IDS.slice(), engine: { apis: { textTracks: true }, canPlayType: { 'video/mp2t': '' } } });
   expect(s5[0]?.note).toBe(PLACEHOLDER_NOTE);
   expect(s5.slice(1, 8).map((r) => r.note)).toEqual(Array.from({ length: 7 }, () => PLACEHOLDER_NOTE));
-  expect(JSON.stringify(s5)).not.toMatch(/zoma-test|\/live\/|\/movie\//);
+  expect(JSON.stringify(s5)).not.toMatch(/lablo-test|\/live\/|\/movie\//);
 }
 
 /**
@@ -250,7 +250,7 @@ function statuses(records: readonly Record[]): Array<[string, string]> {
   return records.filter((r) => r.type === 'check').map((r) => [`${r.spike ?? ''}/${r.check ?? ''}`, r.status ?? '']);
 }
 
-test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
+test.describe('the Lablo Lab in the desktop browser (pnpm dev)', () => {
   test('runs every spike by the remote and sends each result to the collector', async ({ page }) => {
     const errors = trackErrors(page);
     const remote = new RemoteDriver(page);
@@ -280,8 +280,8 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     // What the records say, beyond the status.
     const check = (key: string): Record | undefined => records.find((r) => `${r.spike ?? ''}/${r.check ?? ''}` === key);
     expect(check('S0/device')?.value).toMatchObject({ platform: 'browser', model: 'Desktop browser', labVersion: 'dev' });
-    expect(check('S1/fetch-stream')?.value).toMatchObject({ bytes: 20_000 * 30, lines: 20_000, badLine: null });
-    expect(check('S1/fetch-stream-worker')?.value).toMatchObject({ bytes: 20_000 * 30, lines: 20_000, badLine: null });
+    expect(check('S1/fetch-stream')?.value).toMatchObject({ bytes: 20_000 * 33, lines: 20_000, badLine: null });
+    expect(check('S1/fetch-stream-worker')?.value).toMatchObject({ bytes: 20_000 * 33, lines: 20_000, badLine: null });
     expect(check('S1/idb-bulk-worker')?.value).toMatchObject({ items: 10_000, count: 10_000, getAll: 500, deleted: true });
     expect(check('S1/blob-worker')?.value).toMatchObject({ features: { TextDecoder: true, fetch: true, indexedDB: true, 'Response.body': true } });
     expect(check('S2/write-test')?.value).toMatchObject({ targetMb: 8, writtenMb: 8, error: null, deleted: true });
@@ -359,9 +359,9 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     await expect(ask).toHaveAttribute('data-mode', 'focus');
     const focused = (): Promise<string | null> => page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? null);
     // DOM focus follows the remote, so a screen reader can read the label.
-    await expect.poll(focused).toBe('Zoma Lab first button');
+    await expect.poll(focused).toBe('Lablo Lab first button');
     await remote.go('RIGHT', 'ask/items/1');
-    await expect.poll(focused).toBe('Zoma Lab second button');
+    await expect.poll(focused).toBe('Lablo Lab second button');
     await expect(page.getByTestId('ask-item-1')).toHaveAttribute('role', 'button');
     // GREEN: read. The second question comes up.
     await remote.press('GREEN');
@@ -370,7 +370,7 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     await remote.go('RIGHT', 'ask/items/1');
     await remote.go('RIGHT', 'ask/items/2');
     // No DOM focus here: the live region says the focused label.
-    await expect(page.getByTestId('ask-live')).toHaveText('Zoma Lab third button');
+    await expect(page.getByTestId('ask-live')).toHaveText('Lablo Lab third button');
     await expect(page.getByTestId('ask-live')).toHaveAttribute('aria-live', 'assertive');
     expect(await focused()).toBeNull();
     // RED: not read.
@@ -444,7 +444,7 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     await remote.press('OK');
     await expect(field).toHaveAttribute('data-editing', 'true');
     await expect.poll(() => page.evaluate(() => document.activeElement?.id ?? null)).toBe('lab-type-field');
-    await page.keyboard.insertText('زوما Zoma');
+    await page.keyboard.insertText('لابلو Lablo');
     await page.keyboard.press('Enter');
     await expect(field).toHaveAttribute('data-editing', 'false');
     await expect(page.getByTestId('type-keys')).toHaveText('Edit 1 ended with done; its keys: 13 Enter');
@@ -467,19 +467,19 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
       ['registration', 'skip', 'a desktop keyboard delivers every key'],
       ['keys', 'pass', `every key came (${INTENTS.length}); keys with no action: 81 q`],
       ['pointer', 'pass', expect.stringMatching(/^shown 0, hidden 0, moves \d+, clicks 1, wheel 1$/)],
-      ['keyboard', 'pass', 'typed "زوما Zoma" in Arabic and English (2 edits)'],
+      ['keyboard', 'pass', 'typed "لابلو Lablo" in Arabic and English (2 edits)'],
     ]);
     const tested = s10[1]?.value as { ended: string; presses: number; missing: string[]; codes: { readonly [intent: string]: number[] }; others: unknown[] };
     expect(tested).toMatchObject({ ended: 'back', presses: intents.length + 3, missing: [], codes: { PREV_CH: [80], BACK: [27], RED: [112], PLAY_PAUSE: [32], DIGIT_0: [48] } });
     expect(tested.others).toEqual([{ keyCode: 81, key: 'q', intent: null, count: 1 }]);
     expect(s10[3]?.value).toMatchObject({
       answer: 'yes',
-      text: 'زوما Zoma',
+      text: 'لابلو Lablo',
       scripts: { arabic: true, latin: true },
       keyboard: [],
       edits: [
-        { how: 'done', inputs: 1, text: 'زوما Zoma', keys: [{ keyCode: 13, key: 'Enter', intent: 'OK' }] },
-        { how: 'close', inputs: 0, text: 'زوما Zoma', keys: [{ keyCode: 27, key: 'Escape', intent: 'BACK' }] },
+        { how: 'done', inputs: 1, text: 'لابلو Lablo', keys: [{ keyCode: 13, key: 'Enter', intent: 'OK' }] },
+        { how: 'close', inputs: 0, text: 'لابلو Lablo', keys: [{ keyCode: 27, key: 'Escape', intent: 'BACK' }] },
       ],
     });
     expect(records[records.length - 1]).toMatchObject({ type: 'end', note: 'S10', value: { counts: { pass: 3, fail: 0, info: 0, skip: 1 } } });
@@ -493,7 +493,7 @@ test.describe('the Zoma Lab in the desktop browser (pnpm dev)', () => {
     // The TV build's lab-config.js, as an older lab would have had it.
     await page.addInitScript(() => {
       const version = sessionStorage.getItem('lab-version') ?? '0.1.0';
-      (window as unknown as { ZOMA_LAB_CONFIG: unknown }).ZOMA_LAB_CONFIG = { version, writeMb: 4, autoRun: true };
+      (window as unknown as { LABLO_LAB_CONFIG: unknown }).LABLO_LAB_CONFIG = { version, writeMb: 4, autoRun: true };
     });
     await page.goto(`/lab.html?server=${base}`);
     const first = await finishedRun(page, 1);

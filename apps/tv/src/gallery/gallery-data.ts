@@ -1,4 +1,4 @@
-import type { ProgrammeLine } from '@zoma/ui';
+import type { ProgrammeLine } from '@lablo/ui';
 import type { MessageKey } from '../i18n';
 
 /**
@@ -17,13 +17,13 @@ export interface DemoChannel {
 }
 
 const FIRST: readonly DemoChannel[] = [
-  { number: 101, name: 'Zoma News', now: { title: 'Morning Bulletin', time: '08:00', progress: 0.65 }, next: { title: 'Business Today', time: '09:00' }, marks: ['hd', 'live'] },
-  { number: 102, name: 'قناة زوما', now: { title: 'نشرة الأخبار', time: '08:30', progress: 0.3 }, next: { title: 'برنامج الصباح', time: '09:30' }, marks: ['hd'] },
-  { number: 103, name: 'Zoma Sports 1', now: { title: 'Football: Cup Final, second half', time: '07:45', progress: 0.82 }, next: { title: 'Match Highlights', time: '09:15' }, marks: ['4k', 'live', 'catchUp'] },
-  { number: 104, name: 'Zoma Kids', now: { title: 'Cartoon Hour', time: '08:00', progress: 0.5 }, next: { title: 'Puppet Theatre', time: '09:00' }, marks: [] },
-  { number: 105, name: 'Zoma Documentary Channel International Extra Long Name', now: { title: 'Nature: The Desert at Night', time: '08:10', progress: 0.12 }, next: { title: 'Oceans', time: '09:05' }, marks: ['hd', 'catchUp'] },
-  { number: 106, name: 'زوما للأفلام', now: { title: 'فيلم السهرة: رحلة إلى الجنوب', time: '07:30', progress: 0.9 }, next: { title: 'أخبار السينما', time: '09:20' }, marks: [] },
-  { number: 107, name: 'Zoma Test Pattern', marks: [] },
+  { number: 101, name: 'Lablo News', now: { title: 'Morning Bulletin', time: '08:00', progress: 0.65 }, next: { title: 'Business Today', time: '09:00' }, marks: ['hd', 'live'] },
+  { number: 102, name: 'قناة لابلو', now: { title: 'نشرة الأخبار', time: '08:30', progress: 0.3 }, next: { title: 'برنامج الصباح', time: '09:30' }, marks: ['hd'] },
+  { number: 103, name: 'Lablo Sports 1', now: { title: 'Football: Cup Final, second half', time: '07:45', progress: 0.82 }, next: { title: 'Match Highlights', time: '09:15' }, marks: ['4k', 'live', 'catchUp'] },
+  { number: 104, name: 'Lablo Kids', now: { title: 'Cartoon Hour', time: '08:00', progress: 0.5 }, next: { title: 'Puppet Theatre', time: '09:00' }, marks: [] },
+  { number: 105, name: 'Lablo Documentary Channel International Extra Long Name', now: { title: 'Nature: The Desert at Night', time: '08:10', progress: 0.12 }, next: { title: 'Oceans', time: '09:05' }, marks: ['hd', 'catchUp'] },
+  { number: 106, name: 'لابلو للأفلام', now: { title: 'فيلم السهرة: رحلة إلى الجنوب', time: '07:30', progress: 0.9 }, next: { title: 'أخبار السينما', time: '09:20' }, marks: [] },
+  { number: 107, name: 'Lablo Test Pattern', marks: [] },
 ];
 
 const SHOWS = ['Weather', 'World Report', 'Studio Live', 'Classic Film', 'Travel Diaries', 'Late News'];
@@ -36,7 +36,7 @@ export const DEMO_CHANNELS: readonly DemoChannel[] = (() => {
     const later = SHOWS[(i + 1) % SHOWS.length] ?? 'Late News';
     out.push({
       number: 101 + i,
-      name: `Zoma Channel ${i + 1}`,
+      name: `Lablo Channel ${i + 1}`,
       now: { title: show, time: '08:00', progress: ((i * 37) % 100) / 100 },
       next: { title: later, time: '09:00' },
       marks: i % 3 === 0 ? ['hd'] : [],

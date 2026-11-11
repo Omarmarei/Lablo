@@ -1,6 +1,6 @@
-import type { Intent, Platform } from '@zoma/platform-api';
-import type { ItemBinding, ZoneView } from '@zoma/ui';
-import { Button, Dialog, TextField, connectRemote, useFocus, useZone } from '@zoma/ui';
+import type { Intent, Platform } from '@lablo/platform-api';
+import type { ItemBinding, ZoneView } from '@lablo/ui';
+import { Button, Dialog, TextField, connectRemote, useFocus, useZone } from '@lablo/ui';
 import { useEffect } from 'preact/hooks';
 import type { KeyTestView, Lab, TextTestView } from './lab-state';
 import { ASK_SCREEN, KEYS_SCREEN, TYPE_FIELD, TYPE_SCREEN, outcomeKey } from './lab-state';
@@ -8,8 +8,8 @@ import { spikeStatus } from './runner';
 import type { KeyPress, LabQuestion, LabStatus, Spike } from './types';
 
 /**
- * The Zoma Lab screen (RELAY step 15a). A developer tool in English only (the
- * `zoma/no-hard-coded-text` lint exempts src/lab, as it does the hello screen): what ran, what
+ * The Lablo Lab screen (RELAY step 15a). A developer tool in English only (the
+ * `lablo/no-hard-coded-text` lint exempts src/lab, as it does the hello screen): what ran, what
  * passed, and whether the collector has the records.
  */
 
@@ -244,7 +244,7 @@ function LabScreen({ lab }: { lab: Lab }) {
       data-index={focus.index}
     >
       <header class="lab__header">
-        <h1 class="lab__title">Zoma Lab</h1>
+        <h1 class="lab__title">Lablo Lab</h1>
         <p class="lab__meta" translate={false}>
           {context.info.platform} · {context.info.model} · lab {context.version}
         </p>

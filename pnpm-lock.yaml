@@ -15,18 +15,18 @@ importers:
       '@eslint/js':
         specifier: ^9.39.5
         version: 9.39.5
+      '@lablo/core':
+        specifier: workspace:*
+        version: link:packages/core
+      '@lablo/data':
+        specifier: workspace:*
+        version: link:packages/data
       '@playwright/test':
         specifier: ^1.64.1
         version: 1.64.1
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
-      '@zoma/core':
-        specifier: workspace:*
-        version: link:packages/core
-      '@zoma/data':
-        specifier: workspace:*
-        version: link:packages/data
       eslint:
         specifier: ^9.39.5
         version: 9.39.5
@@ -73,33 +73,33 @@ importers:
 
   apps/tv:
     dependencies:
+      '@lablo/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@lablo/data':
+        specifier: workspace:*
+        version: link:../../packages/data
+      '@lablo/platform-api':
+        specifier: workspace:*
+        version: link:../../packages/platform-api
+      '@lablo/platform-browser':
+        specifier: workspace:*
+        version: link:../../packages/platform-browser
+      '@lablo/platform-tizen':
+        specifier: workspace:*
+        version: link:../../packages/platform-tizen
+      '@lablo/platform-webos':
+        specifier: workspace:*
+        version: link:../../packages/platform-webos
+      '@lablo/player':
+        specifier: workspace:*
+        version: link:../../packages/player
+      '@lablo/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       '@preact/signals':
         specifier: ^2.11.4
         version: 2.11.4(preact@10.29.8)
-      '@zoma/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@zoma/data':
-        specifier: workspace:*
-        version: link:../../packages/data
-      '@zoma/platform-api':
-        specifier: workspace:*
-        version: link:../../packages/platform-api
-      '@zoma/platform-browser':
-        specifier: workspace:*
-        version: link:../../packages/platform-browser
-      '@zoma/platform-tizen':
-        specifier: workspace:*
-        version: link:../../packages/platform-tizen
-      '@zoma/platform-webos':
-        specifier: workspace:*
-        version: link:../../packages/platform-webos
-      '@zoma/player':
-        specifier: workspace:*
-        version: link:../../packages/player
-      '@zoma/ui':
-        specifier: workspace:*
-        version: link:../../packages/ui
       preact:
         specifier: ^10.29.8
         version: 10.29.8
@@ -124,13 +124,13 @@ importers:
 
   packages/data:
     dependencies:
-      '@zoma/core':
+      '@lablo/core':
         specifier: workspace:*
         version: link:../core
-      '@zoma/crypto':
+      '@lablo/crypto':
         specifier: workspace:*
         version: link:../crypto
-      '@zoma/protocol':
+      '@lablo/protocol':
         specifier: workspace:*
         version: link:../protocol
       fflate:
@@ -143,52 +143,52 @@ importers:
 
   packages/platform-api:
     dependencies:
-      '@zoma/core':
+      '@lablo/core':
         specifier: workspace:*
         version: link:../core
-      '@zoma/player':
+      '@lablo/player':
         specifier: workspace:*
         version: link:../player
 
   packages/platform-browser:
     dependencies:
-      '@zoma/core':
+      '@lablo/core':
         specifier: workspace:*
         version: link:../core
-      '@zoma/platform-api':
+      '@lablo/platform-api':
         specifier: workspace:*
         version: link:../platform-api
-      '@zoma/player':
+      '@lablo/player':
         specifier: workspace:*
         version: link:../player
 
   packages/platform-tizen:
     dependencies:
-      '@zoma/core':
+      '@lablo/core':
         specifier: workspace:*
         version: link:../core
-      '@zoma/platform-api':
+      '@lablo/platform-api':
         specifier: workspace:*
         version: link:../platform-api
-      '@zoma/player':
+      '@lablo/player':
         specifier: workspace:*
         version: link:../player
 
   packages/platform-webos:
     dependencies:
-      '@zoma/core':
+      '@lablo/core':
         specifier: workspace:*
         version: link:../core
-      '@zoma/platform-api':
+      '@lablo/platform-api':
         specifier: workspace:*
         version: link:../platform-api
-      '@zoma/player':
+      '@lablo/player':
         specifier: workspace:*
         version: link:../player
 
   packages/player:
     dependencies:
-      '@zoma/core':
+      '@lablo/core':
         specifier: workspace:*
         version: link:../core
 
@@ -196,21 +196,21 @@ importers:
 
   packages/ui:
     dependencies:
+      '@lablo/core':
+        specifier: workspace:*
+        version: link:../core
+      '@lablo/data':
+        specifier: workspace:*
+        version: link:../data
+      '@lablo/platform-api':
+        specifier: workspace:*
+        version: link:../platform-api
+      '@lablo/player':
+        specifier: workspace:*
+        version: link:../player
       '@preact/signals':
         specifier: ^2.11.4
         version: 2.11.4(preact@10.29.8)
-      '@zoma/core':
-        specifier: workspace:*
-        version: link:../core
-      '@zoma/data':
-        specifier: workspace:*
-        version: link:../data
-      '@zoma/platform-api':
-        specifier: workspace:*
-        version: link:../platform-api
-      '@zoma/player':
-        specifier: workspace:*
-        version: link:../player
       preact:
         specifier: ^10.29.8
         version: 10.29.8
@@ -221,7 +221,7 @@ importers:
 
   tools/bench:
     dependencies:
-      '@zoma/core':
+      '@lablo/core':
         specifier: workspace:*
         version: link:../../packages/core
     devDependencies:
@@ -274,15 +274,15 @@ importers:
         specifier: ^4.67.4
         version: 4.67.4
     devDependencies:
+      '@lablo/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@types/babel__core':
         specifier: ^7.20.5
         version: 7.20.5
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
-      '@zoma/core':
-        specifier: workspace:*
-        version: link:../../packages/core
 
   tools/device:
     dependencies:
@@ -296,7 +296,7 @@ importers:
 
   tools/engines:
     dependencies:
-      '@zoma/core':
+      '@lablo/core':
         specifier: workspace:*
         version: link:../../packages/core
       acorn:
@@ -309,7 +309,7 @@ importers:
 
   tools/fixtures:
     dependencies:
-      '@zoma/core':
+      '@lablo/core':
         specifier: workspace:*
         version: link:../../packages/core
     devDependencies:

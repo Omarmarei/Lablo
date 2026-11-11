@@ -4,10 +4,10 @@
 // mock stores exactly the mock's schedule, and now/next comes back from the store (the crash case
 // is in packages/data/src/epg-ingest.test.ts).
 
-import type { CatalogItem, EpgBucket } from '@zoma/core';
-import { epgProgrammes } from '@zoma/core';
-import type { ByteTransport, EpgRefreshJob } from '@zoma/data';
-import { QueryService, STORE, epgGuides, fetchTransport, getEpgMeta, getSources, openDatabase, runEpgRefresh, runIngest } from '@zoma/data';
+import type { CatalogItem, EpgBucket } from '@lablo/core';
+import { epgProgrammes } from '@lablo/core';
+import type { ByteTransport, EpgRefreshJob } from '@lablo/data';
+import { QueryService, STORE, epgGuides, fetchTransport, getEpgMeta, getSources, openDatabase, runEpgRefresh, runIngest } from '@lablo/data';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { loadCatalog, loadServerFixture } from '../apps/mock-provider/src/config';
 import { epgWindow as mockWindow, programmes } from '../apps/mock-provider/src/epg';
@@ -113,8 +113,8 @@ describe('EPG refresh of the mock provider through the data layer', () => {
         expect(nn).toMatchObject({ epgSrc: null, now: null, next: null });
         continue;
       }
-      // "Zoma Sports Test FHD" has no id of its own: it shares zoma.sports by match name.
-      const rows = schedule.get(id ?? 'zoma.sports')!;
+      // "Lablo Sports Test FHD" has no id of its own: it shares lablo.sports by match name.
+      const rows = schedule.get(id ?? 'lablo.sports')!;
       const onAir = rows.findIndex((row) => {
         const [span] = row.split(' ');
         const [s, e] = span!.split('-').map(Number);

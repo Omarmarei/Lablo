@@ -24,7 +24,7 @@ import { RemoteDriver } from './remote-driver';
  * - the words again, the channel found, OK: the mapping is saved and the guide read again
  *   ("Reading the guides…", the guide's download held until a screenshot); the channel leaves the
  *   list, and the live list and the grid show the mapped channel's programmes;
- * - from the programme details of "Zoma Test 1 SMPTE" (matched by the guides, marked in the
+ * - from the programme details of "Lablo Test 1 SMPTE" (matched by the guides, marked in the
  *   picker), "No guide": after the refresh its row in the grid has no programmes.
  */
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
@@ -36,13 +36,13 @@ const EDGE = 96;
 const KEY = 'x:s1:live:109';
 const NAME = '18+ Test Pattern';
 /** The guide's channels as the mock declares them, in its order. */
-const DECLARED = ['zoma.test1', 'zoma.test2', 'zoma.ar3', 'zoma.ar4', 'zoma.kids', 'zoma.sports', 'zoma.radio', 'zoma.fr', 'zoma.es'];
+const DECLARED = ['lablo.test1', 'lablo.test2', 'lablo.ar3', 'lablo.ar4', 'lablo.kids', 'lablo.sports', 'lablo.radio', 'lablo.fr', 'lablo.es'];
 
 const SAYS = {
   en: {
     title: 'Guide channel',
     intro: `Channel: ${NAME} · no guide has it yet`,
-    auto: 'Channel: Zoma Test 1 SMPTE · now Zoma Test 1 SMPTE, found by the guides',
+    auto: 'Channel: Lablo Test 1 SMPTE · now Lablo Test 1 SMPTE, found by the guides',
     count: (n: number) => (n === 1 ? '1 channel' : `${n} channels`),
     search: "Search the guides' channels",
     hint: 'Part of a name or an ID',
@@ -53,12 +53,12 @@ const SAYS = {
     mapping: 'Guide channel',
     /** Words typed, and the guide channel they find. */
     query: 'kids',
-    found: 'zoma.kids',
+    found: 'lablo.kids',
   },
   ar: {
     title: 'قناة الدليل',
     intro: `القناة: ${NAME} · لا يحتوي عليها أي دليل بعد`,
-    auto: 'القناة: Zoma Test 1 SMPTE · الآن Zoma Test 1 SMPTE، وجدتها الأدلة',
+    auto: 'القناة: Lablo Test 1 SMPTE · الآن Lablo Test 1 SMPTE، وجدتها الأدلة',
     count: (n: number) => (n === 1 ? 'قناة واحدة' : `${n} قنوات`),
     search: 'ابحث في قنوات الأدلة',
     hint: 'جزء من الاسم أو المعرّف',
@@ -68,7 +68,7 @@ const SAYS = {
     noInfo: 'لا توجد معلومات',
     mapping: 'قناة الدليل',
     query: 'الاختبار',
-    found: 'zoma.ar4',
+    found: 'lablo.ar4',
   },
 } as const;
 type Language = keyof typeof SAYS;
@@ -114,7 +114,7 @@ function storedMappings(page: Page): Promise<Record<string, unknown> | undefined
   return page.evaluate(
     () =>
       new Promise<Record<string, unknown> | undefined>((resolve, reject) => {
-        const open = indexedDB.open('zoma');
+        const open = indexedDB.open('lablo');
         open.onerror = () => reject(open.error);
         open.onsuccess = () => {
           const db = open.result;
@@ -279,8 +279,8 @@ test.describe('the manual mapping by keys (pnpm dev, after onboarding)', () => {
         // "No guide", then the guide's channels in its order: seven rows in view, none marked.
         expect(p.rows.map((r) => [r.index, r.kind, r.id])).toEqual([[0, 'off', ''], ...DECLARED.slice(0, 6).map((id, i) => [i + 1, 'channel', id])]);
         expect([p.rows[0]!.name, p.rows[0]!.where]).toEqual([...says.off]);
-        expect(p.rows[5]!.name).toBe(channelOf('zoma.kids').name);
-        expect(p.rows[5]!.where).toBe(`zoma.kids · ${m.host}/xmltv.php`);
+        expect(p.rows[5]!.name).toBe(channelOf('lablo.kids').name);
+        expect(p.rows[5]!.where).toBe(`lablo.kids · ${m.host}/xmltv.php`);
         expect(p.rows.every((r) => !r.selected && r.height === 88)).toBe(true);
         expect(p.checks).toBe(0);
         expect(p.outside).toEqual([]);
@@ -296,7 +296,7 @@ test.describe('the manual mapping by keys (pnpm dev, after onboarding)', () => {
         for (let i = 0; i < DECLARED.length + 1; i += 1) await remote.press('DOWN');
         await remote.expectFocus(`guide-map/channels/${DECLARED.length}`);
         p = await readPicker(page);
-        expect(p.rows[p.rows.length - 1]!.id).toBe('zoma.es');
+        expect(p.rows[p.rows.length - 1]!.id).toBe('lablo.es');
 
         // Back changes nothing: words typed, the keyboard closed by Back, then the picker.
         for (let i = 0; i < DECLARED.length + 1; i += 1) await remote.press('UP');
@@ -393,7 +393,7 @@ test.describe('the manual mapping by keys (pnpm dev, after onboarding)', () => {
         await expect(picker).toHaveAttribute('data-current', 'auto');
         expect(await plainText(page.getByTestId('mapping-intro'))).toBe(says.auto);
         p = await readPicker(page);
-        expect(p.rows.filter((r) => r.selected).map((r) => [r.index, r.id])).toEqual([[1, 'zoma.test1']]);
+        expect(p.rows.filter((r) => r.selected).map((r) => [r.index, r.id])).toEqual([[1, 'lablo.test1']]);
         expect(p.checks).toBe(1);
         expect(p.outside).toEqual([]);
         expect(p.cut).toEqual([]);
@@ -418,7 +418,7 @@ test.describe('the manual mapping by keys (pnpm dev, after onboarding)', () => {
         expectCells(g, 0, null, says.noInfo);
         // The same guide channel's other playlist channel keeps it.
         const twin = ordered.findIndex((c) => c.id === 112);
-        expectCells(g, twin, channelOf('zoma.test1'), says.noInfo);
+        expectCells(g, twin, channelOf('lablo.test1'), says.noInfo);
         expect(await storedMappings(page)).toEqual({
           [KEY]: { epgSrc: 's1:xmltv', channel: says.found },
           'x:s1:live:101': { epgSrc: '', channel: null },

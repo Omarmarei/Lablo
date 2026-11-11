@@ -5,12 +5,12 @@
 
 import { createReadStream, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { XtreamCategory, XtreamListItem, XtreamListStats } from '@zoma/core';
-import { XtreamListParser, decodeCategory, matchName, normalizeName } from '@zoma/core';
+import type { XtreamCategory, XtreamListItem, XtreamListStats } from '@lablo/core';
+import { XtreamListParser, decodeCategory, matchName, normalizeName } from '@lablo/core';
 import { expect } from 'vitest';
 import { ANCHOR_SEC } from '../src/catalog';
 
-const ACCOUNT = { base: 'http://127.0.0.1:8080', username: 'zoma', password: 'zoma-test' };
+const ACCOUNT = { base: 'http://127.0.0.1:8080', username: 'lablo', password: 'lablo-test' };
 type Kind = 'live' | 'movie' | 'series';
 const FILES: Record<Kind, [list: string, categories: string]> = {
   live: ['live_streams', 'live_categories'],
@@ -87,7 +87,7 @@ export function expectXtreamMatchesCatalog(parsed: ParsedXtream, catalogJsonPath
       g.item.chno === want.chno &&
       JSON.stringify(g.item.catchup) === JSON.stringify(catchup) &&
       g.item.radio === want.radio &&
-      g.item.url === `${ACCOUNT.base}/live/zoma/zoma-test/${c.id}.ts` &&
+      g.item.url === `${ACCOUNT.base}/live/lablo/lablo-test/${c.id}.ts` &&
       g.adult === (c.adult === true) &&
       g.added === added(c.added_days_ago),
     want);
@@ -99,7 +99,7 @@ export function expectXtreamMatchesCatalog(parsed: ParsedXtream, catalogJsonPath
       g.item.kind === 'movie' &&
       g.item.name === m.name &&
       g.item.group === want.group &&
-      g.item.url === `${ACCOUNT.base}/movie/zoma/zoma-test/${m.id}.${m.ext}` &&
+      g.item.url === `${ACCOUNT.base}/movie/lablo/lablo-test/${m.id}.${m.ext}` &&
       g.year === m.year &&
       g.rating === m.rating &&
       g.added === added(m.added_days_ago),

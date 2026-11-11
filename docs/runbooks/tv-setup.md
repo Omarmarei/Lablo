@@ -1,6 +1,6 @@
 # Runbook: setting up TVs, emulators and simulators
 
-How to get the Zoma Lab (and later the app) onto each device we test on: an LG TV, the webOS Emulator and Simulator, a Samsung TV and the Tizen TV Emulator. What the lab does once it runs is in [lab.md](lab.md); how the builds and `pnpm device` work is in [tv-build.md](tv-build.md). Which Samsung hardware to test on without owning it is in [testing-without-tvs.md](../testing-without-tvs.md).
+How to get the Lablo Lab (and later the app) onto each device we test on: an LG TV, the webOS Emulator and Simulator, a Samsung TV and the Tizen TV Emulator. What the lab does once it runs is in [lab.md](lab.md); how the builds and `pnpm device` work is in [tv-build.md](tv-build.md). Which Samsung hardware to test on without owning it is in [testing-without-tvs.md](../testing-without-tvs.md).
 
 **Sources.** Every fact below links its source. All of them were read on **2026-11-04** (relay step 15d). Where only a forum, a GitHub issue or a third party says something, the text says so. Claims no official page confirms are marked **unconfirmed**. Vendor tools change often: check the linked page again before a long install.
 
@@ -26,7 +26,7 @@ Emulators and simulators answer syntax and API questions, never media ones ([arc
 
 1. `pnpm mock:media` once (the player batteries skip without it), then `pnpm mock`. It listens on `0.0.0.0:8080`.
 2. Windows asks once whether Node may use the network: allow **private** networks.
-3. `pnpm build:tv` writes this PC's first private IPv4 address into `dist/tv-lab/<platform>/lab-config.js` and prints it (`Zoma Lab 0.1.0: results to http://192.168.1.3:8080`). Use `--lab-server http://host:port` when that guess is wrong.
+3. `pnpm build:tv` writes this PC's first private IPv4 address into `dist/tv-lab/<platform>/lab-config.js` and prints it (`Lablo Lab 0.1.0: results to http://192.168.1.3:8080`). Use `--lab-server http://host:port` when that guess is wrong.
 
 Which address each device uses:
 
@@ -49,7 +49,7 @@ Records arrive in `artifacts/lab-logs/<session>.ndjson` (lab.md, "Quick start").
 - **Run the ares-\* commands through pnpm**, so they use the repo's copy:
 
   ```bash
-  pnpm --filter @zoma/tools-device exec ares-setup-device --list
+  pnpm --filter @lablo/tools-device exec ares-setup-device --list
   ```
 
   `pnpm device devices|install|launch|inspect webos …` wraps the four commands we use daily (tv-build.md).
@@ -71,14 +71,14 @@ All quotes in this section are from LG's [Developer Mode app page](https://webos
 5. **Register the TV** with the CLI, as `tv` (the name `pnpm device` examples use):
 
    ```bash
-   pnpm --filter @zoma/tools-device exec ares-setup-device --add tv --info "host=<tv-ip>" --info "port=9922" --info "username=prisoner"
-   pnpm --filter @zoma/tools-device exec ares-novacom --device tv --getkey
+   pnpm --filter @lablo/tools-device exec ares-setup-device --add tv --info "host=<tv-ip>" --info "port=9922" --info "username=prisoner"
+   pnpm --filter @lablo/tools-device exec ares-novacom --device tv --getkey
    ```
 
    `--getkey` asks for the passphrase ("Enter the exact characters (case sensitive)") and saves the key as `%USERPROFILE%\.ssh\tv_webos`. "When using the Developer Mode app, a password is not required."
    - **Without the prompt** (an agent's shell): `ares-novacom --device tv --getkey --passphrase <the 6 characters>`. The flag is in the CLI's `bin/ares-novacom.js`.
    - **To find the TV's IP from this PC:** look for a LAN host with ports 9922 and 9991 open.
-6. **Check:** `pnpm --filter @zoma/tools-device exec ares-device --system-info --device tv` prints the TV's model, `sdkVersion` (the webOS version) and `firmwareVersion`. Note them for step 16.
+6. **Check:** `pnpm --filter @lablo/tools-device exec ares-device --system-info --device tv` prints the TV's model, `sdkVersion` (the webOS version) and `firmwareVersion`. Note them for step 16.
    - **Our TV** (paired 2026-11-04 as `tv`, at 192.168.1.8): `OLED55A1PVA` (LG's 2021 A1 OLED), `sdkVersion` 6.5.3 (webOS 6), `firmwareVersion` 03.53.45, Chromium 79.
      - Inside an app, `PalmSystem.deviceInfo` has no `sdkVersion`, and its `platformVersion` is the firmware (`03.53.45`). Its keys: `modelName panelType platformVersion platformVersionDot platformVersionMajor platformVersionMinor screenHeight screenWidth`. So the adapter takes the year from the engine (Chromium 79 → webOS 6 → 2021; [ADR-012](../adr/ADR-012-lg-minimum-webos5.md)).
 
@@ -91,7 +91,7 @@ All quotes in this section are from LG's [Developer Mode app page](https://webos
 - **Extend it from this PC** (same forum answer; not on LG's docs page):
 
   ```bash
-  pnpm --filter @zoma/tools-device exec ares-launch --device tv com.palmdts.devmode --params "extend=true"
+  pnpm --filter @lablo/tools-device exec ares-launch --device tv com.palmdts.devmode --params "extend=true"
   ```
 
   Community reports say it "works even when the TV is sleeping", and that the timer on the TV only updates after a reboot ([dev-manager-desktop #256](https://github.com/webosbrew/dev-manager-desktop/issues/256)). The old `ares-extend-dev` command was removed in CLI 3.0. A community script calls an undocumented LG URL with the TV's session token (`ResetDevModeSession.dev`); reports say it answers 200 without extending anything, and its own author advises against it. Don't use it.
@@ -126,7 +126,7 @@ All quotes in this section are from LG's [Developer Mode app page](https://webos
 
   ```bash
   pnpm build:tv --platform webos --target lab --lab-server http://127.0.0.1:8080
-  pnpm --filter @zoma/tools-device exec ares-launch -s 24 -sp "C:/webOS_TV_SDK/Simulator/webOS_TV_24_Simulator_1.4.1" "D:/Claude Code PlayGround/IPTV/dist/tv-lab/webos"
+  pnpm --filter @lablo/tools-device exec ares-launch -s 24 -sp "C:/webOS_TV_SDK/Simulator/webOS_TV_24_Simulator_1.4.1" "D:/Claude Code PlayGround/IPTV/dist/tv-lab/webos"
   ```
 
   Use absolute paths: `pnpm --filter … exec` runs in `tools/device`. `-sp` is the folder holding `webOS_TV_24_Simulator_1.4.1.exe`. The CLI saves it, so later runs need only `-s 24` ([launch.js](https://github.com/webos-tools/cli/blob/main/lib/launch.js); `ares-launch --help`). `pnpm device` doesn't wrap the simulator.
@@ -159,21 +159,21 @@ All quotes in this section are from LG's [Developer Mode app page](https://webos
     ```bash
     pnpm mock                       # the collector, in its own terminal
     pnpm build:tv --platform webos --target lab --lab-server http://host.docker.internal:8080
-    docker build -t zoma-webos-sim:local tools/engines/webos-sim
-    MSYS_NO_PATHCONV=1 docker run --rm -d --name zoma-websim --shm-size=1g \
+    docker build -t lablo-webos-sim:local tools/engines/webos-sim
+    MSYS_NO_PATHCONV=1 docker run --rm -d --name lablo-websim --shm-size=1g \
       --add-host host.docker.internal:host-gateway \
       -v "D:/tools/webos-sim/linux/webOS_TV_6.0_Simulator_1.4.1/webOS_TV_6.0_Simulator_1.4.1.appimage:/sim.appimage:ro" \
       -v "$(pwd -W)/dist/tv-lab/webos:/app:ro" \
-      zoma-webos-sim:local
+      lablo-webos-sim:local
     ```
 
     - **The image:** only the runtime libraries. The AppImage is mounted, extracted at start and opened with the lab folder, as `ares-launch` would pass it.
-    - **The run:** the lab runs at launch. Its session (`webos-WEBOS6.0_SIMULATOR-…`) is in `artifacts/lab-logs/` about 30 s later. Stop it with `docker rm -f zoma-websim`.
+    - **The run:** the lab runs at launch. Its session (`webos-WEBOS6.0_SIMULATOR-…`) is in `artifacts/lab-logs/` about 30 s later. Stop it with `docker rm -f lablo-websim`.
     - **To look at the screen:**
 
       ```bash
-      docker exec -e DISPLAY=:99 zoma-websim sh -c 'xwd -root -silent > /tmp/s.xwd'
-      docker cp zoma-websim:/tmp/s.xwd s.xwd
+      docker exec -e DISPLAY=:99 lablo-websim sh -c 'xwd -root -silent > /tmp/s.xwd'
+      docker cp lablo-websim:/tmp/s.xwd s.xwd
       ffmpeg -i s.xwd s.png
       ```
 
@@ -231,7 +231,7 @@ A Samsung TV installs only packages signed with a **Samsung** certificate profil
    - Samsung's TV page still says 2.0.73, and so did our research (docs/research/03); 2.0.74 is the later, binding figure.
    - The repository has 2.0.73 (2025-09-16), 2.0.74 (2025-09-24) and **2.0.75 (2025-11-03)** ([download.tizen.org](https://download.tizen.org/sdk/extensions/)).
 2. **Get each TV's DUID:** on the TV, Menu → Support → Contact Samsung → **Unique Device ID**, or "+" next to the connected TV in the Certificate Manager. A factory reset changes the DUID; a Smart Hub reset doesn't ([FAQ](https://developer.samsung.com/smarttv/develop/faq/device-information-and-firmware.html)).
-3. **Create the profile:** Certificate Manager → "+" → **Samsung** → **TV**, named e.g. `zoma-dev`.
+3. **Create the profile:** Certificate Manager → "+" → **Samsung** → **TV**, named e.g. `lablo-dev`.
    - **Author certificate:** a new one (author name, a password, sign in with the Samsung account, a backup folder).
    - **Distributor certificate:** "Define the privilege level you need, and add the device ID (DUID) for the target device."
 4. **Privilege level: choose Partner if the wizard offers it, else Public.**
@@ -240,7 +240,7 @@ A Samsung TV installs only packages signed with a **Samsung** certificate profil
    - Samsung's Watch version of the same wizard says Partner level can be requested by anyone ([Galaxy Watch certificates](https://developer.samsung.com/galaxy-watch/develop/getting-certificates/create)); for TVs that is **unconfirmed**. If the wizard refuses Partner, use Public and expect the 2018 TV to need another try.
 5. **Back up `author.p12` and its password forever**, outside the repo (`.gitignore` blocks `*.p12`). Every update of a published app must be signed with the same author certificate (docs/research/03). The lab and the app can share it.
 6. **More TVs later:** a distributor certificate holds up to 50 DUIDs according to the Watch page; for TVs that's **unconfirmed** (a forum post says 20). Adding a TV means issuing the distributor certificate again with the new DUID and keeping the author certificate (**unconfirmed**: forum posts and a [Dolby guide](https://ott.dolby.com/spott_releases/samsung_tizen_installation.html)).
-7. **Profiles made elsewhere** (e.g. on another PC) can be imported on the command line: `tizen security-profiles add -n zoma-dev -a author.p12 -p <pw> -d distributor.p12 -dp <pw>` ([CLI](https://github.com/Samsung/tizen-docs/blob/master/docs/sdk-tools/baseline-sdk/common-tools/command-line-interface.md)).
+7. **Profiles made elsewhere** (e.g. on another PC) can be imported on the command line: `tizen security-profiles add -n lablo-dev -a author.p12 -p <pw> -d distributor.p12 -dp <pw>` ([CLI](https://github.com/Samsung/tizen-docs/blob/master/docs/sdk-tools/baseline-sdk/common-tools/command-line-interface.md)).
 
 ### 3.3 A Samsung TV in Developer Mode
 
@@ -252,12 +252,12 @@ A Samsung TV installs only packages signed with a **Samsung** certificate profil
 4. **Build, install, launch the lab:**
 
    ```bash
-   TIZEN_SIGNING_PROFILE=zoma-dev pnpm build:tv --platform tizen --target lab
+   TIZEN_SIGNING_PROFILE=lablo-dev pnpm build:tv --platform tizen --target lab
    pnpm device install tizen 192.168.1.20:26101 --lab
    pnpm device launch tizen 192.168.1.20:26101 --lab
    ```
 
-   The build signs `dist/packages/Zoma Lab.wgt` with the profile (`tizen package -t wgt -s zoma-dev`). `pnpm device` runs `tizen install|run -s <serial>`.
+   The build signs `dist/packages/Lablo Lab.wgt` with the profile (`tizen package -t wgt -s lablo-dev`). `pnpm device` runs `tizen install|run -s <serial>`.
    - "1010 : App install fail" means a certificate problem: a wrong profile, or a DUID missing from the distributor certificate ([using a TV](https://developer.samsung.com/smarttv/develop/getting-started/using-sdk/tv-device.html)).
    - Until step 15d, `pnpm device` passed the serial to `-t`, which takes the target *name*; now it uses `-s` (the CLI page: "`-s`, `--serial`", "`-t`, `--target <target name>`").
 5. **Installs don't survive a power-off:** "Applications installed to a TV through the Tizen Studio are uninstalled when the TV is switched off" ([FAQ](https://developer.samsung.com/smarttv/develop/faq/application-testing.html), Q7). Run S2's update test (install 0.1.0, run, install 0.1.1 over it) and S3's reinstall test without switching the TV off in between, and expect a fresh S2/S3 baseline after any power-off.

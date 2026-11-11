@@ -4,7 +4,7 @@
  * `spikes/s8.ts` call it behind `__PLATFORM__ === 'tizen'`), so the other builds drop it, and
  * with it every AVPlay call.
  */
-import { tizenAvplay, tizenAvplayStore } from '@zoma/platform-tizen';
+import { tizenAvplay, tizenAvplayStore } from '@lablo/platform-tizen';
 import type { AvplayStage } from './avplay-player';
 import { createAvplayPlayer, mountAvplayStage } from './avplay-player';
 import type { BatteryClock } from './battery';

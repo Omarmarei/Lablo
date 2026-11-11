@@ -8,8 +8,8 @@
 
 import vm from 'node:vm';
 import { join } from 'node:path';
-import type { IngestProgress, IngestSwap, RpcPort } from '@zoma/data';
-import { CancelError, CancelSource, QueryService, createIngestClient, openDatabase } from '@zoma/data';
+import type { IngestProgress, IngestSwap, RpcPort } from '@lablo/data';
+import { CancelError, CancelSource, QueryService, createIngestClient, openDatabase } from '@lablo/data';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadCatalog } from '../apps/mock-provider/src/config';
 import type { MockServer } from '../apps/mock-provider/src/server';
@@ -105,8 +105,8 @@ describe('the bundled ingest worker', () => {
     // What the worker wrote, read back as the query worker would.
     const db = await openDatabase(factory);
     const q = new QueryService({ openDb: async () => db });
-    const found = await q.search({ query: 'زوما تجريبي' });
-    expect((await q.items(found.hits)).map((i) => `${i?.src}:${i?.name}`).sort()).toEqual(['pl:زوما تجريبي ٣', 'xt:زوما تجريبي ٣']);
+    const found = await q.search({ query: 'لابلو تجريبي' });
+    expect((await q.items(found.hits)).map((i) => `${i?.src}:${i?.name}`).sort()).toEqual(['pl:لابلو تجريبي ٣', 'xt:لابلو تجريبي ٣']);
     // Wait for the cancelled run to settle in the worker, then check the source is intact.
     await new Promise((r) => setTimeout(r, 200));
     expect((await q.reload()).sources.find((s) => s.src === 'xt')).toMatchObject({ gen: xtream.gen });

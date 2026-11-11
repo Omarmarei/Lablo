@@ -1,7 +1,7 @@
 import type { ComponentChildren } from 'preact';
-import type { Platform } from '@zoma/platform-api';
-import type { Language, LocaleSettings } from '@zoma/ui';
-import { Button, Dialog, ProgressBar, Spinner, TextField, connectRemote, resolveLocale, useFocus, useZone } from '@zoma/ui';
+import type { Platform } from '@lablo/platform-api';
+import type { Language, LocaleSettings } from '@lablo/ui';
+import { Button, Dialog, ProgressBar, Spinner, TextField, connectRemote, resolveLocale, useFocus, useZone } from '@lablo/ui';
 import { useSignal } from '@preact/signals';
 import { useEffect } from 'preact/hooks';
 import type { AppI18n } from '../i18n';

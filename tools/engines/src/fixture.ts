@@ -99,8 +99,8 @@ export function moviePoster(m: number, i: number): string | undefined {
 
 /**
  * 3,000 entries: 2,400 live channels then 600 movies. Every 10th channel is Arabic news
- * (`أخبار زوما n`), every other 7th is Latin news (`Zoma News n`), the rest `Zoma Channel n`.
- * The first 300 movies are `Zoma Film n` in `Films`, the others `فيلم زوما n` in `أفلام عربية`,
+ * (`أخبار لابلو n`), every other 7th is Latin news (`Lablo News n`), the rest `Lablo Channel n`.
+ * The first 300 movies are `Lablo Film n` in `Films`, the others `فيلم لابلو n` in `أفلام عربية`,
  * each with a poster (`moviePoster`).
  */
 export function fixtureEntries(count = FIXTURE_SIZE): FixtureEntry[] {
@@ -113,18 +113,18 @@ export function fixtureEntries(count = FIXTURE_SIZE): FixtureEntry[] {
       const arabic = m > films / 2;
       const poster = moviePoster(m, i);
       entries.push({
-        name: arabic ? `فيلم زوما ${i}` : `Zoma Film ${i}`,
+        name: arabic ? `فيلم لابلو ${i}` : `Lablo Film ${i}`,
         group: arabic ? ARABIC_FILMS : FILMS,
         kind: 'movie',
         url: `${FIXTURE_ORIGIN}/movie/u/p/${i}.mp4`,
         ...(poster === undefined ? {} : { poster }),
       });
     } else if (i % 10 === 0) {
-      entries.push({ name: `${ARABIC_NEWS} زوما ${i}`, group: ARABIC_NEWS, kind: 'live', url: `${FIXTURE_ORIGIN}/live/u/p/${i}.ts` });
+      entries.push({ name: `${ARABIC_NEWS} لابلو ${i}`, group: ARABIC_NEWS, kind: 'live', url: `${FIXTURE_ORIGIN}/live/u/p/${i}.ts` });
     } else if (i % 7 === 0) {
-      entries.push({ name: `Zoma News ${i}`, group: 'News', kind: 'live', url: `${FIXTURE_ORIGIN}/live/u/p/${i}.ts` });
+      entries.push({ name: `Lablo News ${i}`, group: 'News', kind: 'live', url: `${FIXTURE_ORIGIN}/live/u/p/${i}.ts` });
     } else {
-      entries.push({ name: `Zoma Channel ${i}`, group: `Group ${i % 12}`, kind: 'live', url: `${FIXTURE_ORIGIN}/live/u/p/${i}.ts` });
+      entries.push({ name: `Lablo Channel ${i}`, group: `Group ${i % 12}`, kind: 'live', url: `${FIXTURE_ORIGIN}/live/u/p/${i}.ts` });
     }
   }
   return entries;
@@ -249,7 +249,7 @@ export function fixtureXmltv(entries: readonly FixtureEntry[], nowMs: number): s
   });
   ids.push('fixture.unused');
   const from = Math.floor(nowMs / HOUR) * HOUR - 24 * HOUR;
-  const lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<tv generator-info-name="Zoma engines fixture">'];
+  const lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<tv generator-info-name="Lablo engines fixture">'];
   for (const id of ids) lines.push(`<channel id="${id}"><display-name>${id}</display-name></channel>`);
   for (const id of ids) {
     for (let t = from; t < from + 4 * 24 * HOUR; t += HOUR) {
@@ -272,7 +272,7 @@ export function dataChecks(entries: readonly FixtureEntry[]): Record<TvPlatform,
       items: entries.length,
       live,
       movies,
-      total: entries.filter((e) => e.name.startsWith('Zoma News ')).length,
+      total: entries.filter((e) => e.name.startsWith('Lablo News ')).length,
       gzip: false,
       guide: 'guide.xml',
       epgMatched: matched,

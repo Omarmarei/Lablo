@@ -1,5 +1,5 @@
 /**
- * @zoma/platform-webos: the LG webOS adapter.
+ * @lablo/platform-webos: the LG webOS adapter.
  *
  * Step 2 covers what the hello app needs: device info from `PalmSystem.deviceInfo`, remote
  * key codes, lifecycle and exit; step 15a the LGUDID (`deviceSecret`) through a luna call
@@ -9,10 +9,10 @@
  * `PalmServiceBridge` (lint-enforced). Every API is feature-checked, so the bundle also boots in a
  * desktop browser.
  */
-import { chromiumMajorFromUserAgent, deviceTier } from '@zoma/core';
-import type { DeviceInfo, Intent, KeyLike, KeyRegistration, LifecycleEvent, Platform, PlatformCall, TextKey } from '@zoma/platform-api';
-import { DIGIT_INTENTS } from '@zoma/platform-api';
-import { Html5Engine, createStageVideo } from '@zoma/player';
+import { chromiumMajorFromUserAgent, deviceTier } from '@lablo/core';
+import type { DeviceInfo, Intent, KeyLike, KeyRegistration, LifecycleEvent, Platform, PlatformCall, TextKey } from '@lablo/platform-api';
+import { DIGIT_INTENTS } from '@lablo/platform-api';
+import { Html5Engine, createStageVideo } from '@lablo/player';
 import { parsePalmDeviceInfo, webosVersionFacts } from './device';
 import { readLgudid, webosSelectTrack } from './luna';
 import { readAudioGuidance, webosSpeak } from './speech';

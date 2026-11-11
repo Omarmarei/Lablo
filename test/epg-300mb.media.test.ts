@@ -14,15 +14,15 @@ import { join } from 'node:path';
 import { createReadStream } from 'node:fs';
 import { createGunzip } from 'node:zlib';
 import { promisify } from 'node:util';
-import { EPG_WINDOWS } from '@zoma/core';
-import type { EpgSourceReport } from '@zoma/core';
+import { EPG_WINDOWS } from '@lablo/core';
+import type { EpgSourceReport } from '@lablo/core';
 import { describe, expect, it } from 'vitest';
 import { EPG_BENCH_NOW, epgWanted, readEpgStream } from '../tools/bench/src/suites';
 import { EPG_CHANNELS } from '../tools/fixtures/src/catalog';
 import { XMLTV_ANCHOR_MS, channelProgrammes, slotOf } from '../tools/fixtures/src/xmltv';
 
 const root = join(import.meta.dirname, '..');
-const fixtures = process.env['ZOMA_FIXTURES_DIR'] ?? join(root, '.cache', 'fixtures');
+const fixtures = process.env['LABLO_FIXTURES_DIR'] ?? join(root, '.cache', 'fixtures');
 const guide = join(fixtures, 'xmltv-300mb.xml.gz');
 const playlist = join(fixtures, 'playlist.m3u');
 const MINUTE = 60_000;
@@ -41,9 +41,9 @@ function catalogLive(): LiveEntry[] {
   return (JSON.parse(readFileSync(join(fixtures, 'catalog.json'), 'utf8')) as { live: LiveEntry[] }).live;
 }
 
-/** The guide channel an id names (`epg{k}.zoma.test`, any case), or -1. */
+/** The guide channel an id names (`epg{k}.lablo.test`, any case), or -1. */
 function guideChannel(id: string | undefined): number {
-  const m = /^epg(\d+)\.zoma\.test$/i.exec(id ?? '');
+  const m = /^epg(\d+)\.lablo\.test$/i.exec(id ?? '');
   return m && Number(m[1]) < EPG_CHANNELS ? Number(m[1]) : -1;
 }
 
@@ -79,7 +79,7 @@ describe('EPG over the 300 MB guide', () => {
   it(`reports every number exactly for the worst case, in a ${HEAP_MB} MB heap`, async () => {
     const live = catalogLive();
     const want = expected(live, () => ({ from: -Infinity, to: Infinity }));
-    const dir = mkdtempSync(join(tmpdir(), 'zoma-epg-'));
+    const dir = mkdtempSync(join(tmpdir(), 'lablo-epg-'));
     try {
       const json = join(dir, 'report.json');
       const args = [`--max-old-space-size=${HEAP_MB}`, '--import', 'tsx', 'tools/bench/epg-report.ts'];

@@ -14,14 +14,14 @@ export const ordered: LiveChannel[] = catalog.liveCategories.flatMap((c) => cata
 
 /**
  * The channel whose programmes a channel shows: the guide's channel of its id (the first channel
- * that declares it, as the mock writes its XMLTV), or by its match name ("Zoma Sports Test FHD"
- * has no id but matches "Zoma Sports Test HD"). `null`: no guide ("18+ Test Pattern").
+ * that declares it, as the mock writes its XMLTV), or by its match name ("Lablo Sports Test FHD"
+ * has no id but matches "Lablo Sports Test HD"). `null`: no guide ("18+ Test Pattern").
  */
 export function guideOf(channel: LiveChannel): LiveChannel | null {
   const id = (c: LiveChannel): string | null => (c.xmltvId ?? c.epgId)?.toLowerCase() ?? null;
   const own = id(channel);
   if (own !== null) return catalog.live.find((c) => id(c) === own) ?? null;
-  if (channel.name === 'Zoma Sports Test FHD') return catalog.live.find((c) => c.name === 'Zoma Sports Test HD') ?? null;
+  if (channel.name === 'Lablo Sports Test FHD') return catalog.live.find((c) => c.name === 'Lablo Sports Test HD') ?? null;
   return null;
 }
 

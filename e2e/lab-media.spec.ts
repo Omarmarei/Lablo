@@ -45,7 +45,7 @@ let logDir: string;
 
 test.beforeAll(async () => {
   expect(existsSync(path.join(MEDIA_DIR, 'manifest.json')), `no generated media in ${MEDIA_DIR}: run pnpm mock:media first`).toBe(true);
-  logDir = await mkdtemp(path.join(tmpdir(), 'zoma-lab-media-'));
+  logDir = await mkdtemp(path.join(tmpdir(), 'lablo-lab-media-'));
   // The real clock: live streams sit on the epoch timeline.
   app = await mock({ labLogDir: logDir, now: Date.now, media: new FileMedia({ dir: MEDIA_DIR }) });
   base = await listen(app);
@@ -86,7 +86,7 @@ function expectBattery(records: readonly Record[]): { readonly [check: string]: 
   const row: { [check: string]: Record } = {};
   for (const r of s5) row[r.check ?? ''] = r;
   // The lab never records a URL: they carry the test account.
-  expect(JSON.stringify(s5)).not.toMatch(/zoma-test|\/live\/|\/movie\/|\/series\//);
+  expect(JSON.stringify(s5)).not.toMatch(/lablo-test|\/live\/|\/movie\/|\/series\//);
 
   const formats = row['formats']?.value as { media: string; items: string[]; engine: Engine };
   expect(row['formats']).toMatchObject({ status: 'info', note: '10 media items on the lab server' });
@@ -143,7 +143,7 @@ test.describe('S5 on the generated media in the desktop browser', () => {
     await remote.press('OK');
     // The picture box shows each row; the suspend row asks for Home.
     const caption = page.getByTestId('lab-player-caption');
-    await expect(caption).toHaveText('S5: press Home, wait a few seconds, then come back to the Zoma Lab', { timeout: 120_000 });
+    await expect(caption).toHaveText('S5: press Home, wait a few seconds, then come back to the Lablo Lab', { timeout: 120_000 });
     await expect(page.locator('[data-testid="lab-player"] video')).toHaveCount(1);
     // Home: the tab hidden (the browser adapter reads document.hidden), then back.
     const setHidden = (hidden: boolean): Promise<void> =>

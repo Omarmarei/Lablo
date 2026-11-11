@@ -2,7 +2,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
-import { decodeLogin, panelZone, xtreamCatchupUrl } from '@zoma/core';
+import { decodeLogin, panelZone, xtreamCatchupUrl } from '@lablo/core';
 import { FileMedia } from '../apps/mock-provider/src/file-media';
 import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
@@ -41,15 +41,15 @@ async function open(page: Page): Promise<void> {
 }
 
 function play(page: Page, input: PlaybackInput): Promise<void> {
-  return page.evaluate((i) => (window as PlaybackTarget).__ZOMA_PLAYBACK__?.play(i), input);
+  return page.evaluate((i) => (window as PlaybackTarget).__LABLO_PLAYBACK__?.play(i), input);
 }
 
 function stop(page: Page): Promise<void> {
-  return page.evaluate(() => (window as PlaybackTarget).__ZOMA_PLAYBACK__?.stop());
+  return page.evaluate(() => (window as PlaybackTarget).__LABLO_PLAYBACK__?.stop());
 }
 
 async function snapshot(page: Page): Promise<PlaybackSnapshot> {
-  const s = await page.evaluate(() => (window as PlaybackTarget).__ZOMA_PLAYBACK__?.snapshot());
+  const s = await page.evaluate(() => (window as PlaybackTarget).__LABLO_PLAYBACK__?.snapshot());
   if (s === undefined) throw new Error('no playback harness on the page');
   return s;
 }
@@ -74,7 +74,7 @@ async function subtitleNow(page: Page): Promise<{ text: string | null; named: nu
     const cue = document.querySelector('[data-testid="subtitle-cue"]');
     const text = cue === null ? null : cue.textContent;
     const m = text === null ? null : /(\d\d):(\d\d)$/.exec(text);
-    const positionMs = (window as PlaybackTarget).__ZOMA_PLAYBACK__?.snapshot().positionMs ?? -1;
+    const positionMs = (window as PlaybackTarget).__LABLO_PLAYBACK__?.snapshot().positionMs ?? -1;
     return { text, named: m === null ? null : Number(m[1]) * 60 + Number(m[2]), positionMs };
   });
 }
@@ -149,7 +149,7 @@ test.describe('Playback on the desktop: Html5Engine and the PlayerController on 
     const start = Math.floor((Date.now() - 2 * 3600_000) / 60_000) * 60_000;
     // Built as the app will (core's xtreamCatchupUrl); the desktop needs the .m3u8 form.
     const url = xtreamCatchupUrl({ base, username: U, password: P }, 101, { startMs: start, endMs: start + 30 * 60_000, nowMs: Date.now() }, zone, 'm3u8');
-    expect(url).toMatch(/\/timeshift\/zoma\/zoma-test\/30\/\d{4}-\d{2}-\d{2}:\d{2}-\d{2}\/101\.m3u8$/);
+    expect(url).toMatch(/\/timeshift\/lablo\/lablo-test\/30\/\d{4}-\d{2}-\d{2}:\d{2}-\d{2}\/101\.m3u8$/);
     await play(page, { candidates: [{ url, container: 'hls' }], mode: 'catchup' });
     const s = await state(page, 'playing');
     expect(s.history).toEqual(['opening hls', 'playing hls']);
@@ -164,7 +164,7 @@ test.describe('Playback on the desktop: Html5Engine and the PlayerController on 
     expect(s.trackSwitch).toBe('reliable');
     // AC3 and E-AC3 aren't listed: desktop Chromium can't decode them.
     expect(s.tracks.audio.map((t) => `${t.id} ${t.lang} ${String(t.selected)}`)).toEqual(['0 ara true', '1 eng false', '2 spa false']);
-    const switched = await page.evaluate(() => (window as PlaybackTarget).__ZOMA_PLAYBACK__?.selectAudio('1'));
+    const switched = await page.evaluate(() => (window as PlaybackTarget).__LABLO_PLAYBACK__?.selectAudio('1'));
     expect(switched).toBe(true);
     const after = await snapshot(page);
     expect(after.tracks.audio.map((t) => t.selected)).toEqual([false, true, false]);
@@ -177,7 +177,7 @@ test.describe('Playback on the desktop: Html5Engine and the PlayerController on 
 
   test("4K HEVC with no picture (headless desktop) is this TV's limit, not the provider's", async ({ page }) => {
     await open(page);
-    const canHevc = await page.evaluate((mime) => (window as PlaybackTarget).__ZOMA_PLAYBACK__?.canPlayType(mime), HEVC_MIME);
+    const canHevc = await page.evaluate((mime) => (window as PlaybackTarget).__LABLO_PLAYBACK__?.canPlayType(mime), HEVC_MIME);
     test.skip(canHevc !== '', 'this Chromium decodes HEVC (a headed run)');
     await play(page, { url: `${base}/movie/${U}/${P}/205.mp4`, mode: 'vod' });
     const s = await state(page, 'failed');
@@ -212,7 +212,7 @@ test.describe('Playback on the desktop: Html5Engine and the PlayerController on 
     expect(s.subtitles).toEqual({ feed: null, cues: [] });
     expect(fetched).toEqual([]);
     const harness = page.getByTestId('playback');
-    const selectText = (id: string | null): Promise<boolean | undefined> => page.evaluate((i) => (window as PlaybackTarget).__ZOMA_PLAYBACK__?.selectText(i), id);
+    const selectText = (id: string | null): Promise<boolean | undefined> => page.evaluate((i) => (window as PlaybackTarget).__LABLO_PLAYBACK__?.selectText(i), id);
 
     // English: the cue the media clock is in, then the next one.
     expect(await selectText('ext:0')).toBe(true);
@@ -228,13 +228,13 @@ test.describe('Playback on the desktop: Html5Engine and the PlayerController on 
     await page.screenshot({ path: path.join(SHOTS, 'subtitles-file-en.png'), animations: 'disabled' });
 
     // Earlier by a minute: the cues of a minute later show now.
-    await page.evaluate(() => (window as PlaybackTarget).__ZOMA_PLAYBACK__?.setSubtitleDelay(-60_000));
+    await page.evaluate(() => (window as PlaybackTarget).__LABLO_PLAYBACK__?.setSubtitleDelay(-60_000));
     await expectCueInTime(page, 'English subtitle 01:', -60_000);
-    await page.evaluate(() => (window as PlaybackTarget).__ZOMA_PLAYBACK__?.setSubtitleDelay(0));
+    await page.evaluate(() => (window as PlaybackTarget).__LABLO_PLAYBACK__?.setSubtitleDelay(0));
 
     // The Windows-1256 Arabic file: decoded by the fallback, drawn right to left, in the large size.
     expect(await selectText('ext:1')).toBe(true);
-    await page.evaluate(() => (window as PlaybackTarget).__ZOMA_PLAYBACK__?.setSubtitleSize('l'));
+    await page.evaluate(() => (window as PlaybackTarget).__LABLO_PLAYBACK__?.setSubtitleSize('l'));
     const arabic = await expectCueInTime(page, 'ترجمة عربية ');
     expect(arabic).toMatch(/^ترجمة عربية \d\d:\d\d$/);
     expect(await page.getByTestId('subtitle-cue').evaluate((el) => getComputedStyle(el).direction)).toBe('rtl');

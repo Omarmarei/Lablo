@@ -1,4 +1,4 @@
-// The Zoma Lab's native-feature probe (RELAY step 15a). It runs before the lab's bundle, so
+// The Lablo Lab's native-feature probe (RELAY step 15a). It runs before the lab's bundle, so
 // before core-js fills any gap, and records which built-ins the engine itself has: S1 reports
 // them next to what the bundle made work. Plain ES5: the TV build inlines it into index.html
 // and runs its syntax gate on it; lab.html loads it as a classic script under `pnpm dev`.
@@ -7,7 +7,7 @@
   var fn = function (value) {
     return typeof value === 'function';
   };
-  g.__ZOMA_LAB_NATIVE__ = {
+  g.__LABLO_LAB_NATIVE__ = {
     'String.prototype.padStart': fn(String.prototype.padStart),
     'Object.entries': fn(Object.entries),
     'Object.values': fn(Object.values),

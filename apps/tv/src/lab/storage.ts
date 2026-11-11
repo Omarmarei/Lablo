@@ -9,9 +9,9 @@
 import { deleteDatabaseAndWait } from './idb-delete';
 import type { CheckResult, LabMarker } from './types';
 
-export const MARKER_KEY = 'zoma-lab-marker';
-export const MARKER_DB = 'zoma-lab';
-export const WRITE_TEST_DB = 'zoma-lab-quota';
+export const MARKER_KEY = 'lablo-lab-marker';
+export const MARKER_DB = 'lablo-lab';
+export const WRITE_TEST_DB = 'lablo-lab-quota';
 const MB = 1024 * 1024;
 
 /** A stored marker, or null when absent or not one of ours. */

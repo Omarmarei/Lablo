@@ -1,8 +1,8 @@
 import type { VNode } from 'preact';
-import type { EpgProgramme } from '@zoma/core';
-import type { ProgrammeRequest } from '@zoma/data';
-import type { Intent } from '@zoma/platform-api';
-import { bindFocus, createNavigator } from '@zoma/ui';
+import type { EpgProgramme } from '@lablo/core';
+import type { ProgrammeRequest } from '@lablo/data';
+import type { Intent } from '@lablo/platform-api';
+import { bindFocus, createNavigator } from '@lablo/ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DetailsShown, DetailsTarget } from './programme-details';
 import { DETAILS_ACTIONS, DETAILS_SCREEN, createDetails, detailsActions } from './programme-details';

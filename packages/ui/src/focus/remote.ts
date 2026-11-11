@@ -1,4 +1,4 @@
-import type { Intent, Platform } from '@zoma/platform-api';
+import type { Intent, Platform } from '@lablo/platform-api';
 import type { Navigator } from './navigator';
 import { watchPointerMoves } from './pointer';
 

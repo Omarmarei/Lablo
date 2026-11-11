@@ -1,8 +1,8 @@
 import type { VNode } from 'preact';
-import type { EpgNowNext, EpgStatus, GuideChannel, GuideChannelsPage, GuideChannelsRequest, LoadedProfile, ProfileEdit, SourceRecord } from '@zoma/data';
-import { emptyProfile } from '@zoma/data';
-import type { ItemBinding } from '@zoma/ui';
-import { bindFocus, createNavigator } from '@zoma/ui';
+import type { EpgNowNext, EpgStatus, GuideChannel, GuideChannelsPage, GuideChannelsRequest, LoadedProfile, ProfileEdit, SourceRecord } from '@lablo/data';
+import { emptyProfile } from '@lablo/data';
+import type { ItemBinding } from '@lablo/ui';
+import { bindFocus, createNavigator } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
 import { appI18n } from '../i18n';
 import type { MappingCurrent } from './mapping-state';

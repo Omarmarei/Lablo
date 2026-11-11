@@ -3,7 +3,7 @@
  * stable across reinstalls) from docs/architecture.md §5. Both compare with what an earlier run
  * left on the TV: the markers read at start (LabContext.previous), before this run writes its own.
  */
-import { hash53Base36 } from '@zoma/core';
+import { hash53Base36 } from '@lablo/core';
 import { idbWriteTest, markerVerdict, nextMarker, readQuota, writeIdbMarker, writeLocalMarker } from '../storage';
 import type { Check, CheckResult, LabContext, LabMarker, Spike } from '../types';
 
@@ -81,7 +81,7 @@ export const S2: Spike = {
 
 /** The hash S3 reports and stores: the ID itself never leaves the TV. */
 export function deviceIdHash(id: string | null): string | null {
-  return id === null ? null : hash53Base36(`zoma-lab-s3|${id}`);
+  return id === null ? null : hash53Base36(`lablo-lab-s3|${id}`);
 }
 
 /**

@@ -1,4 +1,4 @@
-import type { PlatformCall, PlatformId, ScreenReaderState } from '@zoma/platform-api';
+import type { PlatformCall, PlatformId, ScreenReaderState } from '@lablo/platform-api';
 import { describe, expect, it } from 'vitest';
 import type { Check, CheckResult, LabAnswer, LabContext, LabQuestion } from '../types';
 import { ASK_TIMEOUT_MS, S11, SPOKEN, answerResult } from './s11';
@@ -107,7 +107,7 @@ describe('S11, lifecycle and accessibility (RELAY step 15b2)', () => {
       value: { answer: 'yes', moves: 2, screenReader: { on: true, detail: 'x' } },
       note: 'read (answered after 2 moves)',
     });
-    expect(focus.asked[0]).toMatchObject({ mode: 'focus', timeoutMs: ASK_TIMEOUT_MS, labels: ['Zoma Lab first button', 'Zoma Lab second button', 'Zoma Lab third button'] });
+    expect(focus.asked[0]).toMatchObject({ mode: 'focus', timeoutMs: ASK_TIMEOUT_MS, labels: ['Lablo Lab first button', 'Lablo Lab second button', 'Lablo Lab third button'] });
     const live = context('webos', { interactive: true, answer: { answer: 'no', moves: 1 }, reader: new Error('x') });
     expect(await check('live-reading').run(live.ctx)).toMatchObject({ status: 'fail', value: { screenReader: null } });
     expect(live.asked[0]?.mode).toBe('live');

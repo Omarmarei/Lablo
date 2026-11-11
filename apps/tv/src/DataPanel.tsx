@@ -1,7 +1,7 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { useSignal } from '@preact/signals';
-import type { ContentKey, ContentKind } from '@zoma/core';
-import type { EpgNowNext, EpgRefreshResult, EpgStatus, IngestResult, ShortEpgNowNext } from '@zoma/data';
+import type { ContentKey, ContentKind } from '@lablo/core';
+import type { EpgNowNext, EpgRefreshResult, EpgStatus, IngestResult, ShortEpgNowNext } from '@lablo/data';
 import { useEffect } from 'preact/hooks';
 import type { DataEngine, DataSummary } from './data/engine';
 import type { DebugParams } from './data/params';

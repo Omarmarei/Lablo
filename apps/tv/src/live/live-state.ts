@@ -1,10 +1,10 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { CatalogItem, ContentKey, ContentKind } from '@zoma/core';
-import type { CategoryInfo, EpgNowNext, LoadedProfile, ShortEpgNowNext, ShortEpgSource, SourceRecord } from '@zoma/data';
-import type { Platform } from '@zoma/platform-api';
-import type { Focus, FocusBinding, Navigator, Screen, ScreenSpec, ZoneSpec } from '@zoma/ui';
-import { LAYOUT, SCREEN, bindFocus, createNavigator, fits } from '@zoma/ui';
+import type { CatalogItem, ContentKey, ContentKind } from '@lablo/core';
+import type { CategoryInfo, EpgNowNext, LoadedProfile, ShortEpgNowNext, ShortEpgSource, SourceRecord } from '@lablo/data';
+import type { Platform } from '@lablo/platform-api';
+import type { Focus, FocusBinding, Navigator, Screen, ScreenSpec, ZoneSpec } from '@lablo/ui';
+import { LAYOUT, SCREEN, bindFocus, createNavigator, fits } from '@lablo/ui';
 import type { FocusedChannel } from '../data/engine';
 import { mark } from '../marks';
 import type { ZapList } from '../player/player-state';
@@ -644,7 +644,7 @@ export function createLive(options: LiveOptions): Live {
         wantCategory = null;
         if (entries.length > 0) showCategory(Math.min(category.value, entries.length - 1));
         else home.update(channelsZone(0));
-        mark('zoma:live-ready');
+        mark('lablo:live-ready');
         settle();
         afterChange();
       },

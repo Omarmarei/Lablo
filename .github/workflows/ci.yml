@@ -208,12 +208,12 @@ jobs:
 
       - name: Build and probe the mock's Docker image
         run: |
-          docker build -f apps/mock-provider/Dockerfile -t zoma-mock:ci .
-          docker run -d --name zoma-mock -p 18080:8080 zoma-mock:ci --no-lab-logs
+          docker build -f apps/mock-provider/Dockerfile -t lablo-mock:ci .
+          docker run -d --name lablo-mock -p 18080:8080 lablo-mock:ci --no-lab-logs
           for i in $(seq 1 30); do curl -fs http://127.0.0.1:18080/__mock/health && break; sleep 1; done
           curl -fs http://127.0.0.1:18080/__mock/health | grep -q '"media":"files"'
-          ffprobe -v error -show_streams -of compact http://127.0.0.1:18080/live/zoma/zoma-test/104.ts | grep -c codec_type=audio | grep -qx 2
-          docker rm -f zoma-mock
+          ffprobe -v error -show_streams -of compact http://127.0.0.1:18080/live/lablo/lablo-test/104.ts | grep -c codec_type=audio | grep -qx 2
+          docker rm -f lablo-mock
 
       - name: Upload the benchmark results
         if: always()

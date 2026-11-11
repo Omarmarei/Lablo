@@ -92,7 +92,7 @@ function storedProfile(page: Page): Promise<StoredGuides | null> {
   return page.evaluate(
     () =>
       new Promise<StoredGuides | null>((resolve, reject) => {
-        const open = indexedDB.open('zoma');
+        const open = indexedDB.open('lablo');
         open.onerror = () => reject(open.error);
         open.onsuccess = () => {
           const db = open.result;

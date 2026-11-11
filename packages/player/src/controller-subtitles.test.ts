@@ -1,4 +1,4 @@
-import type { SubtitleCue } from '@zoma/core';
+import type { SubtitleCue } from '@lablo/core';
 import { describe, expect, it } from 'vitest';
 import type { ControllerOptions, SubtitleView } from './controller';
 import { CUE_TICK_MS, ENGINE_CUE_MS, MAX_ENGINE_CUES, PlayerController } from './controller';

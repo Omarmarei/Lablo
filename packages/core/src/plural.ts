@@ -1,5 +1,5 @@
 /**
- * CLDR plural rules for the languages Zoma ships (RELAY step 12, PLAN 4.3). `Intl.PluralRules`
+ * CLDR plural rules for the languages Lablo ships (RELAY step 12, PLAN 4.3). `Intl.PluralRules`
  * is missing on Chromium 53 (2018 webOS 4), so the rules are written out here, and
  * `test/i18n-cldr.test.ts` checks them against Node's full-ICU `Intl.PluralRules`.
  *

@@ -9,9 +9,9 @@ const PDI = String.fromCharCode(0x2069);
 
 describe('firstStrongDirection', () => {
   it.each([
-    ['Zoma Sports 1', 'ltr'],
-    ['قناة زوما', 'rtl'],
-    ['1 Zoma', 'ltr'],
+    ['Lablo Sports 1', 'ltr'],
+    ['قناة لابلو', 'rtl'],
+    ['1 Lablo', 'ltr'],
     ['24 قناة', 'rtl'],
     ['(HD) MBC', 'ltr'],
     ['שלום', 'rtl'],
@@ -40,7 +40,7 @@ describe('firstStrongDirection', () => {
   });
 
   it('counts the marks themselves as strong, as UAX #9 does', () => {
-    expect(firstStrongDirection(`${RLM}Zoma`)).toBe('rtl');
+    expect(firstStrongDirection(`${RLM}Lablo`)).toBe('rtl');
     expect(firstStrongDirection(`${LRM}قناة`)).toBe('ltr');
   });
 

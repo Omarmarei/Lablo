@@ -1,19 +1,19 @@
 // Root project: type-checks the root config files and test/.
 // It is also the tsconfig the ESLint import resolver uses. The `paths` entry maps
-// @zoma/* to every package so that a forbidden (undeclared) import still resolves
+// @lablo/* to every package so that a forbidden (undeclared) import still resolves
 // and boundaries/element-types reports it instead of silently skipping it.
 // Packages type-check with their own tsconfig.json (no paths; declared deps only).
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    // DOM: test/ type-checks @zoma/data sources (IndexedDB, MessagePort, Worker types).
+    // DOM: test/ type-checks @lablo/data sources (IndexedDB, MessagePort, Worker types).
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": ["node"],
     "allowJs": true,
     "checkJs": true,
     "paths": {
-      "@zoma/*": ["./packages/*/src/index.ts"]
+      "@lablo/*": ["./packages/*/src/index.ts"]
     }
   },
   "include": ["*.ts", "*.js", "test/**/*.ts", "e2e/**/*.ts", "apps/*/vite.config.ts"]

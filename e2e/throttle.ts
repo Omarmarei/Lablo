@@ -5,8 +5,8 @@ import type { Page } from '@playwright/test';
  * live-throttled.spec.ts (the live list) and guide-throttled.spec.ts (the grid guide).
  */
 
-/** How many times slower the page's CPU runs. `ZOMA_E2E_THROTTLE` overrides it, to see the margins on a slower machine. */
-export const THROTTLE = Number(process.env['ZOMA_E2E_THROTTLE'] ?? 4);
+/** How many times slower the page's CPU runs. `LABLO_E2E_THROTTLE` overrides it, to see the margins on a slower machine. */
+export const THROTTLE = Number(process.env['LABLO_E2E_THROTTLE'] ?? 4);
 
 /**
  * Slows the page's CPU `rate` times until the returned function is called. The CDP session
@@ -32,7 +32,7 @@ export function busyMs(page: Page): Promise<number> {
       const start = performance.now();
       let x = 0;
       for (let i = 0; i < 2_000_000; i++) x += Math.sqrt(i);
-      (window as unknown as { __zomaSink: number }).__zomaSink = x;
+      (window as unknown as { __labloSink: number }).__labloSink = x;
       total += performance.now() - start;
     }
     return total;

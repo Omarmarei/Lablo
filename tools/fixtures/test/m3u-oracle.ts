@@ -3,8 +3,8 @@
 // schedule. Shared by the small-catalog test (`pnpm test`) and the 200k one (`pnpm test:media`).
 
 import { createReadStream, readFileSync } from 'node:fs';
-import type { CatalogItem, M3uCatalogSummary, M3uStats } from '@zoma/core';
-import { M3uCatalogParser, normalizeName } from '@zoma/core';
+import type { CatalogItem, M3uCatalogSummary, M3uStats } from '@lablo/core';
+import { M3uCatalogParser, normalizeName } from '@lablo/core';
 import { expect } from 'vitest';
 import { MALFORMED } from '../src/catalog';
 
@@ -59,7 +59,7 @@ export function expectMatchesCatalog(parsed: ParsedPlaylist, catalogJsonPath: st
   const catalog = JSON.parse(readFileSync(catalogJsonPath, 'utf8')) as MockCatalog;
   const categories = new Map<number, string>();
   for (const c of [...catalog.live_categories, ...catalog.vod_categories, ...catalog.series_categories]) categories.set(c.id, c.name);
-  const auth = '/zoma/zoma-test/';
+  const auth = '/lablo/lablo-test/';
 
   const expected: Pick<CatalogItem, 'kind' | 'name' | 'group' | 'epgId' | 'chno' | 'catchup' | 'radio'>[] = [];
   const urls: string[] = [];
@@ -118,7 +118,7 @@ export function expectMatchesCatalog(parsed: ParsedPlaylist, catalogJsonPath: st
   expect(summary.looksLikeHls).toBe(false);
   const withHints = items.filter((i) => i.hints !== null);
   expect(withHints.length).toBe(want.vlcOpts);
-  if (withHints.length > 0) expect(summary.userAgents).toEqual(['ZomaTest/1.0']);
+  if (withHints.length > 0) expect(summary.userAgents).toEqual(['LabloTest/1.0']);
 
   // Keys: unique, and no two different key identities share a hash.
   const keys = new Set<string>();

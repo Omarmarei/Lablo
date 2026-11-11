@@ -22,7 +22,7 @@ describe('deleting a database, waiting out closing connections', () => {
         req.onblocked?.();
         setTimeout(() => req.onsuccess?.(), 5);
       }),
-      'zoma',
+      'lablo',
     );
     expect(await answer).toBeNull();
   });
@@ -34,7 +34,7 @@ describe('deleting a database, waiting out closing connections', () => {
           req.error = { message: 'UnknownError' };
           req.onerror?.();
         }),
-        'zoma',
+        'lablo',
       ),
     ).toBe('UnknownError');
     const throwing = {
@@ -42,9 +42,9 @@ describe('deleting a database, waiting out closing connections', () => {
         throw new Error('SecurityError');
       },
     } as unknown as IDBFactory;
-    expect(await deleteDatabaseAndWait(throwing, 'zoma')).toBe('SecurityError');
+    expect(await deleteDatabaseAndWait(throwing, 'lablo')).toBe('SecurityError');
     vi.useFakeTimers();
-    const stuck = deleteDatabaseAndWait(factory((req) => req.onblocked?.()), 'zoma', 1000);
+    const stuck = deleteDatabaseAndWait(factory((req) => req.onblocked?.()), 'lablo', 1000);
     await vi.advanceTimersByTimeAsync(1001);
     expect(await stuck).toBe('still blocked after 1000 ms');
   });

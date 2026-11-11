@@ -127,7 +127,7 @@ fill(0xfe20, 0xfe2f, DROP); // combining half marks
 ACTION[0xfeff] = DROP; // BOM / zero-width no-break space
 fill(0xfff0, 0xffff, SPACE); // specials (U+FFFD replacement character)
 
-/** `™` and `℠` decompose to letters under NFKD (`Zoma™` → `zomatm`), so they go first. */
+/** `™` and `℠` decompose to letters under NFKD (`Lablo™` → `lablotm`), so they go first. */
 const TRADEMARKS = new RegExp(`[${String.fromCharCode(0x2120, 0x2122)}]`, 'g');
 let buffer = new Uint16Array(256);
 

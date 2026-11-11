@@ -1,7 +1,7 @@
-import type { LoadedProfile, SourceRecord, UnmatchedChannel, UnmatchedPage, UnmatchedRequest } from '@zoma/data';
-import { emptyProfile } from '@zoma/data';
-import type { Intent } from '@zoma/platform-api';
-import { SCREEN, createNavigator } from '@zoma/ui';
+import type { LoadedProfile, SourceRecord, UnmatchedChannel, UnmatchedPage, UnmatchedRequest } from '@lablo/data';
+import { emptyProfile } from '@lablo/data';
+import type { Intent } from '@lablo/platform-api';
+import { SCREEN, createNavigator } from '@lablo/ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { UnmatchedEngine } from './unmatched-state';
 import { UNMATCHED, UNMATCHED_BODY, UNMATCHED_VISIBLE, createUnmatchedList } from './unmatched-state';
@@ -485,7 +485,7 @@ describe('"Channels without a guide" and the manual mapping (step 24e)', () => {
   });
 
   it('says which channels the profile maps to no guide, from its read at the opening', async () => {
-    const { engine } = mappedEngine({ k1: { epgSrc: '', channel: null }, k2: { epgSrc: 's1:xmltv', channel: 'zoma.kids' }, k3: 7 });
+    const { engine } = mappedEngine({ k1: { epgSrc: '', channel: null }, k2: { epgSrc: 's1:xmltv', channel: 'lablo.kids' }, k3: 7 });
     engine.hold = new Set(['profile']);
     const t = setup(engine);
     t.list.open();

@@ -1,10 +1,10 @@
 import { signal } from '@preact/signals';
 import { render } from 'preact';
-import type { DeviceTier } from '@zoma/core';
-import { normalizeLang } from '@zoma/core';
-import type { LastChannel } from '@zoma/data';
-import type { Language } from '@zoma/ui';
-import { Spinner } from '@zoma/ui';
+import type { DeviceTier } from '@lablo/core';
+import { normalizeLang } from '@lablo/core';
+import type { LastChannel } from '@lablo/data';
+import type { Language } from '@lablo/ui';
+import { Spinner } from '@lablo/ui';
 import type { AppData } from './App';
 import { App } from './App';
 import type { DataEngine, SourceFacts } from './data/engine';
@@ -39,7 +39,7 @@ import { createOnboarding } from './onboarding/onboarding-state';
 import { answerEdit, readStartProfile, startPoint } from './onboarding/start';
 import { KEY_HELP, createPlatform } from './platform';
 import { installTestHook } from './test-hook';
-// Last, so the app's own CSS comes after @zoma/ui's (tokens, fonts, components) in app.css and in dev.
+// Last, so the app's own CSS comes after @lablo/ui's (tokens, fonts, components) in app.css and in dev.
 import './app.css';
 
 /**
@@ -49,7 +49,7 @@ import './app.css';
 const memory = createPlayerMemory({ edit: (edit) => dataEngine().editProfile(edit) });
 const platform = createPlatform({ redirects: memory.redirects });
 platform.registerKeys();
-/** The focus of the screen on show, as `window.__ZOMA_TEST__.focusPath()` (RELAY step 14b). */
+/** The focus of the screen on show, as `window.__LABLO_TEST__.focusPath()` (RELAY step 14b). */
 const showFocus = installTestHook(window);
 /** The device's tier once the platform says it (the guide's days). */
 let tier: DeviceTier = 'full';

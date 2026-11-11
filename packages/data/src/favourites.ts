@@ -17,7 +17,7 @@
  * Keys already used by another favourite never count, so two favourites can't merge.
  */
 
-import type { CatalogItem, ContentKey, ContentKind } from '@zoma/core';
+import type { CatalogItem, ContentKey, ContentKind } from '@lablo/core';
 import type { FavouriteRef } from './profile';
 
 /** How long an unavailable favourite is kept before it is dropped. */

@@ -12,7 +12,7 @@ import {
   xtreamXmltvUrl,
 } from './xtream-url';
 
-const account = { base: 'http://panel.test:8080', username: 'special+user@zoma.test', password: 'p@ss/w0rd&?# é' };
+const account = { base: 'http://panel.test:8080', username: 'special+user@lablo.test', password: 'p@ss/w0rd&?# é' };
 
 describe('normalizeXtreamBase', () => {
   it.each([
@@ -35,7 +35,7 @@ describe('normalizeXtreamBase', () => {
 
 describe('Xtream URL builders', () => {
   it('percent-encodes credentials in queries and paths', () => {
-    const u = 'special%2Buser%40zoma.test';
+    const u = 'special%2Buser%40lablo.test';
     const p = 'p%40ss%2Fw0rd%26%3F%23%20%C3%A9';
     expect(xtreamApiUrl(account)).toBe(`http://panel.test:8080/player_api.php?username=${u}&password=${p}`);
     expect(xtreamApiUrl(account, 'get_vod_info', { vod_id: 7, category_id: undefined })).toBe(
@@ -57,17 +57,17 @@ describe('Xtream URL builders', () => {
 
 describe('xtreamFromM3uUrl (M3U → Xtream upgrade)', () => {
   it('reads the account from a get.php link', () => {
-    expect(xtreamFromM3uUrl('http://Panel.Test:8080/get.php?username=zoma&password=zoma-test&type=m3u_plus&output=ts')).toEqual({
+    expect(xtreamFromM3uUrl('http://Panel.Test:8080/get.php?username=lablo&password=lablo-test&type=m3u_plus&output=ts')).toEqual({
       base: 'http://panel.test:8080',
-      username: 'zoma',
-      password: 'zoma-test',
+      username: 'lablo',
+      password: 'lablo-test',
     });
   });
 
   it('decodes credentials the way PHP panels do (+ is a space, %XX)', () => {
-    expect(xtreamFromM3uUrl('https://panel.test/iptv/get.php?type=m3u&username=special%2Buser%40zoma.test&password=p%40ss%2Fw0rd%26%3F%23+%C3%A9')).toEqual({
+    expect(xtreamFromM3uUrl('https://panel.test/iptv/get.php?type=m3u&username=special%2Buser%40lablo.test&password=p%40ss%2Fw0rd%26%3F%23+%C3%A9')).toEqual({
       base: 'https://panel.test/iptv',
-      username: 'special+user@zoma.test',
+      username: 'special+user@lablo.test',
       password: 'p@ss/w0rd&?# é',
     });
     // Broken percent-encoding is kept as written; the first of repeated parameters wins.
@@ -103,10 +103,10 @@ describe('xtreamFromM3uUrl (M3U → Xtream upgrade)', () => {
 
 describe('parseXtreamStreamUrl', () => {
   it('takes apart live, movie and series URLs', () => {
-    expect(parseXtreamStreamUrl('http://p.test:8080/live/zoma/zoma-test/101.ts')).toEqual({
+    expect(parseXtreamStreamUrl('http://p.test:8080/live/lablo/lablo-test/101.ts')).toEqual({
       base: 'http://p.test:8080',
-      username: 'zoma',
-      password: 'zoma-test',
+      username: 'lablo',
+      password: 'lablo-test',
       kind: 'live',
       id: '101',
       ext: 'ts',
@@ -114,7 +114,7 @@ describe('parseXtreamStreamUrl', () => {
     expect(parseXtreamStreamUrl('http://p.test/movie/u/p/201.MKV?token=1')).toMatchObject({ kind: 'movie', id: '201', ext: 'mkv' });
     expect(parseXtreamStreamUrl('http://p.test/sub/series/u/p/3001.mp4')).toMatchObject({ base: 'http://p.test/sub', kind: 'series', id: '3001' });
     // The short live form.
-    expect(parseXtreamStreamUrl('http://p.test:8080/zoma/zoma-test/101')).toMatchObject({ kind: 'live', id: '101', ext: null, username: 'zoma' });
+    expect(parseXtreamStreamUrl('http://p.test:8080/lablo/lablo-test/101')).toMatchObject({ kind: 'live', id: '101', ext: null, username: 'lablo' });
   });
 
   it.each([

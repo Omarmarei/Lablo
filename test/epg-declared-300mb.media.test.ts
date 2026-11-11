@@ -11,15 +11,15 @@
 import { createReadStream, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createGunzip } from 'node:zlib';
-import { EpgGuideReader, EpgWantedSet } from '@zoma/core';
-import type { GuideChannelsPage, GuideChannelsRequest } from '@zoma/data';
-import { QueryService, beginEpgGeneration, commitEpgGeneration, epgDeclared, openDatabase, putEpgChannels, putEpgDeclared } from '@zoma/data';
+import { EpgGuideReader, EpgWantedSet } from '@lablo/core';
+import type { GuideChannelsPage, GuideChannelsRequest } from '@lablo/data';
+import { QueryService, beginEpgGeneration, commitEpgGeneration, epgDeclared, openDatabase, putEpgChannels, putEpgDeclared } from '@lablo/data';
 import { describe, expect, it } from 'vitest';
 import { freshFactory } from '../packages/data/src/test-support';
 import { EPG_BENCH_NOW, parsePlaylistItems } from '../tools/bench/src/suites';
 import { epgId } from '../tools/fixtures/src/catalog';
 
-const fixtures = process.env['ZOMA_FIXTURES_DIR'] ?? join(import.meta.dirname, '..', '.cache', 'fixtures');
+const fixtures = process.env['LABLO_FIXTURES_DIR'] ?? join(import.meta.dirname, '..', '.cache', 'fixtures');
 const guide = join(fixtures, 'xmltv-300mb.xml.gz');
 const playlist = join(fixtures, 'playlist.m3u');
 const CHANNELS = 5_000;

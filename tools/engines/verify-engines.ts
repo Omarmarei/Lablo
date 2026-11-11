@@ -18,7 +18,7 @@
  * the grid guide from the header's "Guide" (step 23e: every cell, slot label and the now line
  * against GUIDE_LAYOUT, across rows and time) (artifacts/engines/onboarding-*.png: the form,
  * done, live, category, on Tizen exit, and guide screens).
- * Last, the Zoma Lab (dist/tv-lab, step 15a) runs its spikes at launch and reports to a mock
+ * Last, the Lablo Lab (dist/tv-lab, step 15a) runs its spikes at launch and reports to a mock
  * provider on the host (artifacts/engines/lab-logs): S1 must pass on every engine, and the
  * polyfills it filled must be exactly the ones the engine lacks.
  *
@@ -30,7 +30,7 @@
  *   --keep                                leave the containers running (for debugging)
  *   --hour <0-23>                         the hour of the day each engine starts in, in its own
  *                                         zone (default 21: the guide steps cross midnight)
- * Environment: ZOMA_ENGINE_CACHE overrides the download cache directory.
+ * Environment: LABLO_ENGINE_CACHE overrides the download cache directory.
  */
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -310,7 +310,7 @@ async function runEngine(
     image,
     zip,
     appDir: VARIANTS_DIR,
-    name: `zoma-${engine.id}-${process.pid}-${Date.now()}`,
+    name: `lablo-${engine.id}-${process.pid}-${Date.now()}`,
     chromeFlags: [...TV_RUNTIME_FLAGS, ...TV_SCREEN_FLAGS],
     zone,
   });
@@ -392,7 +392,7 @@ async function main(): Promise<void> {
   const selfTest = values['self-test'];
   const distTv = path.resolve(ROOT, values.dist);
   const distLab = path.resolve(ROOT, values['dist-lab']);
-  const cacheDir = path.resolve(ROOT, process.env.ZOMA_ENGINE_CACHE ?? '.cache/engines');
+  const cacheDir = path.resolve(ROOT, process.env.LABLO_ENGINE_CACHE ?? '.cache/engines');
 
   assertDockerRunning();
   const image = ensureImage(path.join(import.meta.dirname, 'docker'), log);

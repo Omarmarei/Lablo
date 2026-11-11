@@ -1,4 +1,4 @@
-import { isolateText, stripIsolates } from '@zoma/core';
+import { isolateText, stripIsolates } from '@lablo/core';
 import { describe, expect, it } from 'vitest';
 import { resolveLocale } from './format';
 import { pseudoLocalize } from './pseudo';
@@ -33,7 +33,7 @@ const CATALOGS: Catalogs<Key> = {
 describe('createI18n', () => {
   it('formats English messages with plurals and isolated text', () => {
     const i18n = createI18n(CATALOGS, 'en-US');
-    expect(i18n.t('play', { name: 'Zoma News' })).toBe(`Play ${LRM}${LRM}${FSI}Zoma News${PDI}${LRM}${LRM}?`);
+    expect(i18n.t('play', { name: 'Lablo News' })).toBe(`Play ${LRM}${LRM}${FSI}Lablo News${PDI}${LRM}${LRM}?`);
     expect([0, 1, 2, 1000].map((n) => i18n.t('count', { n }))).toEqual(['0 channels', '1 channel', '2 channels', '1,000 channels']);
     expect([0, 1, 3].map((days) => i18n.t('expires', { days }))).toEqual(['Expires today', 'Expires in 1 day', 'Expires in 3 days']);
   });
@@ -56,17 +56,17 @@ describe('createI18n', () => {
   it('isolates a Latin name inside an Arabic sentence, with the marks old engines need', () => {
     const i18n = createI18n(CATALOGS, 'ar-SA');
     // The name's own mark around the isolate, then the sentence's (core's isolateText).
-    expect(i18n.t('play', { name: 'Zoma Sports 1' })).toBe(`تشغيل ${RLM}${LRM}${FSI}Zoma Sports 1${PDI}${LRM}${RLM}؟`);
+    expect(i18n.t('play', { name: 'Lablo Sports 1' })).toBe(`تشغيل ${RLM}${LRM}${FSI}Lablo Sports 1${PDI}${LRM}${RLM}؟`);
     expect(createI18n(CATALOGS, 'en-US').t('play', { name: 'قناة 1' })).toBe(`Play ${LRM}${RLM}${FSI}قناة 1${PDI}${RLM}${LRM}?`);
     // In en-XA, the sentence is English.
     expect(createI18n(CATALOGS, 'en-XA').t('play', { name: 'x' })).toContain(isolateText('x', 'ltr'));
-    expect(createI18n(CATALOGS, 'ar-SA', { isolate: false }).t('play', { name: 'Zoma' })).toBe('تشغيل Zoma؟');
+    expect(createI18n(CATALOGS, 'ar-SA', { isolate: false }).t('play', { name: 'Lablo' })).toBe('تشغيل Lablo؟');
   });
 
   it('runs en-XA through pseudoLocalize, keeping the arguments and plural syntax', () => {
     const i18n = createI18n(CATALOGS, 'en-XA');
     expect(i18n.locale.pseudo).toBe(true);
-    expect(i18n.t('play', { name: 'Zoma' })).toBe(pseudoLocalize('Play {name}?').replace('{name}', isolateText('Zoma', 'ltr')));
+    expect(i18n.t('play', { name: 'Lablo' })).toBe(pseudoLocalize('Play {name}?').replace('{name}', isolateText('Lablo', 'ltr')));
     const many = i18n.t('count', { n: 240 });
     expect(many.startsWith('[') && many.endsWith(']')).toBe(true);
     expect(many).toContain('240 çĥåññéļš');
@@ -115,6 +115,6 @@ describe('createI18n', () => {
 
   it('strips the isolation marks again', () => {
     const i18n = createI18n(CATALOGS, 'ar-SA');
-    expect(stripIsolates(i18n.t('play', { name: 'Zoma 1' }))).toBe('تشغيل Zoma 1؟');
+    expect(stripIsolates(i18n.t('play', { name: 'Lablo 1' }))).toBe('تشغيل Lablo 1؟');
   });
 });

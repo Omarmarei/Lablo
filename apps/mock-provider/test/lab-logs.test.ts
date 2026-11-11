@@ -10,7 +10,7 @@ let app: MockServer;
 let dir: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'zoma-lab-logs-'));
+  dir = await mkdtemp(join(tmpdir(), 'lablo-lab-logs-'));
   app = await mock({ labLogDir: dir });
 });
 afterEach(async () => {

@@ -26,8 +26,8 @@
  * app's (apps/tv/src/player). Platform-specific needs arrive as callbacks (ADR-008).
  */
 
-import type { ContentKey, SubtitleCue } from '@zoma/core';
-import { SubtitleTrack, cueText } from '@zoma/core';
+import type { ContentKey, SubtitleCue } from '@lablo/core';
+import { SubtitleTrack, cueText } from '@lablo/core';
 import type { Clock } from './clock';
 import { SYSTEM_CLOCK } from './clock';
 import type { Container, EngineEvent, EngineStats, PlaybackError, PlayerEngine } from './engine';

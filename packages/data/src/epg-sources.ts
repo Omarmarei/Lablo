@@ -1,6 +1,6 @@
 /**
  * Which guides a refresh reads, and when (architecture.md §1.5 steps 1 and 8). Pure and small:
- * the app (`@zoma/data/client`) decides with it what to send to the ingest worker.
+ * the app (`@lablo/data/client`) decides with it what to send to the ingest worker.
  *
  * - **Guides**, in priority order (`combineEpgMatches` breaks ties between methods of equal
  *   strength by it): the user's XMLTV URLs in the user's order, then each catalog source's own
@@ -23,8 +23,8 @@
  *   mappings than the profile's (step 24d, epg-overrides.ts) is due at once.
  */
 
-import type { XtreamAccount } from '@zoma/core';
-import { xtreamFromM3uUrl, xtreamXmltvUrl } from '@zoma/core';
+import type { XtreamAccount } from '@lablo/core';
+import { xtreamFromM3uUrl, xtreamXmltvUrl } from '@lablo/core';
 import type { SourceMeta } from './catalog-store';
 import type { EpgMeta } from './epg-store';
 

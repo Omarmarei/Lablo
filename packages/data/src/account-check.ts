@@ -12,8 +12,8 @@
  * - Not `XtreamClient`: it would bring the list parser into the query worker.
  */
 
-import type { TextTransport, XtreamAccount, XtreamUserInfo } from '@zoma/core';
-import { XtreamError, decodeLogin, xtreamApiUrl, xtreamFromM3uUrl, xtreamJson } from '@zoma/core';
+import type { TextTransport, XtreamAccount, XtreamUserInfo } from '@lablo/core';
+import { XtreamError, decodeLogin, xtreamApiUrl, xtreamFromM3uUrl, xtreamJson } from '@lablo/core';
 import type { SourceRecord } from './profile';
 
 /** What the re-check says (the player's `AccountStatus` has the same shape). */

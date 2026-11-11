@@ -1,9 +1,9 @@
-import type { CatalogItem, ContentKey } from '@zoma/core';
-import type { EpgNowNext } from '@zoma/data';
-import type { Intent } from '@zoma/platform-api';
-import type { PictureMode, PlaybackFailure, PlayerState, PlayerStatus, PlayerTracks, PlayOptions, PlayRequest, StreamStats, SubtitleView } from '@zoma/player';
-import { NO_STATS, NO_TRACKS } from '@zoma/player';
-import { createNavigator } from '@zoma/ui';
+import type { CatalogItem, ContentKey } from '@lablo/core';
+import type { EpgNowNext } from '@lablo/data';
+import type { Intent } from '@lablo/platform-api';
+import type { PictureMode, PlaybackFailure, PlayerState, PlayerStatus, PlayerTracks, PlayOptions, PlayRequest, StreamStats, SubtitleView } from '@lablo/player';
+import { NO_STATS, NO_TRACKS } from '@lablo/player';
+import { createNavigator } from '@lablo/ui';
 import { describe, expect, it } from 'vitest';
 import type { LiveRow, Timers } from '../live/live-state';
 import type { ArchiveProgramme } from './catchup';
@@ -1209,7 +1209,7 @@ describe('the player: the start on the last channel (RELAY step 20c1)', () => {
   }
 
   it('plays the kept channel at once, before the list has it, and shows it at its row', async () => {
-    performance.clearMarks('zoma:resume');
+    performance.clearMarks('lablo:resume');
     const t = resumed();
     expect(t.at()).toBe('player · actions 0');
     expect(t.chrome).toEqual([true]);
@@ -1221,7 +1221,7 @@ describe('the player: the start on the last channel (RELAY step 20c1)', () => {
     // It was the last channel already.
     expect(t.tuned).toEqual([]);
     expect(t.list.locates.map((l) => [l.key, l.guess])).toEqual([['x:s1:live:12', 12]]);
-    expect(performance.getEntriesByName('zoma:resume')).toHaveLength(1);
+    expect(performance.getEntriesByName('lablo:resume')).toHaveLength(1);
     // No rows to zap through yet.
     await t.press('CH_UP');
     t.clock.advance(ZAP_DELAY_MS);
@@ -1335,14 +1335,14 @@ describe('the player: the start on the last channel (RELAY step 20c1)', () => {
   });
 
   it('marks the kept channel\'s first frame once, and no other', async () => {
-    performance.clearMarks('zoma:resume-frame');
+    performance.clearMarks('lablo:resume-frame');
     const t = resumed();
     t.controller.set('opening');
-    expect(performance.getEntriesByName('zoma:resume-frame')).toHaveLength(0);
+    expect(performance.getEntriesByName('lablo:resume-frame')).toHaveLength(0);
     t.controller.set('playing');
     t.controller.set('buffering');
     t.controller.set('playing');
-    expect(performance.getEntriesByName('zoma:resume-frame')).toHaveLength(1);
+    expect(performance.getEntriesByName('lablo:resume-frame')).toHaveLength(1);
     const s = setup();
     s.player.show(2);
     s.controller.set('playing');
@@ -1357,7 +1357,7 @@ describe('the player: the start on the last channel (RELAY step 20c1)', () => {
     const c = resumed();
     c.player.close();
     c.controller.set('playing');
-    expect(performance.getEntriesByName('zoma:resume-frame')).toHaveLength(1);
+    expect(performance.getEntriesByName('lablo:resume-frame')).toHaveLength(1);
   });
 
   it('moves nothing when the channel played again is the list\'s own row', async () => {

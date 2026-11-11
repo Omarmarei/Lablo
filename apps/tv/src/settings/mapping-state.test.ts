@@ -1,8 +1,8 @@
-import type { EpgNowNext, EpgStatus, GuideChannel, GuideChannelsPage, GuideChannelsRequest, LoadedProfile, ProfileDoc, ProfileEdit, SourceMeta, SourceRecord } from '@zoma/data';
-import { applyProfileEdit, emptyProfile } from '@zoma/data';
-import type { Intent, KeyLike, TextKey } from '@zoma/platform-api';
-import type { EditableLike } from '@zoma/ui';
-import { SCREEN, createNavigator } from '@zoma/ui';
+import type { EpgNowNext, EpgStatus, GuideChannel, GuideChannelsPage, GuideChannelsRequest, LoadedProfile, ProfileDoc, ProfileEdit, SourceMeta, SourceRecord } from '@lablo/data';
+import { applyProfileEdit, emptyProfile } from '@lablo/data';
+import type { Intent, KeyLike, TextKey } from '@lablo/platform-api';
+import type { EditableLike } from '@lablo/ui';
+import { SCREEN, createNavigator } from '@lablo/ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MappingCurrent, MappingEngine, MappingRow } from './mapping-state';
 import {
@@ -225,8 +225,8 @@ describe('pinOf', () => {
   const docWith = (overrides: unknown): unknown => ({ ...emptyProfile(), epgOverrides: overrides });
 
   it('reads a mapping to a guide’s channel and one to no guide', () => {
-    const doc = docWith({ [KEY]: { epgSrc: 's1:xmltv', channel: 'zoma.kids' }, 'x:s1:live:1': { epgSrc: '', channel: null } });
-    expect(pinOf(doc, KEY)).toEqual({ epgSrc: 's1:xmltv', channel: 'zoma.kids' });
+    const doc = docWith({ [KEY]: { epgSrc: 's1:xmltv', channel: 'lablo.kids' }, 'x:s1:live:1': { epgSrc: '', channel: null } });
+    expect(pinOf(doc, KEY)).toEqual({ epgSrc: 's1:xmltv', channel: 'lablo.kids' });
     expect(pinOf(doc, 'x:s1:live:1')).toEqual({ epgSrc: '', channel: null });
   });
 
@@ -242,8 +242,8 @@ describe('pinOf', () => {
 
   it.each([
     ['no guide naming a guide', { epgSrc: 's1:xmltv', channel: null }],
-    ['a channel without its guide', { epgSrc: '', channel: 'zoma.kids' }],
-    ['a guide that is no text', { epgSrc: 7, channel: 'zoma.kids' }],
+    ['a channel without its guide', { epgSrc: '', channel: 'lablo.kids' }],
+    ['a guide that is no text', { epgSrc: 7, channel: 'lablo.kids' }],
     ['a channel that is no text', { epgSrc: 's1:xmltv', channel: 7 }],
     ['no channel at all', { epgSrc: 's1:xmltv' }],
     ['a number', 7],
@@ -255,10 +255,10 @@ describe('pinOf', () => {
 
 describe('the current match', () => {
   it('is the mapping when there is one, else what the guides matched, else none', () => {
-    const matched = { epgSrc: 's1:xmltv', channel: 'zoma.test1' };
+    const matched = { epgSrc: 's1:xmltv', channel: 'lablo.test1' };
     expect(currentOf({ epgSrc: '', channel: null }, matched)).toEqual({ kind: 'off' });
     expect(currentOf({ epgSrc: 'u~g1', channel: 'kids' }, matched)).toEqual({ kind: 'pin', epgSrc: 'u~g1', channel: 'kids' });
-    expect(currentOf(null, matched)).toEqual({ kind: 'auto', epgSrc: 's1:xmltv', channel: 'zoma.test1' });
+    expect(currentOf(null, matched)).toEqual({ kind: 'auto', epgSrc: 's1:xmltv', channel: 'lablo.test1' });
     expect(currentOf(null, { epgSrc: null, channel: null })).toEqual({ kind: 'none' });
     expect(currentOf(null, null)).toEqual({ kind: 'none' });
   });

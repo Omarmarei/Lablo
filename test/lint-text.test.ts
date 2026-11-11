@@ -3,12 +3,12 @@ import { ESLint } from 'eslint';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 /**
- * Proves `zoma/no-hard-coded-text` in eslint.config.js (RELAY step 12b, ADR-011): seeded TSX
+ * Proves `lablo/no-hard-coded-text` in eslint.config.js (RELAY step 12b, ADR-011): seeded TSX
  * is linted as if it lived at `file`, nothing is written to disk, so `pnpm lint` on the real
  * tree stays clean while these assertions run.
  */
 const ROOT = path.resolve(import.meta.dirname, '..');
-const RULE = 'zoma/no-hard-coded-text';
+const RULE = 'lablo/no-hard-coded-text';
 const GALLERY = 'apps/tv/src/gallery/Seeded.tsx';
 
 let eslint: ESLint;
@@ -20,7 +20,7 @@ beforeAll(() => {
 /** The texts the rule reports in `jsx`, wrapped in a component in `file`. */
 async function hardCoded(jsx: string, file = GALLERY): Promise<string[]> {
   const code = [
-    // Stand-ins for @zoma/ui's components: no import, so no file trips the package boundaries.
+    // Stand-ins for @lablo/ui's components: no import, so no file trips the package boundaries.
     'declare const Badge: (props: Record<string, unknown>) => null;',
     'declare const Button: (props: Record<string, unknown>) => null;',
     'declare const t: (key: string) => string;',
@@ -37,7 +37,7 @@ async function hardCoded(jsx: string, file = GALLERY): Promise<string[]> {
   return result.messages.map((m) => /"(.*)"/.exec(m.message)?.[1] ?? m.message);
 }
 
-describe('zoma/no-hard-coded-text', () => {
+describe('lablo/no-hard-coded-text', () => {
   it.each([
     ['JSX text', '<p>Loading channels</p>', ['Loading channels']],
     ['a text prop', '<Button label="Play" />', ['Play']],
@@ -60,7 +60,7 @@ describe('zoma/no-hard-coded-text', () => {
   it.each([
     ['text from the catalogs', "<Button label={t('action.play')} />"],
     ['a catalog call inside a template', "<p>{`${t('gallery.title')} / ${name}`}</p>"],
-    ['the provider’s text under translate={false}', '<span translate={false}>Zoma Sports 1 <b>HD</b></span>'],
+    ['the provider’s text under translate={false}', '<span translate={false}>Lablo Sports 1 <b>HD</b></span>'],
     ['translate="no"', '<span translate="no">MBC 1</span>'],
     ['a technical mark with data', '<Badge label="HD" tone="outline" data />'],
     ['data={true}', '<Badge label="5.1" data={true} />'],

@@ -25,8 +25,8 @@
  *   (`setSilentSubtitle(false)`): AVPlay draws none itself.
  */
 
-import type { Clock, EngineCaps, EngineEvent, EngineSource, EngineStats, LoadOptions, PictureFit, PlaybackError, PlayerEngine, Rect, Track } from '@zoma/player';
-import { NO_STATS, SYSTEM_CLOCK } from '@zoma/player';
+import type { Clock, EngineCaps, EngineEvent, EngineSource, EngineStats, LoadOptions, PictureFit, PlaybackError, PlayerEngine, Rect, Track } from '@lablo/player';
+import { NO_STATS, SYSTEM_CLOCK } from '@lablo/player';
 import type { AvplayListener, AvplayManager, AvplayTrack } from './avplay';
 import { avplayTracks, avplayUnsupported } from './avplay';
 

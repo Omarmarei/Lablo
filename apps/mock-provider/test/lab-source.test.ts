@@ -27,7 +27,7 @@ const GUIDE = [
 
 let dir: string;
 beforeAll(() => {
-  dir = mkdtempSync(join(tmpdir(), 'zoma-lab-source-'));
+  dir = mkdtempSync(join(tmpdir(), 'lablo-lab-source-'));
   writeFileSync(join(dir, 'guide.xml.gz'), gzipSync(GUIDE));
   writeFileSync(join(dir, 'guide.xml'), GUIDE);
 });

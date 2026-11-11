@@ -1,4 +1,4 @@
-import { stripIsolates } from '@zoma/core';
+import { stripIsolates } from '@lablo/core';
 import { describe, expect, it } from 'vitest';
 import type { BidiAnswer, FaceState } from './arabic';
 import type { IntlAnswer, IntlLocale } from './arabic';
@@ -28,18 +28,18 @@ describe("S9's fonts (RELAY step 15b2)", () => {
     expect(fontFailures([])).toHaveLength(4);
   });
 
-  it('asks for both weights of both scripts, then reads only the Zoma Sans faces', async () => {
+  it('asks for both weights of both scripts, then reads only the Lablo Sans faces', async () => {
     const asked: string[] = [];
     const faces = [
-      { family: '"Zoma Sans"', unicodeRange: 'U+0-17F', weight: '400', status: 'loaded' },
-      { family: 'Zoma Sans', unicodeRange: 'U+600-6FF', weight: 'bold', status: 'loaded' },
+      { family: '"Lablo Sans"', unicodeRange: 'U+0-17F', weight: '400', status: 'loaded' },
+      { family: 'Lablo Sans', unicodeRange: 'U+600-6FF', weight: 'bold', status: 'loaded' },
       { family: 'Other', unicodeRange: 'U+600-6FF', weight: '400', status: 'loaded' },
     ];
     const set = {
       load: (font: string, text?: string) => {
         asked.push(`${font}|${text ?? ''}`);
         // A failed load is read as the face's status, not thrown.
-        return font.indexOf('700') === 0 && text === 'Zoma' ? Promise.reject(new Error('x')) : Promise.resolve([]);
+        return font.indexOf('700') === 0 && text === 'Lablo' ? Promise.reject(new Error('x')) : Promise.resolve([]);
       },
       forEach: (run: (face: (typeof faces)[number]) => void) => faces.forEach(run),
       check: () => true,
@@ -48,7 +48,7 @@ describe("S9's fonts (RELAY step 15b2)", () => {
       { face: 'la400', status: 'loaded' },
       { face: 'ar700', status: 'loaded' },
     ]);
-    expect(asked).toEqual(['400 32px "Zoma Sans"|Zoma', '400 32px "Zoma Sans"|قناة', '700 32px "Zoma Sans"|Zoma', '700 32px "Zoma Sans"|قناة']);
+    expect(asked).toEqual(['400 32px "Lablo Sans"|Lablo', '400 32px "Lablo Sans"|قناة', '700 32px "Lablo Sans"|Lablo', '700 32px "Lablo Sans"|قناة']);
   });
 });
 
@@ -107,7 +107,7 @@ describe("S9's bidi probe", () => {
     expect(BIDI_LINES.trailing).not.toBe(BIDI_LINES.trailingControl);
     expect(BIDI_LINES.leading).not.toBe(BIDI_LINES.leadingControl);
     expect(BIDI_LINES.trailingControl).toBe('MBC 1 · 240 قناة');
-    expect(BIDI_LINES.leadingControl).toBe('1 Zoma قناة');
+    expect(BIDI_LINES.leadingControl).toBe('1 Lablo قناة');
   });
 
   it('checks that the isolation draws nothing and isolates both lines, against controls that show the problem', () => {

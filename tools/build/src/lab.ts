@@ -1,7 +1,7 @@
 /**
- * The Zoma Lab build (RELAY step 15a, docs/architecture.md §5): the lab entry
+ * The Lablo Lab build (RELAY step 15a, docs/architecture.md §5): the lab entry
  * (apps/tv/src/lab/lab-main.tsx) bundled like the app, staged in `dist/tv-lab/<platform>` as its
- * own app, so it installs next to Zoma instead of over it:
+ * own app, so it installs next to Lablo instead of over it:
  *
  * - the manifests are the app's with the lab's id and name, and on webOS Audio Guidance on
  *   (`labManifest`: spike S11 asks whether it reads the lab's labels);
@@ -16,12 +16,12 @@ import { BOOT_ERROR_SCRIPT } from './platform-files';
 
 /** The lab's ids: never the app's, so a lab install leaves the app (and its data) alone. */
 export const LAB_IDS = {
-  webosId: 'com.zoma.iptv.lab',
+  webosId: 'com.lablo.iptv.lab',
   /** Tizen: a 10-character package id, the application id `<package>.<name>`. */
-  tizenPackage: 'ZomaLab001',
-  tizenApplication: 'ZomaLab001.ZomaLab',
-  tizenWidget: 'https://zoma-iptv.invalid/lab',
-  title: 'Zoma Lab',
+  tizenPackage: 'LabloLab01',
+  tizenApplication: 'LabloLab01.LabloLab',
+  tizenWidget: 'https://lablo-iptv.invalid/lab',
+  title: 'Lablo Lab',
 } as const;
 
 /** S2's write test target (MB): its pass criterion, at least 200 MB writable (architecture.md §5). */
@@ -57,7 +57,7 @@ export function labManifest(platform: TvPlatform, text: string): string {
 
 /** `lab-config.js`: plain ES5, loaded before main.js. */
 export function labConfigScript(config: LabConfigFile): string {
-  return `window.ZOMA_LAB_CONFIG = ${JSON.stringify(config)};\n`;
+  return `window.LABLO_LAB_CONFIG = ${JSON.stringify(config)};\n`;
 }
 
 /** The lab's classic-script page: the app's, plus the native probe and lab-config.js before main.js. */

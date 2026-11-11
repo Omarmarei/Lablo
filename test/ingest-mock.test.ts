@@ -4,10 +4,10 @@
 // survive a renumbered refresh (every Xtream id shifted), and a refresh that breaks off keeps
 // the old generation (the hard-crash case is in packages/data/src/ingest.test.ts).
 
-import type { CatalogItem, ContentKind } from '@zoma/core';
-import { panelZone } from '@zoma/core';
-import type { FavouriteRef, IngestJob, IngestOptions, ProfileDoc } from '@zoma/data';
-import { IngestError, QueryService, emptyProfile, fetchTransport, getSource, loadProfile, openDatabase, runIngest, saveProfile } from '@zoma/data';
+import type { CatalogItem, ContentKind } from '@lablo/core';
+import { panelZone } from '@lablo/core';
+import type { FavouriteRef, IngestJob, IngestOptions, ProfileDoc } from '@lablo/data';
+import { IngestError, QueryService, emptyProfile, fetchTransport, getSource, loadProfile, openDatabase, runIngest, saveProfile } from '@lablo/data';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Catalog } from '../apps/mock-provider/src/config';
 import { loadCatalog } from '../apps/mock-provider/src/config';
@@ -129,7 +129,7 @@ describe('ingest against the mock provider: Xtream', () => {
     // The account's allowed_output_formats, for the player (step 20c2a).
     expect((await getSource(db, 'xt'))?.outputFormats).toEqual(['m3u8', 'ts']);
     const live = await allItems('xt', 'live');
-    expect(live.find((i) => i.key === 'x:xt:live:101')).toMatchObject({ name: 'Zoma Test 1 SMPTE', group: 'Test News', epgId: 'zoma.test1' });
+    expect(live.find((i) => i.key === 'x:xt:live:101')).toMatchObject({ name: 'Lablo Test 1 SMPTE', group: 'Test News', epgId: 'lablo.test1' });
     // The panel clock in the login answer isn't hashed: a second refresh is unchanged.
     expect((await ingest(xtream())).status).toBe('unchanged');
   });
@@ -192,7 +192,7 @@ describe('ingest against the mock provider: Xtream', () => {
     const q = new QueryService({ openDb: async () => db });
     expect(await q.reload()).toMatchObject({ stale: [] });
     expect(q.setFavourites(favs.map((f) => f.key))).toBe(4);
-    const hits = await q.search({ query: 'zoma test 1 smpte' });
+    const hits = await q.search({ query: 'lablo test 1 smpte' });
     expect(hits.hits.map((h) => h.favourite)).toEqual([true, false]);
     expect((await q.items(hits.hits)).map((i) => i?.key)).toEqual(['x:xt:live:1101', 'x:xt:live:1112']);
 

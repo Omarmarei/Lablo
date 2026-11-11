@@ -1,8 +1,8 @@
-import type { EpgProgramme } from '@zoma/core';
-import type { EpgNowNext } from '@zoma/data';
-import type { PictureMode, PlaybackFailure } from '@zoma/player';
-import type { FocusBinding, ItemState, Screen } from '@zoma/ui';
-import { Badge, Button, ProgressBar, Spinner, useFocus, useZone } from '@zoma/ui';
+import type { EpgProgramme } from '@lablo/core';
+import type { EpgNowNext } from '@lablo/data';
+import type { PictureMode, PlaybackFailure } from '@lablo/player';
+import type { FocusBinding, ItemState, Screen } from '@lablo/ui';
+import { Badge, Button, ProgressBar, Spinner, useFocus, useZone } from '@lablo/ui';
 import type { AppI18n, MessageKey } from '../i18n';
 import type { Live, LiveRow } from '../live/live-state';
 import type { ArchiveProgramme } from './catchup';

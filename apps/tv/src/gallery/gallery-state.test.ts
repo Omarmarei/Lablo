@@ -1,5 +1,5 @@
-import type { RootBackPolicy } from '@zoma/platform-api';
-import { LAYOUT, listHeight } from '@zoma/ui';
+import type { RootBackPolicy } from '@lablo/platform-api';
+import { LAYOUT, listHeight } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
 import { DEMO_CATEGORIES, DEMO_CHANNELS, DEMO_TILES } from './gallery-data';
 import { appI18n } from '../i18n';

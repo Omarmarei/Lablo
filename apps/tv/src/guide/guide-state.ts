@@ -1,9 +1,9 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { ContentKey, DeviceTier } from '@zoma/core';
-import type { GuideRequest, GuideRow } from '@zoma/data';
-import type { EpgZone, Focus, GuideChannel, GuideSchedule, Navigator, Screen } from '@zoma/ui';
-import { SCREEN, guideCellAt, guideFits, guideZone } from '@zoma/ui';
+import type { ContentKey, DeviceTier } from '@lablo/core';
+import type { GuideRequest, GuideRow } from '@lablo/data';
+import type { EpgZone, Focus, GuideChannel, GuideSchedule, Navigator, Screen } from '@lablo/ui';
+import { SCREEN, guideCellAt, guideFits, guideZone } from '@lablo/ui';
 import type { Timers } from '../live/live-state';
 import type { ArchiveProgramme } from '../player/catchup';
 import { archiveDays, archiveDaysLeft, archiveFrom, inArchive } from '../player/catchup';

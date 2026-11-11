@@ -26,7 +26,7 @@ describe('bundle budgets', () => {
   });
 
   it('counts UTF-8 bytes, not characters', () => {
-    expect(checkBudget('main.js', 'main', 'زوما').bytes).toBe(8);
+    expect(checkBudget('main.js', 'main', 'لابلو').bytes).toBe(10);
   });
 
   it('leaves the inlined workers out of the main figure, and only them', () => {

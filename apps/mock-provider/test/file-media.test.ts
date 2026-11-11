@@ -33,7 +33,7 @@ const fileEntry = (path: string, ext: string, openMovie?: string) => ({
 });
 
 beforeAll(() => {
-  dir = mkdtempSync(join(tmpdir(), 'zoma-file-media-'));
+  dir = mkdtempSync(join(tmpdir(), 'lablo-file-media-'));
   writeLoop('ch101');
   writeLoop('generic');
   mkdirSync(join(dir, 'files'));
@@ -149,13 +149,13 @@ describe('FileMedia', () => {
     const app: MockServer = await mock({ media: media() });
     try {
       expect((await app.inject({ url: '/__mock/health' })).json()).toMatchObject({ media: 'files' });
-      const seg = await app.inject({ url: `/hls/zoma/zoma-test/101/${seqNow - 1}.ts` });
+      const seg = await app.inject({ url: `/hls/lablo/lablo-test/101/${seqNow - 1}.ts` });
       expect(seg.statusCode).toBe(200);
       expect(firstPcr(seg.rawPayload)).toBe(((seqNow - 1) * 6 * 90_000) % 2 ** 33);
-      const vod = await app.inject({ url: '/movie/zoma/zoma-test/205.mp4', headers: { range: 'bytes=0-4' } });
+      const vod = await app.inject({ url: '/movie/lablo/lablo-test/205.mp4', headers: { range: 'bytes=0-4' } });
       expect(vod.statusCode).toBe(206);
       expect(vod.body).toBe('MOVIE');
-      expect((await app.inject({ url: '/movie/zoma/zoma-test/205.mkv' })).statusCode).toBe(404);
+      expect((await app.inject({ url: '/movie/lablo/lablo-test/205.mkv' })).statusCode).toBe(404);
     } finally {
       await app.close();
     }
