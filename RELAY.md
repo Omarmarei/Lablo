@@ -1065,7 +1065,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - **Verify:** locally lint, typecheck, the full unit suite (4,251), both TV builds, the throttled spec, `movies.spec.ts` and `tv-bundle.spec.ts`, and `pnpm verify:engines` on all three engines (24 runs).
     - **Calibrated on CI** (PR #65's run): full tier median 20 ms, max 46 ms, opening up to 86 ms; low tier median 14 ms, max 28 ms; no long task. The 150 ms budget stays (about 3x the slowest).
     - **Merged:** PR #65 as merge commit `41ba4c3` (CI on `c14b180`: verify 9 m 28 s, engines 17 m 44 s with 108 runs as expected, media skipped by the path filter; green on the first run).
-- [ ] 26c. **The movie details and playing a movie.**
+- [x] 26c. **The movie details and playing a movie.**
   - **The details:** OK on a poster opens the movie's details: the poster, the title, year, length, rating, genre and plot. An Xtream movie's come from `get_vod_info`, read when the details open and kept 24 h (architecture.md §1.4); an M3U movie shows what its line has. A spinner while the read is out; the catalog's facts when it fails. Buttons: "Play" (first) and "Back".
   - **Playing:** "Play" opens the player on a `mode: 'vod'` request with the movie's URL (its `container_extension`). The info bar shows the movie; the seek bar (25d's) shows its position and length; LEFT/RIGHT and FF/RW seek inside the stream (`controller.seek`), PLAY/PAUSE and OK pause. CH± and number entry do nothing in a movie (or leave for live: decide). Back returns to the details. The end shows "The movie has ended" with "Back".
   - **Done when:**
@@ -1082,7 +1082,36 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - **Tests:** 4,326 unit tests (+75). e2e `movie-details.spec.ts` (en-US, ar-SA) and `player-media.spec.ts` +1 (`e2e:media`: Big Buck Bunny seeks 30 s inside the MP4 with the frames moving, then FF to the end card). Screenshots `movie-details-{en-US,ar-SA}`, `movie-player-{en-US,ar-SA}`, `player-movie-en`, `player-movie-ended-en` looked at.
     - **Mutation:** `artifacts/mutate26c.py` 86 written first (six test gaps closed while writing it); 82 caught (`mutate26c.log`): two redundant guards out, two test gaps closed, one ordering bug fixed; re-run 6/6 (`mutate26c-b.log`); `artifacts/mutate26c-e2e.py` 10/10.
     - **Size:** main 365.3 → 374.2 KB (Tizen), 352.7 → 361.4 KB (webOS); app.css 78.9 → 82.1 KB; query worker 109.1 KB; 219 core-js modules on both.
-    - **Local tooling:** Windows Smart App Control started blocking rollup's native module on 2026-11-11; the leg ran every vitest/vite/build through a `NODE_OPTIONS` resolve hook to rollup's WebAssembly build (`.cache/rollup-wasm`, not in git). CI is unaffected.
+    - **Local tooling:** Windows Smart App Control started blocking rollup's native module on 2026-11-11; the leg ran every vitest/vite/build through a `NODE_OPTIONS` resolve hook to rollup's WebAssembly build (`.cache/rollup-wasm`, not in git). CI is unaffected. Omar keeps Smart App Control on (2026-11-11): the legs keep the hook.
+    - **Merged:** PR #66 as merge commit `91a9f53`, on Omar's word with the engines job red. The first CI run was refused by GitHub billing (Omar fixed it). On the re-run (`0b3ffa4`): verify and media were green, the real-film test included. Engines failed only at the walk's guide step: "three programmes on" expected the cursor at 01:00 and saw 00:30, on all three engines, at about 23:15 in the walk's zone. That bug is step 26q's.
+- [ ] 26q. **Fix the old-engine walk's guide step near midnight** (found on PR #66's CI run, 2026-11-11 21:14 UTC; the walk's zone was then about 23:15).
+  - **What failed:** on Chromium 53, 56 and 68, both bundles, both languages, the step "ArrowRight three programmes on" (ArrowLeft in Arabic) expected "the cursor at 01:00" and saw "the cursor at 00:30", with the view from 23:00. The guide code didn't change in that PR. It passed on PR #65's run at another hour, so the guide's fixture data or the step's expectation breaks at the day boundary. The movies steps after it didn't run.
+  - **Find out** whether it is the fixture (no programmes past midnight?), the expectation, or the app (a real bug in the guide at midnight: then fix the app and add a unit test). Prefer pinning the walk's clock so its run doesn't depend on the hour. Reproduce it locally with a faked time (`pnpm verify:engines --engine chrome53`).
+  - **Done when:** the cause is named in architecture.md §4. The walk is green at a time just before midnight in its zone, proven locally (a pinned or faked clock), and on CI (the engines job green). The PR is merged.
+- [ ] 26r. **Rename the product "Zoma" to "Lablo" everywhere** (Omar, 2026-11-11, in leg 66's tab; the repo is already `Omarmarei/Lablo`, its About box says "Lablo" and its README only "# Lablo").
+  - **Decided by Omar:**
+    - **The app IDs too:** `com.zoma.iptv` → `com.lablo.iptv`, the Samsung `ZomaIPTV01.Zoma`, the lab `com.zoma.iptv.lab` and `ZomaLab001.ZomaLab`. Nothing is in a store yet. The lab on the LG TV becomes a new app (the old one stays until removed).
+    - **Every occurrence, history included:**
+      - the code;
+      - the docs (PLAN.md, architecture.md, ADRs, research, runbooks);
+      - CLAUDE.md (Omar's word, given in his tab);
+      - RELAY.md with its past progress-log rows, and HANDOVER.md.
+    - **Not git history:** commit messages stay as written (a rewrite would need a force push).
+    - **Before 26d**, as its own PR.
+  - **The scope** (about 2,000 occurrences in 399 files on 2026-11-11):
+    - the workspace packages `@zoma/*` → `@lablo/*` (package.json names, imports, tsconfig paths, the build's aliases), then a `pnpm install`;
+    - the stored-data database name (dev browsers start fresh);
+    - `window.__ZOMA_TEST__`, `__ZOMA_PLAYBACK__`, `__ZOMA_LAB__`, and the `ZOMA_*` environment variables (CI workflows too);
+    - the mock's test data (`zoma`/`zoma-test` logins, "Zoma Test …" channels, `zoma.*` guide ids, `zoma-mock`);
+    - the font family "Zoma Sans" and its `zoma-*.woff2` file names;
+    - the user-facing text in both catalogs;
+    - the old-engine harness's expectations, and the screenshots' names.
+  - **Done when:**
+    - `git grep -i zoma` finds nothing (only a deliberate list of exceptions, if any, written in this step);
+    - `pnpm verify` and `e2e:media` are green, with 219 core-js modules on both bundles;
+    - CI is green, including the engines job;
+    - the PR is merged;
+    - the handover tells Omar to remove the old `com.zoma.iptv.lab` from the TV when he's next there.
 - [ ] 26d. **Resume.**
   - **The progress:** the profile keeps each movie's position (latest 500, architecture.md §1.3): every 10 s while it plays, and when it stops, is left or the app hides. A movie within its last 2 minutes (or past 95 %) is watched and keeps no position.
   - **The screens:** the details offer "Resume from 12:34" first and "Play from the start"; a tile shows its progress bar (`Tile.progress`).
@@ -1220,3 +1249,4 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 | 63 | 2026-11-05 | 25d | The catch-up player: a seek bar (time from the start, length, "Aired at"; left to right in every language) above the info bar's buttons; OK/PLAY_PAUSE pause; LEFT/RIGHT a minute, FF/RW five (5/10 held), one seek 600 ms after the last key, inside an HLS archive or by a new URL from the minute; forward past now goes live; play-on moves to the next programme, an ended stream shows "The programme has ended" with "Watch live" / "Back to the guide". Unit +20; e2e `guide-catchup-seek.spec.ts` (en, ar) and `e2e:media`'s in-stream seek and pause; mutation 66/76 then 10/10. Main 354.8 / 342.2 KB, 219 core-js modules. PR #63 merged as `e36c10e` (media green on a re-run after an ffmpeg-install hang). Steps 25d and 25 ticked | 95dbdfe, 1dd0600, 7d2fdfb, 1837b7b |
 | 64 | 2026-11-05 | 26 split, 26a | Step 26 (movies) checked and split into 26a-26e (the screen and grid; the grid at scale and on the old engines; the details and playing; resume; "Recently added"). 26a: "Movies" in the live header (Guide, Movies, Settings) opens a rail of the sources' VOD categories and a 6x3 grid of 2:3 poster tiles (`VirtualGrid`: flexbox rows, the rows in view only, mirrored in Arabic); chunks for the view and a row either side; posters once the view rests (150/300 ms), 6 or 2 at a time, the focused row first, a failed one shows the title; a catalog swap keeps the category, focus and view. Unit +84 (4,226); e2e `movies.spec.ts` (en, ar); mutation 79/89 then 10/10, e2e 6/6. Main 365.2 / 352.6 KB, 219 core-js modules. PR #64 merged as `ac34a69`. Step 26a ticked | ceec388, 8e92ab9, dea688e, 27d251d, e1c903a, 7d58413 |
 | 65 | 2026-11-05 | 26b | Poster grid at 4x CPU on 20k movies (both tiers; a key now holds queued posters) and the movies screen on Chromium 53/56/68 (en/ar, both bundles); mutation 59 (49, then 10/10) + e2e 4/4; PR #65 merged | 41ba4c3 |
+| 66 | 2026-11-11 | 26c | A movie's details (the panel's get_vod_info kept 24 h in the query worker; spinner, failure note, Play/Back) and a movie mode in the player (seek bar over media time and the engine's new durationMs, 10 s steps, end card, Back to the details; CH±, digits, PRE-CH do nothing); mutation 86 (82, then 6/6) + e2e 10/10; PR #66 merged on Omar's word with the engines job red at a midnight guide step (step 26q); README cut to "# Lablo", the About box "Lablo"; steps 26q and 26r (rename to Lablo) added | 91a9f53 |
