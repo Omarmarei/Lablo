@@ -457,6 +457,16 @@ export class PlayerController {
   }
 
   /**
+   * The length of the VOD or catch-up stream on show (RELAY step 26c: a movie's seek bar), in ms:
+   * the engine's while it shows a picture, else 0 (and always 0 live, or when the engine doesn't
+   * know it).
+   */
+  durationMs(): number {
+    const s = this.s;
+    return s === null || s.live || !this.showsPicture() ? 0 : this.engine.durationMs();
+  }
+
+  /**
    * Moves a VOD or catch-up stream on show to `ms` of its media time (RELAY step 25d), inside
    * the stream: the engine seeks, a later reopen starts there, and a paused stream stays paused.
    * `false` when nothing seekable shows (a live stream, or no picture yet), the engine refused,

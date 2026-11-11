@@ -48,6 +48,9 @@ class StubEngine implements PlayerEngine {
   positionMs(): number {
     return 0;
   }
+  durationMs(): number {
+    return 0;
+  }
   stats() {
     return NO_STATS;
   }

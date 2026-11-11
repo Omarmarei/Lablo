@@ -193,6 +193,8 @@ export interface PlayerEngine {
   selectText(id: string | null): Promise<boolean>;
   /** Media time in ms (live: time since the stream's start, for progress checks only). */
   positionMs(): number;
+  /** The media's length in ms (RELAY step 26c: a movie's seek bar); 0 while it isn't known, and for live streams. */
+  durationMs(): number;
   stats(): EngineStats;
   /** Tizen app hide/show (AVPlay suspend/restore). */
   suspend(): void;

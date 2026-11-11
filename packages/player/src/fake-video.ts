@@ -80,6 +80,8 @@ export function textTrackList(tracks: FakeTextTrack[]): TrackListLike<TextTrackL
 
 export class FakeVideo implements MediaElementLike {
   muted = false;
+  /** Seconds (NaN: no metadata yet). */
+  duration = NaN;
   videoWidth = 0;
   videoHeight = 0;
   error: { readonly code: number } | null = null;

@@ -1,0 +1,145 @@
+/*
+ * A movie's details (RELAY step 26c): the movies screen's frame (a 1728 px content box inside the
+ * title-safe margins, a 56 px header and a 24 px gap), then the poster (368 x 552 px, twice a
+ * grid tile) and, 48 px further, the text and the buttons. Physical properties for LTR:
+ * postcss-rtlcss mirrors them for Arabic, which puts the poster on the right. Flexbox only, no
+ * `gap` (Chromium 53 and 56).
+ */
+.movie {
+  display: flex;
+  flex-direction: column;
+  width: var(--screen-width);
+  height: var(--screen-height);
+  padding: var(--safe-y) var(--safe-x);
+  overflow: hidden;
+}
+
+.movie__header {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  height: 56px;
+  margin-bottom: var(--space-5);
+}
+
+.movie__heading {
+  flex: 1;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.movie__clock {
+  flex: none;
+  margin: 0 0 0 var(--space-7);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.movie__body {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  min-height: 0;
+}
+
+.movie__poster {
+  display: flex;
+  flex: none;
+  align-items: flex-end;
+  width: 368px;
+  height: 552px;
+  margin-right: var(--space-7);
+  overflow: hidden;
+  border-radius: var(--radius-m);
+  background: var(--color-surface-raised);
+}
+
+.movie__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.movie__poster-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  margin: var(--space-5);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.movie__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  /* The poster's height: the buttons sit at its foot. */
+  height: 552px;
+}
+
+.movie__title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-display);
+  line-height: var(--line-height-display);
+  font-weight: var(--font-weight-bold);
+}
+
+.movie__group,
+.movie__genre,
+.movie__facts,
+.movie__note,
+.movie__credit {
+  max-width: 100%;
+  margin: 0 0 var(--space-3);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+.movie__group,
+.movie__credit,
+.movie__note {
+  color: var(--color-text-muted);
+}
+
+.movie__facts {
+  font-weight: var(--font-weight-bold);
+}
+
+.movie__wait {
+  margin: var(--space-4) 0;
+}
+
+.movie__plot {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+  overflow: hidden;
+  margin: var(--space-4) 0 var(--space-4);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.movie__actions {
+  display: flex;
+  margin-top: auto;
+}
+
+.movie__actions > * {
+  margin-right: var(--space-5);
+}

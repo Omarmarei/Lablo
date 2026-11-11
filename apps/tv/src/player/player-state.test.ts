@@ -1,14 +1,31 @@
 import type { CatalogItem, ContentKey } from '@zoma/core';
 import type { EpgNowNext } from '@zoma/data';
 import type { Intent } from '@zoma/platform-api';
-import type { PictureMode, PlaybackFailure, PlayerState, PlayerStatus, PlayerTracks, PlayRequest, StreamStats, SubtitleView } from '@zoma/player';
+import type { PictureMode, PlaybackFailure, PlayerState, PlayerStatus, PlayerTracks, PlayOptions, PlayRequest, StreamStats, SubtitleView } from '@zoma/player';
 import { NO_STATS, NO_TRACKS } from '@zoma/player';
 import { createNavigator } from '@zoma/ui';
 import { describe, expect, it } from 'vitest';
 import type { LiveRow, Timers } from '../live/live-state';
 import type { ArchiveProgramme } from './catchup';
-import type { PlayerLike, PlayerOptions, ZapList } from './player-state';
-import { DIGITS_MS, INFO_MS, MISSING_MS, PICTURE_ACTION, PLAY_ON_MS, POSITION_MS, SEEK_DELAY_MS, STATS_ACTION, TRACKS_ACTION, ZAP_DELAY_MS, createPlayer, liveRequest } from './player-state';
+import { HELD_PRESSES, JUMP_STEP_MS, MOVIE_STEP_MS } from './catchup';
+import type { MoviePlay, PlayerLike, PlayerOptions, ZapList } from './player-state';
+import {
+  CHANNEL_ACTIONS,
+  DIGITS_MS,
+  HOLD_MS,
+  INFO_MS,
+  MISSING_MS,
+  MOVIE_ACTIONS,
+  PICTURE_ACTION,
+  PLAY_ON_MS,
+  POSITION_MS,
+  SEEK_DELAY_MS,
+  STATS_ACTION,
+  TRACKS_ACTION,
+  ZAP_DELAY_MS,
+  createPlayer,
+  liveRequest,
+} from './player-state';
 import { STATS_MS } from './stream-info';
 import type { SubtitleSize } from './track-menu';
 import { DEFAULT_SUBTITLE_SIZE, DELAY_STEP_MS, MAX_DELAY_MS, MENU_ROWS } from './track-menu';
@@ -130,6 +147,14 @@ class FakeController implements PlayerLike {
   readonly seeks: number[] = [];
   seekOk = true;
   readonly pauses: string[] = [];
+  /** The length a VOD shows (step 26c), and each play's options. */
+  duration = 0;
+  readonly options: PlayOptions[] = [];
+
+  durationMs(): number {
+    const state = this.status.state;
+    return state === 'playing' || state === 'paused' || state === 'buffering' ? this.duration : 0;
+  }
 
   pause(): void {
     this.pauses.push('pause');
@@ -194,8 +219,9 @@ class FakeController implements PlayerLike {
     return this.listeners.length;
   }
 
-  play(req: PlayRequest): Promise<void> {
+  play(req: PlayRequest, opts: PlayOptions = {}): Promise<void> {
     this.plays.push(req);
+    this.options.push(opts);
     this.subtitleDelay = this.delayFor[req.key] ?? 0;
     this.set('opening', null, req.key);
     return Promise.resolve();
@@ -1946,5 +1972,252 @@ describe("the player: catch-up's position, pause, seeking and end (RELAY step 25
     t.list.loads[0]!.resolve();
     await flush();
     expect(starts(t)).toEqual([START, 'live', START, 'live', START, START, 'live']);
+  });
+});
+
+describe('the player: a movie (RELAY step 26c)', () => {
+  const MIN = 60_000;
+  const film: CatalogItem = { ...row(0).item, key: 'x:s1:movie:201', kind: 'movie', name: 'Sintel', url: 'http://panel.test/movie/u/p/201.mkv' };
+  const request: PlayRequest = { key: film.key, src: 's1', mode: 'vod', candidates: [{ url: film.url, container: 'mkv' }] };
+  /** Opens the movie from its details (`closed` counts the returns to them). */
+  const watch = (lengthMs: number | null = 90 * MIN, dir: 'ltr' | 'rtl' = 'ltr') => {
+    const t = setup(dir);
+    const back: string[] = [];
+    const play: MoviePlay = { item: film, request, lengthMs, closed: () => back.push('details') };
+    t.player.playMovie(play);
+    return { ...t, back, play };
+  };
+  /** Its picture at `media` ms. */
+  const showing = (t: ReturnType<typeof watch>, media = 600_000): void => {
+    t.controller.media = media;
+    t.controller.set('playing');
+  };
+
+  it('opens on the seek bar and plays the request from the start; its buttons have no "Previous channel"', () => {
+    const t = watch();
+    expect(t.at()).toBe('player · seek 0');
+    expect(t.nav.snapshot().depth).toBe(2);
+    expect(t.chrome).toEqual([true]);
+    expect(t.controller.plays).toEqual([request]);
+    expect(t.controller.options).toEqual([{}]);
+    expect(t.player.movie.value).toEqual({ item: film, lengthMs: 90 * MIN });
+    expect(t.player.actions.value).toEqual(MOVIE_ACTIONS);
+    expect(t.player.screen.value!.zone('actions')).toMatchObject({ count: 3 });
+    expect(t.player).toMatchObject({ plays: { value: 1 }, info: { value: true }, archive: { value: null } });
+    expect(t.player.position.value).toEqual({ time: 0, seeking: false, live: false });
+    // No channel: the live list isn't read, and the last channel isn't changed.
+    expect(t.list.asked).toEqual([]);
+    expect(t.tuned).toEqual([]);
+    // Open, a second movie or a channel opens nothing.
+    t.player.playMovie({ item: film, request, lengthMs: null, closed: () => undefined });
+    t.player.show(2);
+    expect(t.controller.plays).toHaveLength(1);
+  });
+
+  it("reads the position every second, and takes the engine's length once it knows one", () => {
+    const t = watch(null);
+    expect(t.player.movie.value!.lengthMs).toBeNull();
+    showing(t, 5000);
+    t.clock.advance(POSITION_MS);
+    expect(t.player.position.value).toEqual({ time: 5000, seeking: false, live: false });
+    expect(t.player.movie.value!.lengthMs).toBeNull();
+    t.controller.duration = 52 * MIN;
+    t.controller.media = 6000;
+    t.clock.advance(POSITION_MS);
+    expect(t.player.position.value!.time).toBe(6000);
+    expect(t.player.movie.value).toEqual({ item: film, lengthMs: 52 * MIN });
+    // The engine's length wins over the panel's.
+    const u = watch(90 * MIN);
+    u.controller.duration = 89 * MIN;
+    showing(u);
+    u.clock.advance(POSITION_MS);
+    expect(u.player.movie.value!.lengthMs).toBe(89 * MIN);
+  });
+
+  it('does nothing on CH±, the digits and PRE-CH; UP and DOWN move between the bar and the buttons', async () => {
+    const t = watch();
+    showing(t);
+    await t.press('CH_UP', 'CH_DOWN', 'PREV_CH', 'DIGIT_5', 'DIGIT_7');
+    t.clock.advance(DIGITS_MS + ZAP_DELAY_MS);
+    expect(t.controller.plays).toHaveLength(1);
+    expect(t.player.entry.value).toBeNull();
+    expect(t.player.target.value).toBe(0);
+    expect(t.list.finds).toEqual([]);
+    expect(t.at()).toBe('player · seek 0');
+    await t.press('DOWN');
+    expect(t.at()).toBe('player · actions 0');
+    await t.press('UP');
+    expect(t.at()).toBe('player · seek 0');
+    // With a card up the zapping keys still zap nothing.
+    t.controller.set('failed', NOT_FOUND);
+    await t.press('UP', 'DOWN', 'CH_UP');
+    t.clock.advance(ZAP_DELAY_MS);
+    expect(t.controller.plays).toHaveLength(1);
+  });
+
+  it('presses its buttons: "Audio and subtitles", "Stream info" and "Picture"', async () => {
+    const t = watch();
+    showing(t);
+    await t.press('DOWN', 'OK');
+    expect(t.player.menu.screen.value).not.toBeNull();
+    await t.press('BACK');
+    expect(t.player.menu.screen.value).toBeNull();
+    t.player.screen.value!.focus('actions', 1);
+    await t.press('OK');
+    expect(t.player.streamInfo.shown.value).toBe(true);
+    await t.press('RIGHT', 'OK');
+    expect(t.pictured).toEqual(['zoom']);
+    // A channel's buttons again after it: "Previous channel" first.
+    await t.press('BACK');
+    t.player.show(2);
+    expect(t.player.actions.value).toEqual(CHANNEL_ACTIONS);
+    expect(t.player.screen.value!.zone('actions')).toMatchObject({ count: 4 });
+    expect(t.player.movie.value).toBeNull();
+  });
+
+  it('pauses and plays on: OK on the seek bar or with the bar hidden, and PLAY/PAUSE', async () => {
+    const t = watch();
+    showing(t);
+    await t.press('OK');
+    expect(t.controller.status.state).toBe('paused');
+    await t.press('PLAY_PAUSE');
+    expect(t.controller.pauses).toEqual(['pause', 'resume']);
+    t.clock.advance(INFO_MS);
+    expect(t.player.info.value).toBe(false);
+    await t.press('OK');
+    expect(t.controller.pauses).toEqual(['pause', 'resume', 'pause']);
+    expect(t.player.info.value).toBe(true);
+  });
+
+  it('seeks inside the stream once the keys rest: LEFT/RIGHT ten seconds (a minute once held), FF/RW five minutes, in every language', async () => {
+    for (const dir of ['ltr', 'rtl'] as const) {
+      const t = watch(90 * MIN, dir);
+      showing(t, 600_000);
+      await t.press('RIGHT', 'RIGHT', 'RIGHT');
+      expect(t.player.position.value).toEqual({ time: 630_000, seeking: true, live: false });
+      t.clock.advance(SEEK_DELAY_MS - 1);
+      expect(t.controller.seeks).toEqual([]);
+      t.clock.advance(1);
+      await flush();
+      expect(t.controller.seeks).toEqual([630_000]);
+      expect(t.player.position.value).toEqual({ time: 630_000, seeking: false, live: false });
+      expect(t.controller.plays).toHaveLength(1);
+      // FF and RW: five minutes; LEFT back.
+      await t.press('FF', 'LEFT');
+      expect(t.player.position.value!.time).toBe(630_000 + JUMP_STEP_MS - MOVIE_STEP_MS);
+      t.clock.advance(SEEK_DELAY_MS);
+      await flush();
+      expect(t.controller.seeks).toEqual([630_000, 920_000]);
+      // A held RIGHT: after `HELD_PRESSES` presses, a minute each.
+      for (let i = 0; i < HELD_PRESSES + 2; i += 1) {
+        await t.press('RIGHT');
+        t.clock.advance(HOLD_MS);
+      }
+      expect(t.player.position.value!.time).toBe(920_000 + HELD_PRESSES * MOVIE_STEP_MS + 2 * MIN);
+    }
+  });
+
+  it("stops at the start, and forward at the last step before the end (anywhere while the length isn't known)", async () => {
+    const t = watch(20 * MIN);
+    showing(t, 5000);
+    await t.press('LEFT');
+    expect(t.player.position.value!.time).toBe(0);
+    await t.press('FF', 'FF', 'FF', 'FF', 'FF');
+    expect(t.player.position.value!.time).toBe(20 * MIN - MOVIE_STEP_MS);
+    // A film shorter than a step: its start.
+    const short = watch(5000);
+    showing(short, 1000);
+    await short.press('RIGHT');
+    expect(short.player.position.value!.time).toBe(0);
+    const unknown = watch(null);
+    showing(unknown, 5000);
+    await unknown.press('FF', 'FF');
+    expect(unknown.player.position.value!.time).toBe(5000 + 2 * JUMP_STEP_MS);
+  });
+
+  it('plays again from the target where the engine refuses the seek, and before the picture shows', async () => {
+    const t = watch();
+    showing(t, 600_000);
+    t.controller.seekOk = false;
+    await t.press('RIGHT');
+    t.clock.advance(SEEK_DELAY_MS);
+    await flush();
+    expect(t.controller.seeks).toEqual([610_000]);
+    expect(t.controller.plays).toEqual([request, request]);
+    expect(t.controller.options).toEqual([{}, { startMs: 610_000 }]);
+    expect(t.player.position.value).toEqual({ time: 610_000, seeking: false, live: false });
+    // Opening: no seek inside, a new play from the target.
+    await t.press('RW');
+    t.clock.advance(SEEK_DELAY_MS);
+    await flush();
+    expect(t.controller.seeks).toEqual([610_000]);
+    expect(t.controller.options[2]).toEqual({ startMs: 310_000 });
+    expect(t.player.plays.value).toBe(3);
+    // A refusal that answers after Back plays nothing.
+    showing(t, 310_000);
+    let answer: (ok: boolean) => void = () => undefined;
+    t.controller.seek = (ms) => {
+      t.controller.seeks.push(ms);
+      return new Promise((resolve) => (answer = resolve));
+    };
+    await t.press('RIGHT');
+    t.clock.advance(SEEK_DELAY_MS);
+    await t.press('BACK');
+    answer(false);
+    await flush();
+    expect(t.controller.plays).toHaveLength(3);
+  });
+
+  it('closes onto the details on Back, never onto the live list', async () => {
+    const t = watch();
+    showing(t);
+    await t.press('BACK');
+    expect(t.back).toEqual(['details']);
+    expect(t.closed).toEqual([]);
+    expect(t.chrome).toEqual([true, false]);
+    expect(t.controller.stops).toBe(1);
+    expect(t.player.open.value).toBe(false);
+    expect(t.player.movie.value).toBeNull();
+    expect(t.player.position.value).toBeNull();
+    expect(t.nav.snapshot().depth).toBe(1);
+    expect(t.clock.pending()).toBe(0);
+    // A channel after it closes onto the list again.
+    t.player.show(3);
+    await t.press('BACK');
+    expect(t.closed).toEqual([3]);
+    expect(t.back).toEqual(['details']);
+  });
+
+  it('shows "The movie has ended" with "Back" at its end, and the error card plays on from where it was', async () => {
+    const t = watch();
+    showing(t, 600_000);
+    t.clock.advance(POSITION_MS);
+    t.controller.set('ended');
+    expect(t.at()).toBe('player · card 0');
+    expect(t.player.screen.value!.zone('card')).toMatchObject({ count: 1 });
+    expect(t.player.info.value).toBe(true);
+    await t.press('OK');
+    expect(t.back).toEqual(['details']);
+
+    const u = watch();
+    showing(u, 600_000);
+    u.clock.advance(POSITION_MS);
+    u.controller.set('failed', NOT_FOUND);
+    expect(u.at()).toBe('player · card 0');
+    expect(u.player.screen.value!.zone('card')).toMatchObject({ count: 2 });
+    await u.press('OK');
+    expect(u.controller.options).toEqual([{}, { startMs: 600_000 }]);
+    expect(u.at()).toBe('player · seek 0');
+    u.controller.set('failed', NOT_FOUND);
+    await u.press('RIGHT', 'OK');
+    expect(u.back).toEqual(['details']);
+    expect(u.controller.plays).toHaveLength(2);
+  });
+
+  it("ignores a catalog refresh: a movie isn't in the list", () => {
+    const t = watch();
+    showing(t);
+    t.player.listChanging();
+    expect(t.list.locates).toEqual([]);
   });
 });

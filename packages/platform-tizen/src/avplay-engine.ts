@@ -284,6 +284,13 @@ export class AvplayEngine implements PlayerEngine {
     return this.lastPos;
   }
 
+  /** AVPlay's `getDuration` (ms) once a stream is prepared; 0 before, without one, or when it throws. */
+  durationMs(): number {
+    const api = this.api;
+    const ms = this.cur === null ? 0 : read(() => (api.getDuration === undefined ? 0 : api.getDuration()), 0);
+    return ms > 0 ? ms : 0;
+  }
+
   /**
    * From the first frame on: the playing video stream's size, codec and declared bitrate, and the
    * playing audio stream's codec and channels (step 20c2a). AVPlay counts no frames or bytes.

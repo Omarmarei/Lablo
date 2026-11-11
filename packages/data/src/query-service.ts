@@ -34,6 +34,8 @@
  *   user mapped to no guide (step 24d) gets none, with no request either.
  * - `account` re-checks a source's Xtream account for the player's error card (step 20a,
  *   `account-check.ts`).
+ * - `vodInfo` gives a movie's details from its Xtream panel's `get_vod_info` when they open (step
+ *   26c), kept 24 h per movie (`vod-info.ts`); `null` for a movie with no panel.
  * - `profile` and `editProfile` read and change the profile document for the app (step 13b):
  *   onboarding's answers and the sources the user added. An edit is a read-modify-write in one
  *   transaction, like the ingest worker's favourites update, so neither can lose the other's.
@@ -42,7 +44,7 @@
  * in `status().stale`, so the ingest can rebuild it.
  */
 
-import type { CatalogItem, ContentKey, ContentKind, EpgBucket, EpgMatchMethod, EpgOverride, EpgProgramme, EpgSchedule, FavouriteMarks, SearchResult } from '@zoma/core';
+import type { CatalogItem, ContentKey, ContentKind, EpgBucket, EpgMatchMethod, EpgOverride, EpgProgramme, EpgSchedule, FavouriteMarks, SearchResult, XtreamVodInfo } from '@zoma/core';
 import { CONTENT_KINDS, SearchSegment, combineEpgMatches, epgDay, epgNowNext, epgProgrammeAt, epgSchedule, favouriteMarks, normalizeName, searchSegments } from '@zoma/core';
 import type { CategoryInfo } from './chunker';
 import type { ChunkKey, SourceMeta } from './catalog-store';
@@ -60,6 +62,8 @@ import { ShortEpgCache, shortEpgNowNext, shortEpgTarget, textTransport } from '.
 import type { AccountCheck } from './account-check';
 import { checkAccount, sourceAccount } from './account-check';
 import type { SourceRecord } from './profile';
+import type { VodInfoRequest } from './vod-info';
+import { VodInfoCache, vodInfoTarget } from './vod-info';
 
 /** Where a search hit (or any item) is stored. */
 export interface ItemRef {
@@ -268,7 +272,7 @@ export interface QueryServiceOptions {
   chunkCache?: number;
   /** The clock now/next is read at when the caller gives no time (and short EPG ages by). */
   now?: () => number;
-  /** The network, for the short-EPG fallback (none: `shortEpg` never asks a panel). */
+  /** The network, for the short-EPG fallback, the account re-check and the movies' details (none: no panel is asked). */
   transport?: ByteTransport;
 }
 
@@ -306,10 +310,12 @@ export class QueryService {
   /** Each guide's declared channels, read when first asked after a reload. */
   private declaredLists = new Map<string, Promise<EpgDeclaredChannels>>();
   private readonly panelEpg: ShortEpgCache | null;
+  private readonly vodInfos: VodInfoCache | null;
 
   constructor(private readonly options: QueryServiceOptions) {
     this.cacheSize = Math.max(1, options.chunkCache ?? 16);
     this.panelEpg = options.transport ? new ShortEpgCache(options.transport, () => this.clock()) : null;
+    this.vodInfos = options.transport ? new VodInfoCache(textTransport(options.transport), () => this.clock()) : null;
   }
 
   private clock(): number {
@@ -334,6 +340,7 @@ export class QueryService {
       unmatched: (req: UnmatchedRequest): Promise<UnmatchedPage> => this.unmatched(req),
       shortEpg: (req: ShortEpgRequest): Promise<ShortEpgNowNext> => this.shortEpg(req),
       account: (arg: { src: string }): Promise<AccountCheck | null> => this.account(arg.src),
+      vodInfo: (req: VodInfoRequest): Promise<XtreamVodInfo | null> => this.vodInfo(req),
       profile: (): Promise<LoadedProfile | null> => this.profile(),
       editProfile: (edit: ProfileEdit): Promise<boolean> => this.editProfile(edit),
     };
@@ -710,14 +717,30 @@ export class QueryService {
   async account(src: string): Promise<AccountCheck | null> {
     const transport = this.options.transport;
     if (transport === undefined) return null;
+    const record = await this.sourceRecord(src);
+    const account = record === null ? null : sourceAccount(record);
+    return account === null ? null : checkAccount(account, textTransport(transport));
+  }
+
+  /**
+   * A movie's details (step 26c): its Xtream panel's `get_vod_info`, kept 24 h per movie; `null`
+   * when its source isn't stored or has no panel (a plain playlist), its URL is no Xtream movie
+   * URL, the panel doesn't know it, or the worker has no network. Rejects with the panel's other
+   * errors (`XtreamError`, `NetworkError`), which never hold the URL and aren't kept.
+   */
+  async vodInfo(req: VodInfoRequest): Promise<XtreamVodInfo | null> {
+    if (this.vodInfos === null) return null;
+    const record = await this.sourceRecord(req.src);
+    const target = record === null ? null : vodInfoTarget(req.url, sourceAccount(record));
+    return target === null ? null : this.vodInfos.info(req.key, target);
+  }
+
+  /** The profile's record of source `src` (`null`: no profile, or no such source). */
+  private async sourceRecord(src: string): Promise<SourceRecord | null> {
     const profile = await this.profile();
     const sources = profile === null ? null : (profile.doc as { sources?: unknown }).sources;
     const records: SourceRecord[] = Array.isArray(sources) ? (sources as SourceRecord[]) : [];
-    for (const record of records) {
-      if (record.id !== src) continue;
-      const account = sourceAccount(record);
-      return account === null ? null : checkAccount(account, textTransport(transport));
-    }
+    for (const record of records) if (record.id === src) return record;
     return null;
   }
 

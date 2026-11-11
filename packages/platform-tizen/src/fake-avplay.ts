@@ -219,6 +219,9 @@ export class FakeAvplay implements AvplayManager {
     return this.base + (this.movingSince === null ? 0 : this.clock.now() - this.movingSince);
   }
 
+  /** `getDuration` (ms), set by a test; none by default, as on an AVPlay without the method. */
+  getDuration?: () => number;
+
   getTotalTrackInfo(): readonly AvplayStreamInfo[] {
     if (!this.prepared) this.refuse('getTotalTrackInfo');
     return this.streams;

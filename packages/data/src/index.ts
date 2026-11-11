@@ -153,6 +153,9 @@ export { SHORT_EPG_LIMIT, SHORT_EPG_TTL_MS, ShortEpgCache, shortEpgNowNext, shor
 export type { AccountCheck } from './account-check';
 export { LOGIN_REFUSED, checkAccount, sourceAccount } from './account-check';
 
+export type { VodInfoRequest, VodInfoTarget } from './vod-info';
+export { VOD_INFO_TTL_MS, VodInfoCache, vodInfoTarget } from './vod-info';
+
 export type { EpgIngestOptions, EpgOutcome, EpgProgress, EpgRefreshJob, EpgRefreshResult, EpgResult, EpgSwap, EpgWanted } from './epg-ingest';
 export { EPG_INGEST_VERSION, EPG_WRITE_BATCH, readEpgWanted, runEpgIngest, runEpgRefresh } from './epg-ingest';
 

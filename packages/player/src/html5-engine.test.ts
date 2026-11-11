@@ -406,6 +406,17 @@ describe('Html5Engine: play, pause, seek, rect, stats, position', () => {
     expect(r.engine.positionMs()).toBe(12_500);
   });
 
+  it("gives the element's duration in ms (RELAY step 26c), and 0 before the metadata and for a live stream", () => {
+    const r = rig();
+    expect(r.engine.durationMs()).toBe(0);
+    r.video.duration = 5400.5;
+    expect(r.engine.durationMs()).toBe(5_400_500);
+    r.video.duration = Infinity;
+    expect(r.engine.durationMs()).toBe(0);
+    r.video.duration = 0;
+    expect(r.engine.durationMs()).toBe(0);
+  });
+
   it('places the picture in pixels, or fills the stage', () => {
     const r = rig();
     r.engine.setRect({ x: 1200.4, y: 80, width: 640, height: 360.6 });

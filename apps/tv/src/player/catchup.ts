@@ -43,11 +43,17 @@ export const SEEK_STEP_MS = 60_000;
 export const JUMP_STEP_MS = 300_000;
 /** A held key's presses after this many move further: LEFT/RIGHT five minutes, FF/RW ten. */
 export const HELD_PRESSES = 8;
+/** In a movie (step 26c), a press of LEFT or RIGHT moves this far (a minute once held); FF and RW move as in a catch-up. */
+export const MOVIE_STEP_MS = 10_000;
 
-/** How far press `run` (0: the first) of a run of LEFT/RIGHT presses (`step`) or FF/RW presses (`jump`) moves. */
-export function seekStep(kind: 'step' | 'jump', run: number): number {
-  if (run < HELD_PRESSES) return kind === 'step' ? SEEK_STEP_MS : JUMP_STEP_MS;
-  return kind === 'step' ? 5 * SEEK_STEP_MS : 2 * JUMP_STEP_MS;
+/**
+ * How far press `run` (0: the first) of a run of LEFT/RIGHT presses (`step`) or FF/RW presses
+ * (`jump`) moves; `movie`: LEFT/RIGHT's finer steps in a movie.
+ */
+export function seekStep(kind: 'step' | 'jump', run: number, movie = false): number {
+  const step = movie ? MOVIE_STEP_MS : SEEK_STEP_MS;
+  if (run < HELD_PRESSES) return kind === 'step' ? step : JUMP_STEP_MS;
+  return kind === 'step' ? (movie ? 6 : 5) * step : 2 * JUMP_STEP_MS;
 }
 
 /** Any programme's window: whether a URL can carry catch-up doesn't depend on the programme. */

@@ -94,6 +94,8 @@ export interface AudioTrackListLike extends TrackListLike<AudioTrackLike> {
 export interface MediaElementLike {
   src: string;
   currentTime: number;
+  /** Seconds: NaN before the metadata, Infinity for a live stream. */
+  readonly duration: number;
   muted: boolean;
   readonly videoWidth: number;
   readonly videoHeight: number;
@@ -335,6 +337,12 @@ export class Html5Engine implements PlayerEngine {
 
   positionMs(): number {
     return this.video.currentTime * 1000;
+  }
+
+  /** The element's `duration`: NaN before the metadata, Infinity for a live stream (both 0 here). */
+  durationMs(): number {
+    const seconds = this.video.duration;
+    return isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0;
   }
 
   /**
