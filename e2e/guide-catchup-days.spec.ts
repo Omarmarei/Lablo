@@ -153,6 +153,10 @@ test.describe('the catch-up days in the guide and the archive marks (RELAY step 
       g = await readGrid(page);
       const cell = focused(g);
       expect([cell.start, cell.end, cell.row]).toEqual([target, target + 60, 0]);
+      // The cursor is in that cell, at its start or half an hour in: a press over a day not read
+      // yet stops at a slot, and which days were read at each rest depends on the hour (step 26q).
+      const placed = g.time;
+      expect([target, target + 30]).toContain(placed);
       const mock = programmes(guideOf(channel)!, target * MINUTE, target * MINUTE + 1)[0]!;
       expect([mock.start, mock.title]).toEqual([target * MINUTE, cell.title]);
       // This far back, 101's programmes are all in its archive. (The mock's guide reaches back
@@ -204,7 +208,9 @@ test.describe('the catch-up days in the guide and the archive marks (RELAY step 
       expect(answers[asked]!.url).toMatch(new RegExp(`^/timeshift/${U}/${P}/60/\\d{4}-\\d{2}-\\d{2}:\\d{2}-\\d{2}/101\\.ts$`));
       await expect(page.getByTestId('player-archive')).toContainText(cell.title);
       await remote.go('BACK', 'guide/grid/0');
-      expect((await readGrid(page)).time).toBe(target);
+      // Back where it was: the same cursor, on the programme that played.
+      const after = await readGrid(page);
+      expect([after.time, focused(after).start]).toEqual([placed, target]);
 
       // On to the range's start: the cursor stops at local midnight seven days back.
       await backTo(sevenBack);

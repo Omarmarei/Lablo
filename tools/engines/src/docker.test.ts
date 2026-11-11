@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { IMAGE_FILES, imageTag } from './docker';
+import { ENGINE_HOUR, IMAGE_FILES, engineZone, imageTag, zoneOffset } from './docker';
 
 function context(dockerfile: string, script: string, server = 'echo 1\n'): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'zoma-docker-'));
@@ -34,5 +34,43 @@ describe('imageTag', () => {
     expect(copied.length).toBeGreaterThan(0);
     for (const name of copied) expect(IMAGE_FILES).toContain(name);
     for (const name of IMAGE_FILES) expect(existsSync(path.join(dir, name))).toBe(true);
+  });
+});
+
+describe('engineZone (RELAY step 26q)', () => {
+  /** The hour and minute at `ms` in `zone`, by Node's own ICU. */
+  const there = (ms: number, zone: string): string => new Intl.DateTimeFormat('en-GB', { timeZone: zone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(ms);
+
+  it('puts every moment of the day in the hour asked for, 21 by default', () => {
+    expect(ENGINE_HOUR).toBe(21);
+    const day = Date.UTC(2026, 10, 11);
+    for (let minute = 0; minute < 24 * 60; minute += 15) {
+      const ms = day + minute * 60_000;
+      const zone = engineZone(ms);
+      expect(there(ms, zone).slice(0, 2), `${minute} min after UTC midnight in ${zone}`).toBe('21');
+      expect(there(ms, zone).slice(3)).toBe(new Date(ms).toISOString().slice(14, 16));
+      for (const hour of [0, 7, 23]) expect(there(ms, engineZone(ms, hour)).slice(0, 2)).toBe(String(hour).padStart(2, '0'));
+    }
+  });
+
+  it('is a fixed offset of −11 to +12 hours, whose sign is POSIX’s', () => {
+    // 21:15 UTC (PR #66's run): UTC itself.
+    expect(engineZone(Date.UTC(2026, 10, 11, 21, 15))).toBe('Etc/UTC');
+    expect(engineZone(Date.UTC(2026, 10, 11, 20, 0))).toBe('Etc/GMT-1');
+    expect(engineZone(Date.UTC(2026, 10, 11, 19, 0))).toBe('Etc/GMT-2');
+    expect(engineZone(Date.UTC(2026, 10, 11, 9, 0))).toBe('Etc/GMT-12');
+    expect(engineZone(Date.UTC(2026, 10, 11, 8, 0))).toBe('Etc/GMT+11');
+    expect(engineZone(Date.UTC(2026, 10, 11, 22, 59))).toBe('Etc/GMT+1');
+    // No daylight saving time: the same zone in summer and in winter.
+    expect(engineZone(Date.UTC(2026, 6, 1, 19, 0))).toBe('Etc/GMT-2');
+    // getTimezoneOffset's sign: UTC minus local.
+    expect(zoneOffset('Etc/GMT-2')).toBe(-120);
+    expect(zoneOffset('Etc/GMT+11')).toBe(660);
+    expect(zoneOffset('Etc/UTC')).toBe(0);
+    expect(() => zoneOffset('Asia/Dubai')).toThrow(/not an Etc\/GMT zone/);
+  });
+
+  it('refuses an hour out of the day', () => {
+    for (const hour of [-1, 24, 1.5, Number.NaN]) expect(() => engineZone(0, hour)).toThrow(/must be 0 to 23/);
   });
 });

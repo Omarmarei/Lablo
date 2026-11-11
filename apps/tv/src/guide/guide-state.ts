@@ -31,9 +31,11 @@ import { createDetails } from './programme-details';
  *   row's catch-up days (`archiveDays`, kept per row until the rows change), so the grid marks
  *   the programmes gone by that the details offer from the start.
  * - **The data** is kept per channel-day (a local day of the range): the rows in view and a page
- *   either side are asked for the days the view crosses, once the view has rested
- *   `GUIDE_ASK_MS` (when the screen opens, on a 0 ms timer: the key press that opens it draws
- *   its first frame without waiting for the ask, or for an answer). One query-worker call per day. The channels'
+ *   either side are asked for the days the view and a view either side cross (`askedDays`: the
+ *   day past midnight is read before the cursor gets there, step 26q), the view's own days first,
+ *   once the view has rested `GUIDE_ASK_MS` (when the screen opens, on a 0 ms timer: the key
+ *   press that opens it draws its first frame without waiting for the ask, or for an answer).
+ *   One query-worker call per day. The channels'
  *   rows come from the live list (a chunk it hasn't read is read first). `GUIDE_KEEP`
  *   channel-days are kept, the least recently wanted dropped first; all of it goes when the
  *   screen closes. After a guide swapped in (`guidesChanged`), every day is asked again, and a
@@ -126,6 +128,23 @@ export function dayOf(bounds: readonly number[], minute: number): number {
   let day = 0;
   while (day < bounds.length - 2 && (bounds[day + 1] ?? Infinity) <= minute) day += 1;
   return day;
+}
+
+/**
+ * The days of `bounds` to ask for a view of `span` minutes from `view` (step 26q): the ones the
+ * view crosses, then the ones a view after it and a view before it reach, so a few keys along
+ * the time find the next day (or the one before) read when they cross midnight. Each once,
+ * clamped to the range; a window of three views crosses at most one midnight.
+ */
+export function askedDays(bounds: readonly number[], view: number, span: number): number[] {
+  const first = dayOf(bounds, view);
+  // (dayOf clamps a view that ends with the range.)
+  const last = dayOf(bounds, view + span - 1);
+  const days: number[] = [];
+  for (let day = first; day <= last; day += 1) days.push(day);
+  for (let day = last + 1; day <= dayOf(bounds, view + 2 * span - 1); day += 1) days.push(day);
+  for (let day = first - 1; day >= dayOf(bounds, view - span); day -= 1) days.push(day);
+  return days;
 }
 
 /**
@@ -396,7 +415,7 @@ export function createGuide(options: GuideOptions): Guide {
     }
   };
 
-  /** Asks the days the view crosses for the rows in view and a page either side, where missing or stale. */
+  /** Asks the days the view and a view either side cross (`askedDays`) for the rows in view and a page either side, where missing or stale. */
   function ask(): void {
     stopTimer();
     const shown = screen.value;
@@ -405,12 +424,11 @@ export function createGuide(options: GuideOptions): Guide {
     const count = zone.rows;
     const from = Math.max(0, pos.top - GUIDE_VISIBLE);
     const to = Math.min(count, pos.top + 2 * GUIDE_VISIBLE);
-    const first = dayOf(bounds, pos.view);
-    // (dayOf clamps a view that ends with the range.)
-    const last = dayOf(bounds, pos.view + zone.span - 1);
+    const days = askedDays(bounds, pos.view, zone.span);
     const wanted: string[] = [];
     const unread: number[] = [];
-    for (let day = first; day <= last; day += 1) {
+    for (let d = 0; d < days.length; d += 1) {
+      const day = days[d]!;
       const rows: number[] = [];
       const keys: ContentKey[] = [];
       for (let r = from; r < to; r += 1) {

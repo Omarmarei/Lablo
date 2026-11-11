@@ -394,7 +394,7 @@ Off-the-shelf libraries such as Norigin measure the DOM on every move. That figh
 - **The screen:** pushed on the live navigator (screen `guide`, one `epg` zone `grid`) and painted by `LiveApp` instead of the live screen, as the settings screens are; the player opens over it. A 110 px header: the title, the focused channel's number and name, the clock; under them the focused programme's title with its own start and end (not its cell's), in the page's direction. Then the grid (`GuideGrid`): 9 rows of two hours (1,728 px), the cursor at now, the view from the slot that holds it.
 - **The range:** from local midnight one day before today to the end of the day seven days after it (three on the low tier). `GUIDE_DAYS` follows `EPG_WINDOWS`: the least past days (catch-up's past days come with step 25) and all the future ones. The slots count from that midnight. `guideDays` builds the days with `new Date(y, m, d)`, so a change of daylight saving time keeps each boundary at midnight.
 - **The data, per channel-day** (one local day of the range for one row):
-  - The rows in view and a page either side (27 rows) are asked for the days the view crosses (one or two): one `DataEngine.guide` call per day, once the view has rested 200 ms (`GUIDE_ASK_MS`), and when the screen opens on a 0 ms timer, so the press that opens it paints its first frame without waiting for the ask or an early answer (step 23d; a key pressed before the timer waits for the view to rest instead). A day already being asked is not asked again.
+  - The rows in view and a page either side (27 rows) are asked for the days the view crosses (one or two), and since step 26q for the day a view after it or a view before it reaches (`askedDays`: within two hours of midnight, the day past it, asked after the view's own), so keys along the time find that day read when they cross midnight (§4, "Built in step 26q"): one `DataEngine.guide` call per day, once the view has rested 200 ms (`GUIDE_ASK_MS`), and when the screen opens on a 0 ms timer, so the press that opens it paints its first frame without waiting for the ask or an early answer (step 23d; a key pressed before the timer waits for the view to rest instead). A day already being asked is not asked again.
   - A row's days merge into one schedule (`mergeDays`: a programme across midnight is in both days' answers and is kept once). It is cached until one of its days changes, so the zone's `cell` stays one binary search.
   - Rows whose chunk the live list hasn't read are read first (`list.load`), then asked.
   - 216 channel-days are kept (`GUIDE_KEEP`), the least recently wanted dropped first. Everything goes when the screen closes.
@@ -1571,6 +1571,40 @@ These are available: fetch with streams, TextDecoder, IntersectionObserver, IDB 
 - **Mutation:** `artifacts/mutate26b.py`, 59 mutants written before the run (the hold, the PNG maker, the fixture's posters, the grid's geometry, the tiles and posters, the focus, the rail and header, the walk's steps and evaluation); 49 caught, the ten survivors test gaps (each check pinned on its own now), all ten caught on the re-run (`mutate26b-b.log`). `artifacts/mutate26b-e2e.py` 4/4 on the throttled run (no hold, no rest, the low tier's rest as the full one's, a row more drawn).
 - **Not done:** a CSS seed for the grid (the self-test would walk to the movies screen in six more runs; the engines job is at 17 of its 25 minutes); the details, playing and resume on the old engines (26c, 26d).
 - **Size:** main's own code 365.2 → 365.3 KB (Tizen) and 352.6 → 352.7 KB (webOS); app.css unchanged; 219 core-js modules on both.
+
+**Built in step 26q: the walk's guide across midnight** (`apps/tv/src/guide/guide-state.ts`'s `askedDays`; `tools/engines/src/docker.ts`'s `engineZone`, `verify-engines.ts --hour`; runbook old-engines.md, "The engine's zone"):
+- **What failed:** PR #66's engines job (2026-11-11, 21:15 UTC; the containers ran in UTC). On Chromium 53, 56 and 68, both bundles and both languages, "three programmes on" expected the cursor at 01:00 and saw 00:30 (the view from 23:00). The walk had passed on PR #65's run at another hour, and the guide's code hadn't changed.
+- **The cause was the app.** The guide asked only the days its two-hour view crosses. At 21:15 the view (21:00–23:00) stayed inside the day, so the next day wasn't read when the walk's three keys crossed midnight. The keys come without a rest between them, as a viewer's quick presses do.
+  - The cursor stopped at 00:00, the end of the last programme read.
+  - The next key stepped over the unread day's first 30-minute "No information" placeholder, to 00:30.
+  - Once the view rested, the day was read and the cursor sat inside the 00:00 programme: one programme short.
+  - On a TV the same happens near midnight: "No information" past it for a moment, and the cursor mid-programme. Just after midnight, the same going back into the day before.
+  - With the walk's keys (now, one programme on, a page, three on, six back), it failed when the guide opened between 21:00 and 22:29 or between 00:00 and 01:59 in the engine's zone, and passed at other hours.
+- **The fix (`askedDays`):** the rows' asks cover the days the view crosses, then the days a view after it and a view before it reach, the view's own days first.
+  - Within two hours of midnight, the day past it is read at the same rest.
+  - Six hours cross at most one midnight, so an ask still adds at most 54 channel-days (`GUIDE_KEEP` unchanged).
+- **The walk's clock:** each engine's container now starts in a fixed-offset zone where it is 21:xx (`engineZone`: `TZ=Etc/GMT∓N`; `--hour` picks another hour).
+  - Every run opens the guide on a view short of midnight, and its three programmes on cross it.
+  - The harness reads the page's `getTimezoneOffset()` before the first screen, stops if the zone didn't take, and logs the engine's local time.
+  - Pinning the zone, not the clock, keeps the fixture's UTC guide and the page's real clock as they were: no `Date` override in the page or its workers. Old Chromium has no CDP zone override; its V8 and ICU both read `TZ`, and the image has tzdata.
+- **Proof (local, Chromium 53):**
+  - The old build, pinned to 21:48, failed as CI did, in both languages: `the cursor at 01:00; saw … view from 00:00, the cursor at 00:30`.
+  - The fixed build, pinned to 21:50, passed all 8 runs.
+  - Its `guide-later` screenshots show the view on the next day from 12:00 AM, and the cursor on `fixture.137 1h` (1:00–2:00 AM) under a 9:51 PM clock.
+  - The walk's time is the same as before (40 s a bundle).
+- **Tests:**
+  - `guide-state.test.ts` +3:
+    - `askedDays` two hours from midnight, within two hours of it, across it, just past it, and at the range's ends;
+    - at 21:15, four quick RIGHTs over 70-minute programmes land on the next day's programme starts with no further ask;
+    - at 00:40, two quick LEFTs land on the day before's.
+  - `guide-state.test.ts`, one test changed: a view that ends at midnight now asks the next day too.
+  - `docker.test.ts` +3: `engineZone` puts every quarter hour of a day in the hour asked for (checked with Node's ICU); the zones and their offsets; a bad hour refused.
+  - e2e `guide-catchup-days.spec.ts`, found in this leg's full run at 23:5x local:
+    - After the player's Back, it expected the cursor at the start of the programme six days back, and saw it half an hour in.
+    - The walk back stops where its presses end. Over days not read yet they move by 30-minute slots, so the cursor can stop half an hour into the programme. Which days were read at each rest depends on the hour, and now on the day a view either side reaches.
+    - The spec now accepts the programme's start or half an hour in, and checks that Back returns to that same cursor.
+- **Mutation:** five hand mutants of `askedDays` (no look-ahead, no day after, no day before, a window one view short, the day before asked before the day after). Four caught. The fifth is equivalent: a window of three views crosses at most one midnight, so the day after and the day before never both apply.
+- **Size:** main 374.2 → 374.3 KB (Tizen), 361.4 → 361.6 KB (webOS); 219 core-js modules on both.
 
 **Built in step 14c: the live screen on the old engines** (`tools/engines/src/live.ts`, the walk in `onboarding.ts`; runbook old-engines.md item 6):
 - **Where:** the onboarding walk goes on from the relaunched live screen, so the live screen runs in Chromium 53, 56 and 68, in both bundles, in English and in Arabic, on the fixture's 2,400 channels in 14 categories, through the real data workers. A separate screen would have needed a second onboarding per run for the stored source.

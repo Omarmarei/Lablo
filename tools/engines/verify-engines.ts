@@ -4,7 +4,8 @@
  * See docs/runbooks/old-engines.md.
  *
  * Per engine: the pinned snapshot is downloaded once into .cache/engines (SHA-256 checked),
- * started headed under Xvfb in Docker, and driven over raw CDP. Per app: boot with no syntax or
+ * started headed under Xvfb in Docker, in a zone where it is 21:xx (`--hour`, step 26q), and
+ * driven over raw CDP. Per app: boot with no syntax or
  * runtime error, the Blob worker and an IndexedDB write/read in it, the data workers (refresh a
  * fixture playlist served in the container, then search it), and remote keys → intents. Then
  * the component gallery (`?screen=gallery`): the layout at 1920x1080, the rows, the focus, the
@@ -27,6 +28,8 @@
  *   --dist-lab <dir>                      the lab builds (default dist/tv-lab)
  *   --self-test                           also run seeded broken bundles that must fail
  *   --keep                                leave the containers running (for debugging)
+ *   --hour <0-23>                         the hour of the day each engine starts in, in its own
+ *                                         zone (default 21: the guide steps cross midnight)
  * Environment: ZOMA_ENGINE_CACHE overrides the download cache directory.
  */
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -34,7 +37,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import type { CdpClient } from './src/cdp';
 import { connectToPage, waitForDevtools } from './src/cdp';
-import { assertDockerRunning, engineLogs, ensureImage, startEngine, stopEngine } from './src/docker';
+import { ENGINE_HOUR, assertDockerRunning, engineLogs, engineZone, ensureImage, startEngine, stopEngine, zoneOffset } from './src/docker';
 import type { Engine } from './src/engines';
 import { TV_RUNTIME_FLAGS, TV_SCREEN_FLAGS, selectEngines } from './src/engines';
 import { ensureEngineZip } from './src/fetch';
@@ -47,7 +50,7 @@ import { LAB_DIR, LAB_SEED, evaluateLab, labSummary, labUrl, runLab, stageLab, s
 import type { OnboardingRun, WalkCheck, WalkLanguage } from './src/onboarding';
 import { evaluateOnboarding, onboardingUrl, runOnboarding, stageBlankPage, stepTime } from './src/onboarding';
 import type { PlatformRun, TvPlatform } from './src/scenario';
-import { TV_PLATFORMS, evaluateRun, runPlatform } from './src/scenario';
+import { TV_PLATFORMS, evaluateRun, readProbe, runPlatform } from './src/scenario';
 import type { AppScreen, Variant } from './src/variants';
 import { APP_VARIANT, CSS_SEEDS, SEEDS, WALK_SEEDS, mustPass, stageApp, stageCssSeed, stageNoPolyfills, stageSeed } from './src/variants';
 
@@ -299,22 +302,31 @@ async function runEngine(
   checks: Record<TvPlatform, WalkData>,
   labs: { readonly server: LabServer; readonly targets: readonly LabTarget[] },
   keep: boolean,
+  hour: number,
 ): Promise<RunReport[]> {
+  // The engine's zone puts it in `hour` now (step 26q): from 21:xx the walk's guide crosses midnight.
+  const zone = engineZone(Date.now(), hour);
   const running = startEngine({
     image,
     zip,
     appDir: VARIANTS_DIR,
     name: `zoma-${engine.id}-${process.pid}-${Date.now()}`,
     chromeFlags: [...TV_RUNTIME_FLAGS, ...TV_SCREEN_FLAGS],
+    zone,
   });
   const reports: RunReport[] = [];
   try {
     const version = await waitForDevtools(running.port, 60_000);
-    log(`\n${engine.id}: ${version.Browser}, standing in for ${engine.tvs}`);
     const client = await connectToPage(running.port);
     try {
       await client.send('Page.enable');
       await client.send('Runtime.enable');
+      // The page's own clock in that zone, or the run would not cross midnight where it means to.
+      const local = await readProbe<[number, string]>(client, 'JSON.stringify([new Date().getTimezoneOffset(), new Date().toString()])');
+      if (local === null || local[0] !== zoneOffset(zone)) {
+        throw new Error(`${engine.id} is not in ${zone} (offset ${zoneOffset(zone)} min): its page says ${local === null ? 'nothing' : `${local[0]} min, ${local[1]}`}`);
+      }
+      log(`\n${engine.id}: ${version.Browser}, standing in for ${engine.tvs}; in ${zone}, where it is ${local[1]}`);
       // Chromium 53 reports uncaught errors only through the (later deprecated) Console domain.
       await client.send('Console.enable').catch(() => undefined);
       for (const variant of variants) {
@@ -370,8 +382,12 @@ async function main(): Promise<void> {
       'dist-lab': { type: 'string', default: 'dist/tv-lab' },
       'self-test': { type: 'boolean', default: false },
       keep: { type: 'boolean', default: false },
+      hour: { type: 'string', default: String(ENGINE_HOUR) },
     },
   });
+  const hour = Number(values.hour);
+  // (Checked before anything is staged or started.)
+  engineZone(Date.now(), hour);
   const engines = selectEngines(values.engine ?? []);
   const selfTest = values['self-test'];
   const distTv = path.resolve(ROOT, values.dist);
@@ -417,7 +433,7 @@ async function main(): Promise<void> {
   try {
     for (const engine of engines) {
       const zip = await ensureEngineZip(engine, cacheDir, log);
-      reports.push(...(await runEngine(engine, zip, image, variants, checks, { server, targets: labTargets }, values.keep)));
+      reports.push(...(await runEngine(engine, zip, image, variants, checks, { server, targets: labTargets }, values.keep, hour)));
     }
   } finally {
     server.stop();

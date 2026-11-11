@@ -57,6 +57,37 @@ export function ensureImage(dockerDir: string, log: (line: string) => void): str
   return tag;
 }
 
+/**
+ * The hour of the day each engine starts in, in its own zone (RELAY step 26q): 21:00 to 21:59.
+ * The guide then opens on a view that ends before midnight, and the walk's three programmes on
+ * (from the one after now) cross it, on every run, whatever the time of day. The walk once passed
+ * or failed by the hour CI happened to run at (a guide that read only the days in view failed
+ * from 21:00 to 22:29 and from 00:00 to 01:59).
+ */
+export const ENGINE_HOUR = 21;
+
+/**
+ * The engine's zone, where `nowMs` falls in hour `hour` (0–23): a fixed offset of −11 to +12
+ * hours, as `Etc/GMT∓N` (no daylight saving time; the sign is POSIX's, so `Etc/GMT-2` is two
+ * hours ahead of UTC). The container's `TZ`: old Chromium has no CDP zone override, and its V8
+ * (the C library's local time) and ICU both read `TZ` (the image has tzdata).
+ */
+export function engineZone(nowMs: number, hour: number = ENGINE_HOUR): string {
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error(`the engine's hour must be 0 to 23, not ${hour}`);
+  let offset = (hour - new Date(nowMs).getUTCHours() + 24) % 24;
+  if (offset > 12) offset -= 24;
+  if (offset === 0) return 'Etc/UTC';
+  return `Etc/GMT${offset > 0 ? '-' : '+'}${Math.abs(offset)}`;
+}
+
+/** The zone's offset from UTC in minutes, as `Date.prototype.getTimezoneOffset` gives it (UTC minus local). */
+export function zoneOffset(zone: string): number {
+  if (zone === 'Etc/UTC') return 0;
+  const m = /^Etc\/GMT([+-])(\d+)$/.exec(zone);
+  if (m === null) throw new Error(`not an Etc/GMT zone: ${zone}`);
+  return (m[1] === '+' ? 1 : -1) * Number(m[2]) * 60;
+}
+
 export interface RunningEngine {
   readonly container: string;
   /** Host port forwarded to the container's DevTools port. */
@@ -74,6 +105,8 @@ export function startEngine(options: {
   name: string;
   /** Extra Chromium switches, appended by run-chrome.sh. */
   chromeFlags?: readonly string[];
+  /** The engine's time zone (`engineZone`), as `TZ`; without it the container's UTC. */
+  zone?: string;
 }): RunningEngine {
   const container = dockerOk([
     'run',
@@ -92,6 +125,7 @@ export function startEngine(options: {
     `type=bind,source=${path.resolve(options.zip)},target=/engine.zip,readonly`,
     '--mount',
     `type=bind,source=${path.resolve(options.appDir)},target=/app,readonly`,
+    ...(options.zone === undefined ? [] : ['--env', `TZ=${options.zone}`]),
     options.image,
     ...(options.chromeFlags ?? []),
   ]);
