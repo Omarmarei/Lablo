@@ -1,4 +1,4 @@
-import type { Intent, KeyLike, RootBackPolicy, TextKey } from '@zoma/platform-api';
+import type { Intent, KeyLike, RootBackPolicy, TextKey } from '@lablo/platform-api';
 import { describe, expect, it, vi } from 'vitest';
 import { KEYS_SCREEN, TYPE_FIELD, TYPE_SCREEN, createLab, outcomeKey } from './lab-state';
 import type { Post } from './reporter';
@@ -409,7 +409,7 @@ describe("S10's keyboard test (RELAY step 15b3)", () => {
     expect(lab.textTest.value?.field.editing).toBe(true);
     clock.t += 1000;
     fieldKey(lab, 229, 'Process');
-    type(lab, 'زوما Zoma');
+    type(lab, 'لابلو Lablo');
     // The keyboard's Done (key 13 here) ends the edit; the field keeps the text.
     const done = fieldKey(lab, 13, 'Enter');
     expect(done.preventDefault).toHaveBeenCalled();
@@ -423,7 +423,7 @@ describe("S10's keyboard test (RELAY step 15b3)", () => {
           { keyCode: 13, key: 'Enter', intent: 'OK', ms: 1000 },
         ],
         inputs: 1,
-        text: 'زوما Zoma',
+        text: 'لابلو Lablo',
       },
     ]);
     // The edit's DOWN hit the edge: still on the field.
@@ -431,16 +431,16 @@ describe("S10's keyboard test (RELAY step 15b3)", () => {
     // A second edit, ended by the keyboard's Back: its own keys and changes.
     press(lab, target, 13);
     clock.t += 50;
-    type(lab, 'زوما Zoma!');
-    type(lab, 'زوما Zoma!!');
+    type(lab, 'لابلو Lablo!');
+    type(lab, 'لابلو Lablo!!');
     fieldKey(lab, 461, 'GoBack');
     expect(input.focus).toHaveBeenCalledTimes(2);
     press(lab, target, 404);
     await running;
-    expect(results[0]).toMatchObject({ answer: 'yes', text: 'زوما Zoma!!', keyboard: [] });
+    expect(results[0]).toMatchObject({ answer: 'yes', text: 'لابلو Lablo!!', keyboard: [] });
     expect(results[0]?.edits.map((e) => [e.how, e.keys.map((k) => k.keyCode), e.inputs, e.text])).toEqual([
-      ['done', [229, 13], 1, 'زوما Zoma'],
-      ['close', [461], 2, 'زوما Zoma!!'],
+      ['done', [229, 13], 1, 'لابلو Lablo'],
+      ['close', [461], 2, 'لابلو Lablo!!'],
     ]);
     expect(lab.textTest.value).toBeNull();
     expect(lab.nav.snapshot()).toMatchObject({ screen: 'lab', depth: 1 });

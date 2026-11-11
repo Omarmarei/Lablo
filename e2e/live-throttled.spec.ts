@@ -39,7 +39,7 @@ let host: string;
 let guideDir: string;
 
 test.beforeAll(async () => {
-  guideDir = mkdtempSync(path.join(tmpdir(), 'zoma-e2e-guide-'));
+  guideDir = mkdtempSync(path.join(tmpdir(), 'lablo-e2e-guide-'));
   const guide = path.join(guideDir, 'guide.xml');
   writeBigGuide(catalog, Date.now(), guide);
   app = await mock({ catalog, xmltvFile: guide, now: () => Date.now() });

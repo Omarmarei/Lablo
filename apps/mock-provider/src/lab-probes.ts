@@ -1,4 +1,4 @@
-// Probes for the Zoma Lab build (RELAY step 15a, docs/architecture.md §5). The lab asks these
+// Probes for the Lablo Lab build (RELAY step 15a, docs/architecture.md §5). The lab asks these
 // to answer the runtime spikes on a TV, with no test account in the lab's code:
 //
 //   GET /__lab/bytes?lines=N&chunk=B&delay=MS   N numbered UTF-8 lines (Latin, Arabic, a 3-byte
@@ -25,9 +25,9 @@ export const LAB_BYTES_MAX_LINES = 1_000_000;
 /** A prime, so chunk edges fall inside the multi-byte characters. */
 export const LAB_BYTES_DEFAULT_CHUNK = 1009;
 
-/** Line `n` of `/__lab/bytes`: `000042 Zoma زوما ✓ 😀\n` (21 characters, 22 UTF-16 units, 30 bytes in UTF-8). */
+/** Line `n` of `/__lab/bytes`: `000042 Lablo لابلو ✓ 😀\n` (23 characters, 24 UTF-16 units, 33 bytes in UTF-8). */
 export function labLine(n: number): string {
-  return `${String(n).padStart(6, '0')} Zoma زوما ✓ 😀\n`;
+  return `${String(n).padStart(6, '0')} Lablo لابلو ✓ 😀\n`;
 }
 
 function intParam(value: string | undefined, fallback: number, min: number, max: number): number | null {

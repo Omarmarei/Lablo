@@ -15,24 +15,24 @@ describe('the lab manifests (RELAY step 15a)', () => {
   it('give webOS the lab id and name and keep the rest of appinfo.json', () => {
     const app = fillTemplate(read('platforms/webos/appinfo.json'), '0.1.3');
     const lab = labManifest('webos', app);
-    expect(checkAppinfo(lab, '0.1.3')).toEqual({ id: 'com.zoma.iptv.lab', version: '0.1.3', requiredACG: ['deviceinfo.query', 'settings.query'] });
+    expect(checkAppinfo(lab, '0.1.3')).toEqual({ id: 'com.lablo.iptv.lab', version: '0.1.3', requiredACG: ['deviceinfo.query', 'settings.query'] });
     const parsed = JSON.parse(lab) as Record<string, unknown>;
-    expect(parsed.title).toBe('Zoma Lab');
+    expect(parsed.title).toBe('Lablo Lab');
     // LG's Audio Guidance reads an app only with this (spike S11).
     expect(parsed.accessibility).toEqual({ supportsAudioGuidance: true });
     const { accessibility: _added, ...rest } = parsed;
     // The lab's luna calls (S3, S11) and their ACG groups; the app's manifest declares none (ADR-012).
     expect((JSON.parse(app) as Record<string, unknown>).requiredACG).toEqual([]);
-    expect({ ...rest, id: 'com.zoma.iptv', title: 'Zoma', requiredACG: [] }).toEqual(JSON.parse(app));
+    expect({ ...rest, id: 'com.lablo.iptv', title: 'Lablo', requiredACG: [] }).toEqual(JSON.parse(app));
   });
 
   it('give Tizen the lab widget, package and application ids and name, nothing else', () => {
     const app = fillTemplate(read('platforms/tizen/config.xml'), '0.1.3');
     const lab = labManifest('tizen', app);
-    expect(checkConfigXml(lab, '0.1.3')).toEqual({ appId: 'ZomaLab001.ZomaLab' });
-    expect(lab).toContain('id="https://zoma-iptv.invalid/lab"');
-    expect(lab).toContain('package="ZomaLab001"');
-    expect(lab).toContain('<name>Zoma Lab</name>');
+    expect(checkConfigXml(lab, '0.1.3')).toEqual({ appId: 'LabloLab01.LabloLab' });
+    expect(lab).toContain('id="https://lablo-iptv.invalid/lab"');
+    expect(lab).toContain('package="LabloLab01"');
+    expect(lab).toContain('<name>Lablo Lab</name>');
     const appLines = app.split('\n');
     const changed = lab.split('\n').filter((line, i) => line !== appLines[i]);
     expect(changed).toHaveLength(3);
@@ -49,10 +49,10 @@ describe('the lab manifests (RELAY step 15a)', () => {
 describe('the lab page', () => {
   it('runs the boot-error handler, the native probe and lab-config.js before main.js', () => {
     const html = renderLabIndexHtml('webos', PROBE);
-    const order = ['window.onerror', '__ZOMA_LAB_NATIVE__', 'src="lab-config.js"', 'src="main.js"'].map((s) => html.indexOf(s));
+    const order = ['window.onerror', '__LABLO_LAB_NATIVE__', 'src="lab-config.js"', 'src="main.js"'].map((s) => html.indexOf(s));
     expect(order.every((at) => at !== -1)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
-    expect(html).toContain('<title>Zoma Lab</title>');
+    expect(html).toContain('<title>Lablo Lab</title>');
     expect(html).not.toContain('webapis.js');
     expect(renderLabIndexHtml('tizen', PROBE)).toContain('<script src="$WEBAPIS/webapis/webapis.js"></script>');
   });
@@ -65,7 +65,7 @@ describe('the lab page', () => {
   it('the native probe records what the engine has before any polyfill', () => {
     const window: Record<string, unknown> = {};
     runInNewContext(PROBE, { window, String, Object, Promise, Array });
-    expect(window.__ZOMA_LAB_NATIVE__).toEqual({
+    expect(window.__LABLO_LAB_NATIVE__).toEqual({
       'String.prototype.padStart': true,
       'Object.entries': true,
       'Object.values': true,
@@ -82,13 +82,13 @@ describe('the lab page', () => {
     const OldString = function () {} as unknown as StringConstructor;
     const OldArray = function () {} as unknown as ArrayConstructor;
     runInNewContext(PROBE, { window: old, String: OldString, Object: {}, Promise: undefined, Array: OldArray });
-    expect(Object.values(old.__ZOMA_LAB_NATIVE__ as Record<string, boolean>).every((v) => !v)).toBe(true);
+    expect(Object.values(old.__LABLO_LAB_NATIVE__ as Record<string, boolean>).every((v) => !v)).toBe(true);
   });
 
-  it('writes the config as window.ZOMA_LAB_CONFIG', () => {
+  it('writes the config as window.LABLO_LAB_CONFIG', () => {
     const window: Record<string, unknown> = {};
     runInNewContext(labConfigScript({ server: 'http://10.0.0.5:8080', version: '0.2.0', writeMb: 64, autoRun: false }), { window });
-    expect(window.ZOMA_LAB_CONFIG).toEqual({ server: 'http://10.0.0.5:8080', version: '0.2.0', writeMb: 64, autoRun: false });
+    expect(window.LABLO_LAB_CONFIG).toEqual({ server: 'http://10.0.0.5:8080', version: '0.2.0', writeMb: 64, autoRun: false });
   });
 });
 

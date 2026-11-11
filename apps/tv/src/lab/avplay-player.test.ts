@@ -1,4 +1,4 @@
-import type { AvplayError } from '@zoma/platform-tizen';
+import type { AvplayError } from '@lablo/platform-tizen';
 import { describe, expect, it } from 'vitest';
 import type { AvplayLabPlayer } from './avplay-player';
 import { AVPLAY_PAGE_CLASS, createAvplayPlayer, mountAvplayStage } from './avplay-player';
@@ -7,8 +7,8 @@ import type { AvplayPlan } from './fakes';
 import { FIVE_AUDIO, FakeAvplay, FakeClock, fakeAvplayStage } from './fakes';
 import type { LabPlayerEvent } from './player';
 
-const LIVE = 'http://lab:8080/live/zoma/zoma-test/104.ts';
-const VOD = 'http://lab:8080/movie/zoma/zoma-test/206.mkv';
+const LIVE = 'http://lab:8080/live/lablo/lablo-test/104.ts';
+const VOD = 'http://lab:8080/movie/lablo/lablo-test/206.mkv';
 
 function setup(script: (url: string, n: number) => AvplayPlan = () => ({ prepareAfterMs: 100 })) {
   const clock = new FakeClock();

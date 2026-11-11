@@ -1,5 +1,5 @@
 {
-  "name": "@zoma/app-tv",
+  "name": "@lablo/app-tv",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,15 +9,15 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@lablo/core": "workspace:*",
+    "@lablo/data": "workspace:*",
+    "@lablo/platform-api": "workspace:*",
+    "@lablo/platform-browser": "workspace:*",
+    "@lablo/platform-tizen": "workspace:*",
+    "@lablo/platform-webos": "workspace:*",
+    "@lablo/player": "workspace:*",
+    "@lablo/ui": "workspace:*",
     "@preact/signals": "^2.11.4",
-    "@zoma/core": "workspace:*",
-    "@zoma/data": "workspace:*",
-    "@zoma/platform-api": "workspace:*",
-    "@zoma/platform-browser": "workspace:*",
-    "@zoma/platform-tizen": "workspace:*",
-    "@zoma/platform-webos": "workspace:*",
-    "@zoma/player": "workspace:*",
-    "@zoma/ui": "workspace:*",
     "preact": "^10.29.8"
   },
   "devDependencies": {

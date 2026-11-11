@@ -1,9 +1,9 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { CatalogItem, ContentKind, DeviceTier } from '@zoma/core';
-import type { CategoryInfo, LoadedProfile, SourceRecord } from '@zoma/data';
-import type { Focus, Navigator, Screen, ZoneSpec } from '@zoma/ui';
-import { LAYOUT, fits } from '@zoma/ui';
+import type { CatalogItem, ContentKind, DeviceTier } from '@lablo/core';
+import type { CategoryInfo, LoadedProfile, SourceRecord } from '@lablo/data';
+import type { Focus, Navigator, Screen, ZoneSpec } from '@lablo/ui';
+import { LAYOUT, fits } from '@lablo/ui';
 import type { ChunkRef } from '../live/channel-index';
 import { ChannelIndex, chunkId } from '../live/channel-index';
 import type { RailEntry, RailRef, Timers } from '../live/live-state';

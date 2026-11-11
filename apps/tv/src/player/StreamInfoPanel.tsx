@@ -1,4 +1,4 @@
-import type { Container } from '@zoma/player';
+import type { Container } from '@lablo/player';
 import type { AppI18n, MessageKey } from '../i18n';
 import type { StreamInfo } from './stream-info';
 import { audioText, bitrateUnits, containerName, engineName, pictureSize } from './stream-info';

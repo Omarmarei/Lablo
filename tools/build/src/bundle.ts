@@ -92,10 +92,10 @@ export const UNUSED_POLYFILLS: readonly RegExp[] = [
   /^es\.symbol\.description$/, // ES2019, not in lib ES2017
 ];
 const WORKER_SUFFIX = '?worker';
-const WORKER_PREFIX = '\0zoma-worker:';
+const WORKER_PREFIX = '\0lablo-worker:';
 /** Stands in for worker `n`'s code until the bundle is minified (substituteWorkers). */
-const workerPlaceholder = (n: number): string => `__ZOMA_WORKER_${n}__`;
-const WORKER_PLACEHOLDERS = /(["'])__ZOMA_WORKER_(\d+)__\1/g;
+const workerPlaceholder = (n: number): string => `__LABLO_WORKER_${n}__`;
+const WORKER_PLACEHOLDERS = /(["'])__LABLO_WORKER_(\d+)__\1/g;
 
 /**
  * U+2028 and U+2029 end a line inside an ES2016 string literal (they became legal there
@@ -134,7 +134,7 @@ export function stringLiteral(text: string): string {
  */
 function resolveCoreJs(): Plugin {
   return {
-    name: 'zoma-core-js',
+    name: 'lablo-core-js',
     resolveId(source) {
       if (source === 'core-js' || source.startsWith('core-js/')) return require.resolve(source);
       return null;
@@ -154,7 +154,7 @@ function resolveCoreJs(): Plugin {
  */
 function inlineWorkers(options: BundleOptions, workers: BuiltWorker[], literals: string[]): Plugin {
   return {
-    name: 'zoma-inline-workers',
+    name: 'lablo-inline-workers',
     async resolveId(source, importer) {
       if (!source.endsWith(WORKER_SUFFIX)) return null;
       const target = source.slice(0, -WORKER_SUFFIX.length);
@@ -176,7 +176,7 @@ function inlineWorkers(options: BundleOptions, workers: BuiltWorker[], literals:
       literals.push(stringLiteral(built.code));
       return [
         `var source = ${JSON.stringify(workerPlaceholder(literals.length - 1))};`,
-        'export default function ZomaWorker() {',
+        'export default function LabloWorker() {',
         "  var url = URL.createObjectURL(new Blob([source], { type: 'application/javascript' }));",
         '  return new Worker(url);',
         '}',
@@ -192,7 +192,7 @@ function inlineWorkers(options: BundleOptions, workers: BuiltWorker[], literals:
  */
 function substituteWorkers(literals: readonly string[], inlined: { bytes: number }): Plugin {
   return {
-    name: 'zoma-worker-literals',
+    name: 'lablo-worker-literals',
     renderChunk(code) {
       const out = code.replace(WORKER_PLACEHOLDERS, (_match, _quote, n: string) => {
         const literal = literals[Number(n)];
@@ -213,7 +213,7 @@ function substituteWorkers(literals: readonly string[], inlined: { bytes: number
  */
 function collectCss(css: string[]): Plugin {
   return {
-    name: 'zoma-css',
+    name: 'lablo-css',
     load(id) {
       return id.endsWith('.css') ? { code: '', moduleSideEffects: false } : null;
     },

@@ -4,8 +4,8 @@
 // (Node's fetch). The e2e runs the same through the screens in Chromium; this pins what the
 // screens show: the mock's counts, the profile entry, the guide, and each failure's code.
 
-import type { RpcHandlers, RpcPort } from '@zoma/data';
-import { EpgService, IngestService, QueryService, fetchTransport, openDatabase, serveRpc } from '@zoma/data';
+import type { RpcHandlers, RpcPort } from '@lablo/data';
+import { EpgService, IngestService, QueryService, fetchTransport, openDatabase, serveRpc } from '@lablo/data';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { Catalog } from '../apps/mock-provider/src/config';
 import { loadCatalog } from '../apps/mock-provider/src/config';

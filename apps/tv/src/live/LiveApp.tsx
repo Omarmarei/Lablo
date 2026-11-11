@@ -1,9 +1,9 @@
 import { useSignal } from '@preact/signals';
 import { useEffect } from 'preact/hooks';
-import type { EpgNowNext } from '@zoma/data';
-import type { Platform } from '@zoma/platform-api';
-import type { ItemBinding, Language, ProgrammeLine } from '@zoma/ui';
-import { Badge, Button, Chip, Dialog, LAYOUT, ListRow, Spinner, VirtualList, connectRemote, resolveLocale, useFocus, useZone } from '@zoma/ui';
+import type { EpgNowNext } from '@lablo/data';
+import type { Platform } from '@lablo/platform-api';
+import type { ItemBinding, Language, ProgrammeLine } from '@lablo/ui';
+import { Badge, Button, Chip, Dialog, LAYOUT, ListRow, Spinner, VirtualList, connectRemote, resolveLocale, useFocus, useZone } from '@lablo/ui';
 import { GuideScreen } from '../guide/GuideScreen';
 import type { Guide } from '../guide/guide-state';
 import { GUIDE_SCREEN } from '../guide/guide-state';

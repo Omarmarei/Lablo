@@ -16,8 +16,8 @@
  * `pruneEpgDays` drops the past days a guide that can't be refreshed keeps showing.
  */
 
-import type { ContentKey, EpgBucket, EpgMatchMethod } from '@zoma/core';
-import { EPG_DAY_MINUTES, epgDay, mergeEpgBuckets, normalizeName } from '@zoma/core';
+import type { ContentKey, EpgBucket, EpgMatchMethod } from '@lablo/core';
+import { EPG_DAY_MINUTES, epgDay, mergeEpgBuckets, normalizeName } from '@lablo/core';
 import type { FetchStamp } from './catalog-store';
 import { GenerationError, otherGenerations } from './catalog-store';
 import { onSuccess, transact } from './idb';

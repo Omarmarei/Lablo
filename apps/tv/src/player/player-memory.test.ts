@@ -1,5 +1,5 @@
-import type { CatalogItem } from '@zoma/core';
-import type { LoadedProfile, ProfileEdit } from '@zoma/data';
+import type { CatalogItem } from '@lablo/core';
+import type { LoadedProfile, ProfileEdit } from '@lablo/data';
 import { describe, expect, it, vi } from 'vitest';
 import { createPlayerMemory, lastChannelOf } from './player-memory';
 

@@ -1,4 +1,4 @@
-import type { Navigator } from '@zoma/ui';
+import type { Navigator } from '@lablo/ui';
 import type { Guides, GuidesEngine, GuidesOptions } from './guides-state';
 import { createGuides } from './guides-state';
 import type { Mapping, MappingEngine } from './mapping-state';

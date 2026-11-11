@@ -28,8 +28,8 @@
   --color-live: #ff5a5f;
   --color-scrim: rgba(5, 8, 12, 0.78);
 
-  /* Type: Zoma Sans (fonts.css), sizes for viewing at 3 m. Nothing smaller than 22 px. */
-  --font-family: 'Zoma Sans', 'Noto Sans', 'Segoe UI', Roboto, Arial, sans-serif;
+  /* Type: Lablo Sans (fonts.css), sizes for viewing at 3 m. Nothing smaller than 22 px. */
+  --font-family: 'Lablo Sans', 'Noto Sans', 'Segoe UI', Roboto, Arial, sans-serif;
   --font-size-display: 64px;
   --line-height-display: 76px;
   --font-size-title: 44px;

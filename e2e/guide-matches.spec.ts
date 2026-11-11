@@ -11,7 +11,7 @@ import { RemoteDriver } from './remote-driver';
 /**
  * Match diagnostics (RELAY step 24c) by keys, in English and Arabic: the guides screen's menu on
  * the panel's own guide, "Matches" (the mock's guide matches 11 of its 12 live channels: 10 by
- * the panel's channel ID, "Zoma Sports Test FHD" by its name without tags, none tied, 9 XMLTV
+ * the panel's channel ID, "Lablo Sports Test FHD" by its name without tags, none tied, 9 XMLTV
  * channels declared and used), then the header's "Channels without a guide: 1", whose list has
  * the one channel the guide lacks, "18+ Test Pattern", with its source and category. The mock
  * runs on the real clock (as guides.spec.ts).
@@ -98,7 +98,7 @@ function sourceName(page: Page): Promise<string> {
   return page.evaluate(
     () =>
       new Promise<string>((resolve, reject) => {
-        const open = indexedDB.open('zoma');
+        const open = indexedDB.open('lablo');
         open.onerror = () => reject(open.error);
         open.onsuccess = () => {
           const db = open.result;

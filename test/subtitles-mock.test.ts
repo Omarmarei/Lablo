@@ -5,7 +5,7 @@
 // subtitle 01:05", or the Arabic with Arabic-Indic digits). This file sits in the root test/
 // folder because core and the mock are separate boundary elements.
 
-import { SubtitleParser, SubtitleTrack, parseSubtitles } from '@zoma/core';
+import { SubtitleParser, SubtitleTrack, parseSubtitles } from '@lablo/core';
 import { describe, expect, it } from 'vitest';
 import { srtText } from '../apps/mock-provider/src/media-plan';
 import { encode1256, srtToVtt } from '../apps/mock-provider/src/subtitle-files';

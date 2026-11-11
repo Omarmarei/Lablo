@@ -1,8 +1,8 @@
-import type { DeviceTier } from '@zoma/core';
-import type { EpgCatalogSource, EpgRefreshResult, IngestResult, IngestSource, LoadedProfile, SourceMeta } from '@zoma/data';
-import type { LifecycleEvent } from '@zoma/platform-api';
+import type { DeviceTier } from '@lablo/core';
+import type { EpgCatalogSource, EpgRefreshResult, IngestResult, IngestSource, LoadedProfile, SourceMeta } from '@lablo/data';
+import type { LifecycleEvent } from '@lablo/platform-api';
 // The client entry only: the package index would pull every data module's polyfills into main.
-import { CancelSource } from '@zoma/data/client';
+import { CancelSource } from '@lablo/data/client';
 import { catalogOf, ingestSourceOf, storedSources, userGuides } from '../onboarding/engine-loader';
 import type { EpgRefreshOptions, RefreshOptions } from './engine';
 

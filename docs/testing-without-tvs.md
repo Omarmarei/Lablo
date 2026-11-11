@@ -1,6 +1,6 @@
 # Testing on Samsung TVs without owning them
 
-We have an LG TV (step 16) and no Samsung. The plan wants four test TVs, two of them Samsung: a 2018 Tizen 4.0 set (e.g. NU7100) and a 2023/24 one ([architecture.md §4](architecture.md), "Minimum (must own)" and "Current (must own)"). This doc compares the ways to run the Zoma Lab ([runbooks/lab.md](runbooks/lab.md)) on real Samsung hardware without buying both, with cost and coverage, and ends with a recommendation. How to set each one up is in [runbooks/tv-setup.md](runbooks/tv-setup.md).
+We have an LG TV (step 16) and no Samsung. The plan wants four test TVs, two of them Samsung: a 2018 Tizen 4.0 set (e.g. NU7100) and a 2023/24 one ([architecture.md §4](architecture.md), "Minimum (must own)" and "Current (must own)"). This doc compares the ways to run the Lablo Lab ([runbooks/lab.md](runbooks/lab.md)) on real Samsung hardware without buying both, with cost and coverage, and ends with a recommendation. How to set each one up is in [runbooks/tv-setup.md](runbooks/tv-setup.md).
 
 **Since 2026-11-04 the LG minimum is webOS 5 (2020)** ([ADR-012](adr/ADR-012-lg-minimum-webos5.md)), so the used 2018 Samsung is the only low-tier set we will have: S6's low-tier thresholds are measured on it alone. Omar chose the Remote Test Lab plus that set (step 16).
 

@@ -1,4 +1,4 @@
-import { deviceTier } from '@zoma/core';
+import { deviceTier } from '@lablo/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createWebosPlatform,

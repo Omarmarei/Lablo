@@ -16,7 +16,7 @@
  * `epgOverrides`, step 24d).
  */
 
-import type { CatalogItem, ContentKey, ContentKind, EpgOverride, XtreamAccount } from '@zoma/core';
+import type { CatalogItem, ContentKey, ContentKind, EpgOverride, XtreamAccount } from '@lablo/core';
 import type { EpgPin } from './epg-overrides';
 import { epgOverridesOf, isEpgPin } from './epg-overrides';
 import type { UserGuide } from './epg-sources';

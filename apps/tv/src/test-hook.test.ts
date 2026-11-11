@@ -7,7 +7,7 @@ function demo() {
   return createFocusDemo({ rootBackPolicy: () => 'exit-dialog', exitApp: () => undefined });
 }
 
-describe('window.__ZOMA_TEST__', () => {
+describe('window.__LABLO_TEST__', () => {
   it('writes a focus as screen/zone/index', () => {
     expect(focusPath({ screen: 'live', zone: 'channels', index: 3 })).toBe('live/channels/3');
     expect(focusPath({ screen: 'exit', zone: 'buttons', index: 0 })).toBe('exit/buttons/0');
@@ -18,7 +18,7 @@ describe('window.__ZOMA_TEST__', () => {
   it('reads the focus from the navigator of the screen on show, as it moves', () => {
     const target: TestHookTarget = {};
     const show = installTestHook(target);
-    const hook = target.__ZOMA_TEST__;
+    const hook = target.__LABLO_TEST__;
     expect(hook).toBeDefined();
     // Nothing on show yet (the start still reads the profile).
     expect(hook?.focusPath()).toBeNull();
@@ -40,13 +40,13 @@ describe('window.__ZOMA_TEST__', () => {
     const second = demo();
     show(first.nav);
     first.nav.handle('UP');
-    expect(target.__ZOMA_TEST__?.focusPath()).toBe('home/rail/0');
+    expect(target.__LABLO_TEST__?.focusPath()).toBe('home/rail/0');
     show(second.nav);
     // The new screen's own focus, not the one left behind.
-    expect(target.__ZOMA_TEST__?.focusPath()).toBe('home/list/0');
+    expect(target.__LABLO_TEST__?.focusPath()).toBe('home/list/0');
     first.nav.handle('DOWN');
-    expect(target.__ZOMA_TEST__?.focusPath()).toBe('home/list/0');
+    expect(target.__LABLO_TEST__?.focusPath()).toBe('home/list/0');
     show(null);
-    expect(target.__ZOMA_TEST__?.focusPath()).toBeNull();
+    expect(target.__LABLO_TEST__?.focusPath()).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
-import type { FocusBinding, ItemBinding } from '@zoma/ui';
-import { Spinner, TextField, VirtualList, useZone } from '@zoma/ui';
+import type { FocusBinding, ItemBinding } from '@lablo/ui';
+import { Spinner, TextField, VirtualList, useZone } from '@lablo/ui';
 import type { AppI18n } from '../i18n';
 import type { Mapping, MappingCurrent, MappingRow } from './mapping-state';
 import { MAPPING, MAPPING_CHANNELS, MAPPING_SEARCH, SEARCH_FIELD_ID } from './mapping-state';

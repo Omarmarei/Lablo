@@ -3,7 +3,7 @@
  * sleeps move (with interval timers on it), and a scripted AVPlay on that clock. Only tests import
  * this module; the lab's bundles never reach it.
  */
-import type { AvplayError, AvplayListener, AvplayManager, AvplayStreamInfo } from '@zoma/platform-tizen';
+import type { AvplayError, AvplayListener, AvplayManager, AvplayStreamInfo } from '@lablo/platform-tizen';
 import type { AvplayRect, AvplayStage } from './avplay-player';
 import type { BatteryClock } from './battery';
 import type { LabMedia, LabMediaItem } from './media';

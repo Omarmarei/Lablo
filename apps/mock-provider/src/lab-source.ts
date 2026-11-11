@@ -1,4 +1,4 @@
-// The Zoma Lab's scale source (RELAY step 15b, spike S6). The lab holds no test account, so the
+// The Lablo Lab's scale source (RELAY step 15b, spike S6). The lab holds no test account, so the
 // mock hands it one, with a guide whose dates are moved to the TV's:
 //
 //   GET /__lab/source?around=MS     JSON: the M3U URL of the mock's test account, how many

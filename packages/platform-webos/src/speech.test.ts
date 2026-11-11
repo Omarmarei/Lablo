@@ -24,7 +24,7 @@ afterEach(() => {
 describe('jsonText (luna params without JSON.stringify)', () => {
   it('writes what JSON.parse reads back, for any text', () => {
     const BACKSLASH = String.fromCharCode(92);
-    for (const text of ['Zoma Lab', 'زوما', 'say "hi"', `a${BACKSLASH}b`, 'line\nbreak\ttab', String.fromCharCode(0, 31, 127, 0x2028), '']) {
+    for (const text of ['Lablo Lab', 'لابلو', 'say "hi"', `a${BACKSLASH}b`, 'line\nbreak\ttab', String.fromCharCode(0, 31, 127, 0x2028), '']) {
       expect(JSON.parse(jsonText(text))).toBe(text);
     }
     expect(jsonText('a"b')).toBe(`"a${BACKSLASH}"b"`);
@@ -60,9 +60,9 @@ describe('Audio Guidance (screenReader on webOS, RELAY step 15b2)', () => {
 describe('speech (speak on webOS)', () => {
   it('asks the TTS service to say the text, clearing what it was saying', async () => {
     const fake = fakeBridge('{"returnValue":true}');
-    expect(await webosSpeak('Zoma Lab: "S11"', fake.factory)).toBe('done');
+    expect(await webosSpeak('Lablo Lab: "S11"', fake.factory)).toBe('done');
     expect(fake.calls[0]?.uri).toBe(TTS_URI);
-    expect(JSON.parse(fake.calls[0]?.params ?? '')).toEqual({ text: 'Zoma Lab: "S11"', clear: true });
+    expect(JSON.parse(fake.calls[0]?.params ?? '')).toEqual({ text: 'Lablo Lab: "S11"', clear: true });
   });
 
   it('is unsupported without the bridge, and rejects with the TV refusal', async () => {

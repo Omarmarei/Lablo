@@ -1,4 +1,4 @@
-import type { LoadedProfile } from '@zoma/data';
+import type { LoadedProfile } from '@lablo/data';
 import { describe, expect, it } from 'vitest';
 import { PROFILE_WAIT_MS, answerEdit, readStartProfile, startPoint } from './start';
 

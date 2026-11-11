@@ -1,8 +1,8 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { ContentKey, EpgProgramme } from '@zoma/core';
-import type { ProgrammeRequest } from '@zoma/data';
-import type { GuideChannel, Navigator } from '@zoma/ui';
+import type { ContentKey, EpgProgramme } from '@lablo/core';
+import type { ProgrammeRequest } from '@lablo/data';
+import type { GuideChannel, Navigator } from '@lablo/ui';
 
 /**
  * The programme details (RELAY step 24a, PLAN 6.3): a dialog over the guide screen, opened by OK

@@ -3,8 +3,8 @@
 // schedule are an independent oracle. Root test/ because core and the mock are separate
 // boundary elements.
 
-import type { CatalogItem, DeviceTier, EpgBucket, EpgGuideOptions, EpgProgramme, ZoneOffset } from '@zoma/core';
-import { EpgGuideReader, EpgWantedSet, M3uCatalogParser, XtreamClient, epgProgrammes, formatEpgReport, mergeEpgBuckets, xtreamM3uUrl } from '@zoma/core';
+import type { CatalogItem, DeviceTier, EpgBucket, EpgGuideOptions, EpgProgramme, ZoneOffset } from '@lablo/core';
+import { EpgGuideReader, EpgWantedSet, M3uCatalogParser, XtreamClient, epgProgrammes, formatEpgReport, mergeEpgBuckets, xtreamM3uUrl } from '@lablo/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadCatalog, loadServerFixture } from '../apps/mock-provider/src/config';
 import { epgWindow as mockWindow, programmes } from '../apps/mock-provider/src/epg';
@@ -27,7 +27,7 @@ afterAll(async () => {
   await app.close();
 });
 
-const account = (): { base: string; username: string; password: string } => ({ base, username: 'zoma', password: 'zoma-test' });
+const account = (): { base: string; username: string; password: string } => ({ base, username: 'lablo', password: 'lablo-test' });
 const withFault = (url: string, fault?: string): string => (fault === undefined ? url : `${url}&mock_fault=${encodeURIComponent(fault)}`);
 
 async function liveItems(): Promise<CatalogItem[]> {
@@ -60,7 +60,7 @@ async function panelZone(fault?: string): Promise<ZoneOffset> {
 
 /** Reads the panel's xmltv.php in odd-sized chunks; fragments are merged as the store will. */
 async function readGuide(options: Partial<EpgGuideOptions> & { wanted: EpgWantedSet }, fault?: string): Promise<{ reader: EpgGuideReader; rows: Map<string, EpgProgramme[]> }> {
-  const res = await fetch(withFault(`${base}/xmltv.php?username=zoma&password=zoma-test`, fault));
+  const res = await fetch(withFault(`${base}/xmltv.php?username=lablo&password=lablo-test`, fault));
   const text = await res.text();
   const reader = new EpgGuideReader({ epgSrc: 'mock', tier: 'full', nowMs: NOW, languages: ['ar', 'en'], flushAt: 50, ...options });
   const merged = new Map<string, EpgBucket>();
@@ -130,12 +130,12 @@ describe('EPG against the mock provider', () => {
     expect(live).toHaveLength(catalog.live.length);
     const { reader } = await readGuide({ wanted: EpgWantedSet.fromItems(live) });
     const r = reader.report();
-    // 10 channels carry an EPG id (Zoma.Kids only case-insensitively); "Zoma Sports Test FHD"
-    // has none but shares the match name of "Zoma Sports Test HD"; "18+ Test Pattern" has nothing.
+    // 10 channels carry an EPG id (Lablo.Kids only case-insensitively); "Lablo Sports Test FHD"
+    // has none but shares the match name of "Lablo Sports Test HD"; "18+ Test Pattern" has nothing.
     expect(r.match).toMatchObject({ wanted: 12, matched: 11, byMethod: { id: 10, 'match-name': 1, name: 0 }, declared: 9, used: 9, ambiguous: 0 });
     expect(r.unmatched.map((u) => u.name)).toEqual(['18+ Test Pattern']);
     const methods = Object.fromEntries(reader.matcher.matches().map((m) => [live.find((i) => i.key === m.key)!.name, `${m.channel} ${m.method}`]));
-    expect(methods).toMatchObject({ 'Zoma Kids Test': 'zoma.kids id', 'Zoma Sports Test FHD': 'zoma.sports match-name', 'Zoma Sports Test HD': 'zoma.sports id' });
+    expect(methods).toMatchObject({ 'Lablo Kids Test': 'lablo.kids id', 'Lablo Sports Test FHD': 'lablo.sports match-name', 'Lablo Sports Test HD': 'lablo.sports id' });
     expect(formatEpgReport(r)).toContain('EPG source mock: 11 of 12 live channels matched (91.7%)');
   });
 
@@ -172,7 +172,7 @@ describe('EPG against the mock provider', () => {
     // Repairs happened, and only the lone boundary of the 90-minute channel stays an hour early.
     expect(reader.stats.repaired).toBeGreaterThan(0);
     const exact = oracle();
-    expect([...expected.keys()].filter((id) => JSON.stringify(expected.get(id)) !== JSON.stringify(exact.get(id)))).toEqual(['zoma.ar3']);
+    expect([...expected.keys()].filter((id) => JSON.stringify(expected.get(id)) !== JSON.stringify(exact.get(id)))).toEqual(['lablo.ar3']);
     // Without the repair, every channel with a boundary in the second pass would be off.
     const unrepaired = await readGuide({ wanted, fallback: -240 }, fault);
     expect(show(unrepaired.rows)).not.toEqual(expected);

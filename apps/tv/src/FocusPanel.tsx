@@ -95,7 +95,7 @@ export function FocusPanel({ demo }: { readonly demo: FocusDemo }) {
       {focus.screen === 'details' && (
         <Dialog demo={demo} testId="details" title={`Opened ${opened}`} buttons={['Close', 'More']} />
       )}
-      {focus.screen === 'exit' && <Dialog demo={demo} testId="exit-dialog" title="Exit Zoma?" buttons={['Stay', 'Exit']} />}
+      {focus.screen === 'exit' && <Dialog demo={demo} testId="exit-dialog" title="Exit Lablo?" buttons={['Stay', 'Exit']} />}
     </div>
   );
 }

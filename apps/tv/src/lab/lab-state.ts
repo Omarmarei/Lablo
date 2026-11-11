@@ -1,5 +1,5 @@
 /**
- * The Zoma Lab screen's state (RELAY step 15a): the focus engine's zones, the runs and every
+ * The Lablo Lab screen's state (RELAY step 15a): the focus engine's zones, the runs and every
  * check's outcome. Two zones:
  *
  *   actions  (Run all)
@@ -12,9 +12,9 @@
  */
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { KeyLike, Platform } from '@zoma/platform-api';
-import type { EditableLike, EditKeyEvent, FieldEditing, FocusBinding, Navigator, Screen, ScreenSpec } from '@zoma/ui';
-import { bindFocus, createNavigator, createTextEditor, watchPointerMoves } from '@zoma/ui';
+import type { KeyLike, Platform } from '@lablo/platform-api';
+import type { EditableLike, EditKeyEvent, FieldEditing, FocusBinding, Navigator, Screen, ScreenSpec } from '@lablo/ui';
+import { bindFocus, createNavigator, createTextEditor, watchPointerMoves } from '@lablo/ui';
 import type { Reporter } from './reporter';
 import type { CheckOutcome } from './runner';
 import { countStatuses, runSpikes } from './runner';

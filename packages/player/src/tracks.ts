@@ -13,8 +13,8 @@
  * too, after the stream's own: `ext:0`, `ext:1`…, remembered and preferred like the others.
  */
 
-import type { ContentKey } from '@zoma/core';
-import { normalizeLang } from '@zoma/core';
+import type { ContentKey } from '@lablo/core';
+import { normalizeLang } from '@lablo/core';
 import type { EngineCaps, Track } from './engine';
 import type { ExternalSub } from './request';
 

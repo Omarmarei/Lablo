@@ -16,7 +16,7 @@ const engine: Engine = {
   tvs: 'test',
 };
 
-const tempCache = (): string => mkdtempSync(path.join(tmpdir(), 'zoma-cache-'));
+const tempCache = (): string => mkdtempSync(path.join(tmpdir(), 'lablo-cache-'));
 const quiet = (): void => undefined;
 
 afterEach(() => {

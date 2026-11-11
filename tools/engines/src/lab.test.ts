@@ -23,7 +23,7 @@ import {
 const ROOT = path.resolve(import.meta.dirname, '../../..');
 const dirs: string[] = [];
 const scratch = (): string => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'zoma-engines-lab-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'lablo-engines-lab-'));
   dirs.push(dir);
   return dir;
 };

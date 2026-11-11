@@ -5,8 +5,8 @@
 // after), one refresh at a time, `swapped` → the query worker's `reload`, remote keys →
 // `setBusy`, and now/next from the stored guides.
 
-import type { RpcHandlers } from '@zoma/data';
-import { EPG_REFRESH_MS, EpgService, IngestService, QueryService, STORE, getSources, newSourceMeta, openDatabase, serveRpc } from '@zoma/data';
+import type { RpcHandlers } from '@lablo/data';
+import { EPG_REFRESH_MS, EpgService, IngestService, QueryService, STORE, getSources, newSourceMeta, openDatabase, serveRpc } from '@lablo/data';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { WorkerLike } from '../apps/tv/src/data/engine';
 import { DataEngine } from '../apps/tv/src/data/engine';

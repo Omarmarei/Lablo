@@ -1,10 +1,10 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { ContentKey } from '@zoma/core';
-import type { EpgNowNext, EpgPin, EpgStatus, GuideChannel, GuideChannelsPage, GuideChannelsRequest, LoadedProfile, ProfileEdit } from '@zoma/data';
-import type { Platform } from '@zoma/platform-api';
-import type { EditorBinding, Navigator, Screen, TextEditorOptions, ZoneSpec } from '@zoma/ui';
-import { SCREEN, bindEditor, createTextEditor, fits } from '@zoma/ui';
+import type { ContentKey } from '@lablo/core';
+import type { EpgNowNext, EpgPin, EpgStatus, GuideChannel, GuideChannelsPage, GuideChannelsRequest, LoadedProfile, ProfileEdit } from '@lablo/data';
+import type { Platform } from '@lablo/platform-api';
+import type { EditorBinding, Navigator, Screen, TextEditorOptions, ZoneSpec } from '@lablo/ui';
+import { SCREEN, bindEditor, createTextEditor, fits } from '@lablo/ui';
 import { GUIDES, guideList } from './guides-state';
 
 /**
@@ -143,7 +143,7 @@ export interface Mapping {
 
 /**
  * The live channel `key`'s mapping in a profile document (`epgOverrides`, step 24d), or `null`.
- * Read here: `@zoma/data`'s own helper would bring its module's polyfills into main.
+ * Read here: `@lablo/data`'s own helper would bring its module's polyfills into main.
  */
 export function pinOf(doc: unknown, key: string): EpgPin | null {
   // (Any other value has no such field.)

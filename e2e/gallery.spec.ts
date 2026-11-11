@@ -111,7 +111,7 @@ test.describe('the component gallery (pnpm dev, ?screen=gallery)', () => {
     ['ar-SA', 'ar', 'rtl'],
     ['en-XA', 'pseudo', 'ltr'],
   ] as const) {
-    test(`shows every component inside the safe area, in Zoma Sans (${locale})`, async ({ page }) => {
+    test(`shows every component inside the safe area, in Lablo Sans (${locale})`, async ({ page }) => {
       const errors = trackErrors(page);
       const gallery = await openGallery(page, locale);
       await expect(gallery).toHaveAttribute('data-language', language);
@@ -225,7 +225,7 @@ test.describe('the component gallery (pnpm dev, ?screen=gallery)', () => {
     const html = page.locator('html');
     const button = page.getByTestId('language');
     // A reload would drop this.
-    await page.evaluate(() => Object.assign(window, { zomaSamePage: true }));
+    await page.evaluate(() => Object.assign(window, { labloSamePage: true }));
     // From the first channel: UP to the rail, UP to the actions, RIGHT past Record to the switch.
     for (const key of ['ArrowUp', 'ArrowUp', 'ArrowRight', 'ArrowRight', 'ArrowRight', 'ArrowRight']) await page.keyboard.press(key);
     await expect(gallery).toHaveAttribute('data-zone', 'language');
@@ -269,7 +269,7 @@ test.describe('the component gallery (pnpm dev, ?screen=gallery)', () => {
     expect((await box(page.getByTestId('channels'))).x).toBeLessThan((await box(page.getByTestId('tile-0'))).x);
     await page.keyboard.press('ArrowLeft');
     await expect(page.getByTestId('action-3')).toHaveAttribute('data-state', 'focused');
-    expect(await page.evaluate(() => (window as { zomaSamePage?: boolean }).zomaSamePage)).toBe(true);
+    expect(await page.evaluate(() => (window as { labloSamePage?: boolean }).labloSamePage)).toBe(true);
     expect(errors).toEqual([]);
   });
 
@@ -364,7 +364,7 @@ test.describe('the component gallery (pnpm dev, ?screen=gallery)', () => {
     await expect(gallery).toHaveAttribute('data-zone', 'actions');
     await expect(status).toHaveAttribute('data-selects', '3');
     await page.getByTestId('row-4').click();
-    await expect(page.getByTestId('play-dialog')).toContainText(`Play ${isolated('Zoma Documentary Channel International Extra Long Name')}?`);
+    await expect(page.getByTestId('play-dialog')).toContainText(`Play ${isolated('Lablo Documentary Channel International Extra Long Name')}?`);
     await page.getByTestId('dialog-1').click();
     await expect(page.getByTestId('play-dialog')).toHaveCount(0);
     await expect(status).toHaveAttribute('data-selects', '5');

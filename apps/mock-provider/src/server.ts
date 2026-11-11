@@ -298,7 +298,7 @@ export async function buildServer(options: MockServerOptions = {}): Promise<Mock
     const accounts = state.fixture.accounts.map((a) => `  ${a.username} / ${a.password}  (${a.status}, max ${a.maxConnections})`);
     return reply.type(TEXT).send(
       [
-        'Zoma mock provider: a TEST-SIGNAL server for Zoma IPTV development. It carries no real channels.',
+        'Lablo mock provider: a TEST-SIGNAL server for Lablo IPTV development. It carries no real channels.',
         '',
         `Xtream:   ${base}/player_api.php?username=U&password=P[&action=...]`,
         `M3U:      ${base}/get.php?username=U&password=P&type=m3u_plus&output=ts`,

@@ -14,8 +14,8 @@ import { Readable } from 'node:stream';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import { parseArgs } from 'node:util';
 import { createGunzip } from 'node:zlib';
-import type { CatalogItem, DeviceTier, EpgChannelMatch, EpgSourceReport } from '@zoma/core';
-import { EpgGuideReader, EpgWantedSet, M3uCatalogParser, combineEpgMatches, formatEpgReport } from '@zoma/core';
+import type { CatalogItem, DeviceTier, EpgChannelMatch, EpgSourceReport } from '@lablo/core';
+import { EpgGuideReader, EpgWantedSet, M3uCatalogParser, combineEpgMatches, formatEpgReport } from '@lablo/core';
 
 const { values } = parseArgs({
   options: {

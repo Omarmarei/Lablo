@@ -16,7 +16,7 @@ import { CssGateError, checkCss, formatCssViolations } from './css-gate';
 export interface CssAsset {
   /** Absolute path of the source file. */
   readonly from: string;
-  /** Path inside the staged app, e.g. `assets/zoma-sans-arabic-400.woff2`. */
+  /** Path inside the staged app, e.g. `assets/lablo-sans-arabic-400.woff2`. */
   readonly to: string;
 }
 

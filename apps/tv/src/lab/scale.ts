@@ -2,7 +2,7 @@
  * S6's criteria and the arithmetic behind its checks (RELAY step 15b, docs/architecture.md §5:
  * "Scale on the low-end webOS 4 TV"). No DOM here, so unit tests cover it directly.
  */
-import type { Intent } from '@zoma/platform-api';
+import type { Intent } from '@lablo/platform-api';
 import type { LabStatus } from './types';
 
 /** architecture.md §5, S6's pass criteria. */
@@ -31,10 +31,10 @@ export const S6_SOURCE_ID = 'lab-s6';
 /** The guide's user-guide id (stored as `u~lab-s6`). */
 export const S6_GUIDE_ID = 'lab-s6';
 /** The app's database name (packages/data/src/schema.ts `DB_NAME`; a test keeps them equal). */
-export const APP_DB = 'zoma';
+export const APP_DB = 'lablo';
 
 /** Search terms found in both the mock's own catalog and the scale catalog (Latin, Arabic, a prefix). */
-export const S6_QUERIES: readonly string[] = ['zoma', 'sport', 'زوما', 'night', 'ki', 'الليل'];
+export const S6_QUERIES: readonly string[] = ['lablo', 'sport', 'لابلو', 'night', 'ki', 'الليل'];
 
 /**
  * The keys pressed on the live screen while a refresh runs: down the list, page by page (each

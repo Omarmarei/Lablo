@@ -28,14 +28,14 @@ Tests don't need a running server: they build it in-process (`buildServer()` fro
 
 | Username / password | State | Use it for |
 |---|---|---|
-| `zoma` / `zoma-test` | Active, expires in 365 days, 2 connections | The normal case. |
+| `lablo` / `lablo-test` | Active, expires in 365 days, 2 connections | The normal case. |
 | `trial` / `trial-test` | Active trial, expires in 2 days, 1 connection | Trial banners, close-before-open. |
 | `forever` / `forever-test` | Active, `exp_date: null`, 4 connections | "Never expires". |
 | `expired` / `expired-test` | Expired 3 days ago | Expired-account UX. |
 | `banned` / `banned-test` | Banned | Banned-account UX. |
 | `disabled` / `disabled-test` | Disabled | Disabled-account UX. |
 | `maxed` / `maxed-test` | Active, already at its 1 connection | Every stream answers **509**. |
-| `special+user@zoma.test` / `p@ss/w0rd&?# é` | Active | Percent-encoding of credentials in paths and queries. |
+| `special+user@lablo.test` / `p@ss/w0rd&?# é` | Active | Percent-encoding of credentials in paths and queries. |
 
 Behaviour by state:
 - **Unknown credentials:** `player_api.php` answers `{"user_info":{"auth":0}}` (HTTP 200); `get.php`, `xmltv.php` and streams answer 401.
@@ -62,7 +62,7 @@ Dates are relative to "today" (UTC midnight), so `exp_date` stays fixed all day.
 | `GET /images/{kind}-{id}.png` | Logos and posters (a 1×1 PNG). |
 | `GET /attribution` | Credits for the Blender open movies (CC BY) and a note on the generated media. |
 | `POST/GET /__lab/logs[/{session}]` | LAN log collector (below). |
-| `GET /__lab/bytes`, `/__lab/echo`, `/__lab/redirect` | The Zoma Lab's probes (below). |
+| `GET /__lab/bytes`, `/__lab/echo`, `/__lab/redirect` | The Lablo Lab's probes (below). |
 | `GET /__lab/source`, `/__lab/guide.xml.gz`, `/__lab/media` | The lab's scale source (S6) and the player batteries' media (S4, S5, S8), below. |
 | `GET /__mock/health`, `/__mock/scenarios`, `/__mock/connections`; `PUT /__mock/scenario` | Control (below). |
 | `GET /` | A text page with the endpoints and test accounts. |
@@ -85,7 +85,7 @@ Archive responses carry `X-Mock-Archive-Channel`, `X-Mock-Archive-Start` (epoch 
 
 ## Catalog (`fixtures/catalog.yaml`)
 
-12 test channels (English, Arabic with Arabic-Indic digits, French, Spanish; a radio channel; an adult-flagged test pattern in an `18+` group; one channel without EPG; a duplicate of channel 101 in another group; channel 105's `tvg-id` `Zoma.Kids` differs from its XMLTV id `zoma.kids`), the four Blender open movies plus two test-pattern movies, and two series (one Arabic). EPG slots are 30, 60, 45 or 90 minutes depending on the channel, aligned to the epoch, so any "now" gives the same schedule. Each entry can name its media profile (`media:`, see Media). The 200k-item scale catalog comes from `pnpm fixtures`, not from this file (see Scale fixtures).
+12 test channels (English, Arabic with Arabic-Indic digits, French, Spanish; a radio channel; an adult-flagged test pattern in an `18+` group; one channel without EPG; a duplicate of channel 101 in another group; channel 105's `tvg-id` `Lablo.Kids` differs from its XMLTV id `lablo.kids`), the four Blender open movies plus two test-pattern movies, and two series (one Arabic). EPG slots are 30, 60, 45 or 90 minutes depending on the channel, aligned to the epoch, so any "now" gives the same schedule. Each entry can name its media profile (`media:`, see Media). The 200k-item scale catalog comes from `pnpm fixtures`, not from this file (see Scale fixtures).
 
 ## Media
 
@@ -98,7 +98,7 @@ Each asset sits in a folder named by a hash of its ffmpeg arguments, so a rerun 
 
 **Requirements:**
 - **ffmpeg and ffprobe on PATH:** on Windows `winget install Gyan.FFmpeg`; on Debian or Ubuntu `apt-get install ffmpeg fonts-dejavu-core`. Or set `FFMPEG`.
-- **A font file for the labels:** set `ZOMA_MEDIA_FONT`; otherwise the generator uses DejaVu Sans or Arial. The path must be explicit because ffmpeg's default font crashes on Windows.
+- **A font file for the labels:** set `LABLO_MEDIA_FONT`; otherwise the generator uses DejaVu Sans or Arial. The path must be explicit because ffmpeg's default font crashes on Windows.
 - **ASCII labels only:** drawtext can't shape Arabic, so Arabic channel names appear as "Channel N (non-Latin name)".
 
 ### Live channels
@@ -175,7 +175,7 @@ Generation takes about 20 s on a fast PC. `pnpm fixtures` **fails if it takes ov
 
 | File | Contents |
 |---|---|
-| `playlist.m3u` | m3u_plus with 200,000 entries: 20k live, 120k movies and 60k episodes. Names are in ar/en/fr/es, with country and quality tags, duplicates, catch-up attributes and adult groups. URLs point at `http://127.0.0.1:8080` with the `zoma` test account. Also 400 malformed lines (listed below). |
+| `playlist.m3u` | m3u_plus with 200,000 entries: 20k live, 120k movies and 60k episodes. Names are in ar/en/fr/es, with country and quality tags, duplicates, catch-up attributes and adult groups. URLs point at `http://127.0.0.1:8080` with the `lablo` test account. Also 400 malformed lines (listed below). |
 | `xtream/*.json` | The Xtream list responses: `live_streams` (20k), `vod_streams` (120k), `series` (3k), plus the three category lists. |
 | `catalog.json` | The same catalog in the mock's schema, for `pnpm mock --catalog .cache/fixtures/catalog.json`. Scale channels play the generic loop and files. |
 | `xmltv-50mb.xml`, `-150mb`, `-300mb` (each + `.gz`) | 14 days of programmes. The 300 MB file covers all 5,000 EPG ids the catalog uses; the smaller ones cover fewer channels. They include entities, CDATA, second-language titles and offsets from −0800 to +0530. |
@@ -227,10 +227,10 @@ Step 8 added no case (its 200k ingest is `test/ingest-200k.media.test.ts`). CI u
 
 ```bash
 pnpm epg:report --playlist .cache/fixtures/playlist.m3u --xmltv .cache/fixtures/xmltv-300mb.xml.gz --tier full --now 2026-11-01T00:00:00Z
-pnpm epg:report --playlist "http://127.0.0.1:8080/get.php?username=zoma&password=zoma-test&type=m3u_plus" --xmltv "http://127.0.0.1:8080/xmltv.php?username=zoma&password=zoma-test" --tier low
+pnpm epg:report --playlist "http://127.0.0.1:8080/get.php?username=lablo&password=lablo-test&type=m3u_plus" --xmltv "http://127.0.0.1:8080/xmltv.php?username=lablo&password=lablo-test" --tier low
 ```
 
-Per guide it shows the live channels matched and by which method (override, id, xtream-id, name, match-name), the guide channels used, what the channel filter and the window dropped, DST repairs, and the first unmatched channels (`--unmatched N`). Several `--xmltv` are combined in order. `--json <file>` writes the full reports. Against the mock it reports 11 of 12 live channels (10 by id, `Zoma Sports Test FHD` by match name; `18+ Test Pattern` has nothing). Against the scale fixtures: 14,013 of 20,000 by id (70.1%), 4,947 of the 5,000 guide channels used.
+Per guide it shows the live channels matched and by which method (override, id, xtream-id, name, match-name), the guide channels used, what the channel filter and the window dropped, DST repairs, and the first unmatched channels (`--unmatched N`). Several `--xmltv` are combined in order. `--json <file>` writes the full reports. Against the mock it reports 11 of 12 live channels (10 by id, `Lablo Sports Test FHD` by match name; `18+ Test Pattern` has nothing). Against the scale fixtures: 14,013 of 20,000 by id (70.1%), 4,947 of the 5,000 guide channels used.
 
 Step 9 adds two EPG checks:
 - `test/epg-300mb.media.test.ts` (`pnpm test:media`) runs `pnpm epg:report` on the 300 MB guide and the 200k playlist in a child Node with a **96 MB heap**, and checks every number of the report against an oracle built from `catalog.json` and the generator's constants. It also checks S6's low-tier case in-process.
@@ -260,10 +260,10 @@ Step 7 adds `test/search-200k.media.test.ts` (root, `pnpm test:media`). The 200k
 `apps/mock-provider/Dockerfile` builds from the repo root as its context. It installs only the mock's own dependencies, adds ffmpeg, and generates the media at build time.
 
 ```bash
-docker build -f apps/mock-provider/Dockerfile -t zoma-mock .
-docker run --rm -p 8080:8080 zoma-mock                       # LAN lab use
-docker run -d -p 8080:8080 zoma-mock --no-lab-logs           # a public test server
-docker run ... -v "$PWD/.cache/media/open-movies:/app/.cache/media/open-movies" zoma-mock   # with the films
+docker build -f apps/mock-provider/Dockerfile -t lablo-mock .
+docker run --rm -p 8080:8080 lablo-mock                       # LAN lab use
+docker run -d -p 8080:8080 lablo-mock --no-lab-logs           # a public test server
+docker run ... -v "$PWD/.cache/media/open-movies:/app/.cache/media/open-movies" lablo-mock   # with the films
 ```
 
 CI builds the image, starts it and probes it: health must report `files`, and channel 104 must have two audio tracks.
@@ -303,7 +303,7 @@ rules:
       path: /live/**    # glob or list: * within a segment, ** across
       method: GET
       action: get_live_streams
-      username: zoma
+      username: lablo
       stream_id: [101, 102]
     after: 0            # skip the first N matching requests
     times: 2            # then apply to N matching requests (always, if absent)
@@ -349,11 +349,11 @@ Session names are letters, digits, `.`, `_` and `-` (max 64, no leading dot). Po
 
 ## Lab probes (RELAY step 15a)
 
-The Zoma Lab (docs/runbooks/lab.md) asks these to answer spikes S1 and S7. They need no test account, so the lab's code holds none. They store nothing and stay on with `--no-lab-logs`. Like the collector, they are never faulted (`src/lab-probes.ts`).
+The Lablo Lab (docs/runbooks/lab.md) asks these to answer spikes S1 and S7. They need no test account, so the lab's code holds none. They store nothing and stay on with `--no-lab-logs`. Like the collector, they are never faulted (`src/lab-probes.ts`).
 
 | Request | Answer |
 |---|---|
-| `GET /__lab/bytes?lines=N&chunk=B&delay=MS` | N numbered lines (`000042 Zoma زوما ✓ 😀`, 30 bytes in UTF-8: Latin, Arabic, a 3-byte and a 4-byte character), written B bytes at a time (1,009 by default, a prime, so the chunks end inside characters), MS ms apart. With `Content-Length` and `no-store`. Defaults: 1,000 lines, no delay. At most 1,000,000 lines, 1 MB chunks and 1 s of delay. |
+| `GET /__lab/bytes?lines=N&chunk=B&delay=MS` | N numbered lines (`000042 Lablo لابلو ✓ 😀`, 30 bytes in UTF-8: Latin, Arabic, a 3-byte and a 4-byte character), written B bytes at a time (1,009 by default, a prime, so the chunks end inside characters), MS ms apart. With `Content-Length` and `no-store`. Defaults: 1,000 lines, no delay. At most 1,000,000 lines, 1 MB chunks and 1 s of delay. |
 | `GET /__lab/echo` | `{"ok":true,"path":"/__lab/echo","cors":true}`. With `?cors=0` the same without any CORS header: a packaged TV app must still read it, and a web page can't. |
 | `GET /__lab/redirect?to=/__lab/echo&cors=0` | A 302 to `to`, which must be another `/__lab/` path (no `..`, never `/__lab/redirect` itself), so it can't serve as an open redirect. `cors=0` leaves out the CORS headers here too. |
 

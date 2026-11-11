@@ -1,7 +1,7 @@
-import type { CatalogItem, ContentKind, DeviceTier } from '@zoma/core';
-import type { CategoryInfo, LoadedProfile, SourceRecord } from '@zoma/data';
-import type { Intent } from '@zoma/platform-api';
-import { LAYOUT, createNavigator, fits } from '@zoma/ui';
+import type { CatalogItem, ContentKind, DeviceTier } from '@lablo/core';
+import type { CategoryInfo, LoadedProfile, SourceRecord } from '@lablo/data';
+import type { Intent } from '@lablo/platform-api';
+import { LAYOUT, createNavigator, fits } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
 import type { Timers } from '../live/live-state';
 import { CHUNK_CACHE, LIVE, LIVE_BODY } from '../live/live-state';

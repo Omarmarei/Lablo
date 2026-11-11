@@ -26,31 +26,31 @@ const channel = (id: number) => loadCatalog().live.find((c) => c.id === id)!;
 describe('xmltv.php and /epg/guide.xml', () => {
   it('lists each EPG channel once, then contiguous programmes for the whole window', async () => {
     app = await mock();
-    const res = await app.inject({ url: '/xmltv.php?username=zoma&password=zoma-test', headers: { host: 'tv-lab.local:8080' } });
+    const res = await app.inject({ url: '/xmltv.php?username=lablo&password=lablo-test', headers: { host: 'tv-lab.local:8080' } });
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toBe('application/xml; charset=utf-8');
     const xml = res.body;
     expect(xml.startsWith('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE tv SYSTEM "xmltv.dtd">\n<tv ')).toBe(true);
     expect(xml.trimEnd().endsWith('</tv>')).toBe(true);
     const ids = [...xml.matchAll(/<channel id="([^"]+)">/g)].map((m) => m[1]);
-    // 101 and 112 share zoma.test1; 107 and 109 have no EPG; 105 uses its xmltv_id.
-    expect(ids).toEqual(['zoma.test1', 'zoma.test2', 'zoma.ar3', 'zoma.ar4', 'zoma.kids', 'zoma.sports', 'zoma.radio', 'zoma.fr', 'zoma.es']);
-    expect(xml).toContain('<display-name>زوما تجريبي ٣</display-name>');
+    // 101 and 112 share lablo.test1; 107 and 109 have no EPG; 105 uses its xmltv_id.
+    expect(ids).toEqual(['lablo.test1', 'lablo.test2', 'lablo.ar3', 'lablo.ar4', 'lablo.kids', 'lablo.sports', 'lablo.radio', 'lablo.fr', 'lablo.es']);
+    expect(xml).toContain('<display-name>لابلو تجريبي ٣</display-name>');
     expect(xml).toContain('<icon src="http://tv-lab.local:8080/images/channel-101.png" />');
     expect(xml).not.toContain('channel-108.png');
 
-    const test1 = [...xml.matchAll(/<programme start="(\d{14}) \+0000" stop="(\d{14}) \+0000" channel="zoma\.test1">/g)];
+    const test1 = [...xml.matchAll(/<programme start="(\d{14}) \+0000" stop="(\d{14}) \+0000" channel="lablo\.test1">/g)];
     expect(test1).toHaveLength(240);
     expect(test1[0]?.[1]).toBe('20261026120000');
     expect(test1.at(-1)?.[2]).toBe('20261105120000');
     for (let i = 1; i < test1.length; i++) expect(test1[i]?.[1]).toBe(test1[i - 1]?.[2]);
     expect(xml).toMatch(/<title lang="ar">[^<]+<\/title>/);
-    expect(xml).toMatch(/<desc lang="en">Test programme \d+ on Zoma Test 1 SMPTE\.<\/desc>/);
+    expect(xml).toMatch(/<desc lang="en">Test programme \d+ on Lablo Test 1 SMPTE\.<\/desc>/);
   });
 
   it('serves the same guide without credentials, plain and gzipped', async () => {
     app = await mock();
-    const panel = (await app.inject({ url: '/xmltv.php?username=zoma&password=zoma-test' })).body;
+    const panel = (await app.inject({ url: '/xmltv.php?username=lablo&password=lablo-test' })).body;
     const plain = await app.inject({ url: '/epg/guide.xml' });
     expect(plain.statusCode).toBe(200);
     expect(plain.body).toBe(panel);
@@ -63,7 +63,7 @@ describe('xmltv.php and /epg/guide.xml', () => {
 
   it('rejects bad credentials and inactive accounts', async () => {
     app = await mock();
-    expect((await app.inject({ url: '/xmltv.php?username=zoma&password=x' })).statusCode).toBe(401);
+    expect((await app.inject({ url: '/xmltv.php?username=lablo&password=x' })).statusCode).toBe(401);
     expect((await app.inject({ url: '/xmltv.php?username=disabled&password=disabled-test' })).statusCode).toBe(403);
   });
 

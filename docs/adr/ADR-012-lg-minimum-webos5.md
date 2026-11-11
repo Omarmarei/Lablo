@@ -37,7 +37,7 @@
 - **Later cleanup** (after v1, or when the `engines` job's time matters): drop the Chromium 53 snapshot, retarget Babel and the gates to Chromium 56, and update ADR-003 and CLAUDE.md together.
 
 ## Consequences
-- LG 2018–2019 owners (webOS 4.x) can't install Zoma from LG's store.
+- LG 2018–2019 owners (webOS 4.x) can't install Lablo from LG's store.
 - **A low-end 2020 LG** (webOS 5, about 1.5 GB) is in the `full` tier by its year, and we own none. The old-engine harness covers its engine (Chromium 68), not its memory or CPU. Step 41 should consider a memory signal for the tier (`navigator.deviceMemory`, Chromium 63+; the LG TV reports 2) before the release.
 - The 2018 timing assumptions in architecture.md §3 (the EPG benchmark's "2018 webOS 4 core") stay as written: the 2018 Samsung's SoC is of the same class, and S6 checks them on it.
 - Model years from sdkVersion or the engine are only as right as `WEBOS_MAJORS`. Each new TV's S0 record shows `details.versionFrom` and the raw keys, so a wrong table shows up in the lab.

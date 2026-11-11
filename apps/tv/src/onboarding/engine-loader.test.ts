@@ -1,5 +1,5 @@
-import type { EpgCatalogSource, IngestResult, IngestSource, LoadedProfile, ProfileEdit, SourceRecord } from '@zoma/data';
-import { CancelError, RpcError } from '@zoma/data/client';
+import type { EpgCatalogSource, IngestResult, IngestSource, LoadedProfile, ProfileEdit, SourceRecord } from '@lablo/data';
+import { CancelError, RpcError } from '@lablo/data/client';
 import { describe, expect, it } from 'vitest';
 import type { EpgRefreshOptions, RefreshOptions } from '../data/engine';
 import type { LoaderEngine } from './engine-loader';

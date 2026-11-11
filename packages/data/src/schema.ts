@@ -30,7 +30,7 @@
  *   (requests are fine, `await` is not); throwing aborts the whole upgrade.
  */
 
-export const DB_NAME = 'zoma';
+export const DB_NAME = 'lablo';
 
 export const STORE = {
   sources: 'sources_meta',

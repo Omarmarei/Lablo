@@ -10,7 +10,7 @@
  * https://developer.samsung.com/smarttv/develop/guides/fundamentals/setting-screensaver.html
  * https://developer.samsung.com/smarttv/develop/guides/fundamentals/text-to-speech.html
  */
-import type { PlatformCall, ScreenReaderState } from '@zoma/platform-api';
+import type { PlatformCall, ScreenReaderState } from '@lablo/platform-api';
 
 export interface TizenError {
   readonly name?: string;

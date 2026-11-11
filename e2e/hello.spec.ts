@@ -176,7 +176,7 @@ test.describe('hello app in the desktop browser (pnpm dev)', () => {
     ['en-US', 'ltr'],
     ['ar-SA', 'rtl'],
   ] as const) {
-    test(`draws text in the bundled Zoma Sans faces and mirrors the layout by dir (${locale})`, async ({ page }) => {
+    test(`draws text in the bundled Lablo Sans faces and mirrors the layout by dir (${locale})`, async ({ page }) => {
       const errors = trackErrors(page);
       await page.goto(`/?screen=hello&locale=${locale}`);
       await expect(page.getByTestId('hello')).toHaveAttribute('data-ready', 'true');
@@ -236,14 +236,14 @@ test.describe('catalog panel in the desktop browser (pnpm dev)', () => {
     await expect(ingest).toHaveAttribute('data-items', String(entries));
     await expect(page.getByTestId('data-status')).toHaveText(`ok: 1 source, ${entries} items`);
     const search = page.getByTestId('search-status');
-    await expect(search).toHaveText(/^ok: 2 for "sports": Zoma Sports Test F?HD, Zoma Sports Test F?HD$/);
+    await expect(search).toHaveText(/^ok: 2 for "sports": Lablo Sports Test F?HD, Lablo Sports Test F?HD$/);
     await expect(search).toHaveAttribute('data-total', '2');
     // Then the guide the playlist header names, in an EPG worker. The match rate doesn't depend
     // on the clock (the mock's schedule is pinned to its own day, the browser's isn't).
     const guide = page.getByTestId('epg-status');
     await expect(guide).toHaveText('ok: 11 of 12 live channels have a guide (91.7%), 1 guide', { timeout: 20_000 });
     await expect(guide).toHaveAttribute('data-matched', '11');
-    await expect(page.getByTestId('nownext-status')).toHaveText(/^(ok: Zoma Sports Test F?HD: |none: )/);
+    await expect(page.getByTestId('nownext-status')).toHaveText(/^(ok: Lablo Sports Test F?HD: |none: )/);
     // The one live channel no guide matches, focused for 600 ms: its panel's short EPG is asked,
     // and has nothing for it either (it has no EPG id).
     const panelEpg = page.getByTestId('shortepg-status');
@@ -277,7 +277,7 @@ test.describe('catalog panel in the desktop browser (pnpm dev)', () => {
       await expect(panelEpg).toHaveAttribute('data-from', 'panel', { timeout: 20_000 });
       // The mock's schedule is pinned to its own day and the browser's clock isn't, so the text
       // depends on the clock (packages/data and test/short-epg-mock.test.ts check it exactly).
-      await expect(panelEpg).toHaveText(/^(ok: Zoma Test 1 SMPTE: .+ [(]panel[)]|none: Zoma Test 1 SMPTE: the panel has no programmes for it now)$/);
+      await expect(panelEpg).toHaveText(/^(ok: Lablo Test 1 SMPTE: .+ [(]panel[)]|none: Lablo Test 1 SMPTE: the panel has no programmes for it now)$/);
       expect(errors).toEqual([]);
     } finally {
       await noGuide.close();

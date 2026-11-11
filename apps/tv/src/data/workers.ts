@@ -3,9 +3,9 @@
  * build bundles each one as its own Chromium 53 IIFE and inlines it as a Blob URL
  * (tools/build/src/bundle.ts), so no worker file exists on disk.
  */
-import EpgWorker from '@zoma/data/epg.worker?worker';
-import IngestWorker from '@zoma/data/ingest.worker?worker';
-import QueryWorker from '@zoma/data/query.worker?worker';
+import EpgWorker from '@lablo/data/epg.worker?worker';
+import IngestWorker from '@lablo/data/ingest.worker?worker';
+import QueryWorker from '@lablo/data/query.worker?worker';
 import type { DataEngineOptions } from './engine';
 import { DataEngine } from './engine';
 

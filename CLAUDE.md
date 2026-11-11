@@ -1,9 +1,9 @@
-# Zoma IPTV: project rules for Claude sessions
+# Lablo IPTV: project rules for Claude sessions
 
-Zoma IPTV is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+Lablo IPTV is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 - **Plan:** [docs/PLAN.md](docs/PLAN.md) (wins on any conflict). **Design:** [docs/architecture.md](docs/architecture.md). **Decisions:** [docs/adr/](docs/adr/). **Session checklist:** [RELAY.md](RELAY.md).
-- Repo: private `Omarmarei/zoma-iptv`, default branch `main`.
+- Repo: private `Omarmarei/Lablo`, default branch `main`.
 
 ## Commands
 
@@ -29,8 +29,8 @@ Zoma IPTV is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen 
 ## Conventions
 
 - **TypeScript everywhere**, `strict` plus `noUncheckedIndexedAccess`, `verbatimModuleSyntax` (use `import type` for types) and `moduleResolution: Bundler`. Shared options live in `tsconfig.base.json`.
-- **Packages are consumed as TypeScript source.** Each `@zoma/*` package points `main`, `types` and `exports` at `./src/index.ts`; there is no per-package build step. Import other packages only through `@zoma/<name>` (the entry point); deep imports are a lint error.
-- **Declare workspace dependencies** (`"@zoma/core": "workspace:*"`) for every allowed import. The root `tsconfig.json` maps `@zoma/*` to every package only so that the boundary lint can resolve (and reject) forbidden imports.
+- **Packages are consumed as TypeScript source.** Each `@lablo/*` package points `main`, `types` and `exports` at `./src/index.ts`; there is no per-package build step. Import other packages only through `@lablo/<name>` (the entry point); deep imports are a lint error.
+- **Declare workspace dependencies** (`"@lablo/core": "workspace:*"`) for every allowed import. The root `tsconfig.json` maps `@lablo/*` to every package only so that the boundary lint can resolve (and reject) forbidden imports.
 - **`core` is pure:** `lib: ["ES2017"]`, no DOM, no `fetch`, no platform globals. It must run unchanged in Node, in workers and on the TV.
 - **Platform globals** (`tizen`, `webapis`, `webOS`, `PalmSystem`) are lint errors outside their adapter: `tizen`/`webapis` only in `platform-tizen`, `webOS`/`PalmSystem` only in `platform-webos`.
 - **Tests:** Vitest. Tests sit next to the code (`src/**/*.test.ts`) or in a package `test/` folder. No placeholder tests: every test must be able to fail. Tests pass before every commit.

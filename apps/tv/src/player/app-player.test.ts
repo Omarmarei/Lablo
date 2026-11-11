@@ -1,6 +1,6 @@
-import type { LifecycleEvent, PlatformCall } from '@zoma/platform-api';
-import type { AccountStatus, EngineCaps, EngineEvent, EngineSource, PlayerEngine, Track, TrackPreferences } from '@zoma/player';
-import { NO_STATS } from '@zoma/player';
+import type { LifecycleEvent, PlatformCall } from '@lablo/platform-api';
+import type { AccountStatus, EngineCaps, EngineEvent, EngineSource, PlayerEngine, Track, TrackPreferences } from '@lablo/player';
+import { NO_STATS } from '@lablo/player';
 import { describe, expect, it, vi } from 'vitest';
 import type { AppPlayerDeps } from './app-player';
 import { appPlayer, uiTrackPreferences } from './app-player';

@@ -1,10 +1,10 @@
 {
-  "id": "com.zoma.iptv",
+  "id": "com.lablo.iptv",
   "version": "{{version}}",
-  "vendor": "Zoma",
+  "vendor": "Lablo",
   "type": "web",
   "main": "index.html",
-  "title": "Zoma",
+  "title": "Lablo",
   "icon": "icon.png",
   "largeIcon": "largeIcon.png",
   "bgColor": "#0b0f14",

@@ -1,8 +1,8 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { LoadedProfile, SourceRecord, UnmatchedChannel, UnmatchedPage, UnmatchedRequest } from '@zoma/data';
-import type { Navigator, Screen } from '@zoma/ui';
-import { SCREEN, fits } from '@zoma/ui';
+import type { LoadedProfile, SourceRecord, UnmatchedChannel, UnmatchedPage, UnmatchedRequest } from '@lablo/data';
+import type { Navigator, Screen } from '@lablo/ui';
+import { SCREEN, fits } from '@lablo/ui';
 import { storedSources } from '../onboarding/engine-loader';
 import { GUIDES } from './guides-state';
 import type { MappingTarget } from './mapping-state';

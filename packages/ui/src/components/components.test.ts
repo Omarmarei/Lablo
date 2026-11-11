@@ -100,11 +100,11 @@ describe('ListRow', () => {
 
   it('shows number, name, badges, now with its progress and next', () => {
     const el = expand(
-      ListRow({ number: 101, name: 'Zoma News', now, next, nextLabel: 'Next', badges: Badge({ label: 'HD' }), state: 'focused' }),
+      ListRow({ number: 101, name: 'Lablo News', now, next, nextLabel: 'Next', badges: Badge({ label: 'HD' }), state: 'focused' }),
     );
     expect(el.props).toMatchObject({ class: 'z-row is-focused', 'aria-selected': 'true' });
     expect(text(one(el, 'z-row__number'))).toBe('101');
-    expect(text(one(el, 'z-row__name'))).toBe('Zoma News');
+    expect(text(one(el, 'z-row__name'))).toBe('Lablo News');
     expect(text(one(el, 'z-row__badges'))).toBe('HD');
     expect(text(one(el, 'z-row__time'))).toBe('08:00');
     expect(one(one(el, 'z-row__progress'), 'z-progress__fill').props.style).toEqual({ width: '25%' });
@@ -113,7 +113,7 @@ describe('ListRow', () => {
   });
 
   it('keeps the provider’s text in its own direction and out of translation', () => {
-    const el = expand(ListRow({ name: 'قناة زوما', now, next, nextLabel: 'Next' }));
+    const el = expand(ListRow({ name: 'قناة لابلو', now, next, nextLabel: 'Next' }));
     for (const cls of ['z-row__name', 'z-row__title']) {
       for (const e of byClass(el, cls)) expect(e.props).toMatchObject({ dir: 'auto', translate: false });
     }
@@ -122,15 +122,15 @@ describe('ListRow', () => {
   });
 
   it('leaves out what it isn’t given, and shows the placeholder without a guide', () => {
-    const el = expand(ListRow({ name: 'Zoma 1', next, placeholder: 'No guide' }));
+    const el = expand(ListRow({ name: 'Lablo 1', next, placeholder: 'No guide' }));
     expect(el.props).toMatchObject({ class: 'z-row', 'aria-selected': 'false', 'data-state': 'idle' });
     for (const cls of ['z-row__number', 'z-row__badges', 'z-row__progress', 'z-row__time', 'z-row__next']) {
       expect(byClass(el, cls), cls).toHaveLength(0);
     }
     expect(text(one(el, 'z-row__now'))).toBe('No guide');
-    const bare = expand(ListRow({ name: 'Zoma 2', now: { title: 'Film' } }));
+    const bare = expand(ListRow({ name: 'Lablo 2', now: { title: 'Film' } }));
     expect(text(one(bare, 'z-row__now'))).toBe('Film');
-    expect(byClass(expand(ListRow({ name: 'Zoma 3' })), 'z-row__now')).toHaveLength(0);
+    expect(byClass(expand(ListRow({ name: 'Lablo 3' })), 'z-row__now')).toHaveLength(0);
   });
 });
 
@@ -184,9 +184,9 @@ describe('ProgressBar', () => {
 
 describe('Dialog, Spinner and Badge', () => {
   it('renders a dialog with its actions', () => {
-    const el = expand(Dialog({ title: 'Exit Zoma?', message: 'See you soon', children: [Button({ label: 'Stay' }), Button({ label: 'Exit' })] }));
-    expect(el.props).toMatchObject({ role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Exit Zoma?' });
-    expect(text(one(el, 'z-dialog__title'))).toBe('Exit Zoma?');
+    const el = expand(Dialog({ title: 'Exit Lablo?', message: 'See you soon', children: [Button({ label: 'Stay' }), Button({ label: 'Exit' })] }));
+    expect(el.props).toMatchObject({ role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Exit Lablo?' });
+    expect(text(one(el, 'z-dialog__title'))).toBe('Exit Lablo?');
     expect(text(one(el, 'z-dialog__message'))).toBe('See you soon');
     expect(byClass(one(el, 'z-dialog__actions'), 'z-button').map(text)).toEqual(['Stay', 'Exit']);
     expect(byClass(expand(Dialog({ title: 'T', children: null })), 'z-dialog__message')).toHaveLength(0);

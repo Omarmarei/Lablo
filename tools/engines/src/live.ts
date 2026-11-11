@@ -15,7 +15,7 @@
  * The selectors and our own words are kept equal to e2e/live.spec.ts and the app's catalogs by
  * test/engines-onboarding.test.ts.
  */
-import { stripIsolates } from '@zoma/core';
+import { stripIsolates } from '@lablo/core';
 import type { ListedCategory, ListedChannel } from './fixture';
 import { list } from './gallery';
 import type { TvPlatform } from './scenario';
@@ -139,15 +139,15 @@ export const LIVE_VIEW_FUNCTION = `function liveView(live) {
       }),
       railSide: side,
       dialog: document.querySelector('[data-testid="exit-dialog"]') !== null,
-      platformBack: window.__zomaPlatformBack || 0,
+      platformBack: window.__labloPlatformBack || 0,
       clock: Date.now()
     };
   }`;
 
 /** Puts a counting `PalmSystem.platformBack()` on the page (webOS's way out of an app). */
 export const PLATFORM_BACK_STUB = `(function () {
-  window.__zomaPlatformBack = 0;
-  window.PalmSystem = { platformBack: function () { window.__zomaPlatformBack += 1; } };
+  window.__labloPlatformBack = 0;
+  window.PalmSystem = { platformBack: function () { window.__labloPlatformBack += 1; } };
   return JSON.stringify(true);
 })()`;
 

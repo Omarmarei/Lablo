@@ -12,13 +12,13 @@ declare module '*?worker' {
 }
 
 interface Window {
-  /** The focus engine's path for the e2e `RemoteDriver` and the old-engine harness (`ZomaTestHook` in src/test-hook.ts, RELAY step 14b). */
-  __ZOMA_TEST__?: { focusPath(): string | null };
+  /** The focus engine's path for the e2e `RemoteDriver` and the old-engine harness (`LabloTestHook` in src/test-hook.ts, RELAY step 14b). */
+  __LABLO_TEST__?: { focusPath(): string | null };
 }
 
 interface Window {
-  /** The Zoma Lab's session and records, for the e2e tests and the old-engine harness (src/lab/lab-main.tsx, RELAY step 15a). */
-  __ZOMA_LAB__?: {
+  /** The Lablo Lab's session and records, for the e2e tests and the old-engine harness (src/lab/lab-main.tsx, RELAY step 15a). */
+  __LABLO_LAB__?: {
     readonly session: string;
     readonly server: string;
     /** Every record of the session (`LabRecord` in src/lab/types.ts). */

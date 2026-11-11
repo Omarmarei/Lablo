@@ -14,15 +14,17 @@ afterEach(async () => {
 
 describe('lab probes (RELAY step 15a)', () => {
   it('numbers each line with Latin, Arabic, a 3-byte and a 4-byte character', () => {
-    expect(labLine(42)).toBe('000042 Zoma زوما ✓ 😀\n');
-    expect(Buffer.byteLength(labLine(0), 'utf8')).toBe(30);
+    expect(labLine(42)).toBe('000042 Lablo لابلو ✓ 😀\n');
+    expect(Buffer.byteLength(labLine(0), 'utf8')).toBe(33);
     expect(labLine(999_999).startsWith('999999 ')).toBe(true);
   });
 
   it('cuts the body into chunks that end inside multi-byte characters', () => {
-    const chunks = labBytesChunks(100, LAB_BYTES_DEFAULT_CHUNK);
+    // 200 lines of 33 bytes: six edges, the fifth inside the emoji (100 lines' three edges all
+    // fall between characters).
+    const chunks = labBytesChunks(200, LAB_BYTES_DEFAULT_CHUNK);
     const body = Buffer.concat(chunks);
-    expect(body.toString('utf8')).toBe(Array.from({ length: 100 }, (_, n) => labLine(n)).join(''));
+    expect(body.toString('utf8')).toBe(Array.from({ length: 200 }, (_, n) => labLine(n)).join(''));
     expect(chunks.slice(0, -1).every((c) => c.length === LAB_BYTES_DEFAULT_CHUNK)).toBe(true);
     // At least one edge splits a character: decoding a chunk on its own breaks it.
     expect(chunks.some((c) => c.toString('utf8').includes('�'))).toBe(true);
@@ -32,10 +34,10 @@ describe('lab probes (RELAY step 15a)', () => {
     const res = await app.inject({ method: 'GET', url: '/__lab/bytes?lines=50&chunk=7' });
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toBe('text/plain; charset=utf-8');
-    expect(res.headers['content-length']).toBe(String(50 * 30));
+    expect(res.headers['content-length']).toBe(String(50 * 33));
     expect(res.headers['cache-control']).toBe('no-store');
     expect(res.headers['access-control-allow-origin']).toBe('*');
-    expect(res.body.split('\n').slice(0, 3)).toEqual(['000000 Zoma زوما ✓ 😀', '000001 Zoma زوما ✓ 😀', '000002 Zoma زوما ✓ 😀']);
+    expect(res.body.split('\n').slice(0, 3)).toEqual(['000000 Lablo لابلو ✓ 😀', '000001 Lablo لابلو ✓ 😀', '000002 Lablo لابلو ✓ 😀']);
     expect(res.body.split('\n')).toHaveLength(51);
   });
 

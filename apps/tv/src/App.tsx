@@ -1,7 +1,7 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { useSignal } from '@preact/signals';
-import type { DeviceInfo, Intent, LifecycleEvent, Platform } from '@zoma/platform-api';
-import { connectRemote, localeDir } from '@zoma/ui';
+import type { DeviceInfo, Intent, LifecycleEvent, Platform } from '@lablo/platform-api';
+import { connectRemote, localeDir } from '@lablo/ui';
 import { useEffect } from 'preact/hooks';
 import { DataPanel } from './DataPanel';
 import { FocusPanel } from './FocusPanel';
@@ -120,9 +120,9 @@ export function App({ platform, keyHelp, data, focus }: Props) {
   return (
     <main class="hello" data-testid="hello" data-ready={device === null ? 'false' : 'true'}>
       <h1 class="hello__title" data-testid="title">
-        Zoma
+        Lablo
         <span class="hello__brand-ar" lang="ar">
-          زوما
+          لابلو
         </span>
       </h1>
       <p class="hello__subtitle">

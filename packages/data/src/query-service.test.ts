@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { CatalogItem } from '@zoma/core';
+import type { CatalogItem } from '@lablo/core';
 import { createDataClient } from './client';
 import { openDatabase, transact } from './idb';
 import { QueryService } from './query-service';

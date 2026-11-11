@@ -1,4 +1,4 @@
-// The Zoma Lab's player batteries (RELAY step 15c, spikes S4, S5 and S8). The lab holds no test
+// The Lablo Lab's player batteries (RELAY step 15c, spikes S4, S5 and S8). The lab holds no test
 // account, so the mock hands it the media URLs of its test account, one per row of the battery:
 //
 //   GET /__lab/media   JSON: `media` (`files` or `placeholder`, as /__mock/health says) and

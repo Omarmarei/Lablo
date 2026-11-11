@@ -32,14 +32,14 @@ const GUIDE = [
   '<!DOCTYPE tv SYSTEM "xmltv.dtd">',
   '<!-- a comment with <programme> inside -->',
   '<tv generator-info-name="test">',
-  '  <channel id="zoma.ar4">',
-  '    <display-name lang="en">Zoma News</display-name>',
-  '    <display-name lang="ar">زوما الإخبارية</display-name>',
-  '    <display-name>Zoma News</display-name>',
+  '  <channel id="lablo.ar4">',
+  '    <display-name lang="en">Lablo News</display-name>',
+  '    <display-name lang="ar">لابلو الإخبارية</display-name>',
+  '    <display-name>Lablo News</display-name>',
   '    <icon src="http://img.test/a.png?x=1&amp;y=2" />',
   '  </channel>',
   "  <channel id='A&amp;E.us'><display-name>A &amp; E</display-name></channel>",
-  '  <programme start="20261102120000 +0300" stop="20261102123000 +0300" channel="zoma.ar4">',
+  '  <programme start="20261102120000 +0300" stop="20261102123000 +0300" channel="lablo.ar4">',
   '    <title lang="en">Evening   News</title>',
   '    <title lang="ar-SA">نشرة المساء</title>',
   '    <sub-title lang="en">&quot;42&quot; &amp; more</sub-title>',
@@ -49,7 +49,7 @@ const GUIDE = [
   '    <icon src="p.png"/>',
   '  </programme>',
   '  <programme start="20261102123000" channel="A&amp;E.us"><title>Bare</title><episode-num system="onscreen">S2E5</episode-num><episode-num system="xmltv_ns">0.0.</episode-num></programme>',
-  '  <programme start="20261102130000 +0000" channel="zoma.ar4" />',
+  '  <programme start="20261102130000 +0000" channel="lablo.ar4" />',
   '</tv>',
 ].join('\n');
 
@@ -57,11 +57,11 @@ describe('XmltvTokenizer golden', () => {
   it('reads channels and programmes with entities, CDATA and the preferred language', () => {
     const { items, stats } = parseXmltv(GUIDE, { languages: ['ar', 'en'] });
     expect(items).toEqual([
-      { type: 'channel', id: 'zoma.ar4', name: 'زوما الإخبارية', names: ['Zoma News', 'زوما الإخبارية'], icon: 'http://img.test/a.png?x=1&y=2' },
+      { type: 'channel', id: 'lablo.ar4', name: 'لابلو الإخبارية', names: ['Lablo News', 'لابلو الإخبارية'], icon: 'http://img.test/a.png?x=1&y=2' },
       { type: 'channel', id: 'A&E.us', name: 'A & E', names: ['A & E'], icon: null },
       {
         type: 'programme',
-        channel: 'zoma.ar4',
+        channel: 'lablo.ar4',
         start: '20261102120000 +0300',
         stop: '20261102123000 +0300',
         title: 'نشرة المساء',
@@ -73,7 +73,7 @@ describe('XmltvTokenizer golden', () => {
         icon: 'p.png',
       },
       { type: 'programme', channel: 'A&E.us', start: '20261102123000', stop: null, title: 'Bare', subTitle: null, desc: null, category: null, episode: 'S2E5', icon: null },
-      { type: 'programme', channel: 'zoma.ar4', start: '20261102130000 +0000', stop: null, title: '', subTitle: null, desc: null, category: null, episode: null, icon: null },
+      { type: 'programme', channel: 'lablo.ar4', start: '20261102130000 +0000', stop: null, title: '', subTitle: null, desc: null, category: null, episode: null, icon: null },
     ]);
     expect(stats).toEqual({ channels: 2, programmes: 3, filtered: 0, invalid: 0, lateChannels: 0, cutTexts: 0, malformed: 0, truncated: false });
   });
@@ -82,7 +82,7 @@ describe('XmltvTokenizer golden', () => {
     const first = programmes(parseXmltv(GUIDE).items)[0]!;
     expect([first.title, first.category]).toEqual(['Evening News', 'News']);
     const en = parseXmltv(GUIDE, { languages: ['EN-us'] }).items;
-    expect((en[0] as { name: string }).name).toBe('Zoma News');
+    expect((en[0] as { name: string }).name).toBe('Lablo News');
     expect(programmes(en)[0]!.title).toBe('Evening News');
   });
 
@@ -95,7 +95,7 @@ describe('XmltvTokenizer golden', () => {
       },
     });
     expect(programmes(items).map((p) => p.title)).toEqual(['Bare']);
-    expect(asked).toEqual(['zoma.ar4', 'A&E.us', 'zoma.ar4']);
+    expect(asked).toEqual(['lablo.ar4', 'A&E.us', 'lablo.ar4']);
     expect(stats).toMatchObject({ programmes: 1, filtered: 2, channels: 2 });
   });
 
@@ -224,7 +224,7 @@ describe('XmltvTokenizer properties', () => {
   it('gives the same items and stats for any chunking of a real guide', () => {
     fc.assert(
       fc.property(cuts, fc.boolean(), (at, filter) => {
-        const options: XmltvOptions = { languages: ['ar'], wantChannel: filter ? (id) => id !== 'zoma.ar4' : undefined };
+        const options: XmltvOptions = { languages: ['ar'], wantChannel: filter ? (id) => id !== 'lablo.ar4' : undefined };
         expect(tokenize(cut(GUIDE, at), options)).toEqual(tokenize([GUIDE], options));
       }),
       { numRuns: 300 },

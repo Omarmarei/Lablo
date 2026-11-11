@@ -21,8 +21,8 @@
  * side before AVPlay opens: the on-TV check (step 21) says whether that happens.
  */
 
-import type { RedirectMemory, RedirectMode } from '@zoma/platform-api';
-import type { PlaybackError } from '@zoma/player';
+import type { RedirectMemory, RedirectMode } from '@lablo/platform-api';
+import type { PlaybackError } from '@lablo/player';
 
 export type { RedirectMemory, RedirectMode };
 

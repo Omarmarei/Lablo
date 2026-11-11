@@ -1,5 +1,5 @@
-import { PLURAL_CATEGORIES, stripIsolates } from '@zoma/core';
-import { messageArguments, parseMessage, pluralBranches, pseudoLocalize, resolveLocale } from '@zoma/ui';
+import { PLURAL_CATEGORIES, stripIsolates } from '@lablo/core';
+import { messageArguments, parseMessage, pluralBranches, pseudoLocalize, resolveLocale } from '@lablo/ui';
 import { describe, expect, it } from 'vitest';
 import { AR } from './ar';
 import type { MessageKey } from './en';
@@ -15,7 +15,7 @@ function sampleArgs(key: MessageKey): Record<string, string | number> {
   const args: Record<string, string | number> = {};
   for (const entry of messageArguments(parseMessage(EN[key]))) {
     const [name = '', kind] = entry.split(':');
-    args[name] = kind === 'argument' ? 'Zoma' : 7;
+    args[name] = kind === 'argument' ? 'Lablo' : 7;
   }
   return args;
 }
@@ -49,7 +49,7 @@ describe('the catalogs', () => {
   });
 
   it.each(KEYS)('%s reads as Arabic in Arabic and has no Latin words of its own', (key) => {
-    const text = stripIsolates(appI18n('ar-SA').t(key, sampleArgs(key))).replace(/Zoma/g, '');
+    const text = stripIsolates(appI18n('ar-SA').t(key, sampleArgs(key))).replace(/Lablo/g, '');
     expect(ARABIC_LETTER.test(text), text).toBe(true);
     expect(LATIN_LETTER.test(text), text).toBe(false);
   });

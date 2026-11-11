@@ -97,7 +97,7 @@ export function getValue<T>(db: IDBDatabase, store: string, key: IDBValidKey): P
 }
 
 export interface OpenOptions {
-  /** Database name (default `zoma`). */
+  /** Database name (default `lablo`). */
   name?: string;
   /** Migration list (default: the app's `MIGRATIONS`); the database version is its length. */
   migrations?: readonly Migration[];

@@ -51,8 +51,8 @@ describe('M3uCatalogParser golden', () => {
     'http://cdn.test/vod/night-city.mp4',
     '#EXTINF:-1 group-title="EN | Drama",Night City S01E02',
     'http://p.test/series/u/p/8.mp4',
-    '#EXTINF:-1 radio="true" group-title="Radio",Zoma FM',
-    'http://p.test/radio/zoma.mp3',
+    '#EXTINF:-1 radio="true" group-title="Radio",Lablo FM',
+    'http://p.test/radio/lablo.mp3',
     '#EXTINF:-1 tvg-name="Name From Attribute" group-title="X",',
     'http://p.test/live/u/p/10.ts',
     '#EXTINF:-1 catchup="false" catchup-days="3",No Archive',
@@ -96,7 +96,7 @@ describe('M3uCatalogParser golden', () => {
     expect(byUrl(10)).toMatchObject({ name: 'Name From Attribute', tvgName: null });
     expect(byUrl(15).name).toHaveLength(MAX_TEXT);
     const radio = items.find((i) => i.radio)!;
-    expect(radio).toMatchObject({ kind: 'live', name: 'Zoma FM' });
+    expect(radio).toMatchObject({ kind: 'live', name: 'Lablo FM' });
   });
 
   it('records catch-up facts and stream hints as written', () => {

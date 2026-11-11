@@ -37,7 +37,7 @@ function withMovies(base: Catalog): Catalog {
   const extra: Movie[] = Array.from({ length: EXTRA }, (_v, i) => ({
     id: 300 + i,
     num: 300 + i,
-    name: i % 2 === 0 ? `Zoma Test Film ${i + 1}` : `فيلم تجريبي ${i + 1}`,
+    name: i % 2 === 0 ? `Lablo Test Film ${i + 1}` : `فيلم تجريبي ${i + 1}`,
     categoryId: 12,
     ext: 'mp4',
     year: 2026,
@@ -48,7 +48,7 @@ function withMovies(base: Catalog): Catalog {
     addedDaysAgo: i,
     media: 'vod',
   }));
-  return { ...base, vodCategories: base.vodCategories.concat([{ id: 12, name: 'Zoma Test Films', parentId: 0 }]), movies: base.movies.concat(extra) };
+  return { ...base, vodCategories: base.vodCategories.concat([{ id: 12, name: 'Lablo Test Films', parentId: 0 }]), movies: base.movies.concat(extra) };
 }
 
 const catalog = withMovies(loadCatalog());
@@ -130,7 +130,7 @@ test.describe('the movies screen (RELAY step 26a)', () => {
 
       // The rail: "All movies", then the panel's categories, with their counts.
       const chips = page.locator('[data-testid^=movies-chip-] .z-chip__label');
-      await expect(chips).toHaveText([says.all, 'Open Movies | أفلام مفتوحة', 'Test Patterns', 'Zoma Test Films']);
+      await expect(chips).toHaveText([says.all, 'Open Movies | أفلام مفتوحة', 'Test Patterns', 'Lablo Test Films']);
       await expect(page.getByTestId('movies-meta')).toContainText(says.all);
       await expect(page.getByTestId('movies-meta').locator('[data-n]')).toHaveAttribute('data-n', String(ordered.length));
       if (language === 'en') await expect(page.getByTestId('movies-meta')).toContainText(`${ordered.length} movies`);
@@ -183,7 +183,7 @@ test.describe('the movies screen (RELAY step 26a)', () => {
       await expect(screen).toHaveAttribute('data-category', '2');
       await settled(screen);
       grid = await readGrid(page);
-      expect(grid.tiles.map((t) => t.title)).toEqual(['Zoma Test Pattern 4K HEVC', 'اختبار الصوت المتعدد']);
+      expect(grid.tiles.map((t) => t.title)).toEqual(['Lablo Test Pattern 4K HEVC', 'اختبار الصوت المتعدد']);
       await expect(page.getByTestId('movies-meta')).toContainText('Test Patterns');
       await remote.go(forward, 'movies/grid/1');
 

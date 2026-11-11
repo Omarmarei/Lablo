@@ -2,8 +2,8 @@
 // now/next, the grid's rows and the programme details, over guides written straight into the
 // store. The offsets come from the profile at each reload, and an `editProfile` applies them at once.
 
-import type { EpgMatchMethod, EpgProgramme } from '@zoma/core';
-import { buildEpgBucket, epgDay } from '@zoma/core';
+import type { EpgMatchMethod, EpgProgramme } from '@lablo/core';
+import { buildEpgBucket, epgDay } from '@lablo/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { StoredEpgMatch } from './epg-store';
 import { beginEpgGeneration, commitEpgGeneration, putEpgBuckets, putEpgChannels } from './epg-store';

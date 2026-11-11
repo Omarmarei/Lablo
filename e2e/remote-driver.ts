@@ -7,7 +7,7 @@ import { INTENT_KEYS } from './remote-keys';
 /**
  * Drives the dev app the way a remote does (architecture.md §4, RELAY step 14b): it presses
  * Intents through the browser adapter's keys and reads the focus from the focus engine
- * (`window.__ZOMA_TEST__.focusPath()`, apps/tv/src/test-hook.ts), not from the DOM.
+ * (`window.__LABLO_TEST__.focusPath()`, apps/tv/src/test-hook.ts), not from the DOM.
  *
  * - `expectFocus` waits until the engine's path is the one given, and until the screen on show
  *   (`#app > [data-screen]`) draws the same focus.
@@ -29,7 +29,7 @@ export class RemoteDriver {
 
   /** The focus engine's `screen/zone/index`, or null before a screen shows. */
   focusPath(): Promise<string | null> {
-    return this.page.evaluate(() => window.__ZOMA_TEST__?.focusPath() ?? null);
+    return this.page.evaluate(() => window.__LABLO_TEST__?.focusPath() ?? null);
   }
 
   /** The engine's focus and the one the screen on show draws (`null`: no screen draws one). */
@@ -37,7 +37,7 @@ export class RemoteDriver {
     return this.page.evaluate(() => {
       const root = document.querySelector('#app > [data-screen]');
       const drawn = root === null ? null : `${root.getAttribute('data-screen')}/${root.getAttribute('data-zone')}/${root.getAttribute('data-index')}`;
-      return { engine: window.__ZOMA_TEST__?.focusPath() ?? null, drawn };
+      return { engine: window.__LABLO_TEST__?.focusPath() ?? null, drawn };
     });
   }
 
@@ -66,7 +66,7 @@ export class RemoteDriver {
   ): Promise<number> {
     await this.page.evaluate(armPress, { expected: path, timeoutMs, timeMoves });
     await this.page.keyboard.press(INTENT_KEYS[intent]);
-    const result = await this.page.evaluate(() => (window as unknown as PressWindow).__zomaPress);
+    const result = await this.page.evaluate(() => (window as unknown as PressWindow).__labloPress);
     if (result.ms === null && result.path === path) throw new Error(`${label}: the time never moved from ${result.time ?? 'nothing'} (the focus is at ${path})`);
     if (result.ms === null) throw new Error(`${label}: the focus never reached ${path} (it is at ${result.path ?? 'nothing'})`);
     this.timings.push({ label, ms: result.ms });
@@ -79,7 +79,7 @@ export class RemoteDriver {
     await this.page.evaluate(() => {
       const w = window as unknown as PressWindow;
       const seen: number[] = [];
-      w.__zomaLongTasks = seen;
+      w.__labloLongTasks = seen;
       new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) seen.push(entry.duration);
       }).observe({ type: 'longtask' });
@@ -90,7 +90,7 @@ export class RemoteDriver {
   async longTasks(): Promise<number[]> {
     return this.page.evaluate(() => {
       const w = window as unknown as PressWindow;
-      const seen = w.__zomaLongTasks ?? [];
+      const seen = w.__labloLongTasks ?? [];
       return seen.splice(0, seen.length);
     });
   }
@@ -107,8 +107,8 @@ interface PressResult {
 }
 
 interface PressWindow {
-  __zomaPress: Promise<PressResult>;
-  __zomaLongTasks?: number[];
+  __labloPress: Promise<PressResult>;
+  __labloLongTasks?: number[];
 }
 
 /** In the page: arms the measurement of the next key press (see `timedPress`). */
@@ -116,12 +116,12 @@ function armPress({ expected, timeoutMs, timeMoves }: { expected: string; timeou
   const w = window as unknown as PressWindow & Window;
   const drawnTime = (): string | null => document.querySelector('#app > [data-screen]')?.getAttribute('data-time') ?? null;
   const before = drawnTime();
-  w.__zomaPress = new Promise<PressResult>((resolve) => {
+  w.__labloPress = new Promise<PressResult>((resolve) => {
     const onKey = (event: KeyboardEvent): void => {
       removeEventListener('keydown', onKey, true);
       const start = event.timeStamp;
       const tick = (): void => {
-        const path = w.__ZOMA_TEST__?.focusPath() ?? null;
+        const path = w.__LABLO_TEST__?.focusPath() ?? null;
         const time = drawnTime();
         if (path === expected && (!timeMoves || time !== before)) {
           // This frame shows the focus: the task after it runs once it has been painted.

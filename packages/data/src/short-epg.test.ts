@@ -1,5 +1,5 @@
-import type { CatalogItem, XtreamAccount } from '@zoma/core';
-import { EPG_FLAG_STOP_GUESSED, XtreamError } from '@zoma/core';
+import type { CatalogItem, XtreamAccount } from '@lablo/core';
+import { EPG_FLAG_STOP_GUESSED, XtreamError } from '@lablo/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { NetworkError } from './bytes';
 import { runEpgRefresh } from './epg-ingest';

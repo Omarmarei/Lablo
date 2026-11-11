@@ -14,7 +14,7 @@ import { RemoteDriver } from './remote-driver';
 /**
  * The guide's catch-up days and the archive marks (RELAY step 25c) by keys, in English and
  * Arabic, after onboarding adds the mock provider's Xtream login. The mock's longest archive is
- * seven days ("Zoma Test 1 SMPTE", 101, and 112), so the guide reaches back to local midnight
+ * seven days ("Lablo Test 1 SMPTE", 101, and 112), so the guide reaches back to local midnight
  * seven days ago. Every programme gone by within its channel's archive days carries the
  * catch-up mark, named "Catch-up" in the cell's text; none on air, to come, older than the
  * archive, or on a channel without one. A programme six days back on 101 plays from the start:

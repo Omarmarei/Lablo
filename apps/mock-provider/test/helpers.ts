@@ -9,8 +9,8 @@ export const NOW = Date.UTC(2026, 10, 2, 12, 0, 0);
 export const NOW_SEC = NOW / 1000;
 export const DAY_SEC = 86_400;
 
-export const U = 'zoma';
-export const P = 'zoma-test';
+export const U = 'lablo';
+export const P = 'lablo-test';
 
 /** A mock with the pinned clock, finite live streams and no lab-log folder. */
 export function mock(options: MockServerOptions = {}): Promise<MockServer> {

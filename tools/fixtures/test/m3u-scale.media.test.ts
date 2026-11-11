@@ -10,7 +10,7 @@ import { FULL_COUNTS } from '../src/catalog';
 import type { FixtureManifest } from '../src/generate';
 import { expectMatchesCatalog, parsePlaylistFile } from './m3u-oracle';
 
-const fixtures = process.env['ZOMA_FIXTURES_DIR'] ?? join(import.meta.dirname, '..', '..', '..', '.cache', 'fixtures');
+const fixtures = process.env['LABLO_FIXTURES_DIR'] ?? join(import.meta.dirname, '..', '..', '..', '.cache', 'fixtures');
 
 describe('core M3U parser over the 200k fixture', () => {
   it('returns all 200,000 entries and survives the 400 malformed lines', async () => {

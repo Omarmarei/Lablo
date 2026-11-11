@@ -63,7 +63,7 @@ async function main(): Promise<void> {
   for (const licence of LICENCES) licences.push((await fetchPinned(licence)).toString('utf8').trim());
   writeFileSync(
     path.join(OUT, 'OFL.txt'),
-    `The Zoma Sans font files are subsets of Noto Sans and Noto Sans Arabic UI, unmodified\notherwise, under the SIL Open Font License 1.1:\n\n${licences.join('\n\n----\n\n')}\n`,
+    `The Lablo Sans font files are subsets of Noto Sans and Noto Sans Arabic UI, unmodified\notherwise, under the SIL Open Font License 1.1:\n\n${licences.join('\n\n----\n\n')}\n`,
   );
   const manifest: FontManifest = { family: FAMILY, faces };
   writeFileSync(path.join(OUT, 'fonts.json'), `${JSON.stringify(manifest, null, 2)}\n`);

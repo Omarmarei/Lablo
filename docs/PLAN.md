@@ -1,24 +1,24 @@
-# Zoma IPTV — Research & Product Plan
+# Lablo IPTV — Research & Product Plan
 
 ## Context
-Zoma IPTV is a new IPTV player for Samsung (Tizen) and LG (webOS) TVs, built to beat IPTV Smarters, IBO Player, BOB Player, Hot Player and the rest. It plays no content of its own: users bring their own M3U or Xtream playlists. The working folder `d:\Claude Code PlayGround\IPTV` is empty, so this starts from scratch.
+Lablo IPTV is a new IPTV player for Samsung (Tizen) and LG (webOS) TVs, built to beat IPTV Smarters, IBO Player, BOB Player, Hot Player and the rest. It plays no content of its own: users bring their own M3U or Xtream playlists. The working folder `d:\Claude Code PlayGround\IPTV` is empty, so this starts from scratch.
 
 The research covered about 20 competing apps, user reviews from Trustpilot, forums and app stores, and Samsung and LG's official developer and store documentation.
 
 ## Executive summary
 - **The market is weak on trust and quality.** The incumbents score 1.6–2.2 on Trustpilot. Users complain about no support, licences locked to one TV, clone apps, reloading the whole playlist at every launch, no real TV guide, broken audio tracks and clunky remotes. The app everyone praises, **TiviMate**, runs only on Android, and Samsung and LG owners keep asking for it on their TVs.
-- **Zoma's angle:** a TiviMate-class player for Samsung and LG.
+- **Lablo's angle:** a TiviMate-class player for Samsung and LG.
   - **Instant start:** the channel list is cached, so the app opens straight to the last channel.
   - **A real grid TV guide with catch-up.**
   - **Phone setup:** scan a QR code on the TV and type the playlist on your phone.
   - **Arabic and English from day one**, with a right-to-left layout.
   - **Free with no ads**, and playlist logins encrypted end to end.
-  - **An "is it the app or my provider?" check**, so provider outages don't land on Zoma.
+  - **An "is it the app or my provider?" check**, so provider outages don't land on Lablo.
 - **The biggest risk is store access and legal exposure, not engineering.**
   - **Samsung:** only publishes new sellers in the **US** until a partner contract is signed. The GCC and Canada need that contract.
   - **LG:** lets us choose countries.
   - **Both stores:** have removed IPTV players before.
-  - **How Zoma stays clean:** no bundled channels, our servers never touch provider links, and a remote kill-switch.
+  - **How Lablo stays clean:** no bundled channels, our servers never touch provider links, and a remote kill-switch.
 - **Tech:** one TypeScript codebase for both TVs (Preact). It supports **2018+ TVs**, with a full-feature tier for 2020+ models. It uses each TV's built-in video player (AVPlay on Samsung). The backend is small: Next.js, Prisma and Postgres.
 - **Timeline:** about **17 weeks to store submission** (around 52 Claude Code sessions), plus store review time. Weeks 1–2 are tests on real TVs that can change the plan.
 
@@ -42,12 +42,12 @@ The research covered about 20 competing apps, user reviews from Trustpilot, foru
 | SmartOne IPTV | Tizen+Orsay / webOS+Netcast + VIDAA | €2.50/yr or €12.99 lifetime | Web upload | TMDb metadata, reseller dashboard | Lags on big playlists [unverified] |
 | Net IPTV / SET IPTV / Flix / Duplex / Room | Mixed, several aging out | €2–9 per device | MAC upload | Old-TV coverage | Duplex reportedly stopped selling licences |
 | **TiviMate** (Android only — benchmark) | **No** | €9.99/yr or ~€34 lifetime, 5 devices | On device + Companion app | 14-day grid EPG, DVR, 9-way multiview, PiP, catch-up in grid | Loved; slow updates |
-| New 2026 entrants: Easy IP TV, StreamHub (webOS 23–26) | LG first | Subscription / €10 for 3 TVs | Server-side processing | Pitch: "TiviMate for TVs" | Direct threat to Zoma |
+| New 2026 entrants: Easy IP TV, StreamHub (webOS 23–26) | LG first | Subscription / €10 for 3 TVs | Server-side processing | Pitch: "TiviMate for TVs" | Direct threat to Lablo |
 
 **Market gaps that nearly all TV players share:**
 1. **Onboarding:** you copy a MAC address off the TV, go to a website on another device, paste the URL, then restart the app. The TV's MAC also differs between Wi-Fi and Ethernet. No incumbent has a verified QR or phone-pairing flow.
 2. **Trust and privacy:** playlist credentials sit on the developer's server, fake portals exist, and about 24 clone "skins" of one app confuse buyers. Trust is the scarce resource here.
-3. **Licensing anger:** "lifetime" means one device, with no transfers and no refunds. This is why Trustpilot scores sit at 1.6–2.2. (Zoma being free sidesteps all of it.)
+3. **Licensing anger:** "lifetime" means one device, with no transfers and no refunds. This is why Trustpilot scores sit at 1.6–2.2. (Lablo being free sidesteps all of it.)
 4. **EPG:** usually a list or now/next only. No TV-native app has a 7–14-day grid EPG that matches TiviMate.
 5. **Power features missing on TV:** multiview, PiP, timeshift, recording and saved layouts are essentially absent.
 6. **Large playlists:** apps reportedly lag above about 20,000 channels.
@@ -60,7 +60,7 @@ Sources: Trustpilot, App Store reviews, JustUseApp, AVForums, Boards.ie, RedFlag
 ### Top complaints, most frequent first
 1. **No support and refused refunds.** iboproapp scores 1.6/5 (84% one-star), iboplayer 2.0/5, Hot Player 2.2/5. Reviewers describe copy-paste replies and silence on WhatsApp.
 2. **Buffering and freezing.** Often the provider's fault, but users blame the app. Users say TiviMate "buffers less, feels snappier" on the same playlist.
-3. **Activation lost.** Licences are locked to a MAC and can't be transferred, so "lifetime" dies with the TV. The MAC also changes when switching between Wi-Fi and Ethernet. *(Doesn't apply to Zoma while it's free.)*
+3. **Activation lost.** Licences are locked to a MAC and can't be transferred, so "lifetime" dies with the TV. The MAC also changes when switching between Wi-Fi and Ethernet. *(Doesn't apply to Lablo while it's free.)*
 4. **Clone apps and fake sites.** bobplayer.org, iboplayer.net and dozens of Smarters lookalikes.
 5. **Slow loading.** Apps reload the whole provider database at every launch (AVForums: "I want TiviMate's memory function on Tizen"). Users report 30–40 s channel loads.
 6. **EPG problems.** It doesn't load, stops updating after 6 hours, or is per-channel only with no grid. International channels often have no EPG at all.
@@ -81,7 +81,7 @@ Users choose on stability, a usable guide and helpful setup, not on feature coun
 - catch-up from the guide
 - a fair 5-device licence
 
-It is not on Samsung or LG, and Samsung's own community moderators tell users to buy an Android stick instead. **That gap is Zoma's opening.**
+It is not on Samsung or LG, and Samsung's own community moderators tell users to buy an Android stick instead. **That gap is Lablo's opening.**
 
 ### Unmet needs from Samsung/LG owners
 - TiviMate-class quality without an extra box
@@ -162,7 +162,7 @@ Samsung's web engine never gets upgraded after the TV ships, so each model year 
 - **Built-in players first.** Samsung's player is **AVPlay**; LG's is the HTML5 `<video src>` element, which hands off to LG's built-in media player.
   - Pointing these at a direct `.ts` or `.m3u8` URL avoids the browser's cross-origin (CORS) restrictions entirely.
   - Both play TS, MKV, MP4 and AVI, with H.264/HEVC/AV1/VP9 video and AC3/E-AC3 audio. **No DTS on Samsung 2024+.**
-- **Samsung:** browser-based streaming libraries such as hls.js (which play through the browser's MSE pipeline) are **limited to Full HD**, so **4K must go through AVPlay**. AVPlay can freeze on endless TS streams, so Zoma needs a stall watchdog that reconnects automatically.
+- **Samsung:** browser-based streaming libraries such as hls.js (which play through the browser's MSE pipeline) are **limited to Full HD**, so **4K must go through AVPlay**. AVPlay can freeze on endless TS streams, so Lablo needs a stall watchdog that reconnects automatically.
 - **LG:**
   - External subtitles must be WebVTT, so SRT files are converted to VTT on the TV.
   - **No playback speeds other than 1.0x.**
@@ -192,7 +192,7 @@ Samsung's web engine never gets upgraded after the TV ships, so each model year 
 - **Samsung:** Checkout is available in 120 countries.
 - Whether a web or QR activation fee is allowed is unclear. Ask each store before ever charging.
 
-## 4. Zoma IPTV — product definition
+## 4. Lablo IPTV — product definition
 
 **Positioning:** *A TiviMate-class player for Samsung and LG TVs. Fast, Arabic-first, free, and trustworthy.* No incumbent on either TV platform combines a real grid guide, instant start, effortless setup and an RTL Arabic UI.
 
@@ -238,12 +238,12 @@ Samsung's web engine never gets upgraded after the TV ships, so each model year 
   - Aspect/zoom, stream info overlay (codec, resolution, FPS, bitrate).
   - Automatic reconnect on stalls, with a visible "reconnecting" state. Buffer setting: "Fast start / Stable".
   - Colour-key shortcuts (e.g. red = favourites; Guide key opens the EPG).
-- **App language** chosen inside Zoma (English / Arabic), independent of the TV's language.
+- **App language** chosen inside Lablo (English / Arabic), independent of the TV's language.
 - **Parental**
   - PIN, locked categories and channels.
   - Groups detected as adult are locked by default.
 - **Accessibility:** TTS/Voice Guide, captions, Magic Remote pointer support, large-text option.
-- **Legal surfaces:** in-app disclaimer ("Zoma provides no content"), ToS, privacy policy, consent screen for the device ID.
+- **Legal surfaces:** in-app disclaimer ("Lablo provides no content"), ToS, privacy policy, consent screen for the device ID.
 
 ### Not in v1, and why
 | Excluded | Reason |
@@ -306,7 +306,7 @@ Samsung's web engine never gets upgraded after the TV ships, so each model year 
 
 ### Monorepo layout
 ```
-zoma/
+lablo/
 ├─ apps/tv/               screens, router, wiring, one entry file per platform
 ├─ apps/web/              Next.js: /p phone pairing page, /v1/* API, legal pages, landing
 ├─ apps/mock-provider/    Fastify Xtream/M3U/XMLTV/HLS/TS emulator with legal content and fault injection
@@ -413,7 +413,7 @@ Each session ends with `pnpm verify` green (lint, typecheck, tests, both TV buil
 - **v1.1:**
   - live preview while browsing (single resizable video)
   - **timeshift through catch-up**: rewind or pause a live channel within the provider's archive window
-  - programme reminders while Zoma is open (waking a closed app depends on Tizen's alarm API; needs investigation)
+  - programme reminders while Lablo is open (waking a closed app depends on Tizen's alarm API; needs investigation)
   - layout options: list/grid views, EPG density, logo size, light theme
   - button remapping
   - connection speed test in diagnostics
@@ -438,7 +438,7 @@ Each session ends with `pnpm verify` green (lint, typecheck, tests, both TV buil
 4. **Canada listings** wait for fr-CA (Quebec French-language rules) in v1.1.
 
 ### Submission pack
-- Store copy in English and Arabic, with the disclaimer "Zoma does not provide any content".
+- Store copy in English and Arabic, with the disclaimer "Lablo does not provide any content".
 - Screenshots using only test patterns and Blender content. **No real channel logos.**
 - LG UX scenario document and the current self-checklist.
 - Samsung UI Description PPTX and tester notes.
@@ -448,7 +448,7 @@ Each session ends with `pnpm verify` green (lint, typecheck, tests, both TV buil
 ### Your business & legal track (runs in parallel; you own it)
 | When | Item |
 |---|---|
-| Week 0–1 | Decide the **publishing company**. **Order 4 test TVs**: a 2018 Samsung (e.g. NU7100), a 2018 LG low-end (e.g. UK6300), a 2023/24 Samsung and a 2023/24 LG. Open **Samsung Seller Office + submit the Partner application** (Samsung Gulf). Open the **LG Seller Lounge** account. Run a **"Zoma" trademark clearance** (US, Canada, UAE, KSA). Register domains and social handles |
+| Week 0–1 | Decide the **publishing company**. **Order 4 test TVs**: a 2018 Samsung (e.g. NU7100), a 2018 LG low-end (e.g. UK6300), a 2023/24 Samsung and a 2023/24 LG. Open **Samsung Seller Office + submit the Partner application** (Samsung Gulf). Open the **LG Seller Lounge** account. Run a **"Lablo" trademark clearance** (US, Canada, UAE, KSA). Register domains and social handles |
 | Week 2–4 | Counsel (US + one GCC jurisdiction): ToS, privacy policy (UAE/KSA PDPL, PIPEDA, Quebec Law 25), DMCA policy. **Register a DMCA agent** with the US Copyright Office. Court-order/kill-switch runbook |
 | Week 4–8 | File trademarks; support mailbox and help pages |
 | Week 12–14 | Legal pages live; test server live; **back up the Tizen author certificate + config signing key in two places** |
@@ -477,7 +477,7 @@ Each session ends with `pnpm verify` green (lint, typecheck, tests, both TV buil
 - **Definition of Done mapping:** tests + build green → PR merged with CI green → backend deploy (Vercel/Neon; **I ask before each production deploy or migration**) → store submission (**I ask before each submission**) → live check on a real TV → handover.
 
 ## First steps after you approve
-1. Create the project in `d:\Claude Code PlayGround\IPTV`: `git init`, private GitHub repo `zoma-iptv` (I'll confirm the GitHub owner), and the Phase 0.1 scaffold.
+1. Create the project in `d:\Claude Code PlayGround\IPTV`: `git init`, private GitHub repo `Lablo` (I'll confirm the GitHub owner), and the Phase 0.1 scaffold.
 2. Save the full research reports into `docs/research/` and the architecture detail into `docs/architecture.md` and ADRs, so future sessions don't redo the research.
 3. Write `ROADMAP.md` with one checkbox per session, ready for `/relay` or manual sessions.
 4. You start the business track: test TVs, seller accounts, the Samsung Partner application, trademark check.

@@ -1,8 +1,8 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { Platform } from '@zoma/platform-api';
-import type { Focus, Navigator, Screen, ScreenSpec } from '@zoma/ui';
-import { bindFocus, createNavigator } from '@zoma/ui';
+import type { Platform } from '@lablo/platform-api';
+import type { Focus, Navigator, Screen, ScreenSpec } from '@lablo/ui';
+import { bindFocus, createNavigator } from '@lablo/ui';
 
 /**
  * The focus engine on the hello screen (relay step 10): a rail of tiles, a list showing a

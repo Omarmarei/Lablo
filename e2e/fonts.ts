@@ -30,13 +30,16 @@ export async function renderedFonts(page: Page, selector: string): Promise<Rende
   }
 }
 
-/** The bundled Zoma Sans faces: Latin text in Noto Sans, Arabic text in Noto Sans Arabic UI. */
+/** The bundled Lablo Sans faces: Latin text in Noto Sans, Arabic text in Noto Sans Arabic UI. */
 export const LATIN_FACE = 'Noto Sans';
 export const ARABIC_FACE = 'Noto Sans Arabic UI';
 
-/** The hello screen's title, "Zoma زوما": four glyphs from each face. */
+/**
+ * The hello screen's title, "Lablo لابلو": five Latin glyphs, and four Arabic ones (five letters,
+ * but lam and alef join into one ligature glyph).
+ */
 export const TITLE_FONTS: readonly RenderedFont[] = [
-  { familyName: LATIN_FACE, isCustomFont: true, glyphCount: 4 },
+  { familyName: LATIN_FACE, isCustomFont: true, glyphCount: 5 },
   { familyName: ARABIC_FACE, isCustomFont: true, glyphCount: 4 },
 ];
 

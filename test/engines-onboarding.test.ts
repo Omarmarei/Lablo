@@ -1,6 +1,6 @@
 // RELAY steps 13c, 14a, 14c and 23e: the old-engine harness walks onboarding to the live screen,
 // the live screen by keys and the grid guide, with its own ES5 probes and constants (tools/* may
-// not import the app, @zoma/ui or @zoma/data). This keeps them equal to the app's, to the data
+// not import the app, @lablo/ui or @lablo/data). This keeps them equal to the app's, to the data
 // layer's, to the TV adapters' and to the e2e tests'.
 
 import { readFileSync } from 'node:fs';
@@ -131,7 +131,7 @@ describe('the live screen of the old-engine harness (RELAY step 14c)', () => {
       ['packages/ui/src/components/ListRow.tsx', ['<span class="z-row__number">', '<span class="z-row__name"', '<div class="z-row__now">', '<span class="z-row__title"', '<div class="z-row__next">']],
       ['packages/ui/src/components/Chip.tsx', ["selected ? ' is-selected' : ''", '<span class="z-chip__label"', '<span class="z-chip__count">']],
       ['packages/ui/src/components/Dialog.tsx', ['data-testid={testId}']],
-      ['apps/tv/src/test-hook.ts', ['target.__ZOMA_TEST__ = {', 'focusPath: () =>']],
+      ['apps/tv/src/test-hook.ts', ['target.__LABLO_TEST__ = {', 'focusPath: () =>']],
     ];
     for (const [file, wanted] of marks) {
       const source = read(file);

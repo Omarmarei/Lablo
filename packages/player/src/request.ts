@@ -8,8 +8,8 @@
  * a source whose `.m3u8` played puts `.m3u8` first from then on.
  */
 
-import type { CatchupInfo, CatchupWindow, ContentKey, ZoneOffset } from '@zoma/core';
-import { UTC_ZONE, catchupMode, m3uCatchupUrl, parseXtreamStreamUrl, xtreamCatchupUrl, xtreamStreamUrl } from '@zoma/core';
+import type { CatchupInfo, CatchupWindow, ContentKey, ZoneOffset } from '@lablo/core';
+import { UTC_ZONE, catchupMode, m3uCatchupUrl, parseXtreamStreamUrl, xtreamCatchupUrl, xtreamStreamUrl } from '@lablo/core';
 import type { Container, PlayMode } from './engine';
 
 /**

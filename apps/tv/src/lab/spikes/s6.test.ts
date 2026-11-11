@@ -1,4 +1,4 @@
-import type { EpgRefreshResult, IngestResult, LoadedProfile } from '@zoma/data';
+import type { EpgRefreshResult, IngestResult, LoadedProfile } from '@lablo/data';
 import { describe, expect, it } from 'vitest';
 import type { LiveStage, PressTiming } from '../live-stage';
 import { S6_PRESSES, S6_SOURCE_ID } from '../scale';
@@ -158,7 +158,7 @@ describe('S6 (RELAY step 15b) on a fake data engine', () => {
     expect(results.keys!.value).toMatchObject({ count: S6_PRESSES.length, during: S6_PRESSES.length, refresh: { ended: 'cancelled', itemsAtStart: 5 } });
     expect(results.guide!.value).toMatchObject({ ms: 2000, wanted: 12, matched: 11, kept: 1360, gzipped: true });
     expect(results['cold-start']!.value).toEqual({ bootMs: 900, dataMs: 40, totalMs: 940, idleMs: 640, start: 'home' });
-    expect(results.cleanup!.note).toBe('deleted "zoma"');
+    expect(results.cleanup!.note).toBe('deleted "lablo"');
     expect(f.calls).toEqual([
       'get http://lab:8080/__lab/source?around=T',
       'start',
@@ -173,7 +173,7 @@ describe('S6 (RELAY step 15b) on a fake data engine', () => {
       'mount',
       'close',
       'dispose',
-      'delete zoma',
+      'delete lablo',
     ]);
     expect(f.engines).toBe(2);
   });

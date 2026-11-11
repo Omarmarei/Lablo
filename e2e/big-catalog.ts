@@ -26,14 +26,14 @@ export interface BigCatalogOptions {
 export const NO_GUIDE_EVERY = 10;
 
 const GROUPS = ['EN | News', 'AR | أخبار', 'Sports HD', 'AR | MBC Group HD', 'FR | Cinéma', 'Kids | أطفال', 'ES | Deportes', 'Documentary 4K'] as const;
-const NAMES = ['Zoma Test {n} HD', 'قناة الاختبار {n}', 'Test Channel {n} FHD', 'Zoma Radio {n}', 'Chaîne Test {n}'] as const;
+const NAMES = ['Lablo Test {n} HD', 'قناة الاختبار {n}', 'Test Channel {n} FHD', 'Lablo Radio {n}', 'Chaîne Test {n}'] as const;
 
 function fill(pattern: string, n: number): string {
   return pattern.replace('{n}', String(n));
 }
 
 const MOVIE_GROUPS = ['EN | Movies', 'AR | أفلام عربية', 'Action 4K', 'FR | Films', 'Kids | أفلام أطفال'] as const;
-const MOVIE_NAMES = ['Zoma Test Film {n}', 'فيلم الاختبار {n}', 'The Long Test Film Number {n}: A Story', 'Film Test {n}'] as const;
+const MOVIE_NAMES = ['Lablo Test Film {n}', 'فيلم الاختبار {n}', 'The Long Test Film Number {n}: A Story', 'Film Test {n}'] as const;
 /** The first movie's id: a movie's poster is the mock's `/images/movie-<id>.png`. */
 export const BIG_MOVIE_ID = 500_000;
 
@@ -65,7 +65,7 @@ export function bigCatalog({ channels, categories, archive, movies }: BigCatalog
     num: j + 1,
     name: fill(NAMES[j % NAMES.length]!, j + 1),
     categoryId: 1000 + Math.floor((j * categories) / channels),
-    epgId: j % NO_GUIDE_EVERY === NO_GUIDE_EVERY - 1 ? null : `big${j + 1}.zoma`,
+    epgId: j % NO_GUIDE_EVERY === NO_GUIDE_EVERY - 1 ? null : `big${j + 1}.lablo`,
     xmltvId: null,
     logo: false,
     archiveDays: archive !== undefined && j < archive.channels ? archive.days : 0,
@@ -170,7 +170,7 @@ export function denseChannels(catalog: Catalog, dense: DenseGuide): Set<number> 
  */
 export function writeBigGuide(catalog: Catalog, now: number, file: string, dense?: DenseGuide): number {
   const first = Math.floor(now / SLOT_MS) * SLOT_MS - SLOT_MS;
-  const out = ['<?xml version="1.0" encoding="UTF-8"?>', '<tv generator-info-name="Zoma e2e big catalog">'];
+  const out = ['<?xml version="1.0" encoding="UTF-8"?>', '<tv generator-info-name="Lablo e2e big catalog">'];
   const guided = catalog.live.filter((c) => c.epgId !== null);
   const denseIds = dense === undefined ? new Set<number>() : denseChannels(catalog, dense);
   for (const c of guided) out.push(`<channel id="${c.epgId!}"><display-name>${escapeXml(c.name)}</display-name></channel>`);

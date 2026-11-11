@@ -56,11 +56,11 @@ export function findTool(name: 'ffmpeg' | 'ffprobe'): { bin: string; version: st
   return { bin, version: res.stdout.split('\n')[0]?.trim() ?? name };
 }
 
-/** `ZOMA_MEDIA_FONT`, else the first font found; null means no burned-in text. */
+/** `LABLO_MEDIA_FONT`, else the first font found; null means no burned-in text. */
 export function findFont(): string | null {
-  const override = process.env['ZOMA_MEDIA_FONT'];
+  const override = process.env['LABLO_MEDIA_FONT'];
   if (override) {
-    if (!existsSync(override)) throw new MediaToolError(`ZOMA_MEDIA_FONT=${override} does not exist`);
+    if (!existsSync(override)) throw new MediaToolError(`LABLO_MEDIA_FONT=${override} does not exist`);
     return override;
   }
   return FONT_CANDIDATES.find((f) => existsSync(f)) ?? null;
@@ -158,7 +158,7 @@ export async function generateMedia(options: GenerateOptions): Promise<GenerateR
   if (!tool) throw new MediaToolError('ffmpeg was not found on PATH (set FFMPEG, or install it: winget install Gyan.FFmpeg / apt-get install ffmpeg)');
   const font = options.font === undefined ? findFont() : options.font;
   const log = options.log ?? (() => {});
-  if (!font) log('No font found for the burned-in labels (set ZOMA_MEDIA_FONT); generating without text.');
+  if (!font) log('No font found for the burned-in labels (set LABLO_MEDIA_FONT); generating without text.');
   const concurrency = options.concurrency ?? Math.max(2, Math.floor(availableParallelism() / 4));
 
   await mkdir(join(outDir, 'live'), { recursive: true });

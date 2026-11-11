@@ -1,6 +1,6 @@
-import type { SubtitleCue } from '@zoma/core';
-import { normalizeLang, parseSubtitles } from '@zoma/core';
-import type { ExternalSub } from '@zoma/player';
+import type { SubtitleCue } from '@lablo/core';
+import { normalizeLang, parseSubtitles } from '@lablo/core';
+import type { ExternalSub } from '@lablo/player';
 
 /**
  * The app's side of subtitle files (RELAY step 20b2b, `ControllerOptions.loadSubtitles`): a

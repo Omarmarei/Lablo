@@ -1,11 +1,11 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { CatalogItem, XtreamVodInfo } from '@zoma/core';
-import { parseXtreamStreamUrl, streamExtension, xtreamStreamUrl } from '@zoma/core';
-import type { VodInfoRequest } from '@zoma/data';
-import type { PlayRequest } from '@zoma/player';
-import { containerOf } from '@zoma/player';
-import type { Navigator, Screen } from '@zoma/ui';
+import type { CatalogItem, XtreamVodInfo } from '@lablo/core';
+import { parseXtreamStreamUrl, streamExtension, xtreamStreamUrl } from '@lablo/core';
+import type { VodInfoRequest } from '@lablo/data';
+import type { PlayRequest } from '@lablo/player';
+import { containerOf } from '@lablo/player';
+import type { Navigator, Screen } from '@lablo/ui';
 
 /**
  * A movie's details (RELAY step 26c, PLAN 7.1): a screen pushed on the live navigator over the

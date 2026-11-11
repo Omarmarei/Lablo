@@ -1,6 +1,6 @@
 > **Research snapshot 2026-11-01** (Competitor landscape). Gathered by web-research agents; **[U]** = unverified / single-source / vendor claim. Re-verify anything load-bearing before relying on it.
 
-# Zoma IPTV: competitor landscape for Samsung (Tizen) and LG (webOS) IPTV players, as of 2026-11-01
+# Lablo IPTV: competitor landscape for Samsung (Tizen) and LG (webOS) IPTV players, as of 2026-11-01
 
 **How reliable this is.** Search results in this niche are mostly SEO spam and reseller pages, some of it hosted on hijacked .gov and .edu domains. I relied on the developers' own pages, App Store listings, Samsung's US app store pages, Trustpilot, TorrentFreak and a few dated 2026 roundups. Many of those roundups come from vendors and are labelled as such. I could not read web ratings from the Samsung or LG TV stores, Google Play pages would not load, and some Trustpilot pages returned HTTP 451. **[U]** marks a data point that is uncertain, single-source or comes from a vendor.
 
@@ -147,7 +147,7 @@
 - Updates are slow: 5.0 in April 2024, 5.1.6 in January 2025, 5.2.0 in February 2026, 5.3.2 in June 2026 ([APKMirror](https://www.apkmirror.com/apk/armobsoft-fze/tivimate-iptv-player/)).
 - Users still ask for saved multiview layouts ([TROYPOINT Insider, Feb 2026](https://troypointinsider.com/t/tivimate-feature-wish-list/153806/104)).
 
-### New 2026 entrants aiming to be "TiviMate for TV" (direct threats to Zoma)
+### New 2026 entrants aiming to be "TiviMate for TV" (direct threats to Lablo)
 - **Easy IP TV:** monthly subscription (Basic for 1 TV, Pro for up to 3), playlists processed on its servers, automatic EPG matching, Magic Remote pointer support. M3U only on LG ([easy-ip.tv](https://easy-ip.tv/blog/best-iptv-player-lg-tv)).
 - **StreamHub:** LG webOS 23–26, from €10, covers up to 3 TVs, 7-day trial, mini-player preview while browsing. Samsung and Apple versions in development ([streamhubplayer.com](https://streamhubplayer.com/)).
 - **XOTT:** free; the provider attaches the playlist to your TV's MAC ([getlivetv.uk](https://getlivetv.uk/installation-guides/smart-tv/)).
@@ -185,7 +185,7 @@
 
 Its own weak spots are slow updates, no saved multiview layouts and no Samsung or LG version. Easy IP TV and StreamHub are already pitching themselves into that gap.
 
-### Implications for Zoma (my inference)
+### Implications for Lablo (my inference)
 - **Onboarding:** let users enter or paste a playlist on the TV, and add phone pairing by QR code instead of MAC portals.
 - **Storage and licences:** encrypt playlists, or store them only on the device. Use an account-based licence for multiple TVs with self-service transfers.
 - **Core experience:** process playlists on a server or in a worker thread, build a full grid EPG with automatic matching, and target recording and multiview where Tizen and webOS allow it.

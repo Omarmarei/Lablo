@@ -31,7 +31,7 @@ const TWO_HOURS_AGO = NOW_SEC - 7200;
 describe('live', () => {
   it('serves MPEG-TS for .ts and extension-less URLs', async () => {
     app = await mock();
-    for (const url of ['/live/zoma/zoma-test/101.ts', '/live/zoma/zoma-test/101', '/zoma/zoma-test/101']) {
+    for (const url of ['/live/lablo/lablo-test/101.ts', '/live/lablo/lablo-test/101', '/lablo/lablo-test/101']) {
       const res = await get(url);
       expect(res.statusCode, url).toBe(200);
       expect(res.headers['content-type']).toBe('video/mp2t');
@@ -46,7 +46,7 @@ describe('live', () => {
     expect((await get('/live/hls/hls-test/101.m3u8')).statusCode).toBe(200);
     // The formats it allows are the ones user_info names.
     expect(JSON.parse((await get('/player_api.php?username=hls&password=hls-test')).body).user_info.allowed_output_formats).toEqual(['m3u8']);
-    expect(JSON.parse((await get('/player_api.php?username=zoma&password=zoma-test')).body).user_info.allowed_output_formats).toEqual(['m3u8', 'ts']);
+    expect(JSON.parse((await get('/player_api.php?username=lablo&password=lablo-test')).body).user_info.allowed_output_formats).toEqual(['m3u8', 'ts']);
     // An account that allows TS only gets no HLS.
     app.mockState.fixture.accounts.find((a) => a.username === 'hls')!.outputFormats = ['ts'];
     expect((await get('/live/hls/hls-test/101.m3u8')).statusCode).toBe(403);
@@ -55,14 +55,14 @@ describe('live', () => {
 
   it('serves a sliding-window HLS playlist whose segments resolve', async () => {
     app = await mock();
-    const res = await get('/live/zoma/zoma-test/101.m3u8');
+    const res = await get('/live/lablo/lablo-test/101.m3u8');
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toBe('application/vnd.apple.mpegurl');
     const lines = res.body.trim().split('\n');
     expect(lines.slice(0, 4)).toEqual(['#EXTM3U', '#EXT-X-VERSION:3', '#EXT-X-TARGETDURATION:6', `#EXT-X-MEDIA-SEQUENCE:${SEQ_NOW - 6}`]);
     const segments = lines.filter((l) => l.startsWith('http'));
     expect(segments).toHaveLength(6);
-    expect(segments[0]).toBe(`http://tv-lab.local:8080/hls/zoma/zoma-test/101/${SEQ_NOW - 6}.ts`);
+    expect(segments[0]).toBe(`http://tv-lab.local:8080/hls/lablo/lablo-test/101/${SEQ_NOW - 6}.ts`);
     expect(res.body).not.toContain('#EXT-X-ENDLIST');
     const seg = await get(segments[5]!.slice('http://tv-lab.local:8080'.length));
     expect(seg.statusCode).toBe(200);
@@ -73,25 +73,25 @@ describe('live', () => {
 
   it('refuses future and malformed segments, unknown channels and odd extensions', async () => {
     app = await mock();
-    expect((await get(`/hls/zoma/zoma-test/101/${SEQ_NOW + 1}.ts`)).statusCode).toBe(404);
-    expect((await get('/hls/zoma/zoma-test/101/abc.ts')).statusCode).toBe(404);
-    expect((await get('/hls/zoma/zoma-test/999/1.ts')).statusCode).toBe(404);
-    expect((await get('/live/zoma/zoma-test/999.ts')).statusCode).toBe(404);
-    expect((await get('/live/zoma/zoma-test/101.mp4')).statusCode).toBe(404);
-    expect((await get('/zoma/zoma-test/999')).statusCode).toBe(404);
-    expect((await get('/zoma/zoma-test/abc')).statusCode).toBe(404);
+    expect((await get(`/hls/lablo/lablo-test/101/${SEQ_NOW + 1}.ts`)).statusCode).toBe(404);
+    expect((await get('/hls/lablo/lablo-test/101/abc.ts')).statusCode).toBe(404);
+    expect((await get('/hls/lablo/lablo-test/999/1.ts')).statusCode).toBe(404);
+    expect((await get('/live/lablo/lablo-test/999.ts')).statusCode).toBe(404);
+    expect((await get('/live/lablo/lablo-test/101.mp4')).statusCode).toBe(404);
+    expect((await get('/lablo/lablo-test/999')).statusCode).toBe(404);
+    expect((await get('/lablo/lablo-test/abc')).statusCode).toBe(404);
   });
 
   it.each([
-    ['/live/zoma/nope/101.ts', 401],
-    ['/zoma/nope/101', 401],
-    ['/hls/zoma/nope/101/1.ts', 401],
-    ['/movie/zoma/nope/201.mp4', 401],
-    ['/series/zoma/nope/3001.mkv', 401],
-    ['/timeshift/zoma/nope/30/2026-11-02:10-00/101.ts', 401],
-    ['/streaming/timeshift.php?username=zoma&password=nope&stream=101&start=2026-11-02:10-00&duration=30', 401],
-    ['/catchup/zoma/nope/102.ts?start=1&end=2', 401],
-    ['/flussonic/zoma/nope/106/mpegts', 401],
+    ['/live/lablo/nope/101.ts', 401],
+    ['/lablo/nope/101', 401],
+    ['/hls/lablo/nope/101/1.ts', 401],
+    ['/movie/lablo/nope/201.mp4', 401],
+    ['/series/lablo/nope/3001.mkv', 401],
+    ['/timeshift/lablo/nope/30/2026-11-02:10-00/101.ts', 401],
+    ['/streaming/timeshift.php?username=lablo&password=nope&stream=101&start=2026-11-02:10-00&duration=30', 401],
+    ['/catchup/lablo/nope/102.ts?start=1&end=2', 401],
+    ['/flussonic/lablo/nope/106/mpegts', 401],
     ['/live/expired/expired-test/101.ts', 403],
     ['/movie/banned/banned-test/201.mp4', 403],
     ['/live/maxed/maxed-test/101.ts', 509],
@@ -107,7 +107,7 @@ describe('VOD and episodes', () => {
 
   it('serves the whole file with its length and type', async () => {
     app = await mock();
-    const res = await get('/movie/zoma/zoma-test/201.mp4');
+    const res = await get('/movie/lablo/lablo-test/201.mp4');
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toBe('video/mp4');
     expect(res.headers['accept-ranges']).toBe('bytes');
@@ -118,23 +118,23 @@ describe('VOD and episodes', () => {
 
   it('answers byte ranges with 206 and the right bytes', async () => {
     app = await mock();
-    const res = await get('/movie/zoma/zoma-test/201.mp4', { range: 'bytes=1000-1009' });
+    const res = await get('/movie/lablo/lablo-test/201.mp4', { range: 'bytes=1000-1009' });
     expect(res.statusCode).toBe(206);
     expect(res.headers['content-range']).toBe(`bytes 1000-1009/${SIZE}`);
     expect(res.headers['content-length']).toBe('10');
     expect([...res.rawPayload]).toEqual(Array.from({ length: 10 }, (_, i) => patternByte(201, 1000 + i)));
-    const open = await get('/movie/zoma/zoma-test/201.mp4', { range: `bytes=${SIZE - 5}-` });
+    const open = await get('/movie/lablo/lablo-test/201.mp4', { range: `bytes=${SIZE - 5}-` });
     expect(open.headers['content-range']).toBe(`bytes ${SIZE - 5}-${SIZE - 1}/${SIZE}`);
-    const suffix = await get('/movie/zoma/zoma-test/201.mp4', { range: 'bytes=-3' });
+    const suffix = await get('/movie/lablo/lablo-test/201.mp4', { range: 'bytes=-3' });
     expect(suffix.rawPayload).toHaveLength(3);
-    const bad = await get('/movie/zoma/zoma-test/201.mp4', { range: `bytes=${SIZE}-` });
+    const bad = await get('/movie/lablo/lablo-test/201.mp4', { range: `bytes=${SIZE}-` });
     expect(bad.statusCode).toBe(416);
     expect(bad.headers['content-range']).toBe(`bytes */${SIZE}`);
   });
 
   it('answers HEAD with headers only', async () => {
     app = await mock();
-    const res = await app.inject({ method: 'HEAD', url: '/movie/zoma/zoma-test/202.mkv' });
+    const res = await app.inject({ method: 'HEAD', url: '/movie/lablo/lablo-test/202.mkv' });
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toBe('video/x-matroska');
     expect(res.headers['content-length']).toBe(String(1024 * 1024 + 202));
@@ -143,12 +143,12 @@ describe('VOD and episodes', () => {
 
   it('serves episodes from /series and refuses ids of the wrong kind', async () => {
     app = await mock();
-    const ep = await get('/series/zoma/zoma-test/3001.mkv', { range: 'bytes=0-0' });
+    const ep = await get('/series/lablo/lablo-test/3001.mkv', { range: 'bytes=0-0' });
     expect(ep.statusCode).toBe(206);
     expect(ep.headers['content-type']).toBe('video/x-matroska');
-    expect((await get('/series/zoma/zoma-test/201.mp4')).statusCode).toBe(404);
-    expect((await get('/movie/zoma/zoma-test/3001.mkv')).statusCode).toBe(404);
-    expect((await get('/movie/zoma/zoma-test/999.mp4')).statusCode).toBe(404);
+    expect((await get('/series/lablo/lablo-test/201.mp4')).statusCode).toBe(404);
+    expect((await get('/movie/lablo/lablo-test/3001.mkv')).statusCode).toBe(404);
+    expect((await get('/movie/lablo/lablo-test/999.mp4')).statusCode).toBe(404);
   });
 
   it('parses ranges', () => {
@@ -164,7 +164,7 @@ describe('VOD and episodes', () => {
 describe('catch-up', () => {
   it('serves Xtream /timeshift with the start in the panel zone and the duration in minutes', async () => {
     app = await mock();
-    const res = await get('/timeshift/zoma/zoma-test/30/2026-11-02:10-00/101.ts');
+    const res = await get('/timeshift/lablo/lablo-test/30/2026-11-02:10-00/101.ts');
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toBe('video/mp2t');
     expectTs(res.rawPayload);
@@ -173,26 +173,26 @@ describe('catch-up', () => {
     const fixture = loadServerFixture();
     await app.close();
     app = await mock({ fixture: { ...fixture, server: { ...fixture.server, timezone: 'Asia/Riyadh' } } });
-    const riyadh = await get('/timeshift/zoma/zoma-test/30/2026-11-02:13-00/101.ts');
+    const riyadh = await get('/timeshift/lablo/lablo-test/30/2026-11-02:13-00/101.ts');
     expect(archiveHeaders(riyadh).start).toBe(TWO_HOURS_AGO);
   });
 
   it('serves timeshift.php the same way', async () => {
     app = await mock();
-    const res = await get('/streaming/timeshift.php?username=zoma&password=zoma-test&stream=101&start=2026-11-02:10-00&duration=60');
+    const res = await get('/streaming/timeshift.php?username=lablo&password=lablo-test&stream=101&start=2026-11-02:10-00&duration=60');
     expect(res.statusCode).toBe(200);
     expect(archiveHeaders(res)).toEqual({ channel: '101', start: TWO_HOURS_AGO, duration: 3600 });
   });
 
   it.each([
-    ['no archive on the channel', '/timeshift/zoma/zoma-test/30/2026-11-02:10-00/104.ts', 404],
-    ['before the archive window', '/timeshift/zoma/zoma-test/30/2026-10-20:10-00/101.ts', 404],
-    ['a start in the future', '/timeshift/zoma/zoma-test/30/2026-11-02:13-00/101.ts', 404],
-    ['a malformed start', '/timeshift/zoma/zoma-test/30/2026-11-02T10:00/101.ts', 400],
-    ['a malformed duration', '/timeshift/zoma/zoma-test/abc/2026-11-02:10-00/101.ts', 400],
-    ['an unknown channel', '/timeshift/zoma/zoma-test/30/2026-11-02:10-00/999.ts', 404],
-    ['timeshift.php without a start', '/streaming/timeshift.php?username=zoma&password=zoma-test&stream=101&duration=30', 400],
-    ['timeshift.php for an unknown channel', '/streaming/timeshift.php?username=zoma&password=zoma-test&stream=999&start=2026-11-02:10-00&duration=30', 404],
+    ['no archive on the channel', '/timeshift/lablo/lablo-test/30/2026-11-02:10-00/104.ts', 404],
+    ['before the archive window', '/timeshift/lablo/lablo-test/30/2026-10-20:10-00/101.ts', 404],
+    ['a start in the future', '/timeshift/lablo/lablo-test/30/2026-11-02:13-00/101.ts', 404],
+    ['a malformed start', '/timeshift/lablo/lablo-test/30/2026-11-02T10:00/101.ts', 400],
+    ['a malformed duration', '/timeshift/lablo/lablo-test/abc/2026-11-02:10-00/101.ts', 400],
+    ['an unknown channel', '/timeshift/lablo/lablo-test/30/2026-11-02:10-00/999.ts', 404],
+    ['timeshift.php without a start', '/streaming/timeshift.php?username=lablo&password=lablo-test&stream=101&duration=30', 400],
+    ['timeshift.php for an unknown channel', '/streaming/timeshift.php?username=lablo&password=lablo-test&stream=999&start=2026-11-02:10-00&duration=30', 404],
   ])('refuses %s', async (_name, url, status) => {
     app = await mock();
     expect((await get(url)).statusCode).toBe(status);
@@ -200,22 +200,22 @@ describe('catch-up', () => {
 
   it('serves M3U catchup="default" from its catchup-source', async () => {
     app = await mock();
-    const res = await get(`/catchup/zoma/zoma-test/102.ts?start=${TWO_HOURS_AGO}&end=${TWO_HOURS_AGO + 2700}`);
+    const res = await get(`/catchup/lablo/lablo-test/102.ts?start=${TWO_HOURS_AGO}&end=${TWO_HOURS_AGO + 2700}`);
     expect(res.statusCode).toBe(200);
     expect(archiveHeaders(res)).toEqual({ channel: '102', start: TWO_HOURS_AGO, duration: 2700 });
-    expect((await get(`/catchup/zoma/zoma-test/102.ts?start=${TWO_HOURS_AGO}&end=${TWO_HOURS_AGO}`)).statusCode).toBe(400);
-    expect((await get(`/catchup/zoma/zoma-test/999.ts?start=1&end=2`)).statusCode).toBe(404);
+    expect((await get(`/catchup/lablo/lablo-test/102.ts?start=${TWO_HOURS_AGO}&end=${TWO_HOURS_AGO}`)).statusCode).toBe(400);
+    expect((await get(`/catchup/lablo/lablo-test/999.ts?start=1&end=2`)).statusCode).toBe(404);
   });
 
   it('serves M3U append/shift catch-up (?utc=&lutc=) on the live URL, as TS or HLS', async () => {
     app = await mock();
-    const ts = await get(`/live/zoma/zoma-test/103.ts?utc=${TWO_HOURS_AGO}&lutc=${NOW_SEC}`);
+    const ts = await get(`/live/lablo/lablo-test/103.ts?utc=${TWO_HOURS_AGO}&lutc=${NOW_SEC}`);
     expect(ts.statusCode).toBe(200);
     expect(archiveHeaders(ts)).toEqual({ channel: '103', start: TWO_HOURS_AGO, duration: 7200 });
     // shift: no lutc, so the window runs to "now".
-    const shift = await get(`/live/zoma/zoma-test/105.ts?utc=${NOW_SEC - 600}`);
+    const shift = await get(`/live/lablo/lablo-test/105.ts?utc=${NOW_SEC - 600}`);
     expect(archiveHeaders(shift)).toEqual({ channel: '105', start: NOW_SEC - 600, duration: 600 });
-    const hls = await get(`/live/zoma/zoma-test/103.m3u8?utc=${TWO_HOURS_AGO}&lutc=${TWO_HOURS_AGO + 1800}`);
+    const hls = await get(`/live/lablo/lablo-test/103.m3u8?utc=${TWO_HOURS_AGO}&lutc=${TWO_HOURS_AGO + 1800}`);
     expect(hls.statusCode).toBe(200);
     expect(hls.headers['content-type']).toBe('application/vnd.apple.mpegurl');
     expect(hls.body).toContain('#EXT-X-PLAYLIST-TYPE:VOD');
@@ -226,19 +226,19 @@ describe('catch-up', () => {
 
   it('serves Flussonic live and archive URLs', async () => {
     app = await mock();
-    const live = await get('/flussonic/zoma/zoma-test/106/index.m3u8');
+    const live = await get('/flussonic/lablo/lablo-test/106/index.m3u8');
     expect(live.statusCode).toBe(200);
     expect(live.body).toContain(`#EXT-X-MEDIA-SEQUENCE:${SEQ_NOW - 6}`);
-    const mpegts = await get('/flussonic/zoma/zoma-test/106/mpegts');
+    const mpegts = await get('/flussonic/lablo/lablo-test/106/mpegts');
     expect(mpegts.headers['content-type']).toBe('video/mp2t');
-    const archive = await get(`/flussonic/zoma/zoma-test/106/archive-${TWO_HOURS_AGO}-900.ts`);
+    const archive = await get(`/flussonic/lablo/lablo-test/106/archive-${TWO_HOURS_AGO}-900.ts`);
     expect(archiveHeaders(archive)).toEqual({ channel: '106', start: TWO_HOURS_AGO, duration: 900 });
-    const index = await get(`/flussonic/zoma/zoma-test/106/index-${TWO_HOURS_AGO}-600.m3u8`);
+    const index = await get(`/flussonic/lablo/lablo-test/106/index-${TWO_HOURS_AGO}-600.m3u8`);
     expect(index.body.split('\n').filter((l) => l.startsWith('http'))).toHaveLength(100);
-    const abs = await get(`/flussonic/zoma/zoma-test/106/timeshift_abs-${NOW_SEC - 300}.ts`);
+    const abs = await get(`/flussonic/lablo/lablo-test/106/timeshift_abs-${NOW_SEC - 300}.ts`);
     expect(archiveHeaders(abs)).toEqual({ channel: '106', start: NOW_SEC - 300, duration: 300 });
-    expect((await get('/flussonic/zoma/zoma-test/106/manifest.mpd')).statusCode).toBe(404);
-    expect((await get('/flussonic/zoma/zoma-test/999/mpegts')).statusCode).toBe(404);
+    expect((await get('/flussonic/lablo/lablo-test/106/manifest.mpd')).statusCode).toBe(404);
+    expect((await get('/flussonic/lablo/lablo-test/999/mpegts')).statusCode).toBe(404);
   });
 });
 

@@ -7,8 +7,8 @@
 
 import vm from 'node:vm';
 import { join } from 'node:path';
-import type { RpcPort } from '@zoma/data';
-import { createDataClient, openDatabase } from '@zoma/data';
+import type { RpcPort } from '@lablo/data';
+import { createDataClient, openDatabase } from '@lablo/data';
 import { describe, expect, it } from 'vitest';
 import { freshFactory, ingest, item } from '../packages/data/src/test-support';
 import { checkBudget, formatBudget } from '../tools/build/src/budgets';

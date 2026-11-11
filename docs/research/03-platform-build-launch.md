@@ -1,6 +1,6 @@
 > **Research snapshot 2026-11-01** (Tizen & webOS: build, publish, legal). Gathered by web-research agents; **[U]** = unverified / single-source / vendor claim. Re-verify anything load-bearing before relying on it.
 
-# Zoma IPTV: building and publishing on Samsung Tizen and LG webOS (research as of 2026-11-01)
+# Lablo IPTV: building and publishing on Samsung Tizen and LG webOS (research as of 2026-11-01)
 
 The biggest risk is store access, not engineering. A new Samsung seller can only publish in the United States until it signs a partner contract with Samsung. Both stores have pulled IPTV players before. Rightsholders in Spain and Italy have gone after neutral IPTV players through court orders and domain blocking. The engineering side is manageable if you lean on each TV's built-in media player and treat lists of 50k+ items as a data-engineering problem.
 

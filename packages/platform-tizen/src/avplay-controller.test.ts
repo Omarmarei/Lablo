@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { PlayRequest, PlayerStatus } from '@zoma/player';
-import { PlayerController, streamCandidates } from '@zoma/player';
+import type { PlayRequest, PlayerStatus } from '@lablo/player';
+import { PlayerController, streamCandidates } from '@lablo/player';
 import { AvplayEngine } from './avplay-engine';
 import { FakeAvplay, FakeClock, FakeXhr } from './fake-avplay';
 import { MemoryRedirectMemory, createRedirectProbe } from './redirect-probe';

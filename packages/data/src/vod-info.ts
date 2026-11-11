@@ -13,8 +13,8 @@
  * - Not `XtreamClient`: it would bring the list parser into the query worker.
  */
 
-import type { ContentKey, TextTransport, XtreamAccount, XtreamVodInfo } from '@zoma/core';
-import { decodeVodInfo, parseXtreamStreamUrl, xtreamApiUrl, xtreamJson } from '@zoma/core';
+import type { ContentKey, TextTransport, XtreamAccount, XtreamVodInfo } from '@lablo/core';
+import { decodeVodInfo, parseXtreamStreamUrl, xtreamApiUrl, xtreamJson } from '@lablo/core';
 
 /** How long a movie's answer is kept. */
 export const VOD_INFO_TTL_MS = 24 * 3_600_000;

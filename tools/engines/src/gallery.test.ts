@@ -1,4 +1,4 @@
-import { isolateText, stripIsolates } from '@zoma/core';
+import { isolateText, stripIsolates } from '@lablo/core';
 import { parse } from 'acorn';
 import { describe, expect, it } from 'vitest';
 import type { BidiState, GalleryRun, GalleryState } from './gallery';
@@ -120,9 +120,9 @@ describe('the gallery probe', () => {
   });
 
   it('isolates its lines exactly as the i18n runtime does in Arabic, and nothing else differs from the controls', () => {
-    expect(BIDI_LINES.isolated).toBe(isolateText('Zoma 1', 'rtl'));
+    expect(BIDI_LINES.isolated).toBe(isolateText('Lablo 1', 'rtl'));
     expect(BIDI_LINES.trailing.startsWith(isolateText('MBC 1', 'rtl'))).toBe(true);
-    expect(BIDI_LINES.leading.startsWith(isolateText('1 Zoma', 'rtl'))).toBe(true);
+    expect(BIDI_LINES.leading.startsWith(isolateText('1 Lablo', 'rtl'))).toBe(true);
     expect(stripIsolates(BIDI_LINES.isolated)).toBe(BIDI_LINES.plain);
     expect(stripIsolates(BIDI_LINES.trailing)).toBe(BIDI_LINES.trailingControl);
     expect(stripIsolates(BIDI_LINES.leading)).toBe(BIDI_LINES.leadingControl);
@@ -238,13 +238,13 @@ describe('evaluateGallery', () => {
       boot: state({
         outside: ['gallery__title: Components', 'z-button is-focused: Play'],
         cut: ['z-badge: Catch-up'],
-        squeezed: ['z-row__name: Zoma Documentary Channel International'],
+        squeezed: ['z-row__name: Lablo Documentary Channel International'],
       }),
     });
     expect(evaluateGallery(broken, engine56, 20_000)).toEqual([
       'outside the safe area: gallery__title: Components; z-button is-focused: Play',
       'labels cut: z-badge: Catch-up',
-      'channel names squeezed: z-row__name: Zoma Documentary Channel International',
+      'channel names squeezed: z-row__name: Lablo Documentary Channel International',
     ]);
     expect(evaluateGallery(run({ boot: state({ outside: ['z-tile: Desert Nights'] }) }), engine56, 20_000)).toEqual([
       'outside the safe area: z-tile: Desert Nights',
@@ -259,7 +259,7 @@ describe('evaluateGallery', () => {
   it('reports fonts that failed or did not load', () => {
     expect(evaluateGallery(run({ boot: state({ fonts: 'la400:loaded ar400:error' }) }), engine56, 20_000)).toEqual([
       'fonts: ar400:error failed to load',
-      'fonts: no Arabic Zoma Sans face loaded (la400:loaded ar400:error)',
+      'fonts: no Arabic Lablo Sans face loaded (la400:loaded ar400:error)',
     ]);
     expect(evaluateGallery(run({ boot: state({ fonts: null, fontsStatus: null }) }), engine56, 20_000)).toEqual(['fonts: document.fonts is missing']);
   });

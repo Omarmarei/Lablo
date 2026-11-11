@@ -8,8 +8,8 @@
  * Only the registration runs unattended. The key tester, the pointer and the keyboard need a
  * person, so they run only when S10 is started from its row (`LabContext.interactive`).
  */
-import type { Intent, KeyRegistration, PlatformId } from '@zoma/platform-api';
-import { INTENTS } from '@zoma/platform-api';
+import type { Intent, KeyRegistration, PlatformId } from '@lablo/platform-api';
+import { INTENTS } from '@lablo/platform-api';
 import type { Check, CheckResult, KeyPress, KeyTestResult, LabContext, PointerLog, Spike, TextTestResult } from '../types';
 
 /** How long the key tester and the keyboard test wait for a person. */
@@ -160,7 +160,7 @@ export function createS10(): Spike {
       const result = await context.typeText({
         title: "Type with the TV's keyboard",
         prompt:
-          'OK on the field opens the keyboard. Type زوما, switch the keyboard to English and type Zoma, then press its Done key. GREEN: both typed. RED: the keyboard did not work. BACK: skip.',
+          'OK on the field opens the keyboard. Type لابلو, switch the keyboard to English and type Lablo, then press its Done key. GREEN: both typed. RED: the keyboard did not work. BACK: skip.',
         timeoutMs: INPUT_TIMEOUT_MS,
       });
       return keyboardResult(result);

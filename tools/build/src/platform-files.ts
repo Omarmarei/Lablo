@@ -30,7 +30,7 @@ export function renderIndexHtml(platform: TvPlatform): string {
     '<html lang="en" dir="ltr">',
     '<head>',
     '<meta charset="utf-8">',
-    '<title>Zoma</title>',
+    '<title>Lablo</title>',
     '<link rel="stylesheet" href="app.css">',
     `<script>${BOOT_ERROR_SCRIPT}</script>`,
     ...platformScripts,

@@ -16,7 +16,7 @@ const COUNTS = { live: 2000, movies: 5000, series: 100, episodesPerSeries: 20 };
 let dir: string;
 let written: CatalogResult;
 beforeAll(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'zoma-m3u-core-'));
+  dir = mkdtempSync(join(tmpdir(), 'lablo-m3u-core-'));
   mkdirSync(join(dir, 'xtream'));
   written = await writeCatalog({ outDir: dir, seed: 5, counts: COUNTS });
 });

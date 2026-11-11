@@ -6,7 +6,7 @@
 import { deleteDatabaseAndWait } from './idb-delete';
 import type { BulkReport } from './worker-protocol';
 
-export const BULK_DB = 'zoma-lab-s1';
+export const BULK_DB = 'lablo-lab-s1';
 
 function request<T>(req: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {

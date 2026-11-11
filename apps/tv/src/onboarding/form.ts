@@ -1,5 +1,5 @@
-import type { XtreamAccount } from '@zoma/core';
-import { normalizeXtreamBase } from '@zoma/core';
+import type { XtreamAccount } from '@lablo/core';
+import { normalizeXtreamBase } from '@lablo/core';
 
 /**
  * The "add a source" form (RELAY step 13a): its fields per source type and the checks that run

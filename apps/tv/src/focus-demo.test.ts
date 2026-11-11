@@ -1,4 +1,4 @@
-import type { RootBackPolicy } from '@zoma/platform-api';
+import type { RootBackPolicy } from '@lablo/platform-api';
 import { describe, expect, it, vi } from 'vitest';
 import { createFocusDemo } from './focus-demo';
 

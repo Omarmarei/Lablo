@@ -1,9 +1,9 @@
 /**
  * The playback harness's API (RELAY step 18): what `playback-main.ts` puts on
- * `window.__ZOMA_PLAYBACK__` for the desktop playback e2e (e2e/playback*.spec.ts). Types only, so
+ * `window.__LABLO_PLAYBACK__` for the desktop playback e2e (e2e/playback*.spec.ts). Types only, so
  * the e2e code (root tsc, no JSX) can import them.
  */
-import type { Container, EngineStats, ExternalSub, PlaybackFailure, PlayerState, PlayerTrack, PlayMode, SubtitleView, Track } from '@zoma/player';
+import type { Container, EngineStats, ExternalSub, PlaybackFailure, PlayerState, PlayerTrack, PlayMode, SubtitleView, Track } from '@lablo/player';
 
 export interface PlaybackInput {
   /** A catalog stream URL: the URLs to try come from `streamCandidates` (Xtream live: `.ts`, then `.m3u8`). */
@@ -55,5 +55,5 @@ export interface PlaybackHarness {
 }
 
 export interface PlaybackTarget {
-  __ZOMA_PLAYBACK__?: PlaybackHarness;
+  __LABLO_PLAYBACK__?: PlaybackHarness;
 }

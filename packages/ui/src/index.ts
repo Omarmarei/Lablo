@@ -1,5 +1,5 @@
 /**
- * @zoma/ui: the focus engine (step 10), the design system (step 11: tokens, fonts, the base
+ * @lablo/ui: the focus engine (step 10), the design system (step 11: tokens, fonts, the base
  * components, the virtual list and the en-XA pseudo-locale; step 13a: the text field and its editor) and the i18n runtime (step 12:
  * messages, numbers, times and dates; the catalogs are the app's) and the grid guide (step 23b).
  * See docs/architecture.md §1.2.

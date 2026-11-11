@@ -1,6 +1,6 @@
 > **Research snapshot 2026-11-01** (Voice of the user: complaints, praise, unmet needs). Gathered by web-research agents; **[U]** = unverified / single-source / vendor claim. Re-verify anything load-bearing before relying on it.
 
-# Zoma IPTV: what users of IPTV player apps on LG and Samsung TVs say (research as of 1 Nov 2026)
+# Lablo IPTV: what users of IPTV player apps on LG and Samsung TVs say (research as of 1 Nov 2026)
 
 ## How this was gathered, and its limits
 

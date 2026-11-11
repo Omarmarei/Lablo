@@ -9,12 +9,12 @@
  * The questions run only when a person starts S11 from its row (`LabContext.interactive`); in
  * "Run all" and at launch they skip, since nobody may be watching.
  */
-import type { PlatformCall, ScreenReaderState } from '@zoma/platform-api';
+import type { PlatformCall, ScreenReaderState } from '@lablo/platform-api';
 import { lifecycleNote } from '../lifecycle';
 import type { Check, CheckResult, LabAnswer, LabContext, LabQuestion, Spike } from '../types';
 
 /** What the speech check asks the TV to say. */
-export const SPOKEN = 'Zoma Lab, spike S11';
+export const SPOKEN = 'Lablo Lab, spike S11';
 /** How long a question waits for its answer. */
 export const ASK_TIMEOUT_MS = 5 * 60_000;
 
@@ -92,7 +92,7 @@ export function answerResult(answer: LabAnswer, reader: ScreenReaderState | null
   }
 }
 
-const LABELS = ['Zoma Lab first button', 'Zoma Lab second button', 'Zoma Lab third button'];
+const LABELS = ['Lablo Lab first button', 'Lablo Lab second button', 'Lablo Lab third button'];
 const KEYS = 'GREEN: each name was read. RED: not read. BACK: skip.';
 
 function reading(id: string, title: string, question: Omit<LabQuestion, 'labels' | 'timeoutMs'>): Check {

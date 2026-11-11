@@ -23,7 +23,7 @@ export interface CatalogCounts {
 export const FULL_COUNTS: CatalogCounts = { live: 20_000, movies: 120_000, series: 3_000, episodesPerSeries: 20 };
 /** EPG channel ids the live channels point at (the 300 MB XMLTV has all of them). */
 export const EPG_CHANNELS = 5_000;
-export const epgId = (k: number): string => `epg${k}.zoma.test`;
+export const epgId = (k: number): string => `epg${k}.lablo.test`;
 
 /** Id ranges (one id space, like a panel's stream ids). */
 const LIVE_BASE = 100_000;
@@ -48,10 +48,10 @@ const GENRES: Record<Lang, string[]> = {
 };
 
 const BRANDS: Record<Lang, string[]> = {
-  en: ['Zoma', 'Nova', 'Lumen', 'Atlas', 'Orion', 'Cedar', 'Falcon', 'Delta', 'Harbor', 'Summit'],
-  ar: ['زوما', 'نوفا', 'الأطلس', 'الصحراء', 'النيل', 'الأرز', 'الصقر', 'دلتا', 'إشراق', 'الواحة'],
-  fr: ['Zoma', 'Lumière', 'Horizon', 'Étoile', 'Rivage', 'Mistral', 'Azur', 'Delta', 'Phare', 'Sommet'],
-  es: ['Zoma', 'Sol', 'Horizonte', 'Estrella', 'Oriente', 'Brisa', 'Cumbre', 'Delta', 'Faro', 'Señal'],
+  en: ['Lablo', 'Nova', 'Lumen', 'Atlas', 'Orion', 'Cedar', 'Falcon', 'Delta', 'Harbor', 'Summit'],
+  ar: ['لابلو', 'نوفا', 'الأطلس', 'الصحراء', 'النيل', 'الأرز', 'الصقر', 'دلتا', 'إشراق', 'الواحة'],
+  fr: ['Lablo', 'Lumière', 'Horizon', 'Étoile', 'Rivage', 'Mistral', 'Azur', 'Delta', 'Phare', 'Sommet'],
+  es: ['Lablo', 'Sol', 'Horizonte', 'Estrella', 'Oriente', 'Brisa', 'Cumbre', 'Delta', 'Faro', 'Señal'],
 };
 
 const WORDS: Record<Lang, string[]> = {
@@ -120,10 +120,10 @@ const esc = (s: string): string => s.replace(/"/g, "'");
 export const MALFORMED = [
   '#EXTINF:-1 tvg-name="Unbalanced quote,Broken entry',
   '#EXTINF:-1,Entry without a URL',
-  'http://scale.zoma.test/orphan/url-without-extinf.ts',
+  'http://scale.lablo.test/orphan/url-without-extinf.ts',
   '#EXTINF:abc tvg-id="bad.duration",Bad duration',
   '',
-  '#EXTVLCOPT:http-user-agent=ZomaTest/1.0',
+  '#EXTVLCOPT:http-user-agent=LabloTest/1.0',
   '#EXTGRP:Test Group',
   '#EXTINF:-1 tvg-id=noquotes group-title=Bare,Unquoted attributes',
   `#EXTINF:-1 tvg-name="${'Long name '.repeat(400)}",Very long name`,
@@ -145,7 +145,7 @@ export interface CatalogOptions {
 export async function writeCatalog(options: CatalogOptions): Promise<CatalogResult> {
   const counts = options.counts ?? FULL_COUNTS;
   const base = options.baseUrl ?? 'http://127.0.0.1:8080';
-  const auth = 'zoma/zoma-test';
+  const auth = 'lablo/lablo-test';
   const rng = Rng.derive(options.seed, 'catalog');
   const liveCats = liveCategories();
   const vodCats = vodCategories(1000, ['', ' 4K', ' HD', ' Classics', ' Kids']);
@@ -201,7 +201,7 @@ export async function writeCatalog(options: CatalogOptions): Promise<CatalogResu
       const r = rng.float();
       const k = i % EPG_CHANNELS;
       // Mostly matching ids, some with different case, some pointing nowhere, some absent.
-      epg = r < 0.6 ? epgId(k) : r < 0.7 ? epgId(k).toUpperCase() : r < 0.75 ? `missing${i}.zoma.test` : null;
+      epg = r < 0.6 ? epgId(k) : r < 0.7 ? epgId(k).toUpperCase() : r < 0.75 ? `missing${i}.lablo.test` : null;
     }
     liveNames.push({ name, epg });
     const radio = rng.chance(0.01);

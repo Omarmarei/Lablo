@@ -13,11 +13,11 @@ import type {
   UnmatchedPage,
   UnmatchedRequest,
   UserGuide,
-} from '@zoma/data';
-import { applyProfileEdit, emptyProfile } from '@zoma/data';
-import type { Intent, KeyLike, TextKey } from '@zoma/platform-api';
-import type { EditableLike } from '@zoma/ui';
-import { SCREEN, createNavigator } from '@zoma/ui';
+} from '@lablo/data';
+import { applyProfileEdit, emptyProfile } from '@lablo/data';
+import type { Intent, KeyLike, TextKey } from '@lablo/platform-api';
+import type { EditableLike } from '@lablo/ui';
+import { SCREEN, createNavigator } from '@lablo/ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { GuideRow, GuidesEngine } from './guides-state';
 import {

@@ -28,8 +28,8 @@
  * by the next refresh. Error messages never contain URLs (they carry credentials).
  */
 
-import type { CatalogItem, ContentKind, M3uStats, TextTransport, XtreamAccount, XtreamListStats, XtreamLogin, XtreamServerInfo } from '@zoma/core';
-import { CONTENT_KINDS, M3uCatalogParser, SearchIndexBuilder, SearchSegment, XtreamClient, xtreamAccountProblem, xtreamFromM3uUrl } from '@zoma/core';
+import type { CatalogItem, ContentKind, M3uStats, TextTransport, XtreamAccount, XtreamListStats, XtreamLogin, XtreamServerInfo } from '@lablo/core';
+import { CONTENT_KINDS, M3uCatalogParser, SearchIndexBuilder, SearchSegment, XtreamClient, xtreamAccountProblem, xtreamFromM3uUrl } from '@lablo/core';
 import type { ByteResponse, ByteTransport, TextSource } from './bytes';
 import { Fnv1a, decodeUtf8, tapBytes } from './bytes';
 import type { FetchStamp, SourceMetaPatch } from './catalog-store';

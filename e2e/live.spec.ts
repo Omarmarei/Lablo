@@ -180,8 +180,8 @@ test.describe('the live screen by keys (pnpm dev, after onboarding)', () => {
       if (!ar) await expect(meta).toHaveText(`${withChannels[kids - 1]!.name} · 1 channel`);
       await settled(root);
       const kidsRows = await rows(page);
-      expect(kidsRows.map((r) => [r.number, r.name])).toEqual([['5', 'Zoma Kids Test']]);
-      expect(nowTitles(catalog.live.find((c) => c.name === 'Zoma Kids Test')!, Date.now() - 60_000, Date.now())).toContain(kidsRows[0]!.nowTitle);
+      expect(kidsRows.map((r) => [r.number, r.name])).toEqual([['5', 'Lablo Kids Test']]);
+      expect(nowTitles(catalog.live.find((c) => c.name === 'Lablo Kids Test')!, Date.now() - 60_000, Date.now())).toContain(kidsRows[0]!.nowTitle);
       await shot(page, `${locale}-category`);
 
       // OK on a channel opens the player (step 20a, e2e/player.spec.ts); Back returns to its row.

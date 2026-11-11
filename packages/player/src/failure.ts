@@ -11,8 +11,8 @@
  * | `app` | anything else (a bug, an unexpected engine state) |
  */
 
-import type { XtreamUserInfo } from '@zoma/core';
-import { xtreamAccountProblem } from '@zoma/core';
+import type { XtreamUserInfo } from '@lablo/core';
+import { xtreamAccountProblem } from '@lablo/core';
 import type { PlaybackError } from './engine';
 
 export type FailureCategory = 'internet' | 'provider' | 'device' | 'app';

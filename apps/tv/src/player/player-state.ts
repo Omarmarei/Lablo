@@ -1,12 +1,12 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { CatalogItem, ContentKey } from '@zoma/core';
-import type { EpgNowNext } from '@zoma/data';
-import type { Intent } from '@zoma/platform-api';
-import { DIGIT_INTENTS } from '@zoma/platform-api';
-import type { PictureMode, PlayerStatus, PlayOptions, PlayRequest, StreamStats, SubtitleView } from '@zoma/player';
-import { NO_TRACKS, nextPicture, streamCandidates } from '@zoma/player';
-import type { Focus, Navigator, Screen, ZoneSpec } from '@zoma/ui';
+import type { CatalogItem, ContentKey } from '@lablo/core';
+import type { EpgNowNext } from '@lablo/data';
+import type { Intent } from '@lablo/platform-api';
+import { DIGIT_INTENTS } from '@lablo/platform-api';
+import type { PictureMode, PlayerStatus, PlayOptions, PlayRequest, StreamStats, SubtitleView } from '@lablo/player';
+import { NO_TRACKS, nextPicture, streamCandidates } from '@lablo/player';
+import type { Focus, Navigator, Screen, ZoneSpec } from '@lablo/ui';
 import type { LiveRow, Timers } from '../live/live-state';
 import { mark } from '../marks';
 import type { ArchiveProgramme } from './catchup';
@@ -442,7 +442,7 @@ export function createPlayer(options: PlayerOptions): Player {
     status.value = s;
     if (resumeFrame && s.state === 'playing') {
       resumeFrame = false;
-      mark('zoma:resume-frame');
+      mark('lablo:resume-frame');
     }
     // The error card, or a catch-up's or a movie's end (steps 25d, 26c): the card takes over from the menu and a waiting seek.
     const card = s.state === 'failed' || (s.state === 'ended' && (archive.value !== null || movie.value !== null));
@@ -1008,7 +1008,7 @@ export function createPlayer(options: PlayerOptions): Player {
       pinned = mine;
       openScreen();
       go(mine.index);
-      mark('zoma:resume');
+      mark('lablo:resume');
       resumeFrame = true;
       list.locate(row.item.key, mine.index).then(
         (found) => located(found, mine),

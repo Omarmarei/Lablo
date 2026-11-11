@@ -1,7 +1,7 @@
-import type { ContentKind, DeviceTier } from '@zoma/core';
-import type { EpgCatalogSource, EpgProgress, IngestProgress, IngestResult, IngestSource, LoadedProfile, ProfileEdit, SourceRecord, UserGuide } from '@zoma/data';
+import type { ContentKind, DeviceTier } from '@lablo/core';
+import type { EpgCatalogSource, EpgProgress, IngestProgress, IngestResult, IngestSource, LoadedProfile, ProfileEdit, SourceRecord, UserGuide } from '@lablo/data';
 // The client entry only: the package index would pull every data module's polyfills into main.
-import { CancelSource } from '@zoma/data/client';
+import { CancelSource } from '@lablo/data/client';
 import type { EpgRefreshOptions, RefreshOptions } from '../data/engine';
 import type { SourceDraft } from './form';
 import type { LoadErrorCode, LoadHandle, LoadProgress, LoadResult, SourceLoader } from './loader';

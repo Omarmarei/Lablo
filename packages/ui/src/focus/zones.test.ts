@@ -1,4 +1,4 @@
-import { INTENTS } from '@zoma/platform-api';
+import { INTENTS } from '@lablo/platform-api';
 import { describe, expect, it } from 'vitest';
 import { epgCell } from './epg';
 import { freeStep } from './free';

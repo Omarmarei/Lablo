@@ -369,7 +369,7 @@ export const MALFORMED_M3U_BLOCK = [
   'http://mock.invalid/live/x/y/900003.ts',
   '#EXTINF:abc tvg-id="bad.duration" group-title="Malformed",Malformed: non-numeric duration',
   'http://mock.invalid/live/x/y/900004.ts',
-  '#EXTVLCOPT:http-user-agent=ZomaMock/1.0',
+  '#EXTVLCOPT:http-user-agent=LabloMock/1.0',
   '#EXTGRP:Malformed',
   '#EXTINF:-1 tvg-id="dup.one" tvg-id="dup.two" group-title="Malformed",Malformed: duplicate attribute',
   'http://mock.invalid/live/x/y/900005.ts',

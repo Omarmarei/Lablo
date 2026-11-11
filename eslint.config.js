@@ -90,7 +90,7 @@ const TEXT_PROPS = new Set([
 const LETTER = /\p{L}/u;
 
 /**
- * `zoma/no-hard-coded-text` (RELAY step 12b, ADR-011): every string of ours comes from the
+ * `lablo/no-hard-coded-text` (RELAY step 12b, ADR-011): every string of ours comes from the
  * catalogs in apps/tv/src/i18n through `t()`. It reports JSX text with letters, and string or
  * template literals with letters in a text prop or a child expression, including both sides of
  * `?:`, `&&`/`||` and `+`. A call's arguments are never text (`t('action.play')` is a key).
@@ -200,7 +200,7 @@ export default defineConfig(
       'boundaries/include': ['packages/**/*', 'apps/**/*', 'tools/**/*'],
       'import/resolver': {
         typescript: {
-          // The root tsconfig maps @zoma/* to every package so that a forbidden import
+          // The root tsconfig maps @lablo/* to every package so that a forbidden import
           // still resolves (and is reported) even when it is not a declared dependency.
           project: `${ROOT}/tsconfig.json`,
           alwaysTryTypes: true,
@@ -211,7 +211,7 @@ export default defineConfig(
       'boundaries/element-types': ['error', { default: 'disallow', rules: ELEMENT_RULES }],
       // Other packages are consumed through their entry point (src/index.ts) only. data has
       // four more (package.json `exports`): its three workers, which the app starts with
-      // `import QueryWorker from '@zoma/data/query.worker?worker'`, and `@zoma/data/client`,
+      // `import QueryWorker from '@lablo/data/query.worker?worker'`, and `@lablo/data/client`,
       // which keeps the other data modules (and their polyfills) out of the main bundle.
       'boundaries/entry-point': [
         'error',
@@ -238,8 +238,8 @@ export default defineConfig(
     // UI text only from the catalogs (RELAY step 12b, ADR-011). Tests, e2e and test/ may hold any text.
     files: ['apps/**/*.tsx', 'packages/**/*.tsx'],
     ignores: ['**/*.test.tsx', '**/test/**'],
-    plugins: { zoma: { rules: { 'no-hard-coded-text': noHardCodedText } } },
-    rules: { 'zoma/no-hard-coded-text': 'error' },
+    plugins: { lablo: { rules: { 'no-hard-coded-text': noHardCodedText } } },
+    rules: { 'lablo/no-hard-coded-text': 'error' },
   },
   {
     // The hello screen is a developer screen since step 13a: onboarding is the start screen, and
@@ -249,14 +249,14 @@ export default defineConfig(
     // the catalogs. Exactly these three files: user screens (onboarding, later the live screen)
     // never import them.
     files: ['apps/tv/src/App.tsx', 'apps/tv/src/DataPanel.tsx', 'apps/tv/src/FocusPanel.tsx'],
-    rules: { 'zoma/no-hard-coded-text': 'off' },
+    rules: { 'lablo/no-hard-coded-text': 'off' },
   },
   {
-    // The Zoma Lab (RELAY step 15a) is its own TV build (dist/tv-lab, its own app id) for
+    // The Lablo Lab (RELAY step 15a) is its own TV build (dist/tv-lab, its own app id) for
     // answering the hardware spikes: an English developer tool that never ships to users, and
     // whose text the e2e tests and the collector's records repeat. The app's entry never imports it.
     files: ['apps/tv/src/lab/**/*.tsx'],
-    rules: { 'zoma/no-hard-coded-text': 'off' },
+    rules: { 'lablo/no-hard-coded-text': 'off' },
   },
   {
     rules: {

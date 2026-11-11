@@ -1,5 +1,5 @@
 /**
- * The Zoma Lab in the old engines (RELAY step 15a): the lab bundles (dist/tv-lab, from
+ * The Lablo Lab in the old engines (RELAY step 15a): the lab bundles (dist/tv-lab, from
  * `pnpm build:tv`) run in Chromium 53/56/68 the way a TV would run them, reporting to a real
  * mock provider on the host through `host.docker.internal`. The lab's own checks are the test:
  * S1 (the runtime baseline) must pass on every engine, the polyfills the bundle filled must be
@@ -66,7 +66,7 @@ export interface LabRun {
 
 /** ES5: the probe runs in Chromium 53. */
 export const LAB_STATE_EXPRESSION = `(function () {
-  var lab = window.__ZOMA_LAB__;
+  var lab = window.__LABLO_LAB__;
   var box = document.getElementById('boot-error');
   var root = document.querySelector('[data-testid="lab"]');
   var error = document.querySelector('[data-testid="lab-error"]');

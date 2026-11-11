@@ -1,14 +1,14 @@
 /**
- * @zoma/platform-browser: the desktop development and test adapter.
+ * @lablo/platform-browser: the desktop development and test adapter.
  *
  * The keyboard stands in for the TV remote (docs/architecture.md §4) and the device info
  * is fake, with URL overrides so tests can force a tier, locale or country:
  * `?tier=low&locale=ar-SA&country=SA`.
  */
-import { chromiumMajorFromUserAgent } from '@zoma/core';
-import type { DeviceInfo, Intent, KeyLike, KeyRegistration, LifecycleEvent, Platform, PlatformCall, ScreenReaderState, TextKey } from '@zoma/platform-api';
-import { DIGIT_INTENTS } from '@zoma/platform-api';
-import { Html5Engine, createStageVideo } from '@zoma/player';
+import { chromiumMajorFromUserAgent } from '@lablo/core';
+import type { DeviceInfo, Intent, KeyLike, KeyRegistration, LifecycleEvent, Platform, PlatformCall, ScreenReaderState, TextKey } from '@lablo/platform-api';
+import { DIGIT_INTENTS } from '@lablo/platform-api';
+import { Html5Engine, createStageVideo } from '@lablo/player';
 
 /** `KeyboardEvent.key` values and the Intent each one stands for. */
 const KEY_INTENTS: ReadonlyMap<string, Intent> = new Map<string, Intent>([
@@ -100,7 +100,7 @@ function defaultEnv(): BrowserEnv {
     language: navigator.language,
     search: location.search,
     document,
-    onExit: () => console.info('[zoma] exitApp(): ignored in the desktop browser'),
+    onExit: () => console.info('[lablo] exitApp(): ignored in the desktop browser'),
   };
 }
 

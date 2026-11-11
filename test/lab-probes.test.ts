@@ -1,4 +1,4 @@
-// The Zoma Lab's stream reader (apps/tv/src/lab/probes.ts) against the mock's /__lab/bytes probe
+// The Lablo Lab's stream reader (apps/tv/src/lab/probes.ts) against the mock's /__lab/bytes probe
 // (apps/mock-provider/src/lab-probes.ts) over a real socket: the two independent copies of the
 // line format agree, and the reader catches a body that doesn't match (RELAY step 15a).
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -25,13 +25,13 @@ describe('the lab stream probe', () => {
 
   it('reads /__lab/bytes as a stream, cut mid-character, line for line', async () => {
     const report = await readLabStream((url) => fetch(url), `${base}/__lab/bytes?lines=5000&chunk=7&delay=0`);
-    expect(report).toMatchObject({ bytes: 5000 * 30, lines: 5000, badLine: null });
+    expect(report).toMatchObject({ bytes: 5000 * 33, lines: 5000, badLine: null });
     expect(report.chunks).toBeGreaterThan(1);
   });
 
   it('names the first wrong line, and a body cut short', () => {
     const checker = new LineChecker();
-    checker.push(labLine(0) + labLine(1).replace('Zoma', 'Zomb') + labLine(2) + labLine(4));
+    checker.push(labLine(0) + labLine(1).replace('Lablo', 'Labla') + labLine(2) + labLine(4));
     checker.end();
     expect({ lines: checker.lines, bad: checker.badLine }).toEqual({ lines: 4, bad: 1 });
     const cut = new LineChecker();
@@ -51,6 +51,6 @@ describe('the lab stream probe', () => {
   });
 
   it('decodes every split of multi-byte text with a streaming TextDecoder', () => {
-    expect(textDecoderSplits()).toEqual({ splits: 299, wrong: [] });
+    expect(textDecoderSplits()).toEqual({ splits: 329, wrong: [] });
   });
 });

@@ -3,7 +3,7 @@
  * (epg-ingest.ts). A module of its own so the EPG worker doesn't bundle the catalog ingest.
  */
 
-import { XtreamError } from '@zoma/core';
+import { XtreamError } from '@lablo/core';
 import { NetworkError } from './bytes';
 import { GenerationError } from './catalog-store';
 import { GzipError } from './gunzip';

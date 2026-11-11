@@ -19,10 +19,10 @@
  * on this origin (the lab page shares the dev app's origin under `pnpm dev`) skips the whole spike
  * and never deletes anything.
  */
-import type { ContentKind } from '@zoma/core';
-import type { EpgCatalogSource, EpgProgress, EpgRefreshResult, IngestJob, IngestProgress, IngestResult, LoadedProfile, ProfileEdit } from '@zoma/data';
-import { CancelSource } from '@zoma/data/client';
-import type { Platform } from '@zoma/platform-api';
+import type { ContentKind } from '@lablo/core';
+import type { EpgCatalogSource, EpgProgress, EpgRefreshResult, IngestJob, IngestProgress, IngestResult, LoadedProfile, ProfileEdit } from '@lablo/data';
+import { CancelSource } from '@lablo/data/client';
+import type { Platform } from '@lablo/platform-api';
 import type { DataSummary, EpgRefreshOptions, RefreshOptions, SearchSummary } from '../../data/engine';
 import { createAppDataEngine } from '../../data/workers';
 import type { LiveEngine } from '../../live/live-state';
@@ -152,7 +152,7 @@ export function createS6(deps: S6Deps = DEFAULT_S6_DEPS): Spike {
       if (blocked !== null) return blocked;
       const engine = engineOf();
       const lowTier = context.info.tier === 'low';
-      await engine.editProfile({ kind: 'source', source: { id: S6_SOURCE_ID, type: 'm3u', name: 'Zoma Lab S6', url: sourceOf().m3u, added: Date.now() } });
+      await engine.editProfile({ kind: 'source', source: { id: S6_SOURCE_ID, type: 'm3u', name: 'Lablo Lab S6', url: sourceOf().m3u, added: Date.now() } });
       let events = 0;
       const started = deps.now();
       let result: IngestResult;

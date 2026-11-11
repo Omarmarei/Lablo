@@ -45,7 +45,7 @@ export function imageTag(dockerDir: string): string {
     // Line endings are normalised so a CRLF checkout produces the same tag as CI.
     hash.update(readFileSync(path.join(dockerDir, name), 'utf8').replace(/\r\n/g, '\n'));
   }
-  return `zoma-old-engines:${hash.digest('hex').slice(0, 12)}`;
+  return `lablo-old-engines:${hash.digest('hex').slice(0, 12)}`;
 }
 
 export function ensureImage(dockerDir: string, log: (line: string) => void): string {
@@ -150,7 +150,7 @@ export function startEngine(options: {
     '1g',
     '--publish',
     '127.0.0.1::9223',
-    // The Zoma Lab reports to a mock provider on the host (step 15a, src/lab.ts).
+    // The Lablo Lab reports to a mock provider on the host (step 15a, src/lab.ts).
     '--add-host',
     'host.docker.internal:host-gateway',
     '--mount',

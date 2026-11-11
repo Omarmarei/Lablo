@@ -2,9 +2,9 @@
 // because Chromium 53 has no Intl.PluralRules and the TVs' ICU data is old. Node ships full
 // ICU, so here they are compared with it. The root test/ folder has an ES2023 lib (core's
 // ES2017 one has no Intl.PluralRules) and imports ui's plain .ts files by path (the root has no
-// @zoma/ui dependency).
+// @lablo/ui dependency).
 
-import { pluralCategory } from '@zoma/core';
+import { pluralCategory } from '@lablo/core';
 import { describe, expect, it } from 'vitest';
 import type { LocaleSettings } from '../packages/ui/src/i18n/format';
 import { formatDate, formatMonth, formatNumber, formatPercent, formatTime, formatWeekday, resolveLocale } from '../packages/ui/src/i18n/format';
@@ -45,7 +45,7 @@ describe('formats against ICU', () => {
   it.each(LOCALES.map((l) => [`${l.tag} ${l.digits}`, l] as const))('%s numbers and percents', (_name, settings) => {
     const icu = new Intl.NumberFormat(intlTag(settings));
     expect(numbers.map((n) => formatNumber(n, settings))).toEqual(numbers.map((n) => plain(icu.format(n))));
-    // ICU gives ar-SA's Western digits the Arabic percent sign; Zoma keeps the Latin one with
+    // ICU gives ar-SA's Western digits the Arabic percent sign; Lablo keeps the Latin one with
     // Western digits, as ICU does for ar-AE.
     const percentTag = settings.language === 'ar' && settings.digits === 'latn' ? 'ar-AE-u-nu-latn' : intlTag(settings);
     const percent = new Intl.NumberFormat(percentTag, { style: 'percent' });

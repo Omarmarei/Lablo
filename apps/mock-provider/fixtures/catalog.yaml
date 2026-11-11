@@ -27,19 +27,19 @@ series_categories:
   - { id: 20, name: Test Series | مسلسلات تجريبية }
 
 live:
-  - { id: 101, num: 1, name: Zoma Test 1 SMPTE, category: 1, epg_id: zoma.test1, archive_days: 7, catchup: xc, media: bars }
-  - { id: 102, num: 2, name: Zoma Test 2 Clock, category: 1, epg_id: zoma.test2, archive_days: 3, catchup: default }
-  - { id: 103, num: 3, name: زوما تجريبي ٣, category: 2, epg_id: zoma.ar3, archive_days: 3, catchup: append }
-  - { id: 104, num: 4, name: قناة الاختبار الإخبارية, category: 2, epg_id: zoma.ar4, media: bilingual }
-  - { id: 105, num: 5, name: Zoma Kids Test, category: 3, epg_id: Zoma.Kids, xmltv_id: zoma.kids, archive_days: 1, catchup: shift }
-  - { id: 106, num: 6, name: Zoma Sports Test HD, category: 4, epg_id: zoma.sports, archive_days: 2, catchup: flussonic, media: hd }
-  - { id: 107, num: 7, name: Zoma Sports Test FHD, category: 4, media: fhd }
-  - { id: 108, num: 8, name: Zoma Radio Test, category: 5, epg_id: zoma.radio, radio: true, logo: false }
+  - { id: 101, num: 1, name: Lablo Test 1 SMPTE, category: 1, epg_id: lablo.test1, archive_days: 7, catchup: xc, media: bars }
+  - { id: 102, num: 2, name: Lablo Test 2 Clock, category: 1, epg_id: lablo.test2, archive_days: 3, catchup: default }
+  - { id: 103, num: 3, name: لابلو تجريبي ٣, category: 2, epg_id: lablo.ar3, archive_days: 3, catchup: append }
+  - { id: 104, num: 4, name: قناة الاختبار الإخبارية, category: 2, epg_id: lablo.ar4, media: bilingual }
+  - { id: 105, num: 5, name: Lablo Kids Test, category: 3, epg_id: Lablo.Kids, xmltv_id: lablo.kids, archive_days: 1, catchup: shift }
+  - { id: 106, num: 6, name: Lablo Sports Test HD, category: 4, epg_id: lablo.sports, archive_days: 2, catchup: flussonic, media: hd }
+  - { id: 107, num: 7, name: Lablo Sports Test FHD, category: 4, media: fhd }
+  - { id: 108, num: 8, name: Lablo Radio Test, category: 5, epg_id: lablo.radio, radio: true, logo: false }
   - { id: 109, num: 9, name: 18+ Test Pattern, category: 6, adult: true, media: bars }
-  - { id: 110, num: 10, name: Zoma Test FR - Mire, category: 1, epg_id: zoma.fr }
-  - { id: 111, num: 11, name: Zoma Prueba ES - Carta de ajuste, category: 1, epg_id: zoma.es }
+  - { id: 110, num: 10, name: Lablo Test FR - Mire, category: 1, epg_id: lablo.fr }
+  - { id: 111, num: 11, name: Lablo Prueba ES - Carta de ajuste, category: 1, epg_id: lablo.es }
   # Same name and EPG as 101 in another group: duplicates are normal in real playlists.
-  - { id: 112, num: 12, name: Zoma Test 1 SMPTE, category: 2, epg_id: zoma.test1, archive_days: 7, catchup: xc, media: bars }
+  - { id: 112, num: 12, name: Lablo Test 1 SMPTE, category: 2, epg_id: lablo.test1, archive_days: 7, catchup: xc, media: bars }
 
 movies:
   - id: 201
@@ -83,7 +83,7 @@ movies:
     plot: Two men explore a strange machine. (c) Blender Foundation, CC BY 2.5, orange.blender.org
     media: open-movie:elephants-dream
   - id: 205
-    name: Zoma Test Pattern 4K HEVC
+    name: Lablo Test Pattern 4K HEVC
     category: 11
     ext: mp4
     year: 2026
@@ -103,7 +103,7 @@ movies:
 
 series:
   - id: 301
-    name: Zoma Test Series
+    name: Lablo Test Series
     category: 20
     year: 2026
     rating: 8

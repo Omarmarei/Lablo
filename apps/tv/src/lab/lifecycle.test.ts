@@ -1,4 +1,4 @@
-import type { LifecycleEvent } from '@zoma/platform-api';
+import type { LifecycleEvent } from '@lablo/platform-api';
 import { describe, expect, it } from 'vitest';
 import type { LifecycleClock, LifecycleEntry } from './lifecycle';
 import { createLifecycleLog, lifecycleNote } from './lifecycle';

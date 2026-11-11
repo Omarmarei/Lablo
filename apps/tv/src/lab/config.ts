@@ -1,11 +1,11 @@
 /**
  * The lab's settings. The TV build writes them into `lab-config.js` next to index.html
- * (`window.ZOMA_LAB_CONFIG`, from `pnpm build:tv --lab-server …`); URL parameters override them
+ * (`window.LABLO_LAB_CONFIG`, from `pnpm build:tv --lab-server …`); URL parameters override them
  * where a page has a URL of its own (`pnpm dev`, the e2e tests, the old-engine harness):
  *
  *   lab.html?server=http://127.0.0.1:8080&mb=16&auto=1&soak=60
  */
-import type { DeviceInfo } from '@zoma/platform-api';
+import type { DeviceInfo } from '@lablo/platform-api';
 import { readParam } from '../data/params';
 import { SOAK_DEFAULT_MINUTES, SOAK_MAX_MINUTES } from './battery';
 import { WRITE_TARGET_MB } from './spikes/s2-s3';

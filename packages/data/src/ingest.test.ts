@@ -1,6 +1,6 @@
 import { gzipSync } from 'node:zlib';
-import type { CatalogItem } from '@zoma/core';
-import { parseM3uCatalog } from '@zoma/core';
+import type { CatalogItem } from '@lablo/core';
+import { parseM3uCatalog } from '@lablo/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ByteTransport } from './bytes';
 import { Fnv1a } from './bytes';

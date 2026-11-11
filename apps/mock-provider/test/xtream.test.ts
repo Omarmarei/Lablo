@@ -25,9 +25,9 @@ describe('player_api.php authentication and user_info', () => {
     app = await mock();
     const body = await json<{ user_info: Obj; server_info: Obj }>(api());
     expect(body.user_info).toEqual({
-      username: 'zoma',
-      password: 'zoma-test',
-      message: 'Welcome to the Zoma test server',
+      username: 'lablo',
+      password: 'lablo-test',
+      message: 'Welcome to the Lablo test server',
       auth: 1,
       status: 'Active',
       exp_date: String(DAY0_SEC + 365 * DAY_SEC),
@@ -51,10 +51,10 @@ describe('player_api.php authentication and user_info', () => {
   });
 
   it.each([
-    ['a wrong password', api(undefined, '', 'zoma', 'nope')],
-    ['an unknown user', api(undefined, '', 'nobody', 'zoma-test')],
+    ['a wrong password', api(undefined, '', 'lablo', 'nope')],
+    ['an unknown user', api(undefined, '', 'nobody', 'lablo-test')],
     ['missing credentials', '/player_api.php'],
-    ['a wrong password with an action', api('get_live_streams', '', 'zoma', 'nope')],
+    ['a wrong password with an action', api('get_live_streams', '', 'lablo', 'nope')],
   ])('answers auth 0 for %s', async (_name, url) => {
     app = await mock();
     expect(await json(url)).toEqual({ user_info: { auth: 0 } });
@@ -83,10 +83,10 @@ describe('player_api.php authentication and user_info', () => {
 
   it('needs credentials percent-encoded (an unencoded + is a space)', async () => {
     app = await mock();
-    const user = 'special+user@zoma.test';
+    const user = 'special+user@lablo.test';
     const pass = 'p@ss/w0rd&?# é';
     expect(await json(api(undefined, '', user, pass))).toMatchObject({ user_info: { auth: 1, username: user, password: pass } });
-    expect(await json(`/player_api.php?username=special+user@zoma.test&password=${encodeURIComponent(pass)}`)).toEqual({ user_info: { auth: 0 } });
+    expect(await json(`/player_api.php?username=special+user@lablo.test&password=${encodeURIComponent(pass)}`)).toEqual({ user_info: { auth: 0 } });
   });
 
   it('accepts a form POST', async () => {
@@ -95,7 +95,7 @@ describe('player_api.php authentication and user_info', () => {
       method: 'POST',
       url: '/player_api.php',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      payload: 'username=zoma&password=zoma-test&action=get_live_categories',
+      payload: 'username=lablo&password=lablo-test&action=get_live_categories',
     });
     expect(res.statusCode).toBe(200);
     expect(res.json<unknown[]>()).toHaveLength(6);
@@ -127,11 +127,11 @@ describe('player_api.php catalog actions', () => {
     expect(streams).toHaveLength(12);
     expect(streams[0]).toEqual({
       num: 1,
-      name: 'Zoma Test 1 SMPTE',
+      name: 'Lablo Test 1 SMPTE',
       stream_type: 'live',
       stream_id: 101,
       stream_icon: 'http://tv-lab.local:8080/images/channel-101.png',
-      epg_channel_id: 'zoma.test1',
+      epg_channel_id: 'lablo.test1',
       added: String(DAY0_SEC - 30 * DAY_SEC),
       is_adult: '0',
       category_id: '1',
@@ -172,13 +172,13 @@ describe('player_api.php catalog actions', () => {
   it('lists series and returns seasons with episodes keyed by season', async () => {
     app = await mock();
     const series = await json<Obj[]>(api('get_series'));
-    expect(series.map((s) => s['name'])).toEqual(['Zoma Test Series', 'مسلسل الاختبار']);
+    expect(series.map((s) => s['name'])).toEqual(['Lablo Test Series', 'مسلسل الاختبار']);
     const info = await json<{ seasons: Obj[]; info: Obj; episodes: Record<string, Obj[]> }>(api('get_series_info', '&series_id=301'));
     expect(info.seasons.map((s) => [s['season_number'], s['episode_count']])).toEqual([
       [1, 3],
       [2, 2],
     ]);
-    expect(info.info).toMatchObject({ name: 'Zoma Test Series', series_id: 301 });
+    expect(info.info).toMatchObject({ name: 'Lablo Test Series', series_id: 301 });
     expect(Object.keys(info.episodes)).toEqual(['1', '2']);
     expect(info.episodes['2']?.[0]).toMatchObject({ id: '3011', episode_num: 1, container_extension: 'mp4', season: 2 });
     expect(info.episodes['1']?.[0]?.['info']).toMatchObject({ duration_secs: 300, duration: '00:05:00' });
@@ -201,14 +201,14 @@ describe('player_api.php EPG actions', () => {
     const first = listings[0]!;
     expect(first).toMatchObject({
       epg_id: '101',
-      channel_id: 'zoma.test1',
+      channel_id: 'lablo.test1',
       start: '2026-11-02 12:00:00',
       end: '2026-11-02 13:00:00',
       start_timestamp: String(NOW_SEC),
       stop_timestamp: String(NOW_SEC + 3600),
     });
     expect(b64decode(first['title'])).toMatch(/\S+ \d+$/);
-    expect(b64decode(first['description'])).toContain('Zoma Test 1 SMPTE');
+    expect(b64decode(first['description'])).toContain('Lablo Test 1 SMPTE');
     // Consecutive programmes.
     expect(listings[1]).toMatchObject({ start: '2026-11-02 13:00:00' });
     expect(await json<{ epg_listings: Obj[] }>(api('get_short_epg', '&stream_id=101&limit=2'))).toMatchObject({ epg_listings: [{}, {}] });

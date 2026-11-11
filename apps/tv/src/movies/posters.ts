@@ -1,4 +1,4 @@
-import type { DeviceTier } from '@zoma/core';
+import type { DeviceTier } from '@lablo/core';
 
 /**
  * Which posters a grid draws (RELAY step 26a). Providers' posters come at their own size (no

@@ -57,7 +57,7 @@ const hosts =
     ? ['127.0.0.1', ...Object.values(networkInterfaces()).flatMap((list) => (list ?? []).filter((i) => i.family === 'IPv4' && !i.internal).map((i) => i.address))]
     : [values.host];
 
-console.log('Zoma mock provider (test-signal server)');
+console.log('Lablo mock provider (test-signal server)');
 for (const h of hosts) console.log(`  http://${h}:${actualPort}/`);
 console.log(`Media: ${app.mockState.media.kind}${media ? ` (${values.media}, open movies: ${Object.keys(media.openMovies).join(', ') || 'none'})` : ''}`);
 console.log(`Scenario: ${app.mockState.scenario?.name ?? 'none'}   Accounts: ${app.mockState.fixture.accounts.map((a) => a.username).join(', ')}`);

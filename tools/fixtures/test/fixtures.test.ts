@@ -14,7 +14,7 @@ const SMALL_XMLTV = [{ name: 'small.xml', channels: 20, targetBytes: 300_000 }];
 
 let root: string;
 beforeAll(() => {
-  root = mkdtempSync(join(tmpdir(), 'zoma-fixtures-'));
+  root = mkdtempSync(join(tmpdir(), 'lablo-fixtures-'));
 });
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
@@ -87,7 +87,7 @@ describe('the full 200k catalog', () => {
     expect([xt('live_streams').length, xt('vod_streams').length, xt('series').length]).toEqual([20_000, 120_000, 3_000]);
 
     const m3u = readFileSync(join(dir, 'playlist.m3u'), 'utf8');
-    const urls = m3u.split('\n').filter((l) => /^http:\/\/127\.0\.0\.1:8080\/(live|movie|series)\/zoma\/zoma-test\//.test(l));
+    const urls = m3u.split('\n').filter((l) => /^http:\/\/127\.0\.0\.1:8080\/(live|movie|series)\/lablo\/lablo-test\//.test(l));
     expect(urls).toHaveLength(200_000);
     expect(m3u.startsWith('#EXTM3U url-tvg=')).toBe(true);
   });

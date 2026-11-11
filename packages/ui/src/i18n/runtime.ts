@@ -1,4 +1,4 @@
-import { isolateText, pluralCategory } from '@zoma/core';
+import { isolateText, pluralCategory } from '@lablo/core';
 import type { DateStyle, LocaleOverrides, LocaleSettings, NameWidth } from './format';
 import { formatDate, formatDuration, formatNumber, formatPercent, formatTime, formatWeekday, resolveLocale } from './format';
 import type { MessageArgs, MessageEnv, MessagePart } from './message';

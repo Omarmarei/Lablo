@@ -1,13 +1,13 @@
 /**
- * @zoma/platform-api: the Platform and Intent contracts every TV adapter implements.
+ * @lablo/platform-api: the Platform and Intent contracts every TV adapter implements.
  *
  * Interfaces only, plus the Intent vocabulary as a constant list. Adapters
  * (platform-tizen, platform-webos, platform-browser) implement `Platform`; apps/tv
  * picks one per build through the `__PLATFORM__` define. See docs/architecture.md §1.1
  * and §1.2. Player types are imported here with `import type` only (ADR-008).
  */
-import type { DeviceTier } from '@zoma/core';
-import type { PlayerEngine } from '@zoma/player';
+import type { DeviceTier } from '@lablo/core';
+import type { PlayerEngine } from '@lablo/player';
 
 export type { DeviceTier };
 
@@ -225,7 +225,7 @@ export interface Platform {
    * The system's own pointer shown/hidden events: the webOS Magic Remote pointer hides
    * after a few idle seconds and on a key press, and says so. Platforms without such
    * events never call the listener (the app then learns of a shown pointer from its moves,
-   * `@zoma/ui` `watchPointerMoves`). Returns an unsubscribe function.
+   * `@lablo/ui` `watchPointerMoves`). Returns an unsubscribe function.
    */
   onPointer(listener: (visible: boolean) => void): () => void;
   rootBackPolicy(): RootBackPolicy;

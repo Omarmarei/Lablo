@@ -51,7 +51,7 @@ test.describe('the grid guide’s gallery page (pnpm dev, ?screen=gallery-guide)
       expect(cell).toMatchObject({ row: 0, title: 'Evening Bulletin' });
       expect(cell.start).toBeLessThanOrEqual(g.time);
       expect(cell.end).toBeGreaterThan(g.time);
-      // Zoma News leaves two minutes empty after the bulletin: its cell takes them.
+      // Lablo News leaves two minutes empty after the bulletin: its cell takes them.
       expect(g.cells.filter((c) => c.row === 0).map((c) => [c.start - g.view, c.end - g.view, c.title])).toEqual([
         [0, 30, 'Evening Bulletin'],
         [30, 60, 'Weather and Traffic'],
@@ -70,7 +70,7 @@ test.describe('the grid guide’s gallery page (pnpm dev, ?screen=gallery-guide)
         [90, 120, placeholder],
       ]);
       expect(g.cells.filter((c) => c.row === 6).map((c) => c.title)).toEqual([placeholder, placeholder, placeholder, placeholder]);
-      expect(g.rows[1]!.name).toBe('قناة زوما');
+      expect(g.rows[1]!.name).toBe('قناة لابلو');
       await page.screenshot({ path: path.join(SHOTS, `guide-gallery-${locale}.png`), animations: 'disabled' });
 
       // On a programme: the next cell, then back.

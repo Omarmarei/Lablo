@@ -1,8 +1,8 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { Platform } from '@zoma/platform-api';
-import type { EpgZone, FocusBinding, GuideChannel, GuideSchedule, Navigator, Screen } from '@zoma/ui';
-import { SCREEN, bindFocus, createNavigator, guideCellAt, guideFits, guideZone } from '@zoma/ui';
+import type { Platform } from '@lablo/platform-api';
+import type { EpgZone, FocusBinding, GuideChannel, GuideSchedule, Navigator, Screen } from '@lablo/ui';
+import { SCREEN, bindFocus, createNavigator, guideCellAt, guideFits, guideZone } from '@lablo/ui';
 
 /**
  * The grid guide's gallery page (`?screen=gallery-guide`, RELAY step 23b): the `GuideGrid`
@@ -58,7 +58,7 @@ function rowOf(shows: readonly Show[]): GuideSchedule {
 
 const FIRST: readonly GuideDemoRow[] = [
   {
-    channel: { number: 101, name: 'Zoma News' },
+    channel: { number: 101, name: 'Lablo News' },
     schedule: rowOf([
       [at(18), at(19), 'World Report'],
       [at(19), at(20), 'Business Today'],
@@ -70,7 +70,7 @@ const FIRST: readonly GuideDemoRow[] = [
     ]),
   },
   {
-    channel: { number: 102, name: 'قناة زوما' },
+    channel: { number: 102, name: 'قناة لابلو' },
     schedule: rowOf([
       [at(19), at(20, 10), 'برنامج المساء'],
       [at(20, 10), at(21, 25), 'نشرة الأخبار الرئيسية'],
@@ -78,14 +78,14 @@ const FIRST: readonly GuideDemoRow[] = [
     ]),
   },
   {
-    channel: { number: 103, name: 'Zoma Sports 1' },
+    channel: { number: 103, name: 'Lablo Sports 1' },
     schedule: rowOf([
       [at(19, 30), at(22, 15), 'Football: Cup Final, live from the national stadium'],
       [at(22, 15), at(22, 45), 'Match Highlights'],
     ]),
   },
   {
-    channel: { number: 104, name: 'Zoma Kids' },
+    channel: { number: 104, name: 'Lablo Kids' },
     schedule: rowOf([
       [at(20), at(20, 15), 'Puppet Theatre'],
       [at(20, 15), at(20, 20), 'Song'],
@@ -95,7 +95,7 @@ const FIRST: readonly GuideDemoRow[] = [
     ]),
   },
   {
-    channel: { number: 105, name: 'Zoma Documentary Channel International Extra Long Name' },
+    channel: { number: 105, name: 'Lablo Documentary Channel International Extra Long Name' },
     schedule: rowOf([
       [at(19, 45), at(20, 50), 'Nature: The Desert at Night'],
       // The guide has nothing from 20:50 to 23:00: placeholders by the slot.
@@ -103,13 +103,13 @@ const FIRST: readonly GuideDemoRow[] = [
     ]),
   },
   {
-    channel: { number: 106, name: 'زوما للأفلام' },
+    channel: { number: 106, name: 'لابلو للأفلام' },
     schedule: rowOf([
       [at(19), at(21, 40), 'فيلم السهرة: رحلة إلى الجنوب'],
       [at(21, 40), at(22), 'أخبار السينما'],
     ]),
   },
-  { channel: { number: 107, name: 'Zoma Test Pattern' }, schedule: null },
+  { channel: { number: 107, name: 'Lablo Test Pattern' }, schedule: null },
 ];
 
 const SHOWS = ['Weather', 'World Report', 'Studio Live', 'Classic Film', 'Travel Diaries', 'Late News', 'Quiz Night', 'Cooking at Home'];
@@ -119,7 +119,7 @@ const LENGTHS = [30, 60, 45, 90, 25, 35, 120, 15];
 export const GUIDE_DEMO: readonly GuideDemoRow[] = (() => {
   const out: GuideDemoRow[] = FIRST.slice();
   for (let row = FIRST.length; row < 40; row += 1) {
-    const channel = { number: 101 + row, name: `Zoma Channel ${row + 1}` };
+    const channel = { number: 101 + row, name: `Lablo Channel ${row + 1}` };
     if (row % 9 === 4) {
       out.push({ channel, schedule: null });
       continue;

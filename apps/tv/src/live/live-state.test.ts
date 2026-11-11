@@ -1,7 +1,7 @@
-import type { CatalogItem, ContentKey, ContentKind, EpgProgramme } from '@zoma/core';
-import type { CategoryInfo, EpgNowNext, LoadedProfile, ShortEpgNowNext, SourceRecord } from '@zoma/data';
-import type { Intent, RootBackPolicy } from '@zoma/platform-api';
-import { LAYOUT, SCREEN, listHeight } from '@zoma/ui';
+import type { CatalogItem, ContentKey, ContentKind, EpgProgramme } from '@lablo/core';
+import type { CategoryInfo, EpgNowNext, LoadedProfile, ShortEpgNowNext, SourceRecord } from '@lablo/data';
+import type { Intent, RootBackPolicy } from '@lablo/platform-api';
+import { LAYOUT, SCREEN, listHeight } from '@lablo/ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FocusedChannel } from '../data/engine';
 import type { LiveEngine, RailRef, Timers } from './live-state';
@@ -940,17 +940,17 @@ describe('the start on the last channel (RELAY step 20c1)', () => {
 
   it('marks the moment its categories are in, once per load that succeeds', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    performance.clearMarks('zoma:live-ready');
+    performance.clearMarks('lablo:live-ready');
     const t = await setup();
-    expect(performance.getEntriesByName('zoma:live-ready')).toHaveLength(1);
+    expect(performance.getEntriesByName('lablo:live-ready')).toHaveLength(1);
     t.engine.failProfile = true;
     t.live.reload();
     await flush();
-    expect(performance.getEntriesByName('zoma:live-ready')).toHaveLength(1);
+    expect(performance.getEntriesByName('lablo:live-ready')).toHaveLength(1);
     t.engine.failProfile = false;
     t.live.reload();
     await flush();
-    expect(performance.getEntriesByName('zoma:live-ready')).toHaveLength(2);
+    expect(performance.getEntriesByName('lablo:live-ready')).toHaveLength(2);
   });
 });
 

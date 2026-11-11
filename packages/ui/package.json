@@ -1,5 +1,5 @@
 {
-  "name": "@zoma/ui",
+  "name": "@lablo/ui",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,10 +13,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@zoma/core": "workspace:*",
-    "@zoma/player": "workspace:*",
-    "@zoma/data": "workspace:*",
-    "@zoma/platform-api": "workspace:*",
+    "@lablo/core": "workspace:*",
+    "@lablo/data": "workspace:*",
+    "@lablo/platform-api": "workspace:*",
+    "@lablo/player": "workspace:*",
     "@preact/signals": "^2.11.4",
     "preact": "^10.29.8"
   },

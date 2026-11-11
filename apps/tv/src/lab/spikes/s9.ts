@@ -1,16 +1,16 @@
 /**
  * S9 from docs/architecture.md §5: does Arabic text render right? The app bundles its fonts
- * (Zoma Sans: Noto Sans and Noto Sans Arabic UI subsets), isolates text arguments itself
+ * (Lablo Sans: Noto Sans and Noto Sans Arabic UI subsets), isolates text arguments itself
  * (core's `isolateText`) and formats dates and numbers without `Intl` (ADR-011), so S9 mostly
  * confirms those choices on the TV:
- * - `fonts`: the four Zoma Sans faces load from the package;
+ * - `fonts`: the four Lablo Sans faces load from the package;
  * - `shaping`: Arabic letters join and lam-alef ligates in them (the subsets kept their shaping);
  * - `bidi`: the isolation keeps a Latin name with its digits in an Arabic line, and draws nothing
  *   (Chromium 53/56/68 ignore FSI/PDI: the marks around them do the work there);
  * - `intl`: what the engine's `Intl` makes of Arabic (the calendar, the digits), beside the
  *   app's own output. A measurement: the app doesn't use it.
  */
-import { isolateText } from '@zoma/core';
+import { isolateText } from '@lablo/core';
 import type { Check, CheckResult, Spike } from '../types';
 import { ARABIC_WORD, FONT_FAMILY, SHAPING_WORD, bidiFailures, fontFailures, fontSet, intlNote, loadFaces, measureBidi, measureBox, measureShaping, readIntl, shapingVerdict } from '../arabic';
 
@@ -18,7 +18,7 @@ const ltr = (text: string): string => isolateText(text, 'ltr');
 
 const fonts: Check = {
   id: 'fonts',
-  title: 'The Zoma Sans faces load (Latin and Arabic, 400 and 700)',
+  title: 'The Lablo Sans faces load (Latin and Arabic, 400 and 700)',
   run: async (): Promise<CheckResult> => {
     const set = fontSet();
     if (set === null) return { status: 'info', note: 'no CSS Font Loading API (document.fonts): the faces cannot be read here' };
@@ -31,7 +31,7 @@ const fonts: Check = {
 
 const shaping: Check = {
   id: 'shaping',
-  title: 'Arabic letters join and lam-alef ligates in Zoma Sans',
+  title: 'Arabic letters join and lam-alef ligates in Lablo Sans',
   run: (): Promise<CheckResult> => {
     const set = fontSet();
     // Measured in a fallback font, the test would say nothing about ours.
@@ -56,7 +56,7 @@ const bidi: Check = {
       const failures = bidiFailures(answer);
       return Promise.resolve(
         failures.length === 0
-          ? { status: 'pass', value: answer, note: `${ltr(`MBC 1 · 240 ${ARABIC_WORD}`)} and ${ltr(`1 Zoma ${ARABIC_WORD}`)} held together; the isolation is not drawn` }
+          ? { status: 'pass', value: answer, note: `${ltr(`MBC 1 · 240 ${ARABIC_WORD}`)} and ${ltr(`1 Lablo ${ARABIC_WORD}`)} held together; the isolation is not drawn` }
           : { status: 'fail', value: answer, note: failures.join('; ') },
       );
     } finally {

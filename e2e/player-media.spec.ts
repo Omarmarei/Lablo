@@ -212,7 +212,7 @@ test('the stream info on real live channels: the size, a measured frame rate and
   const errors = trackErrors(page);
   const remote = new RemoteDriver(page);
   await addXtreamAndWatch(remote, { host, username: U, password: P }, 'locale=en-US');
-  // Zoma Test 1 SMPTE: 960x540 at 25 fps, about 0.5 Mb/s of video.
+  // Lablo Test 1 SMPTE: 960x540 at 25 fps, about 0.5 Mb/s of video.
   await remote.press('OK');
   const player = page.getByTestId('player');
   await remote.expectFocus('player/actions/0');
@@ -234,7 +234,7 @@ test('the stream info on real live channels: the size, a measured frame rate and
   await expect(page.getByTestId('stream-info-video')).toHaveCount(0);
   await page.screenshot({ path: path.join(SHOTS, 'player-stream-info-live-en.png'), animations: 'disabled' });
 
-  // The number 6: Zoma Sports Test HD, 1280x720 at 50 fps, about 1.8 Mb/s of video.
+  // The number 6: Lablo Sports Test HD, 1280x720 at 50 fps, about 1.8 Mb/s of video.
   await remote.press('DIGIT_6');
   await expect(player).toHaveAttribute('data-playing', '8', { timeout: 5_000 });
   await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
@@ -276,7 +276,7 @@ test('the picture in 4:3 on a real live channel: the 16:9 bars squeezed into the
   const errors = trackErrors(page);
   const remote = new RemoteDriver(page);
   await addXtreamAndWatch(remote, { host, username: U, password: P }, 'locale=en-US');
-  // Zoma Test 1 SMPTE: 960x540 HD colour bars, grey at both edges.
+  // Lablo Test 1 SMPTE: 960x540 HD colour bars, grey at both edges.
   await remote.press('OK');
   const player = page.getByTestId('player');
   await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
@@ -312,7 +312,7 @@ test('plays a programme gone by from the archive: "From the start" in its detail
   const errors = trackErrors(page);
   const remote = new RemoteDriver(page);
   await addXtreamAndWatch(remote, { host, username: U, password: P }, 'locale=en-US');
-  // The guide on the first channel (Zoma Test 1 SMPTE: seven days of archive, colour bars), a cell back from now.
+  // The guide on the first channel (Lablo Test 1 SMPTE: seven days of archive, colour bars), a cell back from now.
   await remote.go('UP', 'live/header/0');
   await remote.go('OK', 'guide/grid/0');
   const screen = page.getByTestId('guide-screen');

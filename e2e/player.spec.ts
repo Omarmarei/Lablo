@@ -95,7 +95,7 @@ test('opens a channel, zaps with the debounce, finds a number, goes back to the 
   await expect(player).toHaveAttribute('data-playing', '1');
   await expect(player).toHaveAttribute('data-info', 'true');
   expect(await text(page, 'player-number')).toBe('2');
-  expect(await text(page, 'player-name')).toBe('Zoma Test 2 Clock');
+  expect(await text(page, 'player-name')).toBe('Lablo Test 2 Clock');
   // The guide's programme on now and the next one.
   await expect(page.getByTestId('player-now')).toBeVisible();
   await expect(page.getByTestId('player-next')).toBeVisible();
@@ -108,20 +108,20 @@ test('opens a channel, zaps with the debounce, finds a number, goes back to the 
   // Three quick CH+: the bar moves at once, one stream opens 350 ms after the last.
   await remote.press('CH_UP', 'CH_UP', 'CH_UP');
   await expect(player).toHaveAttribute('data-target', '4');
-  expect(await text(page, 'player-name')).toBe('زوما تجريبي ٣');
+  expect(await text(page, 'player-name')).toBe('لابلو تجريبي ٣');
   expect(await text(page, 'player-number')).toBe('3');
   await expect(player).toHaveAttribute('data-playing', '4');
   await expect(player).toHaveAttribute('data-plays', '2');
   await expect(player).toHaveAttribute('data-previous', '1');
   await expect(page.getByTestId('player-previous')).not.toHaveAttribute('aria-disabled', 'true');
 
-  // The number 5: the panel's Zoma Kids Test, row 7.
+  // The number 5: the panel's Lablo Kids Test, row 7.
   await remote.press('DIGIT_5');
   await expect(player).toHaveAttribute('data-entry', 'typing');
   expect(await text(page, 'player-entry')).toBe('5');
   await expect(player).toHaveAttribute('data-playing', '7', { timeout: 5_000 });
   await expect(player).toHaveAttribute('data-entry', '');
-  expect(await text(page, 'player-name')).toBe('Zoma Kids Test');
+  expect(await text(page, 'player-name')).toBe('Lablo Kids Test');
   await expect(player).toHaveAttribute('data-previous', '4');
 
   // PRE-CH goes back to the channel watched before, and back again.
@@ -184,7 +184,7 @@ for (const locale of ['en-US', 'ar-SA'] as const) {
     // A zap hides the card at once; the bar shows the next channel.
     await remote.press('CH_UP');
     await expect(card).toHaveCount(0);
-    expect(await text(page, 'player-name')).toBe('Zoma Test 1 SMPTE');
+    expect(await text(page, 'player-name')).toBe('Lablo Test 1 SMPTE');
     await expect(player).toHaveAttribute('data-playing', String(GONE + 1));
     await remote.expectFocus('player/actions/0');
     // "Channels" on the card of the lost channel again closes the player.
@@ -365,7 +365,7 @@ function storedPicture(page: Page): Promise<unknown> {
   return page.evaluate(
     () =>
       new Promise<unknown>((resolve) => {
-        const open = indexedDB.open('zoma');
+        const open = indexedDB.open('lablo');
         open.onerror = () => resolve(null);
         open.onsuccess = () => {
           const db = open.result;

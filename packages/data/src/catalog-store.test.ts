@@ -1,4 +1,4 @@
-import { buildSearchSegment } from '@zoma/core';
+import { buildSearchSegment } from '@lablo/core';
 import { describe, expect, it } from 'vitest';
 import {
   GenerationError,

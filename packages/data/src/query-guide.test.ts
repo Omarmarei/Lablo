@@ -2,8 +2,8 @@
 // the store, so each case controls the days, the shifts and the match methods. The refresh's own
 // buckets are checked against now/next in epg-ingest.test.ts.
 
-import type { EpgMatchMethod, EpgProgramme } from '@zoma/core';
-import { buildEpgBucket, epgDay } from '@zoma/core';
+import type { EpgMatchMethod, EpgProgramme } from '@lablo/core';
+import { buildEpgBucket, epgDay } from '@lablo/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { StoredEpgMatch } from './epg-store';
 import { beginEpgGeneration, commitEpgGeneration, deleteEpgGeneration, putEpgBuckets, putEpgChannels } from './epg-store';

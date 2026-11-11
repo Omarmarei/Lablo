@@ -78,7 +78,7 @@ describe('S8, pre-buffering with avplaystore (RELAY step 15c2)', () => {
     const open = ['stop', 'close', 'open', 'setListener', 'setDisplayRect 1112,556,768,432', 'prepareAsync'];
     expect(a.calls).toEqual([...open, 'play', 'stop', 'close', ...open, 'play', 'stop', 'close', 'stop', 'close']);
     expect(bb.urls).toEqual(['http://lab/live/104.ts', 'http://lab/live/104.ts']);
-    expect(JSON.stringify(results)).not.toMatch(/http:|zoma-test/);
+    expect(JSON.stringify(results)).not.toMatch(/http:|lablo-test/);
   });
 
   it('judges the switch only on 2020+ TVs, at 700 ms or less', async () => {

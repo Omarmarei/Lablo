@@ -1,8 +1,8 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { Platform } from '@zoma/platform-api';
-import type { EditorBinding, FocusBinding, Language, Navigator, Screen, ScreenSpec, TextEditorOptions } from '@zoma/ui';
-import { bindEditor, bindFocus, createNavigator, createTextEditor } from '@zoma/ui';
+import type { Platform } from '@lablo/platform-api';
+import type { EditorBinding, FocusBinding, Language, Navigator, Screen, ScreenSpec, TextEditorOptions } from '@lablo/ui';
+import { bindEditor, bindFocus, createNavigator, createTextEditor } from '@lablo/ui';
 import type { FieldId, FormProblems, FormValues, SourceDraft, SourceType } from './form';
 import { FORM_FIELDS, checkForm, firstProblem } from './form';
 import type { LoadErrorCode, LoadHandle, LoadProgress, LoadResult, SourceLoader } from './loader';
@@ -14,7 +14,7 @@ import { LoadError } from './loader';
  * the browser, the launcher on webOS).
  *
  *   language  (English / العربية: picking one switches the app to it)
- *   disclaimer (Zoma provides no content)
+ *   disclaimer (Lablo provides no content)
  *   consent   (the TV's device ID for the encrypted backup: allow / not now)
  *   source    (an Xtream login or an M3U link)
  *   form      (the fields, then "Add source": checked on the TV first)

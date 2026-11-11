@@ -38,10 +38,10 @@ const TITLES: Record<Lang, string[]> = {
 };
 const LANGS: Lang[] = ['en', 'ar', 'fr', 'es'];
 const FILLER: Record<Lang, string> = {
-  en: 'A test programme for Zoma scale fixtures with invented content & no real shows. ',
-  ar: 'برنامج تجريبي لاختبارات زوما على نطاق واسع بمحتوى مُختلق وبدون عروض حقيقية. ',
-  fr: 'Une émission de test pour les fixtures de Zoma, contenu inventé et aucune vraie émission. ',
-  es: 'Un programa de prueba para los fixtures de Zoma, con contenido inventado y sin programas reales. ',
+  en: 'A test programme for Lablo scale fixtures with invented content & no real shows. ',
+  ar: 'برنامج تجريبي لاختبارات لابلو على نطاق واسع بمحتوى مُختلق وبدون عروض حقيقية. ',
+  fr: 'Une émission de test pour les fixtures de Lablo, contenu inventé et aucune vraie émission. ',
+  es: 'Un programa de prueba para los fixtures de Lablo, con contenido inventado y sin programas reales. ',
 };
 
 function xmltvTime(ms: number, offsetMin: number): string {
@@ -86,7 +86,7 @@ export async function writeXmltv(outDir: string, spec: XmltvSpec, seed: number):
   // Arabic counted at 2 bytes, averaged over the four languages).
   const descBytes = Math.max(0, Math.floor((spec.targetBytes / programmes - PROGRAMME_OVERHEAD - (spec.channels * 200) / programmes) / DESC_SHARE));
   const w = new FixtureWriter(join(outDir, spec.name), true);
-  await w.text('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE tv SYSTEM "xmltv.dtd">\n<tv generator-info-name="Zoma scale fixtures" source-info-name="zoma.test">\n');
+  await w.text('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE tv SYSTEM "xmltv.dtd">\n<tv generator-info-name="Lablo scale fixtures" source-info-name="lablo.test">\n');
   const langOf = (k: number): Lang => LANGS[k % LANGS.length]!;
   for (let k = 0; k < spec.channels; k++) {
     const lang = langOf(k);

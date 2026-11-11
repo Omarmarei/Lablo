@@ -70,7 +70,7 @@ let host: string;
 let guideDir: string;
 
 test.beforeAll(async () => {
-  guideDir = mkdtempSync(path.join(tmpdir(), 'zoma-e2e-grid-'));
+  guideDir = mkdtempSync(path.join(tmpdir(), 'lablo-e2e-grid-'));
   const guide = path.join(guideDir, 'guide.xml');
   const now = Date.now();
   dense = gridGuide(now);

@@ -7,7 +7,7 @@
  * go out on its return. A heartbeat every second tells whether they ran while hidden (Samsung
  * says scripts pause in the background; LG doesn't say).
  */
-import type { LifecycleEvent, Platform } from '@zoma/platform-api';
+import type { LifecycleEvent, Platform } from '@lablo/platform-api';
 
 export interface LifecycleEntry {
   readonly event: LifecycleEvent;

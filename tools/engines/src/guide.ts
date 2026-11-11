@@ -18,9 +18,9 @@
  *
  * The layout constants, the selectors and our own words are kept equal to packages/ui's
  * guide-layout.ts, the e2e tests and the app's catalogs by test/engines-onboarding.test.ts
- * (tools/* may not import @zoma/ui).
+ * (tools/* may not import @lablo/ui).
  */
-import { stripIsolates } from '@zoma/core';
+import { stripIsolates } from '@lablo/core';
 import type { ListedChannel } from './fixture';
 import { SAFE_AREA, list } from './gallery';
 import type { ListedEntry, LiveLanguage } from './live';

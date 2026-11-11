@@ -1,4 +1,4 @@
-import type { Intent, RootBackPolicy } from '@zoma/platform-api';
+import type { Intent, RootBackPolicy } from '@lablo/platform-api';
 import { describe, expect, it, vi } from 'vitest';
 import type { Focus, Navigator, NavigatorOptions, ScreenSpec } from './navigator';
 import { createNavigator } from './navigator';

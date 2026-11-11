@@ -1,5 +1,5 @@
 // RELAY step 11c: the old-engine harness checks the component gallery with its own ES5 probe
-// and constants (tools/* may not import @zoma/ui). This keeps them equal to the app's and to
+// and constants (tools/* may not import @lablo/ui). This keeps them equal to the app's and to
 // the e2e test's, and proves the CSS seeds still find what they take out of the real sources.
 
 import { readFileSync } from 'node:fs';

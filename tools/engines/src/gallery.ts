@@ -3,7 +3,7 @@
  * e2e tests check it in current Chromium; here every component must lay out the same way in
  * Chromium 53/56/68, from the built bundle on file://:
  * 1. Boot: no error, `[data-testid=gallery][data-ready=true]`, and the fonts in use loaded (a
- *    Latin and an Arabic Zoma Sans face: the demo channels have Arabic names).
+ *    Latin and an Arabic Lablo Sans face: the demo channels have Arabic names).
  * 2. Layout, as `layout()` in e2e/gallery.spec.ts: a 1920x1080 viewport that doesn't scroll,
  *    every component box inside the title-safe area (96/54 px), no label of ours cut and no
  *    channel name squeezed by its badges.
@@ -20,7 +20,7 @@
  *
  * The probe and the evaluation are unit-tested; `runGallery` drives a real engine over CDP.
  */
-import { isolateText } from '@zoma/core';
+import { isolateText } from '@lablo/core';
 import type { CdpClient } from './cdp';
 import type { Engine } from './engines';
 import { chromeMajor } from './engines';
@@ -162,13 +162,13 @@ export interface BidiPair {
 
 /** The bidi probe's answer (see `BIDI_EXPRESSION`). */
 export interface BidiState {
-  /** `Zoma 1`, and the same as `isolateText` gives it: equal when the isolation draws nothing. */
+  /** `Lablo 1`, and the same as `isolateText` gives it: equal when the isolation draws nothing. */
   readonly plain: number;
   readonly isolated: number;
   /** `MBC 1 · 240 قناة`: the name and the count, isolated and not (the control). */
   readonly trailing: BidiPair;
   readonly trailingControl: BidiPair;
-  /** `1 Zoma قناة`: the digit and the name, isolated and not. */
+  /** `1 Lablo قناة`: the digit and the name, isolated and not. */
   readonly leading: BidiPair;
   readonly leadingControl: BidiPair;
 }
@@ -190,12 +190,12 @@ const WORD = 'قناة';
 
 /** The probe's lines, isolated exactly as the i18n runtime isolates a text argument in an Arabic sentence. */
 export const BIDI_LINES = {
-  plain: 'Zoma 1',
-  isolated: isolateText('Zoma 1', 'rtl'),
+  plain: 'Lablo 1',
+  isolated: isolateText('Lablo 1', 'rtl'),
   trailing: `${isolateText('MBC 1', 'rtl')} · 240 ${WORD}`,
   trailingControl: `MBC 1 · 240 ${WORD}`,
-  leading: `${isolateText('1 Zoma', 'rtl')} ${WORD}`,
-  leadingControl: `1 Zoma ${WORD}`,
+  leading: `${isolateText('1 Lablo', 'rtl')} ${WORD}`,
+  leadingControl: `1 Lablo ${WORD}`,
 } as const;
 
 /**
@@ -206,7 +206,7 @@ export const BIDI_LINES = {
  *    the name's run (bidi rule W7) and `MBC 1 · 240` reads left to right with the name on the
  *    left; isolated, the name stays one unit at the line's start, on the right.
  * 3. A name starting with a digit: not isolated, the digit splits off to the name's right;
- *    isolated, `1 Zoma` reads left to right as one unit.
+ *    isolated, `1 Lablo` reads left to right as one unit.
  * The controls (not isolated) prove each line can tell the two apart on the engine.
  * Plain ES5 with ASCII-only source (`jsString`).
  */
@@ -241,8 +241,8 @@ export const BIDI_EXPRESSION = `(function () {
       isolated: width(${jsString(BIDI_LINES.isolated)}),
       trailing: pair(${jsString(BIDI_LINES.trailing)}, 'MBC', '240'),
       trailingControl: pair(${jsString(BIDI_LINES.trailingControl)}, 'MBC', '240'),
-      leading: pair(${jsString(BIDI_LINES.leading)}, '1', 'Zoma'),
-      leadingControl: pair(${jsString(BIDI_LINES.leadingControl)}, '1', 'Zoma')
+      leading: pair(${jsString(BIDI_LINES.leading)}, '1', 'Lablo'),
+      leadingControl: pair(${jsString(BIDI_LINES.leadingControl)}, '1', 'Lablo')
     });
   } finally {
     host.removeChild(box);

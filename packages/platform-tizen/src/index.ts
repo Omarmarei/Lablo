@@ -1,5 +1,5 @@
 /**
- * @zoma/platform-tizen: the Samsung Tizen adapter.
+ * @lablo/platform-tizen: the Samsung Tizen adapter.
  *
  * Step 2 covers what the hello app needs: device info, remote-key registration through
  * `tizen.tvinputdevice`, lifecycle and exit; step 15a the DUID (`deviceSecret`); step 15b2 the
@@ -8,10 +8,10 @@
  * (`redirect-probe.ts`). The only package allowed to touch `tizen` and `webapis` (lint-enforced).
  * Every API is feature-checked, so the bundle also boots in a desktop browser.
  */
-import { chromiumMajorFromUserAgent, deviceTier } from '@zoma/core';
-import type { DeviceInfo, Intent, KeyLike, KeyRegistration, LifecycleEvent, Platform, PlatformCall, PlatformOptions, ScreenReaderState, TextKey } from '@zoma/platform-api';
-import type { PlayerEngine } from '@zoma/player';
-import { FallbackEngine, Html5Engine, createStageVideo } from '@zoma/player';
+import { chromiumMajorFromUserAgent, deviceTier } from '@lablo/core';
+import type { DeviceInfo, Intent, KeyLike, KeyRegistration, LifecycleEvent, Platform, PlatformCall, PlatformOptions, ScreenReaderState, TextKey } from '@lablo/platform-api';
+import type { PlayerEngine } from '@lablo/player';
+import { FallbackEngine, Html5Engine, createStageVideo } from '@lablo/player';
 import { tizenAvplay } from './avplay';
 import { AvplayEngine, createAvplayPlane } from './avplay-engine';
 import { tizenChromiumVersion, tizenModelYear } from './device';

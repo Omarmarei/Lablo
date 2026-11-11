@@ -62,7 +62,7 @@ function storedOffsets(page: Page): Promise<Record<string, number> | undefined> 
   return page.evaluate(
     () =>
       new Promise<Record<string, number> | undefined>((resolve, reject) => {
-        const open = indexedDB.open('zoma');
+        const open = indexedDB.open('lablo');
         open.onerror = () => reject(open.error);
         open.onsuccess = () => {
           const db = open.result;

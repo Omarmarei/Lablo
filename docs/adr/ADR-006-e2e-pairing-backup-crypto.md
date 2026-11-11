@@ -5,7 +5,7 @@
 - **Source:** docs/architecture.md §3.3
 
 ## Context
-Typing playlist URLs and passwords with a TV remote is the top onboarding complaint, so Zoma pairs with a phone. LG packaged apps lose local storage on app updates, so the user's profile (sources, favourites, settings) needs a cloud backup that restores automatically. Both features must work without our server ever seeing credentials (ADR-005). Chromium 53 and `file://` pages may lack WebCrypto `subtle`.
+Typing playlist URLs and passwords with a TV remote is the top onboarding complaint, so Lablo pairs with a phone. LG packaged apps lose local storage on app updates, so the user's profile (sources, favourites, settings) needs a cloud backup that restores automatically. Both features must work without our server ever seeing credentials (ADR-005). Chromium 53 and `file://` pages may lack WebCrypto `subtle`.
 
 ## Decision
 All primitives come from **tweetnacl** (X25519, XSalsa20-Poly1305, Ed25519) and **@noble/hashes** (SHA-256, HMAC, HKDF, scrypt). Both are pure JavaScript, wrapped in `packages/crypto`, and shared by the TV and the phone page with common test vectors.
@@ -18,7 +18,7 @@ All primitives come from **tweetnacl** (X25519, XSalsa20-Poly1305, Ed25519) and 
 
 **B. Backup.**
 ```
-master     = scrypt(deviceSecret, salt="zoma.backup.v1|"+platform+"|"+appId, N=2^15, r=8, p=1, dkLen=32)
+master     = scrypt(deviceSecret, salt="lablo.backup.v1|"+platform+"|"+appId, N=2^15, r=8, p=1, dkLen=32)
 lookupId   = b64url(HMAC-SHA256(master, "lookup"))
 writeToken = HMAC-SHA256(master, "write")      (server stores sha256(writeToken) on first write)
 encKey     = HKDF-SHA256(master, info="enc")   localKey = HKDF-SHA256(master, info="local")

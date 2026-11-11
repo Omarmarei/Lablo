@@ -45,7 +45,7 @@ function storedProfile(page: Page): Promise<StoredProfile | null> {
   return page.evaluate(
     () =>
       new Promise<StoredProfile | null>((resolve, reject) => {
-        const open = indexedDB.open('zoma');
+        const open = indexedDB.open('lablo');
         open.onerror = () => reject(open.error);
         open.onsuccess = () => {
           const db = open.result;
@@ -182,8 +182,8 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
       await expect(page.locator('html')).toHaveAttribute('dir', dir);
       await expect(root).toHaveAttribute('data-language', language);
       await remote.expectFocus('disclaimer/actions/0');
-      await expect(page.getByTestId('onboarding-title')).toHaveText(ar ? 'زوما مشغّل وسائط' : 'Zoma is a player');
-      await expect(root).toContainText(ar ? 'لا يقدّم زوما أي قنوات' : 'Zoma provides no channels');
+      await expect(page.getByTestId('onboarding-title')).toHaveText(ar ? 'لابلو مشغّل وسائط' : 'Lablo is a player');
+      await expect(root).toContainText(ar ? 'لا يقدّم لابلو أي قنوات' : 'Lablo provides no channels');
       await checkScreen(page, `${locale}-disclaimer`);
 
       await remote.press('OK');
@@ -368,7 +368,7 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
     // Both titles still offer themselves: Arabic is the app's language now, English the TV's.
     await expect(page.getByTestId('choose-ar')).toHaveText('اختر لغتك');
     await remote.press('OK');
-    await expect(page.getByTestId('onboarding-title')).toHaveText('زوما مشغّل وسائط');
+    await expect(page.getByTestId('onboarding-title')).toHaveText('لابلو مشغّل وسائط');
   });
 
   test('picking the other language switches the app live, and Back keeps the choice', async ({ page }) => {
@@ -378,7 +378,7 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
     await expect(page.locator('html')).toHaveAttribute('lang', 'ar-US');
     await expect(root).toHaveAttribute('data-language', 'ar');
-    await expect(page.getByTestId('onboarding-title')).toHaveText('زوما مشغّل وسائط');
+    await expect(page.getByTestId('onboarding-title')).toHaveText('لابلو مشغّل وسائط');
     await remote.press('BACK');
     await remote.expectFocus('language/languages/1');
     // Back on the language screen keeps Arabic until another language is picked.
@@ -387,7 +387,7 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
     await remote.press('RIGHT', 'OK');
     await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
     await expect(page.locator('html')).toHaveAttribute('lang', 'en-US');
-    await expect(page.getByTestId('onboarding-title')).toHaveText('Zoma is a player');
+    await expect(page.getByTestId('onboarding-title')).toHaveText('Lablo is a player');
   });
 
   test('Back goes one screen back, through every screen to the exit dialog', async ({ page }) => {
@@ -464,7 +464,7 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
     // The same check in English finds our strings, so it can fail.
     await open(page, 'en-US');
     await remote.press('OK');
-    expect(await untranslated(page)).toEqual(expect.arrayContaining(['Zoma is a player', 'I understand']));
+    expect(await untranslated(page)).toEqual(expect.arrayContaining(['Lablo is a player', 'I understand']));
     await expect(root).toHaveAttribute('data-language', 'en');
   });
 });

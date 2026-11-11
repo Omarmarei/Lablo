@@ -2,7 +2,7 @@
 // ingested for real (chunks of two, so a category spans chunks) and match tables written straight
 // into the store.
 
-import type { CatalogItem, ContentKey } from '@zoma/core';
+import type { CatalogItem, ContentKey } from '@lablo/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { EpgChannelTable } from './epg-store';
 import { beginEpgGeneration, commitEpgGeneration, putEpgChannels } from './epg-store';

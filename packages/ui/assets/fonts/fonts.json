@@ -1,8 +1,8 @@
 {
-  "family": "Zoma Sans",
+  "family": "Lablo Sans",
   "faces": [
     {
-      "file": "zoma-latin-400.woff2",
+      "file": "lablo-latin-400.woff2",
       "weight": 400,
       "unicodeRange": "U+0000-017F, U+0218-021B, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+1E9E, U+2000-206F, U+20A0-20C0, U+2116, U+2122, U+2212, U+2215, U+FEFF, U+FFFD",
       "source": "NotoSans-Regular.ttf",
@@ -12,7 +12,7 @@
       "codePoints": 480
     },
     {
-      "file": "zoma-latin-700.woff2",
+      "file": "lablo-latin-700.woff2",
       "weight": 700,
       "unicodeRange": "U+0000-017F, U+0218-021B, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+1E9E, U+2000-206F, U+20A0-20C0, U+2116, U+2122, U+2212, U+2215, U+FEFF, U+FFFD",
       "source": "NotoSans-Bold.ttf",
@@ -22,7 +22,7 @@
       "codePoints": 480
     },
     {
-      "file": "zoma-arabic-400.woff2",
+      "file": "lablo-arabic-400.woff2",
       "weight": 400,
       "unicodeRange": "U+0600-06FF, U+200C-200F, U+FDF2, U+FDFA, U+FDFC, U+FE70-FEFF",
       "source": "NotoSansArabicUI-Regular.ttf",
@@ -32,7 +32,7 @@
       "codePoints": 402
     },
     {
-      "file": "zoma-arabic-700.woff2",
+      "file": "lablo-arabic-700.woff2",
       "weight": 700,
       "unicodeRange": "U+0600-06FF, U+200C-200F, U+FDF2, U+FDFA, U+FDFC, U+FE70-FEFF",
       "source": "NotoSansArabicUI-Bold.ttf",

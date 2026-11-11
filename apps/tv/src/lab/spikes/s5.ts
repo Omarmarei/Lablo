@@ -7,7 +7,7 @@
  * On webOS the audio rows have a second route (step 15c2): luna `com.webos.media/selectTrack` with
  * the element's `mediaId`, through the webOS adapter, where `audioTracks` is missing or fails.
  */
-import { webosSelectTrack } from '@zoma/platform-webos';
+import { webosSelectTrack } from '@lablo/platform-webos';
 import type { BatteryDeps } from '../battery';
 import { batteryChecks } from '../battery';
 import { xhrJson } from '../http';

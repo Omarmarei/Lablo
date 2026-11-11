@@ -1,4 +1,4 @@
-import type { LifecycleEvent } from '@zoma/platform-api';
+import type { LifecycleEvent } from '@lablo/platform-api';
 import { describe, expect, it, vi } from 'vitest';
 import type { BrowserEnv } from './index';
 import { browserKeyToIntent, browserTextKey, createBrowserPlatform } from './index';

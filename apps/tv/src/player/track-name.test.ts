@@ -1,4 +1,4 @@
-import type { PlayerTrack } from '@zoma/player';
+import type { PlayerTrack } from '@lablo/player';
 import { describe, expect, it } from 'vitest';
 import { appI18n } from '../i18n';
 import { extraLabel, trackName } from './TrackMenuPanel';

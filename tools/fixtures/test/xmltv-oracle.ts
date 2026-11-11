@@ -6,8 +6,8 @@
 
 import { createReadStream } from 'node:fs';
 import { createGunzip } from 'node:zlib';
-import type { XmltvItem, XmltvStats } from '@zoma/core';
-import { XmltvTokenizer, parseXmltvTime } from '@zoma/core';
+import type { XmltvItem, XmltvStats } from '@lablo/core';
+import { XmltvTokenizer, parseXmltvTime } from '@lablo/core';
 import { expect } from 'vitest';
 import { epgId } from '../src/catalog';
 import type { XmltvSpec } from '../src/xmltv';

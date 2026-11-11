@@ -1,7 +1,7 @@
-import type { CatalogItem, XtreamVodInfo } from '@zoma/core';
-import type { VodInfoRequest } from '@zoma/data';
-import type { Intent } from '@zoma/platform-api';
-import { createNavigator } from '@zoma/ui';
+import type { CatalogItem, XtreamVodInfo } from '@lablo/core';
+import type { VodInfoRequest } from '@lablo/data';
+import type { Intent } from '@lablo/platform-api';
+import { createNavigator } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
 import { BACK_ACTION, MOVIE_ACTIONS, MOVIE_SCREEN, PLAY_ACTION, createMovieDetails, movieFacts, movieRequest, releaseYear } from './movie-details';
 

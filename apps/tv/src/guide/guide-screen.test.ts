@@ -1,5 +1,5 @@
-import type { GuideSchedule } from '@zoma/ui';
-import { guideZone } from '@zoma/ui';
+import type { GuideSchedule } from '@lablo/ui';
+import { guideZone } from '@lablo/ui';
 import { describe, expect, it } from 'vitest';
 import type { Guide } from './guide-state';
 import { guideDetails } from './GuideScreen';

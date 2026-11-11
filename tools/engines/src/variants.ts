@@ -68,7 +68,7 @@ export const SEEDS: readonly Seed[] = [
     ecmaVersion: 2018,
     minChrome: 60,
     screens: SYNTAX_SEED_SCREENS,
-    code: 'var __zomaSeed = { ...{ seeded: true } };',
+    code: 'var __labloSeed = { ...{ seeded: true } };',
   },
   {
     id: 'seed-es2020-optional-chaining',
@@ -76,7 +76,7 @@ export const SEEDS: readonly Seed[] = [
     ecmaVersion: 2020,
     minChrome: 80,
     screens: SYNTAX_SEED_SCREENS,
-    code: 'var __zomaSeed = window.__zomaMissing?.value;',
+    code: 'var __labloSeed = window.__labloMissing?.value;',
   },
 ];
 
@@ -97,7 +97,7 @@ export const WALK_SEEDS: readonly ScriptSeed[] = [
     description: "the app's database is deleted at every start, as on a TV that keeps nothing between launches: the relaunch shows onboarding again",
     minChrome: Number.POSITIVE_INFINITY,
     screens: ['onboarding'],
-    code: "indexedDB.deleteDatabase('zoma');",
+    code: "indexedDB.deleteDatabase('lablo');",
   },
   {
     id: 'seed-live-no-back-key',
@@ -108,10 +108,10 @@ export const WALK_SEEDS: readonly ScriptSeed[] = [
   },
   {
     id: 'seed-focus-engine-stuck',
-    description: "window.__ZOMA_TEST__ keeps answering the first focus it saw: the screen draws each move, but the focus engine's path stays put, so the two disagree",
+    description: "window.__LABLO_TEST__ keeps answering the first focus it saw: the screen draws each move, but the focus engine's path stays put, so the two disagree",
     minChrome: Number.POSITIVE_INFINITY,
     screens: ['onboarding'],
-    code: "(function () { var hook; Object.defineProperty(window, '__ZOMA_TEST__', { configurable: true, get: function () { return hook; }, set: function (real) { var first = null; hook = { focusPath: function () { var path = real.focusPath(); if (first === null) first = path; return first; } }; } }); })();",
+    code: "(function () { var hook; Object.defineProperty(window, '__LABLO_TEST__', { configurable: true, get: function () { return hook; }, set: function (real) { var first = null; hook = { focusPath: function () { var path = real.focusPath(); if (first === null) first = path; return first; } }; } }); })();",
   },
 ];
 
