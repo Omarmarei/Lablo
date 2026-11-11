@@ -221,6 +221,13 @@ export class FakeEngine implements PlayerEngine {
     return p.base + (p.movingSince === null ? 0 : this.clock.now() - p.movingSince);
   }
 
+  /** The length `durationMs` gives (0: not known). */
+  duration = 0;
+
+  durationMs(): number {
+    return this.duration;
+  }
+
   play(): void {
     this.log.push('play');
     if (this.resumeMoves && this.playback !== null && this.playback.movingSince === null) this.playback.movingSince = this.clock.now();

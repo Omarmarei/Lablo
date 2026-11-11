@@ -1,16 +1,16 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { ContentKey } from '@zoma/core';
+import type { CatalogItem, ContentKey } from '@zoma/core';
 import type { EpgNowNext } from '@zoma/data';
 import type { Intent } from '@zoma/platform-api';
 import { DIGIT_INTENTS } from '@zoma/platform-api';
-import type { PictureMode, PlayerStatus, PlayRequest, StreamStats, SubtitleView } from '@zoma/player';
+import type { PictureMode, PlayerStatus, PlayOptions, PlayRequest, StreamStats, SubtitleView } from '@zoma/player';
 import { NO_TRACKS, nextPicture, streamCandidates } from '@zoma/player';
 import type { Focus, Navigator, Screen, ZoneSpec } from '@zoma/ui';
 import type { LiveRow, Timers } from '../live/live-state';
 import { mark } from '../marks';
 import type { ArchiveProgramme } from './catchup';
-import { SEEK_STEP_MS, seekStep } from './catchup';
+import { MOVIE_STEP_MS, SEEK_STEP_MS, seekStep } from './catchup';
 import type { StreamInfoPanel } from './stream-info';
 import { createStreamInfo } from './stream-info';
 import type { SubtitleSize, TrackMenu, TrackSection } from './track-menu';
@@ -71,6 +71,16 @@ import { createTrackMenu } from './track-menu';
  *   - **The programme's end:** a stream that plays on (`shift`, Flussonic's `timeshift_abs`)
  *     moves the info bar on to the programme aired then (`programmeAt`); a stream that ends shows
  *     a card, "The programme has ended", with "Watch live" and "Back to the guide".
+ * - **A movie** (step 26c): `movie` opens the player on a movie from its details and plays its
+ *   request (`mode: 'vod'`). The info bar shows the movie and the seek bar over its media time and
+ *   length (the engine's once it knows it, else the panel's), and its buttons lose "Previous
+ *   channel". Pause and seeking are catch-up's, inside the stream (`controller.seek`; a stream
+ *   that can't plays again from there), with LEFT/RIGHT in `MOVIE_STEP_MS` steps; forward stops
+ *   at the last step before the end. CH±, the digits and PRE-CH do nothing (decided in step 26c:
+ *   a key that would end the film by mistake is worse than one that does nothing; Back leaves).
+ *   Back closes the player onto the details (`MoviePlay.closed`), and so does the end's card,
+ *   "The movie has ended", with "Back". The error card's "Try again" plays on from where it was.
+ *   A movie never changes the live list, its focus or the last channel.
  */
 
 /** The info bar's stream opens this long after the last zap key. */
@@ -129,7 +139,8 @@ export interface ZapList {
 export interface PlayerLike {
   readonly status: PlayerStatus;
   subscribe(listener: (status: PlayerStatus) => void): () => void;
-  play(req: PlayRequest): Promise<void>;
+  /** Plays `req` (a movie from `startMs`: step 26c). */
+  play(req: PlayRequest, opts?: PlayOptions): Promise<void>;
   stop(): Promise<void>;
   selectAudio(id: string): Promise<boolean>;
   selectText(id: string | null): Promise<boolean>;
@@ -151,6 +162,26 @@ export interface PlayerLike {
   positionMs(): number;
   /** Seeks inside the VOD or catch-up stream on show (`false`: it can't, or the engine refused). */
   seek(ms: number): Promise<boolean>;
+  /** The VOD stream on show's length (ms; 0: not known, or no picture). */
+  durationMs(): number;
+}
+
+/** A movie to play (step 26c), from its details. */
+export interface MoviePlay {
+  readonly item: CatalogItem;
+  /** Its request (`mode: 'vod'`, the movie's URL). */
+  readonly request: PlayRequest;
+  /** Its length from the panel's details (ms; `null`: not known). */
+  readonly lengthMs: number | null;
+  /** The player closed (Back, or the end's "Back"): the details show again. */
+  readonly closed: () => void;
+}
+
+/** The movie playing (step 26c). */
+export interface PlayingMovie {
+  readonly item: CatalogItem;
+  /** Its length: the engine's once it knows it, else the panel's (ms; `null`: neither knows). */
+  readonly lengthMs: number | null;
 }
 
 /** Number entry: the digits typed, then the search, then (maybe) "no channel has it". */
@@ -221,8 +252,15 @@ export interface Player {
   readonly picture: ReadonlySignal<PictureMode>;
   /** The programme playing from the archive (step 25a; `null`: live). */
   readonly archive: ReadonlySignal<ArchiveProgramme | null>;
-  /** Where the catch-up is (step 25d; `null`: live), read every `POSITION_MS`. */
+  /**
+   * Where the catch-up is (step 25d; `null`: live), read every `POSITION_MS`; in a movie (step 26c)
+   * `time` is its media time (ms from its start).
+   */
   readonly position: ReadonlySignal<ArchivePosition | null>;
+  /** The movie playing (step 26c; `null`: a channel). */
+  readonly movie: ReadonlySignal<PlayingMovie | null>;
+  /** The info bar's buttons, in order: a movie's have no "Previous channel". */
+  readonly actions: ReadonlySignal<readonly PlayerAction[]>;
   /** Opens the player on row `index` of the list and plays it at once. */
   show(index: number): void;
   /**
@@ -235,6 +273,8 @@ export interface Player {
    * step 20c1), plays it at once, and moves to its row when the list finds it from row `guess`.
    */
   resume(row: LiveRow, guess: number): void;
+  /** Opens the player on a movie (step 26c) and plays it; Back closes it onto the details. */
+  playMovie(film: MoviePlay): void;
   /** Row `index` as the player shows it: the resumed channel until the list has found it. */
   row(index: number): LiveRow | null;
   /**
@@ -258,8 +298,15 @@ export const STATS_ACTION = 2;
 /** The info bar's "Picture" (step 20c2b). */
 export const PICTURE_ACTION = 3;
 
-function actionsZone(): ZoneSpec {
-  return { kind: 'list', id: 'actions', axis: 'horizontal', count: ACTIONS, neighbours: { up: 'seek' } };
+/** An info bar button. */
+export type PlayerAction = 'previous' | 'tracks' | 'stats' | 'picture';
+/** A channel's buttons (`ACTIONS` of them, at `TRACKS_ACTION`, `STATS_ACTION` and `PICTURE_ACTION`). */
+export const CHANNEL_ACTIONS: readonly PlayerAction[] = ['previous', 'tracks', 'stats', 'picture'];
+/** A movie's (step 26c): no "Previous channel". */
+export const MOVIE_ACTIONS: readonly PlayerAction[] = ['tracks', 'stats', 'picture'];
+
+function actionsZone(count: number): ZoneSpec {
+  return { kind: 'list', id: 'actions', axis: 'horizontal', count, neighbours: { up: 'seek' } };
 }
 
 /** The catch-up's seek bar above the buttons (step 25d): one item, none while live. */
@@ -301,6 +348,8 @@ export function createPlayer(options: PlayerOptions): Player {
   const picture = signal<PictureMode>(options.picture ?? 'fit');
   const archive = signal<ArchiveProgramme | null>(null);
   const position = signal<ArchivePosition | null>(null);
+  const movie = signal<PlayingMovie | null>(null);
+  const actions = signal<readonly PlayerAction[]>(CHANNEL_ACTIONS);
   const keyClock = options.now ?? Date.now;
   const wall = options.clock ?? Date.now;
 
@@ -338,6 +387,8 @@ export function createPlayer(options: PlayerOptions): Player {
   let positionTimer: unknown = null;
   /** The programme whose end the catch-up played past, once its successor was asked for. */
   let playedOn: ArchiveProgramme | null = null;
+  /** The movie's request and where Back goes (step 26c). */
+  let film: MoviePlay | null = null;
 
   const clear = (handle: unknown): null => {
     if (handle !== null) timers.clear(handle);
@@ -393,8 +444,8 @@ export function createPlayer(options: PlayerOptions): Player {
       resumeFrame = false;
       mark('zoma:resume-frame');
     }
-    // The error card, or a catch-up's end (step 25d): the card takes over from the menu and a waiting seek.
-    const card = s.state === 'failed' || (s.state === 'ended' && archive.value !== null);
+    // The error card, or a catch-up's or a movie's end (steps 25d, 26c): the card takes over from the menu and a waiting seek.
+    const card = s.state === 'failed' || (s.state === 'ended' && (archive.value !== null || movie.value !== null));
     if (card) {
       menu.close();
       cancelSeek();
@@ -402,7 +453,8 @@ export function createPlayer(options: PlayerOptions): Player {
     const top = screen.value;
     if (top === null || card === carded) return;
     carded = card;
-    top.update(cardZone(card ? 2 : 0));
+    // A movie's end has one button, "Back".
+    top.update(cardZone(!card ? 0 : s.state === 'ended' && movie.value !== null ? 1 : 2));
     if (card) {
       top.focus('card', 0);
       showInfo();
@@ -475,6 +527,22 @@ export function createPlayer(options: PlayerOptions): Player {
     else list.load(index).then(start, () => undefined);
   };
 
+  /** Plays the movie from its start, or from `from` (ms of its media time: a seek it couldn't make inside the stream, or "Try again"). */
+  const playFilm = (from?: number): void => {
+    const shown = film;
+    if (shown === null) return;
+    cancelSeek();
+    seq += 1;
+    plays.value += 1;
+    streamFrom = 0;
+    lastAt = from === undefined ? 0 : from;
+    const c = ctrl();
+    const opts: PlayOptions = from === undefined ? {} : { startMs: from };
+    void c.play(shown.request, opts);
+    seekBar(true);
+    menu.showDelay(c.subtitleDelay);
+  };
+
   /** Where the catch-up stream is now: its start plus its media time while it shows a picture, else where it was last. */
   const streamAt = (): number => {
     const state = status.value.state;
@@ -482,9 +550,12 @@ export function createPlayer(options: PlayerOptions): Player {
     return lastAt;
   };
 
-  /** The info bar's position: a waiting seek's target, else the stream's (`null` live). */
+  /** The info bar's position: a waiting seek's target, else the stream's (`null` live); a movie's length once the engine knows it. */
   const showPosition = (): void => {
-    position.value = archive.value === null ? null : { time: seekLive ? wall() : seekTo === null ? streamAt() : seekTo, seeking: seekTo !== null || seekLive, live: seekLive };
+    const shown = movie.value;
+    const length = shown === null || controller === null ? 0 : controller.durationMs();
+    if (shown !== null && length > 0 && length !== shown.lengthMs) movie.value = { item: shown.item, lengthMs: length };
+    position.value = archive.value === null && shown === null ? null : { time: seekLive ? wall() : seekTo === null ? streamAt() : seekTo, seeking: seekTo !== null || seekLive, live: seekLive };
   };
 
   /**
@@ -513,7 +584,7 @@ export function createPlayer(options: PlayerOptions): Player {
   const tickPosition = (): void => {
     positionTimer = clear(positionTimer);
     showPosition();
-    if (archive.value === null) return;
+    if (archive.value === null && movie.value === null) return;
     playOn();
     positionTimer = timers.set(() => {
       positionTimer = null;
@@ -535,7 +606,7 @@ export function createPlayer(options: PlayerOptions): Player {
   /** A catch-up's keys go to the seek bar (never while a card shows: a stream that failed or ended keeps the bar up). */
   function focusSeek(): void {
     const top = screen.value;
-    if (top !== null && archive.value !== null && top.active !== 'seek') top.focus('seek', 0);
+    if (top !== null && (archive.value !== null || movie.value !== null) && top.active !== 'seek') top.focus('seek', 0);
   }
 
   /** Drops a waiting seek and its key run. */
@@ -563,14 +634,22 @@ export function createPlayer(options: PlayerOptions): Player {
    */
   const seekBy = (dir: number, kind: 'step' | 'jump'): void => {
     const shown = archive.value;
-    if (shown === null) return;
+    const playingFilm = movie.value;
+    if (shown === null && playingFilm === null) return;
     const pressed = keyClock();
     run = pressed - run.last <= HOLD_MS && run.dir === dir && run.kind === kind ? { dir, kind, count: run.count + 1, last: pressed } : { dir, kind, count: 0, last: pressed };
-    const now = wall();
-    const target = (seekLive ? now : seekTo === null ? streamAt() : seekTo) + dir * seekStep(kind, run.count);
-    const first = shown.start * MINUTE_MS;
-    seekLive = target >= now;
-    seekTo = seekLive ? null : Math.min(Math.max(target, first), Math.max(first, shown.end * MINUTE_MS - SEEK_STEP_MS));
+    if (playingFilm !== null) {
+      // A movie (step 26c): within its media time, forward to the last step before its end when its length is known.
+      const target = (seekTo === null ? streamAt() : seekTo) + dir * seekStep(kind, run.count, true);
+      const length = playingFilm.lengthMs;
+      seekTo = Math.max(0, length === null ? target : Math.min(target, length - MOVIE_STEP_MS));
+    } else if (shown !== null) {
+      const now = wall();
+      const target = (seekLive ? now : seekTo === null ? streamAt() : seekTo) + dir * seekStep(kind, run.count);
+      const first = shown.start * MINUTE_MS;
+      seekLive = target >= now;
+      seekTo = seekLive ? null : Math.min(Math.max(target, first), Math.max(first, shown.end * MINUTE_MS - SEEK_STEP_MS));
+    }
     seekTimer = clear(seekTimer);
     seekTimer = timers.set(() => {
       seekTimer = null;
@@ -588,6 +667,10 @@ export function createPlayer(options: PlayerOptions): Player {
     const live = seekLive;
     seekTo = null;
     seekLive = false;
+    if (movie.value !== null) {
+      if (to !== null) seekFilm(to);
+      return;
+    }
     const index = playing.value;
     if (shown === null || index === -1) return;
     if (live) {
@@ -609,6 +692,24 @@ export function createPlayer(options: PlayerOptions): Player {
     }
     // Whole minutes: the target is within the programme, which starts on one.
     playRow(index, shown, Math.round(to / MINUTE_MS) * MINUTE_MS);
+  };
+
+  /** A movie's seek (step 26c): inside the stream on show, else (or when the engine refuses) a new play from there. */
+  const seekFilm = (to: number): void => {
+    const state = status.value.state;
+    const c = controller;
+    if (c === null || (state !== 'playing' && state !== 'paused' && state !== 'buffering')) {
+      playFilm(to);
+      return;
+    }
+    // A later seek, play or close drops this one's fallback: the newest target wins.
+    seq += 1;
+    const mine = seq;
+    void c.seek(to).then((ok) => {
+      if (!ok && mine === seq) playFilm(to);
+    });
+    // The target until the engine has moved.
+    position.value = { time: to, seeking: false, live: false };
   };
 
   /** UP and DOWN in a catch-up: between the seek bar and the buttons once the bar shows (`false`: the navigator moves). */
@@ -635,11 +736,12 @@ export function createPlayer(options: PlayerOptions): Player {
   };
 
   /** Puts the player's screen on the navigator and the page over the stage (`false`: it is open already). */
-  const openScreen = (): boolean => {
+  const openScreen = (buttons: readonly PlayerAction[] = CHANNEL_ACTIONS): boolean => {
     if (open.value) return false;
     open.value = true;
     carded = false;
-    screen.value = nav.push({ id: 'player', zones: [seekZone(0), actionsZone(), cardZone(0)], initial: 'actions', onIntent, onSelect });
+    actions.value = buttons;
+    screen.value = nav.push({ id: 'player', zones: [seekZone(0), actionsZone(buttons.length), cardZone(0)], initial: 'actions', onIntent, onSelect });
     options.chrome(true);
     return true;
   };
@@ -741,6 +843,9 @@ export function createPlayer(options: PlayerOptions): Player {
     open.value = false;
     archive.value = null;
     position.value = null;
+    const left = film;
+    film = null;
+    movie.value = null;
     const shown = screen.value;
     screen.value = null;
     carded = false;
@@ -748,7 +853,9 @@ export function createPlayer(options: PlayerOptions): Player {
     options.chrome(false);
     if (controller !== null) void controller.stop();
     resumeFrame = false;
-    options.closed(playing.value !== -1 ? playing.value : target.value);
+    // A movie goes back to its details; a channel to its row.
+    if (left !== null) left.closed();
+    else options.closed(playing.value !== -1 ? playing.value : target.value);
   };
 
   /** The list found the pinned channel (resumed, or kept through a catalog refresh) at row `found` (`-1`: it isn't in the list). */
@@ -772,27 +879,24 @@ export function createPlayer(options: PlayerOptions): Player {
   };
 
   const onIntent = (intent: Intent, focus: Focus): boolean => {
+    // A movie (step 26c): the channel keys do nothing (they don't reach the screens below either).
+    const inFilm = movie.value !== null;
     const d = DIGIT_INTENTS.indexOf(intent as (typeof DIGIT_INTENTS)[number]);
     if (d !== -1) {
-      digit(d);
+      if (!inFilm) digit(d);
       return true;
     }
-    // A catch-up's own keys (step 25d), unless a card shows.
-    const archived = archive.value !== null && !carded;
+    // A catch-up's and a movie's own keys (steps 25d, 26c), unless a card shows.
+    const archived = (archive.value !== null || inFilm) && !carded;
     switch (intent) {
       case 'CH_UP':
-        zap(1);
-        return true;
       case 'CH_DOWN':
-        zap(-1);
+        if (!inFilm) zap(intent === 'CH_UP' ? 1 : -1);
         return true;
       case 'UP':
-        if (archived) return upDown(false, focus);
-        zap(1);
-        return true;
       case 'DOWN':
-        if (archived) return upDown(true, focus);
-        zap(-1);
+        if (archived) return upDown(intent === 'DOWN', focus);
+        if (!inFilm) zap(intent === 'UP' ? 1 : -1);
         return true;
       case 'PLAY_PAUSE':
         if (!archived) return false;
@@ -804,6 +908,7 @@ export function createPlayer(options: PlayerOptions): Player {
         seekBy(intent === 'FF' ? 1 : -1, 'jump');
         return true;
       case 'PREV_CH':
+        if (inFilm) return true;
         cancelEntry();
         previousChannel();
         return true;
@@ -857,12 +962,16 @@ export function createPlayer(options: PlayerOptions): Player {
   };
 
   const onSelect = (focus: Focus): void => {
-    if (focus.zone === 'actions' && focus.index === TRACKS_ACTION) openMenu('audio');
-    else if (focus.zone === 'actions' && focus.index === STATS_ACTION) streamInfo.toggle();
-    else if (focus.zone === 'actions' && focus.index === PICTURE_ACTION) nextMode();
-    else if (focus.zone === 'actions') previousChannel();
-    // OK on a catch-up's seek bar (step 25d; hidden, the focus is on it) pauses it or plays it on.
+    const action = focus.zone === 'actions' ? actions.value[focus.index] : undefined;
+    if (action === 'tracks') openMenu('audio');
+    else if (action === 'stats') streamInfo.toggle();
+    else if (action === 'picture') nextMode();
+    else if (action === 'previous') previousChannel();
+    // OK on a catch-up's or a movie's seek bar (steps 25d, 26c; hidden, the focus is on it) pauses it or plays it on.
     else if (focus.zone === 'seek') togglePause();
+    // A movie's cards (step 26c): the error card's "Try again" plays on from where it was; "Back" closes the player.
+    else if (focus.zone === 'card' && film !== null && focus.index === 0 && status.value.state === 'failed') playFilm(lastAt);
+    else if (focus.zone === 'card' && film !== null) close();
     // The end's card (step 25d): "Watch live" and "Back to the guide".
     else if (focus.zone === 'card' && focus.index === 0 && status.value.state === 'ended') go(playing.value);
     else if (focus.zone === 'card' && focus.index === 0) go(playing.value !== -1 ? playing.value : target.value, archive.value);
@@ -885,6 +994,8 @@ export function createPlayer(options: PlayerOptions): Player {
     picture,
     archive,
     position,
+    movie,
+    actions,
     show(index: number): void {
       if (openScreen()) go(index);
     },
@@ -904,9 +1015,17 @@ export function createPlayer(options: PlayerOptions): Player {
         () => undefined,
       );
     },
+    playMovie(next: MoviePlay): void {
+      if (!openScreen(MOVIE_ACTIONS)) return;
+      film = next;
+      movie.value = { item: next.item, lengthMs: next.lengthMs };
+      showInfo();
+      playFilm();
+    },
     row: rowAt,
     listChanging(): void {
-      if (!open.value) return;
+      // A movie isn't in the list.
+      if (!open.value || film !== null) return;
       // The stream playing (none: -1, no row; a zap that waits plays the new list's row when it fires).
       const at = playing.value;
       const row = rowAt(at);

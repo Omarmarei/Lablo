@@ -25,6 +25,7 @@ import type { Guide } from './guide/guide-state';
 import { createGuide } from './guide/guide-state';
 import type { Movies } from './movies/movies-state';
 import { createMovies } from './movies/movies-state';
+import { createMovieDetails, movieFacts, movieRequest } from './movies/movie-details';
 import { createEngineLoader } from './onboarding/engine-loader';
 import { OnboardingApp } from './onboarding/OnboardingApp';
 import type { Onboarding } from './onboarding/onboarding-state';
@@ -178,8 +179,17 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     openGuide: (row) => guide.open(row),
     openMovies: () => movies.open(),
   });
+  // OK on a poster (step 26c): the movie's details over the grid; "Play" opens the player over them, and Back from it returns to them.
+  const details = createMovieDetails({
+    nav: live.nav,
+    engine: dataEngine(),
+    play: (item, info) => {
+      const length = movieFacts(item, info).lengthSecs;
+      player?.playMovie({ item, request: movieRequest(item, info), lengthMs: length === null ? null : length * 1000, closed: () => undefined });
+    },
+  });
   // The header's "Movies" (step 26a): the poster grid of the sources' movies; Back returns to the header.
-  const movies = createMovies({ nav: live.nav, engine: dataEngine(), tier: () => tier });
+  const movies = createMovies({ nav: live.nav, engine: dataEngine(), tier: () => tier, select: (item) => details.open(item) });
   // The header's "Guide" (step 23c): the grid over the list's category; OK on air plays, Back returns to the list.
   const guide = createGuide({
     nav: live.nav,
@@ -237,7 +247,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   });
   if (resume !== null) player.resume({ item: resume.item, number: resume.number }, resume.index);
   showFocus(live.nav);
-  render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} guide={guide} movies={movies} />, into);
+  render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} guide={guide} movies={movies} details={details} />, into);
   startRefreshes(live, guide, movies, readFacts);
 }
 

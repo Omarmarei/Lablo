@@ -140,6 +140,15 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'movies.loading': 'جارٍ تحميل أفلامك',
   'movies.empty': 'لا توجد أفلام في مصادرك.',
   'movies.failed': 'تعذّرت قراءة أفلامك.',
+  'movie.play': 'تشغيل',
+  'movie.back': 'رجوع',
+  'movie.reading': 'جارٍ قراءة تفاصيل الفيلم',
+  'movie.failed': 'تعذّرت قراءة المزيد عن هذا الفيلم.',
+  'movie.hours': '{h} س {m} د',
+  'movie.minutes': '{m} د',
+  'movie.rating': 'التقييم {rating}',
+  'movie.director': 'الإخراج: {name}',
+  'movie.cast': 'البطولة: {names}',
 
   'badge.radio': 'إذاعة',
 
@@ -256,6 +265,8 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'player.aired': 'وقت البث {time}',
   'player.live': 'مباشر',
   'player.ended': 'انتهى البرنامج',
+  'player.movieEnded': 'انتهى الفيلم',
+  'player.moviePosition': 'الموضع في الفيلم',
   'player.watchLive': 'شاهد البث المباشر',
   'player.toGuide': 'العودة إلى الدليل',
 

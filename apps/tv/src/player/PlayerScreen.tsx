@@ -6,8 +6,7 @@ import { Badge, Button, ProgressBar, Spinner, useFocus, useZone } from '@zoma/ui
 import type { AppI18n, MessageKey } from '../i18n';
 import type { Live, LiveRow } from '../live/live-state';
 import type { ArchiveProgramme } from './catchup';
-import type { Player } from './player-state';
-import { PICTURE_ACTION, STATS_ACTION, TRACKS_ACTION } from './player-state';
+import type { Player, PlayerAction, PlayingMovie } from './player-state';
 import { StreamInfoPanel } from './StreamInfoPanel';
 import { SubtitleOverlay } from './SubtitleOverlay';
 import { TrackMenuPanel } from './TrackMenuPanel';
@@ -44,19 +43,30 @@ function span(i18n: AppI18n, programme: Pick<EpgProgramme, 'start' | 'end'>): st
   return `${i18n.time(new Date(programme.start * MINUTE_MS))} – ${i18n.time(new Date(programme.end * MINUTE_MS))}`;
 }
 
+/** Where a seek bar counts from and how long it is (ms; a movie's length may be unknown: `null`). */
+interface SeekSpan {
+  readonly start: number;
+  readonly length: number | null;
+}
+
+/** A catch-up's span: its programme. */
+function archiveSpan(archive: ArchiveProgramme): SeekSpan {
+  return { start: archive.start * MINUTE_MS, length: Math.max(0, (archive.end - archive.start) * MINUTE_MS) };
+}
+
 /**
  * A catch-up's seek bar (step 25d): "Paused" while paused, the time from the programme's start
  * and its length around the bar (left to right in every language), and the time it aired there.
  * A waiting seek shows its target; past now, "Live". It reads the position itself, so only it
- * draws again every second.
+ * draws again every second. A movie's (step 26c) counts from its start over its length (none
+ * shown while it isn't known), with no time aired.
  */
-function SeekBar({ player, i18n, archive, state, onHover, onPress }: { player: Player; i18n: AppI18n; archive: ArchiveProgramme; state: ItemState; onHover: () => void; onPress: () => void }) {
+function SeekBar({ player, i18n, span, movie, state, onHover, onPress }: { player: Player; i18n: AppI18n; span: SeekSpan; movie: boolean; state: ItemState; onHover: () => void; onPress: () => void }) {
   const { t } = i18n;
   const position = player.position.value;
-  const start = archive.start * MINUTE_MS;
-  const length = Math.max(0, (archive.end - archive.start) * MINUTE_MS);
+  const { start, length } = span;
   const at = position === null ? start : position.time;
-  const elapsed = Math.min(length, Math.max(0, at - start));
+  const elapsed = Math.min(length === null ? Infinity : length, Math.max(0, at - start));
   const seeking = position !== null && position.seeking;
   const live = position !== null && position.live;
   return (
@@ -74,14 +84,28 @@ function SeekBar({ player, i18n, archive, state, onHover, onPress }: { player: P
         <span class="player__elapsed" data-testid="player-elapsed">
           {i18n.duration(elapsed / 1000)}
         </span>
-        <ProgressBar value={length > 0 ? elapsed / length : 0} media size="s" label={t('player.position')} class="player__seekbar" />
-        <span class="player__length">{i18n.duration(length / 1000)}</span>
+        <ProgressBar value={length !== null && length > 0 ? elapsed / length : 0} media size="s" label={t(movie ? 'player.moviePosition' : 'player.position')} class="player__seekbar" />
+        <span class="player__length" data-testid="player-length">
+          {length === null ? '' : i18n.duration(length / 1000)}
+        </span>
       </div>
-      <span class="player__aired" data-testid="player-aired">
-        {live ? t('player.live') : t('player.aired', { time: i18n.time(new Date(at)) })}
-      </span>
+      {!movie && (
+        <span class="player__aired" data-testid="player-aired">
+          {live ? t('player.live') : t('player.aired', { time: i18n.time(new Date(at)) })}
+        </span>
+      )}
     </div>
   );
+}
+
+/** Each info bar button's label and test id. */
+function actionButton(player: Player, i18n: AppI18n, action: PlayerAction, binding: ReturnType<typeof useZone>, index: number) {
+  const { t } = i18n;
+  const item = binding.item(index);
+  if (action === 'previous') return <Button key={action} label={t('player.previous')} disabled={player.previous.value === -1} {...item} testId="player-previous" />;
+  if (action === 'tracks') return <Button key={action} label={t('player.tracks')} {...item} testId="player-tracks" />;
+  if (action === 'stats') return <Button key={action} label={t('player.streamInfo')} {...item} testId="player-stats" />;
+  return <Button key={action} label={t('player.picture', { mode: t(PICTURE_TEXT[player.picture.value]) })} {...item} testId="player-picture" />;
 }
 
 interface InfoBarProps {
@@ -98,9 +122,11 @@ interface InfoBarProps {
   readonly guide: EpgNowNext | undefined;
   /** The programme playing from the archive (step 25a), in place of the live now/next. */
   readonly archive: ArchiveProgramme | null;
+  /** The movie playing (step 26c), in place of the channel. */
+  readonly movie: PlayingMovie | null;
 }
 
-function InfoBar({ live, player, i18n, screen, binding, row, guide, archive }: InfoBarProps) {
+function InfoBar({ live, player, i18n, screen, binding, row, guide, archive, movie }: InfoBarProps) {
   const { t } = i18n;
   const clock = live.clock.value;
   const now = guide === undefined ? null : guide.now;
@@ -108,6 +134,23 @@ function InfoBar({ live, player, i18n, screen, binding, row, guide, archive }: I
   const progress = now === null || now.end <= now.start ? 0 : (clock - now.start * MINUTE_MS) / ((now.end - now.start) * MINUTE_MS);
   const actions = useZone(binding, screen, 'actions');
   const seek = useZone(binding, screen, 'seek');
+  const buttons = [];
+  const shown = player.actions.value;
+  for (let i = 0; i < shown.length; i += 1) buttons.push(actionButton(player, i18n, shown[i]!, actions, i));
+  if (movie !== null) {
+    return (
+      <section class="player__bar" data-testid="player-bar">
+        <div class="player__head">
+          <span class="player__name" dir="auto" translate={false} data-testid="player-name">
+            {movie.item.name}
+          </span>
+          <span class="player__clock">{i18n.time(new Date(clock))}</span>
+        </div>
+        <SeekBar player={player} i18n={i18n} span={{ start: 0, length: movie.lengthMs }} movie {...seek.item(0)} state={seek.state(0)} />
+        <div class="player__actions">{buttons}</div>
+      </section>
+    );
+  }
   return (
     <section class="player__bar" data-testid="player-bar">
       <div class="player__head">
@@ -140,7 +183,7 @@ function InfoBar({ live, player, i18n, screen, binding, row, guide, archive }: I
       ) : (
         <div class="player__now player__now--none">{guide === undefined ? '' : t('guide.none')}</div>
       )}
-      {archive !== null && <SeekBar player={player} i18n={i18n} archive={archive} {...seek.item(0)} state={seek.state(0)} />}
+      {archive !== null && <SeekBar player={player} i18n={i18n} span={archiveSpan(archive)} movie={false} {...seek.item(0)} state={seek.state(0)} />}
       {archive === null && next !== null && (
         <div class="player__next" data-testid="player-next">
           <span class="player__time">
@@ -151,17 +194,12 @@ function InfoBar({ live, player, i18n, screen, binding, row, guide, archive }: I
           </span>
         </div>
       )}
-      <div class="player__actions">
-        <Button label={t('player.previous')} disabled={player.previous.value === -1} {...actions.item(0)} testId="player-previous" />
-        <Button label={t('player.tracks')} {...actions.item(TRACKS_ACTION)} testId="player-tracks" />
-        <Button label={t('player.streamInfo')} {...actions.item(STATS_ACTION)} testId="player-stats" />
-        <Button label={t('player.picture', { mode: t(PICTURE_TEXT[player.picture.value]) })} {...actions.item(PICTURE_ACTION)} testId="player-picture" />
-      </div>
+      <div class="player__actions">{buttons}</div>
     </section>
   );
 }
 
-function ErrorCard({ failure, i18n, screen, binding }: { failure: PlaybackFailure; i18n: AppI18n; screen: Screen; binding: FocusBinding }) {
+function ErrorCard({ failure, i18n, screen, binding, movie }: { failure: PlaybackFailure; i18n: AppI18n; screen: Screen; binding: FocusBinding; movie: boolean }) {
   const { t } = i18n;
   const [title, advice] = CATEGORY_TEXT[failure.category];
   const own = ACCOUNT_TEXT[failure.code];
@@ -186,7 +224,7 @@ function ErrorCard({ failure, i18n, screen, binding }: { failure: PlaybackFailur
       </p>
       <div class="player__card-buttons">
         <Button label={t('player.retry')} variant="primary" {...buttons.item(0)} testId="player-retry" />
-        <Button label={t('player.channels')} {...buttons.item(1)} testId="player-close" />
+        <Button label={t(movie ? 'movie.back' : 'player.channels')} {...buttons.item(1)} testId="player-close" />
       </div>
     </section>
   );
@@ -205,6 +243,23 @@ function EndCard({ archive, i18n, screen, binding }: { archive: ArchiveProgramme
       <div class="player__card-buttons">
         <Button label={t('player.watchLive')} variant="primary" {...buttons.item(0)} testId="player-live" />
         <Button label={t('player.toGuide')} {...buttons.item(1)} testId="player-guide" />
+      </div>
+    </section>
+  );
+}
+
+/** A movie's end (step 26c): "The movie has ended", with "Back" to its details. */
+function MovieEndCard({ movie, i18n, screen, binding }: { movie: PlayingMovie; i18n: AppI18n; screen: Screen; binding: FocusBinding }) {
+  const { t } = i18n;
+  const buttons = useZone(binding, screen, 'card');
+  return (
+    <section class="player__card" role="alertdialog" data-testid="player-ended">
+      <h2 class="player__card-title">{t('player.movieEnded')}</h2>
+      <p class="player__card-text" dir="auto" translate={false}>
+        {movie.item.name}
+      </p>
+      <div class="player__card-buttons">
+        <Button label={t('movie.back')} variant="primary" {...buttons.item(0)} testId="player-movie-back" />
       </div>
     </section>
   );
@@ -231,8 +286,9 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
   const entry = player.entry.value;
   // Read here so that the bar draws again when its row's chunk or now/next arrives.
   const version = live.version.value;
-  // A zap that waits hides the old channel's card and spinner: the bar shows the new one.
-  const current = target === playing;
+  const movie = player.movie.value;
+  // A zap that waits hides the old channel's card and spinner: the bar shows the new one. A movie (step 26c) has no zaps.
+  const current = movie !== null || target === playing;
   const failure = current && status.state === 'failed' ? status.failure : null;
   const ended = current && status.state === 'ended';
   const row = player.row(target);
@@ -271,6 +327,8 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
       data-stats={String(stats)}
       data-picture={player.picture.value}
       data-archive={archive === null ? '' : archive.start}
+      data-movie={movie === null ? '' : movie.item.key}
+      data-length={movie === null || movie.lengthMs === null ? '' : movie.lengthMs}
     >
       {player.picture.value === '4:3' && (
         <div class="player__pillars" aria-hidden="true" data-testid="player-pillars">
@@ -302,11 +360,12 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
       )}
       <div class="player__bottom">
         {subtitles.cues.length > 0 && <SubtitleOverlay cues={subtitles.cues} size={player.menu.size.value} />}
-        {screen !== null && menu === null && player.info.value && <InfoBar live={live} player={player} i18n={i18n} screen={screen} binding={binding} row={row} guide={guide} archive={archive} />}
+        {screen !== null && menu === null && player.info.value && <InfoBar live={live} player={player} i18n={i18n} screen={screen} binding={binding} row={row} guide={guide} archive={archive} movie={movie} />}
       </div>
       {menu !== null && <TrackMenuPanel menu={player.menu} tracks={status.tracks} feed={subtitles.feed} i18n={i18n} screen={menu} binding={binding} />}
-      {screen !== null && failure !== null && <ErrorCard failure={failure} i18n={i18n} screen={screen} binding={binding} />}
+      {screen !== null && failure !== null && <ErrorCard failure={failure} i18n={i18n} screen={screen} binding={binding} movie={movie !== null} />}
       {screen !== null && ended && archive !== null && <EndCard archive={archive} i18n={i18n} screen={screen} binding={binding} />}
+      {screen !== null && ended && movie !== null && <MovieEndCard movie={movie} i18n={i18n} screen={screen} binding={binding} />}
     </main>
   );
 }

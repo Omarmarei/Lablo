@@ -15,6 +15,9 @@ import { PlayerScreen } from '../player/PlayerScreen';
 import { MoviesScreen } from '../movies/MoviesScreen';
 import type { Movies } from '../movies/movies-state';
 import { MOVIES_SCREEN } from '../movies/movies-state';
+import { MovieDetailsScreen } from '../movies/MovieDetailsScreen';
+import type { MovieDetails } from '../movies/movie-details';
+import { MOVIE_SCREEN } from '../movies/movie-details';
 import { SettingsScreen } from '../settings/SettingsScreen';
 import type { Settings } from '../settings/settings-state';
 import { SETTINGS_SCREENS } from '../settings/settings-state';
@@ -65,7 +68,23 @@ function entryLabel(entry: RailEntry, t: AppI18n['t']): { label: string; data: b
   return { label: entry.name, data: true };
 }
 
-function LiveScreen({ live, i18n, player, settings, guide, movies }: { live: Live; i18n: AppI18n; player: Player | null; settings: Settings | null; guide: Guide | null; movies: Movies | null }) {
+function LiveScreen({
+  live,
+  i18n,
+  player,
+  settings,
+  guide,
+  movies,
+  details,
+}: {
+  live: Live;
+  i18n: AppI18n;
+  player: Player | null;
+  settings: Settings | null;
+  guide: Guide | null;
+  movies: Movies | null;
+  details: MovieDetails | null;
+}) {
   const { t } = i18n;
   const { binding, home } = live;
   const focus = useFocus(binding);
@@ -77,6 +96,8 @@ function LiveScreen({ live, i18n, player, settings, guide, movies }: { live: Liv
   if (guide !== null && (focus.screen === GUIDE_SCREEN || focus.screen === DETAILS_SCREEN)) return <GuideScreen guide={guide} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} listVersion={live.version.value} mapping={settings?.mapping ?? null} />;
   // The movies screen (step 26a) paints instead of the live screen.
   if (movies !== null && focus.screen === MOVIES_SCREEN) return <MoviesScreen movies={movies} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} />;
+  // A movie's details (step 26c) paint instead of the movies screen; the player opens over them.
+  if (details !== null && focus.screen === MOVIE_SCREEN) return <MovieDetailsScreen details={details} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} />;
   const status = live.status.value;
   const entries = live.rail.value;
   const shown = live.category.value;
@@ -197,13 +218,15 @@ interface Props {
   readonly guide?: Guide | null;
   /** The movies screen the header's "Movies" opens (step 26a; `null`: none paints). */
   readonly movies?: Movies | null;
+  /** A movie's details, opened from the movies screen (step 26c; `null`: none paint). */
+  readonly details?: MovieDetails | null;
 }
 
 /**
  * The live screen in the language picked in onboarding, in the TV's region (the formats keep
  * the region's), or the TV's own when none was picked.
  */
-export function LiveApp({ platform, live, language, player = null, settings = null, guide = null, movies = null }: Props) {
+export function LiveApp({ platform, live, language, player = null, settings = null, guide = null, movies = null, details = null }: Props) {
   const i18n = useSignal<AppI18n | null>(null);
   useEffect(() => {
     let closed = false;
@@ -234,5 +257,5 @@ export function LiveApp({ platform, live, language, player = null, settings = nu
       </main>
     );
   }
-  return <LiveScreen live={live} i18n={i18n.value} player={player} settings={settings} guide={guide} movies={movies} />;
+  return <LiveScreen live={live} i18n={i18n.value} player={player} settings={settings} guide={guide} movies={movies} details={details} />;
 }

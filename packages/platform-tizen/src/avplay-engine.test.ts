@@ -400,6 +400,25 @@ describe('AvplayEngine: while it plays', () => {
     expect(r.engine.positionMs()).toBe(0);
   });
 
+  it("reads the length from AVPlay's getDuration once a stream is prepared, 0 without it or when it throws", async () => {
+    const r = rig();
+    let refused = false;
+    r.avplay.getDuration = () => {
+      if (refused) throw new Error('InvalidStateError');
+      return 5_400_000;
+    };
+    expect(r.engine.durationMs()).toBe(0);
+    await playing(r);
+    expect(r.engine.durationMs()).toBe(5_400_000);
+    refused = true;
+    expect(r.engine.durationMs()).toBe(0);
+    refused = false;
+    r.avplay.getDuration = () => -1;
+    expect(r.engine.durationMs()).toBe(0);
+    r.avplay.getDuration = undefined;
+    expect(r.engine.durationMs()).toBe(0);
+  });
+
   it('pauses, and plays again only from PAUSED', async () => {
     const r = rig();
     r.engine.play();

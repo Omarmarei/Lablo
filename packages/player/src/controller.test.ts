@@ -900,6 +900,27 @@ describe('PlayerController: the position and seeking (RELAY step 25d)', () => {
     expect(r.player.positionMs()).toBe(0);
   });
 
+  it("gives a VOD stream's length (RELAY step 26c) only while a picture shows, and never live", async () => {
+    const r = rig();
+    r.engine.duration = 5_400_000;
+    const film: PlayRequest = { key: 's1:movie:201', src: 's1', mode: 'vod', candidates: [{ url: `${BASE}/movie/u/p/201.mp4`, container: 'mp4' }] };
+    expect(r.player.durationMs()).toBe(0);
+    void r.player.play(film);
+    await r.clock.advance(100);
+    expect(r.player.durationMs()).toBe(0);
+    await r.clock.advance(400);
+    expect(r.player.status.state).toBe('playing');
+    expect(r.player.durationMs()).toBe(5_400_000);
+    r.player.pause();
+    expect(r.player.durationMs()).toBe(5_400_000);
+    void r.player.play({ key: 's1:live:7', src: 's1', mode: 'live', candidates: [{ url: `${BASE}/live/u/p/7.ts`, container: 'ts' }] });
+    await r.clock.advance(2000);
+    expect(r.player.status.state).toBe('playing');
+    expect(r.player.durationMs()).toBe(0);
+    void r.player.stop();
+    expect(r.player.durationMs()).toBe(0);
+  });
+
   it('seeks inside a catch-up stream on show; a reopen then starts there, and a pause stays a pause', async () => {
     const r = rig((_s, n) => ({ error: n === 1 ? { atMs: 6000, error: NETWORK } : undefined }));
     void r.player.play(archive);

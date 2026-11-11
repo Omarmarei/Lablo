@@ -154,6 +154,15 @@ export const EN = {
   'movies.loading': 'Loading your movies',
   'movies.empty': 'Your sources have no movies.',
   'movies.failed': "Couldn't read your movies.",
+  'movie.play': 'Play',
+  'movie.back': 'Back',
+  'movie.reading': "Reading the movie's details",
+  'movie.failed': "Couldn't read more about this movie.",
+  'movie.hours': '{h} h {m} min',
+  'movie.minutes': '{m} min',
+  'movie.rating': 'Rated {rating}',
+  'movie.director': 'Director: {name}',
+  'movie.cast': 'Cast: {names}',
   'badge.radio': 'Radio',
 
   // The settings screen and the guides screen (RELAY step 22b2). Links are data; XMLTV is an argument.
@@ -276,6 +285,8 @@ export const EN = {
   'player.aired': 'Aired at {time}',
   'player.live': 'Live',
   'player.ended': 'The programme has ended',
+  'player.movieEnded': 'The movie has ended',
+  'player.moviePosition': 'Position in the movie',
   'player.watchLive': 'Watch live',
   'player.toGuide': 'Back to the guide',
 

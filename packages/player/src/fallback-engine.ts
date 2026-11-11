@@ -135,6 +135,10 @@ export class FallbackEngine implements PlayerEngine {
     return this.active.positionMs();
   }
 
+  durationMs(): number {
+    return this.active.durationMs();
+  }
+
   stats(): EngineStats {
     return this.active.stats();
   }

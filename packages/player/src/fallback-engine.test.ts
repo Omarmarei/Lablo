@@ -200,10 +200,10 @@ describe('FallbackEngine', () => {
     const r = rig();
     const calls = (engine: FakeEngine): string[] => {
       const out: string[] = [];
-      for (const name of ['seek', 'setRect', 'setFit', 'getTracks', 'selectAudio', 'selectText', 'positionMs', 'stats', 'suspend', 'resume', 'destroy'] as const) {
+      for (const name of ['seek', 'setRect', 'setFit', 'getTracks', 'selectAudio', 'selectText', 'positionMs', 'durationMs', 'stats', 'suspend', 'resume', 'destroy'] as const) {
         vi.spyOn(engine, name).mockImplementation(((...args: unknown[]) => {
           out.push(name + (args.length === 0 ? '' : ' ' + args.map((a) => String(typeof a === 'object' && a !== null ? 'rect' : a)).join(',')));
-          return name === 'positionMs' ? 42 : name === 'getTracks' ? { audio: [], text: [] } : name === 'stats' ? { width: 1, height: 1, bitrate: null, droppedFrames: null } : Promise.resolve(true);
+          return name === 'positionMs' ? 42 : name === 'durationMs' ? 5_400_000 : name === 'getTracks' ? { audio: [], text: [] } : name === 'stats' ? { width: 1, height: 1, bitrate: null, droppedFrames: null } : Promise.resolve(true);
         }) as never);
       }
       return out;
@@ -218,6 +218,7 @@ describe('FallbackEngine', () => {
       await r.engine.selectAudio('1');
       await r.engine.selectText(null);
       expect(r.engine.positionMs()).toBe(42);
+      expect(r.engine.durationMs()).toBe(5_400_000);
       r.engine.stats();
       r.engine.suspend();
       r.engine.resume();
@@ -225,7 +226,7 @@ describe('FallbackEngine', () => {
     await use();
     r.engine.setRect('full');
     r.engine.setFit('fill');
-    expect(primary).toEqual(['seek 5', 'getTracks', 'selectAudio 1', 'selectText null', 'positionMs', 'stats', 'suspend', 'resume', 'setRect full', 'setFit fill']);
+    expect(primary).toEqual(['seek 5', 'getTracks', 'selectAudio 1', 'selectText null', 'positionMs', 'durationMs', 'stats', 'suspend', 'resume', 'setRect full', 'setFit fill']);
     expect(fallback).toEqual(['setRect full', 'setFit fill']);
     expect(r.primary.log).toEqual(['play', 'pause']);
     void r.engine.load(HLS, 1);
@@ -234,7 +235,7 @@ describe('FallbackEngine', () => {
     fallback.length = 0;
     r.primary.log.length = 0;
     await use();
-    expect(fallback).toEqual(['seek 5', 'getTracks', 'selectAudio 1', 'selectText null', 'positionMs', 'stats', 'suspend', 'resume']);
+    expect(fallback).toEqual(['seek 5', 'getTracks', 'selectAudio 1', 'selectText null', 'positionMs', 'durationMs', 'stats', 'suspend', 'resume']);
     expect(primary).toEqual([]);
     expect(r.fallback.log.slice(-2)).toEqual(['play', 'pause']);
     expect(r.primary.log).toEqual([]);
