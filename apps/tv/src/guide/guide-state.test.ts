@@ -7,7 +7,7 @@ import { SCREEN, createNavigator, guideCellAt, guideHeight, guideWidth } from '@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LiveRow, Timers } from '../live/live-state';
 import type { GuideEngine, GuideList } from './guide-state';
-import { GUIDE, GUIDE_ASK_MS, GUIDE_DAYS, GUIDE_GRID, GUIDE_KEEP, GUIDE_REACH, GUIDE_SCREEN, GUIDE_VISIBLE, createGuide, dayOf, guideDays, guideRange, mergeDays } from './guide-state';
+import { GUIDE, GUIDE_ASK_MS, GUIDE_DAYS, GUIDE_GRID, GUIDE_KEEP, GUIDE_REACH, GUIDE_SCREEN, GUIDE_VISIBLE, askedDays, createGuide, dayOf, guideDays, guideRange, mergeDays } from './guide-state';
 import { DETAILS_SCREEN } from './programme-details';
 
 const MINUTE = 60_000;
@@ -321,6 +321,29 @@ describe('guideDays and dayOf', () => {
     expect(dayOf(bounds, midnight(3))).toBe(3);
     expect(dayOf(bounds, midnight(-5))).toBe(0);
   });
+
+  it('asks the days the view crosses, then those a view after it and a view before it reach (step 26q)', () => {
+    const bounds = guideDays(T0, { past: 1, future: 2 });
+    const at = (d: number, h: number, m = 0): number => midnight(d) + h * 60 + m;
+    const days = (view: number): number[] => askedDays(bounds, view, GUIDE.span);
+    // Day 1 is the 5th. Two hours from midnight either side: the view's own day.
+    expect(days(at(0, 20))).toEqual([1]);
+    expect(days(at(0, 2))).toEqual([1]);
+    // Within a view of midnight: the next day after the view's.
+    expect(days(at(0, 20, 1))).toEqual([1, 2]);
+    expect(days(at(0, 22))).toEqual([1, 2]);
+    // Across it: both, in order.
+    expect(days(at(0, 23, 30))).toEqual([1, 2]);
+    // Just past it: the day before after the view's.
+    expect(days(at(1, 0))).toEqual([2, 1]);
+    expect(days(at(1, 1, 59))).toEqual([2, 1]);
+    expect(days(at(1, 2))).toEqual([2]);
+    // Clamped at the range's ends: each day once.
+    expect(days(midnight(-1))).toEqual([0]);
+    expect(days(midnight(-1) - 300)).toEqual([0]);
+    expect(days(midnight(3) - GUIDE.span)).toEqual([3]);
+    expect(days(midnight(3) - GUIDE.span - 1)).toEqual([3]);
+  });
 });
 
 describe('mergeDays', () => {
@@ -411,11 +434,11 @@ describe('opening the guide', () => {
   });
 
   it('asks both days when the view crosses midnight, one call each', async () => {
-    // A view that ends at midnight asks one day.
+    // A view that ends at midnight asks the next day too (step 26q), after its own.
     const ten = setup({ start: new Date(2026, 10, 5, 22, 10).getTime() });
     ten.open(0);
     expect(ten.position().view + GUIDE.span).toBe(midnight(1));
-    expect(ten.engine.asked()).toEqual([`d0:${asked(0, 18)}`]);
+    expect(ten.engine.asked()).toEqual([`d0:${asked(0, 18)}`, `d1:${asked(0, 18)}`]);
     const t = setup({ start: new Date(2026, 10, 5, 23, 40).getTime() });
     t.open(0);
     expect(t.position().view).toBe(midnight(0) + 23 * 60 + 30);
@@ -436,6 +459,40 @@ describe('opening the guide', () => {
     t.guide.guidesChanged();
     await t.rest();
     expect(t.engine.asked().slice(2)).toEqual([`d0:${asked(0, 18)}`, `d1:${asked(0, 18)}`]);
+  });
+
+  it('reads the day past midnight before the cursor gets there: quick keys on land on its programmes (step 26q)', async () => {
+    // 21:15: the view 21:00–23:00 ends a view short of midnight; the one after it reaches the next day.
+    const t = setup({ start: new Date(2026, 10, 5, 21, 15).getTime() });
+    t.open(3);
+    expect(t.position().view).toBe(midnight(0) + 21 * 60);
+    expect(t.engine.asked()).toEqual([`d0:${asked(0, 18)}`, `d1:${asked(0, 18)}`]);
+    await flush();
+    // Channel 3's 70-minute programmes, four keys without a rest: each lands on a programme's start.
+    for (let i = 0; i < 4; i += 1) await t.press('RIGHT');
+    const time = t.position().time;
+    expect(time).toBeGreaterThan(midnight(1));
+    expect(time % lengthOf(3)).toBe(0);
+    expect(guideCellAt(t.guide.schedule(3), t.guide.zone(), time)!.programme).toBeGreaterThanOrEqual(0);
+    await t.rest();
+    expect(t.engine.calls).toHaveLength(2);
+  });
+
+  it('reads the day before midnight just after it, after the view’s own day: quick keys back land on its programmes', async () => {
+    // 00:40: the view 00:30–02:30; the one before it reaches back into the day before.
+    const t = setup({ start: new Date(2026, 10, 5, 0, 40).getTime() });
+    t.open(3);
+    expect(t.engine.asked()).toEqual([`d0:${asked(0, 18)}`, `d-1:${asked(0, 18)}`]);
+    await flush();
+    await t.press('LEFT', 'LEFT');
+    const time = t.position().time;
+    expect(time).toBeLessThan(midnight(0));
+    expect(time % lengthOf(3)).toBe(0);
+    expect(guideCellAt(t.guide.schedule(3), t.guide.zone(), time)!.programme).toBeGreaterThanOrEqual(0);
+    // Two hours from midnight either side, a view asks only its own day (as at 20:17).
+    const two = setup({ start: new Date(2026, 10, 5, 2, 0).getTime() });
+    two.open(3);
+    expect(two.engine.asked()).toEqual([`d0:${asked(0, 18)}`]);
   });
 });
 
