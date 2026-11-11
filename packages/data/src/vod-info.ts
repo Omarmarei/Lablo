@@ -43,8 +43,9 @@ export interface VodInfoTarget {
  * account always comes from the source, so credentials only go to the panel the user added.
  */
 export function vodInfoTarget(url: string, account: XtreamAccount | null): VodInfoTarget | null {
-  const stream = account === null ? null : parseXtreamStreamUrl(url);
-  return account !== null && stream !== null && stream.kind === 'movie' ? { account, vodId: stream.id } : null;
+  if (account === null) return null;
+  const stream = parseXtreamStreamUrl(url);
+  return stream !== null && stream.kind === 'movie' ? { account, vodId: stream.id } : null;
 }
 
 /** Asks panels for movies' details, and keeps each answer for `VOD_INFO_TTL_MS`. */

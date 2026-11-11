@@ -2053,6 +2053,67 @@ describe('the player: a movie (RELAY step 26c)', () => {
     await t.press('UP', 'DOWN', 'CH_UP');
     t.clock.advance(ZAP_DELAY_MS);
     expect(t.controller.plays).toHaveLength(1);
+
+    // A channel watched before the movie: PRE-CH still doesn't leave the movie for it.
+    const u = setup();
+    u.player.show(2);
+    await u.press('CH_UP');
+    u.clock.advance(ZAP_DELAY_MS);
+    await u.press('BACK');
+    expect(u.player.previous.value).toBe(2);
+    u.player.playMovie({ item: film, request, lengthMs: null, closed: () => undefined });
+    await u.press('PREV_CH');
+    expect(u.controller.plays.map((p) => p.mode)).toEqual(['live', 'live', 'vod']);
+  });
+
+  it("starts at its own start after a catch-up, and keeps the movie's subtitle timing", () => {
+    const t = setup('ltr', {
+      catchupRequest: (r, p) => ({ key: r.item.key, src: r.item.src, mode: 'catchup', candidates: [{ url: `http://panel.test/timeshift/${p.start}/${r.number}.ts`, container: 'ts' }] }),
+      wallAt: 30_000_000 * MIN,
+    });
+    t.player.catchup(4, { start: 29_000_000, end: 29_000_060, title: 'Evening News' });
+    t.player.close();
+    t.controller.delayFor[film.key] = 500;
+    t.player.playMovie({ item: film, request, lengthMs: null, closed: () => undefined });
+    expect(t.player.position.value).toEqual({ time: 0, seeking: false, live: false });
+    expect(t.player.menu.delay.value).toBe(500);
+    // Its picture: the media time, not the programme's.
+    t.controller.media = 5000;
+    t.controller.set('playing');
+    t.clock.advance(POSITION_MS);
+    expect(t.player.position.value).toEqual({ time: 5000, seeking: false, live: false });
+  });
+
+  it("plays from the newest seek's target when the engine refuses: an older refusal, or one after a new play, is dropped", async () => {
+    const t = watch();
+    showing(t, 600_000);
+    const answers: ((ok: boolean) => void)[] = [];
+    t.controller.seek = (ms) => {
+      t.controller.seeks.push(ms);
+      return new Promise((resolve) => answers.push(resolve));
+    };
+    await t.press('RIGHT');
+    t.clock.advance(SEEK_DELAY_MS);
+    await t.press('RIGHT', 'RIGHT');
+    t.clock.advance(SEEK_DELAY_MS);
+    // (The engine is still at 10:00 while the first seek is out.)
+    expect(t.controller.seeks).toEqual([610_000, 620_000]);
+    answers[0]!(false);
+    await flush();
+    expect(t.controller.plays).toHaveLength(1);
+    answers[1]!(false);
+    await flush();
+    expect(t.controller.options).toEqual([{}, { startMs: 620_000 }]);
+    // A refusal that comes after "Try again" played again: dropped.
+    showing(t, 630_000);
+    await t.press('RIGHT');
+    t.clock.advance(SEEK_DELAY_MS);
+    t.controller.set('failed', NOT_FOUND);
+    await t.press('OK');
+    expect(t.controller.options).toEqual([{}, { startMs: 620_000 }, { startMs: 630_000 }]);
+    answers[2]!(false);
+    await flush();
+    expect(t.controller.plays).toHaveLength(3);
   });
 
   it('presses its buttons: "Audio and subtitles", "Stream info" and "Picture"', async () => {
@@ -2078,6 +2139,11 @@ describe('the player: a movie (RELAY step 26c)', () => {
   it('pauses and plays on: OK on the seek bar or with the bar hidden, and PLAY/PAUSE', async () => {
     const t = watch();
     showing(t);
+    // Hidden, the keys are the seek bar's again.
+    await t.press('DOWN');
+    expect(t.at()).toBe('player · actions 0');
+    t.clock.advance(INFO_MS);
+    expect(t.at()).toBe('player · seek 0');
     await t.press('OK');
     expect(t.controller.status.state).toBe('paused');
     await t.press('PLAY_PAUSE');
@@ -2153,7 +2219,7 @@ describe('the player: a movie (RELAY step 26c)', () => {
     expect(t.controller.seeks).toEqual([610_000]);
     expect(t.controller.options[2]).toEqual({ startMs: 310_000 });
     expect(t.player.plays.value).toBe(3);
-    // A refusal that answers after Back plays nothing.
+    // A refusal that answers after Back plays nothing, even with another movie on by then.
     showing(t, 310_000);
     let answer: (ok: boolean) => void = () => undefined;
     t.controller.seek = (ms) => {
@@ -2163,9 +2229,10 @@ describe('the player: a movie (RELAY step 26c)', () => {
     await t.press('RIGHT');
     t.clock.advance(SEEK_DELAY_MS);
     await t.press('BACK');
+    t.player.playMovie({ item: film, request, lengthMs: null, closed: () => undefined });
     answer(false);
     await flush();
-    expect(t.controller.plays).toHaveLength(3);
+    expect(t.controller.options).toEqual([{}, { startMs: 610_000 }, { startMs: 310_000 }, {}]);
   });
 
   it('closes onto the details on Back, never onto the live list', async () => {
@@ -2214,10 +2281,17 @@ describe('the player: a movie (RELAY step 26c)', () => {
     expect(u.controller.plays).toHaveLength(2);
   });
 
-  it("ignores a catalog refresh: a movie isn't in the list", () => {
-    const t = watch();
-    showing(t);
+  it("ignores a catalog refresh: a movie isn't in the list", async () => {
+    const t = setup();
+    t.player.show(2);
+    await t.press('BACK');
+    t.player.playMovie({ item: film, request, lengthMs: null, closed: () => undefined });
     t.player.listChanging();
     expect(t.list.locates).toEqual([]);
+    // (A channel's player looks for its row.)
+    await t.press('BACK');
+    t.player.show(2);
+    t.player.listChanging();
+    expect(t.list.locates.map((l) => l.guess)).toEqual([2]);
   });
 });

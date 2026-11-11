@@ -287,7 +287,8 @@ export class AvplayEngine implements PlayerEngine {
   /** AVPlay's `getDuration` (ms) once a stream is prepared; 0 before, without one, or when it throws. */
   durationMs(): number {
     const api = this.api;
-    const ms = this.cur === null ? 0 : read(() => (api.getDuration === undefined ? 0 : api.getDuration()), 0);
+    // (An AVPlay without the method throws here too: `read` gives 0.)
+    const ms = this.cur === null ? 0 : read(() => api.getDuration!(), 0);
     return ms > 0 ? ms : 0;
   }
 

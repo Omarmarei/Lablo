@@ -702,9 +702,10 @@ export function createPlayer(options: PlayerOptions): Player {
       playFilm(to);
       return;
     }
+    // A later seek, play or close drops this one's fallback: the newest target wins.
+    seq += 1;
     const mine = seq;
     void c.seek(to).then((ok) => {
-      // (A close or another play bumps `seq`.)
       if (!ok && mine === seq) playFilm(to);
     });
     // The target until the engine has moved.
