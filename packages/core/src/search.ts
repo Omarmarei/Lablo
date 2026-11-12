@@ -285,7 +285,7 @@ export class SearchSegment {
 }
 
 /** The source id inside a ContentKey (`x:<src>:…`, `m:<src>:…`), or `''`. */
-function keySource(key: string): string {
+export function keySource(key: string): string {
   const a = key.indexOf(':');
   const b = a === -1 ? -1 : key.indexOf(':', a + 1);
   return b === -1 ? '' : key.slice(a + 1, b);

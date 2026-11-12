@@ -648,6 +648,26 @@ describe("applyProfileEdit: a show's last episode (step 27c1)", () => {
     expect(isShowProgress(undefined)).toBe(false);
   });
 
+  it('keeps whether an episode came after it, when the entry says (optional, no migration: step 27d)', () => {
+    const before = withFavs(1);
+    const watched = (more: boolean | undefined, updated: number): ShowProgress => (more === undefined ? last(E1, true, updated) : { ...last(E1, true, updated), more });
+    // Said: kept with the entry.
+    const one = play(before, SHOW, watched(true, 1), null)!;
+    expect(one.shows).toStrictEqual({ [SHOW]: { episode: E1, watched: true, more: true, updated: 1 } });
+    expect(play(one, SHOW, watched(true, 2), null)).toBeNull();
+    // The same episode with another answer: written (the panel gained or lost an episode).
+    const two = play(one, SHOW, watched(false, 3), null)!;
+    expect(two.shows).toStrictEqual({ [SHOW]: { episode: E1, watched: true, more: false, updated: 3 } });
+    // Not said (an entry from before step 27d): written without the field, never as `undefined`.
+    const three = play(two, SHOW, watched(undefined, 4), null)!;
+    expect(three.shows).toStrictEqual({ [SHOW]: { episode: E1, watched: true, updated: 4 } });
+    expect(Object.keys(three.shows[SHOW]!)).toEqual(['episode', 'watched', 'updated']);
+    expect(play(three, SHOW, watched(undefined, 5), null)).toBeNull();
+    // Anything but a boolean is no entry.
+    for (const more of ['yes', 1, null]) expect(play(before, SHOW, { ...last(E1, true, 1), more } as unknown as ShowProgress, null)).toBeNull();
+    expect(isShowProgress({ ...last(E1, false, 1), more: false })).toBe(true);
+  });
+
   it(`keeps the latest ${MAX_SHOWS} shows, dropping the one saved longest ago, never the one being saved`, () => {
     expect(MAX_SHOWS).toBe(200);
     let doc = emptyProfile();

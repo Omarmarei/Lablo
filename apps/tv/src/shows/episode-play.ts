@@ -40,9 +40,12 @@ export function episodeRequest(src: string, episode: XtreamEpisode): PlayRequest
   return { key: episode.key, src, mode: 'vod', candidates: [{ url: episode.url, container: containerOf(episode.url) }] };
 }
 
-/** The episode's place in its show for the info bar: `index` is its place in the season (its number when the panel gives none). */
-export function episodeMark(show: CatalogItem, episode: XtreamEpisode, index: number): EpisodeMark {
-  return { show, season: episode.season, number: episode.episodeNum ?? index + 1, title: episode.title };
+/**
+ * The episode's place in its show for the info bar: `index` is its place in the season (its number
+ * when the panel gives none); `more`, whether an episode comes after it (step 27d).
+ */
+export function episodeMark(show: CatalogItem, episode: XtreamEpisode, index: number, more: boolean): EpisodeMark {
+  return { show, season: episode.season, number: episode.episodeNum ?? index + 1, title: episode.title, more };
 }
 
 export interface EpisodePlayOptions {
@@ -78,7 +81,8 @@ export function episodePlay(options: EpisodePlayOptions): MoviePlay {
     const point = kept(seasons[at.season]!.episodes[at.index]!.key);
     return episodePlay(point === null ? { show, seasons, place: at, kept, closed } : { show, seasons, place: at, kept, fromMs: point.positionMs, closed });
   };
-  const play: MoviePlay = { item: episodeItem(show, episode), request: episodeRequest(show.src, episode), lengthMs, episode: episodeMark(show, episode, place.index), closed, next };
+  const more = nextPlace(seasons, place) !== null;
+  const play: MoviePlay = { item: episodeItem(show, episode), request: episodeRequest(show.src, episode), lengthMs, episode: episodeMark(show, episode, place.index, more), closed, next };
   return fromMs === undefined ? play : { ...play, fromMs };
 }
 

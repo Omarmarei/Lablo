@@ -359,7 +359,8 @@ function setup(
     ...(kept.wallAt === undefined ? {} : { clock: () => kept.wallAt! + clock.now() }),
     timers: clock.timers,
     now: clock.now,
-    progressed: (item, positionMs, lengthMs, ended, show) => saved.push(`${item.key} @${positionMs} /${String(lengthMs)}${ended ? ' ended' : ''}${show === undefined ? '' : ` of ${show}`}`),
+    progressed: (item, positionMs, lengthMs, ended, show, more) =>
+      saved.push(`${item.key} @${positionMs} /${String(lengthMs)}${ended ? ' ended' : ''}${show === undefined ? '' : ` of ${show}`}${more === undefined ? '' : more ? ' +next' : ' last'}`),
     lifecycle: (listener) => {
       lifecycleListeners.push(listener);
       return () => {
@@ -2516,14 +2517,14 @@ describe("the player: a show's episode (RELAY step 27c1)", () => {
   const show: CatalogItem = { ...row(0).item, key: 'x:s1:series:301', kind: 'series', name: 'Lablo Test Series', url: '' };
   const item: CatalogItem = { ...show, key: 'x:s1:episode:3002', name: 'Tone and Clock', url: 'http://panel.test/series/u/p/3002.mkv' };
   const request: PlayRequest = { key: item.key, src: 's1', mode: 'vod', candidates: [{ url: item.url, container: 'mkv' }] };
-  const mark: EpisodeMark = { show, season: 1, number: 2, title: 'Tone and Clock' };
+  const mark: EpisodeMark = { show, season: 1, number: 2, title: 'Tone and Clock', more: true };
   const watch = (fromMs?: number) => {
     const t = setup();
     const back: string[] = [];
     t.player.playMovie({ item, request, lengthMs: 5 * MIN, ...(fromMs === undefined ? {} : { fromMs }), episode: mark, closed: () => back.push('details') });
     return { ...t, back };
   };
-  const at = (ms: number, ended = false): string => `${item.key} @${ms} /${5 * MIN}${ended ? ' ended' : ''} of ${show.key}`;
+  const at = (ms: number, ended = false): string => `${item.key} @${ms} /${5 * MIN}${ended ? ' ended' : ''} of ${show.key} +next`;
 
   it('plays as a movie, the episode on show through its seeks and the length learnt', async () => {
     const t = watch(40_000);
@@ -2570,7 +2571,7 @@ describe('the player: the next episode (RELAY step 27c2)', () => {
   const episodeAt = (id: number, number: number, title: string) => {
     const item: CatalogItem = { ...show, key: `x:s1:episode:${id}`, name: title, url: `http://panel.test/series/u/p/${id}.mkv` };
     const request: PlayRequest = { key: item.key, src: 's1', mode: 'vod', candidates: [{ url: item.url, container: 'mkv' }] };
-    const mark: EpisodeMark = { show, season: 1, number, title };
+    const mark: EpisodeMark = { show, season: 1, number, title, more: number < 3 };
     return { item, request, mark };
   };
   const e2 = episodeAt(3002, 2, 'Tone and Clock');
@@ -2631,7 +2632,7 @@ describe('the player: the next episode (RELAY step 27c2)', () => {
     const t = watch();
     expect(t.player.upNext.value).toBeNull();
     t.end();
-    expect(t.saved).toEqual([`${e2.item.key} @299000 /${5 * MIN} ended of ${show.key}`]);
+    expect(t.saved).toEqual([`${e2.item.key} @299000 /${5 * MIN} ended of ${show.key} +next`]);
     expect(t.asked).toEqual(['after E2, 1 saved']);
     expect(t.player.upNext.value).toEqual({ play: t.last, seconds: NEXT_COUNTDOWN_S });
     expect(t.at()).toBe('player · card 0');
@@ -2674,6 +2675,8 @@ describe('the player: the next episode (RELAY step 27c2)', () => {
     t.clock.advance(POSITION_MS);
     t.controller.set('ended');
     expect(t.asked).toEqual(['after E2, 1 saved', 'after E3, 2 saved']);
+    // (Step 27d) saved as the show's last: no episode after it.
+    expect(t.saved[1]).toBe(`${e3.item.key} @299000 /${5 * MIN} ended of ${show.key} last`);
     expect(t.player.upNext.value).toBeNull();
     expect(t.at()).toBe('player · card 0');
     expect(cardCount(t)).toBe(1);
@@ -2744,7 +2747,7 @@ describe('the player: the next episode (RELAY step 27c2)', () => {
     expect(u.clock.pending()).toBe(0);
     expect(u.controller.plays).toEqual([e2.request]);
     // Watched, saved again as it closes (the same: the app writes nothing).
-    expect(u.saved).toEqual([`${e2.item.key} @299000 /${5 * MIN} ended of ${show.key}`, `${e2.item.key} @299000 /${5 * MIN} ended of ${show.key}`]);
+    expect(u.saved).toEqual([`${e2.item.key} @299000 /${5 * MIN} ended of ${show.key} +next`, `${e2.item.key} @299000 /${5 * MIN} ended of ${show.key} +next`]);
     // Disposed during the countdown: nothing plays.
     const v = watch();
     v.end();

@@ -19,6 +19,11 @@ import type { LoadedProfile, ProfileEdit } from '@lablo/data';
  *   show keeps its last episode (`lastEpisode`; the profile's `shows`, version 6): the one played
  *   last, and whether it was watched. One save of an episode is one write (`editProfile`
  *   `{ kind: 'episode' }`): its place and its show's last episode together.
+ * - **"Continue watching"** (step 27d, `unfinished`): what was left part way, newest first by the
+ *   save times kept with the places and the shows. A show goes by its last episode: not watched
+ *   (resume it, or start it: a next episode left at once still counts), or watched with an episode
+ *   after it (`more`, which the player says with each save). A show's tile draws its last
+ *   episode's bar while it isn't watched (`share`).
  *
  * Reads never wait: what the start's profile said, plus every change since. A save equal to what
  * is kept writes nothing. A write that fails is logged and kept for the app's run.
@@ -52,6 +57,14 @@ export interface LastEpisode {
   readonly watched: boolean;
 }
 
+/** A show's last episode as kept (step 27d): with whether an episode came after it, and its save time. */
+interface ShowEntry {
+  readonly last: LastEpisode;
+  /** `undefined`: not said (saved before step 27d). */
+  readonly more: boolean | undefined;
+  readonly updated: number;
+}
+
 /** The point to keep for a movie left at `positionMs` (`null`: none: it ended, is watched, or barely started). */
 export function keptPoint(positionMs: number, lengthMs: number | null, ended: boolean): ResumePoint | null {
   const length = lengthMs !== null && lengthMs > 0 && isFinite(lengthMs) ? Math.round(lengthMs) : null;
@@ -72,10 +85,19 @@ export interface MovieShares {
   readonly version: ReadonlySignal<number>;
   /** Where movie `key` was left (`null`: never, or watched). */
   point(key: ContentKey): ResumePoint | null;
-  /** The share of movie `key` watched, 0–1, for its tile's bar (`undefined`: no position, or no length). */
+  /**
+   * The share of movie `key` watched, 0–1, for its tile's bar (`undefined`: no position, or no
+   * length); a show's (step 27d), its last episode's while that isn't watched.
+   */
   share(key: ContentKey): number | undefined;
   /** Show `show`'s last episode (step 27c1; `null`: none played yet). */
   lastEpisode(show: ContentKey): LastEpisode | null;
+  /**
+   * What was left part way (step 27d, "Continue watching"), newest first: every place kept (a
+   * movie's, a playlist's episode's, and a show's episodes', which no catalog lists), and every
+   * show whose last episode isn't watched, or is with an episode after it. On an equal time, by key.
+   */
+  unfinished(): ContentKey[];
 }
 
 export interface MovieProgress extends MovieShares {
@@ -84,9 +106,9 @@ export interface MovieProgress extends MovieShares {
   /**
    * Movie `key` is at `positionMs` of `lengthMs`, or `ended`: keeps the point, or takes it away.
    * An episode of `show` (step 27c1) is also its show's last episode, watched once it ended or is
-   * past the watched point.
+   * past the watched point; `more` (step 27d): whether an episode comes after it.
    */
-  save(key: ContentKey, positionMs: number, lengthMs: number | null, ended: boolean, show?: ContentKey): void;
+  save(key: ContentKey, positionMs: number, lengthMs: number | null, ended: boolean, show?: ContentKey, more?: boolean): void;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -103,22 +125,77 @@ function readPoint(value: unknown): ResumePoint | null {
   return typeof length === 'number' && length > 0 && isFinite(length) ? { positionMs: position, lengthMs: length } : null;
 }
 
+/** A stored save time (one that isn't: 0, the oldest). */
+function readTime(value: Record<string, unknown>): number {
+  const updated = value['updated'];
+  return typeof updated === 'number' && isFinite(updated) ? updated : 0;
+}
+
 /** A stored show's last episode, or `null` when it isn't one this app reads. */
-function readLast(value: unknown): LastEpisode | null {
+function readLast(value: unknown): ShowEntry | null {
   if (!isRecord(value)) return null;
   const episode = value['episode'];
   const watched = value['watched'];
-  return typeof episode === 'string' && episode !== '' && typeof watched === 'boolean' ? { episode: episode as ContentKey, watched } : null;
+  const more = value['more'];
+  if (typeof episode !== 'string' || episode === '' || typeof watched !== 'boolean') return null;
+  return { last: { episode: episode as ContentKey, watched }, more: typeof more === 'boolean' ? more : undefined, updated: readTime(value) };
+}
+
+/** Something saved, and when. */
+interface Saved {
+  readonly key: ContentKey;
+  readonly updated: number;
+}
+
+/**
+ * `items` newest first, by key on an equal time: a merge sort (no `Array.prototype.sort` in the TV
+ * bundle: Babel would add core-js's for it, and Chromium 53-68's isn't stable anyway).
+ */
+function newestFirst(items: readonly Saved[]): readonly Saved[] {
+  if (items.length < 2) return items;
+  const half = items.length >> 1;
+  const a = newestFirst(items.slice(0, half));
+  const b = newestFirst(items.slice(half));
+  const out: Saved[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    const x = a[i]!;
+    const y = b[j]!;
+    if (y.updated > x.updated || (y.updated === x.updated && y.key < x.key)) {
+      out.push(y);
+      j += 1;
+    } else {
+      out.push(x);
+      i += 1;
+    }
+  }
+  while (i < a.length) out.push(a[i++]!);
+  while (j < b.length) out.push(b[j++]!);
+  return out;
 }
 
 export function createMovieProgress(options: MovieProgressOptions): MovieProgress {
   const now = options.now ?? (() => Date.now());
   const version = signal(0);
   let points: Record<string, ResumePoint> = {};
-  let shows: Record<string, LastEpisode> = {};
+  /** When each place was saved (step 27d). */
+  let times: Record<string, number> = {};
+  let shows: Record<string, ShowEntry> = {};
 
   const own = (key: ContentKey): ResumePoint | null => (Object.prototype.hasOwnProperty.call(points, key) ? points[key]! : null);
-  const last = (show: ContentKey): LastEpisode | null => (Object.prototype.hasOwnProperty.call(shows, show) ? shows[show]! : null);
+  const entry = (show: ContentKey): ShowEntry | null => (Object.prototype.hasOwnProperty.call(shows, show) ? shows[show]! : null);
+  const last = (show: ContentKey): LastEpisode | null => {
+    const kept = entry(show);
+    return kept === null ? null : kept.last;
+  };
+  /** The place a tile's bar draws: the item's own, else a show's last episode's while it isn't watched (step 27d). */
+  const barPoint = (key: ContentKey): ResumePoint | null => {
+    const point = own(key);
+    if (point !== null) return point;
+    const kept = entry(key);
+    return kept === null || kept.last.watched ? null : own(kept.last.episode);
+  };
 
   return {
     version,
@@ -126,11 +203,15 @@ export function createMovieProgress(options: MovieProgressOptions): MovieProgres
       const doc = profile === null ? undefined : (profile.doc as { progress?: unknown; shows?: unknown });
       const stored = doc === undefined ? undefined : doc.progress;
       points = {};
+      times = {};
       if (isRecord(stored)) {
         const keys = Object.keys(stored);
         for (let i = 0; i < keys.length; i += 1) {
-          const point = readPoint(stored[keys[i]!]);
-          if (point !== null) points[keys[i]!] = point;
+          const value = stored[keys[i]!];
+          const point = readPoint(value);
+          if (point === null) continue;
+          points[keys[i]!] = point;
+          times[keys[i]!] = readTime(value as Record<string, unknown>);
         }
       }
       const lasts = doc === undefined ? undefined : doc.shows;
@@ -146,11 +227,25 @@ export function createMovieProgress(options: MovieProgressOptions): MovieProgres
     },
     point: own,
     share(key: ContentKey): number | undefined {
-      const point = own(key);
+      const point = barPoint(key);
       return point === null || point.lengthMs === null ? undefined : Math.min(1, point.positionMs / point.lengthMs);
     },
     lastEpisode: last,
-    save(key: ContentKey, positionMs: number, lengthMs: number | null, ended: boolean, show?: ContentKey): void {
+    unfinished(): ContentKey[] {
+      const found: Saved[] = [];
+      const placed = Object.keys(points);
+      for (let i = 0; i < placed.length; i += 1) found.push({ key: placed[i]!, updated: times[placed[i]!] ?? 0 });
+      const kept = Object.keys(shows);
+      for (let i = 0; i < kept.length; i += 1) {
+        const show = shows[kept[i]!]!;
+        if (!show.last.watched || show.more === true) found.push({ key: kept[i]!, updated: show.updated });
+      }
+      const ordered = newestFirst(found);
+      const keys: ContentKey[] = [];
+      for (let i = 0; i < ordered.length; i += 1) keys.push(ordered[i]!.key);
+      return keys;
+    },
+    save(key: ContentKey, positionMs: number, lengthMs: number | null, ended: boolean, show?: ContentKey, more?: boolean): void {
       const before = own(key);
       // A play that doesn't know the length (played before the details' read came back, no
       // picture yet) keeps the one known: a movie's length doesn't change.
@@ -159,23 +254,31 @@ export function createMovieProgress(options: MovieProgressOptions): MovieProgres
       const samePoint = next === null ? before === null : before !== null && before.positionMs === next.positionMs && before.lengthMs === next.lengthMs;
       // An episode (step 27c1): its show's last episode, watched once it ended or is past the watched point.
       const watched = ended || (isFinite(positionMs) && isWatched(positionMs, length));
-      const shown = show === undefined ? null : last(show);
-      const sameShow = show === undefined || (shown !== null && shown.episode === key && shown.watched === watched);
+      const shown = show === undefined ? null : entry(show);
+      const sameShow = show === undefined || (shown !== null && shown.last.episode === key && shown.last.watched === watched && shown.more === more);
       if (samePoint && sameShow) return;
+      const at = now();
       if (!samePoint) {
         const kept: Record<string, ResumePoint> = { ...points };
-        if (next === null) delete kept[key];
-        else kept[key] = next;
+        const saved: Record<string, number> = { ...times };
+        if (next === null) {
+          delete kept[key];
+          delete saved[key];
+        } else {
+          kept[key] = next;
+          saved[key] = at;
+        }
         points = kept;
+        times = saved;
       }
-      const at = now();
       const progress = next === null ? null : { positionMs: next.positionMs, lengthMs: next.lengthMs, updated: at };
       let edit: ProfileEdit = { kind: 'progress', key, progress };
       if (show !== undefined) {
-        const lasts: Record<string, LastEpisode> = { ...shows };
-        lasts[show] = { episode: key, watched };
+        const lasts: Record<string, ShowEntry> = { ...shows };
+        // (Its time follows every write: the profile renews the entry's with the episode's place.)
+        lasts[show] = { last: { episode: key, watched }, more, updated: at };
         shows = lasts;
-        edit = { kind: 'episode', show, last: { episode: key, watched, updated: at }, progress };
+        edit = { kind: 'episode', show, last: more === undefined ? { episode: key, watched, updated: at } : { episode: key, watched, more, updated: at }, progress };
       }
       version.value += 1;
       options.edit(edit).catch((error: unknown) => console.warn("The movie's position was not saved", error));

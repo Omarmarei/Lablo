@@ -101,6 +101,7 @@ export type {
   GuideRequest,
   GuideRow,
   ItemRef,
+  KeyItemsRequest,
   ProgrammeRequest,
   QueryServiceOptions,
   QueryStatus,
@@ -112,7 +113,7 @@ export type {
   UnmatchedPage,
   UnmatchedRequest,
 } from './query-service';
-export { GUIDE_CHANNELS_MAX_ROWS, GUIDE_MAX_READS, QueryService, UNMATCHED_MAX_ROWS } from './query-service';
+export { GUIDE_CHANNELS_MAX_ROWS, GUIDE_MAX_READS, KEY_ITEMS_MAX, QueryService, UNMATCHED_MAX_ROWS } from './query-service';
 
 export type { ByteRequest, ByteResponse, ByteSource, ByteTransport, FetchLike, TextSource } from './bytes';
 export { Fnv1a, NetworkError, decodeUtf8, fetchTransport, tapBytes } from './bytes';

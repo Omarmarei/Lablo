@@ -114,6 +114,7 @@ export {
   SearchSegment,
   buildSearchSegment,
   favouriteMarks,
+  keySource,
   searchSegments,
   searchTerms,
 } from './search';

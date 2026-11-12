@@ -276,3 +276,107 @@ describe('movie progress (RELAY step 26d)', () => {
     warn.mockRestore();
   });
 });
+
+describe('"Continue watching": what was left part way (RELAY step 27d)', () => {
+  const SHOW = 'x:s1:series:301';
+  const E1 = 'x:s1:episode:3001';
+  const E2 = 'x:s1:episode:3002';
+
+  it('lists the places and the shows going on, newest first by their save times; on an equal time by key', () => {
+    const t = setup();
+    t.progress.load({
+      doc: {
+        v: 6,
+        progress: {
+          'x:s1:movie:201': { positionMs: 60_000, lengthMs: 600_000, updated: 30 },
+          'x:s1:movie:202': { positionMs: 60_000, lengthMs: 600_000, updated: 50 },
+          // No save time (or one that isn't): the oldest.
+          'x:s1:movie:203': { positionMs: 60_000, lengthMs: 600_000 },
+          'x:s1:movie:204': { positionMs: 60_000, lengthMs: 600_000, updated: 'x' },
+          [E1]: { positionMs: 40_000, lengthMs: 300_000, updated: 40 },
+          // Not a place: never listed.
+          'x:s1:movie:205': { positionMs: -1, lengthMs: null, updated: 99 },
+        },
+        shows: {
+          // Its last episode left part way (or at once): listed.
+          [SHOW]: { episode: E1, watched: false, updated: 40 },
+          // Watched, an episode after it: listed.
+          'x:s1:series:302': { episode: 'x:s1:episode:3022', watched: true, more: true, updated: 50 },
+          // Watched, the show's last; or saved before step 27d (not said): not listed.
+          'x:s1:series:303': { episode: 'x:s1:episode:3031', watched: true, more: false, updated: 60 },
+          'x:s1:series:304': { episode: 'x:s1:episode:3041', watched: true, updated: 70 },
+          'x:s1:series:305': { episode: 'x:s1:episode:3051', watched: false, more: 'yes', updated: 20 },
+          'x:s1:series:306': { episode: '', watched: false, updated: 80 },
+        },
+      },
+      newer: false,
+      migratedFrom: null,
+    });
+    expect(t.progress.unfinished()).toEqual(['x:s1:movie:202', 'x:s1:series:302', E1, SHOW, 'x:s1:movie:201', 'x:s1:series:305', 'x:s1:movie:203', 'x:s1:movie:204']);
+    // A show listed by its last episode reads the episode's own bar (while it isn't watched); a watched show has none.
+    expect(t.progress.share(SHOW)).toBeCloseTo(40 / 300, 5);
+    expect(t.progress.share('x:s1:series:302')).toBeUndefined();
+    expect(t.progress.share('x:s1:series:305')).toBeUndefined();
+    expect(t.progress.share('x:s1:series:999')).toBeUndefined();
+    // Nothing kept: nothing listed.
+    t.progress.load(null);
+    expect(t.progress.unfinished()).toEqual([]);
+  });
+
+  it('moves what is saved to the front, takes away what was watched, and keeps a watched show only with an episode after it', () => {
+    const t = setup();
+    t.progress.load(null);
+    t.progress.save('x:s1:movie:201', 60_000, 600_000, false);
+    t.tick(1_000);
+    t.progress.save(E1, 40_000, 300_000, false, SHOW, true);
+    expect(t.progress.unfinished()).toEqual([E1, SHOW, 'x:s1:movie:201']);
+    expect(t.edits[1]).toEqual({ kind: 'episode', show: SHOW, last: { episode: E1, watched: false, more: true, updated: 2_000 }, progress: { positionMs: 40_000, lengthMs: 300_000, updated: 2_000 } });
+    // The movie again, later: first.
+    t.tick(1_000);
+    t.progress.save('x:s1:movie:201', 70_000, 600_000, false);
+    expect(t.progress.unfinished()).toEqual(['x:s1:movie:201', E1, SHOW]);
+    // The episode further on: the show's time follows its place.
+    t.tick(1_000);
+    t.progress.save(E1, 50_000, 300_000, false, SHOW, true);
+    expect(t.progress.unfinished()).toEqual([E1, SHOW, 'x:s1:movie:201']);
+    expect(t.progress.share(SHOW)).toBeCloseTo(50 / 300, 5);
+    // Watched with one after it: still listed (its next one), with no bar; the place goes.
+    t.tick(1_000);
+    t.progress.save(E1, 300_000, 300_000, true, SHOW, true);
+    expect(t.progress.unfinished()).toEqual([SHOW, 'x:s1:movie:201']);
+    expect(t.progress.share(SHOW)).toBeUndefined();
+    // The next one left at once (no place): listed, from its start.
+    t.tick(1_000);
+    t.progress.save(E2, 4_000, 300_000, false, SHOW, false);
+    expect(t.progress.unfinished()).toEqual([SHOW, 'x:s1:movie:201']);
+    expect(t.edits[t.edits.length - 1]).toEqual({ kind: 'episode', show: SHOW, last: { episode: E2, watched: false, more: false, updated: 6_000 }, progress: null });
+    // The show's last watched: gone.
+    t.tick(1_000);
+    t.progress.save(E2, 300_000, 300_000, true, SHOW, false);
+    expect(t.progress.unfinished()).toEqual(['x:s1:movie:201']);
+    // The same episode watched again, the panel now listing one after it: written, and listed again.
+    t.tick(1_000);
+    t.progress.save(E2, 300_000, 300_000, true, SHOW, true);
+    expect(t.edits[t.edits.length - 1]).toEqual({ kind: 'episode', show: SHOW, last: { episode: E2, watched: true, more: true, updated: 8_000 }, progress: null });
+    expect(t.progress.unfinished()).toEqual([SHOW, 'x:s1:movie:201']);
+    t.progress.save(E2, 300_000, 300_000, true, SHOW, true);
+    expect(t.edits).toHaveLength(8);
+    // The movie watched: gone.
+    t.progress.save('x:s1:movie:201', 600_000, 600_000, true);
+    expect(t.progress.unfinished()).toEqual([SHOW]);
+  });
+
+  it('orders many by a merge of halves (no Array.prototype.sort)', () => {
+    const t = setup();
+    const progress: Record<string, unknown> = {};
+    const want: string[] = [];
+    // 37 places, times shuffled, pairs on equal times.
+    for (let i = 0; i < 37; i += 1) progress[`k${String((i * 17) % 37).padStart(2, '0')}`] = { positionMs: 60_000, lengthMs: null, updated: Math.floor(((i * 17) % 37) / 2) };
+    for (let i = 36; i >= 0; i -= 1) want.push(`k${String(i).padStart(2, '0')}`);
+    // Equal times by key: k36 alone at 18, then k34 before k35 at 17, and so on.
+    const expected: string[] = [];
+    for (let time = 18; time >= 0; time -= 1) for (const k of want.slice().reverse()) if (Math.floor(Number(k.slice(1)) / 2) === time) expected.push(k);
+    t.progress.load({ doc: { v: 6, progress, shows: {} }, newer: false, migratedFrom: null });
+    expect(t.progress.unfinished()).toEqual(expected);
+  });
+});
