@@ -319,6 +319,10 @@ export const EN = {
   'player.movieEnded': 'The movie has ended',
   // A show's episode played to its end (RELAY step 27c1).
   'player.episodeEnded': 'The episode has ended',
+  // Auto-next (RELAY step 27c2), on that card: the next episode, {mark} its "S1 E3"; the seconds before it starts.
+  'player.nextEpisode': 'Next: {mark}',
+  'player.nextIn': 'Starts in {seconds, number} s',
+  'player.playNow': 'Play now',
   'player.moviePosition': 'Position in the movie',
   'player.watchLive': 'Watch live',
   'player.toGuide': 'Back to the guide',

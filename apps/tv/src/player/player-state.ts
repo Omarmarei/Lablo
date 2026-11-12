@@ -89,6 +89,12 @@ import { createTrackMenu } from './track-menu';
  * - **A show's episode** (step 27c1) plays as a movie does (`MoviePlay.episode`): the info bar
  *   names the show and the episode ("S1 E2 · title"), `progressed` hears the show's key too, and
  *   its end's card says the episode ended.
+ * - **Auto-next** (step 27c2): at an episode's end the card offers the next one when its show has
+ *   one (`MoviePlay.next`, asked once there: `upNext`), with "Play now" (focused) and "Back". It
+ *   plays after `NEXT_COUNTDOWN_S` seconds, or at once on "Play now": the card goes and the next
+ *   episode plays in the same player, from where it was left. "Back" (the button or the key)
+ *   closes the player onto the details. The app hiding stops the countdown; the card stays.
+ *   After the show's last episode the card has "Back" alone.
  */
 
 /** The info bar's stream opens this long after the last zap key. */
@@ -112,6 +118,11 @@ export const POSITION_MS = 1000;
  * its `ended` comes before the position gets this far).
  */
 export const PLAY_ON_MS = 5000;
+
+/** The next episode plays this many seconds after an episode's end (step 27c2). */
+export const NEXT_COUNTDOWN_S = 10;
+/** The countdown's step. */
+export const NEXT_TICK_MS = 1000;
 
 const MINUTE_MS = 60_000;
 
@@ -196,6 +207,15 @@ export interface MoviePlay {
   readonly closed: () => void;
   /** A show's episode (step 27c1; absent: a movie). */
   readonly episode?: EpisodeMark;
+  /** The episode after this one (step 27c2), asked at its end (`null`: the show's last; absent: a movie). */
+  readonly next?: () => MoviePlay | null;
+}
+
+/** The next episode, offered at an episode's end (step 27c2). */
+export interface UpNext {
+  readonly play: MoviePlay;
+  /** Seconds before it plays (`null`: the countdown stopped, as the app hid). */
+  readonly seconds: number | null;
 }
 
 /** The movie playing (step 26c). */
@@ -294,6 +314,8 @@ export interface Player {
   readonly movie: ReadonlySignal<PlayingMovie | null>;
   /** The info bar's buttons, in order: a movie's have no "Previous channel". */
   readonly actions: ReadonlySignal<readonly PlayerAction[]>;
+  /** The next episode at an episode's end (step 27c2; `null`: none offered). */
+  readonly upNext: ReadonlySignal<UpNext | null>;
   /** Opens the player on row `index` of the list and plays it at once. */
   show(index: number): void;
   /**
@@ -383,6 +405,7 @@ export function createPlayer(options: PlayerOptions): Player {
   const position = signal<ArchivePosition | null>(null);
   const movie = signal<PlayingMovie | null>(null);
   const actions = signal<readonly PlayerAction[]>(CHANNEL_ACTIONS);
+  const upNext = signal<UpNext | null>(null);
   const keyClock = options.now ?? Date.now;
   const wall = options.clock ?? Date.now;
 
@@ -426,6 +449,8 @@ export function createPlayer(options: PlayerOptions): Player {
   let savedAt = 0;
   /** The app is hidden: the engine let the stream go, so its position isn't read (step 26d). */
   let hidden = false;
+  /** The next episode's countdown (step 27c2). */
+  let nextTimer: unknown = null;
 
   const clear = (handle: unknown): null => {
     if (handle !== null) timers.clear(handle);
@@ -492,8 +517,11 @@ export function createPlayer(options: PlayerOptions): Player {
     const top = screen.value;
     if (top === null || card === carded) return;
     carded = card;
-    // A movie's end has one button, "Back".
-    top.update(cardZone(!card ? 0 : s.state === 'ended' && movie.value !== null ? 1 : 2));
+    // An episode's end (step 27c2): the next one, when its show has one.
+    const filmEnded = card && s.state === 'ended' && film !== null;
+    if (filmEnded) offerNext();
+    // A movie's end has one button, "Back"; an episode's with a next one has "Play now" first.
+    top.update(cardZone(!card ? 0 : filmEnded && upNext.value === null ? 1 : 2));
     if (card) {
       top.focus('card', 0);
       showInfo();
@@ -587,6 +615,52 @@ export function createPlayer(options: PlayerOptions): Player {
     seekBar(true);
     menu.showDelay(c.subtitleDelay);
   };
+
+  /** Plays `next` from its `fromMs`: a movie or an episode from its details, or the next episode (step 27c2). */
+  const startFilm = (next: MoviePlay): void => {
+    film = next;
+    movie.value = { item: next.item, lengthMs: next.lengthMs, fromMs: 0, episode: next.episode ?? null };
+    showInfo();
+    playFilm(next.fromMs);
+  };
+
+  /** The next episode's offer goes, and its countdown (step 27c2). */
+  function stopNext(): void {
+    nextTimer = clear(nextTimer);
+    upNext.value = null;
+  }
+
+  /** An episode ended (step 27c2): the next one is offered, and its countdown starts (not while the app is hidden). */
+  function offerNext(): void {
+    const ask = film!.next;
+    const coming = ask === undefined ? null : ask();
+    if (coming === null) return;
+    upNext.value = { play: coming, seconds: hidden ? null : NEXT_COUNTDOWN_S };
+    if (!hidden) countDown();
+  }
+
+  /** One step of the countdown: a second less, or the next episode plays. */
+  function countDown(): void {
+    nextTimer = timers.set(() => {
+      nextTimer = null;
+      // (The timer goes with the offer, and when the countdown stops.)
+      const shown = upNext.value!;
+      if (shown.seconds! > 1) {
+        upNext.value = { play: shown.play, seconds: shown.seconds! - 1 };
+        countDown();
+      } else playNext();
+    }, NEXT_TICK_MS);
+  }
+
+  /**
+   * The next episode plays (step 27c2): "Play now", or the countdown's end. Its play's `opening`
+   * takes the card away (`onStatus`, as for "Try again"); the seek bar takes the keys.
+   */
+  function playNext(): void {
+    const coming = upNext.value!;
+    stopNext();
+    startFilm(coming.play);
+  }
 
   /** Where the catch-up stream is now: its start plus its media time while it shows a picture, else where it was last. */
   const streamAt = (): number => {
@@ -901,6 +975,7 @@ export function createPlayer(options: PlayerOptions): Player {
     infoTimer = clear(infoTimer);
     cancelSeek();
     positionTimer = clear(positionTimer);
+    stopNext();
     entry.value = null;
     info.value = false;
     open.value = false;
@@ -1034,6 +1109,8 @@ export function createPlayer(options: PlayerOptions): Player {
     else if (focus.zone === 'seek') togglePause();
     // A movie's cards (step 26c): the error card's "Try again" plays on from where it was; "Back" closes the player.
     else if (focus.zone === 'card' && film !== null && focus.index === 0 && status.value.state === 'failed') playFilm(lastAt);
+    // An episode's end (step 27c2): "Play now" plays the next one; "Back" closes the player.
+    else if (focus.zone === 'card' && film !== null && focus.index === 0 && upNext.value !== null) playNext();
     else if (focus.zone === 'card' && film !== null) close();
     // The end's card (step 25d): "Watch live" and "Back to the guide".
     else if (focus.zone === 'card' && focus.index === 0 && status.value.state === 'ended') go(playing.value);
@@ -1049,6 +1126,10 @@ export function createPlayer(options: PlayerOptions): Player {
           if (event === 'hidden') {
             keepFilm();
             hidden = true;
+            // The next episode's countdown stops (step 27c2): the card stays, without it.
+            nextTimer = clear(nextTimer);
+            const shown = upNext.value;
+            if (shown !== null) upNext.value = { play: shown.play, seconds: null };
           } else if (event === 'visible') hidden = false;
         });
 
@@ -1070,6 +1151,7 @@ export function createPlayer(options: PlayerOptions): Player {
     position,
     movie,
     actions,
+    upNext,
     show(index: number): void {
       if (openScreen()) go(index);
     },
@@ -1090,11 +1172,7 @@ export function createPlayer(options: PlayerOptions): Player {
       );
     },
     playMovie(next: MoviePlay): void {
-      if (!openScreen(MOVIE_ACTIONS)) return;
-      film = next;
-      movie.value = { item: next.item, lengthMs: next.lengthMs, fromMs: 0, episode: next.episode ?? null };
-      showInfo();
-      playFilm(next.fromMs);
+      if (openScreen(MOVIE_ACTIONS)) startFilm(next);
     },
     row: rowAt,
     listChanging(): void {

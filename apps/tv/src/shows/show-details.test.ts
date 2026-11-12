@@ -6,6 +6,8 @@ import { LAYOUT, createNavigator } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
 import type { MovieProgress } from '../movies/movie-progress';
 import { createMovieProgress } from '../movies/movie-progress';
+import type { EpisodePlace } from './episode-play';
+import type { ShowSeason } from './show-details';
 import {
   EPISODES_VISIBLE,
   SEASONS_VISIBLE,
@@ -81,8 +83,10 @@ const INFO: XtreamSeriesInfo = {
   skipped: 0,
 };
 
-/** What OK on an episode played: the show, the episode, its place in its season, and where it starts. */
+/** What OK on an episode played: the show, the episode (at the place in the seasons handed over), its place in its season, and where it starts. */
 type Played = [CatalogItem, XtreamEpisode, number, number | undefined];
+/** The seasons and the place each play was handed (step 27c2: the episodes after it). */
+type Handed = { seasons: readonly ShowSeason[]; place: EpisodePlace };
 
 /** Episodes' places and shows' last episodes, as the app keeps them (its writes go nowhere). */
 function places(): MovieProgress {
@@ -100,10 +104,14 @@ function setup(progress?: MovieProgress) {
   });
   const reads: { req: SeriesInfoRequest; answer: (info: XtreamSeriesInfo | null) => void; fail: (error: unknown) => void }[] = [];
   const played: Played[] = [];
+  const handed: Handed[] = [];
   const details = createShowDetails({
     nav,
     engine: { seriesInfo: (req) => new Promise((resolve, reject) => reads.push({ req, answer: resolve, fail: reject })) },
-    play: (item, at, index, fromMs) => played.push([item, at, index, fromMs]),
+    play: (item, seasons, place, fromMs) => {
+      played.push([item, seasons[place.season]!.episodes[place.index]!, place.index, fromMs]);
+      handed.push({ seasons, place });
+    },
     ...(progress === undefined ? {} : { progress }),
   });
   const press = async (...keys: Intent[]): Promise<void> => {
@@ -123,7 +131,7 @@ function setup(progress?: MovieProgress) {
     };
     return `${count(SHOW_SEASONS)} seasons, ${count(SHOW_EPISODES)} episodes`;
   };
-  return { nav, details, reads, press, at, counts, played };
+  return { nav, details, reads, press, at, counts, played, handed };
 }
 
 describe("a show's details (RELAY step 27b)", () => {
@@ -344,6 +352,15 @@ describe('playing an episode (RELAY step 27c1)', () => {
     await t.press('UP', 'UP', 'UP', 'RIGHT', 'DOWN', 'OK');
     expect(t.played[3]).toEqual([item, e4, 0, undefined]);
     expect(t.played).toHaveLength(4);
+    // Each play is handed the seasons on show and the episode's place in them (step 27c2).
+    const seasons = t.details.shown.value!.seasons;
+    expect(t.handed.map((h) => h.place)).toEqual([
+      { season: 0, index: 0 },
+      { season: 0, index: 1 },
+      { season: 0, index: 2 },
+      { season: 1, index: 0 },
+    ]);
+    for (const h of t.handed) expect(h.seasons).toBe(seasons);
   });
 
   it("reads the rows' places again when one is saved, and has none without the app's", async () => {

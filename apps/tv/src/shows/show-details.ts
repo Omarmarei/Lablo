@@ -29,7 +29,8 @@ import { resumePlace } from './episode-play';
  *   episodes. Back goes from the episodes to the season on show, and from the seasons (or a
  *   screen with nothing to focus) closes the details: the series screen's focus is where it was.
  * - **Playing** (step 27c1): OK on an episode hands it to `play`, from where it was left
- *   (`progress`): the player opens over the details. Each row shows where its episode was left
+ *   (`progress`): the player opens over the details. `play` gets the seasons and the episode's
+ *   place in them, so the player can go on to the next one at its end (step 27c2). Each row shows where its episode was left
  *   (`point`, "Resume from 2:34") and its bar (`share`).
  * - **The show's last episode** (step 27c1): the details open on it, its season on show, and so
  *   does the player's close (`refresh`); once it was watched, on the next one (`resumePlace`).
@@ -89,10 +90,11 @@ export interface ShowDetailsOptions {
   readonly nav: Navigator;
   readonly engine: ShowDetailsEngine;
   /**
-   * OK on an episode (step 27c1): the show, the episode, its place in its season, and where it
-   * starts (where it was left; absent: its start).
+   * OK on an episode (step 27c1): the show, its seasons as listed, the episode's place in them,
+   * and where it starts (where it was left; absent: its start). The seasons give the episodes
+   * after it (step 27c2's auto-next).
    */
-  readonly play: (show: CatalogItem, episode: XtreamEpisode, index: number, fromMs?: number) => void;
+  readonly play: (show: CatalogItem, seasons: readonly ShowSeason[], place: EpisodePlace, fromMs?: number) => void;
   /** Where each episode was left and each show's last episode (step 27c1; default: nowhere). */
   readonly progress?: Pick<MovieShares, 'version' | 'point' | 'share' | 'lastEpisode'>;
 }
@@ -273,8 +275,9 @@ export function createShowDetails(options: ShowDetailsOptions): ShowDetails {
     const episode = now?.seasons[season.value]?.episodes[focus.index];
     if (episode === undefined) return;
     const left = progress === undefined ? null : progress.point(episode.key);
-    if (left === null) options.play(now!.item, episode, focus.index);
-    else options.play(now!.item, episode, focus.index, left.positionMs);
+    const place: EpisodePlace = { season: season.value, index: focus.index };
+    if (left === null) options.play(now!.item, now!.seasons, place);
+    else options.play(now!.item, now!.seasons, place, left.positionMs);
   };
 
   // The season on show follows the focus along the row.

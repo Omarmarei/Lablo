@@ -1,4 +1,4 @@
-import type { CatalogItem, XtreamEpisode } from '@lablo/core';
+import type { CatalogItem, ContentKey, XtreamEpisode } from '@lablo/core';
 import type { PlayRequest } from '@lablo/player';
 import { containerOf } from '@lablo/player';
 import type { LastEpisode, ResumePoint } from '../movies/movie-progress';
@@ -16,6 +16,9 @@ import type { ShowSeason } from './show-details';
  *   index into its episodes). The show's last episode decides where the details open, and where
  *   Back from the player lands: on it, or on the next one, in the panel's order across seasons,
  *   once it was watched.
+ * - **Auto-next** (step 27c2): each play knows the episode after it (`MoviePlay.next`, the next in
+ *   the panel's order across seasons, from where it was left; none after the show's last), which
+ *   the player asks for at the episode's end.
  */
 
 /** An episode's place in the details: season `season` of those listed, its episode `index`. */
@@ -44,23 +47,38 @@ export function episodeMark(show: CatalogItem, episode: XtreamEpisode, index: nu
 
 export interface EpisodePlayOptions {
   readonly show: CatalogItem;
-  readonly episode: XtreamEpisode;
-  /** Its place in the season. */
-  readonly index: number;
-  /** Where it was left (`null`: never, or watched): its length when the panel gives none. */
-  readonly kept: ResumePoint | null;
+  /** The show's seasons, as the details list them (each has episodes). */
+  readonly seasons: readonly ShowSeason[];
+  /** The episode's place in them. */
+  readonly place: EpisodePlace;
+  /**
+   * Where an episode was left (`null`: never, or watched): the episode's length when the panel
+   * gives none, and where the next one starts (step 27c2).
+   */
+  readonly kept: (key: ContentKey) => ResumePoint | null;
   /** Where it starts (ms; absent: its start). */
   readonly fromMs?: number;
   /** The player closed: the details show again. */
   readonly closed: () => void;
 }
 
-/** What the player plays for an episode. */
+/**
+ * What the player plays for the episode at `place`. Its `next` (step 27c2) is the play of the
+ * episode after it, from where that one was left (`null` after the show's last).
+ */
 export function episodePlay(options: EpisodePlayOptions): MoviePlay {
-  const { show, episode, index, kept, fromMs, closed } = options;
+  const { show, seasons, place, kept, fromMs, closed } = options;
+  const episode = seasons[place.season]!.episodes[place.index]!;
   const secs = episode.durationSecs;
-  const lengthMs = secs !== null && secs > 0 ? secs * 1000 : kept === null ? null : kept.lengthMs;
-  const play: MoviePlay = { item: episodeItem(show, episode), request: episodeRequest(show.src, episode), lengthMs, episode: episodeMark(show, episode, index), closed };
+  const left = kept(episode.key);
+  const lengthMs = secs !== null && secs > 0 ? secs * 1000 : left === null ? null : left.lengthMs;
+  const next = (): MoviePlay | null => {
+    const at = nextPlace(seasons, place);
+    if (at === null) return null;
+    const point = kept(seasons[at.season]!.episodes[at.index]!.key);
+    return episodePlay(point === null ? { show, seasons, place: at, kept, closed } : { show, seasons, place: at, kept, fromMs: point.positionMs, closed });
+  };
+  const play: MoviePlay = { item: episodeItem(show, episode), request: episodeRequest(show.src, episode), lengthMs, episode: episodeMark(show, episode, place.index), closed, next };
   return fromMs === undefined ? play : { ...play, fromMs };
 }
 
