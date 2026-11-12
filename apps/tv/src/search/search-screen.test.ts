@@ -175,6 +175,12 @@ describe('the search screen as drawn (step 28a)', () => {
     expect((byTestId(none.page(), 'search-field')[0]!.props as Props).hint).toBe('Nothing has these words.');
     expect(byTestId(none.page(), 'search-results')).toHaveLength(0);
     expect(searchHint(ar, none.search)).toBe('لا يوجد ما يحتوي هذه الكلمات.');
+    // One found: the hint stays.
+    const one = await draw({ count: 1 });
+    one.search.setQuery('lablo');
+    await flush();
+    expect(textOf(byTestId(one.page(), 'search-count'))).toBe('1 result');
+    expect((byTestId(one.page(), 'search-field')[0]!.props as Props).hint).toBe('Part of a name, in any language');
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const failed = await draw({ fail: true });
     failed.search.setQuery('zzz');

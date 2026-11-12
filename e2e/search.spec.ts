@@ -152,6 +152,7 @@ test.describe('the search screen by keys (RELAY step 28a)', () => {
       await remote.go(forward, 'live/header/2');
       await remote.go(forward, 'live/header/3');
       await expect(page.getByTestId('live-search')).toHaveText(says.open);
+      await expect(page.getByTestId('live-search')).toHaveAttribute('data-state', 'focused');
       const buttons = await page.locator('.live__end .z-button').evaluateAll((els) => els.map((el) => el.getBoundingClientRect().toJSON() as { left: number; right: number; top: number }));
       expect(buttons).toHaveLength(5);
       for (const b of buttons) {
@@ -251,6 +252,7 @@ test.describe('the search screen by keys (RELAY step 28a)', () => {
 
       // Back closes it, on the header's "Search"; the live list shows the channel's group, on it.
       await remote.go('BACK', 'live/header/3');
+      await expect(page.getByTestId('live-search')).toHaveAttribute('data-state', 'focused');
       await remote.go('DOWN', 'live/channels/2');
       await expect(live).toHaveAttribute('data-category', '1');
       await expect(live).toHaveAttribute('data-selected', /:live:110$/);

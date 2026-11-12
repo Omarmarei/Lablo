@@ -165,12 +165,12 @@ export function createSearch(options: SearchOptions): Search {
     return out;
   };
 
-  /** Asks the pages the window needs that aren't read or asked for. */
+  /** Asks the pages the window needs that aren't asked for (a page read stays asked for). */
   const fill = (): void => {
     const shown = screen.value;
     if (shown === null) return;
     wanted(shown).forEach((p) => {
-      if (!pages.has(p) && !asking.has(p)) ask(p);
+      if (!asking.has(p)) ask(p);
     });
   };
 
@@ -325,7 +325,8 @@ export function createSearch(options: SearchOptions): Search {
       run(value, false);
     },
     catalogChanged(): void {
-      if (disposed || screen.value === null || query.value.trim() === '') return;
+      // (Nothing typed: `run` clears what is already clear.)
+      if (disposed || screen.value === null) return;
       run(query.value, true);
     },
     dispose(): void {

@@ -149,6 +149,17 @@ function setup(engine = new FakeEngine()) {
     exitDialog: () => undefined,
     now: () => 0,
   });
+  // The navigator's listeners held (the screen's and its editor's).
+  let following = 0;
+  const subscribe = nav.subscribe.bind(nav);
+  vi.spyOn(nav, 'subscribe').mockImplementation((listener) => {
+    following += 1;
+    const stop = subscribe(listener);
+    return () => {
+      following -= 1;
+      stop();
+    };
+  });
   const select = vi.fn();
   const input: EditableLike & { focused: number; blurred: number } = {
     focused: 0,
@@ -183,7 +194,7 @@ function setup(engine = new FakeEngine()) {
     }
     return out;
   };
-  return { nav, engine, select, input, search, at, press, rows };
+  return { nav, engine, select, input, search, at, press, rows, following: () => following };
 }
 
 /** Opens the screen and lets the profile's read land. */
@@ -305,8 +316,12 @@ describe('the search screen', () => {
     await flush();
     await t.press('DOWN');
     expect(t.at()).toBe('search · results 0');
+    // Down to row 13: the window is rows 7–13, so rows 0–20: row 20 is the second page's first.
+    for (let i = 0; i < 13; i += 1) await t.press('DOWN');
+    expect(t.at()).toBe('search · results 13');
+    expect(engine.pages()).toEqual([0, 20]);
     // Down to row 15: the window is rows 9–15, so the pages of rows 2–29.
-    for (let i = 0; i < 15; i += 1) await t.press('DOWN');
+    for (let i = 0; i < 2; i += 1) await t.press('DOWN');
     expect(t.at()).toBe('search · results 15');
     expect(engine.pages()).toEqual([0, 20]);
     expect(t.rows(19, 22)).toEqual(['19', '20', '21']);
@@ -367,8 +382,11 @@ describe('the search screen', () => {
     expect(t.at()).toBe('live · header 0');
     expect(t.search.screen.value).toBeNull();
     expect(engine.tokens.pop()!.cancelled).toBe(true);
-    // Typing after it closed searches nothing (the field shows only with the screen).
+    // Typing after it closed searches nothing (the field shows only with the screen), nor does a catalog swap.
     t.search.setQuery('series');
+    await flush();
+    expect(engine.finds.length).toBe(2);
+    t.search.catalogChanged();
     await flush();
     expect(engine.finds.length).toBe(2);
     // The live screen's keys go on with the search closed.
@@ -510,6 +528,15 @@ describe('the search screen', () => {
     t.search.catalogChanged();
     await flush();
     expect(engine.finds.length).toBe(1);
+    // It lets go of the navigator (its editor too).
+    expect(t.following()).toBe(0);
+    // Closed after the dispose, it opens no more.
+    await t.press('BACK');
+    expect(t.at()).toBe('live · header 0');
+    t.search.open();
+    await flush();
+    expect(t.at()).toBe('live · header 0');
+    expect([t.search.screen.value, engine.profiles]).toEqual([null, 1]);
   });
 
   it('drops the answers that come after the dispose, and reads no page for the keys after it', async () => {
