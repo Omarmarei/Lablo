@@ -1,6 +1,6 @@
 /**
  * "Recently added" (RELAY step 26e): each source's newest movies, kept at ingest so that no read
- * ever scans a catalog (a panel can list 120,000 movies).
+ * ever scans a catalog (a panel can list 120,000 movies). Series keep theirs too (step 27a).
  *
  * - **The ingest** pushes every movie with its panel's date (Xtream `added`, epoch seconds) into a
  *   `RecentList`, which keeps the `RECENT_MAX` newest, newest first. The list is stored with the
@@ -22,8 +22,12 @@ import type { CatalogItem, ContentKind } from '@lablo/core';
 /** The newest items kept per source and kind, and the most one query gives. */
 export const RECENT_MAX = 100;
 
-/** The kinds that keep their newest at ingest (series may join in step 27). */
-export const RECENT_KINDS: readonly ContentKind[] = ['movie'];
+/**
+ * The kinds that keep their newest at ingest: movies (step 26e), and series (step 27a: an Xtream
+ * show's date is its `last_modified`, which a new episode moves, so the series screen calls them
+ * "Recently updated").
+ */
+export const RECENT_KINDS: readonly ContentKind[] = ['movie', 'series'];
 
 /** An item and the date its panel added it. */
 export interface RecentItem {

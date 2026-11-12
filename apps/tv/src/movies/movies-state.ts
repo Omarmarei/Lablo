@@ -14,7 +14,9 @@ import { POSTER_TIERS, PosterLoader } from './posters';
 
 /**
  * The movies screen (RELAY step 26a, PLAN 7.1): the stored sources' movies, pushed on the live
- * navigator by the header's "Movies" button, as the guide is.
+ * navigator by the header's "Movies" button, as the guide is. The series screen (step 27a) is the
+ * same screen for kind `series` (`kind`): the header's "Series" opens it on the shows' covers,
+ * with its own screen id (`SERIES_SCREEN`) and "Recently updated" for "Recently added".
  *
  *   rail   ("Recently added", "All movies", then each source's VOD categories; OK shows one,
  *          its grid focused)
@@ -45,11 +47,17 @@ import { POSTER_TIERS, PosterLoader } from './posters';
  */
 
 export const MOVIES_SCREEN = 'movies';
+/** The series screen's id (step 27a): the movies screen for kind `series`. */
+export const SERIES_SCREEN = 'series';
 export const MOVIES_RAIL = 'rail';
 export const MOVIES_GRID = 'grid';
 export const MOVIES_RETRY = 'retry';
 
-const MOVIE_KIND: ContentKind = 'movie';
+/** The kinds a poster screen shows (step 27a): movies, or series (an Xtream show, or a playlist's episode). */
+export type PosterKind = Extract<ContentKind, 'movie' | 'series'>;
+
+/** The screen id of each kind's poster screen. */
+export const POSTER_SCREENS: Readonly<Record<PosterKind, string>> = { movie: MOVIES_SCREEN, series: SERIES_SCREEN };
 
 /** The screen's layout: the live screen's header and rail, then the grid. */
 export const MOVIES = {
@@ -104,16 +112,22 @@ export interface MoviesOptions {
   /** The live screen's navigator: the movies screen is a screen on it. */
   readonly nav: Navigator;
   readonly engine: MoviesEngine;
+  /** What it shows (default `movie`; `series`: the series screen, step 27a). */
+  readonly kind?: PosterKind;
   /** The device's tier (default: full): how the posters load (`POSTER_TIERS`). */
   readonly tier?: () => DeviceTier;
   readonly timers?: Timers;
-  /** OK on a movie (its details come with step 26c). */
+  /** OK on a movie (its details, step 26c), or on a show or an episode (step 27a). */
   readonly select?: (item: CatalogItem) => void;
   /** Where each movie was left (step 26d): a tile's bar (default: none). */
   readonly progress?: Pick<MovieShares, 'share' | 'version'>;
 }
 
 export interface Movies {
+  /** What it shows: movies, or series (step 27a). */
+  readonly kind: PosterKind;
+  /** Its screen's id on the navigator (`POSTER_SCREENS`). */
+  readonly id: string;
   /** The screen while it is on the stack. */
   readonly screen: ReadonlySignal<Screen | null>;
   readonly status: ReadonlySignal<MoviesStatus>;
@@ -126,6 +140,11 @@ export interface Movies {
   readonly pending: ReadonlySignal<number>;
   /** Tile `index` of the grid on show, or `null` while its chunk loads. */
   movie(index: number): CatalogItem | null;
+  /**
+   * Rail entry `i` lists a playlist's episodes alone (step 27a): a series screen's entry whose
+   * every part is an M3U source's, so its count is of episodes, not of shows.
+   */
+  episodes(i: number): boolean;
   /** The poster tile `index` draws (`undefined`: none, its title on the tile's background). */
   poster(index: number): string | undefined;
   /**
@@ -163,6 +182,8 @@ function retryZone(count: number): ZoneSpec {
 
 export function createMovies(options: MoviesOptions): Movies {
   const { nav, engine } = options;
+  const kind: PosterKind = options.kind ?? 'movie';
+  const id = POSTER_SCREENS[kind];
   const timers = options.timers ?? defaultTimers;
   const tier = (): DeviceTier => options.tier?.() ?? 'full';
 
@@ -179,6 +200,8 @@ export function createMovies(options: MoviesOptions): Movies {
   let index = new ChannelIndex([]);
   /** "Recently added"'s movies, newest first, as the last load read them. */
   let recent: CatalogItem[] = [];
+  /** The playlist sources (M3U) as the last load read them: their series are episodes. */
+  let playlists: string[] = [];
   /** The movies of the entry on show when it has no chunks ("Recently added"), else `null`. */
   let held: CatalogItem[] | null = null;
   /** Loaded chunks, oldest use first (a Map keeps insertion order). */
@@ -252,7 +275,7 @@ export function createMovies(options: MoviesOptions): Movies {
     const id = chunkId(ref);
     const mine = seq;
     loadingChunks.set(id, mine);
-    track(() => engine.chunk(ref.src, MOVIE_KIND, ref.catIdx, ref.chunk)).then(
+    track(() => engine.chunk(ref.src, kind, ref.catIdx, ref.chunk)).then(
       (items) => {
         if (loadingChunks.get(id) === mine) loadingChunks.delete(id);
         if (disposed || mine !== seq) return;
@@ -334,7 +357,7 @@ export function createMovies(options: MoviesOptions): Movies {
     const records = storedSources(await engine.profile());
     const ids: string[] = [];
     for (const r of records) ids.push(r.id);
-    const read = await Promise.all([Promise.all(records.map((r) => engine.categories(r.id, MOVIE_KIND))), engine.recent({ sources: ids, kind: MOVIE_KIND })] as const);
+    const read = await Promise.all([Promise.all(records.map((r) => engine.categories(r.id, kind))), engine.recent({ sources: ids, kind })] as const);
     return { records, lists: read[0], newest: read[1] };
   };
 
@@ -370,6 +393,8 @@ export function createMovies(options: MoviesOptions): Movies {
         chunks.clear();
         recent = [];
         for (const r of newest) recent.push(r.item);
+        playlists = [];
+        for (const r of records) if (r.type === 'm3u') playlists.push(r.id);
         held = null;
         rail.value = entries;
         shown.update(railZone(entries.length));
@@ -443,7 +468,7 @@ export function createMovies(options: MoviesOptions): Movies {
   };
 
   const stopFollowing = nav.subscribe((focus) => {
-    if (focus.screen !== MOVIES_SCREEN || screen.value === null) return;
+    if (focus.screen !== id || screen.value === null) return;
     // No poster starts while the keys go down: the ones still waiting wait for the next rest.
     posters.hold();
     readView();
@@ -451,6 +476,8 @@ export function createMovies(options: MoviesOptions): Movies {
   });
 
   return {
+    kind,
+    id,
     screen,
     status,
     rail,
@@ -458,6 +485,12 @@ export function createMovies(options: MoviesOptions): Movies {
     version,
     pending,
     movie: movieAt,
+    episodes(i: number): boolean {
+      const entry = rail.value[i];
+      if (kind !== 'series' || entry === undefined || entry.parts.length === 0) return false;
+      for (const part of entry.parts) if (playlists.indexOf(part.src) === -1) return false;
+      return true;
+    },
     poster(i: number): string | undefined {
       const item = movieAt(i);
       return item === null ? undefined : posters.src(item.logo);
@@ -486,7 +519,7 @@ export function createMovies(options: MoviesOptions): Movies {
       // Back while it loads closes it (an old rail would send the focus there).
       rail.value = [];
       const shown = nav.push({
-        id: MOVIES_SCREEN,
+        id,
         zones: [railZone(0), gridZone(0), retryZone(0)],
         initial: MOVIES_GRID,
         onIntent,
@@ -517,4 +550,30 @@ export function createMovies(options: MoviesOptions): Movies {
       syncPending();
     },
   };
+}
+
+/**
+ * OK on a tile of the series screen (step 27a). A playlist's episode has its own URL: it opens as
+ * a movie does (`episode`: the movie details, play, resume by its key). An Xtream show has none
+ * (its episodes come from `get_series_info`): it opens its own details (`show`, step 27b; until
+ * then nothing).
+ */
+export function selectSeries(item: CatalogItem, open: { readonly episode: (item: CatalogItem) => void; readonly show?: (item: CatalogItem) => void }): void {
+  if (item.url !== '') open.episode(item);
+  else open.show?.(item);
+}
+
+/** A trailing season and episode mark: "S01 E01", "S1E2", "s01.e01", after a space or a separator. */
+const EPISODE_MARK = /^(.*?)[\s\-_.:|]*\b(S\d{1,3})[\s._-]?(E\d{1,4})\s*$/i;
+
+/**
+ * A tile's text (step 27a): its name without a trailing season and episode mark ("Show S01 E01"
+ * gives "Show" over "S01 E01"), so the poster tile's two lines never cut the one part that tells a
+ * playlist's episodes apart (a panel's VOD lists sometimes hold episodes too). A name with no such
+ * mark, or nothing before it, stays whole. Display only: nothing groups the episodes into shows.
+ */
+export function episodeLabel(name: string): { readonly title: string; readonly mark: string | null } {
+  const found = EPISODE_MARK.exec(name);
+  if (found === null || found[1] === '') return { title: name, mark: null };
+  return { title: found[1]!, mark: `${found[2]!.toUpperCase()} ${found[3]!.toUpperCase()}` };
 }

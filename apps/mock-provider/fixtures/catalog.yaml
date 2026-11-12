@@ -109,6 +109,8 @@ movies:
     media: multi-audio
     added_days_ago: 3
 
+# `added_days_ago` (RELAY step 27a) is each show's `last_modified`: "Recently updated" lists the
+# Arabic show first, unlike the panel's order.
 series:
   - id: 301
     name: Lablo Test Series
@@ -117,6 +119,7 @@ series:
     rating: 8
     genre: Test
     plot: Our own test series for seasons, resume and auto-next.
+    added_days_ago: 4
     seasons:
       - number: 1
         episodes:
@@ -133,6 +136,7 @@ series:
     year: 2026
     genre: اختبار
     plot: مسلسل تجريبي لاختبار الواجهة العربية.
+    added_days_ago: 2
     seasons:
       - number: 1
         name: الموسم ١

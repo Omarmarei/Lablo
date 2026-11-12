@@ -14,7 +14,7 @@ import type { Player } from '../player/player-state';
 import { PlayerScreen } from '../player/PlayerScreen';
 import { MoviesScreen } from '../movies/MoviesScreen';
 import type { Movies } from '../movies/movies-state';
-import { MOVIES_SCREEN } from '../movies/movies-state';
+import { MOVIES_SCREEN, SERIES_SCREEN } from '../movies/movies-state';
 import { MovieDetailsScreen } from '../movies/MovieDetailsScreen';
 import type { MovieDetails } from '../movies/movie-details';
 import { MOVIE_SCREEN } from '../movies/movie-details';
@@ -22,7 +22,7 @@ import { SettingsScreen } from '../settings/SettingsScreen';
 import type { Settings } from '../settings/settings-state';
 import { SETTINGS_SCREENS } from '../settings/settings-state';
 import type { Live, LiveRow, RailEntry } from './live-state';
-import { HEADER_GUIDE, HEADER_MOVIES, HEADER_SETTINGS, LIVE } from './live-state';
+import { HEADER_GUIDE, HEADER_MOVIES, HEADER_SERIES, HEADER_SETTINGS, LIVE } from './live-state';
 import './live.css';
 
 const MINUTE_MS = 60_000;
@@ -75,6 +75,7 @@ function LiveScreen({
   settings,
   guide,
   movies,
+  series,
   details,
 }: {
   live: Live;
@@ -83,6 +84,7 @@ function LiveScreen({
   settings: Settings | null;
   guide: Guide | null;
   movies: Movies | null;
+  series: Movies | null;
   details: MovieDetails | null;
 }) {
   const { t } = i18n;
@@ -96,7 +98,9 @@ function LiveScreen({
   if (guide !== null && (focus.screen === GUIDE_SCREEN || focus.screen === DETAILS_SCREEN)) return <GuideScreen guide={guide} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} listVersion={live.version.value} mapping={settings?.mapping ?? null} />;
   // The movies screen (step 26a) paints instead of the live screen.
   if (movies !== null && focus.screen === MOVIES_SCREEN) return <MoviesScreen movies={movies} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} />;
-  // A movie's details (step 26c) paint instead of the movies screen; the player opens over them.
+  // The series screen (step 27a): the movies screen for series.
+  if (series !== null && focus.screen === SERIES_SCREEN) return <MoviesScreen movies={series} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} />;
+  // A movie's details (step 26c) paint instead of the movies screen (or a playlist's episode's, instead of the series screen, step 27a); the player opens over them.
   if (details !== null && focus.screen === MOVIE_SCREEN) return <MovieDetailsScreen details={details} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} />;
   const status = live.status.value;
   const entries = live.rail.value;
@@ -146,6 +150,7 @@ function LiveScreen({
         <div class="live__end">
           <Button label={t('guide.open')} {...header.item(HEADER_GUIDE)} testId="live-guide" />
           <Button label={t('movies.open')} {...header.item(HEADER_MOVIES)} testId="live-movies" />
+          <Button label={t('series.open')} {...header.item(HEADER_SERIES)} testId="live-series" />
           <Button label={t('settings.open')} {...header.item(HEADER_SETTINGS)} testId="live-settings" />
         </div>
       </header>
@@ -218,6 +223,8 @@ interface Props {
   readonly guide?: Guide | null;
   /** The movies screen the header's "Movies" opens (step 26a; `null`: none paints). */
   readonly movies?: Movies | null;
+  /** The series screen the header's "Series" opens (step 27a; `null`: none paints). */
+  readonly series?: Movies | null;
   /** A movie's details, opened from the movies screen (step 26c; `null`: none paint). */
   readonly details?: MovieDetails | null;
 }
@@ -226,7 +233,7 @@ interface Props {
  * The live screen in the language picked in onboarding, in the TV's region (the formats keep
  * the region's), or the TV's own when none was picked.
  */
-export function LiveApp({ platform, live, language, player = null, settings = null, guide = null, movies = null, details = null }: Props) {
+export function LiveApp({ platform, live, language, player = null, settings = null, guide = null, movies = null, series = null, details = null }: Props) {
   const i18n = useSignal<AppI18n | null>(null);
   useEffect(() => {
     let closed = false;
@@ -257,5 +264,5 @@ export function LiveApp({ platform, live, language, player = null, settings = nu
       </main>
     );
   }
-  return <LiveScreen live={live} i18n={i18n.value} player={player} settings={settings} guide={guide} movies={movies} details={details} />;
+  return <LiveScreen live={live} i18n={i18n.value} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} />;
 }

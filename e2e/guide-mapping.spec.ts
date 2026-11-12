@@ -143,6 +143,7 @@ async function openUnmatched(remote: RemoteDriver, language: Language): Promise<
   await remote.go('UP', 'live/header/0');
   await remote.go(forward, 'live/header/1');
   await remote.go(forward, 'live/header/2');
+  await remote.go(forward, 'live/header/3');
   await remote.go('OK', 'settings/items/0');
   await remote.go('OK', 'guides/guides/0');
   const root = remote.page.getByTestId('settings-screen');
@@ -348,7 +349,7 @@ test.describe('the manual mapping by keys (pnpm dev, after onboarding)', () => {
         // The live list: the channel's row shows the mapped channel's programme on air.
         await remote.go('BACK', 'guides/header/1');
         await remote.go('BACK', 'settings/items/0');
-        await remote.go('BACK', 'live/header/2');
+        await remote.go('BACK', 'live/header/3');
         await remote.go('DOWN', 'live/channels/0');
         const row = ordered.findIndex((c) => c.id === 109);
         for (let i = 0; i < row; i += 1) await remote.press('DOWN');
@@ -366,7 +367,8 @@ test.describe('the manual mapping by keys (pnpm dev, after onboarding)', () => {
         // The grid (opened from the header on the first row, then down to the channel): its row has the mapped channel's schedule.
         for (let i = 0; i < row; i += 1) await remote.press('UP');
         await remote.expectFocus('live/channels/0');
-        await remote.go('UP', 'live/header/2');
+        await remote.go('UP', 'live/header/3');
+        await remote.go(rtl ? 'RIGHT' : 'LEFT', 'live/header/2');
         await remote.go(rtl ? 'RIGHT' : 'LEFT', 'live/header/1');
         await remote.go(rtl ? 'RIGHT' : 'LEFT', 'live/header/0');
         await remote.go('OK', 'guide/grid/0');

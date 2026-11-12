@@ -1188,7 +1188,55 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - **Size and gates:** main 377.5 → 378.4 KB (Tizen) and 364.8 → 365.7 KB (webOS), the ingest worker 129.0 KB, the query worker 110.9 KB, 219 core-js modules on both. Locally: lint, typecheck, unit 4,391, `pnpm e2e` 106/106, `e2e:media` 13/13 (it opens Big Buck Bunny as the first tile of "Recently added"), `verify:engines` on Chromium 53 and 68 16/16 (in `America/Puerto_Rico` at 21:17; the walk's fixture is a playlist, so its movies screen has no "Recently added").
     - **Merged:** PR #74 as merge commit `ea99f23`, on green CI on the first run: verify 7 m 4 s, engines 17 m 32 s, media 9 m 20 s.
 - [ ] 27. **Series.** Seasons and episodes, progress, "Continue watching", auto-next.
-  - **Done when:** resume is accurate to ±5 s.
+  - **Done when:** resume is accurate to ±5 s. Read in leg 71 as: an episode found through the series screen plays from the mock in e2e and resumes within 5 s of where it stopped (`e2e:media`), auto-next starts the next episode, and "Continue watching" lists what was left part way, newest first.
+  - **Already built** (checked in leg 71):
+    - **core:** `get_series` items are kind `series` (`decodeListItem`: `url: ''`, the cover as `logo`, `last_modified`, else `added`, as the date). `decodeSeriesInfo` reads `get_series_info`: the seasons, and the episodes sorted by season and number, each with its own key (`x:<src>:episode:<id>`), its `/series/…/<id>.<ext>` URL, length, plot and image. `XtreamClient.seriesInfo` asks it. Nothing calls either yet. A playlist's `/series/` lines are kind `series` too, one item per episode, each with its URL.
+    - **data:** the ingest stores every kind by category (`CONTENT_KINDS`), so the series categories and chunks are already readable (`categories(src, 'series')`, `chunk`). `RECENT_KINDS` is `['movie']`. No `get_series_info` read, and no lookup of items by key. The profile's `progress` (v5) is by ContentKey, any kind.
+    - **The app:** nothing for series. The movies screen (`createMovies`, `MoviesScreen`), the details (`createMovieDetails`), the player's `playMovie` and `createMovieProgress` are movie-only by name, but mostly kind-free. The movie details already show only a line's facts for a URL that isn't an Xtream movie URL.
+    - **The mock:** series 301 ("Lablo Test Series": season 1 with three 300 s mkv episodes, season 2 with two 240 s mp4 episodes) and 302 (Arabic: one season, two 180 s mp4 episodes), both in category 20 and both 5 days old; `get_series`, `get_series_info` and the `/series/` files are served. Its playlist names each episode "<show> S01 E01".
+    - **The old-engine walk** reaches the header's "Guide" (0) and "Movies" (1) only.
+  - **Decided in leg 71 (not gates):**
+    - **The header:** Guide 0, Movies 1, Series 2, Settings 3. The specs that reach "Settings" press once more (13 places in 5 specs); the old-engine walk never reaches it.
+    - **A playlist's episodes are listed flat:** each `/series/` line is a tile in its category, titled as the playlist names it ("Show S01 E01"). OK opens it as a movie: the line's facts, play, resume by its key, the tile's bar. Nothing groups them into shows by parsing names. Grouping would need every line of a category before its first tile shows (a panel lists 60k episodes), a new stored structure, and a parser for many naming styles. Most playlists with series come from Xtream panels, and step 37's M3U→Xtream upgrade turns those into real shows. Auto-next is for Xtream shows only. Revisit if users ask.
+    - **Series join "Recently added", as "Recently updated":** a panel's `last_modified` changes when a show gains an episode, so its newest are the shows with new episodes. `RECENT_KINDS` becomes `['movie', 'series']`, with `INGEST_VERSION` 3. A playlist's episodes have no date, as its movies have none.
+    - **One screen for two kinds:** the movies screen's state and view take the kind (`movie` or `series`), with its own words, test ids and screen id. No copy of the screen.
+  - Split in leg 71 into 27a–27d, in this order:
+    - **27a**, the series screen, first: everything else opens from it.
+    - **27b**, a show's details with its seasons and episodes.
+    - **27c**, playing an episode: its progress and auto-next.
+    - **27d**, "Continue watching", last: it needs the progress of movies and episodes.
+  - Each sub-step's Done-when also has step 26's common items: unit tests; e2e by keys in English and Arabic against the mock, with the screenshots looked at; a mutation run with the mutant list written first; `pnpm verify` green; main within its budget, with 219 core-js modules on both platforms; the PR merged; a "press these keys" checklist in the handover.
+- [ ] 27a. **The series screen.**
+  - **The header:** "Series" after "Movies" (Guide 0, Movies 1, Series 2, Settings 3).
+  - **The screen:** the movies screen for kind `series`, pushed on the live navigator: a rail of "Recently updated" (when a show has a date; the screen opens on it), "All series", then each source's series categories, beside a grid of the shows' 2:3 covers, with the movies screen's poster caps, keys, Back and catalog swaps. Its own words ("Series", "All series", "Recently updated", "{n} series", empty, failed), screen id `series` and test ids.
+  - **The data:** `RECENT_KINDS` `['movie', 'series']`, `INGEST_VERSION` 3 (the refresh schedule makes older catalogs due at their first check); `recent` and the screen ask for kind `series`.
+  - **OK:** on a playlist's episode (it has a URL), the movie details and player, as a movie (progress by its key, the tile's bar). On an Xtream show (no URL), nothing until 27b.
+  - **Done when:**
+    - **Unit tests:** the screen by kind (the kind asked, the words, the screen id), "Recently updated" for series, the header's four buttons, OK on a show and on an episode, the ingest's series list and the version bump.
+    - **e2e** in English and Arabic: onboard the mock, "Series" in the header, the rail ("Recently updated", "All series", the category), the two shows' covers (one request each), Back to the rail and the header; a playlist source's episodes as tiles, one played; the specs that reach "Settings" still pass.
+    - Plus the common items above.
+  - **Done in leg 71** (architecture.md §1.2 "Built in step 27a"):
+    - **The screen:** `createMovies({ kind: 'series' })`, the movies screen for series with its own screen id (`series`), reads by kind, words ("Series", "All series", "Recently updated"), test ids (`series-*`, tiles `show-<i>`) and `data-kind`. "Series" in the header (Guide 0, Movies 1, Series 2, Settings 3).
+    - **"Recently updated":** `RECENT_KINDS` `['movie', 'series']` (a show's `last_modified`), `INGEST_VERSION` 3. The mock's shows now have `added_days_ago` (302 two days, 301 four), so "Recently updated" lists the Arabic show first.
+    - **A playlist's episodes:** one tile a line, counted in episodes ("All series · 7 episodes" when every part is a playlist's), OK opens the movie details and plays it as a movie (`selectSeries`); OK on an Xtream show does nothing until 27b.
+    - **Found by the screenshots:** the playlist's tiles all read "Lablo Test Series S01" (the two-line title cut the episode). A trailing "S01 E01" mark now shows under the name as the tile's subtitle (`episodeLabel`, display only).
+    - **Tests:** 4,440 unit tests (+49); e2e `series.spec.ts` (en-US, ar-SA: a panel's shows, a playlist's episodes); the five specs that reach "Settings" press once more; `test/engines-onboarding.test.ts`'s pinned marks follow `POSTER_TEST_IDS`. Screenshots `series-header-*`, `series-*`, `series-playlist-*` looked at.
+    - **Mutation:** `artifacts/mutate27a.py` 40 written first, 40 caught (`mutate27a.log`). `artifacts/mutate27a-e2e.py` 24/24; writing its list added the spec's check of the screen's title.
+    - **Size:** main 378.4 → 381.9 KB (Tizen), 365.7 → 369.2 KB (webOS); workers unchanged; 219 core-js modules on both.
+- [ ] 27b. **A show's details: seasons and episodes.**
+  - **The read:** `get_series_info` in the query worker when a show opens, kept 24 h per show (as `VodInfoCache`; `DataEngine.seriesInfo`).
+  - **The screen:** OK on a show opens its details over the grid: the cover, the title, the year, the rating, the genre and the plot, a row of seasons ("Season 1"; the panel's name when it has one), and the season's episodes as a list (number, title, length, a bar when part watched). It opens on the first season. A spinner while the read is out; the catalog's facts and a note when it fails; "No episodes" when the panel lists none.
+  - **Done when:** unit tests (the read and its cache, the seasons and episodes from `decodeSeriesInfo`'s output, a failed read, Back); e2e in English and Arabic (show 301's two seasons, its episodes, season 2 by keys, show 302 in Arabic); plus the common items.
+- [ ] 27c. **Playing an episode: progress and auto-next.**
+  - **Playing:** OK on an episode plays it (`mode: 'vod'`, the movie player's seek bar, pause and seeking), the info bar naming the show and "S1 E2 · title". Back returns to the details on that episode.
+  - **Progress:** the episode's place by its key (the movies' rules: every 10 s, on stop, leave and hide; watched near the end), "Resume from 2:34" on a part-watched episode, the episodes' bars. The show remembers its last episode (decide where: the profile's `progress` entry gains the show's key, or a small `series` map; a profile version bump either way).
+  - **Auto-next:** at an episode's end, a card "Next: S1 E3 · title" with a 10 s countdown, "Play now" and "Back"; the next episode is the next in the panel's order, across seasons; none after the last.
+  - **Done when:** unit tests (the request, the saves, the last episode, the next episode across seasons, the countdown, Back); e2e in English and Arabic (play, leave, the bar, resume; the end of S1 E3 starts S2 E1); `e2e:media`: an episode resumes within 5 s of where it was left; plus the common items.
+- [ ] 27d. **"Continue watching".**
+  - **The list:** movies and shows left part way, newest first: a movie by its place; a show by its last episode (part watched: resume it; watched: its next one, when there is one). At most 20.
+  - **Where:** first in the movies rail and in the series rail (before "Recently added"/"Recently updated") when it has items; step 28's Home shows it too.
+  - **Decide:** how a tile gets its item from a key (the profile keeps no item; the query worker has no lookup by key): keep a small copy of the item with the place, or a query that reads the items by key.
+  - **Done when:** unit tests (the order, the cap, a watched show with and without a next episode, a removed source); e2e in English and Arabic (leave a movie and an episode part way, both in "Continue watching", OK resumes); plus the common items.
 - [ ] 28. **Search and Home.** Global search UI (≤ 300 ms with 200k items) and the Home screen.
 
 ### Phase 8: Backend (local development until step 34)
