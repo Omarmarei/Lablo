@@ -1,7 +1,7 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
 import type { CatalogItem, ContentKind, DeviceTier } from '@lablo/core';
-import type { CategoryInfo, LoadedProfile, RecentItem, RecentRequest, SourceRecord } from '@lablo/data';
+import type { CategoryInfo, KeyItemsRequest, LoadedProfile, RecentItem, RecentRequest, SourceRecord } from '@lablo/data';
 import type { Focus, Navigator, Screen, ZoneSpec } from '@lablo/ui';
 import { LAYOUT, fits } from '@lablo/ui';
 import type { ChunkRef, ListPart } from '../live/channel-index';
@@ -18,14 +18,22 @@ import { POSTER_TIERS, PosterLoader } from './posters';
  * same screen for kind `series` (`kind`): the header's "Series" opens it on the shows' covers,
  * with its own screen id (`SERIES_SCREEN`) and "Recently updated" for "Recently added".
  *
- *   rail   ("Recently added", "All movies", then each source's VOD categories; OK shows one,
- *          its grid focused)
+ *   rail   ("Continue watching", "Recently added", "All movies", then each source's VOD
+ *          categories; OK shows one, its grid focused)
  *   grid   (the category's movies as poster tiles, `MOVIES.columns` a row filled from the inline
  *          start; only the rows in view are drawn)
  *   retry  ("Try again" after a failed read)
  *
- * - **The first focus** is on the grid's first movie of the rail's first entry: "Recently added"
- *   when the sources have dated movies, else "All movies".
+ * - **The first focus** is on the grid's first movie of the rail's first entry: "Continue
+ *   watching" when something was left part way, else "Recently added" when the sources have dated
+ *   movies, else "All movies".
+ * - **"Continue watching"** (step 27d): what was left part way, newest first, at most
+ *   `CONTINUE_MAX`: the keys `progress.unfinished` gives, as the catalog items the query worker
+ *   finds for them (`itemsByKey`: of this screen's kind, from the stored sources; a removed
+ *   source's, or an item its catalog no longer lists, drops out). Read with the categories, and
+ *   again when the screen is back on top after a save (the details and the player close onto it):
+ *   the entry comes, goes or changes in place, the entry on show stays, and in "Continue watching"
+ *   the focus follows its item to its new place (or keeps its index once it is gone).
  * - **"Recently added"** (step 26e): the newest movies across the sources, newest first, at most
  *   `RECENT_MAX` (the query worker's `recent`, from the lists the ingest keeps). Its movies are read
  *   with the categories and held while the screen is open: it has no chunks. A playlist's movies
@@ -75,28 +83,39 @@ if (MOVIES_GRID_WIDTH > LIVE.width - LIVE.railWidth - LIVE.columnGap) throw new 
 
 export type MoviesStatus = 'loading' | 'ready' | 'empty' | 'failed';
 
-/** The rail's "Recently added" (step 26e): the newest movies, held by the screen (no parts). */
+/** "Continue watching" lists this many at most (step 27d). */
+export const CONTINUE_MAX = 20;
+
+/**
+ * The rail's "Recently added" (step 26e): the newest movies, and "Continue watching" (step 27d):
+ * what was left part way; each held by the screen (no parts).
+ */
 export interface RecentEntry {
-  readonly kind: 'recent';
+  readonly kind: 'recent' | 'continue';
   readonly name: '';
   readonly count: number;
   readonly parts: readonly ListPart[];
   readonly allStart: number;
 }
 
-/** An entry of the movies rail: "Recently added", or one of the live rail's kinds. */
+/** An entry of the movies rail: "Continue watching", "Recently added", or one of the live rail's kinds. */
 export type MovieEntry = RecentEntry | RailEntry;
 
 /** A rail entry as a catalog swap finds it again (`null`: none shown yet). */
-type MovieRef = 'recent' | 'all' | NonNullable<RailRef> | null;
+type MovieRef = 'continue' | 'recent' | 'all' | NonNullable<RailRef> | null;
 
 /** The entry of `entries` that `ref` names (`-1`: none). */
 function findMovieEntry(entries: readonly MovieEntry[], ref: NonNullable<MovieRef>): number {
   for (let i = 0; i < entries.length; i += 1) {
     const e = entries[i]!;
-    if (ref === 'recent' || ref === 'all' ? e.kind === ref : e.kind === 'category' && e.name === ref.name && e.parts[0]?.src === ref.src) return i;
+    if (typeof ref === 'string' ? e.kind === ref : e.kind === 'category' && e.name === ref.name && e.parts[0]?.src === ref.src) return i;
   }
   return -1;
+}
+
+/** A held entry of `count` items: "Continue watching" or "Recently added". */
+function heldEntry(kind: RecentEntry['kind'], count: number): RecentEntry {
+  return { kind, name: '', count, parts: [], allStart: 0 };
 }
 
 /** What the movies screen needs from the data engine (a `DataEngine` fits; tests pass a fake). */
@@ -106,6 +125,8 @@ export interface MoviesEngine {
   chunk(src: string, kind: ContentKind, catIdx: number, chunk: number): Promise<CatalogItem[]>;
   /** The newest movies across the sources, newest first (step 26e). */
   recent(req: RecentRequest): Promise<RecentItem[]>;
+  /** The catalog items of some keys, in the order asked ("Continue watching", step 27d). */
+  itemsByKey(req: KeyItemsRequest): Promise<CatalogItem[]>;
 }
 
 export interface MoviesOptions {
@@ -119,8 +140,11 @@ export interface MoviesOptions {
   readonly timers?: Timers;
   /** OK on a movie (its details, step 26c), or on a show or an episode (step 27a). */
   readonly select?: (item: CatalogItem) => void;
-  /** Where each movie was left (step 26d): a tile's bar (default: none). */
-  readonly progress?: Pick<MovieShares, 'share' | 'version'>;
+  /**
+   * Where each movie was left (step 26d): a tile's bar (default: none); what was left part way,
+   * "Continue watching" (step 27d).
+   */
+  readonly progress?: Pick<MovieShares, 'share' | 'version' | 'unfinished'>;
 }
 
 export interface Movies {
@@ -200,9 +224,17 @@ export function createMovies(options: MoviesOptions): Movies {
   let index = new ChannelIndex([]);
   /** "Recently added"'s movies, newest first, as the last load read them. */
   let recent: CatalogItem[] = [];
+  /** "Continue watching"'s items, newest first, as the last read found them (step 27d). */
+  let continued: CatalogItem[] = [];
+  /** The stored sources' ids as the last load read them: "Continue watching" reads them again. */
+  let sourceIds: string[] = [];
+  /** The places' version "Continue watching" was last read at (-1: never): a newer one reads it again. */
+  let readAt = -1;
+  /** Bumps on each read of "Continue watching" alone: answers from before are dropped. */
+  let continueSeq = 0;
   /** The playlist sources (M3U) as the last load read them: their series are episodes. */
   let playlists: string[] = [];
-  /** The movies of the entry on show when it has no chunks ("Recently added"), else `null`. */
+  /** The movies of the entry on show when it has no chunks ("Continue watching", "Recently added"), else `null`. */
   let held: CatalogItem[] | null = null;
   /** Loaded chunks, oldest use first (a Map keeps insertion order). */
   const chunks = new Map<string, CatalogItem[]>();
@@ -346,19 +378,29 @@ export function createMovies(options: MoviesOptions): Movies {
     const picked = rail.value[i];
     if (shown === null || picked === undefined) return;
     category.value = i;
-    held = picked.kind === 'recent' ? recent : null;
+    held = picked.kind === 'recent' ? recent : picked.kind === 'continue' ? continued : null;
     index = new ChannelIndex(picked.parts);
     shown.update(gridZone(held === null ? index.count : held.length));
     shown.focus(MOVIES_GRID, place);
   };
 
-  /** The stored sources, each one's movie categories, and the newest movies across them. */
-  const readSources = async (): Promise<{ records: SourceRecord[]; lists: CategoryInfo[][]; newest: RecentItem[] }> => {
+  /** "Continue watching"'s items from sources `ids` (none without the places), the places' version first taken. */
+  const readContinued = (ids: string[]): Promise<CatalogItem[]> => {
+    const kept = options.progress;
+    if (kept === undefined) return Promise.resolve([]);
+    readAt = kept.version.peek();
+    const keys = kept.unfinished();
+    // (Nothing left part way: nothing to ask.)
+    return keys.length === 0 ? Promise.resolve([]) : engine.itemsByKey({ keys, kind, sources: ids, limit: CONTINUE_MAX });
+  };
+
+  /** The stored sources, each one's movie categories, the newest movies across them, and what was left part way. */
+  const readSources = async (): Promise<{ records: SourceRecord[]; lists: CategoryInfo[][]; newest: RecentItem[]; left: CatalogItem[] }> => {
     const records = storedSources(await engine.profile());
     const ids: string[] = [];
     for (const r of records) ids.push(r.id);
-    const read = await Promise.all([Promise.all(records.map((r) => engine.categories(r.id, kind))), engine.recent({ sources: ids, kind })] as const);
-    return { records, lists: read[0], newest: read[1] };
+    const read = await Promise.all([Promise.all(records.map((r) => engine.categories(r.id, kind))), engine.recent({ sources: ids, kind }), readContinued(ids)] as const);
+    return { records, lists: read[0], newest: read[1], left: read[2] };
   };
 
   /** The rail entry on show, as a catalog swap finds it again (`null`: nothing yet). */
@@ -376,6 +418,8 @@ export function createMovies(options: MoviesOptions): Movies {
    */
   const load = (keep?: { readonly ref: MovieRef; readonly place: number }): void => {
     seq += 1;
+    // (A read of "Continue watching" alone still out is dropped: this load reads it too.)
+    continueSeq += 1;
     const mine = seq;
     loadingChunks.clear();
     if (keep === undefined) {
@@ -383,16 +427,20 @@ export function createMovies(options: MoviesOptions): Movies {
       screen.value?.update(retryZone(0));
     }
     track(readSources).then(
-      ({ records, lists, newest }) => {
+      ({ records, lists, newest, left }) => {
         const shown = screen.value;
         if (disposed || mine !== seq || shown === null) return;
         const entries: MovieEntry[] = [];
-        if (newest.length > 0) entries.push({ kind: 'recent', name: '', count: newest.length, parts: [], allStart: 0 });
+        if (left.length > 0) entries.push(heldEntry('continue', left.length));
+        if (newest.length > 0) entries.push(heldEntry('recent', newest.length));
         for (const entry of railEntries(records.map((r, i) => ({ src: r.id, categories: lists[i] ?? [] })))) entries.push(entry);
         // (A swap's old tiles show until here.)
         chunks.clear();
         recent = [];
         for (const r of newest) recent.push(r.item);
+        continued = left;
+        sourceIds = [];
+        for (const r of records) sourceIds.push(r.id);
         playlists = [];
         for (const r of records) if (r.type === 'm3u') playlists.push(r.id);
         held = null;
@@ -415,8 +463,8 @@ export function createMovies(options: MoviesOptions): Movies {
         showCategory(pick, place);
         if (onRail) shown.focus(MOVIES_RAIL, pick);
         bump();
-        // (Its chunks' arrival asks the posters: the load cleared them all. "Recently added" has
-        // none to wait for: its posters come at the rest.)
+        // (Its chunks' arrival asks the posters: the load cleared them all. "Continue watching" and
+        // "Recently added" have none to wait for: their posters come at the rest.)
         readView();
         if (held !== null) scheduleRest();
       },
@@ -432,6 +480,75 @@ export function createMovies(options: MoviesOptions): Movies {
     );
   };
 
+  /**
+   * "Continue watching" read again (step 27d): the screen is back on top after the places changed.
+   * The entry comes, goes or takes the new list; the entry on show stays on show, and the rail's
+   * place follows the entries as they move. In "Continue watching" the grid's focus follows its
+   * item; one gone keeps its index (the grid clamps it); the entry gone, the first entry from its
+   * first item.
+   */
+  const applyContinued = (items: CatalogItem[]): void => {
+    const shown = screen.value!;
+    const before = rail.value;
+    const had = before.length > 0 && before[0]!.kind === 'continue';
+    const entries: MovieEntry[] = [];
+    if (items.length > 0) entries.push(heldEntry('continue', items.length));
+    for (let i = had ? 1 : 0; i < before.length; i += 1) entries.push(before[i]!);
+    const shift = entries.length - before.length;
+    const active = shown.active;
+    const railAt = shown.position(MOVIES_RAIL).index;
+    const gridAt = shown.position(MOVIES_GRID).index;
+    const onContinue = had && category.value === 0;
+    const followed = onContinue && gridAt >= 0 ? continued[gridAt] : undefined;
+    continued = items;
+    rail.value = entries;
+    shown.update(railZone(entries.length));
+    if (entries.length === 0) {
+      status.value = 'empty';
+      held = null;
+      shown.update(gridZone(0));
+      bump();
+      return;
+    }
+    if (onContinue && items.length === 0) {
+      // Gone from under the focus: the first entry, from its first item.
+      showCategory(0);
+      if (active === MOVIES_RAIL) shown.focus(MOVIES_RAIL, 0);
+    } else if (onContinue) {
+      let place = gridAt;
+      if (followed !== undefined) for (let i = 0; i < items.length; i += 1) if (items[i]!.key === followed.key) place = i;
+      // The rail keeps its place (the entry stays first); the grid takes the new list.
+      showCategory(0, Math.max(0, place));
+      if (active === MOVIES_RAIL) shown.focus(MOVIES_RAIL, railAt);
+    } else if (shift !== 0) {
+      category.value += shift;
+      // The rail's place moves with its entries; the focus stays in its zone.
+      shown.focus(MOVIES_RAIL, Math.max(0, railAt + shift));
+      if (active === MOVIES_GRID) shown.focus(MOVIES_GRID, gridAt);
+    }
+    bump();
+    // (A new list's posters come at the rest.)
+    if (held !== null) scheduleRest();
+  };
+
+  /** Reads "Continue watching" again when the places changed since its last read (step 27d). */
+  const refreshContinued = (): void => {
+    const kept = options.progress;
+    if (kept === undefined || status.value !== 'ready' || kept.version.peek() === readAt) return;
+    continueSeq += 1;
+    const mine = continueSeq;
+    track(() => readContinued(sourceIds)).then(
+      (items) => {
+        if (disposed || mine !== continueSeq || screen.value === null || status.value !== 'ready') return;
+        applyContinued(items);
+      },
+      // (The next open reads it again.)
+      (error: unknown) => {
+        if (!disposed) console.warn('"Continue watching" could not be read', error);
+      },
+    );
+  };
+
   const close = (): void => {
     const shown = screen.value;
     if (shown === null) return;
@@ -439,6 +556,7 @@ export function createMovies(options: MoviesOptions): Movies {
     screen.value = null;
     chunks.clear();
     recent = [];
+    continued = [];
     held = null;
     loadingChunks.clear();
     posters.clear();
@@ -473,6 +591,8 @@ export function createMovies(options: MoviesOptions): Movies {
     posters.hold();
     readView();
     scheduleRest();
+    // Back on top after a play (step 27d): "Continue watching" again.
+    refreshContinued();
   });
 
   return {
@@ -545,6 +665,7 @@ export function createMovies(options: MoviesOptions): Movies {
       stopFollowing();
       chunks.clear();
       recent = [];
+      continued = [];
       held = null;
       posters.clear();
       syncPending();

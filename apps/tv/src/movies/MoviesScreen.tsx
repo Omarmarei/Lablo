@@ -9,6 +9,8 @@ import './movies.css';
 /** A poster screen's own words. */
 interface Words {
   readonly title: MessageKey;
+  /** "Continue watching" (step 27d). */
+  readonly continue: MessageKey;
   readonly recent: MessageKey;
   readonly all: MessageKey;
   readonly noGroup: MessageKey;
@@ -25,6 +27,7 @@ interface Words {
 export const POSTER_WORDS: Readonly<Record<PosterKind, Words>> = {
   movie: {
     title: 'movies.title',
+    continue: 'movies.continue',
     recent: 'movies.recent',
     all: 'movies.all',
     noGroup: 'movies.noGroup',
@@ -35,6 +38,7 @@ export const POSTER_WORDS: Readonly<Record<PosterKind, Words>> = {
   },
   series: {
     title: 'series.title',
+    continue: 'series.continue',
     recent: 'series.recent',
     all: 'series.all',
     noGroup: 'series.noGroup',
@@ -55,8 +59,9 @@ export const POSTER_TEST_IDS: Readonly<Record<PosterKind, { readonly screen: str
   series: { screen: 'series', tile: 'show' },
 };
 
-/** A rail entry's label: our own words for "Recently added", "All movies" and a nameless group, else the provider's. */
+/** A rail entry's label: our own words for "Continue watching", "Recently added", "All movies" and a nameless group, else the provider's. */
 function entryLabel(entry: MovieEntry, t: AppI18n['t'], words: Words): { label: string; data: boolean } {
+  if (entry.kind === 'continue') return { label: t(words.continue), data: false };
   if (entry.kind === 'recent') return { label: t(words.recent), data: false };
   if (entry.kind === 'all') return { label: t(words.all), data: false };
   if (entry.name === '') return { label: t(words.noGroup), data: false };
