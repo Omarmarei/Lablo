@@ -179,6 +179,8 @@ export const EN = {
   'show.season': 'Season {n}',
   // An episode the panel gave no title; {n} is its number.
   'show.episode': 'Episode {n}',
+  // An episode's season and number (RELAY step 27c1), in the player's info bar: "S1 E2".
+  'show.mark': 'S{season} E{episode}',
 
   'movie.play': 'Play',
   // A movie left part way (RELAY step 26d): {time} is where it was left, as 12:34 or 1:02:03.
@@ -315,6 +317,8 @@ export const EN = {
   'player.live': 'Live',
   'player.ended': 'The programme has ended',
   'player.movieEnded': 'The movie has ended',
+  // A show's episode played to its end (RELAY step 27c1).
+  'player.episodeEnded': 'The episode has ended',
   'player.moviePosition': 'Position in the movie',
   'player.watchLive': 'Watch live',
   'player.toGuide': 'Back to the guide',

@@ -38,6 +38,10 @@ import { RemoteDriver } from './remote-driver';
  *
  * Resume (RELAY step 26d): Big Buck Bunny left five minutes in keeps that place (to the second);
  * "Resume from 5:0x" plays its file from within 5 s of it, the frames moving on.
+ *
+ * An episode (RELAY step 27c1): "Lablo Test Series" S1 E1 (an MKV) left a minute in keeps that
+ * place in its row ("Resume from 1:0x"); OK there plays its file from within 5 s of it. Played to
+ * its end, "The episode has ended", whose "Back" lands on S1 E2.
  */
 const MEDIA_DIR = path.resolve(import.meta.dirname, '../.cache/media');
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
@@ -457,5 +461,65 @@ test('resumes a movie within 5 s of where it was left, inside its file (step 26d
   await expectMoving(page);
   await page.screenshot({ path: path.join(SHOTS, 'player-movie-resumed-en.png'), animations: 'disabled' });
   await remote.go('BACK', 'movie/actions/0');
+  expect(errors).toEqual([]);
+});
+
+test('resumes an episode within 5 s of where it was left, inside its file (step 27c1)', async ({ page }) => {
+  test.setTimeout(150_000);
+  const errors = trackErrors(page);
+  const remote = new RemoteDriver(page);
+  await addXtreamAndWatch(remote, { host, username: U, password: P }, 'locale=en-US');
+  // "Series", "Recently updated" (302, then 301), OK on "Lablo Test Series": its first episode.
+  await remote.go('UP', 'live/header/0');
+  await remote.go('RIGHT', 'live/header/1');
+  await remote.go('RIGHT', 'live/header/2');
+  await remote.go('OK', 'series/grid/0');
+  await expect(page.getByTestId('series-screen')).toHaveAttribute('data-pending', '0', { timeout: 10_000 });
+  await remote.go('RIGHT', 'series/grid/1');
+  await remote.press('OK');
+  const details = page.getByTestId('show-details');
+  await expect(details).toHaveAttribute('data-status', 'read');
+  await remote.expectFocus('show/episodes/0');
+  await remote.go('OK', 'player/seek/0');
+  const player = page.getByTestId('player');
+  await expect(player).toHaveAttribute('data-movie', /:episode:3001$/);
+  await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
+  await expect(player).toHaveAttribute('data-container', 'mkv');
+
+  // Six RIGHTs: a minute on, the frames moving on from there.
+  for (let i = 0; i < 6; i += 1) await remote.press('RIGHT');
+  await expect.poll(async () => (await video(page))!.time, { timeout: 15_000 }).toBeGreaterThan(60);
+  await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
+  await expectMoving(page);
+
+  // Back: the details on that episode, its place to the second (it plays on while the key goes in).
+  const left = (await video(page))!.time * 1000;
+  await remote.go('BACK', 'show/episodes/0');
+  const row = page.getByTestId('episode-0');
+  await expect(row).not.toHaveAttribute('data-resume', '');
+  const kept = Number(await row.getAttribute('data-resume'));
+  expect(kept - left).toBeGreaterThanOrEqual(0);
+  expect(kept - left).toBeLessThan(3_000);
+  await expect(page.getByTestId('episode-resume-0')).toHaveText(/^Resume from \S*1:\d\d\S*$/);
+
+  // OK: the file from within 5 s of that place, the frames moving on.
+  await remote.go('OK', 'player/seek/0');
+  await expect(player).toHaveAttribute('data-from', String(kept));
+  await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
+  const at = (await video(page))!.time * 1000;
+  expect(Math.abs(at - kept), `resumed at ${Math.round(at)} ms, left at ${kept} ms`).toBeLessThanOrEqual(5_000);
+  await expectMoving(page);
+  await page.screenshot({ path: path.join(SHOTS, 'player-episode-resumed-en.png'), animations: 'disabled' });
+
+  // FF to 10 s before its end: "The episode has ended", with the show and the episode. Its "Back"
+  // returns to the details on the next episode (this one is watched: no place kept).
+  await remote.press('FF');
+  const ended = page.getByTestId('player-ended');
+  await expect(ended).toContainText('The episode has ended', { timeout: 40_000 });
+  await expect(ended).toContainText('Lablo Test Series');
+  await expect(page.getByTestId('player-ended-episode')).toHaveText(/^S\S*1\S* E\S*1\S* · Pilot - Colour Bars$/);
+  await page.screenshot({ path: path.join(SHOTS, 'player-episode-ended-en.png'), animations: 'disabled' });
+  await remote.go('OK', 'show/episodes/1');
+  await expect(row).toHaveAttribute('data-resume', '');
   expect(errors).toEqual([]);
 });

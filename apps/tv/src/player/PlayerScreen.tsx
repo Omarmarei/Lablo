@@ -6,7 +6,7 @@ import { Badge, Button, ProgressBar, Spinner, useFocus, useZone } from '@lablo/u
 import type { AppI18n, MessageKey } from '../i18n';
 import type { Live, LiveRow } from '../live/live-state';
 import type { ArchiveProgramme } from './catchup';
-import type { Player, PlayerAction, PlayingMovie } from './player-state';
+import type { EpisodeMark, Player, PlayerAction, PlayingMovie } from './player-state';
 import { StreamInfoPanel } from './StreamInfoPanel';
 import { SubtitleOverlay } from './SubtitleOverlay';
 import { TrackMenuPanel } from './TrackMenuPanel';
@@ -98,6 +98,25 @@ function SeekBar({ player, i18n, span, movie, state, onHover, onPress }: { playe
   );
 }
 
+/**
+ * An episode's line (step 27c1): "S1 E2 · title", the mark in the UI's words and the panel's
+ * title in its own direction (none: the mark alone).
+ */
+function EpisodeLine({ i18n, episode, class: name, testId }: { i18n: AppI18n; episode: EpisodeMark; class: string; testId: string }) {
+  const mark = i18n.t('show.mark', { season: i18n.number(episode.season), episode: i18n.number(episode.number) });
+  return (
+    <p class={name} data-testid={testId}>
+      <span class="player__mark">{mark}</span>
+      {episode.title !== '' && ' · '}
+      {episode.title !== '' && (
+        <span dir="auto" translate={false}>
+          {episode.title}
+        </span>
+      )}
+    </p>
+  );
+}
+
 /** Each info bar button's label and test id. */
 function actionButton(player: Player, i18n: AppI18n, action: PlayerAction, binding: ReturnType<typeof useZone>, index: number) {
   const { t } = i18n;
@@ -138,14 +157,17 @@ function InfoBar({ live, player, i18n, screen, binding, row, guide, archive, mov
   const shown = player.actions.value;
   for (let i = 0; i < shown.length; i += 1) buttons.push(actionButton(player, i18n, shown[i]!, actions, i));
   if (movie !== null) {
+    // A show's episode (step 27c1): the show's name, then "S1 E2 · title".
+    const episode = movie.episode;
     return (
       <section class="player__bar" data-testid="player-bar">
         <div class="player__head">
           <span class="player__name" dir="auto" translate={false} data-testid="player-name">
-            {movie.item.name}
+            {episode === null ? movie.item.name : episode.show.name}
           </span>
           <span class="player__clock">{i18n.time(new Date(clock))}</span>
         </div>
+        {episode !== null && <EpisodeLine i18n={i18n} episode={episode} class="player__episode" testId="player-episode" />}
         <SeekBar player={player} i18n={i18n} span={{ start: 0, length: movie.lengthMs }} movie {...seek.item(0)} state={seek.state(0)} />
         <div class="player__actions">{buttons}</div>
       </section>
@@ -248,16 +270,18 @@ function EndCard({ archive, i18n, screen, binding }: { archive: ArchiveProgramme
   );
 }
 
-/** A movie's end (step 26c): "The movie has ended", with "Back" to its details. */
+/** A movie's end (step 26c): "The movie has ended", with "Back" to its details; an episode's (step 27c1): "The episode has ended". */
 function MovieEndCard({ movie, i18n, screen, binding }: { movie: PlayingMovie; i18n: AppI18n; screen: Screen; binding: FocusBinding }) {
   const { t } = i18n;
   const buttons = useZone(binding, screen, 'card');
+  const episode = movie.episode;
   return (
     <section class="player__card" role="alertdialog" data-testid="player-ended">
-      <h2 class="player__card-title">{t('player.movieEnded')}</h2>
+      <h2 class="player__card-title">{t(episode === null ? 'player.movieEnded' : 'player.episodeEnded')}</h2>
       <p class="player__card-text" dir="auto" translate={false}>
-        {movie.item.name}
+        {episode === null ? movie.item.name : episode.show.name}
       </p>
+      {episode !== null && <EpisodeLine i18n={i18n} episode={episode} class="player__card-text" testId="player-ended-episode" />}
       <div class="player__card-buttons">
         <Button label={t('movie.back')} variant="primary" {...buttons.item(0)} testId="player-movie-back" />
       </div>

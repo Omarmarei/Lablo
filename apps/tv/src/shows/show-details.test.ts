@@ -1,8 +1,11 @@
+import { effect } from '@preact/signals';
 import type { CatalogItem, XtreamEpisode, XtreamSeriesInfo } from '@lablo/core';
 import type { SeriesInfoRequest } from '@lablo/data';
 import type { Intent } from '@lablo/platform-api';
 import { LAYOUT, createNavigator } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
+import type { MovieProgress } from '../movies/movie-progress';
+import { createMovieProgress } from '../movies/movie-progress';
 import {
   EPISODES_VISIBLE,
   SEASONS_VISIBLE,
@@ -78,8 +81,16 @@ const INFO: XtreamSeriesInfo = {
   skipped: 0,
 };
 
+/** What OK on an episode played: the show, the episode, its place in its season, and where it starts. */
+type Played = [CatalogItem, XtreamEpisode, number, number | undefined];
+
+/** Episodes' places and shows' last episodes, as the app keeps them (its writes go nowhere). */
+function places(): MovieProgress {
+  return createMovieProgress({ edit: () => Promise.resolve(true), now: () => 1000 });
+}
+
 /** The series screen's navigator with the details over it; the engine's reads held until the test answers. */
-function setup() {
+function setup(progress?: MovieProgress) {
   const nav = createNavigator({
     root: { id: 'series', zones: [{ kind: 'grid', id: 'grid', columns: 6, count: 2, visibleRows: 3 }] },
     dir: 'ltr',
@@ -88,9 +99,12 @@ function setup() {
     exitDialog: () => undefined,
   });
   const reads: { req: SeriesInfoRequest; answer: (info: XtreamSeriesInfo | null) => void; fail: (error: unknown) => void }[] = [];
+  const played: Played[] = [];
   const details = createShowDetails({
     nav,
     engine: { seriesInfo: (req) => new Promise((resolve, reject) => reads.push({ req, answer: resolve, fail: reject })) },
+    play: (item, at, index, fromMs) => played.push([item, at, index, fromMs]),
+    ...(progress === undefined ? {} : { progress }),
   });
   const press = async (...keys: Intent[]): Promise<void> => {
     for (const key of keys) nav.handle(key);
@@ -109,7 +123,7 @@ function setup() {
     };
     return `${count(SHOW_SEASONS)} seasons, ${count(SHOW_EPISODES)} episodes`;
   };
-  return { nav, details, reads, press, at, counts };
+  return { nav, details, reads, press, at, counts, played };
 }
 
 describe("a show's details (RELAY step 27b)", () => {
@@ -181,14 +195,13 @@ describe("a show's details (RELAY step 27b)", () => {
     expect(t.nav.top.position(SHOW_EPISODES).index).toBe(0);
   });
 
-  it('goes from a season to its episodes with OK, where the focus was; OK on an episode does nothing yet', async () => {
+  it('goes from a season to its episodes with OK, where the focus was', async () => {
     const t = setup();
     t.details.open(show(301));
     t.reads[0]!.answer(INFO);
     await flush();
-    await t.press('DOWN', 'DOWN', 'OK');
+    await t.press('DOWN', 'DOWN');
     expect(t.at()).toBe(`${SHOW_SCREEN} · ${SHOW_EPISODES} 2`);
-    expect(t.nav.snapshot().depth).toBe(2);
     expect(t.details.shown.value!.status).toBe('read');
     t.nav.top.focus(SHOW_SEASONS, 0);
     await t.press('OK');
@@ -196,6 +209,8 @@ describe("a show's details (RELAY step 27b)", () => {
     await t.press('UP', 'UP', 'UP', 'RIGHT', 'OK');
     expect(t.at()).toBe(`${SHOW_SCREEN} · ${SHOW_EPISODES} 0`);
     expect(t.details.season.value).toBe(1);
+    // OK on a season plays nothing.
+    expect(t.played).toEqual([]);
   });
 
   it('goes Back from the episodes to the season on show, and from the seasons to the series screen', async () => {
@@ -256,6 +271,8 @@ describe("a show's details (RELAY step 27b)", () => {
     expect(t.details.shown.value).toMatchObject({ status: 'read', seasons: [] });
     expect(t.counts()).toBe('0 seasons, 0 episodes');
     expect(t.nav.snapshot().index).toBe(-1);
+    expect(t.at()).toBe(`${SHOW_SCREEN} · ${SHOW_EPISODES} -1`);
+    expect(t.details.season.value).toBe(0);
     await t.press('BACK');
     t.details.open(show(302));
     t.reads[1]!.answer(null);
@@ -296,6 +313,150 @@ describe("a show's details (RELAY step 27b)", () => {
     t.nav.top.update({ kind: 'list', id: SHOW_SEASONS, axis: 'horizontal', count: 2 });
     t.nav.top.focus(SHOW_SEASONS, 1);
     expect(t.details.season.value).toBe(0);
+  });
+});
+
+describe('playing an episode (RELAY step 27c1)', () => {
+  it('plays the episode OK is on, from where it was left, in its season', async () => {
+    const progress = places();
+    const t = setup(progress);
+    const item = show(301);
+    const [e1, e2, , e4] = INFO.episodes;
+    t.details.open(item);
+    t.reads[0]!.answer(INFO);
+    await flush();
+    // Never played: from its start.
+    await t.press('OK');
+    expect(t.played).toEqual([[item, e1, 0, undefined]]);
+    expect(t.nav.snapshot().depth).toBe(2);
+    // Left at 0:40: from there; the row's place and bar.
+    progress.save(e2!.key, 40_000, 300_000, false, item.key);
+    expect(t.details.point(e2!.key)).toEqual({ positionMs: 40_000, lengthMs: 300_000 });
+    expect(t.details.share(e2!.key)).toBeCloseTo(40 / 300, 6);
+    expect(t.details.point(e1!.key)).toBeNull();
+    expect(t.details.share(e1!.key)).toBeUndefined();
+    await t.press('DOWN', 'OK');
+    expect(t.played[1]).toEqual([item, e2, 1, 40_000]);
+    // Never played, further down: from its start, its place in the season.
+    await t.press('DOWN', 'OK');
+    expect(t.played[2]).toEqual([item, INFO.episodes[2], 2, undefined]);
+    // Season 2's first: its own place in its season.
+    await t.press('UP', 'UP', 'UP', 'RIGHT', 'DOWN', 'OK');
+    expect(t.played[3]).toEqual([item, e4, 0, undefined]);
+    expect(t.played).toHaveLength(4);
+  });
+
+  it("reads the rows' places again when one is saved, and has none without the app's", async () => {
+    const progress = places();
+    const t = setup(progress);
+    const item = show(301);
+    const key = INFO.episodes[0]!.key;
+    const before = progress.version.value;
+    t.details.open(item);
+    t.reads[0]!.answer(INFO);
+    await flush();
+    let reads = 0;
+    const stop = effect(() => {
+      t.details.point(key);
+      reads += 1;
+    });
+    progress.save(key, 60_000, 300_000, false, item.key);
+    expect(progress.version.value).toBe(before + 1);
+    expect(reads).toBe(2);
+    stop();
+    let shares = 0;
+    const stopShares = effect(() => {
+      t.details.share(key);
+      shares += 1;
+    });
+    progress.save(key, 70_000, 300_000, false, item.key);
+    expect(shares).toBe(2);
+    stopShares();
+    // No places kept: none to show, and OK plays from the start.
+    const bare = setup();
+    bare.details.open(item);
+    bare.reads[0]!.answer(INFO);
+    await flush();
+    expect(bare.details.point(key)).toBeNull();
+    expect(bare.details.share(key)).toBeUndefined();
+    await bare.press('OK');
+    expect(bare.played).toEqual([[item, INFO.episodes[0], 0, undefined]]);
+  });
+
+  it("opens on the show's last episode, or the next once it was watched, across seasons", async () => {
+    const progress = places();
+    const item = show(301);
+    const open = async (): Promise<ReturnType<typeof setup>> => {
+      const t = setup(progress);
+      t.details.open(item);
+      t.reads[0]!.answer(INFO);
+      await flush();
+      return t;
+    };
+    // Left part way: on it.
+    progress.save(INFO.episodes[1]!.key, 40_000, 300_000, false, item.key);
+    let t = await open();
+    expect(t.at()).toBe(`${SHOW_SCREEN} · ${SHOW_EPISODES} 1`);
+    expect(t.details.season.value).toBe(0);
+    // Watched, the last of season 1: season 2's first, the seasons' row on it.
+    progress.save(INFO.episodes[2]!.key, 0, 300_000, true, item.key);
+    t = await open();
+    expect(t.details.season.value).toBe(1);
+    expect(t.counts()).toBe('2 seasons, 2 episodes');
+    expect(t.at()).toBe(`${SHOW_SCREEN} · ${SHOW_EPISODES} 0`);
+    await t.press('UP');
+    expect(t.at()).toBe(`${SHOW_SCREEN} · ${SHOW_SEASONS} 1`);
+    // Watched, the show's last episode: it stays on it.
+    progress.save(INFO.episodes[4]!.key, 230_000, 240_000, false, item.key);
+    t = await open();
+    expect(t.details.season.value).toBe(1);
+    expect(t.at()).toBe(`${SHOW_SCREEN} · ${SHOW_EPISODES} 1`);
+    // Another show's last episode isn't this one's.
+    t = setup(progress);
+    t.details.open(show(302));
+    t.reads[0]!.answer(INFO);
+    await flush();
+    expect(t.details.season.value).toBe(0);
+    expect(t.at()).toBe(`${SHOW_SCREEN} · ${SHOW_EPISODES} 0`);
+    // One the panel no longer lists: the first.
+    progress.save('x:s1:episode:9999', 40_000, 300_000, false, item.key);
+    t = await open();
+    expect(t.details.season.value).toBe(0);
+    expect(t.at()).toBe(`${SHOW_SCREEN} · ${SHOW_EPISODES} 0`);
+  });
+
+  it("goes to the show's last episode when the player closes (refresh)", async () => {
+    const progress = places();
+    const t = setup(progress);
+    const item = show(301);
+    // Not open: nothing.
+    t.details.refresh();
+    expect(t.at()).toBe('series · grid 0');
+    t.details.open(item);
+    // Still reading: nothing to focus.
+    t.details.refresh();
+    expect(t.details.season.value).toBe(0);
+    t.reads[0]!.answer(INFO);
+    await flush();
+    await t.press('DOWN', 'DOWN');
+    // Season 2's first played and left part way: on it, the seasons' row on season 2.
+    progress.save(INFO.episodes[3]!.key, 30_000, 240_000, false, item.key);
+    t.details.refresh();
+    expect(t.details.season.value).toBe(1);
+    expect(t.at()).toBe(`${SHOW_SCREEN} · ${SHOW_EPISODES} 0`);
+    await t.press('BACK');
+    expect(t.at()).toBe(`${SHOW_SCREEN} · ${SHOW_SEASONS} 1`);
+    // It ended: on the next one, in the same season.
+    progress.save(INFO.episodes[3]!.key, 0, 240_000, true, item.key);
+    t.details.refresh();
+    expect(t.at()).toBe(`${SHOW_SCREEN} · ${SHOW_EPISODES} 1`);
+    // A show with no episodes: nothing to focus.
+    await t.press('BACK', 'BACK');
+    t.details.open(show(302));
+    t.reads[1]!.answer({ ...INFO, episodes: [] });
+    await flush();
+    t.details.refresh();
+    expect(t.nav.snapshot().index).toBe(-1);
   });
 });
 

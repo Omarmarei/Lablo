@@ -294,6 +294,17 @@ html[data-player='on'] .player-stage {
   text-align: left;
 }
 
+/* A show's episode under its name (step 27c1): "S1 E2 · title" on one line. */
+.player__episode {
+  margin: 0 0 var(--space-3);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
 .player__actions {
   display: flex;
   margin-top: var(--space-4);

@@ -1,10 +1,13 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { CatalogItem, XtreamEpisode, XtreamSeason, XtreamSeriesInfo } from '@lablo/core';
+import type { CatalogItem, ContentKey, XtreamEpisode, XtreamSeason, XtreamSeriesInfo } from '@lablo/core';
 import type { SeriesInfoRequest } from '@lablo/data';
 import type { Focus, Navigator, Screen, ZoneSpec } from '@lablo/ui';
 import { LAYOUT, SCREEN, fits } from '@lablo/ui';
 import { releaseYear } from '../movies/movie-details';
+import type { MovieShares, ResumePoint } from '../movies/movie-progress';
+import type { EpisodePlace } from './episode-play';
+import { resumePlace } from './episode-play';
 
 /**
  * A show's details (RELAY step 27b, PLAN 7.1): a screen pushed on the live navigator over the
@@ -23,9 +26,13 @@ import { releaseYear } from '../movies/movie-details';
  *   the focus on its first episode. The season on show follows the focus along the row (no read:
  *   every episode came with the show), and its episodes start from the top again.
  * - **Keys:** UP from the first episode goes to the seasons, DOWN or OK on a season to its
- *   episodes. OK on an episode does nothing yet (playing it is step 27c). Back goes from the
- *   episodes to the season on show, and from the seasons (or a screen with nothing to focus)
- *   closes the details: the series screen's focus is where it was.
+ *   episodes. Back goes from the episodes to the season on show, and from the seasons (or a
+ *   screen with nothing to focus) closes the details: the series screen's focus is where it was.
+ * - **Playing** (step 27c1): OK on an episode hands it to `play`, from where it was left
+ *   (`progress`): the player opens over the details. Each row shows where its episode was left
+ *   (`point`, "Resume from 2:34") and its bar (`share`).
+ * - **The show's last episode** (step 27c1): the details open on it, its season on show, and so
+ *   does the player's close (`refresh`); once it was watched, on the next one (`resumePlace`).
  * - `pending` is 1 while the read is out (e2e).
  */
 
@@ -81,6 +88,13 @@ export interface ShowDetailsOptions {
   /** The live screen's navigator: the details are a screen on it, over the series screen. */
   readonly nav: Navigator;
   readonly engine: ShowDetailsEngine;
+  /**
+   * OK on an episode (step 27c1): the show, the episode, its place in its season, and where it
+   * starts (where it was left; absent: its start).
+   */
+  readonly play: (show: CatalogItem, episode: XtreamEpisode, index: number, fromMs?: number) => void;
+  /** Where each episode was left and each show's last episode (step 27c1; default: nowhere). */
+  readonly progress?: Pick<MovieShares, 'version' | 'point' | 'share' | 'lastEpisode'>;
 }
 
 export interface ShowDetails {
@@ -96,6 +110,15 @@ export interface ShowDetails {
   readonly posterFailed: ReadonlySignal<boolean>;
   /** Opens the details on `item` and reads the panel's (nothing when they are open). */
   open(item: CatalogItem): void;
+  /**
+   * Where episode `key` was left (step 27c1; `null`: never, or watched). It reads the places'
+   * version: the rows draw again when one changes.
+   */
+  point(key: ContentKey): ResumePoint | null;
+  /** The share of episode `key` watched, 0–1, for its row's bar (step 27c1; `undefined`: none). */
+  share(key: ContentKey): number | undefined;
+  /** The player closed over the details (step 27c1): the focus goes to the show's last episode, or the next once it was watched. */
+  refresh(): void;
   /** The cover's image failed. */
   failPoster(): void;
   dispose(): void;
@@ -180,7 +203,7 @@ function episodesZone(count: number): ZoneSpec {
 }
 
 export function createShowDetails(options: ShowDetailsOptions): ShowDetails {
-  const { nav, engine } = options;
+  const { nav, engine, progress } = options;
   const shown = signal<ShowDetailsShown | null>(null);
   const screen = signal<Screen | null>(null);
   const season = signal(0);
@@ -205,6 +228,17 @@ export function createShowDetails(options: ShowDetailsOptions): ShowDetails {
     top.reset(SHOW_EPISODES);
   };
 
+  /** Focuses the episode at `place`: its season on show, and the seasons' row on it (UP and Back go there). */
+  const focusEpisode = (top: Screen, seasons: readonly ShowSeason[], place: EpisodePlace): void => {
+    showSeason(top, seasons, place.season);
+    top.focus(SHOW_SEASONS, place.season);
+    top.focus(SHOW_EPISODES, place.index);
+  };
+
+  /** The show's last episode (step 27c1), or the next once it was watched; the first when none played. */
+  const lastPlace = (item: CatalogItem, seasons: readonly ShowSeason[]): EpisodePlace =>
+    resumePlace(seasons, progress === undefined ? null : progress.lastEpisode(item.key));
+
   const settle = (mine: number, item: CatalogItem, status: ShowDetailsStatus, info: XtreamSeriesInfo | null): void => {
     const top = screen.value;
     if (mine !== seq || top === null) return;
@@ -212,8 +246,8 @@ export function createShowDetails(options: ShowDetailsOptions): ShowDetails {
     pending.value = 0;
     shown.value = { item, status, info, seasons };
     top.update(seasonsZone(seasons.length));
-    // The episodes are the screen's initial zone: the focus lands on the first one.
-    showSeason(top, seasons, 0);
+    // The focus lands on the show's last episode, or on the first one (with none, there is nothing to focus).
+    if (seasons.length > 0) focusEpisode(top, seasons, lastPlace(item, seasons));
   };
 
   const onIntent = (intent: string, focus: Focus): boolean => {
@@ -229,8 +263,18 @@ export function createShowDetails(options: ShowDetailsOptions): ShowDetails {
 
   const onSelect = (focus: Focus): void => {
     const top = screen.value;
+    const now = shown.value;
     // OK on a season: its episodes, where the focus last was in them (DOWN's way).
-    if (focus.zone === SHOW_SEASONS && top !== null) top.focus(SHOW_EPISODES, Math.max(0, top.position(SHOW_EPISODES).index));
+    if (focus.zone === SHOW_SEASONS) {
+      if (top !== null) top.focus(SHOW_EPISODES, Math.max(0, top.position(SHOW_EPISODES).index));
+      return;
+    }
+    // OK on an episode (step 27c1): it plays, from where it was left.
+    const episode = now?.seasons[season.value]?.episodes[focus.index];
+    if (episode === undefined) return;
+    const left = progress === undefined ? null : progress.point(episode.key);
+    if (left === null) options.play(now!.item, episode, focus.index);
+    else options.play(now!.item, episode, focus.index, left.positionMs);
   };
 
   // The season on show follows the focus along the row.
@@ -267,6 +311,23 @@ export function createShowDetails(options: ShowDetailsOptions): ShowDetails {
           settle(mine, item, 'failed', null);
         },
       );
+    },
+    point(key: ContentKey): ResumePoint | null {
+      if (progress === undefined) return null;
+      // Read for the screen: a place saved since draws the rows again.
+      void progress.version.value;
+      return progress.point(key);
+    },
+    share(key: ContentKey): number | undefined {
+      if (progress === undefined) return undefined;
+      void progress.version.value;
+      return progress.share(key);
+    },
+    refresh(): void {
+      const now = shown.value;
+      if (now === null || now.seasons.length === 0) return;
+      // (The details' screen is on the navigator while they show.)
+      focusEpisode(screen.value!, now.seasons, lastPlace(now.item, now.seasons));
     },
     failPoster(): void {
       posterFailed.value = true;

@@ -86,6 +86,9 @@ import { createTrackMenu } from './track-menu';
  *   and `progressed` hears where it is every `SAVE_EVERY_MS` while it plays, and when it fails,
  *   ends, is left or the app hides. While the app is hidden no position is read: the engine has
  *   let the stream go, and its clock says 0.
+ * - **A show's episode** (step 27c1) plays as a movie does (`MoviePlay.episode`): the info bar
+ *   names the show and the episode ("S1 E2 · title"), `progressed` hears the show's key too, and
+ *   its end's card says the episode ended.
  */
 
 /** The info bar's stream opens this long after the last zap key. */
@@ -171,6 +174,15 @@ export interface PlayerLike {
   durationMs(): number;
 }
 
+/** A show's episode (step 27c1): the show, and the episode's season, number and title, for the info bar. */
+export interface EpisodeMark {
+  readonly show: CatalogItem;
+  readonly season: number;
+  readonly number: number;
+  /** The panel's title (`''`: none). */
+  readonly title: string;
+}
+
 /** A movie to play (step 26c), from its details. */
 export interface MoviePlay {
   readonly item: CatalogItem;
@@ -182,6 +194,8 @@ export interface MoviePlay {
   readonly lengthMs: number | null;
   /** The player closed (Back, or the end's "Back"): the details show again. */
   readonly closed: () => void;
+  /** A show's episode (step 27c1; absent: a movie). */
+  readonly episode?: EpisodeMark;
 }
 
 /** The movie playing (step 26c). */
@@ -191,6 +205,8 @@ export interface PlayingMovie {
   readonly lengthMs: number | null;
   /** Where its last play started (ms of its media time, step 26d; 0: its start). */
   readonly fromMs: number;
+  /** A show's episode (step 27c1; `null`: a movie). */
+  readonly episode: EpisodeMark | null;
 }
 
 /** Number entry: the digits typed, then the search, then (maybe) "no channel has it". */
@@ -235,9 +251,10 @@ export interface PlayerOptions {
   readonly clock?: () => number;
   /**
    * A movie's position (step 26d): every `SAVE_EVERY_MS` while it plays, and when it fails, ends
-   * (`ended`), is left or the app hides. The app keeps it (`movie-progress.ts`).
+   * (`ended`), is left or the app hides. The app keeps it (`movie-progress.ts`). A show's episode
+   * (step 27c1) comes with its show's key.
    */
-  readonly progressed?: (item: CatalogItem, positionMs: number, lengthMs: number | null, ended: boolean) => void;
+  readonly progressed?: (item: CatalogItem, positionMs: number, lengthMs: number | null, ended: boolean, show?: ContentKey) => void;
   /** The app's visibility (`Platform.onLifecycle`): a movie's position is saved as the app hides. */
   readonly lifecycle?: (listener: (event: LifecycleEvent) => void) => () => void;
 }
@@ -562,7 +579,7 @@ export function createPlayer(options: PlayerOptions): Player {
     streamFrom = 0;
     lastAt = from === undefined ? 0 : from;
     const playingFilm = movie.value;
-    if (playingFilm !== null) movie.value = { item: playingFilm.item, lengthMs: playingFilm.lengthMs, fromMs: lastAt };
+    if (playingFilm !== null) movie.value = { item: playingFilm.item, lengthMs: playingFilm.lengthMs, fromMs: lastAt, episode: playingFilm.episode };
     savedAt = keyClock();
     const c = ctrl();
     const opts: PlayOptions = from === undefined ? {} : { startMs: from };
@@ -583,14 +600,18 @@ export function createPlayer(options: PlayerOptions): Player {
     const shown = movie.value;
     if (shown === null || options.progressed === undefined) return;
     savedAt = keyClock();
-    options.progressed(shown.item, streamAt(), shown.lengthMs, status.value.state === 'ended');
+    const at = streamAt();
+    const ended = status.value.state === 'ended';
+    // An episode (step 27c1) with its show's key.
+    if (shown.episode === null) options.progressed(shown.item, at, shown.lengthMs, ended);
+    else options.progressed(shown.item, at, shown.lengthMs, ended, shown.episode.show.key);
   }
 
   /** The info bar's position: a waiting seek's target, else the stream's (`null` live); a movie's length once the engine knows it. */
   const showPosition = (): void => {
     const shown = movie.value;
     const length = shown === null || controller === null ? 0 : controller.durationMs();
-    if (shown !== null && length > 0 && length !== shown.lengthMs) movie.value = { item: shown.item, lengthMs: length, fromMs: shown.fromMs };
+    if (shown !== null && length > 0 && length !== shown.lengthMs) movie.value = { item: shown.item, lengthMs: length, fromMs: shown.fromMs, episode: shown.episode };
     position.value = archive.value === null && shown === null ? null : { time: seekLive ? wall() : seekTo === null ? streamAt() : seekTo, seeking: seekTo !== null || seekLive, live: seekLive };
   };
 
@@ -1071,7 +1092,7 @@ export function createPlayer(options: PlayerOptions): Player {
     playMovie(next: MoviePlay): void {
       if (!openScreen(MOVIE_ACTIONS)) return;
       film = next;
-      movie.value = { item: next.item, lengthMs: next.lengthMs, fromMs: 0 };
+      movie.value = { item: next.item, lengthMs: next.lengthMs, fromMs: 0, episode: next.episode ?? null };
       showInfo();
       playFilm(next.fromMs);
     },

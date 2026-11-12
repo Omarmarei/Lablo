@@ -25,6 +25,7 @@ import type { Guide } from './guide/guide-state';
 import { createGuide } from './guide/guide-state';
 import type { Movies } from './movies/movies-state';
 import { createMovies, selectSeries } from './movies/movies-state';
+import { episodePlay } from './shows/episode-play';
 import { createShowDetails } from './shows/show-details';
 import { createMovieDetails, movieFacts, movieRequest } from './movies/movie-details';
 import { createMovieProgress } from './movies/movie-progress';
@@ -202,7 +203,17 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   // The header's "Movies" (step 26a): the poster grid of the sources' movies, each tile with its bar (26d); Back returns to the header.
   const movies = createMovies({ nav: live.nav, engine: dataEngine(), tier: () => tier, select: (item) => details.open(item), progress });
   // OK on a show (step 27b): its details over the series grid, its seasons and episodes read from its panel; Back returns to the grid.
-  const show = createShowDetails({ nav: live.nav, engine: dataEngine() });
+  // OK on an episode (step 27c1): the player over the details, from where it was left; Back returns to the details on the show's last episode.
+  const show = createShowDetails({
+    nav: live.nav,
+    engine: dataEngine(),
+    progress,
+    play: (item, episode, index, fromMs) => {
+      const closed = (): void => show.refresh();
+      const kept = progress.point(episode.key);
+      player?.playMovie(episodePlay(fromMs === undefined ? { show: item, episode, index, kept, closed } : { show: item, episode, index, kept, fromMs, closed }));
+    },
+  });
   // The header's "Series" (step 27a): the movies screen for series. A playlist's episode opens as a movie does; a panel's show opens its details.
   const series = createMovies({
     nav: live.nav,
@@ -266,8 +277,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     sized: (size) => memory.setSubtitleSize(size),
     ...(picture === null ? {} : { picture }),
     pictured: (mode) => memory.setPicture(mode),
-    // Where a movie is (step 26d): every 10 s while it plays, and when it stops, is left or the app hides.
-    progressed: (item, positionMs, lengthMs, ended) => progress.save(item.key, positionMs, lengthMs, ended),
+    // Where a movie is (step 26d): every 10 s while it plays, and when it stops, is left or the app hides; an episode's with its show (step 27c1).
+    progressed: (item, positionMs, lengthMs, ended, showKey) => progress.save(item.key, positionMs, lengthMs, ended, showKey),
     lifecycle: (listener) => platform.onLifecycle(listener),
   });
   if (resume !== null) player.resume({ item: resume.item, number: resume.number }, resume.index);

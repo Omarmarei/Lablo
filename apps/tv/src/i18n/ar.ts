@@ -158,6 +158,7 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'show.noEpisodes': 'لا توجد حلقات لهذا المسلسل بعد.',
   'show.season': 'الموسم {n}',
   'show.episode': 'الحلقة {n}',
+  'show.mark': 'م{season} ح{episode}',
 
   'movie.play': 'تشغيل',
   'movie.resume': 'استئناف من {time}',
@@ -287,6 +288,7 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'player.live': 'مباشر',
   'player.ended': 'انتهى البرنامج',
   'player.movieEnded': 'انتهى الفيلم',
+  'player.episodeEnded': 'انتهت الحلقة',
   'player.moviePosition': 'الموضع في الفيلم',
   'player.watchLive': 'شاهد البث المباشر',
   'player.toGuide': 'العودة إلى الدليل',

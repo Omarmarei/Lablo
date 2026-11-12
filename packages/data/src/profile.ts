@@ -12,7 +12,8 @@
  * added and the onboarding answers. Version 3 (step 20c1) adds what the player keeps
  * (`PlayerMemoryDoc`). Version 4 (step 22b) keeps the user's guides as one list (`guides`),
  * moved from each source's `epgUrl`. Version 5 (step 26d) keeps where each movie was left
- * (`progress`, the latest `MAX_PROGRESS`). Later steps add fields with a migration each, or as
+ * (`progress`, the latest `MAX_PROGRESS`). Version 6 (step 27c1) keeps each show's last episode
+ * (`shows`, the latest `MAX_SHOWS`). Later steps add fields with a migration each, or as
  * optional fields that need none (`PlayerMemoryDoc.picture`, step 20c2b; `epgOffsets`, step 24b;
  * `epgOverrides`, step 24d).
  */
@@ -191,14 +192,36 @@ export type ProfileV5 = Omit<ProfileV4, 'v'> & {
   progress: Record<string, WatchProgress>;
 };
 
+/**
+ * A show's last episode (step 27c1): the one played last, whether it was watched (it ended, or
+ * was left near its end: the show goes on with the next one), and when it was saved (the cap drops
+ * the oldest). The episode's own place is in `progress`, by its key, as a movie's is.
+ */
+export type ShowProgress = {
+  /** The episode's ContentKey (`x:<src>:episode:<id>`). */
+  episode: string;
+  watched: boolean;
+  /** When it was saved (epoch ms). */
+  updated: number;
+};
+
+export type ProfileV6 = Omit<ProfileV5, 'v'> & {
+  v: 6;
+  /** Each show's last episode (step 27c1), by the show's ContentKey: the latest `MAX_SHOWS`. */
+  shows: Record<string, ShowProgress>;
+};
+
 /** The current profile shape. */
-export type ProfileDoc = ProfileV5;
+export type ProfileDoc = ProfileV6;
 
 /** Track choices kept; a new content past this drops the one changed longest ago. */
 export const MAX_TRACK_CHOICES = 300;
 
-/** Movies whose position is kept (architecture.md §1.3); a new one past this drops the one saved longest ago. */
+/** Movies and episodes whose position is kept (architecture.md §1.3); a new one past this drops the one saved longest ago. */
 export const MAX_PROGRESS = 500;
+
+/** Shows whose last episode is kept (step 27c1); a new one past this drops the one saved longest ago. */
+export const MAX_SHOWS = 200;
 
 /** A stored document of any version (older ones are migrated on load). */
 export interface AnyProfile {
@@ -218,6 +241,8 @@ export const PROFILE_MIGRATIONS: readonly ProfileMigration[] = [
   (doc) => ({ ...doc, ...guidesFromSources(doc.sources), v: 4 }),
   // 4 → 5 (step 26d): no movie left part way yet.
   (doc) => ({ ...doc, v: 5, progress: {} }),
+  // 5 → 6 (step 27c1): no show's episode played yet.
+  (doc) => ({ ...doc, v: 6, shows: {} }),
 ];
 
 export const PROFILE_VERSION = PROFILE_MIGRATIONS.length + 1;
@@ -251,7 +276,7 @@ export function noPlayerMemory(): PlayerMemoryDoc {
 }
 
 export function emptyProfile(): ProfileDoc {
-  return { v: 5, favourites: [], sources: [], onboarding: noAnswers(), player: noPlayerMemory(), guides: [], progress: {} };
+  return { v: 6, favourites: [], sources: [], onboarding: noAnswers(), player: noPlayerMemory(), guides: [], progress: {}, shows: {} };
 }
 
 /**
@@ -314,7 +339,12 @@ export type ProfileEdit =
    * Where a movie was left (step 26d); `null` takes it away (watched, or started over). One that
    * isn't a position changes nothing.
    */
-  | { kind: 'progress'; key: ContentKey; progress: WatchProgress | null };
+  | { kind: 'progress'; key: ContentKey; progress: WatchProgress | null }
+  /**
+   * An episode of `show` played (step 27c1): the show's last episode (`last`), and that episode's
+   * place in `progress` (`null` takes it away), in one write. One that isn't both changes nothing.
+   */
+  | { kind: 'episode'; show: ContentKey; last: ShowProgress; progress: WatchProgress | null };
 
 const USER_GUIDE = 'u~';
 
@@ -400,6 +430,27 @@ export function isWatchProgress(value: unknown): value is WatchProgress {
   return typeof positionMs === 'number' && positionMs >= 0 && isFinite(positionMs) && typeof updated === 'number' && isFinite(updated) && (lengthMs === null || (typeof lengthMs === 'number' && lengthMs > 0 && isFinite(lengthMs)));
 }
 
+/** A show's last episode this version keeps: an episode's key, whether it was watched, and a save time (step 27c1). */
+export function isShowProgress(value: unknown): value is ShowProgress {
+  if (typeof value !== 'object' || value === null) return false;
+  const { episode, watched, updated } = value as Record<string, unknown>;
+  return typeof episode === 'string' && episode !== '' && typeof watched === 'boolean' && typeof updated === 'number' && isFinite(updated);
+}
+
+/** Drops the entries of `next` saved longest ago, never `key`'s, until it holds `cap` (in place). */
+function dropOldest(next: Record<string, { updated: number }>, key: string, cap: number): void {
+  const keys = Object.keys(next);
+  for (let over = keys.length - cap; over > 0; over -= 1) {
+    let oldest: string | null = null;
+    for (let i = 0; i < keys.length; i += 1) {
+      const k = keys[i]!;
+      if (k !== key && next[k] !== undefined && (oldest === null || next[k]!.updated < next[oldest]!.updated)) oldest = k;
+    }
+    if (oldest === null) break;
+    delete next[oldest];
+  }
+}
+
 /**
  * `progress` with `key`'s position set (`null`: taken out), dropping the ones saved longest ago
  * past `MAX_PROGRESS`; `null` when it holds that already.
@@ -414,16 +465,22 @@ function withProgress(progress: Record<string, WatchProgress>, key: string, entr
     return next;
   }
   next[key] = { positionMs: entry.positionMs, lengthMs: entry.lengthMs, updated: entry.updated };
-  const keys = Object.keys(next);
-  for (let over = keys.length - MAX_PROGRESS; over > 0; over -= 1) {
-    let oldest: string | null = null;
-    for (let i = 0; i < keys.length; i += 1) {
-      const k = keys[i]!;
-      if (k !== key && next[k] !== undefined && (oldest === null || next[k]!.updated < next[oldest]!.updated)) oldest = k;
-    }
-    if (oldest === null) break;
-    delete next[oldest];
-  }
+  dropOldest(next, key, MAX_PROGRESS);
+  return next;
+}
+
+/**
+ * `shows` with `show`'s last episode set, dropping the ones saved longest ago past `MAX_SHOWS`;
+ * `null` when it holds that episode, watched or not, already, unless its save time is to be
+ * `renewed` (the episode's place was written: the show was watched then).
+ */
+function withShow(shows: Record<string, ShowProgress>, show: string, last: ShowProgress, renewed: boolean): Record<string, ShowProgress> | null {
+  // (ContentKeys hold `:`: never a name an object inherits.)
+  const before = shows[show];
+  if (!renewed && before !== undefined && before.episode === last.episode && before.watched === last.watched) return null;
+  const next: Record<string, ShowProgress> = { ...shows };
+  next[show] = { episode: last.episode, watched: last.watched, updated: last.updated };
+  dropOldest(next, show, MAX_SHOWS);
   return next;
 }
 
@@ -491,6 +548,13 @@ export function applyProfileEdit(doc: ProfileDoc, edit: ProfileEdit): ProfileDoc
     if (edit.progress !== null && !isWatchProgress(edit.progress)) return null;
     const progress = withProgress(doc.progress, edit.key, edit.progress);
     return progress === null ? null : { ...doc, progress };
+  }
+  if (edit.kind === 'episode') {
+    if ((edit.progress !== null && !isWatchProgress(edit.progress)) || !isShowProgress(edit.last)) return null;
+    const progress = withProgress(doc.progress, edit.last.episode, edit.progress);
+    const shows = withShow(doc.shows, edit.show, edit.last, progress !== null);
+    if (progress === null && shows === null) return null;
+    return { ...doc, progress: progress ?? doc.progress, shows: shows ?? doc.shows };
   }
   if (edit.kind === 'epgOffset') {
     if (!isEpgOffset(edit.minutes)) return null;
