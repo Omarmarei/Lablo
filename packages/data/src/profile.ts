@@ -15,7 +15,7 @@
  * (`progress`, the latest `MAX_PROGRESS`). Version 6 (step 27c1) keeps each show's last episode
  * (`shows`, the latest `MAX_SHOWS`). Later steps add fields with a migration each, or as
  * optional fields that need none (`PlayerMemoryDoc.picture`, step 20c2b; `epgOffsets`, step 24b;
- * `epgOverrides`, step 24d).
+ * `epgOverrides`, step 24d; `ShowProgress.more`, step 27d).
  */
 
 import type { CatalogItem, ContentKey, ContentKind, EpgOverride, XtreamAccount } from '@lablo/core';
@@ -201,6 +201,12 @@ export type ShowProgress = {
   /** The episode's ContentKey (`x:<src>:episode:<id>`). */
   episode: string;
   watched: boolean;
+  /**
+   * Whether the panel listed an episode after it when it was saved (step 27d): a watched show goes
+   * on in "Continue watching" only then. Optional, so version 6 entries written before it need no
+   * migration (one without it is taken as the show's last episode).
+   */
+  more?: boolean;
   /** When it was saved (epoch ms). */
   updated: number;
 };
@@ -430,11 +436,14 @@ export function isWatchProgress(value: unknown): value is WatchProgress {
   return typeof positionMs === 'number' && positionMs >= 0 && isFinite(positionMs) && typeof updated === 'number' && isFinite(updated) && (lengthMs === null || (typeof lengthMs === 'number' && lengthMs > 0 && isFinite(lengthMs)));
 }
 
-/** A show's last episode this version keeps: an episode's key, whether it was watched, and a save time (step 27c1). */
+/**
+ * A show's last episode this version keeps: an episode's key, whether it was watched, and a save
+ * time (step 27c1); whether an episode came after it, when it says (step 27d).
+ */
 export function isShowProgress(value: unknown): value is ShowProgress {
   if (typeof value !== 'object' || value === null) return false;
-  const { episode, watched, updated } = value as Record<string, unknown>;
-  return typeof episode === 'string' && episode !== '' && typeof watched === 'boolean' && typeof updated === 'number' && isFinite(updated);
+  const { episode, watched, more, updated } = value as Record<string, unknown>;
+  return typeof episode === 'string' && episode !== '' && typeof watched === 'boolean' && (more === undefined || typeof more === 'boolean') && typeof updated === 'number' && isFinite(updated);
 }
 
 /** Drops the entries of `next` saved longest ago, never `key`'s, until it holds `cap` (in place). */
@@ -471,15 +480,15 @@ function withProgress(progress: Record<string, WatchProgress>, key: string, entr
 
 /**
  * `shows` with `show`'s last episode set, dropping the ones saved longest ago past `MAX_SHOWS`;
- * `null` when it holds that episode, watched or not, already, unless its save time is to be
- * `renewed` (the episode's place was written: the show was watched then).
+ * `null` when it holds that episode, watched or not, and what came after it already, unless its
+ * save time is to be `renewed` (the episode's place was written: the show was watched then).
  */
 function withShow(shows: Record<string, ShowProgress>, show: string, last: ShowProgress, renewed: boolean): Record<string, ShowProgress> | null {
   // (ContentKeys hold `:`: never a name an object inherits.)
   const before = shows[show];
-  if (!renewed && before !== undefined && before.episode === last.episode && before.watched === last.watched) return null;
+  if (!renewed && before !== undefined && before.episode === last.episode && before.watched === last.watched && before.more === last.more) return null;
   const next: Record<string, ShowProgress> = { ...shows };
-  next[show] = { episode: last.episode, watched: last.watched, updated: last.updated };
+  next[show] = last.more === undefined ? { episode: last.episode, watched: last.watched, updated: last.updated } : { episode: last.episode, watched: last.watched, more: last.more, updated: last.updated };
   dropOldest(next, show, MAX_SHOWS);
   return next;
 }

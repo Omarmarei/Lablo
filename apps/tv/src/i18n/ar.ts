@@ -132,6 +132,7 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'live.failed': 'تعذّرت قراءة قنواتك.',
   'live.retry': 'إعادة المحاولة',
 
+  'continue.title': 'متابعة المشاهدة',
   'movies.open': 'الأفلام',
   'movies.title': 'الأفلام',
   'movies.all': 'كل الأفلام',

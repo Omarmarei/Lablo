@@ -27,7 +27,8 @@
  * - `seriesInfo` reads a show's seasons and episodes from its Xtream panel when its details open
  *   (step 27b, kept 24 h in the query worker);
  * - `recent` gives the newest movies across the sources ("Recently added", step 26e), from the
- *   lists the ingest keeps.
+ *   lists the ingest keeps;
+ * - `itemsByKey` gives the catalog items of ContentKeys ("Continue watching", step 27d).
  *
  * Workers come from factories, so tests serve the real services over message channels; the
  * app passes the `?worker` imports (`./workers.ts`).
@@ -54,6 +55,7 @@ import type {
   IngestProgress,
   IngestResult,
   ItemRef,
+  KeyItemsRequest,
   LoadedProfile,
   ProfileEdit,
   ProgrammeRequest,
@@ -454,6 +456,15 @@ export class DataEngine {
    */
   recent(req: RecentRequest): Promise<RecentItem[]> {
     return this.query.call('recent', req);
+  }
+
+  /**
+   * The catalog items of ContentKeys, of one kind, in the order asked ("Continue watching", step
+   * 27d): found by the query worker's key maps, read from their chunks; a key of a source not
+   * listed, or of an item no longer in its catalog, finds nothing.
+   */
+  itemsByKey(req: KeyItemsRequest): Promise<CatalogItem[]> {
+    return this.query.call('itemsByKey', req);
   }
 
   /** Searches every active generation and resolves the first `names` hits to display names. */

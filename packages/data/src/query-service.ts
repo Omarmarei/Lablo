@@ -42,6 +42,9 @@
  * - `recent` gives the newest movies across the sources asked ("Recently added", step 26e; series
  *   too since step 27a): each active generation's list kept at ingest (`recent.ts`), merged; no
  *   chunk is read.
+ * - `itemsByKey` gives the catalog items of ContentKeys ("Continue watching", step 27d): each key
+ *   is found in its source's loaded segment (the key map's hashes), and only the chunks of the
+ *   items found are read.
  * - `profile` and `editProfile` read and change the profile document for the app (step 13b):
  *   onboarding's answers and the sources the user added. An edit is a read-modify-write in one
  *   transaction, like the ingest worker's favourites update, so neither can lose the other's.
@@ -51,7 +54,7 @@
  */
 
 import type { CatalogItem, ContentKey, ContentKind, EpgBucket, EpgMatchMethod, EpgOverride, EpgProgramme, EpgSchedule, FavouriteMarks, SearchResult, XtreamSeriesInfo, XtreamVodInfo } from '@lablo/core';
-import { CONTENT_KINDS, SearchSegment, combineEpgMatches, epgDay, epgNowNext, epgProgrammeAt, epgSchedule, favouriteMarks, normalizeName, searchSegments } from '@lablo/core';
+import { CONTENT_KINDS, SearchSegment, combineEpgMatches, epgDay, epgNowNext, epgProgrammeAt, epgSchedule, favouriteMarks, keySource, normalizeName, searchSegments } from '@lablo/core';
 import type { CategoryInfo } from './chunker';
 import type { ChunkKey, SourceMeta } from './catalog-store';
 import { getSources, readCategories, readChunks, readIndexes, readRecent, scanChunks } from './catalog-store';
@@ -264,6 +267,21 @@ export interface RecentRequest {
   limit?: number;
 }
 
+/** The most items one `itemsByKey` gives. */
+export const KEY_ITEMS_MAX = 100;
+
+/** "Continue watching"'s ask (step 27d): the catalog items of some ContentKeys, of one kind. */
+export interface KeyItemsRequest {
+  /** The keys in the order the items are wanted (a key asked twice counts once). */
+  keys: ContentKey[];
+  /** Only items of this kind (a key of another kind finds nothing). */
+  kind: ContentKind;
+  /** The sources the app lists: a key of any other source (a removed one) finds nothing. */
+  sources: string[];
+  /** The first this many items found (at most `KEY_ITEMS_MAX`; a larger ask is refused, not cut). */
+  limit: number;
+}
+
 /** The words of a normalized name (single spaces between them, none at either end). */
 function wordsOf(normalized: string): string[] {
   const out: string[] = [];
@@ -367,6 +385,7 @@ export class QueryService {
       vodInfo: (req: VodInfoRequest): Promise<XtreamVodInfo | null> => this.vodInfo(req),
       seriesInfo: (req: SeriesInfoRequest): Promise<XtreamSeriesInfo | null> => this.seriesInfo(req),
       recent: (req: RecentRequest): Promise<RecentItem[]> => this.recent(req),
+      itemsByKey: (req: KeyItemsRequest): Promise<CatalogItem[]> => this.itemsByKey(req),
       profile: (): Promise<LoadedProfile | null> => this.profile(),
       editProfile: (edit: ProfileEdit): Promise<boolean> => this.editProfile(edit),
     };
@@ -794,6 +813,43 @@ export class QueryService {
       keys.push({ src, gen: this.activeGen(src), kind: req.kind });
     }
     return mergeRecent(await readRecent(await this.db(), keys), limit);
+  }
+
+  /**
+   * The catalog items of `req.keys` ("Continue watching", step 27d), in the order asked: the
+   * first `limit` found among `req.sources`' active generations, of `req.kind`. A key is found in
+   * its source's loaded segment (the key map compares hashes), then its chunk is read (one
+   * transaction for the chunks not cached) and the item's own key checked, so a hash that only
+   * collides gives nothing. A key of a source not asked (a removed one), of another kind, of an
+   * item the catalog no longer holds, or a show's episode (no catalog item) finds nothing. Rejects
+   * a `limit` that isn't a whole number from 0 to `KEY_ITEMS_MAX`.
+   */
+  async itemsByKey(req: KeyItemsRequest): Promise<CatalogItem[]> {
+    const limit = req.limit;
+    if (!(limit >= 0 && limit <= KEY_ITEMS_MAX && Math.floor(limit) === limit)) {
+      throw new RangeError(`A key lookup gives up to ${KEY_ITEMS_MAX} items`);
+    }
+    await this.ensureLoaded();
+    const refs: ItemRef[] = [];
+    const found: ContentKey[] = [];
+    for (const key of req.keys) {
+      if (found.length === limit) break;
+      const src = keySource(key);
+      if (req.sources.indexOf(src) === -1 || found.indexOf(key) !== -1) continue;
+      const segment = this.segments.find((s) => s.src === src && s.kind === req.kind);
+      const at = segment === undefined ? -1 : segment.indexOfKey(key);
+      if (at === -1) continue;
+      const stored = segment!.chunkOf(at);
+      refs.push({ src, kind: req.kind, gen: segment!.gen, catIdx: stored.catIdx, chunk: stored.chunk, slot: stored.slot });
+      found.push(key);
+    }
+    const items = await this.items(refs);
+    const out: CatalogItem[] = [];
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i];
+      if (item !== null && item !== undefined && item.key === found[i]) out.push(item);
+    }
+    return out;
   }
 
   /** The profile's record of source `src` (`null`: no profile, or no such source). */

@@ -1,103 +1,92 @@
-# Lablo IPTV: relay leg 74 opening prompt
+# Lablo IPTV: relay leg 75 opening prompt
 
-You are leg 74 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 75 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 ## Status
 - **Earlier legs:**
   - Leg 0 planned the work. Leg 6 did no project work.
-  - Legs 1–72 did steps 1–27b (all of 26a–26e, 26q, 26r; PRs #1–#79), except step 16's Samsung part, 19b and 21.
-- **Leg 73** split step 27c into **27c1** and **27c2**, and did **27c1, playing an episode, its place, and the show's last episode**:
-  - PR #80, merged as `ce38653` (verify 9 m 18 s, engines 19 m 42 s, media 9 m 26 s). The media job's first run tripped `test/epg-declared-300mb.media.test.ts` (its 20 ms search budget at 20.2 ms), the known slow-runner flake; `gh run rerun --failed` passed.
-  - PR #81 (docs), merged as `ff32931`: the split, 27c1 ticked, leg 73's progress-log row.
+  - Legs 1–73 did steps 1–27c1 (all of 26a–26e, 26q, 26r; PRs #1–#81), except step 16's Samsung part, 19b and 21.
+- **Leg 74** did **27c2, auto-next**, which also closes step 27c:
+  - PR #82, merged as `8c9840a` (verify 10 m 3 s, engines 18 m 28 s, media 12 m 2 s). The media job's first run tripped `test/epg-declared-300mb.media.test.ts` (its 60 ms store budget at 82.9 ms), the known slow-runner flake; `gh run rerun --failed` passed.
+  - PR #83 (docs), merged as `003ec79`: 27c2 and 27c ticked, leg 74's progress-log row.
 - **Steps 16, 19b and 21 stay open** until Omar says the Samsung route is ready or has time at the TV.
 - **Relay cap:** 100 legs.
 
 ## Read first
 1. **`RELAY.md`, step 27:**
    - "Already built", "Decided in leg 71", the 27a–27d split, the common items each sub-step's Done-when includes;
-   - **27c** (the original scope) and **27c1's "Done in leg 73" and "Decided in leg 73"**;
-   - **27c2**, your step: "Auto-next".
+   - **27c1's and 27c2's "Done in" and "Decided"** (the profile's `shows`, `MoviePlay.next`);
+   - **27d**, your step: "Continue watching".
 2. **`docs/architecture.md` §1.2:**
-   - "Built in step 27c1" (the episode's play, its place, the show's last episode);
-   - "Built in step 26c" (the player's movie mode, its end card), "Built in step 26d" (the saves);
-   - "Built in step 27b" (the show's details).
+   - "Built in step 26d" (resume: the profile's `progress`, `movie-progress.ts`), "Built in step 26e" ("Recently added": a rail entry held in memory, `RecentList`);
+   - "Built in step 27a" (the series screen: `createMovies({ kind })`), "Built in step 27c1" (the profile's `shows`, version 6), "Built in step 27c2".
 3. **The code to build on:**
-   - **`apps/tv/src/shows/episode-play.ts`:** `episodePlay({ show, episode, index, kept, fromMs?, closed })` builds a `MoviePlay` (with `episode: EpisodeMark`); `episodePlace`, **`nextPlace(seasons, place)`** (next in its season, else the next season's first; `null` after the last), `resumePlace`.
-   - **`apps/tv/src/shows/show-details.ts`:** `ShowDetailsShown.seasons` (the panel's order), the `play(show, episode, index, fromMs?)` option, `refresh()` (lands on the show's last episode, or the next once it was watched).
-   - **`apps/tv/src/main.tsx`:** the show details' `play` builds `episodePlay(…)` with `kept = progress.point(episode.key)` and `closed = () => show.refresh()`. An auto-next play needs the same `closed`.
-   - **`apps/tv/src/player/player-state.ts`:**
-     - `MoviePlay.episode` / `PlayingMovie.episode` (`EpisodeMark`: show, season, number, title);
-     - `onStatus`: the card's zone (`top.update(cardZone(!card ? 0 : s.state === 'ended' && movie.value !== null ? 1 : 2))`), `keepFilm()` on `ended` (saves it watched);
-     - `onSelect`'s card branches for a film (`focus.zone === 'card' && film !== null …`);
-     - `playFilm(from?)`, `close()`, the lifecycle listener (`hidden` / `visible`), `timers` (tests use a fake clock).
-   - **`apps/tv/src/player/PlayerScreen.tsx`:** `MovieEndCard` (an episode's: "The episode has ended", the show, `EpisodeLine`); `EpisodeLine` (the mark from `show.mark`, the title in its own direction).
-   - **A suggested shape** (not decided): `MoviePlay.next?: () => MoviePlay | null`, built in `main.tsx` from the details' seasons with `nextPlace` and the next episode's kept place; the player asks it at the end and shows the card when it gives one. Decide and record it as "Decided".
-   - **The mock:** show 301 has season 1 (3001–3003, mkv, 300 s) and season 2 (3011–3012, mp4, 240 s); show 302 has «الموسم ١» (3021–3022, mp4, 180 s). `/series/<u>/<p>/<id>.<ext>` is served (synthetic media; real frames only under `pnpm e2e:media`).
+   - **`packages/data/src/profile.ts`:** version 6. `progress` is keyed by ContentKey: `{ positionMs, lengthMs, updated }`, latest 500. `shows` is keyed by the show's key: `{ episode, watched, updated }`, latest 200. `updated` follows each write of the episode's place.
+   - **`apps/tv/src/movies/movie-progress.ts`:** `point`, `share`, `lastEpisode`, `version` (a signal bumped on every change), `save`.
+   - **`apps/tv/src/movies/movies-state.ts`:** the rail's entries ("Recently added"/"Recently updated", "All …", the categories), `kind`, catalog swaps, `selectSeries`.
+   - **`apps/tv/src/shows/episode-play.ts`:** `resumePlace`, `nextPlace`. **`show-details.ts`:** opening on the last episode, or the next once it was watched.
+   - **The open problem RELAY names:** the profile keeps no item for a key, and the query worker has no lookup by key. Decide between a small copy of the item kept with the place (a profile bump to version 7, which also bumps the "newer version" pins to 8) and a query that reads the items by key. Record it as "Decided".
 4. **`CLAUDE.md`:** the project rules. Edits to it need Omar's direct word in his own tab.
 
 ## Next steps, in order
-1. **Check 27c2 isn't done** (grep `nextEpisode`, `autoNext`, `upNext`, `countdown` in `apps/tv/src`), then build it as RELAY.md says:
-   - **The card:** at an episode's end, "Next: S1 E3 · title" with a 10 s countdown, "Play now" (focused) and "Back".
-   - The countdown's end or "Play now" plays the next episode, from its kept place when it has one.
-   - "Back" (the button or the key) closes onto the details, which land on the next episode (the ended one is watched).
-   - After the show's last episode: 27c1's "The episode has ended".
-   - The app hiding stops the countdown (the card stays, without it).
-   - New words: en and ar catalogs (no comments in ar.ts).
+1. **Check 27d isn't done** (grep `continueWatching`, `Continue watching`, `continue` in `apps/tv/src/movies` and the catalogs).
+2. **Consider splitting it** (27d1 the data and the decision, 27d2 the rail entries and e2e) if it won't fit one leg, as leg 73 split 27c. Record the split in RELAY.md.
+3. **Build it as RELAY.md says:**
+   - **The list:** movies and shows left part way, newest first. A movie by its place. A show by its last episode: part watched, resume it; watched, its next one when there is one. At most 20.
+   - **Where:** first in the movies rail and in the series rail (before "Recently added"/"Recently updated") when it has items. Step 28's Home shows it too.
+   - **A removed source's items drop out.**
+   - **Ideas, not decided:**
+     - A show's tile could open its details, which already land on the episode to resume or the next one, instead of playing at once.
+     - A watched show's "next one" needs its seasons, which come from `get_series_info` (the query worker's `SeriesInfoCache`, 24 h).
    - **Done when:**
-     - unit tests: the next across seasons, the countdown and its end, "Play now", Back, the last episode, hidden;
-     - e2e in English and Arabic: the end of S1 E3 starts S2 E1. The mock's media never ends in the regular e2e. Use `e2e:media`'s real files (S1 E3: FF stops at 4:50, 10 s to its end, then the 10 s countdown), or try dispatching an `ended` event on `#stage video` from the spec and check what `Html5Engine` does with it.
+     - unit tests: the order, the cap, a watched show with and without a next episode, a removed source;
+     - e2e in English and Arabic: leave a movie and an episode part way, both in "Continue watching", OK resumes;
      - plus the common items: mutation (list first), the `pnpm verify` parts, 219 core-js modules, PR merged, and a "press these keys" checklist.
-2. **Then 27d**, "Continue watching", in a later leg. It reads the profile's `shows` (last episode, `watched`, `updated`, which follows each write of the episode's place) and `progress`.
+4. **Then step 28,** search and Home.
 
 ## Git state to expect
 - **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed.
 - **HEAD:** the commit adding this HANDOVER.md, on top of:
-  - `ff32931` Merge PR #81;
-  - `2e1a839` docs: split step 27c, tick 27c1;
-  - `ce38653` Merge PR #80;
-  - `e344395` feat(series): play an episode, keep its place and the show's last episode.
-- **main** is `ff32931`. The tree is clean. No PR is open.
+  - `003ec79` Merge PR #83;
+  - `e459810` docs: record PR #82's merge, tick step 27c2;
+  - `8c9840a` Merge PR #82;
+  - `84141fa` feat(series): auto-next.
+- **main** is `003ec79`. The tree is clean. No PR is open.
 - **The main checkout** (`D:/Claude Code PlayGround/IPTV`) was not touched by the relay.
 - **Gitignored but present:**
   - `node_modules` (with the `@lablo/*` links);
-  - `dist/` (built by leg 73 from `e344395`'s code);
-  - `.cache/rollup-wasm`, `.cache/engines`, `.cache/media` (the real Blender films are in `.cache/media/open-movies`; the episodes' files are there too, their burnt-in labels still say "Zoma Test Series" from before the rename: CI regenerates its own);
+  - `dist/` (built by leg 74 from `84141fa`'s code);
+  - `.cache/rollup-wasm`, `.cache/engines`, `.cache/media` (the episodes' burnt-in labels still say "Zoma Test Series"; CI regenerates its own);
   - `artifacts/`:
-    - `mutate27c1.py`, `mutate27c1-e2e.py` and their logs (`-b` rerun);
-    - `build-27c1.log`, `unit-27c1.log`, `e2e-27c1.log`, `e2e-media-27c1.log`, `engines-27c1.log`;
-    - the screenshots (`episode-player-*`, `episode-resume-*`, `player-episode-resumed-en`, `player-episode-ended-en`).
+    - `mutate27c2.py`, `mutate27c2-e2e.py` and their logs (`-b` reruns);
+    - `build-27c2.log`, `unit-27c2.log`, `e2e-27c2.log`, `e2e-media-27c2.log`, `engines-27c2.log`, `lint-27c2.log`, `typecheck-27c2.log`;
+    - the screenshots (`auto-next-*`, `auto-next-played-*`, `auto-next-last-*`, `player-episode-ended-en`, `player-episode-next-en`).
 - **Docker Desktop** was running. Images `lablo-old-engines:ba502212364a` and `lablo-webos-sim:local`. No `lablo-chrome*` container is left.
 - **On the TV:** only the old lab, under its old id (see the reminders). The app was never installed on the TV.
 - **Outside the repo:** the webOS Simulator in `D:/tools/webos-sim/`. Never commit it (LG's license; the repo is public).
 
-## What step 27c1 added (for reference)
-- **The profile, version 6:**
-  - `shows`: by the show's key, `{ episode, watched, updated }`, the latest 200 (`MAX_SHOWS`);
-  - migration 5 → 6 adds it empty;
-  - `isShowProgress`;
-  - the `episode` edit `{ kind: 'episode', show, last, progress }` writes the episode's place and the show's entry in one write;
-  - the cap loop is shared (`dropOldest`).
-- **The app:**
-  - `MovieProgress.lastEpisode(show)` and `save(key, pos, len, ended, show?)`;
-  - `ShowDetails.point` / `share` (they read the places' version) and `refresh`;
-  - the details open on the show's last episode (`resumePlace`), with the seasons' row on its season.
-- **The player:** `EpisodeMark`; `progressed(item, pos, len, ended, show?)`; the info bar's show name and "S1 E2 · title" (`player-episode`); the end card's `player-ended-episode`.
-- **Words:** `show.mark` ("S{season} E{episode}", «م{season} ح{episode}»), `player.episodeEnded` ("The episode has ended", «انتهت الحلقة»). The row reuses `movie.resume` ("Resume from {time}").
-- **Test ids and data:**
-  - an episode row has `data-resume` (ms or `''`), `episode-resume-<i>` and a `.show__episode-progress` bar;
-  - the player has `data-movie` = the episode's key.
-- **e2e:** `e2e/episode-resume.spec.ts` (en-US, ar-SA). `player-media.spec.ts` +1: "resumes an episode within 5 s…", which also plays S1 E1 to its end and Back lands on S1 E2.
+## What step 27c2 added (for reference)
+- **`episodePlay`** takes `{ show, seasons, place, kept: (key) => ResumePoint | null, fromMs?, closed }`. Its play's `next()` builds the next episode's play (the next in the panel's order across seasons, from its kept place, read when asked; `null` after the last), each with its own `next`. The show details' `play(show, seasons, place, fromMs?)` hands over the seasons and the place.
+- **The player:**
+  - `MoviePlay.next`, `UpNext { play, seconds }`, `Player.upNext`, `NEXT_COUNTDOWN_S` (10), `NEXT_TICK_MS` (1000), `startFilm`.
+  - At an episode's end: the watched save, then `next()`. With one: "Play now" (card 0) and "Back" (card 1). Without one: "Back" alone.
+  - The countdown's end or "Play now" plays it in the same player. The new play's `opening` clears the card in `onStatus`, as "Try again" does.
+  - "Back", the Back key or STOP close onto the details, which land on the next episode. The app hiding stops the countdown for good; the card stays.
+- **The card:** 27c1's lines, then "Next: S2 E1 · title" (`player.nextEpisode`, «التالي: {mark}»), "Starts in 10 s" (`player.nextIn`, «تبدأ خلال {seconds} ث») and "Play now" (`player.playNow`, «تشغيل الآن»). The screen's root has `data-next` and `data-countdown`.
+- **`.player__card-text` now aligns to the UI's start side** (`text-align: left`, mirrored by rtlcss): all cards share it. In Arabic, the English show name had been on the left.
+- **e2e:**
+  - `e2e/auto-next.spec.ts` (en-US, ar-SA) ends the held stream with an `ended` event on `#stage video`.
+  - `player-media.spec.ts`'s episode test now lets the countdown play S1 E2 after S1 E1's real end.
 
 ## Gotchas and lessons
-**New in leg 73:**
-- **Playing an episode changes where its show reopens** (on the last episode, or the next once watched). A spec that reopens a show after playing one must expect that (`show-details.spec.ts` now does).
-- **The navigator's `focus(zone, i)` on an empty zone still notifies its listeners, with index -1.** The show details' season follower then set the season to -1. Only a check of `season.value` caught the mutant.
-- **The profile's tests use "this version + 1" as a newer version** (`{ v: 7 }`, "Can't save a version 7"). Bump those on every profile version too.
-- **Adding a field to a signal's value object breaks `toEqual` pins on it** (`episode: null` isn't "missing"). Grep `movie.value).toEqual`.
-- **Player tests:** the position saved at the end is the one read at the last `POSITION_MS` tick while `playing`: advance the clock before `set('ended')`. A 10 s save needs `SAVE_EVERY_MS` to pass first. The engine's length needs a picture (`set('playing')`).
-- **Writing the mutant list first paid off again:** it removed four guards that could never fail (use `!` where the state guarantees a value) and found three test gaps before the run.
-- **The CI media flake on `test/epg-declared-300mb.media.test.ts` also hits its 20 ms search budget** (not only the 60 ms store). Rerun the failed job.
-- **The relay context check fired at about 450k tokens,** right after the feature commit. 27c1 was finished to its merge first.
+**New in leg 74:**
+- **To end a VOD stream in a regular e2e:** hold its request (`page.route` + `route.fetch().catch(() => undefined)`), wait until it was asked, then `page.locator('#stage video').dispatchEvent('ended')`. Html5Engine passes it on, and the controller sets `ended` even while opening. Do it within the 10 s open timeout.
+- **`RemoteDriver.expectFocus` reads the screen root's `data-*`, not the buttons.** A Button bound to the wrong `buttons.item(i)` still passes it. Check the button's own `data-state` (`focused` / `idle`).
+- **The controller's `play()` publishes `opening` synchronously,** so `onStatus` clears any card on a new play. A caller doesn't need its own reset.
+- **Hiding the app in e2e:** `setHidden(page, true)` (defineProperty `document.hidden` plus `visibilitychange`), as in `movie-resume.spec.ts` and `auto-next.spec.ts`.
+- **Writing the mutant list first removed a branch that could never run** (`onStatus`'s `else stopNext()`) and a redundant CSS line. The run found one more redundancy, and the e2e list found a test gap (the focus drawing).
+- **The CI media flake hit again** (the 60 ms store at 82.9 ms). It has now happened four times in five PRs: rerun the failed job once the whole run completes.
+- **Bash heredocs with mixed quotes failed again** (a long python patch). The Write tool for the script, then `python -I <script> <files>`, always works.
 
 **From earlier legs (still true):**
 - **Windows Smart App Control blocks rollup's native module** (since 2026-11-11; Omar keeps it on).
@@ -105,19 +94,23 @@ You are leg 74 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a
   - It loads `@rollup/wasm-node@4.67.3`, and reaches vitest workers, Playwright's dev server and python scripts that pass `env=os.environ`.
   - Never delete files in `node_modules`.
   - If rollup's version changes, `npm pack @rollup/wasm-node@<ver>` and extract it into `.cache/rollup-wasm/wasm-node` with `tar --force-local`.
+- **Playing an episode changes where its show reopens** (on the last episode, or the next once watched).
+- **`screen.focus(zone, i)` on an empty zone still notifies its listeners, with index -1.**
+- **The profile's tests use "this version + 1" as a newer version.** Bump those (and e2e `v:` pins) on every profile version.
+- **Adding a field to a signal's value object breaks `toEqual` pins on it.** Grep the signal's `.value).toEqual`.
+- **Player tests:** the position saved at the end is the one read at the last `POSITION_MS` tick while `playing`: advance the clock before `set('ended')`. A 10 s save needs `SAVE_EVERY_MS` to pass first.
 - **A spec's `page.route('**/series/**')` holds the dev server's modules from an app folder `/src/series/`.** Match the panel's stream path (`` `**/series/${U}/${P}/**` ``). Never name an app folder like a mock URL segment.
-- **Every formatted number comes wrapped in marks in e2e text.** Strip `MARKS` (see `episode-resume.spec.ts`'s `plain`).
+- **Every formatted number comes wrapped in marks in e2e text.** Strip `MARKS` (see `auto-next.spec.ts`'s `plain`).
 - **`test/engines-onboarding.test.ts` pins `MoviesScreen.tsx`'s source text.** A test-id change there fails that root test.
+- **Inserting a rail entry shifts every index** in the e2e specs, the throttled specs and the old-engine walk. "Continue watching" goes first in the rail when it has items: grep `movies/rail/`, `series/rail/`, `data-category` and `tools/engines` first.
+- **The navigator tells its listeners only when the focus actually moves.** A swap that keeps the place fires nothing.
 - **One e2e:media test alone:** `LABLO_E2E_MEDIA=1 pnpm --dir "<wt>" exec playwright test --project=playback-media e2e/player-media.spec.ts -g "…"`.
 - **ar-SA shows Western digits** in e2e texts.
 - **A wait loop with `pgrep -f <word>` matches its own command line.** Wait on the background task's notice or a log marker.
 - **The Write tool turns `\u200e…` in a regex literal into raw characters.** Use `new RegExp(String.fromCharCode(…))`.
-- **Bash heredocs with mixed quotes fail to parse** (again in leg 73). Write the python patch script with the Write tool, then `python -I <script> <files>`; short `python -I - <args> <<'EOF'` patches with exact `assert s.count(a) == 1` replacements and no `'` inside work. A backslash goes in as `chr(92)`.
-- **The navigator tells its listeners only when the focus actually moves.**
-- **Inserting a rail entry or a header button shifts every index** in the e2e specs, the throttled specs and the old-engine walk.
 - **Some working copies are CRLF while git stores LF.** Run `git ls-files --eol -- <files>` before scripting a patch.
 - **vitest `toEqual` ignores `undefined` properties.** Use `toStrictEqual` to pin a field's absence.
-- **A hidden app's `<video>` is empty** (`Html5Engine.suspend`). The player saves first and reads no position until `visible`.
+- **A hidden app's `<video>` is empty** (`Html5Engine.suspend`).
 - **An e2e key can beat an async read.** Wait for `data-status="read"`, or hold the read in the mock (`app.addHook('onRequest')`).
 - **The app imports only types from `@lablo/data`** (constants through `@lablo/data/client` only).
 - **A grep for a word misses its other spellings** (`\u` escapes, full-width letters). **Text length is load-bearing in tests.**
@@ -125,14 +118,14 @@ You are leg 74 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a
 - **Chromium 68's V8 reads the zone through ICU, which ignores a `TZ` with a digit.** Keep `FIXED_ZONES` digit-free.
 - **Hour-of-day effects:** the Playwright e2e runs at the machine's real clock.
 - **`TaskStop` on a `verify:engines` run leaves its container.** Remove it with `docker rm -f` (names start `lablo-chrome`).
-- **A bare `sleep N; cmd` in Bash is blocked.** Use an `until …; do sleep 20; done` loop in a background command.
-- **Right after `gh pr create`, checks may not be listed yet:** the wait loop must also treat "no checks reported" as pending. After `gh run rerun --failed`, wait until the rerun job shows `pending` before waiting for it to finish.
+- **A bare `sleep N; cmd` in Bash is blocked.** Use an `until …; do sleep 20; done` loop.
+- **Right after `gh pr create`, checks may not be listed yet:** treat "no checks reported" as pending. `gh run rerun --failed` refuses an in-progress run: wait until the whole run is completed, then until the rerun job shows `pending`.
 - **GitHub billing can refuse every Actions job:** a needs-you stop. Read `gh api repos/Omarmarei/Lablo/check-runs/<job>/annotations`.
 - **The i18n runtime isolates every message argument.** A compound like "7.5/10" must be one argument.
 - **There is no `jq` in Git Bash.** Use `gh … --jq`.
 - **Commands:**
   - one e2e spec: `pnpm --dir "<wt>" exec playwright test --project=chromium <spec>`;
-  - the media e2e: `pnpm --dir "<wt>" e2e:media` (14 tests, about 2 min);
+  - the media e2e: `pnpm --dir "<wt>" e2e:media` (14 tests, about 2.5 min);
   - one throttled spec: `pnpm --dir "<wt>" exec playwright test --project=throttled --no-deps <spec>`;
   - engines: `pnpm --dir "<wt>" verify:engines --engine chrome53 --engine chrome68` (about 8 min, needs a fresh `pnpm build:tv`);
   - the poly count: `python -I -u artifacts/poly-count20c2a.py "<wt>"` right after the first build of new TV code.
@@ -144,14 +137,15 @@ You are leg 74 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a
 - **Never `cd`.** Use absolute paths, `git -C`, `pnpm --dir`.
 - **Don't push to an open PR's branch while its CI runs:** the push cancels the run.
 - **CI media "Install ffmpeg" can hang:** `gh run rerun <run> --failed -R Omarmarei/Lablo`.
-- **Local `pnpm verify` may die at the unit stage** (low memory). Run lint, typecheck, `pnpm test`, `build:tv` and `pnpm e2e` separately (all fine in leg 73).
+- **Local `pnpm verify` may die at the unit stage** (low memory). Run lint, typecheck, `pnpm test`, `build:tv` and `pnpm e2e` separately (all fine in leg 74).
 - **The mock:**
   - its panel zone is UTC by default;
   - its synthetic media never plays (real frames need `pnpm e2e:media`);
   - its movies are 201–206, dated 1–13 days back;
-  - its shows are 301 and 302 (4 and 2 days).
+  - its shows are 301 ("Lablo Test Series": S1 3001–3003 mkv 300 s, S2 3011 "Return of the Bars" and 3012 "Finale", mp4 240 s) and 302 (Arabic, 3021–3022);
+  - "Recently updated" lists 302 first.
 - **Root tests can't import an apps/tv module that reaches `@lablo/ui`.** Read the source as text instead.
-- **Never edit source while a mutation run, `pnpm e2e`, `e2e:media` or the engines run is going.** Docs are safe. Don't run the unit and e2e mutation scripts at the same time.
+- **Never edit source while a mutation run, `pnpm e2e`, `e2e:media`, a build or the engines run is going.** Docs and e2e specs not in the run are safe. Don't run the unit and e2e mutation scripts at the same time.
 - **Code rules:**
   - `packages/ui` components stay hook-free;
   - UI text only from the catalogs (ar.ts has no comments);
@@ -170,32 +164,33 @@ You are leg 74 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a
   - commits use the no-reply email;
   - no secrets, no LG binaries, no personal data;
   - keep README.md as "# Lablo" and the About box as "Lablo".
-- **Merging:** IPTV PRs merge on green CI without Omar (merge commit, keep the branch). Name the three riskiest changes first. Afterwards: fetch, `git -C "<wt>" merge --ff-only origin/main`, record the merge in RELAY.md (a docs PR, as #81), then push the branch.
+- **Merging:** IPTV PRs merge on green CI without Omar (merge commit, keep the branch). Name the three riskiest changes first. Afterwards: fetch, `git -C "<wt>" merge --ff-only origin/main`, record the merge in RELAY.md (a docs PR, as #83), then push the branch.
 - **CLAUDE.md edits need Omar's direct word in his own tab.**
 
 ## Verified vs not
-- **Verified locally (leg 73):**
-  - lint, typecheck, unit 4,508;
-  - both TV builds: 219 core-js modules; main 392.8 KB (Tizen) / 380.1 KB (webOS); query worker 115.4 KB; ingest 129.1 KB; app.css 88.6 KB;
-  - `pnpm e2e` 116/116, including `episode-resume.spec.ts` and `show-details.spec.ts` (en-US, ar-SA);
-  - `e2e:media` 14/14, including the episode's resume within 5 s and its end;
-  - Chromium 53 and 68: 16/16 (America/Phoenix, 21:28);
-  - mutation 99/100 (1 equivalent), e2e mutation 26/26.
-- **Verified on CI (PR #80):** verify and engines green; media green on the rerun.
+- **Verified locally (leg 74):**
+  - lint, typecheck, unit 4,527;
+  - both TV builds: 219 core-js modules; main 394.6 KB (Tizen) / 381.9 KB (webOS); query worker 115.4 KB; ingest 129.1 KB; app.css 89.3 KB;
+  - `pnpm e2e` 118/118, including `auto-next.spec.ts` (en-US, ar-SA);
+  - `e2e:media` 14/14, including S1 E2 playing after S1 E1's real end;
+  - Chromium 53 and 68: 16/16 (Pacific/Pitcairn, 21:44);
+  - mutation 51/51 (after a redundant reset was taken out), e2e mutation 22/22 (after closing a focus-drawing gap).
+- **Verified on CI (PR #82):** verify and engines green; media green on the rerun.
 - **Not done:**
   - any TV;
-  - the show details and episodes on the old-engine walk (its fixture is a playlist with no shows);
-  - en-XA on the show details (chips cut long labels with an ellipsis; not checked by a spec);
-  - the Arabic "The episode has ended" (the media test is in English; the words are in both catalogs).
+  - the show details, episodes and auto-next on the old-engine walk (its fixture is a playlist with no shows);
+  - en-XA on the show details and the auto-next card;
+  - the Arabic card at a real end (the media test is in English; the regular e2e covers the Arabic card).
 - **Migrations and deploys:** N/A (no backend until step 29). The profile's version 6 migration runs on each TV's own IndexedDB at load, with the old copy kept as a snapshot. Nothing is deployed.
 
 ## Open decisions and gates
 - **Steps 16, 19b and 21 wait for Omar:**
   - **Samsung:** the account, the certificate, the RTL tunnel session, and the used 2018 set.
-  - **About 30–45 minutes at the LG TV:** S10, S11, S5's suspend and soak, and the player (step 21). Catch-up, the movies and series grids, the details (movie and show), playing, resuming and the episodes can join that visit.
+  - **About 30–45 minutes at the LG TV:** S10, S11, S5's suspend and soak, and the player (step 21). Catch-up, the movies and series grids, the details (movie and show), playing, resuming, the episodes and auto-next can join that visit.
 - **For step 41 (the 2018 Samsung):** the decoded memory of a grid of real panel posters, whether the low tier keeps posters in lists, and the memory of 20 kept shows' answers (a panel show can list hundreds of episodes).
-- **For step 38 (parental):** "Recently added" and "Recently updated" hold every category's items, adult ones included: the lock must filter them too. So will 27d's "Continue watching".
-- **Later (unchanged, plus leg 73's):**
+- **For step 38 (parental):** "Recently added", "Recently updated" and 27d's "Continue watching" hold every category's items, adult ones included: the lock must filter them too.
+- **Later (unchanged, plus leg 74's):**
+  - a setting to turn auto-next off, or a different countdown, if users ask;
   - "Play from the start" for a part-watched episode, if users ask (OK resumes; LEFT and RW go back);
   - an episode's image in its row, or the focused episode's plot in a bigger place, if users ask;
   - the show's details and the series screen on the old-engine walk (needs Xtream shows in its fixture);
@@ -221,20 +216,25 @@ You are leg 74 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a
   - `SourceMemory` for catch-up;
   - the movie details, resume and "Recently added" on the old-engine walk;
   - a walk at a second hour (00:xx) if the engines job has time;
-  - a resume place re-matched when a provider renumbers a movie, if users ask.
+  - a resume place re-matched when a provider renumbers a movie, if users ask;
+  - the CI media flake's single-sample budgets (`test/epg-declared-300mb.media.test.ts`): best-of-3 or looser, if Omar wants fewer reruns.
 - **Later gates:** steps 19b, 21, 34, 44, 46 and 47. Before the first store submission: the final app IDs (now `com.lablo.*` and `LabloIPTV1`, pending trademark clearance) and real icons.
 
-## "Press these keys" checklist for step 27c1 (Omar)
-1. **`pnpm dev` with the mock's Xtream source.** UP to the header, RIGHT twice to "Series", OK, RIGHT to "Lablo Test Series", OK. The details open on Season 1's first episode.
-2. **DOWN, OK on "2 Tone and Clock".** The player opens. The info bar shows "Lablo Test Series", then "S1 E2 · Tone and Clock", and the seek bar with "5:00".
-3. **RIGHT four times:** the seek bar reads 0:40 (the mock's synthetic media stays on "Connecting…").
-4. **Back:** the details, focus on "2 Tone and Clock". Under its title: "Resume from 0:40" in teal. A thin bar along the row's bottom, about an eighth full, from the left.
-5. **OK:** the player again, from 0:40. Back.
-6. **Back, Back** to the grid, then **OK** on the show: the details open on "Tone and Clock" again.
-7. **DOWN to "3 Lip Sync", OK, then FF:** the bar jumps to 4:50. **Back:** the details move to Season 2, focus on "1 Return of the Bars" (Lip Sync counts as watched). UP: the "Season 2" chip.
-8. **Reload the page** and open the show again: it opens on Season 2's first episode; Season 1's "Tone and Clock" still has its bar.
-9. **In Arabic** (`?locale=ar-SA`): the info bar's line reads «م1 ح2 · Tone and Clock»; the row says «استئناف من 0:40» and its bar fills from the right.
-10. **The end needs real media:** `pnpm e2e:media` plays S1 E1 to "The episode has ended" ("Lablo Test Series", "S1 E1 · Pilot - Colour Bars"), and its Back lands on "2 Tone and Clock". The screenshot is `artifacts/screenshots/player-episode-ended-en.png`.
+## "Press these keys" checklist for step 27c2 (Omar)
+1. **Start:** `pnpm dev` with the mock's Xtream source. UP to the header, RIGHT twice to "Series", OK, RIGHT to "Lablo Test Series", OK.
+2. **Play S1 E3:** DOWN twice to "3 Lip Sync", OK. The player opens and stays on "Connecting…" (the mock's media is synthetic).
+3. **End it:** in the browser console, run `document.querySelector('#stage video').dispatchEvent(new Event('ended'))`. The card reads:
+   - "The episode has ended", "Lablo Test Series", "S1 E3 · Lip Sync";
+   - in bold, "Next: S2 E1 · Return of the Bars";
+   - "Starts in 10 s", counting down;
+   - "Play now" (teal, focused) and "Back".
+4. **Wait 10 s:** S2 E1 plays in the same player. The info bar reads "S2 E1 · Return of the Bars" and the seek bar "4:00".
+5. **"Play now":** end it again (the console line). The card offers "Next: S2 E2 · Finale". Press OK: S2 E2 plays at once.
+6. **The last episode:** end it again. "The episode has ended" with "Back" alone (S2 E2 is the show's last). OK: the details, on "2 Finale" in Season 2.
+7. **"Back":** UP to "1 Return of the Bars", OK, end it. RIGHT to "Back", OK: the details land on "2 Finale". Do it once more with the Back key.
+8. **Hiding:** during a countdown, switch to another browser tab and back. The countdown is gone, the card stays, and OK still plays.
+9. **In Arabic** (`?locale=ar-SA`): «التالي: م2 ح1 · Return of the Bars», «تبدأ خلال 10 ث» and «تشغيل الآن», all on the right, the show's English name too.
+10. **Real media:** `pnpm e2e:media` plays S1 E1 to its end, then S1 E2 after the countdown. The screenshots are `artifacts/screenshots/player-episode-ended-en.png` and `player-episode-next-en.png`.
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
 - **At the LG TV next time:** remove the old lab `com.zoma.iptv.lab` (`ares-install --device tv --remove com.zoma.iptv.lab`). The renamed lab `com.lablo.iptv.lab` installs as a new app.

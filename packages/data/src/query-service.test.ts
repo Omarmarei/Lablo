@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { CatalogItem } from '@lablo/core';
 import { createDataClient } from './client';
 import { openDatabase, transact } from './idb';
-import { QueryService } from './query-service';
+import { KEY_ITEMS_MAX, QueryService } from './query-service';
 import type { RecentItem } from './recent';
 import { RECENT_MAX } from './recent';
 import type { RpcPort } from './rpc';
@@ -316,6 +316,73 @@ describe('QueryService.recent ("Recently added", RELAY step 26e)', () => {
     serveRpc(channel.port1 as unknown as RpcPort, svc.handlers());
     const client = createDataClient(channel.port2 as unknown as RpcPort);
     expect(films(await client.call('recent', { sources: ['a'], kind: 'movie' }))).toEqual(['Film a 0@3', 'Film a 1@2']);
+    db.close();
+  });
+});
+
+describe('QueryService.itemsByKey ("Continue watching", RELAY step 27d)', () => {
+  const names = (items: readonly CatalogItem[]): string[] => items.map((i) => `${i.src}:${i.name}`);
+
+  it('gives the items of the keys asked, in that order, from their chunks; of one kind, from the sources asked', async () => {
+    const { db, svc } = await service(); // cache of 2 chunks
+    await ingest(db, 'a', catalog('a'), { chunkSize: 1 });
+    await ingest(db, 'b', catalog('b'), { chunkSize: 1 });
+    const keys = ['x:b:movie:11', 'x:a:movie:10', 'x:a:series:20', 'x:b:movie:10', 'x:a:live:1'];
+    // Each from its own chunk (one item a chunk), more than the cache holds.
+    expect(names(await svc.itemsByKey({ keys, kind: 'movie', sources: ['a', 'b'], limit: 10 }))).toEqual(['b:Golden River', 'a:News of the World', 'b:News of the World']);
+    expect(names(await svc.itemsByKey({ keys, kind: 'series', sources: ['a', 'b'], limit: 10 }))).toEqual(['a:Breaking News']);
+    // The items as stored, whole.
+    expect(await svc.itemsByKey({ keys: ['x:a:movie:11'], kind: 'movie', sources: ['a'], limit: 1 })).toEqual([catalog('a')[5]]);
+    // A source not asked (removed from the profile), not stored, or with nothing of the kind: nothing.
+    expect(names(await svc.itemsByKey({ keys, kind: 'movie', sources: ['a'], limit: 10 }))).toEqual(['a:News of the World']);
+    expect(await svc.itemsByKey({ keys: ['x:zz:movie:10'], kind: 'movie', sources: ['zz'], limit: 10 })).toEqual([]);
+    // Keys that aren't in the catalog: a show's episode, an item gone, a broken key, another kind's.
+    const none = ['x:a:episode:3001', 'x:a:movie:99', 'nonsense', '', 'x:a:live:1'];
+    expect(await svc.itemsByKey({ keys: none, kind: 'movie', sources: ['a', ''], limit: 10 })).toEqual([]);
+    db.close();
+  });
+
+  it('gives the first `limit` found, a key asked twice once, and refuses a larger or broken limit', async () => {
+    const { db, svc } = await service();
+    await ingest(db, 'a', catalog('a'));
+    const keys = ['x:a:movie:99', 'x:a:movie:11', 'x:a:movie:11', 'x:a:live:1', 'x:a:movie:10'];
+    expect(names(await svc.itemsByKey({ keys, kind: 'movie', sources: ['a'], limit: 1 }))).toEqual(['a:Golden River']);
+    expect(names(await svc.itemsByKey({ keys, kind: 'movie', sources: ['a'], limit: 2 }))).toEqual(['a:Golden River', 'a:News of the World']);
+    expect(await svc.itemsByKey({ keys, kind: 'movie', sources: ['a'], limit: 0 })).toEqual([]);
+    expect(KEY_ITEMS_MAX).toBe(100);
+    expect(await svc.itemsByKey({ keys, kind: 'movie', sources: ['a'], limit: KEY_ITEMS_MAX })).toHaveLength(2);
+    for (const limit of [KEY_ITEMS_MAX + 1, -1, 2.5, Number.NaN]) await expect(svc.itemsByKey({ keys, kind: 'movie', sources: ['a'], limit })).rejects.toThrow(RangeError);
+    db.close();
+  });
+
+  it("reads the generation it loaded until it reloads; a key whose hash only collides gives nothing", async () => {
+    const { db, svc } = await service();
+    await ingest(db, 'a', catalog('a'));
+    expect(names(await svc.itemsByKey({ keys: ['x:a:movie:11'], kind: 'movie', sources: ['a'], limit: 5 }))).toEqual(['a:Golden River']);
+    // A refresh drops the film and renames another: seen after the reload.
+    const next = catalog('a')
+      .filter((i) => i.key !== 'x:a:movie:11')
+      .map((i) => (i.key === 'x:a:movie:10' ? { ...i, name: 'News of the Old World' } : i));
+    await ingest(db, 'a', next);
+    await svc.reload();
+    expect(names(await svc.itemsByKey({ keys: ['x:a:movie:11', 'x:a:movie:10'], kind: 'movie', sources: ['a'], limit: 5 }))).toEqual(['a:News of the Old World']);
+    // The stored item's own key differs from the one asked (as a 53-bit collision would): dropped.
+    const seg = (svc as unknown as { segments: { kind: string; indexOfKey(key: string): number }[] }).segments.find((s) => s.kind === 'movie')!;
+    const real = seg.indexOfKey.bind(seg);
+    seg.indexOfKey = (key: string) => (key === 'x:a:movie:77' ? real('x:a:movie:10') : real(key));
+    expect(names(await svc.itemsByKey({ keys: ['x:a:movie:77', 'x:a:movie:10'], kind: 'movie', sources: ['a'], limit: 1 }))).toEqual([]);
+    expect(names(await svc.itemsByKey({ keys: ['x:a:movie:77', 'x:a:movie:10'], kind: 'movie', sources: ['a'], limit: 2 }))).toEqual(['a:News of the Old World']);
+    db.close();
+  });
+
+  it('answers over RPC (the query worker setup)', async () => {
+    const { db, svc } = await service();
+    await ingest(db, 'a', catalog('a'));
+    const channel = new MessageChannel();
+    opened.push(channel.port1, channel.port2);
+    serveRpc(channel.port1 as unknown as RpcPort, svc.handlers());
+    const client = createDataClient(channel.port2 as unknown as RpcPort);
+    expect(names(await client.call('itemsByKey', { keys: ['x:a:series:20', 'x:a:movie:10'], kind: 'movie', sources: ['a'], limit: 20 }))).toEqual(['a:News of the World']);
     db.close();
   });
 });

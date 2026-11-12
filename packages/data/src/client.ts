@@ -19,6 +19,8 @@ export { INGEST_VERSION } from './ingest-version';
 // "Recently added"'s types (step 26e).
 export type { RecentItem } from './recent';
 export type { RecentRequest } from './query-service';
+// "Continue watching"'s lookup by key (step 27d).
+export type { KeyItemsRequest } from './query-service';
 
 // Cancel tokens and the errors calls reject with (rpc.ts is bundled here anyway): the app cancels
 // a refresh and reads its error code without importing the package index (step 13b).

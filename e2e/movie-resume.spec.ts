@@ -195,14 +195,18 @@ test.describe('resume a movie (RELAY step 26d)', () => {
       await expect(details).toHaveAttribute('data-resume', String(LEFT_MS));
       await expect.poll(() => storedProgress(page)).toEqual({ [BBB]: { positionMs: LEFT_MS, lengthMs: LENGTH_MS, updated: expect.any(Number) } });
 
-      // A relaunch keeps it: the tile's bar, and "Resume from 5:30" first.
+      // A relaunch keeps it: the tile's bar, and "Resume from 5:30" first. (Back from the grid: the
+      // rail on "Recently added", under "Continue watching" since step 27d.)
       await remote.go('BACK', 'movies/grid/0');
-      await remote.go('BACK', 'movies/rail/0');
+      await remote.go('BACK', 'movies/rail/1');
       await remote.go('BACK', 'live/header/1');
       await page.reload();
       await settled(page.getByTestId('live'));
       await remote.expectFocus('live/channels/0');
+      // (It opens on "Continue watching" since step 27d: Big Buck Bunny alone.)
       await openMovies(remote, forward);
+      await expect(page.getByTestId('movies-screen')).toHaveAttribute('data-category', '0');
+      await expect(page.getByTestId('movie-1')).toHaveCount(0);
       await expect.poll(async () => (await tileBar(page, 0))?.pct).toBe(55.4);
       // The panel's read held (a new start asks it again): "Resume" before it comes back.
       holding = true;

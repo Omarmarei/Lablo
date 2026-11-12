@@ -145,6 +145,9 @@ export const EN = {
   'live.failed': "Couldn't read your channels.",
   'live.retry': 'Try again',
 
+  // What was left part way (RELAY step 27d): first in the movies and series rails when there is any.
+  'continue.title': 'Continue watching',
+
   // The movies screen (RELAY step 26a).
   'movies.open': 'Movies',
   'movies.title': 'Movies',

@@ -55,8 +55,10 @@ export const POSTER_TEST_IDS: Readonly<Record<PosterKind, { readonly screen: str
   series: { screen: 'series', tile: 'show' },
 };
 
-/** A rail entry's label: our own words for "Recently added", "All movies" and a nameless group, else the provider's. */
+/** A rail entry's label: our own words for "Continue watching", "Recently added", "All movies" and a nameless group, else the provider's. */
 function entryLabel(entry: MovieEntry, t: AppI18n['t'], words: Words): { label: string; data: boolean } {
+  // (Step 27d: the same words for both kinds.)
+  if (entry.kind === 'continue') return { label: t('continue.title'), data: false };
   if (entry.kind === 'recent') return { label: t(words.recent), data: false };
   if (entry.kind === 'all') return { label: t(words.all), data: false };
   if (entry.name === '') return { label: t(words.noGroup), data: false };

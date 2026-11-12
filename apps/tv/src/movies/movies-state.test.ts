@@ -1,6 +1,6 @@
 import { effect, signal } from '@preact/signals';
 import type { CatalogItem, ContentKind, DeviceTier } from '@lablo/core';
-import type { CategoryInfo, LoadedProfile, RecentItem, RecentRequest, SourceRecord } from '@lablo/data';
+import type { CategoryInfo, KeyItemsRequest, LoadedProfile, RecentItem, RecentRequest, SourceRecord } from '@lablo/data';
 import type { Intent } from '@lablo/platform-api';
 import { LAYOUT, createNavigator, fits } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
@@ -8,6 +8,7 @@ import type { Timers } from '../live/live-state';
 import { CHUNK_CACHE, LIVE, LIVE_BODY } from '../live/live-state';
 import type { MoviesEngine, MoviesOptions, PosterKind } from './movies-state';
 import {
+  CONTINUE_MAX,
   MOVIES,
   MOVIES_GRID,
   MOVIES_GRID_WIDTH,
@@ -68,8 +69,13 @@ class FakeEngine implements MoviesEngine {
   profileDoc: LoadedProfile | null = { doc: { v: 2, sources: [S1, S2] }, newer: false, migratedFrom: null };
   failProfile = false;
   failChunks = false;
-  hold = new Set<'profile' | 'chunk' | 'recent'>();
-  readonly held: { profile: Held<LoadedProfile | null>[]; chunk: Held<CatalogItem[]>[]; recent: Held<RecentItem[]>[] } = { profile: [], chunk: [], recent: [] };
+  hold = new Set<'profile' | 'chunk' | 'recent' | 'keys'>();
+  readonly held: { profile: Held<LoadedProfile | null>[]; chunk: Held<CatalogItem[]>[]; recent: Held<RecentItem[]>[]; keys: Held<CatalogItem[]>[] } = {
+    profile: [],
+    chunk: [],
+    recent: [],
+    keys: [],
+  };
   readonly chunkCalls: string[] = [];
   /** The newest movies `recent` gives (step 26e; default none, as for playlists). */
   newest: RecentItem[] = [];
@@ -82,6 +88,10 @@ class FakeEngine implements MoviesEngine {
   kind: ContentKind = 'movie';
   /** The kinds asked, in order (step 27a). */
   readonly kinds: ContentKind[] = [];
+  /** The catalog's items by key, as `itemsByKey` finds them (step 27d; default none). */
+  known: Record<string, CatalogItem> = {};
+  failKeys = false;
+  readonly keyCalls: KeyItemsRequest[] = [];
 
   /** The items of a chunk of the catalog as it is now. */
   items(src: string, catIdx: number, chunk: number): CatalogItem[] {
@@ -106,6 +116,19 @@ class FakeEngine implements MoviesEngine {
     this.recentCalls.push(req);
     if (this.hold.has('recent')) return new Promise((resolve, reject) => this.held.recent.push({ arg: '', resolve, reject }));
     return this.failRecent ? Promise.reject(new Error('read failed')) : Promise.resolve(this.newest.slice());
+  }
+
+  /** As the query worker: the first `limit` keys known, of the sources asked, in the order asked. */
+  itemsByKey(req: KeyItemsRequest): Promise<CatalogItem[]> {
+    this.keyCalls.push(req);
+    expect(req.kind).toBe(this.kind);
+    const found: CatalogItem[] = [];
+    for (const key of req.keys) {
+      const item = this.known[key];
+      if (item !== undefined && req.sources.indexOf(item.src) !== -1 && found.length < req.limit) found.push(item);
+    }
+    if (this.hold.has('keys')) return new Promise((resolve, reject) => this.held.keys.push({ arg: req.keys.join(' '), resolve, reject }));
+    return this.failKeys ? Promise.reject(new Error('read failed')) : Promise.resolve(found);
   }
 
   chunk(src: string, kind: ContentKind, catIdx: number, chunk: number): Promise<CatalogItem[]> {
@@ -775,6 +798,7 @@ describe("the movies screen: the tiles' bars (RELAY step 26d)", () => {
           asked.push(key);
           return shares[key];
         },
+        unfinished: () => [],
       },
     });
     expect(t.movies.progress(0)).toBeUndefined();
@@ -899,7 +923,7 @@ describe('the movies screen: "Recently added" (RELAY step 26e)', () => {
   it("gives OK on one of its movies to `select`, and draws that movie's bar", async () => {
     const select = vi.fn();
     const version = signal(0);
-    const t = await withNewest(20, { select, progress: { version, share: (key) => (key === 'x:s1:movie:new-1' ? 0.5 : undefined) } });
+    const t = await withNewest(20, { select, progress: { version, share: (key) => (key === 'x:s1:movie:new-1' ? 0.5 : undefined), unfinished: () => [] } });
     await t.press('RIGHT', 'OK');
     expect(select).toHaveBeenCalledTimes(1);
     expect(select.mock.calls[0]![0]).toMatchObject({ key: 'x:s1:movie:new-1', name: 'Movie new 1' });
@@ -1150,5 +1174,332 @@ describe('the series screen: the movies screen for series (RELAY step 27a)', () 
     expect(label('Show S1234 E1')).toBe('Show S1234 E1');
     expect(label('Show S1 E12345')).toBe('Show S1 E12345');
     expect(label('')).toBe('');
+  });
+});
+
+describe('the movies screen: "Continue watching" (RELAY step 27d)', () => {
+  /** Film `n` left part way, of source `src`. */
+  const left = (src: string, n: number): CatalogItem => ({ ...movie(src, 8, n), key: `x:${src}:movie:cw-${n}`, name: `Movie cw ${n}` });
+  const CW = [left('s2', 0), left('s1', 1), left('s1', 2)];
+  const key = (n: number): string => CW[n]!.key;
+
+  /** The places as `unfinished` gives them; `set` changes them as a save does (the version bumps). */
+  function places(keys: string[]) {
+    const version = signal(0);
+    let list = keys;
+    const shares: Record<string, number> = {};
+    return {
+      progress: { version, share: (k: string) => shares[k], unfinished: () => list.slice() },
+      shares,
+      set(next: string[]): void {
+        list = next;
+        version.value += 1;
+      },
+    };
+  }
+
+  async function withPlaces(keys: string[], recent = 3, kind?: PosterKind) {
+    const engine = new FakeEngine();
+    if (kind !== undefined) engine.kind = kind;
+    for (const item of CW) engine.known[item.key] = kind === undefined ? item : { ...item, kind };
+    const dated: RecentItem[] = [];
+    for (let n = 0; n < recent; n += 1) dated.push({ added: 100 - n, item: { ...movie('s2', 9, n), key: `x:s2:movie:new-${n}`, name: `Movie new ${n}` } });
+    engine.newest = dated;
+    const kept = places(keys);
+    const select = vi.fn();
+    const t = await setup({ engine, progress: kept.progress, select, ...(kind === undefined ? {} : { kind }) });
+    /** The details over the screen, then closed onto it: the screen is back on top. */
+    const away = async (next: string[]): Promise<void> => {
+      t.nav.push({ id: 'movie', zones: [{ kind: 'list', id: 'actions', axis: 'horizontal', count: 2 }] });
+      await flush();
+      kept.set(next);
+      await flush();
+      t.nav.pop();
+      await flush();
+    };
+    return { ...t, kept, select, away };
+  }
+  const rail = (t: { movies: { rail: { value: readonly { kind: string; name: string; count: number }[] } } }): string[] => t.movies.rail.value.map((e) => `${e.kind}:${e.name}:${e.count}`);
+
+  it('opens on it: what was left part way, newest first, before "Recently added"; at most 20, of the stored sources', async () => {
+    const t = await withPlaces([key(0), 'x:s1:episode:3001', key(1), 'x:s9:movie:cw-9', key(2)]);
+    expect(rail(t)).toEqual(['continue::3', 'recent::3', 'all::744', 'category:Action:40', 'category:Drama:700', 'category:Kids:4']);
+    expect(t.movies.rail.value[0]!.parts).toEqual([]);
+    expect(t.movies.category.value).toBe(0);
+    expect(t.at()).toBe('movies · grid 0');
+    expect(t.movies.screen.value!.zone(MOVIES_GRID)).toMatchObject({ kind: 'grid', count: 3 });
+    expect(t.tiles(0, 4)).toEqual(['cw 0', 'cw 1', 'cw 2', '…']);
+    // Asked once, with every key left part way, of this kind, from the profile's sources.
+    expect(CONTINUE_MAX).toBe(20);
+    expect(t.engine.keyCalls).toEqual([{ keys: [key(0), 'x:s1:episode:3001', key(1), 'x:s9:movie:cw-9', key(2)], kind: 'movie', sources: ['s1', 's2'], limit: CONTINUE_MAX }]);
+    // No chunk for it; its posters at the rest; OK on one to `select`; its bars.
+    expect(t.engine.chunkCalls).toEqual([]);
+    await t.rest();
+    expect(t.withPosters(0, 3)).toEqual([0, 1, 2]);
+    t.kept.shares[key(1)] = 0.4;
+    expect(t.movies.progress(1)).toBe(0.4);
+    await t.press('RIGHT', 'OK');
+    expect(t.select).toHaveBeenCalledWith(CW[1]);
+    // To "Recently added" and back.
+    await t.press('LEFT', 'LEFT', 'DOWN', 'OK');
+    expect(t.tiles(0, 1)).toEqual(['new 0']);
+    await t.press('LEFT', 'UP', 'OK');
+    expect(t.tiles(0, 1)).toEqual(['cw 0']);
+    // Nothing held once closed.
+    await t.press('BACK', 'BACK');
+    expect(t.movies.screen.value).toBeNull();
+    expect(t.movies.movie(0)).toBeNull();
+  });
+
+  it('has no entry when nothing was left part way, or the catalogs list none of it; asks nothing with no places', async () => {
+    const none = await withPlaces([]);
+    expect(rail(none)[0]).toBe('recent::3');
+    expect(none.engine.keyCalls).toEqual([]);
+    const gone = await withPlaces(['x:s1:movie:99', 'x:s1:episode:3001']);
+    expect(rail(gone)[0]).toBe('recent::3');
+    expect(gone.engine.keyCalls).toHaveLength(1);
+    const plain = await setup();
+    expect(plain.movies.rail.value[0]!.kind).toBe('all');
+    expect(plain.engine.keyCalls).toEqual([]);
+  });
+
+  it("asks for the series screen's kind there", async () => {
+    const t = await withPlaces([key(2), key(0)], 0, 'series');
+    expect(t.engine.keyCalls[0]).toMatchObject({ kind: 'series', limit: CONTINUE_MAX });
+    expect(rail(t)[0]).toBe('continue::2');
+    expect(t.movies.id).toBe(SERIES_SCREEN);
+  });
+
+  it('comes when the screen is back on top after a save; the entry on show and the focus stay', async () => {
+    const t = await withPlaces([]);
+    await t.press('RIGHT');
+    expect(t.at()).toBe('movies · grid 1');
+    // Covered: nothing read. Back on top: read once.
+    t.nav.push({ id: 'movie', zones: [{ kind: 'list', id: 'actions', axis: 'horizontal', count: 2 }] });
+    t.kept.set([key(1)]);
+    await flush();
+    expect(t.engine.keyCalls).toEqual([]);
+    t.nav.pop();
+    await flush();
+    expect(t.engine.keyCalls).toHaveLength(1);
+    expect(rail(t).slice(0, 2)).toEqual(['continue::1', 'recent::3']);
+    expect(t.movies.category.value).toBe(1);
+    expect(t.at()).toBe('movies · grid 1');
+    expect(t.tiles(0, 2)).toEqual(['new 0', 'new 1']);
+    // Keys with no new save: no read.
+    await t.press('LEFT', 'RIGHT');
+    expect(t.engine.keyCalls).toHaveLength(1);
+    // Back from the grid: the rail on the entry on show, which moved down one.
+    await t.press('BACK');
+    expect(t.at()).toBe('movies · rail 1');
+    // The rail's place moves with its entries: the entry goes again while the rail has the focus.
+    await t.press('DOWN');
+    await t.away([]);
+    expect(rail(t)[0]).toBe('recent::3');
+    expect(t.movies.category.value).toBe(0);
+    expect(t.at()).toBe('movies · rail 1');
+    // It comes back: down one; it goes with the rail's focus on it: the first entry.
+    await t.press('UP');
+    await t.away([key(0)]);
+    expect(t.movies.category.value).toBe(1);
+    expect(t.at()).toBe('movies · rail 1');
+    await t.press('UP');
+    expect(t.at()).toBe('movies · rail 0');
+    await t.away([]);
+    expect(t.movies.category.value).toBe(0);
+    expect(t.at()).toBe('movies · rail 0');
+    // From the grid: the grid keeps the focus, the rail its entry.
+    await t.press('UP', 'OK', 'RIGHT');
+    await t.away([key(0)]);
+    expect(t.at()).toBe('movies · grid 1');
+    await t.press('LEFT', 'LEFT');
+    expect(t.at()).toBe('movies · rail 1');
+  });
+
+  it('in "Continue watching", the focus follows its item; one gone keeps its place; the entry gone, the first entry', async () => {
+    const t = await withPlaces([key(0), key(1), key(2)]);
+    await t.press('RIGHT', 'RIGHT');
+    expect(t.at()).toBe('movies · grid 2');
+    // Film 2 played again: first, the focus with it.
+    await t.away([key(2), key(0), key(1)]);
+    expect(t.tiles(0, 3)).toEqual(['cw 2', 'cw 0', 'cw 1']);
+    expect(t.at()).toBe('movies · grid 0');
+    expect(t.movies.category.value).toBe(0);
+    // Its new list's posters at the rest.
+    expect(t.movies.pending.value).toBeGreaterThan(0);
+    await t.rest();
+    expect(t.withPosters(0, 3)).toEqual([0, 1, 2]);
+    // Film 0 watched: gone; the focus keeps its index, on what comes there.
+    await t.press('RIGHT');
+    await t.away([key(1), key(2)]);
+    expect(t.tiles(0, 3)).toEqual(['cw 1', 'cw 2', '…']);
+    expect(t.at()).toBe('movies · grid 1');
+    // On the rail: it stays there.
+    await t.press('LEFT', 'LEFT', 'DOWN', 'DOWN');
+    expect(t.at()).toBe('movies · rail 2');
+    await t.away([key(1), key(0)]);
+    expect(t.at()).toBe('movies · rail 2');
+    expect(t.movies.category.value).toBe(0);
+    expect(t.tiles(0, 2)).toEqual(['cw 1', 'cw 0']);
+    // All watched: "Recently added" from its first film, the rail's focus on it.
+    await t.away([]);
+    expect(rail(t)[0]).toBe('recent::3');
+    expect(t.movies.category.value).toBe(0);
+    expect(t.at()).toBe('movies · rail 0');
+    expect(t.tiles(0, 1)).toEqual(['new 0']);
+    // From the grid, the same.
+    await t.away([key(0)]);
+    await t.press('UP', 'OK');
+    expect(t.at()).toBe('movies · grid 0');
+    expect(t.tiles(0, 1)).toEqual(['cw 0']);
+    await t.away([]);
+    expect(t.at()).toBe('movies · grid 0');
+    expect(t.tiles(0, 1)).toEqual(['new 0']);
+  });
+
+  it('asks the posters of a new list at the rest when the focus keeps its place', async () => {
+    const engine = new FakeEngine();
+    const many: string[] = [];
+    for (let n = 0; n < 19; n += 1) {
+      const item = left('s1', n);
+      engine.known[item.key] = item;
+      many.push(item.key);
+    }
+    const kept = places(many);
+    const t = await setup({ engine, progress: kept.progress });
+    await t.rest();
+    t.loadAll(0, 19);
+    // Three rows in view: the 19th film's poster isn't asked.
+    expect(t.withPosters(0, 19)).toEqual(t.range(0, 18));
+    // The first film watched: the focus stays on the first tile, and the 19th comes into view. The
+    // read answers after the rest that coming back on top started.
+    engine.hold = new Set(['keys']);
+    t.nav.push({ id: 'movie', zones: [{ kind: 'list', id: 'actions', axis: 'horizontal', count: 2 }] });
+    kept.set(many.slice(1));
+    t.nav.pop();
+    await t.rest();
+    engine.held.keys.shift()!.resolve(many.slice(1).map((k) => engine.known[k]!));
+    await flush();
+    expect(t.at()).toBe('movies · grid 0');
+    expect(t.tiles(17, 18)).toEqual(['cw 18']);
+    expect(t.withPosters(17, 18)).toEqual([]);
+    await t.rest();
+    t.loadAll(0, 18);
+    expect(t.withPosters(0, 18)).toEqual(t.range(0, 18));
+  });
+
+  it('drops an answer older than the last read', async () => {
+    const t = await withPlaces([key(0)]);
+    t.engine.hold = new Set(['keys']);
+    await t.away([key(1), key(0)]);
+    await t.away([key(2), key(1), key(0)]);
+    expect(t.engine.held.keys).toHaveLength(2);
+    t.engine.held.keys.pop()!.resolve([CW[2]!, CW[1]!, CW[0]!]);
+    await flush();
+    expect(t.tiles(0, 3)).toEqual(['cw 2', 'cw 1', 'cw 0']);
+    t.engine.held.keys.pop()!.resolve([CW[1]!, CW[0]!]);
+    await flush();
+    expect(t.tiles(0, 3)).toEqual(['cw 2', 'cw 1', 'cw 0']);
+  });
+
+  it('says so when nothing is left once it goes (a screen of it alone)', async () => {
+    const engine = new FakeEngine();
+    engine.catalog = { s1: [], s2: [] };
+    for (const item of CW) engine.known[item.key] = item;
+    const kept = places([key(0)]);
+    const t = await setup({ engine, progress: kept.progress });
+    expect(rail(t)).toEqual(['continue::1']);
+    t.nav.push({ id: 'movie', zones: [{ kind: 'list', id: 'actions', axis: 'horizontal', count: 2 }] });
+    kept.set([]);
+    t.nav.pop();
+    await flush();
+    expect(t.movies.status.value).toBe('empty');
+    expect(t.movies.rail.value).toEqual([]);
+    expect(t.movies.movie(0)).toBeNull();
+    expect(t.movies.screen.value!.zone(MOVIES_GRID)).toMatchObject({ count: 0 });
+  });
+
+  it('drops a read of it alone once a load starts; a failed one leaves the entry; a catalog swap keeps it on show', async () => {
+    const t = await withPlaces([key(0), key(1)]);
+    await t.press('RIGHT');
+    t.engine.hold = new Set(['keys']);
+    await t.away([key(1), key(0)]);
+    expect(t.engine.held.keys).toHaveLength(1);
+    expect(t.movies.pending.value).toBeGreaterThan(0);
+    // A catalog swap reads it too: the first answer is dropped, the swap's taken.
+    t.movies.catalogChanged();
+    await flush();
+    expect(t.engine.held.keys).toHaveLength(2);
+    t.engine.held.keys.shift()!.resolve([CW[2]!]);
+    await flush();
+    expect(t.tiles(0, 2)).toEqual(['cw 0', 'cw 1']);
+    t.engine.held.keys.shift()!.resolve([CW[1]!, CW[0]!]);
+    await flush();
+    expect(t.tiles(0, 2)).toEqual(['cw 1', 'cw 0']);
+    // (A swap keeps the entry and the place, as for any entry.)
+    expect(t.movies.category.value).toBe(0);
+    expect(t.at()).toBe('movies · grid 1');
+    // A failed read: said, the entry as it was, no new read until another save.
+    t.engine.hold = new Set();
+    t.engine.failKeys = true;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await t.away([key(2)]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(t.tiles(0, 2)).toEqual(['cw 1', 'cw 0']);
+    const calls = t.engine.keyCalls.length;
+    await t.press('RIGHT', 'LEFT');
+    expect(t.engine.keyCalls).toHaveLength(calls);
+    warn.mockRestore();
+    // An answer after the screen closed: dropped.
+    t.engine.failKeys = false;
+    t.engine.hold = new Set(['keys']);
+    await t.away([key(0)]);
+    await t.press('BACK', 'BACK', 'BACK');
+    expect(t.movies.screen.value).toBeNull();
+    t.engine.held.keys.shift()!.resolve([CW[0]!]);
+    await flush();
+    expect(t.movies.movie(0)).toBeNull();
+    // Nor after a dispose.
+    t.movies.open();
+    await flush();
+    t.engine.held.keys.shift()!.resolve([CW[0]!]);
+    await flush();
+    expect(t.tiles(0, 1)).toEqual(['cw 0']);
+    await t.away([key(1)]);
+    expect(t.engine.held.keys).toHaveLength(1);
+    t.movies.dispose();
+    t.engine.held.keys.shift()!.resolve([CW[1]!]);
+    await flush();
+    expect(t.movies.movie(0)).toBeNull();
+  });
+
+  it('reads nothing on a screen that failed, or before its load came back', async () => {
+    const engine = new FakeEngine();
+    engine.failProfile = true;
+    for (const item of CW) engine.known[item.key] = item;
+    const kept = places([key(0)]);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const t = await setup({ engine, progress: kept.progress });
+    expect(t.movies.status.value).toBe('failed');
+    t.nav.push({ id: 'movie', zones: [{ kind: 'list', id: 'actions', axis: 'horizontal', count: 2 }] });
+    kept.set([key(1)]);
+    t.nav.pop();
+    await flush();
+    expect(engine.keyCalls).toEqual([]);
+    // Loading: the load reads it itself.
+    engine.failProfile = false;
+    engine.hold = new Set(['profile']);
+    await t.press('OK');
+    expect(t.movies.status.value).toBe('loading');
+    t.nav.push({ id: 'movie', zones: [{ kind: 'list', id: 'actions', axis: 'horizontal', count: 2 }] });
+    kept.set([key(2)]);
+    t.nav.pop();
+    await flush();
+    expect(engine.keyCalls).toEqual([]);
+    engine.held.profile.shift()!.resolve(engine.profileDoc);
+    await flush();
+    expect(engine.keyCalls).toHaveLength(1);
+    expect(t.tiles(0, 1)).toEqual(['cw 2']);
+    warn.mockRestore();
   });
 });

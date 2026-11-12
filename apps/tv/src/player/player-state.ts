@@ -192,6 +192,8 @@ export interface EpisodeMark {
   readonly number: number;
   /** The panel's title (`''`: none). */
   readonly title: string;
+  /** Whether the panel lists an episode after it (step 27d): a watched show stays in "Continue watching" only then. */
+  readonly more: boolean;
 }
 
 /** A movie to play (step 26c), from its details. */
@@ -272,9 +274,9 @@ export interface PlayerOptions {
   /**
    * A movie's position (step 26d): every `SAVE_EVERY_MS` while it plays, and when it fails, ends
    * (`ended`), is left or the app hides. The app keeps it (`movie-progress.ts`). A show's episode
-   * (step 27c1) comes with its show's key.
+   * (step 27c1) comes with its show's key, and whether an episode comes after it (step 27d).
    */
-  readonly progressed?: (item: CatalogItem, positionMs: number, lengthMs: number | null, ended: boolean, show?: ContentKey) => void;
+  readonly progressed?: (item: CatalogItem, positionMs: number, lengthMs: number | null, ended: boolean, show?: ContentKey, more?: boolean) => void;
   /** The app's visibility (`Platform.onLifecycle`): a movie's position is saved as the app hides. */
   readonly lifecycle?: (listener: (event: LifecycleEvent) => void) => () => void;
 }
@@ -676,9 +678,9 @@ export function createPlayer(options: PlayerOptions): Player {
     savedAt = keyClock();
     const at = streamAt();
     const ended = status.value.state === 'ended';
-    // An episode (step 27c1) with its show's key.
+    // An episode (step 27c1) with its show's key, and whether one comes after it (step 27d).
     if (shown.episode === null) options.progressed(shown.item, at, shown.lengthMs, ended);
-    else options.progressed(shown.item, at, shown.lengthMs, ended, shown.episode.show.key);
+    else options.progressed(shown.item, at, shown.lengthMs, ended, shown.episode.show.key, shown.episode.more);
   }
 
   /** The info bar's position: a waiting seek's target, else the stream's (`null` live); a movie's length once the engine knows it. */

@@ -279,8 +279,9 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     sized: (size) => memory.setSubtitleSize(size),
     ...(picture === null ? {} : { picture }),
     pictured: (mode) => memory.setPicture(mode),
-    // Where a movie is (step 26d): every 10 s while it plays, and when it stops, is left or the app hides; an episode's with its show (step 27c1).
-    progressed: (item, positionMs, lengthMs, ended, showKey) => progress.save(item.key, positionMs, lengthMs, ended, showKey),
+    // Where a movie is (step 26d): every 10 s while it plays, and when it stops, is left or the app hides; an episode's with its show (step 27c1),
+    // and whether one comes after it (step 27d: "Continue watching").
+    progressed: (item, positionMs, lengthMs, ended, showKey, more) => progress.save(item.key, positionMs, lengthMs, ended, showKey, more),
     lifecycle: (listener) => platform.onLifecycle(listener),
   });
   if (resume !== null) player.resume({ item: resume.item, number: resume.number }, resume.index);

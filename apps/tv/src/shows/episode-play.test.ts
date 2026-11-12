@@ -79,15 +79,15 @@ describe("an episode's play (RELAY step 27c1)", () => {
     expect(episodeRequest('s2', episode(3011, 2, 1, 'mp4')).candidates).toEqual([{ url: 'http://panel.test/series/u/p/3011.mp4', container: 'mp4' }]);
   });
 
-  it('marks the episode with its season and number, else its place in the season', () => {
-    expect(episodeMark(SHOW, episode(3002, 1, 2), 1)).toEqual({ show: SHOW, season: 1, number: 2, title: 'Episode 3002' });
-    expect(episodeMark(SHOW, episode(3009, 3, null), 4)).toEqual({ show: SHOW, season: 3, number: 5, title: 'Episode 3009' });
+  it('marks the episode with its season and number, else its place in the season, and whether one comes after it', () => {
+    expect(episodeMark(SHOW, episode(3002, 1, 2), 1, true)).toEqual({ show: SHOW, season: 1, number: 2, title: 'Episode 3002', more: true });
+    expect(episodeMark(SHOW, episode(3009, 3, null), 4, false)).toEqual({ show: SHOW, season: 3, number: 5, title: 'Episode 3009', more: false });
   });
 
   it("plays with the panel's length, else the one kept with its place, from where it was left", () => {
     const e = episode(3002, 1, 2);
     const play = episodePlay({ show: SHOW, seasons: SEASONS, place: { season: 0, index: 1 }, kept: none, closed });
-    expect(play).toEqual({ item: episodeItem(SHOW, e), request: episodeRequest('s1', e), lengthMs: 300_000, episode: episodeMark(SHOW, e, 1), closed, next: expect.any(Function) });
+    expect(play).toEqual({ item: episodeItem(SHOW, e), request: episodeRequest('s1', e), lengthMs: 300_000, episode: episodeMark(SHOW, e, 1, true), closed, next: expect.any(Function) });
     expect('fromMs' in play).toBe(false);
     expect(play.closed).toBe(closed);
     // The panel's length first; none (or 0): the one kept with its own place; neither: none.
@@ -99,11 +99,14 @@ describe("an episode's play (RELAY step 27c1)", () => {
     expect(episodePlay({ show: SHOW, ...alone({ ...e, durationSecs: null }), kept: none, closed }).lengthMs).toBeNull();
     expect(episodePlay({ show: SHOW, seasons: SEASONS, place: { season: 0, index: 1 }, kept: none, fromMs: 0, closed }).fromMs).toBe(0);
     // The mark's number: the panel's, else the episode's place in its season.
-    expect(episodePlay({ show: SHOW, ...alone({ ...e, episodeNum: null }, 4), kept: none, closed }).episode).toEqual({ show: SHOW, season: 1, number: 5, title: 'Episode 3002' });
+    expect(episodePlay({ show: SHOW, ...alone({ ...e, episodeNum: null }, 4), kept: none, closed }).episode).toEqual({ show: SHOW, season: 1, number: 5, title: 'Episode 3002', more: false });
     // The episode at the place: season 2's second.
     const s2e2 = episodePlay({ show: SHOW, seasons: SEASONS, place: { season: 1, index: 1 }, kept: none, closed });
     expect(s2e2.item.key).toBe('x:s1:episode:3012');
-    expect(s2e2.episode).toEqual({ show: SHOW, season: 2, number: 2, title: 'Episode 3012' });
+    expect(s2e2.episode).toEqual({ show: SHOW, season: 2, number: 2, title: 'Episode 3012', more: true });
+    // (Step 27d) one comes after each but the show's last: S1 E3 goes on to season 2, season 4's only one ends it.
+    expect(episodePlay({ show: SHOW, seasons: SEASONS, place: { season: 0, index: 2 }, kept: none, closed }).episode!.more).toBe(true);
+    expect(episodePlay({ show: SHOW, seasons: SEASONS, place: { season: 2, index: 0 }, kept: none, closed }).episode!.more).toBe(false);
   });
 });
 
@@ -115,7 +118,7 @@ describe("the next episode's play (RELAY step 27c2)", () => {
     // S1 E3: never played, from its start (the first's start isn't carried on).
     const second = first.next!()!;
     const e3 = SEASONS[0]!.episodes[2]!;
-    expect(second).toEqual({ item: episodeItem(SHOW, e3), request: episodeRequest('s1', e3), lengthMs: 300_000, episode: episodeMark(SHOW, e3, 2), closed, next: expect.any(Function) });
+    expect(second).toEqual({ item: episodeItem(SHOW, e3), request: episodeRequest('s1', e3), lengthMs: 300_000, episode: episodeMark(SHOW, e3, 2, true), closed, next: expect.any(Function) });
     expect('fromMs' in second).toBe(false);
     // Season 2's first, from where it was left.
     const third = second.next!()!;
@@ -128,7 +131,7 @@ describe("the next episode's play (RELAY step 27c2)", () => {
     expect('fromMs' in fourth).toBe(false);
     const fifth = fourth.next!()!;
     expect(fifth.item.key).toBe('x:s1:episode:3031');
-    expect(fifth.episode).toEqual({ show: SHOW, season: 4, number: 1, title: 'Episode 3031' });
+    expect(fifth.episode).toEqual({ show: SHOW, season: 4, number: 1, title: 'Episode 3031', more: false });
     expect(fifth.next!()).toBeNull();
     // The place is read when the next one is asked for: one saved since counts, one taken away goes.
     points['x:s1:episode:3012'] = { positionMs: 70_000, lengthMs: 240_000 };
