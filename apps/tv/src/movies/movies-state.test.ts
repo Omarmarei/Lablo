@@ -1298,6 +1298,16 @@ describe('the movies screen: "Continue watching" (RELAY step 27d)', () => {
     expect(rail(t)[0]).toBe('recent::3');
     expect(t.movies.category.value).toBe(0);
     expect(t.at()).toBe('movies · rail 1');
+    // It comes back: down one; it goes with the rail's focus on it: the first entry.
+    await t.press('UP');
+    await t.away([key(0)]);
+    expect(t.movies.category.value).toBe(1);
+    expect(t.at()).toBe('movies · rail 1');
+    await t.press('UP');
+    expect(t.at()).toBe('movies · rail 0');
+    await t.away([]);
+    expect(t.movies.category.value).toBe(0);
+    expect(t.at()).toBe('movies · rail 0');
     // From the grid: the grid keeps the focus, the rail its entry.
     await t.press('UP', 'OK', 'RIGHT');
     await t.away([key(0)]);
@@ -1347,6 +1357,51 @@ describe('the movies screen: "Continue watching" (RELAY step 27d)', () => {
     expect(t.tiles(0, 1)).toEqual(['new 0']);
   });
 
+  it('asks the posters of a new list at the rest when the focus keeps its place', async () => {
+    const engine = new FakeEngine();
+    const many: string[] = [];
+    for (let n = 0; n < 19; n += 1) {
+      const item = left('s1', n);
+      engine.known[item.key] = item;
+      many.push(item.key);
+    }
+    const kept = places(many);
+    const t = await setup({ engine, progress: kept.progress });
+    await t.rest();
+    t.loadAll(0, 19);
+    // Three rows in view: the 19th film's poster isn't asked.
+    expect(t.withPosters(0, 19)).toEqual(t.range(0, 18));
+    // The first film watched: the focus stays on the first tile, and the 19th comes into view. The
+    // read answers after the rest that coming back on top started.
+    engine.hold = new Set(['keys']);
+    t.nav.push({ id: 'movie', zones: [{ kind: 'list', id: 'actions', axis: 'horizontal', count: 2 }] });
+    kept.set(many.slice(1));
+    t.nav.pop();
+    await t.rest();
+    engine.held.keys.shift()!.resolve(many.slice(1).map((k) => engine.known[k]!));
+    await flush();
+    expect(t.at()).toBe('movies · grid 0');
+    expect(t.tiles(17, 18)).toEqual(['cw 18']);
+    expect(t.withPosters(17, 18)).toEqual([]);
+    await t.rest();
+    t.loadAll(0, 18);
+    expect(t.withPosters(0, 18)).toEqual(t.range(0, 18));
+  });
+
+  it('drops an answer older than the last read', async () => {
+    const t = await withPlaces([key(0)]);
+    t.engine.hold = new Set(['keys']);
+    await t.away([key(1), key(0)]);
+    await t.away([key(2), key(1), key(0)]);
+    expect(t.engine.held.keys).toHaveLength(2);
+    t.engine.held.keys.pop()!.resolve([CW[2]!, CW[1]!, CW[0]!]);
+    await flush();
+    expect(t.tiles(0, 3)).toEqual(['cw 2', 'cw 1', 'cw 0']);
+    t.engine.held.keys.pop()!.resolve([CW[1]!, CW[0]!]);
+    await flush();
+    expect(t.tiles(0, 3)).toEqual(['cw 2', 'cw 1', 'cw 0']);
+  });
+
   it('says so when nothing is left once it goes (a screen of it alone)', async () => {
     const engine = new FakeEngine();
     engine.catalog = { s1: [], s2: [] };
@@ -1365,7 +1420,8 @@ describe('the movies screen: "Continue watching" (RELAY step 27d)', () => {
   });
 
   it('drops a read of it alone once a load starts; a failed one leaves the entry; a catalog swap keeps it on show', async () => {
-    const t = await withPlaces([key(0)]);
+    const t = await withPlaces([key(0), key(1)]);
+    await t.press('RIGHT');
     t.engine.hold = new Set(['keys']);
     await t.away([key(1), key(0)]);
     expect(t.engine.held.keys).toHaveLength(1);
@@ -1376,12 +1432,13 @@ describe('the movies screen: "Continue watching" (RELAY step 27d)', () => {
     expect(t.engine.held.keys).toHaveLength(2);
     t.engine.held.keys.shift()!.resolve([CW[2]!]);
     await flush();
-    expect(t.tiles(0, 1)).toEqual(['cw 0']);
+    expect(t.tiles(0, 2)).toEqual(['cw 0', 'cw 1']);
     t.engine.held.keys.shift()!.resolve([CW[1]!, CW[0]!]);
     await flush();
     expect(t.tiles(0, 2)).toEqual(['cw 1', 'cw 0']);
+    // (A swap keeps the entry and the place, as for any entry.)
     expect(t.movies.category.value).toBe(0);
-    expect(t.at()).toBe('movies · grid 0');
+    expect(t.at()).toBe('movies · grid 1');
     // A failed read: said, the entry as it was, no new read until another save.
     t.engine.hold = new Set();
     t.engine.failKeys = true;
@@ -1402,5 +1459,47 @@ describe('the movies screen: "Continue watching" (RELAY step 27d)', () => {
     t.engine.held.keys.shift()!.resolve([CW[0]!]);
     await flush();
     expect(t.movies.movie(0)).toBeNull();
+    // Nor after a dispose.
+    t.movies.open();
+    await flush();
+    t.engine.held.keys.shift()!.resolve([CW[0]!]);
+    await flush();
+    expect(t.tiles(0, 1)).toEqual(['cw 0']);
+    await t.away([key(1)]);
+    expect(t.engine.held.keys).toHaveLength(1);
+    t.movies.dispose();
+    t.engine.held.keys.shift()!.resolve([CW[1]!]);
+    await flush();
+    expect(t.movies.movie(0)).toBeNull();
+  });
+
+  it('reads nothing on a screen that failed, or before its load came back', async () => {
+    const engine = new FakeEngine();
+    engine.failProfile = true;
+    for (const item of CW) engine.known[item.key] = item;
+    const kept = places([key(0)]);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const t = await setup({ engine, progress: kept.progress });
+    expect(t.movies.status.value).toBe('failed');
+    t.nav.push({ id: 'movie', zones: [{ kind: 'list', id: 'actions', axis: 'horizontal', count: 2 }] });
+    kept.set([key(1)]);
+    t.nav.pop();
+    await flush();
+    expect(engine.keyCalls).toEqual([]);
+    // Loading: the load reads it itself.
+    engine.failProfile = false;
+    engine.hold = new Set(['profile']);
+    await t.press('OK');
+    expect(t.movies.status.value).toBe('loading');
+    t.nav.push({ id: 'movie', zones: [{ kind: 'list', id: 'actions', axis: 'horizontal', count: 2 }] });
+    kept.set([key(2)]);
+    t.nav.pop();
+    await flush();
+    expect(engine.keyCalls).toEqual([]);
+    engine.held.profile.shift()!.resolve(engine.profileDoc);
+    await flush();
+    expect(engine.keyCalls).toHaveLength(1);
+    expect(t.tiles(0, 1)).toEqual(['cw 2']);
+    warn.mockRestore();
   });
 });

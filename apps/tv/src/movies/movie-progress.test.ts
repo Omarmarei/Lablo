@@ -292,7 +292,8 @@ describe('"Continue watching": what was left part way (RELAY step 27d)', () => {
           'x:s1:movie:202': { positionMs: 60_000, lengthMs: 600_000, updated: 50 },
           // No save time (or one that isn't): the oldest.
           'x:s1:movie:203': { positionMs: 60_000, lengthMs: 600_000 },
-          'x:s1:movie:204': { positionMs: 60_000, lengthMs: 600_000, updated: 'x' },
+          'x:s1:movie:204': { positionMs: 60_000, lengthMs: 600_000, updated: '99' },
+          'x:s1:movie:206': { positionMs: 60_000, lengthMs: 600_000, updated: Infinity },
           [E1]: { positionMs: 40_000, lengthMs: 300_000, updated: 40 },
           // Not a place: never listed.
           'x:s1:movie:205': { positionMs: -1, lengthMs: null, updated: 99 },
@@ -312,12 +313,16 @@ describe('"Continue watching": what was left part way (RELAY step 27d)', () => {
       newer: false,
       migratedFrom: null,
     });
-    expect(t.progress.unfinished()).toEqual(['x:s1:movie:202', 'x:s1:series:302', E1, SHOW, 'x:s1:movie:201', 'x:s1:series:305', 'x:s1:movie:203', 'x:s1:movie:204']);
+    expect(t.progress.unfinished()).toEqual(['x:s1:movie:202', 'x:s1:series:302', E1, SHOW, 'x:s1:movie:201', 'x:s1:series:305', 'x:s1:movie:203', 'x:s1:movie:204', 'x:s1:movie:206']);
     // A show listed by its last episode reads the episode's own bar (while it isn't watched); a watched show has none.
     expect(t.progress.share(SHOW)).toBeCloseTo(40 / 300, 5);
     expect(t.progress.share('x:s1:series:302')).toBeUndefined();
     expect(t.progress.share('x:s1:series:305')).toBeUndefined();
     expect(t.progress.share('x:s1:series:999')).toBeUndefined();
+    // A stored answer is kept as it was: the same save again writes nothing.
+    t.progress.save('x:s1:episode:3031', 300_000, 300_000, true, 'x:s1:series:303', false);
+    t.progress.save('x:s1:episode:3022', 300_000, 300_000, true, 'x:s1:series:302', true);
+    expect(t.edits).toEqual([]);
     // Nothing kept: nothing listed.
     t.progress.load(null);
     expect(t.progress.unfinished()).toEqual([]);

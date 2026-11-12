@@ -23,7 +23,7 @@ import type { LoadedProfile, ProfileEdit } from '@lablo/data';
  *   save times kept with the places and the shows. A show goes by its last episode: not watched
  *   (resume it, or start it: a next episode left at once still counts), or watched with an episode
  *   after it (`more`, which the player says with each save). A show's tile draws its last
- *   episode's bar while it isn't watched (`share`).
+ *   episode's bar (`share`: a watched one keeps no place, so none then).
  *
  * Reads never wait: what the start's profile said, plus every change since. A save equal to what
  * is kept writes nothing. A write that fails is logged and kept for the app's run.
@@ -87,7 +87,7 @@ export interface MovieShares {
   point(key: ContentKey): ResumePoint | null;
   /**
    * The share of movie `key` watched, 0–1, for its tile's bar (`undefined`: no position, or no
-   * length); a show's (step 27d), its last episode's while that isn't watched.
+   * length); a show's (step 27d), its last episode's.
    */
   share(key: ContentKey): number | undefined;
   /** Show `show`'s last episode (step 27c1; `null`: none played yet). */
@@ -189,12 +189,12 @@ export function createMovieProgress(options: MovieProgressOptions): MovieProgres
     const kept = entry(show);
     return kept === null ? null : kept.last;
   };
-  /** The place a tile's bar draws: the item's own, else a show's last episode's while it isn't watched (step 27d). */
+  /** The place a tile's bar draws: the item's own, else a show's last episode's (step 27d; a watched one keeps none). */
   const barPoint = (key: ContentKey): ResumePoint | null => {
     const point = own(key);
     if (point !== null) return point;
     const kept = entry(key);
-    return kept === null || kept.last.watched ? null : own(kept.last.episode);
+    return kept === null ? null : own(kept.last.episode);
   };
 
   return {
@@ -260,16 +260,15 @@ export function createMovieProgress(options: MovieProgressOptions): MovieProgres
       const at = now();
       if (!samePoint) {
         const kept: Record<string, ResumePoint> = { ...points };
-        const saved: Record<string, number> = { ...times };
-        if (next === null) {
-          delete kept[key];
-          delete saved[key];
-        } else {
+        if (next === null) delete kept[key];
+        else {
           kept[key] = next;
+          // (A time whose place went is never read: `unfinished` goes by the places.)
+          const saved: Record<string, number> = { ...times };
           saved[key] = at;
+          times = saved;
         }
         points = kept;
-        times = saved;
       }
       const progress = next === null ? null : { positionMs: next.positionMs, lengthMs: next.lengthMs, updated: at };
       let edit: ProfileEdit = { kind: 'progress', key, progress };

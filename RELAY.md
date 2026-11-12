@@ -1290,6 +1290,21 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
   - **Where:** first in the movies rail and in the series rail (before "Recently added"/"Recently updated") when it has items; step 28's Home shows it too.
   - **Decide:** how a tile gets its item from a key (the profile keeps no item; the query worker has no lookup by key): keep a small copy of the item with the place, or a query that reads the items by key.
   - **Done when:** unit tests (the order, the cap, a watched show with and without a next episode, a removed source); e2e in English and Arabic (leave a movie and an episode part way, both in "Continue watching", OK resumes); plus the common items.
+  - **Not split** (leg 75): one PR, the data first in its own commit.
+  - **Decided in leg 75 (not gates):**
+    - **A lookup by key in the query worker, not a copy of each item in the profile:** the loaded search segments already map every key to its chunk (`indexOfKey`, `chunkOf`), so `QueryService.itemsByKey` costs a binary search per key and one read per chunk found, with each item's own key checked. A copy would grow the profile (written every 10 s while playing) by a title, poster and URL per place, go stale, and still need the sources to drop a removed one. No profile version bump.
+    - **"A next episode" is saved with the show's entry** (`ShowProgress.more`, optional, no migration): the player knows it from the details' seasons at each save; no `get_series_info` per watched show when the list is read. An entry from before is taken as the show's last. A show finished to its last episode isn't listed again when the panel adds one ("Recently updated" lists it).
+    - **OK on a tile opens its details** (on "Resume from", or on the episode to resume or the next one), not the player: the details already land there, and a watched show's next episode needs its seasons.
+    - **A show whose last episode was left in its first 10 s is listed** (from that episode's start): auto-next's countdown starts the next episode, and a viewer who stops it at once is still in the show.
+    - **The entry is read with the categories, and again when the screen is back on top after a save** (not on every save while the player plays over it). The entry on show stays on show; in "Continue watching" the focus follows its item.
+    - **One catalog key for both screens** (`continue.title`): step 28's Home says it too.
+  - **Done in leg 75** (architecture.md §1.2 "Built in step 27d"):
+    - **The data:** `QueryService.itemsByKey` / `DataEngine.itemsByKey` (keys in order, one kind, the sources asked, the first `limit` found, at most 100); `ShowProgress.more`; `EpisodeMark.more` and the player's save with it.
+    - **The app:** `MovieProgress.unfinished()` (newest first by save time, then key; a merge, no `Array.sort` in the TV bundle) and a show's bar from its last episode; the movies and series rails' first entry "Continue watching" (at most 20, `CONTINUE_MAX`), held like "Recently added", read again when the screen is back on top after a save (`refreshContinued`).
+    - **Tests:** 4,549 unit tests (+22); e2e `continue-watching.spec.ts` (en-US, ar-SA); `movie-resume`, `movie-details`, `show-details` and `episode-resume` follow the rail's new first entry. Screenshots `continue-movies-*`, `continue-series-*` looked at.
+    - **Mutation:** `artifacts/mutate27d.py` 83 written first (writing it took out seven never-failing guards and added six tests); 80 caught: one more redundant `Math.max` taken out, two test gaps closed, re-run 3/3 (`mutate27d-b.log`). `artifacts/mutate27d-e2e.py` 7/7 (the label, both catalogs, the engine's call, both screens' places and the save's `more` in `main.tsx`).
+    - **Size:** main 394.6 → 397.1 KB (Tizen), 381.9 → 384.4 KB (webOS); query worker 115.4 → 116.2 KB; 219 core-js modules on both.
+    - **Verify:** locally lint, typecheck, unit 4,549, both TV builds, `pnpm e2e` 120/120, `e2e:media` 14/14, `verify:engines` on Chromium 53 and 68 16/16 (the walk's fixture is a playlist: nothing played, no "Continue watching").
 - [ ] 28. **Search and Home.** Global search UI (≤ 300 ms with 200k items) and the Home screen.
 
 ### Phase 8: Backend (local development until step 34)

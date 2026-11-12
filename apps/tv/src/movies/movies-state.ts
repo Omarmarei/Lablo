@@ -395,12 +395,12 @@ export function createMovies(options: MoviesOptions): Movies {
   };
 
   /** The stored sources, each one's movie categories, the newest movies across them, and what was left part way. */
-  const readSources = async (): Promise<{ records: SourceRecord[]; lists: CategoryInfo[][]; newest: RecentItem[]; left: CatalogItem[] }> => {
+  const readSources = async (): Promise<{ records: SourceRecord[]; ids: string[]; lists: CategoryInfo[][]; newest: RecentItem[]; left: CatalogItem[] }> => {
     const records = storedSources(await engine.profile());
     const ids: string[] = [];
     for (const r of records) ids.push(r.id);
     const read = await Promise.all([Promise.all(records.map((r) => engine.categories(r.id, kind))), engine.recent({ sources: ids, kind }), readContinued(ids)] as const);
-    return { records, lists: read[0], newest: read[1], left: read[2] };
+    return { records, ids, lists: read[0], newest: read[1], left: read[2] };
   };
 
   /** The rail entry on show, as a catalog swap finds it again (`null`: nothing yet). */
@@ -427,7 +427,7 @@ export function createMovies(options: MoviesOptions): Movies {
       screen.value?.update(retryZone(0));
     }
     track(readSources).then(
-      ({ records, lists, newest, left }) => {
+      ({ records, ids, lists, newest, left }) => {
         const shown = screen.value;
         if (disposed || mine !== seq || shown === null) return;
         const entries: MovieEntry[] = [];
@@ -439,8 +439,7 @@ export function createMovies(options: MoviesOptions): Movies {
         recent = [];
         for (const r of newest) recent.push(r.item);
         continued = left;
-        sourceIds = [];
-        for (const r of records) sourceIds.push(r.id);
+        sourceIds = ids;
         playlists = [];
         for (const r of records) if (r.type === 'm3u') playlists.push(r.id);
         held = null;
@@ -499,7 +498,7 @@ export function createMovies(options: MoviesOptions): Movies {
     const railAt = shown.position(MOVIES_RAIL).index;
     const gridAt = shown.position(MOVIES_GRID).index;
     const onContinue = had && category.value === 0;
-    const followed = onContinue && gridAt >= 0 ? continued[gridAt] : undefined;
+    const followed = onContinue ? continued[gridAt] : undefined;
     continued = items;
     rail.value = entries;
     shown.update(railZone(entries.length));
@@ -518,16 +517,16 @@ export function createMovies(options: MoviesOptions): Movies {
       let place = gridAt;
       if (followed !== undefined) for (let i = 0; i < items.length; i += 1) if (items[i]!.key === followed.key) place = i;
       // The rail keeps its place (the entry stays first); the grid takes the new list.
-      showCategory(0, Math.max(0, place));
+      showCategory(0, place);
       if (active === MOVIES_RAIL) shown.focus(MOVIES_RAIL, railAt);
-    } else if (shift !== 0) {
+    } else {
       category.value += shift;
-      // The rail's place moves with its entries; the focus stays in its zone.
-      shown.focus(MOVIES_RAIL, Math.max(0, railAt + shift));
+      // The rail's place moves with its entries (the navigator clamps it to the first); the focus stays in its zone.
+      shown.focus(MOVIES_RAIL, railAt + shift);
       if (active === MOVIES_GRID) shown.focus(MOVIES_GRID, gridAt);
     }
     bump();
-    // (A new list's posters come at the rest.)
+    // A new list's posters come at the rest: a focus that kept its place told nobody.
     if (held !== null) scheduleRest();
   };
 
@@ -539,13 +538,12 @@ export function createMovies(options: MoviesOptions): Movies {
     const mine = continueSeq;
     track(() => readContinued(sourceIds)).then(
       (items) => {
-        if (disposed || mine !== continueSeq || screen.value === null || status.value !== 'ready') return;
+        // (A load since, which a new status always comes with, bumped the number.)
+        if (disposed || mine !== continueSeq || screen.value === null) return;
         applyContinued(items);
       },
       // (The next open reads it again.)
-      (error: unknown) => {
-        if (!disposed) console.warn('"Continue watching" could not be read', error);
-      },
+      (error: unknown) => console.warn('"Continue watching" could not be read', error),
     );
   };
 
@@ -556,7 +554,6 @@ export function createMovies(options: MoviesOptions): Movies {
     screen.value = null;
     chunks.clear();
     recent = [];
-    continued = [];
     held = null;
     loadingChunks.clear();
     posters.clear();
@@ -665,7 +662,6 @@ export function createMovies(options: MoviesOptions): Movies {
       stopFollowing();
       chunks.clear();
       recent = [];
-      continued = [];
       held = null;
       posters.clear();
       syncPending();

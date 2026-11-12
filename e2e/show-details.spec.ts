@@ -280,7 +280,8 @@ test.describe("a show's details (RELAY step 27b)", () => {
       await page.screenshot({ path: path.join(SHOTS, `show-details-arabic-${locale}.png`), animations: 'disabled' });
       await remote.go('BACK', 'show/seasons/0');
       await remote.go('BACK', 'series/grid/0');
-      await remote.go('BACK', 'series/rail/0');
+      // (The rail on "Recently updated", under "Continue watching" since step 27d: S2 E2 played.)
+      await remote.go('BACK', 'series/rail/1');
       await remote.go('BACK', 'live/header/2');
       expect(errors.filter((e) => !/Failed to load resource/.test(e))).toEqual([]);
     });

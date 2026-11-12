@@ -184,7 +184,8 @@ test.describe("a movie's details and playing it (RELAY step 26c)", () => {
       await expect.poll(() => plain(page, 'movie-facts')).toBe(says.facts);
       expect(infoAsked).toEqual(['201', '202']);
       await remote.go('BACK', 'movies/grid/0');
-      await remote.go('BACK', 'movies/rail/0');
+      // (The rail on "Recently added", under "Continue watching" since step 27d: Big Buck Bunny's seek kept a place.)
+      await remote.go('BACK', 'movies/rail/1');
       await remote.go('BACK', 'live/header/1');
       expect(errors.filter((e) => !/Failed to load resource/.test(e))).toEqual([]);
     });

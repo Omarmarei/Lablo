@@ -74,14 +74,18 @@ async function rowBar(page: Page, index: number): Promise<{ pct: number; fill: {
   return { pct: Number(await bar.getAttribute('aria-valuenow')), fill: { x: fill.x, width: fill.width }, track: { x: track.x, width: track.width } };
 }
 
-/** From the live list: the header's "Series", the grid ("Recently updated": 302, then 301), and OK on 301. */
-async function openShow(remote: RemoteDriver, forward: 'LEFT' | 'RIGHT', focus: string): Promise<void> {
+/**
+ * From the live list: the header's "Series", the grid, and OK on 301: the second tile of
+ * "Recently updated" (302, then 301), or the first of "Continue watching" once it was played
+ * (step 27d: the screen opens on it).
+ */
+async function openShow(remote: RemoteDriver, forward: 'LEFT' | 'RIGHT', focus: string, played = false): Promise<void> {
   await remote.go('UP', 'live/header/0');
   await remote.go(forward, 'live/header/1');
   await remote.go(forward, 'live/header/2');
   await remote.go('OK', 'series/grid/0');
   await settled(remote.page.getByTestId('series-screen'));
-  await remote.go(forward, 'series/grid/1');
+  if (!played) await remote.go(forward, 'series/grid/1');
   await remote.press('OK');
   await expect(remote.page.getByTestId('show-details')).toHaveAttribute('data-status', 'read');
   await remote.expectFocus(focus);
@@ -189,15 +193,16 @@ test.describe("playing a show's episode, and resuming it (RELAY step 27c1)", () 
       await remote.go('OK', 'show/episodes/1');
       await expect(details).toHaveAttribute('data-season', '0');
 
-      // A relaunch keeps it all.
+      // A relaunch keeps it all. (Back from the grid: the rail on "Recently updated", under
+      // "Continue watching" since step 27d; the relaunch opens on it, the show first.)
       await remote.go('BACK', 'show/seasons/0');
       await remote.go('BACK', 'series/grid/1');
-      await remote.go('BACK', 'series/rail/0');
+      await remote.go('BACK', 'series/rail/1');
       await remote.go('BACK', 'live/header/2');
       await page.reload();
       await settled(page.getByTestId('live'));
       await remote.expectFocus('live/channels/0');
-      await openShow(remote, forward, 'show/episodes/1');
+      await openShow(remote, forward, 'show/episodes/1', true);
       await expect(page.getByTestId('episode-1')).toHaveAttribute('data-resume', String(LEFT_MS));
       await expect.poll(async () => (await rowBar(page, 1))?.pct).toBe(13.3);
 
@@ -215,7 +220,8 @@ test.describe("playing a show's episode, and resuming it (RELAY step 27c1)", () 
       const kept = (await stored(page))!;
       expect(Object.keys(kept.progress!)).toEqual([E2]);
       await remote.go('UP', 'show/seasons/1');
-      await remote.go('BACK', 'series/grid/1');
+      // (Watched with S2 E1 after it: still first in "Continue watching".)
+      await remote.go('BACK', 'series/grid/0');
       expect(errors.filter((e) => !/Failed to load resource/.test(e))).toEqual([]);
     });
   }

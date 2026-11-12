@@ -145,12 +145,13 @@ export const EN = {
   'live.failed': "Couldn't read your channels.",
   'live.retry': 'Try again',
 
+  // What was left part way (RELAY step 27d): first in the movies and series rails when there is any.
+  'continue.title': 'Continue watching',
+
   // The movies screen (RELAY step 26a).
   'movies.open': 'Movies',
   'movies.title': 'Movies',
   'movies.all': 'All movies',
-  // What was left part way (RELAY step 27d), first in the rail when there is any.
-  'movies.continue': 'Continue watching',
   // The newest movies of the panels (RELAY step 26e), first in the rail.
   'movies.recent': 'Recently added',
   'movies.count': '{n, plural, one {# movie} other {# movies}}',
@@ -163,8 +164,6 @@ export const EN = {
   'series.open': 'Series',
   'series.title': 'Series',
   'series.all': 'All series',
-  // The shows and episodes left part way (RELAY step 27d), first in the rail when there are any.
-  'series.continue': 'Continue watching',
   // The shows a panel changed last (a new episode changes its date), first in the rail.
   'series.recent': 'Recently updated',
   'series.count': '{n, plural, one {# series} other {# series}}',
