@@ -2,13 +2,14 @@ import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
 import type { CatalogItem, ContentKey } from '@lablo/core';
 import type { EpgNowNext } from '@lablo/data';
-import type { Intent } from '@lablo/platform-api';
+import type { Intent, LifecycleEvent } from '@lablo/platform-api';
 import { DIGIT_INTENTS } from '@lablo/platform-api';
 import type { PictureMode, PlayerStatus, PlayOptions, PlayRequest, StreamStats, SubtitleView } from '@lablo/player';
 import { NO_TRACKS, nextPicture, streamCandidates } from '@lablo/player';
 import type { Focus, Navigator, Screen, ZoneSpec } from '@lablo/ui';
 import type { LiveRow, Timers } from '../live/live-state';
 import { mark } from '../marks';
+import { SAVE_EVERY_MS } from '../movies/movie-progress';
 import type { ArchiveProgramme } from './catchup';
 import { MOVIE_STEP_MS, SEEK_STEP_MS, seekStep } from './catchup';
 import type { StreamInfoPanel } from './stream-info';
@@ -81,6 +82,10 @@ import { createTrackMenu } from './track-menu';
  *   Back closes the player onto the details (`MoviePlay.closed`), and so does the end's card,
  *   "The movie has ended", with "Back". The error card's "Try again" plays on from where it was.
  *   A movie never changes the live list, its focus or the last channel.
+ * - **A movie's position** (step 26d): it plays from `MoviePlay.fromMs` ("Resume from 12:34"),
+ *   and `progressed` hears where it is every `SAVE_EVERY_MS` while it plays, and when it fails,
+ *   ends, is left or the app hides. While the app is hidden no position is read: the engine has
+ *   let the stream go, and its clock says 0.
  */
 
 /** The info bar's stream opens this long after the last zap key. */
@@ -171,6 +176,8 @@ export interface MoviePlay {
   readonly item: CatalogItem;
   /** Its request (`mode: 'vod'`, the movie's URL). */
   readonly request: PlayRequest;
+  /** Where it starts (ms of its media time, step 26d: "Resume from"; absent: its start). */
+  readonly fromMs?: number;
   /** Its length from the panel's details (ms; `null`: not known). */
   readonly lengthMs: number | null;
   /** The player closed (Back, or the end's "Back"): the details show again. */
@@ -182,6 +189,8 @@ export interface PlayingMovie {
   readonly item: CatalogItem;
   /** Its length: the engine's once it knows it, else the panel's (ms; `null`: neither knows). */
   readonly lengthMs: number | null;
+  /** Where its last play started (ms of its media time, step 26d; 0: its start). */
+  readonly fromMs: number;
 }
 
 /** Number entry: the digits typed, then the search, then (maybe) "no channel has it". */
@@ -224,6 +233,13 @@ export interface PlayerOptions {
   readonly now?: () => number;
   /** The wall clock (epoch ms; default `Date.now`): a catch-up seek past it goes live. */
   readonly clock?: () => number;
+  /**
+   * A movie's position (step 26d): every `SAVE_EVERY_MS` while it plays, and when it fails, ends
+   * (`ended`), is left or the app hides. The app keeps it (`movie-progress.ts`).
+   */
+  readonly progressed?: (item: CatalogItem, positionMs: number, lengthMs: number | null, ended: boolean) => void;
+  /** The app's visibility (`Platform.onLifecycle`): a movie's position is saved as the app hides. */
+  readonly lifecycle?: (listener: (event: LifecycleEvent) => void) => () => void;
 }
 
 export interface Player {
@@ -389,6 +405,10 @@ export function createPlayer(options: PlayerOptions): Player {
   let playedOn: ArchiveProgramme | null = null;
   /** The movie's request and where Back goes (step 26c). */
   let film: MoviePlay | null = null;
+  /** When the movie's position was last saved (`keyClock`, step 26d). */
+  let savedAt = 0;
+  /** The app is hidden: the engine let the stream go, so its position isn't read (step 26d). */
+  let hidden = false;
 
   const clear = (handle: unknown): null => {
     if (handle !== null) timers.clear(handle);
@@ -444,6 +464,8 @@ export function createPlayer(options: PlayerOptions): Player {
       resumeFrame = false;
       mark('lablo:resume-frame');
     }
+    // A movie that stopped (step 26d): where it was, or watched once it ended.
+    if (s.state === 'failed' || s.state === 'ended') keepFilm();
     // The error card, or a catch-up's or a movie's end (steps 25d, 26c): the card takes over from the menu and a waiting seek.
     const card = s.state === 'failed' || (s.state === 'ended' && (archive.value !== null || movie.value !== null));
     if (card) {
@@ -527,7 +549,10 @@ export function createPlayer(options: PlayerOptions): Player {
     else list.load(index).then(start, () => undefined);
   };
 
-  /** Plays the movie from its start, or from `from` (ms of its media time: a seek it couldn't make inside the stream, or "Try again"). */
+  /**
+   * Plays the movie from its start, or from `from` (ms of its media time: "Resume from", a seek it
+   * couldn't make inside the stream, or "Try again").
+   */
   const playFilm = (from?: number): void => {
     const shown = film;
     if (shown === null) return;
@@ -536,6 +561,9 @@ export function createPlayer(options: PlayerOptions): Player {
     plays.value += 1;
     streamFrom = 0;
     lastAt = from === undefined ? 0 : from;
+    const playingFilm = movie.value;
+    if (playingFilm !== null) movie.value = { item: playingFilm.item, lengthMs: playingFilm.lengthMs, fromMs: lastAt };
+    savedAt = keyClock();
     const c = ctrl();
     const opts: PlayOptions = from === undefined ? {} : { startMs: from };
     void c.play(shown.request, opts);
@@ -546,15 +574,23 @@ export function createPlayer(options: PlayerOptions): Player {
   /** Where the catch-up stream is now: its start plus its media time while it shows a picture, else where it was last. */
   const streamAt = (): number => {
     const state = status.value.state;
-    if (controller !== null && (state === 'playing' || state === 'paused' || state === 'buffering')) lastAt = streamFrom + controller.positionMs();
+    if (controller !== null && !hidden && (state === 'playing' || state === 'paused' || state === 'buffering')) lastAt = streamFrom + controller.positionMs();
     return lastAt;
   };
+
+  /** The movie's position to the app (step 26d): where it is, or watched once it ended. */
+  function keepFilm(): void {
+    const shown = movie.value;
+    if (shown === null || options.progressed === undefined) return;
+    savedAt = keyClock();
+    options.progressed(shown.item, streamAt(), shown.lengthMs, status.value.state === 'ended');
+  }
 
   /** The info bar's position: a waiting seek's target, else the stream's (`null` live); a movie's length once the engine knows it. */
   const showPosition = (): void => {
     const shown = movie.value;
     const length = shown === null || controller === null ? 0 : controller.durationMs();
-    if (shown !== null && length > 0 && length !== shown.lengthMs) movie.value = { item: shown.item, lengthMs: length };
+    if (shown !== null && length > 0 && length !== shown.lengthMs) movie.value = { item: shown.item, lengthMs: length, fromMs: shown.fromMs };
     position.value = archive.value === null && shown === null ? null : { time: seekLive ? wall() : seekTo === null ? streamAt() : seekTo, seeking: seekTo !== null || seekLive, live: seekLive };
   };
 
@@ -580,12 +616,16 @@ export function createPlayer(options: PlayerOptions): Player {
     );
   };
 
-  /** Reads the catch-up's position every `POSITION_MS` while it plays (stops once it is live or closed). */
+  /**
+   * Reads the catch-up's position every `POSITION_MS` while it plays (stops once it is live or
+   * closed); a movie's goes to the app every `SAVE_EVERY_MS` of it (step 26d).
+   */
   const tickPosition = (): void => {
     positionTimer = clear(positionTimer);
     showPosition();
     if (archive.value === null && movie.value === null) return;
     playOn();
+    if (movie.value !== null && !hidden && status.value.state === 'playing' && keyClock() - savedAt >= SAVE_EVERY_MS) keepFilm();
     positionTimer = timers.set(() => {
       positionTimer = null;
       tickPosition();
@@ -829,6 +869,8 @@ export function createPlayer(options: PlayerOptions): Player {
 
   const close = (): void => {
     if (!open.value) return;
+    // A movie left (step 26d): where it was, before the stream stops.
+    keepFilm();
     // The menu's screen is on top of the player's: it goes first.
     menu.close();
     streamInfo.hide();
@@ -978,6 +1020,17 @@ export function createPlayer(options: PlayerOptions): Player {
     else if (focus.zone === 'card') close();
   };
 
+  // The app hides (step 26d): a movie's position is saved while the engine still has it.
+  const stopLifecycle =
+    options.lifecycle === undefined
+      ? () => undefined
+      : options.lifecycle((event) => {
+          if (event === 'hidden') {
+            keepFilm();
+            hidden = true;
+          } else if (event === 'visible') hidden = false;
+        });
+
   return {
     open,
     screen,
@@ -1018,9 +1071,9 @@ export function createPlayer(options: PlayerOptions): Player {
     playMovie(next: MoviePlay): void {
       if (!openScreen(MOVIE_ACTIONS)) return;
       film = next;
-      movie.value = { item: next.item, lengthMs: next.lengthMs };
+      movie.value = { item: next.item, lengthMs: next.lengthMs, fromMs: 0 };
       showInfo();
-      playFilm();
+      playFilm(next.fromMs);
     },
     row: rowAt,
     listChanging(): void {
@@ -1051,6 +1104,7 @@ export function createPlayer(options: PlayerOptions): Player {
     close,
     dispose(): void {
       close();
+      stopLifecycle();
       if (unsubscribe !== null) unsubscribe();
       if (unsubscribeSubtitles !== null) unsubscribeSubtitles();
       unsubscribe = null;

@@ -128,6 +128,7 @@ export function MoviesScreen({ movies, i18n, binding, focus, clock }: Props) {
                   poster
                   title={movie === null ? '' : movie.name}
                   image={poster}
+                  progress={movies.progress(i)}
                   onImageLoad={poster === undefined ? undefined : () => movies.posterLoaded(poster)}
                   onImageError={poster === undefined ? undefined : () => movies.posterFailed(poster)}
                   {...item}

@@ -9,6 +9,7 @@ import { ChannelIndex, chunkId } from '../live/channel-index';
 import type { RailEntry, RailRef, Timers } from '../live/live-state';
 import { CHUNK_CACHE, LIVE, LIVE_BODY, RAIL_VISIBLE, findEntry, railEntries } from '../live/live-state';
 import { storedSources } from '../onboarding/engine-loader';
+import type { MovieShares } from './movie-progress';
 import { POSTER_TIERS, PosterLoader } from './posters';
 
 /**
@@ -75,6 +76,8 @@ export interface MoviesOptions {
   readonly timers?: Timers;
   /** OK on a movie (its details come with step 26c). */
   readonly select?: (item: CatalogItem) => void;
+  /** Where each movie was left (step 26d): a tile's bar (default: none). */
+  readonly progress?: Pick<MovieShares, 'share' | 'version'>;
 }
 
 export interface Movies {
@@ -92,6 +95,11 @@ export interface Movies {
   movie(index: number): CatalogItem | null;
   /** The poster tile `index` draws (`undefined`: none, its title on the tile's background). */
   poster(index: number): string | undefined;
+  /**
+   * The share of tile `index`'s movie watched, 0–1, for its bar (step 26d; `undefined`: none). It
+   * reads the positions' version, so a screen that draws it draws again when one changes.
+   */
+  progress(index: number): number | undefined;
   /** Poster `url`'s image arrived. */
   posterLoaded(url: string): void;
   /** Poster `url`'s image failed: its tiles show their titles. */
@@ -401,6 +409,14 @@ export function createMovies(options: MoviesOptions): Movies {
     poster(i: number): string | undefined {
       const item = movieAt(i);
       return item === null ? undefined : posters.src(item.logo);
+    },
+    progress(i: number): number | undefined {
+      const kept = options.progress;
+      if (kept === undefined) return undefined;
+      // Read for the screen: a position saved since draws the tiles again.
+      void kept.version.value;
+      const item = movieAt(i);
+      return item === null ? undefined : kept.share(item.key);
     },
     posterLoaded(url: string): void {
       posters.loaded(url);

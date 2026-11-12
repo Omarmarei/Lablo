@@ -329,6 +329,7 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
       data-archive={archive === null ? '' : archive.start}
       data-movie={movie === null ? '' : movie.item.key}
       data-length={movie === null || movie.lengthMs === null ? '' : movie.lengthMs}
+      data-from={movie === null ? '' : movie.fromMs}
     >
       {player.picture.value === '4:3' && (
         <div class="player__pillars" aria-hidden="true" data-testid="player-pillars">

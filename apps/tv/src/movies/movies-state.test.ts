@@ -1,3 +1,4 @@
+import { effect, signal } from '@preact/signals';
 import type { CatalogItem, ContentKind, DeviceTier } from '@lablo/core';
 import type { CategoryInfo, LoadedProfile, SourceRecord } from '@lablo/data';
 import type { Intent } from '@lablo/platform-api';
@@ -5,7 +6,7 @@ import { LAYOUT, createNavigator, fits } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
 import type { Timers } from '../live/live-state';
 import { CHUNK_CACHE, LIVE, LIVE_BODY } from '../live/live-state';
-import type { MoviesEngine } from './movies-state';
+import type { MoviesEngine, MoviesOptions } from './movies-state';
 import { MOVIES, MOVIES_GRID, MOVIES_GRID_WIDTH, MOVIES_RAIL, MOVIES_RETRY, MOVIES_ROWS, MOVIES_SCREEN, createMovies } from './movies-state';
 import { POSTER_TIERS } from './posters';
 
@@ -126,7 +127,9 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i += 1) await Promise.resolve();
 };
 
-async function setup(options: { engine?: FakeEngine; tier?: DeviceTier; select?: (item: CatalogItem) => void; open?: boolean } = {}) {
+async function setup(
+  options: { engine?: FakeEngine; tier?: DeviceTier; select?: (item: CatalogItem) => void; open?: boolean; progress?: MoviesOptions['progress'] } = {},
+) {
   const engine = options.engine ?? new FakeEngine();
   const clock = manualTimers();
   const nav = createNavigator({
@@ -143,6 +146,7 @@ async function setup(options: { engine?: FakeEngine; tier?: DeviceTier; select?:
     timers: clock.timers,
     ...(options.tier === undefined ? {} : { tier: () => options.tier! }),
     ...(options.select === undefined ? {} : { select: options.select }),
+    ...(options.progress === undefined ? {} : { progress: options.progress }),
   });
   if (options.open !== false) {
     movies.open();
@@ -726,5 +730,42 @@ describe('the movies screen (RELAY step 26a)', () => {
     t.movies.open();
     expect(t.nav.snapshot().screen).toBe(MOVIES_SCREEN);
     expect(t.movies.screen.value!.zone(MOVIES_RAIL)).toMatchObject({ kind: 'list', axis: 'vertical' });
+  });
+});
+
+describe("the movies screen: the tiles' bars (RELAY step 26d)", () => {
+  it('draws the share watched of each movie left part way, and draws again when one changes', async () => {
+    const shares: Record<string, number> = { 'x:s1:movie:0-1': 0.25, 'x:s1:movie:0-3': 1 };
+    const version = signal(0);
+    const asked: string[] = [];
+    const t = await setup({
+      progress: {
+        version,
+        share: (key) => {
+          asked.push(key);
+          return shares[key];
+        },
+      },
+    });
+    expect(t.movies.progress(0)).toBeUndefined();
+    expect(t.movies.progress(1)).toBe(0.25);
+    expect(t.movies.progress(3)).toBe(1);
+    expect(asked).toEqual(['x:s1:movie:0-0', 'x:s1:movie:0-1', 'x:s1:movie:0-3']);
+    // A tile whose chunk isn't in asks nothing.
+    asked.length = 0;
+    expect(t.movies.progress(999_999)).toBeUndefined();
+    expect(asked).toEqual([]);
+    // Whoever reads it hears of a new position.
+    const seen: (number | undefined)[] = [];
+    const stop = effect(() => {
+      seen.push(t.movies.progress(0));
+    });
+    shares['x:s1:movie:0-0'] = 0.5;
+    version.value += 1;
+    stop();
+    expect(seen).toEqual([undefined, 0.5]);
+    // Without positions (no `progress`): no bars.
+    const u = await setup();
+    expect(u.movies.progress(1)).toBeUndefined();
   });
 });

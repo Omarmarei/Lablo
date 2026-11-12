@@ -3,7 +3,12 @@ import type { VodInfoRequest } from '@lablo/data';
 import type { Intent } from '@lablo/platform-api';
 import { createNavigator } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
-import { BACK_ACTION, MOVIE_ACTIONS, MOVIE_SCREEN, PLAY_ACTION, createMovieDetails, movieFacts, movieRequest, releaseYear } from './movie-details';
+import { MOVIE_ACTIONS, MOVIE_SCREEN, PLAY_ACTIONS, RESUME_ACTIONS, createMovieDetails, movieFacts, movieRequest, releaseYear } from './movie-details';
+import type { ResumePoint } from './movie-progress';
+
+/** "Play" and "Back" (step 26c). */
+const PLAY_ACTION = 0;
+const BACK_ACTION = 1;
 
 const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i += 1) await Promise.resolve();
@@ -46,8 +51,12 @@ const INFO: XtreamVodInfo = {
   ext: 'mp4',
 };
 
-/** The movies screen's navigator with the details over it; the engine's reads held until the test answers. */
-function setup() {
+/**
+ * The movies screen's navigator with the details over it; the engine's reads held until the test
+ * answers. `points`: where movies were left (step 26d), changed by the test; `undefined`: no
+ * positions at all.
+ */
+function setup(points?: Record<string, ResumePoint>) {
   const nav = createNavigator({
     root: { id: 'movies', zones: [{ kind: 'grid', id: 'grid', columns: 6, count: 12, visibleRows: 3 }] },
     dir: 'ltr',
@@ -56,11 +65,12 @@ function setup() {
     exitDialog: () => undefined,
   });
   const reads: { req: VodInfoRequest; answer: (info: XtreamVodInfo | null) => void; fail: (error: unknown) => void }[] = [];
-  const played: { item: CatalogItem; info: XtreamVodInfo | null }[] = [];
+  const played: { item: CatalogItem; info: XtreamVodInfo | null; fromMs?: number }[] = [];
   const details = createMovieDetails({
     nav,
     engine: { vodInfo: (req) => new Promise((resolve, reject) => reads.push({ req, answer: resolve, fail: reject })) },
-    play: (item, info) => played.push({ item, info }),
+    play: (item, info, fromMs) => played.push(fromMs === undefined ? { item, info } : { item, info, fromMs }),
+    ...(points === undefined ? {} : { progress: { point: (key: string) => points[key] ?? null } }),
   });
   const press = async (...keys: Intent[]): Promise<void> => {
     for (const key of keys) nav.handle(key);
@@ -168,6 +178,82 @@ describe('movie details (RELAY step 26c)', () => {
     t.nav.handle('BACK');
     t.details.open(film(204));
     expect(t.details.posterFailed.value).toBe(false);
+  });
+});
+
+describe('movie details: resume (RELAY step 26d)', () => {
+  const LEFT: ResumePoint = { positionMs: 754_000, lengthMs: 888_000 };
+
+  it('offers "Resume" first, then "Play from the start" and "Back", for a movie left part way', async () => {
+    const points: Record<string, ResumePoint> = { 'x:s1:movie:203': LEFT };
+    const t = setup(points);
+    const item = film(203);
+    t.details.open(item);
+    expect(t.details.point.value).toEqual(LEFT);
+    expect(t.details.actions.value).toEqual(['resume', 'play', 'back']);
+    expect(t.details.actions.value).toBe(RESUME_ACTIONS);
+    expect(t.at()).toBe(`${MOVIE_SCREEN} · ${MOVIE_ACTIONS} 0`);
+    expect(t.nav.top!.zone(MOVIE_ACTIONS)).toMatchObject({ count: 3 });
+    // "Resume": from where it was left, without waiting for the read.
+    await t.press('OK');
+    expect(t.played).toEqual([{ item, info: null, fromMs: 754_000 }]);
+    t.reads[0]!.answer(INFO);
+    await flush();
+    // "Play from the start": no start; "Back" closes.
+    await t.press('RIGHT', 'OK');
+    expect(t.played[1]).toEqual({ item, info: INFO });
+    await t.press('RIGHT');
+    expect(t.at()).toBe(`${MOVIE_SCREEN} · ${MOVIE_ACTIONS} 2`);
+    await t.press('OK');
+    expect(t.details.shown.value).toBeNull();
+    expect(t.details.point.value).toBeNull();
+    expect(t.played).toHaveLength(2);
+    // Another movie, never played: "Play" and "Back".
+    t.details.open(film(204));
+    expect(t.details.point.value).toBeNull();
+    expect(t.details.actions.value).toBe(PLAY_ACTIONS);
+    expect(t.nav.top!.zone(MOVIE_ACTIONS)).toMatchObject({ count: 2 });
+    await t.press('RIGHT', 'OK');
+    expect(t.details.shown.value).toBeNull();
+    // No positions at all (no `progress`): "Play" and "Back".
+    const u = setup();
+    u.details.open(item);
+    expect(u.details.actions.value).toEqual(['play', 'back']);
+    await u.press('OK');
+    expect(u.played).toEqual([{ item, info: null }]);
+  });
+
+  it('reads the position again when the player closes, and focuses the first button', async () => {
+    const points: Record<string, ResumePoint> = {};
+    const t = setup(points);
+    const item = film(203);
+    // Nothing to read while the details are closed.
+    t.details.refresh();
+    expect(t.at()).toBe('movies · grid 0');
+    t.details.open(item);
+    await t.press('OK');
+    // Left part way: "Resume" appears, focused.
+    points[item.key] = LEFT;
+    t.details.refresh();
+    expect(t.details.actions.value).toBe(RESUME_ACTIONS);
+    expect(t.nav.top!.zone(MOVIE_ACTIONS)).toMatchObject({ count: 3 });
+    expect(t.at()).toBe(`${MOVIE_SCREEN} · ${MOVIE_ACTIONS} 0`);
+    // From "Play from the start", watched to the end: "Play" again, focused; "Resume" from the
+    // new place after another play.
+    await t.press('RIGHT');
+    expect(t.at()).toBe(`${MOVIE_SCREEN} · ${MOVIE_ACTIONS} 1`);
+    delete points[item.key];
+    t.details.refresh();
+    expect(t.details.point.value).toBeNull();
+    expect(t.details.actions.value).toBe(PLAY_ACTIONS);
+    expect(t.nav.top!.zone(MOVIE_ACTIONS)).toMatchObject({ count: 2 });
+    expect(t.at()).toBe(`${MOVIE_SCREEN} · ${MOVIE_ACTIONS} 0`);
+    points[item.key] = { positionMs: 60_000, lengthMs: null };
+    await t.press('RIGHT');
+    t.details.refresh();
+    expect(t.at()).toBe(`${MOVIE_SCREEN} · ${MOVIE_ACTIONS} 0`);
+    await t.press('OK');
+    expect(t.played[t.played.length - 1]).toEqual({ item, info: null, fromMs: 60_000 });
   });
 });
 

@@ -111,7 +111,8 @@ function storedProfile(page: Page): Promise<StoredGuides | null> {
 /** The user's guides the profile holds, as `id url` lines. */
 async function savedGuides(page: Page): Promise<string[]> {
   const saved = await storedProfile(page);
-  expect(saved?.v).toBe(4);
+  // The guide list is the profile's since version 4 (step 22b).
+  expect(saved?.v).toBeGreaterThanOrEqual(4);
   return (saved?.guides ?? []).map((g) => `${g.id} ${g.url}`);
 }
 

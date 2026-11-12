@@ -4,8 +4,9 @@ import type { EpgPin } from './epg-overrides';
 import { epgOverridesOf } from './epg-overrides';
 import type { UserGuide } from './epg-sources';
 import { EPG_OFFSET_MAX, EPG_OFFSET_STEP, epgOffsetsOf, isEpgOffset } from './epg-sources';
-import type { AnyProfile, GuideChange, LastChannel, PlayerChange, ProfileDoc, ProfileMigration, SourceRecord, SourceRecordV3, StoredTrackChoice } from './profile';
+import type { AnyProfile, GuideChange, LastChannel, PlayerChange, ProfileDoc, ProfileMigration, SourceRecord, SourceRecordV3, StoredTrackChoice, WatchProgress } from './profile';
 import {
+  MAX_PROGRESS,
   MAX_TRACK_CHOICES,
   PROFILE_MIGRATIONS,
   PROFILE_VERSION,
@@ -13,6 +14,7 @@ import {
   SNAPSHOT_EVERY_MS,
   applyProfileEdit,
   emptyProfile,
+  isWatchProgress,
   listSnapshots,
   loadProfile,
   migrateProfile,
@@ -28,7 +30,7 @@ import { freshFactory } from './test-support';
 
 const DAY = SNAPSHOT_EVERY_MS;
 const fav = (n: number): ProfileDoc['favourites'][number] => ({ key: `x:tv:live:${n}`, src: 'tv', kind: 'live', normName: `ch ${n}`, added: n, missingSince: null });
-/** A current (version 4) profile with these favourites. */
+/** A current (version 5) profile with these favourites. */
 const withFavs = (...ns: number[]): ProfileDoc => ({ ...emptyProfile(), favourites: ns.map(fav) });
 /** A version 1 document, as step 7 stored it. */
 const v1 = (...ns: number[]): AnyProfile => ({ v: 1, favourites: ns.map(fav) });
@@ -52,12 +54,12 @@ const toV2: ProfileMigration = ({ favourites, ...rest }) => ({ ...rest, v: 2, fa
 const toV3: ProfileMigration = (doc) => ({ ...doc, v: 3, settings: { language: 'ar' } });
 
 describe('profile migrations', () => {
-  it('is at version 4, with the shape of every version pinned', () => {
-    expect(PROFILE_VERSION).toBe(4);
+  it('is at version 5, with the shape of every version pinned', () => {
+    expect(PROFILE_VERSION).toBe(5);
     expect(PROFILE_VERSION).toBe(PROFILE_MIGRATIONS.length + 1);
     const NOTHING_KEPT = { last: null, containers: {}, redirects: {}, tracks: {}, subtitleSize: null };
     expect(noPlayerMemory()).toEqual(NOTHING_KEPT);
-    expect(emptyProfile()).toEqual({ v: 4, favourites: [], sources: [], onboarding: NO_ANSWERS, player: NOTHING_KEPT, guides: [] });
+    expect(emptyProfile()).toEqual({ v: 5, favourites: [], sources: [], onboarding: NO_ANSWERS, player: NOTHING_KEPT, guides: [], progress: {} });
     // 1 → 2 (step 13b): the favourites stay; no sources and no answers yet.
     expect(PROFILE_MIGRATIONS[0]!(v1(1, 2))).toEqual({ v: 2, favourites: [fav(1), fav(2)], sources: [], onboarding: NO_ANSWERS });
     // 2 → 3 (step 20c1): nothing kept for the player yet; the rest stays.
@@ -66,19 +68,48 @@ describe('profile migrations', () => {
     // 3 → 4 (step 22b): the sources' guide links become the guide list, under the sources' ids.
     const v3 = { ...v2, v: 3, player: NOTHING_KEPT };
     expect(PROFILE_MIGRATIONS[2]!(v3)).toEqual({ ...v3, v: 4, sources: [xtreamSource('s1')], guides: [{ id: 's1', url: 'http://g.test/a.xml' }] });
+    // 4 → 5 (step 26d): no movie left part way yet; the rest stays.
+    const v4 = { ...v3, v: 4, sources: [xtreamSource('s1')], guides: [{ id: 's1', url: 'http://g.test/a.xml' }], epgOffsets: { 'u~s1': 30 } };
+    expect(PROFILE_MIGRATIONS[3]!(v4)).toEqual({ ...v4, v: 5, progress: {} });
     expect(migrateProfile(v1(1, 2))).toEqual({
-      doc: { v: 4, favourites: [fav(1), fav(2)], sources: [], onboarding: NO_ANSWERS, player: NOTHING_KEPT, guides: [] },
+      doc: { v: 5, favourites: [fav(1), fav(2)], sources: [], onboarding: NO_ANSWERS, player: NOTHING_KEPT, guides: [], progress: {} },
       from: 1,
       migrated: true,
       newer: false,
     });
     expect(migrateProfile(v2)).toMatchObject({
-      doc: { ...v2, v: 4, sources: [xtreamSource('s1')], player: NOTHING_KEPT, guides: [{ id: 's1', url: 'http://g.test/a.xml' }] },
+      doc: { ...v2, v: 5, sources: [xtreamSource('s1')], player: NOTHING_KEPT, guides: [{ id: 's1', url: 'http://g.test/a.xml' }], progress: {} },
       from: 2,
       migrated: true,
     });
     // Fields an older document had that the new version doesn't name are kept, never dropped.
-    expect(migrateProfile({ ...v1(), kept: 'x' }).doc).toMatchObject({ v: 4, kept: 'x' });
+    expect(migrateProfile({ ...v1(), kept: 'x' }).doc).toMatchObject({ v: 5, kept: 'x' });
+    expect(migrateProfile(v4)).toEqual({ doc: { ...v4, v: 5, progress: {} }, from: 4, migrated: true, newer: false });
+  });
+
+  it('upgrades a stored version 4 profile on load, keeping the old one as a snapshot (4 to 5, step 26d)', async () => {
+    const db = await openDatabase(freshFactory());
+    // A version 4 document as steps 22b–26c wrote it: the guides, an offset, a mapping, the player's memory.
+    const v4 = {
+      v: 4,
+      favourites: [fav(1)],
+      sources: [xtreamSource('s1')],
+      onboarding: { ...NO_ANSWERS, language: 'ar' },
+      player: { ...noPlayerMemory(), containers: { s1: 'hls' }, picture: 'zoom' },
+      guides: [{ id: 's1', url: 'http://g.test/a.xml' }],
+      epgOffsets: { 'u~s1': -60 },
+      epgOverrides: { 'x:s1:live:1': { epgSrc: 's1:xmltv', channel: 'one.tv' } },
+    };
+    await writeCurrent(db, v4);
+    const loaded = await loadProfile(db, { now: 5 * DAY });
+    expect(loaded).toEqual({ doc: { ...v4, v: 5, progress: {} }, newer: false, migratedFrom: 4 });
+    const snaps = await listSnapshots(db);
+    expect(snaps.map((s) => [s.reason, s.doc])).toEqual([['migration', v4]]);
+    // The first position saved after it lands in the upgraded document.
+    const saved: WatchProgress = { positionMs: 754_000, lengthMs: 888_000, updated: 6 * DAY };
+    expect(await updateProfile(db, (doc) => applyProfileEdit(doc, { kind: 'progress', key: 'x:s1:movie:202', progress: saved }), { now: 6 * DAY })).toBe(true);
+    expect((await loadProfile(db))!.doc).toEqual({ ...v4, v: 5, progress: { 'x:s1:movie:202': saved } });
+    db.close();
   });
 
   it("moves each source's guide link to the guide list in source order, once per link (3 to 4)", () => {
@@ -179,7 +210,7 @@ describe('profile storage', () => {
     expect(await loadProfile(db)).toEqual({ doc: { v: 9, favourites: [], future: true }, newer: true, migratedFrom: null });
     await expect(saveProfile(db, withFavs(1))).rejects.toThrow(/newer app version/);
     expect((await loadProfile(db))!.doc).toMatchObject({ v: 9, future: true });
-    expect(() => saveProfile(db, { v: 5 } as unknown as ProfileDoc)).toThrow(/Can't save a version 5/);
+    expect(() => saveProfile(db, { v: 6 } as unknown as ProfileDoc)).toThrow(/Can't save a version 6/);
     db.close();
   });
 
@@ -274,7 +305,7 @@ describe('updateProfile', () => {
   it('rejects (and writes nothing) when the update returns another version', async () => {
     const db = await openDatabase(freshFactory());
     await saveProfile(db, withFavs(1), { now: 0 });
-    await expect(updateProfile(db, (doc) => ({ ...doc, v: 5 }) as unknown as ProfileDoc)).rejects.toThrow(ProfileError);
+    await expect(updateProfile(db, (doc) => ({ ...doc, v: 6 }) as unknown as ProfileDoc)).rejects.toThrow(ProfileError);
     expect((await loadProfile(db))!.doc).toEqual(withFavs(1));
     db.close();
   });
@@ -464,6 +495,76 @@ describe('applyProfileEdit: what the player keeps (step 20c1)', () => {
   });
 });
 
+describe("applyProfileEdit: movies' positions (step 26d)", () => {
+  const at = (positionMs: number, updated: number, lengthMs: number | null = 600_000): WatchProgress => ({ positionMs, lengthMs, updated });
+  const keep = (doc: ProfileDoc, key: string, progress: WatchProgress | null): ProfileDoc | null => applyProfileEdit(doc, { kind: 'progress', key, progress });
+
+  it('keeps, moves and takes away a position, and changes nothing for the same one or one that is no position', () => {
+    const before = withFavs(1);
+    const one = keep(before, 'x:s1:movie:201', at(30_000, 1))!;
+    expect(one).toEqual({ ...before, progress: { 'x:s1:movie:201': at(30_000, 1) } });
+    expect(before.progress).toEqual({});
+    // The same place and length again: nothing to write (when it was saved alone doesn't count).
+    expect(keep(one, 'x:s1:movie:201', at(30_000, 9))).toBeNull();
+    // Moved on, or its length learnt: written, with the new time.
+    expect(keep(one, 'x:s1:movie:201', at(40_000, 9))!.progress).toEqual({ 'x:s1:movie:201': at(40_000, 9) });
+    expect(keep(one, 'x:s1:movie:201', at(30_000, 9, 596_000))!.progress).toEqual({ 'x:s1:movie:201': at(30_000, 9, 596_000) });
+    expect(keep(one, 'x:s1:movie:201', at(30_000, 9, null))!.progress).toEqual({ 'x:s1:movie:201': at(30_000, 9, null) });
+    // Watched: taken away; one that isn't kept changes nothing.
+    const two = keep(one, 'm:s2:abc:0', at(5_000, 2, null))!;
+    expect(keep(two, 'x:s1:movie:201', null)!.progress).toEqual({ 'm:s2:abc:0': at(5_000, 2, null) });
+    expect(keep(one, 'x:s1:movie:999', null)).toBeNull();
+    // Only the fields of a position are kept.
+    expect(keep(before, 'k', { ...at(1, 1), extra: 'x' } as WatchProgress)!.progress).toEqual({ k: at(1, 1) });
+    // Not a position: nothing changes.
+    const bad: unknown[] = [
+      { positionMs: -1, lengthMs: null, updated: 1 },
+      { positionMs: Infinity, lengthMs: null, updated: 1 },
+      { positionMs: NaN, lengthMs: null, updated: 1 },
+      { positionMs: '5', lengthMs: null, updated: 1 },
+      { positionMs: 5, lengthMs: 0, updated: 1 },
+      { positionMs: 5, lengthMs: -10, updated: 1 },
+      { positionMs: 5, lengthMs: Infinity, updated: 1 },
+      { positionMs: 5, lengthMs: '600', updated: 1 },
+      { positionMs: 5, updated: 1 },
+      { positionMs: 5, lengthMs: null, updated: NaN },
+      { positionMs: 5, lengthMs: null },
+      'x',
+      5,
+    ];
+    for (const progress of bad) expect(keep(one, 'x:s1:movie:201', progress as WatchProgress)).toBeNull();
+    expect(isWatchProgress(null)).toBe(false);
+    expect(isWatchProgress(undefined)).toBe(false);
+    expect(isWatchProgress(at(0, 0, null))).toBe(true);
+    expect(isWatchProgress(at(0, -5, 1))).toBe(true);
+  });
+
+  it(`keeps the latest ${MAX_PROGRESS}, dropping the one saved longest ago, never the one being saved`, () => {
+    expect(MAX_PROGRESS).toBe(500);
+    let doc = emptyProfile();
+    for (let i = 0; i < MAX_PROGRESS; i++) doc = keep(doc, `k${i}`, at(60_000, 1000 - i))!;
+    expect(Object.keys(doc.progress)).toHaveLength(MAX_PROGRESS);
+    // Moving a kept one drops nothing.
+    const same = keep(doc, 'k3', at(90_000, 5000))!;
+    expect(Object.keys(same.progress)).toHaveLength(MAX_PROGRESS);
+    // A new one drops the oldest (`k499`, saved at 501), even when it is older still itself.
+    const more = keep(same, 'new', at(70_000, 1))!;
+    expect(Object.keys(more.progress)).toHaveLength(MAX_PROGRESS);
+    expect(more.progress['new']).toEqual(at(70_000, 1));
+    expect(more.progress['k499']).toBeUndefined();
+    expect(more.progress['k498']).toEqual(at(60_000, 502));
+    expect(more.progress['k3']).toEqual(at(90_000, 5000));
+    expect(same.progress['k499']).toEqual(at(60_000, 501));
+    // A document over the cap (a later version's) comes back to it.
+    const over: ProfileDoc = { ...emptyProfile(), progress: {} };
+    for (let i = 0; i < MAX_PROGRESS + 3; i++) over.progress[`o${i}`] = at(60_000, i);
+    const trimmed = keep(over, 'o-new', at(1, 10_000))!;
+    expect(Object.keys(trimmed.progress)).toHaveLength(MAX_PROGRESS);
+    for (const gone of ['o0', 'o1', 'o2', 'o3']) expect(trimmed.progress[gone]).toBeUndefined();
+    expect(trimmed.progress['o4']).toEqual(at(60_000, 4));
+  });
+});
+
 describe("applyProfileEdit: the guides' time offsets (step 24b)", () => {
   const offset = (doc: ProfileDoc, epgSrc: string, minutes: number): ProfileDoc | null => applyProfileEdit(doc, { kind: 'epgOffset', epgSrc, minutes });
   const listed = (...names: string[]): ProfileDoc => ({ ...withFavs(1), guides: names.map((n) => ({ id: n, url: `http://g.test/${n}.xml` })) });
@@ -475,7 +576,7 @@ describe("applyProfileEdit: the guides' time offsets (step 24b)", () => {
     expect(one.epgOffsets).toEqual({ 'u~g1': 60 });
     expect(one.guides).toEqual(doc.guides);
     expect(one.favourites).toEqual([fav(1)]);
-    expect(one.v).toBe(4);
+    expect(one.v).toBe(PROFILE_VERSION);
     // A source's own guide, by its id; the other offsets stay.
     const two = offset(one, 'tv:xmltv', -720)!;
     expect(two.epgOffsets).toEqual({ 'u~g1': 60, 'tv:xmltv': -720 });
@@ -564,7 +665,7 @@ describe('applyProfileEdit: manual EPG mappings (step 24d)', () => {
     const doc = listed('g1');
     expect(doc.epgOverrides).toBeUndefined();
     const one = pin(doc, 'x:s1:live:1', { epgSrc: 'u~g1', channel: 'one.tv' })!;
-    expect(one.v).toBe(4);
+    expect(one.v).toBe(PROFILE_VERSION);
     expect(one.epgOverrides).toEqual({ 'x:s1:live:1': { epgSrc: 'u~g1', channel: 'one.tv' } });
     expect(pin(one, 'x:s1:live:1', { epgSrc: 'u~g1', channel: 'one.tv' })).toBeNull();
     const two = pin(one, 'x:s1:live:2', { epgSrc: 's1:xmltv', channel: 'two.tv' })!;

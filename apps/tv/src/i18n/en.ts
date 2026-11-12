@@ -155,6 +155,9 @@ export const EN = {
   'movies.empty': 'Your sources have no movies.',
   'movies.failed': "Couldn't read your movies.",
   'movie.play': 'Play',
+  // A movie left part way (RELAY step 26d): {time} is where it was left, as 12:34 or 1:02:03.
+  'movie.resume': 'Resume from {time}',
+  'movie.restart': 'Play from the start',
   'movie.back': 'Back',
   'movie.reading': "Reading the movie's details",
   'movie.failed': "Couldn't read more about this movie.",
