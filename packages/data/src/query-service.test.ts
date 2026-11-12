@@ -3,6 +3,8 @@ import type { CatalogItem } from '@lablo/core';
 import { createDataClient } from './client';
 import { openDatabase, transact } from './idb';
 import { QueryService } from './query-service';
+import type { RecentItem } from './recent';
+import { RECENT_MAX } from './recent';
 import type { RpcPort } from './rpc';
 import { CancelSource, serveRpc } from './rpc';
 import { STORE } from './schema';
@@ -223,6 +225,92 @@ describe('QueryService', () => {
     await transact(db, STORE.profile, 'readwrite', (tx) => tx.objectStore(STORE.profile).put({ id: 'current', savedAt: 0, doc: { v: 9, sources: [] } }));
     expect(await client.call('editProfile', { kind: 'answers', answers: { consent: true } })).toBe(false);
     expect(await client.call('profile')).toEqual({ doc: { v: 9, sources: [] }, newer: true, migratedFrom: null });
+    db.close();
+  });
+});
+
+describe('QueryService.recent ("Recently added", RELAY step 26e)', () => {
+  /** Source `src`'s movies 100 + n, each added at `dates[n]` (newest first, as the ingest stores them). */
+  const newest = (src: string, dates: number[]): RecentItem[] => dates.map((added, n) => ({ added, item: item(src, 'movie', 100 + n, `Film ${src} ${n}`, 'Films') }));
+  const films = (list: readonly RecentItem[]): string[] => list.map((r) => `${r.item.name}@${r.added}`);
+
+  it('merges the sources\' lists, newest first; on an equal date the source asked first comes first', async () => {
+    const { db, svc } = await service();
+    const a = newest('a', [900, 500, 500, 100]);
+    const b = newest('b', [700, 500, 300]);
+    await ingest(db, 'a', a.map((r) => r.item), { recent: { movie: a } });
+    await ingest(db, 'b', b.map((r) => r.item), { recent: { movie: b } });
+    expect(films(await svc.recent({ sources: ['a', 'b'], kind: 'movie' }))).toEqual([
+      'Film a 0@900',
+      'Film b 0@700',
+      'Film a 1@500',
+      'Film a 2@500',
+      'Film b 1@500',
+      'Film b 2@300',
+      'Film a 3@100',
+    ]);
+    expect(films(await svc.recent({ sources: ['b', 'a'], kind: 'movie', limit: 4 }))).toEqual(['Film a 0@900', 'Film b 0@700', 'Film b 1@500', 'Film a 1@500']);
+    // The items as stored, whole.
+    expect((await svc.recent({ sources: ['a'], kind: 'movie', limit: 1 }))[0]).toEqual(a[0]);
+    db.close();
+  });
+
+  it('reads only the sources asked, each once, and their active generations', async () => {
+    const { db, svc } = await service();
+    await ingest(db, 'a', [], { recent: { movie: [] } });
+    const old = newest('b', [10]);
+    await ingest(db, 'b', old.map((r) => r.item), { recent: { movie: old } });
+    const b = newest('b', [30, 20]);
+    await ingest(db, 'b', b.map((r) => r.item), { recent: { movie: b } });
+    // The query worker reads the generation it loaded until it reloads.
+    expect(films(await svc.recent({ sources: ['b', 'b', 'zz', 'a'], kind: 'movie' }))).toEqual(['Film b 0@30', 'Film b 1@20']);
+    expect(await svc.recent({ sources: ['a', 'zz'], kind: 'movie' })).toEqual([]);
+    expect(await svc.recent({ sources: [], kind: 'movie' })).toEqual([]);
+    const c = newest('c', [99]);
+    await ingest(db, 'c', c.map((r) => r.item), { recent: { movie: c } });
+    expect(await svc.recent({ sources: ['c'], kind: 'movie' })).toEqual([]);
+    await svc.reload();
+    expect(films(await svc.recent({ sources: ['b', 'c'], kind: 'movie' }))).toEqual(['Film c 0@99', 'Film b 0@30', 'Film b 1@20']);
+    db.close();
+  });
+
+  it('gives nothing for a catalog an older ingest version built (no list stored), or another kind', async () => {
+    const { db, svc } = await service();
+    const a = newest('a', [5]);
+    await ingest(db, 'old', a.map((r) => ({ ...r.item, src: 'old' })));
+    await ingest(db, 'a', catalog('a').concat(a.map((r) => r.item)), { recent: { movie: a } });
+    expect(films(await svc.recent({ sources: ['old', 'a'], kind: 'movie' }))).toEqual(['Film a 0@5']);
+    expect(await svc.recent({ sources: ['old', 'a'], kind: 'series' })).toEqual([]);
+    expect(await svc.recent({ sources: ['a'], kind: 'live' })).toEqual([]);
+    db.close();
+  });
+
+  it(`gives up to ${RECENT_MAX}, and refuses a larger or broken limit`, async () => {
+    const { db, svc } = await service();
+    const dates = Array.from({ length: RECENT_MAX }, (_v, i) => 1000 - i);
+    const a = newest('a', dates);
+    const b = newest('b', dates);
+    await ingest(db, 'a', a.map((r) => r.item), { recent: { movie: a } });
+    await ingest(db, 'b', b.map((r) => r.item), { recent: { movie: b } });
+    const all = await svc.recent({ sources: ['a', 'b'], kind: 'movie' });
+    expect(all).toHaveLength(RECENT_MAX);
+    expect(films(all.slice(0, 3))).toEqual(['Film a 0@1000', 'Film b 0@1000', 'Film a 1@999']);
+    expect(films(all.slice(-1))).toEqual(['Film b 49@951']);
+    expect(await svc.recent({ sources: ['a'], kind: 'movie', limit: RECENT_MAX })).toHaveLength(RECENT_MAX);
+    expect(await svc.recent({ sources: ['a'], kind: 'movie', limit: 0 })).toEqual([]);
+    for (const limit of [RECENT_MAX + 1, -1, 2.5, Number.NaN]) await expect(svc.recent({ sources: ['a'], kind: 'movie', limit })).rejects.toThrow(RangeError);
+    db.close();
+  });
+
+  it('answers over RPC (the query worker setup)', async () => {
+    const { db, svc } = await service();
+    const a = newest('a', [3, 2]);
+    await ingest(db, 'a', a.map((r) => r.item), { recent: { movie: a } });
+    const channel = new MessageChannel();
+    opened.push(channel.port1, channel.port2);
+    serveRpc(channel.port1 as unknown as RpcPort, svc.handlers());
+    const client = createDataClient(channel.port2 as unknown as RpcPort);
+    expect(films(await client.call('recent', { sources: ['a'], kind: 'movie' }))).toEqual(['Film a 0@3', 'Film a 1@2']);
     db.close();
   });
 });

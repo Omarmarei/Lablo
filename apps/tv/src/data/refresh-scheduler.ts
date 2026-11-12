@@ -2,7 +2,7 @@ import type { DeviceTier } from '@lablo/core';
 import type { EpgCatalogSource, EpgRefreshResult, IngestResult, IngestSource, LoadedProfile, SourceMeta } from '@lablo/data';
 import type { LifecycleEvent } from '@lablo/platform-api';
 // The client entry only: the package index would pull every data module's polyfills into main.
-import { CancelSource } from '@lablo/data/client';
+import { CancelSource, INGEST_VERSION } from '@lablo/data/client';
 import { catalogOf, ingestSourceOf, storedSources, userGuides } from '../onboarding/engine-loader';
 import type { EpgRefreshOptions, RefreshOptions } from './engine';
 
@@ -13,8 +13,9 @@ import type { EpgRefreshOptions, RefreshOptions } from './engine';
  * - **When:** a first check `FIRST_CHECK_MS` after the live screen opens (the start on the last
  *   channel and the first list stay fast), then every `CHECK_MS`. Hidden, nothing is checked; a
  *   check comes `FIRST_CHECK_MS` after the app is visible again.
- * - **Catalogs:** each stored source whose last check is `CATALOG_REFRESH_MS` old, or that has no
- *   catalog at all (webOS may wipe the database on an update), is refreshed, one at a time. A
+ * - **Catalogs:** each stored source whose last check is `CATALOG_REFRESH_MS` old, that has no
+ *   catalog at all (webOS may wipe the database on an update), or whose catalog an older ingest
+ *   version built (`INGEST_VERSION`: it stores less, step 26e), is refreshed, one at a time. A
  *   failed one waits `CATALOG_RETRY_MS` (kept in memory: a relaunch tries again).
  * - **Guides:** `refreshEpg` with `due` (`epgRefreshDue`: 12 h, or under 24 h of programmes left,
  *   failures held 2 h). After a catalog refresh that committed, every guide is read (new
@@ -88,6 +89,8 @@ export interface RefreshScheduler {
 export function catalogRefreshDue(meta: SourceMeta | undefined, failedAt: number | undefined, now: number): boolean {
   if (failedAt !== undefined && now - failedAt < CATALOG_RETRY_MS) return false;
   if (meta === undefined || meta.gen === 0) return true;
+  // Built by an older ingest version: the refresh rebuilds it, even from unchanged bytes.
+  if (meta.fetch !== undefined && meta.fetch !== null && meta.fetch.v < INGEST_VERSION) return true;
   const checked = meta.checkedAt ?? meta.updatedAt;
   return checked === null || now - checked >= CATALOG_REFRESH_MS;
 }

@@ -6,7 +6,9 @@
  *   generation `gen` and the one being built (`SourceMeta`, catalog-store.ts);
  * - `catalog_chunks` (key `[src, gen, kind, catIdx, chunk]`): `{ items }`, up to 500 catalog
  *   items each;
- * - `catalog_cats` (key `[src, gen, kind]`): `{ cats }`, the categories with their chunk sizes;
+ * - `catalog_cats` (key `[src, gen, kind]`): `{ cats }`, the categories with their chunk sizes, and
+ *   since step 26e the movie kind's `recent`, its newest movies (recent.ts; no migration: a record's
+ *   shape isn't the schema's, and `INGEST_VERSION` 2 rebuilds older records);
  * - `catalog_index` (key `[src, gen, kind]`): the search segment (core `SearchSegmentData`);
  * - `profile` (keyPath `id`): the profile document (`current`) and 3 rolling snapshots
  *   (`snap:0`..`snap:2`), profile.ts;

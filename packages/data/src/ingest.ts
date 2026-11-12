@@ -14,7 +14,8 @@
  * 3. Bytes are hashed (FNV-1a) as downloaded, gunzipped when they start with `1f 8b`, decoded
  *    as UTF-8 in stream mode and parsed by core's streaming parsers.
  * 4. Items go through a chunker and search-index builder per kind; chunks are written about 10
- *    per transaction. Reading waits for each write, and the throttle pauses for the busy UI
+ *    per transaction. Movies also go through a `RecentList` (step 26e): each kind that keeps one
+ *    stores its newest with its categories. Reading waits for each write, and the throttle pauses for the busy UI
  *    and runs the low-tier duty cycle between chunks and batches.
  * 5. Nothing at all parsed is an error (`empty`), never an empty catalog.
  * 6. Bytes identical to the active generation's (hash and length, same `INGEST_VERSION`): the
@@ -51,15 +52,17 @@ import { FavouriteMatcher, reconcileFavourites } from './favourites';
 import type { GunzipMode } from './gunzip';
 import { MaybeGunzip } from './gunzip';
 import { IngestError, headerNumber, ingestError } from './ingest-errors';
+import { INGEST_VERSION } from './ingest-version';
 import type { ProfileDoc } from './profile';
 import { loadProfile, updateProfile } from './profile';
+import { RECENT_KINDS, RecentList } from './recent';
 import type { CancelToken } from './rpc';
 import { CancelError, NEVER } from './rpc';
 import type { ThrottleStats } from './throttle';
 import { Throttle } from './throttle';
 
-/** Bump when parsing or the stored item shape changes: unchanged bytes are then re-ingested. */
-export const INGEST_VERSION = 1;
+/** Bump when parsing or what a generation stores changes (ingest-version.ts). */
+export { INGEST_VERSION } from './ingest-version';
 /** Chunks per write transaction (about 5,000 items). */
 export const WRITE_BATCH = 10;
 /** How long an M3U link's panel login may take before the refresh goes on without it. */
@@ -188,16 +191,20 @@ async function panelLogin(account: XtreamAccount, transport: ByteTransport, toke
 class KindWriter {
   readonly chunker: CatalogChunker;
   readonly builder: SearchIndexBuilder;
+  /** The kind's newest items (step 26e), for the kinds that keep them. */
+  readonly recent: RecentList | null;
   count = 0;
   finished = false;
 
   constructor(kind: ContentKind, src: string, gen: number, chunkSize?: number) {
     this.chunker = new CatalogChunker(kind, { chunkSize });
     this.builder = new SearchIndexBuilder(src, kind, gen);
+    this.recent = RECENT_KINDS.indexOf(kind) === -1 ? null : new RecentList();
   }
 
-  push(item: CatalogItem): CatalogChunk[] {
+  push(item: CatalogItem, added: number | null): CatalogChunk[] {
     this.count++;
+    this.recent?.push(item, added);
     const ready = this.chunker.push(item);
     for (const c of ready) indexChunk(this.builder, c);
     return ready;
@@ -226,7 +233,8 @@ class GenerationWriter {
     private readonly chunkSize?: number,
   ) {}
 
-  add(item: CatalogItem): void {
+  /** Adds an item; `added`: when its panel added it (epoch seconds, `null`: unknown). */
+  add(item: CatalogItem, added: number | null): void {
     let w = this.kinds.get(item.kind);
     if (!w) {
       w = new KindWriter(item.kind, this.src, this.gen, this.chunkSize);
@@ -234,7 +242,7 @@ class GenerationWriter {
     }
     if (w.finished) throw new RangeError(`More ${item.kind} items after that kind was finished`);
     this.items++;
-    for (const c of w.push(item)) this.pending.push(c);
+    for (const c of w.push(item, added)) this.pending.push(c);
   }
 
   /** Writes the full batches waiting (with `all`, every chunk waiting). */
@@ -245,7 +253,7 @@ class GenerationWriter {
     }
   }
 
-  /** Writes a kind's last chunks, its categories and its search segment. */
+  /** Writes a kind's last chunks, its categories, its newest items and its search segment. */
   async finishKind(kind: ContentKind): Promise<void> {
     const w = this.kinds.get(kind);
     if (!w || w.finished) return;
@@ -253,7 +261,7 @@ class GenerationWriter {
     for (const c of w.end()) this.pending.push(c);
     await this.flush(true);
     const data = w.builder.finish();
-    await putCatalogKind(this.db, this.src, this.gen, kind, w.chunker.categories(), data);
+    await putCatalogKind(this.db, this.src, this.gen, kind, w.chunker.categories(), data, w.recent?.list());
     this.segments.set(kind, new SearchSegment(data));
   }
 
@@ -319,11 +327,12 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
     return text;
   };
 
-  const take = async (items: CatalogItem[]): Promise<void> => {
-    for (const item of items) {
+  /** `added`: each item's panel date, by its place in `items` (a playlist has none). */
+  const take = async (items: CatalogItem[], added?: readonly (number | null)[]): Promise<void> => {
+    items.forEach((item, i) => {
       matcher.see(item);
-      writer!.add(item);
-    }
+      writer!.add(item, added?.[i] ?? null);
+    });
     await writer!.flush();
     await throttle.checkpoint(token);
     progress('download');
@@ -420,7 +429,15 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
       for (const kind of source.kinds ?? CONTENT_KINDS) {
         kindNow = kind;
         const categories = new Map((await client.categories(kind)).map((c) => [c.id, c.name]));
-        lists[kind] = await client.list(kind, (items) => take(items.map((i) => i.item)), { categories, liveExt: source.liveExt });
+        lists[kind] = await client.list(
+          kind,
+          (items) =>
+            take(
+              items.map((i) => i.item),
+              items.map((i) => i.added),
+            ),
+          { categories, liveExt: source.liveExt },
+        );
         token.throwIfCancelled();
         await writer.finishKind(kind);
       }

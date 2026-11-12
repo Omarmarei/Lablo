@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ByteTransport } from './bytes';
 import { Fnv1a } from './bytes';
 import type { SourceMeta } from './catalog-store';
-import { getSource } from './catalog-store';
+import { getSource, readRecent } from './catalog-store';
 import { onSuccess, openDatabase, transact } from './idb';
 import type { IngestOptions, IngestProgress, IngestSwap } from './ingest';
 import { INGEST_VERSION, IngestError, runIngest } from './ingest';
@@ -277,6 +277,17 @@ describe('runIngest: conditional fetch', () => {
     expect((await old.result).status).toBe('committed');
     expect(old.transport.requests[0]!.headers).toEqual({});
     expect(await storedGens()).toEqual([3]);
+  });
+
+  it('is at version 2 since step 26e: catalogs built before keep no newest movies, so they are rebuilt', () => {
+    expect(INGEST_VERSION).toBe(2);
+  });
+
+  it("keeps no newest movies for a playlist (its movies have no date), but marks the list as kept (step 26e)", async () => {
+    await run(serve(text)).result;
+    const meta = await sourceMeta();
+    expect(await readRecent(db, [{ src: SRC, gen: meta.gen, kind: 'movie' }, { src: SRC, gen: meta.gen, kind: 'live' }])).toEqual([[], null]);
+    expect(await new QueryService({ openDb: async () => db }).recent({ sources: [SRC], kind: 'movie' })).toEqual([]);
   });
 
   it('commits changed bytes, also when the length stays the same', async () => {

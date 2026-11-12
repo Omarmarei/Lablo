@@ -7,7 +7,7 @@
 import type { CatalogItem, ContentKind } from '@lablo/core';
 import { panelZone } from '@lablo/core';
 import type { FavouriteRef, IngestJob, IngestOptions, ProfileDoc } from '@lablo/data';
-import { IngestError, QueryService, emptyProfile, fetchTransport, getSource, loadProfile, openDatabase, runIngest, saveProfile } from '@lablo/data';
+import { INGEST_VERSION, IngestError, QueryService, STORE, emptyProfile, fetchTransport, getSource, loadProfile, onSuccess, openDatabase, runIngest, saveProfile, transact } from '@lablo/data';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Catalog } from '../apps/mock-provider/src/config';
 import { loadCatalog } from '../apps/mock-provider/src/config';
@@ -131,6 +131,48 @@ describe('ingest against the mock provider: Xtream', () => {
     const live = await allItems('xt', 'live');
     expect(live.find((i) => i.key === 'x:xt:live:101')).toMatchObject({ name: 'Lablo Test 1 SMPTE', group: 'Test News', epgId: 'lablo.test1' });
     // The panel clock in the login answer isn't hashed: a second refresh is unchanged.
+    expect((await ingest(xtream())).status).toBe('unchanged');
+  });
+
+  it('keeps its newest movies by their panel dates, and rebuilds a catalog an older ingest version built (step 26e)', async () => {
+    // The mock's films, newest first by their `added_days_ago`; equal days keep the panel's order.
+    const newest = catalog.movies
+      .map((m, i) => ({ m, i }))
+      .sort((a, b) => a.m.addedDaysAgo - b.m.addedDaysAgo || a.i - b.i)
+      .map((x) => x.m);
+    expect(newest.map((m) => m.name)).toEqual(['Big Buck Bunny', 'Sintel', 'اختبار الصوت المتعدد', 'Elephants Dream', 'Tears of Steel', 'Lablo Test Pattern 4K HEVC']);
+    await ingest(xtream());
+    const q = new QueryService({ openDb: async () => db });
+    const recent = await q.recent({ sources: ['xt'], kind: 'movie' });
+    expect(recent.map((r) => r.item.name)).toEqual(newest.map((m) => m.name));
+    // Each with the panel's date (whole days before the mock's day), and the item the catalog stores.
+    const movies = await allItems('xt', 'movie');
+    for (const r of recent) {
+      const m = catalog.movies.find((x) => r.item.key === `x:xt:movie:${x.id}`)!;
+      expect(r.added).toBe(Math.floor((Math.floor(NOW / DAY) * DAY - m.addedDaysAgo * DAY) / 1000));
+      expect(r.item).toEqual(movies.find((i) => i.key === r.item.key));
+    }
+    // A playlist's movies have none: the M3U source adds nothing.
+    await ingest(m3uJob());
+    expect((await q.recent({ sources: ['pl', 'xt'], kind: 'movie' })).map((r) => r.item.src)).toEqual(newest.map(() => 'xt'));
+
+    // A catalog an older ingest version built: its records lack the list, its stamp has the old version.
+    await transact(db, [STORE.sources, STORE.cats], 'readwrite', (tx) => {
+      const sources = tx.objectStore(STORE.sources);
+      onSuccess(sources.get('xt'), (meta) => {
+        const m = meta as { gen: number; fetch: { v: number } };
+        sources.put({ ...m, fetch: { ...m.fetch, v: INGEST_VERSION - 1 } });
+        const cats = tx.objectStore(STORE.cats);
+        onSuccess(cats.get(['xt', m.gen, 'movie']), (record) => cats.put({ cats: (record as { cats: unknown }).cats }, ['xt', m.gen, 'movie']));
+      });
+    });
+    await q.reload();
+    expect(await q.recent({ sources: ['xt'], kind: 'movie' })).toEqual([]);
+    // The same bytes again: rebuilt, not "unchanged", and the list is back.
+    const again = await ingest(xtream());
+    expect(again).toMatchObject({ status: 'committed', gen: 2, previous: 1 });
+    await q.reload();
+    expect((await q.recent({ sources: ['xt'], kind: 'movie' })).map((r) => r.item.name)).toEqual(newest.map((m) => m.name));
     expect((await ingest(xtream())).status).toBe('unchanged');
   });
 

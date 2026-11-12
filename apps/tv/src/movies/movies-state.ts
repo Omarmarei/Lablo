@@ -1,13 +1,13 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
 import type { CatalogItem, ContentKind, DeviceTier } from '@lablo/core';
-import type { CategoryInfo, LoadedProfile, SourceRecord } from '@lablo/data';
+import type { CategoryInfo, LoadedProfile, RecentItem, RecentRequest, SourceRecord } from '@lablo/data';
 import type { Focus, Navigator, Screen, ZoneSpec } from '@lablo/ui';
 import { LAYOUT, fits } from '@lablo/ui';
-import type { ChunkRef } from '../live/channel-index';
+import type { ChunkRef, ListPart } from '../live/channel-index';
 import { ChannelIndex, chunkId } from '../live/channel-index';
 import type { RailEntry, RailRef, Timers } from '../live/live-state';
-import { CHUNK_CACHE, LIVE, LIVE_BODY, RAIL_VISIBLE, findEntry, railEntries } from '../live/live-state';
+import { CHUNK_CACHE, LIVE, LIVE_BODY, RAIL_VISIBLE, railEntries } from '../live/live-state';
 import { storedSources } from '../onboarding/engine-loader';
 import type { MovieShares } from './movie-progress';
 import { POSTER_TIERS, PosterLoader } from './posters';
@@ -16,23 +16,30 @@ import { POSTER_TIERS, PosterLoader } from './posters';
  * The movies screen (RELAY step 26a, PLAN 7.1): the stored sources' movies, pushed on the live
  * navigator by the header's "Movies" button, as the guide is.
  *
- *   rail   ("All movies", then each source's VOD categories; OK shows one, its grid focused)
+ *   rail   ("Recently added", "All movies", then each source's VOD categories; OK shows one,
+ *          its grid focused)
  *   grid   (the category's movies as poster tiles, `MOVIES.columns` a row filled from the inline
  *          start; only the rows in view are drawn)
  *   retry  ("Try again" after a failed read)
  *
- * - **The first focus** is on the grid's first movie of "All movies".
+ * - **The first focus** is on the grid's first movie of the rail's first entry: "Recently added"
+ *   when the sources have dated movies, else "All movies".
+ * - **"Recently added"** (step 26e): the newest movies across the sources, newest first, at most
+ *   `RECENT_MAX` (the query worker's `recent`, from the lists the ingest keeps). Its movies are read
+ *   with the categories and held while the screen is open: it has no chunks. A playlist's movies
+ *   have no date, so a screen of playlists alone has no such entry.
  * - **Keys:** LEFT from the grid's first column goes to the rail (RIGHT from the rail back),
  *   mirrored in Arabic; CH± page the grid; Back in the grid goes to the rail on the category on
  *   show, and Back on the rail (or on an empty or failed screen) closes it: the live screen's
  *   header keeps the focus on "Movies".
- * - **The data:** the sources and their movie categories are read on each open; a category's
+ * - **The data:** the sources, their movie categories and the newest movies are read on each
+ *   open; a category's
  *   chunks are read for the rows in view and one row either side (`ChannelIndex`, kind `movie`),
  *   `CHUNK_CACHE` of them kept. Everything goes when the screen closes.
  * - **The posters** (`posters.ts`): asked once the view has rested, a few at a time, by tier.
  * - **A catalog swap** while it is open (`catalogChanged`): the sources are read again, the
- *   category on show kept by name ("All movies" when it is gone), the focus on the same place
- *   when the new grid has it.
+ *   entry on show kept ("Recently added", "All movies", or a category by its name; the first entry
+ *   when it is gone), the focus on the same place when the new grid has it.
  * - `pending` counts the reads in flight, a rest not over yet and the posters downloading: 0
  *   means the screen is settled (e2e).
  */
@@ -60,11 +67,37 @@ if (MOVIES_GRID_WIDTH > LIVE.width - LIVE.railWidth - LIVE.columnGap) throw new 
 
 export type MoviesStatus = 'loading' | 'ready' | 'empty' | 'failed';
 
+/** The rail's "Recently added" (step 26e): the newest movies, held by the screen (no parts). */
+export interface RecentEntry {
+  readonly kind: 'recent';
+  readonly name: '';
+  readonly count: number;
+  readonly parts: readonly ListPart[];
+  readonly allStart: number;
+}
+
+/** An entry of the movies rail: "Recently added", or one of the live rail's kinds. */
+export type MovieEntry = RecentEntry | RailEntry;
+
+/** A rail entry as a catalog swap finds it again (`null`: none shown yet). */
+type MovieRef = 'recent' | 'all' | NonNullable<RailRef> | null;
+
+/** The entry of `entries` that `ref` names (`-1`: none). */
+function findMovieEntry(entries: readonly MovieEntry[], ref: NonNullable<MovieRef>): number {
+  for (let i = 0; i < entries.length; i += 1) {
+    const e = entries[i]!;
+    if (ref === 'recent' || ref === 'all' ? e.kind === ref : e.kind === 'category' && e.name === ref.name && e.parts[0]?.src === ref.src) return i;
+  }
+  return -1;
+}
+
 /** What the movies screen needs from the data engine (a `DataEngine` fits; tests pass a fake). */
 export interface MoviesEngine {
   profile(): Promise<LoadedProfile | null>;
   categories(src: string, kind: ContentKind): Promise<CategoryInfo[]>;
   chunk(src: string, kind: ContentKind, catIdx: number, chunk: number): Promise<CatalogItem[]>;
+  /** The newest movies across the sources, newest first (step 26e). */
+  recent(req: RecentRequest): Promise<RecentItem[]>;
 }
 
 export interface MoviesOptions {
@@ -84,7 +117,7 @@ export interface Movies {
   /** The screen while it is on the stack. */
   readonly screen: ReadonlySignal<Screen | null>;
   readonly status: ReadonlySignal<MoviesStatus>;
-  readonly rail: ReadonlySignal<readonly RailEntry[]>;
+  readonly rail: ReadonlySignal<readonly MovieEntry[]>;
   /** The rail entry on show. */
   readonly category: ReadonlySignal<number>;
   /** Bumps when chunks or posters arrive: tiles are read again through `movie` and `poster`. */
@@ -135,7 +168,7 @@ export function createMovies(options: MoviesOptions): Movies {
 
   const screen = signal<Screen | null>(null);
   const status = signal<MoviesStatus>('loading');
-  const rail = signal<readonly RailEntry[]>([]);
+  const rail = signal<readonly MovieEntry[]>([]);
   const category = signal(0);
   const version = signal(0);
   const pending = signal(0);
@@ -144,6 +177,10 @@ export function createMovies(options: MoviesOptions): Movies {
   /** Bumps on each (re)load: answers from before are dropped. */
   let seq = 0;
   let index = new ChannelIndex([]);
+  /** "Recently added"'s movies, newest first, as the last load read them. */
+  let recent: CatalogItem[] = [];
+  /** The movies of the entry on show when it has no chunks ("Recently added"), else `null`. */
+  let held: CatalogItem[] | null = null;
   /** Loaded chunks, oldest use first (a Map keeps insertion order). */
   const chunks = new Map<string, CatalogItem[]>();
   const loadingChunks = new Map<string, number>();
@@ -178,6 +215,7 @@ export function createMovies(options: MoviesOptions): Movies {
   }
 
   const movieAt = (i: number): CatalogItem | null => {
+    if (held !== null) return held[i] ?? null;
     const at = index.locate(i);
     if (at === null) return null;
     return chunks.get(chunkId(at))?.[at.slot] ?? null;
@@ -285,30 +323,35 @@ export function createMovies(options: MoviesOptions): Movies {
     const picked = rail.value[i];
     if (shown === null || picked === undefined) return;
     category.value = i;
+    held = picked.kind === 'recent' ? recent : null;
     index = new ChannelIndex(picked.parts);
-    shown.update(gridZone(index.count));
+    shown.update(gridZone(held === null ? index.count : held.length));
     shown.focus(MOVIES_GRID, place);
   };
 
-  /** The stored sources and each one's movie categories. */
-  const readSources = async (): Promise<{ records: SourceRecord[]; lists: CategoryInfo[][] }> => {
+  /** The stored sources, each one's movie categories, and the newest movies across them. */
+  const readSources = async (): Promise<{ records: SourceRecord[]; lists: CategoryInfo[][]; newest: RecentItem[] }> => {
     const records = storedSources(await engine.profile());
-    const lists = await Promise.all(records.map((r) => engine.categories(r.id, MOVIE_KIND)));
-    return { records, lists };
+    const ids: string[] = [];
+    for (const r of records) ids.push(r.id);
+    const read = await Promise.all([Promise.all(records.map((r) => engine.categories(r.id, MOVIE_KIND))), engine.recent({ sources: ids, kind: MOVIE_KIND })] as const);
+    return { records, lists: read[0], newest: read[1] };
   };
 
-  /** The rail entry on show as a source's category by its name (`null`: "All movies", or nothing yet). */
-  const shownRef = (): RailRef => {
+  /** The rail entry on show, as a catalog swap finds it again (`null`: nothing yet). */
+  const shownRef = (): MovieRef => {
     const shown = rail.value[category.value];
-    const part = shown === undefined || shown.kind === 'all' ? undefined : shown.parts[0];
-    return part === undefined || shown === undefined ? null : { src: part.src, name: shown.name };
+    if (shown === undefined) return null;
+    if (shown.kind !== 'category') return shown.kind;
+    const part = shown.parts[0];
+    return part === undefined ? null : { src: part.src, name: shown.name };
   };
 
   /**
    * Reads the sources and their categories. `keep`: the category to show again (a catalog swap),
    * and the grid's place to focus there; without it, the loading screen first.
    */
-  const load = (keep?: { readonly ref: RailRef; readonly place: number }): void => {
+  const load = (keep?: { readonly ref: MovieRef; readonly place: number }): void => {
     seq += 1;
     const mine = seq;
     loadingChunks.clear();
@@ -317,12 +360,17 @@ export function createMovies(options: MoviesOptions): Movies {
       screen.value?.update(retryZone(0));
     }
     track(readSources).then(
-      ({ records, lists }) => {
+      ({ records, lists, newest }) => {
         const shown = screen.value;
         if (disposed || mine !== seq || shown === null) return;
-        const entries = railEntries(records.map((r, i) => ({ src: r.id, categories: lists[i] ?? [] })));
+        const entries: MovieEntry[] = [];
+        if (newest.length > 0) entries.push({ kind: 'recent', name: '', count: newest.length, parts: [], allStart: 0 });
+        for (const entry of railEntries(records.map((r, i) => ({ src: r.id, categories: lists[i] ?? [] })))) entries.push(entry);
         // (A swap's old tiles show until here.)
         chunks.clear();
+        recent = [];
+        for (const r of newest) recent.push(r.item);
+        held = null;
         rail.value = entries;
         shown.update(railZone(entries.length));
         if (entries.length === 0) {
@@ -333,7 +381,7 @@ export function createMovies(options: MoviesOptions): Movies {
         }
         status.value = 'ready';
         const ref = keep === undefined ? null : keep.ref;
-        const found = ref === null ? 0 : findEntry(entries, ref);
+        const found = ref === null ? 0 : findMovieEntry(entries, ref);
         const pick = Math.max(0, found);
         // The same category: the same place in it (the grid clamps it); another one: its first movie.
         const place = keep !== undefined && found !== -1 ? keep.place : 0;
@@ -342,8 +390,10 @@ export function createMovies(options: MoviesOptions): Movies {
         showCategory(pick, place);
         if (onRail) shown.focus(MOVIES_RAIL, pick);
         bump();
-        // (Its chunks' arrival asks the posters: the load cleared them all.)
+        // (Its chunks' arrival asks the posters: the load cleared them all. "Recently added" has
+        // none to wait for: its posters come at the rest.)
         readView();
+        if (held !== null) scheduleRest();
       },
       (error: unknown) => {
         const shown = screen.value;
@@ -363,6 +413,8 @@ export function createMovies(options: MoviesOptions): Movies {
     stopRest();
     screen.value = null;
     chunks.clear();
+    recent = [];
+    held = null;
     loadingChunks.clear();
     posters.clear();
     syncPending();
@@ -459,6 +511,8 @@ export function createMovies(options: MoviesOptions): Movies {
       stopRest();
       stopFollowing();
       chunks.clear();
+      recent = [];
+      held = null;
       posters.clear();
       syncPending();
     },

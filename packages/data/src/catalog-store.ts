@@ -10,13 +10,14 @@
  *
  * If the app dies before step 3, the active generation is untouched; the half-written one is
  * removed by `pruneGenerations` at the next start. Key layout: chunks `[src, gen, kind, catIdx,
- * chunk]`, categories and index `[src, gen, kind]`. Array keys sort after numbers, so
+ * chunk]`, categories (with a kind's newest items, step 26e) and index `[src, gen, kind]`. Array keys sort after numbers, so
  * `[src, gen]`..`[src, gen, []]` covers one generation and `[src]`..`[src, []]` a whole source.
  */
 
 import type { CatalogItem, ContentKind, SearchSegmentData, XtreamServerInfo } from '@lablo/core';
 import type { CatalogChunk, CategoryInfo } from './chunker';
 import { onSuccess, transact } from './idb';
+import type { RecentItem } from './recent';
 import { STORE } from './schema';
 
 /** Ingest bookkeeping for one source. */
@@ -144,11 +145,29 @@ export function putChunks(db: IDBDatabase, src: string, gen: number, chunks: rea
   });
 }
 
-/** Writes one kind's categories and search segment of a generation. */
-export function putCatalogKind(db: IDBDatabase, src: string, gen: number, kind: ContentKind, cats: readonly CategoryInfo[], index: SearchSegmentData): Promise<void> {
+/** A kind's categories record: its categories, and its newest items when the kind keeps them (step 26e). */
+interface CategoriesRecord {
+  cats: CategoryInfo[];
+  recent?: RecentItem[];
+}
+
+/**
+ * Writes one kind's categories and search segment of a generation, and its newest items (`recent`,
+ * newest first: step 26e) when the kind keeps them.
+ */
+export function putCatalogKind(
+  db: IDBDatabase,
+  src: string,
+  gen: number,
+  kind: ContentKind,
+  cats: readonly CategoryInfo[],
+  index: SearchSegmentData,
+  recent?: readonly RecentItem[],
+): Promise<void> {
   if (index.src !== src || index.gen !== gen || index.kind !== kind) throw new RangeError('Search segment belongs to another source, generation or kind');
+  const record = (recent === undefined ? { cats } : { cats, recent }) as CategoriesRecord;
   return transact<void>(db, [STORE.cats, STORE.index], 'readwrite', (tx) => {
-    tx.objectStore(STORE.cats).put({ cats }, [src, gen, kind]);
+    tx.objectStore(STORE.cats).put(record, [src, gen, kind]);
     tx.objectStore(STORE.index).put(index, [src, gen, kind]);
   });
 }
@@ -275,7 +294,24 @@ export function scanChunks(db: IDBDatabase, src: string, gen: number, kind: Cont
 
 export function readCategories(db: IDBDatabase, src: string, gen: number, kind: ContentKind): Promise<CategoryInfo[] | null> {
   return transact<CategoryInfo[] | null>(db, STORE.cats, 'readonly', (tx, done) => {
-    onSuccess(tx.objectStore(STORE.cats).get([src, gen, kind]), (value) => done(value ? (value as { cats: CategoryInfo[] }).cats : null));
+    onSuccess(tx.objectStore(STORE.cats).get([src, gen, kind]), (value) => done(value ? (value as CategoriesRecord).cats : null));
+  });
+}
+
+/**
+ * Reads the newest items of the given generations' kinds (step 26e), newest first, in one
+ * transaction. `null` where none is stored: no such record, or one an older ingest version wrote.
+ */
+export function readRecent(db: IDBDatabase, keys: readonly { src: string; gen: number; kind: ContentKind }[]): Promise<(RecentItem[] | null)[]> {
+  return transact<(RecentItem[] | null)[]>(db, STORE.cats, 'readonly', (tx, done) => {
+    const store = tx.objectStore(STORE.cats);
+    const out: (RecentItem[] | null)[] = keys.map(() => null);
+    done(out);
+    keys.forEach((k, i) => {
+      onSuccess(store.get([k.src, k.gen, k.kind]), (value) => {
+        out[i] = value ? ((value as CategoriesRecord).recent ?? null) : null;
+      });
+    });
   });
 }
 

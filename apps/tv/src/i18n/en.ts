@@ -149,6 +149,8 @@ export const EN = {
   'movies.open': 'Movies',
   'movies.title': 'Movies',
   'movies.all': 'All movies',
+  // The newest movies of the panels (RELAY step 26e), first in the rail.
+  'movies.recent': 'Recently added',
   'movies.count': '{n, plural, one {# movie} other {# movies}}',
   'movies.noGroup': 'Other movies',
   'movies.loading': 'Loading your movies',

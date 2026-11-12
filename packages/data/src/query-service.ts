@@ -36,6 +36,8 @@
  *   `account-check.ts`).
  * - `vodInfo` gives a movie's details from its Xtream panel's `get_vod_info` when they open (step
  *   26c), kept 24 h per movie (`vod-info.ts`); `null` for a movie with no panel.
+ * - `recent` gives the newest movies across the sources asked ("Recently added", step 26e): each
+ *   active generation's list kept at ingest (`recent.ts`), merged; no chunk is read.
  * - `profile` and `editProfile` read and change the profile document for the app (step 13b):
  *   onboarding's answers and the sources the user added. An edit is a read-modify-write in one
  *   transaction, like the ingest worker's favourites update, so neither can lose the other's.
@@ -48,7 +50,7 @@ import type { CatalogItem, ContentKey, ContentKind, EpgBucket, EpgMatchMethod, E
 import { CONTENT_KINDS, SearchSegment, combineEpgMatches, epgDay, epgNowNext, epgProgrammeAt, epgSchedule, favouriteMarks, normalizeName, searchSegments } from '@lablo/core';
 import type { CategoryInfo } from './chunker';
 import type { ChunkKey, SourceMeta } from './catalog-store';
-import { getSources, readCategories, readChunks, readIndexes, scanChunks } from './catalog-store';
+import { getSources, readCategories, readChunks, readIndexes, readRecent, scanChunks } from './catalog-store';
 import type { EpgBucketKey, EpgDeclaredChannels, EpgMeta, StoredEpgMatch } from './epg-store';
 import { epgDeclared, getEpgMetas, readEpgBuckets, readEpgChannels, readEpgDeclared } from './epg-store';
 import { epgMappingKey, epgOverridesOf } from './epg-overrides';
@@ -64,6 +66,8 @@ import { checkAccount, sourceAccount } from './account-check';
 import type { SourceRecord } from './profile';
 import type { VodInfoRequest } from './vod-info';
 import { VodInfoCache, vodInfoTarget } from './vod-info';
+import type { RecentItem } from './recent';
+import { RECENT_MAX, mergeRecent } from './recent';
 
 /** Where a search hit (or any item) is stored. */
 export interface ItemRef {
@@ -242,6 +246,18 @@ export interface GuideChannelsPage {
 /** Most rows one `guideChannels` call gives (a larger ask is refused, not cut). */
 export const GUIDE_CHANNELS_MAX_ROWS = 500;
 
+/** "Recently added"'s ask (step 26e): the newest items of one kind across `sources`. */
+export interface RecentRequest {
+  /**
+   * The sources in the order the app lists them (on an equal date the one listed first comes
+   * first). A source with no catalog stored, or one an older ingest version built, adds nothing.
+   */
+  sources: string[];
+  kind: ContentKind;
+  /** At most `RECENT_MAX` (the default); a larger ask is refused, not cut. */
+  limit?: number;
+}
+
 /** The words of a normalized name (single spaces between them, none at either end). */
 function wordsOf(normalized: string): string[] {
   const out: string[] = [];
@@ -341,6 +357,7 @@ export class QueryService {
       shortEpg: (req: ShortEpgRequest): Promise<ShortEpgNowNext> => this.shortEpg(req),
       account: (arg: { src: string }): Promise<AccountCheck | null> => this.account(arg.src),
       vodInfo: (req: VodInfoRequest): Promise<XtreamVodInfo | null> => this.vodInfo(req),
+      recent: (req: RecentRequest): Promise<RecentItem[]> => this.recent(req),
       profile: (): Promise<LoadedProfile | null> => this.profile(),
       editProfile: (edit: ProfileEdit): Promise<boolean> => this.editProfile(edit),
     };
@@ -733,6 +750,28 @@ export class QueryService {
     const record = await this.sourceRecord(req.src);
     const target = record === null ? null : vodInfoTarget(req.url, sourceAccount(record));
     return target === null ? null : this.vodInfos.info(req.key, target);
+  }
+
+  /**
+   * The newest items of `req.kind` across `req.sources` ("Recently added", step 26e), newest first:
+   * the lists each active generation keeps from its ingest, merged. A source named twice counts
+   * once. Rejects a `limit` that isn't a whole number from 0 to `RECENT_MAX`.
+   */
+  async recent(req: RecentRequest): Promise<RecentItem[]> {
+    const limit = req.limit ?? RECENT_MAX;
+    if (!(limit >= 0 && limit <= RECENT_MAX && Math.floor(limit) === limit)) {
+      throw new RangeError(`"Recently added" gives up to ${RECENT_MAX} items`);
+    }
+    await this.ensureLoaded();
+    const keys: { src: string; gen: number; kind: ContentKind }[] = [];
+    const asked: string[] = [];
+    for (const src of req.sources) {
+      if (asked.indexOf(src) !== -1) continue;
+      asked.push(src);
+      // (A source with no catalog has generation 0, which holds nothing.)
+      keys.push({ src, gen: this.activeGen(src), kind: req.kind });
+    }
+    return mergeRecent(await readRecent(await this.db(), keys), limit);
   }
 
   /** The profile's record of source `src` (`null`: no profile, or no such source). */

@@ -13,6 +13,13 @@ import type { QueryService } from './query-service';
 import type { RpcPort } from './rpc';
 import { RpcClient } from './rpc';
 
+// The ingest's version (a constant of its own module): the refresh schedule refreshes a catalog an
+// older version built (step 26e).
+export { INGEST_VERSION } from './ingest-version';
+// "Recently added"'s types (step 26e).
+export type { RecentItem } from './recent';
+export type { RecentRequest } from './query-service';
+
 // Cancel tokens and the errors calls reject with (rpc.ts is bundled here anyway): the app cancels
 // a refresh and reads its error code without importing the package index (step 13b).
 export type { CancelToken } from './rpc';

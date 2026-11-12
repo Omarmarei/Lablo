@@ -15,10 +15,11 @@ import { THROTTLE, busyMs, throttle, transitionOf } from './throttle';
 /**
  * The poster grid on a large catalog at 4x CPU throttle (RELAY step 26b, architecture.md §4), as
  * live-throttled.spec.ts and guide-throttled.spec.ts do for the live list and the grid guide:
- * "Movies" opened from the live header over "All movies" (20,000 movies in 100 categories), then
- * every press timed from its key event to the paint of the frame that shows the new focus: down
- * the rows, page by page with CH−, to the rail and down it, OK on a category, down its rows, and
- * Back to the rail and to the header. Then the same in the forced low tier (`?tier=low`).
+ * "Movies" opened from the live header over "Recently added" (the newest 100 of 20,000 movies in
+ * 100 categories, step 26e), then every press timed from its key event to the paint of the frame
+ * that shows the new focus: to the rail, OK on "All movies", down the rows, page by page with
+ * CH−, to the rail and down it, OK on a category, down its rows, and Back to the rail and to the
+ * header. Then the same in the forced low tier (`?tier=low`).
  *
  * The posters are watched in the page meanwhile (`recordPosters`):
  * - the `img` elements drawn, at every change of the DOM: never more than the view's 18;
@@ -41,9 +42,18 @@ const ROWS = 3;
 const VIEW = COLUMNS * ROWS;
 /** The tiers' rest before the posters are asked (apps/tv posters.ts `POSTER_TIERS`). */
 const REST_MS = { full: 150, low: 300 } as const;
-/** The rail entry the walk opens: category 30, the 30th of the panel's (its movies from 29 x 200). */
+/** The rail's "All movies", after "Recently added" (step 26e). */
+const ALL = 1;
+/** The panel's category the walk opens: the 30th (its movies from 29 x 200), rail entry 31. */
 const CATEGORY = 30;
+const CATEGORY_ENTRY = ALL + CATEGORY;
 const PER_CATEGORY = MOVIES / MOVIE_CATEGORIES;
+/**
+ * "Recently added" lists the newest 100: the big catalog's movie j was added `j % 30` days ago, so
+ * the newest are those added today, every 30th, in the panel's order.
+ */
+const RECENT = 100;
+const RECENT_EVERY = 30;
 /**
  * Each press in the movies screen within 150 ms (PLAN 6.2's grid budget, as the grid guide's),
  * and no main-thread task longer than that while the keys go down.
@@ -152,8 +162,11 @@ async function pause(page: Page): Promise<void> {
   await page.waitForFunction(() => document.querySelectorAll('[data-testid=movies-grid] img').length > 0, undefined, { polling: 'raf', timeout: 10_000 });
 }
 
-/** The movie tile `index` of rail entry `category` shows ("All movies" lists the categories in turn). */
-const movieAt = (category: number, index: number): number => BIG_MOVIE_ID + (category === 0 ? 0 : (category - 1) * PER_CATEGORY) + index;
+/**
+ * The movie tile `index` of rail entry `entry` shows: "Recently added" (0) every 30th movie, "All
+ * movies" (1) the categories in turn, then each category.
+ */
+const movieAt = (entry: number, index: number): number => BIG_MOVIE_ID + (entry === 0 ? index * RECENT_EVERY : entry === ALL ? index : (entry - ALL - 1) * PER_CATEGORY + index);
 
 /** What is wrong with a rest: its 18 tiles, each drawing its own movie's poster, loaded. */
 function restFailures(rest: Rest, want: { top: number; category: number }): string[] {
@@ -223,9 +236,9 @@ interface Run {
 
 /**
  * The keys of a viewer looking through a large film library, timed at 4x throttle: UP to the
- * live header, RIGHT to "Movies" and OK (the screen's first draw), down 20 rows, 15 pages with
- * CH−, to the rail and 30 categories down it, OK on one, 5 rows down, Back to the rail and Back
- * to the header. The rows and the pages stop briefly every fifth key (`pause`), long enough for
+ * live header, RIGHT to "Movies" and OK (the screen's first draw, on "Recently added"), to the
+ * rail and OK on "All movies", down 20 rows, 15 pages with CH−, to the rail and 30 categories down
+ * it, OK on one, 5 rows down, Back to the rail and Back to the header. The rows and the pages stop briefly every fifth key (`pause`), long enough for
  * a view's first posters, then go on. Each tier starts the app afresh with the source stored, so both runs begin alike.
  */
 async function browse(remote: RemoteDriver, live: Locator, tier: 'full' | 'low'): Promise<Run> {
@@ -253,8 +266,15 @@ async function browse(remote: RemoteDriver, live: Locator, tier: 'full' | 'low')
     await settled(screen, 30_000);
     // The tier's motion: a tile's focus transition, none on the low tier.
     expect(await transitionOf(page, '[data-testid=movies-grid] .z-tile')).toBe(tier === 'low' ? '0s' : '0.12s');
-    await expect(page.getByTestId('movies-meta').locator('[data-n]')).toHaveAttribute('data-n', String(MOVIES));
+    await expect(page.getByTestId('movies-meta').locator('[data-n]')).toHaveAttribute('data-n', String(RECENT));
     rests.push(await readRest(page, 'opened'));
+    await remote.timedPress('LEFT', 'movies/rail/0');
+    await remote.timedPress('DOWN', `movies/rail/${ALL}`);
+    await remote.timedPress('OK', 'movies/grid/0', { label: 'OK on "All movies"' });
+    await expect(screen).toHaveAttribute('data-category', String(ALL));
+    await settled(screen, 30_000);
+    await expect(page.getByTestId('movies-meta').locator('[data-n]')).toHaveAttribute('data-n', String(MOVIES));
+    rests.push(await readRest(page, 'All movies'));
     for (let i = 1; i <= 20; i++) {
       await remote.timedPress('DOWN', `movies/grid/${i * COLUMNS}`);
       // Every fifth row a short stop: rows 3-5, 8-10 and 13-15 have never been in view before.
@@ -268,14 +288,14 @@ async function browse(remote: RemoteDriver, live: Locator, tier: 'full' | 'low')
     }
     await settled(screen, 30_000);
     rests.push(await readRest(page, '15 pages down'));
-    await remote.timedPress('LEFT', 'movies/rail/0');
-    for (let i = 1; i <= CATEGORY; i++) await remote.timedPress('DOWN', `movies/rail/${i}`);
+    await remote.timedPress('LEFT', `movies/rail/${ALL}`);
+    for (let i = ALL + 1; i <= CATEGORY_ENTRY; i++) await remote.timedPress('DOWN', `movies/rail/${i}`);
     await remote.timedPress('OK', 'movies/grid/0', { label: `OK on category ${CATEGORY}` });
-    await expect(screen).toHaveAttribute('data-category', String(CATEGORY));
+    await expect(screen).toHaveAttribute('data-category', String(CATEGORY_ENTRY));
     await settled(screen, 30_000);
     rests.push(await readRest(page, `category ${CATEGORY}`));
     for (let i = 1; i <= 5; i++) await remote.timedPress('DOWN', `movies/grid/${i * COLUMNS}`);
-    await remote.timedPress('BACK', `movies/rail/${CATEGORY}`);
+    await remote.timedPress('BACK', `movies/rail/${CATEGORY_ENTRY}`);
     await remote.timedPress('BACK', 'live/header/1', { label: 'BACK closes Movies' });
     await settled(live, 30_000);
     const posters = checkDownloads(await readPosterLog(page), REST_MS[tier]);
@@ -320,14 +340,15 @@ test.describe('the poster grid at 4x CPU throttle on a large catalog', () => {
     for (const run of runs) {
       const views = [
         { top: 0, category: 0 },
-        { top: 20 - ROWS + 1, category: 0 },
-        { top: 20 - ROWS + 1 + 15 * ROWS, category: 0 },
-        { top: 0, category: CATEGORY },
+        { top: 0, category: ALL },
+        { top: 20 - ROWS + 1, category: ALL },
+        { top: 20 - ROWS + 1 + 15 * ROWS, category: ALL },
+        { top: 0, category: CATEGORY_ENTRY },
       ];
       expect(run.rests.flatMap((rest, i) => restFailures(rest, views[i]!)), `${run.tier} tier`).toEqual([]);
       expect(run.posters.failures, `${run.tier} tier`).toEqual([]);
-      // The four rests' posters, and some at each of the five short stops.
-      expect(run.posters.downloads).toBeGreaterThan(4 * VIEW + 5);
+      // The five rests' posters (the first movie is in the first two), and some at each of the five short stops.
+      expect(run.posters.downloads).toBeGreaterThan(5 * VIEW - 1 + 5);
     }
     for (const run of runs) {
       // The throttle was on: the same work ran at least twice as slow (about 4x on a quiet machine).
@@ -366,7 +387,10 @@ test.describe('the poster checks can fail', () => {
     expect(restFailures({ ...rest, tiles: tiles.map((t) => (t.index === 5 ? { ...t, poster: movieAt(0, 6) } : t)) }, { top: 0, category: 0 })).toHaveLength(1);
     expect(restFailures({ ...rest, images: VIEW - 1 }, { top: 0, category: 0 })).toEqual([`opened: ${VIEW - 1} images drawn, expected ${VIEW}`]);
     expect(restFailures(rest, { top: 1, category: 0 })).toHaveLength(2);
-    // Category 30's first movie is the 5,801st.
-    expect(movieAt(CATEGORY, 0)).toBe(BIG_MOVIE_ID + 5800);
+    // Category 30's first movie is the 5,801st; "Recently added" lists every 30th, from the first.
+    expect(movieAt(CATEGORY_ENTRY, 0)).toBe(BIG_MOVIE_ID + 5800);
+    expect(movieAt(ALL, 17)).toBe(BIG_MOVIE_ID + 17);
+    expect(movieAt(0, 3)).toBe(BIG_MOVIE_ID + 90);
+    expect(RECENT * RECENT_EVERY).toBeLessThanOrEqual(MOVIES);
   });
 });

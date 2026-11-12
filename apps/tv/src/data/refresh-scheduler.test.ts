@@ -1,5 +1,6 @@
 import type { DeviceTier } from '@lablo/core';
 import type { EpgCatalogSource, EpgOutcome, EpgRefreshResult, IngestResult, IngestSource, LoadedProfile, SourceMeta, SourceRecord } from '@lablo/data';
+import { INGEST_VERSION } from '@lablo/data/client';
 import type { LifecycleEvent } from '@lablo/platform-api';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EpgRefreshOptions, RefreshOptions } from './engine';
@@ -215,6 +216,17 @@ describe('catalogRefreshDue', () => {
     // A failure long ago doesn't make a fresh catalog due.
     expect(catalogRefreshDue(meta('s1', T0), T0 - 5 * HOUR, T0 + 1)).toBe(false);
     expect(CATALOG_RETRY_MS).toBe(2 * HOUR);
+  });
+
+  it('is due at once for a catalog an older ingest version built (step 26e), unless its refresh failed', () => {
+    const stamped = (v: number): SourceMeta => ({ ...meta('s1', T0), fetch: { v, hash: 'h', bytes: 1, etag: null, lastModified: null } });
+    expect(INGEST_VERSION).toBe(2);
+    expect(catalogRefreshDue(stamped(INGEST_VERSION - 1), undefined, T0 + 1)).toBe(true);
+    expect(catalogRefreshDue(stamped(INGEST_VERSION), undefined, T0 + 1)).toBe(false);
+    // A newer version's stamp (an app rolled back) is no reason, nor is a record from before the stamps.
+    expect(catalogRefreshDue(stamped(INGEST_VERSION + 1), undefined, T0 + 1)).toBe(false);
+    expect(catalogRefreshDue({ ...meta('s1', T0), fetch: null }, undefined, T0 + 1)).toBe(false);
+    expect(catalogRefreshDue(stamped(INGEST_VERSION - 1), T0, T0 + 1)).toBe(false);
   });
 });
 
