@@ -122,7 +122,13 @@ class FakeEngine implements SearchEngine {
 
   items(refs: ItemRef[]): Promise<(CatalogItem | null)[]> {
     this.reads.push(refs.map((r) => r.chunk * 500 + r.slot));
-    return this.answer('items', () => refs.map((r) => CATALOG[r.chunk * 500 + r.slot] ?? null));
+    // Each ref must be its hit's place, whole.
+    const at = (r: ItemRef): CatalogItem | null => {
+      const i = r.chunk * 500 + r.slot;
+      const want = hitOf(i);
+      return r.src === want.src && r.kind === want.kind && r.gen === want.gen && r.catIdx === want.catIdx ? (CATALOG[i] ?? null) : null;
+    };
+    return this.answer('items', () => refs.map(at));
   }
 
   /** The first row of each read. */
@@ -250,9 +256,10 @@ describe('the search screen', () => {
     expect(t.search.answered.value).toBe('movie');
     expect(t.search.count.value).toBe(100);
     expect(t.rows(0, 2)).toEqual(['300', '301']);
-    // The search before each new one is cancelled (here before the profile's read let it go).
+    // The search before each new one is cancelled (here before the profile's read let it go; the
+    // first had answered: cancelling it does nothing).
     await flush();
-    expect(engine.tokens.map((token) => token.cancelled)).toEqual([false, true, false]);
+    expect(engine.tokens.map((token) => token.cancelled)).toEqual([true, true, false]);
     expect(engine.held.find.length).toBe(1);
     expect(t.search.status.value).toBe('searching');
     engine.held.find.shift()!.resolve();
@@ -285,7 +292,9 @@ describe('the search screen', () => {
     expect([t.search.status.value, t.search.answered.value, t.search.count.value, t.search.total.value]).toEqual(['idle', '', 0, 0]);
     expect(t.search.row(0)).toBeNull();
     expect(t.search.hit(0)).toBeNull();
-    // The focus leaves the empty list for the field.
+    // The focus leaves the empty list for the field, and DOWN finds no list.
+    expect(t.at()).toBe('search · field 0');
+    await t.press('DOWN');
     expect(t.at()).toBe('search · field 0');
   });
 
@@ -362,16 +371,20 @@ describe('the search screen', () => {
     t.search.setQuery('series');
     await flush();
     expect(engine.finds.length).toBe(2);
+    // The live screen's keys go on with the search closed.
+    await t.press('RIGHT');
+    expect(t.at()).toBe('live · header 1');
     // Opened again: empty, and a late answer of the last opening changes nothing.
     t.search.open();
     await flush();
-    expect([t.search.status.value, t.search.query.value, t.search.count.value]).toEqual(['idle', '', 0]);
+    expect([t.search.status.value, t.search.query.value, t.search.answered.value, t.search.count.value, t.search.total.value]).toEqual(['idle', '', '', 0, 0]);
     expect(t.search.row(0)).toBeNull();
-    t.search.setQuery('series');
-    await flush();
+    expect(t.search.hit(0)).toBeNull();
     engine.held.find.shift()!.resolve();
     await flush();
-    expect(t.search.status.value).toBe('searching');
+    expect([t.search.status.value, t.search.count.value]).toEqual(['idle', 0]);
+    t.search.setQuery('series');
+    await flush();
     engine.held.find.shift()!.resolve();
     await flush();
     expect([t.search.answered.value, t.search.count.value]).toEqual(['series', 50]);
@@ -452,10 +465,20 @@ describe('the search screen', () => {
     expect(engine.finds.map((f) => f.query)).toEqual(['movie', 'movie']);
     expect(t.at()).toBe('search · results 2');
     expect(t.search.status.value).toBe('ready');
-    // Closed: nothing.
-    await t.press('BACK', 'BACK');
+    // The swapped catalog has nothing for the text: the focus leaves the empty list for the field.
+    t.search.setQuery('movie 999');
     t.search.catalogChanged();
-    expect(engine.finds.length).toBe(2);
+    await flush();
+    engine.held.find.pop()!.resolve();
+    await flush();
+    expect(t.search.count.value).toBe(0);
+    expect(t.at()).toBe('search · field 0');
+    // Closed: nothing.
+    await t.press('BACK');
+    expect(t.search.screen.value).toBeNull();
+    const finds = engine.finds.length;
+    t.search.catalogChanged();
+    expect(engine.finds.length).toBe(finds);
   });
 
   it('moves down from the field when the keyboard says done', async () => {
@@ -479,8 +502,95 @@ describe('the search screen', () => {
     await flush();
     t.search.dispose();
     expect(engine.tokens[0]!.cancelled).toBe(true);
+    // A cancelled search's rejection changes nothing.
+    expect(t.search.status.value).toBe('searching');
     engine.honoursCancel = false;
     t.search.open();
     expect(engine.profiles).toBe(1);
+    t.search.catalogChanged();
+    await flush();
+    expect(engine.finds.length).toBe(1);
+  });
+
+  it('drops the answers that come after the dispose, and reads no page for the keys after it', async () => {
+    const engine = new FakeEngine();
+    engine.honoursCancel = false;
+    const t = await opened(engine);
+    t.search.setQuery('live');
+    await flush();
+    await t.press('DOWN');
+    engine.hold = new Set(['find', 'items']);
+    for (let i = 0; i < 20; i += 1) await t.press('DOWN');
+    expect(engine.held.items.length).toBe(1);
+    t.search.setQuery('live 1');
+    await flush();
+    t.search.dispose();
+    engine.held.find.shift()!.resolve();
+    engine.held.items.shift()!.resolve();
+    await flush();
+    expect([t.search.answered.value, t.search.count.value]).toEqual(['live', 200]);
+    expect(t.search.row(20)).toBeNull();
+    engine.hold = new Set();
+    const reads = engine.reads.length;
+    for (let i = 0; i < 20; i += 1) await t.press('DOWN');
+    expect(engine.reads.length).toBe(reads);
+  });
+
+  it('asks the window and one window either side after a catalog swap, and no page past the end', async () => {
+    const engine = new FakeEngine();
+    const t = await opened(engine);
+    t.search.setQuery('movie');
+    await flush();
+    await t.press('DOWN');
+    for (let i = 0; i < 30; i += 1) await t.press('DOWN');
+    expect(t.at()).toBe('search · results 30');
+    engine.reads.length = 0;
+    // The window is rows 24–30: rows 17–37 are wanted (one window above it, one below), pages 0 and 1.
+    t.search.catalogChanged();
+    await flush();
+    expect(engine.pages()).toEqual([300, 320]);
+    // Down to the last row: the last page, and none after it.
+    for (let i = 30; i < 99; i += 1) await t.press('DOWN');
+    expect(t.at()).toBe('search · results 99');
+    expect(t.rows(98, 100)).toEqual(['398', '399']);
+    expect(engine.reads.every((r) => r.length > 0)).toBe(true);
+    await t.press('UP', 'UP');
+    for (let i = 0; i < 97; i += 1) await t.press('UP');
+    expect(t.at()).toBe('search · results 0');
+    await t.press('UP');
+    expect(t.at()).toBe('search · field 0');
+  });
+
+  it('asks the new answer’s first page even while the last one’s is on its way, and draws each page read', async () => {
+    const engine = new FakeEngine();
+    engine.hold = new Set(['items']);
+    const t = await opened(engine);
+    t.search.setQuery('live');
+    await flush();
+    expect(engine.held.items.length).toBe(1);
+    t.search.setQuery('movie');
+    await flush();
+    expect(engine.held.items.length).toBe(2);
+    const drawn = t.search.drawn.value;
+    engine.held.items.pop()!.resolve();
+    await flush();
+    expect(t.search.drawn.value).toBe(drawn + 1);
+    expect(t.rows(0, 1)).toEqual(['300']);
+    // The older answer's page, coming last, is dropped.
+    engine.held.items.pop()!.resolve();
+    await flush();
+    expect(t.search.drawn.value).toBe(drawn + 1);
+    expect(t.rows(0, 1)).toEqual(['300']);
+    // An older answer's page that fails changes nothing either: the new one's isn't asked twice.
+    t.search.setQuery('live');
+    await flush();
+    t.search.setQuery('series');
+    await flush();
+    expect(engine.held.items.length).toBe(2);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    engine.held.items.shift()!.reject(new Error('gone'));
+    await flush();
+    await t.press('DOWN');
+    expect(engine.held.items.length).toBe(1);
   });
 });

@@ -605,10 +605,11 @@ export function createLive(options: LiveOptions): Live {
    */
   const playFound = async (found: FoundChannel): Promise<boolean> => {
     await loaded;
-    if (disposed || status.value !== 'ready') return false;
+    // (A list that failed or is empty has no rail; `findRow` reads nothing then, nor once disposed.)
     const entries = rail.value;
     let at = -1;
-    for (let i = 1; i < entries.length; i += 1) {
+    // "All channels" first, then each category alone.
+    for (let i = 1; i < entries.length && at === -1; i += 1) {
       const part = entries[i]!.parts[0]!;
       if (part.src === found.src && part.catIdx === found.catIdx) at = i;
     }
@@ -618,7 +619,8 @@ export function createLive(options: LiveOptions): Live {
     showCategory(at);
     // (A chunk the category doesn't have gives -1: the search then starts near its top.)
     const row = await findRow(index.firstRow({ src: found.src, catIdx: found.catIdx, chunk: found.chunk }) + found.slot, (item) => item.key === found.key);
-    if (row !== -1) home.focus('channels', row);
+    // (-1, the channel gone: the list's top, where the category opened.)
+    home.focus('channels', row);
     keepZone(zone, place);
     if (row === -1) return false;
     selected.value = found.key;

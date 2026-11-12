@@ -1704,6 +1704,10 @@ describe('a channel the search found (RELAY step 28a)', () => {
     await t.press('BACK');
     expect(t.at()).toBe('live · channels 700');
     expect(t.live.row(700)?.item.key).toBe('x:s1:live:2-700');
+    // The first category: its own entry, not "All channels" (which starts with it).
+    expect(await t.live.playFound({ key: 'x:s1:live:0-2', src: 's1', catIdx: 0, chunk: 0, slot: 2 })).toBe(true);
+    expect(t.live.category.value).toBe(1);
+    expect(play).toHaveBeenLastCalledWith(2);
     // Another source's category with the same index: the source decides.
     expect(await t.live.playFound({ key: 'x:s2:live:0-1', src: 's2', catIdx: 0, chunk: 0, slot: 1 })).toBe(true);
     expect(t.live.category.value).toBe(3);
@@ -1737,7 +1741,7 @@ describe('a channel the search found (RELAY step 28a)', () => {
     await t.press('DOWN');
     expect(t.at()).toBe('live · channels 5');
     // On top, the row takes the focus (Back from a player or the guide opened from the list).
-    await t.press('UP');
+    t.live.home.focus('header', 3);
     t.live.focusRow(7);
     expect(t.at()).toBe('live · channels 7');
   });

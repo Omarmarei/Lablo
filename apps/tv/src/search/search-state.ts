@@ -133,9 +133,7 @@ export function createSearch(options: SearchOptions): Search {
   const drawn = signal(0);
   const pending = signal(0);
   let disposed = false;
-  /** Bumps at each opening and closing: answers for another one are dropped. */
-  let openSeq = 0;
-  /** Bumps at each search: answers for an older one are dropped. */
+  /** Bumps at each search, and when the screen closes or is disposed: answers for an older one are dropped. */
   let searchSeq = 0;
   /** The search running now (cancelled by the next). */
   let running: CancelSource | null = null;
@@ -148,14 +146,8 @@ export function createSearch(options: SearchOptions): Search {
   /** Its pages asked for and not answered yet. */
   let asking = new Set<number>();
 
-  function track<T>(request: () => Promise<T>): Promise<T> {
+  function track<T>(started: Promise<T>): Promise<T> {
     pending.value += 1;
-    let started: Promise<T>;
-    try {
-      started = request();
-    } catch (error) {
-      started = Promise.reject(error);
-    }
     const done = (): void => {
       pending.value -= 1;
     };
@@ -183,18 +175,18 @@ export function createSearch(options: SearchOptions): Search {
   };
 
   function ask(page: number): void {
-    // (Every answer taken, and every clearing, brings a new array: older pages are dropped.)
+    // (Every answer taken, every clearing and the dispose bring a new array: older pages are dropped.)
     const from = hits;
     asking.add(page);
-    track(() => engine.items(from.slice(page * SEARCH.page, (page + 1) * SEARCH.page).map(refOf))).then(
+    track(engine.items(from.slice(page * SEARCH.page, (page + 1) * SEARCH.page).map(refOf))).then(
       (items) => {
-        if (disposed || from !== hits) return;
-        asking.delete(page);
+        if (from !== hits) return;
+        // (Read: `fill` asks it no more; `asking` keeps it until the next answer.)
         pages.set(page, items);
         drawn.value += 1;
       },
       (error: unknown) => {
-        if (disposed || from !== hits) return;
+        if (from !== hits) return;
         asking.delete(page);
         console.warn('The items found could not be read', error);
       },
@@ -203,18 +195,16 @@ export function createSearch(options: SearchOptions): Search {
 
   /** No rows: nothing typed (`idle`), or the search failed. */
   const clear = (shown: Screen, next: SearchStatus): void => {
+    // (No hit: nothing is asked; the next answer starts its own `asking`.)
     hits = [];
     pages = new Map();
-    asking = new Set();
     answered.value = '';
     count.value = 0;
     total.value = 0;
     status.value = next;
-    shown.reset(SEARCH_RESULTS);
     shown.update(resultsZone(0));
     // (Only a catalog swap's search, or the pointer, finds the focus in the list.)
     if (shown.active === SEARCH_RESULTS) shown.focus(SEARCH_FIELD, 0);
-    drawn.value += 1;
   };
 
   /** Takes a search's answer: its hits replace the rows on show. */
@@ -230,7 +220,6 @@ export function createSearch(options: SearchOptions): Search {
     if (!keep) shown.reset(SEARCH_RESULTS);
     shown.update(resultsZone(hits.length));
     if (hits.length === 0 && shown.active === SEARCH_RESULTS) shown.focus(SEARCH_FIELD, 0);
-    drawn.value += 1;
     fill();
   };
 
@@ -238,9 +227,7 @@ export function createSearch(options: SearchOptions): Search {
   const run = (text: string, keep: boolean): void => {
     searchSeq += 1;
     const seq = searchSeq;
-    const opening = openSeq;
     running?.cancel();
-    running = null;
     // (Only an open screen searches.)
     const shown = screen.value!;
     if (text.trim() === '') {
@@ -250,40 +237,31 @@ export function createSearch(options: SearchOptions): Search {
     const cancel = new CancelSource();
     running = cancel;
     if (status.value !== 'ready' || answered.value !== text) status.value = 'searching';
-    track(() => sources.then((order) => engine.find({ query: text, sources: order, limit: SEARCH.limit }, cancel.token))).then(
+    track(sources.then((order) => engine.find({ query: text, sources: order, limit: SEARCH.limit }, cancel.token))).then(
       (result) => {
-        if (disposed || seq !== searchSeq || opening !== openSeq) return;
-        running = null;
+        if (seq !== searchSeq) return;
         take(shown, text, result, keep);
       },
       (error: unknown) => {
-        if (disposed || seq !== searchSeq || opening !== openSeq) return;
-        running = null;
+        if (seq !== searchSeq) return;
         console.warn('The search failed', error);
         clear(shown, 'failed');
       },
     );
   };
 
+  /** Back on the field (the keyboard is closed: Back while it shows closes it first). */
   const close = (): void => {
-    textEditor.close();
-    openSeq += 1;
     searchSeq += 1;
     running?.cancel();
-    running = null;
-    hits = [];
-    pages = new Map();
-    asking = new Set();
     screen.value = null;
     nav.pop();
   };
 
   const choose = (index: number): void => {
-    const hit = hits[index];
     const item = api.row(index);
-    // Its page may still be on its way.
-    if (hit === undefined || item === null) return;
-    options.select(item, hit);
+    // Its page may still be on its way (a row read is a hit's).
+    if (item !== null) options.select(item, hits[index]!);
   };
 
   const textEditor = createTextEditor({ platform: options.platform, nav, find: options.find, now: options.now });
@@ -310,16 +288,15 @@ export function createSearch(options: SearchOptions): Search {
     },
     open(): void {
       if (disposed || screen.value !== null) return;
-      openSeq += 1;
       query.value = '';
       answered.value = '';
       count.value = 0;
       total.value = 0;
       status.value = 'idle';
+      // (The first answer starts its own `asking`.)
       hits = [];
       pages = new Map();
-      asking = new Set();
-      sources = track(() => engine.profile()).then(
+      sources = track(engine.profile()).then(
         (profile) => storedSources(profile).map((s) => s.id),
         (error: unknown) => {
           console.warn('The sources could not be read', error);
@@ -353,8 +330,9 @@ export function createSearch(options: SearchOptions): Search {
     },
     dispose(): void {
       disposed = true;
+      searchSeq += 1;
+      hits = [];
       running?.cancel();
-      running = null;
       stopFollowing();
       editor.dispose();
       textEditor.dispose();
