@@ -9,7 +9,7 @@ import type { LiveRow, Timers } from '../live/live-state';
 import { SAVE_EVERY_MS } from '../movies/movie-progress';
 import type { ArchiveProgramme } from './catchup';
 import { HELD_PRESSES, JUMP_STEP_MS, MOVIE_STEP_MS } from './catchup';
-import type { MoviePlay, PlayerLike, PlayerOptions, ZapList } from './player-state';
+import type { EpisodeMark, MoviePlay, PlayerLike, PlayerOptions, ZapList } from './player-state';
 import {
   CHANNEL_ACTIONS,
   DIGITS_MS,
@@ -357,7 +357,7 @@ function setup(
     ...(kept.wallAt === undefined ? {} : { clock: () => kept.wallAt! + clock.now() }),
     timers: clock.timers,
     now: clock.now,
-    progressed: (item, positionMs, lengthMs, ended) => saved.push(`${item.key} @${positionMs} /${String(lengthMs)}${ended ? ' ended' : ''}`),
+    progressed: (item, positionMs, lengthMs, ended, show) => saved.push(`${item.key} @${positionMs} /${String(lengthMs)}${ended ? ' ended' : ''}${show === undefined ? '' : ` of ${show}`}`),
     lifecycle: (listener) => {
       lifecycleListeners.push(listener);
       return () => {
@@ -2015,7 +2015,7 @@ describe('the player: a movie (RELAY step 26c)', () => {
     expect(t.chrome).toEqual([true]);
     expect(t.controller.plays).toEqual([request]);
     expect(t.controller.options).toEqual([{}]);
-    expect(t.player.movie.value).toEqual({ item: film, lengthMs: 90 * MIN, fromMs: 0 });
+    expect(t.player.movie.value).toEqual({ item: film, lengthMs: 90 * MIN, fromMs: 0, episode: null });
     expect(t.player.actions.value).toEqual(MOVIE_ACTIONS);
     expect(t.player.screen.value!.zone('actions')).toMatchObject({ count: 3 });
     expect(t.player).toMatchObject({ plays: { value: 1 }, info: { value: true }, archive: { value: null } });
@@ -2040,7 +2040,7 @@ describe('the player: a movie (RELAY step 26c)', () => {
     t.controller.media = 6000;
     t.clock.advance(POSITION_MS);
     expect(t.player.position.value!.time).toBe(6000);
-    expect(t.player.movie.value).toEqual({ item: film, lengthMs: 52 * MIN, fromMs: 0 });
+    expect(t.player.movie.value).toEqual({ item: film, lengthMs: 52 * MIN, fromMs: 0, episode: null });
     // The engine's length wins over the panel's.
     const u = watch(90 * MIN);
     u.controller.duration = 89 * MIN;
@@ -2332,13 +2332,13 @@ describe("the player: a movie's position (RELAY step 26d)", () => {
     const t = watch(754_000);
     expect(t.controller.plays).toEqual([request]);
     expect(t.controller.options).toEqual([{ startMs: 754_000 }]);
-    expect(t.player.movie.value).toEqual({ item: film, lengthMs: 15 * MIN, fromMs: 754_000 });
+    expect(t.player.movie.value).toEqual({ item: film, lengthMs: 15 * MIN, fromMs: 754_000, episode: null });
     expect(t.player.position.value).toEqual({ time: 754_000, seeking: false, live: false });
     // A later play from a seek says where it started; the length learnt keeps it.
     t.controller.duration = 14 * MIN;
     showing(t, 760_000);
     t.clock.advance(POSITION_MS);
-    expect(t.player.movie.value).toEqual({ item: film, lengthMs: 14 * MIN, fromMs: 754_000 });
+    expect(t.player.movie.value).toEqual({ item: film, lengthMs: 14 * MIN, fromMs: 754_000, episode: null });
     // From the start: no start position, and 0.
     const u = watch();
     expect(u.controller.options).toEqual([{}]);
@@ -2506,5 +2506,58 @@ describe("the player: a movie's position (RELAY step 26d)", () => {
     t.clock.advance(POSITION_MS);
     expect(t.player.position.value!.time).toBe(1000 * MIN + 120_000);
     expect(t.saved).toEqual([]);
+  });
+});
+
+describe("the player: a show's episode (RELAY step 27c1)", () => {
+  const MIN = 60_000;
+  const show: CatalogItem = { ...row(0).item, key: 'x:s1:series:301', kind: 'series', name: 'Lablo Test Series', url: '' };
+  const item: CatalogItem = { ...show, key: 'x:s1:episode:3002', name: 'Tone and Clock', url: 'http://panel.test/series/u/p/3002.mkv' };
+  const request: PlayRequest = { key: item.key, src: 's1', mode: 'vod', candidates: [{ url: item.url, container: 'mkv' }] };
+  const mark: EpisodeMark = { show, season: 1, number: 2, title: 'Tone and Clock' };
+  const watch = (fromMs?: number) => {
+    const t = setup();
+    const back: string[] = [];
+    t.player.playMovie({ item, request, lengthMs: 5 * MIN, ...(fromMs === undefined ? {} : { fromMs }), episode: mark, closed: () => back.push('details') });
+    return { ...t, back };
+  };
+  const at = (ms: number, ended = false): string => `${item.key} @${ms} /${5 * MIN}${ended ? ' ended' : ''} of ${show.key}`;
+
+  it('plays as a movie, the episode on show through its seeks and the length learnt', async () => {
+    const t = watch(40_000);
+    expect(t.controller.plays).toEqual([request]);
+    expect(t.controller.options).toEqual([{ startMs: 40_000 }]);
+    expect(t.player.movie.value).toEqual({ item, lengthMs: 5 * MIN, fromMs: 40_000, episode: mark });
+    expect(t.player.actions.value).toEqual(MOVIE_ACTIONS);
+    // A seek that plays again from there, and the engine's length: still the episode.
+    t.controller.seekOk = false;
+    t.controller.media = 41_000;
+    t.controller.set('playing');
+    await t.press('RIGHT');
+    t.clock.advance(SEEK_DELAY_MS);
+    await flush();
+    expect(t.player.movie.value).toEqual({ item, lengthMs: 5 * MIN, fromMs: 51_000, episode: mark });
+    t.controller.duration = 4 * MIN;
+    t.controller.set('playing');
+    t.clock.advance(POSITION_MS);
+    expect(t.player.movie.value).toEqual({ item, lengthMs: 4 * MIN, fromMs: 51_000, episode: mark });
+  });
+
+  it("gives the app its position with the show's key: every 10 s, on Back, at its end", async () => {
+    const t = watch();
+    t.clock.advance(SAVE_EVERY_MS);
+    t.controller.media = 30_000;
+    t.controller.set('playing');
+    t.clock.advance(POSITION_MS);
+    expect(t.saved).toEqual([at(30_000)]);
+    await t.press('BACK');
+    expect(t.saved).toEqual([at(30_000), at(30_000)]);
+    expect(t.back).toEqual(['details']);
+    const u = watch();
+    u.controller.media = 299_000;
+    u.controller.set('playing');
+    u.clock.advance(POSITION_MS);
+    u.controller.set('ended');
+    expect(u.saved).toEqual([at(299_000, true)]);
   });
 });

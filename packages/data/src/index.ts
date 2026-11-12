@@ -29,6 +29,8 @@ export type {
   ProfileV3,
   ProfileV4,
   ProfileV5,
+  ProfileV6,
+  ShowProgress,
   SnapshotReason,
   SourceRecord,
   SourceRecordV3,
@@ -38,6 +40,7 @@ export type {
 } from './profile';
 export {
   MAX_PROGRESS,
+  MAX_SHOWS,
   MAX_TRACK_CHOICES,
   PROFILE_MIGRATIONS,
   PROFILE_VERSION,
@@ -46,6 +49,7 @@ export {
   SNAPSHOT_SLOTS,
   applyProfileEdit,
   emptyProfile,
+  isShowProgress,
   isWatchProgress,
   listSnapshots,
   loadProfile,

@@ -170,6 +170,102 @@ describe('movie progress (RELAY step 26d)', () => {
     expect(seen).toEqual([0, 1, 2, 3, 4]);
   });
 
+  it("reads each show's last episode from the start profile, keeping only what is one (RELAY step 27c1)", () => {
+    const { progress } = setup();
+    const show = (id: number): string => `x:s1:series:${id}`;
+    expect(progress.lastEpisode(show(301))).toBeNull();
+    progress.load({
+      doc: {
+        v: 6,
+        progress: {},
+        shows: {
+          [show(301)]: { episode: 'x:s1:episode:3002', watched: false, updated: 5 },
+          [show(302)]: { episode: 'x:s1:episode:3021', watched: true, updated: 6 },
+          [show(303)]: { episode: '', watched: false, updated: 7 },
+          [show(304)]: { episode: 3031, watched: false, updated: 7 },
+          [show(305)]: { episode: 'x:s1:episode:3041', watched: 'yes', updated: 7 },
+          [show(306)]: { episode: 'x:s1:episode:3051', updated: 7 },
+          [show(307)]: null,
+          [show(308)]: 'x:s1:episode:3071',
+        },
+      },
+      newer: false,
+      migratedFrom: null,
+    });
+    expect(progress.lastEpisode(show(301))).toEqual({ episode: 'x:s1:episode:3002', watched: false });
+    expect(progress.lastEpisode(show(302))).toEqual({ episode: 'x:s1:episode:3021', watched: true });
+    for (let id = 303; id <= 308; id += 1) expect(progress.lastEpisode(show(id))).toBeNull();
+    expect(progress.lastEpisode('toString')).toBeNull();
+    // A later load replaces what was read; a version 5 profile has none.
+    progress.load({ doc: { v: 6, progress: {}, shows: { [show(302)]: { episode: 'x:s1:episode:3022', watched: false, updated: 8 } } }, newer: false, migratedFrom: null });
+    expect(progress.lastEpisode(show(301))).toBeNull();
+    expect(progress.lastEpisode(show(302))).toEqual({ episode: 'x:s1:episode:3022', watched: false });
+    for (const none of [null, profile({}, 5), { doc: { v: 6, progress: {}, shows: 'x' }, newer: false, migratedFrom: null }]) {
+      progress.load(none);
+      expect(progress.lastEpisode(show(302))).toBeNull();
+    }
+  });
+
+  it("saves an episode's place and its show's last episode in one write (RELAY step 27c1)", async () => {
+    const t = setup();
+    const show = 'x:s1:series:301';
+    const e1 = 'x:s1:episode:3001';
+    const e2 = 'x:s1:episode:3002';
+    const seen: number[] = [];
+    const stop = effect(() => {
+      seen.push(t.progress.version.value);
+    });
+    // Played and left at once: no place, but the show's last episode.
+    t.progress.save(e1, 4_000, 300_000, false, show);
+    expect(t.progress.point(e1)).toBeNull();
+    expect(t.progress.lastEpisode(show)).toEqual({ episode: e1, watched: false });
+    expect(t.edits).toEqual([{ kind: 'episode', show, last: { episode: e1, watched: false, updated: 1_000 }, progress: null }]);
+    // The same again: nothing.
+    t.progress.save(e1, 0, 300_000, false, show);
+    expect(t.edits).toHaveLength(1);
+    // Left part way: its place, with the show's last episode.
+    t.tick(1_000);
+    t.progress.save(e1, 40_000, 300_000, false, show);
+    expect(t.progress.point(e1)).toEqual({ positionMs: 40_000, lengthMs: 300_000 });
+    expect(t.edits[1]).toEqual({ kind: 'episode', show, last: { episode: e1, watched: false, updated: 2_000 }, progress: { positionMs: 40_000, lengthMs: 300_000, updated: 2_000 } });
+    t.progress.save(e1, 40_000, 300_000, false, show);
+    expect(t.edits).toHaveLength(2);
+    // Further on: written (the show's entry is the same).
+    t.progress.save(e1, 50_000, null, false, show);
+    expect(t.edits[2]).toEqual({ kind: 'episode', show, last: { episode: e1, watched: false, updated: 2_000 }, progress: { positionMs: 50_000, lengthMs: 300_000, updated: 2_000 } });
+    // Past the watched point by the length kept with its place (none given): watched, its place taken away.
+    t.progress.save(e1, 290_000, null, false, show);
+    expect(t.progress.point(e1)).toBeNull();
+    expect(t.progress.lastEpisode(show)).toEqual({ episode: e1, watched: true });
+    expect(t.edits[3]).toEqual({ kind: 'episode', show, last: { episode: e1, watched: true, updated: 2_000 }, progress: null });
+    // It ends: the same, nothing written.
+    t.progress.save(e1, 300_000, 300_000, true, show);
+    expect(t.edits).toHaveLength(4);
+    // The next one: the show's last episode moves, not watched yet.
+    t.progress.save(e2, 0, 300_000, false, show);
+    expect(t.progress.lastEpisode(show)).toEqual({ episode: e2, watched: false });
+    expect(t.edits[4]).toMatchObject({ kind: 'episode', show, last: { episode: e2, watched: false }, progress: null });
+    // Ended with no length known: watched.
+    t.progress.save(e2, 10_000, null, true, show);
+    expect(t.progress.lastEpisode(show)).toEqual({ episode: e2, watched: true });
+    // A place that isn't one is never watched, and keeps nothing.
+    t.progress.save('x:s1:episode:3011', Infinity, 240_000, false, 'x:s1:series:302');
+    expect(t.progress.lastEpisode('x:s1:series:302')).toEqual({ episode: 'x:s1:episode:3011', watched: false });
+    expect(t.progress.point('x:s1:episode:3011')).toBeNull();
+    // Another episode of a show left at once after one left at once: the show's last moves.
+    t.progress.save('x:s1:episode:3021', 0, 180_000, false, 'x:s1:series:303');
+    t.progress.save('x:s1:episode:3022', 0, 180_000, false, 'x:s1:series:303');
+    expect(t.progress.lastEpisode('x:s1:series:303')).toEqual({ episode: 'x:s1:episode:3022', watched: false });
+    // A movie is no show's.
+    t.progress.save('x:s1:movie:201', 60_000, 600_000, false);
+    expect(t.edits[t.edits.length - 1]).toEqual({ kind: 'progress', key: 'x:s1:movie:201', progress: { positionMs: 60_000, lengthMs: 600_000, updated: 2_000 } });
+    expect(t.progress.lastEpisode('x:s1:movie:201')).toBeNull();
+    stop();
+    // Every write bumped the version once.
+    expect(seen).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    await flush();
+  });
+
   it('keeps a position for the run when the write fails, and says so', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const t = setup(() => Promise.reject(new Error('quota')));

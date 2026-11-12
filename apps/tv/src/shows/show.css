@@ -158,6 +158,7 @@
 
 /* An episode: like a channel row (ListRow), its focus ring inside its 88 px. */
 .show__episode {
+  position: relative;
   display: flex;
   align-items: center;
   height: var(--row-height);
@@ -196,7 +197,8 @@
 }
 
 .show__episode-title,
-.show__episode-plot {
+.show__episode-plot,
+.show__episode-resume {
   max-width: 100%;
   overflow: hidden;
   white-space: nowrap;
@@ -213,6 +215,22 @@
   color: var(--color-text-muted);
   font-size: var(--font-size-caption);
   line-height: var(--line-height-caption);
+}
+
+/* Where an episode was left (step 27c1), in its plot's place. */
+.show__episode-resume {
+  color: var(--color-accent);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+}
+
+/* The share of an episode watched (step 27c1): along the row's bottom, as a tile's bar. */
+.show__episode-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 0;
 }
 
 .show__episode-length {

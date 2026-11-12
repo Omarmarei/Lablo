@@ -1,8 +1,9 @@
 import type { XtreamEpisode } from '@lablo/core';
 import type { Focus, FocusBinding, ItemBinding } from '@lablo/ui';
-import { Chip, LAYOUT, Spinner, VirtualList } from '@lablo/ui';
+import { Chip, LAYOUT, ProgressBar, Spinner, VirtualList } from '@lablo/ui';
 import type { AppI18n } from '../i18n';
 import { lengthText } from '../movies/MovieDetailsScreen';
+import type { ResumePoint } from '../movies/movie-progress';
 import type { ShowDetails, ShowSeason } from './show-details';
 import { SHOW, SHOW_EPISODES, SHOW_SEASONS, episodeLine, showFacts } from './show-details';
 import './show.css';
@@ -22,12 +23,24 @@ function seasonLabel(i18n: AppI18n, season: ShowSeason): { label: string; data: 
   return { label: i18n.t('show.season', { n: i18n.number(season.number) }), data: false };
 }
 
+interface EpisodeRowProps {
+  readonly i18n: AppI18n;
+  readonly index: number;
+  readonly episode: XtreamEpisode;
+  readonly item: ItemBinding;
+  /** Where it was left (step 27c1; `null`: never, or watched). */
+  readonly point: ResumePoint | null;
+  /** The share watched, for its bar (`undefined`: none). */
+  readonly share: number | undefined;
+}
+
 /**
  * One episode of the list, LAYOUT.rowHeight tall: its number, its title over its plot (the
  * provider's text, each in its own direction), and its length at the inline end. An episode with
- * no number shows its place in the season; one with no title, "Episode 3".
+ * no number shows its place in the season; one with no title, "Episode 3". One left part way
+ * (step 27c1) says "Resume from 2:34" in its plot's place, and draws its bar along the bottom.
  */
-function EpisodeRow({ i18n, index, episode, item }: { i18n: AppI18n; index: number; episode: XtreamEpisode; item: ItemBinding }) {
+function EpisodeRow({ i18n, index, episode, item, point, share }: EpisodeRowProps) {
   const { number, title, lengthSecs } = episodeLine(episode, index);
   const state = item.state;
   return (
@@ -38,6 +51,7 @@ function EpisodeRow({ i18n, index, episode, item }: { i18n: AppI18n; index: numb
       data-testid={`episode-${index}`}
       data-state={state ?? 'idle'}
       data-key={episode.key}
+      data-resume={point === null ? '' : point.positionMs}
       onMouseMove={item.onHover}
       onClick={item.onPress}
     >
@@ -50,13 +64,20 @@ function EpisodeRow({ i18n, index, episode, item }: { i18n: AppI18n; index: numb
         ) : (
           <span class="show__episode-title">{i18n.t('show.episode', { n: i18n.number(number) })}</span>
         )}
-        {episode.plot !== '' && (
-          <span class="show__episode-plot" dir="auto" translate={false}>
-            {episode.plot}
+        {point !== null ? (
+          <span class="show__episode-resume" data-testid={`episode-resume-${index}`}>
+            {i18n.t('movie.resume', { time: i18n.duration(point.positionMs / 1000) })}
           </span>
+        ) : (
+          episode.plot !== '' && (
+            <span class="show__episode-plot" dir="auto" translate={false}>
+              {episode.plot}
+            </span>
+          )
         )}
       </div>
       {lengthSecs !== null && <span class="show__episode-length">{lengthText(i18n, lengthSecs)}</span>}
+      {share !== undefined && <ProgressBar value={share} size="s" class="show__episode-progress" />}
     </div>
   );
 }
@@ -183,7 +204,7 @@ export function ShowDetailsScreen({ details, i18n, binding, focus, clock }: Prop
         testId="show-episodes"
         renderItem={(i, item) => {
           const at = episodes[i];
-          return at === undefined ? null : <EpisodeRow i18n={i18n} index={i} episode={at} item={item} />;
+          return at === undefined ? null : <EpisodeRow i18n={i18n} index={i} episode={at} item={item} point={details.point(at.key)} share={details.share(at.key)} />;
         }}
       />
     </main>

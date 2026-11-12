@@ -14,8 +14,9 @@ import { RemoteDriver } from './remote-driver';
  * `get_series_info` is out (the mock holds it), then the year, the rating, the genre, the plot,
  * the row of seasons ("Season 1" and "Season 2" in the UI's language: the mock's names say no
  * more) and season 1's three episodes, the focus on the first. UP to the seasons and along them
- * shows season 2's two episodes; OK on an episode does nothing yet (step 27c); Back goes to the
- * season on show, then to the grid. 301 opens again from the 24 h cache, with no second read.
+ * shows season 2's two episodes; OK on an episode plays it (step 27c1) and Back from the player
+ * returns to it; Back goes to the season on show, then to the grid. 301 opens again from the
+ * 24 h cache, with no second read, on that episode (the show's last).
  * 302's first read fails (the mock answers 503): a note, the catalog's facts. Opened again, it is
  * read (a failure isn't kept): one season with the panel's own name «الموسم ١».
  *
@@ -233,10 +234,10 @@ test.describe("a show's details (RELAY step 27b)", () => {
       await remote.go('DOWN', 'show/episodes/0');
       await remote.go('DOWN', 'show/episodes/1');
       await page.screenshot({ path: path.join(SHOTS, `show-details-season2-${locale}.png`), animations: 'disabled' });
-      // OK on an episode does nothing yet (playing it is step 27c).
-      await remote.press('OK');
-      await page.waitForTimeout(500);
-      await remote.expectFocus('show/episodes/1');
+      // OK on an episode plays it (step 27c1; episode-resume.spec.ts); Back returns to it.
+      await remote.go('OK', 'player/seek/0');
+      await expect(page.getByTestId('player')).toHaveAttribute('data-movie', /:episode:3012$/);
+      await remote.go('BACK', 'show/episodes/1');
       await expect(page.getByTestId('player')).toHaveCount(0);
 
       // Back: the season on show, then the grid on the show.
@@ -244,12 +245,12 @@ test.describe("a show's details (RELAY step 27b)", () => {
       await remote.go('BACK', 'series/grid/1');
       await expect(details).toHaveCount(0);
 
-      // Opened again: from the 24 h cache, on the first season, no second read.
-      await remote.go('OK', 'show/episodes/0');
+      // Opened again: from the 24 h cache, no second read, on the episode played last (step 27c1).
+      await remote.go('OK', 'show/episodes/1');
       await expect(details).toHaveAttribute('data-status', 'read');
-      await expect(details).toHaveAttribute('data-season', '0');
+      await expect(details).toHaveAttribute('data-season', '1');
       expect(infoAsked).toEqual(['301']);
-      await remote.go('BACK', 'show/seasons/0');
+      await remote.go('BACK', 'show/seasons/1');
       await remote.go('BACK', 'series/grid/1');
 
       // The Arabic show's read fails: a note, the catalog's facts, nothing to focus; Back closes.
