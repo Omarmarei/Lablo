@@ -12,6 +12,7 @@ import {
   readCategories,
   readChunks,
   readIndexes,
+  readRecent,
 } from './catalog-store';
 import type { CatalogChunk } from './chunker';
 import { CatalogChunker } from './chunker';
@@ -139,6 +140,34 @@ describe('catalog generations', () => {
     }
     expect(await readChunks(db, [{ src: 'a', gen: 1, kind: 'live', catIdx: 0, chunk: 0 }])).toEqual([null]);
     expect(await readCategories(db, 'a', 1, 'live')).toBeNull();
+    db.close();
+  });
+
+  it("stores a kind's newest items with its categories, and drops them with its generation (step 26e)", async () => {
+    const db = await openDatabase(freshFactory());
+    const films = [item('tv', 'movie', 1, 'Film 1', 'Films'), item('tv', 'movie', 2, 'Film 2', 'Films')];
+    const newest = [
+      { added: 200, item: films[1]! },
+      { added: 100, item: films[0]! },
+    ];
+    await ingest(db, 'tv', live(2).concat(films), { recent: { movie: newest } });
+    // The record holds both; one without them (an older ingest version, or a kind that keeps none) holds the categories alone.
+    const records = new Map((await dumpStore(db, STORE.cats)).map(([k, v]) => [(k as unknown[]).join('/'), v]));
+    expect(records.get('tv/1/movie')).toEqual({ cats: [{ catIdx: 0, name: 'Films', count: 2, chunks: [2] }], recent: newest });
+    expect(records.get('tv/1/live')).toStrictEqual({ cats: [{ catIdx: 0, name: 'Sport', count: 1, chunks: [1] }, { catIdx: 1, name: 'News', count: 1, chunks: [1] }] });
+    expect(await readCategories(db, 'tv', 1, 'movie')).toEqual([{ catIdx: 0, name: 'Films', count: 2, chunks: [2] }]);
+    expect(
+      await readRecent(db, [
+        { src: 'tv', gen: 1, kind: 'movie' },
+        { src: 'tv', gen: 1, kind: 'live' },
+        { src: 'tv', gen: 2, kind: 'movie' },
+        { src: 'zz', gen: 1, kind: 'movie' },
+      ]),
+    ).toEqual([newest, null, null, null]);
+    await ingest(db, 'tv', films, { recent: { movie: [] } });
+    await deleteGeneration(db, 'tv', 1);
+    expect(await readRecent(db, [{ src: 'tv', gen: 1, kind: 'movie' }, { src: 'tv', gen: 2, kind: 'movie' }])).toEqual([null, []]);
+    expect(await readRecent(db, [])).toEqual([]);
     db.close();
   });
 });

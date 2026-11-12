@@ -79,7 +79,11 @@ export {
   readCategories,
   readChunks,
   readIndexes,
+  readRecent,
 } from './catalog-store';
+
+export type { RecentItem } from './recent';
+export { RECENT_KINDS, RECENT_MAX, RecentList, mergeRecent } from './recent';
 
 export type { CallOptions, CancelToken, RpcContext, RpcHandler, RpcHandlers, RpcPort, RpcServer } from './rpc';
 export { CancelError, CancelSource, NEVER, RpcClient, RpcError, serveRpc } from './rpc';
@@ -96,6 +100,7 @@ export type {
   ProgrammeRequest,
   QueryServiceOptions,
   QueryStatus,
+  RecentRequest,
   SearchRequest,
   SegmentStatus,
   ShortEpgNowNext,

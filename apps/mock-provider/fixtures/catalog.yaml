@@ -41,6 +41,8 @@ live:
   # Same name and EPG as 101 in another group: duplicates are normal in real playlists.
   - { id: 112, num: 12, name: Lablo Test 1 SMPTE, category: 2, epg_id: lablo.test1, archive_days: 7, catchup: xc, media: bars }
 
+# `added_days_ago` (RELAY step 26e): "Recently added" lists the films newest first, in an order
+# unlike the panel's; Big Buck Bunny and Sintel stay the two newest (the first two tiles).
 movies:
   - id: 201
     name: Big Buck Bunny
@@ -52,6 +54,7 @@ movies:
     genre: Animation
     plot: A giant rabbit takes on three bullies. (c) Blender Foundation, CC BY 3.0, peach.blender.org
     media: open-movie:big-buck-bunny
+    added_days_ago: 1
   - id: 202
     name: Sintel
     category: 10
@@ -62,6 +65,7 @@ movies:
     genre: Animation
     plot: A girl searches for her baby dragon. (c) Blender Foundation, CC BY 3.0, durian.blender.org
     media: open-movie:sintel
+    added_days_ago: 2
   - id: 203
     name: Tears of Steel
     category: 10
@@ -72,6 +76,7 @@ movies:
     genre: Science Fiction
     plot: Scientists try to save the world from robots. (c) Blender Foundation, CC BY 3.0, mango.blender.org
     media: open-movie:tears-of-steel
+    added_days_ago: 8
   - id: 204
     name: Elephants Dream
     category: 10
@@ -82,6 +87,7 @@ movies:
     genre: Animation
     plot: Two men explore a strange machine. (c) Blender Foundation, CC BY 2.5, orange.blender.org
     media: open-movie:elephants-dream
+    added_days_ago: 5
   - id: 205
     name: Lablo Test Pattern 4K HEVC
     category: 11
@@ -91,6 +97,7 @@ movies:
     genre: Test
     plot: Our own 4K HEVC test pattern.
     media: hevc-4k
+    added_days_ago: 13
   - id: 206
     name: اختبار الصوت المتعدد
     category: 11
@@ -100,6 +107,7 @@ movies:
     genre: Test
     plot: Multi-audio test (ara, eng, spa, 5.1 AC3 and E-AC3) with Arabic and English subtitles.
     media: multi-audio
+    added_days_ago: 3
 
 series:
   - id: 301

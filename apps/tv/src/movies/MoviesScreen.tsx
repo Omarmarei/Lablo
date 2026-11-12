@@ -1,14 +1,14 @@
 import type { Focus, FocusBinding } from '@lablo/ui';
 import { Button, Chip, LAYOUT, Spinner, Tile, VirtualGrid, VirtualList, useZone } from '@lablo/ui';
 import type { AppI18n } from '../i18n';
-import type { RailEntry } from '../live/live-state';
 import { LIVE } from '../live/live-state';
-import type { Movies } from './movies-state';
+import type { MovieEntry, Movies } from './movies-state';
 import { MOVIES, MOVIES_GRID, MOVIES_RAIL, MOVIES_RETRY } from './movies-state';
 import './movies.css';
 
-/** A rail entry's label: our own words for "All movies" and a nameless group, else the provider's. */
-function entryLabel(entry: RailEntry, t: AppI18n['t']): { label: string; data: boolean } {
+/** A rail entry's label: our own words for "Recently added", "All movies" and a nameless group, else the provider's. */
+function entryLabel(entry: MovieEntry, t: AppI18n['t']): { label: string; data: boolean } {
+  if (entry.kind === 'recent') return { label: t('movies.recent'), data: false };
   if (entry.kind === 'all') return { label: t('movies.all'), data: false };
   if (entry.name === '') return { label: t('movies.noGroup'), data: false };
   return { label: entry.name, data: true };

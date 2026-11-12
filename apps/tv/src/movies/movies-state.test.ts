@@ -1,6 +1,6 @@
 import { effect, signal } from '@preact/signals';
 import type { CatalogItem, ContentKind, DeviceTier } from '@lablo/core';
-import type { CategoryInfo, LoadedProfile, SourceRecord } from '@lablo/data';
+import type { CategoryInfo, LoadedProfile, RecentItem, RecentRequest, SourceRecord } from '@lablo/data';
 import type { Intent } from '@lablo/platform-api';
 import { LAYOUT, createNavigator, fits } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
@@ -55,9 +55,13 @@ class FakeEngine implements MoviesEngine {
   profileDoc: LoadedProfile | null = { doc: { v: 2, sources: [S1, S2] }, newer: false, migratedFrom: null };
   failProfile = false;
   failChunks = false;
-  hold = new Set<'profile' | 'chunk'>();
-  readonly held: { profile: Held<LoadedProfile | null>[]; chunk: Held<CatalogItem[]>[] } = { profile: [], chunk: [] };
+  hold = new Set<'profile' | 'chunk' | 'recent'>();
+  readonly held: { profile: Held<LoadedProfile | null>[]; chunk: Held<CatalogItem[]>[]; recent: Held<RecentItem[]>[] } = { profile: [], chunk: [], recent: [] };
   readonly chunkCalls: string[] = [];
+  /** The newest movies `recent` gives (step 26e; default none, as for playlists). */
+  newest: RecentItem[] = [];
+  failRecent = false;
+  readonly recentCalls: RecentRequest[] = [];
   catalog: Record<string, CategoryInfo[]> = CATEGORIES;
   /** Put before each movie's name: a newer catalog's items differ from an older one's. */
   label = '';
@@ -78,6 +82,12 @@ class FakeEngine implements MoviesEngine {
   categories(src: string, kind: ContentKind): Promise<CategoryInfo[]> {
     expect(kind).toBe('movie');
     return Promise.resolve(this.catalog[src] ?? []);
+  }
+
+  recent(req: RecentRequest): Promise<RecentItem[]> {
+    this.recentCalls.push(req);
+    if (this.hold.has('recent')) return new Promise((resolve, reject) => this.held.recent.push({ arg: '', resolve, reject }));
+    return this.failRecent ? Promise.reject(new Error('read failed')) : Promise.resolve(this.newest.slice());
   }
 
   chunk(src: string, kind: ContentKind, catIdx: number, chunk: number): Promise<CatalogItem[]> {
@@ -767,5 +777,234 @@ describe("the movies screen: the tiles' bars (RELAY step 26d)", () => {
     // Without positions (no `progress`): no bars.
     const u = await setup();
     expect(u.movies.progress(1)).toBeUndefined();
+  });
+});
+
+describe('the movies screen: "Recently added" (RELAY step 26e)', () => {
+  /** `count` films, newest first: s2's and s1's in turn (`new 0`, `new 1`, …), one a day back from day 1000. */
+  function newest(count: number, label = 'new'): RecentItem[] {
+    const out: RecentItem[] = [];
+    for (let n = 0; n < count; n += 1) {
+      const src = n % 2 === 0 ? 's2' : 's1';
+      out.push({ added: 1000 - n, item: { ...movie(src, 9, n, n !== 4), key: `x:${src}:movie:${label}-${n}`, name: `Movie ${label} ${n}` } });
+    }
+    return out;
+  }
+
+  async function withNewest(count: number, options: { tier?: DeviceTier; select?: (item: CatalogItem) => void; progress?: MoviesOptions['progress'] } = {}) {
+    const engine = new FakeEngine();
+    engine.newest = newest(count);
+    return setup({ engine, ...options });
+  }
+
+  it('opens on "Recently added": the newest movies first, then "All movies" and the categories', async () => {
+    const t = await withNewest(20);
+    expect(t.movies.rail.value.map((e) => `${e.kind}:${e.name}:${e.count}`)).toEqual(['recent::20', 'all::744', 'category:Action:40', 'category:Drama:700', 'category:Kids:4']);
+    expect(t.movies.rail.value[0]!.parts).toEqual([]);
+    expect(t.movies.category.value).toBe(0);
+    expect(t.at()).toBe('movies · grid 0');
+    expect(t.movies.screen.value!.zone(MOVIES_GRID)).toMatchObject({ kind: 'grid', count: 20 });
+    expect(t.tiles(0, 4)).toEqual(['new 0', 'new 1', 'new 2', 'new 3']);
+    expect(t.tiles(19, 21)).toEqual(['new 19', '…']);
+    // Asked once for every source in the profile's order; no chunk read for it.
+    expect(t.engine.recentCalls).toEqual([{ sources: ['s1', 's2'], kind: 'movie' }]);
+    expect(t.engine.chunkCalls).toEqual([]);
+    expect(t.movies.pending.value).toBe(1);
+    // Nothing held once disposed.
+    t.movies.dispose();
+    expect(t.movies.movie(0)).toBeNull();
+  });
+
+  it('has no such entry when no movie has a date (playlists alone): "All movies" comes first', async () => {
+    const t = await setup();
+    expect(t.movies.rail.value[0]!.kind).toBe('all');
+    expect(t.engine.recentCalls).toEqual([{ sources: ['s1', 's2'], kind: 'movie' }]);
+    const engine = new FakeEngine();
+    engine.profileDoc = { doc: { v: 2, sources: [] }, newer: false, migratedFrom: null };
+    const none = await setup({ engine });
+    expect(none.movies.status.value).toBe('empty');
+    expect(engine.recentCalls).toEqual([{ sources: [], kind: 'movie' }]);
+  });
+
+  it('asks its posters once the view rests, with no key pressed, and none beyond the view', async () => {
+    const t = await withNewest(30);
+    expect(t.withPosters(0, 30)).toEqual([]);
+    t.clock.advance(POSTER_TIERS.full.restMs - 1);
+    await flush();
+    expect(t.withPosters(0, 30)).toEqual([]);
+    await t.rest();
+    // Six at a time; film 4 has no poster (its title shows), so the sixth is film 6's.
+    expect(t.withPosters(0, 30)).toEqual([0, 1, 2, 3, 5, 6]);
+    t.loadAll(0, 30);
+    expect(t.withPosters(0, 30)).toEqual(t.range(0, 18).filter((i) => i !== 4));
+    expect(t.movies.poster(0)).toBe('http://img.test/s2/9/0.jpg');
+    expect(t.movies.pending.value).toBe(0);
+    // Down a row: the new row's posters at the next rest.
+    await t.press('DOWN', 'DOWN', 'DOWN');
+    expect(t.movies.screen.value!.position(MOVIES_GRID).top).toBe(1);
+    expect(t.withPosters(18, 24)).toEqual([]);
+    await t.rest();
+    t.loadAll(0, 30);
+    expect(t.withPosters(0, 30)).toEqual(t.range(6, 24));
+    expect(t.engine.chunkCalls).toEqual([]);
+  });
+
+  it('goes to "All movies" and back: chunks for one, the held movies for the other', async () => {
+    const t = await withNewest(20);
+    await t.press('LEFT', 'DOWN', 'OK');
+    expect(t.movies.category.value).toBe(1);
+    expect(t.at()).toBe('movies · grid 0');
+    expect(t.movies.screen.value!.zone(MOVIES_GRID)).toMatchObject({ count: 744 });
+    expect(t.engine.chunkCalls).toEqual(['s1|0|0']);
+    expect(t.tiles(0, 2)).toEqual(['s1 0-0', 's1 0-1']);
+    await t.press('LEFT', 'UP', 'OK');
+    expect(t.movies.category.value).toBe(0);
+    expect(t.movies.screen.value!.zone(MOVIES_GRID)).toMatchObject({ count: 20 });
+    expect(t.tiles(0, 2)).toEqual(['new 0', 'new 1']);
+    expect(t.engine.chunkCalls).toEqual(['s1|0|0']);
+    // Back in its grid: the rail on "Recently added", then the screen closes.
+    await t.press('RIGHT', 'BACK');
+    expect(t.at()).toBe('movies · rail 0');
+    await t.press('BACK');
+    expect(t.movies.screen.value).toBeNull();
+    // Nothing held once closed; the next open reads them again.
+    expect(t.movies.movie(0)).toBeNull();
+    t.engine.newest = newest(3, 'newer');
+    t.movies.open();
+    await flush();
+    expect(t.engine.recentCalls).toHaveLength(2);
+    expect(t.tiles(0, 4)).toEqual(['newer 0', 'newer 1', 'newer 2', '…']);
+  });
+
+  it("gives OK on one of its movies to `select`, and draws that movie's bar", async () => {
+    const select = vi.fn();
+    const version = signal(0);
+    const t = await withNewest(20, { select, progress: { version, share: (key) => (key === 'x:s1:movie:new-1' ? 0.5 : undefined) } });
+    await t.press('RIGHT', 'OK');
+    expect(select).toHaveBeenCalledTimes(1);
+    expect(select.mock.calls[0]![0]).toMatchObject({ key: 'x:s1:movie:new-1', name: 'Movie new 1' });
+    expect(t.movies.progress(0)).toBeUndefined();
+    expect(t.movies.progress(1)).toBe(0.5);
+    expect(t.movies.progress(20)).toBeUndefined();
+  });
+
+  it('waits for its read like the categories\', and offers "Try again" when it fails', async () => {
+    const engine = new FakeEngine();
+    engine.newest = newest(2);
+    engine.hold = new Set(['recent']);
+    const t = await setup({ engine });
+    expect(t.movies.status.value).toBe('loading');
+    engine.held.recent.shift()!.resolve(engine.newest);
+    await flush();
+    expect(t.movies.status.value).toBe('ready');
+    expect(t.movies.rail.value[0]!.kind).toBe('recent');
+
+    const failing = new FakeEngine();
+    failing.failRecent = true;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const u = await setup({ engine: failing });
+    expect(u.movies.status.value).toBe('failed');
+    expect(u.at()).toBe('movies · retry 0');
+    failing.failRecent = false;
+    await u.press('OK');
+    expect(u.movies.status.value).toBe('ready');
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('asks the new films\' posters after a swap that leaves the focus where it was', async () => {
+    const t = await withNewest(20);
+    await t.rest();
+    t.loadAll(0, 20);
+    expect(t.movies.poster(0)).toBe('http://img.test/s2/9/0.jpg');
+    // The same count and place, other films: the focus doesn't move, yet their posters come at the rest.
+    t.engine.newest = newest(20, 'newer').map((r) => ({ ...r, item: { ...r.item, logo: r.item.logo === null ? null : `${r.item.logo}?newer` } }));
+    t.movies.catalogChanged();
+    await flush();
+    expect(t.at()).toBe('movies · grid 0');
+    expect(t.tiles(0, 1)).toEqual(['newer 0']);
+    expect(t.movies.poster(0)).toBeUndefined();
+    await t.rest();
+    expect(t.movies.poster(0)).toBe('http://img.test/s2/9/0.jpg?newer');
+  });
+
+  it('holds no movie once a swap leaves none', async () => {
+    const t = await withNewest(3);
+    expect(t.tiles(0, 1)).toEqual(['new 0']);
+    t.engine.newest = [];
+    t.engine.catalog = { s1: [], s2: [] };
+    t.movies.catalogChanged();
+    await flush();
+    expect(t.movies.status.value).toBe('empty');
+    expect(t.movies.movie(0)).toBeNull();
+  });
+
+  it("keeps a category through a swap by its source and name: not another source's of that name, nor a nameless entry", async () => {
+    const engine = new FakeEngine();
+    engine.newest = newest(2);
+    engine.catalog = { s1: [info(0, 'Drama', [5]), info(1, '', [3])], s2: [info(0, 'Drama', [4])] };
+    const t = await setup({ engine });
+    expect(t.movies.rail.value.map((e) => `${e.kind}:${e.name}:${e.parts[0]?.src ?? '-'}`)).toEqual(['recent::-', 'all::s1', 'category:Drama:s1', 'category::s1', 'category:Drama:s2']);
+    for (const entry of [4, 3]) {
+      t.movies.screen.value!.focus(MOVIES_RAIL, entry);
+      await t.press('OK');
+      expect(t.movies.category.value).toBe(entry);
+      t.movies.catalogChanged();
+      await flush();
+      expect(t.movies.category.value).toBe(entry);
+    }
+  });
+
+  it('keeps "Recently added", "All movies" or a category through a catalog swap, as the entries move', async () => {
+    // No dated movies yet: "All movies" first; its 8th movie focused.
+    const t = await setup();
+    t.movies.screen.value!.focus(MOVIES_GRID, 7);
+    await flush();
+    // A refresh brings dates: "Recently added" comes first, "All movies" stays on show where it was.
+    t.engine.newest = newest(20);
+    t.movies.catalogChanged();
+    await flush();
+    expect(t.movies.rail.value.map((e) => e.kind)).toEqual(['recent', 'all', 'category', 'category', 'category']);
+    expect(t.movies.category.value).toBe(1);
+    expect(t.at()).toBe('movies · grid 7');
+    expect(t.tiles(7, 8)).toEqual(['s1 0-7']);
+    // On "Recently added", its 3rd: a refresh with newer films keeps the place, the new films there.
+    t.movies.screen.value!.focus(MOVIES_RAIL, 0);
+    await t.press('OK', 'RIGHT', 'RIGHT');
+    expect(t.at()).toBe('movies · grid 2');
+    expect(t.movies.category.value).toBe(0);
+    t.engine.newest = newest(5, 'newer');
+    t.movies.catalogChanged();
+    await flush();
+    expect(t.movies.category.value).toBe(0);
+    expect(t.at()).toBe('movies · grid 2');
+    expect(t.tiles(0, 6)).toEqual(['newer 0', 'newer 1', 'newer 2', 'newer 3', 'newer 4', '…']);
+    // A category on show keeps its name though its entry moves when "Recently added" goes.
+    t.movies.screen.value!.focus(MOVIES_RAIL, 3);
+    await t.press('OK');
+    expect(t.movies.rail.value[t.movies.category.value]!.name).toBe('Drama');
+    expect(t.movies.category.value).toBe(3);
+    t.engine.newest = [];
+    t.movies.catalogChanged();
+    await flush();
+    expect(t.movies.rail.value[0]!.kind).toBe('all');
+    expect(t.movies.category.value).toBe(2);
+    expect(t.movies.rail.value[2]!.name).toBe('Drama');
+    // "Recently added" gone while on show: the first entry, from its first movie.
+    t.engine.newest = newest(4);
+    t.movies.catalogChanged();
+    await flush();
+    expect(t.movies.category.value).toBe(3);
+    t.movies.screen.value!.focus(MOVIES_RAIL, 0);
+    await t.press('OK', 'RIGHT');
+    expect(t.movies.category.value).toBe(0);
+    expect(t.at()).toBe('movies · grid 1');
+    t.engine.newest = [];
+    t.movies.catalogChanged();
+    await flush();
+    expect(t.movies.rail.value[0]!.kind).toBe('all');
+    expect(t.movies.category.value).toBe(0);
+    expect(t.at()).toBe('movies · grid 0');
+    expect(t.tiles(0, 1)).toEqual(['s1 0-0']);
   });
 });

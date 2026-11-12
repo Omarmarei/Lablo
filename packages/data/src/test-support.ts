@@ -8,6 +8,7 @@ import { CatalogChunker, indexChunk } from './chunker';
 import { SearchIndexBuilder } from '@lablo/core';
 import { beginGeneration, commitGeneration, putCatalogKind, putChunks } from './catalog-store';
 import type { Migration } from './schema';
+import type { RecentItem } from './recent';
 import { openDatabase, transact } from './idb';
 import type { ByteRequest, ByteResponse, ByteTransport } from './bytes';
 import { NetworkError } from './bytes';
@@ -155,8 +156,14 @@ export function item(src: string, kind: ContentKind, id: number, name: string, g
 /**
  * Writes `items` as a full generation of `src` (chunker, search index, swap), as the ingest
  * worker does (ingest.ts, step 8) but from items in memory. Returns the committed generation and the one it replaced.
+ * `recent`: a kind's newest items to store with its categories (step 26e; a kind left out stores none).
  */
-export async function ingest(db: IDBDatabase, src: string, items: CatalogItem[], options: { chunkSize?: number; now?: number; commit?: boolean } = {}): Promise<{ gen: number; previous: number }> {
+export async function ingest(
+  db: IDBDatabase,
+  src: string,
+  items: CatalogItem[],
+  options: { chunkSize?: number; now?: number; commit?: boolean; recent?: Partial<Record<ContentKind, RecentItem[]>> } = {},
+): Promise<{ gen: number; previous: number }> {
   const gen = await beginGeneration(db, src);
   const counts: Partial<Record<ContentKind, number>> = {};
   for (const kind of ['live', 'movie', 'series'] as const) {
@@ -173,7 +180,7 @@ export async function ingest(db: IDBDatabase, src: string, items: CatalogItem[],
     for (const i of ofKind) await write(chunker.push(i));
     await write(chunker.end());
     await putChunks(db, src, gen, batch);
-    await putCatalogKind(db, src, gen, kind, chunker.categories(), builder.finish());
+    await putCatalogKind(db, src, gen, kind, chunker.categories(), builder.finish(), options.recent?.[kind]);
     counts[kind] = ofKind.length;
   }
   if (options.commit === false) return { gen, previous: -1 };

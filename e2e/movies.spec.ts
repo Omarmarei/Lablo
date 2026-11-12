@@ -10,16 +10,19 @@ import { addXtreamAndWatch, settled, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
 
 /**
- * The movies screen (RELAY step 26a) by keys, in English and Arabic: the header's "Movies" (between
- * "Guide" and "Settings") opens a rail of the panel's VOD categories and a grid of poster tiles,
- * six a row, three rows in view. The posters are asked once the view rests, only for the rows in
- * view: each one requested once, no image drawn outside the view. A poster that fails shows the
- * movie's title. The grid fills from the right in Arabic, the rail on the right. DOWN moves the
- * rows (the drawn rows follow), LEFT from the first column goes to the rail (RIGHT in Arabic), OK
- * there shows a category, Back goes to the rail and then to the header.
+ * The movies screen (RELAY steps 26a and 26e) by keys, in English and Arabic: the header's "Movies"
+ * (between "Guide" and "Settings") opens a rail ("Recently added", "All movies", then the panel's
+ * VOD categories) and a grid of poster tiles, six a row, three rows in view, on "Recently added":
+ * the panel's movies newest first, by their `added`. The posters are asked once the view rests,
+ * only for the rows in view: each one requested once, no image drawn outside the view. A poster
+ * that fails shows the movie's title. The grid fills from the right in Arabic, the rail on the
+ * right. DOWN moves the rows (the drawn rows follow), LEFT from the first column goes to the rail
+ * (RIGHT in Arabic), OK there shows "All movies" (the panel's order, category by category) or a
+ * category, Back goes to the rail and then to the header.
  *
- * The mock's six films plus `EXTRA` of our own in a third category, so the grid has rows to move
- * through. Its posters are 1x1 PNGs. The screenshots go to artifacts/screenshots.
+ * The mock's six films (added 1 to 13 days ago, in an order unlike the panel's) plus `EXTRA` of
+ * our own in a third category, added before them (20 days ago and more), so the grid has rows to
+ * move through. Its posters are 1x1 PNGs. The screenshots go to artifacts/screenshots.
  */
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
 const EXTRA = 40;
@@ -29,8 +32,8 @@ const ROWS = 3;
 const BROKEN = 202;
 
 const SAYS = {
-  en: { all: 'All movies', header: 'Movies' },
-  ar: { all: 'كل الأفلام', header: 'الأفلام' },
+  en: { recent: 'Recently added', all: 'All movies', header: 'Movies' },
+  ar: { recent: 'أضيف حديثًا', all: 'كل الأفلام', header: 'الأفلام' },
 } as const;
 
 function withMovies(base: Catalog): Catalog {
@@ -45,7 +48,7 @@ function withMovies(base: Catalog): Catalog {
     rating: 5,
     genre: 'Test',
     plot: 'Our own test film.',
-    addedDaysAgo: i,
+    addedDaysAgo: 20 + i,
     media: 'vod',
   }));
   return { ...base, vodCategories: base.vodCategories.concat([{ id: 12, name: 'Lablo Test Films', parentId: 0 }]), movies: base.movies.concat(extra) };
@@ -54,6 +57,11 @@ function withMovies(base: Catalog): Catalog {
 const catalog = withMovies(loadCatalog());
 /** The movies in the order "All movies" lists them: category by category, as the panel lists them. */
 const ordered: Movie[] = catalog.vodCategories.flatMap((c) => catalog.movies.filter((m) => m.categoryId === c.id));
+/** The movies in the order "Recently added" lists them: the newest first (equal days in the panel's order). */
+const newest: Movie[] = catalog.movies
+  .map((m, i) => ({ m, i }))
+  .sort((a, b) => a.m.addedDaysAgo - b.m.addedDaysAgo || a.i - b.i)
+  .map((x) => x.m);
 
 let app: MockServer;
 let host: string;
@@ -97,7 +105,7 @@ function readGrid(page: Page) {
 
 const posterId = (url: string): number => Number(/movie-(\d+)\.png/.exec(url)?.[1] ?? NaN);
 
-test.describe('the movies screen (RELAY step 26a)', () => {
+test.describe('the movies screen (RELAY steps 26a and 26e)', () => {
   for (const [locale, language, dir] of [
     ['en-US', 'en', 'ltr'],
     ['ar-SA', 'ar', 'rtl'],
@@ -128,22 +136,24 @@ test.describe('the movies screen (RELAY step 26a)', () => {
       await expect(screen).toHaveAttribute('data-language', language);
       await settled(screen);
 
-      // The rail: "All movies", then the panel's categories, with their counts.
+      // The rail: "Recently added", "All movies", then the panel's categories, with their counts.
       const chips = page.locator('[data-testid^=movies-chip-] .z-chip__label');
-      await expect(chips).toHaveText([says.all, 'Open Movies | أفلام مفتوحة', 'Test Patterns', 'Lablo Test Films']);
-      await expect(page.getByTestId('movies-meta')).toContainText(says.all);
-      await expect(page.getByTestId('movies-meta').locator('[data-n]')).toHaveAttribute('data-n', String(ordered.length));
-      if (language === 'en') await expect(page.getByTestId('movies-meta')).toContainText(`${ordered.length} movies`);
+      await expect(chips).toHaveText([says.recent, says.all, 'Open Movies | أفلام مفتوحة', 'Test Patterns', 'Lablo Test Films']);
+      await expect(screen).toHaveAttribute('data-category', '0');
+      await expect(page.getByTestId('movies-meta')).toContainText(says.recent);
+      await expect(page.getByTestId('movies-meta').locator('[data-n]')).toHaveAttribute('data-n', String(newest.length));
+      if (language === 'en') await expect(page.getByTestId('movies-meta')).toContainText(`${newest.length} movies`);
 
-      // Three rows of six, in the panel's order; each poster in view asked once, nothing below.
+      // Three rows of six, newest first: the mock's films by their `added`, then ours; each poster in view asked once, nothing below.
       let grid = await readGrid(page);
       expect(grid.rows).toEqual([0, 1, 2]);
-      expect(grid.tiles.map((t) => t.title)).toEqual(ordered.slice(0, COLUMNS * ROWS).map((m) => m.name));
-      const inView = ordered.slice(0, COLUMNS * ROWS).map((m) => m.id);
+      expect(grid.tiles.slice(0, 6).map((t) => t.title)).toEqual(['Big Buck Bunny', 'Sintel', 'اختبار الصوت المتعدد', 'Elephants Dream', 'Tears of Steel', 'Lablo Test Pattern 4K HEVC']);
+      expect(grid.tiles.map((t) => t.title)).toEqual(newest.slice(0, COLUMNS * ROWS).map((m) => m.name));
+      const inView = newest.slice(0, COLUMNS * ROWS).map((m) => m.id);
       expect(asked.slice().sort()).toEqual(inView.slice().sort());
       // The failed poster: Sintel's tile shows its title and no image; every other tile its poster.
       expect(grid.tiles.filter((t) => t.poster === null).map((t) => t.title)).toEqual(['Sintel']);
-      expect(grid.tiles.filter((t) => t.poster !== null).every((t) => posterId(t.poster!) === ordered[t.index]!.id)).toBe(true);
+      expect(grid.tiles.filter((t) => t.poster !== null).every((t) => posterId(t.poster!) === newest[t.index]!.id)).toBe(true);
       expect(grid.images).toBe(COLUMNS * ROWS - 1);
 
       // The layout: six tiles a row with 24 px between them, filled from the inline start, the rail at the inline start.
@@ -166,21 +176,34 @@ test.describe('the movies screen (RELAY step 26a)', () => {
       await settled(screen);
       grid = await readGrid(page);
       expect(grid.rows).toEqual([2, 3, 4]);
-      expect(grid.tiles.map((t) => t.title)).toEqual(ordered.slice(2 * COLUMNS, 5 * COLUMNS).map((m) => m.name));
+      expect(grid.tiles.map((t) => t.title)).toEqual(newest.slice(2 * COLUMNS, 5 * COLUMNS).map((m) => m.name));
       expect(grid.tiles.every((t) => t.poster !== null)).toBe(true);
       expect(grid.images).toBe(COLUMNS * ROWS);
       // Nothing beyond the rows that were in view, none twice.
-      const seen = ordered.slice(0, 5 * COLUMNS).map((m) => m.id);
+      const seen = newest.slice(0, 5 * COLUMNS).map((m) => m.id);
       expect(asked.every((id) => seen.indexOf(id) !== -1)).toBe(true);
       expect(new Set(asked).size).toBe(asked.length);
-      for (const m of ordered.slice(3 * COLUMNS, 5 * COLUMNS)) expect(asked).toContain(m.id);
+      for (const m of newest.slice(3 * COLUMNS, 5 * COLUMNS)) expect(asked).toContain(m.id);
 
-      // LEFT from the first column: the rail (RIGHT in Arabic); OK on "Test Patterns" shows its two.
+      // LEFT from the first column: the rail (RIGHT in Arabic); OK on "All movies" shows the panel's order.
       await remote.go(backward, 'movies/rail/0');
       await remote.go('DOWN', 'movies/rail/1');
-      await remote.go('DOWN', 'movies/rail/2');
       await remote.go('OK', 'movies/grid/0');
-      await expect(screen).toHaveAttribute('data-category', '2');
+      await expect(screen).toHaveAttribute('data-category', '1');
+      await settled(screen);
+      grid = await readGrid(page);
+      expect(grid.rows).toEqual([0, 1, 2]);
+      expect(grid.tiles.map((t) => t.title)).toEqual(ordered.slice(0, COLUMNS * ROWS).map((m) => m.name));
+      await expect(page.getByTestId('movies-meta')).toContainText(says.all);
+      await expect(page.getByTestId('movies-meta').locator('[data-n]')).toHaveAttribute('data-n', String(ordered.length));
+      await page.screenshot({ path: path.join(SHOTS, `movies-all-${locale}.png`), animations: 'disabled' });
+
+      // OK on "Test Patterns" shows its two.
+      await remote.go(backward, 'movies/rail/1');
+      await remote.go('DOWN', 'movies/rail/2');
+      await remote.go('DOWN', 'movies/rail/3');
+      await remote.go('OK', 'movies/grid/0');
+      await expect(screen).toHaveAttribute('data-category', '3');
       await settled(screen);
       grid = await readGrid(page);
       expect(grid.tiles.map((t) => t.title)).toEqual(['Lablo Test Pattern 4K HEVC', 'اختبار الصوت المتعدد']);
@@ -188,7 +211,7 @@ test.describe('the movies screen (RELAY step 26a)', () => {
       await remote.go(forward, 'movies/grid/1');
 
       // Back: the rail on the category on show, then the live screen's header on "Movies".
-      await remote.go('BACK', 'movies/rail/2');
+      await remote.go('BACK', 'movies/rail/3');
       await remote.go('BACK', 'live/header/1');
       await expect(page.getByTestId('movies-screen')).toHaveCount(0);
       await remote.go('DOWN', 'live/channels/0');

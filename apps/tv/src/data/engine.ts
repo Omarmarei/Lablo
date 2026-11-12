@@ -23,7 +23,9 @@
  *   the live screen reads only the chunks of the rows around its window);
  * - `account` re-checks a source's Xtream account for the player's error card (step 20a);
  * - `vodInfo` reads a movie's details from its Xtream panel when they open (step 26c, kept 24 h in
- *   the query worker).
+ *   the query worker);
+ * - `recent` gives the newest movies across the sources ("Recently added", step 26e), from the
+ *   lists the ingest keeps.
  *
  * Workers come from factories, so tests serve the real services over message channels; the
  * app passes the `?worker` imports (`./workers.ts`).
@@ -54,6 +56,8 @@ import type {
   ProfileEdit,
   ProgrammeRequest,
   QueryStatus,
+  RecentItem,
+  RecentRequest,
   RpcPort,
   ShortEpgNowNext,
   ShortEpgSource,
@@ -430,6 +434,14 @@ export class DataEngine {
    */
   vodInfo(req: VodInfoRequest): Promise<XtreamVodInfo | null> {
     return this.query.call('vodInfo', req);
+  }
+
+  /**
+   * The newest items of a kind across the sources, newest first ("Recently added", step 26e): the
+   * lists each catalog keeps from its ingest, merged in the query worker (no chunk is read).
+   */
+  recent(req: RecentRequest): Promise<RecentItem[]> {
+    return this.query.call('recent', req);
   }
 
   /** Searches every active generation and resolves the first `names` hits to display names. */
