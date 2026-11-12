@@ -6,7 +6,7 @@ import { Badge, Button, ProgressBar, Spinner, useFocus, useZone } from '@lablo/u
 import type { AppI18n, MessageKey } from '../i18n';
 import type { Live, LiveRow } from '../live/live-state';
 import type { ArchiveProgramme } from './catchup';
-import type { EpisodeMark, Player, PlayerAction, PlayingMovie } from './player-state';
+import type { EpisodeMark, Player, PlayerAction, PlayingMovie, UpNext } from './player-state';
 import { StreamInfoPanel } from './StreamInfoPanel';
 import { SubtitleOverlay } from './SubtitleOverlay';
 import { TrackMenuPanel } from './TrackMenuPanel';
@@ -100,10 +100,11 @@ function SeekBar({ player, i18n, span, movie, state, onHover, onPress }: { playe
 
 /**
  * An episode's line (step 27c1): "S1 E2 · title", the mark in the UI's words and the panel's
- * title in its own direction (none: the mark alone).
+ * title in its own direction (none: the mark alone). The next episode's (step 27c2): "Next: S1 E3 · title".
  */
-function EpisodeLine({ i18n, episode, class: name, testId }: { i18n: AppI18n; episode: EpisodeMark; class: string; testId: string }) {
-  const mark = i18n.t('show.mark', { season: i18n.number(episode.season), episode: i18n.number(episode.number) });
+function EpisodeLine({ i18n, episode, next = false, class: name, testId }: { i18n: AppI18n; episode: EpisodeMark; next?: boolean; class: string; testId: string }) {
+  const own = i18n.t('show.mark', { season: i18n.number(episode.season), episode: i18n.number(episode.number) });
+  const mark = next ? i18n.t('player.nextEpisode', { mark: own }) : own;
   return (
     <p class={name} data-testid={testId}>
       <span class="player__mark">{mark}</span>
@@ -270,20 +271,32 @@ function EndCard({ archive, i18n, screen, binding }: { archive: ArchiveProgramme
   );
 }
 
-/** A movie's end (step 26c): "The movie has ended", with "Back" to its details; an episode's (step 27c1): "The episode has ended". */
-function MovieEndCard({ movie, i18n, screen, binding }: { movie: PlayingMovie; i18n: AppI18n; screen: Screen; binding: FocusBinding }) {
+/**
+ * A movie's end (step 26c): "The movie has ended", with "Back" to its details; an episode's (step
+ * 27c1): "The episode has ended". With a next episode (step 27c2): "Next: S1 E3 · title", the
+ * seconds before it starts (none once the countdown stopped), "Play now" and "Back".
+ */
+function MovieEndCard({ movie, upNext, i18n, screen, binding }: { movie: PlayingMovie; upNext: UpNext | null; i18n: AppI18n; screen: Screen; binding: FocusBinding }) {
   const { t } = i18n;
   const buttons = useZone(binding, screen, 'card');
   const episode = movie.episode;
+  const coming = upNext === null ? undefined : upNext.play.episode;
   return (
     <section class="player__card" role="alertdialog" data-testid="player-ended">
       <h2 class="player__card-title">{t(episode === null ? 'player.movieEnded' : 'player.episodeEnded')}</h2>
-      <p class="player__card-text" dir="auto" translate={false}>
+      <p class="player__card-text" dir="auto" translate={false} data-testid="player-ended-name">
         {episode === null ? movie.item.name : episode.show.name}
       </p>
       {episode !== null && <EpisodeLine i18n={i18n} episode={episode} class="player__card-text" testId="player-ended-episode" />}
+      {coming !== undefined && <EpisodeLine i18n={i18n} episode={coming} next class="player__card-next" testId="player-next-episode" />}
+      {upNext !== null && upNext.seconds !== null && (
+        <p class="player__card-countdown" data-testid="player-countdown">
+          {t('player.nextIn', { seconds: upNext.seconds })}
+        </p>
+      )}
       <div class="player__card-buttons">
-        <Button label={t('movie.back')} variant="primary" {...buttons.item(0)} testId="player-movie-back" />
+        {upNext !== null && <Button label={t('player.playNow')} variant="primary" {...buttons.item(0)} testId="player-play-next" />}
+        <Button label={t('movie.back')} variant={upNext === null ? 'primary' : 'secondary'} {...buttons.item(upNext === null ? 0 : 1)} testId="player-movie-back" />
       </div>
     </section>
   );
@@ -311,6 +324,7 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
   // Read here so that the bar draws again when its row's chunk or now/next arrives.
   const version = live.version.value;
   const movie = player.movie.value;
+  const upNext = player.upNext.value;
   // A zap that waits hides the old channel's card and spinner: the bar shows the new one. A movie (step 26c) has no zaps.
   const current = movie !== null || target === playing;
   const failure = current && status.state === 'failed' ? status.failure : null;
@@ -354,6 +368,8 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
       data-movie={movie === null ? '' : movie.item.key}
       data-length={movie === null || movie.lengthMs === null ? '' : movie.lengthMs}
       data-from={movie === null ? '' : movie.fromMs}
+      data-next={upNext === null ? '' : upNext.play.item.key}
+      data-countdown={upNext === null || upNext.seconds === null ? '' : upNext.seconds}
     >
       {player.picture.value === '4:3' && (
         <div class="player__pillars" aria-hidden="true" data-testid="player-pillars">
@@ -390,7 +406,7 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
       {menu !== null && <TrackMenuPanel menu={player.menu} tracks={status.tracks} feed={subtitles.feed} i18n={i18n} screen={menu} binding={binding} />}
       {screen !== null && failure !== null && <ErrorCard failure={failure} i18n={i18n} screen={screen} binding={binding} movie={movie !== null} />}
       {screen !== null && ended && archive !== null && <EndCard archive={archive} i18n={i18n} screen={screen} binding={binding} />}
-      {screen !== null && ended && movie !== null && <MovieEndCard movie={movie} i18n={i18n} screen={screen} binding={binding} />}
+      {screen !== null && ended && movie !== null && <MovieEndCard movie={movie} upNext={upNext} i18n={i18n} screen={screen} binding={binding} />}
     </main>
   );
 }

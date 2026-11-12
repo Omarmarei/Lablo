@@ -386,8 +386,28 @@ html[data-player='on'] .player-stage {
   font-weight: var(--font-weight-bold);
 }
 
+/* Aligned to the UI's start: a provider's title in its own direction (dir=auto) stays on the card's start side. */
 .player__card-text {
   margin: 0 0 var(--space-4);
+  text-align: left;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+/* The next episode on an episode's end card (step 27c2): "Next: S1 E3 · title" on one line, then the seconds before it starts. */
+.player__card-next {
+  margin: var(--space-5) 0 var(--space-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  font-weight: var(--font-weight-bold);
+}
+
+.player__card-countdown {
+  margin: 0 0 var(--space-5);
+  color: var(--color-text-muted);
   font-size: var(--font-size-body);
   line-height: var(--line-height-body);
 }

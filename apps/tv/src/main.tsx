@@ -1,6 +1,6 @@
 import { signal } from '@preact/signals';
 import { render } from 'preact';
-import type { DeviceTier } from '@lablo/core';
+import type { ContentKey, DeviceTier } from '@lablo/core';
 import { normalizeLang } from '@lablo/core';
 import type { LastChannel } from '@lablo/data';
 import type { Language } from '@lablo/ui';
@@ -28,6 +28,7 @@ import { createMovies, selectSeries } from './movies/movies-state';
 import { episodePlay } from './shows/episode-play';
 import { createShowDetails } from './shows/show-details';
 import { createMovieDetails, movieFacts, movieRequest } from './movies/movie-details';
+import type { ResumePoint } from './movies/movie-progress';
 import { createMovieProgress } from './movies/movie-progress';
 import { createEngineLoader } from './onboarding/engine-loader';
 import { OnboardingApp } from './onboarding/OnboardingApp';
@@ -204,14 +205,15 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   const movies = createMovies({ nav: live.nav, engine: dataEngine(), tier: () => tier, select: (item) => details.open(item), progress });
   // OK on a show (step 27b): its details over the series grid, its seasons and episodes read from its panel; Back returns to the grid.
   // OK on an episode (step 27c1): the player over the details, from where it was left; Back returns to the details on the show's last episode.
+  // Its end (step 27c2): the next episode in the details' seasons, from where it was left, after a countdown.
   const show = createShowDetails({
     nav: live.nav,
     engine: dataEngine(),
     progress,
-    play: (item, episode, index, fromMs) => {
+    play: (item, seasons, place, fromMs) => {
       const closed = (): void => show.refresh();
-      const kept = progress.point(episode.key);
-      player?.playMovie(episodePlay(fromMs === undefined ? { show: item, episode, index, kept, closed } : { show: item, episode, index, kept, fromMs, closed }));
+      const kept = (key: ContentKey): ResumePoint | null => progress.point(key);
+      player?.playMovie(episodePlay(fromMs === undefined ? { show: item, seasons, place, kept, closed } : { show: item, seasons, place, kept, fromMs, closed }));
     },
   });
   // The header's "Series" (step 27a): the movies screen for series. A playlist's episode opens as a movie does; a panel's show opens its details.

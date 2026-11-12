@@ -41,7 +41,8 @@ import { RemoteDriver } from './remote-driver';
  *
  * An episode (RELAY step 27c1): "Lablo Test Series" S1 E1 (an MKV) left a minute in keeps that
  * place in its row ("Resume from 1:0x"); OK there plays its file from within 5 s of it. Played to
- * its end, "The episode has ended", whose "Back" lands on S1 E2.
+ * its end, "The episode has ended" offers the next one (step 27c2: "Next: S1 E2 · Tone and
+ * Clock", "Starts in 10 s"), which plays after the countdown, its frames moving; Back lands on it.
  */
 const MEDIA_DIR = path.resolve(import.meta.dirname, '../.cache/media');
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
@@ -464,7 +465,7 @@ test('resumes a movie within 5 s of where it was left, inside its file (step 26d
   expect(errors).toEqual([]);
 });
 
-test('resumes an episode within 5 s of where it was left, inside its file (step 27c1)', async ({ page }) => {
+test('resumes an episode within 5 s of where it was left, inside its file, and its end plays the next (steps 27c1, 27c2)', async ({ page }) => {
   test.setTimeout(150_000);
   const errors = trackErrors(page);
   const remote = new RemoteDriver(page);
@@ -511,15 +512,26 @@ test('resumes an episode within 5 s of where it was left, inside its file (step 
   await expectMoving(page);
   await page.screenshot({ path: path.join(SHOTS, 'player-episode-resumed-en.png'), animations: 'disabled' });
 
-  // FF to 10 s before its end: "The episode has ended", with the show and the episode. Its "Back"
-  // returns to the details on the next episode (this one is watched: no place kept).
+  // FF to 10 s before its end: "The episode has ended", with the show and the episode, and the next
+  // one (step 27c2) with its countdown, "Play now" focused.
   await remote.press('FF');
   const ended = page.getByTestId('player-ended');
   await expect(ended).toContainText('The episode has ended', { timeout: 40_000 });
   await expect(ended).toContainText('Lablo Test Series');
   await expect(page.getByTestId('player-ended-episode')).toHaveText(/^S\S*1\S* E\S*1\S* · Pilot - Colour Bars$/);
+  await expect(page.getByTestId('player-next-episode')).toHaveText(/^Next: \S*S\S*1\S* E\S*2\S*\S* · Tone and Clock$/);
+  await expect(page.getByTestId('player-countdown')).toHaveText(/^Starts in \S*(10|9)\S* s$/);
+  await remote.expectFocus('player/card/0');
   await page.screenshot({ path: path.join(SHOTS, 'player-episode-ended-en.png'), animations: 'disabled' });
-  await remote.go('OK', 'show/episodes/1');
+  // The countdown's end: S1 E2 plays in the same player, its frames moving.
+  await expect(player).toHaveAttribute('data-movie', /:episode:3002$/, { timeout: 15_000 });
+  await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
+  await expect(player).toHaveAttribute('data-container', 'mkv');
+  await expect(page.getByTestId('player-ended')).toHaveCount(0);
+  await expectMoving(page);
+  await page.screenshot({ path: path.join(SHOTS, 'player-episode-next-en.png'), animations: 'disabled' });
+  // Back: the details on S1 E2; S1 E1 is watched (no place kept).
+  await remote.go('BACK', 'show/episodes/1');
   await expect(row).toHaveAttribute('data-resume', '');
   expect(errors).toEqual([]);
 });

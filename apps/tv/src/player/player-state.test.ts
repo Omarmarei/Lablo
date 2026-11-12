@@ -17,6 +17,8 @@ import {
   INFO_MS,
   MISSING_MS,
   MOVIE_ACTIONS,
+  NEXT_COUNTDOWN_S,
+  NEXT_TICK_MS,
   PICTURE_ACTION,
   PLAY_ON_MS,
   POSITION_MS,
@@ -2559,5 +2561,223 @@ describe("the player: a show's episode (RELAY step 27c1)", () => {
     u.clock.advance(POSITION_MS);
     u.controller.set('ended');
     expect(u.saved).toEqual([at(299_000, true)]);
+  });
+});
+
+describe('the player: the next episode (RELAY step 27c2)', () => {
+  const MIN = 60_000;
+  const show: CatalogItem = { ...row(0).item, key: 'x:s1:series:301', kind: 'series', name: 'Lablo Test Series', url: '' };
+  const episodeAt = (id: number, number: number, title: string) => {
+    const item: CatalogItem = { ...show, key: `x:s1:episode:${id}`, name: title, url: `http://panel.test/series/u/p/${id}.mkv` };
+    const request: PlayRequest = { key: item.key, src: 's1', mode: 'vod', candidates: [{ url: item.url, container: 'mkv' }] };
+    const mark: EpisodeMark = { show, season: 1, number, title };
+    return { item, request, mark };
+  };
+  const e2 = episodeAt(3002, 2, 'Tone and Clock');
+  const e3 = episodeAt(3003, 3, 'Lip Sync');
+  /**
+   * S1 E2 playing, its next S1 E3 (left at 1:00), the show's last. `asked` logs each `next` call
+   * with the saves made by then; `back` each close onto the details, by the play that closed.
+   */
+  const watch = (options: { hiddenAtEnd?: boolean } = {}) => {
+    const t = setup();
+    const back: string[] = [];
+    const asked: string[] = [];
+    const last: MoviePlay = {
+      item: e3.item,
+      request: e3.request,
+      lengthMs: 5 * MIN,
+      fromMs: 60_000,
+      episode: e3.mark,
+      closed: () => back.push('details after E3'),
+      next: () => {
+        asked.push(`after E3, ${t.saved.length} saved`);
+        return null;
+      },
+    };
+    const first: MoviePlay = {
+      item: e2.item,
+      request: e2.request,
+      lengthMs: 5 * MIN,
+      episode: e2.mark,
+      closed: () => back.push('details after E2'),
+      next: () => {
+        asked.push(`after E2, ${t.saved.length} saved`);
+        return last;
+      },
+    };
+    t.player.playMovie(first);
+    /** S1 E2 plays to its end. */
+    const end = (): void => {
+      t.controller.media = 299_000;
+      t.controller.set('playing');
+      t.clock.advance(POSITION_MS);
+      if (options.hiddenAtEnd === true) t.emit('hidden');
+      t.controller.set('ended');
+    };
+    return { ...t, back, asked, first, last, end };
+  };
+  const cardCount = (t: ReturnType<typeof watch>): number => {
+    const zone = t.player.screen.value!.zone('card');
+    return zone.kind === 'list' ? zone.count : -1;
+  };
+
+  it('counts 10 s down from the end in 1 s steps', () => {
+    expect(NEXT_COUNTDOWN_S).toBe(10);
+    expect(NEXT_TICK_MS).toBe(1000);
+  });
+
+  it('offers the next one at the end, once the ended one is saved: "Play now" focused, then it plays from its place after 10 s', () => {
+    const t = watch();
+    expect(t.player.upNext.value).toBeNull();
+    t.end();
+    expect(t.saved).toEqual([`${e2.item.key} @299000 /${5 * MIN} ended of ${show.key}`]);
+    expect(t.asked).toEqual(['after E2, 1 saved']);
+    expect(t.player.upNext.value).toEqual({ play: t.last, seconds: NEXT_COUNTDOWN_S });
+    expect(t.at()).toBe('player · card 0');
+    expect(cardCount(t)).toBe(2);
+    expect(t.player.info.value).toBe(true);
+    // A second each step; nothing plays before the end of the countdown.
+    t.clock.advance(NEXT_TICK_MS - 1);
+    expect(t.player.upNext.value!.seconds).toBe(10);
+    t.clock.advance(1);
+    expect(t.player.upNext.value!.seconds).toBe(9);
+    t.clock.advance(8 * NEXT_TICK_MS);
+    expect(t.player.upNext.value).toEqual({ play: t.last, seconds: 1 });
+    expect(t.controller.plays).toEqual([e2.request]);
+    // Its end: the next one in the same player, from where it was left; the card goes, the seek bar has the keys.
+    t.clock.advance(NEXT_TICK_MS);
+    expect(t.controller.plays).toEqual([e2.request, e3.request]);
+    expect(t.controller.options).toEqual([{}, { startMs: 60_000 }]);
+    expect(t.player.movie.value).toEqual({ item: e3.item, lengthMs: 5 * MIN, fromMs: 60_000, episode: e3.mark });
+    expect(t.player.position.value!.time).toBe(60_000);
+    expect(t.player.upNext.value).toBeNull();
+    expect(cardCount(t)).toBe(0);
+    expect(t.at()).toBe('player · seek 0');
+    expect(t.player.open.value).toBe(true);
+    expect(t.player.info.value).toBe(true);
+    expect(t.player.plays.value).toBe(2);
+    expect(t.back).toEqual([]);
+    expect(t.controller.stops).toBe(0);
+    // No countdown left behind: only the info bar's and the position's timers.
+    t.clock.advance(NEXT_TICK_MS * NEXT_COUNTDOWN_S * 2);
+    expect(t.controller.plays).toHaveLength(2);
+  });
+
+  it('after the show\'s last episode, "The episode has ended" with "Back" alone', async () => {
+    const t = watch();
+    t.end();
+    await t.press('OK');
+    expect(t.controller.plays).toEqual([e2.request, e3.request]);
+    t.controller.media = 299_000;
+    t.controller.set('playing');
+    t.clock.advance(POSITION_MS);
+    t.controller.set('ended');
+    expect(t.asked).toEqual(['after E2, 1 saved', 'after E3, 2 saved']);
+    expect(t.player.upNext.value).toBeNull();
+    expect(t.at()).toBe('player · card 0');
+    expect(cardCount(t)).toBe(1);
+    t.clock.advance(NEXT_TICK_MS * NEXT_COUNTDOWN_S * 2);
+    expect(t.controller.plays).toHaveLength(2);
+    // Its "Back": onto the details, by the play on show now.
+    await t.press('OK');
+    expect(t.back).toEqual(['details after E3']);
+    expect(t.player.open.value).toBe(false);
+    // A play with no `next` (a movie, or an episode without one): "Back" alone, nothing asked.
+    const u = setup();
+    u.player.playMovie({ item: e2.item, request: e2.request, lengthMs: 5 * MIN, episode: e2.mark, closed: () => undefined });
+    u.controller.set('playing');
+    u.controller.set('ended');
+    expect(u.player.upNext.value).toBeNull();
+    const zone = u.player.screen.value!.zone('card');
+    expect(zone.kind === 'list' ? zone.count : -1).toBe(1);
+  });
+
+  it('plays it at once on "Play now", and a failure there plays that episode on ("Try again") or closes from it', async () => {
+    const t = watch();
+    t.end();
+    t.clock.advance(3 * NEXT_TICK_MS);
+    await t.press('OK');
+    expect(t.controller.plays).toEqual([e2.request, e3.request]);
+    expect(t.controller.options[1]).toEqual({ startMs: 60_000 });
+    expect(t.player.upNext.value).toBeNull();
+    expect(t.at()).toBe('player · seek 0');
+    // The countdown went with the card.
+    t.clock.advance(NEXT_TICK_MS * NEXT_COUNTDOWN_S * 2);
+    expect(t.controller.plays).toHaveLength(2);
+    // The next episode fails a minute and a half in: its card, its "Try again", its Back.
+    t.controller.media = 90_000;
+    t.controller.set('playing');
+    t.clock.advance(POSITION_MS);
+    t.controller.set('failed', NOT_FOUND);
+    expect(t.at()).toBe('player · card 0');
+    expect(cardCount(t)).toBe(2);
+    expect(t.player.upNext.value).toBeNull();
+    await t.press('OK');
+    expect(t.controller.plays).toEqual([e2.request, e3.request, e3.request]);
+    expect(t.controller.options[2]).toEqual({ startMs: 90_000 });
+    t.controller.set('failed', NOT_FOUND);
+    await t.press('RIGHT', 'OK');
+    expect(t.back).toEqual(['details after E3']);
+  });
+
+  it('closes onto the details on "Back" or the Back key, with no countdown left', async () => {
+    const t = watch();
+    t.end();
+    await t.press('RIGHT');
+    expect(t.at()).toBe('player · card 1');
+    expect(t.player.upNext.value!.seconds).toBe(10);
+    await t.press('OK');
+    expect(t.back).toEqual(['details after E2']);
+    expect(t.player.open.value).toBe(false);
+    expect(t.player.upNext.value).toBeNull();
+    expect(t.controller.stops).toBe(1);
+    expect(t.clock.pending()).toBe(0);
+    expect(t.controller.plays).toEqual([e2.request]);
+    // The Back key, with the countdown under way.
+    const u = watch();
+    u.end();
+    u.clock.advance(4 * NEXT_TICK_MS);
+    await u.press('BACK');
+    expect(u.back).toEqual(['details after E2']);
+    expect(u.player.upNext.value).toBeNull();
+    expect(u.clock.pending()).toBe(0);
+    expect(u.controller.plays).toEqual([e2.request]);
+    // Watched, saved again as it closes (the same: the app writes nothing).
+    expect(u.saved).toEqual([`${e2.item.key} @299000 /${5 * MIN} ended of ${show.key}`, `${e2.item.key} @299000 /${5 * MIN} ended of ${show.key}`]);
+    // Disposed during the countdown: nothing plays.
+    const v = watch();
+    v.end();
+    v.player.dispose();
+    expect(v.player.upNext.value).toBeNull();
+    expect(v.clock.pending()).toBe(0);
+  });
+
+  it('stops the countdown as the app hides: the card stays without it, and "Play now" still plays', async () => {
+    const t = watch();
+    t.end();
+    t.clock.advance(3 * NEXT_TICK_MS);
+    expect(t.player.upNext.value!.seconds).toBe(7);
+    t.emit('hidden');
+    expect(t.player.upNext.value).toEqual({ play: t.last, seconds: null });
+    t.clock.advance(NEXT_TICK_MS * NEXT_COUNTDOWN_S * 2);
+    expect(t.controller.plays).toEqual([e2.request]);
+    // Back: the card, still without a countdown.
+    t.emit('visible');
+    t.clock.advance(NEXT_TICK_MS * NEXT_COUNTDOWN_S * 2);
+    expect(t.player.upNext.value).toEqual({ play: t.last, seconds: null });
+    expect(t.at()).toBe('player · card 0');
+    await t.press('OK');
+    expect(t.controller.plays).toEqual([e2.request, e3.request]);
+    // Hidden as it ends: offered without a countdown.
+    const u = watch({ hiddenAtEnd: true });
+    u.end();
+    expect(u.player.upNext.value).toEqual({ play: u.last, seconds: null });
+    u.clock.advance(NEXT_TICK_MS * NEXT_COUNTDOWN_S * 2);
+    expect(u.controller.plays).toEqual([e2.request]);
+    // A hide with no card changes nothing.
+    const v = watch();
+    v.emit('hidden');
+    expect(v.player.upNext.value).toBeNull();
   });
 });
