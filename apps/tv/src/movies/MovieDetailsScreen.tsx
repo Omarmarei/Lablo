@@ -1,8 +1,9 @@
 import type { Focus, FocusBinding } from '@lablo/ui';
 import { Button, Spinner, useZone } from '@lablo/ui';
 import type { AppI18n } from '../i18n';
-import type { MovieDetails } from './movie-details';
-import { BACK_ACTION, MOVIE_ACTIONS, PLAY_ACTION, movieFacts } from './movie-details';
+import type { MovieAction, MovieDetails } from './movie-details';
+import { MOVIE_ACTIONS, movieFacts } from './movie-details';
+import type { ResumePoint } from './movie-progress';
 import './movie.css';
 
 interface Props {
@@ -22,13 +23,21 @@ function lengthText(i18n: AppI18n, seconds: number): string {
   return h > 0 ? i18n.t('movie.hours', { h: i18n.number(h), m: i18n.number(m) }) : i18n.t('movie.minutes', { m: i18n.number(m) });
 }
 
+/** A button's words: "Resume from 12:34" (the time one argument), "Play" or "Play from the start" after it, "Back". */
+function actionLabel(i18n: AppI18n, action: MovieAction, point: ResumePoint | null): string {
+  if (action === 'back') return i18n.t('movie.back');
+  if (action === 'resume' && point !== null) return i18n.t('movie.resume', { time: i18n.duration(point.positionMs / 1000) });
+  return i18n.t(point === null ? 'movie.play' : 'movie.restart');
+}
+
 /**
  * A movie's details (RELAY step 26c), painted instead of the movies screen while they are on top
  * of the live navigator: the movies screen's header, then the poster at the inline start (the
  * title on its background when there is none or it fails) and the text beside it: the title, the
  * category, the year, length and rating, the genre, the plot, the director and the cast, then
- * "Play" and "Back". A spinner while the panel's read is out; a note when it failed. The
- * provider's text is data (`dir="auto"`, `translate=false`).
+ * "Play" and "Back" ("Resume from 12:34" and "Play from the start" for a movie left part way,
+ * step 26d). A spinner while the panel's read is out; a note when it failed. The provider's text
+ * is data (`dir="auto"`, `translate=false`).
  */
 export function MovieDetailsScreen({ details, i18n, binding, focus, clock }: Props) {
   const { t } = i18n;
@@ -43,6 +52,8 @@ export function MovieDetailsScreen({ details, i18n, binding, focus, clock }: Pro
   // The whole "7.5/10" is one argument: isolated alone, the 7.5 would part from its "/10" in Arabic.
   if (facts.rating !== null) line.push(t('movie.rating', { rating: `${i18n.number(facts.rating, 1)}/10` }));
   const poster = facts.poster !== null && !details.posterFailed.value ? facts.poster : null;
+  const point = details.point.value;
+  const buttons = details.actions.value;
   return (
     <main
       class="movie"
@@ -50,6 +61,7 @@ export function MovieDetailsScreen({ details, i18n, binding, focus, clock }: Pro
       data-status={shown.status}
       data-pending={details.pending.value}
       data-key={shown.item.key}
+      data-resume={point === null ? '' : point.positionMs}
       data-language={i18n.locale.pseudo ? 'pseudo' : i18n.locale.language}
       data-screen={focus.screen}
       data-zone={focus.zone}
@@ -118,8 +130,9 @@ export function MovieDetailsScreen({ details, i18n, binding, focus, clock }: Pro
             </p>
           )}
           <div class="movie__actions">
-            <Button label={t('movie.play')} variant="primary" {...actions.item(PLAY_ACTION)} testId="movie-play" />
-            <Button label={t('movie.back')} {...actions.item(BACK_ACTION)} testId="movie-back" />
+            {buttons.map((action, i) => (
+              <Button key={action} label={actionLabel(i18n, action, point)} variant={i === 0 ? 'primary' : 'secondary'} {...actions.item(i)} testId={`movie-${action}`} />
+            ))}
           </div>
         </section>
       </div>

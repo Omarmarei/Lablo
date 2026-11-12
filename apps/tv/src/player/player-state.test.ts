@@ -1,11 +1,12 @@
 import type { CatalogItem, ContentKey } from '@lablo/core';
 import type { EpgNowNext } from '@lablo/data';
-import type { Intent } from '@lablo/platform-api';
+import type { Intent, LifecycleEvent } from '@lablo/platform-api';
 import type { PictureMode, PlaybackFailure, PlayerState, PlayerStatus, PlayerTracks, PlayOptions, PlayRequest, StreamStats, SubtitleView } from '@lablo/player';
 import { NO_STATS, NO_TRACKS } from '@lablo/player';
 import { createNavigator } from '@lablo/ui';
 import { describe, expect, it } from 'vitest';
 import type { LiveRow, Timers } from '../live/live-state';
+import { SAVE_EVERY_MS } from '../movies/movie-progress';
 import type { ArchiveProgramme } from './catchup';
 import { HELD_PRESSES, JUMP_STEP_MS, MOVIE_STEP_MS } from './catchup';
 import type { MoviePlay, PlayerLike, PlayerOptions, ZapList } from './player-state';
@@ -328,6 +329,13 @@ function setup(
   });
   const chrome: boolean[] = [];
   const closed: number[] = [];
+  /** Each movie position the player gave the app (step 26d): `key @position /length` and `ended`. */
+  const saved: string[] = [];
+  /** The app's visibility (step 26d): the listeners the player added, and `emit` to send an event. */
+  let lifecycleListeners: ((event: LifecycleEvent) => void)[] = [];
+  const emit = (event: LifecycleEvent): void => {
+    for (const listener of lifecycleListeners.slice()) listener(event);
+  };
   let made = 0;
   const player = createPlayer({
     nav,
@@ -349,6 +357,13 @@ function setup(
     ...(kept.wallAt === undefined ? {} : { clock: () => kept.wallAt! + clock.now() }),
     timers: clock.timers,
     now: clock.now,
+    progressed: (item, positionMs, lengthMs, ended) => saved.push(`${item.key} @${positionMs} /${String(lengthMs)}${ended ? ' ended' : ''}`),
+    lifecycle: (listener) => {
+      lifecycleListeners.push(listener);
+      return () => {
+        lifecycleListeners = lifecycleListeners.filter((l) => l !== listener);
+      };
+    },
   });
   const press = async (...keys: Intent[]): Promise<void> => {
     for (const key of keys) nav.handle(key);
@@ -358,7 +373,7 @@ function setup(
     const f = nav.snapshot();
     return `${f.screen} · ${f.zone} ${f.index}`;
   };
-  return { list, controller, clock, nav, player, chrome, closed, tuned, sized, pictured, press, at, made: () => made };
+  return { list, controller, clock, nav, player, chrome, closed, tuned, sized, pictured, saved, emit, listening: () => lifecycleListeners.length, press, at, made: () => made };
 }
 
 describe('the player: opening and closing (RELAY step 20a)', () => {
@@ -2000,7 +2015,7 @@ describe('the player: a movie (RELAY step 26c)', () => {
     expect(t.chrome).toEqual([true]);
     expect(t.controller.plays).toEqual([request]);
     expect(t.controller.options).toEqual([{}]);
-    expect(t.player.movie.value).toEqual({ item: film, lengthMs: 90 * MIN });
+    expect(t.player.movie.value).toEqual({ item: film, lengthMs: 90 * MIN, fromMs: 0 });
     expect(t.player.actions.value).toEqual(MOVIE_ACTIONS);
     expect(t.player.screen.value!.zone('actions')).toMatchObject({ count: 3 });
     expect(t.player).toMatchObject({ plays: { value: 1 }, info: { value: true }, archive: { value: null } });
@@ -2025,7 +2040,7 @@ describe('the player: a movie (RELAY step 26c)', () => {
     t.controller.media = 6000;
     t.clock.advance(POSITION_MS);
     expect(t.player.position.value!.time).toBe(6000);
-    expect(t.player.movie.value).toEqual({ item: film, lengthMs: 52 * MIN });
+    expect(t.player.movie.value).toEqual({ item: film, lengthMs: 52 * MIN, fromMs: 0 });
     // The engine's length wins over the panel's.
     const u = watch(90 * MIN);
     u.controller.duration = 89 * MIN;
@@ -2293,5 +2308,203 @@ describe('the player: a movie (RELAY step 26c)', () => {
     t.player.show(2);
     t.player.listChanging();
     expect(t.list.locates.map((l) => l.guess)).toEqual([2]);
+  });
+});
+
+describe("the player: a movie's position (RELAY step 26d)", () => {
+  const MIN = 60_000;
+  const film: CatalogItem = { ...row(0).item, key: 'x:s1:movie:202', kind: 'movie', name: 'Sintel', url: 'http://panel.test/movie/u/p/202.mkv' };
+  const request: PlayRequest = { key: film.key, src: 's1', mode: 'vod', candidates: [{ url: film.url, container: 'mkv' }] };
+  /** Opens the movie from its details, from `fromMs` when given. */
+  const watch = (fromMs?: number, lengthMs: number | null = 15 * MIN) => {
+    const t = setup();
+    const back: string[] = [];
+    t.player.playMovie({ item: film, request, lengthMs, ...(fromMs === undefined ? {} : { fromMs }), closed: () => back.push('details') });
+    return { ...t, back };
+  };
+  const showing = (t: ReturnType<typeof watch>, media: number): void => {
+    t.controller.media = media;
+    t.controller.set('playing');
+  };
+  const at = (ms: number, length: number | null = 15 * MIN, ended = false): string => `${film.key} @${ms} /${String(length)}${ended ? ' ended' : ''}`;
+
+  it('plays from where it was left ("Resume"), the seek bar there before the picture shows', () => {
+    const t = watch(754_000);
+    expect(t.controller.plays).toEqual([request]);
+    expect(t.controller.options).toEqual([{ startMs: 754_000 }]);
+    expect(t.player.movie.value).toEqual({ item: film, lengthMs: 15 * MIN, fromMs: 754_000 });
+    expect(t.player.position.value).toEqual({ time: 754_000, seeking: false, live: false });
+    // A later play from a seek says where it started; the length learnt keeps it.
+    t.controller.duration = 14 * MIN;
+    showing(t, 760_000);
+    t.clock.advance(POSITION_MS);
+    expect(t.player.movie.value).toEqual({ item: film, lengthMs: 14 * MIN, fromMs: 754_000 });
+    // From the start: no start position, and 0.
+    const u = watch();
+    expect(u.controller.options).toEqual([{}]);
+    expect(u.player.movie.value!.fromMs).toBe(0);
+    expect(u.player.position.value!.time).toBe(0);
+  });
+
+  it(`gives the app its position every ${SAVE_EVERY_MS / 1000} s while it plays, never while it opens, buffers or is paused`, async () => {
+    const t = watch(300_000);
+    // Opening for longer than that: nothing.
+    t.clock.advance(SAVE_EVERY_MS * 2);
+    expect(t.saved).toEqual([]);
+    showing(t, 310_000);
+    t.clock.advance(POSITION_MS);
+    expect(t.saved).toEqual([at(310_000)]);
+    // The next one 10 s later, with the position then.
+    t.controller.media = 315_000;
+    t.clock.advance(SAVE_EVERY_MS - POSITION_MS);
+    expect(t.saved).toEqual([at(310_000)]);
+    t.controller.media = 320_000;
+    t.clock.advance(POSITION_MS);
+    expect(t.saved).toEqual([at(310_000), at(320_000)]);
+    // Buffering, then paused: nothing however long.
+    t.controller.set('buffering');
+    t.clock.advance(SAVE_EVERY_MS);
+    await t.press('PLAY_PAUSE');
+    expect(t.controller.status.state).toBe('paused');
+    t.clock.advance(SAVE_EVERY_MS * 3);
+    expect(t.saved).toHaveLength(2);
+    // Playing on: saved at the next read (more than 10 s since the last).
+    await t.press('PLAY_PAUSE');
+    t.clock.advance(POSITION_MS);
+    expect(t.saved).toEqual([at(310_000), at(320_000), at(320_000)]);
+    // A seek's new play, 5 s on, starts the count again.
+    t.clock.advance(5 * POSITION_MS);
+    expect(t.saved).toHaveLength(3);
+    t.controller.seekOk = false;
+    await t.press('RIGHT');
+    t.clock.advance(SEEK_DELAY_MS);
+    await flush();
+    expect(t.controller.options[1]).toEqual({ startMs: 330_000 });
+    showing(t, 330_000);
+    t.clock.advance(SAVE_EVERY_MS - POSITION_MS);
+    expect(t.saved).toHaveLength(3);
+    t.clock.advance(POSITION_MS);
+    expect(t.saved[3]).toBe(at(330_000));
+  });
+
+  it('gives it where the movie was left on Back, and where it stopped when it fails', async () => {
+    const t = watch();
+    showing(t, 600_000);
+    t.clock.advance(POSITION_MS);
+    t.controller.media = 603_000;
+    await t.press('BACK');
+    expect(t.saved).toEqual([at(603_000)]);
+    expect(t.back).toEqual(['details']);
+    // Left before the picture: where it was asked to start (a resume never shown keeps its place).
+    const u = watch(754_000);
+    await u.press('BACK');
+    expect(u.saved).toEqual([at(754_000)]);
+    // A waiting seek doesn't count: the movie never got there.
+    const w = watch();
+    showing(w, 600_000);
+    await w.press('FF');
+    await w.press('BACK');
+    expect(w.saved).toEqual([at(600_000)]);
+    // A failure: where it was last seen, and again on Back from the card (the app keeps it once).
+    const f = watch();
+    showing(f, 600_000);
+    f.clock.advance(POSITION_MS);
+    f.controller.media = 0;
+    f.controller.set('failed', NOT_FOUND);
+    expect(f.saved).toEqual([at(600_000)]);
+    await f.press('RIGHT', 'OK');
+    expect(f.saved).toEqual([at(600_000), at(600_000)]);
+    // STOP leaves too.
+    const s = watch();
+    showing(s, 42_000);
+    await s.press('STOP');
+    expect(s.saved).toEqual([at(42_000)]);
+  });
+
+  it('says it ended at its end, and on Back from the end card', async () => {
+    const t = watch();
+    showing(t, 899_000);
+    t.clock.advance(POSITION_MS);
+    t.controller.set('ended');
+    expect(t.saved).toEqual([at(899_000, 15 * MIN, true)]);
+    await t.press('OK');
+    expect(t.back).toEqual(['details']);
+    expect(t.saved).toEqual([at(899_000, 15 * MIN, true), at(899_000, 15 * MIN, true)]);
+    // A length the player never knew: still ended.
+    const u = watch(undefined, null);
+    showing(u, 5000);
+    u.clock.advance(POSITION_MS);
+    u.controller.set('ended');
+    expect(u.saved).toEqual([at(5000, null, true)]);
+  });
+
+  it('gives it the position as the app hides, and reads none until it shows again', () => {
+    const t = watch();
+    showing(t, 600_000);
+    t.clock.advance(POSITION_MS);
+    t.controller.media = 604_000;
+    t.emit('hidden');
+    expect(t.saved).toEqual([at(604_000)]);
+    // The engine let the stream go (its clock says 0) and the state still says playing: no reads, no saves.
+    t.controller.media = 0;
+    t.clock.advance(SAVE_EVERY_MS * 3);
+    expect(t.saved).toEqual([at(604_000)]);
+    expect(t.player.position.value!.time).toBe(604_000);
+    // A second hide while hidden gives the same place.
+    t.emit('hidden');
+    expect(t.saved).toEqual([at(604_000), at(604_000)]);
+    // A relaunch while hidden doesn't show it.
+    t.emit('relaunch');
+    t.clock.advance(POSITION_MS);
+    expect(t.player.position.value!.time).toBe(604_000);
+    // Back from it: the picture again, read and saved again.
+    t.emit('visible');
+    t.controller.set('reconnecting');
+    t.clock.advance(POSITION_MS);
+    expect(t.player.position.value!.time).toBe(604_000);
+    showing(t, 605_000);
+    t.clock.advance(POSITION_MS);
+    expect(t.player.position.value!.time).toBe(605_000);
+    expect(t.saved).toHaveLength(2);
+    t.clock.advance(SAVE_EVERY_MS);
+    expect(t.saved).toEqual([at(604_000), at(604_000), at(605_000)]);
+  });
+
+  it("never gives a channel's or a catch-up's position, and lets go of the lifecycle on dispose", async () => {
+    const t = setup();
+    t.player.show(2);
+    t.controller.set('playing');
+    t.clock.advance(SAVE_EVERY_MS * 2);
+    t.emit('hidden');
+    t.controller.set('failed', NOT_FOUND);
+    await t.press('BACK');
+    expect(t.saved).toEqual([]);
+    expect(t.listening()).toBe(1);
+    t.player.dispose();
+    expect(t.listening()).toBe(0);
+    // Disposed while a movie plays: where it was.
+    const u = watch();
+    showing(u, 90_000);
+    u.player.dispose();
+    expect(u.saved).toEqual([at(90_000)]);
+    expect(u.listening()).toBe(0);
+  });
+
+  it("a channel's position isn't read while the app is hidden either (catch-up)", () => {
+    const programme: ArchiveProgramme = { start: 1000, end: 1060, title: 'News' };
+    const t = setup('ltr', {
+      catchupRequest: (r) => ({ key: r.item.key, src: 's1', mode: 'catchup', candidates: [{ url: `http://panel.test/timeshift/${r.item.key}.ts`, container: 'ts' }] }),
+      wallAt: 1100 * MIN,
+    });
+    t.player.catchup(2, programme);
+    t.controller.media = 120_000;
+    t.controller.set('playing');
+    t.clock.advance(POSITION_MS);
+    expect(t.player.position.value!.time).toBe(1000 * MIN + 120_000);
+    t.emit('hidden');
+    t.controller.media = 0;
+    t.clock.advance(POSITION_MS);
+    expect(t.player.position.value!.time).toBe(1000 * MIN + 120_000);
+    expect(t.saved).toEqual([]);
   });
 });

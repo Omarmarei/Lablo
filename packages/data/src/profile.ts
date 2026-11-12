@@ -11,8 +11,9 @@
  * Version 1 (RELAY step 7) holds the favourites. Version 2 (step 13b) adds the sources the user
  * added and the onboarding answers. Version 3 (step 20c1) adds what the player keeps
  * (`PlayerMemoryDoc`). Version 4 (step 22b) keeps the user's guides as one list (`guides`),
- * moved from each source's `epgUrl`. Later steps add fields with a migration each, or as optional
- * fields that need none (`PlayerMemoryDoc.picture`, step 20c2b; `epgOffsets`, step 24b;
+ * moved from each source's `epgUrl`. Version 5 (step 26d) keeps where each movie was left
+ * (`progress`, the latest `MAX_PROGRESS`). Later steps add fields with a migration each, or as
+ * optional fields that need none (`PlayerMemoryDoc.picture`, step 20c2b; `epgOffsets`, step 24b;
  * `epgOverrides`, step 24d).
  */
 
@@ -172,11 +173,32 @@ export type ProfileV4 = {
   epgOverrides?: Record<string, EpgPin>;
 };
 
+/**
+ * Where a movie was left (step 26d): its media time, its length when known, and when it was saved
+ * (the cap drops the oldest). A watched movie has none.
+ */
+export type WatchProgress = {
+  positionMs: number;
+  /** The engine's length, else the panel's (ms; `null`: neither knew it). */
+  lengthMs: number | null;
+  /** When it was saved (epoch ms). */
+  updated: number;
+};
+
+export type ProfileV5 = Omit<ProfileV4, 'v'> & {
+  v: 5;
+  /** Where each movie was left (step 26d), by ContentKey: the latest `MAX_PROGRESS`. */
+  progress: Record<string, WatchProgress>;
+};
+
 /** The current profile shape. */
-export type ProfileDoc = ProfileV4;
+export type ProfileDoc = ProfileV5;
 
 /** Track choices kept; a new content past this drops the one changed longest ago. */
 export const MAX_TRACK_CHOICES = 300;
+
+/** Movies whose position is kept (architecture.md §1.3); a new one past this drops the one saved longest ago. */
+export const MAX_PROGRESS = 500;
 
 /** A stored document of any version (older ones are migrated on load). */
 export interface AnyProfile {
@@ -194,6 +216,8 @@ export const PROFILE_MIGRATIONS: readonly ProfileMigration[] = [
   (doc) => ({ ...doc, v: 3, player: noPlayerMemory() }),
   // 3 → 4 (step 22b): each source's guide link moves to the guide list.
   (doc) => ({ ...doc, ...guidesFromSources(doc.sources), v: 4 }),
+  // 4 → 5 (step 26d): no movie left part way yet.
+  (doc) => ({ ...doc, v: 5, progress: {} }),
 ];
 
 export const PROFILE_VERSION = PROFILE_MIGRATIONS.length + 1;
@@ -227,7 +251,7 @@ export function noPlayerMemory(): PlayerMemoryDoc {
 }
 
 export function emptyProfile(): ProfileDoc {
-  return { v: 4, favourites: [], sources: [], onboarding: noAnswers(), player: noPlayerMemory(), guides: [] };
+  return { v: 5, favourites: [], sources: [], onboarding: noAnswers(), player: noPlayerMemory(), guides: [], progress: {} };
 }
 
 /**
@@ -285,7 +309,12 @@ export type ProfileEdit =
    * (`channel: null`, whatever `epgSrc` says); `null` takes it away (the guides match it again).
    * One that isn't a mapping changes nothing.
    */
-  | { kind: 'epgOverride'; key: ContentKey; pin: EpgPin | null };
+  | { kind: 'epgOverride'; key: ContentKey; pin: EpgPin | null }
+  /**
+   * Where a movie was left (step 26d); `null` takes it away (watched, or started over). One that
+   * isn't a position changes nothing.
+   */
+  | { kind: 'progress'; key: ContentKey; progress: WatchProgress | null };
 
 const USER_GUIDE = 'u~';
 
@@ -364,6 +393,40 @@ function withTrack(tracks: Record<string, StoredTrackChoice>, key: string, choic
   return next;
 }
 
+/** A position this version keeps: a media time, a length when known, and a save time. */
+export function isWatchProgress(value: unknown): value is WatchProgress {
+  if (typeof value !== 'object' || value === null) return false;
+  const { positionMs, lengthMs, updated } = value as Record<string, unknown>;
+  return typeof positionMs === 'number' && positionMs >= 0 && isFinite(positionMs) && typeof updated === 'number' && isFinite(updated) && (lengthMs === null || (typeof lengthMs === 'number' && lengthMs > 0 && isFinite(lengthMs)));
+}
+
+/**
+ * `progress` with `key`'s position set (`null`: taken out), dropping the ones saved longest ago
+ * past `MAX_PROGRESS`; `null` when it holds that already.
+ */
+function withProgress(progress: Record<string, WatchProgress>, key: string, entry: WatchProgress | null): Record<string, WatchProgress> | null {
+  // (ContentKeys hold `:`: never a name an object inherits.)
+  const before = progress[key];
+  if (entry === null ? before === undefined : before !== undefined && before.positionMs === entry.positionMs && before.lengthMs === entry.lengthMs) return null;
+  const next: Record<string, WatchProgress> = { ...progress };
+  if (entry === null) {
+    delete next[key];
+    return next;
+  }
+  next[key] = { positionMs: entry.positionMs, lengthMs: entry.lengthMs, updated: entry.updated };
+  const keys = Object.keys(next);
+  for (let over = keys.length - MAX_PROGRESS; over > 0; over -= 1) {
+    let oldest: string | null = null;
+    for (let i = 0; i < keys.length; i += 1) {
+      const k = keys[i]!;
+      if (k !== key && next[k] !== undefined && (oldest === null || next[k]!.updated < next[oldest]!.updated)) oldest = k;
+    }
+    if (oldest === null) break;
+    delete next[oldest];
+  }
+  return next;
+}
+
 /** The player section with `change` applied (new objects), or `null` when it changes nothing. */
 function applyPlayerChange(player: PlayerMemoryDoc, change: PlayerChange): PlayerMemoryDoc | null {
   switch (change.field) {
@@ -423,6 +486,11 @@ export function applyProfileEdit(doc: ProfileDoc, edit: ProfileEdit): ProfileDoc
     if (pin !== null && !isEpgPin(pin)) return null;
     const overrides = withPin(doc.epgOverrides, edit.key, pin);
     return overrides === null ? null : { ...doc, epgOverrides: overrides };
+  }
+  if (edit.kind === 'progress') {
+    if (edit.progress !== null && !isWatchProgress(edit.progress)) return null;
+    const progress = withProgress(doc.progress, edit.key, edit.progress);
+    return progress === null ? null : { ...doc, progress };
   }
   if (edit.kind === 'epgOffset') {
     if (!isEpgOffset(edit.minutes)) return null;

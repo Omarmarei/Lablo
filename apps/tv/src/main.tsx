@@ -26,6 +26,7 @@ import { createGuide } from './guide/guide-state';
 import type { Movies } from './movies/movies-state';
 import { createMovies } from './movies/movies-state';
 import { createMovieDetails, movieFacts, movieRequest } from './movies/movie-details';
+import { createMovieProgress } from './movies/movie-progress';
 import { createEngineLoader } from './onboarding/engine-loader';
 import { OnboardingApp } from './onboarding/OnboardingApp';
 import type { Onboarding } from './onboarding/onboarding-state';
@@ -47,6 +48,8 @@ import './app.css';
  * through the data engine (made by then: only a play writes).
  */
 const memory = createPlayerMemory({ edit: (edit) => dataEngine().editProfile(edit) });
+/** Where each movie was left (RELAY step 26d): filled from the start's profile, saved by the player. */
+const progress = createMovieProgress({ edit: (edit) => dataEngine().editProfile(edit) });
 const platform = createPlatform({ redirects: memory.redirects });
 platform.registerKeys();
 /** The focus of the screen on show, as `window.__LABLO_TEST__.focusPath()` (RELAY step 14b). */
@@ -180,16 +183,22 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     openMovies: () => movies.open(),
   });
   // OK on a poster (step 26c): the movie's details over the grid; "Play" opens the player over them, and Back from it returns to them.
+  // A movie left part way (step 26d): "Resume from" plays it from there; back from the player, the details read its position again.
   const details = createMovieDetails({
     nav: live.nav,
     engine: dataEngine(),
-    play: (item, info) => {
+    progress,
+    play: (item, info, fromMs) => {
       const length = movieFacts(item, info).lengthSecs;
-      player?.playMovie({ item, request: movieRequest(item, info), lengthMs: length === null ? null : length * 1000, closed: () => undefined });
+      const request = movieRequest(item, info);
+      // The panel's length, else the one kept with the movie's place (played before the read came back).
+      const left = progress.point(item.key);
+      const lengthMs = length !== null ? length * 1000 : left === null ? null : left.lengthMs;
+      player?.playMovie({ item, request, lengthMs, ...(fromMs === undefined ? {} : { fromMs }), closed: () => details.refresh() });
     },
   });
-  // The header's "Movies" (step 26a): the poster grid of the sources' movies; Back returns to the header.
-  const movies = createMovies({ nav: live.nav, engine: dataEngine(), tier: () => tier, select: (item) => details.open(item) });
+  // The header's "Movies" (step 26a): the poster grid of the sources' movies, each tile with its bar (26d); Back returns to the header.
+  const movies = createMovies({ nav: live.nav, engine: dataEngine(), tier: () => tier, select: (item) => details.open(item), progress });
   // The header's "Guide" (step 23c): the grid over the list's category; OK on air plays, Back returns to the list.
   const guide = createGuide({
     nav: live.nav,
@@ -244,6 +253,9 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     sized: (size) => memory.setSubtitleSize(size),
     ...(picture === null ? {} : { picture }),
     pictured: (mode) => memory.setPicture(mode),
+    // Where a movie is (step 26d): every 10 s while it plays, and when it stops, is left or the app hides.
+    progressed: (item, positionMs, lengthMs, ended) => progress.save(item.key, positionMs, lengthMs, ended),
+    lifecycle: (listener) => platform.onLifecycle(listener),
   });
   if (resume !== null) player.resume({ item: resume.item, number: resume.number }, resume.index);
   showFocus(live.nav);
@@ -311,6 +323,7 @@ if (screen === 'gallery') {
   );
   void readStartProfile(dataEngine()).then((profile) => {
     memory.load(profile);
+    progress.load(profile);
     const start = startPoint(profile);
     if (start.screen === 'home') showLive(root, start.language, start.resume);
     else showOnboarding(root, start.language);

@@ -35,6 +35,9 @@ import { RemoteDriver } from './remote-driver';
  * A movie (RELAY step 26c): "Play" in Big Buck Bunny's details plays its MP4; three RIGHTs seek
  * 30 s on inside the file (no new play) and the frames move on from there; FF stops 10 s before
  * the end, and the end shows "The movie has ended", whose "Back" returns to the details.
+ *
+ * Resume (RELAY step 26d): Big Buck Bunny left five minutes in keeps that place (to the second);
+ * "Resume from 5:0x" plays its file from within 5 s of it, the frames moving on.
  */
 const MEDIA_DIR = path.resolve(import.meta.dirname, '../.cache/media');
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
@@ -410,5 +413,49 @@ test('plays a movie from its details, seeks inside it with the frames moving on,
   await remote.go('OK', 'movie/actions/0');
   await expect(page.getByTestId('movie-details')).toHaveAttribute('data-status', 'read');
   await remote.go('BACK', 'movies/grid/0');
+  expect(errors).toEqual([]);
+});
+
+test('resumes a movie within 5 s of where it was left, inside its file (step 26d)', async ({ page }) => {
+  test.setTimeout(150_000);
+  const errors = trackErrors(page);
+  const remote = new RemoteDriver(page);
+  await addXtreamAndWatch(remote, { host, username: U, password: P }, 'locale=en-US');
+  await remote.go('UP', 'live/header/0');
+  await remote.go('RIGHT', 'live/header/1');
+  await remote.go('OK', 'movies/grid/0');
+  await expect(page.getByTestId('movies-screen')).toHaveAttribute('data-pending', '0', { timeout: 10_000 });
+  await remote.go('OK', 'movie/actions/0');
+  const details = page.getByTestId('movie-details');
+  await expect(details).toHaveAttribute('data-status', 'read');
+  await remote.go('OK', 'player/seek/0');
+  const player = page.getByTestId('player');
+  await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
+
+  // FF: five minutes on inside the file, the frames moving on from there.
+  await remote.press('FF');
+  await expect.poll(async () => (await video(page))!.time, { timeout: 15_000 }).toBeGreaterThan(300);
+  await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
+  await expectMoving(page);
+
+  // Back: the place the picture was at, to the second (it plays on while the key goes in).
+  const left = (await video(page))!.time * 1000;
+  await remote.go('BACK', 'movie/actions/0');
+  await expect(details).not.toHaveAttribute('data-resume', '');
+  const kept = Number(await details.getAttribute('data-resume'));
+  expect(kept - left).toBeGreaterThanOrEqual(0);
+  expect(kept - left).toBeLessThan(3_000);
+  await expect(page.getByTestId('movie-resume')).toHaveText(/^Resume from \S*5:\d\d\S*$/);
+  await expect(page.getByTestId('movie-resume')).toHaveAttribute('data-state', 'focused');
+
+  // "Resume": the file from within 5 s of that place, the frames moving on.
+  await remote.go('OK', 'player/seek/0');
+  await expect(player).toHaveAttribute('data-from', String(kept));
+  await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
+  const at = (await video(page))!.time * 1000;
+  expect(Math.abs(at - kept), `resumed at ${Math.round(at)} ms, left at ${kept} ms`).toBeLessThanOrEqual(5_000);
+  await expectMoving(page);
+  await page.screenshot({ path: path.join(SHOTS, 'player-movie-resumed-en.png'), animations: 'disabled' });
+  await remote.go('BACK', 'movie/actions/0');
   expect(errors).toEqual([]);
 });

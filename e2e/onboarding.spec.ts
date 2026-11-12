@@ -258,8 +258,8 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
       const saved = await storedProfile(page);
       expect(saved?.onboarding).toEqual({ language, disclaimerAt: expect.any(Number), consent: true });
       expect(saved?.sources.map((s) => [s.id, s.type, s.name])).toEqual([['s1', 'xtream', 'البيت']]);
-      // The guide link is in the guide list (profile version 4, step 22b), under the source's id.
-      expect(saved?.v).toBe(4);
+      // The guide link is in the guide list (profile version 4 on, step 22b), under the source's id.
+      expect(saved?.v).toBeGreaterThanOrEqual(4);
       expect(saved?.guides).toEqual([{ id: 's1', url: `http://${host}/xmltv.php?username=${U}&password=${P}` }]);
       expect(saved?.sources[0]).not.toHaveProperty('epgUrl');
       // Every glyph from the bundled faces.

@@ -141,6 +141,8 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'movies.empty': 'لا توجد أفلام في مصادرك.',
   'movies.failed': 'تعذّرت قراءة أفلامك.',
   'movie.play': 'تشغيل',
+  'movie.resume': 'استئناف من {time}',
+  'movie.restart': 'التشغيل من البداية',
   'movie.back': 'رجوع',
   'movie.reading': 'جارٍ قراءة تفاصيل الفيلم',
   'movie.failed': 'تعذّرت قراءة المزيد عن هذا الفيلم.',
