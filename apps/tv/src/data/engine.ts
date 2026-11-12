@@ -34,7 +34,7 @@
  * app passes the `?worker` imports (`./workers.ts`).
  */
 
-import type { CatalogItem, ContentKey, ContentKind, DeviceTier, EpgProgramme, XtreamSeriesInfo, XtreamVodInfo, ZoneOffset } from '@lablo/core';
+import type { CatalogItem, ContentKey, ContentKind, DeviceTier, EpgProgramme, SearchResult, XtreamSeriesInfo, XtreamVodInfo, ZoneOffset } from '@lablo/core';
 import { panelZone } from '@lablo/core';
 import type {
   AccountCheck,
@@ -63,6 +63,7 @@ import type {
   RecentItem,
   RecentRequest,
   RpcPort,
+  SearchRequest,
   SeriesInfoRequest,
   ShortEpgNowNext,
   ShortEpgSource,
@@ -465,6 +466,20 @@ export class DataEngine {
    */
   itemsByKey(req: KeyItemsRequest): Promise<CatalogItem[]> {
     return this.query.call('itemsByKey', req);
+  }
+
+  /**
+   * The search screen's search (step 28a): the query worker's ranked hits over the active
+   * catalogs (`SEARCH_LIMIT` at most by default), in `req.sources`' order. `cancel` drops a search
+   * the text has moved past: one still waiting never scans, and its answer is never sent back.
+   */
+  find(req: SearchRequest, cancel?: CancelToken): Promise<SearchResult> {
+    return cancel === undefined ? this.query.call('search', req) : this.query.call('search', req, { cancel });
+  }
+
+  /** The items at `refs` (a search's hits), `null` where the chunk or slot is gone (an older generation's). */
+  items(refs: ItemRef[]): Promise<(CatalogItem | null)[]> {
+    return this.query.call('items', { refs });
   }
 
   /** Searches every active generation and resolves the first `names` hits to display names. */

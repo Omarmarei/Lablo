@@ -107,13 +107,13 @@ test.describe('the series screen (RELAY step 27a)', () => {
       const live = await addXtreamAndWatch(remote, { host, username: U, password: P }, `locale=${locale}`);
       await settled(live);
 
-      // The header: "Guide", "Movies", "Series", "Settings", all four inside the header's end.
+      // The header: "Guide", "Movies", "Series", "Search" (step 28a), "Settings", all five inside the header's end.
       await remote.go('UP', 'live/header/0');
       await remote.go(forward, 'live/header/1');
       await remote.go(forward, 'live/header/2');
       await expect(page.getByTestId('live-series')).toHaveText(says.header);
       const buttons = await page.locator('.live__end .z-button').evaluateAll((els) => els.map((el) => el.getBoundingClientRect().toJSON() as { left: number; right: number; top: number }));
-      expect(buttons).toHaveLength(4);
+      expect(buttons).toHaveLength(5);
       for (const b of buttons) {
         expect(b.left).toBeGreaterThanOrEqual(96);
         expect(b.right).toBeLessThanOrEqual(1920 - 96);

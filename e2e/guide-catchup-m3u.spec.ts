@@ -201,6 +201,7 @@ test.describe('catch-up from an M3U source (RELAY step 25b)', () => {
     await remote.go('RIGHT', 'live/header/1');
     await remote.go('RIGHT', 'live/header/2');
     await remote.go('RIGHT', 'live/header/3');
+    await remote.go('RIGHT', 'live/header/4');
     await remote.go('OK', 'settings/items/0');
     await remote.go('OK', 'guides/guides/0');
     const settings = page.getByTestId('settings-screen');
@@ -216,7 +217,8 @@ test.describe('catch-up from an M3U source (RELAY step 25b)', () => {
     await settled(settings);
     await expect(page.getByTestId('guide-0')).toHaveAttribute('data-offset', '60');
     await remote.go('BACK', 'settings/items/0');
-    await remote.go('BACK', 'live/header/3');
+    await remote.go('BACK', 'live/header/4');
+    await remote.go('LEFT', 'live/header/3');
     await remote.go('LEFT', 'live/header/2');
     await remote.go('LEFT', 'live/header/1');
     await remote.go('LEFT', 'live/header/0');

@@ -10,6 +10,7 @@ import {
   CHUNK_CACHE,
   HEADER_GUIDE,
   HEADER_MOVIES,
+  HEADER_SEARCH,
   HEADER_SERIES,
   HEADER_SETTINGS,
   GUIDE_DELAY_MS,
@@ -236,6 +237,7 @@ async function setup(
     openGuide?: (row: number) => void;
     openMovies?: () => void;
     openSeries?: () => void;
+    openSearch?: () => void;
   } = {},
 ) {
   const engine = options.engine ?? new FakeEngine();
@@ -253,6 +255,7 @@ async function setup(
     ...(options.openGuide === undefined ? {} : { openGuide: options.openGuide }),
     ...(options.openMovies === undefined ? {} : { openMovies: options.openMovies }),
     ...(options.openSeries === undefined ? {} : { openSeries: options.openSeries }),
+    ...(options.openSearch === undefined ? {} : { openSearch: options.openSearch }),
   });
   if (options.settle !== false) await flush();
   const at = (): string => {
@@ -1477,8 +1480,8 @@ describe("the header's Guide and Settings buttons (RELAY steps 22b2 and 23c)", (
     const t = await setup({ openSettings });
     await t.press('OK', 'LEFT', 'OK');
     expect(openSettings).not.toHaveBeenCalled();
-    // "Guide" first, "Movies" (step 26a), "Series" (step 27a), then "Settings" at the header's end.
-    expect([HEADER_GUIDE, HEADER_MOVIES, HEADER_SERIES, HEADER_SETTINGS]).toEqual([0, 1, 2, 3]);
+    // "Guide" first, "Movies" (step 26a), "Series" (step 27a), "Search" (step 28a), then "Settings" at the header's end.
+    expect([HEADER_GUIDE, HEADER_MOVIES, HEADER_SERIES, HEADER_SEARCH, HEADER_SETTINGS]).toEqual([0, 1, 2, 3, 4]);
     await t.press('RIGHT', 'UP', 'OK');
     expect(t.at()).toBe('live · header 0');
     expect(openSettings).not.toHaveBeenCalled();
@@ -1486,22 +1489,24 @@ describe("the header's Guide and Settings buttons (RELAY steps 22b2 and 23c)", (
     expect(t.at()).toBe('live · header 1');
     await t.press('RIGHT', 'OK');
     expect(t.at()).toBe('live · header 2');
+    await t.press('RIGHT', 'OK');
+    expect(t.at()).toBe('live · header 3');
     expect(openSettings).not.toHaveBeenCalled();
     await t.press('RIGHT', 'RIGHT', 'OK');
-    expect(t.at()).toBe('live · header 3');
+    expect(t.at()).toBe('live · header 4');
     expect(openSettings).toHaveBeenCalledTimes(1);
     // A screen pushed from the header and closed: DOWN goes back to the list.
     const pushed = await setup({ openSettings: () => pushed.live.nav.push({ id: 'settings', zones: [{ kind: 'list', id: 'items', axis: 'vertical', count: 1 }] }) });
-    await pushed.press('UP', 'RIGHT', 'RIGHT', 'RIGHT', 'OK');
+    await pushed.press('UP', 'RIGHT', 'RIGHT', 'RIGHT', 'RIGHT', 'OK');
     expect(pushed.at()).toBe('settings · items 0');
     await pushed.press('BACK');
-    expect(pushed.at()).toBe('live · header 3');
+    expect(pushed.at()).toBe('live · header 4');
     await pushed.press('DOWN');
     expect(pushed.at()).toBe('live · channels 0');
     // Without a settings screen, OK there does nothing.
     const bare = await setup();
-    await bare.press('UP', 'RIGHT', 'RIGHT', 'RIGHT', 'OK');
-    expect(bare.at()).toBe('live · header 3');
+    await bare.press('UP', 'RIGHT', 'RIGHT', 'RIGHT', 'RIGHT', 'OK');
+    expect(bare.at()).toBe('live · header 4');
   });
 
   it('opens the movies on OK on "Movies", whatever the list is doing (RELAY step 26a)', async () => {
@@ -1554,6 +1559,36 @@ describe("the header's Guide and Settings buttons (RELAY steps 22b2 and 23c)", (
     const bare = await setup();
     await bare.press('UP', 'RIGHT', 'RIGHT', 'OK');
     expect(bare.at()).toBe('live · header 2');
+  });
+
+  it('opens the search on OK on "Search", whatever the list is doing (RELAY step 28a)', async () => {
+    const openSearch = vi.fn();
+    const openSeries = vi.fn();
+    const openSettings = vi.fn();
+    const openGuide = vi.fn();
+    const t = await setup({ openSearch, openSeries, openSettings, openGuide });
+    await t.press('UP', 'RIGHT', 'RIGHT', 'RIGHT', 'OK');
+    expect(t.at()).toBe('live · header 3');
+    expect(openSearch).toHaveBeenCalledTimes(1);
+    expect(openSeries).not.toHaveBeenCalled();
+    expect(openSettings).not.toHaveBeenCalled();
+    expect(openGuide).not.toHaveBeenCalled();
+    // "Settings" opens the settings alone.
+    await t.press('RIGHT', 'OK');
+    expect(openSettings).toHaveBeenCalledTimes(1);
+    expect(openSearch).toHaveBeenCalledTimes(1);
+    // While the list still loads (the search reads its own data).
+    const engine = new FakeEngine();
+    engine.hold = new Set(['profile']);
+    const loading = await setup({ engine, openSearch, openGuide });
+    loading.live.home.focus('header', HEADER_SEARCH);
+    await loading.press('OK');
+    expect(openSearch).toHaveBeenCalledTimes(2);
+    expect(openGuide).not.toHaveBeenCalled();
+    // Without a search screen, OK there does nothing.
+    const bare = await setup();
+    await bare.press('UP', 'RIGHT', 'RIGHT', 'RIGHT', 'OK');
+    expect(bare.at()).toBe('live · header 3');
   });
 
   it('says when the newest load is in (the guide waits on it after a catalog swap)', async () => {
@@ -1650,5 +1685,110 @@ describe("the header's Guide and Settings buttons (RELAY steps 22b2 and 23c)", (
     expect(f.at()).toBe('live · header 0');
     await f.press('DOWN');
     expect(f.at()).toBe('live · retry 0');
+  });
+});
+
+describe('a channel the search found (RELAY step 28a)', () => {
+  const sports700 = { key: 'x:s1:live:2-700', src: 's1', catIdx: 2, chunk: 1, slot: 200 };
+
+  it("shows the channel's category, focuses its row and plays it, under the screen on top", async () => {
+    const play = vi.fn();
+    const t = await setup({ play });
+    t.live.nav.push({ id: 'search', zones: [{ kind: 'list', id: 'results', axis: 'vertical', count: 3 }] });
+    expect(await t.live.playFound(sports700)).toBe(true);
+    expect(t.live.category.value).toBe(2);
+    expect(t.live.home.position('channels').index).toBe(700);
+    expect(t.live.selected.value).toBe('x:s1:live:2-700');
+    expect(play).toHaveBeenCalledWith(700);
+    expect(t.at()).toBe('search · results 0');
+    await t.press('BACK');
+    expect(t.at()).toBe('live · channels 700');
+    expect(t.live.row(700)?.item.key).toBe('x:s1:live:2-700');
+    // The first category: its own entry, not "All channels" (which starts with it).
+    expect(await t.live.playFound({ key: 'x:s1:live:0-2', src: 's1', catIdx: 0, chunk: 0, slot: 2 })).toBe(true);
+    expect(t.live.category.value).toBe(1);
+    expect(play).toHaveBeenLastCalledWith(2);
+    // Another source's category with the same index: the source decides.
+    expect(await t.live.playFound({ key: 'x:s2:live:0-1', src: 's2', catIdx: 0, chunk: 0, slot: 1 })).toBe(true);
+    expect(t.live.category.value).toBe(3);
+    expect(t.at()).toBe('live · channels 1');
+    expect(play).toHaveBeenLastCalledWith(1);
+  });
+
+  it("keeps the screen's own zone when it isn't the list: Back from the search lands on the header", async () => {
+    const play = vi.fn();
+    const t = await setup({ play });
+    await t.press('UP', 'RIGHT', 'RIGHT', 'RIGHT');
+    expect(t.at()).toBe('live · header 3');
+    t.live.nav.push({ id: 'search', zones: [{ kind: 'list', id: 'results', axis: 'vertical', count: 3 }] });
+    expect(await t.live.playFound(sports700)).toBe(true);
+    expect(play).toHaveBeenCalledWith(700);
+    await t.press('BACK');
+    expect(t.at()).toBe('live · header 3');
+    await t.press('DOWN');
+    expect(t.at()).toBe('live · channels 700');
+    // A channel gone: the header keeps the focus all the same.
+    t.live.home.focus('header', 3);
+    t.live.nav.push({ id: 'search', zones: [{ kind: 'list', id: 'results', axis: 'vertical', count: 3 }] });
+    expect(await t.live.playFound({ ...sports700, key: 'x:s1:live:2-9999' })).toBe(false);
+    await t.press('BACK');
+    expect(t.at()).toBe('live · header 3');
+    // Back from a player over the search (its `closed` focuses the row it played): the same.
+    t.live.nav.push({ id: 'search', zones: [{ kind: 'list', id: 'results', axis: 'vertical', count: 3 }] });
+    t.live.focusRow(5);
+    await t.press('BACK');
+    expect(t.at()).toBe('live · header 3');
+    await t.press('DOWN');
+    expect(t.at()).toBe('live · channels 5');
+    // On top, the row takes the focus (Back from a player or the guide opened from the list).
+    t.live.home.focus('header', 3);
+    t.live.focusRow(7);
+    expect(t.at()).toBe('live · channels 7');
+  });
+
+  it("reads from the hit's chunk first, and finds a hit of an older catalog by its key", async () => {
+    const play = vi.fn();
+    const t = await setup({ play });
+    t.engine.chunkCalls.length = 0;
+    expect(await t.live.playFound({ key: 'x:s1:live:2-1100', src: 's1', catIdx: 2, chunk: 2, slot: 100 })).toBe(true);
+    expect(play).toHaveBeenCalledWith(1100);
+    expect(t.engine.chunkCalls).not.toContain('s1|2|1');
+    // The place moved (an older catalog's hit), or its chunk is gone: the category is read for the key.
+    expect(await t.live.playFound({ ...sports700, slot: 203 })).toBe(true);
+    expect(await t.live.playFound({ ...sports700, chunk: 9, slot: 0 })).toBe(true);
+    expect(play.mock.calls.map((c) => c[0])).toEqual([1100, 700, 700]);
+  });
+
+  it('plays nothing for a channel gone, a category gone, or a list that failed', async () => {
+    const play = vi.fn();
+    const t = await setup({ play });
+    expect(await t.live.playFound({ ...sports700, key: 'x:s1:live:2-9999' })).toBe(false);
+    expect(await t.live.playFound({ ...sports700, src: 's3' })).toBe(false);
+    expect(await t.live.playFound({ ...sports700, catIdx: 1 })).toBe(false);
+    expect(play).not.toHaveBeenCalled();
+    const engine = new FakeEngine();
+    engine.failProfile = true;
+    const failed = await setup({ engine, play });
+    expect(failed.live.status.value).toBe('failed');
+    expect(await failed.live.playFound(sports700)).toBe(false);
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('waits for the load running now', async () => {
+    const play = vi.fn();
+    const engine = new FakeEngine();
+    engine.hold = new Set(['profile']);
+    const t = await setup({ engine, play });
+    let played: boolean | null = null;
+    void t.live.playFound(sports700).then((value) => {
+      played = value;
+    });
+    await flush();
+    expect(played).toBe(null);
+    engine.held.profile!.shift()!.resolve(engine.profileDoc);
+    await flush();
+    await flush();
+    expect(played).toBe(true);
+    expect(play).toHaveBeenCalledWith(700);
   });
 });
