@@ -38,7 +38,7 @@
 .live__meta {
   flex: 1;
   min-width: 0;
-  margin: 0 0 0 var(--space-7);
+  margin: 0 0 0 var(--space-5);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -51,26 +51,31 @@
   color: var(--color-text);
 }
 
+/* The header's parts sit 24 px apart: five buttons fit with text 40 % longer (en-XA). */
 .live__clock {
   flex: none;
-  margin: 0 0 0 var(--space-7);
+  margin: 0 0 0 var(--space-5);
   font-size: var(--font-size-heading);
   line-height: var(--line-height-heading);
   font-weight: var(--font-weight-bold);
 }
 
-/* The header's buttons (steps 22b2 and 23c): "Guide" and "Settings", as tall as the header. */
+/*
+ * The header's buttons (steps 22b2 and 23c): as tall as the header, with 24 px sides (step 28a:
+ * the fifth button didn't fit in en-XA with the buttons' usual 32 px).
+ */
 .live__end {
   flex: none;
   align-self: center;
-  margin-left: var(--space-7);
+  margin-left: var(--space-5);
 }
 
 .live__end .z-button {
   height: 56px;
+  padding: 0 var(--space-5);
 }
 
-/* "Guide", "Movies" (step 26a), "Series" (step 27a), then "Settings" (step 23c). */
+/* "Guide", "Movies" (step 26a), "Series" (step 27a), "Search" (step 28a), then "Settings" (step 23c). */
 .live__end .z-button + .z-button {
   margin-left: var(--space-4);
 }
