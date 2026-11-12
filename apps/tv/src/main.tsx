@@ -24,7 +24,7 @@ import { createGuideGallery } from './gallery/guide-gallery';
 import type { Guide } from './guide/guide-state';
 import { createGuide } from './guide/guide-state';
 import type { Movies } from './movies/movies-state';
-import { createMovies } from './movies/movies-state';
+import { createMovies, selectSeries } from './movies/movies-state';
 import { createMovieDetails, movieFacts, movieRequest } from './movies/movie-details';
 import { createMovieProgress } from './movies/movie-progress';
 import { createEngineLoader } from './onboarding/engine-loader';
@@ -114,7 +114,7 @@ let refreshes: RefreshScheduler | null = null;
  * Starts the refresh schedule for the live screen: stale catalogs and due guides are read in the
  * background, and the screen picks up what swapped in (`readFormats`: the accounts' formats again).
  */
-function startRefreshes(live: Live, guide: Guide, movies: Movies, readFacts: () => void): void {
+function startRefreshes(live: Live, guide: Guide, posters: readonly Movies[], readFacts: () => void): void {
   refreshes?.dispose();
   refreshes = createRefreshScheduler({
     engine: dataEngine(),
@@ -132,7 +132,7 @@ function startRefreshes(live: Live, guide: Guide, movies: Movies, readFacts: () 
     onCatalog: () => {
       readFacts();
       live.catalogChanged();
-      movies.catalogChanged();
+      for (const screen of posters) screen.catalogChanged();
     },
     onGuides: () => {
       live.guidesChanged();
@@ -181,6 +181,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     openSettings: () => openSettings(),
     openGuide: (row) => guide.open(row),
     openMovies: () => movies.open(),
+    openSeries: () => series.open(),
   });
   // OK on a poster (step 26c): the movie's details over the grid; "Play" opens the player over them, and Back from it returns to them.
   // A movie left part way (step 26d): "Resume from" plays it from there; back from the player, the details read its position again.
@@ -199,6 +200,15 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   });
   // The header's "Movies" (step 26a): the poster grid of the sources' movies, each tile with its bar (26d); Back returns to the header.
   const movies = createMovies({ nav: live.nav, engine: dataEngine(), tier: () => tier, select: (item) => details.open(item), progress });
+  // The header's "Series" (step 27a): the movies screen for series. A playlist's episode opens as a movie does; a show's details come with step 27b.
+  const series = createMovies({
+    nav: live.nav,
+    engine: dataEngine(),
+    kind: 'series',
+    tier: () => tier,
+    select: (item) => selectSeries(item, { episode: (episode) => details.open(episode) }),
+    progress,
+  });
   // The header's "Guide" (step 23c): the grid over the list's category; OK on air plays, Back returns to the list.
   const guide = createGuide({
     nav: live.nav,
@@ -259,8 +269,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   });
   if (resume !== null) player.resume({ item: resume.item, number: resume.number }, resume.index);
   showFocus(live.nav);
-  render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} guide={guide} movies={movies} details={details} />, into);
-  startRefreshes(live, guide, movies, readFacts);
+  render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} />, into);
+  startRefreshes(live, guide, [movies, series], readFacts);
 }
 
 /**

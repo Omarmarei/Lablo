@@ -36,8 +36,9 @@
  *   `account-check.ts`).
  * - `vodInfo` gives a movie's details from its Xtream panel's `get_vod_info` when they open (step
  *   26c), kept 24 h per movie (`vod-info.ts`); `null` for a movie with no panel.
- * - `recent` gives the newest movies across the sources asked ("Recently added", step 26e): each
- *   active generation's list kept at ingest (`recent.ts`), merged; no chunk is read.
+ * - `recent` gives the newest movies across the sources asked ("Recently added", step 26e; series
+ *   too since step 27a): each active generation's list kept at ingest (`recent.ts`), merged; no
+ *   chunk is read.
  * - `profile` and `editProfile` read and change the profile document for the app (step 13b):
  *   onboarding's answers and the sources the user added. An edit is a read-modify-write in one
  *   transaction, like the ingest worker's favourites update, so neither can lose the other's.

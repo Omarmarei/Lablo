@@ -203,9 +203,10 @@ async function openGuides(remote: RemoteDriver, locale: string, language: Langua
   await remote.go('UP', 'live/header/0');
   await remote.go(language === 'ar' ? 'LEFT' : 'RIGHT', 'live/header/1');
   await remote.go(language === 'ar' ? 'LEFT' : 'RIGHT', 'live/header/2');
+  await remote.go(language === 'ar' ? 'LEFT' : 'RIGHT', 'live/header/3');
   if (shots) await shot(page, `live-header-${language}`);
   await remote.go('DOWN', 'live/channels/0');
-  await remote.go('UP', 'live/header/2');
+  await remote.go('UP', 'live/header/3');
   await remote.go('OK', 'settings/items/0');
   await expect(page.getByTestId('settings-guides')).toContainText(SAYS[language].settings);
   if (shots) await shot(page, `settings-${language}`);
@@ -414,7 +415,7 @@ test.describe('the guides screen by keys (pnpm dev, after onboarding)', () => {
 
       // Back: the settings screen, then the live screen on its header, then its list.
       await remote.go('BACK', 'settings/items/0');
-      await remote.go('BACK', 'live/header/2');
+      await remote.go('BACK', 'live/header/3');
       await remote.go('DOWN', 'live/channels/0');
       expect(errors).toEqual([]);
     });

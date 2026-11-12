@@ -82,6 +82,7 @@ async function openGuides(remote: RemoteDriver, language: Language): Promise<Loc
   await remote.go('UP', 'live/header/0');
   await remote.go(language === 'ar' ? 'LEFT' : 'RIGHT', 'live/header/1');
   await remote.go(language === 'ar' ? 'LEFT' : 'RIGHT', 'live/header/2');
+  await remote.go(language === 'ar' ? 'LEFT' : 'RIGHT', 'live/header/3');
   await remote.go('OK', 'settings/items/0');
   await remote.go('OK', 'guides/guides/0');
   const root = remote.page.getByTestId('settings-screen');
@@ -94,7 +95,7 @@ async function openGuides(remote: RemoteDriver, language: Language): Promise<Loc
 /** Back from the guides screen to the list's first row. */
 async function backToList(remote: RemoteDriver): Promise<void> {
   await remote.go('BACK', 'settings/items/0');
-  await remote.go('BACK', 'live/header/2');
+  await remote.go('BACK', 'live/header/3');
   await remote.go('DOWN', 'live/channels/0');
 }
 
@@ -241,7 +242,8 @@ function checkCells(g: Grid, shift: number, noInfo: string): void {
 async function checkGuide(remote: RemoteDriver, shift: number, language: Language, forward: 'LEFT' | 'RIGHT', shot: string | null): Promise<void> {
   const { page } = remote;
   // The header remembers "Settings" (the guides screen opened from it); "Guide" is before it.
-  await remote.go('UP', 'live/header/2');
+  await remote.go('UP', 'live/header/3');
+  await remote.go(language === 'ar' ? 'RIGHT' : 'LEFT', 'live/header/2');
   await remote.go(language === 'ar' ? 'RIGHT' : 'LEFT', 'live/header/1');
   await remote.go(language === 'ar' ? 'RIGHT' : 'LEFT', 'live/header/0');
   await remote.go('OK', 'guide/grid/0');

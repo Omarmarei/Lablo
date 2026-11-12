@@ -6,8 +6,21 @@ import { LAYOUT, createNavigator, fits } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
 import type { Timers } from '../live/live-state';
 import { CHUNK_CACHE, LIVE, LIVE_BODY } from '../live/live-state';
-import type { MoviesEngine, MoviesOptions } from './movies-state';
-import { MOVIES, MOVIES_GRID, MOVIES_GRID_WIDTH, MOVIES_RAIL, MOVIES_RETRY, MOVIES_ROWS, MOVIES_SCREEN, createMovies } from './movies-state';
+import type { MoviesEngine, MoviesOptions, PosterKind } from './movies-state';
+import {
+  MOVIES,
+  MOVIES_GRID,
+  MOVIES_GRID_WIDTH,
+  MOVIES_RAIL,
+  MOVIES_RETRY,
+  MOVIES_ROWS,
+  MOVIES_SCREEN,
+  POSTER_SCREENS,
+  SERIES_SCREEN,
+  createMovies,
+  episodeLabel,
+  selectSeries,
+} from './movies-state';
 import { POSTER_TIERS } from './posters';
 
 function movie(src: string, catIdx: number, n: number, logo = true, label = ''): CatalogItem {
@@ -65,6 +78,10 @@ class FakeEngine implements MoviesEngine {
   catalog: Record<string, CategoryInfo[]> = CATEGORIES;
   /** Put before each movie's name: a newer catalog's items differ from an older one's. */
   label = '';
+  /** The kind every read must ask for (step 27a: the series screen asks `series`). */
+  kind: ContentKind = 'movie';
+  /** The kinds asked, in order (step 27a). */
+  readonly kinds: ContentKind[] = [];
 
   /** The items of a chunk of the catalog as it is now. */
   items(src: string, catIdx: number, chunk: number): CatalogItem[] {
@@ -80,7 +97,8 @@ class FakeEngine implements MoviesEngine {
   }
 
   categories(src: string, kind: ContentKind): Promise<CategoryInfo[]> {
-    expect(kind).toBe('movie');
+    this.kinds.push(kind);
+    expect(kind).toBe(this.kind);
     return Promise.resolve(this.catalog[src] ?? []);
   }
 
@@ -91,7 +109,8 @@ class FakeEngine implements MoviesEngine {
   }
 
   chunk(src: string, kind: ContentKind, catIdx: number, chunk: number): Promise<CatalogItem[]> {
-    expect(kind).toBe('movie');
+    this.kinds.push(kind);
+    expect(kind).toBe(this.kind);
     const id = `${src}|${catIdx}|${chunk}`;
     this.chunkCalls.push(id);
     if (this.hold.has('chunk')) return new Promise((resolve, reject) => this.held.chunk.push({ arg: id, resolve, reject }));
@@ -138,7 +157,7 @@ const flush = async (): Promise<void> => {
 };
 
 async function setup(
-  options: { engine?: FakeEngine; tier?: DeviceTier; select?: (item: CatalogItem) => void; open?: boolean; progress?: MoviesOptions['progress'] } = {},
+  options: { engine?: FakeEngine; tier?: DeviceTier; select?: (item: CatalogItem) => void; open?: boolean; progress?: MoviesOptions['progress']; kind?: PosterKind } = {},
 ) {
   const engine = options.engine ?? new FakeEngine();
   const clock = manualTimers();
@@ -157,6 +176,7 @@ async function setup(
     ...(options.tier === undefined ? {} : { tier: () => options.tier! }),
     ...(options.select === undefined ? {} : { select: options.select }),
     ...(options.progress === undefined ? {} : { progress: options.progress }),
+    ...(options.kind === undefined ? {} : { kind: options.kind }),
   });
   if (options.open !== false) {
     movies.open();
@@ -1006,5 +1026,132 @@ describe('the movies screen: "Recently added" (RELAY step 26e)', () => {
     expect(t.movies.category.value).toBe(0);
     expect(t.at()).toBe('movies · grid 0');
     expect(t.tiles(0, 1)).toEqual(['s1 0-0']);
+  });
+});
+
+describe('the series screen: the movies screen for series (RELAY step 27a)', () => {
+  /** A series engine: every read asks for kind `series`. */
+  function seriesEngine(): FakeEngine {
+    const engine = new FakeEngine();
+    engine.kind = 'series';
+    return engine;
+  }
+
+  it('is its own screen, and asks every read for series', async () => {
+    expect(POSTER_SCREENS).toEqual({ movie: MOVIES_SCREEN, series: SERIES_SCREEN });
+    expect([MOVIES_SCREEN, SERIES_SCREEN]).toEqual(['movies', 'series']);
+    const engine = seriesEngine();
+    engine.newest = [{ added: 9, item: { ...movie('s2', 0, 7), kind: 'series', url: '', name: 'Show new' } }];
+    const t = await setup({ engine, kind: 'series' });
+    expect(t.movies.kind).toBe('series');
+    expect(t.movies.id).toBe(SERIES_SCREEN);
+    expect(t.at()).toBe('series · grid 0');
+    expect(t.movies.rail.value.map((e) => `${e.kind}:${e.name}:${e.count}`)).toEqual(['recent::1', 'all::744', 'category:Action:40', 'category:Drama:700', 'category:Kids:4']);
+    expect(t.engine.recentCalls).toEqual([{ sources: ['s1', 's2'], kind: 'series' }]);
+    expect(t.tiles(0, 1)).toEqual(['Show new']);
+    await t.press('LEFT', 'DOWN', 'OK');
+    expect(t.at()).toBe('series · grid 0');
+    expect(t.tiles(0, 2)).toEqual(['s1 0-0', 's1 0-1']);
+    expect(engine.kinds).toEqual(['series', 'series', 'series']);
+    // A movies screen asks for movies, as it always did.
+    const movies = await setup();
+    expect(movies.movies.kind).toBe('movie');
+    expect(movies.movies.id).toBe(MOVIES_SCREEN);
+    expect(movies.engine.kinds).toEqual(['movie', 'movie', 'movie']);
+    expect(movies.engine.recentCalls).toEqual([{ sources: ['s1', 's2'], kind: 'movie' }]);
+  });
+
+  it('follows its own screen: the view rests and asks its posters after a key', async () => {
+    const t = await setup({ engine: seriesEngine(), kind: 'series' });
+    await t.rest();
+    t.loadAll(0, 18);
+    expect(t.withPosters(0, 18)).toEqual(t.range(0, 18));
+    await t.press('DOWN', 'DOWN', 'DOWN');
+    expect(t.at()).toBe('series · grid 18');
+    expect(t.withPosters(18, 24)).toEqual([]);
+    await t.rest();
+    expect(t.withPosters(18, 24).length).toBeGreaterThan(0);
+  });
+
+  it("counts a playlist's entry in episodes: its lines are episodes, not shows", async () => {
+    // s1 is a playlist, s2 a panel.
+    const t = await setup({ engine: seriesEngine(), kind: 'series' });
+    expect(t.movies.rail.value.map((e) => e.name)).toEqual(['', 'Action', 'Drama', 'Kids']);
+    expect([0, 1, 2, 3, 4, -1].map((i) => t.movies.episodes(i))).toEqual([false, true, true, false, false, false]);
+    // "All series" of playlists alone.
+    const engine = seriesEngine();
+    engine.profileDoc = { doc: { v: 2, sources: [S1] }, newer: false, migratedFrom: null };
+    const alone = await setup({ engine, kind: 'series' });
+    expect(alone.movies.rail.value.map((e) => e.kind)).toEqual(['all', 'category', 'category']);
+    expect(alone.movies.episodes(0)).toBe(true);
+    // "Recently updated" (no parts) and every entry of a panel alone: shows.
+    const panel = seriesEngine();
+    panel.profileDoc = { doc: { v: 2, sources: [S2] }, newer: false, migratedFrom: null };
+    panel.newest = [{ added: 9, item: { ...movie('s2', 0, 7), kind: 'series', url: '' } }];
+    const shows = await setup({ engine: panel, kind: 'series' });
+    expect(shows.movies.rail.value.map((e) => e.kind)).toEqual(['recent', 'all', 'category']);
+    expect([0, 1, 2].map((i) => shows.movies.episodes(i))).toEqual([false, false, false]);
+    // A movies screen never counts episodes, even of a playlist.
+    const films = await setup();
+    expect([0, 1, 2].map((i) => films.movies.episodes(i))).toEqual([false, false, false]);
+  });
+
+  it("reads the playlists again on a catalog swap: a source's type decides, as stored now", async () => {
+    const engine = seriesEngine();
+    const t = await setup({ engine, kind: 'series' });
+    expect(t.movies.episodes(1)).toBe(true);
+    engine.profileDoc = { doc: { v: 2, sources: [{ ...S2, id: 's1' }, S2] }, newer: false, migratedFrom: null };
+    t.movies.catalogChanged();
+    await flush();
+    expect(t.movies.rail.value[1]!.name).toBe('Action');
+    expect(t.movies.episodes(1)).toBe(false);
+  });
+
+  it('gives OK on a tile to `select`', async () => {
+    const select = vi.fn();
+    const t = await setup({ engine: seriesEngine(), kind: 'series', select });
+    await t.press('OK');
+    expect(select).toHaveBeenCalledWith(expect.objectContaining({ name: 'Movie s1 0-0' }));
+  });
+
+  it("opens a playlist's episode (it has a URL) as a movie, and an Xtream show (none) as a show", () => {
+    const episode = vi.fn();
+    const show = vi.fn();
+    const line = movie('s1', 0, 1);
+    const panel: CatalogItem = { ...movie('s2', 0, 2), kind: 'series', url: '' };
+    selectSeries(line, { episode, show });
+    expect(episode).toHaveBeenCalledWith(line);
+    expect(show).not.toHaveBeenCalled();
+    selectSeries(panel, { episode, show });
+    expect(show).toHaveBeenCalledWith(panel);
+    expect(episode).toHaveBeenCalledTimes(1);
+    // Until a show's details exist (step 27b), OK on a show does nothing.
+    expect(() => selectSeries(panel, { episode })).not.toThrow();
+    expect(episode).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts a playlist episode's trailing season and episode under its name", () => {
+    const label = (name: string): string => {
+      const l = episodeLabel(name);
+      return l.mark === null ? l.title : `${l.title} | ${l.mark}`;
+    };
+    expect(label('Lablo Test Series S01 E01')).toBe('Lablo Test Series | S01 E01');
+    expect(label('مسلسل الاختبار S01 E02')).toBe('مسلسل الاختبار | S01 E02');
+    // Other spellings: no space, lower case, separators, one digit, long numbers.
+    expect(label('Show S01E01')).toBe('Show | S01 E01');
+    expect(label('show s1e2')).toBe('show | S1 E2');
+    expect(label('Show - S02.E10')).toBe('Show | S02 E10');
+    expect(label('Show: S2_E3 ')).toBe('Show | S2 E3');
+    expect(label('Show | S100 E1000')).toBe('Show | S100 E1000');
+    // Whole: no mark, a mark not at the end, a mark with nothing before it, a mark inside a word.
+    expect(label('Lablo Test Series')).toBe('Lablo Test Series');
+    expect(label('Show S01 E01 Pilot')).toBe('Show S01 E01 Pilot');
+    expect(label('S01 E01')).toBe('S01 E01');
+    expect(label('ShowS01E01')).toBe('ShowS01E01');
+    expect(label('Show S01')).toBe('Show S01');
+    expect(label('Show E01')).toBe('Show E01');
+    expect(label('Show S1234 E1')).toBe('Show S1234 E1');
+    expect(label('Show S1 E12345')).toBe('Show S1 E12345');
+    expect(label('')).toBe('');
   });
 });

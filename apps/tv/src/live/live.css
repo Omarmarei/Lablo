@@ -70,7 +70,7 @@
   height: 56px;
 }
 
-/* "Guide", "Movies" (step 26a), then "Settings" (step 23c). */
+/* "Guide", "Movies" (step 26a), "Series" (step 27a), then "Settings" (step 23c). */
 .live__end .z-button + .z-button {
   margin-left: var(--space-4);
 }

@@ -156,6 +156,21 @@ export const EN = {
   'movies.loading': 'Loading your movies',
   'movies.empty': 'Your sources have no movies.',
   'movies.failed': "Couldn't read your movies.",
+
+  // The series screen (RELAY step 27a): the movies screen for series.
+  'series.open': 'Series',
+  'series.title': 'Series',
+  'series.all': 'All series',
+  // The shows a panel changed last (a new episode changes its date), first in the rail.
+  'series.recent': 'Recently updated',
+  'series.count': '{n, plural, one {# series} other {# series}}',
+  // A playlist's series category: its lines are episodes, listed one by one.
+  'series.episodes': '{n, plural, one {# episode} other {# episodes}}',
+  'series.noGroup': 'Other series',
+  'series.loading': 'Loading your series',
+  'series.empty': 'Your sources have no series.',
+  'series.failed': "Couldn't read your series.",
+
   'movie.play': 'Play',
   // A movie left part way (RELAY step 26d): {time} is where it was left, as 12:34 or 1:02:03.
   'movie.resume': 'Resume from {time}',

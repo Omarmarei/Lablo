@@ -19,9 +19,10 @@ import { ChannelIndex, chunkId } from './channel-index';
  *   rail      ("All channels", then each source's live categories; OK shows one)
  *   channels  (the category's channels: a virtual list; OK opens the player, step 20a)
  *   retry     (one button, only when the categories couldn't be read)
- *   header    (the "Guide" and "Settings" buttons at the header's end, steps 23c and 22b2: UP
- *              from the first row of the rail, the list or "Try again"; DOWN or Back goes back
- *              where it came from)
+ *   header    ("Guide", "Movies", "Series" and "Settings" at the header's end, steps 23c, 26a,
+ *              27a and 22b2: UP
+ *              from the first row of the rail, the list or "Try again"; DOWN or Back goes
+ *              back where it came from)
  *
  * - **Data:** the profile gives the sources, the query worker each source's live categories. The
  *   list reads only the chunks the rows around the window need (`CHUNK_CACHE` kept), now/next for
@@ -138,6 +139,8 @@ export interface LiveOptions {
   readonly openGuide?: (row: number) => void;
   /** OK on the header's "Movies" button (step 26a): the movies screen opens. */
   readonly openMovies?: () => void;
+  /** OK on the header's "Series" button (step 27a): the series screen opens. */
+  readonly openSeries?: () => void;
 }
 
 /** The list on show as the player (`ZapList`) and the guide (step 23c) read it. */
@@ -212,14 +215,19 @@ function retryZone(count: number): ZoneSpec {
   return { kind: 'list', id: 'retry', axis: 'horizontal', count, neighbours: { up: 'header' } };
 }
 
-/** The header's buttons: "Guide" (step 23c), "Movies" (step 26a), then "Settings" (step 22b2). DOWN is the screen's (back where it came from). */
-const HEADER_ZONE: ZoneSpec = { kind: 'list', id: 'header', axis: 'horizontal', count: 3 };
+/**
+ * The header's buttons: "Guide" (step 23c), "Movies" (step 26a), "Series" (step 27a), then
+ * "Settings" (step 22b2). DOWN is the screen's (back where it came from).
+ */
+const HEADER_ZONE: ZoneSpec = { kind: 'list', id: 'header', axis: 'horizontal', count: 4 };
 /** The header's "Guide" button. */
 export const HEADER_GUIDE = 0;
 /** The header's "Movies" button. */
 export const HEADER_MOVIES = 1;
+/** The header's "Series" button. */
+export const HEADER_SERIES = 2;
 /** The header's "Settings" button. */
-export const HEADER_SETTINGS = 2;
+export const HEADER_SETTINGS = 3;
 
 /** The rail: "All channels", then every category with channels, source by source. */
 export function railEntries(sources: readonly { src: string; categories: readonly CategoryInfo[] }[]): RailEntry[] {
@@ -751,8 +759,9 @@ export function createLive(options: LiveOptions): Live {
       onSelect: (focus) => {
         if (focus.zone === 'header') {
           if (focus.index === HEADER_SETTINGS) options.openSettings?.();
-          // The movies screen reads its own data: it opens in every state of the list.
+          // The movies and series screens read their own data: they open in every state of the list.
           else if (focus.index === HEADER_MOVIES) options.openMovies?.();
+          else if (focus.index === HEADER_SERIES) options.openSeries?.();
           // The guide shows the list's channels: none while it loads, failed or is empty.
           else if (status.value === 'ready') options.openGuide?.(home.position('channels').index);
         } else if (focus.zone === 'rail') showCategory(focus.index);

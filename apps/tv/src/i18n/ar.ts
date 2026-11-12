@@ -141,6 +141,18 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'movies.loading': 'جارٍ تحميل أفلامك',
   'movies.empty': 'لا توجد أفلام في مصادرك.',
   'movies.failed': 'تعذّرت قراءة أفلامك.',
+
+  'series.open': 'المسلسلات',
+  'series.title': 'المسلسلات',
+  'series.all': 'كل المسلسلات',
+  'series.recent': 'حُدّثت مؤخرًا',
+  'series.count': '{n, plural, zero {لا توجد مسلسلات} one {مسلسل واحد} two {مسلسلان} few {# مسلسلات} many {# مسلسلًا} other {# مسلسل}}',
+  'series.episodes': '{n, plural, zero {لا توجد حلقات} one {حلقة واحدة} two {حلقتان} few {# حلقات} many {# حلقةً} other {# حلقة}}',
+  'series.noGroup': 'مسلسلات أخرى',
+  'series.loading': 'جارٍ تحميل مسلسلاتك',
+  'series.empty': 'لا توجد مسلسلات في مصادرك.',
+  'series.failed': 'تعذّرت قراءة مسلسلاتك.',
+
   'movie.play': 'تشغيل',
   'movie.resume': 'استئناف من {time}',
   'movie.restart': 'التشغيل من البداية',

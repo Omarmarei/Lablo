@@ -176,6 +176,32 @@ describe('ingest against the mock provider: Xtream', () => {
     expect((await ingest(xtream())).status).toBe('unchanged');
   });
 
+  it('keeps its newest series by their panel dates (`last_modified`), a playlist none (step 27a)', async () => {
+    // The mock's shows, newest first: the Arabic show was updated last.
+    const newest = catalog.series
+      .map((s, i) => ({ s, i }))
+      .sort((a, b) => a.s.addedDaysAgo - b.s.addedDaysAgo || a.i - b.i)
+      .map((x) => x.s);
+    expect(newest.map((s) => s.id)).toEqual([302, 301]);
+    await ingest(xtream());
+    const q = new QueryService({ openDb: async () => db });
+    const recent = await q.recent({ sources: ['xt'], kind: 'series' });
+    expect(recent.map((r) => r.item.key)).toEqual(newest.map((s) => `x:xt:series:${s.id}`));
+    const shows = await allItems('xt', 'series');
+    for (const r of recent) {
+      const s = catalog.series.find((x) => r.item.key === `x:xt:series:${x.id}`)!;
+      expect(r.added).toBe(Math.floor((Math.floor(NOW / DAY) * DAY - s.addedDaysAgo * DAY) / 1000));
+      expect(r.item).toEqual(shows.find((i) => i.key === r.item.key));
+      expect(r.item.url).toBe('');
+    }
+    // The movies' list is their own.
+    expect((await q.recent({ sources: ['xt'], kind: 'movie' })).every((r) => r.item.kind === 'movie')).toBe(true);
+    // A playlist's episodes have no date.
+    await ingest(m3uJob());
+    expect((await q.recent({ sources: ['pl'], kind: 'series' }))).toEqual([]);
+    expect((await allItems('pl', 'series')).length).toBe(7);
+  });
+
   it("keeps the account's allowed_output_formats on every login, unchanged refreshes included", async () => {
     const hls: IngestJob = { src: 'xt', source: { type: 'xtream', account: { base, username: 'hls', password: 'hls-test' } } };
     expect((await ingest(hls)).xtream?.outputFormats).toEqual(['m3u8']);

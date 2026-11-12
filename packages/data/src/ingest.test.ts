@@ -279,14 +279,14 @@ describe('runIngest: conditional fetch', () => {
     expect(await storedGens()).toEqual([3]);
   });
 
-  it('is at version 2 since step 26e: catalogs built before keep no newest movies, so they are rebuilt', () => {
-    expect(INGEST_VERSION).toBe(2);
+  it('is at version 3 since step 27a: catalogs built before keep no newest series, so they are rebuilt', () => {
+    expect(INGEST_VERSION).toBe(3);
   });
 
   it("keeps no newest movies for a playlist (its movies have no date), but marks the list as kept (step 26e)", async () => {
     await run(serve(text)).result;
     const meta = await sourceMeta();
-    expect(await readRecent(db, [{ src: SRC, gen: meta.gen, kind: 'movie' }, { src: SRC, gen: meta.gen, kind: 'live' }])).toEqual([[], null]);
+    expect(await readRecent(db, [{ src: SRC, gen: meta.gen, kind: 'movie' }, { src: SRC, gen: meta.gen, kind: 'live' }, { src: SRC, gen: meta.gen, kind: 'series' }])).toEqual([[], null, []]);
     expect(await new QueryService({ openDb: async () => db }).recent({ sources: [SRC], kind: 'movie' })).toEqual([]);
   });
 

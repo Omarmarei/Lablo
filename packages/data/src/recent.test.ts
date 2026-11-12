@@ -30,7 +30,8 @@ const names = (list: readonly RecentItem[]): string[] => list.map((r) => `${r.it
 describe('RecentList (RELAY step 26e)', () => {
   it('keeps the newest 100 movies, newest first', () => {
     expect(RECENT_MAX).toBe(100);
-    expect(RECENT_KINDS).toEqual(['movie']);
+    // Series too since step 27a ("Recently updated").
+    expect(RECENT_KINDS).toEqual(['movie', 'series']);
     const list = new RecentList();
     // 250 films, their dates out of order: film n was added at 1000 + (n * 37) % 250 (each date once).
     for (let n = 0; n < 250; n += 1) list.push(film('a', n), 1000 + ((n * 37) % 250));

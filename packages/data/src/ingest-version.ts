@@ -8,5 +8,6 @@
  *
  * - 1: the first (step 8).
  * - 2: movies keep their newest with their categories (step 26e, "Recently added").
+ * - 3: series keep theirs too (step 27a, "Recently updated").
  */
-export const INGEST_VERSION = 2;
+export const INGEST_VERSION = 3;
