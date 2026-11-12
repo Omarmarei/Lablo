@@ -171,6 +171,15 @@ export const EN = {
   'series.empty': 'Your sources have no series.',
   'series.failed': "Couldn't read your series.",
 
+  // A show's details (RELAY step 27b): its seasons and episodes, read from the panel.
+  'show.reading': "Reading the show's episodes",
+  'show.failed': "Couldn't read this show's episodes.",
+  'show.noEpisodes': 'This show has no episodes yet.',
+  // A season's chip when the panel's name says no more than this; {n} is its number.
+  'show.season': 'Season {n}',
+  // An episode the panel gave no title; {n} is its number.
+  'show.episode': 'Episode {n}',
+
   'movie.play': 'Play',
   // A movie left part way (RELAY step 26d): {time} is where it was left, as 12:34 or 1:02:03.
   'movie.resume': 'Resume from {time}',

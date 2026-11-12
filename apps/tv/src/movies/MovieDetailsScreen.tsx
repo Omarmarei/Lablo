@@ -15,8 +15,8 @@ interface Props {
   readonly clock: number;
 }
 
-/** A length in the catalog's words: `1 h 28 min`, or `48 min` under an hour. */
-function lengthText(i18n: AppI18n, seconds: number): string {
+/** A length in the catalog's words: `1 h 28 min`, or `48 min` under an hour (an episode's too, step 27b). */
+export function lengthText(i18n: AppI18n, seconds: number): string {
   const minutes = Math.round(seconds / 60);
   const h = Math.floor(minutes / 60);
   const m = minutes - h * 60;

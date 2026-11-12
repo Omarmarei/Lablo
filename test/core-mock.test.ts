@@ -176,6 +176,7 @@ describe('Xtream client against the mock', () => {
     expect(await client.vodInfo(202)).toMatchObject({ name: 'Sintel', durationSecs: 888, rating: 7.4, ext: 'mkv' });
     const info = (await client.seriesInfo(301))!;
     const series = catalog.series.find((s) => s.id === 301)!;
+    expect(info).toMatchObject({ name: series.name, releaseDate: `${series.year}-01-01`, rating: series.rating });
     expect(info.seasons.map((s) => s.number)).toEqual(series.seasons.map((s) => s.number));
     expect(info.episodes.map((e) => [e.key, e.season, e.episodeNum, e.title, e.durationSecs])).toEqual(
       series.seasons.flatMap((s) => s.episodes.map((e) => [`x:mock:episode:${e.id}`, s.number, e.episodeNum, e.title, e.durationSecs])),

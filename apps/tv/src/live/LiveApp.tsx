@@ -18,6 +18,9 @@ import { MOVIES_SCREEN, SERIES_SCREEN } from '../movies/movies-state';
 import { MovieDetailsScreen } from '../movies/MovieDetailsScreen';
 import type { MovieDetails } from '../movies/movie-details';
 import { MOVIE_SCREEN } from '../movies/movie-details';
+import { ShowDetailsScreen } from '../shows/ShowDetailsScreen';
+import type { ShowDetails } from '../shows/show-details';
+import { SHOW_SCREEN } from '../shows/show-details';
 import { SettingsScreen } from '../settings/SettingsScreen';
 import type { Settings } from '../settings/settings-state';
 import { SETTINGS_SCREENS } from '../settings/settings-state';
@@ -77,6 +80,7 @@ function LiveScreen({
   movies,
   series,
   details,
+  show,
 }: {
   live: Live;
   i18n: AppI18n;
@@ -86,6 +90,7 @@ function LiveScreen({
   movies: Movies | null;
   series: Movies | null;
   details: MovieDetails | null;
+  show: ShowDetails | null;
 }) {
   const { t } = i18n;
   const { binding, home } = live;
@@ -102,6 +107,8 @@ function LiveScreen({
   if (series !== null && focus.screen === SERIES_SCREEN) return <MoviesScreen movies={series} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} />;
   // A movie's details (step 26c) paint instead of the movies screen (or a playlist's episode's, instead of the series screen, step 27a); the player opens over them.
   if (details !== null && focus.screen === MOVIE_SCREEN) return <MovieDetailsScreen details={details} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} />;
+  // A show's details (step 27b) paint instead of the series screen.
+  if (show !== null && focus.screen === SHOW_SCREEN) return <ShowDetailsScreen details={show} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} />;
   const status = live.status.value;
   const entries = live.rail.value;
   const shown = live.category.value;
@@ -227,13 +234,15 @@ interface Props {
   readonly series?: Movies | null;
   /** A movie's details, opened from the movies screen (step 26c; `null`: none paint). */
   readonly details?: MovieDetails | null;
+  /** A show's details, opened from the series screen (step 27b; `null`: none paint). */
+  readonly show?: ShowDetails | null;
 }
 
 /**
  * The live screen in the language picked in onboarding, in the TV's region (the formats keep
  * the region's), or the TV's own when none was picked.
  */
-export function LiveApp({ platform, live, language, player = null, settings = null, guide = null, movies = null, series = null, details = null }: Props) {
+export function LiveApp({ platform, live, language, player = null, settings = null, guide = null, movies = null, series = null, details = null, show = null }: Props) {
   const i18n = useSignal<AppI18n | null>(null);
   useEffect(() => {
     let closed = false;
@@ -264,5 +273,5 @@ export function LiveApp({ platform, live, language, player = null, settings = nu
       </main>
     );
   }
-  return <LiveScreen live={live} i18n={i18n.value} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} />;
+  return <LiveScreen live={live} i18n={i18n.value} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} />;
 }

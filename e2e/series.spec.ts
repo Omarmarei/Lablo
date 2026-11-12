@@ -153,10 +153,12 @@ test.describe('the series screen (RELAY step 27a)', () => {
       }
       await page.screenshot({ path: path.join(SHOTS, `series-${locale}.png`), animations: 'disabled' });
 
-      // OK on a show: its details come with step 27b; nothing opens yet.
+      // OK on a show: its details (step 27b, show-details.spec.ts); Back twice returns to the grid on it.
       await remote.go(forward, 'series/grid/1');
-      await remote.press('OK');
-      await remote.expectFocus('series/grid/1');
+      await remote.go('OK', 'show/episodes/0');
+      await expect(page.getByTestId('show-details')).toHaveAttribute('data-key', /:series:301$/);
+      await remote.go('BACK', 'show/seasons/0');
+      await remote.go('BACK', 'series/grid/1');
 
       // "All series": the panel's order.
       await remote.go(backward, 'series/grid/0');
@@ -190,12 +192,13 @@ test.describe('the series screen (RELAY step 27a)', () => {
       const says = SAYS[language];
       const forward = language === 'ar' ? 'LEFT' : 'RIGHT';
       // The episodes' files reach the mock and are never answered: the player stays "Connecting…".
+      // (Only the panel's stream paths: a wider pattern would hold the dev server's modules too.)
       const streams: string[] = [];
       page.on('request', (request) => {
         const url = request.url();
-        if (url.indexOf('/series/') !== -1) streams.push(new URL(url).pathname);
+        if (url.indexOf(`/series/${U}/${P}/`) !== -1) streams.push(new URL(url).pathname);
       });
-      await page.route('**/series/**', async (route) => {
+      await page.route(`**/series/${U}/${P}/**`, async (route) => {
         await route.fetch().catch(() => undefined);
       });
       const remote = new RemoteDriver(page);

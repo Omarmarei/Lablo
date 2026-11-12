@@ -25,6 +25,7 @@ import type { Guide } from './guide/guide-state';
 import { createGuide } from './guide/guide-state';
 import type { Movies } from './movies/movies-state';
 import { createMovies, selectSeries } from './movies/movies-state';
+import { createShowDetails } from './shows/show-details';
 import { createMovieDetails, movieFacts, movieRequest } from './movies/movie-details';
 import { createMovieProgress } from './movies/movie-progress';
 import { createEngineLoader } from './onboarding/engine-loader';
@@ -200,13 +201,15 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   });
   // The header's "Movies" (step 26a): the poster grid of the sources' movies, each tile with its bar (26d); Back returns to the header.
   const movies = createMovies({ nav: live.nav, engine: dataEngine(), tier: () => tier, select: (item) => details.open(item), progress });
-  // The header's "Series" (step 27a): the movies screen for series. A playlist's episode opens as a movie does; a show's details come with step 27b.
+  // OK on a show (step 27b): its details over the series grid, its seasons and episodes read from its panel; Back returns to the grid.
+  const show = createShowDetails({ nav: live.nav, engine: dataEngine() });
+  // The header's "Series" (step 27a): the movies screen for series. A playlist's episode opens as a movie does; a panel's show opens its details.
   const series = createMovies({
     nav: live.nav,
     engine: dataEngine(),
     kind: 'series',
     tier: () => tier,
-    select: (item) => selectSeries(item, { episode: (episode) => details.open(episode) }),
+    select: (item) => selectSeries(item, { episode: (episode) => details.open(episode), show: (item) => show.open(item) }),
     progress,
   });
   // The header's "Guide" (step 23c): the grid over the list's category; OK on air plays, Back returns to the list.
@@ -269,7 +272,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   });
   if (resume !== null) player.resume({ item: resume.item, number: resume.number }, resume.index);
   showFocus(live.nav);
-  render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} />, into);
+  render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} />, into);
   startRefreshes(live, guide, [movies, series], readFacts);
 }
 
