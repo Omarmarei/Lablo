@@ -24,6 +24,8 @@
  * - `account` re-checks a source's Xtream account for the player's error card (step 20a);
  * - `vodInfo` reads a movie's details from its Xtream panel when they open (step 26c, kept 24 h in
  *   the query worker);
+ * - `seriesInfo` reads a show's seasons and episodes from its Xtream panel when its details open
+ *   (step 27b, kept 24 h in the query worker);
  * - `recent` gives the newest movies across the sources ("Recently added", step 26e), from the
  *   lists the ingest keeps.
  *
@@ -31,7 +33,7 @@
  * app passes the `?worker` imports (`./workers.ts`).
  */
 
-import type { CatalogItem, ContentKey, ContentKind, DeviceTier, EpgProgramme, XtreamVodInfo, ZoneOffset } from '@lablo/core';
+import type { CatalogItem, ContentKey, ContentKind, DeviceTier, EpgProgramme, XtreamSeriesInfo, XtreamVodInfo, ZoneOffset } from '@lablo/core';
 import { panelZone } from '@lablo/core';
 import type {
   AccountCheck,
@@ -59,6 +61,7 @@ import type {
   RecentItem,
   RecentRequest,
   RpcPort,
+  SeriesInfoRequest,
   ShortEpgNowNext,
   ShortEpgSource,
   SourceMeta,
@@ -434,6 +437,15 @@ export class DataEngine {
    */
   vodInfo(req: VodInfoRequest): Promise<XtreamVodInfo | null> {
     return this.query.call('vodInfo', req);
+  }
+
+  /**
+   * A show's seasons and episodes (step 27b): its Xtream panel's `get_series_info` through the
+   * query worker, kept 24 h per show; `null` for a show with no panel or one the panel doesn't
+   * know. Rejects with the panel's error (the next open asks again).
+   */
+  seriesInfo(req: SeriesInfoRequest): Promise<XtreamSeriesInfo | null> {
+    return this.query.call('seriesInfo', req);
   }
 
   /**

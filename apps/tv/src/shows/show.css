@@ -1,0 +1,224 @@
+/*
+ * A show's details (RELAY step 27b): the movies screen's frame (a 1728 px content box inside the
+ * title-safe margins, a 56 px header and a 24 px gap), then the 892 px body: the top band (300 px:
+ * the cover, 200 x 300 px, and 48 px further the text), 24 px, the row of seasons (64 px chips,
+ * 264 px wide and 16 px apart), 24 px, and the episodes (88 px rows, 8 px apart, five in 472 px).
+ * The sizes are SHOW in show-details.ts. Physical properties for LTR: postcss-rtlcss mirrors them
+ * for Arabic, which puts the cover and the first season on the right. Flexbox only, no `gap`
+ * (Chromium 53 and 56).
+ */
+.show {
+  display: flex;
+  flex-direction: column;
+  width: var(--screen-width);
+  height: var(--screen-height);
+  padding: var(--safe-y) var(--safe-x);
+  overflow: hidden;
+}
+
+.show__header {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  height: 56px;
+  margin-bottom: var(--space-5);
+}
+
+.show__heading {
+  flex: 1;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.show__clock {
+  flex: none;
+  margin: 0 0 0 var(--space-7);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.show__top {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  height: 300px;
+  margin-bottom: var(--space-5);
+}
+
+.show__poster {
+  display: flex;
+  flex: none;
+  align-items: flex-end;
+  width: 200px;
+  height: 300px;
+  margin-right: var(--space-7);
+  overflow: hidden;
+  border-radius: var(--radius-m);
+  background: var(--color-surface-raised);
+}
+
+.show__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.show__poster-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  margin: var(--space-4);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  font-weight: var(--font-weight-bold);
+}
+
+/* Title 76 + 8, three 32 px lines + 8 each, the plot's two 38 px lines + 8: 288 of the 300 px. */
+.show__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  height: 300px;
+  overflow: hidden;
+}
+
+.show__title {
+  max-width: 100%;
+  margin: 0 0 var(--space-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-display);
+  line-height: var(--line-height-display);
+  font-weight: var(--font-weight-bold);
+}
+
+.show__group,
+.show__genre,
+.show__facts,
+.show__note {
+  max-width: 100%;
+  margin: 0 0 var(--space-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+.show__group,
+.show__note {
+  color: var(--color-text-muted);
+}
+
+.show__facts {
+  font-weight: var(--font-weight-bold);
+}
+
+.show__wait {
+  margin: var(--space-2) 0;
+}
+
+.show__plot {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.show__seasons {
+  flex: none;
+  height: var(--rail-height);
+  margin-bottom: var(--space-5);
+}
+
+/* The seasons' place, for a show with no episodes. */
+.show__empty {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: var(--rail-height);
+  margin: 0 0 var(--space-5);
+}
+
+.show__episodes {
+  flex: none;
+}
+
+/* An episode: like a channel row (ListRow), its focus ring inside its 88 px. */
+.show__episode {
+  display: flex;
+  align-items: center;
+  height: var(--row-height);
+  padding: 0 var(--space-5);
+  overflow: hidden;
+  border: var(--focus-ring) solid transparent;
+  border-radius: var(--radius-m);
+  background: var(--color-surface);
+  transition: background-color var(--motion-fast), border-color var(--motion-fast);
+}
+
+.show__episode.is-memory {
+  border-color: var(--color-border-memory);
+}
+
+.show__episode.is-focused {
+  border-color: var(--color-focus);
+  background: var(--color-surface-focus);
+}
+
+.show__episode-number {
+  flex: none;
+  width: 88px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  text-align: left;
+}
+
+/* The title over the plot; min-width: 0 lets them be cut (Chromium's flex min-width is auto). */
+.show__episode-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.show__episode-title,
+.show__episode-plot {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.show__episode-title {
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.show__episode-plot {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+}
+
+.show__episode-length {
+  flex: none;
+  margin-left: var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}

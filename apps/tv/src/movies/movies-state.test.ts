@@ -1125,9 +1125,6 @@ describe('the series screen: the movies screen for series (RELAY step 27a)', () 
     selectSeries(panel, { episode, show });
     expect(show).toHaveBeenCalledWith(panel);
     expect(episode).toHaveBeenCalledTimes(1);
-    // Until a show's details exist (step 27b), OK on a show does nothing.
-    expect(() => selectSeries(panel, { episode })).not.toThrow();
-    expect(episode).toHaveBeenCalledTimes(1);
   });
 
   it("puts a playlist episode's trailing season and episode under its name", () => {

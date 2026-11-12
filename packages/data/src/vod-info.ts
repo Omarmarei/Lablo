@@ -6,15 +6,16 @@
  *   source's `get.php` link. The panel's id for the movie comes from its URL
  *   (`…/movie/{u}/{p}/{id}.{ext}`). A plain playlist has no panel: its movies show what their
  *   lines have.
- * - The cache is keyed by ContentKey, which holds no credentials. A failed request isn't kept, so
- *   the next open asks again; a panel's "not found" (`null`) is an answer and is kept. Two asks
- *   for one movie while a request runs share it.
+ * - The cache (`PanelAnswers`) is keyed by ContentKey, which holds no credentials. A failed
+ *   request isn't kept, so the next open asks again; a panel's "not found" (`null`) is an answer
+ *   and is kept. Two asks for one movie while a request runs share it.
  * - Error messages never hold the URL (`XtreamError`, `NetworkError`).
  * - Not `XtreamClient`: it would bring the list parser into the query worker.
  */
 
 import type { ContentKey, TextTransport, XtreamAccount, XtreamVodInfo } from '@lablo/core';
 import { decodeVodInfo, parseXtreamStreamUrl, xtreamApiUrl, xtreamJson } from '@lablo/core';
+import { PanelAnswers } from './panel-answers';
 
 /** How long a movie's answer is kept. */
 export const VOD_INFO_TTL_MS = 24 * 3_600_000;
@@ -50,35 +51,17 @@ export function vodInfoTarget(url: string, account: XtreamAccount | null): VodIn
 
 /** Asks panels for movies' details, and keeps each answer for `VOD_INFO_TTL_MS`. */
 export class VodInfoCache {
-  private readonly kept = new Map<ContentKey, { at: number; info: XtreamVodInfo | null }>();
-  private readonly running = new Map<ContentKey, Promise<XtreamVodInfo | null>>();
+  private readonly answers: PanelAnswers<XtreamVodInfo>;
 
   constructor(
     private readonly text: TextTransport,
-    private readonly now: () => number = () => Date.now(),
-  ) {}
+    now: () => number = () => Date.now(),
+  ) {
+    this.answers = new PanelAnswers<XtreamVodInfo>(VOD_INFO_TTL_MS, CACHE_SIZE, now);
+  }
 
   /** The movie's details (`null`: the panel doesn't know it), from the cache while its answer is under 24 h old. */
   info(key: ContentKey, target: VodInfoTarget): Promise<XtreamVodInfo | null> {
-    const hit = this.kept.get(key);
-    if (hit !== undefined && this.now() - hit.at < VOD_INFO_TTL_MS) return Promise.resolve(hit.info);
-    let request = this.running.get(key);
-    if (request === undefined) {
-      request = this.ask(key, target);
-      this.running.set(key, request);
-    }
-    return request;
-  }
-
-  private async ask(key: ContentKey, target: VodInfoTarget): Promise<XtreamVodInfo | null> {
-    try {
-      const info = decodeVodInfo(await xtreamJson(this.text, xtreamApiUrl(target.account, 'get_vod_info', { vod_id: target.vodId })));
-      this.kept.delete(key);
-      this.kept.set(key, { at: this.now(), info });
-      while (this.kept.size > CACHE_SIZE) this.kept.delete(this.kept.keys().next().value as ContentKey);
-      return info;
-    } finally {
-      this.running.delete(key);
-    }
+    return this.answers.get(key, async () => decodeVodInfo(await xtreamJson(this.text, xtreamApiUrl(target.account, 'get_vod_info', { vod_id: target.vodId }))));
   }
 }

@@ -223,7 +223,7 @@ describe('details', () => {
   const episode = (id: number, season: number, num: number) => ({ id: String(id), episode_num: num, title: `E${num}`, container_extension: 'mp4', info: { duration_secs: 300, plot: 'p', movie_image: `i${id}.png` }, season, added: '1761955200' });
   const seriesInfo = {
     seasons: [{ season_number: 1, name: 'Season 1', episode_count: 2, cover: 's1.png' }],
-    info: { name: 'Lablo Test Series', plot: 'Ours.', rating: '8', cover: 'c.png', backdrop_path: ['b.png'] },
+    info: { name: 'Lablo Test Series', plot: 'Ours.', rating: '8', cover: 'c.png', backdrop_path: ['b.png'], releaseDate: '2026-03-04' },
     episodes: { '2': [episode(3011, 2, 1)], '1': [episode(3002, 1, 2), episode(3001, 1, 1), episode(3001, 1, 1)] },
   };
 
@@ -239,7 +239,13 @@ describe('details', () => {
       { number: 1, name: 'Season 1', cover: 's1.png', episodeCount: 2 },
       { number: 2, name: '', cover: null, episodeCount: null },
     ]);
-    expect(decoded).toMatchObject({ name: 'Lablo Test Series', rating: 8, cover: 'c.png', backdrops: ['b.png'], skipped: 1 });
+    expect(decoded).toMatchObject({ name: 'Lablo Test Series', releaseDate: '2026-03-04', rating: 8, cover: 'c.png', backdrops: ['b.png'], skipped: 1 });
+    // The release date under the panels' other spellings, or none.
+    const dated = (info: Record<string, unknown>) => decodeSeriesInfo({ ...seriesInfo, info }, ctx)!.releaseDate;
+    expect(dated({ release_date: '2019-05-06' })).toBe('2019-05-06');
+    expect(dated({ releasedate: ' 2018 ' })).toBe('2018');
+    expect(dated({ releaseDate: '', release_date: '2017-01-01' })).toBe('2017-01-01');
+    expect(dated({})).toBe('');
   });
 
   it('reads episodes as an array of arrays, a flat array or index-keyed objects', () => {

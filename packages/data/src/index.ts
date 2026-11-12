@@ -165,6 +165,11 @@ export { LOGIN_REFUSED, checkAccount, sourceAccount } from './account-check';
 export type { VodInfoRequest, VodInfoTarget } from './vod-info';
 export { VOD_INFO_TTL_MS, VodInfoCache, vodInfoTarget } from './vod-info';
 
+export type { SeriesInfoRequest, SeriesInfoTarget } from './series-info';
+export { SERIES_INFO_TTL_MS, SeriesInfoCache, seriesInfoTarget } from './series-info';
+
+export { PanelAnswers } from './panel-answers';
+
 export type { EpgIngestOptions, EpgOutcome, EpgProgress, EpgRefreshJob, EpgRefreshResult, EpgResult, EpgSwap, EpgWanted } from './epg-ingest';
 export { EPG_INGEST_VERSION, EPG_WRITE_BATCH, readEpgWanted, runEpgIngest, runEpgRefresh } from './epg-ingest';
 

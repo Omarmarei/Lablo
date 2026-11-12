@@ -555,12 +555,11 @@ export function createMovies(options: MoviesOptions): Movies {
 /**
  * OK on a tile of the series screen (step 27a). A playlist's episode has its own URL: it opens as
  * a movie does (`episode`: the movie details, play, resume by its key). An Xtream show has none
- * (its episodes come from `get_series_info`): it opens its own details (`show`, step 27b; until
- * then nothing).
+ * (its episodes come from `get_series_info`): it opens its own details (`show`, step 27b).
  */
-export function selectSeries(item: CatalogItem, open: { readonly episode: (item: CatalogItem) => void; readonly show?: (item: CatalogItem) => void }): void {
+export function selectSeries(item: CatalogItem, open: { readonly episode: (item: CatalogItem) => void; readonly show: (item: CatalogItem) => void }): void {
   if (item.url !== '') open.episode(item);
-  else open.show?.(item);
+  else open.show(item);
 }
 
 /** A trailing season and episode mark: "S01 E01", "S1E2", "s01.e01", after a space or a separator. */

@@ -36,6 +36,9 @@
  *   `account-check.ts`).
  * - `vodInfo` gives a movie's details from its Xtream panel's `get_vod_info` when they open (step
  *   26c), kept 24 h per movie (`vod-info.ts`); `null` for a movie with no panel.
+ * - `seriesInfo` gives a show's seasons and episodes from its Xtream panel's `get_series_info`
+ *   when its details open (step 27b), kept 24 h per show (`series-info.ts`); `null` for a show
+ *   with no panel.
  * - `recent` gives the newest movies across the sources asked ("Recently added", step 26e; series
  *   too since step 27a): each active generation's list kept at ingest (`recent.ts`), merged; no
  *   chunk is read.
@@ -47,7 +50,7 @@
  * in `status().stale`, so the ingest can rebuild it.
  */
 
-import type { CatalogItem, ContentKey, ContentKind, EpgBucket, EpgMatchMethod, EpgOverride, EpgProgramme, EpgSchedule, FavouriteMarks, SearchResult, XtreamVodInfo } from '@lablo/core';
+import type { CatalogItem, ContentKey, ContentKind, EpgBucket, EpgMatchMethod, EpgOverride, EpgProgramme, EpgSchedule, FavouriteMarks, SearchResult, XtreamSeriesInfo, XtreamVodInfo } from '@lablo/core';
 import { CONTENT_KINDS, SearchSegment, combineEpgMatches, epgDay, epgNowNext, epgProgrammeAt, epgSchedule, favouriteMarks, normalizeName, searchSegments } from '@lablo/core';
 import type { CategoryInfo } from './chunker';
 import type { ChunkKey, SourceMeta } from './catalog-store';
@@ -67,6 +70,8 @@ import { checkAccount, sourceAccount } from './account-check';
 import type { SourceRecord } from './profile';
 import type { VodInfoRequest } from './vod-info';
 import { VodInfoCache, vodInfoTarget } from './vod-info';
+import type { SeriesInfoRequest } from './series-info';
+import { SeriesInfoCache, seriesInfoTarget } from './series-info';
 import type { RecentItem } from './recent';
 import { RECENT_MAX, mergeRecent } from './recent';
 
@@ -328,11 +333,13 @@ export class QueryService {
   private declaredLists = new Map<string, Promise<EpgDeclaredChannels>>();
   private readonly panelEpg: ShortEpgCache | null;
   private readonly vodInfos: VodInfoCache | null;
+  private readonly seriesInfos: SeriesInfoCache | null;
 
   constructor(private readonly options: QueryServiceOptions) {
     this.cacheSize = Math.max(1, options.chunkCache ?? 16);
     this.panelEpg = options.transport ? new ShortEpgCache(options.transport, () => this.clock()) : null;
     this.vodInfos = options.transport ? new VodInfoCache(textTransport(options.transport), () => this.clock()) : null;
+    this.seriesInfos = options.transport ? new SeriesInfoCache(textTransport(options.transport), () => this.clock()) : null;
   }
 
   private clock(): number {
@@ -358,6 +365,7 @@ export class QueryService {
       shortEpg: (req: ShortEpgRequest): Promise<ShortEpgNowNext> => this.shortEpg(req),
       account: (arg: { src: string }): Promise<AccountCheck | null> => this.account(arg.src),
       vodInfo: (req: VodInfoRequest): Promise<XtreamVodInfo | null> => this.vodInfo(req),
+      seriesInfo: (req: SeriesInfoRequest): Promise<XtreamSeriesInfo | null> => this.seriesInfo(req),
       recent: (req: RecentRequest): Promise<RecentItem[]> => this.recent(req),
       profile: (): Promise<LoadedProfile | null> => this.profile(),
       editProfile: (edit: ProfileEdit): Promise<boolean> => this.editProfile(edit),
@@ -751,6 +759,19 @@ export class QueryService {
     const record = await this.sourceRecord(req.src);
     const target = record === null ? null : vodInfoTarget(req.url, sourceAccount(record));
     return target === null ? null : this.vodInfos.info(req.key, target);
+  }
+
+  /**
+   * A show's seasons and episodes (step 27b): its Xtream panel's `get_series_info`, kept 24 h per
+   * show; `null` when its source isn't stored or has no panel, its key is no Xtream show's of
+   * that source, the panel doesn't know it, or the worker has no network. Rejects with the
+   * panel's other errors (`XtreamError`, `NetworkError`), which never hold the URL and aren't kept.
+   */
+  async seriesInfo(req: SeriesInfoRequest): Promise<XtreamSeriesInfo | null> {
+    if (this.seriesInfos === null) return null;
+    const record = await this.sourceRecord(req.src);
+    const target = record === null ? null : seriesInfoTarget(req.src, req.key, sourceAccount(record));
+    return target === null ? null : this.seriesInfos.info(req.src, req.key, target);
   }
 
   /**

@@ -153,6 +153,12 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'series.empty': 'لا توجد مسلسلات في مصادرك.',
   'series.failed': 'تعذّرت قراءة مسلسلاتك.',
 
+  'show.reading': 'جارٍ قراءة حلقات المسلسل',
+  'show.failed': 'تعذّرت قراءة حلقات هذا المسلسل.',
+  'show.noEpisodes': 'لا توجد حلقات لهذا المسلسل بعد.',
+  'show.season': 'الموسم {n}',
+  'show.episode': 'الحلقة {n}',
+
   'movie.play': 'تشغيل',
   'movie.resume': 'استئناف من {time}',
   'movie.restart': 'التشغيل من البداية',

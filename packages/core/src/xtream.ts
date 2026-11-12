@@ -411,6 +411,8 @@ export interface XtreamSeriesInfo {
   genre: string;
   cast: string;
   director: string;
+  /** As the panel writes it (`2026-01-01`, `2026`; `''`: none). */
+  releaseDate: string;
   rating: number | null;
   cover: string | null;
   backdrops: string[];
@@ -495,6 +497,7 @@ export function decodeSeriesInfo(v: unknown, ctx: XtreamDecodeContext): XtreamSe
     genre: cutText(xText(info['genre'])),
     cast: cutText(xText(info['cast']), 1000),
     director: cutText(xText(info['director'])),
+    releaseDate: xText(info['releaseDate']) || xText(info['release_date']) || xText(info['releasedate']),
     rating: ratingOf(info),
     cover: textOrNull(info['cover']),
     backdrops: stringList(info['backdrop_path']),
