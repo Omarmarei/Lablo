@@ -1,0 +1,101 @@
+/*
+ * The search screen (RELAY step 28a): 1920x1080, everything inside the title-safe margins
+ * (96 x 54 px), as the settings screens: a 56 px header and a 24 px gap, the search field (150 px)
+ * and a 16 px gap, then 7 rows of 88 px with 8 px gaps (SEARCH in search-state.ts). Physical
+ * properties for LTR: postcss-rtlcss mirrors them.
+ */
+.search {
+  display: flex;
+  flex-direction: column;
+  width: var(--screen-width);
+  height: var(--screen-height);
+  padding: var(--safe-y) var(--safe-x);
+  overflow: hidden;
+}
+
+.search__header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: 56px;
+  margin-bottom: var(--space-5);
+}
+
+.search__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+  font-weight: var(--font-weight-bold);
+}
+
+.search__count {
+  flex: none;
+  margin-left: var(--space-7);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+}
+
+.search__field {
+  flex: none;
+  height: 150px;
+  margin-bottom: var(--space-4);
+}
+
+.search__list {
+  flex: none;
+}
+
+.search__row {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 100%;
+  padding: 0 var(--space-6);
+  border: var(--focus-ring) solid transparent;
+  border-radius: var(--radius-m);
+  background: var(--color-surface);
+}
+
+.search__row.is-memory {
+  border-color: var(--color-border-memory);
+}
+
+.search__row.is-focused {
+  border-color: var(--color-focus);
+  background: var(--color-surface-focus);
+}
+
+.search__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* A name is data (dir=auto): on the page's side all the same. */
+.search__name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.search__where {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.search__kind {
+  color: var(--color-accent);
+}

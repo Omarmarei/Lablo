@@ -21,11 +21,14 @@ import { MOVIE_SCREEN } from '../movies/movie-details';
 import { ShowDetailsScreen } from '../shows/ShowDetailsScreen';
 import type { ShowDetails } from '../shows/show-details';
 import { SHOW_SCREEN } from '../shows/show-details';
+import { SearchScreen } from '../search/SearchScreen';
+import type { Search } from '../search/search-state';
+import { SEARCH_SCREEN } from '../search/search-state';
 import { SettingsScreen } from '../settings/SettingsScreen';
 import type { Settings } from '../settings/settings-state';
 import { SETTINGS_SCREENS } from '../settings/settings-state';
 import type { Live, LiveRow, RailEntry } from './live-state';
-import { HEADER_GUIDE, HEADER_MOVIES, HEADER_SERIES, HEADER_SETTINGS, LIVE } from './live-state';
+import { HEADER_GUIDE, HEADER_MOVIES, HEADER_SEARCH, HEADER_SERIES, HEADER_SETTINGS, LIVE } from './live-state';
 import './live.css';
 
 const MINUTE_MS = 60_000;
@@ -81,6 +84,7 @@ function LiveScreen({
   series,
   details,
   show,
+  search,
 }: {
   live: Live;
   i18n: AppI18n;
@@ -91,6 +95,7 @@ function LiveScreen({
   series: Movies | null;
   details: MovieDetails | null;
   show: ShowDetails | null;
+  search: Search | null;
 }) {
   const { t } = i18n;
   const { binding, home } = live;
@@ -109,6 +114,8 @@ function LiveScreen({
   if (details !== null && focus.screen === MOVIE_SCREEN) return <MovieDetailsScreen details={details} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} />;
   // A show's details (step 27b) paint instead of the series screen.
   if (show !== null && focus.screen === SHOW_SCREEN) return <ShowDetailsScreen details={show} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} />;
+  // The search (step 28a) paints instead of the live screen; the player and the details open over it.
+  if (search !== null && focus.screen === SEARCH_SCREEN) return <SearchScreen search={search} i18n={i18n} binding={binding} focus={focus} />;
   const status = live.status.value;
   const entries = live.rail.value;
   const shown = live.category.value;
@@ -158,6 +165,7 @@ function LiveScreen({
           <Button label={t('guide.open')} {...header.item(HEADER_GUIDE)} testId="live-guide" />
           <Button label={t('movies.open')} {...header.item(HEADER_MOVIES)} testId="live-movies" />
           <Button label={t('series.open')} {...header.item(HEADER_SERIES)} testId="live-series" />
+          <Button label={t('search.open')} {...header.item(HEADER_SEARCH)} testId="live-search" />
           <Button label={t('settings.open')} {...header.item(HEADER_SETTINGS)} testId="live-settings" />
         </div>
       </header>
@@ -236,13 +244,15 @@ interface Props {
   readonly details?: MovieDetails | null;
   /** A show's details, opened from the series screen (step 27b; `null`: none paint). */
   readonly show?: ShowDetails | null;
+  /** The search the header's "Search" opens (step 28a; `null`: none paints). */
+  readonly search?: Search | null;
 }
 
 /**
  * The live screen in the language picked in onboarding, in the TV's region (the formats keep
  * the region's), or the TV's own when none was picked.
  */
-export function LiveApp({ platform, live, language, player = null, settings = null, guide = null, movies = null, series = null, details = null, show = null }: Props) {
+export function LiveApp({ platform, live, language, player = null, settings = null, guide = null, movies = null, series = null, details = null, show = null, search = null }: Props) {
   const i18n = useSignal<AppI18n | null>(null);
   useEffect(() => {
     let closed = false;
@@ -273,5 +283,5 @@ export function LiveApp({ platform, live, language, player = null, settings = nu
       </main>
     );
   }
-  return <LiveScreen live={live} i18n={i18n.value} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} />;
+  return <LiveScreen live={live} i18n={i18n.value} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} />;
 }

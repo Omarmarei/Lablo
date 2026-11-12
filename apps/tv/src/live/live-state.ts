@@ -19,8 +19,8 @@ import { ChannelIndex, chunkId } from './channel-index';
  *   rail      ("All channels", then each source's live categories; OK shows one)
  *   channels  (the category's channels: a virtual list; OK opens the player, step 20a)
  *   retry     (one button, only when the categories couldn't be read)
- *   header    ("Guide", "Movies", "Series" and "Settings" at the header's end, steps 23c, 26a,
- *              27a and 22b2: UP
+ *   header    ("Guide", "Movies", "Series", "Search" and "Settings" at the header's end, steps
+ *              23c, 26a, 27a, 28a and 22b2: UP
  *              from the first row of the rail, the list or "Try again"; DOWN or Back goes
  *              back where it came from)
  *
@@ -39,6 +39,8 @@ import { ChannelIndex, chunkId } from './channel-index';
  * - **The start on the last channel** (step 20c1): the first load shows the category the last
  *   channel played from (`startCategory`), and `list.locate` finds the channel's row once the list
  *   is in, for the player that is already playing it.
+ * - **A channel the search found** (step 28a, `playFound`): the list shows its category, on its
+ *   row, and the player opens it, so CH+/CH− zap through its group.
  * - **Refreshes while it shows** (step 22a): after a guide swapped in (`guidesChanged`), now/next
  *   is asked again for the rows on show and the player's channels; each row keeps its answer
  *   until the new one comes. After a catalog swapped in (`catalogChanged`), the sources and
@@ -141,6 +143,17 @@ export interface LiveOptions {
   readonly openMovies?: () => void;
   /** OK on the header's "Series" button (step 27a): the series screen opens. */
   readonly openSeries?: () => void;
+  /** OK on the header's "Search" button (step 28a): the search screen opens. */
+  readonly openSearch?: () => void;
+}
+
+/** Where the search found a channel (step 28a: a `SearchHit`'s place, and the item's key). */
+export interface FoundChannel {
+  readonly key: ContentKey;
+  readonly src: string;
+  readonly catIdx: number;
+  readonly chunk: number;
+  readonly slot: number;
 }
 
 /** The list on show as the player (`ZapList`) and the guide (step 23c) read it. */
@@ -177,6 +190,12 @@ export interface Live {
   guide(key: ContentKey): EpgNowNext | undefined;
   /** Focuses row `index` of the list (the channel the player played last). */
   focusRow(index: number): void;
+  /**
+   * Plays a channel the search found (step 28a): the list shows its category, focused on it, and
+   * the player opens it. `false` (nothing played) when the list isn't ready, the category is gone,
+   * or the channel isn't in it any more.
+   */
+  playFound(found: FoundChannel): Promise<boolean>;
   /** The rail entry on show as the profile keeps it (`null`: "All channels", or nothing yet). */
   shownCategory(): RailRef;
   /** A remote key was pressed (a running refresh pauses). */
@@ -216,18 +235,20 @@ function retryZone(count: number): ZoneSpec {
 }
 
 /**
- * The header's buttons: "Guide" (step 23c), "Movies" (step 26a), "Series" (step 27a), then
- * "Settings" (step 22b2). DOWN is the screen's (back where it came from).
+ * The header's buttons: "Guide" (step 23c), "Movies" (step 26a), "Series" (step 27a), "Search"
+ * (step 28a), then "Settings" (step 22b2). DOWN is the screen's (back where it came from).
  */
-const HEADER_ZONE: ZoneSpec = { kind: 'list', id: 'header', axis: 'horizontal', count: 4 };
+const HEADER_ZONE: ZoneSpec = { kind: 'list', id: 'header', axis: 'horizontal', count: 5 };
 /** The header's "Guide" button. */
 export const HEADER_GUIDE = 0;
 /** The header's "Movies" button. */
 export const HEADER_MOVIES = 1;
 /** The header's "Series" button. */
 export const HEADER_SERIES = 2;
+/** The header's "Search" button. */
+export const HEADER_SEARCH = 3;
 /** The header's "Settings" button. */
-export const HEADER_SETTINGS = 3;
+export const HEADER_SETTINGS = 4;
 
 /** The rail: "All channels", then every category with channels, source by source. */
 export function railEntries(sources: readonly { src: string; categories: readonly CategoryInfo[] }[]): RailEntry[] {
@@ -560,6 +581,51 @@ export function createLive(options: LiveOptions): Live {
     return findRow(guess, (item) => item.key === key);
   };
 
+  /**
+   * Under another screen (the search, step 28a), the live screen keeps the zone it had, `zone` on
+   * `place`, when the list's focus moved: Back from the search lands on the header's "Search".
+   */
+  const keepZone = (zone: string, place: number): void => {
+    if (nav.top !== home && zone !== 'channels') home.focus(zone, place);
+  };
+
+  /** Focuses row `i` of the list (the channel the player played last; under the search, the live screen's zone stays). */
+  const focusRow = (i: number): void => {
+    const zone = home.active;
+    const place = home.position(zone).index;
+    home.focus('channels', i);
+    keepZone(zone, place);
+  };
+
+  /**
+   * Plays a channel the search found (step 28a), once the load running now is done: the rail entry
+   * of its source's category is shown, its row found from where the hit
+   * says (the search reads on through the category for a hit of an older generation), focused,
+   * and played. Under the search, the screen's active zone stays (`keepZone`).
+   */
+  const playFound = async (found: FoundChannel): Promise<boolean> => {
+    await loaded;
+    if (disposed || status.value !== 'ready') return false;
+    const entries = rail.value;
+    let at = -1;
+    for (let i = 1; i < entries.length; i += 1) {
+      const part = entries[i]!.parts[0]!;
+      if (part.src === found.src && part.catIdx === found.catIdx) at = i;
+    }
+    if (at === -1) return false;
+    const zone = home.active;
+    const place = home.position(zone).index;
+    showCategory(at);
+    // (A chunk the category doesn't have gives -1: the search then starts near its top.)
+    const row = await findRow(index.firstRow({ src: found.src, catIdx: found.catIdx, chunk: found.chunk }) + found.slot, (item) => item.key === found.key);
+    if (row !== -1) home.focus('channels', row);
+    keepZone(zone, place);
+    if (row === -1) return false;
+    selected.value = found.key;
+    options.play?.(row);
+    return true;
+  };
+
   /** Now/next for one channel the list didn't ask (the player's info bar); kept fresh from then on. */
   const askGuide = (key: ContentKey): void => {
     const known = extraGuides.indexOf(key);
@@ -759,6 +825,8 @@ export function createLive(options: LiveOptions): Live {
       onSelect: (focus) => {
         if (focus.zone === 'header') {
           if (focus.index === HEADER_SETTINGS) options.openSettings?.();
+          // The search reads its own data, as the movies screen does.
+          else if (focus.index === HEADER_SEARCH) options.openSearch?.();
           // The movies and series screens read their own data: they open in every state of the list.
           else if (focus.index === HEADER_MOVIES) options.openMovies?.();
           else if (focus.index === HEADER_SERIES) options.openSeries?.();
@@ -819,7 +887,8 @@ export function createLive(options: LiveOptions): Live {
     list,
     row: rowAt,
     guide: (key) => guides.get(key)?.value,
-    focusRow: (i) => home.focus('channels', i),
+    focusRow,
+    playFound,
     shownCategory,
     activity: () => engine.noteActivity(),
     reload: load,

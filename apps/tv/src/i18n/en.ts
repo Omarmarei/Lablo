@@ -174,6 +174,23 @@ export const EN = {
   'series.empty': 'Your sources have no series.',
   'series.failed': "Couldn't read your series.",
 
+  // The search screen (RELAY step 28a): the channels, movies and series whose names hold every word typed.
+  'search.open': 'Search',
+  'search.title': 'Search',
+  'search.field': 'Channels, movies and series',
+  'search.hint': 'Part of a name, in any language',
+  'search.none': 'Nothing has these words.',
+  'search.failed': "Couldn't search your sources.",
+  'search.count': '{n, plural, one {# result} other {# results}}',
+  // More matched than are listed: the best {n} are listed, of {total} that matched.
+  'search.more': 'The best {n} of {total}',
+  // A result's kind.
+  'search.live': 'Channel',
+  'search.movie': 'Movie',
+  'search.series': 'Series',
+  // A playlist's series line: one episode.
+  'search.episode': 'Episode',
+
   // A show's details (RELAY step 27b): its seasons and episodes, read from the panel.
   'show.reading': "Reading the show's episodes",
   'show.failed': "Couldn't read this show's episodes.",

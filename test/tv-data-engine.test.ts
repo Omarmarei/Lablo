@@ -6,7 +6,7 @@
 // `setBusy`, and now/next from the stored guides.
 
 import type { RpcHandlers } from '@lablo/data';
-import { EPG_REFRESH_MS, EpgService, IngestService, QueryService, STORE, getSources, newSourceMeta, openDatabase, serveRpc } from '@lablo/data';
+import { CancelSource, EPG_REFRESH_MS, EpgService, IngestService, QueryService, STORE, getSources, newSourceMeta, openDatabase, serveRpc } from '@lablo/data';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { WorkerLike } from '../apps/tv/src/data/engine';
 import { DataEngine } from '../apps/tv/src/data/engine';
@@ -219,6 +219,27 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     expect(again).toMatchObject({ status: 'unchanged', gen: 1 });
     expect(s.started.ingest).toBe(3);
     expect((await s.engine.search('news')).total).toBe(300);
+  });
+
+  it("finds the search screen's hits in the sources asked, cancellable, and reads their items (step 28a)", async () => {
+    const s = setup(() => ({ body: playlist(40) }));
+    await s.engine.start();
+    await s.engine.refresh(job());
+    const result = await s.engine.find({ query: 'sky news', sources: ['debug'], limit: 5 });
+    expect(result.total).toBe(10);
+    expect(result.hits).toHaveLength(5);
+    const items = await s.engine.items(result.hits.map((h) => ({ src: h.src, kind: h.kind, gen: h.gen, catIdx: h.catIdx, chunk: h.chunk, slot: h.slot })));
+    expect(items).toHaveLength(5);
+    for (const found of items) expect(found!.name).toMatch(/^Sky News \d+$/);
+    // A source not asked lists nothing.
+    expect((await s.engine.find({ query: 'sky news', sources: ['other'] })).total).toBe(0);
+    // Cancelled: rejected, never answered.
+    const cancel = new CancelSource();
+    const running = s.engine.find({ query: 'channel' }, cancel.token);
+    cancel.cancel();
+    await expect(running).rejects.toMatchObject({ code: 'cancelled' });
+    expect((await s.engine.find({ query: 'channel' }, new CancelSource().token)).total).toBe(30);
+    expect((await s.engine.find({ query: 'channel' })).total).toBe(30);
   });
 
   it("hands out each source's allowed_output_formats and panel zone from the sources' records (steps 20c2a, 25a)", async () => {
