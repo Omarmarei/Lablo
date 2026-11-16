@@ -243,6 +243,8 @@ describe('Home (RELAY step 28b1): the layout', () => {
     expect(HOME_BODY - (2 * SHELF_HEIGHT + HOME.shelfGap)).toBeGreaterThanOrEqual(0);
     expect(HOME_TILES).toBe(8);
     expect(8 * LAYOUT.posterWidth + 7 * HOME.tileGap).toBeLessThanOrEqual(LIVE.width);
+    // home.css uses the same numbers.
+    expect(HOME).toEqual({ headerHeight: 56, headerGap: 24, titleHeight: 44, titleGap: 12, tileGap: 24, shelfGap: 32 });
     expect(SHELF_ORDER).toEqual([HOME_CONTINUE, HOME_MOVIES, HOME_SERIES]);
     expect(HOME_SHELF_MAX).toBe(20);
     expect(CONTINUE_MAX).toBe(HOME_SHELF_MAX);
@@ -647,6 +649,7 @@ describe('Home (RELAY step 28b1): read again', () => {
     await flush();
     expect(t.home.status.value).toBe('failed');
     // Nothing of the shelves before is held: "Try again" alone.
+    expect(t.home.shelves.value).toEqual([]);
     expect(t.home.item(HOME_MOVIES, 0)).toBeNull();
     expect(t.home.screen.value!.zone(HOME_MOVIES)).toMatchObject({ count: 0 });
     expect(t.at()).toBe('home · retry 0');
@@ -739,6 +742,30 @@ describe('Home (RELAY step 28b1): read again', () => {
     expect(u.home.screen.value!.zone(HOME_RETRY)).toMatchObject({ count: 0 });
   });
 
+  it('takes the newest of two "Continue watching" reads', async () => {
+    const t = await setup();
+    t.engine.hold = new Set(['keys']);
+    await t.away([keyOf(1)]);
+    await t.away([keyOf(2)]);
+    expect(t.engine.held.keys).toHaveLength(4);
+    const older = t.engine.held.keys.splice(0, 2);
+    for (const held of t.engine.held.keys.splice(0)) held.resolve(held.arg === 'movie' ? [LEFT[2]!] : []);
+    await flush();
+    expect(t.shelf(HOME_CONTINUE)).toEqual(['Movie 51']);
+    for (const held of older) held.resolve(held.arg === 'movie' ? [] : [LEFT[1]!]);
+    await flush();
+    expect(t.shelf(HOME_CONTINUE)).toEqual(['Movie 51']);
+  });
+
+  it('reads nothing on a swap once disposed', async () => {
+    const t = await setup();
+    t.home.dispose();
+    t.home.catalogChanged();
+    await flush();
+    expect(t.engine.recentCalls).toHaveLength(2);
+    expect(t.home.pending.value).toBe(0);
+  });
+
   it("drops a refresh's answer once disposed", async () => {
     const t = await setup();
     t.engine.hold = new Set(['keys']);
@@ -820,13 +847,52 @@ describe('Home (RELAY step 28b1): the posters', () => {
 
   it('draws the title of a poster that failed; the low tier rests longer and asks two at a time', async () => {
     const t = await setup({ tier: 'low' });
-    await t.rest();
+    t.clock.advance(POSTER_TIERS.full.restMs);
+    await flush();
+    expect(t.withPosters(HOME_CONTINUE, 0, 3)).toEqual([]);
+    t.clock.advance(POSTER_TIERS.low.restMs - POSTER_TIERS.full.restMs);
+    await flush();
     expect(t.withPosters(HOME_CONTINUE, 0, 3)).toEqual([0, 1]);
     const url = t.home.poster(HOME_CONTINUE, 0)!;
     t.home.posterFailed(url);
     expect(t.home.poster(HOME_CONTINUE, 0)).toBeUndefined();
     expect(t.withPosters(HOME_CONTINUE, 0, 3)).toEqual([1, 2]);
     expect(POSTER_TIERS.low).toEqual({ restMs: 300, parallel: 2 });
+  });
+
+  it("asks the focused shelf's posters first when it is the lower one in view", async () => {
+    const engine = new FakeEngine();
+    engine.newest = { movie: dated('movie', 12), series: [] };
+    for (const item of LEFT) engine.known[item.key] = item;
+    const t = await setup({ engine });
+    await t.press('DOWN');
+    await t.rest();
+    expect(t.withPosters(HOME_MOVIES, 0, 12)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(t.withPosters(HOME_CONTINUE, 0, 3)).toEqual([]);
+  });
+
+  it('rests again after a "Continue watching" read that came after the rest', async () => {
+    const t = await setup();
+    await t.rest();
+    t.engine.hold = new Set(['keys']);
+    t.engine.known['x:s2:movie:70'] = entry('s2', 'movie', 70);
+    await t.away(['x:s2:movie:70', keyOf(1), keyOf(2)]);
+    await t.rest();
+    expect(t.clock.pending()).toBe(0);
+    for (const held of t.engine.held.keys.splice(0)) held.resolve(held.arg === 'movie' ? [t.engine.known['x:s2:movie:70']!, LEFT[2]!] : [LEFT[1]!]);
+    await flush();
+    expect(t.shelf(HOME_CONTINUE)).toEqual(['Movie 70', 'Show 60', 'Movie 51']);
+    expect(t.clock.pending()).toBe(1);
+    await t.rest();
+    expect(t.home.poster(HOME_CONTINUE, 0)).toBe('http://img.test/s2/movie/70.jpg');
+  });
+
+  it('asks no poster for keys on a screen over it', async () => {
+    const t = await setup();
+    await t.rest();
+    t.nav.push({ id: 'movie', zones: [{ kind: 'list', id: 'actions', axis: 'horizontal', count: 2 }] });
+    await t.press('RIGHT');
+    expect(t.clock.pending()).toBe(0);
   });
 
   it('starts no poster while keys go down: the ones waiting wait for the next rest', async () => {
