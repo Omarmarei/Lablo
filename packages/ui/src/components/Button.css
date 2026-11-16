@@ -35,6 +35,20 @@
   fill: currentColor;
 }
 
+/*
+ * An icon-only button (RELAY step 28b1): a square, as wide as it is tall, the icon in its middle.
+ * Its name is its aria-label.
+ */
+.z-button--icon {
+  justify-content: center;
+  width: 72px;
+  padding: 0;
+}
+
+.z-button--icon .z-button__icon {
+  margin-right: 0;
+}
+
 .z-button__label {
   overflow: hidden;
   text-overflow: ellipsis;

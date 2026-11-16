@@ -68,6 +68,40 @@ describe('Button', () => {
     expect(el.children.map((c) => (typeof c === 'string' ? c : c.props.class))).toEqual(['z-button__icon', 'z-button__label']);
   });
 
+  it('draws an icon alone (step 28b1): no visible label, its name in aria-label, square', () => {
+    const onPress = vi.fn();
+    const el = expand(Button({ label: 'Search', icon: h('svg', { id: 'magnifier' }), iconOnly: true, onPress, testId: 's' }));
+    expect(el.props).toMatchObject({ class: 'z-button z-button--secondary z-button--icon', role: 'button', 'aria-label': 'Search', 'data-testid': 's', 'data-state': 'idle' });
+    expect(el.props.onClick).toBe(onPress);
+    // Nothing to read on screen: the icon only.
+    expect(text(el)).toBe('');
+    expect(byClass(el, 'z-button__label')).toHaveLength(0);
+    expect(el.children.map((c) => (typeof c === 'string' ? c : c.props.class))).toEqual(['z-button__icon']);
+    expect(one(el, 'z-button__icon').children.map((c) => (typeof c === 'string' ? c : c.props.id))).toEqual(['magnifier']);
+  });
+
+  it.each([
+    ['focused', 'z-button z-button--secondary z-button--icon is-focused'],
+    ['memory', 'z-button z-button--secondary z-button--icon is-memory'],
+    ['idle', 'z-button z-button--secondary z-button--icon'],
+  ] as const)('draws an icon-only button %s', (state, cls) => {
+    const el = expand(Button({ label: 'Settings', icon: h('svg', null), iconOnly: true, state }));
+    expect(el.props.class).toBe(cls);
+    expect(el.props['data-state']).toBe(state);
+    expect(el.props['aria-label']).toBe('Settings');
+  });
+
+  it('shows the label of a button with an icon that is not icon-only, and of an icon-only one without an icon', () => {
+    const shown = expand(Button({ label: 'Play', icon: h('svg', null) }));
+    expect(shown.props['aria-label']).toBeUndefined();
+    expect(text(shown)).toBe('Play');
+    // (No icon to draw: the label stays, so the button is never empty.)
+    const bare = expand(Button({ label: 'Search', iconOnly: true }));
+    expect(bare.props.class).toBe('z-button z-button--secondary');
+    expect(bare.props['aria-label']).toBeUndefined();
+    expect(text(bare)).toBe('Search');
+  });
+
   it('can be disabled: dimmed, focusable, not clickable', () => {
     const el = expand(Button({ label: 'Delete', variant: 'danger', disabled: true, state: 'memory', onPress: vi.fn(), onHover: vi.fn() }));
     expect(el.props.class).toBe('z-button z-button--danger is-disabled is-memory');
