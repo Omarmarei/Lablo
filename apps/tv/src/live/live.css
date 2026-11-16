@@ -75,9 +75,15 @@
   padding: 0 var(--space-5);
 }
 
-/* "Guide", "Movies" (step 26a), "Series" (step 27a), "Search" (step 28a), then "Settings" (step 23c). */
+/* "Guide", "Movies" (step 26a), "Series" (step 27a), "Home" (step 28b1), "Search" (step 28a), then "Settings" (step 23c). */
 .live__end .z-button + .z-button {
   margin-left: var(--space-4);
+}
+
+/* "Search" and "Settings" are icons (step 28b1, to fit "Home" in en-XA): squares as tall as the header. */
+.live__end .z-button--icon {
+  width: 56px;
+  padding: 0;
 }
 
 .live__body {

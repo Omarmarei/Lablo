@@ -8,6 +8,9 @@ import { GuideScreen } from '../guide/GuideScreen';
 import type { Guide } from '../guide/guide-state';
 import { GUIDE_SCREEN } from '../guide/guide-state';
 import { DETAILS_SCREEN } from '../guide/programme-details';
+import { HomeScreen } from '../home/HomeScreen';
+import type { Home } from '../home/home-state';
+import { HOME_SCREEN } from '../home/home-state';
 import type { AppI18n } from '../i18n';
 import { appI18n, switchedTag } from '../i18n';
 import type { Player } from '../player/player-state';
@@ -28,8 +31,28 @@ import { SettingsScreen } from '../settings/SettingsScreen';
 import type { Settings } from '../settings/settings-state';
 import { SETTINGS_SCREENS } from '../settings/settings-state';
 import type { Live, LiveRow, RailEntry } from './live-state';
-import { HEADER_GUIDE, HEADER_MOVIES, HEADER_SEARCH, HEADER_SERIES, HEADER_SETTINGS, LIVE } from './live-state';
+import { HEADER_GUIDE, HEADER_HOME, HEADER_MOVIES, HEADER_SEARCH, HEADER_SERIES, HEADER_SETTINGS, LIVE } from './live-state';
 import './live.css';
+
+/** The header's "Search" (step 28b1): a magnifier, ours, drawn in the text's colour. */
+const SEARCH_ICON = (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+      <circle cx="10" cy="10" r="6.5" />
+      <path d="M15 15l6 6" />
+    </g>
+  </svg>
+);
+
+/** The header's "Settings" (step 28b1): a gear, ours, drawn in the text's colour. */
+const SETTINGS_ICON = (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path
+      fill-rule="evenodd"
+      d="M19.5 10 22.4 10.4 22.4 13.6 19.5 14 18.8 15.9 20.5 18.2 18.2 20.5 15.9 18.8 14 19.5 13.6 22.4 10.4 22.4 10 19.5 8.1 18.8 5.8 20.5 3.5 18.2 5.2 15.9 4.5 14 1.6 13.6 1.6 10.4 4.5 10 5.2 8.1 3.5 5.8 5.8 3.5 8.1 5.2 10 4.5 10.4 1.6 13.6 1.6 14 4.5 15.9 5.2 18.2 3.5 20.5 5.8 18.8 8.1zM12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 1 0 0-7z"
+    />
+  </svg>
+);
 
 const MINUTE_MS = 60_000;
 
@@ -85,6 +108,7 @@ function LiveScreen({
   details,
   show,
   search,
+  shelves,
 }: {
   live: Live;
   i18n: AppI18n;
@@ -96,6 +120,8 @@ function LiveScreen({
   details: MovieDetails | null;
   show: ShowDetails | null;
   search: Search | null;
+  /** Home (step 28b1): its shelves (`live.home` is the live screen itself). */
+  shelves: Home | null;
 }) {
   const { t } = i18n;
   const { binding, home } = live;
@@ -116,6 +142,8 @@ function LiveScreen({
   if (show !== null && focus.screen === SHOW_SCREEN) return <ShowDetailsScreen details={show} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} />;
   // The search (step 28a) paints instead of the live screen; the player and the details open over it.
   if (search !== null && focus.screen === SEARCH_SCREEN) return <SearchScreen search={search} i18n={i18n} binding={binding} focus={focus} />;
+  // Home (step 28b1) paints instead of the live screen; the details open over it.
+  if (shelves !== null && focus.screen === HOME_SCREEN) return <HomeScreen home={shelves} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} />;
   const status = live.status.value;
   const entries = live.rail.value;
   const shown = live.category.value;
@@ -165,8 +193,9 @@ function LiveScreen({
           <Button label={t('guide.open')} {...header.item(HEADER_GUIDE)} testId="live-guide" />
           <Button label={t('movies.open')} {...header.item(HEADER_MOVIES)} testId="live-movies" />
           <Button label={t('series.open')} {...header.item(HEADER_SERIES)} testId="live-series" />
-          <Button label={t('search.open')} {...header.item(HEADER_SEARCH)} testId="live-search" />
-          <Button label={t('settings.open')} {...header.item(HEADER_SETTINGS)} testId="live-settings" />
+          <Button label={t('home.open')} {...header.item(HEADER_HOME)} testId="live-home" />
+          <Button label={t('search.open')} icon={SEARCH_ICON} iconOnly {...header.item(HEADER_SEARCH)} testId="live-search" />
+          <Button label={t('settings.open')} icon={SETTINGS_ICON} iconOnly {...header.item(HEADER_SETTINGS)} testId="live-settings" />
         </div>
       </header>
 
@@ -246,13 +275,15 @@ interface Props {
   readonly show?: ShowDetails | null;
   /** The search the header's "Search" opens (step 28a; `null`: none paints). */
   readonly search?: Search | null;
+  /** Home, which the header's "Home" opens (step 28b1; `null`: none paints). */
+  readonly home?: Home | null;
 }
 
 /**
  * The live screen in the language picked in onboarding, in the TV's region (the formats keep
  * the region's), or the TV's own when none was picked.
  */
-export function LiveApp({ platform, live, language, player = null, settings = null, guide = null, movies = null, series = null, details = null, show = null, search = null }: Props) {
+export function LiveApp({ platform, live, language, player = null, settings = null, guide = null, movies = null, series = null, details = null, show = null, search = null, home = null }: Props) {
   const i18n = useSignal<AppI18n | null>(null);
   useEffect(() => {
     let closed = false;
@@ -283,5 +314,5 @@ export function LiveApp({ platform, live, language, player = null, settings = nu
       </main>
     );
   }
-  return <LiveScreen live={live} i18n={i18n.value} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} />;
+  return <LiveScreen live={live} i18n={i18n.value} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} shelves={home} />;
 }

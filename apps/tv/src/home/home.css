@@ -1,0 +1,85 @@
+/*
+ * Home (RELAY step 28b1): the live screen's frame (live.css): a 1728 px content box inside the
+ * title-safe margins, a 56 px header and a 24 px gap, then the 892 px body: two shelves at a time,
+ * 32 px apart, each a 44 px title, a 12 px gap and a row of 8 poster tiles of 184 x 276 px with
+ * 24 px gaps (HOME in home-state.ts). Physical properties for LTR: postcss-rtlcss mirrors them for
+ * Arabic, and the rows run from the right by themselves (dir="rtl").
+ */
+.home {
+  display: flex;
+  flex-direction: column;
+  width: var(--screen-width);
+  height: var(--screen-height);
+  padding: var(--safe-y) var(--safe-x);
+  overflow: hidden;
+}
+
+.home__header {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  height: 56px;
+  margin-bottom: var(--space-5);
+}
+
+.home__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+  font-weight: var(--font-weight-bold);
+}
+
+.home__clock {
+  flex: none;
+  margin: 0 0 0 var(--space-7);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.home__body {
+  flex: 1;
+  min-height: 0;
+}
+
+.home__shelf {
+  height: 332px;
+}
+
+.home__shelf + .home__shelf {
+  margin-top: 32px;
+}
+
+/* Our own words: on the page's side. */
+.home__shelf-title {
+  height: 44px;
+  margin: 0 0 12px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.home__tiles {
+  height: 276px;
+}
+
+.home__message {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.home__text {
+  margin: 0 0 var(--space-6);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+}

@@ -83,6 +83,11 @@ function untranslated(page: Page): Promise<string[]> {
       if (/^(· )?\d{1,2}:\d{2} [AP]M$/.test(text)) continue;
       if (!(text.startsWith('[') && text.endsWith(']'))) out.push(text);
     }
+    // An icon's name (step 28b1: the header's "Search" and "Settings") is catalog text too.
+    for (const el of Array.from(root.querySelectorAll('[aria-label]'))) {
+      const name = (el.getAttribute('aria-label') ?? '').trim();
+      if (!(name.startsWith('[') && name.endsWith(']'))) out.push(`aria-label: ${name}`);
+    }
     return out;
   });
 }
@@ -222,6 +227,8 @@ test.describe('the live screen by keys (pnpm dev, after onboarding)', () => {
     await expect(root).toHaveAttribute('data-language', 'pseudo');
     await settled(root);
     expect(await untranslated(page)).toEqual([]);
+    // The header's icons (step 28b1) are named, in the catalogs' words.
+    for (const id of ['live-search', 'live-settings']) expect(await page.getByTestId(id).getAttribute('aria-label')).toMatch(/^\[.+\]$/u);
     // The provider's text is marked as such: names, titles, category names.
     const header = stripIsolates((await page.getByTestId('live-meta').textContent()) ?? '');
     expect(header).toMatch(/^\[.+\] · \[.+\]$/u);

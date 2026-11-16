@@ -146,15 +146,18 @@ test.describe('the search screen by keys (RELAY step 28a)', () => {
       const live = await addXtreamAndWatch(remote, { host, username: U, password: P }, `locale=${locale}`);
       await settled(live);
 
-      // The header: "Search" between "Series" and "Settings", all five buttons inside the header's end.
+      // The header: "Search" (a magnifier since step 28b1, named for screen readers) between "Home" and "Settings", all six buttons inside the header's end.
       await remote.go('UP', 'live/header/0');
       await remote.go(forward, 'live/header/1');
       await remote.go(forward, 'live/header/2');
       await remote.go(forward, 'live/header/3');
-      await expect(page.getByTestId('live-search')).toHaveText(says.open);
+      await remote.go(forward, 'live/header/4');
+      await expect(page.getByTestId('live-search')).toHaveAttribute('aria-label', says.open);
+      await expect(page.getByTestId('live-search')).toHaveText('');
+      await expect(page.getByTestId('live-search').locator('svg')).toBeVisible();
       await expect(page.getByTestId('live-search')).toHaveAttribute('data-state', 'focused');
       const buttons = await page.locator('.live__end .z-button').evaluateAll((els) => els.map((el) => el.getBoundingClientRect().toJSON() as { left: number; right: number; top: number }));
-      expect(buttons).toHaveLength(5);
+      expect(buttons).toHaveLength(6);
       for (const b of buttons) {
         expect(b.left).toBeGreaterThanOrEqual(SAFE.left);
         expect(b.right).toBeLessThanOrEqual(SAFE.right);
@@ -251,7 +254,7 @@ test.describe('the search screen by keys (RELAY step 28a)', () => {
       await shot(page, `search-none-${locale}`);
 
       // Back closes it, on the header's "Search"; the live list shows the channel's group, on it.
-      await remote.go('BACK', 'live/header/3');
+      await remote.go('BACK', 'live/header/4');
       await expect(page.getByTestId('live-search')).toHaveAttribute('data-state', 'focused');
       await remote.go('DOWN', 'live/channels/2');
       await expect(live).toHaveAttribute('data-category', '1');
