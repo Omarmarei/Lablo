@@ -1558,6 +1558,7 @@ export type PlayRequest = { key: ContentKey; src: string; mode: 'live'|'vod'|'ca
 - **Mutation:** `artifacts/mutate29a.py`, 45 mutants written before the run (the health check, its time limit, timer and log; the client cache per URL; the probe's query; the route; every part of the lint block; the column-word check; the test database's setup; a forbidden column and a dropped index in the migration; a schema change without a migration): 44 caught, the survivor equivalent (`withDatabase`'s path without its slash, which the URL setter adds). Writing the list first showed two gaps, closed before the run: nothing checked the client kept per URL or the replaced one closed (`db.test.ts`), and nothing checked that the suite ran on `lablo_test` rather than the development database.
 - **Verified live:** `next start` and `curl`: 200 `{"ok":true,"db":"up"}`; the database stopped, 503 `{"ok":false,"db":"down"}` in 6 ms (the log: `P2010`); started again, 200; no `x-powered-by`.
 - **Not yet:** the pages (`/p`, the legal pages, the landing), the R2 and Upstash interfaces (step 29b), any production database or deploy (step 34).
+- **Merged:** PR #92 as merge commit `ae77243` on green CI on the first run (verify 10 m 39 s, web 1 m 5 s, engines 17 m 58 s, media 11 m 2 s).
 
 ### 3.3 Encryption and key scheme
 
