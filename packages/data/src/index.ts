@@ -30,6 +30,7 @@ export type {
   ProfileV4,
   ProfileV5,
   ProfileV6,
+  ProfileV7,
   ShowProgress,
   SnapshotReason,
   SourceRecord,
@@ -39,6 +40,7 @@ export type {
   WatchProgress,
 } from './profile';
 export {
+  MAX_CHANNELS,
   MAX_PROGRESS,
   MAX_SHOWS,
   MAX_TRACK_CHOICES,

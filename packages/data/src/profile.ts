@@ -13,7 +13,8 @@
  * (`PlayerMemoryDoc`). Version 4 (step 22b) keeps the user's guides as one list (`guides`),
  * moved from each source's `epgUrl`. Version 5 (step 26d) keeps where each movie was left
  * (`progress`, the latest `MAX_PROGRESS`). Version 6 (step 27c1) keeps each show's last episode
- * (`shows`, the latest `MAX_SHOWS`). Later steps add fields with a migration each, or as
+ * (`shows`, the latest `MAX_SHOWS`). Version 7 (step 28b2) keeps the channels played last
+ * (`channels`, the latest `MAX_CHANNELS`). Later steps add fields with a migration each, or as
  * optional fields that need none (`PlayerMemoryDoc.picture`, step 20c2b; `epgOffsets`, step 24b;
  * `epgOverrides`, step 24d; `ShowProgress.more`, step 27d).
  */
@@ -217,8 +218,17 @@ export type ProfileV6 = Omit<ProfileV5, 'v'> & {
   shows: Record<string, ShowProgress>;
 };
 
+export type ProfileV7 = Omit<ProfileV6, 'v'> & {
+  v: 7;
+  /**
+   * The channels played last (step 28b2), newest first, each once (by its item's key): the latest
+   * `MAX_CHANNELS`. The first is `player.last`; Home's "Recent channels" lists them.
+   */
+  channels: LastChannel[];
+};
+
 /** The current profile shape. */
-export type ProfileDoc = ProfileV6;
+export type ProfileDoc = ProfileV7;
 
 /** Track choices kept; a new content past this drops the one changed longest ago. */
 export const MAX_TRACK_CHOICES = 300;
@@ -228,6 +238,9 @@ export const MAX_PROGRESS = 500;
 
 /** Shows whose last episode is kept (step 27c1); a new one past this drops the one saved longest ago. */
 export const MAX_SHOWS = 200;
+
+/** Channels played last that are kept (step 28b2); a new one past this drops the one played longest ago. */
+export const MAX_CHANNELS = 20;
 
 /** A stored document of any version (older ones are migrated on load). */
 export interface AnyProfile {
@@ -249,6 +262,8 @@ export const PROFILE_MIGRATIONS: readonly ProfileMigration[] = [
   (doc) => ({ ...doc, v: 5, progress: {} }),
   // 5 → 6 (step 27c1): no show's episode played yet.
   (doc) => ({ ...doc, v: 6, shows: {} }),
+  // 6 → 7 (step 28b2): the channel played last, when there is one, is the first channel played last.
+  (doc) => ({ ...doc, v: 7, channels: lastOf(doc.player) }),
 ];
 
 export const PROFILE_VERSION = PROFILE_MIGRATIONS.length + 1;
@@ -282,7 +297,13 @@ export function noPlayerMemory(): PlayerMemoryDoc {
 }
 
 export function emptyProfile(): ProfileDoc {
-  return { v: 6, favourites: [], sources: [], onboarding: noAnswers(), player: noPlayerMemory(), guides: [], progress: {}, shows: {} };
+  return { v: 7, favourites: [], sources: [], onboarding: noAnswers(), player: noPlayerMemory(), guides: [], progress: {}, shows: {}, channels: [] };
+}
+
+/** Version 6's last channel as the list of channels played last: itself, or none (step 28b2). */
+function lastOf(player: unknown): unknown[] {
+  const last = typeof player === 'object' && player !== null ? (player as { last?: unknown }).last : undefined;
+  return typeof last === 'object' && last !== null ? [last] : [];
 }
 
 /**
@@ -493,6 +514,13 @@ function withShow(shows: Record<string, ShowProgress>, show: string, last: ShowP
   return next;
 }
 
+/** `channels` with `last` first and its key's entry before taken out, at most `MAX_CHANNELS` (a new array). */
+function withChannel(channels: readonly LastChannel[], last: LastChannel): LastChannel[] {
+  const next = [last];
+  for (let i = 0; i < channels.length && next.length < MAX_CHANNELS; i += 1) if (channels[i]!.item.key !== last.item.key) next.push(channels[i]!);
+  return next;
+}
+
 /** The player section with `change` applied (new objects), or `null` when it changes nothing. */
 function applyPlayerChange(player: PlayerMemoryDoc, change: PlayerChange): PlayerMemoryDoc | null {
   switch (change.field) {
@@ -530,7 +558,9 @@ export function applyProfileEdit(doc: ProfileDoc, edit: ProfileEdit): ProfileDoc
   }
   if (edit.kind === 'player') {
     const player = applyPlayerChange(doc.player, edit.change);
-    return player === null ? null : { ...doc, player };
+    if (player === null) return null;
+    // The channel played last leads the channels played last (step 28b2), in the same write.
+    return edit.change.field === 'last' ? { ...doc, player, channels: withChannel(doc.channels, edit.change.last) } : { ...doc, player };
   }
   if (edit.kind === 'guide') {
     const guides = applyGuideChange(doc.guides, edit.change);
