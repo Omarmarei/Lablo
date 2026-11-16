@@ -15,7 +15,10 @@ import type { SubtitleSize } from './track-menu';
  * - `redirects` to the Tizen platform: what its redirect probe learned, per source;
  * - `tracks` to the controller: each content's track choice and subtitle timing (`TrackMemory`);
  * - the last channel (the start plays it), the subtitle size and the picture's mode (step
- *   20c2b), to the app.
+ *   20c2b), to the app;
+ * - the channels played last (step 28b2, the profile's `channels`, version 7), to Home: the
+ *   query worker puts each new last channel first in the same write, and `tuned` does the same
+ *   here.
  *
  * Reads never wait: what the start's profile said, plus every change since. A change equal to
  * what is kept writes nothing. A write that fails is logged and kept for the app's run.
@@ -36,6 +39,8 @@ export interface PlayerMemory {
   load(profile: LoadedProfile | null): void;
   /** The channel watched last (`null`: none). */
   last(): LastChannel | null;
+  /** The channels played last, newest first, each once (step 28b2): a new array after each change. */
+  recent(): readonly LastChannel[];
   /** A channel's stream opened: it is the last channel now. */
   tuned(item: CatalogItem, number: number, category: LastChannel['category'], index: number): void;
   /** The subtitles' size (`null`: never set). */
@@ -45,6 +50,9 @@ export interface PlayerMemory {
   picture(): PictureMode | null;
   setPicture(mode: PictureMode): void;
 }
+
+/** The channels played last that are kept (the profile's `MAX_CHANNELS`, step 28b2). */
+export const RECENT_CHANNELS = 20;
 
 const CONTAINERS: readonly Container[] = ['ts', 'hls', 'mp4', 'mkv', 'other'];
 const SIZES: readonly SubtitleSize[] = ['s', 'm', 'l'];
@@ -85,7 +93,26 @@ function readChoice(value: unknown): TrackChoice | null {
  */
 export function lastChannelOf(profile: LoadedProfile | null): LastChannel | null {
   const player = profile === null ? undefined : (profile.doc as { player?: unknown }).player;
-  const last = isRecord(player) ? player['last'] : undefined;
+  return readChannel(isRecord(player) ? player['last'] : undefined);
+}
+
+/**
+ * The profile's channels played last (step 28b2), newest first: the ones this app can play (as
+ * `lastChannelOf`), at most `RECENT_CHANNELS` (none: `[]`).
+ */
+export function recentChannelsOf(profile: LoadedProfile | null): LastChannel[] {
+  const stored = profile === null ? undefined : (profile.doc as { channels?: unknown }).channels;
+  const out: LastChannel[] = [];
+  if (!Array.isArray(stored)) return out;
+  for (let i = 0; i < stored.length && out.length < RECENT_CHANNELS; i += 1) {
+    const channel = readChannel(stored[i]);
+    if (channel !== null) out.push(channel);
+  }
+  return out;
+}
+
+/** `value` as a channel this app can play, or `null` (see `lastChannelOf`). */
+function readChannel(last: unknown): LastChannel | null {
   if (!isRecord(last)) return null;
   const item = last['item'];
   const category = last['category'];
@@ -105,6 +132,13 @@ export function lastChannelOf(profile: LoadedProfile | null): LastChannel | null
   };
 }
 
+/** `channels` with `last` first and its key's entry before taken out, at most `RECENT_CHANNELS` (a new array). */
+function withChannel(channels: readonly LastChannel[], last: LastChannel): LastChannel[] {
+  const next = [last];
+  for (let i = 0; i < channels.length && next.length < RECENT_CHANNELS; i += 1) if (channels[i]!.item.key !== last.item.key) next.push(channels[i]!);
+  return next;
+}
+
 function sameCategory(a: LastChannel['category'], b: LastChannel['category']): boolean {
   return a === null || b === null ? a === b : a.src === b.src && a.name === b.name;
 }
@@ -115,6 +149,7 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
   let redirectModes: Record<string, 'none' | 'redirects'> = {};
   let choices: Record<string, TrackChoice> = {};
   let last: LastChannel | null = null;
+  let channels: readonly LastChannel[] = [];
   let size: SubtitleSize | null = null;
   let picture: PictureMode | null = null;
 
@@ -193,11 +228,14 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
       size = SIZES.indexOf(storedSize as SubtitleSize) !== -1 ? (storedSize as SubtitleSize) : null;
       picture = asPictureMode(doc['picture']);
       last = lastChannelOf(profile);
+      channels = recentChannelsOf(profile);
     },
     last: () => last,
+    recent: () => channels,
     tuned(item: CatalogItem, number: number, category: LastChannel['category'], index: number): void {
       if (last !== null && last.item.key === item.key && last.number === number && last.index === index && sameCategory(last.category, category)) return;
       last = { item, number, category, index, started: now() };
+      channels = withChannel(channels, last);
       write({ field: 'last', last });
     },
     subtitleSize: () => size,
