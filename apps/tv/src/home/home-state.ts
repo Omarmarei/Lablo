@@ -1,7 +1,7 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
 import type { CatalogItem, ContentKey, DeviceTier } from '@lablo/core';
-import type { KeyItemsRequest, LoadedProfile, RecentItem, RecentRequest } from '@lablo/data';
+import type { KeyItemsRequest, LastChannel, LoadedProfile, RecentItem, RecentRequest } from '@lablo/data';
 import type { Focus, Navigator, Screen, ZoneSpec } from '@lablo/ui';
 import { LAYOUT, SCREEN, fits } from '@lablo/ui';
 import type { Timers } from '../live/live-state';
@@ -17,6 +17,7 @@ import { storedSources } from '../onboarding/engine-loader';
  * The app still opens on the live screen.
  *
  *   continue  ("Continue watching": movies and shows left part way, newest first)
+ *   channels  ("Recent channels": the channels played last, newest first; step 28b2)
  *   movies    ("Recently added movies": the newest movies across the sources)
  *   series    ("Recently updated series": the shows the panels changed last)
  *   retry     ("Try again" after a failed read)
@@ -26,6 +27,11 @@ import { storedSources } from '../onboarding/engine-loader';
  *   playlist's episodes), merged back into that order (`mergeByKeys`). The other two are the
  *   query worker's `recent` of each kind (a playlist's items have no date: none from one). A shelf
  *   with nothing isn't shown; with nothing at all the screen says so in one line.
+ * - **Recent channels** (step 28b2): the player memory's channels played last (`channels`, the
+ *   profile's version 7 list, kept up to date as channels play) from the stored sources, as
+ *   landscape channel tiles (the logo, else the name). OK plays one from its group on the live
+ *   list (`play`: `Live.playKept`), the player over Home; Back from it returns to Home, where
+ *   the channel now leads the shelf, the focus on it.
  * - **Keys:** LEFT/RIGHT along a shelf (mirrored in Arabic), UP/DOWN between the shelves shown,
  *   each keeping its place; UP from the first shelf goes nowhere. OK on a tile: `select` (a
  *   movie's details, a show's details, as on their own screens); Back from them returns to the
@@ -33,7 +39,8 @@ import { storedSources } from '../onboarding/engine-loader';
  * - **The shelves in view:** `HOME_SHELVES` at a time from `top`, which moves as little as it
  *   can to keep the focused shelf in view.
  * - **Read again:** "Continue watching" alone when Home is back on top after a save changed the
- *   places (`progress.version`, as the poster screens' `refreshContinued`); every shelf on a
+ *   places (`progress.version`, as the poster screens' `refreshContinued`), "Recent channels"
+ *   alone when the channels played last changed (a new list from `channels.recent()`); every shelf on a
  *   catalog swap (`catalogChanged`). Either way the focus stays on its item when its shelf still
  *   has it, else on its place (clamped); its shelf gone, on the first shelf's first tile.
  * - **The posters** (`posters.ts`): asked once the view has rested, a few at a time, by tier: the
@@ -44,15 +51,16 @@ import { storedSources } from '../onboarding/engine-loader';
 
 export const HOME_SCREEN = 'home';
 export const HOME_CONTINUE = 'continue';
+export const HOME_CHANNELS = 'channels';
 export const HOME_MOVIES = 'movies';
 export const HOME_SERIES = 'series';
 export const HOME_RETRY = 'retry';
 
 /** A shelf: its zone's id. */
-export type ShelfId = typeof HOME_CONTINUE | typeof HOME_MOVIES | typeof HOME_SERIES;
+export type ShelfId = typeof HOME_CONTINUE | typeof HOME_CHANNELS | typeof HOME_MOVIES | typeof HOME_SERIES;
 
 /** The shelves, top to bottom. */
-export const SHELF_ORDER: readonly ShelfId[] = [HOME_CONTINUE, HOME_MOVIES, HOME_SERIES];
+export const SHELF_ORDER: readonly ShelfId[] = [HOME_CONTINUE, HOME_CHANNELS, HOME_MOVIES, HOME_SERIES];
 
 /** A shelf lists this many tiles at most ("Continue watching": `CONTINUE_MAX`, the same 20). */
 export const HOME_SHELF_MAX = 20;
@@ -71,14 +79,23 @@ export const HOME = {
   shelfGap: 32,
 } as const;
 
-/** A shelf's height: its title over a row of poster tiles. */
+/** A shelf's height: its title over a row of poster tiles (the tallest shelf). */
 export const SHELF_HEIGHT = HOME.titleHeight + HOME.titleGap + LAYOUT.posterHeight;
+/** "Recent channels"' height (step 28b2): its title over a row of channel tiles. */
+export const CHANNEL_SHELF_HEIGHT = HOME.titleHeight + HOME.titleGap + LAYOUT.tileHeight;
 /** Under the header: the shelves. */
 export const HOME_BODY = SCREEN.height - 2 * SCREEN.safeY - HOME.headerHeight - HOME.headerGap;
 /** The shelves in view at once. */
 export const HOME_SHELVES = fits(HOME_BODY, SHELF_HEIGHT, HOME.shelfGap);
 /** A shelf's tiles in view at once, across the content box. */
 export const HOME_TILES = fits(LIVE.width, LAYOUT.posterWidth, HOME.tileGap);
+/** "Recent channels"' tiles in view at once (landscape channel tiles, step 28b2). */
+export const CHANNEL_TILES = fits(LIVE.width, LAYOUT.tileWidth, HOME.tileGap);
+
+/** Shelf `id`'s tiles in view at once. */
+export function tilesInView(id: ShelfId): number {
+  return id === HOME_CHANNELS ? CHANNEL_TILES : HOME_TILES;
+}
 
 export type HomeStatus = 'loading' | 'ready' | 'empty' | 'failed';
 
@@ -102,6 +119,10 @@ export interface HomeOptions {
   readonly select?: (item: CatalogItem) => void;
   /** Where each movie and show was left: "Continue watching", and the tiles' bars. */
   readonly progress?: Pick<MovieShares, 'share' | 'version' | 'unfinished'>;
+  /** The channels played last, newest first (the player memory, step 28b2): "Recent channels". */
+  readonly channels?: { recent(): readonly LastChannel[] };
+  /** OK on a channel's tile (step 28b2): it plays from its group on the live list. */
+  readonly play?: (channel: LastChannel) => void;
 }
 
 export interface Home {
@@ -164,18 +185,18 @@ function shelfZone(id: ShelfId, count: number): ZoneSpec {
   const neighbours: { up?: string; down?: string } = {};
   if (up !== undefined) neighbours.up = up;
   if (down !== undefined) neighbours.down = down;
-  return { kind: 'list', id, axis: 'horizontal', count, visible: HOME_TILES, neighbours };
+  return { kind: 'list', id, axis: 'horizontal', count, visible: tilesInView(id), neighbours };
 }
 
 function retryZone(count: number): ZoneSpec {
   return { kind: 'list', id: HOME_RETRY, axis: 'horizontal', count };
 }
 
-/** Every shelf's items: what a read gives. */
-type Lists = Record<ShelfId, CatalogItem[]>;
+/** Every shelf's items: what a read gives ("Recent channels": the channels as kept). */
+type Lists = Record<Exclude<ShelfId, typeof HOME_CHANNELS>, CatalogItem[]> & { channels: LastChannel[] };
 
 function noLists(): Lists {
-  return { continue: [], movies: [], series: [] };
+  return { continue: [], channels: [], movies: [], series: [] };
 }
 
 /** The focused tile before a shelf changed: its shelf, its place and its item's key. */
@@ -206,6 +227,8 @@ export function createHome(options: HomeOptions): Home {
   let readAt = -1;
   /** The stored sources' ids as the last load read them: "Continue watching" reads them again. */
   let sourceIds: string[] = [];
+  /** The channels played last as "Recent channels" was last read from them (`null`: never). */
+  let channelsRead: readonly LastChannel[] | null = null;
   let lists: Lists = noLists();
   let requests = 0;
   let restTimer: unknown = null;
@@ -231,7 +254,7 @@ export function createHome(options: HomeOptions): Home {
     return running;
   }
 
-  const itemAt = (shelf: ShelfId, i: number): CatalogItem | null => lists[shelf][i] ?? null;
+  const itemAt = (shelf: ShelfId, i: number): CatalogItem | null => (shelf === HOME_CHANNELS ? (lists.channels[i]?.item ?? null) : (lists[shelf][i] ?? null));
 
   /**
    * Moves `top` as little as it can to show the focused shelf, within the shelves shown (none
@@ -260,7 +283,7 @@ export function createHome(options: HomeOptions): Home {
     // (The focused shelf comes again among the others: the loader asks a poster once.)
     for (const shelf of first.concat(inView)) {
       const from = Math.max(0, shown.position(shelf).top);
-      for (let i = from; i < from + HOME_TILES; i += 1) urls.push(itemAt(shelf, i)?.logo ?? null);
+      for (let i = from; i < from + tilesInView(shelf); i += 1) urls.push(itemAt(shelf, i)?.logo ?? null);
     }
     posters.rest(urls);
     syncPending();
@@ -302,8 +325,7 @@ export function createHome(options: HomeOptions): Home {
     status.value = order.length === 0 ? 'empty' : 'ready';
     if (kept !== null && next[kept.zone].length > 0) {
       let place = kept.index;
-      const items = next[kept.zone];
-      for (let i = 0; i < items.length; i += 1) if (items[i]!.key === kept.key) place = i;
+      for (let i = 0; i < next[kept.zone].length; i += 1) if (itemAt(kept.zone, i)!.key === kept.key) place = i;
       shown.focus(kept.zone, place);
     } else if (order.length > 0) {
       // A first read, or the focused shelf gone: the first shelf's first tile.
@@ -330,6 +352,18 @@ export function createHome(options: HomeOptions): Home {
 
   const items = (found: RecentItem[]): CatalogItem[] => found.map((r) => r.item);
 
+  /** "Recent channels": the channels played last from sources `ids`, at most `HOME_SHELF_MAX` (none without the memory). */
+  const readChannels = (ids: readonly string[]): LastChannel[] => {
+    const memory = options.channels;
+    if (memory === undefined) return [];
+    const all = memory.recent();
+    channelsRead = all;
+    const out: LastChannel[] = [];
+    // A removed source's channels are left out.
+    for (let i = 0; i < all.length && out.length < HOME_SHELF_MAX; i += 1) if (ids.indexOf(all[i]!.item.src) !== -1) out.push(all[i]!);
+    return out;
+  };
+
   /** The stored sources, then every shelf. */
   const readShelves = async (): Promise<{ ids: string[]; lists: Lists }> => {
     const records = storedSources(await engine.profile());
@@ -340,7 +374,7 @@ export function createHome(options: HomeOptions): Home {
       engine.recent({ sources: ids, kind: 'movie', limit: HOME_SHELF_MAX }),
       engine.recent({ sources: ids, kind: 'series', limit: HOME_SHELF_MAX }),
     ] as const);
-    return { ids, lists: { continue: read[0], movies: items(read[1]), series: items(read[2]) } };
+    return { ids, lists: { continue: read[0], channels: readChannels(ids), movies: items(read[1]), series: items(read[2]) } };
   };
 
   /** Reads every shelf. `kept`: a catalog swap's focused tile; without it, the loading screen first. */
@@ -385,11 +419,18 @@ export function createHome(options: HomeOptions): Home {
         // (A load since bumped the number.)
         const shown = screen.value;
         if (disposed || mine !== continueSeq || shown === null) return;
-        apply(shown, { continue: found, movies: lists.movies, series: lists.series }, keep(shown));
+        apply(shown, { continue: found, channels: lists.channels, movies: lists.movies, series: lists.series }, keep(shown));
       },
       // (The next opening reads it again.)
       (error: unknown) => console.warn('"Continue watching" could not be read', error),
     );
+  };
+
+  /** Reads "Recent channels" again when the channels played last changed since its last read (a channel played from it). */
+  const refreshChannels = (shown: Screen): void => {
+    const memory = options.channels;
+    if (memory === undefined || status.value !== 'ready' || memory.recent() === channelsRead) return;
+    apply(shown, { continue: lists.continue, channels: readChannels(sourceIds), movies: lists.movies, series: lists.series }, keep(shown));
   };
 
   const close = (): void => {
@@ -412,6 +453,7 @@ export function createHome(options: HomeOptions): Home {
   /** OK on a tile (one is always there: the navigator selects only an item) or on "Try again". */
   const onSelect = (focus: Focus): void => {
     if (focus.zone === HOME_RETRY) load();
+    else if (focus.zone === HOME_CHANNELS) options.play?.(lists.channels[focus.index]!);
     else options.select?.(itemAt(focus.zone as ShelfId, focus.index)!);
   };
 
@@ -422,8 +464,10 @@ export function createHome(options: HomeOptions): Home {
     // No poster starts while the keys go down: the ones still waiting wait for the next rest.
     posters.hold();
     scheduleRest();
-    // Back on top after a play: "Continue watching" again.
+    // Back on top after a play: "Continue watching" again, then "Recent channels" (its focus
+    // moving with its channel notifies again, and finds the places already asked for).
     refreshContinued();
+    refreshChannels(shown);
   });
 
   return {

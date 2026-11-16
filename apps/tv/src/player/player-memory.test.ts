@@ -1,7 +1,8 @@
 import type { CatalogItem } from '@lablo/core';
-import type { LoadedProfile, ProfileEdit } from '@lablo/data';
+import type { LastChannel, LoadedProfile, ProfileDoc, ProfileEdit } from '@lablo/data';
+import { MAX_CHANNELS, applyProfileEdit, emptyProfile } from '@lablo/data';
 import { describe, expect, it, vi } from 'vitest';
-import { createPlayerMemory, lastChannelOf } from './player-memory';
+import { RECENT_CHANNELS, createPlayerMemory, lastChannelOf, recentChannelsOf } from './player-memory';
 
 /** What the player keeps in the profile (RELAY step 20c1). */
 
@@ -152,6 +153,37 @@ describe('createPlayerMemory', () => {
     expect(memory.last()).toEqual({ item: item(6), number: 6, category: { src: 's1', name: 'Sport' }, index: 40, started: 2000 });
   });
 
+  it('keeps the channels played last: newest first, each once, at most RECENT_CHANNELS, as the profile does (step 28b2)', () => {
+    expect(RECENT_CHANNELS).toBe(MAX_CHANNELS);
+    const { memory, edits, clock } = rig();
+    const kept = (n: number, index: number, started: number, category: LastChannel['category'] = { src: 's1', name: 'News' }): LastChannel => ({ item: item(n), number: n, category, index, started });
+    expect(memory.recent()).toEqual([]);
+    memory.load({ doc: { v: 7, sources: [], player: { last: kept(3, 2, 7) }, channels: [kept(3, 2, 7), kept(4, 3, 6)] }, newer: false, migratedFrom: null });
+    expect(memory.recent()).toEqual([kept(3, 2, 7), kept(4, 3, 6)]);
+    memory.tuned(item(5), 5, { src: 's1', name: 'News' }, 4);
+    expect(memory.recent()).toEqual([kept(5, 4, 1000), kept(3, 2, 7), kept(4, 3, 6)]);
+    // Played again, from another row: first, once.
+    clock.t = 2000;
+    memory.tuned(item(4), 4, null, 30);
+    const after = memory.recent();
+    expect(after).toEqual([kept(4, 30, 2000, null), kept(5, 4, 1000), kept(3, 2, 7)]);
+    // The same channel in the same place: nothing changes, not even the array.
+    memory.tuned(item(4), 4, null, 30);
+    expect(memory.recent()).toBe(after);
+    // The list the profile keeps after the same writes is the same list.
+    let doc: ProfileDoc = { ...emptyProfile(), player: { ...emptyProfile().player, last: kept(3, 2, 7) }, channels: [kept(3, 2, 7), kept(4, 3, 6)] };
+    for (const edit of edits) doc = applyProfileEdit(doc, edit) ?? doc;
+    expect(doc.channels).toEqual(memory.recent());
+    // Past RECENT_CHANNELS, the one played longest ago goes.
+    for (let n = 10; n < 10 + RECENT_CHANNELS; n += 1) memory.tuned(item(n), n, null, n);
+    expect(memory.recent()).toHaveLength(RECENT_CHANNELS);
+    expect(memory.recent()[0]!.item.key).toBe(`s1:live:${9 + RECENT_CHANNELS}`);
+    expect(memory.recent()[RECENT_CHANNELS - 1]!.item.key).toBe('s1:live:10');
+    // A new profile replaces the list.
+    memory.load(null);
+    expect(memory.recent()).toEqual([]);
+  });
+
   it('keeps a change for the run when the write fails, and says so', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { memory } = rig(true);
@@ -190,5 +222,28 @@ describe('lastChannelOf', () => {
       [last],
     ];
     for (const value of bad) expect(lastChannelOf(profile({ last: value }))).toBeNull();
+  });
+});
+
+describe('recentChannelsOf', () => {
+  const kept = (n: number): LastChannel => ({ item: item(n), number: n, category: { src: 's1', name: 'News' }, index: n - 1, started: n });
+  const doc = (channels: unknown): LoadedProfile => ({ doc: { v: 7, sources: [], channels }, newer: false, migratedFrom: null });
+
+  it("reads the profile's channels in their order, skipping the ones this app can't play", () => {
+    expect(recentChannelsOf(doc([kept(1), kept(2)]))).toEqual([kept(1), kept(2)]);
+    expect(recentChannelsOf(doc([kept(1), { ...kept(2), item: { ...item(2), kind: 'vod' } }, null, 'x', { ...kept(3), started: undefined }]))).toEqual([kept(1), { ...kept(3), started: 0 }]);
+  });
+
+  it('reads at most RECENT_CHANNELS', () => {
+    const many: LastChannel[] = [];
+    for (let n = 1; n <= RECENT_CHANNELS + 2; n += 1) many.push(kept(n));
+    expect(recentChannelsOf(doc(many))).toEqual(many.slice(0, RECENT_CHANNELS));
+    // The ones it skips don't count.
+    expect(recentChannelsOf(doc([null].concat(many as never[])))).toEqual(many.slice(0, RECENT_CHANNELS));
+  });
+
+  it('reads none from no profile, or from one without a list', () => {
+    expect(recentChannelsOf(null)).toEqual([]);
+    for (const none of [undefined, null, {}, 'x', { 0: kept(1), length: 1 }]) expect(recentChannelsOf(doc(none))).toEqual([]);
   });
 });

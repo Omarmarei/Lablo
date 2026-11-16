@@ -177,6 +177,7 @@ export const EN = {
   // Home (RELAY step 28b1): shelves of what was left part way, the newest movies and the series updated last.
   'home.open': 'Home',
   'home.title': 'Home',
+  'home.channels': 'Recent channels',
   'home.movies': 'Recently added movies',
   'home.series': 'Recently updated series',
   'home.loading': 'Loading Home',

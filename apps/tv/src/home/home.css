@@ -2,7 +2,8 @@
  * Home (RELAY step 28b1): the live screen's frame (live.css): a 1728 px content box inside the
  * title-safe margins, a 56 px header and a 24 px gap, then the 892 px body: two shelves at a time,
  * 32 px apart, each a 44 px title, a 12 px gap and a row of 8 poster tiles of 184 x 276 px with
- * 24 px gaps (HOME in home-state.ts). Physical properties for LTR: postcss-rtlcss mirrors them for
+ * 24 px gaps (HOME in home-state.ts); "Recent channels" (step 28b2) a row of 6 channel tiles of
+ * 264 x 148 px instead. Physical properties for LTR: postcss-rtlcss mirrors them for
  * Arabic, and the rows run from the right by themselves (dir="rtl").
  */
 .home {
@@ -67,6 +68,20 @@
 
 .home__tiles {
   height: 276px;
+}
+
+.home__shelf--channels {
+  height: 204px;
+}
+
+.home__tiles--channels {
+  height: 148px;
+}
+
+/* A channel's logo whole, above its name (the caption's 48 px). */
+.home__channel .z-tile__image {
+  padding: 16px 24px 48px;
+  object-fit: contain;
 }
 
 .home__message {

@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
+import { catalog } from './live-rows';
 import { addXtreamAndWatch, settled, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
 
@@ -20,11 +21,18 @@ import { RemoteDriver } from './remote-driver';
  * The streams reach the mock and are never answered (the routes hold them): the player stays
  * "Connecting…", and the place it was left is the one asked. The screenshots go to
  * artifacts/screenshots.
+ *
+ * "Recent channels" (step 28b2): Lablo Kids Test played from "Kids", then Lablo Test 2 Clock from
+ * every channel. Home lists both, the newest first, as landscape channel tiles; OK on Lablo Kids
+ * Test plays it from "Kids"; Back returns to Home with it first, the focus on it; Back closes Home,
+ * the live list on "Kids". A relaunch (the profile's version 7) keeps the list.
  */
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
 const SAFE = { left: 96, top: 54, right: 1824, bottom: 1026 };
 
 const BBB = 'x:s1:movie:201';
+/** The rail's entry of the panel's "Kids" category (after "every channel"). */
+const KIDS = catalog.liveCategories.filter((c) => catalog.live.some((ch) => ch.categoryId === c.id)).findIndex((c) => c.name.startsWith('Kids')) + 1;
 const LEFT_MS = 40_000;
 
 const SAYS = {
@@ -33,6 +41,7 @@ const SAYS = {
     search: 'Search',
     settings: 'Settings',
     continue: 'Continue watching',
+    channels: 'Recent channels',
     movies: 'Recently added movies',
     series: 'Recently updated series',
     shows: ['مسلسل الاختبار', 'Lablo Test Series'],
@@ -43,6 +52,7 @@ const SAYS = {
     search: 'البحث',
     settings: 'الإعدادات',
     continue: 'متابعة المشاهدة',
+    channels: 'القنوات الأخيرة',
     movies: 'أفلام أضيفت حديثًا',
     series: 'مسلسلات حُدّثت مؤخرًا',
     shows: ['مسلسل الاختبار', 'Lablo Test Series'],
@@ -243,6 +253,102 @@ test.describe('Home by keys (RELAY step 28b1)', () => {
       await expect(page.getByTestId('home-continue-0')).toContainText('Big Buck Bunny');
       await remote.go('BACK', 'live/header/3');
       expect(errors).toEqual([]);
+    });
+
+    test(`"Recent channels": two channels played, the newest first; OK plays one from its group, Back returns to Home (${locale})`, async ({ page }) => {
+      test.setTimeout(150_000);
+      const errors = trackErrors(page);
+      const says = SAYS[language];
+      const ar = language === 'ar';
+      const forward = ar ? 'LEFT' : 'RIGHT';
+      // The channels' logos: a wide one (the mock's are 1x1), to see it whole above the name.
+      await page.route('**/images/channel-*.png', (route) =>
+        route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="100"><rect width="400" height="100" fill="#d8dee6"/><rect x="12" y="12" width="76" height="76" fill="#2a9d8f"/></svg>' }),
+      );
+      const remote = new RemoteDriver(page);
+      const live = await addXtreamAndWatch(remote, { host, username: U, password: P }, `locale=${locale}`);
+      await settled(live);
+      const home = page.getByTestId('home-screen');
+      const name = page.getByTestId('player-name');
+
+      // Lablo Kids Test from "Kids" (its one channel), then Lablo Test 2 Clock from every channel.
+      await remote.go(ar ? 'RIGHT' : 'LEFT', 'live/rail/0');
+      for (let i = 0; i < KIDS; i += 1) await remote.press('DOWN');
+      await remote.expectFocus(`live/rail/${KIDS}`);
+      await remote.press('OK');
+      await expect(live).toHaveAttribute('data-category', String(KIDS));
+      await remote.go('OK', 'player/actions/0');
+      await expect(name).toHaveText('Lablo Kids Test');
+      await remote.go('BACK', 'live/channels/0');
+      await remote.go('BACK', `live/rail/${KIDS}`);
+      for (let i = 0; i < KIDS; i += 1) await remote.press('UP');
+      await remote.expectFocus('live/rail/0');
+      await remote.press('OK');
+      await expect(live).toHaveAttribute('data-category', '0');
+      await remote.go('DOWN', 'live/channels/1');
+      await remote.go('OK', 'player/actions/0');
+      await expect(name).toHaveText('Lablo Test 2 Clock');
+      await remote.go('BACK', 'live/channels/1');
+
+      // Home: "Recent channels" first (nothing left part way), the newest first, as channel tiles.
+      await remote.go('UP', 'live/channels/0');
+      await remote.go('UP', 'live/header/0');
+      for (let i = 1; i <= 3; i += 1) await remote.go(forward, `live/header/${i}`);
+      await remote.go('OK', 'home/channels/0');
+      await settled(home);
+      await expect(home).toHaveAttribute('data-shelves', 'channels movies series');
+      let shown = await drawn(page);
+      expect(shown.shelves[0]).toEqual({ title: says.channels, tiles: ['Lablo Test 2 Clock', 'Lablo Kids Test'] });
+      expect(shown.shelves[1]!.title).toBe(says.movies);
+      // The channels' shelf is shorter: the movies' title 204 + 32 px under its own.
+      expect(shown).toMatchObject({ scroll: [1920, 1080], outside: [], cut: [], tops: [[134, 190], [370, 426]] });
+      const box = (await page.getByTestId('home-channels-0').boundingBox())!;
+      expect([box.width, box.height]).toEqual([264, 148]);
+      // In Arabic the row starts on the right.
+      const second = (await page.getByTestId('home-channels-1').boundingBox())!;
+      if (ar) expect(second.x).toBeLessThan(box.x);
+      else expect(second.x).toBeGreaterThan(box.x);
+      await expect(page.getByTestId('home-channels-0')).toHaveAttribute('data-state', 'focused');
+      // The logo whole, inside the tile above the name's caption.
+      const logo = await page.getByTestId('home-channels-0').locator('.z-tile__image').evaluate((img) => {
+        const style = getComputedStyle(img);
+        // (Its padding inside the tile's box.)
+        return [(img as HTMLImageElement).naturalWidth, style.objectFit, style.paddingTop, style.paddingBottom, (img as HTMLElement).offsetWidth === img.parentElement!.clientWidth];
+      });
+      expect(logo).toEqual([400, 'contain', '16px', '48px', true]);
+      // The row as tall as its tiles.
+      expect((await page.getByTestId('home-channels').boundingBox())!.height).toBe(148);
+      await page.screenshot({ path: path.join(SHOTS, `home-channels-${locale}.png`), animations: 'disabled' });
+
+      // OK on Lablo Kids Test: it plays from "Kids", the player over Home.
+      await remote.go(forward, 'home/channels/1');
+      await remote.go('OK', 'player/actions/0');
+      await expect(name).toHaveText('Lablo Kids Test');
+      // Back: Home again, the channel first now, the focus on it.
+      await remote.go('BACK', 'home/channels/0');
+      await settled(home);
+      shown = await drawn(page);
+      expect(shown.shelves[0]!.tiles).toEqual(['Lablo Kids Test', 'Lablo Test 2 Clock']);
+      await expect(page.getByTestId('home-channels-0')).toHaveAttribute('data-state', 'focused');
+      // Back closes Home onto "Home"; the live list shows "Kids", on its channel.
+      await remote.go('BACK', 'live/header/3');
+      await expect(live).toHaveAttribute('data-category', String(KIDS));
+      await remote.go('DOWN', 'live/channels/0');
+
+      // A relaunch plays the last channel (step 20c1); the list is kept (the profile, version 7).
+      await page.reload();
+      await remote.expectFocus('player/actions/0');
+      await expect(name).toHaveText('Lablo Kids Test');
+      await remote.go('BACK', 'live/channels/0');
+      await settled(live);
+      await remote.go('UP', 'live/header/0');
+      for (let i = 1; i <= 3; i += 1) await remote.go(forward, `live/header/${i}`);
+      await remote.go('OK', 'home/channels/0');
+      await settled(home);
+      shown = await drawn(page);
+      expect(shown.shelves[0]!.tiles).toEqual(['Lablo Kids Test', 'Lablo Test 2 Clock']);
+      // (The mock's streams never play.)
+      expect(errors.filter((e) => !/Failed to load resource/.test(e))).toEqual([]);
     });
   }
 });

@@ -245,6 +245,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     },
   });
   // The header's "Home" (step 28b1): shelves of what was left part way, the newest movies and the series updated last; OK on a tile opens its details, as on its own screen.
+  // "Recent channels" (step 28b2): OK plays the channel from its group on the live list, the player over Home; Back returns to Home.
   const home = createHome({
     nav: live.nav,
     engine: dataEngine(),
@@ -254,6 +255,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       else selectSeries(item, { episode: (episode) => details.open(episode), show: (found) => show.open(found) });
     },
     progress,
+    channels: memory,
+    play: (channel) => void live.playKept(channel.category, channel.item.key, channel.index),
   });
   // The header's "Guide" (step 23c): the grid over the list's category; OK on air plays, Back returns to the list.
   const guide = createGuide({

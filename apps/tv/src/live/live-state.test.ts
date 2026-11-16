@@ -1838,3 +1838,97 @@ describe('a channel the search found (RELAY step 28a)', () => {
     expect(play).toHaveBeenCalledWith(700);
   });
 });
+
+describe('a channel played before (RELAY step 28b2)', () => {
+  const sports700 = 'x:s1:live:2-700';
+
+  it('shows the category it played from, by name, focuses its row and plays it, under Home', async () => {
+    const play = vi.fn();
+    const t = await setup({ play });
+    await t.press('UP', 'RIGHT', 'RIGHT', 'RIGHT');
+    expect(t.at()).toBe('live · header 3');
+    t.live.nav.push({ id: 'home', zones: [{ kind: 'list', id: 'channels', axis: 'horizontal', count: 3 }] });
+    expect(await t.live.playKept({ src: 's1', name: 'Sports' }, sports700, 700)).toBe(true);
+    expect(t.live.category.value).toBe(2);
+    expect(t.live.home.position('channels').index).toBe(700);
+    expect(t.live.selected.value).toBe(sports700);
+    expect(play).toHaveBeenCalledWith(700);
+    expect(t.at()).toBe('home · channels 0');
+    // Under Home the header keeps the focus: Back from Home lands on "Home".
+    await t.press('BACK');
+    expect(t.at()).toBe('live · header 3');
+    await t.press('DOWN');
+    expect(t.at()).toBe('live · channels 700');
+    // Another source's category: its own entry.
+    expect(await t.live.playKept({ src: 's2', name: 'Kids' }, 'x:s2:live:0-1', 1)).toBe(true);
+    expect(t.live.category.value).toBe(3);
+    expect(play).toHaveBeenLastCalledWith(1);
+  });
+
+  it('finds its row from the one it had, by its key, when the list moved', async () => {
+    const play = vi.fn();
+    const t = await setup({ play });
+    t.engine.chunkCalls.length = 0;
+    expect(await t.live.playKept({ src: 's1', name: 'Sports' }, 'x:s1:live:2-1100', 1100)).toBe(true);
+    expect(play).toHaveBeenCalledWith(1100);
+    // Its row's chunk first: the chunk before it is never read.
+    expect(t.engine.chunkCalls).not.toContain('s1|2|1');
+    expect(await t.live.playKept({ src: 's1', name: 'Sports' }, sports700, 650)).toBe(true);
+    expect(await t.live.playKept({ src: 's1', name: 'Sports' }, sports700, 5000)).toBe(true);
+    expect(play.mock.calls.map((c) => c[0])).toEqual([1100, 700, 700]);
+  });
+
+  it('plays from "All channels" when it played from there, or when its category is gone', async () => {
+    const play = vi.fn();
+    const t = await setup({ play });
+    await t.press('RIGHT');
+    expect(await t.live.playKept(null, sports700, 703)).toBe(true);
+    expect(t.live.category.value).toBe(0);
+    expect(play).toHaveBeenLastCalledWith(703);
+    expect(t.at()).toBe('live · channels 703');
+    expect(await t.live.playKept({ src: 's1', name: 'Sports' }, sports700, 700)).toBe(true);
+    expect(t.live.category.value).toBe(2);
+    // Renamed: "All channels", the channel found there.
+    expect(await t.live.playKept({ src: 's1', name: 'Sport' }, sports700, 700)).toBe(true);
+    expect(t.live.category.value).toBe(0);
+    expect(play).toHaveBeenLastCalledWith(703);
+  });
+
+  it('plays nothing for a channel gone from its entry, or a list that failed', async () => {
+    const play = vi.fn();
+    const t = await setup({ play });
+    expect(await t.live.playKept({ src: 's1', name: 'Sports' }, 'x:s1:live:2-9999', 700)).toBe(false);
+    // Its category on show, at its top.
+    expect(t.live.category.value).toBe(2);
+    expect(t.at()).toBe('live · channels 0');
+    // Not in the category it played from any more: not looked for elsewhere.
+    expect(await t.live.playKept({ src: 's1', name: 'News' }, sports700, 0)).toBe(false);
+    expect(play).not.toHaveBeenCalled();
+    const engine = new FakeEngine();
+    engine.failProfile = true;
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const failed = await setup({ engine, play });
+    expect(failed.live.status.value).toBe('failed');
+    expect(await failed.live.playKept(null, sports700, 703)).toBe(false);
+    expect(failed.at()).toBe('live · retry 0');
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('waits for the load running now', async () => {
+    const play = vi.fn();
+    const engine = new FakeEngine();
+    engine.hold = new Set(['profile']);
+    const t = await setup({ engine, play });
+    let played: boolean | null = null;
+    void t.live.playKept({ src: 's1', name: 'Sports' }, sports700, 700).then((value) => {
+      played = value;
+    });
+    await flush();
+    expect(played).toBe(null);
+    engine.held.profile!.shift()!.resolve(engine.profileDoc);
+    await flush();
+    await flush();
+    expect(played).toBe(true);
+    expect(play).toHaveBeenCalledWith(700);
+  });
+});

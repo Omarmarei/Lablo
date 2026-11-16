@@ -1,6 +1,6 @@
 import { effect, signal } from '@preact/signals';
 import type { CatalogItem, DeviceTier } from '@lablo/core';
-import type { KeyItemsRequest, LoadedProfile, RecentItem, RecentRequest, SourceRecord } from '@lablo/data';
+import type { KeyItemsRequest, LastChannel, LoadedProfile, RecentItem, RecentRequest, SourceRecord } from '@lablo/data';
 import type { Intent } from '@lablo/platform-api';
 import { LAYOUT, createNavigator, fits } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
@@ -10,8 +10,11 @@ import { CONTINUE_MAX } from '../movies/movies-state';
 import { POSTER_TIERS } from '../movies/posters';
 import type { HomeEngine, HomeOptions, ShelfId } from './home-state';
 import {
+  CHANNEL_SHELF_HEIGHT,
+  CHANNEL_TILES,
   HOME,
   HOME_BODY,
+  HOME_CHANNELS,
   HOME_CONTINUE,
   HOME_MOVIES,
   HOME_RETRY,
@@ -24,6 +27,7 @@ import {
   SHELF_ORDER,
   createHome,
   mergeByKeys,
+  tilesInView,
 } from './home-state';
 
 type Kind = 'movie' | 'series';
@@ -48,6 +52,17 @@ function entry(src: string, kind: Kind, n: number, options: { logo?: boolean; la
     catchup: null,
     radio: false,
     hints: null,
+  };
+}
+
+/** Live channel `n` of `src` as the player memory keeps it, played from `category` at row `index`. */
+function chan(src: string, n: number, category: LastChannel['category'] = { src, name: 'News' }, index = n): LastChannel {
+  return {
+    item: { ...entry(src, 'movie', n), key: `x:${src}:live:${n}`, kind: 'live', name: `Live ${src} ${n}`, url: `http://panel.test/live/u/p/${n}.ts`, logo: `http://img.test/${src}/live/${n}.png` },
+    number: n,
+    category,
+    index,
+    started: 100 + n,
   };
 }
 
@@ -165,7 +180,17 @@ const LEFT = [entry('s1', 'movie', 50), entry('s2', 'series', 60), entry('s2', '
 const keyOf = (i: number): string => LEFT[i]!.key;
 
 async function setup(
-  options: { engine?: FakeEngine; tier?: DeviceTier; select?: (item: CatalogItem) => void; open?: boolean; progress?: HomeOptions['progress'] | null; left?: string[] } = {},
+  options: {
+    engine?: FakeEngine;
+    tier?: DeviceTier;
+    select?: (item: CatalogItem) => void;
+    open?: boolean;
+    progress?: HomeOptions['progress'] | null;
+    left?: string[];
+    /** The channels played last (step 28b2); absent: no memory. */
+    channels?: LastChannel[];
+    play?: (channel: LastChannel) => void;
+  } = {},
 ) {
   const engine = options.engine ?? new FakeEngine();
   if (options.engine === undefined) {
@@ -183,12 +208,18 @@ async function setup(
   nav.top.focus('header', 3);
   const kept = places(options.left ?? [keyOf(0), keyOf(1), keyOf(2)]);
   const select = options.select ?? vi.fn();
+  const play = options.play ?? vi.fn();
   const progress = options.progress === null ? undefined : (options.progress ?? kept.progress);
+  // The player memory's channels played last: a new list after each channel played, as `tuned` does.
+  let recent: readonly LastChannel[] = options.channels ?? [];
+  const memory = { recent: () => recent };
   const home = createHome({
     nav,
     engine,
     timers: clock.timers,
     select,
+    play,
+    ...(options.channels === undefined ? {} : { channels: memory }),
     ...(options.tier === undefined ? {} : { tier: () => options.tier! }),
     ...(progress === undefined ? {} : { progress }),
   });
@@ -230,7 +261,21 @@ async function setup(
     nav.pop();
     await flush();
   };
-  return { engine, clock, nav, home, kept, select, at, press, shelf, withPosters, rest, away };
+  /** The player over Home playing `channel` (the memory puts it first), then Back onto Home. */
+  const played = async (channel: LastChannel): Promise<void> => {
+    nav.push({ id: 'player', zones: [{ kind: 'list', id: 'seek', axis: 'horizontal', count: 1 }] });
+    await flush();
+    const next = [channel];
+    for (const c of recent) if (c.item.key !== channel.item.key) next.push(c);
+    recent = next;
+    nav.pop();
+    await flush();
+  };
+  /** The memory's list changes without a play (for the guards). */
+  const setRecent = (next: LastChannel[]): void => {
+    recent = next;
+  };
+  return { engine, clock, nav, home, kept, select, play, at, press, shelf, withPosters, rest, away, played, setRecent };
 }
 
 describe('Home (RELAY step 28b1): the layout', () => {
@@ -245,9 +290,21 @@ describe('Home (RELAY step 28b1): the layout', () => {
     expect(8 * LAYOUT.posterWidth + 7 * HOME.tileGap).toBeLessThanOrEqual(LIVE.width);
     // home.css uses the same numbers.
     expect(HOME).toEqual({ headerHeight: 56, headerGap: 24, titleHeight: 44, titleGap: 12, tileGap: 24, shelfGap: 32 });
-    expect(SHELF_ORDER).toEqual([HOME_CONTINUE, HOME_MOVIES, HOME_SERIES]);
+    expect(SHELF_ORDER).toEqual([HOME_CONTINUE, HOME_CHANNELS, HOME_MOVIES, HOME_SERIES]);
     expect(HOME_SHELF_MAX).toBe(20);
     expect(CONTINUE_MAX).toBe(HOME_SHELF_MAX);
+  });
+
+  it('fits a shelf of 6 channel tiles with any other shelf, and never three shelves (step 28b2)', () => {
+    expect(CHANNEL_SHELF_HEIGHT).toBe(HOME.titleHeight + HOME.titleGap + LAYOUT.tileHeight);
+    expect(CHANNEL_SHELF_HEIGHT).toBe(204);
+    expect(CHANNEL_TILES).toBe(6);
+    expect(CHANNEL_TILES).toBe(fits(LIVE.width, LAYOUT.tileWidth, HOME.tileGap));
+    expect(6 * LAYOUT.tileWidth + 5 * HOME.tileGap).toBeLessThanOrEqual(LIVE.width);
+    expect(SHELF_ORDER.map(tilesInView)).toEqual([8, 6, 8, 8]);
+    // The poster shelves are the tallest: two of anything fit, three of the shortest don't.
+    expect(CHANNEL_SHELF_HEIGHT).toBeLessThan(SHELF_HEIGHT);
+    expect(HOME_BODY - (CHANNEL_SHELF_HEIGHT + 2 * SHELF_HEIGHT + 2 * HOME.shelfGap)).toBeLessThan(0);
   });
 });
 
@@ -531,11 +588,12 @@ describe('Home (RELAY step 28b1): keys', () => {
   });
 
   it('closes on Back, from any shelf, onto the header; nothing is held then', async () => {
-    const t = await setup();
-    await t.press('DOWN', 'RIGHT', 'BACK');
+    const t = await setup({ channels: [chan('s1', 1)] });
+    await t.press('DOWN', 'DOWN', 'RIGHT', 'BACK');
     expect(t.home.screen.value).toBeNull();
     expect(t.at()).toBe('live · header 3');
     expect(t.home.item(HOME_MOVIES, 0)).toBeNull();
+    expect(t.home.item(HOME_CHANNELS, 0)).toBeNull();
     expect(t.home.shelves.value).toEqual([]);
     expect(t.home.pending.value).toBe(0);
     // It opens again on the first shelf's first tile, read again.
@@ -792,6 +850,142 @@ describe('Home (RELAY step 28b1): read again', () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(u.shelf(HOME_CONTINUE)).toEqual(['Movie 50', 'Show 60', 'Movie 51']);
     warn.mockRestore();
+  });
+});
+
+describe('Home (RELAY step 28b2): recent channels', () => {
+  it('lists the channels played last from the stored sources after "Continue watching", newest first', async () => {
+    const t = await setup({ channels: [chan('s2', 1), chan('s3', 2), chan('s1', 3)] });
+    expect(t.home.shelves.value).toEqual([HOME_CONTINUE, HOME_CHANNELS, HOME_MOVIES, HOME_SERIES]);
+    // s3 isn't stored (a removed source): its channel is left out.
+    expect(t.shelf(HOME_CHANNELS)).toEqual(['Live s2 1', 'Live s1 3']);
+    expect(t.home.item(HOME_CHANNELS, 0)).toEqual(chan('s2', 1).item);
+    expect(t.home.item(HOME_CHANNELS, 2)).toBeNull();
+    expect(t.at()).toBe('home · continue 0');
+    await t.press('DOWN');
+    expect(t.at()).toBe('home · channels 0');
+    await t.press('DOWN');
+    expect(t.at()).toBe('home · movies 0');
+    await t.press('UP', 'UP');
+    expect(t.at()).toBe('home · continue 0');
+  });
+
+  it('lists 20 channels at most, counting only the stored sources\' ones', async () => {
+    const many = [chan('s3', 90), chan('s3', 91), chan('s3', 92)];
+    for (let n = 0; n < 25; n += 1) many.push(chan('s1', n));
+    const t = await setup({ channels: many });
+    const names = t.shelf(HOME_CHANNELS);
+    expect(names).toHaveLength(HOME_SHELF_MAX);
+    expect(names[0]).toBe('Live s1 0');
+    expect(names[19]).toBe('Live s1 19');
+  });
+
+  it('hides the shelf with no channel played, or without the memory; opens on it with nothing left part way', async () => {
+    expect((await setup({ channels: [] })).home.shelves.value).toEqual([HOME_CONTINUE, HOME_MOVIES, HOME_SERIES]);
+    expect((await setup()).home.shelves.value).toEqual([HOME_CONTINUE, HOME_MOVIES, HOME_SERIES]);
+    const t = await setup({ channels: [chan('s1', 1)], left: [] });
+    expect(t.home.shelves.value).toEqual([HOME_CHANNELS, HOME_MOVIES, HOME_SERIES]);
+    expect(t.at()).toBe('home · channels 0');
+    // Only channels: Home isn't empty.
+    const engine = new FakeEngine();
+    const only = await setup({ engine, channels: [chan('s2', 4)], left: [] });
+    expect(only.home.status.value).toBe('ready');
+    expect(only.home.shelves.value).toEqual([HOME_CHANNELS]);
+  });
+
+  it('plays a channel on OK: `play` with it as kept; back on top, it leads the shelf with the focus on it', async () => {
+    const channels = [chan('s1', 1), chan('s2', 2, null, 40), chan('s1', 3)];
+    const t = await setup({ channels });
+    await t.press('DOWN', 'RIGHT', 'RIGHT');
+    expect(t.at()).toBe('home · channels 2');
+    await t.press('OK');
+    expect(t.play).toHaveBeenCalledWith(channels[2]);
+    expect(t.select).not.toHaveBeenCalled();
+    await t.played(channels[2]!);
+    expect(t.shelf(HOME_CHANNELS)).toEqual(['Live s1 3', 'Live s1 1', 'Live s2 2']);
+    expect(t.at()).toBe('home · channels 0');
+    // Another, from the middle: the same.
+    await t.press('RIGHT', 'OK');
+    expect(t.play).toHaveBeenLastCalledWith(channels[0]);
+    await t.played(channels[0]!);
+    expect(t.shelf(HOME_CHANNELS)).toEqual(['Live s1 1', 'Live s1 3', 'Live s2 2']);
+    expect(t.at()).toBe('home · channels 0');
+    // OK on a movie still opens its details.
+    await t.press('DOWN', 'OK');
+    expect(t.select).toHaveBeenCalledTimes(1);
+    expect(t.play).toHaveBeenCalledTimes(2);
+  });
+
+  it('adds the shelf when the first channel is played from elsewhere on Home, keeping the focus on its tile', async () => {
+    const t = await setup({ channels: [] });
+    await t.press('DOWN', 'RIGHT');
+    expect(t.at()).toBe('home · movies 1');
+    await t.played(chan('s1', 7));
+    expect(t.home.shelves.value).toEqual([HOME_CONTINUE, HOME_CHANNELS, HOME_MOVIES, HOME_SERIES]);
+    expect(t.at()).toBe('home · movies 1');
+    expect(t.home.top.value).toBe(1);
+  });
+
+  it('reads the channels again only when they changed, and only with shelves on show', async () => {
+    const t = await setup({ channels: [chan('s1', 1)] });
+    const shown = t.home.shelves.value;
+    await t.away(null);
+    await t.press('RIGHT');
+    expect(t.home.shelves.value).toBe(shown);
+    // A save: "Continue watching" alone is read again; the channels stay.
+    await t.away([keyOf(1)]);
+    expect(t.shelf(HOME_CONTINUE)).toEqual([LEFT[1]!.name]);
+    expect(t.shelf(HOME_CHANNELS)).toEqual(['Live s1 1']);
+    // Nothing on Home: nothing is read on top again (no tile to keep).
+    const engine = new FakeEngine();
+    const empty = await setup({ engine, channels: [], left: [] });
+    expect(empty.home.status.value).toBe('empty');
+    empty.setRecent([chan('s1', 2)]);
+    await empty.away(null);
+    expect(empty.home.status.value).toBe('empty');
+    expect(empty.home.shelves.value).toEqual([]);
+    // It is read at the next opening.
+    await empty.press('BACK');
+    empty.home.open();
+    await flush();
+    expect(empty.home.shelves.value).toEqual([HOME_CHANNELS]);
+  });
+
+  it('reads the channels again on a catalog swap: a removed source\'s go, the focus kept in place', async () => {
+    const t = await setup({ channels: [chan('s1', 1), chan('s2', 2), chan('s1', 3)] });
+    await t.press('DOWN', 'RIGHT');
+    expect(t.at()).toBe('home · channels 1');
+    t.engine.profileDoc = { doc: { v: 7, sources: [S1] }, newer: false, migratedFrom: null };
+    t.home.catalogChanged();
+    await flush();
+    expect(t.shelf(HOME_CHANNELS)).toEqual(['Live s1 1', 'Live s1 3']);
+    expect(t.at()).toBe('home · channels 1');
+  });
+
+  it("asks the channels' logos for the 6 tiles in view, the focused shelf first", async () => {
+    const many: LastChannel[] = [];
+    for (let n = 0; n < 10; n += 1) many.push(chan('s1', n));
+    const engine = new FakeEngine();
+    engine.newest = { movie: dated('movie', 12), series: [] };
+    const t = await setup({ engine, channels: many, left: [] });
+    expect(t.at()).toBe('home · channels 0');
+    await t.rest();
+    expect(t.withPosters(HOME_CHANNELS, 0, 10)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(t.withPosters(HOME_MOVIES, 0, 12)).toEqual([]);
+    for (let round = 0; round < 5; round += 1) {
+      for (const id of [HOME_CHANNELS, HOME_MOVIES] as const) for (let i = 0; i < 12; i += 1) {
+        const url = t.home.poster(id, i);
+        if (url !== undefined) t.home.posterLoaded(url);
+      }
+    }
+    expect(t.withPosters(HOME_CHANNELS, 0, 10)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(t.withPosters(HOME_MOVIES, 0, 12)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(t.home.poster(HOME_CHANNELS, 0)).toBe('http://img.test/s1/live/0.png');
+    // Along the shelf: 6 in view, so the view moves at the seventh.
+    await t.press('RIGHT', 'RIGHT', 'RIGHT', 'RIGHT', 'RIGHT');
+    expect(t.home.screen.value!.position(HOME_CHANNELS).top).toBe(0);
+    await t.press('RIGHT');
+    expect(t.home.screen.value!.position(HOME_CHANNELS)).toMatchObject({ index: 6, top: 1 });
   });
 });
 
