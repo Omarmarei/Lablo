@@ -39,7 +39,9 @@ import { ChannelIndex, chunkId } from './channel-index';
  *   channel played from (`startCategory`), and `list.locate` finds the channel's row once the list
  *   is in, for the player that is already playing it.
  * - **A channel the search found** (step 28a, `playFound`): the list shows its category, on its
- *   row, and the player opens it, so CH+/CH− zap through its group.
+ *   row, and the player opens it, so CH+/CH− zap through its group. **A channel played last**
+ *   (step 28b2, `playKept`, Home's "Recent channels"): the same, from the category it played from
+ *   by name ("All channels" when that is gone), its row then first.
  * - **Refreshes while it shows** (step 22a): after a guide swapped in (`guidesChanged`), now/next
  *   is asked again for the rows on show and the player's channels; each row keeps its answer
  *   until the new one comes. After a catalog swapped in (`catalogChanged`), the sources and
@@ -197,6 +199,13 @@ export interface Live {
    * or the channel isn't in it any more.
    */
   playFound(found: FoundChannel): Promise<boolean>;
+  /**
+   * Plays a channel played before (step 28b2: Home's "Recent channels"), as `playFound` does: the
+   * list shows rail entry `ref` (by name; "All channels" when it is gone), focused on channel
+   * `key`, found from row `guess` (its row then), and the player opens it. `false` (nothing played)
+   * when the list isn't ready or the channel isn't in that entry any more.
+   */
+  playKept(ref: RailRef, key: ContentKey, guess: number): Promise<boolean>;
   /** The rail entry on show as the profile keeps it (`null`: "All channels", or nothing yet). */
   shownCategory(): RailRef;
   /** A remote key was pressed (a running refresh pauses). */
@@ -618,18 +627,37 @@ export function createLive(options: LiveOptions): Live {
       if (part.src === found.src && part.catIdx === found.catIdx) at = i;
     }
     if (at === -1) return false;
+    // (A chunk the category doesn't have gives -1: the search then starts near its top.)
+    return playIn(at, found.key, () => index.firstRow({ src: found.src, catIdx: found.catIdx, chunk: found.chunk }) + found.slot);
+  };
+
+  /**
+   * Shows rail entry `at`, then finds channel `key` from row `guess()` (read once the entry is on
+   * show), focuses it and plays it. Under another screen, the live screen's zone stays.
+   */
+  const playIn = async (at: number, key: ContentKey, guess: () => number): Promise<boolean> => {
     const zone = home.active;
     const place = home.position(zone).index;
     showCategory(at);
-    // (A chunk the category doesn't have gives -1: the search then starts near its top.)
-    const row = await findRow(index.firstRow({ src: found.src, catIdx: found.catIdx, chunk: found.chunk }) + found.slot, (item) => item.key === found.key);
+    const row = await findRow(guess(), (item) => item.key === key);
     // (-1, the channel gone: the list's top, where the category opened.)
     home.focus('channels', row);
     keepZone(zone, place);
     if (row === -1) return false;
-    selected.value = found.key;
+    selected.value = key;
     options.play?.(row);
     return true;
+  };
+
+  /**
+   * Plays a channel played before (step 28b2), once the load running now is done: its rail entry
+   * by name, "All channels" when it is gone (or `ref` is `null`), then as `playFound`.
+   */
+  const playKept = async (ref: RailRef, key: ContentKey, guess: number): Promise<boolean> => {
+    await loaded;
+    // (A list that failed or is empty has no rail.)
+    if (rail.value.length === 0) return false;
+    return playIn(ref === null ? 0 : Math.max(0, findEntry(rail.value, ref)), key, () => guess);
   };
 
   /** Now/next for one channel the list didn't ask (the player's info bar); kept fresh from then on. */
@@ -896,6 +924,7 @@ export function createLive(options: LiveOptions): Live {
     guide: (key) => guides.get(key)?.value,
     focusRow,
     playFound,
+    playKept,
     shownCategory,
     activity: () => engine.noteActivity(),
     reload: load,
