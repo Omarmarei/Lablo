@@ -1,0 +1,6 @@
+# Generated on install (`prisma generate`, the package's postinstall).
+/src/generated/
+# Next.js
+/.next/
+/next-env.d.ts
+*.tsbuildinfo

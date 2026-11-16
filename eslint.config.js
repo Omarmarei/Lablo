@@ -50,24 +50,76 @@ const ELEMENT_RULES = [
 ];
 
 /**
- * Platform globals may only be touched inside their own adapter package.
- * @param {string[]} names
+ * Globals that a file may not touch, directly or as a property of `window`, `self` or `globalThis`.
+ * Each group brings its own message. One call holds every group a file needs: a later config
+ * block's `no-restricted-globals` replaces an earlier one's list.
+ * @param {{ names: string[], message: string }[]} groups
  * @returns {import('eslint').Linter.RulesRecord}
  */
-const restrictGlobals = (names) => {
-  const message = 'Platform globals are only allowed in their platform adapter package (platform-tizen / platform-webos).';
-  return {
-    'no-restricted-globals': [/** @type {const} */ ('error'), ...names.map((name) => ({ name, message }))],
-    'no-restricted-properties': [
-      /** @type {const} */ ('error'),
-      ...['window', 'self', 'globalThis'].flatMap((object) =>
-        names.map((property) => ({ object, property, message })),
-      ),
-    ],
-  };
-};
+const restrictGlobalGroups = (groups) => ({
+  'no-restricted-globals': [
+    /** @type {const} */ ('error'),
+    ...groups.flatMap(({ names, message }) => names.map((name) => ({ name, message }))),
+  ],
+  'no-restricted-properties': [
+    /** @type {const} */ ('error'),
+    ...groups.flatMap(({ names, message }) =>
+      ['window', 'self', 'globalThis'].flatMap((object) => names.map((property) => ({ object, property, message }))),
+    ),
+  ],
+});
+const PLATFORM_MESSAGE = 'Platform globals are only allowed in their platform adapter package (platform-tizen / platform-webos).';
+/**
+ * Platform globals may only be touched inside their own adapter package.
+ * @param {string[]} names
+ */
+const restrictGlobals = (names) => restrictGlobalGroups([{ names, message: PLATFORM_MESSAGE }]);
 const TIZEN_GLOBALS = ['tizen', 'webapis'];
 const WEBOS_GLOBALS = ['webOS', 'PalmSystem', 'PalmServiceBridge'];
+
+/**
+ * No outbound network from the backend (RELAY step 29a; PLAN.md "Backend", ADR-005): our servers
+ * never fetch a user-supplied URL and never relay, proxy or transcode streams. `apps/web` talks
+ * only to its own database (through Prisma); the R2 and Upstash adapters will get a narrow, tested
+ * exception for their own file (steps 31 or 34). Proven by test/lint-web-outbound.test.ts.
+ */
+const OUTBOUND_MESSAGE =
+  'apps/web makes no outbound requests (ADR-005: our servers never fetch a user-supplied URL or relay a stream). See the "no outbound network" block in eslint.config.js.';
+const OUTBOUND_GLOBALS = ['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource'];
+// `module` too: its createRequire would load any of the others past the import rules.
+const OUTBOUND_BUILTINS = ['http', 'https', 'http2', 'net', 'tls', 'dgram', 'dns', 'child_process', 'module'];
+const OUTBOUND_LIBRARIES = [
+  'undici',
+  'node-fetch',
+  'cross-fetch',
+  'isomorphic-fetch',
+  'axios',
+  'got',
+  'ky',
+  'superagent',
+  'request',
+  'needle',
+  'phin',
+  'ws',
+];
+/** A module name or any path inside it (`axios/lib/adapters/http`), builtins with or without `node:`. */
+const OUTBOUND_MODULE = `^((node:)?(${OUTBOUND_BUILTINS.join('|')})|${OUTBOUND_LIBRARIES.join('|')})(/.*)?$`;
+/** @type {import('eslint').Linter.RulesRecord} */
+const NO_OUTBOUND_RULES = {
+  ...restrictGlobalGroups([
+    { names: [...TIZEN_GLOBALS, ...WEBOS_GLOBALS], message: PLATFORM_MESSAGE },
+    { names: OUTBOUND_GLOBALS, message: OUTBOUND_MESSAGE },
+    // ESM only: CommonJS's `require` (or `module.require`) could load any module past the import rules.
+    { names: ['require', 'module'], message: `No require() in apps/web: use import. ${OUTBOUND_MESSAGE}` },
+  ]),
+  // Static imports and `export … from`.
+  'no-restricted-imports': ['error', { patterns: [{ regex: OUTBOUND_MODULE, message: OUTBOUND_MESSAGE }] }],
+  'no-restricted-syntax': [
+    'error',
+    // `import('node:https')`; esquery takes the slash inside the pattern escaped.
+    { selector: `ImportExpression[source.value=/${OUTBOUND_MODULE.replace('/', '\\u002F')}/]`, message: OUTBOUND_MESSAGE },
+  ],
+};
 
 /**
  * Props whose strings people read: the components' text props (packages/ui/src/components)
@@ -176,6 +228,10 @@ export default defineConfig(
       '**/artifacts/**',
       // Generated media and fixtures (MPEG-TS segments end in .ts too).
       '.cache/**',
+      // The backend's generated files: Next's build output and types, the Prisma client.
+      'apps/web/.next/**',
+      'apps/web/next-env.d.ts',
+      'apps/web/src/generated/**',
     ],
   },
   js.configs.recommended,
@@ -233,6 +289,18 @@ export default defineConfig(
   {
     files: ['packages/platform-webos/**'],
     rules: restrictGlobals(TIZEN_GLOBALS),
+  },
+  {
+    // The backend runs on Node (Vercel).
+    files: ['apps/web/**/*.{js,mjs,cjs,ts,tsx}'],
+    languageOptions: { globals: globals.node },
+  },
+  {
+    // ... and makes no outbound requests (NO_OUTBOUND_RULES). Its tests don't ship: they start
+    // the Prisma CLI and may call the app over HTTP.
+    files: ['apps/web/**/*.{js,mjs,cjs,ts,tsx}'],
+    ignores: ['apps/web/test/**'],
+    rules: NO_OUTBOUND_RULES,
   },
   {
     // UI text only from the catalogs (RELAY step 12b, ADR-011). Tests, e2e and test/ may hold any text.

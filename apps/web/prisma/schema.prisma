@@ -1,0 +1,84 @@
+// The backend's tables (docs/architecture.md §3.2–3.4), in their simplest form from RELAY step 29a.
+// Steps 31 (pairing), 32 (backup) and 33 (telemetry) change their own table with their own migration.
+//
+// Never a column for an IP address, a URL, a host, a device id or a credential: the server holds
+// only ciphertext, hashes and schema-checked telemetry (CLAUDE.md "Legal guardrails").
+// apps/web/test/database.web.test.ts reads every column's name.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+// The URL comes from prisma.config.ts (DATABASE_URL).
+datasource db {
+  provider = "postgresql"
+}
+
+/// A pairing between a TV and a phone (architecture.md §3.3 A). Deleted an hour after it starts.
+model PairSession {
+  /// The session id the TV polls with (`sid`), random.
+  id            String   @id
+  /// sha256 of the 8-character code; the code itself is never stored.
+  codeHash      String   @unique
+  /// The TV's ephemeral X25519 public key (base64url).
+  tvPk          String
+  /// sha256 of the TV's poll token.
+  pollTokenHash String
+  /// The phone's sealed payload ({phonePk, nonce, ct}), until the TV reads it.
+  payload       Json?
+  /// What the TV reports back for the phone: ok, auth_failed, expired, unreachable, blocked.
+  status        String?
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+
+  @@index([expiresAt])
+}
+
+/// An encrypted backup's metadata (architecture.md §3.3 B); the envelope itself is in R2.
+/// Deleted 180 days after its last update.
+model Backup {
+  /// b64url(HMAC-SHA256(master, "lookup")).
+  lookupId       String   @id
+  /// sha256 of the write token, kept from the first write.
+  writeTokenHash String
+  /// The envelope's size in bytes.
+  size           Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([updatedAt])
+}
+
+/// A telemetry event (architecture.md §3.4). Deleted after 90 days.
+model TelemetryEvent {
+  id         BigInt   @id @default(autoincrement())
+  /// A random id per install; it changes after a wipe.
+  installId  String
+  /// app_start, ingest_done, play_result, stall, epg_match, capability or crash.
+  kind       String
+  platform   String
+  appVersion String
+  /// The event's fields, as its protocol schema allows them.
+  data       Json
+  /// When the TV recorded it.
+  at         DateTime
+  receivedAt DateTime @default(now())
+
+  @@index([receivedAt])
+  @@index([kind, receivedAt])
+}
+
+/// A scrubbed diagnostics report and its support code (architecture.md §3.2, `POST /v1/diag`).
+model DiagReport {
+  id         BigInt   @id @default(autoincrement())
+  /// The 6-character support code the TV shows.
+  code       String   @unique
+  installId  String
+  platform   String
+  appVersion String
+  report     Json
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+}

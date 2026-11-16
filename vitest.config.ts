@@ -8,8 +8,9 @@ export default defineConfig({
       'tools/*/{src,test}/**/*.test.ts',
       'test/**/*.test.ts',
     ],
-    // ffmpeg-backed tests run with `pnpm test:media` (vitest.media.config.ts).
-    exclude: [...configDefaults.exclude, '**/*.media.test.ts'],
+    // ffmpeg-backed tests run with `pnpm test:media` (vitest.media.config.ts), the backend's
+    // database tests with `pnpm test:web` (vitest.web.config.ts).
+    exclude: [...configDefaults.exclude, '**/*.media.test.ts', '**/*.web.test.ts'],
     // The ESLint API tests load the TypeScript resolver on first use.
     testTimeout: 30_000,
   },

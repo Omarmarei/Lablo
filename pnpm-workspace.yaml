@@ -5,6 +5,8 @@ packages:
 
 # pnpm 11 blocks dependency build scripts unless they are listed here.
 allowBuilds:
+  # Prisma's postinstall downloads the schema engine, which `prisma migrate` runs (apps/web).
+  '@prisma/engines': true
   # The webOS CLI (ares-*) makes its config files writable on Linux/macOS.
   '@webos-tools/cli': true
   # Only a donation banner.
@@ -13,6 +15,8 @@ allowBuilds:
   cpu-features: false
   # esbuild (pulled in by vitest/vite) runs a postinstall that verifies its native binary.
   esbuild: true
+  # A preinstall that only checks the Node version.
+  prisma: true
   ssh2: false
   # napi-postinstall check of the native binding; the bindings come as optional dependencies.
   unrs-resolver: false

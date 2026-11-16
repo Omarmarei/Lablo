@@ -1,0 +1,28 @@
+# The backend's local Postgres (RELAY step 29a, docs/runbooks/web.md): `pnpm web:db` starts it,
+# `pnpm web:db:down` stops it (the data stays in the volume).
+#
+# Bound to 127.0.0.1 only, with `trust` authentication: no password exists anywhere (the repo is
+# public, and CLAUDE.md allows no credentials in it). Production is Neon (step 34), whose URL only
+# ever lives in a gitignored .env or in Vercel's settings.
+name: lablo-web
+
+services:
+  postgres:
+    # The major version Neon runs for the project (step 34 creates it on 17).
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: lablo
+      POSTGRES_DB: lablo
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - '127.0.0.1:54329:5432'
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-U', 'lablo', '-d', 'lablo']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  postgres:

@@ -29,7 +29,13 @@
     "e2e:media": "playwright test --project playback-media",
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build:tv && pnpm e2e",
     "verify:engines": "tsx tools/engines/verify-engines.ts",
-    "verify:media": "pnpm fixtures && pnpm test:media && pnpm lab:media && pnpm e2e:media"
+    "verify:media": "pnpm fixtures && pnpm test:media && pnpm lab:media && pnpm e2e:media",
+    "web:db": "docker compose -f apps/web/docker-compose.yml up -d --wait",
+    "web:db:down": "docker compose -f apps/web/docker-compose.yml down",
+    "web:dev": "pnpm --filter @lablo/web dev",
+    "build:web": "pnpm --filter @lablo/web build",
+    "test:web": "vitest run -c vitest.web.config.ts",
+    "verify:web": "pnpm test:web && pnpm build:web"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
