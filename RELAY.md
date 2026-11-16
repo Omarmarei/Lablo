@@ -1360,6 +1360,16 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
   - **The shelf:** "Recent channels" on Home (after "Continue watching"): the channel's logo or name; OK plays it from its group on the live list, as the search does (`Live.playFound` or the start's route by category name and row); Back from the player returns to Home on the tile.
   - **Decide while building (not a gate):** how a shelf tile finds the channel's place (`playFound` needs the hit's chunk and slot; the profile can keep the category's name and row as `LastChannel` does).
   - **Done when:** unit tests (the list's order, cap, migration, a removed source); e2e in English and Arabic (play two channels, both on Home newest first, OK plays one from its group, Back returns to Home); plus the common items.
+  - **Done in leg 79** (architecture.md §1.2 "Built in step 28b2"):
+    - **The profile, version 7:** `channels`, the channels played last (each a `LastChannel`), newest first, once per key, at most 20 (`MAX_CHANNELS`); each new last channel goes first in the same write as `player.last`; the migration 6 → 7 starts the list with `player.last`. The version pins move to 7 (a newer version: 8).
+    - **The player memory** reads the list at the start (`recentChannelsOf`) and puts each tuned channel first (`recent()`).
+    - **The shelf** "Recent channels" («القنوات الأخيرة») after "Continue watching": the stored sources' channels, at most 20, as landscape channel tiles (264 x 148, 6 in view, the logo whole above the name).
+    - **OK** plays the channel from its group (`Live.playKept`: its rail entry by name, "All channels" when gone; its row then first); the player over Home; Back returns to Home with the channel first and focused.
+    - **Decided while building:** the profile keeps a `LastChannel` per entry (the start's route), so no search hit is needed; landscape channel tiles; an entry gone falls back to "All channels".
+    - **Tests:** unit 4,733 in the full local run (`profile.test.ts` +2, `player-memory.test.ts` 7 → 11, `live-state.test.ts` 79 → 84, `home-state.test.ts` 37 → 47, `home-screen.test.ts` 6 → 7); e2e `home.spec.ts`'s "Recent channels" (en-US, ar-SA), the relaunch keeping the list. Screenshots `home-channels-*` looked at.
+    - **Mutation:** `artifacts/mutate28b2.py` 68 written first: 64 caught, the four survivors test gaps, closed; re-run 4/4. `artifacts/mutate28b2-e2e.py` 10 written first: 9 caught, the survivor a line that could never matter (taken out).
+    - **Size:** main 413.9 → 415.7 KB (Tizen), 401.2 → 403.0 KB (webOS); the query worker 116.2 → 116.6 KB; 219 core-js modules on both.
+    - **Verify:** locally lint, typecheck, unit 4,733, both TV builds, `pnpm e2e` 127/127, `verify:engines` on Chromium 53 and 68 16/16 (the onboarding and its relaunch read the profile through the version 7 migration). `e2e:media` not run (no media code changed).
 
 ### Phase 8: Backend (local development until step 34)
 - [ ] 29. **Backend skeleton.** `apps/web`: Next.js + Prisma + local Postgres in Docker; R2/Upstash abstractions; `protocol` and `crypto` packages with shared test vectors.
