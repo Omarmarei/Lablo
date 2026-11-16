@@ -1,4 +1,4 @@
-import { signal } from '@preact/signals';
+import { effect, signal } from '@preact/signals';
 import type { CatalogItem, DeviceTier } from '@lablo/core';
 import type { KeyItemsRequest, LoadedProfile, RecentItem, RecentRequest, SourceRecord } from '@lablo/data';
 import type { Intent } from '@lablo/platform-api';
@@ -307,6 +307,15 @@ describe('Home (RELAY step 28b1): the shelves', () => {
     expect(t.home.status.value).toBe('loading');
     expect(t.home.shelves.value).toEqual([]);
     expect(t.home.pending.value).toBe(1);
+    // Keys while the profile is still out: nothing else is read (no "Continue watching" alone), no poster asked.
+    const slow = new FakeEngine();
+    slow.hold = new Set(['profile']);
+    const u = await setup({ engine: slow });
+    await u.press('RIGHT', 'DOWN', 'LEFT');
+    await u.rest();
+    expect(slow.keyCalls).toEqual([]);
+    expect(u.home.status.value).toBe('loading');
+    expect(u.home.pending.value).toBe(1);
     // Back while it loads closes it.
     await t.press('BACK');
     expect(t.home.screen.value).toBeNull();
@@ -352,6 +361,7 @@ describe('Home (RELAY step 28b1): the shelves', () => {
     const only = await setup({ engine: shows, left: ['x:s1:movie:404'] });
     expect(only.home.shelves.value).toEqual([HOME_SERIES]);
     expect(only.at()).toBe('home · series 0');
+    expect(only.home.top.value).toBe(0);
     // Asked, found nothing.
     expect(only.engine.keyCalls).toHaveLength(2);
   });
@@ -395,6 +405,8 @@ describe('Home (RELAY step 28b1): the shelves', () => {
     expect(t.at()).toBe('home · retry 0');
     expect(t.home.screen.value!.zone(HOME_MOVIES)).toMatchObject({ count: 0 });
     expect(warn).toHaveBeenCalledTimes(1);
+    await t.rest();
+    expect(t.home.pending.value).toBe(0);
     engine.failRecent = false;
     await t.press('OK');
     expect(t.home.status.value).toBe('ready');
@@ -410,6 +422,38 @@ describe('Home (RELAY step 28b1): the shelves', () => {
     const none = await setup({ engine: profile });
     expect(none.home.status.value).toBe('failed');
     warn.mockRestore();
+  });
+
+  it("draws a tile's bar again when a place is saved", async () => {
+    const t = await setup();
+    let runs = 0;
+    const stop = effect(() => {
+      t.home.progress(HOME_CONTINUE, 0);
+      runs += 1;
+    });
+    expect(runs).toBe(1);
+    t.kept.set([keyOf(0), keyOf(1), keyOf(2)]);
+    expect(runs).toBe(2);
+    stop();
+  });
+
+  it('loads the posters by the tier of each opening', async () => {
+    let tier: DeviceTier = 'full';
+    const engine = new FakeEngine();
+    engine.newest = { movie: dated('movie', 8), series: [] };
+    const nav = createNavigator({ root: { id: 'live', zones: [{ kind: 'list', id: 'header', axis: 'horizontal', count: 6 }] }, rootBack: 'exit-dialog', exit: () => undefined, exitDialog: () => undefined, now: () => 0 });
+    const clock = manualTimers();
+    const home = createHome({ nav, engine, timers: clock.timers, tier: () => tier });
+    home.open();
+    await flush();
+    clock.advance(POSTER_TIERS.full.restMs);
+    expect(home.pending.value).toBe(6);
+    nav.handle('BACK');
+    tier = 'low';
+    home.open();
+    await flush();
+    clock.advance(POSTER_TIERS.low.restMs);
+    expect(home.pending.value).toBe(2);
   });
 
   it('draws the bars of what was left part way, on every shelf', async () => {
@@ -457,6 +501,16 @@ describe('Home (RELAY step 28b1): keys', () => {
     await t.press('UP');
     expect(t.home.top.value).toBe(1);
     await t.press('UP');
+    expect(t.home.top.value).toBe(0);
+    // Down to the series and up one: the series gone on a swap, the shelves come down (no gap under the last).
+    await t.press('DOWN', 'DOWN', 'UP');
+    expect(t.at()).toBe('home · movies 0');
+    expect(t.home.top.value).toBe(1);
+    t.engine.newest = { movie: dated('movie', 3), series: [] };
+    t.home.catalogChanged();
+    await flush();
+    expect(t.home.shelves.value).toEqual([HOME_CONTINUE, HOME_MOVIES]);
+    expect(t.at()).toBe('home · movies 0');
     expect(t.home.top.value).toBe(0);
   });
 
@@ -592,11 +646,29 @@ describe('Home (RELAY step 28b1): read again', () => {
     t.home.catalogChanged();
     await flush();
     expect(t.home.status.value).toBe('failed');
+    // Nothing of the shelves before is held: "Try again" alone.
+    expect(t.home.item(HOME_MOVIES, 0)).toBeNull();
+    expect(t.home.screen.value!.zone(HOME_MOVIES)).toMatchObject({ count: 0 });
+    expect(t.at()).toBe('home · retry 0');
     engine.failRecent = false;
     t.home.catalogChanged();
     await flush();
     expect(t.home.status.value).toBe('ready');
     warn.mockRestore();
+    // Empty, then a swap brings movies: from the loading screen, on the first.
+    engine.newest = { movie: [], series: [] };
+    t.home.catalogChanged();
+    await flush();
+    expect(t.home.status.value).toBe('empty');
+    engine.newest = { movie: dated('movie', 1), series: [] };
+    engine.hold = new Set(['recent']);
+    t.home.catalogChanged();
+    expect(t.home.status.value).toBe('loading');
+    await flush();
+    for (const held of engine.held.recent.splice(0)) held.resolve(engine.newest[held.arg as Kind]);
+    await flush();
+    expect(t.at()).toBe('home · movies 0');
+    engine.hold = new Set();
     // Closed: nothing is read.
     await t.press('BACK');
     const calls = engine.recentCalls.length;
@@ -647,6 +719,37 @@ describe('Home (RELAY step 28b1): read again', () => {
     expect(k.shelf(HOME_CONTINUE)).toEqual(['Show 60']);
   });
 
+  it('drops a failed read that a swap overtook, or that came after a dispose', async () => {
+    const engine = new FakeEngine();
+    engine.newest = { movie: dated('movie', 2), series: [] };
+    engine.hold = new Set(['profile']);
+    const t = await setup({ engine, left: [] });
+    t.home.catalogChanged();
+    engine.held.profile[0]!.reject(new Error('old'));
+    await flush();
+    expect(t.home.status.value).toBe('loading');
+    engine.held.profile[1]!.resolve(engine.profileDoc);
+    await flush();
+    expect(t.home.status.value).toBe('ready');
+    const u = await setup({ engine, left: [] });
+    u.home.dispose();
+    engine.held.profile[2]!.reject(new Error('late'));
+    await flush();
+    expect(u.home.status.value).toBe('loading');
+    expect(u.home.screen.value!.zone(HOME_RETRY)).toMatchObject({ count: 0 });
+  });
+
+  it("drops a refresh's answer once disposed", async () => {
+    const t = await setup();
+    t.engine.hold = new Set(['keys']);
+    await t.away([keyOf(1)]);
+    t.home.dispose();
+    for (const held of t.engine.held.keys.splice(0)) held.resolve([LEFT[1]!]);
+    await flush();
+    expect(t.home.item(HOME_CONTINUE, 0)).toBeNull();
+    expect(t.home.shelves.value).toEqual([HOME_CONTINUE, HOME_MOVIES, HOME_SERIES]);
+  });
+
   it("drops a refresh's answer once closed, and logs a refresh that failed", async () => {
     const t = await setup();
     t.engine.hold = new Set(['keys']);
@@ -673,10 +776,18 @@ describe('Home (RELAY step 28b1): the posters', () => {
     const t = await setup({ engine });
     expect(t.withPosters(HOME_CONTINUE, 0, 3)).toEqual([]);
     expect(t.home.pending.value).toBe(1);
+    // Each change of the posters draws the tiles again.
+    let drawn = t.home.version.value;
     await t.rest();
-    // Six at a time on the full tier: the focused shelf's three, then the next shelf's.
-    expect(t.withPosters(HOME_CONTINUE, 0, 3)).toEqual([0, 1, 2]);
-    expect(t.withPosters(HOME_MOVIES, 0, 12)).toEqual([0, 1, 2]);
+    expect(t.home.version.value).toBe(drawn + 1);
+    drawn = t.home.version.value;
+    t.home.posterLoaded(t.home.poster(HOME_CONTINUE, 0)!);
+    expect(t.home.version.value).toBe(drawn + 1);
+    t.home.posterFailed(t.home.poster(HOME_CONTINUE, 1)!);
+    expect(t.home.version.value).toBe(drawn + 2);
+    // (Two settled: two more start.)
+    expect(t.withPosters(HOME_MOVIES, 0, 12)).toEqual([0, 1, 2, 3, 4]);
+    expect(t.withPosters(HOME_CONTINUE, 0, 3)).toEqual([0, 2]);
     expect(t.home.pending.value).toBe(6);
     for (let round = 0; round < 5; round += 1) {
       for (const id of SHELF_ORDER) for (let i = 0; i < 12; i += 1) {
@@ -737,6 +848,16 @@ describe('Home (RELAY step 28b1): the posters', () => {
     await t.press('BACK');
     expect(t.clock.pending()).toBe(0);
     expect(t.home.pending.value).toBe(0);
+    // Posters downloading, then a close: none counted.
+    const r = await setup();
+    await r.rest();
+    expect(r.home.pending.value).toBe(6);
+    await r.press('BACK');
+    expect(r.home.pending.value).toBe(0);
+    const d = await setup();
+    await d.rest();
+    d.home.dispose();
+    expect(d.home.pending.value).toBe(0);
     const u = await setup();
     u.home.dispose();
     expect(u.clock.pending()).toBe(0);

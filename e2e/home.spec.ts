@@ -81,7 +81,12 @@ function drawn(page: Page) {
       title: shelf.querySelector('.home__shelf-title')?.textContent ?? '',
       tiles: Array.from(shelf.querySelectorAll('.z-tile__title')).map((t) => t.textContent ?? ''),
     }));
-    return { scroll: [document.documentElement.scrollWidth, document.documentElement.scrollHeight] as const, outside, cut, shelves };
+    // Where the shelves' titles and tiles start (HOME in home-state.ts: 134 px down, a shelf every 364 px, the tiles 56 px under the title).
+    const tops = Array.from(document.querySelectorAll('.home__shelf')).map((shelf) => [
+      Math.round(shelf.getBoundingClientRect().top),
+      Math.round(shelf.querySelector('.z-tile')?.getBoundingClientRect().top ?? -1),
+    ]);
+    return { scroll: [document.documentElement.scrollWidth, document.documentElement.scrollHeight] as const, outside, cut, shelves, tops };
   }, SAFE);
 }
 
@@ -141,8 +146,16 @@ test.describe('Home by keys (RELAY step 28b1)', () => {
         expect(b.right).toBeLessThanOrEqual(SAFE.right);
         expect(b.top).toBe(buttons[0]!.top);
       }
-      // The icons are squares as tall as the header's buttons.
+      // The icons are squares as tall as the header's buttons, each drawn in its middle.
       expect([buttons[4]!.width, buttons[4]!.height, buttons[5]!.width, buttons[5]!.height]).toEqual([56, 56, 56, 56]);
+      for (const id of ['live-search', 'live-settings']) {
+        const off = await page.getByTestId(id).evaluate((el) => {
+          const box = el.getBoundingClientRect();
+          const icon = el.querySelector('svg')!.getBoundingClientRect();
+          return [Math.round(icon.left + icon.width / 2 - (box.left + box.width / 2)), Math.round(icon.top + icon.height / 2 - (box.top + box.height / 2)), Math.round(icon.width)];
+        });
+        expect(off).toEqual([0, 0, 28]);
+      }
       // In Arabic the row runs from the right: "Guide" first on the right, "Settings" last on the left.
       if (language === 'ar') expect(buttons[0]!.left).toBeGreaterThan(buttons[5]!.left);
       else expect(buttons[0]!.left).toBeLessThan(buttons[5]!.left);
@@ -169,7 +182,7 @@ test.describe('Home by keys (RELAY step 28b1)', () => {
       ]);
       expect(shown.shelves[0]!.tiles).toHaveLength(6);
       expect(shown.shelves[0]!.tiles[0]).toBe('Big Buck Bunny');
-      expect(shown).toMatchObject({ scroll: [1920, 1080], outside: [], cut: [] });
+      expect(shown).toMatchObject({ scroll: [1920, 1080], outside: [], cut: [], tops: [[134, 190], [498, 554]] });
       await expect(page.getByTestId('home-movies-0')).toHaveAttribute('data-state', 'focused');
       await page.screenshot({ path: path.join(SHOTS, `home-new-${locale}.png`), animations: 'disabled' });
 

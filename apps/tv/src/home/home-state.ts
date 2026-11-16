@@ -171,11 +171,6 @@ function retryZone(count: number): ZoneSpec {
   return { kind: 'list', id: HOME_RETRY, axis: 'horizontal', count };
 }
 
-/** Whether `zone` is a shelf's. */
-function isShelf(zone: string): zone is ShelfId {
-  return SHELF_ORDER.indexOf(zone as ShelfId) !== -1;
-}
-
 /** Every shelf's items: what a read gives. */
 type Lists = Record<ShelfId, CatalogItem[]>;
 
@@ -185,9 +180,9 @@ function noLists(): Lists {
 
 /** The focused tile before a shelf changed: its shelf, its place and its item's key. */
 interface Kept {
-  readonly zone: string;
+  readonly zone: ShelfId;
   readonly index: number;
-  readonly key: ContentKey | null;
+  readonly key: ContentKey;
 }
 
 export function createHome(options: HomeOptions): Home {
@@ -224,16 +219,10 @@ export function createHome(options: HomeOptions): Home {
     version.value += 1;
   };
 
-  /** Runs `request`, counting it in `pending` until it settles either way. */
-  function track<T>(request: () => Promise<T>): Promise<T> {
+  /** Counts `running` in `pending` until it settles either way. */
+  function track<T>(running: Promise<T>): Promise<T> {
     requests += 1;
     syncPending();
-    let running: Promise<T>;
-    try {
-      running = request();
-    } catch (error) {
-      running = Promise.reject(error);
-    }
     const done = (): void => {
       requests -= 1;
       syncPending();
@@ -244,30 +233,29 @@ export function createHome(options: HomeOptions): Home {
 
   const itemAt = (shelf: ShelfId, i: number): CatalogItem | null => lists[shelf][i] ?? null;
 
-  /** Moves `top` as little as it can to show the focused shelf, within the shelves shown. */
-  const syncTop = (): void => {
-    const shown = screen.value;
-    if (shown === null) return;
+  /**
+   * Moves `top` as little as it can to show the focused shelf, within the shelves shown (none
+   * shown: 0). A ready Home's focus is always on a shelf shown.
+   */
+  const syncTop = (shown: Screen): void => {
     const order = shelves.value;
     const at = order.indexOf(shown.active as ShelfId);
     let first = top.value;
-    if (at !== -1 && at < first) first = at;
-    else if (at !== -1 && at >= first + HOME_SHELVES) first = at - HOME_SHELVES + 1;
+    if (at < first) first = at;
+    else if (at >= first + HOME_SHELVES) first = at - HOME_SHELVES + 1;
     top.value = Math.max(0, Math.min(first, order.length - HOME_SHELVES));
   };
 
-  /** The view rested: the posters of the tiles in view, the focused shelf's first. */
+  /**
+   * The view rested: the posters of the tiles in view, the focused shelf's first. (A close and a
+   * dispose stop the wait; with no shelf shown nothing is asked.)
+   */
   const rest = (): void => {
     restTimer = null;
-    const shown = screen.value;
-    if (disposed || shown === null || status.value !== 'ready') {
-      syncPending();
-      return;
-    }
-    const order = shelves.value;
-    const inView = order.slice(top.value, top.value + HOME_SHELVES);
-    const active = shown.active;
-    const first = isShelf(active) && inView.indexOf(active) !== -1 ? [active] : [];
+    const shown = screen.value!;
+    const inView = shelves.value.slice(top.value, top.value + HOME_SHELVES);
+    const active = shown.active as ShelfId;
+    const first = inView.indexOf(active) !== -1 ? [active] : [];
     const urls: (string | null)[] = [];
     // (The focused shelf comes again among the others: the loader asks a poster once.)
     for (const shelf of first.concat(inView)) {
@@ -279,24 +267,23 @@ export function createHome(options: HomeOptions): Home {
     bump();
   };
 
+  /** (Only an open Home waits for a rest.) */
   const scheduleRest = (): void => {
-    if (screen.value === null) return;
-    if (restTimer !== null) timers.clear(restTimer);
+    timers.clear(restTimer);
     restTimer = timers.set(rest, POSTER_TIERS[tier()].restMs);
     syncPending();
   };
 
   const stopRest = (): void => {
-    if (restTimer !== null) timers.clear(restTimer);
+    timers.clear(restTimer);
     restTimer = null;
   };
 
-  /** The focused tile as it is now. */
+  /** The focused tile as it is now (a ready Home's focus is on a tile). */
   const keep = (shown: Screen): Kept => {
-    const zone = shown.active;
+    const zone = shown.active as ShelfId;
     const index = shown.position(zone).index;
-    const item = isShelf(zone) ? itemAt(zone, index) : null;
-    return { zone, index, key: item === null ? null : item.key };
+    return { zone, index, key: itemAt(zone, index)!.key };
   };
 
   /**
@@ -310,27 +297,19 @@ export function createHome(options: HomeOptions): Home {
       if (next[id].length > 0) order.push(id);
       shown.update(shelfZone(id, next[id].length));
     }
+    // (A new list: the screen draws again.)
     shelves.value = order;
-    shown.update(retryZone(0));
-    if (order.length === 0) {
-      status.value = 'empty';
-      shown.focus(HOME_CONTINUE, 0);
-      top.value = 0;
-      bump();
-      return;
-    }
-    status.value = 'ready';
-    if (kept !== null && isShelf(kept.zone) && next[kept.zone].length > 0) {
+    status.value = order.length === 0 ? 'empty' : 'ready';
+    if (kept !== null && next[kept.zone].length > 0) {
       let place = kept.index;
       const items = next[kept.zone];
-      if (kept.key !== null) for (let i = 0; i < items.length; i += 1) if (items[i]!.key === kept.key) place = i;
+      for (let i = 0; i < items.length; i += 1) if (items[i]!.key === kept.key) place = i;
       shown.focus(kept.zone, place);
-    } else {
+    } else if (order.length > 0) {
       // A first read, or the focused shelf gone: the first shelf's first tile.
       shown.focus(order[0]!, 0);
     }
-    syncTop();
-    bump();
+    syncTop(shown);
     // (Held lists: no chunks to wait for. A focus that kept its place told nobody.)
     scheduleRest();
   };
@@ -372,9 +351,9 @@ export function createHome(options: HomeOptions): Home {
     const mine = seq;
     if (kept === undefined) {
       status.value = 'loading';
-      screen.value?.update(retryZone(0));
+      screen.value!.update(retryZone(0));
     }
-    track(readShelves).then(
+    track(readShelves()).then(
       (read) => {
         const shown = screen.value;
         if (disposed || mine !== seq || shown === null) return;
@@ -391,7 +370,6 @@ export function createHome(options: HomeOptions): Home {
         for (const id of SHELF_ORDER) shown.update(shelfZone(id, 0));
         shown.update(retryZone(1));
         shown.focus(HOME_RETRY, 0);
-        bump();
       },
     );
   };
@@ -402,7 +380,7 @@ export function createHome(options: HomeOptions): Home {
     if (kept === undefined || status.value !== 'ready' || kept.version.peek() === readAt) return;
     continueSeq += 1;
     const mine = continueSeq;
-    track(() => readContinued(sourceIds)).then(
+    track(readContinued(sourceIds)).then(
       (found) => {
         // (A load since bumped the number.)
         const shown = screen.value;
@@ -431,17 +409,16 @@ export function createHome(options: HomeOptions): Home {
     return true;
   };
 
+  /** OK on a tile (one is always there: the navigator selects only an item) or on "Try again". */
   const onSelect = (focus: Focus): void => {
     if (focus.zone === HOME_RETRY) load();
-    else if (isShelf(focus.zone)) {
-      const item = itemAt(focus.zone, focus.index);
-      if (item !== null) options.select?.(item);
-    }
+    else options.select?.(itemAt(focus.zone as ShelfId, focus.index)!);
   };
 
   const stopFollowing = nav.subscribe((focus) => {
-    if (focus.screen !== HOME_SCREEN || screen.value === null) return;
-    syncTop();
+    const shown = screen.value;
+    if (focus.screen !== HOME_SCREEN || shown === null) return;
+    syncTop(shown);
     // No poster starts while the keys go down: the ones still waiting wait for the next rest.
     posters.hold();
     scheduleRest();
@@ -481,10 +458,8 @@ export function createHome(options: HomeOptions): Home {
     },
     open(): void {
       if (disposed || screen.value !== null) return;
+      // (The tier can change from one opening to the next.)
       posters = new PosterLoader(POSTER_TIERS[tier()].parallel);
-      lists = noLists();
-      shelves.value = [];
-      top.value = 0;
       const zones: ZoneSpec[] = [];
       for (const id of SHELF_ORDER) zones.push(shelfZone(id, 0));
       zones.push(retryZone(0));
@@ -494,14 +469,13 @@ export function createHome(options: HomeOptions): Home {
     catalogChanged(): void {
       const shown = screen.value;
       if (disposed || shown === null) return;
-      if (status.value === 'loading' || status.value === 'failed') load();
-      else load(keep(shown));
+      // Shelves on show: read again around the focused tile; loading, empty or failed: from the loading screen.
+      if (status.value === 'ready') load(keep(shown));
+      else load();
     },
     dispose(): void {
-      if (disposed) return;
+      // (A second dispose does the same again: nothing.)
       disposed = true;
-      seq += 1;
-      continueSeq += 1;
       stopRest();
       stopFollowing();
       lists = noLists();
