@@ -156,6 +156,7 @@ export const AR: Readonly<Record<MessageKey, string>> = {
 
   'home.open': 'الرئيسية',
   'home.title': 'الرئيسية',
+  'home.channels': 'القنوات الأخيرة',
   'home.movies': 'أفلام أضيفت حديثًا',
   'home.series': 'مسلسلات حُدّثت مؤخرًا',
   'home.loading': 'جارٍ تحميل الرئيسية',

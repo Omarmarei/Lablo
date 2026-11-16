@@ -1,14 +1,14 @@
 import type { VNode } from 'preact';
 import { signal } from '@preact/signals';
 import type { CatalogItem } from '@lablo/core';
-import type { KeyItemsRequest, LoadedProfile, RecentItem, RecentRequest, SourceRecord } from '@lablo/data';
+import type { KeyItemsRequest, LastChannel, LoadedProfile, RecentItem, RecentRequest, SourceRecord } from '@lablo/data';
 import type { Focus, ItemBinding } from '@lablo/ui';
 import { LAYOUT, bindFocus, createNavigator } from '@lablo/ui';
 import { describe, expect, it } from 'vitest';
 import { appI18n } from '../i18n';
 import type { Timers } from '../live/live-state';
 import type { ShelfId } from './home-state';
-import { HOME, HOME_CONTINUE, HOME_MOVIES, HOME_SERIES, SHELF_ORDER, createHome } from './home-state';
+import { HOME, HOME_CHANNELS, HOME_CONTINUE, HOME_MOVIES, HOME_SERIES, SHELF_ORDER, createHome } from './home-state';
 import { HomeScreen, SHELF_TITLES } from './HomeScreen';
 
 /**
@@ -91,7 +91,16 @@ function heldTimers() {
   };
 }
 
-async function draw(options: { movies?: number; series?: number; left?: boolean; fail?: boolean; hold?: boolean } = {}) {
+/** A channel played last (step 28b2): its name ends like an episode's, which a channel tile keeps whole. */
+const CHANNEL: LastChannel = {
+  item: { ...made('movie', 7, 'Lablo News S01 E02'), key: 'x:s1:live:7', kind: 'live', logo: 'http://img.test/live/7.png' },
+  number: 7,
+  category: { src: 's1', name: 'News' },
+  index: 6,
+  started: 1,
+};
+
+async function draw(options: { movies?: number; series?: number; left?: boolean; fail?: boolean; hold?: boolean; channels?: LastChannel[] } = {}) {
   const nav = createNavigator({
     root: { id: 'live', zones: [{ kind: 'list', id: 'header', axis: 'horizontal', count: 6 }] },
     rootBack: 'exit-dialog',
@@ -116,7 +125,8 @@ async function draw(options: { movies?: number; series?: number; left?: boolean;
   const warn = console.warn;
   console.warn = () => undefined;
   const clock = heldTimers();
-  const home = createHome({ nav, engine, timers: clock.timers, progress });
+  const channels = options.channels;
+  const home = createHome({ nav, engine, timers: clock.timers, progress, ...(channels === undefined ? {} : { channels: { recent: () => channels } }) });
   home.open();
   await flush();
   console.warn = warn;
@@ -143,8 +153,8 @@ function tile(page: unknown, shelf: ShelfId, i: number, state: ItemBinding['stat
 describe('Home as drawn (step 28b1)', () => {
   it('titles every shelf in both catalogs', () => {
     expect(Object.keys(SHELF_TITLES)).toEqual(SHELF_ORDER.slice());
-    expect(SHELF_ORDER.map((s) => en.t(SHELF_TITLES[s]))).toEqual(['Continue watching', 'Recently added movies', 'Recently updated series']);
-    expect(SHELF_ORDER.map((s) => ar.t(SHELF_TITLES[s]))).toEqual(['متابعة المشاهدة', 'أفلام أضيفت حديثًا', 'مسلسلات حُدّثت مؤخرًا']);
+    expect(SHELF_ORDER.map((s) => en.t(SHELF_TITLES[s]))).toEqual(['Continue watching', 'Recent channels', 'Recently added movies', 'Recently updated series']);
+    expect(SHELF_ORDER.map((s) => ar.t(SHELF_TITLES[s]))).toEqual(['متابعة المشاهدة', 'القنوات الأخيرة', 'أفلام أضيفت حديثًا', 'مسلسلات حُدّثت مؤخرًا']);
     expect([en.t('home.open'), ar.t('home.open'), en.t('home.title'), ar.t('home.title')]).toEqual(['Home', 'الرئيسية', 'Home', 'الرئيسية']);
   });
 
@@ -195,6 +205,41 @@ describe('Home as drawn (step 28b1)', () => {
     // Past the shelf's end: an empty tile.
     expect(props(tile(page, HOME_CONTINUE, 5))).toMatchObject({ title: '', subtitle: undefined });
     expect(props(tile(page, HOME_MOVIES, 2))).toMatchObject({ title: 'movie 2', testId: 'home-movies-2' });
+  });
+
+  it("draws \"Recent channels\" as a row of channel tiles: the logo whole, the name whole, no bar (step 28b2)", async () => {
+    const t = await draw({ left: false, channels: [CHANNEL] });
+    const page = t.page();
+    expect(props(page as VNode)['data-shelves']).toBe('channels movies series');
+    const shelf = byTestId(page, 'home-shelf-channels')[0]!;
+    expect(props(shelf).class).toBe('home__shelf home__shelf--channels');
+    expect(byClass(page, 'home__shelf-title').map(textOf)).toEqual(['Recent channels', 'Recently added movies']);
+    expect(byClass(t.page('ar-SA'), 'home__shelf-title').map(textOf)).toEqual(['القنوات الأخيرة', 'أفلام أضيفت حديثًا']);
+    const list = byTestId(page, 'home-channels')[0]!;
+    expect(props(list)).toMatchObject({ zone: HOME_CHANNELS, itemSize: LAYOUT.tileWidth, gap: HOME.tileGap, class: 'home__tiles home__tiles--channels' });
+    const channel = tile(page, HOME_CHANNELS, 0, 'focused');
+    expect(props(channel)).toMatchObject({ class: 'home__channel', title: 'Lablo News S01 E02', state: 'focused', testId: 'home-channels-0' });
+    expect(props(channel).poster).toBeUndefined();
+    expect(props(channel).subtitle).toBeUndefined();
+    expect(props(channel).progress).toBeUndefined();
+    expect(props(channel).image).toBeUndefined();
+    // Past the shelf's end: an empty tile.
+    expect(props(tile(page, HOME_CHANNELS, 3))).toMatchObject({ title: '' });
+    // The other shelves keep their poster tiles.
+    expect(props(byTestId(page, 'home-movies')[0]!)).toMatchObject({ itemSize: LAYOUT.posterWidth, class: 'home__tiles' });
+    expect(props(byTestId(page, 'home-shelf-movies')[0]!).class).toBe('home__shelf');
+    // Its logo once the view rested; the screen tells Home when it loads or fails.
+    t.rest();
+    const rested = tile(t.page(), HOME_CHANNELS, 0);
+    expect(props(rested).image).toBe('http://img.test/live/7.png');
+    // (The movies' posters download too.)
+    const downloading = t.home.pending.value;
+    (props(rested).onImageLoad as () => void)();
+    expect(t.home.pending.value).toBe(downloading - 1);
+    const failing = await draw({ left: false, channels: [CHANNEL] });
+    failing.rest();
+    (props(tile(failing.page(), HOME_CHANNELS, 0)).onImageError as () => void)();
+    expect(props(tile(failing.page(), HOME_CHANNELS, 0)).image).toBeUndefined();
   });
 
   it('draws a poster once the view rested, and tells Home when it loads or fails', async () => {
