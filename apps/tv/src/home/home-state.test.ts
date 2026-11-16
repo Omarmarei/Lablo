@@ -896,16 +896,33 @@ describe('Home (RELAY step 28b1): the posters', () => {
   });
 
   it('starts no poster while keys go down: the ones waiting wait for the next rest', async () => {
-    const t = await setup();
+    const engine = new FakeEngine();
+    engine.newest = { movie: dated('movie', 12), series: dated('series', 2) };
+    for (const item of LEFT) engine.known[item.key] = item;
+    const t = await setup({ engine });
     await t.rest();
+    // Six under way, five of the movies waiting.
     expect(t.home.pending.value).toBe(6);
+    expect(t.withPosters(HOME_MOVIES, 0, 12)).toEqual([0, 1, 2]);
     await t.press('DOWN');
     // The six under way go on; the rest timer runs again.
     expect(t.home.pending.value).toBe(7);
     t.home.posterLoaded(t.home.poster(HOME_CONTINUE, 0)!);
-    // (Held: nothing new starts until the rest.)
+    // (Held: no movie starts in its place until the rest.)
     expect(t.home.pending.value).toBe(6);
+    expect(t.withPosters(HOME_MOVIES, 0, 12)).toEqual([0, 1, 2]);
     expect(t.withPosters(HOME_SERIES, 0, 2)).toEqual([]);
+  });
+
+  it('counts a poster that failed out of the downloads', async () => {
+    const t = await setup();
+    await t.rest();
+    // Every poster in view under way, none waiting.
+    expect(t.home.pending.value).toBe(6);
+    t.home.posterFailed(t.home.poster(HOME_MOVIES, 2)!);
+    expect(t.home.pending.value).toBe(5);
+    t.home.posterLoaded(t.home.poster(HOME_MOVIES, 1)!);
+    expect(t.home.pending.value).toBe(4);
   });
 
   it('forgets the posters and the rest on a close and a dispose', async () => {
@@ -934,5 +951,13 @@ describe('Home (RELAY step 28b1): the posters', () => {
     expect(u.home.screen.value).not.toBeNull();
     await u.press('RIGHT');
     expect(u.clock.pending()).toBe(0);
+    // Disposed while closed: it opens no more.
+    const c = await setup({ open: false });
+    c.home.dispose();
+    c.home.open();
+    await flush();
+    expect(c.home.screen.value).toBeNull();
+    expect(c.nav.snapshot().depth).toBe(1);
+    expect(c.engine.recentCalls).toEqual([]);
   });
 });
