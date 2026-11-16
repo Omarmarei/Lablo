@@ -757,6 +757,7 @@ Off-the-shelf libraries such as Norigin measure the DOM on every move. That figh
 - **Mutation:** `artifacts/mutate28b2.py`, 68 mutants written before the run (the profile's cap, migration and list; the player memory's read and list; `playKept` and the shared tail; Home's shelf, sizes, read, refresh and OK; the drawing): 64 caught, the four survivors test gaps, closed (`MAX_CHANNELS`'s number, the shelf's tiles in view when moving along it, a closed Home's channels, the channels kept through a "Continue watching" refresh); re-run 4/4 (`mutate28b2-b.log`). `artifacts/mutate28b2-e2e.py`, 10 written first (`main.tsx`'s wiring, `home.css`, the catalogs): 9 caught, the survivor a line that could never matter (the logo's `box-sizing: border-box`, already set on every element), taken out.
 - **Size:** main's own code 413.9 → 415.7 KB (Tizen), 401.2 → 403.0 KB (webOS); the query worker 116.2 → 116.6 KB; 219 core-js modules on both.
 - **Verify:** locally lint, typecheck, unit 4,733, both TV builds, `pnpm e2e` 127/127, `verify:engines` on Chromium 53 and 68 16/16 (the walk's onboarding and relaunch read the profile through the query worker at version 7; it opens neither Home nor a channel's tile). `e2e:media` not run (no media code changed).
+- **Merged:** PR #90 as merge commit `5a1832e` on green CI on the first run (verify 9 m 18 s, engines 20 m 30 s, media 9 m 23 s).
 
 **State:**
 - Signals hold UI and session state.
