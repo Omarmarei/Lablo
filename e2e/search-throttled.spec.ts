@@ -212,6 +212,7 @@ test.describe('the search at 4x CPU throttle over 200,000 items', () => {
     await remote.go('RIGHT', 'live/header/1');
     await remote.go('RIGHT', 'live/header/2');
     await remote.go('RIGHT', 'live/header/3');
+    await remote.go('RIGHT', 'live/header/4');
     await remote.go('OK', 'search/field/0');
     const root = page.getByTestId('search-screen');
     // A first search loads the query worker's segments (the 200,000 names) before the timed run.

@@ -32,6 +32,8 @@ import type { ResumePoint } from './movies/movie-progress';
 import { createMovieProgress } from './movies/movie-progress';
 import type { Search } from './search/search-state';
 import { createSearch } from './search/search-state';
+import type { Home } from './home/home-state';
+import { createHome } from './home/home-state';
 import { createEngineLoader } from './onboarding/engine-loader';
 import { OnboardingApp } from './onboarding/OnboardingApp';
 import type { Onboarding } from './onboarding/onboarding-state';
@@ -119,7 +121,7 @@ let refreshes: RefreshScheduler | null = null;
  * Starts the refresh schedule for the live screen: stale catalogs and due guides are read in the
  * background, and the screen picks up what swapped in (`readFormats`: the accounts' formats again).
  */
-function startRefreshes(live: Live, guide: Guide, posters: readonly Movies[], search: Search, readFacts: () => void): void {
+function startRefreshes(live: Live, guide: Guide, posters: readonly Movies[], search: Search, home: Home, readFacts: () => void): void {
   refreshes?.dispose();
   refreshes = createRefreshScheduler({
     engine: dataEngine(),
@@ -139,6 +141,7 @@ function startRefreshes(live: Live, guide: Guide, posters: readonly Movies[], se
       live.catalogChanged();
       for (const screen of posters) screen.catalogChanged();
       search.catalogChanged();
+      home.catalogChanged();
     },
     onGuides: () => {
       live.guidesChanged();
@@ -189,6 +192,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     openMovies: () => movies.open(),
     openSeries: () => series.open(),
     openSearch: () => search.open(),
+    openHome: () => home.open(),
   });
   // OK on a poster (step 26c): the movie's details over the grid; "Play" opens the player over them, and Back from it returns to them.
   // A movie left part way (step 26d): "Resume from" plays it from there; back from the player, the details read its position again.
@@ -239,6 +243,17 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       else if (item.kind === 'movie') details.open(item);
       else selectSeries(item, { episode: (episode) => details.open(episode), show: (found) => show.open(found) });
     },
+  });
+  // The header's "Home" (step 28b1): shelves of what was left part way, the newest movies and the series updated last; OK on a tile opens its details, as on its own screen.
+  const home = createHome({
+    nav: live.nav,
+    engine: dataEngine(),
+    tier: () => tier,
+    select: (item) => {
+      if (item.kind === 'movie') details.open(item);
+      else selectSeries(item, { episode: (episode) => details.open(episode), show: (found) => show.open(found) });
+    },
+    progress,
   });
   // The header's "Guide" (step 23c): the grid over the list's category; OK on air plays, Back returns to the list.
   const guide = createGuide({
@@ -301,8 +316,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   });
   if (resume !== null) player.resume({ item: resume.item, number: resume.number }, resume.index);
   showFocus(live.nav);
-  render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} />, into);
-  startRefreshes(live, guide, [movies, series], search, readFacts);
+  render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} home={home} />, into);
+  startRefreshes(live, guide, [movies, series], search, home, readFacts);
 }
 
 /**

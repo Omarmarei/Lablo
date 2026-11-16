@@ -9,6 +9,7 @@ import {
   CHANNELS_VISIBLE,
   CHUNK_CACHE,
   HEADER_GUIDE,
+  HEADER_HOME,
   HEADER_MOVIES,
   HEADER_SEARCH,
   HEADER_SERIES,
@@ -238,6 +239,7 @@ async function setup(
     openMovies?: () => void;
     openSeries?: () => void;
     openSearch?: () => void;
+    openHome?: () => void;
   } = {},
 ) {
   const engine = options.engine ?? new FakeEngine();
@@ -256,6 +258,7 @@ async function setup(
     ...(options.openMovies === undefined ? {} : { openMovies: options.openMovies }),
     ...(options.openSeries === undefined ? {} : { openSeries: options.openSeries }),
     ...(options.openSearch === undefined ? {} : { openSearch: options.openSearch }),
+    ...(options.openHome === undefined ? {} : { openHome: options.openHome }),
   });
   if (options.settle !== false) await flush();
   const at = (): string => {
@@ -1480,8 +1483,8 @@ describe("the header's Guide and Settings buttons (RELAY steps 22b2 and 23c)", (
     const t = await setup({ openSettings });
     await t.press('OK', 'LEFT', 'OK');
     expect(openSettings).not.toHaveBeenCalled();
-    // "Guide" first, "Movies" (step 26a), "Series" (step 27a), "Search" (step 28a), then "Settings" at the header's end.
-    expect([HEADER_GUIDE, HEADER_MOVIES, HEADER_SERIES, HEADER_SEARCH, HEADER_SETTINGS]).toEqual([0, 1, 2, 3, 4]);
+    // "Guide" first, "Movies" (step 26a), "Series" (step 27a), "Home" (step 28b1), "Search" (step 28a), then "Settings" at the header's end.
+    expect([HEADER_GUIDE, HEADER_MOVIES, HEADER_SERIES, HEADER_HOME, HEADER_SEARCH, HEADER_SETTINGS]).toEqual([0, 1, 2, 3, 4, 5]);
     await t.press('RIGHT', 'UP', 'OK');
     expect(t.at()).toBe('live · header 0');
     expect(openSettings).not.toHaveBeenCalled();
@@ -1491,22 +1494,24 @@ describe("the header's Guide and Settings buttons (RELAY steps 22b2 and 23c)", (
     expect(t.at()).toBe('live · header 2');
     await t.press('RIGHT', 'OK');
     expect(t.at()).toBe('live · header 3');
+    await t.press('RIGHT', 'OK');
+    expect(t.at()).toBe('live · header 4');
     expect(openSettings).not.toHaveBeenCalled();
     await t.press('RIGHT', 'RIGHT', 'OK');
-    expect(t.at()).toBe('live · header 4');
+    expect(t.at()).toBe('live · header 5');
     expect(openSettings).toHaveBeenCalledTimes(1);
     // A screen pushed from the header and closed: DOWN goes back to the list.
     const pushed = await setup({ openSettings: () => pushed.live.nav.push({ id: 'settings', zones: [{ kind: 'list', id: 'items', axis: 'vertical', count: 1 }] }) });
-    await pushed.press('UP', 'RIGHT', 'RIGHT', 'RIGHT', 'RIGHT', 'OK');
+    await pushed.press('UP', 'RIGHT', 'RIGHT', 'RIGHT', 'RIGHT', 'RIGHT', 'OK');
     expect(pushed.at()).toBe('settings · items 0');
     await pushed.press('BACK');
-    expect(pushed.at()).toBe('live · header 4');
+    expect(pushed.at()).toBe('live · header 5');
     await pushed.press('DOWN');
     expect(pushed.at()).toBe('live · channels 0');
     // Without a settings screen, OK there does nothing.
     const bare = await setup();
-    await bare.press('UP', 'RIGHT', 'RIGHT', 'RIGHT', 'RIGHT', 'OK');
-    expect(bare.at()).toBe('live · header 4');
+    await bare.press('UP', 'RIGHT', 'RIGHT', 'RIGHT', 'RIGHT', 'RIGHT', 'OK');
+    expect(bare.at()).toBe('live · header 5');
   });
 
   it('opens the movies on OK on "Movies", whatever the list is doing (RELAY step 26a)', async () => {
@@ -1567,8 +1572,8 @@ describe("the header's Guide and Settings buttons (RELAY steps 22b2 and 23c)", (
     const openSettings = vi.fn();
     const openGuide = vi.fn();
     const t = await setup({ openSearch, openSeries, openSettings, openGuide });
-    await t.press('UP', 'RIGHT', 'RIGHT', 'RIGHT', 'OK');
-    expect(t.at()).toBe('live · header 3');
+    await t.press('UP', 'RIGHT', 'RIGHT', 'RIGHT', 'RIGHT', 'OK');
+    expect(t.at()).toBe('live · header 4');
     expect(openSearch).toHaveBeenCalledTimes(1);
     expect(openSeries).not.toHaveBeenCalled();
     expect(openSettings).not.toHaveBeenCalled();
@@ -1586,6 +1591,47 @@ describe("the header's Guide and Settings buttons (RELAY steps 22b2 and 23c)", (
     expect(openSearch).toHaveBeenCalledTimes(2);
     expect(openGuide).not.toHaveBeenCalled();
     // Without a search screen, OK there does nothing.
+    const bare = await setup();
+    await bare.press('UP', 'RIGHT', 'RIGHT', 'RIGHT', 'RIGHT', 'OK');
+    expect(bare.at()).toBe('live · header 4');
+  });
+
+  it('opens Home on OK on "Home", whatever the list is doing (RELAY step 28b1)', async () => {
+    const openHome = vi.fn();
+    const openSearch = vi.fn();
+    const openSeries = vi.fn();
+    const openSettings = vi.fn();
+    const openGuide = vi.fn();
+    const t = await setup({ openHome, openSearch, openSeries, openSettings, openGuide });
+    await t.press('UP', 'RIGHT', 'RIGHT', 'RIGHT', 'OK');
+    expect(t.at()).toBe('live · header 3');
+    expect(openHome).toHaveBeenCalledTimes(1);
+    expect(openSeries).not.toHaveBeenCalled();
+    expect(openSearch).not.toHaveBeenCalled();
+    expect(openSettings).not.toHaveBeenCalled();
+    expect(openGuide).not.toHaveBeenCalled();
+    // "Series" before it and "Search" after it open their own screens alone.
+    await t.press('LEFT', 'OK', 'RIGHT', 'RIGHT', 'OK');
+    expect(openSeries).toHaveBeenCalledTimes(1);
+    expect(openSearch).toHaveBeenCalledTimes(1);
+    expect(openHome).toHaveBeenCalledTimes(1);
+    // While the list still loads (Home reads its own data).
+    const engine = new FakeEngine();
+    engine.hold = new Set(['profile']);
+    const loading = await setup({ engine, openHome, openGuide });
+    loading.live.home.focus('header', HEADER_HOME);
+    await loading.press('OK');
+    expect(openHome).toHaveBeenCalledTimes(2);
+    expect(openGuide).not.toHaveBeenCalled();
+    // A Home pushed from the header and closed: the header keeps "Home"; DOWN goes back to the list.
+    const pushed = await setup({ openHome: () => pushed.live.nav.push({ id: 'home', zones: [{ kind: 'list', id: 'continue', axis: 'horizontal', count: 1 }] }) });
+    await pushed.press('UP', 'RIGHT', 'RIGHT', 'RIGHT', 'OK');
+    expect(pushed.at()).toBe('home · continue 0');
+    await pushed.press('BACK');
+    expect(pushed.at()).toBe('live · header 3');
+    await pushed.press('DOWN');
+    expect(pushed.at()).toBe('live · channels 0');
+    // Without Home, OK there does nothing.
     const bare = await setup();
     await bare.press('UP', 'RIGHT', 'RIGHT', 'RIGHT', 'OK');
     expect(bare.at()).toBe('live · header 3');
@@ -1718,30 +1764,30 @@ describe('a channel the search found (RELAY step 28a)', () => {
   it("keeps the screen's own zone when it isn't the list: Back from the search lands on the header", async () => {
     const play = vi.fn();
     const t = await setup({ play });
-    await t.press('UP', 'RIGHT', 'RIGHT', 'RIGHT');
-    expect(t.at()).toBe('live · header 3');
+    await t.press('UP', 'RIGHT', 'RIGHT', 'RIGHT', 'RIGHT');
+    expect(t.at()).toBe('live · header 4');
     t.live.nav.push({ id: 'search', zones: [{ kind: 'list', id: 'results', axis: 'vertical', count: 3 }] });
     expect(await t.live.playFound(sports700)).toBe(true);
     expect(play).toHaveBeenCalledWith(700);
     await t.press('BACK');
-    expect(t.at()).toBe('live · header 3');
+    expect(t.at()).toBe('live · header 4');
     await t.press('DOWN');
     expect(t.at()).toBe('live · channels 700');
     // A channel gone: the header keeps the focus all the same.
-    t.live.home.focus('header', 3);
+    t.live.home.focus('header', HEADER_SEARCH);
     t.live.nav.push({ id: 'search', zones: [{ kind: 'list', id: 'results', axis: 'vertical', count: 3 }] });
     expect(await t.live.playFound({ ...sports700, key: 'x:s1:live:2-9999' })).toBe(false);
     await t.press('BACK');
-    expect(t.at()).toBe('live · header 3');
+    expect(t.at()).toBe('live · header 4');
     // Back from a player over the search (its `closed` focuses the row it played): the same.
     t.live.nav.push({ id: 'search', zones: [{ kind: 'list', id: 'results', axis: 'vertical', count: 3 }] });
     t.live.focusRow(5);
     await t.press('BACK');
-    expect(t.at()).toBe('live · header 3');
+    expect(t.at()).toBe('live · header 4');
     await t.press('DOWN');
     expect(t.at()).toBe('live · channels 5');
     // On top, the row takes the focus (Back from a player or the guide opened from the list).
-    t.live.home.focus('header', 3);
+    t.live.home.focus('header', HEADER_SEARCH);
     t.live.focusRow(7);
     expect(t.at()).toBe('live · channels 7');
   });

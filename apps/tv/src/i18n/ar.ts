@@ -154,6 +154,14 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'series.empty': 'لا توجد مسلسلات في مصادرك.',
   'series.failed': 'تعذّرت قراءة مسلسلاتك.',
 
+  'home.open': 'الرئيسية',
+  'home.title': 'الرئيسية',
+  'home.movies': 'أفلام أضيفت حديثًا',
+  'home.series': 'مسلسلات حُدّثت مؤخرًا',
+  'home.loading': 'جارٍ تحميل الرئيسية',
+  'home.empty': 'يظهر هنا ما تشاهده وما تضيفه مصادرك.',
+  'home.failed': 'تعذّرت قراءة مصادرك.',
+
   'search.open': 'البحث',
   'search.title': 'البحث',
   'search.field': 'القنوات والأفلام والمسلسلات',

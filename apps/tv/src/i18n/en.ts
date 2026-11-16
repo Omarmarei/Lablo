@@ -174,6 +174,15 @@ export const EN = {
   'series.empty': 'Your sources have no series.',
   'series.failed': "Couldn't read your series.",
 
+  // Home (RELAY step 28b1): shelves of what was left part way, the newest movies and the series updated last.
+  'home.open': 'Home',
+  'home.title': 'Home',
+  'home.movies': 'Recently added movies',
+  'home.series': 'Recently updated series',
+  'home.loading': 'Loading Home',
+  'home.empty': 'What you watch and what your sources add shows up here.',
+  'home.failed': "Couldn't read your sources.",
+
   // The search screen (RELAY step 28a): the channels, movies and series whose names hold every word typed.
   'search.open': 'Search',
   'search.title': 'Search',
