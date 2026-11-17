@@ -18,5 +18,7 @@ interface Window {
     config(): LabloConfigView | null;
     /** A config run now, resolving with its answer. */
     refreshConfig(): Promise<LabloConfigView | null>;
+    /** No config run in progress or due. */
+    configIdle(): boolean;
   };
 }

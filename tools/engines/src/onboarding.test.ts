@@ -21,6 +21,7 @@ import {
   RESET_RESULT,
   SOURCE_NAME,
   STALE_MARK,
+  CONFIG_IDLE,
   WALK_EXPRESSION,
   WALK_LANGUAGES,
   describeExpectation,
@@ -252,6 +253,7 @@ describe('the onboarding probes', () => {
     ['PROFILE_EXPRESSION', PROFILE_EXPRESSION],
     ['PROFILE_RESULT', PROFILE_RESULT],
     ['STALE_MARK', STALE_MARK],
+    ['CONFIG_IDLE', CONFIG_IDLE],
   ])('%s is plain ES5, so it runs on every engine', (_name, expression) => {
     expect(() => parse(expression, { ecmaVersion: 5, sourceType: 'script' })).not.toThrow();
   });
@@ -992,8 +994,8 @@ describe('resetDatabase', () => {
    * only after `lag` more evaluations, so until then the old document answers, as a busy engine's
    * does; deleting the database answers `ok` on the next turn.
    */
-  function fakePage(start: string, lag: number) {
-    let doc = { href: start, window: {} as Record<string, unknown> };
+  function fakePage(start: string, lag: number, startWindow: Record<string, unknown> = {}) {
+    let doc = { href: start, window: startWindow };
     let going: { url: string; reads: number } | null = null;
     const deletes: string[] = [];
     const client = {
@@ -1032,6 +1034,23 @@ describe('resetDatabase', () => {
     const page = fakePage(URL, 2);
     expect(await resetDatabase(page.client)).toBe('ok');
     expect(page.deletes).toEqual([`lablo on ${BLANK_URL}`]);
+  });
+
+  it("waits for the app's config run to end before leaving its page (step 30c1)", async () => {
+    let busyReads = 3;
+    const page = fakePage(URL, 2, { __LABLO_TEST__: { configIdle: () => busyReads-- <= 0 } });
+    expect(await resetDatabase(page.client)).toBe('ok');
+    expect(busyReads).toBe(-1);
+    expect(page.deletes).toEqual([`lablo on ${BLANK_URL}`]);
+  });
+
+  it('reads the config as idle on a page without the hook or its configIdle, and only a true answer as idle', () => {
+    const idle = (window: Record<string, unknown>): boolean => JSON.parse(runInNewContext(CONFIG_IDLE, { window, JSON }) as string) as boolean;
+    expect(idle({})).toBe(true);
+    expect(idle({ __LABLO_TEST__: { focusPath: () => null } })).toBe(true);
+    expect(idle({ __LABLO_TEST__: { configIdle: () => true } })).toBe(true);
+    expect(idle({ __LABLO_TEST__: { configIdle: () => false } })).toBe(false);
+    expect(idle({ __LABLO_TEST__: { configIdle: () => undefined } })).toBe(false);
   });
 
   it('reads the marked old document as stale', () => {

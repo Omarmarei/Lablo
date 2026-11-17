@@ -21,6 +21,11 @@ export interface LabloTestHook {
   config(): ConfigView | null;
   /** A config run now (`ConfigSchedule.refreshNow`), resolving with its answer. */
   refreshConfig(): Promise<ConfigView | null>;
+  /**
+   * No config run in progress or due (`ConfigSchedule.idle`): the old-engine walk waits for it
+   * before leaving a page, so no worker is in the database then. True without a schedule.
+   */
+  configIdle(): boolean;
 }
 
 /** A config answer as a test reads it (JSON-safe; `LabloConfigView` in env.d.ts). */
@@ -40,6 +45,7 @@ export interface ConfigView {
 export interface ConfigHookSource {
   readonly last: ReadonlySignal<ConfigResult | null>;
   refreshNow(): Promise<ConfigResult | null>;
+  idle(): boolean;
 }
 
 export interface TestHookTarget {
@@ -76,6 +82,7 @@ export function installTestHook(target: TestHookTarget, config: ConfigHookSource
     focusPath: () => (current === null ? null : focusPath(current.snapshot())),
     config: () => (config === null ? null : configView(config.last.peek())),
     refreshConfig: () => (config === null ? Promise.resolve(null) : config.refreshNow().then(configView)),
+    configIdle: () => config === null || config.idle(),
   };
   return (nav) => {
     current = nav;

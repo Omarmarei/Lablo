@@ -104,8 +104,10 @@ describe('the config in the test hook (step 30c1)', () => {
   it("reads the schedule's last answer when asked, and refreshes through it", async () => {
     const last = signal<ConfigResult | null>(null);
     const asked: number[] = [];
+    let idle = false;
     const source: ConfigHookSource = {
       last,
+      idle: () => idle,
       refreshNow: () => {
         asked.push(1);
         last.value = answer({ issuedAt: 3_000 });
@@ -122,8 +124,12 @@ describe('the config in the test hook (step 30c1)', () => {
     await expect(hook.refreshConfig()).resolves.toMatchObject({ status: 'fresh', issuedAt: 3_000 });
     expect(asked).toEqual([1]);
     expect(hook.config()?.issuedAt).toBe(3_000);
+    // The schedule's idle, read when asked.
+    expect(hook.configIdle()).toBe(false);
+    idle = true;
+    expect(hook.configIdle()).toBe(true);
     // A run whose worker died answers null.
-    installTestHook(target, { last, refreshNow: () => Promise.resolve(null) });
+    installTestHook(target, { last, idle: () => true, refreshNow: () => Promise.resolve(null) });
     await expect(target.__LABLO_TEST__!.refreshConfig()).resolves.toBeNull();
   });
 
@@ -132,5 +138,7 @@ describe('the config in the test hook (step 30c1)', () => {
     installTestHook(target);
     expect(target.__LABLO_TEST__?.config()).toBeNull();
     await expect(target.__LABLO_TEST__?.refreshConfig()).resolves.toBeNull();
+    // Nothing to wait for.
+    expect(target.__LABLO_TEST__?.configIdle()).toBe(true);
   });
 });

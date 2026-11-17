@@ -498,3 +498,48 @@ describe('refreshNow (the test hook, step 30c1)', () => {
     expect(engine.runs).toHaveLength(1);
   });
 });
+
+describe('idle (the old-engine walk waits for it before leaving a page, step 30c1)', () => {
+  it('is idle before start, busy from start until the first run ends, and while any run goes on', async () => {
+    const { schedule, paint, finish } = setup();
+    expect(schedule.idle()).toBe(true);
+    schedule.start();
+    // The first run is due after the paint: busy already.
+    expect(schedule.idle()).toBe(false);
+    paint();
+    expect(schedule.idle()).toBe(false);
+    await finish(result('fresh', 'a'));
+    expect(schedule.idle()).toBe(true);
+    const now = schedule.refreshNow();
+    expect(schedule.idle()).toBe(false);
+    await finish(result('fresh', 'b'));
+    await now;
+    expect(schedule.idle()).toBe(true);
+  });
+
+  it('is busy while a run goes on after dispose (its worker is still in the database), then idle', async () => {
+    const { schedule, paint, finish } = setup();
+    schedule.start();
+    paint();
+    schedule.dispose();
+    expect(schedule.idle()).toBe(false);
+    await finish(result('fresh', 'late'));
+    expect(schedule.idle()).toBe(true);
+    // Disposed before its first run: nothing will run.
+    const other = setup();
+    other.schedule.start();
+    expect(other.schedule.idle()).toBe(false);
+    other.schedule.dispose();
+    expect(other.schedule.idle()).toBe(true);
+  });
+
+  it('is idle once a run whose worker died has ended', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { engine, schedule, paint } = setup();
+    schedule.start();
+    paint();
+    engine.last.reject(new Error('Config worker failed: boom'));
+    await settle();
+    expect(schedule.idle()).toBe(true);
+  });
+});

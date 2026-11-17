@@ -252,6 +252,28 @@ export const WALK_EXPRESSION = `(function () {
   });
 })()`;
 
+/**
+ * The app's config run is over (`window.__LABLO_TEST__.configIdle()`, step 30c1): none in progress
+ * and none due. True on a page without the hook (the blank page, a page that failed to boot).
+ */
+export const CONFIG_IDLE = `(function () {
+  var hook = window.__LABLO_TEST__;
+  return JSON.stringify(!hook || typeof hook.configIdle !== 'function' || hook.configIdle() === true);
+})()`;
+
+/** The longest a config run takes: its worker's start, the cached copy, the 3 s fetch, the write. */
+export const CONFIG_IDLE_TIMEOUT_MS = 10_000;
+
+/**
+ * Waits (at most `CONFIG_IDLE_TIMEOUT_MS`) until the app's config worker is out of the database
+ * before the walk leaves a page. The app starts one after its first screen paints (step 30b2); a
+ * walk that fails right after a relaunch left that page while the worker was in IndexedDB, and
+ * on Chromium 53 every later delete of the database stayed `pending` (CI, 2026-11-17).
+ */
+export async function untilConfigIdle(client: CdpClient): Promise<void> {
+  await waitForProbe<boolean>(client, CONFIG_IDLE, (idle) => idle, CONFIG_IDLE_TIMEOUT_MS);
+}
+
 /** Marks the page before a relaunch: the same address loads again, and the old page must not count. */
 export const STALE_MARK = `(function () { window.__labloStale = true; return JSON.stringify(true); })()`;
 
@@ -1051,6 +1073,7 @@ export const PAGE_STATE = `JSON.stringify({ href: location.href, stale: window._
  * address, and a delete started there is lost with it (seen on Chromium 53, 2026-11-05).
  */
 export async function resetDatabase(client: CdpClient): Promise<string> {
+  await untilConfigIdle(client);
   await readProbe<boolean>(client, STALE_MARK);
   await client.send('Page.navigate', { url: BLANK_URL });
   const blank = await waitForProbe<{ href: string; stale: boolean }>(client, PAGE_STATE, (page) => page.href === BLANK_URL && !page.stale, 5_000);
@@ -1094,6 +1117,7 @@ async function walkOnce(
     // A step along the guide's time expects the cursor where its keys take it from where it is.
     const step = spec.along === undefined ? spec : withCursor(spec, (await readProbe<WalkState>(client, WALK_EXPRESSION))?.time ?? null);
     if (step.navigate === true) {
+      await untilConfigIdle(client);
       await readProbe<boolean>(client, STALE_MARK);
       await client.send('Page.navigate', { url });
     }

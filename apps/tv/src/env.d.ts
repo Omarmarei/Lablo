@@ -37,6 +37,7 @@ interface Window {
     focusPath(): string | null;
     config(): LabloConfigView | null;
     refreshConfig(): Promise<LabloConfigView | null>;
+    configIdle(): boolean;
   };
 }
 

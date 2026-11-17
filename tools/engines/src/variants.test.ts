@@ -266,6 +266,17 @@ describe('the walk seeds', () => {
     expect(window.__LABLO_TEST__.focusPath()).toBe('language/languages/0');
   });
 
+  it("keeps the app's configIdle, so the walk still waits for the config run before leaving (step 30c1)", () => {
+    const seed = WALK_SEEDS.find((s) => s.id === 'seed-focus-engine-stuck')!;
+    const window: { __LABLO_TEST__?: { focusPath(): string | null; configIdle(): boolean } } = {};
+    runInNewContext(seed.code, { window, Object });
+    let idle = false;
+    window.__LABLO_TEST__ = { focusPath: () => null, configIdle: () => idle };
+    expect(window.__LABLO_TEST__.configIdle()).toBe(false);
+    idle = true;
+    expect(window.__LABLO_TEST__.configIdle()).toBe(true);
+  });
+
   it('are staged like the syntax seeds: prepended to a copy of main.js', () => {
     const dist = fakeDist();
     const root = mkdtempSync(path.join(tmpdir(), 'lablo-variants-'));

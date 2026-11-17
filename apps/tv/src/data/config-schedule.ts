@@ -22,6 +22,10 @@ import type { SchedulerTimers } from './refresh-scheduler';
  * - **Now** (step 30c1): `refreshNow` runs at once (after the run in progress, if any), whatever
  *   the visibility, and the schedule counts from its end. The test hook calls it, so an e2e test
  *   needn't wait 6 h for a changed config.
+ * - **Idle** (step 30c1): `idle()` is false from `start()` until the first run has ended, and
+ *   while any run goes on (its worker may be in the database). The old-engine walk waits for it
+ *   before leaving a page: on Chromium 53 a page left while a worker was in IndexedDB stalled
+ *   every later delete of the database (CI, 2026-11-17).
  */
 
 /** What the schedule needs from the data engine (a `DataEngine` fits; tests pass a fake). */
@@ -53,6 +57,8 @@ export interface ConfigSchedule {
    * resolving with its answer: `null` when its worker died, before `start()` and once disposed.
    */
   refreshNow(): Promise<ConfigResult | null>;
+  /** No run in progress, and none due from `start()` (true before `start()`). */
+  idle(): boolean;
   /** Stops the schedule (a run in progress finishes, its answer is dropped). */
   dispose(): void;
 }
@@ -80,6 +86,8 @@ export function createConfigSchedule(options: ConfigScheduleOptions): ConfigSche
   let dueAt = Infinity;
   let started = false;
   let running = false;
+  /** A run has ended (the first one is due from `start()` until then). */
+  let ended = false;
   let hidden = false;
   let disposed = false;
   let unsubscribe: (() => void) | null = null;
@@ -125,6 +133,7 @@ export function createConfigSchedule(options: ConfigScheduleOptions): ConfigSche
       console.warn('The config refresh failed', error);
     } finally {
       running = false;
+      ended = true;
     }
     for (const settle of answered) settle(disposed ? null : answer);
     if (disposed) return;
@@ -161,6 +170,9 @@ export function createConfigSchedule(options: ConfigScheduleOptions): ConfigSche
         waiters.push(resolve);
         void run();
       });
+    },
+    idle() {
+      return !running && (!started || disposed || ended);
     },
     dispose() {
       disposed = true;
