@@ -17,19 +17,23 @@ import { LoadError } from './loader';
  *    and an expired, banned or disabled account (`user_info.status`) is `expired` or `blocked`,
  *    before any list is read.
  * 2. `download`, `saving`: the catalog refresh's progress (`IngestProgress`: download, commit).
- * 3. `guide`: the guides of the playlist or panel, and the guide link typed in the form (a
- *    `UserGuide` with the source's id, after the user's guides already listed), read through
+ * 3. `guide`: the guides of the playlist or panel, and the guide links typed in the form or sent
+ *    from the phone (`UserGuide`s named after the source, after the user's guides already listed: step 31c2a), read through
  *    `refreshEpg` with `due`. A guide that fails doesn't fail the source: the EPG refresh keeps
  *    its failure and retries it later (step 9b).
  * 4. The source goes into the profile (the login with it, in IndexedDB only until step 32
- *    encrypts it), then the typed guide into the guide list (step 22b), then the counts.
+ *    encrypts it), then the typed guides into the guide list (step 22b), then the counts.
  *
  * Cancel stops the running refresh in its worker; the load then never settles. A new load waits
- * for the cancelled one to let go of the refresh slot.
+ * for the cancelled one to let go of the refresh slot, and for any other refresh holding it (a
+ * background refresh while a source is added from Settings, step 31c2a): `refreshing`, checked
+ * every `SLOT_WAIT_MS`, right before each refresh is asked for.
  */
 
 /** What the loader needs from the data engine (a `DataEngine` fits; unit tests pass a fake). */
 export interface LoaderEngine {
+  /** A refresh holds the data engine's one slot (another would be refused). Absent: never waited for. */
+  readonly refreshing?: boolean;
   refresh(job: { src: string; source: IngestSource }, options: RefreshOptions): Promise<IngestResult>;
   refreshEpg(catalogs: readonly EpgCatalogSource[], options: EpgRefreshOptions): Promise<unknown>;
   sourceIds(): Promise<string[]>;
@@ -44,7 +48,12 @@ export interface EngineLoaderOptions {
   /** UI languages, most preferred first (the guides' titles are picked by them). */
   readonly languages: () => string[];
   readonly now?: () => number;
+  /** Waits `ms` (the slot's wait; default `setTimeout`). */
+  readonly sleep?: (ms: number) => Promise<void>;
 }
+
+/** How often a load waiting for the refresh slot looks again. */
+export const SLOT_WAIT_MS = 500;
 
 const SOURCE_NUMBER = /^s(\d{1,9})$/;
 
@@ -104,17 +113,31 @@ export function userGuides(profile: LoadedProfile | null): UserGuide[] {
 }
 
 /**
- * The guide link typed with a new source, as a guide with the source's id (source ids are never
- * reused, so neither is the guide's); `null` when none was typed, or the list has it already.
+ * The guide links given with a new source, as guides named after the source: `<id>`, then
+ * `<id>-2`, `<id>-3`, `<id>-4` by place in `urls` (source ids are never reused, so neither are
+ * these). A link the list has already, or given twice, is left out.
  */
-export function typedGuide(id: string, url: string | null, listed: readonly UserGuide[]): UserGuide | null {
-  if (url === null || listed.some((g) => g.url === url)) return null;
-  return { id, url };
+export function typedGuides(id: string, urls: readonly string[], listed: readonly UserGuide[]): UserGuide[] {
+  const guides: UserGuide[] = [];
+  for (let i = 0; i < urls.length; i += 1) {
+    const url = urls[i]!;
+    if (listed.some((g) => g.url === url) || guides.some((g) => g.url === url)) continue;
+    guides.push({ id: i === 0 ? id : `${id}-${i + 1}`, url });
+  }
+  return guides;
 }
 
 export function createEngineLoader(options: EngineLoaderOptions): SourceLoader {
   const { engine } = options;
   const now = options.now ?? (() => Date.now());
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  /** Resolves once no refresh holds the slot; rejects when the load is cancelled meanwhile. */
+  const slotFree = async (cancel: CancelSource): Promise<void> => {
+    while (engine.refreshing === true) {
+      await sleep(SLOT_WAIT_MS);
+      cancel.token.throwIfCancelled();
+    }
+  };
   /** The last load's run, settled either way: the next one waits for its refresh slot. */
   let previous: Promise<unknown> = Promise.resolve();
 
@@ -130,9 +153,11 @@ export function createEngineLoader(options: EngineLoaderOptions): SourceLoader {
         ? { id, type: 'xtream', name: draft.name, account: draft.account, added: now() }
         : { id, type: 'm3u', name: draft.name, url: draft.url, added: now() };
     const listed = userGuides(profile);
-    const guide = typedGuide(id, draft.epgUrl, listed);
+    const guides = typedGuides(id, draft.epgUrls, listed);
     const source = ingestSourceOf(record);
 
+    // Nothing awaits between the slot's check and the refresh, which claims it at once.
+    await slotFree(cancel);
     const result = await engine.refresh(
       { src: id, source },
       {
@@ -149,9 +174,10 @@ export function createEngineLoader(options: EngineLoaderOptions): SourceLoader {
     const all = stored.filter((s) => s.id !== id).concat([record]);
     report({ phase: 'guide', bytes: 0, total: null, items });
     try {
+      await slotFree(cancel);
       await engine.refreshEpg(all.map(catalogOf), {
         tier,
-        user: guide === null ? listed : listed.concat([guide]),
+        user: listed.concat(guides),
         languages: options.languages(),
         due: true,
         cancel: cancel.token,
@@ -163,7 +189,7 @@ export function createEngineLoader(options: EngineLoaderOptions): SourceLoader {
     }
     cancel.token.throwIfCancelled();
     await engine.editProfile({ kind: 'source', source: record });
-    if (guide !== null) await engine.editProfile({ kind: 'guide', change: { op: 'add', guide } });
+    for (let i = 0; i < guides.length; i += 1) await engine.editProfile({ kind: 'guide', change: { op: 'add', guide: guides[i]! } });
     return counts;
   };
 

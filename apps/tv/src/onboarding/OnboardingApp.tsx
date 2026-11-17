@@ -4,12 +4,13 @@ import type { Language, LocaleSettings } from '@lablo/ui';
 import { Button, Dialog, ProgressBar, Spinner, TextField, connectRemote, resolveLocale, useFocus, useZone } from '@lablo/ui';
 import { useSignal } from '@preact/signals';
 import { useEffect } from 'preact/hooks';
-import { messageIn } from '../gate/gate-state';
 import type { AppI18n } from '../i18n';
 import { LANGUAGE_NAMES, appI18n, switchedTag } from '../i18n';
+import { PAIR_SCREEN } from '../pairing/pair-state';
+import { PairPage } from '../pairing/PairPage';
 import type { FieldId, FieldProblem } from './form';
 import { FORM_FIELDS } from './form';
-import type { LoadErrorCode, LoadPhase } from './loader';
+import { errorText, phaseText, refusalText } from './load-text';
 import type { LoadState, Onboarding } from './onboarding-state';
 import { LANGUAGES, SOURCE_TYPES, fieldDomId } from './onboarding-state';
 import './onboarding.css';
@@ -48,33 +49,9 @@ function problemText(t: Translate, problem: FieldProblem | undefined): string | 
   return null;
 }
 
-function errorText(t: Translate, code: LoadErrorCode, status: number | null): string {
-  if (code === 'http') return t('error.http', { status: status ?? 0 });
-  if (code === 'auth') return t('error.auth');
-  if (code === 'expired') return t('error.expired');
-  if (code === 'blocked') return t('error.blocked');
-  if (code === 'blocklisted') return t('error.blocklisted');
-  if (code === 'network') return t('error.network');
-  if (code === 'format') return t('error.format');
-  if (code === 'empty') return t('error.empty');
-  return t('error.other');
-}
-
-/**
- * A failed load's message, or the config's refusal (step 30c2b): the rule's own words in the UI's
- * language, else the catalog's.
- */
+/** A failed load's message, or the config's refusal (step 30c2b). */
 function failureText(i18n: AppI18n, state: Extract<LoadState, { status: 'failed' | 'refused' }>): string {
-  if (state.status === 'failed') return errorText(i18n.t, state.code, state.httpStatus);
-  const message = state.refusal.message;
-  return message === null ? i18n.t('error.refused') : messageIn(message, i18n.locale.language);
-}
-
-function phaseText(t: Translate, phase: LoadPhase, items: number): string {
-  if (phase === 'checking') return t('loading.checking');
-  if (phase === 'saving') return t('loading.saving');
-  if (phase === 'guide') return t('loading.guide');
-  return t('loading.download', { n: items });
+  return state.status === 'failed' ? errorText(i18n.t, state.code, state.httpStatus) : refusalText(i18n, state.refusal);
 }
 
 function Panel({ title, children }: { title: string; children: ComponentChildren }) {
@@ -158,8 +135,8 @@ function ConsentScreen({ ob, i18n }: ScreenProps) {
 function SourceScreen({ ob, i18n }: ScreenProps) {
   const { t } = i18n;
   const zone = useZone(ob.binding, ob.binding.nav.top, 'types');
-  const labels = [t('onboarding.xtream', { name: NAMES.name }), t('onboarding.m3u', { format: NAMES.format })];
-  const hints = [t('onboarding.xtreamHint'), t('onboarding.m3uHint')];
+  const labels = [t('onboarding.xtream', { name: NAMES.name }), t('onboarding.m3u', { format: NAMES.format }), t('onboarding.phone')];
+  const hints = [t('onboarding.xtreamHint'), t('onboarding.m3uHint'), t('onboarding.phoneHint')];
   return (
     <Panel title={t('onboarding.sourceTitle')}>
       <p class="onboarding__text">{t('onboarding.sourceBody')}</p>
@@ -167,6 +144,8 @@ function SourceScreen({ ob, i18n }: ScreenProps) {
         {SOURCE_TYPES.map((type, i) => (
           <Button key={type} label={labels[i] ?? ''} {...zone.item(i)} testId={`type-${type}`} />
         ))}
+        {/* "Use your phone" (step 31c2a): the pairing screen. */}
+        {ob.pairing !== null && <Button label={labels[2]!} {...zone.item(SOURCE_TYPES.length)} testId="type-phone" />}
       </div>
       <p class="onboarding__note" data-testid="type-hint">
         {hints[zone.position.index] ?? ''}
@@ -312,6 +291,7 @@ function OnboardingScreen({ ob, i18n, device }: ScreenProps & { device: AppI18n 
       {under === 'source' && <SourceScreen ob={ob} i18n={i18n} />}
       {under === 'form' && <FormScreen ob={ob} i18n={i18n} />}
       {under === 'loading' && <LoadingScreen ob={ob} i18n={i18n} />}
+      {under === PAIR_SCREEN && ob.pairing !== null && <PairPage pairing={ob.pairing} binding={ob.binding} i18n={i18n} />}
       {under === 'done' && <DoneScreen ob={ob} i18n={i18n} />}
       {focus.screen === 'exit' && <ExitDialog ob={ob} i18n={i18n} />}
     </main>

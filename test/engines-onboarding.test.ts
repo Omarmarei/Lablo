@@ -64,7 +64,7 @@ describe('the onboarding walk of the old-engine harness', () => {
       expect(link).not.toMatch(/^https?:/);
       const { problems, draft } = checkForm('m3u', { playlist: link });
       expect(problems).toEqual({});
-      expect(draft).toMatchObject({ type: 'm3u', url: `http://${link}`, name: SOURCE_NAME, epgUrl: null });
+      expect(draft).toMatchObject({ type: 'm3u', url: `http://${link}`, name: SOURCE_NAME, epgUrls: [] });
     }
   });
 

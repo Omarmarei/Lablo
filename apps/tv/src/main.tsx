@@ -3,7 +3,7 @@ import { render } from 'preact';
 import type { ContentKey, DeviceTier } from '@lablo/core';
 import { normalizeLang } from '@lablo/core';
 import type { LastChannel } from '@lablo/data';
-import type { Language } from '@lablo/ui';
+import type { Language, Navigator } from '@lablo/ui';
 import { Spinner } from '@lablo/ui';
 import type { AppData } from './App';
 import { App } from './App';
@@ -38,8 +38,12 @@ import { createSearch } from './search/search-state';
 import type { Home } from './home/home-state';
 import { createHome } from './home/home-state';
 import { createEngineLoader } from './onboarding/engine-loader';
+import type { SourceDraft } from './onboarding/form';
+import type { LoadResult, SourceLoader } from './onboarding/loader';
 import { OnboardingApp } from './onboarding/OnboardingApp';
 import type { Onboarding } from './onboarding/onboarding-state';
+import type { Pairing } from './pairing/pair-state';
+import { createPairing } from './pairing/pair-state';
 import { appPlayer, uiTrackPreferences } from './player/app-player';
 import { catchupRequest } from './player/catchup';
 import { createPlayerMemory } from './player/player-memory';
@@ -130,6 +134,34 @@ const playRefusal = computed(() => refusalFor(config.policy.value, 'disable-play
 
 /** What the live screen stops while the gate stops the app, and starts again when it lifts (step 30c2a). */
 let gated: { readonly stop: () => void; readonly resume: () => void } | null = null;
+/** The gate stops the app now: a paired source's load that ends meanwhile leaves the refreshes stopped. */
+let gateStopped = false;
+
+/** The TV's tier, `full` when the platform can't say. */
+function deviceTier(): Promise<DeviceTier> {
+  return platform.info().then(
+    (info) => info.tier,
+    (): DeviceTier => 'full',
+  );
+}
+
+/**
+ * The pairing screen on `nav` (RELAY step 31c2a): a pair worker per opening, the code's link on
+ * this build's API origin (`?api=` in tests), the config's `block-new-sources` and `loader`'s add
+ * path. `busy`: a load starts and ends (Settings holds the background refreshes meanwhile).
+ */
+function pairingOn(nav: Navigator, added: (draft: SourceDraft, result: LoadResult) => void, loader: SourceLoader, busy?: (on: boolean) => void): Pairing {
+  return createPairing({
+    nav,
+    session: () => dataEngine().pairing(),
+    base: configRequest.base,
+    loader,
+    refusal: addRefusal,
+    lifecycle: (listener) => platform.onLifecycle(listener),
+    added,
+    ...(busy === undefined ? {} : { busy }),
+  });
+}
 
 /**
  * The config's gate (RELAY step 30c2a): `disable-app`, the "update Lablo" screen and the notices,
@@ -148,6 +180,7 @@ const gate = createGate({
       .catch((error: unknown) => console.warn('The notice was not kept as shown', error));
   },
   stopped: (on) => {
+    gateStopped = on;
     if (on) gated?.stop();
     else gated?.resume();
   },
@@ -341,6 +374,24 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   });
   // The header's "Settings" (step 22b2): the guides screen changes the guide list, then reads it.
   // A guide's time offset (step 24b) needs no refresh: the screens ask their programmes again.
+  // Sources › "Add from your phone" (step 31c2a): the background refreshes wait while the phone's
+  // source loads; once it is in, the screens read the catalogs and guides again.
+  const addLoader = createEngineLoader({
+    engine: dataEngine(),
+    tier: deviceTier,
+    languages: () => {
+      const ui = normalizeLang(document.documentElement.lang);
+      return ui === '' ? [] : [ui];
+    },
+  });
+  const holdRefreshes = (on: boolean): void => {
+    if (on) {
+      refreshes?.dispose();
+      refreshes = null;
+    } else if (!gateStopped) {
+      startRefreshes(live, guide, [movies, series], search, home, readFacts);
+    }
+  };
   const settings = createSettings({
     nav: live.nav,
     engine: dataEngine(),
@@ -350,6 +401,17 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       guide.guidesChanged();
     },
     platform,
+    pairing: (nav, added) => pairingOn(nav, added, addLoader, holdRefreshes),
+    sourceAdded: () => {
+      readFacts();
+      live.catalogChanged();
+      movies.catalogChanged();
+      series.catalogChanged();
+      search.catalogChanged();
+      home.catalogChanged();
+      live.guidesChanged();
+      guide.guidesChanged();
+    },
   });
   openSettings = () => settings.open();
   // OK on a channel opens the player on the live navigator (step 20a); Back returns to its row.
@@ -428,6 +490,8 @@ function showOnboarding(into: Element, language: Language | null): void {
     initial: { language },
     // The config's block-new-sources (step 30c2b), read at "Add source".
     refusal: addRefusal,
+    // "Use your phone" (step 31c2a): the pairing screen, its source added by the same loader.
+    pairing: (nav, added) => pairingOn(nav, added, loader),
     answer: (answer) => {
       // Best effort: an answer that can't be saved is asked again on the next start.
       data.editProfile(answerEdit(answer)).catch((error: unknown) => console.warn('The onboarding answer was not saved', error));

@@ -3,8 +3,10 @@ import type { Intent, KeyLike, RootBackPolicy, TextKey } from '@lablo/platform-a
 import type { EditableLike } from '@lablo/ui';
 import { OK_CLICK_WINDOW_MS } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
+import type { Navigator } from '@lablo/ui';
 import type { Refusal } from '../gate/gate-state';
-import type { FieldId } from './form';
+import type { Pairing } from '../pairing/pair-state';
+import type { FieldId, SourceDraft } from './form';
 import type { FakeLoaderOptions, LoadResult, SourceLoader } from './loader';
 import { LoadError, createFakeLoader } from './loader';
 import type { OnboardingAnswer, OnboardingOptions } from './onboarding-state';
@@ -23,7 +25,14 @@ class FakeInput implements EditableLike {
 }
 
 function setup(
-  options: { rootBack?: RootBackPolicy; loader?: FakeLoaderOptions; answer?: OnboardingOptions['answer']; initial?: OnboardingOptions['initial']; refusal?: OnboardingOptions['refusal'] } = {},
+  options: {
+    rootBack?: RootBackPolicy;
+    loader?: FakeLoaderOptions;
+    answer?: OnboardingOptions['answer'];
+    initial?: OnboardingOptions['initial'];
+    refusal?: OnboardingOptions['refusal'];
+    pairing?: OnboardingOptions['pairing'];
+  } = {},
 ) {
   const exitApp = vi.fn();
   const timers: Array<() => void> = [];
@@ -54,6 +63,7 @@ function setup(
     answer: options.answer,
     initial: options.initial,
     refusal: options.refusal,
+    pairing: options.pairing,
   });
   const at = (): string => {
     const f = ob.nav.snapshot();
@@ -525,5 +535,61 @@ describe('loads that answer late', () => {
     await m.settle();
     expect(m.ob.load.value.status).toBe('running');
     expect(m.ob.nav.top.zone('actions')).toMatchObject({ count: 1 });
+  });
+});
+
+describe('"Use your phone" (RELAY step 31c2a)', () => {
+  function withPairing() {
+    let made: { nav: Navigator; added: (draft: SourceDraft, result: LoadResult) => void } | null = null;
+    const pairing = { open: vi.fn(), dispose: vi.fn() } as unknown as Pairing;
+    const s = setup({
+      pairing: (nav, added) => {
+        made = { nav, added };
+        return pairing;
+      },
+    });
+    return { s, pairing, made: () => made! };
+  }
+
+  it("is the source screen's third row, and opens the pairing screen on onboarding's navigator", () => {
+    const { s, pairing, made } = withPairing();
+    expect(s.ob.pairing).toBe(pairing);
+    expect(made().nav).toBe(s.ob.nav);
+    s.press('OK', 'OK', 'OK');
+    expect(s.at()).toBe('source · types 0');
+    expect((s.ob.nav.top.zone('types') as { count: number }).count).toBe(SOURCE_TYPES.length + 1);
+    s.press('DOWN', 'DOWN');
+    expect(s.at()).toBe(`source · types ${SOURCE_TYPES.length}`);
+    s.press('OK');
+    expect(pairing.open).toHaveBeenCalledTimes(1);
+    // The pairing screen pushes itself: the source screen stays on top here.
+    expect(s.at()).toBe(`source · types ${SOURCE_TYPES.length}`);
+    expect(s.ob.type.value).toBe('xtream');
+  });
+
+  it("takes the phone's source to the done screen, as the new root", () => {
+    const { s, made } = withPairing();
+    s.press('OK', 'OK', 'OK');
+    const draft: SourceDraft = { type: 'm3u', name: 'Phone list', url: 'http://lists.test/a.m3u', epgUrls: [] };
+    made().added(draft, { live: 4, movies: 0, series: 0 });
+    expect(s.at()).toBe('done · actions 0');
+    expect(s.ob.draft.value).toEqual(draft);
+    expect(s.ob.load.value).toEqual({ status: 'done', result: { live: 4, movies: 0, series: 0 } });
+    expect(s.ob.root.value).toBe(s.ob.nav.top);
+    s.press('OK');
+    expect(s.ob.finished.value).toBe(true);
+  });
+
+  it('disposes the pairing with onboarding', () => {
+    const { s, pairing } = withPairing();
+    s.ob.dispose();
+    expect(pairing.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps two rows without a way to pair', () => {
+    const s = setup();
+    expect(s.ob.pairing).toBeNull();
+    s.press('OK', 'OK', 'OK');
+    expect((s.ob.nav.top.zone('types') as { count: number }).count).toBe(SOURCE_TYPES.length);
   });
 });

@@ -4,14 +4,14 @@ import { describe, expect, it } from 'vitest';
 import type { EpgRefreshOptions, RefreshOptions } from '../data/engine';
 import { BlockedSourceError } from '../data/engine';
 import type { LoaderEngine } from './engine-loader';
-import { createEngineLoader, loadError, nextSourceId, storedSources, typedGuide, userGuides } from './engine-loader';
+import { SLOT_WAIT_MS, createEngineLoader, loadError, nextSourceId, storedSources, typedGuides, userGuides } from './engine-loader';
 import type { SourceDraft } from './form';
 import type { LoadProgress, LoadResult } from './loader';
 import { LoadError } from './loader';
 
 const ACCOUNT = { base: 'http://panel.test', username: 'u', password: 'p' };
-const XTREAM: SourceDraft = { type: 'xtream', name: 'Home', account: ACCOUNT, epgUrl: 'http://guide.test/x.xml' };
-const M3U: SourceDraft = { type: 'm3u', name: 'List', url: 'http://p.test/l.m3u', epgUrl: null };
+const XTREAM: SourceDraft = { type: 'xtream', name: 'Home', account: ACCOUNT, epgUrls: ['http://guide.test/x.xml'] };
+const M3U: SourceDraft = { type: 'm3u', name: 'List', url: 'http://p.test/l.m3u', epgUrls: [] };
 
 /** Resolves on the next turns of the event loop (lets chained promises run). */
 const settle = async (): Promise<void> => {
@@ -129,13 +129,29 @@ describe('userGuides', () => {
   });
 });
 
-describe('typedGuide', () => {
-  it("is the guide link typed with a new source, under the source's id; none when none was typed or it is listed", () => {
+describe('typedGuides', () => {
+  it("is the guide links given with a new source, named after the source; none when none was given or each is listed", () => {
     const listed = [{ id: 's1', url: 'http://g.test/a.xml' }];
-    expect(typedGuide('s2', 'http://g.test/b.xml', listed)).toEqual({ id: 's2', url: 'http://g.test/b.xml' });
-    expect(typedGuide('s2', null, listed)).toBeNull();
-    expect(typedGuide('s2', 'http://g.test/a.xml', listed)).toBeNull();
-    expect(typedGuide('s1', 'http://g.test/b.xml', [])).toEqual({ id: 's1', url: 'http://g.test/b.xml' });
+    expect(typedGuides('s2', ['http://g.test/b.xml'], listed)).toEqual([{ id: 's2', url: 'http://g.test/b.xml' }]);
+    expect(typedGuides('s2', [], listed)).toEqual([]);
+    expect(typedGuides('s2', ['http://g.test/a.xml'], listed)).toEqual([]);
+    expect(typedGuides('s1', ['http://g.test/b.xml'], [])).toEqual([{ id: 's1', url: 'http://g.test/b.xml' }]);
+  });
+
+  it('names the second to fourth by their place, and leaves out a listed link and one given twice (step 31c2a)', () => {
+    const listed = [{ id: 'g1', url: 'http://g.test/a.xml' }];
+    const urls = ['http://g.test/b.xml', 'http://g.test/c.xml', 'http://g.test/d.xml', 'http://g.test/e.xml'];
+    expect(typedGuides('s7', urls, listed)).toEqual([
+      { id: 's7', url: 'http://g.test/b.xml' },
+      { id: 's7-2', url: 'http://g.test/c.xml' },
+      { id: 's7-3', url: 'http://g.test/d.xml' },
+      { id: 's7-4', url: 'http://g.test/e.xml' },
+    ]);
+    // The place names the guide: a first link already listed leaves `s7` unused.
+    expect(typedGuides('s7', ['http://g.test/a.xml', 'http://g.test/c.xml', 'http://g.test/c.xml', 'http://g.test/e.xml'], listed)).toEqual([
+      { id: 's7-2', url: 'http://g.test/c.xml' },
+      { id: 's7-4', url: 'http://g.test/e.xml' },
+    ]);
   });
 });
 
@@ -201,16 +217,83 @@ describe('createEngineLoader', () => {
   it("puts a typed guide after the user's guides, and one already listed in no second time", async () => {
     const doc = { v: 4, sources: [], guides: [{ id: 'g1', url: 'http://g.test/a.xml' }] };
     const { engine, calls } = fake({ profile: { doc, newer: false, migratedFrom: null } });
-    await loaderFor(engine).start({ ...M3U, epgUrl: 'http://g.test/b.xml' }, () => undefined).done;
+    await loaderFor(engine).start({ ...M3U, epgUrls: ['http://g.test/b.xml'] }, () => undefined).done;
     expect(calls.epg[0]!.options.user).toEqual([
       { id: 'g1', url: 'http://g.test/a.xml' },
       { id: 's1', url: 'http://g.test/b.xml' },
     ]);
     expect(calls.edits[1]).toEqual({ kind: 'guide', change: { op: 'add', guide: { id: 's1', url: 'http://g.test/b.xml' } } });
     const again = fake({ profile: { doc, newer: false, migratedFrom: null } });
-    await loaderFor(again.engine).start({ ...M3U, epgUrl: 'http://g.test/a.xml' }, () => undefined).done;
+    await loaderFor(again.engine).start({ ...M3U, epgUrls: ['http://g.test/a.xml'] }, () => undefined).done;
     expect(again.calls.epg[0]!.options.user).toEqual([{ id: 'g1', url: 'http://g.test/a.xml' }]);
     expect(again.calls.edits.map((e) => e.kind)).toEqual(['source']);
+  });
+
+  it('lists and keeps every guide link a source came with, in their order (step 31c2a)', async () => {
+    const doc = { v: 4, sources: [], guides: [{ id: 'g1', url: 'http://g.test/a.xml' }] };
+    const { engine, calls } = fake({ profile: { doc, newer: false, migratedFrom: null } });
+    await loaderFor(engine).start({ ...M3U, epgUrls: ['http://g.test/b.xml', 'http://g.test/a.xml', 'http://g.test/c.xml'] }, () => undefined).done;
+    expect(calls.epg[0]!.options.user).toEqual([
+      { id: 'g1', url: 'http://g.test/a.xml' },
+      { id: 's1', url: 'http://g.test/b.xml' },
+      { id: 's1-3', url: 'http://g.test/c.xml' },
+    ]);
+    expect(calls.edits).toEqual([
+      { kind: 'source', source: { id: 's1', type: 'm3u', name: 'List', url: 'http://p.test/l.m3u', added: 777 } },
+      { kind: 'guide', change: { op: 'add', guide: { id: 's1', url: 'http://g.test/b.xml' } } },
+      { kind: 'guide', change: { op: 'add', guide: { id: 's1-3', url: 'http://g.test/c.xml' } } },
+    ]);
+  });
+
+  it('waits while another refresh holds the slot, before the catalog and before the guides (step 31c2a)', async () => {
+    const { engine, calls } = fake();
+    const held = { on: true };
+    const waits: number[] = [];
+    const slotted: LoaderEngine = {
+      get refreshing() {
+        return held.on;
+      },
+      refresh: (job, opts) => {
+        // Taken: the background refresh comes back for the guides.
+        held.on = true;
+        return engine.refresh(job, opts);
+      },
+      refreshEpg: (catalogs, opts) => engine.refreshEpg(catalogs, opts),
+      sourceIds: () => engine.sourceIds(),
+      profile: () => engine.profile(),
+      editProfile: (edit) => engine.editProfile(edit),
+    };
+    const sleep = (ms: number): Promise<void> => {
+      waits.push(ms);
+      // Free after three looks before the catalog, and after one before the guides.
+      if (waits.length === 3 || waits.length === 4) held.on = false;
+      return Promise.resolve();
+    };
+    const loader = createEngineLoader({ engine: slotted, tier: () => Promise.resolve('full'), languages: () => [], now: () => 1, sleep });
+    await loader.start(M3U, () => undefined).done;
+    expect(SLOT_WAIT_MS).toBe(500);
+    expect(waits).toEqual([SLOT_WAIT_MS, SLOT_WAIT_MS, SLOT_WAIT_MS, SLOT_WAIT_MS]);
+    expect(calls.refresh).toHaveLength(1);
+    expect(calls.epg).toHaveLength(1);
+  });
+
+  it('asks nothing of a slot never freed once cancelled, and asks for no refresh', async () => {
+    const { engine, calls } = fake();
+    const slotted: LoaderEngine = { ...engine, refreshing: true };
+    let wake: () => void = () => undefined;
+    const sleep = (): Promise<void> =>
+      new Promise<void>((resolve) => {
+        wake = resolve;
+      });
+    const loader = createEngineLoader({ engine: slotted, tier: () => Promise.resolve('full'), languages: () => [], now: () => 1, sleep });
+    const handle = loader.start(M3U, () => undefined);
+    await settle();
+    handle.cancel();
+    wake();
+    expect(await settled(handle.done)).toBe(false);
+    await settle();
+    expect(calls.refresh).toEqual([]);
+    expect(calls.edits).toEqual([]);
   });
 
   it("fails with the refresh's error and saves nothing", async () => {

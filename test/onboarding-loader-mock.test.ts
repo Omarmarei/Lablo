@@ -91,8 +91,8 @@ function loader(data: DataEngine) {
   return createEngineLoader({ engine: data, tier: () => Promise.resolve('full'), languages: () => ['en'], now: () => NOW });
 }
 
-const xtream = (username = U, password = P): SourceDraft => ({ type: 'xtream', name: 'Mock', account: { base, username, password }, epgUrl: null });
-const m3u = (url: string): SourceDraft => ({ type: 'm3u', name: 'Mock list', url, epgUrl: null });
+const xtream = (username = U, password = P): SourceDraft => ({ type: 'xtream', name: 'Mock', account: { base, username, password }, epgUrls: [] });
+const m3u = (url: string): SourceDraft => ({ type: 'm3u', name: 'Mock list', url, epgUrls: [] });
 
 describe("onboarding's loader against the mock provider", () => {
   it('adds an Xtream login: the mock counts, its guide, and the source in the profile', async () => {
@@ -115,7 +115,7 @@ describe("onboarding's loader against the mock provider", () => {
   it("adds an M3U link with the user's guide link, and a second source gets the next id", async () => {
     const data = engine();
     const guide = `${base}/xmltv.php?username=${U}&password=${P}`;
-    const list = { ...m3u(`${base}/get.php?username=${U}&password=${P}&type=m3u_plus`), epgUrl: guide };
+    const list = { ...m3u(`${base}/get.php?username=${U}&password=${P}&type=m3u_plus`), epgUrls: [guide] };
     expect(await loader(data).start(list, () => undefined).done).toEqual({ live: catalog.live.length, movies: catalog.movies.length, series: episodes });
     const guides = (await data.epgStatus()).guides.map((g) => g.epgSrc);
     // The typed guide first (`u~s1`); the playlist's own url-tvg is the same address, read once.

@@ -41,8 +41,8 @@ export type FormProblems = Partial<Record<FieldId, FieldProblem>>;
 
 /** A source as the form gives it; step 13b loads it through the data engine. */
 export type SourceDraft =
-  | { readonly type: 'xtream'; readonly name: string; readonly account: XtreamAccount; readonly epgUrl: string | null }
-  | { readonly type: 'm3u'; readonly name: string; readonly url: string; readonly epgUrl: string | null };
+  | { readonly type: 'xtream'; readonly name: string; readonly account: XtreamAccount; readonly epgUrls: readonly string[] }
+  | { readonly type: 'm3u'; readonly name: string; readonly url: string; readonly epgUrls: readonly string[] };
 
 const SCHEME = /^([a-z][a-z0-9+.-]*):\/\//i;
 const HTTP = /^https?$/i;
@@ -115,16 +115,18 @@ export function checkForm(type: SourceType, values: FormValues): CheckedForm {
     return normalized;
   };
   const epgUrl = link('epg', normalizeLink);
+  // The form has one guide field; a source from the phone may bring up to four (step 31c2a).
+  const epgUrls = epgUrl === null ? [] : [epgUrl];
 
   if (type === 'xtream') {
     const base = link('server', normalizeXtreamBase);
     if (base === null || Object.keys(problems).length > 0) return { problems, draft: null };
     const account: XtreamAccount = { base, username: text('username'), password: text('password') };
-    return { problems, draft: { type, name: text('name') || linkHost(base), account, epgUrl } };
+    return { problems, draft: { type, name: text('name') || linkHost(base), account, epgUrls } };
   }
   const url = link('playlist', normalizeLink);
   if (url === null || Object.keys(problems).length > 0) return { problems, draft: null };
-  return { problems, draft: { type, name: text('name') || linkHost(url), url, epgUrl } };
+  return { problems, draft: { type, name: text('name') || linkHost(url), url, epgUrls } };
 }
 
 /** The first refused field in screen order, or -1. */
