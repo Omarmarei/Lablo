@@ -1655,6 +1655,7 @@ envelope   = {v:1, kdf:"scrypt-15-8-1", nonce:24B, ct: secretbox(gzip(profileJSO
 - **Mutation:** `artifacts/mutate30a.py`, 96 written first, 96 caught. Writing the list first took out three conditions nothing could notice (`blocklistHost`'s empty-host check, a "production keys exist" test before the dev key, `insideRepo`'s `relative === ''`) and closed three gaps (an IPv6 address with dots has no parents, a 33-byte key, the days left rounding down).
 - **Verified live:** `next start` and requests without the header (`country: null`), with `AE`, and with `ae` (`null`): each 200, `configResponseSchema` valid, the signature good against `keys.json`, `private, max-age=300`.
 - **Not yet:** the TV's client and the embedded keys (step 30b), enforcement (step 30c), the production keys and a production-signed config (step 34), a deployment (step 34).
+- **Merged:** PR #98 as merge commit `79f834b` on green CI on the first run (verify 9 m 40 s, web 37 s, media 9 m 35 s, engines 20 m 45 s).
 
 ### 3.4 Telemetry
 
