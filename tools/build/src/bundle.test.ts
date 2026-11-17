@@ -3,6 +3,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import { SyntaxGateError, UNUSED_POLYFILLS, bundleIife, stringLiteral } from './bundle';
+import { tvDefines } from '../../../tv-defines.config';
 import { checkSyntax } from './syntax-gate';
 
 const FIXTURES = path.resolve(import.meta.dirname, '../test/fixtures');
@@ -134,5 +135,14 @@ describe('bundleIife (Rollup IIFE + Babel chrome 53 + core-js)', () => {
     const { code } = await bundleIife({ input: fixture('per-platform.ts'), platform });
     expect(code).toContain(kept);
     expect(code).not.toContain(dropped);
+  }, 60_000);
+  it("replaces the app's build constants: a TV build's by default, or the ones given (step 30b2)", async () => {
+    const own = tvDefines('package');
+    const { code } = await bundleIife({ input: fixture('app-defines.ts'), platform: 'webos' });
+    expect(code).not.toMatch(/__(API_BASE|APP_VERSION|CONFIG_KEYS)__/);
+    expect(runWithoutModernApis(code)).toEqual({ base: own.apiBase, version: own.version, keys: own.configKeys });
+    const given = { apiBase: 'http://api.test', version: '9.8.7', configKeys: ['k1', 'k2'] };
+    const other = await bundleIife({ input: fixture('app-defines.ts'), platform: 'tizen', defines: given });
+    expect(runWithoutModernApis(other.code)).toEqual({ base: 'http://api.test', version: '9.8.7', keys: ['k1', 'k2'] });
   }, 60_000);
 });

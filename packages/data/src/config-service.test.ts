@@ -1,10 +1,13 @@
+import { toBase64Url } from '@lablo/crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ByteResponse, ByteTransport } from './bytes';
 import { NetworkError } from './bytes';
 import { noPolicy } from './config-policy';
-import type { ConfigResult } from './config-service';
-import { CONFIG_KEY, CONFIG_MAX_BYTES, CONFIG_REFRESH_MS, CONFIG_TIMEOUT_MS, ConfigService } from './config-service';
-import { getValue, openDatabase } from './idb';
+import type { ConfigEvents, ConfigResult } from './config-service';
+import { CONFIG_KEY, CONFIG_MAX_BYTES, CONFIG_REFRESH_MS, CONFIG_RETRY_MS, CONFIG_TIMEOUT_MS, ConfigService, configHandlers } from './config-service';
+import { getValue, openDatabase, transact } from './idb';
+import type { RpcPort } from './rpc';
+import { RpcClient, RpcError, serveRpc } from './rpc';
 import { STORE } from './schema';
 import type { FakeResponse } from './test-support';
 import { configAnswer, configDocFields, configSigner, fakeTransport, freshFactory } from './test-support';
@@ -49,8 +52,10 @@ async function until(ready: () => boolean): Promise<void> {
 }
 
 const opened: IDBDatabase[] = [];
+const ports: MessagePort[] = [];
 afterEach(() => {
   for (const db of opened.splice(0)) db.close();
+  for (const port of ports.splice(0)) port.close();
 });
 
 function setup(options: { respond?: (url: string) => FakeResponse; transport?: ByteTransport; keys?: Uint8Array[]; factory?: IDBFactory; openDb?: () => Promise<IDBDatabase> } = {}) {
@@ -312,6 +317,34 @@ describe('ConfigService.load', () => {
     expect(await service.load({ platform: 'tizen', version: '1.0.0' })).toMatchObject({ status: 'cached', policy: { kill: { id: 'old' }, updateRequired: false } });
   });
 
+  it("deletes a cached copy this build's keys don't verify, so the query worker's blocklist drops it too", async () => {
+    const factory = freshFactory();
+    await setup({ factory, respond: () => ({ body: configAnswer(CACHED_DOC) }) }).service.refresh(REQUEST);
+    // A copy that checks out stays, however often it is read.
+    const same = setup({ factory });
+    expect((await same.service.load(TARGET)).status).toBe('cached');
+    expect((await same.service.load(TARGET)).status).toBe('cached');
+    expect(await storedRecord(factory)).toMatchObject({ country: 'AE' });
+    const rotated = setup({ factory, keys: [OTHER.publicKey] });
+    expect((await rotated.service.load(TARGET)).status).toBe('none');
+    expect(await storedRecord(factory)).toBeUndefined();
+    // A trusting build has nothing left to read either.
+    expect((await setup({ factory }).service.load(TARGET)).status).toBe('none');
+  });
+
+  it('deletes a broken record, and reads past a missing one', async () => {
+    const factory = freshFactory();
+    const db = await openDatabase(factory);
+    opened.push(db);
+    await transact(db, STORE.kv, 'readwrite', (tx) => {
+      tx.objectStore(STORE.kv).put({ doc: 5, sig: 'x', country: null, fetchedAt: 1 }, CONFIG_KEY);
+    });
+    const { service } = setup({ factory });
+    expect((await service.load(TARGET)).status).toBe('none');
+    expect(await storedRecord(factory)).toBeUndefined();
+    expect((await service.load(TARGET)).status).toBe('none');
+  });
+
   it("ignores a cached copy this build's keys don't verify", async () => {
     const factory = freshFactory();
     await setup({ factory, respond: () => ({ body: configAnswer(CACHED_DOC) }) }).service.refresh(REQUEST);
@@ -333,5 +366,92 @@ describe('ConfigService.load', () => {
     expect(CONFIG_TIMEOUT_MS).toBe(3_000);
     expect(CONFIG_REFRESH_MS).toBe(6 * 3_600_000);
     expect(CONFIG_MAX_BYTES).toBe(4 * 1_048_576);
+    expect(CONFIG_RETRY_MS).toBe(30 * 60_000);
+  });
+});
+
+describe('ConfigService.refresh with onCached', () => {
+  it("gives the cached copy's policy before it asks the network", async () => {
+    const seen: string[] = [];
+    const { service } = await cachedSetup(() => {
+      seen.push('fetch');
+      return { body: configAnswer(NEWER_DOC) };
+    });
+    const result = await service.refresh(REQUEST, (cached) => seen.push(`cached ${cached.status} ${cached.policy.kill?.id ?? '-'}`));
+    expect(seen).toEqual(['cached cached old', 'fetch']);
+    expect(result).toMatchObject({ status: 'fresh', policy: { kill: { id: 'new' } } });
+  });
+
+  it('gives the defaults first when nothing is cached', async () => {
+    const got: ConfigResult[] = [];
+    const { service } = setup({ respond: () => ({ status: 500 }) });
+    expect(await service.refresh(REQUEST, (cached) => got.push(cached))).toMatchObject({ status: 'none', failure: 'status' });
+    expect(got).toEqual([{ status: 'none', policy: noPolicy(), issuedAt: null, expiresAt: null, failure: null, stored: false }]);
+  });
+});
+
+describe('configHandlers (the config worker)', () => {
+  function serve(respond: (url: string) => FakeResponse, factory = freshFactory()) {
+    const time = manualClock();
+    const transport = fakeTransport(respond);
+    const { port1, port2 } = new MessageChannel();
+    ports.push(port1, port2);
+    const openDb = async () => {
+      const db = await openDatabase(factory);
+      opened.push(db);
+      return db;
+    };
+    serveRpc(port1 as unknown as RpcPort, configHandlers({ openDb, transport, clock: time.clock }));
+    const client = new RpcClient<ReturnType<typeof configHandlers>, ConfigEvents>(port2 as unknown as RpcPort);
+    return { client, factory, transport };
+  }
+
+  const keys = [toBase64Url(DEV.publicKey)];
+
+  it('pushes the cached policy, then answers the fetched one, with the keys the run carries', async () => {
+    const first = serve(() => ({ body: configAnswer(CACHED_DOC) }));
+    const pushed: ConfigResult[] = [];
+    first.client.on('cached', (r) => pushed.push(r));
+    // webos 1.0.0 is below CACHED_DOC's webos minimum (1.2.0).
+    expect(await first.client.call('run', { ...REQUEST, keys })).toMatchObject({ status: 'fresh', policy: { kill: { id: 'old' }, updateRequired: true }, stored: true });
+    expect(pushed).toMatchObject([{ status: 'none', failure: null }]);
+    expect(first.transport.requests.map((r) => r.url)).toEqual([`${BASE}/v1/config`]);
+
+    const second = serve(() => ({ status: 503 }), first.factory);
+    const order: string[] = [];
+    second.client.on('cached', (r) => order.push(`cached ${r.status}`));
+    const answer = await second.client.call('run', { base: 'http://api.test', platform: 'tizen', version: '1.0.0', keys });
+    order.push(`answer ${answer.status} ${answer.failure ?? '-'}`);
+    expect(order).toEqual(['cached cached', 'answer cached status']);
+    // The request's platform and base: tizen has no minVersion in CACHED_DOC.
+    expect(answer.policy.updateRequired).toBe(false);
+    expect(second.transport.requests.map((r) => r.url)).toEqual(['http://api.test/v1/config']);
+
+    // Keys that don't verify the answer: refused, and the copy they can't verify is gone.
+    const third = serve(() => ({ body: configAnswer(NEWER_DOC) }), first.factory);
+    expect(await third.client.call('run', { ...REQUEST, keys: [toBase64Url(OTHER.publicKey)] })).toMatchObject({ status: 'none', failure: 'bad-signature' });
+    expect(await storedRecord(first.factory)).toBeUndefined();
+  });
+
+  it('trusts any of several keys', async () => {
+    const { client } = serve(() => ({ body: configAnswer(NEWER_DOC, OTHER) }));
+    expect(await client.call('run', { ...REQUEST, keys: [...keys, toBase64Url(OTHER.publicKey)] })).toMatchObject({ status: 'fresh', issuedAt: 1_100_000 });
+  });
+
+  it('refuses a run without a key or with a broken one, before it touches anything', async () => {
+    const { client, factory, transport } = serve(() => ({ body: configAnswer(CACHED_DOC) }));
+    const broken = [[], [toBase64Url(DEV.publicKey.subarray(0, 31))], ['not base64url!'], [...keys, 'AAAA'], [42]];
+    for (const bad of broken) {
+      const error: unknown = await client.call('run', { ...REQUEST, keys: bad as string[] }).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(error).toBeInstanceOf(RpcError);
+      expect((error as Error).message).toMatch(bad.length === 0 ? /no public key/ : /is not 32 bytes of base64url/);
+    }
+    const missing: unknown = await client.call('run', { ...REQUEST, keys: undefined as unknown as string[] }).catch((e: unknown) => e);
+    expect((missing as Error).message).toMatch(/no public key/);
+    expect(transport.requests).toEqual([]);
+    expect(await storedRecord(factory)).toBeUndefined();
   });
 });

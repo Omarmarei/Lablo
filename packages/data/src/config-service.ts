@@ -1,8 +1,8 @@
 /**
  * The TV's signed-config client (architecture.md §3.3 C, RELAY step 30b1): fetch
  * `GET <api>/v1/config`, check it (config-check.ts), keep the verified copy in IndexedDB, and give
- * this TV's policy (config-policy.ts). The config worker serves it (step 30b2): the app starts
- * one after the first paint and every `CONFIG_REFRESH_MS`, without waiting for it.
+ * this TV's policy (config-policy.ts). The config worker serves it (`configHandlers`, step 30b2):
+ * the app starts one after the first paint and every `CONFIG_REFRESH_MS`, without waiting for it.
  *
  * - `load` gives the cached copy's policy (or `noPolicy()`), without the network.
  * - `refresh` fetches with `CONFIG_TIMEOUT_MS` for the whole answer and a `CONFIG_MAX_BYTES` cap.
@@ -10,25 +10,21 @@
  *   cached copy stays in force and the result says why. If IndexedDB can't keep a good answer,
  *   its policy still holds for this run (`stored: false`): a kill must not wait on storage.
  */
+import { fromBase64Url } from '@lablo/crypto';
 import type { ByteResponse, ByteTransport } from './bytes';
 import { decodeUtf8, tapBytes } from './bytes';
 import type { CachedConfig, ConfigRefusal, VerifiedConfig } from './config-check';
 import { checkConfigResponse, readCachedConfig } from './config-check';
 import type { ConfigPlatform, ConfigPolicy } from './config-policy';
 import { configPolicy, noPolicy } from './config-policy';
+import { CONFIG_KEY, CONFIG_MAX_BYTES, CONFIG_TIMEOUT_MS } from './config-constants';
 import { getValue, transact } from './idb';
+import type { RpcContext } from './rpc';
 import { STORE } from './schema';
 import type { Clock } from './throttle';
 import { REAL_CLOCK } from './throttle';
 
-/** The cached copy's key in the `kv` store. */
-export const CONFIG_KEY = 'config';
-/** The whole answer must arrive within this (§3.3 C: "3 s timeout"). */
-export const CONFIG_TIMEOUT_MS = 3000;
-/** How often the app refreshes the config while it runs (§3.3 C: "every 6 h"). */
-export const CONFIG_REFRESH_MS = 6 * 60 * 60 * 1000;
-/** A larger answer is refused unread (a doc is at most 1 MiB of text; JSON escaping adds a little). */
-export const CONFIG_MAX_BYTES = 4 * 1024 * 1024;
+export { CONFIG_KEY, CONFIG_MAX_BYTES, CONFIG_REFRESH_MS, CONFIG_RETRY_MS, CONFIG_TIMEOUT_MS } from './config-constants';
 
 /** Why a fetched answer wasn't taken. */
 export type ConfigFailure = ConfigRefusal | 'network' | 'timeout' | 'status' | 'too-large';
@@ -69,6 +65,18 @@ export interface ConfigServiceOptions {
   clock?: Clock;
 }
 
+/** One run of the config worker: the request, with the keys the app's build embeds. */
+export interface ConfigRunRequest extends ConfigRequest {
+  /** The Ed25519 public keys this build trusts, base64url (32 bytes each; at least one). */
+  keys: string[];
+}
+
+/** Events the config worker pushes. */
+export interface ConfigEvents extends Record<string, unknown> {
+  /** The cached copy's policy (or the defaults), before the fetch: the app applies it at once. */
+  cached: ConfigResult;
+}
+
 type Answer = { failure: null; text: string } | { failure: ConfigFailure };
 
 function result(status: ConfigStatus, config: VerifiedConfig | null, target: ConfigTarget, failure: ConfigFailure | null, stored: boolean): ConfigResult {
@@ -97,9 +105,13 @@ export class ConfigService {
     return result(cached === null ? 'none' : 'cached', cached, target, null, true);
   }
 
-  /** Fetches, checks and keeps a new copy; on any failure, the cached copy's policy and why. */
-  async refresh(request: ConfigRequest): Promise<ConfigResult> {
+  /**
+   * Fetches, checks and keeps a new copy; on any failure, the cached copy's policy and why.
+   * `onCached` gets the cached copy's policy (`load`'s answer) before the fetch starts.
+   */
+  async refresh(request: ConfigRequest, onCached?: (result: ConfigResult) => void): Promise<ConfigResult> {
     const cached = await this.readCache();
+    if (onCached) onCached(result(cached === null ? 'none' : 'cached', cached, request, null, true));
     const answer = await this.download(request.base + '/v1/config');
     let failure: ConfigFailure;
     if (answer.failure === null) {
@@ -122,12 +134,32 @@ export class ConfigService {
     return this.dbPromise;
   }
 
-  /** The cached copy if it still checks out; `null` when there is none or IndexedDB fails. */
+  /**
+   * The cached copy if it still checks out; `null` when there is none or IndexedDB fails. A copy
+   * this build doesn't trust (a key rotated out, a dev-signed copy once a build trusts only
+   * production keys, a broken record) is deleted: the query worker reads the blocklist from the
+   * same record without checking it again (step 30b2).
+   */
   private async readCache(): Promise<VerifiedConfig | null> {
+    let record: unknown;
     try {
-      return readCachedConfig(await getValue<unknown>(await this.db(), STORE.kv, CONFIG_KEY), this.options.keys);
+      record = await getValue<unknown>(await this.db(), STORE.kv, CONFIG_KEY);
     } catch {
       return null;
+    }
+    if (record === undefined) return null;
+    const verified = readCachedConfig(record, this.options.keys);
+    if (verified === null) await this.remove();
+    return verified;
+  }
+
+  private async remove(): Promise<void> {
+    try {
+      await transact(await this.db(), STORE.kv, 'readwrite', (tx) => {
+        tx.objectStore(STORE.kv).delete(CONFIG_KEY);
+      });
+    } catch {
+      // Tried again at the next run; the copy is ignored meanwhile.
     }
   }
 
@@ -200,4 +232,30 @@ export class ConfigService {
       return { failure: tooLarge ? 'too-large' : 'network' };
     }
   }
+}
+
+/** The keys of a run request, or an error (a build that embeds no key, or a broken one). */
+function decodeKeys(keys: readonly string[]): Uint8Array[] {
+  if (!Array.isArray(keys) || keys.length === 0) throw new Error('The config run has no public key');
+  const out: Uint8Array[] = [];
+  for (let i = 0; i < keys.length; i++) {
+    const key = fromBase64Url(keys[i]!);
+    if (key === null || key.length !== 32) throw new Error(`Config public key ${i} is not 32 bytes of base64url`);
+    out.push(key);
+  }
+  return out;
+}
+
+/**
+ * The config worker's RPC methods (config.worker.ts): `run` reads the cached copy, pushes its
+ * policy (`cached`), then refreshes and answers the result. The worker is started for one run and
+ * terminated after it, so each run builds its service with the keys the request carries.
+ */
+export function configHandlers(options: { openDb: () => Promise<IDBDatabase>; transport: ByteTransport; clock?: Clock }) {
+  return {
+    run: (req: ConfigRunRequest, ctx: RpcContext): Promise<ConfigResult> => {
+      const service = new ConfigService({ openDb: options.openDb, transport: options.transport, clock: options.clock, keys: decodeKeys(req.keys) });
+      return service.refresh({ base: req.base, platform: req.platform, version: req.version }, (cached) => ctx.emit('cached', cached));
+    },
+  };
 }

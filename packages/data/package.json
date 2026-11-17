@@ -11,7 +11,8 @@
     "./client": "./src/client.ts",
     "./query.worker": "./src/query.worker.ts",
     "./ingest.worker": "./src/ingest.worker.ts",
-    "./epg.worker": "./src/epg.worker.ts"
+    "./epg.worker": "./src/epg.worker.ts",
+    "./config.worker": "./src/config.worker.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"

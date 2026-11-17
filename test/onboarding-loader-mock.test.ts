@@ -79,6 +79,9 @@ function engine(): DataEngine {
       const dbs: IDBDatabase[] = [];
       return worker(new EpgService({ transport, openDb: openDb(dbs), now: () => NOW }).handlers(), dbs);
     },
+    startConfigWorker: () => {
+      throw new Error('onboarding never refreshes the config');
+    },
   });
   engines.push(made);
   return made;

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { domainToASCII } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { blocklistHost } from '@lablo/core';
-import { Blocklist, asciiHost, punycode, urlHost } from './blocklist';
+import { Blocklist, asciiHost, cachedBlocklist, punycode, urlHost } from './blocklist';
 
 // Non-ASCII text is built from code points: the source stays ASCII.
 const cp = (...points: number[]): string => String.fromCodePoint(...points);
@@ -327,5 +327,53 @@ describe('Blocklist', () => {
     const proto = new Blocklist(SALT, ['constructor', '__proto__', 'toString']);
     expect(proto.size).toBe(3);
     expect(proto.blocksHost('example.com')).toBe(false);
+  });
+});
+
+describe('cachedBlocklist', () => {
+  const doc = (blocklist: unknown): string => JSON.stringify({ v: 1, issuedAt: 1, expiresAt: 2, blocklist, kill: [] });
+
+  it("reads the salt and hashes from the cached record's signed text", () => {
+    const list = cachedBlocklist({ doc: doc({ salt: SALT, hashes: [hashOf('bad.example'), hashOf('worse.example')] }), sig: 'x', country: null, fetchedAt: 1 });
+    expect(list.size).toBe(2);
+    expect(list.blocksUrl('http://live.bad.example/1.ts')).toBe(true);
+    expect(list.blocksUrl('http://good.example/1.ts')).toBe(false);
+  });
+
+  it('hashes under the salt the doc gives', () => {
+    const other = 'Zx9-salt_0123456789';
+    const hash = createHash('sha256').update(other + 'bad.example', 'utf8').digest('base64url');
+    expect(cachedBlocklist({ doc: doc({ salt: other, hashes: [hash] }) }).blocksHost('bad.example')).toBe(true);
+    expect(cachedBlocklist({ doc: doc({ salt: SALT, hashes: [hash] }) }).blocksHost('bad.example')).toBe(false);
+  });
+
+  it('skips entries that are not strings', () => {
+    const list = cachedBlocklist({ doc: doc({ salt: SALT, hashes: [7, null, hashOf('bad.example'), { h: 1 }] }) });
+    expect(list.size).toBe(1);
+    expect(list.blocksHost('bad.example')).toBe(true);
+  });
+
+  it('blocks nothing for a missing or broken record', () => {
+    const broken: unknown[] = [
+      undefined,
+      null,
+      'text',
+      {},
+      { doc: 5 },
+      { doc: [doc({ salt: SALT, hashes: [hashOf('bad.example')] })] },
+      { doc: 'not json' },
+      { doc: 'null' },
+      { doc: '{}' },
+      { doc: doc(null) },
+      { doc: doc('list') },
+      { doc: doc({ salt: 5, hashes: [hashOf('bad.example')] }) },
+      { doc: doc({ salt: SALT, hashes: hashOf('bad.example') }) },
+      { doc: doc({ salt: SALT }) },
+    ];
+    for (const record of broken) {
+      const list = cachedBlocklist(record);
+      expect([record, list.size]).toEqual([record, 0]);
+      expect(list.blocksHost('bad.example')).toBe(false);
+    }
   });
 });

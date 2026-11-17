@@ -28,7 +28,12 @@
  *   (step 27b, kept 24 h in the query worker);
  * - `recent` gives the newest movies across the sources ("Recently added", step 26e), from the
  *   lists the ingest keeps;
- * - `itemsByKey` gives the catalog items of ContentKeys ("Continue watching", step 27d).
+ * - `itemsByKey` gives the catalog items of ContentKeys ("Continue watching", step 27d);
+ * - a **config worker** starts for each config refresh (`refreshConfig`, step 30b2): it answers
+ *   the cached copy's policy first (`onCached`), then fetches `GET <api>/v1/config`, and ends.
+ *   It runs beside the refresh slot (it reads and writes one small record). After each run, a
+ *   running query worker reads the blocklist again (`reloadConfig`), and `blocked` asks it about
+ *   URLs.
  *
  * Workers come from factories, so tests serve the real services over message channels; the
  * app passes the `?worker` imports (`./workers.ts`).
@@ -40,6 +45,8 @@ import type {
   AccountCheck,
   CancelToken,
   CategoryInfo,
+  ConfigResult,
+  ConfigRunRequest,
   DataClient,
   EpgCatalogSource,
   EpgNowNext,
@@ -74,7 +81,7 @@ import type {
   VodInfoRequest,
 } from '@lablo/data';
 // The client entry only: the package index would pull every data module's polyfills into main.
-import { createDataClient, createEpgClient, createIngestClient, epgGuides, epgRefreshDue } from '@lablo/data/client';
+import { createConfigClient, createDataClient, createEpgClient, createIngestClient, epgGuides, epgRefreshDue } from '@lablo/data/client';
 
 /** What a source's stream and catch-up URLs need from its last login (`DataEngine.sourceFacts`). */
 export interface SourceFacts {
@@ -94,6 +101,7 @@ export interface DataEngineOptions {
   startQueryWorker: () => WorkerLike;
   startIngestWorker: () => WorkerLike;
   startEpgWorker: () => WorkerLike;
+  startConfigWorker: () => WorkerLike;
   /** The clock `due` EPG refreshes are decided by (default `Date.now`). */
   now?: () => number;
   /** How long after the last remote key the UI counts as idle again (default 1000 ms). */
@@ -326,6 +334,28 @@ export class DataEngine {
     } finally {
       this.release();
     }
+  }
+
+  /**
+   * One config refresh in a fresh config worker (step 30b2): `onCached` gets the cached copy's
+   * policy (or the defaults) as soon as it is read, then this resolves with the fetched one (or,
+   * on any failure, the cached one again and why). A worker that dies rejects; the cached copy
+   * stays. Not in the refresh slot. A running query worker reads its blocklist again afterwards.
+   */
+  async refreshConfig(request: ConfigRunRequest, onCached?: (result: ConfigResult) => void): Promise<ConfigResult> {
+    const result = await this.withWorker(this.options.startConfigWorker, createConfigClient, (client) => {
+      if (onCached) client.on('cached', onCached);
+      return client.call('run', request);
+    });
+    // A new copy, or a copy this build no longer trusts deleted: the blocklist may have changed.
+    // A query worker not started yet reads it when first asked.
+    if (this.queryClient !== null) await this.queryClient.call('reloadConfig').catch(ignore);
+    return result;
+  }
+
+  /** For each URL, whether its host is on the signed config's blocklist (step 30b2; enforced in 30c). */
+  blocked(urls: string[]): Promise<boolean[]> {
+    return this.query.call('blocked', { urls });
   }
 
   /** A source's categories of one kind in its active generation (`[]`: none). */

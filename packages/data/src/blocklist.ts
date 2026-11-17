@@ -21,6 +21,9 @@
  * IP addresses are taken as written (`127.1` is not rewritten as `127.0.0.1`), as the signer
  * takes them (step 30a).
  *
+ * The query worker keeps one `Blocklist`, from the cached config record (`cachedBlocklist`, step
+ * 30b2), and answers the app's `blocked(urls)`.
+ *
  * TV code (the query worker): no `URL` (core-js's URL polyfill is about 25 KB), no `split`, no
  * `Array.from`, no regex built from a string, no `Set`; non-ASCII code points are numbers.
  */
@@ -285,4 +288,38 @@ export class Blocklist {
     const host = urlHost(url);
     return host !== null && this.blocksHost(host);
   }
+}
+
+/** `value[name]` when `value` is an object, else `undefined`. */
+function field(value: unknown, name: string): unknown {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>)[name] : undefined;
+}
+
+/**
+ * The blocklist of the cached config record (the `kv` store's `config`: `{doc, sig, …}`, where
+ * `doc` is the doc's signed text), read by hand: the query worker takes no schema and no signature
+ * check. Only the config worker writes that record, after its checks, and it deletes a copy this
+ * build no longer trusts. Anything else (no record, a broken one) gives an empty list: nothing is
+ * blocked.
+ */
+export function cachedBlocklist(record: unknown): Blocklist {
+  const doc = field(record, 'doc');
+  // A string only: JSON.parse would read an array holding the text as the text itself.
+  if (typeof doc !== 'string') return new Blocklist('', []);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(doc);
+  } catch {
+    return new Blocklist('', []);
+  }
+  const list = field(parsed, 'blocklist');
+  const salt = field(list, 'salt');
+  const hashes = field(list, 'hashes');
+  if (typeof salt !== 'string' || !Array.isArray(hashes)) return new Blocklist('', []);
+  const kept: string[] = [];
+  for (let i = 0; i < hashes.length; i++) {
+    const hash: unknown = hashes[i];
+    if (typeof hash === 'string') kept.push(hash);
+  }
+  return new Blocklist(salt, kept);
 }

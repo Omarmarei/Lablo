@@ -183,13 +183,13 @@ export { EPG_INGEST_VERSION, EPG_WRITE_BATCH, readEpgWanted, runEpgIngest, runEp
 export type { ConfigPlatform, ConfigPolicy, PolicyInput, PolicyRule } from './config-policy';
 export { KILL_STRENGTH, compareVersions, configPolicy, noPolicy, policyStops, ruleMatches, versionParts } from './config-policy';
 
-export { Blocklist, asciiHost, punycode, urlHost } from './blocklist';
+export { Blocklist, asciiHost, cachedBlocklist, punycode, urlHost } from './blocklist';
 
 export type { CachedConfig, ConfigCheck, ConfigRefusal, VerifiedConfig } from './config-check';
 export { checkConfigResponse, readCachedConfig } from './config-check';
 
-export type { ConfigFailure, ConfigRequest, ConfigResult, ConfigServiceOptions, ConfigStatus, ConfigTarget } from './config-service';
-export { CONFIG_KEY, CONFIG_MAX_BYTES, CONFIG_REFRESH_MS, CONFIG_TIMEOUT_MS, ConfigService } from './config-service';
+export type { ConfigEvents, ConfigFailure, ConfigRequest, ConfigResult, ConfigRunRequest, ConfigServiceOptions, ConfigStatus, ConfigTarget } from './config-service';
+export { CONFIG_KEY, CONFIG_MAX_BYTES, CONFIG_REFRESH_MS, CONFIG_RETRY_MS, CONFIG_TIMEOUT_MS, ConfigService, configHandlers } from './config-service';
 
 export type { IngestEvents, IngestRunRequest, IngestServiceOptions } from './ingest-service';
 export { IngestService } from './ingest-service';
@@ -197,5 +197,5 @@ export { IngestService } from './ingest-service';
 export type { EpgEvents, EpgRunRequest, EpgServiceOptions } from './epg-service';
 export { EpgService } from './epg-service';
 
-export type { DataClient, EpgClient, EpgHandlers, IngestClient, IngestHandlers, QueryHandlers } from './client';
-export { createDataClient, createEpgClient, createIngestClient } from './client';
+export type { ConfigClient, ConfigHandlers, DataClient, EpgClient, EpgHandlers, IngestClient, IngestHandlers, QueryHandlers } from './client';
+export { createConfigClient, createDataClient, createEpgClient, createIngestClient } from './client';

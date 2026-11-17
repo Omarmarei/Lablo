@@ -3,15 +3,18 @@
 // serve it, on one fake-indexeddb database. It checks the wiring the old-engine harness then runs
 // for real in Chromium 53/56/68: prune at start, one ingest or EPG worker per refresh (terminated
 // after), one refresh at a time, `swapped` → the query worker's `reload`, remote keys →
-// `setBusy`, and now/next from the stored guides.
+// `setBusy`, and now/next from the stored guides. Step 30b2: one config worker per config refresh
+// (the cached policy first, terminated after), and the query worker's blocklist read again.
 
-import type { RpcHandlers } from '@lablo/data';
-import { CancelSource, EPG_REFRESH_MS, EpgService, IngestService, QueryService, STORE, getSources, newSourceMeta, openDatabase, serveRpc } from '@lablo/data';
+import { toBase64Url } from '@lablo/crypto';
+import type { ConfigResult, RpcHandlers } from '@lablo/data';
+import { CancelSource, EPG_REFRESH_MS, EpgService, IngestService, QueryService, STORE, configHandlers, getSources, newSourceMeta, openDatabase, serveRpc } from '@lablo/data';
+import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { WorkerLike } from '../apps/tv/src/data/engine';
 import { DataEngine } from '../apps/tv/src/data/engine';
 import type { FakeResponse } from '../packages/data/src/test-support';
-import { dumpStore, fakeTransport, freshFactory, ingest, item } from '../packages/data/src/test-support';
+import { configAnswer, configDocFields, configSigner, dumpStore, fakeTransport, freshFactory, ingest, item } from '../packages/data/src/test-support';
 
 const opened: MessagePort[] = [];
 const engines: DataEngine[] = [];
@@ -53,7 +56,9 @@ function guide(count: number): string {
 interface Setup {
   engine: DataEngine;
   factory: IDBFactory;
-  started: { query: number; ingest: number; epg: number };
+  started: { query: number; ingest: number; epg: number; config: number };
+  /** Config workers still running. */
+  configLive: () => number;
   /** Moves the engine's clock (it decides which guides are due). */
   clock: { now: number };
   /** Ingest workers still running. */
@@ -63,12 +68,13 @@ interface Setup {
   busyChanges: boolean[];
 }
 
-function setup(respond: (url: string) => FakeResponse, idleMs = 40): Setup {
+function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: RpcHandlers['run'], reloadConfig?: RpcHandlers['reloadConfig']): Setup {
   const factory = freshFactory();
   const transport = fakeTransport(respond);
-  const started = { query: 0, ingest: 0, epg: 0 };
+  const started = { query: 0, ingest: 0, epg: 0, config: 0 };
   const clock = { now: NOW };
   let live = 0;
+  let configLive = 0;
   const busyCalls: boolean[] = [];
   const busyChanges: boolean[] = [];
 
@@ -110,7 +116,7 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40): Setup {
           return db;
         },
       });
-      return worker(service.handlers(), dbs);
+      return worker(reloadConfig ? { ...service.handlers(), reloadConfig } : service.handlers(), dbs);
     },
     startIngestWorker: () => {
       started.ingest++;
@@ -167,10 +173,39 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40): Setup {
         },
       );
     },
+    startConfigWorker: () => {
+      started.config++;
+      configLive++;
+      const dbs: IDBDatabase[] = [];
+      const handlers = configHandlers({
+        transport,
+        clock: { now: () => clock.now, sleep: (ms) => delay(ms) },
+        openDb: async () => {
+          const db = await openDatabase(factory);
+          dbs.push(db);
+          return db;
+        },
+      });
+      return worker(configRun ? { run: configRun } : handlers, dbs, () => {
+        configLive--;
+      });
+    },
   });
   engines.push(engine);
-  return { engine, factory, started, clock, live: () => live, busyCalls, busyChanges };
+  return { engine, factory, started, configLive: () => configLive, clock, live: () => live, busyCalls, busyChanges };
 }
+
+const CONFIG_URL = 'http://api.test/v1/config';
+const SALT = 'QtHj17D-F3HxhSWwfvhERM83_Cu0K5lHS7cQ_PczpBA';
+/** A dev-signed config in force at NOW: a kill rule, and `blocked.example` on the blocklist. */
+const CONFIG_DOC = configDocFields({
+  issuedAt: NOW - 60_000,
+  expiresAt: NOW + 86_400_000,
+  kill: [{ id: 'k1', match: {}, mode: 'disable-playback' }],
+  blocklist: { salt: SALT, hashes: [createHash('sha256').update(`${SALT}blocked.example`, 'utf8').digest('base64url')] },
+});
+const CONFIG_REQUEST = { base: 'http://api.test', platform: 'webos' as const, version: '0.1.0', keys: [toBase64Url(configSigner().publicKey)] };
+const BLOCK_URLS = ['http://live.blocked.example/1.ts', 'http://free.example/1.ts'];
 
 const job = (url = 'http://p.test/list.m3u') => ({ src: 'debug', source: { type: 'm3u' as const, url } });
 
@@ -184,7 +219,7 @@ describe('DataEngine (the app wiring of the data workers)', () => {
 
     expect(await s.engine.start()).toBe(1);
     expect(s.engine.start()).toBe(s.engine.start()); // one prune per app start
-    expect(s.started).toEqual({ query: 1, ingest: 1, epg: 0 });
+    expect(s.started).toEqual({ query: 1, ingest: 1, epg: 0, config: 0 });
     expect(s.live()).toBe(0);
     expect((await getSources(db))[0]).toMatchObject({ gen: 1, building: null });
     expect(new Set((await dumpStore(db, STORE.chunks)).map(([k]) => (k as unknown[])[1]))).toEqual(new Set([1]));
@@ -204,7 +239,7 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     const result = await s.engine.refresh(job(), { onProgress: (p) => progress.push(p.items) });
     expect(result).toMatchObject({ status: 'committed', gen: 1, previous: 0, counts: { live: 1200 } });
     expect(progress.length).toBeGreaterThan(0);
-    expect(s.started).toEqual({ query: 1, ingest: 2, epg: 0 });
+    expect(s.started).toEqual({ query: 1, ingest: 2, epg: 0, config: 0 });
     expect(s.live()).toBe(0);
     expect(s.engine.refreshing).toBe(false);
 
@@ -357,7 +392,7 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     expect(r.outcomes.map((o) => [o.epgSrc, o.result?.status, o.result?.summary?.matched])).toEqual([['debug:tvg0', 'committed', 6]]);
     expect(r.wanted).toBe(8);
     expect(progress.length).toBeGreaterThan(0);
-    expect(s.started).toEqual({ query: 1, ingest: 2, epg: 1 });
+    expect(s.started).toEqual({ query: 1, ingest: 2, epg: 1, config: 0 });
     expect(s.live()).toBe(0);
     expect(s.engine.refreshing).toBe(false);
 
@@ -548,6 +583,65 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     await expect(s.engine.refreshEpg(catalogs, { tier: 'low' })).rejects.toThrow('A catalog refresh is already running');
     await catalog;
     expect(s.live()).toBe(0);
+  });
+
+  it('refreshes the config in its own worker: the cached policy first, then the fetched one, and the query worker reads the new blocklist (step 30b2)', async () => {
+    let configStatus = 200;
+    const s = setup((url) => (url === CONFIG_URL ? { status: configStatus, body: configAnswer(CONFIG_DOC) } : { body: playlist(10) }));
+    // The query worker running, with no config cached: nothing blocked.
+    expect(await s.engine.blocked(BLOCK_URLS)).toEqual([false, false]);
+    const pushed: ConfigResult[] = [];
+    const first = await s.engine.refreshConfig(CONFIG_REQUEST, (r) => pushed.push(r));
+    expect(pushed.map((r) => r.status)).toEqual(['none']);
+    expect(first).toMatchObject({ status: 'fresh', failure: null, stored: true, policy: { kill: { id: 'k1', mode: 'disable-playback' }, updateRequired: false } });
+    expect(s.started.config).toBe(1);
+    expect(s.configLive()).toBe(0);
+    expect(await s.engine.blocked(BLOCK_URLS)).toEqual([true, false]);
+
+    // The next run: the cached copy first again, and kept when the fetch fails.
+    configStatus = 503;
+    const second = await s.engine.refreshConfig(CONFIG_REQUEST, (r) => pushed.push(r));
+    expect(pushed.map((r) => `${r.status} ${r.policy.kill?.id ?? '-'}`)).toEqual(['none -', 'cached k1']);
+    expect(second).toMatchObject({ status: 'cached', failure: 'status', policy: { kill: { id: 'k1' } } });
+    expect(s.started).toMatchObject({ query: 1, config: 2 });
+    expect(s.configLive()).toBe(0);
+    expect(await s.engine.blocked(BLOCK_URLS)).toEqual([true, false]);
+    // Nothing of the config runs took the refresh slot.
+    expect(s.engine.refreshing).toBe(false);
+  });
+
+  it("doesn't start the query worker for a config refresh: it reads the blocklist when first asked", async () => {
+    const s = setup((url) => (url === CONFIG_URL ? { body: configAnswer(CONFIG_DOC) } : { body: playlist(10) }));
+    expect((await s.engine.refreshConfig(CONFIG_REQUEST)).status).toBe('fresh');
+    expect(s.started).toEqual({ query: 0, ingest: 0, epg: 0, config: 1 });
+    expect(await s.engine.blocked(BLOCK_URLS)).toEqual([true, false]);
+    expect(s.started.query).toBe(1);
+  });
+
+  it("answers a config run even when the query worker can't read the blocklist again", async () => {
+    let reloads = 0;
+    const s = setup(
+      (url) => (url === CONFIG_URL ? { body: configAnswer(CONFIG_DOC) } : { body: playlist(10) }),
+      40,
+      undefined,
+      () => {
+        reloads++;
+        throw new Error('IndexedDB is gone');
+      },
+    );
+    await s.engine.summary();
+    expect((await s.engine.refreshConfig(CONFIG_REQUEST)).status).toBe('fresh');
+    expect(reloads).toBe(1);
+  });
+
+  it('rejects a config run whose worker fails, terminates it, and keeps the blocklist', async () => {
+    const s = setup(() => ({ body: playlist(10) }), 40, () => {
+      throw new Error('boom');
+    });
+    expect(await s.engine.blocked(BLOCK_URLS)).toEqual([false, false]);
+    await expect(s.engine.refreshConfig(CONFIG_REQUEST)).rejects.toThrow('boom');
+    expect(s.configLive()).toBe(0);
+    expect(await s.engine.blocked(BLOCK_URLS)).toEqual([false, false]);
   });
 
   it('fails every call once disposed, and keys do nothing', async () => {

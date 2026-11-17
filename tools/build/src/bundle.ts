@@ -6,6 +6,8 @@ import replace from '@rollup/plugin-replace';
 import terser from '@rollup/plugin-terser';
 import type { LoggingFunction, Plugin, RollupLog } from 'rollup';
 import { rollup } from 'rollup';
+import type { TvDefines } from '../../../tv-defines.config';
+import { defineValues, tvDefines } from '../../../tv-defines.config';
 import { checkSyntax, formatViolation } from './syntax-gate';
 
 const require = createRequire(import.meta.url);
@@ -23,6 +25,11 @@ export interface BundleOptions {
   readonly input: string;
   /** Value of the `__PLATFORM__` define. */
   readonly platform: BuildPlatform;
+  /**
+   * `__API_BASE__`, `__APP_VERSION__` and `__CONFIG_KEYS__` (tv-defines.config.ts; default a TV
+   * build's: the production keys, or the dev key while there are none).
+   */
+  readonly defines?: TvDefines;
   /** Label used in gate errors, e.g. `main.js (webos)`. */
   readonly label?: string;
   /**
@@ -292,6 +299,7 @@ function plugins(options: BundleOptions, collected: Collected): Plugin[] {
       preventAssignment: true,
       values: {
         __PLATFORM__: JSON.stringify(options.platform),
+        ...defineValues(options.defines ?? tvDefines('package')),
         'process.env.NODE_ENV': JSON.stringify('production'),
       },
     }),
