@@ -1622,6 +1622,7 @@ export type PlayRequest = { key: ContentKey; src: string; mode: 'live'|'vod'|'ca
 - **Tests:** `qr.test.ts` 33, `pair-service.test.ts` 31, the engine's pairing in `test/tv-data-engine.test.ts`, the worker bundle, the lint entry points (`@lablo/core/check-qr`, `@lablo/data/pair.worker`); unit 5,862.
 - **Mutation:** `artifacts/mutate31c1.py`, 152 written first (writing them closed eleven test gaps: a lone high surrogate before U+E000, tied masks, the largest payload against the cap, a broken byte inside a string, a failed code after a good one, a link too long for a QR code, a status answering after a new code, cancelling late answers, close before a read, a worker that dies, the status through the engine); 144 caught on the first run, four equivalents replaced and four gaps closed (U+0080 and U+0800, a scaled finder-like run followed by too little light, the handlers' status), 152/152 after.
 - **Verified:** lint, typecheck, unit 5,862, `build:tv`, e2e `crypto-vectors.spec.ts`, `verify:engines --engine chrome53 --engine chrome68`: all 18 runs as expected, the vectors page 209/209 in page and worker on both.
+- **Merged:** PR #118 as merge commit `d7f7c2e` on green CI on the first run (verify 14 m 51 s, its `pnpm e2e` 145 passed; engines 19 m 31 s: all 114 runs as expected, the vectors page 209/209 on Chromium 53, 56 and 68).
 - **Not yet:** the screen that uses it (31c2: the poll, the renewal, the add path and the statuses) and its e2e (31c3).
 
 ### 3.3 Encryption and key scheme
