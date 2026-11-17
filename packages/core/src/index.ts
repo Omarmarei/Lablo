@@ -17,6 +17,7 @@ export { firstStrongDirection, isolateText, stripIsolates } from './bidi';
 export type { PluralCategory, PluralLanguage } from './plural';
 export { PLURAL_CATEGORIES, pluralCategory, pluralLanguage } from './plural';
 export { hash53, hash53Base36 } from './hash';
+export { BLOCKLIST_HOST_MAX, blocklistCandidates, blocklistHost } from './blocklist-host';
 
 export type { M3uKeyFields, ParsedContentKey, XtreamKeyKind } from './content-key';
 export { M3uKeyAllocator, isSourceId, m3uKeyHash, parseContentKey, xtreamKey } from './content-key';

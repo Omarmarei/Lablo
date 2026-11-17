@@ -6,9 +6,11 @@ no production database and no deploy yet.
 
 What it will serve (architecture.md §3.2): the signed config (step 30), the pairing relay and the
 phone page `/p` (step 31), the encrypted backup (step 32), telemetry and diagnostics (step 33).
-What it serves now (step 29a): `GET /v1/health`. What it has ready for those steps (step 29b2a): the
-messages' schemas in `@lablo/protocol`, and the blob store and rate limiter interfaces with their
-in-memory fakes (below).
+What it serves now: `GET /v1/health` (step 29a) and `GET /v1/config` (step 30a: the committed signed
+config and the caller's country; see [config.md](config.md)). What it has ready for the later steps
+(step 29b2a): the messages' schemas in `@lablo/protocol`, and the blob store and rate limiter
+interfaces with their in-memory fakes (below). It imports `@lablo/protocol` and `@lablo/crypto`
+(workspace dependencies, compiled by Next through `transpilePackages`).
 
 **It never fetches a user-supplied URL and never relays a stream** (ADR-005). The lint enforces it:
 see "No outbound network" below.
@@ -121,7 +123,8 @@ and the phone page use. When the first route imports a workspace package (step 3
 ## CI
 
 The `web` job runs when a pull request changes `apps/web/`, `packages/protocol/`,
-`packages/crypto/`, `vitest.web.config.ts`, or a shared file (`package.json`, the lockfile, the
+`packages/crypto/`, `config/` (the signed config is bundled into `/v1/config`),
+`vitest.web.config.ts`, or a shared file (`package.json`, the lockfile, the
 workspace file, the workflows). It starts a `postgres:17-alpine` service on port 54329, runs
 `pnpm test:web` and then `pnpm build:web`. Lint, typecheck and the unit tests run in `verify`.
 
@@ -138,3 +141,6 @@ workspace file, the workflows). It starts a `postgres:17-alpine` service on port
   `apps/web/package.json`. Test files resolve normally.
 - **Next's telemetry:** CI sets `NEXT_TELEMETRY_DISABLED=1`. Locally, `pnpm --filter @lablo/web exec next telemetry disable` once.
 - `next build` writes `apps/web/next-env.d.ts` and `.next/` (both gitignored, and ignored by lint).
+- **Stopping a background `pnpm --filter @lablo/web start` (TaskStop) leaves `next start` running**
+  on Windows (leg 83): port 3100 still answers. Find it (`netstat -ano | grep ":3100 "`, then the
+  process's command line) and stop that pid.
