@@ -74,7 +74,7 @@ describe('package boundaries (boundaries/element-types)', () => {
 
   it('allows the data workers as entry points, and nothing else in data', async () => {
     const file = 'apps/tv/src/f.ts';
-    for (const worker of ['query', 'ingest', 'epg', 'config']) {
+    for (const worker of ['query', 'ingest', 'epg', 'config', 'pair']) {
       expect(await lint(file, `import W from '@lablo/data/${worker}.worker?worker';\nexport { W };\n`)).toEqual([]);
     }
     const deep = await lint(file, "import { serveRpc } from '../../../packages/data/src/rpc';\nexport { serveRpc };\n");
@@ -92,6 +92,14 @@ describe('package boundaries (boundaries/element-types)', () => {
     // Still nothing internal from inside crypto.
     const inward = await lint('packages/crypto/src/f.ts', "import '@lablo/core';\n");
     expect(inward.some((m) => m.startsWith(BOUNDARY))).toBe(true);
+  });
+
+  it("allows core's QR checks as an entry point, and nothing else in core but its index", async () => {
+    for (const file of ['apps/tv/src/f.ts', 'tools/engines/src/f.ts']) {
+      expect(await lint(file, "import { checkQr } from '@lablo/core/check-qr';\nexport { checkQr };\n")).toEqual([]);
+    }
+    const deep = await lint('apps/tv/src/f.ts', "import { penalty } from '../../../packages/core/src/qr';\nexport { penalty };\n");
+    expect(deep.some((m) => m.startsWith('boundaries/entry-point'))).toBe(true);
   });
 
   it("allows protocol's samples as an entry point, and nothing else in protocol", async () => {

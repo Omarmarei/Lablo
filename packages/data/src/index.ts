@@ -193,11 +193,15 @@ export { MAX_NOTICES, isRuleId } from './config-constants';
 export type { ConfigEvents, ConfigFailure, ConfigRequest, ConfigResult, ConfigRunRequest, ConfigServiceOptions, ConfigStatus, ConfigTarget } from './config-service';
 export { CONFIG_KEY, CONFIG_MAX_BYTES, CONFIG_REFRESH_MS, CONFIG_RETRY_MS, CONFIG_TIMEOUT_MS, ConfigService, configHandlers } from './config-service';
 
+// The pairing client (RELAY step 31c1): the pair worker's service.
+export type { PairCode, PairFailure, PairOpenResult, PairPollResult, PairServiceOptions, PairStatusResult } from './pair-service';
+export { PAIR_ANSWER_MAX_BYTES, PAIR_POLL_MS, PAIR_RETRY_MS, PAIR_TIMEOUT_MS, PairService, pairHandlers, readPayload, retryAfterMs } from './pair-service';
+
 export type { IngestEvents, IngestRunRequest, IngestServiceOptions } from './ingest-service';
 export { IngestService } from './ingest-service';
 
 export type { EpgEvents, EpgRunRequest, EpgServiceOptions } from './epg-service';
 export { EpgService } from './epg-service';
 
-export type { ConfigClient, ConfigHandlers, DataClient, EpgClient, EpgHandlers, IngestClient, IngestHandlers, QueryHandlers } from './client';
-export { createConfigClient, createDataClient, createEpgClient, createIngestClient } from './client';
+export type { ConfigClient, ConfigHandlers, DataClient, EpgClient, EpgHandlers, IngestClient, IngestHandlers, PairClient, PairHandlers, QueryHandlers } from './client';
+export { createConfigClient, createDataClient, createEpgClient, createIngestClient, createPairClient } from './client';

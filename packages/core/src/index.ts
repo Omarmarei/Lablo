@@ -119,3 +119,5 @@ export {
   searchSegments,
   searchTerms,
 } from './search';
+export type { QrLevel, QrMatrix, QrOptions } from './qr';
+export { QR_MAX_VERSION, encodeQr, qrFits } from './qr';

@@ -6,16 +6,18 @@
 import ConfigWorker from '@lablo/data/config.worker?worker';
 import EpgWorker from '@lablo/data/epg.worker?worker';
 import IngestWorker from '@lablo/data/ingest.worker?worker';
+import PairWorker from '@lablo/data/pair.worker?worker';
 import QueryWorker from '@lablo/data/query.worker?worker';
 import type { DataEngineOptions } from './engine';
 import { DataEngine } from './engine';
 
-export function createAppDataEngine(options: Omit<DataEngineOptions, 'startQueryWorker' | 'startIngestWorker' | 'startEpgWorker' | 'startConfigWorker'> = {}): DataEngine {
+export function createAppDataEngine(options: Omit<DataEngineOptions, 'startQueryWorker' | 'startIngestWorker' | 'startEpgWorker' | 'startConfigWorker' | 'startPairWorker'> = {}): DataEngine {
   return new DataEngine({
     ...options,
     startQueryWorker: () => new QueryWorker(),
     startIngestWorker: () => new IngestWorker(),
     startEpgWorker: () => new EpgWorker(),
     startConfigWorker: () => new ConfigWorker(),
+    startPairWorker: () => new PairWorker(),
   });
 }
