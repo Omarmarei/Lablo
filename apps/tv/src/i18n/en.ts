@@ -384,6 +384,8 @@ export const EN = {
   'player.toGuide': 'Back to the guide',
   'player.refused.title': 'Playback is turned off',
   'player.refused.text': "Lablo isn't playing anything right now. Try again later.",
+  'player.blocked.title': "Can't play this",
+  'player.blocked.text': "Its server can't be used with Lablo.",
 
   // The track menu (RELAY step 20b).
   'tracks.audio': 'Audio',

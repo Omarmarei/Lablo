@@ -82,6 +82,7 @@ function setup(
     loadSubtitles?: AppPlayerDeps['loadSubtitles'];
     memory?: AppPlayerDeps['memory'];
     trackMemory?: AppPlayerDeps['trackMemory'];
+    blocked?: AppPlayerDeps['blocked'];
   } = {},
 ) {
   const engine = new StubEngine();
@@ -119,6 +120,7 @@ function setup(
     ...(options.loadSubtitles === undefined ? {} : { loadSubtitles: options.loadSubtitles }),
     ...(options.memory === undefined ? {} : { memory: options.memory }),
     ...(options.trackMemory === undefined ? {} : { trackMemory: options.trackMemory }),
+    ...(options.blocked === undefined ? {} : { blocked: options.blocked }),
   });
   return { engine, stages, screenSaver, accounts, make, stage, lifecycle: (event: LifecycleEvent) => lifecycle?.(event) };
 }
@@ -167,6 +169,28 @@ describe('appPlayer (RELAY step 20a)', () => {
     void plain.make().play(live('http://panel.test/live/u/p/1.ts'));
     await flush();
     expect(plain.engine.log).toEqual(['stop', 'load http://panel.test/live/u/p/1.ts']);
+  });
+
+  it("asks the config's blocklist before a stream opens, and the probe's answer too (step 30c3b)", async () => {
+    const asked: string[][] = [];
+    const t = setup({
+      resolveUrl: (url) => Promise.resolve(url.replace('panel', 'edge')),
+      blocked: (urls) => {
+        asked.push(urls);
+        return Promise.resolve(urls.map((url) => url.indexOf('edge') !== -1));
+      },
+    });
+    const controller = t.make();
+    void controller.play(live('http://panel.test/live/u/p/1.ts'));
+    await flush();
+    expect(asked).toEqual([['http://panel.test/live/u/p/1.ts'], ['http://edge.test/live/u/p/1.ts']]);
+    expect(t.engine.log).toEqual(['stop', 'stop']);
+    expect(controller.status).toMatchObject({ state: 'failed', failure: { category: 'blocked', code: 'CFG-BLOCKLIST' } });
+    // Without one, nothing is asked.
+    const plain = setup();
+    void plain.make().play(live('http://panel.test/live/u/p/1.ts'));
+    await flush();
+    expect(plain.make().status.state).toBe('playing');
   });
 
   it('keeps the screensaver away while it plays and lets it back on stop; a refusal changes nothing', async () => {

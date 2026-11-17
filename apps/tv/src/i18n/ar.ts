@@ -344,6 +344,8 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'player.toGuide': 'العودة إلى الدليل',
   'player.refused.title': 'التشغيل متوقف',
   'player.refused.text': 'لا يشغّل لابلو أي محتوى حاليًا. حاول مرة أخرى لاحقًا.',
+  'player.blocked.title': 'تعذّر تشغيل هذا المحتوى',
+  'player.blocked.text': 'لا يمكن استخدام خادمه مع لابلو.',
 
   'tracks.audio': 'الصوت',
   'tracks.subtitles': 'الترجمة',

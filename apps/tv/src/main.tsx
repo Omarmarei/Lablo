@@ -172,6 +172,8 @@ const playerController = appPlayer({
   preferences: () => uiTrackPreferences(document.documentElement.lang),
   memory: memory.sources,
   trackMemory: memory.tracks,
+  // The config's blocklist (step 30c3b): each stream URL, and Tizen's redirect answer, before it opens.
+  blocked: (urls) => dataEngine().blockedOrNone(urls),
 });
 
 /** The background refreshes while the live screen shows (RELAY step 22a). */
@@ -384,6 +386,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     lifecycle: (listener) => platform.onLifecycle(listener),
     // The config's disable-playback (step 30c2b). The start's last channel plays before the cached policy arrives, then stops.
     refusal: playRefusal,
+    // Each config answer (step 30c3b): the stream on show is asked about again, after the query worker read the new blocklist.
+    blocklist: config.last,
   });
   if (resume !== null) player.resume({ item: resume.item, number: resume.number }, resume.index);
   showFocus(live.nav);

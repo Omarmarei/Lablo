@@ -20,7 +20,11 @@
  *   beside the stream (`PlayRequest.externalSubs`, loaded by the app's `loadSubtitles`) timed by
  *   the media clock, or the text an engine delivers for the stream's own subtitles (AVPlay);
  * - **pause, the position and seeking** (step 25d): `pause`/`resume`, and `positionMs`/`seek`
- *   inside a VOD or catch-up stream on show (the app seeks a stream it can't seek by a new URL).
+ *   inside a VOD or catch-up stream on show (the app seeks a stream it can't seek by a new URL);
+ * - **the config's blocklist** (step 30c3b, `blocked`): every URL is asked about before the
+ *   engine opens it (alongside the close), and on Tizen the redirect probe's answer too; a
+ *   blocked one gives up at once (`blockedFailure`: no retry, no account check), and
+ *   `checkBlocklist` asks again about the stream on show after a config refresh.
  *
  * Debounced zapping, number entry, the info bar, the track menu and the subtitle overlay are the
  * app's (apps/tv/src/player). Platform-specific needs arrive as callbacks (ADR-008).
@@ -35,7 +39,7 @@ import { isPlaybackError } from './engine';
 import type { PictureMode } from './picture';
 import { pictureLayout, pictureModes } from './picture';
 import type { AccountStatus, PlaybackFailure } from './failure';
-import { classifyFailure, wantsAccountCheck } from './failure';
+import { blockedFailure, classifyFailure, wantsAccountCheck } from './failure';
 import type { WatchdogConfig } from './ladder';
 import { DEFAULT_WATCHDOG, RetryLadder } from './ladder';
 import type { ExternalSub, PlayCandidate, PlayRequest, SourceMemory } from './request';
@@ -116,6 +120,12 @@ export interface ControllerOptions {
    * it, a request's files aren't listed.
    */
   readonly loadSubtitles?: (sub: ExternalSub) => Promise<readonly SubtitleCue[]>;
+  /**
+   * The signed config's blocklist (RELAY step 30c3b; the app passes `DataEngine.blockedOrNone`):
+   * for each URL, whether its server may not be played. Asked before the engine opens a URL, and
+   * by `checkBlocklist`. A rejection blocks nothing (the blocklist is then unknown).
+   */
+  readonly blocked?: (urls: string[]) => Promise<boolean[]>;
 }
 
 /**
@@ -159,6 +169,8 @@ interface Session {
   readonly ladder: RetryLadder;
   /** Index of the URL being played or tried. */
   current: number;
+  /** The URL the engine was given for it (the redirect probe's answer on Tizen; `null` until then). */
+  url: string | null;
   /** URLs that showed a frame in this session. */
   readonly framed: boolean[];
   /** Any frame in this session. */
@@ -226,6 +238,7 @@ export class PlayerController {
   private readonly preferences: () => TrackPreferences;
   private readonly trackMemory: TrackMemory;
   private readonly loadSubtitles: ((sub: ExternalSub) => Promise<readonly SubtitleCue[]>) | undefined;
+  private readonly blocked: ((urls: string[]) => Promise<boolean[]>) | undefined;
   /** What the screensaver was last told (the TV's default: allowed). */
   private screenSaverAllowed = true;
   private readonly unsubscribe: () => void;
@@ -275,6 +288,7 @@ export class PlayerController {
     this.preferences = options.preferences ?? (() => NO_PREFERENCES);
     this.trackMemory = options.trackMemory ?? new MemoryTrackMemory();
     this.loadSubtitles = options.loadSubtitles;
+    this.blocked = options.blocked;
     this.unsubscribe = engine.on((e) => this.onEvent(e));
   }
 
@@ -338,6 +352,7 @@ export class PlayerController {
       live: req.mode === 'live',
       ladder: new RetryLadder(this.config, { candidates: candidates.length, canReprobe: this.resolveUrl !== undefined }),
       current: 0,
+      url: null,
       framed: [],
       played: false,
       resumeMs: req.mode === 'live' ? undefined : opts.startMs,
@@ -377,6 +392,23 @@ export class PlayerController {
     this.clearSubtitles();
     this.setState('idle');
     return this.closeEngine();
+  }
+
+  /**
+   * The config's blocklist may have changed (a config refresh, RELAY step 30c3b): the URL on show
+   * (and the redirect probe's answer) is asked about again, and a blocked one stops as at `open`.
+   * Nothing is asked between loads (the next load asks itself) or once a VOD ended; a load or a
+   * stop that comes before the answer wins.
+   */
+  checkBlocklist(): void {
+    const s = this.s;
+    const token = this.liveToken;
+    if (s === null || token === 0 || this.blocked === undefined || this.current.state === 'ended') return;
+    const urls = [s.candidates[s.current]!.url];
+    if (s.url !== null && s.url !== urls[0]) urls.push(s.url);
+    void this.isBlocked(urls).then((blocked) => {
+      if (blocked && token === this.liveToken) this.refuseBlocked(s);
+    });
   }
 
   /**
@@ -626,15 +658,28 @@ export class PlayerController {
     this.updateSubtitles();
   }
 
-  /** Opens the session's current URL: close first, then probe (where the platform probes), then load. */
+  /**
+   * Opens the session's current URL: close first (the blocklist asked meanwhile, step 30c3b), then
+   * probe (where the platform probes; a redirect asked about too), then load.
+   */
   private async open(s: Session, fresh: boolean): Promise<void> {
     const token = ++this.tokenSeq;
     this.liveToken = token;
     this.clearTimers();
     this.armOpenTimer(token);
+    const candidate = s.candidates[s.current]!;
+    s.url = null;
+    const verdict = this.blocked === undefined ? null : this.isBlocked([candidate.url]);
     await this.closeEngine();
     if (token !== this.liveToken) return;
-    const candidate = s.candidates[s.current]!;
+    if (verdict !== null) {
+      const blocked = await verdict;
+      if (token !== this.liveToken) return;
+      if (blocked) {
+        this.refuseBlocked(s);
+        return;
+      }
+    }
     let url = candidate.url;
     if (this.resolveUrl !== undefined) {
       try {
@@ -644,12 +689,47 @@ export class PlayerController {
         return;
       }
       if (token !== this.liveToken) return;
+      // The probe's answer (Tizen): a redirect may lead to another server.
+      if (url !== candidate.url && this.blocked !== undefined) {
+        const blocked = await this.isBlocked([url]);
+        if (token !== this.liveToken) return;
+        if (blocked) {
+          this.refuseBlocked(s);
+          return;
+        }
+      }
     }
+    s.url = url;
     try {
       await this.engine.load({ url, container: candidate.container, live: s.live }, token, s.resumeMs === undefined ? {} : { startMs: s.resumeMs });
     } catch (reason) {
       this.fail(token, asPlaybackError(reason));
     }
+  }
+
+  /** Whether the blocklist refuses any of `urls` (step 30c3b); a failed check refuses none. */
+  private isBlocked(urls: string[]): Promise<boolean> {
+    const ask = this.blocked!;
+    return Promise.resolve()
+      .then(() => ask(urls))
+      .then(
+        (answers) => answers.indexOf(true) !== -1,
+        () => false,
+      );
+  }
+
+  /**
+   * The blocklist refused the session's URL (step 30c3b): the stream stops and the session gives
+   * up at once, with no retry and no account check. Hidden, nothing is left to resume on show.
+   */
+  private refuseBlocked(s: Session): void {
+    this.liveToken = 0;
+    this.clearTimers();
+    void this.closeEngine();
+    this.dropEngineCues();
+    this.setTracks(s, [], []);
+    if (this.hidden !== null) this.hidden = 'idle';
+    this.setState('failed', blockedFailure());
   }
 
   /** No first frame for the load `token` within the open timeout fails it. */

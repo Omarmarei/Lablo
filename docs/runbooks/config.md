@@ -220,7 +220,7 @@ schedule, step 30b2; the test plumbing, step 30c1; the enforcement comes with st
 
 The gate (step 30c2a, `apps/tv/src/gate/`) covers onboarding and the live screen, whatever shows,
 and takes every key while it is up. `block-new-sources` and `disable-playback` work inside
-onboarding and the player (step 30c2b). The blocklist works in the data engine (step 30c3a). Each mode includes the ones below it: `disable-app` also
+onboarding and the player (step 30c2b). The blocklist works in the data engine (step 30c3a) and in the player (step 30c3b). Each mode includes the ones below it: `disable-app` also
 stops plays and adds, and `disable-playback` also stops adds.
 
 - **`disable-app`:** a full-screen "Lablo is unavailable" with the rule's message (without one,
@@ -262,8 +262,26 @@ stops plays and adds, and `disable-playback` also stops adds.
     used with Lablo.". **Settings → TV guides** says "Not read: this server can't be used with
     Lablo." for a guide on a blocked server;
   - if the TV can't read its cached config (a broken database), nothing counts as blocked.
-  - **Not covered:** the host an M3U link redirects to (the download follows redirects); playing
-    a stream on a blocked server is refused from step 30c3b.
+  - **Not covered:** the host an M3U link redirects to (the download follows redirects).
+- **The blocklist before playing** (step 30c3b): the player checks each stream's server (with each
+  parent) before it opens it, whatever the play (a channel, a zap, a number, the previous channel,
+  catch-up and its seeks, the start's last channel, a movie, an episode, "Resume", the next
+  episode, and every retry). So a source on an allowed server whose streams are on a blocked one
+  adds and refreshes, but its streams don't play. So:
+  - a blocked stream shows the player's card "Can't play this" / "Its server can't be used with
+    Lablo." (`data-rule="BLOCKLIST"`) with one button, "Channels" (or "Back" for a movie), over
+    black, instead of the stream;
+  - **a refresh that blocks the server of the stream playing stops it** (a movie's place is kept)
+    and the card shows: the player asks again at each config answer;
+  - a lift changes nothing on screen by itself: the next channel or movie chosen plays;
+  - on Samsung (Tizen), the server a stream redirects to (the player's redirect probe) is checked
+    too, before it plays;
+  - the check is quick but not instant, so a blocked channel has already become the last channel:
+    the next start shows the card for it until another channel is chosen;
+  - if the TV can't read its cached config, nothing counts as blocked;
+  - **Not covered:** on LG (webOS) and the desktop the TV follows a stream's redirects itself, so
+    only the stream's own link is checked; an HLS stream's playlists and segments on other
+    servers; a movie's subtitle files.
 - **The language:** the one the user picked (else the TV's); the rule's message in it, English for
   any language but Arabic.
 - **Trying it locally:** start a stand-in server that answers `GET /v1/config` with a dev-signed
@@ -272,7 +290,9 @@ stops plays and adds, and `disable-playback` also stops adds.
   after changing what it serves. The desktop dev app has no `minVersion` (it is the `browser`
   platform): try the update screen with the built webOS bundle from `file://` and `?api=` on
   127.0.0.1 (e2e/config-gate.spec.ts does both; e2e/config-modes.spec.ts the two modes inside
-  the app; e2e/config-blocklist.spec.ts the blocklist, with the mock provider's `127.0.0.1` on it).
+  the app; e2e/config-blocklist.spec.ts the blocklist at add and on refresh, with the mock
+  provider's `127.0.0.1` on it; e2e/config-blocklist-play.spec.ts before playing, with an M3U link
+  on `localhost` whose streams are on `127.0.0.1`).
 
 ## Gotchas
 

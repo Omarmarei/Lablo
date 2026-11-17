@@ -35,7 +35,7 @@ export type { PlayerTrack, PlayerTracks, TrackChoice, TrackMemory, TrackPick, Tr
 export { FILE_TRACK, MemoryTrackMemory, NO_PREFERENCES, NO_TRACKS, fileIndex, fileTracks, findPick, playerTracks, preferredTrack, trackPick } from './tracks';
 
 export type { AccountStatus, FailureCategory, FailureFacts, PlaybackFailure } from './failure';
-export { classifyFailure, isDefinitive, wantsAccountCheck } from './failure';
+export { BLOCKED_CODE, blockedFailure, classifyFailure, isDefinitive, wantsAccountCheck } from './failure';
 
 export type { LadderOptions, RetryPlan, Rung, WatchdogConfig } from './ladder';
 export { DEFAULT_WATCHDOG, RetryLadder } from './ladder';
