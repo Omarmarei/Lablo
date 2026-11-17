@@ -11,9 +11,11 @@ import { LoadError } from './loader';
  * Onboarding's loader on the data engine (RELAY step 13b): the new source goes through the
  * ingest worker, its guides through the EPG worker, and it is saved in the profile.
  *
- * 1. `checking`: the source gets its id (`nextSourceId`). An Xtream login is checked first by
- *    the ingest itself: a refused login is `auth`, and an expired, banned or disabled account
- *    (`user_info.status`) is `expired` or `blocked`, before any list is read.
+ * 1. `checking`: the source gets its id (`nextSourceId`). The data engine refuses a source whose
+ *    server is on the signed config's blocklist (`blocklisted`, step 30c3a) before any worker
+ *    starts. An Xtream login is checked first by the ingest itself: a refused login is `auth`,
+ *    and an expired, banned or disabled account (`user_info.status`) is `expired` or `blocked`,
+ *    before any list is read.
  * 2. `download`, `saving`: the catalog refresh's progress (`IngestProgress`: download, commit).
  * 3. `guide`: the guides of the playlist or panel, and the guide link typed in the form (a
  *    `UserGuide` with the source's id, after the user's guides already listed), read through
@@ -66,7 +68,7 @@ export function storedSources(profile: LoadedProfile | null): SourceRecord[] {
   return Array.isArray(sources) ? (sources as SourceRecord[]) : [];
 }
 
-const PASSED_ON: readonly LoadErrorCode[] = ['auth', 'expired', 'blocked', 'network', 'format', 'empty'];
+const PASSED_ON: readonly LoadErrorCode[] = ['auth', 'expired', 'blocked', 'blocklisted', 'network', 'format', 'empty'];
 
 /**
  * A failed load's `LoadError`, from the ingest's code (an `RpcError` from the worker carries it,

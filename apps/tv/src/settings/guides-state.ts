@@ -94,6 +94,8 @@ export interface GuideRow {
   readonly meta: EpgMeta | null;
   /** The user's time offset for it, in minutes (0: none; step 24b). */
   readonly offset: number;
+  /** Its server is on the signed config's blocklist (step 30c3a): it isn't read. */
+  readonly blocked: boolean;
 }
 
 export type GuideAction = 'up' | 'down' | 'offset' | 'matches' | 'remove' | 'cancel';
@@ -110,6 +112,8 @@ export interface GuidesEngine {
   editProfile(edit: ProfileEdit): Promise<boolean>;
   /** The count of the live channels no guide matches (a page of 0 rows). */
   unmatched(req: UnmatchedRequest): Promise<UnmatchedPage>;
+  /** For each URL, whether its server is on the signed config's blocklist (step 30c3a). */
+  blocked(urls: string[]): Promise<boolean[]>;
 }
 
 export interface GuidesOptions {
@@ -214,8 +218,11 @@ export interface GuideList {
   readonly urls: string[];
 }
 
-/** The rows: the user's guides in their order, then each source's own in the refresh's order. */
-export function guideList(profile: LoadedProfile | null, status: EpgStatus): GuideList {
+/**
+ * The rows: the user's guides in their order, then each source's own in the refresh's order.
+ * `blocked` answers the blocklist for the list's `urls`, in their order (missing: not blocked).
+ */
+export function guideList(profile: LoadedProfile | null, status: EpgStatus, blocked: readonly boolean[] = []): GuideList {
   const user = userGuides(profile);
   const records = storedSources(profile);
   const offsets = epgOffsetsOf(profile === null ? null : profile.doc);
@@ -225,7 +232,7 @@ export function guideList(profile: LoadedProfile | null, status: EpgStatus): Gui
   const urls: string[] = [];
   for (const guide of user) {
     const epgSrc = `${USER_PREFIX}${guide.id}`;
-    rows.push({ kind: 'mine', epgSrc, id: guide.id, link: shownLink(guide.url), source: '', meta: metaOf(status, epgSrc), offset: offsetOf(epgSrc) });
+    rows.push({ kind: 'mine', epgSrc, id: guide.id, link: shownLink(guide.url), source: '', meta: metaOf(status, epgSrc), offset: offsetOf(epgSrc), blocked: blocked[urls.length] === true });
     urls.push(guide.url);
   }
   for (const guide of epgGuides(records.map(catalogOf), status.sources, user)) {
@@ -233,7 +240,16 @@ export function guideList(profile: LoadedProfile | null, status: EpgStatus): Gui
     const src = guide.epgSrc.slice(0, guide.epgSrc.indexOf(':'));
     let source = '';
     for (const record of records) if (record.id === src) source = record.name;
-    rows.push({ kind: 'source', epgSrc: guide.epgSrc, id: '', link: shownLink(guide.url), source, meta: metaOf(status, guide.epgSrc), offset: offsetOf(guide.epgSrc) });
+    rows.push({
+      kind: 'source',
+      epgSrc: guide.epgSrc,
+      id: '',
+      link: shownLink(guide.url),
+      source,
+      meta: metaOf(status, guide.epgSrc),
+      offset: offsetOf(guide.epgSrc),
+      blocked: blocked[urls.length] === true,
+    });
     urls.push(guide.url);
   }
   return { rows, urls };
@@ -378,10 +394,21 @@ export function createGuides(options: GuidesOptions): Guides {
   const read = (): Promise<void> => {
     readSeq += 1;
     const seq = readSeq;
-    return track(() => Promise.all([engine.profile(), engine.epgStatus()])).then(
-      ([profile, epg]) => {
+    return track(() =>
+      Promise.all([engine.profile(), engine.epgStatus()]).then(([profile, epg]) =>
+        // A guide on a blocked server says so (step 30c3a); an unknown blocklist blocks nothing.
+        engine.blocked(guideList(profile, epg).urls).then(
+          (blocked) => ({ profile, epg, blocked }),
+          (error: unknown) => {
+            console.warn('The blocklist could not be read', error);
+            return { profile, epg, blocked: [] as boolean[] };
+          },
+        ),
+      ),
+    ).then(
+      ({ profile, epg, blocked }) => {
         if (disposed || seq !== readSeq) return;
-        const list = guideList(profile, epg);
+        const list = guideList(profile, epg, blocked);
         urls = list.urls;
         known = userGuides(profile).map((guide) => guide.id);
         for (const meta of epg.guides) if (meta.epgSrc.indexOf(USER_PREFIX) === 0) known.push(meta.epgSrc.slice(USER_PREFIX.length));

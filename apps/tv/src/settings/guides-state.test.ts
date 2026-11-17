@@ -134,6 +134,22 @@ class FakeEngine implements GuidesEngine {
     });
   }
 
+  /** The blocklist (step 30c3a): the URLs it blocks, the asks it had, and whether it fails. */
+  blockedUrls: string[] = [];
+  readonly blockAsks: string[][] = [];
+  failBlocked = false;
+
+  blocked(urls: string[]): Promise<boolean[]> {
+    this.blockAsks.push(urls.slice());
+    if (this.failBlocked) return Promise.reject(new Error('worker gone'));
+    return Promise.resolve(urls.map((url) => this.blockedUrls.indexOf(url) !== -1));
+  }
+
+  /** The sources screen's read (step 30c3a: the settings share this engine). */
+  sourceStatus(): Promise<SourceMeta[]> {
+    return Promise.resolve(this.status.sources);
+  }
+
   /** The manual mapping's reads (step 24e: the settings' picker shares this engine): no match, no channels. */
   nowNext(keys: string[]): Promise<EpgNowNext[]> {
     return Promise.resolve(keys.map((key) => ({ key, epgSrc: null, channel: null, method: null, now: null, next: null })));
@@ -296,7 +312,7 @@ describe('checkLink', () => {
 });
 
 describe('guideState', () => {
-  const row = (m: EpgMeta | null): GuideRow => ({ kind: 'mine', epgSrc: 'u~g1', id: 'g1', link: '', source: '', meta: m, offset: 0 });
+  const row = (m: EpgMeta | null): GuideRow => ({ kind: 'mine', epgSrc: 'u~g1', id: 'g1', link: '', source: '', meta: m, offset: 0, blocked: false });
   it('is read once programmes are stored, failed or not', () => {
     expect(guideState(row(meta('u~g1')), 0)).toBe('read');
     expect(guideState(row(meta('u~g1', { failure: { code: 'network', status: null } })), 1)).toBe('read');
@@ -334,6 +350,19 @@ describe('guideList', () => {
     expect(rows.every((r) => r.meta === null)).toBe(true);
   });
 
+  it('marks the guides the blocklist answered for, in the list’s order, and none without an answer (step 30c3a)', () => {
+    const engine = new FakeEngine();
+    const profile = { doc: engine.doc, newer: false, migratedFrom: null };
+    expect(guideList(profile, engine.status, [false, true, true, false]).rows.map((r) => [r.epgSrc, r.blocked])).toEqual([
+      ['u~s1', false],
+      ['u~g2', true],
+      ['s1:xmltv', true],
+      ['s2:tvg0', false],
+    ]);
+    expect(guideList(profile, engine.status).rows.map((r) => r.blocked)).toEqual([false, false, false, false]);
+    expect(guideList(profile, engine.status, [false, false, false, true]).rows.map((r) => r.blocked)).toEqual([false, false, false, true]);
+  });
+
   it('is empty with no profile, and names nothing for a guide whose source is gone', () => {
     const status: EpgStatus = { guides: [], matched: 0, sources: [], mapping: '-' };
     expect(guideList(null, status)).toEqual({ rows: [], urls: [] });
@@ -343,6 +372,32 @@ describe('guideList', () => {
 });
 
 describe('the guides screen', () => {
+  it('asks the blocklist for every listed guide’s full link, and marks the blocked ones (step 30c3a)', async () => {
+    const engine = new FakeEngine();
+    engine.blockedUrls = [PANEL_GUIDE, 'http://guides.test/b.xml?key=k'];
+    const t = await opened(engine);
+    expect(engine.blockAsks).toEqual([['http://guides.test/a.xml', 'http://guides.test/b.xml?key=k', PANEL_GUIDE, 'http://lists.test/guide.xml']]);
+    expect(t.guides.rows.value.map((r) => [r.epgSrc, r.blocked])).toEqual([
+      ['u~s1', false],
+      ['u~g2', true],
+      ['s1:xmltv', true],
+      ['s2:tvg0', false],
+    ]);
+    expect(t.guides.pending.value).toBe(0);
+  });
+
+  it("lists the guides unblocked when the blocklist can't be read (step 30c3a)", async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const engine = new FakeEngine();
+    engine.blockedUrls = [PANEL_GUIDE];
+    engine.failBlocked = true;
+    const t = await opened(engine);
+    expect(t.guides.status.value).toBe('ready');
+    expect(t.guides.rows.value.map((r) => r.blocked)).toEqual([false, false, false, false]);
+    expect(warn).toHaveBeenCalledWith('The blocklist could not be read', expect.any(Error));
+    expect(t.at()).toBe('guides · guides 0');
+  });
+
   it('opens on the first guide once read, with nothing focused while it loads', async () => {
     const engine = new FakeEngine();
     engine.hold = new Set(['read']);
@@ -769,6 +824,38 @@ describe('the add form', () => {
 });
 
 describe('the settings screen', () => {
+  it('lists "TV guides" and "Sources"; "Sources" opens the sources screen, and Back goes back to it (step 30c3a)', async () => {
+    const t = setup();
+    t.engine.blockedUrls = ['http://lists.test/a.m3u'];
+    const settings = createSettings({
+      nav: t.nav,
+      engine: t.engine,
+      refreshNow: t.refresh.refreshNow,
+      offsetChanged: t.offsetChanged,
+      platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+    });
+    settings.open();
+    await t.press('DOWN');
+    expect(t.at()).toBe('settings · items 1');
+    await t.press('OK');
+    expect(t.at()).toBe('sources · sources 0');
+    expect(settings.sources.rows.value.map((r) => [r.id, r.host, r.blocked])).toEqual([
+      ['s1', 'panel.test:8080', false],
+      ['s2', 'lists.test', true],
+    ]);
+    expect(settings.guides.status.value).toBe('loading');
+    await t.press('DOWN');
+    expect(t.at()).toBe('sources · sources 1');
+    await t.press('BACK');
+    expect(t.at()).toBe('settings · items 1');
+    await t.press('BACK');
+    expect(t.at()).toBe('live · channels 0');
+    // Disposed with the settings: it opens no more.
+    settings.dispose();
+    settings.sources.open();
+    expect(t.at()).toBe('live · channels 0');
+  });
+
   it('lists "TV guides", which opens the guides screen; Back goes back one screen at a time', async () => {
     const t = setup();
     const settings = createSettings({
@@ -778,11 +865,11 @@ describe('the settings screen', () => {
       offsetChanged: t.offsetChanged,
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
     });
-    expect(SETTINGS_ITEMS).toEqual(['guides']);
-    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map']);
+    expect(SETTINGS_ITEMS).toEqual(['guides', 'sources']);
+    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources']);
     settings.open();
     expect(t.at()).toBe('settings · items 0');
-    expect((t.nav.top.zone('items') as { count: number }).count).toBe(1);
+    expect((t.nav.top.zone('items') as { count: number }).count).toBe(2);
     await t.press('OK');
     expect(t.at()).toBe('guides · guides 0');
     expect(settings.guides.rows.value).toHaveLength(4);

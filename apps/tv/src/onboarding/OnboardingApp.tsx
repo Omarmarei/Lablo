@@ -53,6 +53,7 @@ function errorText(t: Translate, code: LoadErrorCode, status: number | null): st
   if (code === 'auth') return t('error.auth');
   if (code === 'expired') return t('error.expired');
   if (code === 'blocked') return t('error.blocked');
+  if (code === 'blocklisted') return t('error.blocklisted');
   if (code === 'network') return t('error.network');
   if (code === 'format') return t('error.format');
   if (code === 'empty') return t('error.empty');

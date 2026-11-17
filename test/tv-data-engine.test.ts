@@ -10,9 +10,9 @@ import { toBase64Url } from '@lablo/crypto';
 import type { ConfigResult, RpcHandlers } from '@lablo/data';
 import { CancelSource, EPG_REFRESH_MS, EpgService, IngestService, QueryService, STORE, configHandlers, getSources, newSourceMeta, openDatabase, serveRpc } from '@lablo/data';
 import { createHash } from 'node:crypto';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WorkerLike } from '../apps/tv/src/data/engine';
-import { DataEngine } from '../apps/tv/src/data/engine';
+import { BlockedSourceError, DataEngine, sourceUrlOf } from '../apps/tv/src/data/engine';
 import type { FakeResponse } from '../packages/data/src/test-support';
 import { configAnswer, configDocFields, configSigner, dumpStore, fakeTransport, freshFactory, ingest, item } from '../packages/data/src/test-support';
 
@@ -608,6 +608,87 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     expect(await s.engine.blocked(BLOCK_URLS)).toEqual([true, false]);
     // Nothing of the config runs took the refresh slot.
     expect(s.engine.refreshing).toBe(false);
+  });
+
+  it('refuses a catalog refresh of a source on a blocked server before any worker starts, and keeps the slot free (step 30c3a)', async () => {
+    const asked: string[] = [];
+    const s = setup((url) => {
+      asked.push(url);
+      return url === CONFIG_URL ? { body: configAnswer(CONFIG_DOC) } : { body: playlist(10) };
+    });
+    // Before any config: nothing is blocked, the source loads.
+    expect(await s.engine.refresh(job('http://lists.blocked.example/a.m3u'))).toMatchObject({ status: 'committed' });
+    expect((await s.engine.refreshConfig(CONFIG_REQUEST)).status).toBe('fresh');
+    const before = { ...s.started };
+    const fetched = asked.length;
+    // A playlist on a blocked host, and a panel on a parent of one (with a port).
+    const panel = { src: 'p1', source: { type: 'xtream' as const, account: { base: 'http://blocked.example:8080', username: 'u', password: 'p' } } };
+    await expect(s.engine.refresh(job('http://lists.blocked.example/a.m3u'))).rejects.toMatchObject({ name: 'BlockedSourceError', code: 'blocklisted' });
+    await expect(s.engine.refresh(panel)).rejects.toBeInstanceOf(BlockedSourceError);
+    expect(s.started).toEqual(before);
+    expect(asked.length).toBe(fetched);
+    expect(s.engine.refreshing).toBe(false);
+    // The catalog loaded before stays; another source still loads.
+    expect(await s.engine.summary()).toMatchObject({ sources: 1, items: 10 });
+    expect(await s.engine.refresh({ src: 'free', source: { type: 'm3u', url: 'http://free.example/list.m3u' } })).toMatchObject({ status: 'committed' });
+  });
+
+  it("lets a source through when the blocklist can't be read (step 30c3a)", async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const s = setup((url) => (url === CONFIG_URL ? { body: configAnswer(CONFIG_DOC) } : { body: playlist(10) }));
+    expect((await s.engine.refreshConfig(CONFIG_REQUEST)).status).toBe('fresh');
+    vi.spyOn(s.engine, 'blocked').mockRejectedValue(new Error('IndexedDB is gone'));
+    expect(await s.engine.refresh(job('http://lists.blocked.example/a.m3u'))).toMatchObject({ status: 'committed' });
+    expect(warn).toHaveBeenCalledWith('The blocklist could not be read', expect.any(Error));
+    warn.mockRestore();
+  });
+
+  it("doesn't read a guide on a blocked server, with or without due, and keeps what it stored (step 30c3a)", async () => {
+    const BLOCKED_GUIDE = 'http://guides.blocked.example/a.xml';
+    const asked: string[] = [];
+    const s = setup((url) => {
+      asked.push(url);
+      if (url === CONFIG_URL) return { body: configAnswer(CONFIG_DOC) };
+      return url.endsWith('.xml') ? { body: guide(6) } : { body: playlist(8, 4, true) };
+    });
+    await s.engine.refresh(job());
+    const catalogs = [{ src: 'debug', type: 'm3u' as const }];
+    const user = [{ id: 'g1', url: BLOCKED_GUIDE }];
+    // No config yet: both guides read.
+    const first = await s.engine.refreshEpg(catalogs, { tier: 'full', due: true, user });
+    expect(first.outcomes.map((o) => [o.epgSrc, o.result?.status])).toEqual([
+      ['u~g1', 'committed'],
+      ['debug:tvg0', 'committed'],
+    ]);
+    expect((await s.engine.refreshConfig(CONFIG_REQUEST)).status).toBe('fresh');
+    const fetched = asked.length;
+    // Due again: only the free one is read; the blocked one is neither fetched nor deleted.
+    s.clock.now = NOW + EPG_REFRESH_MS;
+    const due = await s.engine.refreshEpg(catalogs, { tier: 'full', due: true, user });
+    expect(due.outcomes.map((o) => o.epgSrc)).toEqual(['debug:tvg0']);
+    expect(due.deleted).toEqual([]);
+    // Without `due` (every guide): the same.
+    const all = await s.engine.refreshEpg(catalogs, { tier: 'full', user, force: true });
+    expect(all.outcomes.map((o) => o.epgSrc)).toEqual(['debug:tvg0']);
+    expect(all.deleted).toEqual([]);
+    expect(asked.slice(fetched).indexOf(BLOCKED_GUIDE)).toBe(-1);
+    expect((await s.engine.epgStatus()).guides.map((g) => [g.epgSrc, g.gen > 0])).toEqual([
+      ['u~g1', true],
+      ['debug:tvg0', true],
+    ]);
+    // Only the blocked guide due: no worker starts at all.
+    const epgWorkers = s.started.epg;
+    s.clock.now = NOW + 2 * EPG_REFRESH_MS;
+    await s.engine.refreshEpg(catalogs, { tier: 'full', due: true, user });
+    expect(s.started.epg).toBe(epgWorkers + 1);
+    s.clock.now = NOW + 2 * EPG_REFRESH_MS + 60_000;
+    expect(await s.engine.refreshEpg(catalogs, { tier: 'full', due: true, user })).toEqual({ outcomes: [], deleted: [], reranked: [], wanted: 0 });
+    expect(s.started.epg).toBe(epgWorkers + 1);
+  });
+
+  it("names a source's API URL: an Xtream account's server, an M3U link", () => {
+    expect(sourceUrlOf({ type: 'm3u', url: 'http://lists.test/a.m3u?u=x' })).toBe('http://lists.test/a.m3u?u=x');
+    expect(sourceUrlOf({ type: 'xtream', account: { base: 'https://panel.test:8443', username: 'u', password: 'p' } })).toBe('https://panel.test:8443');
   });
 
   it("doesn't start the query worker for a config refresh: it reads the blocklist when first asked", async () => {

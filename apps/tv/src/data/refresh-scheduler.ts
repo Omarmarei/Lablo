@@ -16,7 +16,10 @@ import type { EpgRefreshOptions, RefreshOptions } from './engine';
  * - **Catalogs:** each stored source whose last check is `CATALOG_REFRESH_MS` old, that has no
  *   catalog at all (webOS may wipe the database on an update), or whose catalog an older ingest
  *   version built (`INGEST_VERSION`: it stores less, step 26e), is refreshed, one at a time. A
- *   failed one waits `CATALOG_RETRY_MS` (kept in memory: a relaunch tries again).
+ *   failed one waits `CATALOG_RETRY_MS` (kept in memory: a relaunch tries again). The data engine
+ *   refuses a source whose server is on the signed config's blocklist (step 30c3a): kept as a
+ *   failure like any other (a lift is picked up within 2 h, or at the next start), with no warning.
+ *   Its guides on a blocked server aren't read either (`refreshEpg`), and the sources screen says so.
  * - **Guides:** `refreshEpg` with `due` (`epgRefreshDue`: 12 h, or under 24 h of programmes left,
  *   failures held 2 h). After a catalog refresh that committed, every guide is read (new
  *   channels may match), at the next pass when the slot was busy.
@@ -149,7 +152,8 @@ export function createRefreshScheduler(options: SchedulerOptions): RefreshSchedu
       } catch (error) {
         if (disposed) return false;
         failures.set(record.id, now());
-        console.warn('A catalog refresh failed', error);
+        // A source on the blocklist (step 30c3a) is refused before any request: no failure to report.
+        if ((error as { code?: unknown } | null)?.code !== 'blocklisted') console.warn('A catalog refresh failed', error);
       }
     }
     if (disposed) return false;

@@ -138,6 +138,7 @@ export const EN = {
   'error.empty': 'The playlist has no channels.',
   'error.other': 'Something went wrong. Try again.',
   'error.refused': "Lablo isn't adding new sources right now. Try again later.",
+  'error.blocklisted': "This server can't be used with Lablo.",
 
   // The source is added.
   'done.title': "You're all set",
@@ -242,6 +243,8 @@ export const EN = {
   'settings.title': 'Settings',
   'settings.guides': 'TV guides',
   'settings.guidesHint': 'Where the programmes in your channel list come from',
+  'settings.sources': 'Sources',
+  'settings.sourcesHint': 'Your playlists and logins, and when they were updated',
   'guides.title': 'TV guides',
   'guides.add': 'Add a guide',
   'guides.intro': 'Programmes come from the first guide in this list that has the channel. Your own guides come first.',
@@ -260,6 +263,18 @@ export const EN = {
   'guides.failure.format': "Couldn't read it: this link didn't give an {format} guide.",
   'guides.failure.empty': "Couldn't read it: you have no live channels for it to match.",
   'guides.failure.other': "Couldn't read it. It will be tried again later.",
+  'guides.blocked': "Not read: this server can't be used with Lablo.",
+
+  // The sources screen (RELAY step 30c3a).
+  'sources.title': 'Sources',
+  'sources.intro': 'The playlists and logins you added, and when Lablo last updated them.',
+  'sources.xtream': '{name} login',
+  'sources.m3u': '{format} playlist',
+  'sources.updated': 'Updated {day}, {time}',
+  'sources.notUpdated': 'Not updated yet',
+  'sources.blocked': "Not updated: this server can't be used with Lablo.",
+  'sources.blockedSince': "Not updated since {day}, {time}: this server can't be used with Lablo.",
+  'sources.failedRead': "Couldn't read your sources.",
   'guides.menuTitle': 'This guide',
   'guides.menuLink': 'Link: {link}',
   'guides.moveUp': 'Move up',

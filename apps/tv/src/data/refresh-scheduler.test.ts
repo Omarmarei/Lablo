@@ -374,6 +374,32 @@ describe('the refresh schedule', () => {
     expect(engine.refreshCalls.map((c) => c.job.src)).toEqual(['s1', 's1']);
   });
 
+  it('holds a source the blocklist refuses as a failure, says nothing in the console, and still refreshes the others (step 30c3a)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const engine = new FakeEngine();
+    engine.metas = [meta('s1', T0 - CATALOG_REFRESH_MS), meta('s2', T0 - CATALOG_REFRESH_MS)];
+    engine.answers.set('s1', Object.assign(new Error("The source's server is on the blocklist"), { code: 'blocklisted' }));
+    engine.answers.set('s2', 'committed');
+    const t = setup({ engine });
+    t.scheduler.start();
+    await t.run(FIRST_CHECK_MS);
+    expect(engine.refreshCalls.map((c) => c.job.src)).toEqual(['s1', 's2']);
+    expect(warn).not.toHaveBeenCalled();
+    expect(engine.epgCalls).toHaveLength(1);
+    // Held for 2 h like any failure (a lift is picked up then): s2 is fresh now.
+    engine.metas = [meta('s1', T0 - CATALOG_REFRESH_MS), meta('s2', T0 + FIRST_CHECK_MS)];
+    for (let i = 0; i < 7; i += 1) await t.run(CHECK_MS);
+    expect(engine.refreshCalls.map((c) => c.job.src)).toEqual(['s1', 's2']);
+    await t.run(CHECK_MS);
+    expect(engine.refreshCalls.map((c) => c.job.src)).toEqual(['s1', 's2', 's1']);
+    expect(warn).not.toHaveBeenCalled();
+    // Any other failure still says so.
+    engine.answers.set('s1', Object.assign(new Error('network'), { code: 'network' }));
+    for (let i = 0; i < 8; i += 1) await t.run(CHECK_MS);
+    expect(engine.refreshCalls.map((c) => c.job.src)).toEqual(['s1', 's2', 's1', 's1']);
+    expect(warn).toHaveBeenCalledWith('A catalog refresh failed', expect.any(Error));
+  });
+
   it('tells the screens when a guide swapped in, was deleted or moved, not when nothing changed', async () => {
     const engine = new FakeEngine();
     const t = setup({ engine });

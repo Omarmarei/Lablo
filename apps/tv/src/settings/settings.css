@@ -72,6 +72,11 @@
   height: 120px;
 }
 
+/* "Sources" under "TV guides" (step 30c3a): the lists' 8 px between rows. */
+.settings__row + .settings__row {
+  margin-top: var(--space-2);
+}
+
 .settings__row.is-memory,
 .guides__row.is-memory {
   border-color: var(--color-border-memory);
@@ -346,6 +351,19 @@
 .unmatched__row.is-focused {
   border-color: var(--color-focus);
   background: var(--color-surface-focus);
+}
+
+/* A source's name (step 30c3a) is data (dir=auto): on the page's side all the same, then its kind and server. */
+.sources__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
 }
 
 /* A channel's name is data (dir=auto): on the page's side all the same. */
