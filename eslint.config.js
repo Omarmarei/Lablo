@@ -122,6 +122,23 @@ const NO_OUTBOUND_RULES = {
 };
 
 /**
+ * The phone page's requests (RELAY step 31b): `apps/web/src/phone/api.ts` runs in the phone's
+ * browser and calls its own origin's `/v1/pair/` routes, so it alone may use `fetch`. Everything
+ * else in the block still holds there (no XMLHttpRequest, WebSocket, EventSource, outbound
+ * modules or require), and the page's content security policy (`connect-src 'self'`) keeps the
+ * browser on its origin.
+ * @type {import('eslint').Linter.RulesRecord}
+ */
+const PHONE_API_RULES = {
+  ...NO_OUTBOUND_RULES,
+  ...restrictGlobalGroups([
+    { names: [...TIZEN_GLOBALS, ...WEBOS_GLOBALS], message: PLATFORM_MESSAGE },
+    { names: OUTBOUND_GLOBALS.filter((name) => name !== 'fetch'), message: OUTBOUND_MESSAGE },
+    { names: ['require', 'module'], message: `No require() in apps/web: use import. ${OUTBOUND_MESSAGE}` },
+  ]),
+};
+
+/**
  * Props whose strings people read: the components' text props (packages/ui/src/components)
  * and the HTML attributes a screen reader or a tooltip shows.
  */
@@ -301,11 +318,16 @@ export default defineConfig(
     languageOptions: { globals: globals.node },
   },
   {
-    // ... and makes no outbound requests (NO_OUTBOUND_RULES). Its tests don't ship: they start
-    // the Prisma CLI and may call the app over HTTP.
+    // ... and makes no outbound requests (NO_OUTBOUND_RULES). Its tests and e2e specs don't ship:
+    // they start the Prisma CLI and may call the app over HTTP.
     files: ['apps/web/**/*.{js,mjs,cjs,ts,tsx}'],
-    ignores: ['apps/web/test/**'],
+    ignores: ['apps/web/test/**', 'apps/web/e2e/**'],
     rules: NO_OUTBOUND_RULES,
+  },
+  {
+    // ... except the phone page's own requests to its origin (PHONE_API_RULES).
+    files: ['apps/web/src/phone/api.ts'],
+    rules: PHONE_API_RULES,
   },
   {
     // UI text only from the catalogs (RELAY step 12b, ADR-011). Tests, e2e and test/ may hold any text.

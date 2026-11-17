@@ -13,6 +13,9 @@ export const WEB = path.resolve(import.meta.dirname, '..');
 /** The database each `pnpm test:web` run drops, creates and migrates from scratch. */
 export const TEST_DATABASE = 'lablo_test';
 
+/** The same for each `pnpm e2e:web` run (RELAY step 31b; playwright.web.config.ts). */
+export const E2E_DATABASE = 'lablo_e2e';
+
 /** DATABASE_URL from the environment (CI), or else from apps/web/.env (local development). */
 export function serverUrl(): string {
   const envFile = path.join(WEB, '.env');
