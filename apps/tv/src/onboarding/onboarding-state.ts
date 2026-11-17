@@ -3,6 +3,7 @@ import { signal } from '@preact/signals';
 import type { Platform } from '@lablo/platform-api';
 import type { EditorBinding, FocusBinding, Language, Navigator, Screen, ScreenSpec, TextEditorOptions } from '@lablo/ui';
 import { bindEditor, bindFocus, createNavigator, createTextEditor } from '@lablo/ui';
+import type { Refusal } from '../gate/gate-state';
 import type { FieldId, FormProblems, FormValues, SourceDraft, SourceType } from './form';
 import { FORM_FIELDS, checkForm, firstProblem } from './form';
 import type { LoadErrorCode, LoadHandle, LoadProgress, LoadResult, SourceLoader } from './loader';
@@ -23,6 +24,10 @@ import { LoadError } from './loader';
  *
  * Each answer is handed to `answer` as it is given (step 13b saves it in the profile), so a
  * relaunch before the source is added starts again in the language picked (`initial`).
+ *
+ * The config's `block-new-sources` (step 30c2b, `refusal`): "Add source" and "Try again" read it
+ * first. Refused, the loading screen says so at once (`refused`, with the rule's message) and
+ * nothing loads; a load that was already running when the rule came finishes.
  */
 
 /** The languages in the order the language screen shows them. */
@@ -38,6 +43,8 @@ export type LoadState =
   | { readonly status: 'idle' }
   | { readonly status: 'running'; readonly progress: LoadProgress | null }
   | { readonly status: 'failed'; readonly code: LoadErrorCode; readonly httpStatus: number | null }
+  /** The config's kill rule refused the source before anything loaded (step 30c2b). */
+  | { readonly status: 'refused'; readonly refusal: Refusal }
   | { readonly status: 'done'; readonly result: LoadResult };
 
 export interface Onboarding {
@@ -86,6 +93,8 @@ export interface OnboardingOptions {
   readonly find?: TextEditorOptions['find'];
   /** The clock (the click pairing, in the navigator and the editor). */
   readonly now?: () => number;
+  /** The config's rule refusing new sources (step 30c2b): read at "Add source" and "Try again". */
+  readonly refusal?: ReadonlySignal<Refusal | null>;
 }
 
 const ONE: ScreenSpec['zones'] = [{ kind: 'list', id: 'actions', axis: 'horizontal', count: 1 }];
@@ -154,6 +163,19 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
     );
   };
 
+  /** Loads `source`, unless the config refuses new sources: then the screen says so with its two buttons. */
+  const begin = (source: SourceDraft): void => {
+    const refusal = options.refusal === undefined ? null : options.refusal.peek();
+    if (refusal === null) {
+      loading?.update(ONE[0]!);
+      startLoad(source);
+      return;
+    }
+    load.value = { status: 'refused', refusal };
+    loading?.update(TWO[0]!);
+    loading?.focus('actions', 0);
+  };
+
   const loadingSpec: ScreenSpec = {
     id: 'loading',
     zones: ONE,
@@ -163,10 +185,9 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
     },
     onSelect: (focus) => {
       const state = load.value;
-      if (state.status === 'failed') {
+      if (state.status === 'failed' || state.status === 'refused') {
         if (focus.index === 1 && draft.value !== null) {
-          loading?.update(ONE[0]!);
-          startLoad(draft.value);
+          begin(draft.value);
           return;
         }
         nav.pop();
@@ -197,7 +218,7 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
     draft.value = checked.draft;
     textEditor.close();
     loading = nav.push(loadingSpec);
-    startLoad(checked.draft);
+    begin(checked.draft);
   };
 
   const formSpec = (source: SourceType): ScreenSpec => ({

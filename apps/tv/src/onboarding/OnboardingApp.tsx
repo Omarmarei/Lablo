@@ -4,12 +4,13 @@ import type { Language, LocaleSettings } from '@lablo/ui';
 import { Button, Dialog, ProgressBar, Spinner, TextField, connectRemote, resolveLocale, useFocus, useZone } from '@lablo/ui';
 import { useSignal } from '@preact/signals';
 import { useEffect } from 'preact/hooks';
+import { messageIn } from '../gate/gate-state';
 import type { AppI18n } from '../i18n';
 import { LANGUAGE_NAMES, appI18n, switchedTag } from '../i18n';
 import type { FieldId, FieldProblem } from './form';
 import { FORM_FIELDS } from './form';
 import type { LoadErrorCode, LoadPhase } from './loader';
-import type { Onboarding } from './onboarding-state';
+import type { LoadState, Onboarding } from './onboarding-state';
 import { LANGUAGES, SOURCE_TYPES, fieldDomId } from './onboarding-state';
 import './onboarding.css';
 
@@ -56,6 +57,16 @@ function errorText(t: Translate, code: LoadErrorCode, status: number | null): st
   if (code === 'format') return t('error.format');
   if (code === 'empty') return t('error.empty');
   return t('error.other');
+}
+
+/**
+ * A failed load's message, or the config's refusal (step 30c2b): the rule's own words in the UI's
+ * language, else the catalog's.
+ */
+function failureText(i18n: AppI18n, state: Extract<LoadState, { status: 'failed' | 'refused' }>): string {
+  if (state.status === 'failed') return errorText(i18n.t, state.code, state.httpStatus);
+  const message = state.refusal.message;
+  return message === null ? i18n.t('error.refused') : messageIn(message, i18n.locale.language);
 }
 
 function phaseText(t: Translate, phase: LoadPhase, items: number): string {
@@ -204,12 +215,12 @@ function LoadingScreen({ ob, i18n }: ScreenProps) {
   const zone = useZone(ob.binding, ob.binding.nav.top, 'actions');
   const state = ob.load.value;
   const name = ob.draft.value?.name ?? '';
-  if (state.status === 'failed') {
-    const message = errorText(t, state.code, state.httpStatus);
+  if (state.status === 'failed' || state.status === 'refused') {
+    const refused = state.status === 'refused';
     return (
       <Panel title={t('loading.failed', { name })}>
-        <p class="onboarding__text onboarding__error" role="alert" data-testid="load-error" data-code={state.code}>
-          {message}
+        <p class="onboarding__text onboarding__error" role="alert" data-testid="load-error" data-code={refused ? 'refused' : state.code} data-rule={refused ? state.refusal.id : ''}>
+          {failureText(i18n, state)}
         </p>
         <div class="onboarding__actions">
           <Button label={t('loading.edit')} {...zone.item(0)} testId="action-0" />

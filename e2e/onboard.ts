@@ -26,6 +26,11 @@ export interface XtreamLogin {
  * screen, its channels shown. `query` goes on the start URL (`locale=…`, `tier=low`).
  */
 export async function addXtreamAndWatch(remote: RemoteDriver, login: XtreamLogin, query: string, loadTimeout = 20_000): Promise<Locator> {
+  return startWatching(remote, await fillXtream(remote, login, query), loadTimeout);
+}
+
+/** Onboarding by keys up to the Xtream form, filled, its "Add source" focused (RELAY step 30c2b). */
+export async function fillXtream(remote: RemoteDriver, login: XtreamLogin, query: string): Promise<Locator> {
   const onboarding = await toSourceTypes(remote, query);
   // An Xtream login.
   await remote.go('OK', 'form/fields/0');
@@ -34,7 +39,7 @@ export async function addXtreamAndWatch(remote: RemoteDriver, login: XtreamLogin
   await typeInto(remote, onboarding, 'password', login.password);
   await remote.go('DOWN', 'form/fields/4');
   await remote.go('DOWN', 'form/actions/0');
-  return startWatching(remote, onboarding, loadTimeout);
+  return onboarding;
 }
 
 /**
@@ -65,8 +70,8 @@ async function toSourceTypes(remote: RemoteDriver, query: string): Promise<Locat
   return onboarding;
 }
 
-/** OK on the form's "Add": the source loads, then "Start watching" opens the live screen. */
-async function startWatching(remote: RemoteDriver, onboarding: Locator, loadTimeout: number): Promise<Locator> {
+/** OK on the focused "Add" (or "Try again"): the source loads, then "Start watching" opens the live screen. */
+export async function startWatching(remote: RemoteDriver, onboarding: Locator, loadTimeout: number): Promise<Locator> {
   const { page } = remote;
   await remote.press('OK');
   await expect(onboarding).toHaveAttribute('data-screen', 'done', { timeout: loadTimeout });

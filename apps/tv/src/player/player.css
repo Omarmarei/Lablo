@@ -60,6 +60,19 @@ html[data-player='on'] .player-stage {
   right: 0;
 }
 
+/*
+ * The config's refusal (step 30c2b): nothing plays, so the screen paints its own black under its
+ * other parts (refused before any play, no stage exists yet, and the page would show through).
+ */
+.player__blank {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--screen-width);
+  height: var(--screen-height);
+  background: #000;
+}
+
 /* "Connecting…": in the middle of the picture. */
 .player__wait {
   position: absolute;

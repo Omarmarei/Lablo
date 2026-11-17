@@ -1,4 +1,4 @@
-import { signal } from '@preact/signals';
+import { computed, signal } from '@preact/signals';
 import { render } from 'preact';
 import type { ContentKey, DeviceTier } from '@lablo/core';
 import { normalizeLang } from '@lablo/core';
@@ -16,7 +16,7 @@ import { createSettings } from './settings/settings-state';
 import { createAppDataEngine } from './data/workers';
 import { createFocusDemo } from './focus-demo';
 import { GateApp } from './gate/GateApp';
-import { createGate, noticesShownOf } from './gate/gate-state';
+import { createGate, noticesShownOf, refusalFor } from './gate/gate-state';
 import { LiveApp } from './live/LiveApp';
 import type { Live } from './live/live-state';
 import { createLive } from './live/live-state';
@@ -120,6 +120,13 @@ const config = createConfigSchedule({
   request: configRequest,
   lifecycle: (listener) => platform.onLifecycle(listener),
 });
+
+/**
+ * The config's rules inside the app (RELAY step 30c2b): `block-new-sources` refuses onboarding's
+ * new source, `disable-playback` every play (and stops one playing); stronger rules do as well.
+ */
+const addRefusal = computed(() => refusalFor(config.policy.value, 'block-new-sources'));
+const playRefusal = computed(() => refusalFor(config.policy.value, 'disable-playback'));
 
 /** What the live screen stops while the gate stops the app, and starts again when it lifts (step 30c2a). */
 let gated: { readonly stop: () => void; readonly resume: () => void } | null = null;
@@ -375,6 +382,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     // and whether one comes after it (step 27d: "Continue watching").
     progressed: (item, positionMs, lengthMs, ended, showKey, more) => progress.save(item.key, positionMs, lengthMs, ended, showKey, more),
     lifecycle: (listener) => platform.onLifecycle(listener),
+    // The config's disable-playback (step 30c2b). The start's last channel plays before the cached policy arrives, then stops.
+    refusal: playRefusal,
   });
   if (resume !== null) player.resume({ item: resume.item, number: resume.number }, resume.index);
   showFocus(live.nav);
@@ -413,6 +422,8 @@ function showOnboarding(into: Element, language: Language | null): void {
     platform,
     loader,
     initial: { language },
+    // The config's block-new-sources (step 30c2b), read at "Add source".
+    refusal: addRefusal,
     answer: (answer) => {
       // Best effort: an answer that can't be saved is asked again on the next start.
       data.editProfile(answerEdit(answer)).catch((error: unknown) => console.warn('The onboarding answer was not saved', error));

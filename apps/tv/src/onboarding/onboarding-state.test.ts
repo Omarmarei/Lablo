@@ -1,7 +1,9 @@
+import { signal } from '@preact/signals';
 import type { Intent, KeyLike, RootBackPolicy, TextKey } from '@lablo/platform-api';
 import type { EditableLike } from '@lablo/ui';
 import { OK_CLICK_WINDOW_MS } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
+import type { Refusal } from '../gate/gate-state';
 import type { FieldId } from './form';
 import type { FakeLoaderOptions, LoadResult, SourceLoader } from './loader';
 import { LoadError, createFakeLoader } from './loader';
@@ -20,11 +22,16 @@ class FakeInput implements EditableLike {
   }
 }
 
-function setup(options: { rootBack?: RootBackPolicy; loader?: FakeLoaderOptions; answer?: OnboardingOptions['answer']; initial?: OnboardingOptions['initial'] } = {}) {
+function setup(
+  options: { rootBack?: RootBackPolicy; loader?: FakeLoaderOptions; answer?: OnboardingOptions['answer']; initial?: OnboardingOptions['initial']; refusal?: OnboardingOptions['refusal'] } = {},
+) {
   const exitApp = vi.fn();
   const timers: Array<() => void> = [];
   let clock = 0;
   const inputs = new Map<string, FakeInput>();
+  const fake = createFakeLoader({ ...options.loader, setTimeout: (run) => timers.push(run) });
+  /** Each load the loader was asked for. */
+  let starts = 0;
   const ob = createOnboarding({
     platform: {
       rootBackPolicy: () => options.rootBack ?? 'exit-dialog',
@@ -32,7 +39,12 @@ function setup(options: { rootBack?: RootBackPolicy; loader?: FakeLoaderOptions;
       textKey: (event: KeyLike) => TEXT_KEYS[event.keyCode] ?? null,
       onSoftKeyboard: () => () => undefined,
     },
-    loader: createFakeLoader({ ...options.loader, setTimeout: (run) => timers.push(run) }),
+    loader: {
+      start: (draft, onProgress) => {
+        starts += 1;
+        return fake.start(draft, onProgress);
+      },
+    },
     find: (id) => {
       let input = inputs.get(id);
       if (input === undefined) inputs.set(id, (input = new FakeInput()));
@@ -41,6 +53,7 @@ function setup(options: { rootBack?: RootBackPolicy; loader?: FakeLoaderOptions;
     now: () => clock,
     answer: options.answer,
     initial: options.initial,
+    refusal: options.refusal,
   });
   const at = (): string => {
     const f = ob.nav.snapshot();
@@ -66,7 +79,7 @@ function setup(options: { rootBack?: RootBackPolicy; loader?: FakeLoaderOptions;
     ob.editor.field(fieldDomId(id)).onEditKey(event);
     expect(event.preventDefault).toHaveBeenCalled();
   };
-  return { ob, exitApp, at, press, flush, later, type, inputs };
+  return { ob, exitApp, at, press, flush, later, type, inputs, starts: () => starts };
 }
 
 /** Language → disclaimer → consent → source → the form, by keys. */
@@ -338,6 +351,112 @@ describe('the source form', () => {
     await s.flush();
     expect(s.ob.load.value.status).toBe('idle');
     expect(s.at()).toBe('loading · actions 0');
+  });
+});
+
+describe("the config's block-new-sources (RELAY step 30c2b)", () => {
+  const RULE: Refusal = { id: 'no-new', message: { en: 'New sources are paused.', ar: 'إضافة المصادر متوقفة.' } };
+
+  /** The M3U form filled, its "Add source" focused. */
+  const filled = (refusal: Refusal | null) => {
+    const rule = signal<Refusal | null>(refusal);
+    const answers: OnboardingAnswer[] = [];
+    const s = setup({ refusal: rule, answer: (a) => answers.push(a) });
+    toForm(s, 'm3u');
+    s.ob.setValue('playlist', 'p.example/l.m3u');
+    s.press('DOWN', 'DOWN', 'DOWN');
+    expect(s.at()).toBe('form · actions 0');
+    answers.length = 0;
+    return { ...s, rule, answers };
+  };
+
+  it('refuses "Add source" before anything loads: the rule on the loading screen, Edit details and Try again', async () => {
+    const s = filled(RULE);
+    s.press('OK');
+    expect(s.starts()).toBe(0);
+    expect(s.ob.load.value).toEqual({ status: 'refused', refusal: RULE });
+    expect(s.at()).toBe('loading · actions 0');
+    expect(s.ob.nav.top.zone('actions')).toMatchObject({ count: 2 });
+    await s.flush();
+    // Nothing loads later either, and no answer is handed out.
+    expect(s.starts()).toBe(0);
+    expect(s.ob.load.value.status).toBe('refused');
+    expect(s.answers).toEqual([]);
+    // Edit details: back to the form, the values kept.
+    s.press('OK');
+    expect(s.at()).toBe('form · actions 0');
+    expect(s.ob.values.value).toEqual({ playlist: 'p.example/l.m3u' });
+    // Back works on the refusal too.
+    s.press('OK');
+    expect(s.ob.load.value.status).toBe('refused');
+    s.press('BACK');
+    expect(s.at()).toBe('form · actions 0');
+  });
+
+  it("refuses for a rule without a message too (the screen says the app's own text)", () => {
+    const plain: Refusal = { id: 'quiet', message: null };
+    const s = filled(plain);
+    s.press('OK');
+    expect(s.starts()).toBe(0);
+    expect(s.ob.load.value).toEqual({ status: 'refused', refusal: plain });
+  });
+
+  it('checks the form first: empty fields are pointed out, not refused', () => {
+    const rule = signal<Refusal | null>(RULE);
+    const s = setup({ refusal: rule });
+    toForm(s, 'm3u');
+    s.press('DOWN', 'DOWN', 'DOWN', 'OK');
+    expect(s.at()).toBe('form · fields 0');
+    expect(s.ob.load.value.status).toBe('idle');
+  });
+
+  it('Try again reads the rule again: refused while it holds, loaded once a refresh lifts it', async () => {
+    const s = filled(RULE);
+    s.press('OK', 'RIGHT', 'OK');
+    expect(s.starts()).toBe(0);
+    expect(s.ob.load.value).toEqual({ status: 'refused', refusal: RULE });
+    // Try again leaves the focus on Edit details, as a failure does.
+    expect(s.at()).toBe('loading · actions 0');
+    s.rule.value = null;
+    s.press('RIGHT', 'OK');
+    expect(s.starts()).toBe(1);
+    expect(s.ob.load.value.status).toBe('running');
+    expect(s.ob.nav.top.zone('actions')).toMatchObject({ count: 1 });
+    await s.flush();
+    expect(s.ob.load.value.status).toBe('done');
+    expect(s.at()).toBe('done · actions 0');
+  });
+
+  it("a failed load's Try again is refused once the rule arrives", async () => {
+    const rule = signal<Refusal | null>(null);
+    const s = setup({ refusal: rule, loader: { fail: new LoadError('network') } });
+    toForm(s, 'm3u');
+    s.ob.setValue('playlist', 'p.example/l.m3u');
+    s.press('DOWN', 'DOWN', 'DOWN', 'OK');
+    await s.flush();
+    expect(s.ob.load.value).toMatchObject({ status: 'failed', code: 'network' });
+    rule.value = RULE;
+    s.press('RIGHT', 'OK');
+    expect(s.starts()).toBe(1);
+    expect(s.ob.load.value).toEqual({ status: 'refused', refusal: RULE });
+  });
+
+  it('lets a load already running finish when the rule arrives', async () => {
+    const s = filled(null);
+    s.press('OK');
+    expect(s.starts()).toBe(1);
+    s.rule.value = RULE;
+    await s.flush();
+    expect(s.ob.load.value.status).toBe('done');
+    expect(s.at()).toBe('done · actions 0');
+  });
+
+  it('adds as before without a rule, or with none given', async () => {
+    const s = filled(null);
+    s.press('OK');
+    await s.flush();
+    expect(s.ob.load.value.status).toBe('done');
+    expect(s.starts()).toBe(1);
   });
 });
 

@@ -220,7 +220,8 @@ schedule, step 30b2; the test plumbing, step 30c1; the enforcement comes with st
 
 The gate (step 30c2a, `apps/tv/src/gate/`) covers onboarding and the live screen, whatever shows,
 and takes every key while it is up. `block-new-sources` and `disable-playback` work inside
-onboarding and the player (step 30c2b).
+onboarding and the player (step 30c2b). Each mode includes the ones below it: `disable-app` also
+stops plays and adds, and `disable-playback` also stops adds.
 
 - **`disable-app`:** a full-screen "Lablo is unavailable" with the rule's message (without one,
   "Lablo can't be used on this TV right now.") and "Close Lablo"; OK or Back closes the app. The
@@ -232,6 +233,21 @@ onboarding and the player (step 30c2b).
   closes it. It shows once per `id` on each TV (the profile's `noticesShown` keeps the latest 100):
   **to show a changed notice again, give it a new id.** Several notices show one after another, in
   the doc's order, after the two screens above. **A notice without a `message` never shows.**
+- **`block-new-sources`:** onboarding's "Add source" (once the form's own checks pass) says at
+  once "Couldn't add <name>" with the rule's message (without one, "Lablo isn't adding new sources
+  right now. Try again later."), with "Edit details" and "Try again". Nothing loads and nothing is
+  kept. "Try again" asks again, so a refresh that lifts the rule lets it through. A source that
+  was already loading when the rule arrived finishes. Onboarding is the only way to add a source
+  so far.
+- **`disable-playback`:** every play (a channel, a zap, a number, the previous channel, catch-up,
+  the start's last channel, a movie, an episode, "Resume", the next episode) shows the player's
+  card "Playback is turned off" with the rule's message (without one, "Lablo isn't playing
+  anything right now. Try again later.") and one button, "Channels" (or "Back" for a movie),
+  instead of the stream. A stream playing when the rule arrives stops (a movie's place is kept)
+  and the card shows. A refresh that lifts the rule changes nothing on screen by itself: the next
+  channel or movie chosen plays. At a start whose cached copy carries the rule, the last channel
+  may begin to play for a moment before the cached policy stops it (the config never delays the
+  start).
 - **The language:** the one the user picked (else the TV's); the rule's message in it, English for
   any language but Arabic.
 - **Trying it locally:** start a stand-in server that answers `GET /v1/config` with a dev-signed
@@ -239,7 +255,8 @@ onboarding and the player (step 30c2b).
   the dev app with `?api=<its origin>`, then `window.__LABLO_TEST__.refreshConfig()` in the console
   after changing what it serves. The desktop dev app has no `minVersion` (it is the `browser`
   platform): try the update screen with the built webOS bundle from `file://` and `?api=` on
-  127.0.0.1 (e2e/config-gate.spec.ts does both).
+  127.0.0.1 (e2e/config-gate.spec.ts does both; e2e/config-modes.spec.ts the two modes inside
+  the app).
 
 ## Gotchas
 
