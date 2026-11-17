@@ -50,13 +50,20 @@ export const pairUploadRequestSchema = z.object({
 });
 export type PairUploadRequest = z.infer<typeof pairUploadRequestSchema>;
 
-/** The presigned PUT and the object's key (the key goes into the boxed payload). */
-export const pairUploadResponseSchema = z.object({
+/** A presigned URL for the session's file: R2's own, always https. */
+const presignedFile = {
   url: z.string().check(z.maxLength(4096), z.regex(/^https:\/\/\S+$/)),
   key: bytes16,
   exp: epochMs,
-});
+};
+
+/** The presigned PUT and the object's key (the key goes into the boxed payload). */
+export const pairUploadResponseSchema = z.object(presignedFile);
 export type PairUploadResponse = z.infer<typeof pairUploadResponseSchema>;
+
+/** `GET /v1/pair/s/:sid/file` (RELAY step 31a): the presigned GET of the file the phone uploaded. */
+export const pairFileUrlResponseSchema = z.object(presignedFile);
+export type PairFileUrlResponse = z.infer<typeof pairFileUrlResponseSchema>;
 
 /** `GET /v1/pair/s/:sid`, every 2 s: nothing yet, or the payload (deleted on this read). */
 export const pairPollResponseSchema = z.discriminatedUnion('state', [
@@ -72,6 +79,19 @@ export type PairStatus = (typeof PAIR_STATUSES)[number];
 /** `POST /v1/pair/s/:sid/status`. */
 export const pairStatusRequestSchema = z.object({ status: z.enum(PAIR_STATUSES) });
 export type PairStatusRequest = z.infer<typeof pairStatusRequestSchema>;
+
+/**
+ * `GET /v1/pair/:code/status` and `POST /v1/pair/:code/payload`'s answer (RELAY step 31a): how
+ * far the phone's payload got. `open` until it is sent (the code works until `exp`), `sent` until
+ * the TV reads it, `received` until the TV reports, then `done` with the TV's category.
+ */
+export const pairProgressResponseSchema = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('open'), exp: epochMs }),
+  z.object({ state: z.literal('sent') }),
+  z.object({ state: z.literal('received') }),
+  z.object({ state: z.literal('done'), status: z.enum(PAIR_STATUSES) }),
+]);
+export type PairProgressResponse = z.infer<typeof pairProgressResponseSchema>;
 
 /** The M3U file the phone encrypted and uploaded: what the TV needs to fetch and open it. */
 export const pairFileSchema = z.object({

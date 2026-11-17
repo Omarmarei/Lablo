@@ -75,9 +75,11 @@ describe('the tables', () => {
     const { rows } = await raw.query<{ table_name: string; column_name: string }>(
       "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name <> '_prisma_migrations'",
     );
-    // The query reads every table's columns (28 in step 29a).
-    expect(rows.length).toBeGreaterThanOrEqual(28);
+    // The query reads every table's columns (28 in step 29a, 30 since step 31a).
+    expect(rows.length).toBeGreaterThanOrEqual(30);
     expect(rows).toContainEqual({ table_name: 'TelemetryEvent', column_name: 'installId' });
+    expect(rows).toContainEqual({ table_name: 'PairSession', column_name: 'deliveredAt' });
+    expect(rows).toContainEqual({ table_name: 'PairSession', column_name: 'fileId' });
     expect(rows.filter((row) => forbiddenColumn(row.column_name))).toStrictEqual([]);
   });
 });

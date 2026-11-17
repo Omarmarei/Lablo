@@ -102,6 +102,11 @@ export class MemoryBlobStore implements BlobStore {
     return this.objects.size;
   }
 
+  /** The keys of every object it holds, sorted (tests: RELAY step 31a's "only ciphertext" check). */
+  keys(): string[] {
+    return [...this.objects.keys()].sort();
+  }
+
   presignPut(key: string, size: number, ttlMs: number): Promise<PresignedRequest> {
     checkKey(key);
     if (!Number.isSafeInteger(size) || size < 0) throw new RangeError('a size is a whole number of bytes');
