@@ -36,7 +36,8 @@
     "web:dev": "pnpm --filter @lablo/web dev",
     "build:web": "pnpm --filter @lablo/web build",
     "test:web": "vitest run -c vitest.web.config.ts",
-    "verify:web": "pnpm test:web && pnpm build:web"
+    "e2e:web": "playwright test -c playwright.web.config.ts",
+    "verify:web": "pnpm test:web && pnpm build:web && pnpm e2e:web"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

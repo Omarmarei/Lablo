@@ -49,7 +49,7 @@ jobs:
           shared='^package\.json$|^pnpm-lock\.yaml$|^pnpm-workspace\.yaml$|^\.github/workflows/'
           engines="$shared|^apps/tv/|^packages/[^/]+/src/|^packages/crypto/test/|^tools/(engines|build|fonts)/"
           media="$shared|^apps/mock-provider/|^tools/(fixtures|bench)/|^packages/[^/]+/src/|^apps/tv/src/(player|lab|data)/|^apps/tv/(playback|lab)\.html$|^apps/tv/vite\.config\.ts$|^vitest\.media\.config\.ts$|^playwright\.config\.ts$"
-          web="$shared|^apps/web/|^packages/(protocol|crypto)/|^config/|^vitest\.web\.config\.ts$"
+          web="$shared|^apps/web/|^packages/(protocol|crypto)/|^config/|^vitest\.web\.config\.ts$|^playwright\.web\.config\.ts$"
           hit() { if grep -qE "$1" "$2"; then echo true; else echo false; fi; }
           {
             echo "code=$(if [ -s code.txt ]; then echo true; else echo false; fi)"
@@ -163,8 +163,10 @@ jobs:
 
   # The backend (RELAY step 29a, docs/runbooks/web.md): every migration on an empty Postgres 17
   # (pnpm test:web drops, creates and migrates `lablo_test`, then checks it against schema.prisma,
-  # the Prisma client and GET /v1/health), then `next build`. Lint, typecheck and the unit tests
-  # run in `verify`. The service trusts the runner's connections: no password exists anywhere.
+  # the Prisma client and GET /v1/health), then `next build`, then the phone page in Chromium
+  # against `next start` (pnpm e2e:web, RELAY step 31b: a fresh `lablo_e2e`). Lint, typecheck and
+  # the unit tests run in `verify`. The service trusts the runner's connections: no password
+  # exists anywhere.
   web:
     needs: changes
     if: needs.changes.outputs.web == 'true'
@@ -203,6 +205,32 @@ jobs:
       - run: pnpm test:web
 
       - run: pnpm build:web
+
+      # Chromium for the phone page's Playwright specs (apps/web/e2e).
+      - run: pnpm exec playwright install --with-deps chromium
+
+      - run: pnpm e2e:web
+
+      # The phone page in en and ar (apps/web/e2e/phone.spec.ts), and the report when it fails.
+      - name: Upload the phone page's screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: phone-screenshots
+          path: artifacts/screenshots/phone-*.png
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload the phone page's Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-web-report
+          path: |
+            artifacts/playwright-web-report/
+            artifacts/playwright-web-results/
+          if-no-files-found: ignore
+          retention-days: 14
 
   # Legal media set and scale fixtures (RELAY step 4, docs/runbooks/mock-provider.md "Media"):
   # ffmpeg generates the test channels and files, ffprobe validates what the mock serves, and the

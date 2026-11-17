@@ -8,7 +8,8 @@ What it will serve (architecture.md §3.2): the signed config (step 30), the pai
 phone page `/p` (step 31), the encrypted backup (step 32), telemetry and diagnostics (step 33).
 What it serves now: `GET /v1/health` (step 29a), `GET /v1/config` (step 30a: the committed signed
 config and the caller's country; see [config.md](config.md)) and the pairing API's eight routes
-(step 31a, "Pairing" below; the phone page and the TV's screen come with 31b and 31c). What it has ready for the later steps
+(step 31a, "Pairing" below) and the phone page `/p` (step 31b, "The phone page" below; the TV's
+screen comes with 31c). What it has ready for the later steps
 (step 29b2a): the messages' schemas in `@lablo/protocol`, and the blob store and rate limiter
 interfaces with their in-memory fakes (below). It imports `@lablo/protocol` and `@lablo/crypto`
 (workspace dependencies, compiled by Next through `transpilePackages`).
@@ -26,7 +27,8 @@ see "No outbound network" below.
 | `pnpm build:web` | `next build` (Turbopack). |
 | `pnpm --filter @lablo/web start` | `next start` on port 3100, after a build. |
 | `pnpm test:web` | The tests that need the database (`apps/web/test/*.web.test.ts`, `vitest.web.config.ts`). Each run drops, creates and migrates `lablo_test` first, so it never touches the development database `lablo`. |
-| `pnpm verify:web` | `test:web`, then `build:web`. CI's `web` job runs the same. |
+| `pnpm e2e:web` | The phone page in a phone-sized Chromium (`playwright.web.config.ts`, `apps/web/e2e/`) against `next start` on port 3101 and a fresh `lablo_e2e` database. Needs `pnpm build:web` first and `pnpm web:db` up. |
+| `pnpm verify:web` | `test:web`, `build:web`, then `e2e:web`. CI's `web` job runs the same. |
 
 `pnpm lint`, `pnpm typecheck` and `pnpm test` cover `apps/web` too (its unit tests need no
 database: `apps/web/test/*.test.ts`, and `test/lint-web-outbound.test.ts`).
@@ -80,7 +82,8 @@ can name the host. A missing `DATABASE_URL` is "down" too.
 
 ## No outbound network
 
-`eslint.config.js`'s `NO_OUTBOUND_RULES`, for every file in `apps/web` except its tests:
+`eslint.config.js`'s `NO_OUTBOUND_RULES`, for every file in `apps/web` except its tests and e2e
+specs:
 
 - the globals `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource` (also as properties of
   `globalThis`, `window`, `self`);
@@ -93,6 +96,10 @@ can name the host. A missing `DATABASE_URL` is "down" too.
 The database connection goes through Prisma and node-postgres, which the lint doesn't see (they
 are libraries, and the URL is ours). The real R2 and Upstash adapters (step 31 or 34) will need a
 narrow exception for their own file, with a test that proves it is that narrow.
+**The one exception so far (step 31b):** `apps/web/src/phone/api.ts`, the phone page's requests,
+runs in the phone's browser and may call `fetch` (`PHONE_API_RULES`: everything else in the block
+still holds there). It calls only relative `/v1/pair/` paths, and the page's content security
+policy (`connect-src 'self'`) holds the browser to its own origin.
 `test/lint-web-outbound.test.ts` proves each form is rejected in `apps/web` and still allowed in the
 TV app, the mock, the tools and the tests.
 
@@ -165,13 +172,45 @@ work is in `apps/web/src/server/pair.ts`; each route under `src/app/v1/pair/` is
   pair over HTTP on port 3100. `pnpm test:web` runs `apps/web/test/pair.web.test.ts`, including the
   "only ciphertext" check over every row and blob.
 
+## The phone page (step 31b)
+
+`/p` is where a phone sends a source to a TV (architecture.md §3.3 A and "Built in step 31b"). The
+server component (`src/app/p/page.tsx`) only picks the language; everything else runs in the
+browser (`src/phone/`): the code, the forms, the sealing (`sealPairPayload` to the TV's key), the
+post and the progress poll.
+
+- **Reaching it:** the TV's QR code opens `https://<domain>/p#c=<code>&k=<tvPk>` (the fragment
+  never reaches the server; the page reads it once and takes it out of the address bar), or a
+  person opens `/p` and types the code (lower case, spaces, a dash, I/L for 1 and O for 0 are all
+  fine). The QR path uses the key from the fragment; the typed path asks `GET /v1/pair/:code`.
+- **Language:** `?lang=en|ar`, else `Accept-Language`, else English; the link at the top switches in
+  place and keeps what was typed. Its text is `src/phone/catalog.ts` (its own: `apps/web` can't
+  import the TV's catalogs), in the TV's terms.
+- **Headers in a production build** (`next.config.ts` `pageHeaders`): `Content-Security-Policy`
+  (`connect-src 'self'`, `default-src 'self'`, `frame-ancestors 'none'` and the rest),
+  `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`. `next dev` gets none (its
+  reloads need eval and a websocket), so check headers against `next start`.
+- **Try it on the desktop:** `pnpm web:db`, `pnpm --filter @lablo/web exec prisma migrate deploy`,
+  `pnpm build:web`, `pnpm --filter @lablo/web start`, then play the TV with a script (`POST
+  /v1/pair` with a `newBoxKeyPair()` public key; `apps/web/e2e/support.ts`'s `Tv` shows the calls)
+  and open `http://localhost:3100/p#c=<code>&k=<tvPk>` in a narrow window, or `/p` to type the code.
+- **On a real phone** (before step 34): the phone must reach this PC: `next start --hostname
+  0.0.0.0` and the PC's LAN address. The page needs a secure context for nothing it uses (it seals
+  with tweetnacl, not WebCrypto), so plain http on the LAN works.
+- **E2E (`pnpm e2e:web`):** each spec plays the TV over the API from Node and checks the payload it
+  opens with its own secret key. Each test sends its own `x-forwarded-for` (Next's own server keeps
+  a client's; Vercel's edge sets it), so the rate limits never meet across tests. Every request the
+  page makes is checked against its origin. Screenshots: `artifacts/screenshots/phone-*.png`.
+
 ## CI
 
 The `web` job runs when a pull request changes `apps/web/`, `packages/protocol/`,
 `packages/crypto/`, `config/` (the signed config is bundled into `/v1/config`),
-`vitest.web.config.ts`, or a shared file (`package.json`, the lockfile, the
-workspace file, the workflows). It starts a `postgres:17-alpine` service on port 54329, runs
-`pnpm test:web` and then `pnpm build:web`. Lint, typecheck and the unit tests run in `verify`.
+`vitest.web.config.ts`, `playwright.web.config.ts`, or a shared file (`package.json`, the
+lockfile, the workspace file, the workflows). It starts a `postgres:17-alpine` service on port
+54329, runs `pnpm test:web` and `pnpm build:web`, installs Chromium and runs `pnpm e2e:web`, and
+uploads the phone page's screenshots (`phone-screenshots`). Lint, typecheck and the unit tests run
+in `verify`.
 
 ## Gotchas
 
@@ -192,6 +231,16 @@ workspace file, the workflows). It starts a `postgres:17-alpine` service on port
   `apps/web/package.json`. Test files resolve normally.
 - **Next's telemetry:** CI sets `NEXT_TELEMETRY_DISABLED=1`. Locally, `pnpm --filter @lablo/web exec next telemetry disable` once.
 - `next build` writes `apps/web/next-env.d.ts` and `.next/` (both gitignored, and ignored by lint).
+- **`next build` type-checks every file `apps/web/tsconfig.json` includes, the e2e specs too:** a
+  type error in `apps/web/e2e/` fails the build.
+- **A running `next start` locks `.next` on Windows:** `next build` then fails with `EBUSY ...
+  rmdir .next/static/chunks`. Stop the server first (and don't leave a shell's working directory
+  inside `.next`).
+- **`page.goto('/p#…')` from `/p` only changes the fragment** (no new load). The page reloads itself
+  on `hashchange` so a second QR link in the same tab still starts over; the specs open a QR link
+  after `about:blank` (`openQr`).
+- **Next adds its own `role="alert"`** (the route announcer): look for the page's messages inside
+  `[data-testid=phone]`.
 - **Stopping a background `pnpm --filter @lablo/web start` (TaskStop) leaves `next start` running**
   on Windows (leg 83): port 3100 still answers. Find it (`netstat -ano | grep ":3100 "`, then the
   process's command line) and stop that pid.

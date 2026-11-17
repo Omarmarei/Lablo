@@ -110,6 +110,11 @@ describe('apps/web makes no outbound requests', () => {
     expect(await lint('apps/web/test/f.web.test.ts', code)).toEqual([]);
   });
 
+  it('leaves the app’s e2e specs free like its tests', async () => {
+    const code = "import { spawnSync } from 'node:child_process';\nexport const a = spawnSync;\nexport const b = () => fetch('http://127.0.0.1:3101/p');\n";
+    expect(await lint('apps/web/e2e/f.spec.ts', code)).toEqual([]);
+  });
+
   it('keeps the platform globals out of apps/web too', async () => {
     const messages = await lint(WEB, 'export const a = typeof tizen + typeof webOS;\n');
     expect(messages).toHaveLength(2);
@@ -142,4 +147,38 @@ describe('apps/web makes no outbound requests', () => {
   ])('leaves the TV, the mock, the tools and the tests as they are: %s', async (file, code) => {
     expect(await lint(file, code)).toEqual([]);
   });
+});
+
+describe('the phone page’s requests (RELAY step 31b)', () => {
+  const API = 'apps/web/src/phone/api.ts';
+
+  it('lets the page’s API module call fetch, its one exception', async () => {
+    expect(await lint(API, "export const a = () => fetch('/v1/pair/ABCDEFGH');\n")).toEqual([]);
+    expect(await lint(API, "export const a = () => globalThis.fetch('/v1/pair/ABCDEFGH');\n")).toEqual([]);
+  });
+
+  it.each([
+    ['export const a = new XMLHttpRequest();\n', 'no-restricted-globals'],
+    ["export const a = new WebSocket('wss://x.example');\n", 'no-restricted-globals'],
+    ["export const a = new EventSource('/v1/x');\n", 'no-restricted-globals'],
+    ['export const a = window.XMLHttpRequest;\n', 'no-restricted-properties'],
+    ["import http from 'node:http';\nexport const a = http;\n", 'no-restricted-imports'],
+    ["export const a = import('node:https');\n", 'no-restricted-syntax'],
+    ["const r = require;\nexport const a = r('node:https');\n", 'no-restricted-globals'],
+  ])('still refuses the rest there: %s', async (code, rule) => {
+    expect(await rejected(API, code)).toBe(rule);
+  });
+
+  it('still keeps the platform globals out of it', async () => {
+    const messages = await lint(API, 'export const a = typeof tizen;\n');
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatch(/^no-restricted-globals: .*platform adapter/);
+  });
+
+  it.each(['apps/web/src/phone/flows.ts', 'apps/web/src/phone/PhonePage.tsx', 'apps/web/src/phone/api/index.ts', 'apps/web/src/phone/api.tsx', 'apps/web/src/server/api.ts', 'apps/web/src/app/p/api.ts'])(
+    'refuses fetch in every other file: %s',
+    async (file) => {
+      expect(await rejected(file, "export const a = () => fetch('/v1/pair/ABCDEFGH');\n")).toBe('no-restricted-globals');
+    },
+  );
 });

@@ -9,7 +9,7 @@ import { addXtreamAndWatch, settled, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
 import type { PressBudget, PressTiming } from './remote-keys';
 import { budgetFailures, summarize } from './remote-keys';
-import { THROTTLE, busyMs, throttle } from './throttle';
+import { THROTTLE, baseBusyMs, busyMs, throttle } from './throttle';
 
 /**
  * The search (RELAY step 28a, PLAN Phase 7: "search ≤ 300 ms on a 2018 TV") over 200,000 items at
@@ -225,7 +225,7 @@ test.describe('the search at 4x CPU throttle over 200,000 items', () => {
     await page.keyboard.press('Backspace');
     await expect(root).toHaveAttribute('data-status', 'idle');
 
-    const base = await busyMs(page);
+    const base = await baseBusyMs(page);
     const workerBase = await workerBusyMs(page);
     const release = await throttle(page, THROTTLE);
     const presses: Change[] = [];
