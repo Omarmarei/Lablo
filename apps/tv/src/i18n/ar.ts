@@ -60,6 +60,15 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'exit.stay': 'البقاء',
   'exit.confirm': 'خروج',
 
+  'gate.disabledTitle': 'لابلو غير متاح',
+  'gate.disabledMessage': 'لا يمكن استخدام لابلو على هذا التلفاز حاليًا.',
+  'gate.updateTitle': 'حدّث لابلو',
+  'gate.updateMessage': 'لم يعد بالإمكان استخدام هذا الإصدار من لابلو. حدّث لابلو من متجر التطبيقات في تلفازك، ثم افتحه مجددًا.',
+  'gate.versions': 'هذا الإصدار: {current}. المطلوب: {needed} أو أحدث.',
+  'gate.close': 'إغلاق لابلو',
+  'gate.noticeTitle': 'رسالة من لابلو',
+  'gate.ok': 'حسنًا',
+
   'app.name': 'لابلو',
 
   'onboarding.chooseLanguage': 'اختر لغتك',

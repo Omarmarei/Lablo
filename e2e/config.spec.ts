@@ -1,8 +1,6 @@
-import type { Server } from 'node:http';
-import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { expect, test } from '@playwright/test';
-import { CONFIG_PROBES, HARNESS_NOTICE, devSignedAnswer, harnessConfigDoc } from '../tools/engines/src/config';
+import { CONFIG_PROBES, HARNESS_NOTICE, devSignedAnswer } from '../tools/engines/src/config';
+import { doc, startConfigServer } from './config-server';
 import { trackErrors } from './onboard';
 
 /**
@@ -10,49 +8,9 @@ import { trackErrors } from './onboard';
  * `GET /v1/config` the way apps/web does, with a config signed by the dev key (the dev app trusts
  * it), and `?api=` points the app at it. The policy is read through the test hook
  * (`window.__LABLO_TEST__.config()`), and `refreshConfig()` runs the schedule now, so a changed
- * config arrives without waiting 6 h. Step 30c2 enforces what arrives.
+ * config arrives without waiting 6 h. config-gate.spec.ts (step 30c2a) shows what the gate makes
+ * of it.
  */
-
-interface ConfigServer {
-  readonly origin: string;
-  /** Requests for `/v1/config` so far. */
-  requests(): number;
-  /** What the next request gets: an answer's exact text. */
-  serve(answer: string): void;
-  close(): Promise<void>;
-}
-
-async function startConfigServer(answer: string): Promise<ConfigServer> {
-  let body = answer;
-  let requests = 0;
-  const server: Server = createServer((request, response) => {
-    // The app's config worker fetches cross-origin (the dev app is on localhost:<port>).
-    const headers = { 'access-control-allow-origin': '*', 'cache-control': 'no-store' };
-    if (request.method === 'GET' && request.url === '/v1/config') {
-      requests += 1;
-      response.writeHead(200, { ...headers, 'content-type': 'application/json' });
-      response.end(body);
-      return;
-    }
-    response.writeHead(404, headers);
-    response.end();
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address() as AddressInfo;
-  return {
-    origin: `http://127.0.0.1:${port}`,
-    requests: () => requests,
-    serve: (next) => {
-      body = next;
-    },
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
-  };
-}
-
-/** A config doc dated around now, with `fields` in place of the harness doc's (no kill rule, one notice, two blocked hosts). */
-function doc(fields: Record<string, unknown> = {}, now = Date.now()): Record<string, unknown> {
-  return { ...harnessConfigDoc(now), ...fields };
-}
 
 test('a served config reaches the app, and a changed one arrives with refreshConfig()', async ({ page }) => {
   const errors = trackErrors(page);

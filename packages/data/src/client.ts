@@ -28,7 +28,7 @@ export type { KeyItemsRequest } from './query-service';
 // and config-constants.ts import no schema, so main gets none of the config worker's code.
 export type { ConfigPlatform, ConfigPolicy, PolicyRule } from './config-policy';
 export { KILL_STRENGTH, noPolicy, policyStops } from './config-policy';
-export { CONFIG_REFRESH_MS, CONFIG_RETRY_MS } from './config-constants';
+export { CONFIG_REFRESH_MS, CONFIG_RETRY_MS, MAX_NOTICES, isRuleId } from './config-constants';
 export type { ConfigEvents, ConfigFailure, ConfigResult, ConfigRunRequest, ConfigStatus } from './config-service';
 
 // Cancel tokens and the errors calls reject with (rpc.ts is bundled here anyway): the app cancels

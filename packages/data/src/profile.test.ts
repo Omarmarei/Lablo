@@ -5,6 +5,7 @@ import { epgOverridesOf } from './epg-overrides';
 import type { UserGuide } from './epg-sources';
 import { EPG_OFFSET_MAX, EPG_OFFSET_STEP, epgOffsetsOf, isEpgOffset } from './epg-sources';
 import type { AnyProfile, GuideChange, LastChannel, PlayerChange, ProfileDoc, ProfileMigration, ShowProgress, SourceRecord, SourceRecordV3, StoredTrackChoice, WatchProgress } from './profile';
+import { MAX_NOTICES } from './config-constants';
 import {
   MAX_CHANNELS,
   MAX_PROGRESS,
@@ -738,6 +739,47 @@ describe("applyProfileEdit: a show's last episode (step 27c1)", () => {
     expect(more.shows['s199']).toBeUndefined();
     expect(more.shows['s198']).toEqual(last('e198', false, 802));
     expect(more.shows['s3']).toEqual(last('e3b', false, 5000));
+  });
+});
+
+describe('applyProfileEdit: the config notices shown (step 30c2a)', () => {
+  const notice = (doc: ProfileDoc, id: string): ProfileDoc | null => applyProfileEdit(doc, { kind: 'notice', id });
+
+  it('keeps each notice shown once, in order, in a document without any (no migration)', () => {
+    const doc = withFavs(1);
+    expect(doc.noticesShown).toBeUndefined();
+    const one = notice(doc, 'welcome')!;
+    expect(one.noticesShown).toEqual(['welcome']);
+    expect(one.v).toBe(PROFILE_VERSION);
+    expect(one.favourites).toEqual([fav(1)]);
+    const two = notice(one, 'fix-104')!;
+    expect(two.noticesShown).toEqual(['welcome', 'fix-104']);
+    // The same id again changes nothing; the input is left alone.
+    expect(notice(two, 'welcome')).toBeNull();
+    expect(one.noticesShown).toEqual(['welcome']);
+    expect(doc.noticesShown).toBeUndefined();
+  });
+
+  it("changes nothing for an id the config wouldn't take", () => {
+    for (const bad of ['', 'Welcome', 'a_b', 'a b', 'x'.repeat(41), 'é', 7, null]) {
+      expect(applyProfileEdit(withFavs(1), { kind: 'notice', id: bad as string }), String(bad)).toBeNull();
+    }
+    expect(notice(withFavs(1), 'x'.repeat(40))!.noticesShown).toEqual(['x'.repeat(40)]);
+  });
+
+  it(`keeps the latest ${MAX_NOTICES}, dropping the one shown longest ago`, () => {
+    let doc: ProfileDoc = withFavs(1);
+    for (let i = 0; i < MAX_NOTICES; i += 1) doc = notice(doc, `n${i}`)!;
+    expect(doc.noticesShown).toHaveLength(MAX_NOTICES);
+    const next = notice(doc, 'newest')!;
+    expect(next.noticesShown).toHaveLength(MAX_NOTICES);
+    expect(next.noticesShown![0]).toBe('n1');
+    expect(next.noticesShown![MAX_NOTICES - 1]).toBe('newest');
+    // A list already past the cap (a newer app's) comes back to it.
+    const long = { ...withFavs(1), noticesShown: Array.from({ length: MAX_NOTICES + 5 }, (_v, i) => `l${i}`) };
+    const cut = notice(long, 'newest')!;
+    expect(cut.noticesShown).toHaveLength(MAX_NOTICES);
+    expect(cut.noticesShown![0]).toBe('l6');
   });
 });
 
