@@ -37,6 +37,8 @@ test('the QR link: an Xtream login, sealed for the TV, then each state of the pr
   const progress = page.getByTestId('progress');
   await expect(progress).toHaveAttribute('data-state', 'sent');
   await expect(progress).toHaveText(EN['progress.sentWaiting']);
+  // A new view takes the focus to its heading (a screen reader starts there).
+  await expect(page.locator('h1')).toBeFocused();
   await shot(page, 'phone-progress-en');
 
   expect(await set.receive()).toEqual({
