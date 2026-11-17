@@ -70,6 +70,41 @@ const EXTENSIONS = ['.ts', '.tsx', '.mjs', '.js', '.jsx'];
 export const POLYFILL_FREE_DEPENDENCIES = [/[\\/]node_modules[\\/]fflate[\\/]/];
 
 /**
+ * Dependencies that get only the core-js polyfills listed for them. Babel injects a polyfill
+ * into a file for every API name it sees there, before tree-shaking, and core-js modules are
+ * never dropped: zod 4's core files name `URL`, `atob`, `Promise`, typed arrays and more in
+ * code `@lablo/protocol` never runs, so one small `zod/mini` schema came to a 110 KB bundle,
+ * most of it polyfills (URL, DOMException…). What zod calls on Chromium 53 for the protocol's
+ * schemas, all while the schemas are built: `globalThis` (its core reads it at load),
+ * `Object.fromEntries` (every `z.enum`), `Object.entries` and `Object.values` (the enum's
+ * values) and `Object.getOwnPropertyDescriptors` (`z.extend`). A new kind of schema may need
+ * more: the protocol samples, bundled alone, run in a realm without those APIs
+ * (test/crypto-vectors-bundle.test.ts), and with the crypto vectors on Chromium 53, 56 and 68
+ * (`pnpm verify:engines`, RELAY step 29b2a).
+ */
+export const DEPENDENCY_POLYFILLS: ReadonlyArray<{ readonly test: RegExp; readonly polyfills: readonly string[] }> = [
+  {
+    test: /[\\/]node_modules[\\/]zod[\\/]/,
+    polyfills: [
+      'es.global-this',
+      'es.object.entries',
+      'es.object.values',
+      'es.object.from-entries',
+      'es.object.get-own-property-descriptors',
+    ],
+  },
+];
+
+/**
+ * A preset-env `exclude` entry for every core-js polyfill but `polyfills` (by full name). Only
+ * polyfill names (`es.`, `esnext.`, `web.`) match: the syntax transforms stay.
+ */
+export function polyfillsExcept(polyfills: readonly string[]): RegExp {
+  const names = polyfills.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  return new RegExp(`^(?!(?:${names})$)(?:es|esnext|web)\\.`);
+}
+
+/**
  * core-js polyfills that are never injected. Babel's usage detection can't see types, so any
  * `.map(` pulls in the ES2025 iterator helpers, any `new Set` the ES2025 Set methods and any
  * `Uint8Array` the ES2026 base64 methods: about 30 KB of every bundle for APIs nothing calls.
@@ -296,6 +331,21 @@ function plugins(options: BundleOptions, collected: Collected): Plugin[] {
           test: POLYFILL_FREE_DEPENDENCIES,
           presets: [[require.resolve('@babel/preset-env'), { targets: TV_TARGETS, useBuiltIns: false, bugfixes: true, modules: false }]],
         },
+        // Dependencies with a short list of the polyfills they need (none when polyfills are off).
+        ...DEPENDENCY_POLYFILLS.map(({ test, polyfills }) => ({
+          test,
+          presets: [
+            [
+              require.resolve('@babel/preset-env'),
+              {
+                targets: TV_TARGETS,
+                ...(options.polyfills === false ? { useBuiltIns: false } : { useBuiltIns: 'usage', corejs: CORE_JS_VERSION, exclude: [polyfillsExcept(polyfills)] }),
+                bugfixes: true,
+                modules: false,
+              },
+            ],
+          ],
+        })),
       ],
       plugins: [[require.resolve('@babel/plugin-transform-react-jsx'), { runtime: 'automatic', importSource: 'preact' }]],
     }),

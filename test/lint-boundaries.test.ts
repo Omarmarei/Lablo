@@ -93,6 +93,17 @@ describe('package boundaries (boundaries/element-types)', () => {
     const inward = await lint('packages/crypto/src/f.ts', "import '@lablo/core';\n");
     expect(inward.some((m) => m.startsWith(BOUNDARY))).toBe(true);
   });
+
+  it("allows protocol's samples as an entry point, and nothing else in protocol", async () => {
+    for (const file of ['apps/tv/src/f.ts', 'tools/engines/src/f.ts', 'apps/web/src/f.ts']) {
+      expect(await lint(file, "import { checkSamples } from '@lablo/protocol/check-samples';\nexport { checkSamples };\n")).toEqual([]);
+    }
+    const deep = await lint('apps/tv/src/f.ts', "import { SAMPLES } from '../../../packages/protocol/src/samples';\nexport { SAMPLES };\n");
+    expect(deep.some((m) => m.startsWith('boundaries/entry-point'))).toBe(true);
+    // Still nothing internal from inside protocol.
+    const inward = await lint('packages/protocol/src/f.ts', "import '@lablo/crypto';\n");
+    expect(inward.some((m) => m.startsWith(BOUNDARY))).toBe(true);
+  });
 });
 
 describe('platform globals (no-restricted-globals / no-restricted-properties)', () => {
