@@ -3,6 +3,7 @@ import { useSignal } from '@preact/signals';
 import type { DeviceInfo, Intent, LifecycleEvent, Platform } from '@lablo/platform-api';
 import { connectRemote, localeDir } from '@lablo/ui';
 import { useEffect } from 'preact/hooks';
+import type { HelloConfig } from './DataPanel';
 import { DataPanel } from './DataPanel';
 import { FocusPanel } from './FocusPanel';
 import type { DataEngine } from './data/engine';
@@ -14,6 +15,8 @@ import { pingHelloWorker } from './hello-worker';
 export interface AppData {
   readonly engine: DataEngine;
   readonly params: DebugParams;
+  /** The config run and the blocklist probes (RELAY step 30c1). */
+  readonly config: HelloConfig;
   /** True while remote keys are being pressed (a running refresh is paused). */
   readonly busy: ReadonlySignal<boolean>;
 }
@@ -180,7 +183,7 @@ export function App({ platform, keyHelp, data, focus }: Props) {
           </table>
         </section>
 
-        <DataPanel engine={data.engine} params={data.params} lowTier={lowTier} busy={data.busy} />
+        <DataPanel engine={data.engine} params={data.params} config={data.config} lowTier={lowTier} busy={data.busy} />
       </div>
     </main>
   );

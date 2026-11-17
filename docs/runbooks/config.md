@@ -134,7 +134,7 @@ Try it: `pnpm build:web`, `pnpm --filter @lablo/web start`, then
 ## On the TV
 
 What the TV does with the answer (`packages/data`, step 30b1; the config worker and the app's
-schedule, step 30b2; the enforcement comes with step 30c):
+schedule, step 30b2; the test plumbing, step 30c1; the enforcement comes with steps 30c2 and 30c3):
 
 - **When** (`apps/tv/src/data/config-schedule.ts`): a config worker runs after the start's first
   screen has painted (never before it, never waited for), then 6 h after a run that brought a new
@@ -162,6 +162,25 @@ schedule, step 30b2; the enforcement comes with step 30c):
   then `pnpm dev`: after the first screen, the app's IndexedDB (`lablo`, store `kv`, key
   `config`) holds the copy. Without a backend the fetch fails quietly (the worker's failed
   request isn't a page console error).
+- **Pointing a run at another server** (step 30c1): `?api=<origin>` (before `source`), for example
+  `http://localhost:5173/?api=http://127.0.0.1:8099`. Only an origin is taken
+  (`http(s)://host[:port]`, one trailing slash dropped). The desktop dev app takes any origin; a
+  TV build only one on the device itself (`127.0.0.1`, `localhost`, `[::1]`), so a store build's
+  address can't point the app at another server. Anything else keeps the build's base.
+- **Reading the policy and refreshing now** (step 30c1, every build): `window.__LABLO_TEST__.config()`
+  gives the last answer as plain data (`status`, `failure`, `issuedAt`, the kill rule's `id` and
+  `mode`, the notices' ids, `updateRequired`; `null` before the first and on the developer
+  screens), and `refreshConfig()` runs the schedule now (`refreshNow`: after the run in progress,
+  if any; the schedule then counts from its end) and resolves with that run's answer. A changed
+  config served by a test arrives without waiting 6 h.
+- **The hello screen's config rows** (`?screen=hello`, a developer screen with no schedule): one
+  config run with the build's request and `?api=`, shown as `config-status` (`ok: fresh, issued …,
+  nothing killed, no notices`; `ok: cached (<why>) …`; `none: <why> (nothing killed, nothing
+  blocked)`; with `data-status`, `data-failure`, `data-kill`, `data-notices`), then the query
+  worker's `blocked` for each `?check=<url>` (repeatable, percent-encoded, before `source`) as
+  `blocked-status` (`ok: blocked, allowed`, `data-blocked="true,false"`). The old-engine harness
+  checks them on Chromium 53, 56 and 68 against a config it serves (runbook old-engines.md, item 4),
+  and `e2e/config.spec.ts` in current Chromium.
 
 - **Taking an answer** (`checkConfigResponse`): JSON, `configResponseSchema`, the signature against
   the keys the build embeds, the signed text's JSON, `configDocSchema`. Refused when it has expired

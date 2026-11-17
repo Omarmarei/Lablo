@@ -64,6 +64,55 @@ export function readDebugParams(search: string): DebugParams {
   return { source, query, force, error: null };
 }
 
+/** Every value of one parameter, decoded (`+` as a space) and trimmed, in order; empty and broken ones left out. */
+export function readParams(head: string, name: string): string[] {
+  const found: string[] = [];
+  for (const pair of head.replace(/^\?/, '').split('&')) {
+    const eq = pair.indexOf('=');
+    if (eq === -1 || pair.slice(0, eq) !== name) continue;
+    const value = decode(pair.slice(eq + 1), true);
+    if (value !== null && value.trim() !== '') found.push(value.trim());
+  }
+  return found;
+}
+
+/** The parameters before `source` (whose value runs to the end of the address). */
+function headOf(search: string): string {
+  const match = SOURCE.exec(search);
+  return match === null ? search : search.slice(0, match.index);
+}
+
+/**
+ * The hello screen's blocklist probes (RELAY step 30c1): each `?check=<url>`, in order, before
+ * `source` (percent-encode a URL with its own `&`). The config row asks `blocked` about them.
+ */
+export function readChecks(search: string): string[] {
+  return readParams(headOf(search), 'check');
+}
+
+/** `http(s)://host[:port]` and nothing after it but one slash: the host as `[1]`. */
+const ORIGIN = /^https?:\/\/([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(?::\d{1,5})?\/?$/;
+/** Hosts that name this device: a TV build takes `?api=` only for them. */
+const LOOPBACK = /^(?:127\.0\.0\.1|localhost|\[::1\])$/i;
+
+/**
+ * The config's API base for this run (RELAY step 30c1): `?api=<origin>` before `source`, so the
+ * e2e tests and the old-engine harness can serve a config of their own; otherwise `fallback`
+ * (the build's `__API_BASE__`).
+ *
+ * Only an origin is taken (`http(s)://host[:port]`, one trailing slash dropped), and in a TV
+ * build only one on this device (`127.0.0.1`, `localhost`, `[::1]`): a store build's address
+ * can't point the app at another server. The desktop dev app (`devApp`) takes any origin.
+ */
+export function readApiBase(search: string, fallback: string, devApp: boolean): string {
+  const value = readParams(headOf(search), 'api')[0];
+  if (value === undefined) return fallback;
+  const origin = ORIGIN.exec(value);
+  if (origin === null) return fallback;
+  if (!devApp && !LOOPBACK.test(origin[1]!)) return fallback;
+  return value.replace(/\/$/, '');
+}
+
 /**
  * The screen the app opens on: onboarding (RELAY step 13a), or a developer screen: the hello
  * screen's diagnostics (`?screen=hello`, which the old-engine harness's data runs use) or the

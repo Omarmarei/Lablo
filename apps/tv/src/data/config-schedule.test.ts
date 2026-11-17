@@ -372,3 +372,174 @@ describe('createConfigSchedule', () => {
     }
   });
 });
+
+describe('refreshNow (the test hook, step 30c1)', () => {
+  it('answers null and runs nothing before start or once disposed', async () => {
+    const { engine, schedule } = setup();
+    await expect(schedule.refreshNow()).resolves.toBeNull();
+    expect(engine.runs).toHaveLength(0);
+    schedule.start();
+    schedule.dispose();
+    await expect(schedule.refreshNow()).resolves.toBeNull();
+    expect(engine.runs).toHaveLength(0);
+  });
+
+  it("runs at once, answers with the run's result, and the schedule counts from its end", async () => {
+    const { engine, schedule, paint, finish, clock } = setup();
+    schedule.start();
+    paint();
+    await finish(result('fresh', 'a'));
+    clock.advance(60_000);
+    expect(clock.due()).toEqual([CONFIG_REFRESH_MS - 60_000]);
+    const answer = schedule.refreshNow();
+    expect(engine.runs).toHaveLength(2);
+    expect(engine.last.request).toBe(REQUEST);
+    // The old timer falls due while it runs: one run at a time, nothing more.
+    clock.advance(CONFIG_REFRESH_MS);
+    expect(engine.runs).toHaveLength(2);
+    await finish(result('fresh', 'b'));
+    await expect(answer).resolves.toEqual(result('fresh', 'b'));
+    expect(schedule.policy.value.kill?.id).toBe('b');
+    expect(clock.due()).toEqual([CONFIG_REFRESH_MS]);
+    // A run without a new doc: the retry interval from its end.
+    const again = schedule.refreshNow();
+    await finish(result('cached', 'b', 'network'));
+    await expect(again).resolves.toEqual(result('cached', 'b', 'network'));
+    expect(clock.due()).toEqual([CONFIG_RETRY_MS]);
+  });
+
+  it('runs before the paint, and the paint then runs nothing more', async () => {
+    const { engine, schedule, paint, finish, clock } = setup();
+    schedule.start();
+    const answer = schedule.refreshNow();
+    expect(engine.runs).toHaveLength(1);
+    // The paint comes while it runs: nothing more.
+    paint();
+    expect(engine.runs).toHaveLength(1);
+    await finish(result('fresh', 'a'));
+    await expect(answer).resolves.toEqual(result('fresh', 'a'));
+    expect(clock.due()).toEqual([CONFIG_REFRESH_MS]);
+    expect(engine.runs).toHaveLength(1);
+  });
+
+  it('runs nothing at the paint when a refreshNow before it has ended', async () => {
+    const { engine, schedule, paint, finish } = setup();
+    schedule.start();
+    const answer = schedule.refreshNow();
+    await finish(result('fresh', 'a'));
+    await answer;
+    paint();
+    // The first run is done and the schedule is set: the paint adds none.
+    expect(engine.runs).toHaveLength(1);
+  });
+
+  it('called during a run: answered by one more run right after it, shared by every such call', async () => {
+    const { engine, schedule, paint, finish, clock } = setup();
+    schedule.start();
+    paint();
+    expect(engine.runs).toHaveLength(1);
+    const first = schedule.refreshNow();
+    const second = schedule.refreshNow();
+    // One at a time: the run in progress goes on.
+    expect(engine.runs).toHaveLength(1);
+    await finish(result('fresh', 'old'));
+    // The run that was going doesn't answer them: the served config may have changed since.
+    expect(engine.runs).toHaveLength(2);
+    expect(clock.due()).toEqual([]);
+    await finish(result('fresh', 'new'));
+    await expect(first).resolves.toEqual(result('fresh', 'new'));
+    await expect(second).resolves.toEqual(result('fresh', 'new'));
+    expect(engine.runs).toHaveLength(2);
+    expect(clock.due()).toEqual([CONFIG_REFRESH_MS]);
+  });
+
+  it('runs while hidden (it is asked for)', async () => {
+    const { engine, schedule, paint, finish, emit } = setup();
+    schedule.start();
+    paint();
+    await finish(result('fresh', 'a'));
+    emit('hidden');
+    const answer = schedule.refreshNow();
+    expect(engine.runs).toHaveLength(2);
+    await finish(result('fresh', 'b'));
+    await expect(answer).resolves.toEqual(result('fresh', 'b'));
+  });
+
+  it('answers null when its worker dies, and the policy in force stays', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { engine, schedule, paint, finish, clock } = setup();
+    schedule.start();
+    paint();
+    await finish(result('fresh', 'kept'));
+    const answer = schedule.refreshNow();
+    engine.last.reject(new Error('Config worker failed: boom'));
+    await expect(answer).resolves.toBeNull();
+    expect(schedule.policy.value.kill?.id).toBe('kept');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(clock.due()).toEqual([CONFIG_RETRY_MS]);
+  });
+
+  it('answers null on dispose: the run in progress and the one it waited for', async () => {
+    const { engine, schedule, paint, finish } = setup();
+    schedule.start();
+    paint();
+    const during = schedule.refreshNow();
+    schedule.dispose();
+    // Waiting for a next run that won't come.
+    await expect(during).resolves.toBeNull();
+    const now = setup();
+    now.schedule.start();
+    const running = now.schedule.refreshNow();
+    now.schedule.dispose();
+    await now.finish(result('fresh', 'late'));
+    await expect(running).resolves.toBeNull();
+    expect(now.schedule.policy.value).toEqual(noPolicy());
+    await finish(result('fresh', 'late'));
+    expect(engine.runs).toHaveLength(1);
+  });
+});
+
+describe('idle (the old-engine walk waits for it before leaving a page, step 30c1)', () => {
+  it('is idle before start, busy from start until the first run ends, and while any run goes on', async () => {
+    const { schedule, paint, finish } = setup();
+    expect(schedule.idle()).toBe(true);
+    schedule.start();
+    // The first run is due after the paint: busy already.
+    expect(schedule.idle()).toBe(false);
+    paint();
+    expect(schedule.idle()).toBe(false);
+    await finish(result('fresh', 'a'));
+    expect(schedule.idle()).toBe(true);
+    const now = schedule.refreshNow();
+    expect(schedule.idle()).toBe(false);
+    await finish(result('fresh', 'b'));
+    await now;
+    expect(schedule.idle()).toBe(true);
+  });
+
+  it('is busy while a run goes on after dispose (its worker is still in the database), then idle', async () => {
+    const { schedule, paint, finish } = setup();
+    schedule.start();
+    paint();
+    schedule.dispose();
+    expect(schedule.idle()).toBe(false);
+    await finish(result('fresh', 'late'));
+    expect(schedule.idle()).toBe(true);
+    // Disposed before its first run: nothing will run.
+    const other = setup();
+    other.schedule.start();
+    expect(other.schedule.idle()).toBe(false);
+    other.schedule.dispose();
+    expect(other.schedule.idle()).toBe(true);
+  });
+
+  it('is idle once a run whose worker died has ended', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { engine, schedule, paint } = setup();
+    schedule.start();
+    paint();
+    engine.last.reject(new Error('Config worker failed: boom'));
+    await settle();
+    expect(schedule.idle()).toBe(true);
+  });
+});

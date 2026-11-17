@@ -52,7 +52,7 @@ Needs **Docker**. On Windows, start Docker Desktop first. The first run download
    - `socat` forwards DevTools to a random loopback port on the host.
    - A second `socat` serves the catalog fixtures (`/app/fixtures`) on `127.0.0.1:8090` inside the container, one `serve-fixture.sh` per request: plain files, CORS headers (the page is `file://`, so the Blob worker's origin is `null`), no validators and no `Content-Encoding`. It needs no extra package, so the image's cached apt layer stays valid. The image tag hashes every file in `IMAGE_FILES` (`src/docker.ts`).
 3. The host drives each app over raw CDP (`tools/engines/src/cdp.ts`, Node's built-in WebSocket). Puppeteer 1.x starts at Chromium 66 and Playwright needs a modern protocol, so neither works here.
-4. Per app (`file:///app/<variant>/<platform>/index.html?screen=hello&force=1&q=<query>&source=<fixture URL>`; the hello screen is a developer screen since step 13a, when onboarding became the start screen), `src/scenario.ts` checks:
+4. Per app (`file:///app/<variant>/<platform>/index.html?screen=hello&force=1&q=<query>&api=<fixture origin>&check=<url>…&source=<fixture URL>`; the hello screen is a developer screen since step 13a, when onboarding became the start screen), `src/scenario.ts` checks:
    - **Boot:** `#boot-error` stays empty, there is no uncaught exception (`Runtime.exceptionThrown`, or `Console.messageAdded` on Chromium 53, which reports errors only that way), and `[data-testid=hello][data-ready=true]` appears.
    - **Engine:** the user agent reports the expected major version.
    - **Worker:** `worker-status` starts with `ok in`. The Blob worker answered, so core-js reached it too.
@@ -64,6 +64,10 @@ Needs **Docker**. On Windows, start Docker Desktop first. The first run download
      - `epg-status` is `ok` with `data-matched` and `data-wanted` exactly the fixture's (step 9b): a fresh EPG worker fetched the guide the playlist header names (`url-tvg`), gunzipped the `.gz` one, wrote its per-channel-day buckets (`Int32Array` and `Uint8Array` columns) to IndexedDB and swapped it in, and the query worker reloaded its match table.
      - `nownext-status` is `ok`: the query worker read a channel's buckets back from IndexedDB and found the programme on air.
      - `force=1` makes every run commit a new generation (catalog and guide), although all runs in one engine share the `file://` IndexedDB.
+   - **The signed config** (step 30c1; `src/config.ts`; the URL also carries `api=<fixture origin>` and three `check=` URLs before `source`):
+     - `config-status` has `data-status="fresh"`, an empty `data-failure` and `data-notices="harness-notice"`: a fresh config worker fetched the harness's dev-signed `GET /v1/config` answer (`serve-fixture.sh` answers it from the staged `v1-config.json`), checked the Ed25519 signature and the doc's schema (`zod/mini`), stored it in IndexedDB and worked out the policy. This is the config worker's run on the real old engines.
+     - `blocked-status` has `data-blocked="true,true,false"`: the query worker read the stored copy's blocklist and answered for a parent match with a login and a port (`cdn.blocked.lablo.test:8080`), an Arabic host checked in Unicode against its `xn--` form (punycode, NFKC and percent-decoding in the old engine), and an allowed host.
+     - While `config/keys.json` has no production keys a TV build trusts the dev key; once it has them (step 34), the harness expects the same copy refused (`none`, `bad-signature`) and nothing blocked.
    - **Fonts (step 11a):** boot also waits for `document.fonts.status` to leave `loading`. Then a Latin and an Arabic Lablo Sans face must be `loaded` (the title is "Lablo لابلو") and none may be `error`, so the package's woff2 subsets decode and load from `file://` in each engine. The probe lists the faces as `la400:loaded ar700:loaded …`.
    - **Remote keys:** CDP `Input.dispatchKeyEvent` ArrowUp (38) and Enter (13) show `UP` and `OK`, and `key-count` is 2. The focus engine (step 10) must act on each one: `focus-status` reads `home · rail 0` after ArrowUp, then `details · buttons 0` after Enter.
 5. Per app, the **component gallery** (step 11c; `file:///app/<variant>/<platform>/index.html?screen=gallery`, `src/gallery.ts`). It starts no data workers. The probe is plain ES5, with the selectors of `layout()` in `e2e/gallery.spec.ts`; `test/engines-gallery.test.ts` keeps both, and the numbers, equal to the app's.
@@ -145,6 +149,8 @@ The guide has hourly programmes from a day before the harness starts to 3 days a
 
 Each engine runs both apps, so each engine ingests both files, runs both searches and reads both guides. `test/engines-fixture.test.ts` checks the expected numbers against core's real M3U parser, `normalizeName` and `EpgGuideReader`.
 
+The signed config (step 30c1, `src/config.ts`): `v1-config.json`, a `GET /v1/config` answer the harness signs with the dev key (whose seed is public), dated from a minute before the staging to a week after it, with one notice rule (`harness-notice`) and two blocked hosts (`blocked.lablo.test` and the `xn--` form of `مثال.lablo.test`) under a salt of its own. `test/engines-fixture.test.ts` runs it through the TV's own check (`checkConfigResponse`), policy and `cachedBlocklist`.
+
 ## The self-test (proof that the harness catches problems)
 
 `--self-test` stages extra variants next to the real apps in `artifacts/engines/variants/`. Each runs on its screens and must fail on every engine below its minimum and pass on the rest:
@@ -188,6 +194,7 @@ The data engine keeps the catalog in IndexedDB inside workers, so **spike S1 mus
 
 ## Troubleshooting
 
+- **`the app's database could not be deleted … (pending)` on every run after one** (Chromium 53, CI): a page was left while a worker was in IndexedDB, and the engine never answers a delete again. The walk leaves a page only once the live screen's data requests have answered (`data-pending="0"`) and the app's config run is over (`window.__LABLO_TEST__.configIdle()`, step 30c1). A new worker that starts on its own needs the same kind of wait.
 - **`the Docker daemon is not reachable`:** start Docker Desktop.
 - **`DevTools … did not answer`:** the engine crashed at startup, and the harness prints the container log. Check the image (libraries) first. `docker run --rm --entrypoint /bin/sh <image> -c "unzip -q /engine.zip -d /opt/e && ldd /opt/e/chrome-linux/chrome | grep 'not found'"` with the zip mounted at `/engine.zip`.
 - **A data check fails:** `refresh of playlist.m3u.gz: failed: …` quotes the app's own error (`IngestError` codes such as `network`, `http`, `format`). The container log lists every fixture request (`fixtures: GET /playlist.m3u.gz`); no request at all means the worker never fetched. `search … found 0` with a committed refresh means the query worker did not reload after the swap. `guide guide.xml.gz: failed: debug:tvg0 format` names the guide and the refresh's error code; `matched 0 of 2400` with an `ok` guide means the reader saw no channel ids (a gzip or decoding problem), and `now/next: none` with matches means the buckets didn't come back from IndexedDB or the engine's clock is outside the fixture's four days.

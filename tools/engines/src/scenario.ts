@@ -11,6 +11,8 @@
  *    (step 9b): exactly the expected channels matched, and a now/next read from IndexedDB.
  * 4. Remote-key navigation: ArrowUp and Enter (the TV remote key codes 38 and 13) reach the app
  *    as the UP and OK intents.
+ * 5. The signed config (step 30c1): with the data check, the config row shows the harness's
+ *    dev-signed copy verified and its notice, and the blocklist row the expected answers.
  *
  * The pure parts (settling, exception formatting, evaluation) are unit-tested; `runPlatform`
  * drives a real engine over CDP.
@@ -18,6 +20,7 @@
 import type { CdpClient } from './cdp';
 import type { Engine } from './engines';
 import { chromeMajor } from './engines';
+import type { ConfigCheck } from './config';
 import type { DataCheck } from './fixture';
 
 export type TvPlatform = 'tizen' | 'webos';
@@ -48,6 +51,14 @@ export interface PageState {
   readonly epgMatched: string | null;
   readonly epgWanted: string | null;
   readonly nowNext: string | null;
+  /** The config row (step 30c1): its text, `data-status`, `data-failure` and `data-notices`. */
+  readonly config: string | null;
+  readonly configStatus: string | null;
+  readonly configFailure: string | null;
+  readonly configNotices: string | null;
+  /** The blocklist row: its text and `data-blocked`. */
+  readonly blocked: string | null;
+  readonly blockedList: string | null;
   /** `document.fonts.status` (step 11): `loading` until every face in use has loaded or failed. */
   readonly fontsStatus: string | null;
   /**
@@ -109,6 +120,12 @@ export const STATE_EXPRESSION = `(function () {
     epgMatched: attr('epg-status', 'data-matched'),
     epgWanted: attr('epg-status', 'data-wanted'),
     nowNext: text('nownext-status'),
+    config: text('config-status'),
+    configStatus: attr('config-status', 'data-status'),
+    configFailure: attr('config-status', 'data-failure'),
+    configNotices: attr('config-status', 'data-notices'),
+    blocked: text('blocked-status'),
+    blockedList: attr('blocked-status', 'data-blocked'),
     fontsStatus: document.fonts ? document.fonts.status : null,
     fonts: fonts()
   });
@@ -161,7 +178,7 @@ const isFinal = (status: string | null): boolean =>
 /**
  * Boot is over when it failed visibly, or when the worker and IndexedDB checks have answered
  * and the fonts in use have loaded (or failed), and (with a data check) the refresh, the
- * search, the guide and now/next have too.
+ * search, the guide, now/next, the config and the blocklist have too.
  */
 export function isSettled(state: PageState, url: string, data: DataCheck | null = null): boolean {
   if (state.href !== url) return false;
@@ -169,7 +186,15 @@ export function isSettled(state: PageState, url: string, data: DataCheck | null 
   const booted = state.ready && isFinal(state.worker) && isFinal(state.idb) && state.fontsStatus !== 'loading';
   if (!booted || data === null) return booted;
   if (state.data?.startsWith('failed') === true) return true;
-  return isFinal(state.data) && isFinal(state.ingest) && isFinal(state.search) && isFinal(state.epg) && isFinal(state.nowNext);
+  return (
+    isFinal(state.data) &&
+    isFinal(state.ingest) &&
+    isFinal(state.search) &&
+    isFinal(state.epg) &&
+    isFinal(state.nowNext) &&
+    isFinal(state.config) &&
+    isFinal(state.blocked)
+  );
 }
 
 /** What went wrong in the catalog panel; empty when it shows exactly what `check` expects. */
@@ -188,6 +213,21 @@ function evaluateData(state: PageState, check: DataCheck): string[] {
     failures.push(`guide ${check.guide} matched ${state.epgMatched ?? '?'} of ${state.epgWanted ?? '?'}, expected ${check.epgMatched} of ${check.epgWanted}`);
   }
   if (state.nowNext?.startsWith('ok: ') !== true) failures.push(`now/next: ${state.nowNext ?? 'missing'}`);
+  failures.push(...evaluateConfig(state, check.config));
+  return failures;
+}
+
+/** What went wrong in the config and blocklist rows (step 30c1); empty when they show `check`. */
+export function evaluateConfig(state: Pick<PageState, 'config' | 'configStatus' | 'configFailure' | 'configNotices' | 'blocked' | 'blockedList'>, check: ConfigCheck): string[] {
+  const failures: string[] = [];
+  const shown = state.config ?? 'missing';
+  if (state.configStatus !== check.status || state.configFailure !== check.failure) {
+    failures.push(`config: ${shown}, expected ${check.status}${check.failure === '' ? '' : ` (${check.failure})`}`);
+  } else if (state.configNotices !== check.notices) {
+    failures.push(`config notices "${state.configNotices ?? '?'}", expected "${check.notices}" (${shown})`);
+  }
+  if (state.blocked?.startsWith('ok: ') !== true) failures.push(`blocklist: ${state.blocked ?? 'missing'}`);
+  else if (state.blockedList !== check.blocked) failures.push(`blocklist answered ${state.blockedList ?? '?'} for ${check.checks.join(' ')}, expected ${check.blocked}`);
   return failures;
 }
 

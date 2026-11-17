@@ -19,6 +19,10 @@
  *
  * tizen runs read the plain guide, webos runs the gzipped one.
  *
+ * The signed config (step 30c1, `config.ts`): a dev-signed `GET /v1/config` answer staged beside
+ * them, which the hello screen fetches with `?api=` the fixture origin, and three `?check=` URLs
+ * for the blocklist.
+ *
  * Generated playlists and guides only: nothing here is shipped, and nothing points at a real
  * provider.
  */
@@ -26,6 +30,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import type { Rgb } from './poster';
+import type { ConfigCheck } from './config';
+import { configCheck, stageConfig } from './config';
 import { posterPng } from './poster';
 import type { TvPlatform } from './scenario';
 
@@ -62,6 +68,8 @@ export interface DataCheck {
   /** Live channels the guide must match, of `wanted`. */
   readonly epgMatched: number;
   readonly epgWanted: number;
+  /** The hello screen's config and blocklist rows (step 30c1). */
+  readonly config: ConfigCheck;
 }
 
 export const FIXTURE_SIZE = 3000;
@@ -261,7 +269,7 @@ export function fixtureXmltv(entries: readonly FixtureEntry[], nowMs: number): s
 }
 
 /** The expected results, counted from the entries (test/engines-fixture.test.ts cross-checks them with core). */
-export function dataChecks(entries: readonly FixtureEntry[]): Record<TvPlatform, DataCheck> {
+export function dataChecks(entries: readonly FixtureEntry[], config: ConfigCheck = configCheck(true)): Record<TvPlatform, DataCheck> {
   const live = entries.filter((e) => e.kind === 'live').length;
   const movies = entries.filter((e) => e.kind === 'movie').length;
   const matched = entries.filter((e, i) => e.kind === 'live' && hasGuide(i)).length;
@@ -277,6 +285,7 @@ export function dataChecks(entries: readonly FixtureEntry[]): Record<TvPlatform,
       guide: 'guide.xml',
       epgMatched: matched,
       epgWanted: live,
+      config,
     },
     // The bare alef in the query matches the hamza form (أ) in the names only after normalization.
     webos: {
@@ -290,6 +299,7 @@ export function dataChecks(entries: readonly FixtureEntry[]): Record<TvPlatform,
       guide: 'guide.xml.gz',
       epgMatched: matched,
       epgWanted: live,
+      config,
     },
   };
 }
@@ -300,12 +310,13 @@ export function stagePosters(dir: string): void {
 }
 
 /**
- * Writes both playlists, each naming its guide, both guides and the posters to
- * `<root>/fixtures`, and returns what each platform's run must show.
+ * Writes both playlists, each naming its guide, both guides, the posters and the signed config
+ * to `<root>/fixtures`, and returns what each platform's run must show (`trustsDevKey`: the TV
+ * build trusts the dev key, `config/keys.json` having no production keys).
  */
-export function stageFixtures(root: string, nowMs = Date.now()): Record<TvPlatform, DataCheck> {
+export function stageFixtures(root: string, nowMs = Date.now(), trustsDevKey = true): Record<TvPlatform, DataCheck> {
   const entries = fixtureEntries();
-  const checks = dataChecks(entries);
+  const checks = dataChecks(entries, configCheck(trustsDevKey));
   const dir = path.join(root, FIXTURE_DIR);
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, checks.tizen.file), Buffer.from(fixtureM3u(entries, checks.tizen.guide), 'utf8'));
@@ -314,11 +325,16 @@ export function stageFixtures(root: string, nowMs = Date.now()): Record<TvPlatfo
   writeFileSync(path.join(dir, checks.tizen.guide), guide);
   writeFileSync(path.join(dir, checks.webos.guide), gzipSync(guide));
   stagePosters(dir);
+  stageConfig(dir, nowMs);
   return checks;
 }
 
-/** The app URL for one run: the catalog parameters, with `source` last (apps/tv/src/data/params.ts). */
+/**
+ * The app URL for one run: the catalog parameters, the config's API base and the blocklist's
+ * probes (step 30c1), with `source` last (apps/tv/src/data/params.ts).
+ */
 export function appUrl(variant: string, platform: TvPlatform, check: DataCheck): string {
   const source = `${FIXTURE_ORIGIN}/${check.file}`;
-  return `file:///app/${variant}/${platform}/index.html?screen=hello&force=1&q=${encodeURIComponent(check.query)}&source=${encodeURIComponent(source)}`;
+  const probes = check.config.checks.map((url) => `&check=${encodeURIComponent(url)}`).join('');
+  return `file:///app/${variant}/${platform}/index.html?screen=hello&force=1&q=${encodeURIComponent(check.query)}&api=${encodeURIComponent(FIXTURE_ORIGIN)}${probes}&source=${encodeURIComponent(source)}`;
 }

@@ -19,6 +19,13 @@ import type { SchedulerTimers } from './refresh-scheduler';
  * - **The policy** (`policy`): the cached copy's as soon as the worker has read it (`cached`),
  *   then the run's answer (the fetched copy's, or the cached one's again). Step 30c enforces it.
  * - **One at a time:** a run never starts while another runs.
+ * - **Now** (step 30c1): `refreshNow` runs at once (after the run in progress, if any), whatever
+ *   the visibility, and the schedule counts from its end. The test hook calls it, so an e2e test
+ *   needn't wait 6 h for a changed config.
+ * - **Idle** (step 30c1): `idle()` is false from `start()` until the first run has ended, and
+ *   while any run goes on (its worker may be in the database). The old-engine walk waits for it
+ *   before leaving a page: on Chromium 53 a page left while a worker was in IndexedDB stalled
+ *   every later delete of the database (CI, 2026-11-17).
  */
 
 /** What the schedule needs from the data engine (a `DataEngine` fits; tests pass a fake). */
@@ -45,6 +52,13 @@ export interface ConfigSchedule {
   readonly last: ReadonlySignal<ConfigResult | null>;
   /** The first run after the next paint, then the schedule. Only the first call counts. */
   start(): void;
+  /**
+   * A run now, or right after the one in progress (calls made during a run share the next one),
+   * resolving with its answer: `null` when its worker died, before `start()` and once disposed.
+   */
+  refreshNow(): Promise<ConfigResult | null>;
+  /** No run in progress, and none due from `start()` (true before `start()`). */
+  idle(): boolean;
   /** Stops the schedule (a run in progress finishes, its answer is dropped). */
   dispose(): void;
 }
@@ -72,9 +86,13 @@ export function createConfigSchedule(options: ConfigScheduleOptions): ConfigSche
   let dueAt = Infinity;
   let started = false;
   let running = false;
+  /** A run has ended (the first one is due from `start()` until then). */
+  let ended = false;
   let hidden = false;
   let disposed = false;
   let unsubscribe: (() => void) | null = null;
+  /** `refreshNow` calls waiting for the next run's answer. */
+  let waiters: ((result: ConfigResult | null) => void)[] = [];
 
   const apply = (result: ConfigResult): void => {
     if (disposed) return;
@@ -100,18 +118,28 @@ export function createConfigSchedule(options: ConfigScheduleOptions): ConfigSche
   async function run(): Promise<void> {
     if (running || disposed) return;
     running = true;
+    // The `refreshNow` calls made so far get this run's answer; later ones the next run's.
+    const answered = waiters;
+    waiters = [];
     let next = CONFIG_RETRY_MS;
+    let answer: ConfigResult | null = null;
     try {
       const result = await engine.refreshConfig(request, apply);
       apply(result);
+      answer = result;
       if (result.status === 'fresh') next = CONFIG_REFRESH_MS;
     } catch (error) {
       // The worker died (or couldn't start): the policy in force stays.
       console.warn('The config refresh failed', error);
     } finally {
       running = false;
+      ended = true;
     }
-    if (!disposed) schedule(next);
+    for (const settle of answered) settle(disposed ? null : answer);
+    if (disposed) return;
+    // A `refreshNow` came during the run: the next one now, and the schedule from its end.
+    if (waiters.length > 0) void run();
+    else schedule(next);
   }
 
   return {
@@ -131,13 +159,28 @@ export function createConfigSchedule(options: ConfigScheduleOptions): ConfigSche
           if (now() >= dueAt) void run();
         });
       }
-      (options.afterPaint ?? nextPaint)(() => void run());
+      // A `refreshNow` before the paint has run already (its end set the next run).
+      (options.afterPaint ?? nextPaint)(() => {
+        if (dueAt === Infinity) void run();
+      });
+    },
+    refreshNow() {
+      if (!started || disposed) return Promise.resolve(null);
+      return new Promise<ConfigResult | null>((resolve) => {
+        waiters.push(resolve);
+        void run();
+      });
+    },
+    idle() {
+      return !running && (!started || disposed || ended);
     },
     dispose() {
       disposed = true;
       clearTimer();
       unsubscribe?.();
       unsubscribe = null;
+      // Calls waiting for a next run that won't come.
+      for (const settle of waiters.splice(0)) settle(null);
     },
   };
 }
