@@ -127,17 +127,52 @@ describe('asciiHost', () => {
     expect(asciiHost('e' + cp(0x301) + 'x.com')).toBe('xn--x-9fa.com');
   });
 
-  it("matches Node on the letters a simple mapping gets wrong: case, compatibility forms, composition, astral capitals", () => {
-    const cases = [[0x3f9], [0x3aa, 0x301], [0x3ab, 0x301], [0x130], [0x1e9e], [0xdf], [0x3c2], [0x3a3], [0x212a], [0x2126], [0x1c5], [0xfb03], [0x10400], [0x1d400], [0xff21, 0x301]];
-    for (const points of cases) {
-      const host = 'a' + cp(...points) + 'b.com';
-      const node = domainToASCII(host);
-      expect(node, points.join()).not.toBe('');
-      expect(asciiHost(host), points.map((p) => p.toString(16)).join('+')).toBe(blocklistHost(node));
-    }
-  });
+  // UTS #46 changes with Unicode: these follow the current one (Unicode 17, as ICU 78 has it: Node
+  // 24). An older ICU (Node 22, CI's) maps U+1E9E to "ss" and refuses some code points the
+  // current one ignores, so the answers are pinned here, and Node is asked only when its ICU is
+  // that new.
+  const icuMajor = Number(process.versions.icu?.slice(0, process.versions.icu.indexOf('.')) ?? 0);
+  const CURRENT_ICU = icuMajor >= 78;
 
-  it("drops exactly the code points Node's IDNA ignores", () => {
+  /** Letters a simple mapping gets wrong (case, compatibility forms, composition, astral capitals), as `a<letters>b.com`. */
+  const LETTERS: [number[], string][] = [
+    [[0x3f9], 'xn--ab-vbc.com'],
+    [[0x3aa, 0x301], 'xn--ab-i6b.com'],
+    [[0x3ab, 0x301], 'xn--ab-88b.com'],
+    [[0x130], 'xn--aib-9dc.com'],
+    [[0x1e9e], 'xn--ab-gia.com'],
+    [[0xdf], 'xn--ab-gia.com'],
+    [[0x3c2], 'xn--ab-sbc.com'],
+    [[0x3a3], 'xn--ab-vbc.com'],
+    [[0x212a], 'akb.com'],
+    [[0x2126], 'xn--ab-ecc.com'],
+    [[0x1c5], 'xn--adb-d3a.com'],
+    [[0xfb03], 'affib.com'],
+    [[0x10400], 'xn--ab-w16n.com'],
+    [[0x1d400], 'aab.com'],
+    [[0xff21, 0x301], 'xn--ab-mia.com'],
+  ];
+
+  /** The code points UTS #46 ignores, first-last (Unicode 17). */
+  const IGNORED_RANGES = [
+    [0xad, 0xad],
+    [0x34f, 0x34f],
+    [0x115f, 0x1160],
+    [0x17b4, 0x17b5],
+    [0x180b, 0x180f],
+    [0x200b, 0x200b],
+    [0x2060, 0x2064],
+    [0x206a, 0x206f],
+    [0x3164, 0x3164],
+    [0xfe00, 0xfe0f],
+    [0xfeff, 0xfeff],
+    [0xffa0, 0xffa0],
+    [0x1bca0, 0x1bca3],
+    [0x1d173, 0x1d17a],
+    [0xe0100, 0xe01ef],
+  ];
+  /** Every BMP code point but the surrogates, and the astral ignored ranges with a margin. */
+  const ignoredCandidates = (): number[] => {
     const points: number[] = [];
     for (let c = 0x80; c <= 0xffff; c++) if (c < 0xd800 || c > 0xdfff) points.push(c);
     for (const [from, to] of [
@@ -147,17 +182,24 @@ describe('asciiHost', () => {
     ]) {
       for (let c = from!; c <= to!; c++) points.push(c);
     }
-    const differ: string[] = [];
-    let ignored = 0;
-    for (const c of points) {
-      const host = 'ex' + cp(c) + 'ample.com';
-      const node = domainToASCII(host) === 'example.com';
-      if (node) ignored++;
-      if ((asciiHost(host) === 'example.com') !== node) differ.push(c.toString(16));
-    }
-    expect(differ).toEqual([]);
-    // 00ad 034f 115f-1160 17b4-17b5 180b-180f 200b 2060-2064 206a-206f 3164 fe00-fe0f feff ffa0, then the astral ones.
-    expect(ignored).toBe(1 + 1 + 2 + 2 + 5 + 1 + 5 + 6 + 1 + 16 + 1 + 1 + 4 + 8 + 240);
+    return points;
+  };
+  const isIgnored = (c: number) => IGNORED_RANGES.some(([from, to]) => c >= from! && c <= to!);
+  const vanishes = (c: number, map: (host: string) => string | null) => map('ex' + cp(c) + 'ample.com') === 'example.com';
+
+  it('maps the letters a simple mapping gets wrong as the current UTS #46 does', () => {
+    for (const [points, expected] of LETTERS) expect(asciiHost('a' + cp(...points) + 'b.com'), points.map((p) => p.toString(16)).join('+')).toBe(expected);
+  });
+
+  it('drops exactly the code points the current UTS #46 ignores', () => {
+    const differ = ignoredCandidates().filter((c) => vanishes(c, asciiHost) !== isIgnored(c));
+    expect(differ.map((c) => c.toString(16))).toEqual([]);
+  });
+
+  it.runIf(CURRENT_ICU)("pins the same answers Node's own IDNA gives (ICU 78 or newer)", () => {
+    for (const [points, expected] of LETTERS) expect(domainToASCII('a' + cp(...points) + 'b.com')).toBe(expected);
+    const differ = ignoredCandidates().filter((c) => vanishes(c, domainToASCII) !== isIgnored(c));
+    expect(differ.map((c) => c.toString(16))).toEqual([]);
   });
 
   it('decodes percent escapes first', () => {

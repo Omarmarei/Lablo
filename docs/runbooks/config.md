@@ -161,8 +161,8 @@ schedule come with step 30b2, the enforcement with step 30c):
   escapes decoded, then a Unicode host mapped as browsers map it (NFKC, lowercase, the ignored
   code points dropped, NFC, the ideographic dots) and each non-ASCII label written as `xn--`
   punycode, then the host form above, then the host and each parent hashed under the salt. So
-  `http://TV.Ｅｘample.com:8080/x` is blocked by `example.com`. It equals Node's
-  `url.domainToASCII` wherever Node answers, except for letters UTS #46 case-folds beyond
+  `http://TV.Ｅｘample.com:8080/x` is blocked by `example.com`. It follows the current UTS #46
+  (Unicode 17): it equals Node 24's `url.domainToASCII` (ICU 78) wherever Node answers, except for letters UTS #46 case-folds beyond
   lowercase (Greek letters with an iota subscript, the lunate and mathematical sigmas, the old
   Cyrillic variants U+1C80 to U+1C88, Cherokee): for a host written with those, the TV's `xn--`
   form differs from Node's, and a block on Node's form misses it. A Latin host never has them. An
