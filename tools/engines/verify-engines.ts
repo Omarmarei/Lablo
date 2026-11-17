@@ -40,6 +40,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import type { CryptoVectors } from '@lablo/crypto/check-vectors';
 import { checkVectors } from '@lablo/crypto/check-vectors';
+import { checkQr } from '@lablo/core/check-qr';
 import { checkSamples } from '@lablo/protocol/check-samples';
 import type { CdpClient } from './src/cdp';
 import { connectToPage, waitForDevtools } from './src/cdp';
@@ -483,7 +484,11 @@ async function main(): Promise<void> {
   const nodeSamples = checkSamples();
   const sampleFailures = nodeSamples.filter((r) => !r.ok);
   if (sampleFailures.length > 0) throw new Error(`the protocol samples fail in Node itself: ${sampleFailures.map((r) => r.name).join(', ')}`);
-  const expectedVectors = [...nodeVectors, ...nodeSamples].map((r) => r.name);
+  // And the QR encoder's golden cases (step 31c1), last.
+  const nodeQr = checkQr();
+  const qrFailures = nodeQr.filter((r) => !r.ok);
+  if (qrFailures.length > 0) throw new Error(`the QR cases fail in Node itself: ${qrFailures.map((r) => r.name).join(', ')}`);
+  const expectedVectors = [...nodeVectors, ...nodeSamples, ...nodeQr].map((r) => r.name);
   // Served in each container at FIXTURE_ORIGIN; every variant's runs ingest them. The signed
   // config's expectation follows the keys a TV build trusts (step 30c1).
   const staged = stageFixtures(VARIANTS_DIR, Date.now(), trustsDevKey(readFileSync(path.join(ROOT, 'config/keys.json'), 'utf8')));

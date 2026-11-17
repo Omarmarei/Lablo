@@ -25,9 +25,13 @@ export interface ByteResponse extends ByteSource {
 
 export interface ByteRequest {
   headers?: Record<string, string>;
+  /** `GET` by default; the pairing client posts (RELAY step 31c1). */
+  method?: 'GET' | 'POST';
+  /** A request body (with `POST`). */
+  body?: string;
 }
 
-/** GET over HTTP as a byte stream. The ingest worker uses `fetchTransport`; tests use fakes. */
+/** GET (or a `POST` the request names) over HTTP as a byte stream. The ingest worker uses `fetchTransport`; tests use fakes. */
 export interface ByteTransport {
   get(url: string, request?: ByteRequest): Promise<ByteResponse>;
 }
@@ -54,7 +58,9 @@ export function fetchTransport(fetchFn?: FetchLike): ByteTransport {
     async get(url, request = {}) {
       let res: Response;
       try {
-        res = await (fetchFn ? fetchFn(url, { headers: request.headers ?? {}, credentials: 'omit' }) : fetch(url, { headers: request.headers ?? {}, credentials: 'omit' }));
+        const init: RequestInit = { method: request.method ?? 'GET', headers: request.headers ?? {}, credentials: 'omit' };
+        if (request.body !== undefined) init.body = request.body;
+        res = await (fetchFn ? fetchFn(url, init) : fetch(url, init));
       } catch {
         throw new NetworkError();
       }

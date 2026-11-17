@@ -14,6 +14,7 @@ import vm from 'node:vm';
 import type { CryptoVectors, VectorResult } from '@lablo/crypto/check-vectors';
 import { checkVectors } from '@lablo/crypto/check-vectors';
 import type { SampleResult } from '@lablo/protocol/check-samples';
+import { checkQr } from '@lablo/core/check-qr';
 import { checkSamples } from '@lablo/protocol/check-samples';
 import { describe, expect, it } from 'vitest';
 import { bundleIife } from '../tools/build/src/bundle';
@@ -63,7 +64,8 @@ describe('the crypto vectors worker bundle', () => {
     expect(replies).toHaveLength(1);
     const reply = replies[0]!;
     expect(reply.error).toBeNull();
-    const expected = [...(await checkVectors(JSON.parse(VECTORS) as CryptoVectors)), ...checkSamples()];
+    const expected = [...(await checkVectors(JSON.parse(VECTORS) as CryptoVectors)), ...checkSamples(), ...checkQr()];
+    expect(expected.filter((r) => r.name.startsWith('qr:')).length).toBe(6);
     expect(expected.filter((r) => r.name.startsWith('protocol:')).length).toBeGreaterThan(50);
     expect(reply.results!.filter((r) => !r.ok)).toEqual([]);
     expect(reply.results!.map((r) => r.name)).toEqual(expected.map((r) => r.name));

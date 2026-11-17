@@ -3,12 +3,13 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { CryptoVectors } from '@lablo/crypto/check-vectors';
 import { checkVectors } from '@lablo/crypto/check-vectors';
+import { checkQr } from '@lablo/core/check-qr';
 import { checkSamples } from '@lablo/protocol/check-samples';
 import { expect, test } from '@playwright/test';
 
 /**
- * The vectors page (RELAY steps 29b1 and 29b2a; `dist/tv-vectors` from pnpm build:tv) from
- * file:// in current Chromium: every shared crypto vector and protocol sample passes in the page
+ * The vectors page (RELAY steps 29b1, 29b2a and 31c1; `dist/tv-vectors` from pnpm build:tv) from
+ * file:// in current Chromium: every shared crypto vector, protocol sample and QR case passes in the page
  * and in its Blob worker, under the names Node's run gives. The old engines run the same page in
  * `pnpm verify:engines`.
  */
@@ -34,7 +35,9 @@ test('the crypto vectors and protocol samples pass from file:// in the page and 
   const crypto = await checkVectors(JSON.parse(readFileSync(VECTORS, 'utf8')) as CryptoVectors);
   const samples = checkSamples();
   expect(samples.length).toBeGreaterThan(0);
-  const expected = [...crypto, ...samples].map((r) => r.name);
+  const qr = checkQr();
+  expect(qr.filter((r) => !r.ok)).toEqual([]);
+  const expected = [...crypto, ...samples, ...qr].map((r) => r.name);
 
   await page.goto(pathToFileURL(INDEX).href);
   await page.waitForFunction(() => (window as VectorsWindow).__LABLO_VECTORS__ !== undefined, undefined, { timeout: 60_000 });

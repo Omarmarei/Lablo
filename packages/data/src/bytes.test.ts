@@ -118,12 +118,22 @@ describe('fetchTransport', () => {
   it('streams the body, exposes status and headers, and sends the request headers', async () => {
     const fetchFn = vi.fn(async () => new Response(stream([utf8('ab'), utf8('cd')]), { status: 200, headers: { ETag: '"v1"' } }));
     const res = await fetchTransport(fetchFn).get('http://p.test/get.php?username=u&password=secret', { headers: { 'If-None-Match': '"v0"' } });
-    expect(fetchFn).toHaveBeenCalledWith('http://p.test/get.php?username=u&password=secret', { headers: { 'If-None-Match': '"v0"' }, credentials: 'omit' });
+    expect(fetchFn).toHaveBeenCalledWith('http://p.test/get.php?username=u&password=secret', { method: 'GET', headers: { 'If-None-Match': '"v0"' }, credentials: 'omit' });
     expect(res.status).toBe(200);
     expect(res.header('etag')).toBe('"v1"');
     expect(res.header('last-modified')).toBeNull();
     expect(Buffer.from(await readAll(res)).toString()).toBe('abcd');
     expect(await res.read()).toBeNull();
+  });
+
+  it('posts a body when the request names POST (the pairing client, step 31c1)', async () => {
+    const fetchFn = vi.fn(async () => new Response(stream([utf8('{}')]), { status: 201 }));
+    const res = await fetchTransport(fetchFn).get('http://api.test/v1/pair', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"tvPk":"x"}' });
+    expect(fetchFn).toHaveBeenCalledWith('http://api.test/v1/pair', { method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'omit', body: '{"tvPk":"x"}' });
+    expect(res.status).toBe(201);
+    // No headers given: none sent; no body given: none in the request.
+    await fetchTransport(fetchFn).get('http://api.test/v1/pair/s/abc');
+    expect(fetchFn).toHaveBeenLastCalledWith('http://api.test/v1/pair/s/abc', { method: 'GET', headers: {}, credentials: 'omit' });
   });
 
   it('reports a failed request or a broken body as NetworkError without the URL', async () => {

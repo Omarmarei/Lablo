@@ -1,7 +1,7 @@
 /**
  * The UI's side of the data workers: typed RPC clients over the query worker, the ingest worker,
- * the EPG worker and the config worker (architecture.md §1.2, §3.3 C). `ui` imports only this part
- * of `@lablo/data`.
+ * the EPG worker, the config worker and the pair worker (architecture.md §1.2, §3.3 A and C).
+ * `ui` imports only this part of `@lablo/data`.
  */
 
 export type { EpgCatalogSource, EpgDueReason, EpgGuide, UserGuide } from './epg-sources';
@@ -9,6 +9,7 @@ export type { EpgCatalogSource, EpgDueReason, EpgGuide, UserGuide } from './epg-
 export { EPG_AHEAD_MS, EPG_OFFSET_MAX, EPG_OFFSET_STEP, EPG_REFRESH_MS, EPG_RETRY_MS, epgGuides, epgOffsetsOf, epgRefreshDue, isEpgOffset } from './epg-sources';
 
 import type { ConfigEvents, configHandlers } from './config-service';
+import type { pairHandlers } from './pair-service';
 import type { EpgEvents, EpgService } from './epg-service';
 import type { IngestEvents, IngestService } from './ingest-service';
 import type { QueryService } from './query-service';
@@ -105,6 +106,26 @@ export function createConfigClient(port: RpcPort & { onerror?: ((event: ErrorEve
   if ('onerror' in port) {
     port.onerror = (event: ErrorEvent) => {
       client.fail(new Error(`Config worker failed: ${event.message || 'unknown error'}`));
+    };
+  }
+  return client;
+}
+
+export type { PairCode, PairFailure, PairOpenResult, PairPollResult, PairStatusResult } from './pair-service';
+export { PAIR_POLL_MS, PAIR_RETRY_MS, PAIR_TIMEOUT_MS } from './pair-constants';
+
+/** The pair worker's RPC methods (pair.worker.ts, RELAY step 31c1). */
+export type PairHandlers = ReturnType<typeof pairHandlers>;
+
+/** Calls a pair worker: `open`, `poll`, `status`, `close`. */
+export type PairClient = RpcClient<PairHandlers>;
+
+/** Wraps a started pair worker. If it dies, the pending calls reject (the screen makes a new code). */
+export function createPairClient(port: RpcPort & { onerror?: ((event: ErrorEvent) => void) | null }): PairClient {
+  const client = new RpcClient<PairHandlers>(port);
+  if ('onerror' in port) {
+    port.onerror = (event: ErrorEvent) => {
+      client.fail(new Error(`Pair worker failed: ${event.message || 'unknown error'}`));
     };
   }
   return client;

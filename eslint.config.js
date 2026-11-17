@@ -288,14 +288,17 @@ export default defineConfig(
       // which keeps the other data modules (and their polyfills) out of the main bundle. crypto
       // has one more: `@lablo/crypto/check-vectors`, the shared vectors' checks, which only the
       // vectors page and the harness import (RELAY step 29b1); protocol likewise has
-      // `@lablo/protocol/check-samples`, the schemas' shared samples (step 29b2a).
+      // `@lablo/protocol/check-samples`, the schemas' shared samples (step 29b2a), and core
+      // `@lablo/core/check-qr`, the QR encoder's golden cases (step 31c1). data's fifth worker is
+      // the pairing client's (step 31c1).
       'boundaries/entry-point': [
         'error',
         {
           default: 'disallow',
           rules: [
             { target: ['*'], allow: 'src/index.ts' },
-            { target: ['data'], allow: ['src/client.ts', 'src/query.worker.ts', 'src/ingest.worker.ts', 'src/epg.worker.ts', 'src/config.worker.ts'] },
+            { target: ['data'], allow: ['src/client.ts', 'src/query.worker.ts', 'src/ingest.worker.ts', 'src/epg.worker.ts', 'src/config.worker.ts', 'src/pair.worker.ts'] },
+            { target: ['core'], allow: ['src/check-qr.ts'] },
             { target: ['crypto'], allow: ['src/check-vectors.ts'] },
             { target: ['protocol'], allow: ['src/check-samples.ts'] },
           ],

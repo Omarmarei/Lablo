@@ -33,7 +33,10 @@
  *   the cached copy's policy first (`onCached`), then fetches `GET <api>/v1/config`, and ends.
  *   It runs beside the refresh slot (it reads and writes one small record). After each run, a
  *   running query worker reads the blocklist again (`reloadConfig`), and `blocked` asks it about
- *   URLs.
+ *   URLs;
+ * - a **pair worker** starts for each opening of the pairing screen (`pairing`, step 31c1) and
+ *   ends when it closes: it holds the TV's secret key for the codes it shows, and opens the
+ *   phone's payload. It runs beside the refresh slot (the add path's refresh takes the slot).
  *
  * Workers come from factories, so tests serve the real services over message channels; the
  * app passes the `?worker` imports (`./workers.ts`).
@@ -82,7 +85,9 @@ import type {
   VodInfoRequest,
 } from '@lablo/data';
 // The client entry only: the package index would pull every data module's polyfills into main.
-import { createConfigClient, createDataClient, createEpgClient, createIngestClient, epgGuides, epgRefreshDue } from '@lablo/data/client';
+import type { PairOpenResult, PairPollResult, PairStatusResult } from '@lablo/data/client';
+import { createConfigClient, createDataClient, createEpgClient, createIngestClient, createPairClient, epgGuides, epgRefreshDue } from '@lablo/data/client';
+import type { PairStatus } from '@lablo/protocol';
 
 /** What a source's stream and catch-up URLs need from its last login (`DataEngine.sourceFacts`). */
 export interface SourceFacts {
@@ -90,6 +95,18 @@ export interface SourceFacts {
   readonly outputFormats: readonly string[] | null;
   /** The panel's zone (`panelZone` of its `server_info`, ADR-010; UTC without one). */
   readonly zone: ZoneOffset;
+}
+
+/**
+ * One opening of the pairing screen (step 31c1): its own pair worker, whose calls are
+ * `PairService`'s (packages/data/src/pair-service.ts). `close` forgets the key and ends the
+ * worker; calls after it reject.
+ */
+export interface PairSession {
+  open(base: string): Promise<PairOpenResult>;
+  poll(): Promise<PairPollResult>;
+  status(status: PairStatus): Promise<PairStatusResult>;
+  close(): void;
 }
 
 /** What the engine needs from a worker (a `Worker`, or a test double). */
@@ -103,6 +120,8 @@ export interface DataEngineOptions {
   startIngestWorker: () => WorkerLike;
   startEpgWorker: () => WorkerLike;
   startConfigWorker: () => WorkerLike;
+  /** The pairing screen's worker (step 31c1); an engine without one can't pair. */
+  startPairWorker?: () => WorkerLike;
   /** The clock `due` EPG refreshes are decided by (default `Date.now`). */
   now?: () => number;
   /** How long after the last remote key the UI counts as idle again (default 1000 ms). */
@@ -378,6 +397,27 @@ export class DataEngine {
     // A query worker not started yet reads it when first asked.
     if (this.queryClient !== null) await this.queryClient.call('reloadConfig').catch(ignore);
     return result;
+  }
+
+  /**
+   * A pairing session in a pair worker of its own (step 31c1), started now. The worker ends with
+   * the session's `close` (or when it dies: its calls reject).
+   */
+  pairing(): PairSession {
+    const start = this.options.startPairWorker;
+    if (start === undefined) throw new Error('This data engine has no pair worker');
+    const worker = start();
+    const client = createPairClient(worker);
+    return {
+      open: (base) => client.call('open', { base }),
+      poll: () => client.call('poll'),
+      status: (status) => client.call('status', { status }),
+      // Both are safe to repeat: a second close does nothing more.
+      close: () => {
+        client.close();
+        worker.terminate();
+      },
+    };
   }
 
   /** For each URL, whether its host is on the signed config's blocklist (step 30b2; enforced in 30c). */
