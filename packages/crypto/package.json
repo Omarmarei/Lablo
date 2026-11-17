@@ -6,6 +6,7 @@
   "description": "tweetnacl and @noble/hashes wrappers: envelopes, KDFs, Ed25519 verify. Shared by the TV app and the phone page.",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
+  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
     "./check-vectors": "./src/check-vectors.ts"

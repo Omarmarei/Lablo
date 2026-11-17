@@ -12,6 +12,7 @@ import type { RecentItem } from './recent';
 import { openDatabase, transact } from './idb';
 import type { ByteRequest, ByteResponse, ByteTransport } from './bytes';
 import { NetworkError } from './bytes';
+import { sha256, signDetached, signKeyPairFromSeed, toBase64Url, utf8 } from '@lablo/crypto';
 
 /** One canned response of `fakeTransport`. */
 export interface FakeResponse {
@@ -186,4 +187,31 @@ export async function ingest(
   if (options.commit === false) return { gen, previous: -1 };
   const previous = await commitGeneration(db, src, gen, counts, options.now ?? 1);
   return { gen, previous };
+}
+
+/** A signing key for config tests: `seedLabel`'s SHA-256 as the seed (the dev key's label by default). */
+export function configSigner(seedLabel = 'lablo.config.dev-key.v1'): { publicKey: Uint8Array; sign(text: string): string } {
+  const pair = signKeyPairFromSeed(sha256(utf8(seedLabel)));
+  return { publicKey: pair.publicKey, sign: (text) => toBase64Url(signDetached(utf8(text), pair.secretKey)) };
+}
+
+/** A config doc `configDocSchema` accepts, for config tests (`fields` replace the defaults). */
+export function configDocFields(fields: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    v: 1,
+    issuedAt: 1_000_000,
+    expiresAt: 2_000_000,
+    minVersion: {},
+    kill: [],
+    blocklist: { salt: 'QtHj17D-F3HxhSWwfvhERM83_Cu0K5lHS7cQ_PczpBA', hashes: [] },
+    flags: {},
+    tunables: {},
+    ...fields,
+  };
+}
+
+/** The text of a `GET /v1/config` answer carrying `doc` (an object, or the exact text) signed by `signer`. */
+export function configAnswer(doc: Record<string, unknown> | string, signer = configSigner(), country: string | null = 'AE'): string {
+  const text = typeof doc === 'string' ? doc : JSON.stringify(doc);
+  return JSON.stringify({ doc: text, sig: signer.sign(text), country });
 }
