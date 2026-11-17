@@ -387,9 +387,10 @@ export class DataEngine {
 
   /**
    * `blocked`, or nothing blocked when the query worker can't answer (step 30c3a): the blocklist
-   * is then unknown, and a broken worker is no reason to refuse a user's source.
+   * is then unknown, and a broken worker is no reason to refuse a user's source. The player asks
+   * it before each stream opens (step 30c3b).
    */
-  private blockedOrNone(urls: string[]): Promise<boolean[]> {
+  blockedOrNone(urls: string[]): Promise<boolean[]> {
     return this.blocked(urls).catch((error: unknown) => {
       console.warn('The blocklist could not be read', error);
       return urls.map(() => false);

@@ -643,6 +643,18 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     warn.mockRestore();
   });
 
+  it("answers the player with blockedOrNone: the query worker's answer, or nothing blocked when it can't read it (step 30c3b)", async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const s = setup((url) => (url === CONFIG_URL ? { body: configAnswer(CONFIG_DOC) } : { body: playlist(10) }));
+    expect((await s.engine.refreshConfig(CONFIG_REQUEST)).status).toBe('fresh');
+    expect(await s.engine.blockedOrNone(BLOCK_URLS)).toEqual([true, false]);
+    expect(warn).not.toHaveBeenCalled();
+    vi.spyOn(s.engine, 'blocked').mockRejectedValue(new Error('IndexedDB is gone'));
+    expect(await s.engine.blockedOrNone(BLOCK_URLS)).toEqual([false, false]);
+    expect(warn).toHaveBeenCalledWith('The blocklist could not be read', expect.any(Error));
+    warn.mockRestore();
+  });
+
   it("doesn't read a guide on a blocked server, with or without due, and keeps what it stored (step 30c3a)", async () => {
     const BLOCKED_GUIDE = 'http://guides.blocked.example/a.xml';
     const asked: string[] = [];

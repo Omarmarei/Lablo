@@ -9,6 +9,7 @@ import type { AppI18n, MessageKey } from '../i18n';
 import type { Live, LiveRow } from '../live/live-state';
 import type { ArchiveProgramme } from './catchup';
 import type { EpisodeMark, Player, PlayerAction, PlayingMovie, UpNext } from './player-state';
+import { BLOCKLIST_REFUSAL } from './player-state';
 import { StreamInfoPanel } from './StreamInfoPanel';
 import { SubtitleOverlay } from './SubtitleOverlay';
 import { TrackMenuPanel } from './TrackMenuPanel';
@@ -22,6 +23,8 @@ const CATEGORY_TEXT: Readonly<Record<PlaybackFailure['category'], readonly [Mess
   provider: ['player.provider.title', 'player.provider.advice'],
   device: ['player.device.title', 'player.device.advice'],
   app: ['player.app.title', 'player.app.advice'],
+  // The player shows the refusal card instead (step 30c3b); the same words should this one show.
+  blocked: ['player.blocked.title', 'player.blocked.text'],
 };
 
 /** The account's own problem says more than the category's advice. */
@@ -258,15 +261,17 @@ function ErrorCard({ failure, i18n, screen, binding, movie }: { failure: Playbac
 /**
  * The config's `disable-playback` (step 30c2b): "Playback is turned off", the rule's message in
  * the UI's language (else the catalog's), and one button back to the channels or the details.
+ * The blocklist's (step 30c3b): "Can't play this", its server can't be used.
  */
 function RefusedCard({ refusal, i18n, screen, binding, movie }: { refusal: Refusal; i18n: AppI18n; screen: Screen; binding: FocusBinding; movie: boolean }) {
   const { t } = i18n;
   const buttons = useZone(binding, screen, 'card');
+  const blocklist = refusal.id === BLOCKLIST_REFUSAL.id;
   return (
     <section class="player__card" role="alertdialog" data-testid="player-refused" data-rule={refusal.id}>
-      <h2 class="player__card-title">{t('player.refused.title')}</h2>
+      <h2 class="player__card-title">{t(blocklist ? 'player.blocked.title' : 'player.refused.title')}</h2>
       <p class="player__card-text" data-testid="player-refused-text">
-        {refusal.message === null ? t('player.refused.text') : messageIn(refusal.message, i18n.locale.language)}
+        {refusal.message === null ? t(blocklist ? 'player.blocked.text' : 'player.refused.text') : messageIn(refusal.message, i18n.locale.language)}
       </p>
       <div class="player__card-buttons">
         <Button label={t(movie ? 'movie.back' : 'player.channels')} variant="primary" {...buttons.item(0)} testId="player-close" />

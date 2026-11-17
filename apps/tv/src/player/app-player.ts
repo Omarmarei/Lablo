@@ -18,7 +18,8 @@ import { createSubtitleLoader } from './subtitle-loader';
  * - `preferences` (step 20b): the track languages to prefer, read when a stream's tracks appear;
  * - `loadSubtitles` (step 20b2b): a request's subtitle files, fetched and parsed by the app
  *   (`subtitle-loader.ts`);
- * - `memory` and `trackMemory` (step 20c1): the profile's, through `player-memory.ts`.
+ * - `memory` and `trackMemory` (step 20c1): the profile's, through `player-memory.ts`;
+ * - `blocked` (step 30c3b): the config's blocklist, asked before each stream opens.
  */
 export interface AppPlayerDeps {
   readonly platform: Pick<Platform, 'id' | 'createEngines' | 'resolveUrl' | 'setScreenSaver' | 'onLifecycle'>;
@@ -38,6 +39,8 @@ export interface AppPlayerDeps {
   readonly trackMemory?: TrackMemory;
   /** Tests pin the clock. */
   readonly clock?: Clock;
+  /** The config's blocklist for stream URLs (step 30c3b: `DataEngine.blockedOrNone`; absent: nothing checked). */
+  readonly blocked?: (urls: string[]) => Promise<boolean[]>;
 }
 
 /**
@@ -65,6 +68,7 @@ export function appPlayer(deps: AppPlayerDeps): () => PlayerController {
       ...(deps.preferences === undefined ? {} : { preferences: deps.preferences }),
       ...(deps.memory === undefined ? {} : { memory: deps.memory }),
       ...(deps.trackMemory === undefined ? {} : { trackMemory: deps.trackMemory }),
+      ...(deps.blocked === undefined ? {} : { blocked: deps.blocked }),
       screenSaver: (allowed) => {
         platform.setScreenSaver(allowed).catch((error: unknown) => console.warn('The screensaver setting was refused', error));
       },

@@ -28,6 +28,7 @@ import {
   STATS_ACTION,
   TRACKS_ACTION,
   ZAP_DELAY_MS,
+  BLOCKLIST_REFUSAL,
   createPlayer,
   liveRequest,
 } from './player-state';
@@ -238,6 +239,13 @@ class FakeController implements PlayerLike {
     return Promise.resolve();
   }
 
+  /** The blocklist asked again (step 30c3b): how often. */
+  checks = 0;
+
+  checkBlocklist(): void {
+    this.checks += 1;
+  }
+
   set(state: PlayerState, failure: PlaybackFailure | null = null, key: ContentKey | null = this.status.key): void {
     this.status = { state, session: this.status.session + (state === 'opening' && failure === null ? 1 : 0), key, container: this.container, attempt: 0, failure, tracks: this.tracks };
     for (const listener of this.listeners.slice()) listener(this.status);
@@ -316,6 +324,7 @@ function setup(
     /** The wall clock's time when the test starts (it moves with the test's clock). */
     wallAt?: number;
     refusal?: PlayerOptions['refusal'];
+    blocklist?: PlayerOptions['blocklist'];
   } = {},
 ) {
   const list = new FakeList();
@@ -361,6 +370,7 @@ function setup(
     ...(kept.programmeAt === undefined ? {} : { programmeAt: kept.programmeAt }),
     ...(kept.wallAt === undefined ? {} : { clock: () => kept.wallAt! + clock.now() }),
     ...(kept.refusal === undefined ? {} : { refusal: kept.refusal }),
+    ...(kept.blocklist === undefined ? {} : { blocklist: kept.blocklist }),
     timers: clock.timers,
     now: clock.now,
     progressed: (item, positionMs, lengthMs, ended, show, more) =>
@@ -3068,5 +3078,150 @@ describe("the player: the config's disable-playback (RELAY step 30c2b)", () => {
     expect(t.controller.played()).toEqual([2]);
     expect(t.controller.stops).toBe(0);
     expect(t.player.refused.value).toBeNull();
+  });
+});
+
+describe("the player: the config's blocklist (RELAY step 30c3b)", () => {
+  const MIN = 60_000;
+  const BLOCKED: PlaybackFailure = { category: 'blocked', code: 'CFG-BLOCKLIST', detail: 'BLOCKLIST', account: null };
+  const RULE: Refusal = { id: 'no-play', message: null };
+  const film: CatalogItem = { ...row(0).item, key: 'x:s1:movie:201', kind: 'movie', name: 'Sintel', url: 'http://panel.test/movie/u/p/201.mkv' };
+  const request: PlayRequest = { key: film.key, src: 's1', mode: 'vod', candidates: [{ url: film.url, container: 'mkv' }] };
+
+  const listed = () => {
+    const answers = signal(0);
+    const rule = signal<Refusal | null>(null);
+    const t = setup('ltr', { blocklist: answers, refusal: rule });
+    const cards = (): number => {
+      const zone = t.player.screen.value!.zone('card');
+      return zone.kind === 'list' ? zone.count : -1;
+    };
+    return { ...t, answers, rule, cards };
+  };
+
+  it('has an id no rule can have', () => {
+    expect(BLOCKLIST_REFUSAL).toEqual({ id: 'BLOCKLIST', message: null });
+    expect(/^[a-z0-9-]+$/.test(BLOCKLIST_REFUSAL.id)).toBe(false);
+  });
+
+  it("turns the controller's blocked failure into the refusal card: one button, the stream stopped, the info bar up", async () => {
+    const t = listed();
+    t.player.show(2);
+    t.controller.set('failed', BLOCKED);
+    expect(t.player.refused.value).toBe(BLOCKLIST_REFUSAL);
+    expect(t.at()).toBe('player · card 0');
+    expect(t.cards()).toBe(1);
+    expect(t.controller.stops).toBe(1);
+    expect(t.player.status.value.state).toBe('idle');
+    // Unlike disable-playback, the play was asked: it counts, and it is the last channel.
+    expect(t.player.plays.value).toBe(1);
+    expect(t.tuned).toEqual(['x:s1:live:2 @2']);
+    t.clock.advance(INFO_MS * 3);
+    expect(t.player.info.value).toBe(true);
+    expect(t.at()).toBe('player · card 0');
+    // Its button closes onto the row.
+    await t.press('OK');
+    expect(t.closed).toEqual([2]);
+    expect(t.player).toMatchObject({ open: { value: false }, refused: { value: null } });
+  });
+
+  it('a zap after the card: a channel that plays takes the card away; a blocked one brings it back', async () => {
+    const t = listed();
+    t.player.show(2);
+    t.controller.set('failed', BLOCKED);
+    await t.press('CH_UP');
+    t.clock.advance(ZAP_DELAY_MS);
+    expect(t.player.refused.value).toBeNull();
+    expect(t.cards()).toBe(0);
+    expect(t.at()).toBe('player · actions 0');
+    expect(t.controller.played()).toEqual([2, 3]);
+    t.controller.set('playing');
+    await t.press('CH_UP');
+    t.clock.advance(ZAP_DELAY_MS);
+    t.controller.set('failed', BLOCKED);
+    expect(t.player.refused.value).toBe(BLOCKLIST_REFUSAL);
+    expect(t.at()).toBe('player · card 0');
+    expect(t.controller.stops).toBe(2);
+  });
+
+  it('takes the track menu away, and keeps the error card for any other failure', async () => {
+    const t = listed();
+    t.player.show(2);
+    t.controller.set('playing');
+    await t.press('AUDIO');
+    expect(t.player.menu.screen.value).not.toBeNull();
+    t.controller.set('failed', BLOCKED);
+    expect(t.player.menu.screen.value).toBeNull();
+    expect(t.at()).toBe('player · card 0');
+    const u = listed();
+    u.player.show(2);
+    u.controller.set('failed', NOT_FOUND);
+    expect(u.player.refused.value).toBeNull();
+    expect(u.cards()).toBe(2);
+    expect(u.controller.stops).toBe(0);
+  });
+
+  it("a movie: its place is kept once, the card's Back returns to the details", async () => {
+    const t = listed();
+    const back: string[] = [];
+    t.player.playMovie({ item: film, request, lengthMs: 90 * MIN, closed: () => back.push('details') });
+    t.controller.media = 600_000;
+    t.controller.set('playing');
+    t.clock.advance(POSITION_MS);
+    t.controller.set('failed', BLOCKED);
+    expect(t.saved).toEqual([`${film.key} @600000 /${90 * MIN}`]);
+    expect(t.player.refused.value).toBe(BLOCKLIST_REFUSAL);
+    expect(t.cards()).toBe(1);
+    expect(t.at()).toBe('player · card 0');
+    // Its seek keys do nothing under the card.
+    await t.press('LEFT', 'PLAY_PAUSE');
+    t.clock.advance(SEEK_DELAY_MS);
+    expect(t.controller.seeks).toEqual([]);
+    expect(t.controller.plays).toHaveLength(1);
+    await t.press('OK');
+    expect(back).toEqual(['details']);
+  });
+
+  it("a disable-playback rule arriving over the blocklist's card takes its place, with no second stop", () => {
+    const t = listed();
+    t.player.show(2);
+    t.controller.set('failed', BLOCKED);
+    t.rule.value = RULE;
+    expect(t.player.refused.value).toEqual(RULE);
+    expect(t.controller.stops).toBe(1);
+    expect(t.cards()).toBe(1);
+  });
+
+  it('a blocked failure after the player closed changes nothing', () => {
+    const t = listed();
+    t.player.show(2);
+    t.player.close();
+    t.controller.set('failed', BLOCKED);
+    expect(t.player).toMatchObject({ open: { value: false }, refused: { value: null } });
+    expect(t.controller.stops).toBe(1);
+    expect(t.closed).toEqual([2]);
+  });
+
+  it('asks the controller again at each config answer, only while open with a controller, and no more once disposed', () => {
+    const t = listed();
+    t.answers.value = 1;
+    expect(t.controller.checks).toBe(0);
+    t.player.show(2);
+    t.answers.value = 2;
+    expect(t.controller.checks).toBe(1);
+    t.player.close();
+    t.answers.value = 3;
+    expect(t.controller.checks).toBe(1);
+    // Open on a row whose chunk is still on its way: no controller yet, nothing to ask.
+    const u = listed();
+    u.player.show(15);
+    u.answers.value = 1;
+    expect(u.made()).toBe(0);
+    expect(u.controller.checks).toBe(0);
+    // Disposed: no more, even open again.
+    t.player.dispose();
+    t.player.show(2);
+    t.answers.value = 4;
+    expect(t.controller.checks).toBe(1);
   });
 });

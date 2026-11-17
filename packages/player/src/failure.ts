@@ -9,13 +9,14 @@
  * | `provider` | the account (auth, expired, blocked, connection limit), HTTP errors, unreachable or silent streams, broken stream data |
  * | `device` | the TV can't play the format or codec (unless the account re-check finds a problem: panels answer an expired account with a page or clip a `<video>` calls unsupported) |
  * | `app` | anything else (a bug, an unexpected engine state) |
+ * | `blocked` | the signed config's blocklist refuses the stream's server (RELAY step 30c3b): the controller's own verdict, never retried (`blockedFailure`) |
  */
 
 import type { XtreamUserInfo } from '@lablo/core';
 import { xtreamAccountProblem } from '@lablo/core';
 import type { PlaybackError } from './engine';
 
-export type FailureCategory = 'internet' | 'provider' | 'device' | 'app';
+export type FailureCategory = 'internet' | 'provider' | 'device' | 'app' | 'blocked';
 
 /** What a re-check of the account (Xtream `player_api.php`) said, shown on the error card. */
 export type AccountStatus = Pick<XtreamUserInfo, 'auth' | 'status' | 'expDate' | 'activeCons' | 'maxConnections'>;
@@ -28,6 +29,14 @@ export interface PlaybackFailure {
   readonly detail: string;
   /** The account re-check after a provider failure, when one was made and answered. */
   readonly account: AccountStatus | null;
+}
+
+/** The code of a stream refused by the config's blocklist (RELAY step 30c3b). */
+export const BLOCKED_CODE = 'CFG-BLOCKLIST';
+
+/** The failure of a stream whose server the config's blocklist refuses (RELAY step 30c3b): no account, no retry. */
+export function blockedFailure(): PlaybackFailure {
+  return { category: 'blocked', code: BLOCKED_CODE, detail: 'BLOCKLIST', account: null };
 }
 
 /** The categories after which the player re-checks the account (the stream may hide an account problem). */

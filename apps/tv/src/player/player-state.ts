@@ -104,6 +104,11 @@ import { createTrackMenu } from './track-menu';
  *   arrives while the player is open, a movie's place is kept, the stream stops, the menu, a
  *   waiting zap or seek and the next episode's countdown go, and the card shows. A lift changes
  *   nothing by itself: the next play that goes through takes the card away.
+ * - **The config's blocklist** (step 30c3b): the controller asks it before each stream opens (and
+ *   on Tizen about the redirect probe's answer), and gives up on a blocked server with a `blocked`
+ *   failure, which turns into the same refusal card with its own text (`BLOCKLIST_REFUSAL`). Each
+ *   config answer (`blocklist`) has the controller ask again about the stream on show. The check
+ *   is asynchronous: a blocked play has already counted in `plays` and become the last channel.
  */
 
 /** The info bar's stream opens this long after the last zap key. */
@@ -192,6 +197,8 @@ export interface PlayerLike {
   seek(ms: number): Promise<boolean>;
   /** The VOD stream on show's length (ms; 0: not known, or no picture). */
   durationMs(): number;
+  /** Asks the config's blocklist again about the stream on show (step 30c3b: a config refresh). */
+  checkBlocklist(): void;
 }
 
 /** A show's episode (step 27c1): the show, and the episode's season, number and title, for the info bar. */
@@ -290,7 +297,18 @@ export interface PlayerOptions {
   readonly lifecycle?: (listener: (event: LifecycleEvent) => void) => () => void;
   /** The config's rule refusing playback (step 30c2b): read before every play, and followed while the player is open. */
   readonly refusal?: ReadonlySignal<Refusal | null>;
+  /**
+   * Changes with each config answer (step 30c3b: the blocklist may have changed): while the
+   * player is open, the controller asks about the stream on show again.
+   */
+  readonly blocklist?: ReadonlySignal<unknown>;
 }
+
+/**
+ * The card's refusal when the config's blocklist refuses the stream's server (step 30c3b). No
+ * rule has its id (rule ids are lowercase), so the card tells it apart (`data-rule`).
+ */
+export const BLOCKLIST_REFUSAL: Refusal = { id: 'BLOCKLIST', message: null };
 
 export interface Player {
   /** The player shows. */
@@ -518,6 +536,11 @@ export function createPlayer(options: PlayerOptions): Player {
 
   const onStatus = (s: PlayerStatus): void => {
     status.value = s;
+    // The blocklist refused the stream's server (step 30c3b): the refusal card, as for disable-playback.
+    if (s.state === 'failed' && s.failure!.category === 'blocked' && open.value) {
+      refuse(BLOCKLIST_REFUSAL, true);
+      return;
+    }
     if (resumeFrame && s.state === 'playing') {
       resumeFrame = false;
       mark('lablo:resume-frame');
@@ -1204,6 +1227,14 @@ export function createPlayer(options: PlayerOptions): Player {
           else refused.value = rule;
         });
 
+  // A config answer (step 30c3b): the blocklist may have changed, so the stream on show is asked about again.
+  const stopBlocklist =
+    options.blocklist === undefined
+      ? () => undefined
+      : options.blocklist.subscribe(() => {
+          if (open.value && controller !== null) controller.checkBlocklist();
+        });
+
   return {
     open,
     screen,
@@ -1277,6 +1308,7 @@ export function createPlayer(options: PlayerOptions): Player {
       close();
       stopLifecycle();
       stopRefusal();
+      stopBlocklist();
       if (unsubscribe !== null) unsubscribe();
       if (unsubscribeSubtitles !== null) unsubscribeSubtitles();
       unsubscribe = null;
