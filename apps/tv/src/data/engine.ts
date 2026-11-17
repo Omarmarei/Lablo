@@ -61,6 +61,7 @@ import type {
   IngestJob,
   IngestProgress,
   IngestResult,
+  IngestSource,
   ItemRef,
   KeyItemsRequest,
   LoadedProfile,
@@ -164,6 +165,24 @@ export interface FocusedChannel {
 }
 
 const ignore = (): void => undefined;
+
+/**
+ * A refresh the data engine refused because the source's server is on the signed config's
+ * blocklist (RELAY step 30c3a): `code` is `blocklisted`, as onboarding's `loadError` reads it.
+ */
+export class BlockedSourceError extends Error {
+  readonly code = 'blocklisted';
+
+  constructor() {
+    super("The source's server is on the blocklist");
+    this.name = 'BlockedSourceError';
+  }
+}
+
+/** The URL whose host a source's catalog comes from: an Xtream account's server, an M3U link. */
+export function sourceUrlOf(source: IngestSource): string {
+  return source.type === 'xtream' ? source.account.base : source.url;
+}
 
 function summarize(status: QueryStatus): DataSummary {
   return {
@@ -273,9 +292,13 @@ export class DataEngine {
    * reloads before this resolves, so the next read sees the new catalog.
    */
   async refresh(job: IngestJob, options: RefreshOptions = {}): Promise<IngestResult> {
+    // The slot first, at once: a second refresh called meanwhile is refused as before.
     await this.claim('catalog');
     let reload: Promise<unknown> = Promise.resolve();
     try {
+      // The blocklist (step 30c3a): a source on a blocked server is never read; no ingest worker starts.
+      const blocked = await this.blockedOrNone([sourceUrlOf(job.source)]);
+      if (blocked[0] === true) throw new BlockedSourceError();
       return await this.withIngestWorker(async (client) => {
         this.busyTo((busy) => client.call('setBusy', { busy }).catch(ignore));
         client.on('swapped', () => {
@@ -308,13 +331,17 @@ export class DataEngine {
       const status = await this.query.call('epgStatus');
       const guides = epgGuides(catalogs, status.sources, options.user);
       const listed = guides.map((g) => g.epgSrc);
+      // A guide on a blocked server (step 30c3a) isn't read, but stays listed: its programmes are kept.
+      const blocked = await this.blockedOrNone(guides.map((g) => g.url));
       let only: string[] | undefined;
       if (options.due) {
         const now = this.options.now ? this.options.now() : Date.now();
-        only = guides.filter((g) => epgRefreshDue(findGuide(status, g.epgSrc), now, status.mapping) !== null).map((g) => g.epgSrc);
+        only = guides.filter((g, i) => !blocked[i] && epgRefreshDue(findGuide(status, g.epgSrc), now, status.mapping) !== null).map((g) => g.epgSrc);
         // A guide gone from the list, or one in another place (its rank is its place).
         const changed = status.guides.some((m) => listed.indexOf(m.epgSrc) !== m.rank);
         if (only.length === 0 && !changed) return { outcomes: [], deleted: [], reranked: [], wanted: 0 };
+      } else if (blocked.indexOf(true) !== -1) {
+        only = guides.filter((_, i) => !blocked[i]).map((g) => g.epgSrc);
       }
       return await this.withWorker(this.options.startEpgWorker, createEpgClient, async (client) => {
         this.busyTo((busy) => client.call('setBusy', { busy }).catch(ignore));
@@ -356,6 +383,17 @@ export class DataEngine {
   /** For each URL, whether its host is on the signed config's blocklist (step 30b2; enforced in 30c). */
   blocked(urls: string[]): Promise<boolean[]> {
     return this.query.call('blocked', { urls });
+  }
+
+  /**
+   * `blocked`, or nothing blocked when the query worker can't answer (step 30c3a): the blocklist
+   * is then unknown, and a broken worker is no reason to refuse a user's source.
+   */
+  private blockedOrNone(urls: string[]): Promise<boolean[]> {
+    return this.blocked(urls).catch((error: unknown) => {
+      console.warn('The blocklist could not be read', error);
+      return urls.map(() => false);
+    });
   }
 
   /** A source's categories of one kind in its active generation (`[]`: none). */

@@ -2,6 +2,7 @@ import type { EpgCatalogSource, IngestResult, IngestSource, LoadedProfile, Profi
 import { CancelError, RpcError } from '@lablo/data/client';
 import { describe, expect, it } from 'vitest';
 import type { EpgRefreshOptions, RefreshOptions } from '../data/engine';
+import { BlockedSourceError } from '../data/engine';
 import type { LoaderEngine } from './engine-loader';
 import { createEngineLoader, loadError, nextSourceId, storedSources, typedGuide, userGuides } from './engine-loader';
 import type { SourceDraft } from './form';
@@ -141,7 +142,9 @@ describe('typedGuide', () => {
 describe('loadError', () => {
   it("maps the ingest's codes (from the worker) to the loader's", () => {
     const rpc = (code: string, status: number | null = null): RpcError => new RpcError('failed', code, 'IngestError', status);
-    for (const code of ['auth', 'expired', 'blocked', 'network', 'format', 'empty'] as const) expect(loadError(rpc(code))).toMatchObject({ code, status: null });
+    for (const code of ['auth', 'expired', 'blocked', 'blocklisted', 'network', 'format', 'empty'] as const) expect(loadError(rpc(code))).toMatchObject({ code, status: null });
+    // The data engine's own refusal (step 30c3a): not an RpcError, the same code.
+    expect(loadError(new BlockedSourceError())).toMatchObject({ name: 'LoadError', code: 'blocklisted', status: null });
     expect(loadError(rpc('http', 404))).toMatchObject({ code: 'http', status: 404 });
     expect(loadError(rpc('http'))).toMatchObject({ code: 'http', status: null });
     expect(loadError(rpc('superseded'))).toMatchObject({ code: 'other' });
@@ -217,6 +220,16 @@ describe('createEngineLoader', () => {
     expect(calls.edits).toEqual([]);
     const expired = fake({ refresh: () => Promise.reject(new RpcError('x', 'expired', 'IngestError')) });
     await expect(loaderFor(expired.engine).start(XTREAM, () => undefined).done).rejects.toMatchObject({ code: 'expired' });
+  });
+
+  it('fails as blocklisted when the data engine refuses the source, after checking, and saves nothing (step 30c3a)', async () => {
+    const { engine, calls } = fake({ refresh: () => Promise.reject(new BlockedSourceError()) });
+    const phases: string[] = [];
+    await expect(loaderFor(engine).start(XTREAM, (p) => phases.push(p.phase)).done).rejects.toMatchObject({ name: 'LoadError', code: 'blocklisted' });
+    expect(phases).toEqual(['checking']);
+    expect(calls.refresh).toHaveLength(1);
+    expect(calls.epg).toEqual([]);
+    expect(calls.edits).toEqual([]);
   });
 
   it("adds the source even when its guide can't be read, and keeps the guide (a later refresh tries it again)", async () => {

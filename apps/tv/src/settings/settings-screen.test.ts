@@ -26,7 +26,7 @@ function summary(matched: number, wanted: number): EpgSummary {
 
 function row(patch: Partial<EpgMeta>): GuideRow {
   const meta: EpgMeta = { epgSrc: 'u~g1', gen: 1, building: null, nextGen: 2, updatedAt: 1, checkedAt: 1, rank: 0, ...patch };
-  return { kind: 'mine', epgSrc: 'u~g1', id: 'g1', link: 'guides.test/a.xml', source: '', meta, offset: 0 };
+  return { kind: 'mine', epgSrc: 'u~g1', id: 'g1', link: 'guides.test/a.xml', source: '', meta, offset: 0, blocked: false };
 }
 
 /** 2026-11-05 21:30 UTC, in UTC minutes. */

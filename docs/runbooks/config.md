@@ -220,7 +220,7 @@ schedule, step 30b2; the test plumbing, step 30c1; the enforcement comes with st
 
 The gate (step 30c2a, `apps/tv/src/gate/`) covers onboarding and the live screen, whatever shows,
 and takes every key while it is up. `block-new-sources` and `disable-playback` work inside
-onboarding and the player (step 30c2b). Each mode includes the ones below it: `disable-app` also
+onboarding and the player (step 30c2b). The blocklist works in the data engine (step 30c3a). Each mode includes the ones below it: `disable-app` also
 stops plays and adds, and `disable-playback` also stops adds.
 
 - **`disable-app`:** a full-screen "Lablo is unavailable" with the rule's message (without one,
@@ -248,6 +248,22 @@ stops plays and adds, and `disable-playback` also stops adds.
   channel or movie chosen plays. At a start whose cached copy carries the rule, the last channel
   may begin to play for a moment before the cached policy stops it (the config never delays the
   start).
+- **The blocklist at add and on refresh** (step 30c3a): the data engine checks a source's server
+  (an Xtream login's server, an M3U link's host, with each parent) before every catalog refresh,
+  and each guide's link before reading it. So:
+  - onboarding's "Add source" on a blocked server says "Couldn't add <name>" with "This server
+    can't be used with Lablo." (`data-code="blocklisted"`), with "Edit details" and "Try again";
+    nothing loads and nothing is kept;
+  - a source added before its server was blocked keeps its channels and films but is no longer
+    refreshed (the schedule tries again every 2 h, so a lift is picked up within 2 h, or at the
+    next start), and its guides on that server are no longer read (their stored programmes stay);
+  - **Settings → Sources** lists each source with its server (host and port only) and when it
+    was last updated; a blocked one says "Not updated since <day>, <time>: this server can't be
+    used with Lablo.". **Settings → TV guides** says "Not read: this server can't be used with
+    Lablo." for a guide on a blocked server;
+  - if the TV can't read its cached config (a broken database), nothing counts as blocked.
+  - **Not covered:** the host an M3U link redirects to (the download follows redirects); playing
+    a stream on a blocked server is refused from step 30c3b.
 - **The language:** the one the user picked (else the TV's); the rule's message in it, English for
   any language but Arabic.
 - **Trying it locally:** start a stand-in server that answers `GET /v1/config` with a dev-signed
@@ -256,7 +272,7 @@ stops plays and adds, and `disable-playback` also stops adds.
   after changing what it serves. The desktop dev app has no `minVersion` (it is the `browser`
   platform): try the update screen with the built webOS bundle from `file://` and `?api=` on
   127.0.0.1 (e2e/config-gate.spec.ts does both; e2e/config-modes.spec.ts the two modes inside
-  the app).
+  the app; e2e/config-blocklist.spec.ts the blocklist, with the mock provider's `127.0.0.1` on it).
 
 ## Gotchas
 

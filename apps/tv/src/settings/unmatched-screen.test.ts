@@ -177,10 +177,12 @@ describe('"Channels without a guide" as drawn (step 24c)', () => {
     const t = await draw(3, { hold: true });
     expect(t.list.pending.value).toBe(1);
     const mapping = { pending: signal(4), reading: signal(1), editor: { editing: signal<string | null>(null) } };
-    const settings = { guides: { pending: signal(2), editor: { editing: signal<string | null>(null) } }, unmatched: t.list, mapping } as unknown as Settings;
+    // (The sources screen's reads count too: step 30c3a.)
+    const sources = { pending: signal(8) };
+    const settings = { guides: { pending: signal(2), editor: { editing: signal<string | null>(null) } }, unmatched: t.list, mapping, sources } as unknown as Settings;
     const draw2 = () => SettingsScreen({ settings, i18n: t.i18n, binding: t.binding, focus: t.nav.snapshot() });
     let root = draw2();
-    expect((root.props as Props)['data-pending']).toBe(7);
+    expect((root.props as Props)['data-pending']).toBe(15);
     expect((root.props as Props)['data-screen']).toBe('unmatched');
     expect((root.props as Props)['data-editing']).toBe('');
     // The list's page gets the mapping's reading count.

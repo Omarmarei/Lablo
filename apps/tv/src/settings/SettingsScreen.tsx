@@ -6,22 +6,24 @@ import type { AddProblem, GuideRow, GuideState, Guides, GuidesMenu, OffsetChoose
 import { ADD_CANCEL, ADD_CONFIRM, GUIDES, HEADER_ADD, HEADER_UNMATCHED, LINK_FIELD_ID, OFFSETS, guideState, summaryOf } from './guides-state';
 import { MAPPING_SCREEN } from './mapping-state';
 import { MappingPage, MappingReading } from './MappingPage';
-import type { Settings } from './settings-state';
+import type { Settings, SettingsItem } from './settings-state';
 import { SETTINGS_ITEMS } from './settings-state';
+import type { SourceRow, SourcesList } from './sources-state';
+import { SOURCES_SCREEN } from './sources-state';
 import type { UnmatchedList } from './unmatched-state';
 import { UNMATCHED } from './unmatched-state';
 import './settings.css';
 
 /**
- * The settings screen, the guides screen (RELAY step 22b2), "Channels without a guide" (step 24c)
- * and the manual mapping's picker (step 24e, `MappingPage.tsx`), painted instead of the live
- * screen while one of them is on top of the live navigator.
+ * The settings screen, the guides screen (RELAY step 22b2), "Channels without a guide" (step 24c),
+ * the manual mapping's picker (step 24e, `MappingPage.tsx`) and the sources screen (step 30c3a),
+ * painted instead of the live screen while one of them is on top of the live navigator.
  * Every text comes from the catalogs; links, channels and the sources' and categories' names are
  * data (`dir`, `translate=false`, or isolated arguments).
  */
 
 /** Technical names shown inside sentences: never translated (arguments, so they are isolated). */
-const NAMES = { guide: 'XMLTV', http: 'http://', https: 'https://', tags: 'HD, FHD' } as const;
+const NAMES = { guide: 'XMLTV', http: 'http://', https: 'https://', tags: 'HD, FHD', xtream: 'Xtream', m3u: 'M3U' } as const;
 
 const MINUTE_MS = 60_000;
 /** U+2212, in the Latin font's subset: a minus sign as wide as the plus. */
@@ -156,23 +158,122 @@ function GuideItem({ i18n, row, index, state, item }: { i18n: AppI18n; row: Guid
         )}
         <span class="guides__owner">{row.kind === 'mine' ? t('guides.mine') : t('guides.from', { name: row.source })}</span>
       </div>
-      <p class="guides__status" data-testid={`guide-${index}-status`}>
-        {read !== null ? (
-          <span>
-            {read.until}
-            {read.matched !== '' && ' · '}
-            {read.matched}
-          </span>
-        ) : state === 'reading' ? (
-          t('guides.reading')
-        ) : state === 'unread' ? (
-          t('guides.notRead')
-        ) : null}
-      </p>
-      {failure !== null && (
+      {/* A guide on a blocked server (step 30c3a): that line alone under the link, so the row keeps two lines. */}
+      {row.blocked ? (
+        <p class="guides__failure" data-testid={`guide-${index}-blocked`}>
+          {t('guides.blocked')}
+        </p>
+      ) : (
+        <p class="guides__status" data-testid={`guide-${index}-status`}>
+          {read !== null ? (
+            <span>
+              {read.until}
+              {read.matched !== '' && ' · '}
+              {read.matched}
+            </span>
+          ) : state === 'reading' ? (
+            t('guides.reading')
+          ) : state === 'unread' ? (
+            t('guides.notRead')
+          ) : null}
+        </p>
+      )}
+      {!row.blocked && failure !== null && (
         <p class="guides__failure" data-testid={`guide-${index}-failure`}>
           {failureText(t, failure)}
         </p>
+      )}
+    </div>
+  );
+}
+
+/** A source's kind (step 30c3a): "Xtream login" or "M3U playlist", the format's name isolated. */
+export function sourceKindText(t: Translate, row: SourceRow): string {
+  return row.type === 'xtream' ? t('sources.xtream', { name: NAMES.xtream }) : t('sources.m3u', { format: NAMES.m3u });
+}
+
+/**
+ * A source's line under its name: when it was last updated ("Updated {day}, {time}", or "Not
+ * updated yet"); for a source on a blocked server, that it isn't any more, since when it was.
+ */
+export function statusText(i18n: AppI18n, row: SourceRow): string {
+  const at = row.checkedAt === null ? null : new Date(row.checkedAt);
+  if (row.blocked) return at === null ? i18n.t('sources.blocked') : i18n.t('sources.blockedSince', { day: i18n.date(at, 'day'), time: i18n.time(at) });
+  return at === null ? i18n.t('sources.notUpdated') : i18n.t('sources.updated', { day: i18n.date(at, 'day'), time: i18n.time(at) });
+}
+
+export function SourceItem({ i18n, row, index, item }: { i18n: AppI18n; row: SourceRow; index: number; item: ItemBinding }) {
+  const { t } = i18n;
+  return (
+    <div
+      class={rowClass('guides__row sources__row', item)}
+      role="option"
+      aria-selected={item.state === 'focused' ? 'true' : 'false'}
+      data-testid={`source-${index}`}
+      data-src={row.id}
+      data-type={row.type}
+      data-state={item.state}
+      data-checked={row.checkedAt ?? ''}
+      data-blocked={String(row.blocked)}
+      onMouseMove={item.onHover}
+      onClick={item.onPress}
+    >
+      <div class="guides__top">
+        <span class="sources__name" dir="auto" translate={false} data-testid={`source-${index}-name`}>
+          {row.name}
+        </span>
+        <span class="guides__owner" data-testid={`source-${index}-kind`}>
+          {sourceKindText(t, row)}
+          {' · '}
+          <span dir="ltr" translate={false}>
+            {row.host}
+          </span>
+        </span>
+      </div>
+      {/* One line under the name (a row has room for two): the warning's colour when blocked. */}
+      <p class={row.blocked ? 'guides__failure' : 'guides__status'} data-testid={`source-${index}-status`}>
+        {statusText(i18n, row)}
+      </p>
+    </div>
+  );
+}
+
+/** The sources screen (step 30c3a): each source, its server and when it was last updated, or that it is blocked. */
+export function SourcesPage({ i18n, binding, list }: { i18n: AppI18n; binding: FocusBinding; list: SourcesList }) {
+  const { t } = i18n;
+  const status = list.status.value;
+  const rows = list.rows.value;
+  const blocked = rows.filter((row) => row.blocked).length;
+  return (
+    <div class="settings__page" data-testid="sources" data-status={status} data-count={rows.length} data-blocked={blocked}>
+      <header class="settings__header">
+        <h1 class="settings__title">{t('sources.title')}</h1>
+      </header>
+      <p class="guides__intro">{t('sources.intro')}</p>
+      {status === 'loading' && (
+        <div class="settings__message">
+          <Spinner size="l" testId="sources-spinner" />
+        </div>
+      )}
+      {status === 'failed' && (
+        <div class="settings__message" data-testid="sources-failed">
+          <p class="settings__text">{t('sources.failedRead')}</p>
+        </div>
+      )}
+      {rows.length > 0 && (
+        <VirtualList
+          binding={binding}
+          screen={binding.nav.top}
+          zone="sources"
+          itemSize={GUIDES.rowHeight}
+          gap={GUIDES.rowGap}
+          class="guides__list"
+          testId="sources-list"
+          renderItem={(i, item) => {
+            const row = rows[i];
+            return row === undefined ? null : <SourceItem i18n={i18n} row={row} index={i} item={item} />;
+          }}
+        />
       )}
     </div>
   );
@@ -182,6 +283,11 @@ interface PageProps {
   readonly i18n: AppI18n;
   readonly binding: FocusBinding;
   readonly focus: Focus;
+}
+
+/** A settings row's name and the line under it. */
+function itemText(t: Translate, id: SettingsItem): { name: string; hint: string } {
+  return id === 'sources' ? { name: t('settings.sources'), hint: t('settings.sourcesHint') } : { name: t('settings.guides'), hint: t('settings.guidesHint') };
 }
 
 function SettingsPage({ i18n, binding }: PageProps) {
@@ -195,10 +301,11 @@ function SettingsPage({ i18n, binding }: PageProps) {
       <div class="settings__items" role="menu">
         {SETTINGS_ITEMS.map((id, i) => {
           const item = items.item(i);
+          const text = itemText(t, id);
           return (
             <div key={id} class={rowClass('settings__row', item)} role="menuitem" data-testid={`settings-${id}`} data-state={item.state} onMouseMove={item.onHover} onClick={item.onPress}>
-              <span class="settings__name">{t('settings.guides')}</span>
-              <span class="settings__hint">{t('settings.guidesHint')}</span>
+              <span class="settings__name">{text.name}</span>
+              <span class="settings__hint">{text.hint}</span>
             </div>
           );
         })}
@@ -500,7 +607,7 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       data-testid="settings-screen"
       data-ready="true"
       data-language={i18n.locale.pseudo ? 'pseudo' : i18n.locale.language}
-      data-pending={guides.pending.value + settings.unmatched.pending.value + mapping.pending.value}
+      data-pending={guides.pending.value + settings.unmatched.pending.value + mapping.pending.value + settings.sources.pending.value}
       data-editing={guides.editor.editing.value ?? mapping.editor.editing.value ?? ''}
       data-screen={focus.screen}
       data-zone={focus.zone}
@@ -512,6 +619,7 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       {onGuides && <GuidesPage i18n={i18n} binding={binding} focus={focus} guides={guides} />}
       {focus.screen === 'unmatched' && <UnmatchedPage i18n={i18n} binding={binding} list={settings.unmatched} reading={mapping.reading.value} />}
       {focus.screen === MAPPING_SCREEN && <MappingPage i18n={i18n} binding={binding} mapping={mapping} />}
+      {focus.screen === SOURCES_SCREEN && <SourcesPage i18n={i18n} binding={binding} list={settings.sources} />}
     </main>
   );
 }
