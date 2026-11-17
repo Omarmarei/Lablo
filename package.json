@@ -15,6 +15,7 @@
     "mock:media": "tsx apps/mock-provider/src/media-cli.ts generate",
     "mock:open-movies": "tsx apps/mock-provider/src/media-cli.ts open-movies",
     "fixtures": "tsx tools/fixtures/fixtures.ts",
+    "sign-config": "tsx tools/sign-config/sign-config.ts",
     "fonts": "tsx tools/fonts/fonts.ts",
     "bench": "node --expose-gc --import tsx tools/bench/bench.ts",
     "epg:report": "node --import tsx tools/bench/epg-report.ts",

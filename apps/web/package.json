@@ -12,6 +12,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@lablo/crypto": "workspace:*",
+    "@lablo/protocol": "workspace:*",
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",
     "next": "16.4.4",
