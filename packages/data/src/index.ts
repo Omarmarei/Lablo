@@ -180,6 +180,17 @@ export { PanelAnswers } from './panel-answers';
 export type { EpgIngestOptions, EpgOutcome, EpgProgress, EpgRefreshJob, EpgRefreshResult, EpgResult, EpgSwap, EpgWanted } from './epg-ingest';
 export { EPG_INGEST_VERSION, EPG_WRITE_BATCH, readEpgWanted, runEpgIngest, runEpgRefresh } from './epg-ingest';
 
+export type { ConfigPlatform, ConfigPolicy, PolicyInput, PolicyRule } from './config-policy';
+export { KILL_STRENGTH, compareVersions, configPolicy, noPolicy, policyStops, ruleMatches, versionParts } from './config-policy';
+
+export { Blocklist, asciiHost, punycode, urlHost } from './blocklist';
+
+export type { CachedConfig, ConfigCheck, ConfigRefusal, VerifiedConfig } from './config-check';
+export { checkConfigResponse, readCachedConfig } from './config-check';
+
+export type { ConfigFailure, ConfigRequest, ConfigResult, ConfigServiceOptions, ConfigStatus, ConfigTarget } from './config-service';
+export { CONFIG_KEY, CONFIG_MAX_BYTES, CONFIG_REFRESH_MS, CONFIG_TIMEOUT_MS, ConfigService } from './config-service';
+
 export type { IngestEvents, IngestRunRequest, IngestServiceOptions } from './ingest-service';
 export { IngestService } from './ingest-service';
 
