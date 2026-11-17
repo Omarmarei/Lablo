@@ -178,9 +178,15 @@ workspace file, the workflows). It starts a `postgres:17-alpine` service on port
 - **`next build` stops once when an AI agent runs it** (Next 16's upgrade nudge) while the installed
   Next.js has a known advisory, and asks to run `next upgrade`. Running the same command again
   within 5 minutes continues. It never stops in CI (no agent, no terminal). Step 29a pinned
-  `next@16.4.4`: the advisory then (GHSA-mfr8-8qww-v76h, moderate: `'use cache'` through
-  `unstable_cache()`) doesn't touch this app, and the fixed 16.4.5 was a day short of the
-  two-week rule. Step 29b2b moves to the newest two-week-old patch.
+  `next@16.4.4`, whose advisory (GHSA-mfr8-8qww-v76h, moderate: `'use cache'` through
+  `unstable_cache()`) didn't touch this app. **Step 29b2b moved to `next@16.4.5`** (published
+  2026-11-03 18:01 UTC, bumped once two weeks old): npm's bulk advisory API lists nothing for it,
+  so the nudge no longer fires (checked 2026-11-17: `build:web` went through on the first run),
+  and its native SWC binding (`@next/swc-win32-x64-msvc@16.4.5`) loads under Smart App Control.
+  **Before the next bump,** ask the advisory API yourself: POST
+  `https://registry.npmjs.org/-/npm/v1/security/advisories/bulk` with `{"next":["<version>"]}`
+  (`{}` means none), and read the version's date from `https://registry.npmjs.org/next` (`time`).
+  16.4.6 (2026-11-09 20:33 UTC) is two weeks old from 2026-11-23 20:33 UTC.
 - **Vitest loads a global setup's bare imports from the workspace root**, which doesn't have
   `apps/web`'s dependencies: `global-setup.web.ts` loads `pg` with `createRequire` from
   `apps/web/package.json`. Test files resolve normally.
