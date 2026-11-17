@@ -188,6 +188,8 @@ export { Blocklist, asciiHost, cachedBlocklist, punycode, urlHost } from './bloc
 export type { CachedConfig, ConfigCheck, ConfigRefusal, VerifiedConfig } from './config-check';
 export { checkConfigResponse, readCachedConfig } from './config-check';
 
+export { MAX_NOTICES, isRuleId } from './config-constants';
+
 export type { ConfigEvents, ConfigFailure, ConfigRequest, ConfigResult, ConfigRunRequest, ConfigServiceOptions, ConfigStatus, ConfigTarget } from './config-service';
 export { CONFIG_KEY, CONFIG_MAX_BYTES, CONFIG_REFRESH_MS, CONFIG_RETRY_MS, CONFIG_TIMEOUT_MS, ConfigService, configHandlers } from './config-service';
 

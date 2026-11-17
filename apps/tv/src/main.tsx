@@ -15,6 +15,8 @@ import { createRefreshScheduler } from './data/refresh-scheduler';
 import { createSettings } from './settings/settings-state';
 import { createAppDataEngine } from './data/workers';
 import { createFocusDemo } from './focus-demo';
+import { GateApp } from './gate/GateApp';
+import { createGate, noticesShownOf } from './gate/gate-state';
 import { LiveApp } from './live/LiveApp';
 import type { Live } from './live/live-state';
 import { createLive } from './live/live-state';
@@ -117,6 +119,31 @@ const config = createConfigSchedule({
   engine: { refreshConfig: (request, onCached) => dataEngine().refreshConfig(request, onCached) },
   request: configRequest,
   lifecycle: (listener) => platform.onLifecycle(listener),
+});
+
+/** What the live screen stops while the gate stops the app, and starts again when it lifts (step 30c2a). */
+let gated: { readonly stop: () => void; readonly resume: () => void } | null = null;
+
+/**
+ * The config's gate (RELAY step 30c2a): `disable-app`, the "update Lablo" screen and the notices,
+ * over every screen in a root of its own. It starts with the config (onboarding and the live
+ * screen), and takes every key while it shows.
+ */
+const gate = createGate({
+  policy: config.policy,
+  version: __APP_VERSION__,
+  platform,
+  target: window,
+  shown: (id) => {
+    // Best effort: a notice that can't be kept as shown shows again on the next start.
+    dataEngine()
+      .editProfile({ kind: 'notice', id })
+      .catch((error: unknown) => console.warn('The notice was not kept as shown', error));
+  },
+  stopped: (on) => {
+    if (on) gated?.stop();
+    else gated?.resume();
+  },
 });
 
 /**
@@ -353,6 +380,15 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   showFocus(live.nav);
   render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} home={home} />, into);
   startRefreshes(live, guide, [movies, series], search, home, readFacts);
+  // Under the gate's `disable-app` or update (step 30c2a): the player closes and the refreshes stop, until it lifts.
+  gated = {
+    stop: () => {
+      player?.close();
+      refreshes?.dispose();
+      refreshes = null;
+    },
+    resume: () => startRefreshes(live, guide, [movies, series], search, home, readFacts),
+  };
 }
 
 /**
@@ -419,6 +455,11 @@ if (screen === 'gallery') {
     const start = startPoint(profile);
     if (start.screen === 'home') showLive(root, start.language, start.resume);
     else showOnboarding(root, start.language);
+    // The gate over every screen (step 30c2a), in its own root after #app; nothing shows until the config says so.
+    const gateRoot = document.createElement('div');
+    document.body.appendChild(gateRoot);
+    render(<GateApp platform={platform} gate={gate} />, gateRoot);
+    gate.start(noticesShownOf(profile));
     // After the start's screen has painted: the config never delays it.
     config.start();
   });

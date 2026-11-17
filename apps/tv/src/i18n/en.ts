@@ -66,6 +66,16 @@ export const EN = {
   'exit.stay': 'Stay',
   'exit.confirm': 'Exit',
 
+  // The signed config's gate (RELAY step 30c2a): the app turned off, an update asked for, a notice.
+  'gate.disabledTitle': 'Lablo is unavailable',
+  'gate.disabledMessage': "Lablo can't be used on this TV right now.",
+  'gate.updateTitle': 'Update Lablo',
+  'gate.updateMessage': "This version of Lablo can't be used any more. Update Lablo from your TV's app store, then open it again.",
+  'gate.versions': 'This version: {current}. Needed: {needed} or later.',
+  'gate.close': 'Close Lablo',
+  'gate.noticeTitle': 'A message from Lablo',
+  'gate.ok': 'OK',
+
   // The app's name, in each language's script.
   'app.name': 'Lablo',
 

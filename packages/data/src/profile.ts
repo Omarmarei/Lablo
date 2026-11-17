@@ -16,7 +16,7 @@
  * (`shows`, the latest `MAX_SHOWS`). Version 7 (step 28b2) keeps the channels played last
  * (`channels`, the latest `MAX_CHANNELS`). Later steps add fields with a migration each, or as
  * optional fields that need none (`PlayerMemoryDoc.picture`, step 20c2b; `epgOffsets`, step 24b;
- * `epgOverrides`, step 24d; `ShowProgress.more`, step 27d).
+ * `epgOverrides`, step 24d; `ShowProgress.more`, step 27d; `noticesShown`, step 30c2a).
  */
 
 import type { CatalogItem, ContentKey, ContentKind, EpgOverride, XtreamAccount } from '@lablo/core';
@@ -24,6 +24,7 @@ import type { EpgPin } from './epg-overrides';
 import { epgOverridesOf, isEpgPin } from './epg-overrides';
 import type { UserGuide } from './epg-sources';
 import { epgOffsetsOf, isEpgOffset } from './epg-sources';
+import { MAX_NOTICES, isRuleId } from './config-constants';
 import { onSuccess, transact } from './idb';
 import { STORE } from './schema';
 
@@ -225,6 +226,12 @@ export type ProfileV7 = Omit<ProfileV6, 'v'> & {
    * `MAX_CHANNELS`. The first is `player.last`; Home's "Recent channels" lists them.
    */
   channels: LastChannel[];
+  /**
+   * The signed config's notices already shown (step 30c2a), by rule id, oldest first: the latest
+   * `MAX_NOTICES`. A notice shows once. Optional, so version 7 documents written before it need
+   * no migration (one without it has shown none).
+   */
+  noticesShown?: string[];
 };
 
 /** The current profile shape. */
@@ -371,7 +378,9 @@ export type ProfileEdit =
    * An episode of `show` played (step 27c1): the show's last episode (`last`), and that episode's
    * place in `progress` (`null` takes it away), in one write. One that isn't both changes nothing.
    */
-  | { kind: 'episode'; show: ContentKey; last: ShowProgress; progress: WatchProgress | null };
+  | { kind: 'episode'; show: ContentKey; last: ShowProgress; progress: WatchProgress | null }
+  /** A config notice was shown (step 30c2a): its rule id joins `noticesShown`. One that isn't a rule id, or is there already, changes nothing. */
+  | { kind: 'notice'; id: string };
 
 const USER_GUIDE = 'u~';
 
@@ -594,6 +603,14 @@ export function applyProfileEdit(doc: ProfileDoc, edit: ProfileEdit): ProfileDoc
     const shows = withShow(doc.shows, edit.show, edit.last, progress !== null);
     if (progress === null && shows === null) return null;
     return { ...doc, progress: progress ?? doc.progress, shows: shows ?? doc.shows };
+  }
+  if (edit.kind === 'notice') {
+    const shown = doc.noticesShown ?? [];
+    if (!isRuleId(edit.id) || shown.indexOf(edit.id) !== -1) return null;
+    // The latest `MAX_NOTICES`: the one shown longest ago goes first.
+    const noticesShown = shown.slice(Math.max(0, shown.length - MAX_NOTICES + 1));
+    noticesShown.push(edit.id);
+    return { ...doc, noticesShown };
   }
   if (edit.kind === 'epgOffset') {
     if (!isEpgOffset(edit.minutes)) return null;

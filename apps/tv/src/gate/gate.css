@@ -1,0 +1,57 @@
+/*
+ * The signed config's gate (RELAY step 30c2a): over the whole 1920x1080 canvas and every screen
+ * of the app (its own root comes after #app). Physical properties only: rtlcss mirrors them.
+ */
+
+/* `disable-app` and the update: nothing of the app shows under it (the player is stopped). */
+.gate {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--screen-width);
+  height: var(--screen-height);
+  padding: var(--safe-y) var(--safe-x);
+  background: var(--color-bg);
+}
+
+.gate__panel {
+  width: 1200px;
+}
+
+.gate__title {
+  margin: 0;
+  text-align: left;
+  font-size: var(--font-size-display);
+  line-height: var(--line-height-display);
+  font-weight: var(--font-weight-bold);
+}
+
+.gate__message {
+  margin: var(--space-6) 0 0;
+  text-align: left;
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+}
+
+.gate__versions {
+  margin: var(--space-5) 0 0;
+  text-align: left;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.gate__actions {
+  display: flex;
+  margin-top: var(--space-8);
+}
+
+/* A notice: the Dialog's scrim and panel, above the app's own dialogs (the exit dialog's z-index is 10). */
+.gate-notice {
+  position: relative;
+  z-index: 20;
+}

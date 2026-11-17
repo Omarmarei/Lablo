@@ -71,8 +71,9 @@ config is a normal change: sign, verify, commit.
 
 - **`kill` rules** match when every condition they have holds (`platform`, an inclusive version
   range, a country list from the request's geo header); a rule with no conditions matches
-  everyone. Modes, weakest to strongest: `notice` (shown once per rule `id`), `block-new-sources`,
-  `disable-playback`, `disable-app`. The message is the doc's own, in English and Arabic.
+  everyone. Modes, weakest to strongest: `notice` (shown once per rule `id`; it needs a
+  `message`), `block-new-sources`, `disable-playback`, `disable-app`. The message is the doc's own,
+  in English and Arabic. What the TV shows for each: "What the TV shows" below.
 - **`minVersion`** per platform: older apps ask to be updated.
 - **`blocklist`:** `hashes` are `b64url(SHA-256(salt + host))` of the blocked hosts; the TV hashes a
   source's host and each parent domain, so blocking `example.com` blocks `tv.example.com` too. The
@@ -214,6 +215,31 @@ schedule, step 30b2; the test plumbing, step 30c1; the enforcement comes with st
   Cyrillic variants U+1C80 to U+1C88, Cherokee): for a host written with those, the TV's `xn--`
   form differs from Node's, and a block on Node's form misses it. A Latin host never has them. An
   IP address is taken as written, and a URL without a host blocks nothing.
+
+## What the TV shows
+
+The gate (step 30c2a, `apps/tv/src/gate/`) covers onboarding and the live screen, whatever shows,
+and takes every key while it is up. `block-new-sources` and `disable-playback` work inside
+onboarding and the player (step 30c2b).
+
+- **`disable-app`:** a full-screen "Lablo is unavailable" with the rule's message (without one,
+  "Lablo can't be used on this TV right now.") and "Close Lablo"; OK or Back closes the app. The
+  player closes and the catalog refreshes stop. The TV keeps fetching the config every 6 h (and
+  at each start), so a signed doc without the rule gives the app back where it was.
+- **Below `minVersion`:** a full-screen "Update Lablo" with this version and the one needed, and
+  "Close Lablo". `disable-app` shows instead when both apply.
+- **`notice`:** a dialog, "A message from Lablo", with the rule's message and "OK"; OK or Back
+  closes it. It shows once per `id` on each TV (the profile's `noticesShown` keeps the latest 100):
+  **to show a changed notice again, give it a new id.** Several notices show one after another, in
+  the doc's order, after the two screens above. **A notice without a `message` never shows.**
+- **The language:** the one the user picked (else the TV's); the rule's message in it, English for
+  any language but Arabic.
+- **Trying it locally:** start a stand-in server that answers `GET /v1/config` with a dev-signed
+  answer (`e2e/config-server.ts` with `devSignedAnswer` from `tools/engines/src/config.ts`), open
+  the dev app with `?api=<its origin>`, then `window.__LABLO_TEST__.refreshConfig()` in the console
+  after changing what it serves. The desktop dev app has no `minVersion` (it is the `browser`
+  platform): try the update screen with the built webOS bundle from `file://` and `?api=` on
+  127.0.0.1 (e2e/config-gate.spec.ts does both).
 
 ## Gotchas
 
