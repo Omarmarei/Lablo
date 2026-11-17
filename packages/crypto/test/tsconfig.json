@@ -1,0 +1,10 @@
+// The generator and the vectors test run on Node: Node's types, and its crypto as the oracle.
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "types": ["node"]
+  },
+  "include": ["."]
+}

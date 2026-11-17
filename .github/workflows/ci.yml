@@ -47,7 +47,7 @@ jobs:
           grep -vE '\.md$|^docs/|^LICENSE' changed.txt > code.txt || true
           grep -vE '\.test\.tsx?$|^test/|^e2e/' code.txt > source.txt || true
           shared='^package\.json$|^pnpm-lock\.yaml$|^pnpm-workspace\.yaml$|^\.github/workflows/'
-          engines="$shared|^apps/tv/|^packages/[^/]+/src/|^tools/(engines|build|fonts)/"
+          engines="$shared|^apps/tv/|^packages/[^/]+/src/|^packages/crypto/test/|^tools/(engines|build|fonts)/"
           media="$shared|^apps/mock-provider/|^tools/(fixtures|bench)/|^packages/[^/]+/src/|^apps/tv/src/(player|lab|data)/|^apps/tv/(playback|lab)\.html$|^apps/tv/vite\.config\.ts$|^vitest\.media\.config\.ts$|^playwright\.config\.ts$"
           web="$shared|^apps/web/|^packages/(protocol|crypto)/|^vitest\.web\.config\.ts$"
           hit() { if grep -qE "$1" "$2"; then echo true; else echo false; fi; }

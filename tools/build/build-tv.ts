@@ -15,9 +15,11 @@
  *
  * Each platform is built twice: the app (apps/tv/src/main.tsx -> dist/tv) and the Lablo Lab
  * (apps/tv/src/lab/lab-main.tsx -> dist/tv-lab, its own app id; RELAY step 15a, src/lab.ts).
+ * Then once, for both platforms, the crypto vectors page (apps/tv/src/vectors -> dist/tv-vectors:
+ * @lablo/crypto's shared vectors through this pipeline, for the old engines; step 29b1, src/vectors.ts).
  *
- * Options: --platform tizen|webos (repeatable; default both), --target app|lab (repeatable;
- * default both), --skip-package.
+ * Options: --platform tizen|webos (repeatable; default both), --target app|lab|vectors
+ * (repeatable; default all three), --skip-package.
  * Lab options: --lab-server http://host:port (the mock provider the TV reaches; default this
  * PC's LAN address, port 8080), --lab-version x.y.z (default the app's: raise it to test an
  * update over an installed lab, spike S2), --lab-write-mb N (S2's write test, default 200),
@@ -53,11 +55,13 @@ import {
   renderIndexHtml,
 } from './src/platform-files';
 import { checkSyntax, formatViolation } from './src/syntax-gate';
+import { readVectorsJson, renderVectorsIndexHtml, vectorsDataScript } from './src/vectors';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
 const APP_DIR = path.join(ROOT, 'apps/tv');
 const DIST_TV = path.join(ROOT, 'dist/tv');
 const DIST_LAB = path.join(ROOT, 'dist/tv-lab');
+const DIST_VECTORS = path.join(ROOT, 'dist/tv-vectors');
 const NATIVE_PROBE = path.join(APP_DIR, 'src/lab/native-probe.js');
 const DIST_PACKAGES = path.join(ROOT, 'dist/packages');
 const MANIFESTS = new Set(['config.xml', 'appinfo.json']);
@@ -69,8 +73,8 @@ const LICENCES: ReadonlyArray<readonly [string, string]> = [['packages/ui/assets
 
 const rel = (file: string): string => path.relative(ROOT, file).split(path.sep).join('/');
 
-type Target = 'app' | 'lab';
-const TARGETS: readonly Target[] = ['app', 'lab'];
+type Target = 'app' | 'lab' | 'vectors';
+const TARGETS: readonly Target[] = ['app', 'lab', 'vectors'];
 
 interface PlatformReport {
   readonly platform: TvPlatform;
@@ -177,6 +181,25 @@ async function buildPlatform(platform: TvPlatform, target: Target, options: Buil
   };
 }
 
+/**
+ * The crypto vectors page: the page and its inlined worker through bundleIife (Babel chrome 53,
+ * core-js, the ES2016 gate), the vectors as a gated classic script. Not packaged, no budget.
+ */
+async function buildVectors(): Promise<{ mainBytes: number; workerBytes: number; dataBytes: number }> {
+  const bundle = await bundleIife({ input: path.join(APP_DIR, 'src/vectors/vectors-main.ts'), platform: 'webos', label: 'vectors main.js' });
+  if (bundle.css.length > 0) throw new Error(`the vectors page imports CSS (${bundle.css.map(rel).join(', ')})`);
+  const data = vectorsDataScript(readVectorsJson(ROOT));
+  const dataViolation = checkSyntax(data, 'vectors vectors.js');
+  if (dataViolation !== null) throw new SyntaxGateError(formatViolation(dataViolation));
+  rmSync(DIST_VECTORS, { recursive: true, force: true });
+  mkdirSync(DIST_VECTORS, { recursive: true });
+  writeFileSync(path.join(DIST_VECTORS, 'index.html'), renderVectorsIndexHtml());
+  writeFileSync(path.join(DIST_VECTORS, 'main.js'), bundle.code);
+  writeFileSync(path.join(DIST_VECTORS, 'vectors.js'), data);
+  const workerBytes = bundle.workers.reduce((sum, worker) => sum + Buffer.byteLength(worker.code, 'utf8'), 0);
+  return { mainBytes: Buffer.byteLength(bundle.code, 'utf8') - bundle.inlinedBytes, workerBytes, dataBytes: Buffer.byteLength(data, 'utf8') };
+}
+
 async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
@@ -204,9 +227,9 @@ async function main(): Promise<void> {
   // An --out build (the harness's unpolyfilled app) is the app only.
   const requestedTargets = values.target ?? (values.out === undefined ? [...TARGETS] : ['app']);
   const badTargets = requestedTargets.filter((t) => !(TARGETS as readonly string[]).includes(t));
-  if (badTargets.length > 0) throw new Error(`unknown --target ${badTargets.join(', ')} (expected app or lab)`);
+  if (badTargets.length > 0) throw new Error(`unknown --target ${badTargets.join(', ')} (expected app, lab or vectors)`);
   const targets = TARGETS.filter((t) => requestedTargets.includes(t));
-  if (!polyfills && targets.includes('lab')) throw new Error('--unsafe-no-polyfills builds the app only (no --target lab)');
+  if (!polyfills && targets.some((t) => t !== 'app')) throw new Error('--unsafe-no-polyfills builds the app only (no --target lab or vectors)');
 
   const version = (JSON.parse(readFileSync(path.join(APP_DIR, 'package.json'), 'utf8')) as { version: string }).version;
   assertAppVersion(version);
@@ -235,10 +258,18 @@ async function main(): Promise<void> {
     polyfills,
     lab,
   };
-  console.log(`Lablo TV build ${version}: ${platforms.join(', ')}, ${targets.join(' and ')}${polyfills ? '' : ' (UNSAFE: no polyfills, test only)'}`);
+  console.log(`Lablo TV build ${version}: ${platforms.join(', ')}, ${targets.join(', ')}${polyfills ? '' : ' (UNSAFE: no polyfills, test only)'}`);
   if (targets.includes('lab')) console.log(`Lablo Lab ${lab.version}: results to ${lab.server}${lab.autoRun ? ', runs at launch' : ''}`);
 
   for (const target of targets) {
+    if (target === 'vectors') {
+      const started = Date.now();
+      const sizes = await buildVectors();
+      console.log(`\n[crypto vectors] built in ${((Date.now() - started) / 1000).toFixed(1)} s, ES2016 gate passed`);
+      console.log(`  main.js ${kb(sizes.mainBytes)} + its worker ${kb(sizes.workerBytes)}, vectors.js ${kb(sizes.dataBytes)}`);
+      console.log(`  staged:  ${rel(DIST_VECTORS)}/`);
+      continue;
+    }
     for (const platform of platforms) {
       const started = Date.now();
       printReport(await buildPlatform(platform, target, options), started);
