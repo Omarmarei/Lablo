@@ -17,6 +17,7 @@ import type { SampleResult } from '@lablo/protocol/check-samples';
 import { checkSamples } from '@lablo/protocol/check-samples';
 import { describe, expect, it } from 'vitest';
 import { bundleIife } from '../tools/build/src/bundle';
+import { CHROMIUM_53_MISSING } from './realm-support';
 
 const ROOT = join(import.meta.dirname, '..');
 const VECTORS = readFileSync(join(ROOT, 'packages/crypto/test/vectors.json'), 'utf8');
@@ -27,23 +28,6 @@ interface WorkerReply {
   readonly error: string | null;
 }
 
-/** What Chromium 53 lacks that core-js or the code could lean on. */
-const CHROMIUM_53_MISSING = [
-  'delete globalThis.BigInt;',
-  'delete globalThis.BigInt64Array;',
-  'delete globalThis.BigUint64Array;',
-  'delete Object.entries; delete Object.values; delete Object.getOwnPropertyDescriptors; delete Object.fromEntries;',
-  'delete String.prototype.padStart; delete String.prototype.padEnd;',
-  // ES2019 and later (Chromium 66 and newer); `trimLeft` stays, Chromium 53 has it.
-  'delete String.prototype.trimStart; delete String.prototype.trimEnd;',
-  'delete Object.hasOwn; delete Array.prototype.at; delete String.prototype.at; delete Array.prototype.findLast; delete Array.prototype.findLastIndex;',
-  'delete String.prototype.replaceAll; delete String.prototype.matchAll; delete Promise.allSettled; delete Promise.any;',
-  'delete Array.prototype.flat; delete Array.prototype.flatMap;',
-  'delete Promise.prototype.finally;',
-  'delete globalThis.queueMicrotask;',
-  // Last: from here on the realm's own global is reachable only as `self`.
-  'delete globalThis.globalThis;',
-].join('\n');
 
 describe('the crypto vectors worker bundle', () => {
   it('builds to gated Chromium 53 code and gives every vector and sample its Node answer without BigInt or globalThis', async () => {

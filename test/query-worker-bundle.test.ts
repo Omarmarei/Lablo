@@ -5,37 +5,15 @@
 // are deleted. A UI-side DataClient then searches a catalog written by the data layer. Real
 // Chromium 53/56 runs of the data workers come with step 8b (engines harness, Blob worker + IDB).
 
+import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 import { join } from 'node:path';
-import type { RpcPort } from '@lablo/data';
-import { createDataClient, openDatabase } from '@lablo/data';
+import { CONFIG_KEY, STORE, createDataClient, openDatabase, transact } from '@lablo/data';
 import { describe, expect, it } from 'vitest';
-import { freshFactory, ingest, item } from '../packages/data/src/test-support';
+import { configAnswer, configDocFields, freshFactory, ingest, item } from '../packages/data/src/test-support';
 import { checkBudget, formatBudget } from '../tools/build/src/budgets';
 import { bundleIife } from '../tools/build/src/bundle';
-
-type Listener = (event: MessageEvent) => void;
-
-/** Two ends of a message channel between realms: structured clone, asynchronous delivery. */
-function pipe(): [RpcPort, RpcPort] {
-  const listeners: [Listener[], Listener[]] = [[], []];
-  const end = (mine: Listener[], theirs: Listener[]): RpcPort => ({
-    postMessage: (message) => {
-      const data = structuredClone(message);
-      setTimeout(() => {
-        for (const l of theirs.slice()) l({ data } as MessageEvent);
-      }, 0);
-    },
-    addEventListener: (_type, l) => {
-      mine.push(l);
-    },
-    removeEventListener: (_type, l) => {
-      const i = mine.indexOf(l);
-      if (i !== -1) mine.splice(i, 1);
-    },
-  });
-  return [end(listeners[0], listeners[1]), end(listeners[1], listeners[0])];
-}
+import { pipe } from './realm-support';
 
 describe('the bundled query worker', () => {
   it('builds to gated Chromium 53 code within the worker budget and serves search over IndexedDB', async () => {
@@ -68,6 +46,8 @@ describe('the bundled query worker', () => {
     const realm = vm.createContext({
       fetch: fakeFetch,
       TextDecoder,
+      // The blocklist hash (step 30b2): Chromium 53 has TextEncoder in workers too.
+      TextEncoder,
       postMessage: workerPort.postMessage,
       addEventListener: workerPort.addEventListener,
       removeEventListener: workerPort.removeEventListener,
@@ -98,5 +78,20 @@ describe('the bundled query worker', () => {
     expect(await client.call('shortEpg', focus)).toMatchObject({ from: 'panel', cached: false, now: { title: 'Bundled 0' }, next: { title: 'Bundled 1' } });
     expect(await client.call('shortEpg', focus)).toMatchObject({ from: 'panel', cached: true, now: { title: 'Bundled 0' } });
     expect(asked).toEqual(['http://p.test/player_api.php?username=u&password=secret&action=get_short_epg&stream_id=1&limit=4']);
+
+    // The signed config's blocklist (step 30b2): nothing cached, nothing blocked; the config
+    // worker's copy read at `reloadConfig`, a Unicode host mapped to punycode first.
+    const urls = ['http://live.blocked.example/1.ts', 'http://free.example/1.ts', 'http://xn--mnchen-3ya.example/x', `http://m${String.fromCharCode(0xfc)}nchen.example/y`];
+    expect(await client.call('blocked', { urls })).toEqual([false, false, false, false]);
+    const salt = 'QtHj17D-F3HxhSWwfvhERM83_Cu0K5lHS7cQ_PczpBA';
+    const hashes = ['blocked.example', 'xn--mnchen-3ya.example'].map((host) => createHash('sha256').update(salt + host, 'utf8').digest('base64url'));
+    const signed = JSON.parse(configAnswer(configDocFields({ blocklist: { salt, hashes } }))) as { doc: string; sig: string };
+    const kv = await openDatabase(factory);
+    await transact(kv, STORE.kv, 'readwrite', (tx) => {
+      tx.objectStore(STORE.kv).put({ doc: signed.doc, sig: signed.sig, country: null, fetchedAt: 1 }, CONFIG_KEY);
+    });
+    kv.close();
+    expect(await client.call('reloadConfig')).toBe(2);
+    expect(await client.call('blocked', { urls })).toEqual([true, false, true, true]);
   }, 120_000);
 });

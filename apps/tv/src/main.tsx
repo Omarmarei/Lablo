@@ -7,6 +7,7 @@ import type { Language } from '@lablo/ui';
 import { Spinner } from '@lablo/ui';
 import type { AppData } from './App';
 import { App } from './App';
+import { createConfigSchedule } from './data/config-schedule';
 import type { DataEngine, SourceFacts } from './data/engine';
 import { readDebugParams, readScreen } from './data/params';
 import type { RefreshScheduler } from './data/refresh-scheduler';
@@ -98,6 +99,17 @@ function dataEngine(): DataEngine {
   }
   return engine;
 }
+
+/**
+ * The signed config (RELAY step 30b2): a config worker after the start's first paint and then
+ * every 6 h, never waited for; its policy (`config.policy`) is enforced from step 30c. The
+ * request comes from the build (tv-defines.config.ts).
+ */
+const config = createConfigSchedule({
+  engine: { refreshConfig: (request, onCached) => dataEngine().refreshConfig(request, onCached) },
+  request: { base: __API_BASE__, platform: __PLATFORM__, version: __APP_VERSION__, keys: __CONFIG_KEYS__ },
+  lifecycle: (listener) => platform.onLifecycle(listener),
+});
 
 /**
  * The app's player controller, made on the first play (RELAY step 20a): the stage under the page,
@@ -387,5 +399,7 @@ if (screen === 'gallery') {
     const start = startPoint(profile);
     if (start.screen === 'home') showLive(root, start.language, start.resume);
     else showOnboarding(root, start.language);
+    // After the start's screen has painted: the config never delays it.
+    config.start();
   });
 }

@@ -105,6 +105,9 @@ function setup(): Setup {
       const dbs: IDBDatabase[] = [];
       return worker(new EpgService({ openDb: opener(dbs), transport: net, now: () => NOW }).handlers(), dbs);
     },
+    startConfigWorker: () => {
+      throw new Error('the short EPG never refreshes the config');
+    },
   });
   engines.push(engine);
   return { engine, clock, asked };

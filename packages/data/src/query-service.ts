@@ -45,6 +45,9 @@
  * - `itemsByKey` gives the catalog items of ContentKeys ("Continue watching", step 27d): each key
  *   is found in its source's loaded segment (the key map's hashes), and only the chunks of the
  *   items found are read.
+ * - `blocked` tells, for each URL, whether its host or a parent is on the signed config's blocklist
+ *   (step 30b2, `blocklist.ts`): the list comes from the config worker's cached copy, read when
+ *   first asked and again at `reloadConfig` (the app calls it after a config refresh).
  * - `profile` and `editProfile` read and change the profile document for the app (step 13b):
  *   onboarding's answers and the sources the user added. An edit is a read-modify-write in one
  *   transaction, like the ingest worker's favourites update, so neither can lose the other's.
@@ -63,6 +66,11 @@ import { epgDeclared, getEpgMetas, readEpgBuckets, readEpgChannels, readEpgDecla
 import { epgMappingKey, epgOverridesOf } from './epg-overrides';
 import type { RpcContext } from './rpc';
 import type { ByteTransport } from './bytes';
+import type { Blocklist } from './blocklist';
+import { cachedBlocklist } from './blocklist';
+import { CONFIG_KEY } from './config-constants';
+import { getValue } from './idb';
+import { STORE } from './schema';
 import type { LoadedProfile, ProfileDoc, ProfileEdit } from './profile';
 import { applyProfileEdit, loadProfile, readEpgOffsets, readEpgOverrides, updateProfile } from './profile';
 import { epgOffsetsOf } from './epg-sources';
@@ -352,6 +360,8 @@ export class QueryService {
   private readonly panelEpg: ShortEpgCache | null;
   private readonly vodInfos: VodInfoCache | null;
   private readonly seriesInfos: SeriesInfoCache | null;
+  /** The cached config's blocklist (step 30b2): read when first asked, again after `reloadConfig`. */
+  private blocklist: Promise<Blocklist> | null = null;
 
   constructor(private readonly options: QueryServiceOptions) {
     this.cacheSize = Math.max(1, options.chunkCache ?? 16);
@@ -388,7 +398,35 @@ export class QueryService {
       itemsByKey: (req: KeyItemsRequest): Promise<CatalogItem[]> => this.itemsByKey(req),
       profile: (): Promise<LoadedProfile | null> => this.profile(),
       editProfile: (edit: ProfileEdit): Promise<boolean> => this.editProfile(edit),
+      blocked: (arg: { urls: string[] }): Promise<boolean[]> => this.blocked(arg.urls),
+      reloadConfig: (): Promise<number> => this.reloadConfig(),
     };
+  }
+
+  /** For each URL, whether its host or one of the host's parents is on the cached config's blocklist. */
+  async blocked(urls: readonly string[]): Promise<boolean[]> {
+    const list = await this.readBlocklist();
+    return urls.map((url) => list.blocksUrl(url));
+  }
+
+  /** Reads the blocklist again (the config worker kept a new copy); answers how many hashes it has. */
+  async reloadConfig(): Promise<number> {
+    this.blocklist = null;
+    return (await this.readBlocklist()).size;
+  }
+
+  private readBlocklist(): Promise<Blocklist> {
+    if (this.blocklist === null) {
+      const read = this.db()
+        .then((db) => getValue<unknown>(db, STORE.kv, CONFIG_KEY))
+        .then(cachedBlocklist);
+      this.blocklist = read;
+      // A failed read is tried again on the next call.
+      read.catch(() => {
+        if (this.blocklist === read) this.blocklist = null;
+      });
+    }
+    return this.blocklist;
   }
 
   private db(): Promise<IDBDatabase> {

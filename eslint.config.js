@@ -266,7 +266,7 @@ export default defineConfig(
     rules: {
       'boundaries/element-types': ['error', { default: 'disallow', rules: ELEMENT_RULES }],
       // Other packages are consumed through their entry point (src/index.ts) only. data has
-      // four more (package.json `exports`): its three workers, which the app starts with
+      // five more (package.json `exports`): its four workers, which the app starts with
       // `import QueryWorker from '@lablo/data/query.worker?worker'`, and `@lablo/data/client`,
       // which keeps the other data modules (and their polyfills) out of the main bundle. crypto
       // has one more: `@lablo/crypto/check-vectors`, the shared vectors' checks, which only the
@@ -278,7 +278,7 @@ export default defineConfig(
           default: 'disallow',
           rules: [
             { target: ['*'], allow: 'src/index.ts' },
-            { target: ['data'], allow: ['src/client.ts', 'src/query.worker.ts', 'src/ingest.worker.ts', 'src/epg.worker.ts'] },
+            { target: ['data'], allow: ['src/client.ts', 'src/query.worker.ts', 'src/ingest.worker.ts', 'src/epg.worker.ts', 'src/config.worker.ts'] },
             { target: ['crypto'], allow: ['src/check-vectors.ts'] },
             { target: ['protocol'], allow: ['src/check-samples.ts'] },
           ],
