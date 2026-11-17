@@ -13,7 +13,7 @@ import { addXtreamAndWatch, settled, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
 import type { PressBudget, PressTiming } from './remote-keys';
 import { budgetFailures, summarize } from './remote-keys';
-import { THROTTLE, busyMs, throttle, transitionOf } from './throttle';
+import { THROTTLE, baseBusyMs, busyMs, throttle, transitionOf } from './throttle';
 
 /**
  * The grid guide on a large catalog at 4x CPU throttle (RELAY step 23d, architecture.md §4), as
@@ -199,7 +199,7 @@ async function browse(remote: RemoteDriver, live: Locator, tier: 'full' | 'low')
   // "All channels": every row of the catalog.
   await expect(page.getByTestId('live-meta').locator('[data-n]')).toHaveAttribute('data-n', String(CHANNELS));
   remote.timings.length = 0;
-  const base = await busyMs(page);
+  const base = await baseBusyMs(page);
   const release = await throttle(page, THROTTLE);
   const slowdown = (await busyMs(page)) / base;
   await remote.watchLongTasks();

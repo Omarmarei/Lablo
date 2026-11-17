@@ -10,7 +10,7 @@ import { addXtreamAndWatch, settled, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
 import type { PressBudget, PressTiming } from './remote-keys';
 import { budgetFailures, summarize } from './remote-keys';
-import { THROTTLE, busyMs, throttle, transitionOf } from './throttle';
+import { THROTTLE, baseBusyMs, busyMs, throttle, transitionOf } from './throttle';
 
 /**
  * The live screen on a large catalog at 4x CPU throttle (RELAY step 14b, architecture.md §4):
@@ -75,7 +75,7 @@ async function zap(remote: RemoteDriver, root: Locator, tier: 'full' | 'low'): P
   // The tier's motion: a row's focus transition, none on the low tier.
   expect(await transitionOf(page, '[data-testid=channels] .z-row')).toBe(tier === 'low' ? '0s, 0s' : '0.12s, 0.12s');
   remote.timings.length = 0;
-  const base = await busyMs(page);
+  const base = await baseBusyMs(page);
   const release = await throttle(page, THROTTLE);
   const slowdown = (await busyMs(page)) / base;
   await remote.watchLongTasks();

@@ -39,6 +39,19 @@ export function busyMs(page: Page): Promise<number> {
   });
 }
 
+/**
+ * The page's unthrottled speed, the reference a slowdown is proven against: the fastest of
+ * `samples` `busyMs` runs. One run can catch a moment of contention (a worker finishing its last
+ * query, a GC, the CI runner's other job) and inflate the reference, which shrank the search
+ * spec's measured slowdown to 1.6x and 1.29x against 4x (legs 86 and 91). The throttled side stays
+ * one summed run: contention there only makes it slower.
+ */
+export async function baseBusyMs(page: Page, samples = 3): Promise<number> {
+  let fastest = Infinity;
+  for (let i = 0; i < samples; i++) fastest = Math.min(fastest, await busyMs(page));
+  return fastest;
+}
+
 /** The CSS transition durations of the first element `selector` finds: the tier's motion tokens. */
 export function transitionOf(page: Page, selector: string): Promise<string> {
   return page.evaluate((selector) => {
