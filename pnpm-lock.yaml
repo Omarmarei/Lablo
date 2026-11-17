@@ -18,6 +18,9 @@ importers:
       '@lablo/core':
         specifier: workspace:*
         version: link:packages/core
+      '@lablo/crypto':
+        specifier: workspace:*
+        version: link:packages/crypto
       '@lablo/data':
         specifier: workspace:*
         version: link:packages/data
@@ -76,6 +79,9 @@ importers:
       '@lablo/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@lablo/crypto':
+        specifier: workspace:*
+        version: link:../../packages/crypto
       '@lablo/data':
         specifier: workspace:*
         version: link:../../packages/data
@@ -157,7 +163,18 @@ importers:
         specifier: ^4.10.2
         version: 4.10.2
 
-  packages/crypto: {}
+  packages/crypto:
+    dependencies:
+      '@noble/hashes':
+        specifier: 2.4.0
+        version: 2.4.0
+      tweetnacl:
+        specifier: 1.0.3
+        version: 1.0.3
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
 
   packages/data:
     dependencies:
@@ -336,6 +353,9 @@ importers:
       '@lablo/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@lablo/crypto':
+        specifier: workspace:*
+        version: link:../../packages/crypto
       acorn:
         specifier: ^8.19.0
         version: 8.19.0
@@ -1426,6 +1446,10 @@ packages:
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [win32]
+
+  '@noble/hashes@2.4.0':
+    resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
+    engines: {node: '>= 20.19.0'}
 
   '@nodelib/fs.scandir@2.1.5':
     resolution: {integrity: sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==}
@@ -4146,6 +4170,9 @@ packages:
   tweetnacl@0.14.5:
     resolution: {integrity: sha512-KXXFFdAbFXY4geFIwoyNK+f5Z1b7swfXABfL7HXCmoIWMKU3dmS26672A4EeQtDzLKy7SXmfBu51JolvEKwtGA==}
 
+  tweetnacl@1.0.3:
+    resolution: {integrity: sha512-6rt+RN7aOi1nGMyC4Xa5DdYiukl2UWCbcJft7YhxReBGQD7OAM8Pbxw6YMo4r2diNEA8FEmu32YOn9rhaiE5yw==}
+
   type-check@0.4.0:
     resolution: {integrity: sha512-XleUoc9uwGXqjWwXaUTZAmzMcFZ5858QA2vvx1Ur5xIcixXIP+8LnFDgRplU30us6teqdlskFfu+ae4K79Ooew==}
     engines: {node: '>= 0.8.0'}
@@ -5458,6 +5485,8 @@ snapshots:
 
   '@next/swc-win32-x64-msvc@16.4.4':
     optional: true
+
+  '@noble/hashes@2.4.0': {}
 
   '@nodelib/fs.scandir@2.1.5':
     dependencies:
@@ -8202,6 +8231,8 @@ snapshots:
       fsevents: 2.3.3
 
   tweetnacl@0.14.5: {}
+
+  tweetnacl@1.0.3: {}
 
   type-check@0.4.0:
     dependencies:

@@ -82,6 +82,17 @@ describe('package boundaries (boundaries/element-types)', () => {
     const deepWorker = await lint(file, "import W from '../../../packages/data/src/rpc?worker';\nexport { W };\n");
     expect(deepWorker.some((m) => m.startsWith('boundaries/entry-point'))).toBe(true);
   });
+
+  it("allows crypto's vector checks as an entry point, and nothing else in crypto", async () => {
+    for (const file of ['apps/tv/src/f.ts', 'tools/engines/src/f.ts']) {
+      expect(await lint(file, "import { checkVectors } from '@lablo/crypto/check-vectors';\nexport { checkVectors };\n")).toEqual([]);
+    }
+    const deep = await lint('apps/tv/src/f.ts', "import { toHex } from '../../../packages/crypto/src/test-support';\nexport { toHex };\n");
+    expect(deep.some((m) => m.startsWith('boundaries/entry-point'))).toBe(true);
+    // Still nothing internal from inside crypto.
+    const inward = await lint('packages/crypto/src/f.ts', "import '@lablo/core';\n");
+    expect(inward.some((m) => m.startsWith(BOUNDARY))).toBe(true);
+  });
 });
 
 describe('platform globals (no-restricted-globals / no-restricted-properties)', () => {

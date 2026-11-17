@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@lablo/core": "workspace:*",
+    "@lablo/crypto": "workspace:*",
     "@lablo/data": "workspace:*",
     "@lablo/platform-api": "workspace:*",
     "@lablo/platform-browser": "workspace:*",

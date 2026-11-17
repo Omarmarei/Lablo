@@ -18,23 +18,28 @@
  * the grid guide from the header's "Guide" (step 23e: every cell, slot label and the now line
  * against GUIDE_LAYOUT, across rows and time) (artifacts/engines/onboarding-*.png: the form,
  * done, live, category, on Tizen exit, and guide screens).
- * Last, the Lablo Lab (dist/tv-lab, step 15a) runs its spikes at launch and reports to a mock
+ * Then the Lablo Lab (dist/tv-lab, step 15a) runs its spikes at launch and reports to a mock
  * provider on the host (artifacts/engines/lab-logs): S1 must pass on every engine, and the
  * polyfills it filled must be exactly the ones the engine lacks.
+ * Last, the crypto vectors page (dist/tv-vectors, step 29b1): @lablo/crypto's shared vectors
+ * in the page and in a Blob worker, every check with Node's answer under Node's names.
  *
  * Options:
  *   --engine chrome53|chrome56|chrome68   repeatable; default all
  *   --dist <dir>                          the builds to test (default dist/tv)
  *   --dist-lab <dir>                      the lab builds (default dist/tv-lab)
+ *   --dist-vectors <dir>                  the crypto vectors page (default dist/tv-vectors)
  *   --self-test                           also run seeded broken bundles that must fail
  *   --keep                                leave the containers running (for debugging)
  *   --hour <0-23>                         the hour of the day each engine starts in, in its own
  *                                         zone (default 21: the guide steps cross midnight)
  * Environment: LABLO_ENGINE_CACHE overrides the download cache directory.
  */
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import type { CryptoVectors } from '@lablo/crypto/check-vectors';
+import { checkVectors } from '@lablo/crypto/check-vectors';
 import type { CdpClient } from './src/cdp';
 import { connectToPage, waitForDevtools } from './src/cdp';
 import { ENGINE_HOUR, assertDockerRunning, engineLogs, engineZone, ensureImage, startEngine, stopEngine, zoneOffset } from './src/docker';
@@ -53,6 +58,7 @@ import type { PlatformRun, TvPlatform } from './src/scenario';
 import { TV_PLATFORMS, evaluateRun, readProbe, runPlatform } from './src/scenario';
 import type { AppScreen, Variant } from './src/variants';
 import { APP_VARIANT, CSS_SEEDS, SEEDS, WALK_SEEDS, mustPass, stageApp, stageCssSeed, stageNoPolyfills, stageSeed } from './src/variants';
+import { VECTORS_DIR, VECTORS_SEED, evaluateVectors, runVectors, stageVectors, stageVectorsSeed, vectorsSummary, vectorsUrl } from './src/vectors';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
 const OUT = path.join(ROOT, 'artifacts/engines');
@@ -65,6 +71,8 @@ const LOAD_TIMEOUT_MS = 60_000;
 const LIVE_TIMEOUT_MS = 8_000;
 /** The lab's whole run at launch, S2's write test included. */
 const LAB_TIMEOUT_MS = 120_000;
+/** Every crypto vector in the page, then in the worker (two N = 2^15 scrypts and RFC 7914's p = 16). */
+const VECTORS_TIMEOUT_MS = 180_000;
 
 const log = (line: string): void => console.log(line);
 
@@ -75,7 +83,7 @@ interface RunReport {
   readonly engine: string;
   readonly variant: string;
   readonly platform: string;
-  readonly screen: AppScreen | 'lab';
+  readonly screen: AppScreen | 'lab' | 'vectors';
   readonly userAgent: string | null;
   /** What the catalog panel showed: the refresh, the search, the guide and now/next. */
   readonly refresh: string | null;
@@ -91,6 +99,8 @@ interface RunReport {
   readonly onboarding: readonly WalkTimes[] | null;
   /** The lab's session in artifacts/engines/lab-logs, and its counts (lab runs only). */
   readonly lab: { readonly session: string | null; readonly summary: string } | null;
+  /** The crypto vectors page: each run's time and the backup's scrypt in it, ms (vectors runs only). */
+  readonly vectors: { readonly pageMs: number | null; readonly workerMs: number | null; readonly pageScryptMs: number | null; readonly workerScryptMs: number | null } | null;
   readonly failures: readonly string[];
   readonly mustPass: boolean;
   readonly durationMs: number;
@@ -281,6 +291,7 @@ async function runLabs(client: CdpClient, engine: Engine, server: LabServer, lab
         bidi: null,
         onboarding: null,
         lab: { session: run.state?.session ?? null, summary },
+        vectors: null,
         failures,
         mustPass: lab.mustPass,
         durationMs: run.durationMs,
@@ -294,6 +305,54 @@ async function runLabs(client: CdpClient, engine: Engine, server: LabServer, lab
   return reports;
 }
 
+/** A vectors page to run: the real one must pass, the seed must fail. */
+interface VectorsTarget {
+  readonly variant: string;
+  readonly dir: string;
+  readonly mustPass: boolean;
+}
+
+async function runVectorsPages(client: CdpClient, engine: Engine, targets: readonly VectorsTarget[], expected: readonly string[]): Promise<RunReport[]> {
+  const reports: RunReport[] = [];
+  for (const target of targets) {
+    const run = await runVectors(client, vectorsUrl(target.dir), VECTORS_TIMEOUT_MS);
+    const failures = evaluateVectors(run, engine, expected);
+    const report = run.state?.report ?? null;
+    const scryptMs = (results: ReadonlyArray<{ readonly name: string; readonly ms: number }> | null | undefined): number | null =>
+      results?.find((r) => r.name === 'backup[0].master')?.ms ?? null;
+    reports.push({
+      engine: engine.id,
+      variant: target.variant,
+      platform: 'both',
+      screen: 'vectors',
+      userAgent: run.state?.userAgent ?? null,
+      refresh: null,
+      search: null,
+      guide: null,
+      nowNext: null,
+      screenshot: null,
+      arabicScreenshot: null,
+      bidi: null,
+      onboarding: null,
+      lab: null,
+      vectors: {
+        pageMs: report?.page.ms ?? null,
+        workerMs: report?.worker.ms ?? null,
+        pageScryptMs: scryptMs(report?.page.results),
+        workerScryptMs: scryptMs(report?.worker.results),
+      },
+      failures,
+      mustPass: target.mustPass,
+      durationMs: run.durationMs,
+    });
+    const verdict = failures.length === 0 ? 'PASS' : 'FAIL';
+    const unexpected = target.mustPass === (failures.length === 0) ? '' : '  <-- UNEXPECTED';
+    log(`  ${target.variant.padEnd(30)} ${'both'.padEnd(6)} ${'vectors'.padEnd(10)} ${verdict} ${(run.durationMs / 1000).toFixed(1)} s${unexpected}${vectorsSummary(run)}`);
+    for (const failure of failures) log(`      ${failure}`);
+  }
+  return reports;
+}
+
 async function runEngine(
   engine: Engine,
   zip: string,
@@ -301,6 +360,7 @@ async function runEngine(
   variants: readonly Variant[],
   checks: Record<TvPlatform, WalkData>,
   labs: { readonly server: LabServer; readonly targets: readonly LabTarget[] },
+  vectors: { readonly targets: readonly VectorsTarget[]; readonly expected: readonly string[] },
   keep: boolean,
   hour: number,
 ): Promise<RunReport[]> {
@@ -346,6 +406,7 @@ async function runEngine(
               screen,
               ...outcome.fields,
               lab: null,
+              vectors: null,
               failures,
               mustPass: mustPass(variant, engine.major),
               durationMs: outcome.durationMs,
@@ -361,6 +422,7 @@ async function runEngine(
         }
       }
       reports.push(...(await runLabs(client, engine, labs.server, labs.targets)));
+      reports.push(...(await runVectorsPages(client, engine, vectors.targets, vectors.expected)));
     } finally {
       client.close();
     }
@@ -380,6 +442,7 @@ async function main(): Promise<void> {
       engine: { type: 'string', multiple: true },
       dist: { type: 'string', default: 'dist/tv' },
       'dist-lab': { type: 'string', default: 'dist/tv-lab' },
+      'dist-vectors': { type: 'string', default: 'dist/tv-vectors' },
       'self-test': { type: 'boolean', default: false },
       keep: { type: 'boolean', default: false },
       hour: { type: 'string', default: String(ENGINE_HOUR) },
@@ -392,6 +455,7 @@ async function main(): Promise<void> {
   const selfTest = values['self-test'];
   const distTv = path.resolve(ROOT, values.dist);
   const distLab = path.resolve(ROOT, values['dist-lab']);
+  const distVectors = path.resolve(ROOT, values['dist-vectors']);
   const cacheDir = path.resolve(ROOT, process.env.LABLO_ENGINE_CACHE ?? '.cache/engines');
 
   assertDockerRunning();
@@ -405,6 +469,14 @@ async function main(): Promise<void> {
   const labDir = stageLab(distLab, VARIANTS_DIR);
   if (labDir === null) throw new Error(`${path.relative(ROOT, distLab)} has no lab builds: run pnpm build:tv first`);
   const labTargets: LabTarget[] = [{ variant: 'lab', dir: LAB_DIR, mustPass: true }];
+  const vectorsDir = stageVectors(distVectors, VARIANTS_DIR);
+  if (vectorsDir === null) throw new Error(`${path.relative(ROOT, distVectors)} has no crypto vectors page: run pnpm build:tv first`);
+  const vectorsTargets: VectorsTarget[] = [{ variant: 'crypto-vectors', dir: VECTORS_DIR, mustPass: true }];
+  // What every engine must answer: Node's own run of the same vectors, all passing.
+  const nodeVectors = await checkVectors(JSON.parse(readFileSync(path.join(ROOT, 'packages/crypto/test/vectors.json'), 'utf8')) as CryptoVectors);
+  const nodeFailures = nodeVectors.filter((r) => !r.ok);
+  if (nodeFailures.length > 0) throw new Error(`the crypto vectors fail in Node itself: ${nodeFailures.map((r) => r.name).join(', ')}`);
+  const expectedVectors = nodeVectors.map((r) => r.name);
   // Served in each container at FIXTURE_ORIGIN; every variant's runs ingest them.
   const staged = stageFixtures(VARIANTS_DIR);
   // The live screen's rail and rows, as the walk checks them (step 14c).
@@ -420,6 +492,8 @@ async function main(): Promise<void> {
     variants.push(...WALK_SEEDS.map((seed) => stageSeed(distTv, VARIANTS_DIR, seed)));
     stageLabSeed(labDir, VARIANTS_DIR);
     labTargets.push({ variant: LAB_SEED.id, dir: LAB_SEED.id, mustPass: false });
+    stageVectorsSeed(vectorsDir, VARIANTS_DIR);
+    vectorsTargets.push({ variant: VECTORS_SEED.id, dir: VECTORS_SEED.id, mustPass: false });
     log('\nbuilding the no-polyfills variant (test only)');
     variants.push(stageNoPolyfills(ROOT, VARIANTS_DIR));
   }
@@ -433,7 +507,9 @@ async function main(): Promise<void> {
   try {
     for (const engine of engines) {
       const zip = await ensureEngineZip(engine, cacheDir, log);
-      reports.push(...(await runEngine(engine, zip, image, variants, checks, { server, targets: labTargets }, values.keep, hour)));
+      reports.push(
+        ...(await runEngine(engine, zip, image, variants, checks, { server, targets: labTargets }, { targets: vectorsTargets, expected: expectedVectors }, values.keep, hour)),
+      );
     }
   } finally {
     server.stop();
