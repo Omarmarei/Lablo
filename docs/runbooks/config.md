@@ -134,7 +134,34 @@ Try it: `pnpm build:web`, `pnpm --filter @lablo/web start`, then
 ## On the TV
 
 What the TV does with the answer (`packages/data`, step 30b1; the config worker and the app's
-schedule come with step 30b2, the enforcement with step 30c):
+schedule, step 30b2; the enforcement comes with step 30c):
+
+- **When** (`apps/tv/src/data/config-schedule.ts`): a config worker runs after the start's first
+  screen has painted (never before it, never waited for), then 6 h after a run that brought a new
+  doc, or 30 min after one that didn't (offline at boot, a time limit, a refusal) or whose worker
+  died. A run that falls due while the app is hidden happens when it is visible again; a TV that
+  slept past the due time runs one as it wakes. One run at a time.
+- **The config worker** (`@lablo/data/config.worker`, 134 KB: the schemas and the signature
+  check, which the main bundle can't take) starts for one run and is terminated after it. It reads
+  the cached copy and sends its policy first (the app applies it at once), then fetches, and
+  answers the fetched policy, or the cached one again with why. The app keeps the policy in a
+  signal (`config.policy` in main.tsx); nothing shows it before step 30c.
+- **The blocklist lives in the query worker** (`blocked(urls)`): it reads the salt and the hashes
+  from the cached copy (no schema there: only the config worker writes that record, after its
+  checks), when first asked and again after each config run (`reloadConfig`).
+- **What the build embeds** (`tv-defines.config.ts`, read by tools/build and by Vite):
+  - the keys: a TV build trusts `config/keys.json`'s production keys, or the dev key while there
+    are none, **never both** (a build with production keys never trusts the dev key, whose seed is
+    public); the desktop dev app (`pnpm dev`, the e2e tests) trusts both;
+  - the API base: `http://127.0.0.1:3100` (the local backend) until step 34 sets the production
+    domain in `PRODUCTION_API_BASE`. On a TV that address is the TV itself, so the fetch fails and
+    the defaults stay: harmless until step 34;
+  - the version: `apps/tv/package.json`'s (the doc's `minVersion` compares with it).
+- **Checking it locally:** run the backend (`pnpm --filter @lablo/web start` on port 3100, or any
+  server answering `/v1/config` with a dev-signed answer and `access-control-allow-origin: *`),
+  then `pnpm dev`: after the first screen, the app's IndexedDB (`lablo`, store `kv`, key
+  `config`) holds the copy. Without a backend the fetch fails quietly (the worker's failed
+  request isn't a page console error).
 
 - **Taking an answer** (`checkConfigResponse`): JSON, `configResponseSchema`, the signature against
   the keys the build embeds, the signed text's JSON, `configDocSchema`. Refused when it has expired
@@ -147,7 +174,8 @@ schedule come with step 30b2, the enforcement with step 30c):
   size, any refusal) the cached copy stays in force; with none, the defaults: nothing killed,
   nothing blocked. If IndexedDB can't keep a good answer, it still applies until the app closes.
 - **The cached copy** is checked again against the build's keys when it is read (a key rotated out,
-  or a dev-signed copy once a build trusts only production keys, is dropped), but never for its
+  or a dev-signed copy once a build trusts only production keys, is deleted, so the query worker's
+  blocklist drops it too), but never for its
   age: **an expired cached config stays in force** until a newer one arrives, so a kill rule can't
   lapse while a TV is offline. Re-signing on time still matters for new installs and wiped TVs.
 - **The policy** (`configPolicy`): the strongest matching rule other than a notice, each mode
