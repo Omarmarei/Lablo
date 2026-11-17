@@ -1676,6 +1676,7 @@ envelope   = {v:1, kdf:"scrypt-15-8-1", nonce:24B, ct: secretbox(gzip(profileJSO
 - **The build's constants** (`tv-defines.config.ts`, used by tools/build's replace plugin and Vite's `define`, declared in `env.d.ts`): `__CONFIG_KEYS__` (a TV build: `config/keys.json`'s production keys, or the dev key while there are none, never both; the desktop dev app: both), `__API_BASE__` (`http://127.0.0.1:3100` until step 34 sets `PRODUCTION_API_BASE`), `__APP_VERSION__` (`apps/tv/package.json`). Tizen's `config.xml` already has `<access origin="*">` (spike S7) and webOS needs nothing for HTTP, so the API host needs no manifest change.
 - **Sizes:** main.js 417.7 / 405.0 KB (+2.0 KB: the schedule, and `es.regexp.flags`, which Babel adds by name for the policy's `flags` field; 222 core-js modules, 219 before); the config worker 133.7 KB; the query worker 129.0 KB; the ingest and EPG workers unchanged. The lab's main.js inlines the config worker too (it uses `createAppDataEngine`); its own code is unchanged.
 - **Vite pre-bundles the config worker's dependencies** (`optimizeDeps.include`: zod/mini, tweetnacl, the five noble modules): its start-up scan doesn't follow `?worker` imports, and a dependency found late reloads every open page (the fflate lesson): a cold-cache check without them reloaded the app mid-run.
+- **Merged:** PR #102 as merge commit `adc2029` on green CI on the first run (verify 11 m 10 s with `pnpm e2e` 128 passed, media 11 m 47 s, engines 19 m 50 s).
 
 ### 3.4 Telemetry
 
