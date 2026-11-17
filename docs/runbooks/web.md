@@ -6,7 +6,9 @@ no production database and no deploy yet.
 
 What it will serve (architecture.md §3.2): the signed config (step 30), the pairing relay and the
 phone page `/p` (step 31), the encrypted backup (step 32), telemetry and diagnostics (step 33).
-What it serves now (step 29a): `GET /v1/health`.
+What it serves now (step 29a): `GET /v1/health`. What it has ready for those steps (step 29b2a): the
+messages' schemas in `@lablo/protocol`, and the blob store and rate limiter interfaces with their
+in-memory fakes (below).
 
 **It never fetches a user-supplied URL and never relays a stream** (ADR-005). The lint enforces it:
 see "No outbound network" below.
@@ -91,6 +93,31 @@ narrow exception for their own file, with a test that proves it is that narrow.
 `test/lint-web-outbound.test.ts` proves each form is rejected in `apps/web` and still allowed in the
 TV app, the mock, the tools and the tests.
 
+## The blob store and the rate limiter (step 29b2a)
+
+`apps/web/src/server/blob-store.ts` and `rate-limit.ts` (architecture.md §3.2, "Built in step
+29b2a"). Production gets R2 and Upstash adapters in step 31 or 34, each with a narrow, tested
+exception in `NO_OUTBOUND_RULES`; until then only the fakes exist.
+
+- **`BlobStore`:** `put`, `get`, `delete`, `presignPut(key, size, ttlMs)` (exactly `size` bytes)
+  and `presignGet(key, ttlMs)`, 1 s to 24 h. Large bodies never pass through the backend: the
+  phone PUTs the encrypted M3U file to R2 and the TV GETs it from there. Keys are the server's
+  own: a lower-case prefix and one to three base64url segments (`pair/<sid>/<id>`).
+- **`MemoryBlobStore`:** in memory, so one process only: never in production. Its presigned
+  URLs point at `http://127.0.0.1:3100/dev/blob/<key>` (no such route exists yet) and carry an
+  HMAC under a secret made at start; `redeem(method, url, body?)` answers them as R2 would (403
+  for a changed, expired or other-method URL, 400 for a PUT of another length, 404 for no object).
+- **`RateLimiter`:** `limit(key, {limit, windowMs})` gives `{ok: true, remaining}` or
+  `{ok: false, retryAfterMs}`; `retryAfterSeconds` makes the `Retry-After` header.
+  `MemoryRateLimiter` keeps an exact sliding-window log in memory.
+- **IP addresses:** a route limits on `rateKey(scope, ip, secret)`, an HMAC of the address under
+  a server secret (at least 32 characters; from the environment in step 34), so neither the
+  database nor the limiter's store ever holds an IP (architecture.md §3.2, "Retention").
+
+The routes will check every body against `@lablo/protocol`'s schemas (zod), the same ones the TV
+and the phone page use. When the first route imports a workspace package (step 30), add it to
+`apps/web`'s dependencies and to `transpilePackages` in `next.config.ts`.
+
 ## CI
 
 The `web` job runs when a pull request changes `apps/web/`, `packages/protocol/`,
@@ -105,7 +132,7 @@ workspace file, the workflows). It starts a `postgres:17-alpine` service on port
   within 5 minutes continues. It never stops in CI (no agent, no terminal). Step 29a pinned
   `next@16.4.4`: the advisory then (GHSA-mfr8-8qww-v76h, moderate: `'use cache'` through
   `unstable_cache()`) doesn't touch this app, and the fixed 16.4.5 was a day short of the
-  two-week rule. Step 29b moves to the newest two-week-old patch.
+  two-week rule. Step 29b2b moves to the newest two-week-old patch.
 - **Vitest loads a global setup's bare imports from the workspace root**, which doesn't have
   `apps/web`'s dependencies: `global-setup.web.ts` loads `pg` with `createRequire` from
   `apps/web/package.json`. Test files resolve normally.
