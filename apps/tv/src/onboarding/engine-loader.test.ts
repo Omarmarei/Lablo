@@ -281,8 +281,10 @@ describe('createEngineLoader', () => {
     const { engine, calls } = fake();
     const slotted: LoaderEngine = { ...engine, refreshing: true };
     let wake: () => void = () => undefined;
+    let sleeps = 0;
     const sleep = (): Promise<void> =>
       new Promise<void>((resolve) => {
+        sleeps += 1;
         wake = resolve;
       });
     const loader = createEngineLoader({ engine: slotted, tier: () => Promise.resolve('full'), languages: () => [], now: () => 1, sleep });
@@ -292,6 +294,8 @@ describe('createEngineLoader', () => {
     wake();
     expect(await settled(handle.done)).toBe(false);
     await settle();
+    // The wait ends with the cancel: no further sleep for a slot nobody wants.
+    expect(sleeps).toBe(1);
     expect(calls.refresh).toEqual([]);
     expect(calls.edits).toEqual([]);
   });

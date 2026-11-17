@@ -11,6 +11,11 @@ describe('pairDraft', () => {
     expect(pairDraft(payload)).toEqual({ type: 'xtream', name: 'panel.test', account: { base: 'http://panel.test:8080', username: 'user1', password: 'secret' }, epgUrls: [] });
   });
 
+  it("keeps an Xtream login's guide links too", () => {
+    const payload: PairPayload = { v: 1, source: { type: 'xtream', server: 'panel.test', username: 'u', password: 'p' }, epg: ['guides.test/a.xml'] };
+    expect(pairDraft(payload)?.epgUrls).toEqual(['http://guides.test/a.xml']);
+  });
+
   it('keeps an M3U link with its name trimmed, and its guide links normalized in order, each once', () => {
     const payload: PairPayload = {
       v: 1,
