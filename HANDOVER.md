@@ -1,293 +1,227 @@
-# Lablo IPTV: relay leg 94 opening prompt
+# Lablo IPTV: relay leg 95 opening prompt
 
-You are leg 94 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 95 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 ## Status
-- **Earlier legs:** leg 0 planned the work; legs 1–92 did steps 1–31b (PRs #1–#117). Three steps wait for Omar: step 16's Samsung part, 19b and 21.
-- **Leg 93 (2026-11-17/18) split step 31c and built 31c1. 31c1 is merged and ticked.**
-  - **The split** (RELAY.md, step 31c):
-    - 31c1: the QR encoder and the pairing client in a worker. Done.
-    - 31c2: the TV's pairing screen, its add path and its statuses. Next.
-    - 31c3: the pairing e2e in CI's `web` job.
-    - 31c is ticked once all three are.
-  - **The leg's decisions** (RELAY.md, 31c "Decisions (leg 93)"):
-    - **The QR encoder is our own,** not a dependency. It is proved against two test-only oracles (`uqr`, `jsqr`).
-    - **The pairing client runs in a worker of its own** (`pair.worker.ts`). The key, the box and the zod schemas stay out of main.js.
-    - **The QR link is `<api base>/p#c=<code>&k=<tvPk>`:** the phone page and the API are one origin. The screen shows `<host[:port]>/p` for typing.
-  - **PR #118 (`d7f7c2e`), green on the first run:**
-    - verify 14 m 51 s (e2e 145 passed; unit 5,861 with one skipped);
-    - web 1 m 44 s;
-    - media 12 m 14 s;
-    - engines 19 m 31 s (all 114 runs as expected; the vectors page 209/209 on Chromium 53, 56 and 68).
-  - Then `5ba82be` recorded the merge and ticked 31c1. That commit and this handover go to main with the next PR.
-- **What 31c1 built** (architecture.md §3.2 "Built in step 31c1"):
-  - **`packages/core/src/qr.ts`:**
-    - `encodeQr(text, {mask?, minVersion?})` → `{size, version, level, mask, rows}`, where `rows[y]` is a string of `1` (dark) and `0` (light), with no quiet zone.
-    - `qrFits(text)`: the text fits a QR code (213 bytes).
-    - Byte mode, versions 1 to 10. Level M is raised to Q or H when the text still fits the same version. The mask is the one with the lowest penalty (the first of equals).
-    - A production link (76 bytes) is version 5, 37 modules a side.
-  - **`check-qr.ts`** (entry `@lablo/core/check-qr`): six golden cases. The vectors page runs them after the crypto vectors and the protocol samples.
-  - **`packages/data/src/pair-service.ts`:** `PairService` and `pairHandlers`.
-    - `open(base)`: a fresh key pair; `qrFits` checked before any request; then `POST /v1/pair`. It answers `{ok: true, code: {code, exp, link, typed, qr}}`, or `{ok: false, failure, retryMs}`. A new code forgets the session before it.
-    - `poll()` answers one of:
-      - `waiting`;
-      - `ready` with the parsed `PairPayload`, once (the key is forgotten);
-      - `unreadable` (the session ends; no status is possible);
-      - `ended` (410, 404, 401 or 409; also with no session);
-      - `wait` with `retryMs` (429);
-      - `failed` with the failure (the session stays).
-    - `status(category)`: once, after `ready`. On 200, 409, 404 or 401 the session ends. On a 429, a server error or no connection it stays, so the status can be sent again.
-    - `close()`.
-    - Each request has a 10 s limit and a 65 KB cap. Bodies are written by hand.
-  - **`pair-constants.ts`:** `PAIR_POLL_MS` (2000), `PAIR_TIMEOUT_MS`, `PAIR_RETRY_MS`. `@lablo/data/client` re-exports them, with the result types and `createPairClient`.
-  - **`pair.worker.ts`:** serves `pairHandlers` with `fetchTransport()`. `fetchTransport` now takes `method` and `body`.
-  - **`apps/tv/src/data/engine.ts`:**
-    - `pairing(): PairSession` (`open`, `poll`, `status`, `close`);
-    - `startPairWorker` is optional in `DataEngineOptions`;
-    - `workers.ts` passes `new PairWorker()`.
-  - **Sizes:** main.js's own code is 440.0 KB on Tizen and 427.3 KB on webOS (+0.5 KB). The pair worker is 133.5 KB of its 150 KB budget, and it is already inlined in main.js and the lab.
-  - **Tests:**
-    - `qr.test.ts` 33 and `pair-service.test.ts` 31;
-    - `test/pair-worker-bundle.test.ts`: the bundled worker in a Chromium-53 realm, through a whole pairing;
-    - `test/tv-data-engine.test.ts`: the engine's pairing (`PAIR_KEYS`, `started.pair`).
-  - **Mutation:** `artifacts/mutate31c1.py`, 152 written first, 152/152 at the end.
+- **Earlier legs:** leg 0 planned the work; legs 1–93 did steps 1–31c1 (PRs #1–#118). Three steps wait for Omar: step 16's Samsung part, 19b and 21.
+- **Leg 94 (2026-11-18) split step 31c2 and built 31c2a, but did not finish it.** The relay's context check fired at 453k tokens, so the leg committed the work and stopped.
+  - **The split** (RELAY.md, step 31c2):
+    - 31c2a: the screen, its add path and its statuses, in current Chromium. **Built, not merged.**
+    - 31c2b: the old-engine walk (`verify:engines` with the stand-in in `tools/engines`).
+    - 31c2 is ticked once both are.
+  - **Commit `2bc6afe`** (pushed to `relay/iptv-20261101-214120`, no PR yet). RELAY.md's 31c2a "Built in leg 94, not yet merged" lists what was done and what remains. architecture.md §3.2 "Built in step 31c2a" describes the code; its "Mutation", "Verify" and "Merged" lines are still to be written.
+- **What 31c2a built:**
+  - **`apps/tv/src/pairing/`:**
+    - `pair-state.ts`: `createPairing({nav, session, base, loader, refusal, lifecycle, timers, busy, added})`. Views: `opening`, `code`, `unavailable`, `ended`, `loading`, `failed`, `refused`, `done`, each with its buttons (`pairActions`). It pushes the `pair` screen (`PAIR_SCREEN`) on the navigator it is given; its pair worker ends when the screen leaves the stack (`nav.subscribe` plus `screen.open`), after a status still being sent.
+    - `pair-draft.ts`: `pairDraft(payload)` runs the payload through `checkForm`, at most four guide links (`PAIR_GUIDES_MAX`), duplicates dropped. `statusFor(code)` maps a load result to the phone's status.
+    - `pair-qr.ts`: `qrPath(rows)` and `qrModulePx(size)` (`QR_QUIET` 4, `QR_MAX_PX` 460).
+    - `PairPage.tsx`: the hook wrapper `PairPage`, and `PairContent` with no hooks (the tests call it as a function). Also `pair.css`.
+  - **Onboarding:**
+    - `onboarding/load-text.ts`: `errorText`, `refusalText` and `phaseText`, moved out of `OnboardingApp.tsx`.
+    - The `pairing` option in `onboarding-state.ts`: the source screen's third row, `type-phone`. `added` resets the navigator to onboarding's done screen.
+  - **The add path:**
+    - `form.ts`: `SourceDraft.epgUrl` is now `epgUrls`.
+    - `engine-loader.ts`: `typedGuides` names the guides `<id>`, `<id>-2` … `<id>-4`. The loader waits for the refresh slot (`refreshing`, `SLOT_WAIT_MS` 500).
+  - **Settings:**
+    - `sources-state.ts`: `addFromPhone` gives the screen a header zone, `canAdd`, and `reload()`.
+    - `settings-state.ts`: the `pairing` and `sourceAdded` options. `PAIR_SCREEN` joins `SETTINGS_SCREENS`.
+    - `SettingsScreen.tsx`: `AddFromPhone` (`sources-add-phone`) and the pair page.
+  - **`main.tsx`:**
+    - `pairingOn(nav, added, loader, busy?)` and `deviceTier()`.
+    - Settings' `addLoader` and `holdRefreshes`, which stop the background refreshes while a paired source loads, unless `gateStopped`.
+    - `sourceAdded`: the live screens read the catalogs and guides again.
+  - **Catalogs:** 17 new keys in en and ar (`pair.*`, `onboarding.phone`, `onboarding.phoneHint`, `sources.addPhone`).
+  - **E2E:**
+    - `tools/engines/src/pair-stand-in.ts`: `PairStandIn`, 31a's routes in memory, with the TV's CORS and `expire(code)`.
+    - `e2e/config-server.ts`: answers `/v1/pair*` from it (`server.pair`).
+    - `e2e/pair-phone.ts`: `phoneSends` and `phoneSees` (the typed-code path).
+    - `e2e/pairing.spec.ts`: 3 tests.
+- **Verified in leg 94:**
+  - lint and the full typecheck;
+  - unit 6,025 (+163) before the last gap tests (the touched files pass after them);
+  - `build:tv`: main.js's own code 455.4 KB Tizen and 442.7 KB webOS (+15.4 KB: the state ~4.6, the page ~4.1, the strings ~3.5, the wiring ~1.5; measured in the minified bundle, no leaked dependency). The pair worker is unchanged at 133.5 KB;
+  - e2e `pairing.spec.ts` 3/3;
+  - screenshots `pair-{code,loading,refused}-en` and `pair-{sources,code,failed,done}-ar` looked at: all right.
+- **Mutation** (`artifacts/mutate31c2a.py`, 117 written first, five gaps closed while writing):
+  - Batch A (0–39, `artifacts/mutate31c2a-a.log`): 38 caught.
+  - #6 (`screen.focus('actions', 0)`) was a gap, now closed by a test and caught.
+  - #33 (`poll()`'s `view.peek().kind !== 'code'`) is equivalent: a poll timer exists only while a code shows. Keep it with that reason in the docstring, or replace it with a mutant that changes behaviour.
+  - **Batches B (40–79) and C (80–116) have not run.**
 
 ## Read first
 1. **`RELAY.md`:**
-   - step 31c's "Decisions (leg 93)", 31c2's shape (marked "to be refined before building"), 31c3, 31d, 31e;
-   - 31c1's "The shape" and "Done in leg 93";
-   - the leg-93 progress-log row.
-2. **`docs/architecture.md`:**
-   - §3.2 "Built in step 31c1", "Built in step 31a", "Built in step 31b";
-   - §3.3 "A. Pairing".
-3. **The client 31c2 drives:**
-   - `packages/data/src/pair-service.ts` (the result types);
-   - `apps/tv/src/data/engine.ts`'s `PairSession` and `pairing()`.
-4. **The TV side 31c2 touches:**
-   - **`apps/tv/src/onboarding/`:**
-     - `onboarding-state.ts`: the `source` screen's two types and `begin`'s refusal check;
-     - `form.ts`: `checkForm`, `SourceDraft` with its single `epgUrl`;
-     - `engine-loader.ts`: `createEngineLoader`, `LoadErrorCode`, `typedGuide`;
-     - `OnboardingApp.tsx`.
-   - **Settings:** `apps/tv/src/settings/sources-state.ts` (no actions yet), `SettingsScreen.tsx`, `settings-state.ts`.
-   - **`apps/tv/src/main.tsx`:**
-     - `configRequest.base`: `readApiBase`, `?api=`;
-     - `addRefusal` (`refusalFor(…, 'block-new-sources')`);
-     - `showOnboarding`;
-     - `showLive`'s `createSettings`;
-     - `startRefreshes`'s `onCatalog` (what to call after an add from Settings).
-   - **The language:** `apps/tv/src/i18n/en.ts` and `ar.ts` (`error.*`, `loading.*`, `onboarding.*`); `catalogs.test.ts` holds the two to the same keys.
-   - **The phone's words** for the five statuses: `apps/web/src/phone/catalog.ts` (`done.*`).
-5. **`CLAUDE.md`:** "Package boundaries", "Chromium 53 cheat sheet", "Legal guardrails". CLAUDE.md edits need Omar's direct word in his own tab.
+   - step 31c2's split;
+   - 31c2a's shape and its "Built in leg 94, not yet merged";
+   - 31c2b, 31c3, 31d, 31e;
+   - the leg-94 progress-log row (its commit cell says "(this leg's commit)": set it to `2bc6afe` when you record the merge).
+2. **`docs/architecture.md`** §3.2: "Built in step 31c2a" (it ends after its E2E line), "Built in step 31c1", "Built in step 31a".
+3. **The code:** `apps/tv/src/pairing/`, `e2e/pairing.spec.ts`, `tools/engines/src/pair-stand-in.ts`, and `artifacts/mutate31c2a.py`'s docstring.
+4. **`CLAUDE.md`:** "Package boundaries", "Chromium 53 cheat sheet", "Legal guardrails". CLAUDE.md edits need Omar's direct word in his own tab.
 
 ## Next steps, in order
 1. **Check the state:**
-   - `git -C "<wt>" status` should be clean.
-   - `git -C "<wt>" log --oneline -3` should show HEAD as this handover's commit, on top of `5ba82be` (31c1 ticked), on top of `d7f7c2e` (Merge PR #118) = main.
-2. **Check memory before any heavy run.**
-   - The PC's commit charge was nearly full again: `voicebox-server` held 26 GB, and free virtual memory dropped to 2.5 GB at one point.
-   - Check with PowerShell `Get-CimInstance Win32_OperatingSystem` (`FreeVirtualMemory`). See which process holds memory with `Get-Process | Sort-Object PrivateMemorySize64 -Descending`.
-   - Run in the foreground with few workers: `vitest run --maxWorkers=3`, the typecheck with `pnpm -r --workspace-concurrency=1 run typecheck`, the mutation run in `--from`/`--to` batches under `timeout 580`.
-   - If a background job is stopped for memory, don't restart it unasked; ask Omar.
-3. **Step 31c2, the TV's pairing screen.** Refine its shape in RELAY.md before building, and split it if it is too large for one leg. A likely split:
-   - **31c2a:** the state, the screen, the add path, en/ar, unit tests and screenshots;
-   - **31c2b:** the old-engine walk, with a stand-in pairing API in `tools/engines`, modelled on the harness's config server (`e2e/config-server.ts`, `tools/engines/src/config.ts`).
+   - `git -C "<wt>" status` should be clean apart from gitignored files.
+   - `git -C "<wt>" log --oneline -3` should show this handover's commit, then `2bc6afe`, then `081c1ee`.
+   - No `*.mutbak` should exist: `find apps packages -name "*.mutbak"`.
+2. **Check memory before any heavy run:** `Get-CimInstance Win32_OperatingSystem` (`FreeVirtualMemory`). `voicebox-server` held 26 GB again in leg 94; free virtual memory ran 6–7 GB.
+3. **Finish 31c2a:**
+   1. **Mutation batches B and C**, each in the background or the foreground under `timeout 1500`. Nothing else may touch the sources meanwhile: no e2e, no build.
 
-   Decisions already written in the shape:
-   - **The poll:** every `PAIR_POLL_MS`. On `wait`, as `retryMs` says. On `failed`, the next tick.
-   - **A new code** when the poll says `ended`. At most three codes per opening, then "Show a new code".
-   - **Hidden and shown:** the poll stops while the app is hidden (`platform.onLifecycle`) and asks at once when it shows.
-   - **`unreadable`:** a new code with a note. No status goes back.
-   - **The payload to a source:** through `checkForm` (`normalizeXtreamBase`, `normalizeLink`, the name or the host).
-     - Up to four guide links: `SourceDraft`'s `epgUrl` becomes a list. This touches onboarding's tests and `typedGuide`.
-     - `m3u-file` is treated as unreadable until 31d.
-   - **Before anything is kept:** the `addRefusal` signal, then the engine loader (`DataEngine.refresh` checks the blocklist).
-   - **The statuses:**
+      ```
+      export NODE_OPTIONS="--require \"D:/Claude Code PlayGround/IPTV-relay-20261101-214120/.cache/rollup-wasm/hook.cjs\""
+      python -I -u artifacts/mutate31c2a.py --from 40 --to 79 > artifacts/mutate31c2a-b.log 2>&1
+      python -I -u artifacts/mutate31c2a.py --from 80 --to 116 > artifacts/mutate31c2a-c.log 2>&1
+      ```
 
-     | When | Status sent |
-     |---|---|
-     | the loader reaches its `guide` phase, or its end | `ok` |
-     | `auth` | `auth_failed` |
-     | `expired`, or the panel's `blocked` | `expired` |
-     | `blocklisted`, or the config's refusal | `blocked` |
-     | anything else | `unreachable` |
-     | a load cancelled on the TV | nothing |
+      For each survivor: close the gap with a test, or record it as equivalent in the docstring. Then rerun the changed ones (`artifacts/mutate31c2a.py "<snippet>"`) into `mutate31c2a-rerun.log`.
+   2. **The full unit suite:** `pnpm exec vitest run --maxWorkers=3`. Expect about 6,030.
+   3. **The e2e near the change**, one spec at a time:
 
-     A status that fails with `rate`, `network` or `status` (kept) can be sent again.
-   - **Where it is reached:** a third choice on onboarding's source screen, and an "Add a source from your phone" row in Settings › Sources. After an add from Settings, the live screens refresh as `startRefreshes`' `onCatalog` does.
-   - **The screen:**
-     - the QR as one SVG `<path>` built from `rows`, with `shape-rendering="crispEdges"`, a light quiet zone of 4 modules, never mirrored in RTL;
-     - the code in large text, in groups of four;
-     - the typed address;
-     - the state in words.
-4. **Then 31c3** (the e2e in CI's `web` job), **31d** (the M3U file relay) and **31e** (the end-to-end "no plaintext" test).
-5. **Step 26's common items still apply to each step:**
+      ```
+      pnpm exec playwright test --project=chromium e2e/onboarding.spec.ts e2e/config.spec.ts e2e/config-blocklist.spec.ts e2e/config-modes.spec.ts e2e/config-gate.spec.ts e2e/pairing.spec.ts
+      ```
+
+      Watch for the source screen's third row in `onboarding.spec.ts`, and for the Sources header in `config-blocklist.spec.ts` (it expects `sources/sources/0`, which should hold).
+   4. **The engines:** `pnpm build:tv` (the dist from leg 94 holds the same source, but rebuild if anything changed), then `pnpm --dir "<wt>" verify:engines --engine chrome53 --engine chrome68` in the background (about 6 min). The onboarding walks must still pass with the third row. A failure before any check (Chromium 53's DevTools not up within 60 s): `docker ps -a`, then retry once.
+   5. **The PR:**
+      - The three riskiest changes: the loader's slot wait, Settings holding the background refreshes, and main.js +15.4 KB.
+      - Then `gh pr create`; CI runs every job because `tools/engines` and the TV changed.
+      - Merge on green with a merge commit, keeping the branch.
+      - Record the merge: architecture.md's "Mutation", "Verify" and "Merged" lines; RELAY.md's "Done in leg …" and the tick of 31c2a; the progress-log commit cell.
+4. **Then 31c2b:** the old-engine walk by phone.
+   - The engines' fixture server is `serve-fixture.sh`, a static file server, so the stand-in needs a dynamic server. One option: a Node server on the host, reached from the container through `host.docker.internal`, passed as `?api=`.
+   - A scripted phone in the harness.
+   - Chromium 53 and 68: the QR drawn, the code shown, the source added.
+5. **Then** 31c3 (the e2e against `next start` in CI's `web` job), 31d (the M3U file relay) and 31e (the "no plaintext" test end to end).
+6. **Step 26's common items still apply to each step:**
    - unit tests;
-   - a mutation run with the list written first (`artifacts/mutate31c1.py` is the newest template);
+   - mutation with the list written first (`artifacts/mutate31c2a.py` is the newest template);
    - the `pnpm verify` parts;
-   - `verify:engines --engine chrome53 --engine chrome68` when a TV-run page, the build or the protocol's samples change;
+   - `verify:engines --engine chrome53 --engine chrome68` when a TV-run page or the build changes;
    - the PR merged on green CI;
-   - the docs (RELAY.md "Done in leg …", architecture.md "Built in step …");
+   - the docs;
    - the merge recorded.
 
 ## Git state to expect
 - **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed.
 - **HEAD:** this handover's commit, on top of:
-  - `5ba82be` (31c1 ticked);
-  - `d7f7c2e` Merge PR #118 = main;
-  - `224612b` (31c1's work).
+  - `2bc6afe` (31c2a's work, not merged);
+  - `081c1ee` (the leg-93 handover);
+  - `5ba82be`;
+  - `d7f7c2e` Merge PR #118 = main.
 - **No PR is open.** The main checkout (`D:/Claude Code PlayGround/IPTV`) was not touched.
 - **Gitignored but present:**
   - `node_modules`, `.cache/rollup-wasm`, `.cache/engines`, `.cache/media`;
   - `apps/web/.env`, `apps/web/src/generated/prisma`, `apps/web/.next`;
-  - `dist/` (a build of `224612b`'s code);
+  - `dist/` (a build of `2bc6afe`'s source);
   - `artifacts/`:
-    - `mutate31c1.py`, `mutate31c1-a/b/c.log`, `mutate31c1-rerun.log`;
-    - `qr-goldens31c1.ts` (makes check-qr's cases from `uqr`), `qr-ties31c1.ts` (finds tied masks), `probe31c1.ts`;
-    - `build-tv-31c1.log`, `unit-31c1.log`, `lint-31c1.log`, `typecheck-31c1.log`, `engines-31c1.log` (the failed first try), `engines-31c1-retry.log`;
+    - `mutate31c2a.py`, `mutate31c2a-a.log`;
+    - `build-tv-31c2a.log`, `unit-31c2a.log`, `typecheck-31c2a.log`, `lint-31c2a.log`, `e2e-pairing-31c2a.log`;
+    - `screenshots/pair-*.png`, `playwright-results/` (the failed first e2e runs);
     - older legs' files.
 - **The `lablo-web` Postgres container is up** (`pnpm web:db:down` stops it).
-- **No `next start`, Vite, Playwright, engine container or `*.mutbak` is left.**
-- **On the TV:** only the old lab, under its old id.
-- **Outside the repo:** the webOS Simulator in `D:/tools/webos-sim/`. Never commit it.
+- **No Vite, `next start`, Playwright, engine container or `*.mutbak` is left.**
 
 ## Gotchas and lessons
-**New in leg 93:**
-- **Python on Windows writes CRLF in text mode.** `open(p, 'w')` turned every edited file into CRLF (git warns "CRLF will be replaced by LF"). Write with `open(p, 'wb').write(s.encode('utf-8'))`, or `newline=''`. To check: `python -I -c "…b'\r\n' in open(f,'rb').read()…"`.
-- **`$PWD` in Git Bash is `/d/…`.** `NODE_OPTIONS="--require …hook.cjs"` needs the `D:/…` path, or every pnpm command fails with MODULE_NOT_FOUND.
-- **`verify:engines` can fail before any check:** Chromium 53's container didn't open DevTools within 60 s. Check `docker ps -a` for a leftover container, then retry once. The retry passed.
-- **base64url test values must be canonical.** A 32-byte value's 43rd character carries two unused bits that must be 0 (`A`, `E`, `I` … `w`, `0`, `4`, `8`). `'p'.repeat(43)` is refused by `bytes32`. A 16-byte value's 22nd character carries four unused bits.
-- **`@lablo/data/client` may re-export values only from modules with no service behind them.** A value re-export from `pair-service.ts` would have pulled zod and tweetnacl into main.js; constants go in a small module (`pair-constants.ts`, like `config-constants.ts`).
-- **Polyfill names, two more:**
-  - regex `.test` (use `exec(…) !== null`);
-  - `String.prototype.trim` (`es.string.trim`). `fetch`'s `Headers` trims values already.
-  - `artifacts/babel-polys30b2.ts <files>` lists a file's core-js modules.
-- **`packages/data`'s `fakeTransport` records only the URL and headers.** `pair-service.test.ts` has its own `api()` wrapper: method, body, late headers and a cancel count.
-- **`test/tv-data-engine.test.ts`'s exact `started` objects now include `pair`.** A new worker kind means updating them.
-- **QR mutants:** a byte-mode segment is always 4 mod 8 bits, so a `<` against `<=` on a capacity is equivalent. Mutate the level or the version instead.
-- **Equivalence by range:** the alignment step's `+5` and `+6` floor the same up to version 10.
+**New in leg 94:**
+- **The pairing payload's links must carry their scheme.** `pairPayloadSchema`'s `link` is `^https?://`. A scripted phone that sends `host/path` makes the TV treat the payload as unreadable: a new code with a note, no status. The phone page normalizes links first; test phones must too (`e2e/pair-phone.ts` callers pass `http://…`).
+- **A component with a hook can't be called as a function in a VNode test.** Split it into a hook wrapper and a content component with no hooks (`PairPage` / `PairContent`, `AddFromPhone` checked only by its props).
+- **`sources-screen.test.ts`'s `FakeEngine` computes a held answer when it is released.** To tell an older read from a newer one, release `engine.held` entries one by one (`splice(i, n)`), not with `release()`.
+- **The navigator clamps a zone's position on `update`,** so a "focus the first button" call matters only when the old position still fits. Here: `failed` with "Try again" focused, straight to `refused`.
+- **One screen cost 15.4 KB of main.js** (455.4 of 500). Watch the budget for steps 32 and 33. The TV build has no lazy chunks.
+- **i18n arguments are isolated in English too:** a title with a name is `Adding ‎‎⁨Phone list⁩‎‎`. Compare with `stripIsolates`.
+- **The relay context check can fire mid-step.** Commit the work, list what remains in RELAY.md, and hand over.
 
 **From earlier legs (still true):**
-- **Any new way to play goes through `PlayerController.play`** (its `open` checks the blocklist).
-- **Any new way to add a source** must read the config's refusal (`refusalFor`) and go through `DataEngine.refresh` (the blocklist). This holds for 31c2's paired sources.
-- **A new `FailureCategory` in `@lablo/player` needs an entry in `PlayerScreen.tsx`'s `CATEGORY_TEXT`.**
-- **In plain `pnpm e2e` the player never reaches `data-state="playing"`** on the mock's live streams: check `#stage video`'s `src` and `data-plays`.
-- **An e2e stream host that differs from the source's host:** serve the mock's playlist from `config-server.ts`'s `file('/list.m3u', …)`.
+- **New ways in go through the gates:**
+  - any new way to play goes through `PlayerController.play` (it checks the blocklist);
+  - any new way to add a source reads `refusalFor` and goes through `DataEngine.refresh`. 31c2a does both.
+- **A new `FailureCategory` in `@lablo/player`** needs an entry in `PlayerScreen.tsx`'s `CATEGORY_TEXT`.
+- **In plain `pnpm e2e` the player never reaches `data-state="playing"`** on the mock's live streams: check `#stage video`'s `src`.
 - **`DataEngine`'s refreshes must claim the slot before any `await`.**
-- **A settings, guide or source row is 120 px:** the name plus one line. The guides screen's "read, last try failed" rows clip their third line (a known UI bug).
-- **Settings has two rows:** "TV guides" `settings/items/0`, "Sources" `settings/items/1`.
-- **The e2e blocklist:** `doc({ blocklist: { salt: HARNESS_SALT, hashes: [blocklistHash(HARNESS_SALT, '127.0.0.1')] } })`, then `refreshConfig()`.
-- **A player screen with no stream shows the page's white on the desktop;** `player__blank` paints black. Look at every screenshot.
-- **The mutation run edits source files:** never commit, build or run e2e while it runs. Check for `*.mutbak` after a stop.
-- **Onboarding's first screen is a horizontal row.** The gate has its own navigator (`[data-testid=gate]`).
-- **Run the tests before taking out "dead" code.**
-- **apps/tv's `tsc` checks test files.**
-- **Workers:**
-  - a worker the app starts on its own needs an "idle" signal for the old-engine walk;
-  - a worker started after the first paint needs its npm deps in `optimizeDeps.include` (the pair worker's deps, tweetnacl and zod/mini, are listed);
-  - never open the app's IndexedDB from a test page before `[data-testid="onboarding"][data-ready="true"]`.
-- **Polyfill names out of TV code:** a member named `flags` or `at`, `lastIndexOf` on arrays, `concat`, `URL`, regex `.test`, `trim`.
-- **CI runs Node 22; this PC runs Node 24.**
-- **node-postgres reads a `timestamp` as local time:** read rows through Prisma in web tests.
-- **TaskStop on a background `next start` leaves it running:** stop its pid.
-- **`next build` type-checks `apps/web/e2e/`.**
-- **A running `next start` locks `apps/web/.next`.**
-- **Windows Smart App Control:** before every pnpm command, `export NODE_OPTIONS="--require \"D:/Claude Code PlayGround/IPTV-relay-20261101-214120/.cache/rollup-wasm/hook.cjs\""`. Never delete files in `node_modules`.
-- **zod on the TV:** `zod/mini` only. **`apps/tv/src/env.d.ts` must stay a global script.** Root `test/` and `e2e/` files import packages by relative `src` paths or package entries.
-- **Overlap CI with the next step,** but never push while a PR's CI runs.
-- **Known CI flake:** the media flake (`epg-declared-300mb`). Run `gh run rerun <run> --failed -R Omarmarei/Lablo` once the whole run is done.
-- **One CI poller:**
-  1. after `gh pr create`, wait ~45 s (`timeout 45 tail -f /dev/null`), then `gh run list --commit <sha> --event pull_request`;
-  2. start one Monitor with the `comm -13` loop over `gh run view <run> --json status,conclusion,jobs` (worked again this leg);
-  3. read failures with `gh api repos/Omarmarei/Lablo/actions/jobs/<job id>/logs`.
-- **Changing `pnpm-lock.yaml` or the root `package.json` runs every CI job:** about 20 minutes, with engines the longest.
-- **Bash heredocs to Python break on mixed quotes and backslashes.** Write the script with the Write tool, with `chr(92)` for backslashes. The Write tool kept `\uD800` escapes this leg, but check: grep for raw `ED A0..BF` bytes.
-- **The relay's context check fires at about 450k tokens.**
-- **The profile is at version 7; the IDB schema is at version 2.**
+- **The mutation run edits source files:** never commit, build or run e2e while it runs, and check for `*.mutbak` after a stop.
+- **Workers:** a worker started after the first paint needs its npm deps in `optimizeDeps.include`. Never open the app's IndexedDB from a test page before `[data-testid="onboarding"][data-ready="true"]`.
+- **Polyfill names to keep out of TV code:**
+  - a member named `flags` or `at`;
+  - `lastIndexOf` on arrays, `concat`, `URL`;
+  - regex `.test`, `trim`.
+
+  `artifacts/babel-polys30b2.ts <files>` lists a file's core-js modules.
 - **TV code rules:**
   - no `Array.prototype.sort` in the main bundle;
-  - none of these in new TV files: `Uint8Array` as a value, `JSON.stringify`, `new RegExp`, iterators/`for…of`, array destructuring or spread, object spread;
-  - the build can crash once (0xC0000005): run it again.
-- **`TaskStop` on `verify:engines` leaves its container:** `docker rm -f` it.
-- **A bare `sleep N` is blocked:** use `timeout N tail -f /dev/null`, an `until` loop or a Monitor. There is no `jq`: use `gh … --jq`.
-- **GitHub billing can refuse every Actions job:** that is a needs-you stop.
-- **Commands:**
-  - one TV e2e spec: `pnpm --dir "<wt>" exec playwright test --project=chromium <spec>`;
-  - `pnpm e2e:web` (after `pnpm build:web`, with `pnpm web:db` up): 7 tests;
-  - the engines: `pnpm --dir "<wt>" verify:engines --engine chrome53 --engine chrome68` (about 6 min, after `pnpm build:tv`; run it in the background and wait for its notice);
-  - `pnpm test`: 5,862 tests (`--maxWorkers=3` about 4 min).
-- **Code rules:**
-  - `packages/ui` components stay hook-free; UI text only from the catalogs;
-  - physical CSS only in TV code; no CSS Grid or flex `gap` there; TV code is ES2017;
-  - dependencies at least 2 weeks old;
-  - never weaken lint;
-  - scoped `git add`; `git commit -F -` ending with the `Co-Authored-By` line.
+  - none of these in new TV files: `Uint8Array` as a value, `JSON.stringify`, `new RegExp`, `for…of`, array destructuring or spread, object spread (JSX prop spread is fine);
+  - physical CSS only; no CSS Grid or flex `gap`; ES2017;
+  - `packages/ui` components stay hook-free; UI text only from the catalogs.
+- **Python on Windows writes CRLF in text mode:** write with `open(p, 'wb')`. Bash heredocs to Python break on mixed quotes: use the Write tool for long scripts.
+- **Windows Smart App Control:** before every pnpm command, `export NODE_OPTIONS="--require \"D:/Claude Code PlayGround/IPTV-relay-20261101-214120/.cache/rollup-wasm/hook.cjs\""` (a `D:/` path, not `/d/`). Never delete files in `node_modules`.
+- **CI:**
+  - CI runs Node 22; this PC runs Node 24.
+  - The known media flake: `epg-declared-300mb`. Run `gh run rerun <run> --failed -R Omarmarei/Lablo` once the whole run is done.
+  - One CI poller: wait ~45 s after `gh pr create`, then `gh run list --commit <sha> --event pull_request`, then one Monitor with the `comm -13` loop over `gh run view <run> --json status,conclusion,jobs`.
+  - There is no `jq`: use `gh --jq`.
+  - Never push while a PR's CI runs.
+- **A bare `sleep` is blocked:** use `timeout N tail -f /dev/null` or an `until` loop.
+- **`TaskStop` on `verify:engines` leaves its container:** `docker rm -f` it. The TV build can crash once (0xC0000005): run it again.
 
 ## Working rules (unchanged)
-- **Never call EnterWorktree:** the relay worktree is your isolation.
-- **Scripts:** one-off scripts run as `pnpm --dir "<wt>" exec tsx <path>` or `python -I <file>`. Never use bare `git stash`.
+- **Never call EnterWorktree:** the relay worktree is your isolation. Use `git -C "<wt>"` and absolute paths; scoped `git add`; `git commit -F -` ending with the `Co-Authored-By` line. Never use bare `git stash`.
 - **The repo is public as `Omarmarei/Lablo`:**
-  - CI runs on `pull_request` and `workflow_dispatch`, path-filtered;
+  - CI runs on `pull_request` and is path-filtered;
   - commits use the no-reply email;
-  - no secrets, no LG binaries, no personal data; README.md stays "# Lablo";
-  - no production signing seed ever enters the repo, a chat or CI.
-- **Merging:** IPTV PRs merge on green CI without Omar (merge commit, keep the branch). Name the three riskiest changes first, and call out any migration.
+  - no secrets, no LG binaries, no personal data; README.md stays "# Lablo".
+- **Merging:** IPTV PRs merge on green CI without Omar (merge commit, keep the branch). Name the three riskiest changes first.
 - **CLAUDE.md edits need Omar's direct word in his own tab.**
 
 ## Verified vs not
-- **Verified in leg 93:**
-  - **Locally:**
-    - lint, typecheck;
-    - unit 5,862;
-    - `build:tv` (sizes above);
-    - e2e `crypto-vectors.spec.ts`;
-    - `verify:engines` on chrome53 and chrome68: all 18 runs as expected, the vectors page 209/209 in page and worker;
-    - mutation 152/152.
-  - **On CI:** PR #118 green on the first run (all 114 engine runs; the vectors page 209/209 on 53, 56 and 68).
+- **Verified (leg 94, locally):**
+  - lint, typecheck;
+  - unit 6,025, then the touched files after the gap tests;
+  - `build:tv`;
+  - e2e `pairing.spec.ts` 3/3;
+  - screenshots;
+  - mutation batch A 39/40, with one equivalent.
 - **Not verified:**
-  - the pair worker started by the app on a real engine. Nothing calls `pairing()` yet; 31c2's walk will. Its bundle ran a whole pairing in the Chromium-53 realm test only;
-  - a QR code scanned by a real phone from a TV screen;
+  - mutation batches B and C;
+  - the full unit suite after the last test edits;
+  - the other e2e specs (`onboarding`, `config*`) and the full `pnpm e2e`;
+  - `verify:engines`;
+  - CI;
+  - a real phone scanning a TV screen;
   - anything on Vercel (step 34).
-- **Migrations and deploys:** none this leg. Nothing is in production; nothing is deployed.
+- **Migrations and deploys:** none. Nothing is in production; nothing is deployed.
 
 ## Open decisions and gates
-- **For 31c2:**
-  - the screen's split into legs;
-  - the stand-in pairing API for the engines walk;
-  - the screen's layout and words in en and ar.
-  These are the leg's own calls: record them in RELAY.md.
-- **For 31d:** how the memory store's `http` development URLs pass `pairUploadResponseSchema`'s https rule.
-- **Later UI fix (no step yet):** the guides screen's "read, last try failed" rows clip their third line.
+- **31c2b:** how the engines harness serves the stand-in (a host Node server through `host.docker.internal`, or something in the container). The leg's own call: record it in RELAY.md.
+- **31d:** how the memory store's `http` development URLs pass `pairUploadResponseSchema`'s https rule.
+- **Later UI fixes (no step yet):**
+  - the guides screen's "read, last try failed" rows clip their third line;
+  - the Arabic `done.body` (`{name} جاهز.`) is masculine for a feminine name like "قائمة".
 - **For step 34 `[needs Omar]`:**
   - the R2 and Upstash adapters;
   - `LABLO_RATE_SECRET` in Vercel;
   - the config key ceremony;
-  - Omar creates the Vercel, Neon, R2 and Upstash accounts and the domain;
-  - the first production migration and the first deploy each need his one-word OK.
+  - the accounts and the domain;
+  - the first production migration and deploy, each with his one-word OK.
 - **Steps 16, 19b and 21 wait for Omar:**
-  - Samsung: the account, the certificate, the RTL tunnel session, the used 2018 set;
-  - about 30–45 minutes at the LG TV.
-- **Later (unchanged):** step 32's backup master in a worker with an idle signal; step 38's parental lock everywhere; step 41's 2018 Samsung measurements; dropping Chromium 53 (ADR-012).
+  - Samsung: the account, the certificate, the RTL tunnel session, the 2018 set;
+  - 30–45 minutes at the LG TV.
 
-## Checks for Omar (31c1 is merged; nothing on a TV)
-1. In the repo: `pnpm exec vitest run packages/core/src/qr.test.ts packages/data/src/pair-service.test.ts test/pair-worker-bundle.test.ts`. Expect 65 passed.
-2. `pnpm build:tv`. Expect main.js 440.0 KB (Tizen) and 427.3 KB (webOS) own code, and `pair.worker.ts` 133.5 KB of 150 KB.
-3. Nothing to click yet: the pairing screen comes with 31c2.
+## Checks for Omar (nothing merged this leg)
+1. In the worktree: `pnpm exec vitest run apps/tv/src/pairing`. Expect 4 files and 84 tests.
+2. `pnpm exec playwright test --project=chromium e2e/pairing.spec.ts`. Expect 3 passed. Then look at `artifacts/screenshots/pair-code-en.png` and `pair-code-ar.png`.
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
-- **Memory:** `voicebox-server` held **26 GB** of committed memory this leg (9 GB last leg). The PC's commit charge was nearly full (2.5 GB free at one point). Please close it, or restart it, during relay runs.
-- **At the LG TV next time:** remove the old lab `com.zoma.iptv.lab` (`ares-install --device tv --remove com.zoma.iptv.lab`). The renamed lab `com.lablo.iptv.lab` installs as a new app.
-- **Samsung Seller Office Partner application:** submit it ASAP (Samsung Gulf). It takes weeks, and Samsung in the GCC and Canada depends on it, as does a GCC Beta Test.
-- **Trademark clearance** (US, CA, AE, SA) and domains for **"Lablo"**. They decide the final app IDs too.
+- **Memory:** `voicebox-server` held **26 GB** of committed memory again this leg. Please close it, or restart it, during relay runs.
+- **At the LG TV next time:**
+  - remove the old lab `com.zoma.iptv.lab` (`ares-install --device tv --remove com.zoma.iptv.lab`);
+  - read Dev Mode's "Remain Session".
+- **Samsung Seller Office Partner application:** submit it ASAP (Samsung Gulf).
+- **Trademark clearance** (US, CA, AE, SA) and domains for **"Lablo"**.
 - `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` was widened with his authorisation on 2026-11-02. Prune it when the relay run ends if he wants it tighter.
-- **At the TV next time:** read Dev Mode's "Remain Session".
 - **Fifty-four CLAUDE.md gaps** wait for his word:
-  - 1–28: leg 51's handover (`git -C "<wt>" show d05d5fd:HANDOVER.md`);
-  - 29–47: leg 86's handover (`git -C "<wt>" show 5fffb27:HANDOVER.md`);
-  - 48–51: the gate folder; the refusal and black player rules; `DataEngine.refresh` for every catalog read; `PlayerController.play` for every play;
-  - 52: the pairing routes answer 503 on Vercel until step 34; the memory fakes are development-only;
-  - 53: `apps/web/src/phone/api.ts` is the backend's one `fetch`, for the phone page's own origin. The "no outbound network" rule could say so, along with `pnpm e2e:web` in the commands table;
-  - **54 (new):** the Chromium 53 cheat sheet could add regex `.test` and `trim()` to its polyfill names. The package-boundaries table could name the new entries `@lablo/core/check-qr` and `@lablo/data/pair.worker`.
-- **For step 34 (later):** the accounts and the domain are his to create. He puts the keys in `.env` himself, plus `LABLO_RATE_SECRET` (32+ characters) in Vercel. The config key ceremony is his too.
+  - 1–28: leg 51's handover (`git show d05d5fd:HANDOVER.md`);
+  - 29–47: leg 86's (`git show 5fffb27:HANDOVER.md`);
+  - 48–54: leg 93's (`git show 081c1ee:HANDOVER.md`).
+- **Step 34:** the accounts, the domain and the keys are his. He puts them in `.env`, plus `LABLO_RATE_SECRET` in Vercel.
 - **GitHub billing:** keep the payment method valid.
 - **Secrets:** none pending.
