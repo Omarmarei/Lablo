@@ -17,9 +17,27 @@ declare module '*?worker' {
   export default WorkerFactory;
 }
 
+/** `ConfigView` in src/test-hook.ts (the test hook's config answer). */
+interface LabloConfigView {
+  readonly status: 'fresh' | 'cached' | 'none';
+  readonly failure: string | null;
+  readonly issuedAt: number | null;
+  readonly kill: { readonly id: string; readonly mode: string } | null;
+  readonly notices: readonly string[];
+  readonly updateRequired: boolean;
+}
+
 interface Window {
-  /** The focus engine's path for the e2e `RemoteDriver` and the old-engine harness (`LabloTestHook` in src/test-hook.ts, RELAY step 14b). */
-  __LABLO_TEST__?: { focusPath(): string | null };
+  /**
+   * The focus engine's path for the e2e `RemoteDriver` and the old-engine harness, and the config's
+   * last answer and a refresh now for the e2e tests (`LabloTestHook` in src/test-hook.ts, RELAY
+   * steps 14b and 30c1). Written out: this file stays a global script (no imports).
+   */
+  __LABLO_TEST__?: {
+    focusPath(): string | null;
+    config(): LabloConfigView | null;
+    refreshConfig(): Promise<LabloConfigView | null>;
+  };
 }
 
 interface Window {

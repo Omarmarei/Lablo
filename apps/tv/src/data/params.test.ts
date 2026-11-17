@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readDebugParams, readScreen } from './params';
+import { readApiBase, readChecks, readDebugParams, readParams, readScreen } from './params';
 
 const MOCK = 'http://127.0.0.1:8080/get.php?username=u&password=p&type=m3u_plus';
 
@@ -72,5 +72,89 @@ describe('readScreen', () => {
     [`?screen=hello&q=news&source=${MOCK}`, 'hello'],
   ])('%s -> %s', (search, screen) => {
     expect(readScreen(search)).toBe(screen);
+  });
+});
+
+describe('readParams', () => {
+  it('gives every value of one name, decoded and trimmed, in order', () => {
+    expect(readParams('?check=a&q=x&check=b+c&check=%41', 'check')).toEqual(['a', 'b c', 'A']);
+    expect(readParams('check=a', 'check')).toEqual(['a']);
+  });
+
+  it('leaves out empty, valueless, broken and other names', () => {
+    expect(readParams('?check=&check&checkz&check=+&check=%E0%A4%A&xcheck=1&checks=2&check=ok', 'check')).toEqual(['ok']);
+    expect(readParams('?check=+a+&check=%20b%20', 'check')).toEqual(['a', 'b']);
+    expect(readParams('', 'check')).toEqual([]);
+  });
+});
+
+describe('readChecks (the hello screen, step 30c1)', () => {
+  it('reads every check before the source, never one in the playlist URL', () => {
+    const blocked = encodeURIComponent('http://u:p@cdn.blocked.test:8080/live/1.ts?a=1&b=2');
+    expect(readChecks(`?screen=hello&check=${blocked}&check=http://ok.test/&source=${MOCK}&check=http://late.test/`)).toEqual([
+      'http://u:p@cdn.blocked.test:8080/live/1.ts?a=1&b=2',
+      'http://ok.test/',
+    ]);
+    expect(readChecks('?screen=hello')).toEqual([]);
+  });
+});
+
+describe('readApiBase (?api=, step 30c1)', () => {
+  const BUILD = 'http://127.0.0.1:3100';
+
+  it("keeps the build's base without the parameter", () => {
+    expect(readApiBase('', BUILD, true)).toBe(BUILD);
+    expect(readApiBase('?screen=hello&q=x', BUILD, false)).toBe(BUILD);
+  });
+
+  it.each([
+    'http://127.0.0.1:8090',
+    'http://localhost:5400',
+    'http://LOCALHOST',
+    'https://127.0.0.1',
+    'http://[::1]:9000',
+  ])('takes the loopback origin %s in a TV build', (origin) => {
+    expect(readApiBase(`?api=${encodeURIComponent(origin)}`, BUILD, false)).toBe(origin);
+    expect(readApiBase(`?api=${origin}`, BUILD, false)).toBe(origin);
+  });
+
+  it('drops one trailing slash', () => {
+    expect(readApiBase('?api=http://127.0.0.1:8090/', BUILD, false)).toBe('http://127.0.0.1:8090');
+    expect(readApiBase('?api=http://127.0.0.1:8090//', BUILD, false)).toBe(BUILD);
+  });
+
+  it.each(['http://api.example.com', 'https://10.0.0.5:3100', 'http://127.0.0.2:8090', 'http://localhost.example.com', 'http://[::2]'])(
+    'refuses %s in a TV build, takes it in the dev app',
+    (origin) => {
+      expect(readApiBase(`?api=${encodeURIComponent(origin)}`, BUILD, false)).toBe(BUILD);
+      expect(readApiBase(`?api=${encodeURIComponent(origin)}`, BUILD, true)).toBe(origin);
+    },
+  );
+
+  it.each([
+    'ftp://127.0.0.1',
+    'javascript:alert(1)',
+    'http://127.0.0.1:8090/v1',
+    'http://127.0.0.1:8090?x=1',
+    'http://127.0.0.1:8090#x',
+    'http://user@127.0.0.1:8090',
+    'http://127.0.0.1:123456',
+    'http://127.0.0.1:',
+    '//127.0.0.1:8090',
+    '127.0.0.1:8090',
+    'http://',
+    ' http://127.0.0.1 x',
+    'xhttp://127.0.0.1:8090',
+  ])('refuses %s anywhere: an origin only', (value) => {
+    expect(readApiBase(`?api=${encodeURIComponent(value)}`, BUILD, true)).toBe(BUILD);
+    expect(readApiBase(`?api=${encodeURIComponent(value)}`, BUILD, false)).toBe(BUILD);
+  });
+
+  it('takes the first api before the source, never one in the playlist URL', () => {
+    expect(readApiBase('?api=http://127.0.0.1:1&api=http://127.0.0.1:2', BUILD, false)).toBe('http://127.0.0.1:1');
+    expect(readApiBase(`?source=${MOCK}&api=http://127.0.0.1:1`, BUILD, false)).toBe(BUILD);
+    expect(readApiBase(`?api=http://127.0.0.1:1&source=${MOCK}`, BUILD, false)).toBe('http://127.0.0.1:1');
+    // A blank one is no value: the next one counts.
+    expect(readApiBase('?api=&api=http://127.0.0.1:2', BUILD, false)).toBe('http://127.0.0.1:2');
   });
 });

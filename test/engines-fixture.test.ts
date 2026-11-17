@@ -9,8 +9,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { EpgGuideReader, EpgWantedSet, epgNowNext, normalizeName, parseM3uCatalog } from '@lablo/core';
 import { describe, expect, it } from 'vitest';
-import { readDebugParams, readScreen } from '../apps/tv/src/data/params';
+import { fromBase64Url } from '@lablo/crypto';
+import { readApiBase, readChecks, readDebugParams, readScreen } from '../apps/tv/src/data/params';
+import { asciiHost, cachedBlocklist } from '../packages/data/src/blocklist';
 import { CatalogChunker } from '../packages/data/src/chunker';
+import { checkConfigResponse } from '../packages/data/src/config-check';
+import { configPolicy } from '../packages/data/src/config-policy';
+import { ARABIC_HOST, BLOCKED_HOSTS, CONFIG_FILE, CONFIG_PROBES, configCheck, devSignedAnswer, harnessConfigDoc, trustsDevKey } from '../tools/engines/src/config';
 import { FIXTURE_ORIGIN, FIXTURE_SIZE, POSTER_FILES, POSTER_SIZE, appUrl, dataChecks, fixtureEntries, fixtureM3u, fixtureXmltv, liveCategories, movieCategories, stageFixtures } from '../tools/engines/src/fixture';
 import { pngSize } from '../tools/engines/src/poster';
 
@@ -122,6 +127,55 @@ describe('the engines catalog fixture', () => {
       expect(readScreen(url.slice(url.indexOf('?')))).toBe('hello');
       const params = readDebugParams(url.slice(url.indexOf('?')));
       expect(params).toEqual({ source: `${FIXTURE_ORIGIN}/${check.file}`, query: check.query, force: true, error: null });
+      // The config's base and the blocklist's probes (RELAY step 30c1): a TV build takes the loopback origin.
+      expect(readApiBase(url.slice(url.indexOf('?')), 'http://127.0.0.1:3100', false)).toBe(FIXTURE_ORIGIN);
+      expect(readChecks(url.slice(url.indexOf('?')))).toEqual(check.config.checks);
     }
+  });
+});
+
+describe("the engines' signed config (RELAY step 30c1)", () => {
+  const now = Date.UTC(2026, 10, 17, 12, 0);
+  const keys = JSON.parse(readFileSync(path.join(import.meta.dirname, '..', 'config/keys.json'), 'utf8')) as { production: string[]; dev: string };
+  const devKey = fromBase64Url(keys.dev)!;
+
+  it("is staged as a dev-signed answer that the TV's own check takes, with the notice and the blocklist expected", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'lablo-fixture-'));
+    stageFixtures(dir, now);
+    const text = readFileSync(path.join(dir, 'fixtures', CONFIG_FILE), 'utf8');
+    expect(text).toBe(devSignedAnswer(harnessConfigDoc(now)));
+    // The TV's check, as the config worker runs it, a minute later.
+    const checked = checkConfigResponse(text, [devKey], null, now + 60_000);
+    if (!checked.ok) throw new Error(`refused: ${checked.refusal}`);
+    const policy = configPolicy(checked.config.doc, { platform: 'webos', version: '0.1.0', country: checked.config.cached.country });
+    const expected = configCheck(true);
+    expect([policy.kill, policy.notices.map((n) => n.id).join(','), policy.updateRequired]).toEqual([null, expected.notices, false]);
+    // The TV's blocklist, as the query worker reads it from the stored copy.
+    const list = cachedBlocklist({ doc: checked.config.cached.doc });
+    expect(list.size).toBe(BLOCKED_HOSTS.length);
+    expect(expected.checks.map((url) => String(list.blocksUrl(url))).join(',')).toBe(expected.blocked);
+    expect(expected.blocked).toBe('true,true,false');
+    // Valid for a week, longer than any harness run: expired after that, and refused under any other key.
+    expect(checkConfigResponse(text, [devKey], null, now + 6 * 86_400_000).ok).toBe(true);
+    expect(checkConfigResponse(text, [devKey], null, now + 8 * 86_400_000)).toEqual({ ok: false, refusal: 'expired' });
+    expect(checkConfigResponse(text, [new Uint8Array(32).fill(7)], null, now)).toEqual({ ok: false, refusal: 'bad-signature' });
+  });
+
+  it('blocks the Arabic host in its xn-- form, and checks it as written', () => {
+    expect(BLOCKED_HOSTS).toEqual(['blocked.lablo.test', 'xn--mgbh0fb.lablo.test']);
+    expect(asciiHost(ARABIC_HOST)).toBe('xn--mgbh0fb.lablo.test');
+    expect(CONFIG_PROBES.map((probe) => probe.url)[1]).toBe(`http://${ARABIC_HOST}/live/4.m3u8`);
+    expect(ARABIC_HOST.charCodeAt(0)).toBe(0x645);
+  });
+
+  it("expects the copy refused, and nothing blocked, once a TV build trusts only production keys (step 34)", () => {
+    expect(trustsDevKey('{"production": [], "dev": "x"}')).toBe(true);
+    expect(trustsDevKey('{"production": ["a"], "dev": "x"}')).toBe(false);
+    expect(() => trustsDevKey('{"dev": "x"}')).toThrow(/production must be a list/);
+    expect(trustsDevKey(readFileSync(path.join(import.meta.dirname, '..', 'config/keys.json'), 'utf8'))).toBe(keys.production.length === 0);
+    expect(configCheck(false)).toEqual({ checks: configCheck(true).checks, status: 'none', failure: 'bad-signature', notices: '', blocked: 'false,false,false' });
+    const dir = mkdtempSync(path.join(tmpdir(), 'lablo-fixture-'));
+    expect(stageFixtures(dir, now, false).webos.config).toEqual(configCheck(false));
+    expect(stageFixtures(dir, now).tizen.config).toEqual(configCheck(true));
   });
 });

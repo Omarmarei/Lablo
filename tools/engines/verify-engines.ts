@@ -46,6 +46,7 @@ import { connectToPage, waitForDevtools } from './src/cdp';
 import { ENGINE_HOUR, assertDockerRunning, engineLogs, engineZone, ensureImage, startEngine, stopEngine, zoneOffset } from './src/docker';
 import type { Engine } from './src/engines';
 import { TV_RUNTIME_FLAGS, TV_SCREEN_FLAGS, selectEngines } from './src/engines';
+import { trustsDevKey } from './src/config';
 import { ensureEngineZip } from './src/fetch';
 import type { DataCheck } from './src/fixture';
 import { appUrl, fixtureEntries, liveCategories, movieCategories, stageFixtures } from './src/fixture';
@@ -115,7 +116,8 @@ function dataSummary(run: PlatformRun): string {
   const hits = boot.search?.startsWith('ok: ') === true ? `; "${run.data.query}" ${boot.searchTotal ?? '?'} hits` : '';
   const guide = boot.epg?.startsWith('ok: ') === true ? `; guide ${boot.epgMatched ?? '?'}/${boot.epgWanted ?? '?'}` : '';
   const onAir = boot.nowNext?.startsWith('ok: ') === true ? ', now/next' : '';
-  return `  data: ${boot.ingestItems ?? '?'} items${gzip}${hits}${guide}${onAir}`;
+  const config = boot.configStatus === null || boot.configStatus === '' ? '' : `; config ${boot.configStatus}, blocked ${boot.blockedList ?? '?'}`;
+  return `  data: ${boot.ingestItems ?? '?'} items${gzip}${hits}${guide}${onAir}${config}`;
 }
 
 /** `7 rows of 88 px; gallery-chrome53-tizen.png; Arabic: isolation +0 px, gallery-chrome53-tizen-ar.png` for the log. */
@@ -482,8 +484,9 @@ async function main(): Promise<void> {
   const sampleFailures = nodeSamples.filter((r) => !r.ok);
   if (sampleFailures.length > 0) throw new Error(`the protocol samples fail in Node itself: ${sampleFailures.map((r) => r.name).join(', ')}`);
   const expectedVectors = [...nodeVectors, ...nodeSamples].map((r) => r.name);
-  // Served in each container at FIXTURE_ORIGIN; every variant's runs ingest them.
-  const staged = stageFixtures(VARIANTS_DIR);
+  // Served in each container at FIXTURE_ORIGIN; every variant's runs ingest them. The signed
+  // config's expectation follows the keys a TV build trusts (step 30c1).
+  const staged = stageFixtures(VARIANTS_DIR, Date.now(), trustsDevKey(readFileSync(path.join(ROOT, 'config/keys.json'), 'utf8')));
   // The live screen's rail and rows, as the walk checks them (step 14c).
   const categories = liveCategories(fixtureEntries());
   // And the movies screen's (step 26b).

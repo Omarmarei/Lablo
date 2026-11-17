@@ -11,6 +11,8 @@
 # - No validators: the harness asks the app for force=1, so every run downloads and commits.
 # - No Content-Encoding: a .gz file arrives as gzip bytes, and the ingest worker gunzips it
 #   itself (fflate before Chromium 80), as it does a provider's .m3u.gz.
+# - GET /v1/config (RELAY step 30c1) answers the staged v1-config.json, the harness's dev-signed
+#   config, as apps/web answers it: the hello screen's config run asks for it with ?api=.
 #
 # POSIX sh plus socat, both already in the image, so adding this costs no package download.
 set -u
@@ -31,6 +33,7 @@ done
 
 name=${target%%\?*}
 name=${name#/}
+[ "$name" = 'v1/config' ] && name=v1-config.json
 echo "fixtures: $method /$name" >&2
 
 case "$method" in
@@ -49,6 +52,7 @@ fi
 case "$name" in
   *.gz) type=application/gzip ;;
   *.m3u) type=audio/x-mpegurl ;;
+  *.json) type=application/json ;;
   *) type=application/octet-stream ;;
 esac
 reply '200 OK' "$type" "$(wc -c < "$file" | tr -d ' ')"

@@ -1,17 +1,25 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { useSignal } from '@preact/signals';
 import type { ContentKey, ContentKind } from '@lablo/core';
-import type { EpgNowNext, EpgRefreshResult, EpgStatus, IngestResult, ShortEpgNowNext } from '@lablo/data';
+import type { ConfigRunRequest, EpgNowNext, EpgRefreshResult, EpgStatus, IngestResult, ShortEpgNowNext } from '@lablo/data';
 import { useEffect } from 'preact/hooks';
 import type { DataEngine, DataSummary } from './data/engine';
 import type { DebugParams } from './data/params';
+import { describeBlocked, describeConfig } from './hello-config';
 
 /** The source id the debug refresh writes under. */
 export const DEBUG_SOURCE = 'debug';
 
+/** The hello screen's config run (RELAY step 30c1): the build's request with `?api=`, and the `?check=` URLs. */
+export interface HelloConfig {
+  readonly request: ConfigRunRequest;
+  readonly checks: readonly string[];
+}
+
 interface Props {
   readonly engine: DataEngine;
   readonly params: DebugParams;
+  readonly config: HelloConfig;
   /** Resolves true on a low-tier TV (the refresh then runs the duty cycle). */
   readonly lowTier: () => Promise<boolean>;
   readonly busy: ReadonlySignal<boolean>;
@@ -96,8 +104,11 @@ function describeRefresh(result: IngestResult): string {
  * live channels). With `?source=`, it then focuses the first live channel no guide matches, as
  * the remote would, and shows what the short-EPG fallback gives after 600 ms. Remote keys mark
  * the UI busy, which pauses a running refresh. The old-engine harness reads these statuses.
+ *
+ * Beside the catalog (step 30c1): one config run in a config worker (`?api=` points it at a test
+ * server), then the query worker's `blocked` for each `?check=` URL.
  */
-export function DataPanel({ engine, params, lowTier, busy }: Props) {
+export function DataPanel({ engine, params, config, lowTier, busy }: Props) {
   const data = useSignal('starting…');
   const ingest = useSignal('waiting…');
   const ingestItems = useSignal<number | null>(null);
@@ -110,6 +121,13 @@ export function DataPanel({ engine, params, lowTier, busy }: Props) {
   const onAir = useSignal('waiting…');
   const shortEpg = useSignal('waiting…');
   const shortEpgFrom = useSignal('');
+  const configText = useSignal('waiting…');
+  const configStatus = useSignal('');
+  const configFailure = useSignal('');
+  const configKill = useSignal('');
+  const configNotices = useSignal('');
+  const blockedText = useSignal('waiting…');
+  const blockedList = useSignal('');
 
   useEffect(() => {
     let alive = true;
@@ -204,6 +222,36 @@ export function DataPanel({ engine, params, lowTier, busy }: Props) {
       }
     };
 
+    /** One config run, then the blocklist's answer for the `?check=` URLs (whatever the run gave). */
+    const runConfig = async (): Promise<void> => {
+      set(() => (configText.value = 'running…'));
+      try {
+        const row = describeConfig(await engine.refreshConfig(config.request));
+        set(() => {
+          configStatus.value = row.status;
+          configFailure.value = row.failure;
+          configKill.value = row.kill;
+          configNotices.value = row.notices;
+          configText.value = row.text;
+        });
+      } catch (error) {
+        set(() => (configText.value = `failed: ${message(error)}`));
+      }
+      if (config.checks.length === 0) {
+        set(() => (blockedText.value = 'none: add ?check=<url> before the source'));
+        return;
+      }
+      try {
+        const row = describeBlocked(await engine.blocked(config.checks.slice()));
+        set(() => {
+          blockedList.value = row.blocked;
+          blockedText.value = row.text;
+        });
+      } catch (error) {
+        set(() => (blockedText.value = `failed: ${message(error)}`));
+      }
+    };
+
     const run = async (): Promise<void> => {
       try {
         await engine.start();
@@ -217,9 +265,13 @@ export function DataPanel({ engine, params, lowTier, busy }: Props) {
           epg.value = 'failed: no data workers';
           onAir.value = 'failed: no data workers';
           shortEpg.value = 'failed: no data workers';
+          configText.value = 'failed: no data workers';
+          blockedText.value = 'failed: no data workers';
         });
         return;
       }
+      // Beside the catalog: the config worker runs beside the refresh slot.
+      void runConfig();
 
       if (params.error !== null) set(() => (ingest.value = `failed: ${params.error}`));
       else if (params.source === null) set(() => (ingest.value = 'none: add ?source=<playlist URL> as the last parameter'));
@@ -256,7 +308,7 @@ export function DataPanel({ engine, params, lowTier, busy }: Props) {
     return () => {
       alive = false;
     };
-  }, [engine, params]);
+  }, [engine, params, config]);
 
   return (
     <section class="hello__panel">
@@ -289,6 +341,24 @@ export function DataPanel({ engine, params, lowTier, busy }: Props) {
         Panel EPG:{' '}
         <span data-testid="shortepg-status" data-from={shortEpgFrom.value}>
           {shortEpg}
+        </span>
+      </p>
+      <p class="hello__row">
+        Config:{' '}
+        <span
+          data-testid="config-status"
+          data-status={configStatus.value}
+          data-failure={configFailure.value}
+          data-kill={configKill.value}
+          data-notices={configNotices.value}
+        >
+          {configText}
+        </span>
+      </p>
+      <p class="hello__row">
+        Blocklist:{' '}
+        <span data-testid="blocked-status" data-blocked={blockedList.value}>
+          {blockedText}
         </span>
       </p>
       <p class="hello__row">

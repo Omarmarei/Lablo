@@ -9,7 +9,7 @@ import type { AppData } from './App';
 import { App } from './App';
 import { createConfigSchedule } from './data/config-schedule';
 import type { DataEngine, SourceFacts } from './data/engine';
-import { readDebugParams, readScreen } from './data/params';
+import { readApiBase, readChecks, readDebugParams, readScreen } from './data/params';
 import type { RefreshScheduler } from './data/refresh-scheduler';
 import { createRefreshScheduler } from './data/refresh-scheduler';
 import { createSettings } from './settings/settings-state';
@@ -60,8 +60,6 @@ const memory = createPlayerMemory({ edit: (edit) => dataEngine().editProfile(edi
 const progress = createMovieProgress({ edit: (edit) => dataEngine().editProfile(edit) });
 const platform = createPlatform({ redirects: memory.redirects });
 platform.registerKeys();
-/** The focus of the screen on show, as `window.__LABLO_TEST__.focusPath()` (RELAY step 14b). */
-const showFocus = installTestHook(window);
 /** The device's tier once the platform says it (the guide's days). */
 let tier: DeviceTier = 'full';
 // tokens.css turns motion off on the low tier (`?tier=low` forces it in the browser).
@@ -101,15 +99,31 @@ function dataEngine(): DataEngine {
 }
 
 /**
+ * This build's config request (tv-defines.config.ts). `?api=` (step 30c1) points it at a test's
+ * server: any origin in the desktop dev app, only this device's in a TV build.
+ */
+const configRequest = {
+  base: readApiBase(location.search, __API_BASE__, __PLATFORM__ === 'browser'),
+  platform: __PLATFORM__,
+  version: __APP_VERSION__,
+  keys: __CONFIG_KEYS__,
+};
+
+/**
  * The signed config (RELAY step 30b2): a config worker after the start's first paint and then
- * every 6 h, never waited for; its policy (`config.policy`) is enforced from step 30c. The
- * request comes from the build (tv-defines.config.ts).
+ * every 6 h, never waited for; its policy (`config.policy`) is enforced from step 30c.
  */
 const config = createConfigSchedule({
   engine: { refreshConfig: (request, onCached) => dataEngine().refreshConfig(request, onCached) },
-  request: { base: __API_BASE__, platform: __PLATFORM__, version: __APP_VERSION__, keys: __CONFIG_KEYS__ },
+  request: configRequest,
   lifecycle: (listener) => platform.onLifecycle(listener),
 });
+
+/**
+ * The focus of the screen on show, as `window.__LABLO_TEST__.focusPath()` (RELAY step 14b), and
+ * the config's last answer and a refresh now (step 30c1).
+ */
+const showFocus = installTestHook(window, config);
 
 /**
  * The app's player controller, made on the first play (RELAY step 20a): the stage under the page,
@@ -165,7 +179,13 @@ function startRefreshes(live: Live, guide: Guide, posters: readonly Movies[], se
 
 /** The hello screen: developer diagnostics of the device, the workers and the data layer. */
 function showHello(into: Element): void {
-  const data: AppData = { engine: dataEngine(), params: readDebugParams(location.search), busy };
+  const data: AppData = {
+    engine: dataEngine(),
+    params: readDebugParams(location.search),
+    // One config run on this screen (step 30c1): it starts no schedule.
+    config: { request: configRequest, checks: readChecks(location.search) },
+    busy,
+  };
   const focus = createFocusDemo(platform);
   showFocus(focus.nav);
   render(<App platform={platform} keyHelp={KEY_HELP} data={data} focus={focus} />, into);

@@ -1,12 +1,25 @@
 import { parse } from 'acorn';
 import { describe, expect, it } from 'vitest';
+import { configCheck } from './config';
 import type { DataCheck } from './fixture';
 import type { PageState, PlatformRun } from './scenario';
-import { KEY_STEPS, STATE_EXPRESSION, evaluateRun, fontsSettled, formatConsoleError, formatException, isSettled } from './scenario';
+import { KEY_STEPS, STATE_EXPRESSION, evaluateConfig, evaluateRun, fontsSettled, formatConsoleError, formatException, isSettled } from './scenario';
 
 const URL = 'file:///app/app/webos/index.html';
 const UA53 = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.0 Safari/537.36';
-const CHECK: DataCheck = { file: 'playlist.m3u.gz', query: 'اخبار', items: 3000, live: 2400, movies: 600, total: 240, gzip: true, guide: 'guide.xml.gz', epgMatched: 300, epgWanted: 2400 };
+const CHECK: DataCheck = {
+  file: 'playlist.m3u.gz',
+  query: 'اخبار',
+  items: 3000,
+  live: 2400,
+  movies: 600,
+  total: 240,
+  gzip: true,
+  guide: 'guide.xml.gz',
+  epgMatched: 300,
+  epgWanted: 2400,
+  config: configCheck(true),
+};
 
 function state(overrides: Partial<PageState> = {}): PageState {
   return {
@@ -30,6 +43,12 @@ function state(overrides: Partial<PageState> = {}): PageState {
     epgMatched: '300',
     epgWanted: '2400',
     nowNext: 'ok: Lablo Channel 1: fixture.1 20h 20:00–21:00, next fixture.1 21h 21:00',
+    config: 'ok: fresh, issued 2026-11-17T11:59:00.000Z, nothing killed, notices harness-notice',
+    configStatus: 'fresh',
+    configFailure: '',
+    configNotices: 'harness-notice',
+    blocked: 'ok: blocked, blocked, allowed',
+    blockedList: 'true,true,false',
     fontsStatus: 'loaded',
     fonts: 'la400:loaded la700:loaded ar400:unloaded ar700:loaded',
     ...overrides,
@@ -98,11 +117,74 @@ describe('isSettled', () => {
     expect(isSettled(state({ ...failed, epg: 'waiting…', nowNext: 'waiting…' }), URL, CHECK)).toBe(true);
   });
 
+  it('with a data check, also waits for the config and the blocklist rows (step 30c1)', () => {
+    expect(isSettled(state({ config: 'running…', blocked: 'waiting…' }), URL, CHECK)).toBe(false);
+    expect(isSettled(state({ blocked: 'waiting…' }), URL, CHECK)).toBe(false);
+    expect(isSettled(state({ config: null }), URL, CHECK)).toBe(false);
+    expect(isSettled(state({ blocked: null }), URL, CHECK)).toBe(false);
+    expect(isSettled(state({ config: 'running…', blocked: 'waiting…' }), URL)).toBe(true);
+    expect(isSettled(state({ config: 'none: network (nothing killed, nothing blocked)', blocked: 'failed: Query worker failed' }), URL, CHECK)).toBe(true);
+    expect(isSettled(state({ config: 'failed: Config worker failed', blocked: 'ok: allowed, allowed, allowed' }), URL, CHECK)).toBe(true);
+  });
+
   it('with a data check, also waits for the guide and now/next', () => {
     expect(isSettled(state({ epg: 'running: 120 KB, 900 programmes', nowNext: 'waiting…' }), URL, CHECK)).toBe(false);
     expect(isSettled(state({ nowNext: 'waiting…' }), URL, CHECK)).toBe(false);
     expect(isSettled(state({ epg: 'running…' }), URL)).toBe(true);
     expect(isSettled(state({ epg: 'none: no guide stored (the playlist names none)', nowNext: 'none: no channel here has programmes now' }), URL, CHECK)).toBe(true);
+  });
+});
+
+describe('evaluateConfig (step 30c1)', () => {
+  const check = configCheck(true);
+
+  it('passes the dev-signed copy fresh with its notice, and the expected answers', () => {
+    expect(evaluateConfig(state(), check)).toEqual([]);
+    expect(evaluateRun(run(), engine53, 20_000)).toEqual([]);
+  });
+
+  it('fails a copy not taken, kept from before, or with the wrong notices', () => {
+    expect(evaluateConfig(state({ config: 'none: bad-signature (nothing killed, nothing blocked)', configStatus: 'none', configFailure: 'bad-signature' }), check)).toEqual([
+      'config: none: bad-signature (nothing killed, nothing blocked), expected fresh',
+    ]);
+    expect(evaluateConfig(state({ config: 'ok: cached (network), issued …', configStatus: 'cached', configFailure: 'network' }), check)).toEqual([
+      'config: ok: cached (network), issued …, expected fresh',
+    ]);
+    // A fresh copy whose failure is somehow set is not the one expected either.
+    expect(evaluateConfig(state({ configFailure: 'older' }), check)).toHaveLength(1);
+    expect(evaluateConfig(state({ configNotices: '' }), check)).toEqual([
+      'config notices "", expected "harness-notice" (ok: fresh, issued 2026-11-17T11:59:00.000Z, nothing killed, notices harness-notice)',
+    ]);
+    expect(evaluateConfig(state({ config: 'failed: Config worker failed', configStatus: '', configFailure: '', configNotices: '' }), check)).toEqual([
+      'config: failed: Config worker failed, expected fresh',
+    ]);
+    expect(evaluateConfig(state({ config: null, configStatus: null, configFailure: null, configNotices: null }), check)).toEqual(['config: missing, expected fresh']);
+  });
+
+  it('fails a blocklist answer that differs, or none', () => {
+    expect(evaluateConfig(state({ blocked: 'ok: blocked, allowed, allowed', blockedList: 'true,false,false' }), check)).toEqual([
+      `blocklist answered true,false,false for ${check.checks.join(' ')}, expected true,true,false`,
+    ]);
+    expect(evaluateConfig(state({ blocked: 'failed: Query worker failed', blockedList: '' }), check)).toEqual(['blocklist: failed: Query worker failed']);
+    expect(evaluateConfig(state({ blocked: null, blockedList: null }), check)).toEqual(['blocklist: missing']);
+    expect(evaluateRun(run({ boot: state({ blockedList: 'false,false,false' }) }), engine53, 20_000)).toEqual([expect.stringMatching(/^blocklist answered false,false,false/)]);
+  });
+
+  it('expects the copy refused once a TV build trusts only production keys', () => {
+    const refused = configCheck(false);
+    const shown = state({
+      config: 'none: bad-signature (nothing killed, nothing blocked)',
+      configStatus: 'none',
+      configFailure: 'bad-signature',
+      configNotices: '',
+      blocked: 'ok: allowed, allowed, allowed',
+      blockedList: 'false,false,false',
+    });
+    expect(evaluateConfig(shown, refused)).toEqual([]);
+    expect(evaluateConfig(state(), refused)).toEqual([
+      'config: ok: fresh, issued 2026-11-17T11:59:00.000Z, nothing killed, notices harness-notice, expected none (bad-signature)',
+      expect.stringMatching(/^blocklist answered true,true,false for .*, expected false,false,false$/),
+    ]);
   });
 });
 
