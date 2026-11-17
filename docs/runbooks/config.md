@@ -131,6 +131,43 @@ accept a config it signs, which matters only to someone who can also answer for 
 Try it: `pnpm build:web`, `pnpm --filter @lablo/web start`, then
 `curl -H "x-vercel-ip-country: AE" http://localhost:3100/v1/config`.
 
+## On the TV
+
+What the TV does with the answer (`packages/data`, step 30b1; the config worker and the app's
+schedule come with step 30b2, the enforcement with step 30c):
+
+- **Taking an answer** (`checkConfigResponse`): JSON, `configResponseSchema`, the signature against
+  the keys the build embeds, the signed text's JSON, `configDocSchema`. Refused when it has expired
+  (`now > expiresAt`: an old signed doc replayed) or is older (`issuedAt`) than the TV's cached copy.
+  An equal `issuedAt` is taken (it refreshes the country). A TV clock running behind refuses
+  nothing: an `issuedAt` in the TV's future is fine.
+- **The fetch** (`ConfigService.refresh`): `GET <api>/v1/config`, the whole answer within 3 s and at
+  most 4 MiB. A good answer replaces the cached copy (IndexedDB `kv`, key `config`: the exact text,
+  the signature, the country, when it was fetched). On any failure (network, time limit, status,
+  size, any refusal) the cached copy stays in force; with none, the defaults: nothing killed,
+  nothing blocked. If IndexedDB can't keep a good answer, it still applies until the app closes.
+- **The cached copy** is checked again against the build's keys when it is read (a key rotated out,
+  or a dev-signed copy once a build trusts only production keys, is dropped), but never for its
+  age: **an expired cached config stays in force** until a newer one arrives, so a kill rule can't
+  lapse while a TV is offline. Re-signing on time still matters for new installs and wiped TVs.
+- **The policy** (`configPolicy`): the strongest matching rule other than a notice, each mode
+  including the weaker ones (`block-new-sources` < `disable-playback` < `disable-app`; the doc's
+  first among equals), the matching notices in the doc's order, `updateRequired` below the
+  platform's `minVersion`, the flags and tunables. A rule with `countries` needs a known country
+  (an answer with `country: null` matches no such rule). The desktop dev app (`browser`) matches
+  only rules without a platform and has no `minVersion`.
+- **The blocklist** (`Blocklist`): the URL's host (any `scheme://`, the login, port, path, query and
+  fragment dropped; for http, https, ws, wss and ftp a `\` is a `/`, as browsers read them), percent
+  escapes decoded, then a Unicode host mapped as browsers map it (NFKC, lowercase, the ignored
+  code points dropped, NFC, the ideographic dots) and each non-ASCII label written as `xn--`
+  punycode, then the host form above, then the host and each parent hashed under the salt. So
+  `http://TV.Ｅｘample.com:8080/x` is blocked by `example.com`. It equals Node's
+  `url.domainToASCII` wherever Node answers, except for letters UTS #46 case-folds beyond
+  lowercase (Greek letters with an iota subscript, the lunate and mathematical sigmas, the old
+  Cyrillic variants U+1C80 to U+1C88, Cherokee): for a host written with those, the TV's `xn--`
+  form differs from Node's, and a block on Node's form misses it. A Latin host never has them. An
+  IP address is taken as written, and a URL without a host blocks nothing.
+
 ## Gotchas
 
 - **`config.json`'s formatting is the tool's** (`JSON.stringify(…, null, 2)` and a newline): the
