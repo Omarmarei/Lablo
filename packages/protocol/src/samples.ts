@@ -21,6 +21,8 @@ export type SampleSchema =
   | 'pairUploadResponse'
   | 'pairPollResponse'
   | 'pairStatusRequest'
+  | 'pairProgressResponse'
+  | 'pairFileUrlResponse'
   | 'pairPayload'
   | 'backupEnvelope'
   | 'lookupId'
@@ -163,6 +165,17 @@ export const SAMPLES: readonly ProtocolSample[] = [
   { name: 'pair.poll-unknown-state', schema: 'pairPollResponse', input: { state: 'gone' }, issues: ['invalid_union@state'] },
   { name: 'pair.status', schema: 'pairStatusRequest', input: { status: 'auth_failed' }, issues: [] },
   { name: 'pair.status-unknown', schema: 'pairStatusRequest', input: { status: 'failed' }, issues: ['invalid_value@status'] },
+  { name: 'pair.progress-open', schema: 'pairProgressResponse', input: { state: 'open', exp: T1 }, issues: [] },
+  { name: 'pair.progress-open-no-exp', schema: 'pairProgressResponse', input: { state: 'open' }, issues: ['invalid_type@exp'] },
+  { name: 'pair.progress-sent', schema: 'pairProgressResponse', input: { state: 'sent' }, issues: [] },
+  { name: 'pair.progress-received', schema: 'pairProgressResponse', input: { state: 'received', exp: T1 }, issues: [], output: { state: 'received' } },
+  { name: 'pair.progress-done', schema: 'pairProgressResponse', input: { state: 'done', status: 'blocked' }, issues: [] },
+  { name: 'pair.progress-done-no-status', schema: 'pairProgressResponse', input: { state: 'done' }, issues: ['invalid_value@status'] },
+  { name: 'pair.progress-done-unknown-status', schema: 'pairProgressResponse', input: { state: 'done', status: 'failed' }, issues: ['invalid_value@status'] },
+  { name: 'pair.progress-unknown-state', schema: 'pairProgressResponse', input: { state: 'ready' }, issues: ['invalid_union@state'] },
+  { name: 'pair.file-url', schema: 'pairFileUrlResponse', input: { url: 'https://r2.example/b/k?X-Amz-Signature=cd', key: ID, exp: T1 }, issues: [] },
+  { name: 'pair.file-url-http', schema: 'pairFileUrlResponse', input: { url: 'http://r2.example/b/k', key: ID, exp: T1 }, issues: ['invalid_format@url'] },
+  { name: 'pair.file-url-no-key', schema: 'pairFileUrlResponse', input: { url: 'https://r2.example/b/k', exp: T1 }, issues: ['invalid_type@key'] },
   {
     name: 'pair.payload-xtream',
     schema: 'pairPayload',

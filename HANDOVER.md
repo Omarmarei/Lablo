@@ -1,88 +1,73 @@
-# Lablo IPTV: relay leg 90 opening prompt
+# Lablo IPTV: relay leg 91 opening prompt
 
-You are leg 90 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 91 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 ## Status
-- **Earlier legs:** leg 0 planned the work; legs 1–88 did steps 1–30c2b (PRs #1–#109). Three steps wait for Omar: step 16's Samsung part, 19b and 21. Step 29b2b (the Next.js bump) can start from 2026-11-17 18:02 UTC.
-- **Leg 89 split step 30c3 and did 30c3a** (it ran 15:10–16:05 UTC on 2026-11-17).
-  - **The split** (RELAY.md, written before building): 30c3a covers adding a source, refreshing it and the screen that says so (done); 30c3b covers playing, including Tizen's redirect probe (open).
-  - **Merged** as PR #110 (`9cec856`), green on the **first** CI run:
-    - verify 13 m 38 s (its `pnpm e2e` 142 passed; unit 5,462 with one skipped);
-    - media 10 m 45 s;
-    - engines 20 m 42 s: all 114 runs as expected on Chromium 53, 56 and 68, 83 seeded failures caught;
+- **Earlier legs:** leg 0 planned the work; legs 1–89 did steps 1–30c3a (PRs #1–#111). Three steps wait for Omar: step 16's Samsung part, 19b and 21.
+- **Leg 90 did step 30c3b, which finishes step 30** (it ran 16:08–17:00 UTC on 2026-11-17).
+  - **Merged** as PR #112 (`761abbc`), green on the **first** CI run:
+    - verify 13 m 59 s (its `pnpm e2e` 145 passed; unit 5,503 with one skipped);
+    - media 12 m 20 s;
+    - engines 18 m 57 s: all 114 runs as expected on Chromium 53, 56 and 68, 83 seeded failures caught;
     - `web` skipped by its path filter.
-  - Its docs went in as PR #111 (`41e3416`).
-  - **What 30c3a built** (architecture.md §3.3 "Built in step 30c3a"; runbook `config.md` "What the TV shows", the blocklist bullet):
-    - **One place checks: `DataEngine`** (`apps/tv/src/data/engine.ts`):
-      - `refresh(job)` takes the refresh slot first, then asks `blocked([sourceUrlOf(job.source)])`. `sourceUrlOf` gives an Xtream account's `base` or an M3U link's `url`.
-      - A blocked source rejects with `BlockedSourceError` (`code: 'blocklisted'`) before any ingest worker starts.
-      - `refreshEpg` asks `blocked` for every listed guide's URL. A blocked guide is left out of `only` (with `due` or without) but stays listed, so it is neither read nor deleted.
-      - `blockedOrNone`: when `blocked` itself fails, nothing counts as blocked (a console warning).
-    - **At add:** `LoadErrorCode` gains `blocklisted` (`loader.ts`; the old `blocked` still means an account the provider banned). `engine-loader.ts` `loadError` passes it on, and `OnboardingApp.tsx` shows `error.blocklisted`: "This server can't be used with Lablo.". The failed-load screen keeps "Edit details" and "Try again".
-    - **On refresh:** `refresh-scheduler.ts` keeps a `blocklisted` refusal as a failure (tried again after 2 h) without the console warning.
-    - **Settings → Sources** (new screen):
-      - `settings/sources-state.ts`, `SourcesPage` and `SourceItem` in `SettingsScreen.tsx`. It is Settings' **second** row (`settings/items/1`), so the guides' key paths stay.
-      - Each source shows its name (`dir="auto"`), its kind and server ("Xtream login · host:port"; `shownHost` gives the host and port only), and **one** line under them:
-        - "Updated {day}, {time}" (`checkedAt`, else `updatedAt`), or "Not updated yet";
-        - for a blocked source, in the warning colour: "Not updated since {day}, {time}: this server can't be used with Lablo." (or "Not updated: …").
-      - It reads `profile`, `sourceStatus` and `blocked` at each opening. There are no actions yet: OK does nothing, Back returns.
-    - **Settings → TV guides:** a guide on a blocked server shows "Not read: this server can't be used with Lablo." in place of its status and failure lines (`guide-<i>-blocked`).
-    - **Catalogs:** `error.blocklisted`, `guides.blocked`, `settings.sources`, `settings.sourcesHint`, and the `sources.*` keys, in en.ts and ar.ts.
-    - **e2e** `e2e/config-blocklist.spec.ts` (3):
-      1. The mock's `127.0.0.1` blocked from the start: Add is refused and nothing is kept; after the lift, "Try again" adds the source.
-      2. A source blocked after it was added: Sources and TV guides say so; the lift takes both lines away.
-      3. The same in Arabic.
-    - **Tests:** unit 5,462 (+84).
-      - Mutation: `artifacts/mutate30c3a.py`, 51 written first. Writing them closed two test gaps. 50 were caught; the survivor was a test gap, now closed (the rerun `mutate30c3a-b.log` caught it, 1/1).
-    - **Sizes:** main.js 437.7 / 425.0 KB (+7.5 KB), 222 core-js modules (unchanged), the workers unchanged.
+  - Its docs went in as PR #113 (`40b35d9`): 30c3b ticked, and its parents 30c3, 30c, 30b and **30** ticked too.
+  - **What 30c3b built** (architecture.md §2 "The config's blocklist" and §3.3 "Built in step 30c3b"; runbook `config.md` "What the TV shows", the new "before playing" bullet):
+    - **One place checks: the player controller** (`packages/player/src/controller.ts`):
+      - `ControllerOptions.blocked(urls)` is asked in `open` for the URL about to open, **while the old connection closes**. Every play and every retry rung goes through `open`.
+      - On Tizen, the redirect probe's answer is asked about too when it differs from the URL.
+      - A blocked URL: no `engine.load`, no retry, no connectivity or account check. The session gives up at once with `blockedFailure()` (`failure.ts`: `{category: 'blocked', code: 'CFG-BLOCKLIST', detail: 'BLOCKLIST'}`).
+      - A rejected check blocks nothing. The app passes `DataEngine.blockedOrNone` (made public; it warns).
+      - `checkBlocklist()` asks again about the stream on show (the session keeps `url`, the URL the engine was given) and stops a blocked one the same way. It asks nothing between loads or after a VOD's end.
+    - **The app** (`apps/tv/src/player`):
+      - `app-player.ts` passes `blocked` through; `main.tsx` gives it `dataEngine().blockedOrNone`.
+      - `player-state.ts` turns a `blocked` failure into 30c2b's refusal card (`refuse`) with `BLOCKLIST_REFUSAL` (`id: 'BLOCKLIST'`: no rule id has capitals, so `data-rule="BLOCKLIST"` tells it apart).
+      - Its new `blocklist` option (`config.last` in main.tsx) calls `controller.checkBlocklist()` at each config answer while the player is open. **Decided:** a server blocked while its stream plays stops it, within one config refresh.
+      - `PlayerScreen.tsx` `RefusedCard`: "Can't play this" / "Its server can't be used with Lablo." (`player.blocked.*`, en and ar), one button. `CATEGORY_TEXT` has the same texts for the new category.
+      - Unlike `disable-playback`, the check is asynchronous: a blocked play counts in `plays` and becomes the last channel (`tuned`). Written in the docs.
+    - **Not covered (in the runbook):** webOS/desktop redirects (`<video>` follows them itself), an HLS stream's segments on other hosts, a movie's subtitle files.
+    - **e2e** `e2e/config-blocklist-play.spec.ts` (3):
+      1. An M3U link on `localhost` whose streams are on a blocked `127.0.0.1`: the source adds, OK on a channel shows the card; lifted, it plays.
+      2. An Xtream channel playing when a refresh blocks `127.0.0.1`: the stream stops and the card shows; a zap is refused too.
+      3. The card in Arabic.
+      - `e2e/config-server.ts` gained `file(path, body, type)` (served files).
+    - **Tests:** unit 5,503 (+41): `controller-blocklist.test.ts` (23, new), `app-player.test.ts` (+1), `player-state.test.ts` (+7), `tv-data-engine.test.ts` (+1), the catalogs' per-key tests.
+      - Mutation: `artifacts/mutate30c3b.py`, 49 written first. Writing them closed four test gaps. 48 were caught; the survivor is equivalent and kept (`checkBlocklist`'s `s === null`: the load token is 0 whenever there is no session).
+    - **Sizes:** main.js 439.5 / 426.8 KB (+1.8 KB), 222 core-js modules (unchanged), the workers unchanged.
 
 ## Read first
 1. **`RELAY.md`:**
-   - Phase 8: 30c3's split note, **30c3a's "The shape" and "Done in leg 89"**;
-   - **30c3b's line and its "Decisions for its leg"**, and 29b2b's line and "Done when";
-   - 30c2b's "The shape" (the player's refusal card, which 30c3b reuses);
-   - leg 89's progress-log row.
-2. **`docs/architecture.md` §3.3:** "Built in step 30c2b" and **"Built in step 30c3a"**.
-3. **`docs/runbooks/config.md`:** "What the TV shows" (the blocklist bullet: 30c3b changes its "Not covered" line) and "On the TV" (the blocklist's host form).
+   - Phase 8: **29b2b's line and its "Done when"**;
+   - **step 31's line** ("Pairing", Done when: the automated "no plaintext" test passes), 32 and 34;
+   - 30c3b's "The shape" and "Done in leg 90" (the newest example of a step's write-up);
+   - leg 90's progress-log row.
+2. **`docs/architecture.md`:**
+   - §3.1 **"A. Pairing"** (the protocol: the TV's ephemeral key, the code, the QR fragment, the phone's `box`, the file frames, the status);
+   - §3.2 the endpoint table (`/v1/pair…`), retention, "Built in step 29a" (the `PairSession` table) and "Built in step 29b2a" (`@lablo/protocol`'s pairing schemas, `BlobStore`, `RateLimiter`);
+   - §3.3 "Built in step 29b1" (`@lablo/crypto`: `newBoxKeyPair`, `sealPairPayload`/`openPairPayload`, `sealFile`/`openFile`, `sealFileFrame`/`openFileFrame`, `tokenHash`).
+3. **`docs/runbooks/web.md`** (the web app, `test:web`, the Next agent nudge) and **`docs/runbooks/config.md`** "What the TV shows".
 4. **`CLAUDE.md`:** "Package boundaries", the Chromium 53 cheat sheet, the project rules. Edits to CLAUDE.md need Omar's direct word in his own tab.
-5. **Code for step 30c3b:**
-   - **The player:** `apps/tv/src/player/player-state.ts`:
-     - `playRow` and `playFilm` already read `refusalNow()` synchronously before `controller.play`. The blocklist check is an **async** worker call (`DataEngine.blocked`), so it can't go in the same place unchanged.
-     - The refusal machinery: `refused`, `refuse(rule, stop)`, `carded`, `onStatus`.
-   - **The card:** `PlayerScreen.tsx` `RefusedCard`, `player__blank` (any "no stream" state paints its own black). The card's text comes from a `Refusal` (`{id, message}`); a blocked host needs its own catalog text.
-   - **Stream URLs:** `apps/tv/src/player/app-player.ts` and `packages/player/src/controller.ts`. On Tizen, `resolveUrl` (the redirect probe) gives the final host.
-   - **Reuse:** `sourceUrlOf` and `blocked` from `engine.ts`; `main.tsx` builds the player's options (pass a `blocked` function from `dataEngine()`).
-   - **e2e:** `e2e/config-blocklist.spec.ts` and `e2e/config-modes.spec.ts` to copy from; `e2e/config-server.ts` `doc()`.
 
 ## Next steps, in order
 1. **Check the state:**
    - `git -C "<wt>" status` should be clean.
-   - `git -C "<wt>" log --oneline -3` should show HEAD as this handover's commit, on top of `41e3416` (Merge PR #111) = main.
+   - `git -C "<wt>" log --oneline -3` should show HEAD as this handover's commit, on top of `40b35d9` (Merge PR #113) = main.
 2. **Check the clock** with `date -u`.
-   - **From 2026-11-17 18:02 UTC, step 29b2b** (small, its own PR) goes first:
-     - bump Next to 16.4.5 (16.4.6 only from 2026-11-23 20:33 UTC), with `@next/swc-win32-x64-msvc` at the same version;
-     - publish dates: a tiny `npmdates.py` in the job's tmp folder (Python `urllib`, `-I`, `sys.stdout.reconfigure(encoding='utf-8')`) reading the `time` field of `https://registry.npmjs.org/<name>`;
-     - advisories: POST `https://registry.npmjs.org/-/npm/v1/security/advisories/bulk` with `{"next":["<version>"]}`;
+   - **From 2026-11-17 18:02 UTC, step 29b2b** (small, its own PR) can go in. Do it first if the clock allows, or overlap it with step 31's CI (never push while a PR's CI runs):
+     - bump Next to **16.4.5** (published 2026-11-03 18:01:54 UTC; 16.4.6 only from 2026-11-23 20:33 UTC), with `@next/swc-win32-x64-msvc` at the same version;
+     - dates and advisories: leg 90's script is in its job's tmp folder (gone with the job). Rewrite it in yours: Python `urllib`, `-I`, `sys.stdout.reconfigure(encoding='utf-8')`. `dates`: GET `https://registry.npmjs.org/<name>` and read `time`. `advisories`: POST `https://registry.npmjs.org/-/npm/v1/security/advisories/bulk` with `{"next":["16.4.5"]}`. Use a generic user-agent;
      - then `pnpm --dir "<wt>" web:db`, `test:web` 13/13 and `build:web` (the agent nudge may stop it once: run it again), with the SWC binding loading under Smart App Control;
-     - update `web.md`'s gotcha and RELAY.md; open the PR and merge on green CI.
-3. **Step 30c3b (the blocklist before playing).** First look for existing work: `git log --oneline -10`, then grep `blocked(` in `apps/tv/src/player`.
-   - **Write its shape and runnable "Done when" checks into RELAY.md before building.** Its decisions (in RELAY.md):
-     - **Where the async check goes.**
-       - The check needs the stream URL, which `playRow`/`playFilm` build. A play must not start before the answer, yet a zap must stay fast.
-       - One way: ask `blocked` in parallel with what a play already waits for (the row's chunk, the controller's open), and stop the play if the answer is "blocked" before the first frame.
-       - Another: keep a per-host answer cache in the player, since every channel of a source usually shares one host.
-       - `seq` already drops stale answers.
-     - **The card's text:** a refusal with no rule `id` (or a fixed one such as `blocklist`) and a catalog text, e.g. "This channel's server can't be used with Lablo.". `data-rule` on the card should show which kind of refusal it is.
-     - **Tizen:** the redirect probe's final URL must be checked before AVPlay opens it, in `app-player.ts` or `controller.ts`. On webOS, `<video>` follows redirects itself: say it isn't covered.
-     - **A stream playing when a refresh blocks its host:** stop it as `disable-playback` does? This needs the player to re-ask on a config refresh (the hook is `config.policy` changing). Decide, and record it.
-   - **e2e:** the stream host must differ from the source's API host.
-     - The mock's URLs follow the Host header. One way: add the source as `http://localhost:<port>` (API host `localhost`); a playlist the test serves would then list streams on `127.0.0.1`.
-     - Or block `127.0.0.1` for a source added by `localhost`, and serve an M3U with `127.0.0.1` stream URLs from a tiny test server.
-     - Check what `listen(app)` and the mock's `get.php` give first.
-   - **Screenshots** in en and ar, looked at; **a "press these keys" list for Omar.**
+     - update `web.md`'s gotcha and RELAY.md; open the PR and merge on green CI (its `web` job).
+3. **Step 31 (pairing).** It is far too large for one leg: **split it first** in RELAY.md (written before building, with runnable "Done when" checks), then build the first part.
+   - First look for existing work: `git log --oneline -15`, and grep `pair` in `apps/web/src`, `apps/tv/src`, `packages/protocol/src`.
+   - **A split leg 90 suggests** (the leg decides):
+     - **31a, the pairing API** in `apps/web`: the six `/v1/pair…` routes with `MemoryRateLimiter` and `MemoryBlobStore`, the code and token hashes (`tokenHash`), expiry and retention, deleting the payload once read. `test:web` tests, including a "the server only ever holds ciphertext" check on every row and blob. A `PairSession` change needs a migration: local and test databases only (production arrives with step 34), so no approval is needed. Say so in the handover.
+     - **31b, the phone page** `/p` (en and ar, RTL): the three forms, the `box` and the file frames in the browser, the presigned upload, the status. Playwright against `next start`.
+     - **31c, the TV's pairing screen:** the QR code and the code in large text, the 2 s poll, `openPairPayload`, then **`addRefusal` (`block-new-sources`) and `DataEngine.refresh` (the blocklist)** before anything is kept, then the status back. The QR encoder is a new dependency: at least two weeks old, measured for polyfills (`artifacts/babel-polys30b2.ts`, `poly-count20c2a.py`) and main.js (500 KB budget; 439.5 KB now). Probe it on Chromium 53 and 68.
+     - **31d, the M3U file relay:** the presigned GET, `openFileFrame` frame by frame into the ingest, an IndexedDB `blobs` store if needed (a database version bump: test the upgrade from version 2).
+     - **31e, the automated "no plaintext" test** end to end: phone page, web app, TV, mock provider. Step 31's own "Done when".
 4. **Step 26's common items still apply to each step:**
    - unit tests;
-   - a mutation run with the mutant list written first (`artifacts/mutate30c3a.py` is the newest template: `drop()`, block constants, `TESTS` per file, `--rerun`; read its docstring);
+   - a mutation run with the mutant list written first (`artifacts/mutate30c3b.py` is the newest template: `drop()`, block constants, `TESTS` per file, `--rerun`; read its docstring);
    - the `pnpm verify` parts green;
    - `verify:engines --engine chrome53 --engine chrome68` if a TV-run page or the build changes;
    - the PR merged on green CI;
@@ -92,48 +77,48 @@ You are leg 90 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a
 ## Git state to expect
 - **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed.
 - **HEAD:** the commit adding this HANDOVER.md, on top of:
-  - `41e3416` Merge PR #111 = main;
-  - `8564f95` docs (30c3a ticked, leg 89's row);
-  - `9cec856` Merge PR #110;
-  - `2c22cd2` the 30c3a feature commit;
-  - `de3891c` the 30c3 split.
+  - `40b35d9` Merge PR #113 = main;
+  - `70a1376` docs (30c3b and step 30 ticked, leg 90's row);
+  - `761abbc` Merge PR #112;
+  - `ce96d46` the 30c3b feature commit.
 
   This handover commit goes to main with the next PR.
 - **No PR is open.** The main checkout (`D:/Claude Code PlayGround/IPTV`) was not touched.
 - **Gitignored but present:**
   - `node_modules`, `.cache/rollup-wasm`, `.cache/engines`, `.cache/media`;
   - `apps/web/.env`, `apps/web/src/generated/prisma`, `apps/web/.next`;
-  - `dist/`: TV builds from 30c3a's final code, the lab, `dist/tv-vectors`;
+  - `dist/`: TV builds from 30c3b's final code, the lab, `dist/tv-vectors`;
   - `artifacts/`:
-    - `mutate30c3a.py` and its logs (`mutate30c3a.log` 50/51, `-b.log` 1/1);
-    - `unit-30c3a.log` (5,461), `build-30c3a.log`, `lint-30c3a.log`, `typecheck-30c3a.log`, `poly-count-30c3a.log` (222);
-    - `engines-30c3a.log` (53+68, 18 as expected);
-    - `screenshots/config-blocked-add-{en,ar}.png`, `sources-blocked-{en,ar}.png`, `guides-blocked-en.png`, `settings-{en,ar}.png` (two rows now);
+    - `mutate30c3b.py` and `mutate30c3b.log` (48/49);
+    - `unit-30c3b.log` (5,503), `build-30c3b.log`, `lint-30c3b.log`, `typecheck-30c3b.log`, `poly-count-30c3b.log` (222), `engines-30c3b.log` (53+68, 18 as expected), `e2e-30c3b.log` (35 passed);
+    - `screenshots/config-blocked-play-{en,ar}.png`;
     - older legs' files.
 - **Docker:** no `lablo-chrome*` container left; the `lablo-web` Postgres is down. No `next start` or Vite is left running.
 - **On the TV:** only the old lab, under its old id. The app was never installed on the TV.
 - **Outside the repo:** the webOS Simulator in `D:/tools/webos-sim/`. Never commit it.
 
 ## Gotchas and lessons
-**New in leg 89:**
-- **`DataEngine`'s refreshes must claim the slot before any `await`.** `claim()` throws at once when the slot is taken, and "one refresh at a time" relies on that. An `await` before the claim let a second refresh slip in, which the existing test caught. New checks go inside the `try`, after `claim`.
-- **A settings, guide or source row is 120 px: it holds the name or link plus one line.** Three lines (44 + 38 + 38 px plus gaps) are clipped. A warning replaces the line under the name.
-  - The guides screen's rows for a guide that was read and whose last try failed have clipped since step 22b2 (status plus failure line). Left for later: a known UI bug, in architecture.md.
-- **Settings has two rows:** "TV guides" `settings/items/0`, "Sources" `settings/items/1`. The rows have an 8 px gap now.
-- **The e2e blocklist:** the mock runs on `127.0.0.1`. Use `doc({ blocklist: { salt: HARNESS_SALT, hashes: [blocklistHash(HARNESS_SALT, '127.0.0.1')] } })`, imported from `tools/engines/src/config` and `packages/crypto/src/blocklist`. Then call `refreshConfig()` (the query worker reads the new list before it resolves). The config server is on `127.0.0.1` too, but the config fetch is never checked.
-- **`track()` in the settings screens decrements before the caller's `.then` runs.** A request started inside another's `.then` shows `pending` 1, not 2.
-- **A `VirtualList`'s `renderItem` returns the row component's VNode.** Read the row through `.props` cast via `unknown` (`{row, index}`), not the DOM's `data-*`.
-- **Python patch scripts in a Bash heredoc failed again** (~140 lines with quotes). Write them with the Write tool and run `python -I <file> "<wt>"`. Memory `use-write-tool-for-doc-batches`.
-- **One `git fetch` printed "incorrect old value provided"** (another session fetching at the same time). The refs were right: check with `git ls-remote origin refs/heads/main`.
+**New in leg 90:**
+- **The blocklist check before playing lives in `PlayerController.open`.** Any new way to play must go through `PlayerController.play`; a stream given to an engine any other way skips the check.
+- **A new `FailureCategory` in `@lablo/player` needs an entry in `PlayerScreen.tsx`'s `CATEGORY_TEXT`** (a Record over the categories: `tsc` catches it).
+- **In the plain `pnpm e2e` run, the player never reaches `data-state="playing"`** on the mock's live streams (only the media run decodes). Check that the stage holds a stream (`#stage video` with a `src`: `stageStopped(page) === false`) and `data-plays`. Memory `iptv-ui-test-gotchas`.
+- **An e2e stream host that differs from the source's host:** fetch the mock's playlist from Node on `127.0.0.1` (`get.php?…&type=m3u_plus&output=m3u8`), serve it with `config-server.ts`'s `file('/list.m3u', …)`, and type the link as `localhost:<port>/list.m3u`. Memory `iptv-mock-provider-gotchas`.
+- **Writing the mutant list first keeps finding real gaps** (four this time: the URL asked when a request's second URL plays, a refusal's timers and token, the tracks, a re-check after dispose). Keep doing it before the run.
 
 **From earlier legs (still true):**
-- **A player screen with no stream before any play shows the page's white on the desktop.** `player__blank` paints its own black: 30c3b's card needs it too. Look at every screenshot.
-- **The controller's `play()` and `stop()` publish `opening`/`idle` synchronously.** `onStatus` already clears a card on a new play, so don't do it again in a caller.
+- **`DataEngine`'s refreshes must claim the slot before any `await`.** New checks go inside the `try`, after `claim`.
+- **A settings, guide or source row is 120 px: it holds the name or link plus one line.** The guides screen's "read, last try failed" rows have clipped their third line since step 22b2 (a known UI bug, in architecture.md).
+- **Settings has two rows:** "TV guides" `settings/items/0`, "Sources" `settings/items/1`.
+- **The e2e blocklist:** the mock runs on `127.0.0.1`. Use `doc({ blocklist: { salt: HARNESS_SALT, hashes: [blocklistHash(HARNESS_SALT, '127.0.0.1')] } })` from `tools/engines/src/config` and `packages/crypto/src/blocklist`, then `refreshConfig()` (the query worker reads the new list before it resolves). The config fetch itself is never checked.
+- **A player screen with no stream shows the page's white on the desktop.** `player__blank` paints its own black. Look at every screenshot.
+- **The controller's `play()` and `stop()` publish `opening`/`idle` synchronously.** `onStatus` already clears a card on a new play.
 - **Test traps:**
   - With no tracks, AUDIO then SUBTITLES closes the menu the first key opened: check after each key.
   - `data-plays` is the player's lifetime count; it isn't reset on close.
   - An onboarding title's name is bidi-isolated: compare it through `stripIsolates`.
-- **The mock provider keeps no request log.** To prove nothing was fetched, check state (the profile's sources from IndexedDB) or a fake transport in a unit test.
+  - `track()` in the settings screens decrements before the caller's `.then` runs.
+  - A `VirtualList`'s `renderItem` returns the row component's VNode: read the row through `.props`.
+- **The mock provider keeps no request log.** To prove nothing was fetched, check state or use a fake transport in a unit test.
 - **The mutation run edits source files:** never commit, build or run e2e while it runs. Close gaps after the run, then `--rerun`.
 - **Onboarding's first screen is a horizontal row** (RIGHT moves, LEFT in Arabic; DOWN does nothing).
 - **The gate has its own navigator:** read it from the DOM (`[data-testid=gate]`).
@@ -163,11 +148,13 @@ You are leg 90 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a
 - **The media flake** (`epg-declared-300mb`) and the throttled search spec's throttle proof: one `gh run rerun <run> --failed -R Omarmarei/Lablo` once the whole run is done.
 - **One CI poller:**
   1. after `gh pr create`, wait ~45 s (`timeout 45 tail -f /dev/null`), then `gh run list --commit <sha> --event pull_request`;
-  2. start one Monitor running a `comm -13` loop over `gh run view <run> --json status,conclusion,jobs` (worked in legs 87–89).
+  2. start one Monitor running a `comm -13` loop over `gh run view <run> --json status,conclusion,jobs` (worked in legs 87–90).
   - To see why a job failed, or to read counts: `gh api repos/Omarmarei/Lablo/actions/jobs/<job id>/logs`.
-- **Python with `-I` ignores `PYTHONIOENCODING`:** call `sys.stdout.reconfigure(encoding='utf-8')`.
+  - A docs-only PR runs only `changes`; merge once it passes.
+- **Python patch scripts:** write them with the Write tool and run `python -I <file> "<wt>"`; short heredocs worked this leg, long ones with quotes fail. Python with `-I` ignores `PYTHONIOENCODING`: call `sys.stdout.reconfigure(encoding='utf-8')`.
+- **One `git fetch` may print "incorrect old value provided"** (another session fetching at the same time). Check with `git ls-remote origin refs/heads/main`.
 - **The relay's context check fires at about 450k tokens.**
-- **Mutants:** unit tests take about 5–8 s each; 51 mutants took about 6 min.
+- **Mutants:** unit tests take about 5–8 s each; 49 mutants took about 5 min.
 - **The profile is at version 7; the IDB schema is at version 2** (`kv` holds the config).
 - **TV code rules:**
   - no `Array.prototype.sort` in the TV main bundle;
@@ -180,8 +167,8 @@ You are leg 90 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a
 - **Commands:**
   - one e2e spec: `pnpm --dir "<wt>" exec playwright test --project=chromium <spec>`;
   - the engines: `pnpm --dir "<wt>" verify:engines --engine chrome53 --engine chrome68` (about 6 min), after a fresh `pnpm build:tv`;
-  - `pnpm test` takes about 4 min (5,462 tests).
-- **Local `pnpm verify` or `pnpm e2e` may die from low memory:** run the parts separately, or leave them to CI. Nine related specs (34 tests, `--workers=3`) ran fine together.
+  - `pnpm test` takes about 4 min (5,503 tests).
+- **Local `pnpm verify` or `pnpm e2e` may die from low memory:** run the parts separately, or leave them to CI. Ten related specs (35 tests, `--workers=3`) ran fine together.
 - **Code rules:**
   - `packages/ui` components stay hook-free; UI text comes only from the catalogs;
   - physical CSS only, no CSS Grid or flex `gap`; TV code is ES2017;
@@ -201,23 +188,23 @@ You are leg 90 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a
 - **CLAUDE.md edits need Omar's direct word in his own tab.**
 
 ## Verified vs not
-- **Verified in leg 89 (30c3a):**
+- **Verified in leg 90 (30c3b):**
   - **Locally:**
-    - lint, typecheck, unit 5,461 (then one more test);
-    - `build:tv` (main 437.7 / 425.0 KB, 222 core-js modules);
-    - `verify:engines --engine chrome53 --engine chrome68`: 18 as expected. The onboarding walks add a source with no block, so the new check runs on both engines and lets it through;
-    - e2e `config-blocklist.spec.ts` 3/3, plus guides, guide-offset, guide-matches, onboarding, config-modes, config, config-gate and live: 34/34;
-    - the screenshots looked at (Arabic mirrored; rows fit after the one-line fix).
-  - **Mutation:** 50/51, then 1/1.
-  - **CI:** the first run all green (114 engine runs, 83 seeded failures caught; e2e 142 passed).
+    - lint, typecheck, unit 5,503;
+    - `build:tv` (main 439.5 / 426.8 KB, 222 core-js modules, the workers unchanged);
+    - `verify:engines --engine chrome53 --engine chrome68`: 18 as expected. The onboarding walks play with no block, so the check runs on both engines at every open; the walks' CH− stayed at 0.7 s;
+    - e2e `config-blocklist-play.spec.ts` 3/3, plus config-blocklist, config-modes, config-gate, config, player, resume, live, movie-resume and auto-next: 35/35;
+    - the screenshots looked at (black behind the card; Arabic mirrored).
+  - **Mutation:** 48/49 (the survivor equivalent).
+  - **CI:** the first run all green (114 engine runs, 83 seeded failures caught; e2e 145 passed).
 - **Not verified:**
-  - a blocked host on the old engines (the walks get no block for their source);
-  - on a real TV;
-  - the host an M3U link redirects to (not covered by design, written in the runbook).
+  - a blocked stream on the old engines (the walks get no block);
+  - Tizen's redirect check on a real Samsung (unit tests only; no Samsung yet);
+  - on a real TV.
 - **Migrations and deploys:** nothing new. Nothing is in production (Neon arrives with step 34 `[needs Omar]`), and nothing is deployed.
 
 ## Open decisions and gates
-- **None for 30c3b beyond the leg's own calls** listed in step 3 (to record in RELAY.md).
+- **None for step 31's first part beyond the leg's own calls** (the split, and whatever its shape decides, recorded in RELAY.md).
 - **Later UI fix (no step yet):** the guides screen's "read, last try failed" rows clip their third line (since 22b2). Options: one line that holds both, or taller rows on that screen.
 - **For step 31 (pairing):** a phone sending sources to the TV is a new way to add a source. It must read `addRefusal` (`block-new-sources`) and go through `DataEngine.refresh` (the blocklist).
 - **Step 34 `[needs Omar]`, including the config key ceremony** (runbook `config.md`):
@@ -228,7 +215,7 @@ You are leg 90 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a
 - **Steps 16, 19b and 21 wait for Omar:**
   - Samsung: the account, the certificate, the RTL tunnel session, the used 2018 set;
   - about 30–45 minutes at the LG TV: S10, S11, S5's suspend and soak, and the player.
-  - Steps 24–28 can join that visit, along with whether the TV keyboards type into the search field, the gate's screens, the refusal card and now the Sources screen on the real set.
+  - Steps 24–28 can join that visit, along with whether the TV keyboards type into the search field, the gate's screens, the refusal cards (now with the blocklist's) and the Sources screen on the real set.
 - **For step 32:** derive the backup master once, in a worker, with progress, and cache it; that worker needs an idle signal for the walk.
 - **For step 38 (parental):** every Home shelf, the search results, "Continue watching" and "Recent channels" hold adult items too: the lock must filter them. Step 38 can also give the Sources screen its actions (remove, edit a login).
 - **For step 41 (the 2018 Samsung):** decoded poster memory, posters in lists on the low tier, the search's real time, the scrypt time.
@@ -243,16 +230,17 @@ You are leg 90 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a
   - CI's single-sample budgets.
 - **Later gates:** steps 19b, 21, 34, 44, 46 and 47. Before the first store submission: the final app IDs (`com.lablo.*`, `LabloIPTV1`, pending trademark clearance) and real icons.
 
-## Checks for Omar (step 30c3a is merged; on the PC, nothing to press on a TV yet)
-1. In the repo, run `pnpm exec vitest run apps/tv/src/settings test/tv-data-engine.test.ts apps/tv/src/data/refresh-scheduler.test.ts apps/tv/src/onboarding/engine-loader.test.ts`: all pass.
-2. `pnpm exec playwright test --project=chromium e2e/config-blocklist.spec.ts`: 3 passed. The screenshots are in `artifacts/screenshots/config-blocked-add-*.png`, `sources-blocked-*.png` and `guides-blocked-en.png`.
+## Checks for Omar (step 30c3b is merged; on the PC, nothing to press on a TV yet)
+1. In the repo, run `pnpm exec vitest run packages/player/src/controller-blocklist.test.ts apps/tv/src/player`: all pass.
+2. `pnpm exec playwright test --project=chromium e2e/config-blocklist-play.spec.ts`: 3 passed. The screenshots are `artifacts/screenshots/config-blocked-play-{en,ar}.png`.
 3. Try it by hand with the real signer and backend:
    1. `pnpm mock` (the mock provider on port 8080), `pnpm web:dev` (the backend on port 3100) and `pnpm dev`;
-   2. `pnpm sign-config block 127.0.0.1`, then `pnpm sign-config sign --dev`;
-   3. open `http://localhost:5173/` in a private window. Go through onboarding (Enter on each screen) and fill the Xtream login: server `127.0.0.1:8080`, the mock's test login (`lablo` / `lablo-test`). Press Enter on "Add source": "Couldn't add 127.0.0.1" and "This server can't be used with Lablo." show at once;
-   4. `pnpm sign-config unblock 127.0.0.1`, sign again, run `window.__LABLO_TEST__.refreshConfig()` in the console, press RIGHT then Enter ("Try again"): the source loads. Press "Start watching";
-   5. block it again (steps 2 and 4's `refreshConfig()`), then press UP and RIGHT ×5 to the gear, Enter, DOWN to "Sources", Enter: the row says "Not updated since …: this server can't be used with Lablo.". Back, UP to "TV guides", Enter: the panel's guide says "Not read: …";
-   6. undo with `git checkout config/`.
+   2. open `http://localhost:5173/` in a private window. Go through onboarding (Enter on each screen), fill the Xtream login (server `127.0.0.1:8080`, `lablo` / `lablo-test`), "Add source", "Start watching";
+   3. press Enter on a channel: it plays (the stream may only say "Connecting…" with the mock);
+   4. `pnpm sign-config block 127.0.0.1`, then `pnpm sign-config sign --dev`, then run `window.__LABLO_TEST__.refreshConfig()` in the console: the stream stops and the card says "Can't play this" / "Its server can't be used with Lablo." over black;
+   5. press CH+ (Page Up): the next channel is refused too. Enter on "Channels" goes back to the list;
+   6. `pnpm sign-config unblock 127.0.0.1`, sign again, `refreshConfig()`, Enter on a channel: it plays;
+   7. undo with `git checkout config/`.
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
 - **At the LG TV next time:** remove the old lab `com.zoma.iptv.lab` (`ares-install --device tv --remove com.zoma.iptv.lab`). The renamed lab `com.lablo.iptv.lab` installs as a new app.
@@ -260,12 +248,13 @@ You are leg 90 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a
 - **Trademark clearance** (US, CA, AE, SA) and domains for **"Lablo"**. They decide the final app IDs too.
 - `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` was widened with his authorisation on 2026-11-02. Prune it when the relay run ends if he wants it tighter.
 - **At the TV next time:** read Dev Mode's "Remain Session".
-- **Fifty CLAUDE.md gaps** are waiting for his word:
+- **Fifty-one CLAUDE.md gaps** are waiting for his word:
   - 1–28: as listed in leg 51's handover (`git -C "<wt>" show d05d5fd:HANDOVER.md`, "Carry-forward reminders");
   - 29–47: as listed in leg 86's handover (`git -C "<wt>" show 5fffb27:HANDOVER.md`, "Carry-forward reminders");
   - 48: the app's structure could name `apps/tv/src/gate/` (the config gate over every screen: its own root, navigator and capture key listener) and say a new full-screen state over the app goes through it;
   - 49: any new way to add a source or to play must read the config's refusal (`refusalFor`: onboarding's and the player's `refusal` option), and any player state with no stream must paint its own black (`player__blank`);
-  - 50 (new): any new way to read a provider's catalog goes through `DataEngine.refresh`/`refreshEpg` (they check the blocklist), and a refresh must claim the slot before any `await`.
+  - 50: any new way to read a provider's catalog goes through `DataEngine.refresh`/`refreshEpg` (they check the blocklist), and a refresh must claim the slot before any `await`;
+  - 51 (new): any new way to play goes through `PlayerController.play` (its `open` checks the blocklist, and the Tizen redirect's answer); a stream given to an engine any other way skips the check.
 - **For step 34 (later):** the Vercel, Neon, R2 and Upstash accounts and the domain are his to create, and he puts the keys in `.env` himself. The config key ceremony is his too.
 - **GitHub billing:** keep the payment method valid. A failed payment stops even the free public-repo CI.
 - **Secrets:** none pending.

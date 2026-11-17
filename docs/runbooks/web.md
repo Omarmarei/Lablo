@@ -6,8 +6,9 @@ no production database and no deploy yet.
 
 What it will serve (architecture.md §3.2): the signed config (step 30), the pairing relay and the
 phone page `/p` (step 31), the encrypted backup (step 32), telemetry and diagnostics (step 33).
-What it serves now: `GET /v1/health` (step 29a) and `GET /v1/config` (step 30a: the committed signed
-config and the caller's country; see [config.md](config.md)). What it has ready for the later steps
+What it serves now: `GET /v1/health` (step 29a), `GET /v1/config` (step 30a: the committed signed
+config and the caller's country; see [config.md](config.md)) and the pairing API's eight routes
+(step 31a, "Pairing" below; the phone page and the TV's screen come with 31b and 31c). What it has ready for the later steps
 (step 29b2a): the messages' schemas in `@lablo/protocol`, and the blob store and rate limiter
 interfaces with their in-memory fakes (below). It imports `@lablo/protocol` and `@lablo/crypto`
 (workspace dependencies, compiled by Next through `transpilePackages`).
@@ -106,9 +107,11 @@ exception in `NO_OUTBOUND_RULES`; until then only the fakes exist.
   phone PUTs the encrypted M3U file to R2 and the TV GETs it from there. Keys are the server's
   own: a lower-case prefix and one to three base64url segments (`pair/<sid>/<id>`).
 - **`MemoryBlobStore`:** in memory, so one process only: never in production. Its presigned
-  URLs point at `http://127.0.0.1:3100/dev/blob/<key>` (no such route exists yet) and carry an
-  HMAC under a secret made at start; `redeem(method, url, body?)` answers them as R2 would (403
-  for a changed, expired or other-method URL, 400 for a PUT of another length, 404 for no object).
+  URLs point at `http://127.0.0.1:3100/dev/blob/<key>` (`LABLO_DEV_BLOB_URL` changes it; no
+  route answers them before step 31d) and carry an HMAC under a secret made at start;
+  `redeem(method, url, body?)` answers them as R2 would (403 for a changed, expired or
+  other-method URL, 400 for a PUT of another length, 404 for no object). `keys()` lists what it
+  holds (tests). The routes get one per process from `services()` (step 31a).
 - **`RateLimiter`:** `limit(key, {limit, windowMs})` gives `{ok: true, remaining}` or
   `{ok: false, retryAfterMs}`; `retryAfterSeconds` makes the `Retry-After` header.
   `MemoryRateLimiter` keeps an exact sliding-window log in memory.
@@ -119,6 +122,48 @@ exception in `NO_OUTBOUND_RULES`; until then only the fakes exist.
 The routes will check every body against `@lablo/protocol`'s schemas (zod), the same ones the TV
 and the phone page use. When the first route imports a workspace package (step 30), add it to
 `apps/web`'s dependencies and to `transpilePackages` in `next.config.ts`.
+
+## Pairing (step 31a)
+
+The relay between the phone and the TV (architecture.md §3.2, §3.3 A and "Built in step 31a"). The
+work is in `apps/web/src/server/pair.ts`; each route under `src/app/v1/pair/` is a thin wrapper.
+
+| Route | Who | Answers |
+|---|---|---|
+| `POST /v1/pair` `{tvPk}` | TV | 201 `{sid, code, pollToken, exp}` |
+| `GET /v1/pair/:code` | phone (typed code) | `{tvPk, exp}` |
+| `POST /v1/pair/:code/upload-url` `{size}` | phone | a presigned PUT `{url, key, exp}`, before the payload |
+| `POST /v1/pair/:code/payload` `{phonePk, nonce, ct}` | phone | `{state: "sent"}`, once |
+| `GET /v1/pair/:code/status` | phone | `open` (+`exp`), `sent`, `received`, `done` (+`status`) |
+| `GET /v1/pair/s/:sid` (Bearer poll token) | TV | `waiting` (+`exp`), then `ready` (+`payload`) once |
+| `POST /v1/pair/s/:sid/status` `{status}` (Bearer) | TV | `{state: "done", status}`, once, after the read |
+| `GET /v1/pair/s/:sid/file` (Bearer) | TV | a presigned GET `{url, key, exp}`, after the read |
+
+- **Errors** are `{error}` with the status: 400 `bad_request`, 401 `unauthorized` (the poll token),
+  404 `not_found` (a code unknown, malformed or past its 10 minutes), 409 `conflict` (already sent,
+  read or reported; or too early), 410 `expired` (the TV's poll after the code ended with nothing
+  sent), 413 `too_large`, 429 `rate_limited` (with `Retry-After`), 503 `unavailable` (the database
+  or the services; the log says only the operation and the error's kind).
+- **Kept:** hashes of the code and the token, the TV's public key, the sealed payload until the read,
+  the category; the encrypted file in the blob store until the TV reports. Rows go an hour after
+  they were made (each `POST /v1/pair` sweeps them). Never a body in a log.
+- **Rate limits per address, per 10 minutes:** 20 new codes; 30 code guesses (the key, the upload,
+  the payload together); 400 progress reads; 400 TV calls.
+- **CORS:** the TV's routes answer any origin and their `OPTIONS` preflight; the phone's don't.
+- **Environment** (both optional locally; Omar sets production's in step 34):
+  - `LABLO_RATE_SECRET`: the secret the rate limiter hashes addresses under, at least 32
+    characters. Without it each process makes a random one (fine for one process).
+  - `LABLO_DEV_BLOB_URL`: where the memory blob store's presigned URLs point (default
+    `http://127.0.0.1:3100/dev/blob`; a phone on the LAN needs this machine's address). No route
+    answers them before step 31d, and the upload answer's schema takes https only (R2's): 31d
+    decides how development passes.
+  - On Vercel (`VERCEL` set) the routes answer 503 until step 34 adds the R2 and Upstash adapters:
+    the memory fakes never run there.
+- **Try it:** `pnpm web:db`, then `pnpm --filter @lablo/web exec prisma migrate deploy` (the
+  `pair_progress` migration), `pnpm build:web` and `pnpm --filter @lablo/web start`; a scripted
+  TV and phone (`@lablo/crypto`'s `newBoxKeyPair`, `sealPairPayload`, `openPairPayload`) can then
+  pair over HTTP on port 3100. `pnpm test:web` runs `apps/web/test/pair.web.test.ts`, including the
+  "only ciphertext" check over every row and blob.
 
 ## CI
 

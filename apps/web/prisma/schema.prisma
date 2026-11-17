@@ -18,18 +18,23 @@ datasource db {
 /// A pairing between a TV and a phone (architecture.md §3.3 A). Deleted an hour after it starts.
 model PairSession {
   /// The session id the TV polls with (`sid`), random.
-  id            String   @id
+  id            String    @id
   /// sha256 of the 8-character code; the code itself is never stored.
-  codeHash      String   @unique
+  codeHash      String    @unique
   /// The TV's ephemeral X25519 public key (base64url).
   tvPk          String
   /// sha256 of the TV's poll token.
   pollTokenHash String
   /// The phone's sealed payload ({phonePk, nonce, ct}), until the TV reads it.
   payload       Json?
+  /// When the TV read the payload (and it was deleted): RELAY step 31a.
+  deliveredAt   DateTime?
+  /// The id of the encrypted file the phone uploaded (its blob is `pair/<id>/<fileId>`): step 31a.
+  fileId        String?
   /// What the TV reports back for the phone: ok, auth_failed, expired, unreachable, blocked.
   status        String?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
+  /// When the code stops working (10 minutes); the row is deleted 50 minutes after that.
   expiresAt     DateTime
 
   @@index([expiresAt])
