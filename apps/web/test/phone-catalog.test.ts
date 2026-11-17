@@ -78,6 +78,9 @@ describe('the language', () => {
     ['en;q=0.5, ar;q=0.5', 'en'],
     ['ar;q=0, en;q=0.1', 'en'],
     ['ar;q=0', null],
+    // A tag without a weight weighs 1.
+    ['en, ar;q=0.9', 'en'],
+    ['ar-SA, en;q=0.99', 'ar'],
     ['en;q=0.1, ar;q=1.0', 'ar'],
     ['ar;q=oops, en;q=0.1', 'en'],
     ['AR-ae', 'ar'],

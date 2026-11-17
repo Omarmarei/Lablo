@@ -123,14 +123,14 @@ const NO_OUTBOUND_RULES = {
 
 /**
  * The phone page's requests (RELAY step 31b): `apps/web/src/phone/api.ts` runs in the phone's
- * browser and calls its own origin's `/v1/pair/` routes, so it alone may use `fetch`. Everything
- * else in the block still holds there (no XMLHttpRequest, WebSocket, EventSource, outbound
- * modules or require), and the page's content security policy (`connect-src 'self'`) keeps the
- * browser on its origin.
+ * browser and calls its own origin's `/v1/pair/` routes, so it alone may use `fetch`. This replaces
+ * only the block's two globals rules (a later config block replaces the rules it names, and keeps
+ * the others): the import and `import()` rules still apply there, and so do the other globals (no
+ * XMLHttpRequest, WebSocket, EventSource or require). The page's content security policy
+ * (`connect-src 'self'`) keeps the browser on its origin.
  * @type {import('eslint').Linter.RulesRecord}
  */
 const PHONE_API_RULES = {
-  ...NO_OUTBOUND_RULES,
   ...restrictGlobalGroups([
     { names: [...TIZEN_GLOBALS, ...WEBOS_GLOBALS], message: PLATFORM_MESSAGE },
     { names: OUTBOUND_GLOBALS.filter((name) => name !== 'fetch'), message: OUTBOUND_MESSAGE },
