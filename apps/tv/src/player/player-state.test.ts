@@ -1,3 +1,4 @@
+import { signal } from '@preact/signals';
 import type { CatalogItem, ContentKey } from '@lablo/core';
 import type { EpgNowNext } from '@lablo/data';
 import type { Intent, LifecycleEvent } from '@lablo/platform-api';
@@ -5,6 +6,7 @@ import type { PictureMode, PlaybackFailure, PlayerState, PlayerStatus, PlayerTra
 import { NO_STATS, NO_TRACKS } from '@lablo/player';
 import { createNavigator } from '@lablo/ui';
 import { describe, expect, it } from 'vitest';
+import type { Refusal } from '../gate/gate-state';
 import type { LiveRow, Timers } from '../live/live-state';
 import { SAVE_EVERY_MS } from '../movies/movie-progress';
 import type { ArchiveProgramme } from './catchup';
@@ -313,6 +315,7 @@ function setup(
     programmeAt?: PlayerOptions['programmeAt'];
     /** The wall clock's time when the test starts (it moves with the test's clock). */
     wallAt?: number;
+    refusal?: PlayerOptions['refusal'];
   } = {},
 ) {
   const list = new FakeList();
@@ -357,6 +360,7 @@ function setup(
     ...(kept.catchupRequest === undefined ? {} : { catchupRequest: kept.catchupRequest }),
     ...(kept.programmeAt === undefined ? {} : { programmeAt: kept.programmeAt }),
     ...(kept.wallAt === undefined ? {} : { clock: () => kept.wallAt! + clock.now() }),
+    ...(kept.refusal === undefined ? {} : { refusal: kept.refusal }),
     timers: clock.timers,
     now: clock.now,
     progressed: (item, positionMs, lengthMs, ended, show, more) =>
@@ -2782,5 +2786,287 @@ describe('the player: the next episode (RELAY step 27c2)', () => {
     const v = watch();
     v.emit('hidden');
     expect(v.player.upNext.value).toBeNull();
+  });
+});
+
+describe("the player: the config's disable-playback (RELAY step 30c2b)", () => {
+  const MIN = 60_000;
+  const RULE: Refusal = { id: 'no-play', message: { en: 'Playback is paused.', ar: 'التشغيل متوقف.' } };
+  const EVENING: ArchiveProgramme = { start: 29_000_000, end: 29_000_060, title: 'Evening News' };
+  const catchupRequest = (r: LiveRow, p: ArchiveProgramme): PlayRequest => ({
+    key: r.item.key,
+    src: r.item.src,
+    mode: 'catchup',
+    candidates: [{ url: `http://panel.test/timeshift/u/p/60/${p.start}/${r.number + 99}.ts`, container: 'ts' }],
+  });
+  const film: CatalogItem = { ...row(0).item, key: 'x:s1:movie:201', kind: 'movie', name: 'Sintel', url: 'http://panel.test/movie/u/p/201.mkv' };
+  const request: PlayRequest = { key: film.key, src: 's1', mode: 'vod', candidates: [{ url: film.url, container: 'mkv' }] };
+
+  /** The player with the rule in `initial` (`null`: none yet). */
+  const ruled = (initial: Refusal | null = RULE) => {
+    const rule = signal<Refusal | null>(initial);
+    const t = setup('ltr', { refusal: rule, catchupRequest });
+    const cards = (): number => {
+      const zone = t.player.screen.value!.zone('card');
+      return zone.kind === 'list' ? zone.count : -1;
+    };
+    return { ...t, rule, cards };
+  };
+  /** The card shows the rule, alone: one button, focused, nothing played. */
+  const refusedAt = (t: ReturnType<typeof ruled>, index: number, plays = 0): void => {
+    expect(t.player.refused.value).toEqual(RULE);
+    expect(t.at()).toBe('player · card 0');
+    expect(t.cards()).toBe(1);
+    expect(t.player.playing.value).toBe(index);
+    expect(t.controller.plays).toHaveLength(plays);
+    expect(t.player.plays.value).toBe(plays);
+  };
+
+  it('refuses a channel before it plays: the card with one button, the info bar up, the last channel unchanged', () => {
+    const t = ruled();
+    t.player.show(2);
+    refusedAt(t, 2);
+    // Nothing played: the controller isn't even made.
+    expect(t.made()).toBe(0);
+    expect(t.player).toMatchObject({ open: { value: true }, target: { value: 2 }, info: { value: true } });
+    expect(t.tuned).toEqual([]);
+    // The bar stays up with the card.
+    t.clock.advance(INFO_MS * 3);
+    expect(t.player.info.value).toBe(true);
+    expect(t.at()).toBe('player · card 0');
+  });
+
+  it("refuses every other way a channel opens: a zap, a number, the previous channel, catch-up, the start's last channel", async () => {
+    const t = ruled();
+    t.player.show(2);
+    await t.press('CH_UP');
+    t.clock.advance(ZAP_DELAY_MS);
+    refusedAt(t, 3);
+    expect(t.player.previous.value).toBe(2);
+    await t.press('DIGIT_5');
+    t.clock.advance(DIGITS_MS);
+    t.list.finds[0]!.answer(4);
+    await flush();
+    refusedAt(t, 4);
+    await t.press('PREV_CH');
+    refusedAt(t, 3);
+    t.player.close();
+    // Catch-up: the bar shows the channel live, no programme.
+    t.player.catchup(5, EVENING);
+    refusedAt(t, 5);
+    expect(t.player.archive.value).toBeNull();
+    t.player.close();
+    t.player.resume(row(6), 6);
+    refusedAt(t, 6);
+    expect(t.made()).toBe(0);
+    expect(t.tuned).toEqual([]);
+  });
+
+  it("closes on its button or Back, onto the row; the track menu doesn't open over it", async () => {
+    const t = ruled();
+    t.player.show(2);
+    // Each key on its own (with no tracks, the second key would close a menu the first had opened).
+    await t.press('AUDIO');
+    expect(t.player.menu.screen.value).toBeNull();
+    await t.press('SUBTITLES');
+    expect(t.player.menu.screen.value).toBeNull();
+    expect(t.at()).toBe('player · card 0');
+    await t.press('OK');
+    expect(t.closed).toEqual([2]);
+    expect(t.player).toMatchObject({ open: { value: false }, refused: { value: null } });
+    expect(t.at()).toBe('live · channels 0');
+    t.player.show(3);
+    await t.press('BACK');
+    expect(t.closed).toEqual([2, 3]);
+    expect(t.player.refused.value).toBeNull();
+  });
+
+  it('arriving while a channel plays: a waiting zap goes, the stream stops, the card shows', async () => {
+    const t = ruled(null);
+    t.player.show(2);
+    t.controller.set('playing');
+    await t.press('CH_UP');
+    t.rule.value = RULE;
+    expect(t.controller.stops).toBe(1);
+    expect(t.player.status.value.state).toBe('idle');
+    expect(t.player.refused.value).toEqual(RULE);
+    expect(t.at()).toBe('player · card 0');
+    expect(t.cards()).toBe(1);
+    // The zap that waited goes: no play, not even a refused one (the card stays on the channel that played).
+    t.clock.advance(ZAP_DELAY_MS + INFO_MS);
+    expect(t.controller.plays).toHaveLength(1);
+    expect(t.player.playing.value).toBe(2);
+    expect(t.player.info.value).toBe(true);
+    // A newer copy of the rule shows on the card, without a second stop.
+    const plain: Refusal = { id: 'no-play', message: null };
+    t.rule.value = plain;
+    expect(t.player.refused.value).toEqual(plain);
+    expect(t.controller.stops).toBe(1);
+  });
+
+  it("arriving over a track menu opened before any stream (a row's chunk still on its way): the menu goes", async () => {
+    const t = ruled(null);
+    t.player.show(15);
+    await t.press('AUDIO');
+    expect(t.player.menu.screen.value).not.toBeNull();
+    expect(t.made()).toBe(0);
+    t.rule.value = RULE;
+    expect(t.player.menu.screen.value).toBeNull();
+    expect(t.at()).toBe('player · card 0');
+  });
+
+  it('arriving over the track menu or the error card: the menu goes, the card has one button', async () => {
+    const t = ruled(null);
+    t.player.show(2);
+    t.controller.set('playing');
+    await t.press('AUDIO');
+    expect(t.player.menu.screen.value).not.toBeNull();
+    t.rule.value = RULE;
+    expect(t.player.menu.screen.value).toBeNull();
+    expect(t.at()).toBe('player · card 0');
+    const u = ruled(null);
+    u.player.show(2);
+    u.controller.set('failed', NOT_FOUND);
+    expect(u.cards()).toBe(2);
+    await u.press('RIGHT');
+    u.rule.value = RULE;
+    expect(u.cards()).toBe(1);
+    expect(u.at()).toBe('player · card 0');
+    // OK on it closes: no "Try again".
+    await u.press('OK');
+    expect(u.closed).toEqual([2]);
+    expect(u.controller.plays).toHaveLength(1);
+  });
+
+  it('a lift changes nothing by itself; the next play that goes through takes the card away', async () => {
+    const t = ruled(null);
+    t.player.show(2);
+    t.controller.set('playing');
+    t.rule.value = RULE;
+    t.rule.value = null;
+    expect(t.player.refused.value).toEqual(RULE);
+    expect(t.at()).toBe('player · card 0');
+    await t.press('CH_UP');
+    t.clock.advance(ZAP_DELAY_MS);
+    expect(t.player.refused.value).toBeNull();
+    expect(t.cards()).toBe(0);
+    expect(t.at()).toBe('player · actions 0');
+    expect(t.controller.played()).toEqual([2, 3]);
+    expect(t.player.plays.value).toBe(2);
+    expect(t.tuned).toEqual(['x:s1:live:2 @2', 'x:s1:live:3 @3']);
+    // The stream's own card works as before.
+    t.controller.set('failed', NOT_FOUND);
+    expect(t.cards()).toBe(2);
+  });
+
+  it('refuses a movie and "Resume from" before they play; its keys do nothing, Back returns to the details', async () => {
+    const t = ruled();
+    const back: string[] = [];
+    t.player.playMovie({ item: film, request, lengthMs: 90 * MIN, fromMs: 12 * MIN, closed: () => back.push('details') });
+    expect(t.player.refused.value).toEqual(RULE);
+    expect(t.at()).toBe('player · card 0');
+    expect(t.cards()).toBe(1);
+    expect(t.controller.plays).toEqual([]);
+    // Nothing played: no place is kept for it (Back keeps the one it came with, as a close before a picture does).
+    expect(t.saved).toEqual([]);
+    expect(t.player.movie.value).toMatchObject({ item: film });
+    // The bar stays up, the focus on the card (not on the seek bar).
+    t.clock.advance(INFO_MS * 2);
+    expect(t.at()).toBe('player · card 0');
+    await t.press('LEFT', 'PLAY_PAUSE', 'FF');
+    t.clock.advance(SEEK_DELAY_MS);
+    expect(t.controller.seeks).toEqual([]);
+    expect(t.controller.plays).toEqual([]);
+    await t.press('OK');
+    expect(back).toEqual(['details']);
+    expect(t.player.refused.value).toBeNull();
+  });
+
+  it('arriving while a movie plays: its place is kept, then the stream stops', async () => {
+    const t = ruled(null);
+    const back: string[] = [];
+    t.player.playMovie({ item: film, request, lengthMs: 90 * MIN, closed: () => back.push('details') });
+    t.controller.media = 600_000;
+    t.controller.set('playing');
+    t.rule.value = RULE;
+    expect(t.saved).toEqual([`${film.key} @600000 /${90 * MIN}`]);
+    expect(t.controller.stops).toBe(1);
+    expect(t.at()).toBe('player · card 0');
+    // No more saves while the card shows, and only the info bar's timer is left (the position isn't read any more).
+    expect(t.clock.pending()).toBe(1);
+    t.clock.advance(60_000);
+    expect(t.saved).toHaveLength(1);
+    expect(t.clock.pending()).toBe(1);
+    await t.press('BACK');
+    expect(back).toEqual(['details']);
+  });
+
+  it("arriving at an episode's end: the next one's countdown stops, and it never plays", () => {
+    const t = ruled(null);
+    const show: CatalogItem = { ...row(0).item, key: 'x:s1:series:301', kind: 'series', name: 'Show', url: '' };
+    const episode = (id: number, number: number): MoviePlay => {
+      const item: CatalogItem = { ...show, key: `x:s1:episode:${id}`, name: `E${number}`, url: `http://panel.test/series/u/p/${id}.mkv` };
+      return {
+        item,
+        request: { key: item.key, src: 's1', mode: 'vod', candidates: [{ url: item.url, container: 'mkv' }] },
+        lengthMs: 5 * MIN,
+        episode: { show, season: 1, number, title: `E${number}`, more: true },
+        closed: () => undefined,
+      };
+    };
+    const next = episode(3003, 3);
+    t.player.playMovie({ ...episode(3002, 2), next: () => next });
+    t.controller.set('playing');
+    t.controller.set('ended');
+    expect(t.player.upNext.value).toMatchObject({ seconds: NEXT_COUNTDOWN_S });
+    t.rule.value = RULE;
+    expect(t.player.upNext.value).toBeNull();
+    expect(t.cards()).toBe(1);
+    expect(t.at()).toBe('player · card 0');
+    t.clock.advance(NEXT_TICK_MS * (NEXT_COUNTDOWN_S + 1));
+    expect(t.controller.plays).toHaveLength(1);
+  });
+
+  it("drops what was on its way: a row's chunk read before it arrived, the resumed channel's first frame", async () => {
+    const t = ruled(null);
+    // Row 15's chunk isn't read yet: the rule comes (and goes) meanwhile.
+    t.player.show(15);
+    t.rule.value = RULE;
+    t.rule.value = null;
+    t.list.loads[0]!.resolve();
+    await flush();
+    expect(t.controller.plays).toEqual([]);
+    expect(t.player.refused.value).toEqual(RULE);
+    expect(t.player.playing.value).toBe(-1);
+    // The start's last channel: the rule arrives before its first frame, and a late "playing" marks nothing.
+    performance.clearMarks('lablo:resume-frame');
+    const u = ruled(null);
+    u.player.resume(row(6), 6);
+    u.rule.value = RULE;
+    u.controller.set('playing');
+    expect(performance.getEntriesByName('lablo:resume-frame')).toHaveLength(0);
+  });
+
+  it('brings the info bar back with the card when it had hidden', () => {
+    const t = ruled(null);
+    t.player.show(2);
+    t.controller.set('playing');
+    t.clock.advance(INFO_MS);
+    expect(t.player.info.value).toBe(false);
+    t.rule.value = RULE;
+    expect(t.player.info.value).toBe(true);
+  });
+
+  it('follows the rule only while open, and no more once disposed', () => {
+    const t = ruled(null);
+    t.rule.value = RULE;
+    t.rule.value = null;
+    expect(t.player.refused.value).toBeNull();
+    t.player.dispose();
+    t.player.show(2);
+    t.rule.value = RULE;
+    expect(t.controller.played()).toEqual([2]);
+    expect(t.controller.stops).toBe(0);
+    expect(t.player.refused.value).toBeNull();
   });
 });

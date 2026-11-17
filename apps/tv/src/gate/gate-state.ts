@@ -30,6 +30,9 @@ import { bindFocus, createNavigator, watchPointerMoves } from '@lablo/ui';
  *   Magic Remote's pointer works on the gate's own button.
  * - It starts with the profile's notices shown (`start`), as the config schedule does: the
  *   hello and gallery screens have neither.
+ *
+ * The two modes inside the app (step 30c2b) are not the gate's views: `refusalFor` gives
+ * onboarding (`block-new-sources`) and the player (`disable-playback`) the rule that refuses.
  */
 
 /** What the gate shows. */
@@ -60,6 +63,21 @@ export function gateView(policy: ConfigPolicy, shown: readonly string[], version
     if (rule.message !== null && shown.indexOf(rule.id) === -1) return { kind: 'notice', id: rule.id, message: rule.message };
   }
   return null;
+}
+
+/** A kill rule refusing something inside the app (step 30c2b): its id and the doc's message (`null`: the app's own text). */
+export interface Refusal {
+  readonly id: string;
+  readonly message: GateMessage | null;
+}
+
+/**
+ * The policy's kill rule when it stops `mode` (step 30c2b): `block-new-sources` refuses a new
+ * source, `disable-playback` every play, and each stronger rule does as well; `null` otherwise.
+ */
+export function refusalFor(policy: ConfigPolicy, mode: 'block-new-sources' | 'disable-playback'): Refusal | null {
+  const kill = policy.kill;
+  return kill !== null && policyStops(policy, mode) ? { id: kill.id, message: kill.message } : null;
 }
 
 /** The app stops under the view: everything but a notice. */

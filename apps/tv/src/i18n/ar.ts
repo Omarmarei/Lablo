@@ -125,6 +125,7 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'error.format': 'لم يُرجع هذا الرابط قائمة تشغيل.',
   'error.empty': 'لا توجد قنوات في قائمة التشغيل.',
   'error.other': 'حدث خطأ ما. حاول مرة أخرى.',
+  'error.refused': 'لا يضيف لابلو مصادر جديدة حاليًا. حاول مرة أخرى لاحقًا.',
 
   'done.title': 'كل شيء جاهز',
   'done.body': '{name} جاهز.',
@@ -327,6 +328,8 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'player.moviePosition': 'الموضع في الفيلم',
   'player.watchLive': 'شاهد البث المباشر',
   'player.toGuide': 'العودة إلى الدليل',
+  'player.refused.title': 'التشغيل متوقف',
+  'player.refused.text': 'لا يشغّل لابلو أي محتوى حاليًا. حاول مرة أخرى لاحقًا.',
 
   'tracks.audio': 'الصوت',
   'tracks.subtitles': 'الترجمة',

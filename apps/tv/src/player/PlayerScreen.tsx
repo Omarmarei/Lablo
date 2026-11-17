@@ -3,6 +3,8 @@ import type { EpgNowNext } from '@lablo/data';
 import type { PictureMode, PlaybackFailure } from '@lablo/player';
 import type { FocusBinding, ItemState, Screen } from '@lablo/ui';
 import { Badge, Button, ProgressBar, Spinner, useFocus, useZone } from '@lablo/ui';
+import type { Refusal } from '../gate/gate-state';
+import { messageIn } from '../gate/gate-state';
 import type { AppI18n, MessageKey } from '../i18n';
 import type { Live, LiveRow } from '../live/live-state';
 import type { ArchiveProgramme } from './catchup';
@@ -253,6 +255,26 @@ function ErrorCard({ failure, i18n, screen, binding, movie }: { failure: Playbac
   );
 }
 
+/**
+ * The config's `disable-playback` (step 30c2b): "Playback is turned off", the rule's message in
+ * the UI's language (else the catalog's), and one button back to the channels or the details.
+ */
+function RefusedCard({ refusal, i18n, screen, binding, movie }: { refusal: Refusal; i18n: AppI18n; screen: Screen; binding: FocusBinding; movie: boolean }) {
+  const { t } = i18n;
+  const buttons = useZone(binding, screen, 'card');
+  return (
+    <section class="player__card" role="alertdialog" data-testid="player-refused" data-rule={refusal.id}>
+      <h2 class="player__card-title">{t('player.refused.title')}</h2>
+      <p class="player__card-text" data-testid="player-refused-text">
+        {refusal.message === null ? t('player.refused.text') : messageIn(refusal.message, i18n.locale.language)}
+      </p>
+      <div class="player__card-buttons">
+        <Button label={t(movie ? 'movie.back' : 'player.channels')} variant="primary" {...buttons.item(0)} testId="player-close" />
+      </div>
+    </section>
+  );
+}
+
 /** A catch-up's end (step 25d): "The programme has ended", with "Watch live" and "Back to the guide". */
 function EndCard({ archive, i18n, screen, binding }: { archive: ArchiveProgramme; i18n: AppI18n; screen: Screen; binding: FocusBinding }) {
   const { t } = i18n;
@@ -325,8 +347,10 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
   const version = live.version.value;
   const movie = player.movie.value;
   const upNext = player.upNext.value;
+  // The config's refusal (step 30c2b): its card alone, whatever the stopped stream says.
+  const refused = player.refused.value;
   // A zap that waits hides the old channel's card and spinner: the bar shows the new one. A movie (step 26c) has no zaps.
-  const current = movie !== null || target === playing;
+  const current = refused === null && (movie !== null || target === playing);
   const failure = current && status.state === 'failed' ? status.failure : null;
   const ended = current && status.state === 'ended';
   const row = player.row(target);
@@ -370,7 +394,9 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
       data-from={movie === null ? '' : movie.fromMs}
       data-next={upNext === null ? '' : upNext.play.item.key}
       data-countdown={upNext === null || upNext.seconds === null ? '' : upNext.seconds}
+      data-refused={refused === null ? '' : refused.id}
     >
+      {refused !== null && <div class="player__blank" aria-hidden="true" data-testid="player-blank" />}
       {player.picture.value === '4:3' && (
         <div class="player__pillars" aria-hidden="true" data-testid="player-pillars">
           <div class="player__pillar player__pillar--left" />
@@ -389,7 +415,7 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
             <Badge label={t('player.reconnecting')} tone="warn" />
           </div>
         )}
-        {stats && failure === null && <StreamInfoPanel info={info} container={status.container} i18n={i18n} />}
+        {stats && failure === null && refused === null && <StreamInfoPanel info={info} container={status.container} i18n={i18n} />}
       </div>
       {entry !== null && (
         <div class="player__entry" data-testid="player-entry">
@@ -404,6 +430,7 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
         {screen !== null && menu === null && player.info.value && <InfoBar live={live} player={player} i18n={i18n} screen={screen} binding={binding} row={row} guide={guide} archive={archive} movie={movie} />}
       </div>
       {menu !== null && <TrackMenuPanel menu={player.menu} tracks={status.tracks} feed={subtitles.feed} i18n={i18n} screen={menu} binding={binding} />}
+      {screen !== null && refused !== null && <RefusedCard refusal={refused} i18n={i18n} screen={screen} binding={binding} movie={movie !== null} />}
       {screen !== null && failure !== null && <ErrorCard failure={failure} i18n={i18n} screen={screen} binding={binding} movie={movie !== null} />}
       {screen !== null && ended && archive !== null && <EndCard archive={archive} i18n={i18n} screen={screen} binding={binding} />}
       {screen !== null && ended && movie !== null && <MovieEndCard movie={movie} upNext={upNext} i18n={i18n} screen={screen} binding={binding} />}

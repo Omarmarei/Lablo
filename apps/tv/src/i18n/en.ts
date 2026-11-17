@@ -137,6 +137,7 @@ export const EN = {
   'error.format': "This link didn't give a playlist.",
   'error.empty': 'The playlist has no channels.',
   'error.other': 'Something went wrong. Try again.',
+  'error.refused': "Lablo isn't adding new sources right now. Try again later.",
 
   // The source is added.
   'done.title': "You're all set",
@@ -366,6 +367,8 @@ export const EN = {
   'player.moviePosition': 'Position in the movie',
   'player.watchLive': 'Watch live',
   'player.toGuide': 'Back to the guide',
+  'player.refused.title': 'Playback is turned off',
+  'player.refused.text': "Lablo isn't playing anything right now. Try again later.",
 
   // The track menu (RELAY step 20b).
   'tracks.audio': 'Audio',

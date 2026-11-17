@@ -4,7 +4,7 @@ import { emptyProfile, noPolicy } from '@lablo/data';
 import type { Intent, KeyLike } from '@lablo/platform-api';
 import { describe, expect, it, vi } from 'vitest';
 import type { GateView } from './gate-state';
-import { createGate, gateView, messageIn, noticesShownOf, stopsApp } from './gate-state';
+import { createGate, gateView, messageIn, noticesShownOf, refusalFor, stopsApp } from './gate-state';
 
 /** The config gate (RELAY step 30c2a): what shows for a policy, and how it takes the keys. */
 
@@ -51,6 +51,27 @@ describe('gateView', () => {
     expect(gateView(policy({ kill, updateRequired: true, minVersion: '2.0.0', notices }), [], '1.0.0')?.kind).toBe('disabled');
     expect(gateView(policy({ kill: rule('no-play', 'disable-playback'), updateRequired: true, minVersion: '2.0.0', notices }), [], '1.0.0')?.kind).toBe('update');
     expect(gateView(policy({ kill: rule('no-play', 'disable-playback'), notices }), [], '1.0.0')?.kind).toBe('notice');
+  });
+});
+
+describe('refusalFor (RELAY step 30c2b)', () => {
+  it('refuses nothing without a kill rule, nor for a notice, nor for an update', () => {
+    for (const mode of ['block-new-sources', 'disable-playback'] as const) {
+      expect(refusalFor(noPolicy(), mode)).toBeNull();
+      expect(refusalFor(policy({ notices: [rule('news', 'notice')], updateRequired: true, minVersion: '9.0.0' }), mode)).toBeNull();
+    }
+  });
+
+  it('follows the ladder: block-new-sources refuses adds only, disable-playback and disable-app both', () => {
+    const add = policy({ kill: rule('no-new', 'block-new-sources') });
+    expect(refusalFor(add, 'block-new-sources')).toEqual({ id: 'no-new', message: MESSAGE });
+    expect(refusalFor(add, 'disable-playback')).toBeNull();
+    const play = policy({ kill: rule('no-play', 'disable-playback', null) });
+    expect(refusalFor(play, 'block-new-sources')).toEqual({ id: 'no-play', message: null });
+    expect(refusalFor(play, 'disable-playback')).toEqual({ id: 'no-play', message: null });
+    const off = policy({ kill: rule('off', 'disable-app') });
+    expect(refusalFor(off, 'block-new-sources')).toEqual({ id: 'off', message: MESSAGE });
+    expect(refusalFor(off, 'disable-playback')).toEqual({ id: 'off', message: MESSAGE });
   });
 });
 

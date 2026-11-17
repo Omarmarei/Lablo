@@ -7,6 +7,7 @@ import { DIGIT_INTENTS } from '@lablo/platform-api';
 import type { PictureMode, PlayerStatus, PlayOptions, PlayRequest, StreamStats, SubtitleView } from '@lablo/player';
 import { NO_TRACKS, nextPicture, streamCandidates } from '@lablo/player';
 import type { Focus, Navigator, Screen, ZoneSpec } from '@lablo/ui';
+import type { Refusal } from '../gate/gate-state';
 import type { LiveRow, Timers } from '../live/live-state';
 import { mark } from '../marks';
 import { SAVE_EVERY_MS } from '../movies/movie-progress';
@@ -95,6 +96,14 @@ import { createTrackMenu } from './track-menu';
  *   episode plays in the same player, from where it was left. "Back" (the button or the key)
  *   closes the player onto the details. The app hiding stops the countdown; the card stays.
  *   After the show's last episode the card has "Back" alone.
+ * - **The config's `disable-playback`** (step 30c2b, `refusal`): every play reads it before the
+ *   controller is asked (a channel, a zap, a number, the previous channel, catch-up, the start's
+ *   last channel, a movie, an episode, auto-next). Refused, nothing plays (`plays` and the last
+ *   channel stay) and the card "Playback is turned off" shows the rule's message with one button,
+ *   "Channels" or "Back", which closes the player; the info bar stays up with it. When the rule
+ *   arrives while the player is open, a movie's place is kept, the stream stops, the menu, a
+ *   waiting zap or seek and the next episode's countdown go, and the card shows. A lift changes
+ *   nothing by itself: the next play that goes through takes the card away.
  */
 
 /** The info bar's stream opens this long after the last zap key. */
@@ -279,6 +288,8 @@ export interface PlayerOptions {
   readonly progressed?: (item: CatalogItem, positionMs: number, lengthMs: number | null, ended: boolean, show?: ContentKey, more?: boolean) => void;
   /** The app's visibility (`Platform.onLifecycle`): a movie's position is saved as the app hides. */
   readonly lifecycle?: (listener: (event: LifecycleEvent) => void) => () => void;
+  /** The config's rule refusing playback (step 30c2b): read before every play, and followed while the player is open. */
+  readonly refusal?: ReadonlySignal<Refusal | null>;
 }
 
 export interface Player {
@@ -318,6 +329,8 @@ export interface Player {
   readonly actions: ReadonlySignal<readonly PlayerAction[]>;
   /** The next episode at an episode's end (step 27c2; `null`: none offered). */
   readonly upNext: ReadonlySignal<UpNext | null>;
+  /** The config's rule that refused the last play, or stopped the stream (step 30c2b; `null`: none). */
+  readonly refused: ReadonlySignal<Refusal | null>;
   /** Opens the player on row `index` of the list and plays it at once. */
   show(index: number): void;
   /**
@@ -408,6 +421,7 @@ export function createPlayer(options: PlayerOptions): Player {
   const movie = signal<PlayingMovie | null>(null);
   const actions = signal<readonly PlayerAction[]>(CHANNEL_ACTIONS);
   const upNext = signal<UpNext | null>(null);
+  const refused = signal<Refusal | null>(null);
   const keyClock = options.now ?? Date.now;
   const wall = options.clock ?? Date.now;
 
@@ -465,7 +479,7 @@ export function createPlayer(options: PlayerOptions): Player {
     infoTimer = timers.set(() => {
       infoTimer = null;
       const state = status.value.state;
-      if (state === 'opening' || state === 'failed' || state === 'paused' || state === 'ended') {
+      if (refused.value !== null || state === 'opening' || state === 'failed' || state === 'paused' || state === 'ended') {
         armInfo();
         return;
       }
@@ -511,7 +525,8 @@ export function createPlayer(options: PlayerOptions): Player {
     // A movie that stopped (step 26d): where it was, or watched once it ended.
     if (s.state === 'failed' || s.state === 'ended') keepFilm();
     // The error card, or a catch-up's or a movie's end (steps 25d, 26c): the card takes over from the menu and a waiting seek.
-    const card = s.state === 'failed' || (s.state === 'ended' && (archive.value !== null || movie.value !== null));
+    // The config's refusal (step 30c2b) keeps its card whatever the stopped stream says.
+    const card = refused.value !== null || s.state === 'failed' || (s.state === 'ended' && (archive.value !== null || movie.value !== null));
     if (card) {
       menu.close();
       cancelSeek();
@@ -560,6 +575,32 @@ export function createPlayer(options: PlayerOptions): Player {
     if (options.pictured !== undefined) options.pictured(shown);
   };
 
+  /** The config's rule refusing playback now (step 30c2b), else `null`. */
+  const refusalNow = (): Refusal | null => (options.refusal === undefined ? null : options.refusal.peek());
+
+  /**
+   * The config refuses playback (step 30c2b): whatever waited goes, the stream stops, and the card
+   * shows the rule with its one button, focused. `playing` (the rule arrived while it played): a
+   * movie's place is kept first. (A waiting seek goes with the stream: `onStatus` on its stop.)
+   */
+  const refuse = (rule: Refusal, playing: boolean): void => {
+    if (playing) keepFilm();
+    refused.value = rule;
+    seq += 1;
+    zapTimer = clear(zapTimer);
+    positionTimer = clear(positionTimer);
+    stopNext();
+    menu.close();
+    resumeFrame = false;
+    // The card first: the stopped stream's states then find it shown.
+    const top = screen.value!;
+    carded = true;
+    top.update(cardZone(1));
+    top.focus('card', 0);
+    showInfo();
+    if (controller !== null) void controller.stop();
+  };
+
   /**
    * Opens row `index`'s stream now (reading its chunk first when needed): live, or `programme`
    * from the channel's archive (step 25a).
@@ -578,6 +619,14 @@ export function createPlayer(options: PlayerOptions): Player {
       if (!resumed) pinned = null;
       resumeFrame = false;
       playing.value = index;
+      // The config's disable-playback (step 30c2b): no stream, the card (a programme asked for isn't set: the bar shows the channel).
+      const refusal = refusalNow();
+      if (refusal !== null) {
+        refuse(refusal, false);
+        return;
+      }
+      // A play goes through (the rule was lifted): its card goes as the stream opens (`onStatus`).
+      refused.value = null;
       plays.value += 1;
       archive.value = request === null ? null : programme;
       // Step 25d: where the stream starts, and so where it is until it shows a picture.
@@ -603,6 +652,12 @@ export function createPlayer(options: PlayerOptions): Player {
   const playFilm = (from?: number): void => {
     const shown = film;
     if (shown === null) return;
+    // The config's disable-playback (step 30c2b): no stream, the card.
+    const refusal = refusalNow();
+    if (refusal !== null) {
+      refuse(refusal, false);
+      return;
+    }
     cancelSeek();
     seq += 1;
     plays.value += 1;
@@ -906,7 +961,7 @@ export function createPlayer(options: PlayerOptions): Player {
 
   /** The track menu over the player; the info bar makes room for it. */
   const openMenu = (section: TrackSection): void => {
-    if (!open.value || status.value.state === 'failed') return;
+    if (!open.value || status.value.state === 'failed' || refused.value !== null) return;
     cancelEntry();
     infoTimer = clear(infoTimer);
     info.value = false;
@@ -989,6 +1044,7 @@ export function createPlayer(options: PlayerOptions): Player {
     const shown = screen.value;
     screen.value = null;
     carded = false;
+    refused.value = null;
     if (shown !== null && shown.open) nav.pop();
     options.chrome(false);
     if (controller !== null) void controller.stop();
@@ -1109,6 +1165,8 @@ export function createPlayer(options: PlayerOptions): Player {
     else if (action === 'previous') previousChannel();
     // OK on a catch-up's or a movie's seek bar (steps 25d, 26c; hidden, the focus is on it) pauses it or plays it on.
     else if (focus.zone === 'seek') togglePause();
+    // The config's refusal (step 30c2b): its one button closes the player.
+    else if (focus.zone === 'card' && refused.value !== null) close();
     // A movie's cards (step 26c): the error card's "Try again" plays on from where it was; "Back" closes the player.
     else if (focus.zone === 'card' && film !== null && focus.index === 0 && status.value.state === 'failed') playFilm(lastAt);
     // An episode's end (step 27c2): "Play now" plays the next one; "Back" closes the player.
@@ -1135,6 +1193,17 @@ export function createPlayer(options: PlayerOptions): Player {
           } else if (event === 'visible') hidden = false;
         });
 
+  // The config's disable-playback arriving while the player is open (step 30c2b): the stream stops, the card shows.
+  const stopRefusal =
+    options.refusal === undefined
+      ? () => undefined
+      : options.refusal.subscribe((rule) => {
+          if (rule === null || !open.value) return;
+          if (refused.peek() === null) refuse(rule, true);
+          // Already refused: the card shows the newest copy of the rule.
+          else refused.value = rule;
+        });
+
   return {
     open,
     screen,
@@ -1154,6 +1223,7 @@ export function createPlayer(options: PlayerOptions): Player {
     movie,
     actions,
     upNext,
+    refused,
     show(index: number): void {
       if (openScreen()) go(index);
     },
@@ -1206,6 +1276,7 @@ export function createPlayer(options: PlayerOptions): Player {
     dispose(): void {
       close();
       stopLifecycle();
+      stopRefusal();
       if (unsubscribe !== null) unsubscribe();
       if (unsubscribeSubtitles !== null) unsubscribeSubtitles();
       unsubscribe = null;
