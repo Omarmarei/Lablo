@@ -127,12 +127,11 @@ describe('asciiHost', () => {
     expect(asciiHost('e' + cp(0x301) + 'x.com')).toBe('xn--x-9fa.com');
   });
 
-  // UTS #46 changes with Unicode: these follow the current one (Unicode 17, as ICU 78 has it: Node
-  // 24). An older ICU (Node 22, CI's) maps U+1E9E to "ss" and refuses some code points the
-  // current one ignores, so the answers are pinned here, and Node is asked only when its ICU is
-  // that new.
-  const icuMajor = Number(process.versions.icu?.slice(0, process.versions.icu.indexOf('.')) ?? 0);
-  const CURRENT_ICU = icuMajor >= 78;
+  // UTS #46 changes with Unicode: these follow the current one (Unicode 17, as Node 24's
+  // `domainToASCII` has it: Ada 3.4's IDNA tables, not ICU's). Node 22's (CI's) older tables map
+  // U+1E9E to "ss" and refuse some code points the current one ignores, so the answers are pinned
+  // here, and Node is asked only when its IDNA is that new (it maps U+1E9E to the sharp s).
+  const CURRENT_IDNA = domainToASCII('a' + cp(0x1e9e) + 'b.com') === 'xn--ab-gia.com';
 
   /** Letters a simple mapping gets wrong (case, compatibility forms, composition, astral capitals), as `a<letters>b.com`. */
   const LETTERS: [number[], string][] = [
@@ -196,7 +195,7 @@ describe('asciiHost', () => {
     expect(differ.map((c) => c.toString(16))).toEqual([]);
   });
 
-  it.runIf(CURRENT_ICU)("pins the same answers Node's own IDNA gives (ICU 78 or newer)", () => {
+  it.runIf(CURRENT_IDNA)("pins the same answers Node's own IDNA gives (when it is the current UTS #46)", () => {
     for (const [points, expected] of LETTERS) expect(domainToASCII('a' + cp(...points) + 'b.com')).toBe(expected);
     const differ = ignoredCandidates().filter((c) => vanishes(c, domainToASCII) !== isIgnored(c));
     expect(differ.map((c) => c.toString(16))).toEqual([]);

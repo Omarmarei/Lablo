@@ -9,7 +9,7 @@
  * map one (UTS #46, simplified: NFKC, each code point lowercased, the ignored code points
  * dropped, NFC, the ideographic full stops read as dots, each non-ASCII label as `xn--`
  * punycode), so it hashes as its `xn--` form, the one an operator gives the signer. It follows the
- * current UTS #46 (Unicode 17): wherever Node 24's `url.domainToASCII` (ICU 78) gives an answer,
+ * current UTS #46 (Unicode 17): wherever Node 24's `url.domainToASCII` gives an answer,
  * `asciiHost` gives the same host (blocklist.test.ts), except where UTS #46 case-folds beyond
  * lowercase: the Greek letters with an iota subscript, the combining ypogegrammeni, the lunate and
  * mathematical final sigmas, the old Cyrillic letter variants (U+1C80 to U+1C88) and Cherokee;
