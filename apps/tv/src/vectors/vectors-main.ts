@@ -1,12 +1,12 @@
 /**
- * The crypto vectors page's entry (`dist/tv-vectors/main.js`, see vectors-protocol.ts). The
- * vectors come from `vectors.js` (`window.LABLO_CRYPTO_VECTORS`), loaded before this script.
- * The page runs every check, then the worker does, and the report goes to
- * `window.__LABLO_VECTORS__` and the screen.
+ * The vectors page's entry (`dist/tv-vectors/main.js`, see vectors-protocol.ts). The crypto
+ * vectors come from `vectors.js` (`window.LABLO_CRYPTO_VECTORS`), loaded before this script; the
+ * protocol samples are in the bundle (vectors-checks.ts). The page runs every check, then the
+ * worker does, and the report goes to `window.__LABLO_VECTORS__` and the screen.
  */
 import type { CryptoVectors } from '@lablo/crypto/check-vectors';
-import { checkVectors } from '@lablo/crypto/check-vectors';
 import type { VectorsReport, VectorsRun } from './vectors-protocol';
+import { runChecks } from './vectors-checks';
 import { where } from './vectors-protocol';
 import VectorsWorker from './vectors.worker?worker';
 
@@ -15,7 +15,7 @@ const WORKER_TIMEOUT_MS = 90_000;
 
 function inPage(vectors: CryptoVectors): Promise<VectorsRun> {
   const started = Date.now();
-  return checkVectors(vectors).then(
+  return runChecks(vectors).then(
     (results): VectorsRun => ({ results, ms: Date.now() - started, error: null, where: where() }),
     (error: unknown): VectorsRun => ({ results: null, ms: Date.now() - started, error: String(error), where: where() }),
   );

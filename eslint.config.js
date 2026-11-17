@@ -270,7 +270,8 @@ export default defineConfig(
       // `import QueryWorker from '@lablo/data/query.worker?worker'`, and `@lablo/data/client`,
       // which keeps the other data modules (and their polyfills) out of the main bundle. crypto
       // has one more: `@lablo/crypto/check-vectors`, the shared vectors' checks, which only the
-      // vectors page and the harness import (RELAY step 29b1).
+      // vectors page and the harness import (RELAY step 29b1); protocol likewise has
+      // `@lablo/protocol/check-samples`, the schemas' shared samples (step 29b2a).
       'boundaries/entry-point': [
         'error',
         {
@@ -279,6 +280,7 @@ export default defineConfig(
             { target: ['*'], allow: 'src/index.ts' },
             { target: ['data'], allow: ['src/client.ts', 'src/query.worker.ts', 'src/ingest.worker.ts', 'src/epg.worker.ts'] },
             { target: ['crypto'], allow: ['src/check-vectors.ts'] },
+            { target: ['protocol'], allow: ['src/check-samples.ts'] },
           ],
         },
       ],

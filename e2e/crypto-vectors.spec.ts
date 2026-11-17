@@ -3,12 +3,14 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { CryptoVectors } from '@lablo/crypto/check-vectors';
 import { checkVectors } from '@lablo/crypto/check-vectors';
+import { checkSamples } from '@lablo/protocol/check-samples';
 import { expect, test } from '@playwright/test';
 
 /**
- * The crypto vectors page (RELAY step 29b1; `dist/tv-vectors` from pnpm build:tv) from file://
- * in current Chromium: every shared vector passes in the page and in its Blob worker, under the
- * names Node's run gives. The old engines run the same page in `pnpm verify:engines`.
+ * The vectors page (RELAY steps 29b1 and 29b2a; `dist/tv-vectors` from pnpm build:tv) from
+ * file:// in current Chromium: every shared crypto vector and protocol sample passes in the page
+ * and in its Blob worker, under the names Node's run gives. The old engines run the same page in
+ * `pnpm verify:engines`.
  */
 const INDEX = path.resolve(import.meta.dirname, '../dist/tv-vectors/index.html');
 const VECTORS = path.resolve(import.meta.dirname, '../packages/crypto/test/vectors.json');
@@ -22,14 +24,17 @@ interface Run {
   readonly where: string;
 }
 
-test('the crypto vectors pass from file:// in the page and in a Blob worker', async ({ page }) => {
+test('the crypto vectors and protocol samples pass from file:// in the page and in a Blob worker', async ({ page }) => {
   expect(existsSync(INDEX), `${INDEX} is missing: run pnpm build:tv before pnpm e2e`).toBe(true);
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
   page.on('console', (message) => {
     if (message.type() === 'error') errors.push(`console: ${message.text()}`);
   });
-  const expected = (await checkVectors(JSON.parse(readFileSync(VECTORS, 'utf8')) as CryptoVectors)).map((r) => r.name);
+  const crypto = await checkVectors(JSON.parse(readFileSync(VECTORS, 'utf8')) as CryptoVectors);
+  const samples = checkSamples();
+  expect(samples.length).toBeGreaterThan(0);
+  const expected = [...crypto, ...samples].map((r) => r.name);
 
   await page.goto(pathToFileURL(INDEX).href);
   await page.waitForFunction(() => (window as VectorsWindow).__LABLO_VECTORS__ !== undefined, undefined, { timeout: 60_000 });

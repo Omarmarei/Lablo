@@ -40,6 +40,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import type { CryptoVectors } from '@lablo/crypto/check-vectors';
 import { checkVectors } from '@lablo/crypto/check-vectors';
+import { checkSamples } from '@lablo/protocol/check-samples';
 import type { CdpClient } from './src/cdp';
 import { connectToPage, waitForDevtools } from './src/cdp';
 import { ENGINE_HOUR, assertDockerRunning, engineLogs, engineZone, ensureImage, startEngine, stopEngine, zoneOffset } from './src/docker';
@@ -476,7 +477,11 @@ async function main(): Promise<void> {
   const nodeVectors = await checkVectors(JSON.parse(readFileSync(path.join(ROOT, 'packages/crypto/test/vectors.json'), 'utf8')) as CryptoVectors);
   const nodeFailures = nodeVectors.filter((r) => !r.ok);
   if (nodeFailures.length > 0) throw new Error(`the crypto vectors fail in Node itself: ${nodeFailures.map((r) => r.name).join(', ')}`);
-  const expectedVectors = nodeVectors.map((r) => r.name);
+  // Then the protocol samples (step 29b2a), which the page runs after the vectors.
+  const nodeSamples = checkSamples();
+  const sampleFailures = nodeSamples.filter((r) => !r.ok);
+  if (sampleFailures.length > 0) throw new Error(`the protocol samples fail in Node itself: ${sampleFailures.map((r) => r.name).join(', ')}`);
+  const expectedVectors = [...nodeVectors, ...nodeSamples].map((r) => r.name);
   // Served in each container at FIXTURE_ORIGIN; every variant's runs ingest them.
   const staged = stageFixtures(VARIANTS_DIR);
   // The live screen's rail and rows, as the walk checks them (step 14c).

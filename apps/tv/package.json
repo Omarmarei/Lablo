@@ -17,6 +17,7 @@
     "@lablo/platform-tizen": "workspace:*",
     "@lablo/platform-webos": "workspace:*",
     "@lablo/player": "workspace:*",
+    "@lablo/protocol": "workspace:*",
     "@lablo/ui": "workspace:*",
     "@preact/signals": "^2.11.4",
     "preact": "^10.29.8"

@@ -1,0 +1,106 @@
+/**
+ * Pairing (architecture.md §3.2, §3.3 A): the TV registers its ephemeral X25519 key, the phone
+ * boxes the source for it, the server keeps only ciphertext and hashes. Step 31 builds the
+ * routes, the phone page and the TV's screen.
+ *
+ * `pairPayloadSchema` is the plain JSON inside the box: only the TV ever sees it.
+ */
+import * as z from 'zod/mini';
+import { base64UrlLength, base64UrlRange, bytes16, bytes32, epochMs, link, MAC_BYTES, nonce24, text } from './wire';
+
+/** The code a person types: 8 Crockford base32 characters (no I, L, O, U), about 40 bits. */
+export const pairCode = z.string().check(z.regex(/^[0-9A-HJKMNP-TV-Z]{8}$/));
+
+/** The boxed payload's plain JSON. A source is a few hundred bytes; links are at most 2 KB. */
+export const PAIR_PAYLOAD_MAX_BYTES = 32768;
+/** `POST /v1/pair/:code/payload`'s body. */
+export const PAIR_BODY_MAX_BYTES = 65536;
+/** An uploaded M3U file, encrypted (its 1 MiB frames each add a 16-byte tag). */
+export const PAIR_FILE_MAX_BYTES = 41943040;
+/** EPG links a payload may carry. */
+export const PAIR_EPG_MAX = 4;
+
+/** `POST /v1/pair`. */
+export const pairCreateRequestSchema = z.object({ tvPk: bytes32 });
+export type PairCreateRequest = z.infer<typeof pairCreateRequestSchema>;
+
+export const pairCreateResponseSchema = z.object({
+  sid: bytes16,
+  code: pairCode,
+  pollToken: bytes32,
+  exp: epochMs,
+});
+export type PairCreateResponse = z.infer<typeof pairCreateResponseSchema>;
+
+/** `GET /v1/pair/:code` (the typed-code path: the QR code carries `tvPk` itself). */
+export const pairTvKeyResponseSchema = z.object({ tvPk: bytes32, exp: epochMs });
+export type PairTvKeyResponse = z.infer<typeof pairTvKeyResponseSchema>;
+
+/** `POST /v1/pair/:code/payload`, and what the TV's poll returns: `@lablo/crypto`'s `SealedPayload`. */
+export const sealedPayloadSchema = z.object({
+  phonePk: bytes32,
+  nonce: nonce24,
+  ct: base64UrlRange(MAC_BYTES, PAIR_PAYLOAD_MAX_BYTES + MAC_BYTES),
+});
+export type SealedPayloadWire = z.infer<typeof sealedPayloadSchema>;
+
+/** `POST /v1/pair/:code/upload-url`: the encrypted file's exact length. */
+export const pairUploadRequestSchema = z.object({
+  size: z.int().check(z.gte(MAC_BYTES), z.lte(PAIR_FILE_MAX_BYTES)),
+});
+export type PairUploadRequest = z.infer<typeof pairUploadRequestSchema>;
+
+/** The presigned PUT and the object's key (the key goes into the boxed payload). */
+export const pairUploadResponseSchema = z.object({
+  url: z.string().check(z.maxLength(4096), z.regex(/^https:\/\/\S+$/)),
+  key: bytes16,
+  exp: epochMs,
+});
+export type PairUploadResponse = z.infer<typeof pairUploadResponseSchema>;
+
+/** `GET /v1/pair/s/:sid`, every 2 s: nothing yet, or the payload (deleted on this read). */
+export const pairPollResponseSchema = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('waiting'), exp: epochMs }),
+  z.object({ state: z.literal('ready'), payload: sealedPayloadSchema }),
+]);
+export type PairPollResponse = z.infer<typeof pairPollResponseSchema>;
+
+/** What the TV found when it tried the source: only the category reaches the phone. */
+export const PAIR_STATUSES = ['ok', 'auth_failed', 'expired', 'unreachable', 'blocked'] as const;
+export type PairStatus = (typeof PAIR_STATUSES)[number];
+
+/** `POST /v1/pair/s/:sid/status`. */
+export const pairStatusRequestSchema = z.object({ status: z.enum(PAIR_STATUSES) });
+export type PairStatusRequest = z.infer<typeof pairStatusRequestSchema>;
+
+/** The M3U file the phone encrypted and uploaded: what the TV needs to fetch and open it. */
+export const pairFileSchema = z.object({
+  /** The R2 object's key (`pairUploadResponseSchema.key`). */
+  key: bytes16,
+  /** The `secretbox` key of the file's frames. */
+  fileKey: bytes32,
+  /** Frame i's nonce is this plus i (`@lablo/crypto`'s `frameNonce`). */
+  base: nonce24,
+  /** The plain file's length: `openFile` checks the whole ciphertext against it. */
+  size: z.int().check(z.gte(1), z.lte(PAIR_FILE_MAX_BYTES)),
+});
+export type PairFile = z.infer<typeof pairFileSchema>;
+
+/** The source, as the phone page's forms give it (the TV form's fields, architecture.md §3.3 A). */
+export const pairSourceSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('xtream'), server: link, username: text(256), password: text(256) }),
+  z.object({ type: z.literal('m3u'), url: link }),
+  z.object({ type: z.literal('m3u-file'), file: pairFileSchema }),
+]);
+export type PairSource = z.infer<typeof pairSourceSchema>;
+
+export const pairPayloadSchema = z.object({
+  v: z.literal(1),
+  source: pairSourceSchema,
+  name: z.optional(text(80)),
+  epg: z.optional(z.array(link).check(z.maxLength(PAIR_EPG_MAX))),
+});
+export type PairPayload = z.infer<typeof pairPayloadSchema>;
+
+/** The longest `ct` a payload's body can carry, in characters. */
+export const PAIR_CT_MAX_CHARS = base64UrlLength(PAIR_PAYLOAD_MAX_BYTES + MAC_BYTES);
