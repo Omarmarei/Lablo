@@ -9,7 +9,8 @@
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
-    "./check-vectors": "./src/check-vectors.ts"
+    "./check-vectors": "./src/check-vectors.ts",
+    "./backup-code": "./src/backup-code.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p test/tsconfig.json"

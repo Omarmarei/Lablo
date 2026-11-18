@@ -11,8 +11,10 @@ import { PairPage } from '../pairing/PairPage';
 import type { FieldId, FieldProblem } from './form';
 import { FORM_FIELDS } from './form';
 import { errorText, phaseText, refusalText } from './load-text';
-import type { LoadState, Onboarding } from './onboarding-state';
-import { LANGUAGES, SOURCE_TYPES, fieldDomId } from './onboarding-state';
+import type { LoadState, Onboarding, SourceRow } from './onboarding-state';
+import { LANGUAGES, fieldDomId, sourceRows } from './onboarding-state';
+import { RESTORE_CODE_SCREEN } from './restore-code';
+import { RestoreCodePage } from './RestoreCodePage';
 import './onboarding.css';
 
 /**
@@ -132,23 +134,34 @@ function ConsentScreen({ ob, i18n }: ScreenProps) {
   );
 }
 
+function rowLabel(t: Translate, row: SourceRow): string {
+  if (row === 'xtream') return t('onboarding.xtream', { name: NAMES.name });
+  if (row === 'm3u') return t('onboarding.m3u', { format: NAMES.format });
+  // "Use your phone" (step 31c2a): the pairing screen. "Use a backup code" (step 32d3c): its restore.
+  return row === 'phone' ? t('onboarding.phone') : t('onboarding.restore');
+}
+
+function rowHint(t: Translate, row: SourceRow | undefined): string {
+  if (row === 'xtream') return t('onboarding.xtreamHint');
+  if (row === 'm3u') return t('onboarding.m3uHint');
+  if (row === 'phone') return t('onboarding.phoneHint');
+  return row === 'restore' ? t('onboarding.restoreHint') : '';
+}
+
 function SourceScreen({ ob, i18n }: ScreenProps) {
   const { t } = i18n;
   const zone = useZone(ob.binding, ob.binding.nav.top, 'types');
-  const labels = [t('onboarding.xtream', { name: NAMES.name }), t('onboarding.m3u', { format: NAMES.format }), t('onboarding.phone')];
-  const hints = [t('onboarding.xtreamHint'), t('onboarding.m3uHint'), t('onboarding.phoneHint')];
+  const rows = sourceRows(ob.pairing !== null, ob.restoreCode !== null);
   return (
     <Panel title={t('onboarding.sourceTitle')}>
       <p class="onboarding__text">{t('onboarding.sourceBody')}</p>
       <div class="onboarding__types">
-        {SOURCE_TYPES.map((type, i) => (
-          <Button key={type} label={labels[i] ?? ''} {...zone.item(i)} testId={`type-${type}`} />
+        {rows.map((row, i) => (
+          <Button key={row} label={rowLabel(t, row)} {...zone.item(i)} testId={`type-${row}`} />
         ))}
-        {/* "Use your phone" (step 31c2a): the pairing screen. */}
-        {ob.pairing !== null && <Button label={labels[2]!} {...zone.item(SOURCE_TYPES.length)} testId="type-phone" />}
       </div>
       <p class="onboarding__note" data-testid="type-hint">
-        {hints[zone.position.index] ?? ''}
+        {rowHint(t, rows[zone.position.index])}
       </p>
     </Panel>
   );
@@ -292,6 +305,7 @@ function OnboardingScreen({ ob, i18n, device }: ScreenProps & { device: AppI18n 
       {under === 'form' && <FormScreen ob={ob} i18n={i18n} />}
       {under === 'loading' && <LoadingScreen ob={ob} i18n={i18n} />}
       {under === PAIR_SCREEN && ob.pairing !== null && <PairPage pairing={ob.pairing} binding={ob.binding} i18n={i18n} />}
+      {under === RESTORE_CODE_SCREEN && ob.restoreCode !== null && <RestoreCodePage restore={ob.restoreCode} binding={ob.binding} editor={ob.editor} i18n={i18n} />}
       {under === 'done' && <DoneScreen ob={ob} i18n={i18n} />}
       {focus.screen === 'exit' && <ExitDialog ob={ob} i18n={i18n} />}
     </main>
