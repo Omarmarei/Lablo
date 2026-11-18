@@ -58,7 +58,7 @@ export async function addM3uAndWatch(remote: RemoteDriver, link: string, query: 
 }
 
 /** The start URL with `query`, then the TV's language, the disclaimer and "Allow": the source types. */
-async function toSourceTypes(remote: RemoteDriver, query: string): Promise<Locator> {
+export async function toSourceTypes(remote: RemoteDriver, query: string): Promise<Locator> {
   const { page } = remote;
   await page.goto(`/?${query}`);
   const onboarding = page.getByTestId('onboarding');
