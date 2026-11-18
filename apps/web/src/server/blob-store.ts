@@ -56,8 +56,15 @@ export interface BlobResponse {
   readonly body?: Uint8Array;
 }
 
+/**
+ * Where the memory store's presigned URLs point (RELAY step 31d1): a path on the API's own origin,
+ * answered by the development route `src/app/dev/blob/[...key]/route.ts`. The phone page and the TV
+ * resolve it against the address they reach the API at, so it works on any port and on a LAN.
+ */
+export const DEV_BLOB_PATH = '/dev/blob';
+
 export interface MemoryBlobStoreOptions {
-  /** Where the presigned URLs point (a development route); the fake answers them itself (`redeem`). */
+  /** Where the presigned URLs point (default `DEV_BLOB_PATH`); the fake answers them itself (`redeem`). */
   readonly baseUrl?: string;
   readonly now?: () => number;
 }
@@ -75,7 +82,7 @@ export class MemoryBlobStore implements BlobStore {
   private readonly now: () => number;
 
   constructor(options: MemoryBlobStoreOptions = {}) {
-    this.baseUrl = options.baseUrl ?? 'http://127.0.0.1:3100/dev/blob';
+    this.baseUrl = options.baseUrl ?? DEV_BLOB_PATH;
     this.now = options.now ?? Date.now;
   }
 
@@ -120,7 +127,7 @@ export class MemoryBlobStore implements BlobStore {
     return Promise.resolve(this.presign('GET', key, null, ttlMs));
   }
 
-  /** Answers a request to one of its presigned URLs, as R2 would. */
+  /** Answers a request to one of its presigned URLs (as it gave them: with `DEV_BLOB_PATH`, the path and query), as R2 would. */
   async redeem(method: string, url: string, body?: Uint8Array): Promise<BlobResponse> {
     const signed = this.verify(method, url);
     if (signed === null) return { status: 403 };

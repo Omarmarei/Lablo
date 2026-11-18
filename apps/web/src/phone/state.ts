@@ -1,15 +1,16 @@
 /**
- * The phone page's state (RELAY step 31b) as a pure reducer: which view shows, what the person
- * typed, and what the server answered. The requests behind the actions are `flows.ts`'s; the
- * progress poll is `progress.ts`'s. The typed values outlive every view, so a code that ends while
- * the form is filled, or a source the TV refused, costs a new code, not the typing.
+ * The phone page's state (RELAY steps 31b and 31d1) as a pure reducer: which view shows, what the
+ * person typed or chose, and what the server answered. The requests behind the actions are
+ * `flows.ts`'s; the progress poll is `progress.ts`'s. The typed values and the chosen file outlive
+ * every view, so a code that ends while the form is filled, or a source the TV refused, costs a new
+ * code, not the typing.
  */
 import type { PairProgressResponse, PairStatus, PairTvKeyResponse } from '@lablo/protocol';
 import { PAIR_EPG_MAX } from '@lablo/protocol';
 import type { ApiResult } from './api';
 import type { QrTarget } from './code';
 import { normalizeCode } from './code';
-import type { FieldKey, FormProblems, FormValues, SourceType } from './form';
+import type { FieldKey, FormProblems, FormValues, PickedFile, SourceType } from './form';
 import { checkForm, EMPTY_VALUES } from './form';
 import type { Lang } from './lang';
 
@@ -39,13 +40,15 @@ export interface PageState {
   readonly view: View;
   readonly type: SourceType;
   readonly values: FormValues;
+  /** The M3U file chosen (step 31d1), kept when another type is picked. */
+  readonly file: PickedFile | null;
   /** The form's problems, shown once a send was refused and kept current as the fields change. */
   readonly problems: FormProblems;
   readonly showProblems: boolean;
 }
 
-/** A form field holding one value (the guide links are `epg` events). */
-export type TextField = Exclude<FieldKey, `epg${number}`>;
+/** A form field holding one typed value (the guide links are `epg` events, the file `pickFile`). */
+export type TextField = Exclude<FieldKey, `epg${number}` | 'file'>;
 
 export type PageEvent =
   | { readonly type: 'lang'; readonly lang: Lang }
@@ -61,7 +64,11 @@ export type PageEvent =
   | { readonly type: 'epg'; readonly index: number; readonly value: string }
   | { readonly type: 'addEpg' }
   | { readonly type: 'removeEpg'; readonly index: number }
+  /** A file chosen for the M3U file form (it replaces any chosen before). */
+  | { readonly type: 'pickFile'; readonly file: PickedFile }
   | { readonly type: 'send' }
+  /** The chosen file couldn't be read while sending: it has to be chosen again. */
+  | { readonly type: 'fileUnreadable'; readonly code: string }
   | { readonly type: 'sendAnswer'; readonly code: string; readonly result: ApiResult<PairProgressResponse> }
   /** Back to the code: `keep` the typed values (to fix and send again) or start empty. */
   | { readonly type: 'again'; readonly keep: boolean };
@@ -69,7 +76,7 @@ export type PageEvent =
 export const CODE_VIEW: Extract<View, { kind: 'code' }> = { kind: 'code', input: '', busy: false, error: null, retryAfterS: 0 };
 
 export function initialState(lang: Lang): PageState {
-  return { lang, view: { kind: 'starting' }, type: 'xtream', values: EMPTY_VALUES, problems: {}, showProblems: false };
+  return { lang, view: { kind: 'starting' }, type: 'xtream', values: EMPTY_VALUES, file: null, problems: {}, showProblems: false };
 }
 
 /** The view an answer about the code's progress leads to; null keeps the current one. */
@@ -85,9 +92,9 @@ function progressView(code: string, progress: PairProgressResponse): View | null
   }
 }
 
-/** A field changed: the problems follow while they show. */
-function withValues(state: PageState, values: FormValues, type = state.type): PageState {
-  return { ...state, type, values, problems: state.showProblems ? checkForm(type, values).problems : {} };
+/** A field, the type or the file changed: the problems follow while they show. */
+function withValues(state: PageState, values: FormValues, type = state.type, file = state.file): PageState {
+  return { ...state, type, values, file, problems: state.showProblems ? checkForm(type, values, file).problems : {} };
 }
 
 export function reduce(state: PageState, event: PageEvent): PageState {
@@ -158,12 +165,19 @@ export function reduce(state: PageState, event: PageEvent): PageState {
       return withValues(state, { ...state.values, epg: epg.length === 0 ? [''] : epg });
     }
 
+    case 'pickFile':
+      return view.kind === 'form' && !view.busy ? withValues(state, state.values, state.type, event.file) : state;
+
     case 'send': {
       if (view.kind !== 'form' || view.busy) return state;
-      const checked = checkForm(state.type, state.values);
+      const checked = checkForm(state.type, state.values, state.file);
       if (checked.payload === null) return { ...state, problems: checked.problems, showProblems: true, view: { ...view, error: null } };
       return { ...state, problems: {}, showProblems: false, view: { ...view, busy: true, error: null } };
     }
+
+    case 'fileUnreadable':
+      if (view.kind !== 'form' || !view.busy || view.target.code !== event.code) return state;
+      return { ...state, file: null, problems: { file: 'unreadable' }, showProblems: true, view: { ...view, busy: false, error: null } };
 
     case 'sendAnswer': {
       if (view.kind !== 'form' || !view.busy || view.target.code !== event.code) return state;
@@ -184,7 +198,7 @@ export function reduce(state: PageState, event: PageEvent): PageState {
         view: CODE_VIEW,
         problems: {},
         showProblems: false,
-        ...(event.keep ? {} : { type: 'xtream' as const, values: EMPTY_VALUES }),
+        ...(event.keep ? {} : { type: 'xtream' as const, values: EMPTY_VALUES, file: null }),
       };
   }
 }

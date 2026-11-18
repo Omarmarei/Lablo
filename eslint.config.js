@@ -123,7 +123,9 @@ const NO_OUTBOUND_RULES = {
 
 /**
  * The phone page's requests (RELAY step 31b): `apps/web/src/phone/api.ts` runs in the phone's
- * browser and calls its own origin's `/v1/pair/` routes, so it alone may use `fetch`. This replaces
+ * browser and calls its own origin's `/v1/pair/` routes, and PUTs the encrypted M3U file to the
+ * presigned URL they give (step 31d1: a `/dev/blob/` path on the same origin in development, R2's in
+ * production; `presignedUrlSchema` checked first), so it alone may use `fetch`. This replaces
  * only the block's two globals rules (a later config block replaces the rules it names, and keeps
  * the others): the import and `import()` rules still apply there, and so do the other globals (no
  * XMLHttpRequest, WebSocket, EventSource or require). The page's content security policy

@@ -5,7 +5,7 @@ import { test as base, expect } from '@playwright/test';
 import type * as Pg from 'pg';
 import { newBoxKeyPair, openPairPayload, sha256, toBase64Url, utf8 } from '@lablo/crypto';
 import type { PairPayload, PairStatus } from '@lablo/protocol';
-import { pairCreateResponseSchema, pairPayloadSchema, pairPollResponseSchema } from '@lablo/protocol';
+import { pairCreateResponseSchema, pairFileUrlResponseSchema, pairPayloadSchema, pairPollResponseSchema } from '@lablo/protocol';
 import { E2E_DATABASE, serverUrl, WEB, withDatabase } from '../test/web-db';
 
 /**
@@ -74,6 +74,19 @@ export class Tv {
   async report(status: PairStatus): Promise<void> {
     const answer = await this.request.post(`/v1/pair/s/${this.sid}/status`, { data: { status }, headers: this.headers(true) });
     expect(answer.status()).toBe(200);
+  }
+
+  /** The presigned GET of the session's file (RELAY step 31d1), as the API gives it to the TV. */
+  async fileUrl(): Promise<string> {
+    const answer = await this.request.get(`/v1/pair/s/${this.sid}/file`, { headers: this.headers(true) });
+    expect(answer.status()).toBe(200);
+    return pairFileUrlResponseSchema.parse(await answer.json()).url;
+  }
+
+  /** A GET of a presigned URL from the TV's origin (a relative one against the API's address): the status, its CORS header, the bytes. */
+  async download(url: string): Promise<{ status: number; cors: string | undefined; bytes: Uint8Array }> {
+    const answer = await this.request.get(url, { headers: { origin: 'null' } });
+    return { status: answer.status(), cors: answer.headers()['access-control-allow-origin'], bytes: new Uint8Array(await answer.body()) };
   }
 }
 

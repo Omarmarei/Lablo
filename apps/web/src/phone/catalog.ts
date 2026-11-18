@@ -39,6 +39,7 @@ export const EN = {
   'form.type': 'Source type',
   'type.xtream': '{name} login',
   'type.m3u': '{format} playlist link',
+  'type.file': '{format} playlist file',
   'field.server': 'Server address',
   'field.serverHint': 'As your provider sent it. {scheme} is added if you leave it out.',
   'field.username': 'Username',
@@ -46,6 +47,17 @@ export const EN = {
   'field.showPassword': 'Show password',
   'field.playlist': 'Playlist link',
   'field.linkHint': 'Starts with {http} or {https}',
+  'field.file': 'Playlist file',
+  'field.fileChoose': 'Choose a file',
+  'field.fileChange': 'Choose another file',
+  'field.fileHint': 'The {format} file your provider sent you, up to {max}',
+  'field.fileChosen': '{name}, {size}',
+  'field.noFile': 'Choose the playlist file',
+  'field.fileEmpty': 'This file is empty',
+  'field.fileLarge': 'This file is larger than {max}',
+  'field.fileUnreadable': 'This file couldn’t be read. Choose it again.',
+  'size.kb': '{n} KB',
+  'size.mb': '{n} MB',
   'field.epg': 'Guide link (optional)',
   'field.epgHint': 'An {format} link, if your provider gave you one',
   'field.epgAdd': 'Add another guide link',
@@ -60,6 +72,7 @@ export const EN = {
   'form.check': 'Check the fields marked above.',
   'form.send': 'Send to TV',
   'form.sending': 'Sending…',
+  'form.sendingFile': 'Encrypting and sending the file…',
 
   'progress.title': 'Sending to your TV',
   'progress.sent': 'Sent',
@@ -118,6 +131,7 @@ export const AR: Readonly<Record<MessageKey, Message>> = {
   'form.type': 'نوع المصدر',
   'type.xtream': 'تسجيل دخول {name}',
   'type.m3u': 'رابط قائمة تشغيل {format}',
+  'type.file': 'ملف قائمة تشغيل {format}',
   'field.server': 'عنوان الخادم',
   'field.serverHint': 'كما أرسله مزوّد الخدمة. تُضاف {scheme} إن لم تكتبها.',
   'field.username': 'اسم المستخدم',
@@ -125,6 +139,17 @@ export const AR: Readonly<Record<MessageKey, Message>> = {
   'field.showPassword': 'إظهار كلمة المرور',
   'field.playlist': 'رابط قائمة التشغيل',
   'field.linkHint': 'يبدأ بـ {http} أو {https}',
+  'field.file': 'ملف قائمة التشغيل',
+  'field.fileChoose': 'اختيار ملف',
+  'field.fileChange': 'اختيار ملف آخر',
+  'field.fileHint': 'ملف {format} الذي أرسله لك مزوّد الخدمة، بحجم {max} كحدّ أقصى',
+  'field.fileChosen': '{name}، {size}',
+  'field.noFile': 'اختر ملف قائمة التشغيل',
+  'field.fileEmpty': 'هذا الملف فارغ',
+  'field.fileLarge': 'حجم هذا الملف أكبر من {max}',
+  'field.fileUnreadable': 'تعذّرت قراءة هذا الملف. اختره مرة أخرى.',
+  'size.kb': '{n} كيلوبايت',
+  'size.mb': '{n} ميغابايت',
   'field.epg': 'رابط الدليل (اختياري)',
   'field.epgHint': 'رابط {format}، إن أعطاك إياه مزوّد الخدمة',
   'field.epgAdd': 'إضافة رابط دليل آخر',
@@ -139,6 +164,7 @@ export const AR: Readonly<Record<MessageKey, Message>> = {
   'form.check': 'تحقّق من الحقول المُشار إليها أعلاه.',
   'form.send': 'إرسال إلى التلفاز',
   'form.sending': 'جارٍ الإرسال…',
+  'form.sendingFile': 'جارٍ تشفير الملف وإرساله…',
 
   'progress.title': 'جارٍ الإرسال إلى تلفازك',
   'progress.sent': 'تم الإرسال',
@@ -170,6 +196,16 @@ export const FSI = String.fromCharCode(0x2068);
 export const PDI = String.fromCharCode(0x2069);
 
 export type Params = Readonly<Record<string, string | number>>;
+
+/**
+ * A file's size as the form shows it: whole kilobytes under a megabyte (rounded up: 0 only when
+ * empty), else megabytes to one decimal (`2.5 MB`, `40 MB`). Binary units, as the 1 MiB frames
+ * and the 40 MiB limit.
+ */
+export function fileSize(lang: Lang, bytes: number): string {
+  if (bytes < 1048576) return t(lang, 'size.kb', { n: Math.ceil(bytes / 1024) });
+  return t(lang, 'size.mb', { n: Math.round((bytes / 1048576) * 10) / 10 });
+}
 
 /** The message for `key` in `lang`, its plural form chosen by `params.n`, its placeholders filled. */
 export function t(lang: Lang, key: MessageKey, params: Params = {}): string {
