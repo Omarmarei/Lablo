@@ -1120,6 +1120,14 @@ describe('the series screen: the movies screen for series (RELAY step 27a)', () 
     expect([0, 1, 2].map((i) => films.movies.episodes(i))).toEqual([false, false, false]);
   });
 
+  it("counts a file from the phone's entries in episodes, as a playlist's (step 31d2b1)", async () => {
+    const engine = seriesEngine();
+    engine.profileDoc = { doc: { v: 8, sources: [{ id: 's1', type: 'm3u-file', name: 'Kitchen', added: 1 }] }, newer: false, migratedFrom: null };
+    const t = await setup({ engine, kind: 'series' });
+    expect(t.movies.rail.value.map((e) => e.kind)).toEqual(['all', 'category', 'category']);
+    expect([0, 1, 2].map((i) => t.movies.episodes(i))).toEqual([true, true, true]);
+  });
+
   it("reads the playlists again on a catalog swap: a source's type decides, as stored now", async () => {
     const engine = seriesEngine();
     const t = await setup({ engine, kind: 'series' });

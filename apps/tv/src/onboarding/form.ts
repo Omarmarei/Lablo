@@ -1,5 +1,6 @@
 import type { XtreamAccount } from '@lablo/core';
 import { normalizeXtreamBase } from '@lablo/core';
+import type { FileFeed } from '@lablo/data/client';
 
 /**
  * The "add a source" form (RELAY step 13a): its fields per source type and the checks that run
@@ -39,10 +40,18 @@ export type FieldProblem = 'required' | 'url' | 'spaces';
 export type FormValues = Partial<Record<FieldId, string>>;
 export type FormProblems = Partial<Record<FieldId, FieldProblem>>;
 
-/** A source as the form gives it; step 13b loads it through the data engine. */
+/**
+ * A source as the form gives it; step 13b loads it through the data engine. The phone's M3U file
+ * (step 31d2b1) comes only from the pairing screen: `file()` fetches its frames in the pair worker,
+ * once, resolving the feed for the refresh or rejecting with a `LoadError`.
+ */
 export type SourceDraft =
   | { readonly type: 'xtream'; readonly name: string; readonly account: XtreamAccount; readonly epgUrls: readonly string[] }
-  | { readonly type: 'm3u'; readonly name: string; readonly url: string; readonly epgUrls: readonly string[] };
+  | { readonly type: 'm3u'; readonly name: string; readonly url: string; readonly epgUrls: readonly string[] }
+  | { readonly type: 'm3u-file'; readonly name: string; readonly epgUrls: readonly string[]; readonly file: () => Promise<FileFeed> };
+
+/** A source the form itself gives: a login or a link. */
+export type FormDraft = Exclude<SourceDraft, { type: 'm3u-file' }>;
 
 const SCHEME = /^([a-z][a-z0-9+.-]*):\/\//i;
 const HTTP = /^https?$/i;
@@ -92,7 +101,7 @@ export interface CheckedForm {
   /** Each refused field's problem; empty when the form is fine. */
   readonly problems: FormProblems;
   /** The source, when nothing was refused. */
-  readonly draft: SourceDraft | null;
+  readonly draft: FormDraft | null;
 }
 
 /**

@@ -1,6 +1,6 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { PairCode, PairFailure, PairPollResult } from '@lablo/data/client';
+import type { FileFeed, PairCode, PairFailure, PairPollResult } from '@lablo/data/client';
 import { PAIR_POLL_MS } from '@lablo/data/client';
 import type { LifecycleEvent } from '@lablo/platform-api';
 import type { PairStatus } from '@lablo/protocol';
@@ -10,7 +10,7 @@ import type { Refusal } from '../gate/gate-state';
 import type { SourceDraft } from '../onboarding/form';
 import type { LoadErrorCode, LoadHandle, LoadProgress, LoadResult, SourceLoader } from '../onboarding/loader';
 import { LoadError } from '../onboarding/loader';
-import { pairDraft, statusFor } from './pair-draft';
+import { fileError, pairDraft, statusFor } from './pair-draft';
 
 /**
  * The pairing screen (RELAY step 31c2a, architecture.md §3.3 A): a code and its QR code for the
@@ -32,6 +32,9 @@ import { pairDraft, statusFor } from './pair-draft';
  *   catalog is saved (the loader's `guide` phase, or its end); a failure's category as
  *   `statusFor` says; a load cancelled on the TV sends nothing. One status per payload ("Try
  *   again" sends no second one), tried up to `STATUS_TRIES` times.
+ * - **The phone's M3U file** (step 31d2b1): the draft fetches it on the session the payload came
+ *   on, when the loader asks. Its status deletes the blob on the server, so a failed or refused
+ *   file has no "Try again", only "Show a new code".
  */
 
 /** Codes made one after another while nothing was sent; then "Show a new code". */
@@ -64,10 +67,11 @@ export type PairViewKind = PairView['kind'];
 /** The buttons of each view, in screen order. */
 export type PairAction = 'cancel' | 'retry-code' | 'new-code' | 'retry-load' | 'close';
 
-export function pairActions(kind: PairViewKind): readonly PairAction[] {
+/** The buttons of a view; `file`: the source is the phone's file, which can't be fetched again. */
+export function pairActions(kind: PairViewKind, file = false): readonly PairAction[] {
   if (kind === 'unavailable') return ['retry-code'];
   if (kind === 'ended') return ['new-code'];
-  if (kind === 'failed' || kind === 'refused') return ['new-code', 'retry-load'];
+  if (kind === 'failed' || kind === 'refused') return file ? ['new-code'] : ['new-code', 'retry-load'];
   if (kind === 'done') return ['close'];
   return ['cancel'];
 }
@@ -97,6 +101,8 @@ export interface PairingOptions {
   readonly busy?: (on: boolean) => void;
   /** The source was added (after its status went). Onboarding shows its done screen. */
   readonly added?: (draft: SourceDraft, result: LoadResult) => void;
+  /** The name of a file sent without one (the catalog's `pair.fileName` in the UI's language, step 31d2b1). */
+  readonly fileName?: () => string;
 }
 
 export interface Pairing {
@@ -110,8 +116,8 @@ export interface Pairing {
   dispose(): void;
 }
 
-function actionsZone(kind: PairViewKind): ZoneSpec {
-  return { kind: 'list', id: 'actions', axis: 'horizontal', count: pairActions(kind).length };
+function actionsZone(kind: PairViewKind, file = false): ZoneSpec {
+  return { kind: 'list', id: 'actions', axis: 'horizontal', count: pairActions(kind, file).length };
 }
 
 export function createPairing(options: PairingOptions): Pairing {
@@ -140,11 +146,17 @@ export function createPairing(options: PairingOptions): Pairing {
   let stopLifecycle: (() => void) | null = null;
   let stopNav: (() => void) | null = null;
 
+  /** The source being added is the phone's file (its failures have one button fewer). */
+  const isFile = (): boolean => {
+    const shown = draft.peek();
+    return shown !== null && shown.type === 'm3u-file';
+  };
+
   const show = (next: PairView): void => {
     const before = view.peek().kind;
     view.value = next;
     if (screen !== null && screen.open && before !== next.kind) {
-      screen.update(actionsZone(next.kind));
+      screen.update(actionsZone(next.kind, isFile()));
       screen.focus('actions', 0);
     }
   };
@@ -291,7 +303,7 @@ export function createPairing(options: PairingOptions): Pairing {
     startLoad(source);
   };
 
-  const answered = (result: PairPollResult): void => {
+  const answered = (result: PairPollResult, from: PairSession): void => {
     const shown = view.peek();
     if (result.state === 'waiting') {
       if (shown.kind === 'code' && shown.trouble) show({ kind: 'code', code: shown.code, trouble: false, note: shown.note });
@@ -309,7 +321,9 @@ export function createPairing(options: PairingOptions): Pairing {
       codes = 0;
       openCode('unreadable');
     } else {
-      const source = pairDraft(result.payload);
+      // A file is fetched on the session it came on, when the loader asks (after the slot is free).
+      const file = (): Promise<FileFeed> => from.file().then((got) => (got.ok ? got.feed : Promise.reject(fileError(got.failure))));
+      const source = pairDraft(result.payload, { name: options.fileName === undefined ? '' : options.fileName(), file });
       codes = 0;
       if (source === null) {
         openCode('unreadable');
@@ -330,7 +344,7 @@ export function createPairing(options: PairingOptions): Pairing {
     asked.poll().then(
       (result) => {
         polling = false;
-        if (mine === seq) answered(result);
+        if (mine === seq) answered(result, asked);
       },
       (error: unknown) => {
         polling = false;
@@ -358,7 +372,7 @@ export function createPairing(options: PairingOptions): Pairing {
   };
 
   const select = (index: number): void => {
-    const action = pairActions(view.peek().kind)[index];
+    const action = pairActions(view.peek().kind, isFile())[index];
     if (action === 'cancel' || action === 'close') {
       cancelLoad();
       nav.pop();

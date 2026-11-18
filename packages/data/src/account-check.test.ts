@@ -55,6 +55,8 @@ describe('checkAccount (the player error card, RELAY step 20a)', () => {
     expect(sourceAccount(xtream)).toBe(ACCOUNT);
     expect(sourceAccount(getPhp)).toMatchObject({ base: 'http://panel.test:8080', username: 'u1', password: 'p 1' });
     expect(sourceAccount(plain)).toBeNull();
+    // A file from the phone (step 31d2b1) has no link, so no panel.
+    expect(sourceAccount({ id: 's4', type: 'm3u-file', name: 'F', added: 1 })).toBeNull();
   });
 });
 

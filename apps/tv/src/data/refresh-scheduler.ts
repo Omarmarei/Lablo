@@ -141,13 +141,15 @@ export function createRefreshScheduler(options: SchedulerOptions): RefreshSchedu
       if (disposed) return false;
       let meta: SourceMeta | undefined;
       for (const m of metas) if (m.src === record.id) meta = m;
-      if (!catalogRefreshDue(meta, failures.get(record.id), now())) continue;
+      // A file from the phone has no link: only sending it again updates it (step 31d2b1).
+      const source = ingestSourceOf(record);
+      if (source === null || !catalogRefreshDue(meta, failures.get(record.id), now())) continue;
       // Another refresh holds the slot: the catalogs that committed are told, then it waits.
       if (engine.refreshing) break;
       try {
         // A failure kept here is never older than 2 h when the source is tried again, so a
         // success needs no clearing.
-        const result = await engine.refresh({ src: record.id, source: ingestSourceOf(record) }, { lowTier: tier === 'low', cancel: cancel.token });
+        const result = await engine.refresh({ src: record.id, source }, { lowTier: tier === 'low', cancel: cancel.token });
         if (result.status === 'committed') committed.push(record.id);
       } catch (error) {
         if (disposed) return false;

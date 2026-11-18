@@ -10,8 +10,11 @@ import type { LoadErrorCode, LoadPhase } from './loader';
 
 type Translate = AppI18n['t'];
 
-/** Why a load failed, in words. */
-export function errorText(t: Translate, code: LoadErrorCode, status: number | null): string {
+/** Why a load failed, in words; a file from the phone (step 31d2b1) has its own words where a link's would be wrong. */
+export function errorText(t: Translate, code: LoadErrorCode, status: number | null, file = false): string {
+  if (code === 'file') return t('error.file');
+  if (file && code === 'format') return t('error.fileFormat');
+  if (file && code === 'network') return t('error.fileNetwork');
   if (code === 'http') return t('error.http', { status: status ?? 0 });
   if (code === 'auth') return t('error.auth');
   if (code === 'expired') return t('error.expired');

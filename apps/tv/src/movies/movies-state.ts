@@ -441,7 +441,8 @@ export function createMovies(options: MoviesOptions): Movies {
         continued = left;
         sourceIds = ids;
         playlists = [];
-        for (const r of records) if (r.type === 'm3u') playlists.push(r.id);
+        // Playlists: links and files from the phone (step 31d2b1).
+        for (const r of records) if (r.type !== 'xtream') playlists.push(r.id);
         held = null;
         rail.value = entries;
         shown.update(railZone(entries.length));

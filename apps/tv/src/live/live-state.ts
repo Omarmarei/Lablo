@@ -291,8 +291,9 @@ export function findEntry(entries: readonly RailEntry[], ref: NonNullable<RailRe
   return -1;
 }
 
-/** The source a focused channel's short EPG is asked through (its panel's login, or its link). */
-function epgSourceOf(record: SourceRecord): ShortEpgSource {
+/** The source a focused channel's short EPG is asked through (its panel's login, or its link); `null` for a file from the phone, which has neither. */
+function epgSourceOf(record: SourceRecord): ShortEpgSource | null {
+  if (record.type === 'm3u-file') return null;
   return record.type === 'xtream' ? { type: 'xtream', account: record.account } : { type: 'm3u', url: record.url };
 }
 
@@ -719,7 +720,10 @@ export function createLive(options: LiveOptions): Live {
   /** Takes the sources read: their short-EPG logins and the rail (the list isn't touched). */
   const takeSources = (records: readonly SourceRecord[], lists: readonly CategoryInfo[][]): RailEntry[] => {
     sources = new Map<string, ShortEpgSource>();
-    for (const record of records) sources.set(record.id, epgSourceOf(record));
+    for (const record of records) {
+      const source = epgSourceOf(record);
+      if (source !== null) sources.set(record.id, source);
+    }
     const entries = railEntries(records.map((r, i) => ({ src: r.id, categories: lists[i] ?? [] })));
     rail.value = entries;
     home.update(railZone(entries.length));

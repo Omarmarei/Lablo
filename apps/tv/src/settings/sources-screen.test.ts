@@ -154,6 +154,14 @@ describe('sourceRows', () => {
     expect(sourceRows(profileOf([PANEL]), [meta('s9', { checkedAt: T })], []).map((r) => r.checkedAt)).toEqual([null]);
     expect(sourceRows(null, [meta('s1')], [true])).toEqual([]);
   });
+
+  it('lists a file from the phone with no server, never blocked, whatever the blocklist answers (step 31d2b1)', () => {
+    const file: SourceRecord = { id: 's4', type: 'm3u-file', name: 'Kitchen', added: 4 };
+    expect(sourceRows(profileOf([PANEL, file]), [meta('s1', { checkedAt: T }), meta('s4', { checkedAt: T - 5_000 })], [true, true])).toEqual([
+      { id: 's1', name: 'My panel', type: 'xtream', host: 'panel.test:8080', checkedAt: T, blocked: true },
+      { id: 's4', name: 'Kitchen', type: 'm3u-file', host: '', checkedAt: T - 5_000, blocked: false },
+    ]);
+  });
 });
 
 describe('the sources list', () => {
@@ -192,6 +200,20 @@ describe('the sources list', () => {
     expect(t.at()).toBe('sources · sources 2');
     t.nav.handle('BACK');
     expect(t.at()).toBe('settings · items 0');
+  });
+
+  it('asks the blocklist about no server for a file from the phone: an empty URL in its place (step 31d2b1)', async () => {
+    const engine = new FakeEngine();
+    engine.sources = [PANEL, { id: 's4', type: 'm3u-file', name: 'Kitchen', added: 4 }, LIST];
+    const t = setup(engine);
+    t.list.open();
+    await flush();
+    expect(engine.blockAsks).toEqual([['http://user:pw@panel.test:8080', '', 'https://lists.test/get.php?username=u&password=p']]);
+    expect(t.list.rows.value.map((r) => [r.id, r.type, r.host])).toEqual([
+      ['s1', 'xtream', 'panel.test:8080'],
+      ['s4', 'm3u-file', ''],
+      ['s2', 'm3u', 'lists.test'],
+    ]);
   });
 
   it("lists the sources unblocked when the blocklist can't be read", async () => {
@@ -343,6 +365,26 @@ describe('a source’s row as drawn', () => {
     expect(sourceKindText(en.t, row({ type: 'm3u' }))).toBe('M3U playlist');
     expect(stripIsolates(sourceKindText(ar.t, row()))).toBe('تسجيل دخول Xtream');
     expect(stripIsolates(sourceKindText(ar.t, row({ type: 'm3u' })))).toBe('قائمة تشغيل M3U');
+    // A file from the phone (step 31d2b1).
+    expect(sourceKindText(en.t, row({ type: 'm3u-file', host: '' }))).toBe('M3U file');
+    expect(stripIsolates(sourceKindText(ar.t, row({ type: 'm3u-file', host: '' })))).toBe('ملف M3U');
+  });
+
+  it('says when a file from the phone was sent: it is never updated by itself (step 31d2b1)', () => {
+    const at = new Date(T);
+    const file = row({ type: 'm3u-file', host: '' });
+    expect(statusText(en, file)).toBe(`Sent from your phone ${en.date(at, 'day')}, ${en.time(at)}`);
+    expect(stripIsolates(statusText(ar, file))).toBe(stripIsolates(`أُرسل من هاتفك ${ar.date(at, 'day')}، ${ar.time(at)}`));
+    // No catalog (a wiped database): as any source with none.
+    expect(statusText(en, row({ type: 'm3u-file', host: '', checkedAt: null }))).toBe('Not updated yet');
+  });
+
+  it('draws a file from the phone with its kind and no server', () => {
+    const drawn = SourceItem({ i18n: en, row: row({ id: 's4', name: 'Kitchen', type: 'm3u-file', host: '' }), index: 1, item });
+    expect(drawn.props as Props).toMatchObject({ 'data-src': 's4', 'data-type': 'm3u-file', 'data-blocked': 'false' });
+    expect(textOf(byTestId(drawn, 'source-1-kind')[0])).toBe('M3U file');
+    expect(walk(byTestId(drawn, 'source-1-kind')[0]).filter((v) => (v.props as Props).dir === 'ltr')).toEqual([]);
+    expect(textOf(byTestId(drawn, 'source-1-status')[0])).toBe(`Sent from your phone ${en.date(new Date(T), 'day')}, ${en.time(new Date(T))}`);
   });
 
   it('says when it was last updated, in the TV’s day and time, or that it never was', () => {

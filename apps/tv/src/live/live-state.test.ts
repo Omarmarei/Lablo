@@ -624,6 +624,17 @@ describe('the live screen', () => {
     expect(engine.focusCalls).toHaveLength(4);
   });
 
+  it("asks no short EPG for a channel of a file from the phone, which has no link or panel (step 31d2b1)", async () => {
+    const engine = new FakeEngine();
+    engine.profileDoc = { doc: { v: 8, sources: [{ id: 's1', type: 'm3u-file', name: 'Home', added: 1 }, S2] }, newer: false, migratedFrom: null };
+    const t = await setup({ engine });
+    expect(t.at()).toBe('live · channels 0');
+    expect(engine.focusCalls).toEqual([]);
+    // The panel's channels still are.
+    await t.press('LEFT', 'DOWN', 'DOWN', 'DOWN', 'OK');
+    expect(engine.focusCalls[engine.focusCalls.length - 1]).toMatchObject({ key: 'x:s2:live:0-0', source: { type: 'xtream' } });
+  });
+
   it('counts every request in flight, the focus wait included, back to 0', async () => {
     const engine = new FakeEngine();
     engine.hold = new Set(['focus']);

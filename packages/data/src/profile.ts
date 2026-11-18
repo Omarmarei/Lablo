@@ -63,13 +63,21 @@ export type ProfileV1 = {
  */
 export type SourceRecord =
   | { id: string; type: 'xtream'; name: string; account: XtreamAccount; added: number }
-  | { id: string; type: 'm3u'; name: string; url: string; added: number };
+  | { id: string; type: 'm3u'; name: string; url: string; added: number }
+  /**
+   * An M3U file sent from the phone (step 31d2b1): no link, so never refreshed by itself. Sent
+   * again under the same name, it loads under this id again (favourites and places carry over).
+   */
+  | { id: string; type: 'm3u-file'; name: string; added: number };
+
+/** A source as versions 4 to 7 stored it: a login or a link (version 8 added the phone's file). */
+export type SourceRecordV7 = Exclude<SourceRecord, { type: 'm3u-file' }>;
 
 /**
  * A source as versions 2 and 3 stored it: with the guide link typed in onboarding (`null`: none).
  * Version 4 moved the links to the profile's `guides`.
  */
-export type SourceRecordV3 = SourceRecord & { epgUrl: string | null };
+export type SourceRecordV3 = SourceRecordV7 & { epgUrl: string | null };
 
 /** What the user answered during onboarding. */
 export type OnboardingAnswers = {
@@ -150,7 +158,7 @@ export type ProfileV3 = {
 export type ProfileV4 = {
   v: 4;
   favourites: FavouriteRef[];
-  sources: SourceRecord[];
+  sources: SourceRecordV7[];
   onboarding: OnboardingAnswers;
   player: PlayerMemoryDoc;
   /**
@@ -234,8 +242,14 @@ export type ProfileV7 = Omit<ProfileV6, 'v'> & {
   noticesShown?: string[];
 };
 
+export type ProfileV8 = Omit<ProfileV7, 'v' | 'sources'> & {
+  v: 8;
+  /** The sources, an M3U file from the phone among them now (step 31d2b1). */
+  sources: SourceRecord[];
+};
+
 /** The current profile shape. */
-export type ProfileDoc = ProfileV7;
+export type ProfileDoc = ProfileV8;
 
 /** Track choices kept; a new content past this drops the one changed longest ago. */
 export const MAX_TRACK_CHOICES = 300;
@@ -271,6 +285,9 @@ export const PROFILE_MIGRATIONS: readonly ProfileMigration[] = [
   (doc) => ({ ...doc, v: 6, shows: {} }),
   // 6 → 7 (step 28b2): the channel played last, when there is one, is the first channel played last.
   (doc) => ({ ...doc, v: 7, channels: lastOf(doc.player) }),
+  // 7 → 8 (step 31d2b1): no file from the phone yet. Only the version: an older app must not read
+  // a file source as a link with no URL, and never saves over a newer document.
+  (doc) => ({ ...doc, v: 8 }),
 ];
 
 export const PROFILE_VERSION = PROFILE_MIGRATIONS.length + 1;
@@ -304,7 +321,7 @@ export function noPlayerMemory(): PlayerMemoryDoc {
 }
 
 export function emptyProfile(): ProfileDoc {
-  return { v: 7, favourites: [], sources: [], onboarding: noAnswers(), player: noPlayerMemory(), guides: [], progress: {}, shows: {}, channels: [] };
+  return { v: 8, favourites: [], sources: [], onboarding: noAnswers(), player: noPlayerMemory(), guides: [], progress: {}, shows: {}, channels: [] };
 }
 
 /** Version 6's last channel as the list of channels played last: itself, or none (step 28b2). */

@@ -6,7 +6,7 @@ import { EPG_OFFSET_MAX, EPG_OFFSET_STEP, epgGuides, epgOffsetsOf } from '@lablo
 import type { Platform } from '@lablo/platform-api';
 import type { EditorBinding, Focus, Navigator, Screen, ScreenSpec, TextEditorOptions, ZoneSpec } from '@lablo/ui';
 import { SCREEN, bindEditor, createTextEditor, fits } from '@lablo/ui';
-import { catalogOf, storedSources, userGuides } from '../onboarding/engine-loader';
+import { catalogOf, nextGuideId, storedGuideIds, storedSources, userGuides } from '../onboarding/engine-loader';
 import { normalizeLink } from '../onboarding/form';
 
 /**
@@ -191,18 +191,6 @@ export function shownLink(url: string): string {
   const slash = text.indexOf('/');
   // After the last `@` of the host part (`-1 + 1`: from the start when there is none).
   return text.slice((slash === -1 ? text : text.slice(0, slash)).lastIndexOf('@') + 1);
-}
-
-const GUIDE_NUMBER = /^g(\d{1,9})$/;
-
-/** The next id of a guide added on this screen: `g1`, `g2`… one past the highest `g` id in `taken`. */
-export function nextGuideId(taken: readonly string[]): string {
-  let highest = 0;
-  for (const id of taken) {
-    const match = GUIDE_NUMBER.exec(id);
-    if (match !== null) highest = Math.max(highest, Number(match[1]));
-  }
-  return `g${highest + 1}`;
 }
 
 const USER_PREFIX = 'u~';
@@ -410,8 +398,9 @@ export function createGuides(options: GuidesOptions): Guides {
         if (disposed || seq !== readSeq) return;
         const list = guideList(profile, epg, blocked);
         urls = list.urls;
-        known = userGuides(profile).map((guide) => guide.id);
-        for (const meta of epg.guides) if (meta.epgSrc.indexOf(USER_PREFIX) === 0) known.push(meta.epgSrc.slice(USER_PREFIX.length));
+        known = userGuides(profile)
+          .map((guide) => guide.id)
+          .concat(storedGuideIds(epg.guides));
         status.value = 'ready';
         rows.value = list.rows;
         place();

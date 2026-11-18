@@ -1,10 +1,25 @@
 import type { EpgCatalogSource, IngestResult, IngestSource, LoadedProfile, ProfileEdit, SourceRecord } from '@lablo/data';
+import type { FileFeed } from '@lablo/data/client';
 import { CancelError, RpcError } from '@lablo/data/client';
 import { describe, expect, it } from 'vitest';
 import type { EpgRefreshOptions, RefreshOptions } from '../data/engine';
 import { BlockedSourceError } from '../data/engine';
 import type { LoaderEngine } from './engine-loader';
-import { SLOT_WAIT_MS, createEngineLoader, loadError, nextSourceId, storedSources, typedGuides, userGuides } from './engine-loader';
+import {
+  SLOT_WAIT_MS,
+  catalogOf,
+  createEngineLoader,
+  freshGuides,
+  ingestSourceOf,
+  loadError,
+  nextGuideId,
+  nextSourceId,
+  sameFile,
+  storedGuideIds,
+  storedSources,
+  typedGuides,
+  userGuides,
+} from './engine-loader';
 import type { SourceDraft } from './form';
 import type { LoadProgress, LoadResult } from './loader';
 import { LoadError } from './loader';
@@ -12,6 +27,21 @@ import { LoadError } from './loader';
 const ACCOUNT = { base: 'http://panel.test', username: 'u', password: 'p' };
 const XTREAM: SourceDraft = { type: 'xtream', name: 'Home', account: ACCOUNT, epgUrls: ['http://guide.test/x.xml'] };
 const M3U: SourceDraft = { type: 'm3u', name: 'List', url: 'http://p.test/l.m3u', epgUrls: [] };
+const FEED: FileFeed = { port: { postMessage: () => undefined, onmessage: null } as unknown as FileFeed['port'], size: 2048 };
+/** A file draft from the phone (step 31d2b1) whose fetch is counted and answers `answer`. */
+function fileDraft(name: string, epgUrls: readonly string[] = [], answer: () => Promise<FileFeed> = () => Promise.resolve(FEED)) {
+  const asked = { n: 0 };
+  const draft: SourceDraft = {
+    type: 'm3u-file',
+    name,
+    epgUrls,
+    file: () => {
+      asked.n += 1;
+      return answer();
+    },
+  };
+  return { draft, asked };
+}
 
 /** Resolves on the next turns of the event loop (lets chained promises run). */
 const settle = async (): Promise<void> => {
@@ -55,6 +85,8 @@ interface FakeOptions {
   /** The refresh's answer: a result, an error, or a gate the test settles. */
   refresh?: (job: { src: string; source: IngestSource }, options: RefreshOptions) => Promise<IngestResult>;
   refreshEpg?: (catalogs: readonly EpgCatalogSource[], options: EpgRefreshOptions) => Promise<unknown>;
+  /** The stored guides' sources (`u~<id>`, `<src>:xmltv`…). */
+  stored?: string[];
 }
 
 function fake(options: FakeOptions = {}) {
@@ -63,6 +95,7 @@ function fake(options: FakeOptions = {}) {
     epg: [] as Array<{ catalogs: readonly EpgCatalogSource[]; options: EpgRefreshOptions }>,
     edits: [] as ProfileEdit[],
     profile: 0,
+    epgStatus: 0,
   };
   const engine: LoaderEngine = {
     refresh: (job, opts) => {
@@ -79,6 +112,10 @@ function fake(options: FakeOptions = {}) {
       return Promise.resolve({ outcomes: [], deleted: [], reranked: [], wanted: 0 });
     },
     sourceIds: () => Promise.resolve(options.ids ?? []),
+    epgStatus: () => {
+      calls.epgStatus += 1;
+      return Promise.resolve({ guides: (options.stored ?? []).map((epgSrc) => ({ epgSrc })) });
+    },
     profile: () => {
       calls.profile += 1;
       return Promise.resolve(options.profile ?? null);
@@ -155,10 +192,52 @@ describe('typedGuides', () => {
   });
 });
 
+describe('nextGuideId', () => {
+  it('is one past the highest g<n> taken, ignoring other ids', () => {
+    expect(nextGuideId([])).toBe('g1');
+    expect(nextGuideId(['s1', 's7', 'g', 'gx', 'g2b', 'xg9'])).toBe('g1');
+    expect(nextGuideId(['g3', 's1', 'g1'])).toBe('g4');
+  });
+});
+
+describe('a file from the phone, stored (step 31d2b1)', () => {
+  const file: SourceRecord = { id: 's4', type: 'm3u-file', name: 'Kitchen', added: 3 };
+
+  it('has no link to refresh, and its guides are a playlist\'s (its header names them)', () => {
+    expect(ingestSourceOf(file)).toBeNull();
+    expect(ingestSourceOf({ id: 's1', type: 'm3u', name: 'A', url: 'http://a.test/l.m3u', added: 1 })).toEqual({ type: 'm3u', url: 'http://a.test/l.m3u' });
+    expect(ingestSourceOf({ id: 's2', type: 'xtream', name: 'B', account: ACCOUNT, added: 1 })).toEqual({ type: 'xtream', account: ACCOUNT });
+    expect(catalogOf(file)).toEqual({ src: 's4', type: 'm3u' });
+  });
+
+  it('is found by its exact name among the file sources only', () => {
+    const link: SourceRecord = { id: 's1', type: 'm3u', name: 'Kitchen', url: 'http://a.test/l.m3u', added: 1 };
+    const other: SourceRecord = { id: 's2', type: 'm3u-file', name: 'Den', added: 2 };
+    expect(sameFile([link, other, file], 'Kitchen')).toBe(file);
+    expect(sameFile([link, other], 'Kitchen')).toBeNull();
+    expect(sameFile([file], 'kitchen')).toBeNull();
+    expect(sameFile([], 'Kitchen')).toBeNull();
+  });
+
+  it("names a file's new guide links past every listed and stored id, and leaves out a listed link or one given twice", () => {
+    const listed = [
+      { id: 's4', url: 'http://g.test/a.xml' },
+      { id: 'g2', url: 'http://g.test/b.xml' },
+    ];
+    expect(freshGuides(['http://g.test/a.xml', 'http://g.test/c.xml', 'http://g.test/c.xml', 'http://g.test/d.xml'], listed, ['g5'])).toEqual([
+      { id: 'g6', url: 'http://g.test/c.xml' },
+      { id: 'g7', url: 'http://g.test/d.xml' },
+    ]);
+    expect(freshGuides(['http://g.test/c.xml'], listed, [])).toEqual([{ id: 'g3', url: 'http://g.test/c.xml' }]);
+    expect(freshGuides(['http://g.test/b.xml'], listed, [])).toEqual([]);
+    expect(storedGuideIds([{ epgSrc: 'u~g5' }, { epgSrc: 's1:xmltv' }, { epgSrc: 'u~s4-2' }, { epgSrc: 'xu~g9' }])).toEqual(['g5', 's4-2']);
+  });
+});
+
 describe('loadError', () => {
   it("maps the ingest's codes (from the worker) to the loader's", () => {
     const rpc = (code: string, status: number | null = null): RpcError => new RpcError('failed', code, 'IngestError', status);
-    for (const code of ['auth', 'expired', 'blocked', 'blocklisted', 'network', 'format', 'empty'] as const) expect(loadError(rpc(code))).toMatchObject({ code, status: null });
+    for (const code of ['auth', 'expired', 'blocked', 'blocklisted', 'network', 'format', 'empty', 'file'] as const) expect(loadError(rpc(code))).toMatchObject({ code, status: null });
     // The data engine's own refusal (step 30c3a): not an RpcError, the same code.
     expect(loadError(new BlockedSourceError())).toMatchObject({ name: 'LoadError', code: 'blocklisted', status: null });
     expect(loadError(rpc('http', 404))).toMatchObject({ code: 'http', status: 404 });
@@ -260,6 +339,7 @@ describe('createEngineLoader', () => {
       },
       refreshEpg: (catalogs, opts) => engine.refreshEpg(catalogs, opts),
       sourceIds: () => engine.sourceIds(),
+      epgStatus: () => engine.epgStatus(),
       profile: () => engine.profile(),
       editProfile: (edit) => engine.editProfile(edit),
     };
@@ -298,6 +378,168 @@ describe('createEngineLoader', () => {
     expect(sleeps).toBe(1);
     expect(calls.refresh).toEqual([]);
     expect(calls.edits).toEqual([]);
+  });
+
+  it("loads the phone's file (step 31d2b1): its feed asked for once the slot is free, given to the refresh, kept as a source with no link", async () => {
+    const order: string[] = [];
+    const { engine, calls } = fake({ ids: ['s1'] });
+    const asking = { slotLooks: 0 };
+    const slotted: LoaderEngine = {
+      ...engine,
+      get refreshing() {
+        asking.slotLooks += 1;
+        order.push('slot');
+        return false;
+      },
+      refresh: (job, opts) => {
+        order.push('refresh');
+        return engine.refresh(job, opts);
+      },
+    };
+    const { draft, asked } = fileDraft('Kitchen', ['http://g.test/k.xml'], () => {
+      order.push('file');
+      return Promise.resolve(FEED);
+    });
+    const progress: LoadProgress[] = [];
+    const result = await loaderFor(slotted).start(draft, (p) => progress.push(p)).done;
+    expect(result).toEqual<LoadResult>({ live: 3, movies: 2, series: 1 });
+    expect(asked.n).toBe(1);
+    // The slot, the file, the slot again, the refresh at once; then the slot for the guides.
+    expect(order).toEqual(['slot', 'file', 'slot', 'refresh', 'slot']);
+    expect(calls.refresh[0]!.job).toEqual({ src: 's2', source: { type: 'm3u-file' } });
+    expect(calls.refresh[0]!.options.file).toBe(FEED);
+    expect(calls.epg[0]!.catalogs).toEqual([{ src: 's2', type: 'm3u' }]);
+    expect(progress.map((p) => p.phase)).toEqual(['checking', 'download', 'saving', 'guide', 'guide']);
+    // A new file: a new source, its guide link named after it; no stored guides asked for.
+    expect(calls.epgStatus).toBe(0);
+    expect(calls.edits).toEqual([
+      { kind: 'source', source: { id: 's2', type: 'm3u-file', name: 'Kitchen', added: 777 } },
+      { kind: 'guide', change: { op: 'add', guide: { id: 's2', url: 'http://g.test/k.xml' } } },
+    ]);
+  });
+
+  it('gives a link or a login no file, and asks the file of a file draft only', async () => {
+    const { engine, calls } = fake();
+    await loaderFor(engine).start(M3U, () => undefined).done;
+    expect('file' in calls.refresh[0]!.options).toBe(false);
+  });
+
+  it("waits for the slot again after the file's feed when a refresh took it meanwhile", async () => {
+    const { engine, calls } = fake();
+    const held = { on: false };
+    const waits: number[] = [];
+    const slotted: LoaderEngine = {
+      ...engine,
+      get refreshing() {
+        return held.on;
+      },
+    };
+    const { draft } = fileDraft('Kitchen', [], () => {
+      // A background refresh starts while the file's requests run.
+      held.on = true;
+      return Promise.resolve(FEED);
+    });
+    const sleep = (ms: number): Promise<void> => {
+      waits.push(ms);
+      expect(calls.refresh).toEqual([]);
+      if (waits.length === 2) held.on = false;
+      return Promise.resolve();
+    };
+    const loader = createEngineLoader({ engine: slotted, tier: () => Promise.resolve('full'), languages: () => [], now: () => 1, sleep });
+    await loader.start(draft, () => undefined).done;
+    expect(waits).toEqual([SLOT_WAIT_MS, SLOT_WAIT_MS]);
+    expect(calls.refresh).toHaveLength(1);
+  });
+
+  it("fails with the file's own error when its feed can't be had, asking for no refresh and saving nothing", async () => {
+    for (const code of ['file', 'network'] as const) {
+      const { engine, calls } = fake();
+      const { draft } = fileDraft('Kitchen', [], () => Promise.reject(new LoadError(code)));
+      await expect(loaderFor(engine).start(draft, () => undefined).done).rejects.toMatchObject({ name: 'LoadError', code });
+      expect(calls.refresh).toEqual([]);
+      expect(calls.epg).toEqual([]);
+      expect(calls.edits).toEqual([]);
+    }
+  });
+
+  it("fails as file when the ingest can't open a frame of it", async () => {
+    const { engine, calls } = fake({ refresh: () => Promise.reject(new RpcError('Catalog refresh failed: file', 'file', 'IngestError')) });
+    await expect(loaderFor(engine).start(fileDraft('Kitchen').draft, () => undefined).done).rejects.toMatchObject({ name: 'LoadError', code: 'file' });
+    expect(calls.edits).toEqual([]);
+  });
+
+  it('asks for no refresh when the load is cancelled while the file is fetched', async () => {
+    const { engine, calls } = fake();
+    const answer = gate<FileFeed>();
+    const { draft, asked } = fileDraft('Kitchen', [], () => answer.promise);
+    const handle = loaderFor(engine).start(draft, () => undefined);
+    await settle();
+    expect(asked.n).toBe(1);
+    handle.cancel();
+    answer.resolve(FEED);
+    expect(await settled(handle.done)).toBe(false);
+    expect(calls.refresh).toEqual([]);
+    expect(calls.edits).toEqual([]);
+  });
+
+  it("replaces a file sent again under a stored file source's name: its id and when it was added kept, its new guide links as g<n>", async () => {
+    const kept: SourceRecord = { id: 's2', type: 'm3u-file', name: 'Kitchen', added: 5 };
+    const link: SourceRecord = { id: 's1', type: 'm3u', name: 'Den', url: 'http://p.test/l.m3u', added: 1 };
+    const guides = [
+      { id: 's2', url: 'http://g.test/k.xml' },
+      { id: 'g1', url: 'http://g.test/x.xml' },
+    ];
+    const doc = { v: 8, sources: [link, kept], guides };
+    // `u~g3` is a removed guide whose records are still stored: its id isn't given again.
+    const { engine, calls } = fake({ profile: { doc, newer: false, migratedFrom: null }, ids: ['s1', 's2', 's3'], stored: ['u~s2', 'u~g1', 'u~g3', 's1:xmltv'] });
+    const { draft } = fileDraft('Kitchen', ['http://g.test/k.xml', 'http://g.test/new.xml']);
+    await loaderFor(engine).start(draft, () => undefined).done;
+    expect(calls.epgStatus).toBe(1);
+    expect(calls.refresh[0]!.job).toEqual({ src: 's2', source: { type: 'm3u-file' } });
+    // The source list keeps one entry for it: the stored one replaced, not a second.
+    expect(calls.epg[0]!.catalogs).toEqual([
+      { src: 's1', type: 'm3u' },
+      { src: 's2', type: 'm3u' },
+    ]);
+    expect(calls.epg[0]!.options.user).toEqual(guides.concat([{ id: 'g4', url: 'http://g.test/new.xml' }]));
+    expect(calls.edits).toEqual([
+      { kind: 'source', source: { id: 's2', type: 'm3u-file', name: 'Kitchen', added: 5 } },
+      { kind: 'guide', change: { op: 'add', guide: { id: 'g4', url: 'http://g.test/new.xml' } } },
+    ]);
+  });
+
+  it("fetches no file when the load is cancelled while a file sent again reads the stored guides", async () => {
+    const doc = { v: 8, sources: [{ id: 's2', type: 'm3u-file', name: 'Kitchen', added: 5 }], guides: [] };
+    const { engine, calls } = fake({ profile: { doc, newer: false, migratedFrom: null } });
+    const status = gate<{ guides: { epgSrc: string }[] }>();
+    engine.epgStatus = () => status.promise;
+    const { draft, asked } = fileDraft('Kitchen');
+    const handle = loaderFor(engine).start(draft, () => undefined);
+    await settle();
+    handle.cancel();
+    status.resolve({ guides: [] });
+    expect(await settled(handle.done)).toBe(false);
+    expect(asked.n).toBe(0);
+    expect(calls.refresh).toEqual([]);
+  });
+
+  it("adds a file under a new id when its name is another file's, or a link's", async () => {
+    const doc = {
+      v: 8,
+      sources: [
+        { id: 's1', type: 'm3u', name: 'Kitchen', url: 'http://p.test/l.m3u', added: 1 },
+        { id: 's2', type: 'm3u-file', name: 'Den', added: 2 },
+      ],
+      guides: [],
+    };
+    const { engine, calls } = fake({ profile: { doc, newer: false, migratedFrom: null }, ids: ['s1', 's2'] });
+    await loaderFor(engine).start(fileDraft('Kitchen', ['http://g.test/k.xml']).draft, () => undefined).done;
+    expect(calls.refresh[0]!.job.src).toBe('s3');
+    expect(calls.epgStatus).toBe(0);
+    expect(calls.edits).toEqual([
+      { kind: 'source', source: { id: 's3', type: 'm3u-file', name: 'Kitchen', added: 777 } },
+      { kind: 'guide', change: { op: 'add', guide: { id: 's3', url: 'http://g.test/k.xml' } } },
+    ]);
   });
 
   it("fails with the refresh's error and saves nothing", async () => {

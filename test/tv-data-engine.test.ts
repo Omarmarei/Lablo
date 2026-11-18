@@ -13,6 +13,9 @@ import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WorkerLike } from '../apps/tv/src/data/engine';
 import { BlockedSourceError, DataEngine, sourceUrlOf } from '../apps/tv/src/data/engine';
+import { createEngineLoader } from '../apps/tv/src/onboarding/engine-loader';
+import type { SourceDraft } from '../apps/tv/src/onboarding/form';
+import { fileError } from '../apps/tv/src/pairing/pair-draft';
 import type { FakeResponse } from '../packages/data/src/test-support';
 import { configAnswer, configDocFields, configSigner, dumpStore, fakeTransport, freshFactory, ingest, item } from '../packages/data/src/test-support';
 
@@ -850,6 +853,59 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     // No feed: the ingest worker refuses the file source.
     await expect(s.engine.refresh({ src: 's2', source: { type: 'm3u-file' } })).rejects.toMatchObject({ code: 'file' });
     expect(s.live()).toBe(0);
+  });
+
+  it("adds the phone's file through the onboarding loader as a source with no link, and replaces it when the same name comes again (step 31d2b1)", async () => {
+    const sid = 'AAAAAAAAAAAAAAAAAAAAAA';
+    const blobKey = 'b'.repeat(21) + 'A';
+    const fileKey = new Uint8Array(32).fill(6);
+    const base = new Uint8Array(24).fill(7);
+    // Two frames the first time, 30 channels (one frame) the second.
+    const first = utf8(playlist(50).replace('#EXTM3U\n', `#EXTM3U\n${`#PAD ${'x'.repeat(30_000)}\n`.repeat(40)}`));
+    const second = utf8(playlist(30));
+    let plain = first;
+    const blobPath = `/dev/blob/pair/${sid}/${blobKey}?m=GET&n=0&e=${NOW + 600_000}&s=sig`;
+    const payloadOf = () => ({ v: 1, source: { type: 'm3u-file', file: { key: blobKey, fileKey: toBase64Url(fileKey), base: toBase64Url(base), size: plain.length } }, name: 'Family list' });
+    const s = setup((url) => {
+      if (url === 'http://api.test/v1/pair') return { status: 201, body: JSON.stringify({ sid, code: '7K3MZ9QX', pollToken: 'A'.repeat(43), exp: NOW + 600_000 }) };
+      if (url === `http://api.test/v1/pair/s/${sid}`) return { status: 200, body: JSON.stringify({ state: 'ready', payload: sealPairPayload(utf8(JSON.stringify(payloadOf())), PAIR_KEYS.publicKey) }) };
+      if (url === `http://api.test/v1/pair/s/${sid}/file`) return { status: 200, body: JSON.stringify({ url: blobPath, key: blobKey, exp: NOW + 600_000 }) };
+      if (url === `http://api.test${blobPath}`) {
+        const sealed = sealFile(plain, fileKey, base);
+        return { status: 200, headers: { 'Content-Length': String(sealed.length) }, body: sealed, chunk: 65536 };
+      }
+      return { status: 404 };
+    });
+    const loader = createEngineLoader({ engine: s.engine, tier: () => Promise.resolve('full'), languages: () => ['en'], now: () => NOW });
+    /** One pairing: the payload read, the file draft as the pairing screen makes it, loaded. */
+    const send = async (): Promise<unknown> => {
+      const session = s.engine.pairing();
+      await session.open('http://api.test');
+      await session.poll();
+      const draft: SourceDraft = {
+        type: 'm3u-file',
+        name: 'Family list',
+        epgUrls: [],
+        file: () => session.file().then((got) => (got.ok ? got.feed : Promise.reject(fileError(got.failure)))),
+      };
+      try {
+        return await loader.start(draft, () => undefined).done;
+      } finally {
+        session.close();
+      }
+    };
+    expect(await send()).toEqual({ live: 50, movies: 0, series: 0 });
+    const record = { id: 's1', type: 'm3u-file', name: 'Family list', added: NOW };
+    expect((await s.engine.profile())!.doc).toMatchObject({ v: 8, sources: [record], guides: [] });
+    expect(await s.engine.summary()).toEqual({ sources: 1, items: 50, stale: 0 });
+    // Sent again under the same name: the same source, its catalog replaced.
+    plain = second;
+    expect(await send()).toEqual({ live: 30, movies: 0, series: 0 });
+    expect((await s.engine.profile())!.doc).toMatchObject({ v: 8, sources: [record] });
+    expect(await s.engine.summary()).toEqual({ sources: 1, items: 30, stale: 0 });
+    expect(await s.engine.sourceIds()).toEqual(['s1']);
+    expect(s.live()).toBe(0);
+    expect(s.pairLive()).toBe(0);
   });
 
   it("answers a file the pair worker couldn't get, and lets the feed's port go (step 31d2a)", async () => {

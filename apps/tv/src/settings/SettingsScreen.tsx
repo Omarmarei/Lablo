@@ -189,17 +189,20 @@ function GuideItem({ i18n, row, index, state, item }: { i18n: AppI18n; row: Guid
   );
 }
 
-/** A source's kind (step 30c3a): "Xtream login" or "M3U playlist", the format's name isolated. */
+/** A source's kind (step 30c3a): "Xtream login", "M3U playlist" or "M3U file" (step 31d2b1), the format's name isolated. */
 export function sourceKindText(t: Translate, row: SourceRow): string {
+  if (row.type === 'm3u-file') return t('sources.file', { format: NAMES.m3u });
   return row.type === 'xtream' ? t('sources.xtream', { name: NAMES.xtream }) : t('sources.m3u', { format: NAMES.m3u });
 }
 
 /**
  * A source's line under its name: when it was last updated ("Updated {day}, {time}", or "Not
- * updated yet"); for a source on a blocked server, that it isn't any more, since when it was.
+ * updated yet"); for a source on a blocked server, that it isn't any more, since when it was. A
+ * file from the phone is never updated by itself: when it was sent (step 31d2b1).
  */
 export function statusText(i18n: AppI18n, row: SourceRow): string {
   const at = row.checkedAt === null ? null : new Date(row.checkedAt);
+  if (row.type === 'm3u-file' && at !== null) return i18n.t('sources.fileSent', { day: i18n.date(at, 'day'), time: i18n.time(at) });
   if (row.blocked) return at === null ? i18n.t('sources.blocked') : i18n.t('sources.blockedSince', { day: i18n.date(at, 'day'), time: i18n.time(at) });
   return at === null ? i18n.t('sources.notUpdated') : i18n.t('sources.updated', { day: i18n.date(at, 'day'), time: i18n.time(at) });
 }
@@ -226,10 +229,12 @@ export function SourceItem({ i18n, row, index, item }: { i18n: AppI18n; row: Sou
         </span>
         <span class="guides__owner" data-testid={`source-${index}-kind`}>
           {sourceKindText(t, row)}
-          {' · '}
-          <span dir="ltr" translate={false}>
-            {row.host}
-          </span>
+          {row.host !== '' && ' · '}
+          {row.host !== '' && (
+            <span dir="ltr" translate={false}>
+              {row.host}
+            </span>
+          )}
         </span>
       </div>
       {/* One line under the name (a row has room for two): the warning's colour when blocked. */}

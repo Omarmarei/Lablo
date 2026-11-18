@@ -313,6 +313,26 @@ describe('the refresh schedule', () => {
     expect(engine.epgCalls[0]!.options.tier).toBe('low');
   });
 
+  it("never refreshes a file from the phone (step 31d2b1), however old or lost its catalog, and still reads every source's guides", async () => {
+    const engine = new FakeEngine();
+    const file = { id: 's3', type: 'm3u-file', name: 'Kitchen', added: 1 };
+    engine.profileDoc = { doc: { v: 8, sources: [S1, file, S2], guides: [] }, newer: false, migratedFrom: null };
+    engine.metas = [meta('s1', T0 - CATALOG_REFRESH_MS), meta('s3', T0 - 10 * CATALOG_REFRESH_MS), meta('s2', T0 - CATALOG_REFRESH_MS)];
+    const t = setup({ engine });
+    t.scheduler.start();
+    await t.run(FIRST_CHECK_MS);
+    expect(engine.refreshCalls.map((c) => c.job.src)).toEqual(['s1', 's2']);
+    expect(engine.epgCalls[0]!.catalogs).toEqual([
+      { src: 's1', type: 'm3u' },
+      { src: 's3', type: 'm3u' },
+      { src: 's2', type: 'xtream', account: S2.account },
+    ]);
+    // With no catalog at all (a wiped database), it isn't read either: only sending it again does.
+    engine.metas = [];
+    await t.run(CHECK_MS);
+    expect(engine.refreshCalls.map((c) => c.job.src)).toEqual(['s1', 's2', 's1', 's2']);
+  });
+
   it('refreshes only the stale one, and a source the database lost', async () => {
     const engine = new FakeEngine();
     engine.metas = [meta('s1', T0 + FIRST_CHECK_MS - CATALOG_REFRESH_MS + 1)];

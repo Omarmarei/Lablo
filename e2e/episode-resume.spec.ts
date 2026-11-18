@@ -13,7 +13,7 @@ import { RemoteDriver } from './remote-driver';
  * for `/series/…/3002.mkv`, and its info bar names the show and "S1 E2 · Tone and Clock". Four
  * RIGHTs move it to 0:40 (a new play from there: no picture to seek inside). Back returns to the
  * details on that episode: its row says "Resume from 0:40" in its plot's place and draws its bar
- * (40/300) from the inline start, and the profile (version 7) holds its place and the show's last
+ * (40/300) from the inline start, and the profile (version 8) holds its place and the show's last
  * episode. OK resumes it from 0:40. The show opens again on it, and so does a relaunch. S1 E3
  * played to 4:50 (FF stops 10 s before the end) is watched: its place goes, and Back lands on the
  * next episode, season 2's first, the seasons' row on season 2.
@@ -170,11 +170,11 @@ test.describe("playing a show's episode, and resuming it (RELAY step 27c1)", () 
       expect(track.y + track.height).toBeLessThanOrEqual(box.y + box.height);
       expect(track.y + track.height).toBeGreaterThan(box.y + box.height - 8);
       expect(await rowBar(page, 0)).toBeNull();
-      // The profile, version 7: the episode's place and the show's last episode.
+      // The profile, version 8: the episode's place and the show's last episode.
       await expect
         .poll(() => stored(page))
         .toMatchObject({
-          v: 7,
+          v: 8,
           progress: { [E2]: { positionMs: LEFT_MS, lengthMs: LENGTH_MS } },
           shows: { [SHOW_KEY]: { episode: E2, watched: false } },
         });
