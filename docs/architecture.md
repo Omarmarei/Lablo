@@ -1755,6 +1755,7 @@ export type PlayRequest = { key: ContentKey; src: string; mode: 'live'|'vod'|'ca
 - **No migration:** step 29a's `Backup` table has every column.
 - **Tests:** 27 against Postgres (`pnpm test:web`, 72 in all): each answer; the row and the blob after each call; the largest envelope; the two first puts at once; the sweep's edge at exactly 180 days, its bound, a blob that won't go, a row updated while it runs; the limits, keyed on an HMAC; the route through the process's services, where every row, blob and log line is searched for the profile's markers, the write token and the key. One over HTTP against `next start` (`pnpm e2e:web`, 20 in all): a TV calling with `Origin: null` puts, gets and opens, is refused with another token, deletes.
 - **Mutation:** `artifacts/mutate32a.py`, 76 written first: 74 caught, then two test gaps closed (the blob key's prefix was only ever derived; the route's own clock and rate secret): 76/76.
+- **Merged:** PR #128 as merge commit `88ca620` on green CI on the first run (web 2 m 22 s: `test:web` 72, `e2e:web` 20 passed; verify 11 m 40 s: `pnpm e2e` 150 passed; engines 20 m 19 s: all 126 runs as expected on Chromium 53, 56 and 68, 89 seeded failures caught; media 26 m 19 s).
 
 ### 3.3 Encryption and key scheme
 
