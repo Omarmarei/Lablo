@@ -440,3 +440,127 @@ describe('the sources page as drawn', () => {
     expect(walk(root).filter((v) => v.type === VirtualList)).toHaveLength(0);
   });
 });
+
+describe('"Add from your phone" (RELAY step 31c2a)', () => {
+  function phoneSetup(engine = new FakeEngine()) {
+    const nav = createNavigator({
+      root: { id: 'settings', zones: [{ kind: 'list', id: 'items', axis: 'vertical', count: 2 }] },
+      rootBack: 'exit-dialog',
+      exit: () => undefined,
+      exitDialog: () => undefined,
+    });
+    let adds = 0;
+    const list = createSourcesList({
+      nav,
+      engine,
+      addFromPhone: () => {
+        adds += 1;
+      },
+    });
+    const at = (): string => {
+      const f = nav.snapshot();
+      return `${f.screen} · ${f.zone} ${f.index}`;
+    };
+    return { nav, engine, list, at, adds: () => adds };
+  }
+
+  it('puts a header button over the list: the list keeps the first focus, UP reaches the button, OK opens the pairing', async () => {
+    const t = phoneSetup();
+    expect(t.list.canAdd).toBe(true);
+    t.list.open();
+    expect(t.nav.top.zone('header')).toMatchObject({ count: 1, neighbours: { down: 'sources' } });
+    expect(t.nav.top.zone('sources')).toMatchObject({ neighbours: { up: 'header' } });
+    await flush();
+    expect(t.at()).toBe(`${SOURCES_SCREEN} · sources 0`);
+    t.nav.handle('UP');
+    expect(t.at()).toBe(`${SOURCES_SCREEN} · header 0`);
+    t.nav.handle('OK');
+    expect(t.adds()).toBe(1);
+    t.nav.handle('DOWN');
+    expect(t.at()).toBe(`${SOURCES_SCREEN} · sources 0`);
+    // OK on a source does nothing yet.
+    t.nav.handle('OK');
+    expect(t.adds()).toBe(1);
+  });
+
+  it('gives the focus to the button when there is no source', async () => {
+    const engine = new FakeEngine();
+    engine.sources = [];
+    const t = phoneSetup(engine);
+    t.list.open();
+    await flush();
+    expect(t.at()).toBe(`${SOURCES_SCREEN} · header 0`);
+  });
+
+  it('has no header without a way to pair', () => {
+    const t = setup();
+    expect(t.list.canAdd).toBe(false);
+    t.list.open();
+    expect(t.nav.top.zone('sources').neighbours).toBeUndefined();
+    expect(() => t.nav.top.zone('header')).toThrow();
+  });
+
+  it('reads the sources again on reload while the screen is open, the focus kept; not once closed', async () => {
+    const t = phoneSetup();
+    t.list.reload();
+    expect(t.engine.reads).toBe(0);
+    t.list.open();
+    await flush();
+    t.nav.handle('DOWN');
+    expect(t.at()).toBe(`${SOURCES_SCREEN} · sources 1`);
+    t.engine.sources = [PANEL, LIST, GONE, { id: 's4', type: 'm3u', name: 'From the phone', url: 'http://phone.test/a.m3u', added: 4 }];
+    t.list.reload();
+    expect(t.list.status.value).toBe('ready');
+    await flush();
+    expect(t.engine.reads).toBe(2);
+    expect(t.list.rows.value.map((r) => r.id)).toEqual(['s1', 's2', 's3', 's4']);
+    expect(t.at()).toBe(`${SOURCES_SCREEN} · sources 1`);
+    t.nav.back();
+    t.list.reload();
+    await flush();
+    expect(t.engine.reads).toBe(2);
+    t.list.dispose();
+    t.list.open();
+    expect(t.engine.reads).toBe(2);
+  });
+
+  it('drops what an older read answers after a reload', async () => {
+    const engine = new FakeEngine();
+    const t = phoneSetup(engine);
+    t.list.open();
+    await flush();
+    engine.hold = true;
+    // The first reload reads three sources; its blocklist answer is held.
+    t.list.reload();
+    engine.release();
+    await flush();
+    expect(engine.held).toHaveLength(1);
+    // The second reads one, and finishes first.
+    engine.sources = [PANEL];
+    t.list.reload();
+    for (const held of engine.held.splice(1, 2)) held.resolve(undefined);
+    await flush();
+    engine.held.splice(1, 1)[0]!.resolve(undefined);
+    await flush();
+    expect(t.list.rows.value.map((r) => r.id)).toEqual(['s1']);
+    // The first one's late answer changes nothing.
+    engine.held.splice(0, 1)[0]!.resolve(undefined);
+    await flush();
+    expect(t.list.rows.value.map((r) => r.id)).toEqual(['s1']);
+  });
+
+  it('draws the button in the header only when the app can pair', async () => {
+    const t = phoneSetup();
+    t.list.open();
+    await flush();
+    const binding = bindFocus(t.nav);
+    const header = walk(SourcesPage({ i18n: en, binding, list: t.list })).filter((v) => v.type === 'header')[0]!;
+    const button = walk(header).filter((v) => typeof v.type === 'function' && (v.type as { name?: string }).name === 'AddFromPhone')[0]!;
+    // Its own component, with the zone's hook (the e2e draws its label).
+    expect(button.props as Props).toMatchObject({ i18n: en, binding });
+    const plain = setup();
+    plain.list.open();
+    const none = walk(SourcesPage({ i18n: en, binding: bindFocus(plain.nav), list: plain.list })).filter((v) => typeof v.type === 'function' && (v.type as { name?: string }).name === 'AddFromPhone');
+    expect(none).toEqual([]);
+  });
+});

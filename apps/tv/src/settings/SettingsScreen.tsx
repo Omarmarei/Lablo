@@ -2,6 +2,8 @@ import type { EpgFailure, EpgSummary } from '@lablo/data';
 import type { Focus, FocusBinding, ItemBinding } from '@lablo/ui';
 import { Button, Dialog, Spinner, TextField, VirtualList, shapeDigits, useZone } from '@lablo/ui';
 import type { AppI18n } from '../i18n';
+import { PAIR_SCREEN } from '../pairing/pair-state';
+import { PairPage } from '../pairing/PairPage';
 import type { AddProblem, GuideRow, GuideState, Guides, GuidesMenu, OffsetChooser } from './guides-state';
 import { ADD_CANCEL, ADD_CONFIRM, GUIDES, HEADER_ADD, HEADER_UNMATCHED, LINK_FIELD_ID, OFFSETS, guideState, summaryOf } from './guides-state';
 import { MAPPING_SCREEN } from './mapping-state';
@@ -16,8 +18,8 @@ import './settings.css';
 
 /**
  * The settings screen, the guides screen (RELAY step 22b2), "Channels without a guide" (step 24c),
- * the manual mapping's picker (step 24e, `MappingPage.tsx`) and the sources screen (step 30c3a),
- * painted instead of the live screen while one of them is on top of the live navigator.
+ * the manual mapping's picker (step 24e, `MappingPage.tsx`), the sources screen (step 30c3a) and
+ * the pairing screen from its header (step 31c2a, `PairPage.tsx`), painted instead of the live screen while one of them is on top of the live navigator.
  * Every text comes from the catalogs; links, channels and the sources' and categories' names are
  * data (`dir`, `translate=false`, or isolated arguments).
  */
@@ -238,6 +240,16 @@ export function SourceItem({ i18n, row, index, item }: { i18n: AppI18n; row: Sou
   );
 }
 
+/** The header's "Add from your phone" (step 31c2a). A hook of its own: the screen has the zone only when the app can pair. */
+function AddFromPhone({ i18n, binding }: { i18n: AppI18n; binding: FocusBinding }) {
+  const header = useZone(binding, binding.nav.top, 'header');
+  return (
+    <div class="settings__end">
+      <Button label={i18n.t('sources.addPhone')} variant="primary" {...header.item(0)} testId="sources-add-phone" />
+    </div>
+  );
+}
+
 /** The sources screen (step 30c3a): each source, its server and when it was last updated, or that it is blocked. */
 export function SourcesPage({ i18n, binding, list }: { i18n: AppI18n; binding: FocusBinding; list: SourcesList }) {
   const { t } = i18n;
@@ -248,6 +260,7 @@ export function SourcesPage({ i18n, binding, list }: { i18n: AppI18n; binding: F
     <div class="settings__page" data-testid="sources" data-status={status} data-count={rows.length} data-blocked={blocked}>
       <header class="settings__header">
         <h1 class="settings__title">{t('sources.title')}</h1>
+        {list.canAdd && <AddFromPhone i18n={i18n} binding={binding} />}
       </header>
       <p class="guides__intro">{t('sources.intro')}</p>
       {status === 'loading' && (
@@ -620,6 +633,7 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       {focus.screen === 'unmatched' && <UnmatchedPage i18n={i18n} binding={binding} list={settings.unmatched} reading={mapping.reading.value} />}
       {focus.screen === MAPPING_SCREEN && <MappingPage i18n={i18n} binding={binding} mapping={mapping} />}
       {focus.screen === SOURCES_SCREEN && <SourcesPage i18n={i18n} binding={binding} list={settings.sources} />}
+      {focus.screen === PAIR_SCREEN && settings.pairing !== null && <PairPage pairing={settings.pairing} binding={binding} i18n={i18n} />}
     </main>
   );
 }

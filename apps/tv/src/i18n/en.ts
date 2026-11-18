@@ -102,6 +102,24 @@ export const EN = {
   'onboarding.m3uHint': 'A link to a playlist file',
   'onboarding.typeHint': 'Press OK on a field to type, and OK again when you are done.',
   'onboarding.add': 'Add source',
+  'onboarding.phone': 'Use your phone',
+  'onboarding.phoneHint': 'Scan a code on this screen, then type the details on your phone',
+
+  // The pairing screen (RELAY step 31c2a): a source sent from the phone page.
+  'pair.title': 'Add a source from your phone',
+  'pair.scan': "Scan the {qr} code with your phone's camera.",
+  'pair.open': "Or open this address in your phone's browser:",
+  'pair.enter': 'Then type this code:',
+  'pair.waiting': 'Waiting for your phone…',
+  'pair.trouble': "Can't reach Lablo's server. Still trying…",
+  'pair.unreadable': "What your phone sent couldn't be read. Send it again with this new code.",
+  'pair.private': 'Your details are encrypted on your phone. Only this TV can read them.',
+  'pair.opening': 'Getting a code…',
+  'pair.unavailable': "Couldn't get a code. Check your internet connection and try again.",
+  'pair.rate': 'Too many codes were asked for. Try again in a few minutes.',
+  'pair.ended': 'The code ended before anything was sent. Show a new code when your phone is ready.',
+  'pair.newCode': 'Show a new code',
+  'pair.done': 'Done',
 
   // The source form's fields.
   'field.server': 'Server address',
@@ -275,6 +293,7 @@ export const EN = {
   'sources.blocked': "Not updated: this server can't be used with Lablo.",
   'sources.blockedSince': "Not updated since {day}, {time}: this server can't be used with Lablo.",
   'sources.failedRead': "Couldn't read your sources.",
+  'sources.addPhone': 'Add from your phone',
   'guides.menuTitle': 'This guide',
   'guides.menuLink': 'Link: {link}',
   'guides.moveUp': 'Move up',

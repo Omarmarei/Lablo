@@ -76,14 +76,14 @@ describe('checkForm (before anything is fetched)', () => {
         type: 'xtream',
         name: 'provider.example',
         account: { base: 'http://provider.example:8080', username: 'user1', password: 'secret' },
-        epgUrl: null,
+        epgUrls: [],
       },
     });
   });
 
   it('takes a pasted panel link as the server, and the name and guide given', () => {
     const checked = checkForm('xtream', { ...xtream, server: 'http://Provider.Example:8080/player_api.php?username=a&password=b', epg: 'provider.example/xmltv.php', name: '  Home  ' });
-    expect(checked.draft).toMatchObject({ name: 'Home', account: { base: 'http://provider.example:8080' }, epgUrl: 'http://provider.example/xmltv.php' });
+    expect(checked.draft).toMatchObject({ name: 'Home', account: { base: 'http://provider.example:8080' }, epgUrls: ['http://provider.example/xmltv.php'] });
   });
 
   it.each([
@@ -99,7 +99,7 @@ describe('checkForm (before anything is fetched)', () => {
   it('refuses a bad guide link, which is optional when empty', () => {
     expect(checkForm('xtream', { ...xtream, epg: 'http://guide example' }).problems).toEqual({ epg: 'spaces' });
     expect(checkForm('xtream', { ...xtream, epg: 'mailto:x@y' }).problems).toEqual({ epg: 'url' });
-    expect(checkForm('xtream', { ...xtream, epg: '   ' }).draft).toMatchObject({ epgUrl: null });
+    expect(checkForm('xtream', { ...xtream, epg: '   ' }).draft).toMatchObject({ epgUrls: [] });
   });
 
   it('reports every problem at once', () => {
@@ -110,7 +110,7 @@ describe('checkForm (before anything is fetched)', () => {
     expect(checkForm('m3u', {}).problems).toEqual({ playlist: 'required' });
     expect(checkForm('m3u', { playlist: 'provider.example/list.m3u' })).toEqual({
       problems: {},
-      draft: { type: 'm3u', name: 'provider.example', url: 'http://provider.example/list.m3u', epgUrl: null },
+      draft: { type: 'm3u', name: 'provider.example', url: 'http://provider.example/list.m3u', epgUrls: [] },
     });
     expect(checkForm('m3u', { playlist: 'https://p.example/a b.m3u' }).problems).toEqual({ playlist: 'spaces' });
   });

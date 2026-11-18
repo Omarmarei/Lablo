@@ -4,6 +4,7 @@ import type { Platform } from '@lablo/platform-api';
 import type { EditorBinding, FocusBinding, Language, Navigator, Screen, ScreenSpec, TextEditorOptions } from '@lablo/ui';
 import { bindEditor, bindFocus, createNavigator, createTextEditor } from '@lablo/ui';
 import type { Refusal } from '../gate/gate-state';
+import type { Pairing } from '../pairing/pair-state';
 import type { FieldId, FormProblems, FormValues, SourceDraft, SourceType } from './form';
 import { FORM_FIELDS, checkForm, firstProblem } from './form';
 import type { LoadErrorCode, LoadHandle, LoadProgress, LoadResult, SourceLoader } from './loader';
@@ -17,8 +18,10 @@ import { LoadError } from './loader';
  *   language  (English / العربية: picking one switches the app to it)
  *   disclaimer (Lablo provides no content)
  *   consent   (the TV's device ID for the encrypted backup: allow / not now)
- *   source    (an Xtream login or an M3U link)
+ *   source    (an Xtream login or an M3U link; or "Use your phone", step 31c2a)
  *   form      (the fields, then "Add source": checked on the TV first)
+ *   pair      (the code and QR code for the phone page: `createPairing`, step 31c2a; once the
+ *              phone's source is added, the done screen)
  *   loading   (progress; on failure "Edit details" / "Try again")
  *   done      (the counts; the new root: Back no longer goes into onboarding)
  *
@@ -68,6 +71,8 @@ export interface Onboarding {
   readonly load: ReadonlySignal<LoadState>;
   /** "Start watching" was pressed on the last screen. */
   readonly finished: ReadonlySignal<boolean>;
+  /** The pairing screen, when the app can pair (step 31c2a): the source screen's third row. */
+  readonly pairing: Pairing | null;
   readonly exitRequested: ReadonlySignal<boolean>;
   setValue(id: FieldId, value: string): void;
   /** Focuses the TV's language on the first screen (the device info arrives after the first render). */
@@ -95,6 +100,11 @@ export interface OnboardingOptions {
   readonly now?: () => number;
   /** The config's rule refusing new sources (step 30c2b): read at "Add source" and "Try again". */
   readonly refusal?: ReadonlySignal<Refusal | null>;
+  /**
+   * Makes the pairing screen on onboarding's navigator (step 31c2a); `added` takes onboarding to
+   * its done screen. Without it the source screen has its two rows only.
+   */
+  readonly pairing?: (nav: Navigator, added: (draft: SourceDraft, result: LoadResult) => void) => Pairing;
 }
 
 const ONE: ScreenSpec['zones'] = [{ kind: 'list', id: 'actions', axis: 'horizontal', count: 1 }];
@@ -236,8 +246,13 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
 
   const sourceSpec: ScreenSpec = {
     id: 'source',
-    zones: [{ kind: 'list', id: 'types', axis: 'vertical', count: SOURCE_TYPES.length }],
+    zones: [{ kind: 'list', id: 'types', axis: 'vertical', count: SOURCE_TYPES.length + (options.pairing === undefined ? 0 : 1) }],
     onSelect: (focus) => {
+      // The row after the types: "Use your phone".
+      if (focus.index === SOURCE_TYPES.length && pairing !== null) {
+        pairing.open();
+        return;
+      }
       const picked = SOURCE_TYPES[focus.index] ?? 'xtream';
       type.value = picked;
       problems.value = {};
@@ -298,6 +313,14 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
     },
   });
 
+  /** The phone's source was added (step 31c2a): onboarding leaves the back stack, as after a load. */
+  const pairAdded = (source: SourceDraft, result: LoadResult): void => {
+    draft.value = source;
+    load.value = { status: 'done', result };
+    root.value = nav.reset(doneSpec);
+  };
+  const pairing = options.pairing === undefined ? null : options.pairing(nav, pairAdded);
+
   const textEditor = createTextEditor({ platform, nav, find: options.find, now: options.now });
   const editor = bindEditor(textEditor);
   const binding = bindFocus(nav);
@@ -320,6 +343,7 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
     load,
     finished,
     exitRequested,
+    pairing,
     setValue(id: FieldId, value: string): void {
       values.value = { ...values.value, [id]: value };
       if (problems.value[id] !== undefined) {
@@ -334,6 +358,7 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
     },
     dispose(): void {
       cancelLoad();
+      pairing?.dispose();
       editor.dispose();
       textEditor.dispose();
       binding.dispose();

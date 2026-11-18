@@ -1,7 +1,7 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
 import type { LoadedProfile, SourceMeta } from '@lablo/data';
-import type { Navigator, Screen, ZoneSpec } from '@lablo/ui';
+import type { Navigator, Screen, ScreenSpec, ZoneSpec } from '@lablo/ui';
 import { SCREEN, fits } from '@lablo/ui';
 import { sourceUrlOf } from '../data/engine';
 import { ingestSourceOf, storedSources } from '../onboarding/engine-loader';
@@ -11,6 +11,7 @@ import { GUIDES, shownLink } from './guides-state';
  * The sources screen (RELAY step 30c3a): the playlists and panels the user added, opened by the
  * settings screen's "Sources" row and pushed on the live navigator.
  *
+ *   header   ("Add from your phone", step 31c2a: the pairing screen; only when the app can pair)
  *   sources  (one row per stored source, in the profile's order: its name, its kind and server,
  *             and when its catalog was last updated; no actions yet)
  *
@@ -54,6 +55,11 @@ export interface SourcesEngine {
 export interface SourcesOptions {
   readonly nav: Navigator;
   readonly engine: SourcesEngine;
+  /**
+   * The header's "Add from your phone" (step 31c2a). The list keeps the first focus; an empty
+   * list gives it to the button. Without it the screen has no header.
+   */
+  readonly addFromPhone?: () => void;
 }
 
 export interface SourcesList {
@@ -61,8 +67,12 @@ export interface SourcesList {
   readonly rows: ReadonlySignal<readonly SourceRow[]>;
   /** Data requests in flight (0: the screen is done with the workers). */
   readonly pending: ReadonlySignal<number>;
+  /** The screen has the header's "Add from your phone" (step 31c2a). */
+  readonly canAdd: boolean;
   /** Opens the screen and reads the sources. */
   open(): void;
+  /** Reads the sources again while the screen is open (a source was added): the focus stays. */
+  reload(): void;
   dispose(): void;
 }
 
@@ -94,12 +104,18 @@ export function sourceRows(profile: LoadedProfile | null, metas: readonly Source
   return rows;
 }
 
-function sourcesZone(count: number): ZoneSpec {
-  return { kind: 'list', id: 'sources', axis: 'vertical', count, visible: SOURCES_VISIBLE };
+/** The header's one button (step 31c2a). */
+const HEADER_ZONE: ZoneSpec = { kind: 'list', id: 'header', axis: 'horizontal', count: 1, neighbours: { down: 'sources' } };
+
+function sourcesZone(count: number, header: boolean): ZoneSpec {
+  return header
+    ? { kind: 'list', id: 'sources', axis: 'vertical', count, visible: SOURCES_VISIBLE, neighbours: { up: 'header' } }
+    : { kind: 'list', id: 'sources', axis: 'vertical', count, visible: SOURCES_VISIBLE };
 }
 
 export function createSourcesList(options: SourcesOptions): SourcesList {
   const { nav, engine } = options;
+  const header = options.addFromPhone !== undefined;
   const status = signal<SourcesStatus>('loading');
   const rows = signal<readonly SourceRow[]>([]);
   const pending = signal(0);
@@ -141,7 +157,9 @@ export function createSourcesList(options: SourcesOptions): SourcesList {
           if (!current()) return;
           rows.value = sourceRows(profile, metas, blocked);
           status.value = 'ready';
-          screen?.update(sourcesZone(rows.value.length));
+          // (A closed screen ignores updates and focus moves.)
+          screen?.update(sourcesZone(rows.value.length, header));
+          if (header && rows.value.length === 0) screen?.focus('header', 0);
         });
       })
       .catch((error: unknown) => {
@@ -155,12 +173,28 @@ export function createSourcesList(options: SourcesOptions): SourcesList {
     status,
     rows,
     pending,
+    canAdd: header,
     open(): void {
       if (disposed) return;
       openSeq += 1;
       status.value = 'loading';
       rows.value = [];
-      screen = nav.push({ id: SOURCES_SCREEN, zones: [sourcesZone(0)] });
+      const spec: ScreenSpec = header
+        ? {
+            id: SOURCES_SCREEN,
+            zones: [HEADER_ZONE, sourcesZone(0, true)],
+            initial: 'sources',
+            onSelect: (focus) => {
+              if (focus.zone === 'header') options.addFromPhone?.();
+            },
+          }
+        : { id: SOURCES_SCREEN, zones: [sourcesZone(0, false)] };
+      screen = nav.push(spec);
+      read(openSeq);
+    },
+    reload(): void {
+      if (disposed || screen === null || !screen.open) return;
+      openSeq += 1;
       read(openSeq);
     },
     dispose(): void {

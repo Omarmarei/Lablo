@@ -38,6 +38,9 @@ import {
   shownLink,
   summaryOf,
 } from './guides-state';
+import type { SourceDraft } from '../onboarding/form';
+import type { LoadResult } from '../onboarding/loader';
+import type { Pairing } from '../pairing/pair-state';
 import { SETTINGS_ITEMS, SETTINGS_SCREENS, createSettings } from './settings-state';
 
 const PANEL: SourceRecord = {
@@ -856,6 +859,50 @@ describe('the settings screen', () => {
     expect(t.at()).toBe('live · channels 0');
   });
 
+  it("gives Sources the pairing's \"Add from your phone\" on the live navigator: an add reads the sources again and tells the live screens (step 31c2a)", async () => {
+    const t = setup();
+    let made: { nav: unknown; added: (draft: SourceDraft, result: LoadResult) => void } | null = null;
+    const pairing = { open: vi.fn(), dispose: vi.fn() } as unknown as Pairing;
+    const sourceAdded = vi.fn();
+    const settings = createSettings({
+      nav: t.nav,
+      engine: t.engine,
+      refreshNow: t.refresh.refreshNow,
+      offsetChanged: t.offsetChanged,
+      platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+      pairing: (nav, added) => {
+        made = { nav, added };
+        return pairing;
+      },
+      sourceAdded,
+    });
+    expect(settings.pairing).toBe(pairing);
+    expect(made!.nav).toBe(t.nav);
+    expect(settings.sources.canAdd).toBe(true);
+    settings.open();
+    await t.press('DOWN', 'OK');
+    expect(t.at()).toBe('sources · sources 0');
+    await t.press('UP', 'OK');
+    expect(pairing.open).toHaveBeenCalledTimes(1);
+    const reads = t.engine.profileCalls;
+    made!.added({ type: 'm3u', name: 'x', url: 'http://x.test/a', epgUrls: [] }, { live: 1, movies: 0, series: 0 });
+    await flush();
+    expect(t.engine.profileCalls).toBe(reads + 1);
+    expect(sourceAdded).toHaveBeenCalledTimes(1);
+    settings.dispose();
+    expect(pairing.dispose).toHaveBeenCalledTimes(1);
+    // Without a way to pair: no header.
+    const plain = createSettings({
+      nav: t.nav,
+      engine: t.engine,
+      refreshNow: t.refresh.refreshNow,
+      offsetChanged: t.offsetChanged,
+      platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+    });
+    expect(plain.pairing).toBeNull();
+    expect(plain.sources.canAdd).toBe(false);
+  });
+
   it('lists "TV guides", which opens the guides screen; Back goes back one screen at a time', async () => {
     const t = setup();
     const settings = createSettings({
@@ -866,7 +913,7 @@ describe('the settings screen', () => {
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
     });
     expect(SETTINGS_ITEMS).toEqual(['guides', 'sources']);
-    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources']);
+    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair']);
     settings.open();
     expect(t.at()).toBe('settings · items 0');
     expect((t.nav.top.zone('items') as { count: number }).count).toBe(2);

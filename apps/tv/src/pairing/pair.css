@@ -1,0 +1,148 @@
+/*
+ * The pairing screen (RELAY step 31c2a): inside onboarding's centred page or the settings' column,
+ * the full safe width (1728 px). The steps on the start side, the QR code on the end side; nothing
+ * scrolls. Physical properties for LTR: postcss-rtlcss mirrors the layout for Arabic, never the
+ * code itself (an SVG's drawing isn't touched by CSS). No flex `gap` (Chromium 53): margins.
+ */
+.pair {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  width: 1728px;
+  min-height: 0;
+}
+
+.pair__title {
+  margin: 0 0 var(--space-6);
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+  font-weight: var(--font-weight-bold);
+}
+
+.pair__body {
+  display: flex;
+  align-items: flex-start;
+}
+
+.pair__steps {
+  flex: 1;
+  min-width: 0;
+}
+
+.pair__side {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  width: 460px;
+  margin-left: var(--space-8);
+}
+
+.pair__qr {
+  display: block;
+}
+
+.pair__private {
+  margin: var(--space-4) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+  text-align: center;
+}
+
+.pair__text {
+  margin: 0 0 var(--space-4);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.pair__address {
+  margin: 0 0 var(--space-6);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+  /* Left to right in Arabic too (`dir="ltr"`), yet on the page's start side: rtlcss mirrors this. */
+  text-align: left;
+}
+
+.pair__code {
+  margin: 0 0 var(--space-6);
+  color: var(--color-accent);
+  font-size: var(--font-size-display);
+  line-height: var(--line-height-display);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 6px;
+  text-align: left;
+}
+
+.pair__state {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.pair__state--trouble {
+  color: var(--color-warn);
+}
+
+.pair__note {
+  margin: var(--space-4) 0 0;
+  color: var(--color-warn);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.pair__error {
+  color: var(--color-danger);
+}
+
+.pair__progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: var(--space-5);
+}
+
+.pair__progress .z-spinner {
+  flex: none;
+  margin-right: var(--space-4);
+}
+
+.pair__status {
+  margin: 0;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.pair__progress .pair__note {
+  flex: none;
+  width: 100%;
+}
+
+.pair__bar {
+  width: 1320px;
+}
+
+.pair__counts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.pair__counts li + li {
+  margin-top: var(--space-2);
+}
+
+.pair__actions {
+  display: flex;
+  flex: none;
+  margin-top: var(--space-7);
+}
+
+.pair__actions > * + * {
+  margin-left: var(--space-4);
+}

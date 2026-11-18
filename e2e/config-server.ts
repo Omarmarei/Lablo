@@ -2,12 +2,14 @@ import type { Server } from 'node:http';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { harnessConfigDoc } from '../tools/engines/src/config';
+import { PairStandIn } from '../tools/engines/src/pair-stand-in';
 
 /**
  * A stand-in for apps/web's `GET /v1/config` on 127.0.0.1 (RELAY steps 30c1 and 30c2a): it
  * answers with an exact text the test sets (`devSignedAnswer`: signed with the dev key, which the
  * dev app and the test builds trust), and the app reaches it through `?api=<origin>`. It also
- * serves files the test gives it (step 30c3b: a playlist on another host than its streams').
+ * serves files the test gives it (step 30c3b: a playlist on another host than its streams'), and
+ * answers the pairing API's routes from a stand-in in memory (step 31c2a: `pair`).
  */
 
 export interface ConfigServer {
@@ -18,6 +20,8 @@ export interface ConfigServer {
   serve(answer: string): void;
   /** Serves `body` at `path` (e.g. `/list.m3u`) from now on. */
   file(path: string, body: string, type: string): void;
+  /** The pairing API on this origin (step 31c2a): what the TV and the phone asked, and its controls. */
+  readonly pair: PairStandIn;
   close(): Promise<void>;
 }
 
@@ -25,7 +29,23 @@ export async function startConfigServer(answer: string): Promise<ConfigServer> {
   let body = answer;
   let requests = 0;
   const files = new Map<string, { readonly body: string; readonly type: string }>();
+  const pair = new PairStandIn();
   const server: Server = createServer((request, response) => {
+    if ((request.url ?? '').startsWith('/v1/pair')) {
+      const chunks: Buffer[] = [];
+      request.on('data', (chunk: Buffer) => chunks.push(chunk));
+      request.on('end', () => {
+        const answer = pair.answer(request.method ?? 'GET', request.url ?? '', request.headers.authorization, Buffer.concat(chunks).toString('utf8'));
+        if (answer === null) {
+          response.writeHead(404, { 'access-control-allow-origin': '*' });
+          response.end();
+          return;
+        }
+        response.writeHead(answer.status, answer.headers);
+        response.end(answer.body);
+      });
+      return;
+    }
     // The app's config worker fetches cross-origin (the dev app is on localhost:<port>).
     const headers = { 'access-control-allow-origin': '*', 'cache-control': 'no-store' };
     if (request.method === 'GET' && request.url === '/v1/config') {
@@ -54,6 +74,7 @@ export async function startConfigServer(answer: string): Promise<ConfigServer> {
     file: (at, text, type) => {
       files.set(at, { body: text, type });
     },
+    pair,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }
