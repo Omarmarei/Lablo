@@ -20,10 +20,10 @@ import type { SchedulerTimers } from '../data/refresh-scheduler';
  *   `HIDDEN_RUNS` runs for each time the app is hidden, none again after a failure. Nothing is
  *   timed while hidden; the schedule is armed again when the app is visible.
  * - **One at a time:** a change during a run is pending for the next.
- * - **Answers:** `sent`, `same`, `none` and `too-large` settle the change; `failed` (and a worker
- *   that died) keeps it pending for the next run, 5 minutes on; `held` (a backup this TV hasn't
- *   seen is on the server) ends the runs for this session: step 32d's Settings offers to restore
- *   it or replace it. `held`, `failed`, `too-large` and a dead worker are logged.
+ * - **Answers:** `sent`, `same`, `none`, `off` (step 32d2a: the backup is off) and `too-large`
+ *   settle the change; `failed` (and a worker that died) keeps it pending for the next run, 5
+ *   minutes on; `held` (a backup this TV hasn't seen is on the server) ends the runs for this
+ *   session: step 32d's Settings offers to restore it or replace it. `held`, `failed`, `too-large` and a dead worker are logged.
  * - **Each run** asks `request()` afresh: the profile's consent decides whether the device ID is
  *   read (`backupRequest`).
  * - **Stop:** the config's `disable-app` stops the schedule (`stop`), and `start` arms it again.

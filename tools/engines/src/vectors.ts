@@ -50,6 +50,11 @@ export const BACKUP_CHECKS: readonly string[] = [
   'backup.code',
   'backup.codeKept',
   'backup.restore',
+  'backup.held',
+  'backup.restoreHeld',
+  'backup.replaceHeld',
+  'backup.off',
+  'backup.on',
   'backup.cleanup',
 ];
 
@@ -156,7 +161,7 @@ const checkMs = (run: VectorsRunState, name: string): string => {
 };
 
 /**
- * `  page 86/86 in 3.2 s, worker 86/86 in 3.0 s, backup worker 11/11 in 2.9 s; the backup's scrypt
+ * `  page 86/86 in 3.2 s, worker 86/86 in 3.0 s, backup worker 16/16 in 2.9 s; the backup's scrypt
  * 1.1 s / 1.0 s / 1.2 s, its restore 1.3 s` for the log (the third scrypt with IndexedDB, as the
  * TV derives it; the restore after a wipe is the look-up at a start with no profile, step 32c).
  */

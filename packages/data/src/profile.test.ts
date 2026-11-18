@@ -27,6 +27,7 @@ import {
   readEpgOverrides,
   restoreSnapshot,
   putProfileIfNone,
+  putProfileOver,
   saveProfile,
   storedProfileDoc,
   updateProfile,
@@ -333,6 +334,52 @@ describe('the stored document for the backup (step 32c1)', () => {
     await writeCurrent(db, null);
     expect(await put(withFavs(3), 7 * DAY)).toBe(false);
     expect(await listSnapshots(db)).toEqual([]);
+    db.close();
+  });
+
+  it('puts a held backup over the profile, the replaced one kept as a snapshot (step 32d2a)', async () => {
+    const db = await openDatabase(freshFactory());
+    const over = (doc: AnyProfile, now: number): Promise<boolean> =>
+      transact<boolean>(db, STORE.profile, 'readwrite', (tx, done) => {
+        putProfileOver(tx.objectStore(STORE.profile), doc, now, done);
+      });
+    const current = (): Promise<unknown> => transact<unknown>(db, STORE.profile, 'readonly', (tx, done) => onRequest(tx.objectStore(STORE.profile).get('current'), done));
+    // None there: put, no snapshot.
+    expect(await over(withFavs(1), 5 * DAY)).toBe(true);
+    expect(await current()).toEqual({ id: 'current', savedAt: 5 * DAY, doc: withFavs(1) });
+    expect(await listSnapshots(db)).toEqual([]);
+    // Over one: the old one in a slot as `restore`, whatever the newest snapshot's age.
+    expect(await over(withFavs(2), 5 * DAY + 1)).toBe(true);
+    expect(await current()).toEqual({ id: 'current', savedAt: 5 * DAY + 1, doc: withFavs(2) });
+    expect(await listSnapshots(db)).toEqual([{ id: 'snap:0', savedAt: 5 * DAY + 1, doc: withFavs(1), reason: 'restore' }]);
+    await over(withFavs(3), 5 * DAY + 2);
+    await over(withFavs(4), 5 * DAY + 3);
+    // Three slots full: the oldest goes.
+    await over(withFavs(5), 5 * DAY + 4);
+    expect((await listSnapshots(db)).map((s) => [s.id, s.doc])).toEqual([
+      ['snap:0', withFavs(4)],
+      ['snap:2', withFavs(3)],
+      ['snap:1', withFavs(2)],
+    ]);
+    // A broken document is written over, and kept.
+    await writeCurrent(db, null);
+    expect(await over(withFavs(6), 6 * DAY)).toBe(true);
+    expect((await listSnapshots(db))[0]).toMatchObject({ savedAt: 6 * DAY, doc: null, reason: 'restore' });
+    await writeCurrent(db, undefined);
+    expect(await over(withFavs(7), 6 * DAY + 1)).toBe(true);
+    await writeCurrent(db, 'text');
+    expect(await over(withFavs(7), 6 * DAY + 1)).toBe(true);
+    await writeCurrent(db, { v: 'x' });
+    expect(await over(withFavs(7), 6 * DAY + 1)).toBe(true);
+    // A newer app's document never is.
+    const newer = { ...withFavs(8), v: PROFILE_VERSION + 1 };
+    await writeCurrent(db, newer);
+    expect(await over(withFavs(9), 7 * DAY)).toBe(false);
+    expect(await current()).toMatchObject({ doc: newer });
+    expect((await listSnapshots(db))[0]!.savedAt).toBe(6 * DAY + 1);
+    // This version's is.
+    await writeCurrent(db, { ...withFavs(8), v: PROFILE_VERSION });
+    expect(await over(withFavs(9), 7 * DAY)).toBe(true);
     db.close();
   });
 });

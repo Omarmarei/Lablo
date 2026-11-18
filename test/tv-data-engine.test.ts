@@ -1079,6 +1079,33 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     expect((await wiped.engine.profile())!.doc.sources).toEqual([source]);
   });
 
+  it("serves Settings' backup page, each call in a backup worker of its own (step 32d2a)", async () => {
+    const s = setup(() => ({ status: 404 }));
+    const source = { id: 's1', type: 'm3u' as const, name: 'Home', url: 'http://p.test/list.m3u', added: 1 };
+    expect(await s.engine.editProfile({ kind: 'source', source })).toBe(true);
+    expect(await s.engine.uploadBackup(BACKUP_CALL)).toEqual({ state: 'sent' });
+    // A new install of the same TV: its own profile, and the backup held.
+    const after = setup(() => ({ status: 404 }));
+    for (const [id, blob] of s.backupApi.blobs) after.backupApi.blobs.set(id, blob);
+    for (const [id, hash] of s.backupApi.hashes) after.backupApi.hashes.set(id, hash);
+    const other = { ...source, name: 'Other' };
+    expect(await after.engine.editProfile({ kind: 'source', source: other })).toBe(true);
+    expect(await after.engine.uploadBackup(BACKUP_CALL)).toEqual({ state: 'held' });
+    expect(await after.engine.backupStatus(BACKUP_REQUEST)).toMatchObject({ on: true, source: 'device', code: null, deleting: false });
+    // "Replace it": sent with no GET.
+    expect(await after.engine.replaceHeldBackup(BACKUP_CALL)).toEqual({ state: 'sent' });
+    // "Restore it" over a changed profile: the copy on the server comes back.
+    expect(await after.engine.editProfile({ kind: 'source', source: { ...source, id: 's2', name: 'Third' } })).toBe(true);
+    expect(await after.engine.restoreHeldBackup(BACKUP_CALL)).toEqual({ state: 'restored', language: null, sources: 1 });
+    expect((await after.engine.profile())!.doc.sources).toEqual([other]);
+    expect(await after.engine.setBackup({ ...BACKUP_CALL, on: false })).toEqual({ state: 'off', deleted: true });
+    expect(await after.engine.uploadBackup(BACKUP_CALL)).toEqual({ state: 'off' });
+    expect(await after.engine.setBackup({ ...BACKUP_CALL, on: true })).toEqual({ state: 'on' });
+    expect(after.backupApi.requests.map((r) => `${r.method} ${r.status}`)).toEqual(['GET 200', 'PUT 200', 'GET 200', 'DELETE 200']);
+    expect(after.backup).toEqual({ started: 7, live: 0 });
+    expect(after.started).toEqual({ query: 1, ingest: 0, epg: 0, config: 0, pair: 0 });
+  });
+
   it("ends the look-up's worker when its call is cancelled (the app's time limit), keeping nothing", async () => {
     const s = setup(() => ({ status: 404 }));
     let release!: () => void;

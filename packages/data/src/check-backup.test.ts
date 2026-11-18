@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { BackupCheckVector } from './check-backup';
-import { BACKUP_CHECK_DB, BACKUP_CHECK_NAMES, checkBackup } from './check-backup';
+import { BACKUP_CHECK_DB, BACKUP_CHECK_NAMES, checkBackup, checkProfile, otherProfile } from './check-backup';
 import { toBase64Url } from '@lablo/crypto';
 import { BACKUP_CODE_KEY, BACKUP_MASTER_KEY, secretCheck } from './backup-service';
 import { getValue, openDatabase, transact } from './idb';
@@ -18,7 +18,7 @@ async function names(factory: IDBFactory): Promise<string[]> {
   return (await factory.databases()).map((d) => d.name ?? '');
 }
 
-describe('checkBackup (the backup worker on the old engines, steps 32b and 32c1)', () => {
+describe('checkBackup (the backup worker on the old engines, steps 32b, 32c1 and 32d2a)', () => {
   it('passes every check, in order, under its names, and leaves no database behind', async () => {
     const factory = freshFactory();
     const results = await checkBackup(VECTOR, factory);
@@ -28,6 +28,11 @@ describe('checkBackup (the backup worker on the old engines, steps 32b and 32c1)
     expect(BACKUP_CHECK_DB).toBe('lablo-backup-check');
     expect(await names(factory)).toEqual([]);
   }, 20_000);
+
+  it("holds a new install's profile unlike the backup's (its source and language), so a restore that wrote nothing shows", () => {
+    expect(otherProfile().sources).not.toEqual(checkProfile().sources);
+    expect(otherProfile().onboarding.language).not.toBe(checkProfile().onboarding.language);
+  });
 
   it("never touches the app's database", async () => {
     const factory = freshFactory();
@@ -72,7 +77,7 @@ describe('checkBackup (the backup worker on the old engines, steps 32b and 32c1)
     }, deleteDatabase: factory.deleteDatabase.bind(factory), databases: factory.databases.bind(factory), cmp: factory.cmp.bind(factory) } as IDBFactory;
     const results = await checkBackup(VECTOR, broken);
     expect(results.map((r) => r.name)).toEqual(BACKUP_CHECK_NAMES);
-    expect(failed(results)).toEqual(['backup.device', 'backup.master', 'backup.lookupId', 'backup.cached', 'backup.upload', 'backup.same', 'backup.code', 'backup.codeKept', 'backup.restore']);
+    expect(failed(results)).toEqual(['backup.device', 'backup.master', 'backup.lookupId', 'backup.cached', 'backup.upload', 'backup.same', 'backup.code', 'backup.codeKept', 'backup.restore', 'backup.held', 'backup.restoreHeld', 'backup.replaceHeld', 'backup.off', 'backup.on']);
     expect(results.find((r) => r.name === 'backup.device')?.detail).toContain('no IndexedDB here');
     expect(results.find((r) => r.name === 'backup.lookupId')?.detail).toBe('no master kept for the secret');
   });

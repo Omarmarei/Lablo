@@ -99,6 +99,9 @@ import type {
   BackupPrepareRequest,
   BackupPrepareResult,
   BackupRestoreResult,
+  BackupStatus,
+  BackupSwitchRequest,
+  BackupSwitchResult,
   BackupUploadResult,
   FileFeed,
   PairFileFailure,
@@ -501,7 +504,8 @@ export class DataEngine {
   /**
    * Sends the profile to the backup API at `request.base` when it changed since the last send
    * (step 32c1), in a backup worker of its own: `sent`, `same`, `none` (nothing worth sending),
-   * `held` (a backup this TV hasn't seen is there: never written over), `too-large` or `failed`.
+   * `held` (a backup this TV hasn't seen is there: never written over), `too-large`, `off` (step
+   * 32d2a: the backup is off; copies still to delete were tried) or `failed`.
    * The master is derived first when none is kept (scrypt). Not in the refresh slot.
    */
   uploadBackup(request: BackupCallRequest): Promise<BackupUploadResult> {
@@ -519,6 +523,38 @@ export class DataEngine {
       if (options.onProgress) client.on('progress', options.onProgress);
       return client.call('restore', request, { cancel: options.cancel });
     });
+  }
+
+  /**
+   * What Settings' backup page shows (step 32d2a), in a backup worker of its own: on or off, the
+   * master's source, the backup code while on with the code as the secret (made and kept then if
+   * there is none), when the copy on the server was last written, deletes still pending.
+   */
+  backupStatus(request: BackupPrepareRequest): Promise<BackupStatus> {
+    return this.withBackupWorker((client) => client.call('status', request));
+  }
+
+  /**
+   * Turns the backup on or off (step 32d2a). Off is kept first (no upload sends after it), then
+   * every copy this TV wrote, and the one under this request's lookup ID, is deleted; what can't
+   * be deleted yet is tried again by each upload (which answers `off`).
+   */
+  setBackup(request: BackupSwitchRequest): Promise<BackupSwitchResult> {
+    return this.withBackupWorker((client) => client.call('setEnabled', request));
+  }
+
+  /**
+   * A held backup (step 32d2a): restores it over the profile, which is kept as a snapshot
+   * (`restored`, or `none`, `unreadable`, `newer`, `failed`; `kept` when the profile is from a
+   * newer app). The caller starts the app again: every screen holds the old profile.
+   */
+  restoreHeldBackup(request: BackupCallRequest): Promise<BackupRestoreResult> {
+    return this.withBackupWorker((client) => client.call('restoreHeld', request));
+  }
+
+  /** A held backup (step 32d2a): sends the profile over it, as an upload does without its `GET`. */
+  replaceHeldBackup(request: BackupCallRequest): Promise<BackupUploadResult> {
+    return this.withBackupWorker((client) => client.call('replaceHeld', request));
   }
 
   /** For each URL, whether its host is on the signed config's blocklist (step 30b2; enforced in 30c). */

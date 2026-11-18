@@ -831,6 +831,30 @@ export function putProfileIfNone(store: IDBObjectStore, doc: AnyProfile, now: nu
 }
 
 /**
+ * Puts `doc` as the current profile in a running transaction over the profile store, over the one
+ * there (a held backup restored from Settings, step 32d2a): the document it replaces goes to a
+ * snapshot slot first (`restore`). `then` says whether it was put: a document from a newer app
+ * version is never written over.
+ */
+export function putProfileOver(store: IDBObjectStore, doc: AnyProfile, now: number, then: (put: boolean) => void): void {
+  onSuccess(store.get(CURRENT), (value) => {
+    const previous = value as ProfileRecord | undefined;
+    // (A broken document, with no version, is written over: it is kept in the snapshot.)
+    const old: unknown = previous === undefined ? null : previous.doc;
+    const v = typeof old === 'object' && old !== null ? (old as { v?: unknown }).v : null;
+    if (typeof v === 'number' && v > PROFILE_VERSION) {
+      then(false);
+      return;
+    }
+    onSuccess(store.getAll(SNAPSHOTS()), (snaps) => {
+      if (previous !== undefined) store.put({ id: snapshotSlot(snaps as ProfileSnapshot[]), savedAt: now, doc: previous.doc, reason: 'restore' } satisfies ProfileSnapshot);
+      store.put({ id: CURRENT, savedAt: now, doc } satisfies ProfileRecord);
+      then(true);
+    });
+  });
+}
+
+/**
  * The guides' time offsets in the current profile (step 24b; `epgOffsetsOf`), read without
  * upgrading or writing it: `{}` when there is no profile. The query worker reads them at each
  * reload.
