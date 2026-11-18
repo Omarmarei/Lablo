@@ -13,7 +13,9 @@
     "./ingest.worker": "./src/ingest.worker.ts",
     "./epg.worker": "./src/epg.worker.ts",
     "./config.worker": "./src/config.worker.ts",
-    "./pair.worker": "./src/pair.worker.ts"
+    "./pair.worker": "./src/pair.worker.ts",
+    "./backup.worker": "./src/backup.worker.ts",
+    "./check-backup": "./src/check-backup.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"

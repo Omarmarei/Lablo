@@ -4,7 +4,9 @@
  * in a Blob worker. Each engine must give every check the answer Node gives, under the same
  * names, so the TV's crypto path (tweetnacl and @noble/hashes through Babel and core-js) is
  * held to OpenSSL's answers on Chromium 53, 56 and 68. The self-test runs a page with one
- * vector changed, which must fail.
+ * vector changed, which must fail. Since step 32b a third run, in a worker of its own, keeps the
+ * backup's master key and code in a real IndexedDB (`@lablo/data/check-backup`): its checks must
+ * all pass under `BACKUP_CHECKS`.
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -32,9 +34,25 @@ export interface VectorsRunState {
   readonly where: string;
 }
 
+/**
+ * The backup worker's checks, in their order: `BACKUP_CHECK_NAMES` in packages/data/src/check-backup.ts
+ * (the harness doesn't depend on @lablo/data; test/backup-worker-bundle.test.ts pins the two lists).
+ */
+export const BACKUP_CHECKS: readonly string[] = [
+  'backup.reset',
+  'backup.device',
+  'backup.master',
+  'backup.lookupId',
+  'backup.cached',
+  'backup.code',
+  'backup.codeKept',
+  'backup.cleanup',
+];
+
 export interface VectorsState {
   readonly href: string;
-  readonly report: { readonly page: VectorsRunState; readonly worker: VectorsRunState; readonly userAgent: string } | null;
+  /** `backup` is missing from a page built before step 32b. */
+  readonly report: { readonly page: VectorsRunState; readonly worker: VectorsRunState; readonly backup?: VectorsRunState; readonly userAgent: string } | null;
   readonly userAgent: string;
 }
 
@@ -99,9 +117,10 @@ export async function runVectors(client: CdpClient, url: string, timeoutMs: numb
   }
 }
 
-function evaluateRunState(label: 'page' | 'worker', run: VectorsRunState, expected: readonly string[]): string[] {
+function evaluateRunState(label: 'page' | 'worker' | 'backup', run: VectorsRunState, expected: readonly string[]): string[] {
   const failures: string[] = [];
-  if (run.where !== label) failures.push(`${label}: ran in the ${run.where}`);
+  const realm = label === 'page' ? 'page' : 'worker';
+  if (run.where !== realm) failures.push(`${label}: ran in the ${run.where}`);
   if (run.results === null) return [...failures, `${label}: no results (${run.error ?? 'no error given'})`];
   for (const result of run.results) if (!result.ok) failures.push(`${label}: ${result.name}: ${result.detail}`);
   const names = run.results.map((r) => r.name).join(' ');
@@ -109,7 +128,10 @@ function evaluateRunState(label: 'page' | 'worker', run: VectorsRunState, expect
   return failures;
 }
 
-/** Every check passed in the page and in the worker, under exactly the names Node's run has. */
+/**
+ * Every check passed in the page and in the worker, under exactly the names Node's run has, and
+ * every backup worker check under `BACKUP_CHECKS`.
+ */
 export function evaluateVectors(run: VectorsRun, engine: Pick<Engine, 'major'>, expected: readonly string[]): string[] {
   const failures: string[] = [];
   for (const exception of run.exceptions) failures.push(`uncaught: ${exception}`);
@@ -118,6 +140,8 @@ export function evaluateVectors(run: VectorsRun, engine: Pick<Engine, 'major'>, 
   const major = /Chrome\/(\d+)/.exec(report.userAgent)?.[1];
   if (major !== String(engine.major)) failures.push(`user agent ${report.userAgent}: expected Chrome ${engine.major}`);
   failures.push(...evaluateRunState('page', report.page, expected), ...evaluateRunState('worker', report.worker, expected));
+  if (report.backup === undefined) failures.push('backup: no run (a stale dist/tv-vectors? run pnpm build:tv)');
+  else failures.push(...evaluateRunState('backup', report.backup, BACKUP_CHECKS));
   return failures;
 }
 
@@ -127,9 +151,15 @@ const checkMs = (run: VectorsRunState, name: string): string => {
   return ms === undefined ? '?' : `${(ms / 1000).toFixed(1)} s`;
 };
 
-/** `  page 86/86 in 3.2 s, worker 86/86 in 3.0 s; the backup's scrypt 1.1 s / 1.0 s` for the log. */
+/**
+ * `  page 86/86 in 3.2 s, worker 86/86 in 3.0 s, backup worker 8/8 in 1.4 s; the backup's scrypt
+ * 1.1 s / 1.0 s / 1.2 s` for the log (the last one with IndexedDB, as the TV derives it).
+ */
 export function vectorsSummary(run: VectorsRun): string {
   const report = run.state?.report;
   if (report === null || report === undefined) return '';
-  return `  page ${passed(report.page)} in ${(report.page.ms / 1000).toFixed(1)} s, worker ${passed(report.worker)} in ${(report.worker.ms / 1000).toFixed(1)} s; the backup's scrypt ${checkMs(report.page, 'backup[0].master')} / ${checkMs(report.worker, 'backup[0].master')}`;
+  const backup = report.backup;
+  const backupRun = backup === undefined ? ', no backup worker run' : `, backup worker ${passed(backup)} in ${(backup.ms / 1000).toFixed(1)} s`;
+  const backupScrypt = backup === undefined ? '' : ` / ${checkMs(backup, 'backup.device')}`;
+  return `  page ${passed(report.page)} in ${(report.page.ms / 1000).toFixed(1)} s, worker ${passed(report.worker)} in ${(report.worker.ms / 1000).toFixed(1)} s${backupRun}; the backup's scrypt ${checkMs(report.page, 'backup[0].master')} / ${checkMs(report.worker, 'backup[0].master')}${backupScrypt}`;
 }

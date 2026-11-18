@@ -5,10 +5,11 @@
 // after), one refresh at a time, `swapped` → the query worker's `reload`, remote keys →
 // `setBusy`, and now/next from the stored guides. Step 30b2: one config worker per config refresh
 // (the cached policy first, terminated after), and the query worker's blocklist read again.
+// Step 32b: one backup worker per prepareBackup (terminated after).
 
 import { boxKeyPairFromSecretKey, sealFile, sealPairPayload, toBase64Url, utf8 } from '@lablo/crypto';
 import type { ConfigResult, RpcHandlers } from '@lablo/data';
-import { CancelSource, EPG_REFRESH_MS, EpgService, IngestService, QueryService, STORE, configHandlers, getSources, newSourceMeta, openDatabase, pairHandlers, serveRpc } from '@lablo/data';
+import { BACKUP_CODE_KEY, BACKUP_MASTER_KEY, CancelSource, EPG_REFRESH_MS, EpgService, IngestService, QueryService, STORE, backupHandlers, configHandlers, getSources, getValue, newSourceMeta, openDatabase, pairHandlers, serveRpc } from '@lablo/data';
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WorkerLike } from '../apps/tv/src/data/engine';
@@ -64,6 +65,8 @@ interface Setup {
   configLive: () => number;
   /** Pair workers still running. */
   pairLive: () => number;
+  /** Backup workers started, and still running (step 32b). */
+  backup: { started: number; live: number };
   /** Moves the engine's clock (it decides which guides are due). */
   clock: { now: number };
   /** Ingest workers still running. */
@@ -81,6 +84,7 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: 
   let live = 0;
   let configLive = 0;
   let pairLive = 0;
+  const backup = { started: 0, live: 0 };
   const busyCalls: boolean[] = [];
   const busyChanges: boolean[] = [];
 
@@ -203,12 +207,37 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: 
         pairLive--;
       });
     },
+    startBackupWorker: () => {
+      backup.started++;
+      backup.live++;
+      const dbs: IDBDatabase[] = [];
+      const handlers = backupHandlers({
+        openDb: async () => {
+          const db = await openDatabase(factory);
+          dbs.push(db);
+          return db;
+        },
+        derive: backupDerive,
+        random: () => new Uint8Array(16).fill(9),
+      });
+      return worker(handlers, dbs, () => {
+        backup.live--;
+      });
+    },
   });
   engines.push(engine);
-  return { engine, factory, started, configLive: () => configLive, pairLive: () => pairLive, clock, live: () => live, busyCalls, busyChanges };
+  return { engine, factory, started, configLive: () => configLive, pairLive: () => pairLive, backup, clock, live: () => live, busyCalls, busyChanges };
 }
 
 const CONFIG_URL = 'http://api.test/v1/config';
+/** The backup worker's scrypt in these tests (step 32b): halfway, done, and a master from the secret; `boom` fails. */
+function backupDerive(secret: string, platform: string, appId: string, onProgress?: (fraction: number) => void): Promise<Uint8Array> {
+  if (secret === 'boom') return Promise.reject(new Error('scrypt failed'));
+  onProgress?.(0.5);
+  onProgress?.(1);
+  return Promise.resolve(new Uint8Array(createHash('sha256').update(`${platform}|${appId}|${secret}`).digest()));
+}
+const BACKUP_REQUEST = { platform: 'webos', appId: 'com.lablo.iptv', secret: 'LGUDID-1' };
 /** The pair worker's key pair in these tests (step 31c1): the scripted phone seals to it. */
 const PAIR_KEYS = boxKeyPairFromSecretKey(new Uint8Array(32).fill(5));
 const SALT = 'QtHj17D-F3HxhSWwfvhERM83_Cu0K5lHS7cQ_PczpBA';
@@ -923,6 +952,59 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     session.close();
     // A worker gone: the call rejects.
     await expect(session.file()).rejects.toThrow('RPC client closed');
+  });
+
+  it('keeps the backup master in a backup worker of its own, ended when it answers (step 32b)', async () => {
+    const s = setup(() => ({ status: 404 }));
+    const progress: number[] = [];
+    expect(await s.engine.prepareBackup(BACKUP_REQUEST, (f) => progress.push(f))).toEqual({ source: 'device', derived: true });
+    expect(progress).toEqual([0.5, 1]);
+    expect(s.backup).toEqual({ started: 1, live: 0 });
+    // No other worker starts for it.
+    expect(s.started).toEqual({ query: 0, ingest: 0, epg: 0, config: 0, pair: 0 });
+    const db = await openDatabase(s.factory);
+    expect(await getValue(db, STORE.kv, BACKUP_MASTER_KEY)).toMatchObject({ source: 'device' });
+    expect(await getValue(db, STORE.kv, BACKUP_CODE_KEY)).toBeUndefined();
+    db.close();
+
+    // A second call: a worker of its own again, which reads the kept master.
+    expect(await s.engine.prepareBackup(BACKUP_REQUEST, (f) => progress.push(f))).toEqual({ source: 'device', derived: false });
+    expect(progress).toEqual([0.5, 1]);
+    expect(s.backup).toEqual({ started: 2, live: 0 });
+  });
+
+  it('makes and keeps the backup code when there is no device secret (step 32b)', async () => {
+    const s = setup(() => ({ status: 404 }));
+    expect(await s.engine.prepareBackup({ ...BACKUP_REQUEST, secret: null })).toEqual({ source: 'code', derived: true });
+    const db = await openDatabase(s.factory);
+    expect(await getValue(db, STORE.kv, BACKUP_CODE_KEY)).toMatch(/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/);
+    db.close();
+    expect(await s.engine.prepareBackup({ ...BACKUP_REQUEST, secret: null })).toEqual({ source: 'code', derived: false });
+  });
+
+  it('rejects a backup call that fails in its worker, and ends the worker', async () => {
+    const s = setup(() => ({ status: 404 }));
+    await expect(s.engine.prepareBackup({ ...BACKUP_REQUEST, secret: 'boom' })).rejects.toThrow('scrypt failed');
+    expect(s.backup).toEqual({ started: 1, live: 0 });
+  });
+
+  it('refuses to back up without a backup worker', async () => {
+    const engine = new DataEngine({
+      startQueryWorker: () => {
+        throw new Error('unused');
+      },
+      startIngestWorker: () => {
+        throw new Error('unused');
+      },
+      startEpgWorker: () => {
+        throw new Error('unused');
+      },
+      startConfigWorker: () => {
+        throw new Error('unused');
+      },
+    });
+    engines.push(engine);
+    await expect(engine.prepareBackup(BACKUP_REQUEST)).rejects.toThrow('This data engine has no backup worker');
   });
 
   it('refuses to pair without a pair worker', () => {

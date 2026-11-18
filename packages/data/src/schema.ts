@@ -12,7 +12,8 @@
  * - `catalog_index` (key `[src, gen, kind]`): the search segment (core `SearchSegmentData`);
  * - `profile` (keyPath `id`): the profile document (`current`) and 3 rolling snapshots
  *   (`snap:0`..`snap:2`), profile.ts;
- * - `kv`: small cached documents (the signed remote config, step 30).
+ * - `kv`: small documents: the signed remote config (step 30), the backup's code and master key
+ *   (step 32b, backup-service.ts).
  *
  * Stores added in version 2 (RELAY step 9b, epg-store.ts):
  * - `epg_meta` (keyPath `epgSrc`): refresh bookkeeping per guide, including its active generation
@@ -22,7 +23,8 @@
  * - `epg_channels` (key `[epgSrc, gen]`): the guide's match table (which XMLTV channel feeds which
  *   live channel, and how) and the XMLTV channels it uses.
  *
- * Everything except `profile` can be rebuilt from the provider.
+ * Everything except `profile` and `kv`'s backup code can be rebuilt (from the providers, the API, or
+ * the device ID).
  *
  * Rules for migrations:
  * - `MIGRATIONS[v]` upgrades version `v` to `v + 1`; the database version is the list's length.

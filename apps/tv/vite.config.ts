@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite';
 import { tvPostcssPlugins } from '../../tv-css.config';
-import { defineValues, tvDefines } from '../../tv-defines.config';
+import { appIdFor, defineValues, tvDefines } from '../../tv-defines.config';
 
 /**
  * Desktop development loop (`pnpm dev`): the TV app with the browser platform adapter.
@@ -9,6 +9,8 @@ import { defineValues, tvDefines } from '../../tv-defines.config';
 export default defineConfig({
   define: {
     __PLATFORM__: JSON.stringify('browser'),
+    // The backup salt's app id (step 32b): the desktop app takes webOS's.
+    __APP_ID__: JSON.stringify(appIdFor('browser')),
     // The API base, the version and the config keys: the dev app trusts the dev key too (tv-defines.config.ts).
     ...defineValues(tvDefines('dev')),
   },

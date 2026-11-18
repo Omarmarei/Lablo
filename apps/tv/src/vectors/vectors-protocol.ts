@@ -1,8 +1,9 @@
 /**
  * The crypto vectors page (RELAY step 29b1): `dist/tv-vectors`, built by `pnpm build:tv`
  * through the TV pipeline, runs @lablo/crypto's shared vectors (packages/crypto/test/vectors.json)
- * in the page and in a Blob worker. `pnpm verify:engines` reads the report on Chromium 53, 56
- * and 68 (tools/engines/src/vectors.ts); e2e/crypto-vectors.spec.ts in current Chromium.
+ * in the page and in a Blob worker, then the backup worker's checks (`@lablo/data/check-backup`,
+ * step 32b) in a Blob worker of their own. `pnpm verify:engines` reads the report on Chromium 53,
+ * 56 and 68 (tools/engines/src/vectors.ts); e2e/crypto-vectors.spec.ts in current Chromium.
  */
 import type { CryptoVectors, VectorResult } from '@lablo/crypto/check-vectors';
 
@@ -22,10 +23,12 @@ export function where(): 'page' | 'worker' {
   return typeof document === 'undefined' ? 'worker' : 'page';
 }
 
-/** `window.__LABLO_VECTORS__` once both runs ended. */
+/** `window.__LABLO_VECTORS__` once the three runs ended. */
 export interface VectorsReport {
   readonly page: VectorsRun;
   readonly worker: VectorsRun;
+  /** The backup worker's checks (step 32b), in a worker of their own. */
+  readonly backup: VectorsRun;
   readonly userAgent: string;
 }
 

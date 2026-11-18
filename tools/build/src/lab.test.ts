@@ -21,9 +21,9 @@ describe('the lab manifests (RELAY step 15a)', () => {
     // LG's Audio Guidance reads an app only with this (spike S11).
     expect(parsed.accessibility).toEqual({ supportsAudioGuidance: true });
     const { accessibility: _added, ...rest } = parsed;
-    // The lab's luna calls (S3, S11) and their ACG groups; the app's manifest declares none (ADR-012).
-    expect((JSON.parse(app) as Record<string, unknown>).requiredACG).toEqual([]);
-    expect({ ...rest, id: 'com.lablo.iptv', title: 'Lablo', requiredACG: [] }).toEqual(JSON.parse(app));
+    // The lab's luna calls (S3, S11) and their ACG groups; the app's manifest declares the device ID's (ADR-012, step 32b).
+    expect((JSON.parse(app) as Record<string, unknown>).requiredACG).toEqual(['deviceinfo.query']);
+    expect({ ...rest, id: 'com.lablo.iptv', title: 'Lablo', requiredACG: ['deviceinfo.query'] }).toEqual(JSON.parse(app));
   });
 
   it('give Tizen the lab widget, package and application ids and name, nothing else', () => {

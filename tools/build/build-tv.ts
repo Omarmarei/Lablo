@@ -266,7 +266,7 @@ async function main(): Promise<void> {
       const started = Date.now();
       const sizes = await buildVectors();
       console.log(`\n[crypto vectors] built in ${((Date.now() - started) / 1000).toFixed(1)} s, ES2016 gate passed`);
-      console.log(`  main.js ${kb(sizes.mainBytes)} + its worker ${kb(sizes.workerBytes)}, vectors.js ${kb(sizes.dataBytes)}`);
+      console.log(`  main.js ${kb(sizes.mainBytes)} + its two workers ${kb(sizes.workerBytes)}, vectors.js ${kb(sizes.dataBytes)}`);
       console.log(`  staged:  ${rel(DIST_VECTORS)}/`);
       continue;
     }
