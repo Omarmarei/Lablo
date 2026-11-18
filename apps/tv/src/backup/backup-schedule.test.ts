@@ -211,6 +211,30 @@ describe('createBackupSchedule', () => {
     expect(s.warnings).toHaveLength(2);
   });
 
+  it('runs at once when hidden after a failed run while visible (the cap counts from the hide)', async () => {
+    const s = setup();
+    s.schedule.start();
+    s.clock.advance(BACKUP_CHANGE_MS);
+    await flush();
+    await answer(s, { state: 'failed', failure: 'network' });
+    s.lifecycle('hidden');
+    await flush();
+    expect(s.engine.runs).toHaveLength(2);
+  });
+
+  it('keeps the 60 s from the first change when more come (no debounce)', async () => {
+    const s = setup();
+    s.schedule.start();
+    s.clock.advance(BACKUP_CHANGE_MS);
+    await flush();
+    await answer(s, { state: 'sent' });
+    s.clock.advance(BACKUP_GAP_MS * 3);
+    s.schedule.changed();
+    s.clock.advance(30_000);
+    s.schedule.changed();
+    expect(s.clock.due()).toEqual([BACKUP_CHANGE_MS - 30_000]);
+  });
+
   it('treats a request that cannot be made as a failed run', async () => {
     const s = setup(() => Promise.reject(new Error('no profile')));
     s.schedule.start();
@@ -288,6 +312,21 @@ describe('createBackupSchedule', () => {
     s.lifecycle('hidden');
     await flush();
     expect(s.engine.runs).toHaveLength(3);
+    s.lifecycle('visible');
+    expect(s.clock.due()).toEqual([BACKUP_GAP_MS]);
+  });
+
+  it('counts a worker that died while hidden as a failure: no other run until visible', async () => {
+    const s = setup();
+    s.schedule.start();
+    s.lifecycle('hidden');
+    await flush();
+    expect(s.engine.runs).toHaveLength(1);
+    s.engine.last.reject(new Error('worker died'));
+    await flush();
+    s.schedule.changed();
+    await flush();
+    expect(s.engine.runs).toHaveLength(1);
     s.lifecycle('visible');
     expect(s.clock.due()).toEqual([BACKUP_GAP_MS]);
   });
@@ -374,6 +413,41 @@ describe('createBackupSchedule', () => {
     expect(s.subscribed()).toBe(true);
     // The change from before the stop: 5 minutes after the last run's start.
     expect(s.clock.due()).toEqual([BACKUP_GAP_MS]);
+  });
+
+  it('clears a timed run when stopped, and times a change as visible after a stop while hidden', async () => {
+    const s = setup();
+    s.schedule.start();
+    expect(s.clock.due()).toEqual([BACKUP_CHANGE_MS]);
+    s.schedule.stop();
+    expect(s.clock.due()).toEqual([]);
+    s.clock.advance(BACKUP_CHANGE_MS * 2);
+    await flush();
+    expect(s.engine.runs).toHaveLength(0);
+    // Hidden, stopped (no visible event comes after it), started again: a change is timed, not run at once.
+    s.schedule.start();
+    s.lifecycle('hidden');
+    await flush();
+    await answer(s, { state: 'sent' });
+    s.schedule.stop();
+    s.schedule.start();
+    s.schedule.changed();
+    await flush();
+    expect(s.engine.runs).toHaveLength(1);
+    expect(s.clock.due()).toEqual([BACKUP_GAP_MS]);
+  });
+
+  it('runs nothing for a change once disposed, even while hidden', async () => {
+    const s = setup();
+    s.schedule.start();
+    s.clock.advance(BACKUP_CHANGE_MS);
+    await flush();
+    await answer(s, { state: 'sent' });
+    s.lifecycle('hidden');
+    s.schedule.dispose();
+    s.schedule.changed();
+    await flush();
+    expect(s.engine.runs).toHaveLength(1);
   });
 
   it('stops for good once disposed: waiting calls get null', async () => {

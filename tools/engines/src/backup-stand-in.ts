@@ -18,7 +18,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tokenHash } from '@lablo/crypto';
-import { BACKUP_BODY_MAX_BYTES, BACKUP_WRITE_HEADER, backupEnvelopeSchema, lookupIdSchema, writeTokenSchema } from '@lablo/protocol';
+import { BACKUP_BODY_MAX_BYTES, BACKUP_WRITE_HEADER, backupEnvelopeSchema, lookupIdSchema } from '@lablo/protocol';
 import type { StandInAnswer } from './pair-stand-in';
 
 /** Where the backup routes start. */
@@ -46,7 +46,7 @@ function json(status: number, text: string): StandInAnswer {
 
 /** Whether `url` (a request's path and query) is one of the backup routes. */
 export function backupPath(url: string): boolean {
-  return url.split('?')[0]!.startsWith(BACKUP_PATH);
+  return url.startsWith(BACKUP_PATH);
 }
 
 export class BackupStandIn {
@@ -97,7 +97,8 @@ export class BackupStandIn {
       return stored === undefined ? [404, '{"error":"not_found"}'] : [200, stored];
     }
     if (method !== 'PUT' && method !== 'DELETE') return [405, '{"error":"method"}'];
-    const hash = token !== undefined && writeTokenSchema.safeParse(token).success ? tokenHash(token) : null;
+    // A malformed token has no hash (`tokenHash` reads only 32 bytes of base64url).
+    const hash = token === undefined ? null : tokenHash(token);
     const kept = this.hashes.get(lookupId);
     if (method === 'DELETE') {
       if (kept === undefined) return [404, '{"error":"not_found"}'];

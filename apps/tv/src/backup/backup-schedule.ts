@@ -110,7 +110,8 @@ export function createBackupSchedule(options: BackupScheduleOptions): BackupSche
   /** Times the next run for the pending change, when one may come. */
   const arm = (): void => {
     clearTimer();
-    if (!started || disposed || running || hidden || held.peek() || pendingSince === null) return;
+    // (Never called while hidden or once disposed: `stop` and `dispose` end `started`.)
+    if (!started || running || held.peek() || pendingSince === null) return;
     const due = Math.max(pendingSince + BACKUP_CHANGE_MS, lastStart + BACKUP_GAP_MS);
     timer = timers.set(
       () => {
@@ -123,12 +124,12 @@ export function createBackupSchedule(options: BackupScheduleOptions): BackupSche
 
   /** While hidden: a run now for a pending change, unless the cap or a failure says no. */
   const runHidden = (): void => {
-    if (running || held.peek() || pendingSince === null || failed || hiddenRuns >= HIDDEN_RUNS) return;
+    if (held.peek() || pendingSince === null || failed || hiddenRuns >= HIDDEN_RUNS) return;
     void run();
   };
 
   async function run(): Promise<void> {
-    if (running || disposed) return;
+    if (running) return;
     clearTimer();
     running = true;
     lastStart = now();
@@ -149,7 +150,8 @@ export function createBackupSchedule(options: BackupScheduleOptions): BackupSche
     failed = answer === null || answer.state === 'failed';
     if (answer === null || answer.state === 'failed') {
       // Kept for the next run (the gap holds it 5 minutes).
-      if (since !== null) pendingSince = pendingSince === null ? since : Math.min(since, pendingSince);
+      // (A change made during the run came later.)
+      if (since !== null) pendingSince = since;
       if (answer !== null) warn('The backup was not sent', answer.failure);
     } else if (answer.state === 'held') {
       held.value = true;
@@ -173,7 +175,7 @@ export function createBackupSchedule(options: BackupScheduleOptions): BackupSche
       hidden = true;
       hiddenRuns = 0;
       failed = false;
-      clearTimer();
+      // A pending change runs now (its run clears the timer); with none, no timer is set.
       runHidden();
       return;
     }
@@ -194,7 +196,6 @@ export function createBackupSchedule(options: BackupScheduleOptions): BackupSche
     changed() {
       if (disposed) return;
       if (pendingSince === null) pendingSince = now();
-      if (!started) return;
       if (hidden) runHidden();
       else arm();
     },

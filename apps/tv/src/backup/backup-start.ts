@@ -105,7 +105,6 @@ export function createBackupStart(options: BackupStartOptions): BackupStart {
   let limit: unknown = null;
   let welcome: unknown = null;
   let disposed = false;
-  let settled = false;
   let end: BackupStartEnd | null = null;
   let settle: (value: BackupStartEnd) => void = () => undefined;
   const done = new Promise<BackupStartEnd>((resolve) => {
@@ -117,16 +116,14 @@ export function createBackupStart(options: BackupStartOptions): BackupStart {
     return null;
   };
 
+  /** The look-up has ended (its limit is cleared by then): `done` settles, once (a promise does). */
   const finish = (value: BackupStartEnd): void => {
-    if (settled) return;
-    settled = true;
-    limit = clear(limit);
     welcome = clear(welcome);
     settle(value);
   };
 
+  /** Skip or Back: the worker is cancelled (a second cancel does nothing). */
   const skip = (): void => {
-    if (skipped.peek()) return;
     skipped.value = true;
     cancel.cancel();
   };
@@ -234,7 +231,6 @@ export function createBackupStart(options: BackupStartOptions): BackupStart {
     files,
     done,
     dispose() {
-      if (disposed) return;
       disposed = true;
       limit = clear(limit);
       welcome = clear(welcome);

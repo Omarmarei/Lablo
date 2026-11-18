@@ -255,6 +255,26 @@ describe('createBackupStart', () => {
     s.start.dispose();
   });
 
+  it('once disposed while the profile is read again, settles nothing and times nothing', async () => {
+    const s = setup();
+    let read: (profile: LoadedProfile | null) => void = () => undefined;
+    s.engine.stored = () =>
+      new Promise<LoadedProfile | null>((resolve) => {
+        read = resolve;
+      });
+    s.engine.settle?.resolve({ state: 'restored', language: 'ar', sources: 2 });
+    await flush();
+    expect(s.engine.profileReads).toBe(1);
+    s.start.dispose();
+    read(RESTORED);
+    await flush();
+    expect(s.start.screen.value).toBe(LOOKING_SCREEN);
+    expect(s.clock.due()).toEqual([]);
+    s.clock.advance(WELCOME_MS);
+    await flush();
+    expect(s.end()).toBeNull();
+  });
+
   it('once disposed on "Welcome back", settles nothing more', async () => {
     const s = setup();
     s.engine.stored = () => Promise.resolve(RESTORED);
@@ -310,6 +330,10 @@ describe('BackupStartView', () => {
     expect(textOf(byTestId(en, 'backup-title')[0])).toBe('Looking for your backup');
     expect((byTestId(en, 'backup-skip')[0]!.props as Props).label).toBe('Skip');
     expect((byTestId(en, 'backup-progress')[0]!.props as Props).value).toBe(0.5);
+    // The focus as the engine has it (the e2e's driver reads it from the root).
+    const moved = BackupStartView({ start: s.start, i18n: appI18n('en-US'), item: ITEM, focus: { zone: 'other', index: 2 } });
+    expect((moved.props as Props)['data-zone']).toBe('other');
+    expect((moved.props as Props)['data-index']).toBe(2);
     const ar = BackupStartView({ start: s.start, i18n: appI18n('ar-SA'), item: ITEM, focus: FOCUS });
     expect(textOf(byTestId(ar, 'backup-title')[0])).toBe('جارٍ البحث عن نسختك الاحتياطية');
     expect((ar.props as Props)['data-language']).toBe('ar');
@@ -331,6 +355,9 @@ describe('BackupStartView', () => {
     const en = BackupStartView({ start: both, i18n: appI18n('en-US'), item: ITEM, focus: FOCUS });
     expect((en.props as Props)['data-screen']).toBe('welcome');
     expect((en.props as Props)['data-zone']).toBe('actions');
+    const moved = BackupStartView({ start: both, i18n: appI18n('en-US'), item: ITEM, focus: { zone: 'other', index: 2 } });
+    expect((moved.props as Props)['data-zone']).toBe('other');
+    expect((moved.props as Props)['data-index']).toBe(2);
     expect((en.props as Props)['data-sources']).toBe(2);
     expect((en.props as Props)['data-files']).toBe(1);
     expect(textOf(byTestId(en, 'backup-title')[0])).toBe('Welcome back');
