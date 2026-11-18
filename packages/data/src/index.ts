@@ -203,6 +203,9 @@ export type { FileFrameHandlers, FileSecret } from './file-frames';
 export { FileError, openFileFrames, serveFileFrames } from './file-frames';
 export type { FileFeed } from './file-feed';
 export { feedResponse } from './file-feed';
+// The backup's keys (RELAY step 32b): the backup worker's service.
+export type { BackupEvents, BackupPrepareRequest, BackupPrepareResult, BackupServiceOptions, BackupSource, DeriveMaster, MasterRecord } from './backup-service';
+export { BACKUP_CODE_KEY, BACKUP_MASTER_KEY, BackupService, backupHandlers, readMasterRecord, secretCheck } from './backup-service';
 
 export type { IngestEvents, IngestRunRequest, IngestServiceOptions } from './ingest-service';
 export { IngestService } from './ingest-service';
@@ -210,5 +213,5 @@ export { IngestService } from './ingest-service';
 export type { EpgEvents, EpgRunRequest, EpgServiceOptions } from './epg-service';
 export { EpgService } from './epg-service';
 
-export type { ConfigClient, ConfigHandlers, DataClient, EpgClient, EpgHandlers, IngestClient, IngestHandlers, PairClient, PairHandlers, QueryHandlers } from './client';
-export { createConfigClient, createDataClient, createEpgClient, createIngestClient, createPairClient } from './client';
+export type { BackupClient, BackupHandlers, ConfigClient, ConfigHandlers, DataClient, EpgClient, EpgHandlers, IngestClient, IngestHandlers, PairClient, PairHandlers, QueryHandlers } from './client';
+export { createBackupClient, createConfigClient, createDataClient, createEpgClient, createIngestClient, createPairClient } from './client';

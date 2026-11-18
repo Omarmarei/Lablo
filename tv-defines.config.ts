@@ -8,6 +8,8 @@
  *   production domain. On a TV, 127.0.0.1 is the TV itself: the fetch fails, and the cached copy
  *   or the defaults (nothing killed) stay in force.
  * - `__APP_VERSION__`: `apps/tv/package.json`'s version (the policy's `minVersion`).
+ * - `__APP_ID__` (step 32b, `appIdFor`): the app's id on its platform, from its manifest; part of
+ *   the backup's scrypt salt (architecture.md §3.3 B), so it can't change once a TV has a backup.
  * - `__CONFIG_KEYS__`: the Ed25519 public keys whose signatures the build trusts, from
  *   `config/keys.json`. A TV build (`package`) takes the production keys, or the dev key while
  *   there are none, never both: a build with production keys never trusts the dev key, whose seed
@@ -61,6 +63,25 @@ export function tvDefines(kind: TvBuildKind, root: string = import.meta.dirname)
     version,
     configKeys: trustedConfigKeys(kind, keys),
   };
+}
+
+/** A build's platform: `browser` is the desktop dev app. */
+export type TvPlatformName = 'tizen' | 'webos' | 'browser';
+
+/**
+ * The app's id as its platform knows it: Tizen `config.xml`'s `<tizen:application id>`
+ * (`LabloIPTV1.Lablo`), webOS `appinfo.json`'s `id` (`com.lablo.iptv`); the desktop dev app takes
+ * webOS's. The backup's salt takes it with the platform (step 32b).
+ */
+export function appIdFor(platform: TvPlatformName, root: string = import.meta.dirname): string {
+  if (platform === 'tizen') {
+    const id = /<tizen:application\s+id="([^"]+)"/.exec(readFileSync(join(root, 'platforms/tizen/config.xml'), 'utf8'))?.[1];
+    if (id === undefined) throw new Error('platforms/tizen/config.xml: <tizen:application id="…"> is missing');
+    return id;
+  }
+  const { id } = JSON.parse(readFileSync(join(root, 'platforms/webos/appinfo.json'), 'utf8')) as { id?: unknown };
+  if (typeof id !== 'string' || id === '') throw new Error('platforms/webos/appinfo.json: "id" is missing');
+  return id;
 }
 
 /** The constants as `define` / replace values (JSON literals). */

@@ -2,6 +2,8 @@
 declare const __PLATFORM__: 'tizen' | 'webos' | 'browser';
 /** Replaced at build time (tv-defines.config.ts): the backend's origin, without a trailing slash. */
 declare const __API_BASE__: string;
+/** Replaced at build time (tv-defines.config.ts `appIdFor`): the app's id in its manifest, part of the backup's salt. */
+declare const __APP_ID__: string;
 /** Replaced at build time: apps/tv/package.json's version. */
 declare const __APP_VERSION__: string;
 /** Replaced at build time: the config's Ed25519 public keys this build trusts, base64url. */

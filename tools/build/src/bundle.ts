@@ -7,7 +7,7 @@ import terser from '@rollup/plugin-terser';
 import type { LoggingFunction, Plugin, RollupLog } from 'rollup';
 import { rollup } from 'rollup';
 import type { TvDefines } from '../../../tv-defines.config';
-import { defineValues, tvDefines } from '../../../tv-defines.config';
+import { appIdFor, defineValues, tvDefines } from '../../../tv-defines.config';
 import { checkSyntax, formatViolation } from './syntax-gate';
 
 const require = createRequire(import.meta.url);
@@ -23,7 +23,7 @@ export type BuildPlatform = 'tizen' | 'webos' | 'browser';
 export interface BundleOptions {
   /** Absolute path of the entry module. */
   readonly input: string;
-  /** Value of the `__PLATFORM__` define. */
+  /** Value of the `__PLATFORM__` define; `__APP_ID__` is its manifest's id (`appIdFor`). */
   readonly platform: BuildPlatform;
   /**
    * `__API_BASE__`, `__APP_VERSION__` and `__CONFIG_KEYS__` (tv-defines.config.ts; default a TV
@@ -299,6 +299,7 @@ function plugins(options: BundleOptions, collected: Collected): Plugin[] {
       preventAssignment: true,
       values: {
         __PLATFORM__: JSON.stringify(options.platform),
+        __APP_ID__: JSON.stringify(appIdFor(options.platform)),
         ...defineValues(options.defines ?? tvDefines('package')),
         'process.env.NODE_ENV': JSON.stringify('production'),
       },

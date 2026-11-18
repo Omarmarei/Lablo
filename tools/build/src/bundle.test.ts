@@ -136,13 +136,13 @@ describe('bundleIife (Rollup IIFE + Babel chrome 53 + core-js)', () => {
     expect(code).toContain(kept);
     expect(code).not.toContain(dropped);
   }, 60_000);
-  it("replaces the app's build constants: a TV build's by default, or the ones given (step 30b2)", async () => {
+  it("replaces the app's build constants: a TV build's by default, or the ones given (step 30b2), and the platform's app id (step 32b)", async () => {
     const own = tvDefines('package');
     const { code } = await bundleIife({ input: fixture('app-defines.ts'), platform: 'webos' });
-    expect(code).not.toMatch(/__(API_BASE|APP_VERSION|CONFIG_KEYS)__/);
-    expect(runWithoutModernApis(code)).toEqual({ base: own.apiBase, version: own.version, keys: own.configKeys });
+    expect(code).not.toMatch(/__(API_BASE|APP_VERSION|CONFIG_KEYS|APP_ID)__/);
+    expect(runWithoutModernApis(code)).toEqual({ base: own.apiBase, version: own.version, keys: own.configKeys, appId: 'com.lablo.iptv' });
     const given = { apiBase: 'http://api.test', version: '9.8.7', configKeys: ['k1', 'k2'] };
     const other = await bundleIife({ input: fixture('app-defines.ts'), platform: 'tizen', defines: given });
-    expect(runWithoutModernApis(other.code)).toEqual({ base: 'http://api.test', version: '9.8.7', keys: ['k1', 'k2'] });
+    expect(runWithoutModernApis(other.code)).toEqual({ base: 'http://api.test', version: '9.8.7', keys: ['k1', 'k2'], appId: 'LabloIPTV1.Lablo' });
   }, 60_000);
 });

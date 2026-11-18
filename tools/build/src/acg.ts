@@ -12,7 +12,7 @@
 
 /** Each luna API in our code and its ACG group, or `null` when LG's ACG table doesn't list it. */
 export const LUNA_ACG: Readonly<Record<string, string | null>> = {
-  // deviceSecret (the LGUDID): S3, later the pairing.
+  // deviceSecret (the LGUDID): S3, and the backup's device secret (step 32b).
   'luna://com.webos.service.sm/deviceid/getIDs': 'deviceinfo.query',
   // screenReader (Audio Guidance on or off): S11.
   'luna://com.webos.settingsservice/getSystemSettings': 'settings.query',
@@ -27,8 +27,9 @@ export const LUNA_ACG: Readonly<Record<string, string | null>> = {
 
 /**
  * The lab's groups: the luna calls its spikes make (S3's LGUDID, S11's Audio Guidance). The
- * app's own manifest (platforms/webos/appinfo.json) declares none: no app code calls a luna API
- * yet, although the adapter's luna-backed `Platform` methods are in its bundle.
+ * app's own manifest (platforms/webos/appinfo.json) declares `deviceinfo.query` since step 32b
+ * (the backup reads the LGUDID after "Allow"); the adapter's other luna-backed `Platform` methods
+ * are in its bundle, but no app code calls them.
  */
 export const LAB_ACG: readonly string[] = ['deviceinfo.query', 'settings.query'];
 

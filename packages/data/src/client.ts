@@ -1,6 +1,7 @@
 /**
  * The UI's side of the data workers: typed RPC clients over the query worker, the ingest worker,
- * the EPG worker, the config worker and the pair worker (architecture.md §1.2, §3.3 A and C).
+ * the EPG worker, the config worker, the pair worker and the backup worker (architecture.md §1.2,
+ * §3.3 A, B and C).
  * `ui` imports only this part of `@lablo/data`.
  */
 
@@ -8,6 +9,7 @@ export type { EpgCatalogSource, EpgDueReason, EpgGuide, UserGuide } from './epg-
 // Pure helpers the app decides EPG refreshes with (no data module behind them).
 export { EPG_AHEAD_MS, EPG_OFFSET_MAX, EPG_OFFSET_STEP, EPG_REFRESH_MS, EPG_RETRY_MS, epgGuides, epgOffsetsOf, epgRefreshDue, isEpgOffset } from './epg-sources';
 
+import type { BackupEvents, backupHandlers } from './backup-service';
 import type { ConfigEvents, configHandlers } from './config-service';
 import type { pairHandlers } from './pair-service';
 import type { EpgEvents, EpgService } from './epg-service';
@@ -128,6 +130,26 @@ export function createPairClient(port: RpcPort & { onerror?: ((event: ErrorEvent
   if ('onerror' in port) {
     port.onerror = (event: ErrorEvent) => {
       client.fail(new Error(`Pair worker failed: ${event.message || 'unknown error'}`));
+    };
+  }
+  return client;
+}
+
+// The backup's keys (RELAY step 32b): the request and the answer; no key leaves the worker.
+export type { BackupEvents, BackupPrepareRequest, BackupPrepareResult, BackupSource } from './backup-service';
+
+/** The backup worker's RPC methods (backup.worker.ts, RELAY step 32b). */
+export type BackupHandlers = ReturnType<typeof backupHandlers>;
+
+/** Calls a backup worker: `client.call('prepare', request)`, event `progress`. */
+export type BackupClient = RpcClient<BackupHandlers, BackupEvents>;
+
+/** Wraps a started backup worker. If it dies, the call rejects; what it kept stays kept. */
+export function createBackupClient(port: RpcPort & { onerror?: ((event: ErrorEvent) => void) | null }): BackupClient {
+  const client = new RpcClient<BackupHandlers, BackupEvents>(port);
+  if ('onerror' in port) {
+    port.onerror = (event: ErrorEvent) => {
+      client.fail(new Error(`Backup worker failed: ${event.message || 'unknown error'}`));
     };
   }
   return client;

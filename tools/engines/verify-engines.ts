@@ -27,7 +27,8 @@
  * provider on the host (artifacts/engines/lab-logs): S1 must pass on every engine, and the
  * polyfills it filled must be exactly the ones the engine lacks.
  * Last, the crypto vectors page (dist/tv-vectors, step 29b1): @lablo/crypto's shared vectors
- * in the page and in a Blob worker, every check with Node's answer under Node's names.
+ * in the page and in a Blob worker, every check with Node's answer under Node's names; then the
+ * backup worker's checks (step 32b) in a second Blob worker, with the engine's IndexedDB.
  *
  * Options:
  *   --engine chrome53|chrome56|chrome68   repeatable; default all

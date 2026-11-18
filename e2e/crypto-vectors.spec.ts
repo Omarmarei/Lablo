@@ -5,19 +5,21 @@ import type { CryptoVectors } from '@lablo/crypto/check-vectors';
 import { checkVectors } from '@lablo/crypto/check-vectors';
 import { checkQr } from '@lablo/core/check-qr';
 import { checkSamples } from '@lablo/protocol/check-samples';
+import { BACKUP_CHECK_NAMES } from '@lablo/data/check-backup';
 import { expect, test } from '@playwright/test';
 
 /**
  * The vectors page (RELAY steps 29b1, 29b2a and 31c1; `dist/tv-vectors` from pnpm build:tv) from
  * file:// in current Chromium: every shared crypto vector, protocol sample and QR case passes in the page
- * and in its Blob worker, under the names Node's run gives. The old engines run the same page in
+ * and in its Blob worker, under the names Node's run gives; and (step 32b) the backup worker's checks
+ * pass in a worker of their own, with the page's IndexedDB. The old engines run the same page in
  * `pnpm verify:engines`.
  */
 const INDEX = path.resolve(import.meta.dirname, '../dist/tv-vectors/index.html');
 const VECTORS = path.resolve(import.meta.dirname, '../packages/crypto/test/vectors.json');
 
 /** The page's report global (apps/tv/src/vectors/vectors-protocol.ts). */
-type VectorsWindow = Window & { __LABLO_VECTORS__?: { page: Run; worker: Run } };
+type VectorsWindow = Window & { __LABLO_VECTORS__?: { page: Run; worker: Run; backup: Run } };
 
 interface Run {
   readonly results: ReadonlyArray<{ readonly name: string; readonly ok: boolean; readonly detail: string }> | null;
@@ -25,7 +27,7 @@ interface Run {
   readonly where: string;
 }
 
-test('the crypto vectors and protocol samples pass from file:// in the page and in a Blob worker', async ({ page }) => {
+test('the crypto vectors and protocol samples pass from file:// in the page and in a Blob worker, and the backup worker checks in another', async ({ page }) => {
   expect(existsSync(INDEX), `${INDEX} is missing: run pnpm build:tv before pnpm e2e`).toBe(true);
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
@@ -53,5 +55,12 @@ test('the crypto vectors and protocol samples pass from file:// in the page and 
   }
   await expect(page.locator('#out')).toContainText(`page: ${expected.length}/${expected.length} passed`);
   await expect(page.locator('#out')).toContainText(`worker: ${expected.length}/${expected.length} passed`);
+  // The backup worker's checks (step 32b): its master and code kept in IndexedDB, then deleted.
+  expect(report.backup.error).toBeNull();
+  expect(report.backup.where).toBe('worker');
+  expect(report.backup.results?.filter((r) => !r.ok)).toEqual([]);
+  expect(report.backup.results?.map((r) => r.name)).toEqual(BACKUP_CHECK_NAMES);
+  await expect(page.locator('#out')).toContainText(`backup worker: ${BACKUP_CHECK_NAMES.length}/${BACKUP_CHECK_NAMES.length} passed`);
+  expect(await page.evaluate(async () => (await indexedDB.databases()).map((d) => d.name))).not.toContain('lablo-backup-check');
   expect(errors).toEqual([]);
 });

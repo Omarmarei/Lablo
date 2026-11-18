@@ -47,9 +47,9 @@ describe('platform manifests', () => {
     expect(() => fillTemplate('no placeholder', '1.2.3')).toThrow(/placeholder/);
   });
 
-  it('the real webOS appinfo.json passes, keeps disableBackHistoryAPI and declares no ACG group', () => {
+  it("the real webOS appinfo.json passes, keeps disableBackHistoryAPI and declares the device ID's ACG group (step 32b)", () => {
     const info = checkAppinfo(fillTemplate(read('platforms/webos/appinfo.json'), '0.1.0'), '0.1.0');
-    expect(info).toEqual({ id: 'com.lablo.iptv', version: '0.1.0', requiredACG: [] });
+    expect(info).toEqual({ id: 'com.lablo.iptv', version: '0.1.0', requiredACG: ['deviceinfo.query'] });
   });
 
   it('rejects an appinfo.json without disableBackHistoryAPI', () => {

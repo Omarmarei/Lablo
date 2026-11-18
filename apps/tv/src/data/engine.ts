@@ -41,6 +41,9 @@
  *   makes a `MessageChannel`, gives one port to the pair worker and the other, as a `FileFeed`,
  *   to the refresh (`RefreshOptions.file`), whose ingest worker pulls the plain frames from it.
  *   The add's load is cancelled before the pair worker ends (the pairing screen's `close`).
+ * - a **backup worker** starts for each `prepareBackup` (step 32b) and ends when it answers: it
+ *   keeps the backup code and the master key in IndexedDB (scrypt, seconds on a 2018 TV, runs
+ *   there only when no master is kept for the secret). It runs beside the refresh slot.
  *
  * Workers come from factories, so tests serve the real services over message channels; the
  * app passes the `?worker` imports (`./workers.ts`).
@@ -89,8 +92,8 @@ import type {
   VodInfoRequest,
 } from '@lablo/data';
 // The client entry only: the package index would pull every data module's polyfills into main.
-import type { FileFeed, PairFileFailure, PairOpenResult, PairPollResult, PairStatusResult } from '@lablo/data/client';
-import { createConfigClient, createDataClient, createEpgClient, createIngestClient, createPairClient, epgGuides, epgRefreshDue } from '@lablo/data/client';
+import type { BackupPrepareRequest, BackupPrepareResult, FileFeed, PairFileFailure, PairOpenResult, PairPollResult, PairStatusResult } from '@lablo/data/client';
+import { createBackupClient, createConfigClient, createDataClient, createEpgClient, createIngestClient, createPairClient, epgGuides, epgRefreshDue } from '@lablo/data/client';
 import type { PairStatus } from '@lablo/protocol';
 
 /** What a source's stream and catch-up URLs need from its last login (`DataEngine.sourceFacts`). */
@@ -131,6 +134,8 @@ export interface DataEngineOptions {
   startConfigWorker: () => WorkerLike;
   /** The pairing screen's worker (step 31c1); an engine without one can't pair. */
   startPairWorker?: () => WorkerLike;
+  /** The backup's worker (step 32b); an engine without one can't back up. */
+  startBackupWorker?: () => WorkerLike;
   /** The clock `due` EPG refreshes are decided by (default `Date.now`). */
   now?: () => number;
   /** How long after the last remote key the UI counts as idle again (default 1000 ms). */
@@ -455,6 +460,21 @@ export class DataEngine {
         worker.terminate();
       },
     };
+  }
+
+  /**
+   * Makes sure the backup's master key for `request`'s secret is kept (step 32b), in a backup
+   * worker of its own, started now and ended when it answers: the device ID after "Allow", else
+   * the backup code (made and kept at the first call). `onProgress` gets scrypt's progress, 0 to 1
+   * in whole percents, when it has to run. Not in the refresh slot.
+   */
+  prepareBackup(request: BackupPrepareRequest, onProgress?: (fraction: number) => void): Promise<BackupPrepareResult> {
+    const start = this.options.startBackupWorker;
+    if (start === undefined) return Promise.reject(new Error('This data engine has no backup worker'));
+    return this.withWorker(start, createBackupClient, (client) => {
+      if (onProgress) client.on('progress', onProgress);
+      return client.call('prepare', request);
+    });
   }
 
   /** For each URL, whether its host is on the signed config's blocklist (step 30b2; enforced in 30c). */

@@ -13,6 +13,7 @@ export { hkdfSha256, hmacSha256, scrypt, sha256 } from './hash';
 export { randomBytes } from './random';
 export type { BackupEnvelope, BackupKeys } from './backup';
 export { BACKUP_KDF, BACKUP_SCRYPT, backupKeys, backupSalt, deriveBackupMaster, openBackup, sealBackup, tokenHash } from './backup';
+export { BACKUP_CODE_BYTES, BACKUP_CODE_LENGTH, backupCodeText, readBackupCode } from './backup-code';
 export type { BoxKeyPair, SealedPayload } from './pairing';
 export {
   FILE_FRAME_BYTES,

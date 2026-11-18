@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DEV_API_BASE, PRODUCTION_API_BASE, defineValues, readConfigKeys, trustedConfigKeys, tvDefines } from '../../../tv-defines.config';
+import { DEV_API_BASE, PRODUCTION_API_BASE, appIdFor, defineValues, readConfigKeys, trustedConfigKeys, tvDefines } from '../../../tv-defines.config';
+import { checkAppinfo, checkConfigXml, fillTemplate } from './platform-files';
 
 const ROOT = path.resolve(import.meta.dirname, '../../..');
 const DEV = 'XSL7BTMmu8T8z5VeovgdDDUYpXucxAgRpaNV8mOUSxc';
@@ -88,5 +89,40 @@ describe('readConfigKeys and trustedConfigKeys', () => {
     const packaged = trustedConfigKeys('package', keys);
     packaged.push('x');
     expect(keys.production).toEqual([P1]);
+  });
+});
+
+describe("appIdFor (the backup salt's app id, step 32b)", () => {
+  it("is each platform's id in its manifest, as the build checks it; the desktop app takes webOS's", () => {
+    const webos = checkAppinfo(fillTemplate(readFileSync(path.join(ROOT, 'platforms/webos/appinfo.json'), 'utf8'), '0.1.0'), '0.1.0').id;
+    const tizen = checkConfigXml(fillTemplate(readFileSync(path.join(ROOT, 'platforms/tizen/config.xml'), 'utf8'), '0.1.0'), '0.1.0').appId;
+    expect(appIdFor('webos')).toBe(webos);
+    expect(appIdFor('tizen')).toBe(tizen);
+    expect(appIdFor('browser')).toBe(webos);
+    // Pinned: a TV's backup is salted with it, so a change orphans every backup (fine before step 45's release, never after).
+    expect([appIdFor('tizen'), appIdFor('webos')]).toEqual(['LabloIPTV1.Lablo', 'com.lablo.iptv']);
+  });
+
+  it('reads the manifests of the repo it is given', () => {
+    const dir = repo({ production: [], dev: DEV });
+    mkdirSync(path.join(dir, 'platforms/tizen'), { recursive: true });
+    mkdirSync(path.join(dir, 'platforms/webos'), { recursive: true });
+    writeFileSync(path.join(dir, 'platforms/tizen/config.xml'), '<widget><tizen:application  id="Pkg1234567.App" package="Pkg1234567"/></widget>');
+    writeFileSync(path.join(dir, 'platforms/webos/appinfo.json'), JSON.stringify({ id: 'com.example.app', version: '{{version}}' }));
+    expect(appIdFor('tizen', dir)).toBe('Pkg1234567.App');
+    expect(appIdFor('webos', dir)).toBe('com.example.app');
+    expect(appIdFor('browser', dir)).toBe('com.example.app');
+  });
+
+  it('refuses manifests without an id', () => {
+    const dir = repo({ production: [], dev: DEV });
+    mkdirSync(path.join(dir, 'platforms/tizen'), { recursive: true });
+    mkdirSync(path.join(dir, 'platforms/webos'), { recursive: true });
+    writeFileSync(path.join(dir, 'platforms/tizen/config.xml'), '<widget><tizen:application package="Pkg1234567"/></widget>');
+    writeFileSync(path.join(dir, 'platforms/webos/appinfo.json'), JSON.stringify({ id: '', version: '1.0.0' }));
+    expect(() => appIdFor('tizen', dir)).toThrow(/tizen:application id/);
+    expect(() => appIdFor('webos', dir)).toThrow(/"id" is missing/);
+    writeFileSync(path.join(dir, 'platforms/webos/appinfo.json'), JSON.stringify({ version: '1.0.0' }));
+    expect(() => appIdFor('browser', dir)).toThrow(/"id" is missing/);
   });
 });
