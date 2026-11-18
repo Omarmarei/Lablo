@@ -73,6 +73,34 @@ describe('bundleIife (Rollup IIFE + Babel chrome 53 + core-js)', () => {
     expect([result.workers.length, result.inlinedBytes]).toEqual([0, 0]);
   }, 60_000);
 
+  it('writes non-ASCII text as UTF-8, escaping only what an ES2016 script or a UTF-8 file cannot hold (step 32d3)', async () => {
+    const result = await bundleIife({ input: fixture('non-ascii.ts'), platform: 'webos' });
+    const code = result.code;
+    const char = (...units: number[]): string => String.fromCharCode(...units);
+    const escape = (unit: number): string => `${char(92)}u${unit.toString(16)}`;
+    // Arabic as it is: 2 bytes a letter in the file, where a `\uXXXX` escape took 6.
+    expect(code).toContain('مرحبًا بعودتك');
+    expect(code).toContain(`${char(0x2068)}x${char(0x2069)}`);
+    expect(code).toContain(char(0xd83d, 0xde00));
+    // Line separators end a line in an ES2016 string or regex literal, a BOM is invisible, and a
+    // lone surrogate has no UTF-8 form (the file would hold U+FFFD): all stay escaped.
+    for (const unit of [0x2028, 0x2029, 0xfeff, 0xd800, 0xdbff]) {
+      expect(code).not.toContain(char(unit));
+      expect(code).toContain(escape(unit));
+    }
+    const asWritten = Buffer.from(code, 'utf8').toString('utf8');
+    expect(asWritten).toBe(code);
+    expect(checkSyntax(asWritten, 'main')).toBeNull();
+    const context = vm.createContext({});
+    vm.runInContext(asWritten, context);
+    expect(JSON.parse(vm.runInContext('JSON.stringify(globalThis.fixture)', context) as string)).toEqual({
+      strings: ['مرحبًا بعودتك', `${char(0x2068)}x${char(0x2069)}`, `a${char(0x2028)}b${char(0x2029)}c`, `${char(0xfeff)}d`, `${char(0xd800)}e`, char(0xd83d, 0xde00)],
+      letters: true,
+      lineEnds: true,
+      highSurrogate: true,
+    });
+  }, 60_000);
+
   it("compiles core's parsers and search to gated Chromium 53 code that gives the same results as Node", async () => {
     const result = await bundleIife({ input: fixture('core-parsers.ts'), platform: 'webos', label: 'core-parsers' });
     expect(checkSyntax(result.code, 'main')).toBeNull();
