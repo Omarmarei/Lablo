@@ -243,7 +243,7 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
       expect(await phasesSeen(page)).toEqual(expect.arrayContaining(['download', 'guide']));
       await remote.expectFocus('done/actions/0');
       const title = stripIsolates((await page.locator('.onboarding__text').first().textContent()) ?? '');
-      expect(title).toBe(ar ? 'البيت جاهز.' : 'البيت is ready.');
+      expect(title).toBe(ar ? 'تمت إضافة البيت.' : 'البيت is ready.');
       const counts = { live: catalog.live.length, movies: catalog.movies.length, series: catalog.series.length };
       for (const [kind, n] of Object.entries(counts)) await expect(page.getByTestId(`done-${kind}`)).toHaveAttribute('data-n', String(n));
       if (ar) {

@@ -10,13 +10,16 @@
  * dropped or added fails the read with `FileError`, and so does a byte past the last frame. The
  * connection's own failures pass through as they are (`NetworkError`).
  *
- * `serveFileFrames` serves the frames on a message port (`read`, `cancel`), each frame's buffer
- * transferred: the app gives the port's other end to the ingest worker (file-feed.ts), which pulls
- * one frame at a time. Messages never hold the URL or the keys.
+ * `serveFileFrames` serves the frames on a message port (`read`, `cancel`): the app gives the port's
+ * other end to the ingest worker (file-feed.ts), which pulls one frame at a time. Each frame is
+ * copied, never transferred: on Chromium 53 a message posted on a `MessagePort` with an
+ * `ArrayBuffer` in its transfer list arrives as `null` (RELAY step 31d2b2a's old-engine walk; 56
+ * and 68 deliver it, and a worker's own `postMessage` is not affected). A 1 MiB copy costs a few
+ * milliseconds. Messages never hold the URL or the keys.
  */
 import { FILE_FRAME_BYTES, FILE_FRAME_OVERHEAD, fileFrameCount, openFileFrame } from '@lablo/crypto';
 import type { ByteSource } from './bytes';
-import type { RpcContext, RpcPort, RpcServer } from './rpc';
+import type { RpcPort, RpcServer } from './rpc';
 import { serveRpc } from './rpc';
 
 /** The file doesn't open as its payload says: a frame cut, changed or out of place, or bytes past the last one. */
@@ -117,8 +120,8 @@ export function openFileFrames(source: ByteSource, file: FileSecret): ByteSource
 
 /** The handlers a file's frames are served with (file-feed.ts calls them). */
 export type FileFrameHandlers = {
-  /** The next plain frame (its buffer transferred), `null` at the end. */
-  read: (arg: undefined, ctx: RpcContext) => Promise<Uint8Array | null>;
+  /** The next plain frame (copied: see above), `null` at the end. */
+  read: () => Promise<Uint8Array | null>;
   /** The reader is done (or gave up): the download is let go. */
   cancel: () => void;
 };
@@ -126,12 +129,8 @@ export type FileFrameHandlers = {
 /** Serves `frames` on `port`; `cancel` (from the reader) runs `ended` too. */
 export function serveFileFrames(port: RpcPort, frames: ByteSource, ended: () => void): RpcServer {
   const handlers: FileFrameHandlers = {
-    read: async (_arg, ctx) => {
-      const chunk = await frames.read();
-      // tweetnacl's plaintext is a view of an array of its own: nothing else holds the buffer.
-      if (chunk !== null) ctx.transfer(chunk.buffer);
-      return chunk;
-    },
+    // Never `ctx.transfer`: Chromium 53 would deliver the answer as `null`.
+    read: () => frames.read(),
     cancel: () => {
       frames.cancel();
       ended();

@@ -11,17 +11,17 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { PairStandIn } from './pair-stand-in';
+import { PairStandIn, standInPath } from './pair-stand-in';
 
 /** The TV's CORS on an answer the stand-in doesn't give (its own answers carry it). */
 const NOT_FOUND_HEADERS: Readonly<Record<string, string>> = { 'access-control-allow-origin': '*' };
 
-/** Answers one `/v1/pair…` request from `standIn` once its body is in; 404 for a path it doesn't know. */
+/** Answers one `/v1/pair…` or `/dev/blob/…` request from `standIn` once its body is in (as bytes: a blob's is binary); 404 for a path it doesn't know. */
 export function answerPair(standIn: PairStandIn, request: IncomingMessage, response: ServerResponse): void {
   const chunks: Buffer[] = [];
   request.on('data', (chunk: Buffer) => chunks.push(chunk));
   request.on('end', () => {
-    const answer = standIn.answer(request.method ?? 'GET', request.url ?? '', request.headers.authorization, Buffer.concat(chunks).toString('utf8'));
+    const answer = standIn.answer(request.method ?? 'GET', request.url ?? '', request.headers.authorization, new Uint8Array(Buffer.concat(chunks)));
     if (answer === null) {
       response.writeHead(404, NOT_FOUND_HEADERS);
       response.end();
@@ -43,13 +43,13 @@ export interface PairServer {
 /**
  * The stand-in on a free port. Docker Desktop forwards host.docker.internal to the host's
  * loopback; on Linux (CI) it is the bridge's gateway, so the server listens on every interface
- * there (as the lab's mock provider does). Anything but `/v1/pair…` is a 404, the config's
+ * there (as the lab's mock provider does). Anything but `/v1/pair…` and the blob's `/dev/blob/…` is a 404, the config's
  * `/v1/config` too: the walk's config run fails as on a TV with no answer, and nothing waits for it.
  */
 export function startPairServer(host: string = process.platform === 'linux' ? '0.0.0.0' : '127.0.0.1'): Promise<PairServer> {
   const standIn = new PairStandIn();
   const server = createServer((request, response) => {
-    if ((request.url ?? '').startsWith('/v1/pair')) {
+    if (standInPath(request.url ?? '')) {
       answerPair(standIn, request, response);
       return;
     }

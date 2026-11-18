@@ -5,16 +5,21 @@ import { parse } from 'acorn';
 import { describe, expect, it } from 'vitest';
 import { FIXTURE_ORIGIN } from './fixture';
 import type { WalkState } from './onboarding';
+import type { StandInSession } from './pair-stand-in';
+import { PairStandIn } from './pair-stand-in';
 import type { Box, PairState, PairStepRecord, PairWalk, PairingRun } from './pairing';
 import {
+  FILE_FRAMES,
   PAIR_EXPRESSION,
   PAIR_ORIGIN,
   PAIR_PORT,
   PHONE_NAMES,
+  PHONE_SENDS,
   QR_QUIET,
   drawnModules,
   evaluatePairWalk,
   evaluatePairing,
+  heldFiles,
   outsideSafeArea,
   pairLink,
   pairSteps,
@@ -75,9 +80,11 @@ const STATE = { userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (
 
 function walk(over: Partial<PairWalk> = {}): PairWalk {
   const language = over.language ?? 'en';
+  const sent = over.sent ?? PHONE_SENDS[language];
   const steps: PairStepRecord[] = pairSteps(language).map((step) => ({ id: step.id, label: step.label, expect: step.expect, met: true, state: STATE, ms: 100 }));
   return {
     language,
+    sent,
     reset: 'ok',
     steps,
     pair: drawn(),
@@ -86,7 +93,8 @@ function walk(over: Partial<PairWalk> = {}): PairWalk {
     phoneError: null,
     addMs: 2300,
     progress: { state: 'done', status: 'ok' },
-    profile: { sources: [['s1', 'm3u', PHONE_NAMES[language]]], language, consent: true },
+    blobs: 0,
+    profile: { sources: [['s1', sent === 'file' ? 'm3u-file' : 'm3u', PHONE_NAMES[language]]], language, consent: true },
     screenshots: [],
     screenshotError: null,
     ...over,
@@ -109,6 +117,11 @@ describe('the pairing walk', () => {
       expect(payload).toEqual({ v: 1, source: { type: 'm3u', url: `${FIXTURE_ORIGIN}/list.m3u` }, name: PHONE_NAMES[language] });
       expect(pairPayloadSchema.safeParse(payload).success).toBe(true);
     }
+  });
+
+  it('sends the link in the English walk and the playlist itself in the Arabic one, as a file of more than one frame (step 31d2b2a)', () => {
+    expect(PHONE_SENDS).toEqual({ en: 'link', ar: 'file' });
+    expect(FILE_FRAMES).toBe(3);
   });
 
   it('walks to the source screen\'s third row by keys and opens the pair screen, then waits for the done screen', () => {
@@ -276,6 +289,37 @@ describe('evaluatePairWalk', () => {
       'the stored answers are language ar, consent true, expected en and true',
     ]);
   });
+
+  it('wants a file sent by phone stored as an M3U file, and the stand-in to hold no file after the status (step 31d2b2a)', () => {
+    const arabic = drawn({ boxes: [['pair-code', [1300, 400, 500, 90]], ['pair-qr', [400, 200, SIDE, SIDE]]] }, { box: [400, 200, SIDE, SIDE] });
+    expect(evaluatePairWalk(walk({ language: 'ar', pair: arabic }))).toEqual([]);
+    expect(evaluatePairWalk(walk({ language: 'ar', pair: arabic, profile: { sources: [['s1', 'm3u', PHONE_NAMES.ar]], language: 'ar', consent: true } }))).toEqual([
+      `the stored profile has the sources s1,m3u,${PHONE_NAMES.ar}, expected s1,m3u-file,${PHONE_NAMES.ar}`,
+    ]);
+    // A link sent stored as a file is as wrong.
+    expect(evaluatePairWalk(walk({ profile: { sources: [['s1', 'm3u-file', 'Phone list']], language: 'en', consent: true } }))).toEqual([
+      'the stored profile has the sources s1,m3u-file,Phone list, expected s1,m3u,Phone list',
+    ]);
+    expect(evaluatePairWalk(walk({ language: 'ar', pair: arabic, blobs: 1 }))).toEqual(["the stand-in still holds 1 file after the TV's status"]);
+    expect(evaluatePairWalk(walk({ blobs: 2 }))).toEqual(["the stand-in still holds 2 files after the TV's status"]);
+    // Not read: nothing to say about it.
+    expect(evaluatePairWalk(walk({ blobs: null }))).toEqual([]);
+  });
+});
+
+describe('heldFiles', () => {
+  it("counts only the files of the walk's own session: an earlier walk's file left behind is not this one's (leg 100: Chromium 53's failed walks failed 68's)", () => {
+    const standIn = new PairStandIn();
+    const session = (sid: string, code: string): StandInSession => ({ sid, code, tvPk: '', pollToken: '', exp: 0, payload: null, posted: [], delivered: false, status: null, polls: 0, fileId: null, uploads: [] });
+    standIn.sessions.push(session('old', 'AAAA2222'), session('new', 'BBBB3333'));
+    standIn.blobs.set('pair/old/f1', new Uint8Array(1));
+    expect(heldFiles({ standIn }, 'BBBB3333')).toBe(0);
+    standIn.blobs.set('pair/new/f2', new Uint8Array(1));
+    standIn.blobs.set('pair/newer/f3', new Uint8Array(1));
+    expect(heldFiles({ standIn }, 'BBBB3333')).toBe(1);
+    expect(heldFiles({ standIn }, 'AAAA2222')).toBe(1);
+    expect(heldFiles({ standIn }, 'CCCC4444')).toBe(0);
+  });
 });
 
 describe('evaluatePairing', () => {
@@ -305,7 +349,7 @@ describe('evaluatePairing', () => {
   });
 
   it('sums each walk up: the time to the code, its QR version and the time to the done screen', () => {
-    expect(pairingSummary(run())).toBe(`  en: code 1.2 s (QR v${QR.version}), added 2.3 s; ar: code 1.2 s (QR v${QR.version}), added 2.3 s`);
-    expect(pairingSummary(run({ walks: [walk({ pair: null, codeMs: null, addMs: null })] }))).toBe('  en: code -, added -');
+    expect(pairingSummary(run())).toBe(`  en: code 1.2 s (QR v${QR.version}), link added 2.3 s; ar: code 1.2 s (QR v${QR.version}), file added 2.3 s`);
+    expect(pairingSummary(run({ walks: [walk({ pair: null, codeMs: null, addMs: null })] }))).toBe('  en: code -, link added -');
   });
 });

@@ -51,8 +51,21 @@ function download(bytes: Uint8Array, fail = false): ByteSource & { cancels: () =
   };
 }
 
-/** Frames of `bytes` served on one port; the feed reads the other. */
-function channel(bytes: Uint8Array, fail = false) {
+/**
+ * A port as Chromium 53 has it (step 31d2b2a's old-engine walk): a message posted with an
+ * `ArrayBuffer` in its transfer list arrives as `null`.
+ */
+function asChromium53(port: MessagePort): RpcPort {
+  return {
+    postMessage: (message: unknown, transfer?: Transferable[]) => port.postMessage((transfer ?? []).some((t) => t instanceof ArrayBuffer) ? null : message),
+    addEventListener: (type: 'message', listener: (event: MessageEvent) => void) => port.addEventListener(type, listener),
+    removeEventListener: (type: 'message', listener: (event: MessageEvent) => void) => port.removeEventListener(type, listener),
+    start: () => port.start(),
+  } as unknown as RpcPort;
+}
+
+/** Frames of `bytes` served on one port (as Chromium 53 posts, `old`); the feed reads the other. */
+function channel(bytes: Uint8Array, fail = false, old = false) {
   const { port1, port2 } = new MessageChannel();
   opened.push(port1, port2);
   const source = download(bytes, fail);
@@ -68,13 +81,13 @@ function channel(bytes: Uint8Array, fail = false) {
       }),
     cancel: () => frames.cancel(),
   };
-  serveFileFrames(port1 as unknown as RpcPort, watched, () => ended++);
+  serveFileFrames(old ? asChromium53(port1) : (port1 as unknown as RpcPort), watched, () => ended++);
   const feed = feedResponse({ port: port2 as unknown as RpcPort, size: SIZE });
   return { feed, given, ended: () => ended, cancels: () => source.cancels() };
 }
 
 describe('the file feed', () => {
-  it("reads the file's plain frames from the other port, their buffers transferred, not copied", async () => {
+  it("reads the file's plain frames from the other port, copied, not transferred (step 31d2b2a: Chromium 53)", async () => {
     const { feed, given } = channel(SEALED);
     expect(feed.status).toBe(200);
     expect(feed.header('Content-Length')).toBe(String(SIZE));
@@ -84,9 +97,16 @@ describe('the file feed', () => {
     for (let chunk = await feed.read(); chunk !== null; chunk = await feed.read()) parts.push(chunk);
     expect(parts.map((p) => p.length)).toEqual([FILE_FRAME_BYTES, 300_000]);
     expect(same(new Uint8Array(Buffer.concat(parts)), PLAIN)).toBe(true);
-    // Transferred: the serving side's arrays are detached now.
-    expect(given.map((g) => g.byteLength)).toEqual([0, 0]);
+    // Copied: the serving side's arrays are whole still (a transfer would detach them).
+    expect(given.map((g) => g.byteLength)).toEqual([FILE_FRAME_BYTES, 300_000]);
     expect(await feed.read()).toBeNull();
+  });
+
+  it('reads the whole file through a port that drops a message with a transferred buffer, as Chromium 53 does', async () => {
+    const { feed } = channel(SEALED, false, true);
+    const parts: Uint8Array[] = [];
+    for (let chunk = await feed.read(); chunk !== null; chunk = await feed.read()) parts.push(chunk);
+    expect(same(new Uint8Array(Buffer.concat(parts)), PLAIN)).toBe(true);
   });
 
   it("fails with the ingest's `file` when a frame doesn't open on the other side", async () => {

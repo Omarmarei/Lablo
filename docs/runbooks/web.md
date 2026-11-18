@@ -207,8 +207,10 @@ A phone can send an M3U file instead of a link (architecture.md §3.3 A, step 4,
   "M3U file", the schedule never refreshes it, and the same file sent again under the same name
   replaces it in place. A file that fails says why on the TV ("The file from your phone couldn't
   be read. Send it again.") and sends the phone `unreachable`; the screen then offers only
-  "Show a new code" (the status deleted the blob). The end-to-end proof with a file (the stand-in,
-  the `tv` project, the old engines) and the phone page's own wording come with step 31d2b2.
+  "Show a new code" (the status deleted the blob). Proven end to end against the stand-in in
+  `e2e/pairing.spec.ts` and on Chromium 53 and 68 in the old-engine pairing walk (step 31d2b2a,
+  architecture.md "Built in step 31d2b2a"); the `tv` project against the real API and the phone
+  page's own wording come with step 31d2b2b.
 - **Try it:** as "The phone page" below; choose "M3U playlist file" and any `.m3u`. A scripted TV
   then reads the file's URL from `GET /v1/pair/s/:sid/file`, downloads it and opens it with the
   payload's `fileKey` and `base` (`openFile`); `apps/web/e2e/phone-file.spec.ts` does exactly that.

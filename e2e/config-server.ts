@@ -3,14 +3,15 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { harnessConfigDoc } from '../tools/engines/src/config';
 import { answerPair } from '../tools/engines/src/pair-server';
-import { PairStandIn } from '../tools/engines/src/pair-stand-in';
+import { PairStandIn, standInPath } from '../tools/engines/src/pair-stand-in';
 
 /**
  * A stand-in for apps/web's `GET /v1/config` on 127.0.0.1 (RELAY steps 30c1 and 30c2a): it
  * answers with an exact text the test sets (`devSignedAnswer`: signed with the dev key, which the
  * dev app and the test builds trust), and the app reaches it through `?api=<origin>`. It also
  * serves files the test gives it (step 30c3b: a playlist on another host than its streams'), and
- * answers the pairing API's routes from a stand-in in memory (step 31c2a: `pair`).
+ * answers the pairing API's routes from a stand-in in memory (step 31c2a: `pair`), the phone's
+ * file at its blob path too (step 31d2b2a).
  */
 
 export interface ConfigServer {
@@ -32,7 +33,7 @@ export async function startConfigServer(answer: string): Promise<ConfigServer> {
   const files = new Map<string, { readonly body: string; readonly type: string }>();
   const pair = new PairStandIn();
   const server: Server = createServer((request, response) => {
-    if ((request.url ?? '').startsWith('/v1/pair')) {
+    if (standInPath(request.url ?? '')) {
       answerPair(pair, request, response);
       return;
     }

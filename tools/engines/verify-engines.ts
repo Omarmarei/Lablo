@@ -55,7 +55,7 @@ import { TV_RUNTIME_FLAGS, TV_SCREEN_FLAGS, selectEngines } from './src/engines'
 import { trustsDevKey } from './src/config';
 import { ensureEngineZip } from './src/fetch';
 import type { DataCheck } from './src/fixture';
-import { appUrl, fixtureEntries, liveCategories, movieCategories, stageFixtures } from './src/fixture';
+import { FIXTURE_DIR, appUrl, fixtureEntries, liveCategories, movieCategories, stageFixtures } from './src/fixture';
 import type { BidiState, GalleryRun } from './src/gallery';
 import { evaluateGallery, galleryUrl, runGallery } from './src/gallery';
 import type { LabServer } from './src/lab';
@@ -119,6 +119,8 @@ interface RunReport {
     readonly codeMs: number | null;
     readonly addMs: number | null;
     readonly qrVersion: number | null;
+    /** How the phone sent the playlist: its link, or the file (step 31d2b2a). */
+    readonly sent: 'link' | 'file';
     readonly screenshots: readonly string[];
   }>;
   readonly failures: readonly string[];
@@ -385,6 +387,8 @@ async function runPairingScreen(client: CdpClient, engine: Engine, variant: Vari
     loadTimeoutMs: LOAD_TIMEOUT_MS,
     screenshot: shot,
     save: (file, png) => writeFileSync(file, png),
+    // The Arabic walk's file (step 31d2b2a): the plain playlist, as a phone would send it.
+    playlist: readFileSync(path.join(VARIANTS_DIR, FIXTURE_DIR, check.file.replace(/\.gz$/, '')), 'utf8'),
   });
   const first = run.walks.flatMap((walk) => walk.steps).find((step) => step.state !== null);
   return {
@@ -406,6 +410,7 @@ async function runPairingScreen(client: CdpClient, engine: Engine, variant: Vari
         codeMs: walk.codeMs,
         addMs: walk.addMs,
         qrVersion: walk.pair?.qr?.version ?? null,
+        sent: walk.sent,
         screenshots: walk.screenshots.map((file) => repoPath(file) ?? file),
       })),
     },
