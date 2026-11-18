@@ -303,7 +303,7 @@ export default defineConfig(
             { target: ['data'], allow: ['src/client.ts', 'src/query.worker.ts', 'src/ingest.worker.ts', 'src/epg.worker.ts', 'src/config.worker.ts', 'src/pair.worker.ts', 'src/backup.worker.ts', 'src/check-backup.ts'] },
             { target: ['core'], allow: ['src/check-qr.ts'] },
             { target: ['crypto'], allow: ['src/check-vectors.ts'] },
-            { target: ['protocol'], allow: ['src/check-samples.ts'] },
+            { target: ['protocol'], allow: ['src/check-samples.ts', 'src/backup-limits.ts'] },
           ],
         },
       ],

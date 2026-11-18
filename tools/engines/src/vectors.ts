@@ -5,7 +5,8 @@
  * names, so the TV's crypto path (tweetnacl and @noble/hashes through Babel and core-js) is
  * held to OpenSSL's answers on Chromium 53, 56 and 68. The self-test runs a page with one
  * vector changed, which must fail. Since step 32b a third run, in a worker of its own, keeps the
- * backup's master key and code in a real IndexedDB (`@lablo/data/check-backup`): its checks must
+ * backup's master key and code in a real IndexedDB (`@lablo/data/check-backup`), and since step
+ * 32c1 sends a profile to the backup API in memory and restores it after a wipe: its checks must
  * all pass under `BACKUP_CHECKS`.
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -44,8 +45,11 @@ export const BACKUP_CHECKS: readonly string[] = [
   'backup.master',
   'backup.lookupId',
   'backup.cached',
+  'backup.upload',
+  'backup.same',
   'backup.code',
   'backup.codeKept',
+  'backup.restore',
   'backup.cleanup',
 ];
 
@@ -152,14 +156,15 @@ const checkMs = (run: VectorsRunState, name: string): string => {
 };
 
 /**
- * `  page 86/86 in 3.2 s, worker 86/86 in 3.0 s, backup worker 8/8 in 1.4 s; the backup's scrypt
- * 1.1 s / 1.0 s / 1.2 s` for the log (the last one with IndexedDB, as the TV derives it).
+ * `  page 86/86 in 3.2 s, worker 86/86 in 3.0 s, backup worker 11/11 in 2.9 s; the backup's scrypt
+ * 1.1 s / 1.0 s / 1.2 s, its restore 1.3 s` for the log (the third scrypt with IndexedDB, as the
+ * TV derives it; the restore after a wipe is the look-up at a start with no profile, step 32c).
  */
 export function vectorsSummary(run: VectorsRun): string {
   const report = run.state?.report;
   if (report === null || report === undefined) return '';
   const backup = report.backup;
   const backupRun = backup === undefined ? ', no backup worker run' : `, backup worker ${passed(backup)} in ${(backup.ms / 1000).toFixed(1)} s`;
-  const backupScrypt = backup === undefined ? '' : ` / ${checkMs(backup, 'backup.device')}`;
+  const backupScrypt = backup === undefined ? '' : ` / ${checkMs(backup, 'backup.device')}, its restore ${checkMs(backup, 'backup.restore')}`;
   return `  page ${passed(report.page)} in ${(report.page.ms / 1000).toFixed(1)} s, worker ${passed(report.worker)} in ${(report.worker.ms / 1000).toFixed(1)} s${backupRun}; the backup's scrypt ${checkMs(report.page, 'backup[0].master')} / ${checkMs(report.worker, 'backup[0].master')}${backupScrypt}`;
 }

@@ -1,9 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ProtocolSample } from './check-samples';
 import { checkSamples, SAMPLE_SCHEMAS, SAMPLES, sameJson, sampleResultName } from './check-samples';
 import {
   BACKUP_BODY_MAX_BYTES,
+  BACKUP_CT_MAX_BYTES,
   BACKUP_CT_MAX_CHARS,
+  BACKUP_KDF_NAME,
   BACKUP_WRITE_HEADER,
   base64UrlLength,
   bytes16,
@@ -122,6 +126,8 @@ describe('the limits', () => {
     expect(PAIR_FILE_MAX_BYTES).toBe(40 * 1024 * 1024);
     expect(BACKUP_BODY_MAX_BYTES).toBe(512 * 1024);
     expect(BACKUP_WRITE_HEADER).toBe('x-write-token');
+    // The body less 1 KB, as bytes of ciphertext.
+    expect(BACKUP_CT_MAX_BYTES).toBe(392448);
     expect(TELEMETRY_BODY_MAX_BYTES).toBe(64 * 1024);
     expect(TELEMETRY_BATCH_MAX).toBe(200);
   });
@@ -131,6 +137,13 @@ describe('the limits', () => {
     expect(PAIR_CT_MAX_CHARS + 43 + 32 + 40).toBeLessThanOrEqual(PAIR_BODY_MAX_BYTES);
     expect(BACKUP_CT_MAX_CHARS + 32 + 60).toBeLessThanOrEqual(BACKUP_BODY_MAX_BYTES);
     expect(BACKUP_CT_MAX_CHARS).toBeGreaterThan(BACKUP_BODY_MAX_BYTES - 2048);
+  });
+
+  it("are the backup's in a module that imports nothing, which the TV's backup worker reads without zod (step 32c1)", async () => {
+    const limits = await import('./backup-limits');
+    expect({ ...limits }).toEqual({ BACKUP_BODY_MAX_BYTES, BACKUP_CT_MAX_BYTES, BACKUP_KDF_NAME, BACKUP_WRITE_HEADER });
+    const source = readFileSync(join(import.meta.dirname, 'backup-limits.ts'), 'utf8');
+    expect(source).not.toMatch(/^\s*(import|export \{[^}]*\} from|export \* from)/m);
   });
 });
 

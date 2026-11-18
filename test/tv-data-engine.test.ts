@@ -5,11 +5,32 @@
 // after), one refresh at a time, `swapped` → the query worker's `reload`, remote keys →
 // `setBusy`, and now/next from the stored guides. Step 30b2: one config worker per config refresh
 // (the cached policy first, terminated after), and the query worker's blocklist read again.
-// Step 32b: one backup worker per prepareBackup (terminated after).
+// Step 32b: one backup worker per prepareBackup (terminated after). Step 32c1: per uploadBackup and
+// restoreBackup too, against the backup API in memory; a cancelled look-up ends its worker.
 
 import { boxKeyPairFromSecretKey, sealFile, sealPairPayload, toBase64Url, utf8 } from '@lablo/crypto';
 import type { ConfigResult, RpcHandlers } from '@lablo/data';
-import { BACKUP_CODE_KEY, BACKUP_MASTER_KEY, CancelSource, EPG_REFRESH_MS, EpgService, IngestService, QueryService, STORE, backupHandlers, configHandlers, getSources, getValue, newSourceMeta, openDatabase, pairHandlers, serveRpc } from '@lablo/data';
+import type { BackupStandIn, ByteRequest } from '@lablo/data';
+import {
+  BACKUP_CODE_KEY,
+  BACKUP_MASTER_KEY,
+  BACKUP_SENT_KEY,
+  CancelSource,
+  EPG_REFRESH_MS,
+  EpgService,
+  IngestService,
+  QueryService,
+  STORE,
+  backupHandlers,
+  backupStandIn,
+  configHandlers,
+  getSources,
+  getValue,
+  newSourceMeta,
+  openDatabase,
+  pairHandlers,
+  serveRpc,
+} from '@lablo/data';
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WorkerLike } from '../apps/tv/src/data/engine';
@@ -67,6 +88,9 @@ interface Setup {
   pairLive: () => number;
   /** Backup workers started, and still running (step 32b). */
   backup: { started: number; live: number };
+  /** The backup API the backup workers call (step 32c1), and a hold on its next GET. */
+  backupApi: BackupStandIn;
+  backupHold: { gate: Promise<void> | null; held: number; urls: string[] };
   /** Moves the engine's clock (it decides which guides are due). */
   clock: { now: number };
   /** Ingest workers still running. */
@@ -85,6 +109,8 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: 
   let configLive = 0;
   let pairLive = 0;
   const backup = { started: 0, live: 0 };
+  const backupApi = backupStandIn();
+  const backupHold: Setup['backupHold'] = { gate: null, held: 0, urls: [] };
   const busyCalls: boolean[] = [];
   const busyChanges: boolean[] = [];
 
@@ -219,6 +245,19 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: 
         },
         derive: backupDerive,
         random: () => new Uint8Array(16).fill(9),
+        transport: {
+          async get(url: string, request?: ByteRequest) {
+            backupHold.urls.push(url);
+            const gate = backupHold.gate;
+            if (gate !== null && (request?.method ?? 'GET') === 'GET') {
+              backupHold.gate = null;
+              backupHold.held++;
+              await gate;
+            }
+            return backupApi.transport.get(url, request);
+          },
+        },
+        clock: { now: () => clock.now, sleep: () => new Promise<void>(() => undefined) },
       });
       return worker(handlers, dbs, () => {
         backup.live--;
@@ -226,7 +265,7 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: 
     },
   });
   engines.push(engine);
-  return { engine, factory, started, configLive: () => configLive, pairLive: () => pairLive, backup, clock, live: () => live, busyCalls, busyChanges };
+  return { engine, factory, started, configLive: () => configLive, pairLive: () => pairLive, backup, backupApi, backupHold, clock, live: () => live, busyCalls, busyChanges };
 }
 
 const CONFIG_URL = 'http://api.test/v1/config';
@@ -238,6 +277,8 @@ function backupDerive(secret: string, platform: string, appId: string, onProgres
   return Promise.resolve(new Uint8Array(createHash('sha256').update(`${platform}|${appId}|${secret}`).digest()));
 }
 const BACKUP_REQUEST = { platform: 'webos', appId: 'com.lablo.iptv', secret: 'LGUDID-1' };
+/** An upload's or a restore's request (step 32c1): the API's origin added. */
+const BACKUP_CALL = { ...BACKUP_REQUEST, base: 'http://api.test' };
 /** The pair worker's key pair in these tests (step 31c1): the scripted phone seals to it. */
 const PAIR_KEYS = boxKeyPairFromSecretKey(new Uint8Array(32).fill(5));
 const SALT = 'QtHj17D-F3HxhSWwfvhERM83_Cu0K5lHS7cQ_PczpBA';
@@ -988,6 +1029,54 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     expect(s.backup).toEqual({ started: 1, live: 0 });
   });
 
+  it('sends the profile, then restores it on a wiped TV, each in a backup worker of its own (step 32c1)', async () => {
+    const s = setup(() => ({ status: 404 }));
+    const source = { id: 's1', type: 'm3u' as const, name: 'Home', url: 'http://p.test/list.m3u', added: 1 };
+    expect(await s.engine.editProfile({ kind: 'source', source })).toBe(true);
+    expect(await s.engine.uploadBackup(BACKUP_CALL)).toEqual({ state: 'sent' });
+    expect(s.backup).toEqual({ started: 1, live: 0 });
+    expect(await s.engine.uploadBackup(BACKUP_CALL)).toEqual({ state: 'same' });
+    expect(s.backup).toEqual({ started: 2, live: 0 });
+    expect(s.backupApi.requests.map((r) => `${r.method} ${r.status}`)).toEqual(['GET 404', 'PUT 200']);
+    // At the request's own origin.
+    expect(s.backupHold.urls.map((url) => url.slice(0, url.lastIndexOf('/') + 1))).toEqual(['http://api.test/v1/backup/', 'http://api.test/v1/backup/']);
+
+    // The same TV wiped: a new database, the same API.
+    const wiped = setup(() => ({ status: 404 }));
+    for (const [id, blob] of s.backupApi.blobs) wiped.backupApi.blobs.set(id, blob);
+    const progress: number[] = [];
+    expect(await wiped.engine.restoreBackup(BACKUP_CALL, { onProgress: (f) => progress.push(f) })).toEqual({ state: 'restored', language: null, sources: 1 });
+    expect(progress).toEqual([0.5, 1]);
+    expect(wiped.backup).toEqual({ started: 1, live: 0 });
+    expect(wiped.backupHold.urls.map((url) => url.slice(0, url.lastIndexOf('/') + 1))).toEqual(['http://api.test/v1/backup/']);
+    // No other worker starts for it; the query worker then reads the restored profile.
+    expect(wiped.started).toEqual({ query: 0, ingest: 0, epg: 0, config: 0, pair: 0 });
+    expect((await wiped.engine.profile())!.doc.sources).toEqual([source]);
+  });
+
+  it("ends the look-up's worker when its call is cancelled (the app's time limit), keeping nothing", async () => {
+    const s = setup(() => ({ status: 404 }));
+    let release!: () => void;
+    s.backupHold.gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const cancel = new CancelSource();
+    const looking = s.engine.restoreBackup(BACKUP_CALL, { cancel: cancel.token });
+    for (let i = 0; i < 100 && s.backupHold.held === 0; i++) await delay(5);
+    expect(s.backupHold.held).toBe(1);
+    expect(s.backup.live).toBe(1);
+    cancel.cancel();
+    await expect(looking).rejects.toMatchObject({ code: 'cancelled' });
+    expect(s.backup).toEqual({ started: 1, live: 0 });
+    release();
+    await delay(20);
+    const db = await openDatabase(s.factory);
+    expect(await getValue(db, STORE.kv, BACKUP_MASTER_KEY)).toBeUndefined();
+    expect(await getValue(db, STORE.kv, BACKUP_SENT_KEY)).toBeUndefined();
+    expect(await getValue(db, STORE.profile, 'current')).toBeUndefined();
+    db.close();
+  });
+
   it('refuses to back up without a backup worker', async () => {
     const engine = new DataEngine({
       startQueryWorker: () => {
@@ -1005,6 +1094,8 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     });
     engines.push(engine);
     await expect(engine.prepareBackup(BACKUP_REQUEST)).rejects.toThrow('This data engine has no backup worker');
+    await expect(engine.uploadBackup(BACKUP_CALL)).rejects.toThrow('This data engine has no backup worker');
+    await expect(engine.restoreBackup(BACKUP_CALL)).rejects.toThrow('This data engine has no backup worker');
   });
 
   it('refuses to pair without a pair worker', () => {

@@ -41,9 +41,11 @@
  *   makes a `MessageChannel`, gives one port to the pair worker and the other, as a `FileFeed`,
  *   to the refresh (`RefreshOptions.file`), whose ingest worker pulls the plain frames from it.
  *   The add's load is cancelled before the pair worker ends (the pairing screen's `close`).
- * - a **backup worker** starts for each `prepareBackup` (step 32b) and ends when it answers: it
- *   keeps the backup code and the master key in IndexedDB (scrypt, seconds on a 2018 TV, runs
- *   there only when no master is kept for the secret). It runs beside the refresh slot.
+ * - a **backup worker** starts for each `prepareBackup` (step 32b), `uploadBackup` and
+ *   `restoreBackup` (step 32c1) and ends when it answers: it keeps the backup code and the master
+ *   key in IndexedDB (scrypt, seconds on a 2018 TV, runs there only when no master is kept for the
+ *   secret), and sends or restores the profile through the backup API. It runs beside the refresh
+ *   slot.
  *
  * Workers come from factories, so tests serve the real services over message channels; the
  * app passes the `?worker` imports (`./workers.ts`).
@@ -92,7 +94,18 @@ import type {
   VodInfoRequest,
 } from '@lablo/data';
 // The client entry only: the package index would pull every data module's polyfills into main.
-import type { BackupPrepareRequest, BackupPrepareResult, FileFeed, PairFileFailure, PairOpenResult, PairPollResult, PairStatusResult } from '@lablo/data/client';
+import type {
+  BackupCallRequest,
+  BackupPrepareRequest,
+  BackupPrepareResult,
+  BackupRestoreResult,
+  BackupUploadResult,
+  FileFeed,
+  PairFileFailure,
+  PairOpenResult,
+  PairPollResult,
+  PairStatusResult,
+} from '@lablo/data/client';
 import { createBackupClient, createConfigClient, createDataClient, createEpgClient, createIngestClient, createPairClient, epgGuides, epgRefreshDue } from '@lablo/data/client';
 import type { PairStatus } from '@lablo/protocol';
 
@@ -469,11 +482,32 @@ export class DataEngine {
    * in whole percents, when it has to run. Not in the refresh slot.
    */
   prepareBackup(request: BackupPrepareRequest, onProgress?: (fraction: number) => void): Promise<BackupPrepareResult> {
-    const start = this.options.startBackupWorker;
-    if (start === undefined) return Promise.reject(new Error('This data engine has no backup worker'));
-    return this.withWorker(start, createBackupClient, (client) => {
+    return this.withBackupWorker((client) => {
       if (onProgress) client.on('progress', onProgress);
       return client.call('prepare', request);
+    });
+  }
+
+  /**
+   * Sends the profile to the backup API at `request.base` when it changed since the last send
+   * (step 32c1), in a backup worker of its own: `sent`, `same`, `none` (nothing worth sending),
+   * `held` (a backup this TV hasn't seen is there: never written over), `too-large` or `failed`.
+   * The master is derived first when none is kept (scrypt). Not in the refresh slot.
+   */
+  uploadBackup(request: BackupCallRequest): Promise<BackupUploadResult> {
+    return this.withBackupWorker((client) => client.call('upload', request));
+  }
+
+  /**
+   * Looks for this TV's backup with its device ID and restores it where there is no profile (step
+   * 32c1), in a backup worker of its own: `onProgress` gets scrypt's progress. Nothing is kept
+   * unless a backup is restored. A cancel (the app's time limit) rejects with `CancelError` and
+   * ends the worker. Not in the refresh slot.
+   */
+  restoreBackup(request: BackupCallRequest, options: { readonly onProgress?: (fraction: number) => void; readonly cancel?: CancelToken } = {}): Promise<BackupRestoreResult> {
+    return this.withBackupWorker((client) => {
+      if (options.onProgress) client.on('progress', options.onProgress);
+      return client.call('restore', request, { cancel: options.cancel });
     });
   }
 
@@ -749,6 +783,13 @@ export class DataEngine {
   }
 
   /** Runs `use` with a fresh worker and its client, then terminates it whatever happened. */
+  /** One call in a backup worker started now and ended when it answers (step 32b). */
+  private withBackupWorker<T>(use: (client: ReturnType<typeof createBackupClient>) => Promise<T>): Promise<T> {
+    const start = this.options.startBackupWorker;
+    if (start === undefined) return Promise.reject(new Error('This data engine has no backup worker'));
+    return this.withWorker(start, createBackupClient, use);
+  }
+
   private async withWorker<C extends { close(): void }, T>(start: () => WorkerLike, wrap: (worker: WorkerLike) => C, use: (client: C) => Promise<T>): Promise<T> {
     const worker = start();
     const client = wrap(worker);

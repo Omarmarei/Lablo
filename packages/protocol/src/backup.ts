@@ -4,15 +4,11 @@
  * DELETE. Step 32 builds the routes and the restore.
  */
 import * as z from 'zod/mini';
+import { BACKUP_CT_MAX_BYTES, BACKUP_KDF_NAME } from './backup-limits';
 import { base64UrlLength, base64UrlRange, bytes32, MAC_BYTES, nonce24 } from './wire';
 
-/** The envelope's JSON body (§3.2: at most 512 KB). */
-export const BACKUP_BODY_MAX_BYTES = 524288;
-/** The ciphertext's bytes: the body less 1 KB for the envelope's other fields. */
-export const BACKUP_CT_MAX_BYTES = Math.floor(((BACKUP_BODY_MAX_BYTES - 1024) * 3) / 4);
-
-/** The KDF the master key came from: scrypt N = 2^15, r = 8, p = 1 (`BACKUP_KDF`). */
-export const BACKUP_KDF_NAME = 'scrypt-15-8-1';
+// The limits and the header live in a schema-free module the TV's backup worker reads (step 32c1).
+export { BACKUP_BODY_MAX_BYTES, BACKUP_CT_MAX_BYTES, BACKUP_KDF_NAME, BACKUP_WRITE_HEADER } from './backup-limits';
 
 export const backupEnvelopeSchema = z.object({
   v: z.literal(1),
@@ -26,9 +22,6 @@ export type BackupEnvelopeWire = z.infer<typeof backupEnvelopeSchema>;
 export const lookupIdSchema = bytes32;
 /** `X-Write-Token`: b64url(HMAC-SHA256(master, "write")). */
 export const writeTokenSchema = bytes32;
-
-/** The request header that carries the write token on a PUT or a DELETE. */
-export const BACKUP_WRITE_HEADER = 'x-write-token';
 
 /** The longest `ct` an envelope can carry, in characters. */
 export const BACKUP_CT_MAX_CHARS = base64UrlLength(BACKUP_CT_MAX_BYTES);
