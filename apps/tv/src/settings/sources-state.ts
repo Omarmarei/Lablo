@@ -89,12 +89,6 @@ function linkOf(record: SourceRecord): string {
   return source === null ? '' : sourceUrlOf(source);
 }
 
-/** A stored source's server as shown (`''` for a file from the phone). */
-function hostOf(record: SourceRecord): string {
-  const link = linkOf(record);
-  return link === '' ? '' : shownHost(link);
-}
-
 /** The rows, in the profile's order; `blocked[i]` is the i-th source's answer (missing: not blocked). */
 export function sourceRows(profile: LoadedProfile | null, metas: readonly SourceMeta[], blocked: readonly boolean[]): SourceRow[] {
   const rows: SourceRow[] = [];
@@ -108,7 +102,8 @@ export function sourceRows(profile: LoadedProfile | null, metas: readonly Source
       id: record.id,
       name: record.name,
       type: record.type,
-      host: hostOf(record),
+      // A file from the phone: no link, no server shown (`shownHost('')` is empty).
+      host: shownHost(linkOf(record)),
       checkedAt: meta !== null && meta.gen > 0 ? checkedAt : null,
       // A file has no server to block (its URL is empty; its streams are checked as they play).
       blocked: record.type !== 'm3u-file' && blocked[i] === true,

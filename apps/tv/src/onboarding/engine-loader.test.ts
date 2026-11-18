@@ -508,6 +508,21 @@ describe('createEngineLoader', () => {
     ]);
   });
 
+  it("fetches no file when the load is cancelled while a file sent again reads the stored guides", async () => {
+    const doc = { v: 8, sources: [{ id: 's2', type: 'm3u-file', name: 'Kitchen', added: 5 }], guides: [] };
+    const { engine, calls } = fake({ profile: { doc, newer: false, migratedFrom: null } });
+    const status = gate<{ guides: { epgSrc: string }[] }>();
+    engine.epgStatus = () => status.promise;
+    const { draft, asked } = fileDraft('Kitchen');
+    const handle = loaderFor(engine).start(draft, () => undefined);
+    await settle();
+    handle.cancel();
+    status.resolve({ guides: [] });
+    expect(await settled(handle.done)).toBe(false);
+    expect(asked.n).toBe(0);
+    expect(calls.refresh).toEqual([]);
+  });
+
   it("adds a file under a new id when its name is another file's, or a link's", async () => {
     const doc = {
       v: 8,
