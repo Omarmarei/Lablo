@@ -18,6 +18,11 @@
  * the grid guide from the header's "Guide" (step 23e: every cell, slot label and the now line
  * against GUIDE_LAYOUT, across rows and time) (artifacts/engines/onboarding-*.png: the form,
  * done, live, category, on Tizen exit, and guide screens).
+ * Then onboarding by phone (step 31c2b): the source screen's "Use your phone" in English and
+ * in Arabic from a fresh database, against the stand-in pairing API on the host (the container's
+ * 127.0.0.1:8091 forwarded to it), a scripted phone sending the fixture playlist's link: the
+ * code, the QR code module by module against the link the TV must hold, the source added, the
+ * phone reading `ok` (artifacts/engines/pairing-*.png: the code and done views).
  * Then the Lablo Lab (dist/tv-lab, step 15a) runs its spikes at launch and reports to a mock
  * provider on the host (artifacts/engines/lab-logs): S1 must pass on every engine, and the
  * polyfills it filled must be exactly the ones the engine lacks.
@@ -44,7 +49,7 @@ import { checkQr } from '@lablo/core/check-qr';
 import { checkSamples } from '@lablo/protocol/check-samples';
 import type { CdpClient } from './src/cdp';
 import { connectToPage, waitForDevtools } from './src/cdp';
-import { ENGINE_HOUR, assertDockerRunning, engineLogs, engineZone, ensureImage, startEngine, stopEngine, zoneOffset } from './src/docker';
+import { ENGINE_HOUR, assertDockerRunning, engineLogs, engineZone, ensureImage, forwardToHost, startEngine, stopEngine, zoneOffset } from './src/docker';
 import type { Engine } from './src/engines';
 import { TV_RUNTIME_FLAGS, TV_SCREEN_FLAGS, selectEngines } from './src/engines';
 import { trustsDevKey } from './src/config';
@@ -57,10 +62,14 @@ import type { LabServer } from './src/lab';
 import { LAB_DIR, LAB_SEED, evaluateLab, labSummary, labUrl, runLab, stageLab, stageLabSeed, startLabServer } from './src/lab';
 import type { OnboardingRun, WalkCheck, WalkLanguage } from './src/onboarding';
 import { evaluateOnboarding, onboardingUrl, runOnboarding, stageBlankPage, stepTime } from './src/onboarding';
+import type { PairServer } from './src/pair-server';
+import { startPairServer } from './src/pair-server';
+import type { PairingRun } from './src/pairing';
+import { PAIR_ORIGIN, PAIR_PORT, evaluatePairing, pairingSummary, pairingUrl, runPairing } from './src/pairing';
 import type { PlatformRun, TvPlatform } from './src/scenario';
 import { TV_PLATFORMS, evaluateRun, readProbe, runPlatform } from './src/scenario';
 import type { AppScreen, Variant } from './src/variants';
-import { APP_VARIANT, CSS_SEEDS, SEEDS, WALK_SEEDS, mustPass, stageApp, stageCssSeed, stageNoPolyfills, stageSeed } from './src/variants';
+import { APP_VARIANT, CSS_SEEDS, PAIR_SEEDS, SEEDS, WALK_SEEDS, mustPass, stageApp, stageCssSeed, stageNoPolyfills, stageSeed } from './src/variants';
 import { VECTORS_DIR, VECTORS_SEED, evaluateVectors, runVectors, stageVectors, stageVectorsSeed, vectorsSummary, vectorsUrl } from './src/vectors';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
@@ -104,6 +113,14 @@ interface RunReport {
   readonly lab: { readonly session: string | null; readonly summary: string } | null;
   /** The crypto vectors page: each run's time and the backup's scrypt in it, ms (vectors runs only). */
   readonly vectors: { readonly pageMs: number | null; readonly workerMs: number | null; readonly pageScryptMs: number | null; readonly workerScryptMs: number | null } | null;
+  /** Onboarding by phone: each walk's code and add times, the QR code's version, its screenshots (pairing runs only). */
+  readonly pairing?: ReadonlyArray<{
+    readonly language: WalkLanguage;
+    readonly codeMs: number | null;
+    readonly addMs: number | null;
+    readonly qrVersion: number | null;
+    readonly screenshots: readonly string[];
+  }>;
   readonly failures: readonly string[];
   readonly mustPass: boolean;
   readonly durationMs: number;
@@ -169,7 +186,7 @@ interface Outcome {
   readonly failures: string[];
   readonly durationMs: number;
   readonly summary: string;
-  readonly fields: Pick<RunReport, 'userAgent' | 'refresh' | 'search' | 'guide' | 'nowNext' | 'screenshot' | 'arabicScreenshot' | 'bidi' | 'onboarding'>;
+  readonly fields: Pick<RunReport, 'userAgent' | 'refresh' | 'search' | 'guide' | 'nowNext' | 'screenshot' | 'arabicScreenshot' | 'bidi' | 'onboarding' | 'pairing'>;
 }
 
 async function runHello(client: CdpClient, engine: Engine, variant: Variant, platform: TvPlatform, check: DataCheck): Promise<Outcome> {
@@ -357,6 +374,44 @@ async function runVectorsPages(client: CdpClient, engine: Engine, targets: reado
   return reports;
 }
 
+/** Onboarding by phone (step 31c2b) against `server`'s stand-in. */
+async function runPairingScreen(client: CdpClient, engine: Engine, variant: Variant, platform: TvPlatform, check: WalkData, server: PairServer): Promise<Outcome> {
+  // Only the real app's screens are kept, as for onboarding.
+  const shot =
+    variant.id === APP_VARIANT.id ? (language: WalkLanguage, view: string): string => path.join(OUT, `pairing-${engine.id}-${platform}-${language}-${view}.png`) : null;
+  const run: PairingRun = await runPairing(client, platform, pairingUrl(variant.id, platform), check, server, {
+    bootTimeoutMs: BOOT_TIMEOUT_MS,
+    keyTimeoutMs: KEY_TIMEOUT_MS,
+    loadTimeoutMs: LOAD_TIMEOUT_MS,
+    screenshot: shot,
+    save: (file, png) => writeFileSync(file, png),
+  });
+  const first = run.walks.flatMap((walk) => walk.steps).find((step) => step.state !== null);
+  return {
+    failures: evaluatePairing(run, engine),
+    durationMs: run.durationMs,
+    summary: pairingSummary(run),
+    fields: {
+      userAgent: first?.state?.userAgent ?? null,
+      refresh: null,
+      search: null,
+      guide: null,
+      nowNext: null,
+      screenshot: null,
+      arabicScreenshot: null,
+      bidi: null,
+      onboarding: null,
+      pairing: run.walks.map((walk) => ({
+        language: walk.language,
+        codeMs: walk.codeMs,
+        addMs: walk.addMs,
+        qrVersion: walk.pair?.qr?.version ?? null,
+        screenshots: walk.screenshots.map((file) => repoPath(file) ?? file),
+      })),
+    },
+  };
+}
+
 async function runEngine(
   engine: Engine,
   zip: string,
@@ -365,6 +420,7 @@ async function runEngine(
   checks: Record<TvPlatform, WalkData>,
   labs: { readonly server: LabServer; readonly targets: readonly LabTarget[] },
   vectors: { readonly targets: readonly VectorsTarget[]; readonly expected: readonly string[] },
+  pair: PairServer,
   keep: boolean,
   hour: number,
 ): Promise<RunReport[]> {
@@ -381,6 +437,8 @@ async function runEngine(
   const reports: RunReport[] = [];
   try {
     const version = await waitForDevtools(running.port, 60_000);
+    // The pairing walk's API, as the TV build takes it: on the device itself (step 31c2b).
+    forwardToHost(running.container, PAIR_PORT, pair.port);
     const client = await connectToPage(running.port);
     try {
       await client.send('Page.enable');
@@ -401,7 +459,9 @@ async function runEngine(
                 ? await runHello(client, engine, variant, platform, checks[platform])
                 : screen === 'gallery'
                   ? await runGalleryScreen(client, engine, variant, platform)
-                  : await runOnboardingScreen(client, engine, variant, platform, checks[platform]);
+                  : screen === 'onboarding'
+                    ? await runOnboardingScreen(client, engine, variant, platform, checks[platform])
+                    : await runPairingScreen(client, engine, variant, platform, checks[platform], pair);
             const { failures } = outcome;
             const report: RunReport = {
               engine: engine.id,
@@ -503,6 +563,7 @@ async function main(): Promise<void> {
     variants.push(...SEEDS.map((seed) => stageSeed(distTv, VARIANTS_DIR, seed)));
     variants.push(...CSS_SEEDS.map((seed) => stageCssSeed(distTv, VARIANTS_DIR, seed)));
     variants.push(...WALK_SEEDS.map((seed) => stageSeed(distTv, VARIANTS_DIR, seed)));
+    variants.push(...PAIR_SEEDS.map((seed) => stageSeed(distTv, VARIANTS_DIR, seed)));
     stageLabSeed(labDir, VARIANTS_DIR);
     labTargets.push({ variant: LAB_SEED.id, dir: LAB_SEED.id, mustPass: false });
     stageVectorsSeed(vectorsDir, VARIANTS_DIR);
@@ -516,16 +577,19 @@ async function main(): Promise<void> {
   rmSync(labLogs, { recursive: true, force: true });
   const server = await startLabServer(ROOT, labLogs);
   log(`lab: mock provider on port ${server.port}, records in ${path.relative(ROOT, labLogs)}`);
+  const pair = await startPairServer();
+  log(`pairing: the stand-in on port ${pair.port}, reached in each engine as ${PAIR_ORIGIN}`);
   const reports: RunReport[] = [];
   try {
     for (const engine of engines) {
       const zip = await ensureEngineZip(engine, cacheDir, log);
       reports.push(
-        ...(await runEngine(engine, zip, image, variants, checks, { server, targets: labTargets }, { targets: vectorsTargets, expected: expectedVectors }, values.keep, hour)),
+        ...(await runEngine(engine, zip, image, variants, checks, { server, targets: labTargets }, { targets: vectorsTargets, expected: expectedVectors }, pair, values.keep, hour)),
       );
     }
   } finally {
     server.stop();
+    await pair.stop();
   }
 
   writeFileSync(path.join(OUT, 'report.json'), `${JSON.stringify(reports, null, 2)}\n`);

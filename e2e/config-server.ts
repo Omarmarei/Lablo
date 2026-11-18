@@ -2,6 +2,7 @@ import type { Server } from 'node:http';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { harnessConfigDoc } from '../tools/engines/src/config';
+import { answerPair } from '../tools/engines/src/pair-server';
 import { PairStandIn } from '../tools/engines/src/pair-stand-in';
 
 /**
@@ -32,18 +33,7 @@ export async function startConfigServer(answer: string): Promise<ConfigServer> {
   const pair = new PairStandIn();
   const server: Server = createServer((request, response) => {
     if ((request.url ?? '').startsWith('/v1/pair')) {
-      const chunks: Buffer[] = [];
-      request.on('data', (chunk: Buffer) => chunks.push(chunk));
-      request.on('end', () => {
-        const answer = pair.answer(request.method ?? 'GET', request.url ?? '', request.headers.authorization, Buffer.concat(chunks).toString('utf8'));
-        if (answer === null) {
-          response.writeHead(404, { 'access-control-allow-origin': '*' });
-          response.end();
-          return;
-        }
-        response.writeHead(answer.status, answer.headers);
-        response.end(answer.body);
-      });
+      answerPair(pair, request, response);
       return;
     }
     // The app's config worker fetches cross-origin (the dev app is on localhost:<port>).

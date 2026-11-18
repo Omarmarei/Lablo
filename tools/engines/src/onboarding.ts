@@ -384,7 +384,7 @@ export interface Expectation {
 export type Key = { readonly key: string; readonly keyCode: number };
 /** The screens a walk saves: the typed form, the done screen, the live screen, a category, the exit dialog (Tizen), the guide as it opens, later on and earlier, and the movies screen and a category of it. */
 export type WalkShot = 'form' | 'done' | 'live' | 'category' | 'exit' | 'guide' | 'guide-later' | 'guide-earlier' | 'movies' | 'movies-category';
-const KEY = {
+export const KEY = {
   enter: { key: 'Enter', keyCode: 13 },
   up: { key: 'ArrowUp', keyCode: 38 },
   down: { key: 'ArrowDown', keyCode: 40 },
