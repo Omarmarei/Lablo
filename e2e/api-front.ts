@@ -13,7 +13,9 @@ import type { AddressInfo } from 'node:net';
  *   sets an answer of its own (`serve`): the route bundles the committed file at build time, and
  *   the blocklist and refusal cases need another config;
  * - a test can hold some requests back (`hold`) to look at a state they would end (step 31d2b2b:
- *   the session's row while the TV's file download waits).
+ *   the session's row while the TV's file download waits);
+ * - it keeps what the API received (`received`: each request's headers and body as passed on), for
+ *   step 31e's search for anything in the clear.
  * Test code only: the product's servers never relay anything (CLAUDE.md "Legal guardrails").
  */
 
@@ -31,6 +33,14 @@ export interface Forwarded {
   readonly method: string;
   readonly path: string;
   readonly status: number;
+}
+
+/** One request as the real API received it: the headers passed on and the whole body. */
+export interface Received {
+  readonly method: string;
+  readonly path: string;
+  readonly headers: OutgoingHttpHeaders;
+  readonly body: Buffer;
 }
 
 /** Requests the front keeps back until `until` settles. */
@@ -55,6 +65,8 @@ export interface ApiFront {
   configAnswers(): number;
   /** Every request passed on to the real API, in the order they were answered. */
   readonly forwarded: readonly Forwarded[];
+  /** Every request passed on whose body ended, in that order, with its headers and body. */
+  readonly received: readonly Received[];
   close(): Promise<void>;
 }
 
@@ -98,12 +110,14 @@ export async function startApiFront(options: FrontOptions): Promise<ApiFront> {
   let held: HoldRule | null = null;
   let answered = 0;
   const forwarded: Forwarded[] = [];
+  const received: Received[] = [];
 
   const pass = (request: IncomingMessage, response: ServerResponse): void => {
     const method = request.method ?? 'GET';
     const path = request.url ?? '/';
+    const headers = forwardHeaders(request.headers, options.address);
     const outgoing = httpRequest(
-      { hostname: upstream.hostname, port: upstream.port, method, path, headers: forwardHeaders(request.headers, options.address), agent: false },
+      { hostname: upstream.hostname, port: upstream.port, method, path, headers, agent: false },
       (real) => {
         const status = real.statusCode ?? 502;
         forwarded.push({ method, path, status });
@@ -120,6 +134,10 @@ export async function startApiFront(options: FrontOptions): Promise<ApiFront> {
     request.on('error', () => outgoing.destroy());
     // A request the browser gave up on (a worker ended) ends its upstream request too.
     response.on('close', () => outgoing.destroy());
+    // The body as it goes on (the pipe and this listener start together, so neither misses a chunk).
+    const chunks: Buffer[] = [];
+    request.on('data', (chunk: Buffer) => chunks.push(chunk));
+    request.on('end', () => received.push({ method, path, headers, body: Buffer.concat(chunks) }));
     request.pipe(outgoing);
   };
 
@@ -159,6 +177,7 @@ export async function startApiFront(options: FrontOptions): Promise<ApiFront> {
     },
     configAnswers: () => answered,
     forwarded,
+    received,
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve());

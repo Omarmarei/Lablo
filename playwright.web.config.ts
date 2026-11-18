@@ -30,7 +30,8 @@ export default defineConfig({
     {
       name: 'tv',
       testDir: 'e2e',
-      testMatch: /pairing-api\.spec\.ts$/,
+      // The TV's pairing against the real API (step 31c3), and the "no plaintext" run with the real phone page (step 31e).
+      testMatch: /(pairing-api|no-plaintext)\.spec\.ts$/,
       // The TV canvas is 1920x1080, as in `pnpm e2e`.
       use: { ...devices['Desktop Chrome'], viewport: { width: 1920, height: 1080 }, baseURL: `http://localhost:${TV_PORT}` },
     },
