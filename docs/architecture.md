@@ -1868,6 +1868,7 @@ envelope   = {v:1, kdf:"scrypt-15-8-1", nonce:24B, ct: secretbox(gzip(profileJSO
 - **The old engines:** the backup worker's checks grow from 16 to 18: `backup.codeUpload` (a profile sent under a new backup code) and `backup.restoreCode` (the database wiped, onboarding's answers saved, the code typed in lower case and in two groups: the profile back, the code kept, the next upload `same`). The harness's summary adds the code's restore time ("the code's 1.4 s").
 - **Sizes:** the backup worker 134.3 → 135.5 KB of 150; main.js 453.8 → 454.0 KB (Tizen).
 - **Verified (leg 109):** unit 6,956 (+23); typecheck; lint; `verify:engines --engine chrome53 --engine chrome68` all 24 runs as expected, the backup worker 18/18 (53: 6.3 s, the code's restore 0.9 s; 68: 1.1 s, 0.1 s); `e2e/crypto-vectors.spec.ts`; mutation 44/44 (`artifacts/mutate32d3b.py`).
+- **Merged:** PR #136 as merge commit `55f14b1` on green CI on the fourth run (verify 17 m 23 s, web 2 m 18 s, engines 29 m 2 s; media 26 m 25 s after the `epg-declared-300mb` flake and two 30-minute caps on slow ffmpeg installs).
 - **Not yet:** the first-run screen that calls it (32d3c).
 
 **C. Config signing**
