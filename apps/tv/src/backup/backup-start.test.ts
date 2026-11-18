@@ -8,7 +8,7 @@ import type { SchedulerTimers } from '../data/refresh-scheduler';
 import { appI18n } from '../i18n';
 import type { BackupStart, BackupStartEngine, BackupStartEnd } from './backup-start';
 import { LOOKUP_LIMIT_MS, LOOKING_SCREEN, WELCOME_MS, WELCOME_SCREEN, createBackupStart } from './backup-start';
-import { BackupStartView } from './BackupStartApp';
+import { BackupStartView, startLocale } from './BackupStartApp';
 
 // RELAY step 32c2: "Looking for your backup" at a start with no profile, then "Welcome back" or
 // onboarding.
@@ -316,6 +316,19 @@ async function welcomed(sources: { id: string; type: string }[]): Promise<Backup
   await flush();
   return s.start;
 }
+
+describe('startLocale', () => {
+  it("is the TV's locale until \"Welcome back\" picks the restored language, in the TV's region", () => {
+    const us = { tag: 'en-US', country: 'US' };
+    expect(startLocale(us, null)).toMatchObject({ language: 'en', dir: 'ltr', tag: 'en-US' });
+    expect(startLocale(us, 'en')).toMatchObject({ language: 'en', dir: 'ltr', tag: 'en-US' });
+    const ar = startLocale(us, 'ar');
+    expect(ar).toMatchObject({ language: 'ar', dir: 'rtl' });
+    expect(ar.tag.startsWith('ar')).toBe(true);
+    expect(startLocale({ tag: 'ar-SA', country: 'SA' }, 'en')).toMatchObject({ language: 'en', dir: 'ltr' });
+    expect(startLocale({ tag: 'ar-SA', country: 'SA' }, null)).toMatchObject({ language: 'ar', dir: 'rtl', tag: 'ar-SA' });
+  });
+});
 
 describe('BackupStartView', () => {
   it('draws "Looking for your backup" with its progress and "Skip", in English and Arabic', () => {

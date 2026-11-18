@@ -1,7 +1,7 @@
 import { useSignal } from '@preact/signals';
-import { useEffect } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useMemo } from 'preact/hooks';
 import type { Platform } from '@lablo/platform-api';
-import type { Focus, ItemBinding, Language } from '@lablo/ui';
+import type { Focus, ItemBinding, Language, LocaleSettings } from '@lablo/ui';
 import { Button, ProgressBar, Spinner, connectRemote, resolveLocale, useFocus, useZone } from '@lablo/ui';
 import type { AppI18n } from '../i18n';
 import { appI18n, switchedTag } from '../i18n';
@@ -76,40 +76,59 @@ function BackupStartScreen({ start, i18n }: { start: BackupStart; i18n: AppI18n 
   return <BackupStartView start={start} i18n={i18n} item={zone.item(0)} focus={focus} />;
 }
 
+/** The TV's own locale, as the platform reports it. */
+export interface TvLocale {
+  readonly tag: string;
+  readonly country: string | null;
+}
+
 /**
- * The look-up's screens: the TV's locale first; "Welcome back" in the restored language (in the
- * TV's region, as the live screen does), setting `<html lang dir>` and the remote's LEFT/RIGHT.
+ * The start's locale: the TV's, or "Welcome back"'s restored language (`picked`) in the TV's
+ * region, as the live screen does.
+ */
+export function startLocale(tv: TvLocale, picked: Language | null): LocaleSettings {
+  const settings = resolveLocale(tv.tag, { country: tv.country });
+  return picked === null || picked === settings.language ? settings : resolveLocale(switchedTag(settings), { country: tv.country });
+}
+
+/**
+ * The look-up's screens: the TV's locale first; "Welcome back" in the restored language, setting
+ * `<html lang dir>` and the remote's LEFT/RIGHT before it is painted. The locale is worked out
+ * while drawing (the TV's is read once), so "Welcome back" is never drawn in the TV's language
+ * first: a slow engine showed that frame (CI's Chromium 53, step 32d1).
  */
 export function BackupStartApp({ platform, start }: { platform: Platform; start: BackupStart }) {
-  const i18n = useSignal<AppI18n | null>(null);
-  const picked: Language | null = start.screen.value === WELCOME_SCREEN ? start.language.value : null;
+  const tv = useSignal<TvLocale | null>(null);
   useEffect(() => {
     let closed = false;
-    const show = (tag: string, country: string | null): void => {
-      if (closed) return;
-      const settings = resolveLocale(tag, { country });
-      const locale = picked === null || picked === settings.language ? settings : resolveLocale(switchedTag(settings), { country });
-      start.nav.setDir(locale.dir);
-      document.documentElement.lang = locale.tag;
-      document.documentElement.dir = locale.dir;
-      i18n.value = appI18n(locale);
+    const keep = (locale: TvLocale): void => {
+      if (!closed) tv.value = locale;
     };
     platform.info().then(
-      (info) => show(info.locale, info.country),
-      () => show('en-US', null),
+      (info) => keep({ tag: info.locale, country: info.country }),
+      () => keep({ tag: 'en-US', country: null }),
     );
     return () => {
       closed = true;
     };
-  }, [platform, start, picked]);
+  }, [platform]);
+  const known = tv.value;
+  const picked: Language | null = start.screen.value === WELCOME_SCREEN ? start.language.value : null;
+  const i18n = useMemo(() => (known === null ? null : appI18n(startLocale(known, picked))), [known, picked]);
+  useLayoutEffect(() => {
+    if (i18n === null) return;
+    start.nav.setDir(i18n.locale.dir);
+    document.documentElement.lang = i18n.locale.tag;
+    document.documentElement.dir = i18n.locale.dir;
+  }, [start, i18n]);
   useEffect(() => connectRemote({ platform, nav: start.nav, target: window }), [platform, start]);
 
-  if (i18n.value === null) {
+  if (i18n === null) {
     return (
       <main class="onboarding" data-testid="onboarding" data-ready="false">
         <Spinner size="l" />
       </main>
     );
   }
-  return <BackupStartScreen start={start} i18n={i18n.value} />;
+  return <BackupStartScreen start={start} i18n={i18n} />;
 }

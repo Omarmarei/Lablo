@@ -9,7 +9,7 @@ import { E2E_DATABASE, serverUrl, withDatabase } from './apps/web/test/web-db';
  *   phone-sized Chromium; the specs (apps/web/e2e) play the TV themselves, over the API;
  * - `tv` (step 31c3): the TV's pairing screen in its dev app (the second web server) against the
  *   real API, through a test front (e2e/api-front.ts), with the mock provider and a scripted phone
- *   (e2e/pairing-api.spec.ts).
+ *   (e2e/pairing-api.spec.ts); the backup's wipe and restore (e2e/backup-api.spec.ts, step 32d1).
  */
 const PORT = Number(process.env.LABLO_WEB_E2E_PORT ?? 3101);
 /** The TV's dev app; `pnpm e2e` uses 5391. */
@@ -30,8 +30,9 @@ export default defineConfig({
     {
       name: 'tv',
       testDir: 'e2e',
-      // The TV's pairing against the real API (step 31c3), and the "no plaintext" run with the real phone page (step 31e).
-      testMatch: /(pairing-api|no-plaintext)\.spec\.ts$/,
+      // The TV's pairing against the real API (step 31c3), the "no plaintext" run with the real phone page (step 31e),
+      // and step 32's wipe restored from the real backup routes (step 32d1).
+      testMatch: /(pairing-api|no-plaintext|backup-api)\.spec\.ts$/,
       // The TV canvas is 1920x1080, as in `pnpm e2e`.
       use: { ...devices['Desktop Chrome'], viewport: { width: 1920, height: 1080 }, baseURL: `http://localhost:${TV_PORT}` },
     },
