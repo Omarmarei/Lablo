@@ -124,8 +124,10 @@ describe('createBrowserPlatform', () => {
     expect(await platform.speak('x')).toBe('unsupported');
   });
 
-  it('has no device ID (deviceSecret)', async () => {
+  it("has no device ID (deviceSecret) unless a test gives one with ?device= (step 32c2)", async () => {
     expect(await createBrowserPlatform(fakeEnv()).deviceSecret()).toBeNull();
+    expect(await createBrowserPlatform(fakeEnv({ search: '?device=' })).deviceSecret()).toBeNull();
+    expect(await createBrowserPlatform(fakeEnv({ search: '?api=http://127.0.0.1:9&device=e2e%20tv-1&locale=ar-SA' })).deviceSecret()).toBe('e2e tv-1');
     // Nor keys to register (spike S10).
     expect(createBrowserPlatform(fakeEnv()).registerKeys()).toEqual({ skipped: 'a desktop keyboard delivers every key', supported: null, registered: [], unsupported: [], refused: [] });
   });

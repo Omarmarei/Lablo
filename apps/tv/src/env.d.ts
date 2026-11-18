@@ -40,6 +40,10 @@ interface Window {
     config(): LabloConfigView | null;
     refreshConfig(): Promise<LabloConfigView | null>;
     configIdle(): boolean;
+    /** No backup look-up or upload running (RELAY step 32c2). */
+    backupIdle(): boolean;
+    /** A backup upload now, resolving with its state (`sent`, `same`, `held` …; `null`: none ran). */
+    uploadBackup(): Promise<string | null>;
   };
 }
 

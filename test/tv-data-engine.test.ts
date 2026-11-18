@@ -98,6 +98,8 @@ interface Setup {
   /** Every setBusy call the ingest workers got, in order. */
   busyCalls: boolean[];
   busyChanges: boolean[];
+  /** `onProfileChanged` calls (step 32c2). */
+  profileChanges: { n: number };
 }
 
 function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: RpcHandlers['run'], reloadConfig?: RpcHandlers['reloadConfig']): Setup {
@@ -113,6 +115,7 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: 
   const backupHold: Setup['backupHold'] = { gate: null, held: 0, urls: [] };
   const busyCalls: boolean[] = [];
   const busyChanges: boolean[] = [];
+  const profileChanges = { n: 0 };
 
   /** A stand-in Worker: the handlers are served on one end of a channel, the engine gets the other. */
   function worker(handlers: RpcHandlers, dbs: IDBDatabase[], onTerminate: () => void = () => undefined): WorkerLike {
@@ -142,6 +145,9 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: 
     idleMs,
     now: () => clock.now,
     onBusy: (busy) => busyChanges.push(busy),
+    onProfileChanged: () => {
+      profileChanges.n++;
+    },
     startQueryWorker: () => {
       started.query++;
       const dbs: IDBDatabase[] = [];
@@ -265,7 +271,7 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: 
     },
   });
   engines.push(engine);
-  return { engine, factory, started, configLive: () => configLive, pairLive: () => pairLive, backup, backupApi, backupHold, clock, live: () => live, busyCalls, busyChanges };
+  return { engine, factory, started, configLive: () => configLive, pairLive: () => pairLive, backup, backupApi, backupHold, clock, live: () => live, busyCalls, busyChanges, profileChanges };
 }
 
 const CONFIG_URL = 'http://api.test/v1/config';
@@ -401,6 +407,25 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     const facts = (await s.engine.sourceFacts()).get('debug')!;
     expect(facts.outputFormats).toEqual(['ts']);
     expect(facts.zone(Date.UTC(2026, 10, 3))).toBe(180);
+  });
+
+  it('tells the backup schedule after a profile edit that changed it and after a refresh that committed, and only then (step 32c2)', async () => {
+    let status = 200;
+    const s = setup(() => ({ status, body: status === 200 ? playlist(20) : 'gone' }));
+    expect(s.profileChanges.n).toBe(0);
+    await s.engine.refresh(job());
+    expect(s.profileChanges.n).toBe(1);
+    // Unchanged (a 304 or the same bytes): no call.
+    await s.engine.refresh(job());
+    expect(s.profileChanges.n).toBe(1);
+    status = 404;
+    await expect(s.engine.refresh(job())).rejects.toThrow(/HTTP 404/);
+    expect(s.profileChanges.n).toBe(1);
+    expect(await s.engine.editProfile({ kind: 'answers', answers: { language: 'ar' } })).toBe(true);
+    expect(s.profileChanges.n).toBe(2);
+    // The same answer again changes nothing.
+    expect(await s.engine.editProfile({ kind: 'answers', answers: { language: 'ar' } })).toBe(false);
+    expect(s.profileChanges.n).toBe(2);
   });
 
   it('reports a failed refresh, terminates its worker and keeps serving the old catalog', async () => {

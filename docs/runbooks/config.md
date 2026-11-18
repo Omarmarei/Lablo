@@ -168,6 +168,7 @@ schedule, step 30b2; the test plumbing, step 30c1; the enforcement comes with st
   (`http(s)://host[:port]`, one trailing slash dropped). The desktop dev app takes any origin; a
   TV build only one on the device itself (`127.0.0.1`, `localhost`, `[::1]`), so a store build's
   address can't point the app at another server. Anything else keeps the build's base.
+- **The backup in a test** (step 32c2): the dev app with `?device=<any id>&api=<origin>` looks for a backup at a start with no profile (the e2e's config server answers the backup routes from `BackupStandIn`); `window.__LABLO_TEST__.uploadBackup()` sends one now, and `backupIdle()` says no backup worker runs.
 - **Reading the policy and refreshing now** (step 30c1, every build): `window.__LABLO_TEST__.config()`
   gives the last answer as plain data (`status`, `failure`, `issuedAt`, the kill rule's `id` and
   `mode`, the notices' ids, `updateRequired`; `null` before the first and on the developer

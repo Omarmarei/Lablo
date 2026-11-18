@@ -254,19 +254,23 @@ export const WALK_EXPRESSION = `(function () {
 
 /**
  * The app's config run is over (`window.__LABLO_TEST__.configIdle()`, step 30c1): none in progress
- * and none due. True on a page without the hook (the blank page, a page that failed to boot).
+ * and none due; and no backup worker runs (`backupIdle()`, step 32c2: the look-up at a start with
+ * no profile, an upload). True on a page without the hook (the blank page, a page that failed to
+ * boot), and for a part the hook doesn't have.
  */
 export const CONFIG_IDLE = `(function () {
   var hook = window.__LABLO_TEST__;
-  return JSON.stringify(!hook || typeof hook.configIdle !== 'function' || hook.configIdle() === true);
+  var config = !hook || typeof hook.configIdle !== 'function' || hook.configIdle() === true;
+  var backup = !hook || typeof hook.backupIdle !== 'function' || hook.backupIdle() === true;
+  return JSON.stringify(config && backup);
 })()`;
 
 /** The longest a config run takes: its worker's start, the cached copy, the 3 s fetch, the write. */
 export const CONFIG_IDLE_TIMEOUT_MS = 10_000;
 
 /**
- * Waits (at most `CONFIG_IDLE_TIMEOUT_MS`) until the app's config worker is out of the database
- * before the walk leaves a page. The app starts one after its first screen paints (step 30b2); a
+ * Waits (at most `CONFIG_IDLE_TIMEOUT_MS`) until the app's config worker, and any backup worker
+ * (step 32c2), is out of the database before the walk leaves a page. The app starts one after its first screen paints (step 30b2); a
  * walk that fails right after a relaunch left that page while the worker was in IndexedDB, and
  * on Chromium 53 every later delete of the database stayed `pending` (CI, 2026-11-17).
  */

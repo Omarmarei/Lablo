@@ -2,6 +2,7 @@ import type { Server } from 'node:http';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { harnessConfigDoc } from '../tools/engines/src/config';
+import { BackupStandIn, answerBackup, backupPath } from '../tools/engines/src/backup-stand-in';
 import { answerPair } from '../tools/engines/src/pair-server';
 import { PairStandIn, standInPath } from '../tools/engines/src/pair-stand-in';
 
@@ -11,7 +12,7 @@ import { PairStandIn, standInPath } from '../tools/engines/src/pair-stand-in';
  * dev app and the test builds trust), and the app reaches it through `?api=<origin>`. It also
  * serves files the test gives it (step 30c3b: a playlist on another host than its streams'), and
  * answers the pairing API's routes from a stand-in in memory (step 31c2a: `pair`), the phone's
- * file at its blob path too (step 31d2b2a).
+ * file at its blob path too (step 31d2b2a), and the backup API's routes (step 32c2: `backup`).
  */
 
 export interface ConfigServer {
@@ -24,6 +25,8 @@ export interface ConfigServer {
   file(path: string, body: string, type: string): void;
   /** The pairing API on this origin (step 31c2a): what the TV and the phone asked, and its controls. */
   readonly pair: PairStandIn;
+  /** The backup API on this origin (step 32c2): what the TV sent and asked, a backup put in, a hold on its `GET`s. */
+  readonly backup: BackupStandIn;
   close(): Promise<void>;
 }
 
@@ -32,9 +35,14 @@ export async function startConfigServer(answer: string): Promise<ConfigServer> {
   let requests = 0;
   const files = new Map<string, { readonly body: string; readonly type: string }>();
   const pair = new PairStandIn();
+  const backup = new BackupStandIn();
   const server: Server = createServer((request, response) => {
     if (standInPath(request.url ?? '')) {
       answerPair(pair, request, response);
+      return;
+    }
+    if (backupPath(request.url ?? '')) {
+      answerBackup(backup, request, response);
       return;
     }
     // The app's config worker fetches cross-origin (the dev app is on localhost:<port>).
@@ -66,6 +74,7 @@ export async function startConfigServer(answer: string): Promise<ConfigServer> {
       files.set(at, { body: text, type });
     },
     pair,
+    backup,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }

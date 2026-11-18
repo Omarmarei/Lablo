@@ -267,15 +267,19 @@ describe('the walk seeds', () => {
     expect(window.__LABLO_TEST__.focusPath()).toBe('language/languages/0');
   });
 
-  it("keeps the app's configIdle, so the walk still waits for the config run before leaving (step 30c1)", () => {
+  it("keeps the app's configIdle and backupIdle, so the walk still waits for their workers before leaving (steps 30c1, 32c2)", () => {
     const seed = WALK_SEEDS.find((s) => s.id === 'seed-focus-engine-stuck')!;
-    const window: { __LABLO_TEST__?: { focusPath(): string | null; configIdle(): boolean } } = {};
+    const window: { __LABLO_TEST__?: { focusPath(): string | null; configIdle(): boolean; backupIdle(): boolean } } = {};
     runInNewContext(seed.code, { window, Object });
     let idle = false;
-    window.__LABLO_TEST__ = { focusPath: () => null, configIdle: () => idle };
+    let backup = false;
+    window.__LABLO_TEST__ = { focusPath: () => null, configIdle: () => idle, backupIdle: () => backup };
     expect(window.__LABLO_TEST__.configIdle()).toBe(false);
     idle = true;
     expect(window.__LABLO_TEST__.configIdle()).toBe(true);
+    expect(window.__LABLO_TEST__.backupIdle()).toBe(false);
+    backup = true;
+    expect(window.__LABLO_TEST__.backupIdle()).toBe(true);
   });
 
   it('are staged like the syntax seeds: prepended to a copy of main.js', () => {

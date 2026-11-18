@@ -88,7 +88,7 @@ export const EN = {
   'onboarding.understand': 'I understand',
   'onboarding.consentTitle': "Use this TV's ID for your backup?",
   'onboarding.consentBody':
-    "Lablo can use this TV's device ID to encrypt a backup of your sources and favourites, so they come back after an app update or a reset. The ID itself never leaves your TV.",
+    "Lablo can use this TV's device ID to find and encrypt a backup of your sources and favourites, so they come back after an app update or a reset. The ID itself never leaves your TV.",
   'onboarding.backupNote':
     "The backup is on by default and is encrypted on your TV before it is sent, so we can't read it. You can turn it off, or leave out your login details, in Settings.",
   'onboarding.consentNo': "If you don't allow it, Settings shows a backup code for you to note down instead.",
@@ -104,6 +104,15 @@ export const EN = {
   'onboarding.add': 'Add source',
   'onboarding.phone': 'Use your phone',
   'onboarding.phoneHint': 'Scan a code on this screen, then type the details on your phone',
+
+  // The backup's look-up at a start with no profile (RELAY step 32c2), and the restore's welcome.
+  'backup.lookingTitle': 'Looking for your backup',
+  'backup.lookingBody': 'Lablo is checking whether this TV has a backup of your sources. This takes a few seconds.',
+  'backup.skip': 'Skip',
+  'backup.welcomeTitle': 'Welcome back',
+  'backup.welcomeBody': 'Your sources, favourites and settings are back. Your channels are loading now.',
+  'backup.welcomeFiles': 'Files sent from your phone need to be sent again: in {settings}, open {sources}, then {add}.',
+  'backup.continue': 'Continue',
 
   // The pairing screen (RELAY step 31c2a): a source sent from the phone page.
   'pair.title': 'Add a source from your phone',
@@ -296,6 +305,7 @@ export const EN = {
   'sources.fileSent': 'Sent from your phone {day}, {time}',
   'sources.updated': 'Updated {day}, {time}',
   'sources.notUpdated': 'Not updated yet',
+  'sources.fileAgain': 'Not loaded yet: send this file again from your phone.',
   'sources.blocked': "Not updated: this server can't be used with Lablo.",
   'sources.blockedSince': "Not updated since {day}, {time}: this server can't be used with Lablo.",
   'sources.failedRead': "Couldn't read your sources.",

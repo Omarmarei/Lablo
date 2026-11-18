@@ -75,8 +75,11 @@ export interface SchedulerOptions {
 }
 
 export interface RefreshScheduler {
-  /** Checks `FIRST_CHECK_MS` from now, then every `CHECK_MS`. */
-  start(): void;
+  /**
+   * Checks `firstMs` from now (`FIRST_CHECK_MS`; 0 after a restored backup, step 32c2: its
+   * catalogs are all missing), then every `CHECK_MS`.
+   */
+  start(firstMs?: number): void;
   /**
    * Reads the guides now (the user changed the list): at once, or right after the pass running
    * (several calls meanwhile share one pass). Only the guides: a catalog that is due waits for
@@ -216,7 +219,7 @@ export function createRefreshScheduler(options: SchedulerOptions): RefreshSchedu
   };
 
   return {
-    start(): void {
+    start(firstMs: number = FIRST_CHECK_MS): void {
       if (disposed || unsubscribe !== null) return;
       unsubscribe =
         options.lifecycle?.((event) => {
@@ -230,7 +233,7 @@ export function createRefreshScheduler(options: SchedulerOptions): RefreshSchedu
           // A pass running now schedules the next check when it ends.
           if (!running) schedule(FIRST_CHECK_MS);
         }) ?? (() => undefined);
-      schedule(FIRST_CHECK_MS);
+      schedule(firstMs);
     },
     refreshNow(): Promise<void> {
       if (disposed) return Promise.resolve();

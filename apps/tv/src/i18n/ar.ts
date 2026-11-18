@@ -78,7 +78,7 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'onboarding.understand': 'فهمت',
   'onboarding.consentTitle': 'استخدام معرّف هذا التلفاز للنسخة الاحتياطية؟',
   'onboarding.consentBody':
-    'يستطيع لابلو استخدام معرّف هذا التلفاز لتشفير نسخة احتياطية من مصادرك ومفضلتك، فتعود بعد تحديث التطبيق أو إعادة الضبط. لا يغادر المعرّف نفسه تلفازك أبدًا.',
+    'يستطيع لابلو استخدام معرّف هذا التلفاز للعثور على نسخة احتياطية من مصادرك ومفضلتك وتشفيرها، فتعود بعد تحديث التطبيق أو إعادة الضبط. لا يغادر المعرّف نفسه تلفازك أبدًا.',
   'onboarding.backupNote':
     'النسخ الاحتياطي مفعّل افتراضيًا، ويُشفَّر على تلفازك قبل إرساله، فلا يمكننا قراءته. يمكنك إيقافه أو استثناء بيانات الدخول من الإعدادات.',
   'onboarding.consentNo': 'إن لم تسمح بذلك، تعرض الإعدادات رمزًا احتياطيًا لتدوّنه بدلًا منه.',
@@ -94,6 +94,14 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'onboarding.add': 'إضافة المصدر',
   'onboarding.phone': 'استخدم هاتفك',
   'onboarding.phoneHint': 'امسح رمزًا على هذه الشاشة، ثم اكتب البيانات على هاتفك',
+
+  'backup.lookingTitle': 'جارٍ البحث عن نسختك الاحتياطية',
+  'backup.lookingBody': 'يتحقق لابلو مما إذا كانت لهذا التلفاز نسخة احتياطية من مصادرك. يستغرق ذلك بضع ثوانٍ.',
+  'backup.skip': 'تخطٍّ',
+  'backup.welcomeTitle': 'مرحبًا بعودتك',
+  'backup.welcomeBody': 'عادت مصادرك ومفضلتك وإعداداتك. يجري الآن تحميل قنواتك.',
+  'backup.welcomeFiles': 'يجب إرسال الملفات المرسلة من هاتفك مرة أخرى: في {settings}، افتح {sources}، ثم {add}.',
+  'backup.continue': 'متابعة',
 
   'pair.title': 'أضف مصدرًا من هاتفك',
   'pair.scan': 'امسح رمز {qr} بكاميرا هاتفك.',
@@ -264,6 +272,7 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'sources.fileSent': 'أُرسل من هاتفك {day}، {time}',
   'sources.updated': 'حُدّث {day}، {time}',
   'sources.notUpdated': 'لم يُحدَّث بعد',
+  'sources.fileAgain': 'لم يُحمَّل بعد: أرسل هذا الملف من هاتفك مرة أخرى.',
   'sources.blocked': 'لا يُحدَّث: لا يمكن استخدام هذا الخادم مع لابلو.',
   'sources.blockedSince': 'لم يُحدَّث منذ {day}، {time}: لا يمكن استخدام هذا الخادم مع لابلو.',
   'sources.failedRead': 'تعذّرت قراءة مصادرك.',

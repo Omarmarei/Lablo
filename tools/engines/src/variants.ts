@@ -112,7 +112,7 @@ export const WALK_SEEDS: readonly ScriptSeed[] = [
     description: "window.__LABLO_TEST__ keeps answering the first focus it saw: the screen draws each move, but the focus engine's path stays put, so the two disagree",
     minChrome: Number.POSITIVE_INFINITY,
     screens: ['onboarding'],
-    code: "(function () { var hook; Object.defineProperty(window, '__LABLO_TEST__', { configurable: true, get: function () { return hook; }, set: function (real) { var first = null; hook = { focusPath: function () { var path = real.focusPath(); if (first === null) first = path; return first; }, configIdle: function () { return real.configIdle(); } }; } }); })();",
+    code: "(function () { var hook; Object.defineProperty(window, '__LABLO_TEST__', { configurable: true, get: function () { return hook; }, set: function (real) { var first = null; hook = { focusPath: function () { var path = real.focusPath(); if (first === null) first = path; return first; }, configIdle: function () { return real.configIdle(); }, backupIdle: function () { return real.backupIdle(); } }; } }); })();",
   },
 ];
 

@@ -6,11 +6,13 @@
  * The engines reach the host through `host.docker.internal`, but a TV build takes `?api=` only
  * for a host on the device itself (`readApiBase`: 127.0.0.1, localhost, [::1]): so the walk
  * forwards the container's own 127.0.0.1:`PAIR_PORT` to this server (`forwardToHost`, socat, as
- * the image already has it), and the TV's pair worker fetches it as it would the real API.
+ * the image already has it), and the TV's pair worker fetches it as it would the real API. The backup's routes (step 32c2) are
+ * answered on the same origin, from `BackupStandIn`.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { BackupStandIn, answerBackup, backupPath } from './backup-stand-in';
 import { PairStandIn, standInPath } from './pair-stand-in';
 
 /** The TV's CORS on an answer the stand-in doesn't give (its own answers carry it). */
@@ -37,20 +39,28 @@ export interface PairServer {
   /** `http://127.0.0.1:<port>`: where this process (the scripted phone) reaches it. */
   readonly origin: string;
   readonly standIn: PairStandIn;
+  /** The backup API on the same origin (step 32c2). */
+  readonly backup: BackupStandIn;
   stop(): Promise<void>;
 }
 
 /**
  * The stand-in on a free port. Docker Desktop forwards host.docker.internal to the host's
  * loopback; on Linux (CI) it is the bridge's gateway, so the server listens on every interface
- * there (as the lab's mock provider does). Anything but `/v1/pair…` and the blob's `/dev/blob/…` is a 404, the config's
- * `/v1/config` too: the walk's config run fails as on a TV with no answer, and nothing waits for it.
+ * there (as the lab's mock provider does). Anything but `/v1/pair…`, the blob's `/dev/blob/…` and
+ * `/v1/backup/…` is a 404, the config's `/v1/config` too: the walk's config run fails as on a TV
+ * with no answer, and nothing waits for it.
  */
 export function startPairServer(host: string = process.platform === 'linux' ? '0.0.0.0' : '127.0.0.1'): Promise<PairServer> {
   const standIn = new PairStandIn();
+  const backup = new BackupStandIn();
   const server = createServer((request, response) => {
     if (standInPath(request.url ?? '')) {
       answerPair(standIn, request, response);
+      return;
+    }
+    if (backupPath(request.url ?? '')) {
+      answerBackup(backup, request, response);
       return;
     }
     response.writeHead(404, NOT_FOUND_HEADERS);
@@ -64,6 +74,7 @@ export function startPairServer(host: string = process.platform === 'linux' ? '0
         port,
         origin: `http://127.0.0.1:${port}`,
         standIn,
+        backup,
         stop: () =>
           new Promise<void>((done) => {
             // The engine's socat keeps its connections open: close them, or close() waits for them.
