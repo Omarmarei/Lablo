@@ -97,10 +97,13 @@ describe('the QR link', () => {
     expect(answer({ type: 'progressAnswer', code: TARGET.code, result: limited })).toEqual(form);
   });
 
-  it('shows how far an earlier payload got', () => {
-    expect(answer({ type: 'progressAnswer', code: TARGET.code, result: ok({ state: 'sent' }) })).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent' });
-    expect(answer({ type: 'progressAnswer', code: TARGET.code, result: ok({ state: 'received' }) })).toEqual({ kind: 'progress', code: TARGET.code, state: 'received' });
-    expect(answer({ type: 'progressAnswer', code: TARGET.code, result: ok({ state: 'done', status: 'expired' }) })).toEqual({ kind: 'done', code: TARGET.code, status: 'expired' });
+  it('shows how far an earlier payload got, not knowing what it was', () => {
+    expect(answer({ type: 'progressAnswer', code: TARGET.code, result: ok({ state: 'sent' }) })).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: null });
+    expect(answer({ type: 'progressAnswer', code: TARGET.code, result: ok({ state: 'received' }) })).toEqual({ kind: 'progress', code: TARGET.code, state: 'received', sentType: null });
+    expect(answer({ type: 'progressAnswer', code: TARGET.code, result: ok({ state: 'done', status: 'expired' }) })).toEqual({ kind: 'done', code: TARGET.code, status: 'expired', sentType: null });
+    // Followed to its end, still unknown.
+    const followed = run(checking, { type: 'progressAnswer', code: TARGET.code, result: ok({ state: 'sent' }) }, { type: 'progressAnswer', code: TARGET.code, result: ok({ state: 'done', status: 'unreachable' }) });
+    expect(followed.view).toEqual({ kind: 'done', code: TARGET.code, status: 'unreachable', sentType: null });
   });
 
   it('says an ended code has ended', () => {
@@ -199,6 +202,22 @@ describe('the file (RELAY step 31d1)', () => {
     expect(reduce(unreadable, { type: 'pickFile', file: FILE }).problems).toEqual({});
   });
 
+  it('is remembered as what was sent, through the progress to the TV’s status (RELAY step 31d2b2b)', () => {
+    const busy = run(fileForm, { type: 'pickFile', file: FILE }, { type: 'send' });
+    const sent = reduce(busy, { type: 'sendAnswer', code: TARGET.code, result: ok({ state: 'sent' }) });
+    expect(sent.view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: 'file' });
+    const received = reduce(sent, { type: 'progressAnswer', code: TARGET.code, result: ok({ state: 'received' }) });
+    expect(received.view).toEqual({ kind: 'progress', code: TARGET.code, state: 'received', sentType: 'file' });
+    expect(reduce(received, { type: 'progressAnswer', code: TARGET.code, result: ok({ state: 'done', status: 'unreachable' }) }).view).toEqual({ kind: 'done', code: TARGET.code, status: 'unreachable', sentType: 'file' });
+    // Already sent (409), and an answer that is already the result.
+    expect(reduce(busy, { type: 'sendAnswer', code: TARGET.code, result: fail('conflict') }).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: 'file' });
+    expect(reduce(busy, { type: 'sendAnswer', code: TARGET.code, result: ok({ state: 'done', status: 'unreachable' }) }).view).toEqual({ kind: 'done', code: TARGET.code, status: 'unreachable', sentType: 'file' });
+    // A file kept for "Fix and send again" but a link sent: the link is what went.
+    const link = run(busy, { type: 'sendAnswer', code: TARGET.code, result: fail('network') }, { type: 'sourceType', sourceType: 'm3u' }, { type: 'field', key: 'playlist', value: 'a.example' }, { type: 'send' });
+    expect(link.file).toBe(FILE);
+    expect(reduce(link, { type: 'sendAnswer', code: TARGET.code, result: ok({ state: 'sent' }) }).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: 'm3u' });
+  });
+
   it('stays to send again, and goes with "Add another source"', () => {
     const sent = run(fileForm, { type: 'pickFile', file: FILE }, { type: 'send' }, { type: 'sendAnswer', code: TARGET.code, result: ok({ state: 'done', status: 'unreachable' }) });
     expect(reduce(sent, { type: 'again', keep: true }).file).toBe(FILE);
@@ -210,9 +229,10 @@ describe('the send’s answer', () => {
   const answered = (result: ApiResult<PairProgressResponse>, code = TARGET.code): PageState => reduce(sending, { type: 'sendAnswer', code, result });
 
   it('shows the progress: sent now, or already sent', () => {
-    expect(answered(ok({ state: 'sent' })).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent' });
-    expect(answered(fail('conflict')).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent' });
-    expect(answered(ok({ state: 'open', exp: 1 })).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent' });
+    expect(answered(ok({ state: 'sent' })).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: 'xtream' });
+    expect(answered(fail('conflict')).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: 'xtream' });
+    expect(answered(ok({ state: 'open', exp: 1 })).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: 'xtream' });
+    expect(answered(ok({ state: 'received' })).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'received', sentType: 'xtream' });
   });
 
   it('asks for a new code when this one ended, keeping the typed values', () => {
@@ -238,9 +258,9 @@ describe('the progress', () => {
   const progress = (result: ApiResult<PairProgressResponse>, code = TARGET.code): PageState => reduce(sent, { type: 'progressAnswer', code, result });
 
   it('follows each state to the TV’s status', () => {
-    expect(progress(ok({ state: 'received' })).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'received' });
+    expect(progress(ok({ state: 'received' })).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'received', sentType: 'xtream' });
     for (const status of ['ok', 'auth_failed', 'expired', 'unreachable', 'blocked'] as const) {
-      expect(progress(ok({ state: 'done', status })).view).toEqual({ kind: 'done', code: TARGET.code, status });
+      expect(progress(ok({ state: 'done', status })).view).toEqual({ kind: 'done', code: TARGET.code, status, sentType: 'xtream' });
     }
   });
 

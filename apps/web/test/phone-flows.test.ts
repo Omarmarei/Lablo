@@ -251,7 +251,7 @@ describe('send', () => {
     expect([name, code]).toEqual(['send', CODE]);
     const plain = openPairPayload(sealed, TV.secretKey);
     expect(pairPayloadSchema.parse(JSON.parse(new TextDecoder().decode(plain!)))).toEqual({ v: 1, source: { type: 'm3u', url: 'http://lists.example/a.m3u' }, name: 'Salon' });
-    expect(d.state().view).toEqual({ kind: 'progress', code: CODE, state: 'sent' });
+    expect(d.state().view).toEqual({ kind: 'progress', code: CODE, state: 'sent', sentType: 'm3u' });
   });
 
   it('uses the given seal: fresh keys per payload by default', async () => {
@@ -306,7 +306,7 @@ describe('send', () => {
       expect(payload).toMatchObject({ v: 1, name: 'Living room', source: { type: 'm3u-file', file: { key: FILE_ID, size: SIZE } } });
       const file = (payload.source as Extract<PairPayload['source'], { type: 'm3u-file' }>).file;
       expect(same(openFile(uploaded, fromBase64Url(file.fileKey)!, fromBase64Url(file.base)!, SIZE), bytes)).toBe(true);
-      expect(d.state().view).toEqual({ kind: 'progress', code: CODE, state: 'sent' });
+      expect(d.state().view).toEqual({ kind: 'progress', code: CODE, state: 'sent', sentType: 'file' });
     });
 
     it('keeps a typed name, and new keys for every send', async () => {

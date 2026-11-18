@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import config, { PHONE_CSP, pageHeaders } from '../next.config';
 import type { Message, MessageKey } from '../src/phone/catalog';
-import { AR, CATALOGS, EN, fileSize, FSI, PDI, t } from '../src/phone/catalog';
+import { AR, CATALOGS, EN, fileSize, FSI, PDI, statusKey, t } from '../src/phone/catalog';
 import { FILE_MAX_BYTES } from '../src/phone/form';
 import { dirOf, fromAcceptLanguage, isLang, LANGS, pickLang } from '../src/phone/lang';
 
@@ -82,6 +82,18 @@ describe('the catalog', () => {
   ] as const)('%s: %i bytes are %s (RELAY step 31d1)', (lang, bytes, text) => {
     expect(fileSize(lang, bytes).replace(FSI, '').replace(PDI, '')).toBe(text);
     expect(fileSize(lang, bytes).startsWith(FSI)).toBe(true);
+  });
+
+  it('words each status the TV sends, and a file it couldn’t read as a file (RELAY step 31d2b2b)', () => {
+    const statuses = ['ok', 'auth_failed', 'expired', 'unreachable', 'blocked'] as const;
+    for (const sentType of ['xtream', 'm3u', 'file', null] as const) {
+      for (const status of statuses) {
+        expect(statusKey(status, sentType), `${status} after ${String(sentType)}`).toBe(status === 'unreachable' && sentType === 'file' ? 'done.unreachableFile' : `done.${status}`);
+      }
+    }
+    expect(t('en', statusKey('unreachable', 'file'))).toBe('Your TV couldn’t read the file. Check that it’s the playlist file your provider sent, then try again.');
+    expect(t('ar', statusKey('unreachable', 'file'))).toBe('تعذّر على تلفازك قراءة الملف. تحقّق من أنه ملف قائمة التشغيل الذي أرسله مزوّد الخدمة، ثم حاول مرة أخرى.');
+    expect(t('en', statusKey('unreachable', 'm3u'))).toBe('Your TV couldn’t reach the server. Check the address and try again.');
   });
 });
 

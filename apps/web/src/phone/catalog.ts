@@ -9,6 +9,8 @@
  * number). Placeholders are `{name}`; each value goes in between FSI and PDI, so a code, a link or
  * a brand keeps its own direction inside the other language's sentence.
  */
+import type { PairStatus } from '@lablo/protocol';
+import type { SourceType } from './form';
 import type { Lang } from './lang';
 
 type Plural = Readonly<Partial<Record<Intl.LDMLPluralRule, string>>> & { readonly other: string };
@@ -87,6 +89,7 @@ export const EN = {
   'done.auth_failed': 'The provider didn’t accept this username and password.',
   'done.expired': 'This account has expired. Contact your provider.',
   'done.unreachable': 'Your TV couldn’t reach the server. Check the address and try again.',
+  'done.unreachableFile': 'Your TV couldn’t read the file. Check that it’s the playlist file your provider sent, then try again.',
   'done.blocked': 'This source can’t be used with Lablo.',
   'done.newCode': 'Sending again needs a new code from your TV.',
   'done.fix': 'Fix and send again',
@@ -179,6 +182,7 @@ export const AR: Readonly<Record<MessageKey, Message>> = {
   'done.auth_failed': 'لم يقبل مزوّد الخدمة اسم المستخدم وكلمة المرور هذين.',
   'done.expired': 'انتهت صلاحية هذا الحساب. تواصل مع مزوّد الخدمة.',
   'done.unreachable': 'تعذّر على تلفازك الوصول إلى الخادم. تحقّق من العنوان وحاول مرة أخرى.',
+  'done.unreachableFile': 'تعذّر على تلفازك قراءة الملف. تحقّق من أنه ملف قائمة التشغيل الذي أرسله مزوّد الخدمة، ثم حاول مرة أخرى.',
   'done.blocked': 'لا يمكن استخدام هذا المصدر مع لابلو.',
   'done.newCode': 'تحتاج إلى رمز جديد من تلفازك لإعادة الإرسال.',
   'done.fix': 'التعديل والإرسال مجددًا',
@@ -190,6 +194,24 @@ export const AR: Readonly<Record<MessageKey, Message>> = {
 };
 
 export const CATALOGS: Readonly<Record<Lang, Readonly<Record<MessageKey, Message>>>> = { en: EN, ar: AR };
+
+const STATUS_TEXT: Readonly<Record<PairStatus, MessageKey>> = {
+  ok: 'done.ok',
+  auth_failed: 'done.auth_failed',
+  expired: 'done.expired',
+  unreachable: 'done.unreachable',
+  blocked: 'done.blocked',
+};
+
+/**
+ * The words for the TV's status. The TV answers `unreachable` for any failure but a login's or a
+ * refusal's: after a file (step 31d2b2b) that is a file it couldn't read (broken, gone, not a
+ * playlist, or not downloaded), never a server it couldn't reach. `sentType` is what this page
+ * sent for the code (`null`: it can't know).
+ */
+export function statusKey(status: PairStatus, sentType: SourceType | null): MessageKey {
+  return status === 'unreachable' && sentType === 'file' ? 'done.unreachableFile' : STATUS_TEXT[status];
+}
 
 /** First Strong Isolate and Pop Directional Isolate. */
 export const FSI = String.fromCharCode(0x2068);
