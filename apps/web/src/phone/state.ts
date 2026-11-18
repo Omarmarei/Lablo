@@ -3,7 +3,8 @@
  * person typed or chose, and what the server answered. The requests behind the actions are
  * `flows.ts`'s; the progress poll is `progress.ts`'s. The typed values and the chosen file outlive
  * every view, so a code that ends while the form is filled, or a source the TV refused, costs a new
- * code, not the typing.
+ * code, not the typing. The progress and its result remember what this page sent for their code
+ * (step 31d2b2b), so a file the TV couldn't read is worded as a file.
  */
 import type { PairProgressResponse, PairStatus, PairTvKeyResponse } from '@lablo/protocol';
 import { PAIR_EPG_MAX } from '@lablo/protocol';
@@ -30,8 +31,12 @@ export type View =
   /** The QR path, reading the code's progress before showing anything. */
   | { readonly kind: 'checking'; readonly target: Target }
   | { readonly kind: 'form'; readonly target: Target; readonly busy: boolean; readonly error: SendError | null; readonly retryAfterS: number }
-  | { readonly kind: 'progress'; readonly code: string; readonly state: 'sent' | 'received' }
-  | { readonly kind: 'done'; readonly code: string; readonly status: PairStatus }
+  /**
+   * `sentType`: what this page sent for the code; `null` when the QR link found the code already
+   * sent to (from another phone, or an earlier visit), which the page can't know.
+   */
+  | { readonly kind: 'progress'; readonly code: string; readonly state: 'sent' | 'received'; readonly sentType: SourceType | null }
+  | { readonly kind: 'done'; readonly code: string; readonly status: PairStatus; readonly sentType: SourceType | null }
   /** The code's row is gone (an hour after it was made): only the TV knows how it ended. */
   | { readonly kind: 'lost'; readonly code: string };
 
@@ -80,13 +85,13 @@ export function initialState(lang: Lang): PageState {
 }
 
 /** The view an answer about the code's progress leads to; null keeps the current one. */
-function progressView(code: string, progress: PairProgressResponse): View | null {
+function progressView(code: string, progress: PairProgressResponse, sentType: SourceType | null): View | null {
   switch (progress.state) {
     case 'sent':
     case 'received':
-      return { kind: 'progress', code, state: progress.state };
+      return { kind: 'progress', code, state: progress.state, sentType };
     case 'done':
-      return { kind: 'done', code, status: progress.status };
+      return { kind: 'done', code, status: progress.status, sentType };
     case 'open':
       return null;
   }
@@ -131,12 +136,12 @@ export function reduce(state: PageState, event: PageEvent): PageState {
       const result = event.result;
       if (view.kind === 'checking' && view.target.code === event.code) {
         // The code's progress decides; without an answer the form shows, and sending will tell.
-        if (result.ok) return { ...state, view: progressView(event.code, result.value) ?? { kind: 'form', target: view.target, busy: false, error: null, retryAfterS: 0 } };
+        if (result.ok) return { ...state, view: progressView(event.code, result.value, null) ?? { kind: 'form', target: view.target, busy: false, error: null, retryAfterS: 0 } };
         if (result.error === 'gone') return { ...state, view: { ...CODE_VIEW, error: 'ended' } };
         return { ...state, view: { kind: 'form', target: view.target, busy: false, error: null, retryAfterS: 0 } };
       }
       if (view.kind === 'progress' && view.code === event.code) {
-        if (result.ok) return { ...state, view: progressView(event.code, result.value) ?? view };
+        if (result.ok) return { ...state, view: progressView(event.code, result.value, view.sentType) ?? view };
         if (result.error === 'gone') return { ...state, view: { kind: 'lost', code: event.code } };
       }
       return state;
@@ -182,9 +187,12 @@ export function reduce(state: PageState, event: PageEvent): PageState {
     case 'sendAnswer': {
       if (view.kind !== 'form' || !view.busy || view.target.code !== event.code) return state;
       const result = event.result;
-      // Sent now, or already sent (409): either way the code's progress is what to show.
+      // Sent now, or already sent (409): either way the code's progress is what to show. The type
+      // can't change while the send is busy, so it is what went (after a 409, most likely this
+      // page's own earlier send, whose answer was lost).
       if (result.ok || result.error === 'conflict') {
-        return { ...state, view: (result.ok ? progressView(event.code, result.value) : null) ?? { kind: 'progress', code: event.code, state: 'sent' } };
+        const sentType = state.type;
+        return { ...state, view: (result.ok ? progressView(event.code, result.value, sentType) : null) ?? { kind: 'progress', code: event.code, state: 'sent', sentType } };
       }
       if (result.error === 'gone') return { ...state, view: { ...CODE_VIEW, error: 'ended' } };
       if (result.error === 'limited') return { ...state, view: { ...view, busy: false, error: 'limited', retryAfterS: result.retryAfterS } };

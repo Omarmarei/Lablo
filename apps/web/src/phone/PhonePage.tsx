@@ -7,14 +7,13 @@
  * TV's status. The state is `state.ts`'s reducer; the requests are `flows.ts`'s and
  * `progress.ts`'s. Every text comes from `catalog.ts`.
  */
-import type { PairStatus } from '@lablo/protocol';
 import { PAIR_EPG_MAX } from '@lablo/protocol';
 import type { ReactNode, RefObject } from 'react';
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { PhoneApi } from './api';
 import { createApi } from './api';
 import type { MessageKey, Params } from './catalog';
-import { fileSize, t as translate } from './catalog';
+import { fileSize, statusKey, t as translate } from './catalog';
 import { groupCode, readFragment } from './code';
 import { pickedFile, send, startQr, submitCode } from './flows';
 import type { FieldKey, FieldProblem, SourceType } from './form';
@@ -477,14 +476,6 @@ function PasswordField({ state, busy, t, deps, problem }: { state: PageState; bu
   );
 }
 
-const STATUS_TEXT: Readonly<Record<PairStatus, MessageKey>> = {
-  ok: 'done.ok',
-  auth_failed: 'done.auth_failed',
-  expired: 'done.expired',
-  unreachable: 'done.unreachable',
-  blocked: 'done.blocked',
-};
-
 function ProgressView({ view, t, deps, heading }: Omit<ViewProps<'progress' | 'done'>, 'state'>): ReactNode {
   const received = view.kind === 'done' || view.state === 'received';
   const step = (label: MessageKey, mark: 'done' | 'current' | 'pending'): ReactNode => (
@@ -505,7 +496,7 @@ function ProgressView({ view, t, deps, heading }: Omit<ViewProps<'progress' | 'd
           {step('progress.result', 'done')}
         </ol>
         <p role="status" aria-live="polite" className={ok ? 'phone__result' : 'phone__result phone__result--failed'} data-testid="result" data-status={view.status}>
-          {t(STATUS_TEXT[view.status])}
+          {t(statusKey(view.status, view.sentType))}
         </p>
         {ok ? null : <p className="phone__muted">{t('done.newCode')}</p>}
         <button type="button" className="phone__button" onClick={() => deps.dispatch({ type: 'again', keep: !ok })}>

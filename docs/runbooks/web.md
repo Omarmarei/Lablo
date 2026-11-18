@@ -209,8 +209,10 @@ A phone can send an M3U file instead of a link (architecture.md §3.3 A, step 4,
   be read. Send it again.") and sends the phone `unreachable`; the screen then offers only
   "Show a new code" (the status deleted the blob). Proven end to end against the stand-in in
   `e2e/pairing.spec.ts` and on Chromium 53 and 68 in the old-engine pairing walk (step 31d2b2a,
-  architecture.md "Built in step 31d2b2a"); the `tv` project against the real API and the phone
-  page's own wording come with step 31d2b2b.
+  architecture.md "Built in step 31d2b2a"), and through the real API in the `tv` project
+  (step 31d2b2b, below). The phone page words `unreachable` after a file as "Your TV couldn't
+  read the file…" (`done.unreachableFile`): the TV sends `unreachable` for every failure of a
+  file but a refusal.
 - **Try it:** as "The phone page" below; choose "M3U playlist file" and any `.m3u`. A scripted TV
   then reads the file's URL from `GET /v1/pair/s/:sid/file`, downloads it and opens it with the
   payload's `fileKey` and `base` (`openFile`); `apps/web/e2e/phone-file.spec.ts` does exactly that.
@@ -272,10 +274,16 @@ dev app against this server, end to end except for the phone, which is scripted
   while the mock's API is held, then `ok`); Settings › Sources by phone in Arabic with an M3U link
   and a guide link (`ok`); one screen, a new code each time: a wrong password (`auth_failed`), the
   mock's `expired` account (`expired`), a closed port (`unreachable`); a served blocklist holding
-  the mock's host (`blocked`, in Arabic); a served `block-new-sources` (`blocked`). Each checks the
-  session's row in `lablo_e2e` (the status, no payload left, the read time set), the profile the
-  TV kept, and that every preflight got the API's 204. Screenshots:
-  `artifacts/screenshots/pair-api-*.png`.
+  the mock's host (`blocked`, in Arabic); a served `block-new-sources` (`blocked`); an M3U file of
+  three frames in onboarding (step 31d2b2b: the phone's PUT and the TV's GET of the blob through
+  the front, the row holding the file's id while the TV's download is held, the blob 404 after
+  the status), then a changed file under the same name from Settings replacing the source under
+  its id. Each checks the session's row in `lablo_e2e` (the status, no payload or file id left,
+  the read time set), the profile the TV kept, and that every preflight got the API's 204.
+  Screenshots: `artifacts/screenshots/pair-api-*.png`.
+- **Holding a request:** `front.hold({method, prefix, until})` keeps matching requests back until
+  `until` settles (`null` stops holding), to look at a state they would end. Keep a hold short: the
+  TV gives a file's headers 10 s.
 - **Only this spec:** `pnpm build:web`, `pnpm web:db`, then `pnpm e2e:web --project tv` (about
   25 s). `pnpm e2e` doesn't list it (it needs the database).
 

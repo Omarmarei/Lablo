@@ -126,6 +126,9 @@ test.describe('in Arabic', () => {
     const firstUrl = await receiveFile(set, first, FILE);
     await set.report('unreachable');
     await expect(page.getByTestId('result')).toHaveAttribute('data-status', 'unreachable');
+    // After a file, `unreachable` is a file the TV couldn't read (RELAY step 31d2b2b).
+    await expect(page.getByTestId('result')).toHaveText(AR['done.unreachableFile'] as string);
+    await shot(page, 'phone-file-unreachable-ar');
     expect((await set.download(firstUrl)).status).toBe(404);
 
     // "Fix and send again": the file is still chosen, and goes again under new keys.

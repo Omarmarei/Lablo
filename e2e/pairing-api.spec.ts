@@ -5,15 +5,15 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
-import { blocklistHash, sha256, toBase64Url, utf8 } from '@lablo/crypto';
+import { blocklistHash, fileFrameCount, sha256, toBase64Url, utf8 } from '@lablo/crypto';
 import type { PairPayload } from '@lablo/protocol';
 import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { E2E_DATABASE, WEB, serverUrl, withDatabase } from '../apps/web/test/web-db';
 import { stripIsolates } from '../packages/core/src/bidi';
 import { HARNESS_SALT, devSignedAnswer } from '../tools/engines/src/config';
-import { phoneSees, phoneSends } from '../tools/engines/src/pair-phone';
-import type { ApiFront } from './api-front';
+import { phonePadded, phoneSees, phoneSends, phoneSendsFile } from '../tools/engines/src/pair-phone';
+import type { ApiFront, Forwarded } from './api-front';
 import { startApiFront } from './api-front';
 import { doc } from './config-server';
 import { addXtreamAndWatch, toSourceTypes, trackErrors } from './onboard';
@@ -33,7 +33,10 @@ import { RemoteDriver } from './remote-driver';
  * - on one screen, a new code each time: a wrong password (`auth_failed`), the mock's expired
  *   account (`expired`), a closed port (`unreachable`); nothing kept;
  * - a served config whose blocklist holds the mock's host (`blocked`), in Arabic;
- * - a served config's `block-new-sources` (`blocked`).
+ * - a served config's `block-new-sources` (`blocked`);
+ * - onboarding by phone with an M3U file (step 31d2b2b): three frames up through the front to the
+ *   development blob route and down to the TV, deleted with the status; then a changed file sent
+ *   again under the same name from Settings replaces the source under its id.
  * Every test: the TV's preflights answered by the real routes, no error on the page.
  * Screenshots in English and Arabic go to artifacts/screenshots (`pair-api-*`).
  */
@@ -93,6 +96,8 @@ const xtream = (username: string, password: string, name: string): PairPayload =
 interface SessionRow {
   readonly status: string | null;
   readonly payload: unknown;
+  /** The phone's file (step 31d1): set by the upload URL, cleared with the status. */
+  readonly fileId: string | null;
   readonly delivered: boolean;
 }
 
@@ -102,7 +107,7 @@ async function sessionRow(code: string): Promise<SessionRow | undefined> {
   await client.connect();
   try {
     const result = await client.query<SessionRow>(
-      'SELECT "status", "payload", "deliveredAt" IS NOT NULL AS "delivered" FROM "PairSession" WHERE "codeHash" = $1',
+      'SELECT "status", "payload", "fileId", "deliveredAt" IS NOT NULL AS "delivered" FROM "PairSession" WHERE "codeHash" = $1',
       [toBase64Url(sha256(utf8(code)))],
     );
     return result.rows[0];
@@ -114,7 +119,7 @@ async function sessionRow(code: string): Promise<SessionRow | undefined> {
 /** The code on show, made by the real API (its row there, waiting) and polled for through the front. */
 async function apiCode(page: Page, front: ApiFront): Promise<string> {
   const code = await shownCode(page);
-  expect(await sessionRow(code)).toEqual({ status: null, payload: null, delivered: false });
+  expect(await sessionRow(code)).toEqual({ status: null, payload: null, fileId: null, delivered: false });
   await expect.poll(() => front.forwarded.filter((f) => f.method === 'GET' && f.path.startsWith('/v1/pair/s/') && f.status === 200).length).toBeGreaterThan(0);
   expect(await phoneSees(front.origin, code)).toMatchObject({ state: 'open' });
   return code;
@@ -125,7 +130,7 @@ async function failsWith(page: Page, front: ApiFront, code: string, reason: stri
   await expect(page.getByTestId('pair')).toHaveAttribute('data-view', 'failed', { timeout: 30_000 });
   await expect(page.getByTestId('pair-error')).toHaveAttribute('data-code', reason);
   await expect.poll(() => phoneSees(front.origin, code)).toEqual({ state: 'done', status });
-  expect(await sessionRow(code)).toEqual({ status, payload: null, delivered: true });
+  expect(await sessionRow(code)).toEqual({ status, payload: null, fileId: null, delivered: true });
 }
 
 /** The TV met the real routes' CORS: each preflight answered 204 by the API, none refused. */
@@ -161,7 +166,7 @@ test('onboarding by phone: an Xtream login reaches the TV through the real API, 
       await phoneSends(front.origin, code, xtream(U, P, 'Phone panel'));
       await expect(page.getByTestId('pair')).toHaveAttribute('data-view', 'loading', { timeout: 10_000 });
       await expect.poll(() => phoneSees(front.origin, code)).toEqual({ state: 'received' });
-      expect(await sessionRow(code)).toEqual({ status: null, payload: null, delivered: true });
+      expect(await sessionRow(code)).toEqual({ status: null, payload: null, fileId: null, delivered: true });
     } finally {
       panelGate = null;
       open();
@@ -169,7 +174,7 @@ test('onboarding by phone: an Xtream login reaches the TV through the real API, 
 
     await expect(onboarding).toHaveAttribute('data-screen', 'done', { timeout: 20_000 });
     await expect.poll(() => phoneSees(front.origin, code)).toEqual({ state: 'done', status: 'ok' });
-    expect(await sessionRow(code)).toEqual({ status: 'ok', payload: null, delivered: true });
+    expect(await sessionRow(code)).toEqual({ status: 'ok', payload: null, fileId: null, delivered: true });
     const kept = await storedProfile(page);
     expect(kept?.sources).toEqual([expect.objectContaining({ id: 's1', type: 'xtream', name: 'Phone panel' })]);
 
@@ -203,7 +208,7 @@ test('from Settings in Arabic: an M3U link and its guide reach the TV through th
     const pair = page.getByTestId('pair');
     await expect(pair).toHaveAttribute('data-view', 'done', { timeout: 30_000 });
     await expect.poll(() => phoneSees(front.origin, code)).toEqual({ state: 'done', status: 'ok' });
-    expect(await sessionRow(code)).toEqual({ status: 'ok', payload: null, delivered: true });
+    expect(await sessionRow(code)).toEqual({ status: 'ok', payload: null, fileId: null, delivered: true });
     await expect(page.getByTestId('pair-title')).toHaveText('كل شيء جاهز');
     await shoot(page, 'pair-api-done-ar');
 
@@ -297,8 +302,107 @@ test('a served config refusing new sources: the phone reads blocked, nothing kep
     await expect(page.getByTestId('pair-error')).toHaveAttribute('data-code', 'refused');
     await expect(page.getByTestId('pair-error')).toHaveText(NO_NEW.en);
     await expect.poll(() => phoneSees(front.origin, code)).toEqual({ state: 'done', status: 'blocked' });
-    expect(await sessionRow(code)).toEqual({ status: 'blocked', payload: null, delivered: true });
+    expect(await sessionRow(code)).toEqual({ status: 'blocked', payload: null, fileId: null, delivered: true });
     expect(await storedProfile(page)).toEqual({ sources: [], guides: [] });
+    preflightsPassed(front);
+    expect(errors).toEqual([]);
+  });
+});
+
+/**
+ * The mock's M3U as a phone sends it in a file, padded at its end to `frames` frames; with
+ * `channels`, only its first that many entries (the live channels come first).
+ */
+async function mockFile(frames: number, channels?: number): Promise<Uint8Array> {
+  const answer = await fetch(m3uLink());
+  expect(answer.status).toBe(200);
+  // The header line, then two lines (#EXTINF and the link) per entry.
+  const lines = (await answer.text()).split('\n');
+  const plain = phonePadded((channels === undefined ? lines : lines.slice(0, 1 + 2 * channels)).join('\n'), frames);
+  expect(fileFrameCount(plain.length)).toBe(frames);
+  return plain;
+}
+
+/** The development blob route's requests the front passed on (the phone's PUT, the TV's GET). */
+const blobRequests = (front: ApiFront, method: 'PUT' | 'GET'): Forwarded[] => front.forwarded.filter((f) => f.method === method && f.path.startsWith('/dev/blob/pair/'));
+
+/** A presigned blob URL's path without its query. */
+const blobPath = (url: string): string => url.slice(0, url.indexOf('?'));
+
+test('onboarding by phone with an M3U file through the real API; a changed file sent again from Settings replaces it', async ({ page }) => {
+  const errors = trackErrors(page);
+  const remote = new RemoteDriver(page);
+  const whole = await mockFile(3);
+  // The provider's list as it might change: three channels, two frames.
+  const changed = await mockFile(2, 3);
+  await withFront(async (front) => {
+    const onboarding = await toSourceTypes(remote, `locale=en-US&api=${encodeURIComponent(front.origin)}`);
+    await usePhone(remote);
+    const first = await apiCode(page, front);
+    // The TV's download held: the payload went with its read, the file waits under its id until the status.
+    let release: () => void = () => undefined;
+    front.hold({
+      method: 'GET',
+      prefix: '/dev/blob/',
+      until: new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    });
+    try {
+      await phoneSendsFile(front.origin, first, whole, { name: 'Phone file' });
+      await expect(page.getByTestId('pair')).toHaveAttribute('data-view', 'loading', { timeout: 10_000 });
+      await expect.poll(() => phoneSees(front.origin, first)).toEqual({ state: 'received' });
+      const uploaded = blobPath(blobRequests(front, 'PUT')[0]!.path);
+      expect(await sessionRow(first)).toEqual({ status: null, payload: null, fileId: uploaded.slice(uploaded.lastIndexOf('/') + 1), delivered: true });
+    } finally {
+      front.hold(null);
+      release();
+    }
+    await expect(onboarding).toHaveAttribute('data-screen', 'done', { timeout: 30_000 });
+    await expect.poll(() => phoneSees(front.origin, first)).toEqual({ state: 'done', status: 'ok' });
+    // The status took the payload and the file.
+    expect(await sessionRow(first)).toEqual({ status: 'ok', payload: null, fileId: null, delivered: true });
+    await expect(page.getByTestId('done-live')).toHaveAttribute('data-n', '12');
+
+    // Up and down through the front: the phone's PUT and the TV's GET of one blob, once each; the
+    // TV asked the API for the file's URL with its token first.
+    const put = blobRequests(front, 'PUT');
+    const got = blobRequests(front, 'GET');
+    expect(put).toEqual([{ method: 'PUT', path: expect.stringMatching(/^\/dev\/blob\/pair\/[\w-]{22}\/[\w-]{22}\?m=PUT&/), status: 200 }]);
+    expect(got).toEqual([{ method: 'GET', path: expect.stringMatching(/^\/dev\/blob\/pair\/[\w-]{22}\/[\w-]{22}\?m=GET&/), status: 200 }]);
+    expect(blobPath(got[0]!.path)).toBe(blobPath(put[0]!.path));
+    expect(front.forwarded.filter((f) => f.method === 'GET' && /^\/v1\/pair\/s\/[\w-]+\/file$/.test(f.path))).toEqual([expect.objectContaining({ status: 200 })]);
+    // The TV's own URL, still within its time, finds nothing: the status deleted the file.
+    expect((await fetch(front.origin + got[0]!.path)).status).toBe(404);
+
+    const kept = await storedProfile(page);
+    expect(kept?.sources).toEqual([{ id: 's1', type: 'm3u-file', name: 'Phone file', added: expect.any(Number) }]);
+    const added = kept?.sources[0]?.added;
+    await remote.expectFocus('done/actions/0');
+    await remote.press('OK');
+    await expect(page.getByTestId('live')).toHaveAttribute('data-status', 'ready');
+
+    // Settings › Sources › "Add from your phone": the changed file under the same name.
+    await openSources(remote, 'en');
+    await remote.expectFocus('sources/sources/0');
+    await remote.go('UP', 'sources/header/0');
+    await remote.go('OK', 'pair/actions/0');
+    const second = await apiCode(page, front);
+    await phoneSendsFile(front.origin, second, changed, { name: 'Phone file' });
+    await expect(page.getByTestId('pair')).toHaveAttribute('data-view', 'done', { timeout: 30_000 });
+    await expect(page.getByTestId('pair-live')).toHaveAttribute('data-n', '3');
+    await expect.poll(() => phoneSees(front.origin, second)).toEqual({ state: 'done', status: 'ok' });
+    expect(await sessionRow(second)).toEqual({ status: 'ok', payload: null, fileId: null, delivered: true });
+    await shoot(page, 'pair-api-file-done-en');
+    const gets = blobRequests(front, 'GET').filter((f) => f.status === 200);
+    expect(gets).toHaveLength(2);
+    expect((await fetch(front.origin + gets[1]!.path)).status).toBe(404);
+
+    // Replaced under its id: one source, the same id, name and date added.
+    await remote.press('OK');
+    await remote.expectFocus('sources/header/0');
+    await expect(page.getByTestId('sources')).toHaveAttribute('data-count', '1');
+    expect((await storedProfile(page))?.sources).toEqual([{ id: 's1', type: 'm3u-file', name: 'Phone file', added }]);
     preflightsPassed(front);
     expect(errors).toEqual([]);
   });

@@ -11,7 +11,9 @@ import type { AddressInfo } from 'node:net';
  *   limits never meet across tests;
  * - `GET /v1/config` goes on to the real route (the committed, dev-signed config) until the test
  *   sets an answer of its own (`serve`): the route bundles the committed file at build time, and
- *   the blocklist and refusal cases need another config.
+ *   the blocklist and refusal cases need another config;
+ * - a test can hold some requests back (`hold`) to look at a state they would end (step 31d2b2b:
+ *   the session's row while the TV's file download waits).
  * Test code only: the product's servers never relay anything (CLAUDE.md "Legal guardrails").
  */
 
@@ -31,11 +33,24 @@ export interface Forwarded {
   readonly status: number;
 }
 
+/** Requests the front keeps back until `until` settles. */
+export interface HoldRule {
+  readonly method: string;
+  /** The start of the path (`/dev/blob/`). */
+  readonly prefix: string;
+  readonly until: Promise<void>;
+}
+
 export interface ApiFront {
   /** `http://127.0.0.1:<port>`: the TV's `?api=` and the scripted phone's origin. */
   readonly origin: string;
   /** `GET /v1/config` gets this exact text from now on; `null` hands it to the real route again. */
   serve(answer: string | null): void;
+  /**
+   * From now on, a request matching `rule` waits for its `until` before it goes on (one whose
+   * caller gave up meanwhile never goes); `null` holds none from now on.
+   */
+  hold(rule: HoldRule | null): void;
   /** How many config requests the front answered itself. */
   configAnswers(): number;
   /** Every request passed on to the real API, in the order they were answered. */
@@ -80,6 +95,7 @@ function pathOf(url: string): string {
 export async function startApiFront(options: FrontOptions): Promise<ApiFront> {
   const upstream = new URL(options.upstream);
   let answer: string | null = null;
+  let held: HoldRule | null = null;
   let answered = 0;
   const forwarded: Forwarded[] = [];
 
@@ -115,6 +131,18 @@ export async function startApiFront(options: FrontOptions): Promise<ApiFront> {
       response.end(answer);
       return;
     }
+    const rule = held;
+    if (rule !== null && request.method === rule.method && (request.url ?? '').startsWith(rule.prefix)) {
+      let gone = false;
+      response.on('close', () => {
+        gone = true;
+      });
+      const go = (): void => {
+        if (!gone) pass(request, response);
+      };
+      void rule.until.then(go, go);
+      return;
+    }
     pass(request, response);
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -123,6 +151,11 @@ export async function startApiFront(options: FrontOptions): Promise<ApiFront> {
     origin: `http://127.0.0.1:${port}`,
     serve: (next) => {
       answer = next;
+    },
+    hold: (rule) => {
+      held = rule;
+      // A failed `until` lets its requests go; it is no unhandled rejection meanwhile.
+      rule?.until.catch(() => undefined);
     },
     configAnswers: () => answered,
     forwarded,

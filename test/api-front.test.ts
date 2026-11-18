@@ -23,6 +23,8 @@ interface Upstream {
   readonly seen: Seen[];
   /** Requests whose connection closed before the upstream answered. */
   readonly gone: string[];
+  /** How many connections were opened to it. */
+  connections(): number;
   close(): Promise<void>;
 }
 
@@ -35,6 +37,7 @@ afterEach(async () => {
 async function upstream(answer: (request: IncomingMessage, response: ServerResponse, seen: Seen) => void): Promise<Upstream> {
   const seen: Seen[] = [];
   const gone: string[] = [];
+  let connections = 0;
   const server: Server = createServer((request, response) => {
     const chunks: Buffer[] = [];
     request.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -47,11 +50,15 @@ async function upstream(answer: (request: IncomingMessage, response: ServerRespo
       answer(request, response, entry);
     });
   });
+  server.on('connection', () => {
+    connections += 1;
+  });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const up: Upstream = {
     origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     seen,
     gone,
+    connections: () => connections,
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve());
@@ -207,6 +214,63 @@ describe('startApiFront', () => {
     expect(JSON.parse((await call(made.origin, '/v1/config')).body)).toEqual({ real: true });
     expect(made.configAnswers()).toBe(2);
     expect(made.forwarded.map((f) => `${f.method} ${f.path} ${f.status}`)).toEqual(['GET /v1/config 200', 'GET /v1/configs 200', 'POST /v1/config 200', 'GET /v1/config 200']);
+  });
+
+  it('holds the requests a test names until it lets them go, and only those (RELAY step 31d2b2b)', async () => {
+    const up = await upstream((_request, response) => json(response, 200, { ok: true }));
+    const made = await front(up.origin);
+    let release: () => void = () => undefined;
+    made.hold({
+      method: 'GET',
+      prefix: '/dev/blob/',
+      until: new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    });
+    const held = call(made.origin, '/dev/blob/pair/a/b?m=GET');
+    // Another method, another path: on at once, while the held one waits.
+    expect((await call(made.origin, '/dev/blob/pair/a/b?m=PUT', { method: 'PUT', body: 'x' })).status).toBe(200);
+    expect((await call(made.origin, '/v1/dev/blob/')).status).toBe(200);
+    const seen = (): string[] => up.seen.map((s) => `${s.method} ${s.url}`);
+    expect(seen()).toEqual(['PUT /dev/blob/pair/a/b?m=PUT', 'GET /v1/dev/blob/']);
+    release();
+    expect((await held).status).toBe(200);
+    expect(seen()).toEqual(['PUT /dev/blob/pair/a/b?m=PUT', 'GET /v1/dev/blob/', 'GET /dev/blob/pair/a/b?m=GET']);
+    expect(made.forwarded.map((f) => f.path)).toEqual(['/dev/blob/pair/a/b?m=PUT', '/v1/dev/blob/', '/dev/blob/pair/a/b?m=GET']);
+
+    // A rule whose promise fails lets its requests go too; `null` holds none from then on.
+    made.hold({ method: 'GET', prefix: '/v1/', until: Promise.reject(new Error('no')) });
+    expect((await call(made.origin, '/v1/health')).status).toBe(200);
+    made.hold({ method: 'GET', prefix: '/v1/', until: new Promise<void>(() => undefined) });
+    made.hold(null);
+    expect((await call(made.origin, '/v1/health')).status).toBe(200);
+  });
+
+  it('never sends a held request whose caller gave up, nor opens a connection for it', async () => {
+    const up = await upstream((_request, response) => json(response, 200, {}));
+    const made = await front(up.origin);
+    let release: () => void = () => undefined;
+    made.hold({
+      method: 'GET',
+      prefix: '/dev/blob/',
+      until: new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    });
+    const outgoing = httpRequest(new URL('/dev/blob/pair/a/b?m=GET', made.origin), { agent: false });
+    outgoing.on('error', () => undefined);
+    outgoing.end();
+    // Time for the front to take the request in, then the caller goes.
+    await new Promise<void>((resolve) => setTimeout(resolve, 200));
+    outgoing.destroy();
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    release();
+    // Time for a request made at the release to connect.
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    expect((await call(made.origin, '/v1/health')).status).toBe(200);
+    expect(up.connections()).toBe(1);
+    expect(up.seen.map((s) => s.url)).toEqual(['/v1/health']);
+    expect(made.forwarded.map((f) => f.path)).toEqual(['/v1/health']);
   });
 
   it('answers 502 when the real API is down, and logs it with status 0', async () => {
