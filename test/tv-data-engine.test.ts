@@ -6,7 +6,7 @@
 // `setBusy`, and now/next from the stored guides. Step 30b2: one config worker per config refresh
 // (the cached policy first, terminated after), and the query worker's blocklist read again.
 
-import { boxKeyPairFromSecretKey, sealPairPayload, toBase64Url, utf8 } from '@lablo/crypto';
+import { boxKeyPairFromSecretKey, sealFile, sealPairPayload, toBase64Url, utf8 } from '@lablo/crypto';
 import type { ConfigResult, RpcHandlers } from '@lablo/data';
 import { CancelSource, EPG_REFRESH_MS, EpgService, IngestService, QueryService, STORE, configHandlers, getSources, newSourceMeta, openDatabase, pairHandlers, serveRpc } from '@lablo/data';
 import { createHash } from 'node:crypto';
@@ -786,6 +786,87 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     expect(s.started.pair).toBe(2);
     second.close();
     expect(s.started.query).toBe(0);
+  });
+
+  it("adds the phone's file through both workers: the pair worker opens its frames, the ingest worker reads them (step 31d2a)", async () => {
+    const sid = 'AAAAAAAAAAAAAAAAAAAAAA';
+    const blobKey = 'b'.repeat(21) + 'A';
+    const fileKey = new Uint8Array(32).fill(6);
+    const base = new Uint8Array(24).fill(7);
+    // 50 channels and 1.2 MB of comment lines: two frames.
+    const text = playlist(50).replace('#EXTM3U\n', `#EXTM3U\n${`#PAD ${'x'.repeat(30_000)}\n`.repeat(40)}`);
+    const plain = utf8(text);
+    const good = sealFile(plain, fileKey, base);
+    const broken = good.slice();
+    broken[good.length - 5] = broken[good.length - 5]! ^ 1;
+    let sealed = good;
+    const blobPath = `/dev/blob/pair/${sid}/${blobKey}?m=GET&n=0&e=${NOW + 600_000}&s=sig`;
+    const payload = { v: 1, source: { type: 'm3u-file', file: { key: blobKey, fileKey: toBase64Url(fileKey), base: toBase64Url(base), size: plain.length } }, name: 'Family list' };
+    const asked: string[] = [];
+    const s = setup((url) => {
+      asked.push(url);
+      if (url === 'http://api.test/v1/pair') return { status: 201, body: JSON.stringify({ sid, code: '7K3MZ9QX', pollToken: 'A'.repeat(43), exp: NOW + 600_000 }) };
+      if (url === `http://api.test/v1/pair/s/${sid}`) return { status: 200, body: JSON.stringify({ state: 'ready', payload: sealPairPayload(utf8(JSON.stringify(payload)), PAIR_KEYS.publicKey) }) };
+      if (url === `http://api.test/v1/pair/s/${sid}/file`) return { status: 200, body: JSON.stringify({ url: blobPath, key: blobKey, exp: NOW + 600_000 }) };
+      if (url === `http://api.test${blobPath}`) return { status: 200, headers: { 'Content-Length': String(sealed.length) }, body: sealed, chunk: 65536 };
+      if (url === `http://api.test/v1/pair/s/${sid}/status`) return { status: 200, body: '{"state":"done","status":"ok"}' };
+      return { status: 404 };
+    });
+    expect(plain.length).toBeGreaterThan(1048576);
+
+    const session = s.engine.pairing();
+    await session.open('http://api.test');
+    expect(await session.poll()).toEqual({ state: 'ready', payload });
+    const got = await session.file();
+    if (!got.ok) throw new Error(`no file: ${got.failure}`);
+    expect(got.feed.size).toBe(plain.length);
+    const progress: number[] = [];
+    // A file has no catalog server: the blocklist isn't asked (its streams meet it when they play).
+    const blocked = vi.spyOn(s.engine, 'blocked');
+    const result = await s.engine.refresh({ src: 's1', source: { type: 'm3u-file' } }, { file: got.feed, onProgress: (p) => progress.push(p.total ?? -1) });
+    expect(blocked).not.toHaveBeenCalled();
+    blocked.mockRestore();
+    expect(result).toMatchObject({ src: 's1', status: 'committed', counts: { live: 50 } });
+    expect(progress.length > 0 && progress.every((total) => total === plain.length)).toBe(true);
+    expect(await s.engine.summary()).toEqual({ sources: 1, items: 50, stale: 0 });
+    expect(s.live()).toBe(0);
+    expect(await session.status('ok')).toEqual({ ok: true });
+    session.close();
+    expect(s.pairLive()).toBe(0);
+    // The file's GET took no token; nothing else was fetched for it.
+    expect(asked.filter((url) => url.indexOf('/dev/blob/') !== -1)).toEqual([`http://api.test${blobPath}`]);
+
+    // A file whose last frame was changed on the way: the refresh fails with `file`, the catalog stays.
+    sealed = broken;
+    const again = s.engine.pairing();
+    await again.open('http://api.test');
+    await again.poll();
+    const feed = await again.file();
+    if (!feed.ok) throw new Error(`no file: ${feed.failure}`);
+    await expect(s.engine.refresh({ src: 's1', source: { type: 'm3u-file' } }, { file: feed.feed })).rejects.toMatchObject({ code: 'file' });
+    expect(await s.engine.summary()).toEqual({ sources: 1, items: 50, stale: 0 });
+    again.close();
+
+    // No feed: the ingest worker refuses the file source.
+    await expect(s.engine.refresh({ src: 's2', source: { type: 'm3u-file' } })).rejects.toMatchObject({ code: 'file' });
+    expect(s.live()).toBe(0);
+  });
+
+  it("answers a file the pair worker couldn't get, and lets the feed's port go (step 31d2a)", async () => {
+    const sid = 'AAAAAAAAAAAAAAAAAAAAAA';
+    const payload = { v: 1, source: { type: 'm3u-file', file: { key: 'b'.repeat(21) + 'A', fileKey: toBase64Url(new Uint8Array(32)), base: toBase64Url(new Uint8Array(24)), size: 10 } } };
+    const s = setup((url) => {
+      if (url === 'http://api.test/v1/pair') return { status: 201, body: JSON.stringify({ sid, code: '7K3MZ9QX', pollToken: 'A'.repeat(43), exp: NOW + 600_000 }) };
+      if (url === `http://api.test/v1/pair/s/${sid}`) return { status: 200, body: JSON.stringify({ state: 'ready', payload: sealPairPayload(utf8(JSON.stringify(payload)), PAIR_KEYS.publicKey) }) };
+      return { status: 404 };
+    });
+    const session = s.engine.pairing();
+    await session.open('http://api.test');
+    await session.poll();
+    expect(await session.file()).toEqual({ ok: false, failure: 'gone' });
+    session.close();
+    // A worker gone: the call rejects.
+    await expect(session.file()).rejects.toThrow('RPC client closed');
   });
 
   it('refuses to pair without a pair worker', () => {

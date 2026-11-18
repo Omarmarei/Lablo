@@ -37,6 +37,10 @@
  * - a **pair worker** starts for each opening of the pairing screen (`pairing`, step 31c1) and
  *   ends when it closes: it holds the TV's secret key for the codes it shows, and opens the
  *   phone's payload. It runs beside the refresh slot (the add path's refresh takes the slot).
+ *   An M3U file from the phone (step 31d2a) is fetched and opened there too: `PairSession.file`
+ *   makes a `MessageChannel`, gives one port to the pair worker and the other, as a `FileFeed`,
+ *   to the refresh (`RefreshOptions.file`), whose ingest worker pulls the plain frames from it.
+ *   The add's load is cancelled before the pair worker ends (the pairing screen's `close`).
  *
  * Workers come from factories, so tests serve the real services over message channels; the
  * app passes the `?worker` imports (`./workers.ts`).
@@ -64,9 +68,9 @@ import type {
   IngestJob,
   IngestProgress,
   IngestResult,
-  IngestSource,
   ItemRef,
   KeyItemsRequest,
+  LinkSource,
   LoadedProfile,
   ProfileEdit,
   ProgrammeRequest,
@@ -85,7 +89,7 @@ import type {
   VodInfoRequest,
 } from '@lablo/data';
 // The client entry only: the package index would pull every data module's polyfills into main.
-import type { PairOpenResult, PairPollResult, PairStatusResult } from '@lablo/data/client';
+import type { FileFeed, PairFileFailure, PairOpenResult, PairPollResult, PairStatusResult } from '@lablo/data/client';
 import { createConfigClient, createDataClient, createEpgClient, createIngestClient, createPairClient, epgGuides, epgRefreshDue } from '@lablo/data/client';
 import type { PairStatus } from '@lablo/protocol';
 
@@ -97,6 +101,9 @@ export interface SourceFacts {
   readonly zone: ZoneOffset;
 }
 
+/** The phone's file, ready to read: a feed for one refresh (`RefreshOptions.file`), or why not. */
+export type PairFileFeedResult = { readonly ok: true; readonly feed: FileFeed } | { readonly ok: false; readonly failure: PairFileFailure };
+
 /**
  * One opening of the pairing screen (step 31c1): its own pair worker, whose calls are
  * `PairService`'s (packages/data/src/pair-service.ts). `close` forgets the key and ends the
@@ -105,6 +112,8 @@ export interface SourceFacts {
 export interface PairSession {
   open(base: string): Promise<PairOpenResult>;
   poll(): Promise<PairPollResult>;
+  /** After `ready` with an M3U file (step 31d2a): its frames, fetched and opened in the pair worker. */
+  file(): Promise<PairFileFeedResult>;
   status(status: PairStatus): Promise<PairStatusResult>;
   close(): void;
 }
@@ -154,6 +163,8 @@ export interface RefreshOptions {
   lowTier?: boolean;
   onProgress?: (progress: IngestProgress) => void;
   cancel?: CancelToken;
+  /** An `m3u-file` source's frames (`PairSession.file`, step 31d2a): its port goes to the ingest worker, once. */
+  file?: FileFeed;
 }
 
 export interface EpgRefreshOptions {
@@ -179,7 +190,7 @@ export interface FocusedChannel {
   key: ContentKey;
   /** Its stream URL (the panel's stream id is read from it; it never leaves the data layer). */
   url: string;
-  /** Its catalog source, as the app refreshes it (an `IngestSource` fits). */
+  /** Its catalog source, as the app refreshes it (a link source: `LinkSource` fits). */
   source: ShortEpgSource;
 }
 
@@ -198,8 +209,11 @@ export class BlockedSourceError extends Error {
   }
 }
 
-/** The URL whose host a source's catalog comes from: an Xtream account's server, an M3U link. */
-export function sourceUrlOf(source: IngestSource): string {
+/**
+ * The URL whose host a source's catalog comes from: an Xtream account's server, an M3U link. (The
+ * phone's file has none: its streams meet the blocklist when they play.)
+ */
+export function sourceUrlOf(source: LinkSource): string {
   return source.type === 'xtream' ? source.account.base : source.url;
 }
 
@@ -316,8 +330,11 @@ export class DataEngine {
     let reload: Promise<unknown> = Promise.resolve();
     try {
       // The blocklist (step 30c3a): a source on a blocked server is never read; no ingest worker starts.
-      const blocked = await this.blockedOrNone([sourceUrlOf(job.source)]);
-      if (blocked[0] === true) throw new BlockedSourceError();
+      // A file from the phone has no catalog server (`PlayerController.play` checks its streams).
+      if (job.source.type !== 'm3u-file') {
+        const blocked = await this.blockedOrNone([sourceUrlOf(job.source)]);
+        if (blocked[0] === true) throw new BlockedSourceError();
+      }
       return await this.withIngestWorker(async (client) => {
         this.busyTo((busy) => client.call('setBusy', { busy }).catch(ignore));
         client.on('swapped', () => {
@@ -325,7 +342,12 @@ export class DataEngine {
           reload.catch(ignore);
         });
         if (options.onProgress) client.on('progress', options.onProgress);
-        const result = await client.call('run', { job, lowTier: options.lowTier }, { cancel: options.cancel });
+        const file = options.file;
+        const result = await client.call(
+          'run',
+          file === undefined ? { job, lowTier: options.lowTier } : { job, lowTier: options.lowTier, file },
+          file === undefined ? { cancel: options.cancel } : { cancel: options.cancel, transfer: [file.port as MessagePort] },
+        );
         // The refresh itself succeeded; a query worker that can't reload reports that on the
         // next read.
         await reload.catch(ignore);
@@ -411,6 +433,21 @@ export class DataEngine {
     return {
       open: (base) => client.call('open', { base }),
       poll: () => client.call('poll'),
+      file: () => {
+        // One end to the pair worker, which serves the frames; the other for the refresh.
+        const channel = new MessageChannel();
+        return client.call('file', { port: channel.port1 }, { transfer: [channel.port1] }).then(
+          (result): PairFileFeedResult => {
+            if (result.ok) return { ok: true, feed: { port: channel.port2, size: result.size } };
+            channel.port2.close();
+            return result;
+          },
+          (error: unknown) => {
+            channel.port2.close();
+            throw error;
+          },
+        );
+      },
       status: (status) => client.call('status', { status }),
       // Both are safe to repeat: a second close does nothing more.
       close: () => {

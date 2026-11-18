@@ -1,5 +1,5 @@
 import type { ContentKind, DeviceTier } from '@lablo/core';
-import type { EpgCatalogSource, EpgProgress, IngestProgress, IngestResult, IngestSource, LoadedProfile, ProfileEdit, SourceRecord, UserGuide } from '@lablo/data';
+import type { EpgCatalogSource, EpgProgress, IngestProgress, IngestResult, IngestSource, LinkSource, LoadedProfile, ProfileEdit, SourceRecord, UserGuide } from '@lablo/data';
 // The client entry only: the package index would pull every data module's polyfills into main.
 import { CancelSource } from '@lablo/data/client';
 import type { EpgRefreshOptions, RefreshOptions } from '../data/engine';
@@ -102,7 +102,7 @@ export function catalogOf(record: SourceRecord): EpgCatalogSource {
 }
 
 /** A stored source as its catalog refresh reads it. */
-export function ingestSourceOf(record: SourceRecord): IngestSource {
+export function ingestSourceOf(record: SourceRecord): LinkSource {
   return record.type === 'xtream' ? { type: 'xtream', account: record.account } : { type: 'm3u', url: record.url };
 }
 

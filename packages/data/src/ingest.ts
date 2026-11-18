@@ -10,7 +10,10 @@
  *    disabled account (`expired`, `blocked`), then streams each kind's categories and list.
  *    An M3U `get.php` link (`xtreamFromM3uUrl`) logs in to its panel once first, for the same
  *    facts (step 25b, ADR-010): its zone for an `xc` channel's catch-up, and the account's
- *    output formats. That login never fails the refresh (`panelLogin`).
+ *    output formats. That login never fails the refresh (`panelLogin`). An M3U file sent from
+ *    the phone (`m3u-file`, step 31d2a) has no link: its plain bytes come as `options.file`
+ *    (opened frame by frame in the pair worker) and are read as a link's body, with no
+ *    validators and no panel; a frame that doesn't open fails the refresh (`file`).
  * 3. Bytes are hashed (FNV-1a) as downloaded, gunzipped when they start with `1f 8b`, decoded
  *    as UTF-8 in stream mode and parsed by core's streaming parsers.
  * 4. Items go through a chunker and search-index builder per kind; chunks are written about 10
@@ -71,6 +74,8 @@ const PROGRESS_EVERY_MS = 250;
 
 export type IngestSource =
   | { type: 'm3u'; url: string }
+  /** The M3U file sent from the phone (RELAY step 31d2a): its bytes come as `IngestOptions.file`. */
+  | { type: 'm3u-file' }
   | {
       type: 'xtream';
       account: XtreamAccount;
@@ -78,6 +83,9 @@ export type IngestSource =
       kinds?: ContentKind[];
       liveExt?: 'ts' | 'm3u8';
     };
+
+/** A source read from a link (every kind but the phone's file): what has a catalog server. */
+export type LinkSource = Exclude<IngestSource, { type: 'm3u-file' }>;
 
 export interface IngestJob {
   /** Source id (ContentKeys and records are scoped by it). */
@@ -149,6 +157,8 @@ export interface IngestOptions {
   onSwap?: (swap: IngestSwap) => void;
   /** The time limit of an M3U link's panel login (default `PANEL_LOGIN_MS`). */
   panelLoginMs?: number;
+  /** An `m3u-file` source's plain bytes (file-feed.ts: the pair worker opens its frames). */
+  file?: ByteResponse;
 }
 
 /**
@@ -367,7 +377,26 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
     let panel: SourceMetaPatch = { server: null };
     const source = job.source;
 
-    if (source.type === 'm3u') {
+    /** A playlist's body into the new generation (a link's download, or the phone's file): its summary. */
+    const playlist = async (res: ByteResponse): Promise<NonNullable<IngestResult['m3u']>> => {
+      const text = decode(res);
+      const parser = new M3uCatalogParser(src);
+      for (let chunk = await text.read(); chunk !== null; chunk = await text.read()) await take(parser.push(chunk));
+      // A cancel ends the read early: never parse on (or commit) what was cut short.
+      token.throwIfCancelled();
+      await take(parser.end());
+      const summary = parser.summary();
+      return { epgUrls: summary.epgUrls, userAgents: summary.userAgents, looksLikeHls: summary.looksLikeHls, stats: summary.stats };
+    };
+
+    if (source.type === 'm3u-file') {
+      // No link: nothing to send validators to, no panel. The byte hash still tells the same file.
+      const res = options.file;
+      if (res === undefined) throw new IngestError('file', null, 'No file came with the job');
+      current = res;
+      writer = new GenerationWriter(db, src, await beginGeneration(db, src), throttle, token, options.chunkSize);
+      m3u = await playlist(res);
+    } else if (source.type === 'm3u') {
       const account = xtreamFromM3uUrl(source.url);
       if (account !== null) {
         panel = {};
@@ -394,14 +423,7 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
       etag = res.header('etag');
       lastModified = res.header('last-modified');
       writer = new GenerationWriter(db, src, await beginGeneration(db, src), throttle, token, options.chunkSize);
-      const text = decode(res);
-      const parser = new M3uCatalogParser(src);
-      for (let chunk = await text.read(); chunk !== null; chunk = await text.read()) await take(parser.push(chunk));
-      // A cancel ends the read early: never parse on (or commit) what was cut short.
-      token.throwIfCancelled();
-      await take(parser.end());
-      const summary = parser.summary();
-      m3u = { epgUrls: summary.epgUrls, userAgents: summary.userAgents, looksLikeHls: summary.looksLikeHls, stats: summary.stats };
+      m3u = await playlist(res);
     } else {
       const textTransport: TextTransport = {
         get: async (url) => {
@@ -506,5 +528,7 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
   } finally {
     stopCancel();
     current = null;
+    // A file read to its end is done already; one left part way lets its download go.
+    options.file?.cancel();
   }
 }

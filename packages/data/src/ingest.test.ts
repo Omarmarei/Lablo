@@ -1,17 +1,21 @@
 import { gzipSync } from 'node:zlib';
 import type { CatalogItem } from '@lablo/core';
 import { parseM3uCatalog } from '@lablo/core';
+import { sealFile } from '@lablo/crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ByteTransport } from './bytes';
 import { Fnv1a } from './bytes';
 import type { SourceMeta } from './catalog-store';
 import { getSource, readRecent } from './catalog-store';
+import { feedResponse } from './file-feed';
+import { openFileFrames, serveFileFrames } from './file-frames';
 import { onSuccess, openDatabase, transact } from './idb';
 import type { IngestOptions, IngestProgress, IngestSwap } from './ingest';
 import { INGEST_VERSION, IngestError, runIngest } from './ingest';
 import type { FavouriteRef, ProfileDoc } from './profile';
 import { emptyProfile, loadProfile, saveProfile } from './profile';
 import { QueryService } from './query-service';
+import type { RpcPort } from './rpc';
 import { CancelError, CancelSource } from './rpc';
 import { STORE } from './schema';
 import type { FakeResponse } from './test-support';
@@ -236,6 +240,136 @@ describe('runIngest: M3U', () => {
     await expectFailure({ body: gz.subarray(0, gz.length - 100) }, 'format');
     expect(await sourceMeta()).toMatchObject({ gen: 1, building: null, counts: { live: 1200 } });
     expect(await storedGens()).toEqual([1]);
+  });
+});
+
+describe('runIngest: the M3U file from the phone (step 31d2a)', () => {
+  const KEY = new Uint8Array(32).fill(41);
+  const BASE = new Uint8Array(24).fill(42);
+  const ports: MessagePort[] = [];
+  afterEach(() => {
+    for (const port of ports.splice(0)) port.close();
+  });
+
+  /** A playlist of about 2.6 MB (three frames): a 2,000-character comment line before each entry. */
+  const padded = (entries: Entry[]): string => playlist(entries).replace(/\n#EXTINF/g, `\n#PAD ${'x'.repeat(2000)}\n#EXTINF`);
+
+  /**
+   * The file as the phone sealed it, fetched and opened by the pair worker's side and read through a
+   * real message port: what the ingest worker gets. `change` alters the encrypted bytes first.
+   */
+  async function fileOf(text: string, change?: (sealed: Uint8Array) => Uint8Array, more: Partial<FakeResponse> = {}) {
+    const plain = new TextEncoder().encode(text);
+    const sealed = sealFile(plain, KEY, BASE);
+    const blob = fakeTransport(() => ({ body: change ? change(sealed) : sealed, chunk: 65536, ...more }));
+    const download = await blob.get('blob');
+    const { port1, port2 } = new MessageChannel();
+    ports.push(port1, port2);
+    let ended = 0;
+    serveFileFrames(port1 as unknown as RpcPort, openFileFrames(download, { fileKey: KEY, base: BASE, size: plain.length }), () => ended++);
+    return { file: feedResponse({ port: port2 as unknown as RpcPort, size: plain.length }), plain, blob, ended: () => ended };
+  }
+
+  /** A transport no file refresh may use. */
+  const network = (): ReturnType<typeof fakeTransport> => fakeTransport(() => ({ status: 599 }));
+
+  function runFile(file: IngestOptions['file'], extra: Partial<IngestOptions> = {}) {
+    const transport = network();
+    const result = runIngest({ src: SRC, source: { type: 'm3u-file' } }, { db, transport, now: () => NOW, file, ...extra });
+    return { transport, result };
+  }
+
+  it("reads a three-frame file into a catalog as a link's body: no request, its header's guides kept, progress over its size", async () => {
+    const feed = await fileOf(padded(bigList()));
+    expect(feed.plain.length).toBeGreaterThan(2 * 1048576);
+    const progress: IngestProgress[] = [];
+    const { result, transport } = runFile(feed.file, { onProgress: (p) => progress.push(p), chunkSize: 200 });
+    const r = await result;
+    expect(r).toMatchObject({ src: SRC, status: 'committed', gen: 1, previous: 0, counts: { live: 1200, movie: 30, series: 5 }, gzipped: false });
+    expect(r.fetch).toEqual({ v: INGEST_VERSION, hash: hashOf(feed.plain), bytes: feed.plain.length, etag: null, lastModified: null });
+    expect(r.m3u?.epgUrls).toEqual(['http://p.test/xmltv.php']);
+    expect(r.xtream).toBeNull();
+    expect(transport.requests).toEqual([]);
+    expect(progress.length).toBeGreaterThan(0);
+    expect(progress.every((p) => p.total === feed.plain.length)).toBe(true);
+    expect(await names(db, 'channel 1199')).toEqual(['Channel 1199']);
+    expect(await sourceMeta()).toMatchObject({ gen: 1, building: null, server: null, epgUrls: ['http://p.test/xmltv.php'] });
+    expect(await storedGens()).toEqual([1]);
+    // Read to its end: nothing to let go.
+    expect(feed.blob.cancelled).toBe(0);
+  });
+
+  it('keeps the same file sent again as unchanged, and commits another', async () => {
+    await runFile((await fileOf(padded(bigList()))).file).result;
+    const again = await runFile((await fileOf(padded(bigList()))).file).result;
+    expect(again).toMatchObject({ status: 'unchanged', gen: 1, previous: 1, counts: { live: 1200 } });
+    expect(await storedGens()).toEqual([1]);
+    const other = await runFile((await fileOf(playlist(bigList('Kanal')))).file).result;
+    // (The unchanged run used generation 2 and dropped it: numbers are never reused.)
+    expect(other).toMatchObject({ status: 'committed', gen: 3, previous: 1 });
+    expect(await names(db, 'kanal 11')).toEqual(matching(bigList('Kanal'), 'kanal 11'));
+    expect(await storedGens()).toEqual([3]);
+  });
+
+  it("fails with `file` on a frame that doesn't open, a cut file and a longer one, and keeps the catalog as it was", async () => {
+    await runFile((await fileOf(padded(bigList()))).file).result;
+    const cases: Array<[string, (sealed: Uint8Array) => Uint8Array]> = [
+      ['a byte changed in the last frame', (sealed) => {
+        const changed = sealed.slice();
+        changed[sealed.length - 10] = changed[sealed.length - 10]! ^ 1;
+        return changed;
+      }],
+      ['cut inside the second frame', (sealed) => sealed.subarray(0, 1_500_000)],
+      ['one byte longer', (sealed) => {
+        const longer = new Uint8Array(sealed.length + 1);
+        longer.set(sealed);
+        return longer;
+      }],
+    ];
+    for (const [name, change] of cases) {
+      const feed = await fileOf(padded(bigList('Kanal')), change);
+      const error = await runFile(feed.file, { chunkSize: 200 }).result.catch((e: unknown) => e);
+      expect(error, name).toBeInstanceOf(IngestError);
+      expect((error as IngestError).code, name).toBe('file');
+      expect(await sourceMeta(), name).toMatchObject({ gen: 1, building: null, counts: { live: 1200 } });
+      expect(await storedGens(), name).toEqual([1]);
+      expect(await names(db, 'kanal 11'), name).toEqual([]);
+    }
+  });
+
+  it('fails with `file` when no file came with the job, before anything is written', async () => {
+    const error = await runFile(undefined).result.catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(IngestError);
+    expect([(error as IngestError).code, (error as IngestError).message]).toEqual(['file', 'No file came with the job']);
+    expect(await getSource(db, SRC)).toBeNull();
+    expect(await storedGens()).toEqual([]);
+  });
+
+  it('stops on cancel: the pair side lets the download go, and the catalog stays', async () => {
+    await runFile((await fileOf(padded(bigList()))).file).result;
+    const cancel = new CancelSource();
+    const feed = await fileOf(padded(bigList('Kanal')), undefined, {
+      beforeChunk: (n) => {
+        if (n === 20) cancel.cancel();
+      },
+    });
+    await expect(runFile(feed.file, { token: cancel.token, chunkSize: 200 }).result).rejects.toBeInstanceOf(CancelError);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect([feed.blob.cancelled, feed.ended()]).toEqual([1, 1]);
+    expect(await sourceMeta()).toMatchObject({ gen: 1, building: null });
+    expect(await storedGens()).toEqual([1]);
+  });
+
+  it('lets a file go that a failure left part way', async () => {
+    const feed = await fileOf(padded(bigList()), undefined, {
+      // The database goes away while the second frame downloads (an app killed mid-add).
+      beforeChunk: (n) => {
+        if (n === 20) db.close();
+      },
+    });
+    await expect(runFile(feed.file, { chunkSize: 50 }).result).rejects.toBeTruthy();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect([feed.blob.cancelled, feed.ended()]).toEqual([1, 1]);
   });
 });
 

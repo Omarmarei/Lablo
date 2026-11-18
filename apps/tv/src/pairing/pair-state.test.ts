@@ -5,7 +5,7 @@ import type { LifecycleEvent } from '@lablo/platform-api';
 import type { PairPayload, PairStatus } from '@lablo/protocol';
 import { createNavigator } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
-import type { PairSession } from '../data/engine';
+import type { PairFileFeedResult, PairSession } from '../data/engine';
 import type { Refusal } from '../gate/gate-state';
 import type { SourceDraft } from '../onboarding/form';
 import type { LoadErrorCode, LoadProgress, LoadResult } from '../onboarding/loader';
@@ -55,6 +55,8 @@ class FakeSession implements PairSession {
   readonly opens: Array<{ base: string; answer: Held<PairOpenResult> }> = [];
   readonly polls: Array<Held<PairPollResult>> = [];
   readonly statuses: Array<{ status: PairStatus; answer: Held<PairStatusResult> }> = [];
+  /** The file's feeds asked for (step 31d2a; the screen asks from 31d2b). */
+  readonly files: Array<Held<PairFileFeedResult>> = [];
   closed = 0;
 
   open(base: string): Promise<PairOpenResult> {
@@ -65,6 +67,11 @@ class FakeSession implements PairSession {
   poll(): Promise<PairPollResult> {
     const answer = held<PairPollResult>();
     this.polls.push(answer);
+    return answer.promise;
+  }
+  file(): Promise<PairFileFeedResult> {
+    const answer = held<PairFileFeedResult>();
+    this.files.push(answer);
     return answer.promise;
   }
   status(status: PairStatus): Promise<PairStatusResult> {

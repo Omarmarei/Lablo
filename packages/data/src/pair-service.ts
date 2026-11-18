@@ -11,6 +11,12 @@
  *   payload opened by the secret key and parsed by `pairPayloadSchema`; the key is forgotten then,
  *   and when the payload doesn't open or parse (`unreadable`). The session ends with the code
  *   (410), with its row (404), on a wrong token (401) or a payload read before (409).
+ * - `file(port)` (RELAY step 31d2a): after `ready` with an M3U file, `GET <base>/v1/pair/s/<sid>/file`
+ *   with the poll token gives the file's presigned URL (its key must be the payload's); a path is
+ *   resolved against the base (development's `/dev/blob/…`), an `https://` URL is used as it is.
+ *   Its GET (no token) must answer 200 with exactly the file's encrypted length. Then the plain
+ *   frames are served on `port` (file-frames.ts) for the ingest worker, which the app gave the
+ *   port's other end. A second `file`, a new code, the status and `close` end the feed.
  * - `status(category)`: `POST <base>/v1/pair/s/<sid>/status`, once, after `ready`. Then every
  *   trace of the session is forgotten.
  *
@@ -22,12 +28,14 @@
 import type { QrMatrix } from '@lablo/core';
 import { encodeQr, qrFits } from '@lablo/core';
 import type { BoxKeyPair, SealedPayload } from '@lablo/crypto';
-import { newBoxKeyPair, openPairPayload, toBase64Url } from '@lablo/crypto';
-import type { PairPayload, PairStatus } from '@lablo/protocol';
-import { PAIR_BODY_MAX_BYTES, PAIR_STATUSES, pairCreateResponseSchema, pairPayloadSchema, pairPollResponseSchema } from '@lablo/protocol';
-import type { ByteResponse, ByteTransport } from './bytes';
+import { fileCipherLength, fromBase64Url, newBoxKeyPair, openPairPayload, toBase64Url } from '@lablo/crypto';
+import type { PairFile, PairPayload, PairStatus } from '@lablo/protocol';
+import { PAIR_BODY_MAX_BYTES, PAIR_STATUSES, pairCreateResponseSchema, pairFileUrlResponseSchema, pairPayloadSchema, pairPollResponseSchema } from '@lablo/protocol';
+import type { ByteResponse, ByteSource, ByteTransport } from './bytes';
 import { decodeUtf8, tapBytes } from './bytes';
+import { openFileFrames, serveFileFrames } from './file-frames';
 import { PAIR_RETRY_MS, PAIR_TIMEOUT_MS } from './pair-constants';
+import type { RpcPort, RpcServer } from './rpc';
 import type { Clock } from './throttle';
 import { REAL_CLOCK } from './throttle';
 
@@ -70,6 +78,16 @@ export type PairPollResult =
 
 export type PairStatusResult = { readonly ok: true } | { readonly ok: false; readonly failure: PairFailure };
 
+/**
+ * Why the file gave nothing (RELAY step 31d2a): a request's own failures; `gone`, no file came
+ * (404), or the session ended meanwhile; `file`, the URL names another file, or its GET refused
+ * it (403 or 404: expired or deleted) or gave another length.
+ */
+export type PairFileFailure = PairFailure | 'gone' | 'file';
+
+/** The file's frames are served on the port (`size`: the plain length), or why not. */
+export type PairFileResult = { readonly ok: true; readonly size: number } | { readonly ok: false; readonly failure: PairFileFailure };
+
 export interface PairServiceOptions {
   readonly transport: ByteTransport;
   /** The clock for the time limit (default the real one). */
@@ -86,9 +104,14 @@ interface Session {
   secretKey: Uint8Array | null;
   /** The payload was read: `status` may go, once. */
   read: boolean;
+  /** The payload's M3U file (`null`: none), for `file`. */
+  file: PairFile | null;
+  /** The file's frames being served. */
+  feed: { readonly frames: ByteSource; readonly server: RpcServer } | null;
 }
 
 type Answer = { readonly failure: null; readonly status: number; readonly retryAfter: string | null; readonly text: string } | { readonly failure: PairFailure };
+type Opened = { readonly failure: null; readonly response: ByteResponse } | { readonly failure: 'network' | 'timeout' };
 
 const ORIGIN = /^(https?):\/\/[^/?#\s]+$/i;
 /** A `Retry-After` in whole seconds (regex `exec`, not `test`: `test` brings a core-js module). */
@@ -127,6 +150,8 @@ export class PairService {
   private readonly clock: Clock;
   private readonly keyPair: () => BoxKeyPair;
   private session: Session | null = null;
+  /** Bumps whenever a feed ends (`endFeed`): a `file` call that began before it is dropped. */
+  private fileSeq = 0;
 
   constructor(private readonly options: PairServiceOptions) {
     this.clock = options.clock ?? REAL_CLOCK;
@@ -151,7 +176,7 @@ export class PairService {
     const { sid, code, pollToken, exp } = created.data;
     const link = base + '/p#c=' + code + '&k=' + tvPk;
     const qr = encodeQr(link) as QrMatrix;
-    this.session = { base, sid, token: pollToken, secretKey: keys.secretKey, read: false };
+    this.session = { base, sid, token: pollToken, secretKey: keys.secretKey, read: false, file: null, feed: null };
     return { ok: true, code: { code, exp, link, typed: base.slice(origin[1]!.length + 3) + '/p', qr } };
   }
 
@@ -181,7 +206,54 @@ export class PairService {
       this.close();
       return { state: 'unreadable' };
     }
+    if (payload.source.type === 'm3u-file') session.file = payload.source.file;
     return { state: 'ready', payload };
+  }
+
+  /**
+   * Fetches the payload's file and serves its plain frames on `port` (the ingest worker reads its
+   * other end). Throws when no file came with a payload read from this session.
+   */
+  async file(port: RpcPort): Promise<PairFileResult> {
+    const session = this.session;
+    if (session === null || session.file === null) throw new Error('No pairing file was read');
+    const file = session.file;
+    this.endFeed(session);
+    const mine = this.fileSeq;
+    const answer = await this.request('GET', session.base + '/v1/pair/s/' + session.sid + '/file', null, session.token);
+    // The status went, the session ended, or another `file` began meanwhile: this one isn't wanted.
+    if (this.fileSeq !== mine) return { ok: false, failure: 'gone' };
+    if (answer.failure !== null) return { ok: false, failure: answer.failure };
+    if (answer.status === 429) return { ok: false, failure: 'rate' };
+    if (answer.status === 404) return { ok: false, failure: 'gone' };
+    if (answer.status !== 200) return { ok: false, failure: 'status' };
+    const located = pairFileUrlResponseSchema.safeParse(parseJson(answer.text));
+    if (!located.success) return { ok: false, failure: 'malformed' };
+    if (located.data.key !== file.key) return { ok: false, failure: 'file' };
+    const url = located.data.url;
+    const opened = await this.openBlob(url.charAt(0) === '/' ? session.base + url : url);
+    if (opened.failure !== null) return { ok: false, failure: opened.failure };
+    const response = opened.response;
+    if (this.fileSeq !== mine) {
+      response.cancel();
+      return { ok: false, failure: 'gone' };
+    }
+    if (response.status !== 200) {
+      response.cancel();
+      return { ok: false, failure: response.status === 403 || response.status === 404 ? 'file' : 'status' };
+    }
+    // Compared as text: `parseInt` and a regex `test` would each bring a core-js module.
+    const length = response.header('content-length');
+    if (length !== null && length !== String(fileCipherLength(file.size))) {
+      response.cancel();
+      return { ok: false, failure: 'file' };
+    }
+    // The schema checked both: 32 and 24 bytes of base64url.
+    const frames = openFileFrames(response, { fileKey: fromBase64Url(file.fileKey)!, base: fromBase64Url(file.base)!, size: file.size });
+    // (Only the feed being served can call: `endFeed` closes a server before its feed is replaced.)
+    const server = serveFileFrames(port, frames, () => this.endFeed(session));
+    session.feed = { frames, server };
+    return { ok: true, size: file.size };
   }
 
   /** The TV's category for the payload it read, once; then the session is forgotten either way. */
@@ -189,6 +261,8 @@ export class PairService {
     const session = this.session;
     if (session === null || !session.read) throw new Error('No pairing payload was read');
     if (PAIR_STATUSES.indexOf(status) === -1) throw new Error('Unknown pairing status');
+    // The add is over: a file still being served isn't read any more.
+    this.endFeed(session);
     const answer = await this.request('POST', session.base + '/v1/pair/s/' + session.sid + '/status', '{"status":"' + status + '"}', session.token);
     if (answer.failure !== null) return { ok: false, failure: answer.failure };
     if (answer.status === 429) return { ok: false, failure: 'rate' };
@@ -205,12 +279,55 @@ export class PairService {
     return this.session !== null && this.session.secretKey !== null;
   }
 
-  /** Forgets the session: its key, id and token. */
+  /** The file's frames are being served (the tests look). */
+  hasFeed(): boolean {
+    return this.session !== null && this.session.feed !== null;
+  }
+
+  /** Forgets the session: its key, id and token, and the file being served. */
   close(): void {
     const session = this.session;
     if (session === null) return;
     session.secretKey = null;
+    this.endFeed(session);
     this.session = null;
+  }
+
+  /** Stops serving the file's frames and lets its download go. */
+  private endFeed(session: Session): void {
+    this.fileSeq += 1;
+    const feed = session.feed;
+    if (feed === null) return;
+    session.feed = null;
+    feed.server.close();
+    feed.frames.cancel();
+  }
+
+  /** The file's GET, its status and headers within `PAIR_TIMEOUT_MS` (the body is read later). */
+  private openBlob(url: string): Promise<Opened> {
+    return new Promise<Opened>((resolve) => {
+      let settled = false;
+      void this.clock.sleep(PAIR_TIMEOUT_MS).then(() => {
+        if (settled) return;
+        settled = true;
+        resolve({ failure: 'timeout' });
+      });
+      this.options.transport.get(url, { method: 'GET', headers: {} }).then(
+        (response) => {
+          if (settled) {
+            response.cancel();
+            return;
+          }
+          settled = true;
+          resolve({ failure: null, response });
+        },
+        () => {
+          if (settled) return;
+          settled = true;
+          resolve({ failure: 'network' });
+        },
+      );
+    });
   }
 
   /** The answer's status and text within `PAIR_TIMEOUT_MS`. */
@@ -278,6 +395,8 @@ export function pairHandlers(options: PairServiceOptions) {
     open: (req: { base: string }): Promise<PairOpenResult> => service.open(req.base),
     poll: (): Promise<PairPollResult> => service.poll(),
     status: (req: { status: PairStatus }): Promise<PairStatusResult> => service.status(req.status),
+    /** `port` comes transferred: the app gave its other end to the ingest worker. */
+    file: (req: { port: RpcPort }): Promise<PairFileResult> => service.file(req.port),
     close: (): void => service.close(),
   };
 }
