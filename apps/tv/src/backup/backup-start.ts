@@ -1,0 +1,245 @@
+import type { ReadonlySignal } from '@preact/signals';
+import { signal } from '@preact/signals';
+import type { LoadedProfile } from '@lablo/data';
+import type { BackupCallRequest, BackupRestoreResult, CancelToken } from '@lablo/data/client';
+import { CancelSource } from '@lablo/data/client';
+import type { FocusBinding, Language, Navigator, ScreenSpec, ZoneSpec } from '@lablo/ui';
+import { bindFocus, createNavigator } from '@lablo/ui';
+import { storedSources } from '../onboarding/engine-loader';
+import { startPoint } from '../onboarding/start';
+import type { SchedulerTimers } from '../data/refresh-scheduler';
+
+/**
+ * The look-up at a start with no profile (RELAY step 32c2, Omar's decision in step 32): "Looking
+ * for your backup" while the backup worker derives this TV's keys and asks the API, then "Welcome
+ * back" when the profile came back, else onboarding.
+ *
+ * - **Waits:** onboarding's first answer would create a profile, and a restore never writes over
+ *   one, so the start waits for the look-up rather than switching mid-onboarding.
+ * - **Ends:** the answer, "Skip" (or Back), or `LOOKUP_LIMIT_MS`; the last two cancel the worker.
+ *   However it ends, the profile is read again: a cancel may come just after the restore committed,
+ *   and a profile with a source is a restore whatever the worker said.
+ * - **"Welcome back":** in the restored profile's language (`null`: the TV's), for `WELCOME_MS` or
+ *   until OK, so the restore needs no key at all (step 32's "Done when").
+ */
+
+/** The look-up gives up after this long (CI: 4.2 s on Chromium 56; a 2018 TV is slower). */
+export const LOOKUP_LIMIT_MS = 30_000;
+/** "Welcome back" shows this long before the live screen. */
+export const WELCOME_MS = 5_000;
+
+/** The navigator's screens, and their one zone of one button. */
+export const LOOKING_SCREEN = 'looking';
+export const WELCOME_SCREEN = 'welcome';
+export const BACKUP_START_ZONE = 'actions';
+
+export type BackupStartScreen = typeof LOOKING_SCREEN | typeof WELCOME_SCREEN;
+
+/** What the look-up needs from the data engine (a `DataEngine` fits; tests pass a fake). */
+export interface BackupStartEngine {
+  restoreBackup(request: BackupCallRequest, options: { readonly onProgress?: (fraction: number) => void; readonly cancel?: CancelToken }): Promise<BackupRestoreResult>;
+  profile(): Promise<LoadedProfile | null>;
+}
+
+export interface BackupStartOptions {
+  readonly engine: BackupStartEngine;
+  /** `lookupRequest`'s answer: the device ID, read with no consent asked. */
+  readonly request: BackupCallRequest;
+  readonly limitMs?: number;
+  readonly welcomeMs?: number;
+  readonly timers?: SchedulerTimers;
+  /** Where an answer that isn't a restore is told (default: `console.warn`). */
+  readonly warn?: (message: string, detail: unknown) => void;
+}
+
+/** How the look-up ended: the profile read after it, and whether that is a restore (it has a source). */
+export interface BackupStartEnd {
+  readonly profile: LoadedProfile | null;
+  readonly restored: boolean;
+}
+
+export interface BackupStart {
+  readonly nav: Navigator;
+  readonly binding: FocusBinding;
+  readonly screen: ReadonlySignal<BackupStartScreen>;
+  /** scrypt's progress, 0 to 1 (`null` before the first report). */
+  readonly progress: ReadonlySignal<number | null>;
+  /** "Skip" was pressed (or Back): the look-up is being cancelled. */
+  readonly skipped: ReadonlySignal<boolean>;
+  /** "Welcome back": the restored profile's language (`null`: the TV's). */
+  readonly language: ReadonlySignal<Language | null>;
+  /** "Welcome back": how many sources came back, and how many of them are files sent from a phone. */
+  readonly sources: ReadonlySignal<number>;
+  readonly files: ReadonlySignal<number>;
+  /** Settles once: after onboarding's look-up ends, or after "Welcome back". */
+  readonly done: Promise<BackupStartEnd>;
+  /** Ends the look-up's worker and the screen's focus; `done` settles no more after it. */
+  dispose(): void;
+}
+
+const ONE: readonly ZoneSpec[] = [{ kind: 'list', id: BACKUP_START_ZONE, axis: 'horizontal', count: 1 }];
+
+const defaultTimers: SchedulerTimers = {
+  set: (run, ms) => setTimeout(run, ms),
+  clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
+
+/** The answers that say something went wrong (none found and a kept profile are no news). */
+function worthTelling(result: BackupRestoreResult): string | null {
+  if (result.state === 'failed') return 'failed: ' + result.failure;
+  if (result.state === 'unreadable' || result.state === 'newer') return result.state;
+  return null;
+}
+
+export function createBackupStart(options: BackupStartOptions): BackupStart {
+  const { engine } = options;
+  const timers = options.timers ?? defaultTimers;
+  const warn = options.warn ?? ((message: string, detail: unknown) => console.warn(message, detail));
+  const screen = signal<BackupStartScreen>(LOOKING_SCREEN);
+  const progress = signal<number | null>(null);
+  const skipped = signal(false);
+  const language = signal<Language | null>(null);
+  const sources = signal(0);
+  const files = signal(0);
+  const cancel = new CancelSource();
+  let limit: unknown = null;
+  let welcome: unknown = null;
+  let disposed = false;
+  let settled = false;
+  let end: BackupStartEnd | null = null;
+  let settle: (value: BackupStartEnd) => void = () => undefined;
+  const done = new Promise<BackupStartEnd>((resolve) => {
+    settle = resolve;
+  });
+
+  const clear = (handle: unknown): null => {
+    if (handle !== null) timers.clear(handle);
+    return null;
+  };
+
+  const finish = (value: BackupStartEnd): void => {
+    if (settled) return;
+    settled = true;
+    limit = clear(limit);
+    welcome = clear(welcome);
+    settle(value);
+  };
+
+  const skip = (): void => {
+    if (skipped.peek()) return;
+    skipped.value = true;
+    cancel.cancel();
+  };
+
+  const welcomeSpec: ScreenSpec = {
+    id: WELCOME_SCREEN,
+    zones: ONE,
+    onIntent: (intent) => {
+      if (intent !== 'BACK') return false;
+      if (end !== null) finish(end);
+      return true;
+    },
+    onSelect: () => {
+      if (end !== null) finish(end);
+    },
+  };
+
+  const nav: Navigator = createNavigator({
+    root: {
+      id: LOOKING_SCREEN,
+      zones: ONE,
+      onIntent: (intent) => {
+        if (intent !== 'BACK') return false;
+        skip();
+        return true;
+      },
+      onSelect: () => skip(),
+    },
+    rootBack: 'platform-back',
+    exit: () => undefined,
+    exitDialog: () => undefined,
+  });
+  const binding = bindFocus(nav);
+
+  /** The look-up has ended, however: the profile decides. */
+  const ended = (): void => {
+    if (disposed) return;
+    limit = clear(limit);
+    engine
+      .profile()
+      .catch((error: unknown) => {
+        warn('The profile could not be read after the backup look-up', error);
+        return null;
+      })
+      .then((profile) => {
+        if (disposed) return;
+        const records = storedSources(profile);
+        if (records.length === 0) {
+          finish({ profile, restored: false });
+          return;
+        }
+        let fromPhone = 0;
+        for (let i = 0; i < records.length; i++) if (records[i]!.type === 'm3u-file') fromPhone += 1;
+        end = { profile, restored: true };
+        language.value = startPoint(profile).language;
+        sources.value = records.length;
+        files.value = fromPhone;
+        screen.value = WELCOME_SCREEN;
+        nav.reset(welcomeSpec);
+        welcome = timers.set(
+          () => {
+            welcome = null;
+            if (end !== null) finish(end);
+          },
+          options.welcomeMs ?? WELCOME_MS,
+        );
+      });
+  };
+
+  limit = timers.set(
+    () => {
+      limit = null;
+      cancel.cancel();
+    },
+    options.limitMs ?? LOOKUP_LIMIT_MS,
+  );
+  engine
+    .restoreBackup(options.request, {
+      onProgress: (fraction) => {
+        if (!disposed) progress.value = fraction;
+      },
+      cancel: cancel.token,
+    })
+    .then(
+      (result) => {
+        const told = worthTelling(result);
+        if (told !== null) warn('No backup was restored', told);
+        ended();
+      },
+      (error: unknown) => {
+        // A cancel (Skip, Back, the time limit) or a worker that died.
+        if ((error as { code?: unknown } | null)?.code !== 'cancelled') warn('The backup look-up failed', error);
+        ended();
+      },
+    );
+
+  return {
+    nav,
+    binding,
+    screen,
+    progress,
+    skipped,
+    language,
+    sources,
+    files,
+    done,
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      limit = clear(limit);
+      welcome = clear(welcome);
+      cancel.cancel();
+      binding.dispose();
+    },
+  };
+}

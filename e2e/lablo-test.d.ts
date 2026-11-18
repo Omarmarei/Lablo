@@ -20,5 +20,9 @@ interface Window {
     refreshConfig(): Promise<LabloConfigView | null>;
     /** No config run in progress or due. */
     configIdle(): boolean;
+    /** No backup look-up or upload running (RELAY step 32c2). */
+    backupIdle(): boolean;
+    /** A backup upload now, resolving with its state (`sent`, `same`, `held` …; `null`: none ran). */
+    uploadBackup(): Promise<string | null>;
   };
 }

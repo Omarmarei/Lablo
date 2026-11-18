@@ -1053,6 +1053,23 @@ describe('resetDatabase', () => {
     expect(idle({ __LABLO_TEST__: { configIdle: () => undefined } })).toBe(false);
   });
 
+  it('reads a backup worker running as busy, and a hook without backupIdle as idle for it (step 32c2)', () => {
+    const idle = (window: Record<string, unknown>): boolean => JSON.parse(runInNewContext(CONFIG_IDLE, { window, JSON }) as string) as boolean;
+    expect(idle({ __LABLO_TEST__: { configIdle: () => true, backupIdle: () => true } })).toBe(true);
+    expect(idle({ __LABLO_TEST__: { configIdle: () => true, backupIdle: () => false } })).toBe(false);
+    expect(idle({ __LABLO_TEST__: { configIdle: () => false, backupIdle: () => true } })).toBe(false);
+    expect(idle({ __LABLO_TEST__: { configIdle: () => true, backupIdle: () => undefined } })).toBe(false);
+    expect(idle({ __LABLO_TEST__: { backupIdle: () => false } })).toBe(false);
+    expect(idle({ __LABLO_TEST__: { backupIdle: () => true } })).toBe(true);
+  });
+
+  it("waits for the app's backup worker to end before leaving its page (step 32c2)", async () => {
+    let busyReads = 2;
+    const page = fakePage(URL, 2, { __LABLO_TEST__: { configIdle: () => true, backupIdle: () => busyReads-- <= 0 } });
+    expect(await resetDatabase(page.client)).toBe('ok');
+    expect(busyReads).toBe(-1);
+  });
+
   it('reads the marked old document as stale', () => {
     const window: Record<string, unknown> = {};
     runInNewContext(STALE_MARK, { window, JSON });

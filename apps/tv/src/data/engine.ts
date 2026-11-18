@@ -155,6 +155,12 @@ export interface DataEngineOptions {
   idleMs?: number;
   /** Called when the busy flag changes. */
   onBusy?: (busy: boolean) => void;
+  /**
+   * Called after the profile may have changed (step 32c2: the backup's upload schedule): an
+   * `editProfile` that changed it, and a catalog refresh that committed (a new source's record,
+   * favourites matched again). A call too many costs an upload that finds nothing changed.
+   */
+  onProfileChanged?: () => void;
 }
 
 export interface DataSummary {
@@ -334,7 +340,10 @@ export class DataEngine {
    * Resolves `false` when nothing changed or the stored profile is from a newer app version.
    */
   editProfile(edit: ProfileEdit): Promise<boolean> {
-    return this.query.call('editProfile', edit);
+    return this.query.call('editProfile', edit).then((changed) => {
+      if (changed) this.options.onProfileChanged?.();
+      return changed;
+    });
   }
 
   /**
@@ -369,6 +378,7 @@ export class DataEngine {
         // The refresh itself succeeded; a query worker that can't reload reports that on the
         // next read.
         await reload.catch(ignore);
+        if (result.status === 'committed') this.options.onProfileChanged?.();
         return result;
       });
     } finally {

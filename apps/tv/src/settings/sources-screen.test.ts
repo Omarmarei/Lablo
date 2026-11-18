@@ -375,8 +375,10 @@ describe('a source’s row as drawn', () => {
     const file = row({ type: 'm3u-file', host: '' });
     expect(statusText(en, file)).toBe(`Sent from your phone ${en.date(at, 'day')}, ${en.time(at)}`);
     expect(stripIsolates(statusText(ar, file))).toBe(stripIsolates(`أُرسل من هاتفك ${ar.date(at, 'day')}، ${ar.time(at)}`));
-    // No catalog (a wiped database): as any source with none.
-    expect(statusText(en, row({ type: 'm3u-file', host: '', checkedAt: null }))).toBe('Not updated yet');
+    // No catalog (a restored backup holds no file, step 32c2; a wiped database): send it again, even on a blocked list.
+    expect(statusText(en, row({ type: 'm3u-file', host: '', checkedAt: null }))).toBe('Not loaded yet: send this file again from your phone.');
+    expect(statusText(ar, row({ type: 'm3u-file', host: '', checkedAt: null }))).toBe('لم يُحمَّل بعد: أرسل هذا الملف من هاتفك مرة أخرى.');
+    expect(statusText(en, row({ type: 'm3u-file', host: '', checkedAt: null, blocked: true }))).toBe('Not loaded yet: send this file again from your phone.');
   });
 
   it('draws a file from the phone with its kind and no server', () => {

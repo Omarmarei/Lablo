@@ -198,11 +198,12 @@ export function sourceKindText(t: Translate, row: SourceRow): string {
 /**
  * A source's line under its name: when it was last updated ("Updated {day}, {time}", or "Not
  * updated yet"); for a source on a blocked server, that it isn't any more, since when it was. A
- * file from the phone is never updated by itself: when it was sent (step 31d2b1).
+ * file from the phone is never updated by itself: when it was sent (step 31d2b1), or, with no
+ * catalog (a restored backup holds no file, step 32c2), that it has to be sent again.
  */
 export function statusText(i18n: AppI18n, row: SourceRow): string {
   const at = row.checkedAt === null ? null : new Date(row.checkedAt);
-  if (row.type === 'm3u-file' && at !== null) return i18n.t('sources.fileSent', { day: i18n.date(at, 'day'), time: i18n.time(at) });
+  if (row.type === 'm3u-file') return at === null ? i18n.t('sources.fileAgain') : i18n.t('sources.fileSent', { day: i18n.date(at, 'day'), time: i18n.time(at) });
   if (row.blocked) return at === null ? i18n.t('sources.blocked') : i18n.t('sources.blockedSince', { day: i18n.date(at, 'day'), time: i18n.time(at) });
   return at === null ? i18n.t('sources.notUpdated') : i18n.t('sources.updated', { day: i18n.date(at, 'day'), time: i18n.time(at) });
 }

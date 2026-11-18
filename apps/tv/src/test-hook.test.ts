@@ -1,5 +1,5 @@
 import { signal } from '@preact/signals';
-import type { ConfigResult } from '@lablo/data';
+import type { BackupUploadResult, ConfigResult } from '@lablo/data';
 import { noPolicy } from '@lablo/data/client';
 import { describe, expect, it } from 'vitest';
 import { createFocusDemo } from './focus-demo';
@@ -140,5 +140,24 @@ describe('the config in the test hook (step 30c1)', () => {
     await expect(target.__LABLO_TEST__?.refreshConfig()).resolves.toBeNull();
     // Nothing to wait for.
     expect(target.__LABLO_TEST__?.configIdle()).toBe(true);
+    // No backup either (step 32c2).
+    expect(target.__LABLO_TEST__?.backupIdle()).toBe(true);
+    await expect(target.__LABLO_TEST__?.uploadBackup()).resolves.toBeNull();
+  });
+
+  it("reads the backup's idle when asked, and uploads through it, giving the state (step 32c2)", async () => {
+    let idle = false;
+    const answers: (BackupUploadResult | null)[] = [{ state: 'sent' }, { state: 'failed', failure: 'network' }, null];
+    const target: TestHookTarget = {};
+    installTestHook(target, null, { idle: () => idle, uploadNow: () => Promise.resolve(answers.shift() ?? null) });
+    const hook = target.__LABLO_TEST__!;
+    expect(hook.backupIdle()).toBe(false);
+    idle = true;
+    expect(hook.backupIdle()).toBe(true);
+    await expect(hook.uploadBackup()).resolves.toBe('sent');
+    await expect(hook.uploadBackup()).resolves.toBe('failed');
+    await expect(hook.uploadBackup()).resolves.toBeNull();
+    // The config's part stays as without a schedule.
+    expect(hook.configIdle()).toBe(true);
   });
 });

@@ -3,7 +3,8 @@
  *
  * The keyboard stands in for the TV remote (docs/architecture.md §4) and the device info
  * is fake, with URL overrides so tests can force a tier, locale or country:
- * `?tier=low&locale=ar-SA&country=SA`.
+ * `?tier=low&locale=ar-SA&country=SA`, and give the TV a device ID: `?device=<id>` (RELAY step
+ * 32c2: the backup's look-up and keys; a desktop has none of its own).
  */
 import { chromiumMajorFromUserAgent } from '@lablo/core';
 import type { DeviceInfo, Intent, KeyLike, KeyRegistration, LifecycleEvent, Platform, PlatformCall, ScreenReaderState, TextKey } from '@lablo/platform-api';
@@ -87,7 +88,7 @@ export interface BrowserEnv {
   readonly userAgent: string;
   /** Browser UI language, e.g. `en-US`. */
   readonly language: string;
-  /** `location.search`, for the `tier`, `locale` and `country` overrides. */
+  /** `location.search`, for the `tier`, `locale`, `country` and `device` overrides. */
   readonly search: string;
   readonly document: VisibilitySource;
   /** Called by `exitApp()`; the browser cannot close a tab it did not open. */
@@ -120,6 +121,12 @@ function fakeDeviceInfo(env: BrowserEnv): DeviceInfo {
   };
 }
 
+/** A test's device ID (`?device=`), else none: a desktop browser has no device ID of its own. */
+function fakeDeviceId(env: BrowserEnv): string | null {
+  const id = new URLSearchParams(env.search).get('device');
+  return id === null || id === '' ? null : id;
+}
+
 export function createBrowserPlatform(env: BrowserEnv = defaultEnv()): Platform {
   return {
     id: 'browser',
@@ -139,8 +146,8 @@ export function createBrowserPlatform(env: BrowserEnv = defaultEnv()): Platform 
     // The desktop keyboard is a physical one.
     onSoftKeyboard: () => () => undefined,
     rootBackPolicy: () => 'exit-dialog',
-    // A desktop browser has no device ID of its own.
-    deviceSecret: () => Promise.resolve(null),
+    // A desktop browser has no device ID of its own: a test may give one (step 32c2).
+    deviceSecret: () => Promise.resolve(fakeDeviceId(env)),
     // Nor a screensaver, a screen reader setting or TV speech the page may use.
     setScreenSaver: (): Promise<PlatformCall> => Promise.resolve('unsupported'),
     screenReader: (): Promise<ScreenReaderState> => Promise.resolve({ on: null, detail: 'a desktop browser has no screen reader setting' }),

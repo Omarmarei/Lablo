@@ -2,11 +2,16 @@ import { computed, signal } from '@preact/signals';
 import { render } from 'preact';
 import type { ContentKey, DeviceTier } from '@lablo/core';
 import { normalizeLang } from '@lablo/core';
-import type { LastChannel } from '@lablo/data';
+import type { LastChannel, LoadedProfile } from '@lablo/data';
 import type { Language, Navigator } from '@lablo/ui';
 import { Spinner } from '@lablo/ui';
 import type { AppData } from './App';
 import { App } from './App';
+import { backupRequest, consentOf } from './backup/backup-request';
+import { createBackupSchedule } from './backup/backup-schedule';
+import { createBackupStart } from './backup/backup-start';
+import { BackupStartApp } from './backup/BackupStartApp';
+import { lookupRequest } from './backup/lookup-request';
 import { createConfigSchedule } from './data/config-schedule';
 import type { DataEngine, SourceFacts } from './data/engine';
 import { readApiBase, readChecks, readDebugParams, readScreen } from './data/params';
@@ -100,6 +105,8 @@ function dataEngine(): DataEngine {
       onBusy: (value) => {
         busy.value = value;
       },
+      // The backup's upload follows every change (step 32c2).
+      onProfileChanged: () => backup.changed(),
     });
   }
   return engine;
@@ -115,6 +122,26 @@ const configRequest = {
   version: __APP_VERSION__,
   keys: __CONFIG_KEYS__,
 };
+
+/** The build's half of the backup's scrypt salt (step 32b): never changes once a TV has a backup. */
+const BACKUP_BUILD = { platform: __PLATFORM__, appId: __APP_ID__ };
+
+/**
+ * The backup's upload (RELAY step 32c2): 60 s after a profile change, at most every 5 minutes, at
+ * once when the app is hidden, from the live screen on. Each run reads the profile's consent: the
+ * device ID only after "Allow" (`backupRequest`), else the backup code.
+ */
+const backup = createBackupSchedule({
+  engine: { uploadBackup: (request) => dataEngine().uploadBackup(request) },
+  request: () =>
+    dataEngine()
+      .profile()
+      .then((profile) => backupRequest(platform, consentOf(profile), BACKUP_BUILD))
+      .then((prepared) => ({ platform: prepared.platform, appId: prepared.appId, secret: prepared.secret, base: configRequest.base })),
+  lifecycle: (listener) => platform.onLifecycle(listener),
+});
+/** The look-up at a start with no profile is running (step 32c2): its backup worker may be in the database. */
+let lookingUp = false;
 
 /**
  * The signed config (RELAY step 30b2): a config worker after the start's first paint and then
@@ -193,7 +220,10 @@ const gate = createGate({
  * The focus of the screen on show, as `window.__LABLO_TEST__.focusPath()` (RELAY step 14b), and
  * the config's last answer and a refresh now (step 30c1).
  */
-const showFocus = installTestHook(window, config);
+const showFocus = installTestHook(window, config, {
+  idle: () => !lookingUp && backup.idle(),
+  uploadNow: () => backup.uploadNow(),
+});
 
 /**
  * The app's player controller, made on the first play (RELAY step 20a): the stage under the page,
@@ -219,7 +249,7 @@ let refreshes: RefreshScheduler | null = null;
  * Starts the refresh schedule for the live screen: stale catalogs and due guides are read in the
  * background, and the screen picks up what swapped in (`readFormats`: the accounts' formats again).
  */
-function startRefreshes(live: Live, guide: Guide, posters: readonly Movies[], search: Search, home: Home, readFacts: () => void): void {
+function startRefreshes(live: Live, guide: Guide, posters: readonly Movies[], search: Search, home: Home, readFacts: () => void, firstMs?: number): void {
   refreshes?.dispose();
   refreshes = createRefreshScheduler({
     engine: dataEngine(),
@@ -246,7 +276,7 @@ function startRefreshes(live: Live, guide: Guide, posters: readonly Movies[], se
       guide.guidesChanged();
     },
   });
-  refreshes.start();
+  refreshes.start(firstMs);
 }
 
 /** The hello screen: developer diagnostics of the device, the workers and the data layer. */
@@ -267,8 +297,10 @@ function showHello(into: Element): void {
  * The live screen (RELAY step 14a): the stored sources' channels, in the language picked in
  * onboarding (`null`: the TV's). OK on a channel opens the player (step 20a). `resume` (step
  * 20c1): the channel watched last plays at once, over the live screen, before its catalog loads.
+ * `restored` (step 32c2): the profile has just come back from a backup, with none of its catalogs:
+ * the refresh schedule's first check comes at once.
  */
-function showLive(into: Element, language: Language | null, resume: LastChannel | null = null): void {
+function showLive(into: Element, language: Language | null, resume: LastChannel | null = null, restored = false): void {
   let player: Player | null = null;
   const readFacts = (): void => {
     dataEngine()
@@ -457,15 +489,20 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   if (resume !== null) player.resume({ item: resume.item, number: resume.number }, resume.index);
   showFocus(live.nav);
   render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} home={home} />, into);
-  startRefreshes(live, guide, [movies, series], search, home, readFacts);
-  // Under the gate's `disable-app` or update (step 30c2a): the player closes and the refreshes stop, until it lifts.
+  startRefreshes(live, guide, [movies, series], search, home, readFacts, restored ? 0 : undefined);
+  backup.start();
+  // Under the gate's `disable-app` or update (step 30c2a): the player closes, the refreshes and the backup's uploads stop, until it lifts.
   gated = {
     stop: () => {
       player?.close();
       refreshes?.dispose();
       refreshes = null;
+      backup.stop();
     },
-    resume: () => startRefreshes(live, guide, [movies, series], search, home, readFacts),
+    resume: () => {
+      startRefreshes(live, guide, [movies, series], search, home, readFacts);
+      backup.start();
+    },
   };
 }
 
@@ -510,6 +547,51 @@ function showOnboarding(into: Element, language: Language | null): void {
   render(<OnboardingApp platform={platform} onboarding={started} onFinish={finish} />, into);
 }
 
+/**
+ * The start's screen for `profile`: the live screen when it has a source, else onboarding; then
+ * the gate and the config. `restored` (step 32c2): the profile has just come back from a backup,
+ * so the channel watched last doesn't play by itself (its catalog is being read again, and its
+ * address may be months old) and the catalogs are read at once.
+ */
+function startWith(into: Element, profile: LoadedProfile | null, restored: boolean): void {
+  memory.load(profile);
+  progress.load(profile);
+  const start = startPoint(profile);
+  if (start.screen === 'home') showLive(into, start.language, restored ? null : start.resume, restored);
+  else showOnboarding(into, start.language);
+  // The gate over every screen (step 30c2a), in its own root after #app; nothing shows until the config says so.
+  const gateRoot = document.createElement('div');
+  document.body.appendChild(gateRoot);
+  render(<GateApp platform={platform} gate={gate} />, gateRoot);
+  gate.start(noticesShownOf(profile));
+  // After the start's screen has painted: the config never delays it.
+  config.start();
+}
+
+/**
+ * A start with no profile (RELAY step 32c2, Omar's decision in step 32): a fresh install, or a
+ * TV whose app data was wiped. Before onboarding asks anything, the TV reads its device ID (the one
+ * read with no consent asked) and looks for its backup behind "Looking for your backup"; a profile
+ * that came back shows "Welcome back", then the live screen. No device ID: onboarding at once.
+ */
+function startWithoutProfile(into: Element): void {
+  void lookupRequest(platform, BACKUP_BUILD, configRequest.base).then((request) => {
+    if (request === null) {
+      startWith(into, null, false);
+      return;
+    }
+    lookingUp = true;
+    const look = createBackupStart({ engine: dataEngine(), request });
+    showFocus(look.nav);
+    render(<BackupStartApp platform={platform} start={look} />, into);
+    void look.done.then((end) => {
+      lookingUp = false;
+      startWith(into, end.profile, end.restored);
+      look.dispose();
+    });
+  });
+}
+
 const screen = readScreen(location.search);
 if (screen === 'gallery') {
   // The component gallery (RELAY step 11b): no data workers.
@@ -532,17 +614,7 @@ if (screen === 'gallery') {
     root,
   );
   void readStartProfile(dataEngine()).then((profile) => {
-    memory.load(profile);
-    progress.load(profile);
-    const start = startPoint(profile);
-    if (start.screen === 'home') showLive(root, start.language, start.resume);
-    else showOnboarding(root, start.language);
-    // The gate over every screen (step 30c2a), in its own root after #app; nothing shows until the config says so.
-    const gateRoot = document.createElement('div');
-    document.body.appendChild(gateRoot);
-    render(<GateApp platform={platform} gate={gate} />, gateRoot);
-    gate.start(noticesShownOf(profile));
-    // After the start's screen has painted: the config never delays it.
-    config.start();
+    if (profile === null) startWithoutProfile(root);
+    else startWith(root, profile, false);
   });
 }

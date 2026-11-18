@@ -250,6 +250,15 @@ describe('the refresh schedule', () => {
     expect([FIRST_CHECK_MS, CHECK_MS]).toEqual([15_000, 15 * 60_000]);
   });
 
+  it('checks at once after a restored backup, then every 15 min (step 32c2)', async () => {
+    const t = setup();
+    t.scheduler.start(0);
+    expect(t.clock.due()).toEqual([0]);
+    await t.run(0);
+    expect(t.engine.profiles).toBe(1);
+    expect(t.clock.due()).toEqual([CHECK_MS]);
+  });
+
   it('starts once', async () => {
     const t = setup();
     t.scheduler.start();
