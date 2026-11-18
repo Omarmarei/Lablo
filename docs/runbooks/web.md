@@ -197,8 +197,13 @@ A phone can send an M3U file instead of a link (architecture.md §3.3 A, step 4,
   (`application/octet-stream`, `access-control-allow-origin: *`: the TV is another origin), both
   through `MemoryBlobStore.redeem`, every answer `no-store`. It answers 404 on Vercel (`VERCEL`
   set) and whenever the services' store isn't the memory one.
-- **On the TV** (step 31d2): `GET /v1/pair/s/:sid/file` gives the presigned GET; a relative one is
-  resolved against the API base.
+- **On the TV** (step 31d2a, architecture.md "Built in step 31d2a"): the pair worker asks
+  `GET /v1/pair/s/:sid/file` with its poll token, resolves a relative URL against the API base it
+  pairs with, downloads the file with no token (headers within 10 s; exactly the encrypted length)
+  and opens it one frame at a time; the ingest worker reads the plain frames from a
+  `MessageChannel` port and parses them as an M3U link's body. A frame that doesn't open fails
+  the add with the ingest's `file` code. The screen's add path and the stored source come with
+  step 31d2b.
 - **Try it:** as "The phone page" below; choose "M3U playlist file" and any `.m3u`. A scripted TV
   then reads the file's URL from `GET /v1/pair/s/:sid/file`, downloads it and opens it with the
   payload's `fileKey` and `base` (`openFile`); `apps/web/e2e/phone-file.spec.ts` does exactly that.

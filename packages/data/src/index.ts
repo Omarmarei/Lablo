@@ -129,7 +129,7 @@ export { BUSY_MAX_MS, BUSY_POLL_MS, LOW_TIER_DUTY, REAL_CLOCK, Throttle, YIELD_E
 export type { CatalogView, Candidate, FavouriteReport } from './favourites';
 export { FavouriteMatcher, MISSING_KEEP_MS, reconcileFavourites } from './favourites';
 
-export type { IngestErrorCode, IngestJob, IngestOptions, IngestProgress, IngestResult, IngestSource, IngestSwap } from './ingest';
+export type { IngestErrorCode, IngestJob, IngestOptions, IngestProgress, IngestResult, IngestSource, IngestSwap, LinkSource } from './ingest';
 export { INGEST_VERSION, IngestError, WRITE_BATCH, runIngest } from './ingest';
 
 export type { DeclaredChannel, EpgBucketKey, EpgChannelTable, EpgDeclaredChannels, EpgFailure, EpgMeta, EpgMetaPatch, EpgSummary, StoredEpgMatch } from './epg-store';
@@ -194,8 +194,13 @@ export type { ConfigEvents, ConfigFailure, ConfigRequest, ConfigResult, ConfigRu
 export { CONFIG_KEY, CONFIG_MAX_BYTES, CONFIG_REFRESH_MS, CONFIG_RETRY_MS, CONFIG_TIMEOUT_MS, ConfigService, configHandlers } from './config-service';
 
 // The pairing client (RELAY step 31c1): the pair worker's service.
-export type { PairCode, PairFailure, PairOpenResult, PairPollResult, PairServiceOptions, PairStatusResult } from './pair-service';
+export type { PairCode, PairFailure, PairFileFailure, PairFileResult, PairOpenResult, PairPollResult, PairServiceOptions, PairStatusResult } from './pair-service';
 export { PAIR_ANSWER_MAX_BYTES, PAIR_POLL_MS, PAIR_RETRY_MS, PAIR_TIMEOUT_MS, PairService, pairHandlers, readPayload, retryAfterMs } from './pair-service';
+// The phone's M3U file (RELAY step 31d2a): opened in the pair worker, read by the ingest worker.
+export type { FileFrameHandlers, FileSecret } from './file-frames';
+export { FileError, openFileFrames, serveFileFrames } from './file-frames';
+export type { FileFeed } from './file-feed';
+export { feedResponse } from './file-feed';
 
 export type { IngestEvents, IngestRunRequest, IngestServiceOptions } from './ingest-service';
 export { IngestService } from './ingest-service';

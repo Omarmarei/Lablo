@@ -5,7 +5,8 @@
  *
  * - `run`: one refresh (`runIngest`), with `progress` events while it reads and a `swapped`
  *   event as soon as the new generation is active (the app then calls the query worker's
- *   `reload`). Cancelling the call cancels the refresh.
+ *   `reload`). Cancelling the call cancels the refresh. An `m3u-file` source comes with `file`:
+ *   the port its plain frames come on from the pair worker (file-feed.ts, RELAY step 31d2a).
  * - `setBusy`: the UI is zapping or starting playback; the refresh pauses until it is idle.
  * - `prune`: at app start, removes what crashed or killed refreshes left behind, for every source.
  *
@@ -14,6 +15,8 @@
 
 import type { ByteTransport } from './bytes';
 import { getSources, pruneGenerations } from './catalog-store';
+import type { FileFeed } from './file-feed';
+import { feedResponse } from './file-feed';
 import type { GunzipMode } from './gunzip';
 import type { IngestJob, IngestProgress, IngestResult, IngestSwap } from './ingest';
 import { runIngest } from './ingest';
@@ -27,6 +30,8 @@ export interface IngestRunRequest {
   lowTier?: boolean;
   /** Overrides the low-tier duty cycle (remote config). */
   duty?: DutyCycle;
+  /** An `m3u-file` source's frames: the port (transferred with the call) and the plain length. */
+  file?: FileFeed;
 }
 
 /** Events the ingest worker pushes. */
@@ -80,6 +85,7 @@ export class IngestService {
       token: ctx.token,
       throttle: this.throttle,
       gunzip: this.options.gunzip,
+      file: req.file === undefined ? undefined : feedResponse(req.file),
       onProgress: (p) => ctx.emit('progress', p),
       onSwap: (s) => ctx.emit('swapped', s),
     });

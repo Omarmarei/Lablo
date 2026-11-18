@@ -1,12 +1,13 @@
 import { encodeQr } from '@lablo/core';
 import type { BoxKeyPair } from '@lablo/crypto';
-import { boxKeyPairFromSecretKey, newBoxKeyPair, sealPairPayload, toBase64Url, utf8 } from '@lablo/crypto';
+import { FILE_FRAME_BYTES, boxKeyPairFromSecretKey, newBoxKeyPair, sealFile, sealPairPayload, toBase64Url, utf8 } from '@lablo/crypto';
 import type { PairPayload } from '@lablo/protocol';
 import { PAIR_PAYLOAD_MAX_BYTES } from '@lablo/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { ByteRequest, ByteResponse, ByteTransport } from './bytes';
+import type { ByteRequest, ByteResponse, ByteSource, ByteTransport } from './bytes';
 import { NetworkError } from './bytes';
 import { createPairClient } from './client';
+import { feedResponse } from './file-feed';
 import type { PairPollResult } from './pair-service';
 import { PAIR_ANSWER_MAX_BYTES, PAIR_POLL_MS, PAIR_RETRY_MS, PAIR_TIMEOUT_MS, PairService, pairHandlers, readPayload, retryAfterMs } from './pair-service';
 import type { RpcPort } from './rpc';
@@ -579,5 +580,288 @@ describe('pairHandlers (the pair worker)', () => {
     expect(PAIR_POLL_MS).toBe(2000);
     expect(PAIR_TIMEOUT_MS).toBe(10_000);
     expect(PAIR_RETRY_MS).toBe(60_000);
+  });
+});
+
+describe('PairService.file (step 31d2a)', () => {
+  const ports: MessagePort[] = [];
+  afterEach(() => {
+    for (const port of ports.splice(0)) port.close();
+  });
+
+  const FILE_KEY = new Uint8Array(32).fill(21);
+  const FILE_BASE = new Uint8Array(24).fill(22);
+  const FILE_SIZE = FILE_FRAME_BYTES + 200_000;
+  const FILE_PLAIN = new Uint8Array(FILE_SIZE).map((_, i) => (i * 13) & 255);
+  const FILE_SEALED = sealFile(FILE_PLAIN, FILE_KEY, FILE_BASE);
+  const BLOB_KEY = 'b'.repeat(21) + 'A';
+  const BLOB_PATH = `/dev/blob/pair/${SID}/${BLOB_KEY}?m=GET&n=0&e=1800000600000&s=sig`;
+  const FILE: PairPayload = { v: 1, source: { type: 'm3u-file', file: { key: BLOB_KEY, fileKey: toBase64Url(FILE_KEY), base: toBase64Url(FILE_BASE), size: FILE_SIZE } }, name: 'Family list' };
+  const located = (fields: Record<string, unknown> = {}): FakeResponse => ({ status: 200, body: JSON.stringify({ url: BLOB_PATH, key: BLOB_KEY, exp: EXP, ...fields }) });
+  const blob = (fields: Partial<FakeResponse> = {}): FakeResponse => ({ status: 200, headers: { 'Content-Length': String(FILE_SEALED.length) }, body: FILE_SEALED, chunk: 65536, ...fields });
+
+  /** The pairing API with a file: the URL's answer and the blob's, each overridable. */
+  function withFile(keys: BoxKeyPair, url: Answer = located(), file: Answer = blob(), payload: PairPayload = FILE) {
+    return (s: Sent): Answer => {
+      if (s.url === BASE + '/v1/pair') return created();
+      if (s.url === `${BASE}/v1/pair/s/${SID}`) return ready(sealed(payload, keys.publicKey));
+      if (s.url === `${BASE}/v1/pair/s/${SID}/file`) return url;
+      if (s.url.endsWith('/status')) return { status: 200, body: '{"state":"done","status":"ok"}' };
+      return file;
+    };
+  }
+
+  /** A service that has read the file's payload. */
+  async function readFile(url?: Answer, file?: Answer, payload?: PairPayload) {
+    const keys = keyPair(17);
+    const s = setup(withFile(keys, url, file, payload), [keys]);
+    await s.service.open(BASE);
+    expect((await s.service.poll()).state).toBe('ready');
+    const { port1, port2 } = new MessageChannel();
+    ports.push(port1, port2);
+    return { ...s, serving: port1 as unknown as RpcPort, reading: port2 as unknown as RpcPort };
+  }
+
+  async function readAll(feed: ByteSource): Promise<Uint8Array> {
+    const parts: Uint8Array[] = [];
+    for (let chunk = await feed.read(); chunk !== null; chunk = await feed.read()) parts.push(chunk);
+    return new Uint8Array(Buffer.concat(parts));
+  }
+
+  it("asks for the file's URL with the poll token, fetches it without, and serves the opened frames on the port", async () => {
+    const { service, sent, serving, reading } = await readFile();
+    expect(await service.file(serving)).toEqual({ ok: true, size: FILE_SIZE });
+    expect(sent.slice(2)).toEqual([
+      { method: 'GET', url: `${BASE}/v1/pair/s/${SID}/file`, headers: { authorization: `Bearer ${TOKEN}` }, body: null },
+      // The path resolved against the base; no token, no body.
+      { method: 'GET', url: BASE + BLOB_PATH, headers: {}, body: null },
+    ]);
+    expect(service.hasFeed()).toBe(true);
+    const plain = await readAll(feedResponse({ port: reading, size: FILE_SIZE }));
+    expect(Buffer.from(plain).equals(Buffer.from(FILE_PLAIN))).toBe(true);
+    // The status ends what is left of the feed, and the session as before.
+    expect(await service.status('ok')).toEqual({ ok: true });
+    expect(service.hasFeed()).toBe(false);
+  });
+
+  it("ends the feed with the status even when the status doesn't go (it is tried again later)", async () => {
+    const keys = keyPair(17);
+    const routes = withFile(keys);
+    const s = setup((sent) => (sent.url.endsWith('/status') ? 'throw' : routes(sent)), [keys]);
+    await s.service.open(BASE);
+    await s.service.poll();
+    const { port1 } = new MessageChannel();
+    ports.push(port1);
+    expect((await s.service.file(port1 as unknown as RpcPort)).ok).toBe(true);
+    expect(await s.service.status('unreachable')).toEqual({ ok: false, failure: 'network' });
+    // The session stays for the next try; the file isn't read any more.
+    expect(s.service.hasFeed()).toBe(false);
+    expect(s.cancelled()).toBe(1);
+  });
+
+  it('answers nothing more on the port once the feed ended', async () => {
+    const { service, serving, reading } = await readFile();
+    expect((await service.file(serving)).ok).toBe(true);
+    const feed = feedResponse({ port: reading, size: FILE_SIZE });
+    expect((await feed.read())!.length).toBe(FILE_FRAME_BYTES);
+    expect(await service.status('unreachable')).toEqual({ ok: true });
+    // Nobody serves the port now: a read gets no answer (the ingest's load was cancelled first).
+    const late = await Promise.race([feed.read().then(() => 'answered', () => 'answered'), new Promise((resolve) => setTimeout(() => resolve('silent'), 100))]);
+    expect(late).toBe('silent');
+    feed.cancel();
+  });
+
+  it('uses an https URL as it is, and takes a file with no Content-Length', async () => {
+    const r2 = 'https://bucket.r2.example/pair/x?X-Amz-Signature=abc';
+    const { service, sent, serving } = await readFile(located({ url: r2 }), blob({ headers: {} }));
+    expect(await service.file(serving)).toEqual({ ok: true, size: FILE_SIZE });
+    expect(sent[3]!.url).toBe(r2);
+  });
+
+  it("answers each failure of the URL's request, fetching nothing and keeping the session for its status", async () => {
+    const cases: Array<[Answer, string]> = [
+      ['throw', 'network'],
+      [{ status: 429, headers: { 'Retry-After': '5' } }, 'rate'],
+      [{ status: 404, body: '{"error":"not_found"}' }, 'gone'],
+      [{ status: 409 }, 'status'],
+      [{ status: 401 }, 'status'],
+      [{ status: 503 }, 'status'],
+      [{ status: 201, body: located().body }, 'status'],
+      [{ status: 200, body: 'not json' }, 'malformed'],
+      [located({ url: 'http://bucket.example/x' }), 'malformed'],
+      [located({ url: '//evil.example/x' }), 'malformed'],
+      [located({ exp: undefined }), 'malformed'],
+      [{ status: 200, body: ' '.repeat(PAIR_ANSWER_MAX_BYTES + 1) }, 'too-large'],
+      // Another file than the payload's (a second upload replaced it).
+      [located({ key: 'c'.repeat(21) + 'A' }), 'file'],
+    ];
+    for (const [answer, failure] of cases) {
+      const { service, sent, serving } = await readFile(answer);
+      expect(await service.file(serving), JSON.stringify(answer)).toEqual({ ok: false, failure });
+      expect(sent, failure).toHaveLength(3);
+      expect(service.hasFeed()).toBe(false);
+      expect(await service.status('unreachable')).toEqual({ ok: true });
+    }
+  });
+
+  it("answers each failure of the file's GET, and lets its answer go", async () => {
+    const cases: Array<[Answer, string, number]> = [
+      ['throw', 'network', 0],
+      [blob({ status: 403, headers: {}, body: '<Error/>' }), 'file', 1],
+      [blob({ status: 404, headers: {}, body: '' }), 'file', 1],
+      [blob({ status: 500, headers: {}, body: 'oops' }), 'status', 1],
+      [blob({ status: 206 }), 'status', 1],
+      [blob({ headers: { 'Content-Length': String(FILE_SEALED.length + 1) } }), 'file', 1],
+      [blob({ headers: { 'Content-Length': String(FILE_SEALED.length - 1) } }), 'file', 1],
+      [blob({ headers: { 'Content-Length': String(FILE_SIZE) } }), 'file', 1],
+    ];
+    for (const [answer, failure, cancels] of cases) {
+      const { service, sent, serving, cancelled } = await readFile(located(), answer);
+      expect(await service.file(serving), failure).toEqual({ ok: false, failure });
+      expect(sent, failure).toHaveLength(4);
+      expect(cancelled(), failure).toBe(cancels);
+      expect(service.hasFeed()).toBe(false);
+    }
+  });
+
+  it("gives each request the time limit: the URL's whole answer, the file's headers", async () => {
+    const first = await readFile('hang');
+    const asked = first.service.file(first.serving);
+    await first.time.advance(PAIR_TIMEOUT_MS);
+    expect(await asked).toEqual({ ok: false, failure: 'timeout' });
+
+    const second = await readFile(located(), 'hang');
+    const fetched = second.service.file(second.serving);
+    // The file's time limit starts with its GET: wait for it before moving the clock.
+    while (second.sent.length < 4) await settle();
+    await second.time.advance(PAIR_TIMEOUT_MS - 1);
+    let done = false;
+    void fetched.then(() => (done = true));
+    await settle();
+    expect(done).toBe(false);
+    await second.time.advance(1);
+    expect(await fetched).toEqual({ ok: false, failure: 'timeout' });
+  });
+
+  it("cancels a file whose headers come after the time limit, as soon as they come", async () => {
+    let release: () => void = () => undefined;
+    const after = new Promise<void>((resolve) => (release = resolve));
+    const { service, time, serving, cancelled, sent } = await readFile(located(), { after, then: blob() });
+    const fetched = service.file(serving);
+    while (sent.length < 4) await settle();
+    await time.advance(PAIR_TIMEOUT_MS);
+    expect(await fetched).toEqual({ ok: false, failure: 'timeout' });
+    release();
+    await settle();
+    await settle();
+    expect(cancelled()).toBe(1);
+    expect(service.hasFeed()).toBe(false);
+  });
+
+  it('a file only after a payload with one was read from this session', async () => {
+    const keys = keyPair(17);
+    const xtream = setup(withFile(keys, located(), blob(), XTREAM), [keys]);
+    const { port1 } = new MessageChannel();
+    ports.push(port1);
+    const port = port1 as unknown as RpcPort;
+    await expect(xtream.service.file(port)).rejects.toThrow('No pairing file was read');
+    await xtream.service.open(BASE);
+    await expect(xtream.service.file(port)).rejects.toThrow('No pairing file was read');
+    await xtream.service.poll();
+    await expect(xtream.service.file(port)).rejects.toThrow('No pairing file was read');
+    // Closed after the file's payload: nothing left to fetch.
+    const closed = await readFile();
+    closed.service.close();
+    await expect(closed.service.file(closed.serving)).rejects.toThrow('No pairing file was read');
+    expect(closed.sent).toHaveLength(2);
+    // And a new code forgets the file of the payload before.
+    const renewed = await readFile();
+    await renewed.service.open(BASE);
+    await expect(renewed.service.file(renewed.serving)).rejects.toThrow('No pairing file was read');
+  });
+
+  it("drops a file call that the status, a close or another file call overtook", async () => {
+    // Closed while the URL's request runs.
+    let releaseUrl: () => void = () => undefined;
+    const urlLate = await readFile({ after: new Promise<void>((resolve) => (releaseUrl = resolve)), then: located() });
+    const first = urlLate.service.file(urlLate.serving);
+    urlLate.service.close();
+    releaseUrl();
+    expect(await first).toEqual({ ok: false, failure: 'gone' });
+    expect(urlLate.sent).toHaveLength(3);
+
+    // The status sent while the file's GET runs: its answer is let go.
+    let releaseBlob: () => void = () => undefined;
+    const blobLate = await readFile(located(), { after: new Promise<void>((resolve) => (releaseBlob = resolve)), then: blob() });
+    const second = blobLate.service.file(blobLate.serving);
+    while (blobLate.sent.length < 4) await settle();
+    expect(await blobLate.service.status('unreachable')).toEqual({ ok: true });
+    releaseBlob();
+    expect(await second).toEqual({ ok: false, failure: 'gone' });
+    expect(blobLate.cancelled()).toBe(1);
+    expect(blobLate.service.hasFeed()).toBe(false);
+
+    // A second call overtakes the first: only the second serves.
+    let releaseOld: () => void = () => undefined;
+    let urls = 0;
+    const keys = keyPair(17);
+    const twice = setup(
+      (s) => (s.url === `${BASE}/v1/pair/s/${SID}/file` ? (urls++ === 0 ? { after: new Promise<void>((resolve) => (releaseOld = resolve)), then: located() } : located()) : withFile(keys)(s)),
+      [keys],
+    );
+    await twice.service.open(BASE);
+    await twice.service.poll();
+    const a = new MessageChannel();
+    const b = new MessageChannel();
+    ports.push(a.port1, a.port2, b.port1, b.port2);
+    const old = twice.service.file(a.port1 as unknown as RpcPort);
+    expect(await twice.service.file(b.port1 as unknown as RpcPort)).toEqual({ ok: true, size: FILE_SIZE });
+    releaseOld();
+    expect(await old).toEqual({ ok: false, failure: 'gone' });
+    const plain = await readAll(feedResponse({ port: b.port2 as unknown as RpcPort, size: FILE_SIZE }));
+    expect(plain.length).toBe(FILE_SIZE);
+  });
+
+  it('a second call ends the feed before it, and so do the status and close', async () => {
+    const { service, serving, cancelled } = await readFile();
+    expect((await service.file(serving)).ok).toBe(true);
+    const again = new MessageChannel();
+    ports.push(again.port1, again.port2);
+    expect((await service.file(again.port1 as unknown as RpcPort)).ok).toBe(true);
+    // The first download let go (nothing of it was read).
+    expect(cancelled()).toBe(1);
+    service.close();
+    expect(cancelled()).toBe(2);
+    expect(service.hasFeed()).toBe(false);
+  });
+
+  it("ends the feed when its reader cancels it", async () => {
+    const { service, serving, reading, cancelled } = await readFile();
+    expect((await service.file(serving)).ok).toBe(true);
+    const feed = feedResponse({ port: reading, size: FILE_SIZE });
+    expect((await feed.read())!.length).toBe(FILE_FRAME_BYTES);
+    feed.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(service.hasFeed()).toBe(false);
+    expect(cancelled()).toBe(1);
+    // The session stays for the status.
+    expect(await service.status('unreachable')).toEqual({ ok: true });
+  });
+
+  it("serves the file over RPC as the pair worker does, the port transferred", async () => {
+    const keys = keyPair(17);
+    const { transport } = api(withFile(keys));
+    const { port1, port2 } = new MessageChannel();
+    ports.push(port1, port2);
+    serveRpc(port1 as unknown as RpcPort, pairHandlers({ transport, keyPair: () => keys }));
+    const client = new RpcClient<ReturnType<typeof pairHandlers>>(port2 as unknown as RpcPort);
+    await client.call('open', { base: BASE });
+    expect((await client.call('poll')).state).toBe('ready');
+    const feedChannel = new MessageChannel();
+    ports.push(feedChannel.port1, feedChannel.port2);
+    expect(await client.call('file', { port: feedChannel.port1 as unknown as RpcPort }, { transfer: [feedChannel.port1] })).toEqual({ ok: true, size: FILE_SIZE });
+    const plain = await readAll(feedResponse({ port: feedChannel.port2 as unknown as RpcPort, size: FILE_SIZE }));
+    expect(Buffer.from(plain).equals(Buffer.from(FILE_PLAIN))).toBe(true);
+    client.close();
   });
 });

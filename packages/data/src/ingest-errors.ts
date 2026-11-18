@@ -16,9 +16,11 @@ import { CancelError } from './rpc';
  *   banned or disabled (`user_info.status`), and serves it nothing (step 13b).
  * - `http`: another status outside 2xx (`status` holds it). `network`: no answer, or a cut one.
  * - `format`: not a playlist or panel answer. `empty`: nothing usable in it.
+ * - `file`: the M3U file sent from the phone didn't open (a frame cut, changed or out of place, or
+ *   bytes past its last frame), or no file came with the job (RELAY step 31d2a).
  * - `superseded`: another refresh of the same source took over.
  */
-export type IngestErrorCode = 'http' | 'auth' | 'expired' | 'blocked' | 'network' | 'format' | 'empty' | 'superseded';
+export type IngestErrorCode = 'http' | 'auth' | 'expired' | 'blocked' | 'network' | 'format' | 'empty' | 'file' | 'superseded';
 
 /** A refresh that failed; the active generation is unchanged. Never holds a URL. */
 export class IngestError extends Error {

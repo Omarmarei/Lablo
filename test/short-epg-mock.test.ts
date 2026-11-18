@@ -9,7 +9,7 @@
 // fake-indexeddb (setImmediate) and the sockets keep real time.
 
 import type { ContentKind, XtreamAccount } from '@lablo/core';
-import type { ByteTransport, IngestSource, RpcHandlers, ShortEpgNowNext } from '@lablo/data';
+import type { ByteTransport, LinkSource, RpcHandlers, ShortEpgNowNext } from '@lablo/data';
 import { EpgService, IngestService, QueryService, SHORT_EPG_TTL_MS, fetchTransport, openDatabase, serveRpc } from '@lablo/data';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { FocusedChannel, WorkerLike } from '../apps/tv/src/data/engine';
@@ -119,7 +119,7 @@ async function settle(rounds = 20): Promise<void> {
 }
 
 /** The live channel named `name` in the stored catalog, focused from `source`. */
-async function channel(engine: DataEngine, src: string, name: string, source: IngestSource): Promise<FocusedChannel> {
+async function channel(engine: DataEngine, src: string, name: string, source: LinkSource): Promise<FocusedChannel> {
   for (const cat of await engine.query.call('categories', { src, kind: 'live' as ContentKind })) {
     for (let n = 0; n < cat.chunks.length; n++) {
       const hit = (await engine.query.call('chunk', { src, kind: 'live', catIdx: cat.catIdx, chunk: n })).find((i) => i.name === name);
@@ -166,7 +166,7 @@ describe('the short-EPG fallback through the DataEngine and the mock provider', 
     // A panel whose xmltv.php is off: the guide refresh fails, so no live channel has a guide.
     const s = setup();
     const account: XtreamAccount = { base: noGuideBase, username: U, password: P };
-    const source: IngestSource = { type: 'xtream', account };
+    const source: LinkSource = { type: 'xtream', account };
     await s.engine.refresh({ src: 'xt', source });
     const epg = await s.engine.refreshEpg([{ src: 'xt', type: 'xtream', account }], { tier: 'full' });
     expect(epg.outcomes.map((o) => [o.epgSrc, o.error?.code])).toEqual([['xt:xmltv', 'http']]);
@@ -221,7 +221,7 @@ describe('the short-EPG fallback through the DataEngine and the mock provider', 
     // The get.php playlist with its url-tvg guide: 11 of 12 live channels are matched.
     const s = setup();
     const url = `${fullBase}/get.php?username=${U}&password=${P}&type=m3u_plus`;
-    const source: IngestSource = { type: 'm3u', url };
+    const source: LinkSource = { type: 'm3u', url };
     await s.engine.refresh({ src: 'pl', source });
     await s.engine.refreshEpg([{ src: 'pl', type: 'm3u' }], { tier: 'full' });
     expect((await s.engine.epgStatus()).matched).toBe(11);

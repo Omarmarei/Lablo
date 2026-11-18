@@ -111,13 +111,15 @@ export function createConfigClient(port: RpcPort & { onerror?: ((event: ErrorEve
   return client;
 }
 
-export type { PairCode, PairFailure, PairOpenResult, PairPollResult, PairStatusResult } from './pair-service';
+export type { PairCode, PairFailure, PairFileFailure, PairFileResult, PairOpenResult, PairPollResult, PairStatusResult } from './pair-service';
+// The phone's file as the ingest worker gets it (RELAY step 31d2a): a port and the plain length.
+export type { FileFeed } from './file-feed';
 export { PAIR_POLL_MS, PAIR_RETRY_MS, PAIR_TIMEOUT_MS } from './pair-constants';
 
 /** The pair worker's RPC methods (pair.worker.ts, RELAY step 31c1). */
 export type PairHandlers = ReturnType<typeof pairHandlers>;
 
-/** Calls a pair worker: `open`, `poll`, `status`, `close`. */
+/** Calls a pair worker: `open`, `poll`, `file`, `status`, `close`. */
 export type PairClient = RpcClient<PairHandlers>;
 
 /** Wraps a started pair worker. If it dies, the pending calls reject (the screen makes a new code). */
