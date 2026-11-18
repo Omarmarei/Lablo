@@ -336,6 +336,26 @@ is in `apps/web/src/server/backup.ts`; `src/app/v1/backup/[lookupId]/route.ts` i
   `{"error":"not_found"}` with the CORS header.
 - **No migration:** the `Backup` table is step 29a's. Nothing here is in production before step 34.
 
+## The wipe restored from the real API (step 32d1)
+
+`e2e/backup-api.spec.ts`, in the `tv` project: step 32's "Done when" against `next start`
+(architecture.md §3.3 B "Built in step 32d1").
+
+- **What runs:** the TV's dev app with a test device ID (`?device=e2e-api-32d1-<en|ar>`) and the
+  test front as its `?api=`, the mock provider. Two tests: English (an Xtream login, then two
+  favourites, a movie's place and a show's episode written into the stored profile from the gallery
+  page) and Arabic (an M3U link, its guide link and an Arabic name).
+- **What it checks:** the look-up's `GET 404`; the upload's `GET 404, PUT 200` (and a preflight);
+  the envelope opened in Node (`deriveBackupMaster(<device>, 'browser', <the webOS app id>)`) equal
+  to the stored document, its ciphertext no gzip stream, another device's key refused; the `Backup`
+  row (`writeTokenHash`, `size`) and the blob (read straight from the API, as a caller of its own,
+  so the front's log holds only the TV's requests); `leaks` over every request, row and the blob;
+  then the wipe, "Welcome back" with the document back as the envelope held it, the live screen
+  with no key, and `GET 200`.
+- **Screenshots:** `artifacts/screenshots/backup-api-{welcome,live}-{en,ar}.png`.
+- **Only this spec:** `pnpm build:web`, `pnpm web:db`, then
+  `pnpm e2e:web --project=tv backup-api` (about 20 s).
+
 ## CI
 
 The `web` job runs when a pull request changes `apps/web/`, `packages/protocol/`,

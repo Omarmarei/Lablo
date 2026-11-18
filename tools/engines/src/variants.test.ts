@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   APP_SCREENS,
   APP_VARIANT,
+  BACKUP_SEEDS,
   CSS_SEEDS,
   NO_POLYFILLS_VARIANT,
   PAIR_SEEDS,
@@ -17,6 +18,7 @@ import {
   mustPass,
   removeDeclarations,
   removeRules,
+  screenPlatforms,
   seedBundle,
   seedCss,
   stageApp,
@@ -193,9 +195,14 @@ describe('seeded variants', () => {
 });
 
 describe('the screens each variant runs', () => {
-  it('runs the real app on every screen, onboarding and onboarding by phone included', () => {
-    expect(APP_SCREENS).toEqual(['hello', 'gallery', 'onboarding', 'pairing']);
+  it('runs the real app on every screen, onboarding, onboarding by phone and the wipe (step 32d1) included', () => {
+    expect(APP_SCREENS).toEqual(['hello', 'gallery', 'onboarding', 'pairing', 'backup']);
     expect(APP_VARIANT.screens).toEqual(APP_SCREENS);
+  });
+
+  it('runs each screen on both TV builds, but the wipe only on the simulated webOS', () => {
+    for (const screen of ['hello', 'gallery', 'onboarding', 'pairing'] as const) expect(screenPlatforms(screen)).toEqual(['tizen', 'webos']);
+    expect(screenPlatforms('backup')).toEqual(['webos']);
   });
 
   it('runs the syntax seeds on the two developer screens: a parse error fails whatever opens', () => {
@@ -307,6 +314,47 @@ describe('the pairing seed (step 31c2b)', () => {
     const document = { createElement: (tag: string) => (tag === 'style' ? style : null), documentElement: { appendChild: (node: { textContent: string }) => appended.push(node) } };
     runInNewContext(PAIR_SEEDS[0]!.code, { document });
     expect(appended).toEqual([{ textContent: '.pair__qr { transform: scaleX(-1); }' }]);
+  });
+});
+
+describe('the wipe seed (step 32d1)', () => {
+  it('runs on the wipe walk only, and must fail on every engine', () => {
+    expect(BACKUP_SEEDS.map((seed) => seed.id)).toEqual(['seed-backup-luna-refused']);
+    const [seed] = BACKUP_SEEDS;
+    expect(seed!.screens).toEqual(['backup']);
+    expect([53, 56, 68, 140].map((major) => mustPass(seed!, major))).toEqual([false, false, false, false]);
+    expect(parses(seed!.code, 5)).toBe(true);
+  });
+
+  it('wraps the bridge so that every call is refused, a task later', () => {
+    const tasks: Array<() => void> = [];
+    function Sim(this: { onservicecallback: unknown }) {
+      this.onservicecallback = null;
+    }
+    // (The realm's global object; not named `window`, which lint keeps for the platform adapters.)
+    const page: Record<string, unknown> = { PalmServiceBridge: Sim };
+    runInNewContext(BACKUP_SEEDS[0]!.code, { window: page, setTimeout: (run: () => void) => tasks.push(run) });
+    const Bridge = page['PalmServiceBridge'] as new () => { onservicecallback: ((message: string) => void) | null; call(uri: string, params: string): void; cancel(): void };
+    expect(Bridge).not.toBe(Sim);
+    const answers: string[] = [];
+    const bridge = new Bridge();
+    bridge.onservicecallback = (message) => answers.push(message);
+    bridge.call('luna://com.webos.service.sm/deviceid/getIDs', '{"idType":["LGUDID"]}');
+    expect(answers).toEqual([]);
+    tasks.shift()!();
+    expect(answers.map((a) => JSON.parse(a) as unknown)).toEqual([{ returnValue: false, errorCode: -1, errorText: 'Denied method call' }]);
+    const cancelled = new Bridge();
+    cancelled.onservicecallback = (message) => answers.push(message);
+    cancelled.call('luna://x', '{}');
+    cancelled.cancel();
+    tasks.shift()!();
+    expect(answers).toHaveLength(1);
+  });
+
+  it('leaves a page without a bridge alone (the Tizen copy it is staged into too)', () => {
+    const window: Record<string, unknown> = {};
+    runInNewContext(BACKUP_SEEDS[0]!.code, { window, setTimeout });
+    expect(window).toEqual({});
   });
 });
 

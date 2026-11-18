@@ -28,15 +28,17 @@
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import type { TvPlatform } from './scenario';
 import { TV_PLATFORMS } from './scenario';
 
 /**
  * The app's screens the harness opens: the hello screen and the component gallery (developer
- * screens behind `?screen=`), onboarding, the start screen a TV opens (step 13c), and onboarding
- * by phone against the stand-in pairing API (`pairing`, step 31c2b).
+ * screens behind `?screen=`), onboarding, the start screen a TV opens (step 13c), onboarding
+ * by phone against the stand-in pairing API (`pairing`, step 31c2b), and the wipe on a simulated
+ * webOS restored from the stand-in backup API (`backup`, step 32d1).
  */
-export type AppScreen = 'hello' | 'gallery' | 'onboarding' | 'pairing';
-export const APP_SCREENS: readonly AppScreen[] = ['hello', 'gallery', 'onboarding', 'pairing'];
+export type AppScreen = 'hello' | 'gallery' | 'onboarding' | 'pairing' | 'backup';
+export const APP_SCREENS: readonly AppScreen[] = ['hello', 'gallery', 'onboarding', 'pairing', 'backup'];
 /** The syntax seeds fail at parse time on whatever screen opens: the two developer screens show it. */
 export const SYNTAX_SEED_SCREENS: readonly AppScreen[] = ['hello', 'gallery'];
 
@@ -127,6 +129,31 @@ export const PAIR_SEEDS: readonly ScriptSeed[] = [
     minChrome: Number.POSITIVE_INFINITY,
     screens: ['pairing'],
     code: "(function () { var style = document.createElement('style'); style.textContent = '.pair__qr { transform: scaleX(-1); }'; document.documentElement.appendChild(style); })();",
+  },
+];
+
+/**
+ * The platforms a screen runs on: each TV build, but the wipe walk only on the simulated webOS
+ * (step 32d1: the harness gives the webOS build its luna bridge; a Tizen build reads its DUID
+ * through `webapis`, which no engine has).
+ */
+export function screenPlatforms(screen: AppScreen): readonly TvPlatform[] {
+  return screen === 'backup' ? ['webos'] : TV_PLATFORMS;
+}
+
+/**
+ * A TV fault the wipe walk must catch on every engine (step 32d1), plain ES5: every luna call
+ * refused, as on a webOS TV whose app lacks its ACG group (`requiredACG`). The TV reads no device
+ * ID, so its backup goes under a backup code, and after the wipe the start has nothing to look
+ * for: onboarding instead of "Welcome back". Prepended after the simulated bridge, which it wraps.
+ */
+export const BACKUP_SEEDS: readonly ScriptSeed[] = [
+  {
+    id: 'seed-backup-luna-refused',
+    description: 'every luna call is refused (an app without its ACG group): no device ID, so the wipe restores nothing',
+    minChrome: Number.POSITIVE_INFINITY,
+    screens: ['backup'],
+    code: "(function () { if (typeof window.PalmServiceBridge !== 'function') return; function Refusing() { this.onservicecallback = null; } Refusing.prototype.call = function () { var bridge = this; setTimeout(function () { if (bridge.onservicecallback) bridge.onservicecallback('{\"returnValue\":false,\"errorCode\":-1,\"errorText\":\"Denied method call\"}'); }, 0); }; Refusing.prototype.cancel = function () { this.onservicecallback = null; }; window.PalmServiceBridge = Refusing; })();",
   },
 ];
 

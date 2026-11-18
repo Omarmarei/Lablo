@@ -23,6 +23,11 @@
  * 127.0.0.1:8091 forwarded to it), a scripted phone sending the fixture playlist's link: the
  * code, the QR code module by module against the link the TV must hold, the source added, the
  * phone reading `ok` (artifacts/engines/pairing-*.png: the code and done views).
+ * Then step 32's wipe (step 32d1) on a simulated webOS (the webOS build with a stand-in luna
+ * bridge that gives an LGUDID): onboarding by phone, an upload to the stand-in backup API, the
+ * database deleted, and the same address again with no key: "Welcome back", then the live screen
+ * filled, in English and in Arabic (artifacts/engines/backup-*.png: "Welcome back" and the live
+ * screen after it).
  * Then the Lablo Lab (dist/tv-lab, step 15a) runs its spikes at launch and reports to a mock
  * provider on the host (artifacts/engines/lab-logs): S1 must pass on every engine, and the
  * polyfills it filled must be exactly the ones the engine lacks.
@@ -48,6 +53,8 @@ import type { CryptoVectors } from '@lablo/crypto/check-vectors';
 import { checkVectors } from '@lablo/crypto/check-vectors';
 import { checkQr } from '@lablo/core/check-qr';
 import { checkSamples } from '@lablo/protocol/check-samples';
+import type { BackupRun } from './src/backup-walk';
+import { backupSummary, backupWalkUrl, evaluateBackupRun, runBackupWalk, simLookupId, stageWebosSim } from './src/backup-walk';
 import type { CdpClient } from './src/cdp';
 import { connectToPage, waitForDevtools } from './src/cdp';
 import { ENGINE_HOUR, assertDockerRunning, engineLogs, engineZone, ensureImage, forwardToHost, startEngine, stopEngine, zoneOffset } from './src/docker';
@@ -70,7 +77,7 @@ import { PAIR_ORIGIN, PAIR_PORT, evaluatePairing, pairingSummary, pairingUrl, ru
 import type { PlatformRun, TvPlatform } from './src/scenario';
 import { TV_PLATFORMS, evaluateRun, readProbe, runPlatform } from './src/scenario';
 import type { AppScreen, Variant } from './src/variants';
-import { APP_VARIANT, CSS_SEEDS, PAIR_SEEDS, SEEDS, WALK_SEEDS, mustPass, stageApp, stageCssSeed, stageNoPolyfills, stageSeed } from './src/variants';
+import { APP_VARIANT, BACKUP_SEEDS, CSS_SEEDS, PAIR_SEEDS, SEEDS, WALK_SEEDS, mustPass, screenPlatforms, stageApp, stageCssSeed, stageNoPolyfills, stageSeed } from './src/variants';
 import { VECTORS_DIR, VECTORS_SEED, evaluateVectors, runVectors, stageVectors, stageVectorsSeed, vectorsSummary, vectorsUrl } from './src/vectors';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
@@ -122,6 +129,13 @@ interface RunReport {
     readonly qrVersion: number | null;
     /** How the phone sent the playlist: its link, or the file (step 31d2b2a). */
     readonly sent: 'link' | 'file';
+    readonly screenshots: readonly string[];
+  }>;
+  /** The wipe on the simulated webOS: each walk's times from the relaunch to "Welcome back" and to the live screen, its screenshots (backup runs only). */
+  readonly backup?: ReadonlyArray<{
+    readonly language: WalkLanguage;
+    readonly welcomeMs: number | null;
+    readonly liveMs: number | null;
     readonly screenshots: readonly string[];
   }>;
   readonly failures: readonly string[];
@@ -189,7 +203,7 @@ interface Outcome {
   readonly failures: string[];
   readonly durationMs: number;
   readonly summary: string;
-  readonly fields: Pick<RunReport, 'userAgent' | 'refresh' | 'search' | 'guide' | 'nowNext' | 'screenshot' | 'arabicScreenshot' | 'bidi' | 'onboarding' | 'pairing'>;
+  readonly fields: Pick<RunReport, 'userAgent' | 'refresh' | 'search' | 'guide' | 'nowNext' | 'screenshot' | 'arabicScreenshot' | 'bidi' | 'onboarding' | 'pairing' | 'backup'>;
 }
 
 async function runHello(client: CdpClient, engine: Engine, variant: Variant, platform: TvPlatform, check: DataCheck): Promise<Outcome> {
@@ -418,6 +432,41 @@ async function runPairingScreen(client: CdpClient, engine: Engine, variant: Vari
   };
 }
 
+/** Step 32's wipe on the simulated webOS (step 32d1) against `server`'s backup stand-in. */
+async function runBackupScreen(client: CdpClient, engine: Engine, variant: Variant, check: WalkData, server: PairServer, lookupId: string): Promise<Outcome> {
+  const shot = variant.id === APP_VARIANT.id ? (language: WalkLanguage, view: string): string => path.join(OUT, `backup-${engine.id}-${language}-${view}.png`) : null;
+  const run: BackupRun = await runBackupWalk(client, backupWalkUrl(variant.id), check, server, lookupId, {
+    bootTimeoutMs: BOOT_TIMEOUT_MS,
+    keyTimeoutMs: KEY_TIMEOUT_MS,
+    loadTimeoutMs: LOAD_TIMEOUT_MS,
+    screenshot: shot,
+    save: (file, png) => writeFileSync(file, png),
+  });
+  const first = run.walks.flatMap((walk) => walk.steps).find((step) => step.state !== null);
+  return {
+    failures: evaluateBackupRun(run, engine, check.categories),
+    durationMs: run.durationMs,
+    summary: backupSummary(run),
+    fields: {
+      userAgent: first?.state?.userAgent ?? null,
+      refresh: null,
+      search: null,
+      guide: null,
+      nowNext: null,
+      screenshot: null,
+      arabicScreenshot: null,
+      bidi: null,
+      onboarding: null,
+      backup: run.walks.map((walk) => ({
+        language: walk.language,
+        welcomeMs: walk.welcomeMs,
+        liveMs: walk.liveMs,
+        screenshots: walk.screenshots.map((file) => repoPath(file) ?? file),
+      })),
+    },
+  };
+}
+
 async function runEngine(
   engine: Engine,
   zip: string,
@@ -427,6 +476,7 @@ async function runEngine(
   labs: { readonly server: LabServer; readonly targets: readonly LabTarget[] },
   vectors: { readonly targets: readonly VectorsTarget[]; readonly expected: readonly string[] },
   pair: PairServer,
+  backupLookupId: string,
   keep: boolean,
   hour: number,
 ): Promise<RunReport[]> {
@@ -459,7 +509,7 @@ async function runEngine(
       await client.send('Console.enable').catch(() => undefined);
       for (const variant of variants) {
         for (const screen of variant.screens) {
-          for (const platform of TV_PLATFORMS) {
+          for (const platform of screenPlatforms(screen)) {
             const outcome =
               screen === 'hello'
                 ? await runHello(client, engine, variant, platform, checks[platform])
@@ -467,7 +517,9 @@ async function runEngine(
                   ? await runGalleryScreen(client, engine, variant, platform)
                   : screen === 'onboarding'
                     ? await runOnboardingScreen(client, engine, variant, platform, checks[platform])
-                    : await runPairingScreen(client, engine, variant, platform, checks[platform], pair);
+                    : screen === 'pairing'
+                      ? await runPairingScreen(client, engine, variant, platform, checks[platform], pair)
+                      : await runBackupScreen(client, engine, variant, checks[platform], pair, backupLookupId);
             const { failures } = outcome;
             const report: RunReport = {
               engine: engine.id,
@@ -534,7 +586,7 @@ async function main(): Promise<void> {
   rmSync(VARIANTS_DIR, { recursive: true, force: true });
   mkdirSync(VARIANTS_DIR, { recursive: true });
   // A screenshot that a run didn't write again must not pass for a fresh one.
-  for (const file of readdirSync(OUT)) if (/^(gallery|onboarding)-.*\.png$/.test(file)) rmSync(path.join(OUT, file));
+  for (const file of readdirSync(OUT)) if (/^(gallery|onboarding|pairing|backup)-.*\.png$/.test(file)) rmSync(path.join(OUT, file));
   const variants: Variant[] = [stageApp(distTv, VARIANTS_DIR)];
   const labDir = stageLab(distLab, VARIANTS_DIR);
   if (labDir === null) throw new Error(`${path.relative(ROOT, distLab)} has no lab builds: run pnpm build:tv first`);
@@ -570,6 +622,7 @@ async function main(): Promise<void> {
     variants.push(...CSS_SEEDS.map((seed) => stageCssSeed(distTv, VARIANTS_DIR, seed)));
     variants.push(...WALK_SEEDS.map((seed) => stageSeed(distTv, VARIANTS_DIR, seed)));
     variants.push(...PAIR_SEEDS.map((seed) => stageSeed(distTv, VARIANTS_DIR, seed)));
+    variants.push(...BACKUP_SEEDS.map((seed) => stageSeed(distTv, VARIANTS_DIR, seed)));
     stageLabSeed(labDir, VARIANTS_DIR);
     labTargets.push({ variant: LAB_SEED.id, dir: LAB_SEED.id, mustPass: false });
     stageVectorsSeed(vectorsDir, VARIANTS_DIR);
@@ -577,6 +630,10 @@ async function main(): Promise<void> {
     log('\nbuilding the no-polyfills variant (test only)');
     variants.push(stageNoPolyfills(ROOT, VARIANTS_DIR));
   }
+
+  // The wipe walk's simulated webOS (step 32d1), beside each variant that runs it; the lookup ID its LGUDID gives.
+  const simAppIds = variants.filter((variant) => variant.screens.includes('backup')).map((variant) => stageWebosSim(path.join(VARIANTS_DIR, variant.id)));
+  const backupLookupId = await simLookupId(simAppIds[0] ?? '');
 
   // The lab's collector: a fresh folder per run, read back by the lab checks.
   const labLogs = path.join(OUT, 'lab-logs');
@@ -590,7 +647,7 @@ async function main(): Promise<void> {
     for (const engine of engines) {
       const zip = await ensureEngineZip(engine, cacheDir, log);
       reports.push(
-        ...(await runEngine(engine, zip, image, variants, checks, { server, targets: labTargets }, { targets: vectorsTargets, expected: expectedVectors }, pair, values.keep, hour)),
+        ...(await runEngine(engine, zip, image, variants, checks, { server, targets: labTargets }, { targets: vectorsTargets, expected: expectedVectors }, pair, backupLookupId, values.keep, hour)),
       );
     }
   } finally {
