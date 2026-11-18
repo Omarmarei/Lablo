@@ -180,9 +180,12 @@ export function createBackupPage(options: BackupPageOptions): BackupPage {
     );
   };
 
-  /** Runs an action: `busy` while it runs, `notice` when it didn't work, then the status again. */
+  /**
+   * Runs an action: `busy` while it runs, `notice` when it didn't work, then the status again.
+   * (Never while another runs: the page's OK starts nothing while busy.)
+   */
   const act = (kind: BackupBusy, run: () => Promise<BackupNotice | null | 'restarting'>, failed: BackupNotice): void => {
-    if (busy.peek() !== null || disposed) return;
+    if (disposed) return;
     busy.value = kind;
     notice.value = null;
     void track(run)

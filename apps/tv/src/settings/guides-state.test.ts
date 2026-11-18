@@ -14,6 +14,7 @@ import type {
   UnmatchedRequest,
   UserGuide,
 } from '@lablo/data';
+import { signal } from '@preact/signals';
 import { applyProfileEdit, emptyProfile } from '@lablo/data';
 import type { Intent, KeyLike, TextKey } from '@lablo/platform-api';
 import type { EditableLike } from '@lablo/ui';
@@ -41,6 +42,7 @@ import { nextGuideId } from '../onboarding/engine-loader';
 import type { SourceDraft } from '../onboarding/form';
 import type { LoadResult } from '../onboarding/loader';
 import type { Pairing } from '../pairing/pair-state';
+import type { BackupPageEngine, BackupPageHost } from './backup-state';
 import { SETTINGS_ITEMS, SETTINGS_SCREENS, createSettings } from './settings-state';
 
 const PANEL: SourceRecord = {
@@ -901,6 +903,44 @@ describe('the settings screen', () => {
     });
     expect(plain.pairing).toBeNull();
     expect(plain.sources.canAdd).toBe(false);
+  });
+
+  it('lists "Backup" third with its page, which opens from it, and goes with the settings (step 32d2b)', async () => {
+    const t = setup();
+    const held = signal(false);
+    const backupEngine = {
+      backupStatus: vi.fn(() => Promise.resolve({ on: true, source: 'device' as const, code: null, sentAt: null, deleting: false })),
+      setBackup: vi.fn(),
+      restoreHeldBackup: vi.fn(),
+    };
+    const host = {
+      request: () => Promise.resolve({ platform: 'webos', appId: 'com.lablo.iptv', secret: null, base: 'http://127.0.0.1:3100' }),
+      schedule: { held, last: signal(null), uploadNow: vi.fn(), replaceNow: vi.fn(), hold: vi.fn() },
+      quiet: vi.fn(),
+      restart: vi.fn(),
+    } as unknown as BackupPageHost;
+    const settings = createSettings({
+      nav: t.nav,
+      engine: t.engine,
+      refreshNow: t.refresh.refreshNow,
+      offsetChanged: t.offsetChanged,
+      platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+      backup: { engine: backupEngine as unknown as BackupPageEngine, host },
+    });
+    expect(settings.items).toEqual(['guides', 'sources', 'backup']);
+    settings.open();
+    expect((t.nav.top.zone('items') as { count: number }).count).toBe(3);
+    await t.press('DOWN', 'DOWN', 'OK');
+    expect(t.at()).toBe('backup · switch 0');
+    expect(settings.backup!.screen.value).toBe(t.nav.top);
+    expect(backupEngine.backupStatus).toHaveBeenCalledTimes(1);
+    held.value = true;
+    expect((t.nav.top.zone('held') as { count: number }).count).toBe(2);
+    held.value = false;
+    settings.dispose();
+    // Disposed with the settings: it follows the schedule no more.
+    held.value = true;
+    expect((t.nav.top.zone('held') as { count: number }).count).toBe(0);
   });
 
   it('lists "TV guides", which opens the guides screen; Back goes back one screen at a time', async () => {

@@ -199,7 +199,7 @@ describe('the backup page', () => {
     expect(t.page.status.value).toBe('ready');
     expect(t.page.info.value).toEqual(status());
     expect(t.page.pending.value).toBe(0);
-    expect(t.nav.top.zone('held').count).toBe(0);
+    expect((t.nav.top.zone('held') as { count: number }).count).toBe(0);
     expect(t.nav.top.zone('switch')).toMatchObject({ count: 1, neighbours: { down: 'held' } });
     expect(t.nav.top.zone('held')).toMatchObject({ axis: 'horizontal', neighbours: { up: 'switch' } });
   });
@@ -231,6 +231,44 @@ describe('the backup page', () => {
     t.engine.heldStatus[0]!.resolve(status());
     await flush();
     expect(t.page.info.value).toEqual(status({ on: false, code: null }));
+    // A third opening shows nothing of the last until its own read answers.
+    t.nav.back();
+    t.page.open();
+    expect(t.page.info.value).toBeNull();
+    expect(t.page.status.value).toBe('loading');
+  });
+
+  it('drops an older read’s failure too', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const t = setup();
+    t.engine.holdStatus = true;
+    t.page.open();
+    t.nav.back();
+    t.page.open();
+    await flush();
+    t.engine.heldStatus[1]!.resolve(status());
+    await flush();
+    t.engine.heldStatus[0]!.reject(new Error('worker died'));
+    await flush();
+    expect(t.page.status.value).toBe('ready');
+    expect(t.page.info.value).toEqual(status());
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("drops what it showed when the status can't be read again after an action", async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const t = setup();
+    t.page.open();
+    await flush();
+    expect(t.page.status.value).toBe('ready');
+    t.nav.handle('OK');
+    t.nav.handle('LEFT');
+    t.engine.failStatus = true;
+    t.nav.handle('OK');
+    await flush();
+    expect(t.page.status.value).toBe('failed');
+    expect(t.page.info.value).toBeNull();
+    expect(t.page.busy.value).toBeNull();
   });
 
   it('asks before turning off, the safe answer first: Cancel and Back change nothing', async () => {
@@ -314,7 +352,7 @@ describe('the backup page', () => {
     expect(t.engine.log).not.toContain('uploadNow');
   });
 
-  it('starts no second action while one runs', async () => {
+  it('starts no second action, and asks nothing, while one runs', async () => {
     const t = setup();
     t.engine.answers = [status({ on: false, code: null })];
     t.engine.switchAnswer = { state: 'on' };
@@ -326,26 +364,45 @@ describe('the backup page', () => {
     expect(t.engine.switches).toHaveLength(1);
   });
 
+  it('asks nothing from the held box while an action runs', async () => {
+    const t = setup();
+    t.page.open();
+    await flush();
+    t.held.value = true;
+    // Off, its status read held: busy.
+    t.nav.handle('OK');
+    t.nav.handle('LEFT');
+    t.engine.holdStatus = true;
+    t.nav.handle('OK');
+    await flush();
+    expect(t.page.busy.value).toBe('off');
+    t.nav.handle('DOWN');
+    expect(t.at()).toBe(`${BACKUP_SCREEN} · held 0`);
+    t.nav.handle('OK');
+    expect(t.at()).toBe(`${BACKUP_SCREEN} · held 0`);
+    expect(t.page.question.value).toBeNull();
+  });
+
   it('shows the held box’s buttons while on and held, and moves the focus up when they go', async () => {
     const t = setup();
     t.page.open();
     await flush();
     t.held.value = true;
-    expect(t.nav.top.zone('held').count).toBe(2);
+    expect((t.nav.top.zone('held') as { count: number }).count).toBe(2);
     t.nav.handle('DOWN');
     expect(t.at()).toBe(`${BACKUP_SCREEN} · held 0`);
     t.nav.handle('RIGHT');
     expect(t.at()).toBe(`${BACKUP_SCREEN} · held 1`);
     t.held.value = false;
-    expect(t.nav.top.zone('held').count).toBe(0);
+    expect((t.nav.top.zone('held') as { count: number }).count).toBe(0);
     expect(t.at()).toBe(`${BACKUP_SCREEN} · switch 0`);
     // Held, but off: no box.
     t.held.value = true;
-    expect(t.nav.top.zone('held').count).toBe(2);
+    expect((t.nav.top.zone('held') as { count: number }).count).toBe(2);
     t.engine.answers = [status({ on: false, code: null })];
     t.page.open();
     await flush();
-    expect(t.nav.top.zone('held').count).toBe(0);
+    expect((t.nav.top.zone('held') as { count: number }).count).toBe(0);
   });
 
   it('asks before "Restore it", then restores inside the hold and the quiet, and starts the app again', async () => {
@@ -462,6 +519,22 @@ describe('the backup page', () => {
     expect(t.page.info.value).toBeNull();
     t.page.open();
     expect(t.engine.heldStatus).toHaveLength(1);
+  });
+
+  it('stops following the held backup once disposed, and starts no action', async () => {
+    const t = setup();
+    t.page.open();
+    await flush();
+    t.page.dispose();
+    t.held.value = true;
+    expect((t.nav.top.zone('held') as { count: number }).count).toBe(0);
+    // OK on the switch (on): the question, then nothing.
+    t.nav.handle('OK');
+    t.nav.handle('LEFT');
+    t.nav.handle('OK');
+    await flush();
+    expect(t.engine.switches).toEqual([]);
+    expect(t.page.busy.value).toBeNull();
   });
 });
 
@@ -598,7 +671,11 @@ describe('the backup page as drawn', () => {
     const off = new FakeEngine();
     off.answers = [status({ on: false })];
     t = await drawn(off);
+    // Held, but off: no held box either.
+    t.held.value = true;
     const root = t.draw();
+    expect(root.props as Props).toMatchObject({ 'data-on': 'false', 'data-held': 'false' });
+    expect(byTestId(root, 'backup-held')).toHaveLength(0);
     expect(byTestId(root, 'backup-code-box')).toHaveLength(0);
     expect(textOf(byTestId(root, 'backup-value')[0])).toBe('Off');
     expect(byTestId(root, 'backup-switch')[0]!.props as Props).toMatchObject({ 'aria-checked': 'false' });

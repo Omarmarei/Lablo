@@ -679,6 +679,25 @@ describe("the schedule for Settings' backup page (RELAY step 32d2b)", () => {
     expect(await asked).toEqual({ state: 'sent' });
   });
 
+  it('runs nothing once disposed during a hold, even hidden with a change pending', async () => {
+    const s = setup();
+    s.schedule.start();
+    let release: () => void = () => undefined;
+    const held = s.schedule.hold(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    await flush();
+    s.lifecycle('hidden');
+    s.schedule.dispose();
+    release();
+    await held;
+    await flush();
+    expect(s.engine.runs).toHaveLength(0);
+  });
+
   it('runs a pending change hidden meanwhile once the hold ends', async () => {
     const s = setup();
     s.schedule.start();

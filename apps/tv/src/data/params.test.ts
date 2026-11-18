@@ -180,6 +180,7 @@ describe('the restart after "Restore it" (RELAY step 32d2b)', () => {
     expect(readRestored('?xrestored=1')).toBe(false);
     // Inside a source's own query it is the source's.
     expect(readRestored('?source=http://p/a.m3u?restored=1')).toBe(false);
+    expect(readRestored('?source=http://p/get.php?a=1&restored=1')).toBe(false);
     expect(readRestored(new URL(restartUrl('http://h/?api=x')).search)).toBe(true);
   });
 });

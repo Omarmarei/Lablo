@@ -151,7 +151,7 @@ export function createBackupSchedule(options: BackupScheduleOptions): BackupSche
 
   /** While hidden: a run now for a pending change, unless the cap or a failure says no. */
   const runHidden = (): void => {
-    if (holds > 0 || held.peek() || pendingSince === null || failed || hiddenRuns >= HIDDEN_RUNS) return;
+    if (held.peek() || pendingSince === null || failed || hiddenRuns >= HIDDEN_RUNS) return;
     void run();
   };
 
@@ -252,9 +252,10 @@ export function createBackupSchedule(options: BackupScheduleOptions): BackupSche
       holds += 1;
       clearTimer();
       const quiet = running ? new Promise<void>((resolve) => idleWaiters.push(resolve)) : Promise.resolve();
+      // (While another hold remains, `run` and `arm` still refuse.)
       const release = (): void => {
         holds -= 1;
-        if (holds > 0 || disposed) return;
+        if (disposed) return;
         if (waiters.length > 0) void run();
         else if (hidden) runHidden();
         else arm();
