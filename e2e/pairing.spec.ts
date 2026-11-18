@@ -7,16 +7,16 @@ import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { stripIsolates } from '../packages/core/src/bidi';
 import type { PairPayload } from '../packages/protocol/src/pairing';
 import { devSignedAnswer } from '../tools/engines/src/config';
+import { phoneSees, phoneSends } from '../tools/engines/src/pair-phone';
 import type { ConfigServer } from './config-server';
 import { doc, startConfigServer } from './config-server';
 import { addXtreamAndWatch, settled, trackErrors } from './onboard';
-import { phoneSees, phoneSends } from './pair-phone';
 import { RemoteDriver } from './remote-driver';
 
 /**
  * The TV's pairing screen (RELAY step 31c2a) against a stand-in pairing API on the test's config
  * origin (`?api=`, tools/engines/src/pair-stand-in.ts) and a scripted phone in this process
- * (pair-phone.ts: the typed-code path, the payload sealed here):
+ * (tools/engines/src/pair-phone.ts: the typed-code path, the payload sealed here):
  * - onboarding's "Use your phone": an M3U link from the mock with two guide links (one given
  *   twice), held in its guide phase: `ok` reaches the phone before the load ends; then the done
  *   screen, the source and one guide kept, and nothing of the source on the stand-in;

@@ -9,6 +9,7 @@ import {
   APP_VARIANT,
   CSS_SEEDS,
   NO_POLYFILLS_VARIANT,
+  PAIR_SEEDS,
   SEEDS,
   SYNTAX_SEED_SCREENS,
   WALK_SEEDS,
@@ -192,8 +193,8 @@ describe('seeded variants', () => {
 });
 
 describe('the screens each variant runs', () => {
-  it('runs the real app on every screen, onboarding included', () => {
-    expect(APP_SCREENS).toEqual(['hello', 'gallery', 'onboarding']);
+  it('runs the real app on every screen, onboarding and onboarding by phone included', () => {
+    expect(APP_SCREENS).toEqual(['hello', 'gallery', 'onboarding', 'pairing']);
     expect(APP_VARIANT.screens).toEqual(APP_SCREENS);
   });
 
@@ -284,6 +285,24 @@ describe('the walk seeds', () => {
       stageSeed(dist, root, seed);
       expect(readFileSync(path.join(root, seed.id, 'tizen', 'main.js'), 'utf8')).toBe(`${seed.code}\n!function(){window.app="tizen"}();`);
     }
+  });
+});
+
+describe('the pairing seed (step 31c2b)', () => {
+  it('flips the QR code on the pairing screen only, and must fail on every engine', () => {
+    expect(PAIR_SEEDS.map((seed) => seed.id)).toEqual(['seed-pair-qr-mirrored']);
+    const [seed] = PAIR_SEEDS;
+    expect(seed!.screens).toEqual(['pairing']);
+    expect([53, 56, 68, 140].map((major) => mustPass(seed!, major))).toEqual([false, false, false, false]);
+    expect(parses(seed!.code, 5)).toBe(true);
+  });
+
+  it('adds one style that mirrors the QR code, after the stylesheet, so it wins', () => {
+    const appended: Array<{ textContent: string }> = [];
+    const style = { textContent: '' };
+    const document = { createElement: (tag: string) => (tag === 'style' ? style : null), documentElement: { appendChild: (node: { textContent: string }) => appended.push(node) } };
+    runInNewContext(PAIR_SEEDS[0]!.code, { document });
+    expect(appended).toEqual([{ textContent: '.pair__qr { transform: scaleX(-1); }' }]);
   });
 });
 

@@ -1,11 +1,14 @@
-import { fromBase64Url, utf8 } from '../packages/crypto/src/bytes';
-import { sealPairPayload } from '../packages/crypto/src/pairing';
-import type { PairPayload, PairProgressResponse } from '../packages/protocol/src/pairing';
+import { fromBase64Url, sealPairPayload, utf8 } from '@lablo/crypto';
+import type { PairPayload, PairProgressResponse } from '@lablo/protocol';
 
 /**
- * A scripted phone (RELAY step 31c2a) over the pairing API's phone routes, as the phone page
- * (apps/web, step 31b) uses them on the typed-code path: the TV's key for the code, the payload
- * sealed to it in this process, then the progress. Only ciphertext goes to the server.
+ * A scripted phone (RELAY step 31c2a; moved here from e2e/ in 31c2b, so the old-engine walk
+ * uses it too) over the pairing API's phone routes, as the phone page (apps/web, step 31b) uses
+ * them on the typed-code path: the TV's key for the code, the payload sealed to it in this
+ * process, then the progress. Only ciphertext goes to the server.
+ *
+ * Its links carry their scheme (`http://…`): the pairing payload's schema refuses one without,
+ * and the TV then treats the payload as unreadable (the phone page adds it before sealing).
  */
 
 /** The TV's key for `code` (`GET /v1/pair/:code`), the payload sealed to it and posted. */

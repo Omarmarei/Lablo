@@ -32,10 +32,11 @@ import { TV_PLATFORMS } from './scenario';
 
 /**
  * The app's screens the harness opens: the hello screen and the component gallery (developer
- * screens behind `?screen=`), and onboarding, the start screen a TV opens (step 13c).
+ * screens behind `?screen=`), onboarding, the start screen a TV opens (step 13c), and onboarding
+ * by phone against the stand-in pairing API (`pairing`, step 31c2b).
  */
-export type AppScreen = 'hello' | 'gallery' | 'onboarding';
-export const APP_SCREENS: readonly AppScreen[] = ['hello', 'gallery', 'onboarding'];
+export type AppScreen = 'hello' | 'gallery' | 'onboarding' | 'pairing';
+export const APP_SCREENS: readonly AppScreen[] = ['hello', 'gallery', 'onboarding', 'pairing'];
 /** The syntax seeds fail at parse time on whatever screen opens: the two developer screens show it. */
 export const SYNTAX_SEED_SCREENS: readonly AppScreen[] = ['hello', 'gallery'];
 
@@ -112,6 +113,20 @@ export const WALK_SEEDS: readonly ScriptSeed[] = [
     minChrome: Number.POSITIVE_INFINITY,
     screens: ['onboarding'],
     code: "(function () { var hook; Object.defineProperty(window, '__LABLO_TEST__', { configurable: true, get: function () { return hook; }, set: function (real) { var first = null; hook = { focusPath: function () { var path = real.focusPath(); if (first === null) first = path; return first; }, configIdle: function () { return real.configIdle(); } }; } }); })();",
+  },
+];
+
+/**
+ * TV faults the pairing walk must catch on every engine (step 31c2b), plain ES5 as the walk seeds.
+ * A mirrored QR code (an RTL stylesheet flipping it, say) still looks like one but doesn't scan.
+ */
+export const PAIR_SEEDS: readonly ScriptSeed[] = [
+  {
+    id: 'seed-pair-qr-mirrored',
+    description: 'a style flips the pairing QR code left to right: it draws, but no phone can read it',
+    minChrome: Number.POSITIVE_INFINITY,
+    screens: ['pairing'],
+    code: "(function () { var style = document.createElement('style'); style.textContent = '.pair__qr { transform: scaleX(-1); }'; document.documentElement.appendChild(style); })();",
   },
 ];
 

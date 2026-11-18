@@ -171,6 +171,15 @@ export function startEngine(options: {
   return { container, port };
 }
 
+/**
+ * Forwards `port` on the container's own 127.0.0.1 to `hostPort` on the host (RELAY step 31c2b),
+ * with the image's socat, detached: a TV build takes `?api=` only for a host on the device, so
+ * the pairing walk's stand-in, on the host, is reached as 127.0.0.1 from inside.
+ */
+export function forwardToHost(container: string, port: number, hostPort: number): void {
+  dockerOk(['exec', '--detach', container, 'socat', `TCP-LISTEN:${port},bind=127.0.0.1,fork,reuseaddr`, `TCP:host.docker.internal:${hostPort}`]);
+}
+
 export function engineLogs(container: string): string {
   const result = docker(['logs', container]);
   return `${result.stdout}${result.stderr}`.trim();
