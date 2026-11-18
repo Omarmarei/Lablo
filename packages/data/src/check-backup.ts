@@ -4,8 +4,8 @@
  * chain: the master and the backup code (32b); a profile sent to the backup API in memory
  * (`backupStandIn`: the vectors page has no server), unchanged so not sent again, and restored
  * after a wipe of the database (32c1), through the engine's own gzip, secretbox and IndexedDB;
- * then a held backup restored over a new profile and replaced, the backup off (its copy deleted)
- * and on again (32d2a).
+ * then a held backup restored over a new profile (its catalogs cleared, 32d2b) and replaced, the
+ * backup off (its copy deleted) and on again (32d2a).
  * Its own entry point (`@lablo/data/check-backup`): the vectors page runs it in a Blob worker on
  * Chromium 53, 56 and 68 (`pnpm verify:engines`) and in current Chromium (`e2e/crypto-vectors.spec.ts`);
  * Node runs it with fake-indexeddb. The checks run in order and each one's error is its own failure.
