@@ -3,6 +3,8 @@ import type { SourceDraft } from '../onboarding/form';
 import type { LoadResult } from '../onboarding/loader';
 import type { Pairing } from '../pairing/pair-state';
 import { PAIR_SCREEN } from '../pairing/pair-state';
+import type { BackupPage, BackupPageEngine, BackupPageHost } from './backup-state';
+import { BACKUP_CONFIRM, BACKUP_SCREEN, createBackupPage } from './backup-state';
 import type { Guides, GuidesEngine, GuidesOptions } from './guides-state';
 import { createGuides } from './guides-state';
 import type { Mapping, MappingEngine } from './mapping-state';
@@ -17,17 +19,31 @@ import { createUnmatchedList } from './unmatched-state';
  * pushed on the live navigator. Two rows for now: "TV guides" (the guides screen, and from its
  * header "Channels without a guide", step 24c, whose OK on a channel opens the manual mapping's
  * picker, step 24e) and "Sources" (the sources and when they were updated, step 30c3a; its
- * header's "Add from your phone" opens the pairing screen, step 31c2a); step 38 adds the track
+ * header's "Add from your phone" opens the pairing screen, step 31c2a) and "Backup" (its on/off,
+ * the backup code, a held backup's restore or replace, step 32d2b); step 38 adds the track
  * languages, the subtitle style and the picture mode. Back closes it.
  */
 
-export type SettingsItem = 'guides' | 'sources';
+export type SettingsItem = 'guides' | 'sources' | 'backup';
 
-/** The settings screen's rows, in screen order ("Sources" second, so the guides' paths stay). */
-export const SETTINGS_ITEMS: readonly SettingsItem[] = ['guides', 'sources'];
+/** The settings screen's rows, in screen order (each new one last, so the earlier paths stay). */
+export const SETTINGS_ITEMS: readonly SettingsItem[] = ['guides', 'sources', 'backup'];
 
 /** The screens the settings put on the live navigator (the live screen paints them instead of its own). */
-export const SETTINGS_SCREENS: readonly string[] = ['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', MAPPING_SCREEN, SOURCES_SCREEN, PAIR_SCREEN];
+export const SETTINGS_SCREENS: readonly string[] = [
+  'settings',
+  'guides',
+  'guide-menu',
+  'guide-offset',
+  'guide-matches',
+  'guide-add',
+  'unmatched',
+  MAPPING_SCREEN,
+  SOURCES_SCREEN,
+  PAIR_SCREEN,
+  BACKUP_SCREEN,
+  BACKUP_CONFIRM,
+];
 
 export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | 'engine'> {
   readonly nav: Navigator;
@@ -36,6 +52,8 @@ export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | '
   readonly pairing?: (nav: Navigator, added: (draft: SourceDraft, result: LoadResult) => void) => Pairing;
   /** A source was added from the phone: the live screens read the catalogs and guides again. */
   readonly sourceAdded?: () => void;
+  /** Settings' backup page (step 32d2b); without it there is no "Backup" row. */
+  readonly backup?: { readonly engine: BackupPageEngine; readonly host: BackupPageHost };
 }
 
 export interface Settings {
@@ -48,6 +66,10 @@ export interface Settings {
   readonly mapping: Mapping;
   /** The pairing screen (step 31c2a), when the app can pair. */
   readonly pairing: Pairing | null;
+  /** The backup page (step 32d2b), when the app has one. */
+  readonly backup: BackupPage | null;
+  /** The settings screen's rows: `SETTINGS_ITEMS`, "Backup" only with its page. */
+  readonly items: readonly SettingsItem[];
   /** Opens the settings screen. */
   open(): void;
   dispose(): void;
@@ -78,20 +100,25 @@ export function createSettings(options: SettingsOptions): Settings {
           options.sourceAdded?.();
         });
   const sources = createSourcesList(pairing === null ? { nav, engine: options.engine } : { nav, engine: options.engine, addFromPhone: () => pairing.open() });
+  const backup = options.backup === undefined ? null : createBackupPage({ nav, engine: options.backup.engine, host: options.backup.host });
+  const items = backup === null ? SETTINGS_ITEMS.filter((item) => item !== 'backup') : SETTINGS_ITEMS;
   return {
     guides,
     sources,
     unmatched,
     mapping,
     pairing,
+    backup,
+    items,
     open(): void {
       nav.push({
         id: 'settings',
-        zones: [{ kind: 'list', id: 'items', axis: 'vertical', count: SETTINGS_ITEMS.length }],
+        zones: [{ kind: 'list', id: 'items', axis: 'vertical', count: items.length }],
         onSelect: (focus) => {
-          const item = SETTINGS_ITEMS[focus.index];
+          const item = items[focus.index];
           if (item === 'guides') guides.open();
           else if (item === 'sources') sources.open();
+          else if (item === 'backup') backup?.open();
         },
       });
     },
@@ -101,6 +128,7 @@ export function createSettings(options: SettingsOptions): Settings {
       unmatched.dispose();
       mapping.dispose();
       pairing?.dispose();
+      backup?.dispose();
     },
   };
 }

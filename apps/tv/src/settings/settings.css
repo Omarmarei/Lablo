@@ -385,3 +385,86 @@
   font-size: var(--font-size-body);
   line-height: var(--line-height-body);
 }
+
+/*
+ * The backup page (step 32d2b): the switch row (a settings row, its value at the end), then the
+ * code's box and the held box under it, each 24 px apart, in the settings rows' 1200 px column.
+ */
+.backup__body {
+  width: 1200px;
+}
+
+.backup__top {
+  display: flex;
+  align-items: baseline;
+}
+
+.backup__top .settings__name {
+  flex: 1;
+  min-width: 0;
+}
+
+.backup__value {
+  flex: none;
+  margin-left: var(--space-6);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+}
+
+.backup__switch .settings__hint {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.backup__box {
+  margin-top: var(--space-5);
+  padding: var(--space-5) var(--space-6);
+  border-radius: var(--radius-m);
+  background: var(--color-surface);
+}
+
+.backup__heading {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+/* The code: data, left to right in both languages, wide letters for a photo. */
+.backup__code {
+  margin: var(--space-3) 0 0;
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 4px;
+  word-spacing: 16px;
+  text-align: left;
+}
+
+.backup__text {
+  margin: var(--space-3) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.backup__actions {
+  display: flex;
+  align-items: center;
+  margin-top: var(--space-5);
+}
+
+.backup__actions > * + * {
+  margin-left: var(--space-4);
+}
+
+.backup__busy {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.backup__notice {
+  margin-top: var(--space-5);
+}

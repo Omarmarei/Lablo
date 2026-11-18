@@ -127,3 +127,30 @@ export function readScreen(search: string): AppScreen {
   const screen = readParam(match === null ? search : search.slice(0, match.index), 'screen');
   return screen === 'gallery' || screen === 'gallery-guide' || screen === 'hello' ? screen : 'onboarding';
 }
+
+/** The mark in the address of a start after Settings' "Restore it" (RELAY step 32d2b). */
+const RESTORED = 'restored=1';
+
+/**
+ * A start after Settings' "Restore it" (RELAY step 32d2b): `?restored=1`. The start shows
+ * "Welcome back" on the restored profile and reads its catalogs at once, as after a restore at a
+ * first start.
+ */
+export function readRestored(search: string): boolean {
+  return readParam(headOf(search), 'restored') === '1';
+}
+
+/**
+ * The address the app starts again on after "Restore it": this one with `restored=1` first in its
+ * query (before a `source`, which runs to the end of the address), once, without a fragment.
+ */
+export function restartUrl(href: string): string {
+  const hash = href.indexOf('#');
+  const base = hash === -1 ? href : href.slice(0, hash);
+  const q = base.indexOf('?');
+  if (q === -1) return `${base}?${RESTORED}`;
+  let rest = base.slice(q + 1);
+  if (rest === RESTORED) rest = '';
+  else if (rest.slice(0, RESTORED.length + 1) === `${RESTORED}&`) rest = rest.slice(RESTORED.length + 1);
+  return `${base.slice(0, q)}?${RESTORED}${rest === '' ? '' : `&${rest}`}`;
+}

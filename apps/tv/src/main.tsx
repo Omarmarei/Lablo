@@ -2,7 +2,7 @@ import { computed, signal } from '@preact/signals';
 import { render } from 'preact';
 import type { ContentKey, DeviceTier } from '@lablo/core';
 import { normalizeLang } from '@lablo/core';
-import type { LastChannel, LoadedProfile } from '@lablo/data';
+import type { BackupCallRequest, LastChannel, LoadedProfile } from '@lablo/data';
 import type { Language, Navigator } from '@lablo/ui';
 import { Spinner } from '@lablo/ui';
 import type { AppData } from './App';
@@ -14,7 +14,7 @@ import { BackupStartApp } from './backup/BackupStartApp';
 import { lookupRequest } from './backup/lookup-request';
 import { createConfigSchedule } from './data/config-schedule';
 import type { DataEngine, SourceFacts } from './data/engine';
-import { readApiBase, readChecks, readDebugParams, readScreen } from './data/params';
+import { readApiBase, readChecks, readDebugParams, readRestored, readScreen, restartUrl } from './data/params';
 import type { RefreshScheduler } from './data/refresh-scheduler';
 import { createRefreshScheduler } from './data/refresh-scheduler';
 import { createSettings } from './settings/settings-state';
@@ -127,17 +127,26 @@ const configRequest = {
 const BACKUP_BUILD = { platform: __PLATFORM__, appId: __APP_ID__ };
 
 /**
+ * The backup worker's request for an upload or Settings' backup page: the profile's consent read
+ * afresh, the device ID only after "Allow" (`backupRequest`), else the backup code.
+ */
+function backupCall(): Promise<BackupCallRequest> {
+  return dataEngine()
+    .profile()
+    .then((profile) => backupRequest(platform, consentOf(profile), BACKUP_BUILD))
+    .then((prepared) => ({ platform: prepared.platform, appId: prepared.appId, secret: prepared.secret, base: configRequest.base }));
+}
+
+/**
  * The backup's upload (RELAY step 32c2): 60 s after a profile change, at most every 5 minutes, at
- * once when the app is hidden, from the live screen on. Each run reads the profile's consent: the
- * device ID only after "Allow" (`backupRequest`), else the backup code.
+ * once when the app is hidden, from the live screen on; "Replace it" from Settings (step 32d2b).
  */
 const backup = createBackupSchedule({
-  engine: { uploadBackup: (request) => dataEngine().uploadBackup(request) },
-  request: () =>
-    dataEngine()
-      .profile()
-      .then((profile) => backupRequest(platform, consentOf(profile), BACKUP_BUILD))
-      .then((prepared) => ({ platform: prepared.platform, appId: prepared.appId, secret: prepared.secret, base: configRequest.base })),
+  engine: {
+    uploadBackup: (request) => dataEngine().uploadBackup(request),
+    replaceHeldBackup: (request) => dataEngine().replaceHeldBackup(request),
+  },
+  request: backupCall,
   lifecycle: (listener) => platform.onLifecycle(listener),
 });
 /** The look-up at a start with no profile is running (step 32c2): its backup worker may be in the database. */
@@ -164,6 +173,20 @@ const playRefusal = computed(() => refusalFor(config.policy.value, 'disable-play
 let gated: { readonly stop: () => void; readonly resume: () => void } | null = null;
 /** The gate stops the app now: a paired source's load that ends meanwhile leaves the refreshes stopped. */
 let gateStopped = false;
+
+/** How often a restore waiting for the refresh slot looks again (step 32d2b). */
+const SLOT_LOOK_MS = 100;
+
+/** Resolves once no catalog or guide refresh holds the data engine's slot. */
+function refreshSlotFree(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const look = (): void => {
+      if (dataEngine().refreshing) setTimeout(look, SLOT_LOOK_MS);
+      else resolve();
+    };
+    look();
+  });
+}
 
 /** The TV's tier, `full` when the platform can't say. */
 function deviceTier(): Promise<DeviceTier> {
@@ -419,14 +442,33 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       return ui === '' ? [] : [ui];
     },
   });
+  // Settings' "Restore it" (step 32d2b): the app starts again on the restored profile.
+  let restarting = false;
   const holdRefreshes = (on: boolean): void => {
     if (on) {
       refreshes?.dispose();
       refreshes = null;
-    } else if (!gateStopped) {
+    } else if (!gateStopped && !restarting) {
       startRefreshes(live, guide, [movies, series], search, home, readFacts);
     }
   };
+  /** Runs `job` with no catalog or guide refresh running or starting (a restore clears the catalogs). */
+  function quiet<T>(job: () => Promise<T>): Promise<T> {
+    holdRefreshes(true);
+    const again = (): void => holdRefreshes(false);
+    return refreshSlotFree()
+      .then(job)
+      .then(
+        (value) => {
+          again();
+          return value;
+        },
+        (error: unknown) => {
+          again();
+          throw error;
+        },
+      );
+  }
   const settings = createSettings({
     nav: live.nav,
     engine: dataEngine(),
@@ -437,6 +479,20 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     },
     platform,
     pairing: (nav, added) => pairingOn(nav, added, addLoader, holdRefreshes),
+    backup: {
+      engine: dataEngine(),
+      host: {
+        request: backupCall,
+        schedule: backup,
+        quiet,
+        // The player closes, the refreshes and the uploads stop, then the start's path again: "Welcome back".
+        restart: () => {
+          restarting = true;
+          gated?.stop();
+          location.replace(restartUrl(location.href));
+        },
+      },
+    },
     sourceAdded: () => {
       readFacts();
       live.catalogChanged();
@@ -569,6 +625,20 @@ function startWith(into: Element, profile: LoadedProfile | null, restored: boole
 }
 
 /**
+ * A start after Settings' "Restore it" (RELAY step 32d2b, `?restored=1`): "Welcome back" on the
+ * restored profile at once, then the live screen as after a restore at a first start.
+ */
+function startRestored(into: Element, profile: LoadedProfile): void {
+  const welcome = createBackupStart({ engine: dataEngine(), restored: profile });
+  showFocus(welcome.nav);
+  render(<BackupStartApp platform={platform} start={welcome} />, into);
+  void welcome.done.then((end) => {
+    startWith(into, end.profile, end.restored);
+    welcome.dispose();
+  });
+}
+
+/**
  * A start with no profile (RELAY step 32c2, Omar's decision in step 32): a fresh install, or a
  * TV whose app data was wiped. Before onboarding asks anything, the TV reads its device ID (the one
  * read with no consent asked) and looks for its backup behind "Looking for your backup"; a profile
@@ -615,6 +685,7 @@ if (screen === 'gallery') {
   );
   void readStartProfile(dataEngine()).then((profile) => {
     if (profile === null) startWithoutProfile(root);
+    else if (readRestored(location.search)) startRestored(root, profile);
     else startWith(root, profile, false);
   });
 }

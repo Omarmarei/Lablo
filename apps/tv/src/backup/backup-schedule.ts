@@ -22,11 +22,16 @@ import type { SchedulerTimers } from '../data/refresh-scheduler';
  * - **One at a time:** a change during a run is pending for the next.
  * - **Answers:** `sent`, `same`, `none`, `off` (step 32d2a: the backup is off) and `too-large`
  *   settle the change; `failed` (and a worker that died) keeps it pending for the next run, 5
- *   minutes on; `held` (a backup this TV hasn't seen is on the server) ends the runs for this
- *   session: step 32d's Settings offers to restore it or replace it. `held`, `failed`, `too-large` and a dead worker are logged.
+ *   minutes on; `held` (a backup this TV hasn't seen is on the server) ends the timed runs until
+ *   an answer says otherwise: Settings' backup page (step 32d2b) offers to restore it or replace
+ *   it. `held`, `failed`, `too-large` and a dead worker are logged.
  * - **Each run** asks `request()` afresh: the profile's consent decides whether the device ID is
  *   read (`backupRequest`).
  * - **Stop:** the config's `disable-app` stops the schedule (`stop`), and `start` arms it again.
+ * - **One backup worker at a time** (step 32d2b): Settings' backup page switches the backup and
+ *   restores a held one inside `hold`, which waits for the run in progress and starts none until
+ *   it ends (else a `PUT` could land after off's `DELETE`); "Replace it" is a run of its own
+ *   (`replaceNow`).
  */
 
 /** A run comes this long after the first change not yet sent. */
@@ -39,6 +44,8 @@ export const HIDDEN_RUNS = 2;
 /** What the schedule needs from the data engine (a `DataEngine` fits; tests pass a fake). */
 export interface BackupScheduleEngine {
   uploadBackup(request: BackupCallRequest): Promise<BackupUploadResult>;
+  /** "Replace it" (step 32d2b): the profile sent over a held backup, with no `GET`. */
+  replaceHeldBackup(request: BackupCallRequest): Promise<BackupUploadResult>;
 }
 
 export interface BackupScheduleOptions {
@@ -54,7 +61,10 @@ export interface BackupScheduleOptions {
 }
 
 export interface BackupSchedule {
-  /** A backup this TV hasn't seen is on the server: no more runs this session (step 32d shows it). */
+  /**
+   * A backup this TV hasn't seen is on the server: no timed runs until an answer says otherwise
+   * (Settings' backup page shows it, step 32d2b). Any answer but `held` and `failed` clears it.
+   */
   readonly held: ReadonlySignal<boolean>;
   /** The last run's answer (`null` before the first, or when its worker died). */
   readonly last: ReadonlySignal<BackupUploadResult | null>;
@@ -64,10 +74,21 @@ export interface BackupSchedule {
   changed(): void;
   /**
    * A run now, or right after the one running (calls meanwhile share it), resolving with its
-   * answer: `null` when its worker died, before `start` and once disposed. For the test hook.
+   * answer: `null` when its worker died, before `start` and once disposed. For the test hook,
+   * and for Settings when the backup is turned on (step 32d2b).
    */
   uploadNow(): Promise<BackupUploadResult | null>;
-  /** No run in progress: no backup worker is in the database. */
+  /**
+   * "Replace it" (step 32d2b): a run now, or right after the one running, that sends the profile
+   * over a held backup with no `GET` (`uploadNow` calls meanwhile share it). As `uploadNow`.
+   */
+  replaceNow(): Promise<BackupUploadResult | null>;
+  /**
+   * Runs `job` with no backup run beside it (step 32d2b): waits for the run in progress, and
+   * starts none until `job` has settled (a run asked meanwhile comes after). Settles as `job`.
+   */
+  hold<T>(job: () => Promise<T>): Promise<T>;
+  /** No run in progress and no `hold`: no backup worker of the schedule's or Settings' is in the database. */
   idle(): boolean;
   /** No more runs until `start` (a run in progress finishes); changes stay pending. */
   stop(): void;
@@ -99,8 +120,14 @@ export function createBackupSchedule(options: BackupScheduleOptions): BackupSche
   let lastStart = -Infinity;
   let timer: unknown = null;
   let unsubscribe: (() => void) | null = null;
-  /** `uploadNow` calls waiting for the next run. */
+  /** `uploadNow` and `replaceNow` calls waiting for the next run. */
   let waiters: ((result: BackupUploadResult | null) => void)[] = [];
+  /** The next run is "Replace it" (`replaceNow`). */
+  let replacing = false;
+  /** `hold` jobs waiting or running: no run starts meanwhile. */
+  let holds = 0;
+  /** `hold` calls waiting for the run in progress to end. */
+  let idleWaiters: (() => void)[] = [];
 
   const clearTimer = (): void => {
     if (timer !== null) timers.clear(timer);
@@ -111,7 +138,7 @@ export function createBackupSchedule(options: BackupScheduleOptions): BackupSche
   const arm = (): void => {
     clearTimer();
     // (Never called while hidden or once disposed: `stop` and `dispose` end `started`.)
-    if (!started || running || held.peek() || pendingSince === null) return;
+    if (!started || running || holds > 0 || held.peek() || pendingSince === null) return;
     const due = Math.max(pendingSince + BACKUP_CHANGE_MS, lastStart + BACKUP_GAP_MS);
     timer = timers.set(
       () => {
@@ -129,7 +156,7 @@ export function createBackupSchedule(options: BackupScheduleOptions): BackupSche
   };
 
   async function run(): Promise<void> {
-    if (running) return;
+    if (running || holds > 0) return;
     clearTimer();
     running = true;
     lastStart = now();
@@ -139,9 +166,12 @@ export function createBackupSchedule(options: BackupScheduleOptions): BackupSche
     pendingSince = null;
     const answered = waiters;
     waiters = [];
+    const replace = replacing;
+    replacing = false;
     let answer: BackupUploadResult | null = null;
     try {
-      answer = await options.engine.uploadBackup(await options.request());
+      const request = await options.request();
+      answer = await (replace ? options.engine.replaceHeldBackup(request) : options.engine.uploadBackup(request));
     } catch (error) {
       warn('The backup upload failed', error);
     }
@@ -153,13 +183,17 @@ export function createBackupSchedule(options: BackupScheduleOptions): BackupSche
       // (A change made during the run came later.)
       if (since !== null) pendingSince = since;
       if (answer !== null) warn('The backup was not sent', answer.failure);
-    } else if (answer.state === 'held') {
-      held.value = true;
-      warn('The backup was not sent', 'held: a backup this TV has not seen is on the server');
-    } else if (answer.state === 'too-large') {
-      warn('The backup was not sent', 'too-large');
+    } else {
+      // A held backup stays until an answer says otherwise (sent over it, the backup off…).
+      held.value = answer.state === 'held';
+      if (answer.state === 'held') warn('The backup was not sent', 'held: a backup this TV has not seen is on the server');
+      else if (answer.state === 'too-large') warn('The backup was not sent', 'too-large');
     }
     for (let i = 0; i < answered.length; i++) answered[i]!(disposed ? null : answer);
+    // A `hold` waiting for this run goes first: no run starts while it holds.
+    const idled = idleWaiters;
+    idleWaiters = [];
+    for (let i = 0; i < idled.length; i++) idled[i]!();
     if (disposed) return;
     if (waiters.length > 0) {
       void run();
@@ -206,8 +240,39 @@ export function createBackupSchedule(options: BackupScheduleOptions): BackupSche
         void run();
       });
     },
+    replaceNow() {
+      if (!started || disposed) return Promise.resolve(null);
+      replacing = true;
+      return new Promise<BackupUploadResult | null>((resolve) => {
+        waiters.push(resolve);
+        void run();
+      });
+    },
+    hold<T>(job: () => Promise<T>): Promise<T> {
+      holds += 1;
+      clearTimer();
+      const quiet = running ? new Promise<void>((resolve) => idleWaiters.push(resolve)) : Promise.resolve();
+      // (While another hold remains, `run` and `arm` still refuse.)
+      const release = (): void => {
+        holds -= 1;
+        if (disposed) return;
+        if (waiters.length > 0) void run();
+        else if (hidden) runHidden();
+        else arm();
+      };
+      return quiet.then(job).then(
+        (value) => {
+          release();
+          return value;
+        },
+        (error: unknown) => {
+          release();
+          throw error;
+        },
+      );
+    },
     idle() {
-      return !running;
+      return !running && holds === 0;
     },
     stop() {
       started = false;

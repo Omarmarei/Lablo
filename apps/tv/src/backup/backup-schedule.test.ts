@@ -12,6 +12,8 @@ const REQUEST: BackupCallRequest = { platform: 'webos', appId: 'com.lablo.iptv',
 
 interface Held {
   readonly request: BackupCallRequest;
+  /** `uploadBackup`, or "Replace it"'s `replaceHeldBackup` (step 32d2b). */
+  readonly kind: 'upload' | 'replace';
   resolve(r: BackupUploadResult): void;
   reject(error: unknown): void;
 }
@@ -20,8 +22,14 @@ interface Held {
 class FakeEngine implements BackupScheduleEngine {
   readonly runs: Held[] = [];
   uploadBackup(request: BackupCallRequest): Promise<BackupUploadResult> {
+    return this.held(request, 'upload');
+  }
+  replaceHeldBackup(request: BackupCallRequest): Promise<BackupUploadResult> {
+    return this.held(request, 'replace');
+  }
+  private held(request: BackupCallRequest, kind: Held['kind']): Promise<BackupUploadResult> {
     return new Promise<BackupUploadResult>((resolve, reject) => {
-      this.runs.push({ request, resolve, reject });
+      this.runs.push({ request, kind, resolve, reject });
     });
   }
   get last(): Held {
@@ -466,5 +474,247 @@ describe('createBackupSchedule', () => {
     s.schedule.start();
     expect(s.clock.due()).toEqual([]);
     expect(await s.schedule.uploadNow()).toBeNull();
+  });
+});
+
+describe("the schedule for Settings' backup page (RELAY step 32d2b)", () => {
+  /** Started, its first run answered `held`: the timed runs end. */
+  async function heldSetup() {
+    const s = setup();
+    s.schedule.start();
+    s.clock.advance(BACKUP_CHANGE_MS);
+    await flush();
+    await answer(s, { state: 'held' });
+    expect(s.schedule.held.value).toBe(true);
+    s.warnings.length = 0;
+    return s;
+  }
+
+  it('ends a held backup when an answer says otherwise: the timed runs come back', async () => {
+    for (const state of ['sent', 'same', 'none', 'off', 'too-large'] as const) {
+      const s = await heldSetup();
+      const now = s.schedule.uploadNow();
+      await flush();
+      await answer(s, { state });
+      expect(await now).toEqual({ state });
+      expect(s.schedule.held.value).toBe(false);
+      s.schedule.changed();
+      expect(s.clock.due()).toEqual([BACKUP_GAP_MS]);
+    }
+  });
+
+  it('keeps a held backup over a failed run and a dead worker', async () => {
+    const s = await heldSetup();
+    void s.schedule.uploadNow();
+    await flush();
+    await answer(s, { state: 'failed', failure: 'network' });
+    expect(s.schedule.held.value).toBe(true);
+    void s.schedule.uploadNow();
+    await flush();
+    s.engine.last.reject(new Error('worker died'));
+    await flush();
+    expect(s.schedule.held.value).toBe(true);
+    s.schedule.changed();
+    expect(s.clock.due()).toEqual([]);
+  });
+
+  it('"Replace it" is a run of its own, with the request afresh: sent over the held backup, which ends, the change settled', async () => {
+    const s = await heldSetup();
+    s.schedule.changed();
+    const replaced = s.schedule.replaceNow();
+    await flush();
+    expect(s.engine.runs.map((r) => r.kind)).toEqual(['upload', 'replace']);
+    expect(s.engine.last.request).toEqual(REQUEST);
+    expect(s.schedule.idle()).toBe(false);
+    await answer(s, { state: 'sent' });
+    expect(await replaced).toEqual({ state: 'sent' });
+    expect(s.schedule.held.value).toBe(false);
+    expect(s.schedule.last.value).toEqual({ state: 'sent' });
+    expect(s.clock.due()).toEqual([]);
+    // The next run is an upload again.
+    void s.schedule.uploadNow();
+    await flush();
+    expect(s.engine.last.kind).toBe('upload');
+  });
+
+  it('keeps the held backup and the change after a failed replace, and logs it', async () => {
+    const s = await heldSetup();
+    s.schedule.changed();
+    const replaced = s.schedule.replaceNow();
+    await flush();
+    await answer(s, { state: 'failed', failure: 'timeout' });
+    expect(await replaced).toEqual({ state: 'failed', failure: 'timeout' });
+    expect(s.schedule.held.value).toBe(true);
+    expect(s.warnings).toEqual([['The backup was not sent', 'timeout']]);
+    // Pending, but held: nothing timed.
+    expect(s.clock.due()).toEqual([]);
+  });
+
+  it('replaces right after the run in progress, an upload asked meanwhile sharing it', async () => {
+    const s = setup();
+    s.schedule.start();
+    const first = s.schedule.uploadNow();
+    await flush();
+    const replaced = s.schedule.replaceNow();
+    const shared = s.schedule.uploadNow();
+    await flush();
+    expect(s.engine.runs.map((r) => r.kind)).toEqual(['upload']);
+    await answer(s, { state: 'held' });
+    expect(await first).toEqual({ state: 'held' });
+    expect(s.engine.runs.map((r) => r.kind)).toEqual(['upload', 'replace']);
+    await answer(s, { state: 'sent' });
+    expect(await replaced).toEqual({ state: 'sent' });
+    expect(await shared).toEqual({ state: 'sent' });
+    expect(s.schedule.held.value).toBe(false);
+  });
+
+  it('replaces nothing before start, once stopped or disposed', async () => {
+    const s = setup();
+    expect(await s.schedule.replaceNow()).toBeNull();
+    s.schedule.start();
+    s.schedule.stop();
+    expect(await s.schedule.replaceNow()).toBeNull();
+    s.schedule.start();
+    s.schedule.dispose();
+    expect(await s.schedule.replaceNow()).toBeNull();
+    expect(s.engine.runs).toHaveLength(0);
+  });
+
+  it('holds: waits for the run in progress, starts none while its job runs, then the run asked meanwhile', async () => {
+    const s = setup();
+    s.schedule.start();
+    const first = s.schedule.uploadNow();
+    await flush();
+    let release: (value: string) => void = () => undefined;
+    let started = 0;
+    const held = s.schedule.hold(() => {
+      started += 1;
+      return new Promise<string>((resolve) => {
+        release = resolve;
+      });
+    });
+    await flush();
+    expect(started).toBe(0);
+    expect(s.schedule.idle()).toBe(false);
+    const asked = s.schedule.uploadNow();
+    await answer(s, { state: 'sent' });
+    expect(await first).toEqual({ state: 'sent' });
+    expect(started).toBe(1);
+    // The run asked meanwhile waits for the job; so does a change.
+    expect(s.engine.runs).toHaveLength(1);
+    s.schedule.changed();
+    expect(s.clock.due()).toEqual([]);
+    expect(s.schedule.idle()).toBe(false);
+    release('switched');
+    expect(await held).toBe('switched');
+    await flush();
+    expect(s.engine.runs).toHaveLength(2);
+    await answer(s, { state: 'same' });
+    expect(await asked).toEqual({ state: 'same' });
+    expect(s.schedule.idle()).toBe(true);
+  });
+
+  it('holds at once with no run in progress: the timed run is cleared, and timed again after', async () => {
+    const s = setup();
+    s.schedule.start();
+    expect(s.clock.due()).toEqual([BACKUP_CHANGE_MS]);
+    let started = 0;
+    let release: () => void = () => undefined;
+    const held = s.schedule.hold(() => {
+      started += 1;
+      return new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    });
+    expect(s.clock.due()).toEqual([]);
+    await flush();
+    expect(started).toBe(1);
+    s.clock.advance(BACKUP_CHANGE_MS * 2);
+    await flush();
+    expect(s.engine.runs).toHaveLength(0);
+    release();
+    await held;
+    expect(s.clock.due()).toEqual([0]);
+    s.clock.advance(0);
+    await flush();
+    expect(s.engine.runs).toHaveLength(1);
+  });
+
+  it('settles as its job when the job fails, and the schedule goes on', async () => {
+    const s = setup();
+    s.schedule.start();
+    await expect(s.schedule.hold(() => Promise.reject(new Error('no worker')))).rejects.toThrow('no worker');
+    expect(s.schedule.idle()).toBe(true);
+    expect(s.clock.due()).toEqual([BACKUP_CHANGE_MS]);
+  });
+
+  it('waits for every hold: two at once', async () => {
+    const s = setup();
+    s.schedule.start();
+    let first: () => void = () => undefined;
+    let second: () => void = () => undefined;
+    const one = s.schedule.hold(
+      () =>
+        new Promise<void>((resolve) => {
+          first = resolve;
+        }),
+    );
+    const two = s.schedule.hold(
+      () =>
+        new Promise<void>((resolve) => {
+          second = resolve;
+        }),
+    );
+    const asked = s.schedule.uploadNow();
+    await flush();
+    first();
+    await one;
+    await flush();
+    expect(s.engine.runs).toHaveLength(0);
+    second();
+    await two;
+    await flush();
+    expect(s.engine.runs).toHaveLength(1);
+    await answer(s, { state: 'sent' });
+    expect(await asked).toEqual({ state: 'sent' });
+  });
+
+  it('runs nothing once disposed during a hold, even hidden with a change pending', async () => {
+    const s = setup();
+    s.schedule.start();
+    let release: () => void = () => undefined;
+    const held = s.schedule.hold(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    await flush();
+    s.lifecycle('hidden');
+    s.schedule.dispose();
+    release();
+    await held;
+    await flush();
+    expect(s.engine.runs).toHaveLength(0);
+  });
+
+  it('runs a pending change hidden meanwhile once the hold ends', async () => {
+    const s = setup();
+    s.schedule.start();
+    let release: () => void = () => undefined;
+    const held = s.schedule.hold(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    await flush();
+    s.lifecycle('hidden');
+    await flush();
+    expect(s.engine.runs).toHaveLength(0);
+    release();
+    await held;
+    await flush();
+    expect(s.engine.runs).toHaveLength(1);
   });
 });

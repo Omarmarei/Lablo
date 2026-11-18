@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readApiBase, readChecks, readDebugParams, readParams, readScreen } from './params';
+import { readApiBase, readChecks, readDebugParams, readParams, readRestored, readScreen, restartUrl } from './params';
 
 const MOCK = 'http://127.0.0.1:8080/get.php?username=u&password=p&type=m3u_plus';
 
@@ -156,5 +156,31 @@ describe('readApiBase (?api=, step 30c1)', () => {
     expect(readApiBase(`?api=http://127.0.0.1:1&source=${MOCK}`, BUILD, false)).toBe('http://127.0.0.1:1');
     // A blank one is no value: the next one counts.
     expect(readApiBase('?api=&api=http://127.0.0.1:2', BUILD, false)).toBe('http://127.0.0.1:2');
+  });
+});
+
+describe('the restart after "Restore it" (RELAY step 32d2b)', () => {
+  it('puts restored=1 first in the query, once, and drops a fragment', () => {
+    expect(restartUrl('file:///opt/app/index.html')).toBe('file:///opt/app/index.html?restored=1');
+    expect(restartUrl('http://127.0.0.1:5173/?api=http://127.0.0.1:9&locale=ar-SA')).toBe('http://127.0.0.1:5173/?restored=1&api=http://127.0.0.1:9&locale=ar-SA');
+    expect(restartUrl('http://127.0.0.1:5173/?restored=1&api=x')).toBe('http://127.0.0.1:5173/?restored=1&api=x');
+    expect(restartUrl('http://127.0.0.1:5173/?restored=1')).toBe('http://127.0.0.1:5173/?restored=1');
+    expect(restartUrl('http://127.0.0.1:5173/?')).toBe('http://127.0.0.1:5173/?restored=1');
+    expect(restartUrl('http://127.0.0.1:5173/?device=d#top')).toBe('http://127.0.0.1:5173/?restored=1&device=d');
+    // Before a source, which runs to the end of the address.
+    expect(restartUrl('http://h/?screen=hello&source=http://p/get.php?a=1&b=2')).toBe('http://h/?restored=1&screen=hello&source=http://p/get.php?a=1&b=2');
+  });
+
+  it('reads the mark, and only its own value', () => {
+    expect(readRestored('?restored=1&api=http://127.0.0.1:9')).toBe(true);
+    expect(readRestored('?locale=ar-SA&restored=1')).toBe(true);
+    expect(readRestored('')).toBe(false);
+    expect(readRestored('?restored=0')).toBe(false);
+    expect(readRestored('?restored=')).toBe(false);
+    expect(readRestored('?xrestored=1')).toBe(false);
+    // Inside a source's own query it is the source's.
+    expect(readRestored('?source=http://p/a.m3u?restored=1')).toBe(false);
+    expect(readRestored('?source=http://p/get.php?a=1&restored=1')).toBe(false);
+    expect(readRestored(new URL(restartUrl('http://h/?api=x')).search)).toBe(true);
   });
 });
