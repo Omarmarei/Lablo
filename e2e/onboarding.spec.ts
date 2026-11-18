@@ -461,6 +461,15 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
     await expect(page.getByTestId('field-server')).toHaveClass(/is-invalid/);
     await check('form');
     await shot(page, 'en-XA-form-error');
+    // The backup code's screen (step 32d3c), the source screen's last row, with a problem under its field.
+    await remote.go('BACK', 'source/types/0');
+    await remote.press('DOWN', 'DOWN', 'DOWN');
+    await remote.go('OK', 'restore-code/field/0');
+    await remote.go('DOWN', 'restore-code/actions/0');
+    await remote.go('OK', 'restore-code/field/0');
+    await expect(page.getByTestId('restore-code')).toHaveAttribute('data-problem', 'required');
+    await check('restore-code');
+    await shot(page, 'en-XA-restore-code');
     // The same check in English finds our strings, so it can fail.
     await open(page, 'en-US');
     await remote.press('OK');

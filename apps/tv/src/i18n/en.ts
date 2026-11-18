@@ -104,6 +104,22 @@ export const EN = {
   'onboarding.add': 'Add source',
   'onboarding.phone': 'Use your phone',
   'onboarding.phoneHint': 'Scan a code on this screen, then type the details on your phone',
+  'onboarding.restore': 'Use a backup code',
+  'onboarding.restoreHint': 'If Lablo backed up your sources before, type the code it showed',
+
+  // "Restore with a backup code" at the first start (RELAY step 32d3c). The code itself is never translated.
+  'restore.title': 'Restore with a backup code',
+  'restore.body': 'Type the code you noted down from {backup} in {settings}. It has {n, number} letters and digits.',
+  'restore.field': 'Backup code',
+  'restore.fieldHint': 'Upper or lower case, with or without spaces',
+  'restore.required': 'Type your backup code.',
+  'restore.length': 'A backup code has {n, number} letters and digits. Check that none is missing or extra.',
+  'restore.invalid': "This isn't a backup code. Check it against the one you noted down.",
+  'restore.opening': 'Opening your backup…',
+  'restore.openingBody': 'Lablo is looking for the backup of this code and opening it. This takes a few seconds.',
+  'restore.none': 'No backup was found for this code. Check it and try again.',
+  'restore.rate': 'Too many tries. Wait a few minutes, then try again.',
+  'restore.status': 'The backup service had a problem. Try again in a few minutes.',
 
   // The backup's look-up at a start with no profile (RELAY step 32c2), and the restore's welcome.
   'backup.lookingTitle': 'Looking for your backup',

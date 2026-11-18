@@ -115,6 +115,12 @@
   padding-left: 360px;
 }
 
+/* An answer under a form's field, in line with its box and button (the backup code's, step 32d3c). */
+.onboarding__notice {
+  margin: var(--space-4) 0 0;
+  padding-left: 360px;
+}
+
 .onboarding__progress {
   display: flex;
   align-items: center;

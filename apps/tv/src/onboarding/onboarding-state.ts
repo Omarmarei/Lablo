@@ -9,6 +9,8 @@ import type { FieldId, FormProblems, FormValues, SourceDraft, SourceType } from 
 import { FORM_FIELDS, checkForm, firstProblem } from './form';
 import type { LoadErrorCode, LoadHandle, LoadProgress, LoadResult, SourceLoader } from './loader';
 import { LoadError } from './loader';
+import type { RestoreCode, RestoreCodeHost } from './restore-code';
+import { createRestoreCode } from './restore-code';
 
 /**
  * Onboarding (RELAY step 13a, PLAN 4.4): the first start, on the router's back stack. Back goes
@@ -18,10 +20,13 @@ import { LoadError } from './loader';
  *   language  (English / العربية: picking one switches the app to it)
  *   disclaimer (Lablo provides no content)
  *   consent   (the TV's device ID for the encrypted backup: allow / not now)
- *   source    (an Xtream login or an M3U link; or "Use your phone", step 31c2a)
+ *   source    (an Xtream login or an M3U link; or "Use your phone", step 31c2a; or "Restore with a
+ *              backup code", step 32d3c)
  *   form      (the fields, then "Add source": checked on the TV first)
  *   pair      (the code and QR code for the phone page: `createPairing`, step 31c2a; once the
  *              phone's source is added, the done screen)
+ *   restore-code (the backup code typed: `createRestoreCode`, step 32d3c; a restore starts the
+ *              app again on the restored profile)
  *   loading   (progress; on failure "Edit details" / "Try again")
  *   done      (the counts; the new root: Back no longer goes into onboarding)
  *
@@ -36,6 +41,17 @@ import { LoadError } from './loader';
 /** The languages in the order the language screen shows them. */
 export const LANGUAGES: readonly Language[] = ['en', 'ar'];
 export const SOURCE_TYPES: readonly SourceType[] = ['xtream', 'm3u'];
+
+/** A row of the source screen: a type's form, "Use your phone" (step 31c2a), "Restore with a backup code" (step 32d3c). */
+export type SourceRow = SourceType | 'phone' | 'restore';
+
+/** The source screen's rows, in screen order: the types, then the phone and the code when the app can. */
+export function sourceRows(pairing: boolean, restore: boolean): SourceRow[] {
+  const rows: SourceRow[] = SOURCE_TYPES.slice();
+  if (pairing) rows.push('phone');
+  if (restore) rows.push('restore');
+  return rows;
+}
 
 /** The DOM id of a field's input (the text editor finds it by this). */
 export function fieldDomId(id: FieldId): string {
@@ -73,6 +89,8 @@ export interface Onboarding {
   readonly finished: ReadonlySignal<boolean>;
   /** The pairing screen, when the app can pair (step 31c2a): the source screen's third row. */
   readonly pairing: Pairing | null;
+  /** The backup code's screen, when the app can restore (step 32d3c): the source screen's last row. */
+  readonly restoreCode: RestoreCode | null;
   readonly exitRequested: ReadonlySignal<boolean>;
   setValue(id: FieldId, value: string): void;
   /** Focuses the TV's language on the first screen (the device info arrives after the first render). */
@@ -105,6 +123,11 @@ export interface OnboardingOptions {
    * its done screen. Without it the source screen has its two rows only.
    */
   readonly pairing?: (nav: Navigator, added: (draft: SourceDraft, result: LoadResult) => void) => Pairing;
+  /**
+   * The backup code's restore (step 32d3c): the request's build half, the data engine, the
+   * refresh slot's wait and the restart. Without it the source screen has no "Restore" row.
+   */
+  readonly restoreCode?: RestoreCodeHost;
 }
 
 const ONE: ScreenSpec['zones'] = [{ kind: 'list', id: 'actions', axis: 'horizontal', count: 1 }];
@@ -244,16 +267,22 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
     },
   });
 
+  const rows = sourceRows(options.pairing !== undefined, options.restoreCode !== undefined);
   const sourceSpec: ScreenSpec = {
     id: 'source',
-    zones: [{ kind: 'list', id: 'types', axis: 'vertical', count: SOURCE_TYPES.length + (options.pairing === undefined ? 0 : 1) }],
+    zones: [{ kind: 'list', id: 'types', axis: 'vertical', count: rows.length }],
     onSelect: (focus) => {
-      // The row after the types: "Use your phone".
-      if (focus.index === SOURCE_TYPES.length && pairing !== null) {
-        pairing.open();
+      const row = rows[focus.index] ?? 'xtream';
+      // The rows after the types: "Use your phone", "Restore with a backup code".
+      if (row === 'phone') {
+        pairing?.open();
         return;
       }
-      const picked = SOURCE_TYPES[focus.index] ?? 'xtream';
+      if (row === 'restore') {
+        restoreCode?.open();
+        return;
+      }
+      const picked = row;
       type.value = picked;
       problems.value = {};
       nav.push(formSpec(picked));
@@ -323,6 +352,7 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
 
   const textEditor = createTextEditor({ platform, nav, find: options.find, now: options.now });
   const editor = bindEditor(textEditor);
+  const restoreCode = options.restoreCode === undefined ? null : createRestoreCode({ nav, editor: textEditor, host: options.restoreCode });
   const binding = bindFocus(nav);
   const home = nav.top;
   const root = signal<Screen>(home);
@@ -344,6 +374,7 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
     finished,
     exitRequested,
     pairing,
+    restoreCode,
     setValue(id: FieldId, value: string): void {
       values.value = { ...values.value, [id]: value };
       if (problems.value[id] !== undefined) {
@@ -359,6 +390,7 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
     dispose(): void {
       cancelLoad();
       pairing?.dispose();
+      restoreCode?.dispose();
       editor.dispose();
       textEditor.dispose();
       binding.dispose();

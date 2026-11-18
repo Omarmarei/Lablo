@@ -588,6 +588,18 @@ function showOnboarding(into: Element, language: Language | null): void {
     refusal: addRefusal,
     // "Use your phone" (step 31c2a): the pairing screen, its source added by the same loader.
     pairing: (nav, added) => pairingOn(nav, added, loader),
+    // "Restore with a backup code" (step 32d3c): the backup worker restores over no profile or a
+    // sourceless one, after the refresh slot is free; the app then starts again on the profile.
+    restoreCode: {
+      engine: data,
+      build: { platform: BACKUP_BUILD.platform, appId: BACKUP_BUILD.appId, base: configRequest.base },
+      slotFree: refreshSlotFree,
+      restart: (restored) => {
+        // Restored: "Welcome back", as after Settings' "Restore it"; kept (a source got there meanwhile): a plain start.
+        if (restored) location.replace(restartUrl(location.href));
+        else location.reload();
+      },
+    },
     answer: (answer) => {
       // Best effort: an answer that can't be saved is asked again on the next start.
       data.editProfile(answerEdit(answer)).catch((error: unknown) => console.warn('The onboarding answer was not saved', error));
