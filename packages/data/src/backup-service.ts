@@ -46,6 +46,15 @@
  *   (step 32d2b: `RESTORE_CLEARS`); `replaceHeld` sends the profile over it
  *   (the same master gives the same write token, so the API takes it).
  *
+ * `restoreCode({platform, appId, base, code})` (step 32d3b): the backup code typed at a first start
+ * (read with `readBackupCode`; text that can't be a code throws). Only where there is no profile,
+ * or one with no source yet (onboarding's answers; `codeRestoreMayWrite`), else `kept` with nothing
+ * derived. The code's master is derived in memory and the backup read as `restore` reads it, so a
+ * mistyped code keeps nothing. Found, one transaction writes the profile over the sourceless one
+ * (no snapshot: the answers come back with it), the code as this TV's own (`backup.code`), its
+ * master, `backup.sent` (the next upload answers `same`), and clears every catalog and guide (a
+ * load onboarding cancelled may have committed one under an id the backup's sources reuse).
+ *
  * `kv` holds one thing that can't be rebuilt from the providers: the backup code.
  */
 import {
@@ -70,7 +79,7 @@ import { backupPlain, profileHash, readBackupPlain } from './backup-plain';
 import type { ByteTransport } from './bytes';
 import { getValue, onSuccess, transact } from './idb';
 import type { AnyProfile } from './profile';
-import { migrateProfile, putProfileIfNone, putProfileOver, storedProfileDoc } from './profile';
+import { codeRestoreMayWrite, migrateProfile, putProfileFromCode, putProfileIfNone, putProfileOver, storedProfileDoc } from './profile';
 import type { RpcContext } from './rpc';
 import { STORE } from './schema';
 import type { Clock } from './throttle';
@@ -116,6 +125,15 @@ export interface BackupPrepareResult {
 export interface BackupCallRequest extends BackupPrepareRequest {
   /** `http(s)://host[:port]`, no path (`?api=` in tests). */
   base: string;
+}
+
+/** A typed backup code's restore (step 32d3b): the call's platform, app id and origin, and the code. */
+export interface BackupCodeRequest {
+  platform: string;
+  appId: string;
+  base: string;
+  /** The code as it was typed (`readBackupCode` reads it: spaces, dashes, lower case, I, L, O). */
+  code: string;
 }
 
 /** Why a request gave nothing: no connection, the time limit, an unexpected status, 429. */
@@ -450,6 +468,48 @@ export class BackupService {
     }
   }
 
+  /**
+   * Restores the backup a typed backup code finds (step 32d3b) where there is no profile, or one
+   * with no source yet; see the module's comment. `kept`: a profile with a source (nothing derived).
+   */
+  async restoreCode(request: BackupCodeRequest, onProgress?: (fraction: number) => void): Promise<BackupRestoreResult> {
+    const { platform, appId, base } = request;
+    checkCall({ platform, appId, secret: null, base });
+    // (Anything that isn't text reads as text that is no code.)
+    const code = readBackupCode(String(request.code));
+    if (code === null) throw new TypeError('A backup code is 26 letters and digits');
+    const api = this.api();
+    const db = await this.options.openDb();
+    try {
+      if (!codeRestoreMayWrite(await storedProfileDoc(db))) return { state: 'kept' };
+      // In memory only: a code that finds nothing keeps nothing derived.
+      const master = await this.derive(code, platform, appId, onProgress);
+      const keys = backupKeys(master);
+      const found = await this.fetch(api, base, keys);
+      if (!('doc' in found)) return found;
+      const record: MasterRecord = { source: 'code', check: secretCheck(platform, appId, code), master: toBase64Url(master) };
+      const now = this.clock.now();
+      const sent: SentRecord = { lookupId: keys.lookupId, token: keys.writeToken, hash: found.hash, old: [], sentAt: now };
+      const written = await transact<boolean>(db, [STORE.profile, STORE.kv, ...RESTORE_CLEARS], 'readwrite', (tx, done) => {
+        done(false);
+        putProfileFromCode(tx.objectStore(STORE.profile), found.doc, now, (put) => {
+          if (!put) return;
+          const kv = tx.objectStore(STORE.kv);
+          // The typed code becomes this TV's own: Settings shows it, and the next upload's master is this one.
+          kv.put(code, BACKUP_CODE_KEY);
+          kv.put(record, BACKUP_MASTER_KEY);
+          kv.put(sent, BACKUP_SENT_KEY);
+          // A catalog onboarding's loader committed under an id the profile never got goes too.
+          for (let i = 0; i < RESTORE_CLEARS.length; i++) tx.objectStore(RESTORE_CLEARS[i]!).clear();
+          done(true);
+        });
+      });
+      return written ? restoredAnswer(found.doc) : { state: 'kept' };
+    } finally {
+      db.close();
+    }
+  }
+
   /** `upload`, or with `replace` written over a held backup; see the module's comment. */
   private async send(request: BackupCallRequest, replace: boolean): Promise<BackupUploadResult> {
     checkCall(request);
@@ -642,6 +702,8 @@ export function backupHandlers(options: BackupServiceOptions) {
     status: (request: BackupPrepareRequest): Promise<BackupStatus> => service.status(request),
     setEnabled: (request: BackupSwitchRequest): Promise<BackupSwitchResult> => service.setEnabled(request),
     restoreHeld: (request: BackupCallRequest): Promise<BackupRestoreResult> => service.restoreHeld(request),
+    restoreCode: (request: BackupCodeRequest, ctx: RpcContext): Promise<BackupRestoreResult> =>
+      service.restoreCode(request, percents((fraction) => ctx.emit('progress', fraction))),
     replaceHeld: (request: BackupCallRequest): Promise<BackupUploadResult> => service.replaceHeld(request),
   };
 }

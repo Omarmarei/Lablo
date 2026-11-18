@@ -77,7 +77,7 @@ describe('checkBackup (the backup worker on the old engines, steps 32b, 32c1 and
     }, deleteDatabase: factory.deleteDatabase.bind(factory), databases: factory.databases.bind(factory), cmp: factory.cmp.bind(factory) } as IDBFactory;
     const results = await checkBackup(VECTOR, broken);
     expect(results.map((r) => r.name)).toEqual(BACKUP_CHECK_NAMES);
-    expect(failed(results)).toEqual(['backup.device', 'backup.master', 'backup.lookupId', 'backup.cached', 'backup.upload', 'backup.same', 'backup.code', 'backup.codeKept', 'backup.restore', 'backup.held', 'backup.restoreHeld', 'backup.replaceHeld', 'backup.off', 'backup.on']);
+    expect(failed(results)).toEqual(['backup.device', 'backup.master', 'backup.lookupId', 'backup.cached', 'backup.upload', 'backup.same', 'backup.code', 'backup.codeKept', 'backup.restore', 'backup.held', 'backup.restoreHeld', 'backup.replaceHeld', 'backup.off', 'backup.on', 'backup.codeUpload', 'backup.restoreCode']);
     expect(results.find((r) => r.name === 'backup.device')?.detail).toContain('no IndexedDB here');
     expect(results.find((r) => r.name === 'backup.lookupId')?.detail).toBe('no master kept for the secret');
   });

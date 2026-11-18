@@ -5,7 +5,8 @@
  * (`backupStandIn`: the vectors page has no server), unchanged so not sent again, and restored
  * after a wipe of the database (32c1), through the engine's own gzip, secretbox and IndexedDB;
  * then a held backup restored over a new profile (its catalogs cleared, 32d2b) and replaced, the
- * backup off (its copy deleted) and on again (32d2a).
+ * backup off (its copy deleted) and on again (32d2a); last, a send under the backup code and, after
+ * a wipe and onboarding's answers, that code typed back (32d3b).
  * Its own entry point (`@lablo/data/check-backup`): the vectors page runs it in a Blob worker on
  * Chromium 53, 56 and 68 (`pnpm verify:engines`) and in current Chromium (`e2e/crypto-vectors.spec.ts`);
  * Node runs it with fake-indexeddb. The checks run in order and each one's error is its own failure.
@@ -41,6 +42,8 @@ export const BACKUP_CHECK_NAMES: readonly string[] = [
   'backup.replaceHeld',
   'backup.off',
   'backup.on',
+  'backup.codeUpload',
+  'backup.restoreCode',
   'backup.cleanup',
 ];
 
@@ -61,6 +64,13 @@ export function otherProfile(): ProfileDoc {
   const doc = emptyProfile();
   doc.onboarding = { language: 'en', disclaimerAt: 2, consent: true };
   doc.sources = [{ id: 's1', type: 'm3u', name: 'Living room', url: 'http://example.invalid/new.m3u', added: 2 }];
+  return doc;
+}
+
+/** Onboarding's answers before a source is added (step 32d3b): what a typed code's restore writes over. */
+export function answersOnly(): ProfileDoc {
+  const doc = emptyProfile();
+  doc.onboarding = { language: 'en', disclaimerAt: 3, consent: false };
   return doc;
 }
 
@@ -96,6 +106,7 @@ export async function checkBackup(vector: BackupCheckVector, factory: IDBFactory
   const call: BackupCallRequest = { platform: vector.platform, appId: vector.appId, secret: vector.deviceSecret, base: CHECK_BASE };
   const sent = JSON.stringify(checkProfile());
   const noSecret: BackupPrepareRequest = { platform: vector.platform, appId: vector.appId, secret: null };
+  const codeCall: BackupCallRequest = { ...noSecret, base: CHECK_BASE };
   const read = async (key: string): Promise<unknown> => {
     const db = await openDatabase(factory, { name });
     try {
@@ -121,6 +132,8 @@ export async function checkBackup(vector: BackupCheckVector, factory: IDBFactory
       .join(', ');
   let master: Uint8Array | null = null;
   let code: unknown;
+  /** The code the send under the backup code made (step 32d3b), to type back. */
+  let sentCode: unknown;
 
   const checks: Array<{ name: string; run: () => Promise<string> | string }> = [
     { name: 'backup.reset', run: () => deleteDatabase(factory, name).then(() => '') },
@@ -295,6 +308,50 @@ export async function checkBackup(vector: BackupCheckVector, factory: IDBFactory
         const before = api.requests.length;
         const upload = await service.upload(call);
         return same('state', result.state, 'on') + same('upload', upload.state, 'sent') + same('requests', asked(before), 'GET 404, PUT 200');
+      },
+    },
+    {
+      // Step 32d3b: a TV that said "Not now" sends under a new backup code (scrypt for the code).
+      name: 'backup.codeUpload',
+      run: async () => {
+        await deleteDatabase(factory, name);
+        await saveDoc(checkProfile());
+        const before = api.requests.length;
+        const result = await service.upload(codeCall);
+        sentCode = await read(BACKUP_CODE_KEY);
+        const kept = typeof sentCode === 'string' && CODE.exec(sentCode) !== null ? '' : `no backup code kept (${String(sentCode)}); `;
+        return same('state', result.state, 'sent') + same('requests', asked(before), 'GET 404, PUT 200') + kept;
+      },
+    },
+    {
+      // A wipe, onboarding's answers, then the code typed in lower case and in two groups: scrypt
+      // again, the profile back over the answers, the code kept as this TV's own, nothing to send.
+      name: 'backup.restoreCode',
+      run: async () => {
+        if (typeof sentCode !== 'string') return 'no backup code to type';
+        const kept = sentCode;
+        await deleteDatabase(factory, name);
+        await saveDoc(answersOnly());
+        const before = api.requests.length;
+        const typed = kept.slice(0, 13).toLowerCase() + ' ' + kept.slice(13);
+        const result = await service.restoreCode({ platform: vector.platform, appId: vector.appId, base: CHECK_BASE, code: typed });
+        if (result.state !== 'restored') return same('state', result.state, 'restored');
+        const db = await openDatabase(factory, { name });
+        let restored: unknown;
+        let ownCode: unknown;
+        try {
+          restored = await storedProfileDoc(db);
+          ownCode = await getValue<unknown>(db, STORE.kv, BACKUP_CODE_KEY);
+        } finally {
+          db.close();
+        }
+        const again = await service.upload(codeCall);
+        return (
+          same('requests', asked(before), 'GET 200') +
+          same('profile', JSON.stringify(restored), sent) +
+          same('code', String(ownCode), kept) +
+          same('then', again.state, 'same')
+        );
       },
     },
     { name: 'backup.cleanup', run: () => deleteDatabase(factory, name).then(() => '') },

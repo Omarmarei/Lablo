@@ -831,6 +831,37 @@ export function putProfileIfNone(store: IDBObjectStore, doc: AnyProfile, now: nu
 }
 
 /**
+ * Whether a typed backup code's restore may write over `stored`, the stored current document as it
+ * is (step 32d3b): none (`undefined`), or one from this app version or an older one with no source
+ * yet (onboarding's answers). A document that can't be read, or one from a newer app, is never
+ * written over.
+ */
+export function codeRestoreMayWrite(stored: unknown): boolean {
+  if (stored === undefined) return true;
+  if (typeof stored !== 'object' || stored === null) return false;
+  const { v, sources } = stored as { v?: unknown; sources?: unknown };
+  return typeof v === 'number' && v <= PROFILE_VERSION && !(Array.isArray(sources) && sources.length > 0);
+}
+
+/**
+ * Puts `doc` as the current profile in a running transaction over the profile store where
+ * `codeRestoreMayWrite` allows it (a typed backup code's restore, step 32d3b), with no snapshot:
+ * onboarding's answers, all a sourceless profile holds, come back with the backup. `then` says
+ * whether it was put.
+ */
+export function putProfileFromCode(store: IDBObjectStore, doc: AnyProfile, now: number, then: (put: boolean) => void): void {
+  onSuccess(store.get(CURRENT), (value) => {
+    const record = value as ProfileRecord | undefined;
+    if (!codeRestoreMayWrite(record === undefined ? undefined : record.doc)) {
+      then(false);
+      return;
+    }
+    store.put({ id: CURRENT, savedAt: now, doc } satisfies ProfileRecord);
+    then(true);
+  });
+}
+
+/**
  * Puts `doc` as the current profile in a running transaction over the profile store, over the one
  * there (a held backup restored from Settings, step 32d2a): the document it replaces goes to a
  * snapshot slot first (`restore`). `then` says whether it was put: a document from a newer app

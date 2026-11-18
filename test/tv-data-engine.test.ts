@@ -1106,6 +1106,44 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     expect(after.started).toEqual({ query: 1, ingest: 0, epg: 0, config: 0, pair: 0 });
   });
 
+  it('restores with a typed backup code on a wiped TV, in a backup worker of its own, and ends it on a cancel (step 32d3b)', async () => {
+    const s = setup(() => ({ status: 404 }));
+    const source = { id: 's1', type: 'm3u' as const, name: 'Home', url: 'http://p.test/list.m3u', added: 1 };
+    expect(await s.engine.editProfile({ kind: 'source', source })).toBe(true);
+    const NOT_NOW = { ...BACKUP_CALL, secret: null };
+    expect(await s.engine.uploadBackup(NOT_NOW)).toEqual({ state: 'sent' });
+    const db = await openDatabase(s.factory);
+    const code = (await getValue(db, STORE.kv, BACKUP_CODE_KEY)) as string;
+    db.close();
+    const typed = { platform: BACKUP_CALL.platform, appId: BACKUP_CALL.appId, base: BACKUP_CALL.base, code: code.toLowerCase() };
+
+    // A cancel while it looks ends the worker and keeps nothing.
+    const cancelled = setup(() => ({ status: 404 }));
+    let release!: () => void;
+    cancelled.backupHold.gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const cancel = new CancelSource();
+    const looking = cancelled.engine.restoreBackupCode(typed, { cancel: cancel.token });
+    for (let i = 0; i < 100 && cancelled.backupHold.held === 0; i++) await delay(5);
+    expect(cancelled.backup.live).toBe(1);
+    cancel.cancel();
+    await expect(looking).rejects.toMatchObject({ code: 'cancelled' });
+    expect(cancelled.backup).toEqual({ started: 1, live: 0 });
+    release();
+
+    // The same TV wiped: the typed code brings the profile back.
+    const wiped = setup(() => ({ status: 404 }));
+    for (const [id, blob] of s.backupApi.blobs) wiped.backupApi.blobs.set(id, blob);
+    const progress: number[] = [];
+    expect(await wiped.engine.restoreBackupCode(typed, { onProgress: (f) => progress.push(f) })).toEqual({ state: 'restored', language: null, sources: 1 });
+    expect(progress).toEqual([0.5, 1]);
+    expect(wiped.backup).toEqual({ started: 1, live: 0 });
+    expect(wiped.started).toEqual({ query: 0, ingest: 0, epg: 0, config: 0, pair: 0 });
+    expect((await wiped.engine.profile())!.doc.sources).toEqual([source]);
+    expect(await wiped.engine.backupStatus({ ...BACKUP_REQUEST, secret: null })).toMatchObject({ source: 'code', code });
+  });
+
   it("ends the look-up's worker when its call is cancelled (the app's time limit), keeping nothing", async () => {
     const s = setup(() => ({ status: 404 }));
     let release!: () => void;
@@ -1148,6 +1186,7 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     await expect(engine.prepareBackup(BACKUP_REQUEST)).rejects.toThrow('This data engine has no backup worker');
     await expect(engine.uploadBackup(BACKUP_CALL)).rejects.toThrow('This data engine has no backup worker');
     await expect(engine.restoreBackup(BACKUP_CALL)).rejects.toThrow('This data engine has no backup worker');
+    await expect(engine.restoreBackupCode({ platform: 'webos', appId: 'com.lablo.iptv', base: 'http://api.test', code: '0' })).rejects.toThrow('This data engine has no backup worker');
   });
 
   it('refuses to pair without a pair worker', () => {
