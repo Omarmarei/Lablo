@@ -22,8 +22,9 @@ export type AccountCheck = Pick<XtreamUserInfo, 'auth' | 'status' | 'expDate' | 
 /** A panel that refused the login outright (HTTP 401 or 403). */
 export const LOGIN_REFUSED: AccountCheck = { auth: false, status: '', expDate: null, activeCons: null, maxConnections: null };
 
-/** The Xtream account behind a stored source, or `null` for a playlist with no panel. */
+/** The Xtream account behind a stored source, or `null` for a playlist with no panel (a file from the phone has none). */
 export function sourceAccount(source: SourceRecord): XtreamAccount | null {
+  if (source.type === 'm3u-file') return null;
   return source.type === 'xtream' ? source.account : xtreamFromM3uUrl(source.url);
 }
 

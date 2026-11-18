@@ -87,7 +87,7 @@ export function CodeView({ i18n, view }: { i18n: AppI18n; view: Extract<PairView
 }
 
 /** What the view says, under the title (the code view has its own body). */
-export function Message({ i18n, view, name }: { i18n: AppI18n; view: PairView; name: string }) {
+export function Message({ i18n, view, name, file = false }: { i18n: AppI18n; view: PairView; name: string; file?: boolean }) {
   const { t } = i18n;
   if (view.kind === 'opening') {
     return (
@@ -136,7 +136,7 @@ export function Message({ i18n, view, name }: { i18n: AppI18n; view: PairView; n
   if (view.kind === 'failed' || view.kind === 'refused') {
     return (
       <p class="pair__text pair__error" role="alert" data-testid="pair-error" data-code={view.kind === 'refused' ? 'refused' : view.code}>
-        {view.kind === 'refused' ? refusalText(i18n, view.refusal) : errorText(t, view.code, view.httpStatus)}
+        {view.kind === 'refused' ? refusalText(i18n, view.refusal) : errorText(t, view.code, view.httpStatus, file)}
       </p>
     );
   }
@@ -176,12 +176,14 @@ export interface PairContentProps {
   /** The status sent to the phone, if any (`data-sent`). */
   readonly sent: PairStatus | null;
   readonly zone: ZoneView;
+  /** The source is the phone's file (step 31d2b1): its failures have no "Try again" and their own words. */
+  readonly file?: boolean;
 }
 
 /** The page as drawn for a view: hook-free (the tests call it as a function). */
-export function PairContent({ i18n, view, name, sent, zone }: PairContentProps) {
+export function PairContent({ i18n, view, name, sent, zone, file = false }: PairContentProps) {
   const { t } = i18n;
-  const actions = pairActions(view.kind);
+  const actions = pairActions(view.kind, file);
   return (
     <div
       class="pair"
@@ -194,7 +196,7 @@ export function PairContent({ i18n, view, name, sent, zone }: PairContentProps) 
       <h1 class="pair__title" data-testid="pair-title">
         {titleOf(t, view, name)}
       </h1>
-      {view.kind === 'code' ? <CodeView i18n={i18n} view={view} /> : <Message i18n={i18n} view={view} name={name} />}
+      {view.kind === 'code' ? <CodeView i18n={i18n} view={view} /> : <Message i18n={i18n} view={view} name={name} file={file} />}
       <div class="pair__actions">
         {actions.map((action, i) => (
           <Button key={action} label={actionLabel(t, action)} variant={i === actions.length - 1 && action !== 'cancel' ? 'primary' : undefined} {...zone.item(i)} testId={`pair-action-${i}`} />
@@ -207,5 +209,14 @@ export function PairContent({ i18n, view, name, sent, zone }: PairContentProps) 
 export function PairPage({ pairing, binding, i18n }: { pairing: Pairing; binding: FocusBinding; i18n: AppI18n }) {
   const zone = useZone(binding, binding.nav.top, 'actions');
   const draft = pairing.draft.value;
-  return <PairContent i18n={i18n} view={pairing.view.value} name={draft === null ? '' : draft.name} sent={pairing.sent.value} zone={zone} />;
+  return (
+    <PairContent
+      i18n={i18n}
+      view={pairing.view.value}
+      name={draft === null ? '' : draft.name}
+      sent={pairing.sent.value}
+      zone={zone}
+      file={draft !== null && draft.type === 'm3u-file'}
+    />
+  );
 }

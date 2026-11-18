@@ -109,6 +109,7 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'pair.ended': 'انتهت صلاحية الرمز قبل إرسال أي شيء. اعرض رمزًا جديدًا عندما يكون هاتفك جاهزًا.',
   'pair.newCode': 'اعرض رمزًا جديدًا',
   'pair.done': 'تم',
+  'pair.fileName': 'قائمة من هاتفك',
 
   'field.server': 'عنوان الخادم',
   'field.serverHint': 'كما أرسله مزوّد الخدمة. تُضاف {scheme} إن لم تكتبها.',
@@ -142,6 +143,9 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'error.format': 'لم يُرجع هذا الرابط قائمة تشغيل.',
   'error.empty': 'لا توجد قنوات في قائمة التشغيل.',
   'error.other': 'حدث خطأ ما. حاول مرة أخرى.',
+  'error.file': 'تعذّرت قراءة الملف المُرسَل من هاتفك. أرسله مرة أخرى.',
+  'error.fileFormat': 'هذا الملف ليس قائمة تشغيل.',
+  'error.fileNetwork': 'تعذّر جلب الملف من هاتفك. تحقّق من اتصالك بالإنترنت وأرسله مرة أخرى.',
   'error.refused': 'لا يضيف لابلو مصادر جديدة حاليًا. حاول مرة أخرى لاحقًا.',
   'error.blocklisted': 'لا يمكن استخدام هذا الخادم مع لابلو.',
 
@@ -255,6 +259,8 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'sources.intro': 'قوائم التشغيل وبيانات الدخول التي أضفتها، ومتى حدّثها لابلو آخر مرة.',
   'sources.xtream': 'تسجيل دخول {name}',
   'sources.m3u': 'قائمة تشغيل {format}',
+  'sources.file': 'ملف {format}',
+  'sources.fileSent': 'أُرسل من هاتفك {day}، {time}',
   'sources.updated': 'حُدّث {day}، {time}',
   'sources.notUpdated': 'لم يُحدَّث بعد',
   'sources.blocked': 'لا يُحدَّث: لا يمكن استخدام هذا الخادم مع لابلو.',

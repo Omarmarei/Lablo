@@ -1,5 +1,5 @@
 import { signal } from '@preact/signals';
-import type { PairCode, PairOpenResult, PairPollResult, PairStatusResult } from '@lablo/data/client';
+import type { FileFeed, PairCode, PairOpenResult, PairPollResult, PairStatusResult } from '@lablo/data/client';
 import { PAIR_POLL_MS } from '@lablo/data/client';
 import type { LifecycleEvent } from '@lablo/platform-api';
 import type { PairPayload, PairStatus } from '@lablo/protocol';
@@ -49,13 +49,15 @@ const M3U_PAYLOAD: PairPayload = { v: 1, source: { type: 'm3u', url: 'Lists.Test
 const M3U_DRAFT: SourceDraft = { type: 'm3u', name: 'Phone list', url: 'http://lists.test/a.m3u', epgUrls: ['http://lists.test/g.xml', 'https://more.test/h.xml'] };
 const XTREAM_PAYLOAD: PairPayload = { v: 1, source: { type: 'xtream', server: 'panel.test:8080/', username: ' u1 ', password: 'p1' } };
 const RESULT: LoadResult = { live: 12, movies: 3, series: 1 };
+const FILE_PAYLOAD: PairPayload = { v: 1, source: { type: 'm3u-file', file: { key: 'k', fileKey: 'f', base: 'b', size: 10 } }, name: ' Kitchen ', epg: ['g.test/k.xml'] };
+const FEED: FileFeed = { port: { postMessage: () => undefined, onmessage: null } as unknown as FileFeed['port'], size: 10 };
 
 /** One pair worker: each call held until the test answers it. */
 class FakeSession implements PairSession {
   readonly opens: Array<{ base: string; answer: Held<PairOpenResult> }> = [];
   readonly polls: Array<Held<PairPollResult>> = [];
   readonly statuses: Array<{ status: PairStatus; answer: Held<PairStatusResult> }> = [];
-  /** The file's feeds asked for (step 31d2a; the screen asks from 31d2b). */
+  /** The file's feeds asked for (step 31d2a; the screen's file draft asks, step 31d2b1). */
   readonly files: Array<Held<PairFileFeedResult>> = [];
   closed = 0;
 
@@ -107,7 +109,7 @@ interface Load {
   cancelled: boolean;
 }
 
-function setup(options: { refusal?: Refusal | null; failSession?: boolean } = {}) {
+function setup(options: { refusal?: Refusal | null; failSession?: boolean; fileName?: () => string } = {}) {
   const sessions: FakeSession[] = [];
   const timers: Timer[] = [];
   const loads: Load[] = [];
@@ -158,6 +160,7 @@ function setup(options: { refusal?: Refusal | null; failSession?: boolean } = {}
     },
     busy: (on) => busy.push(on),
     added: (draft, result) => added.push({ draft, result }),
+    ...(options.fileName === undefined ? {} : { fileName: options.fileName }),
   });
   /** The timers set and not cleared or run. */
   const pending = (): number[] => timers.filter((t) => !t.cleared).map((t) => t.ms);
@@ -225,6 +228,12 @@ describe('pairActions', () => {
     expect(pairActions('failed')).toEqual(['new-code', 'retry-load']);
     expect(pairActions('refused')).toEqual(['new-code', 'retry-load']);
     expect(pairActions('done')).toEqual(['close']);
+  });
+
+  it("gives a file's failure and refusal no Try again (step 31d2b1): its status took the file", () => {
+    expect(pairActions('failed', true)).toEqual(['new-code']);
+    expect(pairActions('refused', true)).toEqual(['new-code']);
+    for (const kind of ['opening', 'code', 'loading', 'unavailable', 'ended', 'done'] as const) expect(pairActions(kind, true)).toEqual(pairActions(kind));
   });
 });
 
@@ -333,7 +342,7 @@ describe('a code and its poll', () => {
     ['a server the form refuses', { v: 1, source: { type: 'xtream', server: 'ftp://panel.test', username: 'u', password: 'p' } }],
     ['an empty login', { v: 1, source: { type: 'xtream', server: 'panel.test', username: '  ', password: 'p' } }],
     ['a guide link the form refuses', { v: 1, source: { type: 'm3u', url: 'lists.test/a.m3u' }, epg: ['lists.test/g.xml', 'mailto:x@y'] }],
-    ['an M3U file (step 31d)', { v: 1, source: { type: 'm3u-file', file: { key: 'k', fileKey: 'f', base: 'b', size: 10 } } }],
+    ['a file with a guide link the form refuses', { v: 1, source: { type: 'm3u-file', file: { key: 'k', fileKey: 'f', base: 'b', size: 10 } }, epg: ['g.test/a', 'bad link'] }],
   ])('treats %s as unreadable: a new code with a note, no load, no status', async (_, payload) => {
     const t = setup();
     const s = await t.received(payload);
@@ -622,6 +631,91 @@ describe('the add path', () => {
     t.nav.back();
     expect(t.pending()).toEqual([]);
     expect(s.closed).toBe(1);
+  });
+});
+
+describe("the phone's M3U file (step 31d2b1)", () => {
+  it('loads a file draft whose fetch asks the session the payload came on, and sends ok when it is in', async () => {
+    const t = setup({ fileName: () => 'Playlist from your phone' });
+    const s = await t.received(FILE_PAYLOAD);
+    expect(t.loads).toHaveLength(1);
+    const draft = t.loads[0]!.draft;
+    expect(draft).toMatchObject({ type: 'm3u-file', name: 'Kitchen', epgUrls: ['http://g.test/k.xml'] });
+    expect(t.pairing.draft.value).toBe(draft);
+    // Nothing is fetched until the loader asks (after the refresh slot is free).
+    expect(s.files).toHaveLength(0);
+    if (draft.type !== 'm3u-file') throw new Error('not a file draft');
+    const feed = draft.file();
+    expect(s.files).toHaveLength(1);
+    s.files[0]!.resolve({ ok: true, feed: FEED });
+    await expect(feed).resolves.toBe(FEED);
+    t.loads[0]!.done.resolve(RESULT);
+    await flush();
+    expect(t.kind()).toBe('done');
+    expect(s.statuses.map((x) => x.status)).toEqual(['ok']);
+  });
+
+  it('rejects the fetch with the load error its failure is, never a URL', async () => {
+    const t = setup();
+    const s = await t.received(FILE_PAYLOAD);
+    const draft = t.loads[0]!.draft;
+    if (draft.type !== 'm3u-file') throw new Error('not a file draft');
+    const gone = draft.file();
+    s.files[0]!.resolve({ ok: false, failure: 'gone' });
+    await expect(gone).rejects.toMatchObject({ name: 'LoadError', code: 'file' });
+    const slow = draft.file();
+    s.files[1]!.resolve({ ok: false, failure: 'timeout' });
+    await expect(slow).rejects.toMatchObject({ name: 'LoadError', code: 'network' });
+  });
+
+  it("names a file sent without a name by the screen's default, read when the payload comes", async () => {
+    const names = ['Playlist from your phone', 'قائمة من هاتفك'];
+    let asked = 0;
+    const t = setup({ fileName: () => names[asked++]! });
+    await t.received({ v: 1, source: { type: 'm3u-file', file: { key: 'k', fileKey: 'f', base: 'b', size: 10 } } });
+    expect(asked).toBe(1);
+    expect(t.loads[0]!.draft.name).toBe('Playlist from your phone');
+    const bare = setup();
+    await bare.received({ v: 1, source: { type: 'm3u-file', file: { key: 'k', fileKey: 'f', base: 'b', size: 10 } } });
+    expect(bare.loads[0]!.draft.name).toBe('');
+  });
+
+  it('sends unreachable for a file the TV couldn\'t read, and offers only "Show a new code"', async () => {
+    const t = setup();
+    const s = await t.received(FILE_PAYLOAD);
+    t.loads[0]!.done.reject(new LoadError('file'));
+    await flush();
+    expect(t.pairing.view.value).toEqual({ kind: 'failed', code: 'file', httpStatus: null });
+    expect(s.statuses.map((x) => x.status)).toEqual(['unreachable']);
+    expect(t.at()).toBe(`${PAIR_SCREEN} · actions 0`);
+    // One button: RIGHT stays, OK shows a new code (no second load).
+    t.nav.handle('RIGHT');
+    expect(t.at()).toBe(`${PAIR_SCREEN} · actions 0`);
+    t.nav.handle('OK');
+    expect(t.kind()).toBe('opening');
+    expect(s.opens).toHaveLength(2);
+    expect(t.loads).toHaveLength(1);
+  });
+
+  it('refuses a file under block-new-sources with only "Show a new code"; a link\'s refusal keeps Try again', async () => {
+    const rule: Refusal = { id: 'kill-1', message: null };
+    const t = setup({ refusal: rule });
+    const s = await t.received(FILE_PAYLOAD);
+    expect(t.pairing.view.value).toEqual({ kind: 'refused', refusal: rule });
+    expect(s.statuses.map((x) => x.status)).toEqual(['blocked']);
+    t.nav.handle('RIGHT');
+    expect(t.at()).toBe(`${PAIR_SCREEN} · actions 0`);
+    t.refusal.value = null;
+    t.nav.handle('OK');
+    expect(t.kind()).toBe('opening');
+    expect(t.loads).toEqual([]);
+    // The next payload, a link, refused too: two buttons again.
+    await s.gives('WXYZ6789');
+    await t.tick();
+    t.refusal.value = rule;
+    await s.polled({ state: 'ready', payload: M3U_PAYLOAD });
+    t.nav.handle('RIGHT');
+    expect(t.at()).toBe(`${PAIR_SCREEN} · actions 1`);
   });
 });
 

@@ -21,9 +21,10 @@ export interface LoadProgress {
 /**
  * Why a source couldn't be added. Each has its own message (`error.<code>`). `expired` and
  * `blocked` (banned or disabled) are what an Xtream panel says about an account it still lets in.
- * `blocklisted`: the source's server is on the signed config's blocklist (step 30c3a).
+ * `blocklisted`: the source's server is on the signed config's blocklist (step 30c3a). `file`: the
+ * phone's file couldn't be fetched or opened, or isn't there any more (step 31d2b1).
  */
-export type LoadErrorCode = 'auth' | 'expired' | 'blocked' | 'blocklisted' | 'network' | 'http' | 'format' | 'empty' | 'other';
+export type LoadErrorCode = 'auth' | 'expired' | 'blocked' | 'blocklisted' | 'network' | 'http' | 'format' | 'empty' | 'file' | 'other';
 
 export class LoadError extends Error {
   constructor(

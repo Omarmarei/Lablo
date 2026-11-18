@@ -4,7 +4,7 @@ import type { EpgPin } from './epg-overrides';
 import { epgOverridesOf } from './epg-overrides';
 import type { UserGuide } from './epg-sources';
 import { EPG_OFFSET_MAX, EPG_OFFSET_STEP, epgOffsetsOf, isEpgOffset } from './epg-sources';
-import type { AnyProfile, GuideChange, LastChannel, PlayerChange, ProfileDoc, ProfileMigration, ShowProgress, SourceRecord, SourceRecordV3, StoredTrackChoice, WatchProgress } from './profile';
+import type { AnyProfile, GuideChange, LastChannel, PlayerChange, ProfileDoc, ProfileMigration, ShowProgress, SourceRecord, SourceRecordV3, SourceRecordV7, StoredTrackChoice, WatchProgress } from './profile';
 import { MAX_NOTICES } from './config-constants';
 import {
   MAX_CHANNELS,
@@ -39,7 +39,7 @@ const withFavs = (...ns: number[]): ProfileDoc => ({ ...emptyProfile(), favourit
 /** A version 1 document, as step 7 stored it. */
 const v1 = (...ns: number[]): AnyProfile => ({ v: 1, favourites: ns.map(fav) });
 const NO_ANSWERS = { language: null, disclaimerAt: null, consent: null };
-const xtreamSource = (id: string, name = 'Home'): SourceRecord => ({
+const xtreamSource = (id: string, name = 'Home'): SourceRecordV7 => ({
   id,
   type: 'xtream',
   name,
@@ -58,12 +58,12 @@ const toV2: ProfileMigration = ({ favourites, ...rest }) => ({ ...rest, v: 2, fa
 const toV3: ProfileMigration = (doc) => ({ ...doc, v: 3, settings: { language: 'ar' } });
 
 describe('profile migrations', () => {
-  it('is at version 7, with the shape of every version pinned', () => {
-    expect(PROFILE_VERSION).toBe(7);
+  it('is at version 8, with the shape of every version pinned', () => {
+    expect(PROFILE_VERSION).toBe(8);
     expect(PROFILE_VERSION).toBe(PROFILE_MIGRATIONS.length + 1);
     const NOTHING_KEPT = { last: null, containers: {}, redirects: {}, tracks: {}, subtitleSize: null };
     expect(noPlayerMemory()).toEqual(NOTHING_KEPT);
-    expect(emptyProfile()).toEqual({ v: 7, favourites: [], sources: [], onboarding: NO_ANSWERS, player: NOTHING_KEPT, guides: [], progress: {}, shows: {}, channels: [] });
+    expect(emptyProfile()).toEqual({ v: 8, favourites: [], sources: [], onboarding: NO_ANSWERS, player: NOTHING_KEPT, guides: [], progress: {}, shows: {}, channels: [] });
     // 1 → 2 (step 13b): the favourites stay; no sources and no answers yet.
     expect(PROFILE_MIGRATIONS[0]!(v1(1, 2))).toEqual({ v: 2, favourites: [fav(1), fav(2)], sources: [], onboarding: NO_ANSWERS });
     // 2 → 3 (step 20c1): nothing kept for the player yet; the rest stays.
@@ -85,25 +85,29 @@ describe('profile migrations', () => {
     expect(PROFILE_MIGRATIONS[5]!(playing)).toEqual({ ...playing, v: 7, channels: [playing.player.last] });
     // A player section that isn't one keeps no channel (and is left as it is).
     for (const player of [null, 'x', undefined]) expect(PROFILE_MIGRATIONS[5]!({ ...v6, player })).toEqual({ ...v6, player, v: 7, channels: [] });
+    // 7 → 8 (step 31d2b1): only the version (an older app must not read a file source as a link).
+    const v7 = { ...playing, v: 7, channels: [playing.player.last], sources: [xtreamSource('s1'), { id: 's2', type: 'm3u', name: 'Link', url: 'http://p.test/list.m3u', added: 2 }], noticesShown: ['r1'] };
+    expect(PROFILE_MIGRATIONS[6]!(v7)).toEqual({ ...v7, v: 8 });
+    expect(migrateProfile(v7)).toEqual({ doc: { ...v7, v: 8 }, from: 7, migrated: true, newer: false });
     expect(migrateProfile(v1(1, 2))).toEqual({
-      doc: { v: 7, favourites: [fav(1), fav(2)], sources: [], onboarding: NO_ANSWERS, player: NOTHING_KEPT, guides: [], progress: {}, shows: {}, channels: [] },
+      doc: { v: 8, favourites: [fav(1), fav(2)], sources: [], onboarding: NO_ANSWERS, player: NOTHING_KEPT, guides: [], progress: {}, shows: {}, channels: [] },
       from: 1,
       migrated: true,
       newer: false,
     });
     expect(migrateProfile(v2)).toMatchObject({
-      doc: { ...v2, v: 7, sources: [xtreamSource('s1')], player: NOTHING_KEPT, guides: [{ id: 's1', url: 'http://g.test/a.xml' }], progress: {}, shows: {}, channels: [] },
+      doc: { ...v2, v: 8, sources: [xtreamSource('s1')], player: NOTHING_KEPT, guides: [{ id: 's1', url: 'http://g.test/a.xml' }], progress: {}, shows: {}, channels: [] },
       from: 2,
       migrated: true,
     });
     // Fields an older document had that the new version doesn't name are kept, never dropped.
-    expect(migrateProfile({ ...v1(), kept: 'x' }).doc).toMatchObject({ v: 7, kept: 'x' });
-    expect(migrateProfile(v4)).toEqual({ doc: { ...v4, v: 7, progress: {}, shows: {}, channels: [] }, from: 4, migrated: true, newer: false });
-    expect(migrateProfile(v5)).toEqual({ doc: { ...v5, v: 7, shows: {}, channels: [] }, from: 5, migrated: true, newer: false });
-    expect(migrateProfile(playing)).toEqual({ doc: { ...playing, v: 7, channels: [playing.player.last] }, from: 6, migrated: true, newer: false });
+    expect(migrateProfile({ ...v1(), kept: 'x' }).doc).toMatchObject({ v: 8, kept: 'x' });
+    expect(migrateProfile(v4)).toEqual({ doc: { ...v4, v: 8, progress: {}, shows: {}, channels: [] }, from: 4, migrated: true, newer: false });
+    expect(migrateProfile(v5)).toEqual({ doc: { ...v5, v: 8, shows: {}, channels: [] }, from: 5, migrated: true, newer: false });
+    expect(migrateProfile(playing)).toEqual({ doc: { ...playing, v: 8, channels: [playing.player.last] }, from: 6, migrated: true, newer: false });
   });
 
-  it('upgrades a stored version 4 profile on load, keeping the old one as a snapshot (4 to 7, steps 26d, 27c1 and 28b2)', async () => {
+  it('upgrades a stored version 4 profile on load, keeping the old one as a snapshot (4 to 8, steps 26d, 27c1, 28b2 and 31d2b1)', async () => {
     const db = await openDatabase(freshFactory());
     // A version 4 document as steps 22b–26c wrote it: the guides, an offset, a mapping, the player's memory.
     const v4 = {
@@ -118,17 +122,17 @@ describe('profile migrations', () => {
     };
     await writeCurrent(db, v4);
     const loaded = await loadProfile(db, { now: 5 * DAY });
-    expect(loaded).toEqual({ doc: { ...v4, v: 7, progress: {}, shows: {}, channels: [] }, newer: false, migratedFrom: 4 });
+    expect(loaded).toEqual({ doc: { ...v4, v: 8, progress: {}, shows: {}, channels: [] }, newer: false, migratedFrom: 4 });
     const snaps = await listSnapshots(db);
     expect(snaps.map((s) => [s.reason, s.doc])).toEqual([['migration', v4]]);
     // The first position saved after it lands in the upgraded document.
     const saved: WatchProgress = { positionMs: 754_000, lengthMs: 888_000, updated: 6 * DAY };
     expect(await updateProfile(db, (doc) => applyProfileEdit(doc, { kind: 'progress', key: 'x:s1:movie:202', progress: saved }), { now: 6 * DAY })).toBe(true);
-    expect((await loadProfile(db))!.doc).toEqual({ ...v4, v: 7, progress: { 'x:s1:movie:202': saved }, shows: {}, channels: [] });
+    expect((await loadProfile(db))!.doc).toEqual({ ...v4, v: 8, progress: { 'x:s1:movie:202': saved }, shows: {}, channels: [] });
     db.close();
   });
 
-  it("upgrades a stored version 5 profile on load, then keeps a show's last episode in it (5 to 7, steps 27c1 and 28b2)", async () => {
+  it("upgrades a stored version 5 profile on load, then keeps a show's last episode in it (5 to 8, steps 27c1, 28b2 and 31d2b1)", async () => {
     const db = await openDatabase(freshFactory());
     const kept: WatchProgress = { positionMs: 754_000, lengthMs: 888_000, updated: 4 * DAY };
     const v5 = { ...emptyProfile(), v: 5, favourites: [fav(1)], sources: [xtreamSource('s1')], progress: { 'x:s1:movie:202': kept } } as AnyProfile;
@@ -136,27 +140,27 @@ describe('profile migrations', () => {
     delete v5['channels'];
     await writeCurrent(db, v5);
     const loaded = await loadProfile(db, { now: 5 * DAY });
-    expect(loaded).toEqual({ doc: { ...v5, v: 7, shows: {}, channels: [] }, newer: false, migratedFrom: 5 });
+    expect(loaded).toEqual({ doc: { ...v5, v: 8, shows: {}, channels: [] }, newer: false, migratedFrom: 5 });
     expect((await listSnapshots(db)).map((s) => [s.reason, s.doc])).toEqual([['migration', v5]]);
     const last: ShowProgress = { episode: 'x:s1:episode:3002', watched: false, updated: 6 * DAY };
     const place: WatchProgress = { positionMs: 40_000, lengthMs: 300_000, updated: 6 * DAY };
     expect(await updateProfile(db, (doc) => applyProfileEdit(doc, { kind: 'episode', show: 'x:s1:series:301', last, progress: place }), { now: 6 * DAY })).toBe(true);
-    expect((await loadProfile(db))!.doc).toEqual({ ...v5, v: 7, progress: { 'x:s1:movie:202': kept, 'x:s1:episode:3002': place }, shows: { 'x:s1:series:301': last }, channels: [] });
+    expect((await loadProfile(db))!.doc).toEqual({ ...v5, v: 8, progress: { 'x:s1:movie:202': kept, 'x:s1:episode:3002': place }, shows: { 'x:s1:series:301': last }, channels: [] });
     db.close();
   });
 
-  it('upgrades a stored version 6 profile on load: its last channel leads the channels played last (6 to 7, step 28b2)', async () => {
+  it('upgrades a stored version 6 profile on load: its last channel leads the channels played last (6 to 8, steps 28b2 and 31d2b1)', async () => {
     const db = await openDatabase(freshFactory());
     const one = { item: { key: 'x:s1:live:1', src: 's1', kind: 'live', name: 'One', url: 'http://panel.test/live/u/p/1.ts' }, number: 1, category: { src: 's1', name: 'News' }, index: 0, started: 3 * DAY };
     const v6 = { ...emptyProfile(), v: 6, sources: [xtreamSource('s1')], player: { ...noPlayerMemory(), last: one } } as AnyProfile;
     delete v6['channels'];
     await writeCurrent(db, v6);
-    expect(await loadProfile(db, { now: 5 * DAY })).toEqual({ doc: { ...v6, v: 7, channels: [one] }, newer: false, migratedFrom: 6 });
+    expect(await loadProfile(db, { now: 5 * DAY })).toEqual({ doc: { ...v6, v: 8, channels: [one] }, newer: false, migratedFrom: 6 });
     expect((await listSnapshots(db)).map((s) => [s.reason, s.doc])).toEqual([['migration', v6]]);
     // The next channel played comes first.
     const two = { ...one, item: { ...one.item, key: 'x:s1:live:2', name: 'Two' }, number: 2, index: 1, started: 6 * DAY } as LastChannel;
     expect(await updateProfile(db, (doc) => applyProfileEdit(doc, { kind: 'player', change: { field: 'last', last: two } }), { now: 6 * DAY })).toBe(true);
-    expect((await loadProfile(db))!.doc).toMatchObject({ v: 7, player: { last: two }, channels: [two, one] });
+    expect((await loadProfile(db))!.doc).toMatchObject({ v: 8, player: { last: two }, channels: [two, one] });
     db.close();
   });
 
@@ -258,7 +262,7 @@ describe('profile storage', () => {
     expect(await loadProfile(db)).toEqual({ doc: { v: 9, favourites: [], future: true }, newer: true, migratedFrom: null });
     await expect(saveProfile(db, withFavs(1))).rejects.toThrow(/newer app version/);
     expect((await loadProfile(db))!.doc).toMatchObject({ v: 9, future: true });
-    expect(() => saveProfile(db, { v: 8 } as unknown as ProfileDoc)).toThrow(/Can't save a version 8/);
+    expect(() => saveProfile(db, { v: 9 } as unknown as ProfileDoc)).toThrow(/Can't save a version 9/);
     db.close();
   });
 
@@ -353,7 +357,7 @@ describe('updateProfile', () => {
   it('rejects (and writes nothing) when the update returns another version', async () => {
     const db = await openDatabase(freshFactory());
     await saveProfile(db, withFavs(1), { now: 0 });
-    await expect(updateProfile(db, (doc) => ({ ...doc, v: 8 }) as unknown as ProfileDoc)).rejects.toThrow(ProfileError);
+    await expect(updateProfile(db, (doc) => ({ ...doc, v: 9 }) as unknown as ProfileDoc)).rejects.toThrow(ProfileError);
     expect((await loadProfile(db))!.doc).toEqual(withFavs(1));
     db.close();
   });
@@ -411,6 +415,18 @@ describe('applyProfileEdit', () => {
     expect(b.sources.map((s) => s.name)).toEqual(['A', 'B']);
     expect(renamed.favourites).toEqual([fav(1)]);
     expect(doc.sources).toEqual([]);
+  });
+
+  it("keeps a file from the phone as a source with no link, and replaces it in place when it's sent again (step 31d2b1)", async () => {
+    const file: SourceRecord = { id: 's2', type: 'm3u-file', name: 'Phone list', added: 5 };
+    const doc = applyProfileEdit(applyProfileEdit(withFavs(1), { kind: 'source', source: xtreamSource('s1', 'A') })!, { kind: 'source', source: file })!;
+    expect(doc.sources[1]).toEqual(file);
+    const again = applyProfileEdit(doc, { kind: 'source', source: { ...file, added: 5 } });
+    expect(again!.sources).toEqual([xtreamSource('s1', 'A'), file]);
+    const db = await openDatabase(freshFactory());
+    await saveProfile(db, doc, { now: 0 });
+    expect((await loadProfile(db))!.doc.sources).toEqual([xtreamSource('s1', 'A'), { id: 's2', type: 'm3u-file', name: 'Phone list', added: 5 }]);
+    db.close();
   });
 });
 

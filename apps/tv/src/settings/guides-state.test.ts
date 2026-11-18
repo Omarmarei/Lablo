@@ -34,10 +34,10 @@ import {
   guideList,
   guideState,
   menuActions,
-  nextGuideId,
   shownLink,
   summaryOf,
 } from './guides-state';
+import { nextGuideId } from '../onboarding/engine-loader';
 import type { SourceDraft } from '../onboarding/form';
 import type { LoadResult } from '../onboarding/loader';
 import type { Pairing } from '../pairing/pair-state';

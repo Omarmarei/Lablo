@@ -14,6 +14,7 @@ import type { RefreshScheduler } from './data/refresh-scheduler';
 import { createRefreshScheduler } from './data/refresh-scheduler';
 import { createSettings } from './settings/settings-state';
 import { createAppDataEngine } from './data/workers';
+import { appI18n } from './i18n';
 import { createFocusDemo } from './focus-demo';
 import { GateApp } from './gate/GateApp';
 import { createGate, noticesShownOf, refusalFor } from './gate/gate-state';
@@ -159,6 +160,8 @@ function pairingOn(nav: Navigator, added: (draft: SourceDraft, result: LoadResul
     refusal: addRefusal,
     lifecycle: (listener) => platform.onLifecycle(listener),
     added,
+    // A file sent without a name (step 31d2b1), in the page's language (onboarding and the live screen set it).
+    fileName: () => appI18n(document.documentElement.lang || 'en').t('pair.fileName'),
     ...(busy === undefined ? {} : { busy }),
   });
 }

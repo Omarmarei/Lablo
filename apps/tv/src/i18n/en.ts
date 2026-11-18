@@ -120,6 +120,7 @@ export const EN = {
   'pair.ended': 'The code ended before anything was sent. Show a new code when your phone is ready.',
   'pair.newCode': 'Show a new code',
   'pair.done': 'Done',
+  'pair.fileName': 'Playlist from your phone',
 
   // The source form's fields.
   'field.server': 'Server address',
@@ -157,6 +158,9 @@ export const EN = {
   'error.other': 'Something went wrong. Try again.',
   'error.refused': "Lablo isn't adding new sources right now. Try again later.",
   'error.blocklisted': "This server can't be used with Lablo.",
+  'error.file': "The file from your phone couldn't be read. Send it again.",
+  'error.fileFormat': "This file isn't a playlist.",
+  'error.fileNetwork': "Couldn't get the file from your phone. Check your internet connection and send it again.",
 
   // The source is added.
   'done.title': "You're all set",
@@ -288,6 +292,8 @@ export const EN = {
   'sources.intro': 'The playlists and logins you added, and when Lablo last updated them.',
   'sources.xtream': '{name} login',
   'sources.m3u': '{format} playlist',
+  'sources.file': '{format} file',
+  'sources.fileSent': 'Sent from your phone {day}, {time}',
   'sources.updated': 'Updated {day}, {time}',
   'sources.notUpdated': 'Not updated yet',
   'sources.blocked': "Not updated: this server can't be used with Lablo.",

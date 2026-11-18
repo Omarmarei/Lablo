@@ -1,5 +1,6 @@
 import type { ContentKind, DeviceTier } from '@lablo/core';
 import type { EpgCatalogSource, EpgProgress, IngestProgress, IngestResult, IngestSource, LinkSource, LoadedProfile, ProfileEdit, SourceRecord, UserGuide } from '@lablo/data';
+import type { FileFeed } from '@lablo/data/client';
 // The client entry only: the package index would pull every data module's polyfills into main.
 import { CancelSource } from '@lablo/data/client';
 import type { EpgRefreshOptions, RefreshOptions } from '../data/engine';
@@ -24,6 +25,13 @@ import { LoadError } from './loader';
  * 4. The source goes into the profile (the login with it, in IndexedDB only until step 32
  *    encrypts it), then the typed guides into the guide list (step 22b), then the counts.
  *
+ * The phone's M3U file (step 31d2b1) has no link: the draft's `file()` fetches its frames in the
+ * pair worker once the refresh slot is free, and the refresh reads them (`RefreshOptions.file`).
+ * The slot is waited for again after it (normally no wait), so the refresh claims it with nothing
+ * awaited in between. A file sent again under the name of a stored file source loads under that
+ * source's id (its favourites and places carry over); its new guide links get `g<n>` ids, as the
+ * guides screen gives (`<id>`, `<id>-2`… may name a removed guide whose records are still stored).
+ *
  * Cancel stops the running refresh in its worker; the load then never settles. A new load waits
  * for the cancelled one to let go of the refresh slot, and for any other refresh holding it (a
  * background refresh while a source is added from Settings, step 31c2a): `refreshing`, checked
@@ -37,6 +45,8 @@ export interface LoaderEngine {
   refresh(job: { src: string; source: IngestSource }, options: RefreshOptions): Promise<IngestResult>;
   refreshEpg(catalogs: readonly EpgCatalogSource[], options: EpgRefreshOptions): Promise<unknown>;
   sourceIds(): Promise<string[]>;
+  /** The stored guides (a file sent again names its new guides past their ids). */
+  epgStatus(): Promise<{ readonly guides: readonly { readonly epgSrc: string }[] }>;
   profile(): Promise<LoadedProfile | null>;
   editProfile(edit: ProfileEdit): Promise<boolean>;
 }
@@ -71,13 +81,34 @@ export function nextSourceId(taken: readonly string[]): string {
   return `s${highest + 1}`;
 }
 
+const GUIDE_NUMBER = /^g(\d{1,9})$/;
+
+/** The next id of a guide given on its own: `g1`, `g2`… one past the highest `g` id in `taken`. */
+export function nextGuideId(taken: readonly string[]): string {
+  let highest = 0;
+  for (const id of taken) {
+    const match = GUIDE_NUMBER.exec(id);
+    if (match !== null) highest = Math.max(highest, Number(match[1]));
+  }
+  return `g${highest + 1}`;
+}
+
+const USER_PREFIX = 'u~';
+
+/** The guide ids a user guide's stored records are under (`u~<id>`), from the EPG's status. */
+export function storedGuideIds(guides: readonly { readonly epgSrc: string }[]): string[] {
+  const ids: string[] = [];
+  for (const meta of guides) if (meta.epgSrc.indexOf(USER_PREFIX) === 0) ids.push(meta.epgSrc.slice(USER_PREFIX.length));
+  return ids;
+}
+
 /** The stored sources of a profile, whatever its version wrote (`[]` when it has none). */
 export function storedSources(profile: LoadedProfile | null): SourceRecord[] {
   const sources = profile === null ? null : (profile.doc as { sources?: unknown }).sources;
   return Array.isArray(sources) ? (sources as SourceRecord[]) : [];
 }
 
-const PASSED_ON: readonly LoadErrorCode[] = ['auth', 'expired', 'blocked', 'blocklisted', 'network', 'format', 'empty'];
+const PASSED_ON: readonly LoadErrorCode[] = ['auth', 'expired', 'blocked', 'blocklisted', 'network', 'format', 'empty', 'file'];
 
 /**
  * A failed load's `LoadError`, from the ingest's code (an `RpcError` from the worker carries it,
@@ -96,14 +127,21 @@ function count(counts: Partial<Record<ContentKind, number>>, kind: ContentKind):
   return counts[kind] ?? 0;
 }
 
-/** A stored source as the guides need it (its Xtream login brings the panel's guide). */
+/** A stored source as the guides need it (its Xtream login brings the panel's guide; a playlist's header names its own, a file's too). */
 export function catalogOf(record: SourceRecord): EpgCatalogSource {
   return record.type === 'xtream' ? { src: record.id, type: 'xtream', account: record.account } : { src: record.id, type: 'm3u' };
 }
 
-/** A stored source as its catalog refresh reads it. */
-export function ingestSourceOf(record: SourceRecord): LinkSource {
+/** A stored source as its catalog refresh reads it; `null` for a file from the phone, which has no link (never refreshed by itself). */
+export function ingestSourceOf(record: SourceRecord): LinkSource | null {
+  if (record.type === 'm3u-file') return null;
   return record.type === 'xtream' ? { type: 'xtream', account: record.account } : { type: 'm3u', url: record.url };
+}
+
+/** The stored file source named `name`, which a file sent again replaces (`null`: none). */
+export function sameFile(stored: readonly SourceRecord[], name: string): SourceRecord | null {
+  for (const record of stored) if (record.type === 'm3u-file' && record.name === name) return record;
+  return null;
 }
 
 /** The user's guides of a profile, in the user's order (`[]` when it has none; step 22b). */
@@ -123,6 +161,24 @@ export function typedGuides(id: string, urls: readonly string[], listed: readonl
     const url = urls[i]!;
     if (listed.some((g) => g.url === url) || guides.some((g) => g.url === url)) continue;
     guides.push({ id: i === 0 ? id : `${id}-${i + 1}`, url });
+  }
+  return guides;
+}
+
+/**
+ * The guide links given with a file sent again, as guides of their own: `g<n>` ids past every id
+ * listed or in `taken` (the stored guides'), one by one. A link the list has already, or given
+ * twice, is left out.
+ */
+export function freshGuides(urls: readonly string[], listed: readonly UserGuide[], taken: readonly string[]): UserGuide[] {
+  const ids = listed.map((g) => g.id).concat(taken);
+  const guides: UserGuide[] = [];
+  for (let i = 0; i < urls.length; i += 1) {
+    const url = urls[i]!;
+    if (listed.some((g) => g.url === url) || guides.some((g) => g.url === url)) continue;
+    const id = nextGuideId(ids);
+    ids.push(id);
+    guides.push({ id, url });
   }
   return guides;
 }
@@ -147,25 +203,41 @@ export function createEngineLoader(options: EngineLoaderOptions): SourceLoader {
     const [profile, catalog, tier] = await Promise.all([engine.profile(), engine.sourceIds(), options.tier()]);
     cancel.token.throwIfCancelled();
     const stored = storedSources(profile);
-    const id = nextSourceId(stored.map((s) => s.id).concat(catalog));
+    // A file sent again under a stored file source's name replaces it, under its id.
+    const same = draft.type === 'm3u-file' ? sameFile(stored, draft.name) : null;
+    const id = same !== null ? same.id : nextSourceId(stored.map((s) => s.id).concat(catalog));
     const record: SourceRecord =
       draft.type === 'xtream'
         ? { id, type: 'xtream', name: draft.name, account: draft.account, added: now() }
-        : { id, type: 'm3u', name: draft.name, url: draft.url, added: now() };
+        : draft.type === 'm3u'
+          ? { id, type: 'm3u', name: draft.name, url: draft.url, added: now() }
+          : { id, type: 'm3u-file', name: draft.name, added: same !== null ? same.added : now() };
     const listed = userGuides(profile);
-    const guides = typedGuides(id, draft.epgUrls, listed);
-    const source = ingestSourceOf(record);
+    let guides: UserGuide[];
+    if (same === null) guides = typedGuides(id, draft.epgUrls, listed);
+    else {
+      const status = await engine.epgStatus();
+      cancel.token.throwIfCancelled();
+      guides = freshGuides(draft.epgUrls, listed, storedGuideIds(status.guides));
+    }
+    const source: IngestSource = ingestSourceOf(record) ?? { type: 'm3u-file' };
+    const refreshOptions: RefreshOptions = {
+      lowTier: tier === 'low',
+      cancel: cancel.token,
+      onProgress: (p: IngestProgress) => report({ phase: p.phase === 'commit' ? 'saving' : 'download', bytes: p.bytes, total: p.total, items: p.items }),
+    };
 
     // Nothing awaits between the slot's check and the refresh, which claims it at once.
     await slotFree(cancel);
-    const result = await engine.refresh(
-      { src: id, source },
-      {
-        lowTier: tier === 'low',
-        cancel: cancel.token,
-        onProgress: (p: IngestProgress) => report({ phase: p.phase === 'commit' ? 'saving' : 'download', bytes: p.bytes, total: p.total, items: p.items }),
-      },
-    );
+    if (draft.type === 'm3u-file') {
+      // The file's frames once the slot is free (its download held no longer than needed), then
+      // the slot again: the feed's two requests took time.
+      const feed: FileFeed = await draft.file();
+      cancel.token.throwIfCancelled();
+      refreshOptions.file = feed;
+      await slotFree(cancel);
+    }
+    const result = await engine.refresh({ src: id, source }, refreshOptions);
     const counts: LoadResult = { live: count(result.counts, 'live'), movies: count(result.counts, 'movie'), series: count(result.counts, 'series') };
     const items = counts.live + counts.movies + counts.series;
 

@@ -96,6 +96,17 @@ describe('the page', () => {
     }
   });
 
+  it("gives a file's failure and refusal one button, Show a new code (step 31d2b1)", () => {
+    for (const view of [{ kind: 'failed', code: 'file', httpStatus: null }, { kind: 'refused', refusal: { id: 'k', message: null } }] as PairView[]) {
+      const drawn = buttons(draw(view, { file: true }));
+      expect(drawn.map((b) => b.label)).toEqual(['Show a new code']);
+      expect(drawn[0]!.variant).toBe('primary');
+    }
+    // The other views are as for a link.
+    expect(buttons(draw({ kind: 'loading', progress: null }, { file: true })).map((b) => b.label)).toEqual(['Cancel']);
+    expect(buttons(draw({ kind: 'done', result: { live: 1, movies: 0, series: 0 } }, { file: true })).map((b) => b.label)).toEqual(['Done']);
+  });
+
   it('binds each button to its place in the actions zone', () => {
     const page = PairContent({ i18n: en, view: { kind: 'failed', code: 'network', httpStatus: null }, name: 'x', sent: null, zone: zone(1) }) as VNode;
     expect(buttons(page).map((b) => b.state)).toEqual(['idle', 'focused']);
@@ -203,6 +214,21 @@ describe('the other views', () => {
     expect(props(byTestId(refused, 'pair-error')[0]!)).toMatchObject({ 'data-code': 'refused' });
     expect(textOf(refused)).toBe('Paused for maintenance.');
     expect(textOf(message({ kind: 'refused', refusal: { id: 'k', message: null } }))).toBe("Lablo isn't adding new sources right now. Try again later.");
+  });
+
+  it("words a file's failures as a file's (step 31d2b1); a link's file code too", () => {
+    const fileMessage = (view: PairView): unknown => expand(byType(draw(view, { file: true }), Message)[0]!);
+    const words: Array<[LoadErrorCode, string]> = [
+      ['file', "The file from your phone couldn't be read. Send it again."],
+      ['format', "This file isn't a playlist."],
+      ['network', "Couldn't get the file from your phone. Check your internet connection and send it again."],
+      ['empty', 'The playlist has no channels.'],
+      ['other', 'Something went wrong. Try again.'],
+    ];
+    for (const [code, text] of words) expect(textOf(fileMessage({ kind: 'failed', code, httpStatus: null }))).toBe(text);
+    expect(textOf(message({ kind: 'failed', code: 'file', httpStatus: null }))).toBe("The file from your phone couldn't be read. Send it again.");
+    const arabic = expand(byType(PairContent({ i18n: ar, view: { kind: 'failed', code: 'file', httpStatus: null }, name: 'x', sent: null, zone: zone(), file: true }) as VNode, Message)[0]!);
+    expect(textOf(arabic)).toBe('تعذّرت قراءة الملف المُرسَل من هاتفك. أرسله مرة أخرى.');
   });
 
   it('done: the name and the counts', () => {

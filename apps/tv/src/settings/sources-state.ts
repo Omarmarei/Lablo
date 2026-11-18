@@ -1,6 +1,6 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { LoadedProfile, SourceMeta } from '@lablo/data';
+import type { LoadedProfile, SourceMeta, SourceRecord } from '@lablo/data';
 import type { Navigator, Screen, ScreenSpec, ZoneSpec } from '@lablo/ui';
 import { SCREEN, fits } from '@lablo/ui';
 import { sourceUrlOf } from '../data/engine';
@@ -34,8 +34,8 @@ export const SOURCES_VISIBLE = fits(SOURCES_BODY, GUIDES.rowHeight, GUIDES.rowGa
 export interface SourceRow {
   readonly id: string;
   readonly name: string;
-  readonly type: 'xtream' | 'm3u';
-  /** The server as shown: its host and port, nothing else. */
+  readonly type: SourceRecord['type'];
+  /** The server as shown: its host and port, nothing else (a file from the phone has none: empty). */
   readonly host: string;
   /** When its catalog was last checked (`checkedAt`, else `updatedAt`; `null`: never). */
   readonly checkedAt: number | null;
@@ -83,6 +83,18 @@ export function shownHost(url: string): string {
   return slash === -1 ? link : link.slice(0, slash);
 }
 
+/** A stored source's link or server (`''` for a file from the phone, which has none). */
+function linkOf(record: SourceRecord): string {
+  const source = ingestSourceOf(record);
+  return source === null ? '' : sourceUrlOf(source);
+}
+
+/** A stored source's server as shown (`''` for a file from the phone). */
+function hostOf(record: SourceRecord): string {
+  const link = linkOf(record);
+  return link === '' ? '' : shownHost(link);
+}
+
 /** The rows, in the profile's order; `blocked[i]` is the i-th source's answer (missing: not blocked). */
 export function sourceRows(profile: LoadedProfile | null, metas: readonly SourceMeta[], blocked: readonly boolean[]): SourceRow[] {
   const rows: SourceRow[] = [];
@@ -96,9 +108,10 @@ export function sourceRows(profile: LoadedProfile | null, metas: readonly Source
       id: record.id,
       name: record.name,
       type: record.type,
-      host: shownHost(sourceUrlOf(ingestSourceOf(record))),
+      host: hostOf(record),
       checkedAt: meta !== null && meta.gen > 0 ? checkedAt : null,
-      blocked: blocked[i] === true,
+      // A file has no server to block (its URL is empty; its streams are checked as they play).
+      blocked: record.type !== 'm3u-file' && blocked[i] === true,
     });
   }
   return rows;
@@ -147,7 +160,8 @@ export function createSourcesList(options: SourcesOptions): SourcesList {
         if (!current()) return null;
         const profile = both[0];
         const metas = both[1];
-        const urls = storedSources(profile).map((record) => sourceUrlOf(ingestSourceOf(record)));
+        // A file from the phone has no server: an empty URL, never blocked (its streams are checked as they play).
+        const urls = storedSources(profile).map((record) => linkOf(record));
         // An unknown blocklist blocks nothing (as the data engine reads it).
         const asked = track(() => engine.blocked(urls)).catch((error: unknown): boolean[] => {
           console.warn('The blocklist could not be read', error);
