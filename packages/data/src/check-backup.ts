@@ -16,7 +16,7 @@ import type { VectorResult } from '@lablo/crypto/check-vectors';
 import type { BackupCallRequest, BackupPrepareRequest } from './backup-service';
 import { BACKUP_CODE_KEY, BACKUP_MASTER_KEY, BackupService, readMasterRecord, secretCheck } from './backup-service';
 import { backupStandIn } from './backup-stand-in';
-import { deleteDatabase, getValue, openDatabase } from './idb';
+import { deleteDatabase, getValue, openDatabase, transact } from './idb';
 import type { ProfileDoc, ProfileSnapshot } from './profile';
 import { emptyProfile, listSnapshots, saveProfile, storedProfileDoc } from './profile';
 import { STORE } from './schema';
@@ -104,14 +104,15 @@ export async function checkBackup(vector: BackupCheckVector, factory: IDBFactory
       db.close();
     }
   };
-  const saveDoc = async (doc: ProfileDoc): Promise<void> => {
+  const withDb = async (use: (db: IDBDatabase) => Promise<void>): Promise<void> => {
     const db = await openDatabase(factory, { name });
     try {
-      await saveProfile(db, doc);
+      await use(db);
     } finally {
       db.close();
     }
   };
+  const saveDoc = (doc: ProfileDoc): Promise<void> => withDb((db) => saveProfile(db, doc));
   /** The requests made since `from`: method and status. */
   const asked = (from: number): string =>
     api.requests
@@ -224,24 +225,34 @@ export async function checkBackup(vector: BackupCheckVector, factory: IDBFactory
       },
     },
     {
-      // "Restore it": the backup over the new profile, which is kept as a snapshot.
+      // "Restore it": the backup over the new profile, which is kept as a snapshot; the new
+      // profile's catalog and guide go with it (step 32d2b).
       name: 'backup.restoreHeld',
       run: async () => {
+        await withDb((db) =>
+          transact(db, [STORE.sources, STORE.epgMeta], 'readwrite', (tx) => {
+            tx.objectStore(STORE.sources).put({ src: 's1', gen: 1, building: null, nextGen: 2, updatedAt: 1, counts: {} });
+            tx.objectStore(STORE.epgMeta).put({ epgSrc: 'u~g1', gen: 1, building: null, nextGen: 2, updatedAt: 1, checkedAt: 1, rank: 0 });
+          }),
+        );
         const before = api.requests.length;
         const result = await service.restoreHeld(call);
         if (result.state !== 'restored') return same('state', result.state, 'restored');
         const db = await openDatabase(factory, { name });
         let restored: unknown;
         let snaps: ProfileSnapshot[];
+        let left: unknown[];
         try {
           restored = await storedProfileDoc(db);
           snaps = await listSnapshots(db);
+          left = [await getValue<unknown>(db, STORE.sources, 's1'), await getValue<unknown>(db, STORE.epgMeta, 'u~g1')];
         } finally {
           db.close();
         }
         const snap = snaps.length === 1 ? snaps[0]! : null;
         return (
           same('requests', asked(before), 'GET 200') +
+          same('catalogs', String(left[0] === undefined && left[1] === undefined), 'true') +
           same('profile', JSON.stringify(restored), sent) +
           (snap === null ? `${snaps.length} snapshots, expected 1; ` : same('snapshot', `${snap.reason} ${JSON.stringify(snap.doc)}`, `restore ${JSON.stringify(otherProfile())}`))
         );

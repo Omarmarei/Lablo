@@ -912,8 +912,11 @@ describe('the settings screen', () => {
       offsetChanged: t.offsetChanged,
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
     });
-    expect(SETTINGS_ITEMS).toEqual(['guides', 'sources']);
-    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair']);
+    expect(SETTINGS_ITEMS).toEqual(['guides', 'sources', 'backup']);
+    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'backup', 'backup-confirm']);
+    // Without a backup page (step 32d2b) there is no "Backup" row.
+    expect(settings.backup).toBeNull();
+    expect(settings.items).toEqual(['guides', 'sources']);
     settings.open();
     expect(t.at()).toBe('settings · items 0');
     expect((t.nav.top.zone('items') as { count: number }).count).toBe(2);

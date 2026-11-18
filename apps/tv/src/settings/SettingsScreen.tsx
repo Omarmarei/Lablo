@@ -4,12 +4,13 @@ import { Button, Dialog, Spinner, TextField, VirtualList, shapeDigits, useZone }
 import type { AppI18n } from '../i18n';
 import { PAIR_SCREEN } from '../pairing/pair-state';
 import { PairPage } from '../pairing/PairPage';
+import { BACKUP_CONFIRM, BACKUP_SCREEN } from './backup-state';
+import { BackupPageScreen } from './BackupPage';
 import type { AddProblem, GuideRow, GuideState, Guides, GuidesMenu, OffsetChooser } from './guides-state';
 import { ADD_CANCEL, ADD_CONFIRM, GUIDES, HEADER_ADD, HEADER_UNMATCHED, LINK_FIELD_ID, OFFSETS, guideState, summaryOf } from './guides-state';
 import { MAPPING_SCREEN } from './mapping-state';
 import { MappingPage, MappingReading } from './MappingPage';
 import type { Settings, SettingsItem } from './settings-state';
-import { SETTINGS_ITEMS } from './settings-state';
 import type { SourceRow, SourcesList } from './sources-state';
 import { SOURCES_SCREEN } from './sources-state';
 import type { UnmatchedList } from './unmatched-state';
@@ -18,8 +19,9 @@ import './settings.css';
 
 /**
  * The settings screen, the guides screen (RELAY step 22b2), "Channels without a guide" (step 24c),
- * the manual mapping's picker (step 24e, `MappingPage.tsx`), the sources screen (step 30c3a) and
- * the pairing screen from its header (step 31c2a, `PairPage.tsx`), painted instead of the live screen while one of them is on top of the live navigator.
+ * the manual mapping's picker (step 24e, `MappingPage.tsx`), the sources screen (step 30c3a), the
+ * pairing screen from its header (step 31c2a, `PairPage.tsx`) and the backup page (step 32d2b,
+ * `BackupPage.tsx`), painted instead of the live screen while one of them is on top of the live navigator.
  * Every text comes from the catalogs; links, channels and the sources' and categories' names are
  * data (`dir`, `translate=false`, or isolated arguments).
  */
@@ -305,11 +307,12 @@ interface PageProps {
 }
 
 /** A settings row's name and the line under it. */
-function itemText(t: Translate, id: SettingsItem): { name: string; hint: string } {
+export function itemText(t: Translate, id: SettingsItem): { name: string; hint: string } {
+  if (id === 'backup') return { name: t('settings.backup'), hint: t('settings.backupHint') };
   return id === 'sources' ? { name: t('settings.sources'), hint: t('settings.sourcesHint') } : { name: t('settings.guides'), hint: t('settings.guidesHint') };
 }
 
-function SettingsPage({ i18n, binding }: PageProps) {
+function SettingsPage({ i18n, binding, list }: PageProps & { list: readonly SettingsItem[] }) {
   const { t } = i18n;
   const items = useZone(binding, binding.nav.top, 'items');
   return (
@@ -318,7 +321,7 @@ function SettingsPage({ i18n, binding }: PageProps) {
         <h1 class="settings__title">{t('settings.title')}</h1>
       </header>
       <div class="settings__items" role="menu">
-        {SETTINGS_ITEMS.map((id, i) => {
+        {list.map((id, i) => {
           const item = items.item(i);
           const text = itemText(t, id);
           return (
@@ -620,13 +623,14 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
   const guides = settings.guides;
   const mapping = settings.mapping;
   const onGuides = focus.screen === 'guides' || focus.screen === 'guide-menu' || focus.screen === 'guide-offset' || focus.screen === 'guide-matches' || focus.screen === 'guide-add';
+  const backup = settings.backup;
   return (
     <main
       class="settings"
       data-testid="settings-screen"
       data-ready="true"
       data-language={i18n.locale.pseudo ? 'pseudo' : i18n.locale.language}
-      data-pending={guides.pending.value + settings.unmatched.pending.value + mapping.pending.value + settings.sources.pending.value}
+      data-pending={guides.pending.value + settings.unmatched.pending.value + mapping.pending.value + settings.sources.pending.value + (backup === null ? 0 : backup.pending.value)}
       data-editing={guides.editor.editing.value ?? mapping.editor.editing.value ?? ''}
       data-screen={focus.screen}
       data-zone={focus.zone}
@@ -634,12 +638,13 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       data-pointer={String(focus.pointer)}
       data-dir={focus.dir}
     >
-      {focus.screen === 'settings' && <SettingsPage i18n={i18n} binding={binding} focus={focus} />}
+      {focus.screen === 'settings' && <SettingsPage i18n={i18n} binding={binding} focus={focus} list={settings.items} />}
       {onGuides && <GuidesPage i18n={i18n} binding={binding} focus={focus} guides={guides} />}
       {focus.screen === 'unmatched' && <UnmatchedPage i18n={i18n} binding={binding} list={settings.unmatched} reading={mapping.reading.value} />}
       {focus.screen === MAPPING_SCREEN && <MappingPage i18n={i18n} binding={binding} mapping={mapping} />}
       {focus.screen === SOURCES_SCREEN && <SourcesPage i18n={i18n} binding={binding} list={settings.sources} />}
       {focus.screen === PAIR_SCREEN && settings.pairing !== null && <PairPage pairing={settings.pairing} binding={binding} i18n={i18n} />}
+      {(focus.screen === BACKUP_SCREEN || focus.screen === BACKUP_CONFIRM) && backup !== null && <BackupPageScreen i18n={i18n} binding={binding} focus={focus} page={backup} />}
     </main>
   );
 }

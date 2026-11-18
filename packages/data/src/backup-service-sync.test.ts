@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { BACKUP_ANSWER_MAX_BYTES, BACKUP_TIMEOUT_MS, envelopeBody, readEnvelope } from './backup-api';
 import { backupPlain, profileHash, readBackupPlain } from './backup-plain';
 import type { BackupCallRequest, BackupEvents, MasterRecord, SentRecord } from './backup-service';
-import { BACKUP_MASTER_KEY, BACKUP_OFF_KEY, BACKUP_SENT_KEY, BackupService, backupHandlers, readSentRecord, secretCheck } from './backup-service';
+import { BACKUP_MASTER_KEY, BACKUP_OFF_KEY, BACKUP_SENT_KEY, BackupService, RESTORE_CLEARS, backupHandlers, readSentRecord, secretCheck } from './backup-service';
 import type { BackupStandIn } from './backup-stand-in';
 import { backupStandIn } from './backup-stand-in';
 import type { ByteRequest, ByteResponse, ByteTransport } from './bytes';
@@ -813,6 +813,36 @@ describe('backupHandlers: upload and restore (the backup worker)', () => {
 const NEW_DOC = docWith([{ ...SOURCE, name: 'New' }], { onboarding: { language: 'en', disclaimerAt: 9, consent: true } });
 
 /** A TV that sent `DOC`, then a new install of it (a fresh database) whose upload is held. */
+/** One record in each catalog and guide store (step 32d2b: a held restore clears them). */
+async function fillCatalogs(factory: IDBFactory): Promise<void> {
+  await transact(await db(factory), [...RESTORE_CLEARS], 'readwrite', (tx) => {
+    tx.objectStore(STORE.sources).put({ src: 's1', gen: 1, building: null, nextGen: 2, updatedAt: NOW, counts: { live: 1 } });
+    tx.objectStore(STORE.chunks).put({ items: [] }, ['s1', 1, 'live', 0, 0]);
+    tx.objectStore(STORE.cats).put({ cats: [] }, ['s1', 1, 'live']);
+    tx.objectStore(STORE.index).put({ keys: [] }, ['s1', 1, 0]);
+    tx.objectStore(STORE.epgMeta).put({ epgSrc: 'u~g1', gen: 1, building: null, nextGen: 2, updatedAt: NOW, checkedAt: NOW, rank: 0 });
+    tx.objectStore(STORE.epgBuckets).put({ programmes: [] }, ['u~g1', 1, 'news', 0]);
+    tx.objectStore(STORE.epgChannels).put({ map: [] }, ['u~g1', 1]);
+  });
+}
+
+/** How many records each catalog and guide store holds, in `RESTORE_CLEARS`' order. */
+async function catalogCounts(factory: IDBFactory): Promise<number[]> {
+  const d = await db(factory);
+  const counts: number[] = [];
+  for (const name of RESTORE_CLEARS) {
+    counts.push(
+      await transact<number>(d, name, 'readonly', (tx, done) => {
+        const request = tx.objectStore(name).count();
+        request.onsuccess = () => done(request.result);
+      }),
+    );
+  }
+  return counts;
+}
+const FILLED = [1, 1, 1, 1, 1, 1, 1];
+const EMPTY = [0, 0, 0, 0, 0, 0, 0];
+
 async function heldTv(api = backupStandIn(), request: BackupCallRequest = DEVICE) {
   const before = setup({ api });
   await save(before.factory, DOC);
@@ -1105,6 +1135,19 @@ describe('BackupService.restoreHeld and replaceHeld (step 32d2a)', () => {
     expect(s.counts().opens).toBe(s.counts().closes);
   });
 
+  it('clears every catalog and guide with the profile it replaces, and keeps the config (step 32d2b)', async () => {
+    const api = backupStandIn();
+    const s = await heldTv(api);
+    await fillCatalogs(s.factory);
+    await putKv(s.factory, 'config', { cached: true });
+    expect(await catalogCounts(s.factory)).toEqual(FILLED);
+    expect(await s.service.restoreHeld(DEVICE)).toEqual({ state: 'restored', language: 'ar', sources: 2 });
+    expect(await catalogCounts(s.factory)).toEqual(EMPTY);
+    expect(await kv(s.factory, 'config')).toEqual({ cached: true });
+    expect(await stored(s.factory)).toEqual(DOC);
+    expect(RESTORE_CLEARS).toEqual([STORE.sources, STORE.chunks, STORE.cats, STORE.index, STORE.epgMeta, STORE.epgBuckets, STORE.epgChannels]);
+  });
+
   it('keeps the copies this TV wrote under another lookup ID to delete at the next upload', async () => {
     const api = backupStandIn();
     const s = await heldTv(api);
@@ -1156,38 +1199,46 @@ describe('BackupService.restoreHeld and replaceHeld (step 32d2a)', () => {
     const api = backupStandIn();
     const s = setup({ api });
     await save(s.factory, NEW_DOC);
+    await fillCatalogs(s.factory);
     if (kind === 'other-key') await putBackup(api, DEVICE, backupPlain(JSON.stringify(DOC)), new Uint8Array(32).fill(7));
     if (kind === 'newer') await putBackup(api, DEVICE, backupPlain(JSON.stringify({ ...DOC, v: PROFILE_VERSION + 1 })));
     expect(await s.service.restoreHeld(DEVICE)).toEqual(answer);
     expect(await stored(s.factory)).toEqual(NEW_DOC);
     expect(await listSnapshots(await db(s.factory))).toEqual([]);
     expect(await kv(s.factory, BACKUP_SENT_KEY)).toBeUndefined();
+    expect(await catalogCounts(s.factory)).toEqual(FILLED);
   });
 
   it('fails with the request and changes nothing when the GET has no answer', async () => {
     const s = await heldTv();
+    await fillCatalogs(s.factory);
     s.faults.push({ method: 'GET', answer: 'network' });
     expect(await s.service.restoreHeld(DEVICE)).toEqual({ state: 'failed', failure: 'network' });
     expect(await stored(s.factory)).toEqual(NEW_DOC);
+    expect(await catalogCounts(s.factory)).toEqual(FILLED);
   });
 
-  it('never writes over a profile from a newer app version', async () => {
+  it('never writes over a profile from a newer app version, nor clears its catalogs', async () => {
     const api = backupStandIn();
     const s = await heldTv(api);
     const newer = { ...NEW_DOC, v: PROFILE_VERSION + 1 };
     await putRaw(s.factory, newer);
+    await fillCatalogs(s.factory);
     expect(await s.service.restoreHeld(DEVICE)).toEqual({ state: 'kept' });
     expect(await stored(s.factory)).toEqual(newer);
     expect(await kv(s.factory, BACKUP_SENT_KEY)).toBeUndefined();
+    expect(await catalogCounts(s.factory)).toEqual(FILLED);
   });
 
   it('writes the profile and its record together, or none of them', async () => {
     const api = backupStandIn();
     const s = await heldTv(api);
+    await fillCatalogs(s.factory);
     const wrapped = setup({ api, factory: s.factory, wrap: failing('readwrite') });
     await expect(wrapped.service.restoreHeld(DEVICE)).rejects.toThrow();
     expect(await stored(s.factory)).toEqual(NEW_DOC);
     expect(await kv(s.factory, BACKUP_SENT_KEY)).toBeUndefined();
+    expect(await catalogCounts(s.factory)).toEqual(FILLED);
   });
 
   it('replaces a held backup: the profile sent over it with no GET, then nothing until it changes', async () => {

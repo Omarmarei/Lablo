@@ -21,6 +21,8 @@ import type { SchedulerTimers } from '../data/refresh-scheduler';
  *   and a profile with a source is a restore whatever the worker said.
  * - **"Welcome back":** in the restored profile's language (`null`: the TV's), for `WELCOME_MS` or
  *   until OK, so the restore needs no key at all (step 32's "Done when").
+ * - **After Settings' "Restore it"** (step 32d2b) the app starts again with `restored`: no look-up,
+ *   "Welcome back" on that profile at once.
  */
 
 /** The look-up gives up after this long (CI: 4.2 s on Chromium 56; a 2018 TV is slower). */
@@ -41,16 +43,26 @@ export interface BackupStartEngine {
   profile(): Promise<LoadedProfile | null>;
 }
 
-export interface BackupStartOptions {
+interface BackupStartCommon {
   readonly engine: BackupStartEngine;
-  /** `lookupRequest`'s answer: the device ID, read with no consent asked. */
-  readonly request: BackupCallRequest;
   readonly limitMs?: number;
   readonly welcomeMs?: number;
   readonly timers?: SchedulerTimers;
   /** Where an answer that isn't a restore is told (default: `console.warn`). */
   readonly warn?: (message: string, detail: unknown) => void;
 }
+
+export type BackupStartOptions = BackupStartCommon &
+  (
+    | {
+        /** `lookupRequest`'s answer: the device ID, read with no consent asked. */
+        readonly request: BackupCallRequest;
+      }
+    | {
+        /** A start after Settings' "Restore it" (step 32d2b): the profile it restored, no look-up. */
+        readonly restored: LoadedProfile;
+      }
+  );
 
 /** How the look-up ended: the profile read after it, and whether that is a restore (it has a source). */
 export interface BackupStartEnd {
@@ -158,6 +170,30 @@ export function createBackupStart(options: BackupStartOptions): BackupStart {
   });
   const binding = bindFocus(nav);
 
+  /** "Welcome back" for a profile with a source, else the end: onboarding. */
+  const welcomeOr = (profile: LoadedProfile | null): void => {
+    const records = storedSources(profile);
+    if (records.length === 0) {
+      finish({ profile, restored: false });
+      return;
+    }
+    let fromPhone = 0;
+    for (let i = 0; i < records.length; i++) if (records[i]!.type === 'm3u-file') fromPhone += 1;
+    end = { profile, restored: true };
+    language.value = startPoint(profile).language;
+    sources.value = records.length;
+    files.value = fromPhone;
+    screen.value = WELCOME_SCREEN;
+    nav.reset(welcomeSpec);
+    welcome = timers.set(
+      () => {
+        welcome = null;
+        if (end !== null) finish(end);
+      },
+      options.welcomeMs ?? WELCOME_MS,
+    );
+  };
+
   /** The look-up has ended, however: the profile decides. */
   const ended = (): void => {
     if (disposed) return;
@@ -169,29 +205,32 @@ export function createBackupStart(options: BackupStartOptions): BackupStart {
         return null;
       })
       .then((profile) => {
-        if (disposed) return;
-        const records = storedSources(profile);
-        if (records.length === 0) {
-          finish({ profile, restored: false });
-          return;
-        }
-        let fromPhone = 0;
-        for (let i = 0; i < records.length; i++) if (records[i]!.type === 'm3u-file') fromPhone += 1;
-        end = { profile, restored: true };
-        language.value = startPoint(profile).language;
-        sources.value = records.length;
-        files.value = fromPhone;
-        screen.value = WELCOME_SCREEN;
-        nav.reset(welcomeSpec);
-        welcome = timers.set(
-          () => {
-            welcome = null;
-            if (end !== null) finish(end);
-          },
-          options.welcomeMs ?? WELCOME_MS,
-        );
+        if (!disposed) welcomeOr(profile);
       });
   };
+
+  const parts = {
+    nav,
+    binding,
+    screen,
+    progress,
+    skipped,
+    language,
+    sources,
+    files,
+    done,
+    dispose() {
+      disposed = true;
+      limit = clear(limit);
+      welcome = clear(welcome);
+      cancel.cancel();
+      binding.dispose();
+    },
+  };
+  if ('restored' in options) {
+    welcomeOr(options.restored);
+    return parts;
+  }
 
   limit = timers.set(
     () => {
@@ -219,23 +258,5 @@ export function createBackupStart(options: BackupStartOptions): BackupStart {
         ended();
       },
     );
-
-  return {
-    nav,
-    binding,
-    screen,
-    progress,
-    skipped,
-    language,
-    sources,
-    files,
-    done,
-    dispose() {
-      disposed = true;
-      limit = clear(limit);
-      welcome = clear(welcome);
-      cancel.cancel();
-      binding.dispose();
-    },
-  };
+  return parts;
 }

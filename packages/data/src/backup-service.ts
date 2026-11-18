@@ -42,7 +42,8 @@
  *   flag: the next upload sends as a first send does, and a copy of its own lookup ID whose delete
  *   never went through is this TV's, written over without the `GET`;
  * - a `held` backup: `restoreHeld` reads it as `restore` does and writes it over the profile, the
- *   profile it replaces kept as a snapshot (`restore`); `replaceHeld` sends the profile over it
+ *   profile it replaces kept as a snapshot (`restore`), and clears every catalog and guide with it
+ *   (step 32d2b: `RESTORE_CLEARS`); `replaceHeld` sends the profile over it
  *   (the same master gives the same write token, so the API takes it).
  *
  * `kv` holds one thing that can't be rebuilt from the providers: the backup code.
@@ -83,6 +84,12 @@ export const BACKUP_MASTER_KEY = 'backup.master';
 export const BACKUP_SENT_KEY = 'backup.sent';
 /** `kv`'s key for "the backup is off" (`true`; step 32d2a). No key: on, as onboarding says. */
 export const BACKUP_OFF_KEY = 'backup.off';
+
+/**
+ * What a held backup's restore clears with the profile it replaces (step 32d2b): every catalog and
+ * guide, so the TV holds what a first-start restore leaves, and the app reads them all again.
+ */
+export const RESTORE_CLEARS: readonly string[] = [STORE.sources, STORE.chunks, STORE.cats, STORE.index, STORE.epgMeta, STORE.epgBuckets, STORE.epgChannels];
 
 /** secretbox's tag, which the ciphertext adds to the plaintext. */
 const TAG_BYTES = 16;
@@ -426,11 +433,14 @@ export class BackupService {
       const old = before === null ? [] : copiesOf(before).filter((copy) => copy.lookupId !== keys.lookupId);
       const now = this.clock.now();
       const sent: SentRecord = { lookupId: keys.lookupId, token: keys.writeToken, hash: found.hash, old, sentAt: now };
-      const written = await transact<boolean>(db, [STORE.profile, STORE.kv], 'readwrite', (tx, done) => {
+      const written = await transact<boolean>(db, [STORE.profile, STORE.kv, ...RESTORE_CLEARS], 'readwrite', (tx, done) => {
         done(false);
         putProfileOver(tx.objectStore(STORE.profile), found.doc, now, (put) => {
           if (!put) return;
           tx.objectStore(STORE.kv).put(sent, BACKUP_SENT_KEY);
+          // The replaced profile's catalogs and guides go with it (step 32d2b): source ids start
+          // again at `s1` after a wipe, so its `s1` may be another server than the backup's.
+          for (let i = 0; i < RESTORE_CLEARS.length; i++) tx.objectStore(RESTORE_CLEARS[i]!).clear();
           done(true);
         });
       });

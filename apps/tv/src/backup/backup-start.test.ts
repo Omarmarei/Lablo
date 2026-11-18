@@ -383,3 +383,47 @@ describe('BackupStartView', () => {
     expect(byTestId(BackupStartView({ start: links, i18n: appI18n('en-US'), item: ITEM, focus: FOCUS }), 'backup-files')).toEqual([]);
   });
 });
+
+describe('createBackupStart after Settings’ "Restore it" (RELAY step 32d2b)', () => {
+  function restoredSetup(profile: LoadedProfile) {
+    const engine = new FakeEngine();
+    const clock = manualTimers();
+    const start = createBackupStart({ engine, restored: profile, timers: clock.timers, welcomeMs: WELCOME_MS });
+    let end: BackupStartEnd | null = null;
+    void start.done.then((value) => {
+      end = value;
+    });
+    return { engine, clock, start, end: () => end };
+  }
+
+  it('shows "Welcome back" on the restored profile at once: no look-up, no profile read, no limit', async () => {
+    const s = restoredSetup(RESTORED);
+    expect(s.start.screen.value).toBe(WELCOME_SCREEN);
+    expect(s.start.nav.top.id).toBe(WELCOME_SCREEN);
+    expect(s.start.language.value).toBe('ar');
+    expect(s.start.sources.value).toBe(2);
+    expect(s.start.files.value).toBe(1);
+    expect(s.engine.requests).toEqual([]);
+    expect(s.engine.profileReads).toBe(0);
+    expect(s.clock.due()).toEqual([WELCOME_MS]);
+    s.clock.advance(WELCOME_MS);
+    await flush();
+    expect(s.end()).toEqual({ profile: RESTORED, restored: true });
+  });
+
+  it('ends early on OK, as after a look-up', async () => {
+    const s = restoredSetup(RESTORED);
+    s.start.nav.handle('OK');
+    await flush();
+    expect(s.end()).toEqual({ profile: RESTORED, restored: true });
+    expect(s.clock.due()).toEqual([]);
+  });
+
+  it('ends at once on a profile with no source (onboarding)', async () => {
+    const empty = profileWith([]);
+    const s = restoredSetup(empty);
+    await flush();
+    expect(s.end()).toEqual({ profile: empty, restored: false });
+    expect(s.start.screen.value).toBe(LOOKING_SCREEN);
+  });
+});
