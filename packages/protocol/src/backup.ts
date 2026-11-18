@@ -27,5 +27,8 @@ export const lookupIdSchema = bytes32;
 /** `X-Write-Token`: b64url(HMAC-SHA256(master, "write")). */
 export const writeTokenSchema = bytes32;
 
+/** The request header that carries the write token on a PUT or a DELETE. */
+export const BACKUP_WRITE_HEADER = 'x-write-token';
+
 /** The longest `ct` an envelope can carry, in characters. */
 export const BACKUP_CT_MAX_CHARS = base64UrlLength(BACKUP_CT_MAX_BYTES);

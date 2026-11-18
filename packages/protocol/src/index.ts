@@ -78,7 +78,7 @@ export type {
   SealedPayloadWire,
 } from './pairing';
 
-export { BACKUP_BODY_MAX_BYTES, BACKUP_CT_MAX_BYTES, BACKUP_CT_MAX_CHARS, BACKUP_KDF_NAME, backupEnvelopeSchema, lookupIdSchema, writeTokenSchema } from './backup';
+export { BACKUP_BODY_MAX_BYTES, BACKUP_CT_MAX_BYTES, BACKUP_CT_MAX_CHARS, BACKUP_KDF_NAME, BACKUP_WRITE_HEADER, backupEnvelopeSchema, lookupIdSchema, writeTokenSchema } from './backup';
 export type { BackupEnvelopeWire } from './backup';
 
 export {

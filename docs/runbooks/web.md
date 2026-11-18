@@ -305,6 +305,37 @@ source in the clear (architecture.md "Built in step 31e").
 - **Only this spec:** `pnpm build:web`, `pnpm web:db`, then
   `pnpm e2e:web --project=tv no-plaintext` (about 15 s).
 
+## The backup (step 32a)
+
+Where a TV keeps its encrypted profile (architecture.md §3.3 B and "Built in step 32a"). The work
+is in `apps/web/src/server/backup.ts`; `src/app/v1/backup/[lookupId]/route.ts` is a thin wrapper.
+
+| Call | Needs | Answers |
+|---|---|---|
+| `PUT /v1/backup/:lookupId` `{v, kdf, nonce, ct}` (at most 512 KB) | `X-Write-Token` | `{state: "stored"}` |
+| `GET /v1/backup/:lookupId` | nothing more | the envelope as it was put, or 404 |
+| `DELETE /v1/backup/:lookupId` | `X-Write-Token` | `{state: "deleted"}`, or 404 |
+
+- **What the server holds:** the envelope in the blob store at `backup/<lookupId>`, and a `Backup`
+  row with the lookup ID, the write token's SHA-256, the size and two dates. It can't open an
+  envelope: the key is derived on the TV from its device secret and never leaves it.
+- **The write token:** the first put claims the lookup ID for its token; every later put and every
+  delete needs the same one (401 otherwise, and the stored envelope stays as it was).
+- **Reading** needs only the lookup ID (a 256-bit secret from the TV's master key) and only the
+  blob store, so a restore still answers while Postgres is down.
+- **The refusals:** 404 a lookup ID that isn't 32 bytes of base64url (and a get or delete of
+  nothing); 401 no token, a malformed one or another's; 400 a body that is no envelope; 413 over
+  512 KB; 429 past 30 writes or 30 reads in 10 minutes from one address (`Retry-After`); 503 when
+  the database or the store fails (only the error's kind is logged).
+- **Retention:** each put sweeps at most 20 backups nobody updated for 180 days, the oldest first.
+- **Every answer** carries `access-control-allow-origin: *` and `cache-control: no-store`; the
+  preflight allows `content-type, x-write-token`.
+- **Tests:** `pnpm test:web` (`apps/web/test/backup.web.test.ts`, 27 tests against Postgres);
+  `pnpm e2e:web --project=phone backup` (one test over HTTP against `next start`, about 5 s).
+- **By hand** (after `pnpm web:dev`): `curl -i http://localhost:3100/v1/backup/x` answers 404
+  `{"error":"not_found"}` with the CORS header.
+- **No migration:** the `Backup` table is step 29a's. Nothing here is in production before step 34.
+
 ## CI
 
 The `web` job runs when a pull request changes `apps/web/`, `packages/protocol/`,

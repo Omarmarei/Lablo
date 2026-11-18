@@ -117,14 +117,17 @@ export const TV_CORS: Readonly<Record<string, string>> = { 'access-control-allow
 /** How long a browser may keep a preflight's answer. */
 export const PREFLIGHT_MAX_AGE_S = 600;
 
-/** The answer to a TV route's `OPTIONS` preflight: its methods, `authorization` and `content-type`. */
-export function preflight(methods: string): Response {
+/**
+ * The answer to a TV route's `OPTIONS` preflight: its methods, and the request headers it takes
+ * (`authorization` and `content-type` unless the route names its own).
+ */
+export function preflight(methods: string, headers = 'authorization, content-type'): Response {
   return new Response(null, {
     status: 204,
     headers: {
       ...TV_CORS,
       'access-control-allow-methods': `${methods}, OPTIONS`,
-      'access-control-allow-headers': 'authorization, content-type',
+      'access-control-allow-headers': headers,
       'access-control-max-age': String(PREFLIGHT_MAX_AGE_S),
       'cache-control': 'no-store',
     },
