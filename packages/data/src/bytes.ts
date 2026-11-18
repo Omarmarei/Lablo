@@ -25,9 +25,9 @@ export interface ByteResponse extends ByteSource {
 
 export interface ByteRequest {
   headers?: Record<string, string>;
-  /** `GET` by default; the pairing client posts (RELAY step 31c1). */
-  method?: 'GET' | 'POST';
-  /** A request body (with `POST`). */
+  /** `GET` by default; the pairing client posts (RELAY step 31c1), the backup puts and deletes (step 32c1). */
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  /** A request body (with `POST` or `PUT`). */
   body?: string;
 }
 

@@ -59,10 +59,12 @@ export {
   loadProfile,
   migrateProfile,
   noPlayerMemory,
+  putProfileIfNone,
   readEpgOffsets,
   readEpgOverrides,
   restoreSnapshot,
   saveProfile,
+  storedProfileDoc,
   updateProfile,
 } from './profile';
 
@@ -203,9 +205,28 @@ export type { FileFrameHandlers, FileSecret } from './file-frames';
 export { FileError, openFileFrames, serveFileFrames } from './file-frames';
 export type { FileFeed } from './file-feed';
 export { feedResponse } from './file-feed';
-// The backup's keys (RELAY step 32b): the backup worker's service.
-export type { BackupEvents, BackupPrepareRequest, BackupPrepareResult, BackupServiceOptions, BackupSource, DeriveMaster, MasterRecord } from './backup-service';
-export { BACKUP_CODE_KEY, BACKUP_MASTER_KEY, BackupService, backupHandlers, readMasterRecord, secretCheck } from './backup-service';
+// The backup (RELAY steps 32b and 32c1): the backup worker's service, its plaintext, the API's client and its stand-in.
+export type {
+  BackupCallRequest,
+  BackupEvents,
+  BackupFailure,
+  BackupPrepareRequest,
+  BackupPrepareResult,
+  BackupRestoreResult,
+  BackupServiceOptions,
+  BackupSource,
+  BackupUploadResult,
+  DeriveMaster,
+  MasterRecord,
+  OldCopy,
+  SentRecord,
+} from './backup-service';
+export { BACKUP_CODE_KEY, BACKUP_MASTER_KEY, BACKUP_SENT_KEY, BackupService, backupHandlers, readMasterRecord, readSentRecord, secretCheck } from './backup-service';
+export { BACKUP_PLAIN_MAX_BYTES, backupPlain, profileHash, readBackupPlain } from './backup-plain';
+export type { BackupAnswer } from './backup-api';
+export { BACKUP_ANSWER_MAX_BYTES, BACKUP_TIMEOUT_MS, BackupApi, envelopeBody, readEnvelope } from './backup-api';
+export type { BackupStandIn, StandInRequest } from './backup-stand-in';
+export { backupStandIn } from './backup-stand-in';
 
 export type { IngestEvents, IngestRunRequest, IngestServiceOptions } from './ingest-service';
 export { IngestService } from './ingest-service';

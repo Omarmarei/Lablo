@@ -8,7 +8,8 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./check-samples": "./src/check-samples.ts"
+    "./check-samples": "./src/check-samples.ts",
+    "./backup-limits": "./src/backup-limits.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"

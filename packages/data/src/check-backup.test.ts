@@ -18,7 +18,7 @@ async function names(factory: IDBFactory): Promise<string[]> {
   return (await factory.databases()).map((d) => d.name ?? '');
 }
 
-describe('checkBackup (the backup worker on the old engines, step 32b)', () => {
+describe('checkBackup (the backup worker on the old engines, steps 32b and 32c1)', () => {
   it('passes every check, in order, under its names, and leaves no database behind', async () => {
     const factory = freshFactory();
     const results = await checkBackup(VECTOR, factory);
@@ -58,9 +58,9 @@ describe('checkBackup (the backup worker on the old engines, step 32b)', () => {
   }, 20_000);
 
   it.each([
-    ['the master', { ...VECTOR, master: VECTOR.master.replace(/^./, (c) => (c === '0' ? '1' : '0')) }, ['backup.master']],
-    ['the lookup ID', { ...VECTOR, lookupId: `A${VECTOR.lookupId.slice(1)}` }, ['backup.lookupId']],
-  ])('fails exactly the check that reads %s when it changes', async (_, vector, expected) => {
+    ['the master', { ...VECTOR, master: VECTOR.master.replace(/^./, (c) => (c === '0' ? '1' : '0')) }, ['backup.master', 'backup.restore']],
+    ['the lookup ID', { ...VECTOR, lookupId: `A${VECTOR.lookupId.slice(1)}` }, ['backup.lookupId', 'backup.upload']],
+  ])('fails exactly the checks that read %s when it changes', async (_, vector, expected) => {
     expect(failed(await checkBackup(vector, freshFactory()))).toEqual(expected);
   }, 20_000);
 
@@ -72,7 +72,7 @@ describe('checkBackup (the backup worker on the old engines, step 32b)', () => {
     }, deleteDatabase: factory.deleteDatabase.bind(factory), databases: factory.databases.bind(factory), cmp: factory.cmp.bind(factory) } as IDBFactory;
     const results = await checkBackup(VECTOR, broken);
     expect(results.map((r) => r.name)).toEqual(BACKUP_CHECK_NAMES);
-    expect(failed(results)).toEqual(['backup.device', 'backup.master', 'backup.lookupId', 'backup.cached', 'backup.code', 'backup.codeKept']);
+    expect(failed(results)).toEqual(['backup.device', 'backup.master', 'backup.lookupId', 'backup.cached', 'backup.upload', 'backup.same', 'backup.code', 'backup.codeKept', 'backup.restore']);
     expect(results.find((r) => r.name === 'backup.device')?.detail).toContain('no IndexedDB here');
     expect(results.find((r) => r.name === 'backup.lookupId')?.detail).toBe('no master kept for the secret');
   });

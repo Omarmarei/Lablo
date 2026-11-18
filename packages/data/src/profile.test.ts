@@ -26,7 +26,9 @@ import {
   readEpgOffsets,
   readEpgOverrides,
   restoreSnapshot,
+  putProfileIfNone,
   saveProfile,
+  storedProfileDoc,
   updateProfile,
 } from './profile';
 import { STORE } from './schema';
@@ -303,6 +305,42 @@ describe('profile storage', () => {
     db.close();
   });
 });
+
+describe('the stored document for the backup (step 32c1)', () => {
+  it('reads the current document as it is stored: an older one not upgraded, nothing written', async () => {
+    const db = await openDatabase(freshFactory());
+    expect(await storedProfileDoc(db)).toBeUndefined();
+    await writeCurrent(db, v1(1, 2));
+    expect(await storedProfileDoc(db)).toEqual(v1(1, 2));
+    expect(await storedProfileDoc(db)).toEqual(v1(1, 2));
+    expect(await listSnapshots(db)).toEqual([]);
+    await writeCurrent(db, 'not a profile');
+    expect(await storedProfileDoc(db)).toBe('not a profile');
+    db.close();
+  });
+
+  it("puts a restored document only where there is none, in the caller's transaction", async () => {
+    const db = await openDatabase(freshFactory());
+    const put = (doc: AnyProfile, now: number): Promise<boolean> =>
+      transact<boolean>(db, STORE.profile, 'readwrite', (tx, done) => {
+        putProfileIfNone(tx.objectStore(STORE.profile), doc, now, done);
+      });
+    expect(await put(withFavs(1), 5 * DAY)).toBe(true);
+    expect(await transact<unknown>(db, STORE.profile, 'readonly', (tx, done) => onRequest(tx.objectStore(STORE.profile).get('current'), done))).toEqual({ id: 'current', savedAt: 5 * DAY, doc: withFavs(1) });
+    expect(await put(withFavs(2), 6 * DAY)).toBe(false);
+    expect((await loadProfile(db))!.doc).toEqual(withFavs(1));
+    // A broken document there counts as one.
+    await writeCurrent(db, null);
+    expect(await put(withFavs(3), 7 * DAY)).toBe(false);
+    expect(await listSnapshots(db)).toEqual([]);
+    db.close();
+  });
+});
+
+/** Hands a request's result to `done` when it succeeds. */
+function onRequest(request: IDBRequest, done: (value: unknown) => void): void {
+  request.onsuccess = () => done(request.result);
+}
 
 describe('updateProfile', () => {
   it('reads, changes and writes the current profile in one transaction', async () => {

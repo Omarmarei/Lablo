@@ -3,6 +3,9 @@
  * provider. It lives in the `profile` store as `current`, plus 3 rolling snapshots for rollback,
  * and (from step 32) in the encrypted cloud backup.
  *
+ * The backup (step 32c1) sends the stored document whole (`storedProfileDoc`), and a restore puts
+ * one back only where there is none (`putProfileIfNone`).
+ *
  * Its shape is versioned separately from the database. Older documents are upgraded on load by
  * `PROFILE_MIGRATIONS`, pure functions that never drop data; the document from before the
  * upgrade is kept as a snapshot. A document from a newer app version is returned as it is and
@@ -795,6 +798,35 @@ export function updateProfile(
       writeCurrent(store, record, next, now, every, migrated.migrated ? 'migration' : 'daily');
       done(true);
     });
+  });
+}
+
+/**
+ * The stored current document as it is (not upgraded, nothing written), or `undefined` when there
+ * is none (step 32c1: the backup reads it to send it, and a restore never writes over one).
+ */
+export function storedProfileDoc(db: IDBDatabase): Promise<unknown> {
+  return transact<unknown>(db, STORE.profile, 'readonly', (tx, done) => {
+    onSuccess(tx.objectStore(STORE.profile).get(CURRENT), (value) => {
+      const record = value as ProfileRecord | undefined;
+      done(record === undefined ? undefined : record.doc);
+    });
+  });
+}
+
+/**
+ * Puts `doc` as the current profile in a running transaction over the profile store, only when
+ * there is none (a restore, step 32c1); `then` says whether it was put. A profile there already
+ * is left as it is.
+ */
+export function putProfileIfNone(store: IDBObjectStore, doc: AnyProfile, now: number, then: (put: boolean) => void): void {
+  onSuccess(store.get(CURRENT), (value) => {
+    if (value !== undefined) {
+      then(false);
+      return;
+    }
+    store.put({ id: CURRENT, savedAt: now, doc } satisfies ProfileRecord);
+    then(true);
   });
 }
 
