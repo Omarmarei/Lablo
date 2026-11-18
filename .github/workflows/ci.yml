@@ -122,7 +122,8 @@ jobs:
     # The engines run inside a pinned Debian 9 container, so the host image barely matters;
     # pinned anyway (ubuntu-latest moves to 26.04).
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # verify:engines took 18.5 min for 114 runs (2026-11-17); the pairing walk adds 12 (step 31c2b).
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7
 
