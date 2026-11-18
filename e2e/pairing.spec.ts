@@ -1,6 +1,5 @@
 import { mkdirSync } from 'node:fs';
-import path from 'node:path';
-import type { Locator, Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
@@ -10,7 +9,8 @@ import { devSignedAnswer } from '../tools/engines/src/config';
 import { phoneSees, phoneSends } from '../tools/engines/src/pair-phone';
 import type { ConfigServer } from './config-server';
 import { doc, startConfigServer } from './config-server';
-import { addXtreamAndWatch, settled, trackErrors } from './onboard';
+import { addXtreamAndWatch, toSourceTypes, trackErrors } from './onboard';
+import { SHOTS, openSources, shoot, shownCode, storedProfile } from './pairing-steps';
 import { RemoteDriver } from './remote-driver';
 
 /**
@@ -26,7 +26,6 @@ import { RemoteDriver } from './remote-driver';
  *   (`blocked`), and nothing is kept.
  * Screenshots in English and Arabic go to artifacts/screenshots.
  */
-const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
 
 const NO_NEW = { en: 'Adding sources is paused for maintenance.', ar: 'إضافة المصادر متوقفة مؤقتًا للصيانة.' };
 const blockNew = { id: 'no-new', match: {}, mode: 'block-new-sources', message: NO_NEW };
@@ -61,52 +60,10 @@ async function withServer(answer: string, run: (server: ConfigServer) => Promise
 const m3uLink = (): string => `http://${host}/get.php?username=${U}&password=${P}&type=m3u_plus`;
 const guideLink = (): string => `http://${host}/xmltv.php?username=${U}&password=${P}`;
 
-/** The profile's sources and guides, read from IndexedDB once the app has opened it. */
-function storedProfile(page: Page): Promise<{ sources: Array<Record<string, unknown>>; guides: Array<Record<string, unknown>> } | null> {
-  return page.evaluate(
-    () =>
-      new Promise<{ sources: Array<Record<string, unknown>>; guides: Array<Record<string, unknown>> } | null>((resolve, reject) => {
-        const open = indexedDB.open('lablo');
-        open.onerror = () => reject(open.error);
-        open.onsuccess = () => {
-          const db = open.result;
-          const req = db.transaction('profile').objectStore('profile').get('current');
-          req.onsuccess = () => {
-            db.close();
-            const record = req.result as { doc: { sources?: Array<Record<string, unknown>>; guides?: Array<Record<string, unknown>> } } | undefined;
-            resolve(record === undefined ? null : { sources: record.doc.sources ?? [], guides: record.doc.guides ?? [] });
-          };
-          req.onerror = () => reject(req.error);
-        };
-      }),
-  );
-}
-
-async function shoot(page: Page, name: string): Promise<void> {
-  await page.evaluate(() => document.fonts.ready.then(() => undefined));
-  await page.screenshot({ path: path.join(SHOTS, `${name}.png`), animations: 'disabled' });
-}
-
-/** The start URL with `query`, then the TV's language, the disclaimer and "Allow": the source screen. */
-async function toSources(remote: RemoteDriver, query: string): Promise<Locator> {
-  const { page } = remote;
-  await page.goto(`/?${query}`);
-  const onboarding = page.getByTestId('onboarding');
-  await expect(onboarding).toHaveAttribute('data-ready', 'true');
-  await remote.expectFocus(/locale=ar/.test(query) ? 'language/languages/1' : 'language/languages/0');
-  await remote.go('OK', 'disclaimer/actions/0');
-  await remote.go('OK', 'consent/actions/0');
-  await remote.go('OK', 'source/types/0');
-  return onboarding;
-}
-
 /** The code on show, once the TV has polled for it at least once; checked against the stand-in. */
 async function codeOnShow(page: Page, server: ConfigServer): Promise<string> {
-  const pair = page.getByTestId('pair');
-  await expect(pair).toHaveAttribute('data-view', 'code');
-  const code = (await pair.getAttribute('data-code')) ?? '';
+  const code = await shownCode(page);
   expect(code).toBe(server.pair.latest()?.code);
-  await expect(page.getByTestId('pair-code')).toHaveText(`${code.slice(0, 4)} ${code.slice(4)}`);
   await expect.poll(() => server.pair.latest()?.polls ?? 0).toBeGreaterThan(0);
   return code;
 }
@@ -117,24 +74,11 @@ function nothingInTheClear(server: ConfigServer, secrets: readonly string[]): vo
   for (const secret of secrets) expect(kept).not.toContain(secret);
 }
 
-/** From the live list: the header's "Settings" (its end: the left in Arabic), then "Sources". */
-async function openSources(remote: RemoteDriver, language: 'en' | 'ar'): Promise<Locator> {
-  const side = language === 'ar' ? 'LEFT' : 'RIGHT';
-  await remote.go('UP', 'live/header/0');
-  for (let i = 1; i <= 5; i += 1) await remote.go(side, `live/header/${i}`);
-  await remote.go('OK', 'settings/items/0');
-  await remote.go('DOWN', 'settings/items/1');
-  await remote.press('OK');
-  const root = remote.page.getByTestId('settings-screen');
-  await settled(root, 20_000);
-  return root;
-}
-
 test('onboarding by phone: an M3U link and its guides are added, ok reaches the phone during the guide, nothing in the clear on the server', async ({ page }) => {
   const errors = trackErrors(page);
   const remote = new RemoteDriver(page);
   await withServer(devSignedAnswer(doc()), async (server) => {
-    const onboarding = await toSources(remote, `locale=en-US&api=${encodeURIComponent(server.origin)}`);
+    const onboarding = await toSourceTypes(remote, `locale=en-US&api=${encodeURIComponent(server.origin)}`);
     await remote.go('DOWN', 'source/types/1');
     await remote.go('DOWN', 'source/types/2');
     await expect(page.getByTestId('type-phone')).toHaveText('Use your phone');
@@ -247,7 +191,7 @@ test('a code that ends is renewed; the config refusing new sources sends blocked
   const errors = trackErrors(page);
   const remote = new RemoteDriver(page);
   await withServer(devSignedAnswer(doc()), async (server) => {
-    await toSources(remote, `locale=en-US&api=${encodeURIComponent(server.origin)}`);
+    await toSourceTypes(remote, `locale=en-US&api=${encodeURIComponent(server.origin)}`);
     await remote.go('DOWN', 'source/types/1');
     await remote.go('DOWN', 'source/types/2');
     await remote.go('OK', 'pair/actions/0');

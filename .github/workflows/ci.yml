@@ -49,7 +49,9 @@ jobs:
           shared='^package\.json$|^pnpm-lock\.yaml$|^pnpm-workspace\.yaml$|^\.github/workflows/'
           engines="$shared|^apps/tv/|^packages/[^/]+/src/|^packages/crypto/test/|^tools/(engines|build|fonts)/"
           media="$shared|^apps/mock-provider/|^tools/(fixtures|bench)/|^packages/[^/]+/src/|^apps/tv/src/(player|lab|data)/|^apps/tv/(playback|lab)\.html$|^apps/tv/vite\.config\.ts$|^vitest\.media\.config\.ts$|^playwright\.config\.ts$"
-          web="$shared|^apps/web/|^packages/(protocol|crypto)/|^config/|^vitest\.web\.config\.ts$|^playwright\.web\.config\.ts$"
+          # The TV's pairing against the real API (e2e/pairing-api.spec.ts, step 31c3) runs the TV's
+          # dev app and the mock: their sources and the spec's own files count too.
+          web="$shared|^apps/(web|tv|mock-provider)/|^packages/(protocol|crypto)/|^packages/[^/]+/src/|^config/|^vitest\.web\.config\.ts$|^playwright\.web\.config\.ts$|^e2e/(pairing-api\.spec|api-front|pairing-steps|config-server|onboard|remote-driver|remote-keys)\.ts$|^tools/engines/src/(pair-phone|pair-server|pair-stand-in|config)\.ts$"
           hit() { if grep -qE "$1" "$2"; then echo true; else echo false; fi; }
           {
             echo "code=$(if [ -s code.txt ]; then echo true; else echo false; fi)"
@@ -167,9 +169,9 @@ jobs:
   # The backend (RELAY step 29a, docs/runbooks/web.md): every migration on an empty Postgres 17
   # (pnpm test:web drops, creates and migrates `lablo_test`, then checks it against schema.prisma,
   # the Prisma client and GET /v1/health), then `next build`, then the phone page in Chromium
-  # against `next start` (pnpm e2e:web, RELAY step 31b: a fresh `lablo_e2e`). Lint, typecheck and
-  # the unit tests run in `verify`. The service trusts the runner's connections: no password
-  # exists anywhere.
+  # against `next start` (pnpm e2e:web, RELAY step 31b: a fresh `lablo_e2e`), and the TV's pairing
+  # screen in its dev app against the same server (step 31c3). Lint, typecheck and the unit tests
+  # run in `verify`. The service trusts the runner's connections: no password exists anywhere.
   web:
     needs: changes
     if: needs.changes.outputs.web == 'true'
@@ -209,18 +211,21 @@ jobs:
 
       - run: pnpm build:web
 
-      # Chromium for the phone page's Playwright specs (apps/web/e2e).
+      # Chromium for the Playwright specs (apps/web/e2e, e2e/pairing-api.spec.ts).
       - run: pnpm exec playwright install --with-deps chromium
 
       - run: pnpm e2e:web
 
-      # The phone page in en and ar (apps/web/e2e/phone.spec.ts), and the report when it fails.
+      # The phone page and the TV's pairing screen in en and ar (apps/web/e2e/phone.spec.ts,
+      # e2e/pairing-api.spec.ts), and the report when it fails.
       - name: Upload the phone page's screenshots
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: phone-screenshots
-          path: artifacts/screenshots/phone-*.png
+          path: |
+            artifacts/screenshots/phone-*.png
+            artifacts/screenshots/pair-api-*.png
           if-no-files-found: ignore
           retention-days: 30
 

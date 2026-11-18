@@ -27,7 +27,7 @@ see "No outbound network" below.
 | `pnpm build:web` | `next build` (Turbopack). |
 | `pnpm --filter @lablo/web start` | `next start` on port 3100, after a build. |
 | `pnpm test:web` | The tests that need the database (`apps/web/test/*.web.test.ts`, `vitest.web.config.ts`). Each run drops, creates and migrates `lablo_test` first, so it never touches the development database `lablo`. |
-| `pnpm e2e:web` | The phone page in a phone-sized Chromium (`playwright.web.config.ts`, `apps/web/e2e/`) against `next start` on port 3101 and a fresh `lablo_e2e` database. Needs `pnpm build:web` first and `pnpm web:db` up. |
+| `pnpm e2e:web` | Against `next start` on port 3101 and a fresh `lablo_e2e` database (`playwright.web.config.ts`): the phone page in a phone-sized Chromium (`apps/web/e2e/`, project `phone`), and the TV's pairing screen in its dev app on port 5393 (`e2e/pairing-api.spec.ts`, project `tv`, step 31c3). Needs `pnpm build:web` first and `pnpm web:db` up. |
 | `pnpm verify:web` | `test:web`, `build:web`, then `e2e:web`. CI's `web` job runs the same. |
 
 `pnpm lint`, `pnpm typecheck` and `pnpm test` cover `apps/web` too (its unit tests need no
@@ -202,15 +202,51 @@ post and the progress poll.
   a client's; Vercel's edge sets it), so the rate limits never meet across tests. Every request the
   page makes is checked against its origin. Screenshots: `artifacts/screenshots/phone-*.png`.
 
+## The TV's pairing against the API (step 31c3)
+
+`pnpm e2e:web`'s second project, `tv` (`e2e/pairing-api.spec.ts`): the TV's pairing screen in its
+dev app against this server, end to end except for the phone, which is scripted
+(`tools/engines/src/pair-phone.ts`: the typed-code path, the payload sealed in Node).
+
+- **What runs:** `playwright.web.config.ts` starts two web servers: `next start` on 127.0.0.1:3101
+  (as for the phone page) and the TV's Vite dev app on `localhost:5393`
+  (`LABLO_WEB_E2E_TV_PORT`). The spec starts the mock provider in its own process, and a **test
+  front** (`e2e/api-front.ts`) for each test.
+- **The test front:** a pass-through on `127.0.0.1:<port>` before `next start`, given to the TV as
+  `?api=`. Every request goes on unchanged (method, path, body, headers; only the connection
+  headers and `host` are dropped), and its answer comes back as it is, so the TV meets the real
+  routes' CORS headers and preflights (the dev app is another origin, like a TV build). It adds the
+  test's own `x-forwarded-for`, so each test has its own rate limits; the scripted phone goes
+  through it too. `GET /v1/config` goes on to the real route (the committed
+  `config/config.signed.json`) unless the test serves its own (`serve(devSignedAnswer(doc(…)))`):
+  the route bundles the committed file at build time, so a blocklist or a refusal mode can't come
+  from the server itself. The front is test code: the product's servers never relay anything.
+- **A served config goes in before the TV's first request:** the real route's answer may be kept
+  5 minutes (`cache-control: private, max-age=300`), so a refresh after it reads the browser's copy
+  and never reaches the front.
+- **The cases:** onboarding by phone with an Xtream login (the phone reads `open`, `received`
+  while the mock's API is held, then `ok`); Settings › Sources by phone in Arabic with an M3U link
+  and a guide link (`ok`); one screen, a new code each time: a wrong password (`auth_failed`), the
+  mock's `expired` account (`expired`), a closed port (`unreachable`); a served blocklist holding
+  the mock's host (`blocked`, in Arabic); a served `block-new-sources` (`blocked`). Each checks the
+  session's row in `lablo_e2e` (the status, no payload left, the read time set), the profile the
+  TV kept, and that every preflight got the API's 204. Screenshots:
+  `artifacts/screenshots/pair-api-*.png`.
+- **Only this spec:** `pnpm build:web`, `pnpm web:db`, then `pnpm e2e:web --project tv` (about
+  25 s). `pnpm e2e` doesn't list it (it needs the database).
+
 ## CI
 
 The `web` job runs when a pull request changes `apps/web/`, `packages/protocol/`,
 `packages/crypto/`, `config/` (the signed config is bundled into `/v1/config`),
 `vitest.web.config.ts`, `playwright.web.config.ts`, or a shared file (`package.json`, the
-lockfile, the workspace file, the workflows). It starts a `postgres:17-alpine` service on port
-54329, runs `pnpm test:web` and `pnpm build:web`, installs Chromium and runs `pnpm e2e:web`, and
-uploads the phone page's screenshots (`phone-screenshots`). Lint, typecheck and the unit tests run
-in `verify`.
+lockfile, the workspace file, the workflows); since step 31c3 also the TV app, the packages'
+sources, the mock provider, and the TV pairing spec's own files (`e2e/pairing-api.spec.ts` and
+the helpers it imports, `tools/engines/src/pair-phone.ts` and the harness's config). It starts a
+`postgres:17-alpine` service on port 54329, runs `pnpm test:web` and `pnpm build:web`, installs
+Chromium and runs `pnpm e2e:web` (the phone page and the TV's pairing), and uploads both
+projects' screenshots (`phone-screenshots`: `phone-*.png`, `pair-api-*.png`). Lint, typecheck and
+the unit tests run in `verify`.
 
 ## Gotchas
 
