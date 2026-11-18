@@ -1740,6 +1740,7 @@ export type PlayRequest = { key: ContentKey; src: string; mode: 'live'|'vod'|'ca
 - **Tests:** unit +9 (6,287): `test/no-plaintext.test.ts` 8 (each form; each base64 alphabet decoded in step; an empty needle never matches; nothing in a sealed payload or a sealed file), `test/api-front.test.ts` +1 (`received`: a 3 MiB body whole, the headers as passed on, nothing the front answered itself or held for a caller that gave up). `e2e:web` 19 (+3); `pnpm e2e --list` still 150 (the spec needs the database: `e2e:web` only).
 - **Mutation:** `artifacts/mutate31e.py`, 21 written first: 18 caught on the first run; three weak tests strengthened (a form needed only for a needle with both a slash and non-ASCII text, whose sample needed a hex letter; base64 samples whose alphabet characters fell at group ends, so a single run pattern still decoded them in step): 21/21.
 - **Verified locally:** lint; typecheck of the root; unit 6,287 (the whole suite, in the foreground); `build:web`; `e2e:web` 19 passed (the three tests 4.5 to 5.3 s each).
+- **Merged:** PR #127 as merge commit `eab3874` on green CI (web 2 m 15 s: `test:web` 45, `e2e:web` 19 passed; verify 13 m 14 s: unit 6,286 with one skipped (6,287, as expected), `pnpm e2e` 150 passed; media 23 m 30 s; engines skipped by the path filter).
 - **Step 31 (pairing) is done with this:** the API (31a), the phone page (31b), the TV's pairing screen (31c), the M3U file relay (31d) and this test.
 
 ### 3.3 Encryption and key scheme
