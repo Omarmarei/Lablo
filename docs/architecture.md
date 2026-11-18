@@ -1727,6 +1727,8 @@ export type PlayRequest = { key: ContentKey; src: string; mode: 'live'|'vod'|'ca
 - **Tests:** unit +5 (6,278): `phone-state.test.ts` (the file's `sentType` through the progress to the status, after a 409 and an answer that is already the status, a link sent with a file still chosen; the QR path's `null`; every expected view with its `sentType`), `phone-catalog.test.ts` (`statusKey` for every status and type, both languages' text; the new key's own case), `phone-flows.test.ts` (the views' `sentType`), `test/api-front.test.ts` +2 (`hold`: only the named method and prefix, a failed `until`, `null`; a caller that gave up: nothing sent, no connection). `e2e:web` 16 (+1 in `tv`); `phone-file.spec.ts`'s Arabic test reads `done.unreachableFile`.
 - **Mutation:** `artifacts/mutate31d2b2b.py`, 18 written first: 17 caught. The row's `fileId` read as a constant `NULL` survived (every check expected `null`), which `hold` closed; its six guards joined the list, and the one for a caller that gave up survived until the test counted the API's connections: 24/24.
 - **Verified locally:** lint; typecheck of the root and `apps/web`; unit 6,278 (the whole suite, in the foreground); `test:web` 45; `build:web`; `e2e:web` 16 passed (the `tv` file test 9.1 s). No TV code changed, so no `build:tv` or old-engine run.
+- **Merged:** PR #126 as merge commit `be0eb3a` on green CI on the first run: web (`e2e:web` 16 passed), verify (unit 6,277 with one skipped, `pnpm e2e` 150 passed); media and engines skipped by the path filter. Step 31d (the M3U file relay) is done with it.
+- **Not yet:** 31e, the "no plaintext" test end to end (the real phone page, the web app, the TV and the mock, for each source type).
 
 ### 3.3 Encryption and key scheme
 
