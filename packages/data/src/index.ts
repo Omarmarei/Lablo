@@ -215,13 +215,16 @@ export type {
   BackupRestoreResult,
   BackupServiceOptions,
   BackupSource,
+  BackupStatus,
+  BackupSwitchRequest,
+  BackupSwitchResult,
   BackupUploadResult,
   DeriveMaster,
   MasterRecord,
   OldCopy,
   SentRecord,
 } from './backup-service';
-export { BACKUP_CODE_KEY, BACKUP_MASTER_KEY, BACKUP_SENT_KEY, BackupService, backupHandlers, readMasterRecord, readSentRecord, secretCheck } from './backup-service';
+export { BACKUP_CODE_KEY, BACKUP_MASTER_KEY, BACKUP_OFF_KEY, BACKUP_SENT_KEY, BackupService, backupHandlers, readMasterRecord, readSentRecord, secretCheck } from './backup-service';
 export { BACKUP_PLAIN_MAX_BYTES, backupPlain, profileHash, readBackupPlain } from './backup-plain';
 export type { BackupAnswer } from './backup-api';
 export { BACKUP_ANSWER_MAX_BYTES, BACKUP_TIMEOUT_MS, BackupApi, envelopeBody, readEnvelope } from './backup-api';

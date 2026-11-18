@@ -8,14 +8,14 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { BACKUP_ANSWER_MAX_BYTES, BACKUP_TIMEOUT_MS, envelopeBody, readEnvelope } from './backup-api';
 import { backupPlain, profileHash, readBackupPlain } from './backup-plain';
 import type { BackupCallRequest, BackupEvents, MasterRecord, SentRecord } from './backup-service';
-import { BACKUP_MASTER_KEY, BACKUP_SENT_KEY, BackupService, backupHandlers, readSentRecord, secretCheck } from './backup-service';
+import { BACKUP_MASTER_KEY, BACKUP_OFF_KEY, BACKUP_SENT_KEY, BackupService, backupHandlers, readSentRecord, secretCheck } from './backup-service';
 import type { BackupStandIn } from './backup-stand-in';
 import { backupStandIn } from './backup-stand-in';
 import type { ByteRequest, ByteResponse, ByteTransport } from './bytes';
 import { NetworkError } from './bytes';
 import { getValue, openDatabase, transact } from './idb';
 import type { AnyProfile, ProfileDoc } from './profile';
-import { PROFILE_VERSION, applyProfileEdit, emptyProfile, noPlayerMemory, saveProfile, storedProfileDoc, updateProfile } from './profile';
+import { PROFILE_VERSION, applyProfileEdit, emptyProfile, listSnapshots, noPlayerMemory, saveProfile, storedProfileDoc, updateProfile } from './profile';
 import type { RpcPort } from './rpc';
 import { RpcClient, serveRpc } from './rpc';
 import { STORE } from './schema';
@@ -183,9 +183,10 @@ function masterRecord(request: BackupCallRequest): MasterRecord {
   const secret = request.secret ?? CODE_SECRET;
   return { source: request.secret === null ? 'code' : 'device', check: secretCheck(request.platform, request.appId, secret), master: toBase64Url(fakeMaster(secret, request.platform, request.appId)) };
 }
-function sent(request: BackupCallRequest, doc: unknown, old: SentRecord['old'] = []): SentRecord {
+/** A send record: `doc` sent (at `NOW` by default), or `null` for a claim with no send yet. */
+function sent(request: BackupCallRequest, doc: unknown, old: SentRecord['old'] = [], sentAt: number | null = doc === null ? null : NOW): SentRecord {
   const keys = keysOf(request);
-  return { lookupId: keys.lookupId, token: keys.writeToken, hash: doc === null ? '' : profileHash(JSON.stringify(doc)), old };
+  return { lookupId: keys.lookupId, token: keys.writeToken, hash: doc === null ? '' : profileHash(JSON.stringify(doc)), old, sentAt };
 }
 
 /** A database whose transactions of `mode` can't start. */
@@ -206,9 +207,25 @@ describe("the backup's send record", () => {
   });
 
   it('is read back as written, old copies that are broken dropped', () => {
-    const good = { lookupId: 'L', token: 'T', hash: 'H', old: [{ lookupId: 'L0', token: 'T0' }] };
+    const good = { lookupId: 'L', token: 'T', hash: 'H', old: [{ lookupId: 'L0', token: 'T0' }], sentAt: 7 };
     expect(readSentRecord(good)).toEqual(good);
     expect(readSentRecord({ ...good, old: [{ lookupId: 'L0' }, 'x', null, { lookupId: 'L1', token: 'T1', more: 1 }] })).toEqual({ ...good, old: [{ lookupId: 'L1', token: 'T1' }] });
+  });
+
+  it.each([
+    ['none (a record from before step 32d2a)', undefined],
+    ['null', null],
+    ['text', '7'],
+    ['not a finite number', Number.POSITIVE_INFINITY],
+    ['NaN', Number.NaN],
+  ])('reads a send time that is %s as not sent yet', (_, sentAt) => {
+    const record: Record<string, unknown> = { lookupId: 'L', token: 'T', hash: 'H', old: [] };
+    if (sentAt !== undefined) record.sentAt = sentAt;
+    expect(readSentRecord(record)).toEqual({ lookupId: 'L', token: 'T', hash: 'H', old: [], sentAt: null });
+  });
+
+  it('reads a send time of 0 as a time', () => {
+    expect(readSentRecord({ lookupId: 'L', token: 'T', hash: 'H', old: [], sentAt: 0 })?.sentAt).toBe(0);
   });
 
   it.each([
@@ -787,5 +804,423 @@ describe('backupHandlers: upload and restore (the backup worker)', () => {
     expect(await restorer.call('restore', DEVICE)).toEqual({ state: 'restored', language: 'ar', sources: 2 });
     expect(progress).toEqual([0, 0.5, 1]);
     restorer.close();
+  });
+});
+
+// Step 32d2a: Settings' backup page in the worker (off and on, the status, a held backup).
+
+/** The TV's profile after a wipe whose look-up failed: a new one, which holds the old backup. */
+const NEW_DOC = docWith([{ ...SOURCE, name: 'New' }], { onboarding: { language: 'en', disclaimerAt: 9, consent: true } });
+
+/** A TV that sent `DOC`, then a new install of it (a fresh database) whose upload is held. */
+async function heldTv(api = backupStandIn(), request: BackupCallRequest = DEVICE) {
+  const before = setup({ api });
+  await save(before.factory, DOC);
+  expect(await before.service.upload(request)).toEqual({ state: 'sent' });
+  const after = setup({ api });
+  await save(after.factory, NEW_DOC);
+  expect(await after.service.upload(request)).toEqual({ state: 'held' });
+  api.requests.length = 0;
+  return after;
+}
+
+describe('BackupService.setEnabled: off and on (step 32d2a)', () => {
+  const OFF = { ...DEVICE, on: false };
+  const ON = { ...DEVICE, on: true };
+
+  it('keeps its key (pinned: a TV that changed it would turn the backup on again by itself)', () => {
+    expect(BACKUP_OFF_KEY).toBe('backup.off');
+  });
+
+  it('turns off: the flag first, then the copy deleted with its token, the record gone; uploads send nothing after', async () => {
+    const s = setup();
+    await save(s.factory, DOC);
+    await s.service.upload(DEVICE);
+    let flagAtDelete: unknown = null;
+    s.faults.push({ method: 'DELETE', before: async () => void (flagAtDelete = await kv(s.factory, BACKUP_OFF_KEY)) });
+    expect(await s.service.setEnabled(OFF)).toEqual({ state: 'off', deleted: true });
+    expect(flagAtDelete).toBe(true);
+    expect(lean(s.api).slice(2)).toEqual(['DELETE device device 200']);
+    expect(s.api.blobs.has(keysOf(DEVICE).lookupId)).toBe(false);
+    expect(await kv(s.factory, BACKUP_OFF_KEY)).toBe(true);
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toBeUndefined();
+    // A change while off: nothing sent, nothing asked.
+    await save(s.factory, docWith([SOURCE]));
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'off' });
+    expect(await s.service.upload(CODE)).toEqual({ state: 'off' });
+    expect(s.api.requests).toHaveLength(3);
+    expect(s.counts().opens).toBe(s.counts().closes);
+  });
+
+  it('answers `off` while off even with no profile worth sending, and before any key is derived', async () => {
+    const s = setup();
+    await putKv(s.factory, BACKUP_OFF_KEY, true);
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'off' });
+    expect(s.derived).toEqual([]);
+    expect(s.api.requests).toEqual([]);
+  });
+
+  it('deletes the old copies too, each with its own token', async () => {
+    const s = setup();
+    await save(s.factory, DOC);
+    await s.service.upload(CODE);
+    // A consent given later: the code's copy is old once the device's holds the profile, but its DELETE fails.
+    s.faults.push({ method: 'DELETE', answer: 500 });
+    await s.service.upload(DEVICE);
+    expect((await kv(s.factory, BACKUP_SENT_KEY)) as SentRecord).toEqual(sent(DEVICE, DOC, [{ lookupId: keysOf(CODE).lookupId, token: keysOf(CODE).writeToken }]));
+    s.api.requests.length = 0;
+    expect(await s.service.setEnabled(OFF)).toEqual({ state: 'off', deleted: true });
+    expect(lean(s.api)).toEqual(['DELETE device device 200', 'DELETE code code 200']);
+    expect(s.api.blobs.size).toBe(0);
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toBeUndefined();
+  });
+
+  it.each([
+    ['500', 500],
+    ['429', 429],
+    ['no connection', 'network' as const],
+  ])('keeps a copy whose DELETE failed (%s) under no lookup ID, and each upload tries it again until it goes', async (_, answer) => {
+    const s = setup();
+    await save(s.factory, DOC);
+    await s.service.upload(DEVICE);
+    s.faults.push({ method: 'DELETE', answer });
+    expect(await s.service.setEnabled(OFF)).toEqual({ state: 'off', deleted: false });
+    const copy = { lookupId: keysOf(DEVICE).lookupId, token: keysOf(DEVICE).writeToken };
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toEqual({ lookupId: '', token: '', hash: '', old: [copy], sentAt: null });
+    expect(await s.service.status(DEVICE)).toEqual({ on: false, source: 'device', code: null, sentAt: null, deleting: true });
+    // Failing again: kept.
+    s.faults.push({ method: 'DELETE', answer: 'network' });
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'off' });
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toEqual({ lookupId: '', token: '', hash: '', old: [copy], sentAt: null });
+    s.api.requests.length = 0;
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'off' });
+    expect(lean(s.api)).toEqual(['DELETE device device 200']);
+    expect(s.api.blobs.size).toBe(0);
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toBeUndefined();
+    expect((await s.service.status(DEVICE)).deleting).toBe(false);
+    // Nothing left: no request.
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'off' });
+    expect(s.api.requests).toHaveLength(1);
+  });
+
+  it.each([
+    ['404 (gone already)', 404],
+    ['401 (claimed again by another token after the sweep)', 401],
+  ])('counts a copy whose DELETE answered %s as gone', async (_, answer) => {
+    const s = setup();
+    await save(s.factory, DOC);
+    await s.service.upload(DEVICE);
+    s.faults.push({ method: 'DELETE', answer });
+    expect(await s.service.setEnabled(OFF)).toEqual({ state: 'off', deleted: true });
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toBeUndefined();
+  });
+
+  it("deletes the copy under this TV's lookup ID when it never sent one (a held backup): off means no copy", async () => {
+    const api = backupStandIn();
+    const s = await heldTv(api);
+    expect(await s.service.setEnabled(OFF)).toEqual({ state: 'off', deleted: true });
+    expect(lean(api)).toEqual(['DELETE device device 200']);
+    expect(api.blobs.size).toBe(0);
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toBeUndefined();
+  });
+
+  it('asks once and writes no record when there is no copy anywhere', async () => {
+    const s = setup();
+    expect(await s.service.setEnabled(OFF)).toEqual({ state: 'off', deleted: true });
+    expect(lean(s.api)).toEqual(['DELETE device device 404']);
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toBeUndefined();
+    // The master was derived for it, and kept.
+    expect(await kv(s.factory, BACKUP_MASTER_KEY)).toEqual(masterRecord(DEVICE));
+  });
+
+  it("keeps the device's copy to delete when there is no record and its DELETE fails", async () => {
+    const s = setup();
+    s.faults.push({ method: 'DELETE', answer: 'network' });
+    expect(await s.service.setEnabled(OFF)).toEqual({ state: 'off', deleted: false });
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toEqual({ lookupId: '', token: '', hash: '', old: [{ lookupId: keysOf(DEVICE).lookupId, token: keysOf(DEVICE).writeToken }], sentAt: null });
+  });
+
+  it('asks for the lookup ID it writes only once, when the record names it', async () => {
+    const s = setup();
+    await save(s.factory, DOC);
+    await s.service.upload(CODE);
+    s.api.requests.length = 0;
+    expect(await s.service.setEnabled({ ...CODE, on: false })).toEqual({ state: 'off', deleted: true });
+    expect(lean(s.api)).toEqual(['DELETE code code 200']);
+  });
+
+  it('turns on again: the flag gone, and the next upload sends as a first send does', async () => {
+    const s = setup();
+    await save(s.factory, DOC);
+    await s.service.upload(DEVICE);
+    await s.service.setEnabled(OFF);
+    s.api.requests.length = 0;
+    expect(await s.service.setEnabled(ON)).toEqual({ state: 'on' });
+    expect(await kv(s.factory, BACKUP_OFF_KEY)).toBeUndefined();
+    expect(s.api.requests).toEqual([]);
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'sent' });
+    expect(lean(s.api)).toEqual(['GET device - 404', 'PUT device device 200']);
+    expect(held(s.api, DEVICE)).toEqual(DOC);
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toEqual(sent(DEVICE, DOC));
+  });
+
+  it('on again before a delete went through: its own copy is written over without the GET, and not deleted after', async () => {
+    const s = setup();
+    await save(s.factory, DOC);
+    await s.service.upload(DEVICE);
+    s.faults.push({ method: 'DELETE', answer: 500 });
+    await s.service.setEnabled(OFF);
+    await s.service.setEnabled(ON);
+    s.api.requests.length = 0;
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'sent' });
+    expect(lean(s.api)).toEqual(['PUT device device 200']);
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toEqual(sent(DEVICE, DOC));
+    expect(held(s.api, DEVICE)).toEqual(DOC);
+  });
+
+  it('on again before the old copy of another lookup ID went: deleted at the first send', async () => {
+    const s = setup();
+    await save(s.factory, DOC);
+    await s.service.upload(CODE);
+    s.faults.push({ method: 'DELETE', answer: 500 });
+    await s.service.setEnabled({ ...CODE, on: false });
+    await s.service.setEnabled(ON);
+    s.api.requests.length = 0;
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'sent' });
+    expect(lean(s.api)).toEqual(['GET device - 404', 'PUT device device 200', 'DELETE code code 200']);
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toEqual(sent(DEVICE, DOC));
+  });
+
+  it('counts a flag that is not `true` as on', async () => {
+    const s = setup();
+    await save(s.factory, DOC);
+    for (const value of ['true', 1, {}]) {
+      await putKv(s.factory, BACKUP_OFF_KEY, value);
+      expect((await s.service.status(DEVICE)).on).toBe(true);
+    }
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'sent' });
+  });
+
+  it('refuses a switch that is neither on nor off, and a bad base, before IndexedDB opens', async () => {
+    const s = setup();
+    await expect(s.service.setEnabled({ ...DEVICE, on: 'off' } as unknown as typeof OFF)).rejects.toThrow(TypeError);
+    await expect(s.service.setEnabled({ ...OFF, base: 'ftp://x' })).rejects.toThrow(TypeError);
+    expect(s.counts().opens).toBe(0);
+  });
+});
+
+describe('BackupService.status (step 32d2a)', () => {
+  it('says on, the source, no code and no send on a TV that never sent, writing nothing', async () => {
+    const s = setup();
+    expect(await s.service.status(DEVICE)).toEqual({ on: true, source: 'device', code: null, sentAt: null, deleting: false });
+    expect(await kv(s.factory, 'backup.code')).toBeUndefined();
+    expect(s.derived).toEqual([]);
+    expect(s.counts()).toEqual({ opens: 1, closes: 1 });
+  });
+
+  it('gives the backup code when it is the secret, made and kept once', async () => {
+    const s = setup();
+    expect(await s.service.status(CODE)).toEqual({ on: true, source: 'code', code: CODE_SECRET, sentAt: null, deleting: false });
+    expect(await kv(s.factory, 'backup.code')).toBe(CODE_SECRET);
+    expect((await s.service.status(CODE)).code).toBe(CODE_SECRET);
+    // Derived from it later, the same code.
+    await save(s.factory, DOC);
+    await s.service.upload(CODE);
+    expect(held(s.api, CODE)).toEqual(DOC);
+  });
+
+  it('says when the last send went, and keeps it over an unchanged upload', async () => {
+    let now = NOW;
+    const s = setup({ clock: { now: () => now, sleep: () => new Promise<void>(() => undefined) } });
+    await save(s.factory, DOC);
+    await s.service.upload(DEVICE);
+    now = NOW + 60_000;
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'same' });
+    expect((await s.service.status(DEVICE)).sentAt).toBe(NOW);
+    await save(s.factory, docWith([SOURCE]));
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'sent' });
+    expect((await s.service.status(DEVICE)).sentAt).toBe(NOW + 60_000);
+  });
+
+  it('keeps the last send time over a claim under a new lookup ID, until the new one is sent', async () => {
+    let now = NOW;
+    const s = setup({ clock: { now: () => now, sleep: () => new Promise<void>(() => undefined) } });
+    await save(s.factory, DOC);
+    await s.service.upload(CODE);
+    now = NOW + 1;
+    s.faults.push({ method: 'PUT', answer: 500 });
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'failed', failure: 'status' });
+    expect((await s.service.status(DEVICE)).sentAt).toBe(NOW);
+    // An old copy deleted while the profile is unchanged keeps the time too.
+    s.faults.push({ method: 'DELETE', answer: 500 });
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'sent' });
+    now = NOW + 2;
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'same' });
+    expect((await s.service.status(DEVICE)).sentAt).toBe(NOW + 1);
+  });
+
+  it('says on, the source and the send time after a send, nothing to delete', async () => {
+    const s = setup();
+    await save(s.factory, DOC);
+    await s.service.upload(DEVICE);
+    expect(await s.service.status(DEVICE)).toEqual({ on: true, source: 'device', code: null, sentAt: NOW, deleting: false });
+  });
+
+  it('says off with copies to delete, and no send time, when the deletes have not run yet', async () => {
+    const s = setup();
+    await save(s.factory, DOC);
+    await s.service.upload(DEVICE);
+    // Off kept, then the worker ended before its DELETE.
+    await putKv(s.factory, BACKUP_OFF_KEY, true);
+    expect(await s.service.status(DEVICE)).toEqual({ on: false, source: 'device', code: null, sentAt: null, deleting: true });
+  });
+
+  it('gives no code and no send time while off', async () => {
+    const s = setup();
+    await save(s.factory, DOC);
+    await s.service.upload(CODE);
+    await s.service.setEnabled({ ...CODE, on: false });
+    expect(await s.service.status(CODE)).toEqual({ on: false, source: 'code', code: null, sentAt: null, deleting: false });
+  });
+
+  it('refuses a request without a platform, before IndexedDB opens', async () => {
+    const s = setup();
+    await expect(s.service.status({ ...DEVICE, platform: '' })).rejects.toThrow(TypeError);
+    expect(s.counts().opens).toBe(0);
+  });
+});
+
+describe('BackupService.restoreHeld and replaceHeld (step 32d2a)', () => {
+  it('restores a held backup over the profile: the old profile kept as a snapshot, the next upload sends nothing', async () => {
+    const api = backupStandIn();
+    const s = await heldTv(api);
+    expect(await s.service.restoreHeld(DEVICE)).toEqual({ state: 'restored', language: 'ar', sources: 2 });
+    expect(lean(api)).toEqual(['GET device - 200']);
+    expect(await stored(s.factory)).toEqual(DOC);
+    const snaps = await listSnapshots(await db(s.factory));
+    expect(snaps.map((snap) => [snap.reason, snap.savedAt, snap.doc])).toEqual([['restore', NOW, NEW_DOC]]);
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toEqual(sent(DEVICE, DOC));
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'same' });
+    expect(api.requests).toHaveLength(1);
+    expect(s.counts().opens).toBe(s.counts().closes);
+  });
+
+  it('keeps the copies this TV wrote under another lookup ID to delete at the next upload', async () => {
+    const api = backupStandIn();
+    const s = await heldTv(api);
+    // Its own code copy, from before the consent.
+    await s.service.upload(CODE);
+    const codeCopy = { lookupId: keysOf(CODE).lookupId, token: keysOf(CODE).writeToken };
+    expect(await s.service.restoreHeld(DEVICE)).toEqual({ state: 'restored', language: 'ar', sources: 2 });
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toEqual(sent(DEVICE, DOC, [codeCopy]));
+    api.requests.length = 0;
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'same' });
+    expect(lean(api)).toEqual(['DELETE code code 200']);
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toEqual(sent(DEVICE, DOC));
+  });
+
+  it("keeps no copy of its own lookup ID to delete when the copy restored is the one it sent", async () => {
+    const s = setup();
+    await save(s.factory, DOC);
+    await s.service.upload(DEVICE);
+    expect(await s.service.restoreHeld(DEVICE)).toEqual({ state: 'restored', language: 'ar', sources: 2 });
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toEqual(sent(DEVICE, DOC));
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'same' });
+    expect(s.api.blobs.has(keysOf(DEVICE).lookupId)).toBe(true);
+  });
+
+  it('restores under the backup code too, with the kept code', async () => {
+    const api = backupStandIn();
+    const s = await heldTv(api, CODE);
+    expect(await s.service.restoreHeld(CODE)).toEqual({ state: 'restored', language: 'ar', sources: 2 });
+    expect(await stored(s.factory)).toEqual(DOC);
+  });
+
+  it('upgrades an older version held there, and writes it as this version', async () => {
+    const api = backupStandIn();
+    const s = setup({ api });
+    await save(s.factory, NEW_DOC);
+    const v7 = { ...DOC, v: 7 };
+    await putBackup(api, DEVICE, backupPlain(JSON.stringify(v7)));
+    expect(await s.service.restoreHeld(DEVICE)).toMatchObject({ state: 'restored' });
+    expect(((await stored(s.factory)) as AnyProfile).v).toBe(PROFILE_VERSION);
+    // What the server holds is the version 7 document: sent again, upgraded, at the next upload.
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toEqual(sent(DEVICE, v7));
+  });
+
+  it.each([
+    ['nothing there', null, { state: 'none' }],
+    ["one this TV's key doesn't open", 'other-key', { state: 'unreadable' }],
+    ['one from a newer app version', 'newer', { state: 'newer' }],
+  ])('changes nothing when it finds %s', async (_, kind, answer) => {
+    const api = backupStandIn();
+    const s = setup({ api });
+    await save(s.factory, NEW_DOC);
+    if (kind === 'other-key') await putBackup(api, DEVICE, backupPlain(JSON.stringify(DOC)), new Uint8Array(32).fill(7));
+    if (kind === 'newer') await putBackup(api, DEVICE, backupPlain(JSON.stringify({ ...DOC, v: PROFILE_VERSION + 1 })));
+    expect(await s.service.restoreHeld(DEVICE)).toEqual(answer);
+    expect(await stored(s.factory)).toEqual(NEW_DOC);
+    expect(await listSnapshots(await db(s.factory))).toEqual([]);
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toBeUndefined();
+  });
+
+  it('fails with the request and changes nothing when the GET has no answer', async () => {
+    const s = await heldTv();
+    s.faults.push({ method: 'GET', answer: 'network' });
+    expect(await s.service.restoreHeld(DEVICE)).toEqual({ state: 'failed', failure: 'network' });
+    expect(await stored(s.factory)).toEqual(NEW_DOC);
+  });
+
+  it('never writes over a profile from a newer app version', async () => {
+    const api = backupStandIn();
+    const s = await heldTv(api);
+    const newer = { ...NEW_DOC, v: PROFILE_VERSION + 1 };
+    await putRaw(s.factory, newer);
+    expect(await s.service.restoreHeld(DEVICE)).toEqual({ state: 'kept' });
+    expect(await stored(s.factory)).toEqual(newer);
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toBeUndefined();
+  });
+
+  it('writes the profile and its record together, or none of them', async () => {
+    const api = backupStandIn();
+    const s = await heldTv(api);
+    const wrapped = setup({ api, factory: s.factory, wrap: failing('readwrite') });
+    await expect(wrapped.service.restoreHeld(DEVICE)).rejects.toThrow();
+    expect(await stored(s.factory)).toEqual(NEW_DOC);
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toBeUndefined();
+  });
+
+  it('replaces a held backup: the profile sent over it with no GET, then nothing until it changes', async () => {
+    const api = backupStandIn();
+    const s = await heldTv(api);
+    expect(await s.service.replaceHeld(DEVICE)).toEqual({ state: 'sent' });
+    expect(lean(api)).toEqual(['PUT device device 200']);
+    expect(held(api, DEVICE)).toEqual(NEW_DOC);
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toEqual(sent(DEVICE, NEW_DOC));
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'same' });
+    expect(api.requests).toHaveLength(1);
+  });
+
+  it('replaces nothing while off', async () => {
+    const s = await heldTv();
+    await putKv(s.factory, BACKUP_OFF_KEY, true);
+    expect(await s.service.replaceHeld(DEVICE)).toEqual({ state: 'off' });
+  });
+});
+
+describe('backupHandlers: the backup page (step 32d2a)', () => {
+  it('serves the status, the switch, and a held backup restored or replaced over RPC', async () => {
+    const api = backupStandIn();
+    const tv = await heldTv(api);
+    const { port1, port2 } = new MessageChannel();
+    ports.push(port1, port2);
+    serveRpc(port1 as unknown as RpcPort, backupHandlers({ openDb: async () => db(tv.factory), derive: (secret, platform, appId) => Promise.resolve(fakeMaster(secret, platform, appId)), transport: api.transport, clock: { now: () => NOW, sleep: () => new Promise<void>(() => undefined) } }));
+    const client = new RpcClient<ReturnType<typeof backupHandlers>, BackupEvents>(port2 as unknown as RpcPort);
+    expect(await client.call('status', DEVICE)).toEqual({ on: true, source: 'device', code: null, sentAt: null, deleting: false });
+    expect(await client.call('replaceHeld', DEVICE)).toEqual({ state: 'sent' });
+    expect(await client.call('restoreHeld', DEVICE)).toEqual({ state: 'restored', language: 'en', sources: 1 });
+    expect(await client.call('setEnabled', { ...DEVICE, on: false })).toEqual({ state: 'off', deleted: true });
+    expect(await client.call('setEnabled', { ...DEVICE, on: true })).toEqual({ state: 'on' });
+    client.close();
   });
 });

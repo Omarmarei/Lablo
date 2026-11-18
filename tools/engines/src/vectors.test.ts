@@ -85,6 +85,11 @@ describe('the backup worker run (step 32b)', () => {
       'backup.code',
       'backup.codeKept',
       'backup.restore',
+      'backup.held',
+      'backup.restoreHeld',
+      'backup.replaceHeld',
+      'backup.off',
+      'backup.on',
       'backup.cleanup',
     ]);
   });
@@ -93,7 +98,7 @@ describe('the backup worker run (step 32b)', () => {
     expect(evaluateVectors(run(...both(), {}, UA, backupState('backup.master')), { major: 53 }, NAMES)).toEqual(['backup: backup.master: master: got a, expected b; ']);
     expect(evaluateVectors(run(...both(), {}, UA, backupState(null, BACKUP_CHECKS, 'page')), { major: 53 }, NAMES)).toEqual(['backup: ran in the page']);
     expect(evaluateVectors(run(...both(), {}, UA, backupState(null, BACKUP_CHECKS.slice(1))), { major: 53 }, NAMES)).toEqual([
-      "backup: 10 checks, expected Node's 11 under the same names (a stale dist/tv-vectors? run pnpm build:tv)",
+      "backup: 15 checks, expected Node's 16 under the same names (a stale dist/tv-vectors? run pnpm build:tv)",
     ]);
     expect(evaluateVectors(run(...both(), {}, UA, workerState(null, 90000, 'the worker did not answer')), { major: 53 }, NAMES)).toEqual(['backup: no results (the worker did not answer)']);
     expect(evaluateVectors(run(...both(), {}, UA, null), { major: 53 }, NAMES)).toEqual(['backup: no run (a stale dist/tv-vectors? run pnpm build:tv)']);
@@ -103,7 +108,7 @@ describe('the backup worker run (step 32b)', () => {
 describe('vectorsSummary', () => {
   it('gives each run’s count and time and the backup’s scrypt in each', () => {
     expect(vectorsSummary(run(runState(checks()), workerState(checks('random'), 2500)))).toBe(
-      "  page 4/4 in 2.0 s, worker 3/4 in 2.5 s, backup worker 11/11 in 1.4 s; the backup's scrypt 1.5 s / 1.5 s / 1.2 s, its restore 1.3 s",
+      "  page 4/4 in 2.0 s, worker 3/4 in 2.5 s, backup worker 16/16 in 1.4 s; the backup's scrypt 1.5 s / 1.5 s / 1.2 s, its restore 1.3 s",
     );
     expect(vectorsSummary(run(runState(checks()), workerState(checks()), {}, UA, null))).toBe("  page 4/4 in 2.0 s, worker 4/4 in 2.0 s, no backup worker run; the backup's scrypt 1.5 s / 1.5 s");
     expect(vectorsSummary({ ...run(runState(null), workerState(null)), state: null })).toBe('');

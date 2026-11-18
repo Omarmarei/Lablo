@@ -3,7 +3,9 @@
  * its own (`lablo-backup-check`, never the app's), from the shared crypto vectors' first backup
  * chain: the master and the backup code (32b); a profile sent to the backup API in memory
  * (`backupStandIn`: the vectors page has no server), unchanged so not sent again, and restored
- * after a wipe of the database (32c1), through the engine's own gzip, secretbox and IndexedDB.
+ * after a wipe of the database (32c1), through the engine's own gzip, secretbox and IndexedDB;
+ * then a held backup restored over a new profile and replaced, the backup off (its copy deleted)
+ * and on again (32d2a).
  * Its own entry point (`@lablo/data/check-backup`): the vectors page runs it in a Blob worker on
  * Chromium 53, 56 and 68 (`pnpm verify:engines`) and in current Chromium (`e2e/crypto-vectors.spec.ts`);
  * Node runs it with fake-indexeddb. The checks run in order and each one's error is its own failure.
@@ -15,8 +17,8 @@ import type { BackupCallRequest, BackupPrepareRequest } from './backup-service';
 import { BACKUP_CODE_KEY, BACKUP_MASTER_KEY, BackupService, readMasterRecord, secretCheck } from './backup-service';
 import { backupStandIn } from './backup-stand-in';
 import { deleteDatabase, getValue, openDatabase } from './idb';
-import type { ProfileDoc } from './profile';
-import { emptyProfile, saveProfile, storedProfileDoc } from './profile';
+import type { ProfileDoc, ProfileSnapshot } from './profile';
+import { emptyProfile, listSnapshots, saveProfile, storedProfileDoc } from './profile';
 import { STORE } from './schema';
 
 /** The checks' own database. */
@@ -34,6 +36,11 @@ export const BACKUP_CHECK_NAMES: readonly string[] = [
   'backup.code',
   'backup.codeKept',
   'backup.restore',
+  'backup.held',
+  'backup.restoreHeld',
+  'backup.replaceHeld',
+  'backup.off',
+  'backup.on',
   'backup.cleanup',
 ];
 
@@ -46,6 +53,14 @@ export function checkProfile(): ProfileDoc {
   doc.onboarding = { language: 'ar', disclaimerAt: 1, consent: true };
   doc.sources = [{ id: 's1', type: 'm3u', name: 'قنوات العائلة', url: 'http://user:pass@example.invalid/list.m3u', added: 1 }];
   doc.favourites = [{ key: 'm:s1:live:7', src: 's1', kind: 'live', normName: 'news', added: 2, missingSince: null }];
+  return doc;
+}
+
+/** The profile of a new install whose look-up failed (step 32d2a): its own source, in English. */
+export function otherProfile(): ProfileDoc {
+  const doc = emptyProfile();
+  doc.onboarding = { language: 'en', disclaimerAt: 2, consent: true };
+  doc.sources = [{ id: 's1', type: 'm3u', name: 'Living room', url: 'http://example.invalid/new.m3u', added: 2 }];
   return doc;
 }
 
@@ -89,6 +104,20 @@ export async function checkBackup(vector: BackupCheckVector, factory: IDBFactory
       db.close();
     }
   };
+  const saveDoc = async (doc: ProfileDoc): Promise<void> => {
+    const db = await openDatabase(factory, { name });
+    try {
+      await saveProfile(db, doc);
+    } finally {
+      db.close();
+    }
+  };
+  /** The requests made since `from`: method and status. */
+  const asked = (from: number): string =>
+    api.requests
+      .slice(from)
+      .map((r) => r.method + ' ' + r.status)
+      .join(', ');
   let master: Uint8Array | null = null;
   let code: unknown;
 
@@ -181,6 +210,80 @@ export async function checkBackup(vector: BackupCheckVector, factory: IDBFactory
           same('profile', JSON.stringify(restored), sent) +
           (kept === null ? 'no master kept' : same('master', toHex(kept), vector.master))
         );
+      },
+    },
+    {
+      // Step 32d2a: a wipe whose look-up failed, a new profile: its upload finds the backup and holds.
+      name: 'backup.held',
+      run: async () => {
+        await deleteDatabase(factory, name);
+        await saveDoc(otherProfile());
+        const before = api.requests.length;
+        const result = await service.upload(call);
+        return same('state', result.state, 'held') + same('requests', asked(before), 'GET 200');
+      },
+    },
+    {
+      // "Restore it": the backup over the new profile, which is kept as a snapshot.
+      name: 'backup.restoreHeld',
+      run: async () => {
+        const before = api.requests.length;
+        const result = await service.restoreHeld(call);
+        if (result.state !== 'restored') return same('state', result.state, 'restored');
+        const db = await openDatabase(factory, { name });
+        let restored: unknown;
+        let snaps: ProfileSnapshot[];
+        try {
+          restored = await storedProfileDoc(db);
+          snaps = await listSnapshots(db);
+        } finally {
+          db.close();
+        }
+        const snap = snaps.length === 1 ? snaps[0]! : null;
+        return (
+          same('requests', asked(before), 'GET 200') +
+          same('profile', JSON.stringify(restored), sent) +
+          (snap === null ? `${snaps.length} snapshots, expected 1; ` : same('snapshot', `${snap.reason} ${JSON.stringify(snap.doc)}`, `restore ${JSON.stringify(otherProfile())}`))
+        );
+      },
+    },
+    {
+      // "Replace it": the new profile sent over the held backup, with no GET; then nothing to send.
+      name: 'backup.replaceHeld',
+      run: async () => {
+        await deleteDatabase(factory, name);
+        await saveDoc(otherProfile());
+        const before = api.requests.length;
+        const result = await service.replaceHeld(call);
+        const again = await service.upload(call);
+        return same('state', result.state, 'sent') + same('requests', asked(before), 'PUT 200') + same('then', again.state, 'same');
+      },
+    },
+    {
+      // Off: the flag, the copy deleted with its token; an upload then sends nothing.
+      name: 'backup.off',
+      run: async () => {
+        const before = api.requests.length;
+        const result = await service.setEnabled({ platform: call.platform, appId: call.appId, secret: call.secret, base: call.base, on: false });
+        const upload = await service.upload(call);
+        const status = await service.status(device);
+        return (
+          same('state', result.state === 'off' ? `off ${String(result.deleted)}` : result.state, 'off true') +
+          same('requests', asked(before), 'DELETE 200') +
+          same('copy', String(api.blobs.has(vector.lookupId)), 'false') +
+          same('upload', upload.state, 'off') +
+          same('status', `${String(status.on)} ${String(status.deleting)}`, 'false false')
+        );
+      },
+    },
+    {
+      // On again: the next upload is a first send.
+      name: 'backup.on',
+      run: async () => {
+        const result = await service.setEnabled({ platform: call.platform, appId: call.appId, secret: call.secret, base: call.base, on: true });
+        const before = api.requests.length;
+        const upload = await service.upload(call);
+        return same('state', result.state, 'on') + same('upload', upload.state, 'sent') + same('requests', asked(before), 'GET 404, PUT 200');
       },
     },
     { name: 'backup.cleanup', run: () => deleteDatabase(factory, name).then(() => '') },
