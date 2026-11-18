@@ -177,6 +177,9 @@ describe('the TV routes’ CORS', () => {
     });
     expect(PREFLIGHT_MAX_AGE_S).toBe(600);
     expect(preflight('POST').headers.get('access-control-allow-methods')).toBe('POST, OPTIONS');
+    // A route with headers of its own names them (the backup's write token).
+    const own = preflight('PUT, GET', 'content-type, x-write-token');
+    expect([own.headers.get('access-control-allow-methods'), own.headers.get('access-control-allow-headers')]).toStrictEqual(['PUT, GET, OPTIONS', 'content-type, x-write-token']);
   });
 });
 

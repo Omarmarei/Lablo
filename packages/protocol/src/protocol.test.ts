@@ -4,6 +4,7 @@ import { checkSamples, SAMPLE_SCHEMAS, SAMPLES, sameJson, sampleResultName } fro
 import {
   BACKUP_BODY_MAX_BYTES,
   BACKUP_CT_MAX_CHARS,
+  BACKUP_WRITE_HEADER,
   base64UrlLength,
   bytes16,
   bytes32,
@@ -120,6 +121,7 @@ describe('the limits', () => {
     expect(PAIR_BODY_MAX_BYTES).toBe(64 * 1024);
     expect(PAIR_FILE_MAX_BYTES).toBe(40 * 1024 * 1024);
     expect(BACKUP_BODY_MAX_BYTES).toBe(512 * 1024);
+    expect(BACKUP_WRITE_HEADER).toBe('x-write-token');
     expect(TELEMETRY_BODY_MAX_BYTES).toBe(64 * 1024);
     expect(TELEMETRY_BATCH_MAX).toBe(200);
   });
