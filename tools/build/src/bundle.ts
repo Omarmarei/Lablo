@@ -358,8 +358,14 @@ function plugins(options: BundleOptions, collected: Collected): Plugin[] {
       ],
       plugins: [[require.resolve('@babel/plugin-transform-react-jsx'), { runtime: 'automatic', importSource: 'preact' }]],
     }),
+    // UTF-8 out (not `ascii_only`): an Arabic letter costs 2 bytes in the file, where its
+    // `\uXXXX` escape cost 6 (about 35 KB of main.js in step 32d3). The TV pages declare
+    // `<meta charset="utf-8">`, so a file:// script without a charset of its own is read as
+    // UTF-8, and Blob workers always are. Terser still escapes what can't stand as it is: U+2028
+    // and U+2029 (they end a line in an ES2016 literal; the syntax gate would refuse them),
+    // U+FEFF and lone surrogates (no UTF-8 form). bundle.test.ts pins each.
     terser({
-      format: { comments: false, ascii_only: true },
+      format: { comments: false, ascii_only: false },
       compress: { passes: 2 },
     }),
     // After terser: renderChunk hooks run in plugin order.
