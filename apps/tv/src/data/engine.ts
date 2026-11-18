@@ -96,6 +96,7 @@ import type {
 // The client entry only: the package index would pull every data module's polyfills into main.
 import type {
   BackupCallRequest,
+  BackupCodeRequest,
   BackupPrepareRequest,
   BackupPrepareResult,
   BackupRestoreResult,
@@ -550,6 +551,20 @@ export class DataEngine {
    */
   restoreHeldBackup(request: BackupCallRequest): Promise<BackupRestoreResult> {
     return this.withBackupWorker((client) => client.call('restoreHeld', request));
+  }
+
+  /**
+   * The backup code typed at a first start (step 32d3b), in a backup worker of its own: restores
+   * the backup it finds where there is no profile or one with no source yet (`restored`; `kept`
+   * when a source is there; `none`, `unreadable`, `newer`, `failed` keep nothing). `onProgress`
+   * gets scrypt's progress; a cancel rejects with `CancelError` and ends the worker. Text that
+   * can't be a code rejects (check it with `readBackupCode` first).
+   */
+  restoreBackupCode(request: BackupCodeRequest, options: { readonly onProgress?: (fraction: number) => void; readonly cancel?: CancelToken } = {}): Promise<BackupRestoreResult> {
+    return this.withBackupWorker((client) => {
+      if (options.onProgress) client.on('progress', options.onProgress);
+      return client.call('restoreCode', request, { cancel: options.cancel });
+    });
   }
 
   /** A held backup (step 32d2a): sends the profile over it, as an upload does without its `GET`. */

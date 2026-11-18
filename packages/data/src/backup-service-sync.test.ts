@@ -7,15 +7,15 @@ import { BACKUP_CT_MAX_BYTES } from '@lablo/protocol/backup-limits';
 import { afterEach, describe, expect, it } from 'vitest';
 import { BACKUP_ANSWER_MAX_BYTES, BACKUP_TIMEOUT_MS, envelopeBody, readEnvelope } from './backup-api';
 import { backupPlain, profileHash, readBackupPlain } from './backup-plain';
-import type { BackupCallRequest, BackupEvents, MasterRecord, SentRecord } from './backup-service';
-import { BACKUP_MASTER_KEY, BACKUP_OFF_KEY, BACKUP_SENT_KEY, BackupService, RESTORE_CLEARS, backupHandlers, readSentRecord, secretCheck } from './backup-service';
+import type { BackupCallRequest, BackupCodeRequest, BackupEvents, MasterRecord, SentRecord } from './backup-service';
+import { BACKUP_CODE_KEY, BACKUP_MASTER_KEY, BACKUP_OFF_KEY, BACKUP_SENT_KEY, BackupService, RESTORE_CLEARS, backupHandlers, readSentRecord, secretCheck } from './backup-service';
 import type { BackupStandIn } from './backup-stand-in';
 import { backupStandIn } from './backup-stand-in';
 import type { ByteRequest, ByteResponse, ByteTransport } from './bytes';
 import { NetworkError } from './bytes';
 import { getValue, openDatabase, transact } from './idb';
 import type { AnyProfile, ProfileDoc } from './profile';
-import { PROFILE_VERSION, applyProfileEdit, emptyProfile, listSnapshots, noPlayerMemory, saveProfile, storedProfileDoc, updateProfile } from './profile';
+import { PROFILE_VERSION, applyProfileEdit, codeRestoreMayWrite, emptyProfile, listSnapshots, noPlayerMemory, saveProfile, storedProfileDoc, updateProfile } from './profile';
 import type { RpcPort } from './rpc';
 import { RpcClient, serveRpc } from './rpc';
 import { STORE } from './schema';
@@ -87,6 +87,8 @@ interface Options {
   api?: BackupStandIn;
   clock?: Clock;
   wrap?: (db: IDBDatabase) => IDBDatabase;
+  /** The bytes of a new backup code (default `codeBytes`). */
+  random?: () => Uint8Array;
 }
 
 function setup(options: Options = {}) {
@@ -133,7 +135,7 @@ function setup(options: Options = {}) {
       onProgress?.(1);
       return Promise.resolve(fakeMaster(secret, platform, appId));
     },
-    random: () => codeBytes(),
+    random: options.random ?? (() => codeBytes()),
     transport,
     clock: options.clock ?? { now: () => NOW, sleep: () => new Promise<void>(() => undefined) },
   });
@@ -1272,6 +1274,204 @@ describe('backupHandlers: the backup page (step 32d2a)', () => {
     expect(await client.call('restoreHeld', DEVICE)).toEqual({ state: 'restored', language: 'en', sources: 1 });
     expect(await client.call('setEnabled', { ...DEVICE, on: false })).toEqual({ state: 'off', deleted: true });
     expect(await client.call('setEnabled', { ...DEVICE, on: true })).toEqual({ state: 'on' });
+    client.close();
+  });
+});
+
+describe('BackupService.restoreCode: the backup code typed at a first start (step 32d3b)', () => {
+  /** The code as a person may type it: lower case, in groups, a dash. */
+  const TYPED = `${CODE_SECRET.slice(0, 4).toLowerCase()} ${CODE_SECRET.slice(4, 8)}-${CODE_SECRET.slice(8).toLowerCase()}`;
+  const typed = (code = TYPED): BackupCodeRequest => ({ platform: CODE.platform, appId: CODE.appId, base: BASE, code });
+  /** Another TV's code bytes: a wiped TV makes another code than the one typed. */
+  const otherBytes = (): Uint8Array => Uint8Array.from({ length: 16 }, (_, i) => (i * 7 + 11) & 255);
+  /** The answers onboarding saves before a source is added. */
+  const ANSWERED = docWith([], { onboarding: { language: 'en', disclaimerAt: 9, consent: false } });
+
+  /** A TV that sent `doc` under its backup code, then the same API seen from a wiped TV. */
+  async function wipedCodeTv(doc: ProfileDoc = DOC, options: Options = {}) {
+    const api = backupStandIn();
+    const before = setup({ api });
+    await save(before.factory, doc);
+    expect(await before.service.upload(CODE)).toEqual({ state: 'sent' });
+    return setup({ random: otherBytes, ...options, api });
+  }
+
+  it("restores the backup the typed code finds where there is no profile: the profile, the code as this TV's own, its master and what was sent", async () => {
+    const s = await wipedCodeTv();
+    expect(TYPED).not.toBe(CODE_SECRET);
+    expect(backupCodeText(otherBytes())).not.toBe(CODE_SECRET);
+    const progress: number[] = [];
+    expect(await s.service.restoreCode(typed(), (f) => progress.push(f))).toEqual({ state: 'restored', language: 'ar', sources: 2 });
+    expect(progress).toEqual([0.5, 1]);
+    expect(await record(s.factory)).toEqual({ id: 'current', savedAt: NOW, doc: DOC });
+    expect(await kv(s.factory, BACKUP_CODE_KEY)).toBe(CODE_SECRET);
+    expect(await kv(s.factory, BACKUP_MASTER_KEY)).toEqual(masterRecord(CODE));
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toEqual(sent(CODE, DOC));
+    expect(lean(s.api).slice(2)).toEqual(['GET code - 200']);
+    expect(s.derived).toEqual([CODE_SECRET]);
+    expect(s.counts()).toEqual({ opens: 1, closes: 1 });
+
+    // Settings shows the typed code, and the next upload uses its kept master: nothing to send.
+    expect(await s.service.status(CODE)).toEqual({ on: true, source: 'code', code: CODE_SECRET, sentAt: NOW, deleting: false });
+    expect(await s.service.upload(CODE)).toEqual({ state: 'same' });
+    expect(s.api.requests).toHaveLength(3);
+    expect(s.derived).toHaveLength(1);
+  });
+
+  it("restores over onboarding's sourceless profile with no snapshot, and clears every catalog and guide, keeping the config", async () => {
+    const s = await wipedCodeTv();
+    await save(s.factory, ANSWERED);
+    await fillCatalogs(s.factory);
+    await putKv(s.factory, 'config', { cached: true });
+    const snaps = await listSnapshots(await db(s.factory));
+    expect(await s.service.restoreCode(typed())).toEqual({ state: 'restored', language: 'ar', sources: 2 });
+    expect(await stored(s.factory)).toEqual(DOC);
+    expect(await listSnapshots(await db(s.factory))).toEqual(snaps);
+    expect(await catalogCounts(s.factory)).toEqual(EMPTY);
+    expect(await kv(s.factory, 'config')).toEqual({ cached: true });
+  });
+
+  it('keeps a profile with a source: no key derived, no request', async () => {
+    const s = await wipedCodeTv();
+    const mine = docWith([{ ...SOURCE, name: 'Mine' }]);
+    await save(s.factory, mine);
+    await fillCatalogs(s.factory);
+    expect(await s.service.restoreCode(typed())).toEqual({ state: 'kept' });
+    expect(s.derived).toEqual([]);
+    expect(s.api.requests).toHaveLength(2);
+    expect(await stored(s.factory)).toEqual(mine);
+    expect(await catalogCounts(s.factory)).toEqual(FILLED);
+    expect(await kv(s.factory, BACKUP_CODE_KEY)).toBeUndefined();
+  });
+
+  it.each([
+    ['a broken document', 'broken'],
+    ['one with no version', { sources: [] }],
+    ["a newer app's sourceless one", { v: PROFILE_VERSION + 1, sources: [] }],
+  ])('never writes over %s', async (_, doc) => {
+    const s = await wipedCodeTv();
+    await putRaw(s.factory, doc);
+    expect(await s.service.restoreCode(typed())).toEqual({ state: 'kept' });
+    expect(s.derived).toEqual([]);
+    expect(await stored(s.factory)).toEqual(doc);
+  });
+
+  it('may write where there is no profile, or one of this or an older version with no source yet', () => {
+    const cases: [unknown, boolean][] = [
+      [undefined, true],
+      [{ v: PROFILE_VERSION, sources: [] }, true],
+      [{ v: PROFILE_VERSION }, true],
+      [{ v: 1, onboarding: ANSWERS }, true],
+      [{ v: PROFILE_VERSION, sources: 's1' }, true],
+      [{ v: PROFILE_VERSION, sources: [SOURCE] }, false],
+      [{ v: 1, sources: [SOURCE] }, false],
+      [{ v: PROFILE_VERSION + 1 }, false],
+      [{ v: String(PROFILE_VERSION) }, false],
+      [{}, false],
+      [null, false],
+      ['broken', false],
+    ];
+    for (const [doc, may] of cases) expect([doc, codeRestoreMayWrite(doc)]).toEqual([doc, may]);
+  });
+
+  it('never writes over a source added while it looked', async () => {
+    const s = await wipedCodeTv();
+    await save(s.factory, ANSWERED);
+    const meanwhile = docWith([{ ...SOURCE, name: 'Added meanwhile' }]);
+    s.faults.push({ method: 'GET', before: () => save(s.factory, meanwhile) });
+    expect(await s.service.restoreCode(typed())).toEqual({ state: 'kept' });
+    expect(await stored(s.factory)).toEqual(meanwhile);
+    expect(await kv(s.factory, BACKUP_CODE_KEY)).toBeUndefined();
+    expect(await kv(s.factory, BACKUP_MASTER_KEY)).toBeUndefined();
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toBeUndefined();
+  });
+
+  it('finds nothing for a code with no backup, and keeps nothing derived', async () => {
+    const s = await wipedCodeTv();
+    await save(s.factory, ANSWERED);
+    const other = backupCodeText(otherBytes());
+    expect(await s.service.restoreCode(typed(other))).toEqual({ state: 'none' });
+    expect(lean(s.api).slice(2)).toEqual([`GET ${backupKeys(fakeMaster(other, CODE.platform, CODE.appId)).lookupId} - 404`]);
+    expect(s.derived).toEqual([other]);
+    expect(await stored(s.factory)).toEqual(ANSWERED);
+    expect(await kv(s.factory, BACKUP_CODE_KEY)).toBeUndefined();
+    expect(await kv(s.factory, BACKUP_MASTER_KEY)).toBeUndefined();
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toBeUndefined();
+  });
+
+  it.each([
+    ['unreadable', (api: BackupStandIn) => api.blobs.set(keysOf(CODE).lookupId, 'nonsense'), { state: 'unreadable' }],
+    ['from a newer app', (api: BackupStandIn) => putBackup(api, CODE, backupPlain(JSON.stringify({ ...DOC, v: PROFILE_VERSION + 1 }))), { state: 'newer' }],
+  ] as const)('answers a backup that is %s, and keeps nothing', async (_, put, answer) => {
+    const s = setup({ random: otherBytes });
+    await save(s.factory, ANSWERED);
+    await put(s.api);
+    expect(await s.service.restoreCode(typed())).toEqual(answer);
+    expect(await stored(s.factory)).toEqual(ANSWERED);
+    expect(await kv(s.factory, BACKUP_CODE_KEY)).toBeUndefined();
+    expect(await kv(s.factory, BACKUP_MASTER_KEY)).toBeUndefined();
+  });
+
+  it('fails with the request when the GET fails, and keeps nothing', async () => {
+    const s = await wipedCodeTv();
+    s.faults.push({ method: 'GET', answer: 500 });
+    expect(await s.service.restoreCode(typed())).toEqual({ state: 'failed', failure: 'status' });
+    expect(await stored(s.factory)).toBeUndefined();
+    expect(await kv(s.factory, BACKUP_CODE_KEY)).toBeUndefined();
+    expect(s.counts()).toEqual({ opens: 1, closes: 1 });
+  });
+
+  it('writes the profile and its records together, or none of them', async () => {
+    const s = await wipedCodeTv(DOC, { wrap: failing('readwrite') });
+    await expect(s.service.restoreCode(typed())).rejects.toMatchObject({ code: 'QuotaExceededError' });
+    expect(await stored(s.factory)).toBeUndefined();
+    expect(await kv(s.factory, BACKUP_CODE_KEY)).toBeUndefined();
+    expect(await kv(s.factory, BACKUP_MASTER_KEY)).toBeUndefined();
+    expect(s.counts()).toEqual({ opens: 1, closes: 1 });
+  });
+
+  it.each([
+    ['too short', typed(CODE_SECRET.slice(1))],
+    ['with a U', typed(`${CODE_SECRET.slice(0, 25)}U`)],
+    ['above 7 at the start', typed(`8${CODE_SECRET.slice(1)}`)],
+    ['not text', { ...typed(), code: 7 as unknown as string }],
+    ['without the platform', { ...typed(), platform: '' }],
+    ['without the app id', { ...typed(), appId: '' }],
+    ['with a base that is no origin', { ...typed(), base: 'ftp://api.test' }],
+  ])('refuses a code %s, before IndexedDB opens', async (_, request) => {
+    const s = setup();
+    await expect(s.service.restoreCode(request)).rejects.toThrow(TypeError);
+    expect(s.counts().opens).toBe(0);
+  });
+
+  it('serves restoreCode over RPC, with its progress in whole percents', async () => {
+    const before = setup();
+    await save(before.factory, DOC);
+    expect(await before.service.upload(CODE)).toEqual({ state: 'sent' });
+    const factory = freshFactory();
+    const { port1, port2 } = new MessageChannel();
+    ports.push(port1, port2);
+    serveRpc(
+      port1 as unknown as RpcPort,
+      backupHandlers({
+        openDb: async () => db(factory),
+        derive: (secret, platform, appId, onProgress) => {
+          onProgress?.(0.333);
+          onProgress?.(0.3349);
+          onProgress?.(1);
+          return Promise.resolve(fakeMaster(secret, platform, appId));
+        },
+        random: otherBytes,
+        transport: before.api.transport,
+        clock: { now: () => NOW, sleep: () => new Promise<void>(() => undefined) },
+      }),
+    );
+    const client = new RpcClient<ReturnType<typeof backupHandlers>, BackupEvents>(port2 as unknown as RpcPort);
+    const progress: number[] = [];
+    client.on('progress', (f) => progress.push(f));
+    expect(await client.call('restoreCode', typed())).toEqual({ state: 'restored', language: 'ar', sources: 2 });
+    expect(progress).toEqual([0.33, 1]);
+    expect(await stored(factory)).toEqual(DOC);
     client.close();
   });
 });

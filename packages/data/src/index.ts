@@ -208,6 +208,7 @@ export { feedResponse } from './file-feed';
 // The backup (RELAY steps 32b and 32c1): the backup worker's service, its plaintext, the API's client and its stand-in.
 export type {
   BackupCallRequest,
+  BackupCodeRequest,
   BackupEvents,
   BackupFailure,
   BackupPrepareRequest,

@@ -136,7 +136,7 @@ export function createPairClient(port: RpcPort & { onerror?: ((event: ErrorEvent
 }
 
 // The backup (RELAY steps 32b and 32c1): the requests and the answers; no key leaves the worker.
-export type { BackupCallRequest, BackupEvents, BackupFailure, BackupPrepareRequest, BackupPrepareResult, BackupRestoreResult, BackupSource, BackupStatus, BackupSwitchRequest, BackupSwitchResult, BackupUploadResult } from './backup-service';
+export type { BackupCallRequest, BackupCodeRequest, BackupEvents, BackupFailure, BackupPrepareRequest, BackupPrepareResult, BackupRestoreResult, BackupSource, BackupStatus, BackupSwitchRequest, BackupSwitchResult, BackupUploadResult } from './backup-service';
 
 /** The backup worker's RPC methods (backup.worker.ts, RELAY step 32b). */
 export type BackupHandlers = ReturnType<typeof backupHandlers>;
