@@ -150,7 +150,8 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'error.blocklisted': 'لا يمكن استخدام هذا الخادم مع لابلو.',
 
   'done.title': 'كل شيء جاهز',
-  'done.body': '{name} جاهز.',
+  // Passive, so it reads right whatever the name's gender (“قائمة من هاتفك”, the file's default, is feminine).
+  'done.body': 'تمت إضافة {name}.',
   'done.live': '{n, plural, zero {لا توجد قنوات} one {قناة واحدة} two {قناتان} few {# قنوات} many {# قناةً} other {# قناة}}',
   'done.movies': '{n, plural, zero {لا توجد أفلام} one {فيلم واحد} two {فيلمان} few {# أفلام} many {# فيلمًا} other {# فيلم}}',
   'done.series': '{n, plural, zero {لا توجد مسلسلات} one {مسلسل واحد} two {مسلسلان} few {# مسلسلات} many {# مسلسلًا} other {# مسلسل}}',

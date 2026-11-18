@@ -15,7 +15,11 @@
  *    side (right in English, left in Arabic), everything inside the title-safe area;
  * 3. the phone sends the playlist; the TV adds it (the payload opened in the pair worker, the
  *    form's checks, the engine loader) and onboarding's done screen follows; the phone reads
- *    `done` with `ok`; the profile holds the one source under the phone's name.
+ *    `done` with `ok`; the profile holds the one source under the phone's name. In English the
+ *    phone sends the playlist's link; in Arabic (step 31d2b2a) the playlist itself as an M3U
+ *    file, padded to three frames: the pair worker fetches and opens it frame by frame and hands
+ *    each frame to the ingest worker over one `MessageChannel`. The source is then `m3u-file`,
+ *    and the stand-in holds no file after the TV's status.
  * The code and done views are saved as screenshots. The database is deleted after the walks.
  *
  * The steps, the probe and the evaluation are unit-tested; `runPairing` drives a real engine.
@@ -43,7 +47,7 @@ import {
   stepStuck,
   untilConfigIdle,
 } from './onboarding';
-import { phoneSees, phoneSends } from './pair-phone';
+import { phonePadded, phoneSees, phoneSends, phoneSendsFile } from './pair-phone';
 import type { PairServer } from './pair-server';
 import type { RunOptions, TvPlatform } from './scenario';
 import { delay, pressKey, readProbe, waitForProbe, watchErrors } from './scenario';
@@ -65,7 +69,12 @@ export function pairingUrl(variant: string, platform: TvPlatform): string {
 /** The name the phone gives the source in each walk. */
 export const PHONE_NAMES: Readonly<Record<WalkLanguage, string>> = { en: 'Phone list', ar: 'قائمة الهاتف' };
 
-/** What the scripted phone sends: the fixture's playlist by its link (with its scheme), and a name. */
+/** How the phone sends the playlist in each walk (step 31d2b2a): its link in English, the file itself in Arabic. */
+export const PHONE_SENDS: Readonly<Record<WalkLanguage, 'link' | 'file'>> = { en: 'link', ar: 'file' };
+/** The Arabic walk's file: the staged playlist padded to this many frames, so more than one crosses the channel. */
+export const FILE_FRAMES = 3;
+
+/** What the scripted phone sends by link: the fixture's playlist (with its scheme), and a name. */
 export function phonePayload(check: Pick<DataCheck, 'file'>, language: WalkLanguage): PairPayload {
   return { v: 1, source: { type: 'm3u', url: `${FIXTURE_ORIGIN}/${check.file}` }, name: PHONE_NAMES[language] };
 }
@@ -256,6 +265,8 @@ export interface PairStepRecord {
 
 export interface PairWalk {
   readonly language: WalkLanguage;
+  /** How the phone sent the playlist (`PHONE_SENDS`). */
+  readonly sent: 'link' | 'file';
   readonly reset: string;
   readonly steps: readonly PairStepRecord[];
   /** The pair screen once its code showed (or what it showed instead). */
@@ -270,6 +281,12 @@ export interface PairWalk {
   readonly addMs: number | null;
   /** What the phone read at the end: the answer, an HTTP status, or why the read failed. */
   readonly progress: PairProgressResponse | number | string | null;
+  /**
+   * The files the stand-in still held for this walk's session once the phone read the end (null:
+   * not read). Its own only: the server lives through every engine, and an earlier walk that
+   * failed may have left its file.
+   */
+  readonly blobs: number | null;
   readonly profile: StoredProfile | null;
   readonly screenshots: readonly string[];
   readonly screenshotError: string | null;
@@ -288,6 +305,8 @@ export interface PairingOptions extends RunOptions {
   readonly loadTimeoutMs: number;
   readonly screenshot: ((language: WalkLanguage, view: 'code' | 'done') => string) | null;
   readonly save: (file: string, png: Buffer) => void;
+  /** The staged playlist's text (the plain one): what the phone sends as a file. */
+  readonly playlist: string;
 }
 
 /** The focus ring's transition (`--motion-fast`, 120 ms) ends before a screenshot. */
@@ -310,6 +329,15 @@ async function shoot(client: CdpClient, options: PairingOptions, language: WalkL
   }
 }
 
+/** The files the stand-in holds for the session of `code` (`pair/<sid>/…`). */
+export function heldFiles(server: Pick<PairServer, 'standIn'>, code: string): number {
+  const session = server.standIn.sessions.find((s) => s.code === code);
+  if (session === undefined) return 0;
+  let held = 0;
+  for (const key of server.standIn.blobs.keys()) if (key.startsWith(`pair/${session.sid}/`)) held += 1;
+  return held;
+}
+
 /** One walk in one language, from a fresh database, until a step doesn't land. */
 async function pairOnce(
   client: CdpClient,
@@ -330,8 +358,10 @@ async function pairOnce(
   let phoneError: string | null = null;
   let addMs: number | null = null;
   let progress: PairProgressResponse | number | string | null = null;
+  let blobs: number | null = null;
   let profile: StoredProfile | null = null;
-  const result = (): PairWalk => ({ language, reset, steps, pair, codeMs, session, phoneError, addMs, progress, profile, screenshots, screenshotError });
+  const sent = PHONE_SENDS[language];
+  const result = (): PairWalk => ({ language, sent, reset, steps, pair, codeMs, session, phoneError, addMs, progress, blobs, profile, screenshots, screenshotError });
   if (reset !== 'ok') return result();
 
   const timeouts = { boot: options.bootTimeoutMs, key: options.keyTimeoutMs, load: options.loadTimeoutMs };
@@ -344,7 +374,8 @@ async function pairOnce(
     }
     if (step.id === 'added') {
       try {
-        await phoneSends(server.origin, session!.code, phonePayload(check, language));
+        if (sent === 'file') await phoneSendsFile(server.origin, session!.code, phonePadded(options.playlist, FILE_FRAMES), { name: PHONE_NAMES[language] });
+        else await phoneSends(server.origin, session!.code, phonePayload(check, language));
       } catch (error) {
         phoneError = error instanceof Error ? error.message : String(error);
         break;
@@ -383,6 +414,7 @@ async function pairOnce(
         if (typeof progress === 'object' && progress.state === 'done') break;
         await delay(200);
       } while (Date.now() < deadline);
+      blobs = heldFiles(server, code);
       screenshotError ??= await shoot(client, options, language, 'done', screenshots);
       await readProbe<string>(client, PROFILE_EXPRESSION);
       profile = (await waitForProbe<StoredProfile>(client, PROFILE_RESULT, () => true, options.keyTimeoutMs)).state;
@@ -450,8 +482,9 @@ export function evaluatePairWalk(walk: PairWalk): string[] {
   if (typeof progress !== 'object' || progress === null || progress.state !== 'done' || progress.status !== 'ok') {
     failures.push(`the phone reads ${JSON.stringify(progress)}, expected done with ok`);
   }
+  if (walk.blobs !== null && walk.blobs > 0) failures.push(`the stand-in still holds ${walk.blobs} file${walk.blobs === 1 ? '' : 's'} after the TV's status`);
   const profile = walk.profile;
-  const want = `s1,m3u,${PHONE_NAMES[walk.language]}`;
+  const want = `s1,${walk.sent === 'file' ? 'm3u-file' : 'm3u'},${PHONE_NAMES[walk.language]}`;
   if (profile === null || profile.error !== undefined) failures.push(`the stored profile could not be read${profile?.error === undefined ? '' : `: ${profile.error}`}`);
   else {
     const sources = profile.sources === null ? 'no profile' : profile.sources.map((s) => s.join(',')).join('; ') || 'none';
@@ -483,9 +516,9 @@ export function evaluatePairing(run: PairingRun, engine: Pick<Engine, 'major'>):
   return failures;
 }
 
-/** `  en: code 1.2 s (QR v4), added 2.3 s; ar: …`. */
+/** `  en: code 1.2 s (QR v4), link added 2.3 s; ar: …`. */
 export function pairingSummary(run: PairingRun): string {
   const seconds = (ms: number | null): string => (ms === null ? '-' : `${(ms / 1000).toFixed(1)} s`);
-  const parts = run.walks.map((w) => `${w.language}: code ${seconds(w.codeMs)}${w.pair?.qr ? ` (QR v${w.pair.qr.version})` : ''}, added ${seconds(w.addMs)}`);
+  const parts = run.walks.map((w) => `${w.language}: code ${seconds(w.codeMs)}${w.pair?.qr ? ` (QR v${w.pair.qr.version})` : ''}, ${w.sent} added ${seconds(w.addMs)}`);
   return parts.length === 0 ? '' : `  ${parts.join('; ')}`;
 }
