@@ -98,8 +98,10 @@ are libraries, and the URL is ours). The real R2 and Upstash adapters (step 31 o
 narrow exception for their own file, with a test that proves it is that narrow.
 **The one exception so far (step 31b):** `apps/web/src/phone/api.ts`, the phone page's requests,
 runs in the phone's browser and may call `fetch` (`PHONE_API_RULES`: everything else in the block
-still holds there). It calls only relative `/v1/pair/` paths, and the page's content security
-policy (`connect-src 'self'`) holds the browser to its own origin.
+still holds there). It calls only relative `/v1/pair/` paths, plus the encrypted file's `PUT` to the
+presigned URL they answer (step 31d1: only one `presignedUrlSchema` takes, a `/dev/blob/` path on the
+same origin until R2), and the page's content security policy (`connect-src 'self'`) holds the
+browser to its own origin.
 `test/lint-web-outbound.test.ts` proves each form is rejected in `apps/web` and still allowed in the
 TV app, the mock, the tools and the tests.
 
@@ -114,11 +116,13 @@ exception in `NO_OUTBOUND_RULES`; until then only the fakes exist.
   phone PUTs the encrypted M3U file to R2 and the TV GETs it from there. Keys are the server's
   own: a lower-case prefix and one to three base64url segments (`pair/<sid>/<id>`).
 - **`MemoryBlobStore`:** in memory, so one process only: never in production. Its presigned
-  URLs point at `http://127.0.0.1:3100/dev/blob/<key>` (`LABLO_DEV_BLOB_URL` changes it; no
-  route answers them before step 31d) and carry an HMAC under a secret made at start;
-  `redeem(method, url, body?)` answers them as R2 would (403 for a changed, expired or
-  other-method URL, 400 for a PUT of another length, 404 for no object). `keys()` lists what it
-  holds (tests). The routes get one per process from `services()` (step 31a).
+  URLs are paths on the API's own origin, `/dev/blob/<key>?m=…&n=…&e=…&s=…` (step 31d1:
+  `DEV_BLOB_PATH`; the phone page and the TV resolve them against the address they reach the API
+  at), and carry an HMAC under a secret made at start; `redeem(method, url, body?)` answers them
+  as R2 would (403 for a changed, expired or other-method URL, 400 for a PUT of another length,
+  404 for no object), and the development route `/dev/blob/[...key]` serves them (below, "The M3U
+  file"). `keys()` lists what it holds (tests). The routes get one per process from `services()`
+  (step 31a).
 - **`RateLimiter`:** `limit(key, {limit, windowMs})` gives `{ok: true, remaining}` or
   `{ok: false, retryAfterMs}`; `retryAfterSeconds` makes the `Retry-After` header.
   `MemoryRateLimiter` keeps an exact sliding-window log in memory.
@@ -160,10 +164,8 @@ work is in `apps/web/src/server/pair.ts`; each route under `src/app/v1/pair/` is
 - **Environment** (both optional locally; Omar sets production's in step 34):
   - `LABLO_RATE_SECRET`: the secret the rate limiter hashes addresses under, at least 32
     characters. Without it each process makes a random one (fine for one process).
-  - `LABLO_DEV_BLOB_URL`: where the memory blob store's presigned URLs point (default
-    `http://127.0.0.1:3100/dev/blob`; a phone on the LAN needs this machine's address). No route
-    answers them before step 31d, and the upload answer's schema takes https only (R2's): 31d
-    decides how development passes.
+  - (`LABLO_DEV_BLOB_URL` is gone since step 31d1: the memory store's URLs are paths on the
+    API's own origin, so nothing needs setting for a phone on the LAN.)
   - On Vercel (`VERCEL` set) the routes answer 503 until step 34 adds the R2 and Upstash adapters:
     the memory fakes never run there.
 - **Try it:** `pnpm web:db`, then `pnpm --filter @lablo/web exec prisma migrate deploy` (the
@@ -171,6 +173,35 @@ work is in `apps/web/src/server/pair.ts`; each route under `src/app/v1/pair/` is
   TV and phone (`@lablo/crypto`'s `newBoxKeyPair`, `sealPairPayload`, `openPairPayload`) can then
   pair over HTTP on port 3100. `pnpm test:web` runs `apps/web/test/pair.web.test.ts`, including the
   "only ciphertext" check over every row and blob.
+
+## The M3U file (step 31d1)
+
+A phone can send an M3U file instead of a link (architecture.md §3.3 A, step 4, and "Built in step
+31d1"). The page encrypts it and uploads it straight to the blob store; the API only signs URLs.
+
+- **On the phone** (`src/phone/flows.ts`): the file is read one 1 MiB frame at a time
+  (`File.slice`), each frame sealed with `secretbox` under a fresh `fileKey` and nonce base
+  (`@lablo/crypto`'s `sealFileFrame`), the frames joined into one `Blob`; then `POST
+  /v1/pair/:code/upload-url {size}` (the encrypted length), the `PUT` to the URL it answers, and
+  the payload, whose source `{type: "m3u-file", file: {key, fileKey, base, size}}` is sealed to the
+  TV's key with the rest. The form takes files from 1 byte to 41,942,400 bytes (40 frames and
+  their tags make the 40 MiB the upload allows); a file left unnamed names the source after itself
+  (`Living room.m3u` → "Living room").
+- **The URLs:** R2's own (https) in production, from step 34; in development and tests, paths on
+  the API's origin (`/dev/blob/...`), which the upload and file answers' schema takes as exactly
+  that shape (no other host, no dots, nothing escaped). The page's `connect-src 'self'` covers them;
+  **step 34 adds R2's host to it**, and the R2 bucket needs a CORS rule allowing a `PUT` from the
+  page's origin and a `GET` from any.
+- **The development route** `src/app/dev/blob/[...key]/route.ts` (the work in
+  `src/server/dev-blob.ts`): `PUT` (the body read with a cap of the URL's own size) and `GET`
+  (`application/octet-stream`, `access-control-allow-origin: *`: the TV is another origin), both
+  through `MemoryBlobStore.redeem`, every answer `no-store`. It answers 404 on Vercel (`VERCEL`
+  set) and whenever the services' store isn't the memory one.
+- **On the TV** (step 31d2): `GET /v1/pair/s/:sid/file` gives the presigned GET; a relative one is
+  resolved against the API base.
+- **Try it:** as "The phone page" below; choose "M3U playlist file" and any `.m3u`. A scripted TV
+  then reads the file's URL from `GET /v1/pair/s/:sid/file`, downloads it and opens it with the
+  payload's `fileKey` and `base` (`openFile`); `apps/web/e2e/phone-file.spec.ts` does exactly that.
 
 ## The phone page (step 31b)
 
@@ -201,6 +232,7 @@ post and the progress poll.
   opens with its own secret key. Each test sends its own `x-forwarded-for` (Next's own server keeps
   a client's; Vercel's edge sets it), so the rate limits never meet across tests. Every request the
   page makes is checked against its origin. Screenshots: `artifacts/screenshots/phone-*.png`.
+  `phone-file.spec.ts` (step 31d1) sends a file of three frames and opens what the store holds.
 
 ## The TV's pairing against the API (step 31c3)
 

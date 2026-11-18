@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import config, { PHONE_CSP, pageHeaders } from '../next.config';
 import type { Message, MessageKey } from '../src/phone/catalog';
-import { AR, CATALOGS, EN, FSI, PDI, t } from '../src/phone/catalog';
+import { AR, CATALOGS, EN, fileSize, FSI, PDI, t } from '../src/phone/catalog';
+import { FILE_MAX_BYTES } from '../src/phone/form';
 import { dirOf, fromAcceptLanguage, isLang, LANGS, pickLang } from '../src/phone/lang';
 
 /** The phone page's languages, catalog and headers (RELAY step 31b). */
@@ -63,6 +64,24 @@ describe('the catalog', () => {
     ['ar', 0, 'محاولات كثيرة جدًا. حاول مرة أخرى بعد قليل.'],
   ] as const)('%s, %i minutes: the plural form', (lang, n, text) => {
     expect(t(lang, 'error.limited', { n })).toBe(text);
+  });
+
+  it.each([
+    ['en', 0, '0 KB'],
+    ['en', 1, '1 KB'],
+    ['en', 1024, '1 KB'],
+    ['en', 1025, '2 KB'],
+    ['en', 1048575, '1024 KB'],
+    ['en', 1048576, '1 MB'],
+    ['en', 2621440, '2.5 MB'],
+    ['en', 2673869, '2.6 MB'],
+    ['en', 2642412, '2.5 MB'],
+    ['en', FILE_MAX_BYTES, '40 MB'],
+    ['ar', 2621440, '2.5 ميغابايت'],
+    ['ar', 3000, '3 كيلوبايت'],
+  ] as const)('%s: %i bytes are %s (RELAY step 31d1)', (lang, bytes, text) => {
+    expect(fileSize(lang, bytes).replace(FSI, '').replace(PDI, '')).toBe(text);
+    expect(fileSize(lang, bytes).startsWith(FSI)).toBe(true);
   });
 });
 

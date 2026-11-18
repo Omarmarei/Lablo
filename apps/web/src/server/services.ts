@@ -21,9 +21,6 @@ export interface Services {
 
 type Env = Readonly<Record<string, string | undefined>>;
 
-/** Where the memory store's presigned URLs point by default (`next dev` / `next start` on 3100). */
-export const DEV_BLOB_URL = 'http://127.0.0.1:3100/dev/blob';
-
 /** `LABLO_RATE_SECRET` when set (at least 32 characters), else a random one for this process. */
 export function rateSecretFrom(env: Env): string {
   const secret = env.LABLO_RATE_SECRET;
@@ -38,7 +35,8 @@ export function createServices(env: Env): Services {
     throw new Error('no production blob store or rate limiter yet (RELAY step 34)');
   }
   return {
-    blobs: new MemoryBlobStore({ baseUrl: env.LABLO_DEV_BLOB_URL ?? DEV_BLOB_URL }),
+    // Its URLs are paths on this origin (`DEV_BLOB_PATH`, RELAY step 31d1): no address to set.
+    blobs: new MemoryBlobStore(),
     limiter: new MemoryRateLimiter(),
     rateSecret: rateSecretFrom(env),
   };

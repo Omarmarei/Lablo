@@ -1,6 +1,7 @@
 import type { PairProgressResponse } from '@lablo/protocol';
 import { describe, expect, it } from 'vitest';
 import type { ApiResult } from '../src/phone/api';
+import type { PickedFile } from '../src/phone/form';
 import { EMPTY_VALUES } from '../src/phone/form';
 import type { PageEvent, PageState, View } from '../src/phone/state';
 import { CODE_VIEW, initialState, reduce } from '../src/phone/state';
@@ -22,10 +23,12 @@ const sending = run(filled, { type: 'send' });
 const ok = <const T,>(value: T): ApiResult<T> => ({ ok: true, value });
 const fail = (error: 'gone' | 'conflict' | 'network'): ApiResult<never> => ({ ok: false, error });
 const limited: ApiResult<never> = { ok: false, error: 'limited', retryAfterS: 90 };
+const FILE: PickedFile = { name: 'list.m3u', size: 10, read: () => Promise.resolve(new Uint8Array(10)) };
+const OTHER_FILE: PickedFile = { name: 'other.m3u', size: 20, read: () => Promise.resolve(new Uint8Array(20)) };
 
 describe('the start', () => {
   it('waits for the page to read its address', () => {
-    expect(start).toEqual({ lang: 'en', view: { kind: 'starting' }, type: 'xtream', values: EMPTY_VALUES, problems: {}, showProblems: false });
+    expect(start).toEqual({ lang: 'en', view: { kind: 'starting' }, type: 'xtream', values: EMPTY_VALUES, file: null, problems: {}, showProblems: false });
     expect(reduce(start, { type: 'start' }).view).toEqual(CODE_VIEW);
     expect(reduce(start, { type: 'qr', target: TARGET }).view).toEqual({ kind: 'checking', target: TARGET });
   });
@@ -38,7 +41,7 @@ describe('the start', () => {
   });
 
   it('ignores the form, the send and "again" before a view shows', () => {
-    for (const event of [{ type: 'again', keep: false }, { type: 'send' }, { type: 'field', key: 'name', value: 'x' }, { type: 'codeSubmit' }] as PageEvent[]) {
+    for (const event of [{ type: 'again', keep: false }, { type: 'send' }, { type: 'field', key: 'name', value: 'x' }, { type: 'codeSubmit' }, { type: 'pickFile', file: FILE }] as PageEvent[]) {
       expect(reduce(start, event)).toBe(start);
     }
   });
@@ -147,7 +150,7 @@ describe('the form', () => {
   it('sends a good form: busy, the problems gone, the fields held', () => {
     expect(sending.view).toEqual({ kind: 'form', target: TARGET, busy: true, error: null, retryAfterS: 0 });
     expect(sending.showProblems).toBe(false);
-    for (const event of [{ type: 'send' }, { type: 'field', key: 'name', value: 'x' }, { type: 'epg', index: 0, value: 'x' }, { type: 'addEpg' }, { type: 'removeEpg', index: 0 }, { type: 'sourceType', sourceType: 'm3u' }, { type: 'again', keep: true }] as PageEvent[]) {
+    for (const event of [{ type: 'send' }, { type: 'field', key: 'name', value: 'x' }, { type: 'epg', index: 0, value: 'x' }, { type: 'addEpg' }, { type: 'removeEpg', index: 0 }, { type: 'sourceType', sourceType: 'm3u' }, { type: 'again', keep: true }, { type: 'pickFile', file: FILE }] as PageEvent[]) {
       expect(reduce(sending, event)).toBe(sending);
     }
   });
@@ -158,6 +161,48 @@ describe('the form', () => {
     expect(fixed.problems).toEqual({});
     expect(fixed.showProblems).toBe(false);
     expect(fixed.view).toMatchObject({ kind: 'form', busy: true });
+  });
+});
+
+describe('the file (RELAY step 31d1)', () => {
+  const fileForm = run(formState, { type: 'sourceType', sourceType: 'file' });
+
+  it('is chosen on the form, and a second choice replaces the first', () => {
+    const chosen = reduce(fileForm, { type: 'pickFile', file: FILE });
+    expect(chosen).toEqual({ ...fileForm, file: FILE });
+    expect(reduce(chosen, { type: 'pickFile', file: OTHER_FILE }).file).toBe(OTHER_FILE);
+    // Kept when another type is picked, and there when it comes back.
+    expect(run(chosen, { type: 'sourceType', sourceType: 'm3u' }, { type: 'sourceType', sourceType: 'file' }).file).toBe(FILE);
+  });
+
+  it('shows its problems on a send, and keeps them current', () => {
+    const refused = reduce(fileForm, { type: 'send' });
+    expect(refused).toMatchObject({ showProblems: true, problems: { file: 'noFile' }, view: { busy: false } });
+    const empty: PickedFile = { name: 'empty.m3u', size: 0, read: () => Promise.resolve(new Uint8Array(0)) };
+    expect(reduce(refused, { type: 'pickFile', file: empty }).problems).toEqual({ file: 'empty' });
+    expect(reduce(refused, { type: 'pickFile', file: FILE }).problems).toEqual({});
+    expect(run(fileForm, { type: 'pickFile', file: FILE }, { type: 'send' })).toMatchObject({ problems: {}, view: { busy: true } });
+  });
+
+  it('is held while sending', () => {
+    const busy = run(fileForm, { type: 'pickFile', file: FILE }, { type: 'send' });
+    expect(reduce(busy, { type: 'pickFile', file: OTHER_FILE })).toBe(busy);
+  });
+
+  it('has to be chosen again when it couldn’t be read', () => {
+    const busy = run(fileForm, { type: 'pickFile', file: FILE }, { type: 'send' });
+    const unreadable = reduce(busy, { type: 'fileUnreadable', code: TARGET.code });
+    expect(unreadable).toEqual({ ...busy, file: null, problems: { file: 'unreadable' }, showProblems: true, view: { ...busy.view, busy: false } });
+    // Another code's, or one with nothing being sent: nothing changes.
+    expect(reduce(busy, { type: 'fileUnreadable', code: OTHER.code })).toBe(busy);
+    expect(reduce(fileForm, { type: 'fileUnreadable', code: TARGET.code })).toBe(fileForm);
+    expect(reduce(unreadable, { type: 'pickFile', file: FILE }).problems).toEqual({});
+  });
+
+  it('stays to send again, and goes with "Add another source"', () => {
+    const sent = run(fileForm, { type: 'pickFile', file: FILE }, { type: 'send' }, { type: 'sendAnswer', code: TARGET.code, result: ok({ state: 'done', status: 'unreachable' }) });
+    expect(reduce(sent, { type: 'again', keep: true }).file).toBe(FILE);
+    expect(reduce(sent, { type: 'again', keep: false }).file).toBeNull();
   });
 });
 

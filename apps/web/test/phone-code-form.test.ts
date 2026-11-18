@@ -1,9 +1,9 @@
-import { boxKeyPairFromSecretKey, toBase64Url } from '@lablo/crypto';
-import { pairPayloadSchema } from '@lablo/protocol';
+import { boxKeyPairFromSecretKey, fileCipherLength, toBase64Url } from '@lablo/crypto';
+import { PAIR_FILE_MAX_BYTES, pairPayloadSchema } from '@lablo/protocol';
 import { describe, expect, it } from 'vitest';
 import { groupCode, normalizeCode, readFragment } from '../src/phone/code';
 import type { FormValues } from '../src/phone/form';
-import { checkForm, EMPTY_VALUES, firstProblem, normalizeLink, REQUIRED } from '../src/phone/form';
+import { checkForm, EMPTY_VALUES, FILE_MAX_BYTES, fileProblem, firstProblem, nameFromFile, normalizeLink, REQUIRED, withFile } from '../src/phone/form';
 
 /** The phone page's typed code, QR fragment and forms (RELAY step 31b). */
 
@@ -99,7 +99,7 @@ describe('checkForm', () => {
     expect(checkForm('xtream', EMPTY_VALUES)).toEqual({ problems: { server: 'required', username: 'required', password: 'required' }, payload: null });
     expect(checkForm('xtream', { ...XTREAM, username: '   ' }).problems).toEqual({ username: 'required' });
     expect(checkForm('m3u', EMPTY_VALUES)).toEqual({ problems: { playlist: 'required' }, payload: null });
-    expect(REQUIRED).toEqual({ xtream: ['server', 'username', 'password'], m3u: ['playlist'] });
+    expect(REQUIRED).toEqual({ xtream: ['server', 'username', 'password'], m3u: ['playlist'], file: [] });
   });
 
   it('names a link’s problem: spaces, or not an http(s) address', () => {
@@ -134,9 +134,72 @@ describe('checkForm', () => {
   });
 });
 
+describe('the file form (RELAY step 31d1)', () => {
+  const FILE = { name: 'Living room.M3U8', size: 2_500_000 };
+  const PENDING = { key: 'A'.repeat(22), fileKey: 'A'.repeat(43), base: 'A'.repeat(32) };
+
+  it('checks the payload with the file’s size, its keys left to the upload', () => {
+    const checked = checkForm('file', { ...EMPTY_VALUES, epg: ['epg.example/a.xml'] }, FILE);
+    expect(checked).toEqual({ problems: {}, payload: { v: 1, source: { type: 'm3u-file', file: { ...PENDING, size: 2_500_000 } }, name: 'Living room', epg: ['http://epg.example/a.xml'] } });
+    // The other types' fields don't count.
+    expect(checkForm('file', { ...XTREAM, playlist: 'not a link' }, FILE).problems).toEqual({});
+    // And the other types never look at a file.
+    expect(checkForm('m3u', { ...EMPTY_VALUES, playlist: 'a.example' }, null).problems).toEqual({});
+  });
+
+  it('refuses no file, an empty file and one too large, on its field', () => {
+    expect(checkForm('file', EMPTY_VALUES)).toEqual({ problems: { file: 'noFile' }, payload: null });
+    expect(checkForm('file', EMPTY_VALUES, { name: 'a.m3u', size: 0 })).toEqual({ problems: { file: 'empty' }, payload: null });
+    expect(checkForm('file', EMPTY_VALUES, { name: 'a.m3u', size: FILE_MAX_BYTES + 1 })).toEqual({ problems: { file: 'large' }, payload: null });
+    expect(checkForm('file', { ...EMPTY_VALUES, epg: ['bad link'] }, { name: 'a.m3u', size: 0 }).problems).toEqual({ file: 'empty', epg0: 'spaces' });
+    expect(checkForm('file', EMPTY_VALUES, { name: 'a.m3u', size: FILE_MAX_BYTES }).problems).toEqual({});
+    expect(checkForm('file', EMPTY_VALUES, { name: 'a.m3u', size: 1 }).problems).toEqual({});
+  });
+
+  it('takes the largest file whose frames fit the upload limit', () => {
+    expect(fileCipherLength(FILE_MAX_BYTES)).toBe(PAIR_FILE_MAX_BYTES);
+    expect(fileCipherLength(FILE_MAX_BYTES + 1)).toBeGreaterThan(PAIR_FILE_MAX_BYTES);
+    expect([fileProblem(null), fileProblem({ name: '', size: 0 }), fileProblem({ name: '', size: FILE_MAX_BYTES }), fileProblem({ name: '', size: FILE_MAX_BYTES + 1 })]).toEqual(['noFile', 'empty', null, 'large']);
+  });
+
+  it('names the source after the file unless a name was typed', () => {
+    expect(checkForm('file', { ...EMPTY_VALUES, name: '  Salon ' }, FILE).payload?.name).toBe('Salon');
+    expect(checkForm('file', EMPTY_VALUES, { name: '.m3u', size: 5 }).payload).not.toHaveProperty('name');
+    expect(checkForm('m3u', { ...EMPTY_VALUES, playlist: 'a.example' }, FILE).payload).not.toHaveProperty('name');
+  });
+
+  it.each([
+    ['Living room.M3U8', 'Living room'],
+    ['list.m3u', 'list'],
+    ['list.m3u8.txt', 'list.m3u8.txt'],
+    ['  spaced .m3u ', 'spaced .m3u'],
+    ['  spaced .m3u', 'spaced'],
+    ['.m3u8', ''],
+    ['m3u', 'm3u'],
+    [`${'n'.repeat(85)}.m3u`, 'n'.repeat(80)],
+    [`     ${'n'.repeat(80)}.m3u`, 'n'.repeat(80)],
+    // A cut in the middle of a pair drops its first half.
+    [`${'n'.repeat(79)}${String.fromCodePoint(0x1f4fa)}.m3u`, 'n'.repeat(79)],
+    [`${'n'.repeat(78)}${String.fromCodePoint(0x1f4fa)}.m3u`, `${'n'.repeat(78)}${String.fromCodePoint(0x1f4fa)}`],
+    // Spaces left before the cut go too.
+    [`a${' '.repeat(78)}${String.fromCodePoint(0x1f4fa)}.m3u`, 'a'],
+  ])('names %j %j', (file, name) => {
+    expect(nameFromFile(file)).toBe(name);
+  });
+
+  it('puts the upload’s keys in the payload, through the schema', () => {
+    const checked = checkForm('file', EMPTY_VALUES, FILE).payload!;
+    const file = { key: 'k'.repeat(21) + 'w', fileKey: 'f'.repeat(42) + 'E', base: 'b'.repeat(32), size: 2_500_000 };
+    expect(withFile(checked, file)).toEqual({ ...checked, source: { type: 'm3u-file', file } });
+    expect(() => withFile(checked, { ...file, fileKey: 'short' })).toThrow();
+  });
+});
+
 describe('firstProblem', () => {
   it('goes in screen order: the type’s fields, the guide links, the name', () => {
     const values: FormValues = { ...EMPTY_VALUES, epg: ['', ''] };
+    expect(firstProblem('file', values, { name: 'long', epg0: 'url', file: 'empty' })).toBe('file');
+    expect(firstProblem('file', values, { name: 'long', server: 'required' })).toBe('name');
     expect(firstProblem('xtream', values, { name: 'long', epg1: 'url', password: 'required' })).toBe('password');
     expect(firstProblem('xtream', values, { name: 'long', epg1: 'url' })).toBe('epg1');
     expect(firstProblem('m3u', values, { name: 'long' })).toBe('name');

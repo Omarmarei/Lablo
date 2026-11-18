@@ -1,10 +1,11 @@
 'use client';
 
 /**
- * The phone page `/p` (RELAY step 31b, architecture.md §3.3 A, steps 2–4): a code from the TV's QR
- * link or typed, an Xtream login or an M3U link, sealed in this browser to the TV's key and posted;
- * then how far it got, until the TV's status. The state is `state.ts`'s reducer; the requests are
- * `flows.ts`'s and `progress.ts`'s. Every text comes from `catalog.ts`.
+ * The phone page `/p` (RELAY steps 31b and 31d1, architecture.md §3.3 A, steps 2–4): a code from
+ * the TV's QR link or typed, an Xtream login, an M3U link or an M3U file, sealed in this browser to
+ * the TV's key (a file encrypted and uploaded first) and posted; then how far it got, until the
+ * TV's status. The state is `state.ts`'s reducer; the requests are `flows.ts`'s and
+ * `progress.ts`'s. Every text comes from `catalog.ts`.
  */
 import type { PairStatus } from '@lablo/protocol';
 import { PAIR_EPG_MAX } from '@lablo/protocol';
@@ -13,11 +14,11 @@ import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { PhoneApi } from './api';
 import { createApi } from './api';
 import type { MessageKey, Params } from './catalog';
-import { t as translate } from './catalog';
+import { fileSize, t as translate } from './catalog';
 import { groupCode, readFragment } from './code';
-import { send, startQr, submitCode } from './flows';
+import { pickedFile, send, startQr, submitCode } from './flows';
 import type { FieldKey, FieldProblem, SourceType } from './form';
-import { firstProblem } from './form';
+import { FILE_MAX_BYTES, firstProblem } from './form';
 import type { Lang } from './lang';
 import { dirOf } from './lang';
 import { pollProgress } from './progress';
@@ -220,6 +221,10 @@ const PROBLEM_TEXT: Readonly<Record<FieldProblem, MessageKey>> = {
   url: 'field.url',
   spaces: 'field.spaces',
   long: 'field.long',
+  noFile: 'field.noFile',
+  empty: 'field.fileEmpty',
+  large: 'field.fileLarge',
+  unreadable: 'field.fileUnreadable',
 };
 
 const LINK_PARAMS: Params = { http: 'http://', https: 'https://' };
@@ -227,9 +232,10 @@ const LINK_PARAMS: Params = { http: 'http://', https: 'https://' };
 function FormView({ state, view, t, deps, heading }: ViewProps<'form'>): ReactNode {
   const { values, problems, showProblems } = state;
   const busy = view.busy;
+  const maxSize = fileSize(state.lang, FILE_MAX_BYTES);
   const problemText = (key: FieldKey): string | null => {
     const problem = problems[key];
-    return problem === undefined ? null : t(PROBLEM_TEXT[problem], LINK_PARAMS);
+    return problem === undefined ? null : t(PROBLEM_TEXT[problem], { ...LINK_PARAMS, max: maxSize });
   };
 
   const field = (key: TextField, label: MessageKey, options: { hint?: string; type?: string; dir?: 'ltr' | 'auto'; maxLength: number; autoComplete?: string }): ReactNode => {
@@ -301,6 +307,7 @@ function FormView({ state, view, t, deps, heading }: ViewProps<'form'>): ReactNo
           <legend className="phone__label">{t('form.type')}</legend>
           {typeOption('xtream', t('type.xtream', { name: 'Xtream' }))}
           {typeOption('m3u', t('type.m3u', { format: 'M3U' }))}
+          {typeOption('file', t('type.file', { format: 'M3U' }))}
         </fieldset>
 
         {state.type === 'xtream' ? (
@@ -309,8 +316,10 @@ function FormView({ state, view, t, deps, heading }: ViewProps<'form'>): ReactNo
             {field('username', 'field.username', { dir: 'auto', maxLength: 256 })}
             <PasswordField state={state} busy={busy} t={t} deps={deps} problem={problemText('password')} />
           </>
-        ) : (
+        ) : state.type === 'm3u' ? (
           field('playlist', 'field.playlist', { hint: t('field.linkHint', LINK_PARAMS), type: 'url', maxLength: 2048 })
+        ) : (
+          <FileField state={state} busy={busy} t={t} deps={deps} problem={problemText('file')} maxSize={maxSize} />
         )}
 
         <div className="phone__group" data-testid="epg">
@@ -377,10 +386,58 @@ function FormView({ state, view, t, deps, heading }: ViewProps<'form'>): ReactNo
           </p>
         )}
         <button type="submit" className="phone__button" disabled={busy} data-testid="send">
-          {busy ? t('form.sending') : t('form.send')}
+          {busy ? t(state.type === 'file' ? 'form.sendingFile' : 'form.sending') : t('form.send')}
         </button>
       </form>
     </section>
+  );
+}
+
+/**
+ * The M3U file (step 31d1). The input stays in the page, focusable but unseen (a browser's own
+ * "No file chosen" is in the browser's language, not the page's); its label is the button, and the
+ * chosen file's name and size show under it. The input is emptied after each pick, so choosing
+ * the same file again (after it couldn't be read) is a change too.
+ */
+function FileField({ state, busy, t, deps, problem, maxSize }: { state: PageState; busy: boolean; t: T; deps: Deps; problem: string | null; maxSize: string }): ReactNode {
+  const file = state.file;
+  const described = [file === null ? null : 'file-chosen', 'file-hint', problem === null ? null : 'file-problem'].filter((id) => id !== null).join(' ');
+  return (
+    <div className="phone__field phone__field--file" data-field="file">
+      <span id="file-label" className="phone__label">
+        {t('field.file')}
+      </span>
+      <input
+        id="file"
+        type="file"
+        className="phone__file-input"
+        disabled={busy}
+        aria-labelledby="file-label file-button"
+        aria-describedby={described}
+        aria-invalid={problem === null ? undefined : true}
+        onChange={(event) => {
+          const chosen = event.target.files?.[0];
+          if (chosen !== undefined) deps.dispatch({ type: 'pickFile', file: pickedFile(chosen) });
+          event.target.value = '';
+        }}
+      />
+      <label id="file-button" htmlFor="file" className="phone__file-button">
+        {file === null ? t('field.fileChoose') : t('field.fileChange')}
+      </label>
+      {file === null ? null : (
+        <p id="file-chosen" className="phone__file-chosen" data-testid="file-chosen">
+          {t('field.fileChosen', { name: file.name, size: fileSize(state.lang, file.size) })}
+        </p>
+      )}
+      <p id="file-hint" className="phone__hint">
+        {t('field.fileHint', { format: 'M3U', max: maxSize })}
+      </p>
+      {problem === null ? null : (
+        <p id="file-problem" className="phone__problem">
+          {problem}
+        </p>
+      )}
+    </div>
   );
 }
 

@@ -117,8 +117,8 @@ describe('MemoryBlobStore', () => {
     expect(await blobs.redeem('PUT', empty.url, new Uint8Array(0))).toEqual({ status: 200 });
   });
 
-  it('points its URLs at a development route by default', async () => {
+  it('points its URLs at the development route on the API’s own origin by default (RELAY step 31d1)', async () => {
     const put = await new MemoryBlobStore().presignPut(KEY, 1, 60_000);
-    expect(put.url.startsWith('http://127.0.0.1:3100/dev/blob/pair/')).toBe(true);
+    expect(put.url.startsWith('/dev/blob/pair/')).toBe(true);
   });
 });

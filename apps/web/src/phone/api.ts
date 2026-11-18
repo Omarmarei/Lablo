@@ -1,14 +1,16 @@
 /**
- * The phone page's three requests (RELAY step 31b), all to the page's own origin: relative
- * `/v1/pair/` paths, no redirects followed, no referrer, nothing cached. This is the one `apps/web`
- * file allowed `fetch` (eslint.config.js, "the phone page's requests"); the page's
- * `Content-Security-Policy` (`connect-src 'self'`) holds the browser to the same origin.
+ * The phone page's requests (RELAY steps 31b and 31d1), all to the page's own origin: relative
+ * `/v1/pair/` paths, no redirects followed, no referrer, nothing cached; and the encrypted file's
+ * upload, to the presigned URL the server gave (a `/dev/blob/` path on this origin in development
+ * and tests; R2's https URL in production, whose host step 34 adds to the page's `connect-src`).
+ * This is the one `apps/web` file allowed `fetch` (eslint.config.js, "the phone page's requests");
+ * the page's `Content-Security-Policy` (`connect-src 'self'`) holds the browser to the same origin.
  *
  * Every answer is read with the protocol's schema; anything unexpected counts as no answer.
  */
 import type { SealedPayload } from '@lablo/crypto';
-import type { PairProgressResponse, PairTvKeyResponse } from '@lablo/protocol';
-import { pairCode, pairProgressResponseSchema, pairTvKeyResponseSchema } from '@lablo/protocol';
+import type { PairProgressResponse, PairTvKeyResponse, PairUploadResponse } from '@lablo/protocol';
+import { pairCode, pairProgressResponseSchema, pairTvKeyResponseSchema, pairUploadResponseSchema, presignedUrlSchema } from '@lablo/protocol';
 
 /** What went wrong: the code is unknown or ended (404), already used (409), too many tries (429), or no usable answer. */
 export type ApiFailure =
@@ -24,9 +26,13 @@ export interface PhoneApi {
   send(code: string, sealed: SealedPayload): Promise<ApiResult<PairProgressResponse>>;
   /** `GET /v1/pair/:code/status`: how far the payload got. */
   progress(code: string): Promise<ApiResult<PairProgressResponse>>;
+  /** `POST /v1/pair/:code/upload-url`: a presigned PUT of the encrypted file's exact `size`, before the payload. */
+  uploadUrl(code: string, size: number): Promise<ApiResult<PairUploadResponse>>;
+  /** The encrypted file, PUT to `uploadUrl`'s URL. Any answer but a 2xx is `network`: sending again asks for a new URL. */
+  upload(url: string, body: Blob): Promise<ApiResult<null>>;
 }
 
-/** `fetch`, narrowed to what the page uses: a relative path on its own origin. */
+/** `fetch`, narrowed to what the page uses: a relative path on its own origin, or the upload's presigned URL. */
 export type Fetcher = (path: string, init: RequestInit) => Promise<Response>;
 
 /** When a 429 carries no usable `Retry-After`: the limiter's window. */
@@ -48,14 +54,14 @@ function codePath(code: string, rest = ''): string {
   return `/v1/pair/${code}${rest}`;
 }
 
+/** What every request of the page sets: nothing cached, no cookies, no redirect followed, no referrer. */
+const PRIVATE: RequestInit = { cache: 'no-store', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer' };
+
 export function createApi(fetcher: Fetcher = (path, init) => fetch(path, init)): PhoneApi {
-  async function call<T>(path: string, schema: Schema<T>, body?: SealedPayload): Promise<ApiResult<T>> {
+  async function call<T>(path: string, schema: Schema<T>, body?: SealedPayload | { readonly size: number }): Promise<ApiResult<T>> {
     const init: RequestInit = {
       method: body === undefined ? 'GET' : 'POST',
-      cache: 'no-store',
-      credentials: 'omit',
-      redirect: 'error',
-      referrerPolicy: 'no-referrer',
+      ...PRIVATE,
       ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
     };
     let response: Response;
@@ -78,9 +84,24 @@ export function createApi(fetcher: Fetcher = (path, init) => fetch(path, init)):
     return parsed.success ? { ok: true, value: parsed.data } : { ok: false, error: 'network' };
   }
 
+  async function put(url: string, body: Blob): Promise<ApiResult<null>> {
+    try {
+      const response = await fetcher(url, { method: 'PUT', ...PRIVATE, body });
+      return response.ok ? { ok: true, value: null } : { ok: false, error: 'network' };
+    } catch {
+      return { ok: false, error: 'network' };
+    }
+  }
+
   return {
     tvKey: (code) => call(codePath(code), pairTvKeyResponseSchema),
     send: (code, sealed) => call(codePath(code, '/payload'), pairProgressResponseSchema, sealed),
     progress: (code) => call(codePath(code, '/status'), pairProgressResponseSchema),
+    uploadUrl: (code, size) => call(codePath(code, '/upload-url'), pairUploadResponseSchema, { size }),
+    upload: (url, body) => {
+      // Only a URL the upload answer's schema takes: never anything else the page could be handed.
+      if (!presignedUrlSchema.safeParse(url).success) throw new RangeError('not a presigned upload URL');
+      return put(url, body);
+    },
   };
 }

@@ -50,9 +50,17 @@ export const pairUploadRequestSchema = z.object({
 });
 export type PairUploadRequest = z.infer<typeof pairUploadRequestSchema>;
 
-/** A presigned URL for the session's file: R2's own, always https. */
+/**
+ * A presigned URL for the session's file: R2's own, always https; or, in development and tests,
+ * the memory store's path on the API's own origin (RELAY step 31d1), which the phone page and the
+ * TV resolve against the API's address. The path's characters are the blob key's and the query's
+ * only: no dots, nothing to unescape, and it can't start like `//host`. The route answers 404 on
+ * Vercel.
+ */
+export const presignedUrlSchema = z.string().check(z.maxLength(4096), z.regex(/^(?:https:\/\/\S+|\/dev\/blob\/[A-Za-z0-9_-][A-Za-z0-9_/-]*\?[A-Za-z0-9_=&-]+)$/));
+
 const presignedFile = {
-  url: z.string().check(z.maxLength(4096), z.regex(/^https:\/\/\S+$/)),
+  url: presignedUrlSchema,
   key: bytes16,
   exp: epochMs,
 };

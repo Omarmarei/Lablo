@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { pairCode, pairCreateRequestSchema } from '@lablo/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isBlobKey, MemoryBlobStore } from '../src/server/blob-store';
+import { DEV_BLOB_PATH, isBlobKey, MemoryBlobStore } from '../src/server/blob-store';
 import { apiError, bearerToken, clientIp, json, preflight, PREFLIGHT_MAX_AGE_S, readBody, readJsonBody, TV_CORS } from '../src/server/http';
 import type { PairDeps } from '../src/server/pair';
 import {
@@ -18,7 +18,7 @@ import {
   pairRoute,
 } from '../src/server/pair';
 import { MemoryRateLimiter } from '../src/server/rate-limit';
-import { createServices, DEV_BLOB_URL, rateSecretFrom, resetServices, services } from '../src/server/services';
+import { createServices, rateSecretFrom, resetServices, services } from '../src/server/services';
 
 /** The pairing API's parts that need no database (RELAY step 31a); the routes are in pair.web.test.ts. */
 
@@ -193,15 +193,16 @@ describe('the services', () => {
     expect(a).not.toBe(b);
   });
 
-  it('are the memory fakes, pointed at the development blob route or LABLO_DEV_BLOB_URL', async () => {
+  it("are the memory fakes, their URLs paths on the API's own origin (RELAY step 31d1)", async () => {
     const made = createServices({ LABLO_RATE_SECRET: 'r'.repeat(40) });
     expect(made.blobs).toBeInstanceOf(MemoryBlobStore);
     expect(made.limiter).toBeInstanceOf(MemoryRateLimiter);
     expect(made.rateSecret).toBe('r'.repeat(40));
-    expect(DEV_BLOB_URL).toBe('http://127.0.0.1:3100/dev/blob');
-    expect((await made.blobs.presignGet('pair/a/b', 1000)).url.startsWith(`${DEV_BLOB_URL}/pair/a/b?`)).toBe(true);
+    expect(DEV_BLOB_PATH).toBe('/dev/blob');
+    expect((await made.blobs.presignGet('pair/a/b', 1000)).url.startsWith('/dev/blob/pair/a/b?')).toBe(true);
+    // The variable that once moved them is gone: nothing to set for a phone on the LAN.
     const other = createServices({ LABLO_DEV_BLOB_URL: 'http://192.168.1.5:3100/dev/blob', VERCEL: '' });
-    expect((await other.blobs.presignGet('pair/a/b', 1000)).url.startsWith('http://192.168.1.5:3100/dev/blob/pair/a/b?')).toBe(true);
+    expect((await other.blobs.presignGet('pair/a/b', 1000)).url.startsWith('/dev/blob/pair/a/b?')).toBe(true);
   });
 
   it('refuse on Vercel, where the fakes must never run', () => {

@@ -58,6 +58,7 @@ export {
   pairTvKeyResponseSchema,
   pairUploadRequestSchema,
   pairUploadResponseSchema,
+  presignedUrlSchema,
   sealedPayloadSchema,
 } from './pairing';
 export type {

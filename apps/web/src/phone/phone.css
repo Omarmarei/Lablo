@@ -1,5 +1,5 @@
 /*
- * The phone page (RELAY step 31b): one column on the TV's colours (packages/ui tokens.css).
+ * The phone page (RELAY steps 31b and 31d1): one column on the TV's colours (packages/ui tokens.css).
  * Modern phone browsers only (Next 16's floor: Chrome 111, Safari 16.4), so directions are
  * logical properties and flexbox follows `dir`: no right-to-left copy to generate. System fonts:
  * the page loads nothing from another host.
@@ -279,4 +279,49 @@
 
 .phone__result--failed {
   color: var(--danger);
+}
+
+/* The M3U file (step 31d1): the input stays focusable but unseen; its label is the button. */
+.phone__field--file {
+  position: relative;
+}
+
+.phone__file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.phone__file-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--accent);
+  border-radius: 0.5rem;
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.phone__file-input:focus-visible + .phone__file-button {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.phone__file-input[aria-invalid='true'] + .phone__file-button {
+  border-color: var(--danger);
+}
+
+.phone__file-input:disabled + .phone__file-button {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.phone__file-chosen {
+  margin: 0.5rem 0 0;
+  overflow-wrap: anywhere;
 }

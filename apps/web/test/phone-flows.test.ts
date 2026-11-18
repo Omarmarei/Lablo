@@ -1,10 +1,11 @@
-import { boxKeyPairFromSecretKey, openPairPayload, sealPairPayload, toBase64Url } from '@lablo/crypto';
-import type { PairProgressResponse } from '@lablo/protocol';
+import { boxKeyPairFromSecretKey, FILE_FRAME_BYTES, fileCipherLength, fromBase64Url, openFile, openPairPayload, sealPairPayload, toBase64Url } from '@lablo/crypto';
+import type { PairPayload, PairProgressResponse } from '@lablo/protocol';
 import { pairPayloadSchema } from '@lablo/protocol';
 import { describe, expect, it, vi } from 'vitest';
 import type { ApiResult, Fetcher, PhoneApi } from '../src/phone/api';
 import { createApi, DEFAULT_RETRY_AFTER_S, retryAfterSeconds } from '../src/phone/api';
-import { send, startQr, submitCode } from '../src/phone/flows';
+import { encryptFile, pickedFile, send, startQr, submitCode } from '../src/phone/flows';
+import type { PickedFile } from '../src/phone/form';
 import type { Timers } from '../src/phone/progress';
 import { isFinal, pollProgress, PROGRESS_POLL_MS } from '../src/phone/progress';
 import type { PageEvent, PageState } from '../src/phone/state';
@@ -50,8 +51,48 @@ describe('createApi', () => {
       expect(() => a.tvKey(code)).toThrow(RangeError);
       expect(() => a.progress(code)).toThrow(RangeError);
       expect(() => a.send(code, SEALED)).toThrow(RangeError);
+      expect(() => a.uploadUrl(code, 100)).toThrow(RangeError);
     }
     expect(calls).toEqual([]);
+  });
+
+  describe('the file (RELAY step 31d1)', () => {
+    const quiet = { cache: 'no-store', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer' };
+    const FILE_ID = 'f'.repeat(21) + 'w';
+    const PUT_URL = `/dev/blob/pair/${'s'.repeat(21)}w/${FILE_ID}?m=PUT&n=48&e=5&s=abc`;
+
+    it('asks for the upload URL of exactly the encrypted size, then PUTs the bytes there', async () => {
+      const asked = api(answer(201, { url: PUT_URL, key: FILE_ID, exp: 5 }));
+      expect(await asked.api.uploadUrl(CODE, 48)).toEqual({ ok: true, value: { url: PUT_URL, key: FILE_ID, exp: 5 } });
+      expect(asked.calls).toEqual([[`/v1/pair/${CODE}/upload-url`, { method: 'POST', ...quiet, headers: { 'content-type': 'application/json' }, body: '{"size":48}' }]]);
+      const body = new Blob([new Uint8Array(48)]);
+      const put = api(answer(200));
+      expect(await put.api.upload(PUT_URL, body)).toEqual({ ok: true, value: null });
+      expect(put.calls).toEqual([[PUT_URL, { method: 'PUT', ...quiet, body }]]);
+      expect(put.calls[0]![1].body).toBe(body);
+      // R2's own URL, in production.
+      const r2 = api(answer(200));
+      expect(await r2.api.upload('https://r2.example/b/k?X-Amz-Signature=ab', body)).toEqual({ ok: true, value: null });
+    });
+
+    it('reads the upload URL answer with its schema, and its errors as the other calls', async () => {
+      expect(await api(answer(200, { url: 'http://127.0.0.1:3100/dev/blob/k?m=PUT', key: FILE_ID, exp: 5 })).api.uploadUrl(CODE, 48)).toEqual({ ok: false, error: 'network' });
+      expect(await api(answer(404, { error: 'not_found' })).api.uploadUrl(CODE, 48)).toEqual({ ok: false, error: 'gone' });
+      expect(await api(answer(409, { error: 'conflict' })).api.uploadUrl(CODE, 48)).toEqual({ ok: false, error: 'conflict' });
+      expect(await api(answer(429, {}, { 'retry-after': '60' })).api.uploadUrl(CODE, 48)).toEqual({ ok: false, error: 'limited', retryAfterS: 60 });
+    });
+
+    it.each([[answer(403)], [answer(400)], [answer(404)], [answer(500)], [answer(302)], [new TypeError('Failed to fetch')]])('counts any PUT answer but a 2xx as no answer (%#)', async (response) => {
+      expect(await api(response).api.upload(PUT_URL, new Blob([]))).toEqual({ ok: false, error: 'network' });
+    });
+
+    it('PUTs only to a URL the upload answer could hold', () => {
+      const { api: a, calls } = api(answer(200));
+      for (const url of ['http://127.0.0.1:3100/dev/blob/k?m=PUT', '//evil.example/dev/blob/k?m=PUT', '/v1/pair/x?m=PUT', '/dev/blob/../v1?m=PUT', 'javascript:alert(1)', '']) {
+        expect(() => a.upload(url, new Blob([]))).toThrow(RangeError);
+      }
+      expect(calls).toEqual([]);
+    });
   });
 
   it.each([
@@ -113,7 +154,31 @@ function fakeApi(answers: Partial<Record<keyof PhoneApi, ApiResult<unknown>>>): 
     if (result === undefined) throw new Error(`unexpected ${name}`);
     return Promise.resolve(result as never);
   };
-  return { api: { tvKey: reply('tvKey'), send: reply('send'), progress: reply('progress') }, calls };
+  return { api: { tvKey: reply('tvKey'), send: reply('send'), progress: reply('progress'), uploadUrl: reply('uploadUrl'), upload: reply('upload') }, calls };
+}
+
+/** A file of `size` bytes, each byte its place mod 251 (so a frame out of place shows). */
+function fileBytes(size: number): Uint8Array<ArrayBuffer> {
+  const bytes = new Uint8Array(size);
+  for (let i = 0; i < size; i += 1) bytes[i] = i % 251;
+  return bytes;
+}
+
+/** Whether two byte arrays are equal (vitest's deep equality is slow on megabytes). */
+function same(a: Uint8Array | null, b: Uint8Array): boolean {
+  return a !== null && Buffer.from(a).equals(Buffer.from(b));
+}
+
+/** A picked file over `bytes`, logging each read. */
+function picked(name: string, bytes: Uint8Array, reads: [number, number][] = []): PickedFile {
+  return {
+    name,
+    size: bytes.length,
+    read: (start, end) => {
+      reads.push([start, end]);
+      return Promise.resolve(bytes.slice(start, end));
+    },
+  };
 }
 
 /** Runs a flow against the real reducer, keeping each event. */
@@ -196,6 +261,137 @@ describe('send', () => {
     await send(d.state(), { api, dispatch: d.dispatch, seal });
     expect(seal).toHaveBeenCalledTimes(1);
     expect(seal.mock.calls[0]![1]).toEqual(TV.publicKey);
+  });
+
+  describe('a file (RELAY step 31d1)', () => {
+    const FILE_ID = 'f'.repeat(21) + 'w';
+    const PUT_URL = `/dev/blob/pair/${'s'.repeat(21)}w/${FILE_ID}?m=PUT&n=1&e=5&s=abc`;
+    const SIZE = 2 * FILE_FRAME_BYTES + 1000;
+    const bytes = fileBytes(SIZE);
+    const withFile = (file: PickedFile, name = ''): PageState =>
+      [
+        { type: 'sourceType', sourceType: 'file' },
+        { type: 'pickFile', file },
+        { type: 'field', key: 'name', value: name },
+      ].reduce<PageState>((state, event) => reduce(state, event as PageEvent), formView);
+
+    /** The payload the TV gets: opened with its key from what was posted. */
+    function opened(calls: unknown[][]): PairPayload {
+      const sent = calls.find((call) => call[0] === 'send') as [string, string, Parameters<typeof openPairPayload>[0]];
+      return pairPayloadSchema.parse(JSON.parse(new TextDecoder().decode(openPairPayload(sent[2], TV.secretKey)!)));
+    }
+
+    it('encrypts it frame by frame, uploads it before the payload, and puts its keys in the payload', async () => {
+      const reads: [number, number][] = [];
+      const { api, calls } = fakeApi({
+        uploadUrl: { ok: true, value: { url: PUT_URL, key: FILE_ID, exp: 5 } },
+        upload: { ok: true, value: null },
+        send: { ok: true, value: { state: 'sent' } },
+      });
+      const d = driver(withFile(picked('Living room.M3U8', bytes, reads)));
+      await send(d.state(), { api, dispatch: d.dispatch });
+      expect(calls.map((call) => call[0])).toEqual(['uploadUrl', 'upload', 'send']);
+      expect(calls[0]).toEqual(['uploadUrl', CODE, fileCipherLength(SIZE)]);
+      expect(reads).toEqual([
+        [0, FILE_FRAME_BYTES],
+        [FILE_FRAME_BYTES, 2 * FILE_FRAME_BYTES],
+        [2 * FILE_FRAME_BYTES, SIZE],
+      ]);
+      const [, url, body] = calls[1] as [string, string, Blob];
+      expect(url).toBe(PUT_URL);
+      const uploaded = new Uint8Array(await body.arrayBuffer());
+      expect(uploaded.length).toBe(fileCipherLength(SIZE));
+      const payload = opened(calls);
+      // The name from the file's, its extension dropped; the frames open with the payload's keys only.
+      expect(payload).toMatchObject({ v: 1, name: 'Living room', source: { type: 'm3u-file', file: { key: FILE_ID, size: SIZE } } });
+      const file = (payload.source as Extract<PairPayload['source'], { type: 'm3u-file' }>).file;
+      expect(same(openFile(uploaded, fromBase64Url(file.fileKey)!, fromBase64Url(file.base)!, SIZE), bytes)).toBe(true);
+      expect(d.state().view).toEqual({ kind: 'progress', code: CODE, state: 'sent' });
+    });
+
+    it('keeps a typed name, and new keys for every send', async () => {
+      const answers = {
+        uploadUrl: { ok: true, value: { url: PUT_URL, key: FILE_ID, exp: 5 } },
+        upload: { ok: true, value: null },
+        send: { ok: true, value: { state: 'sent' } },
+      } as const;
+      const first = fakeApi(answers);
+      const second = fakeApi(answers);
+      const state = withFile(picked('list.m3u', fileBytes(10)), ' Salon ');
+      await send(state, { api: first.api, dispatch: driver(state).dispatch });
+      await send(state, { api: second.api, dispatch: driver(state).dispatch });
+      const a = opened(first.calls);
+      const b = opened(second.calls);
+      expect(a.name).toBe('Salon');
+      const fa = (a.source as Extract<PairPayload['source'], { type: 'm3u-file' }>).file;
+      const fb = (b.source as Extract<PairPayload['source'], { type: 'm3u-file' }>).file;
+      expect(fa.fileKey).not.toBe(fb.fileKey);
+      expect(fa.base).not.toBe(fb.base);
+    });
+
+    it.each([
+      ['the code ended', { uploadUrl: { ok: false, error: 'gone' } }, ['uploadUrl'], { kind: 'code', error: 'ended' }],
+      ['too many tries', { uploadUrl: { ok: false, error: 'limited', retryAfterS: 120 } }, ['uploadUrl'], { kind: 'form', busy: false, error: 'limited', retryAfterS: 120 }],
+      ['no upload URL', { uploadUrl: { ok: false, error: 'network' } }, ['uploadUrl'], { kind: 'form', busy: false, error: 'network' }],
+      ['the PUT refused', { uploadUrl: { ok: true, value: { url: PUT_URL, key: FILE_ID, exp: 5 } }, upload: { ok: false, error: 'network' } }, ['uploadUrl', 'upload'], { kind: 'form', busy: false, error: 'network' }],
+    ] as const)('stops before the payload when %s', async (_name, answers, called, view) => {
+      const { api, calls } = fakeApi(answers);
+      const file = picked('list.m3u', fileBytes(10));
+      const d = driver(withFile(file));
+      await send(d.state(), { api, dispatch: d.dispatch });
+      expect(calls.map((call) => call[0])).toEqual(called);
+      expect(d.state().view).toMatchObject(view);
+      // The form keeps the file, to send again.
+      expect(d.state().file).toBe(file);
+    });
+
+    it('asks for nothing when the file can’t be read, or has changed size', async () => {
+      const broken: PickedFile = { name: 'a.m3u', size: 10, read: () => Promise.reject(new Error('NotReadableError')) };
+      const shrunk: PickedFile = { name: 'a.m3u', size: 10, read: () => Promise.resolve(new Uint8Array(9)) };
+      for (const file of [broken, shrunk]) {
+        const { api, calls } = fakeApi({});
+        const d = driver(withFile(file));
+        await send(d.state(), { api, dispatch: d.dispatch });
+        expect(calls).toEqual([]);
+        expect(d.events.at(-1)).toEqual({ type: 'fileUnreadable', code: CODE });
+        expect(d.state()).toMatchObject({ file: null, problems: { file: 'unreadable' }, showProblems: true, view: { kind: 'form', busy: false } });
+      }
+    });
+
+    it('sends nothing without a good file', async () => {
+      const { api, calls } = fakeApi({});
+      for (const file of [null, picked('empty.m3u', new Uint8Array(0))]) {
+        const state = file === null ? reduce(formView, { type: 'sourceType', sourceType: 'file' }) : withFile(file);
+        const d = driver(state);
+        await send(d.state(), { api, dispatch: d.dispatch });
+        expect(d.state()).toMatchObject({ showProblems: true, problems: { file: file === null ? 'noFile' : 'empty' } });
+      }
+      expect(calls).toEqual([]);
+    });
+  });
+
+  describe('encryptFile', () => {
+    it('seals each frame in place under fresh keys, an empty file to no frames', async () => {
+      const bytes = fileBytes(FILE_FRAME_BYTES + 5);
+      const sealed = (await encryptFile(picked('a.m3u', bytes)))!;
+      const ct = new Uint8Array(await sealed.body.arrayBuffer());
+      expect(same(openFile(ct, sealed.fileKey, sealed.base, bytes.length), bytes)).toBe(true);
+      expect(sealed.fileKey).toHaveLength(32);
+      expect(sealed.base).toHaveLength(24);
+      const again = (await encryptFile(picked('a.m3u', bytes)))!;
+      expect(again.fileKey).not.toEqual(sealed.fileKey);
+      const none = (await encryptFile(picked('a.m3u', new Uint8Array(0))))!;
+      expect(none.body.size).toBe(0);
+    });
+  });
+
+  describe('pickedFile', () => {
+    it('reads a browser file a slice at a time', async () => {
+      const file = new File([fileBytes(300)], 'list.m3u');
+      const got = pickedFile(file);
+      expect([got.name, got.size]).toEqual(['list.m3u', 300]);
+      expect(await got.read(250, 260)).toEqual(fileBytes(300).slice(250, 260));
+    });
   });
 
   it('posts nothing when the form has problems, or while sending', async () => {

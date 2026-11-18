@@ -28,13 +28,13 @@ export function apiError(status: number, error: ApiError, headers?: Readonly<Rec
 export type BodyResult<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly response: Response };
 
 /**
- * The body as UTF-8 JSON, refused with 413 past `maxBytes` (by its `content-length`, or while
- * it is read: a body without one stops at the cap) and 400 when it isn't JSON.
+ * The body's bytes, or null past `maxBytes` (by its `content-length`, or while it is read: a body
+ * without one stops at the cap). No body is no bytes.
  */
-export async function readJsonBody(request: Request, maxBytes: number, headers?: Readonly<Record<string, string>>): Promise<BodyResult<unknown>> {
+export async function readBytes(request: Request, maxBytes: number): Promise<Uint8Array | null> {
   const declared = request.headers.get('content-length');
-  if (declared !== null && Number(declared) > maxBytes) return { ok: false, response: apiError(413, 'too_large', headers) };
-  if (request.body === null) return { ok: false, response: apiError(400, 'bad_request', headers) };
+  if (declared !== null && Number(declared) > maxBytes) return null;
+  if (request.body === null) return new Uint8Array(0);
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -44,7 +44,7 @@ export async function readJsonBody(request: Request, maxBytes: number, headers?:
     size += value.length;
     if (size > maxBytes) {
       await reader.cancel();
-      return { ok: false, response: apiError(413, 'too_large', headers) };
+      return null;
     }
     chunks.push(value);
   }
@@ -54,6 +54,13 @@ export async function readJsonBody(request: Request, maxBytes: number, headers?:
     bytes.set(chunk, at);
     at += chunk.length;
   }
+  return bytes;
+}
+
+/** The body as UTF-8 JSON, refused with 413 past `maxBytes` (`readBytes`) and 400 when it isn't JSON. */
+export async function readJsonBody(request: Request, maxBytes: number, headers?: Readonly<Record<string, string>>): Promise<BodyResult<unknown>> {
+  const bytes = await readBytes(request, maxBytes);
+  if (bytes === null) return { ok: false, response: apiError(413, 'too_large', headers) };
   try {
     return { ok: true, value: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown };
   } catch {
