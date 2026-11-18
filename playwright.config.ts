@@ -28,8 +28,8 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [
-    // pairing-api.spec.ts and no-plaintext.spec.ts need `next start` and its database: `pnpm e2e:web` runs them (RELAY steps 31c3, 31e).
-    { name: 'chromium', testIgnore: /(throttled|lab-scale|lab-media|playback-media|player-media|pairing-api|no-plaintext)\.spec\.ts$/ },
+    // pairing-api.spec.ts, no-plaintext.spec.ts and backup-api.spec.ts need `next start` and its database: `pnpm e2e:web` runs them (RELAY steps 31c3, 31e, 32d1).
+    { name: 'chromium', testIgnore: /(throttled|lab-scale|lab-media|playback-media|player-media|pairing-api|no-plaintext|backup-api)\.spec\.ts$/ },
     // The CPU-throttled timings (RELAY steps 14b and 23d) run after every other test, one test
     // at a time (one worker: the live list's file and the grid's never overlap), so no other
     // browser competes for the CPU while they measure.
