@@ -187,6 +187,8 @@ describe('the simulated webOS', () => {
   it("derives the lookup ID the app derives from the simulated LGUDID on webOS (the salt's platform and app id)", async () => {
     expect(SIM_PLATFORM).toBe('webos');
     expect(await simLookupId('com.lablo.iptv')).toBe(backupKeys(await deriveBackupMaster('lablo-sim-lgudid-32d1', 'webos', 'com.lablo.iptv')).lookupId);
+    // The app id given is the one used (the lab's id gives another lookup ID).
+    expect(await simLookupId('com.lablo.iptv.lab')).toBe(backupKeys(await deriveBackupMaster('lablo-sim-lgudid-32d1', 'webos', 'com.lablo.iptv.lab')).lookupId);
   });
 });
 
@@ -459,6 +461,8 @@ describe('evaluateBackupWalk', () => {
     expect(evaluateBackupWalk(walk({ welcome: welcomeState({ sources: null }) }), LOOKUP, CATEGORIES)).toEqual(['"Welcome back" counts no sources, expected 1']);
     expect(evaluateBackupWalk(walk({ welcome: welcomeState({ zone: null, index: null }) }), LOOKUP, CATEGORIES)).toEqual(['"Welcome back"\'s focus is at - -, expected "Continue"']);
     expect(evaluateBackupWalk(walk({ welcome: welcomeState({ index: 1 }) }), LOOKUP, CATEGORIES)).toEqual(['"Welcome back"\'s focus is at actions 1, expected "Continue"']);
+    expect(evaluateBackupWalk(walk({ welcome: welcomeState({ zone: 'header' }) }), LOOKUP, CATEGORIES)).toEqual(['"Welcome back"\'s focus is at header 0, expected "Continue"']);
+    expect(evaluateBackupWalk(walk({ welcome: welcomeState({ outside: ['a: b'] }) }), LOOKUP, CATEGORIES)).toEqual(['"Welcome back" outside the title-safe area: a: b']);
     expect(evaluateBackupWalk(walk({ welcome: welcomeState({ outside: ['a: b', 'c: d'] }) }), LOOKUP, CATEGORIES)).toEqual(['"Welcome back" outside the title-safe area: a: b; c: d']);
     expect(evaluateBackupWalk(walk({ welcome: welcomeState({ cut: ['z-button__label: Continue'] }) }), LOOKUP, CATEGORIES)).toEqual(['"Welcome back" cuts a label: z-button__label: Continue']);
   });
@@ -468,7 +472,8 @@ describe('evaluateBackupWalk', () => {
     const unfilled = evaluateBackupWalk(walk({ restored: liveState({ rows: [], category: 0, top: 0, editing: null, active: null, value: null, phase: null, error: null, bootError: '', onboarding: false, guide: false, movies: false, hook: 'live/channels/0', dialog: false, platformBack: 0 }) }), LOOKUP, CATEGORIES);
     expect(unfilled).toHaveLength(1);
     expect(unfilled[0]).toMatch(/^after "Welcome back" the live screen never filled by itself: the live screen, .*; the list draws no rows$/);
-    const off = evaluateBackupWalk(walk({ restored: liveState({ live: false, liveIdle: false, screen: null, onboarding: true, bootError: '', editing: null, active: null, value: null, phase: null, error: null, guide: false, movies: false, hook: null }) }), LOOKUP, CATEGORIES);
+    // Off the live screen: no row line (its rows say nothing about a screen that isn't there).
+    const off = evaluateBackupWalk(walk({ restored: liveState({ rows: [], live: false, liveIdle: false, screen: null, onboarding: true, bootError: '', editing: null, active: null, value: null, phase: null, error: null, guide: false, movies: false, hook: null }) }), LOOKUP, CATEGORIES);
     expect(off[0]).toMatch(/^after "Welcome back" the live screen never filled by itself: onboarding, /);
     expect(off[0]).not.toMatch(/draws no rows/);
   });
@@ -506,6 +511,7 @@ describe('evaluateBackupWalk', () => {
     ]);
     expect(evaluateBackupWalk(walk({ profile: { sources: [['s1', 'm3u', 'Phone list']], language: 'ar', consent: true } }), LOOKUP, CATEGORIES)).toEqual(['the restored answers are language ar, consent true, expected en and true']);
     expect(evaluateBackupWalk(walk({ profile: { sources: [['s1', 'm3u', 'Phone list']], language: null, consent: false } }), LOOKUP, CATEGORIES)).toEqual(['the restored answers are language -, consent false, expected en and true']);
+    expect(evaluateBackupWalk(walk({ profile: { sources: [['s1', 'm3u', 'Phone list']], language: 'en', consent: null } }), LOOKUP, CATEGORIES)).toEqual(['the restored answers are language en, consent null, expected en and true']);
     expect(evaluateBackupWalk(walk({ language: 'ar', profile: { sources: [['s1', 'm3u', 'Phone list']], language: 'ar', consent: true } }), LOOKUP, CATEGORIES)).toEqual([`the restored profile has the sources s1,m3u,Phone list, expected s1,m3u,${PHONE_NAMES.ar}`]);
   });
 });
