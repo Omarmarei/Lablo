@@ -216,6 +216,30 @@ describe('startApiFront', () => {
     expect(made.forwarded.map((f) => `${f.method} ${f.path} ${f.status}`)).toEqual(['GET /v1/config 200', 'GET /v1/configs 200', 'POST /v1/config 200', 'GET /v1/config 200']);
   });
 
+  it('keeps what the API received: headers as passed on, the whole body, nothing it answered itself (RELAY step 31e)', async () => {
+    const up = await upstream((_request, response) => json(response, 200, {}));
+    const made = await front(up.origin, '10.251.9.9');
+    // Megabytes come in many chunks; every byte is kept, in order.
+    const big = Buffer.alloc(3 * 1048576 + 17);
+    for (let i = 0; i < big.length; i += 1) big[i] = (i * 31 + (i >> 11)) & 0xff;
+    const put = await new Promise<number>((resolve, reject) => {
+      const outgoing = httpRequest(new URL('/dev/blob/pair/a/b?m=PUT', made.origin), { method: 'PUT', agent: false, headers: { 'content-length': String(big.length) } }, (answer) => {
+        answer.resume();
+        answer.on('end', () => resolve(answer.statusCode ?? 0));
+      });
+      outgoing.on('error', reject);
+      outgoing.end(big);
+    });
+    expect(put).toBe(200);
+    await call(made.origin, '/v1/pair/s/abc?t=1', { headers: { authorization: 'Bearer t' } });
+    made.serve('{}');
+    await call(made.origin, '/v1/config');
+    expect(made.received.map((r) => `${r.method} ${r.path} ${r.body.length}`)).toEqual([`PUT /dev/blob/pair/a/b?m=PUT ${big.length}`, 'GET /v1/pair/s/abc?t=1 0']);
+    expect(made.received[0]!.body.equals(big)).toBe(true);
+    expect(made.received[1]!.headers).toMatchObject({ authorization: 'Bearer t', 'x-forwarded-for': '10.251.9.9' });
+    expect(made.received[1]!.headers.host).toBeUndefined();
+  });
+
   it('holds the requests a test names until it lets them go, and only those (RELAY step 31d2b2b)', async () => {
     const up = await upstream((_request, response) => json(response, 200, { ok: true }));
     const made = await front(up.origin);
@@ -271,6 +295,7 @@ describe('startApiFront', () => {
     expect(up.connections()).toBe(1);
     expect(up.seen.map((s) => s.url)).toEqual(['/v1/health']);
     expect(made.forwarded.map((f) => f.path)).toEqual(['/v1/health']);
+    expect(made.received.map((r) => r.path)).toEqual(['/v1/health']);
   });
 
   it('answers 502 when the real API is down, and logs it with status 0', async () => {

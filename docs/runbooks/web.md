@@ -287,6 +287,24 @@ dev app against this server, end to end except for the phone, which is scripted
 - **Only this spec:** `pnpm build:web`, `pnpm web:db`, then `pnpm e2e:web --project tv` (about
   25 s). `pnpm e2e` doesn't list it (it needs the database).
 
+## The "no plaintext" run (step 31e)
+
+`e2e/no-plaintext.spec.ts`, in the same `tv` project: the proof that the web app never sees a
+source in the clear (architecture.md "Built in step 31e").
+
+- **What runs:** as above, plus the real phone page in a browser context of its own at a phone's
+  size, opened at `<front>/p`; it types the code the TV shows. Three tests: an Xtream login, an M3U
+  link with a guide link (Arabic), an M3U file of three frames.
+- **What is searched:** `front.received` (each request's line, headers and whole body: the uploads'
+  bodies are the blobs) and every row of every table in `lablo_e2e` (read while the front holds the
+  TV's reads, so the payload is still in its row, and at the end), with `leaks` from
+  `e2e/no-plaintext.ts`: each secret as text, JSON-escaped, percent-encoded and inside base64.
+- **When it fails,** the message names the request (`POST /v1/pair/<code>/payload: its body`) or
+  "the rows", and lists the secrets found. Look at what the phone page sends first: the server never
+  has a plaintext to write.
+- **Only this spec:** `pnpm build:web`, `pnpm web:db`, then
+  `pnpm e2e:web --project=tv no-plaintext` (about 15 s).
+
 ## CI
 
 The `web` job runs when a pull request changes `apps/web/`, `packages/protocol/`,
