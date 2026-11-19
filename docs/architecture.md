@@ -2123,6 +2123,7 @@ envelope   = {v:1, kdf:"scrypt-15-8-1", nonce:24B, ct: secretbox(gzip(profileJSO
   - e2e `e2e/telemetry.spec.ts` +1: onboarding a playlist whose guide (on the stand-in) has one of its two channels posts `ingest_done` for `m3u` and `epg` and `epg_match` `50-74`; OK on a channel whose stream the browser refuses posts `play_result` (`html5`, `ts`, `live`, `ttffMs: null`, `unsupported`, `MEDIA_ERR_SRC_NOT_SUPPORTED`); nothing of the source in any post. Its three older tests now count onboarding's `ingest_done`.
 - **Sizes:** main.js 481.6 KB on Tizen (+3.0 KB) and 468.9 KB on webOS; no new core-js module (`usage-events.ts` pulls `es.array.push`, `es.promise` and `web.dom-collections.for-each`, all there before). The workers are unchanged.
 - **Mutation:** `artifacts/mutate33b2.py`, 97 written first (writing them closed two test gaps and took out one check only TypeScript needed); 97/97 caught on the first run.
+- **Merged:** PR #145 as merge commit `036f405` on green CI (web 4 m, verify 14 m, engines 27 m; media on its third attempt, after two runs that hit the job's 30-minute cap during the ffmpeg and Playwright installs).
 
 ---
 
