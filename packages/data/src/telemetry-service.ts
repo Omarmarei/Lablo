@@ -27,10 +27,12 @@
  * is best effort. Answers never hold a URL.
  */
 import { toBase64Url } from '@lablo/crypto';
-import type { TelemetryEvent } from '@lablo/protocol';
+import type { DiagGuide, DiagReport, DiagSource, TelemetryEvent } from '@lablo/protocol';
 import { scrubText } from '@lablo/protocol/scrub';
-import { TELEMETRY_BATCH_MAX, TELEMETRY_BODY_MAX_BYTES } from '@lablo/protocol/telemetry-buckets';
+import { ageBucket, countBucket, DIAG_EVENTS_MAX, DIAG_GUIDES_MAX, DIAG_SOURCES_MAX, rateBucket, TELEMETRY_BATCH_MAX, TELEMETRY_BODY_MAX_BYTES } from '@lablo/protocol/telemetry-buckets';
 import type { ByteResponse, ByteTransport } from './bytes';
+import type { SourceMeta } from './catalog-store';
+import type { EpgMeta } from './epg-store';
 import { onSuccess, transact } from './idb';
 import { storedProfileDoc } from './profile';
 import { STORE } from './schema';
@@ -175,6 +177,128 @@ export function knownStrings(doc: unknown): string[] {
 
 type CrashEvent = Extract<TelemetryEvent, { kind: 'crash' }>;
 
+/** What main knows of a diagnostics report (step 33d2): the parts the worker can't read. */
+export interface DiagParts {
+  /** The TV's clock. */
+  at: number;
+  /** The TV's offset from UTC in minutes, east positive. */
+  zoneMin: number;
+  locale: 'en' | 'ar';
+  tier: 'low' | 'full';
+  /** The device as telemetry's `capability` names it. */
+  model: string;
+  firmware: string;
+  chromium: number | null;
+  probes: Record<string, boolean | number>;
+  /** Where the config's policy came from. */
+  config: 'fresh' | 'cached' | 'none';
+}
+
+export interface DiagSendRequest {
+  /** `http(s)://host[:port]`, no path (the backup's base). */
+  base: string;
+  platform: string;
+  appVersion: string;
+  parts: DiagParts;
+  /** The session's last plays, stalls and crashes (main's `recent()`), oldest first; the crashes unscrubbed. */
+  events: TelemetryEvent[];
+}
+
+export type DiagSendResult =
+  /** The API kept it: the code to give support. */
+  | { readonly state: 'sent'; readonly code: string }
+  /** No connection, the time limit, another status than 201, or an answer without a code. */
+  | { readonly state: 'failed'; readonly failure: 'network' | 'timeout' | 'status' | 'answer'; readonly status: number | null };
+
+/** The support code (the protocol's `diagCode`). */
+const DIAG_CODE = /^[0-9A-HJKMNP-TV-Z]{6}$/;
+/** The most of the answer read: `{"code":"K7M2Q9"}` is 17 bytes. */
+export const DIAG_ANSWER_MAX_BYTES = 1024;
+/** A failure's code as the schema takes it (`errorCode`); anything else reads `failed`. */
+const FAILURE_CODE = /^[A-Za-z0-9_.-]{1,64}$/;
+
+/**
+ * A stored source in a report: its type, its catalog's items and how long since it was last checked
+ * (`checkedAt`, else `updatedAt`; `null`: never), and a missing login or link (step 32d4's sources
+ * restored without them). Never its name, link or server. `null` for a record that isn't a source.
+ */
+export function diagSource(record: unknown, meta: SourceMeta | null, now: number): DiagSource | null {
+  if (typeof record !== 'object' || record === null) return null;
+  const source = record as { type?: unknown; account?: unknown; url?: unknown };
+  const type = source.type;
+  if (type !== 'xtream' && type !== 'm3u' && type !== 'm3u-file') return null;
+  let items = 0;
+  let checked: number | null = null;
+  if (meta !== null) {
+    const counts = meta.counts as Record<string, number | undefined>;
+    for (const kind in counts) items += counts[kind] ?? 0;
+    const at = typeof meta.checkedAt === 'number' ? meta.checkedAt : meta.updatedAt;
+    checked = typeof at === 'number' ? at : null;
+  }
+  const needs = type === 'xtream' && source.account === null ? 'login' : type === 'm3u' && source.url === null ? 'link' : null;
+  return { type, items: countBucket(items), checked: checked === null ? null : ageBucket(now - checked), needs };
+}
+
+/** A guide in a report: its programmes, its match share, how long since it was last checked, and its last failure's code and status. */
+export function diagGuide(meta: EpgMeta, now: number): DiagGuide {
+  const summary = meta.summary ?? null;
+  const failure = meta.failure ?? null;
+  let status: number | null = null;
+  if (failure !== null && typeof failure.status === 'number' && failure.status >= 100 && failure.status <= 599) status = failure.status;
+  return {
+    programmes: countBucket(summary === null ? 0 : summary.programmes),
+    matched: summary === null ? '0' : rateBucket(summary.matched, summary.wanted),
+    checked: typeof meta.checkedAt === 'number' ? ageBucket(now - meta.checkedAt) : null,
+    failure: failure === null ? null : { code: typeof failure.code === 'string' && FAILURE_CODE.exec(failure.code) !== null ? failure.code : 'failed', status },
+  };
+}
+
+/**
+ * The report (the protocol's `diagReportSchema`): main's parts; the stored profile's sources in its
+ * order, each with its catalog's record (at most `DIAG_SOURCES_MAX`); the guides in rank order (at
+ * most `DIAG_GUIDES_MAX`); the switch; and main's last events (at most `DIAG_EVENTS_MAX`, the
+ * newest), each crash scrubbed with the profile's known strings.
+ */
+export function diagReport(doc: unknown, metas: readonly SourceMeta[], guides: readonly EpgMeta[], request: DiagSendRequest, now: number): DiagReport {
+  const list = typeof doc === 'object' && doc !== null ? (doc as { sources?: unknown }).sources : undefined;
+  const records: unknown[] = Array.isArray(list) ? list : [];
+  const sources: DiagSource[] = [];
+  for (let i = 0; i < records.length && sources.length < DIAG_SOURCES_MAX; i++) {
+    const record = records[i];
+    const id = typeof record === 'object' && record !== null ? (record as { id?: unknown }).id : undefined;
+    let meta: SourceMeta | null = null;
+    for (let m = 0; m < metas.length; m++) if (metas[m]!.src === id) meta = metas[m]!;
+    const source = diagSource(record, meta, now);
+    if (source !== null) sources.push(source);
+  }
+  const ranked = guides.slice().sort((a, b) => a.rank - b.rank);
+  const shown: DiagGuide[] = [];
+  for (let i = 0; i < ranked.length && i < DIAG_GUIDES_MAX; i++) shown.push(diagGuide(ranked[i]!, now));
+  const known = knownStrings(doc);
+  const events: TelemetryEvent[] = [];
+  for (let i = Math.max(0, request.events.length - DIAG_EVENTS_MAX); i < request.events.length; i++) {
+    const event = request.events[i]!;
+    events.push(event.kind === 'crash' ? scrubbedCrash(event, known) : event);
+  }
+  const parts = request.parts;
+  return {
+    v: 1,
+    at: parts.at,
+    zoneMin: parts.zoneMin,
+    locale: parts.locale,
+    tier: parts.tier,
+    model: parts.model,
+    firmware: parts.firmware,
+    chromium: parts.chromium,
+    probes: parts.probes,
+    telemetry: !telemetryOff(doc),
+    config: parts.config,
+    sources,
+    guides: shown,
+    events,
+  };
+}
+
 /** A crash as it is queued: its stack scrubbed with `known` (a stack that isn't text: `''`), and only the schema's fields. */
 export function scrubbedCrash(event: CrashEvent, known: readonly string[]): CrashEvent {
   return { kind: 'crash', at: event.at, where: event.where, stack: typeof event.stack === 'string' ? scrubText(event.stack, known) : '' };
@@ -295,6 +419,87 @@ class TelemetryService {
     });
   }
 
+  /**
+   * The diagnostics report (step 33d2): `request`'s parts with what the database holds (the
+   * profile's sources and switch, their catalogs' records, the guides' records), each crash
+   * scrubbed, posted to `POST <base>/v1/diag`; the support code it answers.
+   */
+  async report(request: DiagSendRequest): Promise<DiagSendResult> {
+    const db = await this.options.openDb();
+    let body: string;
+    try {
+      const doc = await storedProfileDoc(db);
+      const stored = await transact<{ sources: SourceMeta[]; guides: EpgMeta[] }>(db, [STORE.sources, STORE.epgMeta], 'readonly', (tx, done) => {
+        onSuccess(tx.objectStore(STORE.sources).getAll(), (sources) => {
+          onSuccess(tx.objectStore(STORE.epgMeta).getAll(), (guides) => done({ sources: sources as SourceMeta[], guides: guides as EpgMeta[] }));
+        });
+      });
+      const report = diagReport(doc, stored.sources, stored.guides, request, this.clock.now());
+      body = JSON.stringify({ platform: request.platform, appVersion: request.appVersion, report });
+    } finally {
+      db.close();
+    }
+    return this.postReport(request.base + '/v1/diag', body);
+  }
+
+  /** `POST`s the report: the code of a 201, or why none. An answer after the time limit is let go when it comes. */
+  private postReport(url: string, body: string): Promise<DiagSendResult> {
+    return new Promise<DiagSendResult>((resolve) => {
+      let settled = false;
+      let opened: ByteResponse | null = null;
+      void this.clock.sleep(TELEMETRY_TIMEOUT_MS).then(() => {
+        if (settled) return;
+        settled = true;
+        if (opened !== null) opened.cancel();
+        resolve({ state: 'failed', failure: 'timeout', status: null });
+      });
+      void this.exchangeReport(url, body, (response) => {
+        opened = response;
+        if (settled) response.cancel();
+      }).then((result) => {
+        // (After the time limit this changes nothing: the promise has settled.)
+        settled = true;
+        resolve(result);
+      });
+    });
+  }
+
+  private async exchangeReport(url: string, body: string, opened: (response: ByteResponse) => void): Promise<DiagSendResult> {
+    let response: ByteResponse;
+    try {
+      response = await this.options.transport.get(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+    } catch {
+      return { state: 'failed', failure: 'network', status: null };
+    }
+    opened(response);
+    if (response.status !== 201) {
+      response.cancel();
+      return { state: 'failed', failure: 'status', status: response.status };
+    }
+    // The answer is ASCII JSON, `{"code":"K7M2Q9"}`: a byte a character, at most `DIAG_ANSWER_MAX_BYTES`.
+    let text = '';
+    try {
+      for (;;) {
+        const chunk = await response.read();
+        if (chunk === null) break;
+        if (text.length + chunk.length > DIAG_ANSWER_MAX_BYTES) {
+          response.cancel();
+          return { state: 'failed', failure: 'answer', status: 201 };
+        }
+        for (let i = 0; i < chunk.length; i++) text += String.fromCharCode(chunk[i]!);
+      }
+    } catch {
+      return { state: 'failed', failure: 'network', status: null };
+    }
+    let code: unknown = null;
+    try {
+      code = (JSON.parse(text) as { code?: unknown }).code;
+    } catch {
+      // (Not JSON, or `null`: no code.)
+    }
+    return typeof code === 'string' && DIAG_CODE.exec(code) !== null ? { state: 'sent', code } : { state: 'failed', failure: 'answer', status: 201 };
+  }
+
   /** Takes `count` events off the queue's front; resolves with how many are left. */
   private dropFront(db: IDBDatabase, count: number): Promise<number> {
     return transact<number>(db, STORE.kv, 'readwrite', (tx, done) => {
@@ -328,10 +533,11 @@ class TelemetryService {
   }
 }
 
-/** The telemetry worker's RPC methods: `send`. */
+/** The telemetry worker's RPC methods: `send`, and `report` (step 33d2). */
 export function telemetryHandlers(options: TelemetryServiceOptions) {
   const service = new TelemetryService(options);
   return {
     send: (request: TelemetrySendRequest): Promise<TelemetrySendResult> => service.send(request),
+    report: (request: DiagSendRequest): Promise<DiagSendResult> => service.report(request),
   };
 }

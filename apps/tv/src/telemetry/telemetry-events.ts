@@ -1,3 +1,4 @@
+import type { DiagParts } from '@lablo/data';
 import type { DeviceInfo, DeviceTier } from '@lablo/platform-api';
 import type { TelemetryEvent } from '@lablo/protocol';
 import { countBucket } from '@lablo/protocol/telemetry-buckets';
@@ -97,5 +98,32 @@ export function capabilityEvent(at: number, info: DeviceInfo, probes: DeviceProb
     firmware: deviceName(info.firmware),
     chromium: chromium !== null && chromium >= 1 && chromium <= 999 && Math.floor(chromium) === chromium ? chromium : null,
     probes: found,
+  };
+}
+
+/** The widest UTC offset the report takes, in minutes (14 hours). */
+export const ZONE_MAX_MIN = 840;
+
+/**
+ * Main's parts of a diagnostics report (step 33d2): the TV's clock, its offset from UTC (east
+ * positive, from `getTimezoneOffset`'s minutes west), the UI's language, the device as `capability`
+ * names it, and where the config's policy came from. The telemetry worker adds the rest.
+ */
+export function diagParts(at: number, offsetWestMin: number, lang: string, info: DeviceInfo, probes: DeviceProbes, config: DiagParts['config']): DiagParts {
+  const device = capabilityEvent(at, info, probes) as Extract<TelemetryEvent, { kind: 'capability' }>;
+  const raw = 0 - Math.round(offsetWestMin);
+  // (An offset that isn't a number, from a broken clock, reads UTC.)
+  const zone = raw !== raw ? 0 : Math.max(-ZONE_MAX_MIN, Math.min(ZONE_MAX_MIN, raw));
+  const lower = lang.toLowerCase();
+  return {
+    at,
+    zoneMin: zone,
+    locale: lower === 'ar' || lower.indexOf('ar-') === 0 ? 'ar' : 'en',
+    tier: info.tier,
+    model: device.model,
+    firmware: device.firmware,
+    chromium: device.chromium,
+    probes: device.probes,
+    config,
   };
 }

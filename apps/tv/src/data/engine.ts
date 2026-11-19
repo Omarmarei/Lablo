@@ -115,6 +115,8 @@ import type {
   PairOpenResult,
   PairPollResult,
   PairStatusResult,
+  DiagSendRequest,
+  DiagSendResult,
   TelemetrySendRequest,
   TelemetrySendResult,
 } from '@lablo/data/client';
@@ -664,6 +666,16 @@ export class DataEngine {
     const start = this.options.startTelemetryWorker;
     if (start === undefined) return Promise.reject(new Error('This data engine has no telemetry worker'));
     return this.withWorker('telemetry', start, createTelemetryClient, (client) => client.call('send', request));
+  }
+
+  /**
+   * Sends the diagnostics report (step 33d2) in a telemetry worker of its own: `sent` with the
+   * support code, or `failed`. The worker reads the rest of the report from the database.
+   */
+  sendDiagReport(request: DiagSendRequest): Promise<DiagSendResult> {
+    const start = this.options.startTelemetryWorker;
+    if (start === undefined) return Promise.reject(new Error('This data engine has no telemetry worker'));
+    return this.withWorker('telemetry', start, createTelemetryClient, (client) => client.call('report', request));
   }
 
   /** For each URL, whether its host is on the signed config's blocklist (step 30b2; enforced in 30c). */

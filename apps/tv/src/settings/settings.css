@@ -424,6 +424,14 @@
   line-height: var(--line-height-heading);
 }
 
+/* The report's support code (step 33d2): data, left to right in both languages, in large type beside the row's name. */
+.settings__code {
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 4px;
+}
+
 .backup__switch .settings__hint,
 .settings__switch .settings__hint {
   overflow: hidden;

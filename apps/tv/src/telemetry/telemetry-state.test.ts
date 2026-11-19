@@ -674,3 +674,33 @@ describe('the telemetry schedule', () => {
     expect(t.engine.runs).toHaveLength(1);
   });
 });
+
+describe('recent', () => {
+  const play = (at: number): TelemetryEvent => ({ kind: 'play_result', at, engine: 'html5', container: 'hls', mode: 'live', ttffMs: 900, error: null });
+  const crash: TelemetryEvent = { kind: 'crash', at: T0, where: 'main', stack: 'Uncaught Error: x' };
+  const start: TelemetryEvent = { kind: 'app_start', at: T0, tier: 'full', coldStartMs: 1000, catalog: '0' };
+
+  it('keeps the last 10 plays, stalls and crashes, oldest first, whatever the switch, for the diagnostics report (step 33d2)', () => {
+    const t = setup();
+    expect(t.telemetry.recent()).toEqual([]);
+    // Before the switch is read, while it is off, and on: all kept; other kinds never.
+    t.telemetry.record(stall(1));
+    t.telemetry.load(false);
+    t.telemetry.record(crash);
+    t.telemetry.record(start);
+    t.telemetry.record({ kind: 'epg_match', at: T0, rate: '100' });
+    void t.telemetry.setOn(true);
+    t.telemetry.record(play(T0 + 1));
+    expect(t.telemetry.recent()).toEqual([stall(1), crash, play(T0 + 1)]);
+    for (let i = 2; i <= 12; i++) t.telemetry.record(play(T0 + i));
+    const kept = t.telemetry.recent();
+    expect(kept.map((e) => e.at)).toEqual([T0 + 3, T0 + 4, T0 + 5, T0 + 6, T0 + 7, T0 + 8, T0 + 9, T0 + 10, T0 + 11, T0 + 12]);
+    // A copy: changing it changes nothing kept.
+    kept.length = 0;
+    expect(t.telemetry.recent()).toHaveLength(10);
+    // A send takes the held events, never these.
+    t.telemetry.start();
+    void t.telemetry.sendNow();
+    expect(t.telemetry.recent()).toHaveLength(10);
+  });
+});

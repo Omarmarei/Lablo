@@ -16,6 +16,7 @@ import type { LoginField, LoginForm, LoginSource } from './source-login';
 import { LOGIN_CANCEL, LOGIN_FIELDS, LOGIN_SAVE, LOGIN_SCREEN, loginFieldId } from './source-login';
 import type { SourceRow, SourcesList } from './sources-state';
 import { SOURCES_SCREEN, shownHost } from './sources-state';
+import type { ReportRow, ReportState } from './diag-report';
 import type { TelemetrySwitch } from './telemetry-switch';
 import type { UnmatchedList } from './unmatched-state';
 import { UNMATCHED } from './unmatched-state';
@@ -390,6 +391,7 @@ interface PageProps {
 
 /** A settings row's name and the line under it (the usage reports' line while on, `telemetryText`). */
 export function itemText(t: Translate, id: SettingsItem): { name: string; hint: string } {
+  if (id === 'report') return { name: t('settings.report'), hint: t('settings.reportHint') };
   if (id === 'telemetry') return { name: t('settings.telemetry'), hint: t('settings.telemetryOnHint') };
   if (id === 'backup') return { name: t('settings.backup'), hint: t('settings.backupHint') };
   return id === 'sources' ? { name: t('settings.sources'), hint: t('settings.sourcesHint') } : { name: t('settings.guides'), hint: t('settings.guidesHint') };
@@ -439,8 +441,62 @@ export function TelemetryRow({ i18n, item, telemetry }: { i18n: AppI18n; item: I
   );
 }
 
+/**
+ * The report's line and its code (step 33d2): what it holds; "Sending…"; the support code beside
+ * the name, with a line saying what to do with it; or why it failed, in the warning colour.
+ */
+export function reportText(t: Translate, state: ReportState): { hint: string; code: string | null; warn: boolean } {
+  if (state.state === 'sending') return { hint: t('settings.reportSending'), code: null, warn: false };
+  if (state.state === 'sent') return { hint: t('settings.reportSent'), code: state.code, warn: false };
+  if (state.state === 'failed') return { hint: t('settings.reportFailed'), code: null, warn: true };
+  return { hint: t('settings.reportHint'), code: null, warn: false };
+}
+
+/** "Send a report to support" (step 33d2): OK sends it, then its support code shows beside the name, left to right in both languages. */
+export function ReportItem({ i18n, item, report }: { i18n: AppI18n; item: ItemBinding; report: ReportRow }) {
+  const { t } = i18n;
+  const state = report.state.value;
+  const text = reportText(t, state);
+  return (
+    <div
+      class={rowClass('settings__row settings__switch', item)}
+      role="menuitem"
+      aria-busy={state.state === 'sending' ? 'true' : undefined}
+      data-testid="settings-report"
+      data-state={item.state}
+      data-report={state.state}
+      onMouseMove={item.onHover}
+      onClick={item.onPress}
+    >
+      <div class="settings__top">
+        <span class="settings__name">{t('settings.report')}</span>
+        {text.code !== null && (
+          <span class="settings__value settings__code" dir="ltr" translate={false} data-testid="settings-report-code">
+            {text.code}
+          </span>
+        )}
+      </div>
+      <span class={text.warn ? 'settings__hint settings__warn' : 'settings__hint'} data-testid="settings-report-hint">
+        {text.hint}
+      </span>
+    </div>
+  );
+}
+
 /** The settings screen as drawn, hook-free (the rows' bindings come from `SettingsPage`). */
-export function SettingsView({ i18n, list, item, telemetry }: { i18n: AppI18n; list: readonly SettingsItem[]; item: (index: number) => ItemBinding; telemetry: TelemetrySwitch | null }) {
+export function SettingsView({
+  i18n,
+  list,
+  item,
+  telemetry,
+  report = null,
+}: {
+  i18n: AppI18n;
+  list: readonly SettingsItem[];
+  item: (index: number) => ItemBinding;
+  telemetry: TelemetrySwitch | null;
+  report?: ReportRow | null;
+}) {
   const { t } = i18n;
   return (
     <div class="settings__page" data-testid="settings">
@@ -451,6 +507,7 @@ export function SettingsView({ i18n, list, item, telemetry }: { i18n: AppI18n; l
         {list.map((id, i) => {
           const binding = item(i);
           if (id === 'telemetry' && telemetry !== null) return <TelemetryRow key={id} i18n={i18n} item={binding} telemetry={telemetry} />;
+          if (id === 'report' && report !== null) return <ReportItem key={id} i18n={i18n} item={binding} report={report} />;
           const text = itemText(t, id);
           return (
             <div key={id} class={rowClass('settings__row', binding)} role="menuitem" data-testid={`settings-${id}`} data-state={binding.state} onMouseMove={binding.onHover} onClick={binding.onPress}>
@@ -464,9 +521,9 @@ export function SettingsView({ i18n, list, item, telemetry }: { i18n: AppI18n; l
   );
 }
 
-function SettingsPage({ i18n, binding, list, telemetry }: PageProps & { list: readonly SettingsItem[]; telemetry: TelemetrySwitch | null }) {
+function SettingsPage({ i18n, binding, list, telemetry, report }: PageProps & { list: readonly SettingsItem[]; telemetry: TelemetrySwitch | null; report: ReportRow | null }) {
   const items = useZone(binding, binding.nav.top, 'items');
-  return <SettingsView i18n={i18n} list={list} item={(i) => items.item(i)} telemetry={telemetry} />;
+  return <SettingsView i18n={i18n} list={list} item={(i) => items.item(i)} telemetry={telemetry} report={report} />;
 }
 
 /** The guide menu's buttons in words ("Give its link": step 32d4c). */
@@ -782,7 +839,7 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       data-testid="settings-screen"
       data-ready="true"
       data-language={i18n.locale.pseudo ? 'pseudo' : i18n.locale.language}
-      data-pending={guides.pending.value + settings.unmatched.pending.value + mapping.pending.value + settings.sources.pending.value + (backup === null ? 0 : backup.pending.value) + (settings.telemetry === null ? 0 : settings.telemetry.pending.value)}
+      data-pending={guides.pending.value + settings.unmatched.pending.value + mapping.pending.value + settings.sources.pending.value + (backup === null ? 0 : backup.pending.value) + (settings.telemetry === null ? 0 : settings.telemetry.pending.value) + (settings.report === null ? 0 : settings.report.pending.value)}
       data-editing={guides.editor.editing.value ?? mapping.editor.editing.value ?? settings.sources.form?.editor.editing.value ?? ''}
       data-screen={focus.screen}
       data-zone={focus.zone}
@@ -790,7 +847,7 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       data-pointer={String(focus.pointer)}
       data-dir={focus.dir}
     >
-      {focus.screen === 'settings' && <SettingsPage i18n={i18n} binding={binding} focus={focus} list={settings.items} telemetry={settings.telemetry} />}
+      {focus.screen === 'settings' && <SettingsPage i18n={i18n} binding={binding} focus={focus} list={settings.items} telemetry={settings.telemetry} report={settings.report} />}
       {onGuides && <GuidesPage i18n={i18n} binding={binding} focus={focus} guides={guides} />}
       {focus.screen === 'unmatched' && <UnmatchedPage i18n={i18n} binding={binding} list={settings.unmatched} reading={mapping.reading.value} />}
       {focus.screen === MAPPING_SCREEN && <MappingPage i18n={i18n} binding={binding} mapping={mapping} />}

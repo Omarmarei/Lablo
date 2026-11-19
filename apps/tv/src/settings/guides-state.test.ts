@@ -1,4 +1,5 @@
 import type {
+  DiagSendResult,
   EpgMeta,
   EpgNowNext,
   EpgStatus,
@@ -1150,8 +1151,42 @@ describe('the settings screen', () => {
       telemetry: { engine: switchEngine, setOn },
     });
     expect(both.items).toEqual(['guides', 'sources', 'backup', 'telemetry']);
-    expect(SETTINGS_ITEMS).toEqual(['guides', 'sources', 'backup', 'telemetry']);
+    expect(SETTINGS_ITEMS).toEqual(['guides', 'sources', 'backup', 'telemetry', 'report']);
     both.dispose();
+  });
+
+  it('lists "Send a report to support" (step 33d2) last: OK sends in place, and each opening clears its answer', async () => {
+    const t = setup();
+    const sends: ((result: DiagSendResult) => void)[] = [];
+    const send = vi.fn(() => new Promise<DiagSendResult>((resolve) => sends.push(resolve)));
+    const settings = createSettings({
+      nav: t.nav,
+      engine: t.engine,
+      refreshNow: t.refresh.refreshNow,
+      offsetChanged: t.offsetChanged,
+      platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+      report: { send },
+    });
+    expect(settings.items).toEqual(['guides', 'sources', 'report']);
+    settings.open();
+    await t.press('DOWN', 'DOWN');
+    expect(t.at()).toBe('settings · items 2');
+    await t.press('OK');
+    // In place: no screen of its own.
+    expect(t.at()).toBe('settings · items 2');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(settings.report!.state.value).toEqual({ state: 'sending' });
+    sends[0]!({ state: 'sent', code: 'K7M2Q9' });
+    await flush();
+    expect(settings.report!.state.value).toEqual({ state: 'sent', code: 'K7M2Q9' });
+    // The code stays while the settings are open; the next opening clears it.
+    await t.press('BACK');
+    settings.open();
+    expect(settings.report!.state.value).toEqual({ state: 'idle' });
+    settings.dispose();
+    // Disposed with the settings: OK sends no more.
+    settings.report!.press();
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it('lists "TV guides", which opens the guides screen; Back goes back one screen at a time', async () => {
@@ -1163,11 +1198,13 @@ describe('the settings screen', () => {
       offsetChanged: t.offsetChanged,
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
     });
-    expect(SETTINGS_ITEMS).toEqual(['guides', 'sources', 'backup', 'telemetry']);
+    expect(SETTINGS_ITEMS).toEqual(['guides', 'sources', 'backup', 'telemetry', 'report']);
     expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'backup', 'backup-confirm']);
     // Without a backup page (step 32d2b) there is no "Backup" row, nor without a switch "Usage and crash reports" (step 33b3).
     expect(settings.backup).toBeNull();
     expect(settings.telemetry).toBeNull();
+    // Nor without its send "Send a report to support" (step 33d2).
+    expect(settings.report).toBeNull();
     expect(settings.items).toEqual(['guides', 'sources']);
     settings.open();
     expect(t.at()).toBe('settings · items 0');
