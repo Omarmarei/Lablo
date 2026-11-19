@@ -483,6 +483,27 @@ const idReads = (calls: readonly string[] | null): number => (calls === null ? 0
 /** `en`'s "Welcome back" and the title it must show in each language. */
 export const WELCOME_TITLES: Readonly<Record<WalkLanguage, string>> = { en: 'Welcome back', ar: 'مرحبًا بعودتك' };
 
+/** What the start showed instead of "Welcome back". */
+export function startShown(start: StartState): string {
+  if (start.bootError.trim() !== '') return `a boot error (${start.bootError.trim()})`;
+  if (start.onboarding) return 'onboarding';
+  if (start.live) return 'the live screen';
+  return start.screen === null ? 'nothing' : `"${start.screen}"`;
+}
+
+/** Everything wrong with "Welcome back" in `language`, with one source (step 32d3d's walk checks it too). */
+export function welcomeFailures(welcome: StartState, language: WalkLanguage): string[] {
+  const failures: string[] = [];
+  const dir = language === 'ar' ? 'rtl' : 'ltr';
+  if (welcome.language !== language || welcome.dir !== dir) failures.push(`"Welcome back" is in ${welcome.language ?? '-'} (dir="${welcome.dir}"), expected ${language} (dir="${dir}")`);
+  if (welcome.title !== WELCOME_TITLES[language]) failures.push(`"Welcome back"'s title reads "${welcome.title ?? ''}", expected "${WELCOME_TITLES[language]}"`);
+  if (welcome.sources !== 1) failures.push(`"Welcome back" counts ${welcome.sources ?? 'no'} sources, expected 1`);
+  if (welcome.zone !== 'actions' || welcome.index !== 0) failures.push(`"Welcome back"'s focus is at ${welcome.zone ?? '-'} ${welcome.index ?? '-'}, expected "Continue"`);
+  if (welcome.outside.length > 0) failures.push(`"Welcome back" outside the title-safe area: ${welcome.outside.join('; ')}`);
+  if (welcome.cut.length > 0) failures.push(`"Welcome back" cuts a label: ${welcome.cut.join('; ')}`);
+  return failures;
+}
+
 /** Everything wrong with one walk, its live screen against the fixture's `categories`; empty means it passed. */
 export function evaluateBackupWalk(walk: BackupWalk, lookupId: string, categories: WalkCheck['categories']): string[] {
   if (walk.reset !== 'ok') return [`the app's database could not be deleted before the walk (${walk.reset})`];
@@ -492,20 +513,10 @@ export function evaluateBackupWalk(walk: BackupWalk, lookupId: string, categorie
   if (walk.upload === null) return ['the walk stopped before the upload'];
   if (walk.upload !== 'sent') return [`the upload answered "${walk.upload}", expected "sent"`];
   if (walk.wipe !== 'ok') return [`the wipe could not delete the app's database (${walk.wipe ?? 'not tried'})`];
-  const failures: string[] = [];
   const welcome = walk.welcome;
   if (welcome === null) return ['after the wipe, the page could not be read'];
-  if (welcome.screen !== 'welcome') {
-    const shown = welcome.bootError.trim() !== '' ? `a boot error (${welcome.bootError.trim()})` : welcome.onboarding ? 'onboarding' : welcome.live ? 'the live screen' : welcome.screen === null ? 'nothing' : `"${welcome.screen}"`;
-    return [`after the wipe the start showed ${shown}, not "Welcome back"`];
-  }
-  const dir = walk.language === 'ar' ? 'rtl' : 'ltr';
-  if (welcome.language !== walk.language || welcome.dir !== dir) failures.push(`"Welcome back" is in ${welcome.language ?? '-'} (dir="${welcome.dir}"), expected ${walk.language} (dir="${dir}")`);
-  if (welcome.title !== WELCOME_TITLES[walk.language]) failures.push(`"Welcome back"'s title reads "${welcome.title ?? ''}", expected "${WELCOME_TITLES[walk.language]}"`);
-  if (welcome.sources !== 1) failures.push(`"Welcome back" counts ${welcome.sources ?? 'no'} sources, expected 1`);
-  if (welcome.zone !== 'actions' || welcome.index !== 0) failures.push(`"Welcome back"'s focus is at ${welcome.zone ?? '-'} ${welcome.index ?? '-'}, expected "Continue"`);
-  if (welcome.outside.length > 0) failures.push(`"Welcome back" outside the title-safe area: ${welcome.outside.join('; ')}`);
-  if (welcome.cut.length > 0) failures.push(`"Welcome back" cuts a label: ${welcome.cut.join('; ')}`);
+  if (welcome.screen !== 'welcome') return [`after the wipe the start showed ${startShown(welcome)}, not "Welcome back"`];
+  const failures = welcomeFailures(welcome, walk.language);
   const restored = walk.restored;
   if (restored === null || !restoredLanded(restored, walk.language)) {
     failures.push(`after "Welcome back" the live screen never filled by itself: ${restored === null ? 'nothing' : `${describeState(restored)}${restored.live ? `; ${unfilledRows(restored)}` : ''}`}`);

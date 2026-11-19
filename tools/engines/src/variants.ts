@@ -34,11 +34,12 @@ import { TV_PLATFORMS } from './scenario';
 /**
  * The app's screens the harness opens: the hello screen and the component gallery (developer
  * screens behind `?screen=`), onboarding, the start screen a TV opens (step 13c), onboarding
- * by phone against the stand-in pairing API (`pairing`, step 31c2b), and the wipe on a simulated
- * webOS restored from the stand-in backup API (`backup`, step 32d1).
+ * by phone against the stand-in pairing API (`pairing`, step 31c2b), the wipe on a simulated
+ * webOS restored from the stand-in backup API (`backup`, step 32d1), and the wipe on the plain
+ * Tizen build restored by typing its backup code (`code`, step 32d3d).
  */
-export type AppScreen = 'hello' | 'gallery' | 'onboarding' | 'pairing' | 'backup';
-export const APP_SCREENS: readonly AppScreen[] = ['hello', 'gallery', 'onboarding', 'pairing', 'backup'];
+export type AppScreen = 'hello' | 'gallery' | 'onboarding' | 'pairing' | 'backup' | 'code';
+export const APP_SCREENS: readonly AppScreen[] = ['hello', 'gallery', 'onboarding', 'pairing', 'backup', 'code'];
 /** The syntax seeds fail at parse time on whatever screen opens: the two developer screens show it. */
 export const SYNTAX_SEED_SCREENS: readonly AppScreen[] = ['hello', 'gallery'];
 
@@ -135,10 +136,12 @@ export const PAIR_SEEDS: readonly ScriptSeed[] = [
 /**
  * The platforms a screen runs on: each TV build, but the wipe walk only on the simulated webOS
  * (step 32d1: the harness gives the webOS build its luna bridge; a Tizen build reads its DUID
- * through `webapis`, which no engine has).
+ * through `webapis`, which no engine has), and the code walk only on Tizen (step 32d3d: with no
+ * `webapis` it reads no device ID, as a TV after "Not now"; the restore walk webOS lacked).
  */
 export function screenPlatforms(screen: AppScreen): readonly TvPlatform[] {
-  return screen === 'backup' ? ['webos'] : TV_PLATFORMS;
+  if (screen === 'backup') return ['webos'];
+  return screen === 'code' ? ['tizen'] : TV_PLATFORMS;
 }
 
 /**

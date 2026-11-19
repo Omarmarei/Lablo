@@ -195,14 +195,15 @@ describe('seeded variants', () => {
 });
 
 describe('the screens each variant runs', () => {
-  it('runs the real app on every screen, onboarding, onboarding by phone and the wipe (step 32d1) included', () => {
-    expect(APP_SCREENS).toEqual(['hello', 'gallery', 'onboarding', 'pairing', 'backup']);
+  it('runs the real app on every screen, onboarding, onboarding by phone, the wipe (step 32d1) and the code walk (step 32d3d) included', () => {
+    expect(APP_SCREENS).toEqual(['hello', 'gallery', 'onboarding', 'pairing', 'backup', 'code']);
     expect(APP_VARIANT.screens).toEqual(APP_SCREENS);
   });
 
-  it('runs each screen on both TV builds, but the wipe only on the simulated webOS', () => {
+  it('runs each screen on both TV builds, but the wipe only on the simulated webOS and the code walk only on Tizen', () => {
     for (const screen of ['hello', 'gallery', 'onboarding', 'pairing'] as const) expect(screenPlatforms(screen)).toEqual(['tizen', 'webos']);
     expect(screenPlatforms('backup')).toEqual(['webos']);
+    expect(screenPlatforms('code')).toEqual(['tizen']);
   });
 
   it('runs the syntax seeds on the two developer screens: a parse error fails whatever opens', () => {
