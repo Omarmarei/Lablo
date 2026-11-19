@@ -2059,6 +2059,26 @@ envelope   = {v:1, kdf:"scrypt-15-8-1", nonce:24B, ct: secretbox(gzip(profileJSO
 - **Control:** sampling per event via config; an opt-out toggle.
 - **Reporting:** saved SQL views to start with.
 
+**Built in step 33a: the scrubber and the telemetry API** (`packages/protocol/src/scrub.ts`, the `@lablo/protocol/scrub` entry point and its lint rule; `apps/web/src/server/telemetry.ts`, `src/app/v1/telemetry/route.ts`; runbook `web.md` "Telemetry"):
+- **The scrubber** (`scrubText(text, known)`), schema-free and import-free, so the TV's workers take it without zod. Its rules, in order:
+  1. Every URL becomes `[url]`, except the app's own script frames: a `file://` URL keeps its file's name and position (`main.js:1:2345`), and a Blob worker's reads `worker:1:2`.
+  2. The `known` strings (the TV's own logins, links and hosts) are matched exactly, longest first, from 4 characters. They run after the URLs, so no part of a URL is left around one.
+  3. Credential pairs (`password=`, `token=` and the like, and their JSON form) keep the key and read `[x]`.
+  4. An Xtream path without its URL loses its two login segments.
+  5. E-mails become `[email]`.
+  6. IPv4 addresses (with a port), then IPv6 ones (the full form, or any with `::`), become `[ip]`.
+  7. Dotted names whose last label is a top-level domain become `[host]`: a list of the common generic ones, plus every two-letter label but `js` (a superset of the country codes), with a letter before it.
+
+  The answer is cut to 4,000 characters (the `crash` event's `stack`). An input over 16,000 is cut first, and the token at that cut dropped. It over-redacts on purpose: `item.tv` reads `[host]`. A channel or programme name has no shape to find; step 33c checks that the app's own errors carry none.
+- **The cost on a TV:** bundled alone through the TV pipeline it is 25.8 KB, mostly core-js's string and regex polyfills for Chromium 53. Steps 33b and 33c scrub in a worker, not in main.js (25 KB left on Tizen).
+- **`POST /v1/telemetry`:** the rate limit first (60 posts in 10 minutes per caller, through `rateKey`), then the body (64 KB, 413; JSON and `telemetryBatchSchema`, 400). `readTelemetryEvents` reads each event on its own: one it can't read is dropped and counted. Each crash's stack is scrubbed again. The sweep runs before the write: at most 1,000 rows received 90 days ago or more, oldest first. Then one `createMany`: a row per event with its `data` (its fields but `kind` and `at`), `at`, and `receivedAt` from the server's clock. The answer is `{state: 'stored', stored, dropped}`, with the TV's CORS and `no-store`, or 503 with only the error's kind logged. No migration: step 29a's table has every column.
+- **Tests:**
+  - `scrub.test.ts`, 19 tests: each rule on stacks shaped like Chromium 53's and 68's, and fast-check properties (plain text comes back unchanged; a URL's secret, a known string, an IPv4 address, a host and a pair's value never get through, wherever they sit; idempotent; the cap);
+  - `test/scrub-bundle.test.ts`: the bundle in the Chromium 53 stand-in realm, without zod, gives Node's answers;
+  - `telemetry.web.test.ts`, 10 tests against Postgres: the rows; the dropped events; the scrubbed stack; 413 at one byte past 64 KB; 400; 429; the sweep's edge and order; no address, URL, host or login in any row; the route's preflight, services, clock and 503;
+  - `apps/web/e2e/telemetry.spec.ts` over HTTP from `Origin: null`;
+  - mutation `artifacts/mutate33a.py`: 87 written first. 84 were caught on the first run. The three survivors were two test gaps (a key, `signature=`, no test used; a full IPv6 address whose last group the port rule swallowed) and dead code (lower-casing `file://` and `blob:` before a case-sensitive pattern), which was taken out. Then 86/86.
+
 ---
 
 ## 4. Build tooling and test strategy

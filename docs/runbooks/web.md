@@ -336,6 +336,40 @@ is in `apps/web/src/server/backup.ts`; `src/app/v1/backup/[lookupId]/route.ts` i
   `{"error":"not_found"}` with the CORS header.
 - **No migration:** the `Backup` table is step 29a's. Nothing here is in production before step 34.
 
+## Telemetry (step 33a)
+
+Where a TV sends its batches of events (architecture.md §3.4 and "Built in step 33a"). The work
+is in `apps/web/src/server/telemetry.ts`; `src/app/v1/telemetry/route.ts` is a thin wrapper.
+
+| Call | Body | Answers |
+|---|---|---|
+| `POST /v1/telemetry` | `{installId, platform, appVersion, events}`, 1 to 200 events, at most 64 KB | `{state: "stored", stored, dropped}` |
+
+- **What the server keeps:** one `TelemetryEvent` row per event it can read: the install ID, the
+  kind, the platform, the app version, the event's other fields (`data`), when it happened (`at`)
+  and when it came (`receivedAt`, the server's clock). An event it can't read (a newer app's, or a
+  broken one) is dropped and counted; fields it doesn't know are stripped. Nothing else: no
+  address, no header, no body.
+- **A crash's stack is scrubbed again** (`@lablo/protocol`'s `scrubText`, the rules without the
+  user's logins, which only the TV knows): URLs become `[url]` except the app's own frames
+  (`main.js:1:2345`, `worker:1:2`), `password=` and the like `[x]`, Xtream paths lose their login,
+  e-mails `[email]`, IP addresses `[ip]`, hosts `[host]`.
+- **The refusals:** 400 a body that isn't JSON or a batch; 413 over 64 KB; 429 past 60 posts in 10
+  minutes from one address (`Retry-After`); 503 when the database fails (only the error's kind is
+  logged).
+- **Retention:** each post first sweeps at most 1,000 events received 90 days ago or more, the
+  oldest first.
+- **Every answer** carries `access-control-allow-origin: *` and `cache-control: no-store`; the
+  preflight allows `content-type`.
+- **Tests:** `pnpm test:web` (`apps/web/test/telemetry.web.test.ts`, 10 tests against Postgres);
+  `pnpm e2e:web --project=phone telemetry` (one test over HTTP against `next start`, under 1 s);
+  `pnpm test` runs the scrubber's own tests (`packages/protocol/src/scrub.test.ts`) and its bundle
+  in the Chromium 53 stand-in realm (`test/scrub-bundle.test.ts`).
+- **Reading it:** saved SQL to start with (§3.4), e.g. `SELECT kind, count(*) FROM "TelemetryEvent"
+  WHERE "receivedAt" > now() - interval '1 day' GROUP BY kind`.
+- **No migration:** the `TelemetryEvent` table is step 29a's. The TV doesn't send yet (step 33b).
+  Nothing here is in production before step 34.
+
 ## The wipe restored from the real API (step 32d1)
 
 `e2e/backup-api.spec.ts`, in the `tv` project: step 32's "Done when" against `next start`
