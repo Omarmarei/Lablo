@@ -56,6 +56,7 @@ export {
   SNAPSHOT_SLOTS,
   applyProfileEdit,
   emptyProfile,
+  favouriteKeysOf,
   isShowProgress,
   isWatchProgress,
   listSnapshots,
@@ -65,6 +66,7 @@ export {
   putProfileIfNone,
   readEpgOffsets,
   readEpgOverrides,
+  readFavouriteKeys,
   restoreSnapshot,
   saveProfile,
   storedProfileDoc,
@@ -134,6 +136,24 @@ export type { Clock, DutyCycle, ThrottleOptions, ThrottleStats } from './throttl
 export { BUSY_MAX_MS, BUSY_POLL_MS, LOW_TIER_DUTY, REAL_CLOCK, Throttle, YIELD_EVERY_MS } from './throttle';
 
 export type { CatalogView, Candidate, FavouriteReport } from './favourites';
+export type { FavouriteList, GroupRef } from './favourite-lists';
+export {
+  LIST_ID_MAX,
+  LIST_NAME_MAX,
+  MAX_FAVOURITES,
+  MAX_FAVOURITE_LISTS,
+  MAX_GROUP_REFS,
+  MAX_LIST_ITEMS,
+  favouriteListsOf,
+  groupId,
+  groupOrderOf,
+  hiddenGroupsOf,
+  isGroupRef,
+  isListId,
+  isListName,
+} from './favourite-lists';
+export type { FavouriteChange, FavouriteItem, FavouritesPart, GroupChange, GroupsPart } from './favourite-edits';
+export { applyFavouriteChange, applyGroupChange, isFavouriteItem, relinkLists } from './favourite-edits';
 export { FavouriteMatcher, MISSING_KEEP_MS, reconcileFavourites } from './favourites';
 
 export type { IngestErrorCode, IngestJob, IngestOptions, IngestProgress, IngestResult, IngestSource, IngestSwap, LinkSource } from './ingest';

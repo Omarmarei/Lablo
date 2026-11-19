@@ -229,7 +229,12 @@ describe('ingest against the mock provider: Xtream', () => {
       movies.find((i) => i.key === 'x:xt:movie:202')!,
       series.find((i) => i.key === 'x:xt:series:302')!,
     ];
-    await saveProfile(db, { ...emptyProfile(), favourites: picks.map(favourite) }, { now: NOW });
+    // Two lists (step 35a), each in its own order, one channel in both.
+    const lists = [
+      { id: 'l1', name: null, keys: ['x:xt:live:103', 'x:xt:live:101'] },
+      { id: 'l2', name: 'Films', keys: ['x:xt:movie:202', 'x:xt:series:302', 'x:xt:live:101'] },
+    ];
+    await saveProfile(db, { ...emptyProfile(), favourites: picks.map(favourite), favouriteLists: lists }, { now: NOW });
 
     app.mockState.catalog = renumbered(catalog, 1000);
     const r = await ingest(xtream(), { now: () => NOW + DAY });
@@ -255,11 +260,15 @@ describe('ingest against the mock provider: Xtream', () => {
       ['x:xt:movie:1202', null, NOW],
       ['x:xt:series:1302', null, NOW],
     ]);
+    // The lists hold the new keys in the same places.
+    expect(((await loadProfile(db))!.doc as ProfileDoc).favouriteLists).toEqual([
+      { id: 'l1', name: null, keys: ['x:xt:live:1103', 'x:xt:live:1101'] },
+      { id: 'l2', name: 'Films', keys: ['x:xt:movie:1202', 'x:xt:series:1302', 'x:xt:live:1101'] },
+    ]);
 
-    // The re-matched keys resolve in the new generation, and search boosts them.
+    // The re-matched keys resolve in the new generation, and search boosts them (read from the profile).
     const q = new QueryService({ openDb: async () => db });
     expect(await q.reload()).toMatchObject({ stale: [] });
-    expect(q.setFavourites(favs.map((f) => f.key))).toBe(4);
     const hits = await q.search({ query: 'lablo test 1 smpte' });
     expect(hits.hits.map((h) => h.favourite)).toEqual([true, false]);
     expect((await q.items(hits.hits)).map((i) => i?.key)).toEqual(['x:xt:live:1101', 'x:xt:live:1112']);
@@ -271,6 +280,11 @@ describe('ingest against the mock provider: Xtream', () => {
     const later = await ingest({ ...xtream(), force: true }, { now: () => NOW + 32 * DAY });
     expect(later.favourites).toMatchObject({ dropped: ['x:xt:movie:1202'] });
     expect(((await loadProfile(db))!.doc as ProfileDoc).favourites.map((f) => f.key)).toEqual(['x:xt:live:1101', 'x:xt:live:1103', 'x:xt:series:1302']);
+    // Dropped from its list too; the other list is the same object's copy, unchanged.
+    expect(((await loadProfile(db))!.doc as ProfileDoc).favouriteLists).toEqual([
+      { id: 'l1', name: null, keys: ['x:xt:live:1103', 'x:xt:live:1101'] },
+      { id: 'l2', name: 'Films', keys: ['x:xt:series:1302', 'x:xt:live:1101'] },
+    ]);
   });
 
   it('keeps the old generation when a list breaks off, and reports a bad login', async () => {

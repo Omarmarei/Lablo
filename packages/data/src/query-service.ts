@@ -2,8 +2,9 @@
  * The query worker's service (architecture.md §1.2, §1.4 step 11): it stays running, keeps the
  * active generations' search segments in memory, and answers the UI's catalog reads over RPC.
  *
- * - `search` ranks over every loaded segment (core `searchSegments`), with the favourites set
- *   by `setFavourites` boosted. Hits name their generation and chunk; `items` resolves them.
+ * - `search` ranks over every loaded segment (core `searchSegments`), with the profile's
+ *   favourites boosted (step 35a: read at each reload, and taken from each `favourite` edit's
+ *   write). Hits name their generation and chunk; `items` resolves them.
  * - `categories`, `chunk` and `items` read the active generation from IndexedDB, with a small
  *   chunk cache (the visible pages of a list touch the same few chunks).
  * - `reload` re-reads `sources_meta` and the segments, after an ingest swapped a generation, and
@@ -72,7 +73,7 @@ import { CONFIG_KEY } from './config-constants';
 import { getValue } from './idb';
 import { STORE } from './schema';
 import type { LoadedProfile, ProfileDoc, ProfileEdit } from './profile';
-import { applyProfileEdit, loadProfile, readEpgOffsets, readEpgOverrides, updateProfile } from './profile';
+import { applyProfileEdit, favouriteKeysOf, loadProfile, readEpgOffsets, readEpgOverrides, readFavouriteKeys, updateProfile } from './profile';
 import { epgOffsetsOf } from './epg-sources';
 import type { ShortEpgRequest } from './short-epg';
 import { ShortEpgCache, shortEpgNowNext, shortEpgTarget, textTransport } from './short-epg';
@@ -349,6 +350,8 @@ export class QueryService {
    */
   private offsetSeq = 0;
   private offsetsFrom = 0;
+  /** The edit number (`offsetSeq`) the boosted favourites were read at (step 35a), as `offsetsFrom`. */
+  private favouritesFrom = 0;
   /** Bumps at each reload (`UnmatchedPage.version`). */
   private version = 0;
   /** Each source's list of channels without a guide, built when first asked after a reload. */
@@ -380,7 +383,6 @@ export class QueryService {
       status: (): Promise<QueryStatus> => this.status(),
       reload: (): Promise<QueryStatus> => this.reload(),
       search: (req: SearchRequest, ctx: RpcContext): Promise<SearchResult> => this.search(req, ctx),
-      setFavourites: (arg: { keys: ContentKey[] }): number => this.setFavourites(arg.keys),
       categories: (arg: { src: string; kind: ContentKind }): Promise<CategoryInfo[]> => this.categories(arg.src, arg.kind),
       chunk: (arg: { src: string; kind: ContentKind; catIdx: number; chunk: number }): Promise<CatalogItem[]> => this.chunk(arg),
       items: (arg: { refs: ItemRef[] }): Promise<(CatalogItem | null)[]> => this.items(arg.refs),
@@ -476,6 +478,7 @@ export class QueryService {
     const offsetSeq = this.offsetSeq;
     const offsets = readEpgOffsets(db);
     const overrides = readEpgOverrides(db);
+    const favourites = readFavouriteKeys(db);
     const sources = (await getSources(db)).sort((a, b) => (a.src < b.src ? -1 : a.src > b.src ? 1 : 0));
     const keys: { src: string; gen: number; kind: ContentKind }[] = [];
     for (const s of sources) if (s.gen > 0) for (const kind of CONTENT_KINDS) if ((s.counts[kind] ?? 0) > 0) keys.push({ src: s.src, gen: s.gen, kind });
@@ -496,6 +499,7 @@ export class QueryService {
     });
     const epg = await this.loadEpg(db);
     this.setOffsets(await offsets, await overrides, offsetSeq);
+    this.setFavouriteKeys(await favourites, offsetSeq);
     this.sources = sources;
     this.segments = segments;
     this.stale = stale;
@@ -538,6 +542,14 @@ export class QueryService {
   }
 
   /** Takes the offsets and mappings read or written at `seq`, unless ones from a later edit are held already. */
+  /** The favourites search boosts, read at edit number `seq` (an older read than the held one is dropped). */
+  private setFavouriteKeys(keys: ContentKey[], seq: number): void {
+    if (seq < this.favouritesFrom) return;
+    this.favouritesFrom = seq;
+    this.favourites = keys;
+    this.marks = null;
+  }
+
   private setOffsets(offsets: Record<string, number>, overrides: readonly EpgOverride[], seq: number): void {
     if (seq < this.offsetsFrom) return;
     this.offsetsFrom = seq;
@@ -927,16 +939,12 @@ export class QueryService {
       },
       { create: true, now: this.clock() },
     );
-    if (wrote) this.setOffsets(epgOffsetsOf(written), epgOverridesOf(written), seq);
+    if (wrote) {
+      this.setOffsets(epgOffsetsOf(written), epgOverridesOf(written), seq);
+      // The search boost follows the favourites at once (step 35a).
+      if (edit.kind === 'favourite') this.setFavouriteKeys(favouriteKeysOf(written), seq);
+    }
     return wrote;
-  }
-
-  /** Sets the favourite keys boosted in search. Returns how many are in loaded segments. */
-  setFavourites(keys: ContentKey[]): number {
-    this.favourites = keys.slice();
-    this.marks = null;
-    if (!this.loaded) return 0;
-    return this.favouriteMarks().reduce((n, m) => n + (m ? m.size : 0), 0);
   }
 
   private favouriteMarks(): FavouriteMarks {

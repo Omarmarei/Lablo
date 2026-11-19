@@ -23,7 +23,7 @@
  * keeps the backup's choice (`backupLogins`). Later steps add fields with a migration each, or as
  * optional fields that need none (`PlayerMemoryDoc.picture`, step 20c2b; `epgOffsets`, step 24b;
  * `epgOverrides`, step 24d; `ShowProgress.more`, step 27d; `noticesShown`, step 30c2a;
- * `telemetry`, step 33b1).
+ * `telemetry`, step 33b1; `favouriteLists`, `hiddenGroups` and `groupOrder`, step 35a).
  */
 
 import type { CatalogItem, ContentKey, ContentKind, EpgOverride, XtreamAccount } from '@lablo/core';
@@ -32,6 +32,9 @@ import { epgOverridesOf, isEpgPin } from './epg-overrides';
 import type { StoredGuide, UserGuide } from './epg-sources';
 import { epgOffsetsOf, isEpgOffset } from './epg-sources';
 import { MAX_NOTICES, isRuleId } from './config-constants';
+import type { FavouriteChange, GroupChange } from './favourite-edits';
+import { applyFavouriteChange, applyGroupChange } from './favourite-edits';
+import type { FavouriteList, GroupRef } from './favourite-lists';
 import { onSuccess, transact } from './idb';
 import { STORE } from './schema';
 
@@ -286,6 +289,16 @@ export type ProfileV9 = Omit<ProfileV8, 'v' | 'sources' | 'guides'> & {
    * travels in the backup, so a restore brings an "off" back; the telemetry worker reads it raw.
    */
   telemetry?: false;
+  /**
+   * The favourites lists (step 35a), in the user's order: which items of the pool (`favourites`)
+   * each holds, in its own order (favourite-lists.ts). Optional, so version 9 documents written
+   * before it need no migration (one without it has no lists); no field when there are none.
+   */
+  favouriteLists?: FavouriteList[];
+  /** The live groups the user hid (step 35a); no field when none is. */
+  hiddenGroups?: GroupRef[];
+  /** The live groups in the user's order (step 35a); no field when the provider's order stands. */
+  groupOrder?: GroupRef[];
 };
 
 /** The current profile shape. */
@@ -455,7 +468,11 @@ export type ProfileEdit =
    * Whether usage and crash reports are sent (step 33b1): off keeps `telemetry: false`, on takes
    * the field away. One that isn't a boolean changes nothing.
    */
-  | { kind: 'telemetry'; on: boolean };
+  | { kind: 'telemetry'; on: boolean }
+  /** The favourites lists (step 35a, favourite-edits.ts). One that changes nothing, or goes past a cap, writes nothing. */
+  | { kind: 'favourite'; change: FavouriteChange }
+  /** The live groups' hiding and order (step 35a, favourite-edits.ts). One that changes nothing writes nothing. */
+  | { kind: 'group'; change: GroupChange };
 
 const USER_GUIDE = 'u~';
 
@@ -707,6 +724,25 @@ export function applyProfileEdit(doc: ProfileDoc, edit: ProfileEdit): ProfileDoc
     const next: ProfileDoc = { ...doc };
     if (edit.on) delete next.telemetry;
     else next.telemetry = false;
+    return next;
+  }
+  if (edit.kind === 'favourite') {
+    const part = applyFavouriteChange(doc, doc.favourites, edit.change);
+    if (part === null) return null;
+    const next: ProfileDoc = { ...doc, favourites: part.favourites };
+    if (part.favouriteLists.length > 0) next.favouriteLists = part.favouriteLists;
+    else delete next.favouriteLists;
+    return next;
+  }
+  if (edit.kind === 'group') {
+    const part = applyGroupChange(doc, edit.change);
+    if (part === null) return null;
+    const next: ProfileDoc = { ...doc };
+    if ('hiddenGroups' in part) {
+      if (part.hiddenGroups.length > 0) next.hiddenGroups = part.hiddenGroups;
+      else delete next.hiddenGroups;
+    } else if (part.groupOrder.length > 0) next.groupOrder = part.groupOrder;
+    else delete next.groupOrder;
     return next;
   }
   if (edit.kind === 'epgOffset') {
@@ -972,6 +1008,36 @@ export function readEpgOffsets(db: IDBDatabase): Promise<Record<string, number>>
     onSuccess(tx.objectStore(STORE.profile).get(CURRENT), (value) => {
       const record = value as ProfileRecord | undefined;
       done(epgOffsetsOf(record === undefined ? null : record.doc));
+    });
+  });
+}
+
+/**
+ * The keys of a profile document's favourites (any version's `favourites`), in its order: the
+ * search boost's (step 35a). Entries without a key are left out.
+ */
+export function favouriteKeysOf(doc: unknown): ContentKey[] {
+  const stored = typeof doc === 'object' && doc !== null ? (doc as { favourites?: unknown }).favourites : undefined;
+  const keys: ContentKey[] = [];
+  if (!Array.isArray(stored)) return keys;
+  for (let i = 0; i < stored.length; i += 1) {
+    const fav = stored[i] as unknown;
+    const key = typeof fav === 'object' && fav !== null ? (fav as { key?: unknown }).key : undefined;
+    if (typeof key === 'string' && key !== '') keys.push(key);
+  }
+  return keys;
+}
+
+/**
+ * The favourites' keys in the current profile (`favouriteKeysOf`), read without upgrading or
+ * writing it: `[]` when there is no profile. The query worker reads them at each reload, for the
+ * search boost (step 35a).
+ */
+export function readFavouriteKeys(db: IDBDatabase): Promise<ContentKey[]> {
+  return transact<ContentKey[]>(db, STORE.profile, 'readonly', (tx, done) => {
+    onSuccess(tx.objectStore(STORE.profile).get(CURRENT), (value) => {
+      const record = value as ProfileRecord | undefined;
+      done(favouriteKeysOf(record === undefined ? null : record.doc));
     });
   });
 }

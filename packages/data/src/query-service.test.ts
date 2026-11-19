@@ -7,8 +7,9 @@ import type { RecentItem } from './recent';
 import { RECENT_MAX } from './recent';
 import type { RpcPort } from './rpc';
 import { CancelSource, serveRpc } from './rpc';
+import { emptyProfile, saveProfile } from './profile';
 import { STORE } from './schema';
-import { freshFactory, ingest, item } from './test-support';
+import { favItem, freshFactory, ingest, item } from './test-support';
 
 const opened: MessagePort[] = [];
 afterEach(() => {
@@ -62,17 +63,20 @@ describe('QueryService', () => {
     db.close();
   });
 
-  it('boosts favourites, filters kinds, and orders and filters sources', async () => {
+  it("boosts the profile's favourites, filters kinds, and orders and filters sources", async () => {
     const { db, svc } = await service();
     await ingest(db, 'a', catalog('a'));
     await ingest(db, 'b', catalog('b'));
-    expect(svc.setFavourites(['x:b:live:2'])).toBe(0); // nothing loaded yet
+    // Stored before the first load, which reads it (step 35a).
+    await saveProfile(db, { ...emptyProfile(), favourites: [{ ...favItem(catalog('b')[1]!), missingSince: null }] });
     const names = async (req: Parameters<QueryService['search']>[0]): Promise<string[]> => {
       const result = await svc.search(req);
       return (await svc.items(result.hits)).map((i) => `${i!.src}:${i!.name}`);
     };
     expect(await names({ query: 'news', kinds: ['live'] })).toEqual(['b:Sky News', 'a:News 24', 'b:News 24', 'a:Sky News']);
-    expect(svc.setFavourites(['x:b:live:2', 'x:a:movie:10', 'x:zz:live:1'])).toBe(2);
+    // An edit's favourites count at once, with no reload (a key of no loaded source boosts nothing).
+    expect(await svc.editProfile({ kind: 'favourite', change: { op: 'newList', id: 'l1', name: null, item: favItem(catalog('a')[4]!) } })).toBe(true);
+    expect(await svc.editProfile({ kind: 'favourite', change: { op: 'add', list: 'l1', item: favItem(item('zz', 'live', 1, 'News 1')) } })).toBe(true);
     expect(await names({ query: 'news', kinds: ['movie'], sources: ['b', 'a'] })).toEqual(['a:News of the World', 'b:News of the World']);
     expect(await names({ query: 'الاخباريه', sources: ['b'] })).toEqual(['b:الجزيرة الإخبارية']);
     db.close();
@@ -171,7 +175,7 @@ describe('QueryService', () => {
     expect(result.hits).toHaveLength(1);
     const [found] = await client.call('items', { refs: result.hits });
     expect(found).toMatchObject({ key: 'x:tv:live:1', name: 'MBC Drama HD', url: 'http://p.test/live/u/p/1.ts' });
-    expect(await client.call('setFavourites', { keys: ['x:tv:live:1'] })).toBe(1);
+    expect(await client.call('editProfile', { kind: 'favourite', change: { op: 'newList', id: 'l1', name: 'Mine', item: favItem(found!) } })).toBe(true);
     expect((await client.call('status')).segments).toHaveLength(3);
     const source = new CancelSource();
     source.cancel();
