@@ -1,4 +1,4 @@
-import type { EpgCatalogSource, IngestResult, IngestSource, LoadedProfile, ProfileEdit, SourceRecord } from '@lablo/data';
+import type { EpgCatalogSource, IngestResult, IngestSource, LoadedProfile, ProfileEdit, SourceRecord, StoredSource } from '@lablo/data';
 import type { FileFeed } from '@lablo/data/client';
 import { CancelError, RpcError } from '@lablo/data/client';
 import { describe, expect, it } from 'vitest';
@@ -197,6 +197,20 @@ describe('nextGuideId', () => {
     expect(nextGuideId([])).toBe('g1');
     expect(nextGuideId(['s1', 's7', 'g', 'gx', 'g2b', 'xg9'])).toBe('g1');
     expect(nextGuideId(['g3', 's1', 'g1'])).toBe('g4');
+  });
+});
+
+describe('a source without its login, stored (step 32d4a)', () => {
+  it('gives what it kept to the refresh (which the data engine refuses), and no panel guide', () => {
+    const panel: StoredSource = { id: 's1', type: 'xtream', name: 'A', account: null, base: 'http://panel.test:8080', added: 1 };
+    const link: StoredSource = { id: 's2', type: 'm3u', name: 'B', url: null, origin: 'http://lists.test', added: 2 };
+    expect(ingestSourceOf(panel)).toEqual({ type: 'xtream', account: null, base: 'http://panel.test:8080' });
+    expect(ingestSourceOf(link)).toEqual({ type: 'm3u', url: null, origin: 'http://lists.test' });
+    expect(catalogOf(panel)).toEqual({ src: 's1', type: 'xtream', account: null });
+    expect(catalogOf(link)).toEqual({ src: 's2', type: 'm3u' });
+    const doc = { v: 9, sources: [panel, link], guides: [{ id: 'g1', url: null, origin: 'http://g.test' }] };
+    expect(storedSources({ doc, newer: false, migratedFrom: null })).toEqual([panel, link]);
+    expect(userGuides({ doc, newer: false, migratedFrom: null })).toEqual([{ id: 'g1', url: null, origin: 'http://g.test' }]);
   });
 });
 

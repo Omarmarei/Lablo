@@ -220,8 +220,10 @@ export function guideList(profile: LoadedProfile | null, status: EpgStatus, bloc
   const urls: string[] = [];
   for (const guide of user) {
     const epgSrc = `${USER_PREFIX}${guide.id}`;
-    rows.push({ kind: 'mine', epgSrc, id: guide.id, link: shownLink(guide.url), source: '', meta: metaOf(status, epgSrc), offset: offsetOf(epgSrc), blocked: blocked[urls.length] === true });
-    urls.push(guide.url);
+    // A guide without its link (step 32d4a) shows the origin it kept.
+    const url = guide.url === null ? guide.origin : guide.url;
+    rows.push({ kind: 'mine', epgSrc, id: guide.id, link: shownLink(url), source: '', meta: metaOf(status, epgSrc), offset: offsetOf(epgSrc), blocked: blocked[urls.length] === true });
+    urls.push(url);
   }
   for (const guide of epgGuides(records.map(catalogOf), status.sources, user)) {
     if (guide.epgSrc.indexOf(USER_PREFIX) === 0) continue;

@@ -29,6 +29,8 @@ describe('startPoint', () => {
     expect(startPoint(loaded({ sources: [SOURCE], player: { last: { ...last, item: { ...item, src: 's2' } } } })).resume).toBeNull();
     // Onboarding never plays.
     expect(startPoint(loaded({ sources: [], player: { last } })).resume).toBeNull();
+    // A backup without logins brought it back with no URL (step 32d4a): not played.
+    expect(startPoint(loaded({ sources: [SOURCE], player: { last: { ...last, item: { ...item, url: '' } } } })).resume).toBeNull();
     // "All channels", a newer app version's profile: still played.
     expect(startPoint({ doc: { v: 9, sources: [SOURCE], player: { last: { ...last, category: null } } }, newer: true, migratedFrom: null }).resume).toMatchObject({ category: null, index: 4 });
   });

@@ -1,5 +1,5 @@
 import type { DeviceTier } from '@lablo/core';
-import type { EpgCatalogSource, EpgRefreshResult, IngestResult, IngestSource, LoadedProfile, SourceMeta } from '@lablo/data';
+import type { EpgCatalogSource, EpgRefreshResult, IngestResult, LoadedProfile, RefreshSource, SourceMeta } from '@lablo/data';
 import type { LifecycleEvent } from '@lablo/platform-api';
 // The client entry only: the package index would pull every data module's polyfills into main.
 import { CancelSource, INGEST_VERSION } from '@lablo/data/client';
@@ -49,7 +49,7 @@ export interface SchedulerEngine {
   readonly refreshing: boolean;
   profile(): Promise<LoadedProfile | null>;
   sourceStatus(): Promise<SourceMeta[]>;
-  refresh(job: { src: string; source: IngestSource }, options: RefreshOptions): Promise<IngestResult>;
+  refresh(job: { src: string; source: RefreshSource }, options: RefreshOptions): Promise<IngestResult>;
   refreshEpg(catalogs: readonly EpgCatalogSource[], options: EpgRefreshOptions): Promise<EpgRefreshResult>;
 }
 
@@ -157,8 +157,10 @@ export function createRefreshScheduler(options: SchedulerOptions): RefreshSchedu
       } catch (error) {
         if (disposed) return false;
         failures.set(record.id, now());
-        // A source on the blocklist (step 30c3a) is refused before any request: no failure to report.
-        if ((error as { code?: unknown } | null)?.code !== 'blocklisted') console.warn('A catalog refresh failed', error);
+        // A source on the blocklist (step 30c3a), or without its login (step 32d4a), is refused
+        // before any request: no failure to report.
+        const code = (error as { code?: unknown } | null)?.code;
+        if (code !== 'blocklisted' && code !== 'needs-login') console.warn('A catalog refresh failed', error);
       }
     }
     if (disposed) return false;

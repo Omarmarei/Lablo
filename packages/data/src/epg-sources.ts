@@ -55,11 +55,32 @@ export interface UserGuide {
   offsetMinutes?: number;
 }
 
-/** A catalog source as the guides need it: Xtream sources bring their account. */
-export type EpgCatalogSource = { src: string; type: 'm3u' } | { src: string; type: 'xtream'; account: XtreamAccount };
+/**
+ * A guide a backup made without logins brought back (step 32d4a, profile version 9): its link's
+ * origin (`scheme://host[:port]`) kept, the link left out. It is never read until the user gives
+ * the link again (`GuideChange` `link`).
+ */
+export interface GuideWithoutLink {
+  id: string;
+  url: null;
+  origin: string;
+  offsetMinutes?: number;
+}
 
-/** The guides to read, in priority order (see the module comment). */
-export function epgGuides(catalogs: readonly EpgCatalogSource[], sources: readonly SourceMeta[], user: readonly UserGuide[] = []): EpgGuide[] {
+/** A guide in the profile's list (version 9): with its link, or without it after a restore. */
+export type StoredGuide = UserGuide | GuideWithoutLink;
+
+/**
+ * A catalog source as the guides need it: Xtream sources bring their account (`null`: its login
+ * isn't on the TV, step 32d4a, so the panel's guide isn't read).
+ */
+export type EpgCatalogSource = { src: string; type: 'm3u' } | { src: string; type: 'xtream'; account: XtreamAccount | null };
+
+/**
+ * The guides to read, in priority order (see the module comment). A guide or an Xtream source
+ * without its link or login (step 32d4a) has none to read: it isn't listed.
+ */
+export function epgGuides(catalogs: readonly EpgCatalogSource[], sources: readonly SourceMeta[], user: readonly StoredGuide[] = []): EpgGuide[] {
   const out: EpgGuide[] = [];
   const urls: string[] = [];
   const add = (guide: EpgGuide): void => {
@@ -67,10 +88,10 @@ export function epgGuides(catalogs: readonly EpgCatalogSource[], sources: readon
     urls.push(guide.url);
     out.push(guide);
   };
-  for (const u of user) add({ epgSrc: `u~${u.id}`, url: u.url, zone: { minutes: u.offsetMinutes ?? 0 } });
+  for (const u of user) if (u.url !== null) add({ epgSrc: `u~${u.id}`, url: u.url, zone: { minutes: u.offsetMinutes ?? 0 } });
   for (const c of catalogs) {
     if (c.type === 'xtream') {
-      add({ epgSrc: `${c.src}:xmltv`, url: xtreamXmltvUrl(c.account), zone: { panel: c.src } });
+      if (c.account !== null) add({ epgSrc: `${c.src}:xmltv`, url: xtreamXmltvUrl(c.account), zone: { panel: c.src } });
       continue;
     }
     let meta: SourceMeta | undefined;

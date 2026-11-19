@@ -32,11 +32,14 @@ export type {
   ProfileV6,
   ProfileV7,
   ProfileV8,
+  ProfileV9,
   ShowProgress,
   SnapshotReason,
   SourceRecord,
   SourceRecordV3,
   SourceRecordV7,
+  SourceWithoutLogin,
+  StoredSource,
   StoredTrackChoice,
   StoredTrackPick,
   WatchProgress,
@@ -164,11 +167,14 @@ export {
 export type { EpgPin } from './epg-overrides';
 export { NO_MAPPING, epgMappingKey, epgOverridesOf, isEpgPin } from './epg-overrides';
 
-export type { EpgCatalogSource, EpgDueReason, EpgGuide, UserGuide } from './epg-sources';
+export type { EpgCatalogSource, EpgDueReason, EpgGuide, GuideWithoutLink, StoredGuide, UserGuide } from './epg-sources';
 export { EPG_AHEAD_MS, EPG_OFFSET_MAX, EPG_OFFSET_STEP, EPG_REFRESH_MS, EPG_RETRY_MS, epgGuides, epgOffsetsOf, epgRefreshDue, isEpgOffset } from './epg-sources';
 
 export type { ShortEpgAnswer, ShortEpgRequest, ShortEpgSource, ShortEpgTarget } from './short-epg';
 export { SHORT_EPG_LIMIT, SHORT_EPG_TTL_MS, ShortEpgCache, shortEpgNowNext, shortEpgTarget, textTransport } from './short-epg';
+
+export type { LinkWithoutLogin, RefreshSource } from './logins';
+export { backupDoc, lacksLogin, linkOrigin, withoutLogins } from './logins';
 
 export type { AccountCheck } from './account-check';
 export { LOGIN_REFUSED, checkAccount, sourceAccount } from './account-check';

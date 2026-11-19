@@ -57,6 +57,9 @@ describe('checkAccount (the player error card, RELAY step 20a)', () => {
     expect(sourceAccount(plain)).toBeNull();
     // A file from the phone (step 31d2b1) has no link, so no panel.
     expect(sourceAccount({ id: 's4', type: 'm3u-file', name: 'F', added: 1 })).toBeNull();
+    // Without its login (step 32d4a): none either, its server or origin kept or not.
+    expect(sourceAccount({ id: 's5', type: 'xtream', name: 'X', account: null, base: 'http://panel.test:8080', added: 1 })).toBeNull();
+    expect(sourceAccount({ id: 's6', type: 'm3u', name: 'M', url: null, origin: 'http://panel.test:8080', added: 1 })).toBeNull();
   });
 });
 

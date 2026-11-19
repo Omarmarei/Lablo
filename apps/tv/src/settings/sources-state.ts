@@ -1,6 +1,6 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { LoadedProfile, SourceMeta, SourceRecord } from '@lablo/data';
+import type { LoadedProfile, SourceMeta, StoredSource } from '@lablo/data';
 import type { Navigator, Screen, ScreenSpec, ZoneSpec } from '@lablo/ui';
 import { SCREEN, fits } from '@lablo/ui';
 import { sourceUrlOf } from '../data/engine';
@@ -34,7 +34,7 @@ export const SOURCES_VISIBLE = fits(SOURCES_BODY, GUIDES.rowHeight, GUIDES.rowGa
 export interface SourceRow {
   readonly id: string;
   readonly name: string;
-  readonly type: SourceRecord['type'];
+  readonly type: StoredSource['type'];
   /** The server as shown: its host and port, nothing else (a file from the phone has none: empty). */
   readonly host: string;
   /** When its catalog was last checked (`checkedAt`, else `updatedAt`; `null`: never). */
@@ -83,8 +83,8 @@ export function shownHost(url: string): string {
   return slash === -1 ? link : link.slice(0, slash);
 }
 
-/** A stored source's link or server (`''` for a file from the phone, which has none). */
-function linkOf(record: SourceRecord): string {
+/** A stored source's link or server (`''` for a file from the phone, which has none; what a source without its login kept, step 32d4a). */
+function linkOf(record: StoredSource): string {
   const source = ingestSourceOf(record);
   return source === null ? '' : sourceUrlOf(source);
 }

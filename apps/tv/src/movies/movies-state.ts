@@ -1,7 +1,7 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
 import type { CatalogItem, ContentKind, DeviceTier } from '@lablo/core';
-import type { CategoryInfo, KeyItemsRequest, LoadedProfile, RecentItem, RecentRequest, SourceRecord } from '@lablo/data';
+import type { CategoryInfo, KeyItemsRequest, LoadedProfile, RecentItem, RecentRequest, StoredSource } from '@lablo/data';
 import type { Focus, Navigator, Screen, ZoneSpec } from '@lablo/ui';
 import { LAYOUT, fits } from '@lablo/ui';
 import type { ChunkRef, ListPart } from '../live/channel-index';
@@ -395,7 +395,7 @@ export function createMovies(options: MoviesOptions): Movies {
   };
 
   /** The stored sources, each one's movie categories, the newest movies across them, and what was left part way. */
-  const readSources = async (): Promise<{ records: SourceRecord[]; ids: string[]; lists: CategoryInfo[][]; newest: RecentItem[]; left: CatalogItem[] }> => {
+  const readSources = async (): Promise<{ records: StoredSource[]; ids: string[]; lists: CategoryInfo[][]; newest: RecentItem[]; left: CatalogItem[] }> => {
     const records = storedSources(await engine.profile());
     const ids: string[] = [];
     for (const r of records) ids.push(r.id);

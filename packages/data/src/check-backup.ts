@@ -5,19 +5,24 @@
  * (`backupStandIn`: the vectors page has no server), unchanged so not sent again, and restored
  * after a wipe of the database (32c1), through the engine's own gzip, secretbox and IndexedDB;
  * then a held backup restored over a new profile (its catalogs cleared, 32d2b) and replaced, the
- * backup off (its copy deleted) and on again (32d2a); last, a send under the backup code and, after
- * a wipe and onboarding's answers, that code typed back (32d3b).
+ * backup off (its copy deleted) and on again (32d2a); a send without the logins and links, and its
+ * restore (32d4a); last, a send under the backup code and, after a wipe and onboarding's answers,
+ * that code typed back (32d3b).
  * Its own entry point (`@lablo/data/check-backup`): the vectors page runs it in a Blob worker on
  * Chromium 53, 56 and 68 (`pnpm verify:engines`) and in current Chromium (`e2e/crypto-vectors.spec.ts`);
  * Node runs it with fake-indexeddb. The checks run in order and each one's error is its own failure.
  * It deletes its database first and last, so a page never leaves it half written.
  */
-import { backupKeys } from '@lablo/crypto';
+import type { CatalogItem } from '@lablo/core';
+import { backupKeys, openBackup } from '@lablo/crypto';
 import type { VectorResult } from '@lablo/crypto/check-vectors';
+import { readEnvelope } from './backup-api';
+import { readBackupPlain } from './backup-plain';
 import type { BackupCallRequest, BackupPrepareRequest } from './backup-service';
 import { BACKUP_CODE_KEY, BACKUP_MASTER_KEY, BackupService, readMasterRecord, secretCheck } from './backup-service';
 import { backupStandIn } from './backup-stand-in';
 import { deleteDatabase, getValue, openDatabase, transact } from './idb';
+import { withoutLogins } from './logins';
 import type { ProfileDoc, ProfileSnapshot } from './profile';
 import { emptyProfile, listSnapshots, saveProfile, storedProfileDoc } from './profile';
 import { STORE } from './schema';
@@ -42,6 +47,8 @@ export const BACKUP_CHECK_NAMES: readonly string[] = [
   'backup.replaceHeld',
   'backup.off',
   'backup.on',
+  'backup.noLogins',
+  'backup.restoreNoLogins',
   'backup.codeUpload',
   'backup.restoreCode',
   'backup.cleanup',
@@ -65,6 +72,53 @@ export function otherProfile(): ProfileDoc {
   doc.onboarding = { language: 'en', disclaimerAt: 2, consent: true };
   doc.sources = [{ id: 's1', type: 'm3u', name: 'Living room', url: 'http://example.invalid/new.m3u', added: 2 }];
   return doc;
+}
+
+/**
+ * The profile with "Include logins and links" off (step 32d4a): an Xtream login, an M3U link and a
+ * guide link each with a login in it, and a channel played last whose stream URL holds one.
+ */
+export function loginsProfile(): ProfileDoc {
+  const doc = checkProfile();
+  const item: CatalogItem = {
+    key: 'x:s1:live:7',
+    src: 's1',
+    kind: 'live',
+    name: 'الأخبار',
+    normName: 'news',
+    group: 'News',
+    url: 'http://panel.invalid:8080/live/check-user/check-pass/7.ts',
+    logo: null,
+    epgId: 'news.tv',
+    tvgName: null,
+    matchName: 'news',
+    chno: 7,
+    tvgShift: 0,
+    catchup: null,
+    radio: false,
+    hints: null,
+  };
+  doc.sources = [
+    { id: 's1', type: 'xtream', name: 'لوحة', account: { base: 'http://panel.invalid:8080', username: 'check-user', password: 'check-pass' }, added: 1 },
+    { id: 's2', type: 'm3u', name: 'قنوات العائلة', url: 'http://lists.invalid/get.php?username=check-user&password=check-pass', added: 2 },
+  ];
+  doc.guides = [{ id: 'g1', url: 'http://epg.invalid/check-token/guide.xml' }];
+  doc.player = { last: { item, number: 7, category: null, index: 0, started: 3 }, containers: {}, redirects: {}, tracks: {}, subtitleSize: null };
+  doc.channels = [doc.player.last!];
+  doc.backupLogins = false;
+  return doc;
+}
+
+/** What a backup without logins must never hold of `loginsProfile`, and what it must keep. */
+const LOGIN_MARKERS = ['check-user', 'check-pass', 'check-token', 'get.php', 'guide.xml', '/live/'];
+const KEPT_MARKERS = ['"base":"http://panel.invalid:8080"', '"origin":"http://lists.invalid"', '"origin":"http://epg.invalid"', '"backupLogins":false'];
+
+/** What `text` (a backup's JSON of `loginsProfile`) holds that it must not, and lacks that it must keep: `''` when neither (step 32d4a). */
+export function backupLeaks(text: string): string {
+  let out = '';
+  for (let i = 0; i < LOGIN_MARKERS.length; i++) if (text.indexOf(LOGIN_MARKERS[i]!) !== -1) out += `holds ${LOGIN_MARKERS[i]!}; `;
+  for (let i = 0; i < KEPT_MARKERS.length; i++) if (text.indexOf(KEPT_MARKERS[i]!) === -1) out += `lacks ${KEPT_MARKERS[i]!}; `;
+  return out;
 }
 
 /** Onboarding's answers before a source is added (step 32d3b): what a typed code's restore writes over. */
@@ -134,6 +188,8 @@ export async function checkBackup(vector: BackupCheckVector, factory: IDBFactory
   let code: unknown;
   /** The code the send under the backup code made (step 32d3b), to type back. */
   let sentCode: unknown;
+  /** The document a backup without logins sends of `loginsProfile` (step 32d4a). */
+  const bare = JSON.stringify(withoutLogins(loginsProfile()));
 
   const checks: Array<{ name: string; run: () => Promise<string> | string }> = [
     { name: 'backup.reset', run: () => deleteDatabase(factory, name).then(() => '') },
@@ -308,6 +364,42 @@ export async function checkBackup(vector: BackupCheckVector, factory: IDBFactory
         const before = api.requests.length;
         const upload = await service.upload(call);
         return same('state', result.state, 'on') + same('upload', upload.state, 'sent') + same('requests', asked(before), 'GET 404, PUT 200');
+      },
+    },
+    {
+      // Step 32d4a: "Include logins and links" off: only a PUT, and the envelope, opened with the
+      // kept master's key, holds the document without them (the servers' origins kept).
+      name: 'backup.noLogins',
+      run: async () => {
+        await saveDoc(loginsProfile());
+        const before = api.requests.length;
+        const result = await service.upload(call);
+        const kept = readMasterRecord(await read(BACKUP_MASTER_KEY), secretCheck(vector.platform, vector.appId, vector.deviceSecret));
+        if (kept === null) return 'no master kept for the secret';
+        const envelope = readEnvelope(api.blobs.get(backupKeys(kept).lookupId) ?? null);
+        const plain = envelope === null ? null : openBackup(envelope, backupKeys(kept).encKey);
+        const opened = plain === null ? null : readBackupPlain(plain);
+        if (opened === null) return 'no envelope to open';
+        const text = JSON.stringify(opened);
+        return same('state', result.state, 'sent') + same('requests', asked(before), 'PUT 200') + same('plaintext', text, bare) + backupLeaks(text);
+      },
+    },
+    {
+      // Its restore over another profile ("Restore it", no scrypt): the sources and guides without
+      // their logins, the choice back with them; then nothing to send.
+      name: 'backup.restoreNoLogins',
+      run: async () => {
+        await saveDoc(otherProfile());
+        const before = api.requests.length;
+        const result = await service.restoreHeld(call);
+        if (result.state !== 'restored') return same('state', result.state, 'restored');
+        let restored: unknown;
+        await withDb(async (db) => {
+          restored = await storedProfileDoc(db);
+        });
+        const again = await service.upload(call);
+        const text = JSON.stringify(restored);
+        return same('requests', asked(before), 'GET 200') + same('sources', String(result.sources), '2') + same('profile', text, bare) + backupLeaks(text) + same('then', again.state, 'same');
       },
     },
     {

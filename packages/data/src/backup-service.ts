@@ -13,7 +13,11 @@
  * `upload({…, base})` sends the profile (step 32c1):
  * - `none`: no profile, one from a newer app version, or one with no source yet;
  * - the master as `prepare` makes sure of it; then the keys (`backupKeys`);
- * - `same`: the document and the lookup ID are those of the last send (`kv` `backup.sent`);
+ * - **the document sent** is the stored one, without its logins and links when the profile says so
+ *   (`backupLogins: false`, step 32d4a: `backupDoc`, before gzip and sealing; nothing is written
+ *   back);
+ * - `same`: the document as sent and the lookup ID are those of the last send (`kv` `backup.sent`),
+ *   so turning the logins off or on sends at the next upload;
  * - `held`: nothing was sent under this lookup ID yet, and `GET` finds a backup there. A backup
  *   this TV hasn't seen (a look-up that failed after a wipe, or one from a newer app) is never
  *   written over: step 32d offers to restore or replace it;
@@ -76,6 +80,7 @@ import { BACKUP_CT_MAX_BYTES } from '@lablo/protocol/backup-limits';
 import type { BackupAnswer } from './backup-api';
 import { BackupApi, readEnvelope } from './backup-api';
 import { backupPlain, profileHash, readBackupPlain } from './backup-plain';
+import { backupDoc } from './logins';
 import type { ByteTransport } from './bytes';
 import { getValue, onSuccess, transact } from './idb';
 import type { AnyProfile } from './profile';
@@ -524,7 +529,7 @@ export class BackupService {
       }
       const doc = worthSending(await storedProfileDoc(db));
       if (doc === null) return { state: 'none' };
-      const json = JSON.stringify(doc);
+      const json = JSON.stringify(backupDoc(doc));
       const hash = profileHash(json);
       const keys = backupKeys((await this.master(db, request)).master);
       const ours = sent !== null && sent.lookupId === keys.lookupId;

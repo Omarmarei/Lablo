@@ -10,6 +10,7 @@ import type {
   ProfileEdit,
   SourceMeta,
   SourceRecord,
+  StoredGuide,
   UnmatchedPage,
   UnmatchedRequest,
   UserGuide,
@@ -353,6 +354,17 @@ describe('guideList', () => {
     const { rows } = guideList({ doc: doc([{ id: 'g1', url: PANEL_GUIDE }, { id: 'g2', url: 'http://guides.test/a.xml' }]), newer: false, migratedFrom: null }, status);
     expect(rows.map((r) => r.epgSrc)).toEqual(['u~g1', 'u~g2', 's2:tvg0']);
     expect(rows.every((r) => r.meta === null)).toBe(true);
+  });
+
+  it('lists a guide without its link with the origin it kept, and asks the blocklist about it (step 32d4a)', () => {
+    const status: EpgStatus = { guides: [], matched: 0, sources: [], mapping: '-' };
+    const guides: StoredGuide[] = [{ id: 'g1', url: null, origin: 'https://guides.bare.test:8443' }, { id: 'g2', url: 'http://guides.test/a.xml' }];
+    const { rows, urls } = guideList({ doc: { ...emptyProfile(), sources: [], guides }, newer: false, migratedFrom: null }, status, [true, false]);
+    expect(rows.map((r) => [r.kind, r.epgSrc, r.id, r.link, r.blocked])).toEqual([
+      ['mine', 'u~g1', 'g1', 'guides.bare.test:8443', true],
+      ['mine', 'u~g2', 'g2', 'guides.test/a.xml', false],
+    ]);
+    expect(urls).toEqual(['https://guides.bare.test:8443', 'http://guides.test/a.xml']);
   });
 
   it('marks the guides the blocklist answered for, in the list’s order, and none without an answer (step 30c3a)', () => {

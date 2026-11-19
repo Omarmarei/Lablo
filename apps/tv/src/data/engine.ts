@@ -76,12 +76,14 @@ import type {
   ItemRef,
   KeyItemsRequest,
   LinkSource,
+  LinkWithoutLogin,
   LoadedProfile,
   ProfileEdit,
   ProgrammeRequest,
   QueryStatus,
   RecentItem,
   RecentRequest,
+  RefreshSource,
   RpcPort,
   SearchRequest,
   SeriesInfoRequest,
@@ -90,7 +92,7 @@ import type {
   SourceMeta,
   UnmatchedPage,
   UnmatchedRequest,
-  UserGuide,
+  StoredGuide,
   VodInfoRequest,
 } from '@lablo/data';
 // The client entry only: the package index would pull every data module's polyfills into main.
@@ -110,7 +112,7 @@ import type {
   PairPollResult,
   PairStatusResult,
 } from '@lablo/data/client';
-import { createBackupClient, createConfigClient, createDataClient, createEpgClient, createIngestClient, createPairClient, epgGuides, epgRefreshDue } from '@lablo/data/client';
+import { createBackupClient, createConfigClient, createDataClient, createEpgClient, createIngestClient, createPairClient, epgGuides, epgRefreshDue, lacksLogin } from '@lablo/data/client';
 import type { PairStatus } from '@lablo/protocol';
 
 /** What a source's stream and catch-up URLs need from its last login (`DataEngine.sourceFacts`). */
@@ -186,6 +188,16 @@ export interface SearchSummary {
   live: boolean[];
 }
 
+/**
+ * A catalog refresh the app asks for: `IngestJob`'s, with a source that may lack its login (step
+ * 32d4a: a backup without logins brought it back), which the engine refuses.
+ */
+export interface RefreshJob {
+  src: string;
+  source: RefreshSource;
+  force?: boolean;
+}
+
 export interface RefreshOptions {
   /** A low-tier TV: the refresh runs the 50/50 duty cycle. */
   lowTier?: boolean;
@@ -198,7 +210,7 @@ export interface RefreshOptions {
 export interface EpgRefreshOptions {
   tier: DeviceTier;
   /** Guides the user added, in their order (step 22). */
-  user?: UserGuide[];
+  user?: StoredGuide[];
   /** UI languages, most preferred first. */
   languages?: string[];
   /** Read only the guides that are due (`epgRefreshDue`); without it, every guide. */
@@ -238,11 +250,27 @@ export class BlockedSourceError extends Error {
 }
 
 /**
- * The URL whose host a source's catalog comes from: an Xtream account's server, an M3U link. (The
- * phone's file has none: its streams meet the blocklist when they play.)
+ * A refresh the data engine refused because the source has no login on the TV (step 32d4a: a
+ * backup made without logins brought it back): `code` is `needs-login`. Nothing was asked of the
+ * source's server.
  */
-export function sourceUrlOf(source: LinkSource): string {
-  return source.type === 'xtream' ? source.account.base : source.url;
+export class NeedsLoginError extends Error {
+  readonly code = 'needs-login';
+
+  constructor() {
+    super('The source has no login on this TV');
+    this.name = 'NeedsLoginError';
+  }
+}
+
+/**
+ * The URL whose host a source's catalog comes from: an Xtream account's server, an M3U link (for a
+ * source without its login, step 32d4a: the server or the link's origin it kept). (The phone's file
+ * has none: its streams meet the blocklist when they play.)
+ */
+export function sourceUrlOf(source: LinkSource | LinkWithoutLogin): string {
+  if (source.type === 'xtream') return source.account === null ? source.base : source.account.base;
+  return source.url === null ? source.origin : source.url;
 }
 
 function summarize(status: QueryStatus): DataSummary {
@@ -355,15 +383,20 @@ export class DataEngine {
    * abandon a refresh running next to it). When the refresh swaps generations, the query worker
    * reloads before this resolves, so the next read sees the new catalog.
    */
-  async refresh(job: IngestJob, options: RefreshOptions = {}): Promise<IngestResult> {
+  async refresh(job: RefreshJob, options: RefreshOptions = {}): Promise<IngestResult> {
+    const source = job.source;
+    // A source without its login (step 32d4a) is never read, before anything: no URL can be built.
+    if (lacksLogin(source)) throw new NeedsLoginError();
+    const ingest: IngestJob = { src: job.src, source };
+    if (job.force !== undefined) ingest.force = job.force;
     // The slot first, at once: a second refresh called meanwhile is refused as before.
     await this.claim('catalog');
     let reload: Promise<unknown> = Promise.resolve();
     try {
       // The blocklist (step 30c3a): a source on a blocked server is never read; no ingest worker starts.
       // A file from the phone has no catalog server (`PlayerController.play` checks its streams).
-      if (job.source.type !== 'm3u-file') {
-        const blocked = await this.blockedOrNone([sourceUrlOf(job.source)]);
+      if (source.type !== 'm3u-file') {
+        const blocked = await this.blockedOrNone([sourceUrlOf(source)]);
         if (blocked[0] === true) throw new BlockedSourceError();
       }
       return await this.withIngestWorker(async (client) => {
@@ -376,7 +409,7 @@ export class DataEngine {
         const file = options.file;
         const result = await client.call(
           'run',
-          file === undefined ? { job, lowTier: options.lowTier } : { job, lowTier: options.lowTier, file },
+          file === undefined ? { job: ingest, lowTier: options.lowTier } : { job: ingest, lowTier: options.lowTier, file },
           file === undefined ? { cancel: options.cancel } : { cancel: options.cancel, transfer: [file.port as MessagePort] },
         );
         // The refresh itself succeeded; a query worker that can't reload reports that on the

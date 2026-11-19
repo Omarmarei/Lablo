@@ -78,7 +78,7 @@ import type { ShortEpgRequest } from './short-epg';
 import { ShortEpgCache, shortEpgNowNext, shortEpgTarget, textTransport } from './short-epg';
 import type { AccountCheck } from './account-check';
 import { checkAccount, sourceAccount } from './account-check';
-import type { SourceRecord } from './profile';
+import type { StoredSource } from './profile';
 import type { VodInfoRequest } from './vod-info';
 import { VodInfoCache, vodInfoTarget } from './vod-info';
 import type { SeriesInfoRequest } from './series-info';
@@ -891,10 +891,10 @@ export class QueryService {
   }
 
   /** The profile's record of source `src` (`null`: no profile, or no such source). */
-  private async sourceRecord(src: string): Promise<SourceRecord | null> {
+  private async sourceRecord(src: string): Promise<StoredSource | null> {
     const profile = await this.profile();
     const sources = profile === null ? null : (profile.doc as { sources?: unknown }).sources;
-    const records: SourceRecord[] = Array.isArray(sources) ? (sources as SourceRecord[]) : [];
+    const records: StoredSource[] = Array.isArray(sources) ? (sources as StoredSource[]) : [];
     for (const record of records) if (record.id === src) return record;
     return null;
   }

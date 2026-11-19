@@ -17,7 +17,10 @@
  * moved from each source's `epgUrl`. Version 5 (step 26d) keeps where each movie was left
  * (`progress`, the latest `MAX_PROGRESS`). Version 6 (step 27c1) keeps each show's last episode
  * (`shows`, the latest `MAX_SHOWS`). Version 7 (step 28b2) keeps the channels played last
- * (`channels`, the latest `MAX_CHANNELS`). Later steps add fields with a migration each, or as
+ * (`channels`, the latest `MAX_CHANNELS`). Version 8 (step 31d2b1) adds the M3U file sent from the
+ * phone. Version 9 (step 32d4a) lets a source lack its login and a guide its link
+ * (`SourceWithoutLogin`, `GuideWithoutLink`: a backup made without them brought them back), and
+ * keeps the backup's choice (`backupLogins`). Later steps add fields with a migration each, or as
  * optional fields that need none (`PlayerMemoryDoc.picture`, step 20c2b; `epgOffsets`, step 24b;
  * `epgOverrides`, step 24d; `ShowProgress.more`, step 27d; `noticesShown`, step 30c2a).
  */
@@ -25,7 +28,7 @@
 import type { CatalogItem, ContentKey, ContentKind, EpgOverride, XtreamAccount } from '@lablo/core';
 import type { EpgPin } from './epg-overrides';
 import { epgOverridesOf, isEpgPin } from './epg-overrides';
-import type { UserGuide } from './epg-sources';
+import type { StoredGuide, UserGuide } from './epg-sources';
 import { epgOffsetsOf, isEpgOffset } from './epg-sources';
 import { MAX_NOTICES, isRuleId } from './config-constants';
 import { onSuccess, transact } from './idb';
@@ -72,6 +75,19 @@ export type SourceRecord =
    * again under the same name, it loads under this id again (favourites and places carry over).
    */
   | { id: string; type: 'm3u-file'; name: string; added: number };
+
+/**
+ * A source a backup made without logins brought back (step 32d4a, version 9): an Xtream source's
+ * server (`base`) and an M3U link's origin (`scheme://host[:port]`) kept, the login left out. The
+ * data engine never refreshes it (`needs-login`) until the user gives the login again, which
+ * stores it as a `SourceRecord` under the same id.
+ */
+export type SourceWithoutLogin =
+  | { id: string; type: 'xtream'; name: string; account: null; base: string; added: number }
+  | { id: string; type: 'm3u'; name: string; url: null; origin: string; added: number };
+
+/** A source in the profile (version 9): with its login, or without it after a restore. */
+export type StoredSource = SourceRecord | SourceWithoutLogin;
 
 /** A source as versions 4 to 7 stored it: a login or a link (version 8 added the phone's file). */
 export type SourceRecordV7 = Exclude<SourceRecord, { type: 'm3u-file' }>;
@@ -251,8 +267,22 @@ export type ProfileV8 = Omit<ProfileV7, 'v' | 'sources'> & {
   sources: SourceRecord[];
 };
 
+export type ProfileV9 = Omit<ProfileV8, 'v' | 'sources' | 'guides'> & {
+  v: 9;
+  /** The sources, some without their login after a restore (step 32d4a). */
+  sources: StoredSource[];
+  /** The user's guides, some without their link after a restore (step 32d4a). */
+  guides: StoredGuide[];
+  /**
+   * `false`: the backup leaves the logins and links out (step 32d4a, "Include logins and links"
+   * off; `withoutLogins`). No field: they go. It travels in the backup, so a backup made without
+   * them brings the choice back, and logins given again after a restore aren't sent.
+   */
+  backupLogins?: false;
+};
+
 /** The current profile shape. */
-export type ProfileDoc = ProfileV8;
+export type ProfileDoc = ProfileV9;
 
 /** Track choices kept; a new content past this drops the one changed longest ago. */
 export const MAX_TRACK_CHOICES = 300;
@@ -291,6 +321,9 @@ export const PROFILE_MIGRATIONS: readonly ProfileMigration[] = [
   // 7 → 8 (step 31d2b1): no file from the phone yet. Only the version: an older app must not read
   // a file source as a link with no URL, and never saves over a newer document.
   (doc) => ({ ...doc, v: 8 }),
+  // 8 → 9 (step 32d4a): every version 8 source and guide has its login. Only the version: an older
+  // app can't use a source without its login, and never saves over a newer document.
+  (doc) => ({ ...doc, v: 9 }),
 ];
 
 export const PROFILE_VERSION = PROFILE_MIGRATIONS.length + 1;
@@ -324,7 +357,7 @@ export function noPlayerMemory(): PlayerMemoryDoc {
 }
 
 export function emptyProfile(): ProfileDoc {
-  return { v: 8, favourites: [], sources: [], onboarding: noAnswers(), player: noPlayerMemory(), guides: [], progress: {}, shows: {}, channels: [] };
+  return { v: 9, favourites: [], sources: [], onboarding: noAnswers(), player: noPlayerMemory(), guides: [], progress: {}, shows: {}, channels: [] };
 }
 
 /** Version 6's last channel as the list of channels played last: itself, or none (step 28b2). */
@@ -370,7 +403,12 @@ export type GuideChange =
   | { op: 'add'; guide: UserGuide }
   | { op: 'remove'; id: string }
   /** Moves the guide to place `to` in the list (clamped to it). */
-  | { op: 'move'; id: string; to: number };
+  | { op: 'move'; id: string; to: number }
+  /**
+   * Gives the guide its link (step 32d4a: one a backup without logins left out), in its place, with
+   * its id and zone; a link the list has already changes nothing.
+   */
+  | { op: 'link'; id: string; url: string };
 
 /** A change the app makes to the profile through the query worker (step 13b). */
 export type ProfileEdit =
@@ -400,7 +438,12 @@ export type ProfileEdit =
    */
   | { kind: 'episode'; show: ContentKey; last: ShowProgress; progress: WatchProgress | null }
   /** A config notice was shown (step 30c2a): its rule id joins `noticesShown`. One that isn't a rule id, or is there already, changes nothing. */
-  | { kind: 'notice'; id: string };
+  | { kind: 'notice'; id: string }
+  /**
+   * Whether the backup takes the logins and links (step 32d4a): off keeps `backupLogins: false`,
+   * on takes the field away. One that isn't a boolean changes nothing.
+   */
+  | { kind: 'backupLogins'; on: boolean };
 
 const USER_GUIDE = 'u~';
 
@@ -442,7 +485,7 @@ function withoutGuide(overrides: Record<string, EpgPin> | undefined, epgSrc: str
 }
 
 /** The guide list with `change` applied (a new array), or `null` when it changes nothing. */
-function applyGuideChange(guides: readonly UserGuide[], change: GuideChange): UserGuide[] | null {
+function applyGuideChange(guides: readonly StoredGuide[], change: GuideChange): StoredGuide[] | null {
   let at = -1;
   for (let i = 0; i < guides.length; i += 1) if (guides[i]!.id === (change.op === 'add' ? change.guide.id : change.id)) at = i;
   if (change.op === 'add') {
@@ -451,6 +494,14 @@ function applyGuideChange(guides: readonly UserGuide[], change: GuideChange): Us
   }
   if (at === -1) return null;
   const next = guides.slice();
+  if (change.op === 'link') {
+    if (guides.some((g) => g.url === change.url)) return null;
+    const old = guides[at]!;
+    const linked: UserGuide = { id: old.id, url: change.url };
+    if (old.offsetMinutes !== undefined) linked.offsetMinutes = old.offsetMinutes;
+    next[at] = linked;
+    return next;
+  }
   const guide = next.splice(at, 1)[0]!;
   if (change.op === 'remove') return next;
   const to = Math.max(0, Math.min(next.length, Math.floor(change.to)));
@@ -631,6 +682,13 @@ export function applyProfileEdit(doc: ProfileDoc, edit: ProfileEdit): ProfileDoc
     const noticesShown = shown.slice(Math.max(0, shown.length - MAX_NOTICES + 1));
     noticesShown.push(edit.id);
     return { ...doc, noticesShown };
+  }
+  if (edit.kind === 'backupLogins') {
+    if (typeof edit.on !== 'boolean' || edit.on === (doc.backupLogins !== false)) return null;
+    const next: ProfileDoc = { ...doc };
+    if (edit.on) delete next.backupLogins;
+    else next.backupLogins = false;
+    return next;
   }
   if (edit.kind === 'epgOffset') {
     if (!isEpgOffset(edit.minutes)) return null;

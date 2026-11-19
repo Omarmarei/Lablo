@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { BackupCheckVector } from './check-backup';
-import { BACKUP_CHECK_DB, BACKUP_CHECK_NAMES, checkBackup, checkProfile, otherProfile } from './check-backup';
+import { BACKUP_CHECK_DB, BACKUP_CHECK_NAMES, backupLeaks, checkBackup, checkProfile, loginsProfile, otherProfile } from './check-backup';
+import { withoutLogins } from './logins';
 import { toBase64Url } from '@lablo/crypto';
 import { BACKUP_CODE_KEY, BACKUP_MASTER_KEY, secretCheck } from './backup-service';
 import { getValue, openDatabase, transact } from './idb';
@@ -18,7 +19,7 @@ async function names(factory: IDBFactory): Promise<string[]> {
   return (await factory.databases()).map((d) => d.name ?? '');
 }
 
-describe('checkBackup (the backup worker on the old engines, steps 32b, 32c1 and 32d2a)', () => {
+describe('checkBackup (the backup worker on the old engines, steps 32b, 32c1, 32d2a and 32d4a)', () => {
   it('passes every check, in order, under its names, and leaves no database behind', async () => {
     const factory = freshFactory();
     const results = await checkBackup(VECTOR, factory);
@@ -28,6 +29,18 @@ describe('checkBackup (the backup worker on the old engines, steps 32b, 32c1 and
     expect(BACKUP_CHECK_DB).toBe('lablo-backup-check');
     expect(await names(factory)).toEqual([]);
   }, 20_000);
+
+  it('names every login the profile without logins holds, and every server it keeps (step 32d4a)', () => {
+    const bare = JSON.stringify(withoutLogins(loginsProfile()));
+    expect(backupLeaks(bare)).toBe('');
+    expect(backupLeaks(JSON.stringify(loginsProfile()))).toBe(
+      'holds check-user; holds check-pass; holds check-token; holds get.php; holds guide.xml; holds /live/; lacks "origin":"http://lists.invalid"; lacks "origin":"http://epg.invalid"; ',
+    );
+    expect(backupLeaks('{}')).toBe(
+      'lacks "base":"http://panel.invalid:8080"; lacks "origin":"http://lists.invalid"; lacks "origin":"http://epg.invalid"; lacks "backupLogins":false; ',
+    );
+    expect(loginsProfile().backupLogins).toBe(false);
+  });
 
   it("holds a new install's profile unlike the backup's (its source and language), so a restore that wrote nothing shows", () => {
     expect(otherProfile().sources).not.toEqual(checkProfile().sources);
@@ -77,7 +90,7 @@ describe('checkBackup (the backup worker on the old engines, steps 32b, 32c1 and
     }, deleteDatabase: factory.deleteDatabase.bind(factory), databases: factory.databases.bind(factory), cmp: factory.cmp.bind(factory) } as IDBFactory;
     const results = await checkBackup(VECTOR, broken);
     expect(results.map((r) => r.name)).toEqual(BACKUP_CHECK_NAMES);
-    expect(failed(results)).toEqual(['backup.device', 'backup.master', 'backup.lookupId', 'backup.cached', 'backup.upload', 'backup.same', 'backup.code', 'backup.codeKept', 'backup.restore', 'backup.held', 'backup.restoreHeld', 'backup.replaceHeld', 'backup.off', 'backup.on', 'backup.codeUpload', 'backup.restoreCode']);
+    expect(failed(results)).toEqual(['backup.device', 'backup.master', 'backup.lookupId', 'backup.cached', 'backup.upload', 'backup.same', 'backup.code', 'backup.codeKept', 'backup.restore', 'backup.held', 'backup.restoreHeld', 'backup.replaceHeld', 'backup.off', 'backup.on', 'backup.noLogins', 'backup.restoreNoLogins', 'backup.codeUpload', 'backup.restoreCode']);
     expect(results.find((r) => r.name === 'backup.device')?.detail).toContain('no IndexedDB here');
     expect(results.find((r) => r.name === 'backup.lookupId')?.detail).toBe('no master kept for the secret');
   });

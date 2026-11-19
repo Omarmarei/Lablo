@@ -1,6 +1,6 @@
 import type { VNode } from 'preact';
 import { stripIsolates } from '@lablo/core';
-import type { LoadedProfile, SourceMeta, SourceRecord } from '@lablo/data';
+import type { LoadedProfile, SourceMeta, SourceRecord, StoredSource } from '@lablo/data';
 import { emptyProfile } from '@lablo/data';
 import type { ItemBinding } from '@lablo/ui';
 import { SCREEN, Spinner, VirtualList, bindFocus, createNavigator } from '@lablo/ui';
@@ -34,7 +34,7 @@ function meta(src: string, patch: Partial<SourceMeta> = {}): SourceMeta {
   return { src, gen: 1, building: null, nextGen: 2, updatedAt: T - 60_000, counts: { live: 10 }, ...patch };
 }
 
-const profileOf = (sources: SourceRecord[]): LoadedProfile => ({ doc: { ...emptyProfile(), sources } as LoadedProfile['doc'], newer: false, migratedFrom: null });
+const profileOf = (sources: StoredSource[]): LoadedProfile => ({ doc: { ...emptyProfile(), sources } as LoadedProfile['doc'], newer: false, migratedFrom: null });
 
 const flush = async (): Promise<void> => {
   for (let i = 0; i < 20; i += 1) await Promise.resolve();
@@ -160,6 +160,15 @@ describe('sourceRows', () => {
     expect(sourceRows(profileOf([PANEL, file]), [meta('s1', { checkedAt: T }), meta('s4', { checkedAt: T - 5_000 })], [true, true])).toEqual([
       { id: 's1', name: 'My panel', type: 'xtream', host: 'panel.test:8080', checkedAt: T, blocked: true },
       { id: 's4', name: 'Kitchen', type: 'm3u-file', host: '', checkedAt: T - 5_000, blocked: false },
+    ]);
+  });
+
+  it('lists a source without its login with the server it kept, and asks the blocklist about it (step 32d4a)', () => {
+    const panel: StoredSource = { id: 's5', type: 'xtream', name: 'Bare panel', account: null, base: 'http://bare.test:8080', added: 5 };
+    const link: StoredSource = { id: 's6', type: 'm3u', name: 'Bare list', url: null, origin: 'https://lists.bare.test', added: 6 };
+    expect(sourceRows(profileOf([panel, link]), [], [true, false])).toEqual([
+      { id: 's5', name: 'Bare panel', type: 'xtream', host: 'bare.test:8080', checkedAt: null, blocked: true },
+      { id: 's6', name: 'Bare list', type: 'm3u', host: 'lists.bare.test', checkedAt: null, blocked: false },
     ]);
   });
 });

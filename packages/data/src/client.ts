@@ -5,7 +5,7 @@
  * `ui` imports only this part of `@lablo/data`.
  */
 
-export type { EpgCatalogSource, EpgDueReason, EpgGuide, UserGuide } from './epg-sources';
+export type { EpgCatalogSource, EpgDueReason, EpgGuide, GuideWithoutLink, StoredGuide, UserGuide } from './epg-sources';
 // Pure helpers the app decides EPG refreshes with (no data module behind them).
 export { EPG_AHEAD_MS, EPG_OFFSET_MAX, EPG_OFFSET_STEP, EPG_REFRESH_MS, EPG_RETRY_MS, epgGuides, epgOffsetsOf, epgRefreshDue, isEpgOffset } from './epg-sources';
 
@@ -17,6 +17,10 @@ import type { IngestEvents, IngestService } from './ingest-service';
 import type { QueryService } from './query-service';
 import type { RpcPort } from './rpc';
 import { RpcClient } from './rpc';
+
+// A source without its login (step 32d4a): logins.ts imports no data module.
+export type { LinkWithoutLogin, RefreshSource } from './logins';
+export { lacksLogin } from './logins';
 
 // The ingest's version (a constant of its own module): the refresh schedule refreshes a catalog an
 // older version built (step 26e).

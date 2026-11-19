@@ -1,6 +1,6 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { LoadedProfile, SourceRecord, UnmatchedChannel, UnmatchedPage, UnmatchedRequest } from '@lablo/data';
+import type { LoadedProfile, StoredSource, UnmatchedChannel, UnmatchedPage, UnmatchedRequest } from '@lablo/data';
 import type { Navigator, Screen } from '@lablo/ui';
 import { SCREEN, fits } from '@lablo/ui';
 import { storedSources } from '../onboarding/engine-loader';
@@ -94,7 +94,7 @@ export function createUnmatchedList(options: UnmatchedOptions): UnmatchedList {
   /** Bumps at each opening and closing: answers for another one are dropped. */
   let openSeq = 0;
   /** The sources asked for, in their order (the profile's). */
-  let records: SourceRecord[] = [];
+  let records: StoredSource[] = [];
   /** The profile's document as last read (its mappings). */
   let doc: unknown = null;
   /** The worker's version the pages are from (-1: none yet). */
