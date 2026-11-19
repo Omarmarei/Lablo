@@ -1820,7 +1820,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
   - **Built in leg 101** (architecture.md §3.2 "Built in step 31e", runbook `web.md`'s "no plaintext" section): as the shape says, with these choices: the front's log of what the API received is its own list (`received`, whole bodies), so `forwarded`'s checks stay as they were; the search runs right after the send as well as at the end, so a leak that breaks the add is still reported as a leak; the file test also looks for the chosen file's own name; `pnpm e2e`'s chromium project ignores the spec (it needs the database). Two phone-page mutants that leak while the pairing runs (the plain payload beside the sealed one; the file unsealed at the sealed length) were each caught by the search itself.
   - **Verified in leg 101:** lint; typecheck of the root; unit 6,287 (+9; the whole suite, in the foreground); `build:web`; `e2e:web` 19 passed (the three new tests 4.5 to 5.3 s each); `pnpm e2e --list` still 150; screenshots `no-plaintext-phone-done-{en,ar}` looked at; mutation `artifacts/mutate31e.py` 21 written first: 18, then three weak tests strengthened: 21/21.
   - **Done in leg 101:** PR #127 merged as merge commit `eab3874` on green CI (web 2 m 15 s: `test:web` 45, `e2e:web` 19 passed; verify 13 m 14 s: unit 6,286 with one skipped (6,287, as expected), `pnpm e2e` 150 passed; media 23 m 30 s; engines skipped by the path filter). With it step 31 (pairing: 31a, 31b, 31c, 31d, 31e) is done.
-- [ ] 32. **Backup.** Encrypted backup and automatic restore (scrypt master key, envelope), backup-code fallback.
+- [x] 32. **Backup.** Encrypted backup and automatic restore (scrypt master key, envelope), backup-code fallback. Ticked in leg 115 with 32e (32a to 32e merged).
   - **Done when:** a simulated webOS wipe restores automatically.
   - **Split in leg 102** (far too large for one leg) into 32a (the API in `apps/web`), 32b (the TV's device secret, master key and derived keys), 32c (the envelope's content, the upload schedule and the restore at startup), 32d (Settings, the backup code's screens, the wipe e2e and the old-engine walk: step 32's own "Done when") and 32e (logins at rest under `localKey`). 32 is ticked when all five are.
   - **Decided in leg 102 (each with its why; a later leg may refine one where building shows more, and writes that down):**
@@ -2109,7 +2109,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - **"Welcome back"** counts the user's guides without their link too (`guides`), in a line of its own under the sources' (a guide is no source). Its end opens Settings › Sources when a source needs its login (the sources come first: a guide of a source without its login can't be read anyway), else Settings › TV guides when a guide needs its link (`BackupStartEnd.toGuides`, `settings.openGuides()`), else the live screen. The guides' line says where to find them when Sources opens next ("in Settings, open TV guides"), or that TV guides opens next. The body's "loading" sentence is unchanged (a guide is no source of channels).
     - **The old engines:** unchanged (their walks restore with the logins in; the backup worker's checks already cover a guide without its link, 32d4a).
   - **Verified in leg 114:** unit 7,287; typecheck (root `tsc` and every package); lint; `build:tv` (main.js 474.7 KB on Tizen, +2.7, 25.3 KB left); `verify:engines --engine chrome53 --engine chrome68` all 26 runs as expected on the first run; `e2e:web --project=tv` `backup-logins` 2/2 (the Arabic M3U run's guide given back and read); plain `backup-logins-xa` (the guides walk), `guides`, `guide-matches`, `guide-offset`, `guide-catchup-m3u`, `backup`, `backup-settings` 20/20; screenshots looked at in ar and en-XA; mutation `artifacts/mutate32d4c.py`, 52 written first: 50/52, one gap closed (a test with two guides), one equivalent: 51/51. PR #141 merged as `fa4779a` on green CI on the first run (web 3 m; verify 16 m, `pnpm e2e` 160 passed; engines 27 m: all 135 runs as expected on Chromium 53, 56 and 68, 92 seeded failures caught; media not run: no media path). architecture.md §3.3 B "Built in step 32d4c". With it 32d4 and 32d are ticked; step 32 waits for 32e.
-- [ ] 32e. **Logins at rest under `localKey`** (`packages/data`'s profile, `apps/tv`).
+- [x] 32e. **Logins at rest under `localKey`** (`packages/data`'s profile, `apps/tv`). Decided by Omar in leg 115: no seal at rest (ADR-013); docs only.
   - As decided above: profile version 10 (32d4 takes 9; leg 106), each source's login or link sealed under `localKey` and opened only when a URL is built; its stated limit. Plus the common items.
   - **Found while writing the shape (leg 115): sealing the profile would not keep the login off the TV's disk.** The login is stored in plain text in more places than the profile, and two of them are large:
     - **every catalog item's stream URL** (`catalog_chunks`, up to 200k items a source): an Xtream item's `url` is `xtreamStreamUrl(account, …)` (`/live/<user>/<password>/<id>.ts`), and an M3U item keeps the provider's URL as given (often `/<user>/<password>/<id>` or a token in the query; nothing tells the two apart, as 32d4's shape says of links);
@@ -2129,7 +2129,85 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 
     No code changed and the profile stays at version 9. Step 33's scrubber keeps the logins out of logs and telemetry.
   - **Verified in leg 115:** eslint on the three changed sources; `packages/crypto/src/backup.test.ts` and `packages/data/src/profile.test.ts` 70 passed; no test pins the docs.
+  - **Done in leg 115:** PR #142 merged as merge commit `4f043c6` on green CI on the first run (verify 16 m, web 11 m, engines 27 m, media 26 m). With it step 32 is ticked.
 - [ ] 33. **Telemetry.** Telemetry, URL/credential scrubber, crash handler, diagnostics support code.
+  - **Split in leg 115** (four legs' work, as 32 was) into:
+    - 33a: the scrubber and the telemetry API;
+    - 33b: the TV's telemetry: its id, the queue, the sending, sampling, the events and the Settings switch;
+    - 33c: the crash handler;
+    - 33d: the diagnostics report and its support code.
+
+    33 is ticked when all four are.
+  - **Decided in leg 115** (each with its why; a later leg may refine one where building shows more, and writes that down):
+    - **The scrubber lives in `@lablo/protocol`, schema-free, at a subpath of its own (`@lablo/protocol/scrub`).** The TV (main and workers) and the server both use it. Why: both sides need the same rules and tests, and a schema-free subpath keeps zod out of the workers that import it (leg 104's lesson with `backup-limits`).
+    - **The rules, in order:**
+      1. On the TV, the user's own logins, links and hosts, matched exactly and longest first. The TV passes them from the profile's sources and guides; strings under 4 characters are skipped.
+      2. Every URL (`scheme://` up to the next space, quote or bracket) becomes `[url]`. The app's own script frames (`file://…/<name>.js:<line>:<col>`, and `blob:` worker frames) are kept, cut to the file's name and position: they are what makes a stack worth having.
+      3. `user=`, `username=`, `password=`, `pass=`, `token=` and the like become `<key>=[x]`.
+      4. IPv4 and IPv6 addresses, with a port, become `[ip]`.
+      5. `x@y` becomes `[email]`.
+      6. Dotted names whose last label is a top-level domain from a list (the common generic ones and every two-letter country code) become `[host]`.
+
+      Then the text is cut to the schema's 4,000 characters. Why over-redact: a crash with `[host]` where `e.id` was is still useful, and a host that leaks breaks §3.4's promise. A channel or programme name has no shape to find: 33c checks that the app's own error messages carry none.
+    - **The server keeps only what the schema keeps.** `readTelemetryEvents` strips unknown fields, and `crash.stack` is scrubbed again (the generic rules: the server knows no login). Each event becomes one row in `TelemetryEvent`; no migration, since step 29a's table has every column. The caller's address is used only through `rateKey`. Retention is 90 days (§3.2), swept a bounded number of rows at each post, as backups are.
+    - **The install ID** is 16 random bytes in `kv` (`telemetry.id`), made at first need. It is never in the backup, so a wipe gives a new one (§3.4). Why `kv`: the profile travels in the backup.
+    - **Sending runs in a worker of its own, started for each send** (as the backup worker):
+      - main records events in memory (at most 200) and hands them over at the next send;
+      - the worker appends them to the queue in `kv` (`telemetry.queue`, at most 200, oldest dropped first), posts all of it, and clears what was sent on a 200.
+
+      Why: main.js has 25 KB left on Tizen, and the sender needs `kv` and the transport, which the workers already have.
+    - **When it sends:** 60 s after the first event not yet sent, at most every 15 minutes, and when the app is hidden (as the backup's schedule does). Sampling is per kind, from the config's `telemetrySampling` (none means all). It is decided per install (a hash of the install ID and the kind), so an install always sends a kind or never does.
+    - **The switch: Settings, "Share anonymous usage and crash reports", on by default** (§3.4's opt-out). It is kept in the profile as `telemetry: false`, an optional field with no version bump (as `noticesShown`), so a restore brings an "off" back. Off records nothing and clears the queue. The consent screen gets one more sentence about it (en, ar). Counsel reviews opt-out against Quebec's Law 25 and the GCC PDPLs before launch (PLAN.md's legal weeks); a later opt-in would change the default, not the design.
+    - **The diagnostics report (33d)** is a scrubbed summary, sent only when the user asks ("Send a report" in Settings). The answer is a 6-character code to give support. Step 40's diagnostics screen reuses it.
+- [ ] 33a. **The scrubber and the telemetry API** (`packages/protocol`, `apps/web`).
+  - **The shape (leg 115, written before building):**
+    - **`packages/protocol/src/scrub.ts`** (`@lablo/protocol/scrub`: the package's `exports`, the lint entry point and its test):
+      - `scrubText(text, known?)` applies the rules above; `SCRUB_MAX_CHARS` is 4,000;
+      - it is ES2017 with no regex feature Chromium 53 lacks (no lookbehind, no named groups, no `s` flag);
+      - the list of top-level domains is a constant.
+    - **`apps/web/src/server/telemetry.ts`, `postTelemetry`:**
+      - the rate limit `telemetry`, 60 in 10 minutes per caller;
+      - the body at most 64 KB (413), then JSON and `telemetryBatchSchema` (400);
+      - `readTelemetryEvents`, each `crash.stack` through `scrubText`;
+      - the sweep (`TELEMETRY_TTL_MS`, 90 days; `TELEMETRY_SWEEP_MAX` rows a post), then one `createMany`;
+      - answers 200 `{state: 'stored', stored, dropped}`, with the TV's CORS and `no-store`, and 503 as the other routes do.
+    - **The route** `src/app/v1/telemetry/route.ts`: `POST` and `OPTIONS`.
+  - **Done when:**
+    - `pnpm test`, through `scrub.test.ts`:
+      - each rule, with examples shaped like real TV stacks (Chromium 53's and 68's `at f (file:///…/main.js:1:2)` frames kept as `main.js:1:2`), a panel URL with its login, an M3U link with a token, `username=`/`password=` pairs, an IPv4 address with a port, an IPv6 address, an email, `panel.example.com`, and a known login inside a word;
+      - fast-check: a URL, an IP or a known string put anywhere in random text never survives, and text with none of them comes back unchanged;
+      - the cap;
+      - the bundled module in the Chromium 53 stand-in realm.
+    - `pnpm test:web`, through `telemetry.web.test.ts` against a real Postgres:
+      - a batch stored one row per event (`installId`, `kind`, `platform`, `appVersion`, `data`, `at`);
+      - an event the server can't read dropped and counted, and unknown fields stripped;
+      - a crash's stack scrubbed in its row;
+      - 413, 400, and 429 with `Retry-After`;
+      - the sweep at 90 days, bounded;
+      - no address in any row;
+      - the route's methods, its preflight and its 503.
+    - lint, typecheck, `build:web`, and `e2e:web` (a post over HTTP with `Origin: null`, as `backup.spec.ts` does);
+    - mutation with the list written first, the PR merged on green CI, and the docs (architecture.md §3.4 "Built in step 33a", runbook `web.md`).
+  - **Built in leg 115** (architecture.md §3.4 "Built in step 33a", runbook `web.md` "Telemetry"): as the shape says, with these refinements:
+    1. **The URLs go first, then the known strings.** A known host replaced inside a URL would have cut the URL's match short and left its path, so the URL rule runs first and takes the whole URL.
+    2. **An Xtream path without its URL** loses its two login segments (a rule of its own).
+    3. **The JSON form of a credential pair** is a rule of its own.
+    4. **Blob workers' frames** read `worker:<line>:<col>`.
+    5. **The domains:** every two-letter label but `js` counts as a top-level domain, a superset of the country codes, with a letter required before it (`101.ts` stays).
+    6. **A long input** is cut to 16,000 characters before the rules run, and the token at the cut dropped, so a cut never leaves part of a login behind.
+    7. **`fast-check`** is a devDependency of `packages/protocol` (its version already in the lockfile).
+    8. **Found:** the scrubber bundled alone is 25.8 KB for Chromium 53 (core-js's string and regex polyfills). So 33b and 33c scrub in a worker, never in main.js.
+  - **Verified in leg 115:**
+    - unit 7,307 (+20: `scrub.test.ts` 19, `test/scrub-bundle.test.ts` 1, plus the lint-boundaries check);
+    - `test:web`'s `telemetry.web.test.ts` 10;
+    - `build:web` (the route listed as `/v1/telemetry`);
+    - `e2e:web --project=phone telemetry backup` 2 passed;
+    - the whole repo's lint; root `tsc`; the typechecks of `@lablo/protocol` and `@lablo/web`;
+    - mutation `artifacts/mutate33a.py`: 87 written first, 84 caught on the first run. The three survivors were two test gaps (no test used `signature=`; a full IPv6 address whose last group the port rule swallowed), both closed, and dead code (lower-casing `file://` and `blob:` before a case-sensitive pattern), which was taken out. Then 86/86.
+    - No TV code changed, so there was no `build:tv` or old-engine run.
+- [ ] 33b. **The TV's telemetry** (`packages/data`, `apps/tv`): the install ID, the queue and the sending worker, sampling, the events (`app_start`, `capability`, `ingest_done`, `epg_match`, `play_result`, `stall`), the Settings switch and the consent screen's sentence. Its shape is written before building.
+- [ ] 33c. **The crash handler** (`apps/tv`, the workers): main's `error` and `unhandledrejection`, each worker's errors, each stack scrubbed with the user's own logins; at most a few crashes a session, deduplicated; queued as `crash`. Its shape is written before building.
+- [ ] 33d. **The diagnostics report and its support code** (`packages/protocol`, `apps/web`, `apps/tv`): the report's schema (no URL, host, name or login), `POST /v1/diag` with a unique 6-character code, its retention, and the TV's "Send a report" showing the code. Its shape is written before building.
 - [ ] 34. **[needs Omar] Production infrastructure.**
   - **Omar:** creates the Vercel/Neon/R2/Upstash accounts and the domain, and puts the keys in `.env` himself.
   - **Omar, the config key ceremony** (`docs/runbooks/config.md`, from step 30a): `pnpm sign-config keygen` twice (the current key and the next one, for rotation) on his own machine, each seed into his password manager and on paper, never into the repo or the chat; he gives Claude the two public keys for `config/keys.json` and signs the production config himself (`pnpm sign-config sign --key <file>`).
@@ -2290,4 +2368,4 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 | 112 | 2026-11-19 | 32d4a (done, PR #139) | Built 32d4a as its shape says, with the refinements written down: profile version 9 (a source without its login keeps its server `base` or its link's `origin`, a guide its `origin`; `backupLogins: false`); `logins.ts` (`withoutLogins`, `backupDoc`, `linkOrigin`, `lacksLogin`); the backup worker sends the stripped document (found: the channels played last hold the login in their stream URL and catch-up template, which go too); `DataEngine.refresh` refuses `needs-login` before anything; `epgGuides` lists no guide without a link and no panel guide without a login; the start plays no channel with no URL; the profile edits `backupLogins` and `GuideChange` `link` for 32d4b; the backup worker's old-engine checks 18 → 20. Unit 7,141; engines 53+68 26/26 (after one 53 DevTools flake); mutation 94 written first, 94/94. PR #139 merged as `6a3ebaa` on green CI on the first run (engines 135/135). | `03223c5`, `de11ddb`, `6a3ebaa` |
 | 113 | 2026-11-19 | 32d4b (built, not merged), 32d4c split | Split the guides screen's part off as 32d4c and wrote 32d4b's refinements first (the save's refresh is the data engine's own inside main's `quiet`, not `refreshNow`; the login written before the refresh; the rows' marks; the form; "Welcome back" keeps its 5 s and its end opens Sources; the toggle switches at once both ways). Built 32d4b: Settings › Backup's second row (`backupLogins` inside the schedule's hold, then `uploadNow`); "Welcome back"'s line and `toSources` (`Settings.openSources`); the sources rows "Needs its login/link", the login form (`source-login.ts`, onboarding's `checkForm`), the save with the refresh's answer on the row (a refused login says so, OK opens the form again). Unit 7,244 green; TV typecheck; lint of the changed files; `e2e/backup-logins.spec.ts` (real API, en + ar) 2/2 on the first run, screenshots looked at; `e2e/backup-logins-xa.spec.ts` and the backup, pairing and blocklist specs green. Stopped at the relay context check: catchers, mutation (list drafted in `artifacts/mutate32d4b-plan.md`), `build:tv`, `verify:engines`, full lint/typecheck, the PR and the merge left for leg 114. | `c311756`, `e621be7`, `ce9abe3` |
 | 114 | 2026-11-19 | 32d4b (done, PR #140), 32d4c (done, PR #141), 32d4 and 32d (tick) | Finished 32d4b: the five catchers its mutation plan named; mutation `artifacts/mutate32d4b.py` 107 written first, 107/107 on the first run; found and fixed "Welcome back"'s "Your channels are loading now" when no source loads by itself; the en-XA screenshots looked at; lint, root `tsc`, typecheck, unit 7,250; `build:tv` (main.js 472.0 KB on Tizen); engines 53+68 26/26 on the first run; e2e real API 4/4, plain 10/10. PR #140 merged as `de87494` on green CI on the first run (engines 135/135). Wrote 32d4c's refinements before building it (the menu's "Give its link" keeps "Remove"; the add form's link mode; its check refuses only the user's other guides' links, since a playlist's `url-tvg` is often the very link (found building the e2e: the mock's M3U declares the guide's `xmltv.php`); "Welcome back"'s `toGuides`). Built 32d4c: unit 7,287; engines 53+68 26/26 on the first run; e2e real API 2/2, plain 20/20; mutation 52 written first, 51/51 (one gap closed, one equivalent). PR #141 merged as `fa4779a` on green CI on the first run (engines 135/135). 32d4 and 32d ticked. | `f3e0611`, `87b50bb`, `de87494`, `1f8610e`, `9010b08`, `fa4779a` |
-| 115 | 2026-11-19 | 32e (shape: needs Omar) | Started 32e's shape and found that sealing the profile would not keep the login off the TV's disk: every stored stream URL (`catalog_chunks`, up to 200k items a source) and `sources_meta.epgUrls` hold it in plain text too, and `localKey`'s master is cached in the same IndexedDB. Wrote the three options under 32e: (A) no seal at rest, said plainly in ADR-006, architecture.md and PLAN.md (recommended); (B) seal every copy (4 to 6 legs, a device-ID read and a decrypt before each start's first play); (C) the original 32e only (the password still beside it). Stopped as needs-you for Omar's choice: it changes PLAN.md's "Credentials are encrypted on the TV". Nothing built. | (this commit) |
+| 115 | 2026-11-19 | 32e (done, PR #142), 32 (tick), 33 split, 33a (built, not merged) | Started 32e's shape and found that sealing the profile would not keep the login off the TV's disk: every stored stream URL (`catalog_chunks`) and `sources_meta.epgUrls` hold it too, and `localKey`'s master is cached beside them. Stopped as needs-you with three options; Omar chose (A): no seal at rest, said plainly. ADR-013, ADR-006 amended, architecture.md §3.3 B, PLAN.md's "Trustworthy" and risk item 8, the comments. PR #142 merged as `4f043c6` on green CI on the first run: 32e and 32 ticked. Split 33 into 33a-33d with its decisions, and built 33a while #142's CI ran: `@lablo/protocol/scrub` (`scrubText`, 7 rules, 25.8 KB bundled alone for Chromium 53, so 33b/33c scrub in a worker) and `POST /v1/telemetry` (rate limit, 64 KB, schema, crash stacks scrubbed again, 90-day sweep, one row per event). Unit 7,307; `test:web` telemetry 10; `e2e:web` telemetry; mutation 86/86 (two gaps closed, one dead piece out). | `cf71f61`, `a8cc2ae`, `4f043c6` |
