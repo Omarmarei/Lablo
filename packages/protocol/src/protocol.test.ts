@@ -20,6 +20,7 @@ import {
   PAIR_CT_MAX_CHARS,
   PAIR_FILE_MAX_BYTES,
   PAIR_PAYLOAD_MAX_BYTES,
+  RATE_BUCKETS,
   rateBucket,
   readTelemetryEvents,
   signature64,
@@ -143,6 +144,13 @@ describe('the limits', () => {
     const limits = await import('./backup-limits');
     expect({ ...limits }).toEqual({ BACKUP_BODY_MAX_BYTES, BACKUP_CT_MAX_BYTES, BACKUP_KDF_NAME, BACKUP_WRITE_HEADER });
     const source = readFileSync(join(import.meta.dirname, 'backup-limits.ts'), 'utf8');
+    expect(source).not.toMatch(/^\s*(import|export \{[^}]*\} from|export \* from)/m);
+  });
+
+  it("are telemetry's, with its kinds and buckets, in a module that imports nothing, which the TV's main bundle and telemetry worker read without zod (step 33b1)", async () => {
+    const buckets = await import('./telemetry-buckets');
+    expect({ ...buckets }).toEqual({ COUNT_BUCKETS, countBucket, RATE_BUCKETS, rateBucket, TELEMETRY_BATCH_MAX, TELEMETRY_BODY_MAX_BYTES, TELEMETRY_KINDS });
+    const source = readFileSync(join(import.meta.dirname, 'telemetry-buckets.ts'), 'utf8');
     expect(source).not.toMatch(/^\s*(import|export \{[^}]*\} from|export \* from)/m);
   });
 });

@@ -9,10 +9,11 @@ import EpgWorker from '@lablo/data/epg.worker?worker';
 import IngestWorker from '@lablo/data/ingest.worker?worker';
 import PairWorker from '@lablo/data/pair.worker?worker';
 import QueryWorker from '@lablo/data/query.worker?worker';
+import TelemetryWorker from '@lablo/data/telemetry.worker?worker';
 import type { DataEngineOptions } from './engine';
 import { DataEngine } from './engine';
 
-export function createAppDataEngine(options: Omit<DataEngineOptions, 'startQueryWorker' | 'startIngestWorker' | 'startEpgWorker' | 'startConfigWorker' | 'startPairWorker' | 'startBackupWorker'> = {}): DataEngine {
+export function createAppDataEngine(options: Omit<DataEngineOptions, 'startQueryWorker' | 'startIngestWorker' | 'startEpgWorker' | 'startConfigWorker' | 'startPairWorker' | 'startBackupWorker' | 'startTelemetryWorker'> = {}): DataEngine {
   return new DataEngine({
     ...options,
     startQueryWorker: () => new QueryWorker(),
@@ -21,5 +22,6 @@ export function createAppDataEngine(options: Omit<DataEngineOptions, 'startQuery
     startConfigWorker: () => new ConfigWorker(),
     startPairWorker: () => new PairWorker(),
     startBackupWorker: () => new BackupWorker(),
+    startTelemetryWorker: () => new TelemetryWorker(),
   });
 }

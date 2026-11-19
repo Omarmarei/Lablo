@@ -1,0 +1,133 @@
+// The telemetry worker as the TV runs it (RELAY step 33b1): `packages/data/src/telemetry.worker.ts`
+// bundled by the TV pipeline (Rollup IIFE, Babel chrome 53, core-js, the ES2016 gate), checked
+// against the worker budget, then started in fresh realms that stand in for Chromium 53 workers
+// (none of the ES2017+ APIs Chromium 53 lacks, no `globalThis`, no code generation). IndexedDB is
+// fake-indexeddb, shared by the runs as a TV's database is; the realm's `crypto.getRandomValues`
+// makes the install ID, and its `fetch` records the posts. The posted batch is read with the
+// server's own schema.
+import { randomFillSync } from 'node:crypto';
+import { join } from 'node:path';
+import vm from 'node:vm';
+import type { RpcPort, TelemetrySendRequest } from '@lablo/data';
+import { createTelemetryClient, emptyProfile, getValue, openDatabase, saveProfile, STORE, TELEMETRY_ID_KEY, TELEMETRY_QUEUE_KEY } from '@lablo/data';
+import type { TelemetryEvent } from '@lablo/protocol';
+import { readTelemetryEvents, telemetryBatchSchema } from '@lablo/protocol';
+import { describe, expect, it } from 'vitest';
+import { freshFactory } from '../packages/data/src/test-support';
+import { checkBudget, formatBudget } from '../tools/build/src/budgets';
+import { bundleIife } from '../tools/build/src/bundle';
+import { CHROMIUM_53_MISSING, pipe } from './realm-support';
+
+interface Post {
+  url: string;
+  method: string | undefined;
+  headers: Record<string, string>;
+  body: string;
+}
+
+/** A `fetch` for the realm that records each post and answers with the next status (200 once they run out). */
+function recordingFetch(posts: Post[], statuses: number[]) {
+  return (url: string, init: { method?: string; headers?: Record<string, string>; body?: string; credentials?: string }): Promise<Response> => {
+    expect(init.credentials).toBe('omit');
+    posts.push({ url, method: init.method, headers: init.headers ?? {}, body: init.body ?? '' });
+    return Promise.resolve(new Response('{"state":"stored"}', { status: statuses.shift() ?? 200 }));
+  };
+}
+
+/** Starts `code` in a fresh Chromium 53 stand-in realm. */
+function startWorker(code: string, factory: IDBFactory, randoms: { calls: number }, fetch: ReturnType<typeof recordingFetch>): RpcPort {
+  const [workerPort, uiPort] = pipe();
+  const realm = vm.createContext(
+    {
+      fetch,
+      TextEncoder,
+      TextDecoder,
+      postMessage: workerPort.postMessage,
+      addEventListener: workerPort.addEventListener,
+      removeEventListener: workerPort.removeEventListener,
+      indexedDB: factory,
+      IDBKeyRange,
+      setTimeout,
+      clearTimeout,
+      crypto: {
+        getRandomValues: (array: Uint8Array): Uint8Array => {
+          randoms.calls++;
+          return randomFillSync(array);
+        },
+      },
+    },
+    { codeGeneration: { strings: false, wasm: false } },
+  );
+  vm.runInContext('var self = this;', realm);
+  vm.runInContext(CHROMIUM_53_MISSING, realm);
+  expect(vm.runInContext('typeof globalThis + " " + typeof Object.values', realm)).toBe('undefined undefined');
+  expect(() => vm.runInContext('new Function("return 1")', realm)).toThrow(/Code generation from strings disallowed/);
+  vm.runInContext(code, realm);
+  return uiPort;
+}
+
+const EVENTS: TelemetryEvent[] = [
+  { kind: 'app_start', at: 1_700_000_000_000, tier: 'low', coldStartMs: 4321, catalog: '10k+' },
+  { kind: 'capability', at: 1_700_000_000_001, model: 'UE43NU7100', firmware: 'T-KTMDEUC-1250.4', chromium: 56, probes: { year: 2018, lowTier: true, mse: true, hevc: false } },
+];
+
+const REQUEST: TelemetrySendRequest = { events: EVENTS, base: 'http://api.test:8091', platform: 'tizen', appVersion: '1.0.0', sampling: { crash: 1 } };
+
+/** The worker as the TV build bundles it (once for the file). */
+let bundled: Promise<string> | null = null;
+function workerCode(): Promise<string> {
+  bundled ??= bundleIife({ input: join(import.meta.dirname, '..', 'packages', 'data', 'src', 'telemetry.worker.ts'), platform: 'tizen', label: 'telemetry.worker.js' }).then((b) => b.code);
+  return bundled;
+}
+
+describe('the bundled telemetry worker', () => {
+  it('builds to gated Chromium 53 code within the worker budget, and posts a batch the server reads whole, then keeps the ID and clears the queue', async () => {
+    const code = await workerCode();
+    const budget = checkBudget('telemetry.worker.js', 'worker', code);
+    console.log(formatBudget(budget));
+    expect(budget.ok).toBe(true);
+    // No zod in it: the buckets come from their schema-free subpath.
+    expect(code).not.toContain('discriminatedUnion');
+
+    const tv = freshFactory();
+    const randoms = { calls: 0 };
+    const posts: Post[] = [];
+
+    // A 500 first: the events stay in the queue.
+    const first = createTelemetryClient(startWorker(code, tv, randoms, recordingFetch(posts, [500])));
+    expect(await first.call('send', REQUEST)).toEqual({ state: 'failed', failure: 'status', status: 500, queued: 2 });
+    first.close();
+    expect(randoms.calls).toBe(1);
+
+    // A later worker posts them again with the same ID, and empties the queue on 200.
+    const second = createTelemetryClient(startWorker(code, tv, randoms, recordingFetch(posts, [])));
+    expect(await second.call('send', { ...REQUEST, events: [] })).toEqual({ state: 'sent', sent: 2, queued: 0 });
+    second.close();
+    expect(randoms.calls).toBe(1);
+
+    expect(posts).toHaveLength(2);
+    for (const post of posts) {
+      expect(post.url).toBe('http://api.test:8091/v1/telemetry');
+      expect(post.method).toBe('POST');
+      expect(post.headers).toEqual({ 'content-type': 'application/json' });
+      const batch = JSON.parse(post.body) as { installId: string; events: unknown[] };
+      expect(telemetryBatchSchema.safeParse(batch).success).toBe(true);
+      expect(readTelemetryEvents(batch.events)).toEqual({ events: EVENTS, dropped: 0 });
+    }
+    expect(posts[1]!.body).toBe(posts[0]!.body);
+    const db = await openDatabase(tv);
+    expect(await getValue(db, STORE.kv, TELEMETRY_ID_KEY)).toBe((JSON.parse(posts[0]!.body) as { installId: string }).installId);
+    expect(await getValue(db, STORE.kv, TELEMETRY_QUEUE_KEY)).toBeUndefined();
+
+    // The profile's switch off: the worker posts nothing and forgets the ID.
+    await saveProfile(db, { ...emptyProfile(), telemetry: false });
+    db.close();
+    const third = createTelemetryClient(startWorker(code, tv, randoms, recordingFetch(posts, [])));
+    expect(await third.call('send', REQUEST)).toEqual({ state: 'off' });
+    third.close();
+    expect(posts).toHaveLength(2);
+    const after = await openDatabase(tv);
+    expect(await getValue(after, STORE.kv, TELEMETRY_ID_KEY)).toBeUndefined();
+    after.close();
+  }, 120_000);
+});

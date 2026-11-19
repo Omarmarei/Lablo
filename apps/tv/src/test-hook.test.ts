@@ -143,6 +143,16 @@ describe('the config in the test hook (step 30c1)', () => {
     // No backup either (step 32c2).
     expect(target.__LABLO_TEST__?.backupIdle()).toBe(true);
     await expect(target.__LABLO_TEST__?.uploadBackup()).resolves.toBeNull();
+    // Nor telemetry (step 33b1).
+    await expect(target.__LABLO_TEST__?.sendTelemetry()).resolves.toBeNull();
+  });
+
+  it('sends telemetry through it, giving the whole answer (step 33b1)', async () => {
+    const answers = [{ state: 'sent' as const, sent: 2, queued: 0 }, null];
+    const target: TestHookTarget = {};
+    installTestHook(target, null, null, { sendNow: () => Promise.resolve(answers.shift() ?? null) });
+    await expect(target.__LABLO_TEST__!.sendTelemetry()).resolves.toEqual({ state: 'sent', sent: 2, queued: 0 });
+    await expect(target.__LABLO_TEST__!.sendTelemetry()).resolves.toBeNull();
   });
 
   it("reads the backup's idle when asked, and uploads through it, giving the state (step 32c2)", async () => {

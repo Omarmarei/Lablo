@@ -6,6 +6,7 @@ import type { StoredGuide, UserGuide } from './epg-sources';
 import { EPG_OFFSET_MAX, EPG_OFFSET_STEP, epgOffsetsOf, isEpgOffset } from './epg-sources';
 import type { AnyProfile, GuideChange, LastChannel, PlayerChange, ProfileDoc, ProfileMigration, ShowProgress, SourceRecord, SourceRecordV3, SourceRecordV7, StoredSource, StoredTrackChoice, WatchProgress } from './profile';
 import { MAX_NOTICES } from './config-constants';
+import { backupDoc } from './logins';
 import {
   MAX_CHANNELS,
   MAX_PROGRESS,
@@ -597,6 +598,27 @@ describe('applyProfileEdit: the backup without logins (step 32d4a)', () => {
       expect(applyProfileEdit(doc, { kind: 'backupLogins', on: odd as unknown as boolean })).toBeNull();
       expect(applyProfileEdit(off, { kind: 'backupLogins', on: odd as unknown as boolean })).toBeNull();
     }
+  });
+
+  it("keeps telemetry's switch off as `telemetry: false` (step 33b1), takes the field away when on, and changes nothing for the same choice", () => {
+    const doc = withFavs(1);
+    expect(applyProfileEdit(doc, { kind: 'telemetry', on: true })).toBeNull();
+    const off = applyProfileEdit(doc, { kind: 'telemetry', on: false })!;
+    expect(off).toEqual({ ...doc, telemetry: false });
+    expect('telemetry' in doc).toBe(false);
+    expect(applyProfileEdit(off, { kind: 'telemetry', on: false })).toBeNull();
+    const on = applyProfileEdit(off, { kind: 'telemetry', on: true })!;
+    expect(on).toEqual(doc);
+    expect('telemetry' in on).toBe(false);
+    expect(off.telemetry).toBe(false);
+    for (const odd of ['yes', 1, null, undefined]) {
+      expect(applyProfileEdit(doc, { kind: 'telemetry', on: odd as unknown as boolean })).toBeNull();
+      expect(applyProfileEdit(off, { kind: 'telemetry', on: odd as unknown as boolean })).toBeNull();
+    }
+    // The backup's choice and this one are apart, and both travel in what a backup sends.
+    const both = applyProfileEdit(applyProfileEdit(doc, { kind: 'backupLogins', on: false })!, { kind: 'telemetry', on: false })!;
+    expect(both).toEqual({ ...doc, backupLogins: false, telemetry: false });
+    expect((backupDoc(both) as { telemetry?: unknown }).telemetry).toBe(false);
   });
 
   it('gives a source its login back in its place (the source edit)', () => {

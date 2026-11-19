@@ -2269,6 +2269,22 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
       - the profile's switch off clears the queue and sends nothing.
     - **checks:** lint of the whole repo, root `tsc`, the package typechecks, `build:tv` sizes (main.js's growth and the new worker's), `verify:engines --engine chrome53 --engine chrome68`;
     - **close-out:** mutation with the list written first, the PR merged on green CI, and the docs (architecture.md §3.4 "Built in step 33b1", runbook `web.md` or a new `telemetry.md`).
+  - **Built in leg 116** (architecture.md §3.4 "Built in step 33b1", runbook `web.md` "What the TV sends"): as the shape says, with these refinements:
+    1. **Nothing is sent before the live screen.** `start` comes from the live screen, as the backup's. Onboarding's events are held and sent after, so nothing leaves the TV while onboarding is still telling the user about it.
+    2. **The body is filled to the byte:** the envelope and the events are counted in UTF-8, not "less 1 KB". A single event over the limit still goes, and the API's 413 drops it.
+    3. **Telemetry's worker counts in the hook's `backupIdle()`** rather than an idle of its own. Every e2e wipe and the old-engine harness already wait for that one, and a telemetry worker in the database would block their delete.
+    4. **"Off" during a send:** the clearing send comes right after it, because that send read the switch before it changed. An app ended between the switch's edit and that send keeps the queue and the ID on the TV. They are never sent while off; only an "on" later would send them with the old ID. That is written in the module's comment.
+    5. **`capability`'s key is written when one is queued.** A sampled-out one isn't kept as sent.
+    6. **`coldStartMs` counts to the start screen's first frame,** so a backup look-up or "Welcome back" before it is included.
+    7. **Found:** the worker is 66.2 KB (typed arrays and `es.json.stringify` among its polyfills). Its main-side files add no core-js module.
+  - **Verified in leg 116:**
+    - unit 7,356 (+49: `telemetry-service.test.ts` 20, `telemetry-state.test.ts` 15, `telemetry-events.test.ts` 8, `test/telemetry-worker-bundle.test.ts` 1, `test/tv-data-engine.test.ts` +2, the profile, the hook, the buckets' subpath, the lint rule);
+    - `e2e/telemetry.spec.ts` 3, and with it `backup`, `backup-settings`, `onboarding` and `config-gate` (their wipes wait on `backupIdle`, which now counts telemetry's worker): 26 passed;
+    - the whole repo's lint, root `tsc`, the typechecks of `@lablo/protocol`, `@lablo/data`, `@lablo/app-tv` and `@lablo/web`;
+    - `build:tv`: main.js 478.6 KB on Tizen (+3.9 KB on the handover's 474.7) and 465.9 KB on webOS; `telemetry.worker.js` 66.2 KB of 150; no new core-js module in main (`artifacts/babel-polys30b2.ts` on the new files);
+    - `verify:engines --engine chrome53 --engine chrome68`: all 26 runs as expected (`artifacts/engines-33b1.log`);
+    - mutation `artifacts/mutate33b1.py`: 179 written first. Writing them closed nine test gaps and took out fifteen dead checks (listed in its docstring). The first run caught 176. Two survivors were gaps, now closed: a hide before the profile is read, and an event after "off at load, then on". The third was equivalent (`tier !== 'full'`) and was removed. Then 178/178 (`mutate33b1-a.log` to `-d.log`).
+    - Not run locally: the whole `pnpm e2e` (CI's verify job runs it).
 - [ ] 33b2. **The four other events** (`packages/player`, `apps/tv`, `packages/data`). Its shape is refined before building:
   - `ingest_done` from `DataEngine.refresh` (`xtream` or `m3u`, `elapsedMs`, the download's bytes and the items as buckets) and `refreshEpg` (`epg`);
   - `epg_match` after a guide refresh (the share of live channels with a guide, `rateBucket`);

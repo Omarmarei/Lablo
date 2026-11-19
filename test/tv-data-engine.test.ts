@@ -7,6 +7,7 @@
 // (the cached policy first, terminated after), and the query worker's blocklist read again.
 // Step 32b: one backup worker per prepareBackup (terminated after). Step 32c1: per uploadBackup and
 // restoreBackup too, against the backup API in memory; a cancelled look-up ends its worker.
+// Step 33b1: one telemetry worker per sendTelemetry (terminated after).
 
 import { boxKeyPairFromSecretKey, sealFile, sealPairPayload, toBase64Url, utf8 } from '@lablo/crypto';
 import type { ConfigResult, RpcHandlers } from '@lablo/data';
@@ -30,6 +31,8 @@ import {
   openDatabase,
   pairHandlers,
   serveRpc,
+  TELEMETRY_QUEUE_KEY,
+  telemetryHandlers,
 } from '@lablo/data';
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -100,6 +103,8 @@ interface Setup {
   busyChanges: boolean[];
   /** `onProfileChanged` calls (step 32c2). */
   profileChanges: { n: number };
+  /** Telemetry workers started and still running, and the bodies they posted (step 33b1). */
+  telemetry: { started: number; live: number; posts: { url: string; body: string }[] };
 }
 
 function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: RpcHandlers['run'], reloadConfig?: RpcHandlers['reloadConfig']): Setup {
@@ -113,6 +118,7 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: 
   const backup = { started: 0, live: 0 };
   const backupApi = backupStandIn();
   const backupHold: Setup['backupHold'] = { gate: null, held: 0, urls: [] };
+  const telemetry: Setup['telemetry'] = { started: 0, live: 0, posts: [] };
   const busyCalls: boolean[] = [];
   const busyChanges: boolean[] = [];
   const profileChanges = { n: 0 };
@@ -269,9 +275,32 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: 
         backup.live--;
       });
     },
+    startTelemetryWorker: () => {
+      telemetry.started++;
+      telemetry.live++;
+      const dbs: IDBDatabase[] = [];
+      const handlers = telemetryHandlers({
+        openDb: async () => {
+          const db = await openDatabase(factory);
+          dbs.push(db);
+          return db;
+        },
+        random: () => new Uint8Array(16).fill(7),
+        transport: {
+          get(url: string, request?: ByteRequest) {
+            telemetry.posts.push({ url, body: request?.body ?? '' });
+            return Promise.resolve({ status: 200, header: () => null, read: () => Promise.resolve(null), cancel: () => undefined });
+          },
+        },
+        clock: { now: () => clock.now, sleep: () => new Promise<void>(() => undefined) },
+      });
+      return worker(handlers, dbs, () => {
+        telemetry.live--;
+      });
+    },
   });
   engines.push(engine);
-  return { engine, factory, started, configLive: () => configLive, pairLive: () => pairLive, backup, backupApi, backupHold, clock, live: () => live, busyCalls, busyChanges, profileChanges };
+  return { engine, factory, started, configLive: () => configLive, pairLive: () => pairLive, backup, backupApi, backupHold, clock, live: () => live, busyCalls, busyChanges, profileChanges, telemetry };
 }
 
 const CONFIG_URL = 'http://api.test/v1/config';
@@ -1190,6 +1219,47 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     expect(await getValue(db, STORE.kv, BACKUP_SENT_KEY)).toBeUndefined();
     expect(await getValue(db, STORE.profile, 'current')).toBeUndefined();
     db.close();
+  });
+
+  it('sends telemetry in a telemetry worker of its own, ended when it answers, and stops with the profile switch off (step 33b1)', async () => {
+    const s = setup(() => ({ status: 404 }));
+    const event = { kind: 'app_start' as const, at: NOW, tier: 'full' as const, coldStartMs: 900, catalog: '0' as const };
+    const request = { events: [event], base: 'http://api.test', platform: 'webos', appVersion: '1.2.3', sampling: null };
+    expect(await s.engine.sendTelemetry(request)).toEqual({ state: 'sent', sent: 1, queued: 0 });
+    expect(s.telemetry).toMatchObject({ started: 1, live: 0 });
+    expect(s.telemetry.posts.map((p) => p.url)).toEqual(['http://api.test/v1/telemetry']);
+    expect(JSON.parse(s.telemetry.posts[0]!.body)).toEqual({ installId: toBase64Url(new Uint8Array(16).fill(7)), platform: 'webos', appVersion: '1.2.3', events: [event] });
+    // No other worker starts for it.
+    expect(s.started).toEqual({ query: 0, ingest: 0, epg: 0, config: 0, pair: 0 });
+
+    // The switch, kept by the query worker, is read by the next telemetry worker.
+    expect(await s.engine.editProfile({ kind: 'telemetry', on: false })).toBe(true);
+    expect(s.profileChanges.n).toBe(1);
+    expect(await s.engine.sendTelemetry(request)).toEqual({ state: 'off' });
+    expect(s.telemetry).toMatchObject({ started: 2, live: 0 });
+    expect(s.telemetry.posts).toHaveLength(1);
+    const db = await openDatabase(s.factory);
+    expect(await getValue(db, STORE.kv, TELEMETRY_QUEUE_KEY)).toBeUndefined();
+    db.close();
+  });
+
+  it('refuses to send telemetry without a telemetry worker', async () => {
+    const engine = new DataEngine({
+      startQueryWorker: () => {
+        throw new Error('unused');
+      },
+      startIngestWorker: () => {
+        throw new Error('unused');
+      },
+      startEpgWorker: () => {
+        throw new Error('unused');
+      },
+      startConfigWorker: () => {
+        throw new Error('unused');
+      },
+    });
+    engines.push(engine);
+    await expect(engine.sendTelemetry({ events: [], base: 'http://api.test', platform: 'webos', appVersion: '1.2.3', sampling: null })).rejects.toThrow('This data engine has no telemetry worker');
   });
 
   it('refuses to back up without a backup worker', async () => {
