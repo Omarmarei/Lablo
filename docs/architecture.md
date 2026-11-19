@@ -2141,6 +2141,7 @@ envelope   = {v:1, kdf:"scrypt-15-8-1", nonce:24B, ct: secretbox(gzip(profileJSO
   - e2e: `e2e/telemetry.spec.ts` +2, in en and ar: after a refused send, Settings' fourth row switched off in place clears the queue, the ID and the capability's key and sends nothing, reads "Off" at the next opening, and switched on again sends the next start's events under a new ID, with the capability again; `e2e/onboarding.spec.ts` checks the consent note's text under the buttons in en and ar (its en-XA walk and the old-engine walk measure the screen as before); `e2e/backup-logins-xa.spec.ts` walks the row on and off in en-XA (bracketed, uncut).
 - **Sizes:** main.js 485.5 KB on Tizen (+3.9 KB) and 472.8 KB on webOS; no new core-js module. 14.5 KB is left on Tizen for 33c's main-side handler and 33d's "Send a report".
 - **Mutation:** `artifacts/mutate33b3.py`, 80 written first; 80/80 caught on the first run.
+- **Merged:** PR #146 as merge commit `0d61b68` on green CI on the first run (web 12 m, verify 12 m, engines 32 m; media skipped).
 
 ---
 
