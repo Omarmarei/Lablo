@@ -66,7 +66,11 @@ describe('the bundled query worker', () => {
     const items = await client.call('items', { refs: result.hits });
     expect(items.map((i) => i?.name)).toEqual(['Sky News HD', 'News of the World']);
     expect((await client.call('search', { query: 'الاخبار' })).hits).toHaveLength(1);
-    expect(await client.call('setFavourites', { keys: ['x:tv:movie:3'] })).toBe(1);
+    // A favourites list (step 35a): its name trimmed, and the movie boosted at once.
+    const movie = { key: 'x:tv:movie:3', src: 'tv', kind: 'movie' as const, normName: 'news of the world', added: 1 };
+    expect(await client.call('editProfile', { kind: 'favourite', change: { op: 'newList', id: 'l1', name: ' Films ', item: movie } })).toBe(true);
+    expect((await client.call('profile'))!.doc).toMatchObject({ favouriteLists: [{ id: 'l1', name: 'Films', keys: ['x:tv:movie:3'] }] });
+    expect((await client.call('search', { query: 'news' })).hits.map((h) => h.favourite)).toEqual([true, false]);
     expect((await client.call('categories', { src: 'tv', kind: 'live' })).map((c) => c.name)).toEqual(['AR | News', 'UK | News']);
     await expect(client.call('chunk', { src: 'tv', kind: 'live', catIdx: 5, chunk: 0 })).resolves.toEqual([]);
     const status = await client.call('status');

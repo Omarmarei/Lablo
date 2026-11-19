@@ -9,6 +9,7 @@ import { SearchIndexBuilder } from '@lablo/core';
 import { beginGeneration, commitGeneration, putCatalogKind, putChunks } from './catalog-store';
 import type { Migration } from './schema';
 import type { RecentItem } from './recent';
+import type { FavouriteItem } from './favourite-edits';
 import { openDatabase, transact } from './idb';
 import type { ByteRequest, ByteResponse, ByteTransport } from './bytes';
 import { NetworkError } from './bytes';
@@ -152,6 +153,11 @@ export function item(src: string, kind: ContentKind, id: number, name: string, g
     radio: false,
     hints: null,
   };
+}
+
+/** `item` as the app adds it to a favourites list (step 35a), added at `added`. */
+export function favItem(item: CatalogItem, added = 1): FavouriteItem {
+  return { key: item.key, src: item.src, kind: item.kind, normName: item.normName, group: item.group, epgId: item.epgId, added };
 }
 
 /**

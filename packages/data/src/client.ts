@@ -19,6 +19,12 @@ import type { telemetryHandlers } from './telemetry-service';
 import type { RpcPort } from './rpc';
 import { RpcClient } from './rpc';
 
+// The favourites lists and the live groups as main reads them (step 35a): favourite-lists.ts imports
+// nothing and uses nothing Babel polyfills; the edits themselves are the query worker's.
+export type { FavouriteList, GroupRef } from './favourite-lists';
+export { LIST_NAME_MAX, MAX_FAVOURITES, MAX_FAVOURITE_LISTS, MAX_LIST_ITEMS, favouriteListsOf, groupId, groupOrderOf, hiddenGroupsOf } from './favourite-lists';
+export type { FavouriteChange, FavouriteItem, GroupChange } from './favourite-edits';
+
 // A source without its login (step 32d4a): logins.ts imports no data module.
 export type { LinkWithoutLogin, RefreshSource } from './logins';
 export { lacksLogin } from './logins';

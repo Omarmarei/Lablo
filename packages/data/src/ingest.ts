@@ -52,6 +52,7 @@ import type { CatalogChunk } from './chunker';
 import { CatalogChunker, indexChunk } from './chunker';
 import type { CatalogView, FavouriteReport } from './favourites';
 import { FavouriteMatcher, reconcileFavourites } from './favourites';
+import { relinkLists } from './favourite-edits';
 import type { GunzipMode } from './gunzip';
 import { MaybeGunzip } from './gunzip';
 import { IngestError, headerNumber, ingestError } from './ingest-errors';
@@ -506,7 +507,10 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
         (doc) => {
           const r = reconcileFavourites(doc.favourites, src, view, at, kinds);
           favourites = r.report;
-          return r.report.changed ? { ...doc, favourites: r.favourites } : null;
+          if (!r.report.changed) return null;
+          // The lists hold the re-matched keys in their places, and lose the dropped ones (step 35a).
+          const lists = relinkLists(doc, r.report.rematched, r.report.dropped);
+          return lists === null ? { ...doc, favourites: r.favourites } : { ...doc, favourites: r.favourites, favouriteLists: lists };
         },
         { now: at },
       );

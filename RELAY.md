@@ -2539,7 +2539,81 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
   - **Claude:** the first production migration and deploy, each with Omar's one-word OK; then verifies the live endpoints.
 
 ### Phase 9: Personalization
-- [ ] 35. **Favourites and groups.** Named favourites lists (custom groups), hide/reorder groups, channel numbers.
+- [ ] 35. **Favourites and groups.** Named favourites lists (custom groups), hide/reorder groups, channel numbers. Its shape is written before building (leg 121); split into 35a–35d.
+  - **Facts found in leg 121** (for the shape):
+    - **What exists:**
+      - The profile's `favourites` (`FavouriteRef[]`: key, source, kind, normalized name, group, tvg-id, `added`, `missingSince`), re-matched after every refresh by `reconcileFavourites` (step 8: a renumbered or renamed channel keeps its place; a missing one is dropped after 30 days).
+      - No list, name or order. No screen adds a favourite (only tests write one).
+      - The query worker's `setFavourites` (the search boost) has no caller. `itemsByKey` (step 27d) gives up to 100 items of some keys.
+    - **The rail** (`railEntries`, `live-state.ts`):
+      - "All channels", then each source's live categories in the provider's order.
+      - A row's number is `tvg-chno` or Xtream `num`, else its place in "All channels" (`allStart`). Number entry (step 20a) and CH± work on the list on show.
+      - A favourites list isn't a stored category: its rows come from keys, not chunks, so the live list needs a second kind of list.
+    - **Keys:** the platform has `RED`…`BLUE` and `INFO`, but many remotes have no colour keys (LG's Magic Remote and Samsung's One Remote show them only on an on-screen pad), and there is no menu key. So every action needs a button on screen; colour-key shortcuts stay step 39's.
+    - **main.js:** 9.2 KB left on Tizen (490.8 of 500).
+      - The size probe (`artifacts/size35-main-tizen.txt`, bytes of the minified main.js per source file from its source map) puts the catalogs at 55.2 KB, Settings at 52.4, core-js at 45.5 and the player's UI at 38.8.
+      - The developer screens (hello, the component gallery, the focus demo, the data panel) cost **27.5 KB**: main.js without them is 463.5 KB (`artifacts/size35-nodev-tizen.txt`).
+      - Step 35's UI is about 16–20 KB (35c and 35d below), more than is left. **A size pass is Omar's call (35b).**
+  - **Shape** (each choice with its why; each sub-step checks its part against the code before building):
+    - **Lists:**
+      - The profile's `favourites` stays the pool: each favourite item once, with what re-matching needs.
+      - A new optional `favouriteLists` (`{id, name, keys}[]`, in the user's order; `name: null` shows the catalog's "Favourites") says which list holds which items, in each list's own order.
+      - Every key in a list is in the pool, and a pool item that no list holds is dropped; every edit keeps both true.
+      - Why: re-matching stays as it is (one ref per item, and `taken` keeps two favourites from merging); a channel in two lists is re-matched once; a re-match or a drop rewrites the lists' keys in the same write.
+      - Optional, so no profile version: a document without it has no lists (only tests have written favourites so far).
+    - **The edits** (`ProfileEdit` `favourite`):
+      - add a channel to a list (at its end; the pool gets its ref), take it out, move it;
+      - a new list (its id from main, which has read the lists; a new list can take its first channel in the same write), rename, remove (its items no other list holds leave the pool), move a list.
+      - Caps: 20 lists, 300 items a list, 1,000 in the pool; a name is 1–40 characters after trimming. An edit past a cap, or naming nothing, changes nothing (`false`).
+    - **The search boost:** the query worker takes the pool's keys from the stored profile itself (at each load and after each `favourite` edit), so favourites rank first in search (architecture.md §1.4) with no call from main.
+    - **Groups:**
+      - Optional `hiddenGroups` and `groupOrder`, each `{src, name}[]` (a source's live category by its name, as `LastChannel.category` keeps it). Edits: `group` `hide`, `show`, and `order` (the whole order, which main builds from its rail).
+      - The rail shows the ordered groups first, in the user's order, then the others in the provider's order. Moving a group stores the whole order as it then stands, so a group the provider adds later goes last.
+      - A hidden group leaves the rail and "All channels"; search still finds its channels. Settings lists the hidden ones, to show them again.
+      - A group the provider renames loses its place or its hiding; stale entries hide nothing, capped at 1,000.
+      - Why by name: a category's index changes when the provider adds one before it; its name rarely does. Why out of "All channels" too: a group is hidden to get it out of the way, and CH± through "All channels" would bring it back.
+    - **Channel numbers:**
+      - A channel keeps the number it has without the user's changes: `tvg-chno` or `num`, else its place in the provider's whole list (every group, hidden ones too, in the provider's order). Hiding or moving a group never renumbers a channel.
+      - In a favourites list a channel is numbered by its place in the list (1, 2, 3…): number entry and CH± in that list use those numbers. Why: a list is the user's own line-up, and numbering it is the point of making one.
+      - Renumbering single channels is step 36's.
+    - **The rail:** "All channels", then the favourites lists (each with its count; an empty list too, so a new one shows at once), then the groups. Why after "All channels": the start's default stays where it is, and the lists are one press away.
+    - **Adding a channel:** the player's info bar gets a "Favourites" button (a star, filled when the channel is in a list). OK opens a panel listing the lists, each checked when the channel is in it (OK adds or takes it out), and "New list" (a name field, onboarding's text editor; the channel goes into the new list). Why the info bar: OK on any channel shows it, so it is two presses from the list on every remote.
+    - **Managing:** Settings › "Channel groups", as the guides screen (step 22b2) does its guides:
+      - rows: the lists, then the groups in rail order, the hidden ones marked;
+      - OK on a row opens its menu: Move up, Move down, Hide or Show (a group), Rename and Delete (a list, Delete asking first), Channels (a list: its channels with Move up, Move down, Remove), Cancel.
+  - **Split** (as 32 and 33 were):
+    - **35a: the data side** (`packages/data`): the profile's `favouriteLists`, `hiddenGroups`, `groupOrder` with their checks on read (`…Of`, exported from `@lablo/data/client` for main), the `favourite` and `group` edits, `reconcileFavourites`'s re-match and drop applied to the lists, the query worker's boost from the pool.
+      - Main gets types only.
+      - **Done when:** unit tests (every op, cap and refusal; the checks on read; the lists re-keyed in place and a dropped key gone from every list; the ingest-mock refresh where every Xtream id moved keeps the lists and their order; search ranks a favourite first after an edit, with no `setFavourites`), lint, typecheck, `build:tv` sizes (main.js unchanged), `verify:engines` 53/68 (the workers change), mutation with the list written first, the PR merged on green CI, the docs (architecture.md §1.3 and §1.4 item 10, "Built in step 35a").
+    - **35b: the size pass [needs Omar].** Options in leg 121's question: the developer screens out of the store build (+27.5 KB measured); a higher main budget; Settings and the other secondary screens loaded on first open. Done when: as Omar decides.
+    - **35c: the lists in the live screen** (`apps/tv`):
+      - the rail with the lists, the hidden groups left out, the user's order;
+      - the stable numbers, and the lists' own numbers for number entry and CH±;
+      - the info bar's "Favourites" button and its panel, with "New list".
+      - About 8–10 KB of main.js.
+      - **Done when:** unit tests, e2e in en and ar (add to a new list, the rail entry, zap in it by number; a channel in a list survives the mock's renumbering refresh: the phase's "favourites survive a renamed and reordered refresh"), the en-XA walk, screenshots, lint, typecheck, `build:tv` sizes, `verify:engines` 53/68, mutation, PR on green CI, docs.
+    - **35d: Settings › "Channel groups"** (`apps/tv`): as "Managing" above. About 8–10 KB of main.js. Done when: as 35c, with the rename, the delete's question, a hidden group's way back, and a list's channels moved.
+- [ ] 35a. **The data side** (`packages/data`): as 35's split above.
+  - **Built in leg 121** (architecture.md §1.4 item 10 "Built in step 35a"):
+    - `favourite-lists.ts` (main-safe: the types, the caps, `favouriteListsOf`, `hiddenGroupsOf`, `groupOrderOf`, `groupId`; exported from `@lablo/data/client`);
+    - `favourite-edits.ts` (the workers': `applyFavouriteChange`, `applyGroupChange`, `relinkLists`, `isFavouriteItem`);
+    - `ProfileEdit` `favourite` and `group` in `applyProfileEdit` (an empty field goes);
+    - the ingest's re-match rewriting the lists in the same write;
+    - the query worker's boost from the stored pool (`readFavouriteKeys` at each reload, each `favourite` edit's write at once, ordered by the edit number). `setFavourites`, which nothing called, is gone; its tests write the profile instead.
+  - **Refined while building** (each with its why):
+    1. **An op this version doesn't know changes nothing.** Why: `remove` and `hide` are the last branches, so an unknown op would otherwise fall into them.
+    2. **The app's item is copied field by field** (`refOf`), and an item the pool has keeps its ref (and its `added`). Why: the pool is what re-matching reads, and nothing else the app passes should be stored.
+    3. **A pool item that no list ever held** (a document from before 35a; only tests wrote any) stays until an edit touches its key. Why: dropping it would be a migration with nothing to gain.
+  - **Verified in leg 121:**
+    - unit 7,544 (+34: `favourite-lists.test.ts` 30, `query-favourites.test.ts` 4), with one unrelated timeout under load (`xtream-xmltv-core`'s 61-byte read: 0.9 s alone);
+    - `test/ingest-mock.test.ts`: two lists keep their keys' places through the mock's renumbering, and lose the dropped one;
+    - `test/query-worker-bundle.test.ts`: the bundled worker makes a list (its name trimmed) and boosts the movie at once in the Chromium 53 stand-in realm;
+    - the whole repo's lint, `pnpm typecheck`;
+    - `build:tv`: main.js unchanged (490.8 KB Tizen, 478.1 KB webOS); the query worker 130.0 → 134.9 KB, the ingest worker 131.8 → 133.0 KB; no new circular import. The per-file probe: `favourite-lists.ts` pulls only `es.array.iterator`, `es.array.push` and the DOM iterator, which main has (`live-state.ts`, `main.tsx`);
+    - mutation `artifacts/mutate35a.py`: 113 written first (writing them closed three gaps and took out one dead piece, listed in its docstring); 112 caught on the first run, the survivor a gap (a group's other fields kept: no test had a non-repeated one), closed: 113/113.
+- [ ] 35b. **[needs Omar] The size pass.** As 35's split above; leg 121's question.
+- [ ] 35c. **The lists in the live screen** (`apps/tv`): as 35's split above. After 35b.
+- [ ] 35d. **Settings › "Channel groups"** (`apps/tv`): as 35's split above. After 35c.
 - [ ] 36. **Channel management.** Hide/rename/renumber channels, "clean names", multiple sources merged.
   - **Done when:** favourites survive the renamed/reordered fixture.
 - [ ] 37. **M3U→Xtream and radio.** The M3U→Xtream upgrade UX and radio (audio-only) channels.
