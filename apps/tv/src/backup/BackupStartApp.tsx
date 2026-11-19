@@ -23,6 +23,7 @@ export function BackupStartView({ start, i18n, item, focus }: { start: BackupSta
   if (start.screen.value === WELCOME_SCREEN) {
     const files = start.files.value;
     const logins = start.logins.value;
+    const guides = start.guides.value;
     return (
       <main
         class="onboarding"
@@ -34,6 +35,7 @@ export function BackupStartView({ start, i18n, item, focus }: { start: BackupSta
         data-sources={start.sources.value}
         data-files={files}
         data-logins={logins}
+        data-guides={guides}
       >
         <div class="onboarding__panel">
           <h1 class="onboarding__title" data-testid="backup-title">
@@ -51,6 +53,13 @@ export function BackupStartView({ start, i18n, item, focus }: { start: BackupSta
           {logins > 0 && (
             <p class="onboarding__note" data-testid="backup-logins">
               {t('backup.welcomeLogins', { n: logins, settings: t('settings.title'), sources: t('sources.title') })}
+            </p>
+          )}
+          {guides > 0 && (
+            <p class="onboarding__note" data-testid="backup-guides">
+              {logins > 0
+                ? t('backup.welcomeGuides', { n: guides, settings: t('settings.title'), guides: t('guides.title') })
+                : t('backup.welcomeGuidesNext', { n: guides, settings: t('settings.title'), guides: t('guides.title') })}
             </p>
           )}
           <div class="onboarding__actions">

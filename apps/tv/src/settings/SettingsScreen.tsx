@@ -7,7 +7,7 @@ import { PAIR_SCREEN } from '../pairing/pair-state';
 import { PairPage } from '../pairing/PairPage';
 import { BACKUP_CONFIRM, BACKUP_SCREEN } from './backup-state';
 import { BackupPageScreen } from './BackupPage';
-import type { AddProblem, GuideRow, GuideState, Guides, GuidesMenu, OffsetChooser } from './guides-state';
+import type { AddProblem, GuideAction, GuideRow, GuideState, Guides, GuidesMenu, OffsetChooser } from './guides-state';
 import { ADD_CANCEL, ADD_CONFIRM, GUIDES, HEADER_ADD, HEADER_UNMATCHED, LINK_FIELD_ID, OFFSETS, guideState, summaryOf } from './guides-state';
 import { MAPPING_SCREEN } from './mapping-state';
 import { MappingPage, MappingReading } from './MappingPage';
@@ -131,7 +131,7 @@ function problemText(t: Translate, problem: AddProblem | null): string | null {
   return null;
 }
 
-function GuideItem({ i18n, row, index, state, item }: { i18n: AppI18n; row: GuideRow; index: number; state: GuideState; item: ItemBinding }) {
+export function GuideItem({ i18n, row, index, state, item }: { i18n: AppI18n; row: GuideRow; index: number; state: GuideState; item: ItemBinding }) {
   const { t } = i18n;
   const failure = row.meta?.failure ?? null;
   const read = state === 'read' ? readText(i18n, row) : null;
@@ -151,6 +151,7 @@ function GuideItem({ i18n, row, index, state, item }: { i18n: AppI18n; row: Guid
       data-wanted={summary === null ? '' : summary.wanted}
       data-code={failure === null ? '' : failure.code}
       data-offset={row.offset}
+      data-needs={String(row.needs)}
       onMouseMove={item.onHover}
       onClick={item.onPress}
     >
@@ -165,10 +166,14 @@ function GuideItem({ i18n, row, index, state, item }: { i18n: AppI18n; row: Guid
         )}
         <span class="guides__owner">{row.kind === 'mine' ? t('guides.mine') : t('guides.from', { name: row.source })}</span>
       </div>
-      {/* A guide on a blocked server (step 30c3a): that line alone under the link, so the row keeps two lines. */}
+      {/* A guide on a blocked server (step 30c3a), or without its link (step 32d4c): that line alone under the link, so the row keeps two lines. */}
       {row.blocked ? (
         <p class="guides__failure" data-testid={`guide-${index}-blocked`}>
           {t('guides.blocked')}
+        </p>
+      ) : row.needs ? (
+        <p class="guides__failure" data-testid={`guide-${index}-needs`}>
+          {t('sources.needsLink')}
         </p>
       ) : (
         <p class="guides__status" data-testid={`guide-${index}-status`}>
@@ -185,7 +190,7 @@ function GuideItem({ i18n, row, index, state, item }: { i18n: AppI18n; row: Guid
           ) : null}
         </p>
       )}
-      {!row.blocked && failure !== null && (
+      {!row.blocked && !row.needs && failure !== null && (
         <p class="guides__failure" data-testid={`guide-${index}-failure`}>
           {failureText(t, failure)}
         </p>
@@ -412,10 +417,15 @@ function SettingsPage({ i18n, binding, list }: PageProps & { list: readonly Sett
   );
 }
 
+/** The guide menu's buttons in words ("Give its link": step 32d4c). */
+export function menuLabels(t: Translate): Record<GuideAction, string> {
+  return { link: t('guides.giveLink'), up: t('guides.moveUp'), down: t('guides.moveDown'), offset: t('guides.offset'), matches: t('guides.matches'), remove: t('guides.remove'), cancel: t('action.cancel') };
+}
+
 function MenuDialog({ i18n, binding, menu }: { i18n: AppI18n; binding: FocusBinding; menu: GuidesMenu }) {
   const { t } = i18n;
   const zone = useZone(binding, binding.nav.top, 'actions');
-  const labels = { up: t('guides.moveUp'), down: t('guides.moveDown'), offset: t('guides.offset'), matches: t('guides.matches'), remove: t('guides.remove'), cancel: t('action.cancel') };
+  const labels = menuLabels(t);
   return (
     <Dialog title={t('guides.menuTitle')} message={t('guides.menuLink', { link: menu.row.link })} testId="guide-menu">
       <div class="guides__menu">
@@ -497,33 +507,47 @@ function OffsetDialog({ i18n, binding, chooser }: { i18n: AppI18n; binding: Focu
   );
 }
 
-function AddDialog({ i18n, binding, guides }: { i18n: AppI18n; binding: FocusBinding; guides: Guides }) {
+/** The add form's words; with `linking` (step 32d4c), a guide's link given again: its host as the hint, "Save". */
+export function addFormText(t: Translate, linking: GuideRow | null): { title: string; body: string; hint: string; confirm: string } {
+  const anyLink = t('field.linkHint', { http: NAMES.http, https: NAMES.https });
+  if (linking === null) return { title: t('guides.addTitle'), body: t('guides.addBody', { format: NAMES.guide }), hint: anyLink, confirm: t('guides.addConfirm') };
+  return { title: t('guides.linkTitle'), body: t('guides.linkBody'), hint: linking.link === '' ? anyLink : t('sources.linkWas', { host: linking.link }), confirm: t('sources.save') };
+}
+
+/** The add form as drawn, hook-free: the link, then the confirm and "Cancel". */
+export function AddFormView({ i18n, guides, field, action }: { i18n: AppI18n; guides: Guides; field: ItemBinding; action: (index: number) => ItemBinding }) {
   const { t } = i18n;
-  const screen = binding.nav.top;
-  const field = useZone(binding, screen, 'field');
-  const actions = useZone(binding, screen, 'actions');
+  const linking = guides.linking.value;
+  const words = addFormText(t, linking);
   return (
-    <Dialog title={t('guides.addTitle')} message={t('guides.addBody', { format: NAMES.guide })} testId="guide-add">
-      <div class="guides__form">
+    <Dialog title={words.title} message={words.body} testId="guide-add">
+      <div class="guides__form" data-linking={linking === null ? '' : linking.epgSrc}>
         <TextField
           id={LINK_FIELD_ID}
           label={t('guides.link')}
           value={guides.text.value}
           kind="url"
-          hint={t('field.linkHint', { http: NAMES.http, https: NAMES.https })}
+          hint={words.hint}
           error={problemText(t, guides.problem.value)}
           onValue={(value) => guides.setText(value)}
           edit={guides.editor.field(LINK_FIELD_ID)}
-          {...field.item(0)}
+          {...field}
           testId="guide-add-link"
         />
         <div class="guides__actions">
-          <Button label={t('guides.addConfirm')} variant="primary" {...actions.item(ADD_CONFIRM)} testId="guide-add-confirm" />
-          <Button label={t('action.cancel')} {...actions.item(ADD_CANCEL)} testId="guide-add-cancel" />
+          <Button label={words.confirm} variant="primary" {...action(ADD_CONFIRM)} testId="guide-add-confirm" />
+          <Button label={t('action.cancel')} {...action(ADD_CANCEL)} testId="guide-add-cancel" />
         </div>
       </div>
     </Dialog>
   );
+}
+
+function AddDialog({ i18n, binding, guides }: { i18n: AppI18n; binding: FocusBinding; guides: Guides }) {
+  const screen = binding.nav.top;
+  const field = useZone(binding, screen, 'field');
+  const actions = useZone(binding, screen, 'actions');
+  return <AddFormView i18n={i18n} guides={guides} field={field.item(0)} action={(i) => actions.item(i)} />;
 }
 
 function GuidesPage({ i18n, binding, focus, guides }: PageProps & { guides: Guides }) {

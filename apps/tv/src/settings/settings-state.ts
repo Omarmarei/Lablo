@@ -78,6 +78,8 @@ export interface Settings {
   open(): void;
   /** Opens the settings screen on its "Sources" row, then the sources screen over it ("Welcome back"'s end, step 32d4b). */
   openSources(): void;
+  /** Opens the settings screen, then the guides screen over it ("Welcome back"'s end, step 32d4c). */
+  openGuides(): void;
   dispose(): void;
 }
 
@@ -136,6 +138,11 @@ export function createSettings(options: SettingsOptions): Settings {
       // Back from the sources screen lands on its row.
       nav.top.focus('items', items.indexOf('sources'));
       sources.open();
+    },
+    openGuides(): void {
+      // (The settings open on their first row, "TV guides": Back from the guides screen lands there.)
+      open();
+      guides.open();
     },
     dispose: () => {
       guides.dispose();

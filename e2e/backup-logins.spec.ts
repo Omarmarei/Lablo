@@ -11,7 +11,7 @@ import type { ApiFront, Received } from './api-front';
 import { startApiFront } from './api-front';
 import { catalog } from './live-rows';
 import { leaks } from './no-plaintext';
-import { addM3uAndWatch, addXtreamAndWatch, settled, trackErrors } from './onboard';
+import { addXtreamAndWatch, settled, startWatching, toSourceTypes, trackErrors, typeInto } from './onboard';
 import { SHOTS, shoot } from './pairing-steps';
 import { RemoteDriver } from './remote-driver';
 
@@ -147,15 +147,31 @@ const SAYS = {
     out: 'تبقى بيانات الدخول والروابط على هذا التلفاز: بعد الاستعادة، تكتبها مرة أخرى.',
     needs: 'يحتاج إلى رابطه مرة أخرى',
     refused: '',
+    guidesLine: 'يحتاج دليل واحد إلى الرابط مرة أخرى: في الإعدادات، افتح أدلة التلفزيون.',
   },
 } as const;
 
 const m3uLink = (): string => `http://${host}/get.php?username=${U}&password=${P}&type=m3u_plus`;
+/** The Arabic playlist's guide (step 32d4c): a user's guide named after its source, `s1`. */
+const guideLink = (): string => `http://${host}/xmltv.php?username=${U}&password=${P}`;
+
+/** Onboarding with the mock's M3U link and its guide link (typed the way a user would), then "Start watching". */
+async function addM3uWithGuide(remote: RemoteDriver, query: string): Promise<void> {
+  const onboarding = await toSourceTypes(remote, query);
+  await remote.go('DOWN', 'source/types/1');
+  await remote.go('OK', 'form/fields/0');
+  await typeInto(remote, onboarding, 'playlist', m3uLink().replace(/^http:\/\//, ''));
+  await remote.expectFocus('form/fields/1');
+  await typeInto(remote, onboarding, 'epg', guideLink().replace(/^http:\/\//, ''));
+  await remote.expectFocus('form/fields/2');
+  await remote.go('DOWN', 'form/actions/0');
+  await startWatching(remote, onboarding, 30_000);
+}
 
 /** OK on the focused field of the login form, `text` typed over what it held, OK again. */
-async function typeIn(remote: RemoteDriver, root: Locator, field: string, text: string): Promise<void> {
+async function typeIn(remote: RemoteDriver, root: Locator, field: string, text: string, input = `source-login-${field}`): Promise<void> {
   await remote.press('OK');
-  await expect(root).toHaveAttribute('data-editing', `source-login-${field}`);
+  await expect(root).toHaveAttribute('data-editing', input);
   await remote.page.keyboard.press('Control+A');
   await remote.page.keyboard.type(text);
   await remote.press('OK');
@@ -192,7 +208,7 @@ for (const language of ['en', 'ar'] as const) {
       const query = `device=${device}&api=${encodeURIComponent(front.origin)}&locale=${says.locale}`;
       const keys = backupKeys(await deriveBackupMaster(device, BUILD.platform, BUILD.appId));
       if (language === 'en') await addXtreamAndWatch(remote, { host, username: U, password: P }, query);
-      else await addM3uAndWatch(remote, m3uLink().replace(/^http:\/\//, ''), query, 30_000);
+      else await addM3uWithGuide(remote, query);
       expect(backupCalls(front)).toEqual(['GET 404']);
       await appIdle(page);
 
@@ -220,6 +236,8 @@ for (const language of ['en', 'ar'] as const) {
       expect(first.sources).toHaveLength(1);
       if (language === 'en') expect(first.sources[0]).toMatchObject({ id: 's1', type: 'xtream', account: null, base: `http://${host}` });
       else expect(first.sources[0]).toMatchObject({ id: 's1', type: 'm3u', url: null, origin: `http://${host}` });
+      // The user's guide (step 32d4c): its link out, the origin kept.
+      expect(first.guides).toEqual(language === 'en' ? [] : [{ id: 's1', url: null, origin: `http://${host}` }]);
       expect(leaks(JSON.stringify(first), LOGIN_NEEDLES)).toEqual([]);
       const kept = (await storedDoc(page))!;
       expect(kept.backupLogins).toBe(false);
@@ -234,6 +252,8 @@ for (const language of ['en', 'ar'] as const) {
       const start = page.getByTestId('backup-start');
       await expect(start).toHaveAttribute('data-screen', 'welcome', { timeout: 30_000 });
       await expect(start).toHaveAttribute('data-logins', '1');
+      await expect(start).toHaveAttribute('data-guides', language === 'en' ? '0' : '1');
+      if (language === 'ar') expect(stripIsolates((await page.getByTestId('backup-guides').textContent()) ?? '')).toBe(SAYS.ar.guidesLine);
       await expect(page.getByTestId('backup-title')).toHaveText(says.welcome);
       expect(stripIsolates((await page.getByTestId('backup-logins').textContent()) ?? '')).toBe(says.welcomeLine);
       await shoot(page, `backup-logins-welcome-${language}`);
@@ -292,8 +312,40 @@ for (const language of ['en', 'ar'] as const) {
       expect(given.backupLogins).toBe(false);
       expect(leaks(JSON.stringify(given.sources), [P])).toEqual([P]);
 
-      // Back to the live list: the channels are back.
+      // The Arabic playlist's guide (step 32d4c): TV guides, its row marked, its menu's first action, its link given back.
       await remote.go('BACK', 'settings/items/1');
+      if (language === 'ar') {
+        await remote.go('UP', 'settings/items/0');
+        await remote.go('OK', 'guides/guides/0');
+        const guides = page.getByTestId('guides');
+        await expect(guides).toHaveAttribute('data-status', 'ready');
+        const guide = page.getByTestId('guide-0');
+        await expect(guide).toHaveAttribute('data-src', 'u~s1');
+        await expect(guide).toHaveAttribute('data-needs', 'true');
+        expect(stripIsolates((await page.getByTestId('guide-0-needs').textContent()) ?? '')).toBe(says.needs);
+        await expect(page.getByTestId('guide-0-needs')).toHaveClass('guides__failure');
+        await settled(root, 30_000);
+        await shoot(page, 'backup-logins-guide-ar');
+        await remote.go('OK', 'guide-menu/actions/0');
+        await expect(page.getByTestId('guide-menu-link')).toBeVisible();
+        await remote.go('OK', 'guide-add/field/0');
+        expect(stripIsolates((await page.getByTestId('guide-add-link').locator('.z-field__note').textContent()) ?? '')).toBe(`كان على ${host}`);
+        await shoot(page, 'backup-logins-guide-form-ar');
+        await typeIn(remote, root, 'link', guideLink().replace(/^http:\/\//, ''), 'guides-link');
+        await remote.expectFocus('guide-add/actions/0');
+        await remote.press('OK');
+        await remote.expectFocus('guides/guides/0');
+        await expect(guide).toHaveAttribute('data-needs', 'false');
+        // Its programmes, read from the mock's guide.
+        await expect(guide).toHaveAttribute('data-status', 'read', { timeout: 30_000 });
+        await expect(guide).not.toHaveAttribute('data-until', '');
+        await settled(root, 30_000);
+        await shoot(page, 'backup-logins-guide-read-ar');
+        expect(((await storedDoc(page))!.guides as unknown[])).toEqual([{ id: 's1', url: guideLink() }]);
+        await remote.go('BACK', 'settings/items/0');
+      }
+
+      // Back to the live list: the channels are back.
       await remote.press('BACK');
       const live = page.getByTestId('live');
       await expect(live).toBeVisible();
@@ -313,6 +365,7 @@ for (const language of ['en', 'ar'] as const) {
       expect(leaks(JSON.stringify(second), LOGIN_NEEDLES)).toEqual([]);
       expect(((second.player as { last: { item: { url: string } } }).last.item.url)).toBe('');
       expect(second.sources).toEqual(first.sources);
+      expect(second.guides).toEqual(first.guides);
       await appIdle(page);
     });
     expect(errors).toEqual([]);

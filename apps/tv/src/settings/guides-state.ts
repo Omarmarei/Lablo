@@ -96,9 +96,11 @@ export interface GuideRow {
   readonly offset: number;
   /** Its server is on the signed config's blocklist (step 30c3a): it isn't read. */
   readonly blocked: boolean;
+  /** The user's guide a backup without logins brought back without its link (step 32d4c): it isn't read until it is given again. */
+  readonly needs: boolean;
 }
 
-export type GuideAction = 'up' | 'down' | 'offset' | 'matches' | 'remove' | 'cancel';
+export type GuideAction = 'link' | 'up' | 'down' | 'offset' | 'matches' | 'remove' | 'cancel';
 
 /** Why the add form refused the link. */
 export type AddProblem = 'required' | 'url' | 'spaces' | 'listed';
@@ -164,6 +166,8 @@ export interface Guides {
   /** The add form's link and why it was refused. */
   readonly text: ReadonlySignal<string>;
   readonly problem: ReadonlySignal<AddProblem | null>;
+  /** The guide the form gives its link to while it shows (step 32d4c; `null`: the form adds one). */
+  readonly linking: ReadonlySignal<GuideRow | null>;
   /** Opens the screen and reads the guides. */
   open(): void;
   /** A manual mapping changed the matches (step 24e): the list and its counts are read again while it is on the stack. */
@@ -222,7 +226,17 @@ export function guideList(profile: LoadedProfile | null, status: EpgStatus, bloc
     const epgSrc = `${USER_PREFIX}${guide.id}`;
     // A guide without its link (step 32d4a) shows the origin it kept.
     const url = guide.url === null ? guide.origin : guide.url;
-    rows.push({ kind: 'mine', epgSrc, id: guide.id, link: shownLink(url), source: '', meta: metaOf(status, epgSrc), offset: offsetOf(epgSrc), blocked: blocked[urls.length] === true });
+    rows.push({
+      kind: 'mine',
+      epgSrc,
+      id: guide.id,
+      link: shownLink(url),
+      source: '',
+      meta: metaOf(status, epgSrc),
+      offset: offsetOf(epgSrc),
+      blocked: blocked[urls.length] === true,
+      needs: guide.url === null,
+    });
     urls.push(url);
   }
   for (const guide of epgGuides(records.map(catalogOf), status.sources, user)) {
@@ -239,6 +253,7 @@ export function guideList(profile: LoadedProfile | null, status: EpgStatus, bloc
       meta: metaOf(status, guide.epgSrc),
       offset: offsetOf(guide.epgSrc),
       blocked: blocked[urls.length] === true,
+      needs: false,
     });
     urls.push(guide.url);
   }
@@ -268,10 +283,12 @@ export function summaryOf(row: GuideRow): EpgSummary | null {
 /**
  * The menu's actions for the user's guide at `place` of the user's `count`: a move only where it
  * can go. A source's own guide (`kind: 'source'`) can't move or go. "Matches" only for a guide
- * with a summary (`matches`).
+ * with a summary (`matches`). "Give its link" first for a guide without its link (`needs`, step
+ * 32d4c): the menu keeps "Remove" for a link the user no longer has.
  */
-export function menuActions(place: number, count: number, kind: GuideRow['kind'] = 'mine', matches = false): GuideAction[] {
+export function menuActions(place: number, count: number, kind: GuideRow['kind'] = 'mine', matches = false, needs = false): GuideAction[] {
   const actions: GuideAction[] = [];
+  if (needs) actions.push('link');
   if (kind === 'mine' && place > 0) actions.push('up');
   if (kind === 'mine' && place < count - 1) actions.push('down');
   actions.push('offset');
@@ -319,6 +336,7 @@ export function createGuides(options: GuidesOptions): Guides {
   const unmatched = signal<number | null>(null);
   const text = signal('');
   const problem = signal<AddProblem | null>(null);
+  const linking = signal<GuideRow | null>(null);
 
   let disposed = false;
   const screen = signal<Screen | null>(null);
@@ -529,6 +547,7 @@ export function createGuides(options: GuidesOptions): Guides {
     else if (action === 'offset') openChooser(row);
     else if (action === 'matches') openMatches(row);
     else if (action === 'remove') change({ op: 'remove', id: row.id }, null);
+    else if (action === 'link') openForm(row);
   };
 
   const openMenu = (index: number): void => {
@@ -537,7 +556,7 @@ export function createGuides(options: GuidesOptions): Guides {
     if (row === undefined) return;
     let mine = 0;
     for (const r of list) if (r.kind === 'mine') mine += 1;
-    const actions = menuActions(index, mine, row.kind, summaryOf(row) !== null);
+    const actions = menuActions(index, mine, row.kind, summaryOf(row) !== null, row.needs);
     menu.value = { row, actions };
     nav.push({
       id: 'guide-menu',
@@ -554,14 +573,24 @@ export function createGuides(options: GuidesOptions): Guides {
   /** Closes the add form (it is on top: only its own keys call this), ending the edit first. */
   const closeForm = (): void => {
     textEditor.close();
+    linking.value = null;
     nav.pop();
   };
 
   const submit = (): void => {
-    const checked = checkLink(text.value, urls);
+    const own = linking.value;
+    const at = own === null ? -1 : rowIndex(own.epgSrc);
+    const checked = checkLink(text.value, own === null ? urls : linkedElsewhere(at));
     problem.value = checked.problem;
     if (checked.link === null) {
       nav.top.focus('field', 0);
+      return;
+    }
+    if (own !== null) {
+      // Until the next read, the link in its place: an add of it is refused meanwhile.
+      if (at !== -1) urls = urls.slice(0, at).concat([checked.link], urls.slice(at + 1));
+      closeForm();
+      change({ op: 'link', id: own.id, url: checked.link }, { epgSrc: own.epgSrc });
       return;
     }
     const id = nextGuideId(known.concat(given));
@@ -571,7 +600,29 @@ export function createGuides(options: GuidesOptions): Guides {
     change({ op: 'add', guide: { id, url: checked.link } }, { epgSrc: `${USER_PREFIX}${id}` });
   };
 
-  const openForm = (): void => {
+  /**
+   * The links a guide given its link again can't take (step 32d4c): the user's other guides'. Not
+   * the origin it kept, and not a source's own guide's: a playlist's `url-tvg` may be the very link
+   * (a panel's `xmltv.php`), and the user's guide then takes it, the source's going from the list
+   * as when both were added.
+   */
+  const linkedElsewhere = (at: number): string[] => {
+    const list = rows.value;
+    const out: string[] = [];
+    for (let i = 0; i < list.length; i += 1) if (i !== at && list[i]!.kind === 'mine') out.push(urls[i]!);
+    return out;
+  };
+
+  /** Where the guide `epgSrc` is in the list read last (`-1`: not there). */
+  const rowIndex = (epgSrc: string): number => {
+    const list = rows.value;
+    for (let i = 0; i < list.length; i += 1) if (list[i]!.epgSrc === epgSrc) return i;
+    return -1;
+  };
+
+  /** The add form, or with `row` the form that gives that guide its link (step 32d4c). */
+  const openForm = (row: GuideRow | null = null): void => {
+    linking.value = row;
     text.value = '';
     problem.value = null;
     nav.push({
@@ -606,6 +657,7 @@ export function createGuides(options: GuidesOptions): Guides {
     unmatched,
     text,
     problem,
+    linking,
     open(): void {
       if (disposed) return;
       screen.value = nav.push({

@@ -5,7 +5,7 @@ import type { BackupCallRequest, BackupRestoreResult, CancelToken } from '@lablo
 import { CancelSource } from '@lablo/data/client';
 import type { FocusBinding, Language, Navigator, ScreenSpec, ZoneSpec } from '@lablo/ui';
 import { bindFocus, createNavigator } from '@lablo/ui';
-import { needsLogin, storedSources } from '../onboarding/engine-loader';
+import { needsLogin, storedSources, userGuides } from '../onboarding/engine-loader';
 import { startPoint } from '../onboarding/start';
 import type { SchedulerTimers } from '../data/refresh-scheduler';
 
@@ -22,7 +22,9 @@ import type { SchedulerTimers } from '../data/refresh-scheduler';
  * - **"Welcome back":** in the restored profile's language (`null`: the TV's), for `WELCOME_MS` or
  *   until OK, so the restore needs no key at all (step 32's "Done when"). A backup made without
  *   logins and links (step 32d4b) brought sources back without them: one line says how many, and
- *   the end opens Settings › Sources (`toSources`), however it comes.
+ *   the end opens Settings › Sources (`toSources`), however it comes. The user's guides without
+ *   their link (step 32d4c) get a line of their own; with no source to give its login, the end
+ *   opens Settings › TV guides (`toGuides`).
  * - **After Settings' "Restore it"** (step 32d2b) the app starts again with `restored`: no look-up,
  *   "Welcome back" on that profile at once.
  */
@@ -68,12 +70,14 @@ export type BackupStartOptions = BackupStartCommon &
 
 /**
  * How the look-up ended: the profile read after it, whether that is a restore (it has a source),
- * and whether the sources screen opens next (a restored source needs its login, step 32d4b).
+ * and whether the sources screen opens next (a restored source needs its login, step 32d4b), else
+ * the guides screen (a restored guide of the user's needs its link, step 32d4c).
  */
 export interface BackupStartEnd {
   readonly profile: LoadedProfile | null;
   readonly restored: boolean;
   readonly toSources: boolean;
+  readonly toGuides: boolean;
 }
 
 export interface BackupStart {
@@ -91,6 +95,8 @@ export interface BackupStart {
   readonly files: ReadonlySignal<number>;
   /** "Welcome back": how many of them came back without their login or link (step 32d4b). */
   readonly logins: ReadonlySignal<number>;
+  /** "Welcome back": how many of the user's guides came back without their link (step 32d4c). */
+  readonly guides: ReadonlySignal<number>;
   /** Settles once: after onboarding's look-up ends, or after "Welcome back". */
   readonly done: Promise<BackupStartEnd>;
   /** Ends the look-up's worker and the screen's focus; `done` settles no more after it. */
@@ -122,6 +128,7 @@ export function createBackupStart(options: BackupStartOptions): BackupStart {
   const sources = signal(0);
   const files = signal(0);
   const logins = signal(0);
+  const guides = signal(0);
   const cancel = new CancelSource();
   let limit: unknown = null;
   let welcome: unknown = null;
@@ -183,7 +190,7 @@ export function createBackupStart(options: BackupStartOptions): BackupStart {
   const welcomeOr = (profile: LoadedProfile | null): void => {
     const records = storedSources(profile);
     if (records.length === 0) {
-      finish({ profile, restored: false, toSources: false });
+      finish({ profile, restored: false, toSources: false, toGuides: false });
       return;
     }
     let fromPhone = 0;
@@ -192,11 +199,16 @@ export function createBackupStart(options: BackupStartOptions): BackupStart {
       if (records[i]!.type === 'm3u-file') fromPhone += 1;
       if (needsLogin(records[i]!)) withoutLogin += 1;
     }
-    end = { profile, restored: true, toSources: withoutLogin > 0 };
+    let withoutLink = 0;
+    const kept = userGuides(profile);
+    for (let i = 0; i < kept.length; i++) if (kept[i]!.url === null) withoutLink += 1;
+    // The sources first: a guide can wait, a source without its login has no channels.
+    end = { profile, restored: true, toSources: withoutLogin > 0, toGuides: withoutLogin === 0 && withoutLink > 0 };
     language.value = startPoint(profile).language;
     sources.value = records.length;
     files.value = fromPhone;
     logins.value = withoutLogin;
+    guides.value = withoutLink;
     screen.value = WELCOME_SCREEN;
     nav.reset(welcomeSpec);
     welcome = timers.set(
@@ -233,6 +245,7 @@ export function createBackupStart(options: BackupStartOptions): BackupStart {
     sources,
     files,
     logins,
+    guides,
     done,
     dispose() {
       disposed = true;
