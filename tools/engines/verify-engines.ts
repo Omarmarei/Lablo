@@ -28,6 +28,12 @@
  * database deleted, and the same address again with no key: "Welcome back", then the live screen
  * filled, in English and in Arabic (artifacts/engines/backup-*.png: "Welcome back" and the live
  * screen after it).
+ * Then the backup code (step 32d3d) on the plain Tizen build, which reads no device ID in an
+ * engine: onboarding by phone with "Not now", an upload under the new backup code, the code read
+ * from the app's database, the wipe, and at the first start "Use a backup code": a mistyped code
+ * ("No backup was found"), then the real one typed in lower case: "Welcome back", then the live
+ * screen filled, in English and in Arabic (artifacts/engines/code-*.png: the mistyped code's
+ * answer, the code typed, "Welcome back" and the live screen after it).
  * Then the Lablo Lab (dist/tv-lab, step 15a) runs its spikes at launch and reports to a mock
  * provider on the host (artifacts/engines/lab-logs): S1 must pass on every engine, and the
  * polyfills it filled must be exactly the ones the engine lacks.
@@ -55,6 +61,8 @@ import { checkQr } from '@lablo/core/check-qr';
 import { checkSamples } from '@lablo/protocol/check-samples';
 import type { BackupRun } from './src/backup-walk';
 import { backupSummary, backupWalkUrl, evaluateBackupRun, runBackupWalk, simLookupId, stageWebosSim } from './src/backup-walk';
+import type { CodeRun } from './src/code-walk';
+import { codeSummary, codeWalkUrl, evaluateCodeRun, runCodeWalk, tizenAppId } from './src/code-walk';
 import type { CdpClient } from './src/cdp';
 import { connectToPage, waitForDevtools } from './src/cdp';
 import { ENGINE_HOUR, assertDockerRunning, engineLogs, engineZone, ensureImage, forwardToHost, startEngine, stopEngine, zoneOffset } from './src/docker';
@@ -138,6 +146,14 @@ interface RunReport {
     readonly liveMs: number | null;
     readonly screenshots: readonly string[];
   }>;
+  /** The backup code on the plain Tizen build: each walk's times from OK on "Restore" to the mistyped code's answer, "Welcome back" and the live screen, its screenshots (code runs only). */
+  readonly code?: ReadonlyArray<{
+    readonly language: WalkLanguage;
+    readonly noneMs: number | null;
+    readonly welcomeMs: number | null;
+    readonly liveMs: number | null;
+    readonly screenshots: readonly string[];
+  }>;
   readonly failures: readonly string[];
   readonly mustPass: boolean;
   readonly durationMs: number;
@@ -203,7 +219,7 @@ interface Outcome {
   readonly failures: string[];
   readonly durationMs: number;
   readonly summary: string;
-  readonly fields: Pick<RunReport, 'userAgent' | 'refresh' | 'search' | 'guide' | 'nowNext' | 'screenshot' | 'arabicScreenshot' | 'bidi' | 'onboarding' | 'pairing' | 'backup'>;
+  readonly fields: Pick<RunReport, 'userAgent' | 'refresh' | 'search' | 'guide' | 'nowNext' | 'screenshot' | 'arabicScreenshot' | 'bidi' | 'onboarding' | 'pairing' | 'backup' | 'code'>;
 }
 
 async function runHello(client: CdpClient, engine: Engine, variant: Variant, platform: TvPlatform, check: DataCheck): Promise<Outcome> {
@@ -467,6 +483,42 @@ async function runBackupScreen(client: CdpClient, engine: Engine, variant: Varia
   };
 }
 
+/** The backup code typed at the first start after a wipe, on the plain Tizen build (step 32d3d), against `server`'s backup stand-in. */
+async function runCodeScreen(client: CdpClient, engine: Engine, variant: Variant, check: WalkData, server: PairServer): Promise<Outcome> {
+  const shot = variant.id === APP_VARIANT.id ? (language: WalkLanguage, view: string): string => path.join(OUT, `code-${engine.id}-${language}-${view}.png`) : null;
+  const run: CodeRun = await runCodeWalk(client, codeWalkUrl(variant.id), tizenAppId(path.join(VARIANTS_DIR, variant.id)), check, server, {
+    bootTimeoutMs: BOOT_TIMEOUT_MS,
+    keyTimeoutMs: KEY_TIMEOUT_MS,
+    loadTimeoutMs: LOAD_TIMEOUT_MS,
+    screenshot: shot,
+    save: (file, png) => writeFileSync(file, png),
+  });
+  const first = run.walks.flatMap((walk) => walk.steps).find((step) => step.state !== null);
+  return {
+    failures: evaluateCodeRun(run, engine, check.categories),
+    durationMs: run.durationMs,
+    summary: codeSummary(run),
+    fields: {
+      userAgent: first?.state?.userAgent ?? null,
+      refresh: null,
+      search: null,
+      guide: null,
+      nowNext: null,
+      screenshot: null,
+      arabicScreenshot: null,
+      bidi: null,
+      onboarding: null,
+      code: run.walks.map((walk) => ({
+        language: walk.language,
+        noneMs: walk.noneMs,
+        welcomeMs: walk.welcomeMs,
+        liveMs: walk.liveMs,
+        screenshots: walk.screenshots.map((file) => repoPath(file) ?? file),
+      })),
+    },
+  };
+}
+
 async function runEngine(
   engine: Engine,
   zip: string,
@@ -519,7 +571,9 @@ async function runEngine(
                     ? await runOnboardingScreen(client, engine, variant, platform, checks[platform])
                     : screen === 'pairing'
                       ? await runPairingScreen(client, engine, variant, platform, checks[platform], pair)
-                      : await runBackupScreen(client, engine, variant, checks[platform], pair, backupLookupId);
+                      : screen === 'backup'
+                        ? await runBackupScreen(client, engine, variant, checks[platform], pair, backupLookupId)
+                        : await runCodeScreen(client, engine, variant, checks[platform], pair);
             const { failures } = outcome;
             const report: RunReport = {
               engine: engine.id,
@@ -586,7 +640,7 @@ async function main(): Promise<void> {
   rmSync(VARIANTS_DIR, { recursive: true, force: true });
   mkdirSync(VARIANTS_DIR, { recursive: true });
   // A screenshot that a run didn't write again must not pass for a fresh one.
-  for (const file of readdirSync(OUT)) if (/^(gallery|onboarding|pairing|backup)-.*\.png$/.test(file)) rmSync(path.join(OUT, file));
+  for (const file of readdirSync(OUT)) if (/^(gallery|onboarding|pairing|backup|code)-.*\.png$/.test(file)) rmSync(path.join(OUT, file));
   const variants: Variant[] = [stageApp(distTv, VARIANTS_DIR)];
   const labDir = stageLab(distLab, VARIANTS_DIR);
   if (labDir === null) throw new Error(`${path.relative(ROOT, distLab)} has no lab builds: run pnpm build:tv first`);

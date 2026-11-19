@@ -903,7 +903,7 @@ export function expectedCounts(check: Pick<DataCheck, 'live' | 'movies'>): reado
 }
 
 /** The screen checks of one state: the TV's canvas, no scroll, the safe area, no label cut. */
-function screenFailures(state: WalkState): string[] {
+export function screenFailures(state: WalkState): string[] {
   const failures: string[] = [];
   const [width, height] = state.viewport;
   if (width !== VIEWPORT.width || height !== VIEWPORT.height) {
@@ -1092,7 +1092,8 @@ export async function resetDatabase(client: CdpClient): Promise<string> {
   return done.state?.reset ?? 'no answer';
 }
 
-async function typeText(client: CdpClient, text: string): Promise<void> {
+/** Types `text` into the input with DOM focus as `char` key events (Chromium 53 has no `Input.insertText`). */
+export async function typeText(client: CdpClient, text: string): Promise<void> {
   for (const ch of text) await client.send('Input.dispatchKeyEvent', { type: 'char', text: ch, unmodifiedText: ch, key: ch });
 }
 
