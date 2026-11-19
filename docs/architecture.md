@@ -2077,6 +2077,7 @@ envelope   = {v:1, kdf:"scrypt-15-8-1", nonce:24B, ct: secretbox(gzip(profileJSO
   - `test/scrub-bundle.test.ts`: the bundle in the Chromium 53 stand-in realm, without zod, gives Node's answers;
   - `telemetry.web.test.ts`, 10 tests against Postgres: the rows; the dropped events; the scrubbed stack; 413 at one byte past 64 KB; 400; 429; the sweep's edge and order; no address, URL, host or login in any row; the route's preflight, services, clock and 503;
   - `apps/web/e2e/telemetry.spec.ts` over HTTP from `Origin: null`;
+  - **Merged:** PR #143 as merge commit `9f109b6` on green CI (verify 16 m, web 3 m, engines 27 m; media on its rerun after the `epg-declared-300mb` timing flake);
   - mutation `artifacts/mutate33a.py`: 87 written first. 84 were caught on the first run. The three survivors were two test gaps (a key, `signature=`, no test used; a full IPv6 address whose last group the port rule swallowed) and dead code (lower-casing `file://` and `blob:` before a case-sensitive pattern), which was taken out. Then 86/86.
 
 ---
