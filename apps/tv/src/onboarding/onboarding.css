@@ -50,6 +50,11 @@
   line-height: var(--line-height-label);
 }
 
+/* A note under a screen's buttons (the consent's usage reports, step 33b3), apart from them. */
+.onboarding__note--after {
+  margin: var(--space-7) 0 0;
+}
+
 .onboarding__error {
   color: var(--color-danger);
 }

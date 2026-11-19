@@ -370,7 +370,7 @@ is in `apps/web/src/server/telemetry.ts`; `src/app/v1/telemetry/route.ts` is a t
 - **No migration:** the `TelemetryEvent` table is step 29a's. Nothing here is in production
   before step 34.
 
-### What the TV sends (steps 33b1 and 33b2)
+### What the TV sends (steps 33b1, 33b2 and 33b3)
 
 architecture.md §3.4 "Built in step 33b1" has the design; this is how to see it work.
 
@@ -391,6 +391,12 @@ architecture.md §3.4 "Built in step 33b1" has the design; this is how to see it
   `telemetry.queue` (at most 200 events not yet stored), `telemetry.capability` (the last one
   queued). The profile's `telemetry: false` deletes all three at the next send, and nothing is
   posted.
+- **The switch (step 33b3):** Settings' fourth row, "Usage and crash reports": OK switches it in
+  place. Off stores `telemetry: false` and sends once at once, so the three records above are gone
+  before the row takes OK again; on again makes a new install ID at the next send. The consent
+  screen says so in a note under its buttons. To check it by hand in the dev app: switch it off,
+  then `await window.__LABLO_TEST__.sendTelemetry()` answers `{state: "off"}` and the `kv` store
+  holds no `telemetry.*` key.
 - **The dev app** posts as `platform: "browser"`, which this route refuses (400): the TV drops
   such a batch, so dev rows never land in the table. Plain `pnpm e2e` checks the batches against
   the stand-in on the config server (`e2e/telemetry.spec.ts`).

@@ -92,6 +92,9 @@ export const EN = {
   'onboarding.backupNote':
     "The backup is on by default and is encrypted on your TV before it is sent, so we can't read it. You can turn it off, or leave out your login details, in Settings.",
   'onboarding.consentNo': "If you don't allow it, Settings shows a backup code for you to note down instead.",
+  // Under the consent's buttons (step 33b3): they answer the TV ID only.
+  'onboarding.telemetryNote':
+    'Lablo also sends anonymous usage and crash reports to improve the app, never your links, logins or channel names. You can turn them off in Settings.',
   'onboarding.allow': 'Allow',
   'onboarding.notNow': 'Not now',
   'onboarding.sourceTitle': 'Add your source',
@@ -348,6 +351,13 @@ export const EN = {
   'settings.sourcesHint': 'Your playlists and logins, and when they were updated',
   'settings.backup': 'Backup',
   'settings.backupHint': 'An encrypted copy of your sources and settings, and its code',
+  // The usage reports' switch (step 33b3): switched in place by OK; its value and the line under it.
+  'settings.telemetry': 'Usage and crash reports',
+  'settings.telemetryOn': 'On',
+  'settings.telemetryOff': 'Off',
+  'settings.telemetryOnHint': 'Anonymous: never your links, logins or channel names',
+  'settings.telemetryOffHint': 'Nothing is sent while they are off',
+  'settings.telemetryFailed': "Couldn't change it. Try again.",
   'guides.title': 'TV guides',
   'guides.add': 'Add a guide',
   'guides.intro': 'Programmes come from the first guide in this list that has the channel. Your own guides come first.',

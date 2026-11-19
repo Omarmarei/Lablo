@@ -101,6 +101,11 @@
   line-height: var(--line-height-body);
 }
 
+/* A row's line saying a change didn't take (the usage reports' switch, step 33b3). */
+.settings__hint.settings__warn {
+  color: var(--color-warn);
+}
+
 .settings__message {
   display: flex;
   flex: 1;
@@ -399,24 +404,28 @@
   width: 1200px;
 }
 
-.backup__top {
+.backup__top,
+.settings__top {
   display: flex;
   align-items: baseline;
 }
 
-.backup__top .settings__name {
+.backup__top .settings__name,
+.settings__top .settings__name {
   flex: 1;
   min-width: 0;
 }
 
-.backup__value {
+.backup__value,
+.settings__value {
   flex: none;
   margin-left: var(--space-6);
   font-size: var(--font-size-heading);
   line-height: var(--line-height-heading);
 }
 
-.backup__switch .settings__hint {
+.backup__switch .settings__hint,
+.settings__switch .settings__hint {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
