@@ -76,6 +76,7 @@ import type {
   IngestJob,
   IngestProgress,
   IngestResult,
+  IngestSource,
   ItemRef,
   KeyItemsRequest,
   LinkSource,
@@ -185,7 +186,16 @@ export interface DataEngineOptions {
    * favourites matched again). A call too many costs an upload that finds nothing changed.
    */
   onProfileChanged?: () => void;
+  /**
+   * Called after each catalog refresh that resolves, and each EPG refresh that ran its worker
+   * (step 33b2: telemetry's `ingest_done` and `epg_match`). A refused or failed refresh calls
+   * nothing.
+   */
+  onRefreshed?: (done: RefreshDone) => void;
 }
+
+/** A refresh that resolved (`DataEngineOptions.onRefreshed`): the catalog's source type and its result, or the guides'. */
+export type RefreshDone = { readonly kind: 'catalog'; readonly source: IngestSource['type']; readonly result: IngestResult } | { readonly kind: 'epg'; readonly result: EpgRefreshResult };
 
 export interface DataSummary {
   sources: number;
@@ -434,6 +444,7 @@ export class DataEngine {
         // next read.
         await reload.catch(ignore);
         if (result.status === 'committed') this.options.onProfileChanged?.();
+        this.options.onRefreshed?.({ kind: 'catalog', source: source.type, result });
         return result;
       });
     } finally {
@@ -480,6 +491,7 @@ export class DataEngine {
         // A guide that only moved sends no swap: the query worker orders the guides by rank.
         if (result.reranked.length > 0) reload = this.query.call('reload');
         await reload.catch(ignore);
+        this.options.onRefreshed?.({ kind: 'epg', result });
         return result;
       });
     } finally {

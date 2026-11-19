@@ -1,7 +1,7 @@
 import { normalizeLang } from '@lablo/core';
 import type { Platform } from '@lablo/platform-api';
 import type { SubtitleCue } from '@lablo/core';
-import type { AccountStatus, Clock, ControllerOptions, ExternalSub, SourceMemory, TrackMemory, TrackPreferences } from '@lablo/player';
+import type { AccountStatus, Clock, ControllerOptions, ExternalSub, PlayerReport, SourceMemory, TrackMemory, TrackPreferences } from '@lablo/player';
 import { PlayerController } from '@lablo/player';
 import { createSubtitleLoader } from './subtitle-loader';
 
@@ -19,7 +19,8 @@ import { createSubtitleLoader } from './subtitle-loader';
  * - `loadSubtitles` (step 20b2b): a request's subtitle files, fetched and parsed by the app
  *   (`subtitle-loader.ts`);
  * - `memory` and `trackMemory` (step 20c1): the profile's, through `player-memory.ts`;
- * - `blocked` (step 30c3b): the config's blocklist, asked before each stream opens.
+ * - `blocked` (step 30c3b): the config's blocklist, asked before each stream opens;
+ * - `report` (step 33b2): telemetry's play results and stalls.
  */
 export interface AppPlayerDeps {
   readonly platform: Pick<Platform, 'id' | 'createEngines' | 'resolveUrl' | 'setScreenSaver' | 'onLifecycle'>;
@@ -41,6 +42,8 @@ export interface AppPlayerDeps {
   readonly clock?: Clock;
   /** The config's blocklist for stream URLs (step 30c3b: `DataEngine.blockedOrNone`; absent: nothing checked). */
   readonly blocked?: (urls: string[]) => Promise<boolean[]>;
+  /** Telemetry's reports (step 33b2: `play_result`, `stall`; absent: none). */
+  readonly report?: (report: PlayerReport) => void;
 }
 
 /**
@@ -69,6 +72,7 @@ export function appPlayer(deps: AppPlayerDeps): () => PlayerController {
       ...(deps.memory === undefined ? {} : { memory: deps.memory }),
       ...(deps.trackMemory === undefined ? {} : { trackMemory: deps.trackMemory }),
       ...(deps.blocked === undefined ? {} : { blocked: deps.blocked }),
+      ...(deps.report === undefined ? {} : { report: deps.report }),
       screenSaver: (allowed) => {
         platform.setScreenSaver(allowed).catch((error: unknown) => console.warn('The screensaver setting was refused', error));
       },

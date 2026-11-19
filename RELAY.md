@@ -2252,7 +2252,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
       - `probes`: `year` (the model year, when known), `lowTier`, `mse` (`MediaSource` exists), `hevc` (`canPlayType` of an HEVC MP4 type).
 
       Why so few probes: each must earn its place in an engine decision. The screen reader's state stays out: it is a disability signal.
-- [ ] 33b1. **The sender and the start events** (`packages/protocol`, `packages/data`, `apps/tv`): as decided above.
+- [x] 33b1. **The sender and the start events** (`packages/protocol`, `packages/data`, `apps/tv`): as decided above. Merged in leg 116 (PR #144).
   - **Done when:**
     - **unit:**
       - `telemetry-service.test.ts` (fake-indexeddb, a fake transport and clock): the ID made once and kept; off deletes the queue and the ID and posts nothing; sampling per install and kind (0, 1, a rate between, a kind with no rate); `capability` deduplicated; the queue's cap of 200; the post's body (the envelope, the events oldest first, the byte cap splitting a long queue); 200, 400 and 413 removing, 429, 500, network and the time limit keeping; no URL in an answer;
@@ -2285,6 +2285,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - `verify:engines --engine chrome53 --engine chrome68`: all 26 runs as expected (`artifacts/engines-33b1.log`);
     - mutation `artifacts/mutate33b1.py`: 179 written first. Writing them closed nine test gaps and took out fifteen dead checks (listed in its docstring). The first run caught 176. Two survivors were gaps, now closed: a hide before the profile is read, and an event after "off at load, then on". The third was equivalent (`tier !== 'full'`) and was removed. Then 178/178 (`mutate33b1-a.log` to `-d.log`).
     - Not run locally: the whole `pnpm e2e` (CI's verify job runs it).
+  - **Done in leg 116:** PR #144 merged as merge commit `3e00eec` on green CI on the first run: web 9 m, verify 15 m (its `pnpm e2e` included), media 30 m, engines 32 m.
 - [ ] 33b2. **The four other events** (`packages/player`, `apps/tv`, `packages/data`). Its shape is refined before building:
   - `ingest_done` from `DataEngine.refresh` (`xtream` or `m3u`, `elapsedMs`, the download's bytes and the items as buckets) and `refreshEpg` (`epg`);
   - `epg_match` after a guide refresh (the share of live channels with a guide, `rateBucket`);
@@ -2292,6 +2293,98 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
   - `stall` at a stall's end (recovered, attempts).
 
   Each has unit tests. The e2e stand-in sees a `play_result` after a play and an `ingest_done` after onboarding.
+  - **Facts found in leg 116** (for the shape; nothing decided yet):
+    - **The sender is there.** Each event is one `telemetry.record(...)` in main (`apps/tv/src/telemetry/telemetry-state.ts`), built by a hook-free function next to `telemetry-events.ts`. Test it with `serverReads` (`readTelemetryEvents` keeps it whole), as `telemetry-events.test.ts` does.
+    - **`ingest_done`, catalogs:** `IngestResult` has `elapsedMs`, `fetch` (`FetchStamp.bytes`; `null` on a 304), `counts` per kind, `status` (`committed` / `unchanged`). The source type comes from the refresh's source (`xtream`, or `m3u` for a link or the phone's file). The results reach main through `DataEngine.refresh` (the refresh scheduler, onboarding's loader, the phone's add, a login given again).
+    - **`ingest_done`, guides:** each `EpgOutcome.result` has `elapsedMs`, `fetch.bytes`, and `summary` (`EpgSummary`: `wanted`, `matched`, `programmes`, `kept`); `refreshEpg` gives `EpgRefreshResult.outcomes`.
+    - **`epg_match`:** `EpgSummary` is per guide. The share of live channels with any guide needs the union: the unmatched count ("Channels without a guide", `unmatched-state.ts`) over the live channels, or a new query-worker count. Decide which.
+    - **`play_result` and `stall`:**
+      - the controller's `subscribe(status)` gives `state` (`playing`, `reconnecting`, `failed`, `ended`…), `session`, `container`, `attempt` and `failure` (`category`, `code`, `detail`);
+      - `StreamStats.engine` is `'avplay' | 'html5' | 'mse'`, the protocol's three;
+      - the engine's `PlaybackErrorKind` looks like the protocol's `error.kind` list (check it is the same seven);
+      - the time to the first frame needs the play's start time;
+      - the mode (live, VOD, catch-up) is the app's (`app-player.ts`, `player-state.ts`);
+      - a `failure.code` must fit the protocol's `errorCode` pattern.
+  - **Decided in leg 117** (written before building, each with its why):
+    - **`play_result` and `stall` come from the controller** (`packages/player`), through a new option, `ControllerOptions.report(report: PlayerReport)`; `appPlayer` passes the app's on. Why: only the controller knows a play's start, its first frame, the `PlaybackError` behind a give-up and the engine that played. The status's `failure` keeps only the category, the code and the detail, so reading it through `subscribe` would mean adding all of that to the status.
+      - `PlayerReport` is `{type: 'play', engine, container, mode, ttffMs, error}` or `{type: 'stall', recovered, attempts}`; `error` is the `PlaybackError` as the engine or the watchdog gave it.
+      - **A play is a session** (from `play()` to the next `play` or `stop`). It reports once:
+        - at its first frame: `ttffMs` from `play()` to that frame on the controller's clock, `error: null`;
+        - or at its give-up before any frame: `ttffMs: null`, the last error.
+
+        A play left before either (a zap, a stop) reports nothing. Why: it says nothing about the stream, and a quick zap through channels would flood the queue. A play the blocklist refuses reports nothing either: that is the config's verdict, not playback, and an event would tie the install to a blocked provider.
+      - **A play hidden while it opens** starts its clock again on show, where the controller opens it again. Why: a TV left in the background must not read as an hour's open.
+      - **The fields:** `engine` is `engine.kind` at that moment (the fallback engine names the one that played or tried last); `container` is the candidate's, `'other'` when the request had no URL (`NO_URL`); `mode` is the request's.
+      - **A stall** is any failure after the session showed a frame: the retries under "Reconnecting…". It ends at the next first frame (`recovered: true`) or at the give-up (`recovered: false`), and `attempts` is the retries it took (the session's `attempt`). Not stalls: a resume after a hide (`reconnecting` with no failure), and a buffering the stream gets over by itself. A stall left by a zap or a stop reports nothing: the schema has only "recovered" and "failed".
+      - **A report that throws** changes nothing in playback (caught and logged). Why: telemetry must never break a play.
+    - **The player's events in main** (`apps/tv/src/telemetry/telemetry-events.ts`, plain functions as 33b1's):
+      - `playEvent(at, report)`:
+        - `ttffMs` rounded and capped at the schema's hour;
+        - the error's `kind` as it is: the engine's seven are the protocol's seven, checked both ways by a type test;
+        - its `code` kept when it is 1 to 64 letters, digits, `_` or `-`, else `OTHER`, checked by character codes (no regex in main);
+        - `status` only on an `http` error, a whole number from 100 to 599.
+
+        Why no `.` in a code, although the protocol takes one: a dotted code could be a host. Why not replace the characters, as `deviceName` does: what is left of a URL would still spell its host.
+      - `stallEvent(at, report)`: `attempts` capped at 100.
+    - **`ingest_done` and `epg_match` come from the data engine** (`apps/tv/src/data/engine.ts`), through a new option, `DataEngineOptions.onRefreshed(done)`: `{kind: 'catalog', source, result}` after each `refresh` that resolves, and `{kind: 'epg', result}` after each `refreshEpg` that resolves. Why there: every refresh goes through these two (the scheduler, onboarding's loader, the phone's add, a login or a link given again), as `onProfileChanged` already does.
+      - **`ingest_done` for a catalog** (`catalogIngestEvent`):
+        - `source` is `xtream`, or `m3u` for a link and for the phone's file;
+        - `ms` is the result's `elapsedMs`, capped;
+        - `bytes` is the bucket of `fetch.bytes`;
+        - `items` is the bucket of the sum of `counts`.
+
+        A result with no download (`fetch: null`: a 304) records nothing. Why: the event measures a download and its parse against their size; a 304 did neither, and would skew the times. An `unchanged` with the same bytes downloaded and parsed it all, so it counts.
+      - **`ingest_done` for guides** (`epgIngestEvents`): one per outcome with a result and a download, with `source: 'epg'`, `ms`, `bytes`, and `items` the bucket of `summary.programmes` (the programmes read for the channels the guide feeds). Why `programmes` rather than `kept`: the ingest's work is what it read; `kept` depends on the window.
+      - **Failed refreshes record nothing.** Why: the schema has no failure field, and a catalog's or a guide's failure is the provider's (a login, a server down); the app's own failures are crashes (33c). A failure count would be a later field of the schema.
+      - **`epg_match`** after a `refreshEpg` whose result swapped a guide in (`committed`), deleted one or reranked one: the share of live channels with a guide, `rateBucket(live - unmatched, live)`.
+        - `live` is the sum of the stored sources' `counts.live` (`epgStatus().sources`);
+        - `unmatched` is the "Channels without a guide" count over all of them (`unmatched({sources, offset: 0, limit: 0})`);
+        - nothing is recorded when there is no live channel.
+
+        Why the unmatched count: it is the union across guides that the user sees, built once per reload and shared with that screen, while `EpgStatus.matched` can still count a channel a newer catalog dropped. Why only after a change: an unchanged refresh would repeat the last rate.
+      - **Main's handler** builds the events and records them; a count that fails is logged and records nothing.
+    - **Sampling** stays the config's, per kind (33b1). **Budget:** main.js has 21.4 KB left on Tizen; each new main-side file is probed with `artifacts/babel-polys30b2.ts`.
+    - **No media-job check:** a real first frame reaches the controller exactly as the fake engine's does, so the controller's unit tests cover `ttffMs` and `stall`. Plain e2e checks a refused play end to end.
+  - **Done when:**
+    - **unit:**
+      - `packages/player/src/controller-report.test.ts` (FakeEngine, a manual clock):
+        - a play's report at its first frame (`ttffMs`, engine, container, mode);
+        - at its give-up, with the last error (an `http` one with its status; a timeout);
+        - none for a zap or a stop before either, none for a blocked play;
+        - once per play: a recovery after a stall sends no second play report;
+        - the clock started again by a show after a hide while opening;
+        - `NO_URL` with `container: 'other'`;
+        - a stall recovered with its attempts, a stall given up;
+        - no stall for a resume after a hide, or for a buffering that recovers; none for a zap during a stall;
+        - a report that throws changes nothing.
+      - `telemetry-events.test.ts`, each event through `serverReads`:
+        - `playEvent`: the rounding, the cap, each error kind, the code's rule (`MEDIA_ERR_NETWORK` kept; a URL, a dotted host, an empty code and a 65-character one become `OTHER`), the status only for `http`;
+        - `stallEvent`;
+        - `catalogIngestEvent` (xtream, m3u, m3u-file, the 304, the buckets) and `epgIngestEvents` (failed outcomes and 304s skipped);
+        - `epgMatchEvent`.
+      - a type test: `PlaybackErrorKind`, `Container`, `PlayMode` and the engine kinds are the protocol's lists, both ways;
+      - the data engine's `onRefreshed` after a catalog refresh and after an EPG refresh, and not after a refused one;
+      - `appPlayer` passes `report` on.
+    - **e2e** `e2e/telemetry.spec.ts`, against the stand-in:
+      - onboarding with a playlist whose guide (`url-tvg`, on the stand-in) matches one of its two channels: the posts hold `ingest_done` for `m3u` and for `epg`, and `epg_match` `50-74`;
+      - OK on a channel (its stream refused at once), then a send: `play_result` with `ttffMs: null`, `html5`, `ts`, `live`, and the refusal's kind and code;
+      - nothing of the source in any post.
+    - **checks:** lint of the whole repo, root `tsc`, the package typechecks, `build:tv` sizes, the per-file polyfill probe, `verify:engines --engine chrome53 --engine chrome68` (main changes);
+    - **close-out:** mutation with the list written first, the PR merged on green CI, and the docs (architecture.md §3.4 "Built in step 33b2", runbook `web.md` "What the TV sends").
+  - **Built in leg 117** (architecture.md §3.4 "Built in step 33b2", runbook `web.md` "What the TV sends"): as the shape says, with these refinements:
+    1. **`epg_match` counts `EpgStatus.matched`, not the unmatched walk.** The walk reads every live chunk in the query worker, right when the live screen opens after onboarding (20,000 channels on a 2018 TV). `EpgStatus.matched` is what the query worker already holds (the combined links). A link to a channel a newer catalog dropped still counts until its guide is read again, and the bucket stops at all. The engine test checks the two agree (6 of 9, as "Channels without a guide" counts 3).
+    2. **A stall needs no flag of its own:** at a first frame, a play that had played with retries since (`attempt > 0`) is a stall that recovered; a resume after a hide has none. A give-up after a frame is a stall that failed, with its retries (0 when the ladder had none left).
+    3. **`status ?? 0`** in `playError`, so no check is there only for TypeScript.
+    4. **The e2e's stream is on port 9,** which Chromium refuses as unsafe (`net::ERR_UNSAFE_PORT`, filtered with its reason): `unsupported`, `MEDIA_ERR_SRC_NOT_SUPPORTED`, at once.
+    5. **The three older telemetry e2e tests** now count onboarding's `ingest_done` (3 events, not 2; the sampling test's kind with no rate is sent).
+  - **Verified in leg 117:**
+    - unit 7,389 (+33: `controller-report.test.ts` 14, `usage-events.test.ts` 17, `app-player.test.ts` +1, `test/tv-data-engine.test.ts` +1);
+    - `e2e/telemetry.spec.ts` 4 (`artifacts/e2e-33b2.log`);
+    - the whole repo's lint, root `tsc` and every package's typecheck (`pnpm typecheck`);
+    - `build:tv`: main.js 481.6 KB on Tizen (+3.0 KB on 478.6) and 468.9 KB on webOS; the workers unchanged; no new core-js module (`artifacts/babel-polys30b2.ts` on the changed files); no new circular import;
+    - `verify:engines --engine chrome53 --engine chrome68`: all 26 runs as expected (`artifacts/engines-33b2.log`);
+    - mutation `artifacts/mutate33b2.py`: 97 written first. Writing them closed two test gaps (a code whose bad character is the first or the last; the catalog path's early return, seen only as a warning) and took out one check only TypeScript needed (`status !== undefined`). 97/97 caught on the first run (`mutate33b2-a.log` to `-c.log`).
+    - Not run locally: the whole `pnpm e2e` (CI's verify job runs it).
 - [ ] 33b3. **The switch's Settings row and the consent sentence** (`apps/tv`):
   - Settings' row "Usage and crash reports" (on or off, OK switches it; a hint);
   - one sentence on the consent screen (en, ar), and the en-XA walk;
@@ -2460,3 +2553,4 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 | 113 | 2026-11-19 | 32d4b (built, not merged), 32d4c split | Split the guides screen's part off as 32d4c and wrote 32d4b's refinements first (the save's refresh is the data engine's own inside main's `quiet`, not `refreshNow`; the login written before the refresh; the rows' marks; the form; "Welcome back" keeps its 5 s and its end opens Sources; the toggle switches at once both ways). Built 32d4b: Settings › Backup's second row (`backupLogins` inside the schedule's hold, then `uploadNow`); "Welcome back"'s line and `toSources` (`Settings.openSources`); the sources rows "Needs its login/link", the login form (`source-login.ts`, onboarding's `checkForm`), the save with the refresh's answer on the row (a refused login says so, OK opens the form again). Unit 7,244 green; TV typecheck; lint of the changed files; `e2e/backup-logins.spec.ts` (real API, en + ar) 2/2 on the first run, screenshots looked at; `e2e/backup-logins-xa.spec.ts` and the backup, pairing and blocklist specs green. Stopped at the relay context check: catchers, mutation (list drafted in `artifacts/mutate32d4b-plan.md`), `build:tv`, `verify:engines`, full lint/typecheck, the PR and the merge left for leg 114. | `c311756`, `e621be7`, `ce9abe3` |
 | 114 | 2026-11-19 | 32d4b (done, PR #140), 32d4c (done, PR #141), 32d4 and 32d (tick) | Finished 32d4b: the five catchers its mutation plan named; mutation `artifacts/mutate32d4b.py` 107 written first, 107/107 on the first run; found and fixed "Welcome back"'s "Your channels are loading now" when no source loads by itself; the en-XA screenshots looked at; lint, root `tsc`, typecheck, unit 7,250; `build:tv` (main.js 472.0 KB on Tizen); engines 53+68 26/26 on the first run; e2e real API 4/4, plain 10/10. PR #140 merged as `de87494` on green CI on the first run (engines 135/135). Wrote 32d4c's refinements before building it (the menu's "Give its link" keeps "Remove"; the add form's link mode; its check refuses only the user's other guides' links, since a playlist's `url-tvg` is often the very link (found building the e2e: the mock's M3U declares the guide's `xmltv.php`); "Welcome back"'s `toGuides`). Built 32d4c: unit 7,287; engines 53+68 26/26 on the first run; e2e real API 2/2, plain 20/20; mutation 52 written first, 51/51 (one gap closed, one equivalent). PR #141 merged as `fa4779a` on green CI on the first run (engines 135/135). 32d4 and 32d ticked. | `f3e0611`, `87b50bb`, `de87494`, `1f8610e`, `9010b08`, `fa4779a` |
 | 115 | 2026-11-19 | 32e (done, PR #142), 32 (tick), 33 split, 33a (done, PR #143) | Started 32e's shape and found that sealing the profile would not keep the login off the TV's disk: every stored stream URL (`catalog_chunks`) and `sources_meta.epgUrls` hold it too, and `localKey`'s master is cached beside them. Stopped as needs-you with three options; Omar chose (A): no seal at rest, said plainly. ADR-013, ADR-006 amended, architecture.md §3.3 B, PLAN.md's "Trustworthy" and risk item 8, the comments. PR #142 merged as `4f043c6` on green CI on the first run: 32e and 32 ticked. Split 33 into 33a-33d with its decisions, and built 33a while #142's CI ran: `@lablo/protocol/scrub` (`scrubText`, 7 rules, 25.8 KB bundled alone for Chromium 53, so 33b/33c scrub in a worker) and `POST /v1/telemetry` (rate limit, 64 KB, schema, crash stacks scrubbed again, 90-day sweep, one row per event). Unit 7,307; `test:web` telemetry 10; `e2e:web` telemetry; mutation 86/86 (two gaps closed, one dead piece out). PR #143 merged as `9f109b6` on green CI (media on its rerun: the EPG flake). | `cf71f61`, `a8cc2ae`, `4f043c6`, `e011d98`, `9f109b6` |
+| 116 | 2026-11-19 | 33b split, 33b1 (done, PR #144) | Wrote 33b's shape before building, each choice with its why, and split it into 33b1 (the sender and the start events), 33b2 (the four other events) and 33b3 (the switch's Settings row and the consent sentence). Built 33b1: `@lablo/protocol/telemetry-buckets` (schema-free); a telemetry worker per send (66.2 KB of 150), with the install ID and the queue in `kv`, the profile's switch read raw (off deletes both), sampling per install and kind, `capability` once per change, posts filled to 64 KB in UTF-8 bytes, 200/400/413 dropping; main's schedule (from the live screen on, 60 s after the first event, at most every 15 min, once on hide, `disable-app` stops it); `app_start` and `capability` at each start; the profile's `telemetry?: false`; the hook's `sendTelemetry()`, telemetry's worker counted in `backupIdle()`; `e2e/telemetry.spec.ts` against the config server's stand-in. Unit 7,356 (+49), e2e subset 26, `verify:engines` 53/68 all 26 runs, main.js 478.6 KB Tizen (+3.9), mutation 179 written first, 178/178 after two gaps closed and one equivalent removed. Merged PR #144 (`3e00eec`) on green CI on the first run. Noted the facts 33b2's shape needs. | `e0b11a0`, `3e00eec` |

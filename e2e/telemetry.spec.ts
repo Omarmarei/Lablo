@@ -10,7 +10,9 @@ import { RemoteDriver } from './remote-driver';
 /**
  * Telemetry in the app (RELAY step 33b1), against the stand-in API on the test's config server
  * (`?api=`): the start's events (`app_start`, `capability`) are recorded at the start's first
- * screen, and sent from the live screen on. The test hook's `sendTelemetry()` sends now instead of
+ * screen, and sent from the live screen on. Step 33b2 adds the events of use: onboarding's
+ * playlist read (`ingest_done`), its guide read and their match (`epg_match`), and a play's
+ * result (`play_result`). The test hook's `sendTelemetry()` sends now instead of
  * 60 s on. The dev app reports `platform: 'browser'`, which the real API refuses, so the batch is
  * read here with the server's own schema, the platform swapped. The playlist's link carries a
  * login, and no post may hold it, the stand-in's host or port, or the link.
@@ -19,10 +21,33 @@ const USER = 'tvuser33b';
 const PASS = 'tvpass33b1';
 const PLAYLIST = '#EXTM3U\n#EXTINF:-1 tvg-id="news" group-title="News",Family News\nhttp://127.0.0.1:9/live/1.ts\n#EXTINF:-1 tvg-id="films" group-title="Films",Film Night\nhttp://127.0.0.1:9/live/2.ts\n';
 const LIST_PATH = `/list.m3u?username=${USER}&password=${PASS}`;
+/** The guide the step-33b2 playlist names (`url-tvg`), with the same login. */
+const GUIDE_PATH = `/guide.xml?username=${USER}&password=${PASS}`;
 
-async function withServer(config: Record<string, unknown>, run: (server: ConfigServer) => Promise<void>): Promise<void> {
+/** The playlist naming its guide on the stand-in: the guide has the first channel only. */
+function guidedPlaylist(origin: string): string {
+  return PLAYLIST.replace('#EXTM3U\n', `#EXTM3U url-tvg="${origin}${GUIDE_PATH}"\n`);
+}
+
+/** XMLTV's time: `YYYYMMDDhhmmss +0000`. */
+function xmltvTime(ms: number): string {
+  return `${new Date(ms).toISOString().replace(/[-:T]/g, '').slice(0, 14)} +0000`;
+}
+
+/** A guide for the channel `news`: hourly programmes from 12 hours ago to 36 hours on. */
+function guideXml(): string {
+  const hour = Math.floor(Date.now() / 3_600_000) * 3_600_000;
+  const lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<tv>', '<channel id="news"><display-name>Family News</display-name></channel>'];
+  for (let at = hour - 12 * 3_600_000; at < hour + 36 * 3_600_000; at += 3_600_000) {
+    lines.push(`<programme start="${xmltvTime(at)}" stop="${xmltvTime(at + 3_600_000)}" channel="news"><title>Bulletin</title></programme>`);
+  }
+  lines.push('</tv>');
+  return lines.join('\n');
+}
+
+async function withServer(config: Record<string, unknown>, run: (server: ConfigServer) => Promise<void>, playlist: (origin: string) => string = () => PLAYLIST): Promise<void> {
   const server = await startConfigServer(devSignedAnswer(doc(config)));
-  server.file(LIST_PATH, PLAYLIST, 'audio/x-mpegurl');
+  server.file(LIST_PATH, playlist(server.origin), 'audio/x-mpegurl');
   try {
     await run(server);
   } finally {
@@ -147,12 +172,13 @@ test("posts the start's events from the live screen, which the server reads whol
     await onboard(page, server);
     // Nothing is sent by itself in the first minute.
     expect(server.telemetry.posts).toEqual([]);
-    expect(await sendNow(page)).toEqual({ state: 'sent', sent: 2, queued: 0 });
+    expect(await sendNow(page)).toEqual({ state: 'sent', sent: 3, queued: 0 });
     expect(server.telemetry.posts).toHaveLength(1);
     const batch = serverRead(server.telemetry.posts[0]!);
     expect(batch.installId).toMatch(/^[A-Za-z0-9_-]{21}[AQgw]$/);
     expect(batch.appVersion).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(batch.events.map((e) => e.kind).sort()).toEqual(['app_start', 'capability']);
+    // With onboarding's playlist read (step 33b2; it names no guide).
+    expect(batch.events.map((e) => e.kind).sort()).toEqual(['app_start', 'capability', 'ingest_done']);
     const start = batch.events.find((e) => e.kind === 'app_start')!;
     // Recorded at onboarding's first frame: no catalog yet.
     expect(start).toMatchObject({ tier: 'full', catalog: '0' });
@@ -186,9 +212,9 @@ test('keeps the events through a refusal and sends them again; the switch off cl
   await withServer({}, async (server) => {
     await onboard(page, server);
     server.telemetry.statuses.push(500);
-    expect(await sendNow(page)).toEqual({ state: 'failed', failure: 'status', status: 500, queued: 2 });
-    expect((await telemetryKv(page))['telemetry.queue']).toHaveLength(2);
-    expect(await sendNow(page)).toEqual({ state: 'sent', sent: 2, queued: 0 });
+    expect(await sendNow(page)).toEqual({ state: 'failed', failure: 'status', status: 500, queued: 3 });
+    expect((await telemetryKv(page))['telemetry.queue']).toHaveLength(3);
+    expect(await sendNow(page)).toEqual({ state: 'sent', sent: 3, queued: 0 });
     expect(server.telemetry.posts).toHaveLength(2);
     expect(server.telemetry.posts[1]).toBe(server.telemetry.posts[0]);
 
@@ -219,9 +245,48 @@ test("samples by the config's rates: a kind at 0 is never sent", async ({ page }
     await onboard(page, server);
     // The config's answer is in before the send (its worker ran at the start).
     await expect.poll(() => page.evaluate(() => window.__LABLO_TEST__?.config()?.status ?? null)).toBe('fresh');
-    expect(await sendNow(page)).toEqual({ state: 'sent', sent: 1, queued: 0 });
-    expect(serverRead(server.telemetry.posts[0]!).events.map((e) => e.kind)).toEqual(['app_start']);
+    // A kind with no rate (onboarding's `ingest_done`) is sent.
+    expect(await sendNow(page)).toEqual({ state: 'sent', sent: 2, queued: 0 });
+    expect(serverRead(server.telemetry.posts[0]!).events.map((e) => e.kind).sort()).toEqual(['app_start', 'ingest_done']);
     expect((await telemetryKv(page))['telemetry.capability']).toBeUndefined();
   });
   expect(errors).toEqual([]);
+});
+
+test('posts the events of use: the playlist and its guide read, their match, and a play its stream refused, with nothing of the source in them', async ({ page }) => {
+  const errors = trackErrors(page);
+  await withServer(
+    {},
+    async (server) => {
+      server.file(GUIDE_PATH, guideXml(), 'application/xml');
+      await onboard(page, server);
+      expect(await sendNow(page)).toMatchObject({ state: 'sent', sent: 5, queued: 0 });
+      const batch = serverRead(server.telemetry.posts[0]!);
+      expect(batch.events.map((e) => e.kind).sort()).toEqual(['app_start', 'capability', 'epg_match', 'ingest_done', 'ingest_done']);
+      // The playlist's two channels (about 200 bytes), then its guide's 48 programmes (about 5 KB).
+      expect(batch.events.filter((e) => e.kind === 'ingest_done').map((e) => [e['source'], e['bytes'], e['items']])).toEqual([
+        ['m3u', '100+', '1+'],
+        ['epg', '1k+', '10+'],
+      ]);
+      // One channel of two has a guide.
+      expect(batch.events.find((e) => e.kind === 'epg_match')).toMatchObject({ rate: '50-74' });
+
+      // OK on the first channel: the browser refuses its stream's port (9, an unsafe port) and the
+      // player gives up.
+      const remote = new RemoteDriver(page);
+      await remote.expectFocus('live/channels/0');
+      await remote.press('OK');
+      const player = page.getByTestId('player');
+      await expect(player).toHaveAttribute('data-state', 'failed', { timeout: 20_000 });
+      expect(await sendNow(page)).toEqual({ state: 'sent', sent: 1, queued: 0 });
+      const played = serverRead(server.telemetry.posts[1]!);
+      expect(played.events).toEqual([
+        { kind: 'play_result', at: expect.any(Number), engine: 'html5', container: 'ts', mode: 'live', ttffMs: null, error: { kind: 'unsupported', code: 'MEDIA_ERR_SRC_NOT_SUPPORTED' } },
+      ]);
+      expectNothingOfTheSource(server);
+    },
+    guidedPlaylist,
+  );
+  // (The browser logs its refusal of port 9.)
+  expect(errors.filter((e) => e.indexOf('net::ERR_UNSAFE_PORT') === -1)).toEqual([]);
 });

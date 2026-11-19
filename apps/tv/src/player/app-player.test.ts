@@ -1,5 +1,5 @@
 import type { LifecycleEvent, PlatformCall } from '@lablo/platform-api';
-import type { AccountStatus, EngineCaps, EngineEvent, EngineSource, PlayerEngine, Track, TrackPreferences } from '@lablo/player';
+import type { AccountStatus, EngineCaps, EngineEvent, EngineSource, PlayerEngine, PlayerReport, Track, TrackPreferences } from '@lablo/player';
 import { NO_STATS } from '@lablo/player';
 import { describe, expect, it, vi } from 'vitest';
 import type { AppPlayerDeps } from './app-player';
@@ -83,6 +83,7 @@ function setup(
     memory?: AppPlayerDeps['memory'];
     trackMemory?: AppPlayerDeps['trackMemory'];
     blocked?: AppPlayerDeps['blocked'];
+    report?: AppPlayerDeps['report'];
   } = {},
 ) {
   const engine = new StubEngine();
@@ -121,6 +122,7 @@ function setup(
     ...(options.memory === undefined ? {} : { memory: options.memory }),
     ...(options.trackMemory === undefined ? {} : { trackMemory: options.trackMemory }),
     ...(options.blocked === undefined ? {} : { blocked: options.blocked }),
+    ...(options.report === undefined ? {} : { report: options.report }),
   });
   return { engine, stages, screenSaver, accounts, make, stage, lifecycle: (event: LifecycleEvent) => lifecycle?.(event) };
 }
@@ -191,6 +193,15 @@ describe('appPlayer (RELAY step 20a)', () => {
     void plain.make().play(live('http://panel.test/live/u/p/1.ts'));
     await flush();
     expect(plain.make().status.state).toBe('playing');
+  });
+
+  it("hands the controller's reports to telemetry (step 33b2)", async () => {
+    const reports: PlayerReport[] = [];
+    const t = setup({ report: (report) => reports.push(report) });
+    void t.make().play(live('http://panel.test/live/u/p/1.ts'));
+    await flush();
+    expect(t.make().status.state).toBe('playing');
+    expect(reports).toEqual([{ type: 'play', engine: 'html5', container: 'ts', mode: 'live', ttffMs: expect.any(Number) as number, error: null }]);
   });
 
   it('keeps the screensaver away while it plays and lets it back on stop; a refusal changes nothing', async () => {
