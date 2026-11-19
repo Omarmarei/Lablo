@@ -416,6 +416,9 @@ describe('"Welcome back" with sources missing their login (RELAY step 32d4b)', (
   it('counts one, and none when every source has its login', async () => {
     const one = await welcomed([WITHOUT_LOGINS[0]!, WITHOUT_LOGINS[4]!]);
     expect(one.logins.value).toBe(1);
+    // One is enough for the sources screen.
+    one.nav.handle('OK');
+    await expect(one.done).resolves.toMatchObject({ restored: true, toSources: true });
     const none = await welcomed([WITHOUT_LOGINS[2]!, WITHOUT_LOGINS[3]!, WITHOUT_LOGINS[4]!]);
     expect(none.logins.value).toBe(0);
     const s = setup();
@@ -458,6 +461,20 @@ describe('"Welcome back" with sources missing their login (RELAY step 32d4b)', (
     const drawn = BackupStartView({ start: none, i18n: appI18n('en-US'), item: ITEM, focus: FOCUS });
     expect((drawn.props as Props)['data-logins']).toBe(0);
     expect(byTestId(drawn, 'backup-logins')).toEqual([]);
+  });
+
+  it('says the channels are loading only when a source loads by itself (not a file, not one without its login)', async () => {
+    const body = (start: BackupStart, tag = 'en-US'): string => textOf(byTestId(BackupStartView({ start, i18n: appI18n(tag), item: ITEM, focus: FOCUS }), 'backup-body')[0]);
+    const loading = 'Your sources, favourites and settings are back. Your channels are loading now.';
+    const back = 'Your sources, favourites and settings are back.';
+    expect(body(await welcomed(WITHOUT_LOGINS))).toBe(loading);
+    expect(body(await welcomed([WITHOUT_LOGINS[2]!, WITHOUT_LOGINS[3]!]))).toBe(loading);
+    expect(body(await welcomed([WITHOUT_LOGINS[0]!, WITHOUT_LOGINS[4]!]))).toBe(loading);
+    const none = await welcomed([WITHOUT_LOGINS[0]!, WITHOUT_LOGINS[1]!, WITHOUT_LOGINS[2]!]);
+    expect(body(none)).toBe(back);
+    expect(body(none, 'ar-SA')).toBe('عادت مصادرك ومفضلتك وإعداداتك.');
+    expect(body(await welcomed([WITHOUT_LOGINS[0]!]))).toBe(back);
+    expect(body(await welcomed([WITHOUT_LOGINS[2]!]))).toBe(back);
   });
 });
 

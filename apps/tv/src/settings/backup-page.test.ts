@@ -262,10 +262,12 @@ describe('the backup page', () => {
     t.engine.heldStatus[0]!.resolve(status());
     await flush();
     expect(t.page.info.value).toEqual(status({ on: false, code: null }));
+    expect(t.page.logins.value).toBe(true);
     // A third opening shows nothing of the last until its own read answers.
     t.nav.back();
     t.page.open();
     expect(t.page.info.value).toBeNull();
+    expect(t.page.logins.value).toBeNull();
     expect(t.page.status.value).toBe('loading');
   });
 
@@ -292,6 +294,7 @@ describe('the backup page', () => {
     t.page.open();
     await flush();
     expect(t.page.status.value).toBe('ready');
+    expect(t.page.logins.value).toBe(true);
     t.nav.handle('OK');
     t.nav.handle('LEFT');
     t.engine.failStatus = true;
@@ -299,6 +302,7 @@ describe('the backup page', () => {
     await flush();
     expect(t.page.status.value).toBe('failed');
     expect(t.page.info.value).toBeNull();
+    expect(t.page.logins.value).toBeNull();
     expect(t.page.busy.value).toBeNull();
   });
 

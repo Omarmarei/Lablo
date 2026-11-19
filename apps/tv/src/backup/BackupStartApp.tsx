@@ -39,7 +39,10 @@ export function BackupStartView({ start, i18n, item, focus }: { start: BackupSta
           <h1 class="onboarding__title" data-testid="backup-title">
             {t('backup.welcomeTitle')}
           </h1>
-          <p class="onboarding__text">{t('backup.welcomeBody')}</p>
+          {/* "Your channels are loading now" only when one will: a file is sent again, a login given again (step 32d4b). */}
+          <p class="onboarding__text" data-testid="backup-body">
+            {start.sources.value > files + logins ? t('backup.welcomeBody') : t('backup.welcomeBack')}
+          </p>
           {files > 0 && (
             <p class="onboarding__note" data-testid="backup-files">
               {t('backup.welcomeFiles', { settings: t('settings.title'), sources: t('sources.title'), add: t('sources.addPhone') })}

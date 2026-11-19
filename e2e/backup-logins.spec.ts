@@ -123,7 +123,7 @@ function opened(put: Received, encKey: Uint8Array): Doc {
   expect(envelope).not.toBeNull();
   const plain = openBackup(envelope!, encKey);
   expect(plain).not.toBeNull();
-  return readBackupPlain(plain!) as Doc;
+  return readBackupPlain(plain!) as unknown as Doc;
 }
 
 /** What a login looks like in a document: the password, the user name as a value, and a link's login parts. */
@@ -201,6 +201,8 @@ for (const language of ['en', 'ar'] as const) {
       await expect(backup).toHaveAttribute('data-logins', 'true');
       await expect(page.getByTestId('backup-logins')).toContainText(says.rowName);
       await remote.go('DOWN', 'backup/switch/1');
+      await expect(page.getByTestId('backup-logins')).toHaveAttribute('data-state', 'focused');
+      await expect(page.getByTestId('backup-switch')).toHaveAttribute('data-state', 'idle');
       await remote.press('OK');
       await expect(backup).toHaveAttribute('data-logins', 'false', { timeout: 20_000 });
       await expect(backup).toHaveAttribute('data-busy', '');

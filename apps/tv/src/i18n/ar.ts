@@ -116,6 +116,7 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'backup.skip': 'تخطٍّ',
   'backup.welcomeTitle': 'مرحبًا بعودتك',
   'backup.welcomeBody': 'عادت مصادرك ومفضلتك وإعداداتك. يجري الآن تحميل قنواتك.',
+  'backup.welcomeBack': 'عادت مصادرك ومفضلتك وإعداداتك.',
   'backup.welcomeFiles': 'يجب إرسال الملفات المرسلة من هاتفك مرة أخرى: في {settings}، افتح {sources}، ثم {add}.',
   'backup.welcomeLogins':
     '{n, plural, zero {لا يحتاج أي مصدر} one {يحتاج مصدر واحد} two {يحتاج مصدران} few {يحتاج # مصادر} many {يحتاج # مصدرًا} other {يحتاج # مصدر}} إلى بيانات الدخول أو الرابط مرة أخرى: تُفتح {sources} في {settings} بعد ذلك.',

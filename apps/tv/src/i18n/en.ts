@@ -127,6 +127,8 @@ export const EN = {
   'backup.skip': 'Skip',
   'backup.welcomeTitle': 'Welcome back',
   'backup.welcomeBody': 'Your sources, favourites and settings are back. Your channels are loading now.',
+  // No source loads by itself: each is a file to send again or needs its login (RELAY step 32d4b).
+  'backup.welcomeBack': 'Your sources, favourites and settings are back.',
   'backup.welcomeFiles': 'Files sent from your phone need to be sent again: in {settings}, open {sources}, then {add}.',
   // A backup made without logins and links (RELAY step 32d4b): the sources screen opens next.
   'backup.welcomeLogins':

@@ -5,12 +5,15 @@ import type {
   EpgSummary,
   GuideChannelsPage,
   GuideChannelsRequest,
+  IngestResult,
+  LinkSource,
   LoadedProfile,
   ProfileDoc,
   ProfileEdit,
   SourceMeta,
   SourceRecord,
   StoredGuide,
+  StoredSource,
   UnmatchedPage,
   UnmatchedRequest,
   UserGuide,
@@ -1014,6 +1017,37 @@ describe('the settings screen', () => {
       expect(t.at()).toBe('live · channels 0');
       settings.dispose();
     }
+  });
+
+  it('gives the sources screen’s login form the refresh it was given (step 32d4b)', async () => {
+    const t = setup();
+    const bare: StoredSource = { id: 's1', type: 'xtream', name: 'My panel', account: null, base: 'http://panel.test:8080', added: 1 };
+    t.engine.doc = { ...t.engine.doc, sources: [bare] };
+    const refreshSource = vi.fn((_src: string, _source: LinkSource) => Promise.resolve({} as IngestResult));
+    const settings = createSettings({
+      nav: t.nav,
+      engine: t.engine,
+      refreshNow: t.refresh.refreshNow,
+      offsetChanged: t.offsetChanged,
+      platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+      find: t.find,
+      refreshSource,
+    });
+    settings.openSources();
+    await flush();
+    expect(settings.sources.rows.value.map((r) => [r.id, r.needs])).toEqual([['s1', 'login']]);
+    await t.press('OK');
+    expect(t.at()).toBe('source-login · fields 1');
+    settings.sources.form!.setValue('username', 'ann');
+    settings.sources.form!.setValue('password', 'pw');
+    await t.press('DOWN', 'DOWN', 'OK');
+    const account = { base: 'http://panel.test:8080', username: 'ann', password: 'pw' };
+    expect(t.engine.edits).toEqual([{ kind: 'source', source: { id: 's1', type: 'xtream', name: 'My panel', account, added: 1 } }]);
+    expect(refreshSource).toHaveBeenCalledTimes(1);
+    expect(refreshSource).toHaveBeenCalledWith('s1', { type: 'xtream', account });
+    await flush();
+    expect(settings.sources.rows.value.map((r) => [r.id, r.needs, r.answer])).toEqual([['s1', null, null]]);
+    settings.dispose();
   });
 
   it('opens the manual mapping from a channel of "Channels without a guide", and reads both lists again once its refresh settles (step 24e)', async () => {
