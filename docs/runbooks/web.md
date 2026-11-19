@@ -370,15 +370,23 @@ is in `apps/web/src/server/telemetry.ts`; `src/app/v1/telemetry/route.ts` is a t
 - **No migration:** the `TelemetryEvent` table is step 29a's. Nothing here is in production
   before step 34.
 
-### What the TV sends (step 33b1)
+### What the TV sends (steps 33b1 and 33b2)
 
 architecture.md §3.4 "Built in step 33b1" has the design; this is how to see it work.
 
 - **When:** from the live screen on, 60 s after the first event not yet sent, at most every 15
   minutes, and once when the app is hidden. Onboarding sends nothing (what it recorded goes after).
   The config's `disable-app` stops it.
-- **What:** `app_start` and `capability` at each start for now (step 33b2 adds the others).
-  `capability` goes once per app version, model, firmware and probe set.
+- **What:** `app_start` and `capability` at each start; `capability` goes once per app version,
+  model, firmware and probe set. Step 33b2 adds:
+  - `ingest_done` after each catalog or guide download (none for a 304 or a failure);
+  - `epg_match` after a guide refresh that changed the match;
+  - `play_result` once per play (its first frame, or its give-up);
+  - `stall` at the end of each "Reconnecting…".
+
+  To see them in the dev app: add a playlist with a guide, play a channel, then
+  `await window.__LABLO_TEST__.sendTelemetry()`; the stand-in or the network panel shows the
+  batch.
 - **Where it waits:** the TV's IndexedDB, store `kv`: `telemetry.id` (the install ID),
   `telemetry.queue` (at most 200 events not yet stored), `telemetry.capability` (the last one
   queued). The profile's `telemetry: false` deletes all three at the next send, and nothing is

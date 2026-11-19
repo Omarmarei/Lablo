@@ -61,6 +61,7 @@ import { answerEdit, readStartProfile, startPoint } from './onboarding/start';
 import { KEY_HELP, createPlatform } from './platform';
 import { appStartEvent, capabilityEvent, deviceProbes } from './telemetry/telemetry-events';
 import { createTelemetry } from './telemetry/telemetry-state';
+import { playerEvent, recordRefresh } from './telemetry/usage-events';
 import { installTestHook } from './test-hook';
 // Last, so the app's own CSS comes after @lablo/ui's (tokens, fonts, components) in app.css and in dev.
 import './app.css';
@@ -109,6 +110,8 @@ function dataEngine(): DataEngine {
       },
       // The backup's upload follows every change (step 32c2).
       onProfileChanged: () => backup.changed(),
+      // Telemetry's `ingest_done` and `epg_match` (step 33b2).
+      onRefreshed: (done) => void recordRefresh(done, dataEngine(), (event) => telemetry.record(event), Date.now),
     });
   }
   return engine;
@@ -305,6 +308,8 @@ const playerController = appPlayer({
   trackMemory: memory.tracks,
   // The config's blocklist (step 30c3b): each stream URL, and Tizen's redirect answer, before it opens.
   blocked: (urls) => dataEngine().blockedOrNone(urls),
+  // Telemetry's `play_result` and `stall` (step 33b2).
+  report: (report) => telemetry.record(playerEvent(Date.now(), report)),
 });
 
 /** The background refreshes while the live screen shows (RELAY step 22a). */

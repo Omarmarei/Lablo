@@ -14,10 +14,15 @@ export const COLD_START_MAX_MS = 3_600_000;
 /** A model's or firmware's longest name (the protocol's `deviceName`). */
 export const DEVICE_NAME_MAX = 64;
 
+/** A time as the schema takes it: whole milliseconds from 0 to an hour (step 33b2 shares it). */
+export function eventMs(ms: number): number {
+  const rounded = Math.round(ms);
+  return rounded > 0 ? Math.min(rounded, COLD_START_MAX_MS) : 0;
+}
+
 /** `app_start`: the tier, how long the start screen took to paint, and the catalog's size bucket. */
 export function appStartEvent(at: number, tier: DeviceTier, coldStartMs: number, items: number): TelemetryEvent {
-  const ms = Math.round(coldStartMs);
-  return { kind: 'app_start', at, tier, coldStartMs: ms > 0 ? Math.min(ms, COLD_START_MAX_MS) : 0, catalog: countBucket(items) };
+  return { kind: 'app_start', at, tier, coldStartMs: eventMs(coldStartMs), catalog: countBucket(items) };
 }
 
 /** Whether `code` is in the protocol's `deviceName` set: letters, digits, space and `._()+-`. */

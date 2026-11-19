@@ -36,9 +36,10 @@ import {
 } from '@lablo/data';
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { WorkerLike } from '../apps/tv/src/data/engine';
+import type { RefreshDone, WorkerLike } from '../apps/tv/src/data/engine';
 import { BlockedSourceError, DataEngine, NeedsLoginError, sourceUrlOf } from '../apps/tv/src/data/engine';
 import { createEngineLoader } from '../apps/tv/src/onboarding/engine-loader';
+import { epgMatch } from '../apps/tv/src/telemetry/usage-events';
 import type { SourceDraft } from '../apps/tv/src/onboarding/form';
 import { fileError } from '../apps/tv/src/pairing/pair-draft';
 import type { FakeResponse } from '../packages/data/src/test-support';
@@ -103,6 +104,8 @@ interface Setup {
   busyChanges: boolean[];
   /** `onProfileChanged` calls (step 32c2). */
   profileChanges: { n: number };
+  /** `onRefreshed` calls (step 33b2). */
+  refreshed: RefreshDone[];
   /** Telemetry workers started and still running, and the bodies they posted (step 33b1). */
   telemetry: { started: number; live: number; posts: { url: string; body: string }[] };
 }
@@ -122,6 +125,7 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: 
   const busyCalls: boolean[] = [];
   const busyChanges: boolean[] = [];
   const profileChanges = { n: 0 };
+  const refreshed: RefreshDone[] = [];
 
   /** A stand-in Worker: the handlers are served on one end of a channel, the engine gets the other. */
   function worker(handlers: RpcHandlers, dbs: IDBDatabase[], onTerminate: () => void = () => undefined): WorkerLike {
@@ -154,6 +158,7 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: 
     onProfileChanged: () => {
       profileChanges.n++;
     },
+    onRefreshed: (done) => refreshed.push(done),
     startQueryWorker: () => {
       started.query++;
       const dbs: IDBDatabase[] = [];
@@ -300,7 +305,7 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: 
     },
   });
   engines.push(engine);
-  return { engine, factory, started, configLive: () => configLive, pairLive: () => pairLive, backup, backupApi, backupHold, clock, live: () => live, busyCalls, busyChanges, profileChanges, telemetry };
+  return { engine, factory, started, configLive: () => configLive, pairLive: () => pairLive, backup, backupApi, backupHold, clock, live: () => live, busyCalls, busyChanges, profileChanges, refreshed, telemetry };
 }
 
 const CONFIG_URL = 'http://api.test/v1/config';
@@ -455,6 +460,42 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     // The same answer again changes nothing.
     expect(await s.engine.editProfile({ kind: 'answers', answers: { language: 'ar' } })).toBe(false);
     expect(s.profileChanges.n).toBe(2);
+  });
+
+  it('tells telemetry each refresh that resolved, with the source type; nothing for a refused or failed one, or a guide refresh with nothing due (step 33b2)', async () => {
+    let status = 200;
+    // An Xtream panel with one live channel, beside the playlist and its guide.
+    const panel = (url: string): FakeResponse => {
+      if (url.indexOf('action=get_live_categories') !== -1) return { body: '[{"category_id":"1","category_name":"News"}]' };
+      if (url.indexOf('action=get_live_streams') !== -1) return { body: '[{"num":1,"name":"Panel Sport","stream_type":"live","stream_id":7,"category_id":"1","epg_channel_id":"zz"}]' };
+      if (url.indexOf('action=') !== -1) return { body: '[]' };
+      return { body: JSON.stringify({ user_info: { auth: 1, status: 'Active' }, server_info: { url: 'x.test', port: '80' } }) };
+    };
+    const s = setup((url) => (url === GUIDE_URL ? { body: guide(6) } : url.indexOf('http://x.test/') === 0 ? panel(url) : { status, body: status === 200 ? playlist(8, 4, true) : 'gone' }));
+    const first = await s.engine.refresh(job());
+    expect(s.refreshed).toEqual([{ kind: 'catalog', source: 'm3u', result: first }]);
+    expect(first).toMatchObject({ status: 'committed', counts: { live: 8 } });
+    const xtream = await s.engine.refresh({ src: 'x1', source: { type: 'xtream', account: { base: 'http://x.test', username: 'u', password: 'p' } } });
+    expect(xtream).toMatchObject({ status: 'committed', counts: { live: 1 } });
+    expect(s.refreshed[1]).toEqual({ kind: 'catalog', source: 'xtream', result: xtream });
+    status = 404;
+    await expect(s.engine.refresh(job())).rejects.toThrow(/HTTP 404/);
+    await expect(s.engine.refresh({ src: 's1', source: { type: 'xtream', account: null, base: 'http://panel.example:8080' } })).rejects.toBeInstanceOf(NeedsLoginError);
+    expect(s.refreshed).toHaveLength(2);
+
+    const catalogs = [{ src: 'debug', type: 'm3u' as const }];
+    const epg = await s.engine.refreshEpg(catalogs, { tier: 'full', due: true });
+    expect(epg.outcomes.map((o) => o.result?.status)).toEqual(['committed']);
+    expect(s.refreshed[2]).toEqual({ kind: 'epg', result: epg });
+    // Nothing due: no worker, no call.
+    await s.engine.refreshEpg(catalogs, { tier: 'full', due: true });
+    expect(s.refreshed).toHaveLength(3);
+    // The guide match through the engine, over both sources: six of the playlist's eight channels
+    // and not the panel's one, 6 of 9 (the playlist's alone would be 6 of 8, 75%), as "Channels
+    // without a guide" counts them.
+    expect((await s.engine.epgStatus()).matched).toBe(6);
+    expect((await s.engine.unmatched({ sources: ['debug', 'x1'], offset: 0, limit: 0 })).count).toBe(3);
+    expect(await epgMatch(s.engine, NOW)).toEqual({ kind: 'epg_match', at: NOW, rate: '50-74' });
   });
 
   it('reports a failed refresh, terminates its worker and keeps serving the old catalog', async () => {

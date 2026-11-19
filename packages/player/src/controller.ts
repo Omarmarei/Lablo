@@ -25,6 +25,8 @@
  *   engine opens it (alongside the close), and on Tizen the redirect probe's answer too; a
  *   blocked one gives up at once (`blockedFailure`: no retry, no account check), and
  *   `checkBlocklist` asks again about the stream on show after a config refresh.
+ * - **telemetry's reports** (step 33b2, `report`): each play's result once (its time to the first
+ *   frame, or the error it gave up on) and each stall's end (recovered or not, with its retries).
  *
  * Debounced zapping, number entry, the info bar, the track menu and the subtitle overlay are the
  * app's (apps/tv/src/player). Platform-specific needs arrive as callbacks (ADR-008).
@@ -34,7 +36,7 @@ import type { ContentKey, SubtitleCue } from '@lablo/core';
 import { SubtitleTrack, cueText } from '@lablo/core';
 import type { Clock } from './clock';
 import { SYSTEM_CLOCK } from './clock';
-import type { Container, EngineEvent, EngineStats, PlaybackError, PlayerEngine } from './engine';
+import type { Container, EngineEvent, EngineStats, PlayMode, PlaybackError, PlayerEngine } from './engine';
 import { isPlaybackError } from './engine';
 import type { PictureMode } from './picture';
 import { pictureLayout, pictureModes } from './picture';
@@ -89,6 +91,27 @@ export interface StreamStats extends EngineStats {
   readonly load: number;
 }
 
+/**
+ * What the controller tells telemetry (RELAY step 33b2, architecture.md §3.4); never a URL.
+ * - `play`: once per play (from `play()` to the next `play` or `stop`), at its first frame
+ *   (`ttffMs` from `play()`, `error: null`) or at its give-up before any frame (`ttffMs: null`, the
+ *   last error). A play left before either (a zap, a stop) or refused by the blocklist reports
+ *   nothing. `container` is `'other'` for a request with no URL.
+ * - `stall`: a failure after the play showed a frame, at its end: the next first frame
+ *   (`recovered: true`) or the give-up (`recovered: false`), with the retries it took. A resume
+ *   after a hide is no stall; a stall left by a zap or a stop reports nothing.
+ */
+export type PlayerReport =
+  | {
+      readonly type: 'play';
+      readonly engine: PlayerEngine['kind'];
+      readonly container: Container;
+      readonly mode: PlayMode;
+      readonly ttffMs: number | null;
+      readonly error: PlaybackError | null;
+    }
+  | { readonly type: 'stall'; readonly recovered: boolean; readonly attempts: number };
+
 export interface ControllerOptions {
   readonly clock?: Clock;
   readonly memory?: SourceMemory;
@@ -126,6 +149,8 @@ export interface ControllerOptions {
    * by `checkBlocklist`. A rejection blocks nothing (the blocklist is then unknown).
    */
   readonly blocked?: (urls: string[]) => Promise<boolean[]>;
+  /** Telemetry's reports (step 33b2); one that throws changes nothing in playback. */
+  readonly report?: (report: PlayerReport) => void;
 }
 
 /**
@@ -164,6 +189,8 @@ export interface PlayOptions {
 
 interface Session {
   readonly req: PlayRequest;
+  /** When the play began (the clock's time; a show that opens it again starts it again). */
+  startedAt: number;
   readonly candidates: readonly PlayCandidate[];
   readonly live: boolean;
   readonly ladder: RetryLadder;
@@ -239,6 +266,7 @@ export class PlayerController {
   private readonly trackMemory: TrackMemory;
   private readonly loadSubtitles: ((sub: ExternalSub) => Promise<readonly SubtitleCue[]>) | undefined;
   private readonly blocked: ((urls: string[]) => Promise<boolean[]>) | undefined;
+  private readonly reportTo: ((report: PlayerReport) => void) | undefined;
   /** What the screensaver was last told (the TV's default: allowed). */
   private screenSaverAllowed = true;
   private readonly unsubscribe: () => void;
@@ -289,6 +317,7 @@ export class PlayerController {
     this.trackMemory = options.trackMemory ?? new MemoryTrackMemory();
     this.loadSubtitles = options.loadSubtitles;
     this.blocked = options.blocked;
+    this.reportTo = options.report;
     this.unsubscribe = engine.on((e) => this.onEvent(e));
   }
 
@@ -348,6 +377,7 @@ export class PlayerController {
     const candidates = orderCandidates(req.candidates, this.memory.preferred(req.src));
     const s: Session = {
       req,
+      startedAt: this.clock.now(),
       candidates,
       live: req.mode === 'live',
       ladder: new RetryLadder(this.config, { candidates: candidates.length, canReprobe: this.resolveUrl !== undefined }),
@@ -458,6 +488,8 @@ export class PlayerController {
       this.armOpenTimer(this.liveToken);
       this.setState('reconnecting');
     } else if (how === 'reopen' && (this.current.state === 'opening' || this.current.state === 'reconnecting')) {
+      // The time to the first frame counts from here: the background is not the stream's.
+      s.startedAt = this.clock.now();
       void this.open(s, false);
     }
   }
@@ -866,6 +898,10 @@ export class PlayerController {
   private onFirstFrame(s: Session): void {
     this.clock.clearTimeout(this.openTimer);
     this.openTimer = null;
+    // The play's result, or the end of a stall (retries since the last frame); a resume after a
+    // hide has none.
+    if (!s.played) this.tell(this.playReport(s, this.clock.now() - s.startedAt, null));
+    else if (s.attempt > 0) this.tell({ type: 'stall', recovered: true, attempts: s.attempt });
     s.played = true;
     s.framed[s.current] = true;
     s.attempt = 0;
@@ -998,8 +1034,25 @@ export class PlayerController {
     else this.retryTimer = this.clock.setTimeout(() => void this.open(s, fresh), plan.delayMs);
   }
 
+  /** The play's report: the engine, the URL's container (`other` with none), the mode. */
+  private playReport(s: Session, ttffMs: number | null, error: PlaybackError | null): PlayerReport {
+    const candidate = s.candidates[s.current];
+    return { type: 'play', engine: this.engine.kind, container: candidate === undefined ? 'other' : candidate.container, mode: s.req.mode, ttffMs, error };
+  }
+
+  /** Hands a report to telemetry; one that throws changes nothing here. */
+  private tell(report: PlayerReport): void {
+    try {
+      this.reportTo?.(report);
+    } catch (error) {
+      console.warn('A player report failed', error);
+    }
+  }
+
   /** Classifies the failure (re-checking the account after a provider failure) and shows it. */
   private async giveUp(s: Session, error: PlaybackError): Promise<void> {
+    // The play's result when nothing played, else the end of its stall.
+    this.tell(s.played ? { type: 'stall', recovered: false, attempts: s.attempt } : this.playReport(s, null, error));
     let online = true;
     try {
       online = await this.online();

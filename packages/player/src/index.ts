@@ -40,7 +40,7 @@ export { BLOCKED_CODE, blockedFailure, classifyFailure, isDefinitive, wantsAccou
 export type { LadderOptions, RetryPlan, Rung, WatchdogConfig } from './ladder';
 export { DEFAULT_WATCHDOG, RetryLadder } from './ladder';
 
-export type { ControllerOptions, PlayOptions, PlayerState, PlayerStatus, StreamStats, SubtitleFeed, SubtitleView } from './controller';
+export type { ControllerOptions, PlayOptions, PlayerReport, PlayerState, PlayerStatus, StreamStats, SubtitleFeed, SubtitleView } from './controller';
 export { CUE_TICK_MS, ENGINE_CUE_MS, MAX_ENGINE_CUES, PlayerController } from './controller';
 
 export type { AudioTrackLike, AudioTrackListLike, Html5EngineOptions, MediaElementLike, TextTrackLike, TrackListLike } from './html5-engine';
