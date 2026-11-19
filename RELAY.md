@@ -2207,6 +2207,80 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - No TV code changed, so there was no `build:tv` or old-engine run.
   - **Done in leg 115:** PR #143 merged as merge commit `9f109b6` on green CI (verify 16 m, web 3 m, engines 27 m; media green on its rerun after the known `epg-declared-300mb` timing flake, 63.7 against 60).
 - [ ] 33b. **The TV's telemetry** (`packages/data`, `apps/tv`): the install ID, the queue and the sending worker, sampling, the events (`app_start`, `capability`, `ingest_done`, `epg_match`, `play_result`, `stall`), the Settings switch and the consent screen's sentence. Its shape is written before building.
+  - **Split in leg 116** (three legs' work) into:
+    - 33b1: the sender (the worker, the install ID, the queue, sampling, the schedule, the profile's switch) and the two start events, `app_start` and `capability`;
+    - 33b2: the four other events (`ingest_done`, `epg_match`, `play_result`, `stall`);
+    - 33b3: the switch's Settings row and the consent screen's sentence.
+
+    33b is ticked when all three are.
+  - **Decided in leg 116** (each with its why; leg 115's decisions above still hold):
+    - **Buckets without zod:** `COUNT_BUCKETS`, `countBucket`, `RATE_BUCKETS`, `rateBucket`, `TELEMETRY_KINDS`, `TELEMETRY_BATCH_MAX` and `TELEMETRY_BODY_MAX_BYTES` move to a schema-free subpath, `@lablo/protocol/telemetry-buckets` (the `exports` entry, the lint entry point and its test), and `telemetry.ts` re-exports them. Why: main and the worker both need the buckets, and the `@lablo/protocol` index pulls zod. Main takes the event types with `import type` only.
+    - **A worker of its own** (`packages/data/src/telemetry.worker.ts`, `telemetryHandlers` in `telemetry-service.ts`, `createTelemetryClient`), started for each send and ended when it answers, as the backup worker is. Why: the backup worker is 105.5 KB and holds keys; the config worker runs on its own schedule. A small worker of its own leaves room for 33c's scrubber (25.8 KB) and can't hold anything else up. Its size is measured in a bundle test against the 150 KB budget.
+    - **The worker's one call, `send({events, base, platform, appVersion, sampling})`:**
+      1. **The switch first:** it reads the stored profile's raw `telemetry` field (`storedProfileDoc`). `false`: it deletes `telemetry.queue` and `telemetry.id`, posts nothing and answers `off`. Why: the worker enforces the switch itself (a restore brings an "off" back; main's copy could be stale), and deleting the ID means rows from before an "off" and after an "on" can't be linked.
+      2. **The install ID** (`telemetry.id` in `kv`): 16 bytes from `crypto.getRandomValues`, unpadded base64url (22 characters, `bytes16`), made at first need.
+      3. **Sampling:** an event is kept when `fnv1a(installId + ':' + kind) / 2^32 < sampling[kind]` (a kind with no rate is kept). Why: per install, so an install always sends a kind or never does (§3.4), and FNV-1a is already in the data package; no secrecy is needed.
+      4. **`capability` once per change:** kept only when its fields differ from the last one queued (`telemetry.capability` in `kv`). Why: it changes only with an app or firmware update, and an app starts several times a day.
+      5. **The queue** (`telemetry.queue` in `kv`): the kept events appended, the newest 200 kept, in one transaction.
+      6. **The post:** the oldest events whose JSON fits under `TELEMETRY_BODY_MAX_BYTES` less 1 KB for the envelope (UTF-8 bytes), at most 200, `POST <base>/v1/telemetry` with a 20 s limit, as the backup's requests. The body is built with `JSON.stringify` here: the worker isn't main.js, and a crash's stack (33c) needs escaping. Its polyfill cost is in the measured size.
+      7. **The answer:** 200 removes the posted events from the queue's front. 400 and 413 remove them too, because the server will never take them (logged). 429, 5xx, a network failure or the time limit keep them. The worker answers `{state: 'sent' | 'empty' | 'off' | 'failed', sent, queued, failure?}`, and never puts a URL in it.
+
+      A send killed mid-post may send its events twice: the server has no dedupe, and telemetry is best effort.
+    - **The browser build sends as `platform: 'browser'`.** The real API answers 400 (its `platform` is `tizen` or `webos`), so the batch is dropped. Plain e2e's stand-in takes it and checks the events with `readTelemetryEvents`, and the envelope with the platform swapped. Why: the dev app must exercise the same path, and dev rows must never reach the real table. So there is no real-API TV spec. 33a's `e2e:web` already covers the route over HTTP.
+    - **Main** (`apps/tv/src/telemetry/telemetry-state.ts`, `createTelemetry`):
+      - `record(event)` keeps plain event objects in memory, at most 200 (the oldest dropped), unless the switch is off.
+      - The first event after `load(profile)` reads the switch (`profile.doc.telemetry !== false`). Events recorded before it are held, and dropped when it says off.
+    - **When it sends** (as `backup-schedule.ts`):
+      - **After an event:** 60 s after the first one not yet sent, and never sooner than 15 minutes after the last send began.
+      - **After a `failed` answer** that still has a queue: once more, 15 minutes later.
+      - **Hidden:** one send at once, if anything is pending.
+      - **One at a time:** an event recorded during a send waits for the next.
+      - **A dead worker** puts the events back in memory.
+      - **The request:** each send asks the request afresh. The base is the backup's (`configRequest.base`), and the sampling is `config.policy`'s `tunables.telemetrySampling` (none: all).
+      - **`disable-app` stops it,** as it stops the backup. Why: a stopped app does nothing in the background.
+      - **The test hook:** `idle()` counts its worker (e2e wipes the database only when it is idle), and `telemetryNow()` sends at once.
+    - **The switch in the profile:** `telemetry?: false` (optional, no version bump, as `noticesShown`), with the edit `{kind: 'telemetry', on}` (as `backupLogins`). It travels in the backup, so a restore brings an "off" back. Off in main drops the memory and asks one send, so the worker clears the queue at once. The Settings row and the consent sentence are 33b3's.
+    - **`app_start`** is recorded once the start screen has painted:
+      - `tier` from the platform's info;
+      - `coldStartMs`: `performance.now()` in the first animation frame after the start screen renders, rounded and capped at the schema's hour;
+      - `catalog`: `countBucket` of the stored items, the sum of the sources' `counts`.
+
+      A restart for "Welcome back" counts as a start.
+    - **`capability`** is recorded at each start (the worker drops the repeats):
+      - `model` and `firmware` from the platform's info, with characters outside `deviceName`'s set replaced by `_`, cut to 64, and `unknown` when empty;
+      - `chromium`: `chromiumVersion`;
+      - `probes`: `year` (the model year, when known), `lowTier`, `mse` (`MediaSource` exists), `hevc` (`canPlayType` of an HEVC MP4 type).
+
+      Why so few probes: each must earn its place in an engine decision. The screen reader's state stays out: it is a disability signal.
+- [ ] 33b1. **The sender and the start events** (`packages/protocol`, `packages/data`, `apps/tv`): as decided above.
+  - **Done when:**
+    - **unit:**
+      - `telemetry-service.test.ts` (fake-indexeddb, a fake transport and clock): the ID made once and kept; off deletes the queue and the ID and posts nothing; sampling per install and kind (0, 1, a rate between, a kind with no rate); `capability` deduplicated; the queue's cap of 200; the post's body (the envelope, the events oldest first, the byte cap splitting a long queue); 200, 400 and 413 removing, 429, 500, network and the time limit keeping; no URL in an answer;
+      - `telemetry-state.test.ts` (fake timers): the cap in memory, held events until `load`, the 60 s, the 15-minute gap, the retry after `failed`, one send when hidden, one at a time, a dead worker's events kept, off, `stop` and `start`, `idle`;
+      - the profile's `telemetry` edit, and the backup carrying it;
+      - `telemetry-buckets` re-exported unchanged;
+      - `test/tv-data-engine.test.ts`: a send in a worker of its own;
+      - `test/telemetry-worker-bundle.test.ts`: the bundled worker within 150 KB, run in the Chromium 53 stand-in realm, posts a batch the full `telemetryBatchSchema` reads (platform `webos`);
+      - the lint entry points.
+    - **e2e** `e2e/telemetry.spec.ts` (plain `pnpm e2e`, the config server's stand-in learning `POST /v1/telemetry`):
+      - after onboarding with the mock, `telemetryNow()` posts one batch: `app_start` and `capability`, none dropped by `readTelemetryEvents`, the envelope read with the platform swapped;
+      - the raw body holds no host, port, username or password of the mock's;
+      - a 500 keeps the events for the next send;
+      - the profile's switch off clears the queue and sends nothing.
+    - **checks:** lint of the whole repo, root `tsc`, the package typechecks, `build:tv` sizes (main.js's growth and the new worker's), `verify:engines --engine chrome53 --engine chrome68`;
+    - **close-out:** mutation with the list written first, the PR merged on green CI, and the docs (architecture.md §3.4 "Built in step 33b1", runbook `web.md` or a new `telemetry.md`).
+- [ ] 33b2. **The four other events** (`packages/player`, `apps/tv`, `packages/data`). Its shape is refined before building:
+  - `ingest_done` from `DataEngine.refresh` (`xtream` or `m3u`, `elapsedMs`, the download's bytes and the items as buckets) and `refreshEpg` (`epg`);
+  - `epg_match` after a guide refresh (the share of live channels with a guide, `rateBucket`);
+  - `play_result` from the player controller (engine, container, mode, time to the first frame, or the failure's kind, code and status), once per play;
+  - `stall` at a stall's end (recovered, attempts).
+
+  Each has unit tests. The e2e stand-in sees a `play_result` after a play and an `ingest_done` after onboarding.
+- [ ] 33b3. **The switch's Settings row and the consent sentence** (`apps/tv`):
+  - Settings' row "Usage and crash reports" (on or off, OK switches it; a hint);
+  - one sentence on the consent screen (en, ar), and the en-XA walk;
+  - e2e in en and ar: off sends nothing more and clears the queue; on again makes a new ID;
+  - screenshots looked at.
 - [ ] 33c. **The crash handler** (`apps/tv`, the workers): main's `error` and `unhandledrejection`, each worker's errors, each stack scrubbed with the user's own logins; at most a few crashes a session, deduplicated; queued as `crash`. Its shape is written before building.
 - [ ] 33d. **The diagnostics report and its support code** (`packages/protocol`, `apps/web`, `apps/tv`): the report's schema (no URL, host, name or login), `POST /v1/diag` with a unique 6-character code, its retention, and the TV's "Send a report" showing the code. Its shape is written before building.
 - [ ] 34. **[needs Omar] Production infrastructure.**
