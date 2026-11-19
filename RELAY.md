@@ -2120,7 +2120,15 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - **(A) No seal at rest on the TV, said plainly (recommended):** the logins stay in the app's own storage on the TV, which other apps can't read; what stays encrypted is everything that leaves the TV (the phone pairing end to end, the backup sealed on the TV with "Include logins and links" to leave them out; our servers never hold a login in plain text). 32e becomes docs: ADR-006's "Credentials on the TV are encrypted with `localKey`" and architecture.md §3.3 B amended, PLAN.md's "Credentials are encrypted on the TV" (§ "Trustworthy") and risk item 8 reworded with Omar's word, profile.ts's "step 32 encrypts it" comments fixed; `localKey` stays derived but unused. About a third of a leg; then step 33.
     - **(B) Seal every copy:** the profile's logins and links, the recents' URLs, `epgUrls`, and every stored stream URL (Xtream items stored without the account and built at play time; M3U items' URLs sealed in their chunks), under a `localKey` from a master wrapped by the device ID. Protects a copied database only on a TV that allowed the device ID and only from someone without the TV. 4 to 6 legs (the catalog's ingest version and every reader: query worker, player, catch-up, EPG, recents, backup, the old-engine proofs), a device-ID read and a decrypt before the first play at every start, and main.js has 25 KB left on Tizen.
     - **(C) The original 32e only** (the profile and the recents sealed under `localKey` from the cached master): about 2 legs, and the password stays in plain text in every stored stream URL beside it. This is the "pretend" step 32's decision rules out.
-  - **Waiting for Omar's choice (leg 115, needs-you).** Nothing built.
+  - **Omar chose (A) on 2026-11-19 (leg 115, in its tab: "1").** 32e is docs only:
+    - `docs/adr/ADR-013-logins-on-the-tv-unsealed.md` (the decision, why, the options not taken), listed in the ADR index;
+    - ADR-006 amended (its status and its "Credentials on the TV" line);
+    - architecture.md §3.3 B: the "Credentials on the TV" line, the "Found while building, for 32e" note and a new "Decided in step 32e" block, plus the three step notes that said "step 32 encrypts it";
+    - PLAN.md, with Omar's answer as his word: §4 "Trustworthy", risk item 8 and the storage plan;
+    - the comments in `profile.ts`, `engine-loader.ts` and crypto's `backup.ts` (`localKey`: derived and unused).
+
+    No code changed and the profile stays at version 9. Step 33's scrubber keeps the logins out of logs and telemetry.
+  - **Verified in leg 115:** eslint on the three changed sources; `packages/crypto/src/backup.test.ts` and `packages/data/src/profile.test.ts` 70 passed; no test pins the docs.
 - [ ] 33. **Telemetry.** Telemetry, URL/credential scrubber, crash handler, diagnostics support code.
 - [ ] 34. **[needs Omar] Production infrastructure.**
   - **Omar:** creates the Vercel/Neon/R2/Upstash accounts and the domain, and puts the keys in `.env` himself.

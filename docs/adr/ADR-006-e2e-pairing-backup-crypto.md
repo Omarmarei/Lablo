@@ -1,6 +1,6 @@
 # ADR-006: End-to-end pairing and backup crypto
 
-- **Status:** Accepted
+- **Status:** Accepted. Amended by [ADR-013](ADR-013-logins-on-the-tv-unsealed.md) (2026-11-19): credentials on the TV are not encrypted at rest.
 - **Date:** 2026-11-01
 - **Source:** docs/architecture.md §3.3
 
@@ -26,7 +26,7 @@ envelope   = {v:1, kdf:"scrypt-15-8-1", nonce:24B, ct: secretbox(gzip(profileJSO
 ```
 - `deviceSecret` is the Samsung DUID or the LG LGUDID, or a random 128-bit "Backup code" shown in Settings when neither is available.
 - At startup with no local profile, the TV derives `master`, fetches and decrypts the envelope, and restores automatically.
-- Credentials on the TV are encrypted with `localKey`.
+- ~~Credentials on the TV are encrypted with `localKey`.~~ **Amended 2026-11-19 ([ADR-013](ADR-013-logins-on-the-tv-unsealed.md), RELAY step 32e):** credentials on the TV are not encrypted at rest. The login is in every stored stream URL too, and the master that `localKey` would come from is cached beside them. Everything that leaves the TV stays sealed. `localKey` is derived and unused.
 
 **C. Config signing.** An offline Ed25519 key signs `config/config.json` (`tools/sign-config`). The app embeds two public keys for rotation and rejects unsigned or expired config.
 

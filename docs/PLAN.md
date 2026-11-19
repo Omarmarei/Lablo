@@ -140,7 +140,7 @@ It is not on Samsung or LG, and Samsung's own community moderators tell users to
   5. Terms of service that ban infringing use.
   6. A registered DMCA agent.
   7. A server kill-switch and domain blocklist for complying with orders.
-  8. Encrypted playlist credentials.
+  8. Playlist credentials encrypted end to end whenever they leave the TV (phone pairing, backup); never on our servers in plain text (ADR-013).
   9. Separate API domains per platform behind a CDN.
 
 ### TV models to support
@@ -206,7 +206,7 @@ Samsung's web engine never gets upgraded after the TV ships, so each model year 
 3. **Effortless setup.** Scan a QR code on the TV, then type or paste the playlist on your phone. On-TV entry still works. **"Helper mode"** lets a family member set up a parent's TV from their own phone. No copying a MAC address and no website hunting.
 4. **Trustworthy.**
    - Free, no ads, no sign-up.
-   - Credentials are encrypted on the TV and **never stored in plaintext on our servers**.
+   - Credentials are encrypted end to end whenever they leave the TV (phone pairing, backup) and are **never stored in plaintext on our servers**. On the TV itself they stay in the app's storage, unencrypted (ADR-013, 2026-11-19).
    - One official domain.
    - A built-in **"Is it the app or my provider?" diagnostic**: HTTP status, server reachability, stream codec and bitrate. This protects our reviews from provider failures.
 5. **Bilingual by design.** Arabic (RTL) and English at launch, including RTL-aware remote navigation and an Arabic on-screen keyboard. French and Spanish next.
@@ -339,7 +339,7 @@ lablo/
   - **Storage:** one record per channel per day.
   - **Window:** 7 days ahead plus catch-up days on 2020+ TVs, 3 days plus 1 on 2018–19 TVs.
   - **Fallback:** Xtream `get_short_epg` covers unmatched channels.
-- **Storage plan for the webOS update wipe:** the profile (encrypted credentials, favourites, hidden groups, progress, settings; under 300 KB) is kept in IDB with 3 rolling snapshots, a DB8 mirror if spike S2 passes, and the encrypted cloud backup. **Nothing important goes in localStorage.**
+- **Storage plan for the webOS update wipe:** the profile (credentials, favourites, hidden groups, progress, settings; under 300 KB) is kept in IDB with 3 rolling snapshots, a DB8 mirror if spike S2 passes, and the encrypted cloud backup. **Nothing important goes in localStorage.**
 
 ### Player (summary)
 - **Session tokens:** every load gets a token, and stale events are dropped, which prevents zapping race bugs.

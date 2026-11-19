@@ -64,8 +64,8 @@ export type ProfileV1 = {
  * so it never changes and is never reused for another source.
  *
  * The login (an Xtream account, or an M3U link, which often holds one) is stored in IndexedDB
- * only, in plain text for now. Step 32 encrypts it with the TV's `localKey` before the profile is
- * written, and the cloud backup leaves it out when the user turns that off (architecture.md §3.3).
+ * only, in plain text (ADR-013: logins aren't encrypted at rest on the TV). The cloud backup is
+ * sealed on the TV and leaves it out when the user turns that off (architecture.md §3.3).
  */
 export type SourceRecord =
   | { id: string; type: 'xtream'; name: string; account: XtreamAccount; added: number }
@@ -134,7 +134,7 @@ export type StoredTrackChoice = {
 /**
  * The channel watched last (start-on-last-channel, architecture.md §2): the start plays it before
  * the catalog loads, so the item itself is kept. Its `url` holds credentials, like the source's
- * login: step 32 encrypts it with them.
+ * login, unencrypted on the TV as it is (ADR-013); the backup without logins strips it.
  */
 export type LastChannel = {
   item: CatalogItem;
