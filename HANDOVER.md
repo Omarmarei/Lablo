@@ -36,7 +36,7 @@ You are leg 121 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
 ## Next steps, in order
 1. **Check the state:**
    - `git -C "<wt>" status` is clean apart from gitignored files;
-   - `git -C "<wt>" log --oneline -4` shows this handover's commit, `fc6236f`, `dcb81aa`, `0f732bb`;
+   - `git -C "<wt>" log --oneline -6` shows leg 120's handover commits on top (`docs: …` after `fc6236f`: the handover, Omar's decision on step 34), then `fc6236f`, `dcb81aa`, `0f732bb`;
    - `origin/main` is `dcb81aa`; the branch is pushed; no PR is open;
    - no `*.mutbak`: `find apps packages tools e2e test platforms -name "*.mutbak" -not -path "*/node_modules/*"`;
    - `docker ps` shows only `lablo-web-postgres-1`.
@@ -56,7 +56,7 @@ You are leg 121 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
 - the docs.
 
 ## Git state to expect
-- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, at `dcb81aa`, plus `fc6236f` (docs) and this handover's commit. Pushed. The next PR carries both.
+- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, at `dcb81aa`, plus `fc6236f` (docs) and leg 120's handover commits (the handover, Omar's step-34 decision). Pushed. The next PR carries them.
 - **`main`:** `dcb81aa` (Merge PR #149). The main checkout was not touched.
 - **Gitignored but present:**
   - `node_modules`, `.cache/*`, `apps/web/.env`, `apps/web/.next` (33d1's `build:web`);
