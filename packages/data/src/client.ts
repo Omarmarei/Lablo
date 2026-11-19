@@ -1,7 +1,7 @@
 /**
  * The UI's side of the data workers: typed RPC clients over the query worker, the ingest worker,
- * the EPG worker, the config worker, the pair worker and the backup worker (architecture.md §1.2,
- * §3.3 A, B and C).
+ * the EPG worker, the config worker, the pair worker, the backup worker and the telemetry worker
+ * (architecture.md §1.2, §3.3 A, B and C, §3.4).
  * `ui` imports only this part of `@lablo/data`.
  */
 
@@ -15,6 +15,7 @@ import type { pairHandlers } from './pair-service';
 import type { EpgEvents, EpgService } from './epg-service';
 import type { IngestEvents, IngestService } from './ingest-service';
 import type { QueryService } from './query-service';
+import type { telemetryHandlers } from './telemetry-service';
 import type { RpcPort } from './rpc';
 import { RpcClient } from './rpc';
 
@@ -147,6 +148,26 @@ export type BackupHandlers = ReturnType<typeof backupHandlers>;
 
 /** Calls a backup worker: `prepare`, `upload` or `restore`, event `progress` (scrypt's). */
 export type BackupClient = RpcClient<BackupHandlers, BackupEvents>;
+
+// Telemetry (RELAY step 33b1): the request and the answer.
+export type { TelemetrySendRequest, TelemetrySendResult } from './telemetry-service';
+
+/** The telemetry worker's RPC methods (telemetry.worker.ts, RELAY step 33b1). */
+export type TelemetryHandlers = ReturnType<typeof telemetryHandlers>;
+
+/** Calls a telemetry worker: `send`. */
+export type TelemetryClient = RpcClient<TelemetryHandlers>;
+
+/** Wraps a started telemetry worker. If it dies, the send rejects; the queue in `kv` stays. */
+export function createTelemetryClient(port: RpcPort & { onerror?: ((event: ErrorEvent) => void) | null }): TelemetryClient {
+  const client = new RpcClient<TelemetryHandlers>(port);
+  if ('onerror' in port) {
+    port.onerror = (event: ErrorEvent) => {
+      client.fail(new Error(`Telemetry worker failed: ${event.message || 'unknown error'}`));
+    };
+  }
+  return client;
+}
 
 /** Wraps a started backup worker. If it dies, the call rejects; what it kept stays kept. */
 export function createBackupClient(port: RpcPort & { onerror?: ((event: ErrorEvent) => void) | null }): BackupClient {

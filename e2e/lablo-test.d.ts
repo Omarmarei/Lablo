@@ -20,9 +20,11 @@ interface Window {
     refreshConfig(): Promise<LabloConfigView | null>;
     /** No config run in progress or due. */
     configIdle(): boolean;
-    /** No backup look-up or upload running (RELAY step 32c2). */
+    /** No backup look-up or upload running (RELAY step 32c2), and no telemetry send (step 33b1). */
     backupIdle(): boolean;
     /** A backup upload now, resolving with its state (`sent`, `same`, `held` …; `null`: none ran). */
     uploadBackup(): Promise<string | null>;
+    /** A telemetry send now (step 33b1), resolving with its answer (`{state: 'sent', sent, queued}` …; `null`: none ran). */
+    sendTelemetry(): Promise<{ readonly state: string; readonly [field: string]: unknown } | null>;
   };
 }

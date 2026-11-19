@@ -238,11 +238,29 @@ export { BACKUP_ANSWER_MAX_BYTES, BACKUP_TIMEOUT_MS, BackupApi, envelopeBody, re
 export type { BackupStandIn, StandInRequest } from './backup-stand-in';
 export { backupStandIn } from './backup-stand-in';
 
+// Telemetry (RELAY step 33b1): the telemetry worker's service.
+export type { TelemetrySendRequest, TelemetrySendResult, TelemetryServiceOptions } from './telemetry-service';
+export {
+  TELEMETRY_CAPABILITY_KEY,
+  TELEMETRY_ID_BYTES,
+  TELEMETRY_ID_KEY,
+  TELEMETRY_QUEUE_KEY,
+  TELEMETRY_QUEUE_MAX,
+  TELEMETRY_TIMEOUT_MS,
+  batchBody,
+  capabilityKey,
+  samplePoint,
+  sampled,
+  telemetryHandlers,
+  telemetryOff,
+  utf8Length,
+} from './telemetry-service';
+
 export type { IngestEvents, IngestRunRequest, IngestServiceOptions } from './ingest-service';
 export { IngestService } from './ingest-service';
 
 export type { EpgEvents, EpgRunRequest, EpgServiceOptions } from './epg-service';
 export { EpgService } from './epg-service';
 
-export type { BackupClient, BackupHandlers, ConfigClient, ConfigHandlers, DataClient, EpgClient, EpgHandlers, IngestClient, IngestHandlers, PairClient, PairHandlers, QueryHandlers } from './client';
-export { createBackupClient, createConfigClient, createDataClient, createEpgClient, createIngestClient, createPairClient } from './client';
+export type { BackupClient, BackupHandlers, ConfigClient, ConfigHandlers, DataClient, EpgClient, EpgHandlers, IngestClient, IngestHandlers, PairClient, PairHandlers, QueryHandlers, TelemetryClient, TelemetryHandlers } from './client';
+export { createBackupClient, createConfigClient, createDataClient, createEpgClient, createIngestClient, createPairClient, createTelemetryClient } from './client';

@@ -22,7 +22,8 @@
  * (`SourceWithoutLogin`, `GuideWithoutLink`: a backup made without them brought them back), and
  * keeps the backup's choice (`backupLogins`). Later steps add fields with a migration each, or as
  * optional fields that need none (`PlayerMemoryDoc.picture`, step 20c2b; `epgOffsets`, step 24b;
- * `epgOverrides`, step 24d; `ShowProgress.more`, step 27d; `noticesShown`, step 30c2a).
+ * `epgOverrides`, step 24d; `ShowProgress.more`, step 27d; `noticesShown`, step 30c2a;
+ * `telemetry`, step 33b1).
  */
 
 import type { CatalogItem, ContentKey, ContentKind, EpgOverride, XtreamAccount } from '@lablo/core';
@@ -279,6 +280,12 @@ export type ProfileV9 = Omit<ProfileV8, 'v' | 'sources' | 'guides'> & {
    * them brings the choice back, and logins given again after a restore aren't sent.
    */
   backupLogins?: false;
+  /**
+   * `false`: no usage or crash reports (step 33b1, Settings' switch from step 33b3). No field: on,
+   * as onboarding says. Optional, so version 9 documents written before it need no migration. It
+   * travels in the backup, so a restore brings an "off" back; the telemetry worker reads it raw.
+   */
+  telemetry?: false;
 };
 
 /** The current profile shape. */
@@ -443,7 +450,12 @@ export type ProfileEdit =
    * Whether the backup takes the logins and links (step 32d4a): off keeps `backupLogins: false`,
    * on takes the field away. One that isn't a boolean changes nothing.
    */
-  | { kind: 'backupLogins'; on: boolean };
+  | { kind: 'backupLogins'; on: boolean }
+  /**
+   * Whether usage and crash reports are sent (step 33b1): off keeps `telemetry: false`, on takes
+   * the field away. One that isn't a boolean changes nothing.
+   */
+  | { kind: 'telemetry'; on: boolean };
 
 const USER_GUIDE = 'u~';
 
@@ -688,6 +700,13 @@ export function applyProfileEdit(doc: ProfileDoc, edit: ProfileEdit): ProfileDoc
     const next: ProfileDoc = { ...doc };
     if (edit.on) delete next.backupLogins;
     else next.backupLogins = false;
+    return next;
+  }
+  if (edit.kind === 'telemetry') {
+    if (typeof edit.on !== 'boolean' || edit.on === (doc.telemetry !== false)) return null;
+    const next: ProfileDoc = { ...doc };
+    if (edit.on) delete next.telemetry;
+    else next.telemetry = false;
     return next;
   }
   if (edit.kind === 'epgOffset') {

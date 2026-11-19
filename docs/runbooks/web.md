@@ -367,8 +367,30 @@ is in `apps/web/src/server/telemetry.ts`; `src/app/v1/telemetry/route.ts` is a t
   in the Chromium 53 stand-in realm (`test/scrub-bundle.test.ts`).
 - **Reading it:** saved SQL to start with (§3.4), e.g. `SELECT kind, count(*) FROM "TelemetryEvent"
   WHERE "receivedAt" > now() - interval '1 day' GROUP BY kind`.
-- **No migration:** the `TelemetryEvent` table is step 29a's. The TV doesn't send yet (step 33b).
-  Nothing here is in production before step 34.
+- **No migration:** the `TelemetryEvent` table is step 29a's. Nothing here is in production
+  before step 34.
+
+### What the TV sends (step 33b1)
+
+architecture.md §3.4 "Built in step 33b1" has the design; this is how to see it work.
+
+- **When:** from the live screen on, 60 s after the first event not yet sent, at most every 15
+  minutes, and once when the app is hidden. Onboarding sends nothing (what it recorded goes after).
+  The config's `disable-app` stops it.
+- **What:** `app_start` and `capability` at each start for now (step 33b2 adds the others).
+  `capability` goes once per app version, model, firmware and probe set.
+- **Where it waits:** the TV's IndexedDB, store `kv`: `telemetry.id` (the install ID),
+  `telemetry.queue` (at most 200 events not yet stored), `telemetry.capability` (the last one
+  queued). The profile's `telemetry: false` deletes all three at the next send, and nothing is
+  posted.
+- **The dev app** posts as `platform: "browser"`, which this route refuses (400): the TV drops
+  such a batch, so dev rows never land in the table. Plain `pnpm e2e` checks the batches against
+  the stand-in on the config server (`e2e/telemetry.spec.ts`).
+- **By hand in the dev app:** `await window.__LABLO_TEST__.sendTelemetry()` in the console sends
+  now and answers `{state: "sent", sent, queued}` (or `failed`, `refused`, `empty`, `off`).
+- **The worker:** `telemetry.worker.js`, 66 KB of its 150 KB budget, started for each send.
+  `test/telemetry-worker-bundle.test.ts` runs the bundle in the Chromium 53 stand-in realm and
+  reads its post with this route's schema.
 
 ## The wipe restored from the real API (step 32d1)
 

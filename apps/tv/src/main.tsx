@@ -59,6 +59,8 @@ import { createStage, setPlayerChrome } from './player/stage';
 import { createOnboarding } from './onboarding/onboarding-state';
 import { answerEdit, readStartProfile, startPoint } from './onboarding/start';
 import { KEY_HELP, createPlatform } from './platform';
+import { appStartEvent, capabilityEvent, deviceProbes } from './telemetry/telemetry-events';
+import { createTelemetry } from './telemetry/telemetry-state';
 import { installTestHook } from './test-hook';
 // Last, so the app's own CSS comes after @lablo/ui's (tokens, fonts, components) in app.css and in dev.
 import './app.css';
@@ -166,6 +168,40 @@ const config = createConfigSchedule({
  * The config's rules inside the app (RELAY step 30c2b): `block-new-sources` refuses onboarding's
  * new source, `disable-playback` every play (and stops one playing); stronger rules do as well.
  */
+/**
+ * Telemetry (RELAY step 33b1): events recorded in memory, sent by a telemetry worker 60 s after the
+ * first one not yet sent, at most every 15 minutes, and when the app is hidden, from the live screen
+ * on; the backup's API base, the config's sampling.
+ */
+const telemetry = createTelemetry({
+  engine: { sendTelemetry: (request) => dataEngine().sendTelemetry(request) },
+  request: () => ({ base: configRequest.base, platform: __PLATFORM__, appVersion: __APP_VERSION__, sampling: config.policy.value.tunables.telemetrySampling ?? null }),
+  lifecycle: (listener) => platform.onLifecycle(listener),
+});
+
+/**
+ * The start's events (step 33b1), once its screen has painted: `app_start` (the tier, the time to
+ * that first frame, the catalog's size) and `capability` (the worker drops a repeat).
+ */
+function recordStart(): void {
+  requestAnimationFrame(() => {
+    const coldStartMs = performance.now();
+    const at = Date.now();
+    platform.info().then(
+      (info) => {
+        telemetry.record(capabilityEvent(at, info, deviceProbes(window)));
+        dataEngine()
+          .summary()
+          .then(
+            (summary) => telemetry.record(appStartEvent(at, info.tier, coldStartMs, summary.items)),
+            (error: unknown) => console.warn('The start was not recorded', error),
+          );
+      },
+      (error: unknown) => console.warn('The start was not recorded', error),
+    );
+  });
+}
+
 const addRefusal = computed(() => refusalFor(config.policy.value, 'block-new-sources'));
 const playRefusal = computed(() => refusalFor(config.policy.value, 'disable-playback'));
 
@@ -243,10 +279,16 @@ const gate = createGate({
  * The focus of the screen on show, as `window.__LABLO_TEST__.focusPath()` (RELAY step 14b), and
  * the config's last answer and a refresh now (step 30c1).
  */
-const showFocus = installTestHook(window, config, {
-  idle: () => !lookingUp && backup.idle(),
-  uploadNow: () => backup.uploadNow(),
-});
+const showFocus = installTestHook(
+  window,
+  config,
+  {
+    // Telemetry's worker writes the database in the background too (step 33b1).
+    idle: () => !lookingUp && backup.idle() && telemetry.idle(),
+    uploadNow: () => backup.uploadNow(),
+  },
+  telemetry,
+);
 
 /**
  * The app's player controller, made on the first play (RELAY step 20a): the stage under the page,
@@ -562,6 +604,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} home={home} />, into);
   startRefreshes(live, guide, [movies, series], search, home, readFacts, restored ? 0 : undefined);
   backup.start();
+  telemetry.start();
   if (toSources) settings.openSources();
   else if (toGuides) settings.openGuides();
   // Under the gate's `disable-app` or update (step 30c2a): the player closes, the refreshes and the backup's uploads stop, until it lifts.
@@ -571,10 +614,12 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       refreshes?.dispose();
       refreshes = null;
       backup.stop();
+      telemetry.stop();
     },
     resume: () => {
       startRefreshes(live, guide, [movies, series], search, home, readFacts);
       backup.start();
+      telemetry.start();
     },
   };
 }
@@ -641,9 +686,12 @@ function showOnboarding(into: Element, language: Language | null): void {
 function startWith(into: Element, profile: LoadedProfile | null, restored: boolean, toSources = false, toGuides = false): void {
   memory.load(profile);
   progress.load(profile);
+  // Telemetry's switch (step 33b1): on unless the profile says `telemetry: false`.
+  telemetry.load(profile === null || (profile.doc as { telemetry?: unknown }).telemetry !== false);
   const start = startPoint(profile);
   if (start.screen === 'home') showLive(into, start.language, restored ? null : start.resume, restored, toSources, toGuides);
   else showOnboarding(into, start.language);
+  recordStart();
   // The gate over every screen (step 30c2a), in its own root after #app; nothing shows until the config says so.
   const gateRoot = document.createElement('div');
   document.body.appendChild(gateRoot);

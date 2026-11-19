@@ -103,10 +103,11 @@ describe('package boundaries (boundaries/element-types)', () => {
     expect(deep.some((m) => m.startsWith('boundaries/entry-point'))).toBe(true);
   });
 
-  it("allows protocol's samples and its scrubber as entry points, and nothing else in protocol", async () => {
+  it("allows protocol's samples, its scrubber and telemetry's buckets as entry points, and nothing else in protocol", async () => {
     for (const file of ['apps/tv/src/f.ts', 'tools/engines/src/f.ts', 'apps/web/src/f.ts']) {
       expect(await lint(file, "import { checkSamples } from '@lablo/protocol/check-samples';\nexport { checkSamples };\n")).toEqual([]);
       expect(await lint(file, "import { scrubText } from '@lablo/protocol/scrub';\nexport { scrubText };\n")).toEqual([]);
+      expect(await lint(file, "import { countBucket } from '@lablo/protocol/telemetry-buckets';\nexport { countBucket };\n")).toEqual([]);
     }
     const deep = await lint('apps/tv/src/f.ts', "import { SAMPLES } from '../../../packages/protocol/src/samples';\nexport { SAMPLES };\n");
     expect(deep.some((m) => m.startsWith('boundaries/entry-point'))).toBe(true);

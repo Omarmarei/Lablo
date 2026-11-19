@@ -15,6 +15,7 @@
     "./config.worker": "./src/config.worker.ts",
     "./pair.worker": "./src/pair.worker.ts",
     "./backup.worker": "./src/backup.worker.ts",
+    "./telemetry.worker": "./src/telemetry.worker.ts",
     "./check-backup": "./src/check-backup.ts"
   },
   "scripts": {

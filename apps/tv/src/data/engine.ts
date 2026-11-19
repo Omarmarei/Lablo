@@ -45,7 +45,10 @@
  *   `restoreBackup` (step 32c1) and ends when it answers: it keeps the backup code and the master
  *   key in IndexedDB (scrypt, seconds on a 2018 TV, runs there only when no master is kept for the
  *   secret), and sends or restores the profile through the backup API. It runs beside the refresh
- *   slot.
+ *   slot;
+ * - a **telemetry worker** starts for each `sendTelemetry` (step 33b1) and ends when it answers: it
+ *   keeps the install ID and the events not yet sent in `kv`, and posts them to the telemetry API.
+ *   It runs beside the refresh slot.
  *
  * Workers come from factories, so tests serve the real services over message channels; the
  * app passes the `?worker` imports (`./workers.ts`).
@@ -111,8 +114,21 @@ import type {
   PairOpenResult,
   PairPollResult,
   PairStatusResult,
+  TelemetrySendRequest,
+  TelemetrySendResult,
 } from '@lablo/data/client';
-import { createBackupClient, createConfigClient, createDataClient, createEpgClient, createIngestClient, createPairClient, epgGuides, epgRefreshDue, lacksLogin } from '@lablo/data/client';
+import {
+  createBackupClient,
+  createConfigClient,
+  createDataClient,
+  createEpgClient,
+  createIngestClient,
+  createPairClient,
+  createTelemetryClient,
+  epgGuides,
+  epgRefreshDue,
+  lacksLogin,
+} from '@lablo/data/client';
 import type { PairStatus } from '@lablo/protocol';
 
 /** What a source's stream and catch-up URLs need from its last login (`DataEngine.sourceFacts`). */
@@ -155,6 +171,8 @@ export interface DataEngineOptions {
   startPairWorker?: () => WorkerLike;
   /** The backup's worker (step 32b); an engine without one can't back up. */
   startBackupWorker?: () => WorkerLike;
+  /** Telemetry's worker (step 33b1); an engine without one sends no telemetry. */
+  startTelemetryWorker?: () => WorkerLike;
   /** The clock `due` EPG refreshes are decided by (default `Date.now`). */
   now?: () => number;
   /** How long after the last remote key the UI counts as idle again (default 1000 ms). */
@@ -603,6 +621,17 @@ export class DataEngine {
   /** A held backup (step 32d2a): sends the profile over it, as an upload does without its `GET`. */
   replaceHeldBackup(request: BackupCallRequest): Promise<BackupUploadResult> {
     return this.withBackupWorker((client) => client.call('replaceHeld', request));
+  }
+
+  /**
+   * Hands `request.events` to the telemetry queue and posts it (step 33b1), in a telemetry worker
+   * of its own: `sent`, `refused` (gone for good), `failed` (kept), `empty`, or `off` (the
+   * profile's switch: the queue and the install ID are gone).
+   */
+  sendTelemetry(request: TelemetrySendRequest): Promise<TelemetrySendResult> {
+    const start = this.options.startTelemetryWorker;
+    if (start === undefined) return Promise.reject(new Error('This data engine has no telemetry worker'));
+    return this.withWorker(start, createTelemetryClient, (client) => client.call('send', request));
   }
 
   /** For each URL, whether its host is on the signed config's blocklist (step 30b2; enforced in 30c). */

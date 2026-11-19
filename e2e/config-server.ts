@@ -12,8 +12,18 @@ import { PairStandIn, standInPath } from '../tools/engines/src/pair-stand-in';
  * dev app and the test builds trust), and the app reaches it through `?api=<origin>`. It also
  * serves files the test gives it (step 30c3b: a playlist on another host than its streams'), and
  * answers the pairing API's routes from a stand-in in memory (step 31c2a: `pair`), the phone's
- * file at its blob path too (step 31d2b2a), and the backup API's routes (step 32c2: `backup`).
+ * file at its blob path too (step 31d2b2a), the backup API's routes (step 32c2: `backup`), and
+ * `POST /v1/telemetry` (step 33b1: `telemetry`, each post's raw body kept, answered with the
+ * statuses the test gives, 200 after).
  */
+
+/** What the TV posted to `/v1/telemetry` (step 33b1), and what the next posts get. */
+export interface TelemetryStandIn {
+  /** Each post's raw body, in order. */
+  readonly posts: string[];
+  /** The statuses for the next posts, first first; 200 once they run out. */
+  readonly statuses: number[];
+}
 
 export interface ConfigServer {
   readonly origin: string;
@@ -27,6 +37,8 @@ export interface ConfigServer {
   readonly pair: PairStandIn;
   /** The backup API on this origin (step 32c2): what the TV sent and asked, a backup put in, a hold on its `GET`s. */
   readonly backup: BackupStandIn;
+  /** The telemetry API on this origin (step 33b1). */
+  readonly telemetry: TelemetryStandIn;
   close(): Promise<void>;
 }
 
@@ -36,6 +48,7 @@ export async function startConfigServer(answer: string): Promise<ConfigServer> {
   const files = new Map<string, { readonly body: string; readonly type: string }>();
   const pair = new PairStandIn();
   const backup = new BackupStandIn();
+  const telemetry: TelemetryStandIn = { posts: [], statuses: [] };
   const server: Server = createServer((request, response) => {
     if (standInPath(request.url ?? '')) {
       answerPair(pair, request, response);
@@ -47,6 +60,23 @@ export async function startConfigServer(answer: string): Promise<ConfigServer> {
     }
     // The app's config worker fetches cross-origin (the dev app is on localhost:<port>).
     const headers = { 'access-control-allow-origin': '*', 'cache-control': 'no-store' };
+    if (request.url === '/v1/telemetry' && request.method === 'OPTIONS') {
+      // A JSON post from another origin is preflighted.
+      response.writeHead(204, { ...headers, 'access-control-allow-methods': 'POST, OPTIONS', 'access-control-allow-headers': 'content-type', 'access-control-max-age': '600' });
+      response.end();
+      return;
+    }
+    if (request.url === '/v1/telemetry' && request.method === 'POST') {
+      const chunks: Buffer[] = [];
+      request.on('data', (chunk: Buffer) => chunks.push(chunk));
+      request.on('end', () => {
+        telemetry.posts.push(Buffer.concat(chunks).toString('utf8'));
+        const status = telemetry.statuses.shift() ?? 200;
+        response.writeHead(status, { ...headers, 'content-type': 'application/json' });
+        response.end(status === 200 ? '{"state":"stored"}' : '{"error":"stand-in"}');
+      });
+      return;
+    }
     if (request.method === 'GET' && request.url === '/v1/config') {
       requests += 1;
       response.writeHead(200, { ...headers, 'content-type': 'application/json' });
@@ -75,6 +105,7 @@ export async function startConfigServer(answer: string): Promise<ConfigServer> {
     },
     pair,
     backup,
+    telemetry,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }
