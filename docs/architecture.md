@@ -2163,6 +2163,7 @@ envelope   = {v:1, kdf:"scrypt-15-8-1", nonce:24B, ct: secretbox(gzip(profileJSO
   - e2e: `e2e/telemetry.spec.ts` +1: a throw from a timer (twice from the same place) and a rejection nothing handles, raised in the page with the playlist's link and login in their messages, posted as two `crash` events beginning `Uncaught` with `[url]` and `[login]` where they were, and nothing of the source in the body.
 - **Sizes:** main.js 487.2 KB on Tizen (+1.7 KB) and 474.4 KB on webOS; `crash-state.ts` adds no core-js module. `telemetry.worker.js` 75.7 KB of 150 (+9.5 KB: most of the scrubber's polyfills were in it already). 12.8 KB is left on Tizen for 33d's "Send a report".
 - **Mutation:** `artifacts/mutate33c.py`, 99 written first (writing them closed four gaps); 98 caught on the first run, and the survivor (a crash's time defaulting to 0, which the schema takes) closed by the e2e's time check; then 99/99.
+- **Merged:** PR #147 as merge commit `378bf30` on green CI (web 2 m, media 17 m, engines 32 m; verify 17 m on its rerun after a 1-in-64 flake in `apps/web/test/dev-blob.test.ts`, fixed after the merge).
 
 ---
 
