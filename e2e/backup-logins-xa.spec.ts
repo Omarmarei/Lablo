@@ -13,7 +13,8 @@ import { RemoteDriver } from './remote-driver';
  * stretched), against the stand-in API on the test's config server: Settings › Backup's second
  * row; then a profile whose playlist lost its link (as a backup without logins brings it back,
  * written into the stored profile) started with `restored=1`: "Welcome back" with its line, the
- * sources screen it opens, the row's mark, and the login form with a problem shown. Each: no text
+ * sources screen it opens, the row's mark, and the login form with a problem shown; then (step
+ * 32d4c) TV guides: a guide's mark, its menu, and its link form with a problem shown. Each: no text
  * of ours unbracketed, no name, label or button cut. Screenshots go to artifacts/screenshots.
  */
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
@@ -78,6 +79,8 @@ function dropLink(page: Page, origin: string): Promise<void> {
             const source = record.doc.sources[0]!;
             source['url'] = null;
             source['origin'] = kept;
+            // A guide of the user's without its link too (step 32d4c).
+            record.doc['guides'] = [{ id: 's1', url: null, origin: kept }];
             record.doc['backupLogins'] = false;
             store.put(record);
           };
@@ -130,6 +133,8 @@ test('shows the logins row, "Welcome back"’s line, the sources row and its for
     const start = page.getByTestId('backup-start');
     await expect(start).toHaveAttribute('data-screen', 'welcome');
     await expect(start).toHaveAttribute('data-logins', '1');
+    await expect(start).toHaveAttribute('data-guides', '1');
+    await expect(page.getByTestId('backup-guides')).toBeVisible();
     await expect(start).toHaveAttribute('data-language', 'pseudo');
     expect(await unbracketed(page, '[data-testid=backup-start]')).toEqual([]);
     expect(await cut(page, '[data-testid=backup-start]')).toEqual([]);
@@ -156,6 +161,29 @@ test('shows the logins row, "Welcome back"’s line, the sources row and its for
     expect(await cut(page, '[data-testid=source-login]')).toEqual([]);
     await shoot(page, 'backup-logins-form-en-XA');
     await remote.go('BACK', 'sources/sources/0');
+
+    // TV guides (step 32d4c): the guide's mark, its menu, its link form with a problem shown.
+    await remote.go('BACK', 'settings/items/1');
+    await remote.go('UP', 'settings/items/0');
+    await remote.go('OK', 'guides/guides/0');
+    await expect(page.getByTestId('guides')).toHaveAttribute('data-status', 'ready');
+    await expect(page.getByTestId('guide-0')).toHaveAttribute('data-needs', 'true');
+    await settled(settings, 20_000);
+    expect(await unbracketed(page, '[data-testid=settings-screen]')).toEqual([]);
+    expect(await cut(page, '[data-testid=settings-screen]')).toEqual([]);
+    await shoot(page, 'backup-logins-guide-en-XA');
+    await remote.go('OK', 'guide-menu/actions/0');
+    expect(await unbracketed(page, '[data-testid=guide-menu]')).toEqual([]);
+    expect(await cut(page, '[data-testid=guide-menu]')).toEqual([]);
+    await shoot(page, 'backup-logins-guide-menu-en-XA');
+    await remote.go('OK', 'guide-add/field/0');
+    await remote.go('DOWN', 'guide-add/actions/0');
+    await remote.go('OK', 'guide-add/field/0');
+    await expect(page.getByTestId('guide-add-link')).toHaveClass(/is-invalid/);
+    expect(await unbracketed(page, '[data-testid=guide-add]')).toEqual([]);
+    expect(await cut(page, '[data-testid=guide-add]')).toEqual([]);
+    await shoot(page, 'backup-logins-guide-form-en-XA');
+    await remote.go('BACK', 'guides/guides/0');
   } finally {
     await server.close();
   }

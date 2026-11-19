@@ -118,6 +118,10 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'backup.welcomeBody': 'عادت مصادرك ومفضلتك وإعداداتك. يجري الآن تحميل قنواتك.',
   'backup.welcomeBack': 'عادت مصادرك ومفضلتك وإعداداتك.',
   'backup.welcomeFiles': 'يجب إرسال الملفات المرسلة من هاتفك مرة أخرى: في {settings}، افتح {sources}، ثم {add}.',
+  'backup.welcomeGuides':
+    '{n, plural, zero {لا يحتاج أي دليل} one {يحتاج دليل واحد} two {يحتاج دليلان} few {يحتاج # أدلة} many {يحتاج # دليلًا} other {يحتاج # دليل}} إلى الرابط مرة أخرى: في {settings}، افتح {guides}.',
+  'backup.welcomeGuidesNext':
+    '{n, plural, zero {لا يحتاج أي دليل} one {يحتاج دليل واحد} two {يحتاج دليلان} few {يحتاج # أدلة} many {يحتاج # دليلًا} other {يحتاج # دليل}} إلى الرابط مرة أخرى: تُفتح {guides} في {settings} بعد ذلك.',
   'backup.welcomeLogins':
     '{n, plural, zero {لا يحتاج أي مصدر} one {يحتاج مصدر واحد} two {يحتاج مصدران} few {يحتاج # مصادر} many {يحتاج # مصدرًا} other {يحتاج # مصدر}} إلى بيانات الدخول أو الرابط مرة أخرى: تُفتح {sources} في {settings} بعد ذلك.',
   'backup.continue': 'متابعة',
@@ -365,6 +369,9 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'guides.link': 'رابط الدليل',
   'guides.listed': 'هذا الدليل موجود في القائمة.',
   'guides.addConfirm': 'إضافة',
+  'guides.giveLink': 'أدخل رابطه',
+  'guides.linkTitle': 'رابط هذا الدليل',
+  'guides.linkBody': 'تعود برامجه بعد الحفظ.',
   'guides.matches': 'المطابقة',
   'guides.byId': 'حسب معرّف القناة',
   'guides.byXtreamId': 'حسب معرّف القناة في اللوحة',

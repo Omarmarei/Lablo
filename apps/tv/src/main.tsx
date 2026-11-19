@@ -322,9 +322,10 @@ function showHello(into: Element): void {
  * 20c1): the channel watched last plays at once, over the live screen, before its catalog loads.
  * `restored` (step 32c2): the profile has just come back from a backup, with none of its catalogs:
  * the refresh schedule's first check comes at once. `toSources` (step 32d4b): a restored source
- * needs its login again, so Settings › Sources opens over the live screen.
+ * needs its login again, so Settings › Sources opens over the live screen; `toGuides` (step
+ * 32d4c): else a guide of the user's needs its link, so Settings › TV guides does.
  */
-function showLive(into: Element, language: Language | null, resume: LastChannel | null = null, restored = false, toSources = false): void {
+function showLive(into: Element, language: Language | null, resume: LastChannel | null = null, restored = false, toSources = false, toGuides = false): void {
   let player: Player | null = null;
   const readFacts = (): void => {
     dataEngine()
@@ -562,6 +563,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   startRefreshes(live, guide, [movies, series], search, home, readFacts, restored ? 0 : undefined);
   backup.start();
   if (toSources) settings.openSources();
+  else if (toGuides) settings.openGuides();
   // Under the gate's `disable-app` or update (step 30c2a): the player closes, the refreshes and the backup's uploads stop, until it lifts.
   gated = {
     stop: () => {
@@ -636,11 +638,11 @@ function showOnboarding(into: Element, language: Language | null): void {
  * so the channel watched last doesn't play by itself (its catalog is being read again, and its
  * address may be months old) and the catalogs are read at once.
  */
-function startWith(into: Element, profile: LoadedProfile | null, restored: boolean, toSources = false): void {
+function startWith(into: Element, profile: LoadedProfile | null, restored: boolean, toSources = false, toGuides = false): void {
   memory.load(profile);
   progress.load(profile);
   const start = startPoint(profile);
-  if (start.screen === 'home') showLive(into, start.language, restored ? null : start.resume, restored, toSources);
+  if (start.screen === 'home') showLive(into, start.language, restored ? null : start.resume, restored, toSources, toGuides);
   else showOnboarding(into, start.language);
   // The gate over every screen (step 30c2a), in its own root after #app; nothing shows until the config says so.
   const gateRoot = document.createElement('div');
@@ -660,7 +662,7 @@ function startRestored(into: Element, profile: LoadedProfile): void {
   showFocus(welcome.nav);
   render(<BackupStartApp platform={platform} start={welcome} />, into);
   void welcome.done.then((end) => {
-    startWith(into, end.profile, end.restored, end.toSources);
+    startWith(into, end.profile, end.restored, end.toSources, end.toGuides);
     welcome.dispose();
   });
 }
@@ -683,7 +685,7 @@ function startWithoutProfile(into: Element): void {
     render(<BackupStartApp platform={platform} start={look} />, into);
     void look.done.then((end) => {
       lookingUp = false;
-      startWith(into, end.profile, end.restored, end.toSources);
+      startWith(into, end.profile, end.restored, end.toSources, end.toGuides);
       look.dispose();
     });
   });

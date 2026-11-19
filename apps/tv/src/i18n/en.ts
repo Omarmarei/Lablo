@@ -131,6 +131,9 @@ export const EN = {
   'backup.welcomeBack': 'Your sources, favourites and settings are back.',
   'backup.welcomeFiles': 'Files sent from your phone need to be sent again: in {settings}, open {sources}, then {add}.',
   // A backup made without logins and links (RELAY step 32d4b): the sources screen opens next.
+  // The user's TV guides without their link (RELAY step 32d4c): where they are when Sources opens next, or that TV guides does.
+  'backup.welcomeGuides': '{n, plural, one {One TV guide needs its link again} other {# TV guides need their links again}}: in {settings}, open {guides}.',
+  'backup.welcomeGuidesNext': '{n, plural, one {One TV guide needs its link again} other {# TV guides need their links again}}: {guides} in {settings} opens next.',
   'backup.welcomeLogins':
     '{n, plural, one {One source needs its login or link again} other {# sources need their logins or links again}}: {sources} in {settings} opens next.',
   'backup.continue': 'Continue',
@@ -402,6 +405,10 @@ export const EN = {
   'guides.link': 'Guide link',
   'guides.listed': 'This guide is already in the list.',
   'guides.addConfirm': 'Add',
+  // A guide a backup without logins brought back without its link (RELAY step 32d4c); its row says `sources.needsLink`.
+  'guides.giveLink': 'Give its link',
+  'guides.linkTitle': "This guide's link",
+  'guides.linkBody': 'Its programmes come back once you save.',
   // Match diagnostics (RELAY step 24c): a guide's matches, and the live channels no guide has.
   'guides.matches': 'Matches',
   'guides.byId': 'By channel ID',

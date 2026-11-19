@@ -298,6 +298,12 @@ describe('menuActions', () => {
     expect(menuActions(3, 5, 'source', true)).toEqual(['offset', 'matches', 'cancel']);
     expect(menuActions(1, 3, 'mine', false)).toEqual(['up', 'down', 'offset', 'remove', 'cancel']);
   });
+
+  it('offers "Give its link" first for a guide without its link, and keeps the rest (step 32d4c)', () => {
+    expect(menuActions(0, 1, 'mine', false, true)).toEqual(['link', 'offset', 'remove', 'cancel']);
+    expect(menuActions(1, 3, 'mine', false, true)).toEqual(['link', 'up', 'down', 'offset', 'remove', 'cancel']);
+    expect(menuActions(1, 3, 'mine', false, false)).toEqual(['up', 'down', 'offset', 'remove', 'cancel']);
+  });
 });
 
 describe('checkLink', () => {
@@ -321,7 +327,7 @@ describe('checkLink', () => {
 });
 
 describe('guideState', () => {
-  const row = (m: EpgMeta | null): GuideRow => ({ kind: 'mine', epgSrc: 'u~g1', id: 'g1', link: '', source: '', meta: m, offset: 0, blocked: false });
+  const row = (m: EpgMeta | null): GuideRow => ({ kind: 'mine', epgSrc: 'u~g1', id: 'g1', link: '', source: '', meta: m, offset: 0, blocked: false, needs: false });
   it('is read once programmes are stored, failed or not', () => {
     expect(guideState(row(meta('u~g1')), 0)).toBe('read');
     expect(guideState(row(meta('u~g1', { failure: { code: 'network', status: null } })), 1)).toBe('read');
@@ -349,6 +355,7 @@ describe('guideList', () => {
       ['source', 's2:tvg0', '', 'lists.test/guide.xml', 'Home list'],
     ]);
     expect(rows.map((r) => r.meta)).toEqual(engine.status.guides);
+    expect(rows.map((r) => r.needs)).toEqual([false, false, false, false]);
     expect(urls).toEqual(['http://guides.test/a.xml', 'http://guides.test/b.xml?key=k', PANEL_GUIDE, 'http://lists.test/guide.xml']);
   });
 
@@ -363,9 +370,9 @@ describe('guideList', () => {
     const status: EpgStatus = { guides: [], matched: 0, sources: [], mapping: '-' };
     const guides: StoredGuide[] = [{ id: 'g1', url: null, origin: 'https://guides.bare.test:8443' }, { id: 'g2', url: 'http://guides.test/a.xml' }];
     const { rows, urls } = guideList({ doc: { ...emptyProfile(), sources: [], guides }, newer: false, migratedFrom: null }, status, [true, false]);
-    expect(rows.map((r) => [r.kind, r.epgSrc, r.id, r.link, r.blocked])).toEqual([
-      ['mine', 'u~g1', 'g1', 'guides.bare.test:8443', true],
-      ['mine', 'u~g2', 'g2', 'guides.test/a.xml', false],
+    expect(rows.map((r) => [r.kind, r.epgSrc, r.id, r.link, r.blocked, r.needs])).toEqual([
+      ['mine', 'u~g1', 'g1', 'guides.bare.test:8443', true, true],
+      ['mine', 'u~g2', 'g2', 'guides.test/a.xml', false, false],
     ]);
     expect(urls).toEqual(['https://guides.bare.test:8443', 'http://guides.test/a.xml']);
   });
@@ -656,6 +663,128 @@ describe('the guides screen', () => {
     await flush();
     expect(t.guides.reading.value).toBe(0);
     expect(t.guides.pending.value).toBe(0);
+  });
+});
+
+/** The FakeEngine's profile with its first guide (`s1`) as a backup without logins brings it back (step 32d4c). */
+function bareEngine(): FakeEngine {
+  const engine = new FakeEngine();
+  const guides: StoredGuide[] = [
+    { id: 's1', url: null, origin: 'http://guides.test' },
+    { id: 'g2', url: 'http://guides.test/b.xml?key=k' },
+  ];
+  engine.doc = { ...engine.doc, guides } as unknown as ProfileDoc;
+  // A restore keeps no programmes: nothing stored for it.
+  engine.status = { ...engine.status, guides: engine.status.guides.filter((g) => g.epgSrc !== 'u~s1') };
+  return engine;
+}
+
+describe("a guide's link given again (RELAY step 32d4c)", () => {
+  it('marks the guide, and its menu offers "Give its link" first, focused', async () => {
+    const t = await opened(bareEngine());
+    expect(t.guides.rows.value.map((r) => [r.epgSrc, r.link, r.needs])).toEqual([
+      ['u~s1', 'guides.test', true],
+      ['u~g2', 'guides.test/b.xml', false],
+      ['s1:xmltv', 'panel.test:8080/xmltv.php', false],
+      ['s2:tvg0', 'lists.test/guide.xml', false],
+    ]);
+    await t.press('OK');
+    expect(t.at()).toBe('guide-menu · actions 0');
+    expect(t.guides.menu.value!.actions).toEqual(['link', 'down', 'offset', 'remove', 'cancel']);
+    // A guide with its link: no such action.
+    await t.press('BACK', 'DOWN', 'OK');
+    expect(t.guides.menu.value!.actions).toEqual(['up', 'offset', 'remove', 'cancel']);
+  });
+
+  it('opens the link form for the guide, empty, and Cancel or Back close it saving nothing', async () => {
+    const t = await opened(bareEngine());
+    await t.press('OK', 'OK');
+    expect(t.at()).toBe('guide-add · field 0');
+    expect(t.guides.linking.value).toBe(t.guides.rows.value[0]);
+    expect(t.guides.text.value).toBe('');
+    t.guides.setText('guides.test/new.xml');
+    await t.press('DOWN', 'RIGHT', 'OK');
+    expect(t.at()).toBe('guides · guides 0');
+    expect(t.guides.linking.value).toBeNull();
+    await t.press('OK', 'OK');
+    expect(t.guides.text.value).toBe('');
+    await t.press('BACK');
+    expect(t.at()).toBe('guides · guides 0');
+    expect(t.guides.linking.value).toBeNull();
+    // "Add a guide" after it: the add form, no guide to link.
+    await t.press('UP', 'OK');
+    expect(t.guides.linking.value).toBeNull();
+    expect(t.engine.edits).toEqual([]);
+  });
+
+  it("refuses another of the user's guides' links; takes the origin it kept, or a source's own guide's link", async () => {
+    const t = await opened(bareEngine());
+    await t.press('OK', 'OK');
+    t.guides.setText('guides.test/b.xml?key=k');
+    await t.press('DOWN', 'OK');
+    expect(t.guides.problem.value).toBe('listed');
+    expect(t.at()).toBe('guide-add · field 0');
+    expect(t.engine.edits).toEqual([]);
+    // A playlist's url-tvg (or a panel's xmltv.php) may be the very link the user's guide had.
+    for (const [typed, url] of [
+      ['guides.test', 'http://guides.test'],
+      [PANEL_GUIDE, PANEL_GUIDE],
+      ['lists.test/guide.xml', 'http://lists.test/guide.xml'],
+    ]) {
+      const u = await opened(bareEngine());
+      await u.press('OK', 'OK');
+      u.guides.setText(typed!);
+      await u.press('DOWN', 'OK');
+      expect(u.guides.problem.value).toBeNull();
+      expect(u.engine.edits).toEqual([{ kind: 'guide', change: { op: 'link', id: 's1', url } }]);
+    }
+  });
+
+  it("lists the user's guide once given the link a source's own guide has, the source's gone", async () => {
+    const engine = bareEngine();
+    const t = await opened(engine);
+    await t.press('OK', 'OK');
+    t.guides.setText('lists.test/guide.xml');
+    await t.press('DOWN', 'OK');
+    expect(t.sources()).toEqual(['u~s1', 'u~g2', 's1:xmltv']);
+    expect(t.guides.rows.value[0]!.link).toBe('lists.test/guide.xml');
+  });
+
+  it('saves the link in its place, reads the list (the mark gone, the focus on it), then reads the guides: the row shows the answer', async () => {
+    const engine = bareEngine();
+    const t = await opened(engine);
+    await t.press('DOWN', 'UP', 'OK', 'OK');
+    t.guides.setText('Guides.test/New.xml');
+    await t.press('DOWN', 'OK');
+    expect(t.engine.edits).toEqual([{ kind: 'guide', change: { op: 'link', id: 's1', url: 'http://guides.test/New.xml' } }]);
+    expect(t.guides.linking.value).toBeNull();
+    expect(t.at()).toBe('guides · guides 0');
+    const row = t.guides.rows.value[0]!;
+    expect([row.epgSrc, row.link, row.needs]).toEqual(['u~s1', 'guides.test/New.xml', false]);
+    expect(t.refresh.refreshNow).toHaveBeenCalledTimes(1);
+    expect(guideState(row, t.guides.reading.value)).toBe('reading');
+    // The read failed: the row says so once the guides are read again.
+    engine.status = { ...engine.status, guides: [meta('u~s1', { gen: 0, failure: { code: 'http', status: 404 }, failedAt: 9 })].concat(engine.status.guides) };
+    t.refresh.calls[0]!.resolve();
+    await flush();
+    expect(t.guides.reading.value).toBe(0);
+    expect(guideState(t.guides.rows.value[0]!, 0)).toBe('failed');
+  });
+
+  it('keeps the link given in the list until the next read, with every other one', async () => {
+    const engine = bareEngine();
+    engine.hold = new Set(['edit']);
+    const t = await opened(engine);
+    await t.press('OK', 'OK');
+    t.guides.setText('guides.test/new.xml');
+    await t.press('DOWN', 'OK');
+    // The edit hasn't answered: an add of the same link, or of another guide's, is refused.
+    await t.press('UP', 'OK');
+    for (const listed of ['guides.test/new.xml', 'guides.test/b.xml?key=k', PANEL_GUIDE]) {
+      t.guides.setText(listed);
+      await t.press('DOWN', 'OK');
+      expect(t.guides.problem.value).toBe('listed');
+    }
   });
 });
 
@@ -1017,6 +1146,26 @@ describe('the settings screen', () => {
       expect(t.at()).toBe('live · channels 0');
       settings.dispose();
     }
+  });
+
+  it('opens the guides screen over the settings ("Welcome back"’s end, step 32d4c); Back lands on its row', async () => {
+    const t = setup();
+    const settings = createSettings({
+      nav: t.nav,
+      engine: t.engine,
+      refreshNow: t.refresh.refreshNow,
+      offsetChanged: t.offsetChanged,
+      platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+    });
+    settings.openGuides();
+    expect(t.nav.top.id).toBe('guides');
+    await flush();
+    expect(settings.guides.status.value).toBe('ready');
+    await t.press('BACK');
+    expect(t.at()).toBe('settings · items 0');
+    await t.press('BACK');
+    expect(t.at()).toBe('live · channels 0');
+    settings.dispose();
   });
 
   it('gives the sources screen’s login form the refresh it was given (step 32d4b)', async () => {
