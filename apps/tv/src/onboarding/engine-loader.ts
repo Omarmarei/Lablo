@@ -148,6 +148,11 @@ export function ingestSourceOf(record: StoredSource): LinkSource | LinkWithoutLo
   return record.url === null ? { type: 'm3u', url: null, origin: record.origin } : { type: 'm3u', url: record.url };
 }
 
+/** A stored source a backup made without logins brought back (step 32d4a): it needs its login or link again (step 32d4b). */
+export function needsLogin(record: StoredSource): boolean {
+  return (record.type === 'xtream' && record.account === null) || (record.type === 'm3u' && record.url === null);
+}
+
 /** The stored file source named `name`, which a file sent again replaces (`null`: none). */
 export function sameFile(stored: readonly StoredSource[], name: string): SourceRecord | null {
   for (const record of stored) if (record.type === 'm3u-file' && record.name === name) return record;

@@ -5,7 +5,7 @@ import type { BackupCallRequest, BackupRestoreResult, CancelToken } from '@lablo
 import { CancelSource } from '@lablo/data/client';
 import type { FocusBinding, Language, Navigator, ScreenSpec, ZoneSpec } from '@lablo/ui';
 import { bindFocus, createNavigator } from '@lablo/ui';
-import { storedSources } from '../onboarding/engine-loader';
+import { needsLogin, storedSources } from '../onboarding/engine-loader';
 import { startPoint } from '../onboarding/start';
 import type { SchedulerTimers } from '../data/refresh-scheduler';
 
@@ -20,7 +20,9 @@ import type { SchedulerTimers } from '../data/refresh-scheduler';
  *   However it ends, the profile is read again: a cancel may come just after the restore committed,
  *   and a profile with a source is a restore whatever the worker said.
  * - **"Welcome back":** in the restored profile's language (`null`: the TV's), for `WELCOME_MS` or
- *   until OK, so the restore needs no key at all (step 32's "Done when").
+ *   until OK, so the restore needs no key at all (step 32's "Done when"). A backup made without
+ *   logins and links (step 32d4b) brought sources back without them: one line says how many, and
+ *   the end opens Settings › Sources (`toSources`), however it comes.
  * - **After Settings' "Restore it"** (step 32d2b) the app starts again with `restored`: no look-up,
  *   "Welcome back" on that profile at once.
  */
@@ -64,10 +66,14 @@ export type BackupStartOptions = BackupStartCommon &
       }
   );
 
-/** How the look-up ended: the profile read after it, and whether that is a restore (it has a source). */
+/**
+ * How the look-up ended: the profile read after it, whether that is a restore (it has a source),
+ * and whether the sources screen opens next (a restored source needs its login, step 32d4b).
+ */
 export interface BackupStartEnd {
   readonly profile: LoadedProfile | null;
   readonly restored: boolean;
+  readonly toSources: boolean;
 }
 
 export interface BackupStart {
@@ -83,6 +89,8 @@ export interface BackupStart {
   /** "Welcome back": how many sources came back, and how many of them are files sent from a phone. */
   readonly sources: ReadonlySignal<number>;
   readonly files: ReadonlySignal<number>;
+  /** "Welcome back": how many of them came back without their login or link (step 32d4b). */
+  readonly logins: ReadonlySignal<number>;
   /** Settles once: after onboarding's look-up ends, or after "Welcome back". */
   readonly done: Promise<BackupStartEnd>;
   /** Ends the look-up's worker and the screen's focus; `done` settles no more after it. */
@@ -113,6 +121,7 @@ export function createBackupStart(options: BackupStartOptions): BackupStart {
   const language = signal<Language | null>(null);
   const sources = signal(0);
   const files = signal(0);
+  const logins = signal(0);
   const cancel = new CancelSource();
   let limit: unknown = null;
   let welcome: unknown = null;
@@ -174,15 +183,20 @@ export function createBackupStart(options: BackupStartOptions): BackupStart {
   const welcomeOr = (profile: LoadedProfile | null): void => {
     const records = storedSources(profile);
     if (records.length === 0) {
-      finish({ profile, restored: false });
+      finish({ profile, restored: false, toSources: false });
       return;
     }
     let fromPhone = 0;
-    for (let i = 0; i < records.length; i++) if (records[i]!.type === 'm3u-file') fromPhone += 1;
-    end = { profile, restored: true };
+    let withoutLogin = 0;
+    for (let i = 0; i < records.length; i++) {
+      if (records[i]!.type === 'm3u-file') fromPhone += 1;
+      if (needsLogin(records[i]!)) withoutLogin += 1;
+    }
+    end = { profile, restored: true, toSources: withoutLogin > 0 };
     language.value = startPoint(profile).language;
     sources.value = records.length;
     files.value = fromPhone;
+    logins.value = withoutLogin;
     screen.value = WELCOME_SCREEN;
     nav.reset(welcomeSpec);
     welcome = timers.set(
@@ -218,6 +232,7 @@ export function createBackupStart(options: BackupStartOptions): BackupStart {
     language,
     sources,
     files,
+    logins,
     done,
     dispose() {
       disposed = true;

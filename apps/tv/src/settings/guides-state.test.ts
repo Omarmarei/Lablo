@@ -924,6 +924,8 @@ describe('the settings screen', () => {
       backupStatus: vi.fn(() => Promise.resolve({ on: true, source: 'device' as const, code: null, sentAt: null, deleting: false })),
       setBackup: vi.fn(),
       restoreHeldBackup: vi.fn(),
+      profile: vi.fn(() => Promise.resolve(null)),
+      editProfile: vi.fn(),
     };
     const host = {
       request: () => Promise.resolve({ platform: 'webos', appId: 'com.lablo.iptv', secret: null, base: 'http://127.0.0.1:3100' }),
@@ -987,6 +989,31 @@ describe('the settings screen', () => {
     await t.press('BACK');
     expect(t.at()).toBe('live · channels 0');
     settings.dispose();
+  });
+
+  it('opens the sources screen over the settings on its row ("Welcome back"’s end, step 32d4b); Back lands on the row', async () => {
+    for (const withBackup of [false, true]) {
+      const t = setup();
+      const backup = withBackup ? { engine: {} as unknown as BackupPageEngine, host: { schedule: { held: signal(false), last: signal(null) } } as unknown as BackupPageHost } : undefined;
+      const settings = createSettings({
+        nav: t.nav,
+        engine: t.engine,
+        refreshNow: t.refresh.refreshNow,
+        offsetChanged: t.offsetChanged,
+        platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+        ...(backup === undefined ? {} : { backup }),
+      });
+      settings.openSources();
+      expect(t.nav.top.id).toBe('sources');
+      await flush();
+      expect(settings.sources.status.value).toBe('ready');
+      expect(t.at()).toBe('sources · sources 0');
+      await t.press('BACK');
+      expect(t.at()).toBe('settings · items 1');
+      await t.press('BACK');
+      expect(t.at()).toBe('live · channels 0');
+      settings.dispose();
+    }
   });
 
   it('opens the manual mapping from a channel of "Channels without a guide", and reads both lists again once its refresh settles (step 24e)', async () => {

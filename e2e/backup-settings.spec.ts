@@ -262,6 +262,8 @@ test('Arabic, a held backup: "Replace it" asks, then sends over it with no GET; 
     await expect(page.getByTestId('backup-code-box')).toHaveCount(0);
     await expect(page.getByTestId('backup-held')).toContainText('توجد على الخادم نسخة احتياطية أخرى لهذا التلفاز');
     await shoot(page, 'backup-settings-held-ar');
+    // Past the logins' row (step 32d4b).
+    await remote.go('DOWN', 'backup/switch/1');
     await remote.go('DOWN', 'backup/held/0');
     await remote.go('LEFT', 'backup/held/1');
     await remote.press('OK');
@@ -294,6 +296,8 @@ test('"Restore it": the app starts again on the held backup, "Welcome back" in i
     await expect(page.getByTestId('live')).toContainText('Second Channel');
     const backup = await openBackup(remote, false);
     await expect(backup).toHaveAttribute('data-held', 'true');
+    // Past the logins' row (step 32d4b).
+    await remote.go('DOWN', 'backup/switch/1');
     await remote.go('DOWN', 'backup/held/0');
     await remote.press('OK');
     await expect(page.getByTestId('backup-confirm')).toContainText('Restore this backup?');

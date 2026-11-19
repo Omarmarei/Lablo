@@ -12,7 +12,8 @@ import '../onboarding/onboarding.css';
 /**
  * "Looking for your backup" and "Welcome back" (RELAY step 32c2), in onboarding's panel. Looking:
  * the TV's language (nobody has picked one yet), scrypt's progress, "Skip". Welcome: the restored
- * profile's language, its one line about files to send again from the phone, "Continue". The
+ * profile's language, its one line about files to send again from the phone, one about sources
+ * that need their login again (step 32d4b), "Continue". The
  * root carries the focus as onboarding's does (`data-screen`, `data-zone`, `data-index`), for the
  * e2e's remote driver.
  */
@@ -21,8 +22,19 @@ export function BackupStartView({ start, i18n, item, focus }: { start: BackupSta
   const shownIn = i18n.locale.pseudo ? 'pseudo' : i18n.locale.language;
   if (start.screen.value === WELCOME_SCREEN) {
     const files = start.files.value;
+    const logins = start.logins.value;
     return (
-      <main class="onboarding" data-testid="backup-start" data-screen="welcome" data-zone={focus.zone} data-index={focus.index} data-language={shownIn} data-sources={start.sources.value} data-files={files}>
+      <main
+        class="onboarding"
+        data-testid="backup-start"
+        data-screen="welcome"
+        data-zone={focus.zone}
+        data-index={focus.index}
+        data-language={shownIn}
+        data-sources={start.sources.value}
+        data-files={files}
+        data-logins={logins}
+      >
         <div class="onboarding__panel">
           <h1 class="onboarding__title" data-testid="backup-title">
             {t('backup.welcomeTitle')}
@@ -31,6 +43,11 @@ export function BackupStartView({ start, i18n, item, focus }: { start: BackupSta
           {files > 0 && (
             <p class="onboarding__note" data-testid="backup-files">
               {t('backup.welcomeFiles', { settings: t('settings.title'), sources: t('sources.title'), add: t('sources.addPhone') })}
+            </p>
+          )}
+          {logins > 0 && (
+            <p class="onboarding__note" data-testid="backup-logins">
+              {t('backup.welcomeLogins', { n: logins, settings: t('settings.title'), sources: t('sources.title') })}
             </p>
           )}
           <div class="onboarding__actions">

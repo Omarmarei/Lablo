@@ -1,7 +1,8 @@
 import type { EpgFailure, EpgSummary } from '@lablo/data';
-import type { Focus, FocusBinding, ItemBinding } from '@lablo/ui';
+import type { Focus, FocusBinding, ItemBinding, Screen } from '@lablo/ui';
 import { Button, Dialog, Spinner, TextField, VirtualList, shapeDigits, useZone } from '@lablo/ui';
 import type { AppI18n } from '../i18n';
+import { errorText } from '../onboarding/load-text';
 import { PAIR_SCREEN } from '../pairing/pair-state';
 import { PairPage } from '../pairing/PairPage';
 import { BACKUP_CONFIRM, BACKUP_SCREEN } from './backup-state';
@@ -11,8 +12,10 @@ import { ADD_CANCEL, ADD_CONFIRM, GUIDES, HEADER_ADD, HEADER_UNMATCHED, LINK_FIE
 import { MAPPING_SCREEN } from './mapping-state';
 import { MappingPage, MappingReading } from './MappingPage';
 import type { Settings, SettingsItem } from './settings-state';
+import type { LoginField, LoginForm, LoginSource } from './source-login';
+import { LOGIN_CANCEL, LOGIN_FIELDS, LOGIN_SAVE, LOGIN_SCREEN, loginFieldId } from './source-login';
 import type { SourceRow, SourcesList } from './sources-state';
-import { SOURCES_SCREEN } from './sources-state';
+import { SOURCES_SCREEN, shownHost } from './sources-state';
 import type { UnmatchedList } from './unmatched-state';
 import { UNMATCHED } from './unmatched-state';
 import './settings.css';
@@ -201,17 +204,27 @@ export function sourceKindText(t: Translate, row: SourceRow): string {
  * A source's line under its name: when it was last updated ("Updated {day}, {time}", or "Not
  * updated yet"); for a source on a blocked server, that it isn't any more, since when it was. A
  * file from the phone is never updated by itself: when it was sent (step 31d2b1), or, with no
- * catalog (a restored backup holds no file, step 32c2), that it has to be sent again.
+ * catalog (a restored backup holds no file, step 32c2), that it has to be sent again. Step 32d4b:
+ * a save's refresh running ("Updating…") or why it failed, else that it needs its login or link.
  */
 export function statusText(i18n: AppI18n, row: SourceRow): string {
+  const answer = row.answer;
+  if (answer !== null) return answer.state === 'updating' ? i18n.t('sources.updating') : errorText(i18n.t, answer.code, answer.status);
+  if (row.needs !== null) return row.needs === 'login' ? i18n.t('sources.needsLogin') : i18n.t('sources.needsLink');
   const at = row.checkedAt === null ? null : new Date(row.checkedAt);
   if (row.type === 'm3u-file') return at === null ? i18n.t('sources.fileAgain') : i18n.t('sources.fileSent', { day: i18n.date(at, 'day'), time: i18n.time(at) });
   if (row.blocked) return at === null ? i18n.t('sources.blocked') : i18n.t('sources.blockedSince', { day: i18n.date(at, 'day'), time: i18n.time(at) });
   return at === null ? i18n.t('sources.notUpdated') : i18n.t('sources.updated', { day: i18n.date(at, 'day'), time: i18n.time(at) });
 }
 
+/** A source's line is in the warning colour: blocked, without its login, or its save failed (step 32d4b). */
+export function warns(row: SourceRow): boolean {
+  return row.blocked || row.needs !== null || (row.answer !== null && row.answer.state === 'failed');
+}
+
 export function SourceItem({ i18n, row, index, item }: { i18n: AppI18n; row: SourceRow; index: number; item: ItemBinding }) {
   const { t } = i18n;
+  const answer = row.answer;
   return (
     <div
       class={rowClass('guides__row sources__row', item)}
@@ -223,6 +236,9 @@ export function SourceItem({ i18n, row, index, item }: { i18n: AppI18n; row: Sou
       data-state={item.state}
       data-checked={row.checkedAt ?? ''}
       data-blocked={String(row.blocked)}
+      data-needs={row.needs ?? ''}
+      data-answer={answer === null ? '' : answer.state}
+      data-code={answer !== null && answer.state === 'failed' ? answer.code : ''}
       onMouseMove={item.onHover}
       onClick={item.onPress}
     >
@@ -240,8 +256,8 @@ export function SourceItem({ i18n, row, index, item }: { i18n: AppI18n; row: Sou
           )}
         </span>
       </div>
-      {/* One line under the name (a row has room for two): the warning's colour when blocked. */}
-      <p class={row.blocked ? 'guides__failure' : 'guides__status'} data-testid={`source-${index}-status`}>
+      {/* One line under the name (a row has room for two): the warning's colour when blocked, without its login, or its save failed. */}
+      <p class={warns(row) ? 'guides__failure' : 'guides__status'} data-testid={`source-${index}-status`}>
         {statusText(i18n, row)}
       </p>
     </div>
@@ -249,8 +265,8 @@ export function SourceItem({ i18n, row, index, item }: { i18n: AppI18n; row: Sou
 }
 
 /** The header's "Add from your phone" (step 31c2a). A hook of its own: the screen has the zone only when the app can pair. */
-function AddFromPhone({ i18n, binding }: { i18n: AppI18n; binding: FocusBinding }) {
-  const header = useZone(binding, binding.nav.top, 'header');
+function AddFromPhone({ i18n, binding, screen }: { i18n: AppI18n; binding: FocusBinding; screen: Screen }) {
+  const header = useZone(binding, screen, 'header');
   return (
     <div class="settings__end">
       <Button label={i18n.t('sources.addPhone')} variant="primary" {...header.item(0)} testId="sources-add-phone" />
@@ -258,17 +274,76 @@ function AddFromPhone({ i18n, binding }: { i18n: AppI18n; binding: FocusBinding 
   );
 }
 
-/** The sources screen (step 30c3a): each source, its server and when it was last updated, or that it is blocked. */
-export function SourcesPage({ i18n, binding, list }: { i18n: AppI18n; binding: FocusBinding; list: SourcesList }) {
+/** A login form's field: its label, and its hint (an M3U link: the host it was on). */
+export function loginLabel(t: Translate, field: LoginField): string {
+  if (field === 'server') return t('field.server');
+  if (field === 'username') return t('field.username');
+  return field === 'password' ? t('field.password') : t('field.playlist');
+}
+
+export function loginHint(t: Translate, field: LoginField, source: LoginSource): string | undefined {
+  if (field === 'server') return t('field.serverHint', { scheme: NAMES.http });
+  if (field !== 'playlist') return undefined;
+  const host = source.type === 'm3u' && source.url === null ? shownHost(source.origin) : '';
+  return host === '' ? t('field.linkHint', { http: NAMES.http, https: NAMES.https }) : t('sources.linkWas', { host });
+}
+
+/** The login form as drawn (step 32d4b), hook-free: the fields, then "Save" and "Cancel". */
+export function LoginFormView({ i18n, form, source, field, action }: { i18n: AppI18n; form: LoginForm; source: LoginSource; field: (index: number) => ItemBinding; action: (index: number) => ItemBinding }) {
   const { t } = i18n;
+  const values = form.values.value;
+  const problems = form.problems.value;
+  const fields = LOGIN_FIELDS[source.type];
+  const title = source.type === 'xtream' ? t('sources.loginTitle', { name: source.name }) : t('sources.linkTitle', { name: source.name });
+  return (
+    <Dialog title={title} message={t('sources.formBody')} testId="source-login">
+      <div class="guides__form sources__form">
+        {fields.map((id, i) => (
+          <TextField
+            key={id}
+            id={loginFieldId(id)}
+            label={loginLabel(t, id)}
+            value={values[id] ?? ''}
+            kind={id === 'password' ? 'password' : id === 'username' ? 'text' : 'url'}
+            hint={loginHint(t, id, source)}
+            error={problemText(t, problems[id] ?? null)}
+            onValue={(value) => form.setValue(id, value)}
+            edit={form.editor.field(loginFieldId(id))}
+            {...field(i)}
+            testId={`source-login-${id}`}
+          />
+        ))}
+        <div class="guides__actions">
+          <Button label={t('sources.save')} variant="primary" {...action(LOGIN_SAVE)} testId="source-login-save" />
+          <Button label={t('action.cancel')} {...action(LOGIN_CANCEL)} testId="source-login-cancel" />
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+function LoginDialog({ i18n, binding, form, source }: { i18n: AppI18n; binding: FocusBinding; form: LoginForm; source: LoginSource }) {
+  const fields = useZone(binding, binding.nav.top, 'fields');
+  const actions = useZone(binding, binding.nav.top, 'actions');
+  return <LoginFormView i18n={i18n} form={form} source={source} field={(i) => fields.item(i)} action={(i) => actions.item(i)} />;
+}
+
+/** The sources screen (step 30c3a): each source, its server and when it was last updated, or that it is blocked; the login form over it (step 32d4b). */
+export function SourcesPage({ i18n, binding, focus, list }: { i18n: AppI18n; binding: FocusBinding; focus: Focus; list: SourcesList }) {
+  const { t } = i18n;
+  const screen = list.screen.value;
+  if (screen === null) return null;
   const status = list.status.value;
   const rows = list.rows.value;
   const blocked = rows.filter((row) => row.blocked).length;
+  const needs = rows.filter((row) => row.needs !== null).length;
+  const form = list.form;
+  const editing = form === null ? null : form.source.value;
   return (
-    <div class="settings__page" data-testid="sources" data-status={status} data-count={rows.length} data-blocked={blocked}>
+    <div class="settings__page" data-testid="sources" data-status={status} data-count={rows.length} data-blocked={blocked} data-needs={needs}>
       <header class="settings__header">
         <h1 class="settings__title">{t('sources.title')}</h1>
-        {list.canAdd && <AddFromPhone i18n={i18n} binding={binding} />}
+        {list.canAdd && <AddFromPhone i18n={i18n} binding={binding} screen={screen} />}
       </header>
       <p class="guides__intro">{t('sources.intro')}</p>
       {status === 'loading' && (
@@ -284,7 +359,7 @@ export function SourcesPage({ i18n, binding, list }: { i18n: AppI18n; binding: F
       {rows.length > 0 && (
         <VirtualList
           binding={binding}
-          screen={binding.nav.top}
+          screen={screen}
           zone="sources"
           itemSize={GUIDES.rowHeight}
           gap={GUIDES.rowGap}
@@ -296,6 +371,7 @@ export function SourcesPage({ i18n, binding, list }: { i18n: AppI18n; binding: F
           }}
         />
       )}
+      {focus.screen === LOGIN_SCREEN && form !== null && editing !== null && <LoginDialog i18n={i18n} binding={binding} form={form} source={editing} />}
     </div>
   );
 }
@@ -631,7 +707,7 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       data-ready="true"
       data-language={i18n.locale.pseudo ? 'pseudo' : i18n.locale.language}
       data-pending={guides.pending.value + settings.unmatched.pending.value + mapping.pending.value + settings.sources.pending.value + (backup === null ? 0 : backup.pending.value)}
-      data-editing={guides.editor.editing.value ?? mapping.editor.editing.value ?? ''}
+      data-editing={guides.editor.editing.value ?? mapping.editor.editing.value ?? settings.sources.form?.editor.editing.value ?? ''}
       data-screen={focus.screen}
       data-zone={focus.zone}
       data-index={focus.index}
@@ -642,7 +718,7 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       {onGuides && <GuidesPage i18n={i18n} binding={binding} focus={focus} guides={guides} />}
       {focus.screen === 'unmatched' && <UnmatchedPage i18n={i18n} binding={binding} list={settings.unmatched} reading={mapping.reading.value} />}
       {focus.screen === MAPPING_SCREEN && <MappingPage i18n={i18n} binding={binding} mapping={mapping} />}
-      {focus.screen === SOURCES_SCREEN && <SourcesPage i18n={i18n} binding={binding} list={settings.sources} />}
+      {(focus.screen === SOURCES_SCREEN || focus.screen === LOGIN_SCREEN) && <SourcesPage i18n={i18n} binding={binding} focus={focus} list={settings.sources} />}
       {focus.screen === PAIR_SCREEN && settings.pairing !== null && <PairPage pairing={settings.pairing} binding={binding} i18n={i18n} />}
       {(focus.screen === BACKUP_SCREEN || focus.screen === BACKUP_CONFIRM) && backup !== null && <BackupPageScreen i18n={i18n} binding={binding} focus={focus} page={backup} />}
     </main>

@@ -321,9 +321,10 @@ function showHello(into: Element): void {
  * onboarding (`null`: the TV's). OK on a channel opens the player (step 20a). `resume` (step
  * 20c1): the channel watched last plays at once, over the live screen, before its catalog loads.
  * `restored` (step 32c2): the profile has just come back from a backup, with none of its catalogs:
- * the refresh schedule's first check comes at once.
+ * the refresh schedule's first check comes at once. `toSources` (step 32d4b): a restored source
+ * needs its login again, so Settings › Sources opens over the live screen.
  */
-function showLive(into: Element, language: Language | null, resume: LastChannel | null = null, restored = false): void {
+function showLive(into: Element, language: Language | null, resume: LastChannel | null = null, restored = false, toSources = false): void {
   let player: Player | null = null;
   const readFacts = (): void => {
     dataEngine()
@@ -469,6 +470,17 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
         },
       );
   }
+  /** A source's catalog came in outside the schedule (the phone's add, a login given again): the screens read it, and its guides. */
+  const sourceAdded = (): void => {
+    readFacts();
+    live.catalogChanged();
+    movies.catalogChanged();
+    series.catalogChanged();
+    search.catalogChanged();
+    home.catalogChanged();
+    live.guidesChanged();
+    guide.guidesChanged();
+  };
   const settings = createSettings({
     nav: live.nav,
     engine: dataEngine(),
@@ -493,16 +505,18 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
         },
       },
     },
-    sourceAdded: () => {
-      readFacts();
-      live.catalogChanged();
-      movies.catalogChanged();
-      series.catalogChanged();
-      search.catalogChanged();
-      home.catalogChanged();
-      live.guidesChanged();
-      guide.guidesChanged();
-    },
+    sourceAdded,
+    // A login given again (step 32d4b): the source's own refresh with the schedule held (the
+    // schedule keeps a refused `needs-login` for 2 h, and `refreshNow` reads only the guides), then
+    // its guides at once and the screens.
+    refreshSource: (src, source) =>
+      quiet(() => deviceTier().then((tier) => dataEngine().refresh({ src, source }, { lowTier: tier === 'low' }))).then((result) => {
+        if (result.status === 'committed') {
+          void refreshes?.refreshNow();
+          sourceAdded();
+        }
+        return result;
+      }),
   });
   openSettings = () => settings.open();
   // OK on a channel opens the player on the live navigator (step 20a); Back returns to its row.
@@ -547,6 +561,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} home={home} />, into);
   startRefreshes(live, guide, [movies, series], search, home, readFacts, restored ? 0 : undefined);
   backup.start();
+  if (toSources) settings.openSources();
   // Under the gate's `disable-app` or update (step 30c2a): the player closes, the refreshes and the backup's uploads stop, until it lifts.
   gated = {
     stop: () => {
@@ -621,11 +636,11 @@ function showOnboarding(into: Element, language: Language | null): void {
  * so the channel watched last doesn't play by itself (its catalog is being read again, and its
  * address may be months old) and the catalogs are read at once.
  */
-function startWith(into: Element, profile: LoadedProfile | null, restored: boolean): void {
+function startWith(into: Element, profile: LoadedProfile | null, restored: boolean, toSources = false): void {
   memory.load(profile);
   progress.load(profile);
   const start = startPoint(profile);
-  if (start.screen === 'home') showLive(into, start.language, restored ? null : start.resume, restored);
+  if (start.screen === 'home') showLive(into, start.language, restored ? null : start.resume, restored, toSources);
   else showOnboarding(into, start.language);
   // The gate over every screen (step 30c2a), in its own root after #app; nothing shows until the config says so.
   const gateRoot = document.createElement('div');
@@ -645,7 +660,7 @@ function startRestored(into: Element, profile: LoadedProfile): void {
   showFocus(welcome.nav);
   render(<BackupStartApp platform={platform} start={welcome} />, into);
   void welcome.done.then((end) => {
-    startWith(into, end.profile, end.restored);
+    startWith(into, end.profile, end.restored, end.toSources);
     welcome.dispose();
   });
 }
@@ -668,7 +683,7 @@ function startWithoutProfile(into: Element): void {
     render(<BackupStartApp platform={platform} start={look} />, into);
     void look.done.then((end) => {
       lookingUp = false;
-      startWith(into, end.profile, end.restored);
+      startWith(into, end.profile, end.restored, end.toSources);
       look.dispose();
     });
   });
