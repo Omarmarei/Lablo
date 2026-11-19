@@ -2099,6 +2099,8 @@ envelope   = {v:1, kdf:"scrypt-15-8-1", nonce:24B, ct: secretbox(gzip(profileJSO
   - unit: `telemetry-service.test.ts` 20, `telemetry-state.test.ts` 15, `telemetry-events.test.ts` 8, the profile's edit, `test/tv-data-engine.test.ts` +2, `test/telemetry-worker-bundle.test.ts` (the bundle in the Chromium 53 stand-in realm: a 500 kept, then posted with the same ID, read whole by `telemetryBatchSchema`; off posts nothing), the hook, the buckets' subpath and its lint rule;
   - e2e `e2e/telemetry.spec.ts` (3): the start's events posted from the live screen, read whole, with no login, link, host or port of the playlist's in any string; the same ID and no repeated `capability` after a restart; a 500 kept and sent again; the switch off clearing the queue and the ID; a start with it off making none; a kind sampled at 0 never sent.
 - **Sizes:** main.js 478.6 KB on Tizen (+3.9 KB) and 465.9 KB on webOS. Its new files add no core-js module (`es.array.push` and `es.promise` were there). The worker pulls the typed arrays and `es.json.stringify`.
+- **Mutation:** `artifacts/mutate33b1.py`, 179 written first (writing them closed nine test gaps and took out fifteen dead checks); 176 caught on the first run, two gaps closed and one equivalent removed: 178/178.
+- **Merged:** PR #144 as merge commit `3e00eec` on green CI on the first run (web 9 m, verify 15 m, media 30 m, engines 32 m).
 
 ---
 
