@@ -22,8 +22,8 @@ import { LoadError } from './loader';
  *    from the phone (`UserGuide`s named after the source, after the user's guides already listed: step 31c2a), read through
  *    `refreshEpg` with `due`. A guide that fails doesn't fail the source: the EPG refresh keeps
  *    its failure and retries it later (step 9b).
- * 4. The source goes into the profile (the login with it, in IndexedDB only until step 32
- *    encrypts it), then the typed guides into the guide list (step 22b), then the counts.
+ * 4. The source goes into the profile (the login with it, in IndexedDB only and unencrypted:
+ *    ADR-013), then the typed guides into the guide list (step 22b), then the counts.
  *
  * The phone's M3U file (step 31d2b1) has no link: the draft's `file()` fetches its frames in the
  * pair worker once the refresh slot is free, and the refresh reads them (`RefreshOptions.file`).

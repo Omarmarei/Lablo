@@ -39,7 +39,7 @@ export interface BackupKeys {
   /** Sent as `X-Write-Token` to put or delete the envelope. */
   readonly writeToken: string;
   readonly encKey: Uint8Array;
-  /** Encrypts the credentials kept on the TV. */
+  /** Derived and unused: ADR-013 keeps the credentials on the TV unencrypted at rest. */
   readonly localKey: Uint8Array;
 }
 
