@@ -14,6 +14,7 @@ import { backupStandIn } from './backup-stand-in';
 import type { ByteRequest, ByteResponse, ByteTransport } from './bytes';
 import { NetworkError } from './bytes';
 import { getValue, openDatabase, transact } from './idb';
+import { withoutLogins } from './logins';
 import type { AnyProfile, ProfileDoc } from './profile';
 import { PROFILE_VERSION, applyProfileEdit, codeRestoreMayWrite, emptyProfile, listSnapshots, noPlayerMemory, saveProfile, storedProfileDoc, updateProfile } from './profile';
 import type { RpcPort } from './rpc';
@@ -765,6 +766,84 @@ describe('BackupService.restore', () => {
     });
     await expect(service.restore(DEVICE)).rejects.toThrow('no memory');
     expect({ opens, closes }).toEqual({ opens: 1, closes: 1 });
+  });
+});
+
+describe('the backup without logins (step 32d4a)', () => {
+  const LINK = { id: 's3', type: 'm3u' as const, name: 'Link', url: 'http://lists.test:8000/get.php?username=user3&password=pass-secret-3', added: 3 };
+  const ITEM = { key: 'x:s1:live:7', src: 's1', kind: 'live', name: 'News', url: 'http://panel.test/live/user1/pass-secret-1/7.ts', catchup: null };
+  const LAST = { item: ITEM, number: 7, category: null, index: 0, started: 4 };
+  const full = (extra: Record<string, unknown> = {}): ProfileDoc =>
+    docWith([SOURCE, FILE, LINK], { guides: [{ id: 'g1', url: 'http://epg.test/token-secret-4/guide.xml' }], player: { ...noPlayerMemory(), last: LAST }, channels: [LAST], ...extra });
+  const OFF = full({ backupLogins: false });
+  const MARKERS = ['pass-secret-1', 'user1', 'pass-secret-3', 'user3', 'token-secret-4', 'get.php', 'guide.xml'];
+  const edit = async (factory: IDBFactory, change: Parameters<typeof applyProfileEdit>[1]): Promise<void> => {
+    expect(await updateProfile(await db(factory), (doc) => applyProfileEdit(doc, change))).toBe(true);
+  };
+
+  it('sends the document without its logins and links when the profile says so, and leaves the stored one whole', async () => {
+    const s = setup();
+    await save(s.factory, OFF);
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'sent' });
+    expect(lean(s.api)).toEqual(['GET device - 404', 'PUT device device 200']);
+    const bare = held(s.api, DEVICE)!;
+    expect(bare).toEqual(withoutLogins(OFF));
+    expect(bare['sources']).toEqual([
+      { id: 's1', type: 'xtream', name: 'Panel', account: null, added: 1, base: 'http://panel.test' },
+      FILE,
+      { id: 's3', type: 'm3u', name: 'Link', url: null, added: 3, origin: 'http://lists.test:8000' },
+    ]);
+    expect(bare['guides']).toEqual([{ id: 'g1', url: null, origin: 'http://epg.test' }]);
+    expect(bare['backupLogins']).toBe(false);
+    const plain = JSON.stringify(bare);
+    for (const marker of MARKERS) expect([marker, plain.indexOf(marker)]).toEqual([marker, -1]);
+    expect(await stored(s.factory)).toEqual(OFF);
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toEqual(sent(DEVICE, withoutLogins(OFF)));
+  });
+
+  it('sends at the next upload when the choice changes, and nothing for a login changed while off', async () => {
+    const s = setup();
+    await save(s.factory, full());
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'sent' });
+    expect(held(s.api, DEVICE)).toEqual(full());
+
+    await edit(s.factory, { kind: 'backupLogins', on: false });
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'sent' });
+    expect(lean(s.api).slice(2)).toEqual(['PUT device device 200']);
+    expect(held(s.api, DEVICE)).toEqual(withoutLogins(OFF));
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'same' });
+
+    // A new password while off: nothing to send.
+    const moved = { ...SOURCE, account: { ...SOURCE.account, password: 'pass-secret-5' } };
+    await edit(s.factory, { kind: 'source', source: moved });
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'same' });
+    expect(s.api.requests).toHaveLength(3);
+
+    // On again: the logins go, the new password with them.
+    await edit(s.factory, { kind: 'backupLogins', on: true });
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'sent' });
+    expect(lean(s.api).slice(3)).toEqual(['PUT device device 200']);
+    expect(held(s.api, DEVICE)).toEqual(full({ sources: [moved, FILE, LINK] }));
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toEqual(sent(DEVICE, full({ sources: [moved, FILE, LINK] })));
+  });
+
+  it('restores a backup made without logins: the sources and guides without them, the choice back, and the logins given again are not sent', async () => {
+    const api = backupStandIn();
+    const before = setup({ api });
+    await save(before.factory, OFF);
+    expect(await before.service.upload(DEVICE)).toEqual({ state: 'sent' });
+    const s = setup({ api });
+    expect(await s.service.restore(DEVICE)).toEqual({ state: 'restored', language: 'ar', sources: 3 });
+    expect(await stored(s.factory)).toEqual(withoutLogins(OFF));
+    expect(await kv(s.factory, BACKUP_SENT_KEY)).toEqual(sent(DEVICE, withoutLogins(OFF)));
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'same' });
+    // The logins given again (32d4b) stay on the TV.
+    await edit(s.factory, { kind: 'source', source: SOURCE });
+    await edit(s.factory, { kind: 'source', source: LINK });
+    await edit(s.factory, { kind: 'guide', change: { op: 'link', id: 'g1', url: 'http://epg.test/token-secret-4/guide.xml' } });
+    expect(((await stored(s.factory)) as ProfileDoc).sources).toEqual([SOURCE, FILE, LINK]);
+    expect(await s.service.upload(DEVICE)).toEqual({ state: 'same' });
+    expect(lean(api).slice(2)).toEqual(['GET device - 200']);
   });
 });
 

@@ -34,7 +34,7 @@ import {
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WorkerLike } from '../apps/tv/src/data/engine';
-import { BlockedSourceError, DataEngine, sourceUrlOf } from '../apps/tv/src/data/engine';
+import { BlockedSourceError, DataEngine, NeedsLoginError, sourceUrlOf } from '../apps/tv/src/data/engine';
 import { createEngineLoader } from '../apps/tv/src/onboarding/engine-loader';
 import type { SourceDraft } from '../apps/tv/src/onboarding/form';
 import { fileError } from '../apps/tv/src/pairing/pair-draft';
@@ -743,6 +743,31 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     expect(await s.engine.refresh({ src: 'free', source: { type: 'm3u', url: 'http://free.example/list.m3u' } })).toMatchObject({ status: 'committed' });
   });
 
+  it('refuses a catalog refresh of a source without its login before anything: no worker, no slot, no blocklist (step 32d4a)', async () => {
+    const asked: string[] = [];
+    const s = setup((url) => {
+      asked.push(url);
+      return { body: playlist(10) };
+    });
+    const blocked = vi.spyOn(s.engine, 'blocked');
+    const panel = { src: 's1', source: { type: 'xtream' as const, account: null, base: 'http://panel.example:8080' } };
+    const link = { src: 's2', source: { type: 'm3u' as const, url: null, origin: 'http://lists.example' }, force: true };
+    await expect(s.engine.refresh(panel)).rejects.toMatchObject({ name: 'NeedsLoginError', code: 'needs-login' });
+    await expect(s.engine.refresh(link)).rejects.toBeInstanceOf(NeedsLoginError);
+    expect(s.started).toEqual({ query: 0, ingest: 0, epg: 0, config: 0, pair: 0 });
+    expect(asked).toEqual([]);
+    expect(blocked).not.toHaveBeenCalled();
+    expect(s.engine.refreshing).toBe(false);
+    // What they kept is their server, for the screens and the blocklist.
+    expect(sourceUrlOf(panel.source)).toBe('http://panel.example:8080');
+    expect(sourceUrlOf(link.source)).toBe('http://lists.example');
+    // A source with its login still loads; `force` goes with the job.
+    expect(await s.engine.refresh(job())).toMatchObject({ status: 'committed' });
+    expect(await s.engine.refresh(job())).toMatchObject({ status: 'unchanged' });
+    expect(await s.engine.refresh({ ...job(), force: false })).toMatchObject({ status: 'unchanged' });
+    expect(await s.engine.refresh({ ...job(), force: true })).toMatchObject({ status: 'committed' });
+  });
+
   it("lets a source through when the blocklist can't be read (step 30c3a)", async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const s = setup((url) => (url === CONFIG_URL ? { body: configAnswer(CONFIG_DOC) } : { body: playlist(10) }));
@@ -991,12 +1016,12 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     };
     expect(await send()).toEqual({ live: 50, movies: 0, series: 0 });
     const record = { id: 's1', type: 'm3u-file', name: 'Family list', added: NOW };
-    expect((await s.engine.profile())!.doc).toMatchObject({ v: 8, sources: [record], guides: [] });
+    expect((await s.engine.profile())!.doc).toMatchObject({ v: 9, sources: [record], guides: [] });
     expect(await s.engine.summary()).toEqual({ sources: 1, items: 50, stale: 0 });
     // Sent again under the same name: the same source, its catalog replaced.
     plain = second;
     expect(await send()).toEqual({ live: 30, movies: 0, series: 0 });
-    expect((await s.engine.profile())!.doc).toMatchObject({ v: 8, sources: [record] });
+    expect((await s.engine.profile())!.doc).toMatchObject({ v: 9, sources: [record] });
     expect(await s.engine.summary()).toEqual({ sources: 1, items: 30, stale: 0 });
     expect(await s.engine.sourceIds()).toEqual(['s1']);
     expect(s.live()).toBe(0);

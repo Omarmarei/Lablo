@@ -89,16 +89,19 @@ function readChoice(value: unknown): TrackChoice | null {
 
 /**
  * The profile's last channel, or `null` when it has none or it isn't one this app can play: a
- * live item with its key, source, URL and name, a number and a row.
+ * live item with its key, source, URL and name, a number and a row. A backup made without logins
+ * (step 32d4a) brings it back with no URL: the start plays nothing.
  */
 export function lastChannelOf(profile: LoadedProfile | null): LastChannel | null {
   const player = profile === null ? undefined : (profile.doc as { player?: unknown }).player;
-  return readChannel(isRecord(player) ? player['last'] : undefined);
+  const last = readChannel(isRecord(player) ? player['last'] : undefined);
+  return last !== null && last.item.url !== '' ? last : null;
 }
 
 /**
  * The profile's channels played last (step 28b2), newest first: the ones this app can play (as
- * `lastChannelOf`), at most `RECENT_CHANNELS` (none: `[]`).
+ * `lastChannelOf`, a URL or none: Home plays them from the catalog by key), at most
+ * `RECENT_CHANNELS` (none: `[]`).
  */
 export function recentChannelsOf(profile: LoadedProfile | null): LastChannel[] {
   const stored = profile === null ? undefined : (profile.doc as { channels?: unknown }).channels;

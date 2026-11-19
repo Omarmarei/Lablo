@@ -170,11 +170,11 @@ test.describe("playing a show's episode, and resuming it (RELAY step 27c1)", () 
       expect(track.y + track.height).toBeLessThanOrEqual(box.y + box.height);
       expect(track.y + track.height).toBeGreaterThan(box.y + box.height - 8);
       expect(await rowBar(page, 0)).toBeNull();
-      // The profile, version 8: the episode's place and the show's last episode.
+      // The profile, version 9: the episode's place and the show's last episode.
       await expect
         .poll(() => stored(page))
         .toMatchObject({
-          v: 8,
+          v: 9,
           progress: { [E2]: { positionMs: LEFT_MS, lengthMs: LENGTH_MS } },
           shows: { [SHOW_KEY]: { episode: E2, watched: false } },
         });

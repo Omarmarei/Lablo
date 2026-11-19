@@ -248,6 +248,25 @@ describe('which guides, and when', () => {
     expect(epgGuides([{ src: 'pl', type: 'm3u' }], [])).toEqual([]);
   });
 
+  it('lists no guide without its link and no panel guide without its login (step 32d4a)', () => {
+    const account = { base: 'http://panel.test:8080', username: 'u', password: 'p' };
+    const guides = epgGuides(
+      [
+        { src: 'bare', type: 'xtream', account: null },
+        { src: 'xt', type: 'xtream', account },
+      ],
+      [meta('bare'), meta('xt')],
+      [
+        { id: 'g1', url: null, origin: 'http://u.test' },
+        { id: 'g2', url: 'http://u.test/two.xml' },
+      ],
+    );
+    expect(guides).toEqual([
+      { epgSrc: 'u~g2', url: 'http://u.test/two.xml', zone: { minutes: 0 } },
+      { epgSrc: 'xt:xmltv', url: 'http://panel.test:8080/xmltv.php?username=u&password=p', zone: { panel: 'xt' } },
+    ]);
+  });
+
   it("reads a playlist's own panel guide (xmltv.php with a login) in its panel's zone (step 25b)", () => {
     const panelGuide = 'http://panel.test:8080/xmltv.php?username=u&password=p';
     const guides = epgGuides([{ src: 'pl', type: 'm3u' }], [meta('pl', { epgUrls: [panelGuide, 'http://a.test/xmltv.php', 'http://a.test/guide.xml?username=u&password=p'] })]);

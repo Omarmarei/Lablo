@@ -635,6 +635,20 @@ describe('the live screen', () => {
     expect(engine.focusCalls[engine.focusCalls.length - 1]).toMatchObject({ key: 'x:s2:live:0-0', source: { type: 'xtream' } });
   });
 
+  it('asks no short EPG for a channel of a source without its login (step 32d4a)', async () => {
+    const engine = new FakeEngine();
+    const sources = [
+      { id: 's1', type: 'm3u', name: 'Home', url: null, origin: 'http://lists.test', added: 1 },
+      { id: 's2', type: 'xtream', name: 'Panel', account: null, base: 'http://panel.test', added: 2 },
+    ];
+    engine.profileDoc = { doc: { v: 9, sources }, newer: false, migratedFrom: null };
+    const t = await setup({ engine });
+    expect(t.at()).toBe('live · channels 0');
+    await t.press('LEFT', 'DOWN', 'DOWN', 'DOWN', 'OK');
+    expect(t.at()).toBe('live · channels 0');
+    expect(engine.focusCalls.filter((c) => c !== null)).toEqual([]);
+  });
+
   it('counts every request in flight, the focus wait included, back to 0', async () => {
     const engine = new FakeEngine();
     engine.hold = new Set(['focus']);

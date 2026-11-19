@@ -223,6 +223,13 @@ describe('lastChannelOf', () => {
     ];
     for (const value of bad) expect(lastChannelOf(profile({ last: value }))).toBeNull();
   });
+
+  it('plays nothing for a channel a backup without logins brought back with no URL, which Home still lists (step 32d4a)', () => {
+    const bare = { ...last, item: { ...item(5), url: '', catchup: null } };
+    expect(lastChannelOf(profile({ last: bare }))).toBeNull();
+    const doc = { v: 9, player: { last: bare }, channels: [bare, last] };
+    expect(recentChannelsOf({ doc, newer: false, migratedFrom: null })).toEqual([bare, last]);
+  });
 });
 
 describe('recentChannelsOf', () => {

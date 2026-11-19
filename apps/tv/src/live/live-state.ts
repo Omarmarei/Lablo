@@ -1,7 +1,7 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
 import type { CatalogItem, ContentKey, ContentKind } from '@lablo/core';
-import type { CategoryInfo, EpgNowNext, LoadedProfile, ShortEpgNowNext, ShortEpgSource, SourceRecord } from '@lablo/data';
+import type { CategoryInfo, EpgNowNext, LoadedProfile, ShortEpgNowNext, ShortEpgSource, StoredSource } from '@lablo/data';
 import type { Platform } from '@lablo/platform-api';
 import type { Focus, FocusBinding, Navigator, Screen, ScreenSpec, ZoneSpec } from '@lablo/ui';
 import { LAYOUT, SCREEN, bindFocus, createNavigator, fits } from '@lablo/ui';
@@ -291,10 +291,15 @@ export function findEntry(entries: readonly RailEntry[], ref: NonNullable<RailRe
   return -1;
 }
 
-/** The source a focused channel's short EPG is asked through (its panel's login, or its link); `null` for a file from the phone, which has neither. */
-function epgSourceOf(record: SourceRecord): ShortEpgSource | null {
+/**
+ * The source a focused channel's short EPG is asked through (its panel's login, or its link);
+ * `null` for a file from the phone, which has neither, and for a source without its login (step
+ * 32d4a).
+ */
+function epgSourceOf(record: StoredSource): ShortEpgSource | null {
   if (record.type === 'm3u-file') return null;
-  return record.type === 'xtream' ? { type: 'xtream', account: record.account } : { type: 'm3u', url: record.url };
+  if (record.type === 'xtream') return record.account === null ? null : { type: 'xtream', account: record.account };
+  return record.url === null ? null : { type: 'm3u', url: record.url };
 }
 
 const defaultTimers: Timers = {
@@ -711,14 +716,14 @@ export function createLive(options: LiveOptions): Live {
   };
 
   /** The stored sources and each one's live categories. */
-  const readSources = async (): Promise<{ records: SourceRecord[]; lists: CategoryInfo[][] }> => {
+  const readSources = async (): Promise<{ records: StoredSource[]; lists: CategoryInfo[][] }> => {
     const records = storedSources(await engine.profile());
     const lists = await Promise.all(records.map((r) => engine.categories(r.id, LIVE_KIND)));
     return { records, lists };
   };
 
   /** Takes the sources read: their short-EPG logins and the rail (the list isn't touched). */
-  const takeSources = (records: readonly SourceRecord[], lists: readonly CategoryInfo[][]): RailEntry[] => {
+  const takeSources = (records: readonly StoredSource[], lists: readonly CategoryInfo[][]): RailEntry[] => {
     sources = new Map<string, ShortEpgSource>();
     for (const record of records) {
       const source = epgSourceOf(record);

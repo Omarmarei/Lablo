@@ -1,5 +1,5 @@
 import type { DeviceTier } from '@lablo/core';
-import type { EpgCatalogSource, EpgOutcome, EpgRefreshResult, IngestResult, IngestSource, LoadedProfile, SourceMeta, SourceRecord } from '@lablo/data';
+import type { EpgCatalogSource, EpgOutcome, EpgRefreshResult, IngestResult, LoadedProfile, RefreshSource, SourceMeta, SourceRecord, StoredSource } from '@lablo/data';
 import { INGEST_VERSION } from '@lablo/data/client';
 import type { LifecycleEvent } from '@lablo/platform-api';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -40,7 +40,7 @@ interface Held<T> {
 }
 
 interface RefreshCall {
-  readonly job: { src: string; source: IngestSource };
+  readonly job: { src: string; source: RefreshSource };
   readonly options: RefreshOptions;
 }
 
@@ -77,7 +77,7 @@ class FakeEngine implements SchedulerEngine {
     return Promise.resolve(this.metas);
   }
 
-  refresh(job: { src: string; source: IngestSource }, options: RefreshOptions): Promise<IngestResult> {
+  refresh(job: { src: string; source: RefreshSource }, options: RefreshOptions): Promise<IngestResult> {
     this.refreshCalls.push({ job, options });
     const answer = this.answers.get(job.src) ?? 'unchanged';
     if (answer instanceof Error) return Promise.reject(answer);
@@ -427,6 +427,25 @@ describe('the refresh schedule', () => {
     for (let i = 0; i < 8; i += 1) await t.run(CHECK_MS);
     expect(engine.refreshCalls.map((c) => c.job.src)).toEqual(['s1', 's2', 's1', 's1']);
     expect(warn).toHaveBeenCalledWith('A catalog refresh failed', expect.any(Error));
+  });
+
+  it('asks for a source without its login with what it kept, holds the refusal quietly, and reads no panel guide for it (step 32d4a)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const engine = new FakeEngine();
+    const bare: StoredSource = { id: 's1', type: 'xtream', name: 'Panel', account: null, base: 'http://panel.test', added: 1 };
+    engine.profileDoc = { doc: { v: 9, sources: [bare, S2], guides: [{ id: 'g1', url: null, origin: 'http://guides.test' }] }, newer: false, migratedFrom: null };
+    engine.metas = [meta('s1', T0 - CATALOG_REFRESH_MS), meta('s2', T0 - CATALOG_REFRESH_MS)];
+    engine.answers.set('s1', Object.assign(new Error('The source has no login on this TV'), { code: 'needs-login' }));
+    const t = setup({ engine });
+    t.scheduler.start();
+    await t.run(FIRST_CHECK_MS);
+    expect(engine.refreshCalls.map((c) => c.job)).toEqual([
+      { src: 's1', source: { type: 'xtream', account: null, base: 'http://panel.test' } },
+      { src: 's2', source: { type: 'xtream', account: { base: 'http://panel.test', username: 'u', password: 'p' } } },
+    ]);
+    expect(warn).not.toHaveBeenCalled();
+    expect(engine.epgCalls[0]!.catalogs[0]).toEqual({ src: 's1', type: 'xtream', account: null });
+    expect(engine.epgCalls[0]!.options.user).toEqual([{ id: 'g1', url: null, origin: 'http://guides.test' }]);
   });
 
   it('tells the screens when a guide swapped in, was deleted or moved, not when nothing changed', async () => {

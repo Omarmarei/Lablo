@@ -14,7 +14,7 @@
 
 import type { TextTransport, XtreamAccount, XtreamUserInfo } from '@lablo/core';
 import { XtreamError, decodeLogin, xtreamApiUrl, xtreamFromM3uUrl, xtreamJson } from '@lablo/core';
-import type { SourceRecord } from './profile';
+import type { StoredSource } from './profile';
 
 /** What the re-check says (the player's `AccountStatus` has the same shape). */
 export type AccountCheck = Pick<XtreamUserInfo, 'auth' | 'status' | 'expDate' | 'activeCons' | 'maxConnections'>;
@@ -22,10 +22,14 @@ export type AccountCheck = Pick<XtreamUserInfo, 'auth' | 'status' | 'expDate' | 
 /** A panel that refused the login outright (HTTP 401 or 403). */
 export const LOGIN_REFUSED: AccountCheck = { auth: false, status: '', expDate: null, activeCons: null, maxConnections: null };
 
-/** The Xtream account behind a stored source, or `null` for a playlist with no panel (a file from the phone has none). */
-export function sourceAccount(source: SourceRecord): XtreamAccount | null {
+/**
+ * The Xtream account behind a stored source, or `null` for a playlist with no panel (a file from
+ * the phone has none) and for a source without its login (step 32d4a).
+ */
+export function sourceAccount(source: StoredSource): XtreamAccount | null {
   if (source.type === 'm3u-file') return null;
-  return source.type === 'xtream' ? source.account : xtreamFromM3uUrl(source.url);
+  if (source.type === 'xtream') return source.account;
+  return source.url === null ? null : xtreamFromM3uUrl(source.url);
 }
 
 /** Asks the panel how `account` stands; `null` when the answer has no `user_info`. */

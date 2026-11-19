@@ -2,7 +2,7 @@
  * The backup's plaintext (architecture.md §3.3 B, RELAY step 32c1): the stored profile document's
  * JSON as UTF-8, gzipped (fflate, pure JS; `mtime` 0, so one document gives one byte string). The
  * whole document goes: the sources with their logins, the guides, the favourites, the places and
- * the settings. Everything else on the TV is derived from the providers and read again. A
+ * the settings (without the logins and links when the profile says so: logins.ts, step 32d4a). Everything else on the TV is derived from the providers and read again. A
  * phone-sent file source goes as its record is: by name, with no bytes.
  *
  * Sealing it is `@lablo/crypto`'s `sealBackup`; the backup worker (backup-service.ts) checks the

@@ -1,5 +1,5 @@
 import type { ContentKind, DeviceTier } from '@lablo/core';
-import type { EpgCatalogSource, EpgProgress, IngestProgress, IngestResult, IngestSource, LinkSource, LoadedProfile, ProfileEdit, SourceRecord, UserGuide } from '@lablo/data';
+import type { EpgCatalogSource, EpgProgress, IngestProgress, IngestResult, IngestSource, LinkSource, LinkWithoutLogin, LoadedProfile, ProfileEdit, SourceRecord, StoredGuide, StoredSource, UserGuide } from '@lablo/data';
 import type { FileFeed } from '@lablo/data/client';
 // The client entry only: the package index would pull every data module's polyfills into main.
 import { CancelSource } from '@lablo/data/client';
@@ -102,10 +102,10 @@ export function storedGuideIds(guides: readonly { readonly epgSrc: string }[]): 
   return ids;
 }
 
-/** The stored sources of a profile, whatever its version wrote (`[]` when it has none). */
-export function storedSources(profile: LoadedProfile | null): SourceRecord[] {
+/** The stored sources of a profile, whatever its version wrote (`[]` when it has none): some without their login (step 32d4a). */
+export function storedSources(profile: LoadedProfile | null): StoredSource[] {
   const sources = profile === null ? null : (profile.doc as { sources?: unknown }).sources;
-  return Array.isArray(sources) ? (sources as SourceRecord[]) : [];
+  return Array.isArray(sources) ? (sources as StoredSource[]) : [];
 }
 
 const PASSED_ON: readonly LoadErrorCode[] = ['auth', 'expired', 'blocked', 'blocklisted', 'network', 'format', 'empty', 'file'];
@@ -127,27 +127,37 @@ function count(counts: Partial<Record<ContentKind, number>>, kind: ContentKind):
   return counts[kind] ?? 0;
 }
 
-/** A stored source as the guides need it (its Xtream login brings the panel's guide; a playlist's header names its own, a file's too). */
-export function catalogOf(record: SourceRecord): EpgCatalogSource {
+/**
+ * A stored source as the guides need it (its Xtream login brings the panel's guide, none without
+ * it; a playlist's header names its own, a file's too).
+ */
+export function catalogOf(record: StoredSource): EpgCatalogSource {
   return record.type === 'xtream' ? { src: record.id, type: 'xtream', account: record.account } : { src: record.id, type: 'm3u' };
 }
 
-/** A stored source as its catalog refresh reads it; `null` for a file from the phone, which has no link (never refreshed by itself). */
-export function ingestSourceOf(record: SourceRecord): LinkSource | null {
+/**
+ * A stored source as its catalog refresh reads it; `null` for a file from the phone, which has no
+ * link (never refreshed by itself). A source without its login (step 32d4a) gives what it kept,
+ * which the data engine refuses (`needs-login`).
+ */
+export function ingestSourceOf(record: SourceRecord): LinkSource | null;
+export function ingestSourceOf(record: StoredSource): LinkSource | LinkWithoutLogin | null;
+export function ingestSourceOf(record: StoredSource): LinkSource | LinkWithoutLogin | null {
   if (record.type === 'm3u-file') return null;
-  return record.type === 'xtream' ? { type: 'xtream', account: record.account } : { type: 'm3u', url: record.url };
+  if (record.type === 'xtream') return record.account === null ? { type: 'xtream', account: null, base: record.base } : { type: 'xtream', account: record.account };
+  return record.url === null ? { type: 'm3u', url: null, origin: record.origin } : { type: 'm3u', url: record.url };
 }
 
 /** The stored file source named `name`, which a file sent again replaces (`null`: none). */
-export function sameFile(stored: readonly SourceRecord[], name: string): SourceRecord | null {
+export function sameFile(stored: readonly StoredSource[], name: string): SourceRecord | null {
   for (const record of stored) if (record.type === 'm3u-file' && record.name === name) return record;
   return null;
 }
 
-/** The user's guides of a profile, in the user's order (`[]` when it has none; step 22b). */
-export function userGuides(profile: LoadedProfile | null): UserGuide[] {
+/** The user's guides of a profile, in the user's order (`[]` when it has none; step 22b): some without their link (step 32d4a). */
+export function userGuides(profile: LoadedProfile | null): StoredGuide[] {
   const guides = profile === null ? null : (profile.doc as { guides?: unknown }).guides;
-  return Array.isArray(guides) ? (guides as UserGuide[]) : [];
+  return Array.isArray(guides) ? (guides as StoredGuide[]) : [];
 }
 
 /**
@@ -155,7 +165,7 @@ export function userGuides(profile: LoadedProfile | null): UserGuide[] {
  * `<id>-2`, `<id>-3`, `<id>-4` by place in `urls` (source ids are never reused, so neither are
  * these). A link the list has already, or given twice, is left out.
  */
-export function typedGuides(id: string, urls: readonly string[], listed: readonly UserGuide[]): UserGuide[] {
+export function typedGuides(id: string, urls: readonly string[], listed: readonly StoredGuide[]): UserGuide[] {
   const guides: UserGuide[] = [];
   for (let i = 0; i < urls.length; i += 1) {
     const url = urls[i]!;
@@ -170,7 +180,7 @@ export function typedGuides(id: string, urls: readonly string[], listed: readonl
  * listed or in `taken` (the stored guides'), one by one. A link the list has already, or given
  * twice, is left out.
  */
-export function freshGuides(urls: readonly string[], listed: readonly UserGuide[], taken: readonly string[]): UserGuide[] {
+export function freshGuides(urls: readonly string[], listed: readonly StoredGuide[], taken: readonly string[]): UserGuide[] {
   const ids = listed.map((g) => g.id).concat(taken);
   const guides: UserGuide[] = [];
   for (let i = 0; i < urls.length; i += 1) {
