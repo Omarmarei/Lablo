@@ -108,8 +108,11 @@ describe('devBlob', () => {
     expect((await devBlob(request('PUT', none.url, bytes(1)), env, deps)).status).toBe(400);
     expect(blobs.size).toBe(0);
     expect((await devBlob(request('PUT', none.url), env, deps)).status).toBe(200);
-    // A changed URL is refused as one, whatever the body's length.
-    expect((await devBlob(request('PUT', put.url.replace(/s=./, 's=_'), bytes(1, 2, 3, 4)), env, deps)).status).toBe(403);
+    // A changed URL is refused as one, whatever the body's length. (The signature's first character
+    // changed to another: base64url starts with `_` one time in 64.)
+    const changed = put.url.replace(/s=(.)/, (_all: string, first: string) => `s=${first === '_' ? '-' : '_'}`);
+    expect(changed).not.toBe(put.url);
+    expect((await devBlob(request('PUT', changed, bytes(1, 2, 3, 4)), env, deps)).status).toBe(403);
     // A query naming no usable size reads nothing.
     for (const n of ['', 'x', '-1', '1.5', String(PAIR_FILE_MAX_BYTES + 1)]) {
       const r = request('PUT', put.url.replace('n=3', `n=${n}`), bytes(1), { 'content-length': '1' });

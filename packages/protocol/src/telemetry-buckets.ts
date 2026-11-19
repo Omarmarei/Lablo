@@ -1,7 +1,8 @@
 /**
- * Telemetry's limits, kinds and buckets (architecture.md §3.4, RELAY step 33b1), in a module of
- * their own: no schema, so the TV's main bundle and its telemetry worker read them without zod
- * (`@lablo/protocol/telemetry-buckets`). telemetry.ts re-exports them for the server.
+ * Telemetry's limits, kinds and buckets (architecture.md §3.4, RELAY step 33b1), and the
+ * diagnostics report's (step 33d1), in a module of their own: no schema, so the TV's main bundle
+ * and its telemetry worker read them without zod (`@lablo/protocol/telemetry-buckets`).
+ * telemetry.ts and diag.ts re-export them for the server.
  */
 
 /** The request body (§3.2). */
@@ -36,3 +37,24 @@ export function rateBucket(part: number, whole: number): RateBucket {
   if (percent < 75) return '50-74';
   return '75-99';
 }
+
+/** A time since something, coarse: under an hour, then hours and days. */
+export const AGE_BUCKETS = ['<1h', '1h+', '6h+', '1d+', '3d+', '7d+', '30d+'] as const;
+export type AgeBucket = (typeof AGE_BUCKETS)[number];
+
+const HOUR_MS = 3_600_000;
+/** Where each bucket after `<1h` starts, in hours. */
+const AGE_STARTS_H = [1, 6, 24, 72, 168, 720];
+
+/** The bucket of an age in milliseconds (a negative age, a clock moved back, and a non-number read `<1h`). */
+export function ageBucket(ms: number): AgeBucket {
+  let bucket = 0;
+  while (bucket < AGE_STARTS_H.length && ms >= AGE_STARTS_H[bucket]! * HOUR_MS) bucket++;
+  return AGE_BUCKETS[bucket]!;
+}
+
+/** The diagnostics report's request body (RELAY step 33d1), and its lists' lengths. */
+export const DIAG_BODY_MAX_BYTES = 32768;
+export const DIAG_SOURCES_MAX = 10;
+export const DIAG_GUIDES_MAX = 10;
+export const DIAG_EVENTS_MAX = 10;

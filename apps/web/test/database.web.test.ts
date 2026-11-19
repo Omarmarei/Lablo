@@ -75,9 +75,11 @@ describe('the tables', () => {
     const { rows } = await raw.query<{ table_name: string; column_name: string }>(
       "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name <> '_prisma_migrations'",
     );
-    // The query reads every table's columns (28 in step 29a, 30 since step 31a).
-    expect(rows.length).toBeGreaterThanOrEqual(30);
+    // The query reads every table's columns (28 in step 29a, 30 since step 31a, 29 since step 33d1).
+    expect(rows.length).toBeGreaterThanOrEqual(29);
     expect(rows).toContainEqual({ table_name: 'TelemetryEvent', column_name: 'installId' });
+    // A diagnostics report carries no install ID (step 33d1).
+    expect(rows.filter((row) => row.table_name === 'DiagReport').map((row) => row.column_name).sort()).toStrictEqual(['appVersion', 'code', 'createdAt', 'id', 'platform', 'report']);
     expect(rows).toContainEqual({ table_name: 'PairSession', column_name: 'deliveredAt' });
     expect(rows).toContainEqual({ table_name: 'PairSession', column_name: 'fileId' });
     expect(rows.filter((row) => forbiddenColumn(row.column_name))).toStrictEqual([]);
@@ -118,9 +120,9 @@ describe('the Prisma client', () => {
   });
 
   it('keeps a diagnostics report under one support code', async () => {
-    const report = { code: 'K7Q2XD', installId: 'install-1', platform: 'tizen', appVersion: '0.0.0', report: { engine: 'avplay' } };
+    const report = { code: 'K7Q2XD', platform: 'tizen', appVersion: '0.0.0', report: { engine: 'avplay' } };
     await client.diagReport.create({ data: report });
-    await expect(client.diagReport.create({ data: { ...report, installId: 'install-2' } })).rejects.toMatchObject({ code: 'P2002' });
+    await expect(client.diagReport.create({ data: { ...report, platform: 'webos' } })).rejects.toMatchObject({ code: 'P2002' });
     expect(await client.diagReport.findUniqueOrThrow({ where: { code: 'K7Q2XD' } })).toMatchObject(report);
   });
 });

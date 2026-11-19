@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import type { ProtocolSample } from './check-samples';
 import { checkSamples, SAMPLE_SCHEMAS, SAMPLES, sameJson, sampleResultName } from './check-samples';
 import {
+  AGE_BUCKETS,
+  ageBucket,
   BACKUP_BODY_MAX_BYTES,
   BACKUP_CT_MAX_BYTES,
   BACKUP_CT_MAX_CHARS,
@@ -15,6 +17,10 @@ import {
   configDocSchema,
   COUNT_BUCKETS,
   countBucket,
+  DIAG_BODY_MAX_BYTES,
+  DIAG_EVENTS_MAX,
+  DIAG_GUIDES_MAX,
+  DIAG_SOURCES_MAX,
   nonce24,
   PAIR_BODY_MAX_BYTES,
   PAIR_CT_MAX_CHARS,
@@ -131,6 +137,7 @@ describe('the limits', () => {
     expect(BACKUP_CT_MAX_BYTES).toBe(392448);
     expect(TELEMETRY_BODY_MAX_BYTES).toBe(64 * 1024);
     expect(TELEMETRY_BATCH_MAX).toBe(200);
+    expect([DIAG_BODY_MAX_BYTES, DIAG_SOURCES_MAX, DIAG_GUIDES_MAX, DIAG_EVENTS_MAX]).toEqual([32 * 1024, 10, 10, 10]);
   });
 
   it('fit a ciphertext of the largest payload or envelope into its body', () => {
@@ -147,9 +154,23 @@ describe('the limits', () => {
     expect(source).not.toMatch(/^\s*(import|export \{[^}]*\} from|export \* from)/m);
   });
 
-  it("are telemetry's, with its kinds and buckets, in a module that imports nothing, which the TV's main bundle and telemetry worker read without zod (step 33b1)", async () => {
+  it("are telemetry's and the diagnostics report's, with their kinds and buckets, in a module that imports nothing, which the TV's main bundle and telemetry worker read without zod (steps 33b1, 33d1)", async () => {
     const buckets = await import('./telemetry-buckets');
-    expect({ ...buckets }).toEqual({ COUNT_BUCKETS, countBucket, RATE_BUCKETS, rateBucket, TELEMETRY_BATCH_MAX, TELEMETRY_BODY_MAX_BYTES, TELEMETRY_KINDS });
+    expect({ ...buckets }).toEqual({
+      AGE_BUCKETS,
+      ageBucket,
+      COUNT_BUCKETS,
+      countBucket,
+      DIAG_BODY_MAX_BYTES,
+      DIAG_EVENTS_MAX,
+      DIAG_GUIDES_MAX,
+      DIAG_SOURCES_MAX,
+      RATE_BUCKETS,
+      rateBucket,
+      TELEMETRY_BATCH_MAX,
+      TELEMETRY_BODY_MAX_BYTES,
+      TELEMETRY_KINDS,
+    });
     const source = readFileSync(join(import.meta.dirname, 'telemetry-buckets.ts'), 'utf8');
     expect(source).not.toMatch(/^\s*(import|export \{[^}]*\} from|export \* from)/m);
   });

@@ -16,18 +16,28 @@ import { appVersion, bytes16, epochMs, platform } from './wire';
 export { COUNT_BUCKETS, countBucket, RATE_BUCKETS, rateBucket, TELEMETRY_BATCH_MAX, TELEMETRY_BODY_MAX_BYTES, TELEMETRY_KINDS } from './telemetry-buckets';
 export type { CountBucket, RateBucket, TelemetryKind } from './telemetry-buckets';
 
-const countBucketSchema = z.enum(COUNT_BUCKETS);
+// (These shared values are exported for diag.ts, step 33d1; the index doesn't list them.)
+export const countBucketSchema = z.enum(COUNT_BUCKETS);
+export const rateBucketSchema = z.enum(RATE_BUCKETS);
 const ms = z.int().check(z.gte(0), z.lte(3600000));
 /** An engine's or the watchdog's own code (`MEDIA_ERR_NETWORK`, `FROZEN`): a token, never a URL. */
-const errorCode = z.string().check(z.regex(/^[A-Za-z0-9_.-]{1,64}$/));
+export const errorCode = z.string().check(z.regex(/^[A-Za-z0-9_.-]{1,64}$/));
+/** An HTTP status. */
+export const httpStatus = z.int().check(z.gte(100), z.lte(599));
 /** A TV's model or firmware as the platform names it: letters, digits and a few marks, no `:` or `/`. */
-const deviceName = z.string().check(z.regex(/^[A-Za-z0-9 ._()+-]{1,64}$/));
+export const deviceName = z.string().check(z.regex(/^[A-Za-z0-9 ._()+-]{1,64}$/));
+/** The device's tier. */
+export const tier = z.enum(['low', 'full']);
+/** The engine's Chromium major version; null when the user agent doesn't say. */
+export const chromium = z.nullable(z.int().check(z.gte(1), z.lte(999)));
+/** Feature probes as the spikes ran them: a name and a yes/no or a number. */
+export const probes = z.record(z.string().check(z.regex(/^[a-zA-Z0-9_.]{1,48}$/)), z.union([z.boolean(), z.number()]));
 
 export const telemetryEventSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('app_start'),
     at: epochMs,
-    tier: z.enum(['low', 'full']),
+    tier,
     coldStartMs: ms,
     /** The items in the catalogs. */
     catalog: countBucketSchema,
@@ -52,7 +62,7 @@ export const telemetryEventSchema = z.discriminatedUnion('kind', [
       z.object({
         kind: z.enum(['network', 'http', 'timeout', 'stall', 'unsupported', 'decode', 'app']),
         code: errorCode,
-        status: z.optional(z.int().check(z.gte(100), z.lte(599))),
+        status: z.optional(httpStatus),
       }),
     ),
   }),
@@ -66,17 +76,15 @@ export const telemetryEventSchema = z.discriminatedUnion('kind', [
     kind: z.literal('epg_match'),
     at: epochMs,
     /** The share of channels with a guide. */
-    rate: z.enum(RATE_BUCKETS),
+    rate: rateBucketSchema,
   }),
   z.object({
     kind: z.literal('capability'),
     at: epochMs,
     model: deviceName,
     firmware: deviceName,
-    /** The engine's Chromium major version; null when the user agent doesn't say. */
-    chromium: z.nullable(z.int().check(z.gte(1), z.lte(999))),
-    /** Feature probes as the spikes ran them: a name and a yes/no or a number. */
-    probes: z.record(z.string().check(z.regex(/^[a-zA-Z0-9_.]{1,48}$/)), z.union([z.boolean(), z.number()])),
+    chromium,
+    probes,
   }),
   z.object({
     kind: z.literal('crash'),

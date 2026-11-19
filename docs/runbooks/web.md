@@ -414,6 +414,44 @@ architecture.md §3.4 "Built in step 33b1" has the design; this is how to see it
   `test/telemetry-worker-bundle.test.ts` runs the bundle in the Chromium 53 stand-in realm and
   reads its post with this route's schema.
 
+## Diagnostics reports (step 33d1)
+
+Where a TV sends the report the user asks for in Settings ("Send a report to support", step
+33d2), and gets the code the user gives to support (architecture.md §3.4 and "Built in step
+33d1"). The work is in `apps/web/src/server/diag.ts`; `src/app/v1/diag/route.ts` is a thin wrapper.
+
+| Call | Body | Answers |
+|---|---|---|
+| `POST /v1/diag` | `{platform, appVersion, report}`, at most 32 KB | 201 `{code}`: 6 characters of Crockford's base32 (no I, L, O, U) |
+
+- **The report** (`@lablo/protocol`'s `diagReportSchema`): the TV's clock and UTC offset, its
+  language, the device as telemetry's `capability` names it (tier, model, firmware, Chromium,
+  probes), telemetry's switch, where the config came from (`fresh`, `cached`, `none`), up to 10
+  sources (type, item bucket, time since checked, a missing login or link), up to 10 guides
+  (programme bucket, match share, time since checked, the last failure's code and status) and up
+  to 10 of the session's plays, stalls and crashes, as telemetry's events. **No ID at all:** a
+  report can't be tied to telemetry rows or to the same TV's other reports.
+- **What the server keeps:** one `DiagReport` row: the code, the platform, the app version, the
+  report as the schema read it (unknown fields stripped), and `createdAt` (the server's clock;
+  against the report's `at`, how far off the TV's clock is). Each crash's stack is scrubbed again,
+  as telemetry's. Nothing else: no address, no header.
+- **The code:** each of its 6 characters is one random byte's low 5 bits (30 bits). A code another
+  report holds is made again, up to 5 tries, then 503.
+- **The refusals:** 400 a body that isn't JSON or a report; 413 over 32 KB; 429 past 5 reports an
+  hour from one address (`Retry-After`); 503 when the database fails or no free code was found
+  (only the error's kind is logged).
+- **Retention:** each post first sweeps at most 1,000 reports received 30 days ago or more, the
+  oldest first. Support needs a report only while its ticket is open.
+- **No route reads a report back,** so a guessed code shows nothing. Support reads it in the
+  database: `SELECT "createdAt", platform, "appVersion", report FROM "DiagReport" WHERE code = 'K7M2Q9'`.
+- **Every answer** carries `access-control-allow-origin: *` and `cache-control: no-store`; the
+  preflight allows `content-type`.
+- **Tests:** `pnpm test:web` (`apps/web/test/diag.web.test.ts`, 11 tests against Postgres);
+  `pnpm e2e:web --project=phone diag` (one test over HTTP against `next start`); `pnpm test` runs
+  the schema's (`packages/protocol/src/diag.test.ts`).
+- **The migration** `diag_report_no_install` drops step 29a's `DiagReport.installId`. Nothing
+  here is in production before step 34.
+
 ## The wipe restored from the real API (step 32d1)
 
 `e2e/backup-api.spec.ts`, in the `tv` project: step 32's "Done when" against `next start`
