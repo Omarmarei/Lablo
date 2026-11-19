@@ -5,12 +5,15 @@ import type {
   EpgSummary,
   GuideChannelsPage,
   GuideChannelsRequest,
+  IngestResult,
+  LinkSource,
   LoadedProfile,
   ProfileDoc,
   ProfileEdit,
   SourceMeta,
   SourceRecord,
   StoredGuide,
+  StoredSource,
   UnmatchedPage,
   UnmatchedRequest,
   UserGuide,
@@ -924,6 +927,8 @@ describe('the settings screen', () => {
       backupStatus: vi.fn(() => Promise.resolve({ on: true, source: 'device' as const, code: null, sentAt: null, deleting: false })),
       setBackup: vi.fn(),
       restoreHeldBackup: vi.fn(),
+      profile: vi.fn(() => Promise.resolve(null)),
+      editProfile: vi.fn(),
     };
     const host = {
       request: () => Promise.resolve({ platform: 'webos', appId: 'com.lablo.iptv', secret: null, base: 'http://127.0.0.1:3100' }),
@@ -965,7 +970,7 @@ describe('the settings screen', () => {
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
     });
     expect(SETTINGS_ITEMS).toEqual(['guides', 'sources', 'backup']);
-    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'backup', 'backup-confirm']);
+    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'backup', 'backup-confirm']);
     // Without a backup page (step 32d2b) there is no "Backup" row.
     expect(settings.backup).toBeNull();
     expect(settings.items).toEqual(['guides', 'sources']);
@@ -986,6 +991,62 @@ describe('the settings screen', () => {
     expect(t.at()).toBe('settings · items 0');
     await t.press('BACK');
     expect(t.at()).toBe('live · channels 0');
+    settings.dispose();
+  });
+
+  it('opens the sources screen over the settings on its row ("Welcome back"’s end, step 32d4b); Back lands on the row', async () => {
+    for (const withBackup of [false, true]) {
+      const t = setup();
+      const backup = withBackup ? { engine: {} as unknown as BackupPageEngine, host: { schedule: { held: signal(false), last: signal(null) } } as unknown as BackupPageHost } : undefined;
+      const settings = createSettings({
+        nav: t.nav,
+        engine: t.engine,
+        refreshNow: t.refresh.refreshNow,
+        offsetChanged: t.offsetChanged,
+        platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+        ...(backup === undefined ? {} : { backup }),
+      });
+      settings.openSources();
+      expect(t.nav.top.id).toBe('sources');
+      await flush();
+      expect(settings.sources.status.value).toBe('ready');
+      expect(t.at()).toBe('sources · sources 0');
+      await t.press('BACK');
+      expect(t.at()).toBe('settings · items 1');
+      await t.press('BACK');
+      expect(t.at()).toBe('live · channels 0');
+      settings.dispose();
+    }
+  });
+
+  it('gives the sources screen’s login form the refresh it was given (step 32d4b)', async () => {
+    const t = setup();
+    const bare: StoredSource = { id: 's1', type: 'xtream', name: 'My panel', account: null, base: 'http://panel.test:8080', added: 1 };
+    t.engine.doc = { ...t.engine.doc, sources: [bare] };
+    const refreshSource = vi.fn((_src: string, _source: LinkSource) => Promise.resolve({} as IngestResult));
+    const settings = createSettings({
+      nav: t.nav,
+      engine: t.engine,
+      refreshNow: t.refresh.refreshNow,
+      offsetChanged: t.offsetChanged,
+      platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+      find: t.find,
+      refreshSource,
+    });
+    settings.openSources();
+    await flush();
+    expect(settings.sources.rows.value.map((r) => [r.id, r.needs])).toEqual([['s1', 'login']]);
+    await t.press('OK');
+    expect(t.at()).toBe('source-login · fields 1');
+    settings.sources.form!.setValue('username', 'ann');
+    settings.sources.form!.setValue('password', 'pw');
+    await t.press('DOWN', 'DOWN', 'OK');
+    const account = { base: 'http://panel.test:8080', username: 'ann', password: 'pw' };
+    expect(t.engine.edits).toEqual([{ kind: 'source', source: { id: 's1', type: 'xtream', name: 'My panel', account, added: 1 } }]);
+    expect(refreshSource).toHaveBeenCalledTimes(1);
+    expect(refreshSource).toHaveBeenCalledWith('s1', { type: 'xtream', account });
+    await flush();
+    expect(settings.sources.rows.value.map((r) => [r.id, r.needs, r.answer])).toEqual([['s1', null, null]]);
     settings.dispose();
   });
 

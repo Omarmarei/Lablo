@@ -273,6 +273,11 @@
   margin-left: var(--space-4);
 }
 
+/* A source's login form (step 32d4b): its fields one under another. */
+.sources__form .z-field + .z-field {
+  margin-top: var(--space-3);
+}
+
 /* A guide's matches (step 24c): the rate, then a line per count, its number at the line's end. */
 .matches {
   margin-top: var(--space-5);

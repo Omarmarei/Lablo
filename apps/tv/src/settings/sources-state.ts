@@ -1,11 +1,15 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { LoadedProfile, SourceMeta, StoredSource } from '@lablo/data';
-import type { Navigator, Screen, ScreenSpec, ZoneSpec } from '@lablo/ui';
+import type { IngestResult, LinkSource, LoadedProfile, ProfileEdit, SourceMeta, SourceRecord, StoredSource } from '@lablo/data';
+import type { Platform } from '@lablo/platform-api';
+import type { Navigator, Screen, ScreenSpec, TextEditorOptions, ZoneSpec } from '@lablo/ui';
 import { SCREEN, fits } from '@lablo/ui';
 import { sourceUrlOf } from '../data/engine';
-import { ingestSourceOf, storedSources } from '../onboarding/engine-loader';
+import { ingestSourceOf, loadError, needsLogin, storedSources } from '../onboarding/engine-loader';
+import type { LoadErrorCode } from '../onboarding/loader';
 import { GUIDES, shownLink } from './guides-state';
+import type { LoginForm } from './source-login';
+import { createLoginForm } from './source-login';
 
 /**
  * The sources screen (RELAY step 30c3a): the playlists and panels the user added, opened by the
@@ -21,6 +25,12 @@ import { GUIDES, shownLink } from './guides-state';
  *   (the data engine refuses its refresh), and its row says so.
  * - **The server** shown is the host (and port) only: never the login, the path or the query
  *   (an M3U link may carry the login in either).
+ * - **A source without its login** (step 32d4b: a backup made without logins brought it back) says
+ *   it needs its login (Xtream) or link (M3U); OK opens the login form (`source-login.ts`). "Save"
+ *   writes the source with its login (`editProfile`), then refreshes it (`login.refresh`: the data
+ *   engine's own refresh, with no other running), and the row shows the answer: "Updating…", then
+ *   when it was updated, or why it failed (OK opens the form again). The answers last as long as
+ *   the settings, so a screen opened again still shows them.
  * - Back closes it (the navigator's own Back).
  */
 
@@ -41,7 +51,16 @@ export interface SourceRow {
   readonly checkedAt: number | null;
   /** Its server is on the signed config's blocklist: it isn't updated. */
   readonly blocked: boolean;
+  /** A backup without logins brought it back without its login (Xtream) or link (M3U) (step 32d4b; `null`: it has it). */
+  readonly needs: 'login' | 'link' | null;
+  /** Its last save's answer (step 32d4b; `null`: none, or it worked). */
+  readonly answer: SaveAnswer | null;
 }
+
+/** A save's answer (step 32d4b): its refresh running, or why the save or the refresh failed. */
+export type SaveAnswer = { readonly state: 'updating' } | { readonly state: 'failed'; readonly code: LoadErrorCode; readonly status: number | null };
+
+const UPDATING: SaveAnswer = { state: 'updating' };
 
 export type SourcesStatus = 'loading' | 'ready' | 'failed';
 
@@ -50,6 +69,22 @@ export interface SourcesEngine {
   profile(): Promise<LoadedProfile | null>;
   sourceStatus(): Promise<SourceMeta[]>;
   blocked(urls: string[]): Promise<boolean[]>;
+  /** The login form's save: the `source` edit (step 32d4b). */
+  editProfile(edit: ProfileEdit): Promise<boolean>;
+}
+
+/** The login form's needs (step 32d4b): the TV's keyboard and the save's refresh. */
+export interface SourceLoginOptions {
+  readonly platform: Pick<Platform, 'textKey' | 'onSoftKeyboard'>;
+  /** Finds a field's input (tests); default `document.getElementById`. */
+  readonly find?: TextEditorOptions['find'];
+  readonly now?: () => number;
+  /**
+   * Refreshes the source given its login, with no other refresh running (main's `quiet`), then
+   * tells the screens; resolves with the refresh's result, rejects with its error. Without it the
+   * save only writes the login (the schedule reads the source later).
+   */
+  readonly refresh?: (src: string, source: LinkSource) => Promise<IngestResult>;
 }
 
 export interface SourcesOptions {
@@ -60,15 +95,21 @@ export interface SourcesOptions {
    * list gives it to the button. Without it the screen has no header.
    */
   readonly addFromPhone?: () => void;
+  /** The login form for a source without its login (step 32d4b); without it, OK on a row does nothing. */
+  readonly login?: SourceLoginOptions;
 }
 
 export interface SourcesList {
+  /** The sources screen while it is on the stack (the login form covers it). */
+  readonly screen: ReadonlySignal<Screen | null>;
   readonly status: ReadonlySignal<SourcesStatus>;
   readonly rows: ReadonlySignal<readonly SourceRow[]>;
   /** Data requests in flight (0: the screen is done with the workers). */
   readonly pending: ReadonlySignal<number>;
   /** The screen has the header's "Add from your phone" (step 31c2a). */
   readonly canAdd: boolean;
+  /** The login form (step 32d4b), when the screen has one. */
+  readonly form: LoginForm | null;
   /** Opens the screen and reads the sources. */
   open(): void;
   /** Reads the sources again while the screen is open (a source was added): the focus stays. */
@@ -89,8 +130,11 @@ function linkOf(record: StoredSource): string {
   return source === null ? '' : sourceUrlOf(source);
 }
 
-/** The rows, in the profile's order; `blocked[i]` is the i-th source's answer (missing: not blocked). */
-export function sourceRows(profile: LoadedProfile | null, metas: readonly SourceMeta[], blocked: readonly boolean[]): SourceRow[] {
+/**
+ * The rows, in the profile's order; `blocked[i]` is the i-th source's answer (missing: not
+ * blocked), `answers` the saves' answers by source id (step 32d4b).
+ */
+export function sourceRows(profile: LoadedProfile | null, metas: readonly SourceMeta[], blocked: readonly boolean[], answers: Readonly<Record<string, SaveAnswer>> = {}): SourceRow[] {
   const rows: SourceRow[] = [];
   const records = storedSources(profile);
   for (let i = 0; i < records.length; i += 1) {
@@ -107,6 +151,8 @@ export function sourceRows(profile: LoadedProfile | null, metas: readonly Source
       checkedAt: meta !== null && meta.gen > 0 ? checkedAt : null,
       // A file has no server to block (its URL is empty; its streams are checked as they play).
       blocked: record.type !== 'm3u-file' && blocked[i] === true,
+      needs: needsLogin(record) ? (record.type === 'xtream' ? 'login' : 'link') : null,
+      answer: answers[record.id] ?? null,
     });
   }
   return rows;
@@ -127,10 +173,14 @@ export function createSourcesList(options: SourcesOptions): SourcesList {
   const status = signal<SourcesStatus>('loading');
   const rows = signal<readonly SourceRow[]>([]);
   const pending = signal(0);
-  let screen: Screen | null = null;
+  const screen = signal<Screen | null>(null);
   let disposed = false;
   /** Bumps on each opening: an older opening's answer is dropped. */
   let openSeq = 0;
+  /** The last read: what the rows are drawn from again when an answer changes. */
+  let last: { readonly profile: LoadedProfile | null; readonly metas: readonly SourceMeta[]; readonly blocked: readonly boolean[] } | null = null;
+  /** The saves' answers by source id (step 32d4b), for as long as the settings live. */
+  const answers: Record<string, SaveAnswer> = {};
 
   /** Runs `request`, counting it in `pending` until it settles either way. */
   function track<T>(request: () => Promise<T>): Promise<T> {
@@ -164,11 +214,12 @@ export function createSourcesList(options: SourcesOptions): SourcesList {
         });
         return asked.then((blocked) => {
           if (!current()) return;
-          rows.value = sourceRows(profile, metas, blocked);
+          last = { profile, metas, blocked };
+          rows.value = sourceRows(profile, metas, blocked, answers);
           status.value = 'ready';
           // (A closed screen ignores updates and focus moves.)
-          screen?.update(sourcesZone(rows.value.length, header));
-          if (header && rows.value.length === 0) screen?.focus('header', 0);
+          screen.value?.update(sourcesZone(rows.value.length, header));
+          if (header && rows.value.length === 0) screen.value?.focus('header', 0);
         });
       })
       .catch((error: unknown) => {
@@ -178,11 +229,72 @@ export function createSourcesList(options: SourcesOptions): SourcesList {
       });
   };
 
+  /** Reads the rows again while the screen is open: the focus stays. */
+  const reload = (): void => {
+    if (disposed || screen.value === null || !screen.value.open) return;
+    openSeq += 1;
+    read(openSeq);
+  };
+
+  /** The rows drawn again from the last read, with the answers as they are now. */
+  const draw = (): void => {
+    if (last !== null) rows.value = sourceRows(last.profile, last.metas, last.blocked, answers);
+  };
+
+  /**
+   * The login form's "Save" (step 32d4b): the source with its login written, then refreshed; the
+   * row says "Updating…" until the answer, then the rows are read again. A login the server
+   * refused stays written: the row says so, and OK opens the form again with it.
+   */
+  const save = (record: SourceRecord): void => {
+    if (disposed) return;
+    answers[record.id] = UPDATING;
+    draw();
+    const refresh = options.login?.refresh;
+    // (The form gives a login or a link: never a file.)
+    const source = ingestSourceOf(record) as LinkSource;
+    track(() => engine.editProfile({ kind: 'source', source: record }))
+      .then(() => {
+        // Its mark goes at once: the login is stored.
+        reload();
+        return refresh === undefined ? null : track(() => refresh(record.id, source));
+      })
+      .then(
+        () => {
+          delete answers[record.id];
+        },
+        (error: unknown) => {
+          const failure = loadError(error);
+          answers[record.id] = { state: 'failed', code: failure.code, status: failure.status };
+          console.warn("The source's login was not saved or not read", error);
+        },
+      )
+      // The rows with the answer (a screen opened again reads them too).
+      .then(reload);
+  };
+
+  const form = options.login === undefined ? null : createLoginForm({ nav, platform: options.login.platform, find: options.login.find, now: options.login.now, save });
+
+  /** OK on a row: the login form for a source without its login, or one whose last save failed. */
+  const select = (index: number): void => {
+    const row = rows.value[index];
+    if (form === null || row === undefined) return;
+    const answer = row.answer;
+    if (row.needs === null && (answer === null || answer.state !== 'failed')) return;
+    const records = storedSources(last === null ? null : last.profile);
+    for (let i = 0; i < records.length; i += 1) {
+      const record = records[i]!;
+      if (record.id === row.id && record.type !== 'm3u-file') form.open(record);
+    }
+  };
+
   return {
+    screen,
     status,
     rows,
     pending,
     canAdd: header,
+    form,
     open(): void {
       if (disposed) return;
       openSeq += 1;
@@ -195,19 +307,17 @@ export function createSourcesList(options: SourcesOptions): SourcesList {
             initial: 'sources',
             onSelect: (focus) => {
               if (focus.zone === 'header') options.addFromPhone?.();
+              else select(focus.index);
             },
           }
-        : { id: SOURCES_SCREEN, zones: [sourcesZone(0, false)] };
-      screen = nav.push(spec);
+        : { id: SOURCES_SCREEN, zones: [sourcesZone(0, false)], onSelect: (focus) => select(focus.index) };
+      screen.value = nav.push(spec);
       read(openSeq);
     },
-    reload(): void {
-      if (disposed || screen === null || !screen.open) return;
-      openSeq += 1;
-      read(openSeq);
-    },
+    reload,
     dispose(): void {
       disposed = true;
+      form?.dispose();
     },
   };
 }

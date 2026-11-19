@@ -31,8 +31,8 @@ export default defineConfig({
       name: 'tv',
       testDir: 'e2e',
       // The TV's pairing against the real API (step 31c3), the "no plaintext" run with the real phone page (step 31e),
-      // and step 32's wipe restored from the real backup routes (step 32d1).
-      testMatch: /(pairing-api|no-plaintext|backup-api)\.spec\.ts$/,
+      // step 32's wipe restored from the real backup routes (step 32d1), and a backup without logins (step 32d4b).
+      testMatch: /(pairing-api|no-plaintext|backup-api|backup-logins)\.spec\.ts$/,
       // The TV canvas is 1920x1080, as in `pnpm e2e`.
       use: { ...devices['Desktop Chrome'], viewport: { width: 1920, height: 1080 }, baseURL: `http://localhost:${TV_PORT}` },
     },

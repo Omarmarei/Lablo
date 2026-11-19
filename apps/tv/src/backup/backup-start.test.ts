@@ -132,7 +132,7 @@ describe('createBackupStart', () => {
     expect(s.end()).toBeNull();
     s.clock.advance(1);
     await flush();
-    expect(s.end()).toEqual({ profile: RESTORED, restored: true });
+    expect(s.end()).toEqual({ profile: RESTORED, restored: true, toSources: false });
     expect(s.warnings).toEqual([]);
   });
 
@@ -166,7 +166,7 @@ describe('createBackupStart', () => {
       const s = setup();
       s.engine.settle?.resolve(result);
       await flush();
-      expect(s.end()).toEqual({ profile: null, restored: false });
+      expect(s.end()).toEqual({ profile: null, restored: false, toSources: false });
       expect(s.start.screen.value).toBe(LOOKING_SCREEN);
       expect(s.warnings).toEqual(told);
       expect(s.clock.due()).toEqual([]);
@@ -179,7 +179,7 @@ describe('createBackupStart', () => {
     s.engine.stored = () => Promise.resolve(answered);
     s.engine.settle?.resolve({ state: 'kept' });
     await flush();
-    expect(s.end()).toEqual({ profile: answered, restored: false });
+    expect(s.end()).toEqual({ profile: answered, restored: false, toSources: false });
   });
 
   it('cancels on Skip or Back, then reads the profile: onboarding', async () => {
@@ -190,7 +190,7 @@ describe('createBackupStart', () => {
       expect(s.engine.cancel?.cancelled).toBe(true);
       await flush();
       expect(s.engine.profileReads).toBe(1);
-      expect(s.end()).toEqual({ profile: null, restored: false });
+      expect(s.end()).toEqual({ profile: null, restored: false, toSources: false });
       // A cancel is no news.
       expect(s.warnings).toEqual([]);
       // A second press does nothing more.
@@ -209,7 +209,7 @@ describe('createBackupStart', () => {
     // Not a skip.
     expect(s.start.skipped.value).toBe(false);
     await flush();
-    expect(s.end()).toEqual({ profile: null, restored: false });
+    expect(s.end()).toEqual({ profile: null, restored: false, toSources: false });
   });
 
   it('shows "Welcome back" when a restore committed just before the cancel', async () => {
@@ -220,7 +220,7 @@ describe('createBackupStart', () => {
     expect(s.start.screen.value).toBe(WELCOME_SCREEN);
     s.clock.advance(WELCOME_MS);
     await flush();
-    expect(s.end()).toEqual({ profile: RESTORED, restored: true });
+    expect(s.end()).toEqual({ profile: RESTORED, restored: true, toSources: false });
   });
 
   it('tells a worker that died, and reads the profile all the same', async () => {
@@ -229,7 +229,7 @@ describe('createBackupStart', () => {
     s.engine.settle?.reject(died);
     await flush();
     expect(s.warnings).toEqual([['The backup look-up failed', died]]);
-    expect(s.end()).toEqual({ profile: null, restored: false });
+    expect(s.end()).toEqual({ profile: null, restored: false, toSources: false });
   });
 
   it('starts onboarding when the profile cannot be read after the look-up', async () => {
@@ -239,7 +239,7 @@ describe('createBackupStart', () => {
     s.engine.settle?.resolve({ state: 'none' });
     await flush();
     expect(s.warnings).toEqual([['The profile could not be read after the backup look-up', broken]]);
-    expect(s.end()).toEqual({ profile: null, restored: false });
+    expect(s.end()).toEqual({ profile: null, restored: false, toSources: false });
   });
 
   it('once disposed, cancels the look-up and settles nothing', async () => {
@@ -384,6 +384,100 @@ describe('BackupStartView', () => {
   });
 });
 
+/** Sources as a backup made without logins brings them back (step 32d4a). */
+const WITHOUT_LOGINS = [
+  { id: 's1', type: 'xtream', name: 'Panel', account: null, base: 'http://panel.example:8080', added: 1 },
+  { id: 's2', type: 'm3u', name: 'List', url: null, origin: 'http://list.example', added: 2 },
+  { id: 's3', type: 'm3u-file', name: 'Phone', added: 3 },
+  { id: 's4', type: 'm3u', name: 'Kept', url: 'http://kept.example/a.m3u', added: 4 },
+  { id: 's5', type: 'xtream', name: 'Given', account: { base: 'http://given.example', username: 'u', password: 'p' }, added: 5 },
+];
+
+describe('"Welcome back" with sources missing their login (RELAY step 32d4b)', () => {
+  it('counts them, and its end opens the sources screen, however it comes', async () => {
+    for (const how of ['time', 'OK', 'BACK'] as const) {
+      const s = setup();
+      const profile = profileWith(WITHOUT_LOGINS);
+      s.engine.stored = () => Promise.resolve(profile);
+      s.engine.settle?.resolve({ state: 'restored', language: 'en', sources: 5 });
+      await flush();
+      expect(s.start.sources.value).toBe(5);
+      expect(s.start.files.value).toBe(1);
+      expect(s.start.logins.value).toBe(2);
+      // Its 5 s still run: the restore needs no key.
+      expect(s.clock.due()).toEqual([WELCOME_MS]);
+      if (how === 'time') s.clock.advance(WELCOME_MS);
+      else s.start.nav.handle(how);
+      await flush();
+      expect(s.end()).toEqual({ profile, restored: true, toSources: true });
+    }
+  });
+
+  it('counts one, and none when every source has its login', async () => {
+    const one = await welcomed([WITHOUT_LOGINS[0]!, WITHOUT_LOGINS[4]!]);
+    expect(one.logins.value).toBe(1);
+    // One is enough for the sources screen.
+    one.nav.handle('OK');
+    await expect(one.done).resolves.toMatchObject({ restored: true, toSources: true });
+    const none = await welcomed([WITHOUT_LOGINS[2]!, WITHOUT_LOGINS[3]!, WITHOUT_LOGINS[4]!]);
+    expect(none.logins.value).toBe(0);
+    const s = setup();
+    const profile = profileWith([WITHOUT_LOGINS[3]!]);
+    s.engine.stored = () => Promise.resolve(profile);
+    s.engine.settle?.resolve({ state: 'restored', language: 'en', sources: 1 });
+    await flush();
+    s.start.nav.handle('OK');
+    await flush();
+    expect(s.end()).toEqual({ profile, restored: true, toSources: false });
+  });
+
+  it('counts them after Settings’ "Restore it" too', async () => {
+    const profile = profileWith(WITHOUT_LOGINS);
+    const start = createBackupStart({ engine: new FakeEngine(), restored: profile, timers: manualTimers().timers });
+    let end: BackupStartEnd | null = null;
+    void start.done.then((value) => {
+      end = value;
+    });
+    expect(start.logins.value).toBe(2);
+    start.nav.handle('OK');
+    await flush();
+    expect(end).toEqual({ profile, restored: true, toSources: true });
+  });
+
+  it('says so in one line, in English and Arabic, with the files’ line when a file came back too', async () => {
+    const start = await welcomed(WITHOUT_LOGINS);
+    const en = BackupStartView({ start, i18n: appI18n('en-US'), item: ITEM, focus: FOCUS });
+    expect((en.props as Props)['data-logins']).toBe(2);
+    expect(stripIsolates(textOf(byTestId(en, 'backup-logins')[0]))).toBe('2 sources need their logins or links again: Sources in Settings opens next.');
+    expect((byTestId(en, 'backup-logins')[0]!.props as Props).class).toBe('onboarding__note');
+    expect(byTestId(en, 'backup-files')).toHaveLength(1);
+    const ar = BackupStartView({ start, i18n: appI18n('ar-SA'), item: ITEM, focus: FOCUS });
+    expect(stripIsolates(textOf(byTestId(ar, 'backup-logins')[0]))).toBe('يحتاج مصدران إلى بيانات الدخول أو الرابط مرة أخرى: تُفتح المصادر في الإعدادات بعد ذلك.');
+    const one = await welcomed([WITHOUT_LOGINS[1]!]);
+    expect(stripIsolates(textOf(byTestId(BackupStartView({ start: one, i18n: appI18n('en-US'), item: ITEM, focus: FOCUS }), 'backup-logins')[0]))).toBe(
+      'One source needs its login or link again: Sources in Settings opens next.',
+    );
+    const none = await welcomed([WITHOUT_LOGINS[4]!]);
+    const drawn = BackupStartView({ start: none, i18n: appI18n('en-US'), item: ITEM, focus: FOCUS });
+    expect((drawn.props as Props)['data-logins']).toBe(0);
+    expect(byTestId(drawn, 'backup-logins')).toEqual([]);
+  });
+
+  it('says the channels are loading only when a source loads by itself (not a file, not one without its login)', async () => {
+    const body = (start: BackupStart, tag = 'en-US'): string => textOf(byTestId(BackupStartView({ start, i18n: appI18n(tag), item: ITEM, focus: FOCUS }), 'backup-body')[0]);
+    const loading = 'Your sources, favourites and settings are back. Your channels are loading now.';
+    const back = 'Your sources, favourites and settings are back.';
+    expect(body(await welcomed(WITHOUT_LOGINS))).toBe(loading);
+    expect(body(await welcomed([WITHOUT_LOGINS[2]!, WITHOUT_LOGINS[3]!]))).toBe(loading);
+    expect(body(await welcomed([WITHOUT_LOGINS[0]!, WITHOUT_LOGINS[4]!]))).toBe(loading);
+    const none = await welcomed([WITHOUT_LOGINS[0]!, WITHOUT_LOGINS[1]!, WITHOUT_LOGINS[2]!]);
+    expect(body(none)).toBe(back);
+    expect(body(none, 'ar-SA')).toBe('عادت مصادرك ومفضلتك وإعداداتك.');
+    expect(body(await welcomed([WITHOUT_LOGINS[0]!]))).toBe(back);
+    expect(body(await welcomed([WITHOUT_LOGINS[2]!]))).toBe(back);
+  });
+});
+
 describe('createBackupStart after Settings’ "Restore it" (RELAY step 32d2b)', () => {
   function restoredSetup(profile: LoadedProfile) {
     const engine = new FakeEngine();
@@ -408,14 +502,14 @@ describe('createBackupStart after Settings’ "Restore it" (RELAY step 32d2b)', 
     expect(s.clock.due()).toEqual([WELCOME_MS]);
     s.clock.advance(WELCOME_MS);
     await flush();
-    expect(s.end()).toEqual({ profile: RESTORED, restored: true });
+    expect(s.end()).toEqual({ profile: RESTORED, restored: true, toSources: false });
   });
 
   it('ends early on OK, as after a look-up', async () => {
     const s = restoredSetup(RESTORED);
     s.start.nav.handle('OK');
     await flush();
-    expect(s.end()).toEqual({ profile: RESTORED, restored: true });
+    expect(s.end()).toEqual({ profile: RESTORED, restored: true, toSources: false });
     expect(s.clock.due()).toEqual([]);
   });
 
@@ -423,7 +517,7 @@ describe('createBackupStart after Settings’ "Restore it" (RELAY step 32d2b)', 
     const empty = profileWith([]);
     const s = restoredSetup(empty);
     await flush();
-    expect(s.end()).toEqual({ profile: empty, restored: false });
+    expect(s.end()).toEqual({ profile: empty, restored: false, toSources: false });
     expect(s.start.screen.value).toBe(LOOKING_SCREEN);
   });
 });

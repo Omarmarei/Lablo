@@ -1,6 +1,6 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { effect, signal } from '@preact/signals';
-import type { BackupCallRequest, BackupPrepareRequest, BackupRestoreResult, BackupStatus, BackupSwitchRequest, BackupSwitchResult, BackupUploadResult } from '@lablo/data';
+import type { BackupCallRequest, BackupPrepareRequest, BackupRestoreResult, BackupStatus, BackupSwitchRequest, BackupSwitchResult, BackupUploadResult, LoadedProfile, ProfileEdit } from '@lablo/data';
 import type { Navigator, Screen, ZoneSpec } from '@lablo/ui';
 import type { BackupSchedule } from '../backup/backup-schedule';
 
@@ -8,19 +8,22 @@ import type { BackupSchedule } from '../backup/backup-schedule';
  * Settings' backup page (RELAY step 32d2b, architecture.md §3.3 B), opened by the settings
  * screen's "Backup" row and pushed on the live navigator:
  *
- *   switch  (one row: "Backup", on or off; under it the last send, the session's last failure,
- *            or that it is off and still deleting the copy on the server)
+ *   switch  ("Backup", on or off; under it the last send, the session's last failure, or that
+ *            it is off and still deleting the copy on the server; then, while on, "Include logins
+ *            and links", step 32d4b: the profile's `backupLogins`)
  *   held    ("Restore it", "Replace it": only while on with a held backup, a backup this TV
  *            hasn't sent under its lookup ID)
  *
  * Between them, while on with the backup code as the secret, the code in groups of four to note
  * down. Off, "Restore it" and "Replace it" ask first (`backup-confirm`): off deletes the copy on
  * the server, a restore replaces the profile (the app starts again on it), and a replace loses
- * what the old backup held for good. Turning on asks nothing and sends at once.
+ * what the old backup held for good. Turning on asks nothing and sends at once; so does switching
+ * the logins either way (off takes them out of the copy on the server, it loses nothing).
  *
  * - **Reads,** when it opens and after each action: the backup worker's status (`backupStatus`),
- *   with the request the upload schedule uses (the device ID only after "Allow").
- * - **One backup worker at a time:** a switch and a restore run inside the schedule's `hold` (it
+ *   with the request the upload schedule uses (the device ID only after "Allow"), and the profile
+ *   (whether the backup includes the logins and links).
+ * - **One backup worker at a time:** a switch, the logins' edit and a restore run inside the schedule's `hold` (it
  *   waits for a run in progress and starts none meanwhile); "Replace it" is the schedule's own run
  *   (`replaceNow`). A restore also waits for quiet (`quiet`: no catalog refresh running, none
  *   started), since it clears the catalogs; a restore that worked starts the app again (`restart`).
@@ -30,6 +33,10 @@ import type { BackupSchedule } from '../backup/backup-schedule';
 export const BACKUP_SCREEN = 'backup';
 export const BACKUP_CONFIRM = 'backup-confirm';
 
+/** The switch zone's rows: the backup, then (while on) its logins and links (step 32d4b). */
+export const SWITCH_BACKUP = 0;
+export const SWITCH_LOGINS = 1;
+
 /** The held box's buttons, and the confirm dialog's. */
 export const HELD_RESTORE = 0;
 export const HELD_REPLACE = 1;
@@ -38,9 +45,9 @@ export const CONFIRM_NO = 1;
 
 export type BackupPageStatus = 'loading' | 'ready' | 'failed';
 /** The action running (its worker in the database). */
-export type BackupBusy = 'off' | 'on' | 'restore' | 'replace';
+export type BackupBusy = 'off' | 'on' | 'logins' | 'restore' | 'replace';
 /** What an action that didn't work says, until the next action or opening. */
-export type BackupNotice = 'off-failed' | 'on-failed' | 'replace-failed' | 'restore-failed' | 'restore-newer' | 'restore-other';
+export type BackupNotice = 'off-failed' | 'on-failed' | 'logins-failed' | 'replace-failed' | 'restore-failed' | 'restore-newer' | 'restore-other';
 /** What the confirm dialog asks. */
 export type BackupQuestion = 'off' | 'restore' | 'replace';
 
@@ -49,6 +56,10 @@ export interface BackupPageEngine {
   backupStatus(request: BackupPrepareRequest): Promise<BackupStatus>;
   setBackup(request: BackupSwitchRequest): Promise<BackupSwitchResult>;
   restoreHeldBackup(request: BackupCallRequest): Promise<BackupRestoreResult>;
+  /** The profile: whether the backup includes the logins and links (step 32d4b). */
+  profile(): Promise<LoadedProfile | null>;
+  /** The `backupLogins` edit (step 32d4b). */
+  editProfile(edit: ProfileEdit): Promise<boolean>;
 }
 
 /** What the page needs from the app around it (main.tsx). */
@@ -75,6 +86,8 @@ export interface BackupPage {
   readonly status: ReadonlySignal<BackupPageStatus>;
   /** The worker's last status (`null` before the first read, or when it failed). */
   readonly info: ReadonlySignal<BackupStatus | null>;
+  /** Whether the backup includes the logins and links, as the last read found (`null` with `info`; step 32d4b). */
+  readonly logins: ReadonlySignal<boolean | null>;
   readonly busy: ReadonlySignal<BackupBusy | null>;
   readonly notice: ReadonlySignal<BackupNotice | null>;
   /** The confirm dialog's question while it shows. */
@@ -107,7 +120,19 @@ export function restoreNotice(result: BackupRestoreResult): BackupNotice {
   return result.state === 'newer' ? 'restore-newer' : 'restore-other';
 }
 
-const SWITCH_ZONE: ZoneSpec = { kind: 'list', id: 'switch', axis: 'vertical', count: 1, neighbours: { down: 'held' } };
+/** Whether a profile's backup includes the logins and links: unless it says `backupLogins: false` (step 32d4a). */
+export function includesLogins(profile: LoadedProfile | null): boolean {
+  return profile === null || (profile.doc as { backupLogins?: unknown }).backupLogins !== false;
+}
+
+/** The switch zone's rows: the backup, and its logins while it is on (with the profile read). */
+export function switchRows(info: BackupStatus | null, logins: boolean | null): number {
+  return info !== null && info.on && logins !== null ? 2 : 1;
+}
+
+function switchZone(count: number): ZoneSpec {
+  return { kind: 'list', id: 'switch', axis: 'vertical', count, neighbours: { down: 'held' } };
+}
 
 function heldZone(count: number): ZoneSpec {
   return { kind: 'list', id: 'held', axis: 'horizontal', count, neighbours: { up: 'switch' } };
@@ -127,6 +152,7 @@ export function createBackupPage(options: BackupPageOptions): BackupPage {
   const schedule = host.schedule;
   const status = signal<BackupPageStatus>('loading');
   const info = signal<BackupStatus | null>(null);
+  const logins = signal<boolean | null>(null);
   const busy = signal<BackupBusy | null>(null);
   const notice = signal<BackupNotice | null>(null);
   const question = signal<BackupQuestion | null>(null);
@@ -152,29 +178,36 @@ export function createBackupPage(options: BackupPageOptions): BackupPage {
     return running;
   }
 
-  /** The held box's buttons follow the status and the schedule; a focus in it moves up when it goes. */
+  /**
+   * The switch rows and the held box's buttons follow the status, the profile and the schedule: a
+   * focus in the held box moves up when it goes, one on the logins' row clamps to the backup's.
+   */
   const stopZones = effect(() => {
+    const rows = switchRows(info.value, logins.value);
     const count = showsHeld(info.value, schedule.held.value) ? 2 : 0;
     const shown = screen.value;
     if (shown === null || !shown.open) return;
+    shown.update(switchZone(rows));
     shown.update(heldZone(count));
-    if (count === 0 && shown.active === 'held') shown.focus('switch', 0);
+    if (count === 0 && shown.active === 'held') shown.focus('switch', SWITCH_BACKUP);
   });
 
   /** Reads the status (again): the page shows the last read's answer. */
   const read = (): Promise<void> => {
     readSeq += 1;
     const seq = readSeq;
-    return track(() => host.request().then((request) => engine.backupStatus(prepareOf(request)))).then(
-      (answer) => {
+    return track(() => host.request().then((request) => Promise.all([engine.backupStatus(prepareOf(request)), engine.profile()]))).then(
+      (both) => {
         if (disposed || seq !== readSeq) return;
-        info.value = answer;
+        logins.value = includesLogins(both[1]);
+        info.value = both[0];
         status.value = 'ready';
       },
       (error: unknown) => {
         if (disposed || seq !== readSeq) return;
         console.warn("The backup's status could not be read", error);
         info.value = null;
+        logins.value = null;
         status.value = 'failed';
       },
     );
@@ -214,6 +247,22 @@ export function createBackupPage(options: BackupPageOptions): BackupPage {
             .then(() => (on ? schedule.uploadNow().then(() => null) : null)),
         ),
       on ? 'on-failed' : 'off-failed',
+    );
+  };
+
+  /**
+   * The logins and links in the backup, on or off (step 32d4b): the profile's edit inside the hold,
+   * then a run at once (the copy on the server loses them, or gets them, now).
+   */
+  const setLogins = (on: boolean): void => {
+    act(
+      'logins',
+      () =>
+        schedule
+          .hold(() => engine.editProfile({ kind: 'backupLogins', on }))
+          .then(() => schedule.uploadNow())
+          .then(() => null),
+      'logins-failed',
     );
   };
 
@@ -276,6 +325,7 @@ export function createBackupPage(options: BackupPageOptions): BackupPage {
     screen,
     status,
     info,
+    logins,
     busy,
     notice,
     question,
@@ -286,16 +336,20 @@ export function createBackupPage(options: BackupPageOptions): BackupPage {
       if (disposed) return;
       status.value = 'loading';
       info.value = null;
+      logins.value = null;
       notice.value = null;
       screen.value = nav.push({
         id: BACKUP_SCREEN,
-        zones: [SWITCH_ZONE, heldZone(0)],
+        zones: [switchZone(1), heldZone(0)],
         onSelect: (focus) => {
           if (busy.peek() !== null) return;
           const now = info.peek();
           if (focus.zone === 'switch') {
             if (now === null) return;
-            if (now.on) ask('off');
+            const included = logins.peek();
+            // (The logins' row is there only while on, with the profile read.)
+            if (focus.index === SWITCH_LOGINS && included !== null) setLogins(!included);
+            else if (now.on) ask('off');
             else turn(true);
           } else if (focus.zone === 'held') {
             ask(focus.index === HELD_RESTORE ? 'restore' : 'replace');

@@ -127,7 +127,12 @@ export const EN = {
   'backup.skip': 'Skip',
   'backup.welcomeTitle': 'Welcome back',
   'backup.welcomeBody': 'Your sources, favourites and settings are back. Your channels are loading now.',
+  // No source loads by itself: each is a file to send again or needs its login (RELAY step 32d4b).
+  'backup.welcomeBack': 'Your sources, favourites and settings are back.',
   'backup.welcomeFiles': 'Files sent from your phone need to be sent again: in {settings}, open {sources}, then {add}.',
+  // A backup made without logins and links (RELAY step 32d4b): the sources screen opens next.
+  'backup.welcomeLogins':
+    '{n, plural, one {One source needs its login or link again} other {# sources need their logins or links again}}: {sources} in {settings} opens next.',
   'backup.continue': 'Continue',
 
   // Settings' backup page (RELAY step 32d2b).
@@ -165,6 +170,12 @@ export const EN = {
   'backup.failedRead': "Couldn't read the backup's settings.",
   'backup.offFailed': "Couldn't turn the backup off. Try again.",
   'backup.onFailed': "Couldn't turn the backup on. Try again.",
+  // The page's second row (RELAY step 32d4b): whether the backup takes the logins and links.
+  'backup.logins': 'Include logins and links',
+  'backup.loginsIn': 'Your logins and playlist links are in the backup, encrypted.',
+  'backup.loginsOut': 'Logins and links stay on this TV: after a restore, you type them again.',
+  'backup.loginsSending': 'Sending the backup…',
+  'backup.loginsFailed': "Couldn't change it. Try again.",
   'backup.replaceFailed': "Couldn't send it. Check your internet connection and try again.",
   'backup.restoreFailed': "Couldn't reach the server. Check your internet connection and try again.",
   'backup.restoreNewer': 'This backup was made by a newer version of Lablo. Update Lablo, then restore it.',
@@ -368,6 +379,15 @@ export const EN = {
   'sources.blockedSince': "Not updated since {day}, {time}: this server can't be used with Lablo.",
   'sources.failedRead': "Couldn't read your sources.",
   'sources.addPhone': 'Add from your phone',
+  // A source a backup brought back without its login or link (RELAY step 32d4b), and its form.
+  'sources.needsLogin': 'Needs its login again',
+  'sources.needsLink': 'Needs its link again',
+  'sources.updating': 'Updating…',
+  'sources.loginTitle': 'Login for {name}',
+  'sources.linkTitle': 'Link for {name}',
+  'sources.formBody': 'Its channels come back once you save; your favourites stay.',
+  'sources.linkWas': 'It was on {host}',
+  'sources.save': 'Save',
   'guides.menuTitle': 'This guide',
   'guides.menuLink': 'Link: {link}',
   'guides.moveUp': 'Move up',

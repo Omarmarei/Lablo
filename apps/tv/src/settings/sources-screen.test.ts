@@ -1,6 +1,6 @@
 import type { VNode } from 'preact';
 import { stripIsolates } from '@lablo/core';
-import type { LoadedProfile, SourceMeta, SourceRecord, StoredSource } from '@lablo/data';
+import type { LoadedProfile, ProfileEdit, SourceMeta, SourceRecord, StoredSource } from '@lablo/data';
 import { emptyProfile } from '@lablo/data';
 import type { ItemBinding } from '@lablo/ui';
 import { SCREEN, Spinner, VirtualList, bindFocus, createNavigator } from '@lablo/ui';
@@ -47,7 +47,7 @@ interface Held<T> {
 
 /** The data engine: answers as set, each read held when asked. */
 class FakeEngine implements SourcesEngine {
-  sources: SourceRecord[] = [PANEL, LIST, GONE];
+  sources: StoredSource[] = [PANEL, LIST, GONE];
   metas: SourceMeta[] = [meta('s1', { checkedAt: T }), meta('s2'), meta('s3', { gen: 0, updatedAt: null })];
   blockedUrls: string[] = [];
   failProfile = false;
@@ -88,6 +88,17 @@ class FakeEngine implements SourcesEngine {
       if (this.failBlocked) throw new Error('worker gone');
       return urls.map((url) => this.blockedUrls.indexOf(url) !== -1);
     });
+  }
+
+  /** The login form's saves (step 32d4b): each recorded, the source replaced by id as the query worker does. */
+  readonly edits: ProfileEdit[] = [];
+  editFails = false;
+
+  editProfile(edit: ProfileEdit): Promise<boolean> {
+    this.edits.push(edit);
+    if (this.editFails) return Promise.reject(new Error('no query worker'));
+    if (edit.kind === 'source') this.sources = this.sources.map((s) => (s.id === edit.source.id ? edit.source : s));
+    return Promise.resolve(true);
   }
 
   release(): void {
@@ -141,9 +152,9 @@ describe('sourceRows', () => {
     const engine = new FakeEngine();
     const rows = sourceRows(profileOf(engine.sources), engine.metas, [false, true]);
     expect(rows).toEqual([
-      { id: 's1', name: 'My panel', type: 'xtream', host: 'panel.test:8080', checkedAt: T, blocked: false },
-      { id: 's2', name: 'قائمتي', type: 'm3u', host: 'lists.test', checkedAt: T - 60_000, blocked: true },
-      { id: 's3', name: 'Wiped', type: 'm3u', host: 'wiped.test', checkedAt: null, blocked: false },
+      { id: 's1', name: 'My panel', type: 'xtream', host: 'panel.test:8080', checkedAt: T, blocked: false, needs: null, answer: null },
+      { id: 's2', name: 'قائمتي', type: 'm3u', host: 'lists.test', checkedAt: T - 60_000, blocked: true, needs: null, answer: null },
+      { id: 's3', name: 'Wiped', type: 'm3u', host: 'wiped.test', checkedAt: null, blocked: false, needs: null, answer: null },
     ]);
   });
 
@@ -158,8 +169,8 @@ describe('sourceRows', () => {
   it('lists a file from the phone with no server, never blocked, whatever the blocklist answers (step 31d2b1)', () => {
     const file: SourceRecord = { id: 's4', type: 'm3u-file', name: 'Kitchen', added: 4 };
     expect(sourceRows(profileOf([PANEL, file]), [meta('s1', { checkedAt: T }), meta('s4', { checkedAt: T - 5_000 })], [true, true])).toEqual([
-      { id: 's1', name: 'My panel', type: 'xtream', host: 'panel.test:8080', checkedAt: T, blocked: true },
-      { id: 's4', name: 'Kitchen', type: 'm3u-file', host: '', checkedAt: T - 5_000, blocked: false },
+      { id: 's1', name: 'My panel', type: 'xtream', host: 'panel.test:8080', checkedAt: T, blocked: true, needs: null, answer: null },
+      { id: 's4', name: 'Kitchen', type: 'm3u-file', host: '', checkedAt: T - 5_000, blocked: false, needs: null, answer: null },
     ]);
   });
 
@@ -167,9 +178,15 @@ describe('sourceRows', () => {
     const panel: StoredSource = { id: 's5', type: 'xtream', name: 'Bare panel', account: null, base: 'http://bare.test:8080', added: 5 };
     const link: StoredSource = { id: 's6', type: 'm3u', name: 'Bare list', url: null, origin: 'https://lists.bare.test', added: 6 };
     expect(sourceRows(profileOf([panel, link]), [], [true, false])).toEqual([
-      { id: 's5', name: 'Bare panel', type: 'xtream', host: 'bare.test:8080', checkedAt: null, blocked: true },
-      { id: 's6', name: 'Bare list', type: 'm3u', host: 'lists.bare.test', checkedAt: null, blocked: false },
+      { id: 's5', name: 'Bare panel', type: 'xtream', host: 'bare.test:8080', checkedAt: null, blocked: true, needs: 'login', answer: null },
+      { id: 's6', name: 'Bare list', type: 'm3u', host: 'lists.bare.test', checkedAt: null, blocked: false, needs: 'link', answer: null },
     ]);
+  });
+
+  it('gives each row its save’s answer by source id (step 32d4b)', () => {
+    const failed = { state: 'failed', code: 'auth', status: null } as const;
+    const rows = sourceRows(profileOf([PANEL, LIST, GONE]), [], [], { s1: { state: 'updating' }, s3: failed });
+    expect(rows.map((r) => r.answer)).toEqual([{ state: 'updating' }, null, failed]);
   });
 });
 
@@ -366,7 +383,7 @@ const textOf = (node: unknown): string => {
 const en = appI18n('en-US', { isolate: false });
 const ar = appI18n('ar-SA');
 const item: ItemBinding = { state: 'focused', onHover: () => undefined, onPress: () => undefined };
-const row = (patch: Partial<SourceRow> = {}): SourceRow => ({ id: 's1', name: 'My panel', type: 'xtream', host: 'panel.test:8080', checkedAt: T, blocked: false, ...patch });
+const row = (patch: Partial<SourceRow> = {}): SourceRow => ({ id: 's1', name: 'My panel', type: 'xtream', host: 'panel.test:8080', checkedAt: T, blocked: false, needs: null, answer: null, ...patch });
 
 describe('a source’s row as drawn', () => {
   it('names the kind, the format isolated in Arabic', () => {
@@ -451,7 +468,7 @@ describe('the sources page as drawn', () => {
     t.list.open();
     await flush();
     const binding = bindFocus(t.nav);
-    return { ...t, draw: (i18n = en) => SourcesPage({ i18n, binding, list: t.list }) };
+    return { ...t, draw: (i18n = en) => SourcesPage({ i18n, binding, focus: t.nav.snapshot(), list: t.list })! };
   }
 
   it('shows a spinner while it reads, then the list with its counts', async () => {
@@ -607,13 +624,13 @@ describe('"Add from your phone" (RELAY step 31c2a)', () => {
     t.list.open();
     await flush();
     const binding = bindFocus(t.nav);
-    const header = walk(SourcesPage({ i18n: en, binding, list: t.list })).filter((v) => v.type === 'header')[0]!;
+    const header = walk(SourcesPage({ i18n: en, binding, focus: t.nav.snapshot(), list: t.list })).filter((v) => v.type === 'header')[0]!;
     const button = walk(header).filter((v) => typeof v.type === 'function' && (v.type as { name?: string }).name === 'AddFromPhone')[0]!;
     // Its own component, with the zone's hook (the e2e draws its label).
     expect(button.props as Props).toMatchObject({ i18n: en, binding });
     const plain = setup();
     plain.list.open();
-    const none = walk(SourcesPage({ i18n: en, binding: bindFocus(plain.nav), list: plain.list })).filter((v) => typeof v.type === 'function' && (v.type as { name?: string }).name === 'AddFromPhone');
+    const none = walk(SourcesPage({ i18n: en, binding: bindFocus(plain.nav), focus: plain.nav.snapshot(), list: plain.list })).filter((v) => typeof v.type === 'function' && (v.type as { name?: string }).name === 'AddFromPhone');
     expect(none).toEqual([]);
   });
 });

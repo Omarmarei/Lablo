@@ -4,10 +4,11 @@ import type { Focus, FocusBinding, ItemBinding } from '@lablo/ui';
 import { Button, Dialog, Spinner, useZone } from '@lablo/ui';
 import type { AppI18n } from '../i18n';
 import type { BackupBusy, BackupNotice, BackupPage, BackupQuestion } from './backup-state';
-import { BACKUP_CONFIRM, CONFIRM_NO, CONFIRM_YES, HELD_REPLACE, HELD_RESTORE, codeGroups, showsHeld } from './backup-state';
+import { BACKUP_CONFIRM, CONFIRM_NO, CONFIRM_YES, HELD_REPLACE, HELD_RESTORE, SWITCH_BACKUP, SWITCH_LOGINS, codeGroups, showsHeld, switchRows } from './backup-state';
 
 /**
- * Settings' backup page (RELAY step 32d2b, `backup-state.ts`): the switch row and its line, the
+ * Settings' backup page (RELAY step 32d2b, `backup-state.ts`): the switch row and its line, while
+ * on the logins' row and its line (step 32d4b), the
  * backup code in groups of four while it is the secret (data: left to right, never translated),
  * a held backup's box, what an action that didn't work says, and the confirm dialog over them.
  * Every text comes from the catalogs.
@@ -36,10 +37,17 @@ export function switchLine(i18n: AppI18n, info: BackupStatus, last: BackupUpload
   return t('backup.sentAt', { day: i18n.date(at, 'day'), time: i18n.time(at) });
 }
 
+/** The line under the logins' row (step 32d4b): what runs, else where the logins and links are. */
+export function loginsLine(t: Translate, included: boolean, busy: BackupBusy | null): string {
+  if (busy === 'logins') return t('backup.loginsSending');
+  return included ? t('backup.loginsIn') : t('backup.loginsOut');
+}
+
 /** What an action that didn't work says. */
 export function noticeText(t: Translate, notice: BackupNotice): string {
   if (notice === 'off-failed') return t('backup.offFailed');
   if (notice === 'on-failed') return t('backup.onFailed');
+  if (notice === 'logins-failed') return t('backup.loginsFailed');
   if (notice === 'replace-failed') return t('backup.replaceFailed');
   if (notice === 'restore-failed') return t('backup.restoreFailed');
   if (notice === 'restore-newer') return t('backup.restoreNewer');
@@ -63,13 +71,17 @@ export function BackupView({
 }: {
   i18n: AppI18n;
   page: BackupPage;
-  switchItem: ItemBinding;
+  /** The switch zone's rows: the backup (`SWITCH_BACKUP`), its logins (`SWITCH_LOGINS`). */
+  switchItem: (index: number) => ItemBinding;
   heldItem: (index: number) => ItemBinding;
   dialog?: ComponentChildren;
 }) {
   const { t } = i18n;
   const status = page.status.value;
   const info = page.info.value;
+  const logins = page.logins.value;
+  const backupItem = switchItem(SWITCH_BACKUP);
+  const loginsItem = switchItem(SWITCH_LOGINS);
   const busy = page.busy.value;
   const notice = page.notice.value;
   const held = showsHeld(info, page.held.value);
@@ -80,6 +92,7 @@ export function BackupView({
       data-testid="backup"
       data-status={status}
       data-on={info === null ? '' : String(info.on)}
+      data-logins={logins === null ? '' : String(logins)}
       data-source={info === null ? '' : info.source}
       data-sent={info === null || info.sentAt === null ? '' : info.sentAt}
       data-deleting={info === null ? '' : String(info.deleting)}
@@ -104,13 +117,13 @@ export function BackupView({
       {info !== null && (
         <div class="backup__body">
           <div
-            class={rowClass('settings__row backup__switch', switchItem)}
+            class={rowClass('settings__row backup__switch', backupItem)}
             role="switch"
             aria-checked={info.on ? 'true' : 'false'}
             data-testid="backup-switch"
-            data-state={switchItem.state}
-            onMouseMove={switchItem.onHover}
-            onClick={switchItem.onPress}
+            data-state={backupItem.state}
+            onMouseMove={backupItem.onHover}
+            onClick={backupItem.onPress}
           >
             <div class="backup__top">
               <span class="settings__name">{t('backup.switch')}</span>
@@ -122,6 +135,27 @@ export function BackupView({
               {switchLine(i18n, info, page.last.value, busy)}
             </span>
           </div>
+          {logins !== null && switchRows(info, logins) > SWITCH_LOGINS && (
+            <div
+              class={rowClass('settings__row backup__switch', loginsItem)}
+              role="switch"
+              aria-checked={logins ? 'true' : 'false'}
+              data-testid="backup-logins"
+              data-state={loginsItem.state}
+              onMouseMove={loginsItem.onHover}
+              onClick={loginsItem.onPress}
+            >
+              <div class="backup__top">
+                <span class="settings__name">{t('backup.logins')}</span>
+                <span class="backup__value" data-testid="backup-logins-value">
+                  {logins ? t('backup.on') : t('backup.off')}
+                </span>
+              </div>
+              <span class="settings__hint" data-testid="backup-logins-line">
+                {loginsLine(t, logins, busy)}
+              </span>
+            </div>
+          )}
           {code !== null && (
             <section class="backup__box" data-testid="backup-code-box">
               <h2 class="backup__heading">{t('backup.codeTitle')}</h2>
@@ -183,5 +217,5 @@ export function BackupPageScreen({ i18n, binding, focus, page }: { i18n: AppI18n
   const held = useZone(binding, screen, 'held');
   const question = page.question.value;
   const dialog = focus.screen === BACKUP_CONFIRM && question !== null ? <BackupConfirm i18n={i18n} binding={binding} question={question} /> : null;
-  return <BackupView i18n={i18n} page={page} switchItem={switches.item(0)} heldItem={(index) => held.item(index)} dialog={dialog} />;
+  return <BackupView i18n={i18n} page={page} switchItem={(index) => switches.item(index)} heldItem={(index) => held.item(index)} dialog={dialog} />;
 }

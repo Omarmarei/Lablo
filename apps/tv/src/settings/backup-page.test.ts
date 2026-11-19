@@ -1,14 +1,14 @@
 import type { VNode } from 'preact';
 import { signal } from '@preact/signals';
 import { stripIsolates } from '@lablo/core';
-import type { BackupCallRequest, BackupPrepareRequest, BackupRestoreResult, BackupStatus, BackupSwitchRequest, BackupSwitchResult, BackupUploadResult } from '@lablo/data';
+import type { BackupCallRequest, BackupPrepareRequest, BackupRestoreResult, BackupStatus, BackupSwitchRequest, BackupSwitchResult, BackupUploadResult, LoadedProfile, ProfileEdit } from '@lablo/data';
 import type { ItemBinding } from '@lablo/ui';
 import { Button, Dialog, Spinner, bindFocus, createNavigator } from '@lablo/ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { appI18n } from '../i18n';
 import type { BackupNotice, BackupPageEngine, BackupPageHost } from './backup-state';
-import { BACKUP_CONFIRM, BACKUP_SCREEN, codeGroups, createBackupPage, restoreNotice, showsHeld } from './backup-state';
-import { BackupConfirmView, BackupView, noticeText, questionText, switchLine } from './BackupPage';
+import { BACKUP_CONFIRM, BACKUP_SCREEN, codeGroups, createBackupPage, includesLogins, restoreNotice, showsHeld, switchRows } from './backup-state';
+import { BackupConfirmView, BackupView, loginsLine, noticeText, questionText, switchLine } from './BackupPage';
 import { itemText } from './SettingsScreen';
 
 /**
@@ -58,6 +58,37 @@ class FakeEngine implements BackupPageEngine {
   restoreAnswer: BackupRestoreResult | Error = { state: 'restored', language: 'ar', sources: 1 };
   holdStatus = false;
   readonly heldStatus: Held<BackupStatus>[] = [];
+  /** The profile's document as `profile()` reads it (step 32d4b: `backupLogins`); `null`: no profile. */
+  doc: Record<string, unknown> | null = { v: 9, sources: [] };
+  profileReads = 0;
+  failProfile = false;
+  editAnswer: boolean | Error = true;
+  readonly edits: ProfileEdit[] = [];
+  holdEdit = false;
+  readonly heldEdits: Held<boolean>[] = [];
+
+  profile(): Promise<LoadedProfile | null> {
+    this.profileReads += 1;
+    if (this.failProfile) return Promise.reject(new Error('no query worker'));
+    return Promise.resolve(this.doc === null ? null : ({ doc: this.doc } as unknown as LoadedProfile));
+  }
+  editProfile(edit: ProfileEdit): Promise<boolean> {
+    this.log.push(`edit ${edit.kind === 'backupLogins' ? String(edit.on) : edit.kind}`);
+    this.edits.push(edit);
+    if (edit.kind === 'backupLogins' && !(this.editAnswer instanceof Error) && this.doc !== null) {
+      // As the query worker writes it: off keeps `false`, on takes the field away.
+      const next: Record<string, unknown> = { ...this.doc };
+      if (edit.on) delete next['backupLogins'];
+      else next['backupLogins'] = false;
+      this.doc = next;
+    }
+    if (this.holdEdit) {
+      const h = held<boolean>();
+      this.heldEdits.push(h);
+      return h.promise;
+    }
+    return this.editAnswer instanceof Error ? Promise.reject(this.editAnswer) : Promise.resolve(this.editAnswer);
+  }
 
   backupStatus(request: BackupPrepareRequest): Promise<BackupStatus> {
     this.log.push('status');
@@ -200,7 +231,7 @@ describe('the backup page', () => {
     expect(t.page.info.value).toEqual(status());
     expect(t.page.pending.value).toBe(0);
     expect((t.nav.top.zone('held') as { count: number }).count).toBe(0);
-    expect(t.nav.top.zone('switch')).toMatchObject({ count: 1, neighbours: { down: 'held' } });
+    expect(t.nav.top.zone('switch')).toMatchObject({ count: 2, neighbours: { down: 'held' } });
     expect(t.nav.top.zone('held')).toMatchObject({ axis: 'horizontal', neighbours: { up: 'switch' } });
   });
 
@@ -231,10 +262,12 @@ describe('the backup page', () => {
     t.engine.heldStatus[0]!.resolve(status());
     await flush();
     expect(t.page.info.value).toEqual(status({ on: false, code: null }));
+    expect(t.page.logins.value).toBe(true);
     // A third opening shows nothing of the last until its own read answers.
     t.nav.back();
     t.page.open();
     expect(t.page.info.value).toBeNull();
+    expect(t.page.logins.value).toBeNull();
     expect(t.page.status.value).toBe('loading');
   });
 
@@ -261,6 +294,7 @@ describe('the backup page', () => {
     t.page.open();
     await flush();
     expect(t.page.status.value).toBe('ready');
+    expect(t.page.logins.value).toBe(true);
     t.nav.handle('OK');
     t.nav.handle('LEFT');
     t.engine.failStatus = true;
@@ -268,6 +302,7 @@ describe('the backup page', () => {
     await flush();
     expect(t.page.status.value).toBe('failed');
     expect(t.page.info.value).toBeNull();
+    expect(t.page.logins.value).toBeNull();
     expect(t.page.busy.value).toBeNull();
   });
 
@@ -376,6 +411,8 @@ describe('the backup page', () => {
     t.nav.handle('OK');
     await flush();
     expect(t.page.busy.value).toBe('off');
+    // Down past the logins' row (step 32d4b) to the held box.
+    t.nav.handle('DOWN');
     t.nav.handle('DOWN');
     expect(t.at()).toBe(`${BACKUP_SCREEN} · held 0`);
     t.nav.handle('OK');
@@ -389,6 +426,8 @@ describe('the backup page', () => {
     await flush();
     t.held.value = true;
     expect((t.nav.top.zone('held') as { count: number }).count).toBe(2);
+    // Down past the logins' row (step 32d4b) to the held box.
+    t.nav.handle('DOWN');
     t.nav.handle('DOWN');
     expect(t.at()).toBe(`${BACKUP_SCREEN} · held 0`);
     t.nav.handle('RIGHT');
@@ -410,6 +449,8 @@ describe('the backup page', () => {
     t.page.open();
     await flush();
     t.held.value = true;
+    // Down past the logins' row (step 32d4b) to the held box.
+    t.nav.handle('DOWN');
     t.nav.handle('DOWN');
     t.nav.handle('OK');
     expect(t.at()).toBe(`${BACKUP_CONFIRM} · actions 1`);
@@ -439,6 +480,8 @@ describe('the backup page', () => {
     t.page.open();
     await flush();
     t.held.value = true;
+    // Down past the logins' row (step 32d4b) to the held box.
+    t.nav.handle('DOWN');
     t.nav.handle('DOWN');
     t.nav.handle('OK');
     t.nav.handle('LEFT');
@@ -455,6 +498,8 @@ describe('the backup page', () => {
     t.page.open();
     await flush();
     t.held.value = true;
+    // Down past the logins' row (step 32d4b) to the held box.
+    t.nav.handle('DOWN');
     t.nav.handle('DOWN');
     t.nav.handle('RIGHT');
     t.nav.handle('OK');
@@ -475,6 +520,8 @@ describe('the backup page', () => {
     t.page.open();
     await flush();
     t.held.value = true;
+    // Down past the logins' row (step 32d4b) to the held box.
+    t.nav.handle('DOWN');
     t.nav.handle('DOWN');
     t.nav.handle('RIGHT');
     t.nav.handle('OK');
@@ -538,6 +585,135 @@ describe('the backup page', () => {
   });
 });
 
+describe('the backup page’s logins row (step 32d4b)', () => {
+  it('reads the choice from the profile: in, unless it says backupLogins false', () => {
+    expect(includesLogins(null)).toBe(true);
+    expect(includesLogins({ doc: { v: 9, sources: [] } } as unknown as LoadedProfile)).toBe(true);
+    expect(includesLogins({ doc: { v: 9, sources: [], backupLogins: false } } as unknown as LoadedProfile)).toBe(false);
+    // Only `false` leaves them out (the profile never holds another value).
+    expect(includesLogins({ doc: { v: 9, sources: [], backupLogins: 0 } } as unknown as LoadedProfile)).toBe(true);
+  });
+
+  it('has the row only while on, with the profile read', () => {
+    expect(switchRows(status(), true)).toBe(2);
+    expect(switchRows(status(), false)).toBe(2);
+    expect(switchRows(status(), null)).toBe(1);
+    expect(switchRows(status({ on: false }), true)).toBe(1);
+    expect(switchRows(null, true)).toBe(1);
+  });
+
+  it('reads the profile with the status at each opening: the row under the switch while on', async () => {
+    const t = setup();
+    t.page.open();
+    expect(t.page.logins.value).toBeNull();
+    await flush();
+    expect(t.engine.profileReads).toBe(1);
+    expect(t.page.logins.value).toBe(true);
+    expect(t.nav.top.zone('switch')).toMatchObject({ count: 2, axis: 'vertical', neighbours: { down: 'held' } });
+    t.nav.handle('DOWN');
+    expect(t.at()).toBe(`${BACKUP_SCREEN} · switch 1`);
+    // Off: one row.
+    t.nav.back();
+    t.engine.answers = [status({ on: false, code: null })];
+    t.engine.doc = { v: 9, sources: [], backupLogins: false };
+    t.page.open();
+    await flush();
+    expect(t.page.logins.value).toBe(false);
+    expect((t.nav.top.zone('switch') as { count: number }).count).toBe(1);
+  });
+
+  it("fails when the profile can't be read, as when the status can't", async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const t = setup();
+    t.engine.failProfile = true;
+    t.page.open();
+    await flush();
+    expect(t.page.status.value).toBe('failed');
+    expect(t.page.info.value).toBeNull();
+    expect(t.page.logins.value).toBeNull();
+    expect((t.nav.top.zone('switch') as { count: number }).count).toBe(1);
+  });
+
+  it('turns the logins off with no question: the edit inside the hold, a run at once, then the status again', async () => {
+    const t = setup();
+    t.page.open();
+    await flush();
+    t.nav.handle('DOWN');
+    t.nav.handle('OK');
+    // No question: still on the row.
+    expect(t.at()).toBe(`${BACKUP_SCREEN} · switch 1`);
+    expect(t.page.question.value).toBeNull();
+    expect(t.page.busy.value).toBe('logins');
+    await flush();
+    expect(t.engine.edits).toEqual([{ kind: 'backupLogins', on: false }]);
+    expect(t.engine.log).toEqual(['status', 'hold', 'edit false', 'hold end', 'uploadNow', 'status']);
+    expect(t.engine.profileReads).toBe(2);
+    expect(t.page.logins.value).toBe(false);
+    expect(t.page.busy.value).toBeNull();
+    expect(t.page.notice.value).toBeNull();
+    expect(t.engine.switches).toEqual([]);
+  });
+
+  it('turns them on again the same way', async () => {
+    const t = setup();
+    t.engine.doc = { v: 9, sources: [], backupLogins: false };
+    t.page.open();
+    await flush();
+    expect(t.page.logins.value).toBe(false);
+    t.nav.handle('DOWN');
+    t.nav.handle('OK');
+    await flush();
+    expect(t.engine.edits).toEqual([{ kind: 'backupLogins', on: true }]);
+    expect(t.engine.log).toEqual(['status', 'hold', 'edit true', 'hold end', 'uploadNow', 'status']);
+    expect(t.page.logins.value).toBe(true);
+  });
+
+  it("says so when the choice couldn't be saved, and sends nothing", async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const t = setup();
+    t.engine.editAnswer = new Error('no query worker');
+    t.page.open();
+    await flush();
+    t.nav.handle('DOWN');
+    t.nav.handle('OK');
+    await flush();
+    expect(t.page.notice.value).toBe('logins-failed');
+    expect(t.engine.log).toEqual(['status', 'hold', 'edit false', 'hold end', 'status']);
+    expect(t.page.busy.value).toBeNull();
+  });
+
+  it('starts nothing else while it runs: neither the row again nor the switch', async () => {
+    const t = setup();
+    t.engine.holdEdit = true;
+    t.page.open();
+    await flush();
+    t.nav.handle('DOWN');
+    t.nav.handle('OK');
+    t.nav.handle('OK');
+    t.nav.handle('UP');
+    t.nav.handle('OK');
+    expect(t.at()).toBe(`${BACKUP_SCREEN} · switch 0`);
+    expect(t.page.question.value).toBeNull();
+    expect(t.engine.edits).toHaveLength(1);
+    t.engine.heldEdits[0]!.resolve(true);
+    await flush();
+    expect(t.page.busy.value).toBeNull();
+    expect(t.engine.switches).toEqual([]);
+  });
+
+  it('takes the focus to the switch when the row goes (the backup read as off)', async () => {
+    const t = setup();
+    t.engine.answers = [status(), status({ on: false, code: null })];
+    t.page.open();
+    await flush();
+    t.nav.handle('DOWN');
+    t.nav.handle('OK');
+    await flush();
+    expect((t.nav.top.zone('switch') as { count: number }).count).toBe(1);
+    expect(t.at()).toBe(`${BACKUP_SCREEN} · switch 0`);
+  });
+});
+
 type Props = Record<string, unknown> & { children?: unknown };
 
 /** Every element under `node` (components not expanded), depth first. */
@@ -587,11 +763,22 @@ describe('the backup page’s words', () => {
     expect(stripIsolates(switchLine(ar, status(), null, null))).toBe(`آخر نسخ احتياطي ${ar.date(at, 'day')}، ${ar.time(at)}`);
   });
 
+  it('says under the logins row what runs, else where the logins and links are (step 32d4b)', () => {
+    expect(loginsLine(en.t, true, null)).toBe('Your logins and playlist links are in the backup, encrypted.');
+    expect(loginsLine(en.t, false, null)).toBe('Logins and links stay on this TV: after a restore, you type them again.');
+    expect(loginsLine(en.t, true, 'logins')).toBe('Sending the backup…');
+    expect(loginsLine(en.t, false, 'logins')).toBe('Sending the backup…');
+    // Another action's line is the switch's: this one says where they are.
+    expect(loginsLine(en.t, false, 'off')).toBe('Logins and links stay on this TV: after a restore, you type them again.');
+    expect(loginsLine(ar.t, true, null)).toBe('بيانات الدخول وروابط قوائم التشغيل موجودة في النسخة الاحتياطية، مشفّرة.');
+  });
+
   it('says what an action that didn’t work means', () => {
-    const notices: BackupNotice[] = ['off-failed', 'on-failed', 'replace-failed', 'restore-failed', 'restore-newer', 'restore-other'];
+    const notices: BackupNotice[] = ['off-failed', 'on-failed', 'logins-failed', 'replace-failed', 'restore-failed', 'restore-newer', 'restore-other'];
     expect(notices.map((n) => noticeText(en.t, n))).toEqual([
       "Couldn't turn the backup off. Try again.",
       "Couldn't turn the backup on. Try again.",
+      "Couldn't change it. Try again.",
       "Couldn't send it. Check your internet connection and try again.",
       "Couldn't reach the server. Check your internet connection and try again.",
       'This backup was made by a newer version of Lablo. Update Lablo, then restore it.',
@@ -624,7 +811,10 @@ describe('the backup page as drawn', () => {
     t.page.open();
     await flush();
     bindFocus(t.nav);
-    return { ...t, draw: (i18n = en) => BackupView({ i18n, page: t.page, switchItem: item, heldItem: (i) => (i === 0 ? item : idle) }) };
+    return {
+      ...t,
+      draw: (i18n = en, logins = idle) => BackupView({ i18n, page: t.page, switchItem: (i) => (i === 0 ? item : logins), heldItem: (i) => (i === 0 ? item : idle) }),
+    };
   }
 
   it('shows a spinner while it reads, and says so when it can’t', async () => {
@@ -697,6 +887,8 @@ describe('the backup page as drawn', () => {
     ]);
     expect(byTestId(root, 'backup-busy')).toHaveLength(0);
     // "Replace it" confirmed: drawn before its answer.
+    // Down past the logins' row (step 32d4b) to the held box.
+    t.nav.handle('DOWN');
     t.nav.handle('DOWN');
     t.nav.handle('RIGHT');
     t.nav.handle('OK');
@@ -724,10 +916,54 @@ describe('the backup page as drawn', () => {
     expect(textOf(notice)).toBe("Couldn't turn the backup off. Try again.");
   });
 
+  it('draws the logins row under the switch while on, with its value and line (step 32d4b)', async () => {
+    const t = await drawn();
+    let root = t.draw(en, item);
+    expect(root.props as Props).toMatchObject({ 'data-logins': 'true' });
+    const row = byTestId(root, 'backup-logins')[0]!;
+    expect(row.props as Props).toMatchObject({ role: 'switch', 'aria-checked': 'true', 'data-state': 'focused', class: 'settings__row backup__switch is-focused' });
+    expect(textOf(walk(row).filter((v) => (v.props as Props).class === 'settings__name')[0])).toBe('Include logins and links');
+    expect(textOf(byTestId(root, 'backup-logins-value')[0])).toBe('On');
+    expect(textOf(byTestId(root, 'backup-logins-line')[0])).toBe('Your logins and playlist links are in the backup, encrypted.');
+    // Right after the backup's row, before the code's box.
+    const body = walk(root).filter((v) => (v.props as Props).class === 'backup__body')[0]!;
+    const rows = (body.props as { children: unknown[] }).children;
+    expect((rows[1] as VNode).props as Props).toMatchObject({ 'data-testid': 'backup-logins' });
+    expect(byTestId(t.draw(en), 'backup-logins')[0]!.props as Props).toMatchObject({ 'data-state': 'idle', class: 'settings__row backup__switch' });
+    expect(textOf(walk(byTestId(t.draw(ar), 'backup-logins')[0]).filter((v) => (v.props as Props).class === 'settings__name')[0])).toBe('تضمين بيانات الدخول والروابط');
+    // Off: its value and line, then busy while it sends.
+    t.nav.handle('DOWN');
+    t.engine.holdEdit = true;
+    t.nav.handle('OK');
+    root = t.draw(en);
+    expect(root.props as Props).toMatchObject({ 'data-busy': 'logins' });
+    expect(textOf(byTestId(root, 'backup-logins-line')[0])).toBe('Sending the backup…');
+    t.engine.heldEdits[0]!.resolve(true);
+    await flush();
+    root = t.draw(en);
+    expect(root.props as Props).toMatchObject({ 'data-logins': 'false', 'data-busy': '' });
+    expect(byTestId(root, 'backup-logins')[0]!.props as Props).toMatchObject({ 'aria-checked': 'false' });
+    expect(textOf(byTestId(root, 'backup-logins-value')[0])).toBe('Off');
+    expect(textOf(byTestId(root, 'backup-logins-line')[0])).toBe('Logins and links stay on this TV: after a restore, you type them again.');
+  });
+
+  it('draws no logins row while off, loading or failed', async () => {
+    const off = new FakeEngine();
+    off.answers = [status({ on: false, code: null })];
+    let t = await drawn(off);
+    expect(t.draw().props as Props).toMatchObject({ 'data-logins': 'true' });
+    expect(byTestId(t.draw(), 'backup-logins')).toHaveLength(0);
+    const loading = new FakeEngine();
+    loading.holdStatus = true;
+    t = await drawn(loading);
+    expect(t.draw().props as Props).toMatchObject({ 'data-logins': '' });
+    expect(byTestId(t.draw(), 'backup-logins')).toHaveLength(0);
+  });
+
   it('draws the dialog it is given inside the page', async () => {
     const t = await drawn();
     const dialog = BackupConfirmView({ i18n: en, question: 'off', item: () => idle });
-    const root = BackupView({ i18n: en, page: t.page, switchItem: item, heldItem: () => idle, dialog });
+    const root = BackupView({ i18n: en, page: t.page, switchItem: () => item, heldItem: () => idle, dialog });
     expect(walk(root)).toContain(dialog);
   });
 });
