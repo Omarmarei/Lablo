@@ -239,7 +239,7 @@ export type { BackupStandIn, StandInRequest } from './backup-stand-in';
 export { backupStandIn } from './backup-stand-in';
 
 // Telemetry (RELAY step 33b1): the telemetry worker's service.
-export type { TelemetrySendRequest, TelemetrySendResult, TelemetryServiceOptions } from './telemetry-service';
+export type { DiagParts, DiagSendRequest, DiagSendResult, TelemetrySendRequest, TelemetrySendResult, TelemetryServiceOptions } from './telemetry-service';
 export {
   TELEMETRY_CAPABILITY_KEY,
   TELEMETRY_ID_BYTES,

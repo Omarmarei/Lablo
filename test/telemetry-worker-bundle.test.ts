@@ -8,10 +8,10 @@
 import { randomFillSync } from 'node:crypto';
 import { join } from 'node:path';
 import vm from 'node:vm';
-import type { RpcPort, TelemetrySendRequest } from '@lablo/data';
+import type { DiagSendRequest, RpcPort, TelemetrySendRequest } from '@lablo/data';
 import { createTelemetryClient, emptyProfile, getValue, openDatabase, saveProfile, STORE, TELEMETRY_ID_KEY, TELEMETRY_QUEUE_KEY } from '@lablo/data';
 import type { TelemetryEvent } from '@lablo/protocol';
-import { readTelemetryEvents, telemetryBatchSchema } from '@lablo/protocol';
+import { diagRequestSchema, readTelemetryEvents, telemetryBatchSchema } from '@lablo/protocol';
 import { describe, expect, it } from 'vitest';
 import { freshFactory } from '../packages/data/src/test-support';
 import { checkBudget, formatBudget } from '../tools/build/src/budgets';
@@ -26,11 +26,11 @@ interface Post {
 }
 
 /** A `fetch` for the realm that records each post and answers with the next status (200 once they run out). */
-function recordingFetch(posts: Post[], statuses: number[]) {
+function recordingFetch(posts: Post[], statuses: number[], answer = '{"state":"stored"}') {
   return (url: string, init: { method?: string; headers?: Record<string, string>; body?: string; credentials?: string }): Promise<Response> => {
     expect(init.credentials).toBe('omit');
     posts.push({ url, method: init.method, headers: init.headers ?? {}, body: init.body ?? '' });
-    return Promise.resolve(new Response('{"state":"stored"}', { status: statuses.shift() ?? 200 }));
+    return Promise.resolve(new Response(answer, { status: statuses.shift() ?? 200 }));
   };
 }
 
@@ -159,5 +159,59 @@ describe('the bundled telemetry worker', () => {
     stored.close();
     expect(readTelemetryEvents((JSON.parse(posts[0]!.body) as { events: unknown[] }).events)).toEqual({ events: scrubbed, dropped: 0 });
     for (const secret of ['omar.k', 'p@ss99', 'Panel.Example', 'list-host', 'listuser', '10.1.2.3', '/media/', 'blob:']) expect(posts[0]!.body).not.toContain(secret);
+  }, 120_000);
+
+  it('sends the diagnostics report (step 33d2) and reads its support code, in the Chromium 53 realm', async () => {
+    const code = await workerCode();
+    const tv = freshFactory();
+    const db = await openDatabase(tv);
+    await saveProfile(db, {
+      ...emptyProfile(),
+      sources: [
+        { id: 's1', type: 'xtream', name: 'Panel', account: { base: 'http://Panel.Example.tv:8080/sub', username: 'omar.k', password: 'p@ss99' }, added: 1 },
+        { id: 's2', type: 'm3u', name: 'List', url: null, origin: 'http://cdn.list-host.xyz', added: 2 },
+      ],
+      telemetry: false,
+    } as never);
+    const now = Date.now();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction([STORE.sources, STORE.epgMeta], 'readwrite');
+      tx.objectStore(STORE.sources).put({ src: 's1', gen: 1, building: null, nextGen: 2, updatedAt: now - 2 * 86_400_000, checkedAt: now - 7_200_000, counts: { live: 900, movie: 100 } });
+      tx.objectStore(STORE.epgMeta).put({ epgSrc: 'g2', gen: 0, building: null, nextGen: 1, updatedAt: null, checkedAt: now - 60_000, rank: 1, failure: { code: 'http', status: 404 } });
+      tx.objectStore(STORE.epgMeta).put({ epgSrc: 'g1', gen: 1, building: null, nextGen: 2, updatedAt: now, checkedAt: now, rank: 0, summary: { wanted: 900, matched: 450, programmes: 25000 } });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+    const crash: TelemetryEvent = { kind: 'crash', at: now - 10, where: 'main', stack: 'Uncaught Error: no omar.k at http://Panel.Example.tv:8080/sub\n    at f (file:///media/developer/apps/usr/palm/applications/com.lablo.iptv/main.js:1:2)' };
+    const request: DiagSendRequest = {
+      base: 'http://api.test:8091',
+      platform: 'tizen',
+      appVersion: '1.0.0',
+      parts: { at: now, zoneMin: 240, locale: 'ar', tier: 'low', model: 'UE43NU7100', firmware: 'T-KTMDEUC-1250.4', chromium: 56, probes: { year: 2018, lowTier: true }, config: 'none' },
+      events: [EVENTS[0]!, crash],
+    };
+    const posts: Post[] = [];
+    const client = createTelemetryClient(startWorker(code, tv, { calls: 0 }, recordingFetch(posts, [201], '{"code":"K7M2Q9"}')));
+    expect(await client.call('report', request)).toEqual({ state: 'sent', code: 'K7M2Q9' });
+    client.close();
+    expect(posts.map((p) => [p.url, p.method])).toEqual([['http://api.test:8091/v1/diag', 'POST']]);
+    const body = JSON.parse(posts[0]!.body) as unknown;
+    expect(diagRequestSchema.parse(body)).toEqual(body);
+    expect((body as { report: unknown }).report).toEqual({
+      v: 1,
+      ...request.parts,
+      telemetry: false,
+      sources: [
+        { type: 'xtream', items: '1k+', checked: '1h+', needs: null },
+        { type: 'm3u', items: '0', checked: null, needs: 'link' },
+      ],
+      guides: [
+        { programmes: '10k+', matched: '50-74', checked: '<1h', failure: null },
+        { programmes: '0', matched: '0', checked: '<1h', failure: { code: 'http', status: 404 } },
+      ],
+      events: [EVENTS[0], { ...crash, stack: 'Uncaught Error: no [login] at [url]\n    at f (main.js:1:2)' }],
+    });
+    for (const secret of ['omar.k', 'p@ss99', 'Panel.Example', 'list-host', '/media/', 'List', 'Panel']) expect(posts[0]!.body).not.toContain(secret);
   }, 120_000);
 });

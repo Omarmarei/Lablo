@@ -2,7 +2,7 @@ import { computed, signal } from '@preact/signals';
 import { render } from 'preact';
 import type { ContentKey, DeviceTier } from '@lablo/core';
 import { normalizeLang } from '@lablo/core';
-import type { BackupCallRequest, LastChannel, LoadedProfile } from '@lablo/data';
+import type { BackupCallRequest, DiagSendResult, LastChannel, LoadedProfile } from '@lablo/data';
 import type { Language, Navigator } from '@lablo/ui';
 import { Spinner } from '@lablo/ui';
 import type { AppData } from './App';
@@ -60,7 +60,7 @@ import { createOnboarding } from './onboarding/onboarding-state';
 import { answerEdit, readStartProfile, startPoint } from './onboarding/start';
 import { KEY_HELP, createPlatform } from './platform';
 import { createCrashReporter, listenForCrashes } from './telemetry/crash-state';
-import { appStartEvent, capabilityEvent, deviceProbes } from './telemetry/telemetry-events';
+import { appStartEvent, capabilityEvent, deviceProbes, diagParts } from './telemetry/telemetry-events';
 import { createTelemetry, telemetryOn } from './telemetry/telemetry-state';
 import { playerEvent, recordRefresh } from './telemetry/usage-events';
 import { installTestHook } from './test-hook';
@@ -184,6 +184,20 @@ const telemetry = createTelemetry({
   request: () => ({ base: configRequest.base, platform: __PLATFORM__, appVersion: __APP_VERSION__, sampling: config.policy.value.tunables.telemetrySampling ?? null }),
   lifecycle: (listener) => platform.onLifecycle(listener),
 });
+
+/**
+ * The diagnostics report (RELAY step 33d2), sent when the user asks in Settings: main's parts (the
+ * clock, the zone, the language, the device, the config's status) and the session's last plays,
+ * stalls and crashes; a telemetry worker reads the rest from the database, scrubs and posts it.
+ */
+function sendReport(): Promise<DiagSendResult> {
+  return platform.info().then((info) => {
+    const at = Date.now();
+    const last = config.last.value;
+    const parts = diagParts(at, new Date(at).getTimezoneOffset(), document.documentElement.lang, info, deviceProbes(window), last === null ? 'none' : last.status);
+    return dataEngine().sendDiagReport({ base: configRequest.base, platform: __PLATFORM__, appVersion: __APP_VERSION__, parts, events: telemetry.recent() });
+  });
+}
 
 /**
  * Crash reports (RELAY step 33c): main's uncaught errors and unhandled rejections from here on, and
@@ -567,6 +581,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     sourceAdded,
     // "Usage and crash reports" (step 33b3): the profile's switch, then telemetry follows what it stored.
     telemetry: { engine: dataEngine(), setOn: (on) => telemetry.setOn(on) },
+    // "Send a report to support" (step 33d2): main's parts and the session's last events; the worker adds the rest.
+    report: { send: sendReport },
     // A login given again (step 32d4b): the source's own refresh with the schedule held (the
     // schedule keeps a refused `needs-login` for 2 h, and `refreshNow` reads only the guides), then
     // its guides at once and the screens.

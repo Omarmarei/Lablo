@@ -2,6 +2,7 @@ import type { LoadedProfile } from '@lablo/data';
 import type { TelemetrySendRequest, TelemetrySendResult } from '@lablo/data/client';
 import type { LifecycleEvent } from '@lablo/platform-api';
 import type { TelemetryEvent } from '@lablo/protocol';
+import { DIAG_EVENTS_MAX } from '@lablo/protocol/telemetry-buckets';
 import type { SchedulerTimers } from '../data/refresh-scheduler';
 
 /**
@@ -29,6 +30,9 @@ import type { SchedulerTimers } from '../data/refresh-scheduler';
  *   its events back.
  * - **Stop:** the config's `disable-app` stops the sends (`stop`), and `start` arms them again.
  * - At most `TELEMETRY_MEMORY_MAX` events are held; a new one past it drops the oldest.
+ * - **The diagnostics report's events** (step 33d2): `recent()` gives the last `DIAG_EVENTS_MAX`
+ *   plays, stalls and crashes, kept whatever the switch (memory only, this session). Only a report
+ *   the user sends from Settings reads them.
  */
 
 /** A send comes this long after the first event not yet sent. */
@@ -66,6 +70,8 @@ export interface TelemetryOptions {
 export interface Telemetry {
   /** Records an event: held until a send, dropped while the switch is off. */
   record(event: TelemetryEvent): void;
+  /** The session's last plays, stalls and crashes, oldest first, whatever the switch (step 33d2: the diagnostics report). */
+  recent(): TelemetryEvent[];
   /** The profile's switch, read at the start. */
   load(on: boolean): void;
   /**
@@ -96,6 +102,8 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
   /** The profile's switch (`null`: not read yet). */
   let on: boolean | null = null;
   let held: TelemetryEvent[] = [];
+  /** The last plays, stalls and crashes, for a report (kept while off too). */
+  const latest: TelemetryEvent[] = [];
   /** When the first held event came (`null`: none held). */
   let pendingSince: number | null = null;
   /** The last send left events in the queue: one more after the gap. */
@@ -185,6 +193,10 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
 
   return {
     record(event) {
+      if (event.kind === 'play_result' || event.kind === 'stall' || event.kind === 'crash') {
+        latest.push(event);
+        if (latest.length > DIAG_EVENTS_MAX) latest.shift();
+      }
       if (on === false) return;
       held.push(event);
       if (held.length > TELEMETRY_MEMORY_MAX) held.shift();
@@ -192,6 +204,9 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
         pendingSince = now();
         arm();
       }
+    },
+    recent() {
+      return latest.slice();
     },
     load(value) {
       on = value;

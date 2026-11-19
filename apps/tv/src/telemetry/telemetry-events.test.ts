@@ -1,8 +1,8 @@
 import type { DeviceInfo } from '@lablo/platform-api';
-import { readTelemetryEvents } from '@lablo/protocol';
+import { diagReportSchema, readTelemetryEvents } from '@lablo/protocol';
 import { describe, expect, it } from 'vitest';
 import type { ProbeHost } from './telemetry-events';
-import { COLD_START_MAX_MS, DEVICE_NAME_MAX, HEVC_TYPE, appStartEvent, capabilityEvent, deviceName, deviceProbes } from './telemetry-events';
+import { COLD_START_MAX_MS, DEVICE_NAME_MAX, HEVC_TYPE, ZONE_MAX_MIN, appStartEvent, capabilityEvent, deviceName, deviceProbes, diagParts } from './telemetry-events';
 
 // RELAY step 33b1: the start's events, in the shape the server's schema reads.
 
@@ -144,5 +144,37 @@ describe('capabilityEvent', () => {
     const event = capabilityEvent(AT, { ...INFO, details: { secret: 'x' } }, { mse: true, hevc: true });
     const text = JSON.stringify(event);
     for (const left of ['ar-SA', '"SA"', '4.0', 'secret', 'tizen']) expect(text).not.toContain(left);
+  });
+});
+
+describe('diagParts (step 33d2)', () => {
+  const probes = { mse: true, hevc: false };
+
+  it('gives the clock, the zone east of UTC, the language, the device as capability names it, and the config’s status', () => {
+    const parts = diagParts(AT, -180, 'ar', INFO, probes, 'cached');
+    expect(parts).toEqual({
+      at: AT,
+      zoneMin: 180,
+      locale: 'ar',
+      tier: 'low',
+      model: 'UE43NU7100',
+      firmware: 'T-KTMDEUC-1250.4',
+      chromium: 56,
+      probes: { lowTier: true, mse: true, hevc: false, year: 2018 },
+      config: 'cached',
+    });
+    // The server's schema takes it as a report with no source, guide or event.
+    expect(diagReportSchema.safeParse({ v: 1, ...parts, telemetry: true, sources: [], guides: [], events: [] }).success).toBe(true);
+  });
+
+  it('reads Arabic from any Arabic tag and English otherwise, and keeps the zone within 14 hours (UTC for no number)', () => {
+    const locale = (lang: string): string => diagParts(AT, 0, lang, INFO, probes, 'none').locale;
+    expect(['ar', 'AR', 'ar-SA', 'en', 'en-US', 'en-XA', '', 'arn', 'fr'].map(locale)).toEqual(['ar', 'ar', 'ar', 'en', 'en', 'en', 'en', 'en', 'en']);
+    const zone = (west: number): number => diagParts(AT, west, 'en', INFO, probes, 'fresh').zoneMin;
+    expect(ZONE_MAX_MIN).toBe(840);
+    expect([0, 300, -345, -840, 840, -841, 841, 720.4, Number.NaN].map(zone)).toEqual([0, -300, 345, 840, -840, 840, -840, -720, 0]);
+    // A model or firmware outside the schema's characters, as capability cleans it.
+    const odd = diagParts(AT, 0, 'en', { ...INFO, model: 'http://x', firmware: '', chromiumVersion: null, modelYear: null }, probes, 'fresh');
+    expect([odd.model, odd.firmware, odd.chromium, odd.probes]).toEqual(['http___x', 'unknown', null, { lowTier: true, mse: true, hevc: false }]);
   });
 });

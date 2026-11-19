@@ -358,6 +358,12 @@ export const EN = {
   'settings.telemetryOnHint': 'Anonymous: never your links, logins or channel names',
   'settings.telemetryOffHint': 'Nothing is sent while they are off',
   'settings.telemetryFailed': "Couldn't change it. Try again.",
+  // The diagnostics report (step 33d2): OK sends it; the line under it, then the support code beside its name.
+  'settings.report': 'Send a report to support',
+  'settings.reportHint': "Your TV's model, the app's state and recent errors, never your links or logins",
+  'settings.reportSending': 'Sending…',
+  'settings.reportSent': 'Your support code: give it to support with your question',
+  'settings.reportFailed': "Couldn't send it. Check your internet connection and try again.",
   'guides.title': 'TV guides',
   'guides.add': 'Add a guide',
   'guides.intro': 'Programmes come from the first guide in this list that has the channel. Your own guides come first.',

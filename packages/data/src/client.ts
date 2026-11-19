@@ -150,7 +150,7 @@ export type BackupHandlers = ReturnType<typeof backupHandlers>;
 export type BackupClient = RpcClient<BackupHandlers, BackupEvents>;
 
 // Telemetry (RELAY step 33b1): the request and the answer.
-export type { TelemetrySendRequest, TelemetrySendResult } from './telemetry-service';
+export type { DiagParts, DiagSendRequest, DiagSendResult, TelemetrySendRequest, TelemetrySendResult } from './telemetry-service';
 
 /** The telemetry worker's RPC methods (telemetry.worker.ts, RELAY step 33b1). */
 export type TelemetryHandlers = ReturnType<typeof telemetryHandlers>;

@@ -2,10 +2,10 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
-import { readTelemetryEvents, telemetryBatchSchema } from '@lablo/protocol';
+import { diagRequestSchema, readTelemetryEvents, telemetryBatchSchema } from '@lablo/protocol';
 import { devSignedAnswer } from '../tools/engines/src/config';
 import type { ConfigServer } from './config-server';
-import { doc, startConfigServer } from './config-server';
+import { DIAG_STAND_IN_CODE, doc, startConfigServer } from './config-server';
 import { addM3uAndWatch, settled, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
 
@@ -99,10 +99,10 @@ function stringsOf(value: unknown, into: string[] = []): string[] {
   return into;
 }
 
-/** No post holds the playlist's login, its link, or the stand-in's host and port. */
-function expectNothingOfTheSource(server: ConfigServer): void {
+/** No post holds the playlist's login, its link, or the stand-in's host and port (`bodies`: the telemetry posts, else the reports). */
+function expectNothingOfTheSource(server: ConfigServer, bodies: readonly string[] = server.telemetry.posts): void {
   const port = new URL(server.origin).port;
-  for (const body of server.telemetry.posts) {
+  for (const body of bodies) {
     for (const secret of [USER, PASS, 'list.m3u', '127.0.0.1', 'localhost', 'Family News', 'http']) expect(body).not.toContain(secret);
     // The port only among the strings: a timestamp's digits could hold it by chance.
     for (const text of stringsOf(JSON.parse(body))) expect(text).not.toContain(port);
@@ -196,7 +196,7 @@ function fits(page: Page, testId: string): Promise<boolean> {
 
 /** Errors but the stand-in's refusals (Chromium logs each non-2xx answer). */
 function realErrors(errors: string[]): string[] {
-  return errors.filter((e) => !/the server responded with a status of 500/.test(e));
+  return errors.filter((e) => !/the server responded with a status of 50[03]/.test(e));
 }
 
 test("posts the start's events from the live screen, which the server reads whole, with nothing of the source in them", async ({ page }) => {
@@ -456,5 +456,109 @@ for (const [locale, language] of [
       expectNothingOfTheSource(server);
     });
     expect(realErrors(errors)).toEqual([]);
+  });
+}
+
+/** The report row's words in each language (step 33d2). */
+const REPORT_SAYS = {
+  en: { name: 'Send a report to support', hint: "Your TV's model, the app's state and recent errors, never your links or logins", sent: 'Your support code: give it to support with your question', failed: "Couldn't send it. Check your internet connection and try again." },
+  ar: { name: 'إرسال تقرير إلى الدعم', hint: 'طراز التلفزيون وحالة التطبيق والأعطال الأخيرة، دون روابطك أو بيانات دخولك أبدًا', sent: 'رمز الدعم الخاص بك: أعطه لفريق الدعم مع سؤالك', failed: 'تعذّر إرساله. تحقّق من اتصالك بالإنترنت وحاول مرة أخرى.' },
+} as const;
+
+for (const [locale, language] of [
+  ['en-US', 'en'],
+  ['ar-SA', 'ar'],
+] as const) {
+  test(`sends a report to support from Settings with the reports off, shows its code, and posts nothing of the source (${locale})`, async ({ page }) => {
+    test.setTimeout(90_000);
+    const errors = trackErrors(page);
+    const says = REPORT_SAYS[language];
+    await withServer({}, async (server) => {
+      await onboard(page, server, locale);
+      // The reports switched off where the worker reads it: the report still goes (the user asks for it).
+      await switchOff(page);
+      // A crash holding the playlist's link and login, for the report's events.
+      const link = `${server.origin}${LIST_PATH}`;
+      await page.evaluate(
+        ({ link, user }) => {
+          setTimeout(() => {
+            throw new Error(`e2e-report: could not read ${link} for ${user}`);
+          }, 0);
+        },
+        { link, user: USER },
+      );
+      await expect.poll(() => errors.filter((e) => e.indexOf('e2e-report') !== -1).length).toBe(1);
+
+      // Settings: the header's last button, then the fifth row.
+      const remote = new RemoteDriver(page);
+      const side = language === 'ar' ? 'LEFT' : 'RIGHT';
+      await remote.go('UP', 'live/header/0');
+      for (let i = 1; i <= 5; i += 1) await remote.go(side, `live/header/${i}`);
+      await remote.go('OK', 'settings/items/0');
+      const root = page.getByTestId('settings-screen');
+      await expect(root).toHaveAttribute('data-language', language);
+      for (let i = 1; i <= 4; i += 1) await remote.go('DOWN', `settings/items/${i}`);
+      const row = page.getByTestId('settings-report');
+      const hint = page.getByTestId('settings-report-hint');
+      const code = page.getByTestId('settings-report-code');
+      await expect(row).toHaveAttribute('data-report', 'idle');
+      await expect(row).toHaveAttribute('role', 'menuitem');
+      await expect(row.locator('.settings__name')).toHaveText(says.name);
+      await expect(hint).toHaveText(says.hint);
+      expect(await fits(page, 'settings-report-hint')).toBe(true);
+      await settled(root);
+      await shoot(page, `report-settings-${language}`);
+
+      // The first send fails (503): the row says so; OK again sends, and the code shows.
+      server.diag.statuses.push(503);
+      const before = Date.now();
+      await remote.go('OK', 'settings/items/4');
+      await expect(row).toHaveAttribute('data-report', 'failed');
+      await expect(hint).toHaveText(says.failed);
+      await expect(hint).toHaveClass(/settings__warn/);
+      await expect(code).toHaveCount(0);
+      await settled(root);
+      await remote.go('OK', 'settings/items/4');
+      await expect(row).toHaveAttribute('data-report', 'sent');
+      await expect(code).toHaveText(DIAG_STAND_IN_CODE);
+      await expect(code).toHaveAttribute('dir', 'ltr');
+      await expect(hint).toHaveText(says.sent);
+      expect(await fits(page, 'settings-report-hint')).toBe(true);
+      await settled(root);
+      await shoot(page, `report-settings-sent-${language}`);
+
+      // What the server read: the dev app's platform swapped for a TV's, as telemetry's stand-in does.
+      expect(server.diag.posts).toHaveLength(2);
+      const body = JSON.parse(server.diag.posts[1]!) as { platform: string; report: Record<string, unknown> };
+      expect(body.platform).toBe('browser');
+      const read = diagRequestSchema.parse({ ...body, platform: 'webos' });
+      // Nothing stripped: the TV sends only what the schema keeps.
+      expect(read).toEqual({ ...body, platform: 'webos' });
+      const zoneMin = await page.evaluate(() => 0 - new Date().getTimezoneOffset());
+      expect(read.report).toMatchObject({
+        v: 1,
+        zoneMin,
+        locale: language,
+        telemetry: false,
+        config: 'fresh',
+        sources: [{ type: 'm3u', items: '1+', checked: '<1h', needs: null }],
+        guides: [],
+      });
+      expect(read.report.at).toBeGreaterThanOrEqual(before);
+      expect(read.report.at).toBeLessThanOrEqual(Date.now());
+      expect(read.report.events.map((e) => e.kind)).toEqual(['crash']);
+      const crash = read.report.events[0] as { stack: string };
+      expect(crash.stack.split('\n')[0]).toBe('Uncaught Error: e2e-report: could not read [url] for [login]');
+      expectNothingOfTheSource(server, server.diag.posts);
+      // The reports are off: no telemetry post meanwhile.
+      expect(server.telemetry.posts).toEqual([]);
+
+      // The next opening clears the code.
+      await remote.go('BACK', 'live/header/5');
+      await remote.go('OK', 'settings/items/0');
+      await expect(row).toHaveAttribute('data-report', 'idle');
+      await expect(code).toHaveCount(0);
+    });
+    expect(realErrors(errors).filter((e) => e.indexOf('e2e-report') === -1)).toEqual([]);
   });
 }

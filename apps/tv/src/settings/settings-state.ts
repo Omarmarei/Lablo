@@ -12,6 +12,8 @@ import { MAPPING_SCREEN, createMapping } from './mapping-state';
 import { LOGIN_SCREEN } from './source-login';
 import type { SourceLoginOptions, SourcesEngine, SourcesList } from './sources-state';
 import { SOURCES_SCREEN, createSourcesList } from './sources-state';
+import type { ReportOptions, ReportRow } from './diag-report';
+import { createReportRow } from './diag-report';
 import type { TelemetrySwitch, TelemetrySwitchOptions } from './telemetry-switch';
 import { createTelemetrySwitch } from './telemetry-switch';
 import type { UnmatchedEngine, UnmatchedList } from './unmatched-state';
@@ -24,14 +26,16 @@ import { createUnmatchedList } from './unmatched-state';
  * picker, step 24e) and "Sources" (the sources and when they were updated, step 30c3a; its
  * header's "Add from your phone" opens the pairing screen, step 31c2a) and "Backup" (its on/off,
  * the backup code, a held backup's restore or replace, step 32d2b) and "Usage and crash reports"
- * (on or off, switched in place by OK, step 33b3: `telemetry-switch.ts`); step 38 adds the track
+ * (on or off, switched in place by OK, step 33b3: `telemetry-switch.ts`) and "Send a report to
+ * support" (OK sends the diagnostics report, then the row shows its support code, step 33d2:
+ * `diag-report.ts`); step 38 adds the track
  * languages, the subtitle style and the picture mode. Back closes it.
  */
 
-export type SettingsItem = 'guides' | 'sources' | 'backup' | 'telemetry';
+export type SettingsItem = 'guides' | 'sources' | 'backup' | 'telemetry' | 'report';
 
 /** The settings screen's rows, in screen order (each new one last, so the earlier paths stay). */
-export const SETTINGS_ITEMS: readonly SettingsItem[] = ['guides', 'sources', 'backup', 'telemetry'];
+export const SETTINGS_ITEMS: readonly SettingsItem[] = ['guides', 'sources', 'backup', 'telemetry', 'report'];
 
 /** The screens the settings put on the live navigator (the live screen paints them instead of its own). */
 export const SETTINGS_SCREENS: readonly string[] = [
@@ -63,6 +67,8 @@ export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | '
   readonly refreshSource?: SourceLoginOptions['refresh'];
   /** The usage reports' switch (step 33b3); without it there is no "Usage and crash reports" row. */
   readonly telemetry?: TelemetrySwitchOptions;
+  /** The diagnostics report's send (step 33d2); without it there is no "Send a report to support" row. */
+  readonly report?: ReportOptions;
 }
 
 export interface Settings {
@@ -79,7 +85,9 @@ export interface Settings {
   readonly backup: BackupPage | null;
   /** The usage reports' switch (step 33b3), when the app has one. */
   readonly telemetry: TelemetrySwitch | null;
-  /** The settings screen's rows: `SETTINGS_ITEMS`, "Backup" only with its page, "Usage and crash reports" only with its switch. */
+  /** The diagnostics report's row (step 33d2), when the app has one. */
+  readonly report: ReportRow | null;
+  /** The settings screen's rows: `SETTINGS_ITEMS`, "Backup" only with its page, "Usage and crash reports" only with its switch, "Send a report to support" only with its send. */
   readonly items: readonly SettingsItem[];
   /** Opens the settings screen. */
   open(): void;
@@ -119,7 +127,8 @@ export function createSettings(options: SettingsOptions): Settings {
   const sources = createSourcesList(pairing === null ? { nav, engine: options.engine, login } : { nav, engine: options.engine, addFromPhone: () => pairing.open(), login });
   const backup = options.backup === undefined ? null : createBackupPage({ nav, engine: options.backup.engine, host: options.backup.host });
   const telemetry = options.telemetry === undefined ? null : createTelemetrySwitch(options.telemetry);
-  const items = SETTINGS_ITEMS.filter((item) => (item !== 'backup' || backup !== null) && (item !== 'telemetry' || telemetry !== null));
+  const report = options.report === undefined ? null : createReportRow(options.report);
+  const items = SETTINGS_ITEMS.filter((item) => (item !== 'backup' || backup !== null) && (item !== 'telemetry' || telemetry !== null) && (item !== 'report' || report !== null));
   const open = (): void => {
     nav.push({
       id: 'settings',
@@ -130,10 +139,13 @@ export function createSettings(options: SettingsOptions): Settings {
         else if (item === 'sources') sources.open();
         else if (item === 'backup') backup?.open();
         else if (item === 'telemetry') telemetry?.press();
+        else if (item === 'report') report?.press();
       },
     });
     // The usage reports' row shows the stored switch, read again at each opening.
     telemetry?.read();
+    // The report's row starts again: a code shown at the last opening is gone.
+    report?.opened();
   };
   return {
     guides,
@@ -143,6 +155,7 @@ export function createSettings(options: SettingsOptions): Settings {
     pairing,
     backup,
     telemetry,
+    report,
     items,
     open,
     openSources(): void {
@@ -164,6 +177,7 @@ export function createSettings(options: SettingsOptions): Settings {
       pairing?.dispose();
       backup?.dispose();
       telemetry?.dispose();
+      report?.dispose();
     },
   };
 }

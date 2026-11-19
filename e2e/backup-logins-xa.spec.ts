@@ -133,6 +133,17 @@ test('shows the logins row, "Welcome back"’s line, the sources row and its for
     await remote.go('OK', 'settings/items/3');
     await expect(reports).toHaveAttribute('data-value', 'true');
     await settled(settings, 20_000);
+    // Settings' fifth row (step 33d2): "Send a report to support", then its code (data: not bracketed).
+    await remote.go('DOWN', 'settings/items/4');
+    expect(await unbracketed(page, '[data-testid=settings-screen]')).toEqual([]);
+    expect(await cut(page, '[data-testid=settings-screen]')).toEqual([]);
+    await remote.go('OK', 'settings/items/4');
+    await expect(page.getByTestId('settings-report')).toHaveAttribute('data-report', 'sent');
+    await settled(settings, 20_000);
+    expect(await unbracketed(page, '[data-testid=settings-screen]')).toEqual([]);
+    expect(await cut(page, '[data-testid=settings-screen]')).toEqual([]);
+    await shoot(page, 'report-row-en-XA');
+    await remote.go('UP', 'settings/items/3');
     await remote.go('UP', 'settings/items/2');
     await remote.go('OK', 'backup/switch/0');
     await expect(page.getByTestId('backup')).toHaveAttribute('data-status', 'ready');

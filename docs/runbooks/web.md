@@ -451,6 +451,15 @@ Where a TV sends the report the user asks for in Settings ("Send a report to sup
   the schema's (`packages/protocol/src/diag.test.ts`).
 - **The migration** `diag_report_no_install` drops step 29a's `DiagReport.installId`. Nothing
   here is in production before step 34.
+- **The TV's side (step 33d2):** Settings' fifth row, "Send a report to support". OK posts through
+  a telemetry worker (the profile, the catalogs' and guides' records, the session's last plays,
+  stalls and crashes, each crash scrubbed with the user's own logins) and the row shows the code.
+  It goes with the usage reports off too. The dev app posts as `platform: "browser"`, which this
+  route refuses (400): plain `pnpm e2e` answers it from the stand-in on the config server
+  (`e2e/config-server.ts`, code `K7M2Q9`) and reads the post with `diagRequestSchema`.
+- **By hand in the dev app** (`pnpm dev`, then `?api=<a local next start>`): the real route
+  answers 400 to the dev app's `browser` platform, so the row says "Couldn't send it"; the
+  e2e's stand-in is the way to see a code.
 
 ## The wipe restored from the real API (step 32d1)
 
