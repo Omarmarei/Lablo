@@ -13,7 +13,13 @@ import TelemetryWorker from '@lablo/data/telemetry.worker?worker';
 import type { DataEngineOptions } from './engine';
 import { DataEngine } from './engine';
 
-export function createAppDataEngine(options: Omit<DataEngineOptions, 'startQueryWorker' | 'startIngestWorker' | 'startEpgWorker' | 'startConfigWorker' | 'startPairWorker' | 'startBackupWorker' | 'startTelemetryWorker'> = {}): DataEngine {
+/**
+ * The app's data engine with its workers. `onWorkerError` is required here (step 33c): an app that
+ * left it out would lose its workers' crash reports without a sign.
+ */
+export function createAppDataEngine(
+  options: Omit<DataEngineOptions, 'startQueryWorker' | 'startIngestWorker' | 'startEpgWorker' | 'startConfigWorker' | 'startPairWorker' | 'startBackupWorker' | 'startTelemetryWorker'> & Pick<Required<DataEngineOptions>, 'onWorkerError'>,
+): DataEngine {
   return new DataEngine({
     ...options,
     startQueryWorker: () => new QueryWorker(),
