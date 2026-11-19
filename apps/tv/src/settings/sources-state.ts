@@ -269,10 +269,8 @@ export function createSourcesList(options: SourcesOptions): SourcesList {
           console.warn("The source's login was not saved or not read", error);
         },
       )
-      .then(() => {
-        draw();
-        reload();
-      });
+      // The rows with the answer (a screen opened again reads them too).
+      .then(reload);
   };
 
   const form = options.login === undefined ? null : createLoginForm({ nav, platform: options.login.platform, find: options.login.find, now: options.login.now, save });
