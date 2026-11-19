@@ -2192,6 +2192,8 @@ envelope   = {v:1, kdf:"scrypt-15-8-1", nonce:24B, ct: secretbox(gzip(profileJSO
   - unit: `telemetry-report.test.ts` 12 (the body read whole by the server's schema, nothing of a source in it; no profile; the caps; each answer; a stalled body; `diagSource` and `diagGuide`'s edges), `report-row.test.ts` 7 (the state: sending, the code, failures, the opening, disposal; the words in en and ar; the row as drawn), `telemetry-state.test.ts` +1 (`recent()`), `telemetry-events.test.ts` +2 (`diagParts`), `guides-state.test.ts` +1 (the row through `createSettings`), `unmatched-screen.test.ts` (its `data-pending`), `test/telemetry-worker-bundle.test.ts` +1 (the report in the Chromium 53 stand-in realm, its code read);
   - e2e: `e2e/telemetry.spec.ts` +2, in en and ar: with the reports off and a crash raised, Settings' fifth row sends after a 503 ("Couldn't send it"), shows `K7M2Q9`, and the stand-in's post is read whole by `diagRequestSchema` (the platform swapped), with the zone, the language, `telemetry: false`, the playlist as `m3u`, the crash scrubbed and nothing of the source; the next opening clears the code. `e2e/backup-logins-xa.spec.ts` walks the row and its code in en-XA (bracketed, uncut).
 - **Sizes:** main.js 490.8 KB on Tizen (+3.6 KB; 9.2 KB left) and 478.1 KB on webOS; no new core-js module in main. `telemetry.worker.js` 79.3 KB of 150 (+3.6 KB).
+- **Mutation:** `artifacts/mutate33d2.py`, 88 written first (writing them closed two test gaps and took out a dead `Math.floor`); one proved equivalent; 85 of 87 caught on the first run, the two survivors gaps, closed: 87/87.
+- **Merged:** PR #149 as merge commit `dcb81aa` on green CI on the first run (web 4 m, verify 12 m, media 16 m, engines 32 m). Step 33 is complete.
 
 ---
 
