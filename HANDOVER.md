@@ -1,50 +1,62 @@
-# Lablo IPTV: relay leg 115 opening prompt
+# Lablo IPTV: relay leg 116 opening prompt
 
-You are leg 115 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 116 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 ## Status
-- **Earlier legs:** leg 0 planned the work; legs 1–113 did steps 1–31, 32a–32d3 and 32d4a (PRs #1–#139). Three steps wait for Omar: step 16's Samsung part, 19b and 21.
-- **Leg 114 (2026-11-19) merged two PRs:**
-  - **32d4b, PR #140** (merge `de87494`), merged on green CI on the first run. The leg added the five catchers from leg 113's plan and ran mutation (107 written first, 107/107). It found and fixed one thing: "Welcome back" said "Your channels are loading now" even when no source would load by itself (`backup.welcomeBack`). It also looked at the en-XA screenshots.
-  - **32d4c, PR #141** (merge `fa4779a`), merged on green CI on the first run. It is the way back for guides: the TV guides screen marks a user's guide that has no link; the menu offers "Give its link" first and keeps "Remove"; the add form has a link mode. "Welcome back" counts those guides and has `toGuides` (it opens TV guides when no source needs its login).
-  - **Ticked:** 32d4b, 32d4c, **32d4** and **32d**. **Step 32 waits only for 32e.**
-- **Next: 32e, logins at rest under `localKey`** (profile v10). Write its shape first.
+- **Earlier legs:** leg 0 planned the work; legs 1–114 did steps 1–31 and 32a–32d (PRs #1–#141). Three steps wait for Omar: step 16's Samsung part, 19b and 21.
+- **Leg 115 (2026-11-19) merged two PRs:**
+  - **32e, PR #142** (merge `4f043c6`), docs only, merged on green CI on the first run.
+    - **The finding:** sealing the profile under `localKey` would not keep a login off the TV's disk. The login is in plain text in every stored stream URL (`catalog_chunks`, up to 200k items a source), in `sources_meta.epgUrls` and in the profile. And `localKey`'s master is cached beside them in `kv`.
+    - **Omar's choice (option 1, "A"):** logins on the TV are not encrypted at rest, and the docs say so plainly. Everything that leaves the TV stays sealed.
+    - **What changed:** `docs/adr/ADR-013-logins-on-the-tv-unsealed.md`; ADR-006 amended; architecture.md §3.3 B ("Decided in step 32e"); PLAN.md's "Trustworthy", risk item 8 and storage plan; the comments.
+    - **Ticked:** 32e and **step 32**.
+  - **Step 33 split** into 33a–33d, with its decisions written in RELAY.md (each with its why).
+  - **33a, PR #143** (merge `9f109b6`): the scrubber and `POST /v1/telemetry`. Green CI; media passed on a rerun of the known `epg-declared-300mb` flake. Ticked.
+    - `@lablo/protocol/scrub` (`scrubText`) is zod-free.
+    - The route: a rate limit, 64 KB, the schema, crash stacks scrubbed again, a 90-day sweep, one `TelemetryEvent` row per event.
+- **Next: 33b, the TV's telemetry.** Write its shape first.
 
 ## Read first
 1. **`RELAY.md`:**
-   - the `- [ ] 32e.` line (around line 2112);
-   - step 32's decisions: "Logins at rest under `localKey` come last (32e)" (around line 1835) and "Found for 32e" (around line 1887);
-   - the 32d4 block (32d4a's shapes; 32d4b's and 32d4c's refinements);
-   - progress rows 112–114.
-2. **`docs/architecture.md` §3.3 B:** the key scheme (`localKey = HKDF-SHA256(master, info="local")`, "Credentials on the TV are encrypted with `localKey` and decrypted only when building a URL"), and "**Found while building, for 32e**" (around line 1803): with the master cached in IndexedDB, `localKey` protects nothing against a copied IndexedDB, because the master sits beside the logins. Then read "Built in step 32d4a", "32d4b" and "32d4c".
-3. **The code:**
-   - `packages/data/src/profile.ts` (version 9, `StoredSource`, the migrations, `PROFILE_MIGRATIONS`);
-   - `packages/data/src/logins.ts` (`withoutLogins`, `backupDoc`: what a login is);
-   - `packages/crypto/src/backup.ts` (`backupKeys`: `localKey`);
-   - `apps/tv/src/onboarding/engine-loader.ts` (`ingestSourceOf`, `needsLogin`);
-   - `apps/tv/src/data/engine.ts` (where a URL is built from a source);
-   - `apps/tv/src/player/player-memory.ts` (`player.last` and `channels` keep the item's `url` and `catchup`).
-4. **`CLAUDE.md`:** "Package boundaries", "Chromium 53 cheat sheet", "Legal guardrails". CLAUDE.md edits need Omar's direct word in his own tab.
+   - step 33's block: the split and "Decided in leg 115" (around line 2133);
+   - 33a's shape, "Built in leg 115" and "Verified" (around line 2162);
+   - the `- [ ] 33b.`, `33c.` and `33d.` lines (around line 2209);
+   - progress row 115.
+2. **`docs/architecture.md`:**
+   - §3.4 Telemetry (around line 2053) and "Built in step 33a";
+   - §3.2's API table and "Retention" (`/v1/telemetry`, `/v1/diag`; around line 1540).
+3. **`docs/adr/ADR-013-logins-on-the-tv-unsealed.md`:** how to word logins. Never write "encrypted on the TV".
+4. **The code:**
+   - `packages/protocol/src/telemetry.ts`: the seven events, the buckets, the batch;
+   - `packages/protocol/src/scrub.ts`;
+   - `packages/protocol/src/config.ts`: `tunables.telemetrySampling`;
+   - the model for a worker started for each call, with `kv` and requests: `packages/data/src/backup.worker.ts`, `backup-service.ts`, `backup-api.ts` (`fetchTransport`) and `client.ts`;
+   - `apps/tv/src/data/engine.ts` (`startBackupWorker`, `uploadBackup`) and `apps/tv/src/data/workers.ts`;
+   - the model for a schedule of 60 s after a change, a minimum gap, and on hide: `apps/tv/src/backup/backup-schedule.ts`;
+   - `packages/data/src/profile.ts`: optional fields with no version bump, such as `noticesShown`;
+   - where events come from: `packages/player/src/controller.ts` and `apps/tv/src/player/app-player.ts` (`play_result`, `stall`); `DataEngine.refresh` and `refreshEpg` (`ingest_done`, `epg_match`); `main.tsx` (`app_start`); the platform's info (`capability`);
+   - Settings: `apps/tv/src/settings`; the consent text: `apps/tv/src/i18n/en.ts` and `ar.ts` (`onboarding` consent keys, around line 91).
+5. **`CLAUDE.md`:** "Package boundaries", "Chromium 53 cheat sheet", "Legal guardrails" (telemetry never collects URLs, hostnames, channel or VOD names, credentials or IPs). CLAUDE.md edits need Omar's direct word in his own tab.
 
 ## Next steps, in order
 1. **Check the state:**
    - `git -C "<wt>" status` is clean apart from gitignored files;
-   - `git -C "<wt>" log --oneline -4` shows this handover's commit, `27301ff`, `fa4779a`, `9010b08`;
-   - `origin/main` is `fa4779a`; the branch is pushed (`origin/relay/iptv-20261101-214120` = HEAD); no PR is open;
+   - `git -C "<wt>" log --oneline -4` shows this handover's commit, `addc5e6`, `9f109b6`, `edd8d74`;
+   - `origin/main` is `9f109b6`; the branch is pushed (`origin/relay/iptv-20261101-214120` = HEAD); no PR is open;
    - no `*.mutbak` files: `find apps packages tools e2e test platforms -name "*.mutbak" -not -path "*/node_modules/*"`;
    - `docker ps` shows only `lablo-web-postgres-1`.
-2. **32e's shape, written in RELAY before building** (under the `- [ ] 32e.` line, each choice with its why; split it if it is more than a leg):
-   - **The open design problem:** the backup master is cached in IndexedDB (`kv`), so a `localKey` derived from it sits beside the logins it would seal. The shape must pick one of these and say why:
-     - do not cache what derives `localKey` (each start then pays scrypt: 1–3 s on Chromium 53/56 before any URL is built; check whether that is acceptable for the first play);
-     - derive `localKey` from something not stored with the data, such as the device secret alone; the backup code case is also in that same IndexedDB;
-     - keep the seal and state its limit plainly, as step 32's decision already says ("protects a copied IndexedDB, not someone holding the TV's device ID too; with a backup code it protects nothing, and 32e says so rather than pretend").
-   - Leg 106 decided: profile v10; each source's login or link sealed and opened only when a URL is built. The seal also covers each guide's link, and the `url` and `catchup` of `player.last.item` and every `channels[].item` (32d4a found the logins there).
-   - **Where it is opened:** every place a URL is built (the data engine's refresh, the player's play and catch-up, the short EPG, the guides' read). It must keep working without the key: a TV whose master can't be derived yet.
-   - **The backup:** `backupDoc` must still send the logins in the clear inside the sealed envelope while "Include logins and links" is on (another TV has its own `localKey`), and none while it is off.
-   - **The migration from v9:** sealing needs the key, so decide whether the migration runs in the worker with the key, or the profile is sealed lazily at the next write.
-   - **The pins:** a profile bump pins `profile.test.ts`, `query-service.test.ts`, `test/onboarding-loader-mock.test.ts`, `test/tv-data-engine.test.ts`, `e2e/episode-resume.spec.ts`, and the "newer" literals (grep `v: 9\b` in packages, apps, test and e2e).
-3. **Then build 32e** under step 26's common items (below), and the PR merged on green CI.
-4. **After 32e, step 32 is ticked.** Next comes **33** (telemetry, the URL and credential scrubber, the crash handler, diagnostics). **34** is `[needs Omar]`.
+2. **33b's shape, written in RELAY before building,** under the `- [ ] 33b.` line, each choice with its why. Split it (for example 33b1: the worker, queue, install ID, sampling and switch; 33b2: the events wired in) if it is more than a leg. Settle:
+   - **main.js records only:** plain event objects in memory, at most 200, and no `@lablo/protocol` import (zod would land in main.js; main.js has 25.3 KB left on Tizen). The server validates.
+   - **The sender:** a worker of its own started for each send (as the backup worker), or a share of an existing worker. Measure: the scrubber alone is 25.8 KB, but its polyfills may already be in a worker. Budget 150 KB each.
+   - **The install ID** in `kv` (`telemetry.id`, 16 random bytes, base64url). The queue in `kv` (`telemetry.queue`, at most 200, oldest dropped). A 200 clears what was sent.
+   - **Sampling** per kind from the config's `telemetrySampling`, decided per install (a hash of the install ID and the kind).
+   - **When:** 60 s after the first event not yet sent, at most every 15 min, and on hide. Decide whether `disable-app` stops it, as it stops the backup.
+   - **The switch:** the profile's `telemetry: false` (optional, no version), a Settings row, one more sentence on the consent screen (en, ar). Off records nothing and clears the queue.
+   - **`capability`:** the model and firmware must fit the protocol's `deviceName` pattern; the Chromium version comes from the user agent.
+   - **The API base:** the same one the backup uses.
+   - **The stand-in APIs:** the config server's stand-in learns `POST /v1/telemetry` for plain e2e; a real-API spec goes in both Playwright configs.
+3. **Then build 33b** under step 26's common items (below), with the PR merged on green CI. 33c (the crash handler: raw text forwarded to the worker, scrubbed there with the user's own logins) and 33d (the diagnostics report and its support code) follow, each shape written first.
+4. **After 33, step 34 is `[needs Omar]`.**
 
 **Step 26's common items still apply:**
 - unit tests;
@@ -57,39 +69,58 @@ You are leg 115 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
 - the docs and the merge recorded.
 
 ## Git state to expect
-- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, one commit past `fa4779a` (this handover's), pushed. No PR open.
-- **`main`:** `fa4779a` (Merge PR #141). The main checkout was not touched.
+- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, one commit past `addc5e6` (this handover's), pushed. No PR open.
+- **`main`:** `9f109b6` (Merge PR #143). The main checkout was not touched.
 - **Gitignored but present:**
   - `node_modules`, `.cache/*`, `apps/web/.env`;
-  - `apps/web/.next` (32d4a-era build; apps/web unchanged since);
-  - `dist/` (32d4c's build, current);
-  - in `artifacts/`: `mutate32d4b.py` with its logs `-a` to `-d`, `mutate32d4c.py` with `mutate32d4c-a.log`, `unit-32d4b-final.log`, `unit-32d4c.log`, `engines-32d4b.log`, `engines-32d4c.log`, `build-32d4b.log`, `build-32d4c.log`, the e2e logs, and the screenshots `backup-logins-*.png` (including `-guide-ar`, `-guide-read-ar`, `-guide-en-XA`, `-guide-menu-en-XA`, `-guide-form-en-XA`).
+  - `apps/web/.next` (33a's build, current);
+  - `dist/` (32d4c's TV build, still current: no TV code changed since);
+  - in `artifacts/`: `mutate33a.py` with `mutate33a-a.log` to `-c.log` (the runner's tail is reusable), `unit-33a.log`, `lint-33a.log`, `build-web-33a.log`, `e2e-web-33a.log`, and the older legs' logs and screenshots.
 
 ## Verified vs not
-- **Verified in leg 114:**
-  - **32d4b:** unit 7,250; typecheck and lint; `build:tv` (main.js 472.0 KB on Tizen); engines 53+68 26/26 on the first run; real-API e2e 4/4; plain e2e 10/10; mutation 107/107; CI (engines 135/135 on 53, 56, 68).
-  - **32d4c:** unit 7,287; typecheck and lint; `build:tv` (main.js **474.7 KB on Tizen, 25.3 KB left**; 462.0 KB on webOS); engines 53+68 26/26 on the first run; `e2e:web --project=tv` `backup-logins` 2/2; plain e2e 20/20 (`backup-logins-xa`, the guides specs, `backup`, `backup-settings`); mutation 51/51 (one equivalent); CI (engines 135/135; media not run).
-- **Not verified:** a real TV (step 21); Vercel, R2 and Upstash (step 34).
+- **Verified in leg 115:**
+  - **32e:** eslint on the three changed sources; `backup.test.ts` and `profile.test.ts` 70 passed; CI #142 green on the first run (verify, web, engines, media).
+  - **33a:**
+    - unit 7,307 (+20);
+    - `telemetry.web.test.ts` 10;
+    - `build:web`;
+    - `e2e:web --project=phone telemetry backup` 2 passed;
+    - the whole repo's lint, root `tsc`, the `@lablo/protocol` and `@lablo/web` typechecks;
+    - mutation 86/86;
+    - CI #143 green (media on attempt 2).
+- **Not verified:**
+  - the whole `pnpm test:web` locally (only the telemetry file; CI's web job ran all of it, green);
+  - a real TV (step 21);
+  - Vercel, R2 and Upstash (step 34).
 - **Migrations and deploys:** none. Nothing is in production or deployed.
 
 ## Gotchas and lessons
-**New in leg 114:**
-- **A playlist's `url-tvg` is often the very link the user typed as its guide.** The mock's `m3u_plus` declares its own `xmltv.php` with the login. `epgGuides` lists a URL once, the user's guide first; when the user's guide has no link (a restore without logins), the playlist's copy shows as `<src>:tvg0` beside it. So the guides form's link mode refuses only the user's other guides' links (`linkedElsewhere`).
-- **Patch scripts written with the Write tool** (`EDITS = [(path, old, new), ...]`, each old string asserted to occur once, CRLF kept) applied about 90 edits with no failure. A memory note saved through a Bash heredoc lost its doubled backslashes again; Edit fixed it.
-- **Overlap worked:** 32d4c was built, tested and mutation-checked uncommitted while #140's CI ran, then committed after the merge (`git merge --ff-only origin/main` with a dirty tree).
-- **`git rev-parse --short A B` fails** ("Needed a single revision"); use one `rev-parse` per ref.
-- **The Bash cwd can reset to the main checkout mid-leg;** keep using absolute worktree paths and `git -C`.
+**New in leg 115:**
+- **Logins on the TV are not encrypted at rest (ADR-013).** Product, store and UI text says "encrypted end to end whenever they leave the TV; our servers never see them", never "encrypted on the TV". `localKey` stays in `backupKeys`, derived and unused (the vectors pin it). Logins sit in the profile, in `player.last` and `channels`, in every catalog item's `url` and in `sources_meta.epgUrls`. The backup without logins still strips the profile's copies (32d4a).
+- **Scrub in a worker, never in main.js.** The scrubber bundled alone is 25.8 KB on Chromium 53 (core-js's string and regex polyfills). Workers import `@lablo/protocol/scrub`; the `@lablo/protocol` index pulls zod.
+- **The scrubber's order matters:** URLs first, then the known strings. A known host replaced inside a URL would have cut the URL's match short and left its path.
+- **`fast-check` is now a devDependency of `packages/protocol`.**
+- **Web tests:**
+  - one file runs with `pnpm exec vitest run -c vitest.web.config.ts apps/web/test/<file>` (`lablo-web-postgres-1` up);
+  - one e2e:web spec: `pnpm build:web`, then `pnpm exec playwright test -c playwright.web.config.ts --project=phone <name>`;
+  - under a pinned clock, write timestamps from `deps.now()`, never Postgres `now()`.
+- **Mutation:** copy `artifacts/mutate33a.py`'s runner. Run in foreground chunks of under 9 minutes (`--from`/`--to`); web-test mutants take about 15 s each.
+- **A one-line `sed -i` ate a regex backslash** (`\(`). Use Edit for any line with a backslash.
+- **The `epg-declared-300mb` flake** hit a PR with no media path in it (63.7 against 60): rerun green.
 
 **From earlier legs (still true):**
-- **Logins live in more than the sources and guides:** `player.last.item` and every `channels[].item` keep the catalog item's `url` and `catchup` (32d4a strips them to `''`/`null` in the backup). 32e must seal them.
 - **Types for a source without its login:** `StoredSource`, `StoredGuide`, `RefreshSource`; the `ingestSourceOf` overloads; `sourceUrlOf` gives the kept server or origin. Refusal order in `DataEngine.refresh`: `needs-login` before `claim`, the blocklist after.
 - **`refreshNow` reads only the guides,** and the refresh schedule holds a refused refresh (`needs-login` too) as a failure for 2 h. A source refresh outside the schedule goes through main's `quiet` (as `refreshSource` does).
+- **A playlist's `url-tvg` is often the very link the user typed as its guide;** `epgGuides` lists a URL once, the user's guide first.
 - **A settings page under a dialog** hands its own screen to `VirtualList`/`useZone`, never `binding.nav.top`.
 - **Old-engine backup checks:** 20. Adding one touches `BACKUP_CHECKS`, the `vectors.test.ts` pins and strings, `vectors.ts`'s comment, and `check-backup.test.ts`.
 - **en-XA "cut" checks measure width only.** A new screen goes into the en-XA walk.
+- **Patch scripts written with the Write tool** (`EDITS = [(path, old, new), ...]`, each old string asserted to occur once, CRLF kept) are reliable; Bash heredocs with backslashes are not.
+- **Overlap works:** build the next step uncommitted while a PR's CI runs, then `git merge --ff-only origin/main` with the dirty tree after the merge.
+- **`git rev-parse --short A B` fails;** use one `rev-parse` per ref. The Bash cwd can reset to the main checkout mid-leg: keep absolute worktree paths and `git -C`.
 - **Never pass `-c user.email=…`;** the worktree config has the no-reply email.
 - **CI:**
-  - a PR touching the TV, data or engines runs web, verify and engines (about 30 min); media runs only on its paths;
+  - a PR touching the TV, data or engines runs web, verify and engines (about 30 min); a protocol or web change runs all four jobs, media included;
   - never push to a PR while CI runs;
   - there is no `jq`: use `gh --jq`;
   - known flakes, rerun with `gh run rerun <run> --failed -R Omarmarei/Lablo` after the whole run: `auto-next.spec.ts` ar-SA, `epg-declared-300mb`, media's 30-min cap, Chromium 53/56 DevTools start-up;
@@ -123,7 +154,7 @@ You are leg 115 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
 - **CLAUDE.md edits need Omar's direct word in his own tab.**
 
 ## Open decisions and gates
-- **32e's design calls are the legs' own;** write the why for each in RELAY. One may be a real trade-off for Omar: if the only honest answer to the master-cache problem weakens what the product claims about logins at rest (a privacy promise in the README, the store listing or the onboarding disclosure), stop there as needs-you with a numbered choice.
+- **33's design calls are the legs' own;** write the why for each in RELAY. Telemetry is opt-out, as architecture.md §3.4 says; counsel reviews that before launch. Stop as needs-you only if building shows a real reason to change it, for example a store rule that requires opt-in.
 - **For step 34 `[needs Omar]`:**
   - the R2 and Upstash adapters;
   - R2's host in the phone page's `connect-src`, and the bucket's CORS rule;
@@ -134,17 +165,12 @@ You are leg 115 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
 - **Later UI and test fixes (no step yet):**
   - the guides screen's "read, last try failed" rows clip their third line;
   - `auto-next.spec.ts`'s `endEpisode` race;
-  - `epg-declared-300mb`'s single-sample budgets (a best-of-3 is worth proposing to Omar).
+  - `epg-declared-300mb`'s single-sample budget: a best-of-3 is worth proposing to Omar (it flaked again in leg 115).
 - **Steps 16, 19b and 21 wait for Omar:** Samsung (the account, the certificate, an RTL tunnel session, the 2018 set), and 30–45 minutes at the LG TV. That session also covers an Arabic onboarding for the UTF-8 main.js, typing a backup code, a login given again on the sources screen, and a guide's link given again on TV guides.
 
 ## Checks for Omar
-1. Nothing to click is required. To see what 32d4b and 32d4c added (merged, not deployed):
-   1. run `pnpm dev`;
-   2. on a TV with a source, open Settings › Backup and switch "Include logins and links" off;
-   3. wipe the app's data and start again: "Welcome back" says which sources and guides need their logins or links, and Settings › Sources opens;
-   4. give a source its login back, then open TV guides and use "Give its link".
-
-   Screenshots are in `artifacts/screenshots/backup-logins-*.png` in the worktree.
+1. **Read once:** `docs/adr/ADR-013-logins-on-the-tv-unsealed.md`, and PLAN.md's reworded "Trustworthy" line and risk item 8. They record your choice "1" from leg 115: logins on the TV are not encrypted at rest; everything that leaves the TV is.
+2. **Nothing to click.** 33a is a server route with no TV change, merged and not deployed.
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
 - **Memory:** `voicebox-server` held 26 GB of committed memory in legs 93–94. Please close it during relay runs.
