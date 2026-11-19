@@ -19,8 +19,10 @@ import {
   TELEMETRY_TIMEOUT_MS,
   batchBody,
   capabilityKey,
+  knownStrings,
   samplePoint,
   sampled,
+  scrubbedCrash,
   telemetryHandlers,
   telemetryOff,
   utf8Length,
@@ -268,7 +270,127 @@ describe('batchBody', () => {
   });
 });
 
+describe('knownStrings', () => {
+  it("gives each source's and guide's link, server, origin and login, and each link's user, password, host and query logins", () => {
+    const doc = {
+      v: 9,
+      sources: [
+        { id: 's1', type: 'xtream', name: 'Panel', account: { base: 'http://Panel.Example.tv:8080/sub', username: 'omar.k', password: 'p@ss99' }, added: 1 },
+        { id: 's2', type: 'm3u', name: 'List', url: 'https://cdn.list-host.xyz/get.php?username=listuser&password=list%2Fpass&type=m3u_plus', added: 2 },
+        { id: 's3', type: 'm3u-file', name: 'Phone file', added: 3 },
+        { id: 's4', type: 'xtream', name: 'Restored', account: null, base: 'http://restored.example.iptv:25461', added: 4 },
+        { id: 's5', type: 'm3u', name: 'Restored list', url: null, origin: 'http://origin.example.net', added: 5 },
+        { id: 's6', type: 'm3u', name: 'Inline', url: 'http://u%40ser:pa%3Ass@1.2.3.4:8000/list.m3u', added: 6 },
+      ],
+      guides: [
+        { id: 'g1', url: 'http://epg.example.org/guide.xml?token=tok123&KEY=k%E0%A4%A' },
+        { id: 'g2', url: null, origin: 'http://[2001:db8::1]:8080' },
+      ],
+    };
+    expect(knownStrings(doc)).toEqual([
+      'http://Panel.Example.tv:8080/sub',
+      'Panel.Example.tv',
+      'panel.example.tv',
+      'omar.k',
+      'p@ss99',
+      'https://cdn.list-host.xyz/get.php?username=listuser&password=list%2Fpass&type=m3u_plus',
+      'cdn.list-host.xyz',
+      'listuser',
+      'list%2Fpass',
+      'list/pass',
+      'http://restored.example.iptv:25461',
+      'restored.example.iptv',
+      'http://origin.example.net',
+      'origin.example.net',
+      'http://u%40ser:pa%3Ass@1.2.3.4:8000/list.m3u',
+      'u%40ser',
+      'u@ser',
+      'pa%3Ass',
+      'pa:ss',
+      '1.2.3.4',
+      'http://epg.example.org/guide.xml?token=tok123&KEY=k%E0%A4%A',
+      'epg.example.org',
+      'tok123',
+      // A value that doesn't decode is kept as it is.
+      'k%E0%A4%A',
+      'http://[2001:db8::1]:8080',
+      '[2001:db8::1]',
+    ]);
+  });
+
+  it("reads a version 2 or 3 profile's guide links from its sources (`epgUrl`)", () => {
+    const doc = { v: 3, sources: [{ id: 's1', type: 'm3u', name: 'Old', url: 'http://old.example.tv/l.m3u', epgUrl: 'http://old-epg.example.tv/e.xml', added: 1 }] };
+    expect(knownStrings(doc)).toEqual(['http://old.example.tv/l.m3u', 'old.example.tv', 'http://old-epg.example.tv/e.xml', 'old-epg.example.tv']);
+  });
+
+  it('gives nothing for a profile without sources or guides, or with entries that are not records', () => {
+    for (const doc of [
+      undefined,
+      null,
+      'doc',
+      42,
+      {},
+      { sources: 'none', guides: {} },
+      // A list-like record is not a list.
+      { sources: { length: 1, 0: { url: 'http://x.example.com' } } },
+      { sources: [null, undefined, 5, 'x', { account: 'text' }, { url: 42, account: { username: '' } }] },
+    ]) {
+      expect(knownStrings(doc)).toEqual([]);
+    }
+    // A link with no host, and a server that isn't a link: the text alone.
+    expect(knownStrings({ guides: [{ url: 'file:///guide.xml' }], sources: [{ account: { base: 'panel-without-scheme' } }] })).toEqual(['panel-without-scheme', 'file:///guide.xml']);
+    // An empty user and an empty query login: nothing for them.
+    expect(knownStrings({ guides: [{ url: 'http://@empty.example.net/x?password=' }] })).toEqual(['http://@empty.example.net/x?password=', 'empty.example.net']);
+  });
+});
+
+describe('scrubbedCrash', () => {
+  it("scrubs the stack with the known strings and the scrubber's rules, and keeps only the schema's fields", () => {
+    const known = knownStrings({ sources: [{ account: { base: 'http://Panel.Example.tv:8080/sub', username: 'omar.k', password: 'p@ss99' } }] });
+    const raw = 'Uncaught Error: login omar.k refused by Panel.Example.tv at http://Panel.Example.tv:8080/sub/player_api.php?username=omar.k\n    at query.worker.js:1:2';
+    const event = { kind: 'crash', at: 5, where: 'worker', stack: raw, extra: 'Panel.Example.tv' } as TelemetryEvent & { kind: 'crash' };
+    expect(scrubbedCrash(event, known)).toEqual({ kind: 'crash', at: 5, where: 'worker', stack: 'Uncaught Error: login [login] refused by [login] at [url]\n    at query.worker.js:1:2' });
+    // Without them, the rules still take the URL and the host.
+    expect(scrubbedCrash(event, []).stack).toBe('Uncaught Error: login omar.k refused by [host] at [url]\n    at query.worker.js:1:2');
+    // A stack that isn't text (an older or broken caller) is stored empty.
+    expect(scrubbedCrash({ ...event, stack: 42 as unknown as string }, known)).toEqual({ kind: 'crash', at: 5, where: 'worker', stack: '' });
+  });
+});
+
 describe('the telemetry worker: send', () => {
+  it("scrubs each crash's stack with the stored profile's logins, links and hosts before it is queued, and posts it scrubbed", async () => {
+    const t = setup({ answers: [500] });
+    await putProfile(t.factory, {
+      sources: [{ id: 's1', type: 'xtream', name: 'Panel', account: { base: 'http://Panel.Example.tv:8080/sub', username: 'omar.k', password: 'p@ss99' }, added: 1 }],
+      guides: [{ id: 'g1', url: 'http://cdn.list-host.xyz/epg?username=listuser' }],
+    });
+    const raw =
+      'Uncaught (in promise) Error: The panel said no to omar.k with p@ss99 at http://Panel.Example.tv:8080/sub/player_api.php?username=omar.k&password=p@ss99\n' +
+      '    at f (file:///media/developer/apps/usr/palm/applications/com.lablo.iptv/main.js:1:2345)\n' +
+      '    at listhost cdn.list-host.xyz listuser';
+    const scrubbed = 'Uncaught (in promise) Error: The panel said no to [login] with [login] at [url]\n    at f (main.js:1:2345)\n    at listhost [login] [login]';
+    expect(await t.send(request([start(1), crash(2, raw)]))).toEqual({ state: 'failed', failure: 'status', status: 500, queued: 2 });
+    // Stored scrubbed: the raw stack is never written.
+    const queued = await kv(t.factory, TELEMETRY_QUEUE_KEY);
+    expect(queued).toEqual([start(1), { kind: 'crash', at: 2, where: 'main', stack: scrubbed }]);
+    for (const body of [JSON.stringify(queued), t.api.posts[0]!.body]) {
+      for (const secret of ['omar.k', 'p@ss99', 'Panel.Example', 'panel.example', 'list-host', 'listuser', 'http', '8080', '/media/']) expect(body).not.toContain(secret);
+    }
+    expect(readTelemetryEvents(batchOf(t.api.posts[0]!).events)).toEqual({ events: [start(1), { kind: 'crash', at: 2, where: 'main', stack: scrubbed }], dropped: 0 });
+    // Sent as stored.
+    expect(await t.send(request([]))).toEqual({ state: 'sent', sent: 2, queued: 0 });
+    expect(t.api.posts[1]!.body).toBe(t.api.posts[0]!.body);
+  });
+
+  it('scrubs a crash with the generic rules when there is no profile, and cuts it to the schema', async () => {
+    const t = setup();
+    const long = 'Uncaught Error: panel.example.tv 10.0.0.1:8080 ' + 'x'.repeat(5000);
+    expect(await t.send(request([crash(1, long)]))).toEqual({ state: 'sent', sent: 1, queued: 0 });
+    const stack = (batchOf(t.api.posts[0]!).events[0] as { stack: string }).stack;
+    expect(stack.slice(0, 30)).toBe('Uncaught Error: [host] [ip] xx');
+    expect(stack).toHaveLength(4000);
+  });
+
   it('makes the install ID once, queues the events and posts them to the API, which the server reads whole', async () => {
     const t = setup();
     const answer = await t.send(request([start(1), capability(2)]));

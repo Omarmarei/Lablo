@@ -324,6 +324,50 @@ test('posts the events of use: the playlist and its guide read, their match, and
   expect(errors.filter((e) => e.indexOf('net::ERR_UNSAFE_PORT') === -1)).toEqual([]);
 });
 
+test("records the page's uncaught errors and unhandled rejections as crashes, once each, and posts them scrubbed of the source", async ({ page }) => {
+  const errors = trackErrors(page);
+  await withServer({}, async (server) => {
+    await onboard(page, server);
+    expect(await sendNow(page)).toMatchObject({ state: 'sent', sent: 3 });
+
+    // Step 33c: a throw from a timer (twice from the same place: recorded once) and a rejection
+    // nothing handles, each holding the playlist's link and its login.
+    const link = `${server.origin}${LIST_PATH}`;
+    const before = Date.now();
+    await page.evaluate(
+      ({ link, user, pass }) => {
+        const boom = (): never => {
+          throw new Error(`e2e-crash: could not read ${link} for ${user}`);
+        };
+        setTimeout(boom, 0);
+        setTimeout(boom, 0);
+        void Promise.reject(new Error(`e2e-crash: refused ${user}:${pass} at ${link}`));
+      },
+      { link, user: USER, pass: PASS },
+    );
+    await expect.poll(() => errors.filter((e) => e.indexOf('e2e-crash') !== -1).length).toBe(3);
+    expect(await sendNow(page)).toEqual({ state: 'sent', sent: 2, queued: 0 });
+    const batch = serverRead(server.telemetry.posts[1]!);
+    expect(batch.events.map((e) => [e.kind, e['where']])).toEqual([
+      ['crash', 'main'],
+      ['crash', 'main'],
+    ]);
+    // Each at its time (the page's clock is the test's).
+    for (const e of batch.events) {
+      expect(e['at']).toBeGreaterThanOrEqual(before);
+      expect(e['at']).toBeLessThanOrEqual(Date.now());
+    }
+    const stacks = batch.events.map((e) => e['stack'] as string).sort();
+    expect(stacks[0]!.split('\n')[0]).toBe('Uncaught (in promise) Error: e2e-crash: refused [login]:[login] at [url]');
+    expect(stacks[1]!.split('\n')[0]).toBe('Uncaught Error: e2e-crash: could not read [url] for [login]');
+    // Each with its frames.
+    for (const stack of stacks) expect(stack.split('\n').length).toBeGreaterThan(1);
+    expectNothingOfTheSource(server);
+  });
+  // (The page's own throws, on purpose.)
+  expect(errors.filter((e) => e.indexOf('e2e-crash') === -1)).toEqual([]);
+});
+
 /** The Settings row's words in each language (step 33b3). */
 const SAYS = {
   en: { on: 'On', off: 'Off', onHint: 'Anonymous: never your links, logins or channel names', offHint: 'Nothing is sent while they are off' },

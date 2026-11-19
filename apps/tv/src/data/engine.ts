@@ -192,6 +192,25 @@ export interface DataEngineOptions {
    * nothing.
    */
   onRefreshed?: (done: RefreshDone) => void;
+  /**
+   * Called when a worker the engine started dies of an uncaught error (step 33c: telemetry's
+   * `crash`), after its client has failed its calls. Only what the worker's `error` event says: its
+   * message and position, and which worker.
+   */
+  onWorkerError?: (error: WorkerError) => void;
+}
+
+/** The engine's workers, as `onWorkerError` names them. */
+export type WorkerName = 'query' | 'ingest' | 'epg' | 'config' | 'pair' | 'backup' | 'telemetry';
+
+/** A worker's uncaught error as its `Worker` hears it (Chromium gives no stack, and `error: null`). */
+export interface WorkerError {
+  readonly worker: WorkerName;
+  /** `Uncaught Error: …` (empty when the engine gave none). */
+  readonly message: string;
+  /** Where in the worker's bundle (0: unknown). */
+  readonly line: number;
+  readonly col: number;
 }
 
 /** A refresh that resolved (`DataEngineOptions.onRefreshed`): the catalog's source type and its result, or the guides'. */
@@ -478,7 +497,7 @@ export class DataEngine {
       } else if (blocked.indexOf(true) !== -1) {
         only = guides.filter((_, i) => !blocked[i]).map((g) => g.epgSrc);
       }
-      return await this.withWorker(this.options.startEpgWorker, createEpgClient, async (client) => {
+      return await this.withWorker('epg', this.options.startEpgWorker, createEpgClient, async (client) => {
         this.busyTo((busy) => client.call('setBusy', { busy }).catch(ignore));
         client.on('swapped', () => {
           reload = this.query.call('reload');
@@ -506,7 +525,7 @@ export class DataEngine {
    * stays. Not in the refresh slot. A running query worker reads its blocklist again afterwards.
    */
   async refreshConfig(request: ConfigRunRequest, onCached?: (result: ConfigResult) => void): Promise<ConfigResult> {
-    const result = await this.withWorker(this.options.startConfigWorker, createConfigClient, (client) => {
+    const result = await this.withWorker('config', this.options.startConfigWorker, createConfigClient, (client) => {
       if (onCached) client.on('cached', onCached);
       return client.call('run', request);
     });
@@ -525,6 +544,7 @@ export class DataEngine {
     if (start === undefined) throw new Error('This data engine has no pair worker');
     const worker = start();
     const client = createPairClient(worker);
+    this.watch('pair', worker);
     return {
       open: (base) => client.call('open', { base }),
       poll: () => client.call('poll'),
@@ -643,7 +663,7 @@ export class DataEngine {
   sendTelemetry(request: TelemetrySendRequest): Promise<TelemetrySendResult> {
     const start = this.options.startTelemetryWorker;
     if (start === undefined) return Promise.reject(new Error('This data engine has no telemetry worker'));
-    return this.withWorker(start, createTelemetryClient, (client) => client.call('send', request));
+    return this.withWorker('telemetry', start, createTelemetryClient, (client) => client.call('send', request));
   }
 
   /** For each URL, whether its host is on the signed config's blocklist (step 30b2; enforced in 30c). */
@@ -871,6 +891,7 @@ export class DataEngine {
       const worker = this.options.startQueryWorker();
       this.queryWorker = worker;
       this.queryClient = createDataClient(worker);
+      this.watch('query', worker);
     }
     return this.queryClient;
   }
@@ -914,20 +935,40 @@ export class DataEngine {
 
   /** Runs `use` with a fresh ingest worker, then terminates it whatever happened. */
   private withIngestWorker<T>(use: (client: IngestClient) => Promise<T>): Promise<T> {
-    return this.withWorker(this.options.startIngestWorker, createIngestClient, use);
+    return this.withWorker('ingest', this.options.startIngestWorker, createIngestClient, use);
   }
 
-  /** Runs `use` with a fresh worker and its client, then terminates it whatever happened. */
   /** One call in a backup worker started now and ended when it answers (step 32b). */
   private withBackupWorker<T>(use: (client: ReturnType<typeof createBackupClient>) => Promise<T>): Promise<T> {
     const start = this.options.startBackupWorker;
     if (start === undefined) return Promise.reject(new Error('This data engine has no backup worker'));
-    return this.withWorker(start, createBackupClient, use);
+    return this.withWorker('backup', start, createBackupClient, use);
   }
 
-  private async withWorker<C extends { close(): void }, T>(start: () => WorkerLike, wrap: (worker: WorkerLike) => C, use: (client: C) => Promise<T>): Promise<T> {
+  /**
+   * Tells `onWorkerError` of `worker`'s uncaught errors (step 33c), after the client's own handler
+   * (which fails its calls) has run. A report that throws is logged; the client's handler still ran.
+   */
+  private watch(name: WorkerName, worker: WorkerLike): void {
+    const report = this.options.onWorkerError;
+    if (report === undefined) return;
+    const failed = worker.onerror;
+    worker.onerror = (event: ErrorEvent) => {
+      if (failed !== null) failed.call(worker, event);
+      try {
+        // (A worker whose script didn't load fires a plain `Event`: no message, no position.)
+        report({ worker: name, message: event.message || '', line: event.lineno || 0, col: event.colno || 0 });
+      } catch (error) {
+        console.warn('A worker error was not reported', error);
+      }
+    };
+  }
+
+  /** Runs `use` with a fresh worker and its client, then terminates it whatever happened. */
+  private async withWorker<C extends { close(): void }, T>(name: WorkerName, start: () => WorkerLike, wrap: (worker: WorkerLike) => C, use: (client: C) => Promise<T>): Promise<T> {
     const worker = start();
     const client = wrap(worker);
+    this.watch(name, worker);
     try {
       return await use(client);
     } finally {

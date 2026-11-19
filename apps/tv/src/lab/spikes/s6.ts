@@ -89,7 +89,8 @@ interface S6Run {
 const MINUTE_MS = 60_000;
 
 export const DEFAULT_S6_DEPS: S6Deps = {
-  createEngine: () => createAppDataEngine(),
+  // (The lab sends no telemetry: a worker's error fails the spike's own calls.)
+  createEngine: () => createAppDataEngine({ onWorkerError: () => undefined }),
   mountStage: (platform, engine) => mountLiveStage(platform, engine),
   getJson: (url) => xhrJson(url),
   indexedDB: () => (typeof indexedDB === 'undefined' ? null : indexedDB),

@@ -59,6 +59,7 @@ import { createStage, setPlayerChrome } from './player/stage';
 import { createOnboarding } from './onboarding/onboarding-state';
 import { answerEdit, readStartProfile, startPoint } from './onboarding/start';
 import { KEY_HELP, createPlatform } from './platform';
+import { createCrashReporter, listenForCrashes } from './telemetry/crash-state';
 import { appStartEvent, capabilityEvent, deviceProbes } from './telemetry/telemetry-events';
 import { createTelemetry, telemetryOn } from './telemetry/telemetry-state';
 import { playerEvent, recordRefresh } from './telemetry/usage-events';
@@ -112,6 +113,8 @@ function dataEngine(): DataEngine {
       onProfileChanged: () => backup.changed(),
       // Telemetry's `ingest_done` and `epg_match` (step 33b2).
       onRefreshed: (done) => void recordRefresh(done, dataEngine(), (event) => telemetry.record(event), Date.now),
+      // Telemetry's `crash` for a worker's uncaught error (step 33c).
+      onWorkerError: (error) => crashes.worker(error),
     });
   }
   return engine;
@@ -181,6 +184,14 @@ const telemetry = createTelemetry({
   request: () => ({ base: configRequest.base, platform: __PLATFORM__, appVersion: __APP_VERSION__, sampling: config.policy.value.tunables.telemetrySampling ?? null }),
   lifecycle: (listener) => platform.onLifecycle(listener),
 });
+
+/**
+ * Crash reports (RELAY step 33c): main's uncaught errors and unhandled rejections from here on, and
+ * the data workers' errors (the engine's `onWorkerError`), at most 3 a session, each recorded as
+ * telemetry's `crash`; the telemetry worker scrubs them before they are stored.
+ */
+const crashes = createCrashReporter({ record: (event) => telemetry.record(event) });
+listenForCrashes(window, crashes);
 
 /**
  * The start's events (step 33b1), once its screen has painted: `app_start` (the tier, the time to

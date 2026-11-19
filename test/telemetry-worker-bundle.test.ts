@@ -130,4 +130,34 @@ describe('the bundled telemetry worker', () => {
     expect(await getValue(after, STORE.kv, TELEMETRY_ID_KEY)).toBeUndefined();
     after.close();
   }, 120_000);
+
+  it("scrubs a crash's stack with the stored profile's logins before it is queued (step 33c), in the Chromium 53 realm", async () => {
+    const code = await workerCode();
+    const tv = freshFactory();
+    const db = await openDatabase(tv);
+    await saveProfile(db, {
+      ...emptyProfile(),
+      sources: [{ id: 's1', type: 'xtream', name: 'Panel', account: { base: 'http://Panel.Example.tv:8080/sub', username: 'omar.k', password: 'p@ss99' }, added: 1 }],
+      guides: [{ id: 'g1', url: 'http://cdn.list-host.xyz/epg?username=listuser' }],
+    });
+    db.close();
+    const raw =
+      'Uncaught (in promise) Error: The panel said no to omar.k with p@ss99 at http://Panel.Example.tv:8080/sub/player_api.php?username=omar.k&password=p@ss99\n' +
+      '    at f (file:///media/developer/apps/usr/palm/applications/com.lablo.iptv/main.js:1:2345)\n' +
+      '    at listhost cdn.list-host.xyz listuser 10.1.2.3:8000';
+    const worker: TelemetryEvent = { kind: 'crash', at: 1_700_000_000_002, where: 'worker', stack: 'Uncaught Error: boom\n    at blob:file:///0b8c3c48-5d1e-4f43-9a83-1b0a5c4c2a11:1:26' };
+    const posts: Post[] = [];
+    const client = createTelemetryClient(startWorker(code, tv, { calls: 0 }, recordingFetch(posts, [500])));
+    expect(await client.call('send', { ...REQUEST, events: [{ kind: 'crash', at: 1_700_000_000_001, where: 'main', stack: raw }, worker] })).toEqual({ state: 'failed', failure: 'status', status: 500, queued: 2 });
+    client.close();
+    const scrubbed = [
+      { kind: 'crash', at: 1_700_000_000_001, where: 'main', stack: 'Uncaught (in promise) Error: The panel said no to [login] with [login] at [url]\n    at f (main.js:1:2345)\n    at listhost [login] [login] [ip]' },
+      { kind: 'crash', at: 1_700_000_000_002, where: 'worker', stack: 'Uncaught Error: boom\n    at worker:1:26' },
+    ];
+    const stored = await openDatabase(tv);
+    expect(await getValue(stored, STORE.kv, TELEMETRY_QUEUE_KEY)).toEqual(scrubbed);
+    stored.close();
+    expect(readTelemetryEvents((JSON.parse(posts[0]!.body) as { events: unknown[] }).events)).toEqual({ events: scrubbed, dropped: 0 });
+    for (const secret of ['omar.k', 'p@ss99', 'Panel.Example', 'list-host', 'listuser', '10.1.2.3', '/media/', 'blob:']) expect(posts[0]!.body).not.toContain(secret);
+  }, 120_000);
 });

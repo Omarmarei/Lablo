@@ -370,7 +370,7 @@ is in `apps/web/src/server/telemetry.ts`; `src/app/v1/telemetry/route.ts` is a t
 - **No migration:** the `TelemetryEvent` table is step 29a's. Nothing here is in production
   before step 34.
 
-### What the TV sends (steps 33b1, 33b2 and 33b3)
+### What the TV sends (steps 33b1, 33b2, 33b3 and 33c)
 
 architecture.md §3.4 "Built in step 33b1" has the design; this is how to see it work.
 
@@ -387,6 +387,13 @@ architecture.md §3.4 "Built in step 33b1" has the design; this is how to see it
   To see them in the dev app: add a playlist with a guide, play a channel, then
   `await window.__LABLO_TEST__.sendTelemetry()`; the stand-in or the network panel shows the
   batch.
+- **Crashes (step 33c):** main's uncaught errors and unhandled rejections, and each data worker's
+  uncaught error, as `crash` events: at most 3 a session, each once. Main holds the raw text until
+  the next send; the telemetry worker scrubs it with the profile's own logins, links and hosts
+  before it is queued, so the queue never holds a raw stack. To see one in the dev app:
+  `setTimeout(() => { throw new Error('test http://example.com/x?password=secret') })` in the
+  console, then `await window.__LABLO_TEST__.sendTelemetry()`: the batch holds
+  `Uncaught Error: test [url]` with its frames.
 - **Where it waits:** the TV's IndexedDB, store `kv`: `telemetry.id` (the install ID),
   `telemetry.queue` (at most 200 events not yet stored), `telemetry.capability` (the last one
   queued). The profile's `telemetry: false` deletes all three at the next send, and nothing is
@@ -402,7 +409,8 @@ architecture.md §3.4 "Built in step 33b1" has the design; this is how to see it
   the stand-in on the config server (`e2e/telemetry.spec.ts`).
 - **By hand in the dev app:** `await window.__LABLO_TEST__.sendTelemetry()` in the console sends
   now and answers `{state: "sent", sent, queued}` (or `failed`, `refused`, `empty`, `off`).
-- **The worker:** `telemetry.worker.js`, 66 KB of its 150 KB budget, started for each send.
+- **The worker:** `telemetry.worker.js`, 76 KB of its 150 KB budget (the scrubber included, step
+  33c), started for each send.
   `test/telemetry-worker-bundle.test.ts` runs the bundle in the Chromium 53 stand-in realm and
   reads its post with this route's schema.
 

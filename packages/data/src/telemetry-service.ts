@@ -12,11 +12,14 @@
  * 3. **Sampling** per kind (the config's `telemetrySampling`; a kind with no rate is kept), decided
  *    per install: `fnv1a(id + ':' + kind) / 2^32 < rate`, so an install sends a kind always or never.
  * 4. **`capability`** is kept only when it differs from the last one queued (`telemetry.capability`).
- * 5. **The queue** (`telemetry.queue`): the kept events appended, the newest `TELEMETRY_QUEUE_MAX`
+ * 5. **A `crash`'s stack is scrubbed** (step 33c, `scrubText`) with the user's own logins, links and
+ *    hosts (`knownStrings` of the stored profile), before it is queued: main hands over the raw
+ *    text, and no unscrubbed stack is ever written to the database.
+ * 6. **The queue** (`telemetry.queue`): the kept events appended, the newest `TELEMETRY_QUEUE_MAX`
  *    kept, in one transaction with the ID.
- * 6. **The post:** the oldest events whose JSON fits in `TELEMETRY_BODY_MAX_BYTES` with the
+ * 7. **The post:** the oldest events whose JSON fits in `TELEMETRY_BODY_MAX_BYTES` with the
  *    envelope (at least one), `POST <base>/v1/telemetry`, `TELEMETRY_TIMEOUT_MS` for the answer.
- * 7. **The answer:** 200 takes the posted events off the queue's front (`sent`); 400 and 413 do too,
+ * 8. **The answer:** 200 takes the posted events off the queue's front (`sent`); 400 and 413 do too,
  *    since the server will never take them (`refused`); anything else keeps them (`failed`).
  *
  * The app runs one send at a time, so the queue changes only here between the append and the
@@ -25,6 +28,7 @@
  */
 import { toBase64Url } from '@lablo/crypto';
 import type { TelemetryEvent } from '@lablo/protocol';
+import { scrubText } from '@lablo/protocol/scrub';
 import { TELEMETRY_BATCH_MAX, TELEMETRY_BODY_MAX_BYTES } from '@lablo/protocol/telemetry-buckets';
 import type { ByteResponse, ByteTransport } from './bytes';
 import { onSuccess, transact } from './idb';
@@ -103,6 +107,79 @@ export function sampled(installId: string, kind: string, sampling: Readonly<Reco
   return samplePoint(installId, kind) < rate;
 }
 
+/** A source's or a guide's fields that hold a link, a server or an origin (any profile version; `epgUrl` is version 2 and 3's). */
+const LINK_FIELDS = ['url', 'base', 'origin', 'epgUrl'];
+/** An Xtream account's fields. */
+const ACCOUNT_FIELDS = ['base', 'username', 'password'];
+/** `scheme://[user[:password]@]host…`: the user, the password and the host (a bracketed IPv6 one too). */
+const URL_PARTS = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/(?:([^:@/?#]*)(?::([^@/?#]*))?@)?(\[[^\]/?#]*\]|[^:/?#]*)/;
+/** A login's value in a link's query (the scrubber's pair keys). */
+const LOGIN_QUERY = /[?&](?:user|username|uname|login|pass|passwd|password|pwd|token|auth|apikey|api_key|key|secret|session|sessionid|sid|sig|signature)=([^&#]*)/gi;
+
+/** `value` and, when it reads differently decoded (`p%40ss`), its decoded form. */
+function addDecoded(value: string | undefined, known: string[]): void {
+  if (value === undefined || value === '') return;
+  known.push(value);
+  try {
+    const decoded = decodeURIComponent(value);
+    if (decoded !== value) known.push(decoded);
+  } catch {
+    // (A lone `%`: the value as it is is enough.)
+  }
+}
+
+/** `text` and, when it is a link, its user, password, host (and its lower case) and the logins in its query. */
+function addLink(text: unknown, known: string[]): void {
+  if (typeof text !== 'string' || text === '') return;
+  known.push(text);
+  const parts = URL_PARTS.exec(text);
+  if (parts === null) return;
+  addDecoded(parts[1], known);
+  addDecoded(parts[2], known);
+  const host = parts[3]!;
+  if (host !== '') known.push(host);
+  if (host.toLowerCase() !== host) known.push(host.toLowerCase());
+  text.replace(LOGIN_QUERY, (all: string, value: string) => {
+    addDecoded(value, known);
+    return all;
+  });
+}
+
+/**
+ * The user's own logins, links and hosts in a stored profile (any version, read raw): what the
+ * scrubber looks for in a crash's stack (step 33c). Each source's link, server and origin, its
+ * account's server, username and password, and each guide's link and origin; for each link, its
+ * user, password, host and the logins in its query. Only these: a known string is replaced
+ * wherever it occurs, inside words too, and the scrubber's own rules catch every other URL, address
+ * and host. The scrubber skips the short ones.
+ */
+export function knownStrings(doc: unknown): string[] {
+  const known: string[] = [];
+  if (typeof doc !== 'object' || doc === null) return known;
+  const lists = [(doc as { sources?: unknown }).sources, (doc as { guides?: unknown }).guides];
+  for (let l = 0; l < lists.length; l++) {
+    const list = lists[l];
+    if (!Array.isArray(list)) continue;
+    for (let i = 0; i < list.length; i++) {
+      const entry: unknown = list[i];
+      if (typeof entry !== 'object' || entry === null) continue;
+      const record = entry as Record<string, unknown>;
+      for (let f = 0; f < LINK_FIELDS.length; f++) addLink(record[LINK_FIELDS[f]!], known);
+      const account = record['account'];
+      if (typeof account !== 'object' || account === null) continue;
+      for (let f = 0; f < ACCOUNT_FIELDS.length; f++) addLink((account as Record<string, unknown>)[ACCOUNT_FIELDS[f]!], known);
+    }
+  }
+  return known;
+}
+
+type CrashEvent = Extract<TelemetryEvent, { kind: 'crash' }>;
+
+/** A crash as it is queued: its stack scrubbed with `known` (a stack that isn't text: `''`), and only the schema's fields. */
+export function scrubbedCrash(event: CrashEvent, known: readonly string[]): CrashEvent {
+  return { kind: 'crash', at: event.at, where: event.where, stack: typeof event.stack === 'string' ? scrubText(event.stack, known) : '' };
+}
+
 /** A `capability` event's fields but its time, as one string: a repeat has the same. */
 export function capabilityKey(event: TelemetryEvent, appVersion: string): string {
   if (event.kind !== 'capability') return '';
@@ -154,7 +231,8 @@ class TelemetryService {
   async send(request: TelemetrySendRequest): Promise<TelemetrySendResult> {
     const db = await this.options.openDb();
     try {
-      if (telemetryOff(await storedProfileDoc(db))) {
+      const doc = await storedProfileDoc(db);
+      if (telemetryOff(doc)) {
         await transact(db, STORE.kv, 'readwrite', (tx) => {
           const kv = tx.objectStore(STORE.kv);
           kv.delete(TELEMETRY_QUEUE_KEY);
@@ -163,7 +241,7 @@ class TelemetryService {
         });
         return { state: 'off' };
       }
-      const { id, queue } = await this.enqueue(db, request);
+      const { id, queue } = await this.enqueue(db, request, knownStrings(doc));
       if (queue.length === 0) return { state: 'empty' };
       const { body, count } = batchBody(id, request.platform, request.appVersion, queue);
       const answer = await this.post(request.base + '/v1/telemetry', body);
@@ -177,8 +255,11 @@ class TelemetryService {
     }
   }
 
-  /** The ID (made now if there is none) and the queue with `request`'s kept events, written in one transaction. */
-  private enqueue(db: IDBDatabase, request: TelemetrySendRequest): Promise<{ id: string; queue: TelemetryEvent[] }> {
+  /**
+   * The ID (made now if there is none) and the queue with `request`'s kept events, written in one
+   * transaction; each crash's stack scrubbed with `known` first.
+   */
+  private enqueue(db: IDBDatabase, request: TelemetrySendRequest, known: readonly string[]): Promise<{ id: string; queue: TelemetryEvent[] }> {
     return transact<{ id: string; queue: TelemetryEvent[] }>(db, STORE.kv, 'readwrite', (tx, done) => {
       const kv = tx.objectStore(STORE.kv);
       onSuccess(kv.get(TELEMETRY_ID_KEY), (storedId) => {
@@ -203,7 +284,7 @@ class TelemetryService {
                 capability = key;
                 kv.put(key, TELEMETRY_CAPABILITY_KEY);
               }
-              queue.push(event);
+              queue.push(event.kind === 'crash' ? scrubbedCrash(event, known) : event);
             }
             const kept = queue.length > TELEMETRY_QUEUE_MAX ? queue.slice(queue.length - TELEMETRY_QUEUE_MAX) : queue;
             if (queue.length !== before) kv.put(kept, TELEMETRY_QUEUE_KEY);
