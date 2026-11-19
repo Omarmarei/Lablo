@@ -291,7 +291,9 @@ export default defineConfig(
       // has two more: `@lablo/crypto/check-vectors`, the shared vectors' checks, which only the
       // vectors page and the harness import (RELAY step 29b1), and `@lablo/crypto/backup-code`,
       // the code's reading for the first-run screen without the rest of crypto (step 32d3c);
-      // protocol likewise has `@lablo/protocol/check-samples`, the schemas' shared samples (step 29b2a), and core
+      // protocol likewise has `@lablo/protocol/check-samples`, the schemas' shared samples (step 29b2a),
+      // `@lablo/protocol/backup-limits` (step 32c1) and `@lablo/protocol/scrub`, the telemetry
+      // scrubber the TV's workers use without zod (step 33a), and core
       // `@lablo/core/check-qr`, the QR encoder's golden cases (step 31c1). data's fifth worker is
       // the pairing client's (step 31c1), its sixth the backup's (step 32b), with
       // `@lablo/data/check-backup`, that worker's checks for the vectors page (step 32b).
@@ -304,7 +306,7 @@ export default defineConfig(
             { target: ['data'], allow: ['src/client.ts', 'src/query.worker.ts', 'src/ingest.worker.ts', 'src/epg.worker.ts', 'src/config.worker.ts', 'src/pair.worker.ts', 'src/backup.worker.ts', 'src/check-backup.ts'] },
             { target: ['core'], allow: ['src/check-qr.ts'] },
             { target: ['crypto'], allow: ['src/check-vectors.ts', 'src/backup-code.ts'] },
-            { target: ['protocol'], allow: ['src/check-samples.ts', 'src/backup-limits.ts'] },
+            { target: ['protocol'], allow: ['src/check-samples.ts', 'src/backup-limits.ts', 'src/scrub.ts'] },
           ],
         },
       ],

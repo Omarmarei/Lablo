@@ -94,3 +94,5 @@ export {
   telemetryEventSchema,
 } from './telemetry';
 export type { CountBucket, RateBucket, TelemetryBatch, TelemetryEvent, TelemetryKind } from './telemetry';
+
+export { isTld, KNOWN_MIN_CHARS, SCRUB_INPUT_MAX_CHARS, SCRUB_MAX_CHARS, scrubText, TLDS } from './scrub';

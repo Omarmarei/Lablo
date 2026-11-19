@@ -9,12 +9,16 @@
   "exports": {
     ".": "./src/index.ts",
     "./check-samples": "./src/check-samples.ts",
-    "./backup-limits": "./src/backup-limits.ts"
+    "./backup-limits": "./src/backup-limits.ts",
+    "./scrub": "./src/scrub.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "fast-check": "^4.10.2"
   }
 }
