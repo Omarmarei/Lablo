@@ -1,10 +1,12 @@
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import { readTelemetryEvents, telemetryBatchSchema } from '@lablo/protocol';
 import { devSignedAnswer } from '../tools/engines/src/config';
 import type { ConfigServer } from './config-server';
 import { doc, startConfigServer } from './config-server';
-import { addM3uAndWatch, trackErrors } from './onboard';
+import { addM3uAndWatch, settled, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
 
 /**
@@ -15,8 +17,11 @@ import { RemoteDriver } from './remote-driver';
  * result (`play_result`). The test hook's `sendTelemetry()` sends now instead of
  * 60 s on. The dev app reports `platform: 'browser'`, which the real API refuses, so the batch is
  * read here with the server's own schema, the platform swapped. The playlist's link carries a
- * login, and no post may hold it, the stand-in's host or port, or the link.
+ * login, and no post may hold it, the stand-in's host or port, or the link. Step 33b3 adds
+ * Settings' "Usage and crash reports" switch, in English and Arabic (screenshots in
+ * artifacts/screenshots).
  */
+const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
 const USER = 'tvuser33b';
 const PASS = 'tvpass33b1';
 const PLAYLIST = '#EXTM3U\n#EXTINF:-1 tvg-id="news" group-title="News",Family News\nhttp://127.0.0.1:9/live/1.ts\n#EXTINF:-1 tvg-id="films" group-title="Films",Film Night\nhttp://127.0.0.1:9/live/2.ts\n';
@@ -55,10 +60,10 @@ async function withServer(config: Record<string, unknown>, run: (server: ConfigS
   }
 }
 
-/** Onboarding with the stand-in's playlist, then the live screen. */
-async function onboard(page: Page, server: ConfigServer): Promise<void> {
+/** Onboarding with the stand-in's playlist (in `locale`, else the browser's), then the live screen. */
+async function onboard(page: Page, server: ConfigServer, locale: string | null = null): Promise<void> {
   const remote = new RemoteDriver(page);
-  await addM3uAndWatch(remote, `${server.origin.replace(/^http:\/\//, '')}${LIST_PATH}`, `api=${server.origin}`);
+  await addM3uAndWatch(remote, `${server.origin.replace(/^http:\/\//, '')}${LIST_PATH}`, `api=${server.origin}${locale === null ? '' : `&locale=${locale}`}`);
 }
 
 function sendNow(page: Page): Promise<unknown> {
@@ -132,7 +137,27 @@ function telemetryKv(page: Page): Promise<Record<string, unknown>> {
   );
 }
 
-/** The stored profile's `telemetry` switch set off, as Settings will (step 33b3), from the page. */
+/** The stored profile's switch: on unless its document says `telemetry: false`. */
+function storedSwitch(page: Page): Promise<boolean> {
+  return page.evaluate(
+    () =>
+      new Promise<boolean>((resolve, reject) => {
+        const open = indexedDB.open('lablo');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          const req = db.transaction('profile').objectStore('profile').get('current');
+          req.onsuccess = () => {
+            db.close();
+            resolve((req.result as { doc: Record<string, unknown> }).doc['telemetry'] !== false);
+          };
+          req.onerror = () => reject(req.error);
+        };
+      }),
+  );
+}
+
+/** The stored profile's `telemetry` switch set off from the page, as a restored backup brings an "off" back. */
 function switchOff(page: Page): Promise<void> {
   return page.evaluate(
     () =>
@@ -159,6 +184,14 @@ function switchOff(page: Page): Promise<void> {
         };
       }),
   );
+}
+
+/** The element's text fits its box (no ellipsis): our real words must, in English and Arabic. */
+function fits(page: Page, testId: string): Promise<boolean> {
+  return page.evaluate((id) => {
+    const el = document.querySelector<HTMLElement>(`[data-testid=${id}]`)!;
+    return el.scrollWidth <= el.clientWidth + 1;
+  }, testId);
 }
 
 /** Errors but the stand-in's refusals (Chromium logs each non-2xx answer). */
@@ -290,3 +323,94 @@ test('posts the events of use: the playlist and its guide read, their match, and
   // (The browser logs its refusal of port 9.)
   expect(errors.filter((e) => e.indexOf('net::ERR_UNSAFE_PORT') === -1)).toEqual([]);
 });
+
+/** The Settings row's words in each language (step 33b3). */
+const SAYS = {
+  en: { on: 'On', off: 'Off', onHint: 'Anonymous: never your links, logins or channel names', offHint: 'Nothing is sent while they are off' },
+  ar: { on: 'مفعّلة', off: 'متوقفة', onHint: 'مجهولة الهوية: لا تتضمن أبدًا روابطك أو بيانات دخولك أو أسماء قنواتك', offHint: 'لا يُرسل شيء ما دامت متوقفة' },
+} as const;
+
+async function shoot(page: Page, name: string): Promise<void> {
+  mkdirSync(SHOTS, { recursive: true });
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  await page.screenshot({ path: path.join(SHOTS, `${name}.png`), animations: 'disabled' });
+}
+
+for (const [locale, language] of [
+  ['en-US', 'en'],
+  ['ar-SA', 'ar'],
+] as const) {
+  test(`switches the reports off in Settings, which clears the queue and the ID, and on again, which makes a new ID (${locale})`, async ({ page }) => {
+    test.setTimeout(90_000);
+    const errors = trackErrors(page);
+    const says = SAYS[language];
+    await withServer({}, async (server) => {
+      await onboard(page, server, locale);
+      // A refused send leaves the queue, the ID and the capability's key on the TV.
+      server.telemetry.statuses.push(500);
+      expect(await sendNow(page)).toMatchObject({ state: 'failed', queued: 3 });
+      const before = await telemetryKv(page);
+      expect(Object.keys(before).sort()).toEqual(['telemetry.capability', 'telemetry.id', 'telemetry.queue']);
+
+      // Settings: the header's last button (its end: the left in Arabic), then the fourth row.
+      const remote = new RemoteDriver(page);
+      const side = language === 'ar' ? 'LEFT' : 'RIGHT';
+      await remote.go('UP', 'live/header/0');
+      for (let i = 1; i <= 5; i += 1) await remote.go(side, `live/header/${i}`);
+      await remote.go('OK', 'settings/items/0');
+      const root = page.getByTestId('settings-screen');
+      await expect(root).toHaveAttribute('data-language', language);
+      for (let i = 1; i <= 3; i += 1) await remote.go('DOWN', `settings/items/${i}`);
+      const row = page.getByTestId('settings-telemetry');
+      const value = page.getByTestId('settings-telemetry-value');
+      const hint = page.getByTestId('settings-telemetry-hint');
+      await expect(row).toHaveAttribute('data-value', 'true');
+      await expect(row).toHaveAttribute('aria-checked', 'true');
+      await expect(row).toHaveAttribute('role', 'menuitemcheckbox');
+      await expect(value).toHaveText(says.on);
+      await expect(hint).toHaveText(says.onHint);
+      expect(await fits(page, 'settings-telemetry-hint')).toBe(true);
+      await settled(root);
+      await shoot(page, `telemetry-settings-on-${language}`);
+
+      // OK: off in place. The clearing send deletes the queue and the ID, and posts nothing.
+      await remote.go('OK', 'settings/items/3');
+      await expect(row).toHaveAttribute('data-value', 'false');
+      await settled(root, 20_000);
+      await expect(row).toHaveAttribute('data-busy', 'false');
+      await expect(row).toHaveAttribute('data-failed', 'false');
+      await expect(row).toHaveAttribute('aria-checked', 'false');
+      await expect(value).toHaveText(says.off);
+      await expect(hint).toHaveText(says.offHint);
+      expect(await fits(page, 'settings-telemetry-hint')).toBe(true);
+      expect(await telemetryKv(page)).toEqual({});
+      expect(await storedSwitch(page)).toBe(false);
+      expect(await sendNow(page)).toEqual({ state: 'off' });
+      expect(server.telemetry.posts).toHaveLength(1);
+      await shoot(page, `telemetry-settings-off-${language}`);
+
+      // Read from the profile again at the next opening.
+      await remote.go('BACK', 'live/header/5');
+      await remote.go('OK', 'settings/items/0');
+      await expect(row).toHaveAttribute('data-value', 'false');
+
+      // On again: nothing to send until an event; the next start's events go under a new ID.
+      for (let i = 1; i <= 3; i += 1) await remote.go('DOWN', `settings/items/${i}`);
+      await remote.go('OK', 'settings/items/3');
+      await expect(row).toHaveAttribute('data-value', 'true');
+      await settled(root);
+      expect(await storedSwitch(page)).toBe(true);
+      expect(await sendNow(page)).toEqual({ state: 'empty' });
+      await page.reload();
+      await expect(page.getByTestId('live')).toHaveAttribute('data-status', 'ready');
+      await expect.poll(async () => ((await sendNow(page)) as { state: string } | null)?.state).toBe('sent');
+      const batch = serverRead(server.telemetry.posts[server.telemetry.posts.length - 1]!);
+      expect(batch.installId).not.toBe(before['telemetry.id']);
+      expect((await telemetryKv(page))['telemetry.id']).toBe(batch.installId);
+      // The capability's key went with the ID: it is sent again.
+      expect(batch.events.map((e) => e.kind).sort()).toEqual(['app_start', 'capability']);
+      expectNothingOfTheSource(server);
+    });
+    expect(realErrors(errors)).toEqual([]);
+  });
+}

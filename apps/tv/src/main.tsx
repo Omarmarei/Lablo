@@ -60,7 +60,7 @@ import { createOnboarding } from './onboarding/onboarding-state';
 import { answerEdit, readStartProfile, startPoint } from './onboarding/start';
 import { KEY_HELP, createPlatform } from './platform';
 import { appStartEvent, capabilityEvent, deviceProbes } from './telemetry/telemetry-events';
-import { createTelemetry } from './telemetry/telemetry-state';
+import { createTelemetry, telemetryOn } from './telemetry/telemetry-state';
 import { playerEvent, recordRefresh } from './telemetry/usage-events';
 import { installTestHook } from './test-hook';
 // Last, so the app's own CSS comes after @lablo/ui's (tokens, fonts, components) in app.css and in dev.
@@ -554,6 +554,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       },
     },
     sourceAdded,
+    // "Usage and crash reports" (step 33b3): the profile's switch, then telemetry follows what it stored.
+    telemetry: { engine: dataEngine(), setOn: (on) => telemetry.setOn(on) },
     // A login given again (step 32d4b): the source's own refresh with the schedule held (the
     // schedule keeps a refused `needs-login` for 2 h, and `refreshNow` reads only the guides), then
     // its guides at once and the screens.
@@ -692,7 +694,7 @@ function startWith(into: Element, profile: LoadedProfile | null, restored: boole
   memory.load(profile);
   progress.load(profile);
   // Telemetry's switch (step 33b1): on unless the profile says `telemetry: false`.
-  telemetry.load(profile === null || (profile.doc as { telemetry?: unknown }).telemetry !== false);
+  telemetry.load(telemetryOn(profile));
   const start = startPoint(profile);
   if (start.screen === 'home') showLive(into, start.language, restored ? null : start.resume, restored, toSources, toGuides);
   else showOnboarding(into, start.language);

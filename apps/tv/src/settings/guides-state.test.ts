@@ -1089,6 +1089,71 @@ describe('the settings screen', () => {
     expect((t.nav.top.zone('held') as { count: number }).count).toBe(0);
   });
 
+  it('lists "Usage and crash reports" last with its switch, read at each opening and switched in place by OK (step 33b3)', async () => {
+    const t = setup();
+    const doc: Record<string, unknown> = { v: 1, sources: [] };
+    const switchEngine = {
+      profile: vi.fn(() => Promise.resolve({ doc: { ...doc }, newer: false, migratedFrom: null } as unknown as LoadedProfile)),
+      editProfile: vi.fn((edit: ProfileEdit) => {
+        if (edit.kind === 'telemetry') {
+          if (edit.on) delete doc['telemetry'];
+          else doc['telemetry'] = false;
+        }
+        return Promise.resolve(true);
+      }),
+    };
+    const setOn = vi.fn(() => Promise.resolve());
+    const settings = createSettings({
+      nav: t.nav,
+      engine: t.engine,
+      refreshNow: t.refresh.refreshNow,
+      offsetChanged: t.offsetChanged,
+      platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+      telemetry: { engine: switchEngine, setOn },
+    });
+    expect(settings.items).toEqual(['guides', 'sources', 'telemetry']);
+    expect(settings.telemetry).not.toBeNull();
+    expect(switchEngine.profile).not.toHaveBeenCalled();
+    settings.open();
+    expect(switchEngine.profile).toHaveBeenCalledTimes(1);
+    expect((t.nav.top.zone('items') as { count: number }).count).toBe(3);
+    await flush();
+    expect(settings.telemetry!.value.value).toBe(true);
+    await t.press('DOWN', 'DOWN');
+    expect(t.at()).toBe('settings · items 2');
+    await t.press('OK');
+    await flush();
+    // Switched in place: no screen of its own.
+    expect(t.at()).toBe('settings · items 2');
+    expect(switchEngine.editProfile).toHaveBeenCalledWith({ kind: 'telemetry', on: false });
+    expect(setOn).toHaveBeenCalledWith(false);
+    expect(settings.telemetry!.value.value).toBe(false);
+    // Read again at the next opening.
+    await t.press('BACK');
+    settings.open();
+    expect(switchEngine.profile).toHaveBeenCalledTimes(3);
+    await flush();
+    expect(settings.telemetry!.value.value).toBe(false);
+    settings.dispose();
+    // Disposed with the settings: it reads no more.
+    settings.telemetry!.read();
+    expect(switchEngine.profile).toHaveBeenCalledTimes(3);
+
+    // With the backup too: fourth.
+    const both = createSettings({
+      nav: t.nav,
+      engine: t.engine,
+      refreshNow: t.refresh.refreshNow,
+      offsetChanged: t.offsetChanged,
+      platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+      backup: { engine: {} as unknown as BackupPageEngine, host: { schedule: { held: signal(false), last: signal(null) } } as unknown as BackupPageHost },
+      telemetry: { engine: switchEngine, setOn },
+    });
+    expect(both.items).toEqual(['guides', 'sources', 'backup', 'telemetry']);
+    expect(SETTINGS_ITEMS).toEqual(['guides', 'sources', 'backup', 'telemetry']);
+    both.dispose();
+  });
+
   it('lists "TV guides", which opens the guides screen; Back goes back one screen at a time', async () => {
     const t = setup();
     const settings = createSettings({
@@ -1098,10 +1163,11 @@ describe('the settings screen', () => {
       offsetChanged: t.offsetChanged,
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
     });
-    expect(SETTINGS_ITEMS).toEqual(['guides', 'sources', 'backup']);
+    expect(SETTINGS_ITEMS).toEqual(['guides', 'sources', 'backup', 'telemetry']);
     expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'backup', 'backup-confirm']);
-    // Without a backup page (step 32d2b) there is no "Backup" row.
+    // Without a backup page (step 32d2b) there is no "Backup" row, nor without a switch "Usage and crash reports" (step 33b3).
     expect(settings.backup).toBeNull();
+    expect(settings.telemetry).toBeNull();
     expect(settings.items).toEqual(['guides', 'sources']);
     settings.open();
     expect(t.at()).toBe('settings · items 0');

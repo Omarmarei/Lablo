@@ -14,7 +14,8 @@ import { RemoteDriver } from './remote-driver';
  * row; then a profile whose playlist lost its link (as a backup without logins brings it back,
  * written into the stored profile) started with `restored=1`: "Welcome back" with its line, the
  * sources screen it opens, the row's mark, and the login form with a problem shown; then (step
- * 32d4c) TV guides: a guide's mark, its menu, and its link form with a problem shown. Each: no text
+ * 32d4c) TV guides: a guide's mark, its menu, and its link form with a problem shown; and (step
+ * 33b3) Settings' "Usage and crash reports" row, on and off. Each: no text
  * of ours unbracketed, no name, label or button cut. Screenshots go to artifacts/screenshots.
  */
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
@@ -56,7 +57,7 @@ function unbracketed(page: Page, selector: string): Promise<string[]> {
 function cut(page: Page, selector: string): Promise<string[]> {
   return page.evaluate((sel) => {
     const root = document.querySelector(sel)!;
-    return Array.from(root.querySelectorAll<HTMLElement>('.settings__name, .settings__title, .backup__value, .z-field__label, .z-field__note, .z-button, .z-dialog__title, .z-dialog__message, .onboarding__title, .onboarding__note, .sources__name'))
+    return Array.from(root.querySelectorAll<HTMLElement>('.settings__name, .settings__title, .settings__value, .backup__value, .z-field__label, .z-field__note, .z-button, .z-dialog__title, .z-dialog__message, .onboarding__title, .onboarding__note, .sources__name'))
       .filter((el) => el.scrollWidth > el.clientWidth + 1)
       .map((el) => el.textContent ?? '');
   }, selector);
@@ -111,11 +112,29 @@ test('shows the logins row, "Welcome back"’s line, the sources row and its for
     await remote.go('UP', 'live/header/0');
     for (let i = 1; i <= 5; i += 1) await remote.go('RIGHT', `live/header/${i}`);
     await remote.go('OK', 'settings/items/0');
-    await remote.go('DOWN', 'settings/items/1');
-    await remote.go('DOWN', 'settings/items/2');
-    await remote.go('OK', 'backup/switch/0');
     const settings = page.getByTestId('settings-screen');
     await expect(settings).toHaveAttribute('data-language', 'pseudo');
+    await remote.go('DOWN', 'settings/items/1');
+    await remote.go('DOWN', 'settings/items/2');
+    // Settings' fourth row (step 33b3): "Usage and crash reports" on, then off, then on again.
+    await remote.go('DOWN', 'settings/items/3');
+    const reports = page.getByTestId('settings-telemetry');
+    await expect(reports).toHaveAttribute('data-value', 'true');
+    await settled(settings, 20_000);
+    expect(await unbracketed(page, '[data-testid=settings-screen]')).toEqual([]);
+    expect(await cut(page, '[data-testid=settings-screen]')).toEqual([]);
+    await shoot(page, 'telemetry-row-en-XA');
+    await remote.go('OK', 'settings/items/3');
+    await expect(reports).toHaveAttribute('data-value', 'false');
+    await settled(settings, 20_000);
+    expect(await unbracketed(page, '[data-testid=settings-screen]')).toEqual([]);
+    expect(await cut(page, '[data-testid=settings-screen]')).toEqual([]);
+    await shoot(page, 'telemetry-row-off-en-XA');
+    await remote.go('OK', 'settings/items/3');
+    await expect(reports).toHaveAttribute('data-value', 'true');
+    await settled(settings, 20_000);
+    await remote.go('UP', 'settings/items/2');
+    await remote.go('OK', 'backup/switch/0');
     await expect(page.getByTestId('backup')).toHaveAttribute('data-status', 'ready');
     await expect(page.getByTestId('backup-logins')).toBeVisible();
     await settled(settings, 20_000);

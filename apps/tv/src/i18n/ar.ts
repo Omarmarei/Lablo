@@ -82,6 +82,8 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'onboarding.backupNote':
     'النسخ الاحتياطي مفعّل افتراضيًا، ويُشفَّر على تلفازك قبل إرساله، فلا يمكننا قراءته. يمكنك إيقافه أو استثناء بيانات الدخول من الإعدادات.',
   'onboarding.consentNo': 'إن لم تسمح بذلك، تعرض الإعدادات رمزًا احتياطيًا لتدوّنه بدلًا منه.',
+  'onboarding.telemetryNote':
+    'يرسل لابلو أيضًا تقارير استخدام وأعطال مجهولة الهوية لتحسين التطبيق، ولا تتضمن أبدًا روابطك أو بيانات دخولك أو أسماء قنواتك. يمكنك إيقافها من الإعدادات.',
   'onboarding.allow': 'سماح',
   'onboarding.notNow': 'ليس الآن',
   'onboarding.sourceTitle': 'أضف مصدرك',
@@ -314,6 +316,12 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'settings.sourcesHint': 'قوائم التشغيل وبيانات الدخول لديك، ومتى حُدّثت',
   'settings.backup': 'النسخ الاحتياطي',
   'settings.backupHint': 'نسخة مشفّرة من مصادرك وإعداداتك، ورمزها',
+  'settings.telemetry': 'تقارير الاستخدام والأعطال',
+  'settings.telemetryOn': 'مفعّلة',
+  'settings.telemetryOff': 'متوقفة',
+  'settings.telemetryOnHint': 'مجهولة الهوية: لا تتضمن أبدًا روابطك أو بيانات دخولك أو أسماء قنواتك',
+  'settings.telemetryOffHint': 'لا يُرسل شيء ما دامت متوقفة',
+  'settings.telemetryFailed': 'تعذّر تغييره. حاول مرة أخرى.',
   'guides.title': 'أدلة التلفزيون',
   'guides.add': 'إضافة دليل',
   'guides.intro': 'تأتي البرامج من أول دليل في هذه القائمة فيه القناة. الأدلة التي أضفتها تأتي أولًا.',

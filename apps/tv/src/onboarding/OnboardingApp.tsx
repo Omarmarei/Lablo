@@ -130,6 +130,10 @@ function ConsentScreen({ ob, i18n }: ScreenProps) {
         <Button label={t('onboarding.allow')} variant="primary" {...zone.item(0)} testId="action-0" />
         <Button label={t('onboarding.notNow')} {...zone.item(1)} testId="action-1" />
       </div>
+      {/* The usage reports (step 33b3), under the buttons: they answer the TV ID only. */}
+      <p class="onboarding__note onboarding__note--after" data-testid="consent-telemetry">
+        {t('onboarding.telemetryNote')}
+      </p>
     </Panel>
   );
 }

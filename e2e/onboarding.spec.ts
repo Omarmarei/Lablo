@@ -189,6 +189,18 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
       await remote.press('OK');
       await remote.expectFocus('consent/actions/0');
       await expect(root).toContainText(ar ? 'النسخ الاحتياطي مفعّل افتراضيًا' : 'The backup is on by default');
+      // The usage reports (step 33b3): a note under the buttons, which answer the TV ID only.
+      await expect(page.getByTestId('consent-telemetry')).toHaveText(
+        ar
+          ? 'يرسل لابلو أيضًا تقارير استخدام وأعطال مجهولة الهوية لتحسين التطبيق، ولا تتضمن أبدًا روابطك أو بيانات دخولك أو أسماء قنواتك. يمكنك إيقافها من الإعدادات.'
+          : 'Lablo also sends anonymous usage and crash reports to improve the app, never your links, logins or channel names. You can turn them off in Settings.',
+      );
+      const below = await page.evaluate(() => {
+        const note = document.querySelector('[data-testid=consent-telemetry]')!.getBoundingClientRect();
+        const buttons = document.querySelector('.onboarding__actions')!.getBoundingClientRect();
+        return note.top - buttons.bottom;
+      });
+      expect(below).toBeGreaterThan(0);
       // The buttons' row mirrors in Arabic: "Not now" is to the left of "Allow" there.
       await remote.press(ar ? 'LEFT' : 'RIGHT');
       await remote.expectFocus('consent/actions/1');

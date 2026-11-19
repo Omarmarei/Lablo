@@ -1,3 +1,4 @@
+import type { LoadedProfile } from '@lablo/data';
 import type { TelemetrySendRequest, TelemetrySendResult } from '@lablo/data/client';
 import type { LifecycleEvent } from '@lablo/platform-api';
 import type { TelemetryEvent } from '@lablo/protocol';
@@ -8,10 +9,11 @@ import type { SchedulerTimers } from '../data/refresh-scheduler';
  * event objects in memory, handed to the telemetry worker at each send (`DataEngine.sendTelemetry`),
  * which samples them, keeps them in `kv` and posts them. This module decides when:
  *
- * - **The switch:** `load` gives the profile's (`telemetry !== false`). Events recorded before it
+ * - **The switch:** `load` gives the profile's (`telemetryOn`). Events recorded before it
  *   are held; off drops them, and records nothing more. `setOn(false)` (Settings, step 33b3) drops
  *   what is held and sends at once (or right after a send in progress), so the worker, which reads
- *   the profile's switch itself, clears the queue and the install ID. An app ended between the
+ *   the profile's switch itself, clears the queue and the install ID; it resolves once that send
+ *   has answered (at once while the sends are stopped). An app ended between the
  *   switch's edit and that send keeps them on the TV, never sent while off; only an "on" later
  *   would send them with the old ID.
  * - **Not before the live screen:** `start` (from the live screen, as the backup) arms the sends.
@@ -35,6 +37,11 @@ export const TELEMETRY_FIRST_MS = 60_000;
 export const TELEMETRY_GAP_MS = 15 * 60_000;
 /** Events held in memory between sends. */
 export const TELEMETRY_MEMORY_MAX = 200;
+
+/** The profile's switch: on unless it says `telemetry: false` (no profile yet: on). */
+export function telemetryOn(profile: LoadedProfile | null): boolean {
+  return profile === null || (profile.doc as { telemetry?: unknown }).telemetry !== false;
+}
 
 /** What the schedule needs from the data engine (a `DataEngine` fits; tests pass a fake). */
 export interface TelemetryEngine {
@@ -61,8 +68,11 @@ export interface Telemetry {
   record(event: TelemetryEvent): void;
   /** The profile's switch, read at the start. */
   load(on: boolean): void;
-  /** Settings' switch (step 33b3): off drops what is held and sends once, so the worker clears the queue. */
-  setOn(on: boolean): void;
+  /**
+   * Settings' switch (step 33b3): off drops what is held and sends once, so the worker clears the
+   * queue, resolving when that send has answered (at once when the sends are stopped); on resolves at once.
+   */
+  setOn(on: boolean): Promise<void>;
   /** Arms the sends (the live screen); again after `stop`. */
   start(): void;
   /** No more sends until `start` (a send in progress finishes); events stay held. */
@@ -192,18 +202,20 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
       arm();
     },
     setOn(value) {
-      if (on === value) return;
+      if (on === value) return Promise.resolve();
       on = value;
       // On: nothing is pending (off held none), and the next event arms a send.
-      if (value) return;
+      if (value) return Promise.resolve();
       held = [];
       pendingSince = null;
       // The worker reads the profile's switch and clears the queue and the ID: now, or right after
       // the send in progress (which read the switch before it changed). That send's answer ends a
       // retry, and its start clears a timer.
-      if (!started) return;
-      waiters.push(() => undefined);
-      void run();
+      if (!started) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        waiters.push(() => resolve());
+        void run();
+      });
     },
     start() {
       if (disposed || started) return;

@@ -1,10 +1,10 @@
-import type { TelemetrySendRequest, TelemetrySendResult } from '@lablo/data';
+import type { LoadedProfile, TelemetrySendRequest, TelemetrySendResult } from '@lablo/data';
 import type { LifecycleEvent } from '@lablo/platform-api';
 import type { TelemetryEvent } from '@lablo/protocol';
 import { describe, expect, it } from 'vitest';
 import type { SchedulerTimers } from '../data/refresh-scheduler';
 import type { TelemetryCall, TelemetryEngine } from './telemetry-state';
-import { TELEMETRY_FIRST_MS, TELEMETRY_GAP_MS, TELEMETRY_MEMORY_MAX, createTelemetry } from './telemetry-state';
+import { TELEMETRY_FIRST_MS, TELEMETRY_GAP_MS, TELEMETRY_MEMORY_MAX, createTelemetry, telemetryOn } from './telemetry-state';
 
 // RELAY step 33b1: when main hands its events to the telemetry worker.
 
@@ -492,6 +492,92 @@ describe('the telemetry schedule', () => {
     w.clock.advance(TELEMETRY_GAP_MS);
     expect(w.engine.runs).toHaveLength(3);
     expect(w.engine.runs[2]!.request.events).toEqual([stall(2)]);
+  });
+
+  it("reads the profile's switch: on unless it says false, and with no profile yet (step 33b3)", () => {
+    const profile = (doc: Record<string, unknown>) => ({ doc, newer: false, migratedFrom: null }) as unknown as LoadedProfile;
+    expect(telemetryOn(null)).toBe(true);
+    expect(telemetryOn(profile({ v: 1 }))).toBe(true);
+    expect(telemetryOn(profile({ v: 1, telemetry: false }))).toBe(false);
+    // Only `false` turns it off (a value an older or newer app wrote otherwise counts as on).
+    expect(telemetryOn(profile({ v: 1, telemetry: 0 }))).toBe(true);
+    expect(telemetryOn(profile({ v: 1, telemetry: true }))).toBe(true);
+  });
+
+  it("resolves Settings' off once its clearing send has answered, and on, a repeat or off while stopped at once (step 33b3)", async () => {
+    const settled = (promise: Promise<void>): (() => boolean) => {
+      let done = false;
+      void promise.then(() => {
+        done = true;
+      });
+      return () => done;
+    };
+    const t = setup();
+    t.telemetry.load(true);
+    t.telemetry.start();
+    // On while on, then off: held until the clearing send answers.
+    const same = settled(t.telemetry.setOn(true));
+    await flush();
+    expect(same()).toBe(true);
+    const off = settled(t.telemetry.setOn(false));
+    await flush();
+    expect(t.engine.runs).toHaveLength(1);
+    expect(off()).toBe(false);
+    t.engine.last.resolve({ state: 'off' });
+    await flush();
+    expect(off()).toBe(true);
+    // Off again: nothing to clear twice.
+    const again = settled(t.telemetry.setOn(false));
+    await flush();
+    expect(again()).toBe(true);
+    expect(t.engine.runs).toHaveLength(1);
+    const on = settled(t.telemetry.setOn(true));
+    await flush();
+    expect(on()).toBe(true);
+
+    // Off during a send: it resolves after the send in progress and the clearing one after it.
+    const u = setup();
+    u.telemetry.load(true);
+    u.telemetry.start();
+    void u.telemetry.sendNow();
+    const later = settled(u.telemetry.setOn(false));
+    u.engine.runs[0]!.resolve(SENT(0));
+    await flush();
+    expect(u.engine.runs).toHaveLength(2);
+    expect(later()).toBe(false);
+    // A clearing send whose worker died resolves too.
+    u.engine.runs[1]!.reject(new Error('gone'));
+    await flush();
+    expect(later()).toBe(true);
+
+    // Stopped (the config's disable-app): at once, with no send.
+    const v = setup();
+    v.telemetry.load(true);
+    const stopped = settled(v.telemetry.setOn(false));
+    await flush();
+    expect(stopped()).toBe(true);
+    expect(v.engine.runs).toHaveLength(0);
+
+    // Disposed during the clearing send: resolved when that send answers, and not before.
+    const w = setup();
+    w.telemetry.load(true);
+    w.telemetry.start();
+    const gone = settled(w.telemetry.setOn(false));
+    w.telemetry.dispose();
+    await flush();
+    expect(gone()).toBe(false);
+    w.engine.last.resolve({ state: 'off' });
+    await flush();
+    expect(gone()).toBe(true);
+    // Disposed with a clearing send still waiting behind another: resolved at once.
+    const x = setup();
+    x.telemetry.load(true);
+    x.telemetry.start();
+    void x.telemetry.sendNow();
+    const waiting = settled(x.telemetry.setOn(false));
+    x.telemetry.dispose();
+    await flush();
+    expect(waiting()).toBe(true);
   });
 
   it('stops with disable-app (a send in progress finishes) and starts again', async () => {
