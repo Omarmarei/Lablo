@@ -74,12 +74,12 @@ model TelemetryEvent {
   @@index([kind, receivedAt])
 }
 
-/// A scrubbed diagnostics report and its support code (architecture.md §3.2, `POST /v1/diag`).
+/// A scrubbed diagnostics report and its support code (architecture.md §3.2, `POST /v1/diag`). No install ID
+/// (step 33d1): a report can't be tied to telemetry rows or to the same TV's other reports.
 model DiagReport {
   id         BigInt   @id @default(autoincrement())
   /// The 6-character support code the TV shows.
   code       String   @unique
-  installId  String
   platform   String
   appVersion String
   report     Json

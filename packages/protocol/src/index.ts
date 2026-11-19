@@ -95,4 +95,20 @@ export {
 } from './telemetry';
 export type { CountBucket, RateBucket, TelemetryBatch, TelemetryEvent, TelemetryKind } from './telemetry';
 
+export {
+  AGE_BUCKETS,
+  ageBucket,
+  DIAG_BODY_MAX_BYTES,
+  DIAG_EVENTS_MAX,
+  DIAG_GUIDES_MAX,
+  DIAG_SOURCES_MAX,
+  diagCode,
+  diagGuideSchema,
+  diagReportSchema,
+  diagRequestSchema,
+  diagResponseSchema,
+  diagSourceSchema,
+} from './diag';
+export type { AgeBucket, DiagGuide, DiagReport, DiagRequest, DiagResponse, DiagSource } from './diag';
+
 export { isTld, KNOWN_MIN_CHARS, SCRUB_INPUT_MAX_CHARS, SCRUB_MAX_CHARS, scrubText, TLDS } from './scrub';
