@@ -16,9 +16,7 @@ You are leg 121 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
     - The `/v1/diag` stand-in in `e2e/config-server.ts`.
     - The report goes with the usage reports off too: the user asks for it, and it carries no ID.
   - **The docs commit `fc6236f`** (on the branch, not yet in main): 33d2, 33d and 33 ticked, leg 120's progress row, the merge records.
-- **Leg 120 ended as needs-you.** Step 34 is `[needs Omar]` (production infrastructure).
-  - Omar's answer in leg 120's tab decides what you do (see "Next steps").
-  - If his answer isn't in `RELAY.md` or the relay's report, ask nothing: write needs-you again with the same question.
+- **Leg 120 asked Omar about step 34** (`[needs Omar]`, production infrastructure). **He answered on 2026-11-19: skip step 34 for now and go on to step 35.** RELAY.md's step 34 line records it. Step 34 waits until he says the accounts and keys are ready; skip it until then.
 
 ## Read first
 1. **`RELAY.md`:**
@@ -42,19 +40,10 @@ You are leg 121 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
    - `origin/main` is `dcb81aa`; the branch is pushed; no PR is open;
    - no `*.mutbak`: `find apps packages tools e2e test platforms -name "*.mutbak" -not -path "*/node_modules/*"`;
    - `docker ps` shows only `lablo-web-postgres-1`.
-2. **Follow Omar's answer to leg 120's question:**
-   - **(1) Skip step 34 for now and go on to step 35.**
-     - Step 35: favourites and groups (named favourites lists, hide or reorder groups, channel numbers).
-     - First check what exists (`packages/data/src/favourites.ts`, the profile's `favourites`), then write its shape in RELAY before building (step 26's common items).
-     - Watch main.js: 9.2 KB left on Tizen, and one screen costs about 8 KB.
-     - Propose a size pass to Omar before step 35 adds screens: lazy screens, or moving work to a worker. A size pass needs his word; ask through needs-you if 35 can't fit.
-   - **(2) Omar does step 34's part first.** These are his alone:
-     - the Vercel, Neon, R2 and Upstash accounts and the domain, with the keys in `.env` that he writes himself;
-     - `LABLO_RATE_SECRET` in Vercel;
-     - the config key ceremony.
-
-     Then you write the R2 and Upstash adapters (behind the outbound-lint exception), R2's host in the phone page's `connect-src`, and the bucket's CORS rule. The first production migration and deploy each need his one-word OK. Never ask him to paste a key into the chat.
-   - **(3) Pause:** end as needs-you without work.
+2. **Step 35: favourites and groups** (named favourites lists, hide or reorder groups, channel numbers), as Omar chose.
+   - First check what exists (`packages/data/src/favourites.ts`, the profile's `favourites`, the live screen's groups), then write its shape in RELAY before building (step 26's common items). Split it into sub-steps if it is more than one leg's work, as 32 and 33 were.
+   - **Watch main.js:** 9.2 KB left on Tizen, and one screen costs about 8 KB. If step 35 can't fit, propose a size pass (lazy screens, or work moved to a worker) and stop as needs-you for Omar's word: a size pass is his call.
+   - **Step 34 stays deferred.** When Omar says the accounts are ready, these are his alone: the Vercel, Neon, R2 and Upstash accounts and the domain, with the keys in `.env` that he writes himself; `LABLO_RATE_SECRET` in Vercel; the config key ceremony. Then a leg writes the R2 and Upstash adapters (behind the outbound-lint exception), R2's host in the phone page's `connect-src` and the bucket's CORS rule. The first production migration and deploy each need his one-word OK. Never ask him to paste a key into the chat.
 
 **Step 26's common items still apply to any build:**
 - unit tests;
@@ -158,7 +147,7 @@ You are leg 121 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
 - **CLAUDE.md edits need Omar's direct word in his own tab.**
 
 ## Open decisions and gates
-- **Leg 120's question for Omar:** step 34 needs him. (1) skip it for now and continue with step 35; (2) he sets up the accounts, keys and domain first, then a leg does the adapters and, with his OK, the first migration and deploy; (3) pause the relay.
+- **Decided by Omar on 2026-11-19:** skip step 34 for now and continue with step 35.
 - **For step 34 `[needs Omar]`:**
   - the R2 and Upstash adapters;
   - R2's host in `connect-src`, and the bucket's CORS rule;

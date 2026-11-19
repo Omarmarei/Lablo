@@ -2533,7 +2533,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - `verify:engines --engine chrome53 --engine chrome68`: all 26 runs as expected on the first try (`artifacts/engines-33d2.log`), on the build before `Math.floor` was taken out (CI's engines job runs the final one);
     - mutation `artifacts/mutate33d2.py`: 88 written first (writing them closed two gaps and took out one dead piece, listed in its docstring); one proved equivalent and moved to its left-out list; 85 of 87 caught on the first run, the two survivors gaps (the answer's cap built from its own constant; `press` after `dispose` hidden by the sending guard), both closed: 87/87.
   - **Done in leg 120:** PR #149 merged as merge commit `dcb81aa` on green CI on the first run (web 4 m, verify 12 m, media 16 m, engines 32 m). 33d and 33 ticked.
-- [ ] 34. **[needs Omar] Production infrastructure.**
+- [ ] 34. **[needs Omar] Production infrastructure.** **Deferred by Omar on 2026-11-19 (after leg 120): the relay goes on with step 35; step 34 waits until he says the accounts and keys are ready.** Legs skip it until then.
   - **Omar:** creates the Vercel/Neon/R2/Upstash accounts and the domain, and puts the keys in `.env` himself.
   - **Omar, the config key ceremony** (`docs/runbooks/config.md`, from step 30a): `pnpm sign-config keygen` twice (the current key and the next one, for rotation) on his own machine, each seed into his password manager and on paper, never into the repo or the chat; he gives Claude the two public keys for `config/keys.json` and signs the production config himself (`pnpm sign-config sign --key <file>`).
   - **Claude:** the first production migration and deploy, each with Omar's one-word OK; then verifies the live endpoints.
