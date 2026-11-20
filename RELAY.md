@@ -2659,7 +2659,19 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - `packages/ui` `TextField`: `maxLength`; catalogs: `player.favourites`, `favourites.title`, `.new`, `.nameHint`, `.create`, `.full`, `.refused` (en, ar);
     - `main.tsx`: `railRefOf` for the start and Home, the player's `favourites` host.
   - **Verified in leg 122 so far:** unit 7,606 (one known under-load timeout, `xtream-xmltv-core`, passes alone); `e2e/favourites.spec.ts` 3/3 (en, ar, en-XA; the renumbering refresh plays the list's channel from its new stream id); whole-repo lint; `pnpm typecheck`; `build:tv`: main.js 459.9 → 470.0 KB on Tizen (30.0 KB left), 457.3 KB webOS; the core-js probe of the new files lists only modules main has; mutation `artifacts/mutate35c.py` (109 written first): 0–45 run, five gaps closed with tests (a late list read, the redraw bump, `load` of a row on its way, a number search across a switch or a reload, the guess with groups hidden), one equivalent dropped; screenshots looked at (`favourites-*`, `player-star-*`, `live-list-*`).
-  - **Left for leg 123:** mutation 46–108; `verify:engines` 53/68 (Claude Code stopped leg 122's second run for low memory, with 18 runs passed and none failed: run it again in full); the e2e specs the change touches (player, live, resume, home, search, refresh, guide, tv-bundle); the docs (architecture.md §1.4 item 10 "Built in step 35c", the live screen's section); the PR, CI, merge.
+  - **Verified in leg 123:**
+    - mutation 45–108, after leg 122's numbering shift: 11 survived at first.
+      - Five gaps were closed with tests:
+        - the new list focused even when the focus moved while it was made (76, 80);
+        - the next edit clearing the panel's word (77);
+        - an unnamed list's panel row and rail chip saying the catalog's "Favourites" in en-XA (106, 107).
+      - Six are equivalent, each with its reason in the script's docstring: 51, 52, 78, 84, 88, 103.
+      - In all: 103 of 109 caught. The script's per-run limit is now `MUT_TIMEOUT`, since mutant 70 hangs the panel's tests.
+    - `verify:engines --engine chrome53 --engine chrome68`: all 26 runs as expected (`artifacts/engines-35c-b.log`).
+    - e2e: player, live, resume (14) and home, search, refresh, guide, tv-bundle, favourites (25), all passed.
+    - unit 7,610; the whole repo's lint; `pnpm typecheck`.
+    - `build:tv` again after the mutation run: main.js 470.0 KB Tizen, 457.3 KB webOS.
+    - the docs: architecture.md §1.4 item 10 "Built in step 35c", §2 "Built in step 35c" (the star and the panel), and the live screen's section (step 14a).
 - [ ] 35d. **Settings › "Channel groups"** (`apps/tv`): as 35's split above. After 35c.
 - [ ] 36. **Channel management.** Hide/rename/renumber channels, "clean names", multiple sources merged.
   - **Done when:** favourites survive the renamed/reordered fixture.
