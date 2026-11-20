@@ -55,7 +55,7 @@ You are leg 123 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
 ## Next steps, in order
 1. **Check the state:**
    - `git -C "<wt>" status` is clean apart from gitignored files;
-   - `git -C "<wt>" log --oneline -3` shows this handover's commit (`docs: add leg-122 handover; …`), then `3bf606e`, then `6235456`;
+   - `git -C "<wt>" log --oneline -4` shows this handover's two commits (`docs: leg-122 handover, the engines run stopped…`, then `dbf5bec`), then `3bf606e`, then `6235456`;
    - `origin/main` is still `a0739ef`;
    - no `*.mutbak`: `find apps packages tools e2e test platforms -name "*.mutbak" -not -path "*/node_modules/*"`;
    - `docker ps` shows only `lablo-web-postgres-1`.
@@ -107,7 +107,7 @@ You are leg 123 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
   - `a0739ef`;
   - `d5eec8a` and `6235456` (leg 121's docs);
   - `3bf606e` (35c);
-  - this handover's commit.
+  - `dbf5bec` and this handover's last commit (docs).
 
   All pushed. No PR is open.
 - **`main`:** `a0739ef` (Merge PR #151). The main checkout was not touched.
