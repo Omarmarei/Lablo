@@ -59,9 +59,13 @@ You are leg 123 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
    - `origin/main` is still `a0739ef`;
    - no `*.mutbak`: `find apps packages tools e2e test platforms -name "*.mutbak" -not -path "*/node_modules/*"`;
    - `docker ps` shows only `lablo-web-postgres-1`.
-2. **Read `artifacts/engines-35c.log`.** This is leg 122's `verify:engines --engine chrome53 --engine chrome68` (a second try: the first died on the known Chromium 53 DevTools start-up timeout before any run).
-   - If it ends with `engines exit 0` and every run is as expected, 53/68 are done.
-   - Otherwise, rebuild (`pnpm build:tv`) and run it again in the background, about 30 minutes.
+2. **Run `verify:engines --engine chrome53 --engine chrome68` again, the whole command.** Run it in the background, about 30 minutes, after a fresh `pnpm build:tv`.
+   - Leg 122 ran it twice:
+     - the first died on the known Chromium 53 DevTools start-up timeout, before any run;
+     - Claude Code stopped the second for low memory, about two thirds through.
+   - By then **18 runs had passed and none had failed** (Chromium 53 and part of 68; see `artifacts/engines-35c.log`).
+   - Leg 122 removed its leftover container.
+   - Close other memory users first. If it is stopped again, don't restart it in a loop: report it.
 3. **Finish 35c's mutation run:** `python -X utf8 -I -u artifacts/mutate35c.py --from 45 --to 92`, then `--from 93`.
    - Run in foreground chunks under 9 minutes each.
    - The list has 109 mutants, written first. 0–45 are done: five gaps were closed with tests, and one equivalent mutant was dropped (the reason is in the docstring).
@@ -112,7 +116,7 @@ You are leg 123 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
   - `dist/`: 35c's build from before the engines run;
   - in `artifacts/`:
     - `mutate35c.py` and `mutate35c-a.log` (mutants 0–45);
-    - `engines-35c.log`;
+    - `engines-35c.log` (the stopped second run);
     - `unit-35c.log`, `lint-35c.log`, `tsc-35c.log`, `build-tv-35c.log`;
     - `e2e-35c-a.log`, `e2e-35c-b.log`;
     - the screenshots `favourites-panel-{en,ar}`, `favourites-new-{en,ar,en-XA}`, `player-star-{en,ar}`, `live-list-{en,ar,en-XA}`;
@@ -131,7 +135,7 @@ You are leg 123 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
   - the screenshots, looked at.
 - **Not verified:**
   - mutation 46–108;
-  - `verify:engines` (read the log);
+  - `verify:engines` 53/68: stopped part way (18 passed, none failed); run it again in full;
   - the other e2e specs (step 4);
   - CI;
   - a real TV (step 21);
