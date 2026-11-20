@@ -2724,6 +2724,16 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - lint of the changed files, `pnpm typecheck`;
     - `build:tv`: main.js **488.3 KB on Tizen** before the trim (11.7 KB left), 475.6 KB on webOS. The per-file probe after the trim: `groups-state.ts` 7.2 KB, `GroupsPage.tsx` 6.2 KB; core-js unchanged (45.1 KB, no new module).
   - **Left for leg 125:** `build:tv` again (sizes after the trim), the full unit run, `verify:engines --engine chrome53 --engine chrome68`, mutation (list written first), the e2e specs the change touches (favourites, live, search, home, settings ones), the docs (architecture.md §1.4 item 10 "Built in step 35d", the settings section), the PR merged on green CI, then tick 35d and 35.
+  - **Changed in leg 125** (found by the mutation run):
+    - **A fix:** a hidden group's channel played over a favourites list (a search hit) is kept with that list (`tuned` stores the list on show). Home's "Recent channels" then looked for it in the list (`playKept` skipped the play over the list for any list's ref), and nothing played. `listHolds`: it plays over the list unless that list holds it. Unit check, and an e2e step in en (Home's recent channel after the search hit).
+    - **A simplification:** a removed channel's focus follows `null` (stays on its place, which the next channel takes) instead of the next channel's key. Same result after a remove; after a remove that failed, the focus now stays on the channel instead of moving past it.
+  - **Verified in leg 125:**
+    - `build:tv`: main.js **487.6 KB on Tizen** (12.4 KB left), 474.9 KB on webOS; no `Circular dependency: apps/`;
+    - unit **7,753** (300 files); `pnpm lint` (the whole repo); `pnpm typecheck`;
+    - `verify:engines --engine chrome53 --engine chrome68`: all 26 runs as expected;
+    - mutation `artifacts/mutate35d.py`: 145 written first, three added for the fix (148); 145 caught after eleven gaps were closed with tests (groups-state 27, 28, 54, 56, 58, 77; GroupsPage 102, 108, 109, 112; main's 143, which found the fix's bug), three equivalent (26, 39, 76, reasons in the script);
+    - e2e: groups, favourites, live, search, home, guides, backup-settings, telemetry, backup-logins-xa, resume, player, guide-matches, guide-mapping: 48 passed; `tv-bundle.spec.ts` 10 passed;
+    - docs: architecture.md §1.4 item 10 "Built in step 35d", the rail's line, §1.5's settings rows, §2 "Built in step 35d: `over`".
   - **Size warning for step 36:** main.js has about 12 KB left on Tizen. Channel management needs a screen of its own, so the Settings question (load on first open, or a higher budget) is due **before step 36**, not 38.
 - [ ] 36. **Channel management.** Hide/rename/renumber channels, "clean names", multiple sources merged.
   - **Done when:** favourites survive the renamed/reordered fixture.

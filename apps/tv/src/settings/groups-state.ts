@@ -577,11 +577,8 @@ export function createGroups(options: GroupsOptions): Groups {
     if (shown === null || all === null || channel === undefined) return;
     showMenu(CHANNEL_MENU, { actions: channelActions(all.length), row: null, channel }, (action) => {
       if (action === 'move') startMove('channels', index);
-      else if (action === 'remove') {
-        // The focus stays on the place: the next channel takes it.
-        const next = all[index + 1];
-        save({ kind: 'favourite', change: { op: 'remove', list: shown.id, key: channel.key } }, next === undefined ? null : next.key);
-      }
+      // The focus stays on the place: the next channel takes it (or the channel, when the remove failed).
+      else if (action === 'remove') save({ kind: 'favourite', change: { op: 'remove', list: shown.id, key: channel.key } }, null);
     });
   };
 

@@ -2,12 +2,13 @@ import type { VNode } from 'preact';
 import { signal } from '@preact/signals';
 import { stripIsolates } from '@lablo/core';
 import type { CatalogItem } from '@lablo/core';
-import type { EditorBinding, ItemBinding } from '@lablo/ui';
-import { Button, Dialog, TextField } from '@lablo/ui';
+import type { FavouriteList } from '@lablo/data/client';
+import type { EditorBinding, Focus, FocusBinding, ItemBinding } from '@lablo/ui';
+import { Button, Dialog, Spinner, TextField, VirtualList } from '@lablo/ui';
 import { describe, expect, it } from 'vitest';
 import { appI18n } from '../i18n';
-import type { ChannelRow, GroupMenu, GroupRow, Groups } from './groups-state';
-import { ChannelItem, DeleteView, GroupItem, GroupMenuView, RenameView, actionLabels, rowLine, rowName } from './GroupsPage';
+import type { ChannelRow, GroupMenu, GroupRow, Groups, GroupsStatus, Moving } from './groups-state';
+import { ChannelItem, ChannelsPage, DeleteView, GroupItem, GroupMenuView, GroupsPage, RenameView, actionLabels, rowLine, rowName } from './GroupsPage';
 import { itemText } from './SettingsScreen';
 
 /**
@@ -30,6 +31,8 @@ function walk(node: unknown, out: VNode[] = []): VNode[] {
   walk((v.props as Props).children, out);
   return out;
 }
+/** A component's element expanded once (the components under it not). */
+const expand = (v: VNode): VNode => (v.type as (props: Props) => VNode)(v.props as Props);
 const byTestId = (root: unknown, id: string): VNode[] => walk(root).filter((v) => (v.props as Props)['data-testid'] === id || (v.props as Props).testId === id);
 /** The text under `node`, in order (components' own props not read). */
 const textOf = (node: unknown): string => {
@@ -117,6 +120,10 @@ describe('a row as drawn', () => {
     expect(catalog).toMatchObject({ text: 'Favourites', own: false });
     const group = byTestId(GroupItem({ i18n: en, row: NO_NAME, index: 0, moving: false, item: idle }), 'group-0-name')[0]!.props as Props;
     expect(group).toMatchObject({ text: 'Other channels', own: false });
+    // Expanded: data keeps its own direction and isn't translated; ours is.
+    const drawn = (props: Props): Props => (expand(byTestId(GroupItem({ i18n: en, row: props.row as GroupRow, index: 0, moving: false, item: idle }), 'group-0-name')[0]!).props as Props);
+    expect(drawn({ row: LIST })).toMatchObject({ class: 'groups__name', dir: 'auto', translate: false, children: 'Sport' });
+    expect(drawn({ row: UNNAMED })).toMatchObject({ dir: undefined, translate: undefined, children: 'Favourites' });
   });
 
   it('draws a list’s channel with its number, and a missing one with its line', () => {
@@ -186,5 +193,61 @@ describe('the menus, the rename form and the delete question as drawn', () => {
     expect(rowName(xa, UNNAMED).text).not.toBe('Favourites');
     expect(rowName(xa, LIST).text).toBe('Sport');
     expect(rowLine(xa, NEWS)).not.toBe('12 channels');
+  });
+});
+
+describe('the pages as drawn', () => {
+  const focus = { screen: 'groups', zone: 'rows', index: 0 } as Focus;
+  const binding = {} as FocusBinding;
+  const groupsOf = (state: { status?: GroupsStatus; rows?: GroupRow[]; moving?: Moving | null; list?: FavouriteList | null; channels?: ChannelRow[] | null }): Groups =>
+    ({
+      screen: signal({ id: 'groups' }),
+      channelsScreen: signal({ id: 'group-channels' }),
+      status: signal(state.status ?? 'ready'),
+      rows: signal(state.rows ?? []),
+      moving: signal(state.moving ?? null),
+      menu: signal(null),
+      target: signal(null),
+      list: signal(state.list ?? null),
+      channels: signal(state.channels === undefined ? null : state.channels),
+    }) as unknown as Groups;
+  /** A page's frame, expanded once. */
+  const groupsPage = (groups: Groups): VNode => expand(GroupsPage({ i18n: en, binding, focus, groups })!);
+  const channelsPage = (groups: Groups): VNode => expand(ChannelsPage({ i18n: en, binding, focus: { ...focus, screen: 'group-channels', zone: 'channels' }, groups })!);
+  const list = (root: VNode): VNode => walk(root).find((v) => v.type === VirtualList)!;
+
+  it('says why there are no rows: still reading, a read that failed, or nothing to show', () => {
+    expect(walk(groupsPage(groupsOf({ status: 'loading' }))).some((v) => v.type === Spinner)).toBe(true);
+    expect(textOf(byTestId(groupsPage(groupsOf({ status: 'failed' })), 'groups-failed'))).toBe("Couldn't read your channel groups.");
+    expect(textOf(byTestId(groupsPage(groupsOf({ status: 'ready' })), 'groups-ready'))).toBe('You have no favourites lists or live groups yet.');
+  });
+
+  it('marks the row being moved and says how a move goes', () => {
+    const root = groupsPage(groupsOf({ rows: [LIST, NEWS], moving: { zone: 'rows', from: 0, at: 1 } }));
+    expect(root.props as Props).toMatchObject({ 'data-testid': 'groups', 'data-count': 2, 'data-moving': 1 });
+    expect(textOf(byTestId(root, 'groups-intro'))).toBe('Press UP or DOWN to move it, then OK to put it there or Back to undo.');
+    const draw = (list(root).props as Props).renderItem as (index: number, item: ItemBinding) => VNode;
+    expect([(draw(0, idle).props as Props).moving, (draw(1, idle).props as Props).moving]).toEqual([false, true]);
+    const still = groupsPage(groupsOf({ rows: [LIST, NEWS] }));
+    expect((still.props as Props)['data-moving']).toBe(-1);
+    expect(textOf(byTestId(still, 'groups-intro'))).toBe('Your favourites lists, then your groups in the order they show.');
+  });
+
+  it('shows a list’s channels: reading until they are in, then the rows or why there are none, a moving one marked', () => {
+    const shown: FavouriteList = { id: 'l1', name: 'Sport', keys: ['a'] };
+    const reading = channelsPage(groupsOf({ list: shown, channels: null }));
+    expect(reading.props as Props).toMatchObject({ 'data-testid': 'group-channels', 'data-status': 'loading', 'data-count': 0 });
+    expect(walk(reading).some((v) => v.type === Spinner)).toBe(true);
+    const none = channelsPage(groupsOf({ list: shown, channels: [] }));
+    expect(textOf(byTestId(none, 'group-channels-ready'))).toBe('This list has no channels.');
+    const rows: ChannelRow[] = [
+      { key: 'a', item: channel('Alpha'), name: 'Alpha' },
+      { key: 'd', item: null, name: 'delta one' },
+    ];
+    const moving = channelsPage(groupsOf({ list: shown, channels: rows, moving: { zone: 'channels', from: 1, at: 0 } }));
+    expect(moving.props as Props).toMatchObject({ 'data-status': 'ready', 'data-count': 2, 'data-moving': 0 });
+    expect(walk(moving).find((v) => v.type === 'h1')!.props as Props).toMatchObject({ dir: 'auto', translate: false, children: 'Sport' });
+    const draw = (list(moving).props as Props).renderItem as (index: number, item: ItemBinding) => VNode;
+    expect([(draw(0, idle).props as Props).moving, (draw(1, idle).props as Props).moving]).toEqual([true, false]);
   });
 });

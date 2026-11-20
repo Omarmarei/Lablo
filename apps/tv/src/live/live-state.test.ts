@@ -2341,6 +2341,14 @@ describe('a channel of a hidden group (RELAY step 35d)', () => {
     expect(await t.live.playKept({ src: 's2', name: 'Kids' }, kids.key, 1, { item: kids, number: 4 })).toBe(true);
     expect(playOver).toHaveBeenCalledTimes(2);
     expect(play).toHaveBeenCalledTimes(2);
+    // Played over a list (the list it was kept with) that doesn't hold it, or one deleted since: over the list again.
+    const over = of(0, 3, 'News');
+    expect(await t.live.playKept({ list: 'l1' }, over.key, 0, { item: over, number: 4 })).toBe(true);
+    // (At the list's focused row: the row the list played last.)
+    expect(playOver).toHaveBeenLastCalledWith({ item: over, number: 4 }, 1);
+    expect(await t.live.playKept({ list: 'gone' }, over.key, 0, { item: over, number: 4 })).toBe(true);
+    expect(playOver).toHaveBeenCalledTimes(4);
+    expect(play).toHaveBeenCalledTimes(2);
   });
 
   it('follows the hidden groups as the profile is read again', async () => {

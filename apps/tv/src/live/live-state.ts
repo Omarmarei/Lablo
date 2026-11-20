@@ -848,9 +848,18 @@ export function createLive(options: LiveOptions): Live {
     await loaded;
     // (A list that failed or is empty has no rail.)
     if (rail.value.length === 0) return false;
-    // A channel kept from a group the user hid since (a list may hold it: it plays there).
-    if ((ref === null || !('list' in ref)) && kept !== undefined && playOver(kept.item, () => kept.number)) return true;
+    // A channel kept from a group the user hid since, unless the list it was kept with holds it (it
+    // plays there). One played over a list keeps that list, which doesn't hold it.
+    if (kept !== undefined && !listHolds(ref, key) && playOver(kept.item, () => kept.number)) return true;
     return playIn(ref === null ? 0 : Math.max(0, findEntry(rail.value, ref)), key, () => guess);
+  };
+
+  /** Whether `ref` names a list that holds `key` (as last read). */
+  const listHolds = (ref: RailRef, key: ContentKey): boolean => {
+    if (ref === null || !('list' in ref)) return false;
+    const all = lists.value;
+    for (let i = 0; i < all.length; i += 1) if (all[i]!.id === ref.list) return all[i]!.keys.indexOf(key) !== -1;
+    return false;
   };
 
   /**

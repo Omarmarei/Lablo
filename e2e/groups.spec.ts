@@ -275,6 +275,22 @@ for (const locale of ['en-US', 'ar-SA'] as const) {
           await remote.go('BACK', 'live/header/4');
           await remote.go('DOWN', 'live/rail/0');
         });
+
+        await test.step('so does Home’s recent channel, kept with the list it played over', async () => {
+          await remote.go('UP', 'live/header/4');
+          await remote.go('LEFT', 'live/header/3');
+          await remote.go('OK', 'home/channels/0');
+          const home = page.getByTestId('home-screen');
+          await settled(home);
+          await expect(page.getByTestId('home-channels-0')).toContainText('Lablo Sports Test HD');
+          await remote.go('OK', 'player/actions/0');
+          expect(await text(page, 'player-name')).toBe('Lablo Sports Test HD');
+          await remote.go('BACK', 'home/channels/0');
+          await remote.go('BACK', 'live/header/3');
+          // The list on show is still the list.
+          await expect(live).toHaveAttribute('data-category', '1');
+          await remote.go('DOWN', 'live/rail/0');
+        });
       }
 
       await test.step('the hidden group’s way back: Show, and the rail has it again', async () => {

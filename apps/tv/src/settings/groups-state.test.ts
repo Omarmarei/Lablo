@@ -576,16 +576,22 @@ describe('the "Channel groups" screen (RELAY step 35d)', () => {
     const engine = new FakeEngine();
     const keys: string[] = [];
     for (let i = 0; i < 250; i += 1) keys.push(`k${i}`);
+    // A channel the catalog has in each batch.
+    keys[0] = 'a';
+    keys[120] = 'b';
+    keys[230] = 'c';
     engine.doc = profileDoc({ favouriteLists: [{ id: 'l1', name: null, keys }] });
     const t = await opened(engine);
     await t.press('OK', 'OK');
     expect(t.engine.keyCalls.map((c) => [c.keys.length, c.limit, c.keys[0]])).toEqual([
-      [100, 100, 'k0'],
+      [100, 100, 'a'],
       [100, 100, 'k100'],
       [50, 50, 'k200'],
     ]);
-    expect(t.groups.channels.value).toHaveLength(250);
-    expect(t.groups.channels.value![249]).toEqual({ key: 'k249', item: null, name: '' });
+    const shown = t.groups.channels.value!;
+    expect(shown).toHaveLength(250);
+    expect([shown[0]!.item, shown[120]!.item, shown[230]!.item]).toEqual([ITEMS.a, ITEMS.b, ITEMS.c]);
+    expect(shown[249]).toEqual({ key: 'k249', item: null, name: '' });
   });
 
   it('moves a list’s channel: one edit with its new place, the focus on it', async () => {
@@ -759,6 +765,71 @@ describe('the "Channel groups" screen (RELAY step 35d)', () => {
     await t.press('OK', 'OK');
     expect(warn).toHaveBeenCalledWith("A list's channels could not be read", expect.any(Error));
     expect(t.groups.channels.value).toBeNull();
+  });
+
+  it('follows a row whose move failed back to its stored place; a channel whose remove failed keeps the focus', async () => {
+    const engine = new FakeEngine();
+    const t = await opened(engine);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    engine.failEdit = true;
+    // "News" (row 2) a place down: the edit fails, and the rows read again put it back, the focus on it.
+    await t.press('DOWN', 'DOWN', 'OK', 'OK', 'DOWN');
+    expect(t.at()).toBe('groups · rows 3');
+    await t.press('OK');
+    expect(t.names()).toEqual(['l:l1', 'l:l2', 'g:News', 'g:Sports', 'g:', 'g:Kids']);
+    expect(t.at()).toBe('groups · rows 2');
+    // The first list a place down: the same.
+    await t.press('UP', 'UP', 'OK', 'DOWN', 'OK', 'DOWN', 'OK');
+    expect(t.names().slice(0, 2)).toEqual(['l:l1', 'l:l2']);
+    expect(t.at()).toBe('groups · rows 0');
+    // Its first channel a place down: the same.
+    await t.press('OK', 'OK');
+    await t.press('OK', 'OK', 'DOWN', 'OK');
+    expect(t.keys()).toEqual(['a', 'd', 'b']);
+    expect(t.at()).toBe(`${GROUP_CHANNELS} · channels 0`);
+    // Its second channel removed: the edit fails, the channel stays, focused.
+    await t.press('DOWN', 'OK', 'DOWN', 'OK');
+    expect(t.keys()).toEqual(['a', 'd', 'b']);
+    expect(t.at()).toBe(`${GROUP_CHANNELS} · channels 1`);
+    expect(engine.edits.map((e) => (e as { change: { op: string } }).change.op)).toEqual(['order', 'moveList', 'move', 'remove']);
+    expect(warn).toHaveBeenCalledTimes(4);
+    expect(t.changed).not.toHaveBeenCalled();
+  });
+
+  it('drops a list’s channels that land after Back, and reads them no more', async () => {
+    const engine = new FakeEngine();
+    const t = await opened(engine);
+    engine.hold.add('keys');
+    await t.press('OK', 'OK', 'BACK');
+    expect(t.at()).toBe('groups · rows 0');
+    engine.hold.delete('keys');
+    engine.release('keys');
+    await flush();
+    expect(t.groups.list.value).toBeNull();
+    expect(t.groups.channels.value).toBeNull();
+    // The next edit's read reads the rows only.
+    await t.press('DOWN', 'DOWN', 'OK', 'DOWN', 'OK');
+    expect(engine.edits).toHaveLength(1);
+    expect(engine.keyCalls).toHaveLength(1);
+  });
+
+  it('waits with OK on a list’s channels while an edit is saved', async () => {
+    const engine = new FakeEngine();
+    const t = await opened(engine);
+    await t.press('OK', 'OK');
+    engine.hold.add('edit');
+    // "d" (row 1) removed: the edit is held, and the rows before it still show.
+    await t.press('DOWN', 'OK', 'DOWN', 'OK');
+    expect(t.groups.pending.value).toBe(1);
+    expect(t.keys()).toEqual(['a', 'd', 'b']);
+    await t.press('OK');
+    expect(t.at()).toBe(`${GROUP_CHANNELS} · channels 1`);
+    expect(t.groups.menu.value).toBeNull();
+    engine.release('edit');
+    await flush();
+    expect(t.keys()).toEqual(['a', 'b']);
+    await t.press('OK');
+    expect(t.at()).toBe(`${CHANNEL_MENU} · actions 0`);
   });
 
   it('shows a list no longer stored with no channel', async () => {
