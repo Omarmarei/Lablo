@@ -370,6 +370,12 @@ export interface Player {
    * step 20c1), plays it at once, and moves to its row when the list finds it from row `guess`.
    */
   resume(row: LiveRow, guess: number): void;
+  /**
+   * Opens the player on `row`, a channel the list on show doesn't hold (step 35d: its group is
+   * hidden), pinned at row `guess` as `resume` pins one: zapping goes on through the list from
+   * there. Unlike the start's, it is the last channel from now on (`tuned`).
+   */
+  over(row: LiveRow, guess: number): void;
   /** Opens the player on a movie (step 26c) and plays it; Back closes it onto the details. */
   playMovie(film: MoviePlay): void;
   /** Row `index` as the player shows it: the resumed channel until the list has found it. */
@@ -469,7 +475,8 @@ export function createPlayer(options: PlayerOptions): Player {
    * The resumed channel, shown at row `index` until the list finds it (step 20c1); dropped when
    * another row plays.
    */
-  let pinned: { readonly index: number; readonly row: LiveRow } | null = null;
+  /** A channel at its row before the list has it (`resume`), or one the list doesn't hold (`over`, which `tune`s it). */
+  let pinned: { readonly index: number; readonly row: LiveRow; readonly tune?: boolean } | null = null;
   /** The resumed channel's first frame is still to be marked. */
   let resumeFrame = false;
   /** Bumps on every play, close and entry: late row reads and searches are dropped. */
@@ -651,6 +658,8 @@ export function createPlayer(options: PlayerOptions): Player {
       const request = programme === null || options.catchupRequest === undefined ? null : options.catchupRequest(row, programme, from);
       if (playing.value !== -1 && playing.value !== index) previous.value = playing.value;
       const resumed = pinned !== null && pinned.row === row;
+      // A channel pinned by `over` is the last channel all the same (step 35d).
+      const tune = !resumed || pinned!.tune === true;
       // Another row: the resumed channel is the list's own from now on.
       if (!resumed) pinned = null;
       resumeFrame = false;
@@ -674,7 +683,7 @@ export function createPlayer(options: PlayerOptions): Player {
       menu.showDelay(c.subtitleDelay);
       // The resumed channel was the last channel already: the list's row says where it is now.
       // A catch-up play isn't the last channel: the start plays live.
-      if (!resumed && request === null && options.tuned !== undefined) options.tuned(row, index);
+      if (tune && request === null && options.tuned !== undefined) options.tuned(row, index);
     };
     const row = rowAt(index);
     if (row !== null) start(row);
@@ -1312,6 +1321,11 @@ export function createPlayer(options: PlayerOptions): Player {
         (found) => located(found, mine),
         () => undefined,
       );
+    },
+    over(row: LiveRow, guess: number): void {
+      if (!openScreen()) return;
+      pinned = { index: guess, row, tune: true };
+      go(guess);
     },
     playMovie(next: MoviePlay): void {
       if (openScreen(MOVIE_ACTIONS)) startFilm(next);

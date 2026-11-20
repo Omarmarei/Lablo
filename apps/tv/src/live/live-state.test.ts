@@ -1,11 +1,12 @@
 import type { CatalogItem, ContentKey, ContentKind, EpgProgramme } from '@lablo/core';
 import type { CategoryInfo, EpgNowNext, LoadedProfile, ShortEpgNowNext, SourceRecord } from '@lablo/data';
 import type { KeyItemsRequest } from '@lablo/data/client';
+import { groupId } from '@lablo/data/client';
 import type { Intent, RootBackPolicy } from '@lablo/platform-api';
 import { LAYOUT, SCREEN, listHeight } from '@lablo/ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FocusedChannel } from '../data/engine';
-import type { LiveEngine, RailRef, Timers } from './live-state';
+import type { LiveEngine, LiveRow, RailRef, Timers } from './live-state';
 import {
   CHANNELS_VISIBLE,
   CHUNK_CACHE,
@@ -23,6 +24,7 @@ import {
   createLive,
   KEY_BATCH,
   findEntry,
+  hiddenParts,
   railEntries,
 } from './live-state';
 
@@ -256,6 +258,7 @@ async function setup(
     engine?: FakeEngine;
     settle?: boolean;
     play?: (index: number) => void;
+    playOver?: (row: LiveRow, guess: number) => void;
     startCategory?: RailRef;
     listChanging?: () => void;
     openSettings?: () => void;
@@ -275,6 +278,7 @@ async function setup(
     now: clock.now,
     timers: clock.timers,
     ...(options.play === undefined ? {} : { play: options.play }),
+    ...(options.playOver === undefined ? {} : { playOver: options.playOver }),
     ...(options.startCategory === undefined ? {} : { startCategory: options.startCategory }),
     ...(options.listChanging === undefined ? {} : { listChanging: options.listChanging }),
     ...(options.openSettings === undefined ? {} : { openSettings: options.openSettings }),
@@ -2237,12 +2241,119 @@ describe('favourites lists and groups (RELAY step 35c)', () => {
     expect(play).toHaveBeenLastCalledWith(1204);
   });
 
-  it("plays a channel the search found from its group with lists in the rail, and nothing in a hidden group (step 35d's)", async () => {
+  it('plays a channel the search found from its group with lists in the rail', async () => {
     const play = vi.fn();
     const t = await setup({ engine: listsEngine({ favouriteLists: [MINE], hiddenGroups: [{ src: 's1', name: 'News' }] }), play });
     expect(await t.live.playFound({ key: 'x:s1:live:2-700', src: 's1', catIdx: 2, chunk: 1, slot: 200 })).toBe(true);
     expect(t.live.category.value).toBe(2);
     expect(play).toHaveBeenLastCalledWith(700);
-    expect(await t.live.playFound({ key: 'x:s1:live:0-2', src: 's1', catIdx: 0, chunk: 0, slot: 2 })).toBe(false);
+  });
+});
+
+describe('a channel of a hidden group (RELAY step 35d)', () => {
+  const MINE = { id: 'l1', name: 'Mine', keys: ['x:s1:live:2-5', 'x:s1:live:0-2'] };
+  const hiddenEngine = (hidden: { src: string; name: string }[]): FakeEngine => {
+    const engine = new FakeEngine();
+    engine.profileDoc = { doc: { v: 2, sources: [S1, S2], favouriteLists: [MINE], hiddenGroups: hidden }, newer: false, migratedFrom: null };
+    return engine;
+  };
+  /** A channel of s1's category `catIdx` as the search or Home gives it: in its group by name. */
+  const of = (catIdx: number, n: number, group: string, chno: number | null = null): CatalogItem => ({ ...item('s1', catIdx, n, chno), group });
+
+  it('finds the hidden groups’ categories with their places in the provider’s whole list', () => {
+    const sources = [
+      { src: 's1', categories: CATEGORIES.s1! },
+      { src: 's2', categories: CATEGORIES.s2! },
+    ];
+    const parts = hiddenParts(sources, [
+      { src: 's1', name: 'Sports' },
+      { src: 's2', name: 'Kids' },
+      { src: 's1', name: 'Gone' },
+    ]);
+    expect([...parts.values()]).toEqual([
+      { src: 's1', catIdx: 2, chunks: [500, 500, 200], first: 3 },
+      { src: 's2', catIdx: 0, chunks: [2], first: 1203 },
+    ]);
+    expect(parts.has(groupId({ src: 's1', name: 'Sports' }))).toBe(true);
+    expect(parts.has(groupId({ src: 's2', name: 'Kids' }))).toBe(true);
+    expect(hiddenParts(sources, []).size).toBe(0);
+    // A repeated name keeps its first category; one without channels is never a part.
+    const twice = hiddenParts([{ src: 's1', categories: [info(0, 'A', []), info(1, 'A', [4]), info(2, 'A', [5])] }], [{ src: 's1', name: 'A' }]);
+    expect([...twice.values()]).toEqual([{ src: 's1', catIdx: 1, chunks: [4], first: 0 }]);
+  });
+
+  it('plays a search hit there over the list on show, at its focused row, numbered by its place in the whole list', async () => {
+    const play = vi.fn();
+    const playOver = vi.fn();
+    const t = await setup({ engine: hiddenEngine([{ src: 's1', name: 'Sports' }]), play, playOver });
+    await t.press('RIGHT', 'DOWN', 'DOWN');
+    expect(t.at()).toBe('live · channels 2');
+    const found = of(2, 700, 'Sports');
+    expect(await t.live.playFound({ key: found.key, src: 's1', catIdx: 2, chunk: 1, slot: 200, item: found })).toBe(true);
+    expect(playOver).toHaveBeenCalledWith({ item: found, number: 704 }, 2);
+    expect(play).not.toHaveBeenCalled();
+    // The list on show stays as it was.
+    expect(t.live.category.value).toBe(0);
+    expect(t.at()).toBe('live · channels 2');
+    // Its own number when the provider gives one; a chunk the category doesn't have counts from its top.
+    const numbered = of(2, 3, 'Sports', 42);
+    expect(await t.live.playFound({ key: numbered.key, src: 's1', catIdx: 2, chunk: 0, slot: 3, item: numbered })).toBe(true);
+    expect(playOver).toHaveBeenLastCalledWith({ item: numbered, number: 42 }, 2);
+    expect(await t.live.playFound({ key: found.key, src: 's1', catIdx: 2, chunk: 9, slot: 4, item: found })).toBe(true);
+    expect(playOver).toHaveBeenLastCalledWith({ item: found, number: 8 }, 2);
+  });
+
+  it('plays nothing for a hit whose category is gone or not hidden, or without its item', async () => {
+    const playOver = vi.fn();
+    const t = await setup({ engine: hiddenEngine([{ src: 's1', name: 'Sports' }]), playOver });
+    // Without the item, or with a group that isn't hidden (the category gone).
+    expect(await t.live.playFound({ key: 'x:s1:live:2-1', src: 's1', catIdx: 2, chunk: 0, slot: 1 })).toBe(false);
+    expect(await t.live.playFound({ key: 'x:s1:live:7-1', src: 's1', catIdx: 7, chunk: 0, slot: 1, item: of(7, 1, 'Weather') })).toBe(false);
+    // Another source's group of that name isn't hidden.
+    expect(await t.live.playFound({ key: 'x:s2:live:5-1', src: 's2', catIdx: 5, chunk: 0, slot: 1, item: { ...of(5, 1, 'Sports'), src: 's2' } })).toBe(false);
+    expect(playOver).not.toHaveBeenCalled();
+    // Without the app's `playOver`: nothing either.
+    const bare = await setup({ engine: hiddenEngine([{ src: 's1', name: 'Sports' }]) });
+    expect(await bare.live.playFound({ key: 'x:s1:live:2-1', src: 's1', catIdx: 2, chunk: 0, slot: 1, item: of(2, 1, 'Sports') })).toBe(false);
+  });
+
+  it('plays a recent channel there over the list with its kept number, unless a list holds it', async () => {
+    const play = vi.fn();
+    const playOver = vi.fn();
+    const t = await setup({ engine: hiddenEngine([{ src: 's1', name: 'News' }]), play, playOver });
+    const news = of(0, 2, 'News', 9);
+    const kept = { item: news, number: 9 };
+    expect(await t.live.playKept({ src: 's1', name: 'News' }, news.key, 2, kept)).toBe(true);
+    expect(playOver).toHaveBeenCalledWith(kept, 0);
+    expect(play).not.toHaveBeenCalled();
+    expect(t.live.category.value).toBe(0);
+    // Kept from "All channels": the same.
+    const unnumbered = of(0, 2, 'News');
+    expect(await t.live.playKept(null, unnumbered.key, 2, { item: unnumbered, number: 31 })).toBe(true);
+    expect(playOver).toHaveBeenLastCalledWith({ item: unnumbered, number: 31 }, 0);
+    // From a list that holds it: in the list.
+    expect(await t.live.playKept({ list: 'l1' }, 'x:s1:live:0-2', 0, { item: unnumbered, number: 2 })).toBe(true);
+    expect(t.live.category.value).toBe(1);
+    expect(play).toHaveBeenLastCalledWith(1);
+    expect(playOver).toHaveBeenCalledTimes(2);
+    // A group that isn't hidden: as before (its channel found in its group).
+    const kids = { ...item('s2', 0, 1), group: 'Kids' };
+    expect(await t.live.playKept({ src: 's2', name: 'Kids' }, kids.key, 1, { item: kids, number: 4 })).toBe(true);
+    expect(playOver).toHaveBeenCalledTimes(2);
+    expect(play).toHaveBeenCalledTimes(2);
+  });
+
+  it('follows the hidden groups as the profile is read again', async () => {
+    const playOver = vi.fn();
+    const engine = hiddenEngine([]);
+    const t = await setup({ engine, playOver });
+    const news = of(0, 2, 'News', 9);
+    // Not hidden: it plays from its group.
+    expect(await t.live.playKept({ src: 's1', name: 'News' }, news.key, 2, { item: news, number: 9 })).toBe(true);
+    expect(playOver).not.toHaveBeenCalled();
+    engine.profileDoc = { doc: { v: 2, sources: [S1, S2], hiddenGroups: [{ src: 's1', name: 'News' }] }, newer: false, migratedFrom: null };
+    await t.live.listsChanged();
+    expect(await t.live.playKept({ src: 's1', name: 'News' }, news.key, 2, { item: news, number: 9 })).toBe(true);
+    expect(playOver).toHaveBeenCalledTimes(1);
   });
 });

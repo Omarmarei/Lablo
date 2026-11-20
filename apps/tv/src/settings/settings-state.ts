@@ -5,6 +5,8 @@ import type { Pairing } from '../pairing/pair-state';
 import { PAIR_SCREEN } from '../pairing/pair-state';
 import type { BackupPage, BackupPageEngine, BackupPageHost } from './backup-state';
 import { BACKUP_CONFIRM, BACKUP_SCREEN, createBackupPage } from './backup-state';
+import type { Groups, GroupsEngine } from './groups-state';
+import { GROUP_SCREENS, createGroups } from './groups-state';
 import type { Guides, GuidesEngine, GuidesOptions } from './guides-state';
 import { createGuides } from './guides-state';
 import type { Mapping, MappingEngine } from './mapping-state';
@@ -28,14 +30,15 @@ import { createUnmatchedList } from './unmatched-state';
  * the backup code, a held backup's restore or replace, step 32d2b) and "Usage and crash reports"
  * (on or off, switched in place by OK, step 33b3: `telemetry-switch.ts`) and "Send a report to
  * support" (OK sends the diagnostics report, then the row shows its support code, step 33d2:
- * `diag-report.ts`); step 38 adds the track
+ * `diag-report.ts`) and "Channel groups" (the favourites lists and the live groups: move, hide, rename,
+ * delete, a list's channels, step 35d: `groups-state.ts`); step 38 adds the track
  * languages, the subtitle style and the picture mode. Back closes it.
  */
 
-export type SettingsItem = 'guides' | 'sources' | 'backup' | 'telemetry' | 'report';
+export type SettingsItem = 'guides' | 'sources' | 'backup' | 'telemetry' | 'report' | 'groups';
 
 /** The settings screen's rows, in screen order (each new one last, so the earlier paths stay). */
-export const SETTINGS_ITEMS: readonly SettingsItem[] = ['guides', 'sources', 'backup', 'telemetry', 'report'];
+export const SETTINGS_ITEMS: readonly SettingsItem[] = ['guides', 'sources', 'backup', 'telemetry', 'report', 'groups'];
 
 /** The screens the settings put on the live navigator (the live screen paints them instead of its own). */
 export const SETTINGS_SCREENS: readonly string[] = [
@@ -52,11 +55,11 @@ export const SETTINGS_SCREENS: readonly string[] = [
   LOGIN_SCREEN,
   BACKUP_SCREEN,
   BACKUP_CONFIRM,
-];
+].concat(GROUP_SCREENS);
 
 export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | 'engine'> {
   readonly nav: Navigator;
-  readonly engine: GuidesEngine & UnmatchedEngine & MappingEngine & SourcesEngine;
+  readonly engine: GuidesEngine & UnmatchedEngine & MappingEngine & SourcesEngine & GroupsEngine;
   /** Makes the pairing screen on the live navigator (step 31c2a); without it Sources has no "Add" button. */
   readonly pairing?: (nav: Navigator, added: (draft: SourceDraft, result: LoadResult) => void) => Pairing;
   /** A source was added from the phone: the live screens read the catalogs and guides again. */
@@ -69,6 +72,8 @@ export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | '
   readonly telemetry?: TelemetrySwitchOptions;
   /** The diagnostics report's send (step 33d2); without it there is no "Send a report to support" row. */
   readonly report?: ReportOptions;
+  /** "Channel groups" changed the lists or the groups (step 35d): the live screen reads them again. */
+  readonly listsChanged?: () => void;
 }
 
 export interface Settings {
@@ -87,6 +92,8 @@ export interface Settings {
   readonly telemetry: TelemetrySwitch | null;
   /** The diagnostics report's row (step 33d2), when the app has one. */
   readonly report: ReportRow | null;
+  /** "Channel groups" (step 35d). */
+  readonly groups: Groups;
   /** The settings screen's rows: `SETTINGS_ITEMS`, "Backup" only with its page, "Usage and crash reports" only with its switch, "Send a report to support" only with its send. */
   readonly items: readonly SettingsItem[];
   /** Opens the settings screen. */
@@ -128,6 +135,7 @@ export function createSettings(options: SettingsOptions): Settings {
   const backup = options.backup === undefined ? null : createBackupPage({ nav, engine: options.backup.engine, host: options.backup.host });
   const telemetry = options.telemetry === undefined ? null : createTelemetrySwitch(options.telemetry);
   const report = options.report === undefined ? null : createReportRow(options.report);
+  const groups = createGroups({ nav, engine: options.engine, changed: options.listsChanged, platform: options.platform, find: options.find, now: options.now });
   const items = SETTINGS_ITEMS.filter((item) => (item !== 'backup' || backup !== null) && (item !== 'telemetry' || telemetry !== null) && (item !== 'report' || report !== null));
   const open = (): void => {
     nav.push({
@@ -140,6 +148,7 @@ export function createSettings(options: SettingsOptions): Settings {
         else if (item === 'backup') backup?.open();
         else if (item === 'telemetry') telemetry?.press();
         else if (item === 'report') report?.press();
+        else if (item === 'groups') groups.open();
       },
     });
     // The usage reports' row shows the stored switch, read again at each opening.
@@ -156,6 +165,7 @@ export function createSettings(options: SettingsOptions): Settings {
     backup,
     telemetry,
     report,
+    groups,
     items,
     open,
     openSources(): void {
@@ -178,6 +188,7 @@ export function createSettings(options: SettingsOptions): Settings {
       backup?.dispose();
       telemetry?.dispose();
       report?.dispose();
+      groups.dispose();
     },
   };
 }

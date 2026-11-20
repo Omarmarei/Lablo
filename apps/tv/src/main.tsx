@@ -393,6 +393,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     platform,
     engine: dataEngine(),
     play: (index) => player?.show(index),
+    // A search hit or a recent channel in a hidden group (step 35d): it plays over the list on show.
+    playOver: (row, guess) => player?.over(row, guess),
     startCategory: resume === null ? null : railRefOf(resume),
     listChanging: () => {
       player?.listChanging();
@@ -450,7 +452,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     engine: dataEngine(),
     platform,
     select: (item, hit) => {
-      if (item.kind === 'live') void live.playFound({ key: item.key, src: hit.src, catIdx: hit.catIdx, chunk: hit.chunk, slot: hit.slot });
+      if (item.kind === 'live') void live.playFound({ key: item.key, src: hit.src, catIdx: hit.catIdx, chunk: hit.chunk, slot: hit.slot, item });
       else if (item.kind === 'movie') details.open(item);
       else selectSeries(item, { episode: (episode) => details.open(episode), show: (found) => show.open(found) });
     },
@@ -467,7 +469,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     },
     progress,
     channels: memory,
-    play: (channel) => void live.playKept(railRefOf(channel), channel.item.key, channel.index),
+    play: (channel) => void live.playKept(railRefOf(channel), channel.item.key, channel.index, { item: channel.item, number: channel.number }),
   });
   // The header's "Guide" (step 23c): the grid over the list's category; OK on air plays, Back returns to the list.
   const guide = createGuide({
@@ -561,6 +563,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     telemetry: { engine: dataEngine(), setOn: (on) => telemetry.setOn(on) },
     // "Send a report to support" (step 33d2): main's parts and the session's last events; the worker adds the rest.
     report: { send: sendReport },
+    // "Channel groups" (step 35d): after each edit the live screen reads the lists and groups again.
+    listsChanged: () => void live.listsChanged(),
     // A login given again (step 32d4b): the source's own refresh with the schedule held (the
     // schedule keeps a refused `needs-login` for 2 h, and `refreshNow` reads only the guides), then
     // its guides at once and the screens.
