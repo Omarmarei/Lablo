@@ -1,9 +1,11 @@
 /*
- * Hello screen styles, on the design tokens (packages/ui/src/styles/tokens.css). Chromium 53
- * rules (CLAUDE.md): flexbox with margins, no CSS Grid, no flex gap, no sticky, no logical
- * properties. Write the left-to-right layout with physical properties: postcss-rtlcss makes
- * the right-to-left rules (tv-css.config.ts), and the app sets dir on <html> from the locale.
- * The TV canvas is 1920x1080 CSS px; content stays inside the 5% title-safe margin.
+ * The hello screen's and the focus demo's styles (RELAY step 35b: only the dev app and the TV
+ * build's test copy have these screens, so the store build's app.css has none of it), on the
+ * design tokens (packages/ui/src/styles/tokens.css). Chromium 53 rules (CLAUDE.md): flexbox
+ * with margins, no CSS Grid, no flex gap, no sticky, no logical properties. Write the
+ * left-to-right layout with physical properties: postcss-rtlcss makes the right-to-left rules
+ * (tv-css.config.ts), and the app sets dir on <html> from the locale. The TV canvas is
+ * 1920x1080 CSS px; content stays inside the 5% title-safe margin.
  */
 .hello {
   min-height: var(--screen-height);

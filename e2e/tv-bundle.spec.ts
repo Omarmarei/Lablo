@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
@@ -11,8 +11,13 @@ import { ARABIC_FACE, LATIN_FACE, TITLE_FONTS, renderedFonts, renderedFontsUnder
  * in desktop Chromium: classic-script IIFE, core-js polyfills, the Blob-URL workers and the
  * platform adapter's feature checks when the TV APIs are absent. The data workers refresh the
  * in-process mock's playlist and search it (the old engines run the same in tools/engines).
+ *
+ * The hello screen and the component gallery are the builds' test copy's (dist/tv-dev, RELAY step
+ * 35b): the store builds (dist/tv) have no developer screens, and start as a TV does whatever
+ * `?screen=` says.
  */
 const DIST = path.resolve(import.meta.dirname, '../dist/tv');
+const DEV_DIST = path.resolve(import.meta.dirname, '../dist/tv-dev');
 
 let app: MockServer;
 let base: string;
@@ -27,7 +32,7 @@ test.afterAll(async () => {
 
 for (const platform of ['tizen', 'webos'] as const) {
   test(`the ${platform} bundle boots from file://, answers remote keys and runs the data workers`, async ({ page }) => {
-    const index = path.join(DIST, platform, 'index.html');
+    const index = path.join(DEV_DIST, platform, 'index.html');
     expect(existsSync(index), `${index} is missing: run pnpm build:tv before pnpm e2e`).toBe(true);
 
     const errors: string[] = [];
@@ -80,7 +85,7 @@ for (const platform of ['tizen', 'webos'] as const) {
 
 for (const platform of ['tizen', 'webos'] as const) {
   test(`the ${platform} bundle shows the component gallery from file:// (?screen=gallery)`, async ({ page }) => {
-    const index = path.join(DIST, platform, 'index.html');
+    const index = path.join(DEV_DIST, platform, 'index.html');
     expect(existsSync(index), `${index} is missing: run pnpm build:tv before pnpm e2e`).toBe(true);
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
@@ -108,7 +113,7 @@ for (const platform of ['tizen', 'webos'] as const) {
   });
 
   test(`the ${platform} bundle switches the gallery to Arabic and back by remote keys`, async ({ page }) => {
-    const index = path.join(DIST, platform, 'index.html');
+    const index = path.join(DEV_DIST, platform, 'index.html');
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
     page.on('console', (message) => {
@@ -140,6 +145,26 @@ for (const platform of ['tizen', 'webos'] as const) {
 }
 
 for (const platform of ['tizen', 'webos'] as const) {
+  test(`the store ${platform} bundle has no developer screens: ?screen= starts it as a TV does (step 35b)`, async ({ page }) => {
+    const index = path.join(DIST, platform, 'index.html');
+    expect(existsSync(index), `${index} is missing: run pnpm build:tv before pnpm e2e`).toBe(true);
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
+    for (const screen of ['hello', 'gallery', 'gallery-guide']) {
+      await page.goto(`${pathToFileURL(index).href}?screen=${screen}`);
+      await expect(page.getByTestId('onboarding')).toHaveAttribute('data-ready', 'true');
+      await expect(page.getByTestId('onboarding')).toHaveAttribute('data-screen', 'language');
+      await expect(page.getByTestId('hello')).toHaveCount(0);
+      await expect(page.getByTestId('gallery')).toHaveCount(0);
+    }
+    // Their styles are the test copy's only: the gallery's (gallery.css) and the hello screen's (dev-screens.css).
+    for (const rule of ['.gallery {', '.hello {', '.focus__grid {']) {
+      expect(readFileSync(path.join(DIST, platform, 'app.css'), 'utf8')).not.toContain(rule);
+      expect(readFileSync(path.join(DEV_DIST, platform, 'app.css'), 'utf8')).toContain(rule);
+    }
+    expect(errors).toEqual([]);
+  });
+
   test(`the ${platform} bundle starts on onboarding from file:// and types into a field by remote keys`, async ({ page }) => {
     const index = path.join(DIST, platform, 'index.html');
     expect(existsSync(index), `${index} is missing: run pnpm build:tv before pnpm e2e`).toBe(true);

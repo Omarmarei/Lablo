@@ -1,6 +1,8 @@
 /**
  * `pnpm verify:engines`: runs the built TV apps (dist/tv, from `pnpm build:tv`) in real old
- * Chromium engines: 53 (LG webOS 4, 2018), 56 (Samsung Tizen 4, 2018) and 68 (2020 sets).
+ * Chromium engines: 53 (LG webOS 4, 2018), 56 (Samsung Tizen 4, 2018) and 68 (2020 sets). The
+ * hello screen and the component gallery run on the builds' test copy (dist/tv-dev, RELAY step
+ * 35b), the only one with the developer screens; the rest on the store builds.
  * See docs/runbooks/old-engines.md.
  *
  * Per engine: the pinned snapshot is downloaded once into .cache/engines (SHA-256 checked),
@@ -44,6 +46,7 @@
  * Options:
  *   --engine chrome53|chrome56|chrome68   repeatable; default all
  *   --dist <dir>                          the builds to test (default dist/tv)
+ *   --dist-dev <dir>                      their test copy with the developer screens (default dist/tv-dev)
  *   --dist-lab <dir>                      the lab builds (default dist/tv-lab)
  *   --dist-vectors <dir>                  the crypto vectors page (default dist/tv-vectors)
  *   --self-test                           also run seeded broken bundles that must fail
@@ -85,7 +88,7 @@ import { PAIR_ORIGIN, PAIR_PORT, evaluatePairing, pairingSummary, pairingUrl, ru
 import type { PlatformRun, TvPlatform } from './src/scenario';
 import { TV_PLATFORMS, evaluateRun, readProbe, runPlatform } from './src/scenario';
 import type { AppScreen, Variant } from './src/variants';
-import { APP_VARIANT, BACKUP_SEEDS, CSS_SEEDS, PAIR_SEEDS, SEEDS, WALK_SEEDS, mustPass, screenPlatforms, stageApp, stageCssSeed, stageNoPolyfills, stageSeed } from './src/variants';
+import { APP_VARIANT, BACKUP_SEEDS, CSS_SEEDS, DEV_VARIANT, PAIR_SEEDS, SEEDS, WALK_SEEDS, mustPass, screenPlatforms, stageApp, stageCssSeed, stageDev, stageNoPolyfills, stageSeed, variantDist } from './src/variants';
 import { VECTORS_DIR, VECTORS_SEED, evaluateVectors, runVectors, stageVectors, stageVectorsSeed, vectorsSummary, vectorsUrl } from './src/vectors';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
@@ -246,8 +249,8 @@ async function runHello(client: CdpClient, engine: Engine, variant: Variant, pla
 }
 
 async function runGalleryScreen(client: CdpClient, engine: Engine, variant: Variant, platform: TvPlatform): Promise<Outcome> {
-  // Only the real app's screens are kept; a seed's would only show what its failure says.
-  const shot = variant.id === APP_VARIANT.id ? path.join(OUT, `gallery-${engine.id}-${platform}.png`) : null;
+  // Only the test copy's own screens are kept; a seed's would only show what its failure says.
+  const shot = variant.id === DEV_VARIANT.id ? path.join(OUT, `gallery-${engine.id}-${platform}.png`) : null;
   const run = await runGallery(client, platform, galleryUrl(variant.id, platform), {
     bootTimeoutMs: BOOT_TIMEOUT_MS,
     keyTimeoutMs: KEY_TIMEOUT_MS,
@@ -617,6 +620,7 @@ async function main(): Promise<void> {
     options: {
       engine: { type: 'string', multiple: true },
       dist: { type: 'string', default: 'dist/tv' },
+      'dist-dev': { type: 'string', default: 'dist/tv-dev' },
       'dist-lab': { type: 'string', default: 'dist/tv-lab' },
       'dist-vectors': { type: 'string', default: 'dist/tv-vectors' },
       'self-test': { type: 'boolean', default: false },
@@ -630,6 +634,7 @@ async function main(): Promise<void> {
   const engines = selectEngines(values.engine ?? []);
   const selfTest = values['self-test'];
   const distTv = path.resolve(ROOT, values.dist);
+  const distDev = path.resolve(ROOT, values['dist-dev']);
   const distLab = path.resolve(ROOT, values['dist-lab']);
   const distVectors = path.resolve(ROOT, values['dist-vectors']);
   const cacheDir = path.resolve(ROOT, process.env.LABLO_ENGINE_CACHE ?? '.cache/engines');
@@ -641,7 +646,7 @@ async function main(): Promise<void> {
   mkdirSync(VARIANTS_DIR, { recursive: true });
   // A screenshot that a run didn't write again must not pass for a fresh one.
   for (const file of readdirSync(OUT)) if (/^(gallery|onboarding|pairing|backup|code)-.*\.png$/.test(file)) rmSync(path.join(OUT, file));
-  const variants: Variant[] = [stageApp(distTv, VARIANTS_DIR)];
+  const variants: Variant[] = [stageApp(distTv, VARIANTS_DIR), stageDev(distDev, VARIANTS_DIR)];
   const labDir = stageLab(distLab, VARIANTS_DIR);
   if (labDir === null) throw new Error(`${path.relative(ROOT, distLab)} has no lab builds: run pnpm build:tv first`);
   const labTargets: LabTarget[] = [{ variant: 'lab', dir: LAB_DIR, mustPass: true }];
@@ -672,11 +677,12 @@ async function main(): Promise<void> {
   // The onboarding walk deletes the app's database from a page of the same file:// origin.
   stageBlankPage(VARIANTS_DIR);
   if (selfTest) {
-    variants.push(...SEEDS.map((seed) => stageSeed(distTv, VARIANTS_DIR, seed)));
-    variants.push(...CSS_SEEDS.map((seed) => stageCssSeed(distTv, VARIANTS_DIR, seed)));
-    variants.push(...WALK_SEEDS.map((seed) => stageSeed(distTv, VARIANTS_DIR, seed)));
-    variants.push(...PAIR_SEEDS.map((seed) => stageSeed(distTv, VARIANTS_DIR, seed)));
-    variants.push(...BACKUP_SEEDS.map((seed) => stageSeed(distTv, VARIANTS_DIR, seed)));
+    // Each seed on the build its screens are on (step 35b): the developer screens' on the test copy.
+    variants.push(...SEEDS.map((seed) => stageSeed(variantDist(seed, distTv, distDev), VARIANTS_DIR, seed)));
+    variants.push(...CSS_SEEDS.map((seed) => stageCssSeed(variantDist(seed, distTv, distDev), VARIANTS_DIR, seed)));
+    variants.push(...WALK_SEEDS.map((seed) => stageSeed(variantDist(seed, distTv, distDev), VARIANTS_DIR, seed)));
+    variants.push(...PAIR_SEEDS.map((seed) => stageSeed(variantDist(seed, distTv, distDev), VARIANTS_DIR, seed)));
+    variants.push(...BACKUP_SEEDS.map((seed) => stageSeed(variantDist(seed, distTv, distDev), VARIANTS_DIR, seed)));
     stageLabSeed(labDir, VARIANTS_DIR);
     labTargets.push({ variant: LAB_SEED.id, dir: LAB_SEED.id, mustPass: false });
     stageVectorsSeed(vectorsDir, VARIANTS_DIR);

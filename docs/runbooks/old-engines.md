@@ -1,15 +1,16 @@
 # Runbook: the old-engine harness (`pnpm verify:engines`)
 
-The TV build targets Chromium 53 (LG webOS 4, 2018) and 56 (Samsung Tizen 4, 2018). Playwright can't attach to engines that old, and test TVs are scarce. So `tools/engines` runs the **built** TV apps (`dist/tv`) in real Chromium snapshots of those versions (ADR-003, RELAY step 2b).
+The TV build targets Chromium 53 (LG webOS 4, 2018) and 56 (Samsung Tizen 4, 2018). Playwright can't attach to engines that old, and test TVs are scarce. So `tools/engines` runs the **built** TV apps (`dist/tv`) in real Chromium snapshots of those versions (ADR-003, RELAY step 2b). Since step 35b the hello screen and the component gallery run on the builds' test copy (`dist/tv-dev`), the only build with the developer screens; everything a TV opens runs on the store build.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `pnpm build:tv` | Needed first: the harness tests `dist/tv/{tizen,webos}`, the Lablo Lab in `dist/tv-lab/{tizen,webos}` and the vectors page in `dist/tv-vectors` (the crypto vectors, step 29b1, and the protocol samples, step 29b2a). |
+| `pnpm build:tv` | Needed first: the harness tests `dist/tv/{tizen,webos}`, their test copy `dist/tv-dev/{tizen,webos}` (the hello screen and the gallery, step 35b), the Lablo Lab in `dist/tv-lab/{tizen,webos}` and the vectors page in `dist/tv-vectors` (the crypto vectors, step 29b1, and the protocol samples, step 29b2a). |
 | `pnpm verify:engines` | Runs both TV apps in Chromium 53, 56 and 68: the hello screen, the component gallery, then onboarding walked by keys in English and Arabic to the live screen, the live screen by the TV's own keys, and the grid guide from its header, then onboarding by phone against a stand-in pairing API. Then both Lablo Lab bundles, reporting to a mock provider on the host, and the crypto vectors page. Fails on any problem. |
 | `pnpm verify:engines --self-test` | Also runs deliberately broken bundles that must fail (below). This is what CI runs. |
 | `pnpm verify:engines --engine chrome53` | One engine (repeatable). |
+| `pnpm verify:engines --dist-dev <dir>` | Another test copy than `dist/tv-dev`. |
 | `pnpm verify:engines --dist-lab <dir>` | Other lab builds than `dist/tv-lab`. |
 | `pnpm verify:engines --dist-vectors <dir>` | Another crypto vectors page than `dist/tv-vectors`. |
 | `pnpm verify:engines --keep` | Leaves the containers running to debug (DevTools port printed). Remove them with `docker rm -f`. |
@@ -169,7 +170,8 @@ The signed config (step 30c1, `src/config.ts`): `v1-config.json`, a `GET /v1/con
 
 | Variant | What it is | Screens | Must fail on | Result (2026-11-03) |
 |---|---|---|---|---|
-| `app` | the real `dist/tv` builds | hello, gallery, onboarding, pairing (step 31c2b), backup (step 32d1, webOS only), code (step 32d3d, Tizen only) | none | passes on 53, 56, 68 |
+| `app` | the store builds (`dist/tv`) | onboarding, pairing (step 31c2b), backup (step 32d1, webOS only), code (step 32d3d, Tizen only) | none | passes on 53, 56, 68 |
+| `dev` | their test copy with the developer screens (`dist/tv-dev`, step 35b) | hello, gallery | none | passes on 53, 56, 68 |
 | `seed-es2018-object-spread` | `var __labloSeed = { ...{ seeded: true } };` prepended to `main.js` | hello, gallery | < 60 | 53, 56: `Uncaught SyntaxError: Unexpected token ...`; 68 passes |
 | `seed-es2020-optional-chaining` | `window.__labloMissing?.value` prepended | hello, gallery | < 80 | 53, 56, 68: `Unexpected token .` |
 | `seed-css-no-list-row` | app.css without ListRow.css's rules (every `.z-row` selector, both directions) | gallery | every engine | 53, 56, 68: `channel rows 197 px; 196 px; 235 px; 114 px tall, expected 88 px` |
@@ -188,7 +190,7 @@ The signed config (step 30c1, `src/config.ts`): `v1-config.json`, a `GET /v1/con
 
 That is 132 runs, 92 of them failures that must be caught (step 32d1's wipe walk and its seed added two runs per engine, webOS only: 44 and 32 on Chromium 53 alone; 126 and 89 before; step 31c2b's pairing walk and its seed added four runs per engine: 42 and 31 on Chromium 53 alone, 2026-11-18; 114 and 83 before; step 29b1's vectors page and its seed added two runs per engine: 38 and 29 on Chromium 53 alone, 2026-11-17; 108 and 80 on 2026-11-05, in one run; 102 and 74 before the guide seed, 90 and 68 before the lab). The syntax seeds run on the two developer screens only: a parse error fails whatever screen opens. The walk seeds are plain ES5, so only the walk can catch them: one stops it at the field, one at the relaunch, the Back-key seed on the live screen, and the stuck focus engine at the first key (the real app's engine and screen always agree, so only a seed can show that the check bites). live.css's seed runs where the walk reaches the live screen, since only it shows that CSS, and the guide's where it reaches the guide. The gallery needs no polyfill at all: without core-js it passes on all three engines (2026-11-03; rechecked with the Arabic phase in step 12b), so `no-polyfills` runs the hello screen only. The CSS seeds fail the staging if they find nothing to take out (a renamed class or file), so they can't silently test nothing.
 
-The seeds are prepended to the *built* bundle, because the ES2016 build gate would reject them at build time. That is the point: the harness catches what reaches the engine even if the gate were bypassed. `--unsafe-no-polyfills` is a test-only flag of `pnpm build:tv`: it requires `--out <dir>`, refuses `dist/tv` and never packages.
+Each seed is staged from the build its screens are on (`variantDist`, step 35b): the syntax seeds and the gallery's CSS seeds from the test copy, the rest from the store build; `no-polyfills` is built as a test copy (`--target dev`). Staging refuses a store build with the developer screens and a test copy without them (`assertDevScreens`, by `dev-screens.css`'s `.hello` rule in app.css), so no seed can fail, or a run pass, on the wrong build. The seeds are prepended to the *built* bundle, because the ES2016 build gate would reject them at build time. That is the point: the harness catches what reaches the engine even if the gate were bypassed. `--unsafe-no-polyfills` is a test-only flag of `pnpm build:tv`: it requires `--out <dir>`, refuses `dist/tv` and never packages.
 
 ## The TV runtime switch (and the S1 finding)
 

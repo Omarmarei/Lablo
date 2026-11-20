@@ -5,8 +5,6 @@ import { normalizeLang } from '@lablo/core';
 import type { BackupCallRequest, DiagSendResult, LastChannel, LoadedProfile } from '@lablo/data';
 import type { Language, Navigator } from '@lablo/ui';
 import { Spinner } from '@lablo/ui';
-import type { AppData } from './App';
-import { App } from './App';
 import { backupRequest, consentOf } from './backup/backup-request';
 import { createBackupSchedule } from './backup/backup-schedule';
 import { createBackupStart } from './backup/backup-start';
@@ -14,22 +12,18 @@ import { BackupStartApp } from './backup/BackupStartApp';
 import { lookupRequest } from './backup/lookup-request';
 import { createConfigSchedule } from './data/config-schedule';
 import type { DataEngine, SourceFacts } from './data/engine';
-import { readApiBase, readChecks, readDebugParams, readRestored, readScreen, restartUrl } from './data/params';
+import { readApiBase, readRestored, readScreen, restartUrl } from './data/params';
 import type { RefreshScheduler } from './data/refresh-scheduler';
 import { createRefreshScheduler } from './data/refresh-scheduler';
 import { createSettings } from './settings/settings-state';
 import { createAppDataEngine } from './data/workers';
 import { appI18n } from './i18n';
-import { createFocusDemo } from './focus-demo';
+import { showDevScreen } from './dev/dev-screens';
 import { GateApp } from './gate/GateApp';
 import { createGate, noticesShownOf, refusalFor } from './gate/gate-state';
 import { LiveApp } from './live/LiveApp';
 import type { Live } from './live/live-state';
 import { createLive } from './live/live-state';
-import { GalleryApp } from './gallery/GalleryApp';
-import { createGallery } from './gallery/gallery-state';
-import { GuideGalleryApp } from './gallery/GuideGalleryApp';
-import { createGuideGallery } from './gallery/guide-gallery';
 import type { Guide } from './guide/guide-state';
 import { createGuide } from './guide/guide-state';
 import type { Movies } from './movies/movies-state';
@@ -58,14 +52,12 @@ import { createPlayer } from './player/player-state';
 import { createStage, setPlayerChrome } from './player/stage';
 import { createOnboarding } from './onboarding/onboarding-state';
 import { answerEdit, readStartProfile, startPoint } from './onboarding/start';
-import { KEY_HELP, createPlatform } from './platform';
+import { createPlatform } from './platform';
 import { createCrashReporter, listenForCrashes } from './telemetry/crash-state';
 import { appStartEvent, capabilityEvent, deviceProbes, diagParts } from './telemetry/telemetry-events';
 import { createTelemetry, telemetryOn } from './telemetry/telemetry-state';
 import { playerEvent, recordRefresh } from './telemetry/usage-events';
 import { installTestHook } from './test-hook';
-// Last, so the app's own CSS comes after @lablo/ui's (tokens, fonts, components) in app.css and in dev.
-import './app.css';
 
 /**
  * What the player keeps in the profile (RELAY step 20c1): filled from the start's profile, written
@@ -372,20 +364,6 @@ function startRefreshes(live: Live, guide: Guide, posters: readonly Movies[], se
     },
   });
   refreshes.start(firstMs);
-}
-
-/** The hello screen: developer diagnostics of the device, the workers and the data layer. */
-function showHello(into: Element): void {
-  const data: AppData = {
-    engine: dataEngine(),
-    params: readDebugParams(location.search),
-    // One config run on this screen (step 30c1): it starts no schedule.
-    config: { request: configRequest, checks: readChecks(location.search) },
-    busy,
-  };
-  const focus = createFocusDemo(platform);
-  showFocus(focus.nav);
-  render(<App platform={platform} keyHelp={KEY_HELP} data={data} focus={focus} />, into);
 }
 
 /**
@@ -773,20 +751,9 @@ function startWithoutProfile(into: Element): void {
   });
 }
 
-const screen = readScreen(location.search);
-if (screen === 'gallery') {
-  // The component gallery (RELAY step 11b): no data workers.
-  const gallery = createGallery(platform);
-  showFocus(gallery.nav);
-  render(<GalleryApp platform={platform} gallery={gallery} />, root);
-} else if (screen === 'gallery-guide') {
-  // The grid guide's gallery page (RELAY step 23b): made-up rows, no data workers.
-  const guide = createGuideGallery(platform);
-  showFocus(guide.nav);
-  render(<GuideGalleryApp platform={platform} gallery={guide} />, root);
-} else if (screen === 'hello') {
-  showHello(root);
-} else {
+// The developer screens behind `?screen=` (RELAY step 35b): the dev app's and the TV build's test
+// copy's only; the store build's stand-in shows none, so it starts as a TV does.
+if (!showDevScreen(readScreen(location.search), root, { platform, showFocus, dataEngine, configRequest, busy })) {
   // The profile decides: a stored source skips onboarding (step 13b).
   render(
     <main class="onboarding" data-testid="onboarding" data-ready="false">

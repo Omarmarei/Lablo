@@ -9,11 +9,16 @@ import {
   APP_VARIANT,
   BACKUP_SEEDS,
   CSS_SEEDS,
+  DEV_SCREENS,
+  DEV_SCREENS_RULE,
+  DEV_VARIANT,
   NO_POLYFILLS_VARIANT,
   PAIR_SEEDS,
   SEEDS,
+  STORE_SCREENS,
   SYNTAX_SEED_SCREENS,
   WALK_SEEDS,
+  assertDevScreens,
   dropGuideCellX,
   mustPass,
   removeDeclarations,
@@ -23,7 +28,9 @@ import {
   seedCss,
   stageApp,
   stageCssSeed,
+  stageDev,
   stageSeed,
+  variantDist,
 } from './variants';
 
 const parses = (code: string, ecmaVersion: 5 | 2016 | 2017 | 2018 | 2019 | 2020): boolean => {
@@ -137,13 +144,14 @@ const APP_CSS = `/* tokens */
 }
 `;
 
-function fakeDist(): string {
+/** A fake build; `devScreens`: its test copy, whose app.css has the developer screens' rules (step 35b). */
+function fakeDist(devScreens = false): string {
   const dist = mkdtempSync(path.join(tmpdir(), 'lablo-engines-'));
   for (const platform of ['tizen', 'webos']) {
     mkdirSync(path.join(dist, platform));
     writeFileSync(path.join(dist, platform, 'index.html'), '<!DOCTYPE html>');
     writeFileSync(path.join(dist, platform, 'main.js'), `!function(){window.app="${platform}"}();`);
-    writeFileSync(path.join(dist, platform, 'app.css'), APP_CSS);
+    writeFileSync(path.join(dist, platform, 'app.css'), devScreens ? `${APP_CSS}\n.hello {\n  display: flex;\n}\n` : APP_CSS);
   }
   return dist;
 }
@@ -191,13 +199,58 @@ describe('seeded variants', () => {
   it('asks for pnpm build:tv when there is nothing to test', () => {
     const empty = mkdtempSync(path.join(tmpdir(), 'lablo-empty-'));
     expect(() => stageApp(empty, path.join(empty, 'out'))).toThrow(/run pnpm build:tv first/);
+    expect(() => stageDev(empty, path.join(empty, 'out'))).toThrow(/run pnpm build:tv first/);
+  });
+
+  it('stages the test copy (step 35b) beside the store build, each from its own folder', () => {
+    const dist = fakeDist();
+    const dev = fakeDist(true);
+    writeFileSync(path.join(dev, 'tizen', 'main.js'), 'window.dev=1;');
+    const root = mkdtempSync(path.join(tmpdir(), 'lablo-variants-'));
+    expect(stageApp(dist, root)).toBe(APP_VARIANT);
+    expect(stageDev(dev, root)).toBe(DEV_VARIANT);
+    expect(readFileSync(path.join(root, 'app', 'tizen', 'main.js'), 'utf8')).toBe('!function(){window.app="tizen"}();');
+    expect(readFileSync(path.join(root, 'dev', 'tizen', 'main.js'), 'utf8')).toBe('window.dev=1;');
+    expect(readFileSync(path.join(root, 'dev', 'webos', 'main.js'), 'utf8')).toBe('!function(){window.app="webos"}();');
+  });
+
+  it("refuses a store build with the developer screens, and a test copy without them (by app.css's rule)", () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'lablo-variants-'));
+    expect(() => stageApp(fakeDist(true), root)).toThrow(/app\.css has the developer screens: a store build must not/);
+    expect(() => stageDev(fakeDist(), root)).toThrow(/app\.css has no developer screens \(run pnpm build:tv: its test copy is dist\/tv-dev\)/);
+    // One platform's is enough to refuse.
+    const mixed = fakeDist(true);
+    writeFileSync(path.join(mixed, 'webos', 'app.css'), APP_CSS);
+    expect(() => assertDevScreens(mixed, true)).toThrow(/webos.app\.css has no developer screens/);
+    expect(() => assertDevScreens(mixed, false)).toThrow(/tizen.app\.css has the developer screens/);
+  });
+
+  it("knows the developer screens by a rule of their own stylesheet", () => {
+    const css = readFileSync(path.resolve(import.meta.dirname, '../../../apps/tv/src/dev/dev-screens.css'), 'utf8');
+    expect(css).toContain(DEV_SCREENS_RULE);
+    expect(APP_CSS).not.toContain(DEV_SCREENS_RULE);
   });
 });
 
 describe('the screens each variant runs', () => {
-  it('runs the real app on every screen, onboarding, onboarding by phone, the wipe (step 32d1) and the code walk (step 32d3d) included', () => {
+  it('runs the store build on what a TV opens, and the test copy on the developer screens (step 35b)', () => {
     expect(APP_SCREENS).toEqual(['hello', 'gallery', 'onboarding', 'pairing', 'backup', 'code']);
-    expect(APP_VARIANT.screens).toEqual(APP_SCREENS);
+    expect(DEV_SCREENS).toEqual(['hello', 'gallery']);
+    expect(STORE_SCREENS).toEqual(['onboarding', 'pairing', 'backup', 'code']);
+    expect(APP_VARIANT.screens).toEqual(STORE_SCREENS);
+    expect(DEV_VARIANT.screens).toEqual(DEV_SCREENS);
+    expect([APP_VARIANT.id, DEV_VARIANT.id]).toEqual(['app', 'dev']);
+    expect([53, 56, 68].map((major) => mustPass(DEV_VARIANT, major))).toEqual([true, true, true]);
+  });
+
+  it('stages each variant from the build its screens are on, and refuses one on both kinds', () => {
+    expect(variantDist(APP_VARIANT, 'tv', 'tv-dev')).toBe('tv');
+    expect(variantDist(DEV_VARIANT, 'tv', 'tv-dev')).toBe('tv-dev');
+    expect(variantDist(NO_POLYFILLS_VARIANT, 'tv', 'tv-dev')).toBe('tv-dev');
+    for (const seed of SEEDS) expect(variantDist(seed, 'tv', 'tv-dev')).toBe('tv-dev');
+    expect(CSS_SEEDS.map((seed) => variantDist(seed, 'tv', 'tv-dev'))).toEqual(['tv-dev', 'tv-dev', 'tv', 'tv']);
+    for (const seed of [...WALK_SEEDS, ...PAIR_SEEDS, ...BACKUP_SEEDS]) expect(variantDist(seed, 'tv', 'tv-dev')).toBe('tv');
+    expect(() => variantDist({ id: 'mixed', screens: ['hello', 'onboarding'] }, 'tv', 'tv-dev')).toThrow(/mixed: runs developer screens and the store build's screens together/);
   });
 
   it('runs each screen on both TV builds, but the wipe only on the simulated webOS and the code walk only on Tizen', () => {

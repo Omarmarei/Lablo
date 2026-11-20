@@ -1,5 +1,7 @@
 /**
- * The bundles the harness runs. Normally only `app`: the real TV builds from `pnpm build:tv`.
+ * The bundles the harness runs. Normally `app`, the store TV builds from `pnpm build:tv` (dist/tv),
+ * and `dev`, their test copy with the developer screens (dist/tv-dev, RELAY step 35b: the store
+ * build has no hello screen and no gallery).
  *
  * `--self-test` adds deliberately broken bundles to prove the harness catches what the TVs
  * would choke on, even if the build-time ES2016 gate were bypassed:
@@ -40,6 +42,10 @@ import { TV_PLATFORMS } from './scenario';
  */
 export type AppScreen = 'hello' | 'gallery' | 'onboarding' | 'pairing' | 'backup' | 'code';
 export const APP_SCREENS: readonly AppScreen[] = ['hello', 'gallery', 'onboarding', 'pairing', 'backup', 'code'];
+/** The developer screens: only the test copy has them (step 35b). */
+export const DEV_SCREENS: readonly AppScreen[] = ['hello', 'gallery'];
+/** The screens the store build itself runs: what a TV opens. */
+export const STORE_SCREENS: readonly AppScreen[] = APP_SCREENS.filter((screen) => DEV_SCREENS.indexOf(screen) === -1);
 /** The syntax seeds fail at parse time on whatever screen opens: the two developer screens show it. */
 export const SYNTAX_SEED_SCREENS: readonly AppScreen[] = ['hello', 'gallery'];
 
@@ -63,7 +69,21 @@ export interface Seed extends ScriptSeed {
   readonly ecmaVersion: 2018 | 2020;
 }
 
-export const APP_VARIANT: Variant = { id: 'app', description: 'the TV builds from pnpm build:tv', minChrome: 0, screens: APP_SCREENS };
+export const APP_VARIANT: Variant = { id: 'app', description: 'the store TV builds from pnpm build:tv (dist/tv)', minChrome: 0, screens: STORE_SCREENS };
+
+/** The test copy (step 35b): the same app with the developer screens, `build:tv`'s `dev` target. */
+export const DEV_VARIANT: Variant = { id: 'dev', description: "the TV builds' test copy with the developer screens (dist/tv-dev)", minChrome: 0, screens: DEV_SCREENS };
+
+/**
+ * The build a variant's screens are on: the test copy for the developer screens, the store build
+ * for the rest. A variant on both kinds of screen has no build: an error.
+ */
+export function variantDist(variant: Pick<Variant, 'id' | 'screens'>, distTv: string, distDev: string): string {
+  const dev = variant.screens.filter((screen) => DEV_SCREENS.indexOf(screen) !== -1).length;
+  if (dev === variant.screens.length) return distDev;
+  if (dev === 0) return distTv;
+  throw new Error(`${variant.id}: runs developer screens and the store build's screens together (${variant.screens.join(', ')})`);
+}
 
 export const SEEDS: readonly Seed[] = [
   {
@@ -291,6 +311,24 @@ export function mustPass(variant: Variant, engineMajor: number): boolean {
   return engineMajor >= variant.minChrome;
 }
 
+/**
+ * A rule only the developer screens' CSS has (apps/tv/src/dev/dev-screens.css): a build has the
+ * developer screens exactly when its app.css has it (step 35b).
+ */
+export const DEV_SCREENS_RULE = '.hello {';
+
+/**
+ * Throws unless each platform's app.css in `dist` has the developer screens (`want`) or has none,
+ * so no run can pass, or a seed fail, on the wrong build.
+ */
+export function assertDevScreens(dist: string, want: boolean): void {
+  for (const platform of TV_PLATFORMS) {
+    const css = path.join(dist, platform, 'app.css');
+    if (readFileSync(css, 'utf8').includes(DEV_SCREENS_RULE) === want) continue;
+    throw new Error(want ? `${css} has no developer screens (run pnpm build:tv: its test copy is dist/tv-dev)` : `${css} has the developer screens: a store build must not (step 35b)`);
+  }
+}
+
 function assertBuilt(distTv: string): void {
   for (const platform of TV_PLATFORMS) {
     const index = path.join(distTv, platform, 'index.html');
@@ -308,8 +346,17 @@ function copyPlatforms(distTv: string, target: string): void {
 /** Copies the real builds to `<root>/app`. */
 export function stageApp(distTv: string, root: string): Variant {
   assertBuilt(distTv);
+  assertDevScreens(distTv, false);
   copyPlatforms(distTv, path.join(root, APP_VARIANT.id));
   return APP_VARIANT;
+}
+
+/** Copies the test copy (dist/tv-dev) to `<root>/dev`. */
+export function stageDev(distDev: string, root: string): Variant {
+  assertBuilt(distDev);
+  assertDevScreens(distDev, true);
+  copyPlatforms(distDev, path.join(root, DEV_VARIANT.id));
+  return DEV_VARIANT;
 }
 
 /** Copies the real builds to `<root>/<seed>` and prepends the seed to each main.js. */
@@ -336,15 +383,17 @@ export function stageCssSeed(distTv: string, root: string, seed: CssSeed): Varia
   return seed;
 }
 
-/** Builds the app without polyfills into `<root>/no-polyfills` (test-only build flag). */
+/** Builds the test copy without polyfills into `<root>/no-polyfills` (test-only build flag): it runs the hello screen. */
 export function stageNoPolyfills(repoRoot: string, root: string): Variant {
   const target = path.join(root, NO_POLYFILLS_VARIANT.id);
   mkdirSync(root, { recursive: true });
   const build = spawnSync(
     process.execPath,
-    ['--import', 'tsx', 'tools/build/build-tv.ts', '--unsafe-no-polyfills', '--skip-package', '--out', target],
+    ['--import', 'tsx', 'tools/build/build-tv.ts', '--unsafe-no-polyfills', '--target', 'dev', '--skip-package', '--out', target],
     { cwd: repoRoot, stdio: 'inherit' },
   );
   if (build.status !== 0) throw new Error('build-tv --unsafe-no-polyfills failed');
+  // Its hello run must fail for want of polyfills, not for want of the screen.
+  assertDevScreens(target, true);
   return NO_POLYFILLS_VARIANT;
 }
