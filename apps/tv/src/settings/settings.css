@@ -338,11 +338,13 @@
   line-height: var(--line-height-heading);
 }
 
-.unmatched__list {
+.unmatched__list,
+.groups__list {
   flex: none;
 }
 
-.unmatched__row {
+.unmatched__row,
+.groups__row {
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -354,11 +356,13 @@
   background: var(--color-surface);
 }
 
-.unmatched__row.is-memory {
+.unmatched__row.is-memory,
+.groups__row.is-memory {
   border-color: var(--color-border-memory);
 }
 
-.unmatched__row.is-focused {
+.unmatched__row.is-focused,
+.groups__row.is-focused {
   border-color: var(--color-focus);
   background: var(--color-surface-focus);
 }
@@ -489,4 +493,84 @@
 
 .backup__notice {
   margin-top: var(--space-5);
+}
+
+/*
+ * "Channel groups" (step 35d): rows of 88 px with 8 px gaps (GROUPS in groups-state.ts), each a
+ * name and a line under it; a list's name after a star, a list's channel after its number. A row
+ * being moved has the accent's border; a hidden group's name is dimmed.
+ */
+.groups__top {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.groups__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.groups__star {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  margin-right: var(--space-3);
+  color: var(--color-accent);
+}
+
+.groups__star svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.groups__number {
+  flex: none;
+  min-width: 64px;
+  margin-right: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+}
+
+.groups__line {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.groups__row.is-hidden .groups__name {
+  color: var(--color-text-muted);
+}
+
+.groups__row.is-moving {
+  border-color: var(--color-accent);
+  background: var(--color-surface-raised);
+}
+
+/* A row being moved: up and down arrows at its end. */
+.groups__moving {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  margin-left: var(--space-4);
+  color: var(--color-accent);
+}
+
+.groups__moving svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
 }

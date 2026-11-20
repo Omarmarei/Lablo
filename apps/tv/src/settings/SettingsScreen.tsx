@@ -7,6 +7,8 @@ import { PAIR_SCREEN } from '../pairing/pair-state';
 import { PairPage } from '../pairing/PairPage';
 import { BACKUP_CONFIRM, BACKUP_SCREEN } from './backup-state';
 import { BackupPageScreen } from './BackupPage';
+import { CHANNEL_MENU, GROUP_CHANNELS, GROUP_SCREENS } from './groups-state';
+import { ChannelsPage, GroupsPage } from './GroupsPage';
 import type { AddProblem, GuideAction, GuideRow, GuideState, Guides, GuidesMenu, OffsetChooser } from './guides-state';
 import { ADD_CANCEL, ADD_CONFIRM, GUIDES, HEADER_ADD, HEADER_UNMATCHED, LINK_FIELD_ID, OFFSETS, guideState, summaryOf } from './guides-state';
 import { MAPPING_SCREEN } from './mapping-state';
@@ -26,7 +28,7 @@ import './settings.css';
  * The settings screen, the guides screen (RELAY step 22b2), "Channels without a guide" (step 24c),
  * the manual mapping's picker (step 24e, `MappingPage.tsx`), the sources screen (step 30c3a), the
  * pairing screen from its header (step 31c2a, `PairPage.tsx`), the backup page (step 32d2b,
- * `BackupPage.tsx`) and the usage reports' row (step 33b3), painted instead of the live screen while one of them is on top of the live navigator.
+ * `BackupPage.tsx`), the usage reports' row (step 33b3) and "Channel groups" (step 35d, `GroupsPage.tsx`), painted instead of the live screen while one of them is on top of the live navigator.
  * Every text comes from the catalogs; links, channels and the sources' and categories' names are
  * data (`dir`, `translate=false`, or isolated arguments).
  */
@@ -392,6 +394,7 @@ interface PageProps {
 /** A settings row's name and the line under it (the usage reports' line while on, `telemetryText`). */
 export function itemText(t: Translate, id: SettingsItem): { name: string; hint: string } {
   if (id === 'report') return { name: t('settings.report'), hint: t('settings.reportHint') };
+  if (id === 'groups') return { name: t('settings.groups'), hint: t('settings.groupsHint') };
   if (id === 'telemetry') return { name: t('settings.telemetry'), hint: t('settings.telemetryOnHint') };
   if (id === 'backup') return { name: t('settings.backup'), hint: t('settings.backupHint') };
   return id === 'sources' ? { name: t('settings.sources'), hint: t('settings.sourcesHint') } : { name: t('settings.guides'), hint: t('settings.guidesHint') };
@@ -833,14 +836,16 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
   const mapping = settings.mapping;
   const onGuides = focus.screen === 'guides' || focus.screen === 'guide-menu' || focus.screen === 'guide-offset' || focus.screen === 'guide-matches' || focus.screen === 'guide-add';
   const backup = settings.backup;
+  const groups = settings.groups;
+  const onChannels = focus.screen === GROUP_CHANNELS || focus.screen === CHANNEL_MENU;
   return (
     <main
       class="settings"
       data-testid="settings-screen"
       data-ready="true"
       data-language={i18n.locale.pseudo ? 'pseudo' : i18n.locale.language}
-      data-pending={guides.pending.value + settings.unmatched.pending.value + mapping.pending.value + settings.sources.pending.value + (backup === null ? 0 : backup.pending.value) + (settings.telemetry === null ? 0 : settings.telemetry.pending.value) + (settings.report === null ? 0 : settings.report.pending.value)}
-      data-editing={guides.editor.editing.value ?? mapping.editor.editing.value ?? settings.sources.form?.editor.editing.value ?? ''}
+      data-pending={guides.pending.value + settings.unmatched.pending.value + mapping.pending.value + settings.sources.pending.value + (backup === null ? 0 : backup.pending.value) + (settings.telemetry === null ? 0 : settings.telemetry.pending.value) + (settings.report === null ? 0 : settings.report.pending.value) + groups.pending.value}
+      data-editing={guides.editor.editing.value ?? mapping.editor.editing.value ?? settings.sources.form?.editor.editing.value ?? groups.editor.editing.value ?? ''}
       data-screen={focus.screen}
       data-zone={focus.zone}
       data-index={focus.index}
@@ -854,6 +859,8 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       {(focus.screen === SOURCES_SCREEN || focus.screen === LOGIN_SCREEN) && <SourcesPage i18n={i18n} binding={binding} focus={focus} list={settings.sources} />}
       {focus.screen === PAIR_SCREEN && settings.pairing !== null && <PairPage pairing={settings.pairing} binding={binding} i18n={i18n} />}
       {(focus.screen === BACKUP_SCREEN || focus.screen === BACKUP_CONFIRM) && backup !== null && <BackupPageScreen i18n={i18n} binding={binding} focus={focus} page={backup} />}
+      {!onChannels && GROUP_SCREENS.indexOf(focus.screen) !== -1 && <GroupsPage i18n={i18n} binding={binding} focus={focus} groups={groups} />}
+      {onChannels && <ChannelsPage i18n={i18n} binding={binding} focus={focus} groups={groups} />}
     </main>
   );
 }

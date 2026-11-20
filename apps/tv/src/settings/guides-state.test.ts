@@ -1,4 +1,6 @@
+import type { CatalogItem } from '@lablo/core';
 import type {
+  CategoryInfo,
   DiagSendResult,
   EpgMeta,
   EpgNowNext,
@@ -167,6 +169,15 @@ class FakeEngine implements GuidesEngine {
 
   guideChannels(req: GuideChannelsRequest): Promise<GuideChannelsPage> {
     return Promise.resolve({ version: 1, count: 0, offset: req.offset, rows: [] });
+  }
+
+  /** "Channel groups"' reads (step 35d: the settings share this engine): no categories, no items. */
+  categories(): Promise<CategoryInfo[]> {
+    return Promise.resolve([]);
+  }
+
+  itemsByKey(): Promise<CatalogItem[]> {
+    return Promise.resolve([]);
   }
 
   editProfile(edit: ProfileEdit): Promise<boolean> {
@@ -1074,9 +1085,9 @@ describe('the settings screen', () => {
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
       backup: { engine: backupEngine as unknown as BackupPageEngine, host },
     });
-    expect(settings.items).toEqual(['guides', 'sources', 'backup']);
+    expect(settings.items).toEqual(['guides', 'sources', 'backup', 'groups']);
     settings.open();
-    expect((t.nav.top.zone('items') as { count: number }).count).toBe(3);
+    expect((t.nav.top.zone('items') as { count: number }).count).toBe(4);
     await t.press('DOWN', 'DOWN', 'OK');
     expect(t.at()).toBe('backup · switch 0');
     expect(settings.backup!.screen.value).toBe(t.nav.top);
@@ -1112,12 +1123,12 @@ describe('the settings screen', () => {
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
       telemetry: { engine: switchEngine, setOn },
     });
-    expect(settings.items).toEqual(['guides', 'sources', 'telemetry']);
+    expect(settings.items).toEqual(['guides', 'sources', 'telemetry', 'groups']);
     expect(settings.telemetry).not.toBeNull();
     expect(switchEngine.profile).not.toHaveBeenCalled();
     settings.open();
     expect(switchEngine.profile).toHaveBeenCalledTimes(1);
-    expect((t.nav.top.zone('items') as { count: number }).count).toBe(3);
+    expect((t.nav.top.zone('items') as { count: number }).count).toBe(4);
     await flush();
     expect(settings.telemetry!.value.value).toBe(true);
     await t.press('DOWN', 'DOWN');
@@ -1150,8 +1161,8 @@ describe('the settings screen', () => {
       backup: { engine: {} as unknown as BackupPageEngine, host: { schedule: { held: signal(false), last: signal(null) } } as unknown as BackupPageHost },
       telemetry: { engine: switchEngine, setOn },
     });
-    expect(both.items).toEqual(['guides', 'sources', 'backup', 'telemetry']);
-    expect(SETTINGS_ITEMS).toEqual(['guides', 'sources', 'backup', 'telemetry', 'report']);
+    expect(both.items).toEqual(['guides', 'sources', 'backup', 'telemetry', 'groups']);
+    expect(SETTINGS_ITEMS).toEqual(['guides', 'sources', 'backup', 'telemetry', 'report', 'groups']);
     both.dispose();
   });
 
@@ -1167,7 +1178,7 @@ describe('the settings screen', () => {
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
       report: { send },
     });
-    expect(settings.items).toEqual(['guides', 'sources', 'report']);
+    expect(settings.items).toEqual(['guides', 'sources', 'report', 'groups']);
     settings.open();
     await t.press('DOWN', 'DOWN');
     expect(t.at()).toBe('settings · items 2');
@@ -1198,17 +1209,17 @@ describe('the settings screen', () => {
       offsetChanged: t.offsetChanged,
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
     });
-    expect(SETTINGS_ITEMS).toEqual(['guides', 'sources', 'backup', 'telemetry', 'report']);
-    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'backup', 'backup-confirm']);
+    expect(SETTINGS_ITEMS).toEqual(['guides', 'sources', 'backup', 'telemetry', 'report', 'groups']);
+    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'backup', 'backup-confirm', 'groups', 'group-menu', 'group-rename', 'group-delete', 'group-channels', 'group-channel-menu']);
     // Without a backup page (step 32d2b) there is no "Backup" row, nor without a switch "Usage and crash reports" (step 33b3).
     expect(settings.backup).toBeNull();
     expect(settings.telemetry).toBeNull();
     // Nor without its send "Send a report to support" (step 33d2).
     expect(settings.report).toBeNull();
-    expect(settings.items).toEqual(['guides', 'sources']);
+    expect(settings.items).toEqual(['guides', 'sources', 'groups']);
     settings.open();
     expect(t.at()).toBe('settings · items 0');
-    expect((t.nav.top.zone('items') as { count: number }).count).toBe(2);
+    expect((t.nav.top.zone('items') as { count: number }).count).toBe(3);
     await t.press('OK');
     expect(t.at()).toBe('guides · guides 0');
     expect(settings.guides.rows.value).toHaveLength(4);

@@ -83,8 +83,8 @@ export interface FavouriteMenu {
   dispose(): void;
 }
 
-/** Whether `text` is empty or only spaces (no `trim`: it pulls a polyfill into main; the worker trims). */
-function blank(text: string): boolean {
+/** Whether `text` is empty or only spaces (no `trim`: it pulls a polyfill into main; the worker trims). Settings' rename form uses it too (step 35d). */
+export function blank(text: string): boolean {
   for (let i = 0; i < text.length; i += 1) {
     const c = text.charCodeAt(i);
     if (c > 32 && c !== 160 && c !== 0x3000) return false;

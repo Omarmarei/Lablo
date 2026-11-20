@@ -3312,3 +3312,34 @@ describe("the info bar's favourites (RELAY step 35c)", () => {
     expect(u.player.favourites!.screen.value).toBeNull();
   });
 });
+
+describe('the player: a channel of a hidden group (RELAY step 35d)', () => {
+  /** A channel the list on show doesn't hold: the search found it in a group the user hid. */
+  const HIDDEN: LiveRow = { item: { ...row(4).item, key: 'x:s1:live:hidden', name: 'Hidden 1', url: 'http://panel.test/live/u/p/700.ts' }, number: 704 };
+
+  it('plays it pinned at the row given, as the last channel, and zaps on through the list from there', async () => {
+    const t = setup();
+    t.player.over(HIDDEN, 4);
+    expect(t.at()).toBe('player · actions 0');
+    expect(t.controller.plays).toEqual([liveRequest(HIDDEN)]);
+    expect([t.player.target.value, t.player.playing.value]).toEqual([4, 4]);
+    expect(t.player.row(4)).toBe(HIDDEN);
+    // Unlike the start's: it is the last channel now, and the list isn't asked where it is.
+    expect(t.tuned).toEqual(['x:s1:live:hidden @4']);
+    expect(t.list.locates).toEqual([]);
+    // Another call while it shows changes nothing.
+    t.player.over(row(2), 2);
+    t.player.resume(row(2), 2);
+    expect(t.controller.plays).toHaveLength(1);
+    // CH+ zaps to the list's next row; the list's own row 4 shows from then on.
+    await t.press('CH_UP');
+    t.clock.advance(ZAP_DELAY_MS);
+    await flush();
+    expect(t.player.playing.value).toBe(5);
+    expect(t.player.row(4)).toEqual(row(4));
+    expect(t.tuned).toEqual(['x:s1:live:hidden @4', 'x:s1:live:5 @5']);
+    // Back: the list's focus on the row the channel played at last.
+    await t.press('BACK');
+    expect(t.closed).toEqual([5]);
+  });
+});
