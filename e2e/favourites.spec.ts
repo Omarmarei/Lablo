@@ -244,6 +244,10 @@ test('shows only our strings, bracketed, in the panel, the form and the rail, in
     // "Favourites" made at once, with the channel in it.
     await remote.press('OK');
     await expect(page.getByTestId('favourites-list-0')).toHaveAttribute('data-checked', 'true');
+    // The list made has no name of its own: its row says ours, "Favourites", as the rail will.
+    expect(await untranslated(page, '[data-testid=favourites]')).toEqual([]);
+    const unnamed = await text(page, 'favourites-list-0');
+    expect(unnamed).toMatch(/^\[.+\]$/u);
     await remote.go('DOWN', 'favourites/lists/1');
     await remote.press('OK');
     await remote.expectFocus('favourite-new/field/0');
@@ -258,7 +262,7 @@ test('shows only our strings, bracketed, in the panel, the form and the rail, in
     await remote.press('OK');
     await settled(live);
     expect(await untranslated(page, '[data-testid=live]')).toEqual([]);
-    expect(await text(page, 'chip-1')).toMatch(/^\[.+\]1$/u);
+    expect(await text(page, 'chip-1')).toBe(`${unnamed}1`);
     await page.screenshot({ path: path.join(SHOTS, 'live-list-en-XA.png'), animations: 'disabled' });
     expect(errors).toEqual([]);
   } finally {

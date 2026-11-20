@@ -174,7 +174,7 @@ describe('the favourites panel (RELAY step 35c)', () => {
     u.menu.show(channel(4));
     await u.press('OK');
     expect(u.menu.problem.value).toBe('refused');
-    // The next edit clears the word.
+    // Refused again: the word again.
     await u.press('OK');
     expect(u.menu.problem.value).toBe('refused');
     const v = setup({ lists: [{ id: 'a', name: 'Sport', keys: ['x:s1:live:4'] }], answer: () => Promise.resolve(false) });
@@ -182,6 +182,28 @@ describe('the favourites panel (RELAY step 35c)', () => {
     await v.press('OK');
     expect(v.edits[0]!).toMatchObject({ change: { op: 'remove' } });
     expect(v.menu.problem.value).toBeNull();
+  });
+
+  it('clears the word as the next edit starts', async () => {
+    let asked = 0;
+    let release: (ok: boolean) => void = () => undefined;
+    const t = setup({
+      lists: [{ id: 'a', name: 'Sport', keys: [] }],
+      answer: () => {
+        asked += 1;
+        return asked === 1 ? Promise.resolve(false) : new Promise<boolean>((resolve) => (release = resolve));
+      },
+    });
+    t.menu.show(channel(4));
+    await t.press('OK');
+    expect(t.menu.problem.value).toBe('full');
+    await t.press('OK');
+    expect(t.menu.pending.value).toBe(1);
+    expect(t.menu.problem.value).toBeNull();
+    release(true);
+    await flush();
+    expect(t.menu.pending.value).toBe(0);
+    expect(t.menu.problem.value).toBeNull();
   });
 
   it("logs an edit that failed, and drops an answer that comes after the panel closed", async () => {
@@ -221,6 +243,21 @@ describe('the favourites panel (RELAY step 35c)', () => {
     ]);
     expect(t.at()).toBe(`${FAVOURITES_SCREEN} · lists 1`);
     expect(t.zoneCount()).toBe(3);
+  });
+
+  it('focuses the new list even when the focus moved while it was made', async () => {
+    const t = setup({ lists: [{ id: 'a', name: 'Sport', keys: [] }] });
+    t.menu.show(channel(4));
+    await t.press('DOWN', 'OK');
+    t.menu.setText('Kids');
+    t.nav.top.focus('actions', NEW_CREATE);
+    // Create closes the form at once; UP lands before the edit settles.
+    t.nav.handle('OK');
+    t.nav.handle('UP');
+    expect(t.at()).toBe(`${FAVOURITES_SCREEN} · lists 0`);
+    await flush();
+    expect(t.lists.value.map((l) => l.name)).toEqual(['Sport', 'Kids']);
+    expect(t.at()).toBe(`${FAVOURITES_SCREEN} · lists 1`);
   });
 
   it('names a list made with a blank name "Favourites"; Cancel and Back leave the form', async () => {
