@@ -22,6 +22,8 @@ export interface TextFieldProps extends FocusableProps {
    * `password`); a name is `auto`, so an Arabic name reads right to left.
    */
   readonly dir?: 'ltr' | 'auto';
+  /** The most characters the input takes (absent: any). */
+  readonly maxLength?: number;
   /** Each change of the text. */
   readonly onValue?: (value: string) => void;
   /** The editor's handlers for this field (`EditorBinding.field(id)`). */
@@ -42,7 +44,7 @@ interface InputTarget {
  * The box is aligned to the label's side in both directions (its text-align is mirrored), while
  * a link inside it still reads left to right.
  */
-export function TextField({ id, label, value, kind = 'text', hint, error, dir, onValue, edit, state, onHover, onPress, testId }: TextFieldProps) {
+export function TextField({ id, label, value, kind = 'text', hint, error, dir, maxLength, onValue, edit, state, onHover, onPress, testId }: TextFieldProps) {
   const editing = edit?.editing === true;
   const invalid = error !== undefined && error !== null && error !== '';
   const note = invalid ? error : (hint ?? '');
@@ -70,6 +72,7 @@ export function TextField({ id, label, value, kind = 'text', hint, error, dir, o
           type={kind}
           value={value}
           dir={dir ?? (kind === 'text' ? 'auto' : 'ltr')}
+          maxLength={maxLength}
           tabIndex={-1}
           spellcheck={false}
           autocomplete="off"

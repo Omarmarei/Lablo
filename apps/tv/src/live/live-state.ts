@@ -2,6 +2,8 @@ import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
 import type { CatalogItem, ContentKey, ContentKind } from '@lablo/core';
 import type { CategoryInfo, EpgNowNext, LoadedProfile, ShortEpgNowNext, ShortEpgSource, StoredSource } from '@lablo/data';
+import type { FavouriteList, GroupRef, KeyItemsRequest } from '@lablo/data/client';
+import { favouriteListsOf, groupId, groupOrderOf, hiddenGroupsOf } from '@lablo/data/client';
 import type { Platform } from '@lablo/platform-api';
 import type { Focus, FocusBinding, Navigator, Screen, ScreenSpec, ZoneSpec } from '@lablo/ui';
 import { LAYOUT, SCREEN, bindFocus, createNavigator, fits } from '@lablo/ui';
@@ -48,6 +50,11 @@ import { ChannelIndex, chunkId } from './channel-index';
  *   categories are read again without the loading screen, on the same rail entry, and the focus
  *   finds its channel in the new list. `listChanging` tells the player first, while the old
  *   list can still be read.
+ * - **Favourites lists and groups** (step 35c): the rail is "All channels", the profile's lists,
+ *   then the groups (the user's order first, then the provider's), hidden ones left out of the
+ *   rail and of "All channels". A list's rows are its items read by key (`itemsByKey`), each
+ *   numbered by its place in the list; a group's channel keeps the number of the provider's whole
+ *   list (`ListPart.first`). After a list edit, `listsChanged` reads the profile again.
  */
 
 /** Sizes, all layout constants (no DOM measuring). live.css uses the same numbers. */
@@ -78,15 +85,25 @@ const LIVE_KIND: ContentKind = 'live';
 
 /** One entry of the rail. */
 export interface RailEntry {
-  /** `all`: every category of every source, in order. */
-  readonly kind: 'all' | 'category';
-  /** The provider's category name (`''`: the playlist gave none). Unused for `all`. */
+  /** `all`: every category of every source the rail shows, in its order; `list`: a favourites list (step 35c). */
+  readonly kind: 'all' | 'category' | 'list';
+  /** The provider's category name (`''`: the playlist gave none); a list's name (`''`: "Favourites"). Unused for `all`. */
   readonly name: string;
+  /** Its channels; a list's size (its keys, found or not). */
   readonly count: number;
-  /** The categories the entry lists. */
+  /** The categories the entry lists (none for a list). */
   readonly parts: readonly ListPart[];
-  /** Where its channels start in "All channels": a channel without a number is numbered by it. */
+  /** Where a category's channels start in the provider's whole list: a channel without a number is numbered by it. */
   readonly allStart: number;
+  /** The favourites list (`list` entries only). */
+  readonly list?: FavouriteList;
+}
+
+/** The user's lists and groups the rail follows (step 35c; the movies screen has none). */
+export interface RailShape {
+  readonly lists: readonly FavouriteList[];
+  readonly hidden: readonly GroupRef[];
+  readonly order: readonly GroupRef[];
 }
 
 export type LiveStatus = 'loading' | 'ready' | 'empty' | 'failed';
@@ -94,7 +111,10 @@ export type LiveStatus = 'loading' | 'ready' | 'empty' | 'failed';
 /** A row of the list on show. */
 export interface LiveRow {
   readonly item: CatalogItem;
-  /** The provider's number (`tvg-chno`, Xtream `num`), else the channel's place in "All channels". */
+  /**
+   * The provider's number (`tvg-chno`, Xtream `num`), else the channel's place in the provider's
+   * whole list; in a favourites list, its place in the list (step 35c).
+   */
   readonly number: number;
 }
 
@@ -103,6 +123,8 @@ export interface LiveEngine {
   profile(): Promise<LoadedProfile | null>;
   categories(src: string, kind: ContentKind): Promise<CategoryInfo[]>;
   chunk(src: string, kind: ContentKind, catIdx: number, chunk: number): Promise<CatalogItem[]>;
+  /** A favourites list's items (step 35c). */
+  itemsByKey(req: KeyItemsRequest): Promise<CatalogItem[]>;
   nowNext(keys: ContentKey[], at?: number): Promise<EpgNowNext[]>;
   focusChannel(channel: FocusedChannel | null): Promise<ShortEpgNowNext | null>;
   noteActivity(): void;
@@ -165,8 +187,11 @@ export interface LiveList extends ZapList {
   ready(): Promise<void>;
 }
 
-/** A rail entry as the profile keeps it: a source's category by its name; `null` is "All channels". */
-export type RailRef = { readonly src: string; readonly name: string } | null;
+/**
+ * A rail entry as the profile keeps it: a source's category by its name, a favourites list by its
+ * id (step 35c); `null` is "All channels".
+ */
+export type RailRef = { readonly src: string; readonly name: string } | { readonly list: string } | null;
 
 export interface Live {
   readonly nav: Navigator;
@@ -174,6 +199,8 @@ export interface Live {
   readonly home: Screen;
   readonly status: ReadonlySignal<LiveStatus>;
   readonly rail: ReadonlySignal<readonly RailEntry[]>;
+  /** The profile's favourites lists as last read (step 35c: the player's star and its panel). */
+  readonly lists: ReadonlySignal<readonly FavouriteList[]>;
   /** The rail entry on show. */
   readonly category: ReadonlySignal<number>;
   /** Bumps when chunks or now/next arrive: rows are read again through `row` and `guide`. */
@@ -216,7 +243,21 @@ export interface Live {
   guidesChanged(): void;
   /** A catalog swapped in (step 22a): the list is read again where it stands. */
   catalogChanged(): void;
+  /**
+   * A favourites list changed (step 35c): the profile is read again, as for a catalog swap but
+   * with the chunks kept. Settles once the new rail is in.
+   */
+  listsChanged(): Promise<void>;
   dispose(): void;
+}
+
+/** What `readSources` reads. */
+interface SourcesRead {
+  readonly records: StoredSource[];
+  /** Each source's live categories. */
+  readonly lists: CategoryInfo[][];
+  /** The profile's document (`null`: none). */
+  readonly doc: unknown;
 }
 
 interface GuideEntry {
@@ -229,6 +270,17 @@ interface GuideEntry {
 
 /** The player's channels kept fresh beside the rows on show (the info bar's, the previous one…). */
 const EXTRA_GUIDES = 4;
+
+/** The most keys one `itemsByKey` takes (the query worker's `KEY_ITEMS_MAX`, not imported: its module isn't main's). */
+export const KEY_BATCH = 100;
+
+/** A favourites list on show (step 35c): its items the catalog has, in the list's order, each with its place in the list. */
+interface KeyedRows {
+  readonly items: CatalogItem[];
+  readonly places: number[];
+  /** Settles once its items are in (or couldn't be read: none). */
+  done: Promise<void>;
+}
 
 const BUTTONS: ScreenSpec['zones'] = [{ kind: 'list', id: 'buttons', axis: 'horizontal', count: 2 }];
 
@@ -263,30 +315,70 @@ export const HEADER_SEARCH = 4;
 /** The header's "Settings" button (an icon since step 28b1). */
 export const HEADER_SETTINGS = 5;
 
-/** The rail: "All channels", then every category with channels, source by source. */
-export function railEntries(sources: readonly { src: string; categories: readonly CategoryInfo[] }[]): RailEntry[] {
-  const categories: RailEntry[] = [];
-  const all: ListPart[] = [];
+/** `groups` by their `groupId`, each with its place in `groups`. */
+function placesOf(groups: readonly GroupRef[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  // (An id starts with its source's, never empty: no name an object inherits. A repeat keeps its first place.)
+  for (let i = groups.length - 1; i >= 0; i -= 1) out[groupId(groups[i]!)] = i;
+  return out;
+}
+
+/**
+ * The rail: "All channels", the favourites lists (step 35c), then every category with channels:
+ * the user's ordered groups first, in that order, then the others source by source in the
+ * provider's order. Hidden groups are left out, of "All channels" too, which lists the groups in
+ * the rail's order. Each part's `first` counts every category, hidden ones too, in the provider's
+ * order. No channels at all: no rail (whatever the lists hold).
+ */
+export function railEntries(sources: readonly { src: string; categories: readonly CategoryInfo[] }[], shape?: RailShape): RailEntry[] {
+  const hidden = placesOf(shape === undefined ? [] : shape.hidden);
+  const order = placesOf(shape === undefined ? [] : shape.order);
+  /** The shown groups in the provider's order, and those the user ordered, by their place in `order`. */
+  const rest: RailEntry[] = [];
+  const ordered: RailEntry[] = [];
   let at = 0;
   for (const source of sources) {
     for (const info of source.categories) {
       if (info.count <= 0) continue;
-      const part: ListPart = { src: source.src, catIdx: info.catIdx, chunks: info.chunks.slice() };
-      all.push(part);
-      categories.push({ kind: 'category', name: info.name, count: info.count, parts: [part], allStart: at });
+      const first = at;
       at += info.count;
+      const id = groupId({ src: source.src, name: info.name });
+      if (hidden[id] !== undefined) continue;
+      const part: ListPart = { src: source.src, catIdx: info.catIdx, chunks: info.chunks.slice(), first };
+      const entry: RailEntry = { kind: 'category', name: info.name, count: info.count, parts: [part], allStart: first };
+      const place = order[id];
+      // (A second category of a source with the same name, as an Xtream panel may have, keeps the provider's order.)
+      if (place === undefined || ordered[place] !== undefined) rest.push(entry);
+      else ordered[place] = entry;
     }
   }
   if (at === 0) return [];
-  const every: RailEntry = { kind: 'all', name: '', count: at, parts: all, allStart: 0 };
-  return [every].concat(categories);
+  const groups: RailEntry[] = [];
+  // (`ordered` has holes where an ordered group is gone or hidden.)
+  for (let i = 0; i < ordered.length; i += 1) if (ordered[i] !== undefined) groups.push(ordered[i]!);
+  for (let i = 0; i < rest.length; i += 1) groups.push(rest[i]!);
+  const all: ListPart[] = [];
+  let count = 0;
+  for (let i = 0; i < groups.length; i += 1) {
+    all.push(groups[i]!.parts[0]!);
+    count += groups[i]!.count;
+  }
+  const out: RailEntry[] = [{ kind: 'all', name: '', count, parts: all, allStart: 0 }];
+  const lists = shape === undefined ? [] : shape.lists;
+  for (let i = 0; i < lists.length; i += 1) {
+    const list = lists[i]!;
+    out.push({ kind: 'list', name: list.name === null ? '' : list.name, count: list.keys.length, parts: [], allStart: 0, list });
+  }
+  return out.concat(groups);
 }
 
-/** The entry of `entries` that `ref` names: a category of that source with that name (`-1`: none). */
+/** The entry of `entries` that `ref` names: a category of that source with that name, or a list by its id (`-1`: none). */
 export function findEntry(entries: readonly RailEntry[], ref: NonNullable<RailRef>): number {
   for (let i = 0; i < entries.length; i += 1) {
     const e = entries[i]!;
-    if (e.kind === 'category' && e.name === ref.name && e.parts[0]?.src === ref.src) return i;
+    if ('list' in ref) {
+      if (e.list !== undefined && e.list.id === ref.list) return i;
+    } else if (e.kind === 'category' && e.name === ref.name && e.parts[0]!.src === ref.src) return i;
   }
   return -1;
 }
@@ -314,6 +406,7 @@ export function createLive(options: LiveOptions): Live {
 
   const status = signal<LiveStatus>('loading');
   const rail = signal<readonly RailEntry[]>([]);
+  const lists = signal<readonly FavouriteList[]>([]);
   const category = signal(0);
   const version = signal(0);
   const clock = signal(clockNow());
@@ -329,7 +422,11 @@ export function createLive(options: LiveOptions): Live {
   /** The category the first load that succeeds shows. */
   let wantCategory: RailRef = options.startCategory ?? null;
   let sources = new Map<string, ShortEpgSource>();
+  /** The stored sources' ids (a list's items are looked up in them). */
+  let srcIds: string[] = [];
   let index = new ChannelIndex([]);
+  /** The favourites list on show (`null`: a category or "All channels", read by chunk through `index`). */
+  let keyed: KeyedRows | null = null;
   /** Loaded chunks, oldest use first (a Map keeps insertion order). */
   const chunks = new Map<string, CatalogItem[]>();
   /** Chunk reads running, with the load they belong to. */
@@ -370,12 +467,53 @@ export function createLive(options: LiveOptions): Live {
   const entry = (): RailEntry | undefined => rail.value[category.value];
 
   const rowAt = (i: number): LiveRow | null => {
+    if (keyed !== null) {
+      const item = keyed.items[i];
+      return item === undefined ? null : { item, number: keyed.places[i]! + 1 };
+    }
     const at = index.locate(i);
     if (at === null) return null;
     const item = chunks.get(chunkId(at))?.[at.slot];
     if (item === undefined) return null;
-    const start = entry()?.allStart ?? 0;
-    return { item, number: item.chno !== null ? item.chno : start + i + 1 };
+    return { item, number: item.chno !== null ? item.chno : index.place(i) + 1 };
+  };
+
+  /** Rows in the list on show (a list's: its items found so far). */
+  const rowCount = (): number => (keyed !== null ? keyed.items.length : index.count);
+
+  /** Reads the items of a favourites list's `keys` for load `seq`, `KEY_BATCH` keys a call; the list's zone follows once they are in. */
+  const readKeys = (keys: readonly ContentKey[], seq: number): KeyedRows => {
+    const rows: KeyedRows = { items: [], places: [], done: Promise.resolve() };
+    const asks: Promise<CatalogItem[]>[] = [];
+    for (let i = 0; i < keys.length; i += KEY_BATCH) {
+      const req: KeyItemsRequest = { keys: keys.slice(i, i + KEY_BATCH), kind: LIVE_KIND, sources: srcIds, limit: Math.min(KEY_BATCH, keys.length - i) };
+      asks.push(track(() => engine.itemsByKey(req)));
+    }
+    rows.done = Promise.all(asks).then(
+      (found) => {
+        if (disposed || seq !== loadSeq || keyed !== rows) return;
+        for (let b = 0; b < found.length; b += 1) {
+          for (let i = 0; i < found[b]!.length; i += 1) {
+            rows.items.push(found[b]![i]!);
+            rows.places.push(keys.indexOf(found[b]![i]!.key));
+          }
+        }
+        home.update(channelsZone(rows.items.length));
+        bump();
+        afterChange();
+      },
+      (error: unknown) => {
+        // The next load reads it again.
+        if (!disposed) console.warn("A favourites list's channels could not be read", error);
+      },
+    );
+    return rows;
+  };
+
+  /** The list rail entry `picked` lists, from its first row: its chunks' index, or its items read by key. */
+  const setList = (picked: RailEntry): void => {
+    index = new ChannelIndex(picked.parts);
+    keyed = picked.list === undefined ? null : readKeys(picked.list.keys, loadSeq);
   };
 
   /** The rows the window shows, and one window either side of it (read ahead). */
@@ -544,20 +682,30 @@ export function createLive(options: LiveOptions): Live {
   const loadRow = (i: number): Promise<LiveRow | null> => {
     const known = rowAt(i);
     if (known !== null) return Promise.resolve(known);
+    if (keyed !== null) return keyed.done.then(() => rowAt(i));
     const at = index.locate(i);
     if (at === null || disposed || status.value !== 'ready') return Promise.resolve(null);
     return loadChunk(at, loadSeq).then(() => rowAt(i));
   };
 
   /**
-   * The first row of the list on show that `test` takes (`-1`: none), reading the chunk of row
-   * `from` first, then every chunk from that one outwards: a cached chunk costs nothing, any
-   * other one read. `-1` too when the list changed meanwhile.
+   * The first row of the list on show that `test` takes (`-1`: none), with the row's number,
+   * reading the chunk of row `from` first, then every chunk from that one outwards: a cached chunk
+   * costs nothing, any other one read. A favourites list's rows once its items are in. `-1` too
+   * when the list changed meanwhile.
    */
-  const findRow = async (from: number, test: (item: CatalogItem, row: number, shown: RailEntry) => boolean): Promise<number> => {
+  const findRow = async (from: number, test: (item: CatalogItem, number: number) => boolean): Promise<number> => {
     const shown = entry();
-    if (shown === undefined || status.value !== 'ready' || index.count === 0) return -1;
+    if (shown === undefined || status.value !== 'ready') return -1;
     const seq = loadSeq;
+    const mine = keyed;
+    if (mine !== null) {
+      await mine.done;
+      if (disposed || seq !== loadSeq || mine !== keyed) return -1;
+      for (let i = 0; i < mine.items.length; i += 1) if (test(mine.items[i]!, mine.places[i]! + 1)) return i;
+      return -1;
+    }
+    if (index.count === 0) return -1;
     const list = index;
     // A row before the first has no chunk: the search then starts at the first.
     const guess = Math.min(from, list.count - 1);
@@ -574,20 +722,22 @@ export function createLive(options: LiveOptions): Live {
       const items = chunks.get(chunkId(ref)) ?? (await track(() => engine.chunk(ref.src, LIVE_KIND, ref.catIdx, ref.chunk)));
       if (disposed || seq !== loadSeq || list !== index) return -1;
       const start = list.firstRow(ref);
-      for (let slot = 0; slot < items.length; slot += 1) if (test(items[slot]!, start + slot, shown)) return start + slot;
+      for (let slot = 0; slot < items.length; slot += 1) {
+        const item = items[slot]!;
+        if (test(item, item.chno !== null ? item.chno : list.place(start + slot) + 1)) return start + slot;
+      }
     }
     return -1;
   };
 
   /**
    * The row of the channel numbered `n` in the list on show (`-1`: none), for the player's number
-   * entry. A row's number is its provider's (`chno`), else its place in "All channels", so the
-   * search starts at the row that place gives.
+   * entry. A row's number is its provider's (`chno`), else its place in the provider's whole list,
+   * so the search starts at the row that place gives (a list's rows are all in already).
    */
   const findNumber = (n: number): Promise<number> => {
-    const shown = entry();
-    if (shown === undefined || !(n > 0)) return Promise.resolve(-1);
-    return findRow(n - 1 - shown.allStart, (item, row, on) => (item.chno !== null ? item.chno : on.allStart + row + 1) === n);
+    if (!(n > 0)) return Promise.resolve(-1);
+    return findRow(keyed !== null ? 0 : index.rowOfPlace(n - 1), (_item, number) => number === n);
   };
 
   /**
@@ -627,10 +777,10 @@ export function createLive(options: LiveOptions): Live {
     // (A list that failed or is empty has no rail; `findRow` reads nothing then, nor once disposed.)
     const entries = rail.value;
     let at = -1;
-    // "All channels" first, then each category alone.
+    // Each category alone (a hidden one isn't in the rail: step 35d's).
     for (let i = 1; i < entries.length && at === -1; i += 1) {
-      const part = entries[i]!.parts[0]!;
-      if (part.src === found.src && part.catIdx === found.catIdx) at = i;
+      const part = entries[i]!.kind === 'category' ? entries[i]!.parts[0]! : null;
+      if (part !== null && part.src === found.src && part.catIdx === found.catIdx) at = i;
     }
     if (at === -1) return false;
     // (A chunk the category doesn't have gives -1: the search then starts near its top.)
@@ -678,7 +828,7 @@ export function createLive(options: LiveOptions): Live {
 
   const list: LiveList = {
     ready: () => loaded,
-    count: () => (status.value === 'ready' ? index.count : 0),
+    count: () => (status.value === 'ready' ? rowCount() : 0),
     row: rowAt,
     load: loadRow,
     find: findNumber,
@@ -691,10 +841,10 @@ export function createLive(options: LiveOptions): Live {
     const picked = rail.value[i];
     if (picked === undefined) return;
     category.value = i;
-    index = new ChannelIndex(picked.parts);
+    setList(picked);
     // Back to the top first, so no step reads chunks for the old window in the new list.
     home.reset('channels');
-    home.update(channelsZone(index.count));
+    home.update(channelsZone(rowCount()));
     home.focus('channels', 0);
   };
 
@@ -715,21 +865,30 @@ export function createLive(options: LiveOptions): Live {
     return settle;
   };
 
-  /** The stored sources and each one's live categories. */
-  const readSources = async (): Promise<{ records: StoredSource[]; lists: CategoryInfo[][] }> => {
-    const records = storedSources(await engine.profile());
+  /** The stored sources, each one's live categories, and the profile's document (its lists and groups, step 35c). */
+  const readSources = async (): Promise<SourcesRead> => {
+    const profile = await engine.profile();
+    const records = storedSources(profile);
     const lists = await Promise.all(records.map((r) => engine.categories(r.id, LIVE_KIND)));
-    return { records, lists };
+    return { records, lists, doc: profile === null ? null : profile.doc };
   };
 
-  /** Takes the sources read: their short-EPG logins and the rail (the list isn't touched). */
-  const takeSources = (records: readonly StoredSource[], lists: readonly CategoryInfo[][]): RailEntry[] => {
+  /** Takes the sources read: their short-EPG logins, the favourites lists and the rail (the list isn't touched). */
+  const takeSources = (read: SourcesRead): RailEntry[] => {
     sources = new Map<string, ShortEpgSource>();
-    for (const record of records) {
+    srcIds = [];
+    for (const record of read.records) {
+      srcIds.push(record.id);
       const source = epgSourceOf(record);
       if (source !== null) sources.set(record.id, source);
     }
-    const entries = railEntries(records.map((r, i) => ({ src: r.id, categories: lists[i] ?? [] })));
+    const doc = read.doc;
+    lists.value = favouriteListsOf(doc);
+    const shape: RailShape = { lists: lists.value, hidden: hiddenGroupsOf(doc), order: groupOrderOf(doc) };
+    const entries = railEntries(
+      read.records.map((r, i) => ({ src: r.id, categories: read.lists[i] ?? [] })),
+      shape,
+    );
     rail.value = entries;
     home.update(railZone(entries.length));
     return entries;
@@ -750,12 +909,12 @@ export function createLive(options: LiveOptions): Live {
     guides.clear();
     home.update(retryZone(0));
     track(readSources).then(
-      ({ records, lists }) => {
+      (read) => {
         if (disposed || seq !== loadSeq) {
           settle();
           return;
         }
-        const entries = takeSources(records, lists);
+        const entries = takeSources(read);
         status.value = entries.length > 0 ? 'ready' : 'empty';
         if (wantCategory !== null) category.value = Math.max(0, findEntry(entries, wantCategory));
         wantCategory = null;
@@ -776,27 +935,28 @@ export function createLive(options: LiveOptions): Live {
   /** The rail entry on show as the profile keeps it (`null`: "All channels", or nothing yet). */
   const shownCategory = (): RailRef => {
     const shown = entry();
-    const part = shown === undefined || shown.kind === 'all' ? undefined : shown.parts[0];
-    return part === undefined || shown === undefined ? null : { src: part.src, name: shown.name };
+    if (shown === undefined || shown.kind === 'all') return null;
+    return shown.list !== undefined ? { list: shown.list.id } : { src: shown.parts[0]!.src, name: shown.name };
   };
 
   /**
    * A catalog swapped in (step 22a): the sources and categories are read again without the
    * loading screen. The rail entry on show stays (by name; "All channels" when it is gone), and
    * the focused channel's row is found in the new list, unless the focus moved meanwhile. A
-   * screen still loading, or failed, loads again.
+   * screen still loading, or failed, loads again. `catalog` false (a list changed, step 35c): the
+   * chunks read stay. Settles once the new rail is in.
    */
-  const catalogChanged = (): void => {
-    if (disposed) return;
+  const reread = (catalog: boolean): Promise<void> => {
+    if (disposed) return loaded;
     if (status.value === 'loading' || status.value === 'failed') {
       load();
-      return;
+      return loaded;
     }
     const settle = nextLoad();
     const seq = loadSeq;
     const keep = shownCategory();
     track(readSources).then(
-      ({ records, lists }) => {
+      (read) => {
         // (dispose bumps `loadSeq` too.)
         if (seq !== loadSeq) {
           settle();
@@ -806,8 +966,8 @@ export function createLive(options: LiveOptions): Live {
         const place = home.position('channels').index;
         const key = rowAt(place)?.item.key ?? null;
         options.listChanging?.();
-        const entries = takeSources(records, lists);
-        chunks.clear();
+        const entries = takeSources(read);
+        if (catalog) chunks.clear();
         if (entries.length === 0) {
           // The old index stays, unread: nothing reads an index while the screen is empty.
           status.value = 'empty';
@@ -816,8 +976,8 @@ export function createLive(options: LiveOptions): Live {
           status.value = 'ready';
           const pick = keep === null ? 0 : Math.max(0, findEntry(entries, keep));
           category.value = pick;
-          index = new ChannelIndex(entries[pick]!.parts);
-          home.update(channelsZone(index.count));
+          setList(entries[pick]!);
+          home.update(channelsZone(rowCount()));
         }
         // (No bump: the new rail redraws the screen, and each chunk read bumps.)
         settle();
@@ -839,6 +999,7 @@ export function createLive(options: LiveOptions): Live {
         loadFailed(error);
       },
     );
+    return loaded;
   };
 
   /**
@@ -881,7 +1042,7 @@ export function createLive(options: LiveOptions): Live {
         else if (focus.zone === 'channels') {
           const row = rowAt(focus.index);
           if (row !== null) selected.value = row.item.key;
-          if (options.play !== undefined && focus.index >= 0 && focus.index < index.count) options.play(focus.index);
+          if (options.play !== undefined && focus.index >= 0 && focus.index < rowCount()) options.play(focus.index);
         }
       },
     },
@@ -922,6 +1083,7 @@ export function createLive(options: LiveOptions): Live {
     home,
     status,
     rail,
+    lists,
     category,
     version,
     clock,
@@ -938,7 +1100,8 @@ export function createLive(options: LiveOptions): Live {
     activity: () => engine.noteActivity(),
     reload: load,
     guidesChanged,
-    catalogChanged,
+    catalogChanged: () => void reread(true),
+    listsChanged: () => reread(false),
     dispose(): void {
       if (disposed) return;
       disposed = true;

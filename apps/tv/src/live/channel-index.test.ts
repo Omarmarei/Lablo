@@ -18,12 +18,13 @@ const address = (at: { src: string; catIdx: number; chunk: number; slot: number 
   at === null ? null : `${at.src}|${at.catIdx}|${at.chunk}|${at.slot}`;
 
 describe('ChannelIndex', () => {
+  // (Places as a rail in the user's order gives them: s1's category 2 first in the provider's list.)
   const parts: ListPart[] = [
-    { src: 's1', catIdx: 0, chunks: [3] },
-    { src: 's1', catIdx: 1, chunks: [] },
-    { src: 's1', catIdx: 2, chunks: [500, 500, 200] },
-    { src: 's2', catIdx: 0, chunks: [0] },
-    { src: 's2', catIdx: 4, chunks: [2] },
+    { src: 's1', catIdx: 0, chunks: [3], first: 1200 },
+    { src: 's1', catIdx: 1, chunks: [], first: 1203 },
+    { src: 's1', catIdx: 2, chunks: [500, 500, 200], first: 0 },
+    { src: 's2', catIdx: 0, chunks: [0], first: 1203 },
+    { src: 's2', catIdx: 4, chunks: [2], first: 1210 },
   ];
 
   it('finds each row across categories, sources and chunks, stepping over empty categories', () => {
@@ -61,6 +62,28 @@ describe('ChannelIndex', () => {
     expect(ids(5, 5)).toEqual([]);
   });
 
+  it("gives a row's place in the provider's whole list, and the row at a place (step 35c)", () => {
+    const index = new ChannelIndex(parts);
+    expect(index.place(0)).toBe(1200);
+    expect(index.place(2)).toBe(1202);
+    expect(index.place(3)).toBe(0);
+    expect(index.place(1202)).toBe(1199);
+    expect(index.place(1203)).toBe(1210);
+    expect(index.place(1204)).toBe(1211);
+    expect(index.place(-1)).toBe(-1);
+    expect(index.place(1205)).toBe(-1);
+    expect(index.rowOfPlace(1200)).toBe(0);
+    expect(index.rowOfPlace(1202)).toBe(2);
+    expect(index.rowOfPlace(0)).toBe(3);
+    expect(index.rowOfPlace(1199)).toBe(1202);
+    expect(index.rowOfPlace(1211)).toBe(1204);
+    // A place no part on show holds (a hidden group's), or past the parts.
+    expect(index.rowOfPlace(1203)).toBe(-1);
+    expect(index.rowOfPlace(1205)).toBe(-1);
+    expect(index.rowOfPlace(1212)).toBe(-1);
+    expect(index.rowOfPlace(-1)).toBe(-1);
+  });
+
   it("gives a chunk's first row, and -1 for a chunk the list doesn't hold", () => {
     const index = new ChannelIndex(parts);
     expect(index.firstRow({ src: 's1', catIdx: 2, chunk: 0 })).toBe(3);
@@ -77,6 +100,7 @@ describe('ChannelIndex', () => {
       src: fc.constantFrom('s1', 's2', 's10'),
       catIdx: fc.nat(40),
       chunks: fc.array(fc.nat(7), { maxLength: 4 }),
+      first: fc.nat(60),
     });
     fc.assert(
       // A category of a source is listed once (the rail's parts never repeat one).
@@ -98,6 +122,11 @@ describe('ChannelIndex', () => {
           const at = index.locate(i)!;
           expect(index.firstRow(at) + at.slot).toBe(i);
         }
+        // Each row's place is its part's first plus its place in the part; a place's row is the first row with it.
+        const places: number[] = [];
+        for (const p of list) for (let k = 0; k < p.chunks.reduce((n, c) => n + c, 0); k += 1) places.push(p.first + k);
+        for (let i = 0; i < rows.length; i += 1) expect(index.place(i)).toBe(places[i]);
+        for (let q = -1; q <= 100; q += 1) expect(index.rowOfPlace(q)).toBe(places.indexOf(q));
       }),
     );
   });

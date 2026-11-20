@@ -1,5 +1,6 @@
 import type { CatalogItem, ContentKey, ContentKind, EpgProgramme } from '@lablo/core';
 import type { CategoryInfo, EpgNowNext, LoadedProfile, ShortEpgNowNext, SourceRecord } from '@lablo/data';
+import type { KeyItemsRequest } from '@lablo/data/client';
 import type { Intent, RootBackPolicy } from '@lablo/platform-api';
 import { LAYOUT, SCREEN, listHeight } from '@lablo/ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -20,6 +21,7 @@ import {
   LIVE_BODY,
   RAIL_VISIBLE,
   createLive,
+  KEY_BATCH,
   findEntry,
   railEntries,
 } from './live-state';
@@ -100,8 +102,11 @@ interface Held<T> {
 class FakeEngine implements LiveEngine {
   profileDoc: LoadedProfile | null = { doc: { v: 2, sources: [S1, S2] }, newer: false, migratedFrom: null };
   failProfile = false;
-  hold = new Set<'profile' | 'chunk' | 'nowNext' | 'focus'>();
-  readonly held: Record<string, Held<unknown>[]> = { profile: [], chunk: [], nowNext: [], focus: [] };
+  hold = new Set<'profile' | 'chunk' | 'nowNext' | 'focus' | 'keys'>();
+  readonly held: Record<string, Held<unknown>[]> = { profile: [], chunk: [], nowNext: [], focus: [], keys: [] };
+  /** Each `itemsByKey` asked (step 35c). */
+  readonly keyCalls: KeyItemsRequest[] = [];
+  failKeys = false;
   readonly chunkCalls: string[] = [];
   readonly nowNextCalls: ContentKey[][] = [];
   readonly focusCalls: (FocusedChannel | null)[] = [];
@@ -122,7 +127,7 @@ class FakeEngine implements LiveEngine {
     cached: false,
   });
 
-  private answer<T>(kind: 'profile' | 'chunk' | 'nowNext' | 'focus', arg: unknown, value: () => T): Promise<T> {
+  private answer<T>(kind: 'profile' | 'chunk' | 'nowNext' | 'focus' | 'keys', arg: unknown, value: () => T): Promise<T> {
     if (!this.hold.has(kind)) {
       try {
         return Promise.resolve(value());
@@ -153,6 +158,25 @@ class FakeEngine implements LiveEngine {
     return this.answer('chunk', `${src}|${catIdx}|${chunk}`, () => {
       if (this.failChunks) throw new Error('read failed');
       return this.items(src, catIdx, chunk);
+    });
+  }
+
+  /** The items of `req.keys` the catalog has, in the order asked, as the query worker gives them (step 35c). */
+  itemsByKey(req: KeyItemsRequest): Promise<CatalogItem[]> {
+    expect(req.kind).toBe('live');
+    expect(req.keys.length).toBeLessThanOrEqual(KEY_BATCH);
+    this.keyCalls.push(req);
+    return this.answer('keys', req, () => {
+      if (this.failKeys) throw new Error('read failed');
+      const out: CatalogItem[] = [];
+      for (const key of req.keys) {
+        const m = /^x:(\w+):live:(\d+)-(\d+)$/.exec(key);
+        if (m === null || req.sources.indexOf(m[1]!) === -1 || out.length === req.limit) continue;
+        const n = Number(m[3]);
+        const found = this.items(m[1]!, Number(m[2]), Math.floor(n / 500))[n % 500];
+        if (found !== undefined && found.key === key) out.push(found);
+      }
+      return out;
     });
   }
 
@@ -314,7 +338,7 @@ describe('railEntries', () => {
       ['category', 'Kids', 2, 1203],
     ]);
     expect(entries[0]!.parts.map((p) => `${p.src}|${p.catIdx}`)).toEqual(['s1|0', 's1|2', 's2|0']);
-    expect(entries[2]!.parts).toEqual([{ src: 's1', catIdx: 2, chunks: [500, 500, 200] }]);
+    expect(entries[2]!.parts).toEqual([{ src: 's1', catIdx: 2, chunks: [500, 500, 200], first: 3 }]);
   });
 
   it('is empty when no source has a live channel', () => {
@@ -1955,5 +1979,270 @@ describe('a channel played before (RELAY step 28b2)', () => {
     await flush();
     expect(played).toBe(true);
     expect(play).toHaveBeenCalledWith(700);
+  });
+});
+
+describe('favourites lists and groups (RELAY step 35c)', () => {
+  const SOURCES = [
+    { src: 's1', categories: CATEGORIES.s1! },
+    { src: 's2', categories: CATEGORIES.s2! },
+  ];
+  /** Sports 5, a channel the catalog doesn't have, Kids 1, News 2 (numbered 9 by the provider). */
+  const MINE = { id: 'l1', name: 'Mine', keys: ['x:s1:live:2-5', 'x:s1:live:2-9999', 'x:s2:live:0-1', 'x:s1:live:0-2'] };
+  const EMPTY = { id: 'l2', name: null, keys: [] };
+  const profileWith = (extra: Record<string, unknown>): LoadedProfile => ({ doc: { v: 2, sources: [S1, S2], ...extra }, newer: false, migratedFrom: null });
+  const listsEngine = (extra: Record<string, unknown> = { favouriteLists: [MINE, EMPTY] }): FakeEngine => {
+    const engine = new FakeEngine();
+    engine.profileDoc = profileWith(extra);
+    return engine;
+  };
+
+  it('puts the lists after "All channels", the ordered groups first, and leaves hidden ones out of the rail and "All channels"', () => {
+    const entries = railEntries(SOURCES, {
+      lists: [MINE, EMPTY],
+      hidden: [{ src: 's1', name: 'News' }],
+      order: [
+        { src: 's1', name: 'Gone' },
+        { src: 's2', name: 'Kids' },
+        { src: 's1', name: 'News' },
+      ],
+    });
+    expect(entries.map((e) => [e.kind, e.name, e.count, e.allStart])).toEqual([
+      ['all', '', 1202, 0],
+      ['list', 'Mine', 4, 0],
+      ['list', '', 0, 0],
+      ['category', 'Kids', 2, 1203],
+      ['category', 'Sports', 1200, 3],
+    ]);
+    // "All channels" in the rail's order; each part keeps its place in the provider's whole list (News counted).
+    expect(entries[0]!.parts.map((p) => `${p.src}|${p.catIdx}|${p.first}`)).toEqual(['s2|0|1203', 's1|2|3']);
+    expect(entries[1]!.list).toBe(MINE);
+    expect(entries[2]!.parts).toEqual([]);
+    // Nothing to show at all: no rail, whatever the lists hold.
+    expect(railEntries([], { lists: [MINE], hidden: [], order: [] })).toEqual([]);
+    // Every group hidden: "All channels" empty, the lists still there.
+    const hiddenAll = railEntries(SOURCES, {
+      lists: [EMPTY],
+      hidden: [
+        { src: 's1', name: 'News' },
+        { src: 's1', name: 'Sports' },
+        { src: 's2', name: 'Kids' },
+      ],
+      order: [],
+    });
+    expect(hiddenAll.map((e) => [e.kind, e.count])).toEqual([
+      ['all', 0],
+      ['list', 0],
+    ]);
+  });
+
+  it("keeps the provider's order for a second group of the same name, and for groups the order doesn't name", () => {
+    const twice = [{ src: 's1', categories: [info(0, 'News', [3]), info(1, 'Sports', [2]), info(2, 'News', [4])] }];
+    const entries = railEntries(twice, { lists: [], hidden: [], order: [{ src: 's1', name: 'Sports' }, { src: 's1', name: 'News' }] });
+    expect(entries.map((e) => `${e.name}|${e.allStart}`)).toEqual(['|0', 'Sports|3', 'News|0', 'News|5']);
+    // A group of another source with that name isn't the ordered or the hidden one.
+    const other = railEntries(SOURCES, { lists: [], hidden: [{ src: 's2', name: 'News' }], order: [{ src: 's2', name: 'Sports' }] });
+    expect(other.map((e) => e.name)).toEqual(['', 'News', 'Sports', 'Kids']);
+  });
+
+  it('finds a list by its id, and a group only among the groups', () => {
+    const named = { id: 'l3', name: 'Kids', keys: [] };
+    const entries = railEntries(SOURCES, { lists: [MINE, EMPTY, named], hidden: [], order: [] });
+    expect(findEntry(entries, { list: 'l2' })).toBe(2);
+    expect(findEntry(entries, { list: 'l3' })).toBe(3);
+    expect(findEntry(entries, { list: 'gone' })).toBe(-1);
+    expect(findEntry(entries, { src: 's2', name: 'Kids' })).toBe(6);
+    expect(findEntry(entries, { src: 's1', name: 'Mine' })).toBe(-1);
+  });
+
+  it("shows a list's channels read by key, numbered by their place in it, and reads no chunk for it", async () => {
+    const play = vi.fn();
+    const t = await setup({ engine: listsEngine(), play });
+    expect(t.live.rail.value.map((e) => e.kind)).toEqual(['all', 'list', 'list', 'category', 'category', 'category']);
+    expect(t.live.lists.value).toEqual([MINE, EMPTY]);
+    const chunksBefore = t.engine.chunkCalls.length;
+    await t.press('LEFT', 'DOWN', 'OK');
+    expect(t.live.category.value).toBe(1);
+    expect(t.engine.keyCalls).toEqual([{ keys: MINE.keys, kind: 'live', sources: ['s1', 's2'], limit: 4 }]);
+    // The channel the catalog doesn't have leaves a gap; News 2 is 4 here, not the provider's 9.
+    expect(t.rows()).toEqual(['1 Channel s1 2-5', '3 Channel s2 0-1', '4 Channel s1 0-2']);
+    expect(t.live.list.count()).toBe(3);
+    expect(t.engine.chunkCalls.length).toBe(chunksBefore);
+    expect(t.live.shownCategory()).toEqual({ list: 'l1' });
+    expect(await t.live.list.find(3)).toBe(1);
+    expect(await t.live.list.find(4)).toBe(2);
+    expect(await t.live.list.find(2)).toBe(-1);
+    expect(await t.live.list.find(9)).toBe(-1);
+    expect(await t.live.list.find(0)).toBe(-1);
+    expect(await t.live.list.locate('x:s2:live:0-1', 0)).toBe(1);
+    expect(await t.live.list.locate('x:s1:live:2-6', 0)).toBe(-1);
+    expect(await t.live.list.load(2)).toEqual({ item: expect.objectContaining({ key: 'x:s1:live:0-2' }), number: 4 });
+    expect(await t.live.list.load(3)).toBeNull();
+    // OK plays its row; now/next is asked for its rows on show.
+    await t.press('RIGHT', 'DOWN', 'OK');
+    expect(play).toHaveBeenCalledWith(1);
+    t.clock.advance(GUIDE_DELAY_MS);
+    await flush();
+    expect(t.engine.nowNextCalls[t.engine.nowNextCalls.length - 1]).toEqual(['x:s1:live:2-5', 'x:s2:live:0-1', 'x:s1:live:0-2']);
+    // An empty list shows no row and asks nothing.
+    await t.press('BACK', 'DOWN', 'OK');
+    expect(t.live.category.value).toBe(2);
+    expect(t.engine.keyCalls.length).toBe(1);
+    expect(t.live.list.count()).toBe(0);
+    expect(t.live.status.value).toBe('ready');
+  });
+
+  it('reads a long list in batches of 100 keys, and finds rows once they are in', async () => {
+    const keys: string[] = [];
+    for (let n = 0; n < 250; n += 1) keys.push(`x:s1:live:2-${n}`);
+    const t = await setup({ engine: listsEngine({ favouriteLists: [{ id: 'big', name: 'Big', keys }] }) });
+    t.engine.hold.add('keys');
+    await t.press('LEFT', 'DOWN', 'OK');
+    expect(t.engine.keyCalls.map((r) => [r.keys.length, r.limit, r.keys[0]])).toEqual([
+      [100, 100, 'x:s1:live:2-0'],
+      [100, 100, 'x:s1:live:2-100'],
+      [50, 50, 'x:s1:live:2-200'],
+    ]);
+    // Nothing until every batch is in.
+    expect(t.live.list.count()).toBe(0);
+    expect(t.live.pending.value).toBeGreaterThanOrEqual(3);
+    const found = t.live.list.find(250);
+    const loading = t.live.list.load(249);
+    const version = t.live.version.value;
+    for (const held of t.engine.held.keys!.splice(0)) {
+      const req = held.arg as KeyItemsRequest;
+      held.resolve(req.keys.map((key) => chunkItems('s1', 2, 0)[Number(key.split('-')[1])]!));
+    }
+    expect(await found).toBe(249);
+    expect(await loading).toEqual({ item: expect.objectContaining({ key: 'x:s1:live:2-249' }), number: 250 });
+    // The rows draw again once they are in.
+    expect(t.live.version.value).toBeGreaterThan(version);
+    expect(t.live.list.count()).toBe(250);
+    expect((t.live.home.zone('channels') as { count: number }).count).toBe(250);
+    expect(t.rows()[0]).toBe('1 Channel s1 2-0');
+  });
+
+  it('drops a list read, and a number search in it, when another entry shows before the answer', async () => {
+    const t = await setup({ engine: listsEngine() });
+    t.engine.hold.add('keys');
+    await t.press('LEFT', 'DOWN', 'OK');
+    const found = t.live.list.find(1);
+    // Back to "All channels" before the list's channels come.
+    await t.press('BACK', 'UP', 'OK');
+    expect(t.live.category.value).toBe(0);
+    for (const held of t.engine.held.keys!.splice(0)) held.resolve([item('s1', 2, 5)]);
+    expect(await found).toBe(-1);
+    await flush();
+    expect(t.live.list.count()).toBe(1205);
+    expect((t.live.home.zone('channels') as { count: number }).count).toBe(1205);
+    expect(t.rows()[0]).toBe('7 Channel s1 0-0');
+  });
+
+  it('drops a number search in a list whose read is in, when a reload comes before it resumes', async () => {
+    const t = await setup({ engine: listsEngine() });
+    await t.press('LEFT', 'DOWN', 'OK');
+    expect(t.live.list.count()).toBe(3);
+    const late = t.live.list.find(3);
+    t.live.reload();
+    expect(await late).toBe(-1);
+  });
+
+  it("shows no rows, and finds none, when a list's channels can't be read", async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const engine = listsEngine();
+    engine.failKeys = true;
+    const t = await setup({ engine });
+    await t.press('LEFT', 'DOWN', 'OK');
+    expect(t.live.list.count()).toBe(0);
+    expect(await t.live.list.find(1)).toBe(-1);
+    expect(await t.live.list.load(0)).toBeNull();
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it("numbers \"All channels\" and each group by the provider's whole list, with groups hidden and moved", async () => {
+    const t = await setup({ engine: listsEngine({ hiddenGroups: [{ src: 's1', name: 'News' }], groupOrder: [{ src: 's2', name: 'Kids' }] }) });
+    expect(t.live.rail.value.map((e) => e.name)).toEqual(['', 'Kids', 'Sports']);
+    // Place 1002 (Sports' slot 999) is row 1001 here: its chunk is read first, and only it.
+    const first = t.engine.chunkCalls.length;
+    expect(await t.live.list.find(1003)).toBe(1001);
+    expect(t.engine.chunkCalls.slice(first)).toEqual(['s1|2|1']);
+    expect(t.rows().slice(0, 3)).toEqual(['1204 Channel s2 0-0', '1205 Channel s2 0-1', '4 Channel s1 2-0']);
+    expect(await t.live.list.find(1205)).toBe(1);
+    expect(await t.live.list.find(4)).toBe(2);
+    expect(await t.live.list.find(1203)).toBe(1201);
+    // News (hidden) holds places 1–3: no row has them. Its own numbers 7–9 are Sports' places too.
+    expect(await t.live.list.find(1)).toBe(-1);
+    expect(await t.live.list.find(3)).toBe(-1);
+    expect(await t.live.list.find(8)).toBe(6);
+    // The number entry starts at the chunk its place gives.
+    const before = t.engine.chunkCalls.length;
+    expect(await t.live.list.find(1101)).toBe(1099);
+    expect(t.engine.chunkCalls.slice(before)).toEqual(['s1|2|2']);
+    await t.press('LEFT', 'DOWN', 'OK');
+    expect(t.rows()).toEqual(['1204 Channel s2 0-0', '1205 Channel s2 0-1']);
+  });
+
+  it('reads the lists again after an edit, on the entry on show, with the chunks kept', async () => {
+    const changing = vi.fn();
+    const t = await setup({ engine: listsEngine(), listChanging: changing });
+    const chunks = t.engine.chunkCalls.length;
+    // On "All channels": the chunks read stay (a catalog swap reads them again).
+    t.engine.profileDoc = profileWith({ favouriteLists: [MINE, { id: 'l2', name: null, keys: ['x:s2:live:0-0'] }] });
+    await t.live.listsChanged();
+    await flush();
+    expect(t.engine.chunkCalls.length).toBe(chunks);
+    expect(changing).toHaveBeenCalledTimes(1);
+    expect(t.live.rail.value[2]!.count).toBe(1);
+    expect(t.live.lists.value[1]!.keys).toEqual(['x:s2:live:0-0']);
+    // On a list: it is read again, by its id, wherever it moved.
+    await t.press('LEFT', 'DOWN', 'DOWN', 'OK');
+    expect(t.rows()).toEqual(['1 Channel s2 0-0']);
+    t.engine.profileDoc = profileWith({ favouriteLists: [{ id: 'l2', name: 'Renamed', keys: ['x:s2:live:0-0', 'x:s2:live:0-1'] }, MINE] });
+    await t.live.listsChanged();
+    await flush();
+    expect(t.live.category.value).toBe(1);
+    expect(t.rows()).toEqual(['1 Channel s2 0-0', '2 Channel s2 0-1']);
+    // Its list gone: "All channels".
+    t.engine.profileDoc = profileWith({ favouriteLists: [MINE] });
+    await t.live.listsChanged();
+    await flush();
+    expect(t.live.category.value).toBe(0);
+    expect(t.live.lists.value).toEqual([MINE]);
+  });
+
+  it('reads the list on show again by key after a catalog swap', async () => {
+    const t = await setup({ engine: listsEngine() });
+    await t.press('LEFT', 'DOWN', 'OK');
+    expect(t.engine.keyCalls.length).toBe(1);
+    t.live.catalogChanged();
+    await flush();
+    expect(t.engine.keyCalls.length).toBe(2);
+    expect(t.live.category.value).toBe(1);
+    expect(t.live.list.count()).toBe(3);
+  });
+
+  it('starts on the list the last channel played from, and plays a kept channel from its list', async () => {
+    const play = vi.fn();
+    const t = await setup({ engine: listsEngine(), startCategory: { list: 'l1' }, play });
+    expect(t.live.category.value).toBe(1);
+    expect(t.rows()).toEqual(['1 Channel s1 2-5', '3 Channel s2 0-1', '4 Channel s1 0-2']);
+    await t.press('BACK', 'DOWN', 'DOWN', 'DOWN', 'DOWN', 'OK');
+    expect(t.live.category.value).toBe(5);
+    expect(await t.live.playKept({ list: 'l1' }, 'x:s1:live:0-2', 0)).toBe(true);
+    expect(t.live.category.value).toBe(1);
+    expect(play).toHaveBeenLastCalledWith(2);
+    // A list gone: "All channels".
+    expect(await t.live.playKept({ list: 'gone' }, 'x:s2:live:0-1', 0)).toBe(true);
+    expect(t.live.category.value).toBe(0);
+    expect(play).toHaveBeenLastCalledWith(1204);
+  });
+
+  it("plays a channel the search found from its group with lists in the rail, and nothing in a hidden group (step 35d's)", async () => {
+    const play = vi.fn();
+    const t = await setup({ engine: listsEngine({ favouriteLists: [MINE], hiddenGroups: [{ src: 's1', name: 'News' }] }), play });
+    expect(await t.live.playFound({ key: 'x:s1:live:2-700', src: 's1', catIdx: 2, chunk: 1, slot: 200 })).toBe(true);
+    expect(t.live.category.value).toBe(2);
+    expect(play).toHaveBeenLastCalledWith(700);
+    expect(await t.live.playFound({ key: 'x:s1:live:0-2', src: 's1', catIdx: 0, chunk: 0, slot: 2 })).toBe(false);
   });
 });

@@ -2,11 +2,12 @@ import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
 import type { CatalogItem, ContentKind, DeviceTier } from '@lablo/core';
 import type { CategoryInfo, KeyItemsRequest, LoadedProfile, RecentItem, RecentRequest, StoredSource } from '@lablo/data';
+import type { GroupRef } from '@lablo/data/client';
 import type { Focus, Navigator, Screen, ZoneSpec } from '@lablo/ui';
 import { LAYOUT, fits } from '@lablo/ui';
 import type { ChunkRef, ListPart } from '../live/channel-index';
 import { ChannelIndex, chunkId } from '../live/channel-index';
-import type { RailEntry, RailRef, Timers } from '../live/live-state';
+import type { RailEntry, Timers } from '../live/live-state';
 import { CHUNK_CACHE, LIVE, LIVE_BODY, RAIL_VISIBLE, railEntries } from '../live/live-state';
 import { storedSources } from '../onboarding/engine-loader';
 import type { MovieShares } from './movie-progress';
@@ -102,7 +103,7 @@ export interface RecentEntry {
 export type MovieEntry = RecentEntry | RailEntry;
 
 /** A rail entry as a catalog swap finds it again (`null`: none shown yet). */
-type MovieRef = 'continue' | 'recent' | 'all' | NonNullable<RailRef> | null;
+type MovieRef = 'continue' | 'recent' | 'all' | GroupRef | null;
 
 /** The entry of `entries` that `ref` names (`-1`: none). */
 function findMovieEntry(entries: readonly MovieEntry[], ref: NonNullable<MovieRef>): number {
@@ -407,7 +408,8 @@ export function createMovies(options: MoviesOptions): Movies {
   const shownRef = (): MovieRef => {
     const shown = rail.value[category.value];
     if (shown === undefined) return null;
-    if (shown.kind !== 'category') return shown.kind;
+    // (The movies' rail has no favourites list.)
+    if (shown.kind !== 'category') return shown.kind as 'continue' | 'recent' | 'all';
     const part = shown.parts[0];
     return part === undefined ? null : { src: part.src, name: shown.name };
   };

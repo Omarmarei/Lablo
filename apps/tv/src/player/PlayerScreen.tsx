@@ -10,6 +10,8 @@ import type { Live, LiveRow } from '../live/live-state';
 import type { ArchiveProgramme } from './catchup';
 import type { EpisodeMark, Player, PlayerAction, PlayingMovie, UpNext } from './player-state';
 import { BLOCKLIST_REFUSAL } from './player-state';
+import { NEW_LIST_SCREEN } from './favourite-menu';
+import { FavouritePanel, NewListForm, star } from './FavouritePanel';
 import { StreamInfoPanel } from './StreamInfoPanel';
 import { SubtitleOverlay } from './SubtitleOverlay';
 import { TrackMenuPanel } from './TrackMenuPanel';
@@ -123,10 +125,11 @@ function EpisodeLine({ i18n, episode, next = false, class: name, testId }: { i18
   );
 }
 
-/** Each info bar button's label and test id. */
-function actionButton(player: Player, i18n: AppI18n, action: PlayerAction, binding: ReturnType<typeof useZone>, index: number) {
+/** Each info bar button's label and test id; the star is filled when the channel is in a list (`starred`, step 35c). */
+function actionButton(player: Player, i18n: AppI18n, action: PlayerAction, binding: ReturnType<typeof useZone>, index: number, starred: boolean) {
   const { t } = i18n;
   const item = binding.item(index);
+  if (action === 'favourite') return <Button key={action} label={t('player.favourites')} icon={star(starred)} {...item} testId="player-favourite" />;
   if (action === 'previous') return <Button key={action} label={t('player.previous')} disabled={player.previous.value === -1} {...item} testId="player-previous" />;
   if (action === 'tracks') return <Button key={action} label={t('player.tracks')} {...item} testId="player-tracks" />;
   if (action === 'stats') return <Button key={action} label={t('player.streamInfo')} {...item} testId="player-stats" />;
@@ -149,9 +152,11 @@ interface InfoBarProps {
   readonly archive: ArchiveProgramme | null;
   /** The movie playing (step 26c), in place of the channel. */
   readonly movie: PlayingMovie | null;
+  /** The channel is in a favourites list (step 35c). */
+  readonly starred: boolean;
 }
 
-function InfoBar({ live, player, i18n, screen, binding, row, guide, archive, movie }: InfoBarProps) {
+function InfoBar({ live, player, i18n, screen, binding, row, guide, archive, movie, starred }: InfoBarProps) {
   const { t } = i18n;
   const clock = live.clock.value;
   const now = guide === undefined ? null : guide.now;
@@ -161,7 +166,7 @@ function InfoBar({ live, player, i18n, screen, binding, row, guide, archive, mov
   const seek = useZone(binding, screen, 'seek');
   const buttons = [];
   const shown = player.actions.value;
-  for (let i = 0; i < shown.length; i += 1) buttons.push(actionButton(player, i18n, shown[i]!, actions, i));
+  for (let i = 0; i < shown.length; i += 1) buttons.push(actionButton(player, i18n, shown[i]!, actions, i, starred));
   if (movie !== null) {
     // A show's episode (step 27c1): the show's name, then "S1 E2 · title".
     const episode = movie.episode;
@@ -367,6 +372,11 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
   const subtitles = player.subtitles.value;
   const stats = player.streamInfo.shown.value;
   const info = player.streamInfo.info.value;
+  // The favourites (step 35c): the lists, the panel over the player, and whether the bar's channel is in a list.
+  const lists = live.lists.value;
+  const favourites = player.favourites;
+  const panel = favourites === null ? null : favourites.screen.value;
+  const starred = row !== null && lists.some((list) => list.keys.indexOf(row.item.key) !== -1);
   return (
     <main
       class="player"
@@ -400,6 +410,9 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
       data-next={upNext === null ? '' : upNext.play.item.key}
       data-countdown={upNext === null || upNext.seconds === null ? '' : upNext.seconds}
       data-refused={refused === null ? '' : refused.id}
+      data-favourite={String(starred)}
+      data-favourites={String(panel !== null)}
+      data-editing={favourites === null ? '' : (favourites.editor.editing.value ?? '')}
     >
       {refused !== null && <div class="player__blank" aria-hidden="true" data-testid="player-blank" />}
       {player.picture.value === '4:3' && (
@@ -432,9 +445,13 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
       )}
       <div class="player__bottom">
         {subtitles.cues.length > 0 && <SubtitleOverlay cues={subtitles.cues} size={player.menu.size.value} />}
-        {screen !== null && menu === null && player.info.value && <InfoBar live={live} player={player} i18n={i18n} screen={screen} binding={binding} row={row} guide={guide} archive={archive} movie={movie} />}
+        {screen !== null && menu === null && panel === null && player.info.value && (
+          <InfoBar live={live} player={player} i18n={i18n} screen={screen} binding={binding} row={row} guide={guide} archive={archive} movie={movie} starred={starred} />
+        )}
       </div>
       {menu !== null && <TrackMenuPanel menu={player.menu} tracks={status.tracks} feed={subtitles.feed} i18n={i18n} screen={menu} binding={binding} />}
+      {favourites !== null && panel !== null && <FavouritePanel menu={favourites} lists={lists} i18n={i18n} screen={panel} binding={binding} />}
+      {favourites !== null && focus.screen === NEW_LIST_SCREEN && <NewListForm i18n={i18n} menu={favourites} binding={binding} />}
       {screen !== null && refused !== null && <RefusedCard refusal={refused} i18n={i18n} screen={screen} binding={binding} movie={movie !== null} />}
       {screen !== null && failure !== null && <ErrorCard failure={failure} i18n={i18n} screen={screen} binding={binding} movie={movie !== null} />}
       {screen !== null && ended && archive !== null && <EndCard archive={archive} i18n={i18n} screen={screen} binding={binding} />}

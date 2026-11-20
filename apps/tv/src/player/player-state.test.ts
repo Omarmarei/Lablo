@@ -1,6 +1,7 @@
 import { signal } from '@preact/signals';
 import type { CatalogItem, ContentKey } from '@lablo/core';
-import type { EpgNowNext } from '@lablo/data';
+import type { EpgNowNext, ProfileEdit } from '@lablo/data';
+import type { FavouriteList } from '@lablo/data/client';
 import type { Intent, LifecycleEvent } from '@lablo/platform-api';
 import type { PictureMode, PlaybackFailure, PlayerState, PlayerStatus, PlayerTracks, PlayOptions, PlayRequest, StreamStats, SubtitleView } from '@lablo/player';
 import { NO_STATS, NO_TRACKS } from '@lablo/player';
@@ -13,8 +14,10 @@ import type { ArchiveProgramme } from './catchup';
 import { HELD_PRESSES, JUMP_STEP_MS, MOVIE_STEP_MS } from './catchup';
 import type { EpisodeMark, MoviePlay, PlayerLike, PlayerOptions, ZapList } from './player-state';
 import {
+  ACTIONS,
   CHANNEL_ACTIONS,
   DIGITS_MS,
+  FAVOURITE_ACTION,
   HOLD_MS,
   INFO_MS,
   MISSING_MS,
@@ -325,6 +328,7 @@ function setup(
     wallAt?: number;
     refusal?: PlayerOptions['refusal'];
     blocklist?: PlayerOptions['blocklist'];
+    favourites?: PlayerOptions['favourites'];
   } = {},
 ) {
   const list = new FakeList();
@@ -371,6 +375,7 @@ function setup(
     ...(kept.wallAt === undefined ? {} : { clock: () => kept.wallAt! + clock.now() }),
     ...(kept.refusal === undefined ? {} : { refusal: kept.refusal }),
     ...(kept.blocklist === undefined ? {} : { blocklist: kept.blocklist }),
+    ...(kept.favourites === undefined ? {} : { favourites: kept.favourites }),
     timers: clock.timers,
     now: clock.now,
     progressed: (item, positionMs, lengthMs, ended, show, more) =>
@@ -2164,7 +2169,7 @@ describe('the player: a movie (RELAY step 26c)', () => {
     await t.press('BACK');
     t.player.show(2);
     expect(t.player.actions.value).toEqual(CHANNEL_ACTIONS);
-    expect(t.player.screen.value!.zone('actions')).toMatchObject({ count: 4 });
+    expect(t.player.screen.value!.zone('actions')).toMatchObject({ count: 5 });
     expect(t.player.movie.value).toBeNull();
   });
 
@@ -3223,5 +3228,87 @@ describe("the player: the config's blocklist (RELAY step 30c3b)", () => {
     t.player.show(2);
     t.answers.value = 4;
     expect(t.controller.checks).toBe(1);
+  });
+});
+
+describe("the info bar's favourites (RELAY step 35c)", () => {
+  const host = () => {
+    const edits: ProfileEdit[] = [];
+    const favourites: NonNullable<PlayerOptions['favourites']> = {
+      edit: (edit) => {
+        edits.push(edit);
+        return Promise.resolve(true);
+      },
+      lists: signal<readonly FavouriteList[]>([]),
+      changed: () => Promise.resolve(),
+      platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+      now: () => 5,
+    };
+    return { edits, favourites };
+  };
+
+  it("is a channel's last button: OK opens the panel for the bar's channel, the bar hides, and comes back when it closes", async () => {
+    const { favourites } = host();
+    const t = setup('ltr', { favourites });
+    expect(CHANNEL_ACTIONS[FAVOURITE_ACTION]).toBe('favourite');
+    expect(CHANNEL_ACTIONS.length).toBe(ACTIONS);
+    expect(MOVIE_ACTIONS).not.toContain('favourite');
+    t.player.show(2);
+    t.player.screen.value!.focus('actions', FAVOURITE_ACTION);
+    await t.press('OK');
+    expect(t.at()).toBe('favourites · lists 0');
+    expect(t.player.favourites!.item.value?.key).toBe('x:s1:live:2');
+    expect(t.player.info.value).toBe(false);
+    await t.press('BACK');
+    expect(t.at()).toBe(`player · actions ${FAVOURITE_ACTION}`);
+    expect(t.player.info.value).toBe(true);
+    expect(t.player.open.value).toBe(true);
+  });
+
+  it('opens over no card, and closes with the player, on STOP, and when a card shows', async () => {
+    const { favourites } = host();
+    const t = setup('ltr', { favourites });
+    t.player.show(2);
+    t.player.screen.value!.focus('actions', FAVOURITE_ACTION);
+    await t.press('OK');
+    t.player.close();
+    expect(t.player.favourites!.screen.value).toBeNull();
+    expect(t.nav.snapshot().depth).toBe(1);
+    t.player.show(3);
+    t.player.screen.value!.focus('actions', FAVOURITE_ACTION);
+    await t.press('OK');
+    t.controller.set('failed', NOT_FOUND);
+    await flush();
+    expect(t.player.favourites!.screen.value).toBeNull();
+    expect(t.at()).toBe('player · card 0');
+    // Over the card: nothing opens.
+    t.player.screen.value!.focus('actions', FAVOURITE_ACTION);
+    await t.press('OK');
+    expect(t.player.favourites!.screen.value).toBeNull();
+    t.player.close();
+    t.player.show(4);
+    t.player.screen.value!.focus('actions', FAVOURITE_ACTION);
+    await t.press('OK');
+    await t.press('STOP');
+    expect(t.player.open.value).toBe(false);
+    expect(t.player.favourites!.screen.value).toBeNull();
+    expect(t.nav.snapshot().depth).toBe(1);
+    t.player.dispose();
+  });
+
+  it("does nothing without the app's side, or before the bar's row is in", async () => {
+    const t = setup();
+    expect(t.player.favourites).toBeNull();
+    t.player.show(2);
+    t.player.screen.value!.focus('actions', FAVOURITE_ACTION);
+    await t.press('OK');
+    expect(t.at()).toBe(`player · actions ${FAVOURITE_ACTION}`);
+    const { favourites } = host();
+    const u = setup('ltr', { favourites });
+    u.list.loaded.delete(7);
+    u.player.show(7);
+    u.player.screen.value!.focus('actions', FAVOURITE_ACTION);
+    await u.press('OK');
+    expect(u.player.favourites!.screen.value).toBeNull();
   });
 });
