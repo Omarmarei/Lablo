@@ -2,7 +2,7 @@ import type { CatalogItem } from '@lablo/core';
 import type { LastChannel, LoadedProfile, ProfileDoc, ProfileEdit } from '@lablo/data';
 import { MAX_CHANNELS, applyProfileEdit, emptyProfile } from '@lablo/data';
 import { describe, expect, it, vi } from 'vitest';
-import { RECENT_CHANNELS, createPlayerMemory, lastChannelOf, recentChannelsOf } from './player-memory';
+import { RECENT_CHANNELS, createPlayerMemory, lastChannelOf, railRefOf, recentChannelsOf } from './player-memory';
 
 /** What the player keeps in the profile (RELAY step 20c1). */
 
@@ -153,6 +153,31 @@ describe('createPlayerMemory', () => {
     expect(memory.last()).toEqual({ item: item(6), number: 6, category: { src: 's1', name: 'Sport' }, index: 40, started: 2000 });
   });
 
+  it('keeps a favourites list as the rail entry by its id, with no category (step 35c)', () => {
+    const { memory, edits, clock } = rig();
+    memory.tuned(item(5), 1, { list: 'l1' }, 0);
+    clock.t = 2000;
+    memory.tuned(item(5), 1, { list: 'l1' }, 0);
+    memory.tuned(item(5), 1, { list: 'l2' }, 0);
+    memory.tuned(item(5), 1, null, 0);
+    memory.tuned(item(5), 1, { list: 'l2' }, 0);
+    memory.tuned(item(5), 1, { src: 's1', name: 'l2' }, 0);
+    const lasts = changes(edits).map((c) => {
+      const l = (c as { last: LastChannel }).last;
+      return [l.category, l.list, l.started];
+    });
+    expect(lasts).toEqual([
+      [null, 'l1', 1000],
+      [null, 'l2', 2000],
+      [null, undefined, 2000],
+      [null, 'l2', 2000],
+      [{ src: 's1', name: 'l2' }, undefined, 2000],
+    ]);
+    expect(railRefOf({ item: item(5), number: 1, category: null, list: 'l1', index: 0, started: 1 })).toEqual({ list: 'l1' });
+    expect(railRefOf({ item: item(5), number: 1, category: { src: 's1', name: 'News' }, index: 0, started: 1 })).toEqual({ src: 's1', name: 'News' });
+    expect(railRefOf({ item: item(5), number: 1, category: null, index: 0, started: 1 })).toBeNull();
+  });
+
   it('keeps the channels played last: newest first, each once, at most RECENT_CHANNELS, as the profile does (step 28b2)', () => {
     expect(RECENT_CHANNELS).toBe(MAX_CHANNELS);
     const { memory, edits, clock } = rig();
@@ -201,6 +226,10 @@ describe('lastChannelOf', () => {
   it('reads a live channel with its key, source, URL and name, a number and a row', () => {
     expect(lastChannelOf(profile({ last }))).toEqual(last);
     expect(lastChannelOf(profile({ last: { ...last, category: null, started: undefined } }))).toEqual({ ...last, category: null, started: 0 });
+    // A favourites list's id (step 35c), only beside no category; anything else is "All channels".
+    expect(lastChannelOf(profile({ last: { ...last, category: null, list: 'l1' } }))).toEqual({ ...last, category: null, list: 'l1' });
+    expect(lastChannelOf(profile({ last: { ...last, list: 'l1' } }))).toEqual(last);
+    for (const list of ['', 5, null, { id: 'l1' }]) expect(lastChannelOf(profile({ last: { ...last, category: null, list } }))).toEqual({ ...last, category: null });
     expect(lastChannelOf(null)).toBeNull();
     expect(lastChannelOf(profile(undefined))).toBeNull();
     expect(lastChannelOf(profile({ last: null }))).toBeNull();

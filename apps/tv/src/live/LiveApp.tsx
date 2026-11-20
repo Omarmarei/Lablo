@@ -15,6 +15,7 @@ import type { AppI18n } from '../i18n';
 import { appI18n, switchedTag } from '../i18n';
 import type { Player } from '../player/player-state';
 import { PlayerScreen } from '../player/PlayerScreen';
+import { FAVOURITES_SCREEN, NEW_LIST_SCREEN } from '../player/favourite-menu';
 import { MoviesScreen } from '../movies/MoviesScreen';
 import type { Movies } from '../movies/movies-state';
 import { MOVIES_SCREEN, SERIES_SCREEN } from '../movies/movies-state';
@@ -90,10 +91,10 @@ function ChannelRow({ live, i18n, index, row, item }: { live: Live; i18n: AppI18
   );
 }
 
-/** A rail entry's label: ours for "All channels" and a group without a name, else the provider's. */
+/** A rail entry's label: ours for "All channels", a group without a name and a list without one ("Favourites"), else the provider's or the user's. */
 function entryLabel(entry: RailEntry, t: AppI18n['t']): { label: string; data: boolean } {
   if (entry.kind === 'all') return { label: t('category.all'), data: false };
-  if (entry.name === '') return { label: t('live.noGroup'), data: false };
+  if (entry.name === '') return { label: t(entry.kind === 'list' ? 'category.favourites' : 'live.noGroup'), data: false };
   return { label: entry.name, data: true };
 }
 
@@ -126,8 +127,9 @@ function LiveScreen({
   const { t } = i18n;
   const { binding, home } = live;
   const focus = useFocus(binding);
-  // The player covers the live screen (step 20a), its track menu too (20b): only their own parts paint, over the stage.
-  if ((focus.screen === 'player' || focus.screen === 'tracks') && player !== null) return <PlayerScreen live={live} player={player} i18n={i18n} />;
+  // The player covers the live screen (step 20a), its track menu too (20b) and the favourites panel (35c): only their own parts paint, over the stage.
+  const over = focus.screen === 'player' || focus.screen === 'tracks' || focus.screen === FAVOURITES_SCREEN || focus.screen === NEW_LIST_SCREEN;
+  if (over && player !== null) return <PlayerScreen live={live} player={player} i18n={i18n} />;
   // The settings screens (step 22b2) paint instead of the live screen.
   if (settings !== null && SETTINGS_SCREENS.indexOf(focus.screen) !== -1) return <SettingsScreen settings={settings} i18n={i18n} binding={binding} focus={focus} />;
   // The guide (step 23c) paints instead of the live screen, with its programme details (24a) over it; the player opens over it.

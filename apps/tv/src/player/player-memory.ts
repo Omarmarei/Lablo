@@ -3,6 +3,7 @@ import type { LastChannel, LoadedProfile, PlayerChange, ProfileEdit, StoredTrack
 import type { RedirectMemory, RedirectMode } from '@lablo/platform-api';
 import type { Container, PictureMode, SourceMemory, TrackChoice, TrackMemory, TrackPick } from '@lablo/player';
 import { asPictureMode } from '@lablo/player';
+import type { RailRef } from '../live/live-state';
 import type { SubtitleSize } from './track-menu';
 
 /**
@@ -41,8 +42,8 @@ export interface PlayerMemory {
   last(): LastChannel | null;
   /** The channels played last, newest first, each once (step 28b2): a new array after each change. */
   recent(): readonly LastChannel[];
-  /** A channel's stream opened: it is the last channel now. */
-  tuned(item: CatalogItem, number: number, category: LastChannel['category'], index: number): void;
+  /** A channel's stream opened from rail entry `ref` (a list: step 35c): it is the last channel now. */
+  tuned(item: CatalogItem, number: number, ref: RailRef, index: number): void;
   /** The subtitles' size (`null`: never set). */
   subtitleSize(): SubtitleSize | null;
   setSubtitleSize(size: SubtitleSize): void;
@@ -119,6 +120,7 @@ function readChannel(last: unknown): LastChannel | null {
   if (!isRecord(last)) return null;
   const item = last['item'];
   const category = last['category'];
+  const list = last['list'];
   if (!isRecord(item) || item['kind'] !== 'live') return null;
   for (const field of ['key', 'src', 'url', 'name']) if (typeof item[field] !== 'string') return null;
   const number = last['number'];
@@ -126,13 +128,21 @@ function readChannel(last: unknown): LastChannel | null {
   const started = last['started'];
   if (typeof number !== 'number' || !isFinite(number) || typeof index !== 'number' || !(index >= 0) || Math.floor(index) !== index) return null;
   if (category !== null && !(isRecord(category) && typeof category['src'] === 'string' && typeof category['name'] === 'string')) return null;
-  return {
+  const channel: LastChannel = {
     item: item as unknown as CatalogItem,
     number,
     category: category === null ? null : { src: category['src'] as string, name: category['name'] as string },
     index,
     started: typeof started === 'number' ? started : 0,
   };
+  // A list's id (step 35c); one that isn't a string is "All channels".
+  if (category === null && typeof list === 'string' && list !== '') channel.list = list;
+  return channel;
+}
+
+/** The rail entry a kept channel played from (step 35c: a favourites list by its id). */
+export function railRefOf(channel: LastChannel): RailRef {
+  return channel.list !== undefined ? { list: channel.list } : channel.category;
 }
 
 /** `channels` with `last` first and its key's entry before taken out, at most `RECENT_CHANNELS` (a new array). */
@@ -142,8 +152,11 @@ function withChannel(channels: readonly LastChannel[], last: LastChannel): LastC
   return next;
 }
 
-function sameCategory(a: LastChannel['category'], b: LastChannel['category']): boolean {
-  return a === null || b === null ? a === b : a.src === b.src && a.name === b.name;
+/** Whether `a` and `b` name the same rail entry. */
+function sameRef(a: RailRef, b: RailRef): boolean {
+  if (a === null || b === null) return a === b;
+  if ('list' in a || 'list' in b) return 'list' in a && 'list' in b && a.list === b.list;
+  return a.src === b.src && a.name === b.name;
 }
 
 export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
@@ -235,9 +248,9 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
     },
     last: () => last,
     recent: () => channels,
-    tuned(item: CatalogItem, number: number, category: LastChannel['category'], index: number): void {
-      if (last !== null && last.item.key === item.key && last.number === number && last.index === index && sameCategory(last.category, category)) return;
-      last = { item, number, category, index, started: now() };
+    tuned(item: CatalogItem, number: number, ref: RailRef, index: number): void {
+      if (last !== null && last.item.key === item.key && last.number === number && last.index === index && sameRef(railRefOf(last), ref)) return;
+      last = ref !== null && 'list' in ref ? { item, number, category: null, list: ref.list, index, started: now() } : { item, number, category: ref, index, started: now() };
       channels = withChannel(channels, last);
       write({ field: 'last', last });
     },

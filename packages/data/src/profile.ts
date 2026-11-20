@@ -144,8 +144,13 @@ export type LastChannel = {
   item: CatalogItem;
   /** The number the info bar showed. */
   number: number;
-  /** The live screen's rail entry it played from: a source's category (by name), or `null` for "All channels". */
+  /** The live screen's rail entry it played from: a source's category (by name), or `null` for "All channels" (or a list). */
   category: { src: string; name: string } | null;
+  /**
+   * The favourites list it played from, by id (step 35c), with `category: null`. Optional, so no
+   * migration: an app from before it starts on "All channels".
+   */
+  list?: string;
   /** Its row in that list then (where the start looks for it first). */
   index: number;
   /** When it started (epoch ms). Not `at`: a member named like `Array.prototype.at` pulls core-js's polyfill into the TV bundle. */

@@ -502,6 +502,14 @@ export const EN = {
   'player.picture.zoom': 'Zoom',
   'player.picture.stretch': 'Stretch',
   'player.picture.43': '4:3',
+  // The info bar's star and its panel (step 35c).
+  'player.favourites': 'Favourites',
+  'favourites.title': 'Add to a list',
+  'favourites.new': 'New list',
+  'favourites.nameHint': 'Leave it empty to call it {name}',
+  'favourites.create': 'Create list',
+  'favourites.full': 'This list is full.',
+  'favourites.refused': "Couldn't make the list.",
   // A catch-up's seek bar and end (RELAY step 25d).
   'player.paused': 'Paused',
   'player.position': 'Position in the programme',

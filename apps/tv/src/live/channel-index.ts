@@ -13,6 +13,11 @@ export interface ListPart {
   readonly catIdx: number;
   /** The item count of each chunk, by chunk number. */
   readonly chunks: readonly number[];
+  /**
+   * Its first item's place in the provider's whole list (every category of every source, hidden
+   * ones too, in the provider's order; step 35c): a channel without a number is numbered by it.
+   */
+  readonly first: number;
 }
 
 /** A chunk of a category of a source. */
@@ -43,14 +48,34 @@ export class ChannelIndex {
   readonly count: number;
   /** The first row of each part. */
   private readonly starts: number[] = [];
+  /** Each part's rows. */
+  private readonly sizes: number[] = [];
 
   constructor(readonly parts: readonly ListPart[]) {
     let at = 0;
     for (const part of parts) {
+      const size = sum(part.chunks);
       this.starts.push(at);
-      at += sum(part.chunks);
+      this.sizes.push(size);
+      at += size;
     }
     this.count = at;
+  }
+
+  /** Row `row`'s place in the provider's whole list (its part's `first` plus its place in the part), or -1 outside the list. */
+  place(row: number): number {
+    if (!(row >= 0 && row < this.count)) return -1;
+    const p = this.partOf(row);
+    return this.parts[p]!.first + row - this.starts[p]!;
+  }
+
+  /** The row at place `place` of the provider's whole list, or -1 when no part of this list holds it. */
+  rowOfPlace(place: number): number {
+    for (let p = 0; p < this.parts.length; p += 1) {
+      const offset = place - this.parts[p]!.first;
+      if (offset >= 0 && offset < this.sizes[p]!) return this.starts[p]! + offset;
+    }
+    return -1;
   }
 
   /**

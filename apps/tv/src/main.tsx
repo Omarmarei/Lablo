@@ -46,7 +46,7 @@ import type { Pairing } from './pairing/pair-state';
 import { createPairing } from './pairing/pair-state';
 import { appPlayer, uiTrackPreferences } from './player/app-player';
 import { catchupRequest } from './player/catchup';
-import { createPlayerMemory } from './player/player-memory';
+import { createPlayerMemory, railRefOf } from './player/player-memory';
 import type { Player } from './player/player-state';
 import { createPlayer } from './player/player-state';
 import { createStage, setPlayerChrome } from './player/stage';
@@ -393,7 +393,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     platform,
     engine: dataEngine(),
     play: (index) => player?.show(index),
-    startCategory: resume === null ? null : resume.category,
+    startCategory: resume === null ? null : railRefOf(resume),
     listChanging: () => {
       player?.listChanging();
       guide.listChanging();
@@ -467,7 +467,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     },
     progress,
     channels: memory,
-    play: (channel) => void live.playKept(channel.category, channel.item.key, channel.index),
+    play: (channel) => void live.playKept(railRefOf(channel), channel.item.key, channel.index),
   });
   // The header's "Guide" (step 23c): the grid over the list's category; OK on air plays, Back returns to the list.
   const guide = createGuide({
@@ -610,6 +610,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     refusal: playRefusal,
     // Each config answer (step 30c3b): the stream on show is asked about again, after the query worker read the new blocklist.
     blocklist: config.last,
+    // The info bar's star (step 35c): the panel edits the favourites lists, then the live screen reads them again.
+    favourites: { edit: (edit) => dataEngine().editProfile(edit), lists: live.lists, changed: () => live.listsChanged(), platform },
   });
   if (resume !== null) player.resume({ item: resume.item, number: resume.number }, resume.index);
   showFocus(live.nav);

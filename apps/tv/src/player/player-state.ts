@@ -13,6 +13,8 @@ import { mark } from '../marks';
 import { SAVE_EVERY_MS } from '../movies/movie-progress';
 import type { ArchiveProgramme } from './catchup';
 import { MOVIE_STEP_MS, SEEK_STEP_MS, seekStep } from './catchup';
+import type { FavouriteHost, FavouriteMenu } from './favourite-menu';
+import { createFavouriteMenu } from './favourite-menu';
 import type { StreamInfoPanel } from './stream-info';
 import { createStreamInfo } from './stream-info';
 import type { SubtitleSize, TrackMenu, TrackSection } from './track-menu';
@@ -23,7 +25,7 @@ import { createTrackMenu } from './track-menu';
  * channel of the live screen opens. It is a screen on the live screen's navigator:
  *
  *   actions  (the info bar's buttons: "Previous channel", "Audio and subtitles", "Stream info",
- *            "Picture")
+ *            "Picture", "Favourites")
  *   card     (the error card's "Try again" and "Channels", only once the player gave up)
  *
  * - **Zapping:** CH+/CH− and UP/DOWN move through the list the live screen showed, wrapping at
@@ -109,6 +111,9 @@ import { createTrackMenu } from './track-menu';
  *   failure, which turns into the same refusal card with its own text (`BLOCKLIST_REFUSAL`). Each
  *   config answer (`blocklist`) has the controller ask again about the stream on show. The check
  *   is asynchronous: a blocked play has already counted in `plays` and become the last channel.
+ * - **Favourites** (step 35c, `favourite-menu.ts`): the info bar's last button, a star, opens the
+ *   favourites panel for the channel on the bar (the bar hides while it shows, as for the track
+ *   menu). A movie has no star. The panel closes with the player, and when a card shows.
  */
 
 /** The info bar's stream opens this long after the last zap key. */
@@ -302,6 +307,8 @@ export interface PlayerOptions {
    * player is open, the controller asks about the stream on show again.
    */
   readonly blocklist?: ReadonlySignal<unknown>;
+  /** The favourites panel's app side (step 35c; absent: the star does nothing). */
+  readonly favourites?: FavouriteHost;
 }
 
 /**
@@ -328,6 +335,8 @@ export interface Player {
   readonly plays: ReadonlySignal<number>;
   /** The audio and subtitle menu over the player (it also holds the subtitles' size and timing). */
   readonly menu: TrackMenu;
+  /** The favourites panel over the player (step 35c; `null`: no `favourites` option). */
+  readonly favourites: FavouriteMenu | null;
   /** The subtitles to draw now. */
   readonly subtitles: ReadonlySignal<SubtitleView>;
   /** The stream info panel (on and off, and its figures). */
@@ -377,20 +386,22 @@ export interface Player {
 const IDLE: PlayerStatus = { state: 'idle', session: 0, key: null, container: null, attempt: 0, failure: null, tracks: NO_TRACKS };
 const NO_SUBTITLES: SubtitleView = { feed: null, cues: [] };
 
-/** The info bar's buttons: "Previous channel", "Audio and subtitles", "Stream info" and "Picture". */
-export const ACTIONS = 4;
+/** The info bar's buttons: "Previous channel", "Audio and subtitles", "Stream info", "Picture" and "Favourites". */
+export const ACTIONS = 5;
 /** The info bar's "Audio and subtitles". */
 export const TRACKS_ACTION = 1;
 /** The info bar's "Stream info". */
 export const STATS_ACTION = 2;
 /** The info bar's "Picture" (step 20c2b). */
 export const PICTURE_ACTION = 3;
+/** The info bar's "Favourites" (step 35c): last, so the others keep their places. */
+export const FAVOURITE_ACTION = 4;
 
 /** An info bar button. */
-export type PlayerAction = 'previous' | 'tracks' | 'stats' | 'picture';
-/** A channel's buttons (`ACTIONS` of them, at `TRACKS_ACTION`, `STATS_ACTION` and `PICTURE_ACTION`). */
-export const CHANNEL_ACTIONS: readonly PlayerAction[] = ['previous', 'tracks', 'stats', 'picture'];
-/** A movie's (step 26c): no "Previous channel". */
+export type PlayerAction = 'previous' | 'tracks' | 'stats' | 'picture' | 'favourite';
+/** A channel's buttons (`ACTIONS` of them, at `TRACKS_ACTION`, `STATS_ACTION`, `PICTURE_ACTION` and `FAVOURITE_ACTION`). */
+export const CHANNEL_ACTIONS: readonly PlayerAction[] = ['previous', 'tracks', 'stats', 'picture', 'favourite'];
+/** A movie's (step 26c): no "Previous channel", no "Favourites". */
 export const MOVIE_ACTIONS: readonly PlayerAction[] = ['tracks', 'stats', 'picture'];
 
 function actionsZone(count: number): ZoneSpec {
@@ -552,6 +563,7 @@ export function createPlayer(options: PlayerOptions): Player {
     const card = refused.value !== null || s.state === 'failed' || (s.state === 'ended' && (archive.value !== null || movie.value !== null));
     if (card) {
       menu.close();
+      favourites?.close();
       cancelSeek();
     } else menu.sync();
     const top = screen.value;
@@ -614,6 +626,7 @@ export function createPlayer(options: PlayerOptions): Player {
     positionTimer = clear(positionTimer);
     stopNext();
     menu.close();
+    favourites?.close();
     resumeFrame = false;
     // The card first: the stopped stream's states then find it shown.
     const top = screen.value!;
@@ -982,13 +995,36 @@ export function createPlayer(options: PlayerOptions): Player {
     stop: () => close(),
   });
 
-  /** The track menu over the player; the info bar makes room for it. */
-  const openMenu = (section: TrackSection): void => {
-    if (!open.value || status.value.state === 'failed' || refused.value !== null) return;
+  /** Whether a menu may open over the player: not over a card (the track menu, step 20b; the favourites, step 35c). */
+  const menuRoom = (): boolean => {
+    if (!open.value || status.value.state === 'failed' || refused.value !== null) return false;
     cancelEntry();
     infoTimer = clear(infoTimer);
     info.value = false;
-    menu.show(section);
+    return true;
+  };
+
+  /** The track menu over the player; the info bar makes room for it. */
+  const openMenu = (section: TrackSection): void => {
+    if (menuRoom()) menu.show(section);
+  };
+
+  /** The favourites panel (step 35c) for the channel on the bar; the info bar makes room for it. */
+  const favourites =
+    options.favourites === undefined
+      ? null
+      : createFavouriteMenu({
+          ...options.favourites,
+          nav,
+          closed: () => {
+            if (open.value) showInfo();
+          },
+          stop: () => close(),
+        });
+
+  const openFavourites = (): void => {
+    const row = rowAt(target.value);
+    if (favourites !== null && row !== null && menuRoom()) favourites.show(row.item);
   };
 
   const previousChannel = (): void => {
@@ -1046,8 +1082,9 @@ export function createPlayer(options: PlayerOptions): Player {
     if (!open.value) return;
     // A movie left (step 26d): where it was, before the stream stops.
     keepFilm();
-    // The menu's screen is on top of the player's: it goes first.
+    // The menus' screens are on top of the player's: they go first.
     menu.close();
+    favourites?.close();
     streamInfo.hide();
     seq += 1;
     zapTimer = clear(zapTimer);
@@ -1186,6 +1223,7 @@ export function createPlayer(options: PlayerOptions): Player {
     else if (action === 'stats') streamInfo.toggle();
     else if (action === 'picture') nextMode();
     else if (action === 'previous') previousChannel();
+    else if (action === 'favourite') openFavourites();
     // OK on a catch-up's or a movie's seek bar (steps 25d, 26c; hidden, the focus is on it) pauses it or plays it on.
     else if (focus.zone === 'seek') togglePause();
     // The config's refusal (step 30c2b): its one button closes the player.
@@ -1246,6 +1284,7 @@ export function createPlayer(options: PlayerOptions): Player {
     entry,
     plays,
     menu,
+    favourites,
     subtitles,
     streamInfo,
     picture,
@@ -1309,6 +1348,7 @@ export function createPlayer(options: PlayerOptions): Player {
       stopLifecycle();
       stopRefusal();
       stopBlocklist();
+      favourites?.dispose();
       if (unsubscribe !== null) unsubscribe();
       if (unsubscribeSubtitles !== null) unsubscribeSubtitles();
       unsubscribe = null;

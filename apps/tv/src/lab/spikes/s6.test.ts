@@ -49,6 +49,7 @@ function fake(options: { source?: unknown; ids?: string[]; profileIds?: string[]
         return Promise.resolve(0);
       },
       sourceIds: () => Promise.resolve(options.ids ?? []),
+      itemsByKey: () => Promise.resolve([]),
       profile: () => Promise.resolve(state.stored.length === 0 ? null : profileOf(state.stored)),
       editProfile: (edit) => {
         calls.push(`edit ${edit.kind}`);

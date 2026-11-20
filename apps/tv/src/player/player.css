@@ -568,6 +568,22 @@ html[data-player='on'] .player-stage {
   text-align: left;
 }
 
+/* The favourites panel (step 35c) is drawn as the track menu: a list's name takes the row. */
+.favourites__name {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+}
+
+.favourites__actions {
+  display: flex;
+  margin-top: var(--space-6);
+}
+
+.favourites__actions .z-button {
+  margin-right: var(--space-4);
+}
+
 .tracks__refused {
   margin: 0;
   color: var(--color-warn);
