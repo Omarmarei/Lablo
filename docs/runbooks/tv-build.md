@@ -6,8 +6,8 @@ How `pnpm build:tv`, `pnpm dev` and `pnpm device` work, and the manual Tizen ste
 
 | Command | What it does |
 |---|---|
-| `pnpm dev` | Vite dev server for `apps/tv` with the browser adapter (keyboard = remote). Open the printed URL at 1920x1080: it starts on onboarding (step 13a), or on the live screen once a source is stored (step 14a). URL overrides: `?tier=low&locale=ar-SA&country=SA`; developer screens `?screen=hello` (device, workers, data layer) and `?screen=gallery` (components). |
-| `pnpm build:tv` | Both TV builds of the app and of the Lablo Lab (`dist/tv-lab`, step 15a, [lab.md](lab.md)), the ES2016 syntax gate, bundle budgets and the webOS `.ipk`s. Options: `--platform tizen` or `--platform webos` (repeatable), `--target app` or `--target lab` (repeatable), `--skip-package`, `--out <dir>` (staging root instead of `dist/tv`; the app only). Lab options: `--lab-server`, `--lab-version`, `--lab-write-mb`, `--lab-no-auto` (lab.md). Test only: `--unsafe-no-polyfills` builds without core-js for the old-engine self-test; it needs `--out`, refuses `dist/tv` and never packages. |
+| `pnpm dev` | Vite dev server for `apps/tv` with the browser adapter (keyboard = remote). Open the printed URL at 1920x1080: it starts on onboarding (step 13a), or on the live screen once a source is stored (step 14a). URL overrides: `?tier=low&locale=ar-SA&country=SA`; developer screens `?screen=hello` (device, workers, data layer) and `?screen=gallery` (components): the dev app and the build's test copy only (step 35b). |
+| `pnpm build:tv` | Both TV builds of the app (`dist/tv`, the store build), of its test copy with the developer screens (`dist/tv-dev`, step 35b: never packaged, no main budget) and of the Lablo Lab (`dist/tv-lab`, step 15a, [lab.md](lab.md)), the ES2016 syntax gate, bundle budgets and the webOS `.ipk`s. Options: `--platform tizen` or `--platform webos` (repeatable), `--target app`, `dev`, `lab` or `vectors` (repeatable), `--skip-package`, `--out <dir>` (the staging root of one app build instead of `dist/tv` or `dist/tv-dev`: `--target app` or `--target dev`). Lab options: `--lab-server`, `--lab-version`, `--lab-write-mb`, `--lab-no-auto` (lab.md). Test only: `--unsafe-no-polyfills` builds without core-js for the old-engine self-test; it needs `--out`, refuses `dist/tv` and never packages. |
 | `pnpm verify:engines` | The built apps in Chromium 53/56/68 snapshots (Docker). See [old-engines.md](old-engines.md). |
 | `pnpm fonts` | Remakes the woff2 font subsets in `packages/ui/assets/fonts` (with `fonts.json` and `OFL.txt`) from the Noto sources pinned in `tools/fonts/src/spec.ts`, downloaded once into `.cache/fonts` and checked by SHA-256. Run it after changing a range, a weight or a source, then commit the outputs; the output is deterministic. CI never downloads fonts. |
 | `pnpm e2e` | Playwright: the dev app by keyboard, and both built TV bundles booted from `file://`. Needs `pnpm build:tv` first (`pnpm verify` runs it). The specs press keys through `e2e/remote-driver.ts` and read the focus from `window.__LABLO_TEST__.focusPath()` (step 14b). The project `throttled` runs last, alone: the live screen on 20,000 channels at 4x CPU throttle, each key press ≤ 200 ms and no longer main-thread task, in the full and the forced low tier (report: `artifacts/perf/live-throttled.json`). Run it by itself with `pnpm exec playwright test --project=throttled --no-deps` (no TV build needed). |
@@ -53,6 +53,15 @@ How `pnpm build:tv`, `pnpm dev` and `pnpm device` work, and the manual Tizen ste
    - **Tizen:** only when the Tizen CLI is on PATH **and** `TIZEN_SIGNING_PROFILE` names a certificate profile. Otherwise the build prints why it skipped and still succeeds.
 
 When a gate failure appears: find the excerpt in the source, or the dependency it came from. Regex lookbehind and named groups cannot be transpiled; rewrite the regex. A dependency shipping new syntax is already transpiled; if it still fails, it may use something Babel has no transform for. A CSS gate failure names the source file and line: rewrite the rule with flexbox, margins, physical properties or `rgba()`, as the reason says.
+
+## The store build and its test copy (step 35b)
+
+Omar's decision of 2026-11-20 (RELAY 35b): the developer screens behind `?screen=` (the hello screen, the component gallery and the grid guide's gallery page) are not in the store build.
+
+- **The swap:** `apps/tv/src/dev/dev-screens.tsx` holds them (with their stylesheet, `dev-screens.css`, and through `App.tsx` the hello worker). `tools/build/src/bundle.ts`'s `STORE_SWAPS` resolves every import of it to `dev-screens.store.ts`, a stand-in of the same type that shows none, unless `devScreens` is set. So none of their code, CSS or worker is in `dist/tv`, and `?screen=` starts the app as a TV does.
+- **The test copy:** the `dev` target builds `main.tsx` with `devScreens` into `dist/tv-dev/<platform>/`. It is never packaged and its main.js has no budget (it is the store build plus the developer screens); its workers keep theirs. The old-engine harness runs its hello and gallery screens there (old-engines.md), and so does `e2e/tv-bundle.spec.ts`, which also checks that the store build opened at `?screen=hello`, `gallery` or `gallery-guide` shows onboarding and that its app.css has none of their rules.
+- **Sizes when it landed:** main.js 490.8 → 459.9 KB on Tizen and 478.1 → 447.2 KB on webOS (the main bundle's own code); app.css 97.3 → 93.0 KB; the test copy's main.js 491.0 KB (Tizen).
+- **One build of each worker per run:** `build-tv` passes one `workerCache` to every build, keyed by the worker's entry, the platform and the polyfills, so the app, its test copy and the lab inline the same worker build. The whole `pnpm build:tv` went from about 98 s to 75 s on this PC with two more builds.
 
 ## The Lablo Lab build (step 15a)
 
@@ -121,7 +130,7 @@ Run `pnpm dev`, open the URL at 1920x1080, then:
 
 ### The component gallery (step 11b)
 
-Open `http://localhost:5173/?screen=gallery` at 1920x1080 (a built bundle takes the same `?screen=gallery` on its `index.html`). It shows every base component, and nothing on it scrolls or leaves the 96/54 px safe area.
+Open `http://localhost:5173/?screen=gallery` at 1920x1080 (the build's test copy, `dist/tv-dev`, takes the same `?screen=gallery` on its `index.html`; the store build has no gallery, step 35b). It shows every base component, and nothing on it scrolls or leaves the 96/54 px safe area.
 
 1. It starts on channel row **101 Lablo News** (thick teal ring). The Play button, the "All channels" chip and the first tile show a thin ring: each zone's remembered item.
 2. **Down** walks the channel list. After row 107 the list scrolls: it always shows 7 of 240 rows. **PgDn**/**PgUp** move 7 rows at a time.

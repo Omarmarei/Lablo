@@ -2618,6 +2618,27 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
   2. the developer screens out now, and the main budget raised to 600 KB when Phase 9 needs it;
   3. the main budget raised to 600 KB now, nothing else;
   4. Settings and the other secondary screens loaded on first open now (about two legs), before 35c.
+  - **Decided by Omar on 2026-11-20 (in leg 121's tab): option 1.** The developer screens leave the store build, and the old-engine harness gets a copy with them. **Before step 38** grows Settings, a leg measures again and asks him: load Settings on first open, or a higher budget.
+  - **Built in leg 121** (architecture.md §4 item 6, runbooks tv-build.md "The store build and its test copy" and old-engines.md):
+    - `apps/tv/src/dev/dev-screens.tsx` holds the three developer screens (main.tsx's `showHello` and the two galleries moved there), with their stylesheet `dev-screens.css` (the old `apps/tv/src/app.css`, which held only the hello screen's and the focus demo's rules). main.tsx calls `showDevScreen(...)` and starts as before when it answers `false`.
+    - `dev-screens.store.ts`: the stand-in, `() => false`, typed as the real one.
+    - `tools/build/src/bundle.ts`: `STORE_SWAPS` and `storeSwaps` (every import of a swapped module resolves to its stand-in unless `devScreens`); `workerCache` (one build of each worker per run, keyed by entry, platform and polyfills).
+    - `build-tv.ts`: the `dev` target (`dist/tv-dev`, never packaged, no main budget, its workers checked); `--out` stages one app build (`--target app` or `dev`).
+    - The harness: the `dev` variant (hello, gallery) on `dist/tv-dev`, the `app` variant on what a TV opens, each seed staged from its screens' build (`variantDist`), `no-polyfills` built as a test copy, and `assertDevScreens` refusing a store build with the developer screens or a copy without them (by app.css's `.hello` rule).
+    - `e2e/tv-bundle.spec.ts`: hello and the gallery on `dist/tv-dev`; a new test per platform: the store build opened at `?screen=hello`, `gallery` or `gallery-guide` shows onboarding, and its app.css has none of their rules.
+  - **Refined while building** (each with its why):
+    1. **A module swap, not a define.** A `__DEV_SCREENS__` branch would leave the imports in the module graph: their CSS would still reach app.css, and the polyfill imports Babel adds per file are side effects Rollup keeps.
+    2. **`build:tv` makes the test copy, not the harness.** Both the harness and `e2e/tv-bundle.spec.ts` (CI's verify job) open the built hello screen; with the worker cache the copy costs about 6 s a platform.
+    3. **The worker cache.** Before it every app and lab build rebuilt all seven workers; now `pnpm build:tv` takes about 75 s instead of 98 s, with two more builds.
+    4. **`assertDevScreens`.** Writing the mutation list showed the `no-polyfills` variant must fail on every engine: built without the developer screens it would fail its hello run anyway and pass for "caught".
+  - **Sizes:** main.js 490.8 → 459.9 KB on Tizen (40.1 KB left) and 478.1 → 447.2 KB on webOS; the store app.css 97.3 → 93.0 KB; the inlined workers 922.2 → 884.5 KB (no hello worker); the test copy's main.js 491.0 KB (Tizen).
+  - **Verified in leg 121:**
+    - unit 7,550 (+6: `bundle.test.ts`'s swaps and worker cache, `variants.test.ts`'s test copy), then 40 in `variants.test.ts` with `assertDevScreens`;
+    - e2e `tv-bundle` (10: the store build's new test per platform, hello and the gallery on the test copy), `hello`, `gallery`, `guide-gallery`, `config-gate`: 38 passed;
+    - the whole repo's lint, `pnpm typecheck`;
+    - `build:tv`: the sizes above; no new circular import;
+    - `verify:engines --engine chrome53 --engine chrome68 --self-test`: all 90 runs as expected, 60 seeded failures caught (`artifacts/engines-35b.log`); the `dev` variant's hello and gallery pass, its gallery screenshots kept; `no-polyfills` (a test copy now) fails on `padStart` on 53, as before;
+    - mutation `artifacts/mutate35b.py`: 29 written first (writing them found the `no-polyfills` weak spot, closed by `assertDevScreens`), 29/29 on the first run, the build and e2e ones through `build:tv` and Playwright.
 - [ ] 35c. **The lists in the live screen** (`apps/tv`): as 35's split above. After 35b.
 - [ ] 35d. **Settings › "Channel groups"** (`apps/tv`): as 35's split above. After 35c.
 - [ ] 36. **Channel management.** Hide/rename/renumber channels, "clean names", multiple sources merged.

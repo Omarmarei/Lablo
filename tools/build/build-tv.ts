@@ -13,20 +13,25 @@
  *   6. Stage dist/tv/<platform>/ (index.html, main.js, app.css, assets, manifest, icons).
  *   7. Package: webOS .ipk via ares-package; Tizen .wgt only with the Tizen CLI and a profile.
  *
- * Each platform is built twice: the app (apps/tv/src/main.tsx -> dist/tv) and the Lablo Lab
+ * Each platform is built three times: the app (apps/tv/src/main.tsx -> dist/tv), the app's test
+ * copy with the developer screens (-> dist/tv-dev; RELAY step 35b: the hello screen and the
+ * galleries behind `?screen=`, which the store build swaps out, `STORE_SWAPS` in src/bundle.ts;
+ * never packaged, and only its workers have a budget) and the Lablo Lab
  * (apps/tv/src/lab/lab-main.tsx -> dist/tv-lab, its own app id; RELAY step 15a, src/lab.ts).
+ * The three share each worker's build (`workerCache`).
  * Then once, for both platforms, the crypto vectors page (apps/tv/src/vectors -> dist/tv-vectors:
  * @lablo/crypto's shared vectors through this pipeline, for the old engines; step 29b1, src/vectors.ts).
  *
- * Options: --platform tizen|webos (repeatable; default both), --target app|lab|vectors
- * (repeatable; default all three), --skip-package.
+ * Options: --platform tizen|webos (repeatable; default both), --target app|dev|lab|vectors
+ * (repeatable; default all four), --skip-package.
  * Lab options: --lab-server http://host:port (the mock provider the TV reaches; default this
  * PC's LAN address, port 8080), --lab-version x.y.z (default the app's: raise it to test an
  * update over an installed lab, spike S2), --lab-write-mb N (S2's write test, default 200),
  * --lab-no-auto (wait for "Run all" instead of running at launch).
- * Test only (the old-engine harness self-test, tools/engines): --unsafe-no-polyfills builds
- * without core-js; it requires --out <dir> (the staging root instead of dist/tv) and skips
- * packaging, so an unpolyfilled build can never land in dist/. It builds the app only.
+ * --out <dir>: the staging root of one app build instead of dist/tv (or dist/tv-dev): the app,
+ * or `--target dev`. Test only (the old-engine harness self-test, tools/engines):
+ * --unsafe-no-polyfills builds without core-js; it requires --out and skips packaging, so an
+ * unpolyfilled build can never land in dist/. It builds the app or its test copy only.
  */
 import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
@@ -34,6 +39,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import type { BudgetResult } from './src/budgets';
 import { bundleBudgets, formatBudget, kb } from './src/budgets';
+import type { BundleResult } from './src/bundle';
 import { SyntaxGateError, bundleIife } from './src/bundle';
 import type { CssBuild } from './src/css';
 import { ASSET_DIR, buildCss } from './src/css';
@@ -60,6 +66,7 @@ import { readVectorsJson, renderVectorsIndexHtml, vectorsDataScript } from './sr
 const ROOT = path.resolve(import.meta.dirname, '../..');
 const APP_DIR = path.join(ROOT, 'apps/tv');
 const DIST_TV = path.join(ROOT, 'dist/tv');
+const DIST_DEV = path.join(ROOT, 'dist/tv-dev');
 const DIST_LAB = path.join(ROOT, 'dist/tv-lab');
 const DIST_VECTORS = path.join(ROOT, 'dist/tv-vectors');
 const NATIVE_PROBE = path.join(APP_DIR, 'src/lab/native-probe.js');
@@ -73,8 +80,8 @@ const LICENCES: ReadonlyArray<readonly [string, string]> = [['packages/ui/assets
 
 const rel = (file: string): string => path.relative(ROOT, file).split(path.sep).join('/');
 
-type Target = 'app' | 'lab' | 'vectors';
-const TARGETS: readonly Target[] = ['app', 'lab', 'vectors'];
+type Target = 'app' | 'dev' | 'lab' | 'vectors';
+const TARGETS: readonly Target[] = ['app', 'dev', 'lab', 'vectors'];
 
 interface PlatformReport {
   readonly platform: TvPlatform;
@@ -89,9 +96,13 @@ interface PlatformReport {
 interface BuildOptions {
   readonly version: string;
   readonly skipPackage: boolean;
-  /** Staging root; `dist/tv` unless --out is given. */
+  /** The app's staging root; `dist/tv` unless --out is given. */
   readonly outDir: string;
+  /** The test copy's staging root (`dev`); `dist/tv-dev` unless --out is given. */
+  readonly devOutDir: string;
   readonly polyfills: boolean;
+  /** Each worker's build, shared by the app, its test copy and the lab (`BundleOptions.workerCache`). */
+  readonly workerCache: Map<string, BundleResult>;
   /** The lab's settings (its staging root is dist/tv-lab). */
   readonly lab: LabConfigFile;
 }
@@ -105,7 +116,7 @@ function stage(
 ): { dir: string; webosApp?: { id: string; version: string } } {
   const lab = target === 'lab';
   const version = lab ? options.lab.version : options.version;
-  const dir = path.join(lab ? DIST_LAB : options.outDir, platform);
+  const dir = path.join(lab ? DIST_LAB : target === 'dev' ? options.devOutDir : options.outDir, platform);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, 'main.js'), mainJs);
@@ -144,18 +155,21 @@ function stage(
 }
 
 async function buildPlatform(platform: TvPlatform, target: Target, options: BuildOptions): Promise<PlatformReport> {
-  const label = target === 'lab' ? `lab main.js (${platform})` : `main.js (${platform})`;
+  const label = target === 'lab' ? `lab main.js (${platform})` : target === 'dev' ? `test copy main.js (${platform})` : `main.js (${platform})`;
   const bundle = await bundleIife({
     input: path.join(APP_DIR, target === 'lab' ? 'src/lab/lab-main.tsx' : 'src/main.tsx'),
     platform,
     label,
     polyfills: options.polyfills,
+    devScreens: target === 'dev',
+    workerCache: options.workerCache,
   });
   const { code } = bundle;
 
   const budgets = bundleBudgets(label, bundle, (w) => `worker ${rel(w.entry)} (${platform})`);
 
-  const over = budgets.filter((b) => !b.ok);
+  // The test copy never ships: its main.js (the app's and the developer screens') has no budget.
+  const over = budgets.filter((b) => !b.ok && !(target === 'dev' && b.kind === 'main'));
   if (over.length > 0) {
     throw new Error(`Bundle budget exceeded:\n${over.map((b) => `  ${formatBudget(b)}`).join('\n')}`);
   }
@@ -165,10 +179,10 @@ async function buildPlatform(platform: TvPlatform, target: Target, options: Buil
     throw new Error(`${label} contains another platform's adapter (${leaked.join(', ')}); check the __PLATFORM__ branches`);
   }
 
-  const css = await buildCss(bundle.css, `${target === 'lab' ? 'lab ' : ''}app.css (${platform})`);
+  const css = await buildCss(bundle.css, `${target === 'lab' ? 'lab ' : target === 'dev' ? 'test copy ' : ''}app.css (${platform})`);
   const staged = stage(platform, target, code, css, options);
   let packaged: PackageResult | null = null;
-  if (!options.skipPackage) {
+  if (!options.skipPackage && target !== 'dev') {
     packaged = staged.webosApp ? packageWebos(staged.dir, DIST_PACKAGES, staged.webosApp) : packageTizen(staged.dir, DIST_PACKAGES);
   }
   return {
@@ -218,18 +232,22 @@ async function main(): Promise<void> {
   if (!polyfills && values.out === undefined) {
     throw new Error('--unsafe-no-polyfills is for the old-engine self-test only and needs --out <dir> (never dist/tv)');
   }
-  const outDir = values.out === undefined ? DIST_TV : path.resolve(values.out);
-  if (!polyfills && path.relative(DIST_TV, outDir) === '') throw new Error('--unsafe-no-polyfills must not write to dist/tv');
+  const out = values.out === undefined ? null : path.resolve(values.out);
+  if (!polyfills && out !== null && (path.relative(DIST_TV, out) === '' || path.relative(DIST_DEV, out) === '')) {
+    throw new Error('--unsafe-no-polyfills must not write to dist/tv or dist/tv-dev');
+  }
   const requested = values.platform ?? [...TV_PLATFORMS];
   const unknown = requested.filter((p) => !(TV_PLATFORMS as readonly string[]).includes(p));
   if (unknown.length > 0) throw new Error(`unknown --platform ${unknown.join(', ')} (expected tizen or webos)`);
   const platforms = requested as TvPlatform[];
-  // An --out build (the harness's unpolyfilled app) is the app only.
-  const requestedTargets = values.target ?? (values.out === undefined ? [...TARGETS] : ['app']);
+  // An --out build (the harness's unpolyfilled copy) is one app build: the app, or its test copy.
+  const requestedTargets = values.target ?? (out === null ? [...TARGETS] : ['app']);
   const badTargets = requestedTargets.filter((t) => !(TARGETS as readonly string[]).includes(t));
-  if (badTargets.length > 0) throw new Error(`unknown --target ${badTargets.join(', ')} (expected app, lab or vectors)`);
+  if (badTargets.length > 0) throw new Error(`unknown --target ${badTargets.join(', ')} (expected app, dev, lab or vectors)`);
   const targets = TARGETS.filter((t) => requestedTargets.includes(t));
-  if (!polyfills && targets.some((t) => t !== 'app')) throw new Error('--unsafe-no-polyfills builds the app only (no --target lab or vectors)');
+  if (out !== null && (targets.length !== 1 || (targets[0] !== 'app' && targets[0] !== 'dev'))) {
+    throw new Error('--out stages one app build: --target app or --target dev');
+  }
 
   const version = (JSON.parse(readFileSync(path.join(APP_DIR, 'package.json'), 'utf8')) as { version: string }).version;
   assertAppVersion(version);
@@ -254,8 +272,10 @@ async function main(): Promise<void> {
     version,
     // An unpolyfilled build is never packaged.
     skipPackage: values['skip-package'] || !polyfills,
-    outDir,
+    outDir: out ?? DIST_TV,
+    devOutDir: out ?? DIST_DEV,
     polyfills,
+    workerCache: new Map(),
     lab,
   };
   console.log(`Lablo TV build ${version}: ${platforms.join(', ')}, ${targets.join(', ')}${polyfills ? '' : ' (UNSAFE: no polyfills, test only)'}`);
@@ -278,9 +298,13 @@ async function main(): Promise<void> {
 }
 
 function printReport(report: PlatformReport, started: number): void {
-  const platform = report.target === 'lab' ? `lab ${report.platform}` : report.platform;
+  const platform = report.target === 'lab' ? `lab ${report.platform}` : report.target === 'dev' ? `test copy ${report.platform}` : report.platform;
   console.log(`\n[${platform}] built in ${((Date.now() - started) / 1000).toFixed(1)} s, ES2016 and CSS gates passed`);
-  for (const budget of report.budgets) console.log(`  ${formatBudget(budget)}`);
+  for (const budget of report.budgets) {
+    // (The test copy's main.js has no budget: its size, for the record.)
+    if (report.target === 'dev' && budget.kind === 'main') console.log(`  size ${budget.label}: ${kb(budget.bytes)} own code (no budget: never shipped)`);
+    else console.log(`  ${formatBudget(budget)}`);
+  }
   console.log(`  app.css: ${kb(report.css.bytes)} from ${report.css.files} files, ${report.css.assets} assets`);
   console.log(`  staged:  ${rel(path.join(report.outDir, report.platform))}/`);
   if (report.packaged === null) console.log('  package: skipped (--skip-package)');

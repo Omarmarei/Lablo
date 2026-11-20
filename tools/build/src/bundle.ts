@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import path from 'node:path';
 import { babel } from '@rollup/plugin-babel';
 import commonjs from '@rollup/plugin-commonjs';
 import { nodeResolve } from '@rollup/plugin-node-resolve';
@@ -11,6 +12,9 @@ import { appIdFor, defineValues, tvDefines } from '../../../tv-defines.config';
 import { checkSyntax, formatViolation } from './syntax-gate';
 
 const require = createRequire(import.meta.url);
+
+/** The repo's root (STORE_SWAPS' paths are relative to it). */
+const ROOT = path.resolve(import.meta.dirname, '../../..');
 
 /** The installed core-js version; Babel's usage-based polyfills must match it. */
 export const CORE_JS_VERSION = (require('core-js/package.json') as { version: string }).version;
@@ -37,6 +41,18 @@ export interface BundleOptions {
    * off (`build-tv --unsafe-no-polyfills`), to prove it catches a missing polyfill.
    */
   readonly polyfills?: boolean;
+  /**
+   * Keep the developer screens (RELAY step 35b): the TV build's test copy (`build-tv`'s `dev`
+   * target). Default false: each of `STORE_SWAPS` is replaced by its stand-in.
+   */
+  readonly devScreens?: boolean;
+  /** The modules a store build swaps (default `STORE_SWAPS`; tests give their own). */
+  readonly swaps?: readonly StoreSwap[];
+  /**
+   * Workers built already in this run, by entry, platform and polyfills (`build-tv` passes one
+   * map to every build): a worker the app, its test copy and the lab all inline is built once.
+   */
+  readonly workerCache?: Map<string, BundleResult>;
 }
 
 export interface BuiltWorker {
@@ -184,6 +200,49 @@ function resolveCoreJs(): Plugin {
   };
 }
 
+/** A module the store build replaces with a stand-in that exports the same (RELAY step 35b). */
+export interface StoreSwap {
+  /** The real module, relative to the repo's root. */
+  readonly module: string;
+  /** Its stand-in, relative to the repo's root. */
+  readonly stand: string;
+}
+
+/**
+ * The developer screens (Omar's decision of 2026-11-20): the store build takes a stand-in that
+ * shows none, so their code, their CSS and the hello worker stay out of main.js and app.css.
+ */
+export const STORE_SWAPS: readonly StoreSwap[] = [{ module: 'apps/tv/src/dev/dev-screens.tsx', stand: 'apps/tv/src/dev/dev-screens.store.ts' }];
+
+/** A file path as one comparable string (Windows paths in either slash and case). */
+function samePath(file: string): string {
+  return path.resolve(file).split(path.sep).join('/').toLowerCase();
+}
+
+/**
+ * Resolves each import of a swapped module to its stand-in. Only imports whose last segment names
+ * a swapped module are resolved a second time (`this.resolve`), so the rest cost nothing.
+ */
+export function storeSwaps(swaps: readonly StoreSwap[], root: string = ROOT): Plugin {
+  const stands = new Map<string, string>();
+  const names = new Set<string>();
+  for (const swap of swaps) {
+    stands.set(samePath(path.resolve(root, swap.module)), path.resolve(root, swap.stand));
+    names.add(path.basename(swap.module).replace(/\.[^.]+$/, ''));
+  }
+  return {
+    name: 'lablo-store-swaps',
+    async resolveId(source, importer, options) {
+      if (importer === undefined) return null;
+      const last = source.slice(source.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '');
+      if (!names.has(last)) return null;
+      const resolved = await this.resolve(source, importer, { ...options, skipSelf: true });
+      if (resolved === null) return null;
+      return stands.get(samePath(resolved.id)) ?? resolved;
+    },
+  };
+}
+
 /**
  * `import MyWorker from './my.worker?worker'` (the same syntax Vite uses in development):
  * the worker is bundled as its own Chromium 53 IIFE, gated, and inlined as a string that is
@@ -207,12 +266,18 @@ function inlineWorkers(options: BundleOptions, workers: BuiltWorker[], literals:
     async load(id) {
       if (!id.startsWith(WORKER_PREFIX)) return null;
       const entry = id.slice(WORKER_PREFIX.length);
-      const built = await bundleIife({
-        input: entry,
-        platform: options.platform,
-        label: `worker ${entry}`,
-        polyfills: options.polyfills,
-      });
+      const cacheKey = `${entry}|${options.platform}|${options.polyfills === false ? 'bare' : 'polyfilled'}`;
+      const cached = options.workerCache?.get(cacheKey);
+      const built =
+        cached ??
+        (await bundleIife({
+          input: entry,
+          platform: options.platform,
+          label: `worker ${entry}`,
+          polyfills: options.polyfills,
+          workerCache: options.workerCache,
+        }));
+      options.workerCache?.set(cacheKey, built);
       if (built.css.length > 0) this.error(`Worker ${entry} imports CSS (${built.css.join(', ')}); workers have no DOM`);
       workers.push({ entry, code: built.code }, ...built.workers);
       literals.push(stringLiteral(built.code));
@@ -304,6 +369,7 @@ function plugins(options: BundleOptions, collected: Collected): Plugin[] {
         'process.env.NODE_ENV': JSON.stringify('production'),
       },
     }),
+    ...(options.devScreens === true ? [] : [storeSwaps(options.swaps ?? STORE_SWAPS)]),
     inlineWorkers(options, collected.workers, collected.literals),
     collectCss(collected.css),
     resolveCoreJs(),

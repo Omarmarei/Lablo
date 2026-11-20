@@ -1,8 +1,9 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
-import { SyntaxGateError, UNUSED_POLYFILLS, bundleIife, stringLiteral } from './bundle';
+import type { BundleResult, StoreSwap } from './bundle';
+import { STORE_SWAPS, SyntaxGateError, UNUSED_POLYFILLS, bundleIife, stringLiteral } from './bundle';
 import { tvDefines } from '../../../tv-defines.config';
 import { checkSyntax } from './syntax-gate';
 
@@ -173,4 +174,59 @@ describe('bundleIife (Rollup IIFE + Babel chrome 53 + core-js)', () => {
     const other = await bundleIife({ input: fixture('app-defines.ts'), platform: 'tizen', defines: given });
     expect(runWithoutModernApis(other.code)).toEqual({ base: 'http://api.test', version: '9.8.7', keys: ['k1', 'k2'], appId: 'LabloIPTV1.Lablo' });
   }, 60_000);
+});
+
+describe('the store swaps (RELAY step 35b)', () => {
+  const ROOT = path.resolve(import.meta.dirname, '../../..');
+  const SWAPS: readonly StoreSwap[] = [{ module: 'tools/build/test/fixtures/swap/feature.ts', stand: 'tools/build/test/fixtures/swap/feature.store.ts' }];
+  const run = (code: string): unknown => {
+    const context = vm.createContext({});
+    vm.runInContext(code, context);
+    return vm.runInContext('globalThis.fixture', context);
+  };
+
+  it("takes each stand-in in a store build, with none of the real module's CSS, and leaves a namesake alone", async () => {
+    const store = await bundleIife({ input: fixture('swap/entry.ts'), platform: 'webos', swaps: SWAPS });
+    expect(run(store.code)).toBe('the stand-in + another module of that name');
+    expect(store.code).not.toContain('the real feature');
+    expect(store.css).toEqual([]);
+  }, 60_000);
+
+  it('keeps the real module in the test copy (devScreens), its CSS too', async () => {
+    const dev = await bundleIife({ input: fixture('swap/entry.ts'), platform: 'webos', swaps: SWAPS, devScreens: true });
+    expect(run(dev.code)).toBe('the real feature + another module of that name');
+    expect(dev.code).not.toContain('the stand-in');
+    expect(dev.css).toEqual([fixture('swap/feature.css')]);
+  }, 60_000);
+
+  it("swaps the app's developer screens, each beside a stand-in that exists", () => {
+    expect(STORE_SWAPS).toEqual([{ module: 'apps/tv/src/dev/dev-screens.tsx', stand: 'apps/tv/src/dev/dev-screens.store.ts' }]);
+    for (const swap of STORE_SWAPS) {
+      expect(existsSync(path.join(ROOT, swap.module))).toBe(true);
+      expect(existsSync(path.join(ROOT, swap.stand))).toBe(true);
+      expect(path.dirname(swap.stand)).toBe(path.dirname(swap.module));
+    }
+  });
+});
+
+describe('the worker cache (RELAY step 35b)', () => {
+  it('builds each worker once per platform and polyfills, and inlines the cached build', async () => {
+    const cache = new Map<string, BundleResult>();
+    const first = await bundleIife({ input: fixture('modern.ts'), platform: 'webos', workerCache: cache });
+    const key = `${fixture('echo.worker.ts')}|webos|polyfilled`;
+    expect([...cache.keys()]).toEqual([key]);
+    expect(cache.get(key)!.code).toBe(first.workers[0]!.code);
+    // The next build of the same platform takes the cached worker: a marker in its place shows up.
+    cache.set(key, { ...cache.get(key)!, code: 'self.fromCache = 1;' });
+    const second = await bundleIife({ input: fixture('modern.ts'), platform: 'webos', workerCache: cache });
+    expect(second.workers.map((w) => w.code)).toEqual(['self.fromCache = 1;']);
+    expect(second.code).toContain(stringLiteral('self.fromCache = 1;'));
+    expect(second.inlinedBytes).toBe(Buffer.byteLength(stringLiteral('self.fromCache = 1;'), 'utf8'));
+    // Another platform, or a build without polyfills, builds its own.
+    const tizen = await bundleIife({ input: fixture('modern.ts'), platform: 'tizen', workerCache: cache });
+    expect(tizen.workers[0]!.code).toContain('echo-worker-marker');
+    const bare = await bundleIife({ input: fixture('modern.ts'), platform: 'webos', polyfills: false, workerCache: cache });
+    expect(bare.workers[0]!.code).toContain('echo-worker-marker');
+    expect([...cache.keys()].sort()).toEqual([key, `${fixture('echo.worker.ts')}|tizen|polyfilled`, `${fixture('echo.worker.ts')}|webos|bare`].sort());
+  }, 120_000);
 });
