@@ -862,7 +862,6 @@ export function createLive(options: LiveOptions): Live {
     await loaded;
     // (A list that failed or is empty has no rail; `findRow` reads nothing then, nor once disposed.)
     const entries = rail.value;
-    if (entries.length === 0) return false;
     let at = -1;
     // Each category alone (a hidden one isn't in the rail: its channel plays over the list, step 35d).
     for (let i = 1; i < entries.length && at === -1; i += 1) {

@@ -20,11 +20,11 @@ import { RemoteDriver } from './remote-driver';
  * 2 "UK: Lablo Test 2 Clock" here, 3 Lablo Test FR - Mire, 4 Lablo Prueba ES - Carta de ajuste),
  * the Arabic group (5–7), Kids (8), Sports (9 Lablo Sports Test HD, 10 FHD), Radio (11), 18+ (12).
  *
- * The changes: SMPTE (Test News) renamed, FR hidden, ES numbered 77, Sports HD hidden, and
- * "Clean channel names" on (Clock's "UK: " goes). Checked: the rows (the hidden ones gone, every
- * other number where it was), the group's count, the info bar while zapping past FR, number entry
- * (77; FR's old 3 finds nothing), the guide's rows, and Sports HD played from the search over the
- * list with its own number.
+ * The changes: SMPTE (Test News) renamed, FR hidden, ES numbered 77, Sports HD hidden and
+ * numbered 90, and "Clean channel names" on (Clock's "UK: " goes). Checked: the rows (the hidden
+ * ones gone, every other number where it was), the group's count, the info bar while zapping past
+ * FR, number entry (77 in the list; 90 hidden, over the list; FR's old 3 finds nothing), the
+ * guide's rows, and Sports HD played from the search over the list with its own number.
  */
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
 
@@ -183,7 +183,7 @@ for (const locale of ['en-US', 'ar-SA'] as const) {
             entry(find('Lablo Test 1 SMPTE', 'Test News'), { name: renamed }),
             entry(find('Lablo Test FR - Mire', 'Test News'), { hidden: true }),
             entry(find('Lablo Prueba ES - Carta de ajuste', 'Test News'), { number: 77 }),
-            entry(find('Lablo Sports Test HD', 'Sports Test'), { hidden: true }),
+            entry(find('Lablo Sports Test HD', 'Sports Test'), { hidden: true, number: 90 }),
           ],
           cleanNames: true,
         });
@@ -250,6 +250,12 @@ for (const locale of ['en-US', 'ar-SA'] as const) {
         await expect(player).toHaveAttribute('data-playing', '2');
         await expect(player).toHaveAttribute('data-entry', '');
         expect(await text(page, 'player-number')).toBe('77');
+        // The user's 90 is hidden: it plays over the list, at the bar's row.
+        await remote.press('DIGIT_9', 'DIGIT_0', 'OK');
+        await expect.poll(() => text(page, 'player-name')).toBe('Lablo Sports Test HD');
+        await expect(player).toHaveAttribute('data-entry', '');
+        expect(await text(page, 'player-number')).toBe('90');
+        await expect(player).toHaveAttribute('data-playing', '2');
         await remote.press('DIGIT_3', 'OK');
         await expect(player).toHaveAttribute('data-entry', 'missing');
         await remote.press('BACK');
@@ -289,7 +295,7 @@ for (const locale of ['en-US', 'ar-SA'] as const) {
         await remote.press('OK');
         await remote.expectFocus('player/actions/0');
         expect(await text(page, 'player-name')).toBe('Lablo Sports Test HD');
-        expect(await text(page, 'player-number')).toBe('9');
+        expect(await text(page, 'player-number')).toBe('90');
         await shoot(page, `channel-edits-hidden-play-${tag}`);
         await remote.go('BACK', 'search/results/0');
         await remote.go('BACK', 'search/field/0');

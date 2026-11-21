@@ -2529,6 +2529,19 @@ describe('channels the user changed (RELAY step 36b)', () => {
     expect(t.engine.numberedCalls.map((c) => c.number)).toEqual([50, 6, 9, 5, 60, 50, 8, 60]);
   });
 
+  it("finds the user's number from an older catalog's address by the channel's key", async () => {
+    const engine = changedEngine();
+    const answer = engine.numberedAnswer;
+    // The worker's address is a slot off (the catalog moved since): row 8 is 2-6.
+    engine.numberedAnswer = (req) => {
+      const found = answer(req);
+      return found === null ? null : { ...found, slot: found.slot + 1 };
+    };
+    const t = await setup({ engine });
+    expect(t.live.row(8)?.item.key).toBe('x:s1:live:2-6');
+    expect(await t.live.list.find(50)).toBe(7);
+  });
+
   it("finds the user's number before a provider's number that is the same", async () => {
     const t = await setup({ engine: changedEngine([changed('x:s1:live:2-5', { number: 8 })]) });
     // News 0-1 is the provider's 8; Sports 2-5 the user's.
@@ -2561,15 +2574,26 @@ describe('channels the user changed (RELAY step 36b)', () => {
     expect(early.engine.numberedCalls).toEqual([]);
   });
 
-  it('drops a number lookup when the list reloads under it', async () => {
+  it('drops a number lookup when the list reloads, or another entry shows, before its answer', async () => {
     const t = await setup({ engine: changedEngine() });
     t.engine.hold.add('numbered');
+    const answer = t.engine.numberedAnswer({ number: 50, sources: ['s1', 's2'] });
     const found = t.live.list.find(50);
     await flush();
     expect(t.live.pending.value).toBe(1);
+    // The new list is in (2-5 is its row 7 too) before the answer comes.
     t.live.reload();
-    t.engine.held.numbered![0]!.resolve(t.engine.numberedAnswer({ number: 50, sources: ['s1', 's2'] }));
+    await flush();
+    expect(t.live.status.value).toBe('ready');
+    t.engine.held.numbered![0]!.resolve(answer);
     expect(await found).toBe(-1);
+    // Sports shows (2-5 is its row 4) before the answer comes.
+    const again = t.live.list.find(50);
+    await flush();
+    await t.press('LEFT', 'DOWN', 'DOWN', 'OK');
+    expect(t.live.category.value).toBe(2);
+    t.engine.held.numbered![1]!.resolve(answer);
+    expect(await again).toBe(-1);
   });
 
   it('plays a hidden channel the search found over the list, numbered by its own number or its place', async () => {
@@ -2612,6 +2636,9 @@ describe('channels the user changed (RELAY step 36b)', () => {
     // An older catalog's address: found by its key.
     expect(await t.live.playFound({ key: 'x:s1:live:2-700', src: 's1', catIdx: 2, chunk: 9, slot: 0 })).toBe(true);
     expect(play).toHaveBeenLastCalledWith(698);
+    // A channel the user renumbered (not hidden): in its group too.
+    expect(await t.live.playFound({ key: 'x:s1:live:2-5', src: 's1', catIdx: 2, chunk: 0, slot: 5 })).toBe(true);
+    expect(play).toHaveBeenLastCalledWith(4);
   });
 
   it('plays a recent channel the user hid over the list with its kept number, unless its list holds it', async () => {
