@@ -7,7 +7,23 @@
 import type { CatalogItem, ContentKind } from '@lablo/core';
 import { panelZone } from '@lablo/core';
 import type { ChannelEdit, FavouriteRef, IngestJob, IngestOptions, ProfileDoc } from '@lablo/data';
-import { INGEST_VERSION, IngestError, QueryService, STORE, emptyProfile, fetchTransport, getSource, loadProfile, onSuccess, openDatabase, runIngest, saveProfile, transact } from '@lablo/data';
+import {
+  INGEST_VERSION,
+  IngestError,
+  QueryService,
+  STORE,
+  emptyProfile,
+  fetchTransport,
+  getSource,
+  loadProfile,
+  onSuccess,
+  openDatabase,
+  readCategories,
+  readChunks,
+  runIngest,
+  saveProfile,
+  transact,
+} from '@lablo/data';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Catalog } from '../apps/mock-provider/src/config';
 import { loadCatalog } from '../apps/mock-provider/src/config';
@@ -52,11 +68,19 @@ function renumbered(c: Catalog, by: number): Catalog {
   };
 }
 
+/** Every item of `src`'s `kind` as the query worker serves it (since step 36a2: the user's changes shown, hidden channels left out). */
 async function allItems(src: string, kind: ContentKind): Promise<CatalogItem[]> {
   const q = new QueryService({ openDb: async () => db });
   const out: CatalogItem[] = [];
   for (const cat of await q.categories(src, kind)) for (let n = 0; n < cat.chunks.length; n++) out.push(...(await q.chunk({ src, kind, catIdx: cat.catIdx, chunk: n })));
   return out;
+}
+
+/** Every item of `src`'s `kind` as stored, the provider's (whatever the user changed). */
+async function storedItems(src: string, kind: ContentKind): Promise<CatalogItem[]> {
+  const gen = (await getSource(db, src))!.gen;
+  const keys = ((await readCategories(db, src, gen, kind)) ?? []).flatMap((cat) => cat.chunks.map((_, chunk) => ({ src, gen, kind, catIdx: cat.catIdx, chunk })));
+  return (await readChunks(db, keys)).flatMap((items) => items ?? []);
 }
 
 const favourite = (i: CatalogItem): FavouriteRef => ({ key: i.key, src: i.src, kind: i.kind, normName: i.normName, group: i.group, epgId: i.epgId, added: NOW, missingSince: null });
@@ -118,7 +142,7 @@ describe('ingest against the mock provider: M3U', () => {
     app.mockState.catalog = { ...catalog, live: catalog.live.map((c) => (renamed[c.id] ? { ...c, name: renamed[c.id]! } : c)).reverse() };
     const r = await ingest(m3uJob(), { now: () => NOW + DAY });
     expect(r.status).toBe('committed');
-    const after = await allItems('pl', 'live');
+    const after = await storedItems('pl', 'live');
     const clock2 = byName(after, 'Lablo Test 2 Clock UHD');
     const news2 = byName(after, 'قناة الاختبار الإخبارية الجديدة');
     const sports2 = byName(after, 'Lablo Sports Test 4K');
@@ -142,13 +166,19 @@ describe('ingest against the mock provider: M3U', () => {
       { ...changedChannel(sports, { number: 60, name: 'Sport' }), key: sports2.key },
       changedChannel(fhd, { hidden: true }),
     ]);
+    // The query worker shows them on the new keys (step 36a2): the user's names and number, the hidden channels left out.
+    const shown = await allItems('pl', 'live');
+    const shownOf = (key: string): CatalogItem | undefined => shown.find((i) => i.key === key);
+    expect(shownOf(clock2.key)).toMatchObject({ name: 'My clock', chno: null });
+    expect(shownOf(sports2.key)).toMatchObject({ name: 'Sport', chno: 60 });
+    expect([shownOf(news2.key), shownOf(fhd.key), shown.length]).toEqual([undefined, undefined, after.length - 2]);
 
     // Only a changed channel is renamed again: the favourites stay as they are, the entry follows.
     const again: Record<number, string> = { ...renamed, 104: 'قناة الاختبار' };
     app.mockState.catalog = { ...catalog, live: catalog.live.map((c) => (again[c.id] ? { ...c, name: again[c.id]! } : c)).reverse() };
     const r2 = await ingest(m3uJob(), { now: () => NOW + 2 * DAY });
     expect(r2.favourites).toMatchObject({ changed: false, present: 2 });
-    const news3 = byName(await allItems('pl', 'live'), 'قناة الاختبار');
+    const news3 = byName(await storedItems('pl', 'live'), 'قناة الاختبار');
     expect((await storedDoc()).channelEdits![1]).toEqual({ ...changedChannel(news, { hidden: true }), key: news3.key });
 
     // The provider drops every changed channel: missing, then gone after 30 days, and the field with them.
@@ -363,6 +393,10 @@ describe('ingest against the mock provider: Xtream', () => {
     const hits = await q.search({ query: 'lablo test 1 smpte' });
     expect(hits.hits.map((h) => h.favourite)).toEqual([true, false]);
     expect((await q.items(hits.hits)).map((i) => i?.key)).toEqual(['x:xt:live:1101', 'x:xt:live:1112']);
+    // And the query worker shows the changed channels on them (step 36a2).
+    expect(await q.numbered({ number: 1, sources: ['xt'] })).toMatchObject({ item: { key: 'x:xt:live:1101', name: 'Bars', chno: 1 }, hidden: false });
+    expect((await q.search({ query: 'bars' })).total).toBe(1);
+    expect((await allItems('xt', 'live')).map((i) => i.key)).not.toContain('x:xt:live:1105');
 
     // The provider later drops a favourite: kept as unavailable, then dropped after 30 days.
     // (And a changed channel: kept missing, then dropped after 30 days, as a favourite.)

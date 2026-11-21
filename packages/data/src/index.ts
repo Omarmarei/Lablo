@@ -113,6 +113,8 @@ export type {
   GuideRow,
   ItemRef,
   KeyItemsRequest,
+  NumberRequest,
+  NumberedChannel,
   ProgrammeRequest,
   QueryServiceOptions,
   QueryStatus,
@@ -156,7 +158,7 @@ export type { FavouriteChange, FavouriteItem, FavouritesPart, GroupChange, Group
 export { applyFavouriteChange, applyGroupChange, isFavouriteItem, relinkLists } from './favourite-edits';
 export { FavouriteMatcher, MISSING_KEEP_MS, reconcileFavourites } from './favourites';
 export type { ChannelEdit } from './channel-edits';
-export { CHANNEL_NAME_MAX, CHANNEL_NUMBER_MAX, MAX_CHANNEL_EDITS, channelEditsOf, cleanNamesOn, isChannelName, isChannelNumber } from './channel-edits';
+export { CHANNEL_NAME_MAX, CHANNEL_NUMBER_MAX, MAX_CHANNEL_EDITS, channelEditsOf, cleanNamesOn, isChannelName, isChannelNumber, shownChunks } from './channel-edits';
 export type { ChannelChange } from './channel-changes';
 export { applyChannelChange } from './channel-changes';
 export { relinkChannelEdits, trackedRefs } from './channel-relink';

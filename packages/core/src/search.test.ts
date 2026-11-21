@@ -2,7 +2,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import type { ContentKind } from './model';
 import { normalizeName } from './normalize';
-import type { FavouriteMarks, SearchHit, SearchMatch, SearchSegmentData } from './search';
+import type { FavouriteMarks, SearchAliases, SearchHit, SearchMatch, SearchSegmentData } from './search';
 import {
   SEARCH_LIMIT,
   SEARCH_SEPARATOR,
@@ -11,6 +11,7 @@ import {
   SearchSegment,
   buildSearchSegment,
   favouriteMarks,
+  searchAliases,
   searchSegments,
   searchTerms,
 } from './search';
@@ -150,27 +151,101 @@ describe('searchSegments ranking', () => {
   });
 });
 
+describe('searchSegments with other names (step 36a2: the names the user gave channels)', () => {
+  const live = segment('a', 'live', ['MBC Drama HD', 'Sky News', 'Al Jazeera', 'Newsroom 24']);
+  const movies = segment('a', 'movie', ['News of the World']);
+  const segs = [live, movies];
+  const other = (index: number, name: string) => ({ index, normName: normalizeName(name) });
+  const aliases: (SearchAliases | null)[] = [searchAliases([other(2, 'My News'), other(0, 'Drama')]), null];
+  const find = (query: string, extra: Parameters<typeof searchSegments>[2] = {}) => searchSegments(segs, query, { aliases, ...extra });
+
+  it('lays the names out as a segment text is, each with its item', () => {
+    const sep = SEARCH_SEPARATOR;
+    const a = searchAliases([{ index: 7, normName: 'x y' }, { index: 2, normName: `a${sep}b` }]);
+    expect(a.text).toBe(`${sep}x y${sep}a b${sep}`);
+    expect([...a.starts]).toEqual([1, 5, 9]);
+    expect([...a.items]).toEqual([7, 2]);
+    expect(a.count).toBe(2);
+    const none = searchAliases([]);
+    expect([none.text, [...none.starts], none.count, [...none.items]]).toEqual([sep, [1], 0, []]);
+  });
+
+  it("finds an item by its other name, in that name's class, before its segment's own names of the class", () => {
+    const result = find('NEWS');
+    expect(brief(result.hits, segs)).toEqual(['live:newsroom 24:start', 'live:al jazeera:word', 'live:sky news:word', 'movie:news of the world:start']);
+    expect(result.total).toBe(4);
+    // Where the item is stored, as its own name's hit would say.
+    expect(result.hits[1]).toEqual({ src: 'a', kind: 'live', gen: 1, index: 2, catIdx: 0, chunk: 0, slot: 2, match: 'word', favourite: false });
+    expect(brief(find('my news').hits, segs)).toEqual(['live:al jazeera:exact']);
+    expect(brief(find('news my').hits, segs)).toEqual(['live:al jazeera:word']);
+  });
+
+  it('finds an item found by both names once, by its other name; by its own name when only that one matches', () => {
+    const both = find('drama');
+    expect(brief(both.hits, segs)).toEqual(['live:mbc drama hd:exact']);
+    expect(both.total).toBe(1);
+    expect(brief(find('mbc').hits, segs)).toEqual(['live:mbc drama hd:start']);
+    expect(brief(find('jazeera').hits, segs)).toEqual(['live:al jazeera:word']);
+    // Without the other names, the same items rank by their own.
+    expect(brief(searchSegments(segs, 'drama').hits, segs)).toEqual(['live:mbc drama hd:word']);
+    expect(searchSegments(segs, 'my news').hits).toEqual([]);
+  });
+
+  it("boosts a favourite found by its other name, and leaves out a kind not asked for", () => {
+    const favs = favouriteMarks(segs, ['x:a:k:2']);
+    expect(brief(find('news', { favourites: favs }).hits, segs)).toEqual(['live:al jazeera:word:fav', 'live:newsroom 24:start', 'live:sky news:word', 'movie:news of the world:start']);
+    expect(brief(find('news', { kinds: ['movie'] }).hits, segs)).toEqual(['movie:news of the world:start']);
+    expect(find('drama', { kinds: ['movie'] })).toEqual({ query: 'drama', hits: [], total: 0 });
+  });
+
+  it('counts an item once in the total when its names match past the limit', () => {
+    const names = Array.from({ length: 30 }, (_, i) => `Channel ${i}`);
+    const seg = segment('big', 'live', names);
+    const others = [searchAliases([other(29, 'Channel Mine'), other(3, 'Mine')])];
+    const result = searchSegments([seg], 'chan', { aliases: others, limit: 5 });
+    expect(result.total).toBe(30);
+    // The other name first in the class, then catalog order without it.
+    expect(result.hits.map((h) => h.index)).toEqual([29, 0, 1, 2, 3]);
+  });
+});
+
 // ---------------------------------------------------------------------------------------------
 // Oracle: the same ranking computed naively, name by name.
 
 const KIND_RANK: Record<ContentKind, number> = { live: 0, movie: 1, series: 2 };
 const FINE: Record<SearchMatch, number> = { exact: 0, start: 1, word: 2, substring: 0 };
 
-function naiveSearch(segs: SearchSegment[], names: string[][], query: string, favs: FavouriteMarks, limit: number): { hits: string[]; total: number } {
+/** `aliases[s]`: segment `s`'s other names (normalized), each naming item `index`, in the order given. */
+function naiveSearch(
+  segs: SearchSegment[],
+  names: string[][],
+  query: string,
+  favs: FavouriteMarks,
+  limit: number,
+  aliases: { index: number; name: string }[][] = [],
+): { hits: string[]; total: number } {
   const phrase = normalizeName(query);
   const terms = phrase.split(' ').filter((t) => t);
   if (!terms.length) return { hits: [], total: 0 };
   const found: { rank: number; order: number; text: string }[] = [];
   segs.forEach((seg, s) => {
-    names[s]!.forEach((name, i) => {
+    /** Whether item `i` matches under `name` (then it is found). */
+    const tryName = (name: string, i: number): boolean => {
       const words = name.split(' ');
       const inWord = (t: string): boolean => words.some((w) => w.startsWith(t));
-      if (!terms.every((t) => name.includes(t))) return;
+      if (!terms.every((t) => name.includes(t))) return false;
       const wordMatch = terms.every(inWord);
       const match: SearchMatch = !wordMatch ? 'substring' : name === phrase ? 'exact' : name.startsWith(phrase) ? 'start' : 'word';
       const fav = favs[s]?.has(i) ?? false;
       const rank = (((wordMatch ? 0 : 1) * 2 + (fav ? 0 : 1)) * 3 + KIND_RANK[seg.kind]) * 3 + FINE[match];
       found.push({ rank, order: found.length, text: `${s}:${i}:${match}:${fav}` });
+      return true;
+    };
+    // Other names first; an item found by one is found by nothing else.
+    const byAlias = new Set<number>();
+    for (const a of aliases[s] ?? []) if (!byAlias.has(a.index) && tryName(a.name, a.index)) byAlias.add(a.index);
+    names[s]!.forEach((name, i) => {
+      if (!byAlias.has(i)) tryName(name, i);
     });
   });
   found.sort((a, b) => a.rank - b.rank || a.order - b.order);
@@ -182,15 +257,24 @@ describe('searchSegments against a naive oracle', () => {
   const letter = fc.constantFrom('a', 'b', 'c', 'ab', 'ba', ' ', ' ', 'ا', 'أ', 'ة', 'ه', '1', '١', 'É', 'e', '-');
   const name = fc.array(letter, { maxLength: 12 }).map((parts) => parts.join(''));
   const kind = fc.constantFrom<ContentKind>('live', 'movie', 'series');
-  const segmentSpec = fc.record({ kind, names: fc.array(name, { maxLength: 25 }), chunk: fc.integer({ min: 1, max: 7 }) });
+  // Other names for some items (an item may get two: the first that matches counts).
+  const segmentSpec = fc.record({
+    kind,
+    names: fc.array(name, { maxLength: 25 }),
+    chunk: fc.integer({ min: 1, max: 7 }),
+    aliases: fc.array(fc.record({ at: fc.nat(), name }), { maxLength: 6 }),
+  });
   const query = fc.array(letter, { maxLength: 5 }).map((parts) => parts.join(''));
 
-  it('returns the same hits in the same order, for any names, query, favourites and limit', () => {
+  it('returns the same hits in the same order, for any names, other names, query, favourites and limit', () => {
     fc.assert(
       fc.property(fc.array(segmentSpec, { maxLength: 4 }), query, fc.integer({ min: 1, max: 30 }), fc.integer({ min: 0, max: 2 ** 30 }), (specs, q, limit, favSeed) => {
         const segs: SearchSegment[] = [];
         const norm: string[][] = [];
         const favKeys: string[] = [];
+        const others: { index: number; name: string }[][] = specs.map((spec) =>
+          spec.names.length === 0 ? [] : spec.aliases.map((a) => ({ index: a.at % spec.names.length, name: normalizeName(a.name) })),
+        );
         specs.forEach((spec, s) => {
           const src = `s${s}`;
           const b = new SearchIndexBuilder(src, spec.kind);
@@ -204,8 +288,8 @@ describe('searchSegments against a naive oracle', () => {
           norm.push(spec.names.map(normalizeName));
         });
         const favs = favouriteMarks(segs, favKeys);
-        const got = searchSegments(segs, q, { limit, favourites: favs });
-        const want = naiveSearch(segs, norm, q, favs, limit);
+        const got = searchSegments(segs, q, { limit, favourites: favs, aliases: others.map((list) => (list.length === 0 ? null : searchAliases(list.map((a) => ({ index: a.index, normName: a.name }))))) });
+        const want = naiveSearch(segs, norm, q, favs, limit, others);
         expect(got.total).toBe(want.total);
         expect(got.hits.map((h) => `${segs.findIndex((x) => x.src === h.src)}:${h.index}:${h.match}:${h.favourite}`)).toEqual(want.hits);
         for (const h of got.hits) {

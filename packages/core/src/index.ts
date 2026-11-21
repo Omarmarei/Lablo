@@ -104,7 +104,7 @@ export {
   mergeEpgBuckets,
 } from './epg-guide';
 
-export type { ChunkRef, FavouriteMarks, SearchHit, SearchMatch, SearchOptions, SearchResult, SearchSegmentData } from './search';
+export type { ChunkRef, FavouriteMarks, SearchAliases, SearchHit, SearchMatch, SearchOptions, SearchResult, SearchSegmentData } from './search';
 export {
   SEARCH_INDEX_VERSION,
   SEARCH_LIMIT,
@@ -116,6 +116,7 @@ export {
   buildSearchSegment,
   favouriteMarks,
   keySource,
+  searchAliases,
   searchSegments,
   searchTerms,
 } from './search';
