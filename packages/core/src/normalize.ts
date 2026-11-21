@@ -190,6 +190,22 @@ const QUALITY_TOKENS = new Set([
  * A hyphen counts only with a space beside it, so `Al-Jazeera` keeps its `Al`.
  */
 const PREFIX_TAG = /^[\s|[(]*(?:[A-Za-z]{2}|[A-Z]{3,4})\s*(?:[|:\])]|\s-|-\s)[\s|:\])-]*/;
+/**
+ * A channel name without its leading country or category tags (`PREFIX_TAG`, up to three:
+ * `AR | MBC 1 HD` is `MBC 1 HD`), as "Clean channel names" shows it (RELAY step 36a) and
+ * `matchName` starts from. Quality words, trailing tags and everything after the tags stay, as the
+ * provider wrote them. A name that is all tags stays whole: a name is never emptied.
+ */
+export function cleanName(input: string): string {
+  let raw = input;
+  for (let i = 0; i < 3; i++) {
+    const m = PREFIX_TAG.exec(raw);
+    if (!m || m[0].length === raw.length) break;
+    raw = raw.slice(m[0].length);
+  }
+  return raw;
+}
+
 /** A trailing tag in brackets or after a pipe: ` (AR)`, ` [UK]`, ` | US`, ` |US|`. */
 const SUFFIX_TAG = /\s*[[(|]\s*(?:[A-Za-z]{2}|[A-Z]{3,4})\s*[\])|]?\s*$/;
 
@@ -201,12 +217,7 @@ const SUFFIX_TAG = /\s*[[(|]\s*(?:[A-Za-z]{2}|[A-Z]{3,4})\s*[\])|]?\s*$/;
  * stripping would leave nothing.
  */
 export function matchName(input: string): string {
-  let raw = input;
-  for (let i = 0; i < 3; i++) {
-    const m = PREFIX_TAG.exec(raw);
-    if (!m || m[0].length === raw.length) break;
-    raw = raw.slice(m[0].length);
-  }
+  let raw = cleanName(input);
   const suffix = SUFFIX_TAG.exec(raw);
   if (suffix && suffix.index > 0) raw = raw.slice(0, suffix.index);
   const tokens = normalizeName(raw).split(' ');

@@ -71,6 +71,19 @@ describe('the bundled query worker', () => {
     expect(await client.call('editProfile', { kind: 'favourite', change: { op: 'newList', id: 'l1', name: ' Films ', item: movie } })).toBe(true);
     expect((await client.call('profile'))!.doc).toMatchObject({ favouriteLists: [{ id: 'l1', name: 'Films', keys: ['x:tv:movie:3'] }] });
     expect((await client.call('search', { query: 'news' })).hits.map((h) => h.favourite)).toEqual([true, false]);
+    // A changed channel (step 36a): renamed (trimmed), then numbered; a number another has moves; the switch.
+    const channel = { key: 'x:tv:live:1', src: 'tv', kind: 'live' as const, normName: 'sky news hd', added: 2 };
+    expect(await client.call('editProfile', { kind: 'channel', change: { op: 'rename', item: channel, name: ' Sky ' } })).toBe(true);
+    expect(await client.call('editProfile', { kind: 'channel', change: { op: 'number', item: channel, number: 7 } })).toBe(true);
+    expect(await client.call('editProfile', { kind: 'channel', change: { op: 'number', item: { ...channel, key: 'x:tv:live:2' }, number: 7 } })).toBe(true);
+    expect(await client.call('editProfile', { kind: 'cleanNames', on: true })).toBe(true);
+    expect((await client.call('profile'))!.doc).toMatchObject({
+      channelEdits: [
+        { key: 'x:tv:live:1', name: 'Sky', missingSince: null },
+        { key: 'x:tv:live:2', number: 7 },
+      ],
+      cleanNames: true,
+    });
     expect((await client.call('categories', { src: 'tv', kind: 'live' })).map((c) => c.name)).toEqual(['AR | News', 'UK | News']);
     await expect(client.call('chunk', { src: 'tv', kind: 'live', catIdx: 5, chunk: 0 })).resolves.toEqual([]);
     const status = await client.call('status');

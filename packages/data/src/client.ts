@@ -24,6 +24,11 @@ import { RpcClient } from './rpc';
 export type { FavouriteList, GroupRef } from './favourite-lists';
 export { LIST_NAME_MAX, MAX_FAVOURITES, MAX_FAVOURITE_LISTS, MAX_LIST_ITEMS, favouriteListsOf, groupId, groupOrderOf, hiddenGroupsOf } from './favourite-lists';
 export type { FavouriteChange, FavouriteItem, GroupChange } from './favourite-edits';
+// The changed channels as main and settings.js read them (step 36a): channel-edits.ts imports
+// nothing at run time and uses nothing Babel polyfills; the edits are the query worker's.
+export type { ChannelEdit } from './channel-edits';
+export { CHANNEL_NAME_MAX, CHANNEL_NUMBER_MAX, MAX_CHANNEL_EDITS, channelEditsOf, cleanNamesOn } from './channel-edits';
+export type { ChannelChange } from './channel-changes';
 
 // A source without its login (step 32d4a): logins.ts imports no data module.
 export type { LinkWithoutLogin, RefreshSource } from './logins';

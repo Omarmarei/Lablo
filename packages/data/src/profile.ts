@@ -23,7 +23,8 @@
  * keeps the backup's choice (`backupLogins`). Later steps add fields with a migration each, or as
  * optional fields that need none (`PlayerMemoryDoc.picture`, step 20c2b; `epgOffsets`, step 24b;
  * `epgOverrides`, step 24d; `ShowProgress.more`, step 27d; `noticesShown`, step 30c2a;
- * `telemetry`, step 33b1; `favouriteLists`, `hiddenGroups` and `groupOrder`, step 35a).
+ * `telemetry`, step 33b1; `favouriteLists`, `hiddenGroups` and `groupOrder`, step 35a;
+ * `channelEdits` and `cleanNames`, step 36a).
  */
 
 import type { CatalogItem, ContentKey, ContentKind, EpgOverride, XtreamAccount } from '@lablo/core';
@@ -35,6 +36,9 @@ import { MAX_NOTICES, isRuleId } from './config-constants';
 import type { FavouriteChange, GroupChange } from './favourite-edits';
 import { applyFavouriteChange, applyGroupChange } from './favourite-edits';
 import type { FavouriteList, GroupRef } from './favourite-lists';
+import type { ChannelChange } from './channel-changes';
+import { applyChannelChange } from './channel-changes';
+import type { ChannelEdit } from './channel-edits';
 import { onSuccess, transact } from './idb';
 import { STORE } from './schema';
 
@@ -304,6 +308,14 @@ export type ProfileV9 = Omit<ProfileV8, 'v' | 'sources' | 'guides'> & {
   hiddenGroups?: GroupRef[];
   /** The live groups in the user's order (step 35a); no field when the provider's order stands. */
   groupOrder?: GroupRef[];
+  /**
+   * The single live channels the user hid, renamed or renumbered (step 36a, channel-edits.ts), each
+   * with what re-matching needs. Optional, so version 9 documents written before it need no
+   * migration; no field when there are none.
+   */
+  channelEdits?: ChannelEdit[];
+  /** `true`: live channels' names show without their leading tags (step 36a); no field when off. */
+  cleanNames?: true;
 };
 
 /** The current profile shape. */
@@ -477,7 +489,11 @@ export type ProfileEdit =
   /** The favourites lists (step 35a, favourite-edits.ts). One that changes nothing, or goes past a cap, writes nothing. */
   | { kind: 'favourite'; change: FavouriteChange }
   /** The live groups' hiding and order (step 35a, favourite-edits.ts). One that changes nothing writes nothing. */
-  | { kind: 'group'; change: GroupChange };
+  | { kind: 'group'; change: GroupChange }
+  /** A single live channel hidden, renamed or renumbered (step 36a, channel-changes.ts). One that changes nothing, or goes past a cap, writes nothing. */
+  | { kind: 'channel'; change: ChannelChange }
+  /** "Clean channel names" (step 36a): on keeps `cleanNames: true`, off takes the field away. One that isn't a boolean changes nothing. */
+  | { kind: 'cleanNames'; on: boolean };
 
 const USER_GUIDE = 'u~';
 
@@ -737,6 +753,21 @@ export function applyProfileEdit(doc: ProfileDoc, edit: ProfileEdit): ProfileDoc
     const next: ProfileDoc = { ...doc, favourites: part.favourites };
     if (part.favouriteLists.length > 0) next.favouriteLists = part.favouriteLists;
     else delete next.favouriteLists;
+    return next;
+  }
+  if (edit.kind === 'channel') {
+    const edits = applyChannelChange(doc, edit.change);
+    if (edits === null) return null;
+    const next: ProfileDoc = { ...doc };
+    if (edits.length > 0) next.channelEdits = edits;
+    else delete next.channelEdits;
+    return next;
+  }
+  if (edit.kind === 'cleanNames') {
+    if (typeof edit.on !== 'boolean' || edit.on === (doc.cleanNames === true)) return null;
+    const next: ProfileDoc = { ...doc };
+    if (edit.on) next.cleanNames = true;
+    else delete next.cleanNames;
     return next;
   }
   if (edit.kind === 'group') {

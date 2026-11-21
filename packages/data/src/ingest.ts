@@ -53,6 +53,8 @@ import { CatalogChunker, indexChunk } from './chunker';
 import type { CatalogView, FavouriteReport } from './favourites';
 import { FavouriteMatcher, reconcileFavourites } from './favourites';
 import { relinkLists } from './favourite-edits';
+import { relinkChannelEdits, trackedRefs } from './channel-relink';
+import { channelEditsOf } from './channel-edits';
 import type { GunzipMode } from './gunzip';
 import { MaybeGunzip } from './gunzip';
 import { IngestError, headerNumber, ingestError } from './ingest-errors';
@@ -301,7 +303,8 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
   await pruneGenerations(db, src, { abandon: true });
   const meta = await getSource(db, src);
   const loaded = await loadProfile(db, { now: now() });
-  const matcher = new FavouriteMatcher(src, loaded && !loaded.newer ? (loaded.doc as ProfileDoc).favourites : []);
+  // The favourites and the changed channels (step 36a), each key once.
+  const matcher = new FavouriteMatcher(src, loaded && !loaded.newer ? trackedRefs((loaded.doc as ProfileDoc).favourites, channelEditsOf(loaded.doc)) : []);
   const known = !job.force && meta !== null && meta.gen > 0 && meta.fetch && meta.fetch.v === INGEST_VERSION ? meta.fetch : null;
 
   const hasher = new Fnv1a();
@@ -507,10 +510,18 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
         (doc) => {
           const r = reconcileFavourites(doc.favourites, src, view, at, kinds);
           favourites = r.report;
-          if (!r.report.changed) return null;
+          // The changed channels follow their favourites, or are re-matched as favourites are (step 36a).
+          const edits = relinkChannelEdits(doc, doc.favourites, r.report, r.favourites, src, view, at, kinds);
+          if (!r.report.changed && edits === null) return null;
+          const next: ProfileDoc = { ...doc, favourites: r.favourites };
           // The lists hold the re-matched keys in their places, and lose the dropped ones (step 35a).
           const lists = relinkLists(doc, r.report.rematched, r.report.dropped);
-          return lists === null ? { ...doc, favourites: r.favourites } : { ...doc, favourites: r.favourites, favouriteLists: lists };
+          if (lists !== null) next.favouriteLists = lists;
+          if (edits !== null) {
+            if (edits.length > 0) next.channelEdits = edits;
+            else delete next.channelEdits;
+          }
+          return next;
         },
         { now: at },
       );
