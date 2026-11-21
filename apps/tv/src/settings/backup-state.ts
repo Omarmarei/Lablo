@@ -102,13 +102,6 @@ export interface BackupPage {
   dispose(): void;
 }
 
-/** The code as the page writes it: groups of four from the start (`7ABC DEFG … 12`). */
-export function codeGroups(code: string): string {
-  let out = '';
-  for (let i = 0; i < code.length; i += 4) out += (i === 0 ? '' : ' ') + code.slice(i, i + 4);
-  return out;
-}
-
 /** The held box shows: the backup is on and the schedule found a backup this TV hasn't sent. */
 export function showsHeld(info: BackupStatus | null, held: boolean): boolean {
   return info !== null && info.on && held;

@@ -15,8 +15,8 @@ function bundleOf(own: number, worker: number): BudgetedBundle {
 const check = (bundle: BudgetedBundle) => bundleBudgets('main.js (tizen)', bundle, (w) => `worker ${w.entry}`);
 
 describe('bundle budgets', () => {
-  it('sets 500 KB for the main bundle and 150 KB per worker', () => {
-    expect(BUDGETS).toEqual({ main: 512_000, worker: 153_600 });
+  it('sets 500 KB for the main bundle, 150 KB per lazy file and 150 KB per worker', () => {
+    expect(BUDGETS).toEqual({ main: 512_000, lazy: 153_600, worker: 153_600 });
   });
 
   it('passes a bundle exactly at the limit and fails one byte over', () => {
@@ -51,6 +51,24 @@ describe('bundle budgets', () => {
     expect(check(bundleOf(BUDGETS.main + 1, 1024)).map((b) => b.ok)).toEqual([false, true]);
     // An oversized worker fails its own budget while main's own code fits.
     expect(check(bundleOf(100 * 1024, BUDGETS.worker + 1)).map((b) => b.ok)).toEqual([true, false]);
+  });
+
+  it("checks each lazy file's own code against the lazy budget, between main and the workers (RELAY step 35e)", () => {
+    const literal = JSON.stringify('w'.repeat(1000));
+    const lazy = (own: number) => ({ fileName: 'settings.js', code: 'l'.repeat(own) + literal, inlinedBytes: literal.length, modules: [] });
+    const fits = check({ ...bundleOf(100, 50), lazy: [lazy(BUDGETS.lazy)] });
+    expect(fits.map((b) => [b.label, b.kind, b.ok, b.bytes])).toEqual([
+      ['main.js (tizen)', 'main', true, 100],
+      ['settings.js of main.js (tizen)', 'lazy', true, BUDGETS.lazy],
+      ['worker /src/x.worker.ts', 'worker', true, 50],
+    ]);
+    expect(fits[1]?.inlined).toBe(literal.length);
+    const over = bundleBudgets('main.js (webos)', { ...bundleOf(100, 50), lazy: [lazy(BUDGETS.lazy + 1)] }, (w) => w.entry, (file) => `${file} (webos)`);
+    expect(over.map((b) => [b.label, b.ok])).toEqual([
+      ['main.js (webos)', true],
+      ['settings.js (webos)', false],
+      ['/src/x.worker.ts', true],
+    ]);
   });
 
   it('formats a readable line, with the inlined workers when there are any', () => {

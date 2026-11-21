@@ -15,7 +15,9 @@ import type { DataEngine, SourceFacts } from './data/engine';
 import { readApiBase, readRestored, readScreen, restartUrl } from './data/params';
 import type { RefreshScheduler } from './data/refresh-scheduler';
 import { createRefreshScheduler } from './data/refresh-scheduler';
-import { createSettings } from './settings/settings-state';
+import { createLazyFile } from './lazy/lazy-file';
+import type { LoadedSettings } from './settings/settings';
+import type { SettingsOptions } from './settings/settings-state';
 import { createAppDataEngine } from './data/workers';
 import { appI18n } from './i18n';
 import { showDevScreen } from './dev/dev-screens';
@@ -479,8 +481,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     tier: () => tier,
     play: (index) => player?.show(index),
     closed: (index) => live.focusRow(index),
-    // "Guide channel" in the programme details (step 24e): the manual mapping's picker over the guide.
-    map: (target) => settings.mapping.open(target),
+    // "Guide channel" in the programme details (step 24e): the manual mapping's picker over the guide (in settings.js, step 35e).
+    map: (target) => settings.use((file) => file.settings.mapping.open(target)),
     // "Watch from the start" (step 25a): the programme from the channel's archive, the player over the guide.
     catchup: (index, programme) => player?.catchup(index, programme),
   });
@@ -534,7 +536,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     live.guidesChanged();
     guide.guidesChanged();
   };
-  const settings = createSettings({
+  // The settings' screens are in settings.js (step 35e): what they need from here is kept, and they are made when the file is in.
+  const settingsOptions: SettingsOptions = {
     nav: live.nav,
     engine: dataEngine(),
     refreshNow: () => (refreshes === null ? Promise.resolve() : refreshes.refreshNow()),
@@ -576,8 +579,13 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
         }
         return result;
       }),
+  };
+  // settings.js loads the first time Settings opens (or the guide's "Guide channel"): a loading screen meanwhile, Back cancels.
+  const settings = createLazyFile<LoadedSettings>({
+    nav: live.nav,
+    load: () => import('./settings/settings').then((file) => file.loadSettings(settingsOptions)),
   });
-  openSettings = () => settings.open();
+  openSettings = () => settings.use((file) => file.settings.open());
   // OK on a channel opens the player on the live navigator (step 20a); Back returns to its row.
   const kept = memory.subtitleSize();
   const picture = memory.picture();
@@ -623,8 +631,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   startRefreshes(live, guide, [movies, series], search, home, readFacts, restored ? 0 : undefined);
   backup.start();
   telemetry.start();
-  if (toSources) settings.openSources();
-  else if (toGuides) settings.openGuides();
+  if (toSources) settings.use((file) => file.settings.openSources());
+  else if (toGuides) settings.use((file) => file.settings.openGuides());
   // Under the gate's `disable-app` or update (step 30c2a): the player closes, the refreshes and the backup's uploads stop, until it lifts.
   gated = {
     stop: () => {

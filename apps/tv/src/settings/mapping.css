@@ -76,19 +76,3 @@
   font-size: var(--font-size-body);
   line-height: var(--line-height-body);
 }
-
-/* "Reading the guides…" after a mapping (the list without a guide, the guide screen). */
-.mapping__reading {
-  display: flex;
-  flex: none;
-  align-items: center;
-  margin: 0 0 0 var(--space-7);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-label);
-  line-height: var(--line-height-label);
-  white-space: nowrap;
-}
-
-.mapping__reading .z-spinner {
-  margin-right: var(--space-3);
-}

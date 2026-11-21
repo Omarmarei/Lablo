@@ -6,11 +6,15 @@
  *      Every `?worker` import is built the same way first and inlined as a Blob URL.
  *   2. ES2016 syntax gate on each worker and on the main bundle (inside bundleIife).
  *   3. Bundle budgets: main's own code ≤ 500 KB (the inlined workers don't count there),
- *      each worker ≤ 150 KB.
+ *      each lazy file's own code ≤ 150 KB, each worker ≤ 150 KB.
+ *   (The app and its test copy are split (RELAY step 35e): main.js, with a small AMD loader at its
+ *   top, and settings.js, which main.js loads the first time Settings opens (src/amd-loader.ts).
+ *   Every module under apps/tv/src/settings/ must be in settings.js (src/lazy-files.ts). The lab
+ *   and the vectors page stay one file.)
  *   4. Check that no other platform's adapter leaked into the bundle.
  *   5. app.css from the CSS files the bundle imports: postcss-rtlcss, the url() assets copied
  *      to assets/, the Chromium 53 CSS gate (src/css.ts).
- *   6. Stage dist/tv/<platform>/ (index.html, main.js, app.css, assets, manifest, icons).
+ *   6. Stage dist/tv/<platform>/ (index.html, main.js, settings.js, app.css, assets, manifest, icons).
  *   7. Package: webOS .ipk via ares-package; Tizen .wgt only with the Tizen CLI and a profile.
  *
  * Each platform is built three times: the app (apps/tv/src/main.tsx -> dist/tv), the app's test
@@ -39,8 +43,9 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import type { BudgetResult } from './src/budgets';
 import { bundleBudgets, formatBudget, kb } from './src/budgets';
-import type { BundleResult } from './src/bundle';
+import type { BundleResult, LazyChunk } from './src/bundle';
 import { SyntaxGateError, bundleIife } from './src/bundle';
+import { APP_LAZY, lazyProblems } from './src/lazy-files';
 import type { CssBuild } from './src/css';
 import { ASSET_DIR, buildCss } from './src/css';
 import { CssGateError } from './src/css-gate';
@@ -111,6 +116,7 @@ function stage(
   platform: TvPlatform,
   target: Target,
   mainJs: string,
+  lazy: readonly LazyChunk[],
   css: CssBuild,
   options: BuildOptions,
 ): { dir: string; webosApp?: { id: string; version: string } } {
@@ -120,6 +126,8 @@ function stage(
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, 'main.js'), mainJs);
+  // The files main.js loads later (step 35e), next to it: the loader asks for `<id>.js` beside the page.
+  for (const file of lazy) writeFileSync(path.join(dir, file.fileName), file.code);
   if (lab) {
     writeFileSync(path.join(dir, 'index.html'), renderLabIndexHtml(platform, readFileSync(NATIVE_PROBE, 'utf8')));
     writeFileSync(path.join(dir, 'lab-config.js'), labConfigScript(options.lab));
@@ -147,7 +155,8 @@ function stage(
     return { dir };
   }
   const { id, requiredACG } = checkAppinfo(readFileSync(path.join(dir, 'appinfo.json'), 'utf8'), version);
-  const acgProblems = checkAcg(mainJs, requiredACG, { declareBundle: lab });
+  // Every file the app runs: a luna call in settings.js needs its group as much as one in main.js.
+  const acgProblems = checkAcg([mainJs, ...lazy.map((file) => file.code)].join('\n'), requiredACG, { declareBundle: lab });
   if (acgProblems.length > 0) {
     throw new Error(`${lab ? 'lab ' : ''}appinfo.json (webos), requiredACG:\n${acgProblems.map((p) => `  ${p}`).join('\n')}`);
   }
@@ -156,6 +165,9 @@ function stage(
 
 async function buildPlatform(platform: TvPlatform, target: Target, options: BuildOptions): Promise<PlatformReport> {
   const label = target === 'lab' ? `lab main.js (${platform})` : target === 'dev' ? `test copy main.js (${platform})` : `main.js (${platform})`;
+  const lazyLabel = (fileName: string): string => label.replace('main.js', fileName);
+  // The app and its test copy load Settings on first open (step 35e); the lab stays one file.
+  const split = target !== 'lab';
   const bundle = await bundleIife({
     input: path.join(APP_DIR, target === 'lab' ? 'src/lab/lab-main.tsx' : 'src/main.tsx'),
     platform,
@@ -163,10 +175,17 @@ async function buildPlatform(platform: TvPlatform, target: Target, options: Buil
     polyfills: options.polyfills,
     devScreens: target === 'dev',
     workerCache: options.workerCache,
+    split,
+    lazyLabel,
   });
   const { code } = bundle;
 
-  const budgets = bundleBudgets(label, bundle, (w) => `worker ${rel(w.entry)} (${platform})`);
+  if (split) {
+    const problems = lazyProblems(bundle, APP_LAZY, ROOT);
+    if (problems.length > 0) throw new Error(`${label}: Settings must load on first open (RELAY step 35e):\n${problems.map((p) => `  ${p}`).join('\n')}`);
+  }
+
+  const budgets = bundleBudgets(label, bundle, (w) => `worker ${rel(w.entry)} (${platform})`, lazyLabel);
 
   // The test copy never ships: its main.js (the app's and the developer screens') has no budget.
   const over = budgets.filter((b) => !b.ok && !(target === 'dev' && b.kind === 'main'));
@@ -174,13 +193,15 @@ async function buildPlatform(platform: TvPlatform, target: Target, options: Buil
     throw new Error(`Bundle budget exceeded:\n${over.map((b) => `  ${formatBudget(b)}`).join('\n')}`);
   }
 
-  const leaked = foreignCode(platform, code);
-  if (leaked.length > 0) {
-    throw new Error(`${label} contains another platform's adapter (${leaked.join(', ')}); check the __PLATFORM__ branches`);
+  for (const file of [{ label, code }, ...bundle.lazy.map((lazy) => ({ label: lazyLabel(lazy.fileName), code: lazy.code }))]) {
+    const leaked = foreignCode(platform, file.code);
+    if (leaked.length > 0) {
+      throw new Error(`${file.label} contains another platform's adapter (${leaked.join(', ')}); check the __PLATFORM__ branches`);
+    }
   }
 
   const css = await buildCss(bundle.css, `${target === 'lab' ? 'lab ' : target === 'dev' ? 'test copy ' : ''}app.css (${platform})`);
-  const staged = stage(platform, target, code, css, options);
+  const staged = stage(platform, target, code, bundle.lazy, css, options);
   let packaged: PackageResult | null = null;
   if (!options.skipPackage && target !== 'dev') {
     packaged = staged.webosApp ? packageWebos(staged.dir, DIST_PACKAGES, staged.webosApp) : packageTizen(staged.dir, DIST_PACKAGES);

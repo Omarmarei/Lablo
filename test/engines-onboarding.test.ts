@@ -237,7 +237,7 @@ describe('the grid guide of the old-engine harness (RELAY step 23e)', () => {
     for (const mark of ['[data-testid="guide"]', "'.z-guide__row'", "'.z-guide__cell'", "'.z-guide__slot'", "'.z-guide__now'", "'data-programme'", "'data-state'"]) expect(GRID_VIEW_FUNCTION).toContain(mark);
     expect(WALK_EXPRESSION).toContain(`var guide = document.querySelector('[data-testid="guide-screen"]');`);
     expect(WALK_EXPRESSION).toContain(`guide.getAttribute('data-pending') === '0'`);
-    expect(WALK_EXPRESSION).toContain('var shown = ob || live || guide || movies;');
+    expect(WALK_EXPRESSION).toContain('var shown = ob || live || guide || movies || settings;');
   });
 
   it("takes the cells' left: var(--x) and its mirror out of GuideGrid.css as the TV build makes it, and nothing else", async () => {

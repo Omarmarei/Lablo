@@ -342,6 +342,9 @@ export const EN = {
   'movie.cast': 'Cast: {names}',
   'badge.radio': 'Radio',
 
+  // A screen whose file loads on first open (RELAY step 35e: the settings'), when the file didn't load.
+  'lazy.failed': "Couldn't open this screen.",
+
   // The settings screen and the guides screen (RELAY step 22b2). Links are data; XMLTV is an argument.
   'settings.open': 'Settings',
   'settings.title': 'Settings',

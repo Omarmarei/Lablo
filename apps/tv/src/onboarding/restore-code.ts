@@ -6,7 +6,7 @@ import type { BackupCodeRequest, BackupRestoreResult, CancelToken } from '@lablo
 import { CancelSource } from '@lablo/data/client';
 import type { Navigator, Screen, TextEditor, ZoneSpec } from '@lablo/ui';
 import type { SchedulerTimers } from '../data/refresh-scheduler';
-import { codeGroups } from '../settings/backup-state';
+import { codeGroups } from '../backup/code-groups';
 import { storedSources } from './engine-loader';
 
 /**

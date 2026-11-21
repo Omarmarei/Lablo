@@ -4,7 +4,8 @@ import type { Focus, FocusBinding, ItemBinding } from '@lablo/ui';
 import { Button, Dialog, Spinner, useZone } from '@lablo/ui';
 import type { AppI18n } from '../i18n';
 import type { BackupBusy, BackupNotice, BackupPage, BackupQuestion } from './backup-state';
-import { BACKUP_CONFIRM, CONFIRM_NO, CONFIRM_YES, HELD_REPLACE, HELD_RESTORE, SWITCH_BACKUP, SWITCH_LOGINS, codeGroups, showsHeld, switchRows } from './backup-state';
+import { codeGroups } from '../backup/code-groups';
+import { BACKUP_CONFIRM, CONFIRM_NO, CONFIRM_YES, HELD_REPLACE, HELD_RESTORE, SWITCH_BACKUP, SWITCH_LOGINS, showsHeld, switchRows } from './backup-state';
 
 /**
  * Settings' backup page (RELAY step 32d2b, `backup-state.ts`): the switch row and its line, while

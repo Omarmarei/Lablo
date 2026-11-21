@@ -2,7 +2,7 @@ import type { Focus, FocusBinding } from '@lablo/ui';
 import { GuideGrid, guideCellAt } from '@lablo/ui';
 import type { AppI18n } from '../i18n';
 import type { Mapping } from '../settings/mapping-state';
-import { MappingReading } from '../settings/MappingPage';
+import { MappingReading } from './MappingReading';
 import type { Guide } from './guide-state';
 import { GUIDE_GRID } from './guide-state';
 import { ProgrammeDialog } from './ProgrammeDialog';

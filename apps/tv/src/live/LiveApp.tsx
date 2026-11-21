@@ -28,9 +28,10 @@ import { SHOW_SCREEN } from '../shows/show-details';
 import { SearchScreen } from '../search/SearchScreen';
 import type { Search } from '../search/search-state';
 import { SEARCH_SCREEN } from '../search/search-state';
-import { SettingsScreen } from '../settings/SettingsScreen';
-import type { Settings } from '../settings/settings-state';
-import { SETTINGS_SCREENS } from '../settings/settings-state';
+import type { LazyFile } from '../lazy/lazy-file';
+import { LOADING_SCREEN } from '../lazy/lazy-file';
+import { LoadingScreen } from '../lazy/LoadingScreen';
+import type { LoadedSettings } from '../settings/settings';
 import type { Live, LiveRow, RailEntry } from './live-state';
 import { HEADER_GUIDE, HEADER_HOME, HEADER_MOVIES, HEADER_SEARCH, HEADER_SERIES, HEADER_SETTINGS, LIVE } from './live-state';
 import './live.css';
@@ -114,7 +115,7 @@ function LiveScreen({
   live: Live;
   i18n: AppI18n;
   player: Player | null;
-  settings: Settings | null;
+  settings: LazyFile<LoadedSettings> | null;
   guide: Guide | null;
   movies: Movies | null;
   series: Movies | null;
@@ -126,14 +127,22 @@ function LiveScreen({
 }) {
   const { t } = i18n;
   const { binding, home } = live;
-  const focus = useFocus(binding);
+  let focus = useFocus(binding);
+  // settings.js loading (step 35e): its first moments paint the screen under it, then a spinner or its failure.
+  if (settings !== null && focus.screen === LOADING_SCREEN) {
+    const phase = settings.phase.value;
+    if (phase !== 'quiet') return <LoadingScreen phase={phase} i18n={i18n} binding={binding} focus={focus} />;
+    focus = settings.under.value ?? focus;
+  }
+  // The settings, once settings.js is in (step 35e).
+  const loaded = settings === null ? null : settings.loaded.value;
   // The player covers the live screen (step 20a), its track menu too (20b) and the favourites panel (35c): only their own parts paint, over the stage.
   const over = focus.screen === 'player' || focus.screen === 'tracks' || focus.screen === FAVOURITES_SCREEN || focus.screen === NEW_LIST_SCREEN;
   if (over && player !== null) return <PlayerScreen live={live} player={player} i18n={i18n} />;
   // The settings screens (step 22b2) paint instead of the live screen.
-  if (settings !== null && SETTINGS_SCREENS.indexOf(focus.screen) !== -1) return <SettingsScreen settings={settings} i18n={i18n} binding={binding} focus={focus} />;
+  if (loaded !== null && loaded.screens.indexOf(focus.screen) !== -1) return <loaded.Screen settings={loaded.settings} i18n={i18n} binding={binding} focus={focus} />;
   // The guide (step 23c) paints instead of the live screen, with its programme details (24a) over it; the player opens over it.
-  if (guide !== null && (focus.screen === GUIDE_SCREEN || focus.screen === DETAILS_SCREEN)) return <GuideScreen guide={guide} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} listVersion={live.version.value} mapping={settings?.mapping ?? null} />;
+  if (guide !== null && (focus.screen === GUIDE_SCREEN || focus.screen === DETAILS_SCREEN)) return <GuideScreen guide={guide} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} listVersion={live.version.value} mapping={loaded === null ? null : loaded.settings.mapping} />;
   // The movies screen (step 26a) paints instead of the live screen.
   if (movies !== null && focus.screen === MOVIES_SCREEN) return <MoviesScreen movies={movies} i18n={i18n} binding={binding} focus={focus} clock={live.clock.value} />;
   // The series screen (step 27a): the movies screen for series.
@@ -263,8 +272,11 @@ interface Props {
   readonly language: Language | null;
   /** The player OK on a channel opens (step 20a; `null`: the row is only marked). */
   readonly player?: Player | null;
-  /** The settings the header's button opens (step 22b2; `null`: none paint). */
-  readonly settings?: Settings | null;
+  /**
+   * The settings the header's button opens (step 22b2; `null`: none paint), from settings.js, which
+   * loads the first time they open (step 35e).
+   */
+  readonly settings?: LazyFile<LoadedSettings> | null;
   /** The guide the header's "Guide" opens (step 23c; `null`: none paints). */
   readonly guide?: Guide | null;
   /** The movies screen the header's "Movies" opens (step 26a; `null`: none paints). */

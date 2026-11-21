@@ -3,7 +3,9 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import type { BundleResult, StoreSwap } from './bundle';
-import { STORE_SWAPS, SyntaxGateError, UNUSED_POLYFILLS, bundleIife, stringLiteral } from './bundle';
+import { STORE_SWAPS, SyntaxGateError, UNUSED_POLYFILLS, bundleIife, checkChunks, stringLiteral } from './bundle';
+import { DEFINE_NAME } from './amd-loader';
+import { scriptPage } from '../test/script-page';
 import { tvDefines } from '../../../tv-defines.config';
 import { checkSyntax } from './syntax-gate';
 
@@ -229,4 +231,107 @@ describe('the worker cache (RELAY step 35b)', () => {
     expect(bare.workers[0]!.code).toContain('echo-worker-marker');
     expect([...cache.keys()].sort()).toEqual([key, `${fixture('echo.worker.ts')}|tizen|polyfilled`, `${fixture('echo.worker.ts')}|webos|bare`].sort());
   }, 120_000);
+});
+
+describe('the split build (RELAY step 35e)', () => {
+  const WITHOUT_ES2017 = 'delete Object.entries; delete Object.values; delete String.prototype.padStart; delete String.prototype.padEnd;';
+
+  it('writes main.js with the loader at its top and one lazy file, each gated, each with its own polyfills and workers', async () => {
+    const result = await bundleIife({ input: fixture('split/entry.ts'), platform: 'webos', split: true, label: 'main.js (webos)' });
+    expect(result.lazy.map((file) => file.fileName)).toEqual(['lazy-part.js']);
+    const [part] = result.lazy;
+    expect(checkSyntax(result.code, 'main')).toBeNull();
+    expect(checkSyntax(part!.code, 'lazy')).toBeNull();
+    // The loader, then main's own define; the lazy file defines itself on main.
+    expect(result.code.indexOf(DEFINE_NAME)).toBeLessThan(result.code.indexOf(`${DEFINE_NAME}("main"`));
+    expect(part!.code.startsWith(`${DEFINE_NAME}("lazy-part",["exports","./main"]`)).toBe(true);
+    // What only the lazy part needs is in its file: its code, its worker, its polyfill.
+    expect(result.code).not.toContain('lazy-part-marker');
+    expect(part!.code).toContain('lazy-part-marker');
+    expect(result.code).not.toContain('echo-worker-marker');
+    expect(part!.inlinedBytes).toBe(Buffer.byteLength(stringLiteral(result.workers[0]!.code), 'utf8'));
+    expect(result.inlinedBytes).toBe(0);
+    expect(result.code).not.toContain('padStart');
+    expect(part!.code).toContain('padStart');
+    expect(result.modules.map((id) => path.basename(id))).toEqual(expect.arrayContaining(['entry.ts', 'shared.ts']));
+    expect(result.modules.some((id) => id.endsWith('lazy-part.ts'))).toBe(false);
+    expect(part!.modules.map((id) => path.basename(id))).toContain('lazy-part.ts');
+    expect(part!.modules.some((id) => id.endsWith('shared.ts'))).toBe(false);
+
+    // On a page without the ES2017 APIs: the lazy part loads once, by one tag, and shares main's modules.
+    const page = scriptPage(new Map([['lazy-part.js', part!.code]]), WITHOUT_ES2017);
+    page.run(result.code);
+    const fixtureApi = page.fixture<{ open(from: string): Promise<string>; count(): number }>();
+    expect(fixtureApi.count()).toBe(1);
+    expect(page.requested).toEqual([]);
+    await expect(fixtureApi.open('entry')).resolves.toBe('[entry] 002 1b lazy-part-marker');
+    await expect(fixtureApi.open('again')).resolves.toBe('[again] 003 1b lazy-part-marker');
+    expect(page.requested).toEqual(['lazy-part.js']);
+    expect(fixtureApi.count()).toBe(3);
+  }, 60_000);
+
+  it('loads the lazy file again after a failed load', async () => {
+    const result = await bundleIife({ input: fixture('split/entry.ts'), platform: 'tizen', split: true });
+    const files = new Map<string, string>();
+    const page = scriptPage(files);
+    page.run(result.code);
+    const fixtureApi = page.fixture<{ open(from: string): Promise<string> }>();
+    await expect(fixtureApi.open('x')).rejects.toThrow('lazy-part.js did not load');
+    files.set('lazy-part.js', result.lazy[0]!.code);
+    await expect(fixtureApi.open('y')).resolves.toBe('[y] 002 1b lazy-part-marker');
+    expect(page.requested).toEqual(['lazy-part.js', 'lazy-part.js']);
+  }, 60_000);
+
+  it('gates each lazy file, labelled as asked', async () => {
+    const labelled = bundleIife({ input: fixture('split/bad-lazy.ts'), platform: 'webos', split: true, label: 'main.js (webos)', lazyLabel: (file) => `${file} (webos)` });
+    await expect(labelled).rejects.toThrow(SyntaxGateError);
+    await expect(labelled).rejects.toThrow(/ES2016 syntax gate failed for lookbehind\.js \(webos\).*Invalid regular expression/);
+    const plain = bundleIife({ input: fixture('split/bad-lazy.ts'), platform: 'webos', split: true, label: 'main.js (webos)' });
+    await expect(plain).rejects.toThrow(/gate failed for lookbehind\.js of main\.js \(webos\)/);
+  }, 60_000);
+
+  it('refuses a shape its loader cannot load: a file shared by two lazy files', async () => {
+    const build = bundleIife({ input: fixture('split/two-lazy.ts'), platform: 'webos', split: true, label: 'main.js (webos)' });
+    await expect(build).rejects.toThrow(
+      [
+        "main.js (webos): the split build has a shape its loader can't load:",
+        '  lazy-one.js imports lazy-shared.js: a lazy file may import only main.js',
+        '  lazy-two.js imports lazy-shared.js: a lazy file may import only main.js',
+        '  lazy-shared.js is shared by lazy files: the loader loads one file per import()',
+      ].join('\n'),
+    );
+  }, 60_000);
+
+  it('checks the chunk graph: one entry, lazy files that need only it', () => {
+    const chunk = (fileName: string, more: Partial<{ isEntry: boolean; isDynamicEntry: boolean; imports: string[]; dynamicImports: string[] }> = {}) => ({
+      fileName,
+      isEntry: false,
+      isDynamicEntry: true,
+      imports: [] as string[],
+      dynamicImports: [] as string[],
+      ...more,
+    });
+    const main = chunk('main.js', { isEntry: true, isDynamicEntry: false, dynamicImports: ['settings.js'] });
+    expect(checkChunks([main, chunk('settings.js', { imports: ['main.js'] })])).toEqual([]);
+    expect(checkChunks([main])).toEqual([]);
+    expect(checkChunks([chunk('settings.js')])).toEqual(['a split build has one entry, not 0']);
+    expect(checkChunks([main, { ...main, fileName: 'other.js' }])).toEqual(['a split build has one entry, not 2']);
+    expect(checkChunks([{ ...main, imports: ['vendor.js'] }, chunk('vendor.js', { isDynamicEntry: false })])).toEqual([
+      'main.js imports vendor.js: the loader loads nothing at the start',
+      'vendor.js is shared by lazy files: the loader loads one file per import()',
+    ]);
+    expect(checkChunks([main, chunk('settings.js', { imports: ['main.js', 'shared.js'] })])).toEqual(['settings.js imports shared.js: a lazy file may import only main.js']);
+    expect(checkChunks([main, chunk('settings.js', { dynamicImports: ['help.js'] })])).toEqual(['settings.js loads help.js: only main.js may load a lazy file']);
+  });
+
+  it('keeps an unsplit build one IIFE with its import() inlined', async () => {
+    const result = await bundleIife({ input: fixture('split/entry.ts'), platform: 'webos' });
+    expect(result.lazy).toEqual([]);
+    expect(result.code).toContain('lazy-part-marker');
+    expect(result.code).not.toContain(DEFINE_NAME);
+    const context = vm.createContext({});
+    vm.runInContext(result.code, context);
+    const fixtureApi = vm.runInContext('globalThis.fixture', context) as { open(from: string): Promise<string> };
+    await expect(fixtureApi.open('one')).resolves.toBe('[one] 002 1b lazy-part-marker');
+  }, 60_000);
 });
