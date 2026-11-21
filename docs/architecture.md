@@ -1122,6 +1122,12 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
   - OK opens the settings screen (`LiveOptions.openSettings`). No new remote key.
 - **The settings screen** (`settings`, pushed on the live navigator) has one row, "TV guides". Step 38 adds the track languages, the subtitle style and the picture mode. The live screen paints the settings screens instead of its own (`SETTINGS_SCREENS`), as it does for the player.
   - Since step 35d it has six rows, each new one last (`SETTINGS_ITEMS`): "TV guides", "Sources" (30c3a), "Backup" (32d2b), "Usage and crash reports" (33b3), "Send a report to support" (33d2), "Channel groups" (§1.4 item 10, "Built in step 35d").
+  - **Since step 35e the settings load on first open** (ADR-014; §4's build pipeline, item 7). Everything under `apps/tv/src/settings/` is in settings.js, which main.js asks for the first time a settings screen opens: the header's button, "Welcome back"'s sources or TV guides, or the guide's "Guide channel". Meanwhile a loading screen is on the live navigator (`apps/tv/src/lazy/`: `lazy-file.ts`, `LoadingScreen.tsx`), and keys and Back go to it:
+    - for its first 300 ms the screen under it stays painted (`under`: the live screen, or the guide), so a quick load shows only the next screen;
+    - then a spinner;
+    - a failed load, or one still on its way after 15 s, says "Couldn't open this screen." with "Try again"; a value that comes later is kept, and opens on "Try again" with no second load;
+    - Back cancels the opening, and a load still on its way keeps its value for the next open.
+    - Later opens are at once. The live screen paints the settings screens from the loaded file (`loaded.screens`, `loaded.Screen`). What main.js keeps moved out of `settings/`: `MappingReading` to `guide/`, `codeGroups` to `backup/code-groups.ts`.
 - **The guides screen** (`guides`): "Add a guide" in the header, a line on how the order counts, then one list of 6 rows of 120 px:
   - the user's guides in their order, then each source's own in the refresh's order (`epgGuides`: a panel's `xmltv.php`, a playlist's `url-tvg`). A source's guide with the same link as one of the user's is read, and listed, once, as the user's;
   - each row: the link as host and path (`shownLink`: no scheme, query, fragment or login; an Xtream guide's login is in its query), and "Added by you" or "From <source>";
@@ -2255,6 +2261,13 @@ envelope   = {v:1, kdf:"scrypt-15-8-1", nonce:24B, ct: secretbox(gzip(profileJSO
 4. Run the syntax gate on the main bundle. Check bundle budgets: main JS ≤ 500 KB minified (its own code, without the inlined workers: ADR-003), each worker ≤ 150 KB. The bundles are written as UTF-8 (step 32d3a): the TV pages declare `<meta charset="utf-8">`, and terser escapes only what an ES2016 literal or a UTF-8 file can't hold (U+2028, U+2029, U+FEFF, lone surrogates).
 5. Copy the platform files and package: `tizen package -t wgt -s <profile>` and `ares-package`.
 6. **The store build and its test copy** (step 35b, Omar's decision of 2026-11-20; runbook tv-build.md): the developer screens behind `?screen=` (hello, the component gallery, the grid guide's gallery page, `apps/tv/src/dev/dev-screens.tsx`) are swapped for a stand-in that shows none in the store build (`STORE_SWAPS`), so none of their code, CSS or worker ships: main.js 490.8 → 459.9 KB on Tizen. The `dev` target builds a test copy with them into `dist/tv-dev` (never packaged, no main budget), which the old-engine harness's hello and gallery runs and `e2e/tv-bundle.spec.ts` open. Each worker is built once per run (`workerCache`) and inlined into the app, its test copy and the lab alike.
+7. **Settings load on first open** (step 35e, Omar's option 1 of 2026-11-21; ADR-014, which amends ADR-003; runbook tv-build.md § "Settings load on first open"):
+   - The app and its test copy are split by Rollup as `amd`: everything under `apps/tv/src/settings/` goes to `settings.js`, behind `main.tsx`'s `import()`.
+   - Chromium 53 has no `import()`, so an ES5 loader of ours sits at the top of main.js (`tools/build/src/amd-loader.ts`, about 700 bytes, Rollup's `banner` on the entry; one global, `__labloDefine`) and loads settings.js by a `<script>` tag.
+   - `checkChunks` allows one shape only: one entry, and lazy files that need only main.js. Each file goes through terser, the worker strings and the ES2016 gate. settings.js has a budget of its own, 150 KB (66.1 KB).
+   - `APP_LAZY` (`lazy-files.ts`) fails the build when main.js holds a module of `apps/tv/src/settings/` (a static import somewhere), naming each one.
+   - The `.wgt` and the `.ipk` package settings.js beside main.js. The lab and the vectors page stay one file each.
+   - main.js 487.6 → 426.1 KB on Tizen, 474.9 → 413.4 KB on webOS. Steps 36, 38 and 40's screens go to settings.js too.
 
 **Linting:** `eslint-plugin-compat` with browserslist `chrome 53`. The polyfill allowlist lives in CLAUDE.md.
 

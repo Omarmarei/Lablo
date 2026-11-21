@@ -2772,6 +2772,19 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     2. architecture.md: the build section (~2255: the budgets, the store build, a line for settings.js and ADR-014) and §1.5's settings rows (the loading screen);
     3. the full unit run (`pnpm test`), `pnpm lint`, and the e2e specs that open Settings (grep `settings/items`: backup-code, backup-logins-xa, backup-settings, config-blocklist, guide-catchup-m3u, guide-matches, guide-offset, guides, home, live, pairing, telemetry) on the dev server;
     4. the PR from `relay/iptv-20261101-214120`, merged on green CI (merge commit, keep the branch), the three riskiest changes named; then tick 35e and add its progress row.
+  - **Done in leg 127:**
+    - **Mutation** (`artifacts/mutate35e.py`, 85 written first): 69 caught at first. Six gaps were closed with tests and ten survivors are equivalent, each with its reason in the script; 75 of 75 caught.
+      - The tests: in `lazy-file.test.ts`, a screen pushed over the loading screen (nothing opens over it), the first opening's timers going on a second start, 300 ms and 15 s pinned as numbers, and a `use` on the failure asking again. In `e2e/settings-loading.spec.ts`, the guide's "Guide channel" as the first load (the guide stays painted until the spinner), and a restored start whose guide lost its link opening TV guides through settings.js (`toGuides`: no e2e had reached it).
+      - The equivalents: 0, 4, 12, 15, 16, 20, 24, 26, 32 (lazy-file.ts's guards that other lines already make true) and 76 (lazy-files.ts's `\0` skip).
+    - **Two gates leg 126 had missed:**
+      - `pnpm typecheck`: the e2e imported `lazy-file.ts`, which pulls `@lablo/ui`'s `.tsx` files into the root tsconfig (no `jsx`), so the spec has its own 300 ms constant; a VNode props cast goes through `unknown`.
+      - `test/engines-onboarding.test.ts` pinned the walk's `shown` line from before `settings` joined it.
+    - **The guard checked by hand:** a static `import { SETTINGS_ITEMS } from './settings/settings-state'` in `main.tsx` failed `build:tv --target app --platform webos`, naming each settings module in main.js; reverted.
+    - **Verified:**
+      - unit 7,797 (304 files), `pnpm lint`, `pnpm typecheck`;
+      - e2e on the dev server: the 15 Settings specs and settings-loading (50 + 3); tv-bundle 10; `pnpm e2e:web` 26 (backup-logins, backup-api, pairing-api, no-plaintext) after `build:web`;
+      - `build:tv`: main.js 426.1 KB Tizen, 413.4 KB webOS; settings.js 66.1 KB.
+    - **Docs:** architecture.md §4's build pipeline item 7, and §1.5's settings rows (the loading screen).
 - [ ] 36. **Channel management.** Hide/rename/renumber channels, "clean names", multiple sources merged.
   - **The size question (asked in leg 125; decided by Omar on 2026-11-21: step 35e first).** Measured after 35d (the per-file source-map probe, `artifacts/size36-main-tizen.txt`):
     - main.js has **487.6 KB of its 500 KB on Tizen** (12.4 KB left), 474.9 KB on webOS;
