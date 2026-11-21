@@ -315,9 +315,14 @@ describe('ingest against the mock provider: Xtream', () => {
       { id: 'l1', name: null, keys: ['x:xt:live:103', 'x:xt:live:101'] },
       { id: 'l2', name: 'Films', keys: ['x:xt:movie:202', 'x:xt:series:302', 'x:xt:live:101'] },
     ];
-    // Changed channels (step 36a): 101's is a favourite's too, 105's is its own.
+    // Changed channels (step 36a): 101's is a favourite's too, 105's is its own. 101's entry was
+    // made with its twin's group: re-matched on its own it would go to the twin (1112); it follows
+    // the favourite (1101), and takes its group.
     const kids = live.find((i) => i.key === 'x:xt:live:105')!;
-    const edits = [changedChannel(picks[0]!, { number: 1, name: 'Bars' }), changedChannel(kids, { hidden: true })];
+    const twinGroup = live.find((i) => i.key === 'x:xt:live:112')!.group;
+    expect(twinGroup).not.toBe(picks[0]!.group);
+    const edits = [changedChannel(picks[0]!, { number: 1, name: 'Bars', group: twinGroup }), changedChannel(kids, { hidden: true })];
+    const followed = { ...edits[0], key: 'x:xt:live:1101', group: picks[0]!.group };
     await saveProfile(db, { ...emptyProfile(), favourites: picks.map(favourite), favouriteLists: lists, channelEdits: edits }, { now: NOW });
 
     app.mockState.catalog = renumbered(catalog, 1000);
@@ -350,10 +355,7 @@ describe('ingest against the mock provider: Xtream', () => {
       { id: 'l2', name: 'Films', keys: ['x:xt:movie:1202', 'x:xt:series:1302', 'x:xt:live:1101'] },
     ]);
     // So do the changed channels, their changes kept.
-    expect((await storedDoc()).channelEdits).toEqual([
-      { ...edits[0], key: 'x:xt:live:1101' },
-      { ...edits[1], key: 'x:xt:live:1105' },
-    ]);
+    expect((await storedDoc()).channelEdits).toEqual([followed, { ...edits[1], key: 'x:xt:live:1105' }]);
 
     // The re-matched keys resolve in the new generation, and search boosts them (read from the profile).
     const q = new QueryService({ openDb: async () => db });
@@ -374,7 +376,7 @@ describe('ingest against the mock provider: Xtream', () => {
     ]);
     const later = await ingest({ ...xtream(), force: true }, { now: () => NOW + 32 * DAY });
     expect(later.favourites).toMatchObject({ dropped: ['x:xt:movie:1202'] });
-    expect((await storedDoc()).channelEdits).toEqual([{ ...edits[0], key: 'x:xt:live:1101' }]);
+    expect((await storedDoc()).channelEdits).toEqual([followed]);
     expect(((await loadProfile(db))!.doc as ProfileDoc).favourites.map((f) => f.key)).toEqual(['x:xt:live:1101', 'x:xt:live:1103', 'x:xt:series:1302']);
     // Dropped from its list too; the other list is the same object's copy, unchanged.
     expect(((await loadProfile(db))!.doc as ProfileDoc).favouriteLists).toEqual([

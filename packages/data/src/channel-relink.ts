@@ -60,17 +60,16 @@ export function relinkChannelEdits(
       continue;
     }
     taken.add(fav.key);
-    if (fav.key === edit.key && fav.missingSince === edit.missingSince && fav.group === edit.group && fav.epgId === edit.epgId) {
+    if (fav.key === edit.key && fav.normName === edit.normName && fav.group === edit.group && fav.epgId === edit.epgId && fav.missingSince === edit.missingSince) {
       results.push(edit);
       continue;
     }
-    // (An entry read through `channelEditsOf` has a change, so `changed` makes a copy.)
-    const moved = changed(edit, {})!;
-    moved.key = fav.key;
-    moved.missingSince = fav.missingSince;
-    if (fav.group !== undefined) moved.group = fav.group;
-    if (fav.epgId !== undefined) moved.epgId = fav.epgId;
-    results.push(moved);
+    // The favourite's ref (one per key), the entry's add time and changes. (An entry read through
+    // `channelEditsOf` has a change, so `changed` makes a copy, its unset fields left out.)
+    const ref: ChannelEdit = { key: fav.key, src: edit.src, kind: edit.kind, normName: fav.normName, added: edit.added, missingSince: fav.missingSince };
+    if (fav.group !== undefined) ref.group = fav.group;
+    if (fav.epgId !== undefined) ref.epgId = fav.epgId;
+    results.push(changed(ref, { hidden: edit.hidden ?? null, name: edit.name ?? null, number: edit.number ?? null }));
   }
   const mine = reconcileFavourites(own, src, catalog, now, kinds, taken).outcomes;
   const out: ChannelEdit[] = [];

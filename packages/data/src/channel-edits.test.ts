@@ -341,6 +341,14 @@ describe('channel-changes: a refresh re-keys the changed channels (relinkChannel
     const e = { ...f, group: 'Old group', epgId: null, hidden: true as const };
     expect(refresh([f], [e], [live(1, 'One', 'New group', 'one.ae')]).edits).toEqual([{ ...e, group: 'New group', epgId: 'one.ae' }]);
     expect(refresh([f], [{ ...e, group: 'New group' }], [live(1, 'One', 'New group', 'one.ae')]).edits).toEqual([{ ...e, group: 'New group', epgId: 'one.ae' }]);
+    expect(refresh([f], [{ ...e, group: 'New group', epgId: 'one.ae', normName: 'old one' }], [live(1, 'One', 'New group', 'one.ae')]).edits).toEqual([{ ...e, group: 'New group', epgId: 'one.ae' }]);
+    // A favourite without a group or a tvg-id leaves none on the entry, which then stays as it is.
+    const bare: FavouriteRef = { key: f.key, src: 'tv', kind: 'live', normName: f.normName, added: 1, missingSince: null };
+    const followed = refresh([bare], [e], [live(1, 'One', 'New group', 'one.ae')]).edits!;
+    expect(followed).toEqual([{ ...bare, hidden: true }]);
+    expect(Object.keys(followed[0]!)).not.toContain('group');
+    expect(Object.keys(followed[0]!)).not.toContain('epgId');
+    expect(refresh([bare], followed, [live(1, 'One', 'New group', 'one.ae')]).edits).toBeNull();
     // Re-matched by name to a channel that has a tvg-id now.
     const g = tvRef(live(2, 'Two'));
     expect(refresh([g], [{ ...g, number: 2 }], [live(22, 'Two', 'G', 'two.ae')]).edits).toEqual([{ ...g, key: 'x:tv:live:22', epgId: 'two.ae', number: 2 }]);
