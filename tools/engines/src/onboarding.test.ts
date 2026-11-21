@@ -37,6 +37,8 @@ import {
   matches,
   moviesSteps,
   onboardingUrl,
+  settingsSteps,
+  HEADER_SETTINGS,
   playlistLink,
   profileFailures,
   resetDatabase,
@@ -87,6 +89,7 @@ const BASE: WalkState = {
   onboarding: true,
   live: false,
   liveIdle: false,
+  settings: false,
   liveCount: null,
   screen: 'language',
   zone: 'languages',
@@ -348,8 +351,14 @@ describe('walkSteps', () => {
       'Enter',
       'Back',
       'Back',
+      'ArrowRight',
+      'ArrowRight',
+      'ArrowRight',
+      'ArrowRight',
+      'Enter',
+      'Back',
     ]);
-    const tail = [...liveSteps('en', 'webos'), ...guideSteps('en', 'webos'), ...moviesSteps('en', 'webos')];
+    const tail = [...liveSteps('en', 'webos'), ...guideSteps('en', 'webos'), ...moviesSteps('en', 'webos'), ...settingsSteps('en', 'webos')];
     expect(walkSteps('en', LINK, 'webos').slice(-tail.length)).toEqual(tail);
   });
 
@@ -383,14 +392,14 @@ describe('walkSteps', () => {
     expect(stepOf('add')).toMatchObject({ wait: 'load', shot: 'done', layout: 'done' });
   });
 
-  it('measures the six screens of the e2e test on the way, then the live screen, its next window, a category, (Tizen) the exit dialog, the guide and the movies screen', () => {
+  it('measures the six screens of the e2e test on the way, then the live screen, its next window, a category, (Tizen) the exit dialog, the guide and the movies screen; saves the settings', () => {
     const six = ['language', 'disclaimer', 'consent', 'source', 'form', 'done'];
     const guide = ['guide', 'paged guide', 'later guide', 'earlier guide'];
     const movies = ['movies', 'paged movies', 'movies category'];
     expect(walkSteps('ar', LINK, 'tizen').flatMap((s) => (s.layout === undefined ? [] : [s.layout]))).toEqual([...six, 'live', 'paged live', 'category', 'exit dialog', ...guide, ...movies]);
     expect(walkSteps('en', LINK, 'webos').flatMap((s) => (s.layout === undefined ? [] : [s.layout]))).toEqual([...six, 'live', 'paged live', 'category', ...guide, ...movies]);
-    expect(walkSteps('en', LINK, 'tizen').flatMap((s) => (s.shot === undefined ? [] : [s.shot]))).toEqual(['form', 'done', 'live', 'category', 'exit', 'guide', 'guide-later', 'guide-earlier', 'movies', 'movies-category']);
-    expect(walkSteps('en', LINK, 'webos').flatMap((s) => (s.shot === undefined ? [] : [s.shot]))).toEqual(['form', 'done', 'live', 'category', 'guide', 'guide-later', 'guide-earlier', 'movies', 'movies-category']);
+    expect(walkSteps('en', LINK, 'tizen').flatMap((s) => (s.shot === undefined ? [] : [s.shot]))).toEqual(['form', 'done', 'live', 'category', 'exit', 'guide', 'guide-later', 'guide-earlier', 'movies', 'movies-category', 'settings']);
+    expect(walkSteps('en', LINK, 'webos').flatMap((s) => (s.shot === undefined ? [] : [s.shot]))).toEqual(['form', 'done', 'live', 'category', 'guide', 'guide-later', 'guide-earlier', 'movies', 'movies-category', 'settings']);
   });
 });
 
@@ -524,6 +533,32 @@ describe('guideSteps', () => {
       ['guide-later', 'guide-later'],
       ['guide-earlier', 'guide-earlier'],
     ]);
+  });
+});
+
+describe('settingsSteps (RELAY step 35e)', () => {
+  const codes = (platform: TvPlatform, language: WalkLanguage = 'en'): number[] => settingsSteps(language, platform).flatMap((s) => (s.keys ?? []).map((k) => k.keyCode));
+
+  it("goes along the header to its last button, OK, and Back with the TV's own key", () => {
+    expect(HEADER_SETTINGS).toBe(5);
+    expect(codes('tizen')).toEqual([39, 39, 39, 39, 13, 10009]);
+    expect(codes('webos')).toEqual([39, 39, 39, 39, 13, 461]);
+    expect(codes('webos', 'ar')).toEqual([37, 37, 37, 37, 13, 461]);
+  });
+
+  it("starts where the movies steps end, opens the settings on their first row (settings.js loaded), and closes them on the header's \"Settings\"", () => {
+    for (const platform of ['tizen', 'webos'] as const) expect(moviesSteps('en', platform).at(-1)?.expect).toMatchObject({ screen: 'live', zone: 'header', index: 1 });
+    const [to, open, close] = settingsSteps('ar', 'webos');
+    expect(to?.expect).toEqual({ screen: 'live', zone: 'header', index: HEADER_SETTINGS, live: true, liveIdle: true, category: GUIDE_ENTRY });
+    expect(open).toMatchObject({ id: 'settings-open', expect: { screen: 'settings', zone: 'items', index: 0, settings: true, language: 'ar', dir: 'rtl' }, shot: 'settings', wait: 'load' });
+    expect(close?.expect).toEqual({ screen: 'live', zone: 'header', index: HEADER_SETTINGS, live: true, liveIdle: true, category: GUIDE_ENTRY, settings: false });
+  });
+
+  it('stops a walk whose settings never showed, and says so', () => {
+    const walk = stoppedAt('en', 'settings-open', { settings: false, screen: 'lazy-loading', zone: 'retry', index: 0, hook: 'lazy-loading/retry/0' });
+    expect(evaluateWalk(walk, CHECK)[0]).toBe(
+      'OK on "Settings" (settings.js loads): expected settings · items 0, language en, dir="ltr", the settings; saw lazy-loading · retry 0, no DOM focus, language en, dir="ltr"',
+    );
   });
 });
 

@@ -133,6 +133,8 @@ export interface WalkState extends LiveView {
   readonly moviesTop: number | null;
   /** The movies screen as drawn (null: none). */
   readonly films: MoviesView | null;
+  /** `[data-testid=settings-screen]`: the settings show, their file loaded (RELAY step 35e: settings.js). */
+  readonly settings: boolean;
   /** `data-screen`, `data-zone`, `data-index` and `data-language` of onboarding, the live screen or the guide; onboarding's `data-editing`. */
   readonly screen: string | null;
   readonly zone: string | null;
@@ -182,7 +184,8 @@ export const WALK_EXPRESSION = `(function () {
   var live = document.querySelector('[data-testid="live"]');
   var guide = document.querySelector('[data-testid="guide-screen"]');
   var movies = document.querySelector('[data-testid="movies-screen"]');
-  var shown = ob || live || guide || movies;
+  var settings = document.querySelector('[data-testid="settings-screen"]') || document.querySelector('[data-testid="lazy-loading"]');
+  var shown = ob || live || guide || movies || settings;
   var outside = [];
   all(live ? '${LIVE_BOXES}' : guide ? '${GUIDE_BOXES}' : movies ? '${MOVIES_BOXES}' : '${LAYOUT_BOXES}').forEach(function (el) {
     var r = el.getBoundingClientRect();
@@ -222,6 +225,7 @@ export const WALK_EXPRESSION = `(function () {
     moviesCategory: films ? films.category : null,
     moviesTop: films ? films.top : null,
     films: films,
+    settings: document.querySelector('[data-testid="settings-screen"]') !== null,
     screen: shown ? shown.getAttribute('data-screen') : null,
     zone: shown ? shown.getAttribute('data-zone') : null,
     index: shown && shown.hasAttribute('data-index') ? Number(shown.getAttribute('data-index')) : null,
@@ -383,11 +387,13 @@ export interface Expectation {
   readonly moviesIdle?: boolean;
   readonly moviesCategory?: number;
   readonly moviesTop?: number;
+  /** The settings show (their file loaded, step 35e). */
+  readonly settings?: boolean;
 }
 
 export type Key = { readonly key: string; readonly keyCode: number };
-/** The screens a walk saves: the typed form, the done screen, the live screen, a category, the exit dialog (Tizen), the guide as it opens, later on and earlier, and the movies screen and a category of it. */
-export type WalkShot = 'form' | 'done' | 'live' | 'category' | 'exit' | 'guide' | 'guide-later' | 'guide-earlier' | 'movies' | 'movies-category';
+/** The screens a walk saves: the typed form, the done screen, the live screen, a category, the exit dialog (Tizen), the guide as it opens, later on and earlier, the movies screen and a category of it, and the settings. */
+export type WalkShot = 'form' | 'done' | 'live' | 'category' | 'exit' | 'guide' | 'guide-later' | 'guide-earlier' | 'movies' | 'movies-category' | 'settings';
 export const KEY = {
   enter: { key: 'Enter', keyCode: 13 },
   up: { key: 'ArrowUp', keyCode: 38 },
@@ -444,7 +450,10 @@ export type StepId =
   | 'movies-pick'
   | 'movies-category'
   | 'movies-back'
-  | 'movies-close';
+  | 'movies-close'
+  | 'settings-to'
+  | 'settings-open'
+  | 'settings-close';
 
 /**
  * How a step checks the grid once there (RELAY step 23e): `open`, the screen as it opens (the
@@ -574,7 +583,7 @@ export function walkSteps(language: WalkLanguage, link: string, platform: TvPlat
       wait: 'boot',
     },
   );
-  steps.push(...liveSteps(language, platform), ...guideSteps(language, platform), ...moviesSteps(language, platform));
+  steps.push(...liveSteps(language, platform), ...guideSteps(language, platform), ...moviesSteps(language, platform), ...settingsSteps(language, platform));
   return steps;
 }
 
@@ -687,6 +696,36 @@ export function moviesSteps(language: WalkLanguage, platform: TvPlatform): WalkS
     },
     { id: 'movies-back', label: `Back (key ${tv.back.keyCode}) to the rail`, keys: [tv.back], expect: onMovies('rail', FILMS_ENTRY, { moviesCategory: FILMS_ENTRY }), films: true, wait: 'live' },
     { id: 'movies-close', label: `Back (key ${tv.back.keyCode}) on the rail`, keys: [tv.back], expect: { ...onLive('header', 1), movies: false }, wait: 'live' },
+  ];
+}
+
+/** The live header's "Settings": its last button (apps/tv `HEADER_SETTINGS`). */
+export const HEADER_SETTINGS = 5;
+
+/**
+ * Settings by keys (RELAY step 35e), from the header's "Movies" where the movies steps end: along
+ * the header to "Settings" (its last button), OK, which loads settings.js by a script tag the
+ * first time (the loader at the top of main.js) and opens the settings on their first row, and
+ * Back to the header's "Settings".
+ */
+export function settingsSteps(language: WalkLanguage, platform: TvPlatform): WalkStep[] {
+  const tv = TV_KEYS[platform];
+  const ar = language === 'ar';
+  const along = ar ? KEY.left : KEY.right;
+  const dir = ar ? 'rtl' : 'ltr';
+  const onLive = (index: number, more: Expectation = {}): Expectation => ({ screen: 'live', zone: 'header', index, live: true, liveIdle: true, category: GUIDE_ENTRY, ...more });
+  const moves = HEADER_SETTINGS - 1;
+  return [
+    { id: 'settings-to', label: `${along.key} ${moves} times to "Settings"`, keys: Array.from({ length: moves }, () => along), expect: onLive(HEADER_SETTINGS), wait: 'live' },
+    {
+      id: 'settings-open',
+      label: 'OK on "Settings" (settings.js loads)',
+      keys: [KEY.enter],
+      expect: { screen: 'settings', zone: 'items', index: 0, settings: true, language, dir },
+      shot: 'settings',
+      wait: 'load',
+    },
+    { id: 'settings-close', label: `Back (key ${tv.back.keyCode}) to the header`, keys: [tv.back], expect: { ...onLive(HEADER_SETTINGS), settings: false }, wait: 'live' },
   ];
 }
 
@@ -803,7 +842,7 @@ export function describeState(state: WalkState): string {
   if (state.guide) parts.push(state.guideIdle ? 'the guide' : 'the guide, its data requests still running');
   if (state.screen !== null) parts.push(`${state.screen} · ${state.zone ?? '-'} ${state.index ?? '-'}`);
   else if (!state.live) parts.push(state.onboarding ? 'onboarding' : 'no screen yet');
-  if (state.screen !== null && !state.onboarding && !state.live && !state.guide && !state.movies) parts.push('not ready');
+  if (state.screen !== null && !state.onboarding && !state.live && !state.guide && !state.movies && !state.settings) parts.push('not ready');
   const drawn = drawnPath(state);
   if (drawn !== null && state.hook !== drawn) parts.push(`the focus engine at ${state.hook ?? 'nothing'}`);
   if (state.live) parts.push(`category ${state.category ?? '-'}, rows from ${state.top ?? '-'}`);
@@ -811,6 +850,7 @@ export function describeState(state: WalkState): string {
     parts.push(`rows from ${state.gridTop ?? '-'}, view from ${state.grid === null ? '-' : utcTime(state.grid.view)}, the cursor at ${state.time === null ? '-' : utcTime(state.time)}`);
   }
   if (state.movies) parts.push(`${state.moviesIdle ? 'the movies screen' : 'the movies screen, its reads or posters still running'}: category ${state.moviesCategory ?? '-'}, rows from ${state.moviesTop ?? '-'}`);
+  if (state.settings) parts.push('the settings');
   if (state.dialog) parts.push('the exit dialog');
   if (state.platformBack > 0) parts.push(`platformBack() called ${state.platformBack} time${state.platformBack === 1 ? '' : 's'}`);
   if (state.editing !== null && state.editing !== '') parts.push(`editing ${state.editing}`);
@@ -838,6 +878,8 @@ export function describeExpectation(expect: Expectation): string {
   if (expect.gridTop !== undefined) parts.push(`rows from ${expect.gridTop}`);
   if (expect.movies === true) parts.push(expect.moviesIdle === true ? 'the movies screen, its reads and posters done' : 'the movies screen');
   if (expect.movies === false) parts.push('no movies screen');
+  if (expect.settings === true) parts.push('the settings');
+  if (expect.settings === false) parts.push('no settings');
   if (expect.moviesCategory !== undefined || expect.moviesTop !== undefined) parts.push(`movies category ${expect.moviesCategory ?? '*'}, rows from ${expect.moviesTop ?? '*'}`);
   if (expect.time !== undefined) parts.push(`the cursor at ${expect.time < 0 ? 'the programme the keys lead to (the cursor before the keys was not read)' : utcTime(expect.time)}`);
   if (expect.dialog !== undefined) parts.push(expect.dialog ? 'the exit dialog' : 'no exit dialog');

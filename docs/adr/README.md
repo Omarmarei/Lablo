@@ -6,7 +6,7 @@ One file per decision, numbered in order. Format: Status, Date, Context, Decisio
 |---|---|---|
 | [001](ADR-001-packaged-apps.md) | Packaged apps on both platforms | Accepted |
 | [002](ADR-002-preact-signals-focus-engine.md) | Preact + signals + custom index-based focus engine | Accepted |
-| [003](ADR-003-chrome53-iife-syntax-gate.md) | Chromium 53 IIFE build + acorn ES2016 syntax gate | Accepted |
+| [003](ADR-003-chrome53-iife-syntax-gate.md) | Chromium 53 IIFE build + acorn ES2016 syntax gate | Accepted (amended by 014) |
 | [004](ADR-004-native-players-first.md) | Native players first (AVPlay / webOS `<video>`) | Accepted |
 | [005](ADR-005-servers-never-touch-provider-urls.md) | Servers never touch provider URLs or streams | Accepted |
 | [006](ADR-006-e2e-pairing-backup-crypto.md) | End-to-end pairing and backup crypto | Accepted (amended by 013) |
@@ -17,3 +17,4 @@ One file per decision, numbered in order. Format: Status, Date, Context, Decisio
 | [011](ADR-011-i18n-runtime-and-digits.md) | i18n: CLDR plurals in core, an ICU message subset, our own formats instead of `Intl`, Western digits in Arabic by default (reversible), provider text isolated | Accepted |
 | [012](ADR-012-lg-minimum-webos5.md) | LG minimum webOS 5 (2020); the webOS year from `sdkVersion` or the engine; `requiredACG` in every webOS manifest, checked by the build; the harness keeps Chromium 53 | Accepted |
 | [013](ADR-013-logins-on-the-tv-unsealed.md) | Logins on the TV are not encrypted at rest; everything that leaves the TV is (Omar, 2026-11-19) | Accepted |
+| [014](ADR-014-settings-loaded-on-first-open.md) | Settings load on first open: the app build split as AMD, with an ES5 loader of our own at the top of main.js (Omar, 2026-11-21) | Accepted |
