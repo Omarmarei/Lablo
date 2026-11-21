@@ -33,6 +33,12 @@ export interface CategoryInfo {
   count: number;
   /** Item count of each chunk, by chunk number. */
   chunks: number[];
+  /**
+   * The places in the category of the channels the user hid, ascending (RELAY step 36a2: only the
+   * query worker's live categories have it, and only when one is hidden). `count` and `chunks`
+   * stay the provider's; the served chunks leave these channels out (`shownChunks`).
+   */
+  hidden?: number[];
 }
 
 export interface ChunkerOptions {

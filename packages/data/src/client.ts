@@ -27,7 +27,7 @@ export type { FavouriteChange, FavouriteItem, GroupChange } from './favourite-ed
 // The changed channels as main and settings.js read them (step 36a): channel-edits.ts imports
 // nothing at run time and uses nothing Babel polyfills; the edits are the query worker's.
 export type { ChannelEdit } from './channel-edits';
-export { CHANNEL_NAME_MAX, CHANNEL_NUMBER_MAX, MAX_CHANNEL_EDITS, channelEditsOf, cleanNamesOn } from './channel-edits';
+export { CHANNEL_NAME_MAX, CHANNEL_NUMBER_MAX, MAX_CHANNEL_EDITS, channelEditsOf, cleanNamesOn, shownChunks } from './channel-edits';
 export type { ChannelChange } from './channel-changes';
 
 // A source without its login (step 32d4a): logins.ts imports no data module.
@@ -42,6 +42,8 @@ export type { RecentItem } from './recent';
 export type { RecentRequest } from './query-service';
 // "Continue watching"'s lookup by key (step 27d).
 export type { KeyItemsRequest } from './query-service';
+// Number entry's lookup of a user's number (step 36a2).
+export type { NumberRequest, NumberedChannel } from './query-service';
 
 // The signed config's policy as the app keeps and enforces it (steps 30b2 and 30c): config-policy.ts
 // and config-constants.ts import no schema, so main gets none of the config worker's code.

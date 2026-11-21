@@ -52,12 +52,18 @@
  * - `profile` and `editProfile` read and change the profile document for the app (step 13b):
  *   onboarding's answers and the sources the user added. An edit is a read-modify-write in one
  *   transaction, like the ingest worker's favourites update, so neither can lose the other's.
+ * - The changed channels (step 36a2, `channel-view.ts`): read from the profile at each reload and
+ *   taken from each `channel` or `cleanNames` edit's write, as the favourites' boost is. `chunk`
+ *   serves live chunks without the hidden channels, `categories` gives each live category their
+ *   places (`hidden`), and every live item read shows the user's name and number (or its clean
+ *   name). Search finds a renamed channel by both names; `numbered` finds the channel the user
+ *   numbered `n`. Addresses and counts stay the provider's everywhere else.
  *
  * A segment that fails to load (other layout version, inconsistent data) is skipped and listed
  * in `status().stale`, so the ingest can rebuild it.
  */
 
-import type { CatalogItem, ContentKey, ContentKind, EpgBucket, EpgMatchMethod, EpgOverride, EpgProgramme, EpgSchedule, FavouriteMarks, SearchResult, XtreamSeriesInfo, XtreamVodInfo } from '@lablo/core';
+import type { CatalogItem, ContentKey, ContentKind, EpgBucket, EpgMatchMethod, EpgOverride, EpgProgramme, EpgSchedule, FavouriteMarks, SearchAliases, SearchResult, XtreamSeriesInfo, XtreamVodInfo } from '@lablo/core';
 import { CONTENT_KINDS, SearchSegment, combineEpgMatches, epgDay, epgNowNext, epgProgrammeAt, epgSchedule, favouriteMarks, keySource, normalizeName, searchSegments } from '@lablo/core';
 import type { CategoryInfo } from './chunker';
 import type { ChunkKey, SourceMeta } from './catalog-store';
@@ -73,7 +79,10 @@ import { CONFIG_KEY } from './config-constants';
 import { getValue } from './idb';
 import { STORE } from './schema';
 import type { LoadedProfile, ProfileDoc, ProfileEdit } from './profile';
-import { applyProfileEdit, favouriteKeysOf, loadProfile, readEpgOffsets, readEpgOverrides, readFavouriteKeys, updateProfile } from './profile';
+import { applyProfileEdit, favouriteKeysOf, loadProfile, readChannelChanges, readEpgOffsets, readEpgOverrides, readFavouriteKeys, updateProfile } from './profile';
+import type { ChannelEdit } from './channel-edits';
+import { channelEditsOf, cleanNamesOn } from './channel-edits';
+import { ChannelView } from './channel-view';
 import { epgOffsetsOf } from './epg-sources';
 import type { ShortEpgRequest } from './short-epg';
 import { ShortEpgCache, shortEpgNowNext, shortEpgTarget, textTransport } from './short-epg';
@@ -304,6 +313,19 @@ function wordsOf(normalized: string): string[] {
   return out;
 }
 
+/** Number entry's ask (step 36a2): the channel the user numbered `number`. */
+export interface NumberRequest {
+  number: number;
+  /** The sources the app lists: a channel of any other source (a removed one) finds nothing. */
+  sources: string[];
+}
+
+/** The channel the user numbered: where it is stored (the provider's address), as shown, and whether the user hid it. */
+export interface NumberedChannel extends ItemRef {
+  item: CatalogItem;
+  hidden: boolean;
+}
+
 /** Where a live channel's programmes are stored. */
 interface EpgLink {
   epgSrc: string;
@@ -352,6 +374,12 @@ export class QueryService {
   private offsetsFrom = 0;
   /** The edit number (`offsetSeq`) the boosted favourites were read at (step 35a), as `offsetsFrom`. */
   private favouritesFrom = 0;
+  /** The changed channels and "Clean channel names" (step 36a2), and the edit number they were read at. */
+  private channelEdits: ChannelEdit[] = [];
+  private cleanNames = false;
+  private channelsFrom = 0;
+  /** What the loaded segments make of them: built when first needed, dropped when either changes. */
+  private view: ChannelView | null = null;
   /** Bumps at each reload (`UnmatchedPage.version`). */
   private version = 0;
   /** Each source's list of channels without a guide, built when first asked after a reload. */
@@ -398,6 +426,7 @@ export class QueryService {
       seriesInfo: (req: SeriesInfoRequest): Promise<XtreamSeriesInfo | null> => this.seriesInfo(req),
       recent: (req: RecentRequest): Promise<RecentItem[]> => this.recent(req),
       itemsByKey: (req: KeyItemsRequest): Promise<CatalogItem[]> => this.itemsByKey(req),
+      numbered: (req: NumberRequest): Promise<NumberedChannel | null> => this.numbered(req),
       profile: (): Promise<LoadedProfile | null> => this.profile(),
       editProfile: (edit: ProfileEdit): Promise<boolean> => this.editProfile(edit),
       blocked: (arg: { urls: string[] }): Promise<boolean[]> => this.blocked(arg.urls),
@@ -479,6 +508,7 @@ export class QueryService {
     const offsets = readEpgOffsets(db);
     const overrides = readEpgOverrides(db);
     const favourites = readFavouriteKeys(db);
+    const changes = readChannelChanges(db);
     const sources = (await getSources(db)).sort((a, b) => (a.src < b.src ? -1 : a.src > b.src ? 1 : 0));
     const keys: { src: string; gen: number; kind: ContentKind }[] = [];
     for (const s of sources) if (s.gen > 0) for (const kind of CONTENT_KINDS) if ((s.counts[kind] ?? 0) > 0) keys.push({ src: s.src, gen: s.gen, kind });
@@ -500,10 +530,12 @@ export class QueryService {
     const epg = await this.loadEpg(db);
     this.setOffsets(await offsets, await overrides, offsetSeq);
     this.setFavouriteKeys(await favourites, offsetSeq);
+    this.setChannelChanges(await changes, offsetSeq);
     this.sources = sources;
     this.segments = segments;
     this.stale = stale;
     this.marks = null;
+    this.view = null;
     this.epgLinks = epg.links;
     // (A guide never read has generation 0, which holds nothing.)
     this.epgActive = epg.metas.map((m) => ({ epgSrc: m.epgSrc, gen: m.gen }));
@@ -548,6 +580,21 @@ export class QueryService {
     this.favouritesFrom = seq;
     this.favourites = keys;
     this.marks = null;
+  }
+
+  /** The changed channels and the switch, read or written at edit number `seq` (an older read than the held one is dropped). */
+  private setChannelChanges(changes: { edits: ChannelEdit[]; clean: boolean }, seq: number): void {
+    if (seq < this.channelsFrom) return;
+    this.channelsFrom = seq;
+    this.channelEdits = changes.edits;
+    this.cleanNames = changes.clean;
+    this.view = null;
+  }
+
+  /** The view of the changed channels over the loaded segments. */
+  private channelView(): ChannelView {
+    if (this.view === null) this.view = new ChannelView(this.segments, this.channelEdits, this.cleanNames);
+    return this.view;
   }
 
   private setOffsets(offsets: Record<string, number>, overrides: readonly EpgOverride[], seq: number): void {
@@ -662,12 +709,14 @@ export class QueryService {
       }
       count += size;
     });
+    const view = this.channelView();
     const chunks = await this.readCached(keys);
     const rows: UnmatchedChannel[] = [];
     slots.forEach((slot, i) => {
       const item = chunks[i]?.[slot];
-      // (An item's group is its category's name: the ingest files it under it.)
-      if (item !== undefined) rows.push({ key: item.key, name: item.name, src: item.src, category: item.group });
+      // (An item's group is its category's name: the ingest files it under it. A hidden channel
+      // stays, as in search; its name is the one shown.)
+      if (item !== undefined) rows.push({ key: item.key, name: view.show(item).name, src: item.src, category: item.group });
     });
     return { version, count, offset, rows };
   }
@@ -884,13 +933,10 @@ export class QueryService {
     const found: ContentKey[] = [];
     for (const key of req.keys) {
       if (found.length === limit) break;
-      const src = keySource(key);
-      if (req.sources.indexOf(src) === -1 || found.indexOf(key) !== -1) continue;
-      const segment = this.segments.find((s) => s.src === src && s.kind === req.kind);
-      const at = segment === undefined ? -1 : segment.indexOfKey(key);
-      if (at === -1) continue;
-      const stored = segment!.chunkOf(at);
-      refs.push({ src, kind: req.kind, gen: segment!.gen, catIdx: stored.catIdx, chunk: stored.chunk, slot: stored.slot });
+      if (req.sources.indexOf(keySource(key)) === -1 || found.indexOf(key) !== -1) continue;
+      const ref = this.refOfKey(key, req.kind);
+      if (ref === null) continue;
+      refs.push(ref);
       found.push(key);
     }
     const items = await this.items(refs);
@@ -900,6 +946,32 @@ export class QueryService {
       if (item !== null && item !== undefined && item.key === found[i]) out.push(item);
     }
     return out;
+  }
+
+  /** Where `key` is stored: found in its source's loaded segment of `kind` by its hash (`null`: not there). */
+  private refOfKey(key: ContentKey, kind: ContentKind): ItemRef | null {
+    const src = keySource(key);
+    const segment = this.segments.find((s) => s.src === src && s.kind === kind);
+    const at = segment === undefined ? -1 : segment.indexOfKey(key);
+    if (at === -1) return null;
+    const stored = segment!.chunkOf(at);
+    return { src, kind, gen: segment!.gen, catIdx: stored.catIdx, chunk: stored.chunk, slot: stored.slot };
+  }
+
+  /**
+   * The channel the user numbered `req.number` (step 36a2: number entry's lookup), in one of
+   * `req.sources`, as `itemsByKey` finds it: `null` when none has that number, or its channel is
+   * gone from the catalog.
+   */
+  async numbered(req: NumberRequest): Promise<NumberedChannel | null> {
+    await this.ensureLoaded();
+    const edit = this.channelView().numbered(req.number);
+    if (edit === undefined || req.sources.indexOf(edit.src) === -1) return null;
+    const ref = this.refOfKey(edit.key, 'live');
+    if (ref === null) return null;
+    const item = (await this.items([ref]))[0];
+    // (Gone with an old generation; or a key's hash that only collides finds another channel.)
+    return !item || item.key !== edit.key ? null : { ...ref, item, hidden: edit.hidden === true };
   }
 
   /** The profile's record of source `src` (`null`: no profile, or no such source). */
@@ -941,8 +1013,9 @@ export class QueryService {
     );
     if (wrote) {
       this.setOffsets(epgOffsetsOf(written), epgOverridesOf(written), seq);
-      // The search boost follows the favourites at once (step 35a).
+      // The search boost follows the favourites at once (step 35a), the view the changed channels (step 36a2).
       if (edit.kind === 'favourite') this.setFavouriteKeys(favouriteKeysOf(written), seq);
+      if (edit.kind === 'channel' || edit.kind === 'cleanNames') this.setChannelChanges({ edits: channelEditsOf(written), clean: cleanNamesOn(written) }, seq);
     }
     return wrote;
   }
@@ -957,14 +1030,16 @@ export class QueryService {
     ctx?.token.throwIfCancelled();
     let segments = this.segments;
     let marks = this.favouriteMarks();
+    let aliases: readonly (SearchAliases | null)[] = this.channelView().aliases;
     if (req.sources) {
       const order = req.sources;
       const picked = segments.map((s, i) => ({ s, i, rank: order.indexOf(s.src) })).filter((x) => x.rank !== -1);
       picked.sort((a, b) => a.rank - b.rank || a.i - b.i);
       segments = picked.map((x) => x.s);
       marks = picked.map((x) => marks[x.i] ?? null);
+      aliases = picked.map((x) => aliases[x.i] ?? null);
     }
-    return searchSegments(segments, req.query, { kinds: req.kinds, limit: req.limit, favourites: marks });
+    return searchSegments(segments, req.query, { kinds: req.kinds, limit: req.limit, favourites: marks, aliases });
   }
 
   private activeGen(src: string): number {
@@ -972,26 +1047,37 @@ export class QueryService {
     return meta ? meta.gen : 0;
   }
 
+  /** The categories of the active generation; a live one with hidden channels has their places (`hidden`). */
   async categories(src: string, kind: ContentKind): Promise<CategoryInfo[]> {
     await this.ensureLoaded();
     const gen = this.activeGen(src);
     if (gen === 0) return [];
-    return (await readCategories(await this.db(), src, gen, kind)) ?? [];
+    // (The view of the same load as the generation read.)
+    const view = kind === 'live' ? this.channelView() : null;
+    const infos = (await readCategories(await this.db(), src, gen, kind)) ?? [];
+    return view === null ? infos : view.categories(src, infos);
   }
 
-  /** One chunk of the active generation (`[]` if it doesn't exist). */
+  /** One chunk of the active generation (`[]` if it doesn't exist); a live one without its hidden channels, the others shown. */
   async chunk(arg: { src: string; kind: ContentKind; catIdx: number; chunk: number }): Promise<CatalogItem[]> {
     await this.ensureLoaded();
     const gen = this.activeGen(arg.src);
     if (gen === 0) return [];
+    const view = arg.kind === 'live' ? this.channelView() : null;
     const [items] = await this.readCached([{ src: arg.src, gen, kind: arg.kind, catIdx: arg.catIdx, chunk: arg.chunk }]);
-    return items ?? [];
+    if (!items) return [];
+    return view === null ? items : view.chunk(arg.src, arg.catIdx, arg.chunk, items);
   }
 
-  /** The items at `refs` (`null` where the chunk or slot is gone, e.g. an old generation). */
+  /** The items at `refs` (`null` where the chunk or slot is gone, e.g. an old generation), live ones shown (hidden ones too). */
   async items(refs: ItemRef[]): Promise<(CatalogItem | null)[]> {
+    await this.ensureLoaded();
+    const view = this.channelView();
     const chunks = await this.readCached(refs);
-    return refs.map((r, i) => chunks[i]?.[r.slot] ?? null);
+    return refs.map((r, i) => {
+      const item = chunks[i]?.[r.slot];
+      return item === undefined ? null : view.show(item);
+    });
   }
 
   private async readCached(keys: readonly ChunkKey[]): Promise<(CatalogItem[] | null)[]> {
