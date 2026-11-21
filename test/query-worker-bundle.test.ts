@@ -86,6 +86,15 @@ describe('the bundled query worker', () => {
     });
     expect((await client.call('categories', { src: 'tv', kind: 'live' })).map((c) => c.name)).toEqual(['AR | News', 'UK | News']);
     await expect(client.call('chunk', { src: 'tv', kind: 'live', catIdx: 5, chunk: 0 })).resolves.toEqual([]);
+    // The worker shows them at once (step 36a2): the names and numbers served, the new name searched,
+    // the number found; a hidden channel out of its chunk, with its place in its category.
+    const shown = async (catIdx: number): Promise<string[]> => (await client.call('chunk', { src: 'tv', kind: 'live', catIdx, chunk: 0 })).map((i) => `${i.name}/${i.chno}`);
+    expect([await shown(0), await shown(1)]).toEqual([['Sky/null'], ['Sky News HD/7']]);
+    expect((await client.call('items', { refs: (await client.call('search', { query: 'sky' })).hits })).map((i) => i?.key)).toEqual(['x:tv:live:1', 'x:tv:live:2']);
+    expect(await client.call('numbered', { number: 7, sources: ['tv'] })).toMatchObject({ catIdx: 1, slot: 0, item: { key: 'x:tv:live:2', chno: 7 }, hidden: false });
+    expect(await client.call('editProfile', { kind: 'channel', change: { op: 'hide', item: { ...channel, key: 'x:tv:live:2' } } })).toBe(true);
+    expect((await client.call('categories', { src: 'tv', kind: 'live' })).map((c) => c.hidden)).toEqual([undefined, [0]]);
+    expect(await shown(1)).toEqual([]);
     const status = await client.call('status');
     expect(status.segments.map((s) => `${s.kind}:${s.count}`)).toEqual(['live:2', 'movie:1']);
 

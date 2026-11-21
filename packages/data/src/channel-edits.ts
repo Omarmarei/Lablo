@@ -94,3 +94,22 @@ export function channelEditsOf(doc: unknown): ChannelEdit[] {
 export function cleanNamesOn(doc: unknown): boolean {
   return field(doc, 'cleanNames') === true;
 }
+
+/**
+ * How many channels the query worker serves of each chunk of a live category (step 36a2): its
+ * `chunks` less the `hidden` places in each (the places ascending, as the worker gives them).
+ */
+export function shownChunks(info: { readonly chunks: readonly number[]; readonly hidden?: readonly number[] }): number[] {
+  const hidden = info.hidden === undefined ? [] : info.hidden;
+  const out: number[] = [];
+  let start = 0;
+  let h = 0;
+  for (let c = 0; c < info.chunks.length; c += 1) {
+    const size = info.chunks[c]!;
+    let shown = size;
+    for (; h < hidden.length && hidden[h]! < start + size; h += 1) shown -= 1;
+    out.push(shown);
+    start += size;
+  }
+  return out;
+}

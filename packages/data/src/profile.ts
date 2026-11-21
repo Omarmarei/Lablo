@@ -39,6 +39,7 @@ import type { FavouriteList, GroupRef } from './favourite-lists';
 import type { ChannelChange } from './channel-changes';
 import { applyChannelChange } from './channel-changes';
 import type { ChannelEdit } from './channel-edits';
+import { channelEditsOf, cleanNamesOn } from './channel-edits';
 import { onSuccess, transact } from './idb';
 import { STORE } from './schema';
 
@@ -1074,6 +1075,21 @@ export function readFavouriteKeys(db: IDBDatabase): Promise<ContentKey[]> {
     onSuccess(tx.objectStore(STORE.profile).get(CURRENT), (value) => {
       const record = value as ProfileRecord | undefined;
       done(favouriteKeysOf(record === undefined ? null : record.doc));
+    });
+  });
+}
+
+/**
+ * The changed channels and the "Clean channel names" switch in the current profile (step 36a2;
+ * `channelEditsOf`, `cleanNamesOn`), read without upgrading or writing it: none, and off, when
+ * there is no profile. The query worker reads them at each reload, for its view.
+ */
+export function readChannelChanges(db: IDBDatabase): Promise<{ edits: ChannelEdit[]; clean: boolean }> {
+  return transact<{ edits: ChannelEdit[]; clean: boolean }>(db, STORE.profile, 'readonly', (tx, done) => {
+    onSuccess(tx.objectStore(STORE.profile).get(CURRENT), (value) => {
+      const record = value as ProfileRecord | undefined;
+      const doc = record === undefined ? null : record.doc;
+      done({ edits: channelEditsOf(doc), clean: cleanNamesOn(doc) });
     });
   });
 }

@@ -20,8 +20,10 @@
  * 2. favourites;
  * 3. live, then movies, then series;
  * 4. `exact` (the whole name), then `start` (the name begins with the query), then `word`;
- * 5. segment order (the caller's source order), then catalog order.
- * Results are capped (200 by default); `total` counts every match.
+ * 5. segment order (the caller's source order), then a segment's other names (`SearchAliases`,
+ *    RELAY step 36a2: the names the user gave channels), then catalog order.
+ * Results are capped (200 by default); `total` counts every match. An item with another name is
+ * found once: by that name when it matches, else by its own.
  *
  * Query words are ANDed: `mbc drama` finds `drama mbc 1`. The query goes through
  * `normalizeName`, the same folding the names went through (Arabic letter forms, diacritics,
@@ -104,10 +106,41 @@ export interface SearchOptions {
   kinds?: readonly ContentKind[];
   /** Favourite item indexes per segment (from `favouriteMarks`), aligned with the segments. */
   favourites?: FavouriteMarks;
+  /** Other names per segment (from `searchAliases`; `null`: none), aligned with the segments. */
+  aliases?: ReadonlyArray<SearchAliases | null>;
 }
 
 /** Per segment, the item indexes that are favourites (`null`: none). */
 export type FavouriteMarks = ReadonlyArray<ReadonlySet<number> | null>;
+
+/**
+ * Other names of a segment's items (RELAY step 36a2: the names the user gave channels), searched
+ * before the items' own names (`searchAliases` builds them). Laid out as a segment's text is.
+ */
+export interface SearchAliases {
+  readonly text: string;
+  /** `count + 1` offsets into `text`. */
+  readonly starts: Uint32Array;
+  readonly count: number;
+  /** The item index, in its segment, of each name. */
+  readonly items: Uint32Array;
+}
+
+/** Other names for some items of a segment: each `normName` (`normalizeName` output) names item `index`. */
+export function searchAliases(names: readonly { index: number; normName: string }[]): SearchAliases {
+  const n = names.length;
+  const starts = new Uint32Array(n + 1);
+  const items = new Uint32Array(n);
+  let text = SEARCH_SEPARATOR;
+  for (let i = 0; i < n; i++) {
+    starts[i] = text.length;
+    items[i] = names[i]!.index;
+    // (As the builder does: a separator inside a name would split it in two.)
+    text += names[i]!.normName.split(SEARCH_SEPARATOR).join(' ') + SEARCH_SEPARATOR;
+  }
+  starts[n] = text.length;
+  return { text, starts, count: n, items };
+}
 
 /** Builds a segment from items in chunk order. */
 export class SearchIndexBuilder {
@@ -349,20 +382,33 @@ export function searchSegments(segments: readonly SearchSegment[], query: string
   const single = terms.length === 1 && scan === phrase;
   const tl = scan.length;
 
-  for (let s = 0; s < segments.length; s++) {
+  /**
+   * Scans one text of segment `s` (its names, or its aliases with `aliasItems` giving each name's
+   * item): an item in `skip` is passed over, and each item found is added to `into`.
+   */
+  const scanText = (
+    s: number,
+    text: string,
+    starts: Uint32Array,
+    n: number,
+    aliasItems: Uint32Array | null,
+    skip: Set<number> | null,
+    into: Set<number> | null,
+  ): void => {
     const seg = segments[s]!;
-    if (kinds && kinds.indexOf(seg.kind) === -1) continue;
     const favs = options.favourites ? options.favourites[s] : null;
     const kindRank = KIND_RANK[seg.kind];
-    const text = seg.data.text;
-    const starts = seg.data.starts;
-    const n = seg.count;
     let pos = text.indexOf(scan, 1);
-    let item = 0;
+    let at = 0;
     while (pos !== -1) {
-      item = lastAtMost(starts, pos, item, n);
-      const start = starts[item]!;
-      const end = starts[item + 1]! - 1; // the separator after the name
+      at = lastAtMost(starts, pos, at, n);
+      const item = aliasItems === null ? at : aliasItems[at]!;
+      const start = starts[at]!;
+      const end = starts[at + 1]! - 1; // the separator after the name
+      if (skip !== null && skip.has(item)) {
+        pos = text.indexOf(scan, end + 1);
+        continue;
+      }
       let coarse: number;
       let fine: number;
       if (single) {
@@ -400,11 +446,25 @@ export function searchSegments(segments: readonly SearchSegment[], query: string
         fine = !words ? 0 : name === phrase ? 0 : name.indexOf(phrase) === 0 ? 1 : 2;
       }
       total++;
+      if (into !== null) into.add(item);
       const fav = favs !== null && favs !== undefined && favs.has(item);
       const bucket = buckets[((coarse * 2 + (fav ? 0 : 1)) * 3 + kindRank) * 3 + fine]!;
       if (bucket.length < cap) bucket.push(s, item);
       pos = text.indexOf(scan, end + 1);
     }
+  };
+
+  for (let s = 0; s < segments.length; s++) {
+    const seg = segments[s]!;
+    if (kinds && kinds.indexOf(seg.kind) === -1) continue;
+    const aliases = options.aliases ? options.aliases[s] : null;
+    // A segment's other names first; an item found by one isn't found again by its own name.
+    let byAlias: Set<number> | null = null;
+    if (aliases !== null && aliases !== undefined) {
+      byAlias = new Set<number>();
+      scanText(s, aliases.text, aliases.starts, aliases.count, aliases.items, byAlias, byAlias);
+    }
+    scanText(s, seg.data.text, seg.data.starts, seg.count, null, byAlias, null);
   }
 
   const hits: SearchHit[] = [];
