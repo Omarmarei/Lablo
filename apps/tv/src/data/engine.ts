@@ -117,6 +117,8 @@ import type {
   PairStatusResult,
   DiagSendRequest,
   DiagSendResult,
+  NumberRequest,
+  NumberedChannel,
   TelemetrySendRequest,
   TelemetrySendResult,
 } from '@lablo/data/client';
@@ -833,6 +835,14 @@ export class DataEngine {
    */
   itemsByKey(req: KeyItemsRequest): Promise<CatalogItem[]> {
     return this.query.call('itemsByKey', req);
+  }
+
+  /**
+   * The channel the user numbered `req.number` in one of `req.sources` (step 36b: number entry):
+   * its stored address, the item as shown, and whether the user hid it; `null` when none has it.
+   */
+  numbered(req: NumberRequest): Promise<NumberedChannel | null> {
+    return this.query.call('numbered', req);
   }
 
   /**

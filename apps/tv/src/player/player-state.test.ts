@@ -69,7 +69,7 @@ class FakeList implements ZapList {
   readonly loads: { index: number; resolve: () => void }[] = [];
   /** One read per row while it is on its way (the live screen joins reads of a chunk). */
   private readonly reading = new Map<number, Promise<LiveRow | null>>();
-  readonly finds: { n: number; answer: (index: number) => void; fail: () => void }[] = [];
+  readonly finds: { n: number; answer: (found: number | LiveRow) => void; fail: () => void }[] = [];
   readonly locates: { key: ContentKey; guess: number; answer: (index: number) => void; fail: () => void }[] = [];
   readonly guides = new Map<ContentKey, EpgNowNext>();
   readonly asked: ContentKey[] = [];
@@ -102,7 +102,7 @@ class FakeList implements ZapList {
     return read;
   }
 
-  find(n: number): Promise<number> {
+  find(n: number): Promise<number | LiveRow> {
     return new Promise((resolve, reject) => {
       this.finds.push({ n, answer: resolve, fail: () => reject(new Error('read failed')) });
     });
@@ -660,6 +660,28 @@ describe('the player: number entry', () => {
     expect(t.player.entry.value).toBeNull();
     t.clock.advance(DIGITS_MS);
     expect(t.list.finds).toHaveLength(1);
+  });
+
+  it('plays a channel no row holds (one the user hid, RELAY step 36b) over the list at the bar’s row, as the last channel', async () => {
+    const hidden: LiveRow = { item: { ...row(4).item, key: 'x:s1:live:hidden', name: 'Hidden 60', url: 'http://panel.test/live/u/p/600.ts' }, number: 60 };
+    const t = setup();
+    t.player.show(3);
+    await t.press('DIGIT_6', 'DIGIT_0', 'OK');
+    expect(t.list.finds.map((f) => f.n)).toEqual([60]);
+    t.list.finds[0]!.answer(hidden);
+    await flush();
+    expect(t.player.entry.value).toBeNull();
+    expect(t.controller.plays).toEqual([liveRequest(row(3)), liveRequest(hidden)]);
+    expect([t.player.target.value, t.player.playing.value]).toEqual([3, 3]);
+    expect(t.player.row(3)).toBe(hidden);
+    expect(t.player.info.value).toBe(true);
+    expect(t.tuned).toEqual(['x:s1:live:3 @3', 'x:s1:live:hidden @3']);
+    // CH+ zaps on through the list from there.
+    await t.press('CH_UP');
+    t.clock.advance(ZAP_DELAY_MS);
+    await flush();
+    expect(t.player.playing.value).toBe(4);
+    expect(t.player.row(3)).toEqual(row(3));
   });
 });
 

@@ -5,19 +5,31 @@
  * slot) address, found by binary search over the parts' start rows and a walk over one part's
  * chunks. Nothing here reads data: the live screen asks the query worker for the chunks the rows
  * on show need, and nothing else.
+ *
+ * Channels the user hid (step 36b) are no rows: the query worker serves each chunk without them
+ * (`shownChunks` gives the served sizes), so rows and slots count the shown channels. They keep
+ * their places, so a row's place (its number when the provider gives none) counts them, and a
+ * provider's address (a search hit, number entry's lookup) finds its row with `rowOfStored`.
  */
+
+import { shownChunks } from '@lablo/data/client';
 
 /** One category of one source, as the list reads it. */
 export interface ListPart {
   readonly src: string;
   readonly catIdx: number;
-  /** The item count of each chunk, by chunk number. */
+  /** The provider's item count of each chunk, by chunk number (hidden channels counted). */
   readonly chunks: readonly number[];
   /**
    * Its first item's place in the provider's whole list (every category of every source, hidden
    * ones too, in the provider's order; step 35c): a channel without a number is numbered by it.
    */
   readonly first: number;
+  /**
+   * The places in the category of the channels the user hid (step 36b: the query worker's
+   * `CategoryInfo.hidden`), ascending; none when absent.
+   */
+  readonly hidden?: readonly number[];
 }
 
 /** A chunk of a category of a source. */
@@ -39,8 +51,22 @@ export function chunkId(ref: ChunkRef): string {
 
 function sum(counts: readonly number[]): number {
   let total = 0;
-  for (const n of counts) total += Math.max(0, n);
+  for (let i = 0; i < counts.length; i += 1) total += Math.max(0, counts[i]!);
   return total;
+}
+
+/** No hidden places. */
+const NONE: readonly number[] = [];
+
+/**
+ * The place in its category of the channel the provider stores at `chunk`, `slot` of `part`: the
+ * provider's items before that chunk, plus the slot (a chunk the category doesn't have counts from
+ * its top).
+ */
+export function storedOffset(part: ListPart, chunk: number, slot: number): number {
+  let offset = slot;
+  if (chunk >= 0 && chunk < part.chunks.length) for (let c = 0; c < chunk; c += 1) offset += Math.max(0, part.chunks[c]!);
+  return offset;
 }
 
 export class ChannelIndex {
@@ -48,34 +74,70 @@ export class ChannelIndex {
   readonly count: number;
   /** The first row of each part. */
   private readonly starts: number[] = [];
-  /** Each part's rows. */
+  /** Each part's rows (its channels less the hidden ones). */
   private readonly sizes: number[] = [];
+  /** Each part's channels, hidden ones too (its places). */
+  private readonly totals: number[] = [];
+  /** Each part's rows in each chunk (the served chunks' sizes). */
+  private readonly shown: number[][] = [];
 
   constructor(readonly parts: readonly ListPart[]) {
     let at = 0;
-    for (const part of parts) {
-      const size = sum(part.chunks);
+    for (let p = 0; p < parts.length; p += 1) {
+      const shown = shownChunks(parts[p]!);
+      const size = sum(shown);
       this.starts.push(at);
       this.sizes.push(size);
+      this.totals.push(sum(parts[p]!.chunks));
+      this.shown.push(shown);
       at += size;
     }
     this.count = at;
   }
 
-  /** Row `row`'s place in the provider's whole list (its part's `first` plus its place in the part), or -1 outside the list. */
+  /**
+   * Row `row`'s place in the provider's whole list (its part's `first` plus its place in the part,
+   * the hidden places before it counted), or -1 outside the list.
+   */
   place(row: number): number {
     if (!(row >= 0 && row < this.count)) return -1;
     const p = this.partOf(row);
-    return this.parts[p]!.first + row - this.starts[p]!;
+    const part = this.parts[p]!;
+    const hidden = part.hidden ?? NONE;
+    let offset = row - this.starts[p]!;
+    for (let h = 0; h < hidden.length && hidden[h]! <= offset; h += 1) offset += 1;
+    return part.first + offset;
   }
 
-  /** The row at place `place` of the provider's whole list, or -1 when no part of this list holds it. */
+  /** The row at place `place` of the provider's whole list, or -1 when no part of this list holds it or the user hid it. */
   rowOfPlace(place: number): number {
     for (let p = 0; p < this.parts.length; p += 1) {
       const offset = place - this.parts[p]!.first;
-      if (offset >= 0 && offset < this.sizes[p]!) return this.starts[p]! + offset;
+      if (offset >= 0 && offset < this.totals[p]!) return this.rowIn(p, offset);
     }
     return -1;
+  }
+
+  /**
+   * The row of the channel the provider stores at `at` (a search hit, number entry's lookup: step
+   * 36b), or -1 when the list doesn't hold that category, chunk or slot, or the user hid it.
+   */
+  rowOfStored(at: ItemAddress): number {
+    for (let p = 0; p < this.parts.length; p += 1) {
+      const part = this.parts[p]!;
+      if (part.src !== at.src || part.catIdx !== at.catIdx) continue;
+      if (!(at.chunk >= 0 && at.chunk < part.chunks.length && at.slot >= 0 && at.slot < part.chunks[at.chunk]!)) return -1;
+      return this.rowIn(p, storedOffset(part, at.chunk, at.slot));
+    }
+    return -1;
+  }
+
+  /** The row of the channel at place `offset` of part `p`, or -1 when the user hid it. */
+  private rowIn(p: number, offset: number): number {
+    const hidden = this.parts[p]!.hidden ?? NONE;
+    let before = 0;
+    for (; before < hidden.length && hidden[before]! <= offset; before += 1) if (hidden[before] === offset) return -1;
+    return this.starts[p]! + offset - before;
   }
 
   /**
@@ -93,14 +155,15 @@ export class ChannelIndex {
     return lo;
   }
 
-  /** Where `row` is stored, or `null` outside `[0, count)`. */
+  /** Where `row` is stored (its slot in the served chunk), or `null` outside `[0, count)`. */
   locate(row: number): ItemAddress | null {
     if (!(row >= 0 && row < this.count) || Math.floor(row) !== row) return null;
     const p = this.partOf(row);
     const part = this.parts[p]!;
+    const shown = this.shown[p]!;
     let slot = row - (this.starts[p] ?? 0);
-    for (let chunk = 0; chunk < part.chunks.length; chunk += 1) {
-      const size = Math.max(0, part.chunks[chunk] ?? 0);
+    for (let chunk = 0; chunk < shown.length; chunk += 1) {
+      const size = Math.max(0, shown[chunk] ?? 0);
       if (slot < size) return { src: part.src, catIdx: part.catIdx, chunk, slot };
       slot -= size;
     }
@@ -108,8 +171,8 @@ export class ChannelIndex {
   }
 
   /**
-   * The row of the first item of chunk `ref`, or -1 when the list doesn't hold it (the player's
-   * number entry reads whole chunks, RELAY step 20a).
+   * The row of the first item of chunk `ref` as served, or -1 when the list doesn't hold it (the
+   * player's number entry reads whole chunks, RELAY step 20a).
    */
   firstRow(ref: ChunkRef): number {
     for (let p = 0; p < this.parts.length; p += 1) {
@@ -117,7 +180,7 @@ export class ChannelIndex {
       if (part.src !== ref.src || part.catIdx !== ref.catIdx) continue;
       if (!(ref.chunk >= 0 && ref.chunk < part.chunks.length)) return -1;
       let row = this.starts[p] ?? 0;
-      for (let c = 0; c < ref.chunk; c += 1) row += Math.max(0, part.chunks[c] ?? 0);
+      for (let c = 0; c < ref.chunk; c += 1) row += Math.max(0, this.shown[p]![c] ?? 0);
       return row;
     }
     return -1;
@@ -133,9 +196,8 @@ export class ChannelIndex {
       const at = this.locate(row);
       if (at === null) break;
       out.push({ src: at.src, catIdx: at.catIdx, chunk: at.chunk });
-      const part = this.parts[this.partOf(row)]!;
       // Skip to the chunk's next row.
-      row += Math.max(1, (part.chunks[at.chunk] ?? 0) - at.slot);
+      row += Math.max(1, (this.shown[this.partOf(row)]![at.chunk] ?? 0) - at.slot);
     }
     return out;
   }
