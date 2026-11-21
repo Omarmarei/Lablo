@@ -95,17 +95,6 @@ export function MappingItem({ i18n, mapping, index, item }: { i18n: AppI18n; map
   );
 }
 
-/** "Reading the guides…" while a mapping's refresh runs (`reading` > 0): the list without a guide and the guide screen show it. */
-export function MappingReading({ i18n, reading, testId }: { i18n: AppI18n; reading: number; testId: string }) {
-  if (reading === 0) return null;
-  return (
-    <p class="mapping__reading" data-testid={testId}>
-      <Spinner size="s" />
-      <span>{i18n.t('mapping.reading')}</span>
-    </p>
-  );
-}
-
 /** The picker: what it maps, the search, and the rows read a page at a time. */
 export function MappingPage({ i18n, binding, mapping }: { i18n: AppI18n; binding: FocusBinding; mapping: Mapping }) {
   const { t } = i18n;

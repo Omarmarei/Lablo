@@ -7,7 +7,8 @@ import { Button, Dialog, Spinner, bindFocus, createNavigator } from '@lablo/ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { appI18n } from '../i18n';
 import type { BackupNotice, BackupPageEngine, BackupPageHost } from './backup-state';
-import { BACKUP_CONFIRM, BACKUP_SCREEN, codeGroups, createBackupPage, includesLogins, restoreNotice, showsHeld, switchRows } from './backup-state';
+import { codeGroups } from '../backup/code-groups';
+import { BACKUP_CONFIRM, BACKUP_SCREEN, createBackupPage, includesLogins, restoreNotice, showsHeld, switchRows } from './backup-state';
 import { BackupConfirmView, BackupView, loginsLine, noticeText, questionText, switchLine } from './BackupPage';
 import { itemText } from './SettingsScreen';
 

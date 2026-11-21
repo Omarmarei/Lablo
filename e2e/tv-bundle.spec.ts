@@ -1,10 +1,13 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, renameSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { ARABIC_FACE, LATIN_FACE, TITLE_FONTS, renderedFonts, renderedFontsUnder } from './fonts';
+import { TV_KEYS } from '../tools/engines/src/live';
+import { RemoteDriver } from './remote-driver';
 
 /**
  * Boots the built TV bundles (pnpm build:tv) from file://, the way a packaged TV app loads,
@@ -21,6 +24,14 @@ const DEV_DIST = path.resolve(import.meta.dirname, '../dist/tv-dev');
 
 let app: MockServer;
 let base: string;
+
+/** The TV's own Back key (Tizen 10009, webOS 461): the TV builds read the key code, as on the TV. */
+async function pressBack(page: Page, platform: 'tizen' | 'webos'): Promise<void> {
+  const { key, keyCode } = TV_KEYS[platform].back;
+  const cdp = await page.context().newCDPSession(page);
+  for (const type of ['rawKeyDown', 'keyUp'] as const) await cdp.send('Input.dispatchKeyEvent', { type, key, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode });
+  await cdp.detach();
+}
 
 test.beforeAll(async () => {
   app = await mock();
@@ -165,9 +176,14 @@ for (const platform of ['tizen', 'webos'] as const) {
     expect(errors).toEqual([]);
   });
 
-  test(`the ${platform} bundle starts on onboarding from file:// and types into a field by remote keys`, async ({ page }) => {
-    const index = path.join(DIST, platform, 'index.html');
-    expect(existsSync(index), `${index} is missing: run pnpm build:tv before pnpm e2e`).toBe(true);
+  test(`the ${platform} bundle starts on onboarding from file://, types into a field by remote keys, and loads settings.js on the first open of Settings (step 35e)`, async ({ page }) => {
+    expect(existsSync(path.join(DIST, platform, 'index.html')), `${DIST} is missing: run pnpm build:tv before pnpm e2e`).toBe(true);
+    // A copy of the store build: its settings.js is taken away for a while.
+    const copy = test.info().outputPath(platform);
+    cpSync(path.join(DIST, platform), copy, { recursive: true });
+    const index = path.join(copy, 'index.html');
+    const settingsJs = path.join(copy, 'settings.js');
+    renameSync(settingsJs, `${settingsJs}.away`);
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
     page.on('console', (message) => {
@@ -213,6 +229,32 @@ for (const platform of ['tizen', 'webos'] as const) {
     await expect(page.getByTestId('live')).toHaveAttribute('data-status', 'ready');
     await expect(page.getByTestId('onboarding')).toHaveCount(0);
     await expect(page.getByTestId('live')).toHaveAttribute('data-pending', '0', { timeout: 10_000 });
+
+    // Settings (step 35e): main.js loads settings.js by a script tag the first time. Not there: the failure, "Try again" focused.
+    const remote = new RemoteDriver(page);
+    await remote.go('UP', 'live/header/0');
+    for (let i = 1; i <= 5; i += 1) await remote.go('RIGHT', `live/header/${i}`);
+    await remote.go('OK', 'lazy-loading/retry/0');
+    const loading = page.getByTestId('lazy-loading');
+    await expect(loading).toHaveAttribute('data-phase', 'failed');
+    await expect(page.getByTestId('lazy-loading-failed')).toContainText("Couldn't open this screen.");
+    await expect(page.getByTestId('lazy-loading-retry')).toHaveAttribute('data-state', 'focused');
+    await page.screenshot({ path: path.resolve(import.meta.dirname, `../artifacts/screenshots/lazy-loading-failed-${platform}.png`) });
+    // Back: the live screen; OK again tries again, and fails again.
+    await pressBack(page, platform);
+    await remote.expectFocus('live/header/5');
+    await expect(page.getByTestId('live')).toBeVisible();
+    await remote.go('OK', 'lazy-loading/retry/0');
+    // The file is there now: "Try again" loads it and Settings opens, once, with no script tag left over.
+    renameSync(`${settingsJs}.away`, settingsJs);
+    await remote.go('OK', 'settings/items/0');
+    await expect(page.getByTestId('settings-screen')).toBeVisible();
+    await expect(page.getByTestId('settings')).toBeVisible();
+    await pressBack(page, platform);
+    await remote.expectFocus('live/header/5');
+    await remote.go('OK', 'settings/items/0');
+    expect(await page.evaluate(() => document.querySelectorAll('script[src="settings.js"]').length)).toBe(0);
+    await expect(page.locator('#boot-error')).toBeHidden();
     expect(errors).toEqual([]);
   });
 }

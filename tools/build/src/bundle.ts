@@ -5,10 +5,11 @@ import commonjs from '@rollup/plugin-commonjs';
 import { nodeResolve } from '@rollup/plugin-node-resolve';
 import replace from '@rollup/plugin-replace';
 import terser from '@rollup/plugin-terser';
-import type { LoggingFunction, Plugin, RollupLog } from 'rollup';
+import type { LoggingFunction, OutputChunk, OutputOptions, Plugin, RollupLog } from 'rollup';
 import { rollup } from 'rollup';
 import type { TvDefines } from '../../../tv-defines.config';
 import { appIdFor, defineValues, tvDefines } from '../../../tv-defines.config';
+import { DEFINE_NAME, amdLoaderScript } from './amd-loader';
 import { checkSyntax, formatViolation } from './syntax-gate';
 
 const require = createRequire(import.meta.url);
@@ -53,6 +54,26 @@ export interface BundleOptions {
    * map to every build): a worker the app, its test copy and the lab all inline is built once.
    */
   readonly workerCache?: Map<string, BundleResult>;
+  /**
+   * Split at each dynamic `import()` (RELAY step 35e): main.js (the loader at its top, then the
+   * entry) and one lazy file per `import()`, each through terser, the worker strings and the
+   * syntax gate (amd-loader.ts). Default false: one IIFE with every `import()` inlined (the lab,
+   * the vectors page, the workers).
+   */
+  readonly split?: boolean;
+  /** A lazy file's label in gate errors (default `<file> of <label>`). */
+  readonly lazyLabel?: (fileName: string) => string;
+}
+
+/** A file a split build loads later (`BundleOptions.split`), next to main.js. */
+export interface LazyChunk {
+  /** `settings.js`: the file name, which is its AMD id plus `.js`. */
+  readonly fileName: string;
+  readonly code: string;
+  /** UTF-8 bytes of `code` that are inlined workers (`BundleResult.inlinedBytes`). */
+  readonly inlinedBytes: number;
+  /** The modules in it (Rollup's ids: absolute paths, and `\0` ones). */
+  readonly modules: readonly string[];
 }
 
 export interface BuiltWorker {
@@ -75,6 +96,10 @@ export interface BundleResult {
    * import them run: tools/build/src/css.ts turns them into app.css. Workers may import none.
    */
   readonly css: readonly string[];
+  /** The modules in `code` (Rollup's ids: absolute paths, and `\0` ones). */
+  readonly modules: readonly string[];
+  /** A split build's lazy files ([] otherwise). Their workers are in `workers` too. */
+  readonly lazy: readonly LazyChunk[];
 }
 
 /** A bundle that would not run on Chromium 53. */
@@ -294,19 +319,21 @@ function inlineWorkers(options: BundleOptions, workers: BuiltWorker[], literals:
 
 /**
  * Runs after terser: puts each inlined worker's code (a string literal) where its
- * placeholder is, and adds up the bytes it put in. A worker that tree-shaking dropped has
- * no placeholder left and adds nothing.
+ * placeholder is, and adds up the bytes it put in, by file. A worker that tree-shaking dropped
+ * has no placeholder left and adds nothing.
  */
-function substituteWorkers(literals: readonly string[], inlined: { bytes: number }): Plugin {
+function substituteWorkers(literals: readonly string[], inlined: Map<string, number>): Plugin {
   return {
     name: 'lablo-worker-literals',
-    renderChunk(code) {
+    renderChunk(code, chunk) {
+      let bytes = 0;
       const out = code.replace(WORKER_PLACEHOLDERS, (_match, _quote, n: string) => {
         const literal = literals[Number(n)];
         if (literal === undefined) throw new Error(`unknown worker placeholder ${workerPlaceholder(Number(n))}`);
-        inlined.bytes += Buffer.byteLength(literal, 'utf8');
+        bytes += Buffer.byteLength(literal, 'utf8');
         return literal;
       });
+      inlined.set(chunk.fileName, bytes);
       return { code: out, map: null };
     },
   };
@@ -354,7 +381,8 @@ interface Collected {
   readonly workers: BuiltWorker[];
   /** Worker `n`'s code as a string literal, for placeholder `n`. */
   readonly literals: string[];
-  readonly inlined: { bytes: number };
+  /** Bytes of inlined worker literals, by output file. */
+  readonly inlined: Map<string, number>;
   readonly css: string[];
 }
 
@@ -439,21 +467,85 @@ function plugins(options: BundleOptions, collected: Collected): Plugin[] {
   ];
 }
 
+/** A split build's file names: the entry is main.js, a lazy file is named after its module. */
+const SPLIT_OUTPUT: OutputOptions = {
+  format: 'amd',
+  // `__labloDefine('settings', ['exports', './main'], …)`: ids are the file names (amd-loader.ts).
+  amd: { autoId: true, define: DEFINE_NAME },
+  entryFileNames: 'main.js',
+  chunkFileNames: '[name].js',
+  // The names main exports to a lazy file are minified (one or two letters each).
+  minifyInternalExports: true,
+  // The loader goes before main's define (a banner is in the chunk before terser runs).
+  banner: (chunk) => (chunk.isEntry ? amdLoaderScript(chunk.fileName.replace(/\.js$/, '')) : ''),
+};
+
+/**
+ * The shape the loader handles (amd-loader.ts): one entry, and lazy files that each need only the
+ * entry (none shared between lazy files, none loading another). Returns what is wrong, or [].
+ */
+export function checkChunks(chunks: ReadonlyArray<Pick<OutputChunk, 'fileName' | 'isEntry' | 'isDynamicEntry' | 'imports' | 'dynamicImports'>>): string[] {
+  const entries = chunks.filter((chunk) => chunk.isEntry);
+  if (entries.length !== 1) return [`a split build has one entry, not ${entries.length}`];
+  const entry = entries[0]!;
+  const problems: string[] = [];
+  if (entry.imports.length > 0) problems.push(`${entry.fileName} imports ${entry.imports.join(', ')}: the loader loads nothing at the start`);
+  for (const chunk of chunks) {
+    if (chunk === entry) continue;
+    if (!chunk.isDynamicEntry) problems.push(`${chunk.fileName} is shared by lazy files: the loader loads one file per import()`);
+    const others = chunk.imports.filter((file) => file !== entry.fileName);
+    if (others.length > 0) problems.push(`${chunk.fileName} imports ${others.join(', ')}: a lazy file may import only ${entry.fileName}`);
+    if (chunk.dynamicImports.length > 0) problems.push(`${chunk.fileName} loads ${chunk.dynamicImports.join(', ')}: only ${entry.fileName} may load a lazy file`);
+  }
+  return problems;
+}
+
+function gate(code: string, label: string): void {
+  const violation = checkSyntax(code, label);
+  if (violation !== null) throw new SyntaxGateError(formatViolation(violation));
+}
+
 /**
  * Bundles `input` into one minified classic-script IIFE for the TV, with every
- * `?worker` import inlined, then runs the ES2016 syntax gate on the result.
+ * `?worker` import inlined, then runs the ES2016 syntax gate on the result. With `split`, main.js
+ * and its lazy files instead (`BundleOptions.split`), each gated.
  * Throws `SyntaxGateError` if the output would not parse on Chromium 53.
  */
 export async function bundleIife(options: BundleOptions): Promise<BundleResult> {
-  const collected: Collected = { workers: [], literals: [], inlined: { bytes: 0 }, css: [] };
-  const bundle = await rollup({ input: options.input, plugins: plugins(options, collected), onwarn });
+  const collected: Collected = { workers: [], literals: [], inlined: new Map(), css: [] };
+  const split = options.split === true;
+  const bundle = await rollup({
+    input: options.input,
+    plugins: plugins(options, collected),
+    onwarn,
+    // A split entry exports nothing: no facade file re-exporting main's code.
+    ...(split ? { preserveEntrySignatures: false as const } : {}),
+  });
   try {
-    const { output } = await bundle.generate({ format: 'iife', inlineDynamicImports: true });
-    const [chunk] = output;
-    const code = chunk.code;
-    const violation = checkSyntax(code, options.label ?? options.input);
-    if (violation !== null) throw new SyntaxGateError(formatViolation(violation));
-    return { code, workers: collected.workers, inlinedBytes: collected.inlined.bytes, css: collected.css };
+    const { output } = await bundle.generate(split ? SPLIT_OUTPUT : { format: 'iife', inlineDynamicImports: true });
+    const chunks = output.filter((file): file is OutputChunk => file.type === 'chunk');
+    const label = options.label ?? options.input;
+    if (split) {
+      const problems = checkChunks(chunks);
+      if (problems.length > 0) throw new Error(`${label}: the split build has a shape its loader can't load:\n${problems.map((p) => `  ${p}`).join('\n')}`);
+    }
+    const [entry] = chunks.filter((chunk) => chunk.isEntry);
+    if (entry === undefined) throw new Error(`${label}: no entry chunk`);
+    gate(entry.code, label);
+    const lazy = chunks
+      .filter((chunk) => chunk !== entry)
+      .map((chunk): LazyChunk => {
+        gate(chunk.code, options.lazyLabel?.(chunk.fileName) ?? `${chunk.fileName} of ${label}`);
+        return { fileName: chunk.fileName, code: chunk.code, inlinedBytes: collected.inlined.get(chunk.fileName) ?? 0, modules: Object.keys(chunk.modules) };
+      });
+    return {
+      code: entry.code,
+      workers: collected.workers,
+      inlinedBytes: collected.inlined.get(entry.fileName) ?? 0,
+      css: collected.css,
+      modules: Object.keys(entry.modules),
+      lazy,
+    };
   } finally {
     await bundle.close();
   }

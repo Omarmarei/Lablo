@@ -308,6 +308,8 @@ export const AR: Readonly<Record<MessageKey, string>> = {
 
   'badge.radio': 'إذاعة',
 
+  'lazy.failed': 'تعذّر فتح هذه الشاشة.',
+
   'settings.open': 'الإعدادات',
   'settings.title': 'الإعدادات',
   'settings.guides': 'أدلة التلفزيون',

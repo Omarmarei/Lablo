@@ -7,7 +7,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { appI18n } from '../i18n';
 import type { MappingCurrent } from './mapping-state';
 import { MAPPING, createMapping } from './mapping-state';
-import { MappingItem, MappingPage, MappingReading, currentText, searchHint } from './MappingPage';
+import { MappingReading } from '../guide/MappingReading';
+import { MappingItem, MappingPage, currentText, searchHint } from './MappingPage';
 
 /**
  * The manual mapping's picker as drawn (RELAY step 24e): the page in each state, its rows and the
