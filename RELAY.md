@@ -2858,7 +2858,17 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
       3. **One row for the same channel in two sources** (matched by tvg-id or name), the other source as a fallback when the first doesn't play. Two legs or more; it touches keys, favourites and the player. Better after launch.
       - **Done when:** as Omar decides.
   - **Done when** (the step): 36a–36d done, and the phase's gate holds: favourites survive the renamed/reordered fixture.
-- [ ] 36a. **The data side** (`packages/data`, `packages/core`): as 36's split above.
+- [ ] 36a. **The data side** (`packages/data`, `packages/core`): as 36's split above. Split in leg 128 at the worker's view, as the shape allowed: 36a1, then 36a2.
+- [ ] 36a1. **The profile's changed channels, their edits and re-match; core's `cleanName`.** Built in leg 128 (architecture.md §1.4 item 10 "Built in step 36a1").
+  - **Refined while building** (each with its why):
+    1. **The re-match lives in `channel-relink.ts`**, the ingest worker's only; the edits (`channel-changes.ts`) are the query worker's through `applyProfileEdit`. Why: the query worker needs none of the re-match.
+    2. **`reconcileFavourites` is generic and gives per-input `outcomes`, with `alsoTaken`.** Why: the changed channels carry extra fields through the same re-match, and each entry's result must be found by its place (dropped ones included), not guessed.
+    3. **An entry on a favourite's key takes the favourite's whole ref** (key, normalized name, group, tvg-id, `missingSince`; its own `added` and changes). Why: one ref per key; an entry keeping a stale group was written again on every refresh, and would re-match apart once the favourite goes.
+    4. **A followed entry's old key is not "taken"** for the others: it is its favourite's present key (taken), or gone from the catalog.
+    5. **`cleanName` is `matchName`'s first part**, so the two can never strip different tags.
+  - **Verified in leg 128:** unit 7,861 (+64); `pnpm typecheck`; lint of the changed files; `build:tv`: main.js 426.1 KB and settings.js 66.1 KB unchanged, the query worker 134.9 → 138.0 KB, the ingest worker 133.0 → 135.7 KB; mutation (`artifacts/mutate36a1.py`) 109/109 (110 written first; one equivalent taken out, one gap closed); `verify:engines --engine chrome53 --engine chrome68`: all 26 runs as expected (`artifacts/engines-36a1.log`).
+  - **Done when:** as 36a's, less the worker's view; the PR merged on green CI.
+- [ ] 36a2. **The query worker's view** (`packages/data`): as 36's shape, "The worker shows the edits": names (the user's, else clean names when on), user numbers as `chno`, hidden channels out of the live chunks and categories with their places (`hidden`), renamed names searched, the number lookup, each edit applied at once and ordered by the edit number. The query worker has 12.0 KB left of its 150 KB (138.0 after 36a1). **Done when:** as 36a's, for the view.
 - [ ] 36b. **The live screen** (`apps/tv`, main.js): as 36's split above. After 36a.
 - [ ] 36c. **The editing screens** (settings.js, the info bar's button): as 36's split above. After 36b.
 - [ ] 36d. **[needs Omar] Multiple sources merged:** as 36's split above (the question and its three options).
