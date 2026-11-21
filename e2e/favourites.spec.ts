@@ -202,9 +202,15 @@ for (const locale of ['en-US', 'ar-SA'] as const) {
       if (!ar) {
         await test.step('the list keeps its channels through a refresh where the panel renumbered every stream', async () => {
           const before = m.requests.filter((url) => url.indexOf('action=get_live_streams') !== -1).length;
+          const guidesBefore = m.requests.filter((url) => url.indexOf('/xmltv.php') !== -1).length;
           m.app.mockState.catalog = renumbered(catalog, 1000);
           await page.clock.fastForward('12:30:00');
           await expect.poll(() => m.requests.filter((url) => url.indexOf('action=get_live_streams') !== -1).length, { timeout: 20_000 }).toBe(before + 1);
+          // The new catalog is in once the guides are asked for: the scheduler tells the live screen
+          // first (`onCatalog`), whose re-read counts in `data-pending` from then on. Without this
+          // wait the names (the same before and after) passed on the old list, and OK played the
+          // old stream id, which the panel no longer serves (CI, PR #158: four 404s).
+          await expect.poll(() => m.requests.filter((url) => url.indexOf('/xmltv.php') !== -1).length, { timeout: 20_000 }).toBeGreaterThan(guidesBefore);
           await settled(live, 20_000);
           await expect(live).toHaveAttribute('data-category', '1');
           await expect.poll(async () => (await rows(page)).map((r) => [r.number, r.name]), { timeout: 10_000 }).toEqual([
