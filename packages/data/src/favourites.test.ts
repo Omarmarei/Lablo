@@ -101,6 +101,37 @@ describe('reconcileFavourites', () => {
   });
 });
 
+describe('reconcileFavourites: outcomes, more taken keys, other fields (step 36a)', () => {
+  it("gives each ref's outcome in the input's order, null for a dropped one", () => {
+    const kept = fav(item('tv', 'live', 1, 'Kept', 'G'));
+    const gone = fav(item('tv', 'live', 2, 'Gone', 'G'), { missingSince: NOW - MISSING_KEEP_MS });
+    const moved = fav(item('tv', 'live', 3, 'Moved', 'G'));
+    const { favourites, outcomes } = reconcile([kept, gone, moved], [item('tv', 'live', 1, 'Kept', 'G'), item('tv', 'live', 33, 'Moved', 'G')]);
+    expect(outcomes).toEqual([kept, null, { ...moved, key: 'x:tv:live:33' }]);
+    expect(outcomes[0]).toBe(kept);
+    expect(favourites).toEqual([kept, { ...moved, key: 'x:tv:live:33' }]);
+  });
+
+  it('never re-matches to a key `alsoTaken` names', () => {
+    const f = fav(item('tv', 'live', 1, 'Sport', 'G'));
+    const items = [item('tv', 'live', 8, 'Sport', 'G')];
+    expect(reconcileFavourites([f], 'tv', catalog([f], items), NOW).report.rematched).toEqual([{ from: f.key, to: 'x:tv:live:8' }]);
+    const { report, outcomes } = reconcileFavourites([f], 'tv', catalog([f], items), NOW, undefined, new Set(['x:tv:live:8']));
+    expect(report.rematched).toEqual([]);
+    expect(outcomes).toEqual([{ ...f, missingSince: NOW }]);
+  });
+
+  it("carries a ref's other fields through a re-match and a miss", () => {
+    const edit = { ...fav(item('tv', 'live', 1, 'Sport', 'G')), hidden: true as const, number: 7 };
+    const lost = { ...fav(item('tv', 'live', 2, 'Lost', 'G')), name: 'Mine' };
+    const { outcomes } = reconcileFavourites([edit, lost], 'tv', catalog([edit, lost], [item('tv', 'live', 8, 'Sport', 'G')]), NOW);
+    expect(outcomes).toEqual([
+      { ...edit, key: 'x:tv:live:8' },
+      { ...lost, missingSince: NOW },
+    ]);
+  });
+});
+
 describe('FavouriteMatcher', () => {
   it("answers `saw` only for keys that were favourites when the refresh began", () => {
     const f = fav(item('tv', 'live', 1, 'A', 'G'));

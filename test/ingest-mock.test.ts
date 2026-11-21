@@ -6,7 +6,7 @@
 
 import type { CatalogItem, ContentKind } from '@lablo/core';
 import { panelZone } from '@lablo/core';
-import type { FavouriteRef, IngestJob, IngestOptions, ProfileDoc } from '@lablo/data';
+import type { ChannelEdit, FavouriteRef, IngestJob, IngestOptions, ProfileDoc } from '@lablo/data';
 import { INGEST_VERSION, IngestError, QueryService, STORE, emptyProfile, fetchTransport, getSource, loadProfile, onSuccess, openDatabase, runIngest, saveProfile, transact } from '@lablo/data';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Catalog } from '../apps/mock-provider/src/config';
@@ -60,6 +60,9 @@ async function allItems(src: string, kind: ContentKind): Promise<CatalogItem[]> 
 }
 
 const favourite = (i: CatalogItem): FavouriteRef => ({ key: i.key, src: i.src, kind: i.kind, normName: i.normName, group: i.group, epgId: i.epgId, added: NOW, missingSince: null });
+/** A changed channel (step 36a): `i`'s ref and `changes`. */
+const changedChannel = (i: CatalogItem, changes: Partial<ChannelEdit>): ChannelEdit => ({ ...favourite(i), ...changes });
+const storedDoc = async (): Promise<ProfileDoc> => (await loadProfile(db))!.doc as ProfileDoc;
 
 describe('ingest against the mock provider: M3U', () => {
   const episodes = catalog.series.reduce((n, s) => n + s.seasons.reduce((m, season) => m + season.episodes.length, 0), 0);
@@ -79,6 +82,84 @@ describe('ingest against the mock provider: M3U', () => {
     app.mockState.catalog = { ...catalog, live: catalog.live.slice(0, -1) };
     const r3 = await ingest(m3uJob());
     expect(r3).toMatchObject({ status: 'committed', gen: 2, previous: 1, counts: { live: catalog.live.length - 1 } });
+  });
+
+  it('keeps favourites, lists and changed channels through a refresh where the provider renamed and reordered its channels (the phase gate, step 36a)', async () => {
+    await ingest(m3uJob());
+    const before = await allItems('pl', 'live');
+    const byName = (items: CatalogItem[], name: string): CatalogItem => items.find((i) => i.name === name)!;
+    const clock = byName(before, 'Lablo Test 2 Clock');
+    const news = byName(before, 'قناة الاختبار الإخبارية');
+    const sports = byName(before, 'Lablo Sports Test HD');
+    const fhd = byName(before, 'Lablo Sports Test FHD');
+    const kids = byName(before, 'Lablo Kids Test');
+    // An M3U key hashes the tvg-id and the name: these all have a tvg-id but the FHD one.
+    expect([clock, news, sports, kids].map((i) => i.epgId)).toEqual(['lablo.test2', 'lablo.ar4', 'lablo.sports', 'Lablo.Kids']);
+    expect(fhd.epgId).toBeNull();
+    await saveProfile(
+      db,
+      {
+        ...emptyProfile(),
+        favourites: [favourite(clock), favourite(kids)],
+        favouriteLists: [{ id: 'l1', name: null, keys: [kids.key, clock.key] }],
+        // The clock is a favourite too (one ref re-matched for both); the others are changed channels only.
+        channelEdits: [
+          changedChannel(clock, { name: 'My clock' }),
+          changedChannel(news, { hidden: true }),
+          changedChannel(sports, { number: 60, name: 'Sport' }),
+          changedChannel(fhd, { hidden: true }),
+        ],
+      },
+      { now: NOW },
+    );
+
+    // The provider renames four channels with tvg-ids (the FHD one keeps its name) and lists every channel the other way round.
+    const renamed: Record<number, string> = { 102: 'Lablo Test 2 Clock UHD', 104: 'قناة الاختبار الإخبارية الجديدة', 105: 'Lablo Kids', 106: 'Lablo Sports Test 4K' };
+    app.mockState.catalog = { ...catalog, live: catalog.live.map((c) => (renamed[c.id] ? { ...c, name: renamed[c.id]! } : c)).reverse() };
+    const r = await ingest(m3uJob(), { now: () => NOW + DAY });
+    expect(r.status).toBe('committed');
+    const after = await allItems('pl', 'live');
+    const clock2 = byName(after, 'Lablo Test 2 Clock UHD');
+    const news2 = byName(after, 'قناة الاختبار الإخبارية الجديدة');
+    const sports2 = byName(after, 'Lablo Sports Test 4K');
+    const kids2 = byName(after, 'Lablo Kids');
+    // Every renamed channel got a new key; the FHD one, unrenamed, kept its own.
+    for (const [old, now] of [[clock, clock2], [news, news2], [sports, sports2], [kids, kids2]] as const) expect(now.key).not.toBe(old.key);
+    expect(byName(after, 'Lablo Sports Test FHD').key).toBe(fhd.key);
+    // Reordered: in the clock's group, a channel that came after it now comes before it.
+    const place = (items: CatalogItem[], key: string): number => items.findIndex((i) => i.key === key);
+    const mire = byName(after, 'Lablo Test FR - Mire').key;
+    expect(place(before, mire)).toBeGreaterThan(place(before, clock.key));
+    expect(place(after, mire)).toBeLessThan(place(after, clock2.key));
+
+    expect(r.favourites).toMatchObject({ rematched: [{ from: clock.key, to: clock2.key }, { from: kids.key, to: kids2.key }], missing: [], dropped: [] });
+    const doc = await storedDoc();
+    expect(doc.favourites.map((f) => f.key)).toEqual([clock2.key, kids2.key]);
+    expect(doc.favouriteLists).toEqual([{ id: 'l1', name: null, keys: [kids2.key, clock2.key] }]);
+    expect(doc.channelEdits).toEqual([
+      { ...changedChannel(clock, { name: 'My clock' }), key: clock2.key },
+      { ...changedChannel(news, { hidden: true }), key: news2.key },
+      { ...changedChannel(sports, { number: 60, name: 'Sport' }), key: sports2.key },
+      changedChannel(fhd, { hidden: true }),
+    ]);
+
+    // Only a changed channel is renamed again: the favourites stay as they are, the entry follows.
+    const again: Record<number, string> = { ...renamed, 104: 'قناة الاختبار' };
+    app.mockState.catalog = { ...catalog, live: catalog.live.map((c) => (again[c.id] ? { ...c, name: again[c.id]! } : c)).reverse() };
+    const r2 = await ingest(m3uJob(), { now: () => NOW + 2 * DAY });
+    expect(r2.favourites).toMatchObject({ changed: false, present: 2 });
+    const news3 = byName(await allItems('pl', 'live'), 'قناة الاختبار');
+    expect((await storedDoc()).channelEdits![1]).toEqual({ ...changedChannel(news, { hidden: true }), key: news3.key });
+
+    // The provider drops every changed channel: missing, then gone after 30 days, and the field with them.
+    const dropped = [102, 104, 105, 106, 107];
+    app.mockState.catalog = { ...catalog, live: catalog.live.filter((c) => dropped.indexOf(c.id) === -1) };
+    await ingest(m3uJob(), { now: () => NOW + 3 * DAY });
+    expect((await storedDoc()).channelEdits!.map((e) => e.missingSince)).toEqual([NOW + 3 * DAY, NOW + 3 * DAY, NOW + 3 * DAY, NOW + 3 * DAY]);
+    await ingest({ ...m3uJob(), force: true }, { now: () => NOW + 33 * DAY });
+    const last = await storedDoc();
+    expect(last.favourites).toEqual([]);
+    expect('channelEdits' in last).toBe(false);
   });
 
   it('gunzips a raw gzip body (the gzip:mode=raw fault) with fflate and with DecompressionStream', async () => {
@@ -234,7 +315,15 @@ describe('ingest against the mock provider: Xtream', () => {
       { id: 'l1', name: null, keys: ['x:xt:live:103', 'x:xt:live:101'] },
       { id: 'l2', name: 'Films', keys: ['x:xt:movie:202', 'x:xt:series:302', 'x:xt:live:101'] },
     ];
-    await saveProfile(db, { ...emptyProfile(), favourites: picks.map(favourite), favouriteLists: lists }, { now: NOW });
+    // Changed channels (step 36a): 101's is a favourite's too, 105's is its own. 101's entry was
+    // made with its twin's group: re-matched on its own it would go to the twin (1112); it follows
+    // the favourite (1101), and takes its group.
+    const kids = live.find((i) => i.key === 'x:xt:live:105')!;
+    const twinGroup = live.find((i) => i.key === 'x:xt:live:112')!.group;
+    expect(twinGroup).not.toBe(picks[0]!.group);
+    const edits = [changedChannel(picks[0]!, { number: 1, name: 'Bars', group: twinGroup }), changedChannel(kids, { hidden: true })];
+    const followed = { ...edits[0], key: 'x:xt:live:1101', group: picks[0]!.group };
+    await saveProfile(db, { ...emptyProfile(), favourites: picks.map(favourite), favouriteLists: lists, channelEdits: edits }, { now: NOW });
 
     app.mockState.catalog = renumbered(catalog, 1000);
     const r = await ingest(xtream(), { now: () => NOW + DAY });
@@ -265,6 +354,8 @@ describe('ingest against the mock provider: Xtream', () => {
       { id: 'l1', name: null, keys: ['x:xt:live:1103', 'x:xt:live:1101'] },
       { id: 'l2', name: 'Films', keys: ['x:xt:movie:1202', 'x:xt:series:1302', 'x:xt:live:1101'] },
     ]);
+    // So do the changed channels, their changes kept.
+    expect((await storedDoc()).channelEdits).toEqual([followed, { ...edits[1], key: 'x:xt:live:1105' }]);
 
     // The re-matched keys resolve in the new generation, and search boosts them (read from the profile).
     const q = new QueryService({ openDb: async () => db });
@@ -274,11 +365,18 @@ describe('ingest against the mock provider: Xtream', () => {
     expect((await q.items(hits.hits)).map((i) => i?.key)).toEqual(['x:xt:live:1101', 'x:xt:live:1112']);
 
     // The provider later drops a favourite: kept as unavailable, then dropped after 30 days.
-    app.mockState.catalog = { ...renumbered(catalog, 1000), movies: renumbered(catalog, 1000).movies.filter((m) => m.id !== 1202) };
+    // (And a changed channel: kept missing, then dropped after 30 days, as a favourite.)
+    const without = renumbered(catalog, 1000);
+    app.mockState.catalog = { ...without, movies: without.movies.filter((m) => m.id !== 1202), live: without.live.filter((l) => l.id !== 1105) };
     const gone = await ingest(xtream(), { now: () => NOW + 2 * DAY });
     expect(gone.favourites).toMatchObject({ missing: ['x:xt:movie:1202'], present: 3 });
+    expect((await storedDoc()).channelEdits!.map((e) => [e.key, e.missingSince])).toEqual([
+      ['x:xt:live:1101', null],
+      ['x:xt:live:1105', NOW + 2 * DAY],
+    ]);
     const later = await ingest({ ...xtream(), force: true }, { now: () => NOW + 32 * DAY });
     expect(later.favourites).toMatchObject({ dropped: ['x:xt:movie:1202'] });
+    expect((await storedDoc()).channelEdits).toEqual([followed]);
     expect(((await loadProfile(db))!.doc as ProfileDoc).favourites.map((f) => f.key)).toEqual(['x:xt:live:1101', 'x:xt:live:1103', 'x:xt:series:1302']);
     // Dropped from its list too; the other list is the same object's copy, unchanged.
     expect(((await loadProfile(db))!.doc as ProfileDoc).favouriteLists).toEqual([

@@ -10,7 +10,7 @@ export { FULL_TIER_FROM_CHROMIUM, FULL_TIER_FROM_YEAR, chromiumMajorFromUserAgen
 export type { CatalogItem, CatchupInfo, ContentKey, ContentKind, SourceType, StreamHints } from './model';
 export { CONTENT_KINDS, MAX_TEXT } from './model';
 
-export { matchName, normalizeName } from './normalize';
+export { cleanName, matchName, normalizeName } from './normalize';
 export { normalizeLang } from './language';
 export type { TextDirection } from './bidi';
 export { firstStrongDirection, isolateText, stripIsolates } from './bidi';

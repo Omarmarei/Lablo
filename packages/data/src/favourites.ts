@@ -132,31 +132,35 @@ function successor(fav: FavouriteRef, catalog: CatalogView, taken: ReadonlySet<C
 
 /**
  * Brings the favourites of `src` up to date with a new generation. Pure: returns a new list
- * (the same objects where nothing changed) in the same order. Other sources, and kinds the
- * refresh didn't load (`kinds`), are untouched.
+ * (the same objects where nothing changed) in the same order, and each one's outcome in the
+ * input's order (`null`: dropped). Other sources, and kinds the refresh didn't load (`kinds`),
+ * are untouched. Any other field a ref carries (a changed channel's, step 36a) goes with it.
+ * `alsoTaken`: keys no favourite may be re-matched to besides the favourites' own.
  */
-export function reconcileFavourites(
-  favourites: readonly FavouriteRef[],
+export function reconcileFavourites<T extends FavouriteRef>(
+  favourites: readonly T[],
   src: string,
   catalog: CatalogView,
   now: number,
   kinds?: readonly ContentKind[],
-): { favourites: FavouriteRef[]; report: FavouriteReport } {
+  alsoTaken?: ReadonlySet<ContentKey>,
+): { favourites: T[]; outcomes: (T | null)[]; report: FavouriteReport } {
   const report: FavouriteReport = { src, changed: false, present: 0, rematched: [], missing: [], dropped: [], restored: [] };
   const taken = new Set(favourites.map((f) => f.key));
-  const out: FavouriteRef[] = [];
+  if (alsoTaken) alsoTaken.forEach((key) => taken.add(key));
+  const outcomes: (T | null)[] = [];
   for (const fav of favourites) {
     if (fav.src !== src || (kinds && kinds.indexOf(fav.kind) === -1)) {
-      out.push(fav);
+      outcomes.push(fav);
       continue;
     }
     if (catalog.has(fav)) {
       report.present++;
       if (fav.missingSince === null) {
-        out.push(fav);
+        outcomes.push(fav);
       } else {
         report.restored.push(fav.key);
-        out.push({ ...fav, missingSince: null });
+        outcomes.push({ ...fav, missingSince: null });
       }
       continue;
     }
@@ -164,17 +168,18 @@ export function reconcileFavourites(
     if (next) {
       taken.add(next.key);
       report.rematched.push({ from: fav.key, to: next.key });
-      out.push({ ...fav, key: next.key, missingSince: null, group: next.group, epgId: next.epgId });
+      outcomes.push({ ...fav, key: next.key, missingSince: null, group: next.group, epgId: next.epgId });
       continue;
     }
     const since = fav.missingSince ?? now;
     if (now - since >= MISSING_KEEP_MS) {
       report.dropped.push(fav.key);
+      outcomes.push(null);
       continue;
     }
     if (fav.missingSince === null) report.missing.push(fav.key);
-    out.push(fav.missingSince === null ? { ...fav, missingSince: since } : fav);
+    outcomes.push(fav.missingSince === null ? { ...fav, missingSince: since } : fav);
   }
   report.changed = report.rematched.length + report.missing.length + report.dropped.length + report.restored.length > 0;
-  return { favourites: out, report };
+  return { favourites: outcomes.filter((f): f is T => f !== null), outcomes, report };
 }

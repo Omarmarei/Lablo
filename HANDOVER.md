@@ -1,141 +1,135 @@
-# Lablo IPTV: relay leg 127 opening prompt
+# Lablo IPTV: relay leg 128 opening prompt
 
-You are leg 127 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 128 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 ## Status
-- **Earlier legs:** leg 0 planned the work; legs 1–125 did steps 1–33 and 35 (PRs #1–#153).
+- **Earlier legs:** leg 0 planned the work; legs 1–127 did steps 1–33, 35 and 35e (PRs #1–#154).
 - **Waiting for Omar:**
   - step 16's Samsung part, 19b and 21 (the TVs);
   - step 34 (production infrastructure), deferred by Omar on 2026-11-19 until he says the accounts and keys are ready. Skip it until then.
-- **Leg 126 (2026-11-21) built step 35e** (Settings loaded on first open, Omar's option 1) in one go, both halves, and ran most of its gates. It stopped at the context check. **No PR yet.**
-  - **The build:** the app and its test copy are split as AMD. An ES5 loader of our own sits at the top of main.js (`tools/build/src/amd-loader.ts`, Rollup's `banner`, one global `__labloDefine`) and loads `settings.js` by a `<script>` tag. `checkChunks` refuses any other shape (lazy files need only main.js). Each file goes through terser, the worker strings and the ES2016 gate. settings.js has a 150 KB budget. `APP_LAZY` (`lazy-files.ts`) fails the build if main.js holds any module of `apps/tv/src/settings/`.
-  - **The app:** `apps/tv/src/lazy/` (`lazy-file.ts`, `LoadingScreen.tsx`, `lazy.css`):
-    - the screen under it stays painted for the first 300 ms (`under`);
-    - then a spinner;
-    - a failure, or 15 s, says "Couldn't open this screen." with "Try again";
-    - Back cancels.
-  - **The rest of the app side:**
-    - `settings/settings.ts` is the file's entry (`loadSettings`);
-    - `main.tsx` keeps `settingsOptions` and calls `settings.use(...)` for open, `openSources`, `openGuides` and the guide's `map`;
-    - `MappingReading` moved to `guide/`, `codeGroups` to `backup/code-groups.ts`.
-  - **Sizes:** main.js went from 487.6 to **426.1 KB on Tizen** and from 474.9 to **413.4 KB on webOS**; settings.js is 66.1 KB.
-  - **Decisions with their why:** in RELAY.md under 35e, "Decided in leg 126".
-- **Next: finish 35e** (mutation, the rest of the gates, architecture.md, PR, merge), then step 36.
+- **Leg 127 (2026-11-21) finished step 35e** (Settings loaded on first open). PR #154 was merged as `4035b0f` on green CI at the first run, and 35e is ticked.
+  - **Mutation** (`artifacts/mutate35e.py`, 85 mutants written first): 69 were caught at first. Six gaps were closed with tests and ten survivors are equivalent, each with its reason in the script: 75 of 75 caught.
+  - **The new tests:**
+    - `lazy-file.test.ts` (+4);
+    - `e2e/settings-loading.spec.ts` (+2): the guide's "Guide channel" as the first load, and a restored start that opens TV guides (`toGuides`, which had no e2e before).
+  - **Two gates leg 126 had missed:**
+    - the root `pnpm typecheck`: the e2e imported `lazy-file.ts`, and a VNode props cast;
+    - `test/engines-onboarding.test.ts`'s pin of the walk's `shown` line.
+  - **Docs:** architecture.md §4's build pipeline item 7, and §1.5's settings rows (the loading screen).
+- **Next: step 36 (channel management).** RELAY.md step 36 has leads written in leg 127. Start by writing its shape, as step 35 did in leg 121, then split it.
 
 ## Read first
-1. **`RELAY.md` step 35e:** "Decided in leg 126", "Built in leg 126", "Verified in leg 126" and "Left for leg 127". Also the last progress row (126).
-2. **`docs/adr/ADR-014-settings-loaded-on-first-open.md`**, and `docs/runbooks/tv-build.md` § "Settings load on first open".
-3. **`artifacts/mutate35e.py`:** its docstring (what was left out and why) and its 85 mutants.
-4. **The code:**
-   - `tools/build/src/bundle.ts` (`split`, `SPLIT_OUTPUT`, `checkChunks`, `bundleIife`);
-   - `tools/build/build-tv.ts` (`split`, `lazyProblems`, `stage`);
-   - `apps/tv/src/lazy/lazy-file.ts`;
-   - `apps/tv/src/live/LiveApp.tsx` (`LiveScreen`'s first lines).
-5. **`docs/architecture.md`:** the build section (~2255) and §1.5's settings rows; both still need their 35e lines.
+1. **`RELAY.md`:**
+   - step 36 and its "Leads for the leg that starts it";
+   - step 35's decisions (the profile fields by name and key, the channel numbers, the rail, `relinkLists`; around line 2560–2600, "Channel numbers");
+   - step 35e's "Done in leg 127";
+   - the last progress row (127).
+2. **`docs/PLAN.md` §4, line ~225** (hide, rename or renumber single channels; "clean names" strips prefixes like `AR |` or `UK:`), and line 335 (favourites survive renumbering through a 30-day re-match by normalized name).
+3. **`docs/architecture.md`:**
+   - §1.4 item 10, "Built in step 35c/35d": favourites, groups, numbers;
+   - §1.5's settings rows (the settings screens, 35e's loading screen);
+   - §4 build item 7 (settings.js).
+4. **The code step 36 builds on:**
+   - `packages/data/src/profile.ts` and `favourite-edits.ts` (the profile and its edits);
+   - `packages/data/src/favourites.ts` (the re-match);
+   - `apps/tv/src/live/live-state.ts` (`hiddenParts`, numbers, `ChannelIndex`);
+   - `apps/tv/src/settings/groups-state.ts` and `GroupsPage.tsx` (the closest screen, 35d);
+   - `apps/tv/src/settings/settings.ts` (settings.js's entry: `loadSettings`).
 
 ## Next steps, in order
 1. **Check the state:**
    - `git -C "<wt>" status` is clean;
-   - `git -C "<wt>" log --oneline -5` shows this handover's commit, then `98dd70a`, `a54ed1c`, `ec43e82`, `f504519`;
-   - the branch is pushed; `origin/main` is still `4adad53`;
+   - `git -C "<wt>" log --oneline -4` shows this handover's commit, then `e3db1d9`, `4035b0f` (the merge), `5088b1d`;
+   - `origin/main` is `4035b0f`;
    - there is no `*.mutbak`;
    - `docker ps` shows only `lablo-web-postgres-1`;
-   - check the free memory (leg 126 started with 33.7 GB of free commit).
-2. **Mutation:**
-   - `python -X utf8 -I -u artifacts/mutate35e.py --check` must say 85/85;
-   - then run it in foreground chunks with `MUT_TIMEOUT=60` for the unit ones (0–37, 47–81) and `MUT_TIMEOUT=200` for the e2e ones (38–46, 82–84);
-   - 82–84 rebuild the webOS app: run `pnpm build:tv --skip-package` after them;
-   - close the gaps with tests; mark the equivalents in the docstring with their reasons.
-   - **Likely survivors:**
-     - 22–23 (the constants: no test pins 300 ms or 15 s);
-     - 15 (`wanted = null`);
-     - 40 (LiveApp's `under`: no e2e opens the guide's "Guide channel" as the first load). If it survives, add an e2e step to `e2e/settings-loading.spec.ts`: hold the route, open the guide's details, "Guide channel", and check that `guide-screen` stays painted until the spinner (the same MutationObserver).
-3. **The rest of the gates, one at a time:**
-   - `pnpm test` (all), `pnpm lint` (the whole repo), `pnpm typecheck`;
-   - the e2e specs that open Settings on the dev server: backup-code, backup-logins-xa, backup-settings, config-blocklist, guide-catchup-m3u, guide-matches, guide-offset, guides, home, live, pairing (`e2e/pairing-steps.ts`), telemetry, plus groups, guide-mapping, settings-loading and tv-bundle again;
-   - **guard check by hand:** add a static `import { SETTINGS_ITEMS } from './settings/settings-state'` to `main.tsx`; `build:tv --target app --platform webos --skip-package` must fail naming it; then revert.
-4. **Docs:** architecture.md's build section (settings.js beside main.js, its budget, ADR-014, the loader) and §1.5 (the loading screen before the settings).
-5. **The PR** from `relay/iptv-20261101-214120`, merged on green CI without Omar (merge commit, keep the branch). **The three riskiest changes:**
-   - the AMD split and its loader, now in every TV start path (main.js is no longer an IIFE);
-   - Settings and the guide's mapping now open asynchronously through `lazy-file.ts`;
-   - `build-tv.ts` fails a build that pulls a settings module into main.js.
-6. **After the merge:** fast-forward the worktree, tick 35e, add a progress row, hand over. **Step 36 (channel management) comes next:** its screen goes under `apps/tv/src/settings/`, so into settings.js.
+   - check the free memory (leg 127 started with 31.0 GB of free commit).
+2. **Confirm that step 36 isn't already done** (git log, grep `rename`, `renumber`, `cleanName`, `hiddenChannels`). In leg 127 nothing of it existed.
+3. **Write step 36's shape in RELAY.md before building**, each choice with its why:
+   - the profile fields, by ContentKey like favourites, and the `editProfile` kinds;
+   - how a refresh's re-match carries them (`relinkLists`);
+   - how a renumbered channel meets 35c's numbers and number entry;
+   - what "clean names" strips, and where (shown only, or searched too);
+   - what "multiple sources merged" means for the rail and "All channels";
+   - the screen (under `apps/tv/src/settings/`, so in settings.js) and the live screen's side (in main.js);
+   - the split into 36a, 36b, … each fitting one leg, with "Done when" checks.
+   - A choice with real trade-offs for the product is Omar's: end the leg as needs-you with a numbered list (recommended option first).
+4. **Build 36a** if the leg still has room; otherwise hand over with the shape written.
 
 ## Git state to expect
-- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed. On top of `origin/main` (`4adad53`) it has:
-  - `7604709`, `74dc905`, `f504519` (leg 125's docs);
-  - `ec43e82` (feat: the split and the app side);
-  - `a54ed1c` (the old-engine walk's Settings steps, ADR-014, the runbooks);
-  - `98dd70a` (RELAY.md 35e's state);
+- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed. It is `origin/main` (`4035b0f`, PR #154's merge) plus:
+  - `e3db1d9` (RELAY.md: 35e ticked, step 36's leads);
   - this handover's commit (docs: HANDOVER.md).
-- **`main`:** `4adad53`. The main checkout was not touched.
+- **`main`:** `4035b0f`. The main checkout was not touched.
 - **Gitignored but present:**
-  - `node_modules`, `.cache/*`, `apps/web/.env`, `apps/web/.next`;
-  - `dist/`: leg 126's full build;
+  - `node_modules`, `.cache/*`, `apps/web/.env`, `apps/web/.next` (rebuilt in leg 127);
+  - `dist/`: leg 127's full `build:tv`;
   - in `artifacts/`:
-    - `mutate35e.py` (not run);
-    - `engines-35e.log` (39/39);
-    - `build-tv-35e*.log`, `e2e-35e-*.log`;
-    - `screenshots/lazy-loading-*.png`;
-    - `engines/onboarding-*-settings.png`;
-    - `amd-probe/` (leg 126's Rollup probe; can be deleted).
+    - `mutate35e.py` (run, with its results in the docstring);
+    - `unit-35e-leg127.log`, `e2e-35e-leg127-*.log`, `build-tv-35e-leg127.log`;
+    - leg 126's logs and screenshots;
+    - `amd-probe/` (can be deleted).
 
 ## Verified vs not
-- **Verified in leg 126, not merged:**
-  - `build:tv`: the sizes above; the `.ipk` holds settings.js (67,691 bytes); no `Circular dependency: apps/`;
-  - unit: `tools/build` 42, `apps/tv/src/lazy` 14, settings, guide, onboarding and i18n 2,623, `tools/engines` 442;
-  - typecheck; lint of the changed files;
-  - e2e: guide-mapping and groups (5), settings-loading (1), tv-bundle (10);
-  - `verify:engines --engine chrome53 --engine chrome56 --engine chrome68`: all 39 runs as expected, with the new Settings steps; the Arabic one on 53 was looked at.
+- **Verified and merged (PR #154, CI green: changes, web, verify, engines; media skipped by its path filter):**
+  - `build:tv`: main.js 426.1 KB on Tizen and 413.4 KB on webOS (was 487.6 and 474.9); settings.js 66.1 of 150 KB, in the `.ipk`;
+  - unit 7,797; lint; typecheck;
+  - e2e: the 15 Settings specs plus settings-loading (53), tv-bundle 10, `e2e:web` 26;
+  - `verify:engines` on Chromium 53, 56 and 68: 39 of 39 (leg 126);
+  - mutation 75 of 75;
+  - the `APP_LAZY` guard checked by hand.
 - **Not yet:**
-  - mutation;
-  - the full `pnpm test` and `pnpm lint`;
-  - the other e2e specs that open Settings;
-  - architecture.md;
-  - CI;
-  - a real TV (step 21);
+  - Settings' first open on a real TV (step 21's session);
   - production (step 34).
 - **Migrations and deploys:** none. Nothing is in production or deployed.
 
 ## Gotchas and lessons
-**New in leg 126:**
-- **TV-build e2e and Back:**
-  - the TV builds read the platform's own key code, so a desktop Escape does nothing;
-  - send Back by CDP: `Input.dispatchKeyEvent` with `windowsVirtualKeyCode` from `TV_KEYS[platform].back` (`tools/engines/src/live.ts`), as `pressBack` does in `tv-bundle.spec.ts`.
-- **`page.route` does not see `file://` loads:**
-  - to fail a lazy load in the built bundle, copy `dist/tv/<platform>` to `test.info().outputPath(...)` and rename settings.js there;
-  - in `pnpm dev`, a route on `/src/settings/settings.ts` can hold the `import()`;
-  - don't test a failed dev `import()`: Chrome caches failed module fetches.
-- **`pnpm dev` loads a lazy module's CSS with it.** A main-side component must not use `settings.css` classes. The loading screen has `lazy.css`; `MappingReading` has `guide/mapping-reading.css`.
-- **Rollup AMD:**
-  - with `amd.autoId`, ids are file names, but dependencies are written `'./main'`, so the loader strips `./`;
-  - an entry with exports gets a facade file, so `preserveEntrySignatures: false`;
-  - a `banner` is in the chunk before `renderChunk`, so terser minifies it.
-- **A vm "page" with core-js needs `setTimeout`/`clearTimeout`** in the sandbox (its Promise uses them): see `tools/build/test/script-page.ts`.
-- **Heredoc Python patches mangled backslashes again:** write every patch script with the Write tool.
-- **The size report needs no probe for the split:** `build:tv` prints main.js and settings.js separately.
+**New in leg 127:**
+- **e2e imports and the root tsc:**
+  - an e2e spec must not import an app module whose imports reach `@lablo/ui`, type-only imports included (`lazy-file.ts` does). It pulls the package's `.tsx` into the root tsconfig (no `jsx`), and `pnpm typecheck` fails with TS6142;
+  - copy the constant into the spec instead, and pin it in the unit test;
+  - run the whole `pnpm typecheck` (root, then every package), not one package.
+- **A restored start in e2e:**
+  - wait for `configIdle()` and `backupIdle()`, then go to `/?screen=gallery`;
+  - edit the `profile` record (`store.put(record)`);
+  - open `/?restored=1&locale=…`: "Welcome back" (`backup-start` `data-logins`, `data-guides`), and OK opens Sources or TV guides.
+  - See `dropGuideLink` in `e2e/settings-loading.spec.ts`.
+- **The guide's "Guide channel" in e2e:**
+  - from `guide/grid/0`, RIGHT to the next programme; wait until `readGrid(page, 'guide-screen', '.guide__header > *').time` moves;
+  - OK, then RIGHT to `programme/actions/1` (`programme-map`);
+  - the mapping picker's test id is `mapping`.
+- **Mutation equivalents in guard-heavy code:** timer callbacks that check the attempt number are equivalent when every change of try clears the timers first. Mark them with that reason rather than chasing them.
+- **The e2e specs that open Settings:** backup-code, backup-logins-xa, backup-settings, config-blocklist, guide-catchup-m3u, guide-matches, guide-offset, guides, home, live, pairing, telemetry, groups, guide-mapping, settings-loading.
+  - The `chromium` project runs them in about 1.5 min at `--workers=3`.
+  - `pnpm e2e:web` (backup-logins, backup-api, pairing-api, no-plaintext) needs `pnpm build:web` first, and takes about 35 s.
 
-**From leg 125 (still true):**
-- **The per-file size probe:**
-  - recreate `tools/build/src/size-probe-bundle.ts` from `bundle.ts`: `generate` gets `sourcemap: true`, and the label `probe` stores `globalThis.__probe`;
-  - run `pnpm exec tsx artifacts/size35d-main.ts tizen`;
-  - delete the probe file again;
-  - it now needs the split's `output` filtered to the entry.
+**From legs 125–126 (still true):**
+- **TV-build e2e and Back:** the TV builds read the platform's own key code, so send Back by CDP (`Input.dispatchKeyEvent`, `windowsVirtualKeyCode` from `TV_KEYS[platform].back`; `pressBack` in `tv-bundle.spec.ts`).
+- **`page.route` doesn't see `file://` loads:** copy `dist/tv/<platform>` to `test.info().outputPath(...)` and rename settings.js there. In `pnpm dev`, a route on `/src/settings/settings.ts` holds the `import()`. Don't test a failed dev `import()`: Chrome caches failed module fetches.
+- **`pnpm dev` loads a lazy module's CSS with it:** a main-side component must not use `settings.css` classes.
+- **Rollup AMD:**
+  - with `amd.autoId`, dependencies are written `'./main'`;
+  - `preserveEntrySignatures: false`;
+  - a `banner` is minified by terser.
+- **A vm "page" with core-js needs `setTimeout`/`clearTimeout`** (`tools/build/test/script-page.ts`).
+- **The size report:** `build:tv` prints main.js and settings.js separately. The per-file source-map probe is described in the leg-125 handover (`git show f504519:HANDOVER.md`).
 - **`tuned` stores the list on show** as the last channel's rail entry (`listHolds`).
-- **Mutation:**
-  - a "focus follows the row" mutant needs a failed edit to die;
-  - the `GroupsPage` frames are reached by expanding a component once.
-- **e2e:**
+- **e2e paths:**
   - Home is `live/header/3`, Search `live/header/4`, Settings `live/header/5`;
   - from `live/channels/0`, UP lands on `live/header/0`.
 - **CI:**
-  - `rpc.test.ts:179` flake (a fixed 5 ms sleep): rerun after the whole run;
-  - CI times: engines 27 min, verify 17 min, media 11 min, web 3 min.
+  - times: engines 27 min, verify 17 min, media 11 min, web 3 min;
+  - the `rpc.test.ts:179` flake (a fixed 5 ms sleep): rerun after the whole run.
 
 **From earlier legs (still true):**
 - **Memory:** about 80 old leg tabs hold a `claude.exe` each. Run heavy checks one at a time (mutation, then `verify:engines` alone, then e2e, then unit).
-- **Mutation runners:** use `MUT_TIMEOUT` and never an outer `timeout`. Restore any `.mutbak` with `mv`.
-- **A navigator click within 300 ms of an OK key is its twin and is ignored.** OK waits while the groups screens read or save.
+- **Mutation:**
+  - write the list first, check it with `--check`, run it in foreground chunks;
+  - use `MUT_TIMEOUT` (60 for unit, 200–240 for e2e and builds), never an outer `timeout`;
+  - restore any `.mutbak` with `mv`;
+  - after build-tv.ts mutants, run `pnpm build:tv --skip-package`.
+- **Patch scripts:** write Python patch scripts with the Write tool (heredocs mangle backslashes), with `newline=''` on read and write.
+- **A navigator click within 300 ms of an OK key is its twin** and is ignored.
 - **An en-XA check of a shape passes for any bracketed string:** compare with another element's text for the same key.
 - **`itemsByKey`** takes at most 100 keys.
 - **The developer screens are only in `pnpm dev` and `dist/tv-dev`** (`STORE_SWAPS`).
@@ -143,6 +137,7 @@ You are leg 127 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
   - no `trim`, `.sort(`, regex `.test` or `for…of` in new main files;
   - none of: `Uint8Array` as a value, `JSON.stringify`, `new RegExp`, array destructuring or spread, object spread, fragments, `Promise.prototype.finally`;
   - check blank names by char code.
+  - settings.js goes through the same gate: the same rules hold there.
 - **Scrub in a worker, never in main.js.** Workers import schema-free subpaths.
 - **Any new background worker that writes IndexedDB** counts in `backupIdle()`.
 - **Arabic on/off words agree with their noun.** Preact: write `translate={false}`.
@@ -161,7 +156,7 @@ You are leg 127 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
 - **Smart App Control:** before every pnpm or npx command, `export NODE_OPTIONS="--require \"D:/Claude Code PlayGround/IPTV-relay-20261101-214120/.cache/rollup-wasm/hook.cjs\""`. Never delete files in `node_modules`.
 - **Environment:**
   - CI runs Node 22, this PC Node 24;
-  - a bare `sleep` is blocked;
+  - a bare `sleep` is blocked (use `python -c "import time; time.sleep(N)"` inside a loop);
   - `TaskStop` on `verify:engines` leaves its container behind;
   - the TV build can crash once (0xC0000005): rerun it;
   - the Chromium 53 DevTools start-up timeout happens locally too: rerun once.
@@ -174,7 +169,7 @@ You are leg 127 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
 - **CLAUDE.md edits need Omar's direct word in his own tab.**
 
 ## Open decisions and gates
-- **None for 35e:** its choices are recorded in RELAY.md. The first open's wait on a real TV is unmeasured until step 21's session.
+- **Step 36's shape:** written by leg 128. A product trade-off in it (for example what "merged sources" shows) goes to Omar as a numbered question.
 - **Step 34 `[needs Omar]`:**
   - the R2 and Upstash adapters;
   - R2's host in `connect-src` and the bucket's CORS rule;
@@ -189,7 +184,8 @@ You are leg 127 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
   - `guide-offset.spec.ts` en-US;
   - `rpc.test.ts:179`'s fixed 5 ms sleep;
   - caching ffmpeg in CI's media job;
-  - forwarding workers' unhandled rejections (33c).
+  - forwarding workers' unhandled rejections (33c);
+  - a loading screen that another screen covers when settings.js arrives: today nothing pushes over it (every push is on a key, and keys go to it), so it is left as is. Tested in `lazy-file.test.ts`: nothing opens over the cover.
 - **Steps 16, 19b and 21 wait for Omar** (Samsung, and 30–45 minutes at the LG TV). That session also covers:
   - an Arabic onboarding;
   - typing a backup code;
@@ -200,8 +196,8 @@ You are leg 127 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
   - **Settings' first open on the TV** (the settings.js load: a quick open, no spinner expected).
 
 ## Checks for Omar
-1. **Optional:** in `pnpm dev`, open Settings from the live header. It should open at once; the file is local.
-2. **Optional look:** in the worktree, `artifacts/screenshots/lazy-loading-failed-tizen.png` (the failure screen) and `artifacts/engines/onboarding-chrome53-webos-ar-settings.png` (Settings on Chromium 53).
+1. **Optional:** in `pnpm dev`, open Settings from the live header. It should open at once, with no spinner.
+2. **Optional look:** in the worktree, `artifacts/screenshots/lazy-loading-spinner.png` (the spinner while the file is held) and `artifacts/screenshots/lazy-loading-failed-tizen.png` (the failure screen).
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
 - **Memory:**

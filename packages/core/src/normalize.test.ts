@@ -1,6 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { matchName, normalizeName } from './normalize';
+import { cleanName, matchName, normalizeName } from './normalize';
 
 const ch = (...codes: number[]): string => String.fromCharCode(...codes);
 const FATHA = ch(0x64e);
@@ -103,9 +103,60 @@ describe('matchName golden', () => {
   });
 });
 
+describe('cleanName golden (step 36a: "Clean channel names")', () => {
+  it.each([
+    ['AR: MBC 1 HD', 'MBC 1 HD'],
+    ['|UK| BBC One FHD', 'BBC One FHD'],
+    ['UK | BBC One', 'BBC One'],
+    ['FR - TF1 4K', 'TF1 4K'],
+    ['[AR] Rotana Cinema', 'Rotana Cinema'],
+    ['(US) CNN', 'CNN'],
+    ['KSA: SBC HEVC', 'SBC HEVC'],
+    ['VIP | AR: beIN Sports 1 ᴴᴰ', 'beIN Sports 1 ᴴᴰ'],
+    ['|AR| الجزيرة الوثائقية ᴴᴰ', 'الجزيرة الوثائقية ᴴᴰ'],
+    ['AR | قناة دبي', 'قناة دبي'],
+    // Up to three tags, as `matchName` strips.
+    ['AR: UK: FR: DE: Arte', 'DE: Arte'],
+    // Trailing tags and quality words stay.
+    ['MBC 1 (AR)', 'MBC 1 (AR)'],
+    ['MBC 1 |AR|', 'MBC 1 |AR|'],
+    ['Canal+ 1080p', 'Canal+ 1080p'],
+    // No tag: as written.
+    ['Al-Jazeera', 'Al-Jazeera'],
+    ['beIN Sports', 'beIN Sports'],
+    ['BBC One', 'BBC One'],
+    ['MBC 1', 'MBC 1'],
+    ['قناة الجزيرة HD', 'قناة الجزيرة HD'],
+    // Never emptied: a name that is all tags stays whole.
+    ['AR: HD', 'HD'],
+    ['AR |', 'AR |'],
+    ['|UK|', '|UK|'],
+    ['', ''],
+  ])('%j → %j', (input, expected) => {
+    expect(cleanName(input)).toBe(expected);
+  });
+
+  it('is where matchName starts: the same form from the cleaned name', () => {
+    for (const name of ['AR: MBC 1 HD', 'VIP | AR: beIN Sports 1 ᴴᴰ', '|AR| الجزيرة الوثائقية ᴴᴰ', 'MBC 1 (AR)']) expect(matchName(cleanName(name))).toBe(matchName(name));
+  });
+});
+
 /** Any UTF-16 string, lone surrogates included. */
 const anyString = fc.string({ unit: fc.integer({ min: 0, max: 0xffff }).map((c) => String.fromCharCode(c)), maxLength: 40 });
 const anyText = fc.oneof(anyString, fc.string({ unit: 'binary', maxLength: 40 }), fc.string({ unit: 'grapheme', maxLength: 20 }));
+
+describe('cleanName properties', () => {
+  it('gives an end of the name, never an empty one for a name that had text', () => {
+    fc.assert(
+      fc.property(anyText, (input) => {
+        const out = cleanName(input);
+        expect(input.slice(input.length - out.length)).toBe(out);
+        expect(out.length > 0).toBe(input.length > 0);
+      }),
+      { numRuns: 300 },
+    );
+  });
+});
 
 describe('normalizeName properties', () => {
   it('never throws, is idempotent, and leaves only folded characters and single spaces', () => {
