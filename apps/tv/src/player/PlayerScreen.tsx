@@ -1,3 +1,4 @@
+import type { VNode } from 'preact';
 import type { EpgProgramme } from '@lablo/core';
 import type { EpgNowNext } from '@lablo/data';
 import type { PictureMode, PlaybackFailure } from '@lablo/player';
@@ -125,11 +126,23 @@ function EpisodeLine({ i18n, episode, next = false, class: name, testId }: { i18
   );
 }
 
-/** Each info bar button's label and test id; the star is filled when the channel is in a list (`starred`, step 35c). */
+/** The info bar's "Edit channel" (step 36c): a pencil, ours, drawn in the text's colour. */
+const PENCIL = (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M3 17.3V21h3.7L17.8 9.9l-3.7-3.7zM20.7 7a1 1 0 0 0 0-1.4l-2.3-2.3a1 1 0 0 0-1.4 0l-1.8 1.8 3.7 3.7z" />
+  </svg>
+);
+
+/**
+ * Each info bar button's label and test id; the star is filled when the channel is in a list
+ * (`starred`, step 35c). The pencil (step 36c) is an icon button, its label for screen readers:
+ * six labelled buttons don't fit the bar in the longer languages.
+ */
 function actionButton(player: Player, i18n: AppI18n, action: PlayerAction, binding: ReturnType<typeof useZone>, index: number, starred: boolean) {
   const { t } = i18n;
   const item = binding.item(index);
   if (action === 'favourite') return <Button key={action} label={t('player.favourites')} icon={star(starred)} {...item} testId="player-favourite" />;
+  if (action === 'edit') return <Button key={action} label={t('player.editChannel')} icon={PENCIL} iconOnly {...item} testId="player-edit" />;
   if (action === 'previous') return <Button key={action} label={t('player.previous')} disabled={player.previous.value === -1} {...item} testId="player-previous" />;
   if (action === 'tracks') return <Button key={action} label={t('player.tracks')} {...item} testId="player-tracks" />;
   if (action === 'stats') return <Button key={action} label={t('player.streamInfo')} {...item} testId="player-stats" />;
@@ -340,11 +353,12 @@ function MovieEndCard({ movie, upNext, i18n, screen, binding }: { movie: Playing
  * card. Its root carries the focus (`data-screen/zone/index`) and the player's state for tests.
  * The subtitles (step 20b2b) share the bottom of the safe area with the info bar, above it. The
  * stream info (step 20c2a) sits under the badge; the error card replaces it while it shows.
- * The picture's mode (step 20c2b) is on the info bar's fourth button. In 4:3 the screen draws the
+ * What settings.js paints over the player (`over`: step 36c's "Edit channel") goes on top, and
+ * the info bar hides under it. The picture's mode (step 20c2b) is on the info bar's fourth button. In 4:3 the screen draws the
  * black side bars itself, under everything else: outside its 4:3 box the `<video>` leaves the
  * stage transparent, and so the page's own colour would show (AVPlay's plane is black there).
  */
-export function PlayerScreen({ live, player, i18n }: { live: Live; player: Player; i18n: AppI18n }) {
+export function PlayerScreen({ live, player, i18n, over = null }: { live: Live; player: Player; i18n: AppI18n; over?: VNode | null }) {
   const { t } = i18n;
   const binding = live.binding;
   const focus = useFocus(binding);
@@ -445,13 +459,14 @@ export function PlayerScreen({ live, player, i18n }: { live: Live; player: Playe
       )}
       <div class="player__bottom">
         {subtitles.cues.length > 0 && <SubtitleOverlay cues={subtitles.cues} size={player.menu.size.value} />}
-        {screen !== null && menu === null && panel === null && player.info.value && (
+        {screen !== null && menu === null && panel === null && over === null && player.info.value && (
           <InfoBar live={live} player={player} i18n={i18n} screen={screen} binding={binding} row={row} guide={guide} archive={archive} movie={movie} starred={starred} />
         )}
       </div>
       {menu !== null && <TrackMenuPanel menu={player.menu} tracks={status.tracks} feed={subtitles.feed} i18n={i18n} screen={menu} binding={binding} />}
       {favourites !== null && panel !== null && <FavouritePanel menu={favourites} lists={lists} i18n={i18n} screen={panel} binding={binding} />}
       {favourites !== null && focus.screen === NEW_LIST_SCREEN && <NewListForm i18n={i18n} menu={favourites} binding={binding} />}
+      {over}
       {screen !== null && refused !== null && <RefusedCard refusal={refused} i18n={i18n} screen={screen} binding={binding} movie={movie !== null} />}
       {screen !== null && failure !== null && <ErrorCard failure={failure} i18n={i18n} screen={screen} binding={binding} movie={movie !== null} />}
       {screen !== null && ended && archive !== null && <EndCard archive={archive} i18n={i18n} screen={screen} binding={binding} />}

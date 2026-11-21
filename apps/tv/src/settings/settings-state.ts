@@ -5,6 +5,10 @@ import type { Pairing } from '../pairing/pair-state';
 import { PAIR_SCREEN } from '../pairing/pair-state';
 import type { BackupPage, BackupPageEngine, BackupPageHost } from './backup-state';
 import { BACKUP_CONFIRM, BACKUP_SCREEN, createBackupPage } from './backup-state';
+import type { ChannelEditor } from './channel-edit';
+import { EDIT_SCREENS, createChannelEditor } from './channel-edit';
+import type { EditedChannels } from './edited-channels';
+import { CHANNELS_SCREEN, createEditedChannels } from './edited-channels';
 import type { Groups, GroupsEngine } from './groups-state';
 import { GROUP_SCREENS, createGroups } from './groups-state';
 import type { Guides, GuidesEngine, GuidesOptions } from './guides-state';
@@ -31,14 +35,16 @@ import { createUnmatchedList } from './unmatched-state';
  * (on or off, switched in place by OK, step 33b3: `telemetry-switch.ts`) and "Send a report to
  * support" (OK sends the diagnostics report, then the row shows its support code, step 33d2:
  * `diag-report.ts`) and "Channel groups" (the favourites lists and the live groups: move, hide, rename,
- * delete, a list's channels, step 35d: `groups-state.ts`); step 38 adds the track
+ * delete, a list's channels, step 35d: `groups-state.ts`) and "Channels" ("Clean channel names" and the
+ * channels the user changed, step 36c: `edited-channels.ts`, its menu `channel-edit.ts`, which the
+ * info bar's pencil opens over the player too); step 38 adds the track
  * languages, the subtitle style and the picture mode. Back closes it.
  */
 
-export type SettingsItem = 'guides' | 'sources' | 'backup' | 'telemetry' | 'report' | 'groups';
+export type SettingsItem = 'guides' | 'sources' | 'backup' | 'telemetry' | 'report' | 'groups' | 'channels';
 
 /** The settings screen's rows, in screen order (each new one last, so the earlier paths stay). */
-export const SETTINGS_ITEMS: readonly SettingsItem[] = ['guides', 'sources', 'backup', 'telemetry', 'report', 'groups'];
+export const SETTINGS_ITEMS: readonly SettingsItem[] = ['guides', 'sources', 'backup', 'telemetry', 'report', 'groups', 'channels'];
 
 /** The screens the settings put on the live navigator (the live screen paints them instead of its own). */
 export const SETTINGS_SCREENS: readonly string[] = [
@@ -55,7 +61,7 @@ export const SETTINGS_SCREENS: readonly string[] = [
   LOGIN_SCREEN,
   BACKUP_SCREEN,
   BACKUP_CONFIRM,
-].concat(GROUP_SCREENS);
+].concat(GROUP_SCREENS, [CHANNELS_SCREEN], EDIT_SCREENS);
 
 export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | 'engine'> {
   readonly nav: Navigator;
@@ -74,6 +80,8 @@ export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | '
   readonly report?: ReportOptions;
   /** "Channel groups" changed the lists or the groups (step 35d): the live screen reads them again. */
   readonly listsChanged?: () => void;
+  /** "Edit channel" or "Channels" changed the channels (step 36c): the live screen reads them again. */
+  readonly channelsChanged?: () => unknown;
 }
 
 export interface Settings {
@@ -94,6 +102,10 @@ export interface Settings {
   readonly report: ReportRow | null;
   /** "Channel groups" (step 35d). */
   readonly groups: Groups;
+  /** "Edit channel" (step 36c): from "Channels", or over the player (the info bar's pencil). */
+  readonly channel: ChannelEditor;
+  /** "Channels" (step 36c). */
+  readonly channels: EditedChannels;
   /** The settings screen's rows: `SETTINGS_ITEMS`, "Backup" only with its page, "Usage and crash reports" only with its switch, "Send a report to support" only with its send. */
   readonly items: readonly SettingsItem[];
   /** Opens the settings screen. */
@@ -136,6 +148,8 @@ export function createSettings(options: SettingsOptions): Settings {
   const telemetry = options.telemetry === undefined ? null : createTelemetrySwitch(options.telemetry);
   const report = options.report === undefined ? null : createReportRow(options.report);
   const groups = createGroups({ nav, engine: options.engine, changed: options.listsChanged, platform: options.platform, find: options.find, now: options.now });
+  const channel = createChannelEditor({ nav, engine: options.engine, changed: options.channelsChanged, platform: options.platform, find: options.find, now: options.now });
+  const channels = createEditedChannels({ nav, engine: options.engine, editor: channel, changed: options.channelsChanged });
   const items = SETTINGS_ITEMS.filter((item) => (item !== 'backup' || backup !== null) && (item !== 'telemetry' || telemetry !== null) && (item !== 'report' || report !== null));
   const open = (): void => {
     nav.push({
@@ -149,6 +163,7 @@ export function createSettings(options: SettingsOptions): Settings {
         else if (item === 'telemetry') telemetry?.press();
         else if (item === 'report') report?.press();
         else if (item === 'groups') groups.open();
+        else if (item === 'channels') channels.open();
       },
     });
     // The usage reports' row shows the stored switch, read again at each opening.
@@ -166,6 +181,8 @@ export function createSettings(options: SettingsOptions): Settings {
     telemetry,
     report,
     groups,
+    channel,
+    channels,
     items,
     open,
     openSources(): void {
@@ -189,6 +206,8 @@ export function createSettings(options: SettingsOptions): Settings {
       telemetry?.dispose();
       report?.dispose();
       groups.dispose();
+      channel.dispose();
+      channels.dispose();
     },
   };
 }

@@ -537,9 +537,11 @@ describe('TextField (RELAY step 13a)', () => {
     expect(one(el, 'z-field__note').props).toMatchObject({ id: 'f-user-note', role: undefined });
   });
 
-  it('links and passwords read left to right; a name follows its own text', () => {
-    const at = (kind: 'text' | 'url' | 'password', dir?: 'ltr' | 'auto') => one(expand(TextField({ id: 'f', label: 'L', value: '', kind, dir })), 'z-field__input').props;
+  it('links, passwords and numbers read left to right; a name follows its own text', () => {
+    const at = (kind: 'text' | 'url' | 'password' | 'tel', dir?: 'ltr' | 'auto') => one(expand(TextField({ id: 'f', label: 'L', value: '', kind, dir })), 'z-field__input').props;
     expect(at('url')).toMatchObject({ type: 'url', dir: 'ltr' });
+    // A channel number (step 36c): the TV keyboard's digits.
+    expect(at('tel')).toMatchObject({ type: 'tel', dir: 'ltr' });
     expect(at('password')).toMatchObject({ type: 'password', dir: 'ltr' });
     expect(at('text')).toMatchObject({ type: 'text', dir: 'auto' });
     expect(at('text', 'ltr')).toMatchObject({ dir: 'ltr' });

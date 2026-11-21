@@ -1,3 +1,5 @@
+import { EDIT_SCREENS } from './channel-edit';
+import { ChannelEditOver } from './ChannelEditPage';
 import { SettingsScreen } from './SettingsScreen';
 import type { Settings, SettingsOptions } from './settings-state';
 import { SETTINGS_SCREENS, createSettings } from './settings-state';
@@ -15,9 +17,20 @@ export interface LoadedSettings {
   readonly Screen: typeof SettingsScreen;
   /** The screens the settings put on the live navigator: the live screen paints `Screen` for them. */
   readonly screens: readonly string[];
+  /** Whether `screen` paints over the player (step 36c: "Edit channel" opened by the info bar's pencil). */
+  over(screen: string): boolean;
+  /** Paints what is over the player, inside the player's screen. */
+  readonly Over: typeof ChannelEditOver;
 }
 
 /** The settings, made once the file is in (main keeps `options` from the live screen's start). */
 export function loadSettings(options: SettingsOptions): LoadedSettings {
-  return { settings: createSettings(options), Screen: SettingsScreen, screens: SETTINGS_SCREENS };
+  const settings = createSettings(options);
+  return {
+    settings,
+    Screen: SettingsScreen,
+    screens: SETTINGS_SCREENS,
+    over: (screen) => settings.channel.over.value && EDIT_SCREENS.indexOf(screen) !== -1,
+    Over: ChannelEditOver,
+  };
 }

@@ -187,13 +187,16 @@ describe('"Channels without a guide" as drawn (step 24c)', () => {
     const report = { pending: signal(64) };
     // And "Channel groups"' reads and edits (step 35d), its rename field too.
     const groups = { pending: signal(128), editor: { editing: signal<string | null>(null) } };
-    const settings = { guides: { pending: signal(2), editor: { editing: signal<string | null>(null) } }, unmatched: t.list, mapping, sources, backup, telemetry, report, groups } as unknown as Settings;
+    // And "Edit channel"'s and "Channels"' (step 36c), the menu's fields too.
+    const channel = { pending: signal(256), over: signal(false), editor: { editing: signal<string | null>(null) } };
+    const channels = { pending: signal(512) };
+    const settings = { guides: { pending: signal(2), editor: { editing: signal<string | null>(null) } }, unmatched: t.list, mapping, sources, backup, telemetry, report, groups, channel, channels } as unknown as Settings;
     const draw2 = () => SettingsScreen({ settings, i18n: t.i18n, binding: t.binding, focus: t.nav.snapshot() });
     let root = draw2();
-    expect((root.props as Props)['data-pending']).toBe(255);
-    expect((SettingsScreen({ settings: { ...settings, backup: null }, i18n: t.i18n, binding: t.binding, focus: t.nav.snapshot() }).props as Props)['data-pending']).toBe(239);
-    expect((SettingsScreen({ settings: { ...settings, telemetry: null }, i18n: t.i18n, binding: t.binding, focus: t.nav.snapshot() }).props as Props)['data-pending']).toBe(223);
-    expect((SettingsScreen({ settings: { ...settings, report: null }, i18n: t.i18n, binding: t.binding, focus: t.nav.snapshot() }).props as Props)['data-pending']).toBe(191);
+    expect((root.props as Props)['data-pending']).toBe(1023);
+    expect((SettingsScreen({ settings: { ...settings, backup: null }, i18n: t.i18n, binding: t.binding, focus: t.nav.snapshot() }).props as Props)['data-pending']).toBe(1007);
+    expect((SettingsScreen({ settings: { ...settings, telemetry: null }, i18n: t.i18n, binding: t.binding, focus: t.nav.snapshot() }).props as Props)['data-pending']).toBe(991);
+    expect((SettingsScreen({ settings: { ...settings, report: null }, i18n: t.i18n, binding: t.binding, focus: t.nav.snapshot() }).props as Props)['data-pending']).toBe(959);
     expect((root.props as Props)['data-screen']).toBe('unmatched');
     expect((root.props as Props)['data-editing']).toBe('');
     // The list's page gets the mapping's reading count.
@@ -206,5 +209,8 @@ describe('"Channels without a guide" as drawn (step 24c)', () => {
     mapping.editor.editing.value = null;
     groups.editor.editing.value = 'group-name';
     expect((draw2().props as Props)['data-editing']).toBe('group-name');
+    groups.editor.editing.value = null;
+    channel.editor.editing.value = 'channel-name';
+    expect((draw2().props as Props)['data-editing']).toBe('channel-name');
   });
 });

@@ -574,3 +574,8 @@
   height: 100%;
   fill: currentColor;
 }
+
+/* "Edit channel" over the player (step 36c): the channel's name under the panel's title, apart from its rows. */
+.tracks__note.channel-edit__name {
+  margin-bottom: var(--space-4);
+}

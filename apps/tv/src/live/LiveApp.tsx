@@ -136,9 +136,10 @@ function LiveScreen({
   }
   // The settings, once settings.js is in (step 35e).
   const loaded = settings === null ? null : settings.loaded.value;
-  // The player covers the live screen (step 20a), its track menu too (20b) and the favourites panel (35c): only their own parts paint, over the stage.
-  const over = focus.screen === 'player' || focus.screen === 'tracks' || focus.screen === FAVOURITES_SCREEN || focus.screen === NEW_LIST_SCREEN;
-  if (over && player !== null) return <PlayerScreen live={live} player={player} i18n={i18n} />;
+  // The player covers the live screen (step 20a), its track menu too (20b), the favourites panel (35c) and settings.js's "Edit channel" (36c): only their own parts paint, over the stage.
+  const above = loaded !== null && loaded.over(focus.screen);
+  const over = above || focus.screen === 'player' || focus.screen === 'tracks' || focus.screen === FAVOURITES_SCREEN || focus.screen === NEW_LIST_SCREEN;
+  if (over && player !== null) return <PlayerScreen live={live} player={player} i18n={i18n} over={above && loaded !== null ? <loaded.Over settings={loaded.settings} i18n={i18n} binding={binding} focus={focus} /> : null} />;
   // The settings screens (step 22b2) paint instead of the live screen.
   if (loaded !== null && loaded.screens.indexOf(focus.screen) !== -1) return <loaded.Screen settings={loaded.settings} i18n={i18n} binding={binding} focus={focus} />;
   // The guide (step 23c) paints instead of the live screen, with its programme details (24a) over it; the player opens over it.

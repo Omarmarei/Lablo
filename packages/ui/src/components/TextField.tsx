@@ -3,7 +3,8 @@ import type { FocusableProps } from './focusable';
 import { focusClass } from './focusable';
 import './TextField.css';
 
-export type TextFieldKind = 'text' | 'url' | 'password';
+/** `tel`: digits (step 36c's channel number): the TV keyboard's number layout, the text as typed (a `number` input reads '' for a bad entry, and its arrows change it). */
+export type TextFieldKind = 'text' | 'url' | 'password' | 'tel';
 
 export interface TextFieldProps extends FocusableProps {
   /** The input's DOM id: the text editor finds the input by it to give it DOM focus. */
@@ -12,7 +13,7 @@ export interface TextFieldProps extends FocusableProps {
   readonly label: string;
   /** What is typed: the user's own text. */
   readonly value: string;
-  /** `url` gets the TV keyboard's URL layout; `password` hides what is typed. */
+  /** `url` gets the TV keyboard's URL layout; `password` hides what is typed; `tel` its digits. */
   readonly kind?: TextFieldKind;
   /** The line under the box: what to type. An error takes its place. */
   readonly hint?: string;

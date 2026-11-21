@@ -25,7 +25,7 @@ import { createTrackMenu } from './track-menu';
  * channel of the live screen opens. It is a screen on the live screen's navigator:
  *
  *   actions  (the info bar's buttons: "Previous channel", "Audio and subtitles", "Stream info",
- *            "Picture", "Favourites")
+ *            "Picture", "Favourites", "Edit channel")
  *   card     (the error card's "Try again" and "Channels", only once the player gave up)
  *
  * - **Zapping:** CH+/CH− and UP/DOWN move through the list the live screen showed, wrapping at
@@ -114,6 +114,9 @@ import { createTrackMenu } from './track-menu';
  * - **Favourites** (step 35c, `favourite-menu.ts`): the info bar's last button, a star, opens the
  *   favourites panel for the channel on the bar (the bar hides while it shows, as for the track
  *   menu). A movie has no star. The panel closes with the player, and when a card shows.
+ * - **Edit channel** (step 36c): the info bar's last button, a pencil, opens settings.js's "Edit
+ *   channel" menu over the player for the channel on the bar (`editChannel`), as the star opens
+ *   the favourites. A movie has no pencil. The menu closes with the player, and when a card shows.
  */
 
 /** The info bar's stream opens this long after the last zap key. */
@@ -312,6 +315,16 @@ export interface PlayerOptions {
   readonly blocklist?: ReadonlySignal<unknown>;
   /** The favourites panel's app side (step 35c; absent: the star does nothing). */
   readonly favourites?: FavouriteHost;
+  /** "Edit channel" (step 36c, settings.js's; absent: the pencil does nothing). */
+  readonly editChannel?: ChannelEditHost;
+}
+
+/** "Edit channel" over the player (step 36c): settings.js's menu, which main opens and closes. */
+export interface ChannelEditHost {
+  /** Opens it for `item`; `closed` runs once it closes, `stop` on STOP in it (the player closes). */
+  open(item: CatalogItem, closed: () => void, stop: () => void): void;
+  /** Closes it, if it shows (the player closing, or a card). */
+  close(): void;
 }
 
 /**
@@ -395,8 +408,8 @@ export interface Player {
 const IDLE: PlayerStatus = { state: 'idle', session: 0, key: null, container: null, attempt: 0, failure: null, tracks: NO_TRACKS };
 const NO_SUBTITLES: SubtitleView = { feed: null, cues: [] };
 
-/** The info bar's buttons: "Previous channel", "Audio and subtitles", "Stream info", "Picture" and "Favourites". */
-export const ACTIONS = 5;
+/** The info bar's buttons: "Previous channel", "Audio and subtitles", "Stream info", "Picture", "Favourites" and "Edit channel". */
+export const ACTIONS = 6;
 /** The info bar's "Audio and subtitles". */
 export const TRACKS_ACTION = 1;
 /** The info bar's "Stream info". */
@@ -405,12 +418,14 @@ export const STATS_ACTION = 2;
 export const PICTURE_ACTION = 3;
 /** The info bar's "Favourites" (step 35c): last, so the others keep their places. */
 export const FAVOURITE_ACTION = 4;
+/** The info bar's "Edit channel" (step 36c): last, after the star. */
+export const EDIT_ACTION = 5;
 
 /** An info bar button. */
-export type PlayerAction = 'previous' | 'tracks' | 'stats' | 'picture' | 'favourite';
-/** A channel's buttons (`ACTIONS` of them, at `TRACKS_ACTION`, `STATS_ACTION`, `PICTURE_ACTION` and `FAVOURITE_ACTION`). */
-export const CHANNEL_ACTIONS: readonly PlayerAction[] = ['previous', 'tracks', 'stats', 'picture', 'favourite'];
-/** A movie's (step 26c): no "Previous channel", no "Favourites". */
+export type PlayerAction = 'previous' | 'tracks' | 'stats' | 'picture' | 'favourite' | 'edit';
+/** A channel's buttons (`ACTIONS` of them, at `TRACKS_ACTION`, `STATS_ACTION`, `PICTURE_ACTION`, `FAVOURITE_ACTION` and `EDIT_ACTION`). */
+export const CHANNEL_ACTIONS: readonly PlayerAction[] = ['previous', 'tracks', 'stats', 'picture', 'favourite', 'edit'];
+/** A movie's (step 26c): no "Previous channel", no "Favourites", no "Edit channel". */
 export const MOVIE_ACTIONS: readonly PlayerAction[] = ['tracks', 'stats', 'picture'];
 
 function actionsZone(count: number): ZoneSpec {
@@ -478,8 +493,12 @@ export function createPlayer(options: PlayerOptions): Player {
    * The resumed channel, shown at row `index` until the list finds it (step 20c1); dropped when
    * another row plays.
    */
-  /** A channel at its row before the list has it (`resume`), or one the list doesn't hold (`over`, which `tune`s it). */
-  let pinned: { readonly index: number; readonly row: LiveRow; readonly tune?: boolean } | null = null;
+  /**
+   * A channel at its row before the list has it (`resume`, or one kept through a re-read), or one
+   * the list doesn't hold (`over`, which `tune`s it). A signal, so a screen drawing the pinned row
+   * draws again when the list's row takes over (step 36c: an edit's re-read shows the new name).
+   */
+  const pin = signal<{ readonly index: number; readonly row: LiveRow; readonly tune?: boolean } | null>(null);
   /** The resumed channel's first frame is still to be marked. */
   let resumeFrame = false;
   /** Bumps on every play, close and entry: late row reads and searches are dropped. */
@@ -534,7 +553,10 @@ export function createPlayer(options: PlayerOptions): Player {
   };
 
   /** Row `index`: the resumed channel at its row until the list found it, else the list's. */
-  const rowAt = (index: number): LiveRow | null => (pinned !== null && pinned.index === index ? pinned.row : list.row(index));
+  const rowAt = (index: number): LiveRow | null => {
+    const pinned = pin.value;
+    return pinned !== null && pinned.index === index ? pinned.row : list.row(index);
+  };
 
   /** The info bar's channel: its now/next is asked when the list never asked it. */
   const aim = (index: number): void => {
@@ -572,8 +594,7 @@ export function createPlayer(options: PlayerOptions): Player {
     // The config's refusal (step 30c2b) keeps its card whatever the stopped stream says.
     const card = refused.value !== null || s.state === 'failed' || (s.state === 'ended' && (archive.value !== null || movie.value !== null));
     if (card) {
-      menu.close();
-      favourites?.close();
+      closeMenus();
       cancelSeek();
     } else menu.sync();
     const top = screen.value;
@@ -635,8 +656,7 @@ export function createPlayer(options: PlayerOptions): Player {
     zapTimer = clear(zapTimer);
     positionTimer = clear(positionTimer);
     stopNext();
-    menu.close();
-    favourites?.close();
+    closeMenus();
     resumeFrame = false;
     // The card first: the stopped stream's states then find it shown.
     const top = screen.value!;
@@ -660,11 +680,12 @@ export function createPlayer(options: PlayerOptions): Player {
       if (mine !== seq || !open.value || row === null) return;
       const request = programme === null || options.catchupRequest === undefined ? null : options.catchupRequest(row, programme, from);
       if (playing.value !== -1 && playing.value !== index) previous.value = playing.value;
+      const pinned = pin.peek();
       const resumed = pinned !== null && pinned.row === row;
       // A channel pinned by `over` is the last channel all the same (step 35d).
       const tune = !resumed || pinned!.tune === true;
       // Another row: the resumed channel is the list's own from now on.
-      if (!resumed) pinned = null;
+      if (!resumed) pin.value = null;
       resumeFrame = false;
       playing.value = index;
       // The config's disable-playback (step 30c2b): no stream, the card (a programme asked for isn't set: the bar shows the channel).
@@ -998,8 +1019,13 @@ export function createPlayer(options: PlayerOptions): Player {
    * goes on through the list from there, and it is the last channel (`tuned`).
    */
   const pinOver = (row: LiveRow, at: number): void => {
-    pinned = { index: at, row, tune: true };
+    pin.value = { index: at, row, tune: true };
     go(at);
+  };
+
+  /** A menu over the player closed: the info bar shows again. */
+  const barAgain = (): void => {
+    if (open.value) showInfo();
   };
 
   const menu = createTrackMenu({
@@ -1010,9 +1036,7 @@ export function createPlayer(options: PlayerOptions): Player {
     delayed: (ms) => ctrl().setSubtitleDelay(ms),
     ...(options.subtitleSize === undefined ? {} : { size: options.subtitleSize }),
     ...(options.sized === undefined ? {} : { sized: options.sized }),
-    closed: () => {
-      if (open.value) showInfo();
-    },
+    closed: barAgain,
     stop: () => close(),
   });
 
@@ -1037,9 +1061,7 @@ export function createPlayer(options: PlayerOptions): Player {
       : createFavouriteMenu({
           ...options.favourites,
           nav,
-          closed: () => {
-            if (open.value) showInfo();
-          },
+          closed: barAgain,
           stop: () => close(),
         });
 
@@ -1047,6 +1069,20 @@ export function createPlayer(options: PlayerOptions): Player {
     const row = rowAt(target.value);
     if (favourites !== null && row !== null && menuRoom()) favourites.show(row.item);
   };
+
+  /** "Edit channel" (step 36c) for the channel on the bar; the info bar makes room for it. */
+  const openEdit = (): void => {
+    const row = rowAt(target.value);
+    const edit = options.editChannel;
+    if (edit !== undefined && row !== null && menuRoom()) edit.open(row.item, barAgain, close);
+  };
+
+  /** The menus over the player go (a card shows, or the player closes): their screens are on top of its own. */
+  function closeMenus(): void {
+    menu.close();
+    favourites?.close();
+    options.editChannel?.close();
+  }
 
   const previousChannel = (): void => {
     showInfo();
@@ -1106,8 +1142,7 @@ export function createPlayer(options: PlayerOptions): Player {
     // A movie left (step 26d): where it was, before the stream stops.
     keepFilm();
     // The menus' screens are on top of the player's: they go first.
-    menu.close();
-    favourites?.close();
+    closeMenus();
     streamInfo.hide();
     seq += 1;
     zapTimer = clear(zapTimer);
@@ -1128,6 +1163,8 @@ export function createPlayer(options: PlayerOptions): Player {
     screen.value = null;
     carded = false;
     refused.value = null;
+    // A channel pinned over the list goes with the player: the list's own row plays at that row next time.
+    pin.value = null;
     if (shown !== null && shown.open) nav.pop();
     options.chrome(false);
     if (controller !== null) void controller.stop();
@@ -1140,16 +1177,16 @@ export function createPlayer(options: PlayerOptions): Player {
   /** The list found the pinned channel (resumed, or kept through a catalog refresh) at row `found` (`-1`: it isn't in the list). */
   const located = (found: number, mine: { readonly index: number; readonly row: LiveRow }): void => {
     // Another row played (it dropped `pinned`), or a zap waits: the resumed channel isn't the one shown.
-    if (pinned !== mine || !open.value || found === -1 || target.value !== mine.index) return;
+    if (pin.peek() !== mine || !open.value || found === -1 || target.value !== mine.index) return;
     // At its row now; the list's own row takes over once its chunk is in (no empty bar meanwhile).
     const moved = { index: found, row: mine.row };
-    pinned = moved;
+    pin.value = moved;
     target.value = found;
     playing.value = found;
     const at = seq;
     list.load(found).then(
       (row) => {
-        if (row !== null) pinned = null;
+        if (row !== null) pin.value = null;
         // Where the last channel is now, unless another play or a close came first.
         if (at === seq && row !== null && options.tuned !== undefined) options.tuned(row, found);
       },
@@ -1247,6 +1284,7 @@ export function createPlayer(options: PlayerOptions): Player {
     else if (action === 'picture') nextMode();
     else if (action === 'previous') previousChannel();
     else if (action === 'favourite') openFavourites();
+    else if (action === 'edit') openEdit();
     // OK on a catch-up's or a movie's seek bar (steps 25d, 26c; hidden, the focus is on it) pauses it or plays it on.
     else if (focus.zone === 'seek') togglePause();
     // The config's refusal (step 30c2b): its one button closes the player.
@@ -1326,7 +1364,7 @@ export function createPlayer(options: PlayerOptions): Player {
     resume(row: LiveRow, guess: number): void {
       if (open.value) return;
       const mine = { index: guess, row };
-      pinned = mine;
+      pin.value = mine;
       openScreen();
       go(mine.index);
       mark('lablo:resume');
@@ -1351,7 +1389,7 @@ export function createPlayer(options: PlayerOptions): Player {
       const row = rowAt(at);
       if (row !== null) {
         const mine = { index: at, row };
-        pinned = mine;
+        pin.value = mine;
         list.locate(row.item.key, at).then(
           (found) => located(found, mine),
           () => undefined,

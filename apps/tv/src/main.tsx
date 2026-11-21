@@ -568,6 +568,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     report: { send: sendReport },
     // "Channel groups" (step 35d): after each edit the live screen reads the lists and groups again.
     listsChanged: () => void live.listsChanged(),
+    // "Edit channel" and "Channels" (step 36c): after each edit the live screen reads the channels again.
+    channelsChanged: () => live.channelsChanged(),
     // A login given again (step 32d4b): the source's own refresh with the schedule held (the
     // schedule keeps a refused `needs-login` for 2 h, and `refreshNow` reads only the guides), then
     // its guides at once and the screens.
@@ -624,6 +626,11 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     blocklist: config.last,
     // The info bar's star (step 35c): the panel edits the favourites lists, then the live screen reads them again.
     favourites: { edit: (edit) => dataEngine().editProfile(edit), lists: live.lists, changed: () => live.listsChanged(), platform },
+    // The info bar's pencil (step 36c): settings.js's "Edit channel" over the player.
+    editChannel: {
+      open: (item, closed, stop) => settings.use((file) => file.settings.channel.openOver(item, closed, stop)),
+      close: () => settings.loaded.value?.settings.channel.close(),
+    },
   });
   if (resume !== null) player.resume({ item: resume.item, number: resume.number }, resume.index);
   showFocus(live.nav);
