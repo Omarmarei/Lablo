@@ -341,6 +341,7 @@ describe('channel-changes: a refresh re-keys the changed channels (relinkChannel
     const e = { ...f, group: 'Old group', epgId: null, hidden: true as const };
     expect(refresh([f], [e], [live(1, 'One', 'New group', 'one.ae')]).edits).toEqual([{ ...e, group: 'New group', epgId: 'one.ae' }]);
     expect(refresh([f], [{ ...e, group: 'New group' }], [live(1, 'One', 'New group', 'one.ae')]).edits).toEqual([{ ...e, group: 'New group', epgId: 'one.ae' }]);
+    expect(refresh([f], [{ ...e, epgId: 'one.ae' }], [live(1, 'One', 'New group', 'one.ae')]).edits).toEqual([{ ...e, group: 'New group', epgId: 'one.ae' }]);
     expect(refresh([f], [{ ...e, group: 'New group', epgId: 'one.ae', normName: 'old one' }], [live(1, 'One', 'New group', 'one.ae')]).edits).toEqual([{ ...e, group: 'New group', epgId: 'one.ae' }]);
     // A favourite without a group or a tvg-id leaves none on the entry, which then stays as it is.
     const bare: FavouriteRef = { key: f.key, src: 'tv', kind: 'live', normName: f.normName, added: 1, missingSince: null };

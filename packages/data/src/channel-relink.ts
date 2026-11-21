@@ -43,9 +43,10 @@ export function relinkChannelEdits(
   const own: ChannelEdit[] = [];
   /** Each entry's result: a favourite's follows it (`null`: dropped); the others' (`undefined` here) come from their own re-match. */
   const results: (ChannelEdit | null | undefined)[] = [];
+  // The keys the followed entries take. (The other entries' own keys `reconcileFavourites` takes
+  // itself; a followed entry's old key is its favourite's present key, or gone from the catalog.)
   const taken = new Set<ContentKey>();
   for (const edit of edits) {
-    taken.add(edit.key);
     if (!before.some((f) => f.key === edit.key)) {
       own.push(edit);
       results.push(undefined);
