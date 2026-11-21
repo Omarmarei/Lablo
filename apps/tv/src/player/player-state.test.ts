@@ -1,4 +1,4 @@
-import { signal } from '@preact/signals';
+import { effect, signal } from '@preact/signals';
 import type { CatalogItem, ContentKey } from '@lablo/core';
 import type { EpgNowNext, ProfileEdit } from '@lablo/data';
 import type { FavouriteList } from '@lablo/data/client';
@@ -17,6 +17,7 @@ import {
   ACTIONS,
   CHANNEL_ACTIONS,
   DIGITS_MS,
+  EDIT_ACTION,
   FAVOURITE_ACTION,
   HOLD_MS,
   INFO_MS,
@@ -329,6 +330,7 @@ function setup(
     refusal?: PlayerOptions['refusal'];
     blocklist?: PlayerOptions['blocklist'];
     favourites?: PlayerOptions['favourites'];
+    editChannel?: PlayerOptions['editChannel'];
   } = {},
 ) {
   const list = new FakeList();
@@ -376,6 +378,7 @@ function setup(
     ...(kept.refusal === undefined ? {} : { refusal: kept.refusal }),
     ...(kept.blocklist === undefined ? {} : { blocklist: kept.blocklist }),
     ...(kept.favourites === undefined ? {} : { favourites: kept.favourites }),
+    ...(kept.editChannel === undefined ? {} : { editChannel: kept.editChannel }),
     timers: clock.timers,
     now: clock.now,
     progressed: (item, positionMs, lengthMs, ended, show, more) =>
@@ -2191,7 +2194,7 @@ describe('the player: a movie (RELAY step 26c)', () => {
     await t.press('BACK');
     t.player.show(2);
     expect(t.player.actions.value).toEqual(CHANNEL_ACTIONS);
-    expect(t.player.screen.value!.zone('actions')).toMatchObject({ count: 5 });
+    expect(t.player.screen.value!.zone('actions')).toMatchObject({ count: ACTIONS });
     expect(t.player.movie.value).toBeNull();
   });
 
@@ -3363,5 +3366,122 @@ describe('the player: a channel of a hidden group (RELAY step 35d)', () => {
     // Back: the list's focus on the row the channel played at last.
     await t.press('BACK');
     expect(t.closed).toEqual([5]);
+  });
+});
+
+describe("the info bar's pencil (RELAY step 36c)", () => {
+  /** settings.js's "Edit channel" as main gives it: what it was opened for, and how often it was closed. */
+  const host = () => {
+    const opened: { key: ContentKey; closed: () => void; stop: () => void }[] = [];
+    let closes = 0;
+    const editChannel: NonNullable<PlayerOptions['editChannel']> = {
+      open: (item, closed, stop) => opened.push({ key: item.key, closed, stop }),
+      close: () => {
+        closes += 1;
+      },
+    };
+    return { opened, editChannel, closes: () => closes };
+  };
+
+  it("is a channel's last button, after the star: OK opens the menu for the bar's channel, the bar hides, and comes back when it closes", async () => {
+    const h = host();
+    const t = setup('ltr', { editChannel: h.editChannel });
+    expect(CHANNEL_ACTIONS[EDIT_ACTION]).toBe('edit');
+    expect(EDIT_ACTION).toBe(FAVOURITE_ACTION + 1);
+    expect(CHANNEL_ACTIONS.length).toBe(ACTIONS);
+    expect(MOVIE_ACTIONS).not.toContain('edit');
+    t.player.show(2);
+    t.player.screen.value!.focus('actions', EDIT_ACTION);
+    await t.press('OK');
+    expect(h.opened.map((o) => o.key)).toEqual(['x:s1:live:2']);
+    expect(t.player.info.value).toBe(false);
+    h.opened[0]!.closed();
+    expect(t.player.info.value).toBe(true);
+    expect(t.player.open.value).toBe(true);
+    // STOP in it: the player closes.
+    h.opened[0]!.stop();
+    expect(t.player.open.value).toBe(false);
+    // Closed, the menu's `closed` shows no bar.
+    h.opened[0]!.closed();
+    expect(t.player.info.value).toBe(false);
+  });
+
+  it('closes the menu with the player, and when a card or the config’s refusal shows; opens over no card', async () => {
+    const h = host();
+    const refusal = signal<Refusal | null>(null);
+    const t = setup('ltr', { editChannel: h.editChannel, refusal });
+    t.player.show(2);
+    t.player.close();
+    expect(h.closes()).toBe(1);
+    t.player.show(3);
+    t.controller.set('failed', NOT_FOUND);
+    await flush();
+    expect(h.closes()).toBe(2);
+    t.player.screen.value!.focus('actions', EDIT_ACTION);
+    await t.press('OK');
+    expect(h.opened).toEqual([]);
+    t.player.close();
+    t.player.show(4);
+    const before = h.closes();
+    refusal.value = { id: 'r1', message: null };
+    await flush();
+    // (The refusal and the stopped stream's state each close the menus.)
+    expect(h.closes()).toBeGreaterThan(before);
+    t.player.dispose();
+  });
+
+  it("does nothing without the app's side, or before the bar's row is in", async () => {
+    const t = setup();
+    t.player.show(2);
+    t.player.screen.value!.focus('actions', EDIT_ACTION);
+    await t.press('OK');
+    expect(t.at()).toBe(`player · actions ${EDIT_ACTION}`);
+    expect(t.player.info.value).toBe(true);
+    const h = host();
+    const u = setup('ltr', { editChannel: h.editChannel });
+    u.list.loaded.delete(7);
+    u.player.show(7);
+    u.player.screen.value!.focus('actions', EDIT_ACTION);
+    await u.press('OK');
+    expect(h.opened).toEqual([]);
+  });
+});
+
+describe('the pinned channel (RELAY step 36c)', () => {
+  it('goes with the player: the row it was pinned at plays its own channel next time', async () => {
+    const t = setup();
+    const hidden: LiveRow = { item: { ...row(9).item, key: 'x:s1:live:hidden', name: 'Hidden' }, number: 90 };
+    t.player.over(hidden, 3);
+    expect(t.player.row(3)).toBe(hidden);
+    t.player.close();
+    expect(t.player.row(3)).toEqual(row(3));
+    t.player.show(3);
+    await flush();
+    expect(t.controller.plays[t.controller.plays.length - 1]).toEqual(liveRequest(row(3)));
+    expect(t.player.row(3)).toEqual(row(3));
+  });
+
+  it("draws again when the list's row takes over from the pinned one (an edit's re-read: the new name at once)", async () => {
+    const t = setup();
+    t.player.show(2);
+    await flush();
+    let draws = 0;
+    let shown: LiveRow | null = null;
+    const stop = effect(() => {
+      shown = t.player.row(t.player.target.value);
+      draws += 1;
+    });
+    t.player.listChanging();
+    t.list.loaded.clear();
+    // Found at the same row: the target doesn't change, only the row's source.
+    t.list.locates[0]!.answer(2);
+    await flush();
+    const before = draws;
+    for (const read of t.list.loads.splice(0)) read.resolve();
+    await flush();
+    expect(draws).toBeGreaterThan(before);
+    expect(shown).toEqual(row(2));
+    expect(t.player.row(2)).not.toBe(null);
+    stop();
   });
 });
