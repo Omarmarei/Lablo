@@ -268,9 +268,11 @@ describe('"Edit channel" over the player (the info bar’s pencil)', () => {
 
   it('closes on Back and Cancel (the bar shows again), and with the player on STOP', async () => {
     const t = await over();
+    expect(t.editor.actions.value).toHaveLength(4);
     await t.press('BACK');
     expect(t.at()).toBe('player · actions 0');
     expect(t.editor.screen.value).toBeNull();
+    expect(t.editor.actions.value).toEqual([]);
     expect(t.closed).toHaveBeenCalledTimes(1);
     expect(t.stop).not.toHaveBeenCalled();
     t.editor.openOver(ITEMS.b!, t.closed, t.stop);
@@ -332,8 +334,22 @@ describe('"Edit channel" over the player (the info bar’s pencil)', () => {
     await t.choose('hide');
     expect(t.engine.edits).toHaveLength(1);
     expect(t.editor.problem.value).toBe('refused');
+    // Another try: no word while it is on its way.
+    engine.hold.add('edit');
+    await t.choose('hide');
+    expect(t.editor.problem.value).toBeNull();
+    engine.release('edit');
+    await flush();
+    expect(t.editor.problem.value).toBe('refused');
+    engine.hold.clear();
+    // Closed and opened again: the word is gone.
+    await t.press('BACK');
+    t.editor.openOver(ITEMS.b!, t.closed, t.stop);
+    await flush();
+    expect(t.editor.problem.value).toBeNull();
     expect(t.editor.screen.value).not.toBeNull();
-    expect(t.closed).not.toHaveBeenCalled();
+    // (Closed once, by the Back above.)
+    expect(t.closed).toHaveBeenCalledTimes(1);
     expect(t.changed).not.toHaveBeenCalled();
     engine.failEdit = true;
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -357,10 +373,14 @@ describe('"Edit channel" over the player (the info bar’s pencil)', () => {
     expect(t.engine.edits).toHaveLength(1);
     await t.press('BACK');
     expect(t.closed).toHaveBeenCalledTimes(1);
+    // Open again (another channel) before the answer: the new menu stays.
+    t.editor.openOver(ITEMS.c!, t.closed, t.stop);
     engine.release('edit');
     await flush();
     expect(t.changed).toHaveBeenCalledTimes(1);
     expect(t.closed).toHaveBeenCalledTimes(1);
+    expect(t.editor.screen.value).not.toBeNull();
+    expect(t.editor.target.value!.key).toBe('c');
     expect(t.editor.problem.value).toBeNull();
     expect(t.editor.pending.value).toBe(0);
   });
@@ -425,6 +445,26 @@ describe('"Edit channel" over the player (the info bar’s pencil)', () => {
       await t.press('OK');
       expect(t.engine.edits).toEqual([{ kind: 'channel', change: { op: 'rename', item: expect.objectContaining({ key: 'b' }), name: null } }]);
       expect(t.engine.stored()).toEqual([]);
+    });
+
+    it('makes no edit for an empty name or number when the channel’s changes have none (only hidden)', async () => {
+      const engine = withEdits(edit('b', { hidden: true }));
+      const t = await over(ITEMS.b!, engine);
+      await t.choose('rename');
+      t.editor.setText('');
+      t.nav.top.focus('actions', FORM_SAVE);
+      await t.press('OK');
+      expect(t.engine.edits).toEqual([]);
+      expect(t.editor.screen.value).toBeNull();
+      t.editor.openOver(ITEMS.b!, t.closed, t.stop);
+      await flush();
+      await t.choose('number');
+      expect(t.editor.text.value).toBe('');
+      t.nav.top.focus('actions', FORM_SAVE);
+      await t.press('OK');
+      expect(t.engine.edits).toEqual([]);
+      expect(t.editor.problem.value).toBeNull();
+      expect(t.editor.screen.value).toBeNull();
     });
 
     it('goes back to the menu on Cancel and on Back, with nothing saved', async () => {
@@ -502,7 +542,13 @@ describe('"Edit channel" over the player (the info bar’s pencil)', () => {
       await t.choose('number');
       await t.press('DIGIT_4', 'DIGIT_2');
       t.nav.top.focus('actions', FORM_SAVE);
-      await t.press('OK');
+      // One Save at a time: a second OK while the first is on its way does nothing.
+      engine.hold.add('edit');
+      await t.press('OK', 'OK');
+      expect(t.engine.edits).toHaveLength(1);
+      engine.hold.clear();
+      engine.release('edit');
+      await flush();
       expect(t.engine.edits).toEqual([{ kind: 'channel', change: { op: 'number', item: expect.objectContaining({ key: 'b', added: 5_000 }), number: 42 } }]);
       expect(t.engine.stored()).toEqual(['b:#42']);
       expect(t.closed).toHaveBeenCalledTimes(1);
@@ -577,9 +623,20 @@ describe('"Edit channel" over the player (the info bar’s pencil)', () => {
     const t = setup();
     const done = vi.fn();
     t.engine.doc = { ...t.engine.doc, channelEdits: [edit('z', { hidden: true })] } as ProfileDoc;
+    // (Over the player first: from "Channels" it isn't.)
+    t.editor.openOver(ITEMS.b!, t.closed, t.stop);
+    await flush();
+    await t.press('BACK');
+    t.closed.mockClear();
     t.editor.open({ key: 'z', item: null, edit: edit('z', { hidden: true }), name: 'z stored' }, done);
     expect(t.editor.actions.value).toEqual(['reset', 'cancel']);
     expect(t.editor.over.value).toBe(false);
+    // Once: another while it shows does nothing; STOP here is nobody's.
+    t.editor.open({ key: 'a', item: ITEMS.a!, edit: null, name: 'Alpha' }, done);
+    expect(t.editor.target.value!.key).toBe('z');
+    await t.press('STOP');
+    expect(t.at()).toBe(`${EDIT_SCREEN} · actions 0`);
+    expect(t.stop).not.toHaveBeenCalled();
     await t.choose('reset');
     expect(t.engine.stored()).toEqual([]);
     expect(done).toHaveBeenCalledTimes(1);
@@ -643,6 +700,9 @@ describe('Settings › "Channels"', () => {
     const u = await page(engine);
     expect(u.page.status.value).toBe('failed');
     expect(u.page.clean.value).toBeNull();
+    // The switch isn't read: OK on its place switches nothing.
+    await u.press('OK');
+    expect(u.engine.edits).toEqual([]);
   });
 
   it('switches "Clean channel names" with one edit, then the live screen and the page read again', async () => {
@@ -676,6 +736,15 @@ describe('Settings › "Channels"', () => {
     engine.doc = { ...engine.doc, cleanNames: true } as ProfileDoc;
     await t.press('OK');
     expect(t.page.failed.value).toBe(true);
+    // One that takes: the word goes.
+    engine.doc = { ...engine.doc, cleanNames: undefined } as ProfileDoc;
+    await t.press('OK');
+    expect(t.page.failed.value).toBe(false);
+    expect(t.page.clean.value).toBe(true);
+    // Off already (as if another screen had switched it): refused again.
+    engine.doc = { ...engine.doc, cleanNames: undefined } as ProfileDoc;
+    await t.press('OK');
+    expect(t.page.failed.value).toBe(true);
     // Opened again: the word goes.
     await t.press('BACK');
     t.page.open();
@@ -702,6 +771,35 @@ describe('Settings › "Channels"', () => {
     expect(t.page.rows.value.map((r) => r.key)).toEqual(['a', 'c']);
     expect(t.at()).toBe(`${CHANNELS_SCREEN} · rows 2`);
     expect(t.page.pending.value).toBe(0);
+  });
+
+  it('keeps the focus on the channel when a number moving to it takes another row out', async () => {
+    // a has 5; b and c are hidden. b takes 5: a has nothing left and goes, b moves up a row.
+    const t = await page(withEdits(edit('a', { number: 5 }), edit('b', { hidden: true }), edit('c', { hidden: true })));
+    await t.press('DOWN', 'DOWN');
+    expect(t.at()).toBe(`${CHANNELS_SCREEN} · rows 2`);
+    await t.press('OK');
+    await t.choose('number');
+    await t.press('DIGIT_5');
+    t.nav.top.focus('actions', FORM_SAVE);
+    await t.press('OK');
+    expect(t.page.rows.value.map((r) => r.key)).toEqual(['b', 'c']);
+    expect(t.at()).toBe(`${CHANNELS_SCREEN} · rows 1`);
+  });
+
+  it('opens no menu while the rows are read again', async () => {
+    const engine = withEdits(edit('a', { name: 'Alpha' }));
+    const t = await page(engine);
+    engine.hold.add('read');
+    // The switch: its edit, then the rows read again (held).
+    await t.press('OK');
+    expect(t.page.pending.value).toBe(1);
+    await t.press('DOWN', 'OK');
+    expect(t.editor.screen.value).toBeNull();
+    engine.release('read');
+    await flush();
+    await t.press('OK');
+    expect(t.editor.screen.value).not.toBeNull();
   });
 
   it('opens nothing while a read is out, and drops an older read that lands late', async () => {

@@ -311,11 +311,10 @@ export function createChannelEditor(options: ChannelEditOptions): ChannelEditor 
     else if (action === 'number') openForm(EDIT_NUMBER, shown.edit === null || shown.edit.number === undefined ? '' : String(shown.edit.number));
   };
 
+  /** Puts the menu on the navigator (closed, so `close` bumped `seq` and emptied the actions). */
   const push = (next: EditTarget): void => {
-    seq += 1;
     problem.value = null;
     target.value = next;
-    actions.value = [];
     screen.value = nav.push({
       id: EDIT_SCREEN,
       zones: [zone()],

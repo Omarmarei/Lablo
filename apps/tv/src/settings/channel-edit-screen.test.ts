@@ -240,6 +240,9 @@ describe('the "Channels" page', () => {
     expect((render(2, idle)!.props as Props).row).toBe(rows[1]);
     expect(render(3, idle)).toBeNull();
     const none = draw(settingsOf({ rows: [] }));
+    // The switch shows with no changed channel.
+    expect(walk(none).some((v) => v.type === VirtualList)).toBe(true);
+    expect(byTestId(none, 'channels-ready')).toEqual([]);
     expect(textOf(byTestId(none, 'channels-intro'))).toBe("You haven't changed any channel. The info bar's pencil changes the one you watch.");
     expect(textOf(byTestId(draw(settingsOf({ status: 'loading', rows: [] })), 'channels-intro'))).toBe('The channels you renamed, renumbered or hid. Press OK on one to change it again.');
   });
