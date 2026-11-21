@@ -9,6 +9,7 @@ import { normalizeName } from '@lablo/core';
 import type { ChannelChange } from './channel-changes';
 import type { ChannelEdit } from './channel-edits';
 import { shownChunks } from './channel-edits';
+import { deleteGeneration } from './catalog-store';
 import { openDatabase } from './idb';
 import { emptyProfile, saveProfile } from './profile';
 import type { ItemRef } from './query-service';
@@ -16,7 +17,7 @@ import { QueryService } from './query-service';
 import { favItem, freshFactory, ingest, item } from './test-support';
 
 const withChno = (it: CatalogItem, chno: number): CatalogItem => ({ ...it, chno });
-/** Source `tv`: "News" (channels 1-4, chunks of 2) and "Sport" (5-7); one movie. Source `tw`: one channel. */
+/** Source `tv`: "News" (channels 1-4, chunks of 2) and "Sport" (5-7); two movies. Source `tw`: one channel. */
 const TV: CatalogItem[] = [
   item('tv', 'live', 1, 'AR | Al Jazeera HD', 'News'),
   item('tv', 'live', 2, 'UK: BBC News', 'News'),
@@ -26,6 +27,7 @@ const TV: CatalogItem[] = [
   item('tv', 'live', 6, '|AR| MBC Pro', 'Sport'),
   item('tv', 'live', 7, 'Dubai Sports', 'Sport'),
   item('tv', 'movie', 8, 'AR | Movie Night', 'Films'),
+  item('tv', 'movie', 9, 'UK: Second Film', 'Films'),
 ];
 const TW: CatalogItem[] = [item('tw', 'live', 1, 'AR: Other One', 'Misc')];
 const ch = (n: number): CatalogItem => TV[n - 1]!;
@@ -64,6 +66,8 @@ async function served(src = 'tv', kind: ContentKind = 'live'): Promise<Record<st
 /** Where channel `n` of `tv` is stored (its category and chunk as the provider has them). */
 const refOf = (n: number, gen = 1): ItemRef => ({ src: 'tv', kind: 'live', gen, catIdx: n <= 4 ? 0 : 1, chunk: Math.floor(((n - 1) % 4) / 2), slot: (n - 1) % 2 });
 const nameOf = async (n: number): Promise<string> => (await q.items([refOf(n)]))[0]!.name;
+/** Where the movies are stored: category 0 of the movies, chunk 0, slots 0 and 1. */
+const movieRef = (slot: number): ItemRef => ({ src: 'tv', kind: 'movie', gen: 1, catIdx: 0, chunk: 0, slot });
 const found = async (query: string, sources?: string[]): Promise<string[]> => {
   const result = await q.search({ query, sources });
   const items = await q.items(result.hits);
@@ -107,12 +111,18 @@ describe('QueryService: the view of the changed channels (step 36a2)', () => {
     expect((await q.itemsByKey({ keys: [ch(4).key, ch(6).key], kind: 'live', sources: ['tv'], limit: 2 })).map((x) => x.name)).toEqual(['CNN', '|AR| MBC Pro']);
     // So do the guides' "without a guide" list, the movies and the other source.
     expect((await q.unmatched({ sources: ['tv'], offset: 0, limit: 10 })).rows.map((r) => r.name)).toEqual(PLAIN.News.flat().concat(PLAIN.Sport.flat()).map((s) => s.slice(0, s.indexOf('/'))));
-    expect(await served('tv', 'movie')).toEqual({ Films: [['AR | Movie Night/-']] });
+    // (The movies' category 0, chunk 0 has a slot 1 too: nothing of it is hidden.)
+    expect(await served('tv', 'movie')).toEqual({ Films: [['AR | Movie Night/-', 'UK: Second Film/-']] });
+    expect('hidden' in (await q.categories('tv', 'movie'))[0]!).toBe(false);
     expect(await served('tw')).toEqual({ Misc: [['AR: Other One/-']] });
     // Shown again: back in its chunk.
     expect(await edit({ op: 'show', key: ch(4).key })).toBe(true);
     expect((await served()).News).toEqual([['AR | Al Jazeera HD/-'], ['Sky News/103', 'CNN/-']]);
     expect((await q.categories('tv', 'live'))[0]!.hidden).toEqual([1]);
+    // A second hidden channel in the same chunk, hidden after the one that follows it: the places ascending.
+    expect(await hide(1)).toBe(true);
+    expect((await served()).News).toEqual([[], ['Sky News/103', 'CNN/-']]);
+    expect((await q.categories('tv', 'live'))[0]!.hidden).toEqual([0, 1]);
   });
 
   it("shows the user's names and numbers on every live item read; the stored items and their normalized names stay the provider's", async () => {
@@ -140,7 +150,8 @@ describe('QueryService: the view of the changed channels (step 36a2)', () => {
       Sport: [['beIN Sports 1/-', 'MBC Pro/-'], ['Dubai Sports/-']],
     });
     expect(await served('tw')).toEqual({ Misc: [['Other One/-']] });
-    expect(await served('tv', 'movie')).toEqual({ Films: [['AR | Movie Night/-']] });
+    expect(await served('tv', 'movie')).toEqual({ Films: [['AR | Movie Night/-', 'UK: Second Film/-']] });
+    expect((await q.items([movieRef(0), movieRef(1)])).map((x) => x!.name)).toEqual(['AR | Movie Night', 'UK: Second Film']);
     expect(await nameOf(6)).toBe('MBC Pro');
     // A name that needs no cleaning is the stored item itself.
     const [sky] = await q.items([refOf(3)]);
@@ -153,11 +164,13 @@ describe('QueryService: the view of the changed channels (step 36a2)', () => {
   });
 
   it("searches a renamed channel by both names, once, and keeps the other names with their source's order", async () => {
+    // (Renamed out of catalog order: found in it.)
+    expect(await rename(ch(6), 'Football Six')).toBe(true);
     expect(await rename(ch(5), 'Football One')).toBe(true);
     expect(await rename(TW[0]!, 'Football Two')).toBe(true);
-    expect(await found('football')).toEqual(['tv:Football One', 'tw:Football Two']);
-    expect(await found('football', ['tw', 'tv'])).toEqual(['tw:Football Two', 'tv:Football One']);
-    expect(await found('football', ['tv'])).toEqual(['tv:Football One']);
+    expect(await found('football')).toEqual(['tv:Football One', 'tv:Football Six', 'tw:Football Two']);
+    expect(await found('football', ['tw', 'tv'])).toEqual(['tw:Football Two', 'tv:Football One', 'tv:Football Six']);
+    expect(await found('football', ['tv'])).toEqual(['tv:Football One', 'tv:Football Six']);
     expect(await found('football', ['tw'])).toEqual(['tw:Football Two']);
     expect(await found('bein')).toEqual(['tv:Football One']);
     expect(await found('other')).toEqual(['tw:Football Two']);
@@ -184,6 +197,13 @@ describe('QueryService: the view of the changed channels (step 36a2)', () => {
     expect(await renumber(1, 12)).toBe(true);
     expect(await q.numbered({ number: 12, sources: ['tv'] })).toEqual({ ...refOf(1), item: { ...ch(1), chno: 12 }, hidden: false });
     expect((await q.items([refOf(4)]))[0]).toEqual(ch(4));
+  });
+
+  it('finds no numbered channel whose stored chunk is gone (an old generation deleted under the loaded one)', async () => {
+    expect(await renumber(4, 12)).toBe(true);
+    await q.reload();
+    await deleteGeneration(db, 'tv', 1);
+    expect(await q.numbered({ number: 12, sources: ['tv'] })).toBeNull();
   });
 
   it('changes nothing for a changed channel the catalog lacks, or of a source with no catalog', async () => {

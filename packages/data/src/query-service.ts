@@ -970,8 +970,8 @@ export class QueryService {
     const ref = this.refOfKey(edit.key, 'live');
     if (ref === null) return null;
     const item = (await this.items([ref]))[0];
-    // (A key's hash that only collides finds another channel.)
-    return item === null || item === undefined || item.key !== edit.key ? null : { ...ref, item, hidden: edit.hidden === true };
+    // (Gone with an old generation; or a key's hash that only collides finds another channel.)
+    return !item || item.key !== edit.key ? null : { ...ref, item, hidden: edit.hidden === true };
   }
 
   /** The profile's record of source `src` (`null`: no profile, or no such source). */
