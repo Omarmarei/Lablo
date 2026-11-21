@@ -163,8 +163,11 @@ export interface ZapList {
   row(index: number): LiveRow | null;
   /** Row `index`, reading its chunk when needed (`null`: not in the list). */
   load(index: number): Promise<LiveRow | null>;
-  /** The row of the channel numbered `n` (`-1`: no channel has it). */
-  find(n: number): Promise<number>;
+  /**
+   * The row of the channel numbered `n` (`-1`: no channel has it), or the channel itself when no
+   * row holds it (step 36b: one the user hid): it plays over the list.
+   */
+  find(n: number): Promise<number | LiveRow>;
   /** The row of channel `key` once the list is in, looked for from row `guess` (`-1`: not in it). */
   locate(key: ContentKey, guess: number): Promise<number>;
   /** A channel's now/next, once asked. */
@@ -990,6 +993,15 @@ export function createPlayer(options: PlayerOptions): Player {
     playRow(index, programme);
   };
 
+  /**
+   * Plays `row`, a channel the list doesn't hold (steps 35d and 36b), pinned at row `at`: zapping
+   * goes on through the list from there, and it is the last channel (`tuned`).
+   */
+  const pinOver = (row: LiveRow, at: number): void => {
+    pinned = { index: at, row, tune: true };
+    go(at);
+  };
+
   const menu = createTrackMenu({
     nav,
     tracks: () => status.value.tracks,
@@ -1055,9 +1067,9 @@ export function createPlayer(options: PlayerOptions): Player {
     seq += 1;
     const mine = seq;
     list.find(Number(typed.digits)).then(
-      (index) => {
+      (found) => {
         if (mine !== seq || !open.value) return;
-        if (index === -1) {
+        if (found === -1) {
           entry.value = { digits: typed.digits, phase: 'missing' };
           entryTimer = timers.set(() => {
             entryTimer = null;
@@ -1066,7 +1078,9 @@ export function createPlayer(options: PlayerOptions): Player {
           return;
         }
         entry.value = null;
-        go(index);
+        // A channel no row holds (step 36b: one the user hid): over the list, at the bar's row.
+        if (typeof found === 'number') go(found);
+        else pinOver(found, Math.max(0, target.value));
       },
       () => {
         if (mine === seq) entry.value = null;
@@ -1323,9 +1337,7 @@ export function createPlayer(options: PlayerOptions): Player {
       );
     },
     over(row: LiveRow, guess: number): void {
-      if (!openScreen()) return;
-      pinned = { index: guess, row, tune: true };
-      go(guess);
+      if (openScreen()) pinOver(row, guess);
     },
     playMovie(next: MoviePlay): void {
       if (openScreen(MOVIE_ACTIONS)) startFilm(next);

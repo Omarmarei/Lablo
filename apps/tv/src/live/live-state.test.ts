@@ -1,7 +1,7 @@
 import type { CatalogItem, ContentKey, ContentKind, EpgProgramme } from '@lablo/core';
 import type { CategoryInfo, EpgNowNext, LoadedProfile, ShortEpgNowNext, SourceRecord } from '@lablo/data';
-import type { KeyItemsRequest } from '@lablo/data/client';
-import { groupId } from '@lablo/data/client';
+import type { KeyItemsRequest, NumberRequest, NumberedChannel } from '@lablo/data/client';
+import { channelEditsOf } from '@lablo/data/client';
 import type { Intent, RootBackPolicy } from '@lablo/platform-api';
 import { LAYOUT, SCREEN, listHeight } from '@lablo/ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -23,8 +23,9 @@ import {
   RAIL_VISIBLE,
   createLive,
   KEY_BATCH,
+  categoryKey,
+  categoryParts,
   findEntry,
-  hiddenParts,
   railEntries,
 } from './live-state';
 
@@ -104,8 +105,8 @@ interface Held<T> {
 class FakeEngine implements LiveEngine {
   profileDoc: LoadedProfile | null = { doc: { v: 2, sources: [S1, S2] }, newer: false, migratedFrom: null };
   failProfile = false;
-  hold = new Set<'profile' | 'chunk' | 'nowNext' | 'focus' | 'keys'>();
-  readonly held: Record<string, Held<unknown>[]> = { profile: [], chunk: [], nowNext: [], focus: [], keys: [] };
+  hold = new Set<'profile' | 'chunk' | 'nowNext' | 'focus' | 'keys' | 'numbered'>();
+  readonly held: Record<string, Held<unknown>[]> = { profile: [], chunk: [], nowNext: [], focus: [], keys: [], numbered: [] };
   /** Each `itemsByKey` asked (step 35c). */
   readonly keyCalls: KeyItemsRequest[] = [];
   failKeys = false;
@@ -129,7 +130,13 @@ class FakeEngine implements LiveEngine {
     cached: false,
   });
 
-  private answer<T>(kind: 'profile' | 'chunk' | 'nowNext' | 'focus' | 'keys', arg: unknown, value: () => T): Promise<T> {
+  /** Each `numbered` asked (step 36b). */
+  readonly numberedCalls: NumberRequest[] = [];
+  failNumbered = false;
+  /** The channel the user numbered (default: none). */
+  numberedAnswer: (req: NumberRequest) => NumberedChannel | null = () => null;
+
+  private answer<T>(kind: 'profile' | 'chunk' | 'nowNext' | 'focus' | 'keys' | 'numbered', arg: unknown, value: () => T): Promise<T> {
     if (!this.hold.has(kind)) {
       try {
         return Promise.resolve(value());
@@ -179,6 +186,14 @@ class FakeEngine implements LiveEngine {
         if (found !== undefined && found.key === key) out.push(found);
       }
       return out;
+    });
+  }
+
+  numbered(req: NumberRequest): Promise<NumberedChannel | null> {
+    this.numberedCalls.push(req);
+    return this.answer('numbered', req, () => {
+      if (this.failNumbered) throw new Error('read failed');
+      return this.numberedAnswer(req);
     });
   }
 
@@ -2260,26 +2275,24 @@ describe('a channel of a hidden group (RELAY step 35d)', () => {
   /** A channel of s1's category `catIdx` as the search or Home gives it: in its group by name. */
   const of = (catIdx: number, n: number, group: string, chno: number | null = null): CatalogItem => ({ ...item('s1', catIdx, n, chno), group });
 
-  it('finds the hidden groups’ categories with their places in the provider’s whole list', () => {
+  it('finds every category with channels, by source and index, with its place in the provider’s whole list (steps 35d and 36b)', () => {
     const sources = [
       { src: 's1', categories: CATEGORIES.s1! },
       { src: 's2', categories: CATEGORIES.s2! },
     ];
-    const parts = hiddenParts(sources, [
-      { src: 's1', name: 'Sports' },
-      { src: 's2', name: 'Kids' },
-      { src: 's1', name: 'Gone' },
+    expect([...categoryParts(sources).entries()]).toEqual([
+      ['s1|0', { src: 's1', catIdx: 0, chunks: [3], first: 0 }],
+      ['s1|2', { src: 's1', catIdx: 2, chunks: [500, 500, 200], first: 3 }],
+      ['s2|0', { src: 's2', catIdx: 0, chunks: [2], first: 1203 }],
     ]);
-    expect([...parts.values()]).toEqual([
-      { src: 's1', catIdx: 2, chunks: [500, 500, 200], first: 3 },
-      { src: 's2', catIdx: 0, chunks: [2], first: 1203 },
+    expect(categoryKey('s2', 0)).toBe('s2|0');
+    expect(categoryParts([]).size).toBe(0);
+    // One without channels is never a part; a repeated name has its own.
+    const twice = categoryParts([{ src: 's1', categories: [info(0, 'A', []), info(1, 'A', [4]), info(2, 'A', [5])] }]);
+    expect([...twice.values()]).toEqual([
+      { src: 's1', catIdx: 1, chunks: [4], first: 0 },
+      { src: 's1', catIdx: 2, chunks: [5], first: 4 },
     ]);
-    expect(parts.has(groupId({ src: 's1', name: 'Sports' }))).toBe(true);
-    expect(parts.has(groupId({ src: 's2', name: 'Kids' }))).toBe(true);
-    expect(hiddenParts(sources, []).size).toBe(0);
-    // A repeated name keeps its first category; one without channels is never a part.
-    const twice = hiddenParts([{ src: 's1', categories: [info(0, 'A', []), info(1, 'A', [4]), info(2, 'A', [5])] }], [{ src: 's1', name: 'A' }]);
-    expect([...twice.values()]).toEqual([{ src: 's1', catIdx: 1, chunks: [4], first: 0 }]);
   });
 
   it('plays a search hit there over the list on show, at its focused row, numbered by its place in the whole list', async () => {
@@ -2363,5 +2376,330 @@ describe('a channel of a hidden group (RELAY step 35d)', () => {
     await t.live.listsChanged();
     expect(await t.live.playKept({ src: 's1', name: 'News' }, news.key, 2, { item: news, number: 9 })).toBe(true);
     expect(playOver).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('channels the user changed (RELAY step 36b)', () => {
+  /** A changed channel's entry as the profile keeps it (step 36a1). */
+  const changed = (key: string, change: { hidden?: true; name?: string; number?: number }): Record<string, unknown> => ({
+    key,
+    src: key.split(':')[1],
+    kind: 'live',
+    normName: '',
+    added: 1,
+    missingSince: null,
+    ...change,
+  });
+  /** Sports' places 1, 600 and 1,199 hidden (600 numbered 60), both of Kids'; Sports 2-3 renamed, 2-5 numbered 50. */
+  const EDITS = [
+    changed('x:s1:live:2-1', { hidden: true }),
+    changed('x:s1:live:2-600', { hidden: true, number: 60 }),
+    changed('x:s1:live:2-1199', { hidden: true }),
+    changed('x:s2:live:0-0', { hidden: true }),
+    changed('x:s2:live:0-1', { hidden: true }),
+    changed('x:s1:live:2-3', { name: 'My Three' }),
+    changed('x:s1:live:2-5', { number: 50 }),
+  ];
+  const parse = (key: string): { src: string; catIdx: number; n: number } => {
+    const m = /^x:(\w+):live:(\d+)-(\d+)$/.exec(key)!;
+    return { src: m[1]!, catIdx: Number(m[2]), n: Number(m[3]) };
+  };
+
+  /**
+   * A data engine serving the profile's changes as the query worker does (step 36a2): hidden
+   * channels out of the served chunks and in each category's `hidden`, the user's names and
+   * numbers on every item, lists holding hidden channels too, and `numbered`.
+   */
+  function changedEngine(edits: readonly Record<string, unknown>[] = EDITS, extra: Record<string, unknown> = {}): FakeEngine {
+    const engine = new FakeEngine();
+    engine.profileDoc = { doc: { v: 2, sources: [S1, S2], channelEdits: edits, ...extra }, newer: false, migratedFrom: null };
+    const changes = () => channelEditsOf(engine.profileDoc!.doc);
+    const shown = (item: CatalogItem): CatalogItem => {
+      const mine = changes().find((e) => e.key === item.key);
+      return mine === undefined ? item : { ...item, name: mine.name ?? item.name, chno: mine.number ?? item.chno };
+    };
+    const hiddenIn = (src: string, catIdx: number): number[] =>
+      changes()
+        .filter((e) => e.hidden === true && parse(e.key).src === src && parse(e.key).catIdx === catIdx)
+        .map((e) => parse(e.key).n)
+        .sort((a, b) => a - b);
+    const stored = (key: string): CatalogItem | undefined => {
+      const { src, catIdx, n } = parse(key);
+      return chunkItems(src, catIdx, Math.floor(n / 500))[n % 500];
+    };
+    engine.categories = (src) =>
+      Promise.resolve(
+        (CATEGORIES[src] ?? []).map((c) => {
+          const hidden = hiddenIn(src, c.catIdx);
+          return hidden.length === 0 ? c : { ...c, hidden };
+        }),
+      );
+    engine.items = (src, catIdx, chunk) => {
+      const hidden = hiddenIn(src, catIdx);
+      return chunkItems(src, catIdx, chunk)
+        .filter((it) => hidden.indexOf(parse(it.key).n) === -1)
+        .map(shown);
+    };
+    engine.itemsByKey = (req) => {
+      const out: CatalogItem[] = [];
+      for (const key of req.keys) {
+        const it = stored(key);
+        if (it !== undefined && req.sources.indexOf(it.src) !== -1) out.push(shown(it));
+      }
+      return Promise.resolve(out);
+    };
+    engine.numberedAnswer = (req) => {
+      const mine = changes().find((e) => e.number === req.number && req.sources.indexOf(e.src) !== -1);
+      const it = mine === undefined ? undefined : stored(mine.key);
+      if (mine === undefined || it === undefined) return null;
+      const { src, catIdx, n } = parse(mine.key);
+      return { src, kind: 'live', gen: 1, catIdx, chunk: Math.floor(n / 500), slot: n % 500, item: shown(it), hidden: mine.hidden === true };
+    };
+    return engine;
+  }
+
+  it("leaves hidden channels out of the rail's counts, keeps their places, and leaves out a group with none shown", () => {
+    const sources = [
+      { src: 's1', categories: [info(0, 'News', [3]), info(1, '', []), { ...info(2, 'Sports', [500, 500, 200]), hidden: [1, 600, 1199] }] },
+      { src: 's2', categories: [{ ...info(0, 'Kids', [2]), hidden: [0, 1] }, info(1, 'Films', [4])] },
+    ];
+    const entries = railEntries(sources);
+    expect(entries.map((e) => `${e.name} ${e.count}`)).toEqual([' 1204', 'News 3', 'Sports 1197', 'Films 4']);
+    expect(entries[2]!.parts).toEqual([{ src: 's1', catIdx: 2, chunks: [500, 500, 200], first: 3, hidden: [1, 600, 1199] }]);
+    // (No field without hidden channels.)
+    expect(Object.keys(entries[1]!.parts[0]!)).toEqual(['src', 'catIdx', 'chunks', 'first']);
+    // Kids' places count: Films starts after them.
+    expect(entries[3]!.parts[0]!.first).toBe(1205);
+    expect(entries[3]!.allStart).toBe(1205);
+    expect(entries[0]!.parts.map((p) => `${p.src}|${p.catIdx}`)).toEqual(['s1|0', 's1|2', 's2|1']);
+    // Every category with channels is a part, Kids too.
+    expect(categoryParts(sources).get('s2|0')).toEqual({ src: 's2', catIdx: 0, chunks: [2], first: 1203, hidden: [0, 1] });
+  });
+
+  it('shows the rows without the hidden channels, every other number where it was, and the names and numbers as served', async () => {
+    const t = await setup({ engine: changedEngine() });
+    expect(t.live.rail.value.map((e) => `${e.name} ${e.count}`)).toEqual([' 1200', 'News 3', 'Sports 1197']);
+    expect(t.live.list.count()).toBe(1200);
+    expect(t.rows()).toEqual([
+      '7 Channel s1 0-0',
+      '8 Channel s1 0-1',
+      '9 Channel s1 0-2',
+      '4 Channel s1 2-0',
+      '6 Channel s1 2-2',
+      '7 My Three',
+      '8 Channel s1 2-4',
+      '50 Channel s1 2-5',
+      '10 Channel s1 2-6',
+    ]);
+    const shown = async (i: number): Promise<string | null> => {
+      const row = await t.live.list.load(i);
+      return row === null ? null : `${row.number} ${row.item.name}`;
+    };
+    // Around place 600 (hidden) and at the end (place 1,199 hidden).
+    expect(await shown(601)).toBe('603 Channel s1 2-599');
+    expect(await shown(602)).toBe('605 Channel s1 2-601');
+    expect(await shown(1199)).toBe('1202 Channel s1 2-1198');
+    expect(await shown(1200)).toBeNull();
+    await t.press('LEFT', 'DOWN', 'DOWN', 'OK');
+    expect(t.live.category.value).toBe(2);
+    expect(t.live.list.count()).toBe(1197);
+    expect(t.rows().slice(0, 3)).toEqual(['4 Channel s1 2-0', '6 Channel s1 2-2', '7 My Three']);
+  });
+
+  it("finds the channel the user numbered first, then the provider's numbers; a renumbered or hidden one isn't found by its old number", async () => {
+    const t = await setup({ engine: changedEngine() });
+    // The user's 50 at its row, from where it is stored (its chunk is in: nothing read).
+    const before = t.engine.chunkCalls.length;
+    expect(await t.live.list.find(50)).toBe(7);
+    expect(t.engine.chunkCalls.length).toBe(before);
+    expect(t.engine.numberedCalls).toEqual([{ number: 50, sources: ['s1', 's2'] }]);
+    // The provider's: 6 is place 5's. 9 is News 0-2's: 2-5, numbered 9 by its place, is 50 now.
+    expect(await t.live.list.find(6)).toBe(4);
+    expect(await t.live.list.find(9)).toBe(2);
+    // Place 4 (old number 5) is hidden: no row has it.
+    expect(await t.live.list.find(5)).toBe(-1);
+    // The user's 60 is hidden: the channel itself, to play over the list.
+    expect(await t.live.list.find(60)).toEqual({ item: expect.objectContaining({ key: 'x:s1:live:2-600', chno: 60 }), number: 60 });
+    // In News: 50 isn't there, so the provider's 50 is looked for (none). A hidden one plays over any list.
+    await t.press('LEFT', 'DOWN', 'OK');
+    expect(t.live.category.value).toBe(1);
+    expect(await t.live.list.find(50)).toBe(-1);
+    expect(await t.live.list.find(8)).toBe(1);
+    expect(await t.live.list.find(60)).toMatchObject({ number: 60 });
+    expect(t.engine.numberedCalls.map((c) => c.number)).toEqual([50, 6, 9, 5, 60, 50, 8, 60]);
+  });
+
+  it("finds the user's number from an older catalog's address by the channel's key", async () => {
+    const engine = changedEngine();
+    const answer = engine.numberedAnswer;
+    // The worker's address is a slot off (the catalog moved since): row 8 is 2-6.
+    engine.numberedAnswer = (req) => {
+      const found = answer(req);
+      return found === null ? null : { ...found, slot: found.slot + 1 };
+    };
+    const t = await setup({ engine });
+    expect(t.live.row(8)?.item.key).toBe('x:s1:live:2-6');
+    expect(await t.live.list.find(50)).toBe(7);
+  });
+
+  it("finds the user's number before a provider's number that is the same", async () => {
+    const t = await setup({ engine: changedEngine([changed('x:s1:live:2-5', { number: 8 })]) });
+    // News 0-1 is the provider's 8; Sports 2-5 the user's.
+    expect(t.rows()[1]).toBe('8 Channel s1 0-1');
+    expect(t.rows()[8]).toBe('8 Channel s1 2-5');
+    expect(await t.live.list.find(8)).toBe(8);
+    // Not in the list on show: the provider's.
+    await t.press('LEFT', 'DOWN', 'OK');
+    expect(await t.live.list.find(8)).toBe(1);
+  });
+
+  it("looks for the provider's numbers when the lookup fails, and asks nothing in a favourites list or a list not ready", async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const t = await setup({ engine: changedEngine(EDITS, { favouriteLists: [{ id: 'l1', name: 'Mine', keys: ['x:s1:live:2-1', 'x:s1:live:0-0'] }] }) });
+    t.engine.failNumbered = true;
+    expect(await t.live.list.find(6)).toBe(4);
+    // (The served 50 is a row's number all the same.)
+    expect(await t.live.list.find(50)).toBe(7);
+    expect(warn).toHaveBeenCalledWith('A channel number could not be looked up', expect.any(Error));
+    // A favourites list numbers by its places; it holds a hidden channel too.
+    await t.press('LEFT', 'DOWN', 'OK');
+    expect(t.live.category.value).toBe(1);
+    expect(t.rows()).toEqual(['1 Channel s1 2-1', '2 Channel s1 0-0']);
+    const asked = t.engine.numberedCalls.length;
+    expect(await t.live.list.find(2)).toBe(1);
+    expect(t.engine.numberedCalls).toHaveLength(asked);
+    // Before the list is in.
+    const early = await setup({ engine: changedEngine(), settle: false });
+    expect(await early.live.list.find(50)).toBe(-1);
+    expect(early.engine.numberedCalls).toEqual([]);
+  });
+
+  it('drops a number lookup when the list reloads, or another entry shows, before its answer', async () => {
+    const t = await setup({ engine: changedEngine() });
+    t.engine.hold.add('numbered');
+    const answer = t.engine.numberedAnswer({ number: 50, sources: ['s1', 's2'] });
+    const found = t.live.list.find(50);
+    await flush();
+    expect(t.live.pending.value).toBe(1);
+    // The new list is in (2-5 is its row 7 too) before the answer comes.
+    t.live.reload();
+    await flush();
+    expect(t.live.status.value).toBe('ready');
+    t.engine.held.numbered![0]!.resolve(answer);
+    expect(await found).toBe(-1);
+    // Sports shows (2-5 is its row 4) before the answer comes.
+    const again = t.live.list.find(50);
+    await flush();
+    await t.press('LEFT', 'DOWN', 'DOWN', 'OK');
+    expect(t.live.category.value).toBe(2);
+    t.engine.held.numbered![1]!.resolve(answer);
+    expect(await again).toBe(-1);
+  });
+
+  it('plays a hidden channel the search found over the list, numbered by its own number or its place', async () => {
+    const play = vi.fn();
+    const playOver = vi.fn();
+    const t = await setup({ engine: changedEngine(), play, playOver });
+    await t.press('RIGHT', 'DOWN', 'DOWN');
+    expect(t.at()).toBe('live · channels 2');
+    const hit = (n: number, chno: number | null = null): CatalogItem => ({ ...item('s1', 2, n, chno), group: 'Sports' });
+    const h1 = hit(1);
+    expect(await t.live.playFound({ key: h1.key, src: 's1', catIdx: 2, chunk: 0, slot: 1, item: h1 })).toBe(true);
+    expect(playOver).toHaveBeenCalledWith({ item: h1, number: 5 }, 2);
+    // The user's number (the served item carries it).
+    const h600 = hit(600, 60);
+    expect(await t.live.playFound({ key: h600.key, src: 's1', catIdx: 2, chunk: 1, slot: 100, item: h600 })).toBe(true);
+    expect(playOver).toHaveBeenLastCalledWith({ item: h600, number: 60 }, 2);
+    // A group with every channel hidden (Kids) is out of the rail: the same.
+    const kid = { ...item('s2', 0, 1), group: 'Kids' };
+    expect(await t.live.playFound({ key: kid.key, src: 's2', catIdx: 0, chunk: 0, slot: 1, item: kid })).toBe(true);
+    expect(playOver).toHaveBeenLastCalledWith({ item: kid, number: 1205 }, 2);
+    expect(play).not.toHaveBeenCalled();
+    expect(t.live.category.value).toBe(0);
+    expect(t.at()).toBe('live · channels 2');
+    // Without its item: nothing.
+    expect(await t.live.playFound({ key: h1.key, src: 's1', catIdx: 2, chunk: 0, slot: 1 })).toBe(false);
+    expect(playOver).toHaveBeenCalledTimes(3);
+  });
+
+  it('plays a channel the search found at its row among the shown ones, reading its own chunk first', async () => {
+    const play = vi.fn();
+    const t = await setup({ engine: changedEngine(), play });
+    t.engine.chunkCalls.length = 0;
+    // Sports 2-999: places 1 and 600 hidden before it, so row 997, the last of the second chunk served.
+    expect(await t.live.playFound({ key: 'x:s1:live:2-999', src: 's1', catIdx: 2, chunk: 1, slot: 499 })).toBe(true);
+    expect(t.live.category.value).toBe(2);
+    expect(play).toHaveBeenCalledWith(997);
+    expect(t.live.row(997)?.item.key).toBe('x:s1:live:2-999');
+    // Its own chunk first (rows 499-997 now; the next one's first row is 998).
+    expect(t.engine.chunkCalls[0]).toBe('s1|2|1');
+    // An older catalog's address: found by its key.
+    expect(await t.live.playFound({ key: 'x:s1:live:2-700', src: 's1', catIdx: 2, chunk: 9, slot: 0 })).toBe(true);
+    expect(play).toHaveBeenLastCalledWith(698);
+    // A channel the user renumbered (not hidden): in its group too.
+    expect(await t.live.playFound({ key: 'x:s1:live:2-5', src: 's1', catIdx: 2, chunk: 0, slot: 5 })).toBe(true);
+    expect(play).toHaveBeenLastCalledWith(4);
+  });
+
+  it('plays a recent channel the user hid over the list with its kept number, unless its list holds it', async () => {
+    const play = vi.fn();
+    const playOver = vi.fn();
+    const t = await setup({ engine: changedEngine(EDITS, { favouriteLists: [{ id: 'l1', name: 'Mine', keys: ['x:s1:live:2-1'] }] }), play, playOver });
+    const kept = { item: { ...item('s1', 2, 1), group: 'Sports' }, number: 5 };
+    expect(await t.live.playKept({ src: 's1', name: 'Sports' }, kept.item.key, 1, kept)).toBe(true);
+    expect(playOver).toHaveBeenCalledWith(kept, 0);
+    expect(play).not.toHaveBeenCalled();
+    // Kept from "All channels": the same.
+    expect(await t.live.playKept(null, kept.item.key, 4, kept)).toBe(true);
+    expect(playOver).toHaveBeenCalledTimes(2);
+    // From its list, which holds it: there.
+    expect(await t.live.playKept({ list: 'l1' }, kept.item.key, 0, kept)).toBe(true);
+    expect(t.live.category.value).toBe(1);
+    expect(play).toHaveBeenCalledWith(0);
+    expect(playOver).toHaveBeenCalledTimes(2);
+    // One the user didn't hide: in its group.
+    const other = { item: { ...item('s1', 2, 2), group: 'Sports' }, number: 6 };
+    expect(await t.live.playKept({ src: 's1', name: 'Sports' }, other.item.key, 1, other)).toBe(true);
+    expect(t.live.category.value).toBe(3);
+    expect(play).toHaveBeenLastCalledWith(1);
+    expect(playOver).toHaveBeenCalledTimes(2);
+    // Without the app's `playOver`: nothing (no row holds it).
+    const bare = await setup({ engine: changedEngine() });
+    expect(await bare.live.playKept(null, kept.item.key, 4, kept)).toBe(false);
+  });
+
+  it('reads everything again after an edit: the rows, the counts, and the focused channel at its new row', async () => {
+    const changing = vi.fn();
+    const engine = changedEngine();
+    const t = await setup({ engine, listChanging: changing });
+    await t.press('DOWN', 'DOWN', 'DOWN', 'DOWN');
+    expect(t.at()).toBe('live · channels 4');
+    expect(t.live.row(4)?.item.key).toBe('x:s1:live:2-2');
+    const chunks = engine.chunkCalls.length;
+    // 2-0 hidden too, 2-2 renamed.
+    engine.profileDoc = {
+      doc: { v: 2, sources: [S1, S2], channelEdits: [...EDITS, changed('x:s1:live:2-0', { hidden: true }), changed('x:s1:live:2-2', { name: 'Two' })] },
+      newer: false,
+      migratedFrom: null,
+    };
+    await t.live.channelsChanged();
+    await flush();
+    expect(changing).toHaveBeenCalledTimes(1);
+    // The chunks read before are read again.
+    expect(engine.chunkCalls.slice(chunks)).toEqual(expect.arrayContaining(['s1|0|0', 's1|2|0']));
+    expect(t.live.rail.value.map((e) => e.count)).toEqual([1199, 3, 1196]);
+    // The focused channel is a row up, with its new name; the numbers after the hidden ones stay.
+    expect(t.at()).toBe('live · channels 3');
+    expect(t.rows()).toEqual([
+      '7 Channel s1 0-0',
+      '8 Channel s1 0-1',
+      '9 Channel s1 0-2',
+      '6 Two',
+      '7 My Three',
+      '8 Channel s1 2-4',
+      '50 Channel s1 2-5',
+      '10 Channel s1 2-6',
+      '11 Channel s1 2-7',
+    ]);
   });
 });

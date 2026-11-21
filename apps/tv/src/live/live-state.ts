@@ -2,8 +2,8 @@ import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
 import type { CatalogItem, ContentKey, ContentKind } from '@lablo/core';
 import type { CategoryInfo, EpgNowNext, LoadedProfile, ShortEpgNowNext, ShortEpgSource, StoredSource } from '@lablo/data';
-import type { FavouriteList, GroupRef, KeyItemsRequest } from '@lablo/data/client';
-import { favouriteListsOf, groupId, groupOrderOf, hiddenGroupsOf } from '@lablo/data/client';
+import type { FavouriteList, GroupRef, KeyItemsRequest, NumberRequest, NumberedChannel } from '@lablo/data/client';
+import { channelEditsOf, favouriteListsOf, groupId, groupOrderOf, hiddenGroupsOf } from '@lablo/data/client';
 import type { Platform } from '@lablo/platform-api';
 import type { Focus, FocusBinding, Navigator, Screen, ScreenSpec, ZoneSpec } from '@lablo/ui';
 import { LAYOUT, SCREEN, bindFocus, createNavigator, fits } from '@lablo/ui';
@@ -12,7 +12,7 @@ import { mark } from '../marks';
 import type { ZapList } from '../player/player-state';
 import { storedSources } from '../onboarding/engine-loader';
 import type { ChunkRef, ListPart } from './channel-index';
-import { ChannelIndex, chunkId } from './channel-index';
+import { ChannelIndex, chunkId, storedOffset } from './channel-index';
 
 /**
  * The live browse screen (RELAY step 14a, PLAN 4.5): a category rail at the inline start and a
@@ -58,6 +58,13 @@ import { ChannelIndex, chunkId } from './channel-index';
  * - **A channel of a hidden group** (step 35d): a search hit or a recent channel there plays over
  *   the list on show (`playOver`: the player pins it at the list's focused row), numbered by its
  *   `chno`, else its place in the provider's whole list (a search hit) or the kept number.
+ * - **Channels the user changed** (step 36b; the query worker serves them changed, step 36a2): a
+ *   hidden channel is no row of "All channels" or its group (a group with every channel hidden
+ *   isn't in the rail), but keeps its place, so no other channel's number moves (`ListPart.hidden`).
+ *   Number entry asks the worker for the channel the user numbered first (`numbered`), then looks
+ *   for the provider's number as before. A hidden channel from the search, Home or number entry
+ *   plays over the list, as a hidden group's does. After an edit, `channelsChanged` reads
+ *   everything again, as a catalog swap does.
  */
 
 /** Sizes, all layout constants (no DOM measuring). live.css uses the same numbers. */
@@ -128,6 +135,8 @@ export interface LiveEngine {
   chunk(src: string, kind: ContentKind, catIdx: number, chunk: number): Promise<CatalogItem[]>;
   /** A favourites list's items (step 35c). */
   itemsByKey(req: KeyItemsRequest): Promise<CatalogItem[]>;
+  /** The channel the user numbered `req.number` (step 36b; `null`: none). */
+  numbered(req: NumberRequest): Promise<NumberedChannel | null>;
   nowNext(keys: ContentKey[], at?: number): Promise<EpgNowNext[]>;
   focusChannel(channel: FocusedChannel | null): Promise<ShortEpgNowNext | null>;
   noteActivity(): void;
@@ -259,6 +268,11 @@ export interface Live {
    * with the chunks kept. Settles once the new rail is in.
    */
   listsChanged(): Promise<void>;
+  /**
+   * A channel was changed (hidden, renamed or renumbered), or "Clean channel names" switched
+   * (step 36b): everything is read again, as for a catalog swap. Settles once the new rail is in.
+   */
+  channelsChanged(): Promise<void>;
   dispose(): void;
 }
 
@@ -340,6 +354,9 @@ function placesOf(groups: readonly GroupRef[]): Record<string, number> {
  * provider's order. Hidden groups are left out, of "All channels" too, which lists the groups in
  * the rail's order. Each part's `first` counts every category, hidden ones too, in the provider's
  * order. No channels at all: no rail (whatever the lists hold).
+ *
+ * Channels the user hid (step 36b, `CategoryInfo.hidden`) count in the places but not in an
+ * entry's `count`; a group with every channel hidden is left out, as an empty one is.
  */
 export function railEntries(sources: readonly { src: string; categories: readonly CategoryInfo[] }[], shape?: RailShape): RailEntry[] {
   const hidden = placesOf(shape === undefined ? [] : shape.hidden);
@@ -351,12 +368,12 @@ export function railEntries(sources: readonly { src: string; categories: readonl
   for (const source of sources) {
     for (const info of source.categories) {
       if (info.count <= 0) continue;
-      const first = at;
+      const part = partOf(source.src, info, at);
       at += info.count;
+      const count = info.count - (part.hidden === undefined ? 0 : part.hidden.length);
       const id = groupId({ src: source.src, name: info.name });
-      if (hidden[id] !== undefined) continue;
-      const part: ListPart = { src: source.src, catIdx: info.catIdx, chunks: info.chunks.slice(), first };
-      const entry: RailEntry = { kind: 'category', name: info.name, count: info.count, parts: [part], allStart: first };
+      if (hidden[id] !== undefined || count <= 0) continue;
+      const entry: RailEntry = { kind: 'category', name: info.name, count, parts: [part], allStart: part.first };
       const place = order[id];
       // (A second category of a source with the same name, as an Xtream panel may have, keeps the provider's order.)
       if (place === undefined || ordered[place] !== undefined) rest.push(entry);
@@ -383,12 +400,24 @@ export function railEntries(sources: readonly { src: string; categories: readonl
   return out.concat(groups);
 }
 
+/** Category `info` of source `src` as a list reads it, its first channel at place `first`; its hidden places only when it has some. */
+function partOf(src: string, info: CategoryInfo, first: number): ListPart {
+  const part: { src: string; catIdx: number; chunks: number[]; first: number; hidden?: number[] } = { src, catIdx: info.catIdx, chunks: info.chunks.slice(), first };
+  if (info.hidden !== undefined && info.hidden.length > 0) part.hidden = info.hidden.slice();
+  return part;
+}
+
+/** The map key of category `catIdx` of source `src` (`categoryParts`). */
+export function categoryKey(src: string, catIdx: number): string {
+  return `${src}|${catIdx}`;
+}
+
 /**
- * The hidden groups' categories by `groupId`, each with its `first` as `railEntries` counts it
- * (step 35d: a channel of one plays over the list with its number). A repeated name keeps its first.
+ * Every category with channels by `categoryKey`, each with its `first` as `railEntries` counts it
+ * and its hidden places (steps 35d and 36b: a channel of a group out of the rail, or one the user
+ * hid, plays over the list with its number).
  */
-export function hiddenParts(sources: readonly { src: string; categories: readonly CategoryInfo[] }[], hidden: readonly GroupRef[]): Map<string, ListPart> {
-  const ids = placesOf(hidden);
+export function categoryParts(sources: readonly { src: string; categories: readonly CategoryInfo[] }[]): Map<string, ListPart> {
   const out = new Map<string, ListPart>();
   let at = 0;
   for (let s = 0; s < sources.length; s += 1) {
@@ -396,8 +425,7 @@ export function hiddenParts(sources: readonly { src: string; categories: readonl
     for (let c = 0; c < source.categories.length; c += 1) {
       const info = source.categories[c]!;
       if (info.count <= 0) continue;
-      const id = groupId({ src: source.src, name: info.name });
-      if (ids[id] !== undefined && !out.has(id)) out.set(id, { src: source.src, catIdx: info.catIdx, chunks: info.chunks.slice(), first: at });
+      out.set(categoryKey(source.src, info.catIdx), partOf(source.src, info, at));
       at += info.count;
     }
   }
@@ -457,8 +485,12 @@ export function createLive(options: LiveOptions): Live {
   /** The stored sources' ids (a list's items are looked up in them). */
   let srcIds: string[] = [];
   let index = new ChannelIndex([]);
-  /** The hidden groups' categories (step 35d), by `groupId`. */
-  let hidden = new Map<string, ListPart>();
+  /** Every category with channels (steps 35d and 36b), by `categoryKey`. */
+  let parts = new Map<string, ListPart>();
+  /** The hidden groups (step 35d), by `groupId`. */
+  let hiddenGroups: Record<string, number> = {};
+  /** The channels the user hid (step 36b), by key. */
+  let hiddenKeys: Record<string, true> = {};
   /** The favourites list on show (`null`: a category or "All channels", read by chunk through `index`). */
   let keyed: KeyedRows | null = null;
   /** Loaded chunks, oldest use first (a Map keeps insertion order). */
@@ -766,12 +798,32 @@ export function createLive(options: LiveOptions): Live {
 
   /**
    * The row of the channel numbered `n` in the list on show (`-1`: none), for the player's number
-   * entry. A row's number is its provider's (`chno`), else its place in the provider's whole list,
-   * so the search starts at the row that place gives (a list's rows are all in already).
+   * entry. A favourites list's rows are numbered by their places (all in already). Elsewhere the
+   * channel the user numbered `n` comes first (step 36b: the query worker knows it): its row, or,
+   * hidden, the channel itself (it plays over the list). Then a row's number is its provider's
+   * (`chno`), else its place in the provider's whole list, so the search starts at the row that
+   * place gives.
    */
-  const findNumber = (n: number): Promise<number> => {
-    if (!(n > 0)) return Promise.resolve(-1);
-    return findRow(keyed !== null ? 0 : index.rowOfPlace(n - 1), (_item, number) => number === n);
+  const findNumber = async (n: number): Promise<number | LiveRow> => {
+    if (!(n > 0)) return -1;
+    if (keyed !== null) return findRow(0, (_item, number) => number === n);
+    if (status.value !== 'ready') return -1;
+    const list = index;
+    const seq = loadSeq;
+    const mine = await track(() => engine.numbered({ number: n, sources: srcIds })).catch((error: unknown) => {
+      // The provider's numbers still find their channels.
+      console.warn('A channel number could not be looked up', error);
+      return null;
+    });
+    if (disposed || seq !== loadSeq || list !== index) return -1;
+    if (mine !== null) {
+      if (mine.hidden) return { item: mine.item, number: n };
+      const row = list.rowOfStored(mine);
+      // (Found by its key from there: the address may be an older catalog's.)
+      const found = row === -1 ? -1 : await findRow(row, (item) => item.key === mine.item.key);
+      if (found !== -1) return found;
+    }
+    return findRow(list.rowOfPlace(n - 1), (_item, number) => number === n);
   };
 
   /**
@@ -816,10 +868,14 @@ export function createLive(options: LiveOptions): Live {
       const part = entries[i]!.kind === 'category' ? entries[i]!.parts[0]! : null;
       if (part !== null && part.src === found.src && part.catIdx === found.catIdx) at = i;
     }
-    // Not in the rail: a hidden group's channel plays over the list, numbered by its place in the provider's whole list.
-    if (at === -1) return playOver(found.item, (part) => part.first + Math.max(0, new ChannelIndex([part]).firstRow(found)) + found.slot + 1);
-    // (A chunk the category doesn't have gives -1: the search then starts near its top.)
-    return playIn(at, found.key, () => index.firstRow({ src: found.src, catIdx: found.catIdx, chunk: found.chunk }) + found.slot);
+    // A channel the user hid (step 36b), or one of a group out of the rail (hidden, step 35d, or with
+    // every channel hidden): it plays over the list, numbered by its place in the provider's whole list.
+    if (at === -1 || hiddenKeys[found.key] === true) {
+      const part = parts.get(categoryKey(found.src, found.catIdx));
+      return part !== undefined && playOver(found.item, () => part.first + storedOffset(part, found.chunk, found.slot) + 1);
+    }
+    // (-1, an address of an older catalog: the search then starts at the top.)
+    return playIn(at, found.key, () => index.rowOfStored(found));
   };
 
   /**
@@ -848,9 +904,11 @@ export function createLive(options: LiveOptions): Live {
     await loaded;
     // (A list that failed or is empty has no rail.)
     if (rail.value.length === 0) return false;
-    // A channel kept from a group the user hid since, unless the list it was kept with holds it (it
-    // plays there). One played over a list keeps that list, which doesn't hold it.
-    if (kept !== undefined && !listHolds(ref, key) && playOver(kept.item, () => kept.number)) return true;
+    // A channel kept from a group the user hid since, or one the user hid (step 36b), unless the list
+    // it was kept with holds it (it plays there). One played over a list keeps that list, which doesn't hold it.
+    if (kept !== undefined && !listHolds(ref, key) && (hiddenGroups[groupId({ src: kept.item.src, name: kept.item.group })] !== undefined || hiddenKeys[key] === true)) {
+      return playOver(kept.item, () => kept.number);
+    }
     return playIn(ref === null ? 0 : Math.max(0, findEntry(rail.value, ref)), key, () => guess);
   };
 
@@ -863,14 +921,13 @@ export function createLive(options: LiveOptions): Live {
   };
 
   /**
-   * Plays `item` over the list on show when its group is hidden (step 35d): the player pins it at
-   * the list's focused row. Its number is its `chno`, else `number(its group's part)`. `false`
-   * (nothing played) when its group isn't hidden.
+   * Plays `item` over the list on show (a channel no row holds: its group is hidden, step 35d, or
+   * the user hid it, step 36b): the player pins it at the list's focused row. Its number is its
+   * `chno`, else `number()`. `false` (nothing played) without the item or the app's `playOver`.
    */
-  const playOver = (item: CatalogItem | undefined, number: (part: ListPart) => number): boolean => {
-    const part = item === undefined ? undefined : hidden.get(groupId({ src: item.src, name: item.group }));
-    if (item === undefined || part === undefined || options.playOver === undefined) return false;
-    options.playOver({ item, number: item.chno !== null ? item.chno : number(part) }, Math.max(0, home.position('channels').index));
+  const playOver = (item: CatalogItem | undefined, number: () => number): boolean => {
+    if (item === undefined || options.playOver === undefined) return false;
+    options.playOver({ item, number: item.chno !== null ? item.chno : number() }, Math.max(0, home.position('channels').index));
     return true;
   };
 
@@ -945,7 +1002,11 @@ export function createLive(options: LiveOptions): Live {
     const shape: RailShape = { lists: lists.value, hidden: hiddenGroupsOf(doc), order: groupOrderOf(doc) };
     const all = read.records.map((r, i) => ({ src: r.id, categories: read.lists[i] ?? [] }));
     const entries = railEntries(all, shape);
-    hidden = hiddenParts(all, shape.hidden);
+    parts = categoryParts(all);
+    hiddenGroups = placesOf(shape.hidden);
+    hiddenKeys = Object.create(null) as Record<string, true>;
+    const edits = channelEditsOf(doc);
+    for (let i = 0; i < edits.length; i += 1) if (edits[i]!.hidden === true) hiddenKeys[edits[i]!.key] = true;
     rail.value = entries;
     home.update(railZone(entries.length));
     return entries;
@@ -1159,6 +1220,7 @@ export function createLive(options: LiveOptions): Live {
     guidesChanged,
     catalogChanged: () => void reread(true),
     listsChanged: () => reread(false),
+    channelsChanged: () => reread(true),
     dispose(): void {
       if (disposed) return;
       disposed = true;

@@ -1,128 +1,138 @@
-# Lablo IPTV: relay leg 129 opening prompt
+# Lablo IPTV: relay leg 130 opening prompt
 
-You are leg 129 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 130 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 ## Status
-- **Earlier legs:** leg 0 planned the work; legs 1–128 did steps 1–33, 35, 35e and 36a1 (PRs #1–#155).
+- **Earlier legs:** leg 0 planned the work; legs 1–129 did steps 1–33, 35, 35e and 36a (PRs #1–#156).
 - **Waiting for Omar:**
   - step 16's Samsung part, 19b and 21 (the TVs);
   - step 34 (production infrastructure), deferred by Omar on 2026-11-19 until he says the accounts and keys are ready. Skip it until then;
   - step 36d's question ("multiple sources merged", three options in RELAY.md). Nothing before 36d depends on it.
-- **Leg 128 (2026-11-21):**
-  - **Wrote step 36's shape** (RELAY.md step 36, "Facts found in leg 128" and "Shape"), split it 36a–36d, then split 36a at the worker's view into 36a1 and 36a2.
-    - Each changed channel is stored by ContentKey with a ref like a favourite's, so a refresh can re-key it.
-    - The **query worker shows the changes** (36a2): names, numbers, hidden channels. The **live screen** keeps numbers stable and does number entry (36b). The **editing screens** are in settings.js: the info bar's sixth button "Edit channel", and Settings › "Channels" with the "Clean channel names" switch (36c).
-    - **36d** (what "multiple sources merged" means) is Omar's question; the leg that reaches it asks.
-  - **Built and merged 36a1** (PR #155, merge commit `3f97a7c`, green CI at the first run):
-    - `channelEdits` and `cleanNames` in the profile, with checks on read (`channelEditsOf`, `cleanNamesOn`; main-safe, from `@lablo/data/client`);
-    - the `channel` edit (`hide`, `show`, `rename`, `number`, `reset`; a number another channel has moves to the edited one) and the `cleanNames` edit;
-    - a refresh's re-match, once per key (`channel-relink.ts`): an entry on a favourite's key follows the favourite and takes its whole ref. `reconcileFavourites` is generic now, with per-input `outcomes` and `alsoTaken`;
-    - core's `cleanName` (`matchName` now starts from it).
-  - **The phase gate holds:** in `test/ingest-mock.test.ts`, an M3U refresh where the provider renamed and reordered its channels keeps the favourites, the list and the changed channels.
-  - **Mutation** (`artifacts/mutate36a1.py`): 110 mutants written first. Writing them took out three dead checks, fixed a followed entry that kept a stale group, and closed seven gaps. 109 of 109 caught: one equivalent was taken out, and one gap was closed after the run.
-- **Next: step 36a2, the query worker's view.** RELAY.md 36a2 has the shape's part ("The worker shows the edits") and leads written in leg 128. **Read the raw-versus-view-slots trap there first.**
+- **Leg 129 (2026-11-21): built and merged 36a2, the query worker's view** (PR #156, merge commit `7d86801`):
+  - **Decided before coding** (RELAY.md 36a2, "Decided in leg 129"): every address and count the worker hands out stays the provider's (search hits, `items`, `itemsByKey`, `numbered`, a category's `count` and `chunks`). The view shows in two places only:
+    - the served live chunks (`chunk()`: hidden channels out, names and numbers applied);
+    - a new optional `CategoryInfo.hidden` (the hidden channels' places in the category, ascending).
+    - `shownChunks(info)` (`@lablo/data/client`, main-safe) gives each served chunk's length.
+  - **`ChannelView`** (`packages/data/src/channel-view.ts`):
+    - every live read shows the user's name, else the clean name (switch on), else the provider's, and the user's number as `chno`;
+    - a renamed channel is found by both names, once (core's `searchSegments` takes `aliases`, scanned before a segment's own names);
+    - `numbered({number, sources})` gives number entry the channel the user numbered `n`: its stored address, the item as shown, and `hidden`.
+  - **When it changes:** read from the profile at each reload (`readChannelChanges`), taken from each `channel` or `cleanNames` edit at once, ordered by the edit number. `items` now loads the worker first.
+  - **Phase gate extended:** after the refreshes in `test/ingest-mock.test.ts` (M3U renamed and reordered; Xtream renumbered), the worker shows the changes on the re-keyed channels.
+  - **Mutation** (`artifacts/mutate36a2.py`): 68 of 68, the list written first (writing it closed five gaps).
+  - **Wrote 36b's leads** (RELAY.md 36a2, "Leads for 36b").
+- **Next: step 36b, the live screen** (main.js). Nothing in the app reads the view yet.
 
 ## Read first
 1. **`RELAY.md`:**
-   - step 36's "Facts found in leg 128" and "Shape" (the worker's part and the live screen's);
-   - 36a1's "Refined while building";
-   - **36a2's "Leads for the leg that starts it"**;
-   - the last progress row (128).
-2. **`docs/architecture.md` §1.4 item 10, "Built in step 36a1"**, and the 35a/35c blocks above it.
-3. **The code 36a2 builds on:**
-   - `packages/data/src/channel-edits.ts` (`ChannelEdit`, `channelEditsOf`, `cleanNamesOn`);
-   - `packages/data/src/query-service.ts`:
-     - `load()` around line 475: how the favourites' keys are read and ordered by `offsetSeq`; the same pattern fits the changes;
-     - `editProfile`, `itemsByKey`, `search`, `categories`, `chunk`, `items`, `readCached`;
-   - `packages/core/src/search.ts`: `searchSegments`, `SearchSegment.indexOfKey` and `chunkOf`, `favouriteMarks`;
-   - `packages/core/src/normalize.ts`: `cleanName`;
-   - `packages/data/src/profile.ts`: `readFavouriteKeys`, `favouriteKeysOf` (the pattern for reading the changes);
-   - main's readers that 36b changes: `apps/tv/src/live/live-state.ts` (`playFound` around line 820, `rowAt`, `findNumber`) and `channel-index.ts`.
+   - step 36's "Shape", the live screen's part ("Numbers never move", "Number entry", "After an edit", "A hidden channel");
+   - 36b's "Done when" (in 36's "Split");
+   - **36a2's "Decided in leg 129" and "Leads for 36b"**;
+   - the last progress row (129).
+2. **`docs/architecture.md` §1.4 item 10:** "Built in step 36a2", and 35c/35d's blocks above it (`first`, hidden groups, `playOver`).
+3. **The code 36b changes:**
+   - `apps/tv/src/live/live-state.ts`:
+     - `railEntries` (~344), `hiddenParts` (~390), `rowAt` (~503);
+     - `findRow` (~731), `findNumber` (~772), `playFound` (~809), `playOver` (~870);
+     - `reread` (~1006);
+   - `apps/tv/src/live/channel-index.ts` (`ListPart`, `place`, `rowOfPlace`, `locate`, `firstRow`, `chunksFor`);
+   - `apps/tv/src/data/engine.ts` (`categories`, `chunk`, `itemsByKey` around line 700–835; add `numbered`).
+4. **The worker side it reads:**
+   - `packages/data/src/channel-view.ts`;
+   - `packages/data/src/channel-edits.ts` (`shownChunks`);
+   - `packages/data/src/query-service.ts` (`numbered`, `NumberedChannel`).
 
 ## Next steps, in order
 1. **Check the state:**
    - `git -C "<wt>" status` is clean;
-   - `git -C "<wt>" log --oneline -3` shows this handover's commit, then `256671a`, then `3f97a7c` (PR #155's merge);
-   - `origin/main` is `3f97a7c`;
+   - `git -C "<wt>" log --oneline -3` shows this handover's commit, then `4849232`, then `f412d68`;
+   - `origin/main` is `7d86801` (PR #156's merge);
    - there is no `*.mutbak`;
    - `docker ps` shows only `lablo-web-postgres-1`;
-   - check the free memory (leg 128 started with 30.7 GB of free commit).
-2. **Confirm 36a2 isn't done** (git log; grep `cleanNamesOn`, `channelEditsOf` in `query-service.ts`: in leg 128 nothing there used them).
-3. **Build 36a2**, deciding first, from the leads, how `categories` hands out the view:
-   - a hidden channel's rows leave the served chunks, while main still needs raw counts for places (numbers) and raw slots for search hits;
-   - for example, keep the raw `chunks` and add the view's beside them.
-   - Write the choice and its why into RELAY.md 36a2 before coding.
+   - check the free memory (leg 129 started with 29 GB of free commit, 7.7 GB physical).
+2. **Confirm 36b isn't done** (git log; grep `shownChunks`, `numbered`, `rowOfStored` in `apps/tv/src`: in leg 129 nothing there used them).
+3. **Build 36b** from the leads:
+   - `railEntries`: places count every channel (`at += info.count`), rows count the shown ones (`shownChunks`); the entry's count is `count − hidden.length`;
+   - `ChannelIndex` steps over hidden places (`place`, `rowOfPlace`), plus a new `rowOfStored` for provider addresses;
+   - `playFound` uses `rowOfStored`; a hidden channel of a shown group plays over the list;
+   - `findNumber` asks `numbered` first;
+   - `reread(true)` after an edit.
+   - **Main-safe code only** (rules below). About 2–3 KB of main.js.
 4. **Gates, one heavy check at a time:**
    - unit tests;
-   - `test/query-worker-bundle.test.ts` (it prints the worker's size);
+   - e2e in en and ar with edits written to the profile (36b's "Done when"; see "A restored start" below for writing the profile);
+   - screenshots;
    - lint and the whole `pnpm typecheck`;
-   - `build:tv` (main.js should stay 426.1 KB; the query worker has 12.0 KB left);
+   - `build:tv` (main.js 426.1 KB now; settings.js 66.1 KB unchanged);
    - mutation, with the list written first;
    - `verify:engines --engine chrome53 --engine chrome68`;
-   - the PR on green CI; merge it (merge commit, keep the branch); docs (architecture.md "Built in step 36a2").
-5. **Then 36b** (the live screen) if the leg still has room, else hand over.
+   - the PR on green CI; merge it (merge commit, keep the branch); docs (architecture.md "Built in step 36b").
+5. **Then 36c** (the editing screens, settings.js) if the leg still has room, else hand over.
 
 ## Git state to expect
-- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed. It is `origin/main` (`3f97a7c`, PR #155's merge) plus:
-  - `256671a` (RELAY.md: 36a1 ticked, progress row 128, 36a2's leads);
+- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed. It is `origin/main` (`7d86801`, PR #156's merge) plus:
+  - `4849232` (RELAY.md: 36a2 and 36a ticked, progress row 129);
   - this handover's commit (docs: HANDOVER.md).
-- **`main`:** `3f97a7c`. The main checkout was not touched.
+- **`main`:** `7d86801`. The main checkout was not touched.
 - **Gitignored but present:**
   - `node_modules`, `.cache/*`, `apps/web/.env`, `apps/web/.next`;
-  - `dist/`: leg 128's full `build:tv`;
+  - `dist/`: leg 129's full `build:tv`;
   - in `artifacts/`:
-    - `mutate36a1.py` (run, results in its docstring) and `mutate36a1-a..d.log`;
-    - `unit-36a1-leg128.log`, `build-tv-36a1-leg128.log`, `lint-36a1-leg128.log`, `engines-36a1.log`;
+    - `mutate36a2.py` (run, results in its docstring) and `mutate36a2-a.log`, `mutate36a2-b.log`;
+    - `unit-36a2-leg129.log`, `build-tv-36a2-leg129.log`, `typecheck-36a2-leg129.log`, `engines-36a2.log`, `e2e-telemetry-leg129.log`;
     - older legs' files (`amd-probe/` can be deleted).
 
 ## Verified vs not
-- **Verified and merged (PR #155, CI green: changes, web, media, verify, engines):**
-  - unit 7,861 (+64); lint; `pnpm typecheck`;
+- **Verified and merged (PR #156, CI green: changes, web, media and engines at the first run; verify at the rerun):**
+  - unit 7,877 (+16); lint of the changed files; `pnpm typecheck`;
   - `build:tv`:
     - main.js 426.1 KB (Tizen) and 413.4 KB (webOS), unchanged;
     - settings.js 66.1 KB, unchanged;
-    - query worker 134.9 → 138.0 KB, ingest worker 133.0 → 135.7 KB;
+    - query worker 138.0 → 141.6 KB (8.4 KB left), no new core-js module;
+  - the 200k search test as before (about 420 ms, old scan or new);
   - `verify:engines` on Chromium 53 and 68: all 26 runs as expected;
-  - mutation 109 of 109.
+  - mutation 68 of 68.
 - **Not yet:**
-  - **nothing in the app reads the changes yet:** 36a2 (worker), 36b (live screen), 36c (screens);
-  - e2e not run this leg (no app code changed);
+  - **nothing in the app reads the view:** 36b (live screen), 36c (screens);
+  - e2e not run for 36a2 beyond CI's full run (no app code changed);
   - production (step 34).
 - **Migrations and deploys:** none. Nothing is in production or deployed.
 
 ## Gotchas and lessons
-**New in leg 128:**
-- **Raw versus view slots** (36a2's trap, in RELAY.md 36a2's leads):
-  - search hits and `items(refs)` use raw chunk addresses;
-  - if the worker drops hidden channels from served chunks, `playFound`'s guess (`firstRow + slot`) and its number for a hidden group's channel (`part.first + firstRow + slot + 1`) would mix raw and view counts;
-  - `items()` must read raw chunks: names and numbers applied, nothing dropped.
-- **The worker's cache holds raw chunks:** copy an item before renaming or renumbering it, never change a cached one.
+**New in leg 129:**
+- **The query worker serves a view now.** With `channelEdits` or `cleanNames` in the profile:
+  - `chunk()` leaves hidden channels out; every live read shows the user's names and numbers;
+  - a served chunk's length is `shownChunks(info)[c]`, not `info.chunks[c]`;
+  - search hits, `items(refs)` addresses and `numbered`'s address are the provider's (raw) slots;
+  - to read the provider's items in a test, read the store (`readCategories` + `readChunks`; `storedItems` in `test/ingest-mock.test.ts`).
+- **36b's trap:** `ChannelIndex` must count rows by `shownChunks` but places by the provider's `chunks` and `hidden`. A hidden group's part (`hiddenParts`, `playOver`) keeps the provider's `chunks` for its numbers.
+- **The query worker has 8.4 KB left** (141.6 of 150). `pnpm exec vitest run test/query-worker-bundle.test.ts` prints it in about 5 s.
+- **A worker's module diff** (are new bytes polyfills or own code?):
+  - a tsx `.mts` probe outside the repo calls `bundleIife({ input, platform: 'webos' })` and prints `code.length` and the sorted `modules`;
+  - import the bundler by a `file:///D:/Claude%20Code%20PlayGround/...` URL;
+  - for "before": `git diff -- packages > p.patch; git checkout -- packages; <probe>; git apply p.patch`.
+- **New CI flake: `e2e/telemetry.spec.ts:202`** timed out at 30 s, but its trace showed every assertion done in 2.5 s. The rest was `withServer`'s `await server.close()` waiting on an open connection. It passed 27/27 locally and green on the rerun. Read a trace with `gh run download <run> -n playwright-report`, then pair `test.trace`'s before/after events.
+- **Watching a rerun:**
+  - `gh run rerun --failed` answered `HTTP 502` yet started the rerun;
+  - the run's status keeps saying `completed failure` while the rerun runs, so poll the new job by id (`gh api repos/Omarmarei/Lablo/actions/jobs/<id>`).
+
+**From leg 128 (still true):**
 - **Vitest `toEqual` ignores `undefined` properties:** to test that an optional field is left out, check `Object.keys(x)` or `'f' in x`.
-- **`reconcileFavourites(refs, …).outcomes`** is aligned with the input (`null` means dropped). Use it for any other list of refs; positions in `favourites` shift after a drop.
-- **The query worker's size in about 5 s:** `pnpm exec vitest run test/query-worker-bundle.test.ts` prints `query.worker.js: N KB of 150.0 KB` (the same number as `build:tv`).
-- **The mock catalog's 101 and 112** share a name and a tvg-id in two groups. An M3U reorder swaps their `dup` numbers, so their M3U keys swap silently (ADR-009's limit). Don't use them in M3U reorder tests. For Xtream, 112 is how a "follows its favourite" test is made observable.
-- **A heredoc python patch failed again** ("unexpected EOF while looking for matching `''") even though it was quoted `<<'PYEOF'`. Write every patch script longer than a few lines with the Write tool, with `newline=''` on read and write.
-- **CI with core/data changes runs `media` too** (about 11 min). The whole run took about 30 min; a Monitor poll loop on `gh run view <id> --json status,conclusion,jobs` worked well.
+- **`reconcileFavourites(refs, …).outcomes`** is aligned with the input (`null` means dropped).
+- **The mock catalog's 101 and 112** share a name and a tvg-id in two groups; an M3U reorder swaps their `dup` numbers. Don't use them in M3U reorder tests.
+- **Write every patch script longer than a few lines with the Write tool,** with `newline=''` on read and write (heredoc python patches fail).
+- **CI with core/data changes runs `media` too** (about 11 min); the whole run takes about 30 min; a Monitor poll loop works well.
 
 **From legs 125–127 (still true):**
 - **e2e imports and the root tsc:** an e2e spec must not import an app module whose imports reach `@lablo/ui` (TS6142 in the root `pnpm typecheck`). Copy the constant into the spec and pin it in a unit test.
-- **A restored start in e2e:**
+- **A restored start in e2e** (how 36b's e2e writes channel edits to the profile):
   - `configIdle()` and `backupIdle()`, then `/?screen=gallery`;
   - edit the `profile` record;
   - open `/?restored=1&locale=…` (see `dropGuideLink` in `e2e/settings-loading.spec.ts`).
 - **The e2e specs that open Settings:** backup-code, backup-logins-xa, backup-settings, config-blocklist, guide-catchup-m3u, guide-matches, guide-offset, guides, home, live, pairing, telemetry, groups, guide-mapping, settings-loading (`chromium` project, about 1.5 min at `--workers=3`). `pnpm e2e:web` needs `pnpm build:web` first.
-- **TV-build e2e:**
-  - Back by CDP key code (`pressBack` in `tv-bundle.spec.ts`);
-  - `page.route` doesn't see `file://` loads (copy the dist and rename a file there);
-  - in `pnpm dev`, a lazy module's CSS loads with it.
-- **Rollup AMD:**
-  - `amd.autoId` writes dependencies as `'./main'`;
-  - `preserveEntrySignatures: false`;
-  - terser minifies a `banner`.
-- **e2e paths:**
-  - Home is `live/header/3`, Search `live/header/4`, Settings `live/header/5`;
-  - from `live/channels/0`, UP lands on `live/header/0`.
-- **CI times:** engines 27 min, verify 17 min, media 11 min, web 3 min.
+- **TV-build e2e:** Back by CDP key code (`pressBack` in `tv-bundle.spec.ts`); `page.route` doesn't see `file://` loads; in `pnpm dev`, a lazy module's CSS loads with it.
+- **e2e paths:** Home is `live/header/3`, Search `live/header/4`, Settings `live/header/5`; from `live/channels/0`, UP lands on `live/header/0`.
+- **CI times:** engines 28 min, verify 12–17 min, media 11 min, web 3 min.
 
 **From earlier legs (still true):**
 - **Memory:** about 80 old leg tabs hold a `claude.exe` each. Run heavy checks one at a time (mutation, then `verify:engines` alone, then e2e, then unit).
@@ -149,7 +159,7 @@ You are leg 129 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
   - never `-c user.email=…`;
   - `git mv` stages at once.
 - **CI:** no `jq` (use `gh --jq`). Known flakes, rerun after the whole run:
-  - `auto-next.spec.ts` ar-SA, `epg-declared-300mb`, `guide-offset.spec.ts` en-US;
+  - `auto-next.spec.ts` ar-SA, `epg-declared-300mb`, `guide-offset.spec.ts` en-US, **`telemetry.spec.ts:202`**;
   - `rpc.test.ts:179`;
   - media's 30-minute cap;
   - Chromium 53/56 DevTools start-up.
@@ -189,7 +199,8 @@ You are leg 129 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
   - `rpc.test.ts:179`'s fixed 5 ms sleep;
   - caching ffmpeg in CI's media job;
   - forwarding workers' unhandled rejections (33c);
-  - **new:** the manual EPG mappings (`epgOverrides`, by ContentKey) don't follow a refresh's re-match, so an Xtream renumbering loses them. They could ride step 36's re-match (a ref per mapping).
+  - the manual EPG mappings (`epgOverrides`, by ContentKey) don't follow a refresh's re-match, so an Xtream renumbering loses them. They could ride step 36's re-match (a ref per mapping);
+  - **new:** `e2e/config-server.ts`'s `close()` waits for every open connection (the `telemetry.spec.ts:202` stall): call `server.closeAllConnections()` first.
 - **Steps 16, 19b and 21 wait for Omar** (Samsung, and 30–45 minutes at the LG TV). That session also covers:
   - an Arabic onboarding;
   - typing a backup code;
@@ -202,7 +213,7 @@ You are leg 129 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
 
 ## Checks for Omar
 1. **Optional:** answer step 36d's question early in any tab (RELAY.md step 36, "36d": 1, 2 or 3).
-2. **Nothing to look at in the app from leg 128:** 36a1 is data only.
+2. **Nothing to look at in the app from leg 129:** 36a2 is the query worker only; the live screen reads it from 36b.
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
 - **Memory:**
