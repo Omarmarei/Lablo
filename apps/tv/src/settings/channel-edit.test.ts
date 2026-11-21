@@ -197,7 +197,7 @@ describe('the menu’s words and checks (RELAY step 36c)', () => {
     expect(typedNumber('0042')).toBe(42);
     expect(typedNumber('1')).toBe(1);
     expect(typedNumber('9999')).toBe(9999);
-    for (const wrong of ['0', '000', '10000', '4a', '-1', '4.0', '1e3', '٤٢', '+7', '4 2', '/', ':']) expect(typedNumber(wrong)).toBeUndefined();
+    for (const wrong of ['0', '000', '10000', '4a', '-1', '4.0', '1e3', '٤٢', '+7', '4 2', '/', ':', '2/', '4:']) expect(typedNumber(wrong)).toBeUndefined();
   });
 
   it('finds a channel’s stored changes by key', () => {
@@ -531,6 +531,13 @@ describe('"Edit channel" over the player (the info bar’s pencil)', () => {
       await t.press('OK');
       expect(t.find).toHaveBeenCalledWith(CHANNEL_NUMBER_FIELD);
       t.editor.editor.field(CHANNEL_NUMBER_FIELD).onEditBlur();
+      t.editor.setText('12');
+      await t.press('DIGIT_3');
+      expect(t.editor.text.value).toBe('123');
+      // Typed on the keyboard before any digit, the stored number is gone too: the next digit goes on from the text.
+      await t.press('BACK');
+      await t.choose('number');
+      expect(t.editor.text.value).toBe('77');
       t.editor.setText('12');
       await t.press('DIGIT_3');
       expect(t.editor.text.value).toBe('123');

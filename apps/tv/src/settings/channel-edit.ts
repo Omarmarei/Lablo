@@ -311,9 +311,8 @@ export function createChannelEditor(options: ChannelEditOptions): ChannelEditor 
     else if (action === 'number') openForm(EDIT_NUMBER, shown.edit === null || shown.edit.number === undefined ? '' : String(shown.edit.number));
   };
 
-  /** Puts the menu on the navigator (closed, so `close` bumped `seq` and emptied the actions). */
+  /** Puts the menu on the navigator (closed, so `close` bumped `seq`, emptied the actions and took the problem away). */
   const push = (next: EditTarget): void => {
-    problem.value = null;
     target.value = next;
     screen.value = nav.push({
       id: EDIT_SCREEN,

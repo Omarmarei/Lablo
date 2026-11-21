@@ -92,8 +92,6 @@ export function createEditedChannels(options: EditedOptions): EditedChannels {
   let readSeq = 0;
   /** The channel the focus goes to when the next read lands. */
   let follow: ContentKey | null = null;
-  /** A switch on its way: OK waits. */
-  let switching = false;
 
   /** Runs `request`, counting it in `pending` until it settles either way. */
   function track<T>(request: () => Promise<T>): Promise<T> {
@@ -155,8 +153,8 @@ export function createEditedChannels(options: EditedOptions): EditedChannels {
   /** "Clean channel names": the other value, then the live screen and the rows read again. */
   const toggle = (): void => {
     const on = clean.value;
-    if (on === null || switching) return;
-    switching = true;
+    // (A switch on its way counts in `pending`, so OK waits for it and the read after it.)
+    if (on === null) return;
     failed.value = false;
     track(() => engine.editProfile({ kind: 'cleanNames', on: !on }))
       .then(
@@ -171,10 +169,7 @@ export function createEditedChannels(options: EditedOptions): EditedChannels {
           return false;
         },
       )
-      .then((ok) => {
-        switching = false;
-        return ok && !disposed ? read() : undefined;
-      });
+      .then((ok) => (ok && !disposed ? read() : undefined));
   };
 
   /** A changed channel's menu; after an edit the rows read again, the focus on it. */
