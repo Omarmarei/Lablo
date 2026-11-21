@@ -73,6 +73,6 @@ describe('the loading screen of a lazy file (RELAY step 35e)', () => {
     const ar = draw2('ar-SA');
     expect(ar.props).toMatchObject({ 'data-language': 'ar', 'data-dir': 'ltr' });
     expect(stripIsolates(textOf(byTestId(ar, 'lazy-loading-failed')[0]))).toBe('تعذّر فتح هذه الشاشة.');
-    expect((byTestId(ar, 'lazy-loading-retry')[0]!.props as { label: string }).label).toBe('إعادة المحاولة');
+    expect((byTestId(ar, 'lazy-loading-retry')[0]!.props as unknown as { label: string }).label).toBe('إعادة المحاولة');
   });
 });

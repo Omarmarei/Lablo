@@ -236,6 +236,51 @@ describe('a file loaded on first use (RELAY step 35e)', () => {
     loads.resolve('settings');
     await flush();
     expect(opened).toEqual(['settings']);
+    // The first opening's timers went with it.
+    expect(clock.pending()).toBe(0);
+  });
+
+  it('shows the spinner after 300 ms and gives up after 15 s', () => {
+    const { clock, file, open } = setup();
+    file.use(open);
+    clock.advance(299);
+    expect(file.phase.value).toBe('quiet');
+    clock.advance(1);
+    expect(file.phase.value).toBe('spinner');
+    clock.advance(15_000 - 300 - 1);
+    expect(file.phase.value).toBe('spinner');
+    clock.advance(1);
+    expect(file.phase.value).toBe('failed');
+  });
+
+  it('asks again for a use that comes while the failure shows', async () => {
+    const { nav, loads, file, opened, open } = setup();
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const other = (value: string): void => {
+      opened.push(`other ${value}`);
+    };
+    file.use(open);
+    loads.reject(new Error('no'));
+    await flush();
+    expect(file.phase.value).toBe('failed');
+    file.use(other);
+    expect(file.phase.value).toBe('quiet');
+    expect(path(nav)).toBe(`${LOADING_SCREEN}/${LOADING_RETRY}/-1`);
+    expect(loads.count).toBe(2);
+    loads.resolve('settings');
+    await flush();
+    expect(opened).toEqual(['other settings']);
+  });
+
+  it('opens nothing over a screen that opened over the loading screen', async () => {
+    const { nav, loads, file, opened, open } = setup();
+    file.use(open);
+    nav.push({ id: 'over', zones: [{ kind: 'list', id: 'items', axis: 'vertical', count: 2 }] });
+    loads.resolve('settings');
+    await flush();
+    expect(opened).toEqual([]);
+    expect(path(nav)).toBe('over/items/0');
+    expect(file.loaded.value).toBe('settings');
   });
 
   it('closes on Back after a failure', async () => {
