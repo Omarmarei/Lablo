@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test';
 import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { stripIsolates } from '../packages/core/src/bidi';
-import { settled, toSourceTypes, trackErrors, typeInto } from './onboard';
+import { settled, toSourceTypes, toStartButton, trackErrors, typeInto } from './onboard';
 import { storedProfile } from './pairing-steps';
 import { playlistOnly } from './playlist-only';
 import { RemoteDriver } from './remote-driver';
@@ -88,7 +88,7 @@ for (const [locale, language] of [
       ]);
 
       // Start watching, then Settings › Sources: the source's kind and server.
-      await remote.expectFocus('done/actions/0');
+      await toStartButton(remote, onboarding);
       await remote.press('OK');
       const live = page.getByTestId('live');
       await expect(live).toHaveAttribute('data-status', 'ready');

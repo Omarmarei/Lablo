@@ -234,6 +234,8 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'done.movies': '{n, plural, zero {لا توجد أفلام} one {فيلم واحد} two {فيلمان} few {# أفلام} many {# فيلمًا} other {# فيلم}}',
   'done.series': '{n, plural, zero {لا توجد مسلسلات} one {مسلسل واحد} two {مسلسلان} few {# مسلسلات} many {# مسلسلًا} other {# مسلسل}}',
   'done.start': 'ابدأ المشاهدة',
+  'done.pinNote': 'مجموعات البالغين مقفلة ومخفية، ويفتحها رمز سري. لتعيينه لاحقًا ستحتاج إلى بيانات الدخول لأحد مصادرك.',
+  'done.later': 'لاحقًا',
 
   'live.title': 'البث المباشر',
   'live.channels': '{n, plural, zero {لا توجد قنوات} one {قناة واحدة} two {قناتان} few {# قنوات} many {# قناةً} other {# قناة}}',

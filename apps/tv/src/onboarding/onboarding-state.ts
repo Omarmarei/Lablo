@@ -5,6 +5,7 @@ import type { EditorBinding, FocusBinding, Language, Navigator, Screen, ScreenSp
 import { bindEditor, bindFocus, createNavigator, createTextEditor } from '@lablo/ui';
 import type { Refusal } from '../gate/gate-state';
 import type { Pairing } from '../pairing/pair-state';
+import type { Parental } from '../parental/parental';
 import type { FieldId, FormProblems, FormValues, SourceDraft, SourceType } from './form';
 import { FORM_FIELDS, checkForm, firstProblem } from './form';
 import type { LoadErrorCode, LoadHandle, LoadProgress, LoadResult, SourceLoader } from './loader';
@@ -28,7 +29,11 @@ import { createRestoreCode } from './restore-code';
  *   restore-code (the backup code typed: `createRestoreCode`, step 32d3c; a restore starts the
  *              app again on the restored profile)
  *   loading   (progress; on failure "Edit details" / "Try again")
- *   done      (the counts; the new root: Back no longer goes into onboarding)
+ *   done      (the counts; the new root: Back no longer goes into onboarding). When the source
+ *              brought locked groups and no PIN is set (`LoadResult.askPin`, step 38c3), it says
+ *              so and offers "Set a PIN" (onboarding's own PIN pad, `pad`: the new PIN typed
+ *              twice; Back returns here, and once it is kept onboarding is finished) or "Later"
+ *   pin       (the pad over the done screen, step 38c3)
  *
  * Each answer is handed to `answer` as it is given (step 13b saves it in the profile), so a
  * relaunch before the source is added starts again in the language picked (`initial`).
@@ -91,6 +96,10 @@ export interface Onboarding {
   readonly pairing: Pairing | null;
   /** The backup code's screen, when the app can restore (step 32d3c): the source screen's last row. */
   readonly restoreCode: RestoreCode | null;
+  /** The PIN pad of the done screen's "Set a PIN" (step 38c3), when the app gives one. */
+  readonly parental: Parental | null;
+  /** The done screen offers "Set a PIN" and "Later" (step 38c3): the source brought locked groups, no PIN is set, and there is a pad. */
+  readonly asksPin: ReadonlySignal<boolean>;
   readonly exitRequested: ReadonlySignal<boolean>;
   setValue(id: FieldId, value: string): void;
   /** Focuses the TV's language on the first screen (the device info arrives after the first render). */
@@ -128,7 +137,16 @@ export interface OnboardingOptions {
    * refresh slot's wait and the restart. Without it the source screen has no "Restore" row.
    */
   readonly restoreCode?: RestoreCodeHost;
+  /**
+   * Makes the PIN pad on onboarding's navigator (step 38c3: parental control without a lifecycle).
+   * Without it the done screen never offers "Set a PIN".
+   */
+  readonly pad?: (nav: Navigator) => Parental;
 }
+
+/** The done screen's buttons with the prompt (step 38c3): "Set a PIN", then "Later". */
+export const DONE_SET_PIN = 0;
+export const DONE_LATER = 1;
 
 const ONE: ScreenSpec['zones'] = [{ kind: 'list', id: 'actions', axis: 'horizontal', count: 1 }];
 const TWO: ScreenSpec['zones'] = [{ kind: 'list', id: 'actions', axis: 'horizontal', count: 2 }];
@@ -153,6 +171,7 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
   const draft = signal<SourceDraft | null>(null);
   const load = signal<LoadState>({ status: 'idle' });
   const finished = signal(false);
+  const asksPin = signal(false);
   const exitRequested = signal(false);
 
   /** The load running, if any: answers from an older one are dropped. */
@@ -183,7 +202,7 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
         current = null;
         load.value = { status: 'done', result };
         // The source is added: onboarding leaves the back stack.
-        root.value = nav.reset(doneSpec);
+        showDone(result);
       },
       (error: unknown) => {
         if (current !== mine) return;
@@ -232,12 +251,23 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
     },
   };
 
-  const doneSpec: ScreenSpec = {
-    id: 'done',
-    zones: ONE,
-    onSelect: () => {
-      finished.value = true;
-    },
+  /** The done screen as the new root: with the prompt, "Set a PIN" opens the pad (Back returns here) and "Later" finishes. */
+  const showDone = (result: LoadResult): void => {
+    const prompt = result.askPin === true && parental !== null;
+    asksPin.value = prompt;
+    root.value = nav.reset({
+      id: 'done',
+      zones: prompt ? TWO : ONE,
+      onSelect: (focus) => {
+        if (prompt && focus.index === DONE_SET_PIN) {
+          parental!.choose(() => {
+            finished.value = true;
+          });
+          return;
+        }
+        finished.value = true;
+      },
+    });
   };
 
   const submit = (): void => {
@@ -346,9 +376,10 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
   const pairAdded = (source: SourceDraft, result: LoadResult): void => {
     draft.value = source;
     load.value = { status: 'done', result };
-    root.value = nav.reset(doneSpec);
+    showDone(result);
   };
   const pairing = options.pairing === undefined ? null : options.pairing(nav, pairAdded);
+  const parental = options.pad === undefined ? null : options.pad(nav);
 
   const textEditor = createTextEditor({ platform, nav, find: options.find, now: options.now });
   const editor = bindEditor(textEditor);
@@ -375,6 +406,8 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
     exitRequested,
     pairing,
     restoreCode,
+    parental,
+    asksPin,
     setValue(id: FieldId, value: string): void {
       values.value = { ...values.value, [id]: value };
       if (problems.value[id] !== undefined) {
@@ -391,6 +424,7 @@ export function createOnboarding(options: OnboardingOptions): Onboarding {
       cancelLoad();
       pairing?.dispose();
       restoreCode?.dispose();
+      parental?.dispose();
       editor.dispose();
       textEditor.dispose();
       binding.dispose();

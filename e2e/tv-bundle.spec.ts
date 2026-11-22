@@ -214,7 +214,11 @@ for (const platform of ['tizen', 'webos'] as const) {
     for (const key of ['ArrowDown', 'ArrowDown', 'Enter']) await page.keyboard.press(key);
     await expect(root).toHaveAttribute('data-screen', 'done', { timeout: 20_000 });
     await expect(page.getByTestId('done-live')).toHaveAttribute('data-n', String(app.mockState.catalog.live.length));
-    // Start watching: the live screen (step 14a) lists the playlist through the same workers.
+    // The mock's 18+ group is locked and no PIN is set (RELAY step 38c3): "Later", then the live
+    // screen (step 14a) lists the playlist through the same workers.
+    await expect(page.getByTestId('done-pin')).toBeVisible();
+    await page.keyboard.press('ArrowRight');
+    await expect(root).toHaveAttribute('data-index', '1');
     await page.keyboard.press('Enter');
     const live = page.getByTestId('live');
     await expect(live).toHaveAttribute('data-status', 'ready');

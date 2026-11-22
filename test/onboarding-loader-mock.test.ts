@@ -96,13 +96,23 @@ const xtream = (username = U, password = P): SourceDraft => ({ type: 'xtream', n
 const m3u = (url: string): SourceDraft => ({ type: 'm3u', name: 'Mock list', url, epgUrls: [] });
 
 describe("onboarding's loader against the mock provider", () => {
+  it('asks for a PIN while the catalogs have a locked group and none is set, read from the query worker after the add (step 38c3)', async () => {
+    const data = engine();
+    expect((await loader(data).start(xtream(), () => undefined).done).askPin).toBe(true);
+    expect(await data.lockState()).toEqual({ pin: false, unlocked: false, kinds: ['live'] });
+    expect(await data.setPin('2580')).toBe(true);
+    // A second source once a PIN is set: no prompt.
+    expect((await loader(data).start(m3u(`${base}/get.php?username=${U}&password=${P}&type=m3u_plus`), () => undefined).done).askPin).toBe(false);
+  });
+
   it('adds an Xtream login: the mock counts, its guide, and the source in the profile', async () => {
     const data = engine();
     const phases: LoadProgress['phase'][] = [];
     const result = await loader(data).start(xtream(), (p) => {
       if (phases[phases.length - 1] !== p.phase) phases.push(p.phase);
     }).done;
-    expect(result).toEqual({ live: catalog.live.length, movies: catalog.movies.length, series: catalog.series.length });
+    // The mock's 18+ group is locked by default and no PIN is set: the done screen asks for one (step 38c3).
+    expect(result).toEqual({ live: catalog.live.length, movies: catalog.movies.length, series: catalog.series.length, askPin: true });
     expect(phases).toEqual(['checking', 'download', 'saving', 'guide']);
     // The panel's guide was read with it.
     const status = await data.epgStatus();
@@ -118,7 +128,7 @@ describe("onboarding's loader against the mock provider", () => {
     const guide = `${base}/xmltv.php?username=${U}&password=${P}`;
     const list = { ...m3u(`${base}/get.php?username=${U}&password=${P}&type=m3u_plus&output=ts`), epgUrls: [guide] };
     // The panel's shows, not the playlist's episodes listed flat.
-    expect(await loader(data).start(list, () => undefined).done).toEqual({ live: catalog.live.length, movies: catalog.movies.length, series: catalog.series.length });
+    expect(await loader(data).start(list, () => undefined).done).toEqual({ live: catalog.live.length, movies: catalog.movies.length, series: catalog.series.length, askPin: true });
     const live = await data.categories('s1', 'live');
     expect((await data.chunk('s1', 'live', 0, 0))[0]!.key).toMatch(/^x:s1:live:\d+$/);
     expect(live.length).toBe(catalog.live.reduce((ids, c) => (ids.indexOf(c.categoryId) === -1 ? ids.concat([c.categoryId]) : ids), [] as number[]).length);
@@ -137,7 +147,7 @@ describe("onboarding's loader against the mock provider", () => {
     try {
       const data = engine();
       const link = `${host}/get.php?username=${U}&password=${P}&type=m3u_plus`;
-      expect(await loader(data).start(m3u(link), () => undefined).done).toEqual({ live: catalog.live.length, movies: catalog.movies.length, series: episodes });
+      expect(await loader(data).start(m3u(link), () => undefined).done).toEqual({ live: catalog.live.length, movies: catalog.movies.length, series: episodes, askPin: true });
       expect((await data.chunk('s1', 'live', 0, 0))[0]!.key).toMatch(/^m:s1:/);
       // The playlist's panel login still answered (ADR-010): its server facts are kept.
       expect((await data.sourceStatus())[0]).toMatchObject({ src: 's1', server: { timezone: expect.any(String) } });

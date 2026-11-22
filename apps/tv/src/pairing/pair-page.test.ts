@@ -241,6 +241,31 @@ describe('the other views', () => {
   });
 });
 
+describe("the done view's PIN prompt (step 38c3)", () => {
+  const LOCKED: PairView = { kind: 'done', result: { live: 1, movies: 0, series: 0, askPin: true } };
+  const NOTE = "Adult groups are locked and out of sight. A PIN opens them. Setting one later needs one of your sources' logins.";
+
+  it('offers "Set a PIN", primary and first, then "Later", with the line under the counts', () => {
+    const page = draw(LOCKED, { pin: true });
+    const drawn = buttons(page);
+    expect(drawn.map((b) => b.label)).toEqual(['Set a PIN', 'Later']);
+    expect(drawn.map((b) => b.testId)).toEqual(['pair-action-0', 'pair-action-1']);
+    expect(drawn.map((b) => b.variant)).toEqual(['primary', undefined]);
+    const done = expand(byType(page, Message)[0]!);
+    expect(textOf(byTestId(done, 'pair-pin'))).toBe(NOTE);
+    // In Arabic too.
+    const arabic = expand(byType(PairContent({ i18n: ar, view: LOCKED, name: 'x', sent: null, zone: zone(), pin: true }) as VNode, Message)[0]!);
+    expect(textOf(byTestId(arabic, 'pair-pin'))).toBe('مجموعات البالغين مقفلة ومخفية، ويفتحها رمز سري. لتعيينه لاحقًا ستحتاج إلى بيانات الدخول لأحد مصادرك.');
+    expect(buttons(PairContent({ i18n: ar, view: LOCKED, name: 'x', sent: null, zone: zone(), pin: true }) as VNode).map((b) => b.label)).toEqual(['تعيين رمز سري', 'لاحقًا']);
+  });
+
+  it('has neither without the prompt, whatever the result says', () => {
+    const page = draw(LOCKED);
+    expect(buttons(page).map((b) => b.label)).toEqual(['Done']);
+    expect(byTestId(expand(byType(page, Message)[0]!), 'pair-pin')).toEqual([]);
+  });
+});
+
 describe('groupedCode', () => {
   it('splits the eight characters in two groups of four', () => {
     expect(groupedCode('ABCD2345')).toBe('ABCD 2345');

@@ -35,6 +35,10 @@ import { fileError, pairDraft, statusFor } from './pair-draft';
  * - **The phone's M3U file** (step 31d2b1): the draft fetches it on the session the payload came
  *   on, when the loader asks. Its status deletes the blob on the server, so a failed or refused
  *   file has no "Try again", only "Show a new code".
+ * - **The PIN's prompt** (step 38c3): when the source brought locked groups and no PIN is set
+ *   (`LoadResult.askPin`) and the app gives the pad (`setPin`, Settings only: onboarding's
+ *   pairing goes to onboarding's done screen), the done view offers "Set a PIN" (the pad's new
+ *   PIN over the done view; once it is kept, the pairing screen closes) or "Later".
  */
 
 /** Codes made one after another while nothing was sent; then "Show a new code". */
@@ -64,16 +68,24 @@ export type PairView =
 
 export type PairViewKind = PairView['kind'];
 
-/** The buttons of each view, in screen order. */
-export type PairAction = 'cancel' | 'retry-code' | 'new-code' | 'retry-load' | 'close';
+/** The buttons of each view, in screen order (`set-pin` and `later`: the done view's prompt, step 38c3). */
+export type PairAction = 'cancel' | 'retry-code' | 'new-code' | 'retry-load' | 'close' | 'set-pin' | 'later';
 
-/** The buttons of a view; `file`: the source is the phone's file, which can't be fetched again. */
-export function pairActions(kind: PairViewKind, file = false): readonly PairAction[] {
+/**
+ * The buttons of a view; `file`: the source is the phone's file, which can't be fetched again;
+ * `pin`: the done view offers "Set a PIN" (step 38c3).
+ */
+export function pairActions(kind: PairViewKind, file = false, pin = false): readonly PairAction[] {
   if (kind === 'unavailable') return ['retry-code'];
   if (kind === 'ended') return ['new-code'];
   if (kind === 'failed' || kind === 'refused') return file ? ['new-code'] : ['new-code', 'retry-load'];
-  if (kind === 'done') return ['close'];
+  if (kind === 'done') return pin ? ['set-pin', 'later'] : ['close'];
   return ['cancel'];
+}
+
+/** The view is the done view and offers "Set a PIN" (step 38c3): the source brought locked groups, no PIN is set, and the app gives the pad. */
+export function asksPin(view: PairView, canSetPin: boolean): boolean {
+  return canSetPin && view.kind === 'done' && view.result.askPin === true;
 }
 
 export interface PairTimers {
@@ -103,6 +115,8 @@ export interface PairingOptions {
   readonly added?: (draft: SourceDraft, result: LoadResult) => void;
   /** The name of a file sent without one (the catalog's `pair.fileName` in the UI's language, step 31d2b1). */
   readonly fileName?: () => string;
+  /** The pad's new PIN (step 38c3, Settings): `kept` once it is kept. Without it the done view never offers "Set a PIN". */
+  readonly setPin?: (kept: () => void) => void;
 }
 
 export interface Pairing {
@@ -111,18 +125,21 @@ export interface Pairing {
   readonly draft: ReadonlySignal<SourceDraft | null>;
   /** The status sent for the last payload (tests and the e2e read it), `null` before one. */
   readonly sent: ReadonlySignal<PairStatus | null>;
+  /** The done view can offer "Set a PIN" (step 38c3: the app gave the pad). */
+  readonly canSetPin: boolean;
   /** Pushes the pairing screen and asks for a code. */
   open(): void;
   dispose(): void;
 }
 
-function actionsZone(kind: PairViewKind, file = false): ZoneSpec {
-  return { kind: 'list', id: 'actions', axis: 'horizontal', count: pairActions(kind, file).length };
+function actionsZone(kind: PairViewKind, file = false, pin = false): ZoneSpec {
+  return { kind: 'list', id: 'actions', axis: 'horizontal', count: pairActions(kind, file, pin).length };
 }
 
 export function createPairing(options: PairingOptions): Pairing {
   const { nav, loader } = options;
   const timers = options.timers ?? REAL_TIMERS;
+  const setPin = options.setPin;
   const view = signal<PairView>({ kind: 'opening', note: null });
   const draft = signal<SourceDraft | null>(null);
   const sent = signal<PairStatus | null>(null);
@@ -156,7 +173,7 @@ export function createPairing(options: PairingOptions): Pairing {
     const before = view.peek().kind;
     view.value = next;
     if (screen !== null && screen.open && before !== next.kind) {
-      screen.update(actionsZone(next.kind, isFile()));
+      screen.update(actionsZone(next.kind, isFile(), asksPin(next, setPin !== undefined)));
       screen.focus('actions', 0);
     }
   };
@@ -372,10 +389,17 @@ export function createPairing(options: PairingOptions): Pairing {
   };
 
   const select = (index: number): void => {
-    const action = pairActions(view.peek().kind, isFile())[index];
-    if (action === 'cancel' || action === 'close') {
+    const shown = view.peek();
+    const action = pairActions(shown.kind, isFile(), asksPin(shown, setPin !== undefined))[index];
+    if (action === 'cancel' || action === 'close' || action === 'later') {
       cancelLoad();
       nav.pop();
+    } else if (action === 'set-pin') {
+      // The pad over the done view (Back returns to it); once the PIN is kept, the pairing screen closes too.
+      const mine = screen;
+      setPin!(() => {
+        if (mine !== null && nav.top === mine) nav.pop();
+      });
     } else if (action === 'retry-code') {
       openCode(null);
     } else if (action === 'new-code') {
@@ -390,6 +414,7 @@ export function createPairing(options: PairingOptions): Pairing {
     view,
     draft,
     sent,
+    canSetPin: setPin !== undefined,
     open(): void {
       close();
       codes = 0;

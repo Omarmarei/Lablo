@@ -251,6 +251,9 @@ export const EN = {
   'done.movies': '{n, plural, one {# film} other {# films}}',
   'done.series': '{n, plural, one {# series} other {# series}}',
   'done.start': 'Start watching',
+  // Locked groups and no PIN (step 38c3): the done screens offer "Set a PIN" or "Later".
+  'done.pinNote': "Adult groups are locked and out of sight. A PIN opens them. Setting one later needs one of your sources' logins.",
+  'done.later': 'Later',
 
   // The live screen (RELAY step 14a). A provider's category names are its data.
   'live.title': 'Live TV',

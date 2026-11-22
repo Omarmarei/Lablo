@@ -6,11 +6,13 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Navigator } from '@lablo/ui';
 import type { Refusal } from '../gate/gate-state';
 import type { Pairing } from '../pairing/pair-state';
+import type { Parental, ParentalEngine } from '../parental/parental';
+import { PIN_SCREEN, createParental } from '../parental/parental';
 import type { FieldId, SourceDraft } from './form';
 import type { FakeLoaderOptions, LoadResult, SourceLoader } from './loader';
 import { LoadError, createFakeLoader } from './loader';
 import type { OnboardingAnswer, OnboardingOptions } from './onboarding-state';
-import { LANGUAGES, SOURCE_TYPES, createOnboarding, fieldDomId } from './onboarding-state';
+import { DONE_LATER, DONE_SET_PIN, LANGUAGES, SOURCE_TYPES, createOnboarding, fieldDomId } from './onboarding-state';
 
 const TEXT_KEYS: Record<number, TextKey> = { 13: 'done', 27: 'close', 38: 'up', 40: 'down' };
 
@@ -32,6 +34,7 @@ function setup(
     initial?: OnboardingOptions['initial'];
     refusal?: OnboardingOptions['refusal'];
     pairing?: OnboardingOptions['pairing'];
+    pad?: OnboardingOptions['pad'];
   } = {},
 ) {
   const exitApp = vi.fn();
@@ -64,6 +67,7 @@ function setup(
     initial: options.initial,
     refusal: options.refusal,
     pairing: options.pairing,
+    pad: options.pad,
   });
   const at = (): string => {
     const f = ob.nav.snapshot();
@@ -591,5 +595,140 @@ describe('"Use your phone" (RELAY step 31c2a)', () => {
     expect(s.ob.pairing).toBeNull();
     s.press('OK', 'OK', 'OK');
     expect((s.ob.nav.top.zone('types') as { count: number }).count).toBe(SOURCE_TYPES.length);
+  });
+});
+
+describe('the PIN prompt on the done screen (RELAY step 38c3)', () => {
+  const LOCKED: LoadResult = { live: 5, movies: 2, series: 0, askPin: true };
+
+  /** A pad that only records what it was asked (`chosen`: the `done` of each `choose`). */
+  function stubPad() {
+    const chosen: Array<() => void> = [];
+    const made: Navigator[] = [];
+    const pad = { choose: (done: () => void) => chosen.push(done), dispose: vi.fn() } as unknown as Parental;
+    return { pad: (nav: Navigator) => (made.push(nav), pad), stub: pad, chosen, made };
+  }
+
+  /** The typed Xtream add up to the done screen. */
+  async function toDone(s: ReturnType<typeof setup>): Promise<void> {
+    toForm(s);
+    s.type('server', 'provider.example:8080');
+    s.type('username', 'user1');
+    s.type('password', 'pw');
+    s.press('DOWN', 'DOWN', 'OK');
+    await s.flush();
+  }
+
+  const buttons = (s: ReturnType<typeof setup>): number => (s.ob.nav.top.zone('actions') as { count: number }).count;
+
+  it('offers "Set a PIN" and "Later" when the source brought locked groups and no PIN is set; Later finishes with no pad', async () => {
+    const { pad, chosen, made } = stubPad();
+    const s = setup({ loader: { result: LOCKED }, pad });
+    expect(made).toEqual([s.ob.nav]);
+    await toDone(s);
+    expect(s.at()).toBe(`done · actions ${DONE_SET_PIN}`);
+    expect(s.ob.asksPin.value).toBe(true);
+    expect(buttons(s)).toBe(2);
+    expect(s.ob.root.value.id).toBe('done');
+    s.press('RIGHT');
+    expect(s.at()).toBe(`done · actions ${DONE_LATER}`);
+    s.press('OK');
+    expect(s.ob.finished.value).toBe(true);
+    expect(chosen).toEqual([]);
+  });
+
+  it('"Set a PIN" asks the pad for a new PIN and finishes only once it is kept', async () => {
+    const { pad, chosen } = stubPad();
+    const s = setup({ loader: { result: LOCKED }, pad });
+    await toDone(s);
+    s.press('OK');
+    expect(chosen).toHaveLength(1);
+    expect(s.ob.finished.value).toBe(false);
+    chosen[0]!();
+    expect(s.ob.finished.value).toBe(true);
+  });
+
+  it('with the real pad: the new PIN typed twice over the done screen, kept, then finished; Back on the pad returns to the two buttons', async () => {
+    const kept: string[] = [];
+    const engine: ParentalEngine = {
+      lockState: () => Promise.resolve({ pin: false, unlocked: false, kinds: ['live'] }),
+      unlock: () => Promise.reject(new Error('never asked')),
+      checkPin: () => Promise.reject(new Error('never asked')),
+      setPin: (pin) => {
+        kept.push(pin);
+        return Promise.resolve(true);
+      },
+      relock: () => Promise.resolve(),
+    };
+    const s = setup({ loader: { result: LOCKED }, pad: (nav) => createParental({ nav, engine, changed: () => undefined, restart: () => undefined }) });
+    await toDone(s);
+    s.press('OK');
+    expect(s.at()).toBe(`${PIN_SCREEN} · pad 0`);
+    expect(s.ob.parental!.pad.value).toMatchObject({ purpose: 'set', typed: 0 });
+    // Back: the done screen and its two buttons again, nothing kept.
+    s.press('BACK');
+    expect(s.at()).toBe(`done · actions ${DONE_SET_PIN}`);
+    expect(buttons(s)).toBe(2);
+    expect(s.ob.parental!.pad.value).toBeNull();
+    s.press('OK', 'OK', 'OK', 'OK', 'OK');
+    expect(s.ob.parental!.pad.value).toMatchObject({ purpose: 'again', typed: 0 });
+    s.press('OK', 'OK', 'OK', 'OK');
+    expect(s.ob.finished.value).toBe(false);
+    for (let i = 0; i < 3; i++) await Promise.resolve();
+    expect(kept).toEqual(['1111']);
+    expect(s.ob.finished.value).toBe(true);
+    expect(s.ob.parental!.pad.value).toBeNull();
+  });
+
+  it('keeps the one "Start watching" when nothing is locked, when a PIN is set, or when the loader says nothing of it', async () => {
+    for (const result of [
+      { live: 1, movies: 0, series: 0, askPin: false },
+      { live: 1, movies: 0, series: 0 },
+    ]) {
+      const { pad, chosen } = stubPad();
+      const s = setup({ loader: { result }, pad });
+      await toDone(s);
+      expect(s.ob.asksPin.value).toBe(false);
+      expect(buttons(s)).toBe(1);
+      s.press('OK');
+      expect(s.ob.finished.value).toBe(true);
+      expect(chosen).toEqual([]);
+    }
+  });
+
+  it('keeps the one "Start watching" without a pad, whatever the loader says', async () => {
+    const s = setup({ loader: { result: LOCKED } });
+    expect(s.ob.parental).toBeNull();
+    await toDone(s);
+    expect(s.ob.asksPin.value).toBe(false);
+    expect(buttons(s)).toBe(1);
+    s.press('OK');
+    expect(s.ob.finished.value).toBe(true);
+  });
+
+  it("asks for the phone's source too", () => {
+    const { pad, chosen } = stubPad();
+    let added: ((draft: SourceDraft, result: LoadResult) => void) | null = null;
+    const s = setup({
+      pad,
+      pairing: (_nav, done) => {
+        added = done;
+        return { open: vi.fn(), dispose: vi.fn() } as unknown as Pairing;
+      },
+    });
+    s.press('OK', 'OK', 'OK');
+    added!({ type: 'm3u', name: 'Phone list', url: 'http://lists.test/a.m3u', epgUrls: [] }, LOCKED);
+    expect(s.at()).toBe(`done · actions ${DONE_SET_PIN}`);
+    expect(s.ob.asksPin.value).toBe(true);
+    expect(buttons(s)).toBe(2);
+    s.press('OK');
+    expect(chosen).toHaveLength(1);
+  });
+
+  it('disposes the pad with onboarding', () => {
+    const { pad, stub } = stubPad();
+    const s = setup({ pad });
+    s.ob.dispose();
+    expect(stub.dispose).toHaveBeenCalledTimes(1);
   });
 });

@@ -5,7 +5,7 @@ import { Button, ProgressBar, Spinner, useZone } from '@lablo/ui';
 import type { AppI18n } from '../i18n';
 import { errorText, phaseText, refusalText } from '../onboarding/load-text';
 import type { PairAction, PairView, Pairing } from './pair-state';
-import { pairActions } from './pair-state';
+import { asksPin, pairActions } from './pair-state';
 import { QR_QUIET, qrModulePx, qrPath } from './pair-qr';
 import './pair.css';
 
@@ -29,6 +29,9 @@ function actionLabel(t: Translate, action: PairAction): string {
   if (action === 'retry-code' || action === 'retry-load') return t('loading.retry');
   if (action === 'new-code') return t('pair.newCode');
   if (action === 'close') return t('pair.done');
+  // The done view's prompt (step 38c3).
+  if (action === 'set-pin') return t('parental.set');
+  if (action === 'later') return t('done.later');
   return t('action.cancel');
 }
 
@@ -86,8 +89,8 @@ export function CodeView({ i18n, view }: { i18n: AppI18n; view: Extract<PairView
   );
 }
 
-/** What the view says, under the title (the code view has its own body). */
-export function Message({ i18n, view, name, file = false }: { i18n: AppI18n; view: PairView; name: string; file?: boolean }) {
+/** What the view says, under the title (the code view has its own body); `pin`: the done view's prompt (step 38c3). */
+export function Message({ i18n, view, name, file = false, pin = false }: { i18n: AppI18n; view: PairView; name: string; file?: boolean; pin?: boolean }) {
   const { t } = i18n;
   if (view.kind === 'opening') {
     return (
@@ -155,6 +158,11 @@ export function Message({ i18n, view, name, file = false }: { i18n: AppI18n; vie
             {t('done.series', { n: view.result.series })}
           </li>
         </ul>
+        {pin && (
+          <p class="pair__text" data-testid="pair-pin">
+            {t('done.pinNote')}
+          </p>
+        )}
       </div>
     );
   }
@@ -178,12 +186,16 @@ export interface PairContentProps {
   readonly zone: ZoneView;
   /** The source is the phone's file (step 31d2b1): its failures have no "Try again" and their own words. */
   readonly file?: boolean;
+  /** The done view offers "Set a PIN" (step 38c3). */
+  readonly pin?: boolean;
 }
 
 /** The page as drawn for a view: hook-free (the tests call it as a function). */
-export function PairContent({ i18n, view, name, sent, zone, file = false }: PairContentProps) {
+export function PairContent({ i18n, view, name, sent, zone, file = false, pin = false }: PairContentProps) {
   const { t } = i18n;
-  const actions = pairActions(view.kind, file);
+  const actions = pairActions(view.kind, file, pin);
+  // The last button leads, but for the prompt's "Set a PIN" (step 38c3).
+  const lead = actions[0] === 'set-pin' ? 0 : actions.length - 1;
   return (
     <div
       class="pair"
@@ -196,10 +208,10 @@ export function PairContent({ i18n, view, name, sent, zone, file = false }: Pair
       <h1 class="pair__title" data-testid="pair-title">
         {titleOf(t, view, name)}
       </h1>
-      {view.kind === 'code' ? <CodeView i18n={i18n} view={view} /> : <Message i18n={i18n} view={view} name={name} file={file} />}
+      {view.kind === 'code' ? <CodeView i18n={i18n} view={view} /> : <Message i18n={i18n} view={view} name={name} file={file} pin={pin} />}
       <div class="pair__actions">
         {actions.map((action, i) => (
-          <Button key={action} label={actionLabel(t, action)} variant={i === actions.length - 1 && action !== 'cancel' ? 'primary' : undefined} {...zone.item(i)} testId={`pair-action-${i}`} />
+          <Button key={action} label={actionLabel(t, action)} variant={i === lead && action !== 'cancel' ? 'primary' : undefined} {...zone.item(i)} testId={`pair-action-${i}`} />
         ))}
       </div>
     </div>
@@ -209,14 +221,16 @@ export function PairContent({ i18n, view, name, sent, zone, file = false }: Pair
 export function PairPage({ pairing, binding, i18n }: { pairing: Pairing; binding: FocusBinding; i18n: AppI18n }) {
   const zone = useZone(binding, binding.nav.top, 'actions');
   const draft = pairing.draft.value;
+  const view = pairing.view.value;
   return (
     <PairContent
       i18n={i18n}
-      view={pairing.view.value}
+      view={view}
       name={draft === null ? '' : draft.name}
       sent={pairing.sent.value}
       zone={zone}
       file={draft !== null && draft.type === 'm3u-file'}
+      pin={asksPin(view, pairing.canSetPin)}
     />
   );
 }

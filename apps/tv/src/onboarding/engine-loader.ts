@@ -31,6 +31,10 @@ import { LoadError } from './loader';
  *    its failure and retries it later (step 9b).
  * 4. The source goes into the profile (the login with it, in IndexedDB only and unencrypted:
  *    ADR-013), then the typed guides into the guide list (step 22b), then the counts.
+ * 5. The locks (step 38c3): `lockState()` once the source is in (the refresh resolved after the
+ *    query worker's reload, so the new catalog's groups count); `askPin` when no PIN is set and
+ *    something is locked, so the done screen is drawn with its prompt at once. A failed read
+ *    gives no prompt and never fails the load.
  *
  * The phone's M3U file (step 31d2b1) has no link: the draft's `file()` fetches its frames in the
  * pair worker once the refresh slot is free, and the refresh reads them (`RefreshOptions.file`).
@@ -56,6 +60,8 @@ export interface LoaderEngine {
   epgStatus(): Promise<{ readonly guides: readonly { readonly epgSrc: string }[] }>;
   profile(): Promise<LoadedProfile | null>;
   editProfile(edit: ProfileEdit): Promise<boolean>;
+  /** Parental control's state (step 38c3: the done screens' prompt). Absent: the result has no `askPin`. */
+  lockState?(): Promise<{ readonly pin: boolean; readonly kinds: readonly ContentKind[] }>;
 }
 
 export interface EngineLoaderOptions {
@@ -215,6 +221,17 @@ export function freshGuides(urls: readonly string[], listed: readonly StoredGuid
   return guides;
 }
 
+/** No PIN is set and something is locked (step 38c3); `false` when the locks can't be read. */
+async function asksPin(engine: LoaderEngine): Promise<boolean> {
+  try {
+    const locks = await engine.lockState!();
+    return !locks.pin && locks.kinds.length > 0;
+  } catch (error) {
+    console.warn('The locks were not read after the add', error);
+    return false;
+  }
+}
+
 export function createEngineLoader(options: EngineLoaderOptions): SourceLoader {
   const { engine } = options;
   const now = options.now ?? (() => Date.now());
@@ -307,7 +324,8 @@ export function createEngineLoader(options: EngineLoaderOptions): SourceLoader {
     cancel.token.throwIfCancelled();
     await engine.editProfile({ kind: 'source', source: record });
     for (let i = 0; i < guides.length; i += 1) await engine.editProfile({ kind: 'guide', change: { op: 'add', guide: guides[i]! } });
-    return counts;
+    if (engine.lockState === undefined) return counts;
+    return { live: counts.live, movies: counts.movies, series: counts.series, askPin: await asksPin(engine) };
   };
 
   return {

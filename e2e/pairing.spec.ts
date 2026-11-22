@@ -10,8 +10,8 @@ import { devSignedAnswer } from '../tools/engines/src/config';
 import { phonePadded, phoneSees, phoneSends, phoneSendsFile } from '../tools/engines/src/pair-phone';
 import type { ConfigServer } from './config-server';
 import { doc, startConfigServer } from './config-server';
-import { addXtreamAndWatch, toSourceTypes, trackErrors } from './onboard';
-import { SHOTS, openSources, shoot, shownCode, storedProfile, usePhone } from './pairing-steps';
+import { addXtreamAndWatch, toSourceTypes, toStartButton, trackErrors } from './onboard';
+import { SHOTS, closeDone, openSources, shoot, shownCode, storedProfile, usePhone } from './pairing-steps';
 import { RemoteDriver } from './remote-driver';
 
 /**
@@ -131,6 +131,7 @@ test('onboarding by phone: an M3U link and its guides are added, ok reaches the 
     expect(server.pair.sessions).toHaveLength(1);
     expect(server.pair.latest()?.status).toBe('ok');
 
+    await toStartButton(remote, onboarding);
     await remote.press('OK');
     const live = page.getByTestId('live');
     await expect(live).toHaveAttribute('data-status', 'ready');
@@ -186,8 +187,8 @@ test('from Settings in Arabic: a wrong password sends auth_failed and keeps noth
     await shoot(page, 'pair-done-ar');
     nothingInTheClear(server, [U, P, 'wrong-password', 'get.php']);
 
-    // Done: Sources again, read again with both.
-    await remote.press('OK');
+    // Done ("Later": the mock's 18+ group and no PIN, step 38c3): Sources again, read again with both.
+    await closeDone(remote, 'ar');
     await remote.expectFocus('sources/header/0');
     await expect(page.getByTestId('sources')).toHaveAttribute('data-count', '2');
     await expect(page.getByTestId('source-1-name')).toHaveText('قائمة الهاتف');
@@ -317,6 +318,7 @@ test('onboarding by phone with an M3U file: a broken one keeps nothing; three fr
     expect(server.pair.sessions.map((s) => s.uploads.length)).toEqual([1, 1]);
 
     // The live list, then Settings › Sources: the file's row has no server, and says when it came.
+    await toStartButton(remote, onboarding);
     await remote.press('OK');
     await expect(page.getByTestId('live')).toHaveAttribute('data-status', 'ready');
     await openSources(remote, 'en');
@@ -376,7 +378,7 @@ test('from Settings in Arabic: a broken file with no name, then the file whole u
     expect(server.pair.blobs.size).toBe(0);
     uploadsSealed(server, [U, P, '#EXTM3U', '#EXTINF', host]);
 
-    await remote.press('OK');
+    await closeDone(remote, 'ar');
     await remote.expectFocus('sources/header/0');
     await expect(page.getByTestId('sources')).toHaveAttribute('data-count', '2');
     await expect(page.getByTestId('source-1')).toHaveAttribute('data-type', 'm3u-file');

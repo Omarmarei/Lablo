@@ -70,12 +70,24 @@ export async function toSourceTypes(remote: RemoteDriver, query: string): Promis
   return onboarding;
 }
 
-/** OK on the focused "Add" (or "Try again"): the source loads, then "Start watching" opens the live screen. */
+/**
+ * On onboarding's done screen, the focus to the button that starts watching: "Later" when the
+ * screen offers a PIN (RELAY step 38c3: the source brought locked groups, as the mock's 18+ group
+ * does, and no PIN is set), else "Start watching".
+ */
+export async function toStartButton(remote: RemoteDriver, onboarding: Locator): Promise<void> {
+  await remote.expectFocus('done/actions/0');
+  if ((await onboarding.getByTestId('done-pin').count()) === 0) return;
+  const rtl = (await onboarding.getAttribute('data-dir')) === 'rtl';
+  await remote.go(rtl ? 'LEFT' : 'RIGHT', 'done/actions/1');
+}
+
+/** OK on the focused "Add" (or "Try again"): the source loads, then "Start watching" (or "Later") opens the live screen. */
 export async function startWatching(remote: RemoteDriver, onboarding: Locator, loadTimeout: number): Promise<Locator> {
   const { page } = remote;
   await remote.press('OK');
   await expect(onboarding).toHaveAttribute('data-screen', 'done', { timeout: loadTimeout });
-  await remote.expectFocus('done/actions/0');
+  await toStartButton(remote, onboarding);
   await remote.press('OK');
   const live = page.getByTestId('live');
   await expect(live).toHaveAttribute('data-status', 'ready');

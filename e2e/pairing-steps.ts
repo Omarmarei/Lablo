@@ -67,6 +67,13 @@ export async function openSources(remote: RemoteDriver, language: 'en' | 'ar'): 
   return root;
 }
 
+/** OK on the pairing screen's done view (Settings): "Later" when it offers a PIN (RELAY step 38c3), else "Done". */
+export async function closeDone(remote: RemoteDriver, language: 'en' | 'ar'): Promise<void> {
+  await remote.expectFocus('pair/actions/0');
+  if ((await remote.page.getByTestId('pair-pin').count()) > 0) await remote.go(language === 'ar' ? 'LEFT' : 'RIGHT', 'pair/actions/1');
+  await remote.press('OK');
+}
+
 /** Onboarding's source types, down to "Use your phone", then OK: the pair screen's code. */
 export async function usePhone(remote: RemoteDriver): Promise<string> {
   await remote.go('DOWN', 'source/types/1');

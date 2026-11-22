@@ -8,11 +8,13 @@ import type { AppI18n } from '../i18n';
 import { LANGUAGE_NAMES, appI18n, switchedTag } from '../i18n';
 import { PAIR_SCREEN } from '../pairing/pair-state';
 import { PairPage } from '../pairing/PairPage';
+import { PIN_SCREEN } from '../parental/parental';
+import { PinPadScreen } from '../parental/PinPad';
 import type { FieldId, FieldProblem } from './form';
 import { FORM_FIELDS } from './form';
 import { errorText, phaseText, refusalText } from './load-text';
 import type { LoadState, Onboarding, SourceRow } from './onboarding-state';
-import { LANGUAGES, fieldDomId, sourceRows } from './onboarding-state';
+import { DONE_LATER, DONE_SET_PIN, LANGUAGES, fieldDomId, sourceRows } from './onboarding-state';
 import { RESTORE_CODE_SCREEN } from './restore-code';
 import { RestoreCodePage } from './RestoreCodePage';
 import './onboarding.css';
@@ -252,6 +254,8 @@ function DoneScreen({ ob, i18n }: ScreenProps) {
   const zone = useZone(ob.binding, ob.root.value, 'actions');
   const state = ob.load.value;
   const result = state.status === 'done' ? state.result : { live: 0, movies: 0, series: 0 };
+  // Locked groups and no PIN (step 38c3): "Set a PIN" or "Later".
+  const prompt = ob.asksPin.value;
   return (
     <Panel title={t('done.title')}>
       <p class="onboarding__text">{t('done.body', { name: ob.draft.value?.name ?? '' })}</p>
@@ -266,8 +270,18 @@ function DoneScreen({ ob, i18n }: ScreenProps) {
           {t('done.series', { n: result.series })}
         </li>
       </ul>
+      {prompt && (
+        <p class="onboarding__text" data-testid="done-pin">
+          {t('done.pinNote')}
+        </p>
+      )}
       <div class="onboarding__actions">
-        <Button label={t('done.start')} variant="primary" {...zone.item(0)} testId="action-0" />
+        {prompt ? (
+          <Button label={t('parental.set')} variant="primary" {...zone.item(DONE_SET_PIN)} testId="action-0" />
+        ) : (
+          <Button label={t('done.start')} variant="primary" {...zone.item(0)} testId="action-0" />
+        )}
+        {prompt && <Button label={t('done.later')} {...zone.item(DONE_LATER)} testId="action-1" />}
       </div>
     </Panel>
   );
@@ -287,6 +301,8 @@ function ExitDialog({ ob, i18n }: ScreenProps) {
 function OnboardingScreen({ ob, i18n, device }: ScreenProps & { device: AppI18n }) {
   const focus = useFocus(ob.binding);
   const editing = ob.editor.editing.value;
+  // The done screen's "Set a PIN" (step 38c3): the pad over everything, as on the live screen.
+  if (focus.screen === PIN_SCREEN && ob.parental !== null) return <PinPadScreen parental={ob.parental} i18n={i18n} binding={ob.binding} focus={focus} />;
   // The exit dialog covers the root: the language screen, or the done screen once the source is in.
   const under = focus.screen === 'exit' ? (ob.load.value.status === 'done' ? 'done' : 'language') : focus.screen;
   return (

@@ -16,8 +16,8 @@ import { phonePadded, phoneSees, phoneSends, phoneSendsFile } from '../tools/eng
 import type { ApiFront, Forwarded } from './api-front';
 import { startApiFront } from './api-front';
 import { doc } from './config-server';
-import { addXtreamAndWatch, toSourceTypes, trackErrors } from './onboard';
-import { SHOTS, openSources, shoot, shownCode, storedProfile, usePhone } from './pairing-steps';
+import { addXtreamAndWatch, toSourceTypes, toStartButton, trackErrors } from './onboard';
+import { SHOTS, closeDone, openSources, shoot, shownCode, storedProfile, usePhone } from './pairing-steps';
 import { RemoteDriver } from './remote-driver';
 
 /**
@@ -184,7 +184,7 @@ test('onboarding by phone: an Xtream login reaches the TV through the real API, 
     expect(front.forwarded).toContainEqual({ method: 'GET', path: '/v1/config', status: 200 });
     preflightsPassed(front);
 
-    await remote.expectFocus('done/actions/0');
+    await toStartButton(remote, onboarding);
     await remote.press('OK');
     await expect(page.getByTestId('live')).toHaveAttribute('data-status', 'ready');
     expect(errors).toEqual([]);
@@ -213,7 +213,7 @@ test('from Settings in Arabic: an M3U link and its guide reach the TV through th
     await expect(page.getByTestId('pair-title')).toHaveText('كل شيء جاهز');
     await shoot(page, 'pair-api-done-ar');
 
-    await remote.press('OK');
+    await closeDone(remote, 'ar');
     await remote.expectFocus('sources/header/0');
     await expect(page.getByTestId('sources')).toHaveAttribute('data-count', '2');
     const kept = await storedProfile(page);
@@ -380,7 +380,7 @@ test('onboarding by phone with an M3U file through the real API; a changed file 
     const kept = await storedProfile(page);
     expect(kept?.sources).toEqual([{ id: 's1', type: 'm3u-file', name: 'Phone file', added: expect.any(Number) }]);
     const added = kept?.sources[0]?.added;
-    await remote.expectFocus('done/actions/0');
+    await toStartButton(remote, onboarding);
     await remote.press('OK');
     await expect(page.getByTestId('live')).toHaveAttribute('data-status', 'ready');
 
@@ -401,7 +401,7 @@ test('onboarding by phone with an M3U file through the real API; a changed file 
     expect((await fetch(front.origin + gets[1]!.path)).status).toBe(404);
 
     // Replaced under its id: one source, the same id, name and date added.
-    await remote.press('OK');
+    await closeDone(remote, 'en');
     await remote.expectFocus('sources/header/0');
     await expect(page.getByTestId('sources')).toHaveAttribute('data-count', '1');
     expect((await storedProfile(page))?.sources).toEqual([{ id: 's1', type: 'm3u-file', name: 'Phone file', added }]);

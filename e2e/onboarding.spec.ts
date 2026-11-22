@@ -7,6 +7,7 @@ import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { stripIsolates } from '../packages/core/src/bidi';
 import { ARABIC_FACE, LATIN_FACE, renderedFontsUnder } from './fonts';
+import { toStartButton } from './onboard';
 import { RemoteDriver } from './remote-driver';
 
 /**
@@ -254,6 +255,8 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
       await expect(root).toHaveAttribute('data-screen', 'done', { timeout: 20_000 });
       expect(await phasesSeen(page)).toEqual(expect.arrayContaining(['download', 'guide']));
       await remote.expectFocus('done/actions/0');
+      // The mock's 18+ group is locked and no PIN is set: the screen offers one (step 38c3; parental-first-pin.spec.ts sets it).
+      await expect(page.getByTestId('done-pin')).toBeVisible();
       const title = stripIsolates((await page.locator('.onboarding__text').first().textContent()) ?? '');
       expect(title).toBe(ar ? 'تمت إضافة البيت.' : 'البيت is ready.');
       const counts = { live: catalog.live.length, movies: catalog.movies.length, series: catalog.series.length };
@@ -285,7 +288,8 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
       await remote.expectFocus('exit/actions/0');
       await remote.press('OK');
       await remote.expectFocus('done/actions/0');
-      // Start watching: the live screen (step 14a; e2e/live.spec.ts walks it), in the language picked.
+      // "Later": the live screen (step 14a; e2e/live.spec.ts walks it), in the language picked.
+      await toStartButton(remote, root);
       await remote.press('OK');
       await expect(page.getByTestId('live')).toHaveAttribute('data-status', 'ready');
       await expect(page.getByTestId('live')).toHaveAttribute('data-language', language);
