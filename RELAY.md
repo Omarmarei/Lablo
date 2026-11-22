@@ -3064,6 +3064,27 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
       - **Check first that desktop Chromium plays MP3-in-TS HLS:** memory `iptv-playwright-chromium-media.md` has no TS, but HLS plays.
     - **The catalogs** have `badge.radio` (live list) and `category.radio` (gallery only); the card may need a screen-reader label.
     - **Sizes:** main.js 433.9 of 500 KB on Tizen after 37a.
+  - **Built in leg 135** (architecture.md §2 "Built in step 37b"; commits `293f4ee`, `36d0681`).
+  - **Refined while building** (each with its why):
+    1. **Desktop Chromium plays the mock's radio** (checked first: HLS, MP3 in TS segments): the clock moves, `videoWidth` stays 0, audio bytes decode. So `e2e:media` proves the play, and no AAC radio profile was needed.
+    2. **The request's hint comes from one helper,** `channelRequest` (`radio.ts`), for `liveRequest` and `catchupRequest`. Why: one place decides that a radio channel's streams have no picture; other requests carry no `hints` at all.
+    3. **The card shows only while `playing`, `paused` or `reconnecting`.** Why: "Connecting…" sits in the middle too, so it has the middle to itself while the stream opens or stalls, and the error and end cards replace the card.
+    4. **The card follows the `playing` row, not the bar's.** Why: a zap that waits leaves the radio playing, as it leaves a picture on screen. A movie never shows it (the last channel's row is still `playing` then).
+    5. **The card's choice is the player state's `radio()`,** not PlayerScreen's. Why: PlayerScreen has no unit tests; in the state, its wiring (the zap that waits, the movie) is tested.
+    6. **No refusal check on the card.** Why: a refusal always stops the stream (idle), so the check could never decide (found writing the mutation list).
+    7. **A logo that fails to load becomes the mark** (`failedLogo`, the last one, in the player state). Why: a broken logo would leave an empty box.
+    8. **The card has the "Radio" badge** (`badge.radio`, «إذاعة») under the name. Why: it says why there is no picture; no new catalog key.
+    9. **The playback harness takes `hints`,** and its trace says `audio-only`. Why: the harness shows both sides on real media: the same stream plays when marked, and fails as `NO_PICTURE` when not.
+  - **Verified in leg 135:**
+    - **Unit:** the full `pnpm test` 8,090 (+17); `pnpm typecheck`; `pnpm lint`.
+    - **`build:tv`:** main.js 433.9 → 435.4 KB on Tizen, 421.2 → 422.7 KB on webOS; settings.js 78.5 KB; the workers unchanged. Core-js modules unchanged (module diff: 216 in main, 6 in settings.js).
+    - **e2e:**
+      - `e2e:media` (both specs): 18 passed, including the radio in en-US, ar-SA (with a logo) and en-XA (a logo that 404s), and the harness's radio;
+      - the plain player and catch-up specs: 17 passed.
+
+      Screenshots `player-radio-*` looked at.
+    - **Mutation** (`artifacts/mutate37b.py`; logs `mutate37b-a.log`, `-b.log`, `-c.log`): 40 written first (`artifacts/mutate37b-list.md`), 35 unit and 5 e2e: 40/40 caught on the first run. The e2e commands pass on clean code (checked, so a failing command can't count as a catch).
+    - **`verify:engines`:** `--engine chrome53` alone 13/13, `--engine chrome68` 13/13 (`artifacts/engines-37b-53.log`, `-68.log`). The walks never play a stream.
 - [ ] 38. **Parental and settings.** Parental PIN, adult groups auto-locked (XXX, 18+, للكبار), complete settings screen.
 - [ ] 39. **Comfort features.** Clock, sleep timer with "Still watching?", colour-key shortcuts, "Fast start / Stable" buffer setting.
 - [ ] 40. **Diagnostics and legal pages.** Diagnostics screen ("app or provider?"), test stream, help, in-app legal pages.
