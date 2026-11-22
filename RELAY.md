@@ -3038,7 +3038,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
        - The pairing specs now expect the phone's link kept as the login.
        - Why: those specs test a playlist's own behaviour (its keys, catch-up modes, flat episodes, a restored or sealed link).
   - **Verified in leg 134:**
-    - **Unit:** the loader 44 (+10); ingest 38 (+8); `test/onboarding-loader-mock.test.ts` 4; `pnpm typecheck`; `pnpm lint`.
+    - **Unit:** the full `pnpm test` 8,073 (+19: the loader +10, ingest +8, the mock's loader test +1); `pnpm typecheck`; `pnpm lint`.
     - **`build:tv`:** main.js 433.6 → 433.9 KB on Tizen, 420.9 → 421.2 KB on webOS; settings.js 78.5 KB; the ingest worker 135.7 → 136.2 KB. Core-js modules are unchanged (module diff: 216 in main, 6 in settings.js).
     - **e2e:**
       - `m3u-upgrade.spec.ts` (en-US, ar-SA, both cases): 4 passed;
@@ -3047,6 +3047,9 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 
       Screenshots `m3u-upgrade-*` looked at.
     - **Mutation** (`artifacts/mutate37a.py`; logs `mutate37a-a.log`, `-b.log`, `-c.log`): 27 written first (`artifacts/mutate37a-list.md`), 26 caught at the first run. The survivor was a real gap: the limit's timer left running after a quick login would cut off lists past 10 s. The test for it was added: 27/27.
+    - **`verify:engines --engine chrome53 --engine chrome68`:** all 26 runs as expected (`artifacts/engines-37a.log`, `engines-37a-53-again.log`).
+      - The first run's Chromium 53 hit the known stuck-delete flake: the English walk passed, then every later database delete stayed "pending" (memory `iptv-old-engine-walk.md`).
+      - Chromium 53 alone again: 13/13. The walks add `playlist.m3u`, which isn't an Xtream link, so their loader path is unchanged.
 - [ ] 37b. **Radio:** as 37's split above. After 37a (either order works; 37a first because its e2e churn touches the most specs).
 - [ ] 38. **Parental and settings.** Parental PIN, adult groups auto-locked (XXX, 18+, للكبار), complete settings screen.
 - [ ] 39. **Comfort features.** Clock, sleep timer with "Still watching?", colour-key shortcuts, "Fast start / Stable" buffer setting.
