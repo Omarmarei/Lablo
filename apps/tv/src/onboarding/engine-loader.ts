@@ -1,4 +1,5 @@
 import type { ContentKind, DeviceTier } from '@lablo/core';
+import { xtreamFromM3uUrl } from '@lablo/core';
 import type { EpgCatalogSource, EpgProgress, IngestProgress, IngestResult, IngestSource, LinkSource, LinkWithoutLogin, LoadedProfile, ProfileEdit, SourceRecord, StoredGuide, StoredSource, UserGuide } from '@lablo/data';
 import type { FileFeed } from '@lablo/data/client';
 // The client entry only: the package index would pull every data module's polyfills into main.
@@ -18,6 +19,12 @@ import { LoadError } from './loader';
  *    and an expired, banned or disabled account (`user_info.status`) is `expired` or `blocked`,
  *    before any list is read.
  * 2. `download`, `saving`: the catalog refresh's progress (`IngestProgress`: download, commit).
+ *    An M3U link that is an Xtream link (`xtreamFromM3uUrl`: `get.php?username=…&password=…`)
+ *    is read through the panel's API first, and saved as an Xtream source when that works (step
+ *    37a: categories, details, shows and catch-up). When it fails for any reason but the account
+ *    (`expired`, `blocked`) or a blocked server (`blocklisted`), the link is read as the playlist
+ *    it was given as, and saved as one; the progress starts again for it. Only a source being
+ *    added is upgraded: a stored one keeps its type, and with it its ContentKeys.
  * 3. `guide`: the guides of the playlist or panel, and the guide links typed in the form or sent
  *    from the phone (`UserGuide`s named after the source, after the user's guides already listed: step 31c2a), read through
  *    `refreshEpg` with `due`. A guide that fails doesn't fail the source: the EPG refresh keeps
@@ -109,6 +116,16 @@ export function storedSources(profile: LoadedProfile | null): StoredSource[] {
 }
 
 const PASSED_ON: readonly LoadErrorCode[] = ['auth', 'expired', 'blocked', 'blocklisted', 'network', 'format', 'empty', 'file'];
+
+/**
+ * Whether an upgrade's failed Xtream read (step 37a) goes on to the link as a playlist: yes,
+ * unless the panel said the account is expired or blocked (its playlist refuses such an account
+ * too, and the panel's reason is the better answer) or the server is on the blocklist.
+ */
+export function triesPlaylist(error: unknown): boolean {
+  const code = loadError(error).code;
+  return code !== 'expired' && code !== 'blocked' && code !== 'blocklisted';
+}
 
 /**
  * A failed load's `LoadError`, from the ingest's code (an `RpcError` from the worker carries it,
@@ -221,7 +238,9 @@ export function createEngineLoader(options: EngineLoaderOptions): SourceLoader {
     // A file sent again under a stored file source's name replaces it, under its id.
     const same = draft.type === 'm3u-file' ? sameFile(stored, draft.name) : null;
     const id = same !== null ? same.id : nextSourceId(stored.map((s) => s.id).concat(catalog));
-    const record: SourceRecord =
+    // An Xtream link given as a playlist: its panel's API first (step 37a).
+    const account = draft.type === 'm3u' ? xtreamFromM3uUrl(draft.url) : null;
+    let record: SourceRecord =
       draft.type === 'xtream'
         ? { id, type: 'xtream', name: draft.name, account: draft.account, added: now() }
         : draft.type === 'm3u'
@@ -252,7 +271,18 @@ export function createEngineLoader(options: EngineLoaderOptions): SourceLoader {
       refreshOptions.file = feed;
       await slotFree(cancel);
     }
-    const result = await engine.refresh({ src: id, source }, refreshOptions);
+    let result: IngestResult | null = null;
+    if (account !== null) {
+      try {
+        result = await engine.refresh({ src: id, source: { type: 'xtream', account, upgrade: true } }, refreshOptions);
+        record = { id, type: 'xtream', name: draft.name, account, added: record.added };
+      } catch (error) {
+        cancel.token.throwIfCancelled();
+        if (!triesPlaylist(error)) throw error;
+        await slotFree(cancel);
+      }
+    }
+    if (result === null) result = await engine.refresh({ src: id, source }, refreshOptions);
     const counts: LoadResult = { live: count(result.counts, 'live'), movies: count(result.counts, 'movie'), series: count(result.counts, 'series') };
     const items = counts.live + counts.movies + counts.series;
 

@@ -17,6 +17,7 @@ import {
   sameFile,
   storedGuideIds,
   storedSources,
+  triesPlaylist,
   typedGuides,
   userGuides,
 } from './engine-loader';
@@ -660,5 +661,162 @@ describe('createEngineLoader', () => {
     // Not even the profile is read for it.
     expect(calls.profile).toBe(1);
     expect(await settled(queued.done)).toBe(false);
+  });
+});
+
+describe('the M3U→Xtream upgrade (step 37a)', () => {
+  const LINK = 'http://Panel.test:8080/get.php?username=u%40home&password=p+w&type=m3u_plus&output=m3u8';
+  const PANEL = { base: 'http://panel.test:8080', username: 'u@home', password: 'p w' };
+  const DRAFT: SourceDraft = { type: 'm3u', name: 'panel.test', url: LINK, epgUrls: ['http://g.test/a.xml'] };
+  const failed = (code: string, status: number | null = null): RpcError => new RpcError('failed', code, 'IngestError', status);
+
+  it('reads an Xtream link given as a playlist through the API, and saves an Xtream source under the name and id', async () => {
+    const old: SourceRecord = { id: 's1', type: 'm3u', name: 'Old', url: 'http://o.test/get.php?username=a&password=b', added: 1 };
+    const { engine, calls } = fake({ profile: { doc: { v: 4, sources: [old], guides: [] }, newer: false, migratedFrom: null } });
+    const progress: string[] = [];
+    await expect(loaderFor(engine).start(DRAFT, (p) => progress.push(p.phase)).done).resolves.toEqual({ live: 3, movies: 2, series: 1 });
+    expect(calls.refresh.map((c) => c.job)).toEqual([{ src: 's2', source: { type: 'xtream', account: PANEL, upgrade: true } }]);
+    expect(progress).toEqual(['checking', 'download', 'saving', 'guide', 'guide']);
+    // The stored M3U source stays one (its keys are M3U's); the new one's guide is its panel's.
+    expect(calls.epg[0]!.catalogs).toEqual([
+      { src: 's1', type: 'm3u' },
+      { src: 's2', type: 'xtream', account: PANEL },
+    ]);
+    expect(calls.epg[0]!.options.user).toEqual([{ id: 's2', url: 'http://g.test/a.xml' }]);
+    expect(calls.edits).toEqual([
+      { kind: 'source', source: { id: 's2', type: 'xtream', name: 'panel.test', account: PANEL, added: 777 } },
+      { kind: 'guide', change: { op: 'add', guide: { id: 's2', url: 'http://g.test/a.xml' } } },
+    ]);
+  });
+
+  it("reads the link as a playlist when the API fails for any reason but the account or the blocklist, and saves the playlist", async () => {
+    const reasons: unknown[] = [failed('auth'), failed('http', 404), failed('network'), failed('format'), failed('empty'), failed('superseded'), new Error('worker died')];
+    for (const reason of reasons) {
+      const { engine, calls } = fake({
+        refresh: (job) => (job.source.type === 'xtream' ? Promise.reject(reason) : Promise.resolve(ingestResult(job.src, { live: 4 }))),
+      });
+      await expect(loaderFor(engine).start(DRAFT, () => undefined).done).resolves.toEqual({ live: 4, movies: 0, series: 0 });
+      expect(calls.refresh.map((c) => c.job)).toEqual([
+        { src: 's1', source: { type: 'xtream', account: PANEL, upgrade: true } },
+        { src: 's1', source: { type: 'm3u', url: LINK } },
+      ]);
+      expect(calls.epg[0]!.catalogs).toEqual([{ src: 's1', type: 'm3u' }]);
+      expect(calls.edits[0]).toEqual({ kind: 'source', source: { id: 's1', type: 'm3u', name: 'panel.test', url: LINK, added: 777 } });
+    }
+  });
+
+  it("starts the progress again for the playlist", async () => {
+    const { engine } = fake({
+      refresh: (job, opts) => {
+        opts.onProgress?.({ src: job.src, phase: 'download', bytes: job.source.type === 'xtream' ? 50 : 5, total: null, items: 1, kind: 'live' });
+        return job.source.type === 'xtream' ? Promise.reject(failed('format')) : Promise.resolve(ingestResult(job.src, { live: 1 }));
+      },
+    });
+    const progress: LoadProgress[] = [];
+    await loaderFor(engine).start(DRAFT, (p) => progress.push(p)).done;
+    expect(progress.slice(0, 3)).toEqual<LoadProgress[]>([
+      { phase: 'checking', bytes: 0, total: null, items: 0 },
+      { phase: 'download', bytes: 50, total: null, items: 1 },
+      { phase: 'download', bytes: 5, total: null, items: 1 },
+    ]);
+  });
+
+  it("fails with the panel's answer when it says the account is expired or blocked, or the server is on the blocklist, and tries no playlist", async () => {
+    for (const reason of [failed('expired'), failed('blocked'), new BlockedSourceError()]) {
+      const { engine, calls } = fake({ refresh: () => Promise.reject(reason) });
+      await expect(loaderFor(engine).start(DRAFT, () => undefined).done).rejects.toMatchObject({ name: 'LoadError', code: loadError(reason).code });
+      expect(calls.refresh).toHaveLength(1);
+      expect(calls.epg).toEqual([]);
+      expect(calls.edits).toEqual([]);
+    }
+  });
+
+  it("fails with the playlist's own error when it fails too, and saves nothing", async () => {
+    const { engine, calls } = fake({ refresh: (job) => Promise.reject(job.source.type === 'xtream' ? failed('http', 404) : failed('auth')) });
+    await expect(loaderFor(engine).start(DRAFT, () => undefined).done).rejects.toMatchObject({ code: 'auth' });
+    expect(calls.refresh).toHaveLength(2);
+    expect(calls.epg).toEqual([]);
+    expect(calls.edits).toEqual([]);
+  });
+
+  it('tries no playlist once the load is cancelled during the API read, whatever the read answers', async () => {
+    for (const answer of [new CancelError(), failed('network')]) {
+      const read = gate<IngestResult>();
+      const { engine, calls } = fake({ refresh: () => read.promise });
+      const handle = loaderFor(engine).start(DRAFT, () => undefined);
+      await settle();
+      handle.cancel();
+      read.reject(answer);
+      expect(await settled(handle.done)).toBe(false);
+      expect(calls.refresh).toHaveLength(1);
+      expect(calls.edits).toEqual([]);
+    }
+  });
+
+  it('a cancel during the playlist after a failed API read saves nothing', async () => {
+    const list = gate<IngestResult>();
+    const { engine, calls } = fake({ refresh: (job) => (job.source.type === 'xtream' ? Promise.reject(failed('http', 403)) : list.promise) });
+    const handle = loaderFor(engine).start(DRAFT, () => undefined);
+    await settle();
+    expect(calls.refresh).toHaveLength(2);
+    handle.cancel();
+    expect(calls.refresh[1]!.options.cancel!.cancelled).toBe(true);
+    list.resolve(ingestResult('s1', { live: 1 }));
+    expect(await settled(handle.done)).toBe(false);
+    expect(calls.edits).toEqual([]);
+  });
+
+  it('waits for the slot again before the playlist when a refresh took it after the API read', async () => {
+    const held = { on: false };
+    const { engine, calls } = fake({
+      refresh: (job) => {
+        if (job.source.type !== 'xtream') return Promise.resolve(ingestResult(job.src, { live: 1 }));
+        // A background refresh claims the slot as the API read lets go of it.
+        held.on = true;
+        return Promise.reject(failed('format'));
+      },
+    });
+    const waits: number[] = [];
+    const sleep = (ms: number): Promise<void> => {
+      waits.push(ms);
+      held.on = false;
+      return Promise.resolve();
+    };
+    const slotted: LoaderEngine = {
+      get refreshing() {
+        return held.on;
+      },
+      refresh: (job, opts) => {
+        // The playlist's refresh is only asked for once the slot is free.
+        if (job.source.type === 'm3u') expect(held.on).toBe(false);
+        return engine.refresh(job, opts);
+      },
+      refreshEpg: (catalogs, opts) => engine.refreshEpg(catalogs, opts),
+      sourceIds: () => engine.sourceIds(),
+      epgStatus: () => engine.epgStatus(),
+      profile: () => engine.profile(),
+      editProfile: (edit) => engine.editProfile(edit),
+    };
+    await createEngineLoader({ engine: slotted, tier: () => Promise.resolve('full'), languages: () => [], now: () => 1, sleep }).start(DRAFT, () => undefined).done;
+    expect(waits).toEqual([SLOT_WAIT_MS]);
+    expect(calls.refresh.map((c) => c.job.source.type)).toEqual(['xtream', 'm3u']);
+  });
+
+  it('reads any other link as the playlist it was given as, and upgrades a pasted player_api.php link too', async () => {
+    for (const url of ['http://p.test/l.m3u', 'http://p.test/get.php?username=u', 'http://p.test/get.php?username=u&password=', 'http://p.test/list.php?username=u&password=p']) {
+      const { engine, calls } = fake();
+      await loaderFor(engine).start({ ...DRAFT, url }, () => undefined).done;
+      expect(calls.refresh.map((c) => c.job.source)).toEqual([{ type: 'm3u', url }]);
+    }
+    const { engine, calls } = fake();
+    await loaderFor(engine).start({ ...DRAFT, url: 'https://p.test/iptv/player_api.php?username=u&password=p' }, () => undefined).done;
+    expect(calls.refresh.map((c) => c.job.source)).toEqual([{ type: 'xtream', account: { base: 'https://p.test/iptv', username: 'u', password: 'p' }, upgrade: true }]);
+  });
+
+  it('triesPlaylist: every code but the account and the blocklist', () => {
+    for (const code of ['auth', 'http', 'network', 'format', 'empty', 'file', 'superseded']) expect(triesPlaylist(failed(code))).toBe(true);
+    for (const code of ['expired', 'blocked', 'blocklisted']) expect(triesPlaylist(failed(code))).toBe(false);
+    expect(triesPlaylist(new BlockedSourceError())).toBe(false);
+    expect(triesPlaylist(new Error('x'))).toBe(true);
   });
 });
