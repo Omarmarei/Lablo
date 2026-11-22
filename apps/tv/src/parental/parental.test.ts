@@ -572,7 +572,10 @@ describe('a new PIN (RELAY step 38c)', () => {
     const t = setup();
     t.engine.answer = () => ({ result: 'wait', waitMs: 60_000 });
     t.parental.ask(() => undefined);
-    await t.press('DIGIT_1', 'DIGIT_1', 'DIGIT_1', 'DIGIT_1', 'BACK');
+    // (BACK after the answer: one sent with the digits would close the pad before the wait came.)
+    await t.press('DIGIT_1', 'DIGIT_1', 'DIGIT_1', 'DIGIT_1');
+    expect(t.parental.pad.value!.problem).toBe('wait');
+    await t.press('BACK');
     t.parental.choose(() => undefined);
     expect(t.parental.pad.value).toEqual({ purpose: 'set', typed: 0, problem: null, busy: false });
     await t.press('DIGIT_5', 'DIGIT_5', 'DIGIT_5', 'DIGIT_5');

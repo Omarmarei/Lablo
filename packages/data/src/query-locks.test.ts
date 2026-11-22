@@ -6,11 +6,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CatalogItem, ContentKind } from '@lablo/core';
 import { pinHash } from '@lablo/crypto';
 import type { ChannelChange } from './channel-changes';
-import { openDatabase } from './idb';
+import { openDatabase, transact } from './idb';
 import type { LockRef, ParentalChange } from './parental';
-import { emptyProfile, loadProfile, saveProfile } from './profile';
+import { emptyProfile, loadProfile, PROFILE_VERSION, saveProfile, storedProfileDoc } from './profile';
 import type { ItemRef } from './query-service';
 import { QueryService, UNLOCK_TRIES, UNLOCK_WAIT_MS } from './query-service';
+import { STORE } from './schema';
 import { favItem, freshFactory, ingest, item } from './test-support';
 
 /**
@@ -390,6 +391,18 @@ describe('QueryService: the PIN checked without unlocking (step 38c)', () => {
     expect(await q.setPin('1111')).toBe(true);
     expect(await q.checkPin(PIN)).toEqual({ result: 'wrong', waitMs: 0 });
     expect(await q.unlock('1111')).toEqual({ result: 'ok', waitMs: 0 });
+  });
+
+  it('keeps the wait when the new PIN could not be written (a profile from a newer app version)', async () => {
+    expect(await q.setPin(PIN)).toBe(true);
+    for (let i = 1; i < UNLOCK_TRIES; i += 1) expect(await q.checkPin('0000')).toEqual({ result: 'wrong', waitMs: 0 });
+    expect(await q.checkPin('0000')).toEqual({ result: 'wait', waitMs: UNLOCK_WAIT_MS });
+    const doc = await storedProfileDoc(db);
+    await transact(db, STORE.profile, 'readwrite', (tx) => {
+      tx.objectStore(STORE.profile).put({ id: 'current', savedAt: 1, doc: { ...(doc as object), v: PROFILE_VERSION + 1 } });
+    });
+    expect(await q.setPin('1111')).toBe(false);
+    expect(await q.checkPin(PIN)).toEqual({ result: 'wait', waitMs: UNLOCK_WAIT_MS });
   });
 
   it('starts the wrong tries again with a new PIN', async () => {
