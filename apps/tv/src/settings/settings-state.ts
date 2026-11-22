@@ -171,7 +171,7 @@ export function createSettings(options: SettingsOptions): Settings {
   const channel = createChannelEditor({ nav, engine: options.engine, changed: options.channelsChanged, platform: options.platform, find: options.find, now: options.now, pad: options.pad });
   const channels = createEditedChannels({ nav, engine: options.engine, editor: channel, changed: options.channelsChanged });
   const pad = options.pad;
-  const parental = pad === undefined ? null : createParentalPage({ nav, engine: options.engine, pad, changed: options.locksChanged, lifecycle: options.lifecycle });
+  const parental = pad === undefined ? null : createParentalPage({ nav, engine: options.engine, pad, changed: options.locksChanged, lifecycle: options.lifecycle, platform: options.platform, find: options.find, now: options.now });
   const items = SETTINGS_ITEMS.filter(
     (item) => (item !== 'backup' || backup !== null) && (item !== 'telemetry' || telemetry !== null) && (item !== 'report' || report !== null) && (item !== 'parental' || parental !== null),
   );

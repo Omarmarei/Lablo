@@ -3,7 +3,7 @@ import type { Intent, LifecycleEvent } from '@lablo/platform-api';
 import { createNavigator } from '@lablo/ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ParentalEngine } from './parental';
-import { NO_PIN_SCREEN, PAD_CANCEL, PAD_CELLS, PAD_DELETE, PAD_ZERO, PIN_PAD, PIN_SCREEN, cellDigit, createParental, padStep } from './parental';
+import { NO_PIN_SCREEN, NO_PIN_SET, PAD_CANCEL, PAD_CELLS, PAD_DELETE, PAD_ZERO, PIN_PAD, PIN_SCREEN, cellDigit, createParental, padStep } from './parental';
 
 /**
  * Parental control in main.js (RELAY step 38b): the rails' entry, the PIN pad by the number keys
@@ -76,7 +76,7 @@ class FakeEngine implements ParentalEngine {
   }
 }
 
-function setup(options: { dir?: 'ltr' | 'rtl'; engine?: FakeEngine } = {}) {
+function setup(options: { dir?: 'ltr' | 'rtl'; engine?: FakeEngine; check?: (matched: () => void) => void } = {}) {
   const engine = options.engine ?? new FakeEngine();
   const nav = createNavigator({
     root: { id: 'live', zones: [{ kind: 'list', id: 'rail', axis: 'vertical', count: 5 }] },
@@ -94,7 +94,7 @@ function setup(options: { dir?: 'ltr' | 'rtl'; engine?: FakeEngine } = {}) {
   };
   const changed = vi.fn();
   const restart = vi.fn();
-  const parental = createParental({ nav, engine, lifecycle, changed, restart, now: () => now });
+  const parental = createParental({ nav, engine, lifecycle, changed, restart, now: () => now, check: options.check });
   const at = (): string => {
     const f = nav.snapshot();
     return `${f.screen} · ${f.zone} ${f.index}`;
@@ -293,6 +293,8 @@ describe("the rails' entry (RELAY step 38b)", () => {
     t.engine.state = { pin: false, unlocked: false, kinds: ['live'] };
     await t.open();
     expect(t.at()).toBe(`${NO_PIN_SCREEN} · buttons 0`);
+    expect(t.nav.top.zone('buttons')).toMatchObject({ count: 1 });
+    expect(t.parental.canSetPin).toBe(false);
     expect(t.parental.pad.value).toBeNull();
     await t.press('OK');
     expect(t.at()).toBe('live · rail 0');
@@ -331,6 +333,143 @@ describe("the rails' entry (RELAY step 38b)", () => {
     await flush();
     expect(t.nav.top.id).toBe(PIN_SCREEN);
     await t.press('BACK');
+    expect(t.at()).toBe('live · rail 0');
+  });
+});
+
+describe('the no-PIN dialog’s "Set a PIN" (RELAY step 38c2)', () => {
+  function withCheck() {
+    const asked: (() => void)[] = [];
+    const t = setup({ check: (matched) => asked.push(matched) });
+    t.engine.state = { pin: false, unlocked: false, kinds: ['live'] };
+    return { ...t, asked };
+  }
+
+  it('runs the login check, then the new PIN; once kept, the session unlocks with it and the screens read again', async () => {
+    const t = withCheck();
+    expect(t.parental.canSetPin).toBe(true);
+    await t.open();
+    expect(t.at()).toBe(`${NO_PIN_SCREEN} · buttons ${NO_PIN_SET}`);
+    expect(t.nav.top.zone('buttons')).toMatchObject({ count: 2 });
+    await t.press('OK');
+    // The dialog goes before the check's screens come.
+    expect(t.at()).toBe('live · rail 0');
+    expect(t.asked).toHaveLength(1);
+    expect(t.parental.pad.value).toBeNull();
+    t.asked[0]!();
+    expect(t.parental.pad.value).toEqual({ purpose: 'set', typed: 0, problem: null, busy: false });
+    await t.press('DIGIT_4', 'DIGIT_8', 'DIGIT_2', 'DIGIT_0', 'DIGIT_4', 'DIGIT_8', 'DIGIT_2', 'DIGIT_0');
+    expect(t.engine.kept).toEqual(['4820']);
+    expect(t.engine.pins).toEqual(['4820']);
+    expect(t.parental.pad.value).toBeNull();
+    expect(t.at()).toBe('live · rail 0');
+    expect(t.changed).toHaveBeenCalledWith(true);
+    // Unlocked by this app: the next OK on the entry locks again.
+    await t.open();
+    expect(t.engine.relocks).toBe(1);
+  });
+
+  it('asks nothing on "Cancel", and the dialog closes', async () => {
+    const t = withCheck();
+    await t.open();
+    await t.press('RIGHT', 'OK');
+    expect(t.at()).toBe('live · rail 0');
+    expect(t.asked).toEqual([]);
+  });
+
+  it('closes the pad without reading again when the kept PIN doesn’t unlock, or the call fails', async () => {
+    const t = withCheck();
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await t.open();
+    await t.press('OK');
+    t.asked[0]!();
+    t.engine.answer = () => ({ result: 'no-pin', waitMs: 0 });
+    await t.press('DIGIT_1', 'DIGIT_1', 'DIGIT_1', 'DIGIT_1', 'DIGIT_1', 'DIGIT_1', 'DIGIT_1', 'DIGIT_1');
+    expect(t.engine.kept).toEqual(['1111']);
+    expect(t.parental.pad.value).toBeNull();
+    expect(t.at()).toBe('live · rail 0');
+    expect(t.changed).not.toHaveBeenCalled();
+    t.engine.answer = null;
+    t.engine.state = { pin: false, unlocked: false, kinds: ['live'] };
+    await t.open();
+    await t.press('OK');
+    t.asked[1]!();
+    t.engine.failUnlock = true;
+    await t.press('DIGIT_2', 'DIGIT_2', 'DIGIT_2', 'DIGIT_2', 'DIGIT_2', 'DIGIT_2', 'DIGIT_2', 'DIGIT_2');
+    expect(t.engine.kept).toEqual(['1111', '2222']);
+    expect(t.parental.pad.value).toBeNull();
+    expect(t.changed).not.toHaveBeenCalled();
+  });
+
+  it('follows an unlock that lands after Back closed the pad; a refused one leaves a pad opened since alone', async () => {
+    const t = withCheck();
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await t.open();
+    await t.press('OK');
+    t.asked[0]!();
+    t.engine.holdUnlock = true;
+    // (BACK once the PIN is kept and the unlock is out: the pad shows busy.)
+    await t.press('DIGIT_3', 'DIGIT_3', 'DIGIT_3', 'DIGIT_3', 'DIGIT_3', 'DIGIT_3', 'DIGIT_3', 'DIGIT_3');
+    expect(t.engine.kept).toEqual(['3333']);
+    expect(t.parental.pad.value!.busy).toBe(true);
+    await t.press('BACK');
+    expect(t.parental.pad.value).toBeNull();
+    t.engine.held[0]!.resolve({ result: 'ok', waitMs: 0 });
+    await flush();
+    expect(t.changed).toHaveBeenCalledWith(true);
+    // Refused, then failed, after the rail's pad opened over it: that pad stays.
+    for (const settle of [(h: Held<UnlockAnswer>) => h.resolve({ result: 'wrong', waitMs: 0 }), (h: Held<UnlockAnswer>) => h.reject(new Error('worker gone'))]) {
+      t.engine.state = { pin: false, unlocked: false, kinds: ['live'] };
+      await t.open();
+      await t.press('OK');
+      t.asked[t.asked.length - 1]!();
+      await t.press('DIGIT_4', 'DIGIT_4', 'DIGIT_4', 'DIGIT_4', 'DIGIT_4', 'DIGIT_4', 'DIGIT_4', 'DIGIT_4');
+      await t.press('BACK');
+      t.engine.state = { pin: true, unlocked: false, kinds: ['live'] };
+      await t.open();
+      expect(t.parental.pad.value!.purpose).toBe('rail');
+      settle(t.engine.held[t.engine.held.length - 1]!);
+      await flush();
+      expect(t.parental.pad.value!.purpose).toBe('rail');
+      await t.press('BACK');
+    }
+    expect(t.changed).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a new PIN from Settings without unlocking, after one from the dialog', async () => {
+    const t = withCheck();
+    await t.open();
+    await t.press('OK');
+    t.asked[0]!();
+    await t.press('BACK');
+    const done = vi.fn();
+    t.parental.choose(done);
+    await t.press('DIGIT_5', 'DIGIT_5', 'DIGIT_5', 'DIGIT_5', 'DIGIT_5', 'DIGIT_5', 'DIGIT_5', 'DIGIT_5');
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(t.engine.pins).toEqual([]);
+  });
+
+  it('drops the unlock’s answer once disposed', async () => {
+    const t = withCheck();
+    await t.open();
+    await t.press('OK');
+    t.asked[0]!();
+    t.engine.holdUnlock = true;
+    await t.press('DIGIT_6', 'DIGIT_6', 'DIGIT_6', 'DIGIT_6', 'DIGIT_6', 'DIGIT_6', 'DIGIT_6', 'DIGIT_6');
+    expect(t.engine.held).toHaveLength(1);
+    t.parental.dispose();
+    t.engine.held[0]!.resolve({ result: 'ok', waitMs: 0 });
+    await flush();
+    expect(t.changed).not.toHaveBeenCalled();
+  });
+
+  it('opens no pad for a check that ends after dispose', async () => {
+    const t = withCheck();
+    await t.open();
+    await t.press('OK');
+    t.parental.dispose();
+    t.asked[0]!();
+    expect(t.parental.pad.value).toBeNull();
     expect(t.at()).toBe('live · rail 0');
   });
 });

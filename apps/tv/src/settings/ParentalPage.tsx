@@ -1,16 +1,24 @@
 import type { VNode } from 'preact';
-import type { Focus, FocusBinding, ItemBinding } from '@lablo/ui';
-import { Spinner, VirtualList, useZone } from '@lablo/ui';
+import type { Focus, FocusBinding, ItemBinding, Screen } from '@lablo/ui';
+import { Button, Dialog, Spinner, VirtualList, useZone } from '@lablo/ui';
 import type { AppI18n } from '../i18n';
 import { GROUPS } from './groups-state';
 import type { LockRow, PageStatus, ParentalPage, ParentalRow } from './parental-page';
 import { LOCKED_SCREEN, PARENTAL_SCREEN } from './parental-page';
+import type { PinCheck } from './pin-check';
+import { CHECK_SCREEN, NONE_BUTTONS, NONE_SCREEN, PICK_SCREEN } from './pin-check';
+import type { CheckSource } from './source-login';
+import { shownHost } from './sources-state';
 
 /**
  * Settings › "Parental control" and "Locked groups" (RELAY step 38c1): the page's rows as the
  * settings' rows (a name, its value beside it, a line under it), and the groups as "Channel
  * groups"' rows with their lock beside the name. Groups' names are data (`dir=auto`,
  * `translate=false`); a group without a name is the catalog's "Other channels".
+ *
+ * The PIN's login check (step 38c2): the pick of a source ("Whose login?", each source's name and
+ * server), and the dialog when no source keeps a login, over the page (or over nothing, from the
+ * rails' no-PIN dialog). Its form is the settings' login form, drawn by the settings screen.
  */
 
 type Translate = AppI18n['t'];
@@ -26,7 +34,9 @@ export function parentalText(t: Translate, row: ParentalRow, page: { adult: bool
     const value = page.adult === null ? '' : t(page.adult ? 'parental.on' : 'parental.off');
     return { name: t('parental.adultGroups'), value, hint: t(page.failed ? 'parental.refused' : 'parental.adultHint'), warn: page.failed };
   }
-  return { name: t('parental.lockedGroups'), value: '', hint: t('parental.groupsHint'), warn: false };
+  if (row === 'groups') return { name: t('parental.lockedGroups'), value: '', hint: t('parental.groupsHint'), warn: false };
+  if (row === 'forgot') return { name: t('parental.forgot'), value: '', hint: t('parental.forgotHint'), warn: false };
+  return { name: t('parental.set'), value: '', hint: t('parental.setHint'), warn: false };
 }
 
 /** A group's kind in words. */
@@ -42,6 +52,11 @@ export function lockLine(t: Translate, row: LockRow): string {
   return parts.join(' · ');
 }
 
+/** A source on the PIN's pick: its name, and its server's host under it (two sources can share a name). */
+export function pickLine(source: CheckSource): string {
+  return shownHost(source.type === 'xtream' ? source.account.base : source.url);
+}
+
 /** The page as drawn, hook-free: its rows, or why there are none. */
 export function ParentalView({ i18n, page, item }: { i18n: AppI18n; page: ParentalPage; item: (index: number) => ItemBinding }) {
   const { t } = i18n;
@@ -53,7 +68,7 @@ export function ParentalView({ i18n, page, item }: { i18n: AppI18n; page: Parent
       <header class="settings__header">
         <h1 class="settings__title">{t('settings.parental')}</h1>
       </header>
-      {rows.length === 0 && message(status, t(status === 'failed' ? 'parental.failedRead' : 'parental.noPinPage'), 'parental')}
+      {rows.length === 0 && message(status, t('parental.failedRead'), 'parental')}
       {rows.length > 0 && (
         <div class="settings__items" role="menu">
           {rows.map((row, i) => {
@@ -132,9 +147,80 @@ export function LockItem({ i18n, row, index, item }: { i18n: AppI18n; row: LockR
   );
 }
 
-function Rows({ i18n, binding, page }: { i18n: AppI18n; binding: FocusBinding; page: ParentalPage }) {
-  const zone = useZone(binding, binding.nav.top, 'rows');
+function Rows({ i18n, binding, page, screen }: { i18n: AppI18n; binding: FocusBinding; page: ParentalPage; screen: Screen }) {
+  const zone = useZone(binding, screen, 'rows');
   return <ParentalView i18n={i18n} page={page} item={(i) => zone.item(i)} />;
+}
+
+/** A source on the PIN's pick. */
+export function PickItem({ source, index, item }: { source: CheckSource; index: number; item: ItemBinding }) {
+  return (
+    <div
+      class={rowClass('groups__row', item)}
+      role="option"
+      aria-selected={item.state === 'focused' ? 'true' : 'false'}
+      data-testid={`pin-pick-${index}`}
+      data-src={source.id}
+      data-state={item.state}
+      onMouseMove={item.onHover}
+      onClick={item.onPress}
+    >
+      <div class="groups__top">
+        <span class="groups__name" dir="auto" translate={false} data-testid={`pin-pick-${index}-name`}>
+          {source.name}
+        </span>
+      </div>
+      <span class="groups__line" dir="ltr" translate={false} data-testid={`pin-pick-${index}-line`}>
+        {pickLine(source)}
+      </span>
+    </div>
+  );
+}
+
+/** The PIN's pick (step 38c2): whose login to type, each source with its server. */
+function Pick({ i18n, binding, check, screen }: { i18n: AppI18n; binding: FocusBinding; check: PinCheck; screen: Screen }) {
+  const { t } = i18n;
+  const sources = check.sources.value;
+  return (
+    <div class="settings__page" data-testid="pin-pick" data-count={sources.length}>
+      <header class="settings__header">
+        <h1 class="settings__title">{t('pinCheck.pickTitle')}</h1>
+      </header>
+      <p class="guides__intro">{t('pinCheck.pickIntro')}</p>
+      <VirtualList
+        binding={binding}
+        screen={screen}
+        zone="rows"
+        itemSize={GROUPS.rowHeight}
+        gap={GROUPS.rowGap}
+        class="groups__list"
+        testId="pin-pick-list"
+        renderItem={(i, item) => {
+          const source = sources[i];
+          return source === undefined ? null : <PickItem source={source} index={i} item={item} />;
+        }}
+      />
+    </div>
+  );
+}
+
+/** No source keeps a login (step 38c2): why, and one OK. */
+function NoLogin({ i18n, binding }: { i18n: AppI18n; binding: FocusBinding }) {
+  const { t } = i18n;
+  const zone = useZone(binding, binding.nav.top, NONE_BUTTONS);
+  return (
+    <Dialog title={t('pinCheck.noneTitle')} message={t('pinCheck.noneMessage')} testId="pin-none">
+      <Button label={t('parental.ok')} variant="primary" {...zone.item(0)} testId="pin-none-ok" />
+    </Dialog>
+  );
+}
+
+/** What is under the PIN's form or its dialog: the pick, else the page when the check came from it. */
+function Under({ i18n, binding, page }: { i18n: AppI18n; binding: FocusBinding; page: ParentalPage }) {
+  const pick = page.check.pickScreen.value;
+  if (pick !== null) return <Pick i18n={i18n} binding={binding} check={page.check} screen={pick} />;
+  const screen = page.screen.value;
+  return screen === null ? null : <Rows i18n={i18n} binding={binding} page={page} screen={screen} />;
 }
 
 /** "Locked groups" as drawn: the title, a line on what OK does, then the groups. */
@@ -172,9 +258,21 @@ function Groups({ i18n, binding, page }: { i18n: AppI18n; binding: FocusBinding;
   );
 }
 
-/** Settings › "Parental control", or "Locked groups" over it. */
+/** Settings › "Parental control", "Locked groups" over it, or the PIN's check (its form is the settings screen's). */
 export function ParentalPageScreen({ i18n, binding, focus, page }: { i18n: AppI18n; binding: FocusBinding; focus: Focus; page: ParentalPage }) {
   if (focus.screen === LOCKED_SCREEN) return <Groups i18n={i18n} binding={binding} page={page} />;
-  if (focus.screen === PARENTAL_SCREEN && page.screen.value !== null) return <Rows i18n={i18n} binding={binding} page={page} />;
+  const screen = page.screen.value;
+  if (focus.screen === PARENTAL_SCREEN && screen !== null) return <Rows i18n={i18n} binding={binding} page={page} screen={screen} />;
+  const pick = page.check.pickScreen.value;
+  if (focus.screen === PICK_SCREEN && pick !== null) return <Pick i18n={i18n} binding={binding} check={page.check} screen={pick} />;
+  if (focus.screen === CHECK_SCREEN) return <Under i18n={i18n} binding={binding} page={page} />;
+  if (focus.screen === NONE_SCREEN) {
+    return (
+      <div>
+        <Under i18n={i18n} binding={binding} page={page} />
+        <NoLogin i18n={i18n} binding={binding} />
+      </div>
+    );
+  }
   return null;
 }

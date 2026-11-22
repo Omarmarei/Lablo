@@ -4,17 +4,19 @@ import type { ContentKind } from '@lablo/core';
 import type { CategoryInfo, LoadedProfile, ProfileEdit } from '@lablo/data';
 import type { LockRef, ParentalChange } from '@lablo/data/client';
 import { parentalOf } from '@lablo/data/client';
-import type { LifecycleEvent } from '@lablo/platform-api';
-import type { Navigator, Screen, ZoneSpec } from '@lablo/ui';
+import type { LifecycleEvent, Platform } from '@lablo/platform-api';
+import type { Navigator, Screen, TextEditorOptions, ZoneSpec } from '@lablo/ui';
 import { storedSources } from '../onboarding/engine-loader';
 import { GROUPS_VISIBLE } from './groups-state';
+import type { PinCheck } from './pin-check';
+import { PIN_CHECK_SCREENS, createPinCheck } from './pin-check';
 
 /**
  * Settings › "Parental control" (RELAY step 38c1, architecture.md §1.4 item 10 "Built in step
  * 38c1"), pushed on the live navigator from the settings screen:
  *
- *   rows  (with a PIN: "Change the PIN", "Lock adult groups" with its value, "Locked groups";
- *         with none, no row yet: step 38c2 adds "Set a PIN" and "Forgot your PIN?")
+ *   rows  (with a PIN: "Change the PIN", "Lock adult groups" with its value, "Locked groups",
+ *         "Forgot your PIN?"; with none, "Set a PIN")
  *
  * - **The PIN, once a visit:** the first row chosen asks it on the PIN pad (`ParentalAsk.ask`:
  *   the query worker checks it, the session left as it is); the page then stays open until it
@@ -26,16 +28,19 @@ import { GROUPS_VISIBLE } from './groups-state';
  * - **"Locked groups"** (`LOCKED_SCREEN`): every group of every source, live, then movies, then
  *   series, each with its lock (the worker's `categories` marks them, names included); OK switches
  *   one (the `parental` edit `group`, kept both ways), then the rows and the screens read again.
+ * - **"Set a PIN" and "Forgot your PIN?"** (step 38c2) ask no PIN: one source's login typed again
+ *   (`pin-check.ts`), then the pad's new PIN; once kept, the page reads again and the visit counts
+ *   as granted (the login was just given).
  *
  * Main-safe as the settings are: no `trim`, `.sort(` or regex.
  */
 
 export const PARENTAL_SCREEN = 'parental';
 export const LOCKED_SCREEN = 'locked-groups';
-/** The page's screens, for the settings' list of screens. */
-export const PARENTAL_SCREENS: readonly string[] = [PARENTAL_SCREEN, LOCKED_SCREEN];
+/** The page's screens, for the settings' list of screens (the PIN's check, step 38c2, too). */
+export const PARENTAL_SCREENS: readonly string[] = [PARENTAL_SCREEN, LOCKED_SCREEN].concat(PIN_CHECK_SCREENS);
 
-export type ParentalRow = 'change' | 'adult' | 'groups';
+export type ParentalRow = 'change' | 'adult' | 'groups' | 'forgot' | 'set';
 
 /** The kinds in "Locked groups"' order. */
 export const LOCK_KINDS: readonly ContentKind[] = ['live', 'movie', 'series'];
@@ -74,6 +79,12 @@ export interface ParentalPageOptions {
   readonly changed?: () => void;
   /** The platform's lifecycle: the page asks the PIN again after the app was hidden. */
   readonly lifecycle?: (listener: (event: LifecycleEvent) => void) => () => void;
+  /** The TV's keyboard for the PIN's login check (step 38c2). */
+  readonly platform: Pick<Platform, 'textKey' | 'onSoftKeyboard'>;
+  /** Finds a field's input (tests). */
+  readonly find?: TextEditorOptions['find'];
+  /** The clock (the click pairing in the editor). */
+  readonly now?: () => number;
 }
 
 export interface ParentalPage {
@@ -95,14 +106,16 @@ export interface ParentalPage {
   readonly groups: ReadonlySignal<readonly LockRow[]>;
   /** Reads and edits in flight: 0 means settled (e2e). */
   readonly pending: ReadonlySignal<number>;
+  /** The PIN's login check (step 38c2): this page's rows, and the rails' no-PIN dialog. */
+  readonly check: PinCheck;
   /** Opens the page and reads it. */
   open(): void;
   dispose(): void;
 }
 
-/** The page's rows: with a PIN, all three; with none, none yet (step 38c2). */
+/** The page's rows: with a PIN, the three behind it and "Forgot your PIN?"; with none, "Set a PIN" (step 38c2). */
 export function parentalRows(pin: boolean): ParentalRow[] {
-  return pin ? ['change', 'adult', 'groups'] : [];
+  return pin ? ['change', 'adult', 'groups', 'forgot'] : ['set'];
 }
 
 /**
@@ -142,6 +155,7 @@ export function createParentalPage(options: ParentalPageOptions): ParentalPage {
   const lockedStatus = signal<PageStatus>('loading');
   const groups = signal<readonly LockRow[]>([]);
   const pending = signal(0);
+  const check = createPinCheck({ nav, engine, platform: options.platform, find: options.find, now: options.now });
   let disposed = false;
   /** The PIN was given in this visit. */
   let granted = false;
@@ -260,9 +274,22 @@ export function createParentalPage(options: ParentalPageOptions): ParentalPage {
     readGroups();
   };
 
-  /** What a row does once the PIN was given. */
+  /** A new PIN after a source's login: kept, the page reads again and the visit is granted. */
+  const newPin = (): void => {
+    check.run(() => {
+      pad.choose(() => {
+        if (disposed) return;
+        granted = true;
+        changedPin.value = true;
+        read();
+      });
+    });
+  };
+
+  /** What a row does once the PIN was given ("Set a PIN" and "Forgot your PIN?" need none). */
   const act = (row: ParentalRow): void => {
-    if (row === 'change') {
+    if (row === 'set' || row === 'forgot') newPin();
+    else if (row === 'change') {
       pad.choose(() => {
         if (!disposed) changedPin.value = true;
       });
@@ -294,6 +321,7 @@ export function createParentalPage(options: ParentalPageOptions): ParentalPage {
     lockedStatus,
     groups,
     pending,
+    check,
     open(): void {
       if (disposed || screen.value !== null) return;
       granted = false;
@@ -306,7 +334,7 @@ export function createParentalPage(options: ParentalPageOptions): ParentalPage {
         onSelect: (focus) => {
           const row = rows.value[focus.index];
           if (row === undefined || pending.value > 0) return;
-          if (granted) act(row);
+          if (granted || row === 'set' || row === 'forgot') act(row);
           else
             pad.ask(() => {
               if (disposed) return;
@@ -327,6 +355,7 @@ export function createParentalPage(options: ParentalPageOptions): ParentalPage {
     dispose(): void {
       disposed = true;
       stopLifecycle();
+      check.dispose();
     },
   };
 }

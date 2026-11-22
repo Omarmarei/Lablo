@@ -633,6 +633,11 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       gated?.stop();
       location.reload();
     },
+    // The no-PIN dialog's "Set a PIN" (step 38c2): settings.js's login check first.
+    check: (matched) =>
+      settings.use((file) => {
+        file.settings.parental?.check.run(matched);
+      }),
   });
   lockEntry = () => parental.toggle();
   playerLifecycle = parental.heldLifecycle;

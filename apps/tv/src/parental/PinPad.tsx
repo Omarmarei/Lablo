@@ -94,14 +94,16 @@ export function PinPadScreen({ parental, i18n, binding, focus }: { parental: Par
   );
 }
 
-/** "Locked groups need a PIN" (RELAY step 38b; step 38c gives it a way to set one), over an opaque page as the pad is. */
-export function NoPinScreen({ i18n, binding, focus }: { i18n: AppI18n; binding: FocusBinding; focus: Focus }) {
+/** "Locked groups need a PIN" (RELAY step 38b), over an opaque page as the pad is; with `canSet`, "Set a PIN" and "Cancel" (step 38c2). */
+export function NoPinScreen({ i18n, binding, focus, canSet }: { i18n: AppI18n; binding: FocusBinding; focus: Focus; canSet: boolean }) {
   const { t } = i18n;
   const zone = useZone(binding, binding.nav.top, NO_PIN_BUTTONS);
   return (
     <main class="pin" data-testid="no-pin" data-screen={focus.screen} data-zone={focus.zone} data-index={focus.index} data-dir={focus.dir}>
       <Dialog title={t('parental.noPinTitle')} message={t('parental.noPinMessage')} testId="no-pin-dialog">
-        <Button label={t('parental.ok')} variant="primary" {...zone.item(0)} testId="no-pin-ok" />
+        {canSet && <Button label={t('parental.set')} variant="primary" {...zone.item(0)} testId="no-pin-set" />}
+        {canSet && <Button label={t('action.cancel')} {...zone.item(1)} testId="no-pin-cancel" />}
+        {!canSet && <Button label={t('parental.ok')} variant="primary" {...zone.item(0)} testId="no-pin-ok" />}
       </Dialog>
     </main>
   );
