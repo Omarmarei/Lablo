@@ -185,7 +185,7 @@ export interface XtreamListItem {
   categoryId: string;
   /** When the panel added (or last changed) it, epoch seconds. */
   added: number | null;
-  /** The panel's adult flag (`is_adult`); groups are also checked by name later (step 38). */
+  /** The panel's adult flag (`is_adult`): the ingest marks the item's category adult (step 38, `CategoryInfo.adult`). */
   adult: boolean;
   /** Out of 10. */
   rating: number | null;

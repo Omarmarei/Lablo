@@ -108,6 +108,11 @@ export interface SearchOptions {
   favourites?: FavouriteMarks;
   /** Other names per segment (from `searchAliases`; `null`: none), aligned with the segments. */
   aliases?: ReadonlyArray<SearchAliases | null>;
+  /**
+   * Per segment, the items never found (RELAY step 38: what parental control locks), aligned with
+   * the segments (`null`: none). They aren't counted in `total` either.
+   */
+  hide?: ReadonlyArray<((index: number) => boolean) | null>;
 }
 
 /** Per segment, the item indexes that are favourites (`null`: none). */
@@ -397,6 +402,7 @@ export function searchSegments(segments: readonly SearchSegment[], query: string
   ): void => {
     const seg = segments[s]!;
     const favs = options.favourites ? options.favourites[s] : null;
+    const hide = options.hide ? options.hide[s] : null;
     const kindRank = KIND_RANK[seg.kind];
     let pos = text.indexOf(scan, 1);
     let at = 0;
@@ -405,7 +411,7 @@ export function searchSegments(segments: readonly SearchSegment[], query: string
       const item = aliasItems === null ? at : aliasItems[at]!;
       const start = starts[at]!;
       const end = starts[at + 1]! - 1; // the separator after the name
-      if (skip !== null && skip.has(item)) {
+      if ((skip !== null && skip.has(item)) || (hide !== null && hide !== undefined && hide(item))) {
         pos = text.indexOf(scan, end + 1);
         continue;
       }

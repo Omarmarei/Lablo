@@ -29,6 +29,8 @@
  * - `recent` gives the newest movies across the sources ("Recently added", step 26e), from the
  *   lists the ingest keeps;
  * - `itemsByKey` gives the catalog items of ContentKeys ("Continue watching", step 27d);
+ * - `unlock`, `relock`, `lockState` and `setPin` are parental control's (step 38): the query worker
+ *   checks the PIN, keeps the session's unlock and serves nothing locked while it is locked;
  * - a **config worker** starts for each config refresh (`refreshConfig`, step 30b2): it answers
  *   the cached copy's policy first (`onCached`), then fetches `GET <api>/v1/config`, and ends.
  *   It runs beside the refresh slot (it reads and writes one small record). After each run, a
@@ -117,9 +119,11 @@ import type {
   PairStatusResult,
   DiagSendRequest,
   DiagSendResult,
+  LockState,
   NumberRequest,
   NumberedChannel,
   TelemetrySendRequest,
+  UnlockAnswer,
   TelemetrySendResult,
 } from '@lablo/data/client';
 import {
@@ -843,6 +847,35 @@ export class DataEngine {
    */
   numbered(req: NumberRequest): Promise<NumberedChannel | null> {
     return this.query.call('numbered', req);
+  }
+
+  /**
+   * Unlocks the session with `pin` (step 38): the query worker checks it against the profile's
+   * PIN; five wrong ones in a row make it wait a minute. The answer says how it went.
+   */
+  unlock(pin: string): Promise<UnlockAnswer> {
+    return this.query.call('unlock', { pin });
+  }
+
+  /** Locks the session again (step 38: the app hidden, or "Lock again"). */
+  relock(): Promise<void> {
+    return this.query.call('relock');
+  }
+
+  /** Whether a PIN is set, whether the session is unlocked, and the kinds with something locked (step 38). */
+  lockState(): Promise<LockState> {
+    return this.query.call('lockState');
+  }
+
+  /**
+   * Keeps `pin` as the PIN (step 38: a new salt and its hash in the profile). Resolves `false` for
+   * one that isn't four digits; a changed profile is told to the backup schedule, as an edit is.
+   */
+  setPin(pin: string): Promise<boolean> {
+    return this.query.call('setPin', { pin }).then((changed) => {
+      if (changed) this.options.onProfileChanged?.();
+      return changed;
+    });
   }
 
   /**

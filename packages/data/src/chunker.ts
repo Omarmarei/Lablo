@@ -39,6 +39,18 @@ export interface CategoryInfo {
    * stay the provider's; the served chunks leave these channels out (`shownChunks`).
    */
   hidden?: number[];
+  /**
+   * The category is adult (RELAY step 38): stored, the Xtream panel marked one of its items
+   * `is_adult` (`CatalogChunker.push`'s `adult`); served by the query worker, that or its name
+   * (core `adultName`). No field: neither.
+   */
+  adult?: true;
+  /**
+   * Served by the query worker only (step 38): the category is locked (adult and not opened by the
+   * user, or locked by the user). Its places stay in every count; while the session is locked
+   * nothing of it is served.
+   */
+  locked?: true;
 }
 
 export interface ChunkerOptions {
@@ -66,8 +78,8 @@ export class CatalogChunker {
     this.maxBuffered = Math.max(this.size, options.maxBuffered ?? MAX_BUFFERED);
   }
 
-  /** Adds an item; returns the chunks that became ready. */
-  push(item: CatalogItem): CatalogChunk[] {
+  /** Adds an item (`adult`: its panel marked it adult, and so its category, step 38); returns the chunks that became ready. */
+  push(item: CatalogItem, adult = false): CatalogChunk[] {
     if (item.kind !== this.kind) throw new RangeError(`A ${this.kind} chunker got a ${item.kind} item`);
     let pending = this.byName.get(item.group);
     if (!pending) {
@@ -75,6 +87,7 @@ export class CatalogChunker {
       this.byName.set(item.group, pending);
       this.order.push(pending);
     }
+    if (adult) pending.info.adult = true;
     pending.items.push(item);
     this.buffered++;
     const out: CatalogChunk[] = [];

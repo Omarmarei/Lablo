@@ -209,6 +209,37 @@ describe('searchSegments with other names (step 36a2: the names the user gave ch
   });
 });
 
+describe('searchSegments with items never found (step 38: what parental control locks)', () => {
+  const live = segment('a', 'live', ['MBC Drama HD', 'Sky News', 'Al Jazeera', 'Newsroom 24']);
+  const movies = segment('a', 'movie', ['News of the World', 'Late News']);
+  const segs = [live, movies];
+  const other = (index: number, name: string) => ({ index, normName: normalizeName(name) });
+
+  it('leaves the hidden items out of the hits and the total, segment by segment', () => {
+    const hide = [(i: number) => i === 1 || i === 3, null];
+    const result = searchSegments(segs, 'news', { hide });
+    expect(brief(result.hits, segs)).toEqual(['movie:news of the world:start', 'movie:late news:word']);
+    expect(result.total).toBe(2);
+    const second = searchSegments(segs, 'news', { hide: [null, (i: number) => i === 0] });
+    expect(brief(second.hits, segs)).toEqual(['live:newsroom 24:start', 'live:sky news:word', 'movie:late news:word']);
+    expect(second.total).toBe(3);
+    // Every hit when nothing is hidden.
+    expect(searchSegments(segs, 'news', { hide: [null, null] }).total).toBe(4);
+  });
+
+  it('leaves out an item found by its other name too', () => {
+    const aliases = [searchAliases([other(2, 'My News')]), null];
+    expect(searchSegments(segs, 'my news', { aliases, hide: [(i: number) => i === 2, null] })).toEqual({ query: 'my news', hits: [], total: 0 });
+    expect(brief(searchSegments(segs, 'my news', { aliases }).hits, segs)).toEqual(['live:al jazeera:exact']);
+  });
+
+  it('asks only about the items a query finds', () => {
+    const asked: number[] = [];
+    searchSegments(segs, 'sky', { hide: [(i: number) => (asked.push(i), false), null] });
+    expect(asked).toEqual([1]);
+  });
+});
+
 // ---------------------------------------------------------------------------------------------
 // Oracle: the same ranking computed naively, name by name.
 

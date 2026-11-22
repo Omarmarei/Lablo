@@ -25,6 +25,8 @@ export type ChannelEdit = FavouriteRef & {
   name?: string;
   /** The number shown and dialled instead of the provider's (a whole 1 to `CHANNEL_NUMBER_MAX`). */
   number?: number;
+  /** Locked by the user (step 38): while the session is locked, nothing of it is served anywhere. */
+  locked?: true;
 };
 
 /** The most changed channels a profile keeps. */
@@ -71,7 +73,7 @@ export function channelEditsOf(doc: unknown): ChannelEdit[] {
   for (let i = 0; i < stored.length && out.length < MAX_CHANNEL_EDITS; i += 1) {
     const entry = stored[i] as unknown;
     if (typeof entry !== 'object' || entry === null) continue;
-    const { key, src, kind, normName, group, epgId, added, missingSince, hidden, name, number } = entry as Record<string, unknown>;
+    const { key, src, kind, normName, group, epgId, added, missingSince, hidden, name, number, locked } = entry as Record<string, unknown>;
     if (typeof key !== 'string' || key === '' || keys[key] === true) continue;
     if (typeof src !== 'string' || src === '' || kind !== 'live' || typeof normName !== 'string') continue;
     if ((group !== undefined && typeof group !== 'string') || (epgId !== undefined && epgId !== null && typeof epgId !== 'string')) continue;
@@ -82,7 +84,8 @@ export function channelEditsOf(doc: unknown): ChannelEdit[] {
     if (hidden === true) edit.hidden = true;
     if (isChannelName(name)) edit.name = name;
     if (isChannelNumber(number) && numbers[number] !== true) edit.number = number;
-    if (edit.hidden === undefined && edit.name === undefined && edit.number === undefined) continue;
+    if (locked === true) edit.locked = true;
+    if (edit.hidden === undefined && edit.name === undefined && edit.number === undefined && edit.locked === undefined) continue;
     keys[key] = true;
     if (edit.number !== undefined) numbers[edit.number] = true;
     out.push(edit);

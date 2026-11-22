@@ -32,7 +32,8 @@ export class ChannelView {
   /** Per segment (aligned with the segments given), its renamed channels' names; `null`: none. */
   readonly aliases: (SearchAliases | null)[];
 
-  constructor(segments: readonly SearchSegment[], edits: readonly ChannelEdit[], private readonly clean: boolean) {
+  /** `hideLocked`: the session is locked (step 38), so the channels the user locked are left out as hidden ones are. */
+  constructor(segments: readonly SearchSegment[], edits: readonly ChannelEdit[], private readonly clean: boolean, hideLocked = false) {
     const names: { index: number; normName: string }[][] = segments.map(() => []);
     for (let e = 0; e < edits.length; e += 1) {
       const edit = edits[e]!;
@@ -43,7 +44,7 @@ export class ChannelView {
       // (A channel the catalog doesn't hold now: nothing to hide or find.)
       const index = s === -1 ? -1 : segments[s]!.indexOfKey(edit.key);
       if (index === -1) continue;
-      if (edit.hidden === true) {
+      if (edit.hidden === true || (hideLocked && edit.locked === true)) {
         const at = segments[s]!.chunkOf(index);
         const id = `${edit.src}|${at.catIdx}|${at.chunk}`;
         const slots = this.hiddenSlots.get(id);

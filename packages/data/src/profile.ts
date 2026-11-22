@@ -40,6 +40,8 @@ import type { ChannelChange } from './channel-changes';
 import { applyChannelChange } from './channel-changes';
 import type { ChannelEdit } from './channel-edits';
 import { channelEditsOf, cleanNamesOn } from './channel-edits';
+import type { ParentalChange, ParentalDoc, ParentalState } from './parental';
+import { applyParentalChange, parentalOf } from './parental';
 import { onSuccess, transact } from './idb';
 import { STORE } from './schema';
 
@@ -317,6 +319,12 @@ export type ProfileV9 = Omit<ProfileV8, 'v' | 'sources' | 'guides'> & {
   channelEdits?: ChannelEdit[];
   /** `true`: live channels' names show without their leading tags (step 36a); no field when off. */
   cleanNames?: true;
+  /**
+   * Parental control (step 38, parental.ts): the PIN's salt and hash, "Lock adult groups" off, and
+   * the groups the user locked or opened. Optional, so version 9 documents written before it need
+   * no migration; no field: no PIN, adult groups locked, no choices.
+   */
+  parental?: ParentalDoc;
 };
 
 /** The current profile shape. */
@@ -494,7 +502,9 @@ export type ProfileEdit =
   /** A single live channel hidden, renamed or renumbered (step 36a, channel-changes.ts). One that changes nothing, or goes past a cap, writes nothing. */
   | { kind: 'channel'; change: ChannelChange }
   /** "Clean channel names" (step 36a): on keeps `cleanNames: true`, off takes the field away. One that isn't a boolean changes nothing. */
-  | { kind: 'cleanNames'; on: boolean };
+  | { kind: 'cleanNames'; on: boolean }
+  /** Parental control (step 38, parental.ts): the PIN, "Lock adult groups", a group's lock. One that changes nothing writes nothing. */
+  | { kind: 'parental'; change: ParentalChange };
 
 const USER_GUIDE = 'u~';
 
@@ -762,6 +772,14 @@ export function applyProfileEdit(doc: ProfileDoc, edit: ProfileEdit): ProfileDoc
     const next: ProfileDoc = { ...doc };
     if (edits.length > 0) next.channelEdits = edits;
     else delete next.channelEdits;
+    return next;
+  }
+  if (edit.kind === 'parental') {
+    const parental = applyParentalChange(doc, edit.change);
+    if (parental === undefined) return null;
+    const next: ProfileDoc = { ...doc };
+    if (parental !== null) next.parental = parental;
+    else delete next.parental;
     return next;
   }
   if (edit.kind === 'cleanNames') {
@@ -1090,6 +1108,20 @@ export function readChannelChanges(db: IDBDatabase): Promise<{ edits: ChannelEdi
       const record = value as ProfileRecord | undefined;
       const doc = record === undefined ? null : record.doc;
       done({ edits: channelEditsOf(doc), clean: cleanNamesOn(doc) });
+    });
+  });
+}
+
+/**
+ * The parental part of the current profile (step 38; `parentalOf`), read without upgrading or
+ * writing it: no PIN, adult groups locked and no choices when there is no profile. The query
+ * worker reads it at each reload, for its locks.
+ */
+export function readParental(db: IDBDatabase): Promise<ParentalState> {
+  return transact<ParentalState>(db, STORE.profile, 'readonly', (tx, done) => {
+    onSuccess(tx.objectStore(STORE.profile).get(CURRENT), (value) => {
+      const record = value as ProfileRecord | undefined;
+      done(parentalOf(record === undefined ? null : record.doc));
     });
   });
 }

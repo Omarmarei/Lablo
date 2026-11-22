@@ -34,6 +34,8 @@ import { freshFactory } from '../packages/data/src/test-support';
 
 const DAY = 86_400_000;
 const catalog = loadCatalog();
+/** The live channels the query worker serves before a PIN: all but the 18+ one, whose group is locked by default (step 38). */
+const openLive = catalog.live.filter((c) => !c.adult);
 
 let app: MockServer;
 let base: string;
@@ -96,7 +98,7 @@ describe('ingest against the mock provider: M3U', () => {
     expect(r1).toMatchObject({ status: 'committed', gen: 1, counts: { live: catalog.live.length, movie: catalog.movies.length, series: episodes }, gzipped: false });
     expect(r1.fetch?.etag).toMatch(/^"/);
     expect(r1.m3u?.epgUrls[0]).toBe(`${base}/xmltv.php?username=${U}&password=${P}`);
-    expect((await allItems('pl', 'live')).map((i) => i.name).sort()).toEqual(catalog.live.map((c) => c.name).sort());
+    expect((await allItems('pl', 'live')).map((i) => i.name).sort()).toEqual(openLive.map((c) => c.name).sort());
 
     const r2 = await ingest(m3uJob(), { now: () => NOW + DAY });
     expect(r2).toMatchObject({ status: 'unchanged', gen: 1, fetch: null });
@@ -171,7 +173,8 @@ describe('ingest against the mock provider: M3U', () => {
     const shownOf = (key: string): CatalogItem | undefined => shown.find((i) => i.key === key);
     expect(shownOf(clock2.key)).toMatchObject({ name: 'My clock', chno: null });
     expect(shownOf(sports2.key)).toMatchObject({ name: 'Sport', chno: 60 });
-    expect([shownOf(news2.key), shownOf(fhd.key), shown.length]).toEqual([undefined, undefined, after.length - 2]);
+    // (And the 18+ channel, locked until the PIN: step 38.)
+    expect([shownOf(news2.key), shownOf(fhd.key), shown.length]).toEqual([undefined, undefined, after.length - 3]);
 
     // Only a changed channel is renamed again: the favourites stay as they are, the entry follows.
     const again: Record<number, string> = { ...renamed, 104: 'قناة الاختبار' };
@@ -428,7 +431,7 @@ describe('ingest against the mock provider: Xtream', () => {
     };
     await expect(ingest({ ...xtream(), force: true }, { transport: breaking })).rejects.toMatchObject({ code: 'network' });
     expect(await getSource(db, 'xt')).toMatchObject({ gen: 1, building: null, counts });
-    expect((await allItems('xt', 'live')).length).toBe(catalog.live.length);
+    expect((await allItems('xt', 'live')).length).toBe(openLive.length);
 
     const bad: IngestJob = { src: 'xt', source: { type: 'xtream', account: { base, username: U, password: 'nope' } } };
     await expect(ingest(bad)).rejects.toMatchObject({ code: 'auth' });

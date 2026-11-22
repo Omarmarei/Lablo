@@ -58,6 +58,14 @@
  *   places (`hidden`), and every live item read shows the user's name and number (or its clean
  *   name). Search finds a renamed channel by both names; `numbered` finds the channel the user
  *   numbered `n`. Addresses and counts stay the provider's everywhere else.
+ * - Parental control (step 38, `lock-view.ts`): every `categories` marks the adult and the locked
+ *   categories (`adult`, `locked`), their places kept. While the session is locked (a new worker
+ *   starts locked), nothing of a locked category or channel is served: `chunk` gives none of its
+ *   items, `items` gives `null` for them (and so `numbered` none), and `itemsByKey`, `search`,
+ *   `recent` and `unmatched` leave them out. `unlock` checks the PIN (five wrong in a row: a
+ *   minute's wait), `relock` locks again, `lockState` says how things stand, `setPin` keeps a new
+ *   PIN's salt and hash. The locks are read from the profile at each reload and taken from each
+ *   `parental` or `channel` edit's write.
  *
  * A segment that fails to load (other layout version, inconsistent data) is skipped and listed
  * in `status().stale`, so the ingest can rebuild it.
@@ -79,7 +87,12 @@ import { CONFIG_KEY } from './config-constants';
 import { getValue } from './idb';
 import { STORE } from './schema';
 import type { LoadedProfile, ProfileDoc, ProfileEdit } from './profile';
-import { applyProfileEdit, favouriteKeysOf, loadProfile, readChannelChanges, readEpgOffsets, readEpgOverrides, readFavouriteKeys, updateProfile } from './profile';
+import { applyProfileEdit, favouriteKeysOf, loadProfile, readChannelChanges, readEpgOffsets, readEpgOverrides, readFavouriteKeys, readParental, updateProfile } from './profile';
+import type { ParentalState } from './parental';
+import { isPin, parentalOf } from './parental';
+import type { LoadedCategories } from './lock-view';
+import { LockView } from './lock-view';
+import { pinHash, toBase64Url } from '@lablo/crypto';
 import type { ChannelEdit } from './channel-edits';
 import { channelEditsOf, cleanNamesOn } from './channel-edits';
 import { ChannelView } from './channel-view';
@@ -202,8 +215,9 @@ export interface UnmatchedChannel {
 
 export interface UnmatchedPage {
   /**
-   * Bumps at each reload (a catalog or a guide swapped): a list read at another version may
-   * hold other rows now, so the caller drops its pages and asks again.
+   * Bumps at each reload (a catalog or a guide swapped) and each change of the locks (step 38): a
+   * list read at another version may hold other rows now, so the caller drops its pages and asks
+   * again.
    */
   version: number;
   /** The live channels without a guide over the sources asked. */
@@ -326,6 +340,30 @@ export interface NumberedChannel extends ItemRef {
   hidden: boolean;
 }
 
+/** `unlock`'s answer (step 38). */
+export interface UnlockAnswer {
+  /** `ok`: the session is unlocked; `wrong`: not the PIN; `wait`: too many wrong ones, for `waitMs` more; `no-pin`: none is set. */
+  result: 'ok' | 'wrong' | 'wait' | 'no-pin';
+  waitMs: number;
+}
+
+/** How parental control stands (step 38): a PIN set, this session unlocked, and the kinds with something locked. */
+export interface LockState {
+  pin: boolean;
+  unlocked: boolean;
+  kinds: ContentKind[];
+}
+
+/** Wrong PINs in a row before `unlock` waits (step 38). */
+export const UNLOCK_TRIES = 5;
+/** How long `unlock` waits after `UNLOCK_TRIES` wrong PINs. */
+export const UNLOCK_WAIT_MS = 60_000;
+
+/** `length` random bytes (a PIN's salt). */
+function randomBytes(length: number): Uint8Array {
+  return crypto.getRandomValues(new Uint8Array(length));
+}
+
 /** Where a live channel's programmes are stored. */
 interface EpgLink {
   epgSrc: string;
@@ -345,6 +383,8 @@ export interface QueryServiceOptions {
   now?: () => number;
   /** The network, for the short-EPG fallback, the account re-check and the movies' details (none: no panel is asked). */
   transport?: ByteTransport;
+  /** Random bytes, for a PIN's salt (default: `crypto.getRandomValues`). */
+  random?: (length: number) => Uint8Array;
 }
 
 const chunkId = (k: ChunkKey): string => `${k.src}|${k.gen}|${k.kind}|${k.catIdx}|${k.chunk}`;
@@ -380,7 +420,7 @@ export class QueryService {
   private channelsFrom = 0;
   /** What the loaded segments make of them: built when first needed, dropped when either changes. */
   private view: ChannelView | null = null;
-  /** Bumps at each reload (`UnmatchedPage.version`). */
+  /** Bumps at each reload and each change of the locks (`UnmatchedPage.version`). */
   private version = 0;
   /** Each source's list of channels without a guide, built when first asked after a reload. */
   private unmatchedIndexes = new Map<string, Promise<UnmatchedIndex>>();
@@ -393,6 +433,18 @@ export class QueryService {
   private readonly seriesInfos: SeriesInfoCache | null;
   /** The cached config's blocklist (step 30b2): read when first asked, again after `reloadConfig`. */
   private blocklist: Promise<Blocklist> | null = null;
+  /** Parental control (step 38): the profile's part, and the edit number it was read at. */
+  private parental: ParentalState = { pin: null, adult: true, groups: [] };
+  private parentalFrom = 0;
+  /** Whether this session is unlocked (a new worker starts locked). */
+  private unlocked = false;
+  /** Wrong PINs in a row, and until when `unlock` waits after too many. */
+  private wrongTries = 0;
+  private waitUntil = 0;
+  /** The loaded catalogs' categories, read at each load, for the locks. */
+  private loadedCategories: LoadedCategories[] = [];
+  /** What the locks make of them: built when first needed, dropped when the categories, the parental part, the changed channels or the session change. */
+  private lockView: LockView | null = null;
 
   constructor(private readonly options: QueryServiceOptions) {
     this.cacheSize = Math.max(1, options.chunkCache ?? 16);
@@ -431,6 +483,10 @@ export class QueryService {
       editProfile: (edit: ProfileEdit): Promise<boolean> => this.editProfile(edit),
       blocked: (arg: { urls: string[] }): Promise<boolean[]> => this.blocked(arg.urls),
       reloadConfig: (): Promise<number> => this.reloadConfig(),
+      unlock: (arg: { pin: string }): Promise<UnlockAnswer> => this.unlock(arg.pin),
+      relock: (): Promise<void> => this.relock(),
+      lockState: (): Promise<LockState> => this.lockState(),
+      setPin: (arg: { pin: string }): Promise<boolean> => this.setPin(arg.pin),
     };
   }
 
@@ -509,10 +565,12 @@ export class QueryService {
     const overrides = readEpgOverrides(db);
     const favourites = readFavouriteKeys(db);
     const changes = readChannelChanges(db);
+    const parental = readParental(db);
     const sources = (await getSources(db)).sort((a, b) => (a.src < b.src ? -1 : a.src > b.src ? 1 : 0));
     const keys: { src: string; gen: number; kind: ContentKind }[] = [];
     for (const s of sources) if (s.gen > 0) for (const kind of CONTENT_KINDS) if ((s.counts[kind] ?? 0) > 0) keys.push({ src: s.src, gen: s.gen, kind });
     const data = await readIndexes(db, keys);
+    const cats = await Promise.all(keys.map((k) => readCategories(db, k.src, k.gen, k.kind)));
     const segments: SearchSegment[] = [];
     const stale: QueryStatus['stale'] = [];
     keys.forEach((k, i) => {
@@ -531,6 +589,9 @@ export class QueryService {
     this.setOffsets(await offsets, await overrides, offsetSeq);
     this.setFavouriteKeys(await favourites, offsetSeq);
     this.setChannelChanges(await changes, offsetSeq);
+    this.setParental(await parental, offsetSeq);
+    this.loadedCategories = keys.map((k, i) => ({ src: k.src, kind: k.kind, infos: cats[i] ?? [] }));
+    this.lockView = null;
     this.sources = sources;
     this.segments = segments;
     this.stale = stale;
@@ -588,13 +649,96 @@ export class QueryService {
     this.channelsFrom = seq;
     this.channelEdits = changes.edits;
     this.cleanNames = changes.clean;
-    this.view = null;
+    this.dropLocks();
   }
 
-  /** The view of the changed channels over the loaded segments. */
+  /** The parental part read or written at edit number `seq` (an older read than the held one is dropped). */
+  private setParental(state: ParentalState, seq: number): void {
+    if (seq < this.parentalFrom) return;
+    this.parentalFrom = seq;
+    this.parental = state;
+    this.dropLocks();
+  }
+
+  /**
+   * The changed channels, the locks or the session changed: the views built from them go, and the
+   * lists of channels without a guide (outside a load, the caller bumps `version`: their rows may differ).
+   */
+  private dropLocks(): void {
+    this.view = null;
+    this.lockView = null;
+    this.unmatchedIndexes = new Map();
+  }
+
+  /** The view of the changed channels over the loaded segments (the locked channels hidden while the session is locked). */
   private channelView(): ChannelView {
-    if (this.view === null) this.view = new ChannelView(this.segments, this.channelEdits, this.cleanNames);
+    if (this.view === null) this.view = new ChannelView(this.segments, this.channelEdits, this.cleanNames, !this.unlocked);
     return this.view;
+  }
+
+  /** The locks over the loaded catalogs. */
+  private locks(): LockView {
+    if (this.lockView === null) this.lockView = new LockView(this.loadedCategories, this.parental, this.channelEdits);
+    return this.lockView;
+  }
+
+  /** The locks while the session is locked; `null` while it is unlocked (nothing is kept back). */
+  private gate(): LockView | null {
+    return this.unlocked ? null : this.locks();
+  }
+
+  private setUnlocked(on: boolean): void {
+    if (this.unlocked === on) return;
+    this.unlocked = on;
+    this.dropLocks();
+    this.version += 1;
+  }
+
+  /**
+   * Unlocks the session with `pin` (step 38), checked against the profile's PIN as stored now.
+   * After `UNLOCK_TRIES` wrong ones in a row it answers `wait` for `UNLOCK_WAIT_MS` without
+   * checking. With no PIN set nothing unlocks (`no-pin`).
+   */
+  async unlock(pin: string): Promise<UnlockAnswer> {
+    await this.ensureLoaded();
+    const now = this.clock();
+    if (now < this.waitUntil) return { result: 'wait', waitMs: this.waitUntil - now };
+    const held = (await readParental(await this.db())).pin;
+    if (held === null) return { result: 'no-pin', waitMs: 0 };
+    // (Anything but the PIN hashes to another value: no check of its form first.)
+    if (pinHash(held.salt, pin) !== held.hash) {
+      this.wrongTries += 1;
+      if (this.wrongTries < UNLOCK_TRIES) return { result: 'wrong', waitMs: 0 };
+      this.wrongTries = 0;
+      this.waitUntil = now + UNLOCK_WAIT_MS;
+      return { result: 'wait', waitMs: UNLOCK_WAIT_MS };
+    }
+    this.wrongTries = 0;
+    this.setUnlocked(true);
+    return { result: 'ok', waitMs: 0 };
+  }
+
+  /** Locks the session again (step 38: the app hidden, or "Lock again"). */
+  relock(): Promise<void> {
+    this.setUnlocked(false);
+    return Promise.resolve();
+  }
+
+  /** Whether the profile has a PIN now, whether this session is unlocked, and the kinds with something locked (step 38). */
+  async lockState(): Promise<LockState> {
+    await this.ensureLoaded();
+    const pin = (await readParental(await this.db())).pin !== null;
+    return { pin, unlocked: this.unlocked, kinds: this.locks().kinds.slice() };
+  }
+
+  /**
+   * Keeps `pin` as the PIN (step 38): a new salt and its hash in the profile. Resolves `false` for
+   * one that isn't four digits, or when the profile can't be written (from a newer app version).
+   */
+  setPin(pin: string): Promise<boolean> {
+    if (!isPin(pin)) return Promise.resolve(false);
+    const salt = toBase64Url((this.options.random ?? randomBytes)(16));
+    return this.editProfile({ kind: 'parental', change: { op: 'pin', salt, hash: pinHash(salt, pin) } });
   }
 
   private setOffsets(offsets: Record<string, number>, overrides: readonly EpgOverride[], seq: number): void {
@@ -726,7 +870,7 @@ export class QueryService {
     const indexes = this.unmatchedIndexes;
     const known = indexes.get(src);
     if (known !== undefined) return known;
-    const built = this.buildUnmatched(src, this.activeGen(src), this.epgLinks);
+    const built = this.buildUnmatched(src, this.activeGen(src), this.epgLinks, this.gate());
     indexes.set(src, built);
     // A walk that failed is tried again at the next ask (until it settles, every ask shares it).
     built.catch(() => indexes.delete(src));
@@ -738,12 +882,13 @@ export class QueryService {
    * key order (category, then chunk) is the order "All channels" lists them: categories are
    * numbered as they first appear, and the live screen lists them by that number.
    */
-  private async buildUnmatched(src: string, gen: number, links: ReadonlyMap<ContentKey, EpgLink>): Promise<UnmatchedIndex> {
+  private async buildUnmatched(src: string, gen: number, links: ReadonlyMap<ContentKey, EpgLink>, gate: LockView | null): Promise<UnmatchedIndex> {
     const db = await this.db();
     const refs: number[] = [];
     await scanChunks(db, src, gen, 'live', (catIdx, chunk, items) => {
       items.forEach((item, slot) => {
-        if (!links.has(item.key)) refs.push(catIdx, chunk, slot);
+        // (A locked channel, or one of a locked group, while the session is locked: left out, step 38.)
+        if (!links.has(item.key) && (gate === null || !gate.itemLocked(item))) refs.push(catIdx, chunk, slot);
       });
     });
     return { gen, refs };
@@ -911,7 +1056,9 @@ export class QueryService {
       // (A source with no catalog has generation 0, which holds nothing.)
       keys.push({ src, gen: this.activeGen(src), kind: req.kind });
     }
-    return mergeRecent(await readRecent(await this.db(), keys), limit);
+    const lists = await readRecent(await this.db(), keys);
+    const gate = this.gate();
+    return mergeRecent(gate === null ? lists : lists.map((list) => (list === null ? null : list.filter((r) => !gate.itemLocked(r.item)))), limit);
   }
 
   /**
@@ -929,13 +1076,15 @@ export class QueryService {
       throw new RangeError(`A key lookup gives up to ${KEY_ITEMS_MAX} items`);
     }
     await this.ensureLoaded();
+    const gate = this.gate();
     const refs: ItemRef[] = [];
     const found: ContentKey[] = [];
     for (const key of req.keys) {
       if (found.length === limit) break;
       if (req.sources.indexOf(keySource(key)) === -1 || found.indexOf(key) !== -1) continue;
       const ref = this.refOfKey(key, req.kind);
-      if (ref === null) continue;
+      // (A locked one takes no place among the first `limit`: `items` would give it as `null`.)
+      if (ref === null || (gate !== null && (gate.categoryLocked(ref.src, ref.kind, ref.catIdx) || gate.channelLocked(key)))) continue;
       refs.push(ref);
       found.push(key);
     }
@@ -1012,10 +1161,13 @@ export class QueryService {
       { create: true, now: this.clock() },
     );
     if (wrote) {
+      if (edit.kind === 'parental') this.setParental(parentalOf(written), seq);
       this.setOffsets(epgOffsetsOf(written), epgOverridesOf(written), seq);
       // The search boost follows the favourites at once (step 35a), the view the changed channels (step 36a2).
       if (edit.kind === 'favourite') this.setFavouriteKeys(favouriteKeysOf(written), seq);
       if (edit.kind === 'channel' || edit.kind === 'cleanNames') this.setChannelChanges({ edits: channelEditsOf(written), clean: cleanNamesOn(written) }, seq);
+      // (A channel locked or a group's lock changed: the channels without a guide may differ, step 38.)
+      if (edit.kind === 'channel' || edit.kind === 'parental') this.version += 1;
     }
     return wrote;
   }
@@ -1031,6 +1183,8 @@ export class QueryService {
     let segments = this.segments;
     let marks = this.favouriteMarks();
     let aliases: readonly (SearchAliases | null)[] = this.channelView().aliases;
+    const gate = this.gate();
+    let hide = gate === null ? undefined : segments.map((s) => gate.searchHide(s));
     if (req.sources) {
       const order = req.sources;
       const picked = segments.map((s, i) => ({ s, i, rank: order.indexOf(s.src) })).filter((x) => x.rank !== -1);
@@ -1038,8 +1192,10 @@ export class QueryService {
       segments = picked.map((x) => x.s);
       marks = picked.map((x) => marks[x.i] ?? null);
       aliases = picked.map((x) => aliases[x.i] ?? null);
+      const all = hide;
+      if (all !== undefined) hide = picked.map((x) => all[x.i] ?? null);
     }
-    return searchSegments(segments, req.query, { kinds: req.kinds, limit: req.limit, favourites: marks, aliases });
+    return searchSegments(segments, req.query, { kinds: req.kinds, limit: req.limit, favourites: marks, aliases, hide });
   }
 
   private activeGen(src: string): number {
@@ -1047,36 +1203,45 @@ export class QueryService {
     return meta ? meta.gen : 0;
   }
 
-  /** The categories of the active generation; a live one with hidden channels has their places (`hidden`). */
+  /** The categories of the active generation, the adult and locked ones marked (step 38); a live one with hidden channels has their places (`hidden`). */
   async categories(src: string, kind: ContentKind): Promise<CategoryInfo[]> {
     await this.ensureLoaded();
     const gen = this.activeGen(src);
     if (gen === 0) return [];
-    // (The view of the same load as the generation read.)
+    // (The views of the same load as the generation read.)
     const view = kind === 'live' ? this.channelView() : null;
+    const locks = this.locks();
     const infos = (await readCategories(await this.db(), src, gen, kind)) ?? [];
-    return view === null ? infos : view.categories(src, infos);
+    return locks.mark(src, kind, view === null ? infos : view.categories(src, infos));
   }
 
-  /** One chunk of the active generation (`[]` if it doesn't exist); a live one without its hidden channels, the others shown. */
+  /**
+   * One chunk of the active generation (`[]` if it doesn't exist, or its category is locked while
+   * the session is: step 38); a live one without its hidden channels, the others shown.
+   */
   async chunk(arg: { src: string; kind: ContentKind; catIdx: number; chunk: number }): Promise<CatalogItem[]> {
     await this.ensureLoaded();
     const gen = this.activeGen(arg.src);
-    if (gen === 0) return [];
+    const gate = this.gate();
+    if (gen === 0 || (gate !== null && gate.categoryLocked(arg.src, arg.kind, arg.catIdx))) return [];
     const view = arg.kind === 'live' ? this.channelView() : null;
     const [items] = await this.readCached([{ src: arg.src, gen, kind: arg.kind, catIdx: arg.catIdx, chunk: arg.chunk }]);
     if (!items) return [];
     return view === null ? items : view.chunk(arg.src, arg.catIdx, arg.chunk, items);
   }
 
-  /** The items at `refs` (`null` where the chunk or slot is gone, e.g. an old generation), live ones shown (hidden ones too). */
+  /**
+   * The items at `refs` (`null` where the chunk or slot is gone, e.g. an old generation, or the item
+   * is locked while the session is: step 38), live ones shown (hidden ones too).
+   */
   async items(refs: ItemRef[]): Promise<(CatalogItem | null)[]> {
     await this.ensureLoaded();
     const view = this.channelView();
+    const gate = this.gate();
     const chunks = await this.readCached(refs);
     return refs.map((r, i) => {
       const item = chunks[i]?.[r.slot];
-      return item === undefined ? null : view.show(item);
+      return item === undefined || (gate !== null && gate.itemLocked(item)) ? null : view.show(item);
     });
   }
 

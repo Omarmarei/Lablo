@@ -462,6 +462,32 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     expect(s.profileChanges.n).toBe(2);
   });
 
+  it('sets the PIN, unlocks and locks the session again through the query worker (step 38)', async () => {
+    const text = ['#EXTM3U', '#EXTINF:-1 group-title="News",One', 'http://p.test/1.ts', '#EXTINF:-1 group-title="XXX",Two', 'http://p.test/2.ts', ''].join('\n');
+    const s = setup(() => ({ body: text }));
+    await s.engine.refresh(job());
+    const served = async (): Promise<string[]> => {
+      const out: string[] = [];
+      for (const cat of await s.engine.categories('debug', 'live')) for (const x of await s.engine.chunk('debug', 'live', cat.catIdx, 0)) out.push(x.name);
+      return out;
+    };
+    expect((await s.engine.categories('debug', 'live')).map((c) => [c.name, c.locked === true])).toEqual([['News', false], ['XXX', true]]);
+    expect(await served()).toEqual(['One']);
+    expect(await s.engine.lockState()).toEqual({ pin: false, unlocked: false, kinds: ['live'] });
+    expect(await s.engine.unlock('1234')).toEqual({ result: 'no-pin', waitMs: 0 });
+    const changes = s.profileChanges.n;
+    expect(await s.engine.setPin('12x4')).toBe(false);
+    expect(s.profileChanges.n).toBe(changes);
+    expect(await s.engine.setPin('1234')).toBe(true);
+    expect(s.profileChanges.n).toBe(changes + 1);
+    expect(await s.engine.unlock('4321')).toEqual({ result: 'wrong', waitMs: 0 });
+    expect(await s.engine.unlock('1234')).toEqual({ result: 'ok', waitMs: 0 });
+    expect(await s.engine.lockState()).toEqual({ pin: true, unlocked: true, kinds: ['live'] });
+    expect(await served()).toEqual(['One', 'Two']);
+    await s.engine.relock();
+    expect(await served()).toEqual(['One']);
+  });
+
   it('tells telemetry each refresh that resolved, with the source type; nothing for a refused or failed one, or a guide refresh with nothing due (step 33b2)', async () => {
     let status = 200;
     // An Xtream panel with one live channel, beside the playlist and its guide.

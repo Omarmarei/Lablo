@@ -35,3 +35,4 @@ export {
 export type { SignKeyPair } from './sign';
 export { signDetached, signKeyPairFromSeed, verifySignature } from './sign';
 export { blocklistHash } from './blocklist';
+export { pinHash } from './pin';

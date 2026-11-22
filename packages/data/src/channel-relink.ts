@@ -70,7 +70,7 @@ export function relinkChannelEdits(
     const ref: ChannelEdit = { key: fav.key, src: edit.src, kind: edit.kind, normName: fav.normName, added: edit.added, missingSince: fav.missingSince };
     if (fav.group !== undefined) ref.group = fav.group;
     if (fav.epgId !== undefined) ref.epgId = fav.epgId;
-    results.push(changed(ref, { hidden: edit.hidden ?? null, name: edit.name ?? null, number: edit.number ?? null }));
+    results.push(changed(ref, { hidden: edit.hidden ?? null, name: edit.name ?? null, number: edit.number ?? null, locked: edit.locked ?? null }));
   }
   const mine = reconcileFavourites(own, src, catalog, now, kinds, taken).outcomes;
   const out: ChannelEdit[] = [];

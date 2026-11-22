@@ -26,23 +26,29 @@ export type ChannelChange =
    */
   | { op: 'number'; item: FavouriteItem; number: number | null }
   /** Every change of the channel gone. */
-  | { op: 'reset'; key: ContentKey };
+  | { op: 'reset'; key: ContentKey }
+  /** Locked (step 38): nothing of it served while the session is locked. */
+  | { op: 'lock'; item: FavouriteItem }
+  /** No longer locked. */
+  | { op: 'unlock'; key: ContentKey };
 
 /**
  * A copy of `edit`, field by field, with its changes as `set` gives them (`undefined` leaves one,
  * `null` takes it away), or `null` when nothing is left.
  */
-export function changed(edit: ChannelEdit, set: { hidden?: true | null; name?: string | null; number?: number | null }): ChannelEdit | null {
+export function changed(edit: ChannelEdit, set: { hidden?: true | null; name?: string | null; number?: number | null; locked?: true | null }): ChannelEdit | null {
   const next: ChannelEdit = { key: edit.key, src: edit.src, kind: edit.kind, normName: edit.normName, added: edit.added, missingSince: edit.missingSince };
   if (edit.group !== undefined) next.group = edit.group;
   if (edit.epgId !== undefined) next.epgId = edit.epgId;
   const hidden = set.hidden === undefined ? edit.hidden : set.hidden;
   const name = set.name === undefined ? edit.name : set.name;
   const number = set.number === undefined ? edit.number : set.number;
+  const locked = set.locked === undefined ? edit.locked : set.locked;
   if (hidden === true) next.hidden = true;
   if (typeof name === 'string') next.name = name;
   if (typeof number === 'number') next.number = number;
-  return next.hidden === undefined && next.name === undefined && next.number === undefined ? null : next;
+  if (locked === true) next.locked = true;
+  return next.hidden === undefined && next.name === undefined && next.number === undefined && next.locked === undefined ? null : next;
 }
 
 /** A new entry for `item`, present now, with nothing changed yet. Its fields one by one: the app's object may carry more. */
@@ -67,7 +73,7 @@ function channelName(name: unknown): string | null | undefined {
  */
 export function applyChannelChange(doc: unknown, change: ChannelChange): ChannelEdit[] | null {
   const edits = channelEditsOf(doc);
-  const named = change.op === 'show' || change.op === 'reset' ? change.key : isFavouriteItem(change.item) && change.item.kind === 'live' ? change.item.key : null;
+  const named = change.op === 'show' || change.op === 'reset' || change.op === 'unlock' ? change.key : isFavouriteItem(change.item) && change.item.kind === 'live' ? change.item.key : null;
   if (typeof named !== 'string') return null;
   let at = -1;
   for (let i = 0; i < edits.length; i += 1) if (edits[i]!.key === named) at = i;
@@ -80,16 +86,18 @@ export function applyChannelChange(doc: unknown, change: ChannelChange): Channel
     else next[at] = entry;
     return next;
   };
-  if (change.op === 'show' || change.op === 'reset') {
+  if (change.op === 'show' || change.op === 'reset' || change.op === 'unlock') {
     if (at === -1) return null;
     if (change.op === 'reset') return put(null);
+    if (change.op === 'unlock') return edits[at]!.locked === true ? put(changed(edits[at]!, { locked: null })) : null;
     return edits[at]!.hidden === true ? put(changed(edits[at]!, { hidden: null })) : null;
   }
   // (An op this version doesn't know changes nothing.)
-  if (change.op !== 'hide' && change.op !== 'rename' && change.op !== 'number') return null;
+  if (change.op !== 'hide' && change.op !== 'rename' && change.op !== 'number' && change.op !== 'lock') return null;
   if (at === -1 && edits.length >= MAX_CHANNEL_EDITS) return null;
   const entry = at === -1 ? entryOf(change.item) : edits[at]!;
   if (change.op === 'hide') return entry.hidden === true ? null : put(changed(entry, { hidden: true }));
+  if (change.op === 'lock') return entry.locked === true ? null : put(changed(entry, { locked: true }));
   if (change.op === 'rename') {
     const name = channelName(change.name);
     if (name === undefined || name === (entry.name ?? null)) return null;
