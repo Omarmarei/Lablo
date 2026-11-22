@@ -3028,7 +3028,25 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
         - the gates: lint; typecheck; `build:tv` sizes; `verify:engines` 53/68; mutation; the PR on green CI;
         - docs: architecture.md §2, radio out of "Not yet".
   - **Done when** (the step): 37a and 37b merged.
-- [ ] 37a. **The upgrade at add:** as 37's split above.
+- [ ] 37a. **The upgrade at add:** as 37's split above. Built in leg 134 (architecture.md §1.2 "Built in step 37a").
+  - **Refined while building** (each with its why):
+    1. **The job's flag is `upgrade: true`, not a `loginMs`:** the worker applies its own `IngestOptions.panelLoginMs ?? PANEL_LOGIN_MS`. Why: main would otherwise import the limit from ingest.ts, a worker module.
+    2. **The limited login also ends on a cancel**, as `panelLogin` does. Why: a cancel while the request still waits for its headers has nothing to cancel yet, so the load waited for the 10 s limit (found by the unit test).
+    3. **The M3U specs keep their playlist with `e2e/playlist-only.ts`**: a rule failing only `get_live_categories`, so the login still answers (ADR-010's zone in guide-catchup-m3u).
+       - The rule is on the mock where a spec adds only playlists: channel-edits, channel-edit-screens, guide-catchup-m3u.
+       - Where one mock also serves Xtream logins, `mockState.scenario` is set around the playlist's add, and reset after each test: series, backup-logins, backup-api, no-plaintext.
+       - The pairing specs now expect the phone's link kept as the login.
+       - Why: those specs test a playlist's own behaviour (its keys, catch-up modes, flat episodes, a restored or sealed link).
+  - **Verified in leg 134:**
+    - **Unit:** the loader 44 (+10); ingest 38 (+8); `test/onboarding-loader-mock.test.ts` 4; `pnpm typecheck`; `pnpm lint`.
+    - **`build:tv`:** main.js 433.6 → 433.9 KB on Tizen, 420.9 → 421.2 KB on webOS; settings.js 78.5 KB; the ingest worker 135.7 → 136.2 KB. Core-js modules are unchanged (module diff: 216 in main, 6 in settings.js).
+    - **e2e:**
+      - `m3u-upgrade.spec.ts` (en-US, ar-SA, both cases): 4 passed;
+      - the touched chromium specs: 24 passed;
+      - the touched web specs (`e2e:web`): 13 passed.
+
+      Screenshots `m3u-upgrade-*` looked at.
+    - **Mutation** (`artifacts/mutate37a.py`; logs `mutate37a-a.log`, `-b.log`, `-c.log`): 27 written first (`artifacts/mutate37a-list.md`), 26 caught at the first run. The survivor was a real gap: the limit's timer left running after a quick login would cut off lists past 10 s. The test for it was added: 27/27.
 - [ ] 37b. **Radio:** as 37's split above. After 37a (either order works; 37a first because its e2e churn touches the most specs).
 - [ ] 38. **Parental and settings.** Parental PIN, adult groups auto-locked (XXX, 18+, للكبار), complete settings screen.
 - [ ] 39. **Comfort features.** Clock, sleep timer with "Still watching?", colour-key shortcuts, "Fast start / Stable" buffer setting.
