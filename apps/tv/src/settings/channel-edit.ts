@@ -2,13 +2,14 @@ import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
 import type { CatalogItem, ContentKey } from '@lablo/core';
 import type { LoadedProfile, ProfileEdit } from '@lablo/data';
-import type { ChannelChange, ChannelEdit } from '@lablo/data/client';
+import type { ChannelChange, ChannelEdit, LockState } from '@lablo/data/client';
 import { CHANNEL_NUMBER_MAX, channelEditsOf } from '@lablo/data/client';
 import type { Intent, Platform } from '@lablo/platform-api';
 import { DIGIT_INTENTS } from '@lablo/platform-api';
 import type { EditorBinding, Focus, Navigator, Screen, ScreenSpec, TextEditorOptions, ZoneSpec } from '@lablo/ui';
 import { bindEditor, createTextEditor } from '@lablo/ui';
 import { favouriteItem } from '../player/favourite-menu';
+import type { ParentalAsk } from './parental-page';
 
 /**
  * "Edit channel" (RELAY step 36c, architecture.md §1.4 item 10 "Built in step 36c"): the menu for
@@ -25,6 +26,9 @@ import { favouriteItem } from '../player/favourite-menu';
  *   digits start a new number), OK on it opens the TV's number keyboard. Empty is the channel's own number again; anything but a whole 1 to 9999 says so and
  *   saves nothing. A number another channel has moves here (the query worker's rule).
  * - **Hide** and **Show**, and "Undo my changes" (every change gone), are one edit each.
+ * - **Lock** and **Unlock** (step 38c1, with the PIN pad): "Lock channel" once a PIN is set (no
+ *   PIN asked: it only restricts); "Unlock channel" on a locked one asks the PIN first. A channel
+ *   locked while the session is locked leaves every screen: over the player, the player closes.
  * - **Each edit** goes through the query worker (`editProfile`, kind `channel`). Once it went
  *   through, the menu closes (the player's info bar, or the "Channels" page, shows again), the page
  *   reads its rows (`done`), and the live screen reads the channels (`changed`: the list, the
@@ -52,7 +56,7 @@ export const FORM_CANCEL = 1;
 /** The most digits a channel number has (number entry's four). */
 export const NUMBER_DIGITS = 4;
 
-export type EditAction = 'rename' | 'number' | 'hide' | 'show' | 'reset' | 'cancel';
+export type EditAction = 'rename' | 'number' | 'hide' | 'show' | 'lock' | 'unlock' | 'reset' | 'cancel';
 
 /** The channel a menu is for. */
 export interface EditTarget {
@@ -72,6 +76,28 @@ export type EditProblem = 'refused' | 'number';
 export interface ChannelEditEngine {
   profile(): Promise<LoadedProfile | null>;
   editProfile(edit: ProfileEdit): Promise<boolean>;
+  /** Parental control as it stands (step 38c1: a PIN set, the session unlocked; absent: no PIN, a locked session). */
+  lockState?(): Promise<LockState>;
+}
+
+/** What the menu knows of parental control when it opens (step 38c1). */
+export interface EditLocks {
+  /** A PIN is set. */
+  readonly pin: boolean;
+  /** The session is unlocked. */
+  readonly unlocked: boolean;
+}
+
+/** Nothing known: no PIN, a locked session (a read that failed, or no pad). */
+export const NO_LOCKS: EditLocks = { pin: false, unlocked: false };
+
+/** Parental control as `engine` says it stands; `NO_LOCKS` when it can't say. */
+export function readLocks(engine: Pick<ChannelEditEngine, 'lockState'>): Promise<EditLocks> {
+  if (engine.lockState === undefined) return Promise.resolve(NO_LOCKS);
+  return engine.lockState().then(
+    (state): EditLocks => ({ pin: state.pin, unlocked: state.unlocked }),
+    () => NO_LOCKS,
+  );
 }
 
 export interface ChannelEditOptions {
@@ -84,6 +110,8 @@ export interface ChannelEditOptions {
   readonly find?: TextEditorOptions['find'];
   /** The wall clock (epoch ms): a new entry's `added`, and the editor's click pairing. */
   readonly now?: () => number;
+  /** The PIN pad (step 38c1); without it the menu has no "Lock channel" or "Unlock channel". */
+  readonly pad?: ParentalAsk;
 }
 
 export interface ChannelEditor {
@@ -103,18 +131,26 @@ export interface ChannelEditor {
   readonly editor: EditorBinding;
   /** The pencil: the menu over the player for `item`; `closed` runs when it closes, `stop` on STOP (the player closes). */
   openOver(item: CatalogItem, closed: () => void, stop: () => void): void;
-  /** Settings › "Channels": the menu for `target`; `done` runs after each edit that went through. */
-  open(target: EditTarget, done: () => void): void;
+  /** Settings › "Channels": the menu for `target` (`locks` as the page read them); `done` runs after each edit that went through. */
+  open(target: EditTarget, done: () => void, locks?: EditLocks): void;
   setText(value: string): void;
   /** Closes the menu and its form (the player closing, or a card over it). */
   close(): void;
   dispose(): void;
 }
 
-/** The menu's actions for `target`. */
-export function editActions(target: EditTarget): EditAction[] {
+/**
+ * The menu's actions for `target`; `locks` `null` without the PIN pad: no lock's. "Lock channel"
+ * once a PIN is set, "Unlock channel" on a locked channel (step 38c1).
+ */
+export function editActions(target: EditTarget, locks: EditLocks | null = null): EditAction[] {
   const actions: EditAction[] = [];
-  if (target.item !== null) actions.push('rename', 'number', target.edit !== null && target.edit.hidden === true ? 'show' : 'hide');
+  if (target.item !== null) {
+    actions.push('rename', 'number', target.edit !== null && target.edit.hidden === true ? 'show' : 'hide');
+    if (target.edit !== null && target.edit.locked === true) {
+      if (locks !== null) actions.push('unlock');
+    } else if (locks !== null && locks.pin) actions.push('lock');
+  }
   if (target.edit !== null) actions.push('reset');
   actions.push('cancel');
   return actions;
@@ -176,6 +212,9 @@ export function createChannelEditor(options: ChannelEditOptions): ChannelEditor 
   let done: (() => void) | null = null;
   /** The number form's text is the stored number until the first digit replaces it. */
   let typed = false;
+  /** Parental control as it stood when the menu opened (`null`: no pad). */
+  let locks: EditLocks | null = null;
+  const pad = options.pad;
 
   const textEditor = createTextEditor({ platform: options.platform, nav, find: options.find, now: options.now });
   const editor = bindEditor(textEditor);
@@ -194,7 +233,7 @@ export function createChannelEditor(options: ChannelEditOptions): ChannelEditor 
 
   const show = (next: EditTarget): void => {
     target.value = next;
-    actions.value = editActions(next);
+    actions.value = editActions(next, locks);
     screen.value?.update(zone());
   };
 
@@ -222,10 +261,11 @@ export function createChannelEditor(options: ChannelEditOptions): ChannelEditor 
   };
 
   /**
-   * Applies `change`. Once it went through, the menu closes, then Settings' page and the live
-   * screen read again; refused, the menu (or the form) stays and says so.
+   * Applies `change`. Once it went through, the menu closes (then `then`, when it is still the
+   * menu that asked), then Settings' page and the live screen read again; refused, the menu (or
+   * the form) stays and says so.
    */
-  const run = (change: ChannelChange): void => {
+  const run = (change: ChannelChange, then: (() => void) | null = null): void => {
     const mine = seq;
     const after = done;
     problem.value = null;
@@ -235,7 +275,9 @@ export function createChannelEditor(options: ChannelEditOptions): ChannelEditor 
           if (mine === seq) problem.value = 'refused';
           return;
         }
-        if (mine === seq) close();
+        const current = mine === seq;
+        if (current) close();
+        if (current && then !== null) then();
         if (after !== null) after();
         return options.changed?.();
       }),
@@ -305,7 +347,13 @@ export function createChannelEditor(options: ChannelEditOptions): ChannelEditor 
     if (action === 'cancel') close();
     else if (action === 'reset') run({ op: 'reset', key: shown.key });
     else if (action === 'show') run({ op: 'show', key: shown.key });
+    else if (action === 'unlock') pad?.ask(() => run({ op: 'unlock', key: shown.key }));
     else if (item === null) return;
+    else if (action === 'lock') {
+      // Locked while the session is: it leaves every screen, the player too.
+      const stop = locks !== null && !locks.unlocked && ends !== null ? ends.stop : null;
+      run({ op: 'lock', item: favouriteItem(item, now()) }, stop);
+    }
     else if (action === 'hide') run({ op: 'hide', item: favouriteItem(item, now()) });
     else if (action === 'rename') openForm(EDIT_RENAME, shown.name);
     else if (action === 'number') openForm(EDIT_NUMBER, shown.edit === null || shown.edit.number === undefined ? '' : String(shown.edit.number));
@@ -344,12 +392,18 @@ export function createChannelEditor(options: ChannelEditOptions): ChannelEditor 
       ends = { closed, stop };
       done = null;
       over.value = true;
+      locks = null;
       const unread: EditTarget = { key: item.key, item, edit: null, name: item.name };
       push(unread);
       const mine = seq;
-      track(engine.profile()).then(
-        (profile) => {
-          if (mine === seq) show({ key: item.key, item, edit: editOf(profile === null ? null : profile.doc, item.key), name: item.name });
+      // (Parental control read with it, step 38c1: a failed read offers no lock.)
+      const state = pad === undefined ? Promise.resolve(null) : readLocks(engine);
+      track(Promise.all([engine.profile(), state])).then(
+        (got) => {
+          if (mine !== seq) return;
+          locks = got[1];
+          const profile = got[0];
+          show({ key: item.key, item, edit: editOf(profile === null ? null : profile.doc, item.key), name: item.name });
         },
         (error: unknown) => {
           // Unread, the menu offers what a channel with no changes has.
@@ -358,11 +412,12 @@ export function createChannelEditor(options: ChannelEditOptions): ChannelEditor 
         },
       );
     },
-    open(next: EditTarget, after: () => void): void {
+    open(next: EditTarget, after: () => void, read: EditLocks = NO_LOCKS): void {
       if (screen.value !== null) return;
       ends = null;
       done = after;
       over.value = false;
+      locks = pad === undefined ? null : read;
       push(next);
       show(next);
     },

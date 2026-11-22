@@ -24,16 +24,26 @@ function rowClass(base: string, item: ItemBinding): string {
 
 /** The menu's actions in words. */
 export function editLabels(t: Translate): Record<EditAction, string> {
-  return { rename: t('groups.rename'), number: t('channels.number'), hide: t('channels.hide'), show: t('channels.show'), reset: t('channels.reset'), cancel: t('action.cancel') };
+  return {
+    rename: t('groups.rename'),
+    number: t('channels.number'),
+    hide: t('channels.hide'),
+    show: t('channels.show'),
+    lock: t('channels.lock'),
+    unlock: t('channels.unlock'),
+    reset: t('channels.reset'),
+    cancel: t('action.cancel'),
+  };
 }
 
-/** The line under a changed channel's name: Hidden, Renamed, Renumbered, and "Not in your sources now". */
+/** The line under a changed channel's name: Hidden, Renamed, Renumbered, Locked (step 38c1), and "Not in your sources now". */
 export function editedLine(t: Translate, row: EditTarget): string {
   const parts: string[] = [];
   const edit = row.edit;
   if (edit !== null && edit.hidden === true) parts.push(t('groups.hidden'));
   if (edit !== null && edit.name !== undefined) parts.push(t('channels.renamed'));
   if (edit !== null && edit.number !== undefined) parts.push(t('channels.numbered'));
+  if (edit !== null && edit.locked === true) parts.push(t('parental.locked'));
   if (row.item === null) parts.push(t('groups.missing'));
   return parts.join(' · ');
 }

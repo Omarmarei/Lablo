@@ -56,7 +56,7 @@ function channel(name: string, chno: number | null = null): CatalogItem {
   return { key: 'a', src: 's1', kind: 'live', name, normName: '', group: '', url: 'http://x.test/a.ts', logo: null, epgId: null, tvgName: null, matchName: null, chno, tvgShift: 0, catchup: null, radio: false, hints: null };
 }
 
-function edit(change: Partial<Pick<ChannelEdit, 'hidden' | 'name' | 'number'>>): ChannelEdit {
+function edit(change: Partial<Pick<ChannelEdit, 'hidden' | 'name' | 'number' | 'locked'>>): ChannelEdit {
   return { key: 'a', src: 's1', kind: 'live', normName: 'a', added: 1, missingSince: null, ...change };
 }
 
@@ -76,14 +76,25 @@ function editorOf(state: { target?: EditTarget | null; actions?: EditAction[]; p
 
 describe('the settings row and the menu’s words (RELAY step 36c)', () => {
   it('names "Channels", after "Channel groups"', () => {
-    expect(itemText(en.t, 'channels')).toEqual({ name: 'Channels', hint: 'Clean names, and the channels you renamed, renumbered or hid' });
-    expect(itemText(ar.t, 'channels')).toEqual({ name: 'القنوات', hint: 'تنظيف الأسماء، والقنوات التي أعدت تسميتها أو ترقيمها أو أخفيتها' });
+    expect(itemText(en.t, 'channels')).toEqual({ name: 'Channels', hint: 'Clean names, and the channels you renamed, renumbered, hid or locked' });
+    expect(itemText(ar.t, 'channels')).toEqual({ name: 'القنوات', hint: 'تنظيف الأسماء، والقنوات التي أعدت تسميتها أو ترقيمها أو أخفيتها أو أقفلتها' });
   });
 
   it('labels each action', () => {
-    expect(editLabels(en.t)).toEqual({ rename: 'Rename', number: 'Channel number', hide: 'Hide channel', show: 'Show channel', reset: 'Undo my changes', cancel: 'Cancel' });
+    expect(editLabels(en.t)).toEqual({
+      rename: 'Rename',
+      number: 'Channel number',
+      hide: 'Hide channel',
+      show: 'Show channel',
+      lock: 'Lock channel',
+      unlock: 'Unlock channel',
+      reset: 'Undo my changes',
+      cancel: 'Cancel',
+    });
     expect(editLabels(ar.t).hide).toBe('إخفاء القناة');
     expect(editLabels(ar.t).show).toBe('إظهار القناة');
+    expect(editLabels(ar.t).lock).toBe('إقفال القناة');
+    expect(editLabels(ar.t).unlock).toBe('إلغاء إقفال القناة');
   });
 
   it('says what was changed under a channel’s name, and when it isn’t in the sources now', () => {
@@ -92,6 +103,9 @@ describe('the settings row and the menu’s words (RELAY step 36c)', () => {
     expect(editedLine(en.t, row(edit({ number: 4 })))).toBe('Renumbered');
     expect(editedLine(en.t, row(edit({ name: 'X' }), false))).toBe('Renamed · Not in your sources now');
     expect(editedLine(en.t, row(null))).toBe('');
+    // A locked one (step 38c1).
+    expect(editedLine(en.t, row(edit({ hidden: true, locked: true })))).toBe('Hidden · Locked');
+    expect(editedLine(ar.t, row(edit({ locked: true })))).toBe('مقفلة');
     expect(editedLine(ar.t, row(edit({ hidden: true, name: 'X' })))).toBe('مخفية · أُعيدت تسميتها');
   });
 });
@@ -229,7 +243,7 @@ describe('the "Channels" page', () => {
     const root = draw(settingsOf({}));
     expect((root.props as Props)['data-count']).toBe(2);
     expect(textOf(walk(root).find((v) => v.type === 'h1'))).toBe('Channels');
-    expect(textOf(byTestId(root, 'channels-intro'))).toBe('The channels you renamed, renumbered or hid. Press OK on one to change it again.');
+    expect(textOf(byTestId(root, 'channels-intro'))).toBe('The channels you renamed, renumbered, hid or locked. Press OK on one to change it again.');
     const props = list(root);
     expect(props.zone).toBe('rows');
     expect(props.testId).toBe('channels-list');
@@ -244,7 +258,7 @@ describe('the "Channels" page', () => {
     expect(walk(none).some((v) => v.type === VirtualList)).toBe(true);
     expect(byTestId(none, 'channels-ready')).toEqual([]);
     expect(textOf(byTestId(none, 'channels-intro'))).toBe("You haven't changed any channel. The info bar's pencil changes the one you watch.");
-    expect(textOf(byTestId(draw(settingsOf({ status: 'loading', rows: [] })), 'channels-intro'))).toBe('The channels you renamed, renumbered or hid. Press OK on one to change it again.');
+    expect(textOf(byTestId(draw(settingsOf({ status: 'loading', rows: [] })), 'channels-intro'))).toBe('The channels you renamed, renumbered, hid or locked. Press OK on one to change it again.');
   });
 
   it('draws the switch with its value beside its name, and the word when it didn’t take', () => {
@@ -307,6 +321,7 @@ describe('where the screens paint', () => {
     report: null,
     groups: { pending: signal(0), editor: { editing: signal(null) } },
     channels: { pending: signal(0), screen: signal(null) },
+    parental: null,
   };
   const paints = (screen: string, over: boolean): boolean => {
     const settings = { ...base, channel: { pending: signal(0), over: signal(over), editor: { editing: signal(null) } } } as unknown as Settings;

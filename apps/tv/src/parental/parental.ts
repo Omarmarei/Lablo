@@ -24,6 +24,11 @@ import type { Focus, Navigator, Screen, ZoneSpec } from '@lablo/ui';
  *   back the pad covers the screen (purpose `return`), and every listener of `heldLifecycle` (the
  *   player's) hears `visible` only after the right PIN, so the stream stays held meanwhile. Back
  *   or Cancel there start the app again (`restart`), locked.
+ * - **Asked by Settings** (step 38c): `ask` checks the PIN with the session left as it is (the
+ *   worker's `checkPin`, its wrong tries counting towards the same wait) and goes on after the
+ *   right one; `choose` takes a new PIN typed twice (purposes `set`, then `again`: two different
+ *   ones say so and start again, no wait counts) and keeps it (`setPin`). Back or Cancel close
+ *   the pad, and nothing goes on.
  */
 
 export const PIN_SCREEN = 'pin';
@@ -39,11 +44,14 @@ export const PAD_ZERO = 10;
 export const PAD_CANCEL = 11;
 export const PAD_CELLS = 12;
 
-/** Why the pad shows: the rail's "Locked groups", or the app back after an unlocked session. */
-export type PinPurpose = 'rail' | 'return';
+/**
+ * Why the pad shows: the rail's "Locked groups", the app back after an unlocked session, Settings'
+ * check (step 38c), or a new PIN (`set`) and the same again (`again`).
+ */
+export type PinPurpose = 'rail' | 'return' | 'check' | 'set' | 'again';
 
-/** What the pad says under the boxes. */
-export type PinProblem = 'wrong' | 'wait' | 'failed' | null;
+/** What the pad says under the boxes (`mismatch`: the new PIN typed differently twice; `unsaved`: it wasn't kept). */
+export type PinProblem = 'wrong' | 'wait' | 'failed' | 'mismatch' | 'unsaved' | null;
 
 /** The pad as drawn: how many digits are typed (never which), the problem, and whether the worker is checking them. */
 export interface PinPadView {
@@ -57,6 +65,8 @@ export interface PinPadView {
 export interface ParentalEngine {
   lockState(): Promise<LockState>;
   unlock(pin: string): Promise<UnlockAnswer>;
+  checkPin(pin: string): Promise<UnlockAnswer>;
+  setPin(pin: string): Promise<boolean>;
   relock(): Promise<void>;
 }
 
@@ -83,6 +93,10 @@ export interface Parental {
   readonly pending: ReadonlySignal<number>;
   /** OK on a rail's last entry: the pad, the no-PIN dialog, or the session locked again. */
   toggle(): void;
+  /** The pad, the session left as it is (step 38c): `done` after the right PIN; never after Back or Cancel. */
+  ask(done: () => void): void;
+  /** The pad for a new PIN, typed twice (step 38c): `done` once it is kept; never after Back or Cancel. */
+  choose(done: () => void): void;
   /**
    * The platform's lifecycle for the player: `visible` after an unlocked session waits until the
    * return's pad takes the right PIN (the stream stays held, no picture or sound).
@@ -126,6 +140,10 @@ export function createParental(options: ParentalOptions): Parental {
   let asking = false;
   /** `visible` calls held until the return's pad takes the right PIN. */
   let held: (() => void)[] = [];
+  /** What goes on after Settings' pad (step 38c): the right PIN, or a new one kept. */
+  let after: (() => void) | null = null;
+  /** The new PIN as first typed, while the pad asks for it again (set at each first typing, so never cleared). */
+  let first = '';
 
   function track<T>(request: () => Promise<T>): Promise<T> {
     pending.value += 1;
@@ -172,6 +190,13 @@ export function createParental(options: ParentalOptions): Parental {
     for (let i = 0; i < waiting.length; i += 1) waiting[i]!();
   };
 
+  /** Settings' pad did its part: it closes, then what was asked for goes on. */
+  const goOn = (): void => {
+    const next = after;
+    closePad();
+    if (next !== null) next();
+  };
+
   /** The right PIN: the pad closes, the screens read again, and after a return the player hears `visible`. */
   const opened = (): void => {
     unlocked = true;
@@ -181,14 +206,16 @@ export function createParental(options: ParentalOptions): Parental {
     releaseHeld();
   };
 
-  const check = (pin: string): void => {
+  const check = (pin: string, purpose: PinPurpose): void => {
     show(null, true);
-    track(() => engine.unlock(pin)).then(
+    track(() => (purpose === 'check' ? engine.checkPin(pin) : engine.unlock(pin))).then(
       (answer) => {
         if (disposed || pad.peek() === null) return;
         digits = '';
-        if (answer.result === 'ok') opened();
-        else if (answer.result === 'wait') {
+        if (answer.result === 'ok') {
+          if (purpose === 'check') goOn();
+          else opened();
+        } else if (answer.result === 'wait') {
           waitUntil = clockNow() + answer.waitMs;
           show('wait');
         } else if (answer.result === 'wrong') show('wrong');
@@ -210,13 +237,58 @@ export function createParental(options: ParentalOptions): Parental {
     );
   };
 
+  /** Keeps the new PIN; one the worker didn't keep starts the new PIN again. */
+  const save = (pin: string): void => {
+    show(null, true);
+    const restart = (): void => {
+      digits = '';
+      pad.value = { purpose: 'set', typed: 0, problem: 'unsaved', busy: false };
+    };
+    track(() => engine.setPin(pin)).then(
+      (ok) => {
+        if (disposed || pad.peek() === null) return;
+        if (ok) {
+          // (A wait the worker held is over with a new PIN.)
+          waitUntil = 0;
+          goOn();
+        } else restart();
+      },
+      (error: unknown) => {
+        if (disposed || pad.peek() === null) return;
+        console.warn('The PIN could not be kept', error);
+        restart();
+      },
+    );
+  };
+
+  /** The fourth digit of a new PIN: the first time asks for it again; the second keeps it, or starts again when they differ. */
+  const chosen = (purpose: PinPurpose): void => {
+    const pin = digits;
+    // (Its four dots stay while the worker keeps it.)
+    if (purpose === 'again' && pin === first) {
+      save(pin);
+      return;
+    }
+    digits = '';
+    if (purpose === 'set') {
+      first = pin;
+      pad.value = { purpose: 'again', typed: 0, problem: null, busy: false };
+    } else {
+      pad.value = { purpose: 'set', typed: 0, problem: 'mismatch', busy: false };
+    }
+  };
+
   const type = (digit: number): void => {
     const open = pad.peek();
-    // (Four digits always come with `busy`: the check starts at the fourth.)
-    if (open === null || open.busy || clockNow() < waitUntil) return;
+    if (open === null || open.busy) return;
+    const choosing = open.purpose === 'set' || open.purpose === 'again';
+    // (A new PIN isn't checked: no wait holds it.)
+    if (!choosing && clockNow() < waitUntil) return;
     digits += String(digit);
-    if (digits.length === PIN_LENGTH) check(digits);
-    else show(null);
+    // (Four digits always come with `busy` or a new purpose: the fourth one acts.)
+    if (digits.length < PIN_LENGTH) show(null);
+    else if (choosing) chosen(open.purpose);
+    else check(digits, open.purpose);
   };
 
   const erase = (): void => {
@@ -226,10 +298,11 @@ export function createParental(options: ParentalOptions): Parental {
     show(open.problem);
   };
 
-  const openPad = (purpose: PinPurpose): void => {
+  const openPad = (purpose: PinPurpose, next: (() => void) | null = null): void => {
     if (padScreen !== null) return;
     digits = '';
-    pad.value = { purpose, typed: 0, problem: clockNow() < waitUntil ? 'wait' : null, busy: false };
+    after = next;
+    pad.value = { purpose, typed: 0, problem: purpose !== 'set' && clockNow() < waitUntil ? 'wait' : null, busy: false };
     padScreen = nav.push({
       id: PIN_SCREEN,
       zones: [PAD_ZONE],
@@ -301,7 +374,10 @@ export function createParental(options: ParentalOptions): Parental {
             asking = true;
             void track(() => engine.relock()).catch((error: unknown) => console.warn('The session could not be locked again', error));
           } else if (event === 'visible' && asking) {
-            // Whatever is on top: the pad over it all (once, however often the app shows).
+            // Whatever is on top: the pad over it all (once, however often the app shows). Settings'
+            // pad, open when the app was hidden, goes first: what it asked for doesn't go on.
+            const open = pad.peek();
+            if (open !== null && open.purpose !== 'return') closePad();
             openPad('return');
           }
         });
@@ -318,6 +394,12 @@ export function createParental(options: ParentalOptions): Parental {
     pad,
     pending,
     toggle,
+    ask(done: () => void): void {
+      if (!disposed) openPad('check', done);
+    },
+    choose(done: () => void): void {
+      if (!disposed) openPad('set', done);
+    },
     heldLifecycle,
     dispose(): void {
       if (disposed) return;

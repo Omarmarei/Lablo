@@ -1,6 +1,6 @@
 import type { EpgFailure, EpgSummary } from '@lablo/data';
 import type { Focus, FocusBinding, ItemBinding, Screen } from '@lablo/ui';
-import { Button, Dialog, Spinner, TextField, VirtualList, shapeDigits, useZone } from '@lablo/ui';
+import { Button, Dialog, Spinner, TextField, VirtualList, listWindow, shapeDigits, useZone } from '@lablo/ui';
 import type { AppI18n } from '../i18n';
 import { errorText } from '../onboarding/load-text';
 import { PAIR_SCREEN } from '../pairing/pair-state';
@@ -17,7 +17,10 @@ import { ADD_CANCEL, ADD_CONFIRM, GUIDES, HEADER_ADD, HEADER_UNMATCHED, LINK_FIE
 import { MAPPING_SCREEN } from './mapping-state';
 import { MappingReading } from '../guide/MappingReading';
 import { MappingPage } from './MappingPage';
+import { PARENTAL_SCREENS } from './parental-page';
+import { ParentalPageScreen } from './ParentalPage';
 import type { Settings, SettingsItem } from './settings-state';
+import { SETTINGS_VISIBLE } from './settings-state';
 import type { LoginField, LoginForm, LoginSource } from './source-login';
 import { LOGIN_CANCEL, LOGIN_FIELDS, LOGIN_SAVE, LOGIN_SCREEN, loginFieldId } from './source-login';
 import type { SourceRow, SourcesList } from './sources-state';
@@ -397,6 +400,7 @@ interface PageProps {
 
 /** A settings row's name and the line under it (the usage reports' line while on, `telemetryText`). */
 export function itemText(t: Translate, id: SettingsItem): { name: string; hint: string } {
+  if (id === 'parental') return { name: t('settings.parental'), hint: t('settings.parentalHint') };
   if (id === 'report') return { name: t('settings.report'), hint: t('settings.reportHint') };
   if (id === 'groups') return { name: t('settings.groups'), hint: t('settings.groupsHint') };
   if (id === 'channels') return { name: t('settings.channels'), hint: t('settings.channelsHint') };
@@ -491,28 +495,35 @@ export function ReportItem({ i18n, item, report }: { i18n: AppI18n; item: ItemBi
   );
 }
 
-/** The settings screen as drawn, hook-free (the rows' bindings come from `SettingsPage`). */
+/**
+ * The settings screen as drawn, hook-free (the rows' bindings come from `SettingsPage`): the
+ * `SETTINGS_VISIBLE` rows from `top`, the focus engine's window (step 38c1).
+ */
 export function SettingsView({
   i18n,
   list,
   item,
   telemetry,
   report = null,
+  top = 0,
 }: {
   i18n: AppI18n;
   list: readonly SettingsItem[];
   item: (index: number) => ItemBinding;
   telemetry: TelemetrySwitch | null;
   report?: ReportRow | null;
+  top?: number;
 }) {
   const { t } = i18n;
+  const { from, to } = listWindow(top, list.length, SETTINGS_VISIBLE);
   return (
     <div class="settings__page" data-testid="settings">
       <header class="settings__header">
         <h1 class="settings__title">{t('settings.title')}</h1>
       </header>
-      <div class="settings__items" role="menu">
-        {list.map((id, i) => {
+      <div class="settings__items" role="menu" data-top={from} data-count={list.length}>
+        {list.slice(from, to).map((id, n) => {
+          const i = from + n;
           const binding = item(i);
           if (id === 'telemetry' && telemetry !== null) return <TelemetryRow key={id} i18n={i18n} item={binding} telemetry={telemetry} />;
           if (id === 'report' && report !== null) return <ReportItem key={id} i18n={i18n} item={binding} report={report} />;
@@ -531,7 +542,7 @@ export function SettingsView({
 
 function SettingsPage({ i18n, binding, list, telemetry, report }: PageProps & { list: readonly SettingsItem[]; telemetry: TelemetrySwitch | null; report: ReportRow | null }) {
   const items = useZone(binding, binding.nav.top, 'items');
-  return <SettingsView i18n={i18n} list={list} item={(i) => items.item(i)} telemetry={telemetry} report={report} />;
+  return <SettingsView i18n={i18n} list={list} item={(i) => items.item(i)} telemetry={telemetry} report={report} top={items.position.top} />;
 }
 
 /** The guide menu's buttons in words ("Give its link": step 32d4c). */
@@ -845,13 +856,14 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
   const onChannels = focus.screen === GROUP_CHANNELS || focus.screen === CHANNEL_MENU;
   // "Channels" (step 36c), and "Edit channel" over it (opened over the player, main paints it there).
   const onEdited = focus.screen === CHANNELS_SCREEN || (EDIT_SCREENS.indexOf(focus.screen) !== -1 && !settings.channel.over.value);
+  const parental = settings.parental;
   return (
     <main
       class="settings"
       data-testid="settings-screen"
       data-ready="true"
       data-language={i18n.locale.pseudo ? 'pseudo' : i18n.locale.language}
-      data-pending={guides.pending.value + settings.unmatched.pending.value + mapping.pending.value + settings.sources.pending.value + (backup === null ? 0 : backup.pending.value) + (settings.telemetry === null ? 0 : settings.telemetry.pending.value) + (settings.report === null ? 0 : settings.report.pending.value) + groups.pending.value + settings.channel.pending.value + settings.channels.pending.value}
+      data-pending={guides.pending.value + settings.unmatched.pending.value + mapping.pending.value + settings.sources.pending.value + (backup === null ? 0 : backup.pending.value) + (settings.telemetry === null ? 0 : settings.telemetry.pending.value) + (settings.report === null ? 0 : settings.report.pending.value) + groups.pending.value + settings.channel.pending.value + settings.channels.pending.value + (parental === null ? 0 : parental.pending.value)}
       data-editing={guides.editor.editing.value ?? mapping.editor.editing.value ?? settings.sources.form?.editor.editing.value ?? groups.editor.editing.value ?? settings.channel.editor.editing.value ?? ''}
       data-screen={focus.screen}
       data-zone={focus.zone}
@@ -869,6 +881,7 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       {!onChannels && GROUP_SCREENS.indexOf(focus.screen) !== -1 && <GroupsPage i18n={i18n} binding={binding} focus={focus} groups={groups} />}
       {onChannels && <ChannelsPage i18n={i18n} binding={binding} focus={focus} groups={groups} />}
       {onEdited && <EditedPage i18n={i18n} binding={binding} focus={focus} settings={settings} />}
+      {parental !== null && PARENTAL_SCREENS.indexOf(focus.screen) !== -1 && <ParentalPageScreen i18n={i18n} binding={binding} focus={focus} page={parental} />}
     </main>
   );
 }

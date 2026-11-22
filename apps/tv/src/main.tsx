@@ -583,6 +583,19 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     listsChanged: () => void live.listsChanged(),
     // "Edit channel" and "Channels" (step 36c): after each edit the live screen reads the channels again.
     channelsChanged: () => live.channelsChanged(),
+    // "Parental control" (step 38c1): the PIN pad below, and after each change of the locks every screen reads again.
+    pad: {
+      ask: (done) => parental.ask(done),
+      choose: (done) => parental.choose(done),
+    },
+    locksChanged: () => {
+      void live.channelsChanged();
+      movies.catalogChanged();
+      series.catalogChanged();
+      search.catalogChanged();
+      home.catalogChanged();
+    },
+    lifecycle: (listener) => platform.onLifecycle(listener),
     // A login given again (step 32d4b): the source's own refresh with the schedule held (the
     // schedule keeps a refused `needs-login` for 2 h, and `refreshNow` reads only the guides), then
     // its guides at once and the screens.

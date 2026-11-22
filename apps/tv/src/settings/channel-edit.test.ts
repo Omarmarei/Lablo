@@ -1,16 +1,17 @@
 import type { CatalogItem } from '@lablo/core';
 import type { LoadedProfile, ProfileDoc, ProfileEdit, SourceRecord } from '@lablo/data';
 import { applyProfileEdit, emptyProfile } from '@lablo/data';
-import type { ChannelEdit, KeyItemsRequest } from '@lablo/data/client';
+import type { ChannelEdit, KeyItemsRequest, LockState } from '@lablo/data/client';
 import { MAX_CHANNEL_EDITS } from '@lablo/data/client';
 import type { Intent, KeyLike, TextKey } from '@lablo/platform-api';
 import type { EditableLike } from '@lablo/ui';
 import { createNavigator } from '@lablo/ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EditTarget } from './channel-edit';
-import { CHANNEL_NAME_FIELD, CHANNEL_NUMBER_FIELD, EDIT_NUMBER, EDIT_RENAME, EDIT_SCREEN, EDIT_SCREENS, FORM_CANCEL, FORM_SAVE, createChannelEditor, editActions, editOf, trimmed, typedNumber } from './channel-edit';
+import { CHANNEL_NAME_FIELD, CHANNEL_NUMBER_FIELD, EDIT_NUMBER, EDIT_RENAME, EDIT_SCREEN, EDIT_SCREENS, FORM_CANCEL, FORM_SAVE, NO_LOCKS, createChannelEditor, editActions, editOf, readLocks, trimmed, typedNumber } from './channel-edit';
 import type { EditedEngine } from './edited-channels';
 import { CHANNELS_SCREEN, CLEAN_ROW, createEditedChannels, editedRows } from './edited-channels';
+import type { ParentalAsk } from './parental-page';
 
 /**
  * "Edit channel" and Settings › "Channels" (RELAY step 36c): the menu over the player and from
@@ -40,14 +41,16 @@ function item(key: string, name: string, chno: number | null = null): CatalogIte
   };
 }
 
-function edit(key: string, change: Partial<Pick<ChannelEdit, 'hidden' | 'name' | 'number'>>): ChannelEdit {
-  return { key, src: 's1', kind: 'live', normName: `${key} stored`, group: 'News', added: 1, missingSince: null, ...change };
+/** A changed channel; one the catalog (`ITEMS`) doesn't have is marked missing, as the re-match marks it. */
+function edit(key: string, change: Partial<Pick<ChannelEdit, 'hidden' | 'name' | 'number' | 'locked' | 'missingSince'>>): ChannelEdit {
+  return { key, src: 's1', kind: 'live', normName: `${key} stored`, group: 'News', added: 1, missingSince: ITEMS[key] === undefined ? 5 : null, ...change };
 }
 
 const S1: SourceRecord = { id: 's1', type: 'm3u', name: 'Home', url: 'http://lists.test/a.m3u', added: 1 };
 
 /** The catalog's live items by key, as the worker shows them (a's name is the user's here). */
 const ITEMS: Record<string, CatalogItem> = { a: item('a', 'Alpha', 7), b: item('b', 'Beta'), c: item('c', 'Gamma', 3) };
+
 
 interface Held {
   readonly go: () => void;
@@ -60,6 +63,9 @@ class FakeEngine implements EditedEngine {
   readonly keyCalls: KeyItemsRequest[] = [];
   failRead = false;
   failEdit = false;
+  /** Parental control as the worker says (step 38c1): no PIN, a locked session by default. */
+  locks: LockState = { pin: false, unlocked: false, kinds: [] };
+  failLocks = false;
   hold = new Set<'read' | 'edit' | 'keys'>();
   readonly held: Record<'read' | 'edit' | 'keys', Held[]> = { read: [], edit: [], keys: [] };
 
@@ -82,6 +88,10 @@ class FakeEngine implements EditedEngine {
       if (this.failRead) throw new Error('no IndexedDB');
       return { doc: this.doc, newer: false, migratedFrom: null };
     });
+  }
+
+  lockState(): Promise<LockState> {
+    return this.failLocks ? Promise.reject(new Error('worker gone')) : Promise.resolve({ ...this.locks });
   }
 
   itemsByKey(req: KeyItemsRequest): Promise<CatalogItem[]> {
@@ -115,7 +125,7 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 30; i += 1) await Promise.resolve();
 };
 
-function setup(engine = new FakeEngine()) {
+function setup(engine = new FakeEngine(), pad?: ParentalAsk) {
   const nav = createNavigator({
     root: { id: 'player', zones: [{ kind: 'list', id: 'actions', axis: 'horizontal', count: 6 }] },
     rootBack: 'exit-dialog',
@@ -136,7 +146,7 @@ function setup(engine = new FakeEngine()) {
     onSoftKeyboard: () => () => undefined,
   };
   const changed = vi.fn();
-  const editor = createChannelEditor({ nav, engine, changed, platform, find, now: () => 5_000 });
+  const editor = createChannelEditor(pad === undefined ? { nav, engine, changed, platform, find, now: () => 5_000 } : { nav, engine, changed, platform, find, now: () => 5_000, pad });
   const closed = vi.fn();
   const stop = vi.fn();
   const at = (): string => {
@@ -651,14 +661,14 @@ describe('"Edit channel" over the player (the info bar’s pencil)', () => {
   });
 });
 
-function pageSetup(engine = new FakeEngine()) {
-  const t = setup(engine);
+function pageSetup(engine = new FakeEngine(), pad?: ParentalAsk) {
+  const t = setup(engine, pad);
   const page = createEditedChannels({ nav: t.nav, engine, editor: t.editor, changed: t.changed });
   return { ...t, page };
 }
 
-async function page(engine = new FakeEngine()) {
-  const t = pageSetup(engine);
+async function page(engine = new FakeEngine(), pad?: ParentalAsk) {
+  const t = pageSetup(engine, pad);
   t.page.open();
   await flush();
   return t;
@@ -848,5 +858,177 @@ describe('Settings › "Channels"', () => {
     const top = t.nav.top;
     t.page.open();
     expect(t.nav.top).toBe(top);
+  });
+});
+
+/** The PIN pad: `asks` holds each ask's `done`, run by the test for the right PIN. */
+function fakePad(): ParentalAsk & { readonly asks: (() => void)[] } {
+  const asks: (() => void)[] = [];
+  return { asks, ask: (done) => asks.push(done), choose: () => undefined };
+}
+
+describe('"Lock channel" and "Unlock channel" (RELAY step 38c1)', () => {
+  const target = (e: ChannelEdit | null, found = true): EditTarget => ({ key: 'a', item: found ? ITEMS.a! : null, edit: e, name: 'Alpha' });
+  const PIN = { pin: true, unlocked: false };
+
+  it('offers "Lock channel" with the pad and a PIN, "Unlock channel" on a locked one, neither for a channel not in the sources', () => {
+    expect(editActions(target(null))).toEqual(['rename', 'number', 'hide', 'cancel']);
+    expect(editActions(target(null), NO_LOCKS)).toEqual(['rename', 'number', 'hide', 'cancel']);
+    expect(editActions(target(null), PIN)).toEqual(['rename', 'number', 'hide', 'lock', 'cancel']);
+    expect(editActions(target(edit('a', { hidden: true })), PIN)).toEqual(['rename', 'number', 'show', 'lock', 'reset', 'cancel']);
+    expect(editActions(target(edit('a', { locked: true })), PIN)).toEqual(['rename', 'number', 'hide', 'unlock', 'reset', 'cancel']);
+    // A locked one without a PIN now (a restore): still "Unlock channel" (the pad says there is none).
+    expect(editActions(target(edit('a', { locked: true })), NO_LOCKS)).toEqual(['rename', 'number', 'hide', 'unlock', 'reset', 'cancel']);
+    // Without the pad, never.
+    expect(editActions(target(edit('a', { locked: true })))).toEqual(['rename', 'number', 'hide', 'reset', 'cancel']);
+    expect(editActions(target(edit('a', { locked: true }), false), PIN)).toEqual(['reset', 'cancel']);
+  });
+
+  it('reads the locks from the engine; none when it fails or has no way to tell', async () => {
+    const engine = new FakeEngine();
+    engine.locks = { pin: true, unlocked: true, kinds: ['live'] };
+    expect(await readLocks(engine)).toEqual({ pin: true, unlocked: true });
+    engine.failLocks = true;
+    expect(await readLocks(engine)).toEqual(NO_LOCKS);
+    expect(await readLocks({})).toEqual(NO_LOCKS);
+  });
+
+  it('locks the channel on show over the player with no PIN asked; an unlocked session plays on', async () => {
+    const engine = new FakeEngine();
+    engine.locks = { pin: true, unlocked: true, kinds: [] };
+    const pad = fakePad();
+    const t = setup(engine, pad);
+    t.editor.openOver(ITEMS.b!, t.closed, t.stop);
+    expect(t.editor.actions.value).toEqual([]);
+    await flush();
+    expect(t.editor.actions.value).toEqual(['rename', 'number', 'hide', 'lock', 'cancel']);
+    await t.choose('lock');
+    expect(pad.asks).toHaveLength(0);
+    expect(t.engine.edits).toHaveLength(1);
+    expect(t.engine.edits[0]).toMatchObject({ kind: 'channel', change: { op: 'lock', item: { key: 'b', src: 's1', kind: 'live', added: 5_000 } } });
+    expect(((t.engine.doc as { channelEdits?: ChannelEdit[] }).channelEdits ?? [])[0]).toMatchObject({ key: 'b', locked: true });
+    expect(t.editor.screen.value).toBeNull();
+    expect(t.closed).toHaveBeenCalledTimes(1);
+    expect(t.stop).not.toHaveBeenCalled();
+    expect(t.changed).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes the player too when the channel is locked in a locked session', async () => {
+    const engine = new FakeEngine();
+    engine.locks = { pin: true, unlocked: false, kinds: [] };
+    const t = setup(engine, fakePad());
+    t.editor.openOver(ITEMS.b!, t.closed, t.stop);
+    await flush();
+    await t.choose('lock');
+    expect(t.closed).toHaveBeenCalledTimes(1);
+    expect(t.stop).toHaveBeenCalledTimes(1);
+    expect(t.closed.mock.invocationCallOrder[0]!).toBeLessThan(t.stop.mock.invocationCallOrder[0]!);
+  });
+
+  it('keeps the player when the lock is refused, and says so', async () => {
+    const engine = new FakeEngine();
+    engine.locks = { pin: true, unlocked: false, kinds: [] };
+    const t = setup(engine, fakePad());
+    t.editor.openOver(ITEMS.b!, t.closed, t.stop);
+    await flush();
+    engine.failEdit = true;
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await t.choose('lock');
+    expect(t.editor.problem.value).toBe('refused');
+    expect(t.stop).not.toHaveBeenCalled();
+    expect(t.closed).not.toHaveBeenCalled();
+  });
+
+  it('offers no lock over the player when the locks could not be read', async () => {
+    const engine = new FakeEngine();
+    engine.locks = { pin: true, unlocked: true, kinds: [] };
+    engine.failLocks = true;
+    const t = setup(engine, fakePad());
+    t.editor.openOver(ITEMS.b!, t.closed, t.stop);
+    await flush();
+    expect(t.editor.actions.value).toEqual(['rename', 'number', 'hide', 'cancel']);
+  });
+
+  it('asks the PIN before "Unlock channel", and unlocks only after the right one', async () => {
+    const engine = withEdits(edit('b', { locked: true }));
+    engine.locks = { pin: true, unlocked: true, kinds: ['live'] };
+    const pad = fakePad();
+    const t = setup(engine, pad);
+    t.editor.openOver(ITEMS.b!, t.closed, t.stop);
+    await flush();
+    expect(t.editor.actions.value).toEqual(['rename', 'number', 'hide', 'unlock', 'reset', 'cancel']);
+    await t.choose('unlock');
+    expect(pad.asks).toHaveLength(1);
+    expect(t.engine.edits).toEqual([]);
+    // (The pad closed without the PIN: asked again on the next OK.)
+    await t.choose('unlock');
+    expect(pad.asks).toHaveLength(2);
+    pad.asks[1]!();
+    await flush();
+    expect(t.engine.edits).toEqual([{ kind: 'channel', change: { op: 'unlock', key: 'b' } }]);
+    expect(t.engine.stored()).toEqual([]);
+    expect(t.editor.screen.value).toBeNull();
+    expect(t.stop).not.toHaveBeenCalled();
+    expect(t.changed).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Settings › "Channels" and the locks (RELAY step 38c1)', () => {
+  it('leaves out, while the session is locked, a channel the worker keeps back; lists it when unlocked', () => {
+    const kept = edit('x', { locked: true, missingSince: null });
+    const gone = edit('y', { name: 'Gone' });
+    const found = [ITEMS.a!];
+    expect(editedRows([edit('a', { name: 'Alpha' }), kept, gone], found, true).map((r) => r.key)).toEqual(['a', 'y']);
+    expect(editedRows([edit('a', { name: 'Alpha' }), kept, gone], found, false).map((r) => r.key)).toEqual(['a', 'x', 'y']);
+    expect(editedRows([kept], found).map((r) => r.key)).toEqual(['x']);
+  });
+
+  it('reads the locks with the rows: locked by default, the kept-back channel out', async () => {
+    const t = await page(withEdits(edit('a', { locked: true }), edit('x', { name: 'Late', missingSince: null })));
+    expect(t.page.rows.value.map((r) => r.key)).toEqual(['a']);
+    t.engine.locks = { pin: true, unlocked: true, kinds: ['live'] };
+    await t.press('BACK');
+    t.page.open();
+    await flush();
+    expect(t.page.rows.value.map((r) => r.key)).toEqual(['a', 'x']);
+  });
+
+  it("gives the menu the locks it read: \"Unlock channel\" asks the PIN, then the rows read again", async () => {
+    const engine = withEdits(edit('a', { locked: true }), edit('c', { name: 'Gee' }));
+    engine.locks = { pin: true, unlocked: true, kinds: ['live'] };
+    const pad = fakePad();
+    const t = await page(engine, pad);
+    await t.press('DOWN', 'OK');
+    expect(t.editor.actions.value).toEqual(['rename', 'number', 'hide', 'unlock', 'reset', 'cancel']);
+    await t.choose('unlock');
+    pad.asks[0]!();
+    await flush();
+    expect(t.engine.edits).toEqual([{ kind: 'channel', change: { op: 'unlock', key: 'a' } }]);
+    expect(t.page.rows.value.map((r) => r.key)).toEqual(['c']);
+    await t.press('DOWN', 'OK');
+    expect(t.editor.actions.value).toEqual(['rename', 'number', 'hide', 'lock', 'reset', 'cancel']);
+    // From the page no player is closed by a lock, whatever the session.
+    await t.choose('lock');
+    expect(t.stop).not.toHaveBeenCalled();
+    expect(t.page.rows.value.map((r) => [r.key, r.edit!.locked === true])).toEqual([['c', true]]);
+  });
+
+  it('offers neither without the PIN pad, over the player or from the page, whatever the locks', async () => {
+    const engine = withEdits(edit('b', { locked: true }));
+    engine.locks = { pin: true, unlocked: true, kinds: ['live'] };
+    const t = await page(engine);
+    t.editor.close();
+    await t.press('DOWN', 'OK');
+    expect(t.editor.actions.value).toEqual(['rename', 'number', 'hide', 'reset', 'cancel']);
+    await t.press('BACK');
+    const u = setup(withEdits(edit('b', { locked: true })));
+    u.engine.locks = { pin: true, unlocked: true, kinds: ['live'] };
+    u.editor.openOver(ITEMS.a!, u.closed, u.stop);
+    await flush();
+    expect(u.editor.actions.value).toEqual(['rename', 'number', 'hide', 'cancel']);
+    await u.press('BACK');
+    u.editor.openOver(ITEMS.b!, u.closed, u.stop);
+    await flush();
+    expect(u.editor.actions.value).toEqual(['rename', 'number', 'hide', 'reset', 'cancel']);
   });
 });

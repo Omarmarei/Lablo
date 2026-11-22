@@ -190,7 +190,7 @@ describe('"Channels without a guide" as drawn (step 24c)', () => {
     // And "Edit channel"'s and "Channels"' (step 36c), the menu's fields too.
     const channel = { pending: signal(256), over: signal(false), editor: { editing: signal<string | null>(null) } };
     const channels = { pending: signal(512) };
-    const settings = { guides: { pending: signal(2), editor: { editing: signal<string | null>(null) } }, unmatched: t.list, mapping, sources, backup, telemetry, report, groups, channel, channels } as unknown as Settings;
+    const settings = { guides: { pending: signal(2), editor: { editing: signal<string | null>(null) } }, unmatched: t.list, mapping, sources, backup, telemetry, report, groups, channel, channels, parental: null } as unknown as Settings;
     const draw2 = () => SettingsScreen({ settings, i18n: t.i18n, binding: t.binding, focus: t.nav.snapshot() });
     let root = draw2();
     expect((root.props as Props)['data-pending']).toBe(1023);

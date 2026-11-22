@@ -45,6 +45,30 @@ class FakeEngine implements ParentalEngine {
     return Promise.resolve({ result: 'ok', waitMs: 0 });
   }
 
+  /** The PINs `checkPin` was asked about (the session left as it is). */
+  readonly checks: string[] = [];
+  /** The PINs `setPin` kept; `refuseSet` answers `false`, `failSet` rejects, `holdSet` waits. */
+  readonly kept: string[] = [];
+  refuseSet = false;
+  failSet = false;
+  holdSet = false;
+  readonly heldSets: Held<boolean>[] = [];
+
+  checkPin(pin: string): Promise<UnlockAnswer> {
+    this.checks.push(pin);
+    if (this.answer !== null) return Promise.resolve(this.answer(pin));
+    return Promise.resolve({ result: pin === this.pin ? 'ok' : 'wrong', waitMs: 0 });
+  }
+
+  setPin(pin: string): Promise<boolean> {
+    if (this.holdSet) return new Promise((resolve, reject) => this.heldSets.push({ resolve, reject }));
+    if (this.failSet) return Promise.reject(new Error('worker gone'));
+    if (this.refuseSet) return Promise.resolve(false);
+    this.kept.push(pin);
+    this.pin = pin;
+    return Promise.resolve(true);
+  }
+
   relock(): Promise<void> {
     this.relocks += 1;
     this.state = { ...this.state, unlocked: false };
@@ -404,5 +428,215 @@ describe('the app hidden while unlocked (RELAY step 38b)', () => {
     t.parental.dispose();
     expect(t.listeners).toHaveLength(0);
     t.parental.dispose();
+  });
+});
+
+describe("Settings' check (RELAY step 38c)", () => {
+  it('checks the PIN with the session left as it is, then goes on; the screens read nothing again', async () => {
+    const t = setup();
+    const done = vi.fn();
+    t.parental.ask(done);
+    expect(t.at()).toBe(`${PIN_SCREEN} · ${PIN_PAD} 0`);
+    expect(t.parental.pad.value).toEqual({ purpose: 'check', typed: 0, problem: null, busy: false });
+    await t.press('DIGIT_9', 'DIGIT_9', 'DIGIT_9', 'DIGIT_9');
+    expect(t.parental.pad.value).toEqual({ purpose: 'check', typed: 0, problem: 'wrong', busy: false });
+    expect(done).not.toHaveBeenCalled();
+    await t.press('DIGIT_1', 'DIGIT_2', 'DIGIT_3', 'DIGIT_4');
+    expect(t.engine.checks).toEqual(['9999', '1234']);
+    expect(t.engine.pins).toEqual([]);
+    expect(t.parental.pad.value).toBeNull();
+    expect(t.at()).toBe('live · rail 0');
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(t.changed).not.toHaveBeenCalled();
+  });
+
+  it('goes on with the pad gone: what goes on can push its own screen', async () => {
+    const t = setup();
+    t.parental.ask(() => {
+      t.nav.push({ id: 'next', zones: [{ kind: 'list', id: 'rows', axis: 'vertical', count: 2 }] });
+    });
+    await t.press('DIGIT_1', 'DIGIT_2', 'DIGIT_3', 'DIGIT_4');
+    expect(t.at()).toBe('next · rows 0');
+    await t.press('BACK');
+    expect(t.at()).toBe('live · rail 0');
+  });
+
+  it('closes on Back and Cancel, and nothing goes on; a second ask while open is dropped', async () => {
+    const t = setup();
+    const done = vi.fn();
+    const other = vi.fn();
+    t.parental.ask(done);
+    t.parental.ask(other);
+    await t.press('DIGIT_1', 'BACK');
+    expect(t.at()).toBe('live · rail 0');
+    t.parental.ask(done);
+    expect(t.parental.pad.value!.typed).toBe(0);
+    t.nav.top.focus(PIN_PAD, PAD_CANCEL);
+    await t.press('OK');
+    expect(t.at()).toBe('live · rail 0');
+    // Opened from the rail after a cancelled ask: the right PIN unlocks, and the ask's `done` doesn't run.
+    await t.open();
+    await t.press('DIGIT_1', 'DIGIT_2', 'DIGIT_3', 'DIGIT_4');
+    expect(t.changed).toHaveBeenCalledWith(true);
+    expect(done).not.toHaveBeenCalled();
+    expect(other).not.toHaveBeenCalled();
+    expect(t.engine.checks).toEqual([]);
+  });
+
+  it("holds the worker's wait: no digit counts, and it says so when opened", async () => {
+    const t = setup();
+    t.engine.answer = () => ({ result: 'wait', waitMs: 60_000 });
+    const done = vi.fn();
+    t.parental.ask(done);
+    await t.press('DIGIT_1', 'DIGIT_1', 'DIGIT_1', 'DIGIT_1');
+    expect(t.parental.pad.value).toEqual({ purpose: 'check', typed: 0, problem: 'wait', busy: false });
+    await t.press('DIGIT_2', 'BACK');
+    t.parental.ask(done);
+    expect(t.parental.pad.value).toEqual({ purpose: 'check', typed: 0, problem: 'wait', busy: false });
+    await t.press('DIGIT_2');
+    expect(t.parental.pad.value!.typed).toBe(0);
+    t.advance(60_000);
+    t.engine.answer = null;
+    await t.press('DIGIT_1', 'DIGIT_2', 'DIGIT_3', 'DIGIT_4');
+    expect(done).toHaveBeenCalledTimes(1);
+  });
+
+  it('turns to the no-PIN dialog when no PIN is set any more', async () => {
+    const t = setup();
+    t.engine.answer = () => ({ result: 'no-pin', waitMs: 0 });
+    const done = vi.fn();
+    t.parental.ask(done);
+    await t.press('DIGIT_1', 'DIGIT_2', 'DIGIT_3', 'DIGIT_4');
+    expect(t.at()).toBe(`${NO_PIN_SCREEN} · buttons 0`);
+    expect(done).not.toHaveBeenCalled();
+  });
+
+  it("gives way to the return's pad when the app is hidden while unlocked, and what it asked for never goes on", async () => {
+    const t = setup();
+    await t.open();
+    await t.press('DIGIT_1', 'DIGIT_2', 'DIGIT_3', 'DIGIT_4');
+    const done = vi.fn();
+    t.parental.ask(done);
+    await t.press('DIGIT_1');
+    await t.emit('hidden');
+    await t.emit('visible');
+    expect(t.parental.pad.value).toEqual({ purpose: 'return', typed: 0, problem: null, busy: false });
+    expect(t.nav.snapshot().screen).toBe(PIN_SCREEN);
+    await t.press('DIGIT_1', 'DIGIT_2', 'DIGIT_3', 'DIGIT_4');
+    expect(t.at()).toBe('live · rail 0');
+    expect(t.engine.pins).toEqual(['1234', '1234']);
+    expect(done).not.toHaveBeenCalled();
+  });
+});
+
+describe('a new PIN (RELAY step 38c)', () => {
+  it('takes it twice, then keeps it and goes on', async () => {
+    const t = setup();
+    const done = vi.fn();
+    t.parental.choose(done);
+    expect(t.at()).toBe(`${PIN_SCREEN} · ${PIN_PAD} 0`);
+    expect(t.parental.pad.value).toEqual({ purpose: 'set', typed: 0, problem: null, busy: false });
+    await t.press('DIGIT_4', 'DIGIT_8', 'DIGIT_2');
+    expect(t.parental.pad.value).toEqual({ purpose: 'set', typed: 3, problem: null, busy: false });
+    await t.press('DIGIT_0');
+    expect(t.parental.pad.value).toEqual({ purpose: 'again', typed: 0, problem: null, busy: false });
+    expect(t.engine.kept).toEqual([]);
+    await t.press('DIGIT_4', 'DIGIT_8', 'DIGIT_2', 'DIGIT_0');
+    expect(t.engine.kept).toEqual(['4820']);
+    expect(t.parental.pad.value).toBeNull();
+    expect(t.at()).toBe('live · rail 0');
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(t.engine.pins).toEqual([]);
+    expect(t.engine.checks).toEqual([]);
+  });
+
+  it('starts again when the second differs, and says so; Delete works in both', async () => {
+    const t = setup();
+    const done = vi.fn();
+    t.parental.choose(done);
+    await t.press('DIGIT_1', 'DIGIT_1', 'DIGIT_1', 'DIGIT_1', 'DIGIT_2', 'DIGIT_2', 'DIGIT_2', 'DIGIT_2');
+    expect(t.parental.pad.value).toEqual({ purpose: 'set', typed: 0, problem: 'mismatch', busy: false });
+    // The first one again doesn't keep 1111: the pair starts over.
+    await t.press('DIGIT_1', 'DIGIT_1', 'DIGIT_1', 'DIGIT_1');
+    expect(t.parental.pad.value).toEqual({ purpose: 'again', typed: 0, problem: null, busy: false });
+    await t.press('DIGIT_1', 'DIGIT_5');
+    t.nav.top.focus(PIN_PAD, PAD_DELETE);
+    await t.press('OK');
+    expect(t.parental.pad.value).toEqual({ purpose: 'again', typed: 1, problem: null, busy: false });
+    await t.press('DIGIT_1', 'DIGIT_1', 'DIGIT_1');
+    expect(t.engine.kept).toEqual(['1111']);
+    expect(done).toHaveBeenCalledTimes(1);
+  });
+
+  it('pays no heed to a wait, and ends the one it held once kept', async () => {
+    const t = setup();
+    t.engine.answer = () => ({ result: 'wait', waitMs: 60_000 });
+    t.parental.ask(() => undefined);
+    // (BACK after the answer: one sent with the digits would close the pad before the wait came.)
+    await t.press('DIGIT_1', 'DIGIT_1', 'DIGIT_1', 'DIGIT_1');
+    expect(t.parental.pad.value!.problem).toBe('wait');
+    await t.press('BACK');
+    t.parental.choose(() => undefined);
+    expect(t.parental.pad.value).toEqual({ purpose: 'set', typed: 0, problem: null, busy: false });
+    await t.press('DIGIT_5', 'DIGIT_5', 'DIGIT_5', 'DIGIT_5');
+    expect(t.parental.pad.value!.purpose).toBe('again');
+    await t.press('DIGIT_5', 'DIGIT_5', 'DIGIT_5', 'DIGIT_5');
+    expect(t.engine.kept).toEqual(['5555']);
+    // The wait is over: the next ask takes digits at once.
+    t.engine.answer = null;
+    t.parental.ask(() => undefined);
+    expect(t.parental.pad.value!.problem).toBeNull();
+    await t.press('DIGIT_5');
+    expect(t.parental.pad.value!.typed).toBe(1);
+  });
+
+  it('starts again and says so when the worker refuses it or fails; waits while it keeps it', async () => {
+    const t = setup();
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const done = vi.fn();
+    t.engine.refuseSet = true;
+    t.parental.choose(done);
+    await t.press('DIGIT_4', 'DIGIT_8', 'DIGIT_2', 'DIGIT_0', 'DIGIT_4', 'DIGIT_8', 'DIGIT_2', 'DIGIT_0');
+    expect(t.parental.pad.value).toEqual({ purpose: 'set', typed: 0, problem: 'unsaved', busy: false });
+    t.engine.refuseSet = false;
+    t.engine.failSet = true;
+    await t.press('DIGIT_4', 'DIGIT_8', 'DIGIT_2', 'DIGIT_0', 'DIGIT_4', 'DIGIT_8', 'DIGIT_2', 'DIGIT_0');
+    expect(t.parental.pad.value).toEqual({ purpose: 'set', typed: 0, problem: 'unsaved', busy: false });
+    t.engine.failSet = false;
+    t.engine.holdSet = true;
+    await t.press('DIGIT_4', 'DIGIT_8', 'DIGIT_2', 'DIGIT_0', 'DIGIT_4', 'DIGIT_8', 'DIGIT_2', 'DIGIT_0');
+    expect(t.parental.pad.value).toEqual({ purpose: 'again', typed: 4, problem: null, busy: true });
+    expect(t.parental.pending.value).toBe(1);
+    await t.press('DIGIT_1', 'BACK');
+    expect(t.parental.pad.value).toBeNull();
+    t.engine.heldSets[0]!.resolve(true);
+    await flush();
+    expect(done).not.toHaveBeenCalled();
+    expect(t.parental.pending.value).toBe(0);
+  });
+
+  it('closes on Back and Cancel at either step, and nothing is kept', async () => {
+    const t = setup();
+    const done = vi.fn();
+    t.parental.choose(done);
+    await t.press('DIGIT_4', 'DIGIT_8', 'DIGIT_2', 'DIGIT_0', 'DIGIT_4', 'BACK');
+    expect(t.at()).toBe('live · rail 0');
+    t.parental.choose(done);
+    expect(t.parental.pad.value!.purpose).toBe('set');
+    t.nav.top.focus(PIN_PAD, PAD_CANCEL);
+    await t.press('OK');
+    expect(t.at()).toBe('live · rail 0');
+    expect(t.engine.kept).toEqual([]);
+    expect(done).not.toHaveBeenCalled();
+    expect(t.restart).not.toHaveBeenCalled();
+  });
+
+  it('does nothing once disposed', () => {
+    const t = setup();
+    t.parental.dispose();
+    t.parental.choose(() => undefined);
+    t.parental.ask(() => undefined);
+    expect(t.parental.pad.value).toBeNull();
+    expect(t.at()).toBe('live · rail 0');
   });
 });

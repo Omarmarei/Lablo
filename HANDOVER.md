@@ -1,96 +1,194 @@
-# Lablo IPTV: relay leg 138 opening prompt
+# Lablo IPTV: relay leg 139 opening prompt
 
-You are leg 138 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 139 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 ## Status
-- **Earlier legs:** leg 0 planned the work; legs 1–136 did steps 1–33, 35, 35e, 36, 37, step 38's shape and 38a (PRs #1–#161).
-- **Leg 137 (2026-11-22) built 38b and opened the joined PR #162 for 38a + 38b. Its CI was running when the leg ended; it is NOT merged.**
-  - 38b's "Refined before building" (11 items) is in RELAY.md under `- [ ] 38b.`; architecture.md §1.4 item 10 has "Built in step 38b" (after "Built in step 38a").
-  - Built: the rails' locks (live, movies, series; `railEntries`' `locks`, `readLocks`, `lockFocus`), the "Locked groups" / "Lock again" last entry, the PIN pad (`apps/tv/src/parental/`: `parental.ts`, `PinPad.tsx`, `icons.tsx`, `parental.css`), the re-reads after an unlock or relock (`live.lockChanged`, `movies.lockChanged`, search and Home `catalogChanged`), the relock on hide with the pad over everything and the player held on return (`heldLifecycle`; Back restarts the app with `location.reload()`, locked), the start's last channel and Home's "Recent channels" through the worker (`itemsByKey`), Settings › "Channel groups" without locked groups while locked.
-  - **Q2's done-screen prompt moved to 38c** (refinement 9: it shares the pad's set mode and the login check with "Forgot your PIN?"). With no PIN, "Locked groups" shows a dialog ("Locked groups need a PIN. You can set one in Settings.", one OK); 38c turns it into its "Set a PIN" path.
-  - **Behaviour change to know:** the start's last channel now plays once the query worker gives it (about when the list's categories are read), no longer before them. `resume.spec.ts`' order check went. A light lock check in the query worker could win it back, but the worker has 1.7 KB left (148.3/150).
-- **Your step:** get PR #162 merged on green CI, tick 38a and 38b, then start **38c** (Settings › "Parental control").
-- **Waiting for Omar:** step 16's Samsung part, 19b and 21 (the TVs); step 34 (production infrastructure), deferred by Omar on 2026-11-19 until he says the accounts and keys are ready. Skip it until then.
+- **Earlier legs:** leg 0 planned the work; legs 1–137 did steps 1–33, 35, 35e, 36, 37 and step 38's shape.
+- **Leg 138 (2026-11-22):**
+  - **PR #162 (38a + 38b) merged as `69d100a`** on green CI. The first run's `media` job failed for a real reason: `test/search-200k.media.test.ts`'s oracle still counted the big fixture's adult groups, which search now leaves out. Fixed in `bda3eca` (the oracle drops `adultName` groups). 38a and 38b are ticked.
+  - **38c refined and split** in RELAY.md (`- [ ] 38c.`, refinements 1–10):
+    - **38c1** covers the paths with a PIN.
+    - **38c2** covers no PIN and a forgotten PIN.
+    - The settings list's scrolling moved from 38d into 38c1.
+  - **38c1 is built and committed (`fa789a0`), pushed, with no PR yet.** Still to do: mutation, architecture.md, the PR. What it contains:
+    - the worker's `checkPin`;
+    - the pad's `ask` and `choose` modes;
+    - the windowed settings list with "Parental control";
+    - `settings/parental-page.ts` and `ParentalPage.tsx`;
+    - the channel menu's "Lock channel" and "Unlock channel";
+    - "Channels" while locked.
+- **Your step:** finish 38c1, then 38c2.
+- **Waiting for Omar:**
+  - step 16's Samsung part, 19b and 21 (the TVs);
+  - step 34 (production infrastructure), deferred by Omar on 2026-11-19 until he says the accounts and keys are ready. Skip it until then.
 
 ## Read first
-1. **RELAY.md:** step 38's "Shape" (Omar's Q1–Q3, option 1 each) and "Split" (38c, 38d); `- [ ] 38a.` (its notes and "Leads for 38b" lead 3 about `checkPin`); `- [ ] 38b.` (its refinements, especially 3, 5, 9, 10); the last progress row (137).
-2. **docs/architecture.md** §1.4 item 10: "Built in step 38a" and "Built in step 38b" (~954–975); "Built in step 36c" (the settings screens, the channel menu) for 38c's pages.
-3. **The code for 38c:** `apps/tv/src/parental/parental.ts` (the pad has only an "enter" mode: 38c adds "set" = typed twice; `toggle`'s no-PIN branch `openNoPin`); `apps/tv/src/settings/settings-state.ts` (`SETTINGS_ITEMS`, `SETTINGS_SCREENS`), `settings/channel-edit.ts` (the channel menu: "Lock"/"Unlock"), `settings/source-login.ts` and `onboarding/form.ts` (a login typed again, for Q3's check); `packages/data/src/parental.ts` (the `parental` edit's ops: `pin`, `adult`, `group`), `query-service.ts` (`unlock`, `setPin`, `lockState`); `apps/tv/src/onboarding/OnboardingApp.tsx` and the pairing done view (Q2's prompt).
+1. **RELAY.md:**
+   - `- [ ] 38c.`: its refinements, the 38c1 and 38c2 parts, and 38c1's "Built in leg 138", "Verified" and "Left" notes;
+   - step 38's "Shape" (Q1–Q3, Omar's option 1 each);
+   - the last progress row (138).
+2. **docs/architecture.md** §1.4 item 10: "Built in step 38a" and "Built in step 38b" (~954–975). Add "Built in step 38c1" after them.
+3. **For 38c2:**
+   - `apps/tv/src/settings/source-login.ts` (`createLoginForm`, `loginValues`, `checkLogin`). **Its values are prefilled with the stored login, so the PIN check must open it empty** (an Xtream server only).
+   - `apps/tv/src/pairing/pair-state.ts`. Its `added` runs the loader and adds the source. The phone page's "ok" text says "Added", so a phone login check needs a protocol and web change, and may become 38c3.
+   - `apps/tv/src/onboarding/OnboardingApp.tsx` and the pairing done view (Q2's prompt).
+   - `parental.ts`' `openNoPin`.
+   - `parental-page.ts`' `parentalRows(false)`, which returns `[]` now.
 
 ## Next steps, in order
 1. **Check the state:**
-   - `git -C "<wt>" status` is clean; `git -C "<wt>" log --oneline -3` shows this handover's commit, then `78e0256` (38b docs), `be40c56`.
-   - `gh pr view 162 --repo Omarmarei/Lablo --json state,mergeable` and `gh pr checks 162 --repo Omarmarei/Lablo` (names: changes, web, media, verify, engines). No `*.mutbak`; `docker ps` shows only `lablo-web-postgres-1`.
-2. **CI of PR #162:**
-   - All green: merge it (merge commit, keep the branch; IPTV PRs merge on green CI without Omar). Name the three riskiest changes in the leg's notes (they are in the PR body: `INGEST_VERSION` 4 rebuilds every stored catalog once; the 18+ group out of sight by default and the start's resume after the worker's check; the relock on hide with the held player and Back's reload).
-   - A known flake (list below): `gh run rerun <run> --failed` once the whole run is done.
-   - A real failure: read the job log (`gh api repos/Omarmarei/Lablo/actions/jobs/<id>/logs`) or the playwright report (`gh run download <run> -n playwright-report -D <dir>`), fix on the branch, push (a push cancels the running CI).
-   - After the merge: `git -C "<wt>" fetch origin`, `git -C "<wt>" merge --ff-only origin/main` (the merge commit), then tick `- [x] 38a.` and `- [x] 38b.` in RELAY.md with "merged in PR #162 as `<sha>`", a progress row, commit (docs) and push.
-3. **38c: write its "Refined before building" first** in RELAY.md, checked against the code: the page behind the PIN (Settings › "Parental control" asks every time, even unlocked: a worker `checkPin` of ~0.2 KB, or `unlock` then `relock` when the session was locked; the query worker has 1.7 KB); "Change the PIN"/"Set a PIN" (the pad's set mode: typed twice); "Lock adult groups" (`parental` edit `adult`); "Locked groups" (every group of each kind with its lock, the adult ones marked: `categories` marks them); the channel menu's "Lock"/"Unlock" (locking needs no PIN, unlocking asks it); "Forgot your PIN?" and "Set a PIN" with no PIN (Q2, Q3: one source's login typed again or sent from the phone, compared in main with the profile's plain logins); the done screens' prompt (Q2: onboarding and Settings' add from the phone, when the new source has adult groups: `lockState().kinds` after the ingest); the no-PIN dialog becoming the "Set a PIN" path. Then build it (settings.js for the pages; main.js only for the pad's set mode, the dialog and the done screens).
-4. **38c's gates:** unit tests of each page and edit; e2e in en and ar (a group locked by hand, an adult group's lock off, a channel locked from the pencil, the forgotten-PIN path, the first PIN at add) and en-XA; `build:tv` sizes and module diff; `verify:engines --engine chrome53` and `--engine chrome68`, each alone; mutation with the list written first (copy `artifacts/mutate38b.py`, run `--clean` first); full `pnpm test`, `pnpm typecheck`, `pnpm lint`; architecture.md "Built in step 38c"; the PR, merged on green CI.
+   - `git -C "<wt>" status` is clean.
+   - `git -C "<wt>" log --oneline -4` shows this handover's commit, `fa789a0` (38c1), `5e897ed` (docs) and `69d100a` (the merge).
+   - No `*.mutbak`.
+   - `docker ps` shows only `lablo-web-postgres-1`.
+2. **38c1 mutation:**
+   - Run `artifacts/mutate38c1.py`, which lists 78 mutants written first (`--check` gives 78/78).
+   - Run `--clean` first.
+   - Then run the foreground batches: `MUT_TIMEOUT=300 python -X utf8 -I -u artifacts/mutate38c1.py --from 1 --to 25`, and so on. Log to `artifacts/mutate38c1-a.log`, `-b`, `-c`.
+   - Mutants 2, 23, 24, 54, 58 and 75–78 run `parental-settings.spec.ts` (~25 s each with the dev server's start).
+   - Mutants that may survive (no test yet): 36 ("Locked groups" opened again keeps its last rows until read), 37 (the groups page's pending guard), 77 (main's `live.channelsChanged()` in `locksChanged`). The page tests added in leg 138 should catch 36 and 37. Close any gap with a test, or keep the mutant as equivalent with its reason.
+   - Also write `artifacts/mutate38c1-list.md` (the numbers and intents, from the script's comments).
+3. **The rest of 38c1's gates:**
+   - the full `pnpm test` once more (the dead-code removals came after the 8,400 run);
+   - architecture.md "Built in step 38c1";
+   - tick nothing until the merge;
+   - the PR from `relay/iptv-20261101-214120` to `main`, merged on green CI (merge commit, keep the branch). Name the three riskiest changes: the settings list now scrolls (every Settings e2e path still by index, the eighth row last); `checkPin` in the query worker (1.5 KB left); a lock in a locked session closes the player.
+   - After the merge: `git fetch`, `git merge --ff-only origin/main`, tick 38c1 in RELAY.md, add a progress row, commit and push.
+4. **38c2:** write its refinements against the code first, then build it:
+   - the login check, typed: a pick of the source with two or more; the login form opened empty;
+   - "Set a PIN" and "Forgot your PIN?" rows;
+   - the no-PIN dialog's "Set a PIN";
+   - Q2's done-screen prompt;
+   - the phone path, possibly split as 38c3.
 
 ## Git state to expect
-- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed. It is `origin/main` (`7c46ff3`) plus 38a's commits (`79e6efd`, `2817766`, `8b1f3d1`, `aab9a9f`, `64952c2`) and 38b's (`3bb536b` code, `5216ca8`, `ed68f98`, `4666655` e2e, `eb7b44b`, `be40c56` tests, `78e0256` docs), then this handover's commit (docs: HANDOVER.md).
-- **PR #162** (`relay/iptv-20261101-214120` → `main`) open, CI running at the leg's end. `main` is `7c46ff3`; the main checkout was not touched.
-- **Gitignored but present:** `node_modules`, `.cache/*`, `apps/web/.env`, `apps/web/.next`; `dist/` (leg 137's full `build:tv`, 38b); in `artifacts/`: `mutate38b.py` (54 mutants, `--clean`), `mutate38b-list.md`, `mutate38b-a.log`, `-b.log`, `-c.log`; `build-tv-38b.log`; `mprobe-38b-after.log`; `unit-38b.log`; `typecheck-38b.log`; `lint-38b.log`; `engines-38b-53.log`, `-68.log`; `e2e-38b-*.log`; screenshots `artifacts/screenshots/parental-*`. 38a's artifacts from leg 136 too.
+- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed.
+- **Commits:** `origin/main` (`69d100a`, PR #162's merge), plus `5e897ed` (docs), `fa789a0` (38c1), then this handover's commit (docs: HANDOVER.md).
+- **No open PR.** The main checkout was not touched.
+- **Gitignored but present:**
+  - `node_modules`, `.cache/*`, `apps/web/.env`, `apps/web/.next`;
+  - `dist/` (leg 138's `build:tv`, 38c1 before the dead-code removals);
+  - in `artifacts/`: `mutate38c1.py`, `38c1-wip.patch` (a safety copy of 38c1 before its commit, which can be deleted), `build-tv-38c1.log`, `mprobe-38c1-after.log`, `wprobe-38c1.log`, `unit-38c1.log`, `typecheck-38c1.log`, `lint-38c1.log`, `e2e-38c1-*.log`, `engines-38c1-53.log`, `-68.log`, `e2e-media-38b.log`, `lab-media-38b.log`, screenshots `artifacts/screenshots/parental-*` (new: `parental-page-*`, `parental-locked-groups-*`, `parental-settings-list-*`, `parental-pin-mismatch-*`, `parental-channel-lock-*`).
 
 ## Verified vs not
-- **Verified locally in leg 137 (38b on top of 38a):**
-  - unit 8,246 (+86) in the full run, then +4 (movies, groups, live) in their files; `pnpm typecheck`; lint (the whole tree, then the changed folders after the last fixes);
-  - e2e: `--project=throttled` (which runs the whole chromium project first) 195 passed; `tv-bundle.spec.ts` 10 on the new build; `parental.spec.ts` 3 (en, ar, en-XA); screenshots looked at (`parental-pad-ar`, `parental-unlocked-ar`);
-  - `build:tv`: main.js 445.3 KB on Tizen (+9.6), 432.5 webOS; settings.js 78.6 KB; query worker 148.3 KB, ingest 136.5 KB; module diff: core-js 216 in main, 6 in settings.js (unchanged);
-  - mutation 53/54 (the survivor: main's wiring of the player state's lifecycle through the hold, observable only with a playing movie);
-  - `verify:engines` chrome68 13/13, chrome53 13/13 (first run).
-- **Not yet:** PR #162's CI and merge; 38c, 38d; production (step 34); the lock on a real TV (step 21's session).
+- **Verified in leg 138 (38c1):**
+  - unit: 8,400 in the full run, then the touched folders again (532) after the dead-code removals;
+  - `pnpm typecheck` and `pnpm lint`;
+  - e2e: the whole chromium project (189 passed); `parental-settings.spec.ts` (en, ar, en-XA) after its last additions; screenshots looked at;
+  - `build:tv`: main.js 449.1 KB on Tizen (+3.8), 436.4 KB on webOS; settings.js 87.7 KB (+9.1); query worker 148.5/150 KB;
+  - module diff: core-js 216 in main and 6 in settings.js, unchanged;
+  - `verify:engines` 13/13 on chrome53 and 13/13 on chrome68;
+  - PR #162: its whole CI.
+- **Not yet:**
+  - 38c1's mutation, its last full unit run, architecture.md and its PR;
+  - 38c2 and 38d;
+  - production (step 34);
+  - the lock on a real TV (step 21's session).
 - **Migrations and deploys:** none. Nothing is in production or deployed.
 
 ## Gotchas and lessons
-**New in leg 137:**
-- **The leg's first try stopped on a network failure** (the API unreachable); Omar typed "retry" in the tab and it carried on. The watcher had logged "stopped without a handover".
-- **e2e with the 18+ group locked:** `e2e/live-rows.ts`' `ordered` leaves the adult channels out (the adult group is last, so no index moves); `allOrdered` keeps them; `e2e/profile-edit.ts` has `restartWith(page, fields, url)` (appIdle, gallery, profile write, start again), `ADULT_OPEN`, `pinFields(pin)`. Rail counts are the catalog's minus 1, and the rail ends with a "Locked groups" chip.
-- **`--project=throttled` runs all of chromium first** (195 tests, ~6.5 min locally): a cheap full e2e.
-- **The non-media e2e streams never play** (the player stays `opening`): prove a held or reopened stream by counting the mock's requests (`app.addHook('onRequest', …)`, URLs with `/<id>.`).
-- **e2e navigation:** after a page restart the header's focus is its first button; LEFT from the list lands on the rail entry on show (read `__LABLO_TEST__.focusPath()` and step from there); from search results, Back goes to the field first.
-- **Python patch scripts from bash heredocs broke twice** (`\\'` became `'`; nested quotes didn't parse): Write the script and any TS it appends to the scratchpad, then run it.
-- **The per-file size probe** (`C:/Users/Omarm/.claude/jobs/af741535/tmp/sizes.mts`) needs `loader: f.endsWith('x') ? 'tsx' : 'ts', jsx: 'automatic', jsxImportSource: 'preact'` for .tsx files.
-- **Mutation lists find dead code again:** three checks in the pad and the movies screen's `showCategory` guard could never decide; they came out.
-- **The query worker has 1.7 KB left** (148.3/150). 38c's PIN check for Settings needs about 0.2 KB, or `unlock` then `relock`.
+**New in leg 138:**
+- **PR #162's media job:** the 200k search's oracle counted adult groups, and a lock-by-default change needs every oracle over the big fixture checked. The media job runs `test:media`, then `lab:media`, then `e2e:media`. A failure in the first hides the others, so run the other two locally: `pnpm e2e:media` 18 passed (3.3 min), `pnpm lab:media` 2 passed.
+- **e2e:**
+  - UP from the list lands on the header's *last focused* button, not `header/0`. `openSettings` in `parental-settings.spec.ts` reads the focus path and steps from there.
+  - After an unlock, the rail's focus sits on the first group that came back (`rail/1`). Wait for `settled(live)` and `data-status=ready` before RIGHT/LEFT to the list, or the key goes nowhere.
+  - Settings' check pad and the new-PIN pad are both `pin/pad/0`. Wait on `data-purpose`, not the focus.
+- **VNode tests don't render sub-components:** a message drawn by a component isn't found by `byTestId`. Call a plain function that returns the VNode (`message(...)` in `ParentalPage.tsx`).
+- **Optional engine methods** (`lockState?` in `ChannelEditEngine`, as in `GroupsEngine`) keep older test fakes compiling. `readLocks` treats "absent" or a failure as no PIN and a locked session.
+- **"Channels" while locked** leaves out rows with no item and `missingSince === null`. Test edits of channels missing from the catalog now get `missingSince: 5` (`edit()` in `channel-edit.test.ts`).
+- **Bash heredocs broke twice again** (an apostrophe inside a heredoc'd test name; a 140-line test append). Write the patch script and the TS chunk to the scratchpad, then run it.
+- **Module probes:** `mprobe.mts` (main.js, split) and `wprobe.mts` (a worker) are in `C:/Users/Omarm/.claude/jobs/917772fb/tmp/` (copies from older legs). Run them with `pnpm exec tsx <file>`.
+- **The query worker has 1.5 KB left** (148.5/150).
 
-**From legs 130–136 (still true):**
-- **CI's engines job can end "cancelled"** (Chromium 53's stuck IndexedDB delete past its 35-minute cap): read the job's log, then `gh run rerun <run> --failed` once the run is complete; the rerun is a new job id (`gh run view <run> --json jobs`).
-- **Channel edits are re-matched on two paths** (`channel-relink.ts`): a field added to `ChannelEdit` must be named in `changed(...)` too; test both paths.
-- **A test that a read is fresh must load the worker first** (the first call's lazy load reads the profile anyway).
-- **Mutation:** list first; `--check` until every snippet is found once; `--clean` runs each command on clean code first; foreground chunks with `MUT_TIMEOUT`; restore any `.mutbak` with `mv`.
-- **The mock's catalog is mutable at runtime** (`app.mockState.catalog`, put back in `afterEach`); since 37a its `get.php` added through the loader becomes Xtream (keep a playlist with `e2e/playlist-only.ts`).
-- **A second source in e2e needs no pairing:** a profile write from `/?screen=gallery` after `appIdle`; the schedule's first check (15 s) ingests it.
-- **Sizes:** main.js 500 KB hard budget on Tizen (445.3 now, 89%). Mention sizes only when they decide something or near a budget; never put 0.5–2 KB in front of Omar as a reason.
-- **CI:** about 30 min; known flakes `telemetry.spec.ts:202`, `auto-next.spec.ts` ar-SA, `epg-declared-300mb`, `guide-offset.spec.ts` en-US, `rpc.test.ts:179`, Chromium 53/56 start-up and stuck deletes; rerun after the whole run; a push cancels the PR's CI; no `jq` (use `gh --jq`); watch with a Monitor loop over `gh pr checks <n> --json name,bucket --jq …`.
-- **e2e on the live screen:** UP reaches the header only from the list's first row; in Arabic the rail is right of the list; `[data-testid=live]` is absent while search, guide or settings paint. Settings' paths: Home `live/header/3`, Search `4`, Settings `5`; Settings items: Sources `settings/items/1`, "Channel groups" `5`, "Channels" `6` (38d reorders them).
+**From legs 130–137 (still true):**
+- **CI's engines job can end "cancelled"** (Chromium 53's stuck IndexedDB delete past the 35-minute cap): read the job log, then `gh run rerun <run> --failed` once the run is complete.
+- **Channel edits are re-matched on two paths** (`channel-relink.ts`): a field added to `ChannelEdit` must be named in `changed(...)` too.
+- **A test that a read is fresh must load the worker first.**
+- **Mutation:** write the list first; `--check` until every snippet is found once; `--clean` runs each command on clean code first; run foreground chunks with `MUT_TIMEOUT`; restore any `.mutbak` with `mv`.
+- **The mock's catalog is mutable at runtime** (`app.mockState.catalog`, put back in `afterEach`). Since 37a its `get.php` added through the loader becomes Xtream.
+- **e2e with the 18+ group locked:** use `ordered` / `allOrdered` (`e2e/live-rows.ts`), and `restartWith`, `ADULT_OPEN`, `pinFields` (`e2e/profile-edit.ts`). The shared parental steps are now in `e2e/parental-steps.ts` (`chips`, `pad`, `typePin`, `toLastEntry`, `setHidden`, `untranslated`).
+- **The non-media e2e streams never play:** count the mock's requests to prove a held stream.
+- **Sizes:** main.js has a 500 KB hard budget on Tizen (449.1 KB now, 90%). Mention sizes only when they decide something or near a budget.
+- **CI:**
+  - a run takes about 30 min;
+  - known flakes: `telemetry.spec.ts:202`, `auto-next.spec.ts` ar-SA, `epg-declared-300mb`, `guide-offset.spec.ts` en-US, `rpc.test.ts:179`, Chromium 53/56 start-up and stuck deletes;
+  - rerun only after the whole run is done; a push to the PR cancels its CI;
+  - no `jq` in Git Bash (use `gh --jq`);
+  - wait in the background with an `until` loop over `gh pr checks <n> --json name,bucket`.
+- **e2e paths:** Settings is `live/header/5`. Its rows by index: Sources 1, "Channel groups" 5, "Channels" 6, "Parental control" 7 (it scrolls the list: `data-top` 1). 38d reorders them and moves the paths to ids.
 
 **From earlier legs (still true):**
-- **Main-safe code** (settings.js too): none of `trim`, `.sort(`, `.split(`, regex `.test`, `new RegExp`; new `for…of`, `Uint8Array` as a value, `JSON.stringify`; array destructuring or spread, object spread, fragments; `Promise.prototype.finally`. Count blanks by char code. The module diff says whether core-js moved.
-- **Layout and text:** physical CSS only, no Grid or flex `gap`; ES2017. `packages/ui` is hook-free. UI text only from the catalogs. Arabic on/off words agree with their noun. Preact: `translate={false}`.
+- **Main-safe code** (settings.js too): none of `trim`, `.sort(`, `.split(`, regex `.test`, `new RegExp`; no new `for…of`, `Uint8Array` as a value or `JSON.stringify`; no array destructuring or spread, object spread or fragments; no `Promise.prototype.finally`. Count blanks by char code. The module diff says whether core-js moved.
+- **Layout and text:** physical CSS only, no Grid or flex `gap`; ES2017. `packages/ui` is hook-free. UI text comes only from the catalogs. Arabic on/off words agree with their noun ("Lock adult groups" is إقفال, masculine: مفعّل/متوقف). Preact: write `translate={false}`.
 - **Smart App Control:** before every pnpm/npx command, `export NODE_OPTIONS="--require \"D:/Claude Code PlayGround/IPTV-relay-20261101-214120/.cache/rollup-wasm/hook.cjs\""`. Never delete files in `node_modules`.
-- **Environment:** CI Node 22, this PC Node 24; a bare `sleep` is blocked; `TaskStop` on `verify:engines` leaves its container; the TV build can crash once (0xC0000005): rerun.
+- **Environment:** CI runs Node 22, this PC Node 24. A bare `sleep` is blocked. `TaskStop` on `verify:engines` leaves its container. The TV build can crash once (0xC0000005): rerun it.
 
 ## Working rules (unchanged)
-- **Never call EnterWorktree.** Use `git -C "<wt>"`, absolute paths, scoped `git add`, `git commit -F -` ending with the `Co-Authored-By` line. Never a bare `git stash`.
-- **The repo is public as `Omarmarei/Lablo`:** no secrets, no LG binaries, no personal data; README.md stays "# Lablo".
+- **Never call EnterWorktree.** Use `git -C "<wt>"`, absolute paths, scoped `git add` (check `git diff --cached --name-only`), and `git commit -F -` ending with the `Co-Authored-By` line. Never a bare `git stash`.
+- **The repo is public as `Omarmarei/Lablo`:** no secrets, no LG binaries, no personal data. README.md stays "# Lablo".
 - **Merging:** IPTV PRs merge on green CI without Omar (merge commit, keep the branch). Name the three riskiest changes first.
-- **Production:** nothing goes to production before step 34; its migration and deploy each need Omar's one-word OK.
+- **Production:** nothing goes to production before step 34. Its migration and its deploy each need Omar's one-word OK.
 - **CLAUDE.md edits need Omar's direct word in his own tab.**
 
 ## Open decisions and gates
-- **Step 38's three questions are decided** (Omar, 2026-11-22, option 1 each). Smaller choices in 38c/38d: make them from the shape with a why; send only real trade-offs to Omar.
-- **Leg 137's choices** (Omar may overrule; each is small to change): the pad asks after an unlocked session whatever plays (not only a locked channel); Back on that pad restarts the app; the start's resume waits for the worker's check; Q2's prompt is 38c's; Settings' groups page leaves locked groups out while locked.
-- **Step 37's choices (legs 134–135)** stand unless Omar says otherwise (only a source being added upgrades M3U→Xtream, silently; radio stays in its groups).
-- **Step 34 `[needs Omar]`:** the R2 and Upstash adapters; R2's host in `connect-src` and the bucket's CORS rule; `LABLO_RATE_SECRET` in Vercel; the config key ceremony; the accounts and the domain; the first production migration and the deploy, each with his one-word OK.
-- **Steps 16, 19b and 21 wait for Omar** (Samsung, and 30–45 minutes at the LG TV). That session also covers: an Arabic onboarding; typing a backup code; a login and a guide link given again; Settings' report rows; a telemetry send once step 34 has an API; the favourites star and "Channel groups"' move mode; Settings' first open (settings.js); step 36's pencil and forms; step 37's `get.php` link typed on the TV and 10 minutes of radio; step 38's PIN pad with the TV's remote, with and without number keys, and the app hidden and shown while unlocked.
-- **What remains after 38:** 39 (clock, sleep timer, colour keys, buffer setting), 40 (diagnostics and legal pages), 43 (accessibility), 44 (store documents), 45 (release engineering). With Omar or a TV: 34, 16/19b/21, 41, 42, 46, 47.
-- **Later fixes to propose (no step yet):** renaming a source; the info bar overflowing the safe area in en-XA; a hidden channel playing over the list keeping its old name if renamed from the same pencil; CH+ skipping one after hiding the channel that plays; main's `editChannel.close` has no e2e path; the guides screen's clipped third line; `auto-next.spec.ts`'s `endEpisode` race; a best-of-3 for `epg-declared-300mb`; `guide-offset.spec.ts` en-US; `rpc.test.ts:179`'s 5 ms sleep; caching ffmpeg in CI's media job; the engines job's 35-minute cap; forwarding workers' unhandled rejections; `epgOverrides` not following a refresh's re-match; `e2e/config-server.ts`'s `close()`; ingest request timeouts; **no way to remove a source in the app**; **the query worker's 150 KB budget** (1.7 KB left); **the start's resume could start before the worker's load again** with a light lock check (needs worker bytes); a VNode test of the pad's drawing (only e2e draws it now).
+- **Step 38's three questions are decided** (Omar, 2026-11-22, option 1 each). In 38c and 38d, make the smaller choices from the shape with a why. Send only real trade-offs to Omar.
+- **Leg 138's choices** (Omar may overrule; each is small to change):
+  - The page asks the PIN once per visit at the first row that needs it, and again after the app was hidden.
+  - "Lock channel" is offered only once a PIN is set.
+  - A channel locked in a locked session closes the player.
+  - With no PIN, the page has no row until 38c2.
+  - The settings list's scrolling was moved into 38c1.
+- **Possibly for Omar in 38c2:** Q3's "sent from the phone" needs the phone page to say "checked" rather than "Added" (a protocol field and a web page change). If it is large, split it as 38c3 rather than drop it.
+- **Leg 137's and step 37's choices stand** unless Omar says otherwise.
+- **Step 34 `[needs Omar]`:**
+  - the R2 and Upstash adapters;
+  - R2's host in `connect-src` and the bucket's CORS rule;
+  - `LABLO_RATE_SECRET` in Vercel;
+  - the config key ceremony;
+  - the accounts and the domain;
+  - the first production migration and the deploy, each with his one-word OK.
+- **Steps 16, 19b and 21 wait for Omar** (Samsung, and 30–45 minutes at the LG TV). That session also covers:
+  - an Arabic onboarding;
+  - typing a backup code;
+  - a login and a guide link given again;
+  - Settings' report rows;
+  - a telemetry send once step 34 has an API;
+  - the favourites star and "Channel groups"' move mode;
+  - Settings' first open (settings.js);
+  - step 36's pencil and forms;
+  - step 37's `get.php` link typed on the TV and 10 minutes of radio;
+  - step 38's PIN pad with the TV's remote, with and without number keys, and the app hidden and shown while unlocked.
+- **What remains after 38:**
+  - 39 (clock, sleep timer, colour keys, buffer setting);
+  - 40 (diagnostics and legal pages);
+  - 43 (accessibility);
+  - 44 (store documents);
+  - 45 (release engineering);
+  - with Omar or a TV: 34, 16/19b/21, 41, 42, 46, 47.
+- **Later fixes to propose (no step yet):**
+  - renaming a source;
+  - **no way to remove a source in the app**;
+  - the info bar overflowing the safe area in en-XA;
+  - a hidden channel playing over the list keeps its old name if renamed from the same pencil;
+  - CH+ skips one after hiding the channel that plays;
+  - main's `editChannel.close` has no e2e path;
+  - the guides screen's clipped third line;
+  - `auto-next.spec.ts`'s `endEpisode` race;
+  - a best-of-3 for `epg-declared-300mb`;
+  - `guide-offset.spec.ts` en-US;
+  - `rpc.test.ts:179`'s 5 ms sleep;
+  - caching ffmpeg in CI's media job;
+  - the engines job's 35-minute cap;
+  - forwarding workers' unhandled rejections;
+  - `epgOverrides` not following a refresh's re-match;
+  - `e2e/config-server.ts`'s `close()`;
+  - ingest request timeouts;
+  - **the query worker's 150 KB budget** (1.5 KB left);
+  - the start's resume could again start before the worker's load, with a light lock check (needs worker bytes);
+  - a VNode test of the pad's drawing.
 
 ## Checks for Omar
-1. The PIN pad and the rails' lock entries: `artifacts/screenshots/parental-pad-ar.png`, `parental-unlocked-ar.png`, `parental-return-en.png` (in the worktree, gitignored). Nothing to decide.
+1. Settings › "Parental control" and its pages: `artifacts/screenshots/parental-page-ar.png`, `parental-locked-groups-en.png`, `parental-settings-list-en.png` (the list scrolled), `parental-channel-lock-ar.png` (the pencil's menu with "Lock channel"). All in the worktree, gitignored. Nothing to decide.
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
 - **At the LG TV next time:**

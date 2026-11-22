@@ -9,6 +9,7 @@ import { AR } from '../apps/tv/src/i18n/ar';
 import { EN } from '../apps/tv/src/i18n/en';
 import { catalog, ordered, rows } from './live-rows';
 import { addXtreamAndWatch, settled, trackErrors } from './onboard';
+import { chips, pad, setHidden, toLastEntry, typePin, untranslated } from './parental-steps';
 import { pinFields, restartWith } from './profile-edit';
 import { RemoteDriver } from './remote-driver';
 
@@ -57,64 +58,6 @@ test.afterAll(async () => {
 
 async function shoot(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: path.join(SHOTS, `${name}.png`), animations: 'disabled' });
-}
-
-/** The rail's chips as `label` (`🔓 label` with an open lock, `🔒 label` with a closed one). */
-async function chips(page: Page): Promise<string[]> {
-  return page.evaluate(() =>
-    Array.from(document.querySelectorAll('[data-testid=rail] .z-chip')).map((chip) => {
-      const label = chip.querySelector('.z-chip__label')?.textContent ?? '';
-      const icon = chip.querySelector('.z-chip__icon path')?.getAttribute('d') ?? '';
-      return icon === '' ? label : `${icon.indexOf('7.6') === -1 ? 'locked' : 'open'} ${label}`;
-    }),
-  ).then((all) => all.map((c) => stripIsolates(c)));
-}
-
-/** The page hidden or shown, as a TV hides the app (the browser platform reads `document.hidden`). */
-function setHidden(page: Page, hidden: boolean): Promise<void> {
-  return page.evaluate((value) => {
-    Object.defineProperty(document, 'hidden', { configurable: true, get: () => value });
-    document.dispatchEvent(new Event('visibilitychange'));
-  }, hidden);
-}
-
-function untranslated(page: Page, selector: string): Promise<string[]> {
-  return page.evaluate((sel) => {
-    const root = document.querySelector(sel);
-    if (root === null) return [`no ${sel}`];
-    const out: string[] = [];
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-      const value = (node.nodeValue ?? '').trim();
-      if (!/\p{L}/u.test(value) || node.parentElement?.closest('[translate="no"]') != null) continue;
-      if (!(value.startsWith('[') && value.endsWith(']'))) out.push(value);
-    }
-    return out;
-  }, selector);
-}
-
-/** From the list: the rail (on the entry on show), then down to its last entry, "Locked groups" or "Lock again". */
-async function toLastEntry(remote: RemoteDriver, ar: boolean, entries: number): Promise<void> {
-  const focus = (): Promise<string> => remote.page.evaluate(() => window.__LABLO_TEST__?.focusPath() ?? '');
-  await remote.press(ar ? 'RIGHT' : 'LEFT');
-  await expect.poll(focus).toMatch(/^live\/rail\/\d+$/);
-  const at = Number((await focus()).split('/')[2]);
-  for (let i = at + 1; i < entries; i += 1) await remote.go('DOWN', `live/rail/${i}`);
-  await remote.expectFocus(`live/rail/${entries - 1}`);
-}
-
-/** The pad's problem line and how many digits it shows typed. */
-async function pad(page: Page): Promise<{ purpose: string | null; typed: string | null; problem: string | null }> {
-  return {
-    purpose: await page.getByTestId('pin').getAttribute('data-purpose'),
-    typed: await page.getByTestId('pin-boxes').getAttribute('data-typed'),
-    problem: await page.getByTestId('pin-problem').getAttribute('data-problem'),
-  };
-}
-
-/** The PIN by the number keys, then the pad gone. */
-async function typePin(remote: RemoteDriver, pin: string): Promise<void> {
-  for (const d of pin) await remote.press(`DIGIT_${d}` as 'DIGIT_0');
 }
 
 for (const { locale, tag } of [

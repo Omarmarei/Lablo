@@ -6,11 +6,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CatalogItem, ContentKind } from '@lablo/core';
 import { pinHash } from '@lablo/crypto';
 import type { ChannelChange } from './channel-changes';
-import { openDatabase } from './idb';
+import { openDatabase, transact } from './idb';
 import type { LockRef, ParentalChange } from './parental';
-import { emptyProfile, loadProfile, saveProfile } from './profile';
+import { emptyProfile, loadProfile, PROFILE_VERSION, saveProfile, storedProfileDoc } from './profile';
 import type { ItemRef } from './query-service';
 import { QueryService, UNLOCK_TRIES, UNLOCK_WAIT_MS } from './query-service';
+import { STORE } from './schema';
 import { favItem, freshFactory, ingest, item } from './test-support';
 
 /**
@@ -345,6 +346,72 @@ describe('QueryService: the PIN and the session (step 38)', () => {
     q = make();
     expect(await served()).toEqual(OPEN_LIVE);
     expect((await q.lockState()).unlocked).toBe(false);
+  });
+});
+
+describe('QueryService: the PIN checked without unlocking (step 38c)', () => {
+  it('says whether it is the PIN and leaves a locked session locked', async () => {
+    expect(await q.checkPin(PIN)).toEqual({ result: 'no-pin', waitMs: 0 });
+    expect(await q.setPin(PIN)).toBe(true);
+    expect(await q.checkPin('4820')).toEqual({ result: 'wrong', waitMs: 0 });
+    expect(await q.checkPin(PIN)).toEqual({ result: 'ok', waitMs: 0 });
+    expect((await q.lockState()).unlocked).toBe(false);
+    expect(await served()).toEqual(OPEN_LIVE);
+  });
+
+  it('leaves an unlocked session unlocked, right or wrong', async () => {
+    await unlocked();
+    expect(await q.checkPin('4820')).toEqual({ result: 'wrong', waitMs: 0 });
+    expect(await q.checkPin(PIN)).toEqual({ result: 'ok', waitMs: 0 });
+    expect((await q.lockState()).unlocked).toBe(true);
+    expect(await served()).toEqual(ALL_LIVE);
+  });
+
+  it("counts its wrong PINs with unlock's towards the wait, which holds both", async () => {
+    expect(await q.setPin(PIN)).toBe(true);
+    for (let i = 1; i < UNLOCK_TRIES; i += 1) expect(await (i % 2 === 0 ? q.unlock('0000') : q.checkPin('0000'))).toEqual({ result: 'wrong', waitMs: 0 });
+    expect(await q.checkPin('0000')).toEqual({ result: 'wait', waitMs: UNLOCK_WAIT_MS });
+    now += 10_000;
+    expect(await q.checkPin(PIN)).toEqual({ result: 'wait', waitMs: 50_000 });
+    expect(await q.unlock(PIN)).toEqual({ result: 'wait', waitMs: 50_000 });
+    now += 50_000;
+    expect(await q.checkPin(PIN)).toEqual({ result: 'ok', waitMs: 0 });
+    // The right one starts the count again, for unlock too.
+    for (let i = 1; i < UNLOCK_TRIES; i += 1) expect(await q.unlock('0000')).toEqual({ result: 'wrong', waitMs: 0 });
+    expect(await q.checkPin(PIN)).toEqual({ result: 'ok', waitMs: 0 });
+    expect(await q.unlock('0000')).toEqual({ result: 'wrong', waitMs: 0 });
+  });
+
+  it('ends a wait and the wrong tries with a new PIN; not with one refused', async () => {
+    expect(await q.setPin(PIN)).toBe(true);
+    for (let i = 1; i < UNLOCK_TRIES; i += 1) expect(await q.unlock('0000')).toEqual({ result: 'wrong', waitMs: 0 });
+    expect(await q.unlock('0000')).toEqual({ result: 'wait', waitMs: UNLOCK_WAIT_MS });
+    expect(await q.setPin('12a4')).toBe(false);
+    expect(await q.checkPin(PIN)).toEqual({ result: 'wait', waitMs: UNLOCK_WAIT_MS });
+    expect(await q.setPin('1111')).toBe(true);
+    expect(await q.checkPin(PIN)).toEqual({ result: 'wrong', waitMs: 0 });
+    expect(await q.unlock('1111')).toEqual({ result: 'ok', waitMs: 0 });
+  });
+
+  it('keeps the wait when the new PIN could not be written (a profile from a newer app version)', async () => {
+    expect(await q.setPin(PIN)).toBe(true);
+    for (let i = 1; i < UNLOCK_TRIES; i += 1) expect(await q.checkPin('0000')).toEqual({ result: 'wrong', waitMs: 0 });
+    expect(await q.checkPin('0000')).toEqual({ result: 'wait', waitMs: UNLOCK_WAIT_MS });
+    const doc = await storedProfileDoc(db);
+    await transact(db, STORE.profile, 'readwrite', (tx) => {
+      tx.objectStore(STORE.profile).put({ id: 'current', savedAt: 1, doc: { ...(doc as object), v: PROFILE_VERSION + 1 } });
+    });
+    expect(await q.setPin('1111')).toBe(false);
+    expect(await q.checkPin(PIN)).toEqual({ result: 'wait', waitMs: UNLOCK_WAIT_MS });
+  });
+
+  it('starts the wrong tries again with a new PIN', async () => {
+    expect(await q.setPin(PIN)).toBe(true);
+    for (let i = 1; i < UNLOCK_TRIES; i += 1) expect(await q.checkPin('0000')).toEqual({ result: 'wrong', waitMs: 0 });
+    expect(await q.setPin('1111')).toBe(true);
+    // Four more wrong ones: no wait yet (the count started again at the new PIN).
+    for (let i = 1; i < UNLOCK_TRIES; i += 1) expect(await q.checkPin('0000')).toEqual({ result: 'wrong', waitMs: 0 });
+    expect(await q.checkPin('1111')).toEqual({ result: 'ok', waitMs: 0 });
   });
 });
 

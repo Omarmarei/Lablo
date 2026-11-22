@@ -6,7 +6,8 @@ import { channelEditsOf, cleanNamesOn } from '@lablo/data/client';
 import type { Navigator, Screen, ZoneSpec } from '@lablo/ui';
 import { KEY_BATCH } from '../live/live-state';
 import { storedSources } from '../onboarding/engine-loader';
-import type { ChannelEditEngine, ChannelEditor, EditTarget } from './channel-edit';
+import type { ChannelEditEngine, ChannelEditor, EditLocks, EditTarget } from './channel-edit';
+import { NO_LOCKS, readLocks } from './channel-edit';
 import { GROUPS_VISIBLE } from './groups-state';
 
 /**
@@ -24,6 +25,9 @@ import { GROUPS_VISIBLE } from './groups-state';
  *   (`changed`) and the rows are read again, the focus on the row the edit was about (a channel
  *   whose last change went: the row that takes its place).
  * - This is where a hidden channel comes back (with search, which still finds it).
+ * - **Locks** (step 38c1): read with the rows (`lockState`). While the session is locked, a
+ *   changed channel the worker keeps back (no item, yet not marked missing: it is locked, or in a
+ *   locked group) is left out, as every screen leaves it out; a locked one's line says so.
  */
 
 export const CHANNELS_SCREEN = 'channels';
@@ -63,20 +67,29 @@ export interface EditedChannels {
   dispose(): void;
 }
 
-/** The changed channels as rows: each with the item found for it, in the profile's order. */
-export function editedRows(edits: readonly ChannelEdit[], found: readonly CatalogItem[]): EditTarget[] {
+/**
+ * The changed channels as rows: each with the item found for it, in the profile's order. `locked`
+ * (the session is): a channel the worker kept back, found in the catalog at its last re-match
+ * (`missingSince` null), is left out (step 38c1).
+ */
+export function editedRows(edits: readonly ChannelEdit[], found: readonly CatalogItem[], locked = false): EditTarget[] {
   const byKey = new Map<ContentKey, CatalogItem>();
   for (let i = 0; i < found.length; i += 1) byKey.set(found[i]!.key, found[i]!);
-  return edits.map((edit) => {
+  const rows: EditTarget[] = [];
+  for (let i = 0; i < edits.length; i += 1) {
+    const edit = edits[i]!;
     const item = byKey.get(edit.key) ?? null;
-    return { key: edit.key, item, edit, name: item !== null ? item.name : edit.name !== undefined ? edit.name : edit.normName };
-  });
+    if (item === null && locked && edit.missingSince === null) continue;
+    rows.push({ key: edit.key, item, edit, name: item !== null ? item.name : edit.name !== undefined ? edit.name : edit.normName });
+  }
+  return rows;
 }
 
-/** The read: the switch, the changed channels and their items. */
+/** The read: the switch, the changed channels and their items, and parental control. */
 interface Read {
   readonly clean: boolean;
   readonly rows: EditTarget[];
+  readonly locks: EditLocks;
 }
 
 export function createEditedChannels(options: EditedOptions): EditedChannels {
@@ -92,6 +105,8 @@ export function createEditedChannels(options: EditedOptions): EditedChannels {
   let readSeq = 0;
   /** The channel the focus goes to when the next read lands. */
   let follow: ContentKey | null = null;
+  /** Parental control at the last read (the menu's lock and unlock follow it). */
+  let locks: EditLocks = NO_LOCKS;
 
   /** Runs `request`, counting it in `pending` until it settles either way. */
   function track<T>(request: () => Promise<T>): Promise<T> {
@@ -118,7 +133,9 @@ export function createEditedChannels(options: EditedOptions): EditedChannels {
     const wanted = follow;
     follow = null;
     return track(async (): Promise<Read> => {
-      const profile = await engine.profile();
+      const both = await Promise.all([readLocks(engine), engine.profile()]);
+      const state = both[0];
+      const profile = both[1];
       const doc = profile === null ? null : profile.doc;
       const edits = channelEditsOf(doc);
       const sources = storedSources(profile).map((s) => s.id);
@@ -130,10 +147,11 @@ export function createEditedChannels(options: EditedOptions): EditedChannels {
       const found = await Promise.all(asks);
       let items: CatalogItem[] = [];
       for (let b = 0; b < found.length; b += 1) items = items.concat(found[b]!);
-      return { clean: cleanNamesOn(doc), rows: editedRows(edits, items) };
+      return { clean: cleanNamesOn(doc), rows: editedRows(edits, items, !state.unlocked), locks: state };
     }).then(
       (got) => {
         if (disposed || seq !== readSeq) return;
+        locks = got.locks;
         clean.value = got.clean;
         rows.value = got.rows;
         status.value = 'ready';
@@ -174,11 +192,15 @@ export function createEditedChannels(options: EditedOptions): EditedChannels {
 
   /** A changed channel's menu; after an edit the rows read again, the focus on it. */
   const openRow = (row: EditTarget): void => {
-    editor.open(row, () => {
-      if (disposed) return;
-      follow = row.key;
-      void read();
-    });
+    editor.open(
+      row,
+      () => {
+        if (disposed) return;
+        follow = row.key;
+        void read();
+      },
+      locks,
+    );
   };
 
   return {
