@@ -2958,6 +2958,78 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - **Radio today:** parsed (`radio` on the item: M3U `radio="true"`, Xtream `radio_streams`; core `m3u-catalog.ts` ~101, `xtream.ts` ~242), badged "Radio" in the live list (`LiveApp.tsx` ~77). The player fails an audio-only stream after 5 s as `unsupported`/`NO_PICTURE` (`packages/player/src/html5-engine.ts` ~532, `NO_PICTURE_MS`); architecture.md §2 says "Audio-only streams (radio) need a request hint first (step 37)" and lists radio among the "Not yet". The mock has one (`Lablo Radio Test`, id 108, `radio: true, logo: false`, group "Radio Test"); check what media the mock serves for it (`apps/mock-provider/src/media-plan.ts`).
     - **Questions for the shape:** the hint (`PlayRequest` gains an audio-only flag from `item.radio`, so the engine never waits for a picture); what the stage shows (the logo or a radio mark, the name, now/next) and in Arabic; whether radio gets its own rail entry (the catalogs already have `category.radio` "Radio" / "راديو", used only by the gallery) or stays in its groups; the screensaver/dimming question on TVs for a long audio-only play (a later leg with the TV).
     - **Sizes:** main.js 433.6 of 500 KB on Tizen (after 36d); settings.js 78.5 of 150 KB; the ingest worker 135.7 of 150 KB. An upgrade at add runs in main (onboarding) or the ingest worker; the radio stage is main's (the player).
+  - **Facts found in leg 134** (the code read before the shape; they correct the leads):
+    - **`xtreamFromM3uUrl` is used**, but only in `packages/data` and only for a `get.php` link kept as an M3U:
+      - the ingest's panel login (ADR-010's zone and `allowed_output_formats`), capped at `PANEL_LOGIN_MS` (10 s) and never failing the refresh;
+      - the account check (Settings' account status), the short EPG and the guides' zone.
+
+      Nothing turns such a link into an Xtream source.
+    - **Every link given at add ends in `createEngineLoader`'s `run`** (engine-loader.ts): onboarding's form, Settings' "Add a source" and the phone. The record is built there, before the refresh. Giving a restored source its link again (`source-login.ts`) writes the record directly, under the type it kept.
+    - **The ingest has no request timeouts** besides the panel login's. A panel whose `player_api.php` hangs would hold an Xtream load until the user cancels.
+    - **The e2e:** about a dozen specs add the mock's `get.php` link as an M3U through the form or the phone, and check M3U behaviour:
+      - specs: channel-edits, channel-edit-screens, guide-catchup-m3u, series, pairing, pairing-api and others (37a lists them);
+      - checks: M3U keys and catch-up modes, the flat episodes, `type: 'm3u'` in the profile.
+
+      The mock serves its playlist only at `/get.php`; its fault rules can match an Xtream `action`.
+    - **Radio on each engine:**
+      - `PlayRequest.hints` (`uhd`) exists, and nothing reads it.
+      - AVPlay's first frame is the clock moving, so radio already plays on Tizen.
+      - Html5Engine's first frame needs a picture size, so radio fails as `NO_PICTURE` after 5 s on webOS and the desktop.
+      - The mock's radio channel (108) is HLS with MP3 in TS segments and no video (`.cache/media`, `pnpm mock:media`).
+  - **Shape** (each choice with its why; each sub-step checks its part against the code before building):
+    - **The upgrade happens when a source is added, and only then.**
+      - **What upgrades:** a link that `xtreamFromM3uUrl` reads as an Xtream account (a `get.php`, `player_api.php`, `panel_api.php` or `xmltv.php` link with a user name and a password). It is read through the Xtream API and stored as an Xtream source (`{type: 'xtream', account}`) under the draft's name.
+      - **What stays M3U:** stored M3U sources, and a restored source given its link again.
+      - **Why stored sources stay:** their keys would change from M3U's to Xtream's, leaving every favourite, list, channel edit, group order, movie place and recent channel to the re-match by name. And nothing has shipped, so no user has a stored M3U source to gain from it.
+      - **Why a restored source keeps its type:** its backup's favourites carry its keys.
+    - **The loader decides** (main, `engine-loader.ts`). For such an M3U draft it asks the data engine for an Xtream refresh first; if that fails, it refreshes the link as given, as today. The record comes from the refresh that worked. Why in the loader:
+      - two separate refreshes each start clean, with no half-read state to unwind inside the ingest;
+      - the record is built there already;
+      - the worker needs only the login cap.
+    - **When the playlist is tried instead:** after any failure of the Xtream refresh, except a cancel and these three:
+      - `expired` or `blocked`: the panel said why, and its `get.php` refuses such an account too;
+      - `blocklisted`: it is the same host.
+
+      So a panel whose API refuses or breaks (`auth`, `http`, `network`, `format`, `empty`, a list failing part way) still gets its playlist. The progress starts again for the playlist.
+    - **The upgrade's login is capped at `PANEL_LOGIN_MS`** (10 s, the M3U panel login's cap): a new optional `loginMs` on the Xtream job, set only by the upgrade. Past it the refresh fails as `network`, and the playlist is tried.
+      - Why: without it a panel whose API hangs would hold the load forever, where today the link loads after 10 s.
+      - A source added as Xtream keeps its uncapped login: a slow panel can take longer.
+    - **Silent:** nothing on screen says the link was upgraded. Settings › "Sources" shows the source's kind ("… login") and server, as for any Xtream source, and the last onboarding screen shows the API's counts.
+      - Why: PLAN.md says "automatically", and the user gave the account in the link.
+      - v1 has no way to keep such a link as a playlist; the fallback covers a broken API. Revisit if beta users ask.
+    - **The guides:** an upgraded source's guide is the panel's `xmltv.php`, as for any Xtream source. The playlist's `url-tvg` isn't read (on an Xtream panel it is that same link). Guide links typed in the form or sent by the phone are listed as today.
+    - **Streams:** an upgraded source plays as an Xtream source does: `.ts`, then `.m3u8`, as the account's `allowed_output_formats` allows (`streamCandidates`). The link's `output=` isn't kept.
+    - **Radio plays on every engine.**
+      - `PlayRequest.hints.audioOnly` comes from the item's `radio` (live and catch-up requests) and reaches the engine as `LoadOptions.audioOnly`.
+      - Html5Engine then takes the clock moving as the first frame and never fails the stream as `NO_PICTURE`. AVPlay ignores the flag (its first frame is the clock already).
+      - A stream not marked radio that has no picture still fails as `NO_PICTURE`. Why the flag: a TV can't tell an audio-only stream from a picture it can't decode.
+    - **The stage while radio plays:** the channel's logo (a radio mark when it has none) and its name, centered on the dark stage, under the info bar as usual (now/next stays on the bar). Why: a black screen reads as broken.
+    - **Radio stays in its groups,** badged "Radio" as today, with no "Radio" rail entry.
+      - Why: providers already group radio (an Xtream panel's radio categories, a playlist's group).
+      - A rail entry across groups and sources needs a new worker filter. Revisit after the beta.
+    - **The TV's screensaver during a long radio play** is checked with the TV (step 21's session), not built now.
+  - **Split:**
+    - **37a: the upgrade at add** (`apps/tv` loader, `packages/data` login cap, e2e):
+      - the loader's Xtream try and its fallback; `loginMs`;
+      - specs that test M3U behaviour on the mock's `get.php` keep it with a scenario rule failing `get_live_categories` (the login still answers, so ADR-010's zone does too);
+      - specs that only add a link expect the upgrade.
+      - **Done when:**
+        - unit tests of the loader: an Xtream link upgraded; each failure code that tries the playlist, and each that doesn't; a cancel during either refresh; a link `xtreamFromM3uUrl` doesn't read; the record and guides from the refresh that worked;
+        - unit tests of the login cap in the ingest;
+        - `test/onboarding-loader-mock.test.ts` against the mock: upgraded (Xtream keys, categories, real shows), and the API failing part way (the playlist);
+        - e2e in en and ar: the form's `get.php` link (Settings › "Sources" says Xtream, the series are shows); the phone's link upgraded; a panel whose lists fail stays a playlist; every spec touched green;
+        - the gates: lint; typecheck; `build:tv` sizes and a module diff; `verify:engines` 53/68; mutation with the list written first; the PR on green CI;
+        - docs: architecture.md "Built in step 37a", and ADR-010's note on M3U logins.
+    - **37b: radio** (`packages/player`, `apps/tv` player): the hint, Html5Engine's first frame for audio-only, the stage's radio card.
+      - **Done when:**
+        - unit tests: the hint from `radio` in live and catch-up requests; Html5Engine framing audio-only by the clock (never `NO_PICTURE`) and still framing a picture; the controller passing the flag; the card's states;
+        - `e2e:media`: the radio channel plays through Html5Engine on its MP3 HLS, its clock moving, with no failure;
+        - e2e in en and ar for the card (screenshots), and en-XA;
+        - the gates: lint; typecheck; `build:tv` sizes; `verify:engines` 53/68; mutation; the PR on green CI;
+        - docs: architecture.md §2, radio out of "Not yet".
+  - **Done when** (the step): 37a and 37b merged.
+- [ ] 37a. **The upgrade at add:** as 37's split above.
+- [ ] 37b. **Radio:** as 37's split above. After 37a (either order works; 37a first because its e2e churn touches the most specs).
 - [ ] 38. **Parental and settings.** Parental PIN, adult groups auto-locked (XXX, 18+, للكبار), complete settings screen.
 - [ ] 39. **Comfort features.** Clock, sleep timer with "Still watching?", colour-key shortcuts, "Fast start / Stable" buffer setting.
 - [ ] 40. **Diagnostics and legal pages.** Diagnostics screen ("app or provider?"), test stream, help, in-app legal pages.
