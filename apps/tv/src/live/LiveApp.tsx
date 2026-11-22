@@ -145,7 +145,7 @@ function LiveScreen({
   }
   // The PIN pad (step 38b) over everything, the player's stage included.
   if (parental !== null && focus.screen === PIN_SCREEN) return <PinPadScreen parental={parental} i18n={i18n} binding={binding} focus={focus} />;
-  if (focus.screen === NO_PIN_SCREEN) return <NoPinScreen i18n={i18n} binding={binding} focus={focus} />;
+  if (focus.screen === NO_PIN_SCREEN) return <NoPinScreen i18n={i18n} binding={binding} focus={focus} canSet={parental !== null && parental.canSetPin} />;
   // The settings, once settings.js is in (step 35e).
   const loaded = settings === null ? null : settings.loaded.value;
   // The player covers the live screen (step 20a), its track menu too (20b), the favourites panel (35c) and settings.js's "Edit channel" (36c): only their own parts paint, over the stage.

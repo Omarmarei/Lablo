@@ -1241,7 +1241,7 @@ describe('the settings screen', () => {
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
     });
     expect(SETTINGS_ITEMS).toEqual(['guides', 'sources', 'backup', 'telemetry', 'report', 'groups', 'channels', 'parental']);
-    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'backup', 'backup-confirm', 'groups', 'group-menu', 'group-rename', 'group-delete', 'group-channels', 'group-channel-menu', 'channels', 'channel-edit', 'channel-rename', 'channel-number', 'parental', 'locked-groups']);
+    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'backup', 'backup-confirm', 'groups', 'group-menu', 'group-rename', 'group-delete', 'group-channels', 'group-channel-menu', 'channels', 'channel-edit', 'channel-rename', 'channel-number', 'parental', 'locked-groups', 'pin-pick', 'pin-check', 'pin-none']);
     // Without a backup page (step 32d2b) there is no "Backup" row, nor without a switch "Usage and crash reports" (step 33b3).
     expect(settings.backup).toBeNull();
     expect(settings.telemetry).toBeNull();

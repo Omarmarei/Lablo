@@ -14,7 +14,9 @@ import type { Focus, Navigator, Screen, ZoneSpec } from '@lablo/ui';
  *
  * - **The rails' entry** (`toggle`): the session as stored now decides. Unlocked: `relock`, then
  *   the screens read again. Locked with a PIN: the pad; the right PIN unlocks and the screens read
- *   again. Locked with no PIN: a dialog says locked groups need one (step 38c sets it).
+ *   again. Locked with no PIN: a dialog says locked groups need one; its "Set a PIN" (step 38c2)
+ *   runs the login check (`check`, settings.js), then the pad's new PIN, and once that is kept
+ *   the session unlocks with it (the user asked to see the locked groups).
  * - **The pad** (`PIN_SCREEN`): four boxes, then a 3 × 4 grid `1 2 3 / 4 5 6 / 7 8 9 / Delete 0
  *   Cancel`, left to right in every language (LEFT and RIGHT are the pad's own, so Arabic doesn't
  *   mirror them). The number keys type at once; the fourth digit asks the worker. A wrong PIN
@@ -84,6 +86,8 @@ export interface ParentalOptions {
   readonly restart: () => void;
   /** The clock in ms (the worker's wait). */
   readonly now?: () => number;
+  /** The PIN's login check (step 38c2, settings.js): `matched` once a source's login was typed again. Without it the no-PIN dialog has only its OK. */
+  readonly check?: (matched: () => void) => void;
 }
 
 export interface Parental {
@@ -91,6 +95,8 @@ export interface Parental {
   readonly pad: ReadonlySignal<PinPadView | null>;
   /** Calls to the worker in flight (e2e: 0 means settled). */
   readonly pending: ReadonlySignal<number>;
+  /** The no-PIN dialog offers "Set a PIN" (step 38c2: the app gave the login check). */
+  readonly canSetPin: boolean;
   /** OK on a rail's last entry: the pad, the no-PIN dialog, or the session locked again. */
   toggle(): void;
   /** The pad, the session left as it is (step 38c): `done` after the right PIN; never after Back or Cancel. */
@@ -106,7 +112,8 @@ export interface Parental {
 }
 
 const PAD_ZONE: ZoneSpec = { kind: 'grid', id: PIN_PAD, columns: PAD_COLUMNS, count: PAD_CELLS };
-const NO_PIN_ZONE: ZoneSpec = { kind: 'list', id: NO_PIN_BUTTONS, axis: 'horizontal', count: 1 };
+/** The no-PIN dialog's "Set a PIN" (step 38c2; then "Cancel"), when it has it; else its only button is "OK". */
+export const NO_PIN_SET = 0;
 
 /** The digit a pad cell types (`-1`: Delete or Cancel). */
 export function cellDigit(index: number): number {
@@ -144,6 +151,8 @@ export function createParental(options: ParentalOptions): Parental {
   let after: (() => void) | null = null;
   /** The new PIN as first typed, while the pad asks for it again (set at each first typing, so never cleared). */
   let first = '';
+  /** The new PIN, once kept, unlocks the session (step 38c2: asked for from the rails' no-PIN dialog). */
+  let unlockKept = false;
 
   function track<T>(request: () => Promise<T>): Promise<T> {
     pending.value += 1;
@@ -237,6 +246,28 @@ export function createParental(options: ParentalOptions): Parental {
     );
   };
 
+  /**
+   * The new PIN was kept from the rails' dialog: the session unlocks with it (the pad stays busy
+   * meanwhile). Unlocked, main follows even if Back closed the pad meanwhile (the worker is the
+   * truth); otherwise only the pad that asked closes.
+   */
+  const unlockWith = (pin: string): void => {
+    const mine = padScreen;
+    track(() => engine.unlock(pin)).then(
+      (answer) => {
+        if (disposed) return;
+        // (Kept but not unlocked, which a restore in between could do: the rail's entry asks it.)
+        if (answer.result === 'ok') opened();
+        else if (padScreen === mine) closePad();
+      },
+      (error: unknown) => {
+        if (disposed) return;
+        console.warn('The session could not be unlocked with the new PIN', error);
+        if (padScreen === mine) closePad();
+      },
+    );
+  };
+
   /** Keeps the new PIN; one the worker didn't keep starts the new PIN again. */
   const save = (pin: string): void => {
     show(null, true);
@@ -250,7 +281,8 @@ export function createParental(options: ParentalOptions): Parental {
         if (ok) {
           // (A wait the worker held is over with a new PIN.)
           waitUntil = 0;
-          goOn();
+          if (unlockKept) unlockWith(pin);
+          else goOn();
         } else restart();
       },
       (error: unknown) => {
@@ -298,10 +330,11 @@ export function createParental(options: ParentalOptions): Parental {
     show(open.problem);
   };
 
-  const openPad = (purpose: PinPurpose, next: (() => void) | null = null): void => {
+  const openPad = (purpose: PinPurpose, next: (() => void) | null = null, unlock = false): void => {
     if (padScreen !== null) return;
     digits = '';
     after = next;
+    unlockKept = unlock;
     pad.value = { purpose, typed: 0, problem: purpose !== 'set' && clockNow() < waitUntil ? 'wait' : null, busy: false };
     padScreen = nav.push({
       id: PIN_SCREEN,
@@ -332,12 +365,17 @@ export function createParental(options: ParentalOptions): Parental {
     });
   };
 
+  const loginCheck = options.check;
   const openNoPin = (): void => {
     nav.push({
       id: NO_PIN_SCREEN,
-      zones: [NO_PIN_ZONE],
-      onSelect: () => {
+      zones: [{ kind: 'list', id: NO_PIN_BUTTONS, axis: 'horizontal', count: loginCheck === undefined ? 1 : 2 }],
+      onSelect: (focus) => {
         nav.pop();
+        if (loginCheck === undefined || focus.index !== NO_PIN_SET) return;
+        loginCheck(() => {
+          if (!disposed) openPad('set', null, true);
+        });
       },
     });
   };
@@ -393,6 +431,7 @@ export function createParental(options: ParentalOptions): Parental {
   return {
     pad,
     pending,
+    canSetPin: loginCheck !== undefined,
     toggle,
     ask(done: () => void): void {
       if (!disposed) openPad('check', done);

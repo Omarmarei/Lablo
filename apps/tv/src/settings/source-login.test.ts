@@ -591,9 +591,9 @@ describe('the login form as drawn', () => {
     expect(stripIsolates(String((t.draw(ar).props as Props).title))).toBe('رابط قائمتي');
   });
 
-  it('gives the plain link hint when there is no host to give, or the link is there already', () => {
+  it('gives the plain link hint when there is no host to give; a kept link’s host for the PIN’s check (step 38c2)', () => {
     expect(loginHint(en.t, 'playlist', BARE_NO_ORIGIN as LoginSource)).toBe('Starts with http:// or https://');
-    expect(loginHint(en.t, 'playlist', KEPT as LoginSource)).toBe('Starts with http:// or https://');
+    expect(stripIsolates(loginHint(en.t, 'playlist', KEPT as LoginSource)!)).toBe('It was on kept.test');
     expect(stripIsolates(loginHint(ar.t, 'playlist', BARE_LIST as LoginSource)!)).toBe('كان على lists.test:8443');
     expect(loginHint(en.t, 'username', BARE_PANEL as LoginSource)).toBeUndefined();
     expect(loginHint(en.t, 'password', BARE_PANEL as LoginSource)).toBeUndefined();

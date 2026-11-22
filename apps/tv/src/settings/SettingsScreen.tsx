@@ -18,6 +18,7 @@ import { MAPPING_SCREEN } from './mapping-state';
 import { MappingReading } from '../guide/MappingReading';
 import { MappingPage } from './MappingPage';
 import { PARENTAL_SCREENS } from './parental-page';
+import { CHECK_SCREEN } from './pin-check';
 import { ParentalPageScreen } from './ParentalPage';
 import type { Settings, SettingsItem } from './settings-state';
 import { SETTINGS_VISIBLE } from './settings-state';
@@ -300,19 +301,29 @@ export function loginLabel(t: Translate, field: LoginField): string {
 export function loginHint(t: Translate, field: LoginField, source: LoginSource): string | undefined {
   if (field === 'server') return t('field.serverHint', { scheme: NAMES.http });
   if (field !== 'playlist') return undefined;
-  const host = source.type === 'm3u' && source.url === null ? shownHost(source.origin) : '';
+  // (A link given again: the host it was on; the PIN's check of one, step 38c2: the host it is on.)
+  const host = source.type === 'm3u' ? shownHost(source.url === null ? source.origin : source.url) : '';
   return host === '' ? t('field.linkHint', { http: NAMES.http, https: NAMES.https }) : t('sources.linkWas', { host });
 }
 
-/** The login form as drawn (step 32d4b), hook-free: the fields, then "Save" and "Cancel". */
+/** The form's title, its line and its first button: a login given again, or the PIN's check of one (step 38c2). */
+export function loginWords(t: Translate, source: LoginSource, checking: boolean): { title: string; body: string; save: string } {
+  const xtream = source.type === 'xtream';
+  if (checking) {
+    return { title: t(xtream ? 'pinCheck.loginTitle' : 'pinCheck.linkTitle', { name: source.name }), body: t('pinCheck.formBody'), save: t('pinCheck.check') };
+  }
+  return { title: t(xtream ? 'sources.loginTitle' : 'sources.linkTitle', { name: source.name }), body: t('sources.formBody'), save: t('sources.save') };
+}
+
+/** The login form as drawn (step 32d4b), hook-free: the fields, then "Save" and "Cancel"; for the PIN's check, "Check" and the mismatch's line. */
 export function LoginFormView({ i18n, form, source, field, action }: { i18n: AppI18n; form: LoginForm; source: LoginSource; field: (index: number) => ItemBinding; action: (index: number) => ItemBinding }) {
   const { t } = i18n;
   const values = form.values.value;
   const problems = form.problems.value;
   const fields = LOGIN_FIELDS[source.type];
-  const title = source.type === 'xtream' ? t('sources.loginTitle', { name: source.name }) : t('sources.linkTitle', { name: source.name });
+  const words = loginWords(t, source, form.checking.value);
   return (
-    <Dialog title={title} message={t('sources.formBody')} testId="source-login">
+    <Dialog title={words.title} message={words.body} testId="source-login">
       <div class="guides__form sources__form">
         {fields.map((id, i) => (
           <TextField
@@ -329,8 +340,13 @@ export function LoginFormView({ i18n, form, source, field, action }: { i18n: App
             testId={`source-login-${id}`}
           />
         ))}
+        {form.mismatch.value && (
+          <p class="settings__hint settings__warn" data-testid="source-login-mismatch">
+            {t('pinCheck.mismatch')}
+          </p>
+        )}
         <div class="guides__actions">
-          <Button label={t('sources.save')} variant="primary" {...action(LOGIN_SAVE)} testId="source-login-save" />
+          <Button label={words.save} variant="primary" {...action(LOGIN_SAVE)} testId="source-login-save" />
           <Button label={t('action.cancel')} {...action(LOGIN_CANCEL)} testId="source-login-cancel" />
         </div>
       </div>
@@ -857,14 +873,15 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
   // "Channels" (step 36c), and "Edit channel" over it (opened over the player, main paints it there).
   const onEdited = focus.screen === CHANNELS_SCREEN || (EDIT_SCREENS.indexOf(focus.screen) !== -1 && !settings.channel.over.value);
   const parental = settings.parental;
+  const checking = parental === null ? null : parental.check.form.source.value;
   return (
     <main
       class="settings"
       data-testid="settings-screen"
       data-ready="true"
       data-language={i18n.locale.pseudo ? 'pseudo' : i18n.locale.language}
-      data-pending={guides.pending.value + settings.unmatched.pending.value + mapping.pending.value + settings.sources.pending.value + (backup === null ? 0 : backup.pending.value) + (settings.telemetry === null ? 0 : settings.telemetry.pending.value) + (settings.report === null ? 0 : settings.report.pending.value) + groups.pending.value + settings.channel.pending.value + settings.channels.pending.value + (parental === null ? 0 : parental.pending.value)}
-      data-editing={guides.editor.editing.value ?? mapping.editor.editing.value ?? settings.sources.form?.editor.editing.value ?? groups.editor.editing.value ?? settings.channel.editor.editing.value ?? ''}
+      data-pending={guides.pending.value + settings.unmatched.pending.value + mapping.pending.value + settings.sources.pending.value + (backup === null ? 0 : backup.pending.value) + (settings.telemetry === null ? 0 : settings.telemetry.pending.value) + (settings.report === null ? 0 : settings.report.pending.value) + groups.pending.value + settings.channel.pending.value + settings.channels.pending.value + (parental === null ? 0 : parental.pending.value + parental.check.pending.value)}
+      data-editing={guides.editor.editing.value ?? mapping.editor.editing.value ?? settings.sources.form?.editor.editing.value ?? groups.editor.editing.value ?? settings.channel.editor.editing.value ?? parental?.check.form.editor.editing.value ?? ''}
       data-screen={focus.screen}
       data-zone={focus.zone}
       data-index={focus.index}
@@ -882,6 +899,7 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       {onChannels && <ChannelsPage i18n={i18n} binding={binding} focus={focus} groups={groups} />}
       {onEdited && <EditedPage i18n={i18n} binding={binding} focus={focus} settings={settings} />}
       {parental !== null && PARENTAL_SCREENS.indexOf(focus.screen) !== -1 && <ParentalPageScreen i18n={i18n} binding={binding} focus={focus} page={parental} />}
+      {parental !== null && focus.screen === CHECK_SCREEN && checking !== null && <LoginDialog i18n={i18n} binding={binding} form={parental.check.form} source={checking} />}
     </main>
   );
 }

@@ -2,17 +2,20 @@ import type { ContentKind } from '@lablo/core';
 import type { CategoryInfo, LoadedProfile, ProfileDoc, ProfileEdit, SourceRecord } from '@lablo/data';
 import { applyProfileEdit, emptyProfile, lockId } from '@lablo/data';
 import { parentalOf } from '@lablo/data/client';
-import type { Intent, LifecycleEvent } from '@lablo/platform-api';
+import type { Intent, KeyLike, LifecycleEvent, TextKey } from '@lablo/platform-api';
+import type { EditableLike } from '@lablo/ui';
 import { createNavigator } from '@lablo/ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GROUPS_VISIBLE } from './groups-state';
 import type { ParentalAsk, ParentalPageEngine } from './parental-page';
 import { LOCKED_SCREEN, LOCK_KINDS, PARENTAL_SCREEN, PARENTAL_SCREENS, createParentalPage, lockRows, parentalRows } from './parental-page';
+import { CHECK_SCREEN, NONE_SCREEN, PICK_SCREEN } from './pin-check';
 
 /**
  * Settings › "Parental control" (RELAY step 38c1): the rows with and without a PIN, the PIN once a
  * visit (and again after the app was hidden), "Change the PIN", "Lock adult groups" and "Locked
- * groups", each edit and its re-reads.
+ * groups", each edit and its re-reads; "Set a PIN" and "Forgot your PIN?" through a source's
+ * login (step 38c2).
  */
 
 const S1: SourceRecord = { id: 's1', type: 'm3u', name: 'Home', url: 'http://lists.test/a.m3u', added: 1 };
@@ -105,7 +108,16 @@ function setup(engine = new FakeEngine()) {
     listeners.push(listener);
     return () => listeners.splice(listeners.indexOf(listener), 1);
   };
-  const page = createParentalPage({ nav, engine, pad, changed, lifecycle });
+  const inputs: Record<string, EditableLike> = {};
+  const find = (id: string): EditableLike => {
+    inputs[id] ??= { focus: () => undefined, blur: () => undefined };
+    return inputs[id]!;
+  };
+  const platform = {
+    textKey: (event: KeyLike): TextKey | null => (event.key === 'Enter' ? 'done' : null),
+    onSoftKeyboard: () => () => undefined,
+  };
+  const page = createParentalPage({ nav, engine, pad, changed, lifecycle, platform, find });
   const at = (): string => {
     const f = nav.snapshot();
     return `${f.screen} · ${f.zone} ${f.index}`;
@@ -131,10 +143,10 @@ afterEach(() => {
 });
 
 describe('the rows (RELAY step 38c1)', () => {
-  it('are the three with a PIN, none without one (step 38c2 adds its own)', () => {
-    expect(parentalRows(true)).toEqual(['change', 'adult', 'groups']);
-    expect(parentalRows(false)).toEqual([]);
-    expect(PARENTAL_SCREENS).toEqual([PARENTAL_SCREEN, LOCKED_SCREEN]);
+  it('are the three behind the PIN and "Forgot your PIN?" with one, "Set a PIN" without (step 38c2)', () => {
+    expect(parentalRows(true)).toEqual(['change', 'adult', 'groups', 'forgot']);
+    expect(parentalRows(false)).toEqual(['set']);
+    expect(PARENTAL_SCREENS).toEqual([PARENTAL_SCREEN, LOCKED_SCREEN, PICK_SCREEN, CHECK_SCREEN, NONE_SCREEN]);
   });
 
   it('opens on the first row once read, the PIN and "Lock adult groups" as stored', async () => {
@@ -146,23 +158,25 @@ describe('the rows (RELAY step 38c1)', () => {
     expect(t.page.status.value).toBe('ready');
     expect(t.page.pin.value).toBe(true);
     expect(t.page.adult.value).toBe(true);
-    expect(t.page.rows.value).toEqual(['change', 'adult', 'groups']);
+    expect(t.page.rows.value).toEqual(['change', 'adult', 'groups', 'forgot']);
     expect(t.at()).toBe(`${PARENTAL_SCREEN} · rows 0`);
     // Nothing asked or changed by opening it.
     expect(t.pad.asks).toHaveLength(0);
     expect(t.engine.edits).toEqual([]);
   });
 
-  it('has no row without a PIN, and reads "Lock adult groups" off as stored', async () => {
+  it('has "Set a PIN" alone without a PIN, and reads "Lock adult groups" off as stored', async () => {
     const engine = new FakeEngine();
     engine.doc = { ...emptyProfile(), sources: [S1], parental: { adult: false } } as ProfileDoc;
     const t = setup(engine);
     await t.open();
     expect(t.page.pin.value).toBe(false);
     expect(t.page.adult.value).toBe(false);
-    expect(t.page.rows.value).toEqual([]);
+    expect(t.page.rows.value).toEqual(['set']);
     await t.press('OK');
+    // No PIN to ask: the login check instead.
     expect(t.pad.asks).toHaveLength(0);
+    expect(t.at()).toBe(`${CHECK_SCREEN} · fields 0`);
   });
 
   it('says it could not read, and closes on Back', async () => {
@@ -260,6 +274,92 @@ describe('"Change the PIN" (RELAY step 38c1)', () => {
     await t.press('BACK');
     await t.open();
     expect(t.page.changedPin.value).toBe(false);
+  });
+});
+
+describe('"Set a PIN" and "Forgot your PIN?" (RELAY step 38c2)', () => {
+  /** Types `link` into the check's form (S1, a playlist) and presses "Check". */
+  const typeLink = async (t: ReturnType<typeof setup>, link: string): Promise<void> => {
+    t.page.check.form.setValue('playlist', link);
+    t.nav.top.focus('actions', 0);
+    await t.press('OK');
+  };
+
+  it('sets a first PIN after the source’s login: no PIN asked, the new PIN, then the rows read again and the visit granted', async () => {
+    const engine = new FakeEngine();
+    engine.doc = { ...emptyProfile(), sources: [S1] } as ProfileDoc;
+    const t = setup(engine);
+    await t.open();
+    await t.press('OK');
+    expect(t.at()).toBe(`${CHECK_SCREEN} · fields 0`);
+    await typeLink(t, 'http://lists.test/a.m3u');
+    expect(t.at()).toBe(`${PARENTAL_SCREEN} · rows 0`);
+    expect(t.pad.chooses).toHaveLength(1);
+    expect(t.pad.asks).toHaveLength(0);
+    const reads = engine.profileCalls;
+    // The pad keeps it (the worker's PIN), then the page reads again.
+    engine.doc = { ...engine.doc, parental: PIN } as ProfileDoc;
+    t.pad.chooses[0]!();
+    await flush();
+    expect(engine.profileCalls).toBe(reads + 1);
+    expect(t.page.rows.value).toEqual(['change', 'adult', 'groups', 'forgot']);
+    expect(t.page.changedPin.value).toBe(true);
+    expect(t.changed).not.toHaveBeenCalled();
+    // Granted: "Lock adult groups" switches with no PIN asked.
+    await t.press('DOWN', 'OK');
+    expect(t.pad.asks).toHaveLength(0);
+    expect(t.engine.edits).toEqual([{ kind: 'parental', change: { op: 'adult', on: false } }]);
+  });
+
+  it('sets a new PIN in place of a forgotten one the same way, from the last row', async () => {
+    const t = setup();
+    await t.open();
+    await t.press('DOWN', 'DOWN', 'DOWN', 'OK');
+    expect(t.pad.asks).toHaveLength(0);
+    expect(t.at()).toBe(`${CHECK_SCREEN} · fields 0`);
+    await typeLink(t, 'http://lists.test/a.m3u');
+    expect(t.pad.chooses).toHaveLength(1);
+    t.pad.chooses[0]!();
+    await flush();
+    await t.press('UP', 'UP', 'OK');
+    expect(t.pad.asks).toHaveLength(0);
+    expect(t.engine.edits).toHaveLength(1);
+  });
+
+  it('goes no further on a wrong login, nor when the pad closes before the new PIN is kept', async () => {
+    const t = setup();
+    await t.open();
+    await t.press('DOWN', 'DOWN', 'DOWN', 'OK');
+    await typeLink(t, 'http://lists.test/b.m3u');
+    expect(t.page.check.form.mismatch.value).toBe(true);
+    expect(t.at()).toBe(`${CHECK_SCREEN} · fields 0`);
+    expect(t.pad.chooses).toHaveLength(0);
+    await t.press('BACK');
+    expect(t.at()).toBe(`${PARENTAL_SCREEN} · rows 3`);
+    // The right login, the pad closed with no PIN kept: still not granted.
+    await t.press('OK');
+    await typeLink(t, 'http://lists.test/a.m3u');
+    expect(t.pad.chooses).toHaveLength(1);
+    await t.press('UP', 'UP', 'OK');
+    expect(t.pad.asks).toHaveLength(1);
+    expect(t.page.changedPin.value).toBe(false);
+  });
+
+  it('drops the new PIN’s end once disposed', async () => {
+    const t = setup();
+    await t.open();
+    await t.press('DOWN', 'DOWN', 'DOWN', 'OK');
+    await typeLink(t, 'http://lists.test/a.m3u');
+    const reads = t.engine.profileCalls;
+    t.page.dispose();
+    t.pad.chooses[0]!();
+    await flush();
+    expect(t.engine.profileCalls).toBe(reads);
+    expect(t.page.changedPin.value).toBe(false);
+    // Its check went with it.
+    t.page.check.run(() => undefined);
+    await flush();
+    expect(t.engine.profileCalls).toBe(reads);
   });
 });
 

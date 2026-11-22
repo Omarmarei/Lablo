@@ -99,6 +99,14 @@ describe('"Parental control" as drawn (RELAY step 38c1)', () => {
     expect(parentalText(ar.t, 'adult', { ...state, adult: false }).value).toBe('متوقف');
   });
 
+  it('writes "Set a PIN" and "Forgot your PIN?" (step 38c2), in both languages', () => {
+    const state = { adult: true, failed: false, changedPin: false };
+    expect(parentalText(en.t, 'set', state)).toEqual({ name: 'Set a PIN', value: '', hint: "Keeps locked groups out of sight. You'll need one of your sources' logins", warn: false });
+    expect(parentalText(en.t, 'forgot', state)).toEqual({ name: 'Forgot your PIN?', value: '', hint: "Set a new one with one of your sources' logins", warn: false });
+    expect(parentalText(ar.t, 'set', state)).toMatchObject({ name: 'تعيين رمز سري' });
+    expect(parentalText(ar.t, 'forgot', state)).toMatchObject({ name: 'هل نسيت رمزك السري؟' });
+  });
+
   it('draws the rows with their bindings, the value beside its name, the warning in its colour', () => {
     const bindings = [idle, focused, idle];
     const root = ParentalView({ i18n: en, page: page({ failed: true, adult: false }), item: (i) => bindings[i]! });
@@ -112,9 +120,11 @@ describe('"Parental control" as drawn (RELAY step 38c1)', () => {
     expect(propsOf(byTestId(root, 'parental-change')[0])['data-value']).toBe('');
   });
 
-  it('says why there are no rows: loading, no PIN, a failed read', () => {
+  it('says why there are no rows: loading, a failed read; with no PIN, its one row', () => {
     expect(byTestId(ParentalView({ i18n: en, page: page({ rows: [], status: 'loading', pin: null }), item: () => idle }), 'parental-loading')).toHaveLength(1);
-    expect(textOf(byTestId(ParentalView({ i18n: en, page: page({ rows: [], pin: false }), item: () => idle }), 'parental-ready')[0])).toBe('No PIN is set.');
+    const none = ParentalView({ i18n: en, page: page({ rows: ['set'], pin: false }), item: () => focused });
+    expect(textOf(byTestId(none, 'parental-set')[0])).toBe("Set a PINKeeps locked groups out of sight. You'll need one of your sources' logins");
+    expect(propsOf(byTestId(none, 'parental')[0])['data-pin']).toBe('false');
     expect(textOf(byTestId(ParentalView({ i18n: en, page: page({ rows: [], status: 'failed', pin: null }), item: () => idle }), 'parental-failed')[0])).toBe("Couldn't read parental control.");
     expect(propsOf(byTestId(ParentalView({ i18n: en, page: page({ rows: [], pin: null }), item: () => idle }), 'parental')[0])['data-pin']).toBe('');
   });

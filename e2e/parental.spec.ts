@@ -238,5 +238,7 @@ test('shows only our strings, bracketed, on the rail’s entries and the pad, in
   await remote.go('OK', 'no-pin/buttons/0');
   expect(await untranslated(page, '[data-testid=no-pin]')).toEqual([]);
   await shoot(page, 'parental-no-pin-en-XA');
+  // Its "Cancel" (step 38c2: "Set a PIN" first).
+  await remote.go('RIGHT', 'no-pin/buttons/1');
   await remote.go('OK', `live/rail/${GROUPS.length + 1}`);
 });
