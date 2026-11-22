@@ -123,7 +123,8 @@ test('onboarding by phone: an M3U link and its guides are added, ok reaches the 
     await remote.expectFocus('done/actions/0');
     await expect(page.getByTestId('done-live')).not.toHaveAttribute('data-n', '0');
     const kept = await storedProfile(page);
-    expect(kept?.sources).toEqual([expect.objectContaining({ id: 's1', type: 'm3u', name: 'Phone list', url: m3uLink() })]);
+    // The phone's get.php link is read through the panel's API, and kept as its login (step 37a).
+    expect(kept?.sources).toEqual([expect.objectContaining({ id: 's1', type: 'xtream', name: 'Phone list', account: { base: `http://${host}`, username: U, password: P } })]);
     // The same guide given twice (its scheme in capitals the second time) is kept once, named after the source.
     expect(kept?.guides).toEqual([{ id: 's1', url: guideLink() }]);
     nothingInTheClear(server, [U, P, 'Phone list', 'get.php', 'xmltv.php']);

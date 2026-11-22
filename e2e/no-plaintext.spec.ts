@@ -12,6 +12,7 @@ import type { ApiFront } from './api-front';
 import { startApiFront } from './api-front';
 import { leaks } from './no-plaintext';
 import { addXtreamAndWatch, toSourceTypes, trackErrors } from './onboard';
+import { playlistOnly } from './playlist-only';
 import { SHOTS, openSources, shownCode, storedProfile, usePhone } from './pairing-steps';
 import { RemoteDriver } from './remote-driver';
 
@@ -82,6 +83,10 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => {
   await app.close();
+});
+// A test that keeps the panel's link a playlist (step 37a) leaves the mock as it found it.
+test.afterEach(() => {
+  app.mockState.scenario = null;
 });
 
 let fronts = 0;
@@ -215,10 +220,13 @@ test('in Arabic, an M3U link and its guide link from Settings: nothing of them r
     await phone.page.locator('#epg0').fill(guideLink());
     await phone.page.locator('#name').fill(name);
     const needles = [host, U, P, m3uLink(), guideLink(), '/get.php?username=', '/xmltv.php?username=', name];
+    // The link kept as the playlist it was sent as: the panel's API serves no lists (step 37a).
+    app.mockState.scenario = playlistOnly();
     const held = await sendWhileHeld(front, phone, code);
     nothingInTheClear(front, [held], needles);
     await phoneAdded(phone, front);
     await expect(page.getByTestId('pair')).toHaveAttribute('data-view', 'done', { timeout: 30_000 });
+    app.mockState.scenario = null;
     await phone.page.screenshot({ path: path.join(SHOTS, 'no-plaintext-phone-done-ar.png') });
     const after = await everyRow();
 

@@ -9,6 +9,7 @@ import { stripIsolates } from '../packages/core/src/bidi';
 import { readGrid } from './guide-grid';
 import { rows } from './live-rows';
 import { addM3uAndWatch, settled, trackErrors } from './onboard';
+import { playlistOnly } from './playlist-only';
 import { RemoteDriver } from './remote-driver';
 
 /**
@@ -39,7 +40,8 @@ function taggedCatalog(): ReturnType<typeof loadCatalog> {
 }
 
 async function startMock(): Promise<{ app: MockServer; link: string }> {
-  const app = await mock({ now: () => Date.now(), catalog: taggedCatalog() });
+  // A playlist's own keys and names: the panel's API serves no lists (step 37a).
+  const app = await mock({ now: () => Date.now(), catalog: taggedCatalog(), scenario: playlistOnly() });
   const host = (await listen(app)).replace(/^http:\/\//, '');
   return { app, link: `${host}/get.php?username=${U}&password=${P}&type=m3u_plus&output=m3u8` };
 }

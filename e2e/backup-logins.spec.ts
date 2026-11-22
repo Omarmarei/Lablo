@@ -12,6 +12,7 @@ import { startApiFront } from './api-front';
 import { catalog } from './live-rows';
 import { leaks } from './no-plaintext';
 import { addXtreamAndWatch, settled, startWatching, toSourceTypes, trackErrors, typeInto } from './onboard';
+import { playlistOnly } from './playlist-only';
 import { SHOTS, shoot } from './pairing-steps';
 import { RemoteDriver } from './remote-driver';
 
@@ -48,6 +49,10 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => {
   await app.close();
+});
+// A test that keeps the panel's link a playlist (step 37a) leaves the mock as it found it.
+test.afterEach(() => {
+  app.mockState.scenario = null;
 });
 
 let fronts = 0;
@@ -208,7 +213,11 @@ for (const language of ['en', 'ar'] as const) {
       const query = `device=${device}&api=${encodeURIComponent(front.origin)}&locale=${says.locale}`;
       const keys = backupKeys(await deriveBackupMaster(device, BUILD.platform, BUILD.appId));
       if (language === 'en') await addXtreamAndWatch(remote, { host, username: U, password: P }, query);
-      else await addM3uWithGuide(remote, query);
+      else {
+        // A playlist link, restored as one: the panel's API serves no lists here (step 37a).
+        app.mockState.scenario = playlistOnly();
+        await addM3uWithGuide(remote, query);
+      }
       expect(backupCalls(front)).toEqual(['GET 404']);
       await appIdle(page);
 
