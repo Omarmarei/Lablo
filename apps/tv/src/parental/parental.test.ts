@@ -300,7 +300,7 @@ describe("the rails' entry (RELAY step 38b)", () => {
     expect(warn).toHaveBeenCalled();
   });
 
-  it('drops an older read of the session when another OK came after it', async () => {
+  it('opens one pad for two OKs while the session is read', async () => {
     const t = setup();
     t.parental.toggle();
     t.parental.toggle();
@@ -329,8 +329,9 @@ describe('the app hidden while unlocked (RELAY step 38b)', () => {
     await t.emit('visible');
     expect(t.parental.pad.value).toEqual({ purpose: 'return', typed: 0, problem: null, busy: false });
     expect(t.nav.top.id).toBe(PIN_SCREEN);
-    // Shown again before the PIN: still one pad.
+    // Shown again before the PIN: still one pad, and no second relock.
     await t.emit('hidden');
+    expect(t.engine.relocks).toBe(1);
     await t.emit('visible');
     t.nav.pop();
     expect(t.nav.top.id).toBe('player');
@@ -349,6 +350,9 @@ describe('the app hidden while unlocked (RELAY step 38b)', () => {
     expect(heard).toEqual(['hidden', 'visible']);
     expect(t.parental.pad.value).toBeNull();
     expect(t.changed).toHaveBeenCalledWith(true);
+    // Shown again with no hide since: heard at once.
+    await t.emit('visible');
+    expect(heard).toEqual(['hidden', 'visible', 'visible']);
     // Unlocked again: the next hide asks again.
     await t.emit('hidden');
     expect(t.engine.relocks).toBe(2);

@@ -2989,5 +2989,11 @@ describe('parental control on the rail (RELAY step 38b)', () => {
     bare.catalog = lockedCatalog();
     const u = await setup({ engine: bare });
     expect(u.live.rail.value.map((e) => e.name)).toEqual(['', 'News', 'Kids']);
+    // Only another kind has something locked: no entry here.
+    const movies = new FakeEngine();
+    movies.catalog = lockedCatalog();
+    movies.lockState = () => Promise.resolve({ pin: true, unlocked: false, kinds: ['movie'] });
+    const v = await setup({ engine: movies });
+    expect(v.live.rail.value.map((e) => e.kind)).toEqual(['all', 'category', 'category']);
   });
 });

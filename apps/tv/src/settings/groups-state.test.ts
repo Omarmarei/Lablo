@@ -254,6 +254,14 @@ describe('groupRows', () => {
     expect(rows.slice(2).map((r) => (r.kind === 'group' ? `${r.group.name}${r.hidden ? '!' : ''}` : ''))).toEqual(['Kids', 'Sports!', 'News', '']);
   });
 
+  it('leaves a locked group out while the session is locked, and lists it unlocked (step 38b)', () => {
+    const locked = [{ id: 's1', name: 'Home', categories: CATEGORIES.s1!.map((c) => (c.name === 'Sports' ? { ...c, locked: true as const } : c)) }];
+    const names = (rows: GroupRow[]): string[] => rows.map((r) => (r.kind === 'group' ? r.group.name : '#'));
+    expect(names(groupRows(profileDoc({ favouriteLists: [] }), locked))).toEqual(['News', '']);
+    expect(names(groupRows(profileDoc({ favouriteLists: [] }), locked, false))).toEqual(['News', '']);
+    expect(names(groupRows(profileDoc({ favouriteLists: [] }), locked, true))).toEqual(['News', 'Sports', '']);
+  });
+
   it('names no source with one source, and has no group without channels', () => {
     const rows = groupRows(profileDoc({ favouriteLists: [] }), [sources[0]!]);
     expect(rows).toHaveLength(3);

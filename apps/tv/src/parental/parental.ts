@@ -126,8 +126,6 @@ export function createParental(options: ParentalOptions): Parental {
   let asking = false;
   /** `visible` calls held until the return's pad takes the right PIN. */
   let held: (() => void)[] = [];
-  /** Bumps on each `toggle`: an answer for an older one is dropped. */
-  let toggleSeq = 0;
 
   function track<T>(request: () => Promise<T>): Promise<T> {
     pending.value += 1;
@@ -214,8 +212,8 @@ export function createParental(options: ParentalOptions): Parental {
 
   const type = (digit: number): void => {
     const open = pad.peek();
-    if (open === null || open.busy || digits.length >= PIN_LENGTH) return;
-    if (clockNow() < waitUntil) return;
+    // (Four digits always come with `busy`: the check starts at the fourth.)
+    if (open === null || open.busy || clockNow() < waitUntil) return;
     digits += String(digit);
     if (digits.length === PIN_LENGTH) check(digits);
     else show(null);
@@ -223,7 +221,7 @@ export function createParental(options: ParentalOptions): Parental {
 
   const erase = (): void => {
     const open = pad.peek();
-    if (open === null || open.busy || digits.length === 0) return;
+    if (open === null || open.busy) return;
     digits = digits.substring(0, digits.length - 1);
     show(open.problem);
   };
@@ -273,11 +271,10 @@ export function createParental(options: ParentalOptions): Parental {
 
   const toggle = (): void => {
     if (disposed || padScreen !== null) return;
-    toggleSeq += 1;
-    const mine = toggleSeq;
     track(() => engine.lockState()).then(
       (state) => {
-        if (disposed || mine !== toggleSeq || padScreen !== null) return;
+        // (A second OK while the first read ran: the pad it opened takes the second answer's place.)
+        if (disposed || padScreen !== null) return;
         if (state.unlocked) {
           unlocked = false;
           track(() => engine.relock()).then(

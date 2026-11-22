@@ -1,6 +1,7 @@
 import { effect, signal } from '@preact/signals';
 import type { CatalogItem, ContentKind, DeviceTier } from '@lablo/core';
 import type { CategoryInfo, KeyItemsRequest, LoadedProfile, RecentItem, RecentRequest, SourceRecord } from '@lablo/data';
+import type { LockState } from '@lablo/data/client';
 import type { Intent } from '@lablo/platform-api';
 import { LAYOUT, createNavigator, fits } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
@@ -66,6 +67,8 @@ interface Held<T> {
 
 /** A data engine that answers at once, or holds the answers of the kinds in `hold`. */
 class FakeEngine implements MoviesEngine {
+  /** Parental control as the worker says (step 38b; absent: an engine without it). */
+  lockState?: () => Promise<LockState>;
   profileDoc: LoadedProfile | null = { doc: { v: 2, sources: [S1, S2] }, newer: false, migratedFrom: null };
   failProfile = false;
   failChunks = false;
@@ -180,7 +183,7 @@ const flush = async (): Promise<void> => {
 };
 
 async function setup(
-  options: { engine?: FakeEngine; tier?: DeviceTier; select?: (item: CatalogItem) => void; open?: boolean; progress?: MoviesOptions['progress']; kind?: PosterKind } = {},
+  options: { engine?: FakeEngine; tier?: DeviceTier; select?: (item: CatalogItem) => void; open?: boolean; progress?: MoviesOptions['progress']; kind?: PosterKind; lockEntry?: () => void } = {},
 ) {
   const engine = options.engine ?? new FakeEngine();
   const clock = manualTimers();
@@ -200,6 +203,7 @@ async function setup(
     ...(options.select === undefined ? {} : { select: options.select }),
     ...(options.progress === undefined ? {} : { progress: options.progress }),
     ...(options.kind === undefined ? {} : { kind: options.kind }),
+    ...(options.lockEntry === undefined ? {} : { lockEntry: options.lockEntry }),
   });
   if (options.open !== false) {
     movies.open();
@@ -1522,5 +1526,70 @@ describe('the movies screen: "Continue watching" (RELAY step 27d)', () => {
     expect(engine.keyCalls).toHaveLength(1);
     expect(t.tiles(0, 1)).toEqual(['cw 2']);
     warn.mockRestore();
+  });
+});
+
+describe('parental control on the movies rail (RELAY step 38b)', () => {
+  it('leaves a locked category out while locked, ends with "Locked groups", and moves the focus after an unlock or a relock', async () => {
+    const engine = new FakeEngine();
+    engine.catalog = { s1: [info(0, 'Action', [40]), info(1, '', []), { ...info(2, 'Drama', [500, 200]), locked: true }], s2: CATEGORIES.s2! };
+    let state: LockState = { pin: true, unlocked: false, kinds: ['movie'] };
+    engine.lockState = () => Promise.resolve(state);
+    const lockEntry = vi.fn();
+    const t = await setup({ engine, lockEntry });
+    expect(t.movies.rail.value.map((e) => [e.kind, e.name])).toEqual([
+      ['all', ''],
+      ['category', 'Action'],
+      ['category', 'Kids'],
+      ['locked', ''],
+    ]);
+    await t.press('LEFT', 'DOWN', 'DOWN', 'DOWN');
+    expect(t.at()).toBe('movies · rail 3');
+    await t.press('OK');
+    expect(lockEntry).toHaveBeenCalledTimes(1);
+    expect(t.movies.category.value).toBe(0);
+    // Unlocked: Drama in its place with an open lock, the focus on it.
+    state = { pin: true, unlocked: true, kinds: ['movie'] };
+    t.movies.lockChanged(true);
+    await flush();
+    expect(t.movies.rail.value.map((e) => [e.name, e.opened, e.unlocked])).toEqual([
+      ['', undefined, undefined],
+      ['Action', undefined, undefined],
+      ['Drama', true, undefined],
+      ['Kids', undefined, undefined],
+      ['', undefined, true],
+    ]);
+    expect(t.at()).toBe('movies · rail 2');
+    await t.press('OK', 'LEFT');
+    expect(t.movies.category.value).toBe(2);
+    expect(t.at()).toBe('movies · rail 2');
+    // Locked again: the first entry on show, the focus on "Locked groups".
+    state = { pin: true, unlocked: false, kinds: ['movie'] };
+    t.movies.lockChanged(false);
+    await flush();
+    expect(t.movies.category.value).toBe(0);
+    expect(t.at()).toBe('movies · rail 3');
+    // A swap keeps the rail's place; nothing of this kind locked: no entry.
+    state = { pin: true, unlocked: false, kinds: ['live'] };
+    t.movies.catalogChanged();
+    await flush();
+    expect(t.movies.rail.value.map((e) => e.kind)).toEqual(['all', 'category', 'category']);
+    // Closed: nothing is read.
+    await t.press('BACK');
+    t.movies.lockChanged(true);
+    await flush();
+    expect(t.movies.screen.value).toBeNull();
+  });
+
+  it('leaves the grid\'s focus where it is after an unlock', async () => {
+    const engine = new FakeEngine();
+    engine.catalog = { s1: [info(0, 'Action', [40]), { ...info(1, 'Drama', [5]), locked: true }], s2: [] };
+    engine.lockState = () => Promise.resolve({ pin: true, unlocked: true, kinds: ['movie'] });
+    const t = await setup({ engine });
+    await t.press('RIGHT');
+    expect(t.at()).toBe('movies · grid 1');
+    t.movies.lockChanged(true);
+    await flush();
+    expect(t.at()).toBe('movies · grid 1');
   });
 });
