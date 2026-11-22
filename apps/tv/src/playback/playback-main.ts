@@ -40,7 +40,7 @@ const history: string[] = [];
 // The engine's side of each attempt, for the e2e: what it was asked to load and how that ended.
 const load = engine.load.bind(engine);
 engine.load = (source, token, opts) => {
-  trace.push(`load ${token} ${source.container}`);
+  trace.push(`load ${token} ${source.container}${opts !== undefined && opts.audioOnly === true ? ' audio-only' : ''}`);
   const result = load(source, token, opts);
   result.then(
     () => trace.push(`loaded ${token}`),
@@ -75,7 +75,14 @@ const harness: PlaybackHarness = {
   play(input: PlaybackInput): void {
     const url = input.url ?? '';
     const candidates = input.candidates ?? streamCandidates(url, input.mode);
-    const req: PlayRequest = { key: `${input.mode}:${url}`, src: input.src ?? 'mock', mode: input.mode, candidates, ...(input.externalSubs === undefined ? {} : { externalSubs: input.externalSubs }) };
+    const req: PlayRequest = {
+      key: `${input.mode}:${url}`,
+      src: input.src ?? 'mock',
+      mode: input.mode,
+      candidates,
+      ...(input.externalSubs === undefined ? {} : { externalSubs: input.externalSubs }),
+      ...(input.hints === undefined ? {} : { hints: input.hints }),
+    };
     void controller.play(req, input.startMs === undefined ? {} : { startMs: input.startMs });
   },
   stop: () => controller.stop(),

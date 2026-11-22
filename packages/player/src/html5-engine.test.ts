@@ -172,6 +172,43 @@ describe('Html5Engine: load and the first frame', () => {
     expect(r.seen()).toEqual(['error 1 unsupported/NO_PICTURE']);
   });
 
+  it('frames a radio load (`audioOnly`, step 37b) by its clock alone, and never calls it NO_PICTURE', async () => {
+    const r = rig();
+    const load = track(r.engine.load(HLS, 5, { audioOnly: true }));
+    // `playing` before the clock moves: no frame yet.
+    r.video.fire('playing');
+    await settle();
+    expect(load.state).toBe('resolved');
+    await r.clock.advance(500);
+    expect(r.seen()).toEqual([]);
+    r.video.move();
+    await r.clock.advance(FRAME_POLL_MS);
+    expect(r.seen()).toEqual(['firstFrame 5']);
+    expect(r.engine.stats().width).toBe(0);
+    expect(r.clock.pending).toBe(0);
+    // Long past the no-picture limit: still playing.
+    await r.clock.advance(NO_PICTURE_MS * 3);
+    expect(r.seen()).toEqual(['firstFrame 5']);
+    // Framed: a wait now is a stall, and `playing` ends it.
+    r.video.fire('waiting');
+    r.video.fire('playing');
+    expect(r.seen()).toEqual(['firstFrame 5', 'buffering 5', 'playing 5']);
+  });
+
+  it('frames a radio load that has a picture after all, and forgets the flag at the next load', async () => {
+    const r = rig();
+    quiet(r.engine.load(HLS, 1, { audioOnly: true }));
+    await startPlaying(r);
+    await r.clock.advance(FRAME_POLL_MS);
+    expect(r.seen()).toEqual(['firstFrame 1']);
+    await r.engine.stop();
+    // The next channel isn't radio: sound with no picture is NO_PICTURE again.
+    quiet(r.engine.load(HLS, 2, { audioOnly: false }));
+    await startPlaying(r, false);
+    await r.clock.advance(NO_PICTURE_MS);
+    expect(r.seen()).toEqual(['firstFrame 1', 'error 2 unsupported/NO_PICTURE']);
+  });
+
   it('starts VOD at `startMs` once the metadata is in, once; live ignores it', async () => {
     const r = rig();
     quiet(r.engine.load(MP4, 1, { startMs: 30_000 }));
@@ -637,6 +674,18 @@ describe('Html5Engine: suspend and resume (webOS stops a hidden app\'s media)', 
     await settle();
     r.engine.suspend();
     expect(r.video.log).toEqual([`src ${MP4.url}`, 'play']);
+  });
+
+  it('reopens a radio load as radio: the clock alone frames it again', async () => {
+    const r = rig();
+    quiet(r.engine.load(HLS, 4, { audioOnly: true }));
+    await startPlaying(r, false);
+    await r.clock.advance(FRAME_POLL_MS);
+    r.engine.suspend();
+    r.engine.resume();
+    await startPlaying(r, false);
+    await r.clock.advance(NO_PICTURE_MS * 2);
+    expect(r.seen()).toEqual(['firstFrame 4', 'firstFrame 4']);
   });
 
   it('stops the first-frame poll while suspended', async () => {

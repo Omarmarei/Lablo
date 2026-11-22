@@ -3485,3 +3485,31 @@ describe('the pinned channel (RELAY step 36c)', () => {
     stop();
   });
 });
+
+describe('the player: a radio channel (RELAY step 37b)', () => {
+  const LOGO = 'http://panel.test/logos/radio-1.png';
+  /** Row 3 as a radio channel. */
+  const RADIO: LiveRow = { item: { ...row(3).item, key: 'x:s1:live:radio', name: 'Radio 1', url: 'http://panel.test/live/u/p/800.ts', radio: true, logo: LOGO }, number: 4 };
+
+  it('plays it saying its stream has no picture; the next channel, not radio, says nothing', async () => {
+    const t = setup();
+    t.player.over(RADIO, 3);
+    expect(t.controller.plays).toEqual([liveRequest(RADIO)]);
+    expect(t.controller.plays[0]!.hints).toEqual({ audioOnly: true });
+    expect(t.controller.plays[0]!.candidates.map((c) => c.url)).toEqual(['http://panel.test/live/u/p/800.ts', 'http://panel.test/live/u/p/800.m3u8']);
+    await t.press('CH_UP');
+    t.clock.advance(ZAP_DELAY_MS);
+    await flush();
+    expect(t.controller.plays[1]).toEqual(liveRequest(row(4)));
+    expect(Object.keys(t.controller.plays[1]!)).not.toContain('hints');
+  });
+
+  it("keeps the radio card's logo that failed to load, the last one", () => {
+    const t = setup();
+    expect(t.player.failedLogo.value).toBeNull();
+    t.player.logoFailed(LOGO);
+    expect(t.player.failedLogo.value).toBe(LOGO);
+    t.player.logoFailed('http://panel.test/logos/radio-2.png');
+    expect(t.player.failedLogo.value).toBe('http://panel.test/logos/radio-2.png');
+  });
+});

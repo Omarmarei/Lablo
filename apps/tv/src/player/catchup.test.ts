@@ -86,6 +86,15 @@ describe("a programme's catch-up request (RELAY step 25a)", () => {
     expect(shift.candidates).toEqual([{ url: `http://cdn.example/ch/index.m3u8?utc=${p.start * 60}&lutc=${NOW * 60}`, container: 'hls' }]);
   });
 
+  it("says a radio channel's archive has no picture (step 37b)", () => {
+    const radio = row(XC7);
+    const request = catchupRequest({ item: { ...radio.item, radio: true }, number: 1 }, programme(120, 90), undefined, NOW_MS)!;
+    expect(request.hints).toEqual({ audioOnly: true });
+    expect(request.mode).toBe('catchup');
+    expect(request.candidates).toEqual(catchupRequest(radio, programme(120, 90), undefined, NOW_MS)!.candidates);
+    expect(Object.keys(catchupRequest(radio, programme(120, 90), undefined, NOW_MS)!)).not.toContain('hints');
+  });
+
   it("is null when the channel's URL can't carry one", () => {
     expect(catchupRequest(row(null), programme(120), undefined, NOW_MS)).toBeNull();
     expect(catchupRequest(row(XC7, 'http://cdn.example/ch/index.m3u8'), programme(120), { outputFormats: null, zone: fixedZone(0) }, NOW_MS)).toBeNull();

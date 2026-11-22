@@ -13,6 +13,8 @@ import type { EpisodeMark, Player, PlayerAction, PlayingMovie, UpNext } from './
 import { BLOCKLIST_REFUSAL } from './player-state';
 import { NEW_LIST_SCREEN } from './favourite-menu';
 import { FavouritePanel, NewListForm, star } from './FavouritePanel';
+import { radioCard } from './radio';
+import { RadioCard } from './RadioCard';
 import { StreamInfoPanel } from './StreamInfoPanel';
 import { SubtitleOverlay } from './SubtitleOverlay';
 import { TrackMenuPanel } from './TrackMenuPanel';
@@ -351,6 +353,7 @@ function MovieEndCard({ movie, upNext, i18n, screen, binding }: { movie: Playing
  * The player route (RELAY step 20a): drawn over the stage, so the page itself stays transparent.
  * The info bar, the number being typed, "Connecting…", the "Reconnecting…" badge and the error
  * card. Its root carries the focus (`data-screen/zone/index`) and the player's state for tests.
+ * A radio channel (step 37b) has its card in place of the picture, under all the rest.
  * The subtitles (step 20b2b) share the bottom of the safe area with the info bar, above it. The
  * stream info (step 20c2a) sits under the badge; the error card replaces it while it shows.
  * What settings.js paints over the player (`over`: step 36c's "Edit channel") goes on top, and
@@ -391,6 +394,8 @@ export function PlayerScreen({ live, player, i18n, over = null }: { live: Live; 
   const favourites = player.favourites;
   const panel = favourites === null ? null : favourites.screen.value;
   const starred = row !== null && lists.some((list) => list.keys.indexOf(row.item.key) !== -1);
+  // The channel whose stream plays: a waiting zap leaves its card up, as it would its picture.
+  const radio = radioCard(player.row(playing), status.state, movie !== null, refused !== null, player.failedLogo.value);
   return (
     <main
       class="player"
@@ -427,6 +432,7 @@ export function PlayerScreen({ live, player, i18n, over = null }: { live: Live; 
       data-favourite={String(starred)}
       data-favourites={String(panel !== null)}
       data-editing={favourites === null ? '' : (favourites.editor.editing.value ?? '')}
+      data-radio={String(radio !== null)}
     >
       {refused !== null && <div class="player__blank" aria-hidden="true" data-testid="player-blank" />}
       {player.picture.value === '4:3' && (
@@ -435,6 +441,7 @@ export function PlayerScreen({ live, player, i18n, over = null }: { live: Live; 
           <div class="player__pillar player__pillar--right" />
         </div>
       )}
+      {radio !== null && <RadioCard card={radio} i18n={i18n} onLogoError={player.logoFailed} />}
       {waiting && (
         <div class="player__wait" data-testid="player-wait">
           <Spinner size="l" label={t('player.connecting')} />

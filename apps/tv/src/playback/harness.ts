@@ -16,6 +16,8 @@ export interface PlaybackInput {
   readonly startMs?: number;
   /** Subtitle files beside the stream (step 20b2b), fetched by the app's loader when chosen. */
   readonly externalSubs?: readonly ExternalSub[];
+  /** The request's hints: `audioOnly` for a radio stream (step 37b). */
+  readonly hints?: { readonly audioOnly?: boolean };
 }
 
 export interface PlaybackSnapshot {

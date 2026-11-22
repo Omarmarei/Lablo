@@ -28,6 +28,10 @@ import { RemoteDriver } from './remote-driver';
  *
  * The picture's 4:3 mode (RELAY step 20c2b) on a real picture, read from the screen's pixels.
  *
+ * Radio (RELAY step 37b): the mock's radio channel (MP3 in HLS segments, no picture) plays through
+ * the `<video>` past the 5 s a picture would have had, with the radio card on the dark stage, in
+ * English, Arabic and the pseudo-locale.
+ *
  * Catch-up from the guide (RELAY step 25a): "From the start" in a programme's details plays it
  * from the archive (the desktop refuses the `.ts` timeshift; its `.m3u8` form plays), and the
  * mock served the programme's own start.
@@ -314,6 +318,144 @@ test('the picture in 4:3 on a real live channel: the 16:9 bars squeezed into the
   await remote.expectFocus('live/channels/0');
   expect(errors).toEqual([]);
 });
+
+/** The `<video>`'s no-picture limit (`NO_PICTURE_MS` in packages/player/src/html5-engine.ts). */
+const NO_PICTURE_MS = 5000;
+
+/**
+ * Our strings in the radio card, in the pseudo-locale: anything with letters outside the
+ * provider's text (`translate="no"`) must be bracketed (en-XA's labels end in `]`).
+ */
+function radioUntranslated(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const root = document.querySelector('[data-testid=player-radio]');
+    if (root === null) return ['no radio card'];
+    const out: string[] = [];
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      const text = (node.nodeValue ?? '').trim();
+      if (!/\p{L}/u.test(text) || node.parentElement?.closest('[translate="no"]') != null) continue;
+      if (!(text.startsWith('[') && text.endsWith(']'))) out.push(text);
+    }
+    return out;
+  });
+}
+
+/** The radio card's box and its parts' boxes (left, top, width, height), rounded. */
+function radioBoxes(page: Page) {
+  return page.evaluate(() => {
+    const box = (id: string): number[] | null => {
+      const el = document.querySelector(`[data-testid=${id}]`);
+      if (el === null) return null;
+      const r = el.getBoundingClientRect();
+      return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
+    };
+    const name = document.querySelector('[data-testid=player-radio-name]') as HTMLElement | null;
+    const logo = document.querySelector('[data-testid=player-radio-logo]') as HTMLImageElement | null;
+    return {
+      card: box('player-radio'),
+      mark: box('player-radio-mark'),
+      logo: box('player-radio-logo'),
+      decoded: logo !== null && logo.complete && logo.naturalWidth > 0,
+      cut: name === null ? null : name.scrollWidth > name.clientWidth,
+    };
+  });
+}
+
+/** The mock's catalog before a radio run gave the radio channel a logo (put back after the test). */
+let plainCatalog: MockServer['mockState']['catalog'] | null = null;
+test.afterEach(() => {
+  if (plainCatalog === null) return;
+  app.mockState.catalog = plainCatalog;
+  plainCatalog = null;
+});
+
+for (const [locale, lang] of [
+  ['en-US', 'en'],
+  ['ar-SA', 'ar'],
+  ['en-XA', 'xa'],
+] as const) {
+  test(`plays a radio channel with no picture: the radio card on the dark stage, its clock moving past the no-picture limit, no failure (step 37b, ${locale})`, async ({ page }) => {
+    test.setTimeout(120_000);
+    const errors = trackErrors(page);
+    const remote = new RemoteDriver(page);
+    // In Arabic the radio channel has a logo (the mock's 1x1 PNG): the card shows it in place of the mark.
+    const logo = locale === 'ar-SA';
+    if (logo) {
+      const plain = app.mockState.catalog;
+      plainCatalog = plain;
+      app.mockState.catalog = { ...plain, live: plain.live.map((c) => (c.id === 108 ? { ...c, logo: true } : c)) };
+    }
+    await addXtreamAndWatch(remote, { host, username: U, password: P }, `locale=${locale}`);
+    await remote.press('OK');
+    const player = page.getByTestId('player');
+    await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
+    // A channel with a picture: no card.
+    await expect(player).toHaveAttribute('data-radio', 'false');
+    await expect(page.getByTestId('player-radio')).toHaveCount(0);
+
+    // The number 8: Lablo Radio Test, MP3 in HLS segments with no picture.
+    await remote.press('DIGIT_8');
+    await expect(player).toHaveAttribute('data-plays', '2', { timeout: 5_000 });
+    await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
+    await expect(player).toHaveAttribute('data-container', 'hls');
+    await expect(player).toHaveAttribute('data-radio', 'true');
+    const card = page.getByTestId('player-radio');
+    await expect(card).toBeVisible();
+    await expect(card).toHaveAttribute('data-logo', String(logo));
+    await expect(page.getByTestId('player-radio-name')).toHaveText('Lablo Radio Test');
+    await expect(page.getByTestId(logo ? 'player-radio-logo' : 'player-radio-mark')).toBeVisible();
+    await expect(page.getByTestId(logo ? 'player-radio-mark' : 'player-radio-logo')).toHaveCount(0);
+    // Past the 5 s a picture would have had: still playing, with no picture, and no second open.
+    const before = await video(page);
+    await page.waitForTimeout(NO_PICTURE_MS + 1000);
+    const after = await video(page);
+    expect(after?.width).toBe(0);
+    expect(after?.paused).toBe(false);
+    expect((after?.time ?? 0) - (before?.time ?? 0), 'the radio plays on').toBeGreaterThan(NO_PICTURE_MS / 1000);
+    await expect(player).toHaveAttribute('data-state', 'playing');
+    await expect(player).toHaveAttribute('data-failure', '');
+    await expect(player).toHaveAttribute('data-plays', '2');
+    await expect(page.getByTestId('player-card')).toHaveCount(0);
+    // The card: in the middle, the logo (whole in its 16:9 box) or the mark centred over the name,
+    // nothing cut; the stage black around it.
+    const boxes = await radioBoxes(page);
+    expect(boxes.card).toEqual([360, 300, 1200, expect.any(Number)]);
+    if (logo) {
+      expect(boxes.logo).toEqual([760, 300, 400, 224]);
+      expect(boxes.decoded).toBe(true);
+    } else {
+      expect(boxes.mark).toEqual([872, 324, 176, 176]);
+    }
+    expect(boxes.cut).toBe(false);
+    expect((await colours(page, [[24, 200], [1896, 200], [960, 1000]])).map(dark)).toEqual([true, true, true]);
+    // The bar went 5 s after the last key: the card alone.
+    await expect(player).toHaveAttribute('data-info', 'false', { timeout: 10_000 });
+    await page.screenshot({ path: path.join(SHOTS, `player-radio-${lang}.png`), animations: 'disabled' });
+    if (locale === 'en-XA') {
+      expect(await radioUntranslated(page)).toEqual([]);
+      await expect(card.locator('.z-badge')).toHaveText(/^\[.+\]$/u);
+    } else {
+      await expect(card.locator('.z-badge')).toHaveText(locale === 'en-US' ? 'Radio' : 'إذاعة');
+    }
+    // The bar over it: the card stays under it.
+    await remote.press('INFO');
+    await expect(page.getByTestId('player-bar')).toBeVisible();
+    await expect(card).toBeVisible();
+    await page.screenshot({ path: path.join(SHOTS, `player-radio-bar-${lang}.png`), animations: 'disabled' });
+    expect(errors).toEqual([]);
+    if (locale !== 'en-US') return;
+
+    // CH-: back to a channel with a picture, and the card goes.
+    await remote.press('CH_DOWN');
+    await expect(player).toHaveAttribute('data-plays', '3', { timeout: 5_000 });
+    await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
+    await expect(player).toHaveAttribute('data-radio', 'false');
+    await expect(page.getByTestId('player-radio')).toHaveCount(0);
+    await expectMoving(page);
+    expect(errors).toEqual([]);
+  });
+}
 
 test('plays a programme gone by from the archive: "From the start" in its details, the picture moving (step 25a)', async ({ page }) => {
   test.setTimeout(120_000);

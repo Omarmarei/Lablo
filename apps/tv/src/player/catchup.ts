@@ -3,6 +3,7 @@ import type { PlayRequest } from '@lablo/player';
 import { catchupCandidates } from '@lablo/player';
 import type { SourceFacts } from '../data/engine';
 import type { LiveRow } from '../live/live-state';
+import { channelRequest } from './radio';
 
 /**
  * Catch-up from the guide (RELAY step 25a, ADR-010): a programme gone by, played from the start
@@ -108,5 +109,5 @@ export function archiveDaysLeft(days: number, programme: Pick<ArchiveProgramme, 
 export function catchupRequest(row: LiveRow, programme: Pick<ArchiveProgramme, 'start' | 'end'>, facts: SourceFacts | undefined, nowMs: number, fromMs?: number): PlayRequest | null {
   const candidates = catchupCandidates(row.item.url, row.item.catchup, windowOf(programme, nowMs, fromMs), facts === undefined ? {} : { zone: facts.zone, outputFormats: facts.outputFormats });
   if (candidates.length === 0) return null;
-  return { key: row.item.key, src: row.item.src, mode: 'catchup', candidates };
+  return channelRequest(row, 'catchup', candidates);
 }

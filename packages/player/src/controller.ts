@@ -36,7 +36,7 @@ import type { ContentKey, SubtitleCue } from '@lablo/core';
 import { SubtitleTrack, cueText } from '@lablo/core';
 import type { Clock } from './clock';
 import { SYSTEM_CLOCK } from './clock';
-import type { Container, EngineEvent, EngineStats, PlayMode, PlaybackError, PlayerEngine } from './engine';
+import type { Container, EngineEvent, EngineStats, LoadOptions, PlayMode, PlaybackError, PlayerEngine } from './engine';
 import { isPlaybackError } from './engine';
 import type { PictureMode } from './picture';
 import { pictureLayout, pictureModes } from './picture';
@@ -247,6 +247,18 @@ function sameTexts(a: readonly string[], b: readonly string[]): boolean {
 interface EngineCue {
   readonly text: string;
   readonly until: number;
+}
+
+/**
+ * What the engine is told besides the URL: where a VOD or catch-up starts, and that a radio
+ * channel's stream has no picture (`PlayRequest.hints.audioOnly`, RELAY step 37b).
+ */
+function loadOptions(s: Session): LoadOptions {
+  const opts: { startMs?: number; audioOnly?: boolean } = {};
+  if (s.resumeMs !== undefined) opts.startMs = s.resumeMs;
+  const hints = s.req.hints;
+  if (hints !== undefined && hints.audioOnly === true) opts.audioOnly = true;
+  return opts;
 }
 
 /** A rejection from an engine or probe as a `PlaybackError` (anything unexpected is an app error). */
@@ -733,7 +745,7 @@ export class PlayerController {
     }
     s.url = url;
     try {
-      await this.engine.load({ url, container: candidate.container, live: s.live }, token, s.resumeMs === undefined ? {} : { startMs: s.resumeMs });
+      await this.engine.load({ url, container: candidate.container, live: s.live }, token, loadOptions(s));
     } catch (reason) {
       this.fail(token, asPlaybackError(reason));
     }
