@@ -1,0 +1,88 @@
+/*
+ * The PIN pad and the no-PIN dialog (RELAY step 38b): an opaque page under the dialog, so nothing
+ * under it shows, the player's picture included. Physical properties only (postcss-rtlcss mirrors
+ * them); the grid keeps its order with dir="ltr". No flex gap (Chromium 53-68): margins.
+ */
+.pin {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9;
+  width: 100%;
+  height: 100%;
+  background: var(--color-bg);
+}
+
+.pin .z-dialog {
+  background: var(--color-bg);
+}
+
+.pin .z-dialog__actions:empty {
+  display: none;
+}
+
+.pin__body {
+  margin-top: var(--space-5);
+}
+
+.pin__boxes {
+  display: flex;
+  justify-content: center;
+  margin: 0;
+  direction: ltr;
+}
+
+.pin__box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 88px;
+  height: 88px;
+  margin: 0 var(--space-3);
+  border: 3px solid var(--color-border);
+  border-radius: var(--radius-s);
+  color: var(--color-text);
+  font-size: var(--font-size-title);
+  line-height: 1;
+}
+
+.pin__box.is-filled {
+  border-color: var(--color-focus);
+}
+
+/* Its height kept when empty, so the grid never moves. */
+.pin__problem {
+  height: 48px;
+  margin: var(--space-3) 0 0;
+  color: var(--color-danger);
+  font-size: var(--font-size-body);
+  line-height: 48px;
+  text-align: center;
+}
+
+.pin__grid {
+  margin-top: var(--space-3);
+}
+
+.pin__row {
+  display: flex;
+  justify-content: center;
+}
+
+.pin__row + .pin__row {
+  margin-top: var(--space-3);
+}
+
+.pin__cell {
+  display: block;
+  width: 240px;
+  margin: 0 var(--space-3);
+}
+
+.pin__cell .z-button {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  max-width: none;
+  padding: 0 var(--space-3);
+}

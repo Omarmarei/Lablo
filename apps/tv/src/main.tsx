@@ -53,6 +53,8 @@ import type { Player } from './player/player-state';
 import { createPlayer } from './player/player-state';
 import { createStage, setPlayerChrome } from './player/stage';
 import { createOnboarding } from './onboarding/onboarding-state';
+import type { LifecycleSource } from './parental/parental';
+import { createParental } from './parental/parental';
 import { answerEdit, readStartProfile, startPoint } from './onboarding/start';
 import { createPlatform } from './platform';
 import { createCrashReporter, listenForCrashes } from './telemetry/crash-state';
@@ -313,10 +315,17 @@ const showFocus = installTestHook(
 );
 
 /**
+ * The player's lifecycle (RELAY step 38b): the platform's, through parental control's hold once the
+ * live screen is up (after an unlocked session, `visible` waits for the PIN).
+ */
+let playerLifecycle: LifecycleSource = (listener) => platform.onLifecycle(listener);
+
+/**
  * The app's player controller, made on the first play (RELAY step 20a): the stage under the page,
  * the platform's engines on it, and the platform's probe, screensaver and lifecycle.
  */
 const playerController = appPlayer({
+  lifecycle: (listener) => playerLifecycle(listener),
   platform,
   stage: () => createStage(document),
   checkAccount: (src) => dataEngine().account(src),
@@ -391,6 +400,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   };
   readFacts();
   let openSettings: () => void = () => undefined;
+  let lockEntry: () => void = () => undefined;
   const live = createLive({
     platform,
     engine: dataEngine(),
@@ -408,6 +418,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     openSeries: () => series.open(),
     openSearch: () => search.open(),
     openHome: () => home.open(),
+    // The rail's "Locked groups" / "Lock again" (step 38b).
+    lockEntry: () => lockEntry(),
   });
   // OK on a poster (step 26c): the movie's details over the grid; "Play" opens the player over them, and Back from it returns to them.
   // A movie left part way (step 26d): "Resume from" plays it from there; back from the player, the details read its position again.
@@ -425,7 +437,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     },
   });
   // The header's "Movies" (step 26a): the poster grid of the sources' movies, each tile with its bar (26d); Back returns to the header.
-  const movies = createMovies({ nav: live.nav, engine: dataEngine(), tier: () => tier, select: (item) => details.open(item), progress });
+  const movies = createMovies({ nav: live.nav, engine: dataEngine(), tier: () => tier, select: (item) => details.open(item), progress, lockEntry: () => lockEntry() });
   // OK on a show (step 27b): its details over the series grid, its seasons and episodes read from its panel; Back returns to the grid.
   // OK on an episode (step 27c1): the player over the details, from where it was left; Back returns to the details on the show's last episode.
   // Its end (step 27c2): the next episode in the details' seasons, from where it was left, after a countdown.
@@ -447,6 +459,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     tier: () => tier,
     select: (item) => selectSeries(item, { episode: (episode) => details.open(episode), show: (item) => show.open(item) }),
     progress,
+    lockEntry: () => lockEntry(),
   });
   // The header's "Search" (step 28a): OK on a channel plays it from its group (the live list shows it), on a movie or a show opens its details; Back returns to the search.
   const search = createSearch({
@@ -588,6 +601,28 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     load: () => import('./settings/settings').then((file) => file.loadSettings(settingsOptions)),
   });
   openSettings = () => settings.use((file) => file.settings.open());
+  // Parental control (step 38b): the rails' last entry, the PIN pad, and the end of an unlocked
+  // session when the app is hidden. After an unlock or a relock every screen reads again; Back on
+  // the pad that asks when the app comes back starts the app again, locked.
+  const parental = createParental({
+    nav: live.nav,
+    engine: dataEngine(),
+    lifecycle: (listener) => platform.onLifecycle(listener),
+    changed: (unlocked) => {
+      void live.lockChanged(unlocked);
+      movies.lockChanged(unlocked);
+      series.lockChanged(unlocked);
+      search.catalogChanged();
+      home.catalogChanged();
+    },
+    restart: () => {
+      restarting = true;
+      gated?.stop();
+      location.reload();
+    },
+  });
+  lockEntry = () => parental.toggle();
+  playerLifecycle = parental.heldLifecycle;
   // OK on a channel opens the player on the live navigator (step 20a); Back returns to its row.
   const kept = memory.subtitleSize();
   const picture = memory.picture();
@@ -619,7 +654,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     // Where a movie is (step 26d): every 10 s while it plays, and when it stops, is left or the app hides; an episode's with its show (step 27c1),
     // and whether one comes after it (step 27d: "Continue watching").
     progressed: (item, positionMs, lengthMs, ended, showKey, more) => progress.save(item.key, positionMs, lengthMs, ended, showKey, more),
-    lifecycle: (listener) => platform.onLifecycle(listener),
+    // Held after an unlocked session until the PIN (step 38b), as the controller's is.
+    lifecycle: parental.heldLifecycle,
     // The config's disable-playback (step 30c2b). The start's last channel plays before the cached policy arrives, then stops.
     refusal: playRefusal,
     // Each config answer (step 30c3b): the stream on show is asked about again, after the query worker read the new blocklist.
@@ -632,9 +668,21 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       close: () => settings.loaded.value?.settings.channel.close(),
     },
   });
-  if (resume !== null) player.resume({ item: resume.item, number: resume.number }, resume.index);
+  // The channel watched last plays once the query worker gives it (step 38b): a locked one, or one
+  // gone from the catalog, doesn't play; nor does it once the user has moved on.
+  if (resume !== null) {
+    const resumed = player;
+    dataEngine()
+      .itemsByKey({ keys: [resume.item.key], kind: 'live', sources: [resume.item.src], limit: 1 })
+      .then(
+        (found) => {
+          if (found.length > 0 && live.nav.top === live.home) resumed.resume({ item: resume.item, number: resume.number }, resume.index);
+        },
+        (error: unknown) => console.warn('The last channel could not be checked', error),
+      );
+  }
   showFocus(live.nav);
-  render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} home={home} />, into);
+  render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} home={home} parental={parental} />, into);
   startRefreshes(live, guide, [movies, series], search, home, readFacts, restored ? 0 : undefined);
   backup.start();
   telemetry.start();

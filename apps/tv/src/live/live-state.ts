@@ -2,7 +2,7 @@ import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
 import type { CatalogItem, ContentKey, ContentKind } from '@lablo/core';
 import type { CategoryInfo, EpgNowNext, LoadedProfile, ShortEpgNowNext, ShortEpgSource, StoredSource } from '@lablo/data';
-import type { FavouriteList, GroupRef, KeyItemsRequest, NumberRequest, NumberedChannel } from '@lablo/data/client';
+import type { FavouriteList, GroupRef, KeyItemsRequest, LockState, NumberRequest, NumberedChannel } from '@lablo/data/client';
 import { channelEditsOf, favouriteListsOf, groupId, groupOrderOf, hiddenGroupsOf } from '@lablo/data/client';
 import type { Platform } from '@lablo/platform-api';
 import type { Focus, FocusBinding, Navigator, Screen, ScreenSpec, ZoneSpec } from '@lablo/ui';
@@ -95,8 +95,12 @@ const LIVE_KIND: ContentKind = 'live';
 
 /** One entry of the rail. */
 export interface RailEntry {
-  /** `all`: every category of every source the rail shows, in its order; `list`: a favourites list (step 35c). */
-  readonly kind: 'all' | 'category' | 'list';
+  /**
+   * `all`: every category of every source the rail shows, in its order; `list`: a favourites list
+   * (step 35c); `locked`: the last entry while something is locked (step 38b: "Locked groups", or
+   * "Lock again" once unlocked).
+   */
+  readonly kind: 'all' | 'category' | 'list' | 'locked';
   /** The provider's category name (`''`: the playlist gave none); a list's name (`''`: "Favourites"). Unused for `all`. */
   readonly name: string;
   /** Its channels; a list's size (its keys, found or not). */
@@ -109,7 +113,21 @@ export interface RailEntry {
   readonly list?: FavouriteList;
   /** Its source's name, when another source has a group of the same name on the rail (step 36d; `category` entries only). */
   readonly source?: string;
+  /** A locked group shown in an unlocked session (step 38b; `category` entries only): its chip has an open lock. */
+  readonly opened?: true;
+  /** The `locked` entry: the session is unlocked ("Lock again"). */
+  readonly unlocked?: boolean;
 }
+
+/** Parental control as a rail reads it (step 38b): the session unlocked, and whether the screen's kind has anything locked. */
+export interface RailLocks {
+  readonly unlocked: boolean;
+  /** The rail ends with the `locked` entry. */
+  readonly entry: boolean;
+}
+
+/** The session as `lockState` says when it can't be read: locked, with no entry. */
+export const NO_LOCKS: RailLocks = { unlocked: false, entry: false };
 
 /** A source as the rail reads it: its id, its name (step 36d: the tag on a same-named group; none: no tag) and its categories. */
 export interface RailSource {
@@ -149,6 +167,8 @@ export interface LiveEngine {
   nowNext(keys: ContentKey[], at?: number): Promise<EpgNowNext[]>;
   focusChannel(channel: FocusedChannel | null): Promise<ShortEpgNowNext | null>;
   noteActivity(): void;
+  /** Parental control as it stands (step 38b; absent: a locked session with nothing to unlock). */
+  lockState?(): Promise<LockState>;
 }
 
 export interface Timers {
@@ -196,6 +216,8 @@ export interface LiveOptions {
   readonly openSearch?: () => void;
   /** OK on the header's "Home" button (step 28b1): Home opens. */
   readonly openHome?: () => void;
+  /** OK on the rail's last entry (step 38b): "Locked groups" or "Lock again". */
+  readonly lockEntry?: () => void;
 }
 
 /** Where the search found a channel (step 28a: a `SearchHit`'s place, and the item's key). */
@@ -282,6 +304,11 @@ export interface Live {
    * (step 36b): everything is read again, as for a catalog swap. Settles once the new rail is in.
    */
   channelsChanged(): Promise<void>;
+  /**
+   * The session unlocked or locked again (step 38b): everything is read again, as for a catalog
+   * swap; a focus on the rail moves to the first group that came back, or to "Locked groups".
+   */
+  lockChanged(unlocked: boolean): Promise<void>;
   dispose(): void;
 }
 
@@ -292,6 +319,8 @@ interface SourcesRead {
   readonly lists: CategoryInfo[][];
   /** The profile's document (`null`: none). */
   readonly doc: unknown;
+  /** Parental control as the rail reads it (step 38b). */
+  readonly locks: RailLocks;
 }
 
 interface GuideEntry {
@@ -369,8 +398,13 @@ function placesOf(groups: readonly GroupRef[]): Record<string, number> {
  *
  * A group whose name another source's group on the rail has too (`groupNameKey`) carries its
  * source's name (step 36d, `source`).
+ *
+ * Parental control (step 38b, `locks`; absent: a locked session with no entry): while the session
+ * is locked, a category the query worker marks `locked` is left out as a hidden group is (places
+ * kept). Unlocked, it is in its place, `opened`. The rail ends with the `locked` entry when
+ * `locks.entry` says the kind has something locked.
  */
-export function railEntries(sources: readonly RailSource[], shape?: RailShape): RailEntry[] {
+export function railEntries(sources: readonly RailSource[], shape?: RailShape, locks: RailLocks = NO_LOCKS): RailEntry[] {
   const hidden = placesOf(shape === undefined ? [] : shape.hidden);
   const order = placesOf(shape === undefined ? [] : shape.order);
   /** The shown groups in the provider's order, and those the user ordered, by their place in `order`. */
@@ -386,8 +420,11 @@ export function railEntries(sources: readonly RailSource[], shape?: RailShape): 
       at += info.count;
       const count = info.count - (part.hidden === undefined ? 0 : part.hidden.length);
       const id = groupId({ src: source.src, name: info.name });
-      if (hidden[id] !== undefined || count <= 0) continue;
-      const entry: RailEntry = { kind: 'category', name: info.name, count, parts: [part], allStart: part.first };
+      const locked = info.locked === true;
+      if (hidden[id] !== undefined || count <= 0 || (locked && !locks.unlocked)) continue;
+      const entry: RailEntry = locked
+        ? { kind: 'category', name: info.name, count, parts: [part], allStart: part.first, opened: true }
+        : { kind: 'category', name: info.name, count, parts: [part], allStart: part.first };
       const place = order[id];
       // (A second category of a source with the same name, as an Xtream panel may have, keeps the provider's order.)
       if (place === undefined || ordered[place] !== undefined) rest.push(entry);
@@ -412,7 +449,18 @@ export function railEntries(sources: readonly RailSource[], shape?: RailShape): 
     const list = lists[i]!;
     out.push({ kind: 'list', name: list.name === null ? '' : list.name, count: list.keys.length, parts: [], allStart: 0, list });
   }
-  return out.concat(groups);
+  const rail = out.concat(groups);
+  if (locks.entry) rail.push({ kind: 'locked', name: '', count: 0, parts: [], allStart: 0, unlocked: locks.unlocked });
+  return rail;
+}
+
+/**
+ * Where a rail's focus goes after the session unlocked or locked (step 38b): unlocked, the first
+ * group that came back (`opened`); locked, the `locked` entry. `-1`: neither is on the rail.
+ */
+export function lockFocus(entries: readonly { readonly kind: string; readonly opened?: true }[], unlocked: boolean): number {
+  for (let i = 0; i < entries.length; i += 1) if (unlocked ? entries[i]!.opened === true : entries[i]!.kind === 'locked') return i;
+  return unlocked ? lockFocus(entries, false) : -1;
 }
 
 /**
@@ -455,7 +503,7 @@ function tagSources(groups: RailEntry[], names: Record<string, string>): void {
     const g = groups[i]!;
     const source = names[g.parts[0]!.src];
     if (firstSrc[keys[i]!] !== '' || source === undefined || source === '') continue;
-    groups[i] = { kind: g.kind, name: g.name, count: g.count, parts: g.parts, allStart: g.allStart, source };
+    groups[i] = g.opened === true ? { kind: g.kind, name: g.name, count: g.count, parts: g.parts, allStart: g.allStart, source, opened: true } : { kind: g.kind, name: g.name, count: g.count, parts: g.parts, allStart: g.allStart, source };
   }
 }
 
@@ -489,6 +537,22 @@ export function categoryParts(sources: readonly RailSource[]): Map<string, ListP
     }
   }
   return out;
+}
+
+/**
+ * Parental control as a rail of `kind` reads it (step 38b): the session, and whether `kind` has
+ * anything locked. An engine without `lockState`, or a read that failed: a locked session with no
+ * entry (locked groups stay out of sight).
+ */
+export function readLocks(engine: { lockState?(): Promise<LockState> }, kind: ContentKind): Promise<RailLocks> {
+  if (engine.lockState === undefined) return Promise.resolve(NO_LOCKS);
+  return engine.lockState().then(
+    (state) => ({ unlocked: state.unlocked, entry: state.kinds.indexOf(kind) !== -1 }),
+    (error: unknown) => {
+      console.warn('The locks could not be read', error);
+      return NO_LOCKS;
+    },
+  );
 }
 
 /** The entry of `entries` that `ref` names: a category of that source with that name, or a list by its id (`-1`: none). */
@@ -1012,9 +1076,11 @@ export function createLive(options: LiveOptions): Live {
   };
 
   const showCategory = (i: number): void => {
-    const picked = rail.value[i];
+    // ("Locked groups" lists nothing: "All channels" instead.)
+    const at = rail.value[i] !== undefined && rail.value[i]!.kind === 'locked' ? 0 : i;
+    const picked = rail.value[at];
     if (picked === undefined) return;
-    category.value = i;
+    category.value = at;
     setList(picked);
     // Back to the top first, so no step reads chunks for the old window in the new list.
     home.reset('channels');
@@ -1039,12 +1105,12 @@ export function createLive(options: LiveOptions): Live {
     return settle;
   };
 
-  /** The stored sources, each one's live categories, and the profile's document (its lists and groups, step 35c). */
+  /** The stored sources, each one's live categories, the profile's document (its lists and groups, step 35c) and the locks (step 38b). */
   const readSources = async (): Promise<SourcesRead> => {
     const profile = await engine.profile();
     const records = storedSources(profile);
-    const lists = await Promise.all(records.map((r) => engine.categories(r.id, LIVE_KIND)));
-    return { records, lists, doc: profile === null ? null : profile.doc };
+    const read = await Promise.all([Promise.all(records.map((r) => engine.categories(r.id, LIVE_KIND))), readLocks(engine, LIVE_KIND)] as const);
+    return { records, lists: read[0], doc: profile === null ? null : profile.doc, locks: read[1] };
   };
 
   /** Takes the sources read: their short-EPG logins, the favourites lists and the rail (the list isn't touched). */
@@ -1060,7 +1126,7 @@ export function createLive(options: LiveOptions): Live {
     lists.value = favouriteListsOf(doc);
     const shape: RailShape = { lists: lists.value, hidden: hiddenGroupsOf(doc), order: groupOrderOf(doc) };
     const all: RailSource[] = read.records.map((r, i) => ({ src: r.id, name: r.name, categories: read.lists[i] ?? [] }));
-    const entries = railEntries(all, shape);
+    const entries = railEntries(all, shape, read.locks);
     parts = categoryParts(all);
     hiddenGroups = placesOf(shape.hidden);
     hiddenKeys = Object.create(null) as Record<string, true>;
@@ -1214,7 +1280,11 @@ export function createLive(options: LiveOptions): Live {
           else if (focus.index === HEADER_SERIES) options.openSeries?.();
           // The guide shows the list's channels: none while it loads, failed or is empty.
           else if (status.value === 'ready') options.openGuide?.(home.position('channels').index);
-        } else if (focus.zone === 'rail') showCategory(focus.index);
+        } else if (focus.zone === 'rail') {
+          const at = rail.value[focus.index];
+          if (at !== undefined && at.kind === 'locked') options.lockEntry?.();
+          else showCategory(focus.index);
+        }
         else if (focus.zone === 'retry') load();
         else if (focus.zone === 'channels') {
           const row = rowAt(focus.index);
@@ -1280,6 +1350,12 @@ export function createLive(options: LiveOptions): Live {
     catalogChanged: () => void reread(true),
     listsChanged: () => reread(false),
     channelsChanged: () => reread(true),
+    lockChanged: (unlocked) =>
+      reread(true).then(() => {
+        if (disposed || nav.top !== home || home.active !== 'rail') return;
+        const at = lockFocus(rail.value, unlocked);
+        if (at !== -1) home.focus('rail', at);
+      }),
     dispose(): void {
       if (disposed) return;
       disposed = true;

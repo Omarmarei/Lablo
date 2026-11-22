@@ -571,4 +571,19 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'lang.ml': 'المالايالامية',
   'lang.tl': 'الفلبينية',
   'lang.ku': 'الكردية',
+
+  // الرقابة الأبوية (RELAY step 38b): مدخل الشريط ولوحة الرمز السري.
+  'parental.lockedGroups': 'المجموعات المقفلة',
+  'parental.lockAgain': 'أقفلها مجددًا',
+  'parental.padTitle': 'اكتب رمزك السري',
+  'parental.returnTitle': 'اكتب رمزك السري للمتابعة',
+  'parental.padHint': 'استخدم أزرار الأرقام، أو اختر الأرقام من اللوحة.',
+  'parental.wrong': 'الرمز السري غير صحيح. حاول مجددًا.',
+  'parental.wait': 'محاولات كثيرة. حاول مجددًا بعد دقيقة.',
+  'parental.failed': 'تعذّر التحقق من الرمز السري. حاول مجددًا.',
+  'parental.delete': 'حذف',
+  'parental.boxes': '{n, plural, zero {لم يُكتب أي رقم من 4} one {كُتب رقم واحد من 4} two {كُتب رقمان من 4} few {كُتبت # أرقام من 4} many {كُتب # رقمًا من 4} other {كُتب # رقم من 4}}',
+  'parental.noPinTitle': 'المجموعات المقفلة',
+  'parental.noPinMessage': 'تحتاج المجموعات المقفلة إلى رمز سري. يمكنك تعيينه من الإعدادات.',
+  'parental.ok': 'حسنًا',
 };

@@ -2,12 +2,12 @@ import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
 import type { CatalogItem, ContentKey } from '@lablo/core';
 import type { CategoryInfo, LoadedProfile, ProfileEdit } from '@lablo/data';
-import type { FavouriteList, GroupRef, KeyItemsRequest } from '@lablo/data/client';
+import type { FavouriteList, GroupRef, KeyItemsRequest, LockState } from '@lablo/data/client';
 import { favouriteListsOf, groupId, groupOrderOf, hiddenGroupsOf } from '@lablo/data/client';
 import type { Intent, Platform } from '@lablo/platform-api';
 import type { EditorBinding, Focus, Navigator, Screen, ScreenSpec, TextEditorOptions, ZoneSpec } from '@lablo/ui';
 import { SCREEN, bindEditor, createTextEditor, fits } from '@lablo/ui';
-import { KEY_BATCH, railEntries } from '../live/live-state';
+import { KEY_BATCH, railEntries, readLocks } from '../live/live-state';
 import { storedSources } from '../onboarding/engine-loader';
 import { blank } from '../player/favourite-menu';
 
@@ -19,8 +19,9 @@ import { blank } from '../player/favourite-menu';
  *          the hidden ones marked; OK on one opens its menu)
  *
  * - **The rows** are read here: the profile, then each stored source's live categories. The
- *   groups come from the live screen's `railEntries` with nothing left out, so their order is the
- *   rail's by construction.
+ *   groups come from the live screen's `railEntries` with nothing left out but locked groups while
+ *   the session is locked (step 38b: out of sight until the PIN), so their order is the rail's by
+ *   construction. A move then stores the order without them: they follow the ordered groups.
  * - **The menus** (`GROUP_MENU`): a list's Channels (when it has any), Move (with two lists or
  *   more), Rename, Delete, Cancel; a group's Move (with two groups or more), Hide or Show, Cancel.
  * - **Move** picks the row up: UP and DOWN move it a place, CH+ and CH− a page, among the rows of
@@ -109,6 +110,8 @@ export interface GroupsEngine {
   categories(src: string, kind: 'live'): Promise<CategoryInfo[]>;
   itemsByKey(req: KeyItemsRequest): Promise<CatalogItem[]>;
   editProfile(edit: ProfileEdit): Promise<boolean>;
+  /** Parental control as it stands (step 38b; absent: a locked session). */
+  lockState?(): Promise<LockState>;
 }
 
 export interface GroupsOptions {
@@ -161,14 +164,16 @@ function rowId(row: GroupRow): string {
  * (the user's ordered groups first), hidden ones too and marked. A source's name shows only when
  * there are two sources or more.
  */
-export function groupRows(doc: unknown, sources: readonly { readonly id: string; readonly name: string; readonly categories: readonly CategoryInfo[] }[]): GroupRow[] {
+export function groupRows(doc: unknown, sources: readonly { readonly id: string; readonly name: string; readonly categories: readonly CategoryInfo[] }[], unlocked = false): GroupRow[] {
   const rows: GroupRow[] = [];
   const lists = favouriteListsOf(doc);
   for (let i = 0; i < lists.length; i += 1) rows.push({ kind: 'list', list: lists[i]! });
   const hidden = hiddenGroupsOf(doc).map(groupId);
+  // Locked groups (step 38b) only in an unlocked session; no "Locked groups" entry here.
   const entries = railEntries(
     sources.map((s) => ({ src: s.id, categories: s.categories })),
     { lists: [], hidden: [], order: groupOrderOf(doc) },
+    { unlocked, entry: false },
   );
   // (Entry 0 is "All channels".)
   for (let i = 1; i < entries.length; i += 1) {
@@ -242,6 +247,8 @@ function listZone(id: string, count: number): ZoneSpec {
 interface Read {
   readonly doc: unknown;
   readonly sources: { readonly id: string; readonly name: string; readonly categories: CategoryInfo[] }[];
+  /** The session is unlocked (step 38b): the locked groups are listed. */
+  readonly unlocked: boolean;
 }
 
 export function createGroups(options: GroupsOptions): Groups {
@@ -333,14 +340,15 @@ export function createGroups(options: GroupsOptions): Groups {
     return track(async (): Promise<Read> => {
       const profile = await engine.profile();
       const records = storedSources(profile);
-      const lists = await Promise.all(records.map((r) => engine.categories(r.id, 'live')));
-      return { doc: profile === null ? null : profile.doc, sources: records.map((r, i) => ({ id: r.id, name: r.name, categories: lists[i]! })) };
+      const read = await Promise.all([Promise.all(records.map((r) => engine.categories(r.id, 'live'))), readLocks(engine, 'live')] as const);
+      const lists = read[0];
+      return { doc: profile === null ? null : profile.doc, sources: records.map((r, i) => ({ id: r.id, name: r.name, categories: lists[i]! })), unlocked: read[1].unlocked };
     }).then(
       (got) => {
         if (disposed || seq !== readSeq) return;
         srcIds = got.sources.map((s) => s.id);
         names = poolNames(got.doc);
-        rows.value = groupRows(got.doc, got.sources);
+        rows.value = groupRows(got.doc, got.sources, got.unlocked);
         status.value = 'ready';
         place(wanted);
         const shown = list.value;

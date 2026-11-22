@@ -626,6 +626,21 @@ export const EN = {
   'lang.ml': 'Malayalam',
   'lang.tl': 'Filipino',
   'lang.ku': 'Kurdish',
+
+  // Parental control (RELAY step 38b): the rail's entry, the PIN pad.
+  'parental.lockedGroups': 'Locked groups',
+  'parental.lockAgain': 'Lock again',
+  'parental.padTitle': 'Enter your PIN',
+  'parental.returnTitle': 'Enter your PIN to carry on',
+  'parental.padHint': 'Use the number keys, or pick the digits.',
+  'parental.wrong': 'Wrong PIN. Try again.',
+  'parental.wait': 'Too many tries. Try again in a minute.',
+  'parental.failed': "Couldn't check the PIN. Try again.",
+  'parental.delete': 'Delete',
+  'parental.boxes': '{n, plural, one {# digit of 4 typed} other {# digits of 4 typed}}',
+  'parental.noPinTitle': 'Locked groups',
+  'parental.noPinMessage': 'Locked groups need a PIN. You can set one in Settings.',
+  'parental.ok': 'OK',
 } as const;
 
 export type MessageKey = keyof typeof EN;

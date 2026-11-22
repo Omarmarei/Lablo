@@ -5,7 +5,7 @@ import type { KeyItemsRequest, LastChannel, LoadedProfile, RecentItem, RecentReq
 import type { Focus, Navigator, Screen, ZoneSpec } from '@lablo/ui';
 import { LAYOUT, SCREEN, fits } from '@lablo/ui';
 import type { Timers } from '../live/live-state';
-import { LIVE } from '../live/live-state';
+import { KEY_BATCH, LIVE } from '../live/live-state';
 import type { MovieShares } from '../movies/movie-progress';
 import { CONTINUE_MAX } from '../movies/movies-state';
 import { POSTER_TIERS, PosterLoader } from '../movies/posters';
@@ -29,7 +29,8 @@ import { storedSources } from '../onboarding/engine-loader';
  *   with nothing isn't shown; with nothing at all the screen says so in one line.
  * - **Recent channels** (step 28b2): the player memory's channels played last (`channels`, the
  *   profile's version 7 list, kept up to date as channels play) from the stored sources, as
- *   landscape channel tiles (the logo, else the name). OK plays one from its group on the live
+ *   landscape channel tiles (the logo, else the name); those the query worker still gives (step
+ *   38b: never a locked one while the session is locked). OK plays one from its group on the live
  *   list (`play`: `Live.playKept`), the player over Home; Back from it returns to Home, where
  *   the channel now leads the shelf, the focus on it.
  * - **Keys:** LEFT/RIGHT along a shelf (mirrored in Arabic), UP/DOWN between the shelves shown,
@@ -352,16 +353,32 @@ export function createHome(options: HomeOptions): Home {
 
   const items = (found: RecentItem[]): CatalogItem[] => found.map((r) => r.item);
 
-  /** "Recent channels": the channels played last from sources `ids`, at most `HOME_SHELF_MAX` (none without the memory). */
-  const readChannels = (ids: readonly string[]): LastChannel[] => {
+  /**
+   * "Recent channels": the channels played last from sources `ids`, at most `HOME_SHELF_MAX` (none
+   * without the memory), each one the query worker still gives (step 38b: a locked one while the
+   * session is locked, or one gone from its catalog, is left out).
+   */
+  const readChannels = (ids: readonly string[]): Promise<LastChannel[]> => {
     const memory = options.channels;
-    if (memory === undefined) return [];
+    if (memory === undefined) return Promise.resolve([]);
     const all = memory.recent();
     channelsRead = all;
-    const out: LastChannel[] = [];
+    const mine: LastChannel[] = [];
+    const keys: ContentKey[] = [];
     // A removed source's channels are left out.
-    for (let i = 0; i < all.length && out.length < HOME_SHELF_MAX; i += 1) if (ids.indexOf(all[i]!.item.src) !== -1) out.push(all[i]!);
-    return out;
+    for (let i = 0; i < all.length && keys.length < KEY_BATCH; i += 1) {
+      if (ids.indexOf(all[i]!.item.src) === -1) continue;
+      mine.push(all[i]!);
+      keys.push(all[i]!.item.key);
+    }
+    if (keys.length === 0) return Promise.resolve([]);
+    return engine.itemsByKey({ keys, kind: 'live', sources: ids.slice(), limit: keys.length }).then((found) => {
+      const given = Object.create(null) as Record<string, true>;
+      for (let i = 0; i < found.length; i += 1) given[found[i]!.key] = true;
+      const out: LastChannel[] = [];
+      for (let i = 0; i < mine.length && out.length < HOME_SHELF_MAX; i += 1) if (given[mine[i]!.item.key] === true) out.push(mine[i]!);
+      return out;
+    });
   };
 
   /** The stored sources, then every shelf. */
@@ -373,8 +390,9 @@ export function createHome(options: HomeOptions): Home {
       readContinued(ids),
       engine.recent({ sources: ids, kind: 'movie', limit: HOME_SHELF_MAX }),
       engine.recent({ sources: ids, kind: 'series', limit: HOME_SHELF_MAX }),
+      readChannels(ids),
     ] as const);
-    return { ids, lists: { continue: read[0], channels: readChannels(ids), movies: items(read[1]), series: items(read[2]) } };
+    return { ids, lists: { continue: read[0], channels: read[3], movies: items(read[1]), series: items(read[2]) } };
   };
 
   /** Reads every shelf. `kept`: a catalog swap's focused tile; without it, the loading screen first. */
@@ -430,7 +448,15 @@ export function createHome(options: HomeOptions): Home {
   const refreshChannels = (shown: Screen): void => {
     const memory = options.channels;
     if (memory === undefined || status.value !== 'ready' || memory.recent() === channelsRead) return;
-    apply(shown, { continue: lists.continue, channels: readChannels(sourceIds), movies: lists.movies, series: lists.series }, keep(shown));
+    const mine = seq;
+    track(readChannels(sourceIds)).then(
+      (channels) => {
+        // (A load since reads them too.)
+        if (disposed || mine !== seq || screen.value !== shown) return;
+        apply(shown, { continue: lists.continue, channels, movies: lists.movies, series: lists.series }, keep(shown));
+      },
+      (error: unknown) => console.warn('"Recent channels" could not be read', error),
+    );
   };
 
   const close = (): void => {

@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact';
 import type { FocusableProps } from './focusable';
 import { focusClass } from './focusable';
 import './Chip.css';
@@ -16,10 +17,12 @@ export interface ChipProps extends FocusableProps {
    * label's name): the user's text, its own direction, never translated.
    */
   readonly source?: string;
+  /** An icon before the label (RELAY step 38b: a lock), drawn in the text's colour. */
+  readonly icon?: ComponentChildren;
 }
 
 /** One category of a rail. */
-export function Chip({ label, selected = false, count, data = false, source, state, onHover, onPress, testId }: ChipProps) {
+export function Chip({ label, selected = false, count, data = false, source, icon, state, onHover, onPress, testId }: ChipProps) {
   return (
     <div
       class={focusClass(`z-chip${selected ? ' is-selected' : ''}`, state)}
@@ -30,6 +33,11 @@ export function Chip({ label, selected = false, count, data = false, source, sta
       onMouseMove={onHover}
       onClick={onPress}
     >
+      {icon !== undefined && (
+        <span class="z-chip__icon" aria-hidden="true">
+          {icon}
+        </span>
+      )}
       <span class="z-chip__label" dir={data ? 'auto' : undefined} translate={data ? false : undefined}>
         {label}
       </span>

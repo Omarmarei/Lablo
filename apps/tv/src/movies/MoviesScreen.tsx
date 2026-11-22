@@ -1,5 +1,6 @@
 import type { Focus, FocusBinding } from '@lablo/ui';
 import { Button, Chip, LAYOUT, Spinner, Tile, VirtualGrid, VirtualList, useZone } from '@lablo/ui';
+import { railIcon } from '../parental/icons';
 import type { AppI18n, MessageKey } from '../i18n';
 import { LIVE } from '../live/live-state';
 import type { MovieEntry, Movies, PosterKind } from './movies-state';
@@ -61,6 +62,8 @@ function entryLabel(entry: MovieEntry, t: AppI18n['t'], words: Words): { label: 
   if (entry.kind === 'continue') return { label: t('continue.title'), data: false };
   if (entry.kind === 'recent') return { label: t(words.recent), data: false };
   if (entry.kind === 'all') return { label: t(words.all), data: false };
+  // The rail's last entry (step 38b).
+  if (entry.kind === 'locked') return { label: t(entry.unlocked === true ? 'parental.lockAgain' : 'parental.lockedGroups'), data: false };
   if (entry.name === '') return { label: t(words.noGroup), data: false };
   return { label: entry.name, data: true };
 }
@@ -168,7 +171,7 @@ export function MoviesScreen({ movies, i18n, binding, focus, clock }: Props) {
               const at = entries[i];
               if (at === undefined) return null;
               const { label, data } = entryLabel(at, t, words);
-              return <Chip label={label} data={data} source={at.source} selected={i === shown} count={i18n.number(at.count)} {...item} testId={`${ids.screen}-chip-${i}`} />;
+              return <Chip label={label} data={data} source={at.source} icon={railIcon(at)} selected={i === shown} count={at.kind === 'locked' ? undefined : i18n.number(at.count)} {...item} testId={`${ids.screen}-chip-${i}`} />;
             }}
           />
           <VirtualGrid
