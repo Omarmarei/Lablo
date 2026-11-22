@@ -654,6 +654,19 @@ describe("runIngest: an upgrade's login (step 37a)", () => {
     expect(inner.requests.map((q) => q.url)).toEqual([API]);
   });
 
+  it('limits the login only: lists that take longer than the limit after it are read to their end', async () => {
+    const inner = fakeTransport((url) => (url === API ? { body: LOGIN } : lists(url)));
+    // Each list answers 30 ms late: the limit is 20 ms.
+    const transport: ByteTransport = {
+      get: async (url, request) => {
+        if (url !== API) await new Promise((resolve) => setTimeout(resolve, 30));
+        return inner.get(url, request);
+      },
+    };
+    expect(await upgrade(transport)).toMatchObject({ status: 'committed', counts: { live: 1 } });
+    expect(inner.cancelled).toBe(0);
+  });
+
   it('keeps the limit off a source added as Xtream: its slow login is waited for', async () => {
     const inner = fakeTransport((url) => (url === API ? { body: LOGIN } : lists(url)));
     const transport: ByteTransport = {
