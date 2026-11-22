@@ -67,6 +67,8 @@ function row(i: number): LiveRow {
 /** The live screen's list: rows `0…COUNT-1`, those in `loaded` known at once; loads and searches held until the test answers. */
 class FakeList implements ZapList {
   readonly loaded = new Set<number>([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  /** A row that is a radio channel (step 37b; `-1`: none). */
+  radioAt = -1;
   readonly loads: { index: number; resolve: () => void }[] = [];
   /** One read per row while it is on its way (the live screen joins reads of a chunk). */
   private readonly reading = new Map<number, Promise<LiveRow | null>>();
@@ -82,7 +84,9 @@ class FakeList implements ZapList {
   }
 
   row(index: number): LiveRow | null {
-    return this.loaded.has(index) ? row(index) : null;
+    if (!this.loaded.has(index)) return null;
+    const shown = row(index);
+    return index === this.radioAt ? { item: { ...shown.item, radio: true }, number: shown.number } : shown;
   }
 
   load(index: number): Promise<LiveRow | null> {
@@ -3483,5 +3487,73 @@ describe('the pinned channel (RELAY step 36c)', () => {
     expect(shown).toEqual(row(2));
     expect(t.player.row(2)).not.toBe(null);
     stop();
+  });
+});
+
+describe('the player: a radio channel (RELAY step 37b)', () => {
+  const LOGO = 'http://panel.test/logos/radio-1.png';
+  /** Row 3 as a radio channel. */
+  const RADIO: LiveRow = { item: { ...row(3).item, key: 'x:s1:live:radio', name: 'Radio 1', url: 'http://panel.test/live/u/p/800.ts', radio: true, logo: LOGO }, number: 4 };
+
+  it('plays it saying its stream has no picture; the next channel, not radio, says nothing', async () => {
+    const t = setup();
+    t.player.over(RADIO, 3);
+    expect(t.controller.plays).toEqual([liveRequest(RADIO)]);
+    expect(t.controller.plays[0]!.hints).toEqual({ audioOnly: true });
+    expect(t.controller.plays[0]!.candidates.map((c) => c.url)).toEqual(['http://panel.test/live/u/p/800.ts', 'http://panel.test/live/u/p/800.m3u8']);
+    await t.press('CH_UP');
+    t.clock.advance(ZAP_DELAY_MS);
+    await flush();
+    expect(t.controller.plays[1]).toEqual(liveRequest(row(4)));
+    expect(Object.keys(t.controller.plays[1]!)).not.toContain('hints');
+  });
+
+  it("keeps the radio card's logo that failed to load, the last one", () => {
+    const t = setup();
+    expect(t.player.failedLogo.value).toBeNull();
+    t.player.logoFailed(LOGO);
+    expect(t.player.failedLogo.value).toBe(LOGO);
+    t.player.logoFailed('http://panel.test/logos/radio-2.png');
+    expect(t.player.failedLogo.value).toBe('http://panel.test/logos/radio-2.png');
+  });
+
+  it('shows the radio card while the radio plays, its logo until it fails, and through a zap that waits', async () => {
+    const t = setup();
+    t.player.over(RADIO, 3);
+    // "Connecting" has the middle.
+    expect(t.player.radio()).toBeNull();
+    t.controller.set('playing');
+    expect(t.player.radio()).toEqual({ name: 'Radio 1', logo: LOGO });
+    t.controller.set('paused');
+    expect(t.player.radio()).toEqual({ name: 'Radio 1', logo: LOGO });
+    t.controller.set('playing');
+    t.player.logoFailed(LOGO);
+    expect(t.player.radio()).toEqual({ name: 'Radio 1', logo: null });
+    // CH+: the zap waits, the radio still plays, and its card stays (the bar shows the next channel).
+    await t.press('CH_UP');
+    expect([t.player.target.value, t.player.playing.value]).toEqual([4, 3]);
+    expect(t.player.radio()).toEqual({ name: 'Radio 1', logo: null });
+    t.clock.advance(ZAP_DELAY_MS);
+    await flush();
+    // Row 4 opens, then plays: it has a picture.
+    expect(t.player.playing.value).toBe(4);
+    expect(t.player.radio()).toBeNull();
+    t.controller.set('playing');
+    expect(t.player.radio()).toBeNull();
+  });
+
+  it("shows none over a movie, though the last channel's row is still the one that played", () => {
+    const t = setup();
+    t.list.radioAt = 3;
+    t.player.show(3);
+    t.controller.set('playing');
+    expect(t.player.radio()).toEqual({ name: 'Channel 3', logo: null });
+    t.player.close();
+    expect(t.player.radio()).toBeNull();
+    const film: CatalogItem = { ...row(0).item, key: 'x:s1:movie:201', kind: 'movie', name: 'Sintel', url: 'http://panel.test/movie/u/p/201.mkv' };
+    t.player.playMovie({ item: film, request: { key: film.key, src: 's1', mode: 'vod', candidates: [{ url: film.url, container: 'mkv' }] }, lengthMs: null, closed: () => undefined });
+    t.controller.set('playing');
+    expect(t.player.playing.value).toBe(3);
+    expect(t.player.radio()).toBeNull();
   });
 });

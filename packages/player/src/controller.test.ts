@@ -497,6 +497,26 @@ describe('PlayerController: retries and URLs', () => {
     expect(plain.engine.loads.map((l) => l.opts)).toEqual([{}, {}]);
   });
 
+  it("tells the engine a radio stream has no picture (`hints.audioOnly`, step 37b), on each of its session's loads", async () => {
+    const r = rig((_s, n) => (n === 1 ? { frameMs: null, error: { atMs: 300, error: NETWORK } } : {}));
+    void r.player.play({ ...live(1), hints: { audioOnly: true } });
+    await r.clock.advance(400);
+    // The `.ts` failed: the `.m3u8` is radio too.
+    expect(r.engine.loads.map((l) => l.opts)).toStrictEqual([{ audioOnly: true }, { audioOnly: true }]);
+    // A catch-up's start goes with it.
+    void r.player.play({ ...vod(2), mode: 'catchup', hints: { audioOnly: true } }, { startMs: 9000 });
+    await r.clock.advance(100);
+    expect(r.engine.loads[2]!.opts).toStrictEqual({ startMs: 9000, audioOnly: true });
+    // No hint, a false one or another one: nothing said.
+    void r.player.play({ ...live(3), hints: { audioOnly: false } });
+    await r.clock.advance(100);
+    void r.player.play({ ...live(4), hints: { uhd: true } });
+    await r.clock.advance(100);
+    void r.player.play(live(5));
+    await r.clock.advance(100);
+    expect(r.engine.loads.slice(3).map((l) => l.opts)).toStrictEqual([{}, {}, {}]);
+  });
+
   it("remembers the source's container that played, for live requests only", async () => {
     const memory = new MemorySourceMemory();
     const r = rig((s) => (s.container === 'ts' ? { loadError: { kind: 'http', code: 'PROBE', status: 404 } } : {}), { memory });

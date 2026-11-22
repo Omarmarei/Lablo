@@ -175,6 +175,31 @@ test.describe('Playback on the desktop: Html5Engine and the PlayerController on 
     expect(end.state).toBe('playing');
   });
 
+  test('radio (RELAY step 37b): its MP3 HLS plays with no picture when the request says so; unmarked, the same stream is NO_PICTURE', async ({ page }) => {
+    test.setTimeout(60_000);
+    await open(page);
+    const radio = { candidates: [{ url: `${base}/live/${U}/${P}/108.m3u8`, container: 'hls' as const }], mode: 'live' as const };
+    await play(page, { ...radio, hints: { audioOnly: true } });
+    await state(page, 'playing');
+    // Past the 5 s a picture would have had (NO_PICTURE_MS): still playing, its one first frame.
+    await page.waitForTimeout(6000);
+    const s = await snapshot(page);
+    expect(s.state).toBe('playing');
+    expect(s.trace.filter((t) => t.indexOf('load ') === 0)).toEqual(['load 1 hls audio-only']);
+    expect(s.trace.filter((t) => t.indexOf('firstFrame') === 0 || t.indexOf('error') === 0)).toEqual(['firstFrame 1']);
+    expect(s.stats.width).toBe(0);
+    await moving(page);
+    await stop(page);
+    await state(page, 'idle');
+
+    // Not marked radio: sound with no picture is the TV's limit, as for HEVC headless.
+    await play(page, radio);
+    const failed = await state(page, 'failed');
+    expect(failed.failure).toEqual({ category: 'device', code: 'TV-UNSUPPORTED', detail: 'NO_PICTURE', account: null });
+    expect(failed.trace.filter((t) => t.indexOf('load ') === 0)).toEqual(['load 1 hls audio-only', 'load 2 hls']);
+    expect(failed.trace).toContain('error 2 unsupported/NO_PICTURE');
+  });
+
   test("4K HEVC with no picture (headless desktop) is this TV's limit, not the provider's", async ({ page }) => {
     await open(page);
     const canHevc = await page.evaluate((mime) => (window as PlaybackTarget).__LABLO_PLAYBACK__?.canPlayType(mime), HEVC_MIME);

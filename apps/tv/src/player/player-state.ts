@@ -15,6 +15,8 @@ import type { ArchiveProgramme } from './catchup';
 import { MOVIE_STEP_MS, SEEK_STEP_MS, seekStep } from './catchup';
 import type { FavouriteHost, FavouriteMenu } from './favourite-menu';
 import { createFavouriteMenu } from './favourite-menu';
+import type { RadioCard } from './radio';
+import { channelRequest, radioCard } from './radio';
 import type { StreamInfoPanel } from './stream-info';
 import { createStreamInfo } from './stream-info';
 import type { SubtitleSize, TrackMenu, TrackSection } from './track-menu';
@@ -374,6 +376,16 @@ export interface Player {
   readonly upNext: ReadonlySignal<UpNext | null>;
   /** The config's rule that refused the last play, or stopped the stream (step 30c2b; `null`: none). */
   readonly refused: ReadonlySignal<Refusal | null>;
+  /** The radio card's last logo that failed to load (step 37b; `null`: none): the card shows the radio mark for it. */
+  readonly failedLogo: ReadonlySignal<string | null>;
+  /** The radio card's logo `url` failed to load. */
+  logoFailed(url: string): void;
+  /**
+   * The radio card (step 37b; `null`: none): the channel whose stream plays, while it plays (a
+   * waiting zap leaves it up, as it would a picture), never over a movie. Reads signals: a screen
+   * that calls it draws again when they change.
+   */
+  radio(): RadioCard | null;
   /** Opens the player on row `index` of the list and plays it at once. */
   show(index: number): void;
   /**
@@ -443,10 +455,11 @@ function cardZone(count: number): ZoneSpec {
 
 /**
  * A live channel's request: Xtream live tries `.ts`, then `.m3u8` (`streamCandidates`), only
- * those of the two the account's `allowed_output_formats` allow when it names either.
+ * those of the two the account's `allowed_output_formats` allow when it names either. A radio
+ * channel's says its stream has no picture (step 37b).
  */
 export function liveRequest(row: LiveRow, outputFormats: readonly string[] | null = null): PlayRequest {
-  return { key: row.item.key, src: row.item.src, mode: 'live', candidates: streamCandidates(row.item.url, 'live', outputFormats) };
+  return channelRequest(row, 'live', streamCandidates(row.item.url, 'live', outputFormats));
 }
 
 const defaultTimers: Timers = {
@@ -475,6 +488,7 @@ export function createPlayer(options: PlayerOptions): Player {
   const actions = signal<readonly PlayerAction[]>(CHANNEL_ACTIONS);
   const upNext = signal<UpNext | null>(null);
   const refused = signal<Refusal | null>(null);
+  const failedLogo = signal<string | null>(null);
   const keyClock = options.now ?? Date.now;
   const wall = options.clock ?? Date.now;
 
@@ -1355,6 +1369,13 @@ export function createPlayer(options: PlayerOptions): Player {
     actions,
     upNext,
     refused,
+    failedLogo,
+    logoFailed(url: string): void {
+      failedLogo.value = url;
+    },
+    radio(): RadioCard | null {
+      return radioCard(rowAt(playing.value), status.value.state, movie.value !== null, failedLogo.value);
+    },
     show(index: number): void {
       if (openScreen()) go(index);
     },

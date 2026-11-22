@@ -37,7 +37,8 @@ export interface PlayRequest {
   /** The URLs to try, in order (`streamCandidates`). */
   readonly candidates: readonly PlayCandidate[];
   readonly externalSubs?: readonly ExternalSub[];
-  readonly hints?: { readonly uhd?: boolean };
+  /** `audioOnly`: a radio channel (RELAY step 37b), whose stream has no picture (`LoadOptions.audioOnly`). */
+  readonly hints?: { readonly uhd?: boolean; readonly audioOnly?: boolean };
 }
 
 /** The container a URL's path names: `.m3u8` is HLS, `.ts` (or Flussonic's `/mpegts`) MPEG-TS. */

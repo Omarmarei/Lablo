@@ -89,6 +89,46 @@ html[data-player='on'] .player-stage {
   text-shadow: 0 2px 8px #000;
 }
 
+/*
+ * The radio card (step 37b), in place of the picture: the logo whole in a 16:9 box (or the radio
+ * mark), the name and the "Radio" badge, in the middle of the dark stage, clear of the corners'
+ * stream info and number and of the info bar.
+ */
+.player__radio {
+  position: absolute;
+  left: 360px;
+  right: 360px;
+  top: 300px;
+  text-align: center;
+}
+
+.player__radio-logo {
+  display: block;
+  width: 400px;
+  height: 224px;
+  margin: 0 auto;
+  object-fit: contain;
+}
+
+.player__radio-mark {
+  display: block;
+  width: 176px;
+  height: 176px;
+  margin: 24px auto;
+  color: var(--color-text-muted);
+}
+
+.player__radio-name {
+  margin: var(--space-6) 0 var(--space-4);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-display);
+  line-height: var(--line-height-display);
+  font-weight: var(--font-weight-bold);
+  text-shadow: 0 2px 8px #000;
+}
+
 /* The top-start corner: "Reconnecting…" over the picture that stays, and the stream info under it. */
 .player__top {
   position: absolute;

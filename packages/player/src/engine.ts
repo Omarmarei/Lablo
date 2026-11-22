@@ -162,6 +162,11 @@ export interface EngineCaps {
 export interface LoadOptions {
   /** A VOD or catch-up position to start from, in ms. */
   readonly startMs?: number;
+  /**
+   * The stream has no picture (radio, RELAY step 37b): its first frame is its clock moving. A TV
+   * can't tell an audio-only stream from a picture it can't decode, so only the request says so.
+   */
+  readonly audioOnly?: boolean;
 }
 
 export interface PlayerEngine {

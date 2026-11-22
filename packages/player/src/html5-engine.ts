@@ -7,7 +7,9 @@
  *   and its clock has moved (polled every 50 ms). A stream that plays sound with no picture (a
  *   video codec the TV can't decode, such as HEVC in headless desktop Chromium) fails as
  *   `unsupported`/`NO_PICTURE` once 5 s of it played, instead of an open timeout that would be
- *   blamed on the provider. Audio-only streams (radio) wait for step 37.
+ *   blamed on the provider. A radio channel's load (`LoadOptions.audioOnly`, RELAY step 37b) has
+ *   no picture to wait for: its first frame is the clock moving, and it never fails as
+ *   `NO_PICTURE`.
  * - **Errors:** `MediaError` codes by kind. `MEDIA_ERR_SRC_NOT_SUPPORTED` also covers HTTP errors
  *   and panels' error pages, so it is `unsupported` (never retried on the same URL) only when the
  *   element says it can't play the container at all (`canPlayType` ''), and only for containers
@@ -137,6 +139,8 @@ export interface Html5EngineOptions {
 interface Load {
   readonly token: number;
   readonly source: EngineSource;
+  /** No picture is coming (radio): the clock moving is the first frame. */
+  readonly audioOnly: boolean;
   /** Where to start (ms), applied once the metadata is in; null: the start, or the live edge. */
   startMs: number | null;
   /** The `load()` promise's ends, until it settles. */
@@ -224,6 +228,7 @@ export class Html5Engine implements PlayerEngine {
       const l: Load = {
         token,
         source,
+        audioOnly: opts.audioOnly === true,
         startMs: !source.live && start !== undefined && start > 0 ? start : null,
         settle: { resolve, reject },
         playingAt: null,
@@ -517,13 +522,13 @@ export class Html5Engine implements PlayerEngine {
     this.pollTimer = null;
   }
 
-  /** Looks for the first frame: a picture size and a clock that moved since `playing`. */
+  /** Looks for the first frame: a picture size (none for radio) and a clock that moved since `playing`. */
   private poll(l: Load): void {
     this.pollTimer = null;
     const playingAt = l.playingAt as number;
     const t = this.video.currentTime;
     if (t !== playingAt) {
-      if (this.video.videoWidth > 0) {
+      if (l.audioOnly || this.video.videoWidth > 0) {
         l.framed = true;
         this.emit({ type: 'firstFrame', token: l.token });
         return;

@@ -12,7 +12,8 @@
  *   then re-runs the redirect probe (`redirect-probe.ts`).
  * - **The first frame:** AVPlay paints on the TV's video plane, which the page can't see, so a
  *   frame is the clock moving while `PLAYING`: two readings (polled every 50 ms, or
- *   `oncurrentplaytime`) that differ. A jump to a VOD's start position is no frame.
+ *   `oncurrentplaytime`) that differ. A jump to a VOD's start position is no frame. So a radio
+ *   channel needs nothing more: `LoadOptions.audioOnly` (RELAY step 37b) is the `<video>`'s.
  * - **Errors:** AVPlay's `PLAYER_ERROR_*` names by kind (`avplayError`); the name stays the code.
  *   Only the "not supported" names are `unsupported` (never retried on the URL).
  * - **`stop()`:** `stop` and `close`, each on its own, which ends the connection; a pending
