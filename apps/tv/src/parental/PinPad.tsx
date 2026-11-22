@@ -5,6 +5,24 @@ import type { Parental } from './parental';
 import { NO_PIN_BUTTONS, PAD_CELLS, PAD_COLUMNS, PAD_DELETE, PIN_LENGTH, PIN_PAD, cellDigit } from './parental';
 import './parental.css';
 
+/** The pad's title for each purpose (step 38c: Settings' check, and a new PIN typed twice). */
+const TITLE_KEYS = {
+  rail: 'parental.padTitle',
+  check: 'parental.padTitle',
+  return: 'parental.returnTitle',
+  set: 'parental.setTitle',
+  again: 'parental.againTitle',
+} as const;
+
+/** The line under the boxes for each problem. */
+const PROBLEM_KEYS = {
+  wrong: 'parental.wrong',
+  wait: 'parental.wait',
+  failed: 'parental.failed',
+  mismatch: 'parental.mismatch',
+  unsaved: 'parental.unsaved',
+} as const;
+
 /**
  * The PIN pad (RELAY step 38b) over an opaque page, so nothing under it shows (the player's
  * picture included): the title, how to type, four boxes (a dot for each digit typed, never the
@@ -42,7 +60,7 @@ export function PinPadScreen({ parental, i18n, binding, focus }: { parental: Par
       </div>,
     );
   }
-  const problem = view.problem === null ? '' : t(view.problem === 'wrong' ? 'parental.wrong' : view.problem === 'wait' ? 'parental.wait' : 'parental.failed');
+  const problem = view.problem === null ? '' : t(PROBLEM_KEYS[view.problem]);
   const body = (
     <div class="pin__body">
       <p class="pin__boxes" role="img" aria-label={t('parental.boxes', { n: view.typed })} data-testid="pin-boxes" data-typed={view.typed}>
@@ -69,7 +87,7 @@ export function PinPadScreen({ parental, i18n, binding, focus }: { parental: Par
       data-index={focus.index}
       data-dir={focus.dir}
     >
-      <Dialog title={t(view.purpose === 'return' ? 'parental.returnTitle' : 'parental.padTitle')} message={t('parental.padHint')} body={body} testId="pin-dialog">
+      <Dialog title={t(TITLE_KEYS[view.purpose])} message={t('parental.padHint')} body={body} testId="pin-dialog">
         {null}
       </Dialog>
     </main>

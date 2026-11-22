@@ -50,7 +50,8 @@ import type { SourceDraft } from '../onboarding/form';
 import type { LoadResult } from '../onboarding/loader';
 import type { Pairing } from '../pairing/pair-state';
 import type { BackupPageEngine, BackupPageHost } from './backup-state';
-import { SETTINGS_ITEMS, SETTINGS_SCREENS, createSettings } from './settings-state';
+import { PARENTAL_SCREEN } from './parental-page';
+import { SETTINGS_ITEMS, SETTINGS_SCREENS, SETTINGS_VISIBLE, createSettings } from './settings-state';
 
 const PANEL: SourceRecord = {
   id: 's1',
@@ -1162,8 +1163,38 @@ describe('the settings screen', () => {
       telemetry: { engine: switchEngine, setOn },
     });
     expect(both.items).toEqual(['guides', 'sources', 'backup', 'telemetry', 'groups', 'channels']);
-    expect(SETTINGS_ITEMS).toEqual(['guides', 'sources', 'backup', 'telemetry', 'report', 'groups', 'channels']);
+    expect(SETTINGS_ITEMS).toEqual(['guides', 'sources', 'backup', 'telemetry', 'report', 'groups', 'channels', 'parental']);
     both.dispose();
+  });
+
+  it('lists "Parental control" last with the PIN pad (step 38c1), seven rows in view and the list scrolling to it', async () => {
+    const t = setup();
+    const pad = { ask: vi.fn(), choose: vi.fn() };
+    const settings = createSettings({
+      nav: t.nav,
+      engine: t.engine,
+      refreshNow: t.refresh.refreshNow,
+      offsetChanged: t.offsetChanged,
+      platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+      backup: { engine: {} as unknown as BackupPageEngine, host: { schedule: { held: signal(false), last: signal(null) } } as unknown as BackupPageHost },
+      telemetry: { engine: { profile: vi.fn(() => Promise.resolve(null)), editProfile: vi.fn() }, setOn: vi.fn() },
+      report: { send: vi.fn() },
+      pad,
+    });
+    expect(settings.items).toEqual(['guides', 'sources', 'backup', 'telemetry', 'report', 'groups', 'channels', 'parental']);
+    expect(settings.parental).not.toBeNull();
+    expect(SETTINGS_VISIBLE).toBe(7);
+    settings.open();
+    expect(t.nav.top.zone('items')).toMatchObject({ count: 8, visible: 7 });
+    for (let i = 0; i < 7; i += 1) await t.press('DOWN');
+    expect(t.at()).toBe('settings · items 7');
+    expect(t.nav.top.position('items').top).toBe(1);
+    await t.press('OK');
+    expect(t.nav.top.id).toBe(PARENTAL_SCREEN);
+    expect(settings.parental!.screen.value).toBe(t.nav.top);
+    await t.press('BACK');
+    expect(t.at()).toBe('settings · items 7');
+    settings.dispose();
   });
 
   it('lists "Send a report to support" (step 33d2) last: OK sends in place, and each opening clears its answer', async () => {
@@ -1209,13 +1240,14 @@ describe('the settings screen', () => {
       offsetChanged: t.offsetChanged,
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
     });
-    expect(SETTINGS_ITEMS).toEqual(['guides', 'sources', 'backup', 'telemetry', 'report', 'groups', 'channels']);
-    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'backup', 'backup-confirm', 'groups', 'group-menu', 'group-rename', 'group-delete', 'group-channels', 'group-channel-menu', 'channels', 'channel-edit', 'channel-rename', 'channel-number']);
+    expect(SETTINGS_ITEMS).toEqual(['guides', 'sources', 'backup', 'telemetry', 'report', 'groups', 'channels', 'parental']);
+    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'backup', 'backup-confirm', 'groups', 'group-menu', 'group-rename', 'group-delete', 'group-channels', 'group-channel-menu', 'channels', 'channel-edit', 'channel-rename', 'channel-number', 'parental', 'locked-groups']);
     // Without a backup page (step 32d2b) there is no "Backup" row, nor without a switch "Usage and crash reports" (step 33b3).
     expect(settings.backup).toBeNull();
     expect(settings.telemetry).toBeNull();
-    // Nor without its send "Send a report to support" (step 33d2).
+    // Nor without its send "Send a report to support" (step 33d2), nor without the PIN pad "Parental control" (step 38c1).
     expect(settings.report).toBeNull();
+    expect(settings.parental).toBeNull();
     expect(settings.items).toEqual(['guides', 'sources', 'groups', 'channels']);
     settings.open();
     expect(t.at()).toBe('settings · items 0');

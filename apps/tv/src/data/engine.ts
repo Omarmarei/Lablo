@@ -29,7 +29,7 @@
  * - `recent` gives the newest movies across the sources ("Recently added", step 26e), from the
  *   lists the ingest keeps;
  * - `itemsByKey` gives the catalog items of ContentKeys ("Continue watching", step 27d);
- * - `unlock`, `relock`, `lockState` and `setPin` are parental control's (step 38): the query worker
+ * - `unlock`, `checkPin`, `relock`, `lockState` and `setPin` are parental control's (step 38): the query worker
  *   checks the PIN, keeps the session's unlock and serves nothing locked while it is locked;
  * - a **config worker** starts for each config refresh (`refreshConfig`, step 30b2): it answers
  *   the cached copy's policy first (`onCached`), then fetches `GET <api>/v1/config`, and ends.
@@ -855,6 +855,14 @@ export class DataEngine {
    */
   unlock(pin: string): Promise<UnlockAnswer> {
     return this.query.call('unlock', { pin });
+  }
+
+  /**
+   * Whether `pin` is the PIN, the session left as it is (step 38c: Settings' "Parental control",
+   * "Unlock channel"); wrong ones count towards `unlock`'s wait.
+   */
+  checkPin(pin: string): Promise<UnlockAnswer> {
+    return this.query.call('checkPin', { pin });
   }
 
   /** Locks the session again (step 38: the app hidden, or "Lock again"). */

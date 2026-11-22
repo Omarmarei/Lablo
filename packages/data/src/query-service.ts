@@ -63,8 +63,9 @@
  *   starts locked), nothing of a locked category or channel is served: `chunk` gives none of its
  *   items, `items` gives `null` for them (and so `numbered` none), and `itemsByKey`, `search`,
  *   `recent` and `unmatched` leave them out. `unlock` checks the PIN (five wrong in a row: a
- *   minute's wait), `relock` locks again, `lockState` says how things stand, `setPin` keeps a new
- *   PIN's salt and hash. The locks are read from the profile at each reload and taken from each
+ *   minute's wait), `checkPin` the same without unlocking (step 38c), `relock` locks again,
+ *   `lockState` says how things stand, `setPin` keeps a new PIN's salt and hash (and ends a
+ *   wait). The locks are read from the profile at each reload and taken from each
  *   `parental` or `channel` edit's write.
  *
  * A segment that fails to load (other layout version, inconsistent data) is skipped and listed
@@ -484,6 +485,7 @@ export class QueryService {
       blocked: (arg: { urls: string[] }): Promise<boolean[]> => this.blocked(arg.urls),
       reloadConfig: (): Promise<number> => this.reloadConfig(),
       unlock: (arg: { pin: string }): Promise<UnlockAnswer> => this.unlock(arg.pin),
+      checkPin: (arg: { pin: string }): Promise<UnlockAnswer> => this.checkPin(arg.pin),
       relock: (): Promise<void> => this.relock(),
       lockState: (): Promise<LockState> => this.lockState(),
       setPin: (arg: { pin: string }): Promise<boolean> => this.setPin(arg.pin),
@@ -694,12 +696,20 @@ export class QueryService {
     this.version += 1;
   }
 
-  /**
-   * Unlocks the session with `pin` (step 38), checked against the profile's PIN as stored now.
-   * After `UNLOCK_TRIES` wrong ones in a row it answers `wait` for `UNLOCK_WAIT_MS` without
-   * checking. With no PIN set nothing unlocks (`no-pin`).
-   */
+  /** Unlocks the session with `pin` (step 38) when `checkPin` says it is the PIN. */
   async unlock(pin: string): Promise<UnlockAnswer> {
+    const answer = await this.checkPin(pin);
+    if (answer.result === 'ok') this.setUnlocked(true);
+    return answer;
+  }
+
+  /**
+   * Whether `pin` is the PIN (step 38c: Settings' "Parental control", "Unlock channel"), checked
+   * against the profile's PIN as stored now, the session left as it is. After `UNLOCK_TRIES`
+   * wrong ones in a row (here and in `unlock` alike) it answers `wait` for `UNLOCK_WAIT_MS`
+   * without checking. With no PIN set, `no-pin`.
+   */
+  async checkPin(pin: string): Promise<UnlockAnswer> {
     await this.ensureLoaded();
     const now = this.clock();
     if (now < this.waitUntil) return { result: 'wait', waitMs: this.waitUntil - now };
@@ -714,7 +724,6 @@ export class QueryService {
       return { result: 'wait', waitMs: UNLOCK_WAIT_MS };
     }
     this.wrongTries = 0;
-    this.setUnlocked(true);
     return { result: 'ok', waitMs: 0 };
   }
 
@@ -732,13 +741,19 @@ export class QueryService {
   }
 
   /**
-   * Keeps `pin` as the PIN (step 38): a new salt and its hash in the profile. Resolves `false` for
-   * one that isn't four digits, or when the profile can't be written (from a newer app version).
+   * Keeps `pin` as the PIN (step 38): a new salt and its hash in the profile; a wait after wrong
+   * PINs ends with it (step 38c: the old PIN or a login was just given). Resolves `false` for one
+   * that isn't four digits, or when the profile can't be written (from a newer app version).
    */
-  setPin(pin: string): Promise<boolean> {
-    if (!isPin(pin)) return Promise.resolve(false);
+  async setPin(pin: string): Promise<boolean> {
+    if (!isPin(pin)) return false;
     const salt = toBase64Url((this.options.random ?? randomBytes)(16));
-    return this.editProfile({ kind: 'parental', change: { op: 'pin', salt, hash: pinHash(salt, pin) } });
+    const ok = await this.editProfile({ kind: 'parental', change: { op: 'pin', salt, hash: pinHash(salt, pin) } });
+    if (ok) {
+      this.wrongTries = 0;
+      this.waitUntil = 0;
+    }
+    return ok;
   }
 
   private setOffsets(offsets: Record<string, number>, overrides: readonly EpgOverride[], seq: number): void {

@@ -1,4 +1,6 @@
+import type { LifecycleEvent } from '@lablo/platform-api';
 import type { Navigator } from '@lablo/ui';
+import { SCREEN, fits } from '@lablo/ui';
 import type { SourceDraft } from '../onboarding/form';
 import type { LoadResult } from '../onboarding/loader';
 import type { Pairing } from '../pairing/pair-state';
@@ -15,6 +17,8 @@ import type { Guides, GuidesEngine, GuidesOptions } from './guides-state';
 import { createGuides } from './guides-state';
 import type { Mapping, MappingEngine } from './mapping-state';
 import { MAPPING_SCREEN, createMapping } from './mapping-state';
+import type { ParentalAsk, ParentalPage, ParentalPageEngine } from './parental-page';
+import { PARENTAL_SCREENS, createParentalPage } from './parental-page';
 import { LOGIN_SCREEN } from './source-login';
 import type { SourceLoginOptions, SourcesEngine, SourcesList } from './sources-state';
 import { SOURCES_SCREEN, createSourcesList } from './sources-state';
@@ -37,14 +41,22 @@ import { createUnmatchedList } from './unmatched-state';
  * `diag-report.ts`) and "Channel groups" (the favourites lists and the live groups: move, hide, rename,
  * delete, a list's channels, step 35d: `groups-state.ts`) and "Channels" ("Clean channel names" and the
  * channels the user changed, step 36c: `edited-channels.ts`, its menu `channel-edit.ts`, which the
- * info bar's pencil opens over the player too); step 38 adds the track
- * languages, the subtitle style and the picture mode. Back closes it.
+ * info bar's pencil opens over the player too) and "Parental control" (the PIN, "Lock adult
+ * groups" and "Locked groups", step 38c1: `parental-page.ts`); step 38d adds the track
+ * languages, the subtitle style and the picture mode. The rows scroll, seven in view (step 38c1).
+ * Back closes it.
  */
 
-export type SettingsItem = 'guides' | 'sources' | 'backup' | 'telemetry' | 'report' | 'groups' | 'channels';
+export type SettingsItem = 'guides' | 'sources' | 'backup' | 'telemetry' | 'report' | 'groups' | 'channels' | 'parental';
 
 /** The settings screen's rows, in screen order (each new one last, so the earlier paths stay). */
-export const SETTINGS_ITEMS: readonly SettingsItem[] = ['guides', 'sources', 'backup', 'telemetry', 'report', 'groups', 'channels'];
+export const SETTINGS_ITEMS: readonly SettingsItem[] = ['guides', 'sources', 'backup', 'telemetry', 'report', 'groups', 'channels', 'parental'];
+
+/** A settings row's height and the gap between rows (settings.css uses the same numbers). */
+export const SETTINGS_ROW = { height: 120, gap: 8 } as const;
+
+/** The rows in view: the safe area less the header (56 px and a 24 px gap). */
+export const SETTINGS_VISIBLE = fits(SCREEN.height - 2 * SCREEN.safeY - 56 - 24, SETTINGS_ROW.height, SETTINGS_ROW.gap);
 
 /** The screens the settings put on the live navigator (the live screen paints them instead of its own). */
 export const SETTINGS_SCREENS: readonly string[] = [
@@ -61,11 +73,11 @@ export const SETTINGS_SCREENS: readonly string[] = [
   LOGIN_SCREEN,
   BACKUP_SCREEN,
   BACKUP_CONFIRM,
-].concat(GROUP_SCREENS, [CHANNELS_SCREEN], EDIT_SCREENS);
+].concat(GROUP_SCREENS, [CHANNELS_SCREEN], EDIT_SCREENS, PARENTAL_SCREENS);
 
 export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | 'engine'> {
   readonly nav: Navigator;
-  readonly engine: GuidesEngine & UnmatchedEngine & MappingEngine & SourcesEngine & GroupsEngine;
+  readonly engine: GuidesEngine & UnmatchedEngine & MappingEngine & SourcesEngine & GroupsEngine & ParentalPageEngine;
   /** Makes the pairing screen on the live navigator (step 31c2a); without it Sources has no "Add" button. */
   readonly pairing?: (nav: Navigator, added: (draft: SourceDraft, result: LoadResult) => void) => Pairing;
   /** A source was added from the phone: the live screens read the catalogs and guides again. */
@@ -82,6 +94,12 @@ export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | '
   readonly listsChanged?: () => void;
   /** "Edit channel" or "Channels" changed the channels (step 36c): the live screen reads them again. */
   readonly channelsChanged?: () => unknown;
+  /** The PIN pad (step 38c1, main.js's parental control); without it there is no "Parental control" row. */
+  readonly pad?: ParentalAsk;
+  /** "Parental control" changed the locks (step 38c1): the live, movies, series, search and Home screens read again. */
+  readonly locksChanged?: () => void;
+  /** The platform's lifecycle: "Parental control" asks the PIN again after the app was hidden. */
+  readonly lifecycle?: (listener: (event: LifecycleEvent) => void) => () => void;
 }
 
 export interface Settings {
@@ -106,7 +124,9 @@ export interface Settings {
   readonly channel: ChannelEditor;
   /** "Channels" (step 36c). */
   readonly channels: EditedChannels;
-  /** The settings screen's rows: `SETTINGS_ITEMS`, "Backup" only with its page, "Usage and crash reports" only with its switch, "Send a report to support" only with its send. */
+  /** "Parental control" (step 38c1), when the app gives the PIN pad. */
+  readonly parental: ParentalPage | null;
+  /** The settings screen's rows: `SETTINGS_ITEMS`, "Backup" only with its page, "Usage and crash reports" only with its switch, "Send a report to support" only with its send, "Parental control" only with the pad. */
   readonly items: readonly SettingsItem[];
   /** Opens the settings screen. */
   open(): void;
@@ -148,13 +168,17 @@ export function createSettings(options: SettingsOptions): Settings {
   const telemetry = options.telemetry === undefined ? null : createTelemetrySwitch(options.telemetry);
   const report = options.report === undefined ? null : createReportRow(options.report);
   const groups = createGroups({ nav, engine: options.engine, changed: options.listsChanged, platform: options.platform, find: options.find, now: options.now });
-  const channel = createChannelEditor({ nav, engine: options.engine, changed: options.channelsChanged, platform: options.platform, find: options.find, now: options.now });
+  const channel = createChannelEditor({ nav, engine: options.engine, changed: options.channelsChanged, platform: options.platform, find: options.find, now: options.now, pad: options.pad });
   const channels = createEditedChannels({ nav, engine: options.engine, editor: channel, changed: options.channelsChanged });
-  const items = SETTINGS_ITEMS.filter((item) => (item !== 'backup' || backup !== null) && (item !== 'telemetry' || telemetry !== null) && (item !== 'report' || report !== null));
+  const pad = options.pad;
+  const parental = pad === undefined ? null : createParentalPage({ nav, engine: options.engine, pad, changed: options.locksChanged, lifecycle: options.lifecycle });
+  const items = SETTINGS_ITEMS.filter(
+    (item) => (item !== 'backup' || backup !== null) && (item !== 'telemetry' || telemetry !== null) && (item !== 'report' || report !== null) && (item !== 'parental' || parental !== null),
+  );
   const open = (): void => {
     nav.push({
       id: 'settings',
-      zones: [{ kind: 'list', id: 'items', axis: 'vertical', count: items.length }],
+      zones: [{ kind: 'list', id: 'items', axis: 'vertical', count: items.length, visible: SETTINGS_VISIBLE }],
       onSelect: (focus) => {
         const item = items[focus.index];
         if (item === 'guides') guides.open();
@@ -164,6 +188,7 @@ export function createSettings(options: SettingsOptions): Settings {
         else if (item === 'report') report?.press();
         else if (item === 'groups') groups.open();
         else if (item === 'channels') channels.open();
+        else if (item === 'parental') parental?.open();
       },
     });
     // The usage reports' row shows the stored switch, read again at each opening.
@@ -183,6 +208,7 @@ export function createSettings(options: SettingsOptions): Settings {
     groups,
     channel,
     channels,
+    parental,
     items,
     open,
     openSources(): void {
@@ -208,6 +234,7 @@ export function createSettings(options: SettingsOptions): Settings {
       groups.dispose();
       channel.dispose();
       channels.dispose();
+      parental?.dispose();
     },
   };
 }
