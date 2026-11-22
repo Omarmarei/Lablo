@@ -125,6 +125,17 @@ describe('Chip', () => {
     expect(el.props).toMatchObject({ class: 'z-chip', 'aria-selected': 'false' });
     expect(one(el, 'z-chip__label').props).toMatchObject({ dir: 'auto', translate: false });
     expect(byClass(el, 'z-chip__count')).toHaveLength(0);
+    expect(byClass(el, 'z-chip__source')).toHaveLength(0);
+  });
+
+  it('tags a source’s name between the label and the count, in its own direction, never translated (RELAY step 36d)', () => {
+    const el = expand(Chip({ label: 'Other channels', source: 'لوحة المنزل', count: 3 }));
+    const tag = one(el, 'z-chip__source');
+    expect(text(tag)).toBe('لوحة المنزل');
+    expect(tag.props).toMatchObject({ dir: 'auto', translate: false });
+    // Our own label stays ours.
+    expect(one(el, 'z-chip__label').props).toMatchObject({ dir: undefined, translate: undefined });
+    expect(all(el).map((c) => c.props.class).filter((c) => typeof c === 'string' && c.indexOf('z-chip__') === 0)).toEqual(['z-chip__label', 'z-chip__source', 'z-chip__count']);
   });
 });
 

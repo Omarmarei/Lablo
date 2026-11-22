@@ -21,6 +21,22 @@
   min-width: 0;
 }
 
+/* A source's name (RELAY step 36d): a tag after the label, cut on its own past half the chip, so
+   a long label never hides it. */
+.z-chip__source {
+  flex: 0 1 auto;
+  max-width: 50%;
+  overflow: hidden;
+  margin-left: var(--space-3);
+  padding: 0 var(--space-2);
+  border: 2px solid var(--color-border-memory);
+  border-radius: var(--radius-s);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-regular);
+  line-height: 28px;
+  text-overflow: ellipsis;
+}
+
 .z-chip__count {
   flex: none;
   margin-left: var(--space-3);

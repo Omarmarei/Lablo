@@ -26,6 +26,7 @@ import {
   categoryKey,
   categoryParts,
   findEntry,
+  groupNameKey,
   railEntries,
 } from './live-state';
 
@@ -364,6 +365,89 @@ describe('railEntries', () => {
     expect(railEntries([])).toEqual([]);
     expect(railEntries([{ src: 's1', categories: [info(0, 'Empty', [])] }])).toEqual([]);
   });
+
+  it("tags a group with its source's name when another source has a group of that name (step 36d)", () => {
+    const entries = railEntries([
+      { src: 's1', name: 'Home', categories: [info(0, 'News', [3]), info(1, 'Sports', [2]), info(2, 'Kids', [1]), info(3, 'News', [4]), info(4, '', [1])] },
+      { src: 's2', name: 'لوحة', categories: [info(0, ' SPORTS ', [5]), info(1, 'Movies', [1]), info(2, 'Kids', [2]), info(3, '', [2])] },
+      // A source without a name: no tag of its own, the others' tags still tell them apart.
+      { src: 's3', name: '', categories: [info(0, 'Kids', [1])] },
+    ]);
+    expect(entries.map((e) => [e.name, e.source])).toEqual([
+      ['', undefined],
+      // s1's two "News": one source, no tag.
+      ['News', undefined],
+      ['Sports', 'Home'],
+      ['Kids', 'Home'],
+      ['News', undefined],
+      // Two sources' groups without a name ("Other channels").
+      ['', 'Home'],
+      [' SPORTS ', 'لوحة'],
+      ['Movies', undefined],
+      ['Kids', 'لوحة'],
+      ['', 'لوحة'],
+      ['Kids', undefined],
+    ]);
+    // No field when untagged; a tagged entry keeps everything else.
+    expect(Object.keys(entries[1]!)).toEqual(['kind', 'name', 'count', 'parts', 'allStart']);
+    expect(Object.keys(entries[10]!)).toEqual(['kind', 'name', 'count', 'parts', 'allStart']);
+    expect(entries[2]).toEqual({ kind: 'category', name: 'Sports', count: 2, parts: [{ src: 's1', catIdx: 1, chunks: [2], first: 3 }], allStart: 3, source: 'Home' });
+    expect(entries[0]!.parts.map((p) => `${p.src}|${p.catIdx}`)).toEqual(['s1|0', 's1|1', 's1|2', 's1|3', 's1|4', 's2|0', 's2|1', 's2|2', 's2|3', 's3|0']);
+  });
+
+  it('tags by the groups on the rail, in its order: not a hidden group, nor one with every channel hidden (step 36d)', () => {
+    const sources = [
+      { src: 's1', name: 'Home', categories: [info(0, 'News', [3]), info(1, 'Sports', [2])] },
+      { src: 's2', name: 'Panel', categories: [info(0, 'News', [2]), { ...info(1, 'Sports', [2]), hidden: [0, 1] }] },
+    ];
+    expect(railEntries(sources).map((e) => [e.name, e.source])).toEqual([
+      ['', undefined],
+      ['News', 'Home'],
+      ['Sports', undefined],
+      ['News', 'Panel'],
+    ]);
+    const hidden = { lists: [], hidden: [{ src: 's2', name: 'News' }], order: [] };
+    expect(railEntries(sources, hidden).map((e) => [e.name, e.source])).toEqual([
+      ['', undefined],
+      ['News', undefined],
+      ['Sports', undefined],
+    ]);
+    // The user's order puts s2's "News" first: each keeps its own source.
+    const ordered = { lists: [], hidden: [], order: [{ src: 's2', name: 'News' }] };
+    expect(railEntries(sources, ordered).map((e) => [e.name, e.source, e.parts[0]?.src])).toEqual([
+      // ("All channels" starts with the first group in the rail's order.)
+      ['', undefined, 's2'],
+      ['News', 'Panel', 's2'],
+      ['News', 'Home', 's1'],
+      ['Sports', undefined, 's1'],
+    ]);
+  });
+
+  it('tags nothing without the sources\' names (Settings\' "Channel groups" names every source itself)', () => {
+    const entries = railEntries([
+      { src: 's1', categories: [info(0, 'News', [3])] },
+      { src: 's2', categories: [info(0, 'News', [2])] },
+    ]);
+    expect(entries.map((e) => 'source' in e)).toEqual([false, false, false]);
+  });
+});
+
+describe('groupNameKey (step 36d)', () => {
+  const nbsp = String.fromCharCode(160);
+  const ideographic = String.fromCharCode(0x3000);
+
+  it('reads a name in lower case, each run of blanks as one space, none at the ends', () => {
+    expect(groupNameKey('Sports')).toBe('sports');
+    expect(groupNameKey(`  SPORTS \t HD${nbsp}`)).toBe('sports hd');
+    expect(groupNameKey(`a${ideographic}${ideographic}bc`)).toBe('a bc');
+    expect(groupNameKey(`a${nbsp}bc`)).toBe('a bc');
+    expect(groupNameKey('a  bc')).toBe('a bc');
+    expect(groupNameKey(' a bc')).toBe('a bc');
+    expect(groupNameKey('a!b')).toBe('a!b');
+    expect(groupNameKey('رياضة  عربية')).toBe('رياضة عربية');
+    expect(groupNameKey('')).toBe('');
+    expect(groupNameKey(' \n ')).toBe('');
+  });
 });
 
 describe('the live screen', () => {
@@ -409,6 +493,25 @@ describe('the live screen', () => {
     expect(t.at()).toBe('live · channels 0');
     expect(t.engine.chunkCalls).toHaveLength(5);
     expect(CHUNK_CACHE).toBe(8);
+  });
+
+  it("tags two sources' groups of one name with the sources' names, as the profile names them (step 36d)", async () => {
+    const engine = new FakeEngine();
+    CATEGORIES.s3 = [info(0, 'news', [2]), info(1, 'Kids ', [1])];
+    engine.profileDoc = { doc: { v: 2, sources: [S1, S2, { ...S2, id: 's3', name: 'Second' }] }, newer: false, migratedFrom: null };
+    try {
+      const t = await setup({ engine });
+      expect(t.live.rail.value.map((e) => [e.name, e.source])).toEqual([
+        ['', undefined],
+        ['News', 'Home'],
+        ['Sports', undefined],
+        ['Kids', 'Panel'],
+        ['news', 'Second'],
+        ['Kids ', 'Second'],
+      ]);
+    } finally {
+      delete CATEGORIES.s3;
+    }
   });
 
   it('drops the least recently used chunks beyond CHUNK_CACHE', async () => {

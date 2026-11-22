@@ -11,10 +11,15 @@ export interface ChipProps extends FocusableProps {
   readonly count?: number | string;
   /** The label is the provider's text, not ours: its own direction, never translated. */
   readonly data?: boolean;
+  /**
+   * A source's name in a tag after the label (RELAY step 36d: two sources have a category of the
+   * label's name): the user's text, its own direction, never translated.
+   */
+  readonly source?: string;
 }
 
 /** One category of a rail. */
-export function Chip({ label, selected = false, count, data = false, state, onHover, onPress, testId }: ChipProps) {
+export function Chip({ label, selected = false, count, data = false, source, state, onHover, onPress, testId }: ChipProps) {
   return (
     <div
       class={focusClass(`z-chip${selected ? ' is-selected' : ''}`, state)}
@@ -28,6 +33,11 @@ export function Chip({ label, selected = false, count, data = false, state, onHo
       <span class="z-chip__label" dir={data ? 'auto' : undefined} translate={data ? false : undefined}>
         {label}
       </span>
+      {source !== undefined && (
+        <span class="z-chip__source" dir="auto" translate={false}>
+          {source}
+        </span>
+      )}
       {count !== undefined && <span class="z-chip__count">{count}</span>}
     </div>
   );

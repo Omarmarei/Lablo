@@ -194,6 +194,12 @@ function LiveScreen({
                 {heading.label}
               </span>
               {' · '}
+              {entry.source !== undefined && (
+                <span class="live__source" dir="auto" translate={false} data-testid="live-source">
+                  {entry.source}
+                </span>
+              )}
+              {entry.source !== undefined && ' · '}
               <span data-n={entry.count}>{t('live.channels', { n: entry.count })}</span>
             </span>
           )}
@@ -241,7 +247,7 @@ function LiveScreen({
               const at = entries[i];
               if (at === undefined) return null;
               const { label, data } = entryLabel(at, t);
-              return <Chip label={label} data={data} selected={i === shown} count={i18n.number(at.count)} {...item} testId={`chip-${i}`} />;
+              return <Chip label={label} data={data} source={at.source} selected={i === shown} count={i18n.number(at.count)} {...item} testId={`chip-${i}`} />;
             }}
           />
           <VirtualList
