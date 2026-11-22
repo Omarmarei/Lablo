@@ -246,10 +246,10 @@ class KindWriter {
     this.recent = RECENT_KINDS.indexOf(kind) === -1 ? null : new RecentList();
   }
 
-  push(item: CatalogItem, added: number | null): CatalogChunk[] {
+  push(item: CatalogItem, added: number | null, adult: boolean): CatalogChunk[] {
     this.count++;
     this.recent?.push(item, added);
-    const ready = this.chunker.push(item);
+    const ready = this.chunker.push(item, adult);
     for (const c of ready) indexChunk(this.builder, c);
     return ready;
   }
@@ -277,8 +277,8 @@ class GenerationWriter {
     private readonly chunkSize?: number,
   ) {}
 
-  /** Adds an item; `added`: when its panel added it (epoch seconds, `null`: unknown). */
-  add(item: CatalogItem, added: number | null): void {
+  /** Adds an item; `added`: when its panel added it (epoch seconds, `null`: unknown); `adult`: its panel marked it adult (step 38). */
+  add(item: CatalogItem, added: number | null, adult = false): void {
     let w = this.kinds.get(item.kind);
     if (!w) {
       w = new KindWriter(item.kind, this.src, this.gen, this.chunkSize);
@@ -286,7 +286,7 @@ class GenerationWriter {
     }
     if (w.finished) throw new RangeError(`More ${item.kind} items after that kind was finished`);
     this.items++;
-    for (const c of w.push(item, added)) this.pending.push(c);
+    for (const c of w.push(item, added, adult)) this.pending.push(c);
   }
 
   /** Writes the full batches waiting (with `all`, every chunk waiting). */
@@ -372,11 +372,11 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
     return text;
   };
 
-  /** `added`: each item's panel date, by its place in `items` (a playlist has none). */
-  const take = async (items: CatalogItem[], added?: readonly (number | null)[]): Promise<void> => {
+  /** `added` and `adult`: each item's panel date and adult flag (step 38), by its place in `items` (a playlist has neither). */
+  const take = async (items: CatalogItem[], added?: readonly (number | null)[], adult?: readonly boolean[]): Promise<void> => {
     items.forEach((item, i) => {
       matcher.see(item);
-      writer!.add(item, added?.[i] ?? null);
+      writer!.add(item, added?.[i] ?? null, adult?.[i] === true);
     });
     await writer!.flush();
     await throttle.checkpoint(token);
@@ -499,6 +499,7 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
             take(
               items.map((i) => i.item),
               items.map((i) => i.added),
+              items.map((i) => i.adult),
             ),
           { categories, liveExt: source.liveExt },
         );

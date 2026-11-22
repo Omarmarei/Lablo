@@ -125,8 +125,14 @@ export type {
   UnmatchedChannel,
   UnmatchedPage,
   UnmatchedRequest,
+  UnlockAnswer,
+  LockState,
 } from './query-service';
-export { GUIDE_CHANNELS_MAX_ROWS, GUIDE_MAX_READS, KEY_ITEMS_MAX, QueryService, UNMATCHED_MAX_ROWS } from './query-service';
+export { GUIDE_CHANNELS_MAX_ROWS, GUIDE_MAX_READS, KEY_ITEMS_MAX, QueryService, UNLOCK_TRIES, UNLOCK_WAIT_MS, UNMATCHED_MAX_ROWS } from './query-service';
+export type { GroupLock, LockRef, ParentalChange, ParentalDoc, ParentalPin, ParentalState } from './parental';
+export { MAX_GROUP_LOCKS, PIN_LENGTH, applyParentalChange, isLockRef, isPin, lockId, parentalOf } from './parental';
+export type { LoadedCategories } from './lock-view';
+export { LockView } from './lock-view';
 
 export type { ByteRequest, ByteResponse, ByteSource, ByteTransport, FetchLike, TextSource } from './bytes';
 export { Fnv1a, NetworkError, decodeUtf8, fetchTransport, tapBytes } from './bytes';

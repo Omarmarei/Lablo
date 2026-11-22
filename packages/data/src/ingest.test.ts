@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ByteTransport } from './bytes';
 import { Fnv1a } from './bytes';
 import type { SourceMeta } from './catalog-store';
-import { getSource, readRecent } from './catalog-store';
+import { getSource, readCategories, readRecent } from './catalog-store';
 import { feedResponse } from './file-feed';
 import { openFileFrames, serveFileFrames } from './file-frames';
 import { onSuccess, openDatabase, transact } from './idb';
@@ -413,8 +413,8 @@ describe('runIngest: conditional fetch', () => {
     expect(await storedGens()).toEqual([3]);
   });
 
-  it('is at version 3 since step 27a: catalogs built before keep no newest series, so they are rebuilt', () => {
-    expect(INGEST_VERSION).toBe(3);
+  it('is at version 4 since step 38: catalogs built before keep no adult flag, so they are rebuilt', () => {
+    expect(INGEST_VERSION).toBe(4);
   });
 
   it("keeps no newest movies for a playlist (its movies have no date), but marks the list as kept (step 26e)", async () => {
@@ -717,6 +717,58 @@ describe("runIngest: an upgrade's login (step 37a)", () => {
     await expect(upgrade(transport, { token: cancel.token, panelLoginMs: 5_000 })).rejects.toBeInstanceOf(CancelError);
     expect(Date.now() - started).toBeLessThan(1_000);
     expect(asked).toEqual([API]);
+  });
+});
+
+describe("runIngest: the panel's adult flag (step 38)", () => {
+  const ACCOUNT = { base: 'http://p.test:8080', username: 'u', password: 'secret' };
+  const API = 'http://p.test:8080/player_api.php?username=u&password=secret';
+  const LOGIN = JSON.stringify({ user_info: { auth: 1, status: 'Active', allowed_output_formats: ['ts'] }, server_info: { timezone: 'UTC' } });
+  const answers: Record<string, unknown> = {
+    get_live_categories: [
+      { category_id: '1', category_name: 'News' },
+      { category_id: '2', category_name: 'Late Night' },
+      { category_id: '3', category_name: 'Sport' },
+    ],
+    get_live_streams: [
+      { num: 1, name: 'One', stream_id: 11, category_id: '1', is_adult: '0' },
+      { num: 2, name: 'Two', stream_id: 12, category_id: '2', is_adult: '0' },
+      { num: 3, name: 'Three', stream_id: 13, category_id: '2', is_adult: '1' },
+      { num: 4, name: 'Four', stream_id: 14, category_id: '3' },
+    ],
+    get_vod_categories: [
+      { category_id: '10', category_name: 'Films' },
+      { category_id: '11', category_name: 'Night Films' },
+    ],
+    get_vod_streams: [
+      { name: 'Film', stream_id: 21, category_id: '10', container_extension: 'mp4', is_adult: 0 },
+      { name: 'Night Film', stream_id: 22, category_id: '11', container_extension: 'mp4', is_adult: 1 },
+    ],
+    get_series_categories: [{ category_id: '20', category_name: 'Shows' }],
+    get_series: [{ name: 'Show', series_id: 31, category_id: '20', is_adult: '1' }],
+  };
+  const panel = (url: string): FakeResponse => {
+    if (url === API) return { body: LOGIN };
+    const action = url.indexOf(`${API}&action=`) === 0 ? url.slice(API.length + 8) : null;
+    return action !== null && answers[action] !== undefined ? { body: JSON.stringify(answers[action]) } : { status: 404, body: 'Not found' };
+  };
+  /** Each stored category of `kind` as `name` or `name (adult)`. */
+  const stored = async (kind: 'live' | 'movie' | 'series'): Promise<string[]> => {
+    const meta = (await getSource(db, SRC))!;
+    return ((await readCategories(db, SRC, meta.gen, kind)) ?? []).map((c) => (c.adult === true ? `${c.name} (adult)` : 'adult' in c ? `${c.name} (field)` : c.name));
+  };
+
+  it('marks a category adult when the panel marks one of its items, in each kind', async () => {
+    const transport = fakeTransport(panel);
+    expect(await runIngest({ src: SRC, source: { type: 'xtream', account: ACCOUNT } }, { db, transport, now: () => NOW })).toMatchObject({ status: 'committed', counts: { live: 4, movie: 2, series: 1 } });
+    expect(await stored('live')).toEqual(['News', 'Late Night (adult)', 'Sport']);
+    expect(await stored('movie')).toEqual(['Films', 'Night Films (adult)']);
+    expect(await stored('series')).toEqual(['Shows (adult)']);
+  });
+
+  it('marks nothing in a playlist, whatever its groups are called (the query worker reads the names)', async () => {
+    await run(() => ({ body: playlist([{ name: 'A', group: 'XXX' }, { name: 'B', group: 'News' }]) })).result;
+    expect(await stored('live')).toEqual(['XXX', 'News']);
   });
 });
 

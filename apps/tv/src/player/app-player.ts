@@ -1,5 +1,5 @@
 import { normalizeLang } from '@lablo/core';
-import type { Platform } from '@lablo/platform-api';
+import type { LifecycleEvent, Platform } from '@lablo/platform-api';
 import type { SubtitleCue } from '@lablo/core';
 import type { AccountStatus, Clock, ControllerOptions, ExternalSub, PlayerReport, SourceMemory, TrackMemory, TrackPreferences } from '@lablo/player';
 import { PlayerController } from '@lablo/player';
@@ -14,7 +14,8 @@ import { createSubtitleLoader } from './subtitle-loader';
  * - `resolveUrl`: the platform's redirect probe, where it has one (Tizen);
  * - `screenSaver`: `Platform.setScreenSaver` (a TV that refuses it changes nothing);
  * - `online` and `checkAccount` (the error card's facts) from the app;
- * - the lifecycle: `hidden` and `visible` go to the controller's `hide` and `show`;
+ * - the lifecycle: `hidden` and `visible` go to the controller's `hide` and `show` (`lifecycle`,
+ *   step 38b: the app's, which holds `visible` while the PIN pad asks after an unlocked session);
  * - `preferences` (step 20b): the track languages to prefer, read when a stream's tracks appear;
  * - `loadSubtitles` (step 20b2b): a request's subtitle files, fetched and parsed by the app
  *   (`subtitle-loader.ts`);
@@ -44,6 +45,8 @@ export interface AppPlayerDeps {
   readonly blocked?: (urls: string[]) => Promise<boolean[]>;
   /** Telemetry's reports (step 33b2: `play_result`, `stall`; absent: none). */
   readonly report?: (report: PlayerReport) => void;
+  /** The app's lifecycle (step 38b: `visible` may come late; absent: the platform's). */
+  readonly lifecycle?: (listener: (event: LifecycleEvent) => void) => () => void;
 }
 
 /**
@@ -79,7 +82,8 @@ export function appPlayer(deps: AppPlayerDeps): () => PlayerController {
     };
     const timed: ControllerOptions = deps.clock === undefined ? options : { ...options, clock: deps.clock };
     const controller = new PlayerController(engine, platform.resolveUrl === undefined ? timed : { ...timed, resolveUrl: platform.resolveUrl });
-    platform.onLifecycle((event) => {
+    const lifecycle = deps.lifecycle ?? ((listener: (event: LifecycleEvent) => void) => platform.onLifecycle(listener));
+    lifecycle((event) => {
       if (event === 'hidden') controller.hide();
       else if (event === 'visible') controller.show();
     });

@@ -221,7 +221,7 @@ describe('catalogRefreshDue', () => {
   it('is due at once for a catalog an older ingest version built (steps 26e and 27a), unless its refresh failed', () => {
     const stamped = (v: number): SourceMeta => ({ ...meta('s1', T0), fetch: { v, hash: 'h', bytes: 1, etag: null, lastModified: null } });
     // 3 since step 27a: the series keep their newest ("Recently updated").
-    expect(INGEST_VERSION).toBe(3);
+    expect(INGEST_VERSION).toBe(4);
     expect(catalogRefreshDue(stamped(INGEST_VERSION - 1), undefined, T0 + 1)).toBe(true);
     expect(catalogRefreshDue(stamped(1), undefined, T0 + 1)).toBe(true);
     expect(catalogRefreshDue(stamped(INGEST_VERSION), undefined, T0 + 1)).toBe(false);

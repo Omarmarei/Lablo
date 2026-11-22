@@ -169,7 +169,7 @@ export async function ingest(
   db: IDBDatabase,
   src: string,
   items: CatalogItem[],
-  options: { chunkSize?: number; now?: number; commit?: boolean; recent?: Partial<Record<ContentKind, RecentItem[]>> } = {},
+  options: { chunkSize?: number; now?: number; commit?: boolean; recent?: Partial<Record<ContentKind, RecentItem[]>>; adult?: readonly string[] } = {},
 ): Promise<{ gen: number; previous: number }> {
   const gen = await beginGeneration(db, src);
   const counts: Partial<Record<ContentKind, number>> = {};
@@ -184,7 +184,8 @@ export async function ingest(
       batch.push(...chunks);
       if (batch.length >= 10) await putChunks(db, src, gen, batch.splice(0));
     };
-    for (const i of ofKind) await write(chunker.push(i));
+    // (`adult`: the keys of the items a panel marked adult, step 38.)
+    for (const i of ofKind) await write(chunker.push(i, options.adult !== undefined && options.adult.indexOf(i.key) !== -1));
     await write(chunker.end());
     await putChunks(db, src, gen, batch);
     await putCatalogKind(db, src, gen, kind, chunker.categories(), builder.finish(), options.recent?.[kind]);

@@ -9,8 +9,20 @@ import { upcoming } from '../apps/mock-provider/src/epg';
  */
 export const catalog = loadCatalog();
 
-/** The channels in the order "All channels" lists them: category by category, as the panel lists them. */
-export const ordered: LiveChannel[] = catalog.liveCategories.flatMap((c) => catalog.live.filter((ch) => ch.categoryId === c.id));
+/**
+ * The mock's adult channels: "18+ Test (lock check)", locked by default and out of sight until the
+ * PIN (RELAY step 38).
+ */
+export const adultChannels: LiveChannel[] = catalog.live.filter((ch) => ch.adult);
+
+/**
+ * The channels in the order "All channels" lists them: category by category, as the panel lists
+ * them, without the locked adult group (RELAY step 38; it is the last, so no other row moves).
+ */
+export const ordered: LiveChannel[] = catalog.liveCategories.flatMap((c) => catalog.live.filter((ch) => ch.categoryId === c.id && !ch.adult));
+
+/** Every channel in the order "All channels" lists them with "Lock adult groups" off (step 38: the adult group last). */
+export const allOrdered: LiveChannel[] = catalog.liveCategories.flatMap((c) => catalog.live.filter((ch) => ch.categoryId === c.id));
 
 /**
  * The channel whose programmes a channel shows: the guide's channel of its id (the first channel

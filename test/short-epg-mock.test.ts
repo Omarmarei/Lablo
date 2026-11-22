@@ -231,7 +231,9 @@ describe('the short-EPG fallback through the DataEngine and the mock provider', 
     expect({ now: show(matched!.now), next: show(matched!.next) }).toEqual(oracle(101, s.clock.now));
     expect(s.asked).toEqual([]);
 
-    // The one unmatched channel has no EPG id, so the panel has no programmes for it either.
+    // The one unmatched channel has no EPG id, so the panel has no programmes for it either. (Its
+    // group is locked by default, step 38: "Lock adult groups" off serves it.)
+    expect(await s.engine.editProfile({ kind: 'parental', change: { op: 'adult', on: false } })).toBe(true);
     const adult = await channel(s.engine, 'pl', '18+ Test Pattern', source);
     expect(await focusFor(s, adult)).toMatchObject({ epgSrc: null, from: 'panel', cached: false, now: null, next: null });
     expect(await focusFor(s, adult)).toMatchObject({ from: 'panel', cached: true });

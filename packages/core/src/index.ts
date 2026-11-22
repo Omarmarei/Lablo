@@ -11,6 +11,7 @@ export type { CatalogItem, CatchupInfo, ContentKey, ContentKind, SourceType, Str
 export { CONTENT_KINDS, MAX_TEXT } from './model';
 
 export { cleanName, matchName, normalizeName } from './normalize';
+export { ADULT_WORDS, adultName } from './adult';
 export { normalizeLang } from './language';
 export type { TextDirection } from './bidi';
 export { firstStrongDirection, isolateText, stripIsolates } from './bidi';

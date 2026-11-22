@@ -153,8 +153,8 @@ describe("catch-up from an M3U source's stored channels, against the mock (RELAY
   it("keeps UTC when the panel's login fails, so an xc start is read three hours early on a Riyadh panel", async () => {
     panel('Asia/Riyadh', true);
     const { items, facts } = await ingestLink('ts');
-    // The playlist still came in, with no panel facts.
-    expect(items.length).toBe(catalog.live.length);
+    // The playlist still came in, with no panel facts (all but the 18+ channel, locked until the PIN: step 38).
+    expect(items.length).toBe(catalog.live.filter((c) => !c.adult).length);
     expect([facts.outputFormats, facts.zone(NOW)]).toEqual([null, 0]);
     const c = catalog.live.find((x) => x.id === 112)!;
     const p = pastProgramme(c, 5 * DAY);

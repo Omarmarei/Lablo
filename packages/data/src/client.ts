@@ -44,6 +44,11 @@ export type { RecentRequest } from './query-service';
 export type { KeyItemsRequest } from './query-service';
 // Number entry's lookup of a user's number (step 36a2).
 export type { NumberRequest, NumberedChannel } from './query-service';
+// Parental control (step 38): parental.ts imports nothing at run time and uses nothing Babel
+// polyfills; the PIN's hash and the locks are the query worker's.
+export type { LockState, UnlockAnswer } from './query-service';
+export type { GroupLock, LockRef, ParentalChange, ParentalState } from './parental';
+export { PIN_LENGTH, isPin, parentalOf } from './parental';
 
 // The signed config's policy as the app keeps and enforces it (steps 30b2 and 30c): config-policy.ts
 // and config-constants.ts import no schema, so main gets none of the config worker's code.

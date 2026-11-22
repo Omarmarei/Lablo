@@ -140,6 +140,42 @@ describe('channel-changes: hide and show', () => {
   });
 });
 
+describe('channel-changes: lock and unlock (step 38)', () => {
+  it('locks a channel: a new entry at the end, or in its place keeping its other changes', () => {
+    const before = [edit(1, { name: 'One' }), edit(2, { hidden: true })];
+    expect(change(before, { op: 'lock', item: item(3) })).toEqual([before[0], before[1], edit(3, { locked: true })]);
+    expect(change(before, { op: 'lock', item: item(2) })).toEqual([before[0], edit(2, { hidden: true, locked: true })]);
+  });
+
+  it('refuses to lock a locked channel again', () => {
+    expect(change([edit(1, { locked: true })], { op: 'lock', item: item(1) })).toBeNull();
+  });
+
+  it('unlocks a channel: its entry goes when nothing else is changed', () => {
+    expect(change([edit(1, { locked: true }), edit(2, { locked: true, name: 'Two' })], { op: 'unlock', key: key(1) })).toEqual([edit(2, { locked: true, name: 'Two' })]);
+    expect(change([edit(1, { locked: true }), edit(2, { locked: true, name: 'Two' })], { op: 'unlock', key: key(2) })).toEqual([edit(1, { locked: true }), edit(2, { name: 'Two' })]);
+  });
+
+  it('refuses to unlock a channel that is not locked, or has no entry', () => {
+    expect(change([edit(1, { hidden: true })], { op: 'unlock', key: key(1) })).toBeNull();
+    expect(change([edit(1, { locked: true })], { op: 'unlock', key: key(2) })).toBeNull();
+  });
+
+  it('keeps the lock through the other edits, and takes it away with a reset', () => {
+    const locked = [edit(1, { locked: true })];
+    expect(change(locked, { op: 'hide', item: item(1) })).toEqual([edit(1, { locked: true, hidden: true })]);
+    expect(change(locked, { op: 'rename', item: item(1), name: 'Mine' })).toEqual([edit(1, { locked: true, name: 'Mine' })]);
+    expect(change(locked, { op: 'number', item: item(1), number: 7 })).toEqual([edit(1, { locked: true, number: 7 })]);
+    expect(change([edit(1, { locked: true, hidden: true })], { op: 'show', key: key(1) })).toEqual(locked);
+    expect(change(locked, { op: 'reset', key: key(1) })).toEqual([]);
+  });
+
+  it('reads the lock only from `true`, and keeps an entry that only locks', () => {
+    expect(channelEditsOf({ channelEdits: [edit(1, { locked: true })] })).toEqual([edit(1, { locked: true })]);
+    expect(channelEditsOf({ channelEdits: [{ ...edit(1, {}), locked: 'yes' }, { ...edit(2, { name: 'Two' }), locked: 1 }] })).toEqual([edit(2, { name: 'Two' })]);
+  });
+});
+
 describe('channel-changes: rename', () => {
   it('names a channel (trimmed), and renames it', () => {
     const named = change([], { op: 'rename', item: item(1), name: '  My News  ' })!;
@@ -283,6 +319,16 @@ describe('channel-changes: a refresh re-keys the changed channels (relinkChannel
     const b = { ...tvRef(live(2, 'Kids')), hidden: true as const };
     const { edits } = refresh([], [a, b], [live(1001, 'Sport', 'Sports', 'sport.ae'), live(2, 'Kids')]);
     expect(edits).toEqual([{ ...a, key: 'x:tv:live:1001', group: 'Sports' }, b]);
+  });
+
+  it('keeps a lock through the re-match (step 38)', () => {
+    const a = { ...tvRef(live(1, 'Night', 'Late', 'night.ae')), locked: true as const };
+    const { edits } = refresh([], [a], [live(1001, 'Night', 'Late', 'night.ae')]);
+    expect(edits).toEqual([{ ...a, key: 'x:tv:live:1001' }]);
+    // Following a favourite on the same key too.
+    const f = tvRef(live(2, 'Sport', 'G', 'sport.ae'));
+    const e = { ...f, locked: true as const };
+    expect(refresh([f], [e], [live(9, 'Sport', 'H', 'sport.ae')]).edits).toEqual([{ ...e, key: 'x:tv:live:9', group: 'H' }]);
   });
 
   it('follows a favourite on the same key: re-keyed, missing, back and dropped with it', () => {

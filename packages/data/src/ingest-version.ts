@@ -9,5 +9,6 @@
  * - 1: the first (step 8).
  * - 2: movies keep their newest with their categories (step 26e, "Recently added").
  * - 3: series keep theirs too (step 27a, "Recently updated").
+ * - 4: a category the Xtream panel marks adult (`is_adult`) says so (step 38, `CategoryInfo.adult`).
  */
-export const INGEST_VERSION = 3;
+export const INGEST_VERSION = 4;

@@ -118,7 +118,8 @@ async function draw(options: { movies?: number; series?: number; left?: boolean;
       return options.fail === true ? Promise.reject(new Error('worker gone')) : Promise.resolve({ doc: { v: 6, sources: [S1] }, newer: false, migratedFrom: null });
     },
     recent: (req: RecentRequest): Promise<RecentItem[]> => Promise.resolve(req.kind === 'movie' ? recent('movie', options.movies ?? 3) : recent('series', options.series ?? 2)),
-    itemsByKey: (req: KeyItemsRequest): Promise<CatalogItem[]> => Promise.resolve(LEFT.filter((i) => i.kind === req.kind)),
+    // ("Recent channels", step 38b: the query worker gives every live key asked.)
+    itemsByKey: (req: KeyItemsRequest): Promise<CatalogItem[]> => Promise.resolve(req.kind === 'live' ? req.keys.map((key) => ({ key }) as CatalogItem) : LEFT.filter((i) => i.kind === req.kind)),
   };
   const shares: Record<string, number> = { [LEFT[0]!.key]: 0.25 };
   const progress = { version: signal(0), share: (k: string) => shares[k], unfinished: () => (options.left === false ? [] : LEFT.map((i) => i.key)) };

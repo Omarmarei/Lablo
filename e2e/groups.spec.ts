@@ -24,7 +24,8 @@ import { RemoteDriver } from './remote-driver';
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
 /** The 1920x1080 canvas less its 5% title-safe margins. */
 const SAFE = { left: 96, top: 54, right: 1824, bottom: 1026 };
-const GROUPS = catalog.liveCategories.map((c) => c.name);
+/** The live groups as listed: every one but the locked adult group (RELAY step 38: out of sight until the PIN; the last). */
+const GROUPS = catalog.liveCategories.filter((c) => !catalog.live.some((ch) => ch.categoryId === c.id && ch.adult)).map((c) => c.name);
 
 test.beforeAll(() => {
   mkdirSync(SHOTS, { recursive: true });
@@ -240,7 +241,7 @@ for (const locale of ['en-US', 'ar-SA'] as const) {
         expect(await text(page, 'group-4-line')).toContain(words['groups.hidden']);
         await shoot(page, `groups-hidden-${tag}`);
         await backToRail(remote);
-        await expect.poll(() => chips(page)).toEqual([words['category.all'], named, ...GROUPS.filter((g) => g !== GROUPS[3])]);
+        await expect.poll(() => chips(page)).toEqual([words['category.all'], named, ...GROUPS.filter((g) => g !== GROUPS[3]), words['parental.lockedGroups']]);
       });
 
       await test.step('the list in the rail has its channels in the new order', async () => {
@@ -307,7 +308,7 @@ for (const locale of ['en-US', 'ar-SA'] as const) {
         await remote.go('UP', 'groups/rows/1');
         await remote.go('UP', 'groups/rows/0');
         await backToRail(remote);
-        await expect.poll(() => chips(page)).toEqual([words['category.all'], named, ...GROUPS]);
+        await expect.poll(() => chips(page)).toEqual([words['category.all'], named, ...GROUPS, words['parental.lockedGroups']]);
       });
 
       await test.step('Delete asks first, "Cancel" focused; Delete takes the list away', async () => {
@@ -330,7 +331,7 @@ for (const locale of ['en-US', 'ar-SA'] as const) {
         await settled(settings);
         expect(await groupRows(page)).toEqual(GROUPS);
         await backToRail(remote);
-        await expect.poll(() => chips(page)).toEqual([words['category.all'], ...GROUPS]);
+        await expect.poll(() => chips(page)).toEqual([words['category.all'], ...GROUPS, words['parental.lockedGroups']]);
       });
       expect(errors).toEqual([]);
     } finally {

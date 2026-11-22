@@ -158,7 +158,8 @@ for (const locale of ['en-US', 'ar-SA'] as const) {
           '8 Lablo Kids Test',
           '9 Lablo Sports Test HD',
         ]);
-      await expect(page.locator('[data-testid=live-meta] [data-n]')).toHaveAttribute('data-n', '12');
+      // (The 18+ channel, 12, is locked by default: step 38.)
+      await expect(page.locator('[data-testid=live-meta] [data-n]')).toHaveAttribute('data-n', '11');
 
       await test.step('the changes written to the profile, then a start', async () => {
         await appIdle(page);
@@ -188,6 +189,8 @@ for (const locale of ['en-US', 'ar-SA'] as const) {
             entry(find('Lablo Sports Test HD', 'Sports Test'), { hidden: true, number: 90 }),
           ],
           cleanNames: true,
+          // "Lock adult groups" off (step 38): the 18+ channel is listed again, so every number below is the whole list's.
+          parental: { adult: false },
         });
         await page.goto(`/?locale=${locale}`);
         live = page.getByTestId('live');

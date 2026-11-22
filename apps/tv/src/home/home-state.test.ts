@@ -81,14 +81,16 @@ class FakeEngine implements HomeEngine {
   failProfile = false;
   failRecent = false;
   failKeys = false;
-  hold = new Set<'profile' | 'recent' | 'keys'>();
-  readonly held: { profile: Held<LoadedProfile | null>[]; recent: Held<RecentItem[]>[]; keys: Held<CatalogItem[]>[] } = { profile: [], recent: [], keys: [] };
+  hold = new Set<'profile' | 'recent' | 'keys' | 'live'>();
+  readonly held: { profile: Held<LoadedProfile | null>[]; recent: Held<RecentItem[]>[]; keys: Held<CatalogItem[]>[]; live: Held<CatalogItem[]>[] } = { profile: [], recent: [], keys: [], live: [] };
   /** What `recent` gives for each kind (default: none). */
   newest: Record<Kind, RecentItem[]> = { movie: [], series: [] };
   /** The catalog's items by key, as `itemsByKey` finds them (default: none). */
   known: Record<string, CatalogItem> = {};
   readonly recentCalls: RecentRequest[] = [];
   readonly keyCalls: KeyItemsRequest[] = [];
+  /** "Recent channels"' asks (step 38b). */
+  readonly liveCalls: KeyItemsRequest[] = [];
 
   profile(): Promise<LoadedProfile | null> {
     if (this.hold.has('profile')) return new Promise((resolve, reject) => this.held.profile.push({ arg: '', resolve, reject }));
@@ -102,8 +104,18 @@ class FakeEngine implements HomeEngine {
     return this.failRecent ? Promise.reject(new Error('read failed')) : Promise.resolve(found);
   }
 
+  /** Live keys the query worker keeps back ("Recent channels", step 38b: locked, or gone); it gives every other live key asked. */
+  withheld = new Set<string>();
+
   /** As the query worker: the first `limit` keys known, of the kind and the sources asked, in the order asked. */
   itemsByKey(req: KeyItemsRequest): Promise<CatalogItem[]> {
+    if (req.kind === 'live') {
+      this.liveCalls.push(req);
+      const given: CatalogItem[] = [];
+      for (const key of req.keys) if (!this.withheld.has(key) && given.length < req.limit) given.push({ key } as CatalogItem);
+      if (this.hold.has('live')) return new Promise((resolve, reject) => this.held.live.push({ arg: 'live', resolve, reject }));
+      return this.failKeys ? Promise.reject(new Error('read failed')) : Promise.resolve(given);
+    }
     this.keyCalls.push(req);
     const found: CatalogItem[] = [];
     for (const key of req.keys) {
@@ -878,6 +890,62 @@ describe('Home (RELAY step 28b2): recent channels', () => {
     expect(names).toHaveLength(HOME_SHELF_MAX);
     expect(names[0]).toBe('Live s1 0');
     expect(names[19]).toBe('Live s1 19');
+  });
+
+  it("leaves out the channels the query worker keeps back (step 38b: locked, or gone), asking once for the stored sources' keys", async () => {
+    const engine = new FakeEngine();
+    engine.withheld.add('x:s1:live:2');
+    const t = await setup({ engine, channels: [chan('s1', 1), chan('s3', 9), chan('s1', 2), chan('s2', 3)] });
+    expect(t.shelf(HOME_CHANNELS)).toEqual(['Live s1 1', 'Live s2 3']);
+    expect(engine.liveCalls).toEqual([{ keys: ['x:s1:live:1', 'x:s1:live:2', 'x:s2:live:3'], kind: 'live', sources: ['s1', 's2'], limit: 3 }]);
+    // Every one kept back: no shelf. None from a stored source: nothing asked.
+    const all = new FakeEngine();
+    all.withheld.add('x:s1:live:1');
+    expect((await setup({ engine: all, channels: [chan('s1', 1)] })).home.shelves.value).not.toContain(HOME_CHANNELS);
+    const none = new FakeEngine();
+    await setup({ engine: none, channels: [chan('s3', 1)] });
+    expect(none.liveCalls).toEqual([]);
+  });
+
+  it('fills its 20 tiles past the channels kept back (step 38b)', async () => {
+    const engine = new FakeEngine();
+    engine.withheld.add('x:s1:live:0');
+    engine.withheld.add('x:s1:live:5');
+    const many: LastChannel[] = [];
+    for (let n = 0; n < 25; n += 1) many.push(chan('s1', n));
+    const t = await setup({ engine, channels: many });
+    const names = t.shelf(HOME_CHANNELS);
+    expect(names).toHaveLength(HOME_SHELF_MAX);
+    expect(names[0]).toBe('Live s1 1');
+    expect(names[4]).toBe('Live s1 6');
+    expect(names[19]).toBe('Live s1 21');
+  });
+
+  it('reads them again through the query worker back on top (step 38b), dropping a read a load came after', async () => {
+    const engine = new FakeEngine();
+    const t = await setup({ engine, channels: [chan('s1', 1)], left: [] });
+    // A channel played, locked since (an unlock is over): back on top it isn't listed.
+    engine.withheld.add('x:s1:live:2');
+    await t.played(chan('s1', 2));
+    expect(t.shelf(HOME_CHANNELS)).toEqual(['Live s1 1']);
+    // A read held, then a load (a catalog swap) reads them too: the older answer is dropped.
+    engine.withheld.clear();
+    engine.hold.add('live');
+    await t.played(chan('s1', 3));
+    engine.hold.delete('live');
+    t.home.catalogChanged();
+    await flush();
+    expect(t.shelf(HOME_CHANNELS)).toEqual(['Live s1 3', 'Live s1 2', 'Live s1 1']);
+    engine.held.live[0]!.resolve([{ key: 'x:s1:live:1' } as CatalogItem]);
+    await flush();
+    expect(t.shelf(HOME_CHANNELS)).toEqual(['Live s1 3', 'Live s1 2', 'Live s1 1']);
+  });
+
+  it("fails like its other reads when the query worker can't give the channels (step 38b)", async () => {
+    const engine = new FakeEngine();
+    engine.failKeys = true;
+    const t = await setup({ engine, channels: [chan('s1', 1)], left: [] });
+    expect(t.home.status.value).toBe('failed');
   });
 
   it('hides the shelf with no channel played, or without the memory; opens on it with nothing left part way', async () => {

@@ -69,7 +69,7 @@ const EPISODE_WORD: Record<Lang, string> = { en: 'Episode', ar: 'الحلقة', 
 const ARABIC_DIGITS = '٠١٢٣٤٥٦٧٨٩';
 const arabicDigits = (n: number): string => String(n).replace(/\d/g, (d) => ARABIC_DIGITS[Number(d)]!);
 
-interface Category {
+export interface Category {
   id: number;
   name: string;
   lang: Lang;
@@ -142,14 +142,17 @@ export interface CatalogOptions {
   baseUrl?: string;
 }
 
+/** The catalog's categories of each kind, each saying whether it is adult (RELAY step 38: the oracle for core's `adultName`). */
+export function fixtureCategories(): { live: Category[]; movie: Category[]; series: Category[] } {
+  return { live: liveCategories(), movie: vodCategories(1000, ['', ' 4K', ' HD', ' Classics', ' Kids']), series: vodCategories(2000, ['']) };
+}
+
 export async function writeCatalog(options: CatalogOptions): Promise<CatalogResult> {
   const counts = options.counts ?? FULL_COUNTS;
   const base = options.baseUrl ?? 'http://127.0.0.1:8080';
   const auth = 'lablo/lablo-test';
   const rng = Rng.derive(options.seed, 'catalog');
-  const liveCats = liveCategories();
-  const vodCats = vodCategories(1000, ['', ' 4K', ' HD', ' Classics', ' Kids']);
-  const seriesCats = vodCategories(2000, ['']);
+  const { live: liveCats, movie: vodCats, series: seriesCats } = fixtureCategories();
   const normalLive = liveCats.filter((c) => !c.adult);
   const adultLive = liveCats.filter((c) => c.adult);
 

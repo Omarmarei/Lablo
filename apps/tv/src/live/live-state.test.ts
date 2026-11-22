@@ -1,6 +1,6 @@
 import type { CatalogItem, ContentKey, ContentKind, EpgProgramme } from '@lablo/core';
 import type { CategoryInfo, EpgNowNext, LoadedProfile, ShortEpgNowNext, SourceRecord } from '@lablo/data';
-import type { KeyItemsRequest, NumberRequest, NumberedChannel } from '@lablo/data/client';
+import type { KeyItemsRequest, LockState, NumberRequest, NumberedChannel } from '@lablo/data/client';
 import { channelEditsOf } from '@lablo/data/client';
 import type { Intent, RootBackPolicy } from '@lablo/platform-api';
 import { LAYOUT, SCREEN, listHeight } from '@lablo/ui';
@@ -27,6 +27,7 @@ import {
   categoryParts,
   findEntry,
   groupNameKey,
+  lockFocus,
   railEntries,
 } from './live-state';
 
@@ -133,6 +134,8 @@ class FakeEngine implements LiveEngine {
 
   /** Each `numbered` asked (step 36b). */
   readonly numberedCalls: NumberRequest[] = [];
+  /** Parental control as the worker says (step 38b; absent: an engine without it). */
+  lockState?: () => Promise<LockState>;
   failNumbered = false;
   /** The channel the user numbered (default: none). */
   numberedAnswer: (req: NumberRequest) => NumberedChannel | null = () => null;
@@ -283,6 +286,7 @@ async function setup(
     openSeries?: () => void;
     openSearch?: () => void;
     openHome?: () => void;
+    lockEntry?: () => void;
   } = {},
 ) {
   const engine = options.engine ?? new FakeEngine();
@@ -303,6 +307,7 @@ async function setup(
     ...(options.openSeries === undefined ? {} : { openSeries: options.openSeries }),
     ...(options.openSearch === undefined ? {} : { openSearch: options.openSearch }),
     ...(options.openHome === undefined ? {} : { openHome: options.openHome }),
+    ...(options.lockEntry === undefined ? {} : { lockEntry: options.lockEntry }),
   });
   if (options.settle !== false) await flush();
   const at = (): string => {
@@ -2804,5 +2809,191 @@ describe('channels the user changed (RELAY step 36b)', () => {
       '10 Channel s1 2-6',
       '11 Channel s1 2-7',
     ]);
+  });
+});
+
+/** s1's Sports locked by the query worker (step 38b): adult, or locked by the user. */
+function lockedCatalog(): Record<string, CategoryInfo[]> {
+  return { s1: [info(0, 'News', [3]), info(1, '', []), { ...info(2, 'Sports', [500, 500, 200]), adult: true, locked: true }], s2: [info(0, 'Kids', [2])] };
+}
+
+describe('parental control on the rail (RELAY step 38b)', () => {
+  const sources = (): { src: string; categories: CategoryInfo[] }[] => {
+    const catalog = lockedCatalog();
+    return [
+      { src: 's1', categories: catalog.s1! },
+      { src: 's2', categories: catalog.s2! },
+    ];
+  };
+
+  it('leaves a locked group out while the session is locked, its places kept, and ends with "Locked groups"', () => {
+    const entries = railEntries(sources(), undefined, { unlocked: false, entry: true });
+    expect(entries.map((e) => [e.kind, e.name, e.count, e.allStart, e.opened, e.unlocked])).toEqual([
+      ['all', '', 5, 0, undefined, undefined],
+      ['category', 'News', 3, 0, undefined, undefined],
+      // Kids keeps its numbers: Sports' 1,200 places still count.
+      ['category', 'Kids', 2, 1203, undefined, undefined],
+      ['locked', '', 0, 0, undefined, false],
+    ]);
+    expect(entries[0]!.parts.map((p) => `${p.src}|${p.catIdx}`)).toEqual(['s1|0', 's2|0']);
+    expect(entries[3]!.parts).toEqual([]);
+    // No entry when the kind has nothing locked; none either by default, which is a locked session.
+    expect(railEntries(sources(), undefined, { unlocked: false, entry: false }).map((e) => e.kind)).toEqual(['all', 'category', 'category']);
+    expect(railEntries(sources()).map((e) => e.name)).toEqual(['', 'News', 'Kids']);
+  });
+
+  it('shows a locked group in its place with an open lock once unlocked, and ends with "Lock again"', () => {
+    const entries = railEntries(sources(), undefined, { unlocked: true, entry: true });
+    expect(entries.map((e) => [e.kind, e.name, e.count, e.allStart, e.opened, e.unlocked])).toEqual([
+      ['all', '', 1205, 0, undefined, undefined],
+      ['category', 'News', 3, 0, undefined, undefined],
+      ['category', 'Sports', 1200, 3, true, undefined],
+      ['category', 'Kids', 2, 1203, undefined, undefined],
+      ['locked', '', 0, 0, undefined, true],
+    ]);
+    expect(entries[0]!.parts.map((p) => `${p.src}|${p.catIdx}`)).toEqual(['s1|0', 's1|2', 's2|0']);
+  });
+
+  it("keeps a locked group's open lock when it carries its source's name, and leaves out a hidden one even unlocked", () => {
+    const entries = railEntries(
+      [
+        { src: 's1', name: 'Home', categories: [{ ...info(0, 'Adults', [2]), locked: true }, info(1, 'News', [1])] },
+        { src: 's2', name: 'Panel', categories: [info(0, 'Adults', [1])] },
+      ],
+      { lists: [], hidden: [{ src: 's1', name: 'News' }], order: [] },
+      { unlocked: true, entry: true },
+    );
+    expect(entries.map((e) => [e.name, e.source, e.opened])).toEqual([
+      ['', undefined, undefined],
+      ['Adults', 'Home', true],
+      ['Adults', 'Panel', undefined],
+      ['', undefined, undefined],
+    ]);
+  });
+
+  it('finds where the focus goes after an unlock or a relock (`lockFocus`)', () => {
+    const unlocked = railEntries(sources(), undefined, { unlocked: true, entry: true });
+    expect(lockFocus(unlocked, true)).toBe(2);
+    const locked = railEntries(sources(), undefined, { unlocked: false, entry: true });
+    expect(lockFocus(locked, false)).toBe(3);
+    // Unlocked with no group that came back (a locked channel only): "Lock again".
+    expect(lockFocus(locked, true)).toBe(3);
+    expect(lockFocus(railEntries(sources(), undefined, { unlocked: false, entry: false }), false)).toBe(-1);
+    expect(lockFocus([], true)).toBe(-1);
+  });
+
+  async function lockedSetup(state: LockState, lockEntry = vi.fn()) {
+    const engine = new FakeEngine();
+    engine.catalog = lockedCatalog();
+    let now = state;
+    engine.lockState = () => Promise.resolve(now);
+    const t = await setup({ engine, lockEntry });
+    return {
+      ...t,
+      lockEntry,
+      set: (next: LockState): void => {
+        now = next;
+      },
+    };
+  }
+
+  it('reads the session with the categories: out of sight while locked, OK on "Locked groups" asks the app', async () => {
+    const t = await lockedSetup({ pin: true, unlocked: false, kinds: ['live'] });
+    expect(t.live.rail.value.map((e) => [e.kind, e.name])).toEqual([
+      ['all', ''],
+      ['category', 'News'],
+      ['category', 'Kids'],
+      ['locked', ''],
+    ]);
+    expect(t.live.list.count()).toBe(5);
+    await t.press('BACK', 'DOWN', 'DOWN', 'DOWN');
+    expect(t.at()).toBe('live · rail 3');
+    await t.press('OK');
+    expect(t.lockEntry).toHaveBeenCalledTimes(1);
+    // The list on show stays "All channels".
+    expect(t.live.category.value).toBe(0);
+    expect(t.at()).toBe('live · rail 3');
+    // Kids' channels keep their numbers.
+    await t.press('UP', 'OK');
+    expect(t.rows()[0]).toBe('1204 Channel s2 0-0');
+  });
+
+  it('reads everything again after an unlock, its focus on the first group that came back; on "Locked groups" after a relock', async () => {
+    const t = await lockedSetup({ pin: true, unlocked: false, kinds: ['live'] });
+    await t.press('BACK', 'DOWN', 'DOWN', 'DOWN');
+    t.set({ pin: true, unlocked: true, kinds: ['live'] });
+    await t.live.lockChanged(true);
+    await flush();
+    expect(t.live.rail.value.map((e) => e.name)).toEqual(['', 'News', 'Sports', 'Kids', '']);
+    expect(t.at()).toBe('live · rail 2');
+    expect(t.live.list.count()).toBe(1205);
+    // Sports shown, then locked again: the list falls back to "All channels", the focus to "Locked groups".
+    await t.press('OK');
+    expect(t.live.category.value).toBe(2);
+    await t.press('BACK');
+    t.set({ pin: true, unlocked: false, kinds: ['live'] });
+    await t.live.lockChanged(false);
+    await flush();
+    expect(t.live.category.value).toBe(0);
+    expect(t.at()).toBe('live · rail 3');
+  });
+
+  it('leaves the focus where it is after an unlock when it is in the list or under another screen', async () => {
+    const t = await lockedSetup({ pin: true, unlocked: false, kinds: ['live'] });
+    await t.press('DOWN');
+    expect(t.at()).toBe('live · channels 1');
+    t.set({ pin: true, unlocked: true, kinds: ['live'] });
+    await t.live.lockChanged(true);
+    await flush();
+    expect(t.at()).toBe('live · channels 1');
+    await t.press('BACK');
+    t.live.nav.push({ id: 'movies', zones: [{ kind: 'list', id: 'rail', axis: 'vertical', count: 3 }] });
+    t.set({ pin: true, unlocked: false, kinds: ['live'] });
+    await t.live.lockChanged(false);
+    await flush();
+    t.live.nav.pop();
+    await flush();
+    expect(t.at()).toBe('live · rail 0');
+  });
+
+  it('shows "All channels" when a load lands on "Locked groups"', async () => {
+    const engine = new FakeEngine();
+    const t = await setup({ engine });
+    await t.press('BACK', 'DOWN', 'DOWN', 'DOWN', 'OK');
+    expect(t.live.category.value).toBe(3);
+    // The read fails, then "Try again" reads Sports locked: the fourth entry is "Locked groups" now.
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    engine.failProfile = true;
+    t.live.catalogChanged();
+    await flush();
+    expect(t.live.status.value).toBe('failed');
+    engine.failProfile = false;
+    engine.catalog = lockedCatalog();
+    engine.lockState = () => Promise.resolve({ pin: false, unlocked: false, kinds: ['live'] });
+    t.live.reload();
+    await flush();
+    expect(t.live.rail.value[3]!.kind).toBe('locked');
+    expect(t.live.category.value).toBe(0);
+    expect(t.live.list.count()).toBe(5);
+  });
+
+  it("keeps locked groups out with no entry when the session can't be read, or the engine has no locks", async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const engine = new FakeEngine();
+    engine.catalog = lockedCatalog();
+    engine.lockState = () => Promise.reject(new Error('worker gone'));
+    const t = await setup({ engine });
+    expect(t.live.rail.value.map((e) => e.name)).toEqual(['', 'News', 'Kids']);
+    expect(warn).toHaveBeenCalled();
+    const bare = new FakeEngine();
+    bare.catalog = lockedCatalog();
+    const u = await setup({ engine: bare });
+    expect(u.live.rail.value.map((e) => e.name)).toEqual(['', 'News', 'Kids']);
+    // Only another kind has something locked: no entry here.
+    const movies = new FakeEngine();
+    movies.catalog = lockedCatalog();
+    movies.lockState = () => Promise.resolve({ pin: true, unlocked: false, kinds: ['movie'] });
+    const v = await setup({ engine: movies });
+    expect(v.live.rail.value.map((e) => e.kind)).toEqual(['all', 'category', 'category']);
   });
 });

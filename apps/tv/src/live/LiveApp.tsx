@@ -32,6 +32,10 @@ import type { LazyFile } from '../lazy/lazy-file';
 import { LOADING_SCREEN } from '../lazy/lazy-file';
 import { LoadingScreen } from '../lazy/LoadingScreen';
 import type { LoadedSettings } from '../settings/settings';
+import { railIcon } from '../parental/icons';
+import type { Parental } from '../parental/parental';
+import { NO_PIN_SCREEN, PIN_SCREEN } from '../parental/parental';
+import { NoPinScreen, PinPadScreen } from '../parental/PinPad';
 import type { Live, LiveRow, RailEntry } from './live-state';
 import { HEADER_GUIDE, HEADER_HOME, HEADER_MOVIES, HEADER_SEARCH, HEADER_SERIES, HEADER_SETTINGS, LIVE } from './live-state';
 import './live.css';
@@ -95,6 +99,8 @@ function ChannelRow({ live, i18n, index, row, item }: { live: Live; i18n: AppI18
 /** A rail entry's label: ours for "All channels", a group without a name and a list without one ("Favourites"), else the provider's or the user's. */
 function entryLabel(entry: RailEntry, t: AppI18n['t']): { label: string; data: boolean } {
   if (entry.kind === 'all') return { label: t('category.all'), data: false };
+  // The rail's last entry (step 38b).
+  if (entry.kind === 'locked') return { label: t(entry.unlocked === true ? 'parental.lockAgain' : 'parental.lockedGroups'), data: false };
   if (entry.name === '') return { label: t(entry.kind === 'list' ? 'category.favourites' : 'live.noGroup'), data: false };
   return { label: entry.name, data: true };
 }
@@ -111,6 +117,7 @@ function LiveScreen({
   show,
   search,
   shelves,
+  parental,
 }: {
   live: Live;
   i18n: AppI18n;
@@ -124,6 +131,8 @@ function LiveScreen({
   search: Search | null;
   /** Home (step 28b1): its shelves (`live.home` is the live screen itself). */
   shelves: Home | null;
+  /** Parental control (step 38b): the PIN pad and the no-PIN dialog paint over everything. */
+  parental: Parental | null;
 }) {
   const { t } = i18n;
   const { binding, home } = live;
@@ -134,6 +143,9 @@ function LiveScreen({
     if (phase !== 'quiet') return <LoadingScreen phase={phase} i18n={i18n} binding={binding} focus={focus} />;
     focus = settings.under.value ?? focus;
   }
+  // The PIN pad (step 38b) over everything, the player's stage included.
+  if (parental !== null && focus.screen === PIN_SCREEN) return <PinPadScreen parental={parental} i18n={i18n} binding={binding} focus={focus} />;
+  if (focus.screen === NO_PIN_SCREEN) return <NoPinScreen i18n={i18n} binding={binding} focus={focus} />;
   // The settings, once settings.js is in (step 35e).
   const loaded = settings === null ? null : settings.loaded.value;
   // The player covers the live screen (step 20a), its track menu too (20b), the favourites panel (35c) and settings.js's "Edit channel" (36c): only their own parts paint, over the stage.
@@ -247,7 +259,7 @@ function LiveScreen({
               const at = entries[i];
               if (at === undefined) return null;
               const { label, data } = entryLabel(at, t);
-              return <Chip label={label} data={data} source={at.source} selected={i === shown} count={i18n.number(at.count)} {...item} testId={`chip-${i}`} />;
+              return <Chip label={label} data={data} source={at.source} icon={railIcon(at)} selected={i === shown} count={at.kind === 'locked' ? undefined : i18n.number(at.count)} {...item} testId={`chip-${i}`} />;
             }}
           />
           <VirtualList
@@ -298,13 +310,15 @@ interface Props {
   readonly search?: Search | null;
   /** Home, which the header's "Home" opens (step 28b1; `null`: none paints). */
   readonly home?: Home | null;
+  /** Parental control (step 38b; `null`: no PIN pad paints). */
+  readonly parental?: Parental | null;
 }
 
 /**
  * The live screen in the language picked in onboarding, in the TV's region (the formats keep
  * the region's), or the TV's own when none was picked.
  */
-export function LiveApp({ platform, live, language, player = null, settings = null, guide = null, movies = null, series = null, details = null, show = null, search = null, home = null }: Props) {
+export function LiveApp({ platform, live, language, player = null, settings = null, guide = null, movies = null, series = null, details = null, show = null, search = null, home = null, parental = null }: Props) {
   const i18n = useSignal<AppI18n | null>(null);
   useEffect(() => {
     let closed = false;
@@ -335,5 +349,5 @@ export function LiveApp({ platform, live, language, player = null, settings = nu
       </main>
     );
   }
-  return <LiveScreen live={live} i18n={i18n.value} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} shelves={home} />;
+  return <LiveScreen live={live} i18n={i18n.value} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} shelves={home} parental={parental} />;
 }

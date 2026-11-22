@@ -2,13 +2,13 @@ import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
 import type { CatalogItem, ContentKind, DeviceTier } from '@lablo/core';
 import type { CategoryInfo, KeyItemsRequest, LoadedProfile, RecentItem, RecentRequest, StoredSource } from '@lablo/data';
-import type { GroupRef } from '@lablo/data/client';
+import type { GroupRef, LockState } from '@lablo/data/client';
 import type { Focus, Navigator, Screen, ZoneSpec } from '@lablo/ui';
 import { LAYOUT, fits } from '@lablo/ui';
 import type { ChunkRef, ListPart } from '../live/channel-index';
 import { ChannelIndex, chunkId } from '../live/channel-index';
-import type { RailEntry, Timers } from '../live/live-state';
-import { CHUNK_CACHE, LIVE, LIVE_BODY, RAIL_VISIBLE, railEntries } from '../live/live-state';
+import type { RailEntry, RailLocks, Timers } from '../live/live-state';
+import { CHUNK_CACHE, LIVE, LIVE_BODY, RAIL_VISIBLE, lockFocus, railEntries, readLocks } from '../live/live-state';
 import { storedSources } from '../onboarding/engine-loader';
 import type { MovieShares } from './movie-progress';
 import { POSTER_TIERS, PosterLoader } from './posters';
@@ -99,6 +99,9 @@ export interface RecentEntry {
   readonly allStart: number;
   /** Never a source's tag (step 36d: a group's only). */
   readonly source?: undefined;
+  /** Never a lock (step 38b: a group's and the last entry's only). */
+  readonly opened?: undefined;
+  readonly unlocked?: undefined;
 }
 
 /** An entry of the movies rail: "Continue watching", "Recently added", or one of the live rail's kinds. */
@@ -130,6 +133,8 @@ export interface MoviesEngine {
   recent(req: RecentRequest): Promise<RecentItem[]>;
   /** The catalog items of some keys, in the order asked ("Continue watching", step 27d). */
   itemsByKey(req: KeyItemsRequest): Promise<CatalogItem[]>;
+  /** Parental control as it stands (step 38b; absent: a locked session with nothing to unlock). */
+  lockState?(): Promise<LockState>;
 }
 
 export interface MoviesOptions {
@@ -148,6 +153,8 @@ export interface MoviesOptions {
    * "Continue watching" (step 27d).
    */
   readonly progress?: Pick<MovieShares, 'share' | 'version' | 'unfinished'>;
+  /** OK on the rail's last entry (step 38b): "Locked groups" or "Lock again". */
+  readonly lockEntry?: () => void;
 }
 
 export interface Movies {
@@ -187,6 +194,11 @@ export interface Movies {
   open(): void;
   /** A catalog swapped in: an open screen reads its sources again. */
   catalogChanged(): void;
+  /**
+   * The session unlocked or locked again (step 38b): an open screen reads its sources again, as for
+   * a catalog swap; a focus on its rail moves to the first group that came back, or to "Locked groups".
+   */
+  lockChanged(unlocked: boolean): void;
   dispose(): void;
 }
 
@@ -378,6 +390,7 @@ export function createMovies(options: MoviesOptions): Movies {
    */
   const showCategory = (i: number, place = 0): void => {
     const shown = screen.value;
+    // (Never "Locked groups": a load picks an entry by its ref, and OK on it asks the app.)
     const picked = rail.value[i];
     if (shown === null || picked === undefined) return;
     category.value = i;
@@ -397,13 +410,13 @@ export function createMovies(options: MoviesOptions): Movies {
     return keys.length === 0 ? Promise.resolve([]) : engine.itemsByKey({ keys, kind, sources: ids, limit: CONTINUE_MAX });
   };
 
-  /** The stored sources, each one's movie categories, the newest movies across them, and what was left part way. */
-  const readSources = async (): Promise<{ records: StoredSource[]; ids: string[]; lists: CategoryInfo[][]; newest: RecentItem[]; left: CatalogItem[] }> => {
+  /** The stored sources, each one's movie categories, the newest movies across them, what was left part way, and the locks (step 38b). */
+  const readSources = async (): Promise<{ records: StoredSource[]; ids: string[]; lists: CategoryInfo[][]; newest: RecentItem[]; left: CatalogItem[]; locks: RailLocks }> => {
     const records = storedSources(await engine.profile());
     const ids: string[] = [];
     for (const r of records) ids.push(r.id);
-    const read = await Promise.all([Promise.all(records.map((r) => engine.categories(r.id, kind))), engine.recent({ sources: ids, kind }), readContinued(ids)] as const);
-    return { records, ids, lists: read[0], newest: read[1], left: read[2] };
+    const read = await Promise.all([Promise.all(records.map((r) => engine.categories(r.id, kind))), engine.recent({ sources: ids, kind }), readContinued(ids), readLocks(engine, kind)] as const);
+    return { records, ids, lists: read[0], newest: read[1], left: read[2], locks: read[3] };
   };
 
   /** The rail entry on show, as a catalog swap finds it again (`null`: nothing yet). */
@@ -420,7 +433,7 @@ export function createMovies(options: MoviesOptions): Movies {
    * Reads the sources and their categories. `keep`: the category to show again (a catalog swap),
    * and the grid's place to focus there; without it, the loading screen first.
    */
-  const load = (keep?: { readonly ref: MovieRef; readonly place: number }): void => {
+  const load = (keep?: { readonly ref: MovieRef; readonly place: number }, unlocked?: boolean): void => {
     seq += 1;
     // (A read of "Continue watching" alone still out is dropped: this load reads it too.)
     continueSeq += 1;
@@ -431,13 +444,18 @@ export function createMovies(options: MoviesOptions): Movies {
       screen.value?.update(retryZone(0));
     }
     track(readSources).then(
-      ({ records, ids, lists, newest, left }) => {
+      ({ records, ids, lists, newest, left, locks }) => {
         const shown = screen.value;
         if (disposed || mine !== seq || shown === null) return;
         const entries: MovieEntry[] = [];
         if (left.length > 0) entries.push(heldEntry('continue', left.length));
         if (newest.length > 0) entries.push(heldEntry('recent', newest.length));
-        for (const entry of railEntries(records.map((r, i) => ({ src: r.id, name: r.name, categories: lists[i] ?? [] })))) entries.push(entry);
+        for (const entry of railEntries(
+          records.map((r, i) => ({ src: r.id, name: r.name, categories: lists[i] ?? [] })),
+          undefined,
+          locks,
+        ))
+          entries.push(entry);
         // (A swap's old tiles show until here.)
         chunks.clear();
         recent = [];
@@ -465,7 +483,9 @@ export function createMovies(options: MoviesOptions): Movies {
         // A swap keeps the focus where it was: on the rail it stays there.
         const onRail = keep !== undefined && shown.active === MOVIES_RAIL;
         showCategory(pick, place);
-        if (onRail) shown.focus(MOVIES_RAIL, pick);
+        // After an unlock or a relock (step 38b): the first group that came back, or "Locked groups".
+        const moved = onRail && unlocked !== undefined ? lockFocus(entries, unlocked) : -1;
+        if (onRail) shown.focus(MOVIES_RAIL, moved !== -1 ? moved : pick);
         bump();
         // (Its chunks' arrival asks the posters: the load cleared them all. "Continue watching" and
         // "Recently added" have none to wait for: their posters come at the rest.)
@@ -579,7 +599,8 @@ export function createMovies(options: MoviesOptions): Movies {
   };
 
   const onSelect = (focus: Focus): void => {
-    if (focus.zone === MOVIES_RAIL) showCategory(focus.index);
+    if (focus.zone === MOVIES_RAIL && rail.value[focus.index]?.kind === 'locked') options.lockEntry?.();
+    else if (focus.zone === MOVIES_RAIL) showCategory(focus.index);
     else if (focus.zone === MOVIES_RETRY) load();
     else if (focus.zone === MOVIES_GRID) {
       const item = movieAt(focus.index);
@@ -658,6 +679,15 @@ export function createMovies(options: MoviesOptions): Movies {
         return;
       }
       load({ ref: shownRef(), place: shown.position(MOVIES_GRID).index });
+    },
+    lockChanged(unlocked: boolean): void {
+      const shown = screen.value;
+      if (disposed || shown === null) return;
+      if (status.value !== 'ready') {
+        load();
+        return;
+      }
+      load({ ref: shownRef(), place: shown.position(MOVIES_GRID).index }, unlocked);
     },
     dispose(): void {
       if (disposed) return;

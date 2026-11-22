@@ -9,8 +9,9 @@ import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { stripIsolates } from '../packages/core/src/bidi';
 import type { Grid } from './guide-grid';
 import { SPAN, readGrid as readAny } from './guide-grid';
-import { catalog, nowTitles, ordered, rows } from './live-rows';
+import { allOrdered, catalog, nowTitles, rows } from './live-rows';
 import { addXtreamAndWatch, settled, trackErrors } from './onboard';
+import { ADULT_OPEN, restartWith } from './profile-edit';
 import { RemoteDriver } from './remote-driver';
 
 /**
@@ -262,6 +263,11 @@ test.describe('the manual mapping by keys (pnpm dev, after onboarding)', () => {
         const remote = new RemoteDriver(page);
         const live = await addXtreamAndWatch(remote, { host: m.host, username: U, password: P }, `locale=${locale}`);
         await settled(live);
+        // The channel without a guide is the 18+ one, locked by default (step 38): "Lock adult groups" off.
+        await restartWith(page, ADULT_OPEN, `/?locale=${locale}`);
+        await expect(live).toHaveAttribute('data-status', 'ready');
+        await remote.expectFocus('live/channels/0');
+        await settled(live);
         const read = guideRequests(m);
         expect(read).toBe(1);
 
@@ -353,7 +359,7 @@ test.describe('the manual mapping by keys (pnpm dev, after onboarding)', () => {
         await remote.go('BACK', 'settings/items/0');
         await remote.go('BACK', 'live/header/5');
         await remote.go('DOWN', 'live/channels/0');
-        const row = ordered.findIndex((c) => c.id === 109);
+        const row = allOrdered.findIndex((c) => c.id === 109);
         for (let i = 0; i < row; i += 1) await remote.press('DOWN');
         await remote.expectFocus(`live/channels/${row}`);
         await settled(live);
@@ -423,7 +429,7 @@ test.describe('the manual mapping by keys (pnpm dev, after onboarding)', () => {
         g = await readGrid(page);
         expectCells(g, 0, null, says.noInfo);
         // The same guide channel's other playlist channel keeps it.
-        const twin = ordered.findIndex((c) => c.id === 112);
+        const twin = allOrdered.findIndex((c) => c.id === 112);
         expectCells(g, twin, channelOf('lablo.test1'), says.noInfo);
         expect(await storedMappings(page)).toEqual({
           [KEY]: { epgSrc: 's1:xmltv', channel: says.found },
