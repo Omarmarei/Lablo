@@ -289,7 +289,8 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
       await remote.press('OK');
       await expect(page.getByTestId('live')).toHaveAttribute('data-status', 'ready');
       await expect(page.getByTestId('live')).toHaveAttribute('data-language', language);
-      await expect(page.locator('[data-testid=rail] .z-chip').first().locator('.z-chip__count')).toHaveText(String(counts.live));
+      // (All but the 18+ channel, locked by default: step 38.)
+      await expect(page.locator('[data-testid=rail] .z-chip').first().locator('.z-chip__count')).toHaveText(String(counts.live - 1));
       // A relaunch: the source is stored, so onboarding is skipped.
       await page.reload();
       await expect(page.getByTestId('live')).toHaveAttribute('data-status', 'ready');

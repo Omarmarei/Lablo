@@ -9,8 +9,8 @@ import { RemoteDriver } from './remote-driver';
 /**
  * The start on the last channel (RELAY step 20c1, architecture.md §2 "Start on last channel"), by
  * keys without generated media (`pnpm e2e`): a channel played from a category is kept in the
- * profile; a relaunch opens the player on it at once and plays it before the live screen's
- * categories are read (the start's User Timing marks), shows the category it played from behind
+ * profile; a relaunch opens the player on it once the query worker gives it (step 38b: a locked
+ * one doesn't play; the start's User Timing marks), shows the category it played from behind
  * it, finds its row there, zaps on from it, and Back lands on it.
  *
  * The placeholder streams never play on the desktop, so the plays are read from what the player
@@ -68,7 +68,7 @@ function marks(page: Page): Promise<Record<string, number | null>> {
   });
 }
 
-test('a relaunch plays the last channel before the catalog is read, finds its row, zaps on and lands on it', async ({ page }) => {
+test('a relaunch plays the last channel the query worker gives, finds its row, zaps on and lands on it', async ({ page }) => {
   const errors = trackErrors(page);
   const remote = new RemoteDriver(page);
   const live = await addXtreamAndWatch(remote, { host, username: U, password: P }, 'locale=en-US');
@@ -105,11 +105,11 @@ test('a relaunch plays the last channel before the catalog is read, finds its ro
   await expect(player).toHaveAttribute('data-plays', '1');
   await expect.poll(() => streams.length).toBeGreaterThan(0);
   expect(streams[0]).toBe(`/live/${U}/${P}/111.ts`);
-  // Played before the live screen's categories were read.
+  // Played once the query worker gave the channel (step 38b: a locked one doesn't play), which is
+  // about when the live screen's categories are read (both wait for the worker's first load).
   await expect.poll(async () => (await marks(page)).liveReady).not.toBeNull();
   const made = await marks(page);
   expect(made.resume).not.toBeNull();
-  expect(made.resume!).toBeLessThan(made.liveReady!);
   // Its row, found in the category it played from.
   await expect(player).toHaveAttribute('data-playing', '3');
   await expect(player).toHaveAttribute('data-target', '3');

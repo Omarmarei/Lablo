@@ -218,8 +218,9 @@ for (const locale of ['en-US', 'ar-SA'] as const) {
         await remote.expectFocus('live/channels/0');
         await settled(live);
         await expect.poll(async () => (await shownRows(page)).slice(0, 3)).toEqual(['2 UK: Lablo Test 2 Clock', '3 Lablo Test FR - Mire', '4 Lablo Prueba ES - Carta de ajuste']);
-        await expect(page.locator('[data-testid=live-meta] [data-n]')).toHaveAttribute('data-n', '11');
-        await expect(page.getByTestId('chip-0')).toContainText('11');
+        // (One hidden, and the 18+ channel locked by default: step 38.)
+        await expect(page.locator('[data-testid=live-meta] [data-n]')).toHaveAttribute('data-n', '10');
+        await expect(page.getByTestId('chip-0')).toContainText('10');
         await remote.go('OK', 'player/actions/0');
         await expect(player).toHaveAttribute('data-playing', '0');
         expect(await text(page, 'player-name')).toBe('UK: Lablo Test 2 Clock');
@@ -278,7 +279,8 @@ for (const locale of ['en-US', 'ar-SA'] as const) {
         await remote.press('DOWN');
         await settled(live);
         await expect.poll(async () => (await shownRows(page)).slice(0, 3)).toEqual(['1 Lablo Test 1 SMPTE', '2 Lablo Test 2 Clock', '3 Lablo Test FR - Mire']);
-        await expect(page.locator('[data-testid=live-meta] [data-n]')).toHaveAttribute('data-n', '12');
+        // (The 18+ channel still locked: step 38.)
+        await expect(page.locator('[data-testid=live-meta] [data-n]')).toHaveAttribute('data-n', '11');
       });
 
       expect(errors).toEqual([]);
