@@ -5,6 +5,7 @@ import { expect, test } from '@playwright/test';
 import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { addM3uAndWatch, addXtreamAndWatch, settled, trackErrors } from './onboard';
+import { playlistOnly } from './playlist-only';
 import { RemoteDriver } from './remote-driver';
 
 /**
@@ -56,6 +57,10 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => {
   await app.close();
+});
+// A test that keeps the panel's link a playlist (step 37a) leaves the mock as it found it.
+test.afterEach(() => {
+  app.mockState.scenario = null;
 });
 
 /** The grid's tiles as drawn: each one's title, poster and box. */
@@ -202,6 +207,8 @@ test.describe('the series screen (RELAY step 27a)', () => {
         await route.fetch().catch(() => undefined);
       });
       const remote = new RemoteDriver(page);
+      // The playlist's own lines: the panel's API serves no lists here (step 37a).
+      app.mockState.scenario = playlistOnly();
       const live = await addM3uAndWatch(remote, `${host}/get.php?username=${U}&password=${P}&type=m3u_plus`, `locale=${locale}`);
       await settled(live);
       await remote.go('UP', 'live/header/0');

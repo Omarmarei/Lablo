@@ -2785,7 +2785,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
       - e2e on the dev server: the 15 Settings specs and settings-loading (50 + 3); tv-bundle 10; `pnpm e2e:web` 26 (backup-logins, backup-api, pairing-api, no-plaintext) after `build:web`;
       - `build:tv`: main.js 426.1 KB Tizen, 413.4 KB webOS; settings.js 66.1 KB.
     - **Docs:** architecture.md §4's build pipeline item 7, and §1.5's settings rows (the loading screen).
-- [ ] 36. **Channel management.** Hide/rename/renumber channels, "clean names", multiple sources merged.
+- [x] 36. **Channel management.** Hide/rename/renumber channels, "clean names", multiple sources merged. **Done in leg 133:** 36a–36d merged (PRs #155–#159), and the phase's gate holds (`test/ingest-mock.test.ts`: a refresh where the provider renamed and reordered its channels, and one where every Xtream id moved, keeps the favourites, the lists and the channel edits; green in leg 133's full unit run and on CI).
   - **The size question (asked in leg 125; decided by Omar on 2026-11-21: step 35e first).** Measured after 35d (the per-file source-map probe, `artifacts/size36-main-tizen.txt`):
     - main.js has **487.6 KB of its 500 KB on Tizen** (12.4 KB left), 474.9 KB on webOS;
     - Settings (`apps/tv/src/settings`) is **66.1 KB**, the pairing screen it opens 9.2 KB; the catalogs are 58.1 KB (Settings' strings included); core-js 45.1 KB;
@@ -2929,7 +2929,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
   - **Verified in leg 132:** mutation (`artifacts/mutate36c.py`, logs `mutate36c-a.log` to `-e.log`): 153 written first, 148 caught; two test gaps closed (a digit after typing on the keyboard; '2/' and '4:' as numbers), the two lines above out, the info bar's `over === null` equivalent (as 35c's `panel === null`): 149/149. Then `build:tv` again (main.js 432.6 KB Tizen, settings.js 78.5 KB); `verify:engines --engine chrome53 --engine chrome68` all 26 runs as expected (`artifacts/engines-36c.log`); full `pnpm test` 8,047; `pnpm typecheck`; lint of the changed files; e2e `channel-edit-screens.spec.ts` and `channel-edits.spec.ts` 5 passed.
   - **CI (PR #158):** the first run's verify failed on `favourites.spec.ts` (en-US) with four 404s, a test race older than 36c: after a refresh that renumbered every stream, OK went before the live screen swapped catalogs (the names are the same, so the rows poll passed on the old list) and played the old stream id 102 (read from the run's `trace.zip`). Fixed in the test (`7ee5864`): it waits for the guides' request, which the scheduler makes after `onCatalog`, then `data-pending` 0 (9/9 locally). The second run was green throughout.
   - **Docs:** architecture.md §1.4 item 10 "Built in step 36c", §2 "Built in step 36c: the pencil, and the pin as a signal", the settings screen's seven rows.
-- [ ] 36d. **Multiple sources merged:** as 36's split above (the question and its three options).
+- [x] 36d. **Multiple sources merged:** as 36's split above (the question and its three options). **Done in leg 133: PR #159 merged as `1ab5ef6`** on green CI at the first run (changes, web 3 m 18 s, media 10 m 42 s, verify 18 m 38 s, engines 27 m).
   - **Decided by Omar on 2026-11-22: option 1, label, don't merge.** Keep today's rail (every source's groups on one rail, "All channels" across all sources, numbers running on across them); a group's chip names its source only when another source has a group of the same name. Two sources' channel 1s both show 1; number entry finds the first in the rail's order, and 36's renumbering settles a clash. One leg: the rail's label (main.js), Settings › "Channel groups" showing the same label (settings.js), unit, e2e in en and ar with two sources sharing a group name (a second mock provider or the M3U beside the Xtream), en-XA, `build:tv` sizes, `verify:engines` 53/68, mutation, PR, docs.
   - **Found in leg 133** (the code read before deciding):
     - Nothing of 36d exists (no source on `RailEntry`, `Chip` has no second text).
@@ -2950,6 +2950,107 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
   - **Verified in leg 133:** unit 8,054 (+7; the full run's one failure, `xtream-xmltv-core.test.ts`'s 61-byte chunks, timed out at 30 s under load and passes alone in 0.9 s); `pnpm typecheck`; `pnpm lint`; `build:tv`: main.js 432.6 → 433.6 KB (Tizen), 419.9 → 420.9 KB (webOS), settings.js 78.5 KB and the workers unchanged, core-js modules unchanged (module diff: 216 in main, 6 in settings.js); e2e `two-sources.spec.ts` (en-US, ar-SA, en-XA) with live, movies, series, groups and tv-bundle: 25 passed; screenshots `artifacts/screenshots/two-sources-*` looked at; mutation (`artifacts/mutate36d.py`, logs `mutate36d-a.log`, `-b.log`) 41/41, the list written first (`artifacts/mutate36d-list.md`); `verify:engines --engine chrome53 --engine chrome68`: all 26 runs as expected (`artifacts/engines-36d.log`).
   - **Docs:** architecture.md §1.4 item 10 "Built in step 36d", and the rail's line in the live screen's section.
 - [ ] 37. **M3U→Xtream and radio.** The M3U→Xtream upgrade UX and radio (audio-only) channels.
+  - **Leads for the leg that starts it** (read in leg 133 while PR #159's CI ran; confirm against the code). Write the shape and the split first, as 35 and 36 did.
+    - **The scope** (docs/PLAN.md §4, lines 218 and 220): "Xtream-style M3U links (`get.php?username=…`) are upgraded automatically to the Xtream API, which adds categories, metadata and catch-up"; "Radio (audio-only) channels".
+    - **The upgrade's detection exists, unused:** core's `xtreamFromM3uUrl` (packages/core/src/xtream-url.ts ~147, tested in `xtream-url.test.ts`) reads the account out of a `get.php` / `player_api.php` / `panel_api.php` / `xmltv.php` link; nothing in apps/ or packages/data calls it (grep). architecture.md §1.2 line ~647 counts on it: a playlist's episodes are listed flat, and "step 37's M3U→Xtream upgrade turns those into real shows".
+    - **Where an M3U link enters:** onboarding's form (`apps/tv/src/onboarding/form.ts`: `draft` `{type: 'm3u', name, url}`, the name defaulting to `linkHost`), the phone (`pairing/pair-draft.ts`), and a source given its link again after a restore without logins (Settings › "Sources", `settings/source-login.ts`). All three end in `engine-loader.ts` (`load`: `nextSourceId`, the record, the ingest).
+    - **Questions for the shape:** upgrade at add only, or stored M3U sources too (a stored source's keys change from M3U's to Xtream's, so favourites, lists, channel edits, groups' order and the movies' places re-match by name as after a provider's renumbering: 36a1's re-match, and the groups' refs by name)? What when the API refuses or fails at add (keep the M3U link, silently or saying so)? Does the user see it (Settings › "Sources" shows the kind: "Xtream" after an upgrade)? The guide link (an Xtream source gets the panel's `xmltv.php`; the M3U's `url-tvg` may be the same link: memory `iptv-mock-provider-gotchas.md`, leg 114). A backup's source without login (32d4a) keeps its type.
+    - **Radio today:** parsed (`radio` on the item: M3U `radio="true"`, Xtream `radio_streams`; core `m3u-catalog.ts` ~101, `xtream.ts` ~242), badged "Radio" in the live list (`LiveApp.tsx` ~77). The player fails an audio-only stream after 5 s as `unsupported`/`NO_PICTURE` (`packages/player/src/html5-engine.ts` ~532, `NO_PICTURE_MS`); architecture.md §2 says "Audio-only streams (radio) need a request hint first (step 37)" and lists radio among the "Not yet". The mock has one (`Lablo Radio Test`, id 108, `radio: true, logo: false`, group "Radio Test"); check what media the mock serves for it (`apps/mock-provider/src/media-plan.ts`).
+    - **Questions for the shape:** the hint (`PlayRequest` gains an audio-only flag from `item.radio`, so the engine never waits for a picture); what the stage shows (the logo or a radio mark, the name, now/next) and in Arabic; whether radio gets its own rail entry (the catalogs already have `category.radio` "Radio" / "راديو", used only by the gallery) or stays in its groups; the screensaver/dimming question on TVs for a long audio-only play (a later leg with the TV).
+    - **Sizes:** main.js 433.6 of 500 KB on Tizen (after 36d); settings.js 78.5 of 150 KB; the ingest worker 135.7 of 150 KB. An upgrade at add runs in main (onboarding) or the ingest worker; the radio stage is main's (the player).
+  - **Facts found in leg 134** (the code read before the shape; they correct the leads):
+    - **`xtreamFromM3uUrl` is used**, but only in `packages/data` and only for a `get.php` link kept as an M3U:
+      - the ingest's panel login (ADR-010's zone and `allowed_output_formats`), capped at `PANEL_LOGIN_MS` (10 s) and never failing the refresh;
+      - the account check (Settings' account status), the short EPG and the guides' zone.
+
+      Nothing turns such a link into an Xtream source.
+    - **Every link given at add ends in `createEngineLoader`'s `run`** (engine-loader.ts): onboarding's form, Settings' "Add a source" and the phone. The record is built there, before the refresh. Giving a restored source its link again (`source-login.ts`) writes the record directly, under the type it kept.
+    - **The ingest has no request timeouts** besides the panel login's. A panel whose `player_api.php` hangs would hold an Xtream load until the user cancels.
+    - **The e2e:** about a dozen specs add the mock's `get.php` link as an M3U through the form or the phone, and check M3U behaviour:
+      - specs: channel-edits, channel-edit-screens, guide-catchup-m3u, series, pairing, pairing-api and others (37a lists them);
+      - checks: M3U keys and catch-up modes, the flat episodes, `type: 'm3u'` in the profile.
+
+      The mock serves its playlist only at `/get.php`; its fault rules can match an Xtream `action`.
+    - **Radio on each engine:**
+      - `PlayRequest.hints` (`uhd`) exists, and nothing reads it.
+      - AVPlay's first frame is the clock moving, so radio already plays on Tizen.
+      - Html5Engine's first frame needs a picture size, so radio fails as `NO_PICTURE` after 5 s on webOS and the desktop.
+      - The mock's radio channel (108) is HLS with MP3 in TS segments and no video (`.cache/media`, `pnpm mock:media`).
+  - **Shape** (each choice with its why; each sub-step checks its part against the code before building):
+    - **The upgrade happens when a source is added, and only then.**
+      - **What upgrades:** a link that `xtreamFromM3uUrl` reads as an Xtream account (a `get.php`, `player_api.php`, `panel_api.php` or `xmltv.php` link with a user name and a password). It is read through the Xtream API and stored as an Xtream source (`{type: 'xtream', account}`) under the draft's name.
+      - **What stays M3U:** stored M3U sources, and a restored source given its link again.
+      - **Why stored sources stay:** their keys would change from M3U's to Xtream's, leaving every favourite, list, channel edit, group order, movie place and recent channel to the re-match by name. And nothing has shipped, so no user has a stored M3U source to gain from it.
+      - **Why a restored source keeps its type:** its backup's favourites carry its keys.
+    - **The loader decides** (main, `engine-loader.ts`). For such an M3U draft it asks the data engine for an Xtream refresh first; if that fails, it refreshes the link as given, as today. The record comes from the refresh that worked. Why in the loader:
+      - two separate refreshes each start clean, with no half-read state to unwind inside the ingest;
+      - the record is built there already;
+      - the worker needs only the login cap.
+    - **When the playlist is tried instead:** after any failure of the Xtream refresh, except a cancel and these three:
+      - `expired` or `blocked`: the panel said why, and its `get.php` refuses such an account too;
+      - `blocklisted`: it is the same host.
+
+      So a panel whose API refuses or breaks (`auth`, `http`, `network`, `format`, `empty`, a list failing part way) still gets its playlist. The progress starts again for the playlist.
+    - **The upgrade's login is capped at `PANEL_LOGIN_MS`** (10 s, the M3U panel login's cap): a new optional `loginMs` on the Xtream job, set only by the upgrade. Past it the refresh fails as `network`, and the playlist is tried.
+      - Why: without it a panel whose API hangs would hold the load forever, where today the link loads after 10 s.
+      - A source added as Xtream keeps its uncapped login: a slow panel can take longer.
+    - **Silent:** nothing on screen says the link was upgraded. Settings › "Sources" shows the source's kind ("… login") and server, as for any Xtream source, and the last onboarding screen shows the API's counts.
+      - Why: PLAN.md says "automatically", and the user gave the account in the link.
+      - v1 has no way to keep such a link as a playlist; the fallback covers a broken API. Revisit if beta users ask.
+    - **The guides:** an upgraded source's guide is the panel's `xmltv.php`, as for any Xtream source. The playlist's `url-tvg` isn't read (on an Xtream panel it is that same link). Guide links typed in the form or sent by the phone are listed as today.
+    - **Streams:** an upgraded source plays as an Xtream source does: `.ts`, then `.m3u8`, as the account's `allowed_output_formats` allows (`streamCandidates`). The link's `output=` isn't kept.
+    - **Radio plays on every engine.**
+      - `PlayRequest.hints.audioOnly` comes from the item's `radio` (live and catch-up requests) and reaches the engine as `LoadOptions.audioOnly`.
+      - Html5Engine then takes the clock moving as the first frame and never fails the stream as `NO_PICTURE`. AVPlay ignores the flag (its first frame is the clock already).
+      - A stream not marked radio that has no picture still fails as `NO_PICTURE`. Why the flag: a TV can't tell an audio-only stream from a picture it can't decode.
+    - **The stage while radio plays:** the channel's logo (a radio mark when it has none) and its name, centered on the dark stage, under the info bar as usual (now/next stays on the bar). Why: a black screen reads as broken.
+    - **Radio stays in its groups,** badged "Radio" as today, with no "Radio" rail entry.
+      - Why: providers already group radio (an Xtream panel's radio categories, a playlist's group).
+      - A rail entry across groups and sources needs a new worker filter. Revisit after the beta.
+    - **The TV's screensaver during a long radio play** is checked with the TV (step 21's session), not built now.
+  - **Split:**
+    - **37a: the upgrade at add** (`apps/tv` loader, `packages/data` login cap, e2e):
+      - the loader's Xtream try and its fallback; `loginMs`;
+      - specs that test M3U behaviour on the mock's `get.php` keep it with a scenario rule failing `get_live_categories` (the login still answers, so ADR-010's zone does too);
+      - specs that only add a link expect the upgrade.
+      - **Done when:**
+        - unit tests of the loader: an Xtream link upgraded; each failure code that tries the playlist, and each that doesn't; a cancel during either refresh; a link `xtreamFromM3uUrl` doesn't read; the record and guides from the refresh that worked;
+        - unit tests of the login cap in the ingest;
+        - `test/onboarding-loader-mock.test.ts` against the mock: upgraded (Xtream keys, categories, real shows), and the API failing part way (the playlist);
+        - e2e in en and ar: the form's `get.php` link (Settings › "Sources" says Xtream, the series are shows); the phone's link upgraded; a panel whose lists fail stays a playlist; every spec touched green;
+        - the gates: lint; typecheck; `build:tv` sizes and a module diff; `verify:engines` 53/68; mutation with the list written first; the PR on green CI;
+        - docs: architecture.md "Built in step 37a", and ADR-010's note on M3U logins.
+    - **37b: radio** (`packages/player`, `apps/tv` player): the hint, Html5Engine's first frame for audio-only, the stage's radio card.
+      - **Done when:**
+        - unit tests: the hint from `radio` in live and catch-up requests; Html5Engine framing audio-only by the clock (never `NO_PICTURE`) and still framing a picture; the controller passing the flag; the card's states;
+        - `e2e:media`: the radio channel plays through Html5Engine on its MP3 HLS, its clock moving, with no failure;
+        - e2e in en and ar for the card (screenshots), and en-XA;
+        - the gates: lint; typecheck; `build:tv` sizes; `verify:engines` 53/68; mutation; the PR on green CI;
+        - docs: architecture.md §2, radio out of "Not yet".
+  - **Done when** (the step): 37a and 37b merged.
+- [ ] 37a. **The upgrade at add:** as 37's split above. Built in leg 134 (architecture.md §1.2 "Built in step 37a").
+  - **Refined while building** (each with its why):
+    1. **The job's flag is `upgrade: true`, not a `loginMs`:** the worker applies its own `IngestOptions.panelLoginMs ?? PANEL_LOGIN_MS`. Why: main would otherwise import the limit from ingest.ts, a worker module.
+    2. **The limited login also ends on a cancel**, as `panelLogin` does. Why: a cancel while the request still waits for its headers has nothing to cancel yet, so the load waited for the 10 s limit (found by the unit test).
+    3. **The M3U specs keep their playlist with `e2e/playlist-only.ts`**: a rule failing only `get_live_categories`, so the login still answers (ADR-010's zone in guide-catchup-m3u).
+       - The rule is on the mock where a spec adds only playlists: channel-edits, channel-edit-screens, guide-catchup-m3u.
+       - Where one mock also serves Xtream logins, `mockState.scenario` is set around the playlist's add, and reset after each test: series, backup-logins, backup-api, no-plaintext.
+       - The pairing specs now expect the phone's link kept as the login.
+       - Why: those specs test a playlist's own behaviour (its keys, catch-up modes, flat episodes, a restored or sealed link).
+  - **Verified in leg 134:**
+    - **Unit:** the full `pnpm test` 8,073 (+19: the loader +10, ingest +8, the mock's loader test +1); `pnpm typecheck`; `pnpm lint`.
+    - **`build:tv`:** main.js 433.6 → 433.9 KB on Tizen, 420.9 → 421.2 KB on webOS; settings.js 78.5 KB; the ingest worker 135.7 → 136.2 KB. Core-js modules are unchanged (module diff: 216 in main, 6 in settings.js).
+    - **e2e:**
+      - `m3u-upgrade.spec.ts` (en-US, ar-SA, both cases): 4 passed;
+      - the touched chromium specs: 24 passed;
+      - the touched web specs (`e2e:web`): 13 passed.
+
+      Screenshots `m3u-upgrade-*` looked at.
+    - **Mutation** (`artifacts/mutate37a.py`; logs `mutate37a-a.log`, `-b.log`, `-c.log`): 27 written first (`artifacts/mutate37a-list.md`), 26 caught at the first run. The survivor was a real gap: the limit's timer left running after a quick login would cut off lists past 10 s. The test for it was added: 27/27.
+    - **`verify:engines --engine chrome53 --engine chrome68`:** all 26 runs as expected (`artifacts/engines-37a.log`, `engines-37a-53-again.log`).
+      - The first run's Chromium 53 hit the known stuck-delete flake: the English walk passed, then every later database delete stayed "pending" (memory `iptv-old-engine-walk.md`).
+      - Chromium 53 alone again: 13/13. The walks add `playlist.m3u`, which isn't an Xtream link, so their loader path is unchanged.
+- [ ] 37b. **Radio:** as 37's split above. After 37a (either order works; 37a first because its e2e churn touches the most specs).
 - [ ] 38. **Parental and settings.** Parental PIN, adult groups auto-locked (XXX, 18+, للكبار), complete settings screen.
 - [ ] 39. **Comfort features.** Clock, sleep timer with "Still watching?", colour-key shortcuts, "Fast start / Stable" buffer setting.
 - [ ] 40. **Diagnostics and legal pages.** Diagnostics screen ("app or provider?"), test stream, help, in-app legal pages.
@@ -3119,3 +3220,4 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 | 130 | 2026-11-21 | 36b (done, PR #157) | The live screen reads the worker's view. `ChannelIndex` counts rows by the served chunks and places by the provider's (`ListPart.hidden`; `shownChunks`), so hiding a channel moves no other number; `rowOfStored` turns a provider's address into a row. The rail's counts leave hidden channels out; a group with every channel hidden leaves the rail (and Settings' groups). `categoryParts` replaces `hiddenParts`. Number entry asks `numbered` first (row checked by key; a hidden channel comes back as the row itself and the player pins it over the list, `pinOver` shared with `over`), then the provider's numbers. Hidden search hits and recent channels play over the list (hidden keys from `channelEditsOf`). `channelsChanged()` re-reads after an edit (36c calls it). Unit 7,894 (+17); typecheck; lint; `build:tv` main.js 426.1 → 428.8 KB Tizen (216 core-js modules before and after), settings.js and workers unchanged; new e2e `channel-edits.spec.ts` (en, ar: the mock's M3U with a tagged name, changes written to the profile) and the touched specs (44 passed); mutation (`artifacts/mutate36b.py`) 55/55 (two gaps and a dead guard found while writing the list; one survivor closed); `verify:engines` 53/68 all 26. Merged PR #157 (`dc5194f`) on green CI at the first run. Leads for 36c written. | `6433244`, `8ce9563`, `b210acb`, `dc5194f` |
 | 131 | 2026-11-21 | 36c (built; gates left) | "Edit channel" from the info bar's pencil (an icon button) over the player, Settings › "Channels" (switch + changed channels), the menu shared; `tel` TextField; the player's pin a signal and cleared on close (a 35d bug). Unit, typecheck, lint, build:tv (main 432.6 KB Tizen, settings.js 78.6 KB, no new polyfill), every e2e spec green. Left: mutation, engines, PR, docs | 3319695, 7dbd6cf |
 | 132 | 2026-11-21 | 36c (done, PR #158) | Mutation (`artifacts/mutate36c.py`, leg 131's list): 153 written first, 148 caught; two gaps closed in `channel-edit.test.ts` (a digit after typing on the keyboard; '2/' and '4:'), two lines that could never decide out (the menu's push clearing the problem; the switch's `switching` flag), one equivalent (the info bar's `over === null`): 149/149. `build:tv` (main.js 432.6 KB Tizen, settings.js 78.5 KB); `verify:engines` 53/68 all 26; unit 8,047; typecheck; lint; e2e. architecture.md (§1.4 item 10, §2, seven settings rows). PR #158: the first CI run caught a race in `favourites.spec.ts` (OK before the refresh's catalog swap played an old stream id: four 404s), fixed in the test; green on the second run; merged as `71f3f9f`. Next: 36d needs Omar. | `02ad8a1`, `0322507`, `7ee5864`, `71f3f9f` |
+| 133 | 2026-11-22 | 36d (done, PR #159); 36 ticked | Omar's option 1 (label, don't merge): a group whose name another source's group on the rail has too (lower case, blanks folded: `groupNameKey`) carries its source's name (`RailEntry.source`, `tagSources`), an outlined tag on the chip (`Chip`'s `source`) and in the header; the movies and series rails too; Settings' "Channel groups" unchanged (it names every group's source already). Unit 8,054 (+7), typecheck, lint, `build:tv` (main.js 433.6 KB Tizen, +1.0; settings.js 78.5 KB; no new core-js module), e2e `two-sources.spec.ts` (en, ar, en-XA) with the rail specs 25 passed, mutation 41/41 (written first), `verify:engines` 53/68 all 26. architecture.md "Built in step 36d". PR #159 green at the first run, merged as `1ab5ef6`. Step 37's leads written (no shape yet). | `8e65c97`, `7a1b3ea`, `1ab5ef6` |

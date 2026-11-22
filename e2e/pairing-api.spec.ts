@@ -29,7 +29,8 @@ import { RemoteDriver } from './remote-driver';
  * the typed-code path, the payload sealed here):
  * - onboarding by phone in English, an Xtream login: the phone reads `open`, `received` while the
  *   panel is held, then `ok`; the session's row keeps the status and no payload;
- * - Settings › Sources by phone in Arabic, an M3U link with a guide link: added, `ok`;
+ * - Settings › Sources by phone in Arabic, an M3U link with a guide link: added, `ok`, and kept as
+ *   the panel's login (step 37a's upgrade);
  * - on one screen, a new code each time: a wrong password (`auth_failed`), the mock's expired
  *   account (`expired`), a closed port (`unreachable`); nothing kept;
  * - a served config whose blocklist holds the mock's host (`blocked`), in Arabic;
@@ -217,7 +218,8 @@ test('from Settings in Arabic: an M3U link and its guide reach the TV through th
     await expect(page.getByTestId('sources')).toHaveAttribute('data-count', '2');
     const kept = await storedProfile(page);
     expect(kept?.sources.map((s) => s.id)).toEqual(['s1', 's2']);
-    expect(kept?.sources[1]).toMatchObject({ type: 'm3u', name: 'قائمة الهاتف', url: m3uLink() });
+    // The phone's get.php link is read through the panel's API, and kept as its login (step 37a).
+    expect(kept?.sources[1]).toMatchObject({ type: 'xtream', name: 'قائمة الهاتف', account: { base: `http://${host}`, username: U, password: P } });
     expect(kept?.guides).toContainEqual({ id: 's2', url: guideLink() });
     preflightsPassed(front);
     expect(errors).toEqual([]);

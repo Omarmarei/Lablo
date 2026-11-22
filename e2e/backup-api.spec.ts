@@ -15,6 +15,7 @@ import { startApiFront } from './api-front';
 import { catalog } from './live-rows';
 import { leaks } from './no-plaintext';
 import { addXtreamAndWatch, startWatching, toSourceTypes, trackErrors, typeInto } from './onboard';
+import { playlistOnly } from './playlist-only';
 import { SHOTS, shoot } from './pairing-steps';
 import { RemoteDriver } from './remote-driver';
 
@@ -90,6 +91,10 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => {
   await app.close();
+});
+// A test that keeps the panel's link a playlist (step 37a) leaves the mock as it found it.
+test.afterEach(() => {
+  app.mockState.scenario = null;
 });
 
 let fronts = 0;
@@ -241,7 +246,11 @@ for (const language of ['en', 'ar'] as const) {
       const keys = backupKeys(await deriveBackupMaster(device, BUILD.platform, BUILD.appId));
       // A first start: the real route has no backup for this TV, so onboarding.
       if (language === 'en') await addXtreamAndWatch(remote, { host, username: U, password: P }, query);
-      else await addM3uWithGuide(remote, query);
+      else {
+        // A playlist link, sealed as one: the panel's API serves no lists here (step 37a).
+        app.mockState.scenario = playlistOnly();
+        await addM3uWithGuide(remote, query);
+      }
       expect(backupCalls(front).calls).toEqual(['GET 404']);
       expect(front.forwarded.find((f) => f.path.startsWith('/v1/backup/'))?.path).toBe(`/v1/backup/${keys.lookupId}`);
 

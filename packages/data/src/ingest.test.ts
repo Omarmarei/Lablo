@@ -585,6 +585,141 @@ describe('runIngest: the panel behind an M3U get.php link (step 25b)', () => {
   });
 });
 
+describe("runIngest: an upgrade's login (step 37a)", () => {
+  const ACCOUNT = { base: 'http://p.test:8080', username: 'u', password: 'secret' };
+  const API = 'http://p.test:8080/player_api.php?username=u&password=secret';
+  const LOGIN = JSON.stringify({ user_info: { auth: 1, status: 'Active', allowed_output_formats: ['ts'] }, server_info: { timezone: 'UTC' } });
+  /** The panel's lists: one live channel in one category, no movies or shows. */
+  const lists = (url: string): FakeResponse => {
+    if (url === `${API}&action=get_live_categories`) return { body: JSON.stringify([{ category_id: '1', category_name: 'News' }]) };
+    if (url === `${API}&action=get_live_streams`) return { body: JSON.stringify([{ num: 1, name: 'One', stream_id: 11, category_id: '1' }]) };
+    if (url.indexOf(`${API}&action=`) === 0) return { body: '[]' };
+    return { status: 404, body: 'Not found' };
+  };
+  const upgrade = (transport: ByteTransport, extra: Partial<IngestOptions> = {}) =>
+    runIngest({ src: SRC, source: { type: 'xtream', account: ACCOUNT, upgrade: true } }, { db, transport, now: () => NOW, panelLoginMs: 20, ...extra });
+
+  it('reads the panel as any Xtream source when the login answers within the limit', async () => {
+    const transport = fakeTransport((url) => (url === API ? { body: LOGIN } : lists(url)));
+    expect(await upgrade(transport)).toMatchObject({ status: 'committed', counts: { live: 1 }, m3u: null, xtream: { outputFormats: ['ts'] } });
+    expect(transport.requests[0]!.url).toBe(API);
+  });
+
+  it('fails as network when the login takes longer than the panel login, and drops its request', async () => {
+    let waits = 0;
+    const transport = fakeTransport((url) =>
+      url === API
+        ? {
+            body: LOGIN,
+            beforeChunk: () => {
+              waits += 1;
+              return new Promise<void>(() => undefined);
+            },
+          }
+        : lists(url),
+    );
+    const started = Date.now();
+    const failure = await upgrade(transport).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(IngestError);
+    expect(failure).toMatchObject({ code: 'network', status: null });
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(waits).toBe(1);
+    expect(transport.cancelled).toBe(1);
+    expect(transport.requests.map((q) => q.url)).toEqual([API]);
+    expect(await getSource(db, SRC)).toBeNull();
+  });
+
+  it('lets a login answer coming after the limit go, unread', async () => {
+    let read = 0;
+    const inner = fakeTransport((url) =>
+      url === API
+        ? {
+            body: LOGIN,
+            beforeChunk: () => {
+              read += 1;
+            },
+          }
+        : lists(url),
+    );
+    // The panel answers 60 ms late: the limit is 20 ms.
+    const transport: ByteTransport = {
+      get: async (url, request) => {
+        if (url === API) await new Promise((resolve) => setTimeout(resolve, 60));
+        return inner.get(url, request);
+      },
+    };
+    await expect(upgrade(transport)).rejects.toMatchObject({ code: 'network' });
+    await expect.poll(() => inner.cancelled).toBe(1);
+    expect(read).toBe(0);
+    expect(inner.requests.map((q) => q.url)).toEqual([API]);
+  });
+
+  it('limits the login only: lists that take longer than the limit after it are read to their end', async () => {
+    const inner = fakeTransport((url) => (url === API ? { body: LOGIN } : lists(url)));
+    // Each list answers 30 ms late: the limit is 20 ms.
+    const transport: ByteTransport = {
+      get: async (url, request) => {
+        if (url !== API) await new Promise((resolve) => setTimeout(resolve, 30));
+        return inner.get(url, request);
+      },
+    };
+    expect(await upgrade(transport)).toMatchObject({ status: 'committed', counts: { live: 1 } });
+    expect(inner.cancelled).toBe(0);
+  });
+
+  it('keeps the limit off a source added as Xtream: its slow login is waited for', async () => {
+    const inner = fakeTransport((url) => (url === API ? { body: LOGIN } : lists(url)));
+    const transport: ByteTransport = {
+      get: async (url, request) => {
+        if (url === API) await new Promise((resolve) => setTimeout(resolve, 60));
+        return inner.get(url, request);
+      },
+    };
+    const r = await runIngest({ src: SRC, source: { type: 'xtream', account: ACCOUNT } }, { db, transport, now: () => NOW, panelLoginMs: 20 });
+    expect(r).toMatchObject({ status: 'committed', counts: { live: 1 } });
+  });
+
+  it('takes the M3U panel login limit by default', async () => {
+    const transport = fakeTransport((url) => (url === API ? { body: LOGIN } : lists(url)));
+    expect(await upgrade(transport, { panelLoginMs: undefined })).toMatchObject({ status: 'committed' });
+  });
+
+  it('stops on a cancel during the login, as a cancel', async () => {
+    const cancel = new CancelSource();
+    const transport = fakeTransport((url) =>
+      url === API
+        ? {
+            body: LOGIN,
+            beforeChunk: () => {
+              cancel.cancel();
+              return new Promise<void>(() => undefined);
+            },
+          }
+        : lists(url),
+    );
+    const started = Date.now();
+    await expect(upgrade(transport, { token: cancel.token, panelLoginMs: 5_000 })).rejects.toBeInstanceOf(CancelError);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(transport.requests.map((q) => q.url)).toEqual([API]);
+  });
+
+  it('stops on a cancel while the login still waits for its headers', async () => {
+    const cancel = new CancelSource();
+    const asked: string[] = [];
+    const transport: ByteTransport = {
+      get: (url) => {
+        asked.push(url);
+        setTimeout(() => cancel.cancel(), 10);
+        return new Promise(() => undefined);
+      },
+    };
+    const started = Date.now();
+    await expect(upgrade(transport, { token: cancel.token, panelLoginMs: 5_000 })).rejects.toBeInstanceOf(CancelError);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(asked).toEqual([API]);
+  });
+});
+
 describe('runIngest: throttle', () => {
   /** A clock where each reading moves 2 ms on, and sleeps are logged. */
   function workClock(onSleep?: () => void): Clock & { sleeps: number[] } {

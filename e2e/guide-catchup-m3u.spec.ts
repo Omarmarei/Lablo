@@ -11,6 +11,7 @@ import type { Cell, Grid } from './guide-grid';
 import { focused, readGrid as readAny } from './guide-grid';
 import { guideOf, ordered } from './live-rows';
 import { addM3uAndWatch, settled, trackErrors } from './onboard';
+import { PLAYLIST_ONLY_RULE } from './playlist-only';
 import { RemoteDriver } from './remote-driver';
 
 /**
@@ -48,7 +49,8 @@ const answers: ArchiveAnswer[] = [];
 test.beforeAll(async () => {
   mkdirSync(SHOTS, { recursive: true });
   // The mock on the real clock (its guide and archive cover now), on a Riyadh panel.
-  const scenario = parseScenario({ rules: [{ match: { path: '**' }, faults: [{ type: 'timezone', tz: 'Asia/Riyadh', xmltv: 'none' }] }] }, 'riyadh');
+  // The panel's API logs in (its zone) but serves no lists, so the link stays a playlist (step 37a).
+  const scenario = parseScenario({ rules: [{ match: { path: '**' }, faults: [{ type: 'timezone', tz: 'Asia/Riyadh', xmltv: 'none' }] }, PLAYLIST_ONLY_RULE] }, 'riyadh');
   app = await mock({ now: () => Date.now(), scenario });
   // Before listen: the hook sees every answer.
   app.addHook('onResponse', async (request, reply) => {

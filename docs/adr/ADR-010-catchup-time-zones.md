@@ -63,6 +63,9 @@ Template placeholders follow Kodi's names (`{utc}`, `${start}`, `{utcend}`, `{lu
 - **A seek by URL** asks the archive for the programme from the new start, rounded to the whole minute, to the programme's end (`catchupRequest`'s `fromMs`): Xtream's `/timeshift/` URL with the minutes left, the start as wall time in the panel's zone as before; each M3U mode's template filled from the new start. Its times are the shown ones, so the offset and tvg-shift still apply. The e2e checks the new start against the mock (`guide-catchup-seek.spec.ts`).
 - **Playing on** past a programme (a `shift` or `timeshift_abs` stream) shows the programme aired then, read from the stored guide at that time (`DataEngine.nowNext`), shifted as the guide shows it.
 
+**Applied in step 37a (2026-11-22):**
+- **A `get.php` link being added is read through its panel's API** and kept as an Xtream source (architecture.md §1.2, "Built in step 37a"), so its zone and formats are an Xtream source's own. 25b's login now serves a link kept as a playlist: one whose API failed when it was added (the login can still answer while the lists fail), and a restored source given its link again, which keeps its type.
+
 ## Consequences
 - On engines with zone data, Xtream catch-up is exact across DST. Without it, DST zones are an hour off for archive programmes across a DST change, and the diagnostics screen (step 40) should show the zone source (`intl`/`clock`/`utc`).
 - The time offset per guide (step 24b) also lets users fix a panel whose zone is simply wrong.

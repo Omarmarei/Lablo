@@ -8,7 +8,8 @@
  *    `If-Modified-Since`); a 304 ends the refresh as `unchanged` before anything is written.
  *    Xtream logs in (the panel's zone is kept for catch-up), stops on an expired, banned or
  *    disabled account (`expired`, `blocked`), then streams each kind's categories and list.
- *    An M3U `get.php` link (`xtreamFromM3uUrl`) logs in to its panel once first, for the same
+ *    An M3U link being added is read this way when it is an Xtream link (step 37a: `upgrade`,
+ *    the loader's choice), its login limited as the panel login is. A stored M3U `get.php` link (`xtreamFromM3uUrl`) logs in to its panel once first, for the same
  *    facts (step 25b, ADR-010): its zone for an `xc` channel's catch-up, and the account's
  *    output formats. That login never fails the refresh (`panelLogin`). An M3U file sent from
  *    the phone (`m3u-file`, step 31d2a) has no link: its plain bytes come as `options.file`
@@ -85,6 +86,12 @@ export type IngestSource =
       /** Kinds to load (default all). A kind left out is empty in the new generation. */
       kinds?: ContentKind[];
       liveExt?: 'ts' | 'm3u8';
+      /**
+       * An M3U link read through its panel's API as it is added (step 37a): the login gets the
+       * M3U panel login's time limit (`IngestOptions.panelLoginMs`), past which the refresh fails
+       * as `network` and the loader reads the link as a playlist instead.
+       */
+      upgrade?: true;
     };
 
 /** A source read from a link (every kind but the phone's file): what has a catalog server. */
@@ -198,6 +205,30 @@ async function panelLogin(account: XtreamAccount, transport: ByteTransport, toke
     stopCancel();
     over = true;
     (open as { cancel(): void } | null)?.cancel();
+  }
+}
+
+/**
+ * `login` within `limitMs` (an upgrade's Xtream login, step 37a): past it, `stop` lets the request
+ * go and the refresh fails as `network`, so a panel whose API never answers can't hold the load.
+ * A cancel ends the wait at once, as `panelLogin`'s does (a request still waiting for its headers
+ * has nothing to cancel yet).
+ */
+async function limited<T>(login: Promise<T>, limitMs: number, token: CancelToken, stop: () => void): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let stopCancel = (): void => undefined;
+  const late = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      stop();
+      reject(new IngestError('network', null, 'The panel did not answer the login in time'));
+    }, limitMs);
+    stopCancel = token.onCancel(() => reject(new CancelError()));
+  });
+  try {
+    return await Promise.race([login, late]);
+  } finally {
+    clearTimeout(timer);
+    stopCancel();
   }
 }
 
@@ -429,11 +460,13 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
       writer = new GenerationWriter(db, src, await beginGeneration(db, src), throttle, token, options.chunkSize);
       m3u = await playlist(res);
     } else {
+      /** An upgrade's login ran past its limit: an answer coming after it is let go. */
+      let late = false;
       const textTransport: TextTransport = {
         get: async (url) => {
           const res = await transport.get(url);
           current = res;
-          if (token.cancelled) {
+          if (token.cancelled || late) {
             res.cancel();
             throw new CancelError();
           }
@@ -444,7 +477,12 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
       const client = new XtreamClient(source.account, textTransport, src);
       // The login answer carries the panel clock, which changes on every call: not hashed.
       hashing = false;
-      const login = await client.login();
+      const login = await (source.upgrade
+        ? limited(client.login(), options.panelLoginMs ?? PANEL_LOGIN_MS, token, () => {
+            late = true;
+            current?.cancel();
+          })
+        : client.login());
       hashing = true;
       token.throwIfCancelled();
       // An expired, banned or disabled account still logs in, but gets no lists: say why.
