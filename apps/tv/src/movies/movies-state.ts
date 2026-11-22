@@ -99,6 +99,9 @@ export interface RecentEntry {
   readonly allStart: number;
   /** Never a source's tag (step 36d: a group's only). */
   readonly source?: undefined;
+  /** Never a lock (step 38b: a group's and the last entry's only). */
+  readonly opened?: undefined;
+  readonly unlocked?: undefined;
 }
 
 /** An entry of the movies rail: "Continue watching", "Recently added", or one of the live rail's kinds. */
@@ -387,11 +390,10 @@ export function createMovies(options: MoviesOptions): Movies {
    */
   const showCategory = (i: number, place = 0): void => {
     const shown = screen.value;
-    // ("Locked groups" lists nothing: the first entry instead.)
-    const at = rail.value[i] !== undefined && rail.value[i]!.kind === 'locked' ? 0 : i;
-    const picked = rail.value[at];
+    // (Never "Locked groups": a load picks an entry by its ref, and OK on it asks the app.)
+    const picked = rail.value[i];
     if (shown === null || picked === undefined) return;
-    category.value = at;
+    category.value = i;
     held = picked.kind === 'recent' ? recent : picked.kind === 'continue' ? continued : null;
     index = new ChannelIndex(picked.parts);
     shown.update(gridZone(held === null ? index.count : held.length));
