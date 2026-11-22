@@ -2,7 +2,7 @@ import type { Focus, FocusBinding } from '@lablo/ui';
 import { Button, Dialog, useZone } from '@lablo/ui';
 import type { AppI18n } from '../i18n';
 import type { Parental } from './parental';
-import { NO_PIN_BUTTONS, PAD_CANCEL, PAD_CELLS, PAD_COLUMNS, PAD_DELETE, PIN_LENGTH, PIN_PAD, cellDigit } from './parental';
+import { NO_PIN_BUTTONS, PAD_CELLS, PAD_COLUMNS, PAD_DELETE, PIN_LENGTH, PIN_PAD, cellDigit } from './parental';
 import './parental.css';
 
 /**
