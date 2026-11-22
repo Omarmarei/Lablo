@@ -219,7 +219,8 @@ for (const platform of ['tizen', 'webos'] as const) {
     const live = page.getByTestId('live');
     await expect(live).toHaveAttribute('data-status', 'ready');
     await expect(live).toHaveAttribute('data-pending', '0', { timeout: 10_000 });
-    await expect(page.locator('[data-testid=rail] .z-chip').first().locator('.z-chip__count')).toHaveText(String(app.mockState.catalog.live.length));
+    // (All but the 18+ channel, locked by default: RELAY step 38.)
+    await expect(page.locator('[data-testid=rail] .z-chip').first().locator('.z-chip__count')).toHaveText(String(app.mockState.catalog.live.filter((c) => !c.adult).length));
     await expect(page.locator('[data-testid=channels] .z-row')).toHaveCount(Math.min(9, app.mockState.catalog.live.length));
     await expect(page.getByTestId('row-0').locator('.z-row__name')).not.toHaveText('');
     await page.keyboard.press('ArrowDown');
