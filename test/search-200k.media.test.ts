@@ -8,7 +8,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CatalogItem } from '@lablo/core';
-import { normalizeName, searchTerms } from '@lablo/core';
+import { adultName, normalizeName, searchTerms } from '@lablo/core';
 import { QueryService, getSources, openDatabase } from '@lablo/data';
 import { describe, expect, it } from 'vitest';
 import { freshFactory, ingest } from '../packages/data/src/test-support';
@@ -53,14 +53,17 @@ describe('search over the 200k fixture through the data layer', () => {
     expect(status.segments.map((s) => s.count)).toEqual([20_000, 120_000, 60_000]);
     expect(status.stale).toEqual([]);
 
+    // (The fixture has adult groups: the oracle below leaves them out, so it must find some.)
+    expect(parsed.items.filter((i) => adultName(i.group)).length).toBeGreaterThan(0);
     const byKey = new Map<string, CatalogItem>(parsed.items.map((i) => [i.key, i]));
     const times: Record<string, number> = {};
     for (const query of QUERIES) {
       const { ms, value: result } = await bestOf(3, () => svc.search({ query }));
       times[query] = Math.round(ms * 10) / 10;
-      // Oracle: every item whose name holds all query words, counted from the parsed playlist.
+      // Oracle: every item whose name holds all query words, counted from the parsed playlist,
+      // but those of adult groups: locked by default since step 38, search leaves them out.
       const terms = searchTerms(normalizeName(query));
-      const expected = parsed.items.filter((i) => terms.every((w) => i.normName.includes(w))).length;
+      const expected = parsed.items.filter((i) => !adultName(i.group) && terms.every((w) => i.normName.includes(w))).length;
       expect(result.total, query).toBe(expected);
       expect(result.hits.length, query).toBe(Math.min(200, expected));
       const items = await svc.items(result.hits);
