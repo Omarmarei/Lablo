@@ -123,6 +123,12 @@ export function MoviesScreen({ movies, i18n, binding, focus, clock }: Props) {
                 {heading.label}
               </span>
               {' · '}
+              {entry.source !== undefined && (
+                <span class="movies__source" dir="auto" translate={false} data-testid={`${ids.screen}-source`}>
+                  {entry.source}
+                </span>
+              )}
+              {entry.source !== undefined && ' · '}
               <span data-n={entry.count}>{t(movies.episodes(shown) ? (words.episodes ?? words.count) : words.count, { n: entry.count })}</span>
             </span>
           )}
@@ -162,7 +168,7 @@ export function MoviesScreen({ movies, i18n, binding, focus, clock }: Props) {
               const at = entries[i];
               if (at === undefined) return null;
               const { label, data } = entryLabel(at, t, words);
-              return <Chip label={label} data={data} selected={i === shown} count={i18n.number(at.count)} {...item} testId={`${ids.screen}-chip-${i}`} />;
+              return <Chip label={label} data={data} source={at.source} selected={i === shown} count={i18n.number(at.count)} {...item} testId={`${ids.screen}-chip-${i}`} />;
             }}
           />
           <VirtualGrid

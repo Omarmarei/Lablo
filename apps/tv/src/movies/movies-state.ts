@@ -97,6 +97,8 @@ export interface RecentEntry {
   readonly count: number;
   readonly parts: readonly ListPart[];
   readonly allStart: number;
+  /** Never a source's tag (step 36d: a group's only). */
+  readonly source?: undefined;
 }
 
 /** An entry of the movies rail: "Continue watching", "Recently added", or one of the live rail's kinds. */
@@ -435,7 +437,7 @@ export function createMovies(options: MoviesOptions): Movies {
         const entries: MovieEntry[] = [];
         if (left.length > 0) entries.push(heldEntry('continue', left.length));
         if (newest.length > 0) entries.push(heldEntry('recent', newest.length));
-        for (const entry of railEntries(records.map((r, i) => ({ src: r.id, categories: lists[i] ?? [] })))) entries.push(entry);
+        for (const entry of railEntries(records.map((r, i) => ({ src: r.id, name: r.name, categories: lists[i] ?? [] })))) entries.push(entry);
         // (A swap's old tiles show until here.)
         chunks.clear();
         recent = [];

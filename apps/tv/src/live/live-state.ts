@@ -107,6 +107,15 @@ export interface RailEntry {
   readonly allStart: number;
   /** The favourites list (`list` entries only). */
   readonly list?: FavouriteList;
+  /** Its source's name, when another source has a group of the same name on the rail (step 36d; `category` entries only). */
+  readonly source?: string;
+}
+
+/** A source as the rail reads it: its id, its name (step 36d: the tag on a same-named group; none: no tag) and its categories. */
+export interface RailSource {
+  readonly src: string;
+  readonly name?: string;
+  readonly categories: readonly CategoryInfo[];
 }
 
 /** The user's lists and groups the rail follows (step 35c; the movies screen has none). */
@@ -357,15 +366,20 @@ function placesOf(groups: readonly GroupRef[]): Record<string, number> {
  *
  * Channels the user hid (step 36b, `CategoryInfo.hidden`) count in the places but not in an
  * entry's `count`; a group with every channel hidden is left out, as an empty one is.
+ *
+ * A group whose name another source's group on the rail has too (`groupNameKey`) carries its
+ * source's name (step 36d, `source`).
  */
-export function railEntries(sources: readonly { src: string; categories: readonly CategoryInfo[] }[], shape?: RailShape): RailEntry[] {
+export function railEntries(sources: readonly RailSource[], shape?: RailShape): RailEntry[] {
   const hidden = placesOf(shape === undefined ? [] : shape.hidden);
   const order = placesOf(shape === undefined ? [] : shape.order);
   /** The shown groups in the provider's order, and those the user ordered, by their place in `order`. */
   const rest: RailEntry[] = [];
   const ordered: RailEntry[] = [];
+  const names = Object.create(null) as Record<string, string>;
   let at = 0;
   for (const source of sources) {
+    if (source.name !== undefined) names[source.src] = source.name;
     for (const info of source.categories) {
       if (info.count <= 0) continue;
       const part = partOf(source.src, info, at);
@@ -385,6 +399,7 @@ export function railEntries(sources: readonly { src: string; categories: readonl
   // (`ordered` has holes where an ordered group is gone or hidden.)
   for (let i = 0; i < ordered.length; i += 1) if (ordered[i] !== undefined) groups.push(ordered[i]!);
   for (let i = 0; i < rest.length; i += 1) groups.push(rest[i]!);
+  tagSources(groups, names);
   const all: ListPart[] = [];
   let count = 0;
   for (let i = 0; i < groups.length; i += 1) {
@@ -398,6 +413,50 @@ export function railEntries(sources: readonly { src: string; categories: readonl
     out.push({ kind: 'list', name: list.name === null ? '' : list.name, count: list.keys.length, parts: [], allStart: 0, list });
   }
   return out.concat(groups);
+}
+
+/**
+ * A group's name as the rail compares two (step 36d): in lower case, each run of blanks one space,
+ * none at the ends ("SPORTS " is "Sports"). Blanks by char code: `trim` pulls a polyfill into main.
+ */
+export function groupNameKey(name: string): string {
+  let out = '';
+  let gap = false;
+  for (let i = 0; i < name.length; i += 1) {
+    const c = name.charCodeAt(i);
+    if (c <= 32 || c === 160 || c === 0x3000) gap = true;
+    else {
+      if (gap && out !== '') out += ' ';
+      gap = false;
+      out += name.charAt(i);
+    }
+  }
+  return out.toLowerCase();
+}
+
+/**
+ * Tags each of `groups` whose name another source's group in `groups` has too with its source's
+ * name from `names` (step 36d): the entry is replaced by a copy with `source`. A source's own two
+ * groups of one name get no tag (it would be the same on both), nor does a source without a name.
+ */
+function tagSources(groups: RailEntry[], names: Record<string, string>): void {
+  // Each name's first source, or '' once another source has it too (a source's id is never empty).
+  const firstSrc = Object.create(null) as Record<string, string>;
+  const keys: string[] = [];
+  for (let i = 0; i < groups.length; i += 1) {
+    const key = groupNameKey(groups[i]!.name);
+    const src = groups[i]!.parts[0]!.src;
+    const seen = firstSrc[key];
+    if (seen === undefined) firstSrc[key] = src;
+    else if (seen !== src) firstSrc[key] = '';
+    keys.push(key);
+  }
+  for (let i = 0; i < groups.length; i += 1) {
+    const g = groups[i]!;
+    const source = names[g.parts[0]!.src];
+    if (firstSrc[keys[i]!] !== '' || source === undefined || source === '') continue;
+    groups[i] = { kind: g.kind, name: g.name, count: g.count, parts: g.parts, allStart: g.allStart, source };
+  }
 }
 
 /** Category `info` of source `src` as a list reads it, its first channel at place `first`; its hidden places only when it has some. */
@@ -417,7 +476,7 @@ export function categoryKey(src: string, catIdx: number): string {
  * and its hidden places (steps 35d and 36b: a channel of a group out of the rail, or one the user
  * hid, plays over the list with its number).
  */
-export function categoryParts(sources: readonly { src: string; categories: readonly CategoryInfo[] }[]): Map<string, ListPart> {
+export function categoryParts(sources: readonly RailSource[]): Map<string, ListPart> {
   const out = new Map<string, ListPart>();
   let at = 0;
   for (let s = 0; s < sources.length; s += 1) {
@@ -1000,7 +1059,7 @@ export function createLive(options: LiveOptions): Live {
     const doc = read.doc;
     lists.value = favouriteListsOf(doc);
     const shape: RailShape = { lists: lists.value, hidden: hiddenGroupsOf(doc), order: groupOrderOf(doc) };
-    const all = read.records.map((r, i) => ({ src: r.id, categories: read.lists[i] ?? [] }));
+    const all: RailSource[] = read.records.map((r, i) => ({ src: r.id, name: r.name, categories: read.lists[i] ?? [] }));
     const entries = railEntries(all, shape);
     parts = categoryParts(all);
     hiddenGroups = placesOf(shape.hidden);

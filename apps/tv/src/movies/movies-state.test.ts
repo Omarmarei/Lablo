@@ -268,6 +268,19 @@ describe('the movies screen (RELAY step 26a)', () => {
     expect(t.tiles(0, 3)).toEqual(['s1 0-0', 's1 0-1', 's1 0-2']);
   });
 
+  it("tags two sources' categories of one name with the sources' names (step 36d)", async () => {
+    const engine = new FakeEngine();
+    engine.catalog = { s1: CATEGORIES.s1!, s2: [info(0, 'ACTION', [3]), info(1, 'Kids', [4])] };
+    const t = await setup({ engine });
+    expect(t.movies.rail.value.map((e) => [e.name, e.source])).toEqual([
+      ['', undefined],
+      ['Action', 'Home'],
+      ['Drama', undefined],
+      ['ACTION', 'Panel'],
+      ['Kids', undefined],
+    ]);
+  });
+
   it('shows the loading state until the sources are read, then the grid', async () => {
     const engine = new FakeEngine();
     engine.hold = new Set(['profile']);
