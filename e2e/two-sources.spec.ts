@@ -217,6 +217,7 @@ for (const { locale, tag, first, second } of LOCALES) {
         await expect(live).toHaveAttribute('data-category', '1');
         await expect(page.getByTestId('live-source')).toHaveText(first);
         await expect(page.getByTestId('live-source')).toHaveAttribute('translate', 'no');
+        await expect(page.getByTestId('live-source')).toHaveAttribute('dir', 'auto');
         if (!ar && !pseudo) await expect(meta).toHaveText(`Test News · ${first} · 4 channels`);
         if (pseudo) expect(await untranslated(page, '[data-testid=live-meta]')).toEqual([]);
 
@@ -278,6 +279,8 @@ for (const { locale, tag, first, second } of LOCALES) {
         await remote.press('OK');
         await expect(movies).toHaveAttribute('data-category', String(at));
         await expect(page.getByTestId('movies-source')).toHaveText(tagged[0]!.slice(tagged[0]!.indexOf(' [') + 2, -1));
+        await expect(page.getByTestId('movies-source')).toHaveAttribute('translate', 'no');
+        if (!ar && !pseudo) await expect(page.getByTestId('movies-meta')).toHaveText(`Open Movies | أفلام مفتوحة · ${first} · 4 movies`);
         await shoot(page, `two-sources-movies-${tag}`);
       });
 
