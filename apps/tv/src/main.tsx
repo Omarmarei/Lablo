@@ -260,8 +260,15 @@ function deviceTier(): Promise<DeviceTier> {
  * The pairing screen on `nav` (RELAY step 31c2a): a pair worker per opening, the code's link on
  * this build's API origin (`?api=` in tests), the config's `block-new-sources` and `loader`'s add
  * path. `busy`: a load starts and ends (Settings holds the background refreshes meanwhile).
+ * `setPin` (step 38c3, Settings): the done view's "Set a PIN", the pad's new PIN.
  */
-function pairingOn(nav: Navigator, added: (draft: SourceDraft, result: LoadResult) => void, loader: SourceLoader, busy?: (on: boolean) => void): Pairing {
+function pairingOn(
+  nav: Navigator,
+  added: (draft: SourceDraft, result: LoadResult) => void,
+  loader: SourceLoader,
+  busy?: (on: boolean) => void,
+  setPin?: (kept: () => void) => void,
+): Pairing {
   return createPairing({
     nav,
     session: () => dataEngine().pairing(),
@@ -273,6 +280,7 @@ function pairingOn(nav: Navigator, added: (draft: SourceDraft, result: LoadResul
     // A file sent without a name (step 31d2b1), in the page's language (onboarding and the live screen set it).
     fileName: () => appI18n(document.documentElement.lang || 'en').t('pair.fileName'),
     ...(busy === undefined ? {} : { busy }),
+    ...(setPin === undefined ? {} : { setPin }),
   });
 }
 
@@ -559,7 +567,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       guide.guidesChanged();
     },
     platform,
-    pairing: (nav, added) => pairingOn(nav, added, addLoader, holdRefreshes),
+    // A source with locked groups added while no PIN is set (step 38c3): the done view's "Set a PIN" opens the pad below.
+    pairing: (nav, added) => pairingOn(nav, added, addLoader, holdRefreshes, (kept) => parental.choose(kept)),
     backup: {
       engine: dataEngine(),
       host: {
@@ -761,6 +770,8 @@ function showOnboarding(into: Element, language: Language | null): void {
         else location.reload();
       },
     },
+    // The done screen's "Set a PIN" (step 38c3): a pad of onboarding's own, with no session to end on hide (nothing is unlocked).
+    pad: (nav) => createParental({ nav, engine: data, changed: () => undefined, restart: () => location.reload() }),
     answer: (answer) => {
       // Best effort: an answer that can't be saved is asked again on the next start.
       data.editProfile(answerEdit(answer)).catch((error: unknown) => console.warn('The onboarding answer was not saved', error));

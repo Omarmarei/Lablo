@@ -11,7 +11,7 @@ import type { SourceDraft } from '../onboarding/form';
 import type { LoadErrorCode, LoadProgress, LoadResult } from '../onboarding/loader';
 import { LoadError } from '../onboarding/loader';
 import type { PairView } from './pair-state';
-import { PAIR_CODES, PAIR_SCREEN, STATUS_TRIES, createPairing, pairActions } from './pair-state';
+import { PAIR_CODES, PAIR_SCREEN, STATUS_TRIES, asksPin, createPairing, pairActions } from './pair-state';
 
 /**
  * The pairing screen's state (RELAY step 31c2a) over a fake pair worker, a fake loader, held
@@ -109,7 +109,7 @@ interface Load {
   cancelled: boolean;
 }
 
-function setup(options: { refusal?: Refusal | null; failSession?: boolean; fileName?: () => string } = {}) {
+function setup(options: { refusal?: Refusal | null; failSession?: boolean; fileName?: () => string; setPin?: (kept: () => void) => void } = {}) {
   const sessions: FakeSession[] = [];
   const timers: Timer[] = [];
   const loads: Load[] = [];
@@ -161,6 +161,7 @@ function setup(options: { refusal?: Refusal | null; failSession?: boolean; fileN
     busy: (on) => busy.push(on),
     added: (draft, result) => added.push({ draft, result }),
     ...(options.fileName === undefined ? {} : { fileName: options.fileName }),
+    ...(options.setPin === undefined ? {} : { setPin: options.setPin }),
   });
   /** The timers set and not cleared or run. */
   const pending = (): number[] => timers.filter((t) => !t.cleared).map((t) => t.ms);
@@ -631,6 +632,87 @@ describe('the add path', () => {
     t.nav.back();
     expect(t.pending()).toEqual([]);
     expect(s.closed).toBe(1);
+  });
+});
+
+describe('the PIN prompt on the done view (step 38c3)', () => {
+  const LOCKED: LoadResult = { live: 12, movies: 3, series: 1, askPin: true };
+
+  it('gives the done view "Set a PIN" and "Later" only with the prompt', () => {
+    expect(pairActions('done', false, true)).toEqual(['set-pin', 'later']);
+    expect(pairActions('done', true, true)).toEqual(['set-pin', 'later']);
+    for (const kind of ['opening', 'code', 'loading', 'unavailable', 'ended', 'failed', 'refused'] as const) expect(pairActions(kind, false, true)).toEqual(pairActions(kind));
+    expect(asksPin({ kind: 'done', result: LOCKED }, true)).toBe(true);
+    expect(asksPin({ kind: 'done', result: LOCKED }, false)).toBe(false);
+    expect(asksPin({ kind: 'done', result: { live: 1, movies: 0, series: 0, askPin: false } }, true)).toBe(false);
+    expect(asksPin({ kind: 'done', result: RESULT }, true)).toBe(false);
+    expect(asksPin({ kind: 'loading', progress: null }, true)).toBe(false);
+  });
+
+  /** Up to the done view of a source that brought locked groups, with a pad that records each ask. */
+  async function lockedDone() {
+    const asked: Array<() => void> = [];
+    const t = setup({ setPin: (kept) => asked.push(kept) });
+    const s = await t.received();
+    t.loads[0]!.done.resolve(LOCKED);
+    await flush();
+    return { t, s, asked };
+  }
+
+  it('"Set a PIN" asks the pad over the done view; once the PIN is kept the pairing screen closes and its worker ends', async () => {
+    const { t, s, asked } = await lockedDone();
+    expect(t.pairing.canSetPin).toBe(true);
+    expect(t.pairing.view.value).toEqual({ kind: 'done', result: LOCKED });
+    expect(t.at()).toBe(`${PAIR_SCREEN} · actions 0`);
+    expect((t.nav.top.zone('actions') as { count: number }).count).toBe(2);
+    t.nav.handle('OK');
+    expect(asked).toHaveLength(1);
+    expect(t.at()).toBe(`${PAIR_SCREEN} · actions 0`);
+    asked[0]!();
+    expect(t.nav.snapshot().screen).toBe('home');
+    s.statuses[0]!.answer.resolve({ ok: true });
+    await flush();
+    expect(s.closed).toBe(1);
+  });
+
+  it('a PIN kept while another screen is over the pairing screen closes nothing', async () => {
+    const { t, asked } = await lockedDone();
+    t.nav.handle('OK');
+    t.nav.push({ id: 'other', zones: [{ kind: 'list', id: 'rows', axis: 'vertical', count: 1 }] });
+    asked[0]!();
+    expect(t.nav.snapshot().screen).toBe('other');
+    t.nav.pop();
+    expect(t.at()).toBe(`${PAIR_SCREEN} · actions 0`);
+  });
+
+  it('"Later" closes the screen as "Done" does, and asks no pad', async () => {
+    const { t, asked } = await lockedDone();
+    t.nav.handle('RIGHT');
+    expect(t.at()).toBe(`${PAIR_SCREEN} · actions 1`);
+    t.nav.handle('OK');
+    expect(t.nav.snapshot().screen).toBe('home');
+    expect(asked).toEqual([]);
+  });
+
+  it('keeps the one "Done" without a pad, or for a source that brought nothing locked', async () => {
+    const without = setup();
+    expect(without.pairing.canSetPin).toBe(false);
+    await without.received();
+    without.loads[0]!.done.resolve(LOCKED);
+    await flush();
+    expect((without.nav.top.zone('actions') as { count: number }).count).toBe(1);
+    without.nav.handle('OK');
+    expect(without.nav.snapshot().screen).toBe('home');
+
+    const asked: Array<() => void> = [];
+    const open = setup({ setPin: (kept) => asked.push(kept) });
+    await open.received();
+    open.loads[0]!.done.resolve(RESULT);
+    await flush();
+    expect((open.nav.top.zone('actions') as { count: number }).count).toBe(1);
+    open.nav.handle('OK');
+    expect(open.nav.snapshot().screen).toBe('home');
+    expect(asked).toEqual([]);
   });
 });
 

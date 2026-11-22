@@ -155,3 +155,8 @@
 .onboarding__counts li + li {
   margin-top: var(--space-2);
 }
+
+/* The PIN's prompt under the counts (RELAY step 38c3). */
+.onboarding__counts + .onboarding__text {
+  margin-top: var(--space-5);
+}

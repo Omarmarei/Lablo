@@ -66,8 +66,9 @@ const URL_PATTERN = /(blob:)?[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s"'`<>()[\]{}]*/g;
 const BLOB_NULL = /blob:null\/[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/g;
 const FRAME_FILE = /^[A-Za-z0-9_.-]{1,80}(:\d{1,9}){0,2}$/;
 const UUID_FRAME = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}((:\d{1,9}){0,2})$/;
+// A value already scrubbed (`[x]`) is taken whole: `]` ends a value, so `[x` alone would leave a `]` at each pass.
 const PAIR_PATTERN =
-  /\b(user|username|uname|login|pass|passwd|password|pwd|token|auth|apikey|api_key|key|secret|session|sessionid|sid|sig|signature)=[^&\s"'`<>,;)\]}]*/gi;
+  /\b(user|username|uname|login|pass|passwd|password|pwd|token|auth|apikey|api_key|key|secret|session|sessionid|sid|sig|signature)=(?:\[x\]|[^&\s"'`<>,;)\]}]*)/gi;
 const JSON_PAIR_PATTERN =
   /("(?:user|username|uname|login|pass|passwd|password|pwd|token|auth|apikey|api_key|key|secret|session|sessionid|sid|sig|signature)"\s*:\s*)"(?:[^"\\]|\\.)*"/gi;
 const XTREAM_PATH = /\/(live|movie|series|timeshift)\/[^/\s"'`<>]+\/[^/\s"'`<>]+\//gi;

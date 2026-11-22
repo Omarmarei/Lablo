@@ -1110,13 +1110,14 @@ describe('DataEngine (the app wiring of the data workers)', () => {
         session.close();
       }
     };
-    expect(await send()).toEqual({ live: 50, movies: 0, series: 0 });
+    // (No group of the file is locked: no PIN prompt, step 38c3.)
+    expect(await send()).toEqual({ live: 50, movies: 0, series: 0, askPin: false });
     const record = { id: 's1', type: 'm3u-file', name: 'Family list', added: NOW };
     expect((await s.engine.profile())!.doc).toMatchObject({ v: 9, sources: [record], guides: [] });
     expect(await s.engine.summary()).toEqual({ sources: 1, items: 50, stale: 0 });
     // Sent again under the same name: the same source, its catalog replaced.
     plain = second;
-    expect(await send()).toEqual({ live: 30, movies: 0, series: 0 });
+    expect(await send()).toEqual({ live: 30, movies: 0, series: 0, askPin: false });
     expect((await s.engine.profile())!.doc).toMatchObject({ v: 9, sources: [record] });
     expect(await s.engine.summary()).toEqual({ sources: 1, items: 30, stale: 0 });
     expect(await s.engine.sourceIds()).toEqual(['s1']);

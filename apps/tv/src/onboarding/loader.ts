@@ -41,6 +41,11 @@ export interface LoadResult {
   readonly live: number;
   readonly movies: number;
   readonly series: number;
+  /**
+   * No PIN is set and something is locked (RELAY step 38c3): the done screens offer "Set a PIN".
+   * Absent when the loader can't tell (a fake loader, an engine without the locks).
+   */
+  readonly askPin?: boolean;
 }
 
 export interface LoadHandle {

@@ -664,6 +664,55 @@ describe('createEngineLoader', () => {
   });
 });
 
+describe("the done screens' PIN prompt (step 38c3)", () => {
+  /** `engine` with a `lockState` answering `answer`; `editsBefore`: the profile edits made when it was read. */
+  function withLocks(engine: LoaderEngine, edits: readonly ProfileEdit[], answer: () => Promise<{ pin: boolean; kinds: ('live' | 'movie' | 'series')[] }>) {
+    const reads = { n: 0, editsBefore: -1 };
+    engine.lockState = () => {
+      reads.n += 1;
+      reads.editsBefore = edits.length;
+      return answer();
+    };
+    return reads;
+  }
+
+  it('asks for a PIN when none is set and something is locked, reading the locks once the source and its guides are saved', async () => {
+    const { engine, calls } = fake();
+    const reads = withLocks(engine, calls.edits, () => Promise.resolve({ pin: false, kinds: ['movie'] }));
+    const result = await loaderFor(engine).start(XTREAM, () => undefined).done;
+    expect(result).toEqual<LoadResult>({ live: 3, movies: 2, series: 1, askPin: true });
+    expect(reads).toEqual({ n: 1, editsBefore: 2 });
+  });
+
+  it('asks for none when a PIN is set, or when nothing is locked', async () => {
+    const pinned = fake();
+    withLocks(pinned.engine, pinned.calls.edits, () => Promise.resolve({ pin: true, kinds: ['live', 'series'] }));
+    expect((await loaderFor(pinned.engine).start(M3U, () => undefined).done).askPin).toBe(false);
+    const open = fake();
+    withLocks(open.engine, open.calls.edits, () => Promise.resolve({ pin: false, kinds: [] }));
+    expect((await loaderFor(open.engine).start(M3U, () => undefined).done).askPin).toBe(false);
+  });
+
+  it("asks for none when the locks can't be read, and the source is in all the same", async () => {
+    const { engine, calls } = fake();
+    withLocks(engine, calls.edits, () => Promise.reject(new RpcError('gone', 'other', 'Error')));
+    await expect(loaderFor(engine).start(XTREAM, () => undefined).done).resolves.toEqual({ live: 3, movies: 2, series: 1, askPin: false });
+    expect(calls.edits.map((e) => e.kind)).toEqual(['source', 'guide']);
+  });
+
+  it('says nothing of a PIN when the engine has no locks to read', async () => {
+    const { engine } = fake();
+    expect(Object.keys(await loaderFor(engine).start(M3U, () => undefined).done)).toEqual(['live', 'movies', 'series']);
+  });
+
+  it('reads no locks for a load that failed', async () => {
+    const { engine, calls } = fake({ refresh: () => Promise.reject(new RpcError('no', 'auth', 'IngestError')) });
+    const reads = withLocks(engine, calls.edits, () => Promise.resolve({ pin: false, kinds: ['live'] }));
+    await expect(loaderFor(engine).start(XTREAM, () => undefined).done).rejects.toMatchObject({ code: 'auth' });
+    expect(reads.n).toBe(0);
+  });
+});
+
 describe('the M3U→Xtream upgrade (step 37a)', () => {
   const LINK = 'http://Panel.test:8080/get.php?username=u%40home&password=p+w&type=m3u_plus&output=m3u8';
   const PANEL = { base: 'http://panel.test:8080', username: 'u@home', password: 'p w' };
