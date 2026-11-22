@@ -72,6 +72,16 @@ describe('scrubText', () => {
     expect(scrubText('{"username":"marker-user","password" : "mark\\"er","name":"x"}')).toBe('{"username":"[x]","password" : "[x]","name":"x"}');
   });
 
+  it('scrubs a pair it scrubbed before to the same text, an empty value too (the server scrubs what the TV sent)', () => {
+    for (const text of ['key=', 'key=x', 'a key= b', 'password=&x=1', 'token=t]', 'sid=[xy', 'user=[x]']) {
+      const once = scrubText(text);
+      expect(scrubText(once), text).toBe(once);
+    }
+    expect(scrubText('key=')).toBe('key=[x]');
+    expect(scrubText('key=[x]&pass=[x] ')).toBe('key=[x]&pass=[x] ');
+    expect(scrubText('sid=[xy')).toBe('sid=[x]');
+  });
+
   it('takes the login out of an Xtream path without its URL', () => {
     expect(scrubText('no route /live/marker-user/marker-pass/101.ts')).toBe('no route /live/[x]/[x]/101.ts');
     expect(scrubText('/movie/u/p/7.mkv /series/u/p/8.mp4 /timeshift/u/p/60/2026-11-19:10-00/9.ts /Live/u/p/1')).toBe(
