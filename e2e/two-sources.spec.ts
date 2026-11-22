@@ -158,17 +158,19 @@ for (const { locale, tag, first, second } of LOCALES) {
       });
 
       await test.step('the rail: the same-named groups tagged, nothing else', async () => {
-        expect((await chips(page, 'chip-', 10)).slice(1)).toEqual([
+        // (The panel's "18+ Test (lock check)" is locked, out of sight; the rail ends with "Locked groups", step 38b.)
+        expect((await chips(page, 'chip-', 9)).slice(1)).toEqual([
           `Test News [${first}]`,
           'اختبار - أخبار',
           'Kids Test | أطفال',
           `Sports Test [${first}]`,
           'Radio Test',
-          '18+ Test (lock check)',
           `Test News [${second}]`,
           `SPORTS TEST [${second}]`,
           'Music Test',
         ]);
+        await expect(page.getByTestId('chip-9').locator('.z-chip__icon')).toHaveCount(1);
+        await expect(page.getByTestId('chip-9').locator('.z-chip__source')).toHaveCount(0);
         await expect(page.getByTestId('chip-10')).toHaveCount(0);
         const tagOf = page.getByTestId('chip-1').locator('.z-chip__source');
         await expect(tagOf).toHaveAttribute('dir', 'auto');
@@ -176,7 +178,7 @@ for (const { locale, tag, first, second } of LOCALES) {
         if (!ar && !pseudo) await expect(page.getByTestId('chip-1').locator('.z-chip__count')).toHaveText('4');
 
         // The tag inside its chip, between the name and the count (mirrored in Arabic).
-        for (const i of [1, 8]) {
+        for (const i of [1, 7]) {
           const chip = page.getByTestId(`chip-${i}`);
           const c = await box(chip);
           const label = await box(chip.locator('.z-chip__label'));
@@ -222,9 +224,10 @@ for (const { locale, tag, first, second } of LOCALES) {
         if (pseudo) expect(await untranslated(page, '[data-testid=live-meta]')).toEqual([]);
 
         await remote.go(ar ? 'RIGHT' : 'LEFT', 'live/rail/1');
-        for (let i = 2; i <= 8; i += 1) await remote.go('DOWN', `live/rail/${i}`);
+        // (The panel's 18+ group is locked, out of the rail: SPORTS TEST is the seventh group; its numbers still count it.)
+        for (let i = 2; i <= 7; i += 1) await remote.go('DOWN', `live/rail/${i}`);
         await remote.go('OK', 'live/channels/0');
-        await expect(live).toHaveAttribute('data-category', '8');
+        await expect(live).toHaveAttribute('data-category', '7');
         await expect(page.getByTestId('live-source')).toHaveText(second);
         if (!ar && !pseudo) await expect(meta).toHaveText(`SPORTS TEST · ${second} · 2 channels`);
         await settled(live);
@@ -235,8 +238,8 @@ for (const { locale, tag, first, second } of LOCALES) {
       });
 
       await test.step('Settings › "Channel groups" names every group\'s source', async () => {
-        await remote.go(ar ? 'RIGHT' : 'LEFT', 'live/rail/8');
-        for (let i = 7; i >= 0; i -= 1) await remote.go('UP', `live/rail/${i}`);
+        await remote.go(ar ? 'RIGHT' : 'LEFT', 'live/rail/7');
+        for (let i = 6; i >= 0; i -= 1) await remote.go('UP', `live/rail/${i}`);
         await remote.press('UP');
         for (let i = 0; i < 5; i += 1) await remote.press(ar ? 'LEFT' : 'RIGHT');
         await remote.expectFocus('live/header/5');
@@ -246,9 +249,10 @@ for (const { locale, tag, first, second } of LOCALES) {
         await expect(page.getByTestId('groups')).toHaveAttribute('data-status', 'ready');
         await settled(page.getByTestId('settings-screen'));
         expect(await text(page.getByTestId('group-0-name'))).toBe('Test News');
-        expect(await text(page.getByTestId('group-6-name'))).toBe('Test News');
+        // (The panel's 18+ group is locked, out of sight here too: step 38b.)
+        expect(await text(page.getByTestId('group-5-name'))).toBe('Test News');
         const line0 = await text(page.getByTestId('group-0-line'));
-        const line6 = await text(page.getByTestId('group-6-line'));
+        const line6 = await text(page.getByTestId('group-5-line'));
         if (!ar && !pseudo) {
           expect(line0).toBe(`From ${first} · 4 channels`);
           expect(line6).toBe(`From ${second} · 4 channels`);

@@ -35,7 +35,8 @@ test.afterAll(async () => {
   await app.close();
 });
 
-const withChannels = catalog.liveCategories.filter((c) => catalog.live.some((ch) => ch.categoryId === c.id));
+/** The categories on the rail: those with channels, but the locked adult one (RELAY step 38). */
+const withChannels = catalog.liveCategories.filter((c) => catalog.live.some((ch) => ch.categoryId === c.id && !ch.adult));
 
 /** Onboarding by keys with the mock's Xtream login, then "Start watching": the live screen. */
 function addSourceAndWatch(remote: RemoteDriver, locale: string): Promise<Locator> {
@@ -132,11 +133,15 @@ test.describe('the live screen by keys (pnpm dev, after onboarding)', () => {
       await expect(root).toHaveAttribute('data-language', language);
       await remote.expectFocus('live/channels/0');
 
-      // The rail: every channel first, then the panel's categories with their counts.
+      // The rail: every channel first, then the panel's categories with their counts; the adult one
+      // is locked, out of sight, and the rail ends with "Locked groups" (step 38b), no count.
       const chips = page.locator('[data-testid=rail] .z-chip');
-      await expect(chips).toHaveCount(1 + withChannels.length);
+      await expect(chips).toHaveCount(1 + withChannels.length + 1);
       await expect(chips.nth(0).locator('.z-chip__label')).toHaveText(ar ? 'كل القنوات' : 'All channels');
-      await expect(chips.nth(0).locator('.z-chip__count')).toHaveText(String(catalog.live.length));
+      await expect(chips.nth(0).locator('.z-chip__count')).toHaveText(String(ordered.length));
+      await expect(chips.nth(withChannels.length + 1).locator('.z-chip__label')).toHaveText(ar ? 'المجموعات المقفلة' : 'Locked groups');
+      await expect(chips.nth(withChannels.length + 1).locator('.z-chip__count')).toHaveCount(0);
+      await expect(chips.nth(withChannels.length + 1).locator('.z-chip__icon svg')).toHaveCount(1);
       await expect(chips.nth(0)).toHaveClass(/is-selected/);
       for (const [i, category] of withChannels.entries()) {
         await expect(chips.nth(i + 1).locator('.z-chip__label')).toHaveText(category.name);
@@ -144,10 +149,10 @@ test.describe('the live screen by keys (pnpm dev, after onboarding)', () => {
         await expect(chips.nth(i + 1).locator('.z-chip__count')).toHaveText(String(catalog.live.filter((c) => c.categoryId === category.id).length));
       }
       const meta = page.getByTestId('live-meta');
-      await expect(meta.locator('[data-n]')).toHaveAttribute('data-n', String(catalog.live.length));
-      if (!ar) await expect(meta).toHaveText(`All channels · ${catalog.live.length} channels`);
+      await expect(meta.locator('[data-n]')).toHaveAttribute('data-n', String(ordered.length));
+      if (!ar) await expect(meta).toHaveText(`All channels · ${ordered.length} channels`);
 
-      // The list: the panel's numbers and names, and now/next from its guide (the 18+ channel has none).
+      // The list: the panel's numbers and names, and now/next from its guide (the locked 18+ channel, which has none, isn't listed).
       const placeholder = ar ? 'لا يوجد دليل لهذه القناة' : 'No guide for this channel';
       await checkRows(page, root, 0, placeholder);
       expect((await rows(page))[0]!.state).toBe('focused');
@@ -162,7 +167,7 @@ test.describe('the live screen by keys (pnpm dev, after onboarding)', () => {
       expect(faces).toContainEqual([ARABIC_FACE, true]);
       expect(faces.every(([, custom]) => custom)).toBe(true);
 
-      // Down the list, then a page (CH−) to its end: the last rows, the 18+ channel's placeholder.
+      // Down the list, then a page (CH−) to its end: the last rows.
       await remote.press('DOWN', 'DOWN');
       await remote.expectFocus('live/channels/2');
       await remote.go('CH_DOWN', `live/channels/${ordered.length - 1}`);

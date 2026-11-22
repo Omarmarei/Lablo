@@ -6,6 +6,7 @@ import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { stripIsolates } from '../packages/core/src/bidi';
 import { addXtreamAndWatch, settled, trackErrors } from './onboard';
+import { ADULT_OPEN, restartWith } from './profile-edit';
 import { RemoteDriver } from './remote-driver';
 
 /**
@@ -117,6 +118,11 @@ function sourceName(page: Page): Promise<string> {
 async function openGuides(remote: RemoteDriver, locale: string, language: Language): Promise<Locator> {
   const { page } = remote;
   const live = await addXtreamAndWatch(remote, { host, username: U, password: P }, `locale=${locale}`);
+  await settled(live);
+  // The channel without a guide is the 18+ one, locked by default (step 38): "Lock adult groups" off.
+  await restartWith(page, ADULT_OPEN, `/?locale=${locale}`);
+  await expect(live).toHaveAttribute('data-status', 'ready');
+  await remote.expectFocus('live/channels/0');
   await settled(live);
   await remote.go('UP', 'live/header/0');
   await remote.go(language === 'ar' ? 'LEFT' : 'RIGHT', 'live/header/1');

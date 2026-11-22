@@ -72,9 +72,9 @@ for (const platform of ['tizen', 'webos'] as const) {
     await expect(page.getByTestId('search-status')).toHaveAttribute('data-total', '2');
     // The EPG worker too: the guide the playlist names, read and stored, then matched.
     await expect(page.getByTestId('epg-status')).toHaveText('ok: 11 of 12 live channels have a guide (91.7%), 1 guide', { timeout: 20_000 });
-    // The short-EPG fallback: the query worker asks the panel for the one unmatched channel.
-    await expect(page.getByTestId('shortepg-status')).toHaveText('none: 18+ Test Pattern: the panel has no programmes for it now', { timeout: 20_000 });
-    await expect(page.getByTestId('shortepg-status')).toHaveAttribute('data-from', 'panel');
+    // The one unmatched channel is the 18+ one, locked by default (RELAY step 38): the query worker
+    // serves none of it, so the short-EPG fallback has no channel to ask about.
+    await expect(page.getByTestId('shortepg-status')).toHaveText('none: every live channel here has a guide', { timeout: 20_000 });
 
     // Arrow keys share key codes with the TV remotes (37–40), so the TV key maps apply. The
     // focus engine moves from the list up to the rail, and OK opens a details screen.

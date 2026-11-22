@@ -244,11 +244,10 @@ test.describe('catalog panel in the desktop browser (pnpm dev)', () => {
     await expect(guide).toHaveText('ok: 11 of 12 live channels have a guide (91.7%), 1 guide', { timeout: 20_000 });
     await expect(guide).toHaveAttribute('data-matched', '11');
     await expect(page.getByTestId('nownext-status')).toHaveText(/^(ok: Lablo Sports Test F?HD: |none: )/);
-    // The one live channel no guide matches, focused for 600 ms: its panel's short EPG is asked,
-    // and has nothing for it either (it has no EPG id).
+    // The one live channel no guide matches is the 18+ one, locked by default (RELAY step 38): the
+    // query worker serves none of it, so no channel is left to focus (the next test asks a panel).
     const panelEpg = page.getByTestId('shortepg-status');
-    await expect(panelEpg).toHaveText('none: 18+ Test Pattern: the panel has no programmes for it now', { timeout: 20_000 });
-    await expect(panelEpg).toHaveAttribute('data-from', 'panel');
+    await expect(panelEpg).toHaveText('none: every live channel here has a guide', { timeout: 20_000 });
 
     // A remote key marks the UI busy (a running refresh would pause), then idle again.
     await page.keyboard.press('ArrowDown');
