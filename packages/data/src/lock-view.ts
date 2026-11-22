@@ -1,5 +1,5 @@
 /**
- * The query worker's locks (RELAY step 38, architecture.md §1.4 item 11): which categories and
+ * The query worker's locks (RELAY step 38, architecture.md §1.4 item 10, "Built in step 38a"): which categories and
  * live channels parental control locks, over the loaded catalogs' categories.
  *
  * - **A category** is adult when its panel marked one of its items adult (`CategoryInfo.adult`,
