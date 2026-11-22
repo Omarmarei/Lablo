@@ -49,29 +49,28 @@ describe("a channel's request", () => {
 describe('the radio card: when it shows', () => {
   it("in place of a radio channel's picture: playing, paused and reconnecting", () => {
     for (const state of ['playing', 'paused', 'reconnecting'] as const) {
-      expect(radioCard(row(true), state, false, false, null)).toStrictEqual({ name: 'Lablo Radio Test', logo: LOGO });
+      expect(radioCard(row(true), state, false, null)).toStrictEqual({ name: 'Lablo Radio Test', logo: LOGO });
     }
   });
 
   it('not while "Connecting…" has the middle, nor under an error or end card, nor before a play', () => {
     const others: PlayerState[] = ['idle', 'opening', 'buffering', 'ended', 'failed'];
-    for (const state of others) expect(radioCard(row(true), state, false, false, null)).toBeNull();
+    for (const state of others) expect(radioCard(row(true), state, false, null)).toBeNull();
   });
 
-  it('not for a channel with a picture, no channel, a movie, or a refused play', () => {
-    expect(radioCard(row(false), 'playing', false, false, null)).toBeNull();
-    expect(radioCard(null, 'playing', false, false, null)).toBeNull();
+  it('not for a channel with a picture, no channel, or a movie', () => {
+    expect(radioCard(row(false), 'playing', false, null)).toBeNull();
+    expect(radioCard(null, 'playing', false, null)).toBeNull();
     // A movie plays: the last channel's row is still `playing`.
-    expect(radioCard(row(true), 'playing', true, false, null)).toBeNull();
-    expect(radioCard(row(true), 'playing', false, true, null)).toBeNull();
+    expect(radioCard(row(true), 'playing', true, null)).toBeNull();
   });
 
   it('the radio mark without a logo, with an empty one, or with the one that failed to load', () => {
-    expect(radioCard(row(true, null), 'playing', false, false, null)).toStrictEqual({ name: 'Lablo Radio Test', logo: null });
-    expect(radioCard(row(true, ''), 'playing', false, false, null)).toStrictEqual({ name: 'Lablo Radio Test', logo: null });
-    expect(radioCard(row(true), 'playing', false, false, LOGO)).toStrictEqual({ name: 'Lablo Radio Test', logo: null });
+    expect(radioCard(row(true, null), 'playing', false, null)).toStrictEqual({ name: 'Lablo Radio Test', logo: null });
+    expect(radioCard(row(true, ''), 'playing', false, null)).toStrictEqual({ name: 'Lablo Radio Test', logo: null });
+    expect(radioCard(row(true), 'playing', false, LOGO)).toStrictEqual({ name: 'Lablo Radio Test', logo: null });
     // Another channel's logo failed: this one's still shows.
-    expect(radioCard(row(true), 'playing', false, false, 'http://panel.test/logos/other.png')).toStrictEqual({ name: 'Lablo Radio Test', logo: LOGO });
+    expect(radioCard(row(true), 'playing', false, 'http://panel.test/logos/other.png')).toStrictEqual({ name: 'Lablo Radio Test', logo: LOGO });
   });
 });
 
@@ -92,7 +91,6 @@ describe('the radio card: what it draws', () => {
     expect(root.props).toMatchObject({ class: 'player__radio', 'data-testid': 'player-radio', 'data-logo': 'true' });
     const [logo, name, badge] = kids(root);
     expect(logo!.type).toBe('img');
-    expect(logo!.key).toBe(LOGO);
     expect(logo!.props).toMatchObject({ class: 'player__radio-logo', src: LOGO, alt: '' });
     // A logo that fails to load says which.
     (logo!.props as unknown as { onError: () => void }).onError();

@@ -15,7 +15,8 @@ import type { ArchiveProgramme } from './catchup';
 import { MOVIE_STEP_MS, SEEK_STEP_MS, seekStep } from './catchup';
 import type { FavouriteHost, FavouriteMenu } from './favourite-menu';
 import { createFavouriteMenu } from './favourite-menu';
-import { channelRequest } from './radio';
+import type { RadioCard } from './radio';
+import { channelRequest, radioCard } from './radio';
 import type { StreamInfoPanel } from './stream-info';
 import { createStreamInfo } from './stream-info';
 import type { SubtitleSize, TrackMenu, TrackSection } from './track-menu';
@@ -379,6 +380,12 @@ export interface Player {
   readonly failedLogo: ReadonlySignal<string | null>;
   /** The radio card's logo `url` failed to load. */
   logoFailed(url: string): void;
+  /**
+   * The radio card (step 37b; `null`: none): the channel whose stream plays, while it plays (a
+   * waiting zap leaves it up, as it would a picture), never over a movie. Reads signals: a screen
+   * that calls it draws again when they change.
+   */
+  radio(): RadioCard | null;
   /** Opens the player on row `index` of the list and plays it at once. */
   show(index: number): void;
   /**
@@ -1365,6 +1372,9 @@ export function createPlayer(options: PlayerOptions): Player {
     failedLogo,
     logoFailed(url: string): void {
       failedLogo.value = url;
+    },
+    radio(): RadioCard | null {
+      return radioCard(rowAt(playing.value), status.value.state, movie.value !== null, failedLogo.value);
     },
     show(index: number): void {
       if (openScreen()) go(index);

@@ -20,7 +20,7 @@ export function RadioCard({ card, i18n, onLogoError }: { card: Card; i18n: AppI1
   const logo = card.logo;
   return (
     <section class="player__radio" data-testid="player-radio" data-logo={logo === null ? 'false' : 'true'}>
-      {logo === null ? RADIO_MARK : <img key={logo} class="player__radio-logo" src={logo} alt="" onError={() => onLogoError(logo)} data-testid="player-radio-logo" />}
+      {logo === null ? RADIO_MARK : <img class="player__radio-logo" src={logo} alt="" onError={() => onLogoError(logo)} data-testid="player-radio-logo" />}
       <p class="player__radio-name" dir="auto" translate={false} data-testid="player-radio-name">
         {card.name}
       </p>

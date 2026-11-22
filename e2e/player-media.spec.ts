@@ -379,12 +379,20 @@ for (const [locale, lang] of [
     test.setTimeout(120_000);
     const errors = trackErrors(page);
     const remote = new RemoteDriver(page);
-    // In Arabic the radio channel has a logo (the mock's 1x1 PNG): the card shows it in place of the mark.
+    // In Arabic the radio channel has a logo (the mock's 1x1 PNG): the card shows it in place of the
+    // mark. In the pseudo-locale it has one that fails to load: the card falls back to the mark.
     const logo = locale === 'ar-SA';
-    if (logo) {
+    if (locale !== 'en-US') {
       const plain = app.mockState.catalog;
       plainCatalog = plain;
       app.mockState.catalog = { ...plain, live: plain.live.map((c) => (c.id === 108 ? { ...c, logo: true } : c)) };
+    }
+    let failedLogos = 0;
+    if (locale === 'en-XA') {
+      await page.route('**/images/channel-108.png', (route) => {
+        failedLogos += 1;
+        return route.fulfill({ status: 404, body: '' });
+      });
     }
     await addXtreamAndWatch(remote, { host, username: U, password: P }, `locale=${locale}`);
     await remote.press('OK');
@@ -406,6 +414,8 @@ for (const [locale, lang] of [
     await expect(page.getByTestId('player-radio-name')).toHaveText('Lablo Radio Test');
     await expect(page.getByTestId(logo ? 'player-radio-logo' : 'player-radio-mark')).toBeVisible();
     await expect(page.getByTestId(logo ? 'player-radio-mark' : 'player-radio-logo')).toHaveCount(0);
+    // The pseudo-locale's logo was asked for, once: it failed, and the mark stays.
+    expect(failedLogos).toBe(locale === 'en-XA' ? 1 : 0);
     // Past the 5 s a picture would have had: still playing, with no picture, and no second open.
     const before = await video(page);
     await page.waitForTimeout(NO_PICTURE_MS + 1000);
@@ -443,7 +453,8 @@ for (const [locale, lang] of [
     await expect(page.getByTestId('player-bar')).toBeVisible();
     await expect(card).toBeVisible();
     await page.screenshot({ path: path.join(SHOTS, `player-radio-bar-${lang}.png`), animations: 'disabled' });
-    expect(errors).toEqual([]);
+    // The pseudo-locale's logo failed to load: the browser logs its 404.
+    expect(errors.filter((e) => locale !== 'en-XA' || e.indexOf('404') === -1)).toEqual([]);
     if (locale !== 'en-US') return;
 
     // CH-: back to a channel with a picture, and the card goes.

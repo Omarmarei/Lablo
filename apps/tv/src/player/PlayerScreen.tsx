@@ -13,7 +13,6 @@ import type { EpisodeMark, Player, PlayerAction, PlayingMovie, UpNext } from './
 import { BLOCKLIST_REFUSAL } from './player-state';
 import { NEW_LIST_SCREEN } from './favourite-menu';
 import { FavouritePanel, NewListForm, star } from './FavouritePanel';
-import { radioCard } from './radio';
 import { RadioCard } from './RadioCard';
 import { StreamInfoPanel } from './StreamInfoPanel';
 import { SubtitleOverlay } from './SubtitleOverlay';
@@ -394,8 +393,7 @@ export function PlayerScreen({ live, player, i18n, over = null }: { live: Live; 
   const favourites = player.favourites;
   const panel = favourites === null ? null : favourites.screen.value;
   const starred = row !== null && lists.some((list) => list.keys.indexOf(row.item.key) !== -1);
-  // The channel whose stream plays: a waiting zap leaves its card up, as it would its picture.
-  const radio = radioCard(player.row(playing), status.state, movie !== null, refused !== null, player.failedLogo.value);
+  const radio = player.radio();
   return (
     <main
       class="player"

@@ -27,17 +27,19 @@ export interface RadioCard {
 
 /**
  * The states in which the card stands in for the picture. "Connecting…" has the middle of the
- * screen to itself while the stream opens or stalls, and an error or end card replaces it.
+ * screen to itself while the stream opens or stalls, and an error or end card replaces it. (The
+ * config's refusal stops the stream: idle.)
  */
 const CARD_STATES: readonly PlayerState[] = ['playing', 'paused', 'reconnecting'];
 
 /**
  * The radio card for the channel whose stream plays (`row`: the player's `playing` row, which a
- * waiting zap leaves as it is), or `null`: not radio, a movie plays, the config refused the play,
- * or the state shows something else there. A logo that failed to load (`failedLogo`) is the mark.
+ * waiting zap leaves as it is), or `null`: not radio, a movie plays (the last channel's row is
+ * still `playing`), or the state shows something else there. A logo that failed to load
+ * (`failedLogo`) is the mark.
  */
-export function radioCard(row: LiveRow | null, state: PlayerState, movie: boolean, refused: boolean, failedLogo: string | null): RadioCard | null {
-  if (row === null || !row.item.radio || movie || refused || CARD_STATES.indexOf(state) === -1) return null;
+export function radioCard(row: LiveRow | null, state: PlayerState, movie: boolean, failedLogo: string | null): RadioCard | null {
+  if (row === null || !row.item.radio || movie || CARD_STATES.indexOf(state) === -1) return null;
   const logo = row.item.logo;
   return { name: row.item.name, logo: logo === null || logo === '' || logo === failedLogo ? null : logo };
 }
