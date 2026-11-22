@@ -3104,7 +3104,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - **Already kept in the profile:** the subtitle size (`player.subtitleSize`) and the picture mode (`player.picture`), set from the player. The audio and subtitle languages follow the UI's language (`uiTrackPreferences`) and aren't stored. The app's language is picked only on onboarding's first screen (`onboarding.language`); later only the developer gallery switches it.
     - **Settings' rows by place:** e2e addresses them as `settings/items/<n>` 71 times in 18 specs (some reach a row by pressing DOWN n times); the engines' walk checks only the first row. The focus engine has `grid` zones and windowed `list` zones (`visible`, as the groups page scrolls).
     - **Many TV remotes have no number keys** (Samsung's Smart Remote, newer Magic Remotes), so a PIN must be typeable with the arrows too.
-  - **Shape** (each choice with its why; the three marked **[Omar]** wait for his answer, leg 136's needs-you, and the shape follows the recommended option until then):
+  - **Shape** (each choice with its why; Omar chose the recommended option of each of the three questions, Q1-Q3, on 2026-11-22: "1 1 1"):
     - **What is adult:** a category (live, movies or series) whose name holds an adult word, or one in which the Xtream panel marks any stream `is_adult`.
       - The words, as whole words in the name's search form (`normalizeName`): `xxx`, `adult`, `adults`, `adulte`, `adultes`, `adulto`, `adultos`, `porn`, `porno`, `erotic`, `erotica`, `erotik`, `sex`, `18+`, `+18`, `للكبار`, `للبالغين`. A pure core function, `adultName`, tested against the big fixture's groups (its own `adult` flag is the oracle).
       - Why the whole category when one stream is flagged: panels flag adult categories' streams, and a mixed group locked by mistake is one switch away in Settings, where an adult channel shown by mistake is on screen.
@@ -3115,11 +3115,11 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - **One gate: the query worker.** It knows the locks and whether this session is unlocked, and while locked it serves nothing of a locked category or channel: `categories` marks them (`locked`, places kept), `chunk` gives none of their items, and `search`, `items`, `itemsByKey`, `numbered`, `recent` and `unmatched` leave them out.
       - Why there: every screen's read passes through it, so search, Home's shelves, "Continue watching", "Recent channels", the guide, number entry, the start's last channel, favourites lists and Settings' pages are covered by one check, tested once. Main only draws.
       - A worker that restarts starts locked.
-    - **[Omar] Q1: what a locked group looks like.** Recommended: **out of sight until unlocked.**
+    - **Q1: what a locked group looks like. Decided by Omar (2026-11-22, option 1): out of sight until unlocked.**
       - While locked, nothing of a locked group or channel is on any screen: not in the rail, the lists, search, Home, the guide, number entry or Settings' groups and channels pages (its places kept, so no number moves).
       - The rail (live, movies, series) ends with one entry, "Locked groups", while anything is locked. OK asks for the PIN; then the locked groups show in their places, marked with an open lock, until the session locks again, and the entry reads "Lock again".
       - Why: no adult group's name or logo is ever on screen until the PIN (children, the stores' reviewers), and one rule ("locked = not there") is simple to test.
-      - The other option: locked groups stay in the rails with a lock and no channels, and OK on one asks for the PIN (as some players do). Search, Home and the guide still leave locked items out. More convenient for adults; the group names are on screen.
+      - Not chosen: locked groups in the rails with a lock and no channels, OK on one asking for the PIN (the group names on screen).
     - **How long an unlock lasts:** until the app is hidden or closed (the TV turned off, another app or input), or "Lock again".
       - Why: that is when the viewer leaves; a timer would cut a film in the middle.
       - A locked channel playing when the app comes back: the PIN pad over the black stage; the right PIN resumes it, Back closes the player to the list.
@@ -3127,13 +3127,13 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
       - Why our own pad: the TV's keyboard differs by model, covers the screen and may show the digits; four digits by arrows take a few seconds.
       - The worker keeps only a salted SHA-256 of it (`parental: {salt, hash}` in the profile) and checks it there (`unlock(pin)`). Why: the hash is in the worker already, and the PIN never sits in main's state. Four digits are brute-forced offline in no time; the hash only keeps the PIN out of plain sight in a backup.
       - The PIN and the locks travel in the backup (PLAN.md's pillar 6, "Never lose your setup": locks survive updates and reinstalls).
-    - **[Omar] Q2: who sets the first PIN.** Recommended: **asked at add.** When a source just added has adult groups, the done screen (onboarding, and Settings' add from the phone) says they are locked and asks for a PIN: "Set a PIN" or "Later".
+    - **Q2: who sets the first PIN. Decided by Omar (2026-11-22, option 1): asked at add.** When a source just added has adult groups, the done screen (onboarding, and Settings' add from the phone) says they are locked and asks for a PIN: "Set a PIN" or "Later".
       - With no PIN, the locked groups stay out of sight, and setting one later asks for one source's login first (as a forgotten PIN does, Q3).
       - Why: the person adding the source has its login at that moment, and is the one the lock is for. Without such a check, whoever first opens "Locked groups" (a child) would set the PIN.
-      - The other options: whoever first opens the locked groups sets it (simplest; a child can be first); or a default PIN 0000 to change in Settings (TVs' own default, so widely known).
-    - **[Omar] Q3: a forgotten PIN.** Recommended: **one source's login typed again** (an Xtream user name and password, or an M3U link; typed, or sent from the phone), compared on the TV with the stored one; then a new PIN.
+      - Not chosen: whoever first opens the locked groups sets it (a child can be first); a default PIN 0000 (widely known).
+    - **Q3: a forgotten PIN. Decided by Omar (2026-11-22, option 1): one source's login typed again** (an Xtream user name and password, or an M3U link; typed, or sent from the phone), compared on the TV with the stored one; then a new PIN.
       - Why: the account holder knows it, a child usually doesn't, and it needs no server, no support and no wait. A source restored without its login can't be used for it until the login is given again (32d4b).
-      - The other options: erase all of Lablo's data on the TV and start again without the backup's restore (harsh: favourites and settings go); or a 24-hour wait shown at every start, after which the PIN is removed (a child can wait too).
+      - Not chosen: erasing all of Lablo's data on the TV without the backup's restore; a 24-hour wait shown at every start.
     - **Settings › "Parental control"** (settings.js) asks for the PIN every time it opens, even in an unlocked session. Why: an adult who left the TV unlocked shouldn't leave the PIN and the locks open too.
       - Rows: "Change the PIN" ("Set a PIN" when none); "Lock adult groups" (on by default); "Locked groups" (every group of each kind with its lock; the adult ones marked); "Forgot your PIN?" (outside the PIN, Q3).
       - A channel's lock: "Lock" and "Unlock" in 36c's channel menu (the info bar's pencil, Settings › "Channels"). Locking needs no PIN (it only restricts); unlocking asks for it. A locked channel is a changed channel, so Settings › "Channels" lists it.
