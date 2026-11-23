@@ -7,6 +7,7 @@ import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { readGrid } from './guide-grid';
 import { addXtreamAndWatch, settled, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
+import { SETTINGS_FIRST } from './settings-rows';
 
 /**
  * Settings load on first open (RELAY step 35e), in pnpm dev: the `import()` of settings.ts, held
@@ -138,10 +139,10 @@ test('the first open of Settings: the live screen for a moment, then a spinner; 
 
   // The file comes in: Settings opens (the file was asked for once).
   hold.release();
-  await remote.go('OK', 'settings/items/0');
+  await remote.go('OK', SETTINGS_FIRST);
   await expect(page.getByTestId('settings-screen')).toBeVisible();
   await remote.go('BACK', 'live/header/5');
-  await remote.go('OK', 'settings/items/0');
+  await remote.go('OK', SETTINGS_FIRST);
   expect(hold.asked()).toBe(1);
   expect(errors).toEqual([]);
 });

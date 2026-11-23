@@ -10,6 +10,7 @@ import { stripIsolates } from '../packages/core/src/bidi';
 import { catalog, ordered, rows } from './live-rows';
 import { addXtreamAndWatch, settled, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
+import { SETTINGS_FIRST, settingsRow, toSettingsRow } from './settings-rows';
 
 /**
  * Settings › "Channel groups" (RELAY step 35d), by keys: a list made from the info bar's star
@@ -137,12 +138,12 @@ async function toSettingsButton(remote: RemoteDriver, rtl: boolean): Promise<voi
 
 /**
  * From the rail's first entry: the header's "Settings" (its end: the left in Arabic), then
- * "Channel groups", the last row (`row`: its text, checked on the way).
+ * the "Channel groups" row (`row`: its text, checked on the way).
  */
 async function openGroups(remote: RemoteDriver, rtl: boolean, row?: string): Promise<Locator> {
   await toSettingsButton(remote, rtl);
-  await remote.go('OK', 'settings/items/0');
-  for (let i = 1; i <= 5; i += 1) await remote.go('DOWN', `settings/items/${i}`);
+  await remote.go('OK', SETTINGS_FIRST);
+  await toSettingsRow(remote, 'groups');
   if (row !== undefined) expect(await text(remote.page, 'settings-groups')).toBe(row);
   await remote.go('OK', 'groups/rows/0');
   const root = remote.page.getByTestId('groups');
@@ -153,7 +154,7 @@ async function openGroups(remote: RemoteDriver, rtl: boolean, row?: string): Pro
 
 /** Back from "Channel groups" to the live screen's rail, its first entry. */
 async function backToRail(remote: RemoteDriver): Promise<void> {
-  await remote.go('BACK', 'settings/items/5');
+  await remote.go('BACK', settingsRow('groups'));
   await remote.go('BACK', 'live/header/5');
   await remote.go('DOWN', 'live/rail/0');
   await settled(remote.page.getByTestId('live'));

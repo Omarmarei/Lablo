@@ -16,6 +16,7 @@ import { fillXtream, settled, trackErrors } from './onboard';
 import { openSources, shownCode } from './pairing-steps';
 import { chips, pad, toLastEntry, typePin, untranslated } from './parental-steps';
 import { RemoteDriver } from './remote-driver';
+import { settingsRow } from './settings-rows';
 
 /**
  * The first PIN asked for when a source is added (RELAY step 38c3, Q2): the mock's panel has the
@@ -182,7 +183,7 @@ for (const { locale, tag } of [
       await expect(page.getByTestId('sources')).toHaveAttribute('data-count', '2');
 
       // Back on the list, "Locked groups" asks for the new PIN.
-      await remote.go('BACK', 'settings/items/1');
+      await remote.go('BACK', settingsRow('sources'));
       await remote.go('BACK', 'live/header/5');
       await remote.go('DOWN', 'live/channels/0');
       await settled(live);

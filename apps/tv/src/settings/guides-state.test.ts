@@ -986,7 +986,7 @@ describe('the add form', () => {
 });
 
 describe('the settings screen', () => {
-  it('lists "TV guides" and "Sources"; "Sources" opens the sources screen, and Back goes back to it (step 30c3a)', async () => {
+  it('lists "Sources" first (step 38d1); it opens the sources screen, and Back goes back to it (step 30c3a)', async () => {
     const t = setup();
     t.engine.blockedUrls = ['http://lists.test/a.m3u'];
     const settings = createSettings({
@@ -997,8 +997,7 @@ describe('the settings screen', () => {
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
     });
     settings.open();
-    await t.press('DOWN');
-    expect(t.at()).toBe('settings · items 1');
+    expect(t.at()).toBe('settings · items 0');
     await t.press('OK');
     expect(t.at()).toBe('sources · sources 0');
     expect(settings.sources.rows.value.map((r) => [r.id, r.host, r.blocked])).toEqual([
@@ -1009,7 +1008,7 @@ describe('the settings screen', () => {
     await t.press('DOWN');
     expect(t.at()).toBe('sources · sources 1');
     await t.press('BACK');
-    expect(t.at()).toBe('settings · items 1');
+    expect(t.at()).toBe('settings · items 0');
     await t.press('BACK');
     expect(t.at()).toBe('live · channels 0');
     // Disposed with the settings: it opens no more.
@@ -1039,7 +1038,7 @@ describe('the settings screen', () => {
     expect(made!.nav).toBe(t.nav);
     expect(settings.sources.canAdd).toBe(true);
     settings.open();
-    await t.press('DOWN', 'OK');
+    await t.press('OK');
     expect(t.at()).toBe('sources · sources 0');
     await t.press('UP', 'OK');
     expect(pairing.open).toHaveBeenCalledTimes(1);
@@ -1062,7 +1061,7 @@ describe('the settings screen', () => {
     expect(plain.sources.canAdd).toBe(false);
   });
 
-  it('lists "Backup" third with its page, which opens from it, and goes with the settings (step 32d2b)', async () => {
+  it('lists "Backup" after the channels with its page, which opens from it, and goes with the settings (step 32d2b)', async () => {
     const t = setup();
     const held = signal(false);
     const backupEngine = {
@@ -1086,10 +1085,10 @@ describe('the settings screen', () => {
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
       backup: { engine: backupEngine as unknown as BackupPageEngine, host },
     });
-    expect(settings.items).toEqual(['guides', 'sources', 'backup', 'groups', 'channels']);
+    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels', 'backup']);
     settings.open();
     expect((t.nav.top.zone('items') as { count: number }).count).toBe(5);
-    await t.press('DOWN', 'DOWN', 'OK');
+    await t.press('DOWN', 'DOWN', 'DOWN', 'DOWN', 'OK');
     expect(t.at()).toBe('backup · switch 0');
     expect(settings.backup!.screen.value).toBe(t.nav.top);
     expect(backupEngine.backupStatus).toHaveBeenCalledTimes(1);
@@ -1124,7 +1123,7 @@ describe('the settings screen', () => {
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
       telemetry: { engine: switchEngine, setOn },
     });
-    expect(settings.items).toEqual(['guides', 'sources', 'telemetry', 'groups', 'channels']);
+    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels', 'telemetry']);
     expect(settings.telemetry).not.toBeNull();
     expect(switchEngine.profile).not.toHaveBeenCalled();
     settings.open();
@@ -1132,12 +1131,12 @@ describe('the settings screen', () => {
     expect((t.nav.top.zone('items') as { count: number }).count).toBe(5);
     await flush();
     expect(settings.telemetry!.value.value).toBe(true);
-    await t.press('DOWN', 'DOWN');
-    expect(t.at()).toBe('settings · items 2');
+    await t.press('DOWN', 'DOWN', 'DOWN', 'DOWN');
+    expect(t.at()).toBe('settings · items 4');
     await t.press('OK');
     await flush();
     // Switched in place: no screen of its own.
-    expect(t.at()).toBe('settings · items 2');
+    expect(t.at()).toBe('settings · items 4');
     expect(switchEngine.editProfile).toHaveBeenCalledWith({ kind: 'telemetry', on: false });
     expect(setOn).toHaveBeenCalledWith(false);
     expect(settings.telemetry!.value.value).toBe(false);
@@ -1152,7 +1151,7 @@ describe('the settings screen', () => {
     settings.telemetry!.read();
     expect(switchEngine.profile).toHaveBeenCalledTimes(3);
 
-    // With the backup too: fourth.
+    // With the backup too: after it.
     const both = createSettings({
       nav: t.nav,
       engine: t.engine,
@@ -1162,12 +1161,12 @@ describe('the settings screen', () => {
       backup: { engine: {} as unknown as BackupPageEngine, host: { schedule: { held: signal(false), last: signal(null) } } as unknown as BackupPageHost },
       telemetry: { engine: switchEngine, setOn },
     });
-    expect(both.items).toEqual(['guides', 'sources', 'backup', 'telemetry', 'groups', 'channels']);
-    expect(SETTINGS_ITEMS).toEqual(['guides', 'sources', 'backup', 'telemetry', 'report', 'groups', 'channels', 'parental']);
+    expect(both.items).toEqual(['sources', 'guides', 'groups', 'channels', 'backup', 'telemetry']);
+    expect(SETTINGS_ITEMS).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'backup', 'telemetry', 'report']);
     both.dispose();
   });
 
-  it('lists "Parental control" last with the PIN pad (step 38c1), seven rows in view and the list scrolling to it', async () => {
+  it('lists "Parental control" with the PIN pad (step 38c1) after the channels, seven rows in view and the list scrolling to its last row', async () => {
     const t = setup();
     const pad = { ask: vi.fn(), choose: vi.fn() };
     const settings = createSettings({
@@ -1181,19 +1180,23 @@ describe('the settings screen', () => {
       report: { send: vi.fn() },
       pad,
     });
-    expect(settings.items).toEqual(['guides', 'sources', 'backup', 'telemetry', 'report', 'groups', 'channels', 'parental']);
+    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'backup', 'telemetry', 'report']);
     expect(settings.parental).not.toBeNull();
     expect(SETTINGS_VISIBLE).toBe(7);
     settings.open();
     expect(t.nav.top.zone('items')).toMatchObject({ count: 8, visible: 7 });
-    for (let i = 0; i < 7; i += 1) await t.press('DOWN');
-    expect(t.at()).toBe('settings · items 7');
-    expect(t.nav.top.position('items').top).toBe(1);
+    for (let i = 0; i < 4; i += 1) await t.press('DOWN');
+    expect(t.at()).toBe('settings · items 4');
+    expect(t.nav.top.position('items').top).toBe(0);
     await t.press('OK');
     expect(t.nav.top.id).toBe(PARENTAL_SCREEN);
     expect(settings.parental!.screen.value).toBe(t.nav.top);
     await t.press('BACK');
+    expect(t.at()).toBe('settings · items 4');
+    // The eighth row is out of view until the focus reaches it: the list scrolls by one.
+    for (let i = 0; i < 3; i += 1) await t.press('DOWN');
     expect(t.at()).toBe('settings · items 7');
+    expect(t.nav.top.position('items').top).toBe(1);
     settings.dispose();
   });
 
@@ -1209,13 +1212,13 @@ describe('the settings screen', () => {
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
       report: { send },
     });
-    expect(settings.items).toEqual(['guides', 'sources', 'report', 'groups', 'channels']);
+    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels', 'report']);
     settings.open();
-    await t.press('DOWN', 'DOWN');
-    expect(t.at()).toBe('settings · items 2');
+    await t.press('DOWN', 'DOWN', 'DOWN', 'DOWN');
+    expect(t.at()).toBe('settings · items 4');
     await t.press('OK');
     // In place: no screen of its own.
-    expect(t.at()).toBe('settings · items 2');
+    expect(t.at()).toBe('settings · items 4');
     expect(send).toHaveBeenCalledTimes(1);
     expect(settings.report!.state.value).toEqual({ state: 'sending' });
     sends[0]!({ state: 'sent', code: 'K7M2Q9' });
@@ -1231,7 +1234,7 @@ describe('the settings screen', () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
-  it('lists "TV guides", which opens the guides screen; Back goes back one screen at a time', async () => {
+  it('lists "TV guides" second, which opens the guides screen; Back goes back one screen at a time', async () => {
     const t = setup();
     const settings = createSettings({
       nav: t.nav,
@@ -1240,7 +1243,7 @@ describe('the settings screen', () => {
       offsetChanged: t.offsetChanged,
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
     });
-    expect(SETTINGS_ITEMS).toEqual(['guides', 'sources', 'backup', 'telemetry', 'report', 'groups', 'channels', 'parental']);
+    expect(SETTINGS_ITEMS).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'backup', 'telemetry', 'report']);
     expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'backup', 'backup-confirm', 'groups', 'group-menu', 'group-rename', 'group-delete', 'group-channels', 'group-channel-menu', 'channels', 'channel-edit', 'channel-rename', 'channel-number', 'parental', 'locked-groups', 'pin-pick', 'pin-check', 'pin-none']);
     // Without a backup page (step 32d2b) there is no "Backup" row, nor without a switch "Usage and crash reports" (step 33b3).
     expect(settings.backup).toBeNull();
@@ -1248,11 +1251,11 @@ describe('the settings screen', () => {
     // Nor without its send "Send a report to support" (step 33d2), nor without the PIN pad "Parental control" (step 38c1).
     expect(settings.report).toBeNull();
     expect(settings.parental).toBeNull();
-    expect(settings.items).toEqual(['guides', 'sources', 'groups', 'channels']);
+    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels']);
     settings.open();
     expect(t.at()).toBe('settings · items 0');
     expect((t.nav.top.zone('items') as { count: number }).count).toBe(4);
-    await t.press('OK');
+    await t.press('DOWN', 'OK');
     expect(t.at()).toBe('guides · guides 0');
     expect(settings.guides.rows.value).toHaveLength(4);
     // The header's second button opens "Channels without a guide" (step 24c); Back comes back to it.
@@ -1263,7 +1266,7 @@ describe('the settings screen', () => {
     expect(t.at()).toBe('guides · header 1');
     expect(settings.unmatched.screen.value).toBeNull();
     await t.press('BACK');
-    expect(t.at()).toBe('settings · items 0');
+    expect(t.at()).toBe('settings · items 1');
     await t.press('BACK');
     expect(t.at()).toBe('live · channels 0');
     settings.dispose();
@@ -1287,7 +1290,8 @@ describe('the settings screen', () => {
       expect(settings.sources.status.value).toBe('ready');
       expect(t.at()).toBe('sources · sources 0');
       await t.press('BACK');
-      expect(t.at()).toBe('settings · items 1');
+      expect(t.at()).toBe(`settings · items ${settings.items.indexOf('sources')}`);
+      expect(settings.items.indexOf('sources')).toBe(0);
       await t.press('BACK');
       expect(t.at()).toBe('live · channels 0');
       settings.dispose();
@@ -1308,7 +1312,8 @@ describe('the settings screen', () => {
     await flush();
     expect(settings.guides.status.value).toBe('ready');
     await t.press('BACK');
-    expect(t.at()).toBe('settings · items 0');
+    // On its own row, the second (step 38d1).
+    expect(t.at()).toBe('settings · items 1');
     await t.press('BACK');
     expect(t.at()).toBe('live · channels 0');
     settings.dispose();
@@ -1360,7 +1365,7 @@ describe('the settings screen', () => {
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
     });
     settings.open();
-    await t.press('OK', 'UP', 'RIGHT', 'OK');
+    await t.press('DOWN', 'OK', 'UP', 'RIGHT', 'OK');
     expect(t.at()).toBe('unmatched · channels 0');
     await t.press('OK');
     expect(t.at()).toBe('guide-map · search 0');

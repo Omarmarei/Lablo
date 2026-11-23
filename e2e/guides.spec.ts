@@ -7,6 +7,7 @@ import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { stripIsolates } from '../packages/core/src/bidi';
 import { addXtreamAndWatch, settled, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
+import { SETTINGS_FIRST, settingsRow, toSettingsRow } from './settings-rows';
 
 /**
  * The guides screen (RELAY steps 22b2a and 22b2b) by keys, in English and Arabic: the live
@@ -209,9 +210,10 @@ async function openGuides(remote: RemoteDriver, locale: string, language: Langua
   if (shots) await shot(page, `live-header-${language}`);
   await remote.go('DOWN', 'live/channels/0');
   await remote.go('UP', 'live/header/5');
-  await remote.go('OK', 'settings/items/0');
+  await remote.go('OK', SETTINGS_FIRST);
   await expect(page.getByTestId('settings-guides')).toContainText(SAYS[language].settings);
   if (shots) await shot(page, `settings-${language}`);
+  await toSettingsRow(remote, 'guides');
   await remote.go('OK', 'guides/guides/0');
   const root = page.getByTestId('settings-screen');
   await expect(root).toHaveAttribute('data-language', language);
@@ -416,7 +418,7 @@ test.describe('the guides screen by keys (pnpm dev, after onboarding)', () => {
       await shot(page, `guides-removed-${language}`);
 
       // Back: the settings screen, then the live screen on its header, then its list.
-      await remote.go('BACK', 'settings/items/0');
+      await remote.go('BACK', settingsRow('guides'));
       await remote.go('BACK', 'live/header/5');
       await remote.go('DOWN', 'live/channels/0');
       expect(errors).toEqual([]);

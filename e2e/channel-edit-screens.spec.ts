@@ -12,6 +12,7 @@ import { rows } from './live-rows';
 import { addM3uAndWatch, settled, trackErrors } from './onboard';
 import { playlistOnly } from './playlist-only';
 import { RemoteDriver } from './remote-driver';
+import { SETTINGS_FIRST, settingsRow, toSettingsRow } from './settings-rows';
 
 /**
  * The editing screens (RELAY step 36c): "Edit channel" from the info bar's pencil, over the
@@ -101,12 +102,12 @@ async function openPencil(remote: RemoteDriver, next: 'LEFT' | 'RIGHT'): Promise
   await expect(remote.page.getByTestId('channel-edit')).toHaveAttribute('data-pending', '0');
 }
 
-/** From the list's first row: the header's "Settings", then "Channels" (the seventh row, `row`'s words). */
+/** From the list's first row: the header's "Settings", then the "Channels" row (`row`'s words). */
 async function openChannels(remote: RemoteDriver, next: 'LEFT' | 'RIGHT', row?: string): Promise<void> {
   await remote.go('UP', 'live/header/0');
   for (let i = 1; i <= 5; i += 1) await remote.go(next, `live/header/${i}`);
-  await remote.go('OK', 'settings/items/0');
-  for (let i = 1; i <= 6; i += 1) await remote.go('DOWN', `settings/items/${i}`);
+  await remote.go('OK', SETTINGS_FIRST);
+  await toSettingsRow(remote, 'channels');
   if (row !== undefined) expect(await text(remote.page, 'settings-channels')).toBe(row);
   await remote.go('OK', 'channels/rows/0');
   await expect(remote.page.getByTestId('channels')).toHaveAttribute('data-status', 'ready');
@@ -274,7 +275,7 @@ for (const locale of ['en-US', 'ar-SA'] as const) {
       });
 
       await test.step('the list: SMPTE back as the provider has it, and Clock’s name cleaned', async () => {
-        await remote.go('BACK', 'settings/items/6');
+        await remote.go('BACK', settingsRow('channels'));
         await remote.go('BACK', 'live/header/5');
         await remote.press('DOWN');
         await settled(live);
@@ -341,8 +342,8 @@ test('shows only our strings, bracketed, in "Edit channel", its forms and "Chann
     expect(await untranslated(page, '[data-testid=channel-edit]')).toEqual([]);
     await shoot(page, 'channels-menu-en-XA');
     await remote.go('BACK', 'channels/rows/1');
-    // Settings' seventh row fits under the others.
-    await remote.go('BACK', 'settings/items/6');
+    // Settings' "Channels" row sits in the safe area.
+    await remote.go('BACK', settingsRow('channels'));
     await expectInSafeArea(page, 'settings-channels');
     expect(await untranslated(page, '[data-testid=settings]')).toEqual([]);
     expect(errors).toEqual([]);

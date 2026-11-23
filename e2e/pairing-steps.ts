@@ -3,6 +3,7 @@ import type { Locator, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 import { settled } from './onboard';
 import type { RemoteDriver } from './remote-driver';
+import { SETTINGS_FIRST, toSettingsRow } from './settings-rows';
 
 /**
  * What the TV's pairing specs share (RELAY steps 31c2a and 31c3): pairing.spec.ts against the
@@ -59,8 +60,8 @@ export async function openSources(remote: RemoteDriver, language: 'en' | 'ar'): 
   const side = language === 'ar' ? 'LEFT' : 'RIGHT';
   await remote.go('UP', 'live/header/0');
   for (let i = 1; i <= 5; i += 1) await remote.go(side, `live/header/${i}`);
-  await remote.go('OK', 'settings/items/0');
-  await remote.go('DOWN', 'settings/items/1');
+  await remote.go('OK', SETTINGS_FIRST);
+  await toSettingsRow(remote, 'sources');
   await remote.press('OK');
   const root = remote.page.getByTestId('settings-screen');
   await settled(root, 20_000);

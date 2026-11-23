@@ -7,6 +7,7 @@ import type { ConfigServer } from './config-server';
 import { doc, startConfigServer } from './config-server';
 import { addM3uAndWatch, settled, startWatching, trackErrors, typeInto } from './onboard';
 import { RemoteDriver } from './remote-driver';
+import { SETTINGS_FIRST, toSettingsRow } from './settings-rows';
 
 /**
  * Settings' backup page in the app (RELAY step 32d2b), against the stand-in API on the test's
@@ -112,13 +113,12 @@ function asked(server: ConfigServer, from = 0): string[] {
   return server.backup.requests.slice(from).map((r) => `${r.method} ${r.status}`);
 }
 
-/** From the live list: the header's "Settings" (its end: the left in Arabic), then "Backup", the third row. */
+/** From the live list: the header's "Settings" (its end: the left in Arabic), then the "Backup" row. */
 async function openBackup(remote: RemoteDriver, rtl: boolean): Promise<Locator> {
   await remote.go('UP', 'live/header/0');
   for (let i = 1; i <= 5; i += 1) await remote.go(rtl ? 'LEFT' : 'RIGHT', `live/header/${i}`);
-  await remote.go('OK', 'settings/items/0');
-  await remote.go('DOWN', 'settings/items/1');
-  await remote.go('DOWN', 'settings/items/2');
+  await remote.go('OK', SETTINGS_FIRST);
+  await toSettingsRow(remote, 'backup');
   await remote.go('OK', 'backup/switch/0');
   const page = remote.page.getByTestId('backup');
   await expect(page).toHaveAttribute('data-status', 'ready');

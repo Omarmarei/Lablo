@@ -11,6 +11,7 @@ import { SAFE, SPAN, checkGeometry, focused, readGrid as readAny } from './guide
 import { guideOf, nowTitles, ordered, rows } from './live-rows';
 import { addXtreamAndWatch, settled, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
+import { SETTINGS_FIRST, settingsRow, toSettingsRow } from './settings-rows';
 
 /**
  * A guide's time offset (RELAY step 24b) by keys, in English and Arabic: the guides screen's
@@ -85,7 +86,8 @@ async function openGuides(remote: RemoteDriver, language: Language): Promise<Loc
   await remote.go(language === 'ar' ? 'LEFT' : 'RIGHT', 'live/header/3');
   await remote.go(language === 'ar' ? 'LEFT' : 'RIGHT', 'live/header/4');
   await remote.go(language === 'ar' ? 'LEFT' : 'RIGHT', 'live/header/5');
-  await remote.go('OK', 'settings/items/0');
+  await remote.go('OK', SETTINGS_FIRST);
+  await toSettingsRow(remote, 'guides');
   await remote.go('OK', 'guides/guides/0');
   const root = remote.page.getByTestId('settings-screen');
   await expect(remote.page.getByTestId('guides')).toHaveAttribute('data-status', 'ready');
@@ -96,7 +98,7 @@ async function openGuides(remote: RemoteDriver, language: Language): Promise<Loc
 
 /** Back from the guides screen to the list's first row. */
 async function backToList(remote: RemoteDriver): Promise<void> {
-  await remote.go('BACK', 'settings/items/0');
+  await remote.go('BACK', settingsRow('guides'));
   await remote.go('BACK', 'live/header/5');
   await remote.go('DOWN', 'live/channels/0');
 }

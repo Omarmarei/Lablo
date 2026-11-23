@@ -12,12 +12,13 @@ import { addXtreamAndWatch, settled, trackErrors } from './onboard';
 import { chips, pad, setHidden, toLastEntry, typePin, untranslated } from './parental-steps';
 import { pinFields, restartWith } from './profile-edit';
 import { RemoteDriver } from './remote-driver';
+import { SETTINGS_FIRST, SETTINGS_ROWS, fromSettingsRow, settingsRow, toSettingsRow } from './settings-rows';
 
 /**
  * Settings › "Parental control" (RELAY step 38c1) on the mock's panel, a PIN written to the
  * profile first ("Set a PIN" with a source's login is step 38c2).
  *
- * Checked, in en-US and ar-SA: the settings list scrolled to its eighth row; "Lock adult groups"
+ * Checked, in en-US and ar-SA: the settings list scrolled to its last row; "Lock adult groups"
  * asking the PIN (a wrong one, then the right one) and switching off, the 18+ group then in the
  * rail with no "Locked groups"; on again in a new visit, the PIN asked again; "Locked groups"
  * listing the groups with their locks, one locked by hand and out of the rail; "Change the PIN"
@@ -30,6 +31,8 @@ import { RemoteDriver } from './remote-driver';
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
 const PIN = '2468';
 const NEW_PIN = '1357';
+/** The settings rows in view (the app's `SETTINGS_VISIBLE`). */
+const IN_VIEW = 7;
 const ADULT = catalog.live.find((c) => c.adult)!;
 const ADULT_GROUP = catalog.liveCategories.find((c) => c.id === ADULT.categoryId)!.name;
 /** The rail's groups by default: every one with channels but the adult one, which is the last. */
@@ -66,20 +69,20 @@ async function openSettings(remote: RemoteDriver, next: 'LEFT' | 'RIGHT'): Promi
   await expect.poll(focus).toMatch(/^live\/header\/\d+$/);
   for (let i = Number((await focus()).split('/')[2]) + 1; i <= 5; i += 1) await remote.go(next, `live/header/${i}`);
   await remote.expectFocus('live/header/5');
-  await remote.go('OK', 'settings/items/0');
+  await remote.go('OK', SETTINGS_FIRST);
 }
 
-/** From the list's first row: Settings, down the list to "Parental control" (the eighth), then OK. */
+/** From the list's first row: Settings, down the list to the "Parental control" row, then OK. */
 async function openParental(remote: RemoteDriver, next: 'LEFT' | 'RIGHT'): Promise<void> {
   await openSettings(remote, next);
-  for (let i = 1; i <= 7; i += 1) await remote.go('DOWN', `settings/items/${i}`);
+  await toSettingsRow(remote, 'parental');
   await remote.go('OK', 'parental/rows/0');
   await expect(remote.page.getByTestId('parental')).toHaveAttribute('data-status', 'ready');
 }
 
 /** From the page back to the list's first row. */
 async function backToList(remote: RemoteDriver): Promise<void> {
-  await remote.go('BACK', 'settings/items/7');
+  await remote.go('BACK', settingsRow('parental'));
   await remote.go('BACK', 'live/header/5');
   await remote.go('DOWN', 'live/channels/0');
 }
@@ -110,13 +113,21 @@ for (const { locale, tag } of [
     await settled(live);
     const screen = page.getByTestId('settings-screen');
 
-    await test.step('the settings list scrolls to its eighth row, "Parental control"', async () => {
+    await test.step('the settings list scrolls to its last row, seven in view; then "Parental control"', async () => {
+      const firstRow = SETTINGS_ROWS[0]!;
+      const lastRow = SETTINGS_ROWS[SETTINGS_ROWS.length - 1]!;
+      const menu = page.locator('[data-testid=settings] [role=menu]');
       await openSettings(remote, next);
-      await expect(page.locator('[data-testid=settings] [role=menu]')).toHaveAttribute('data-top', '0');
-      await expect(page.getByTestId('settings-parental')).toHaveCount(0);
-      for (let i = 1; i <= 7; i += 1) await remote.go('DOWN', `settings/items/${i}`);
-      await expect(page.locator('[data-testid=settings] [role=menu]')).toHaveAttribute('data-top', '1');
-      await expect(page.getByTestId('settings-guides')).toHaveCount(0);
+      await expect(menu).toHaveAttribute('data-top', '0');
+      await expect(menu).toHaveAttribute('data-count', String(SETTINGS_ROWS.length));
+      // The last row is out of view at first; the first one is once the focus reaches the last.
+      await expect(page.getByTestId(`settings-${firstRow}`)).toHaveCount(1);
+      await expect(page.getByTestId(`settings-${lastRow}`)).toHaveCount(0);
+      await toSettingsRow(remote, lastRow);
+      await expect(menu).toHaveAttribute('data-top', String(SETTINGS_ROWS.length - IN_VIEW));
+      await expect(page.getByTestId(`settings-${firstRow}`)).toHaveCount(0);
+      await expect(page.getByTestId(`settings-${lastRow}`)).toHaveCount(1);
+      await fromSettingsRow(remote, lastRow, 'parental');
       expect(await text(page, 'settings-parental')).toBe(`${words['settings.parental']}${words['settings.parentalHint']}`);
       await shoot(page, `parental-settings-list-${tag}`);
       await remote.go('OK', 'parental/rows/0');
@@ -258,12 +269,12 @@ for (const { locale, tag } of [
 
     await test.step('Settings › "Channels" leaves it out while locked; unlocked, "Unlock channel" asks the PIN', async () => {
       await openSettings(remote, next);
-      for (let i = 1; i <= 6; i += 1) await remote.go('DOWN', `settings/items/${i}`);
+      await toSettingsRow(remote, 'channels');
       await remote.go('OK', 'channels/rows/0');
       await expect(page.getByTestId('channels')).toHaveAttribute('data-status', 'ready');
       await settled(screen);
       expect(await page.getByTestId('channels').getAttribute('data-count')).toBe('0');
-      await remote.go('BACK', 'settings/items/6');
+      await remote.go('BACK', settingsRow('channels'));
       await remote.go('BACK', 'live/header/5');
       await remote.go('DOWN', 'live/channels/0');
       await toLastEntry(remote, ar, GROUPS.length + 1);
@@ -275,7 +286,7 @@ for (const { locale, tag } of [
       await expect(live).toHaveAttribute('data-status', 'ready');
       await remote.go(ar ? 'LEFT' : 'RIGHT', 'live/channels/0');
       await openSettings(remote, next);
-      for (let i = 1; i <= 6; i += 1) await remote.go('DOWN', `settings/items/${i}`);
+      await toSettingsRow(remote, 'channels');
       await remote.go('OK', 'channels/rows/0');
       await settled(screen);
       expect(await page.getByTestId('channels').getAttribute('data-count')).toBe('1');

@@ -9,6 +9,7 @@ import { settled, toSourceTypes, toStartButton, trackErrors, typeInto } from './
 import { storedProfile } from './pairing-steps';
 import { playlistOnly } from './playlist-only';
 import { RemoteDriver } from './remote-driver';
+import { SETTINGS_FIRST, toSettingsRow } from './settings-rows';
 
 /**
  * The M3U→Xtream upgrade at add (RELAY step 37a), by keys, in English and Arabic. Onboarding's
@@ -96,9 +97,9 @@ for (const [locale, language] of [
       const side = language === 'ar' ? 'LEFT' : 'RIGHT';
       await remote.go('UP', 'live/header/0');
       for (let i = 1; i <= 5; i += 1) await remote.go(side, `live/header/${i}`);
-      await remote.go('OK', 'settings/items/0');
+      await remote.go('OK', SETTINGS_FIRST);
       await expect(page.getByTestId('settings-sources')).toContainText(says.sources);
-      await remote.go('DOWN', 'settings/items/1');
+      await toSettingsRow(remote, 'sources');
       await remote.go('OK', 'sources/sources/0');
       await expect(page.getByTestId('sources')).toHaveAttribute('data-status', 'ready');
       await expect(page.getByTestId('source-0')).toHaveAttribute('data-src', 's1');

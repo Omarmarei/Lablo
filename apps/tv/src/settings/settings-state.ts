@@ -19,6 +19,8 @@ import type { Mapping, MappingEngine } from './mapping-state';
 import { MAPPING_SCREEN, createMapping } from './mapping-state';
 import type { ParentalAsk, ParentalPage, ParentalPageEngine } from './parental-page';
 import { PARENTAL_SCREENS, createParentalPage } from './parental-page';
+import type { SettingsItem } from './settings-items';
+import { SETTINGS_ITEMS } from './settings-items';
 import { LOGIN_SCREEN } from './source-login';
 import type { SourceLoginOptions, SourcesEngine, SourcesList } from './sources-state';
 import { SOURCES_SCREEN, createSourcesList } from './sources-state';
@@ -42,15 +44,15 @@ import { createUnmatchedList } from './unmatched-state';
  * delete, a list's channels, step 35d: `groups-state.ts`) and "Channels" ("Clean channel names" and the
  * channels the user changed, step 36c: `edited-channels.ts`, its menu `channel-edit.ts`, which the
  * info bar's pencil opens over the player too) and "Parental control" (the PIN, "Lock adult
- * groups" and "Locked groups", step 38c1: `parental-page.ts`); step 38d adds the track
- * languages, the subtitle style and the picture mode. The rows scroll, seven in view (step 38c1).
+ * groups" and "Locked groups", step 38c1: `parental-page.ts`). The rows scroll, seven in view
+ * (step 38c1), in the order of `settings-items.ts` (step 38d1: Sources first; the rows above are
+ * told in the order the steps built them); steps 38d2 and 38d3 add "Language" and "Player".
  * Back closes it.
  */
 
-export type SettingsItem = 'guides' | 'sources' | 'backup' | 'telemetry' | 'report' | 'groups' | 'channels' | 'parental';
-
-/** The settings screen's rows, in screen order (each new one last, so the earlier paths stay). */
-export const SETTINGS_ITEMS: readonly SettingsItem[] = ['guides', 'sources', 'backup', 'telemetry', 'report', 'groups', 'channels', 'parental'];
+/** The settings screen's rows, in screen order (step 38d1: `settings-items.ts`, which the e2e helper reads too). */
+export type { SettingsItem } from './settings-items';
+export { SETTINGS_ITEMS } from './settings-items';
 
 /** A settings row's height and the gap between rows (settings.css uses the same numbers). */
 export const SETTINGS_ROW = { height: 120, gap: 8 } as const;
@@ -223,8 +225,9 @@ export function createSettings(options: SettingsOptions): Settings {
       sources.open();
     },
     openGuides(): void {
-      // (The settings open on their first row, "TV guides": Back from the guides screen lands there.)
       open();
+      // Back from the guides screen lands on its row.
+      nav.top.focus('items', items.indexOf('guides'));
       guides.open();
     },
     dispose: () => {

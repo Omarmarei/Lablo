@@ -13,6 +13,7 @@ import { allOrdered, catalog, nowTitles, rows } from './live-rows';
 import { addXtreamAndWatch, settled, trackErrors } from './onboard';
 import { ADULT_OPEN, restartWith } from './profile-edit';
 import { RemoteDriver } from './remote-driver';
+import { SETTINGS_FIRST, settingsRow, toSettingsRow } from './settings-rows';
 
 /**
  * The manual mapping's screens (RELAY step 24e) by keys, in English and Arabic, against the mock
@@ -147,7 +148,8 @@ async function openUnmatched(remote: RemoteDriver, language: Language): Promise<
   await remote.go(forward, 'live/header/3');
   await remote.go(forward, 'live/header/4');
   await remote.go(forward, 'live/header/5');
-  await remote.go('OK', 'settings/items/0');
+  await remote.go('OK', SETTINGS_FIRST);
+  await toSettingsRow(remote, 'guides');
   await remote.go('OK', 'guides/guides/0');
   const root = remote.page.getByTestId('settings-screen');
   await expect(remote.page.getByTestId('guides')).toHaveAttribute('data-status', 'ready');
@@ -356,7 +358,7 @@ test.describe('the manual mapping by keys (pnpm dev, after onboarding)', () => {
 
         // The live list: the channel's row shows the mapped channel's programme on air.
         await remote.go('BACK', 'guides/header/1');
-        await remote.go('BACK', 'settings/items/0');
+        await remote.go('BACK', settingsRow('guides'));
         await remote.go('BACK', 'live/header/5');
         await remote.go('DOWN', 'live/channels/0');
         const row = allOrdered.findIndex((c) => c.id === 109);

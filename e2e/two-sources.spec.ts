@@ -10,6 +10,7 @@ import { stripIsolates } from '../packages/core/src/bidi';
 import { rows } from './live-rows';
 import { addXtreamAndWatch, settled, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
+import { SETTINGS_FIRST, settingsRow, toSettingsRow } from './settings-rows';
 
 /**
  * Two sources with groups of the same name (RELAY step 36d, Omar's option 1: label, don't merge).
@@ -243,8 +244,8 @@ for (const { locale, tag, first, second } of LOCALES) {
         await remote.press('UP');
         for (let i = 0; i < 5; i += 1) await remote.press(ar ? 'LEFT' : 'RIGHT');
         await remote.expectFocus('live/header/5');
-        await remote.go('OK', 'settings/items/0');
-        for (let i = 1; i <= 5; i += 1) await remote.go('DOWN', `settings/items/${i}`);
+        await remote.go('OK', SETTINGS_FIRST);
+        await toSettingsRow(remote, 'groups');
         await remote.go('OK', 'groups/rows/0');
         await expect(page.getByTestId('groups')).toHaveAttribute('data-status', 'ready');
         await settled(page.getByTestId('settings-screen'));
@@ -262,7 +263,7 @@ for (const { locale, tag, first, second } of LOCALES) {
         }
         if (pseudo) expect(await untranslated(page, '[data-testid=groups]')).toEqual([]);
         await shoot(page, `two-sources-groups-${tag}`);
-        await remote.go('BACK', 'settings/items/5');
+        await remote.go('BACK', settingsRow('groups'));
         await remote.go('BACK', 'live/header/5');
       });
 

@@ -8,6 +8,7 @@ import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { ARABIC_FACE, LATIN_FACE, TITLE_FONTS, renderedFonts, renderedFontsUnder } from './fonts';
 import { TV_KEYS } from '../tools/engines/src/live';
 import { RemoteDriver } from './remote-driver';
+import { SETTINGS_FIRST } from './settings-rows';
 
 /**
  * Boots the built TV bundles (pnpm build:tv) from file://, the way a packaged TV app loads,
@@ -252,12 +253,12 @@ for (const platform of ['tizen', 'webos'] as const) {
     await remote.go('OK', 'lazy-loading/retry/0');
     // The file is there now: "Try again" loads it and Settings opens, once, with no script tag left over.
     renameSync(`${settingsJs}.away`, settingsJs);
-    await remote.go('OK', 'settings/items/0');
+    await remote.go('OK', SETTINGS_FIRST);
     await expect(page.getByTestId('settings-screen')).toBeVisible();
     await expect(page.getByTestId('settings')).toBeVisible();
     await pressBack(page, platform);
     await remote.expectFocus('live/header/5');
-    await remote.go('OK', 'settings/items/0');
+    await remote.go('OK', SETTINGS_FIRST);
     expect(await page.evaluate(() => document.querySelectorAll('script[src="settings.js"]').length)).toBe(0);
     await expect(page.locator('#boot-error')).toBeHidden();
     expect(errors).toEqual([]);

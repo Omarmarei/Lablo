@@ -11,6 +11,8 @@ import type { ConfigServer } from './config-server';
 import { doc, startConfigServer } from './config-server';
 import { addXtreamAndWatch, fillXtream, settled, startWatching, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
+import type { SettingsItem } from './settings-rows';
+import { SETTINGS_FIRST, fromSettingsRow, settingsRow, toSettingsRow } from './settings-rows';
 
 /**
  * The signed config's blocklist at add and on refresh (RELAY step 30c3a), with a dev-signed
@@ -122,13 +124,13 @@ async function refusedAtAdd(remote: RemoteDriver, language: 'en' | 'ar'): Promis
 }
 
 /** From the live list: the header's "Settings" (its end: the left in Arabic), then the settings row `item`. */
-async function openSettingsRow(remote: RemoteDriver, language: 'en' | 'ar', item: number): Promise<Locator> {
+async function openSettingsRow(remote: RemoteDriver, language: 'en' | 'ar', item: SettingsItem): Promise<Locator> {
   const side = language === 'ar' ? 'LEFT' : 'RIGHT';
   await remote.go('UP', 'live/header/0');
   for (let i = 1; i <= 5; i += 1) await remote.go(side, `live/header/${i}`);
-  await remote.go('OK', 'settings/items/0');
+  await remote.go('OK', SETTINGS_FIRST);
   await expect(remote.page.getByTestId('settings-sources')).toContainText(SAYS[language].sources);
-  if (item === 1) await remote.go('DOWN', 'settings/items/1');
+  await toSettingsRow(remote, item);
   await remote.press('OK');
   const root = remote.page.getByTestId('settings-screen');
   await settled(root, 20_000);
@@ -187,7 +189,7 @@ test('on refresh: a source blocked after it was added says so in Sources and in 
     await serveBlocklist(page, server, BLOCKS_MOCK, 1_000);
 
     // Settings → Sources: the source, its server, when it was updated, and that it no longer is.
-    await openSettingsRow(remote, 'en', 1);
+    await openSettingsRow(remote, 'en', 'sources');
     await remote.expectFocus('sources/sources/0');
     await expect(page.getByTestId('sources')).toHaveAttribute('data-blocked', '1');
     await sourceShows(page, 'en', true);
@@ -195,8 +197,8 @@ test('on refresh: a source blocked after it was added says so in Sources and in 
     await shoot(page, 'sources-blocked-en');
 
     // Settings → TV guides: the panel's guide (on the same server) isn't read.
-    await remote.go('BACK', 'settings/items/1');
-    await remote.go('UP', 'settings/items/0');
+    await remote.go('BACK', settingsRow('sources'));
+    await fromSettingsRow(remote, 'sources', 'guides');
     await remote.press('OK');
     await remote.expectFocus('guides/guides/0');
     await settled(page.getByTestId('settings-screen'), 20_000);
@@ -207,14 +209,14 @@ test('on refresh: a source blocked after it was added says so in Sources and in 
 
     // Lifted: both lines go when the screens open again.
     await serveBlocklist(page, server, null, 2_000);
-    await remote.go('BACK', 'settings/items/0');
-    await remote.go('DOWN', 'settings/items/1');
+    await remote.go('BACK', settingsRow('guides'));
+    await fromSettingsRow(remote, 'guides', 'sources');
     await remote.press('OK');
     await remote.expectFocus('sources/sources/0');
     await settled(page.getByTestId('settings-screen'), 20_000);
     await sourceShows(page, 'en', false);
-    await remote.go('BACK', 'settings/items/1');
-    await remote.go('UP', 'settings/items/0');
+    await remote.go('BACK', settingsRow('sources'));
+    await fromSettingsRow(remote, 'sources', 'guides');
     await remote.press('OK');
     await remote.expectFocus('guides/guides/0');
     await settled(page.getByTestId('settings-screen'), 20_000);
@@ -239,7 +241,7 @@ test('in Arabic: the refused add, and the blocked source in Sources', async ({ p
     await remote.go('LEFT', 'loading/actions/1');
     await startWatching(remote, onboarding, 20_000);
     await serveBlocklist(page, server, BLOCKS_MOCK, 2_000);
-    await openSettingsRow(remote, 'ar', 1);
+    await openSettingsRow(remote, 'ar', 'sources');
     await remote.expectFocus('sources/sources/0');
     await sourceShows(page, 'ar', true);
     await expect(page.locator('.settings__title')).toHaveText(SAYS.ar.sources);
