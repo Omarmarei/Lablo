@@ -3244,6 +3244,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
         - **Option 2: the phone page stays as it is**, plus the two new statuses and their words (no migration, no route change but the status's list). Cheaper, but the person confirming a login reads "Add your source" and sees the file, guide and name fields, which a check can't use.
         - **Option 3: no phone path for the check.** The typed check (38c2) stays the only way and 38c4 is dropped. The cost: typing a password with the TV's remote when setting a PIN later or after forgetting one (rare: the done screens' prompt, 38c3, covers the first PIN with no check).
         - **Asked of Omar in leg 140** (a product choice with a migration in it); option 1 recommended (what Q3 chose, "typed, or sent from the phone", done so the phone's words are right).
+        - **Omar's answer (2026-11-23): option 1.** The phone page knows it's a check: `purpose: 'check'` on `POST /v1/pair`, a nullable session column (a dev migration only; production waits for step 34), the page's check words in en and ar, and two new statuses.
 - [ ] 39. **Comfort features.** Clock, sleep timer with "Still watching?", colour-key shortcuts, "Fast start / Stable" buffer setting.
 - [ ] 40. **Diagnostics and legal pages.** Diagnostics screen ("app or provider?"), test stream, help, in-app legal pages.
 
