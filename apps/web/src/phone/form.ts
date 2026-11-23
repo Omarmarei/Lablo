@@ -4,7 +4,7 @@
  * form checks them and then by the protocol's `pairPayloadSchema`: what passes is exactly what gets
  * sealed for the TV.
  */
-import type { PairFile, PairPayload, PairSource } from '@lablo/protocol';
+import type { PairFile, PairPayload, PairPurpose, PairSource } from '@lablo/protocol';
 import { PAIR_EPG_MAX, PAIR_FILE_MAX_BYTES, pairPayloadSchema } from '@lablo/protocol';
 
 /** An Xtream login, an M3U link, or an M3U file (step 31d1). */
@@ -185,6 +185,14 @@ export function checkForm(type: SourceType, values: FormValues, file: FileInfo |
     if (key !== null) problems[key] ??= 'long';
   }
   return { problems, payload: null };
+}
+
+/**
+ * The form as the target's purpose sends it (RELAY step 38c4): an add's whole form; a check's
+ * login or link alone, with no guide links and no name (its form shows none), never a file.
+ */
+export function checkFor(purpose: PairPurpose, type: SourceType, values: FormValues, file: FileInfo | null = null): CheckedForm {
+  return purpose === 'check' ? checkForm(type, { ...values, epg: [''], name: '' }) : checkForm(type, values, file);
 }
 
 /** A checked file payload with the file's real keys: the upload's object key, the frames' key and nonce base. */

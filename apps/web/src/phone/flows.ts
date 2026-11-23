@@ -10,7 +10,7 @@ import type { PhoneApi } from './api';
 import type { QrTarget } from './code';
 import { normalizeCode } from './code';
 import type { PickedFile } from './form';
-import { checkForm, withFile } from './form';
+import { checkFor, withFile } from './form';
 import type { PageEvent, PageState } from './state';
 
 export interface FlowDeps {
@@ -78,12 +78,12 @@ async function uploadFile(file: PickedFile, code: string, deps: FlowDeps): Promi
   return { ok: true, file: { key: target.value.key, fileKey: toBase64Url(sealed.fileKey), base: toBase64Url(sealed.base), size: file.size } };
 }
 
-/** The form: checked, a file uploaded encrypted, the payload sealed to the TV's key in this browser, and posted. */
+/** The form: checked for its purpose (a check's: the source alone), a file uploaded encrypted, the payload sealed to the TV's key in this browser, and posted. */
 export async function send(state: PageState, deps: FlowDeps): Promise<void> {
   const view = state.view;
   if (view.kind !== 'form' || view.busy) return;
   deps.dispatch({ type: 'send' });
-  const checked = checkForm(state.type, state.values, state.file);
+  const checked = checkFor(view.target.purpose, state.type, state.values, state.file);
   if (checked.payload === null) return;
   const code = view.target.code;
   let payload = checked.payload;

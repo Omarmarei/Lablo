@@ -108,9 +108,10 @@ interface Tv {
   readonly keys: BoxKeyPair;
 }
 
-async function newTv(d: PairDeps = deps(), ip?: string): Promise<Tv> {
+async function newTv(d: PairDeps = deps(), ip?: string, purpose?: unknown): Promise<Tv> {
   const keys = newBoxKeyPair();
-  const made = await answer(createPair(d, request('POST', '/v1/pair', { body: { tvPk: toBase64Url(keys.publicKey) }, ip })));
+  const body = purpose === undefined ? { tvPk: toBase64Url(keys.publicKey) } : { tvPk: toBase64Url(keys.publicKey), purpose };
+  const made = await answer(createPair(d, request('POST', '/v1/pair', { body, ip })));
   expect(made.status).toBe(201);
   return { ...pairCreateResponseSchema.parse(made.body), keys };
 }
@@ -176,11 +177,19 @@ describe('POST /v1/pair', () => {
       deliveredAt: null,
       fileId: null,
       status: null,
+      purpose: null,
       createdAt: new Date(T0),
       expiresAt: new Date(T0 + PAIR_CODE_TTL_MS),
     });
     expect(JSON.stringify(saved)).not.toContain(tv.code);
     expect(JSON.stringify(saved)).not.toContain(tv.pollToken);
+  });
+
+  it("keeps a check's purpose (RELAY step 38c4); an add's, given or not, is null", async () => {
+    expect((await row((await newTv(deps(), undefined, 'check')).sid))!.purpose).toBe('check');
+    expect((await row((await newTv(deps(), undefined, 'add')).sid))!.purpose).toBeNull();
+    const made = await answer(createPair(deps(), request('POST', '/v1/pair', { body: { tvPk: toBase64Url(newBoxKeyPair().publicKey), purpose: 'reset' } })));
+    expect(made).toMatchObject({ status: 400, body: { error: 'bad_request' }, cors: '*' });
   });
 
   it('answers 201 to any origin, never cached', async () => {
@@ -241,8 +250,14 @@ describe('GET /v1/pair/:code', () => {
   it("gives the TV's key and the code's end while the code works, same-origin only", async () => {
     const tv = await newTv();
     const got = await answer(pairTvKey(deps(), request('GET', `/v1/pair/${tv.code}`), tv.code));
-    expect(got).toStrictEqual({ status: 200, body: { tvPk: toBase64Url(tv.keys.publicKey), exp: tv.exp }, cors: null, cache: 'no-store', retryAfter: null });
+    expect(got).toStrictEqual({ status: 200, body: { tvPk: toBase64Url(tv.keys.publicKey), exp: tv.exp, purpose: 'add' }, cors: null, cache: 'no-store', retryAfter: null });
     expect(pairTvKeyResponseSchema.safeParse(got.body).success).toBe(true);
+  });
+
+  it("gives a check's purpose (RELAY step 38c4)", async () => {
+    const tv = await newTv(deps(), undefined, 'check');
+    const got = await answer(pairTvKey(deps(), request('GET', `/v1/pair/${tv.code}`), tv.code));
+    expect(got.body).toStrictEqual({ tvPk: toBase64Url(tv.keys.publicKey), exp: tv.exp, purpose: 'check' });
   });
 
   it('answers 404 for an unknown, malformed or ended code', async () => {
@@ -480,6 +495,23 @@ describe('POST /v1/pair/s/:sid/status', () => {
       await send(each);
       await poll(each);
       expect((await report(each, status)).body).toStrictEqual({ state: 'done', status });
+    }
+  });
+
+  it("takes a check's two statuses only for a check, and an add's only for an add (RELAY step 38c4)", async () => {
+    const add = await newTv();
+    await send(add);
+    await poll(add);
+    for (const status of ['match', 'no_match']) expect([status, await report(add, status)]).toMatchObject([status, { status: 400, body: { error: 'bad_request' }, cors: '*' }]);
+    expect((await row(add.sid))!.status).toBeNull();
+    for (const status of ['match', 'no_match']) {
+      const check = await newTv(deps(), undefined, 'check');
+      await send(check);
+      await poll(check);
+      for (const other of ['ok', 'auth_failed', 'unreachable']) expect([other, (await report(check, other)).status]).toStrictEqual([other, 400]);
+      expect((await row(check.sid))!.status).toBeNull();
+      expect(await report(check, status)).toMatchObject({ status: 200, body: { state: 'done', status } });
+      expect(await progress(check)).toMatchObject({ status: 200, body: { state: 'done', status } });
     }
   });
 });

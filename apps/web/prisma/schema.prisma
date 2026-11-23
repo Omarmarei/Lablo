@@ -31,8 +31,10 @@ model PairSession {
   deliveredAt   DateTime?
   /// The id of the encrypted file the phone uploaded (its blob is `pair/<id>/<fileId>`): step 31a.
   fileId        String?
-  /// What the TV reports back for the phone: ok, auth_failed, expired, unreachable, blocked.
+  /// What the TV reports back for the phone: ok, auth_failed, expired, unreachable, blocked; a check's match or no_match.
   status        String?
+  /// Why the TV shows the code: null for an add, `check` for the PIN's login check (RELAY step 38c4).
+  purpose       String?
   createdAt     DateTime  @default(now())
   /// When the code stops working (10 minutes); the row is deleted 50 minutes after that.
   expiresAt     DateTime

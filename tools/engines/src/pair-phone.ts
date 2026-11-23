@@ -81,6 +81,13 @@ export function phonePadded(text: string, frames: number): Uint8Array {
   return padded;
 }
 
+/** Why the TV shows `code` (step 38c4), as the phone page reads it from the TV's key answer. */
+export async function phonePurpose(origin: string, code: string): Promise<string> {
+  const key = await fetch(`${origin}/v1/pair/${code}`);
+  if (key.status !== 200) throw new Error(`The TV's key for ${code}: HTTP ${key.status}`);
+  return ((await key.json()) as { purpose: string }).purpose;
+}
+
 /** How far the phone's payload got (`GET /v1/pair/:code/status`), as the phone page reads it. */
 export async function phoneSees(origin: string, code: string): Promise<PairProgressResponse | number> {
   const answer = await fetch(`${origin}/v1/pair/${code}/status`);

@@ -35,8 +35,15 @@ describe('normalizeCode', () => {
 
 describe('readFragment', () => {
   it('reads the code and the key, with or without the #', () => {
-    expect(readFragment(`#c=7K3MQ9XD&k=${KEY}`)).toEqual({ code: '7K3MQ9XD', tvPk: KEY });
-    expect(readFragment(`k=${KEY}&c=7k3m-q9xd`)).toEqual({ code: '7K3MQ9XD', tvPk: KEY });
+    expect(readFragment(`#c=7K3MQ9XD&k=${KEY}`)).toEqual({ code: '7K3MQ9XD', tvPk: KEY, purpose: 'add' });
+    expect(readFragment(`k=${KEY}&c=7k3m-q9xd`)).toEqual({ code: '7K3MQ9XD', tvPk: KEY, purpose: 'add' });
+  });
+
+  it('reads a check’s purpose, and takes anything else as an add (RELAY step 38c4)', () => {
+    expect(readFragment(`#c=7K3MQ9XD&k=${KEY}&p=check`)).toEqual({ code: '7K3MQ9XD', tvPk: KEY, purpose: 'check' });
+    expect(readFragment(`#p=check&k=${KEY}&c=7K3MQ9XD`)).toEqual({ code: '7K3MQ9XD', tvPk: KEY, purpose: 'check' });
+    for (const p of ['add', 'CHECK', 'checks', '']) expect(readFragment(`#c=7K3MQ9XD&k=${KEY}&p=${p}`)).toEqual({ code: '7K3MQ9XD', tvPk: KEY, purpose: 'add' });
+    expect(readFragment(`#c=7K3MQ9XD&p=check`)).toBeNull();
   });
 
   it.each([

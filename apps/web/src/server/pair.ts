@@ -14,6 +14,9 @@
  * - Every route is rate-limited per caller address, through `rateKey` (never the address).
  * - The TV's routes (`createPair`, `pollPair`, `pairStatus`, `pairFileUrl`) answer any origin;
  *   the phone's are same-origin only.
+ * - A session has a purpose (RELAY step 38c4): an add, or the PIN's login check (`purpose:
+ *   'check'`, kept in the row), which the typed code's key answer gives the phone page and which
+ *   decides the statuses the TV may report (`pairStatusFits`).
  */
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { sha256, toBase64Url, tokenHash, utf8 } from '@lablo/crypto';
@@ -22,6 +25,7 @@ import type {
   PairFileUrlResponse,
   PairPollResponse,
   PairProgressResponse,
+  PairPurpose,
   PairStatus,
   PairTvKeyResponse,
   PairUploadResponse,
@@ -32,6 +36,7 @@ import {
   PAIR_BODY_MAX_BYTES,
   pairCode,
   pairCreateRequestSchema,
+  pairStatusFits,
   pairStatusRequestSchema,
   pairUploadRequestSchema,
   sealedPayloadSchema,
@@ -134,6 +139,11 @@ async function codeRow(deps: PairDeps, code: string): Promise<PairSession | null
   return deps.db.pairSession.findUnique({ where: { codeHash: codeHash(code) } });
 }
 
+/** A row's purpose: `check` as kept, else an add (step 38c4). */
+function purposeOf(row: PairSession): PairPurpose {
+  return row.purpose === 'check' ? 'check' : 'add';
+}
+
 /** The phone has sent its payload (the TV may have read it since). */
 function sent(row: PairSession): boolean {
   return row.payload !== null || row.deliveredAt !== null;
@@ -170,7 +180,16 @@ export async function createPair(deps: PairDeps, request: Request): Promise<Resp
     const exp = now + PAIR_CODE_TTL_MS;
     try {
       await deps.db.pairSession.create({
-        data: { id: sid, codeHash: codeHash(code), tvPk: body.value.tvPk, pollTokenHash: tokenHash(pollToken)!, createdAt: new Date(now), expiresAt: new Date(exp) },
+        data: {
+          id: sid,
+          codeHash: codeHash(code),
+          tvPk: body.value.tvPk,
+          pollTokenHash: tokenHash(pollToken)!,
+          createdAt: new Date(now),
+          expiresAt: new Date(exp),
+          // Only a check is kept (step 38c4): null is an add.
+          purpose: body.value.purpose === 'check' ? 'check' : null,
+        },
       });
     } catch (error) {
       // Another live (or unswept) session has this code: make another.
@@ -182,13 +201,13 @@ export async function createPair(deps: PairDeps, request: Request): Promise<Resp
   }
 }
 
-/** `GET /v1/pair/:code`: the TV's key for a typed code, while the code works. */
+/** `GET /v1/pair/:code`: the TV's key for a typed code, and the session's purpose, while the code works. */
 export async function pairTvKey(deps: PairDeps, request: Request, code: string): Promise<Response> {
   const refused = await limited(deps, request, 'code');
   if (refused !== null) return refused;
   const row = await codeRow(deps, code);
   if (row === null || row.expiresAt.getTime() <= deps.now()) return apiError(404, 'not_found');
-  const answer: PairTvKeyResponse = { tvPk: row.tvPk, exp: row.expiresAt.getTime() };
+  const answer: PairTvKeyResponse = { tvPk: row.tvPk, exp: row.expiresAt.getTime(), purpose: purposeOf(row) };
   return json(answer);
 }
 
@@ -292,7 +311,11 @@ export async function pollPair(deps: PairDeps, request: Request, sid: string): P
   return json(answer, 200, TV_CORS);
 }
 
-/** `POST /v1/pair/s/:sid/status`: the TV's category, once, after its read; the file goes. */
+/**
+ * `POST /v1/pair/s/:sid/status`: the TV's category, once, after its read; the file goes. A status
+ * that doesn't fit the session's purpose (step 38c4: a check's for an add, or an add's for a
+ * check) is refused, 400, and changes nothing.
+ */
 export async function pairStatus(deps: PairDeps, request: Request, sid: string): Promise<Response> {
   const refused = await limited(deps, request, 'tv', TV_CORS);
   if (refused !== null) return refused;
@@ -300,6 +323,8 @@ export async function pairStatus(deps: PairDeps, request: Request, sid: string):
   if ('response' in session) return session.response;
   const body = await readBody(request, PAIR_SMALL_BODY_BYTES, pairStatusRequestSchema, TV_CORS);
   if (!body.ok) return body.response;
+  // The purpose is set when the row is made and never changes: the row read above decides.
+  if (!pairStatusFits(purposeOf(session.row), body.value.status)) return apiError(400, 'bad_request', TV_CORS);
   const done = await deps.db.$queryRaw<{ fileId: string | null }[]>`
     UPDATE "PairSession" AS p SET "status" = ${body.value.status}, "fileId" = NULL
     FROM (SELECT "id", "fileId" FROM "PairSession" WHERE "id" = ${sid} FOR UPDATE) AS old

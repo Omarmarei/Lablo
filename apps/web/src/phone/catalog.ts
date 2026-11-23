@@ -76,11 +76,15 @@ export const EN = {
   'form.sending': 'Sending…',
   'form.sendingFile': 'Encrypting and sending the file…',
 
+  'check.title': 'Confirm a login on your TV',
+  'check.body': 'Your TV asks for the login of one of its sources before it sets a PIN. Type it as your provider gave it.',
+
   'progress.title': 'Sending to your TV',
   'progress.sent': 'Sent',
   'progress.sentWaiting': 'Sent. Waiting for your TV to pick it up.',
   'progress.received': 'Received by your TV',
   'progress.receivedChecking': 'Your TV has it. Checking the source…',
+  'progress.receivedLogin': 'Your TV has it. Checking the login…',
   'progress.result': 'Result',
 
   'done.okTitle': 'Added',
@@ -91,6 +95,10 @@ export const EN = {
   'done.unreachable': 'Your TV couldn’t reach the server. Check the address and try again.',
   'done.unreachableFile': 'Your TV couldn’t read the file. Check that it’s the playlist file your provider sent, then try again.',
   'done.blocked': 'This source can’t be used with Lablo.',
+  'done.matchTitle': 'Login confirmed',
+  'done.match': 'Your TV recognised the login. Choose the new PIN on your TV.',
+  'done.noMatchTitle': 'Not confirmed',
+  'done.no_match': 'This isn’t the login of a source on your TV.',
   'done.newCode': 'Sending again needs a new code from your TV.',
   'done.fix': 'Fix and send again',
   'done.another': 'Add another source',
@@ -169,11 +177,15 @@ export const AR: Readonly<Record<MessageKey, Message>> = {
   'form.sending': 'جارٍ الإرسال…',
   'form.sendingFile': 'جارٍ تشفير الملف وإرساله…',
 
+  'check.title': 'تأكيد بيانات الدخول على تلفازك',
+  'check.body': 'يطلب تلفازك بيانات الدخول لأحد مصادره قبل تعيين رمز سري. اكتبها كما أعطاك إياها مزوّد الخدمة.',
+
   'progress.title': 'جارٍ الإرسال إلى تلفازك',
   'progress.sent': 'تم الإرسال',
   'progress.sentWaiting': 'تم الإرسال. بانتظار أن يستلمه تلفازك.',
   'progress.received': 'استلمه تلفازك',
   'progress.receivedChecking': 'استلمه تلفازك. جارٍ التحقق من المصدر…',
+  'progress.receivedLogin': 'استلمه تلفازك. جارٍ التحقق من بيانات الدخول…',
   'progress.result': 'النتيجة',
 
   'done.okTitle': 'تمت الإضافة',
@@ -184,6 +196,10 @@ export const AR: Readonly<Record<MessageKey, Message>> = {
   'done.unreachable': 'تعذّر على تلفازك الوصول إلى الخادم. تحقّق من العنوان وحاول مرة أخرى.',
   'done.unreachableFile': 'تعذّر على تلفازك قراءة الملف. تحقّق من أنه ملف قائمة التشغيل الذي أرسله مزوّد الخدمة، ثم حاول مرة أخرى.',
   'done.blocked': 'لا يمكن استخدام هذا المصدر مع لابلو.',
+  'done.matchTitle': 'تم التأكيد',
+  'done.match': 'تعرّف تلفازك على بيانات الدخول. اختر الرمز السري الجديد على تلفازك.',
+  'done.noMatchTitle': 'لم يتم التأكيد',
+  'done.no_match': 'هذه ليست بيانات الدخول لأي مصدر على تلفازك.',
   'done.newCode': 'تحتاج إلى رمز جديد من تلفازك لإعادة الإرسال.',
   'done.fix': 'التعديل والإرسال مجددًا',
   'done.another': 'إضافة مصدر آخر',
@@ -201,7 +217,16 @@ const STATUS_TEXT: Readonly<Record<PairStatus, MessageKey>> = {
   expired: 'done.expired',
   unreachable: 'done.unreachable',
   blocked: 'done.blocked',
+  match: 'done.match',
+  no_match: 'done.no_match',
 };
+
+/** The done view's title for the TV's status: an add's, or a check's (step 38c4). */
+export function statusTitle(status: PairStatus): MessageKey {
+  if (status === 'ok') return 'done.okTitle';
+  if (status === 'match') return 'done.matchTitle';
+  return status === 'no_match' ? 'done.noMatchTitle' : 'done.failedTitle';
+}
 
 /**
  * The words for the TV's status. The TV answers `unreachable` for any failure but a login's or a

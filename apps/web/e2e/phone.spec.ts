@@ -1,4 +1,4 @@
-import { PAIR_STATUSES } from '@lablo/protocol';
+import { PAIR_STATUSES, pairStatusFits } from '@lablo/protocol';
 import { AR, EN } from '../src/phone/catalog';
 import { PHONE_CSP } from '../next.config';
 import { alert, endCode, expect, openQr, phone, plain, shot, test } from './support';
@@ -131,8 +131,8 @@ test.describe('in Arabic', () => {
   });
 });
 
-test('every TV status, in English', async ({ page, tv }) => {
-  for (const status of PAIR_STATUSES) {
+test('every TV status of an add, in English', async ({ page, tv }) => {
+  for (const status of PAIR_STATUSES.filter((one) => pairStatusFits('add', one))) {
     const set = await tv();
     await openQr(page, set);
     await page.locator('input[name="source-type"][value="m3u"]').check();
@@ -144,6 +144,76 @@ test('every TV status, in English', async ({ page, tv }) => {
     await expect(page.getByTestId('result')).toHaveText(EN[`done.${status}`]);
     await expect(page.locator('h1')).toHaveText(status === 'ok' ? EN['done.okTitle'] : EN['done.failedTitle']);
   }
+});
+
+test.describe('the PIN’s login check (RELAY step 38c4)', () => {
+  test('the QR link: the login alone, sealed for the TV, then the match', async ({ page, tv, requests }) => {
+    const set = await tv('check');
+    await openQr(page, set);
+    await expect(phone(page)).toHaveAttribute('data-view', 'form');
+    // The purpose came with the fragment: the server wasn't asked for the key.
+    expect(requests.some((url) => new URL(url).pathname === `/v1/pair/${set.code}`)).toBe(false);
+    await expect(page.locator('section[data-purpose]')).toHaveAttribute('data-purpose', 'check');
+    await expect(page.locator('h1')).toHaveText(EN['check.title']);
+    await expect(page.getByText(EN['check.body'])).toBeVisible();
+    // The login and the link only: no file, no guide links, no name.
+    await expect(page.locator('input[name="source-type"]')).toHaveCount(2);
+    await expect(page.locator('input[name="source-type"][value="file"]')).toHaveCount(0);
+    await expect(page.getByTestId('epg')).toHaveCount(0);
+    await expect(page.locator('#name')).toHaveCount(0);
+
+    await page.locator('#server').fill('panel.example:8080');
+    await page.locator('#username').fill(' user1 ');
+    await page.locator('#password').fill('secret');
+    await shot(page, 'phone-check-form-en');
+    await page.getByTestId('send').click();
+    await expect(page.getByTestId('progress')).toHaveAttribute('data-state', 'sent');
+    expect(await set.receive()).toEqual({ v: 1, source: { type: 'xtream', server: 'http://panel.example:8080', username: 'user1', password: 'secret' } });
+    await expect(page.getByTestId('progress')).toHaveText(EN['progress.receivedLogin']);
+
+    await set.report('match');
+    await expect(page.getByTestId('result')).toHaveAttribute('data-status', 'match');
+    await expect(page.getByTestId('result')).toHaveText(EN['done.match']);
+    await expect(page.locator('h1')).toHaveText(EN['done.matchTitle']);
+    // The TV takes it from here: nothing to press.
+    await expect(phone(page).getByRole('button', { name: EN['done.fix'] })).toHaveCount(0);
+    await expect(phone(page).getByRole('button', { name: EN['done.another'] })).toHaveCount(0);
+    await shot(page, 'phone-check-match-en');
+  });
+
+  test.describe('in Arabic', () => {
+    test.use({ locale: 'ar-SA' });
+
+    test('a typed code: the link, no match, then fixed with a new code', async ({ page, tv }) => {
+      const set = await tv('check');
+      await page.goto('/p');
+      await page.locator('#code').fill(set.code);
+      await page.locator('#code').press('Enter');
+      await expect(phone(page)).toHaveAttribute('data-view', 'form');
+      // The typed path's purpose is the server's.
+      await expect(page.locator('h1')).toHaveText(AR['check.title'] as string);
+      await expect(page.locator('input[name="source-type"]')).toHaveCount(2);
+      await page.locator('input[name="source-type"][value="m3u"]').check();
+      await page.locator('#playlist').fill('lists.example/get.php?username=a&password=b');
+      await shot(page, 'phone-check-form-ar');
+      await page.getByTestId('send').click();
+      expect(await set.receive()).toEqual({ v: 1, source: { type: 'm3u', url: 'http://lists.example/get.php?username=a&password=b' } });
+      await expect(page.getByTestId('progress')).toHaveText(AR['progress.receivedLogin'] as string);
+
+      await set.report('no_match');
+      await expect(page.getByTestId('result')).toHaveAttribute('data-status', 'no_match');
+      await expect(page.getByTestId('result')).toHaveText(AR['done.no_match'] as string);
+      await expect(page.locator('h1')).toHaveText(AR['done.noMatchTitle'] as string);
+      await shot(page, 'phone-check-no-match-ar');
+
+      // "Fix and send again": the link kept for the next code.
+      await page.getByRole('button', { name: AR['done.fix'] as string }).click();
+      const again = await tv('check');
+      await page.locator('#code').fill(again.code);
+      await page.locator('#code').press('Enter');
+      await expect(page.locator('#playlist')).toHaveValue('lists.example/get.php?username=a&password=b');
+    });
+  });
 });
 
 test('codes that don’t work: malformed, unknown, used, ended while the form was filled', async ({ page, tv, request, address }) => {

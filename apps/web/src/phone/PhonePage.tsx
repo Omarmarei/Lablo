@@ -5,7 +5,8 @@
  * the TV's QR link or typed, an Xtream login, an M3U link or an M3U file, sealed in this browser to
  * the TV's key (a file encrypted and uploaded first) and posted; then how far it got, until the
  * TV's status. The state is `state.ts`'s reducer; the requests are `flows.ts`'s and
- * `progress.ts`'s. Every text comes from `catalog.ts`.
+ * `progress.ts`'s. Every text comes from `catalog.ts`. For the PIN's login check (RELAY step
+ * 38c4) the form asks only the login or the link, and the result words the TV's check.
  */
 import { PAIR_EPG_MAX } from '@lablo/protocol';
 import type { ReactNode, RefObject } from 'react';
@@ -13,7 +14,7 @@ import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { PhoneApi } from './api';
 import { createApi } from './api';
 import type { MessageKey, Params } from './catalog';
-import { fileSize, statusKey, t as translate } from './catalog';
+import { fileSize, statusKey, statusTitle, t as translate } from './catalog';
 import { groupCode, readFragment } from './code';
 import { pickedFile, send, startQr, submitCode } from './flows';
 import type { FieldKey, FieldProblem, SourceType } from './form';
@@ -123,7 +124,7 @@ function body(state: PageState, view: View, t: T, deps: Deps, heading: RefObject
       return (
         <section className="phone__card">
           <h1 ref={heading} tabIndex={-1} className="phone__title">
-            {t('code.title')}
+            {t(view.target.purpose === 'check' ? 'check.title' : 'code.title')}
           </h1>
           <p role="status" className="phone__muted">
             {t('code.checking')}
@@ -283,10 +284,12 @@ function FormView({ state, view, t, deps, heading }: ViewProps<'form'>): ReactNo
   );
 
   const anyProblem = showProblems && Object.keys(problems).length > 0;
+  // The PIN's login check (step 38c4): the login or the link alone.
+  const check = view.target.purpose === 'check';
   return (
-    <section className="phone__card">
+    <section className="phone__card" data-purpose={view.target.purpose}>
       <h1 ref={heading} tabIndex={-1} className="phone__title">
-        {t('form.title')}
+        {t(check ? 'check.title' : 'form.title')}
       </h1>
       <p className="phone__muted" data-testid="form-code">
         {t('form.for', { code: groupCode(view.target.code) })}{' '}
@@ -294,7 +297,7 @@ function FormView({ state, view, t, deps, heading }: ViewProps<'form'>): ReactNo
           {t('form.otherCode')}
         </button>
       </p>
-      <p className="phone__muted">{t('form.body')}</p>
+      <p className="phone__muted">{t(check ? 'check.body' : 'form.body')}</p>
       <form
         noValidate
         onSubmit={(event) => {
@@ -306,7 +309,7 @@ function FormView({ state, view, t, deps, heading }: ViewProps<'form'>): ReactNo
           <legend className="phone__label">{t('form.type')}</legend>
           {typeOption('xtream', t('type.xtream', { name: 'Xtream' }))}
           {typeOption('m3u', t('type.m3u', { format: 'M3U' }))}
-          {typeOption('file', t('type.file', { format: 'M3U' }))}
+          {check ? null : typeOption('file', t('type.file', { format: 'M3U' }))}
         </fieldset>
 
         {state.type === 'xtream' ? (
@@ -321,57 +324,59 @@ function FormView({ state, view, t, deps, heading }: ViewProps<'form'>): ReactNo
           <FileField state={state} busy={busy} t={t} deps={deps} problem={problemText('file')} maxSize={maxSize} />
         )}
 
-        <div className="phone__group" data-testid="epg">
-          {values.epg.map((value, index) => {
-            const key: FieldKey = `epg${index}`;
-            const problem = problemText(key);
-            return (
-              <div className="phone__field" data-field={key} key={index}>
-                <label className="phone__label" htmlFor={key}>
-                  {t('field.epg')}
-                </label>
-                <div className="phone__row">
-                  <input
-                    id={key}
-                    className="phone__input"
-                    type="url"
-                    dir="ltr"
-                    value={value}
-                    onChange={(event) => deps.dispatch({ type: 'epg', index, value: event.target.value })}
-                    autoComplete="off"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    maxLength={2048}
-                    readOnly={busy}
-                    aria-invalid={problem === null ? undefined : true}
-                    aria-describedby={problem === null ? `${key}-hint` : `${key}-hint ${key}-problem`}
-                  />
-                  {values.epg.length > 1 ? (
-                    <button type="button" className="phone__remove" disabled={busy} aria-label={t('field.epgRemove')} title={t('field.epgRemove')} onClick={() => deps.dispatch({ type: 'removeEpg', index })}>
-                      <span aria-hidden="true">×</span>
-                    </button>
-                  ) : null}
-                </div>
-                <p id={`${key}-hint`} className="phone__hint">
-                  {t('field.epgHint', { format: 'XMLTV' })}
-                </p>
-                {problem === null ? null : (
-                  <p id={`${key}-problem`} className="phone__problem">
-                    {problem}
+        {check ? null : (
+          <div className="phone__group" data-testid="epg">
+            {values.epg.map((value, index) => {
+              const key: FieldKey = `epg${index}`;
+              const problem = problemText(key);
+              return (
+                <div className="phone__field" data-field={key} key={index}>
+                  <label className="phone__label" htmlFor={key}>
+                    {t('field.epg')}
+                  </label>
+                  <div className="phone__row">
+                    <input
+                      id={key}
+                      className="phone__input"
+                      type="url"
+                      dir="ltr"
+                      value={value}
+                      onChange={(event) => deps.dispatch({ type: 'epg', index, value: event.target.value })}
+                      autoComplete="off"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      maxLength={2048}
+                      readOnly={busy}
+                      aria-invalid={problem === null ? undefined : true}
+                      aria-describedby={problem === null ? `${key}-hint` : `${key}-hint ${key}-problem`}
+                    />
+                    {values.epg.length > 1 ? (
+                      <button type="button" className="phone__remove" disabled={busy} aria-label={t('field.epgRemove')} title={t('field.epgRemove')} onClick={() => deps.dispatch({ type: 'removeEpg', index })}>
+                        <span aria-hidden="true">×</span>
+                      </button>
+                    ) : null}
+                  </div>
+                  <p id={`${key}-hint`} className="phone__hint">
+                    {t('field.epgHint', { format: 'XMLTV' })}
                   </p>
-                )}
-              </div>
-            );
-          })}
-          {values.epg.length < PAIR_EPG_MAX ? (
-            <button type="button" className="phone__link" disabled={busy} onClick={() => deps.dispatch({ type: 'addEpg' })}>
-              {t('field.epgAdd')}
-            </button>
-          ) : null}
-        </div>
+                  {problem === null ? null : (
+                    <p id={`${key}-problem`} className="phone__problem">
+                      {problem}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+            {values.epg.length < PAIR_EPG_MAX ? (
+              <button type="button" className="phone__link" disabled={busy} onClick={() => deps.dispatch({ type: 'addEpg' })}>
+                {t('field.epgAdd')}
+              </button>
+            ) : null}
+          </div>
+        )}
 
-        {field('name', 'field.name', { hint: t('field.nameHint'), dir: 'auto', maxLength: 80 })}
+        {check ? null : field('name', 'field.name', { hint: t('field.nameHint'), dir: 'auto', maxLength: 80 })}
 
         <p className="phone__private">{t('form.private')}</p>
         {anyProblem ? (
@@ -484,11 +489,12 @@ function ProgressView({ view, t, deps, heading }: Omit<ViewProps<'progress' | 'd
     </li>
   );
   if (view.kind === 'done') {
-    const ok = view.status === 'ok';
+    // A check's match (step 38c4) is an end too: the TV takes it from there.
+    const ok = view.status === 'ok' || view.status === 'match';
     return (
       <section className="phone__card">
         <h1 ref={heading} tabIndex={-1} className="phone__title">
-          {ok ? t('done.okTitle') : t('done.failedTitle')}
+          {t(statusTitle(view.status))}
         </h1>
         <ol className="phone__steps">
           {step('progress.sent', 'done')}
@@ -499,9 +505,11 @@ function ProgressView({ view, t, deps, heading }: Omit<ViewProps<'progress' | 'd
           {t(statusKey(view.status, view.sentType))}
         </p>
         {ok ? null : <p className="phone__muted">{t('done.newCode')}</p>}
-        <button type="button" className="phone__button" onClick={() => deps.dispatch({ type: 'again', keep: !ok })}>
-          {ok ? t('done.another') : t('done.fix')}
-        </button>
+        {view.status === 'match' ? null : (
+          <button type="button" className="phone__button" onClick={() => deps.dispatch({ type: 'again', keep: !ok })}>
+            {ok ? t('done.another') : t('done.fix')}
+          </button>
+        )}
       </section>
     );
   }
@@ -516,7 +524,7 @@ function ProgressView({ view, t, deps, heading }: Omit<ViewProps<'progress' | 'd
         {step('progress.result', received ? 'current' : 'pending')}
       </ol>
       <p role="status" aria-live="polite" className="phone__muted" data-testid="progress" data-state={view.state}>
-        {view.state === 'sent' ? t('progress.sentWaiting') : t('progress.receivedChecking')}
+        {view.state === 'sent' ? t('progress.sentWaiting') : t(view.purpose === 'check' ? 'progress.receivedLogin' : 'progress.receivedChecking')}
       </p>
     </section>
   );
