@@ -310,7 +310,7 @@ describe('evaluatePairWalk', () => {
 describe('heldFiles', () => {
   it("counts only the files of the walk's own session: an earlier walk's file left behind is not this one's (leg 100: Chromium 53's failed walks failed 68's)", () => {
     const standIn = new PairStandIn();
-    const session = (sid: string, code: string): StandInSession => ({ sid, code, tvPk: '', pollToken: '', exp: 0, payload: null, posted: [], delivered: false, status: null, polls: 0, fileId: null, uploads: [] });
+    const session = (sid: string, code: string): StandInSession => ({ sid, code, tvPk: '', pollToken: '', purpose: 'add', exp: 0, payload: null, posted: [], delivered: false, status: null, polls: 0, fileId: null, uploads: [] });
     standIn.sessions.push(session('old', 'AAAA2222'), session('new', 'BBBB3333'));
     standIn.blobs.set('pair/old/f1', new Uint8Array(1));
     expect(heldFiles({ standIn }, 'BBBB3333')).toBe(0);
