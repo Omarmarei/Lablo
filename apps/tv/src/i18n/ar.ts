@@ -188,6 +188,9 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'pair.newCode': 'اعرض رمزًا جديدًا',
   'pair.done': 'تم',
   'pair.fileName': 'قائمة من هاتفك',
+  'pair.checkTitle': 'تأكيد بيانات الدخول من هاتفك',
+  'pair.mismatch': 'هذه ليست بيانات الدخول لأي مصدر على هذا التلفاز. اعرض رمزًا جديدًا لإرسالها مجددًا.',
+  'pinCheck.usePhone': 'استخدم هاتفك',
 
   'field.server': 'عنوان الخادم',
   'field.serverHint': 'كما أرسله مزوّد الخدمة. تُضاف {scheme} إن لم تكتبها.',

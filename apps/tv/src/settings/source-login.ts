@@ -4,7 +4,7 @@ import type { SourceRecord, StoredSource } from '@lablo/data';
 import type { Platform } from '@lablo/platform-api';
 import type { EditorBinding, Navigator, TextEditorOptions } from '@lablo/ui';
 import { bindEditor, createTextEditor } from '@lablo/ui';
-import type { FieldId, FormProblems, FormValues } from '../onboarding/form';
+import type { FieldId, FormProblems, FormValues, SourceDraft } from '../onboarding/form';
 import { checkForm, firstProblem } from '../onboarding/form';
 
 /**
@@ -24,14 +24,17 @@ import { checkForm, firstProblem } from '../onboarding/form';
  * values empty but for an Xtream server; "Check" compares what was typed (after onboarding's
  * checks and normalising) with the stored login (`matchesLogin`). The same: the form closes and
  * `matched` goes on. Another: the form stays, says so, and the focus goes back to the first field
- * the user had to type.
+ * the user had to type. When the app can pair (step 38c4) the check's actions are "Check", "Use
+ * your phone" (the login sent from the phone instead: `phone`) and "Cancel".
  */
 
 export const LOGIN_SCREEN = 'source-login';
 
-/** The actions' buttons. */
+/** The actions' buttons ("Check" is `LOGIN_SAVE`'s place). */
 export const LOGIN_SAVE = 0;
 export const LOGIN_CANCEL = 1;
+/** The check's "Use your phone" (step 38c4), between "Check" and "Cancel" when the app can pair. */
+export const LOGIN_PHONE = 1;
 
 /** A source the form gives a login: an Xtream source or an M3U playlist (a phone's file has none). */
 export type LoginSource = Exclude<StoredSource, { type: 'm3u-file' }>;
@@ -85,6 +88,24 @@ export function matchesLogin(source: CheckSource, record: SourceRecord): boolean
     return a.base === b.base && a.username === b.username && a.password === b.password;
   }
   return record.type === 'm3u' && record.url === source.url;
+}
+
+/**
+ * Whether the phone's source (the PIN's check by phone, step 38c4: `pairDraft`'s, through the
+ * same form checks as the typed one) holds the stored login of any of `sources`. A phone's file
+ * has no login.
+ */
+export function loginOnTv(sources: readonly CheckSource[], draft: SourceDraft): boolean {
+  if (draft.type === 'm3u-file') return false;
+  for (let i = 0; i < sources.length; i += 1) {
+    const source = sources[i]!;
+    const record: SourceRecord =
+      draft.type === 'xtream'
+        ? { id: source.id, type: 'xtream', name: source.name, account: draft.account, added: source.added }
+        : { id: source.id, type: 'm3u', name: source.name, url: draft.url, added: source.added };
+    if (matchesLogin(source, record)) return true;
+  }
+  return false;
 }
 
 /** The form's check: onboarding's, for its own fields; the source with its login when nothing is refused. */
@@ -143,10 +164,14 @@ export interface LoginForm {
   readonly checking: ReadonlySignal<boolean>;
   /** The check's last login wasn't the stored one; clears when a field changes. */
   readonly mismatch: ReadonlySignal<boolean>;
+  /** The check offers "Use your phone" (step 38c4). */
+  readonly phone: ReadonlySignal<boolean>;
   /** Opens the form for `source`, the focus on its first empty field. */
   open(source: LoginSource): void;
-  /** Opens it for the PIN's check of `source`'s login: `matched` once it is the stored one. */
-  check(source: CheckSource, matched: () => void): void;
+  /** Opens it for the PIN's check of `source`'s login: `matched` once it is the stored one; `phone`: "Use your phone" (step 38c4). */
+  check(source: CheckSource, matched: () => void, phone?: () => void): void;
+  /** Closes the form when it shows (on top). */
+  close(): void;
   setValue(field: LoginField, value: string): void;
   dispose(): void;
 }
@@ -158,10 +183,11 @@ export function createLoginForm(options: LoginFormOptions): LoginForm {
   const problems = signal<FormProblems>({});
   const checking = signal(false);
   const mismatch = signal(false);
+  const phone = signal(false);
   const textEditor = createTextEditor({ platform: options.platform, nav, find: options.find, now: options.now });
   const editor = bindEditor(textEditor);
   /** The PIN's check while the form is open for it: the source and what goes on after a match. */
-  let against: { readonly source: CheckSource; readonly matched: () => void } | null = null;
+  let against: { readonly source: CheckSource; readonly matched: () => void; readonly phone?: () => void } | null = null;
   /** The first field the user had to type when the form opened. */
   let first = 0;
 
@@ -205,7 +231,7 @@ export function createLoginForm(options: LoginFormOptions): LoginForm {
       id: options.id ?? LOGIN_SCREEN,
       zones: [
         { kind: 'list', id: 'fields', axis: 'vertical', count: fields.length, neighbours: { down: 'actions' } },
-        { kind: 'list', id: 'actions', axis: 'horizontal', count: 2, neighbours: { up: 'fields' } },
+        { kind: 'list', id: 'actions', axis: 'horizontal', count: phone.value ? 3 : 2, neighbours: { up: 'fields' } },
       ],
       onIntent: (intent) => {
         if (intent !== 'BACK') return false;
@@ -215,7 +241,11 @@ export function createLoginForm(options: LoginFormOptions): LoginForm {
       onSelect: (focus) => {
         if (focus.zone === 'fields') textEditor.open(loginFieldId(fields[focus.index]!));
         else if (focus.index === LOGIN_SAVE) submit(from);
-        else close();
+        else if (focus.index === LOGIN_PHONE && phone.value && against !== null && against.phone !== undefined) {
+          // The form stays under the pairing screen: Back there returns to it.
+          textEditor.close();
+          against.phone();
+        } else close();
       },
     });
     // The first empty field: an Xtream source's server is filled in (the check's form always has one).
@@ -235,15 +265,21 @@ export function createLoginForm(options: LoginFormOptions): LoginForm {
     problems,
     checking,
     mismatch,
+    phone,
     open(from: LoginSource): void {
       against = null;
       checking.value = false;
+      phone.value = false;
       show(from, loginValues(from));
     },
-    check(from: CheckSource, matched: () => void): void {
-      against = { source: from, matched };
+    check(from: CheckSource, matched: () => void, byPhone?: () => void): void {
+      against = byPhone === undefined ? { source: from, matched } : { source: from, matched, phone: byPhone };
       checking.value = true;
+      phone.value = byPhone !== undefined;
       show(from, checkValues(from));
+    },
+    close(): void {
+      if (source.value !== null) close();
     },
     setValue(field: LoginField, value: string): void {
       values.value = withValue(values.value, field, value);

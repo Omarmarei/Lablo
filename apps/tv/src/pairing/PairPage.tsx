@@ -12,7 +12,8 @@ import './pair.css';
 /**
  * The pairing screen (RELAY step 31c2a), on onboarding's navigator or the live one (Settings ›
  * Sources). Every text comes from the catalogs; the code, the address and the source's name are
- * data (`dir="ltr"`, `translate=false`, or isolated arguments).
+ * data (`dir="ltr"`, `translate=false`, or isolated arguments). For the PIN's login check (step
+ * 38c4, `check`) its own title, and the mismatch's line.
  */
 
 type Translate = AppI18n['t'];
@@ -119,6 +120,13 @@ export function Message({ i18n, view, name, file = false, pin = false }: { i18n:
       </p>
     );
   }
+  if (view.kind === 'mismatch') {
+    return (
+      <p class="pair__text pair__error" role="alert" data-testid="pair-mismatch">
+        {t('pair.mismatch')}
+      </p>
+    );
+  }
   if (view.kind === 'loading') {
     const progress = view.progress;
     const phase = progress === null ? 'checking' : progress.phase;
@@ -169,7 +177,9 @@ export function Message({ i18n, view, name, file = false, pin = false }: { i18n:
   return null;
 }
 
-export function titleOf(t: Translate, view: PairView, name: string): string {
+export function titleOf(t: Translate, view: PairView, name: string, check = false): string {
+  // The PIN's check (step 38c4) has one title: it never loads a source.
+  if (check) return t('pair.checkTitle');
   if (view.kind === 'loading') return t('loading.title', { name });
   if (view.kind === 'failed' || view.kind === 'refused') return t('loading.failed', { name });
   if (view.kind === 'done') return t('done.title');
@@ -188,10 +198,12 @@ export interface PairContentProps {
   readonly file?: boolean;
   /** The done view offers "Set a PIN" (step 38c3). */
   readonly pin?: boolean;
+  /** The PIN's login check (step 38c4). */
+  readonly check?: boolean;
 }
 
 /** The page as drawn for a view: hook-free (the tests call it as a function). */
-export function PairContent({ i18n, view, name, sent, zone, file = false, pin = false }: PairContentProps) {
+export function PairContent({ i18n, view, name, sent, zone, file = false, pin = false, check = false }: PairContentProps) {
   const { t } = i18n;
   const actions = pairActions(view.kind, file, pin);
   // The last button leads, but for the prompt's "Set a PIN" (step 38c3).
@@ -204,9 +216,10 @@ export function PairContent({ i18n, view, name, sent, zone, file = false, pin = 
       data-code={view.kind === 'code' ? view.code.code : ''}
       data-trouble={String(view.kind === 'code' && view.trouble)}
       data-sent={sent ?? ''}
+      data-purpose={check ? 'check' : 'add'}
     >
       <h1 class="pair__title" data-testid="pair-title">
-        {titleOf(t, view, name)}
+        {titleOf(t, view, name, check)}
       </h1>
       {view.kind === 'code' ? <CodeView i18n={i18n} view={view} /> : <Message i18n={i18n} view={view} name={name} file={file} pin={pin} />}
       <div class="pair__actions">
@@ -231,6 +244,7 @@ export function PairPage({ pairing, binding, i18n }: { pairing: Pairing; binding
       zone={zone}
       file={draft !== null && draft.type === 'm3u-file'}
       pin={asksPin(view, pairing.canSetPin)}
+      check={pairing.purpose.value === 'check'}
     />
   );
 }

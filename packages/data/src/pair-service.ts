@@ -4,9 +4,11 @@
  * pair worker serves it (`pairHandlers`, pair.worker.ts) for as long as the pairing screen shows,
  * so the network, the key, `tweetnacl`'s box and the schemas stay out of the main bundle.
  *
- * - `open(base)`: a fresh X25519 key pair (held here, in memory only), `POST <base>/v1/pair
+ * - `open(base, purpose)`: a fresh X25519 key pair (held here, in memory only), `POST <base>/v1/pair
  *   {tvPk}`; the answer gives the code, the poll token and the session id. Answers the code, the
- *   QR code's link `<base>/p#c=<code>&k=<tvPk>` and its modules, and the address to type.
+ *   QR code's link `<base>/p#c=<code>&k=<tvPk>` and its modules, and the address to type. For the
+ *   PIN's login check (RELAY step 38c4) the body carries `purpose: 'check'` and the link ends
+ *   `&p=check`, so the phone page asks only for a login; an add's are as before.
  * - `poll()`: `GET <base>/v1/pair/s/<sid>` with the poll token. `ready` comes once, with the
  *   payload opened by the secret key and parsed by `pairPayloadSchema`; the key is forgotten then,
  *   and when the payload doesn't open or parse (`unreadable`). The session ends with the code
@@ -29,7 +31,7 @@ import type { QrMatrix } from '@lablo/core';
 import { encodeQr, qrFits } from '@lablo/core';
 import type { BoxKeyPair, SealedPayload } from '@lablo/crypto';
 import { fileCipherLength, fromBase64Url, newBoxKeyPair, openPairPayload, toBase64Url } from '@lablo/crypto';
-import type { PairFile, PairPayload, PairStatus } from '@lablo/protocol';
+import type { PairFile, PairPayload, PairPurpose, PairStatus } from '@lablo/protocol';
 import { PAIR_BODY_MAX_BYTES, PAIR_STATUSES, pairCreateResponseSchema, pairFileUrlResponseSchema, pairPayloadSchema, pairPollResponseSchema } from '@lablo/protocol';
 import type { ByteResponse, ByteSource, ByteTransport } from './bytes';
 import { decodeUtf8, tapBytes } from './bytes';
@@ -53,7 +55,7 @@ export interface PairCode {
   readonly code: string;
   /** The code's end on the server's clock (the TV's may differ: the poll's 410 decides). */
   readonly exp: number;
-  /** What the QR code holds: `<base>/p#c=<code>&k=<tvPk>`. */
+  /** What the QR code holds: `<base>/p#c=<code>&k=<tvPk>` (and `&p=check` for a check, step 38c4). */
   readonly link: string;
   /** The address to type on a phone: the base without its scheme, then `/p`. */
   readonly typed: string;
@@ -158,23 +160,26 @@ export class PairService {
     this.keyPair = options.keyPair ?? newBoxKeyPair;
   }
 
-  /** A new code, replacing the session before it (whose key is forgotten). */
-  async open(base: string): Promise<PairOpenResult> {
+  /** A new code, replacing the session before it (whose key is forgotten); `check`: for the PIN's login check (step 38c4). */
+  async open(base: string, purpose: PairPurpose = 'add'): Promise<PairOpenResult> {
     this.close();
     const origin = ORIGIN.exec(base);
     if (origin === null) throw new Error('The pairing base must be an http(s) origin');
     const keys = this.keyPair();
     const tvPk = toBase64Url(keys.publicKey);
+    const check = purpose === 'check';
+    const suffix = check ? '&p=check' : '';
     // Before asking for a code: the code is 8 ASCII characters like these, so the link is as long.
-    if (!qrFits(base + '/p#c=00000000&k=' + tvPk)) throw new Error('The pairing link is too long for a QR code');
-    const answer = await this.request('POST', base + '/v1/pair', '{"tvPk":"' + tvPk + '"}', null);
+    if (!qrFits(base + '/p#c=00000000&k=' + tvPk + suffix)) throw new Error('The pairing link is too long for a QR code');
+    const body = '{"tvPk":"' + tvPk + (check ? '","purpose":"check"}' : '"}');
+    const answer = await this.request('POST', base + '/v1/pair', body, null);
     if (answer.failure !== null) return { ok: false, failure: answer.failure, retryMs: null };
     if (answer.status === 429) return { ok: false, failure: 'rate', retryMs: retryAfterMs(answer.retryAfter) };
     if (answer.status !== 201) return { ok: false, failure: 'status', retryMs: null };
     const created = pairCreateResponseSchema.safeParse(parseJson(answer.text));
     if (!created.success) return { ok: false, failure: 'malformed', retryMs: null };
     const { sid, code, pollToken, exp } = created.data;
-    const link = base + '/p#c=' + code + '&k=' + tvPk;
+    const link = base + '/p#c=' + code + '&k=' + tvPk + suffix;
     const qr = encodeQr(link) as QrMatrix;
     this.session = { base, sid, token: pollToken, secretKey: keys.secretKey, read: false, file: null, feed: null };
     return { ok: true, code: { code, exp, link, typed: base.slice(origin[1]!.length + 3) + '/p', qr } };
@@ -392,7 +397,7 @@ export class PairService {
 export function pairHandlers(options: PairServiceOptions) {
   const service = new PairService(options);
   return {
-    open: (req: { base: string }): Promise<PairOpenResult> => service.open(req.base),
+    open: (req: { base: string; purpose?: PairPurpose }): Promise<PairOpenResult> => service.open(req.base, req.purpose),
     poll: (): Promise<PairPollResult> => service.poll(),
     status: (req: { status: PairStatus }): Promise<PairStatusResult> => service.status(req.status),
     /** `port` comes transferred: the app gave its other end to the ingest worker. */

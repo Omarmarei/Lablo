@@ -3,7 +3,7 @@ import { signal } from '@preact/signals';
 import type { FileFeed, PairCode, PairFailure, PairPollResult } from '@lablo/data/client';
 import { PAIR_POLL_MS } from '@lablo/data/client';
 import type { LifecycleEvent } from '@lablo/platform-api';
-import type { PairStatus } from '@lablo/protocol';
+import type { PairPurpose, PairStatus } from '@lablo/protocol';
 import type { Navigator, Screen, ZoneSpec } from '@lablo/ui';
 import type { PairSession } from '../data/engine';
 import type { Refusal } from '../gate/gate-state';
@@ -39,6 +39,12 @@ import { fileError, pairDraft, statusFor } from './pair-draft';
  *   (`LoadResult.askPin`) and the app gives the pad (`setPin`, Settings only: onboarding's
  *   pairing goes to onboarding's done screen), the done view offers "Set a PIN" (the pad's new
  *   PIN over the done view; once it is kept, the pairing screen closes) or "Later".
+ * - **The PIN's login check** (step 38c4, `check`): the same screen and worker, the code asked
+ *   for with the purpose `check` (the phone page then asks only for a login). The phone's source
+ *   is never loaded or added: the form's checks (`pairDraft`), then `matches`. A match sends
+ *   `match`, closes the screen and goes on (`matched`); anything else sends `no_match` and shows
+ *   the `mismatch` view with "Show a new code". A payload the form refuses gives a new code with
+ *   the note, as an add's does.
  */
 
 /** Codes made one after another while nothing was sent; then "Show a new code". */
@@ -64,7 +70,9 @@ export type PairView =
   | { readonly kind: 'failed'; readonly code: LoadErrorCode; readonly httpStatus: number | null }
   /** The config refuses new sources (step 30c2b). */
   | { readonly kind: 'refused'; readonly refusal: Refusal }
-  | { readonly kind: 'done'; readonly result: LoadResult };
+  | { readonly kind: 'done'; readonly result: LoadResult }
+  /** The PIN's check (step 38c4): what the phone sent isn't the login of a source on this TV. "Show a new code". */
+  | { readonly kind: 'mismatch' };
 
 export type PairViewKind = PairView['kind'];
 
@@ -77,7 +85,7 @@ export type PairAction = 'cancel' | 'retry-code' | 'new-code' | 'retry-load' | '
  */
 export function pairActions(kind: PairViewKind, file = false, pin = false): readonly PairAction[] {
   if (kind === 'unavailable') return ['retry-code'];
-  if (kind === 'ended') return ['new-code'];
+  if (kind === 'ended' || kind === 'mismatch') return ['new-code'];
   if (kind === 'failed' || kind === 'refused') return file ? ['new-code'] : ['new-code', 'retry-load'];
   if (kind === 'done') return pin ? ['set-pin', 'later'] : ['close'];
   return ['cancel'];
@@ -125,10 +133,18 @@ export interface Pairing {
   readonly draft: ReadonlySignal<SourceDraft | null>;
   /** The status sent for the last payload (tests and the e2e read it), `null` before one. */
   readonly sent: ReadonlySignal<PairStatus | null>;
+  /** Why the screen shows (step 38c4): to add a source, or the PIN's login check. */
+  readonly purpose: ReadonlySignal<PairPurpose>;
   /** The done view can offer "Set a PIN" (step 38c3: the app gave the pad). */
   readonly canSetPin: boolean;
   /** Pushes the pairing screen and asks for a code. */
   open(): void;
+  /**
+   * Pushes the pairing screen for the PIN's login check (step 38c4): `matches` says whether the
+   * phone's source holds the login of a source on this TV; after a match the screen closes, then
+   * `matched`.
+   */
+  check(matches: (source: SourceDraft) => boolean, matched: () => void): void;
   dispose(): void;
 }
 
@@ -143,6 +159,7 @@ export function createPairing(options: PairingOptions): Pairing {
   const view = signal<PairView>({ kind: 'opening', note: null });
   const draft = signal<SourceDraft | null>(null);
   const sent = signal<PairStatus | null>(null);
+  const purpose = signal<PairPurpose>('add');
 
   let screen: Screen | null = null;
   let session: PairSession | null = null;
@@ -162,6 +179,8 @@ export function createPairing(options: PairingOptions): Pairing {
   let statusTimer: unknown = null;
   let stopLifecycle: (() => void) | null = null;
   let stopNav: (() => void) | null = null;
+  /** The PIN's login check while the screen is open for it (step 38c4). */
+  let checking: { readonly matches: (source: SourceDraft) => boolean; readonly matched: () => void } | null = null;
 
   /** The source being added is the phone's file (its failures have one button fewer). */
   const isFile = (): boolean => {
@@ -253,7 +272,7 @@ export function createPairing(options: PairingOptions): Pairing {
       }
     }
     const asked = session;
-    asked.open(options.base).then(
+    (checking === null ? asked.open(options.base) : asked.open(options.base, 'check')).then(
       (result) => {
         if (mine !== seq) return;
         if (!result.ok) {
@@ -320,6 +339,20 @@ export function createPairing(options: PairingOptions): Pairing {
     startLoad(source);
   };
 
+  /** The PIN's check of the phone's source (step 38c4): never loaded; its one status, then on or the mismatch. */
+  const judge = (source: SourceDraft, check: { readonly matches: (source: SourceDraft) => boolean; readonly matched: () => void }): void => {
+    statusDone = false;
+    if (!check.matches(source)) {
+      report('no_match');
+      show({ kind: 'mismatch' });
+      return;
+    }
+    report('match');
+    // The screen goes (its worker ends after the status), then the check goes on from under it.
+    if (screen !== null && nav.top === screen) nav.pop();
+    check.matched();
+  };
+
   const answered = (result: PairPollResult, from: PairSession): void => {
     const shown = view.peek();
     if (result.state === 'waiting') {
@@ -344,6 +377,10 @@ export function createPairing(options: PairingOptions): Pairing {
       codes = 0;
       if (source === null) {
         openCode('unreadable');
+        return;
+      }
+      if (checking !== null) {
+        judge(source, checking);
         return;
       }
       draft.value = source;
@@ -410,46 +447,59 @@ export function createPairing(options: PairingOptions): Pairing {
     }
   };
 
+  /** Pushes the screen and asks for a code: an add's, or the check's (`checking`, set before). */
+  const start = (): void => {
+    close();
+    codes = 0;
+    hidden = false;
+    draft.value = null;
+    sent.value = null;
+    statusDone = true;
+    view.value = { kind: 'opening', note: null };
+    const pushed = nav.push({
+      id: PAIR_SCREEN,
+      zones: [actionsZone('opening')],
+      onIntent: (intent) => {
+        // Back closes the screen: a load running is cancelled first (no status goes).
+        if (intent === 'BACK') cancelLoad();
+        return false;
+      },
+      onSelect: (focus) => select(focus.index),
+    });
+    screen = pushed;
+    // The screen left the stack (Back, Cancel, Done, or onboarding's done screen): the worker ends.
+    stopNav = nav.subscribe(() => {
+      if (!pushed.open && screen === pushed) close();
+    });
+    if (options.lifecycle !== undefined) {
+      stopLifecycle = options.lifecycle((event) => {
+        if (event === 'hidden') {
+          hidden = true;
+          clearPoll();
+        } else if (event === 'visible') {
+          hidden = false;
+          if (view.peek().kind === 'code' && !polling && pollTimer === null) poll();
+        }
+      });
+    }
+    openCode(null);
+  };
+
   return {
     view,
     draft,
     sent,
+    purpose,
     canSetPin: setPin !== undefined,
     open(): void {
-      close();
-      codes = 0;
-      hidden = false;
-      draft.value = null;
-      sent.value = null;
-      statusDone = true;
-      view.value = { kind: 'opening', note: null };
-      const pushed = nav.push({
-        id: PAIR_SCREEN,
-        zones: [actionsZone('opening')],
-        onIntent: (intent) => {
-          // Back closes the screen: a load running is cancelled first (no status goes).
-          if (intent === 'BACK') cancelLoad();
-          return false;
-        },
-        onSelect: (focus) => select(focus.index),
-      });
-      screen = pushed;
-      // The screen left the stack (Back, Cancel, Done, or onboarding's done screen): the worker ends.
-      stopNav = nav.subscribe(() => {
-        if (!pushed.open && screen === pushed) close();
-      });
-      if (options.lifecycle !== undefined) {
-        stopLifecycle = options.lifecycle((event) => {
-          if (event === 'hidden') {
-            hidden = true;
-            clearPoll();
-          } else if (event === 'visible') {
-            hidden = false;
-            if (view.peek().kind === 'code' && !polling && pollTimer === null) poll();
-          }
-        });
-      }
-      openCode(null);
+      checking = null;
+      purpose.value = 'add';
+      start();
+    },
+    check(matches: (source: SourceDraft) => boolean, matched: () => void): void {
+      checking = { matches, matched };
+      purpose.value = 'check';
+      start();
     },
     dispose(): void {
       close();

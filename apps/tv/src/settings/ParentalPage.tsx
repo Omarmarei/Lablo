@@ -6,7 +6,7 @@ import { GROUPS } from './groups-state';
 import type { LockRow, PageStatus, ParentalPage, ParentalRow } from './parental-page';
 import { LOCKED_SCREEN, PARENTAL_SCREEN } from './parental-page';
 import type { PinCheck } from './pin-check';
-import { CHECK_SCREEN, NONE_BUTTONS, NONE_SCREEN, PICK_SCREEN } from './pin-check';
+import { CHECK_SCREEN, NONE_BUTTONS, NONE_SCREEN, PICK_HEADER, PICK_SCREEN } from './pin-check';
 import type { CheckSource } from './source-login';
 import { shownHost } from './sources-state';
 
@@ -177,7 +177,17 @@ export function PickItem({ source, index, item }: { source: CheckSource; index: 
   );
 }
 
-/** The PIN's pick (step 38c2): whose login to type, each source with its server. */
+/** The pick's "Use your phone" (step 38c4), in its header as Sources' "Add from your phone". */
+function PickPhone({ i18n, binding, screen }: { i18n: AppI18n; binding: FocusBinding; screen: Screen }) {
+  const header = useZone(binding, screen, PICK_HEADER);
+  return (
+    <div class="settings__end">
+      <Button label={i18n.t('pinCheck.usePhone')} variant="primary" {...header.item(0)} testId="pin-pick-phone" />
+    </div>
+  );
+}
+
+/** The PIN's pick (step 38c2): whose login to type, each source with its server; "Use your phone" when the app can pair (step 38c4). */
 function Pick({ i18n, binding, check, screen }: { i18n: AppI18n; binding: FocusBinding; check: PinCheck; screen: Screen }) {
   const { t } = i18n;
   const sources = check.sources.value;
@@ -185,6 +195,7 @@ function Pick({ i18n, binding, check, screen }: { i18n: AppI18n; binding: FocusB
     <div class="settings__page" data-testid="pin-pick" data-count={sources.length}>
       <header class="settings__header">
         <h1 class="settings__title">{t('pinCheck.pickTitle')}</h1>
+        {check.canUsePhone && <PickPhone i18n={i18n} binding={binding} screen={screen} />}
       </header>
       <p class="guides__intro">{t('pinCheck.pickIntro')}</p>
       <VirtualList

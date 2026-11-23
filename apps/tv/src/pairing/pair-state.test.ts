@@ -2,7 +2,7 @@ import { signal } from '@preact/signals';
 import type { FileFeed, PairCode, PairOpenResult, PairPollResult, PairStatusResult } from '@lablo/data/client';
 import { PAIR_POLL_MS } from '@lablo/data/client';
 import type { LifecycleEvent } from '@lablo/platform-api';
-import type { PairPayload, PairStatus } from '@lablo/protocol';
+import type { PairPayload, PairPurpose, PairStatus } from '@lablo/protocol';
 import { createNavigator } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
 import type { PairFileFeedResult, PairSession } from '../data/engine';
@@ -54,16 +54,16 @@ const FEED: FileFeed = { port: { postMessage: () => undefined, onmessage: null }
 
 /** One pair worker: each call held until the test answers it. */
 class FakeSession implements PairSession {
-  readonly opens: Array<{ base: string; answer: Held<PairOpenResult> }> = [];
+  readonly opens: Array<{ base: string; purpose: PairPurpose | undefined; answer: Held<PairOpenResult> }> = [];
   readonly polls: Array<Held<PairPollResult>> = [];
   readonly statuses: Array<{ status: PairStatus; answer: Held<PairStatusResult> }> = [];
   /** The file's feeds asked for (step 31d2a; the screen's file draft asks, step 31d2b1). */
   readonly files: Array<Held<PairFileFeedResult>> = [];
   closed = 0;
 
-  open(base: string): Promise<PairOpenResult> {
+  open(base: string, purpose?: PairPurpose): Promise<PairOpenResult> {
     const answer = held<PairOpenResult>();
-    this.opens.push({ base, answer });
+    this.opens.push({ base, purpose, answer });
     return answer.promise;
   }
   poll(): Promise<PairPollResult> {
@@ -226,6 +226,7 @@ describe('pairActions', () => {
     expect(pairActions('loading')).toEqual(['cancel']);
     expect(pairActions('unavailable')).toEqual(['retry-code']);
     expect(pairActions('ended')).toEqual(['new-code']);
+    expect(pairActions('mismatch')).toEqual(['new-code']);
     expect(pairActions('failed')).toEqual(['new-code', 'retry-load']);
     expect(pairActions('refused')).toEqual(['new-code', 'retry-load']);
     expect(pairActions('done')).toEqual(['close']);
@@ -713,6 +714,114 @@ describe('the PIN prompt on the done view (step 38c3)', () => {
     open.nav.handle('OK');
     expect(open.nav.snapshot().screen).toBe('home');
     expect(asked).toEqual([]);
+  });
+});
+
+describe("the PIN's login check (step 38c4)", () => {
+  /** The check's screen opened over the home screen, its code given and polled once. */
+  async function checking(t: ReturnType<typeof setup>, matches: (source: SourceDraft) => boolean) {
+    const matched = vi.fn();
+    const seen: SourceDraft[] = [];
+    t.pairing.check((source) => {
+      seen.push(source);
+      return matches(source);
+    }, matched);
+    await t.session().gives('CHEK2345');
+    await t.tick();
+    return { matched, seen, s: t.session() };
+  }
+
+  it('asks for a check\'s code; an add, opened after, asks for its own', async () => {
+    const t = setup();
+    t.pairing.check(() => true, () => undefined);
+    expect(t.pairing.purpose.value).toBe('check');
+    expect(t.session().opens.map((o) => [o.base, o.purpose])).toEqual([[BASE, 'check']]);
+    expect(t.nav.snapshot().screen).toBe(PAIR_SCREEN);
+    t.pairing.open();
+    expect(t.pairing.purpose.value).toBe('add');
+    expect(t.sessions.map((one) => one.opens.map((o) => o.purpose))).toEqual([['check'], [undefined]]);
+  });
+
+  it('a match sends match, closes the screen, then goes on; nothing is loaded or added', async () => {
+    const t = setup();
+    const c = await checking(t, () => true);
+    let screenWhenMatched = '';
+    c.matched.mockImplementation(() => {
+      screenWhenMatched = t.nav.snapshot().screen;
+    });
+    await c.s.polled({ state: 'ready', payload: XTREAM_PAYLOAD });
+    // The phone's source through the form's checks: normalised and trimmed.
+    expect(c.seen).toEqual([{ type: 'xtream', name: 'panel.test', account: { base: 'http://panel.test:8080', username: 'u1', password: 'p1' }, epgUrls: [] }]);
+    expect(c.s.statuses.map((x) => x.status)).toEqual(['match']);
+    expect(t.pairing.sent.value).toBe('match');
+    expect(c.matched).toHaveBeenCalledTimes(1);
+    expect(screenWhenMatched).toBe('home');
+    expect(t.loads).toEqual([]);
+    expect(t.added).toEqual([]);
+    expect(t.busy).toEqual([]);
+    expect(t.pairing.draft.value).toBeNull();
+    // The worker ends once the status is answered.
+    expect(c.s.closed).toBe(0);
+    c.s.statuses[0]!.answer.resolve({ ok: true });
+    await flush();
+    expect(c.s.closed).toBe(1);
+  });
+
+  it("a login that isn't one of this TV's sends no_match and shows the mismatch; a new code checks again", async () => {
+    const t = setup();
+    const c = await checking(t, () => false);
+    await c.s.polled({ state: 'ready', payload: M3U_PAYLOAD });
+    expect(c.seen).toEqual([M3U_DRAFT]);
+    expect(c.s.statuses.map((x) => x.status)).toEqual(['no_match']);
+    expect(t.kind()).toBe('mismatch');
+    expect(t.at()).toBe(`${PAIR_SCREEN} · actions 0`);
+    expect(c.matched).not.toHaveBeenCalled();
+    expect(t.loads).toEqual([]);
+    // "Show a new code": the same worker, a check's code again.
+    t.nav.handle('OK');
+    expect(t.kind()).toBe('opening');
+    expect(c.s.opens.map((o) => o.purpose)).toEqual(['check', 'check']);
+    await c.s.gives('NEXT2345');
+    await t.tick();
+    await c.s.polled({ state: 'ready', payload: XTREAM_PAYLOAD });
+    expect(c.s.statuses.map((x) => x.status)).toEqual(['no_match', 'no_match']);
+  });
+
+  it("asks about a phone's file too (the check's matcher refuses it), never fetching it", async () => {
+    const t = setup({ fileName: () => 'From the phone' });
+    const c = await checking(t, () => false);
+    await c.s.polled({ state: 'ready', payload: FILE_PAYLOAD });
+    expect(c.seen.map((x) => x.type)).toEqual(['m3u-file']);
+    expect(c.s.files).toEqual([]);
+    expect(c.s.statuses.map((x) => x.status)).toEqual(['no_match']);
+  });
+
+  it('a payload the form refuses gives a new code with the note and sends nothing, as an add\'s does', async () => {
+    const t = setup();
+    const c = await checking(t, () => true);
+    await c.s.polled({ state: 'ready', payload: { v: 1, source: { type: 'm3u', url: 'ftp://lists.test/a.m3u' } } });
+    expect(c.seen).toEqual([]);
+    expect(c.s.statuses).toEqual([]);
+    expect(t.pairing.view.value).toEqual({ kind: 'opening', note: 'unreadable' });
+    expect(c.s.opens.map((o) => o.purpose)).toEqual(['check', 'check']);
+  });
+
+  it('Back returns to what was under it, and nothing goes on', async () => {
+    const t = setup();
+    const c = await checking(t, () => true);
+    t.nav.handle('BACK');
+    expect(t.nav.snapshot().screen).toBe('home');
+    expect(c.s.closed).toBe(1);
+    expect(c.matched).not.toHaveBeenCalled();
+  });
+
+  it('a match while another screen is over the pairing screen closes nothing, and still goes on', async () => {
+    const t = setup();
+    const c = await checking(t, () => true);
+    t.nav.push({ id: 'over', zones: [{ kind: 'list', id: 'rows', axis: 'vertical', count: 1 }] });
+    await c.s.polled({ state: 'ready', payload: XTREAM_PAYLOAD });
+    expect(t.nav.snapshot().screen).toBe('over');
+    expect(c.matched).toHaveBeenCalledTimes(1);
   });
 });
 

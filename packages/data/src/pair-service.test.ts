@@ -137,6 +137,38 @@ describe('PairService.open', () => {
     expect(service.hasKey()).toBe(true);
   });
 
+  it("asks for a check's code: the purpose in the body, the link ending &p=check (RELAY step 38c4)", async () => {
+    const keys = keyPair(7);
+    const { service, sent } = setup(scripted([]), [keys]);
+    const result = await service.open(BASE, 'check');
+    const tvPk = toBase64Url(keys.publicKey);
+    expect(sent).toEqual([{ method: 'POST', url: `${BASE}/v1/pair`, headers: { 'content-type': 'application/json' }, body: `{"tvPk":"${tvPk}","purpose":"check"}` }]);
+    expect(JSON.parse(sent[0]!.body!)).toEqual({ tvPk, purpose: 'check' });
+    const link = `${BASE}/p#c=${CODE}&k=${tvPk}&p=check`;
+    expect(result).toEqual({ ok: true, code: { code: CODE, exp: EXP, link, typed: '127.0.0.1:3100/p', qr: encodeQr(link) } });
+    // An add, named or not, is as before.
+    const add = setup(scripted([]), [keys]);
+    await add.service.open(BASE, 'add');
+    expect(add.sent[0]!.body).toBe(`{"tvPk":"${tvPk}"}`);
+    // The worker's method passes the purpose on.
+    const handled = api(scripted([]));
+    const handlers = pairHandlers({ transport: handled.transport, keyPair: () => keys });
+    const opened = await handlers.open({ base: BASE, purpose: 'check' });
+    expect(opened.ok && opened.code.link).toBe(link);
+    handlers.close();
+  });
+
+  it("refuses a check whose longer link would not fit a QR code, before any request (RELAY step 38c4)", async () => {
+    // An add's link is the base plus 59 characters, a check's plus 67; a QR code holds 213 bytes.
+    const longest = 'http://' + 'a'.repeat(139);
+    const fits = setup(() => created());
+    const result = await fits.service.open(longest, 'check');
+    expect(result.ok && result.code.link.length).toBe(213);
+    const over = setup(() => created());
+    await expect(over.service.open(longest + 'a', 'check')).rejects.toThrow('The pairing link is too long for a QR code');
+    expect(over.sent).toEqual([]);
+  });
+
   it("types an https origin's host and port without the scheme", async () => {
     const { service } = setup(() => created());
     const result = await service.open('https://lablo.app');
