@@ -66,11 +66,11 @@ export interface PlayerSettings {
 
 /**
  * The value after `value` in `list`: OK (`step` 0) goes round the list; LEFT or RIGHT (`step` 1 or
- * -1) goes towards an end and no further. A value the list lacks moves to its first.
+ * -1) goes towards an end and no further. A value the list lacks (`indexOf` -1) moves to its first
+ * either way.
  */
 export function nextValue<T>(list: readonly T[], value: T, step: 0 | 1 | -1): T {
   const at = list.indexOf(value);
-  if (at === -1) return list[0]!;
   if (step === 0) return list[(at + 1) % list.length]!;
   const to = at + step;
   return list[to < 0 ? 0 : to >= list.length ? list.length - 1 : to]!;
