@@ -420,6 +420,8 @@ describe('the check by phone (RELAY step 38c4)', () => {
 
   it('puts "Use your phone" in the pick’s header, UP from the rows; a match closes the pick and goes on', async () => {
     const t = setup([PANEL, LIST]);
+    // The page the check opens from, as in the app: one screen too many closed would leave it.
+    t.nav.push({ id: 'parental', zones: [{ kind: 'list', id: 'rows', axis: 'vertical', count: 1 }] });
     await t.run();
     expect(t.at()).toBe(`${PICK_SCREEN} · rows 0`);
     t.nav.handle('UP');
@@ -431,7 +433,8 @@ describe('the check by phone (RELAY step 38c4)', () => {
     expect(t.at()).toBe('pair · actions 0');
     expect(t.asked[0]!.matches({ type: 'm3u', name: 'l', url: 'https://lists.test:8443/get.m3u?k=1', epgUrls: [] })).toBe(true);
     t.match();
-    expect(t.at()).toBe('settings · items 0');
+    // No form shows: only the pick closes (the form's `close` does nothing then).
+    expect(t.at()).toBe('parental · rows 0');
     expect(t.check.pickScreen.value).toBeNull();
     expect(t.matched).toHaveBeenCalledTimes(1);
   });
