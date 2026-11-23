@@ -33,8 +33,8 @@ describe('createApi', () => {
   }
 
   it('asks its own origin, by relative paths, for exactly three things', async () => {
-    const key = api(answer(200, { tvPk: KEY, exp: 5 }));
-    expect(await key.api.tvKey(CODE)).toEqual({ ok: true, value: { tvPk: KEY, exp: 5 } });
+    const key = api(answer(200, { tvPk: KEY, exp: 5, purpose: 'add' }));
+    expect(await key.api.tvKey(CODE)).toEqual({ ok: true, value: { tvPk: KEY, exp: 5, purpose: 'add' } });
     const sent = api(answer(200, { state: 'sent' }));
     expect(await sent.api.send(CODE, SEALED)).toEqual({ ok: true, value: { state: 'sent' } });
     const progress = api(answer(200, { state: 'done', status: 'blocked' }));
@@ -115,7 +115,11 @@ describe('createApi', () => {
 
   it('reads a key answer with its schema', async () => {
     expect(await api(answer(200, { tvPk: 'short', exp: 5 })).api.tvKey(CODE)).toEqual({ ok: false, error: 'network' });
-    expect(await api(answer(201, { tvPk: KEY, exp: 5 })).api.tvKey(CODE)).toEqual({ ok: true, value: { tvPk: KEY, exp: 5 } });
+    expect(await api(answer(201, { tvPk: KEY, exp: 5, purpose: 'add' })).api.tvKey(CODE)).toEqual({ ok: true, value: { tvPk: KEY, exp: 5, purpose: 'add' } });
+    // A check's purpose (RELAY step 38c4); none, or another, is no answer.
+    expect(await api(answer(200, { tvPk: KEY, exp: 5, purpose: 'check' })).api.tvKey(CODE)).toEqual({ ok: true, value: { tvPk: KEY, exp: 5, purpose: 'check' } });
+    expect(await api(answer(200, { tvPk: KEY, exp: 5 })).api.tvKey(CODE)).toEqual({ ok: false, error: 'network' });
+    expect(await api(answer(200, { tvPk: KEY, exp: 5, purpose: 'reset' })).api.tvKey(CODE)).toEqual({ ok: false, error: 'network' });
   });
 
   it.each([
@@ -199,11 +203,11 @@ const codeView = reduce(initialState('en'), { type: 'start' });
 
 describe('submitCode', () => {
   it('asks for the typed code’s key and shows the form', async () => {
-    const { api, calls } = fakeApi({ tvKey: { ok: true, value: { tvPk: KEY, exp: 5 } } });
+    const { api, calls } = fakeApi({ tvKey: { ok: true, value: { tvPk: KEY, exp: 5, purpose: 'add' } } });
     const d = driver(reduce(codeView, { type: 'codeInput', input: '7k3m-q9xd' }));
     await submitCode(d.state(), { api, dispatch: d.dispatch });
     expect(calls).toEqual([['tvKey', CODE]]);
-    expect(d.state().view).toEqual({ kind: 'form', target: { code: CODE, tvPk: KEY }, busy: false, error: null, retryAfterS: 0 });
+    expect(d.state().view).toEqual({ kind: 'form', target: { code: CODE, tvPk: KEY, purpose: 'add' as const }, busy: false, error: null, retryAfterS: 0 });
   });
 
   it('asks nothing for a malformed code, or while asking', async () => {
@@ -223,14 +227,14 @@ describe('startQr', () => {
   it('asks only for the progress: the key is the QR link’s', async () => {
     const { api, calls } = fakeApi({ progress: { ok: true, value: { state: 'open', exp: 5 } } });
     const d = driver(initialState('ar'));
-    await startQr({ code: CODE, tvPk: KEY }, { api, dispatch: d.dispatch });
+    await startQr({ code: CODE, tvPk: KEY, purpose: 'add' as const }, { api, dispatch: d.dispatch });
     expect(calls).toEqual([['progress', CODE]]);
-    expect(d.state().view).toEqual({ kind: 'form', target: { code: CODE, tvPk: KEY }, busy: false, error: null, retryAfterS: 0 });
+    expect(d.state().view).toEqual({ kind: 'form', target: { code: CODE, tvPk: KEY, purpose: 'add' as const }, busy: false, error: null, retryAfterS: 0 });
   });
 });
 
 describe('send', () => {
-  const formView = reduce(reduce(initialState('en'), { type: 'qr', target: { code: CODE, tvPk: KEY } }), {
+  const formView = reduce(reduce(initialState('en'), { type: 'qr', target: { code: CODE, tvPk: KEY, purpose: 'add' as const } }), {
     type: 'progressAnswer',
     code: CODE,
     result: { ok: true, value: { state: 'open', exp: 5 } },
@@ -251,7 +255,23 @@ describe('send', () => {
     expect([name, code]).toEqual(['send', CODE]);
     const plain = openPairPayload(sealed, TV.secretKey);
     expect(pairPayloadSchema.parse(JSON.parse(new TextDecoder().decode(plain!)))).toEqual({ v: 1, source: { type: 'm3u', url: 'http://lists.example/a.m3u' }, name: 'Salon' });
-    expect(d.state().view).toEqual({ kind: 'progress', code: CODE, state: 'sent', sentType: 'm3u' });
+    expect(d.state().view).toEqual({ kind: 'progress', code: CODE, state: 'sent', sentType: 'm3u', purpose: 'add' });
+  });
+
+  it('seals a check’s login alone, without the guide links and the name (RELAY step 38c4)', async () => {
+    const checkForm = reduce(reduce(initialState('en'), { type: 'qr', target: { code: CODE, tvPk: KEY, purpose: 'check' } }), {
+      type: 'progressAnswer',
+      code: CODE,
+      result: { ok: true, value: { state: 'open', exp: 5 } },
+    });
+    const typed = [...filled, { type: 'epg', index: 0, value: 'guide.example/x.xml' }] as const satisfies readonly PageEvent[];
+    const { api, calls } = fakeApi({ send: { ok: true, value: { state: 'sent' } } });
+    const d = driver(typed.reduce<PageState>(reduce, checkForm));
+    await send(d.state(), { api, dispatch: d.dispatch });
+    const sealed = (calls[0] as [string, string, Parameters<typeof openPairPayload>[0]])[2];
+    const plain = openPairPayload(sealed, TV.secretKey);
+    expect(JSON.parse(new TextDecoder().decode(plain!))).toEqual({ v: 1, source: { type: 'm3u', url: 'http://lists.example/a.m3u' } });
+    expect(d.state().view).toEqual({ kind: 'progress', code: CODE, state: 'sent', sentType: 'm3u', purpose: 'check' });
   });
 
   it('uses the given seal: fresh keys per payload by default', async () => {
@@ -306,7 +326,7 @@ describe('send', () => {
       expect(payload).toMatchObject({ v: 1, name: 'Living room', source: { type: 'm3u-file', file: { key: FILE_ID, size: SIZE } } });
       const file = (payload.source as Extract<PairPayload['source'], { type: 'm3u-file' }>).file;
       expect(same(openFile(uploaded, fromBase64Url(file.fileKey)!, fromBase64Url(file.base)!, SIZE), bytes)).toBe(true);
-      expect(d.state().view).toEqual({ kind: 'progress', code: CODE, state: 'sent', sentType: 'file' });
+      expect(d.state().view).toEqual({ kind: 'progress', code: CODE, state: 'sent', sentType: 'file', purpose: 'add' });
     });
 
     it('keeps a typed name, and new keys for every send', async () => {

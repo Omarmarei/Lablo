@@ -6,8 +6,9 @@
  * the phone's routes over HTTP.
  *
  * The same answers as the real routes, without their database or rate limits:
- * - `POST /v1/pair` → 201 `{sid, code, pollToken, exp}` (a code lives `STAND_IN_CODE_MS`);
- * - `GET /v1/pair/:code` → `{tvPk, exp}` while the code works, else 404;
+ * - `POST /v1/pair` → 201 `{sid, code, pollToken, exp}` (a code lives `STAND_IN_CODE_MS`), the
+ *   session's purpose kept (RELAY step 38c4: `check`, else an add);
+ * - `GET /v1/pair/:code` → `{tvPk, exp, purpose}` while the code works, else 404;
  * - `POST /v1/pair/:code/upload-url` `{size}` (RELAY step 31d2b2a) → `{url, key, exp}`, a PUT for
  *   exactly that many bytes, while the code works and nothing was sent; asking again deletes the
  *   earlier file; 404 for an unknown or ended code, 409 once a payload came;
@@ -18,7 +19,7 @@
  * - `GET /v1/pair/s/:sid/file` (31d2b2a) → the file's GET `{url, key, exp}`; 409 before the
  *   payload's read, 404 with no file;
  * - `POST /v1/pair/s/:sid/status` → `{state: 'done', status}` once after the read, else 409; the
- *   file goes with it;
+ *   file goes with it; a status that doesn't fit the session's purpose, 400;
  * - the blob (31d2b2a) at development's URL shape, a path on this origin, which the TV resolves
  *   against its API base as it does against `next start`:
  *   `/dev/blob/pair/<sid>/<fileId>?m=PUT|GET&n=<size>&e=<exp>&s=<token>`, honoured only exactly as
@@ -30,8 +31,8 @@
  */
 import { randomBytes } from 'node:crypto';
 import { toBase64Url } from '@lablo/crypto';
-import type { PairFileUrlResponse, PairProgressResponse, PairStatus, PairUploadResponse, SealedPayloadWire } from '@lablo/protocol';
-import { pairCode, pairCreateRequestSchema, pairStatusRequestSchema, pairUploadRequestSchema, sealedPayloadSchema } from '@lablo/protocol';
+import type { PairFileUrlResponse, PairProgressResponse, PairPurpose, PairStatus, PairUploadResponse, SealedPayloadWire } from '@lablo/protocol';
+import { pairCode, pairCreateRequestSchema, pairStatusFits, pairStatusRequestSchema, pairUploadRequestSchema, sealedPayloadSchema } from '@lablo/protocol';
 
 /** How long a code works (the real API's `PAIR_CODE_TTL_MS`). */
 export const STAND_IN_CODE_MS = 10 * 60_000;
@@ -48,6 +49,8 @@ export interface StandInSession {
   readonly code: string;
   readonly tvPk: string;
   readonly pollToken: string;
+  /** Why the TV shows the code (step 38c4). */
+  readonly purpose: PairPurpose;
   exp: number;
   /** The sealed payload until the TV reads it. */
   payload: SealedPayloadWire | null;
@@ -176,7 +179,7 @@ export class PairStandIn {
     const session = pairCode.safeParse(code).success ? this.byCode(code) : undefined;
     if (parts.length === 1 && method === 'GET') {
       if (session === undefined || session.exp <= this.now()) return error(404, 'not_found', false);
-      return json(200, { tvPk: session.tvPk, exp: session.exp }, false);
+      return json(200, { tvPk: session.tvPk, exp: session.exp, purpose: session.purpose }, false);
     }
     if (parts.length === 2 && parts[1] === 'payload' && method === 'POST') return this.post(session, body);
     if (parts.length === 2 && parts[1] === 'upload-url' && method === 'POST') return this.uploadUrl(session, body);
@@ -197,6 +200,7 @@ export class PairStandIn {
       code: newCode(),
       tvPk: request.data.tvPk,
       pollToken: toBase64Url(randomBytes(32)),
+      purpose: request.data.purpose === 'check' ? 'check' : 'add',
       exp: this.now() + STAND_IN_CODE_MS,
       payload: null,
       posted: [],
@@ -310,7 +314,7 @@ export class PairStandIn {
 
   private status(session: StandInSession, body: Uint8Array): StandInAnswer {
     const request = pairStatusRequestSchema.safeParse(parse(body));
-    if (!request.success) return error(400, 'bad_request');
+    if (!request.success || !pairStatusFits(session.purpose, request.data.status)) return error(400, 'bad_request');
     if (!session.delivered || session.status !== null) return error(409, 'conflict');
     session.status = request.data.status;
     this.dropFile(session);

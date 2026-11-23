@@ -1,170 +1,170 @@
-# Lablo IPTV: relay leg 140 opening prompt
+# Lablo IPTV: relay leg 142 opening prompt
 
-You are leg 140 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 142 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 ## Status
-- **Earlier legs:** leg 0 planned the work; legs 1–138 did steps 1–33, 35, 35e, 36, 37, 38a, 38b and built 38c1.
-- **Leg 139 (2026-11-22):**
-  - **38c1 finished and merged:** mutation 78/78 (two test gaps closed), unit 8,404, architecture.md "Built in step 38c1"; **PR #163 merged as `c77145a`** on green CI.
-  - **38c2 split again, built and merged:** 38c2 (the typed login check), 38c3 (Q2's prompt on the done screens), 38c4 (the login sent from the phone). 38c2 = `source-login.ts`' check mode and `matchesLogin`, `settings/pin-check.ts` (the pick, the form, the no-login dialog), the page's "Set a PIN" / "Forgot your PIN?", the rail dialog's "Set a PIN" with the unlock after it. **PR #164 merged as `e19f20b`** on green CI; RELAY.md updated in `99f3ae3`.
-- **Your step: 38c3**, then 38c4, then 38d.
+- **Earlier legs:** leg 0 planned the work; legs 1–140 did steps 1–33, 35, 35e, 36, 37, 38a, 38b, 38c1, 38c2 and 38c3 (38c3 merged in PR #165 as `b52a729`).
+- **Omar answered 38c4 on 2026-11-23: option 1** (the phone page knows it's a check). Recorded in RELAY.md under 38c4's shape.
+- **Leg 141 (2026-11-23): 38c4 refined and built, not yet merged.** It stopped at the context limit with the gates below left.
+  - `6299412`: protocol (`PAIR_PURPOSES`, statuses `match` / `no_match`, `pairStatusFits`), the web routes, the **dev-only** Prisma migration `pair_purpose`, the phone page's check form and words (en, ar), the e2e stand-in and the scripted phone.
+  - `0f2b69f`: the TV. The pair worker's `open(base, purpose)`, `Pairing.check(matches, matched)` with the mismatch view, and "Use your phone" on the check's form and the pick's header (`loginOnTv`). New `e2e/parental-phone.spec.ts`.
+  - `b341361`: docs (architecture.md "Built in step 38c4", RELAY 38c4's "Built in leg 141", progress row 141). Then this handover's commit.
 - **Waiting for Omar:**
   - step 16's Samsung part, 19b and 21 (the TVs);
   - step 34 (production infrastructure), deferred by Omar on 2026-11-19 until he says the accounts and keys are ready. Skip it until then.
 
 ## Read first
-1. **RELAY.md:** `- [ ] 38c.`; its 38c2 part ("Split again in leg 139", refinements 1–8, "Built in leg 139"), and the **38c3** and **38c4** bullets under it; step 38's "Shape" (Q1–Q3, Omar's option 1 each); the last progress row (139).
-2. **docs/architecture.md** §1.4 item 10: "Built in step 38c1" and "Built in step 38c2" (~976–1000). Add "Built in step 38c3" after them.
-3. **For 38c3** (Q2: when a source just added has adult groups and no PIN is set, the done screen offers "Set a PIN" or "Later"):
-   - Onboarding's done screen: `apps/tv/src/onboarding/OnboardingApp.tsx` `DoneScreen` (~250–275, one button "Start watching", `testId="action-0"`), and `onboarding-state.ts` `doneSpec` (~235, zones `ONE`, OK → `finished`). The typed add (`startLoad`, ~170) and the phone add (`pairAdded`, ~345) both reach it.
-   - Onboarding has **no pad**: `createParental` is made in `showLive` (`main.tsx` ~389, ~620). Its "Set a PIN" has to start the live screen and then open the pad's new PIN (`parental.choose`) over it, so `showLive` needs a flag; `finish` in `showOnboarding` (~770) calls it.
-   - Settings' add from the phone: the pairing screen's done view, `apps/tv/src/pairing/PairPage.tsx` (~143), and `pairActions('done')` → `['close']` in `pair-state.ts` (~75). It is main.js code shared with onboarding (onboarding's pairing goes to its own done screen through `added`).
-   - "Has adult groups": the worker's `lockState()` (`{ pin, unlocked, kinds }`) read after the load. The engine's refresh resolves after the query worker's `reload` (`apps/tv/src/data/engine.ts` ~460–519), so the read sees the new catalog.
+1. **RELAY.md:** `- [ ] 38c.` and 38c4: "Refined before building (leg 141)" 1–7 and "Built in leg 141" (verified, and **"Left for leg 142"**); then **38d**'s bullet and step 38's "Shape"; the last progress row (141).
+2. **docs/architecture.md** §1.4 item 10, "Built in step 38c4" (~1008–1015).
+3. **The mutation runner:** `artifacts/mutate38c4.py` (68 mutants, written first) and `artifacts/mutate38c4-list.md`. Gitignored, in the worktree.
+4. **For 38d:** `apps/tv/src/settings/settings-state.ts` (`SETTINGS_ITEMS`, the windowed list), `SettingsScreen.tsx`, the player's stored fields (`memory.subtitleSize`, `memory.picture`, `uiTrackPreferences` in `apps/tv/src/player/app-player.ts`), and onboarding's language answer (`answerEdit`).
 
 ## Next steps, in order
 1. **Check the state:**
    - `git -C "<wt>" status` is clean.
-   - `git -C "<wt>" log --oneline -4` shows this handover's commit, `99f3ae3` (docs), `e19f20b` (PR #164's merge) and `5d0274f` (38c2).
+   - `git -C "<wt>" log --oneline -5` shows this handover's commit, `b341361`, `0f2b69f`, `6299412` and `c106127`.
    - No `*.mutbak`.
-   - `docker ps` shows only `lablo-web-postgres-1`.
-2. **38c3:** write its refinements against the code first (each with its why), then build it:
-   - onboarding's done screen and the pairing's done view;
-   - the `lockState` read after the add;
-   - onboarding's start into the live screen with the new PIN;
-   - "Later" keeps today's path.
-   - Done when: as RELAY's 38c3 bullet says (unit, e2e en/ar/en-XA, `build:tv` and a module diff, engines 53/68, mutation with the list written first, lint, typecheck, full `pnpm test`, architecture.md, the PR merged on green CI).
-3. **38c4** (the phone's login for the check): its shape first. Read `pair-state.ts`, `packages/protocol`, the web's pairing page (`apps/web`) and its status words. It needs a protocol field and a web page change. If the shape has a real trade-off (e.g. whether the phone page should say "checked" or reuse "Added"), stop for Omar with a numbered question.
-4. **38d** (the complete settings screen: the order, "Player", "Language", e2e paths by id) after 38c.
+   - `docker ps` shows `lablo-web-postgres-1`.
+2. **Finish 38c4's gates** (RELAY 38c4 "Left for leg 142"):
+   - **Module diff:** core-js should stay at 216 in main and 6 in settings.js. `artifacts/build-tv-38c4.log` already has the sizes: main.js 454.6 KB on Tizen, settings.js 93.4 KB.
+   - **`verify:engines`:** `--engine chrome68`, then `--engine chrome53`, each alone. Run 53 in the background (its stuck database delete can pass 595 s).
+   - **Mutation:**
+     - First `python -X utf8 -I -u artifacts/mutate38c4.py --clean --fast` (unit commands only), then a plain `--clean` for the e2e commands.
+     - Then foreground chunks with `MUT_TIMEOUT=300`, for example `--from 1 --to 22` and `--from 26 --to 31`.
+     - The TV e2e mutants each get a small chunk of their own: 32, 48, 63, 64, 67, 68.
+     - Mutants 23–25 each run `pnpm build:web` and then the phone e2e. Run each alone (several minutes each), then `pnpm build:web` once after.
+     - Restore any `.mutbak` with `mv`.
+   - **Open the PR** to `main`; CI runs the full `pnpm test`. Merge on green CI (merge commit, keep the branch) after naming the three riskiest changes:
+     - the `PairSession.purpose` migration (dev only; production waits for step 34);
+     - the status route's new 400 for a status that doesn't fit the session;
+     - `PAIR_STATUSES` widened, so the phone's and the TV's status lists grew.
+   - Then tick 38c4 and 38c (all four sub-steps done), add a progress row, and commit.
+3. **38d** (the complete settings screen: the order, "Player", "Language", e2e paths by id), as RELAY says. It may split at "Player".
 
 ## Git state to expect
-- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed, equal to `origin/main` (`e19f20b`) plus `99f3ae3` and this handover's commit.
+- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed: `origin/main` (`b52a729`) plus `6ce1a94`, `eb59c9a`, `c106127`, `6299412`, `0f2b69f`, `b341361` and this handover's commit.
 - **No open PR.** The main checkout was not touched.
+- **The dev database** (`lablo-web-postgres-1`, the `.env` database) has migration `20261123160000_pair_purpose` applied. The test databases are migrated fresh by their global setups.
 - **Gitignored but present:**
-  - `node_modules`, `.cache/*`, `apps/web/.env`, `apps/web/.next`;
-  - `dist/` (38c2's `build:tv`);
-  - in `artifacts/`: `mutate38c1.py`, `mutate38c1-list.md`, `mutate38c1-{a,b,c,d}.log`, `mutate38c2.py`, `mutate38c2-list.md`, `mutate38c2-{a,b,c}.log`, `unit-38c1b.log`, `unit-38c2.log`, `build-tv-38c1b.log`, `build-tv-38c2.log`, `mprobe-38c2.log`, `e2e-38c2-{a,b,c}.log`, `engines-38c2-68.log`, `-53.log` (the stuck run), `-53b.log` (13/13);
-  - screenshots `artifacts/screenshots/parental-login-*` (new: `-mismatch-{en,ar}`, `-unlocked-*`, `-page-*`, `-pick-en-XA`, `-form-en-XA`, `-set-en-XA`, `-none-en-XA`).
+  - `node_modules`, `.cache/*`, `apps/web/.env`;
+  - `apps/web/.next` (built in leg 141 with 38c4's web code);
+  - `dist/` (38c4's `build:tv`);
+  - in `artifacts/`: `mutate38c4.py`, `mutate38c4-list.md`, `build-tv-38c4.log`, `build-web-38c4.log`, `lint-38c4.log`, `typecheck-38c4.log`, `e2e-38c4-{a..f}.log`, `e2e-38c4-phone.log`, `e2e-38c4-web-tv.log`;
+  - screenshots `artifacts/screenshots/phone-check-{form-en,form-ar,match-en,no-match-ar}.png` and `parental-phone-{code-en,mismatch-en,pick-ar,code-ar,pick-en-XA,mismatch-en-XA}.png`.
 
 ## Verified vs not
-- **Verified in leg 139:**
-  - 38c1: mutation 78/78; unit 8,404; PR #163's whole CI.
-  - 38c2: unit 8,484; typecheck; lint; e2e `parental-login.spec.ts` (en, ar, en-XA) plus `parental`, `parental-settings`, `backup-logins` (10 passed); screenshots looked at; `build:tv` (main.js 451.7 KB Tizen, 439.0 webOS; settings.js 92.2 KB; query worker 148.5/150 unchanged); module diff: core-js 216 main / 6 settings.js, unchanged; mutation 76/77 (one equivalent: the check's read in `data-pending`); `verify:engines` 68 13/13, 53 13/13 on the second run; PR #164's CI (media skipped by its path filter).
-- **Not yet:** 38c3, 38c4, 38d; production (step 34); the PIN pad and the login check on a real TV (step 21's session).
-- **Migrations and deploys:** none. Nothing is in production or deployed.
+- **Verified in leg 141:**
+  - lint; typecheck;
+  - unit tests of the changed files: protocol 21, `pair.web.test.ts` 35, the phone page's 4 files 297, stand-in + pair-server 21, `pair-service` 46, the TV's i18n/settings/pairing/data/onboarding folders 3,244, `tools/engines/src/pairing.test.ts` 26;
+  - e2e:
+    - `phone.spec.ts` + `phone-file.spec.ts`: 12;
+    - `parental-phone.spec.ts`: 3 (en, ar, en-XA);
+    - parental-login, pairing, parental-first-pin, parental-settings and parental all passed (pairing and first-PIN with 2 workers, see the gotchas);
+    - the web-backed tv project: 13;
+  - `build:tv`: main.js 454.6 KB on Tizen (+1.1), 441.9 KB on webOS, settings.js 93.4 KB, query worker 148.5 KB (unchanged), pair worker 143.2 KB;
+  - the migration is on the dev database (`prisma migrate diff` shows no drift);
+  - screenshots looked at.
+- **Not yet:**
+  - 38c4's module diff, engines, mutation, the full unit suite (the PR's CI) and the merge;
+  - 38d;
+  - production (step 34);
+  - the PIN prompt and the phone check on a real TV (step 21's session).
+- **Migrations and deploys:** `pair_purpose` is on the local dev database only (no lasting effect anywhere). Nothing is in production or deployed.
 
 ## Gotchas and lessons
-**New in leg 139:**
-- **A test that sends the deciding key and BACK in one `press(...)` batch never reaches the async path:** BACK closes the pad before the worker's answer, and the answer is then dropped. This hid two paths (the wait before a new PIN; the unlock after it): four mutants survived because of it. Press BACK in its own `press` after the answer, and assert the state in between (`problem: 'wait'`, `busy: true`).
-- **The check's screens from the rail paint on a blank settings page:** `loaded.Screen` draws them with nothing under (the page's rows show only when the check came from the page). Dialogs (`.z-dialog`) are `position: fixed`, so the check's form is drawn by `SettingsScreen` as a sibling of `ParentalPageScreen`. This avoids an import cycle (`ParentalPage.tsx` ↔ `SettingsScreen.tsx`).
-- **e2e profile tricks:**
-  - `restartWith(page, { sources: [...] })` adds a second source (an `m3u` record with the mock's `get.php` link: a pick of two);
-  - or strips a login (`account: null, base`: the no-login dialog). Read the stored sources first (`storedSources` in `e2e/parental-login.spec.ts`).
-- **The check's form ids:** `pin-check/fields/<n>` (Xtream: 0 server prefilled, 1 user name, 2 password), `pin-check/actions/0` "Check"; the pick `pin-pick/rows/<n>`; the dialog `pin-none/buttons/0`; the rail dialog `no-pin/buttons/0` "Set a PIN", `/1` "Cancel".
-- **Chromium 53's stuck database delete hit locally again** (ten walks at their 60 s limit, "could not be deleted … (pending)"). Rerunning `--engine chrome53` alone gave 13/13. A foreground run can pass its 595 s limit: run 53 in the background.
-- **PR CI:** the media job is skipped by its path filter on a TV-only PR ("skipping" is fine).
-- **Bash heredocs broke again** (a python patch with apostrophes). Write patch scripts with the Write tool and run them; also mind `'` inside a Python `'...'` literal.
+**New in leg 141:**
+- **The profile keeps onboarding's language.** A `restartWith(page, …, '/?locale=ar-SA')` after an en-US onboarding still shows English. Onboard in the language you test. en-XA is the exception: onboard in en-US, then restart in en-XA, which works.
+- **This PC is loaded by other sessions** (about 30 Claude processes, 8 GB free). At the default worker count, 8 pairing and first-PIN tests hit their 30 s limit, with onboarding never becoming ready. Each passes alone in about 14 s. Use `--workers=2` locally for those specs; CI decides.
+- **`build:tv` took over 10 minutes locally** (the lab and dev bundles after main). `timeout 590` didn't stop it; the tool moved it to the background. Start it with `run_in_background` and wait for the notice.
+- **Bash heredocs carrying python with `\"` failed again** ("unexpected EOF while looking for matching `''`"). Write every patch script with the Write tool.
+- **A `cd` in any Bash call moves the session's working directory** (a `cd /d` reset it to the main checkout). Never `cd`.
+- **The stand-in's `StandInSession` now has `purpose`.** A test literal of one needs it (`tools/engines/src/pairing.test.ts`).
+- **The pairing's check mode pops itself on a match, then calls `matched`.** `pin-check`'s wrapper closes the form (`LoginForm.close()`, only when it shows) and the pick, then goes on. Its status retries stop when the screen closes (as an add's do).
+- **A check's QR link is longer** (`&p=check`, 8 more characters): the QR code can be version 6 on a 5-digit local port. An add's link and the e2e's version-5 assertion are unchanged.
+- **The phone page's check form** comes from `Target.purpose`, which is the fragment's on the QR path and the key answer's on the typed path. `checkFor` drops the guide links and the name.
+- **New e2e ids:**
+  - `source-login/actions/1` is "Use your phone" on the check's form (Cancel moves to `/2` there);
+  - `pin-pick/header/0` is the pick's "Use your phone";
+  - `pair` has `data-purpose`, and `pair-mismatch` is the mismatch line;
+  - helpers: `phonePurpose(origin, code)` in `tools/engines/src/pair-phone.ts`; the web e2e `tv('check')` fixture (its `qrPath` adds `&p=check`).
 
-**From legs 130–138 (still true):**
-- **PR #162's media job:** a lock-by-default change needs every oracle over the big fixture checked. The media job runs `test:media`, then `lab:media`, then `e2e:media`; a failure in the first hides the others, so run them locally.
-- **e2e:**
-  - UP from the list lands on the header's last focused button (`openSettings` reads the focus path);
-  - after an unlock the rail's focus is on the first group that came back: wait for `settled(live)` and `data-status=ready` before RIGHT/LEFT;
-  - Settings' check pad and the new-PIN pad are both `pin/pad/0`: wait on `data-purpose`.
-- **VNode tests don't render sub-components,** and a component with `useZone` can't be called as a function: test plain functions that return VNodes.
-- **Optional engine methods** (`lockState?`) keep older fakes compiling; `readLocks` treats absent or failed as no PIN, locked.
-- **"Channels" while locked:** test edits of channels missing from the catalog get `missingSince: 5`.
-- **Module probes:** `mprobe.mts` (main.js, split) is in `C:/Users/Omarm/.claude/jobs/00d9267b/tmp/` and `C:/Users/Omarm/.claude/jobs/917772fb/tmp/`; run `pnpm exec tsx <file>`.
-- **The query worker has 1.5 KB left** (148.5/150).
-- **CI's engines job can end "cancelled"** (53's stuck delete past the 35-minute cap): read the log, then `gh run rerun <run> --failed` once the run is complete.
-- **Channel edits are re-matched on two paths** (`channel-relink.ts`): a new `ChannelEdit` field must be named in `changed(...)` too.
-- **A test that a read is fresh must load the worker first.**
-- **Mutation:** write the list first; `--check` until every snippet is found once; `--clean` first; foreground chunks with `MUT_TIMEOUT=300` (about 25 mutants each); restore any `.mutbak` with `mv`.
-- **The mock's catalog is mutable at runtime** (`app.mockState.catalog`). Since 37a its `get.php` added through the loader becomes Xtream.
-- **e2e with the 18+ group locked:** `ordered` / `allOrdered` (`e2e/live-rows.ts`), `restartWith`, `ADULT_OPEN`, `pinFields` (`e2e/profile-edit.ts`), and the shared steps in `e2e/parental-steps.ts` (`chips`, `pad`, `typePin`, `toLastEntry(remote, ar, entries)`, `setHidden`, `untranslated`).
-- **The non-media e2e streams never play:** count the mock's requests to prove a held stream.
-- **Sizes:** main.js has a 500 KB hard budget on Tizen (451.7 KB now, 90%). Mention sizes only when they decide something or near a budget.
+**From legs 130–140 (still true):**
+- **The mock's panel gives the done screens a PIN prompt** (its 18+ group is locked and no PIN is set). The shared steps take "Later": `toStartButton` and `closeDone`. Onboarding has its own pad.
+- **`LoadResult` is compared whole in the root tests** (`test/onboarding-loader-mock.test.ts`, `test/tv-data-engine.test.ts`): grep the root `test/` too when a shared type changes.
+- **With two sources the live rail is windowed:** check for the `open <group>` chip, not the last chip.
+- **Don't restart a reaped background `pnpm test` unasked;** the PR's verify job runs the full suite (read its count from the job log).
+- **A random property failing on CI in untouched code can be a real bug:** reproduce it, fix it, and pin it with a fixed case.
+- **A change under `packages/protocol` brings in the media job.** `epg-declared-300mb` may fail once or twice. Rerun with `gh run rerun <run> --failed` only after the whole run is done.
+- **Mutation chunks:** an e2e mutant takes about 60 s. Keep them out of the big chunks.
+- **Send the deciding key and BACK in separate `press` calls.**
+- **The check's screens from the rail paint on a blank settings page.**
+- **e2e profile tricks:** `restartWith(page, { sources: [...] })`, `storedSources`, `ordered` / `allOrdered`, `ADULT_OPEN`, `pinFields`, and the steps in `e2e/parental-steps.ts`.
+- **Chromium 53's stuck database delete:** rerun `--engine chrome53` alone, in the background.
+- **Sizes:** main.js has a 500 KB hard budget on Tizen (454.6 KB now). The query worker has 1.5 KB left. The pair worker is at 143.2 of 150 KB.
 - **CI:**
   - a run takes about 30 min;
   - known flakes: `telemetry.spec.ts:202`, `auto-next.spec.ts` ar-SA, `epg-declared-300mb`, `guide-offset.spec.ts` en-US, `rpc.test.ts:179`, Chromium 53/56 start-up and stuck deletes;
-  - rerun only after the whole run is done; a push to the PR cancels its CI;
-  - no `jq` in Git Bash (use `gh --jq`);
-  - wait in the background with an `until` loop over `gh pr checks <n> --json name,bucket` (count at least 5 checks, none pending).
-- **e2e paths:** Settings is `live/header/5`. Its rows by index: Sources 1, "Channel groups" 5, "Channels" 6, "Parental control" 7 (it scrolls the list). The page's rows with a PIN: change 0, adult 1, groups 2, forgot 3; with none: set 0. 38d moves the paths to ids.
+  - there is no `jq` in Git Bash (use `gh --jq`);
+  - wait with a Monitor poll on `gh pr checks <n> --json name,bucket`.
+- **e2e paths:** Settings is `live/header/5`. Its rows: Sources 1, "Channel groups" 5, "Channels" 6, "Parental control" 7. 38d moves the paths to ids.
 
 **From earlier legs (still true):**
-- **Main-safe code** (settings.js too): none of `trim`, `.sort(`, `.split(`, regex `.test`, `new RegExp`; no new `for…of`, `Uint8Array` as a value or `JSON.stringify`; no array destructuring or spread, object spread or fragments; no `Promise.prototype.finally`. The module diff says whether core-js moved.
-- **Layout and text:** physical CSS only, no Grid or flex `gap`; ES2017. `packages/ui` is hook-free. UI text comes only from the catalogs. Arabic on/off words agree with their noun. Preact: write `translate={false}`.
-- **Smart App Control:** before every pnpm/npx command, `export NODE_OPTIONS="--require \"D:/Claude Code PlayGround/IPTV-relay-20261101-214120/.cache/rollup-wasm/hook.cjs\""`. Never delete files in `node_modules`.
-- **Environment:** CI runs Node 22, this PC Node 24. A bare `sleep` is blocked. `TaskStop` on `verify:engines` leaves its container. The TV build can crash once (0xC0000005): rerun it.
+- **Main-safe code** (settings.js too):
+  - none of `trim`, `.sort(`, `.split(`, regex `.test` or `new RegExp`;
+  - no new `for…of`, no `Uint8Array` as a value, no `JSON.stringify`;
+  - no array destructuring or spread, no object spread, no fragments;
+  - no `Promise.prototype.finally`.
+- **Layout and text:** physical CSS only, no Grid or flex `gap`, ES2017. UI text comes only from the catalogs. Preact: write `translate={false}`.
+- **Smart App Control:** before every pnpm/npx command, `export NODE_OPTIONS="--require \"D:/Claude Code PlayGround/IPTV-relay-20261101-214120/.cache/rollup-wasm/hook.cjs\""`.
+- **Environment:** CI runs Node 22, this PC Node 24. Run heavy checks one at a time.
 
 ## Working rules (unchanged)
 - **Never call EnterWorktree.** Use `git -C "<wt>"`, absolute paths, scoped `git add` (check `git diff --cached --name-only`), and `git commit -F -` ending with the `Co-Authored-By` line. Never a bare `git stash`.
-- **The repo is public as `Omarmarei/Lablo`:** no secrets, no LG binaries, no personal data. README.md stays "# Lablo".
+- **The repo is public as `Omarmarei/Lablo`:** no secrets, no LG binaries, no personal data.
 - **Merging:** IPTV PRs merge on green CI without Omar (merge commit, keep the branch). Name the three riskiest changes first.
-- **Production:** nothing goes to production before step 34. Its migration and its deploy each need Omar's one-word OK.
+- **Production:** nothing goes to production before step 34. Its migrations (now including `pair_purpose`) and its deploy each need Omar's one-word OK.
 - **CLAUDE.md edits need Omar's direct word in his own tab.**
 
 ## Open decisions and gates
-- **Step 38's three questions are decided** (Omar, 2026-11-22, option 1 each). In 38c3, 38c4 and 38d, make the smaller choices with a why; send only real trade-offs to Omar.
-- **Leg 139's choices** (Omar may overrule; each is small to change):
-  - a phone's file and a source restored without its login can't be used for the check;
-  - the check's form prefills the Xtream server;
-  - wrong logins have no wait;
-  - a PIN set from the rail's dialog also unlocks the session;
-  - "Set a PIN" and "Forgot your PIN?" grant the visit once the new PIN is kept;
-  - 38c split into 38c2, 38c3 and 38c4.
-- **Known limit to propose as a later fix:** a source restored without its login can be given any login in Settings › Sources, which then passes the check. Closing it needs a "proven by the provider" mark per login.
-- **Leg 138's choices stand:** the page asks the PIN once a visit and again after a hide; "Lock channel" only with a PIN; a lock in a locked session closes the player; the settings list's scrolling is in 38c1.
+- **Leg 141's choices** (Omar may overrule; each is small to change):
+  - a check's code view keeps the add's steps under its own title (the phone page explains the check);
+  - a phone match's status retries stop when the pairing screen closes;
+  - the pick's intro still speaks of typing a login.
+- **Earlier legs' choices stand** (38b, 38c1, 38c2, 38c3; see RELAY).
 - **Step 34 `[needs Omar]`:**
   - the R2 and Upstash adapters;
   - R2's host in `connect-src` and the bucket's CORS rule;
   - `LABLO_RATE_SECRET` in Vercel;
   - the config key ceremony;
   - the accounts and the domain;
-  - the first production migration and the deploy, each with his one-word OK.
-- **Steps 16, 19b and 21 wait for Omar** (Samsung, and 30–45 minutes at the LG TV). That session also covers:
-  - an Arabic onboarding;
-  - typing a backup code;
-  - a login and a guide link given again;
-  - Settings' report rows;
-  - a telemetry send once step 34 has an API;
-  - the favourites star and "Channel groups"' move mode;
-  - Settings' first open (settings.js);
-  - step 36's pencil and forms;
-  - step 37's `get.php` link typed on the TV and 10 minutes of radio;
-  - step 38's PIN pad with the TV's remote, with and without number keys, the app hidden and shown while unlocked, and the login check typed with the TV's keyboard.
-- **What remains after 38:**
-  - 39 (clock, sleep timer, colour keys, buffer setting);
-  - 40 (diagnostics and legal pages);
-  - 43 (accessibility);
-  - 44 (store documents);
-  - 45 (release engineering);
-  - with Omar or a TV: 34, 16/19b/21, 41, 42, 46, 47.
+  - the first production migration (now including `pair_purpose`) and the deploy, each with his one-word OK.
+- **Steps 16, 19b and 21 wait for Omar** (Samsung, and 30–45 minutes at the LG TV). That session also covers step 38's pad, the done screen's "Set a PIN", and now "Use your phone" on the check with a real phone.
+- **What remains after 38:** 39 (clock, sleep timer, colour keys, buffer setting); 40 (diagnostics and legal pages); 43 (accessibility); 44 (store documents); 45 (release engineering). With Omar or a TV: 34, 16/19b/21, 41, 42, 46, 47.
 - **Later fixes to propose (no step yet):**
-  - the restored-source login gap above;
-  - renaming a source;
-  - **no way to remove a source in the app**;
-  - the info bar overflowing the safe area in en-XA;
-  - a hidden channel playing over the list keeps its old name if renamed from the same pencil;
-  - CH+ skips one after hiding the channel that plays;
-  - main's `editChannel.close` has no e2e path;
-  - the guides screen's clipped third line;
-  - `auto-next.spec.ts`'s `endEpisode` race;
+  - the restored-source login gap;
+  - renaming a source; there is no way to remove a source in the app;
+  - the info bar overflowing in en-XA;
+  - a renamed hidden channel's old name over the list;
+  - CH+ after hiding the playing channel;
+  - `editChannel.close`'s e2e;
+  - the guides screen's third line;
+  - `auto-next`'s `endEpisode` race;
   - a best-of-3 for `epg-declared-300mb`;
-  - `guide-offset.spec.ts` en-US;
-  - `rpc.test.ts:179`'s 5 ms sleep;
-  - caching ffmpeg in CI's media job;
+  - `guide-offset` en-US;
+  - `rpc.test.ts:179`;
+  - caching ffmpeg in CI;
   - the engines job's 35-minute cap;
   - forwarding workers' unhandled rejections;
-  - `epgOverrides` not following a refresh's re-match;
-  - `e2e/config-server.ts`'s `close()`;
+  - `epgOverrides` after a re-match;
+  - `config-server.ts`'s `close()`;
   - ingest request timeouts;
-  - **the query worker's 150 KB budget** (1.5 KB left);
+  - the query worker's budget;
   - the start's resume before the worker's load;
-  - a VNode test of the pad's drawing.
+  - a VNode test of the pad;
+  - **new:** the local e2e worker count under load.
 
 ## Checks for Omar
-1. Settings › "Parental control" without a PIN and "Forgot your PIN?": `artifacts/screenshots/parental-login-page-en.png` (the four rows), `parental-login-mismatch-ar.png` (the check's form after a wrong password), `parental-login-pick-en-XA.png` (two sources), `parental-login-none-en-XA.png` (no source keeps a login). All in the worktree, gitignored. Nothing to decide.
+1. The phone page's check: `artifacts/screenshots/phone-check-form-en.png` and `phone-check-no-match-ar.png`. The TV's: `parental-phone-code-en.png`, `parental-phone-mismatch-en.png` and `parental-phone-pick-ar.png`. All are in the worktree, gitignored. Nothing to decide.
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
 - **At the LG TV next time:**
@@ -175,7 +175,7 @@ You are leg 140 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
   - open Settings once (step 35e's file);
   - try the info bar's pencil and Settings › "Channels";
   - play a radio channel for 10 minutes;
-  - try the PIN pad (step 38) with the remote, hide/show the app while unlocked, and "Forgot your PIN?" with the TV's keyboard.
+  - try the PIN pad with the remote, hide/show the app while unlocked, "Forgot your PIN?" with the TV's keyboard, "Set a PIN" on onboarding's done screen, and "Use your phone" on the check with a real phone.
 - **Samsung Seller Office Partner application:** submit it as soon as possible (Samsung Gulf).
 - **Trademark clearance** (US, CA, AE, SA) and domains for **"Lablo"**.
 - `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` was widened with his authorisation on 2026-11-02. Prune it when the relay run ends if he wants it tighter.

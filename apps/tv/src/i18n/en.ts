@@ -203,6 +203,9 @@ export const EN = {
   'pair.newCode': 'Show a new code',
   'pair.done': 'Done',
   'pair.fileName': 'Playlist from your phone',
+  'pair.checkTitle': 'Confirm a login from your phone',
+  'pair.mismatch': "That isn't the login of a source on this TV. Show a new code to send it again.",
+  'pinCheck.usePhone': 'Use your phone',
 
   // The source form's fields.
   'field.server': 'Server address',

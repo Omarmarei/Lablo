@@ -7,6 +7,7 @@ import { parentalOf } from '@lablo/data/client';
 import type { LifecycleEvent, Platform } from '@lablo/platform-api';
 import type { Navigator, Screen, TextEditorOptions, ZoneSpec } from '@lablo/ui';
 import { storedSources } from '../onboarding/engine-loader';
+import type { SourceDraft } from '../onboarding/form';
 import { GROUPS_VISIBLE } from './groups-state';
 import type { PinCheck } from './pin-check';
 import { PIN_CHECK_SCREENS, createPinCheck } from './pin-check';
@@ -29,8 +30,8 @@ import { PIN_CHECK_SCREENS, createPinCheck } from './pin-check';
  *   series, each with its lock (the worker's `categories` marks them, names included); OK switches
  *   one (the `parental` edit `group`, kept both ways), then the rows and the screens read again.
  * - **"Set a PIN" and "Forgot your PIN?"** (step 38c2) ask no PIN: one source's login typed again
- *   (`pin-check.ts`), then the pad's new PIN; once kept, the page reads again and the visit counts
- *   as granted (the login was just given).
+ *   (`pin-check.ts`), or sent from the phone (step 38c4, `phone`), then the pad's new PIN; once
+ *   kept, the page reads again and the visit counts as granted (the login was just given).
  *
  * Main-safe as the settings are: no `trim`, `.sort(` or regex.
  */
@@ -81,6 +82,8 @@ export interface ParentalPageOptions {
   readonly lifecycle?: (listener: (event: LifecycleEvent) => void) => () => void;
   /** The TV's keyboard for the PIN's login check (step 38c2). */
   readonly platform: Pick<Platform, 'textKey' | 'onSoftKeyboard'>;
+  /** The pairing screen for the check by phone (step 38c4, `Pairing.check`); without it the check is typed only. */
+  readonly phone?: (matches: (source: SourceDraft) => boolean, matched: () => void) => void;
   /** Finds a field's input (tests). */
   readonly find?: TextEditorOptions['find'];
   /** The clock (the click pairing in the editor). */
@@ -155,7 +158,7 @@ export function createParentalPage(options: ParentalPageOptions): ParentalPage {
   const lockedStatus = signal<PageStatus>('loading');
   const groups = signal<readonly LockRow[]>([]);
   const pending = signal(0);
-  const check = createPinCheck({ nav, engine, platform: options.platform, find: options.find, now: options.now });
+  const check = createPinCheck({ nav, engine, platform: options.platform, find: options.find, now: options.now, phone: options.phone });
   let disposed = false;
   /** The PIN was given in this visit. */
   let granted = false;

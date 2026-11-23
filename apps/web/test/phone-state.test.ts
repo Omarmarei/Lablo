@@ -3,14 +3,14 @@ import { describe, expect, it } from 'vitest';
 import type { ApiResult } from '../src/phone/api';
 import type { PickedFile } from '../src/phone/form';
 import { EMPTY_VALUES } from '../src/phone/form';
-import type { PageEvent, PageState, View } from '../src/phone/state';
+import type { PageEvent, PageState, Target, View } from '../src/phone/state';
 import { CODE_VIEW, initialState, reduce } from '../src/phone/state';
 
 /** The phone page's state (RELAY step 31b): every view and what moves it. */
 
 const KEY = 'A'.repeat(42) + 'E';
-const TARGET = { code: '7K3MQ9XD', tvPk: KEY };
-const OTHER = { code: 'ABCDEFGH', tvPk: KEY };
+const TARGET: Target = { code: '7K3MQ9XD', tvPk: KEY, purpose: 'add' };
+const OTHER: Target = { code: 'ABCDEFGH', tvPk: KEY, purpose: 'add' };
 
 function run(state: PageState, ...events: PageEvent[]): PageState {
   return events.reduce(reduce, state);
@@ -67,7 +67,7 @@ describe('the typed code', () => {
   const asking = run(code, { type: 'codeInput', input: '7k3m-q9xd' }, { type: 'codeSubmit' });
 
   it('shows the form with the server’s key', () => {
-    expect(reduce(asking, { type: 'codeAnswer', code: TARGET.code, result: ok({ tvPk: KEY, exp: 5 }) }).view).toEqual({ kind: 'form', target: TARGET, busy: false, error: null, retryAfterS: 0 });
+    expect(reduce(asking, { type: 'codeAnswer', code: TARGET.code, result: ok({ tvPk: KEY, exp: 5, purpose: 'add' }) }).view).toEqual({ kind: 'form', target: TARGET, busy: false, error: null, retryAfterS: 0 });
   });
 
   it.each([
@@ -80,9 +80,9 @@ describe('the typed code', () => {
   });
 
   it('ignores an answer for another code, or when nothing was asked', () => {
-    expect(reduce(asking, { type: 'codeAnswer', code: OTHER.code, result: ok({ tvPk: KEY, exp: 5 }) })).toBe(asking);
+    expect(reduce(asking, { type: 'codeAnswer', code: OTHER.code, result: ok({ tvPk: KEY, exp: 5, purpose: 'add' }) })).toBe(asking);
     const idle = run(code, { type: 'codeInput', input: '7k3m-q9xd' });
-    expect(reduce(idle, { type: 'codeAnswer', code: TARGET.code, result: ok({ tvPk: KEY, exp: 5 }) })).toBe(idle);
+    expect(reduce(idle, { type: 'codeAnswer', code: TARGET.code, result: ok({ tvPk: KEY, exp: 5, purpose: 'add' }) })).toBe(idle);
   });
 });
 
@@ -98,8 +98,8 @@ describe('the QR link', () => {
   });
 
   it('shows how far an earlier payload got, not knowing what it was', () => {
-    expect(answer({ type: 'progressAnswer', code: TARGET.code, result: ok({ state: 'sent' }) })).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: null });
-    expect(answer({ type: 'progressAnswer', code: TARGET.code, result: ok({ state: 'received' }) })).toEqual({ kind: 'progress', code: TARGET.code, state: 'received', sentType: null });
+    expect(answer({ type: 'progressAnswer', code: TARGET.code, result: ok({ state: 'sent' }) })).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: null, purpose: 'add' });
+    expect(answer({ type: 'progressAnswer', code: TARGET.code, result: ok({ state: 'received' }) })).toEqual({ kind: 'progress', code: TARGET.code, state: 'received', sentType: null, purpose: 'add' });
     expect(answer({ type: 'progressAnswer', code: TARGET.code, result: ok({ state: 'done', status: 'expired' }) })).toEqual({ kind: 'done', code: TARGET.code, status: 'expired', sentType: null });
     // Followed to its end, still unknown.
     const followed = run(checking, { type: 'progressAnswer', code: TARGET.code, result: ok({ state: 'sent' }) }, { type: 'progressAnswer', code: TARGET.code, result: ok({ state: 'done', status: 'unreachable' }) });
@@ -205,17 +205,17 @@ describe('the file (RELAY step 31d1)', () => {
   it('is remembered as what was sent, through the progress to the TV’s status (RELAY step 31d2b2b)', () => {
     const busy = run(fileForm, { type: 'pickFile', file: FILE }, { type: 'send' });
     const sent = reduce(busy, { type: 'sendAnswer', code: TARGET.code, result: ok({ state: 'sent' }) });
-    expect(sent.view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: 'file' });
+    expect(sent.view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: 'file', purpose: 'add' });
     const received = reduce(sent, { type: 'progressAnswer', code: TARGET.code, result: ok({ state: 'received' }) });
-    expect(received.view).toEqual({ kind: 'progress', code: TARGET.code, state: 'received', sentType: 'file' });
+    expect(received.view).toEqual({ kind: 'progress', code: TARGET.code, state: 'received', sentType: 'file', purpose: 'add' });
     expect(reduce(received, { type: 'progressAnswer', code: TARGET.code, result: ok({ state: 'done', status: 'unreachable' }) }).view).toEqual({ kind: 'done', code: TARGET.code, status: 'unreachable', sentType: 'file' });
     // Already sent (409), and an answer that is already the result.
-    expect(reduce(busy, { type: 'sendAnswer', code: TARGET.code, result: fail('conflict') }).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: 'file' });
+    expect(reduce(busy, { type: 'sendAnswer', code: TARGET.code, result: fail('conflict') }).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: 'file', purpose: 'add' });
     expect(reduce(busy, { type: 'sendAnswer', code: TARGET.code, result: ok({ state: 'done', status: 'unreachable' }) }).view).toEqual({ kind: 'done', code: TARGET.code, status: 'unreachable', sentType: 'file' });
     // A file kept for "Fix and send again" but a link sent: the link is what went.
     const link = run(busy, { type: 'sendAnswer', code: TARGET.code, result: fail('network') }, { type: 'sourceType', sourceType: 'm3u' }, { type: 'field', key: 'playlist', value: 'a.example' }, { type: 'send' });
     expect(link.file).toBe(FILE);
-    expect(reduce(link, { type: 'sendAnswer', code: TARGET.code, result: ok({ state: 'sent' }) }).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: 'm3u' });
+    expect(reduce(link, { type: 'sendAnswer', code: TARGET.code, result: ok({ state: 'sent' }) }).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: 'm3u', purpose: 'add' });
   });
 
   it('stays to send again, and goes with "Add another source"', () => {
@@ -229,10 +229,10 @@ describe('the send’s answer', () => {
   const answered = (result: ApiResult<PairProgressResponse>, code = TARGET.code): PageState => reduce(sending, { type: 'sendAnswer', code, result });
 
   it('shows the progress: sent now, or already sent', () => {
-    expect(answered(ok({ state: 'sent' })).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: 'xtream' });
-    expect(answered(fail('conflict')).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: 'xtream' });
-    expect(answered(ok({ state: 'open', exp: 1 })).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: 'xtream' });
-    expect(answered(ok({ state: 'received' })).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'received', sentType: 'xtream' });
+    expect(answered(ok({ state: 'sent' })).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: 'xtream', purpose: 'add' });
+    expect(answered(fail('conflict')).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: 'xtream', purpose: 'add' });
+    expect(answered(ok({ state: 'open', exp: 1 })).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'sent', sentType: 'xtream', purpose: 'add' });
+    expect(answered(ok({ state: 'received' })).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'received', sentType: 'xtream', purpose: 'add' });
   });
 
   it('asks for a new code when this one ended, keeping the typed values', () => {
@@ -258,7 +258,7 @@ describe('the progress', () => {
   const progress = (result: ApiResult<PairProgressResponse>, code = TARGET.code): PageState => reduce(sent, { type: 'progressAnswer', code, result });
 
   it('follows each state to the TV’s status', () => {
-    expect(progress(ok({ state: 'received' })).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'received', sentType: 'xtream' });
+    expect(progress(ok({ state: 'received' })).view).toEqual({ kind: 'progress', code: TARGET.code, state: 'received', sentType: 'xtream', purpose: 'add' });
     for (const status of ['ok', 'auth_failed', 'expired', 'unreachable', 'blocked'] as const) {
       expect(progress(ok({ state: 'done', status })).view).toEqual({ kind: 'done', code: TARGET.code, status, sentType: 'xtream' });
     }
@@ -288,6 +288,72 @@ describe('the progress', () => {
     const another = run(typedM3u, { type: 'sendAnswer', code: TARGET.code, result: ok({ state: 'done', status: 'ok' }) }, { type: 'again', keep: false });
     expect(another).toEqual({ ...initialState('en'), view: CODE_VIEW });
     expect(reduce(progress(fail('gone')), { type: 'again', keep: true }).view).toEqual(CODE_VIEW);
+  });
+});
+
+describe('the PIN’s login check (RELAY step 38c4)', () => {
+  const CHECK: Target = { code: '7K3MQ9XD', tvPk: KEY, purpose: 'check' };
+  const checkForm: View = { kind: 'form', target: CHECK, busy: false, error: null, retryAfterS: 0 };
+
+  it('takes the purpose from the typed code’s key answer, or from the QR link', () => {
+    const asking = run(start, { type: 'start' }, { type: 'codeInput', input: CHECK.code }, { type: 'codeSubmit' });
+    expect(reduce(asking, { type: 'codeAnswer', code: CHECK.code, result: ok({ tvPk: KEY, exp: 5, purpose: 'check' }) }).view).toEqual(checkForm);
+    const checking = reduce(start, { type: 'qr', target: CHECK });
+    expect(reduce(checking, { type: 'progressAnswer', code: CHECK.code, result: ok({ state: 'open', exp: 1 }) }).view).toEqual(checkForm);
+    expect(reduce(checking, { type: 'progressAnswer', code: CHECK.code, result: fail('network') }).view).toEqual(checkForm);
+    expect(reduce(checking, { type: 'progressAnswer', code: CHECK.code, result: ok({ state: 'received' }) }).view).toEqual({ kind: 'progress', code: CHECK.code, state: 'received', sentType: null, purpose: 'check' });
+  });
+
+  it('offers no file: a file picked before gives way to the login and is kept; the link stays a choice', () => {
+    const picked = run(formState, { type: 'sourceType', sourceType: 'file' }, { type: 'pickFile', file: FILE }, { type: 'again', keep: true }, { type: 'qr', target: CHECK });
+    // (`again` leads to the code view; the QR event only starts from `starting`, so ask by code.)
+    const asked = run(picked, { type: 'codeInput', input: CHECK.code }, { type: 'codeSubmit' }, { type: 'codeAnswer', code: CHECK.code, result: ok({ tvPk: KEY, exp: 5, purpose: 'check' }) });
+    expect(asked.view).toEqual(checkForm);
+    expect(asked.type).toBe('xtream');
+    expect(asked.file).toBe(FILE);
+    expect(reduce(asked, { type: 'sourceType', sourceType: 'file' })).toBe(asked);
+    expect(reduce(asked, { type: 'sourceType', sourceType: 'm3u' }).type).toBe('m3u');
+    // An add's form still offers it.
+    expect(reduce(formState, { type: 'sourceType', sourceType: 'file' }).type).toBe('file');
+  });
+
+  it('checks the login alone: guide links and a name typed for an add are no problem', () => {
+    const typed = run(
+      formState,
+      { type: 'field', key: 'name', value: 'x'.repeat(81) },
+      { type: 'epg', index: 0, value: 'not a link' },
+      { type: 'again', keep: true },
+      { type: 'codeInput', input: CHECK.code },
+      { type: 'codeSubmit' },
+      { type: 'codeAnswer', code: CHECK.code, result: ok({ tvPk: KEY, exp: 5, purpose: 'check' }) },
+    );
+    const refused = reduce(typed, { type: 'send' });
+    expect(refused.problems).toEqual({ server: 'required', username: 'required', password: 'required' });
+    const kept = run(refused, { type: 'field', key: 'server', value: 'panel.example' }, { type: 'field', key: 'username', value: 'u' });
+    expect(kept.problems).toEqual({ password: 'required' });
+    const sent = run(kept, { type: 'field', key: 'password', value: 'p' }, { type: 'send' });
+    expect(sent.view).toEqual({ ...checkForm, busy: true });
+    expect(sent.problems).toEqual({});
+  });
+
+  it('follows the check to the TV’s answer', () => {
+    const busy = run(
+      start,
+      { type: 'qr', target: CHECK },
+      { type: 'progressAnswer', code: CHECK.code, result: ok({ state: 'open', exp: 1 }) },
+      { type: 'field', key: 'server', value: 'panel.example' },
+      { type: 'field', key: 'username', value: 'u' },
+      { type: 'field', key: 'password', value: 'p' },
+      { type: 'send' },
+    );
+    const sent = reduce(busy, { type: 'sendAnswer', code: CHECK.code, result: ok({ state: 'sent' }) });
+    expect(sent.view).toEqual({ kind: 'progress', code: CHECK.code, state: 'sent', sentType: 'xtream', purpose: 'check' });
+    expect(reduce(busy, { type: 'sendAnswer', code: CHECK.code, result: fail('conflict') }).view).toEqual({ kind: 'progress', code: CHECK.code, state: 'sent', sentType: 'xtream', purpose: 'check' });
+    const received = reduce(sent, { type: 'progressAnswer', code: CHECK.code, result: ok({ state: 'received' }) });
+    expect(received.view).toEqual({ kind: 'progress', code: CHECK.code, state: 'received', sentType: 'xtream', purpose: 'check' });
+    for (const status of ['match', 'no_match'] as const) {
+      expect(reduce(received, { type: 'progressAnswer', code: CHECK.code, result: ok({ state: 'done', status }) }).view).toEqual({ kind: 'done', code: CHECK.code, status, sentType: 'xtream' });
+    }
   });
 });
 

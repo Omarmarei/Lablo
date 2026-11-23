@@ -26,6 +26,9 @@ import {
   PAIR_CT_MAX_CHARS,
   PAIR_FILE_MAX_BYTES,
   PAIR_PAYLOAD_MAX_BYTES,
+  PAIR_PURPOSES,
+  PAIR_STATUSES,
+  pairStatusFits,
   RATE_BUCKETS,
   rateBucket,
   readTelemetryEvents,
@@ -173,6 +176,14 @@ describe('the limits', () => {
     });
     const source = readFileSync(join(import.meta.dirname, 'telemetry-buckets.ts'), 'utf8');
     expect(source).not.toMatch(/^\s*(import|export \{[^}]*\} from|export \* from)/m);
+  });
+});
+
+describe('the pairing purposes (RELAY step 38c4)', () => {
+  it('fit a check only to match and no_match, an add to every other status', () => {
+    expect(PAIR_PURPOSES).toEqual(['add', 'check']);
+    expect(PAIR_STATUSES.filter((status) => pairStatusFits('check', status))).toEqual(['match', 'no_match']);
+    expect(PAIR_STATUSES.filter((status) => pairStatusFits('add', status))).toEqual(['ok', 'auth_failed', 'expired', 'unreachable', 'blocked']);
   });
 });
 

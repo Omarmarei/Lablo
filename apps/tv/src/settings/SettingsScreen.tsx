@@ -23,7 +23,7 @@ import { ParentalPageScreen } from './ParentalPage';
 import type { Settings, SettingsItem } from './settings-state';
 import { SETTINGS_VISIBLE } from './settings-state';
 import type { LoginField, LoginForm, LoginSource } from './source-login';
-import { LOGIN_CANCEL, LOGIN_FIELDS, LOGIN_SAVE, LOGIN_SCREEN, loginFieldId } from './source-login';
+import { LOGIN_CANCEL, LOGIN_FIELDS, LOGIN_PHONE, LOGIN_SAVE, LOGIN_SCREEN, loginFieldId } from './source-login';
 import type { SourceRow, SourcesList } from './sources-state';
 import { SOURCES_SCREEN, shownHost } from './sources-state';
 import type { ReportRow, ReportState } from './diag-report';
@@ -315,7 +315,10 @@ export function loginWords(t: Translate, source: LoginSource, checking: boolean)
   return { title: t(xtream ? 'sources.loginTitle' : 'sources.linkTitle', { name: source.name }), body: t('sources.formBody'), save: t('sources.save') };
 }
 
-/** The login form as drawn (step 32d4b), hook-free: the fields, then "Save" and "Cancel"; for the PIN's check, "Check" and the mismatch's line. */
+/**
+ * The login form as drawn (step 32d4b), hook-free: the fields, then "Save" and "Cancel"; for the
+ * PIN's check, "Check", "Use your phone" when the app can pair (step 38c4) and the mismatch's line.
+ */
 export function LoginFormView({ i18n, form, source, field, action }: { i18n: AppI18n; form: LoginForm; source: LoginSource; field: (index: number) => ItemBinding; action: (index: number) => ItemBinding }) {
   const { t } = i18n;
   const values = form.values.value;
@@ -347,7 +350,8 @@ export function LoginFormView({ i18n, form, source, field, action }: { i18n: App
         )}
         <div class="guides__actions">
           <Button label={words.save} variant="primary" {...action(LOGIN_SAVE)} testId="source-login-save" />
-          <Button label={t('action.cancel')} {...action(LOGIN_CANCEL)} testId="source-login-cancel" />
+          {form.phone.value && <Button label={t('pinCheck.usePhone')} {...action(LOGIN_PHONE)} testId="source-login-phone" />}
+          <Button label={t('action.cancel')} {...action(form.phone.value ? LOGIN_PHONE + 1 : LOGIN_CANCEL)} testId="source-login-cancel" />
         </div>
       </div>
     </Dialog>

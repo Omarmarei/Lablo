@@ -4,7 +4,7 @@ import type { APIRequestContext, Page } from '@playwright/test';
 import { test as base, expect } from '@playwright/test';
 import type * as Pg from 'pg';
 import { newBoxKeyPair, openPairPayload, sha256, toBase64Url, utf8 } from '@lablo/crypto';
-import type { PairPayload, PairStatus } from '@lablo/protocol';
+import type { PairPayload, PairPurpose, PairStatus } from '@lablo/protocol';
 import { pairCreateResponseSchema, pairFileUrlResponseSchema, pairPayloadSchema, pairPollResponseSchema } from '@lablo/protocol';
 import { E2E_DATABASE, serverUrl, WEB, withDatabase } from '../test/web-db';
 
@@ -26,15 +26,17 @@ export class Tv {
   constructor(
     private readonly request: APIRequestContext,
     private readonly address: string,
+    /** Why the TV shows its code (RELAY step 38c4): a check's QR link and session say so. */
+    readonly purpose: PairPurpose = 'add',
   ) {}
 
   get tvPk(): string {
     return toBase64Url(this.keys.publicKey);
   }
 
-  /** The QR link's path and fragment. */
+  /** The QR link's path and fragment (a check's ends `&p=check`, as the TV's does). */
   get qrPath(): string {
-    return `/p#c=${this.code}&k=${this.tvPk}`;
+    return `/p#c=${this.code}&k=${this.tvPk}${this.purpose === 'check' ? '&p=check' : ''}`;
   }
 
   private headers(token = false): Record<string, string> {
@@ -42,7 +44,8 @@ export class Tv {
   }
 
   async register(): Promise<this> {
-    const answer = await this.request.post('/v1/pair', { data: { tvPk: this.tvPk }, headers: this.headers() });
+    const data = this.purpose === 'check' ? { tvPk: this.tvPk, purpose: 'check' } : { tvPk: this.tvPk };
+    const answer = await this.request.post('/v1/pair', { data, headers: this.headers() });
     expect(answer.status()).toBe(201);
     const made = pairCreateResponseSchema.parse(await answer.json());
     Object.assign(this, { sid: made.sid, code: made.code, pollToken: made.pollToken });
@@ -112,8 +115,8 @@ let addresses = 0;
 interface Fixtures {
   /** This test's caller address (`x-forwarded-for`) for the page. */
   address: string;
-  /** A new registered TV, calling from its own address. */
-  tv: () => Promise<Tv>;
+  /** A new registered TV, calling from its own address; `check` for the PIN's login check (step 38c4). */
+  tv: (purpose?: PairPurpose) => Promise<Tv>;
   /** Every URL the page asked for. */
   requests: string[];
 }
@@ -126,9 +129,9 @@ export const test = base.extend<Fixtures>({
   },
   tv: async ({ request }, use, testInfo) => {
     let made = 0;
-    await use(async () => {
+    await use(async (purpose?: PairPurpose) => {
       made += 1;
-      return new Tv(request, `10.250.${testInfo.workerIndex % 250}.${made}`).register();
+      return new Tv(request, `10.250.${testInfo.workerIndex % 250}.${made}`, purpose).register();
     });
   },
   requests: [

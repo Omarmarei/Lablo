@@ -10,10 +10,11 @@ import { appI18n } from '../i18n';
 import { GROUPS_VISIBLE } from './groups-state';
 import { PickItem, pickLine } from './ParentalPage';
 import type { PinCheckEngine } from './pin-check';
-import { CHECK_SCREEN, NONE_BUTTONS, NONE_SCREEN, PICK_SCREEN, PIN_CHECK_SCREENS, createPinCheck } from './pin-check';
+import { CHECK_SCREEN, NONE_BUTTONS, NONE_SCREEN, PICK_HEADER, PICK_SCREEN, PIN_CHECK_SCREENS, createPinCheck } from './pin-check';
 import { LoginFormView, loginWords } from './SettingsScreen';
 import type { CheckSource, LoginSource } from './source-login';
-import { LOGIN_SCREEN, checkLogin, checkSources, checkValues, createLoginForm, matchesLogin } from './source-login';
+import { LOGIN_SCREEN, checkLogin, checkSources, checkValues, createLoginForm, loginOnTv, matchesLogin } from './source-login';
+import type { SourceDraft } from '../onboarding/form';
 
 /**
  * The PIN's login check (RELAY step 38c2): which sources can be used, the comparison of a login
@@ -344,6 +345,163 @@ const textOf = (node: unknown): string => {
 const en = appI18n('en-US', { isolate: false });
 const ar = appI18n('ar-SA');
 const idle: ItemBinding = { state: 'idle', onHover: () => undefined, onPress: () => undefined };
+
+describe('the check by phone (RELAY step 38c4)', () => {
+  const XTREAM = (account: { base: string; username: string; password: string }): SourceDraft => ({ type: 'xtream', name: 'x', account, epgUrls: [] });
+
+  it('finds the phone’s login among every usable source; a phone’s file never matches', () => {
+    const usable = [PANEL, LIST, PANEL2];
+    expect(loginOnTv(usable, XTREAM({ base: 'http://other.test', username: 'bo', password: 'x' }))).toBe(true);
+    expect(loginOnTv(usable, XTREAM({ base: 'http://panel.test:8080', username: 'ann', password: 'pw' }))).toBe(true);
+    expect(loginOnTv(usable, XTREAM({ base: 'http://other.test', username: 'bo', password: 'X' }))).toBe(false);
+    expect(loginOnTv(usable, XTREAM({ base: 'http://panel.test:8080', username: 'bo', password: 'x' }))).toBe(false);
+    expect(loginOnTv(usable, { type: 'm3u', name: 'l', url: 'https://lists.test:8443/get.m3u?k=1', epgUrls: [] })).toBe(true);
+    expect(loginOnTv(usable, { type: 'm3u', name: 'l', url: 'https://lists.test:8443/get.m3u?k=2', epgUrls: [] })).toBe(false);
+    expect(loginOnTv([LIST], XTREAM({ base: 'http://panel.test:8080', username: 'ann', password: 'pw' }))).toBe(false);
+    expect(loginOnTv(usable, { type: 'm3u-file', name: 'f', epgUrls: [], file: () => Promise.reject(new Error('never')) })).toBe(false);
+    expect(loginOnTv([], XTREAM({ base: 'http://other.test', username: 'bo', password: 'x' }))).toBe(false);
+  });
+
+  /** A check with a pairing screen stand-in: `phone` pushes it; `match()` pops it and goes on, as the pairing does. */
+  function setup(sources: StoredSource[], withPhone = true) {
+    const { nav, at } = navigator();
+    const keys = keyboard();
+    const engine = new FakeEngine();
+    engine.sources = sources;
+    const asked: Array<{ matches: (source: SourceDraft) => boolean; matched: () => void }> = [];
+    const phone = (matches: (source: SourceDraft) => boolean, matched: () => void): void => {
+      asked.push({ matches, matched });
+      nav.push({ id: 'pair', zones: [{ kind: 'list', id: 'actions', axis: 'horizontal', count: 1 }] });
+    };
+    const check = createPinCheck(withPhone ? { nav, engine, platform: keys.platform, find: keys.find, phone } : { nav, engine, platform: keys.platform, find: keys.find });
+    const matched = vi.fn();
+    const run = async (): Promise<void> => {
+      check.run(matched);
+      await flush();
+    };
+    const match = (): void => {
+      nav.pop();
+      asked[asked.length - 1]!.matched();
+    };
+    return { nav, at, check, matched, run, asked, match };
+  }
+
+  it('offers "Use your phone" between "Check" and "Cancel" on the form; a match closes the form and goes on', async () => {
+    const t = setup([PANEL]);
+    expect(t.check.canUsePhone).toBe(true);
+    await t.run();
+    expect(t.check.form.phone.value).toBe(true);
+    expect(t.nav.top.zone('actions')).toMatchObject({ count: 3 });
+    t.nav.top.focus('actions', 1);
+    t.nav.handle('OK');
+    expect(t.at()).toBe('pair · actions 0');
+    expect(t.asked).toHaveLength(1);
+    // Every usable source counts.
+    expect(t.asked[0]!.matches(XTREAM({ base: 'http://panel.test:8080', username: 'ann', password: 'pw' }))).toBe(true);
+    // Back on the pairing screen: the form again.
+    t.nav.handle('BACK');
+    expect(t.at()).toBe(`${CHECK_SCREEN} · actions 1`);
+    t.nav.handle('OK');
+    t.match();
+    expect(t.at()).toBe('settings · items 0');
+    expect(t.check.form.source.value).toBeNull();
+    expect(t.matched).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels from the third button', async () => {
+    const t = setup([PANEL]);
+    await t.run();
+    t.nav.top.focus('actions', 2);
+    t.nav.handle('OK');
+    expect(t.at()).toBe('settings · items 0');
+    expect(t.asked).toEqual([]);
+    expect(t.matched).not.toHaveBeenCalled();
+  });
+
+  it('puts "Use your phone" in the pick’s header, UP from the rows; a match closes the pick and goes on', async () => {
+    const t = setup([PANEL, LIST]);
+    // The page the check opens from, as in the app: one screen too many closed would leave it.
+    t.nav.push({ id: 'parental', zones: [{ kind: 'list', id: 'rows', axis: 'vertical', count: 1 }] });
+    await t.run();
+    expect(t.at()).toBe(`${PICK_SCREEN} · rows 0`);
+    t.nav.handle('UP');
+    expect(t.at()).toBe(`${PICK_SCREEN} · ${PICK_HEADER} 0`);
+    t.nav.handle('DOWN');
+    expect(t.at()).toBe(`${PICK_SCREEN} · rows 0`);
+    t.nav.handle('UP');
+    t.nav.handle('OK');
+    expect(t.at()).toBe('pair · actions 0');
+    expect(t.asked[0]!.matches({ type: 'm3u', name: 'l', url: 'https://lists.test:8443/get.m3u?k=1', epgUrls: [] })).toBe(true);
+    t.match();
+    // No form shows: only the pick closes (the form's `close` does nothing then).
+    expect(t.at()).toBe('parental · rows 0');
+    expect(t.check.pickScreen.value).toBeNull();
+    expect(t.matched).toHaveBeenCalledTimes(1);
+  });
+
+  it('a match from a form opened on the pick closes the form and the pick', async () => {
+    const t = setup([PANEL, LIST]);
+    await t.run();
+    t.nav.handle('OK');
+    expect(t.at()).toBe(`${CHECK_SCREEN} · fields 1`);
+    expect(t.check.form.phone.value).toBe(true);
+    t.nav.top.focus('actions', 1);
+    t.nav.handle('OK');
+    // Any usable source's login, not only the one picked.
+    expect(t.asked[0]!.matches({ type: 'm3u', name: 'l', url: 'https://lists.test:8443/get.m3u?k=1', epgUrls: [] })).toBe(true);
+    t.match();
+    expect(t.at()).toBe('settings · items 0');
+    expect(t.check.pickScreen.value).toBeNull();
+    expect(t.check.form.source.value).toBeNull();
+    expect(t.matched).toHaveBeenCalledTimes(1);
+  });
+
+  it('without the pairing, the form has two buttons and the pick no header', async () => {
+    const t = setup([PANEL, LIST], false);
+    expect(t.check.canUsePhone).toBe(false);
+    await t.run();
+    t.nav.handle('UP');
+    expect(t.at()).toBe(`${PICK_SCREEN} · rows 0`);
+    t.nav.handle('OK');
+    expect(t.check.form.phone.value).toBe(false);
+    expect(t.nav.top.zone('actions')).toMatchObject({ count: 2 });
+    t.nav.top.focus('actions', 1);
+    t.nav.handle('OK');
+    expect(t.at()).toBe(`${PICK_SCREEN} · rows 0`);
+  });
+
+  it('a login given again (Sources) never offers the phone, even after a check that did', async () => {
+    const t = setup([PANEL]);
+    await t.run();
+    t.nav.handle('BACK');
+    t.check.form.open(PANEL as LoginSource);
+    expect(t.check.form.phone.value).toBe(false);
+    expect(t.nav.top.zone('actions')).toMatchObject({ count: 2 });
+  });
+
+  it('draws "Check", "Use your phone" and "Cancel" in their places, in English and Arabic', () => {
+    const { nav } = navigator();
+    const keys = keyboard();
+    const form = createLoginForm({ nav, platform: keys.platform, find: keys.find, id: CHECK_SCREEN });
+    form.check(PANEL, () => undefined, () => undefined);
+    const places: number[] = [];
+    const draw = (i18n: typeof en): VNode =>
+      LoginFormView({
+        i18n,
+        form,
+        source: PANEL as LoginSource,
+        field: () => idle,
+        action: (i) => {
+          places.push(i);
+          return idle;
+        },
+      });
+    const labels = (page: VNode): unknown[] => walk(page).filter((v) => v.type === Button).map((b) => (b.props as Props).label);
+    expect(labels(draw(en))).toEqual(['Check', 'Use your phone', 'Cancel']);
+    expect(places).toEqual([0, 1, 2]);
+    expect(labels(draw(ar))[1]).toBe('استخدم هاتفك');
+  });
+});
 
 describe('the check as drawn (RELAY step 38c2)', () => {
   it('words the form for the check: its title, its line and "Check"; a login given again as before', () => {

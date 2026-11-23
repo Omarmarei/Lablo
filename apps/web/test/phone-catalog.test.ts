@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import config, { PHONE_CSP, pageHeaders } from '../next.config';
 import type { Message, MessageKey } from '../src/phone/catalog';
-import { AR, CATALOGS, EN, fileSize, FSI, PDI, statusKey, t } from '../src/phone/catalog';
+import { AR, CATALOGS, EN, fileSize, FSI, PDI, statusKey, statusTitle, t } from '../src/phone/catalog';
 import { FILE_MAX_BYTES } from '../src/phone/form';
 import { dirOf, fromAcceptLanguage, isLang, LANGS, pickLang } from '../src/phone/lang';
 
@@ -85,7 +85,7 @@ describe('the catalog', () => {
   });
 
   it('words each status the TV sends, and a file it couldn’t read as a file (RELAY step 31d2b2b)', () => {
-    const statuses = ['ok', 'auth_failed', 'expired', 'unreachable', 'blocked'] as const;
+    const statuses = ['ok', 'auth_failed', 'expired', 'unreachable', 'blocked', 'match', 'no_match'] as const;
     for (const sentType of ['xtream', 'm3u', 'file', null] as const) {
       for (const status of statuses) {
         expect(statusKey(status, sentType), `${status} after ${String(sentType)}`).toBe(status === 'unreachable' && sentType === 'file' ? 'done.unreachableFile' : `done.${status}`);
@@ -94,6 +94,20 @@ describe('the catalog', () => {
     expect(t('en', statusKey('unreachable', 'file'))).toBe('Your TV couldn’t read the file. Check that it’s the playlist file your provider sent, then try again.');
     expect(t('ar', statusKey('unreachable', 'file'))).toBe('تعذّر على تلفازك قراءة الملف. تحقّق من أنه ملف قائمة التشغيل الذي أرسله مزوّد الخدمة، ثم حاول مرة أخرى.');
     expect(t('en', statusKey('unreachable', 'm3u'))).toBe('Your TV couldn’t reach the server. Check the address and try again.');
+  });
+
+  it('titles the result: an add’s, failed or not, and a check’s two (RELAY step 38c4)', () => {
+    expect(['ok', 'auth_failed', 'expired', 'unreachable', 'blocked', 'match', 'no_match'].map((status) => statusTitle(status as Parameters<typeof statusTitle>[0]))).toEqual([
+      'done.okTitle',
+      'done.failedTitle',
+      'done.failedTitle',
+      'done.failedTitle',
+      'done.failedTitle',
+      'done.matchTitle',
+      'done.noMatchTitle',
+    ]);
+    expect(t('en', statusKey('match', 'xtream'))).toBe('Your TV recognised the login. Choose the new PIN on your TV.');
+    expect(t('ar', statusKey('no_match', 'm3u'))).toBe('هذه ليست بيانات الدخول لأي مصدر على تلفازك.');
   });
 });
 

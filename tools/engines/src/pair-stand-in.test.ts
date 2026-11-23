@@ -37,8 +37,9 @@ function setup() {
     return { status: answer.status, headers: answer.headers, text, bytes, json };
   };
   /** A TV's session: its code, id and poll token. */
-  const tv = () => {
-    const made = call('POST', '/v1/pair', JSON.stringify({ tvPk: toBase64Url(newBoxKeyPair().publicKey) })).json as { sid: string; code: string; pollToken: string };
+  const tv = (purpose?: string) => {
+    const tvPk = toBase64Url(newBoxKeyPair().publicKey);
+    const made = call('POST', '/v1/pair', JSON.stringify(purpose === undefined ? { tvPk } : { tvPk, purpose })).json as { sid: string; code: string; pollToken: string };
     return { ...made, session: standIn.latest()! };
   };
   const uploadUrl = (code: string, size: number) => call('POST', `/v1/pair/${code}/upload-url`, JSON.stringify({ size }));
@@ -52,6 +53,26 @@ function setup() {
     },
   };
 }
+
+describe('the stand-in’s purpose (step 38c4)', () => {
+  it('keeps a check, gives it to the phone, and takes only the statuses that fit', () => {
+    const s = setup();
+    const add = s.tv();
+    const check = s.tv('check');
+    expect([add.session.purpose, check.session.purpose]).toEqual(['add', 'check']);
+    expect(s.call('GET', `/v1/pair/${check.code}`).json).toEqual({ tvPk: check.session.tvPk, exp: NOW + STAND_IN_CODE_MS, purpose: 'check' });
+    expect(s.call('GET', `/v1/pair/${add.code}`).json).toMatchObject({ purpose: 'add' });
+    for (const one of [add, check]) {
+      s.call('POST', `/v1/pair/${one.code}/payload`, JSON.stringify(SEALED));
+      s.call('GET', `/v1/pair/s/${one.sid}`, '', one.pollToken);
+    }
+    expect(s.call('POST', `/v1/pair/s/${add.sid}/status`, '{"status":"match"}', add.pollToken).status).toBe(400);
+    expect(s.call('POST', `/v1/pair/s/${check.sid}/status`, '{"status":"ok"}', check.pollToken).status).toBe(400);
+    expect([add.session.status, check.session.status]).toEqual([null, null]);
+    expect(s.call('POST', `/v1/pair/s/${check.sid}/status`, '{"status":"no_match"}', check.pollToken).json).toEqual({ state: 'done', status: 'no_match' });
+    expect(s.call('POST', '/v1/pair', JSON.stringify({ tvPk: add.session.tvPk, purpose: 'reset' })).status).toBe(400);
+  });
+});
 
 describe('the stand-in’s file (step 31d2b2a)', () => {
   it('names its paths: the pairing API’s and the blob’s, nothing else', () => {

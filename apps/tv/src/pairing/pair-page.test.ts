@@ -266,6 +266,28 @@ describe("the done view's PIN prompt (step 38c3)", () => {
   });
 });
 
+describe("the PIN's login check (step 38c4)", () => {
+  it('has its own title in every view, and marks its purpose', () => {
+    const views: PairView[] = [{ kind: 'opening', note: null }, { kind: 'code', code: CODE, trouble: false, note: null }, { kind: 'unavailable', failure: 'network' }, { kind: 'ended' }, { kind: 'mismatch' }];
+    for (const view of views) {
+      const page = draw(view, { check: true });
+      expect([view.kind, textOf(byTestId(page, 'pair-title')[0]!)]).toEqual([view.kind, 'Confirm a login from your phone']);
+      expect(props(page)['data-purpose']).toBe('check');
+    }
+    expect(props(draw({ kind: 'opening', note: null }))['data-purpose']).toBe('add');
+    const arabic = PairContent({ i18n: ar, view: { kind: 'mismatch' }, name: '', sent: 'no_match', zone: zone(), check: true }) as VNode;
+    expect(textOf(byTestId(arabic, 'pair-title')[0]!)).toBe('تأكيد بيانات الدخول من هاتفك');
+  });
+
+  it('mismatch: says so, as an alert, with only "Show a new code"', () => {
+    const page = draw({ kind: 'mismatch' }, { check: true });
+    expect(buttons(page).map((b) => [b.label, b.variant])).toEqual([['Show a new code', 'primary']]);
+    const shown = expand(byType(page, Message)[0]!);
+    expect(props(byTestId(shown, 'pair-mismatch')[0]!)).toMatchObject({ role: 'alert' });
+    expect(textOf(shown)).toBe("That isn't the login of a source on this TV. Show a new code to send it again.");
+  });
+});
+
 describe('groupedCode', () => {
   it('splits the eight characters in two groups of four', () => {
     expect(groupedCode('ABCD2345')).toBe('ABCD 2345');

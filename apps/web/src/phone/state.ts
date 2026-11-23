@@ -5,17 +5,21 @@
  * every view, so a code that ends while the form is filled, or a source the TV refused, costs a new
  * code, not the typing. The progress and its result remember what this page sent for their code
  * (step 31d2b2b), so a file the TV couldn't read is worded as a file.
+ *
+ * A code's purpose (RELAY step 38c4) comes with its target: for the PIN's login check the form
+ * offers only the login and the link (a file chosen before is kept, not offered) and sends the
+ * source alone (`checkFor`), and the progress words the TV's check.
  */
-import type { PairProgressResponse, PairStatus, PairTvKeyResponse } from '@lablo/protocol';
+import type { PairProgressResponse, PairPurpose, PairStatus, PairTvKeyResponse } from '@lablo/protocol';
 import { PAIR_EPG_MAX } from '@lablo/protocol';
 import type { ApiResult } from './api';
 import type { QrTarget } from './code';
 import { normalizeCode } from './code';
 import type { FieldKey, FormProblems, FormValues, PickedFile, SourceType } from './form';
-import { checkForm, EMPTY_VALUES } from './form';
+import { checkFor, EMPTY_VALUES } from './form';
 import type { Lang } from './lang';
 
-/** The code and the TV's key the payload is sealed to (from the QR link, or the server for a typed code). */
+/** The code and the TV's key the payload is sealed to, and the code's purpose (from the QR link, or the server for a typed code). */
 export type Target = QrTarget;
 
 /** Why the code view shows a message. */
@@ -35,7 +39,7 @@ export type View =
    * `sentType`: what this page sent for the code; `null` when the QR link found the code already
    * sent to (from another phone, or an earlier visit), which the page can't know.
    */
-  | { readonly kind: 'progress'; readonly code: string; readonly state: 'sent' | 'received'; readonly sentType: SourceType | null }
+  | { readonly kind: 'progress'; readonly code: string; readonly state: 'sent' | 'received'; readonly sentType: SourceType | null; readonly purpose: PairPurpose }
   | { readonly kind: 'done'; readonly code: string; readonly status: PairStatus; readonly sentType: SourceType | null }
   /** The code's row is gone (an hour after it was made): only the TV knows how it ended. */
   | { readonly kind: 'lost'; readonly code: string };
@@ -85,11 +89,11 @@ export function initialState(lang: Lang): PageState {
 }
 
 /** The view an answer about the code's progress leads to; null keeps the current one. */
-function progressView(code: string, progress: PairProgressResponse, sentType: SourceType | null): View | null {
+function progressView(code: string, progress: PairProgressResponse, sentType: SourceType | null, purpose: PairPurpose): View | null {
   switch (progress.state) {
     case 'sent':
     case 'received':
-      return { kind: 'progress', code, state: progress.state, sentType };
+      return { kind: 'progress', code, state: progress.state, sentType, purpose };
     case 'done':
       return { kind: 'done', code, status: progress.status, sentType };
     case 'open':
@@ -97,9 +101,20 @@ function progressView(code: string, progress: PairProgressResponse, sentType: So
   }
 }
 
+/** The form for `target`: a check's offers no file, so a file picked before gives way to the login (step 38c4). */
+function formFor(state: PageState, target: Target): PageState {
+  const type = target.purpose === 'check' && state.type === 'file' ? 'xtream' : state.type;
+  return { ...state, type, view: { kind: 'form', target, busy: false, error: null, retryAfterS: 0 } };
+}
+
+/** The purpose of the form on show (an add when none shows). */
+function purposeOf(view: View): PairPurpose {
+  return view.kind === 'form' ? view.target.purpose : 'add';
+}
+
 /** A field, the type or the file changed: the problems follow while they show. */
 function withValues(state: PageState, values: FormValues, type = state.type, file = state.file): PageState {
-  return { ...state, type, values, file, problems: state.showProblems ? checkForm(type, values, file).problems : {} };
+  return { ...state, type, values, file, problems: state.showProblems ? checkFor(purposeOf(state.view), type, values, file).problems : {} };
 }
 
 export function reduce(state: PageState, event: PageEvent): PageState {
@@ -123,7 +138,7 @@ export function reduce(state: PageState, event: PageEvent): PageState {
     case 'codeAnswer': {
       if (view.kind !== 'code' || !view.busy || normalizeCode(view.input) !== event.code) return state;
       const result = event.result;
-      if (result.ok) return { ...state, view: { kind: 'form', target: { code: event.code, tvPk: result.value.tvPk }, busy: false, error: null, retryAfterS: 0 } };
+      if (result.ok) return formFor(state, { code: event.code, tvPk: result.value.tvPk, purpose: result.value.purpose });
       if (result.error === 'gone') return { ...state, view: { ...view, busy: false, error: 'unknown' } };
       if (result.error === 'limited') return { ...state, view: { ...view, busy: false, error: 'limited', retryAfterS: result.retryAfterS } };
       return { ...state, view: { ...view, busy: false, error: 'network' } };
@@ -136,19 +151,24 @@ export function reduce(state: PageState, event: PageEvent): PageState {
       const result = event.result;
       if (view.kind === 'checking' && view.target.code === event.code) {
         // The code's progress decides; without an answer the form shows, and sending will tell.
-        if (result.ok) return { ...state, view: progressView(event.code, result.value, null) ?? { kind: 'form', target: view.target, busy: false, error: null, retryAfterS: 0 } };
+        if (result.ok) {
+          const next = progressView(event.code, result.value, null, view.target.purpose);
+          return next === null ? formFor(state, view.target) : { ...state, view: next };
+        }
         if (result.error === 'gone') return { ...state, view: { ...CODE_VIEW, error: 'ended' } };
-        return { ...state, view: { kind: 'form', target: view.target, busy: false, error: null, retryAfterS: 0 } };
+        return formFor(state, view.target);
       }
       if (view.kind === 'progress' && view.code === event.code) {
-        if (result.ok) return { ...state, view: progressView(event.code, result.value, view.sentType) ?? view };
+        if (result.ok) return { ...state, view: progressView(event.code, result.value, view.sentType, view.purpose) ?? view };
         if (result.error === 'gone') return { ...state, view: { kind: 'lost', code: event.code } };
       }
       return state;
     }
 
     case 'sourceType':
-      return view.kind === 'form' && !view.busy ? withValues(state, state.values, event.sourceType) : state;
+      // A check's form offers no file (step 38c4).
+      if (view.kind !== 'form' || view.busy || (event.sourceType === 'file' && view.target.purpose === 'check')) return state;
+      return withValues(state, state.values, event.sourceType);
 
     case 'field':
       return view.kind === 'form' && !view.busy ? withValues(state, { ...state.values, [event.key]: event.value }) : state;
@@ -175,7 +195,7 @@ export function reduce(state: PageState, event: PageEvent): PageState {
 
     case 'send': {
       if (view.kind !== 'form' || view.busy) return state;
-      const checked = checkForm(state.type, state.values, state.file);
+      const checked = checkFor(view.target.purpose, state.type, state.values, state.file);
       if (checked.payload === null) return { ...state, problems: checked.problems, showProblems: true, view: { ...view, error: null } };
       return { ...state, problems: {}, showProblems: false, view: { ...view, busy: true, error: null } };
     }
@@ -192,7 +212,8 @@ export function reduce(state: PageState, event: PageEvent): PageState {
       // page's own earlier send, whose answer was lost).
       if (result.ok || result.error === 'conflict') {
         const sentType = state.type;
-        return { ...state, view: (result.ok ? progressView(event.code, result.value, sentType) : null) ?? { kind: 'progress', code: event.code, state: 'sent', sentType } };
+        const purpose = view.target.purpose;
+        return { ...state, view: (result.ok ? progressView(event.code, result.value, sentType, purpose) : null) ?? { kind: 'progress', code: event.code, state: 'sent', sentType, purpose } };
       }
       if (result.error === 'gone') return { ...state, view: { ...CODE_VIEW, error: 'ended' } };
       if (result.error === 'limited') return { ...state, view: { ...view, busy: false, error: 'limited', retryAfterS: result.retryAfterS } };

@@ -20,8 +20,15 @@ export const PAIR_FILE_MAX_BYTES = 41943040;
 /** EPG links a payload may carry. */
 export const PAIR_EPG_MAX = 4;
 
-/** `POST /v1/pair`. */
-export const pairCreateRequestSchema = z.object({ tvPk: bytes32 });
+/**
+ * Why the TV shows a code (RELAY step 38c4): to `add` a source, or to `check` a login against the
+ * sources it has (the PIN's check). The phone page words its form and its result by it.
+ */
+export const PAIR_PURPOSES = ['add', 'check'] as const;
+export type PairPurpose = (typeof PAIR_PURPOSES)[number];
+
+/** `POST /v1/pair`; no `purpose` is an add (the TV writes it only for a check). */
+export const pairCreateRequestSchema = z.object({ tvPk: bytes32, purpose: z.optional(z.enum(PAIR_PURPOSES)) });
 export type PairCreateRequest = z.infer<typeof pairCreateRequestSchema>;
 
 export const pairCreateResponseSchema = z.object({
@@ -32,8 +39,8 @@ export const pairCreateResponseSchema = z.object({
 });
 export type PairCreateResponse = z.infer<typeof pairCreateResponseSchema>;
 
-/** `GET /v1/pair/:code` (the typed-code path: the QR code carries `tvPk` itself). */
-export const pairTvKeyResponseSchema = z.object({ tvPk: bytes32, exp: epochMs });
+/** `GET /v1/pair/:code` (the typed-code path: the QR code carries `tvPk` and a check's purpose itself). */
+export const pairTvKeyResponseSchema = z.object({ tvPk: bytes32, exp: epochMs, purpose: z.enum(PAIR_PURPOSES) });
 export type PairTvKeyResponse = z.infer<typeof pairTvKeyResponseSchema>;
 
 /** `POST /v1/pair/:code/payload`, and what the TV's poll returns: `@lablo/crypto`'s `SealedPayload`. */
@@ -80,9 +87,20 @@ export const pairPollResponseSchema = z.discriminatedUnion('state', [
 ]);
 export type PairPollResponse = z.infer<typeof pairPollResponseSchema>;
 
-/** What the TV found when it tried the source: only the category reaches the phone. */
-export const PAIR_STATUSES = ['ok', 'auth_failed', 'expired', 'unreachable', 'blocked'] as const;
+/**
+ * What the TV found when it tried the source: only the category reaches the phone. A check's two
+ * (step 38c4): the login is one of the TV's sources' (`match`), or not (`no_match`).
+ */
+export const PAIR_STATUSES = ['ok', 'auth_failed', 'expired', 'unreachable', 'blocked', 'match', 'no_match'] as const;
 export type PairStatus = (typeof PAIR_STATUSES)[number];
+
+/** A check's statuses (step 38c4); every other status is an add's. */
+export const PAIR_CHECK_STATUSES: readonly PairStatus[] = ['match', 'no_match'];
+
+/** Whether `status` answers a session of `purpose`: a check's two for a check, the others for an add. */
+export function pairStatusFits(purpose: PairPurpose, status: PairStatus): boolean {
+  return (PAIR_CHECK_STATUSES.indexOf(status) !== -1) === (purpose === 'check');
+}
 
 /** `POST /v1/pair/s/:sid/status`. */
 export const pairStatusRequestSchema = z.object({ status: z.enum(PAIR_STATUSES) });

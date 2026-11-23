@@ -138,7 +138,7 @@ import {
   epgRefreshDue,
   lacksLogin,
 } from '@lablo/data/client';
-import type { PairStatus } from '@lablo/protocol';
+import type { PairPurpose, PairStatus } from '@lablo/protocol';
 
 /** What a source's stream and catch-up URLs need from its last login (`DataEngine.sourceFacts`). */
 export interface SourceFacts {
@@ -157,7 +157,8 @@ export type PairFileFeedResult = { readonly ok: true; readonly feed: FileFeed } 
  * worker; calls after it reject.
  */
 export interface PairSession {
-  open(base: string): Promise<PairOpenResult>;
+  /** A new code; `check` for the PIN's login check (step 38c4). */
+  open(base: string, purpose?: PairPurpose): Promise<PairOpenResult>;
   poll(): Promise<PairPollResult>;
   /** After `ready` with an M3U file (step 31d2a): its frames, fetched and opened in the pair worker. */
   file(): Promise<PairFileFeedResult>;
@@ -554,7 +555,7 @@ export class DataEngine {
     const client = createPairClient(worker);
     this.watch('pair', worker);
     return {
-      open: (base) => client.call('open', { base }),
+      open: (base, purpose) => client.call('open', purpose === undefined ? { base } : { base, purpose }),
       poll: () => client.call('poll'),
       file: () => {
         // One end to the pair worker, which serves the frames; the other for the refresh.
