@@ -316,7 +316,9 @@ interface Props {
 
 /**
  * The live screen in the language picked in onboarding, in the TV's region (the formats keep
- * the region's), or the TV's own when none was picked.
+ * the region's), or the TV's own when none was picked. Settings › "Language" (RELAY step 38d2)
+ * paints it again with another `language`: the page, the focus engine's direction and every
+ * screen's words switch in place, the remote's keys untouched.
  */
 export function LiveApp({ platform, live, language, player = null, settings = null, guide = null, movies = null, series = null, details = null, show = null, search = null, home = null, parental = null }: Props) {
   const i18n = useSignal<AppI18n | null>(null);
@@ -335,12 +337,13 @@ export function LiveApp({ platform, live, language, player = null, settings = nu
       (info) => start(info.locale, info.country),
       () => start('en-US', null),
     );
-    const disconnect = connectRemote({ platform, nav: live.nav, target: window, onIntent: () => live.activity() });
     return () => {
+      // An older answer, for the language before a switch, is dropped.
       closed = true;
-      disconnect();
     };
   }, [platform, live, language]);
+  // The remote's keys, apart from the language: a switch keeps them connected.
+  useEffect(() => connectRemote({ platform, nav: live.nav, target: window, onIntent: () => live.activity() }), [platform, live]);
 
   if (i18n.value === null) {
     return (

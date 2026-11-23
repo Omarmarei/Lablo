@@ -599,6 +599,8 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'parental.ok': 'حسنًا',
   'settings.parental': 'الرقابة الأبوية',
   'settings.parentalHint': 'رمزك السري، والمجموعات والقنوات التي يقفلها',
+  'settings.language': 'اللغة',
+  'settings.languageBody': 'تتغير القوائم والأزرار فورًا. وتبقى أسماء القنوات والبرامج كما يرسلها مزوّدك.',
   'parental.change': 'تغيير الرمز السري',
   'parental.changeHint': 'يفتح رمزك السري المجموعات المقفلة وهذه الصفحة',
   'parental.changed': 'تم تغيير الرمز السري.',
