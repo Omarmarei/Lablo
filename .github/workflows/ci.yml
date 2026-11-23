@@ -64,7 +64,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # pnpm verify took 15-20 min on PRs #165-#167 (8,576 unit tests, the builds, 212 e2e); at 20 the
+    # cap cancelled PR #168's run during its last e2e spec (RELAY leg 143).
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
