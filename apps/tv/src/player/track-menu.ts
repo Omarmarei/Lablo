@@ -89,6 +89,8 @@ export interface TrackMenu {
   show(section: TrackSection): void;
   /** The content playing has this timing (a play brings the content's back): shown, not sent back. */
   showDelay(ms: number): void;
+  /** The subtitles' size from elsewhere (step 38d3: Settings › "Player"): kept as the menu's own change is (`sized`). */
+  setSize(size: SubtitleSize): void;
   close(): void;
   /** The tracks changed: the lists follow. */
   sync(): void;
@@ -244,6 +246,7 @@ export function createTrackMenu(options: TrackMenuOptions): TrackMenu {
       focusOn(pushed, section);
     },
     close,
+    setSize,
     showDelay(ms: number): void {
       delay.value = ms;
     },

@@ -63,14 +63,15 @@ describe("the settings list's window (RELAY step 38c1)", () => {
     const list: readonly SettingsItem[] = SETTINGS_ITEMS;
     const asked: number[] = [];
     const first = SettingsView({ i18n: en, list, item: (i) => (asked.push(i), i === 0 ? focused : idle), telemetry: null });
-    expect(rowIds(first)).toEqual(['settings-sources', 'settings-guides', 'settings-groups', 'settings-channels', 'settings-parental', 'settings-language', 'settings-backup']);
+    expect(rowIds(first)).toEqual(['settings-sources', 'settings-guides', 'settings-groups', 'settings-channels', 'settings-parental', 'settings-player', 'settings-language']);
     expect(asked).toEqual([0, 1, 2, 3, 4, 5, 6]);
-    expect(propsOf(walk(first).find((v) => propsOf(v)['role'] === 'menu'))).toMatchObject({ 'data-top': 0, 'data-count': 9 });
+    expect(propsOf(walk(first).find((v) => propsOf(v)['role'] === 'menu'))).toMatchObject({ 'data-top': 0, 'data-count': 10 });
     asked.length = 0;
-    // The last window (step 38d2: nine rows).
-    const last = SettingsView({ i18n: en, list, item: (i) => (asked.push(i), idle), telemetry: null, top: 2 });
-    expect(rowIds(last)).toEqual(['settings-groups', 'settings-channels', 'settings-parental', 'settings-language', 'settings-backup', 'settings-telemetry', 'settings-report']);
-    expect(asked).toEqual([2, 3, 4, 5, 6, 7, 8]);
+    // The last window (step 38d3: ten rows).
+    const last = SettingsView({ i18n: en, list, item: (i) => (asked.push(i), idle), telemetry: null, top: 3 });
+    expect(rowIds(last)).toEqual(['settings-channels', 'settings-parental', 'settings-player', 'settings-language', 'settings-backup', 'settings-telemetry', 'settings-report']);
+    expect(asked).toEqual([3, 4, 5, 6, 7, 8, 9]);
+    expect(textOf(byTestId(last, 'settings-player')[0])).toBe('PlayerAudio and subtitle languages, subtitle size and picture');
     expect(textOf(byTestId(last, 'settings-parental')[0])).toBe('Parental controlYour PIN, and the groups and channels it locks');
   });
 
@@ -83,6 +84,7 @@ describe("the settings list's window (RELAY step 38c1)", () => {
 
   it('names the row in Arabic', () => {
     expect(itemText(ar.t, 'parental')).toEqual({ name: 'الرقابة الأبوية', hint: 'رمزك السري، والمجموعات والقنوات التي يقفلها' });
+    expect(itemText(ar.t, 'player')).toEqual({ name: 'المشغّل', hint: 'لغة الصوت والترجمة، وحجم الترجمة والصورة' });
   });
 });
 

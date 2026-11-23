@@ -21,6 +21,8 @@ import type { Mapping, MappingEngine } from './mapping-state';
 import { MAPPING_SCREEN, createMapping } from './mapping-state';
 import type { ParentalAsk, ParentalPage, ParentalPageEngine } from './parental-page';
 import { PARENTAL_SCREENS, createParentalPage } from './parental-page';
+import type { PlayerSettings, PlayerSettingsOptions } from './player-settings';
+import { PLAYER_SETTINGS_SCREEN, createPlayerSettings } from './player-settings';
 import type { SettingsItem } from './settings-items';
 import { SETTINGS_ITEMS } from './settings-items';
 import { LOGIN_SCREEN } from './source-login';
@@ -49,7 +51,8 @@ import { createUnmatchedList } from './unmatched-state';
  * groups" and "Locked groups", step 38c1: `parental-page.ts`) and "Language" (a dialog of the
  * languages, step 38d2: `language-choice.ts`). The rows scroll, seven in view (step 38c1), in the
  * order of `settings-items.ts` (step 38d1: Sources first; the rows above are told in the order the
- * steps built them); step 38d3 adds "Player".
+ * steps built them) and "Player" (the player's track languages, subtitle size and picture, step
+ * 38d3: `player-settings.ts`).
  * Back closes it.
  */
 
@@ -78,7 +81,7 @@ export const SETTINGS_SCREENS: readonly string[] = [
   LOGIN_SCREEN,
   BACKUP_SCREEN,
   BACKUP_CONFIRM,
-].concat(GROUP_SCREENS, [CHANNELS_SCREEN], EDIT_SCREENS, PARENTAL_SCREENS, [LANGUAGE_SCREEN]);
+].concat(GROUP_SCREENS, [CHANNELS_SCREEN], EDIT_SCREENS, PARENTAL_SCREENS, [PLAYER_SETTINGS_SCREEN, LANGUAGE_SCREEN]);
 
 export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | 'engine'> {
   readonly nav: Navigator;
@@ -107,6 +110,8 @@ export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | '
   readonly lifecycle?: (listener: (event: LifecycleEvent) => void) => () => void;
   /** The app's language (step 38d2, main's switch); without it there is no "Language" row. */
   readonly language?: LanguageOptions;
+  /** The player's languages, subtitle size and picture (step 38d3, main's); without them there is no "Player" row. */
+  readonly player?: PlayerSettingsOptions;
 }
 
 export interface Settings {
@@ -135,7 +140,9 @@ export interface Settings {
   readonly parental: ParentalPage | null;
   /** "Language" (step 38d2), when the app gives its switch. */
   readonly language: LanguageChoice | null;
-  /** The settings screen's rows: `SETTINGS_ITEMS`, "Backup" only with its page, "Usage and crash reports" only with its switch, "Send a report to support" only with its send, "Parental control" only with the pad, "Language" only with the switch. */
+  /** "Player" (step 38d3), when the app gives the player's values. */
+  readonly player: PlayerSettings | null;
+  /** The settings screen's rows: `SETTINGS_ITEMS`, "Backup" only with its page, "Usage and crash reports" only with its switch, "Send a report to support" only with its send, "Parental control" only with the pad, "Player" only with the player's values, "Language" only with the switch. */
   readonly items: readonly SettingsItem[];
   /** Opens the settings screen. */
   open(): void;
@@ -187,12 +194,14 @@ export function createSettings(options: SettingsOptions): Settings {
       ? null
       : createParentalPage({ nav, engine: options.engine, pad, changed: options.locksChanged, lifecycle: options.lifecycle, platform: options.platform, find: options.find, now: options.now, phone });
   const language = options.language === undefined ? null : createLanguageChoice(nav, options.language);
+  const player = options.player === undefined ? null : createPlayerSettings(nav, options.player);
   const items = SETTINGS_ITEMS.filter(
     (item) =>
       (item !== 'backup' || backup !== null) &&
       (item !== 'telemetry' || telemetry !== null) &&
       (item !== 'report' || report !== null) &&
       (item !== 'parental' || parental !== null) &&
+      (item !== 'player' || player !== null) &&
       (item !== 'language' || language !== null),
   );
   const open = (): void => {
@@ -209,6 +218,7 @@ export function createSettings(options: SettingsOptions): Settings {
         else if (item === 'groups') groups.open();
         else if (item === 'channels') channels.open();
         else if (item === 'parental') parental?.open();
+        else if (item === 'player') player?.open();
         else if (item === 'language') language?.open();
       },
     });
@@ -231,6 +241,7 @@ export function createSettings(options: SettingsOptions): Settings {
     channels,
     parental,
     language,
+    player,
     items,
     open,
     openSources(): void {

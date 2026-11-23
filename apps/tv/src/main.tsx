@@ -46,7 +46,7 @@ import { OnboardingApp } from './onboarding/OnboardingApp';
 import type { Onboarding } from './onboarding/onboarding-state';
 import type { Pairing } from './pairing/pair-state';
 import { createPairing } from './pairing/pair-state';
-import { appPlayer, uiTrackPreferences } from './player/app-player';
+import { appPlayer, trackPreferences } from './player/app-player';
 import { catchupRequest } from './player/catchup';
 import { createPlayerMemory, railRefOf } from './player/player-memory';
 import type { Player } from './player/player-state';
@@ -338,8 +338,8 @@ const playerController = appPlayer({
   stage: () => createStage(document),
   checkAccount: (src) => dataEngine().account(src),
   online: () => navigator.onLine,
-  // The live screen sets the page's language (LiveApp): sound in it first.
-  preferences: () => uiTrackPreferences(document.documentElement.lang),
+  // Settings › "Player"'s languages (step 38d3), else the page's (LiveApp sets it): sound in it first.
+  preferences: () => trackPreferences(memory.audioLang(), memory.subtitleLang(), document.documentElement.lang),
   memory: memory.sources,
   trackMemory: memory.tracks,
   // The config's blocklist (step 30c3b): each stream URL, and Tizen's redirect answer, before it opens.
@@ -398,6 +398,8 @@ function startRefreshes(live: Live, guide: Guide, posters: readonly Movies[], se
  */
 function showLive(into: Element, language: Language | null, resume: LastChannel | null = null, restored = false, toSources = false, toGuides = false): void {
   let player: Player | null = null;
+  /** The player: made further down, before any key reaches the live screen (Settings › "Player" uses it, step 38d3). */
+  const livePlayer = (): Player => player!;
   /** The language on show: onboarding's, or the one Settings › "Language" switched to (`null`: the TV's). */
   let shown = language;
   let paint: () => void = () => undefined;
@@ -622,6 +624,19 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
         shown = picked;
         paint();
       },
+    },
+    // "Player" (step 38d3): the languages are the profile's (read at each stream's tracks); the
+    // subtitles' size and the picture go through the player, as its own menus change them.
+    player: {
+      modes: () => livePlayer().pictureModes(),
+      values: () => {
+        const made = livePlayer();
+        return { audio: memory.audioLang(), subtitles: memory.subtitleLang(), size: made.menu.size.value, picture: made.picture.value };
+      },
+      setAudio: (lang) => memory.setAudioLang(lang),
+      setSubtitles: (lang) => memory.setSubtitleLang(lang),
+      setSize: (size) => livePlayer().setSubtitleSize(size),
+      setPicture: (mode) => livePlayer().setPicture(mode),
     },
     // A login given again (step 32d4b): the source's own refresh with the schedule held (the
     // schedule keeps a refused `needs-login` for 2 h, and `refreshNow` reads only the guides), then

@@ -17,6 +17,8 @@ import type { SubtitleSize } from './track-menu';
  * - `tracks` to the controller: each content's track choice and subtitle timing (`TrackMemory`);
  * - the last channel (the start plays it), the subtitle size and the picture's mode (step
  *   20c2b), to the app;
+ * - the audio and subtitle languages Settings › "Player" chose (step 38d3), to the player's
+ *   preferences (`trackPreferences`);
  * - the channels played last (step 28b2, the profile's `channels`, version 7), to Home: the
  *   query worker puts each new last channel first in the same write, and `tuned` does the same
  *   here.
@@ -50,6 +52,21 @@ export interface PlayerMemory {
   /** The picture's mode for every channel (`null`: never set). */
   picture(): PictureMode | null;
   setPicture(mode: PictureMode): void;
+  /** The audio language chosen in Settings › "Player" (step 38d3; `null`: the app's). */
+  audioLang(): TrackLang | null;
+  setAudioLang(lang: TrackLang | null): void;
+  /** The subtitles' language chosen there (`null`: none turned on). */
+  subtitleLang(): TrackLang | null;
+  setSubtitleLang(lang: TrackLang | null): void;
+}
+
+/** A track language Settings › "Player" offers (step 38d3): the app's two. */
+export type TrackLang = 'ar' | 'en';
+export const TRACK_LANGS: readonly TrackLang[] = ['ar', 'en'];
+
+/** A stored value as a track language, or `null` when it isn't one. */
+function asTrackLang(value: unknown): TrackLang | null {
+  return TRACK_LANGS.indexOf(value as TrackLang) === -1 ? null : (value as TrackLang);
 }
 
 /** The channels played last that are kept (the profile's `MAX_CHANNELS`, step 28b2). */
@@ -168,6 +185,8 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
   let channels: readonly LastChannel[] = [];
   let size: SubtitleSize | null = null;
   let picture: PictureMode | null = null;
+  let audioLang: TrackLang | null = null;
+  let subtitleLang: TrackLang | null = null;
 
   const write = (change: PlayerChange): void => {
     options.edit({ kind: 'player', change }).catch((error: unknown) => console.warn('The player memory was not saved', error));
@@ -243,6 +262,8 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
       const storedSize = doc['subtitleSize'];
       size = SIZES.indexOf(storedSize as SubtitleSize) !== -1 ? (storedSize as SubtitleSize) : null;
       picture = asPictureMode(doc['picture']);
+      audioLang = asTrackLang(doc['audioLang']);
+      subtitleLang = asTrackLang(doc['subtitleLang']);
       last = lastChannelOf(profile);
       channels = recentChannelsOf(profile);
     },
@@ -265,6 +286,18 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
       if (next === picture) return;
       picture = next;
       write({ field: 'picture', mode: next });
+    },
+    audioLang: () => audioLang,
+    setAudioLang(next: TrackLang | null): void {
+      if (next === audioLang) return;
+      audioLang = next;
+      write({ field: 'audioLang', lang: next });
+    },
+    subtitleLang: () => subtitleLang,
+    setSubtitleLang(next: TrackLang | null): void {
+      if (next === subtitleLang) return;
+      subtitleLang = next;
+      write({ field: 'subtitleLang', lang: next });
     },
   };
 }

@@ -39,8 +39,8 @@ const ACCOUNT_TEXT: Readonly<Record<string, MessageKey>> = {
   'PRV-MAX-CONNECTIONS': 'player.account.full',
 };
 
-/** Each picture mode's name on the info bar's "Picture" button (step 20c2b). */
-const PICTURE_TEXT: Readonly<Record<PictureMode, MessageKey>> = {
+/** Each picture mode's name on the info bar's "Picture" button (step 20c2b), and on Settings › "Player" (step 38d3). */
+export const PICTURE_TEXT: Readonly<Record<PictureMode, MessageKey>> = {
   fit: 'player.picture.fit',
   zoom: 'player.picture.zoom',
   stretch: 'player.picture.stretch',
@@ -418,6 +418,7 @@ export function PlayerScreen({ live, player, i18n, over = null }: { live: Live; 
       data-pending={live.pending.value}
       data-menu={String(menu !== null)}
       data-subtitles={subtitles.feed ?? ''}
+      data-subtitle-size={player.menu.size.value}
       data-stats={String(stats)}
       data-picture={player.picture.value}
       data-archive={archive === null ? '' : archive.start}

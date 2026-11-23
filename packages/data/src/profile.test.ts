@@ -728,6 +728,32 @@ describe('applyProfileEdit: what the player keeps (step 20c1)', () => {
     expect(before.player.picture).toBeUndefined();
   });
 
+  it('keeps the track languages in a document without them (step 38d3, no migration): null takes one away; the same value changes nothing', () => {
+    const before = emptyProfile();
+    expect('audioLang' in before.player || 'subtitleLang' in before.player).toBe(false);
+    // Nothing to take away.
+    expect(player(before, { field: 'audioLang', lang: null })).toBeNull();
+    expect(player(before, { field: 'subtitleLang', lang: null })).toBeNull();
+    const ar = player(before, { field: 'audioLang', lang: 'ar' })!;
+    expect(ar.v).toBe(PROFILE_VERSION);
+    expect(ar.player).toEqual({ ...before.player, audioLang: 'ar' });
+    expect(player(ar, { field: 'audioLang', lang: 'ar' })).toBeNull();
+    const both = player(ar, { field: 'subtitleLang', lang: 'en' })!;
+    expect(both.player).toEqual({ ...before.player, audioLang: 'ar', subtitleLang: 'en' });
+    expect(player(both, { field: 'subtitleLang', lang: 'en' })).toBeNull();
+    expect(player(both, { field: 'audioLang', lang: 'en' })!.player).toMatchObject({ audioLang: 'en', subtitleLang: 'en' });
+    // Taken away, the field is gone, the other one kept.
+    const noAudio = player(both, { field: 'audioLang', lang: null })!;
+    expect('audioLang' in noAudio.player).toBe(false);
+    expect(noAudio.player.subtitleLang).toBe('en');
+    const none = player(noAudio, { field: 'subtitleLang', lang: null })!;
+    expect('subtitleLang' in none.player).toBe(false);
+    expect(none.player).toEqual(before.player);
+    // The documents before are left as they were.
+    expect(both.player).toEqual({ ...before.player, audioLang: 'ar', subtitleLang: 'en' });
+    expect(before.player.audioLang).toBeUndefined();
+  });
+
   it("keeps each content's track choice, dropping the one changed longest ago past the cap", () => {
     let doc = emptyProfile();
     for (let i = 0; i < MAX_TRACK_CHOICES; i++) doc = player(doc, { field: 'track', key: `k${i}`, choice: choice('ar', 1000 - i) })!;

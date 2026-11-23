@@ -20,6 +20,8 @@ import { MAPPING_SCREEN } from './mapping-state';
 import { MappingReading } from '../guide/MappingReading';
 import { MappingPage } from './MappingPage';
 import { PARENTAL_SCREENS } from './parental-page';
+import { PLAYER_SETTINGS_SCREEN } from './player-settings';
+import { PlayerSettingsPage } from './PlayerSettingsPage';
 import { CHECK_SCREEN } from './pin-check';
 import { ParentalPageScreen } from './ParentalPage';
 import type { Settings, SettingsItem } from './settings-state';
@@ -424,6 +426,7 @@ interface PageProps {
 export function itemText(t: Translate, id: SettingsItem): { name: string; hint: string } {
   if (id === 'language') return { name: t('settings.language'), hint: languageLine() };
   if (id === 'parental') return { name: t('settings.parental'), hint: t('settings.parentalHint') };
+  if (id === 'player') return { name: t('settings.player'), hint: t('settings.playerHint') };
   if (id === 'report') return { name: t('settings.report'), hint: t('settings.reportHint') };
   if (id === 'groups') return { name: t('settings.groups'), hint: t('settings.groupsHint') };
   if (id === 'channels') return { name: t('settings.channels'), hint: t('settings.channelsHint') };
@@ -915,6 +918,7 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       {onEdited && <EditedPage i18n={i18n} binding={binding} focus={focus} settings={settings} />}
       {parental !== null && PARENTAL_SCREENS.indexOf(focus.screen) !== -1 && <ParentalPageScreen i18n={i18n} binding={binding} focus={focus} page={parental} />}
       {parental !== null && focus.screen === CHECK_SCREEN && checking !== null && <LoginDialog i18n={i18n} binding={binding} form={parental.check.form} source={checking} />}
+      {settings.player !== null && focus.screen === PLAYER_SETTINGS_SCREEN && <PlayerSettingsPage i18n={i18n} binding={binding} page={settings.player} />}
     </main>
   );
 }

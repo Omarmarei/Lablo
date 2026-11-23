@@ -1162,7 +1162,7 @@ describe('the settings screen', () => {
       telemetry: { engine: switchEngine, setOn },
     });
     expect(both.items).toEqual(['sources', 'guides', 'groups', 'channels', 'backup', 'telemetry']);
-    expect(SETTINGS_ITEMS).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'language', 'backup', 'telemetry', 'report']);
+    expect(SETTINGS_ITEMS).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'player', 'language', 'backup', 'telemetry', 'report']);
     both.dispose();
   });
 
@@ -1246,6 +1246,68 @@ describe('the settings screen', () => {
     fewer.dispose();
   });
 
+  it('lists "Player" (step 38d3) between "Parental control" and "Language" with main’s values: OK opens its page on them, Back returns to the row', async () => {
+    const t = setup();
+    const calls: string[] = [];
+    const player = {
+      modes: vi.fn(() => {
+        calls.push('modes');
+        return ['fit', 'stretch', '4:3'] as const;
+      }),
+      values: vi.fn(() => {
+        calls.push('values');
+        return { audio: 'ar' as const, subtitles: null, size: 'l' as const, picture: 'stretch' as const };
+      }),
+      setAudio: vi.fn(),
+      setSubtitles: vi.fn(),
+      setSize: vi.fn(),
+      setPicture: vi.fn(),
+    };
+    const settings = createSettings({
+      nav: t.nav,
+      engine: t.engine,
+      refreshNow: t.refresh.refreshNow,
+      offsetChanged: t.offsetChanged,
+      platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+      backup: { engine: {} as unknown as BackupPageEngine, host: { schedule: { held: signal(false), last: signal(null) } } as unknown as BackupPageHost },
+      telemetry: { engine: { profile: vi.fn(() => Promise.resolve(null)), editProfile: vi.fn() }, setOn: vi.fn() },
+      report: { send: vi.fn() },
+      pad: { ask: vi.fn(), choose: vi.fn() },
+      language: { current: vi.fn(() => 'en' as const), set: vi.fn() },
+      player,
+    });
+    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'player', 'language', 'backup', 'telemetry', 'report']);
+    settings.open();
+    expect(t.nav.top.zone('items')).toMatchObject({ count: 10, visible: 7 });
+    // Nothing read before the page opens (its modes make the player's controller).
+    expect(calls).toEqual([]);
+    for (let i = 0; i < 5; i += 1) await t.press('DOWN');
+    expect(t.at()).toBe('settings · items 5');
+    await t.press('OK');
+    expect(t.at()).toBe('player-settings · rows 0');
+    // The modes first, then the values.
+    expect(calls).toEqual(['modes', 'values']);
+    const page = settings.player!;
+    expect([page.audio.value, page.subtitles.value, page.size.value, page.picture.value]).toEqual(['ar', null, 'l', 'stretch']);
+    expect(page.modes.value).toEqual(['fit', 'stretch', '4:3']);
+    await t.press('BACK');
+    expect(t.at()).toBe('settings · items 5');
+    // Without main's values: no row, "Language" after "Parental control".
+    const fewer = createSettings({
+      nav: t.nav,
+      engine: t.engine,
+      refreshNow: t.refresh.refreshNow,
+      offsetChanged: t.offsetChanged,
+      platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+      pad: { ask: vi.fn(), choose: vi.fn() },
+      language: { current: vi.fn(() => 'en' as const), set: vi.fn() },
+    });
+    expect(fewer.player).toBeNull();
+    expect(fewer.items).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'language']);
+    settings.dispose();
+    fewer.dispose();
+  });
+
   it('lists "Send a report to support" (step 33d2) last: OK sends in place, and each opening clears its answer', async () => {
     const t = setup();
     const sends: ((result: DiagSendResult) => void)[] = [];
@@ -1289,8 +1351,8 @@ describe('the settings screen', () => {
       offsetChanged: t.offsetChanged,
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
     });
-    expect(SETTINGS_ITEMS).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'language', 'backup', 'telemetry', 'report']);
-    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'backup', 'backup-confirm', 'groups', 'group-menu', 'group-rename', 'group-delete', 'group-channels', 'group-channel-menu', 'channels', 'channel-edit', 'channel-rename', 'channel-number', 'parental', 'locked-groups', 'pin-pick', 'pin-check', 'pin-none', 'language']);
+    expect(SETTINGS_ITEMS).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'player', 'language', 'backup', 'telemetry', 'report']);
+    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'backup', 'backup-confirm', 'groups', 'group-menu', 'group-rename', 'group-delete', 'group-channels', 'group-channel-menu', 'channels', 'channel-edit', 'channel-rename', 'channel-number', 'parental', 'locked-groups', 'pin-pick', 'pin-check', 'pin-none', 'player-settings', 'language']);
     // Without a backup page (step 32d2b) there is no "Backup" row, nor without a switch "Usage and crash reports" (step 33b3).
     expect(settings.backup).toBeNull();
     expect(settings.telemetry).toBeNull();
@@ -1298,6 +1360,8 @@ describe('the settings screen', () => {
     expect(settings.report).toBeNull();
     expect(settings.parental).toBeNull();
     expect(settings.language).toBeNull();
+    // Nor without main's values "Player" (step 38d3).
+    expect(settings.player).toBeNull();
     expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels']);
     settings.open();
     expect(t.at()).toBe('settings · items 0');
