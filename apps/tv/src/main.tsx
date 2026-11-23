@@ -392,10 +392,15 @@ function startRefreshes(live: Live, guide: Guide, posters: readonly Movies[], se
  * `restored` (step 32c2): the profile has just come back from a backup, with none of its catalogs:
  * the refresh schedule's first check comes at once. `toSources` (step 32d4b): a restored source
  * needs its login again, so Settings › Sources opens over the live screen; `toGuides` (step
- * 32d4c): else a guide of the user's needs its link, so Settings › TV guides does.
+ * 32d4c): else a guide of the user's needs its link, so Settings › TV guides does. Settings ›
+ * "Language" (step 38d2) switches the language in place: the profile's answer, then the live
+ * screen painted again in it.
  */
 function showLive(into: Element, language: Language | null, resume: LastChannel | null = null, restored = false, toSources = false, toGuides = false): void {
   let player: Player | null = null;
+  /** The language on show: onboarding's, or the one Settings › "Language" switched to (`null`: the TV's). */
+  let shown = language;
+  let paint: () => void = () => undefined;
   const readFacts = (): void => {
     dataEngine()
       .sourceFacts()
@@ -605,6 +610,19 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       home.catalogChanged();
     },
     lifecycle: (listener) => platform.onLifecycle(listener),
+    // "Language" (step 38d2): the page's language (LiveApp sets it; en-XA reads `en`); a switch
+    // writes onboarding's answer (best effort: a write that fails leaves the next start in the old
+    // language), then the live screen paints again in the new one, Settings included.
+    language: {
+      current: () => (normalizeLang(document.documentElement.lang) === 'ar' ? 'ar' : 'en'),
+      set: (picked) => {
+        dataEngine()
+          .editProfile(answerEdit({ language: picked }))
+          .catch((error: unknown) => console.warn('The language was not saved', error));
+        shown = picked;
+        paint();
+      },
+    },
     // A login given again (step 32d4b): the source's own refresh with the schedule held (the
     // schedule keeps a refused `needs-login` for 2 h, and `refreshNow` reads only the guides), then
     // its guides at once and the screens.
@@ -709,7 +727,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       );
   }
   showFocus(live.nav);
-  render(<LiveApp platform={platform} live={live} language={language} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} home={home} parental={parental} />, into);
+  paint = () => render(<LiveApp platform={platform} live={live} language={shown} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} home={home} parental={parental} />, into);
+  paint();
   startRefreshes(live, guide, [movies, series], search, home, readFacts, restored ? 0 : undefined);
   backup.start();
   telemetry.start();

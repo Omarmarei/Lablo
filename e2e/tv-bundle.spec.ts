@@ -8,7 +8,7 @@ import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { ARABIC_FACE, LATIN_FACE, TITLE_FONTS, renderedFonts, renderedFontsUnder } from './fonts';
 import { TV_KEYS } from '../tools/engines/src/live';
 import { RemoteDriver } from './remote-driver';
-import { SETTINGS_FIRST } from './settings-rows';
+import { SETTINGS_FIRST, settingsRow, toSettingsRow } from './settings-rows';
 
 /**
  * Boots the built TV bundles (pnpm build:tv) from file://, the way a packaged TV app loads,
@@ -177,7 +177,7 @@ for (const platform of ['tizen', 'webos'] as const) {
     expect(errors).toEqual([]);
   });
 
-  test(`the ${platform} bundle starts on onboarding from file://, types into a field by remote keys, and loads settings.js on the first open of Settings (step 35e)`, async ({ page }) => {
+  test(`the ${platform} bundle starts on onboarding from file://, types into a field by remote keys, loads settings.js on the first open of Settings (step 35e) and switches to Arabic there (step 38d2)`, async ({ page }) => {
     expect(existsSync(path.join(DIST, platform, 'index.html')), `${DIST} is missing: run pnpm build:tv before pnpm e2e`).toBe(true);
     // A copy of the store build: its settings.js is taken away for a while.
     const copy = test.info().outputPath(platform);
@@ -260,6 +260,17 @@ for (const platform of ['tizen', 'webos'] as const) {
     await remote.expectFocus('live/header/5');
     await remote.go('OK', SETTINGS_FIRST);
     expect(await page.evaluate(() => document.querySelectorAll('script[src="settings.js"]').length)).toBe(0);
+    // Settings › "Language" (step 38d2): the built bundle switches to Arabic in place, the live screen too.
+    await toSettingsRow(remote, 'language');
+    await remote.go('OK', 'language/languages/0');
+    await remote.go('RIGHT', 'language/languages/1');
+    await remote.go('OK', settingsRow('language'));
+    await expect(page.getByTestId('settings-screen')).toHaveAttribute('data-language', 'ar');
+    await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+    await pressBack(page, platform);
+    await remote.expectFocus('live/header/5');
+    await expect(page.getByTestId('live')).toHaveAttribute('data-language', 'ar');
+    await expect(page.getByTestId('live')).toHaveAttribute('data-dir', 'rtl');
     await expect(page.locator('#boot-error')).toBeHidden();
     expect(errors).toEqual([]);
   });

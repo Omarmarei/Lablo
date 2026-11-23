@@ -13,6 +13,8 @@ import type { EditedChannels } from './edited-channels';
 import { CHANNELS_SCREEN, createEditedChannels } from './edited-channels';
 import type { Groups, GroupsEngine } from './groups-state';
 import { GROUP_SCREENS, createGroups } from './groups-state';
+import type { LanguageChoice, LanguageOptions } from './language-choice';
+import { LANGUAGE_SCREEN, createLanguageChoice } from './language-choice';
 import type { Guides, GuidesEngine, GuidesOptions } from './guides-state';
 import { createGuides } from './guides-state';
 import type { Mapping, MappingEngine } from './mapping-state';
@@ -44,9 +46,10 @@ import { createUnmatchedList } from './unmatched-state';
  * delete, a list's channels, step 35d: `groups-state.ts`) and "Channels" ("Clean channel names" and the
  * channels the user changed, step 36c: `edited-channels.ts`, its menu `channel-edit.ts`, which the
  * info bar's pencil opens over the player too) and "Parental control" (the PIN, "Lock adult
- * groups" and "Locked groups", step 38c1: `parental-page.ts`). The rows scroll, seven in view
- * (step 38c1), in the order of `settings-items.ts` (step 38d1: Sources first; the rows above are
- * told in the order the steps built them); steps 38d2 and 38d3 add "Language" and "Player".
+ * groups" and "Locked groups", step 38c1: `parental-page.ts`) and "Language" (a dialog of the
+ * languages, step 38d2: `language-choice.ts`). The rows scroll, seven in view (step 38c1), in the
+ * order of `settings-items.ts` (step 38d1: Sources first; the rows above are told in the order the
+ * steps built them); step 38d3 adds "Player".
  * Back closes it.
  */
 
@@ -75,7 +78,7 @@ export const SETTINGS_SCREENS: readonly string[] = [
   LOGIN_SCREEN,
   BACKUP_SCREEN,
   BACKUP_CONFIRM,
-].concat(GROUP_SCREENS, [CHANNELS_SCREEN], EDIT_SCREENS, PARENTAL_SCREENS);
+].concat(GROUP_SCREENS, [CHANNELS_SCREEN], EDIT_SCREENS, PARENTAL_SCREENS, [LANGUAGE_SCREEN]);
 
 export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | 'engine'> {
   readonly nav: Navigator;
@@ -102,6 +105,8 @@ export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | '
   readonly locksChanged?: () => void;
   /** The platform's lifecycle: "Parental control" asks the PIN again after the app was hidden. */
   readonly lifecycle?: (listener: (event: LifecycleEvent) => void) => () => void;
+  /** The app's language (step 38d2, main's switch); without it there is no "Language" row. */
+  readonly language?: LanguageOptions;
 }
 
 export interface Settings {
@@ -128,7 +133,9 @@ export interface Settings {
   readonly channels: EditedChannels;
   /** "Parental control" (step 38c1), when the app gives the PIN pad. */
   readonly parental: ParentalPage | null;
-  /** The settings screen's rows: `SETTINGS_ITEMS`, "Backup" only with its page, "Usage and crash reports" only with its switch, "Send a report to support" only with its send, "Parental control" only with the pad. */
+  /** "Language" (step 38d2), when the app gives its switch. */
+  readonly language: LanguageChoice | null;
+  /** The settings screen's rows: `SETTINGS_ITEMS`, "Backup" only with its page, "Usage and crash reports" only with its switch, "Send a report to support" only with its send, "Parental control" only with the pad, "Language" only with the switch. */
   readonly items: readonly SettingsItem[];
   /** Opens the settings screen. */
   open(): void;
@@ -179,8 +186,14 @@ export function createSettings(options: SettingsOptions): Settings {
     pad === undefined
       ? null
       : createParentalPage({ nav, engine: options.engine, pad, changed: options.locksChanged, lifecycle: options.lifecycle, platform: options.platform, find: options.find, now: options.now, phone });
+  const language = options.language === undefined ? null : createLanguageChoice(nav, options.language);
   const items = SETTINGS_ITEMS.filter(
-    (item) => (item !== 'backup' || backup !== null) && (item !== 'telemetry' || telemetry !== null) && (item !== 'report' || report !== null) && (item !== 'parental' || parental !== null),
+    (item) =>
+      (item !== 'backup' || backup !== null) &&
+      (item !== 'telemetry' || telemetry !== null) &&
+      (item !== 'report' || report !== null) &&
+      (item !== 'parental' || parental !== null) &&
+      (item !== 'language' || language !== null),
   );
   const open = (): void => {
     nav.push({
@@ -196,6 +209,7 @@ export function createSettings(options: SettingsOptions): Settings {
         else if (item === 'groups') groups.open();
         else if (item === 'channels') channels.open();
         else if (item === 'parental') parental?.open();
+        else if (item === 'language') language?.open();
       },
     });
     // The usage reports' row shows the stored switch, read again at each opening.
@@ -216,6 +230,7 @@ export function createSettings(options: SettingsOptions): Settings {
     channel,
     channels,
     parental,
+    language,
     items,
     open,
     openSources(): void {

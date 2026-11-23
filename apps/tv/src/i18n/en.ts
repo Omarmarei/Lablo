@@ -655,6 +655,9 @@ export const EN = {
   'parental.ok': 'OK',
   'settings.parental': 'Parental control',
   'settings.parentalHint': 'Your PIN, and the groups and channels it locks',
+  // Settings › "Language" (step 38d2): its line and its buttons are each language's own name (`LANGUAGE_NAMES`).
+  'settings.language': 'Language',
+  'settings.languageBody': 'Menus and buttons change at once. Channel and programme names stay as your provider sends them.',
   'parental.change': 'Change the PIN',
   'parental.changeHint': 'Your PIN opens locked groups and this page',
   'parental.changed': 'PIN changed.',

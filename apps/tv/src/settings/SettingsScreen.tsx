@@ -12,6 +12,8 @@ import { EditedPage } from './ChannelEditPage';
 import { CHANNELS_SCREEN } from './edited-channels';
 import { CHANNEL_MENU, GROUP_CHANNELS, GROUP_SCREENS } from './groups-state';
 import { ChannelsPage, GroupsPage } from './GroupsPage';
+import { LANGUAGE_SCREEN } from './language-choice';
+import { LanguageDialog, languageLine, languageNames } from './LanguageDialog';
 import type { AddProblem, GuideAction, GuideRow, GuideState, Guides, GuidesMenu, OffsetChooser } from './guides-state';
 import { ADD_CANCEL, ADD_CONFIRM, GUIDES, HEADER_ADD, HEADER_UNMATCHED, LINK_FIELD_ID, OFFSETS, guideState, summaryOf } from './guides-state';
 import { MAPPING_SCREEN } from './mapping-state';
@@ -418,8 +420,9 @@ interface PageProps {
   readonly focus: Focus;
 }
 
-/** A settings row's name and the line under it (the usage reports' line while on, `telemetryText`). */
+/** A settings row's name and the line under it (the usage reports' line while on, `telemetryText`; "Language"'s: the languages' own names). */
 export function itemText(t: Translate, id: SettingsItem): { name: string; hint: string } {
+  if (id === 'language') return { name: t('settings.language'), hint: languageLine() };
   if (id === 'parental') return { name: t('settings.parental'), hint: t('settings.parentalHint') };
   if (id === 'report') return { name: t('settings.report'), hint: t('settings.reportHint') };
   if (id === 'groups') return { name: t('settings.groups'), hint: t('settings.groupsHint') };
@@ -551,7 +554,8 @@ export function SettingsView({
           return (
             <div key={id} class={rowClass('settings__row', binding)} role="menuitem" data-testid={`settings-${id}`} data-state={binding.state} onMouseMove={binding.onHover} onClick={binding.onPress}>
               <span class="settings__name">{text.name}</span>
-              <span class="settings__hint">{text.hint}</span>
+              {/* "Language" (step 38d2): each language's own name in its language and direction. */}
+              <span class="settings__hint">{id === 'language' ? languageNames() : text.hint}</span>
             </div>
           );
         })}
@@ -560,8 +564,9 @@ export function SettingsView({
   );
 }
 
-function SettingsPage({ i18n, binding, list, telemetry, report }: PageProps & { list: readonly SettingsItem[]; telemetry: TelemetrySwitch | null; report: ReportRow | null }) {
-  const items = useZone(binding, binding.nav.top, 'items');
+/** The settings' list: on top, or under "Language"'s dialog (`screen`, step 38d2). */
+function SettingsPage({ i18n, binding, list, telemetry, report, screen }: Omit<PageProps, 'focus'> & { list: readonly SettingsItem[]; telemetry: TelemetrySwitch | null; report: ReportRow | null; screen: Screen }) {
+  const items = useZone(binding, screen, 'items');
   return <SettingsView i18n={i18n} list={list} item={(i) => items.item(i)} telemetry={telemetry} report={report} top={items.position.top} />;
 }
 
@@ -878,6 +883,11 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
   const onEdited = focus.screen === CHANNELS_SCREEN || (EDIT_SCREENS.indexOf(focus.screen) !== -1 && !settings.channel.over.value);
   const parental = settings.parental;
   const checking = parental === null ? null : parental.check.form.source.value;
+  // "Language"'s dialog (step 38d2) over the settings' list.
+  const language = settings.language;
+  const underLanguage = language === null || focus.screen !== LANGUAGE_SCREEN ? null : language.under.value;
+  // (One slot for the list either way: the dialog's opening keeps it mounted.)
+  const listScreen = focus.screen === 'settings' ? binding.nav.top : underLanguage;
   return (
     <main
       class="settings"
@@ -892,7 +902,8 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       data-pointer={String(focus.pointer)}
       data-dir={focus.dir}
     >
-      {focus.screen === 'settings' && <SettingsPage i18n={i18n} binding={binding} focus={focus} list={settings.items} telemetry={settings.telemetry} report={settings.report} />}
+      {listScreen !== null && <SettingsPage i18n={i18n} binding={binding} list={settings.items} telemetry={settings.telemetry} report={settings.report} screen={listScreen} />}
+      {underLanguage !== null && language !== null && <LanguageDialog i18n={i18n} binding={binding} languages={language.languages} />}
       {onGuides && <GuidesPage i18n={i18n} binding={binding} focus={focus} guides={guides} />}
       {focus.screen === 'unmatched' && <UnmatchedPage i18n={i18n} binding={binding} list={settings.unmatched} reading={mapping.reading.value} />}
       {focus.screen === MAPPING_SCREEN && <MappingPage i18n={i18n} binding={binding} mapping={mapping} />}

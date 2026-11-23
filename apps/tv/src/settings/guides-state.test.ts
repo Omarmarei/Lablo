@@ -1162,7 +1162,7 @@ describe('the settings screen', () => {
       telemetry: { engine: switchEngine, setOn },
     });
     expect(both.items).toEqual(['sources', 'guides', 'groups', 'channels', 'backup', 'telemetry']);
-    expect(SETTINGS_ITEMS).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'backup', 'telemetry', 'report']);
+    expect(SETTINGS_ITEMS).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'language', 'backup', 'telemetry', 'report']);
     both.dispose();
   });
 
@@ -1198,6 +1198,52 @@ describe('the settings screen', () => {
     expect(t.at()).toBe('settings · items 7');
     expect(t.nav.top.position('items').top).toBe(1);
     settings.dispose();
+  });
+
+  it('lists "Language" (step 38d2) after "Parental control" with main’s switch: OK opens its dialog, Back returns to the row', async () => {
+    const t = setup();
+    const language = { current: vi.fn(() => 'ar' as const), set: vi.fn() };
+    const settings = createSettings({
+      nav: t.nav,
+      engine: t.engine,
+      refreshNow: t.refresh.refreshNow,
+      offsetChanged: t.offsetChanged,
+      platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+      backup: { engine: {} as unknown as BackupPageEngine, host: { schedule: { held: signal(false), last: signal(null) } } as unknown as BackupPageHost },
+      telemetry: { engine: { profile: vi.fn(() => Promise.resolve(null)), editProfile: vi.fn() }, setOn: vi.fn() },
+      report: { send: vi.fn() },
+      pad: { ask: vi.fn(), choose: vi.fn() },
+      language,
+    });
+    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'language', 'backup', 'telemetry', 'report']);
+    expect(settings.language).not.toBeNull();
+    settings.open();
+    expect(t.nav.top.zone('items')).toMatchObject({ count: 9, visible: 7 });
+    for (let i = 0; i < 5; i += 1) await t.press('DOWN');
+    expect(t.at()).toBe('settings · items 5');
+    await t.press('OK');
+    expect(t.at()).toBe('language · languages 1');
+    expect(settings.language!.under.value?.id).toBe('settings');
+    await t.press('BACK');
+    expect(t.at()).toBe('settings · items 5');
+    expect(language.set).not.toHaveBeenCalled();
+    // OK on English (left of Arabic in this left-to-right test): closed on the row, then main switches.
+    await t.press('OK', 'LEFT', 'OK');
+    expect(language.set).toHaveBeenCalledWith('en');
+    expect(t.at()).toBe('settings · items 5');
+    settings.dispose();
+
+    // Without the pad: after "Channels".
+    const fewer = createSettings({
+      nav: t.nav,
+      engine: t.engine,
+      refreshNow: t.refresh.refreshNow,
+      offsetChanged: t.offsetChanged,
+      platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+      language,
+    });
+    expect(fewer.items).toEqual(['sources', 'guides', 'groups', 'channels', 'language']);
+    fewer.dispose();
   });
 
   it('lists "Send a report to support" (step 33d2) last: OK sends in place, and each opening clears its answer', async () => {
@@ -1243,14 +1289,15 @@ describe('the settings screen', () => {
       offsetChanged: t.offsetChanged,
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
     });
-    expect(SETTINGS_ITEMS).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'backup', 'telemetry', 'report']);
-    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'backup', 'backup-confirm', 'groups', 'group-menu', 'group-rename', 'group-delete', 'group-channels', 'group-channel-menu', 'channels', 'channel-edit', 'channel-rename', 'channel-number', 'parental', 'locked-groups', 'pin-pick', 'pin-check', 'pin-none']);
+    expect(SETTINGS_ITEMS).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'language', 'backup', 'telemetry', 'report']);
+    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'backup', 'backup-confirm', 'groups', 'group-menu', 'group-rename', 'group-delete', 'group-channels', 'group-channel-menu', 'channels', 'channel-edit', 'channel-rename', 'channel-number', 'parental', 'locked-groups', 'pin-pick', 'pin-check', 'pin-none', 'language']);
     // Without a backup page (step 32d2b) there is no "Backup" row, nor without a switch "Usage and crash reports" (step 33b3).
     expect(settings.backup).toBeNull();
     expect(settings.telemetry).toBeNull();
-    // Nor without its send "Send a report to support" (step 33d2), nor without the PIN pad "Parental control" (step 38c1).
+    // Nor without its send "Send a report to support" (step 33d2), nor without the PIN pad "Parental control" (step 38c1), nor without main's switch "Language" (step 38d2).
     expect(settings.report).toBeNull();
     expect(settings.parental).toBeNull();
+    expect(settings.language).toBeNull();
     expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels']);
     settings.open();
     expect(t.at()).toBe('settings · items 0');
