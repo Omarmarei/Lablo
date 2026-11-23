@@ -7,6 +7,7 @@ import type { ConfigServer } from './config-server';
 import { doc, startConfigServer } from './config-server';
 import { addM3uAndWatch, settled, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
+import { SETTINGS_FIRST, fromSettingsRow, settingsRow, toSettingsRow } from './settings-rows';
 
 /**
  * The screens 32d4b added, in the pseudo-locale (en-XA: every string of ours bracketed and
@@ -111,40 +112,37 @@ test('shows the logins row, "Welcome back"’s line, the sources row and its for
     // Settings › Backup: the second row, its line.
     await remote.go('UP', 'live/header/0');
     for (let i = 1; i <= 5; i += 1) await remote.go('RIGHT', `live/header/${i}`);
-    await remote.go('OK', 'settings/items/0');
+    await remote.go('OK', SETTINGS_FIRST);
     const settings = page.getByTestId('settings-screen');
     await expect(settings).toHaveAttribute('data-language', 'pseudo');
-    await remote.go('DOWN', 'settings/items/1');
-    await remote.go('DOWN', 'settings/items/2');
-    // Settings' fourth row (step 33b3): "Usage and crash reports" on, then off, then on again.
-    await remote.go('DOWN', 'settings/items/3');
+    // Settings' "Usage and crash reports" row (step 33b3): on, then off, then on again.
+    await toSettingsRow(remote, 'telemetry');
     const reports = page.getByTestId('settings-telemetry');
     await expect(reports).toHaveAttribute('data-value', 'true');
     await settled(settings, 20_000);
     expect(await unbracketed(page, '[data-testid=settings-screen]')).toEqual([]);
     expect(await cut(page, '[data-testid=settings-screen]')).toEqual([]);
     await shoot(page, 'telemetry-row-en-XA');
-    await remote.go('OK', 'settings/items/3');
+    await remote.go('OK', settingsRow('telemetry'));
     await expect(reports).toHaveAttribute('data-value', 'false');
     await settled(settings, 20_000);
     expect(await unbracketed(page, '[data-testid=settings-screen]')).toEqual([]);
     expect(await cut(page, '[data-testid=settings-screen]')).toEqual([]);
     await shoot(page, 'telemetry-row-off-en-XA');
-    await remote.go('OK', 'settings/items/3');
+    await remote.go('OK', settingsRow('telemetry'));
     await expect(reports).toHaveAttribute('data-value', 'true');
     await settled(settings, 20_000);
-    // Settings' fifth row (step 33d2): "Send a report to support", then its code (data: not bracketed).
-    await remote.go('DOWN', 'settings/items/4');
+    // Settings' "Send a report to support" row (step 33d2), then its code (data: not bracketed).
+    await fromSettingsRow(remote, 'telemetry', 'report');
     expect(await unbracketed(page, '[data-testid=settings-screen]')).toEqual([]);
     expect(await cut(page, '[data-testid=settings-screen]')).toEqual([]);
-    await remote.go('OK', 'settings/items/4');
+    await remote.go('OK', settingsRow('report'));
     await expect(page.getByTestId('settings-report')).toHaveAttribute('data-report', 'sent');
     await settled(settings, 20_000);
     expect(await unbracketed(page, '[data-testid=settings-screen]')).toEqual([]);
     expect(await cut(page, '[data-testid=settings-screen]')).toEqual([]);
     await shoot(page, 'report-row-en-XA');
-    await remote.go('UP', 'settings/items/3');
-    await remote.go('UP', 'settings/items/2');
+    await fromSettingsRow(remote, 'report', 'backup');
     await remote.go('OK', 'backup/switch/0');
     await expect(page.getByTestId('backup')).toHaveAttribute('data-status', 'ready');
     await expect(page.getByTestId('backup-logins')).toBeVisible();
@@ -193,8 +191,8 @@ test('shows the logins row, "Welcome back"’s line, the sources row and its for
     await remote.go('BACK', 'sources/sources/0');
 
     // TV guides (step 32d4c): the guide's mark, its menu, its link form with a problem shown.
-    await remote.go('BACK', 'settings/items/1');
-    await remote.go('UP', 'settings/items/0');
+    await remote.go('BACK', settingsRow('sources'));
+    await fromSettingsRow(remote, 'sources', 'guides');
     await remote.go('OK', 'guides/guides/0');
     await expect(page.getByTestId('guides')).toHaveAttribute('data-status', 'ready');
     await expect(page.getByTestId('guide-0')).toHaveAttribute('data-needs', 'true');

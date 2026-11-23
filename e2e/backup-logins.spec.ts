@@ -15,6 +15,7 @@ import { addXtreamAndWatch, settled, startWatching, toSourceTypes, trackErrors, 
 import { playlistOnly } from './playlist-only';
 import { SHOTS, shoot } from './pairing-steps';
 import { RemoteDriver } from './remote-driver';
+import { SETTINGS_FIRST, fromSettingsRow, settingsRow, toSettingsRow } from './settings-rows';
 
 /**
  * "Include logins and links" off, and the way back (RELAY step 32d4b), against the real API: the
@@ -183,13 +184,12 @@ async function typeIn(remote: RemoteDriver, root: Locator, field: string, text: 
   await expect(root).toHaveAttribute('data-editing', '');
 }
 
-/** From the live list: the header's "Settings" (its end: the left in Arabic), then "Backup", the third row. */
+/** From the live list: the header's "Settings" (its end: the left in Arabic), then the "Backup" row. */
 async function openBackupPage(remote: RemoteDriver, rtl: boolean): Promise<Locator> {
   await remote.go('UP', 'live/header/0');
   for (let i = 1; i <= 5; i += 1) await remote.go(rtl ? 'LEFT' : 'RIGHT', `live/header/${i}`);
-  await remote.go('OK', 'settings/items/0');
-  await remote.go('DOWN', 'settings/items/1');
-  await remote.go('DOWN', 'settings/items/2');
+  await remote.go('OK', SETTINGS_FIRST);
+  await toSettingsRow(remote, 'backup');
   await remote.go('OK', 'backup/switch/0');
   const page = remote.page.getByTestId('backup');
   await expect(page).toHaveAttribute('data-status', 'ready');
@@ -322,9 +322,9 @@ for (const language of ['en', 'ar'] as const) {
       expect(leaks(JSON.stringify(given.sources), [P])).toEqual([P]);
 
       // The Arabic playlist's guide (step 32d4c): TV guides, its row marked, its menu's first action, its link given back.
-      await remote.go('BACK', 'settings/items/1');
+      await remote.go('BACK', settingsRow('sources'));
       if (language === 'ar') {
-        await remote.go('UP', 'settings/items/0');
+        await fromSettingsRow(remote, 'sources', 'guides');
         await remote.go('OK', 'guides/guides/0');
         const guides = page.getByTestId('guides');
         await expect(guides).toHaveAttribute('data-status', 'ready');
@@ -351,7 +351,7 @@ for (const language of ['en', 'ar'] as const) {
         await settled(root, 30_000);
         await shoot(page, 'backup-logins-guide-read-ar');
         expect(((await storedDoc(page))!.guides as unknown[])).toEqual([{ id: 's1', url: guideLink() }]);
-        await remote.go('BACK', 'settings/items/0');
+        await remote.go('BACK', settingsRow('guides'));
       }
 
       // Back to the live list: the channels are back.

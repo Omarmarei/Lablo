@@ -8,6 +8,7 @@ import type { ConfigServer } from './config-server';
 import { DIAG_STAND_IN_CODE, doc, startConfigServer } from './config-server';
 import { addM3uAndWatch, settled, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
+import { SETTINGS_FIRST, settingsRow, toSettingsRow } from './settings-rows';
 
 /**
  * Telemetry in the app (RELAY step 33b1), against the stand-in API on the test's config server
@@ -396,15 +397,15 @@ for (const [locale, language] of [
       const before = await telemetryKv(page);
       expect(Object.keys(before).sort()).toEqual(['telemetry.capability', 'telemetry.id', 'telemetry.queue']);
 
-      // Settings: the header's last button (its end: the left in Arabic), then the fourth row.
+      // Settings: the header's last button (its end: the left in Arabic), then the "Usage and crash reports" row.
       const remote = new RemoteDriver(page);
       const side = language === 'ar' ? 'LEFT' : 'RIGHT';
       await remote.go('UP', 'live/header/0');
       for (let i = 1; i <= 5; i += 1) await remote.go(side, `live/header/${i}`);
-      await remote.go('OK', 'settings/items/0');
+      await remote.go('OK', SETTINGS_FIRST);
       const root = page.getByTestId('settings-screen');
       await expect(root).toHaveAttribute('data-language', language);
-      for (let i = 1; i <= 3; i += 1) await remote.go('DOWN', `settings/items/${i}`);
+      await toSettingsRow(remote, 'telemetry');
       const row = page.getByTestId('settings-telemetry');
       const value = page.getByTestId('settings-telemetry-value');
       const hint = page.getByTestId('settings-telemetry-hint');
@@ -418,7 +419,7 @@ for (const [locale, language] of [
       await shoot(page, `telemetry-settings-on-${language}`);
 
       // OK: off in place. The clearing send deletes the queue and the ID, and posts nothing.
-      await remote.go('OK', 'settings/items/3');
+      await remote.go('OK', settingsRow('telemetry'));
       await expect(row).toHaveAttribute('data-value', 'false');
       await settled(root, 20_000);
       await expect(row).toHaveAttribute('data-busy', 'false');
@@ -433,14 +434,14 @@ for (const [locale, language] of [
       expect(server.telemetry.posts).toHaveLength(1);
       await shoot(page, `telemetry-settings-off-${language}`);
 
-      // Read from the profile again at the next opening.
+      // Read from the profile again at the next opening (the row is looked at once the focus is on it: the list scrolls).
       await remote.go('BACK', 'live/header/5');
-      await remote.go('OK', 'settings/items/0');
+      await remote.go('OK', SETTINGS_FIRST);
+      await toSettingsRow(remote, 'telemetry');
       await expect(row).toHaveAttribute('data-value', 'false');
 
       // On again: nothing to send until an event; the next start's events go under a new ID.
-      for (let i = 1; i <= 3; i += 1) await remote.go('DOWN', `settings/items/${i}`);
-      await remote.go('OK', 'settings/items/3');
+      await remote.go('OK', settingsRow('telemetry'));
       await expect(row).toHaveAttribute('data-value', 'true');
       await settled(root);
       expect(await storedSwitch(page)).toBe(true);
@@ -489,15 +490,15 @@ for (const [locale, language] of [
       );
       await expect.poll(() => errors.filter((e) => e.indexOf('e2e-report') !== -1).length).toBe(1);
 
-      // Settings: the header's last button, then the fifth row.
+      // Settings: the header's last button, then the "Send a report to support" row.
       const remote = new RemoteDriver(page);
       const side = language === 'ar' ? 'LEFT' : 'RIGHT';
       await remote.go('UP', 'live/header/0');
       for (let i = 1; i <= 5; i += 1) await remote.go(side, `live/header/${i}`);
-      await remote.go('OK', 'settings/items/0');
+      await remote.go('OK', SETTINGS_FIRST);
       const root = page.getByTestId('settings-screen');
       await expect(root).toHaveAttribute('data-language', language);
-      for (let i = 1; i <= 4; i += 1) await remote.go('DOWN', `settings/items/${i}`);
+      await toSettingsRow(remote, 'report');
       const row = page.getByTestId('settings-report');
       const hint = page.getByTestId('settings-report-hint');
       const code = page.getByTestId('settings-report-code');
@@ -512,13 +513,13 @@ for (const [locale, language] of [
       // The first send fails (503): the row says so; OK again sends, and the code shows.
       server.diag.statuses.push(503);
       const before = Date.now();
-      await remote.go('OK', 'settings/items/4');
+      await remote.go('OK', settingsRow('report'));
       await expect(row).toHaveAttribute('data-report', 'failed');
       await expect(hint).toHaveText(says.failed);
       await expect(hint).toHaveClass(/settings__warn/);
       await expect(code).toHaveCount(0);
       await settled(root);
-      await remote.go('OK', 'settings/items/4');
+      await remote.go('OK', settingsRow('report'));
       await expect(row).toHaveAttribute('data-report', 'sent');
       await expect(code).toHaveText(DIAG_STAND_IN_CODE);
       await expect(code).toHaveAttribute('dir', 'ltr');
@@ -553,9 +554,10 @@ for (const [locale, language] of [
       // The reports are off: no telemetry post meanwhile.
       expect(server.telemetry.posts).toEqual([]);
 
-      // The next opening clears the code.
+      // The next opening clears the code (the row is looked at once the focus is on it: the list scrolls).
       await remote.go('BACK', 'live/header/5');
-      await remote.go('OK', 'settings/items/0');
+      await remote.go('OK', SETTINGS_FIRST);
+      await toSettingsRow(remote, 'report');
       await expect(row).toHaveAttribute('data-report', 'idle');
       await expect(code).toHaveCount(0);
     });

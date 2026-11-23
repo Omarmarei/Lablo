@@ -8,6 +8,7 @@ import { stripIsolates } from '../packages/core/src/bidi';
 import { addXtreamAndWatch, settled, trackErrors } from './onboard';
 import { ADULT_OPEN, restartWith } from './profile-edit';
 import { RemoteDriver } from './remote-driver';
+import { SETTINGS_FIRST, settingsRow, toSettingsRow } from './settings-rows';
 
 /**
  * Match diagnostics (RELAY step 24c) by keys, in English and Arabic: the guides screen's menu on
@@ -130,7 +131,8 @@ async function openGuides(remote: RemoteDriver, locale: string, language: Langua
   await remote.go(language === 'ar' ? 'LEFT' : 'RIGHT', 'live/header/3');
   await remote.go(language === 'ar' ? 'LEFT' : 'RIGHT', 'live/header/4');
   await remote.go(language === 'ar' ? 'LEFT' : 'RIGHT', 'live/header/5');
-  await remote.go('OK', 'settings/items/0');
+  await remote.go('OK', SETTINGS_FIRST);
+  await toSettingsRow(remote, 'guides');
   await remote.go('OK', 'guides/guides/0');
   const root = page.getByTestId('settings-screen');
   await expect(page.getByTestId('guides')).toHaveAttribute('data-status', 'ready');
@@ -326,7 +328,7 @@ test.describe('match diagnostics by keys (pnpm dev, after onboarding)', () => {
       // Back: the header's button, the settings, the live screen.
       await remote.go('BACK', 'guides/header/1');
       await expect(list).toHaveCount(0);
-      await remote.go('BACK', 'settings/items/0');
+      await remote.go('BACK', settingsRow('guides'));
       await remote.go('BACK', 'live/header/5');
       expect(errors).toEqual([]);
     });

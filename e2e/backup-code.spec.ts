@@ -8,6 +8,7 @@ import type { ConfigServer } from './config-server';
 import { doc, startConfigServer } from './config-server';
 import { settled, startWatching, trackErrors, typeInto } from './onboard';
 import { RemoteDriver } from './remote-driver';
+import { SETTINGS_FIRST, toSettingsRow } from './settings-rows';
 
 /**
  * "Restore with a backup code" at the first start (RELAY step 32d3c), against the stand-in API on
@@ -131,13 +132,12 @@ async function retype(remote: RemoteDriver, root: Locator, text: string): Promis
   await remote.expectFocus('restore-code/actions/0');
 }
 
-/** From the live list: the header's "Settings" (its end), then "Backup", the third row. */
+/** From the live list: the header's "Settings" (its end), then the "Backup" row. */
 async function openBackup(remote: RemoteDriver): Promise<Locator> {
   await remote.go('UP', 'live/header/0');
   for (let i = 1; i <= 5; i += 1) await remote.go('RIGHT', `live/header/${i}`);
-  await remote.go('OK', 'settings/items/0');
-  await remote.go('DOWN', 'settings/items/1');
-  await remote.go('DOWN', 'settings/items/2');
+  await remote.go('OK', SETTINGS_FIRST);
+  await toSettingsRow(remote, 'backup');
   await remote.go('OK', 'backup/switch/0');
   const page = remote.page.getByTestId('backup');
   await expect(page).toHaveAttribute('data-status', 'ready');

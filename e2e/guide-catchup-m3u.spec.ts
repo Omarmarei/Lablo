@@ -13,6 +13,7 @@ import { guideOf, ordered } from './live-rows';
 import { addM3uAndWatch, settled, trackErrors } from './onboard';
 import { PLAYLIST_ONLY_RULE } from './playlist-only';
 import { RemoteDriver } from './remote-driver';
+import { SETTINGS_FIRST, settingsRow, toSettingsRow } from './settings-rows';
 
 /**
  * Catch-up from an M3U source (RELAY step 25b) by keys, in English and Arabic. Onboarding adds
@@ -205,7 +206,8 @@ test.describe('catch-up from an M3U source (RELAY step 25b)', () => {
     await remote.go('RIGHT', 'live/header/3');
     await remote.go('RIGHT', 'live/header/4');
     await remote.go('RIGHT', 'live/header/5');
-    await remote.go('OK', 'settings/items/0');
+    await remote.go('OK', SETTINGS_FIRST);
+    await toSettingsRow(remote, 'guides');
     await remote.go('OK', 'guides/guides/0');
     const settings = page.getByTestId('settings-screen');
     await expect(page.getByTestId('guides')).toHaveAttribute('data-status', 'ready');
@@ -219,7 +221,7 @@ test.describe('catch-up from an M3U source (RELAY step 25b)', () => {
     await remote.go('OK', 'guides/guides/0');
     await settled(settings);
     await expect(page.getByTestId('guide-0')).toHaveAttribute('data-offset', '60');
-    await remote.go('BACK', 'settings/items/0');
+    await remote.go('BACK', settingsRow('guides'));
     await remote.go('BACK', 'live/header/5');
     await remote.go('LEFT', 'live/header/4');
     await remote.go('LEFT', 'live/header/3');

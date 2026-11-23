@@ -17,6 +17,7 @@ import { SHOTS, shoot, shownCode } from './pairing-steps';
 import { chips, pad, toLastEntry, typePin, untranslated } from './parental-steps';
 import { appIdle, restartWith } from './profile-edit';
 import { RemoteDriver } from './remote-driver';
+import { SETTINGS_FIRST, toSettingsRow } from './settings-rows';
 
 /**
  * The PIN's login check by phone (RELAY step 38c4), on the mock's panel with no PIN at first,
@@ -83,14 +84,14 @@ async function checkCode(page: Page, server: ConfigServer, words: typeof EN | ty
   return code;
 }
 
-/** From the list's first row: the header's "Settings", down to "Parental control" (the eighth), then OK. */
+/** From the list's first row: the header's "Settings", down to the "Parental control" row, then OK. */
 async function openParental(remote: RemoteDriver, next: 'LEFT' | 'RIGHT'): Promise<void> {
   const focus = (): Promise<string> => remote.page.evaluate(() => window.__LABLO_TEST__?.focusPath() ?? '');
   await remote.press('UP');
   await expect.poll(focus).toMatch(/^live\/header\/\d+$/);
   for (let i = Number((await focus()).split('/')[2]) + 1; i <= 5; i += 1) await remote.go(next, `live/header/${i}`);
-  await remote.go('OK', 'settings/items/0');
-  for (let i = 1; i <= 7; i += 1) await remote.go('DOWN', `settings/items/${i}`);
+  await remote.go('OK', SETTINGS_FIRST);
+  await toSettingsRow(remote, 'parental');
   await remote.go('OK', 'parental/rows/0');
   await expect(remote.page.getByTestId('parental')).toHaveAttribute('data-status', 'ready');
 }

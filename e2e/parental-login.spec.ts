@@ -12,6 +12,7 @@ import { addXtreamAndWatch, settled, trackErrors } from './onboard';
 import { chips, pad, toLastEntry, typePin, untranslated } from './parental-steps';
 import { appIdle, restartWith } from './profile-edit';
 import { RemoteDriver } from './remote-driver';
+import { SETTINGS_FIRST, settingsRow, toSettingsRow } from './settings-rows';
 
 /**
  * A PIN set, or set again after it was forgotten, with one source's login typed again (RELAY step
@@ -78,14 +79,14 @@ async function login(remote: RemoteDriver, root: Locator, password: string): Pro
   await remote.press('OK');
 }
 
-/** From the list's first row: the header's "Settings", down to "Parental control" (the eighth), then OK. */
+/** From the list's first row: the header's "Settings", down to the "Parental control" row, then OK. */
 async function openParental(remote: RemoteDriver, next: 'LEFT' | 'RIGHT'): Promise<void> {
   const focus = (): Promise<string> => remote.page.evaluate(() => window.__LABLO_TEST__?.focusPath() ?? '');
   await remote.press('UP');
   await expect.poll(focus).toMatch(/^live\/header\/\d+$/);
   for (let i = Number((await focus()).split('/')[2]) + 1; i <= 5; i += 1) await remote.go(next, `live/header/${i}`);
-  await remote.go('OK', 'settings/items/0');
-  for (let i = 1; i <= 7; i += 1) await remote.go('DOWN', `settings/items/${i}`);
+  await remote.go('OK', SETTINGS_FIRST);
+  await toSettingsRow(remote, 'parental');
   await remote.go('OK', 'parental/rows/0');
   await expect(remote.page.getByTestId('parental')).toHaveAttribute('data-status', 'ready');
 }
@@ -167,7 +168,7 @@ for (const { locale, tag } of [
       await remote.press('OK');
       await expect(page.getByTestId('parental-adult')).toHaveAttribute('data-value', 'true');
       await settled(screen);
-      await remote.go('BACK', 'settings/items/7');
+      await remote.go('BACK', settingsRow('parental'));
       await remote.go('BACK', 'live/header/5');
       await remote.go('DOWN', 'live/channels/0');
     });
