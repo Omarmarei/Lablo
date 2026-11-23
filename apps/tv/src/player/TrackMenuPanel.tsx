@@ -142,7 +142,7 @@ function TrackList({ i18n, screen, binding, zone, tracks }: ListProps) {
   );
 }
 
-const SIZE_KEYS: Readonly<Record<SubtitleSize, MessageKey>> = { s: 'tracks.size.s', m: 'tracks.size.m', l: 'tracks.size.l' };
+export const SIZE_KEYS: Readonly<Record<SubtitleSize, MessageKey>> = { s: 'tracks.size.s', m: 'tracks.size.m', l: 'tracks.size.l' };
 
 /** A file's timing in words: "No delay", "0.5 s later", "1.25 s earlier". */
 export function timingText(i18n: AppI18n, delayMs: number): string {

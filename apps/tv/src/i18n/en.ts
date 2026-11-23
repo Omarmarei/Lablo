@@ -655,6 +655,17 @@ export const EN = {
   'parental.ok': 'OK',
   'settings.parental': 'Parental control',
   'settings.parentalHint': 'Your PIN, and the groups and channels it locks',
+  // Settings › "Player" (step 38d3): its values are the track menu's and the info bar's words (`lang.*`, `tracks.*`, `player.picture.*`).
+  'settings.player': 'Player',
+  'settings.playerHint': 'Audio and subtitle languages, subtitle size and picture',
+  'playerSettings.audio': 'Audio language',
+  'playerSettings.audioHint': 'Plays first when a channel or film has more than one',
+  'playerSettings.app': 'Same as the app',
+  'playerSettings.subtitlesHint': 'Turned on when a channel or film has them in this language',
+  'playerSettings.size': 'Subtitle size',
+  'playerSettings.sizeHint': 'How large subtitles are shown',
+  'playerSettings.picture': 'Picture',
+  'playerSettings.pictureHint': 'How the picture fills the screen, on every channel',
   // Settings › "Language" (step 38d2): its line and its buttons are each language's own name (`LANGUAGE_NAMES`).
   'settings.language': 'Language',
   'settings.languageBody': 'Menus and buttons change at once. Channel and programme names stay as your provider sends them.',

@@ -2,7 +2,7 @@ import type { CatalogItem } from '@lablo/core';
 import type { LastChannel, LoadedProfile, ProfileDoc, ProfileEdit } from '@lablo/data';
 import { MAX_CHANNELS, applyProfileEdit, emptyProfile } from '@lablo/data';
 import { describe, expect, it, vi } from 'vitest';
-import { RECENT_CHANNELS, createPlayerMemory, lastChannelOf, railRefOf, recentChannelsOf } from './player-memory';
+import { RECENT_CHANNELS, TRACK_LANGS, createPlayerMemory, lastChannelOf, railRefOf, recentChannelsOf } from './player-memory';
 
 /** What the player keeps in the profile (RELAY step 20c1). */
 
@@ -207,6 +207,43 @@ describe('createPlayerMemory', () => {
     // A new profile replaces the list.
     memory.load(null);
     expect(memory.recent()).toEqual([]);
+  });
+
+  it('keeps the languages Settings › "Player" chose (step 38d3): Arabic or English, `null` taking the choice away', () => {
+    const { memory, edits } = rig();
+    expect(TRACK_LANGS).toEqual(['ar', 'en']);
+    expect([memory.audioLang(), memory.subtitleLang()]).toEqual([null, null]);
+    memory.load(profile({ audioLang: 'ar', subtitleLang: 'en' }));
+    expect([memory.audioLang(), memory.subtitleLang()]).toEqual(['ar', 'en']);
+    // What isn't one of the app's two languages is no choice.
+    for (const stored of ['fr', 'off', 'AR', '', 1, null]) {
+      memory.load(profile({ audioLang: stored, subtitleLang: stored }));
+      expect([memory.audioLang(), memory.subtitleLang()]).toEqual([null, null]);
+    }
+    memory.load(profile({ subtitleLang: 'ar' }));
+    expect([memory.audioLang(), memory.subtitleLang()]).toEqual([null, 'ar']);
+    memory.setAudioLang(null);
+    memory.setSubtitleLang('ar');
+    expect(edits).toEqual([]);
+    memory.setAudioLang('en');
+    memory.setAudioLang('en');
+    memory.setSubtitleLang(null);
+    memory.setSubtitleLang(null);
+    memory.setAudioLang(null);
+    expect(changes(edits)).toEqual([
+      { field: 'audioLang', lang: 'en' },
+      { field: 'subtitleLang', lang: null },
+      { field: 'audioLang', lang: null },
+    ]);
+    expect([memory.audioLang(), memory.subtitleLang()]).toEqual([null, null]);
+    // The profile after the same writes reads back the same.
+    let doc: ProfileDoc = { ...emptyProfile(), player: { ...emptyProfile().player, subtitleLang: 'ar' } };
+    memory.setSubtitleLang('en');
+    for (const edit of edits) doc = applyProfileEdit(doc, edit) ?? doc;
+    expect(doc.player).toEqual({ ...emptyProfile().player, subtitleLang: 'en' });
+    const again = rig().memory;
+    again.load({ doc, newer: false, migratedFrom: null });
+    expect([again.audioLang(), again.subtitleLang()]).toEqual([null, 'en']);
   });
 
   it('keeps a change for the run when the write fails, and says so', async () => {

@@ -57,6 +57,8 @@ import { createTrackMenu } from './track-menu';
  * - **The picture** (step 20c2b): the info bar's "Picture" goes round the modes the engine can
  *   show (fit, zoom, stretch, 4:3; no zoom on AVPlay), for every channel from then on. The
  *   controller gets the kept mode when it is made (`picture`), and each change is kept (`pictured`).
+ *   Settings › "Player" (step 38d3) sets it and the subtitles' size here too (`setPicture`,
+ *   `setSubtitleSize`), and lists the engine's modes (`pictureModes`, which makes the controller).
  * - **A catalog refresh while it plays** (step 22a): `listChanging` comes before the live screen's
  *   list is replaced. The channel playing stays pinned at its row and the stream isn't touched;
  *   `locate` then moves it (and the previous channel) to their rows in the new list.
@@ -361,6 +363,12 @@ export interface Player {
   readonly streamInfo: StreamInfoPanel;
   /** The picture's mode on show (the kept one until the controller is made). */
   readonly picture: ReadonlySignal<PictureMode>;
+  /** The picture modes the engine can show (step 38d3: Settings › "Player"; makes the controller). */
+  pictureModes(): readonly PictureMode[];
+  /** Shows every stream in `mode` from now on, as the info bar's "Picture" does, and keeps it (`pictured`). */
+  setPicture(mode: PictureMode): void;
+  /** The subtitles' size from now on, as the track menu's "Size" does, kept (`sized`). */
+  setSubtitleSize(size: SubtitleSize): void;
   /** The programme playing from the archive (step 25a; `null`: live). */
   readonly archive: ReadonlySignal<ArchiveProgramme | null>;
   /**
@@ -647,12 +655,18 @@ export function createPlayer(options: PlayerOptions): Player {
     return controller;
   };
 
-  /** The next picture mode the engine can show, kept for every channel. */
-  const nextMode = (): void => {
-    const c = ctrl();
-    const shown = c.setPicture(nextPicture(picture.value, c.pictureModes));
+  /** Shows `mode` (the engine's, else `fit`) for every channel, and keeps it. */
+  const choosePicture = (mode: PictureMode): void => {
+    const shown = ctrl().setPicture(mode);
     picture.value = shown;
     if (options.pictured !== undefined) options.pictured(shown);
+  };
+
+  /** The next picture mode the engine can show, kept for every channel. */
+  const nextMode = (): void => {
+    // The controller first: once made, `picture` is the mode it shows.
+    const modes = ctrl().pictureModes;
+    choosePicture(nextPicture(picture.value, modes));
   };
 
   /** The config's rule refusing playback now (step 30c2b), else `null`. */
@@ -1363,6 +1377,9 @@ export function createPlayer(options: PlayerOptions): Player {
     subtitles,
     streamInfo,
     picture,
+    pictureModes: () => ctrl().pictureModes,
+    setPicture: choosePicture,
+    setSubtitleSize: (size) => menu.setSize(size),
     archive,
     position,
     movie,

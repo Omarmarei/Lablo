@@ -1,3 +1,4 @@
+import { expect } from '@playwright/test';
 import type { SettingsItem } from '../apps/tv/src/settings/settings-items';
 import { SETTINGS_ITEMS } from '../apps/tv/src/settings/settings-items';
 import type { RemoteDriver } from './remote-driver';
@@ -26,6 +27,19 @@ export async function fromSettingsRow(remote: RemoteDriver, from: SettingsItem, 
   const end = SETTINGS_ITEMS.indexOf(to);
   const step = end > SETTINGS_ITEMS.indexOf(from) ? 1 : -1;
   for (let i = SETTINGS_ITEMS.indexOf(from); i !== end; i += step) await remote.go(step === 1 ? 'DOWN' : 'UP', `settings/items/${i + step}`);
+}
+
+/**
+ * From the live list: the header's "Settings" (UP lands on the header's last focused button, then
+ * `next`, the key towards the reading end, to the last one), opening on the first row.
+ */
+export async function openSettings(remote: RemoteDriver, next: 'LEFT' | 'RIGHT'): Promise<void> {
+  const focus = (): Promise<string> => remote.page.evaluate(() => window.__LABLO_TEST__?.focusPath() ?? '');
+  await remote.press('UP');
+  await expect.poll(focus).toMatch(/^live\/header\/\d+$/);
+  for (let i = Number((await focus()).split('/')[2]) + 1; i <= 5; i += 1) await remote.go(next, `live/header/${i}`);
+  await remote.expectFocus('live/header/5');
+  await remote.go('OK', SETTINGS_FIRST);
 }
 
 /** From the first row (the settings just opened): DOWN to row `id`, a row at a time. No key for the first row. */

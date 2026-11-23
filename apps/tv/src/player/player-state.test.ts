@@ -1220,6 +1220,58 @@ describe('the player: the picture (RELAY step 20c2b)', () => {
   });
 });
 
+describe('the player: Settings › "Player" (RELAY step 38d3)', () => {
+  it("lists the engine's modes, making the controller once, with the kept mode it shows", () => {
+    const t = setup('ltr', { picture: 'zoom' });
+    t.controller.pictureModes = ['fit', 'stretch', '4:3'];
+    expect(t.made()).toBe(0);
+    expect(t.player.pictureModes()).toEqual(['fit', 'stretch', '4:3']);
+    expect(t.made()).toBe(1);
+    // Made, the controller shows `fit` for the kept zoom it lacks.
+    expect(t.player.picture.value).toBe('fit');
+    expect(t.controller.pictures).toEqual(['zoom']);
+    expect(t.player.pictureModes()).toEqual(['fit', 'stretch', '4:3']);
+    expect(t.made()).toBe(1);
+    expect(t.pictured).toEqual([]);
+  });
+
+  it('sets the picture for every channel from then on, as the info bar does, and tells the app', () => {
+    const t = setup();
+    t.player.setPicture('stretch');
+    expect(t.made()).toBe(1);
+    expect([t.player.picture.value, t.controller.pictures, t.pictured]).toEqual(['stretch', ['fit', 'stretch'], ['stretch']]);
+    t.player.show(1);
+    // The next play shows it: nothing asked again.
+    expect(t.player.picture.value).toBe('stretch');
+    expect(t.controller.pictures).toEqual(['fit', 'stretch']);
+    // A mode the engine lacks shows as fit.
+    t.controller.pictureModes = ['fit', 'stretch'];
+    t.player.setPicture('4:3');
+    expect([t.player.picture.value, t.pictured]).toEqual(['fit', ['stretch', 'fit']]);
+  });
+
+  it("sets the subtitles' size as the track menu does, telling the app once, without making the controller", () => {
+    const t = setup('ltr', { subtitleSize: 'm' });
+    t.player.setSubtitleSize('m');
+    expect(t.sized).toEqual([]);
+    t.player.setSubtitleSize('l');
+    t.player.setSubtitleSize('l');
+    expect([t.player.menu.size.value, t.sized]).toEqual(['l', ['l']]);
+    expect(t.made()).toBe(0);
+    // The menu's own steps go on from there.
+    t.player.show(1);
+    t.controller.setTracks(withFiles(0));
+    t.controller.set('playing');
+    t.controller.setSubtitles({ feed: 'file', cues: [] });
+    t.player.menu.show('text');
+    t.nav.handle('DOWN');
+    t.nav.handle('DOWN');
+    expect(t.at()).toBe('tracks · style 0');
+    t.nav.handle('LEFT');
+    expect(t.sized).toEqual(['l', 'm']);
+  });
+});
+
 describe('the player: what the app keeps (RELAY step 20c1)', () => {
   it('tells the app each channel whose stream opens, with its row, and shows its timing', async () => {
     const t = setup();

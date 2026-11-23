@@ -3,6 +3,7 @@ import type { LifecycleEvent, Platform } from '@lablo/platform-api';
 import type { SubtitleCue } from '@lablo/core';
 import type { AccountStatus, Clock, ControllerOptions, ExternalSub, PlayerReport, SourceMemory, TrackMemory, TrackPreferences } from '@lablo/player';
 import { PlayerController } from '@lablo/player';
+import type { TrackLang } from './player-memory';
 import { createSubtitleLoader } from './subtitle-loader';
 
 /**
@@ -31,7 +32,7 @@ export interface AppPlayerDeps {
   readonly checkAccount: (src: string) => Promise<AccountStatus | null>;
   /** Whether the TV is online (the app passes `navigator.onLine`). */
   readonly online: () => boolean;
-  /** The audio and subtitle languages to prefer (`uiTrackPreferences` of the UI's language). */
+  /** The audio and subtitle languages to prefer (`trackPreferences`: Settings › "Player"'s, else the UI's language's). */
   readonly preferences?: () => TrackPreferences;
   /** Fetches and parses a subtitle file (default: `createSubtitleLoader()`). */
   readonly loadSubtitles?: (sub: ExternalSub) => Promise<readonly SubtitleCue[]>;
@@ -58,6 +59,19 @@ export function uiTrackPreferences(tag: string): TrackPreferences {
   const ui = normalizeLang(tag);
   if (ui === '') return { audio: [], text: [] };
   return { audio: ui === 'ar' ? ['ar', 'en'] : ui === 'en' ? ['en', 'ar'] : [ui, 'en', 'ar'], text: [] };
+}
+
+/**
+ * The track languages to prefer (RELAY step 38d3): the audio language chosen in Settings ›
+ * "Player" first, then the app's other one (`null`: the UI's language's, `uiTrackPreferences`);
+ * the subtitles in the language chosen there (`null`: none turned on).
+ */
+export function trackPreferences(audio: TrackLang | null, text: TrackLang | null, tag: string): TrackPreferences {
+  const guess = uiTrackPreferences(tag);
+  return {
+    audio: audio === null ? guess.audio : [audio, audio === 'ar' ? 'en' : 'ar'],
+    text: text === null ? guess.text : [text],
+  };
 }
 
 export function appPlayer(deps: AppPlayerDeps): () => PlayerController {

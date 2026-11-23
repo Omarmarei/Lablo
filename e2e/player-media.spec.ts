@@ -8,6 +8,7 @@ import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { addXtreamAndWatch, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
+import { openSettings, settingsRow, toSettingsRow } from './settings-rows';
 
 /**
  * The player in the app on the generated media (RELAY step 20a; `pnpm e2e:media`, in
@@ -205,6 +206,76 @@ test("the audio menu on a stream with three languages: the UI's language first, 
   await remote.expectFocus('live/channels/5');
   expect(errors).toEqual([]);
 });
+
+/** The stage's `<video>`: the languages of its text tracks that show. */
+function showingText(page: Page) {
+  return page.evaluate(() => {
+    const v = document.querySelector('#stage video') as HTMLVideoElement | null;
+    if (v === null) return null;
+    const out: string[] = [];
+    for (let i = 0; i < v.textTracks.length; i += 1) if (v.textTracks[i]!.mode === 'showing') out.push(v.textTracks[i]!.language);
+    return out;
+  });
+}
+
+for (const { locale, audio, subtitles } of [
+  { locale: 'en-US', audio: 'ara', subtitles: 'en' },
+  { locale: 'ar-SA', audio: 'eng', subtitles: 'ar' },
+] as const) {
+  test(`Settings › "Player"'s languages on real tracks (step 38d3): the sound and the subtitles chosen there, not the app's language (${locale})`, async ({ page }) => {
+    test.setTimeout(150_000);
+    const errors = trackErrors(page);
+    const next = locale === 'ar-SA' ? 'LEFT' : 'RIGHT';
+    // Desktop Chromium lists no in-band subtitles: the stage's <video> gets two text tracks, Arabic
+    // and English (as webOS's <video> lists a stream's), before the stream's tracks are read.
+    await page.addInitScript(() => {
+      new MutationObserver(() => {
+        const v = document.querySelector('#stage video') as (HTMLVideoElement & { labloTracks?: boolean }) | null;
+        if (v === null || v.labloTracks === true) return;
+        v.labloTracks = true;
+        v.addTextTrack('subtitles', 'Arabic', 'ar');
+        v.addTextTrack('subtitles', 'English', 'en');
+      }).observe(document, { childList: true, subtree: true });
+    });
+    // Channel 104 (row 5) answers with the multi-audio MKV (AAC ara, eng, spa; ara is its default).
+    const mkv = `http://${host}/movie/${U}/${P}/206.mkv`;
+    await page.route(`**/live/${U}/${P}/104.*`, (route) => route.fulfill({ status: 302, headers: { location: mkv } }));
+    const remote = new RemoteDriver(page);
+    await addXtreamAndWatch(remote, { host, username: U, password: P }, `locale=${locale}`);
+    // Settings › "Player": the audio language the app's language isn't (OK: Arabic, OK again: English).
+    await openSettings(remote, next);
+    await toSettingsRow(remote, 'player');
+    await remote.go('OK', 'player-settings/rows/0');
+    await remote.press('OK');
+    if (audio === 'eng') await remote.press('OK');
+    await expect(page.getByTestId('player-settings-audio')).toHaveAttribute('data-value', audio === 'ara' ? 'ar' : 'en');
+    // The subtitles: OK round to Arabic, then English.
+    await remote.go('DOWN', 'player-settings/rows/1');
+    await remote.press('OK');
+    if (subtitles === 'en') await remote.press('OK');
+    await expect(page.getByTestId('player-settings-subtitles')).toHaveAttribute('data-value', subtitles);
+    await remote.go('BACK', settingsRow('player'));
+    await remote.go('BACK', 'live/header/5');
+    await remote.go('DOWN', 'live/channels/0');
+    for (let i = 1; i <= 5; i += 1) await remote.go('DOWN', `live/channels/${i}`);
+    await remote.press('OK');
+    const player = page.getByTestId('player');
+    await expect(player).toHaveAttribute('data-state', 'playing', { timeout: 30_000 });
+    // Both chosen as the tracks appeared (the subtitles after the sound, in the same pass).
+    await expect.poll(() => showingText(page)).toEqual([subtitles]);
+    await expect.poll(() => enabledAudio(page)).toEqual([audio]);
+    await expectMoving(page);
+    // And it stays: the app's language would have switched the sound.
+    expect(await enabledAudio(page)).toEqual([audio]);
+    await remote.press('SUBTITLES');
+    // (Each row by its track's id: the <video>'s index.)
+    await expect(page.getByTestId(`tracks-text-${subtitles === 'ar' ? 0 : 1}`)).toHaveAttribute('data-selected', 'true');
+    await expect(page.getByTestId('tracks-text-off')).toHaveAttribute('data-selected', 'false');
+    await remote.press('BACK');
+    await expect(player).toHaveAttribute('data-menu', 'false');
+    expect(errors).toEqual([]);
+  });
+}
 
 /** A figure of the stream info panel. */
 function figure(page: Page, id: string) {

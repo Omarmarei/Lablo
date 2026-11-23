@@ -24,7 +24,8 @@
  * optional fields that need none (`PlayerMemoryDoc.picture`, step 20c2b; `epgOffsets`, step 24b;
  * `epgOverrides`, step 24d; `ShowProgress.more`, step 27d; `noticesShown`, step 30c2a;
  * `telemetry`, step 33b1; `favouriteLists`, `hiddenGroups` and `groupOrder`, step 35a;
- * `channelEdits` and `cleanNames`, step 36a).
+ * `channelEdits` and `cleanNames`, step 36a; `PlayerMemoryDoc.audioLang` and `subtitleLang`,
+ * step 38d3).
  */
 
 import type { CatalogItem, ContentKey, ContentKind, EpgOverride, XtreamAccount } from '@lablo/core';
@@ -180,6 +181,13 @@ export type PlayerMemoryDoc = {
    * never set. Optional, so version 3 documents written before it need no migration.
    */
   picture?: string;
+  /**
+   * The audio language chosen in Settings › "Player" (`ar`, `en`; step 38d3). Absent: the app's
+   * language first, as before. Optional, so no migration.
+   */
+  audioLang?: string;
+  /** The subtitles' language chosen there (`ar`, `en`; step 38d3). Absent: none turned on. */
+  subtitleLang?: string;
 };
 
 export type ProfileV3 = {
@@ -441,7 +449,10 @@ export type PlayerChange =
   | { field: 'redirect'; src: string; mode: 'none' | 'redirects' }
   | { field: 'track'; key: ContentKey; choice: StoredTrackChoice }
   | { field: 'subtitleSize'; size: string }
-  | { field: 'picture'; mode: string };
+  | { field: 'picture'; mode: string }
+  /** Settings › "Player"'s languages (step 38d3): `null` takes the field away. */
+  | { field: 'audioLang'; lang: string | null }
+  | { field: 'subtitleLang'; lang: string | null };
 
 /** A change to the user's guide list (step 22b). */
 export type GuideChange =
@@ -681,7 +692,19 @@ function applyPlayerChange(player: PlayerMemoryDoc, change: PlayerChange): Playe
       return change.size === player.subtitleSize ? null : { ...player, subtitleSize: change.size };
     case 'picture':
       return change.mode === player.picture ? null : { ...player, picture: change.mode };
+    case 'audioLang':
+    case 'subtitleLang':
+      return withLang(player, change.field, change.lang);
   }
+}
+
+/** `player` with its `field` language set, or taken away for `null` (a new object; `null` when it changes nothing). */
+function withLang(player: PlayerMemoryDoc, field: 'audioLang' | 'subtitleLang', lang: string | null): PlayerMemoryDoc | null {
+  if ((player[field] ?? null) === lang) return null;
+  const next: PlayerMemoryDoc = { ...player };
+  if (lang === null) delete next[field];
+  else next[field] = lang;
+  return next;
 }
 
 /** `doc` with `edit` applied (new objects), or `null` when it changes nothing. */

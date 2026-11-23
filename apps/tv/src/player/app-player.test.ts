@@ -3,7 +3,7 @@ import type { AccountStatus, EngineCaps, EngineEvent, EngineSource, PlayerEngine
 import { NO_STATS } from '@lablo/player';
 import { describe, expect, it, vi } from 'vitest';
 import type { AppPlayerDeps } from './app-player';
-import { appPlayer, uiTrackPreferences } from './app-player';
+import { appPlayer, trackPreferences, uiTrackPreferences } from './app-player';
 
 /** An engine whose loads show a frame at once, recording what the controller asks of it. */
 class StubEngine implements PlayerEngine {
@@ -249,6 +249,15 @@ describe('the track languages (RELAY step 20b)', () => {
     expect(uiTrackPreferences('en-XA')).toEqual({ audio: ['en', 'ar'], text: [] });
     expect(uiTrackPreferences('fr-CA')).toEqual({ audio: ['fr', 'en', 'ar'], text: [] });
     expect(uiTrackPreferences('')).toEqual({ audio: [], text: [] });
+  });
+
+  it('puts the languages Settings › "Player" chose first (step 38d3): the audio one, then the other; the subtitles in theirs', () => {
+    expect(trackPreferences('ar', null, 'en-US')).toEqual({ audio: ['ar', 'en'], text: [] });
+    expect(trackPreferences('en', null, 'ar-SA')).toEqual({ audio: ['en', 'ar'], text: [] });
+    expect(trackPreferences('en', 'ar', 'fr-CA')).toEqual({ audio: ['en', 'ar'], text: ['ar'] });
+    expect(trackPreferences(null, 'en', 'ar-SA')).toEqual({ audio: ['ar', 'en'], text: ['en'] });
+    // Nothing chosen: the UI's language's, as before.
+    for (const tag of ['ar-SA', 'en-US', 'en-XA', 'fr-CA', '']) expect(trackPreferences(null, null, tag)).toEqual(uiTrackPreferences(tag));
   });
 
   it('hands them to the controller, which reads them when a stream lists its tracks', async () => {
