@@ -3678,7 +3678,9 @@ describe('the player: the clock over the video and the Guide key (RELAY step 39a
     });
     t.nav.push({ id: 'home', zones: [{ kind: 'list', id: 'shelf', axis: 'vertical', count: 1 }] });
     t.player.show(1);
-    await t.press('GUIDE');
+    // The player takes the key, so no screen under it sees it.
+    expect(t.nav.handle('GUIDE')).toBe('screen');
+    await flush();
     expect(asked).toEqual(['home']);
     expect(t.player.open.value).toBe(true);
     expect(t.closed).toEqual([]);
@@ -3686,13 +3688,15 @@ describe('the player: the clock over the video and the Guide key (RELAY step 39a
     // A movie: the app isn't asked.
     const film: CatalogItem = { ...row(0).item, key: 'x:s1:movie:201', kind: 'movie', name: 'Sintel', url: 'http://panel.test/movie/u/p/201.mkv' };
     t.player.playMovie({ item: film, request: { key: film.key, src: 's1', mode: 'vod', candidates: [{ url: film.url, container: 'mkv' }] }, lengthMs: null, closed: () => undefined });
-    await t.press('GUIDE');
+    expect(t.nav.handle('GUIDE')).toBe('screen');
+    await flush();
     expect(asked).toEqual(['home']);
     expect(t.player.movie.value).not.toBeNull();
     // No `toGuide`: the key is taken and nothing happens.
     const bare = setup();
     bare.player.show(0);
-    await bare.press('GUIDE');
+    expect(bare.nav.handle('GUIDE')).toBe('screen');
+    await flush();
     expect(bare.player.open.value).toBe(true);
     expect(bare.closed).toEqual([]);
   });
