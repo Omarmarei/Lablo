@@ -117,11 +117,14 @@ for (const { locale, tag } of [
       store = fullStore(page);
       await page.clock.fastForward('12:01:00');
       await expect(line).toBeVisible({ timeout: 30_000 });
+      // English pinned as written (the catalog itself is what a change would alter); Arabic from its catalog.
+      if (tag === 'en') expect(await text(line)).toBe("Lablo's storage is full, so updates can't be saved. Remove a TV guide you don't use in Settings to make room.");
       if (words !== null) expect(await text(line)).toBe(stripIsolates(words['live.storageFull']));
       await expect(line).toHaveAttribute('role', 'status');
       await expectInSafeArea(line);
       // One line, cut short with an ellipsis if it must be (en-XA): never a second line.
       expect((await line.boundingBox())!.height).toBe(32);
+      expect(await line.evaluate((el) => el.scrollHeight)).toBe(32);
       // The rail and the list keep every row under it.
       expect((await rows(page)).length).toBe(drawn);
       await expectInSafeArea(page.getByTestId(`channels`).locator('.z-vlist__item').last());

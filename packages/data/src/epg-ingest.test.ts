@@ -492,6 +492,39 @@ describe('runEpgRefresh: a full store (step 39s1)', () => {
     expect(await stored(1, G2.epgSrc)).toEqual(other);
   });
 
+  it("makes that room before writing again: the guide's older programmes are gone when the refused write goes in again", async () => {
+    await refresh(both, { guides: [G, G2] }).result;
+    let peek: Promise<[IDBValidKey, unknown][]> | null = null;
+    const full = fillStore(db, (name) => {
+      if (name !== STORE.epgBuckets) return false;
+      if (full.refused.length === 0) return true;
+      // The write again: what the store holds as it goes in (read after it, in order).
+      peek ??= dumpStore(db, STORE.epgBuckets);
+      return false;
+    });
+    await refresh(() => ({ body: guide({ tag: 'v2 ' }) }), { guides: [G, G2], only: [G.epgSrc] }, { now: () => NOW + 1 }).result;
+    const seen = (await peek!).map(([key]) => (key as [string, number]).slice(0, 2).join(':'));
+    expect(seen.filter((k) => k === `${G.epgSrc}:1`)).toEqual([]);
+    expect(seen.filter((k) => k === `${G2.epgSrc}:1`).length).toBeGreaterThan(0);
+  });
+
+  const refusals: [string, (name: string, value: unknown, key: IDBValidKey | undefined) => boolean][] = [
+    ['its new generation', (name, value) => name === STORE.epgMeta && (value as { building: number | null }).building !== null],
+    ['its match table', (name, _value, key) => name === STORE.epgChannels && Array.isArray(key) && key.length === 2],
+    ['its declared channels', (name, _value, key) => name === STORE.epgChannels && Array.isArray(key) && key[2] === 'declared'],
+    ['its swap', (name, value) => name === STORE.epgMeta && (value as { building: number | null }).building === null],
+  ];
+  it.each(refusals)('makes room when %s fails for space, then swaps the new programmes in', async (_what, refuse) => {
+    await refresh(() => ({ body: guide() })).result;
+    const full = fillStore(db, (name, value, key) => full.refused.length === 0 && refuse(name, value, key));
+    const text = guide({ tag: 'v2 ' });
+    const r = await refresh(() => ({ body: text }), {}, { now: () => NOW + 1 }).result;
+    expect(r.outcomes[0]!.result).toMatchObject({ status: 'committed', gen: 2 });
+    expect(full.refused).toHaveLength(1);
+    expect(await stored(2)).toEqual(await expected(text, 'full', 0, NOW + 1));
+    expect(await readEpgChannels(db, [{ epgSrc: G.epgSrc, gen: 2 }])).toHaveLength(1);
+  });
+
   it('swaps the same bytes in again when their stored copy went to make room', async () => {
     const text = guide();
     await refresh(() => ({ body: text })).result;

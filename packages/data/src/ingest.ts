@@ -559,24 +559,24 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
     try {
       await room.write(() =>
         updateProfile(
-        db,
-        (doc) => {
-          const r = reconcileFavourites(doc.favourites, src, view, at, kinds);
-          favourites = r.report;
-          // The changed channels follow their favourites, or are re-matched as favourites are (step 36a).
-          const edits = relinkChannelEdits(doc, doc.favourites, r.report, r.favourites, src, view, at, kinds);
-          if (!r.report.changed && edits === null) return null;
-          const next: ProfileDoc = { ...doc, favourites: r.favourites };
-          // The lists hold the re-matched keys in their places, and lose the dropped ones (step 35a).
-          const lists = relinkLists(doc, r.report.rematched, r.report.dropped);
-          if (lists !== null) next.favouriteLists = lists;
-          if (edits !== null) {
-            if (edits.length > 0) next.channelEdits = edits;
-            else delete next.channelEdits;
-          }
-          return next;
-        },
-        { now: at },
+          db,
+          (doc) => {
+            const r = reconcileFavourites(doc.favourites, src, view, at, kinds);
+            favourites = r.report;
+            // The changed channels follow their favourites, or are re-matched as favourites are (step 36a).
+            const edits = relinkChannelEdits(doc, doc.favourites, r.report, r.favourites, src, view, at, kinds);
+            if (!r.report.changed && edits === null) return null;
+            const next: ProfileDoc = { ...doc, favourites: r.favourites };
+            // The lists hold the re-matched keys in their places, and lose the dropped ones (step 35a).
+            const lists = relinkLists(doc, r.report.rematched, r.report.dropped);
+            if (lists !== null) next.favouriteLists = lists;
+            if (edits !== null) {
+              if (edits.length > 0) next.channelEdits = edits;
+              else delete next.channelEdits;
+            }
+            return next;
+          },
+          { now: at },
         ),
       );
     } catch (error) {

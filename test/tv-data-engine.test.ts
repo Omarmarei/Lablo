@@ -1413,14 +1413,16 @@ describe('DataEngine on a full store (step 39s1)', () => {
     const s = await stored();
     expect(await guideRecords(s.factory)).toBeGreaterThan(0);
     expect((await s.engine.epgStatus()).guides).toHaveLength(1);
+    expect((await s.engine.epgStatus()).matched).toBeGreaterThan(0);
     s.fullness.on = (store) => store === STORE.profile && s.drops.n === 0;
     const ingests = s.started.ingest;
     expect(await s.engine.editProfile({ kind: 'answers', answers: { language: 'ar' } })).toBe(true);
     expect(s.drops.n).toBe(1);
     expect(s.started.ingest).toBe(ingests + 1);
     expect(await guideRecords(s.factory)).toBe(0);
-    // The query worker read the guides again: none is stored.
+    // The query worker read the guides again: none is stored, no channel has one.
     expect((await s.engine.epgStatus()).guides).toEqual([]);
+    expect((await s.engine.epgStatus()).matched).toBe(0);
     expect(((await s.engine.profile())!.doc as unknown as { onboarding: { language: string } }).onboarding.language).toBe('ar');
     expect(s.storageEvents).toEqual(['saved profile']);
     expect(s.profileChanges.n).toBe(2);
@@ -1469,6 +1471,15 @@ describe('DataEngine on a full store (step 39s1)', () => {
     expect(s.storageEvents).toEqual(['saved source:debug', 'failed source:debug', 'saved source:debug']);
   });
 
+  it('reloads the query worker when a refresh made room and then failed for space', async () => {
+    const s = await stored();
+    expect((await s.engine.epgStatus()).matched).toBeGreaterThan(0);
+    s.fullness.on = (store) => store === STORE.chunks;
+    await expect(s.engine.refresh(job('http://p.test/other.m3u'))).rejects.toMatchObject({ code: 'storage' });
+    expect(await guideRecords(s.factory)).toBe(0);
+    expect((await s.engine.epgStatus()).matched).toBe(0);
+  });
+
   it('hears which guides failed for space, went through or were deleted', async () => {
     const s = await stored();
     s.fullness.on = (store) => store === STORE.epgBuckets;
@@ -1489,5 +1500,17 @@ describe('DataEngine on a full store (step 39s1)', () => {
     const other = await network.engine.refreshEpg(catalogs, { tier: 'full' });
     expect(other.outcomes.map((o) => o.error?.code)).toEqual(['http']);
     expect(network.storageEvents).toEqual([]);
+  });
+});
+
+describe('DataEngine on a store with room (step 39s1)', () => {
+  it('says nothing of the storage when a refresh fails for another reason', async () => {
+    let status = 200;
+    const s = setup(() => (status === 200 ? { body: playlist(8) } : { status, body: 'gone' }));
+    await s.engine.refresh(job());
+    status = 404;
+    await expect(s.engine.refresh(job())).rejects.toThrow(/HTTP 404/);
+    expect(s.storageEvents).toEqual(['saved source:debug']);
+    expect(s.drops.n).toBe(0);
   });
 });
