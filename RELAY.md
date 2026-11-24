@@ -3356,8 +3356,63 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     4. Closing the guide lands on the list's row (as before), also when it opened from the header.
   - **Gates:** unit 8,662 (`apps/tv`, `packages/data`, `test/`) plus the tests added after; e2e `clock-guide-key.spec.ts` 3 of 3 (en, ar, en-XA), 25 related (player-settings, player, guide, live, language, resume), `tv-bundle` 10; lint, typecheck; `build:tv` main.js 458.7 KB Tizen (+1.4), settings.js 98.0 (+0.3), query worker 149.0 of 150 (+0.3); module diff: no module added or removed, core-js 173 / 2 unchanged; `verify:engines --engine chrome68` 13 of 13; mutation 50 of 50 (`artifacts/mutate39a.py`, one survivor closed by a test).
 - [ ] 39b. **The colour keys**, as Q1's option 1 (decided 2026-11-24).
+  - **Refined before building** (leg 145, against the code):
+    1. **Where each key acts:**
+       - the live screen: red on a channel row opens the favourites panel for that channel (nothing in the rail or the header); green = the Guide key; blue = the header's "Search", from any zone;
+       - the guide: green closes it, as the Guide key;
+       - the player on a channel: red = the star (`openFavourites`; nothing while a card shows, as the star), green = the Guide key, yellow = PRE-CH;
+       - a movie: the player takes the keys and does nothing; every other screen doesn't take them.
+    2. **The live list's panel:** the info bar's favourites panel as a second `createFavouriteMenu` on the live navigator, made by main with the same host (`editProfile`, `live.lists`, `listsChanged`), drawn by LiveApp over the live screen. The two menus share the screen ids (`favourites`, `favourite-new`), so LiveApp paints the player only while the list's panel is shut. Over the list the panel is opaque (`tracks--solid`) and starts under the header, where the list starts.
+    3. **The dots:** Button's `colourKey` draws a 12 px dot in the top-end corner, out of the flow (no layout moves, so the info bar's en-XA overflow doesn't grow), `aria-hidden`. Four tokens `--color-key-*`, each 3:1 on the buttons' surfaces (`test/ui-tokens.test.ts`). The dots sit on the header's "Guide" (green) and "Search" (blue), and on the info bar's "Previous channel" (yellow) and "Favourites" (red).
 - [ ] 39c. **"Still watching?" and the sleep timer**, as Q2's option 1 (decided 2026-11-24).
 - [ ] 39d. **"Fast start / Stable"**, as Q3's option 1 (decided 2026-11-24). Read first: docs/spikes/results.md "The app on the Samsung TV" (PR #171): AVPlay reconnects a held stream by itself about 7 s after the data stops and hides most stalls from the watchdog; it needs more than 600 KB before it plays.
+- [ ] 39s. **Fixes from the first Samsung TV session** (Omar's "1a" of 2026-11-24, asked in his Samsung session: add the fixes as relay steps after step 39). The source: docs/spikes/results.md "From the Samsung TV (2026-11-24)" and "The app on the Samsung TV" (PR #171). The TV: UA32T5300AUXEG, 2020 HD, Tizen 5.5, Chromium 69. Steps 19b and 21 keep their own lines; their ticks wait for Omar's word.
+  - [ ] 39s1. **The storage quota** (code only). The 2020 budget Samsung gives 88 MB (`storage.estimate`); S2's write stopped at 84 MB with `QuotaExceededError`. The 200k scale run fit (668k guide programmes), but only the lab handles `QuotaExceededError` (`apps/tv/src/lab/storage.ts`). Every IndexedDB write path (the ingest's commit, the guide's days, the profile, the telemetry queue, the backup's state) must survive it: no half-written generation, the last good catalog kept, and a state the user sees (a line on the live screen or in Settings, with what to do).
+    - **Done when:** unit and `test/` cases with a fake IndexedDB that throws `QuotaExceededError` at each write path (the old generation still serves; the profile write fails without losing the profile); an e2e that fills the quota (or a test hook) and shows the message in en and ar; the shape of the message and what it offers decided first (a question for Omar if it has trade-offs).
+  - [ ] 39s2. **The ladder's HLS stickiness.**
+    - After one network outage, the ladder moved channel 104 to its `.m3u8`, and the source kept HLS for later zaps and the next launch (`SourceMemory`).
+    - On AVPlay, HLS starts slower than TS (1.4–1.7 s against 0.8–1.2 s).
+    - With that `.m3u8` answering 404, the fallback to TS took about 15 s and 27–28 playlist requests.
+    - Decide whether one outage may change a source's remembered container, and cap the fallback's time. This is a question for Omar if the choice has trade-offs.
+    - **Done when:**
+      - the rule is written in architecture.md §2;
+      - the controller's and the ladder's unit tests cover an outage that doesn't move the source and a definite failure that does;
+      - the fallback cap is tested with a fake clock.
+  - [ ] 39s3. **Stall injection that reaches the watchdog** (the mock and the lab).
+    - `LAB_STALL_TS_BYTES` (600 KB, `apps/mock-provider/src/lab-media.ts`) is less than AVPlay needs to start (4 MB worked). Derive it from the media's bitrate and fix its comment. The mock's stalling scenario (64 KiB chunks, `media.ts`) has the same problem.
+    - AVPlay reconnects a held socket by itself, about 7 s after the data stops (`Range: bytes=0-`, user agent `samsung-agent/1.1`). In the 2 h soak, 186 reconnects came every ~39 s and only the first one showed. Add a fault that keeps the data stopped across reconnects: an outage window, or a stall that also holds the next K requests.
+    - Find why a 6.9 s frozen picture didn't trip `liveFrozenMs` (6 s). A lead: AVPlay's `onbufferingstart` puts the controller in `buffering`, where the limit is 12 s.
+    - **Done when:**
+      - the mock's and the lab's faults have unit tests;
+      - the 6.9 s case is explained in architecture.md §2, and fixed if it is a bug (a controller unit test);
+      - step 21's soak can inject stalls the app's watchdog sees (proof on the TV: step 21).
+  - [ ] 39s4. **[needs TV] Launch to the last channel in ≤ 4 s on the Samsung.**
+    - It takes 8–9.5 s now. From the page's start: `DOMContentLoaded` 2.4 s, `lablo:resume` 4.8–5.4 s, `lablo:live-ready` 43–55 ms later, `lablo:resume-frame` 9.1–9.6 s. The page itself starts 2.6 s after `was_execute`.
+    - Leads:
+      - the last channel's stream opens only about 50 ms before the live screen is ready: start it earlier;
+      - its first frame took 4.3 s, partly because the source had stuck on HLS (39s2);
+      - what main.js does before `resume`.
+    - **Done when:**
+      - the start's order is changed and measured on the desktop (marks in e2e);
+      - the Samsung measurement repeats it (step 21's session, or 39s6's tools) at ≤ 4 s, or Omar accepts a written gap.
+  - [ ] 39s5. **Small fixes:**
+    1. `pnpm device install tizen --lab` fails on `dist/packages/Lablo Lab.wgt`, because of the space in the name. Name the lab's package without a space, or quote the path (`tools/device/device.ts` ~26, ~59; the workaround was `sdb push` and `sdb shell 0 vd_appinstall`).
+    2. Choose 4K by what the TV can decode, not by its model year. This 2020 HD set refuses 4K HEVC on AVPlay and `<video>`. Fix the S4/S5 `hevc-4k` notes ("only 2020+ TVs need it"); the app itself has no year gate.
+    3. MP4 `mov_text` subtitles give no cue on AVPlay (MKV SRT does). Step 20's subtitle docs should say sidecar files or our own parser. Demuxing MP4 text would be a decision for Omar.
+    4. S8 prebuffering passed in 1 of 2 runs: any future prebuffered zap must fall back to a plain open (a note in architecture.md §2).
+    - **Done when:** each is fixed or documented, with a unit test for item 1's path.
+  - [ ] 39s6. **A `tools/` step to drive a TV unattended** (Omar's "2a"; Samsung first, then webOS through `ares-inspect`):
+    - remote keys and text over the TV's remote API: `wss://<tv>:8002` over a raw TLS socket with an `Origin` header (Node's built-in WebSocket gets no answer); `SendRemoteKey`; `SendInputString` (base64), then `SendInputEnd`, while the TV's keyboard is up;
+    - the app's state through the inspector: `sdb shell 0 debug <appid>` prints a port, then `sdb forward`, then CDP `Runtime.evaluate`. `Page.captureScreenshot` never answers on Tizen 5.5;
+    - the launch timing through `sdb shell 0 was_execute <appid>` (about 0.8 s; `tizen run` takes about 10 s);
+    - the running state from `http://<tv>:8001/api/v2/applications/<id>`;
+    - a soak monitor: AVPlay's state and position every 100 ms, the stalls, the heap.
+    - The reference scripts are local, outside the repo (`D:/tmp/lablo-samsung/artifacts/`: `tvraw.mjs`, `cdp.mjs`, `soak-monitor.js`, `soak-report.js`, `soak-loop.sh`, `stalls.js`). They hold a LAN address and read a token file. **The repo is public:** no addresses or tokens. The TV's address and the token go in a gitignored file.
+    - **Done when:**
+      - `pnpm tv …` commands with unit tests of their message framing (no TV);
+      - a README section in `docs/testing-without-tvs.md` or tv-setup.md;
+      - one run on the Samsung by Omar or a leg he hands the TV to.
+  - **Waiting for Omar at the TV** (his "3a"): S4's `suspend`, S10 by hand, S11's lifecycle and reading by ear on the Samsung, which need the TV's own remote (the network remote's Home doesn't hide the app); and the "Zoma" he saw on screen. docs/spikes/results.md's "Still to run" table lists them.
 - [ ] 40. **Diagnostics and legal pages.** Diagnostics screen ("app or provider?"), test stream, help, in-app legal pages.
 
 ### Phase 10: Hardening and release
