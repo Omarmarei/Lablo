@@ -658,7 +658,7 @@ describe('the battery checks', () => {
     const tsResults = await ts.runAll({ interactive: true, soakMinutes: 1 } as Partial<LabContext>);
     expect(tsResults['soak']).toMatchObject({ status: 'pass', value: { source: 'stall-ts', stalls: 2 } });
     const soakPlayer = ts.players[ts.players.length - 1];
-    expect(soakPlayer?.opens[0]?.url).toBe('http://lab/live/104.ts?mock_fault=stall:after_bytes=600000');
+    expect(soakPlayer?.opens[0]?.url).toBe('http://lab/live/104.ts?mock_fault=stall:after_bytes=2125152');
     expect(soakPlayer?.captions[0]).toBe('S5: 1 min with a stall every ~20 s; each must recover in under 10 s');
 
     const vod = battery({ lifecycle: [] });

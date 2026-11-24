@@ -357,7 +357,7 @@ export const LAB_MEDIA_FIXTURE: LabMedia = {
     'live-hls': labMediaItem('http://lab/live/104.m3u8', { container: 'hls' }),
     'redirect-ts': labMediaItem('http://lab/live/104.ts?mock_fault=redirect:hops=3', { fault: 'redirect:hops=3' }),
     'redirect-hls': labMediaItem('http://lab/live/104.m3u8?mock_fault=redirect:hops=3', { container: 'hls', fault: 'redirect:hops=3' }),
-    'stall-ts': labMediaItem('http://lab/live/104.ts?mock_fault=stall:after_bytes=600000', { fault: 'stall:after_bytes=600000' }),
+    'stall-ts': labMediaItem('http://lab/live/104.ts?mock_fault=stall:after_bytes=2125152', { fault: 'stall:after_bytes=2125152' }),
     'stall-vod': labMediaItem('http://lab/series/3011.mp4?mock_fault=stall:after_bytes=1000000', { kind: 'vod', container: 'mp4', fault: 'stall:after_bytes=1000000' }),
     'hevc-4k': labMediaItem('http://lab/movie/205.mp4', { kind: 'vod', container: 'mp4', video: { codec: 'hevc', width: 3840, height: 2160 } }),
     'multi-audio': labMediaItem('http://lab/movie/206.mkv', { kind: 'vod', container: 'mkv', audio: FIVE_AUDIO }),

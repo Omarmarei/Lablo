@@ -9,6 +9,7 @@ import type { Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { MediaManifest } from '../src/file-media';
 import { FileMedia } from '../src/file-media';
+import { PlaceholderMedia } from '../src/media';
 import type { MockServer } from '../src/server';
 import { NOW, mock } from './helpers';
 import { VIDEO_PID, syntheticSegment, timestamps } from './ts-helpers';
@@ -117,6 +118,21 @@ describe('FileMedia', () => {
     // More than the burst: it kept going until we hung up.
     expect(body.length).toBeGreaterThan(syntheticSegment(0).length * 1.5);
     expect(stream.destroyed).toBe(true);
+  });
+
+  it("gives a live channel's rate: its loop's bytes over its seconds, else the generic loop's, else the fallback's", () => {
+    const loopBytes = Array.from({ length: SEGMENTS }, (_, i) => syntheticSegment(i).length).reduce((a, b) => a + b, 0);
+    const m = media();
+    expect(m.liveBytesPerSecond(101)).toBe(loopBytes / (SEGMENTS * 6));
+    expect(m.liveBytesPerSecond(999)).toBe(loopBytes / (SEGMENTS * 6));
+    const bare = mkdtempSync(join(tmpdir(), 'lablo-file-media-bare-'));
+    try {
+      writeFileSync(join(bare, 'manifest.json'), JSON.stringify({ version: 1, generatedAt: '', ffmpeg: 'test', font: null, live: {}, files: {} }));
+      const fallback = new PlaceholderMedia({ liveIntervalMs: 50, livePacketsPerChunk: 10 });
+      expect(new FileMedia({ dir: bare, fallback }).liveBytesPerSecond(101)).toBe(37_600);
+    } finally {
+      rmSync(bare, { recursive: true, force: true });
+    }
   });
 
   it('serves a catch-up window as whole segments, unpaced', async () => {

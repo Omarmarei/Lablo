@@ -37,7 +37,7 @@ export type Fault =
   | { type: 'status'; status: number; body: string | undefined; contentType: string }
   | { type: 'redirect'; hops: number; status: number; host: string | undefined; relative: boolean }
   | { type: 'slow-headers'; delayMs: number }
-  | { type: 'stall'; afterBytes: number | undefined; afterMs: number | undefined; holdMs: number }
+  | { type: 'stall'; afterBytes: number | undefined; afterMs: number | undefined; holdMs: number; outageMs: number | undefined }
   | { type: 'reset'; afterBytes: number | undefined }
   | { type: 'truncate'; bytes: number | undefined; fraction: number | undefined }
   | { type: 'gzip'; mode: 'encoding' | 'raw' }
@@ -84,10 +84,10 @@ export function parseFault(f: Fields): Fault {
       f.only(['type', 'delay_ms']);
       return { type, delayMs: f.int('delay_ms') };
     case 'stall': {
-      f.only(['type', 'after_bytes', 'after_ms', 'hold_ms']);
+      f.only(['type', 'after_bytes', 'after_ms', 'hold_ms', 'outage_ms']);
       const afterMs = f.optInt('after_ms');
       const afterBytes = f.optInt('after_bytes') ?? (afterMs === undefined ? 0 : undefined);
-      return { type, afterBytes, afterMs, holdMs: f.int('hold_ms', 120_000, 1) };
+      return { type, afterBytes, afterMs, holdMs: f.int('hold_ms', 120_000, 1), outageMs: f.optInt('outage_ms', 1) };
     }
     case 'reset':
       f.only(['type', 'after_bytes']);
@@ -520,4 +520,71 @@ export function gate(payload: Buffer | Readable, options: GateOptions): PassThro
     source.destroy();
   });
   return out;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Outages (`stall:outage_ms=`, RELAY step 39s3)
+
+interface Outage {
+  readonly timer: NodeJS.Timeout;
+  /** Closes each held response (the stalled one included) when the outage ends. */
+  readonly closes: Set<() => void>;
+}
+
+/**
+ * A stream that stalled with `outage_ms` stays down for that long: the requests for it that carry
+ * the same fault are held with no data (a TV's own reconnects included, which a single held
+ * response can't stop: AVPlay reconnects about 7 s after the data stops), and when the outage
+ * ends every held response is closed, so the next request plays. A stream is a key: the account
+ * and the stream id, else the path (server.ts `outageKey`).
+ */
+export class Outages {
+  private readonly down = new Map<string, Outage>();
+
+  constructor(private readonly log: (line: string) => void = () => undefined) {}
+
+  isDown(key: string): boolean {
+    return this.down.has(key);
+  }
+
+  /**
+   * A response for `key` stalled: its outage starts and lasts `ms` (one already running is joined).
+   * `close` ends the response when the outage ends; the result forgets it (the client went away).
+   */
+  start(key: string, ms: number, close: () => void): () => void {
+    if (!this.down.has(key)) {
+      const timer = setTimeout(() => this.end(key), ms);
+      timer.unref();
+      this.down.set(key, { timer, closes: new Set() });
+      this.log(`outage ${key}: down for ${ms} ms`);
+    }
+    return this.join(key, close);
+  }
+
+  /** A request for `key` while it is down: held until the outage ends (closed at once if it has). */
+  join(key: string, close: () => void): () => void {
+    const outage = this.down.get(key);
+    if (outage === undefined) {
+      close();
+      return () => undefined;
+    }
+    outage.closes.add(close);
+    return () => {
+      outage.closes.delete(close);
+    };
+  }
+
+  /** Ends every outage now, closing what it holds (a scenario switch). */
+  clear(): void {
+    for (const key of [...this.down.keys()]) this.end(key);
+  }
+
+  private end(key: string): void {
+    const outage = this.down.get(key);
+    if (outage === undefined) return;
+    clearTimeout(outage.timer);
+    this.down.delete(key);
+    this.log(`outage ${key}: back (${outage.closes.size} held closed)`);
+    for (const close of outage.closes) close();
+  }
 }

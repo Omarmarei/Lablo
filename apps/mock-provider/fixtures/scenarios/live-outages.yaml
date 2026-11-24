@@ -1,0 +1,12 @@
+description: Live goes down 60 s into each response and stays down 25 s, AVPlay's own reconnects included (step 21's soak).
+rules:
+  - match:
+      path: /live/**
+    faults:
+      # 60 s past the 6 s burst, then the channel is down for 25 s: each request for it is held
+      # with no data until then, and what is held is closed at the end (RELAY step 39s3). Under
+      # Fast start the app's watchdog reopens at 12 s of buffering, inside the outage; a Stable
+      # soak (25 s of buffering) needs a longer outage, in a copy of this file.
+      - type: stall
+        after_ms: 60000
+        outage_ms: 25000

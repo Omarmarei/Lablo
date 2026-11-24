@@ -1,10 +1,12 @@
-description: Live streams stall after 64 KiB with the socket held open; the 3rd VOD request resets mid-body.
+description: Live TS stalls 12 s into each response (18 s of media with the burst) with the socket held open; the 3rd VOD request resets mid-body.
 rules:
   - match:
       path: /live/**
     faults:
+      # By time, not bytes: live TS bursts one 6 s segment, then runs at real time, so 12 s is
+      # 18 s of media on every channel, whatever its bitrate (37-338 KB/s; RELAY step 39s3).
       - type: stall
-        after_bytes: 65536
+        after_ms: 12000
         hold_ms: 300000
   - match:
       path: [/movie/**, /series/**]
