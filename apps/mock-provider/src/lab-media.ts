@@ -7,7 +7,7 @@
 //                      placeholder bytes, where nothing plays)
 //
 // The items are fixed catalog entries (fixtures/catalog.yaml): the bilingual live channel 104 as
-// TS and HLS, the same through a chain of 302s and with a stall after a set number of bytes
+// TS and HLS, the same through a chain of 302s and with a stall after a set amount of its media
 // (each new request plays that much again, so a reopening player meets a stall at a steady
 // rhythm), the 4K HEVC movie 205, the multi-audio MKV 206 (AAC ara/eng/spa, AC3 and E-AC3 5.1,
 // SRT), and the episodes with SRT in MKV (3001) and mov_text in MP4 (3011). A catalog without
@@ -27,12 +27,20 @@ export const LAB_LIVE_CHANNEL = 104;
 /** The redirect rows: as many 302s as the `redirect-chain` scenario sends. */
 export const LAB_REDIRECT_HOPS = 3;
 /**
- * The stall rows: bytes of each response before it stalls. Live TS runs about 200 KB per 6 s
- * segment, so a reopened stream plays about 18 s before the next stall; the VOD file (3011, about
- * 50 KB/s) about 20 s.
+ * The live stall row: seconds of the channel's media each response carries before it stalls, so a
+ * reopened stream plays about 18 s before the next stall. Its bytes come from the media's bitrate
+ * (`labStallTsBytes`): channel 104's generated loop runs 118 KB/s (708 KB per 6 s segment, 2.1 MB
+ * here), and a fixed 600 KB was less than the one-segment burst a live TS starts with, too little
+ * for AVPlay to start (docs/spikes/results.md, the S4 soak; RELAY step 39s3).
  */
-export const LAB_STALL_TS_BYTES = 600_000;
+export const LAB_STALL_TS_SECONDS = 18;
+/** The VOD stall row: bytes of each response; the file (3011, about 50 KB/s) plays about 20 s. */
 export const LAB_STALL_VOD_BYTES = 1_000_000;
+
+/** The live stall row's bytes: `LAB_STALL_TS_SECONDS` of the channel's live TS. */
+export function labStallTsBytes(bytesPerSecond: number): number {
+  return Math.round(bytesPerSecond * LAB_STALL_TS_SECONDS);
+}
 
 export type LabMediaId =
   | 'live-ts'
@@ -50,7 +58,7 @@ export interface LabMediaItem {
   readonly url: string;
   readonly kind: 'live' | 'vod';
   readonly container: 'ts' | 'hls' | 'mp4' | 'mkv';
-  /** What the URL's `mock_fault` adds: `redirect:hops=3`, `stall:after_bytes=600000`, or null. */
+  /** What the URL's `mock_fault` adds: `redirect:hops=3`, `stall:after_bytes=2125152`, or null. */
   readonly fault: string | null;
   /** From the manifest; null with placeholder bytes. */
   readonly video: { readonly codec: string; readonly width: number; readonly height: number; readonly fps: number } | null;
@@ -123,7 +131,7 @@ export function labMedia(state: MockState, base: string): LabMedia | null {
     items['live-hls'] = live('hls', null);
     items['redirect-ts'] = live('ts', redirect);
     items['redirect-hls'] = live('hls', redirect);
-    items['stall-ts'] = live('ts', `stall:after_bytes=${LAB_STALL_TS_BYTES}`);
+    items['stall-ts'] = live('ts', `stall:after_bytes=${labStallTsBytes(state.media.liveBytesPerSecond(LAB_LIVE_CHANNEL))}`);
   }
 
   for (const id of Object.keys(VOD) as Array<keyof typeof VOD>) {

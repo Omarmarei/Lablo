@@ -173,6 +173,14 @@ export class FileMedia implements MediaSource {
     return stream;
   }
 
+  liveBytesPerSecond(channelId: number): number {
+    const loop = this.loop(channelId);
+    if (!loop) return this.fallback.liveBytesPerSecond(channelId);
+    let bytes = 0;
+    for (let seq = 0; seq < loop.segmentCount; seq++) bytes += loop.segmentSize(seq);
+    return bytes / loop.loopSeconds;
+  }
+
   hlsSegment(channelId: number, seq: number): Buffer {
     const loop = this.loop(channelId);
     return loop ? loop.segment(seq) : this.fallback.hlsSegment(channelId, seq);

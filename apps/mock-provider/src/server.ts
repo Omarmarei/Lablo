@@ -16,6 +16,7 @@ import { DEFAULT_FIXTURES_DIR, FixtureError, loadCatalog, loadServerFixture } fr
 import type { FaultPlan, MatchContext, Scenario } from './faults';
 import {
   DEFAULT_SCENARIOS_DIR,
+  Outages,
   gate,
   gzipBody,
   hasBodyTransforms,
@@ -82,6 +83,15 @@ function streamIdOf(request: FastifyRequest, params: Record<string, string>): nu
   return undefined;
 }
 
+/**
+ * The stream a request's outage counts against (`stall:outage_ms=`, RELAY step 39s3): the account
+ * and the stream id, so a channel's `.ts`, its `.m3u8` and its HLS segments are one stream; the
+ * path when the request names no stream.
+ */
+export function outageKey(username: string | undefined, streamId: number | undefined, path: string): string {
+  return `${username ?? ''}/${streamId === undefined ? path : String(streamId)}`;
+}
+
 export async function buildServer(options: MockServerOptions = {}): Promise<MockServer> {
   const fixturesDir = options.fixturesDir ?? DEFAULT_FIXTURES_DIR;
   const scenariosDir = options.scenariosDir ?? (options.fixturesDir ? join(fixturesDir, 'scenarios') : DEFAULT_SCENARIOS_DIR);
@@ -111,6 +121,7 @@ export async function buildServer(options: MockServerOptions = {}): Promise<Mock
   });
   app.decorateRequest('mock', null);
   app.decorate('mockState', state);
+  const outages = new Outages(options.logRequests ? (line) => console.log(line) : undefined);
   const routes: { method: string; url: string }[] = [];
   app.decorate('mockRoutes', routes);
   app.addHook('onRoute', (route) => {
@@ -177,6 +188,7 @@ export async function buildServer(options: MockServerOptions = {}): Promise<Mock
       plan,
       tz: plan.timezone?.tz ?? state.fixture.server.timezone,
       xmltv: plan.timezone?.xmltv ?? 'utc',
+      stream: outageKey(ctx.username, ctx.streamId, path),
     };
     await preFaults(request, reply, plan, params);
     return undefined;
@@ -204,14 +216,24 @@ export async function buildServer(options: MockServerOptions = {}): Promise<Mock
       // Declare the full length, then stop short: the client knows more was promised.
       if (Buffer.isBuffer(body)) void reply.header('content-length', String(body.length));
       const res = reply.raw;
+      const close = (): void => {
+        res.socket?.destroy();
+      };
+      // An outage: a stream that is down holds this request from its first byte (RELAY step 39s3).
+      const outage = cut.type === 'stall' && cut.outageMs !== undefined ? { key: request.mock!.stream, ms: cut.outageMs } : null;
+      const held = outage !== null && outages.isDown(outage.key);
+      if (held) res.once('close', outages.join(outage.key, close));
       body = gate(body, {
-        afterBytes: cut.afterBytes,
-        afterMs: cut.type === 'stall' ? cut.afterMs : undefined,
+        afterBytes: held ? 0 : cut.afterBytes,
+        afterMs: cut.type === 'stall' && !held ? cut.afterMs : undefined,
         onTrigger: () => {
           setImmediate(() => {
             if (!res.destroyed) res.flushHeaders();
           });
-          if (cut.type === 'stall') {
+          if (held) return;
+          if (outage !== null) {
+            res.once('close', outages.start(outage.key, outage.ms, close));
+          } else if (cut.type === 'stall') {
             const timer = setTimeout(() => res.socket?.destroy(), cut.holdMs);
             timer.unref();
             res.once('close', () => clearTimeout(timer));
@@ -277,6 +299,8 @@ export async function buildServer(options: MockServerOptions = {}): Promise<Mock
 
   app.put<{ Body: { name?: string | null } | undefined }>('/__mock/scenario', async (request, reply) => {
     const name = request.body?.name ?? null;
+    // A switch ends every outage: what they hold is closed, and the next requests play.
+    outages.clear();
     if (name === null || name === '') {
       state.scenario = null;
       return { active: null };

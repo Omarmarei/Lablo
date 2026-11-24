@@ -337,6 +337,23 @@ describe('PlayerController: the watchdog', () => {
     expect(r.player.status).toMatchObject({ state: 'reconnecting', attempt: 1 });
   });
 
+  it("reopens a picture frozen 6.9 s with no event at 6 s, and leaves it to an engine that reports buffering", async () => {
+    // The Samsung soak's one visible stall (RELAY step 39s3): the picture stopped for 6.9 s and the
+    // app didn't act. AVPlay had sent `onbufferingstart`, so only the 12 s buffering rule ran, and
+    // its own reconnect (about 7 s after the data stops) brought the picture back first.
+    const quiet = rig((_s, n) => ({ freezeMs: n === 1 ? 12_000 : undefined }));
+    const buffering = rig((_s, n) => ({ bufferingMs: n === 1 ? 12_000 : undefined, playingMs: n === 1 ? 18_900 : undefined }));
+    void quiet.player.play(live(1));
+    void buffering.player.play(live(1));
+    await quiet.clock.advance(30_000);
+    await buffering.clock.advance(30_000);
+    expect(quiet.engine.loads).toHaveLength(2);
+    expect(quiet.engine.loads[1]!.at).toBeGreaterThanOrEqual(18_000);
+    expect(quiet.engine.loads[1]!.at).toBeLessThan(18_600);
+    expect(buffering.engine.loads).toHaveLength(1);
+    expect(buffering.states()).toEqual(['opening', 'playing', 'buffering', 'playing']);
+  });
+
   it('waits 20 s of buffering on VOD', async () => {
     const r = rig((_s, n) => ({ bufferingMs: n === 1 ? 2000 : undefined }));
     void r.player.play(vod(1));

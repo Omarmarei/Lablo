@@ -1,11 +1,12 @@
 import { gunzipSync } from 'node:zlib';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Fields, FixtureError } from '../src/config';
 import {
   FAULT_TYPES,
   INVALID_UTF8,
   MALFORMED_M3U_BLOCK,
   MALFORMED_M3U_TAIL,
+  Outages,
   globToRegExp,
   listScenarios,
   loadScenario,
@@ -17,6 +18,8 @@ import {
 import type { FaultType, MatchContext } from '../src/faults';
 import { PlaceholderMedia } from '../src/media';
 import type { MockServer } from '../src/server';
+import { outageKey } from '../src/server';
+import type { RawResult } from './helpers';
 import { NOW_SEC, api, listen, mock, rawGet } from './helpers';
 
 let app: MockServer | undefined;
@@ -276,9 +279,10 @@ describe('fault parsing', () => {
     expect(parseFaultFlags('status:509')).toEqual([{ type: 'status', status: 509, body: undefined, contentType: 'text/plain; charset=utf-8' }]);
     expect(parseFaultFlags('redirect:hops=3:status=307,stall:after_bytes=4096,bom')).toEqual([
       { type: 'redirect', hops: 3, status: 307, host: undefined, relative: false },
-      { type: 'stall', afterBytes: 4096, afterMs: undefined, holdMs: 120_000 },
+      { type: 'stall', afterBytes: 4096, afterMs: undefined, holdMs: 120_000, outageMs: undefined },
       { type: 'bom' },
     ]);
+    expect(parseFaultFlags('stall:after_ms=60000:outage_ms=25000')).toEqual([{ type: 'stall', afterBytes: undefined, afterMs: 60_000, holdMs: 120_000, outageMs: 25_000 }]);
     expect(parseFaultFlags('truncate')).toEqual([{ type: 'truncate', bytes: undefined, fraction: 0.5 }]);
   });
 
@@ -286,6 +290,7 @@ describe('fault parsing', () => {
     ['an unknown type', 'explode'],
     ['a positional value on a fault without one', 'bom:1'],
     ['an unknown key', 'stall:after_byte=1'],
+    ['an outage of no time', 'stall:outage_ms=0'],
     ['a non-redirect status', 'redirect:status=200'],
     ['an unknown time zone', 'timezone:tz=Mars/Olympus'],
     ['an out-of-range fraction', 'truncate:fraction=2'],
@@ -365,6 +370,7 @@ describe('scenario rules', () => {
       'broken-playlist',
       'flaky-live',
       'gzip-epg',
+      'live-outages',
       'no-xmltv',
       'odd-timezone',
       'provider-errors',
@@ -381,6 +387,12 @@ describe('scenario rules', () => {
     const stalling = loadScenario('stalling-streams');
     const vod = ctx({ path: '/movie/lablo/lablo-test/201.mp4' });
     expect([1, 2, 3, 4].map(() => scenarioFaults(stalling, vod).map((f) => f.type))).toEqual([[], [], ['reset'], []]);
+    // Live stalls by time: the 6 s burst plus 12 s is 18 s of media on every channel (RELAY 39s3).
+    const live = ctx({ path: '/live/lablo/lablo-test/107.ts' });
+    expect(scenarioFaults(stalling, live)).toEqual([{ type: 'stall', afterBytes: undefined, afterMs: 12_000, holdMs: 300_000, outageMs: undefined }]);
+    // Step 21's soak: 60 s past the burst, then the channel is down 25 s.
+    expect(scenarioFaults(loadScenario('live-outages'), live)).toEqual([{ type: 'stall', afterBytes: undefined, afterMs: 60_000, holdMs: 120_000, outageMs: 25_000 }]);
+    expect(scenarioFaults(loadScenario('live-outages'), vod)).toEqual([]);
   });
 });
 
@@ -454,7 +466,7 @@ describe('scenario control', () => {
     expect((await put(null)).json()).toEqual({ active: null });
     expect((await inject('/live/lablo/lablo-test/101.ts')).statusCode).toBe(200);
     const listed = (await inject('/__mock/scenarios')).json<{ active: null; available: { name: string }[] }>();
-    expect(listed.available).toHaveLength(9);
+    expect(listed.available).toHaveLength(10);
   });
 
   it('never faults the control and lab endpoints', async () => {
@@ -464,5 +476,131 @@ describe('scenario control', () => {
     expect((await inject(withFault('/__mock/health', 'status:500'))).statusCode).toBe(200);
     expect((await app.inject({ method: 'PUT', url: '/__mock/scenario', payload: { name: null } })).statusCode).toBe(200);
     expect((await inject(api())).statusCode).toBe(200);
+  });
+});
+
+describe('outages (stall:outage_ms, RELAY step 39s3)', () => {
+  it('keeps a stream down for the outage: joined requests are held, everything held closes at its end', () => {
+    vi.useFakeTimers();
+    try {
+      const lines: string[] = [];
+      const outages = new Outages((line) => lines.push(line));
+      const closed: string[] = [];
+      const close = (name: string) => () => closed.push(name);
+      expect(outages.isDown('lablo/104')).toBe(false);
+      outages.start('lablo/104', 25_000, close('stalled'));
+      expect(outages.isDown('lablo/104')).toBe(true);
+      expect(outages.isDown('lablo/105')).toBe(false);
+      vi.advanceTimersByTime(7000);
+      outages.join('lablo/104', close('reconnect'));
+      const gone = outages.join('lablo/104', close('hung up'));
+      gone(); // the client closed it first
+      // A second stall during the outage joins it: the end stays where it was.
+      vi.advanceTimersByTime(10_000);
+      outages.start('lablo/104', 25_000, close('second'));
+      vi.advanceTimersByTime(7999);
+      expect(closed).toEqual([]);
+      vi.advanceTimersByTime(1);
+      expect(closed).toEqual(['stalled', 'reconnect', 'second']);
+      expect(outages.isDown('lablo/104')).toBe(false);
+      expect(lines).toEqual(['outage lablo/104: down for 25000 ms', 'outage lablo/104: back (3 held closed)']);
+      // A request that found the stream down but joins after the end is closed at once.
+      outages.join('lablo/104', close('late'));
+      expect(closed.at(-1)).toBe('late');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ends every outage at once on clear, and a released response is never closed', () => {
+    vi.useFakeTimers();
+    try {
+      const outages = new Outages();
+      const closed: string[] = [];
+      const release = outages.start('a', 5000, () => closed.push('a'));
+      outages.start('b', 5000, () => closed.push('b'));
+      release();
+      outages.clear();
+      expect(closed).toEqual(['b']);
+      expect([outages.isDown('a'), outages.isDown('b')]).toEqual([false, false]);
+      // The cleared outage's timer is gone: it never ends a new outage of the same stream early.
+      vi.advanceTimersByTime(1000);
+      outages.start('b', 5000, () => closed.push('b again'));
+      vi.advanceTimersByTime(4999);
+      expect(closed).toEqual(['b']);
+      vi.advanceTimersByTime(1);
+      expect(closed).toEqual(['b', 'b again']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keys a stream by the account and its id, else by the path", () => {
+    expect(outageKey('lablo', 104, '/live/lablo/lablo-test/104.ts')).toBe('lablo/104');
+    expect(outageKey(undefined, undefined, '/get.php')).toBe('//get.php');
+  });
+
+  const FAULT = 'stall:after_ms=150:outage_ms=600';
+  const at = async (startMs: number, url: string, waitMs: number, t0: number): Promise<RawResult & { endedAt: number }> => {
+    const wait = startMs - (Date.now() - t0);
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    const result = await rawGet(url, waitMs);
+    return { ...result, endedAt: Date.now() - t0 };
+  };
+
+  it("holds the channel's other requests until the outage ends, then closes them; a new request plays", async () => {
+    app = await mock({ media: new PlaceholderMedia({ liveIntervalMs: 10 }) });
+    const base = await listen(app);
+    // An account with four connections: a held response still counts against its limit.
+    const t0 = Date.now();
+    const [stalled, reconnect, playlist, other, plainTs] = await Promise.all([
+      at(0, `${base}${withFault('/live/forever/forever-test/101.ts', FAULT)}`, 3000, t0),
+      at(300, `${base}${withFault('/live/forever/forever-test/101.ts', FAULT)}`, 3000, t0),
+      at(300, `${base}${withFault('/live/forever/forever-test/101.m3u8', FAULT)}`, 3000, t0),
+      at(300, `${base}${withFault('/live/forever/forever-test/102.ts', FAULT)}`, 3000, t0),
+      at(300, `${base}/live/forever/forever-test/101.ts`, 200, t0),
+    ]);
+    // The stalled response: data, then nothing until the outage's end closes it.
+    expect(stalled.status).toBe(200);
+    expect(stalled.body.length).toBeGreaterThan(0);
+    expect(stalled.ended).toBe('aborted');
+    expect(stalled.endedAt).toBeGreaterThanOrEqual(700);
+    // The reconnect and the channel's playlist: headers, no data, closed with it.
+    for (const held of [reconnect, playlist]) {
+      expect(held.status).toBe(200);
+      expect(held.body).toHaveLength(0);
+      expect(held.ended).toBe('aborted');
+      expect(Math.abs(held.endedAt - stalled.endedAt)).toBeLessThan(150);
+    }
+    // Another channel plays during it (then has its own outage), and the same channel without the fault plays on.
+    expect(other.body.length).toBeGreaterThan(0);
+    expect(other.endedAt).toBeGreaterThanOrEqual(1000);
+    expect(plainTs.body.length).toBeGreaterThan(0);
+    expect(plainTs.ended).toBe('timeout');
+    // After the outage the channel plays again, and stalls again into a new outage.
+    const again = await rawGet(`${base}${withFault('/live/forever/forever-test/101.ts', FAULT)}`, 400);
+    expect(again.body.length).toBeGreaterThan(0);
+    expect(again.ended).toBe('timeout');
+    const held = await rawGet(`${base}${withFault('/live/forever/forever-test/101.ts', FAULT)}`, 200);
+    expect([held.status, held.body.length, held.ended]).toEqual([200, 0, 'timeout']);
+  });
+
+  it('ends the outages when the scenario switches, and logs each one', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    app = await mock({ media: new PlaceholderMedia({ liveIntervalMs: 10 }), logRequests: true });
+    const base = await listen(app);
+    const url = `${base}${withFault('/live/lablo/lablo-test/101.ts', 'stall:after_ms=100:outage_ms=60000')}`;
+    const t0 = Date.now();
+    const stalled = at(0, url, 3000, t0);
+    const held = at(300, url, 3000, t0);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await app.inject({ method: 'PUT', url: '/__mock/scenario', payload: { name: null } });
+    for (const r of await Promise.all([stalled, held])) {
+      expect(r.ended).toBe('aborted');
+      expect(r.endedAt).toBeLessThan(1500);
+    }
+    const outageLines = log.mock.calls.map((call) => String(call[0])).filter((line) => line.startsWith('outage'));
+    log.mockRestore();
+    expect(outageLines).toEqual(['outage lablo/101: down for 60000 ms', 'outage lablo/101: back (2 held closed)']);
   });
 });

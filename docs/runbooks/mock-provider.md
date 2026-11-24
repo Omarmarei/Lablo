@@ -276,12 +276,20 @@ Two ways to inject them:
 
 `/__mock/*` and `/__lab/*` are never faulted, so a scenario can always be switched off.
 
+**Outages (`stall:outage_ms=N`, RELAY step 39s3).** A TV's player reconnects a held socket by itself (AVPlay about 7 s after the data stops, with `Range: bytes=0-`), so one stalled response rarely reaches the app's watchdog. With `outage_ms`, a stalled response takes its stream down for N ms:
+- every request for the same account and stream id (the path when it names none, so a channel's `.ts`, `.m3u8` and HLS segments are one stream) that carries the same fault gets its headers and no data;
+- when the outage ends, every response it held is closed (the stalled one too), so the next request plays, and stalls again after `after_bytes`/`after_ms`;
+- a held response still counts against the account's `max_connections`; a scenario switch ends every outage;
+- the request log prints `outage lablo/104: down for 25000 ms` and `outage lablo/104: back (2 held closed)`.
+
+**Live TS by time:** live TS bursts its current 6 s segment, then runs at real time, so `after_ms=12000` is 18 s of media on every channel, while a byte count depends on the channel's bitrate (the generated channels run 37–338 KB/s; 104 118 KB/s).
+
 | Type | Arguments (positional first) | Effect |
 |---|---|---|
 | `status` | `status`, `body`, `content_type` | Answers that status (401/403/404/509/… or 200 with an HTML page) instead of the handler. |
 | `redirect` | `hops` (1), `status` (302; 301/303/307/308), `host`, `relative` | A chain of `hops` redirects through `/__mock/redirect/…` back to the URL plus `mock_hop=done`. `host` sends the client to another host:port (a CDN hop); `relative` uses path-only `Location`s. |
 | `slow-headers` | `delay_ms` | Waits before sending the headers. |
-| `stall` | `after_bytes` (0), `after_ms`, `hold_ms` (120000) | Sends the headers (declaring the full `Content-Length`) and the first bytes, then nothing, holding the socket open until the client gives up or `hold_ms` passes. |
+| `stall` | `after_bytes` (0), `after_ms`, `hold_ms` (120000), `outage_ms` | Sends the headers (declaring the full `Content-Length`) and the first bytes, then nothing, holding the socket open until the client gives up or `hold_ms` passes. With `outage_ms`, the stream is down for that long from the stall (below). |
 | `reset` | `after_bytes` | No `after_bytes`: drops the connection before any response. With it: sends that many bytes, then drops it. |
 | `bom` | | Prefixes a UTF-8 BOM (on JSON that makes `JSON.parse` fail). |
 | `crlf` | | LF → CRLF. |
@@ -318,7 +326,8 @@ Unknown keys are errors, so a typo fails loudly. Shipped scenarios:
 |---|---|
 | `flaky-live` | The first two live requests get 509, then live works (watchdog retry ladder). |
 | `redirect-chain` | Live, VOD and episodes go through 3 × 302 (AVPlay redirect probe, spike S4). |
-| `stalling-streams` | Live stalls after 64 KiB; the 3rd VOD/episode request resets after 32 KiB. |
+| `stalling-streams` | Live TS stalls 12 s into each response (18 s of media with the burst), the socket held; the 3rd VOD/episode request resets after 32 KiB. |
+| `live-outages` | Step 21's soak: live goes down 60 s into each response (past the 6 s burst) and stays down 25 s, AVPlay's own reconnects included. Under Fast start the app's watchdog reopens at 12 s of buffering, inside the outage, and the next try after its end plays. Count a stall's recovery from the outage's end (the log's `back` line) to the moving picture; a Stable soak (25 s of buffering) needs a longer outage, in a copy of the file. |
 | `slow-provider` | 3 s before headers on `player_api.php`, 8 s on `get.php` and `xmltv.php`. |
 | `broken-playlist` | `get.php` with malformed entries, invalid UTF-8, CRLF and a BOM. |
 | `gzip-epg` | `xmltv.php` gzip-encoded; `get.php` as a raw gzip body. |
@@ -380,7 +389,7 @@ The batteries (S5 on `<video>`, S4 and S8 on AVPlay; S8 uses `live-ts` twice at 
 |---|---|---|
 | `live-ts`, `live-hls` | `/live/{u}/{p}/104.ts`, `.m3u8` | the bilingual channel (AAC ara + eng) |
 | `redirect-ts`, `redirect-hls` | the same with `mock_fault=redirect:hops=3` | three 302s first |
-| `stall-ts` | `104.ts?mock_fault=stall:after_bytes=600000` | each response stalls after 600 KB (about 18 s of play) |
+| `stall-ts` | `104.ts?mock_fault=stall:after_bytes=N` | each response stalls after 18 s of the channel's media: N from its bitrate (2,125,152 with today's generated 104; 2,368,800 with placeholder bytes) |
 | `stall-vod` | `/series/{u}/{p}/3011.mp4?mock_fault=stall:after_bytes=1000000` | the same for an engine without TS (about 20 s each) |
 | `hevc-4k` | `/movie/{u}/{p}/205.mp4` | 4K HEVC |
 | `multi-audio` | `/movie/{u}/{p}/206.mkv` | AAC ara/eng/spa, AC3 5.1, E-AC3 5.1, SRT ara + eng |

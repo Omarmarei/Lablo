@@ -38,6 +38,8 @@ export interface MediaSource {
   readonly kind: string;
   /** Live MPEG-TS for a channel; endless unless the source is configured otherwise. */
   liveTs(channelId: number): Readable;
+  /** The bytes a second of the channel's live TS takes (its paced rate; RELAY step 39s3). */
+  liveBytesPerSecond(channelId: number): number;
   /** One live or archive HLS segment (MPEG-TS). */
   hlsSegment(channelId: number, seq: number): Buffer;
   /** Catch-up MPEG-TS for a window of a channel. */
@@ -120,6 +122,10 @@ export class PlaceholderMedia implements MediaSource {
       stream.push(part);
     }
     return stream;
+  }
+
+  liveBytesPerSecond(_channelId: number): number {
+    return (this.packetsPerChunk * TS_PACKET_SIZE * 1000) / this.intervalMs;
   }
 
   hlsSegment(channelId: number, seq: number): Buffer {

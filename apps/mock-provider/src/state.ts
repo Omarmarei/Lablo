@@ -50,6 +50,8 @@ export interface RequestMock {
   /** Panel time zone for this request (server.yaml, or a `timezone` fault). */
   tz: string;
   xmltv: XmltvOffsetStyle;
+  /** The stream an outage (`stall:outage_ms=`) counts against: server.ts `outageKey`. */
+  stream: string;
 }
 
 declare module 'fastify' {

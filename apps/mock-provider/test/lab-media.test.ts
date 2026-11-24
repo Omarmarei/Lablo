@@ -6,7 +6,7 @@ import type { Catalog } from '../src/config';
 import { loadCatalog } from '../src/config';
 import type { MediaManifest } from '../src/file-media';
 import type { LabMedia } from '../src/lab-media';
-import { LAB_LIVE_CHANNEL, LAB_REDIRECT_HOPS, LAB_STALL_TS_BYTES, LAB_STALL_VOD_BYTES } from '../src/lab-media';
+import { LAB_LIVE_CHANNEL, LAB_REDIRECT_HOPS, LAB_STALL_TS_SECONDS, LAB_STALL_VOD_BYTES, labStallTsBytes } from '../src/lab-media';
 import type { MediaSource } from '../src/media';
 import { PlaceholderMedia } from '../src/media';
 import { P, U, mock } from './helpers';
@@ -50,6 +50,8 @@ function filesMedia(manifest: MediaManifest): MediaSource & { readonly manifest:
     kind: 'files',
     manifest,
     liveTs: (id) => inner.liveTs(id),
+    // Channel 104's generated loop: 708,384 bytes per 6 s segment.
+    liveBytesPerSecond: (id) => (id === LAB_LIVE_CHANNEL ? 118_064 : 1),
     hlsSegment: (id, seq) => inner.hlsSegment(id, seq),
     archiveTs: (id, start, duration) => inner.archiveTs(id, start, duration),
     file: (kind, id, ext) => inner.file(kind, id, ext),
@@ -70,6 +72,14 @@ async function labMediaOf(options: Parameters<typeof mock>[0] = {}): Promise<{ s
 const BASE = 'http://tv-lab.test:8080';
 const ACCOUNT = `${U}/${P}`;
 
+describe('the live stall row', () => {
+  it("stalls after 18 s of the channel's own media", () => {
+    expect(LAB_STALL_TS_SECONDS).toBe(18);
+    expect(labStallTsBytes(118_064)).toBe(2_125_152);
+    expect(labStallTsBytes(118_064.1)).toBe(2_125_154);
+  });
+});
+
 describe('/__lab/media', () => {
   it('hands out one URL per row of the battery, on the host the lab used, with the test account', async () => {
     const { status, body } = await labMediaOf();
@@ -81,7 +91,8 @@ describe('/__lab/media', () => {
       'live-hls': `${BASE}/live/${ACCOUNT}/${LAB_LIVE_CHANNEL}.m3u8`,
       'redirect-ts': `${BASE}/live/${ACCOUNT}/${LAB_LIVE_CHANNEL}.ts?mock_fault=redirect:hops=${LAB_REDIRECT_HOPS}`,
       'redirect-hls': `${BASE}/live/${ACCOUNT}/${LAB_LIVE_CHANNEL}.m3u8?mock_fault=redirect:hops=${LAB_REDIRECT_HOPS}`,
-      'stall-ts': `${BASE}/live/${ACCOUNT}/${LAB_LIVE_CHANNEL}.ts?mock_fault=stall:after_bytes=${LAB_STALL_TS_BYTES}`,
+      // 18 s of the test's placeholder bytes (2,632,000 bytes a second).
+      'stall-ts': `${BASE}/live/${ACCOUNT}/${LAB_LIVE_CHANNEL}.ts?mock_fault=stall:after_bytes=47376000`,
       'hevc-4k': `${BASE}/movie/${ACCOUNT}/205.mp4`,
       'multi-audio': `${BASE}/movie/${ACCOUNT}/206.mkv`,
       'subs-mkv': `${BASE}/series/${ACCOUNT}/3001.mkv`,
@@ -99,6 +110,8 @@ describe('/__lab/media', () => {
     expect(body.media).toBe('files');
     expect(body.items['live-ts']).toMatchObject({ video: VIDEO, audio: [AAC('ara'), AAC('eng')], subtitles: [] });
     expect(body.items['stall-ts']?.audio).toEqual([AAC('ara'), AAC('eng')]);
+    // 18 s of channel 104's media: more than the one-segment burst AVPlay needs (RELAY step 39s3).
+    expect(body.items['stall-ts']?.fault).toBe('stall:after_bytes=2125152');
     expect(body.items['hevc-4k']?.video).toEqual({ codec: 'hevc', width: 3840, height: 2160, fps: 25 });
     expect(body.items['multi-audio']?.audio?.map((a) => `${a.lang}:${a.codec}:${a.channels}`)).toEqual(['ara:aac:2', 'eng:aac:2', 'spa:aac:2', 'eng:ac3:6', 'eng:eac3:6']);
     expect(body.items['subs-mkv']?.subtitles).toEqual([{ lang: 'ara', codec: 'subrip' }]);
