@@ -1,24 +1,21 @@
-# Lablo IPTV: relay leg 149 opening prompt
+# Lablo IPTV: relay leg 150 opening prompt
 
-You are leg 149 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 150 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 ## Status
-- **Earlier legs:** leg 0 planned the work. Legs 1–147 did steps 1–33, 35–39 (all sub-steps; step 39's real-TV proof waits for step 21).
-- **Leg 148 (2026-11-24): step 39s1 (the storage quota) refined, asked, built and merged: PR #175 as `ac2781e`**, green at CI's first run.
-  - **Omar answered "1 1":** the guides' programmes go first to make room; a line on the live screen plus the reason in Settings.
-  - **`packages/data/src/storage-room.ts`** (new): `isQuotaError`, `dropGuides` (three `clear()`s), `Room` (a write that fails for space makes room once and is tried again).
-    - A catalog refresh (`ingest.ts`): every write goes through a `Room` that deletes all stored guides; a second failure is `IngestError('storage')`; the active generation still serves. The ingest worker emits `room`, and the engine reloads the query worker.
-    - A guide's refresh (`epg-ingest.ts`): its room is only its own active generation. When it then fails, the guide is deleted whole and its failure kept on a new record. An unchanged guide (a 304) never makes room from its own programmes.
-    - Abandon and prune (catalog and guides): deletes first, then the `building` mark, best effort (`unmark`, `unmarkEpg`).
-    - `loadProfile`: on a failed upgrade write, gives the upgraded document from memory.
-    - The ingest worker has a `dropGuides` handler (a profile save's room).
-  - **The app:** `apps/tv/src/data/storage-state.ts` (new, main.js): `createStorageState`, `isStorageError`.
-    - `DataEngine` (`storage` option): `editProfile` retries after `dropGuides` in an ingest worker, then reloads the query worker. Refreshes and guide outcomes report which writes failed for space and which went through.
-    - The live screen's line under the header (`live.storageFull`, `LIVE.storageLine` = 36 px of the body's spare room).
-    - Settings › "Sources": `SourceRow.storage` (`sources.storage`, `sources.storageSince`).
-    - Guides: `guides.failure.storage`. The loader: `LoadErrorCode` `storage` (`error.storage`; `QuotaExceededError` maps to it; no playlist try after it).
-  - **Tizen:** `platforms/tizen/config.xml` requests `http://tizen.org/privilege/unlimitedstorage`, and the build refuses a manifest without it. The lab's manifest inherits it.
-  - **Docs:** RELAY's `- [x] 39s1.` (refined before building: 6 points; Omar's answer; refined while building: 7; gates), row 148; architecture.md §1.3 "Built in step 39s1".
+- **Earlier legs:** leg 0 planned the work. Legs 1–148 did steps 1–33, 35–39 (all sub-steps; step 39's real-TV proof waits for step 21) and 39s1 (the storage quota, PR #175).
+- **Leg 149 (2026-11-24): step 39s2 (the ladder's HLS stickiness) refined, built and merged: PR #176 as `694a298`.** CI: changes, verify 23 m, engines 27 m and web 3 m passed; media hit the known `epg-declared-300mb` timing flake (23.9 ms against 20), then passed on the rerun (11 m).
+  - **No question for Omar.** The rule has one conventional answer; the cap's numbers are leg 149's choices (below).
+  - **The rule** (`packages/player/src/controller.ts` `movesMemory`, called from `onFirstFrame`): a source remembers the container that showed a frame only when:
+    - it is the request's own first container (`.ts`, or what `allowed_output_formats` leaves), so a source goes back to `.ts` as soon as a `.ts` plays; or
+    - another URL of the session failed definitively (`isDefinitive`: `unsupported`, or HTTP 4xx other than 408 and 429).
+    - A network error, a timeout, a stall, a 5xx, a decode error, or a switch rung that played after the `.ts` had played never moves the source.
+  - **The fallback's cap** (`WatchdogConfig.fallbackMs`, the controller's `armOpenTimer`; the ladder's new `untriedLeft()` and `otherFailedForGood(current)`):
+    - a live URL that hasn't shown a frame in the session, while another URL is untried, gets `fallbackMs` instead of the open timeout;
+    - `DEFAULT_WATCHDOG.fallbackMs` is 6000 (Fast start), `STABLE.fallbackMs` 12_000 (`apps/tv/src/player/play-tuning.ts`), and the cap is never more than `openTimeoutMs`;
+    - not capped: the last untried URL, a URL that played in the session, catch-up, VOD;
+    - the timer fails with `{ kind: 'timeout', code: 'OPEN' }`, as the open timeout does.
+  - **Docs:** RELAY's `- [x] 39s2.` (refined before building: 5 points; gates), row 149; architecture.md §2 "Built in step 39s2", plus pointers in §2's sketch and in "Built in step 17".
 - **Waiting for Omar:**
   - step 16's remaining Samsung parts, and 21 (the TVs);
   - his "3a": the real-remote checks wait until he is next at the TV (S4 `suspend`, S10 by hand, S11's lifecycle and reading by ear, the "Zoma" he saw);
@@ -26,69 +23,88 @@ You are leg 149 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
 
 ## Read first
 1. **RELAY.md:**
-   - the 39s block: **39s2 is the next step** (the ladder's HLS stickiness), then 39s3, 39s5, 39s6 (39s4 needs the TV);
-   - the `- [x] 39s1.` line as the model for "Refined before building", Omar's answer, "Refined while building" and "Gates";
-   - the last progress row (148).
-2. **docs/spikes/results.md**, "From the Samsung TV (2026-11-24)" and "The app on the Samsung TV": the ladder's HLS stickiness on channel 104, and the fallback to TS taking 15 s and 27–28 playlist requests.
-3. **For 39s2:**
-   - `packages/player/src/request.ts` (`orderCandidates`, `SourceMemory`), `ladder.ts`, `controller.ts` (`memory.remember` after a frame);
-   - `apps/tv/src/player/player-memory.ts` (the profile's `player.containers`);
-   - architecture.md §2 "The URL strategy".
+   - the 39s block: **39s3 is the next step** (stall injection that reaches the watchdog), then 39s5 and 39s6 (39s4 needs the TV);
+   - the `- [x] 39s2.` and `- [x] 39s1.` lines as models for "Refined before building", the choices and "Gates";
+   - the last progress row (149).
+2. **docs/spikes/results.md:** "From the Samsung TV (2026-11-24)" (the lab's stall row miscalibrated for AVPlay; AVPlay hides held-socket stalls) and "The app on the Samsung TV" (stalls, and the soak: 186 reconnects, one visible 6.9 s stall that didn't trip the 6 s rule).
+3. **For 39s3:**
+   - `apps/mock-provider/src/lab-media.ts` (`LAB_STALL_TS_BYTES`, 600 KB; 4 MB worked on AVPlay) and the mock's stalling scenario (64 KiB chunks, `media.ts`), as RELAY's 39s3 names them;
+   - `packages/player/src/controller.ts`: `tick` (the frozen and buffering rules), `onEvent`'s `buffering` and `playing` cases;
+   - `packages/platform-tizen/src/avplay-engine.ts`: `listenerFor`.
+   - architecture.md §2 "The watchdog".
 
 ## Next steps, in order
 1. **Check the state:**
    - `git -C "<wt>" status` is clean;
-   - `git -C "<wt>" log --oneline -3` shows this handover's commit, then `66b21d8` (39s1 ticked), then `ac2781e` (the merge);
+   - `git -C "<wt>" log --oneline -3` shows this handover's commit, then `7a027f5` (39s2 ticked, row 149), then `694a298` (the merge);
    - no `*.mutbak` anywhere;
    - `docker ps` shows `lablo-web-postgres-1` (needed only for the web-backed tests) and no `lablo-chrome*` container.
-2. **Step 39s2, the ladder's HLS stickiness: refine against the code first** (write "Refined before building" under 39s2).
-   - Its "Done when" asks to decide whether one outage may change a source's remembered container, and to cap the fallback's time. It is a question for Omar if the choice has trade-offs.
-   - If it has one conventional answer (e.g. only a definite failure moves the source, an outage doesn't, and the fallback is capped at a time), write it down and build.
-   - If there is a real trade-off, end the leg as **needs-you** with a numbered question, recommended option first.
-   - Gates as 39s1: unit tests (the controller's and the ladder's: an outage that doesn't move the source, a definite failure that does, the cap with a fake clock); e2e if UI changes; lint, typecheck; `build:tv` and a module diff; engines 68 locally (alone); mutation with the list written first; the PR, CI, the merge on green.
-3. **Then** 39s3 (stall injection that reaches the watchdog), 39s5 (small fixes), 39s6 (`pnpm tv` tools).
+2. **Step 39s3: refine against the code first** (write "Refined before building" under 39s3).
+   - **Leg 149's read-ahead on the 6.9 s case** (a lead, not proven on the TV): after the first frame, AVPlay's `onbufferingstart` makes the engine emit `buffering` (`listenerFor`). The controller then sits in `buffering`, where only `liveBufferingMs` applies (12 s; Stable 25 s) and the frozen rule (`liveFrozenMs` 6 s) doesn't run. A 6.9 s stall that AVPlay reported as buffering can't trip the 6 s rule: by design unless 39s3 decides otherwise. The soak monitor read AVPlay's state and position only, so whether AVPlay said buffering then is unknown.
+   - The fault design (an outage window, or a stall that also holds the next K requests) and `LAB_STALL_TS_BYTES` from the media's bitrate are plain engineering. A question for Omar only if a choice has real trade-offs.
+   - **Gates as 39s2:**
+     - unit tests (the mock's and the lab's faults; a controller test if the 6.9 s case is a bug);
+     - e2e if UI changes;
+     - lint, typecheck;
+     - `build:tv` and a module diff;
+     - engines 68 locally (alone);
+     - mutation with the list written first;
+     - the PR, CI, the merge on green.
+3. **Then** 39s5 (small fixes) and 39s6 (`pnpm tv` tools).
 
 ## Git state to expect
-- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed. It is `origin/main` (`ac2781e`) plus `66b21d8` (39s1's tick, row 148) and this handover's commit.
+- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed. It is `origin/main` (`694a298`) plus `7a027f5` (39s2's tick, row 149) and this handover's commit.
 - **No open PR.** The main checkout was not touched (its local `main` is old; never use it).
 - **The dev database** (`lablo-web-postgres-1`) has migration `20261123160000_pair_purpose`. Nothing is in production.
 - **Gitignored but present:**
   - `node_modules`, `.cache/*` (including `.cache/media`, used by Omar's Samsung session), `apps/web/.env`, `apps/web/.next`;
-  - `dist/`: `build:tv` of 39s1's final code;
-  - in `artifacts/`: `mutate39s1.py` with `mutate39s1-clean.log`, `-a`, `-b`, `-b2`, `-c` logs; `build-tv-39s1.log`; `mprobe-39s1-after.log`; `engines-39s1-68.log`; `e2e-39s1-*.log`; `unit-39s1.log`; the lint and typecheck logs;
-  - screenshots `storage-full-en.png`, `-ar.png`, `-en-XA.png`, and `storage-full-sources-*.png`.
+  - `dist/`: `build:tv` of 39s2's final code;
+  - in `artifacts/`:
+    - `mutate39s2.py` and `mutate39s2.log`;
+    - `build-tv-39s2.log`, `mprobe-39s2-after.log`, `engines-39s2-68.log`;
+    - `e2e-39s2-player.log`, `unit-39s2.log`, `lint-39s2.log`, `typecheck-39s2.log`;
+    - leg 148's 39s1 logs and the storage screenshots.
 
 ## Verified vs not
-- **Verified in leg 148 (39s1):**
-  - unit 8,886 (329 files) at the full run, plus the cases added for mutation;
-  - e2e: `storage-full.spec.ts` 3 of 3 (en, ar, en-XA), 32 related (live, onboarding, guides, refresh, m3u-upgrade, language, favourites, storage-full), `tv-bundle` 10;
+- **Verified in leg 149 (39s2):**
+  - unit 8,902 (329 files) at the full run;
   - lint and typecheck clean;
-  - mutation 85 of 86: 8 survivors closed by tests, 1 equivalent with today's words (`white-space: nowrap`: all three languages fit one line);
-  - `build:tv`: main.js 470.6 KB on Tizen (+2.9), settings.js 99.7 KB (+0.3), the query worker 149.3 of 150 KB (+0.3);
-  - module diff: `data/storage-state.ts` added to main.js, nothing else; core-js 173 / 2 unchanged;
+  - mutation 22 of 22 at the first run;
+  - `build:tv`: main.js 471.0 KB on Tizen (+0.4), settings.js 99.7 KB, the query worker 149.3 of 150 KB (both unchanged);
+  - module diff: no module added or removed, core-js 173 / 2;
+  - e2e `buffering`, `player`, `resume` 14 of 14;
   - engines 68: 13 of 13;
-  - CI green at the first run (verify 22 m, engines 27 m, media 12 m, web 3 m);
-  - the screenshots were looked at.
-- **Samsung's docs were checked:** the W3C/HTML5 API reference lists `unlimitedstorage` (public level) on the Indexed Database row. Whether Samsung's Chromium honours it is unknown: the 2015 Chromium-EFL code answers the IndexedDB quota callback with "Not Supported by chromium".
+  - CI green after one media flake rerun.
 - **Not done:**
-  - a real TV for 39s1: whether the privilege raises `storage.estimate()` (the lab's S2 at the next Samsung session), and whether deleting the guides frees usage at once on Tizen's LevelDB (if not, the retry fails and the next try 2 h later finds the room);
-  - `verify:engines` on Chromium 53 locally (the PR's engines job passed 53, 56 and 68);
-  - the live line is not in the old-engine walk;
-  - steps 39s2–39s6; production (step 34).
+  - **the TV's time to `.ts` after the cut:** expect about 6 s plus AVPlay's close and the `.ts` start. Measure at step 21 or with 39s6's tools.
+  - **What made the TV's 15 s:** that build had an 8 s prepare timeout and a 10 s open timeout, so either AVPlay's `stop`/`close` blocked during its playlist retries, or a prepare answered on the 404. Unknown.
+  - `verify:engines` on Chromium 53 locally (the PR's engines job passed 53, 56 and 68).
+  - steps 39s3–39s6; production (step 34).
 - **Migrations and deploys:** none. Nothing is deployed.
 
 ## Gotchas and lessons
-**New in leg 148:**
+**New in leg 149:**
+- **The background CI wait was reaped** ("system is running low on memory", while the session was idle). Don't restart it. What worked:
+  - check once in the foreground (`gh pr checks <n> --repo Omarmarei/Lablo`);
+  - then foreground waits bounded by `timeout 570`: `until s=$(gh api repos/Omarmarei/Lablo/actions/jobs/<id> --jq ".status + \" \" + (.conclusion // \"\")") && [ "${s%% *}" = "completed" ]; do read -t 30 < /dev/zero; done`, repeated until done.
+- **After `gh run rerun <run> --failed`** the job has a new id: `gh run view <run> --repo Omarmarei/Lablo --json jobs --jq '.jobs[] | select(.name=="media") | (.databaseId|tostring) + " " + .status'`.
+- **A python patch in a Bash heredoc lost an escaped quote:** `\\'` inside a single-quoted TS test title came out as a bare `'` and broke the string. Write test titles with apostrophes in double quotes, or patch through the Write tool, then fix with Edit.
+- **`WatchdogConfig` has `fallbackMs` now:** a test that spreads `{ ...DEFAULT_WATCHDOG, openTimeoutMs: 20_000 }` inherits the 6 s cap. Set `fallbackMs` too when a test means a patient open.
+- **Two-URL live tests that never frame moved:** the `.ts` fails at 6 s now. Loads at 0 (`.ts`), 6050 (`.m3u8`), 16_050, 26_050 (`.ts`), 37_000; give-up at 47 s.
+- **Desktop e2e never meets the cap:** Chromium refuses the `.ts` at once (`unsupported`, definitive), so the `.m3u8` is the last untried URL and keeps the whole open timeout.
+- **The module probe** (`tools/build/mprobe-<step>.ts`, temporary, deleted after): my `rel()` cut the root out of the `lablo-worker:D:/...` ids, so the seven worker lines differ in spelling from leg 148's log. Ignore those, or keep ids as they are.
+- **Sizes:** main.js 471.0 of 500 KB on Tizen (29 KB left); settings.js 99.7 of 150; the query worker 149.3 of 150 (0.7 KB left: keep its code changes tiny).
+
+**From leg 148 (still true):**
 - **Chromium's quota rule:** it checks the quota only for a transaction that writes (usage plus that transaction's puts). A delete-only transaction always commits. A cleanup that deletes and puts in one transaction fails whole on a full store: split them (deletes first).
-- **`fillStore`** (`packages/data/src/test-support.ts`) fakes a full store at each put: `(store, value, key) => boolean`; `full.refused.length === 0` refuses only the first write. A shared `refused` array spans the engine test's workers (`test/tv-data-engine.test.ts`: `fullness`, `refused`, `drops`, `storageEvents`).
-- **To prove an order inside IndexedDB** (room made before a retried write): start a `dumpStore` in the predicate at the retry; IndexedDB runs it after that transaction.
-- **The query worker keeps the guides' match table in memory:** a missed reload shows in `epgStatus().matched`, not `.guides` (read from the store).
-- **e2e full store:** DevTools' `Storage.overrideQuotaForOrigin` does nothing in Playwright's browser contexts. Instead, patch `IDBObjectStore.prototype` in the workers and hold the mock's `player_api.php` answers 1.5 s with a Fastify `onRequest` hook (`e2e/storage-full.spec.ts`).
+- **`fillStore`** (`packages/data/src/test-support.ts`) fakes a full store at each put: `(store, value, key) => boolean`. A shared `refused` array spans the engine test's workers (`test/tv-data-engine.test.ts`).
+- **To prove an order inside IndexedDB:** start a `dumpStore` in the predicate at the retry; IndexedDB runs it after that transaction.
+- **The query worker keeps the guides' match table in memory:** a missed reload shows in `epgStatus().matched`, not `.guides`.
+- **e2e full store:** DevTools' `Storage.overrideQuotaForOrigin` does nothing in Playwright's browser contexts. Patch `IDBObjectStore.prototype` in the workers (`e2e/storage-full.spec.ts`).
 - **A spec comparing words with the catalog it imports** checks nothing against a catalog change: pin the English sentence as a literal.
-- **The module probe:** when main is unchanged since the last leg's "after" log, diff against it (no source swap). The output holds NUL bytes: `grep -a`, `tr -d '\000'`, sort both lists, then `diff`; `?commonjs` ids differ only in path spelling. An unsorted diff dumped 400 lines.
-- **A mutant that replaces `room.write(() => f(...))` with `(() => f(...))`** never calls the write: replace it with `((g) => g())(() => f(...))` to call it without the room.
-- **`cd` in a Bash call moved the session's working directory** (twice this leg). Never `cd`; use absolute paths and `--dir`.
-- **Sizes:** main.js 470.6 of 500 KB on Tizen (29 KB left); settings.js 99.7 of 150; the query worker 149.3 of 150 (0.7 KB left: keep its code changes tiny, put new work in short-lived workers or main).
+- **The module probe's output holds NUL bytes:** `grep -a`, `tr -d '\000'`, sort both lists, then `diff`.
+- **A mutant that replaces `room.write(() => f(...))` with `(() => f(...))`** never calls the write: use `((g) => g())(() => f(...))`.
+- **Never `cd` in a Bash call** (it moved the session's working directory); use absolute paths and `--dir`.
 
 **From leg 147 (still true):**
 - **Plain e2e never plays a channel:** the desktop refuses the `.ts` at once, and the mock's placeholder `.m3u8` never shows a frame, so the player reopens it at each open timeout. To measure the watchdog, watch the `<video>`'s `src` (`e2e/buffering.spec.ts` `reopenAfter`).
@@ -107,9 +123,13 @@ You are leg 149 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
 - **Patch scripts with backslashes or quotes go through the Write tool**, never a Bash heredoc.
 
 **From legs 130–145 (still true):**
-- **`rm` on a shell variable is refused:** write a literal path. `sleep N; cmd` is blocked. Wait with one background `until` loop (`until [ "$(gh pr checks <n> --repo Omarmarei/Lablo --json bucket --jq '[.[] | select(.bucket=="pending")] | length')" = "0" ]; do timeout 60 bash -c 'read -t 55 < /dev/zero'; done`, after about 30 s).
-- **CI:** a run takes about 30 minutes; `verify` and `media` have 30-minute caps, engines 35. Known flakes: `auto-next.spec.ts:151`, `telemetry.spec.ts:202`, `epg-declared-300mb`, `guide-offset.spec.ts` en-US, `rpc.test.ts:179`, Chromium 53/56 start-up and stuck deletes. Read the annotations, then `gh run rerun <run> --failed` once the whole run is done. No `jq` in Git Bash. A push to an open PR cancels its CI.
-- **Run the engines check alone** (`verify:engines --engine chrome68`, about 4 minutes). `tv-bundle.spec.ts` runs in the `chromium` project (there is no `tv-bundle` project).
+- **`rm` on a shell variable is refused:** write a literal path. `sleep N; cmd` is blocked: wait with `read -t N < /dev/zero` under `timeout`.
+- **CI:**
+  - a run takes about 30 minutes; `verify` and `media` have 30-minute caps, engines 35;
+  - known flakes: `auto-next.spec.ts:151`, `telemetry.spec.ts:202`, `epg-declared-300mb` (again in leg 149), `guide-offset.spec.ts` en-US, `rpc.test.ts:179`, Chromium 53/56 start-up and stuck deletes;
+  - read the annotations (`gh api repos/Omarmarei/Lablo/check-runs/<job>/annotations`), then `gh run rerun <run> --failed` once the whole run is done;
+  - no `jq` in Git Bash; a push to an open PR cancels its CI.
+- **Run the engines check alone** (`verify:engines --engine chrome68`, about 4 minutes). `tv-bundle.spec.ts` runs in the `chromium` project.
 - **Mutation and builds don't mix:** never run mutation beside a build, an e2e run, a probe or an agent reading the tree.
 - **Settings rows in e2e go by id** (`e2e/settings-rows.ts`). **Onboard in the language you test.** **In Arabic the rail is on the right.** Use `--workers=2` for e2e on this PC.
 - **The player's options already have `clock` and `now`**: grep an options interface before adding a field. **A key a screen takes but ignores** needs a `nav.handle(key) === 'screen'` test.
@@ -131,24 +151,25 @@ You are leg 149 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
 - **CLAUDE.md edits need Omar's direct word in his own tab.**
 
 ## Open decisions and gates
-- **Leg 148's choices while building 39s1** (Omar may overrule; each is small to change):
-  - a guide's refresh makes room from its own programmes only (deleting the other guides would let two guides take turns deleting each other);
-  - the line's words: "Lablo's storage is full, so updates can't be saved. Remove a TV guide you don't use in Settings to make room." (Arabic in the catalog);
-  - the storage state lasts for the run (a restart starts clean; the next try finds it again).
-- **Leg 147's choices stand** (Fast start's 5 s AVPlay buffer; Stable's numbers; tunables set Fast start's numbers; the "Buffering" row's words).
-- **Leg 146's and 145's choices stand.**
-- **39s2 may need Omar's answer** (whether one outage may move a source's remembered container; the fallback's cap).
+- **Leg 149's choices for 39s2** (Omar may overrule; each is a number or a line to change):
+  - the fallback's cap: 6 s under Fast start, 12 s under Stable (above the slowest first frame the TV showed on a working URL, HLS 4.3 s at the launch);
+  - catch-up keeps the whole open timeout (an archive can be slow to start on the panel);
+  - the known cost: a source whose `.ts` fails at every play without a definitive error pays the cap at each zap (hysteresis in the profile was not chosen).
+- **Leg 148's choices for 39s1 stand** (a guide's refresh makes room from its own programmes only; the line's words; the storage state lasts for the run).
+- **Leg 147's, 146's and 145's choices stand.**
 - **Step 34 `[needs Omar]`:** the R2 and Upstash adapters; R2's host in `connect-src` and the bucket's CORS rule; `LABLO_RATE_SECRET` in Vercel; the config key ceremony; the accounts and the domain; the first production migration (including `pair_purpose`) and the deploy, each with his one-word OK.
 - **Steps 16's rest and 21 wait for Omar and the TVs** (his "3a").
 - **What remains after 39s:** 40 (diagnostics and legal pages), 43 (accessibility), 44 (store documents), 45 (release engineering); with Omar or a TV: 34, 16, 21, 39s4, 41, 42, 46, 47.
 - **Later fixes to propose (no step yet):**
-  - new in leg 148: the live line in the old-engine walk; seed the storage state at start from stored guide failures (`storage` codes); a remove-a-source action (the line can only point at guides today); measure on the Samsung whether deleting frees usage at once;
+  - new in leg 149: a fresh redirect probe on Tizen for a remembered container other than the request's first (it would see a 404 in about 0.2 s, where AVPlay retries silently); the cut's time measured on the Samsung;
+  - from leg 148: the live line in the old-engine walk; seed the storage state at start from stored guide failures (`storage` codes); a remove-a-source action (the line can only point at guides today); measure on the Samsung whether deleting frees usage at once;
   - from leg 147: a per-model tunables block in the config doc (only if step 21 shows a need); whether AVPlay's `prepareAsync` waits for the first buffer; the "Buffering" row in the old-engine walk;
   - from leg 146: the audio and subtitle keys over an end card (`menuRoom`); the prompt in the old-engine walk;
   - older: the restored-source login gap; renaming a source; the info bar overflowing in en-XA; a renamed hidden channel's old name over the list; CH+ after hiding the playing channel; `editChannel.close`'s e2e; the guides screen's third line; `auto-next`'s `endEpisode` race; a best-of-3 for `epg-declared-300mb`; `guide-offset` en-US; `rpc.test.ts:179`; caching ffmpeg in CI; the engines job's 35-minute cap; forwarding workers' unhandled rejections; `epgOverrides` after a re-match; `config-server.ts`'s `close()`; ingest request timeouts; the query worker's budget (0.7 KB left); the start's resume before the worker's load; a VNode test of the pad; the local e2e worker count under load; stored guides keeping their titles' language after a language switch.
 
 ## Checks for Omar
-1. **The storage line:** `artifacts/screenshots/storage-full-en.png`, `-ar.png`, `-en-XA.png` (in the worktree, gitignored). Nothing to decide unless he wants other words.
+1. **The storage line (from leg 148):** `artifacts/screenshots/storage-full-en.png`, `-ar.png`, `-en-XA.png` (in the worktree, gitignored). Nothing to decide unless he wants other words.
+2. **39s2 has no screen:** nothing to look at. He may overrule the cap's numbers (6 s and 12 s).
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
 - **At the LG TV next time:**
@@ -173,7 +194,8 @@ You are leg 149 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
   - look for the "Zoma" he saw;
   - the sleep timer's prompt as on the LG;
   - a channel's start under "Fast start" and under "Stable" (AVPlay's buffers);
-  - **new: the lab's S2 again** (the lab now carries `unlimitedstorage`): does `storage.estimate()` still say 88 MB?
+  - the lab's S2 again (the lab now carries `unlimitedstorage`): does `storage.estimate()` still say 88 MB?
+  - **new (39s2):** after a network outage, the next zap and the next launch start on `.ts` again; with the `.m3u8` answering 404 and `.m3u8` remembered, how long until `.ts` plays (expect about 6 s plus AVPlay's close).
 - **Samsung:** back up `C:\Users\Omarm\SamsungCertificate\lablo-dev\author.p12` somewhere safe for good.
 - **Samsung Seller Office Partner application:** submit it as soon as possible (Samsung Gulf).
 - **Trademark clearance** (US, CA, AE, SA) and domains for **"Lablo"**.
