@@ -10,7 +10,7 @@ import { PLAYER_SETTINGS_ROWS } from './player-settings';
 /**
  * Settings › "Player" as drawn (RELAY step 38d3): each row its name, its value beside it and a line
  * under it, as "Parental control"'s rows. The values are the words the track menu and the info bar
- * use (`lang.*`, `tracks.*`, `player.picture.*`).
+ * use (`lang.*`, `tracks.*`, `player.picture.*`); the clock's (step 39a) are its own.
  */
 
 type Translate = AppI18n['t'];
@@ -29,20 +29,22 @@ export function playerRowText(t: Translate, row: PlayerSettingsRow, values: Play
   if (row === 'audio') return { name: t('playerSettings.audio'), value: langText(t, values.audio, t('playerSettings.app')), hint: t('playerSettings.audioHint') };
   if (row === 'subtitles') return { name: t('tracks.subtitles'), value: langText(t, values.subtitles, t('tracks.off')), hint: t('playerSettings.subtitlesHint') };
   if (row === 'size') return { name: t('playerSettings.size'), value: t(SIZE_KEYS[values.size]), hint: t('playerSettings.sizeHint') };
-  return { name: t('playerSettings.picture'), value: t(PICTURE_TEXT[values.picture]), hint: t('playerSettings.pictureHint') };
+  if (row === 'picture') return { name: t('playerSettings.picture'), value: t(PICTURE_TEXT[values.picture]), hint: t('playerSettings.pictureHint') };
+  return { name: t('playerSettings.clock'), value: t(values.clock ? 'playerSettings.on' : 'playerSettings.off'), hint: t('playerSettings.clockHint') };
 }
 
-/** A row's value as stored (`data-value`): a language, `app` or `off`, a size, a mode. */
+/** A row's value as stored (`data-value`): a language, `app` or `off`, a size, a mode, `on` or `off`. */
 function rawValue(row: PlayerSettingsRow, values: PlayerValues): string {
   if (row === 'audio') return values.audio ?? 'app';
   if (row === 'subtitles') return values.subtitles ?? 'off';
+  if (row === 'clock') return values.clock ? 'on' : 'off';
   return row === 'size' ? values.size : values.picture;
 }
 
-/** The page as drawn, hook-free: its four rows. */
+/** The page as drawn, hook-free: its rows. */
 export function PlayerSettingsView({ i18n, page, item }: { i18n: AppI18n; page: PlayerSettings; item: (index: number) => ItemBinding }) {
   const { t } = i18n;
-  const values: PlayerValues = { audio: page.audio.value, subtitles: page.subtitles.value, size: page.size.value, picture: page.picture.value };
+  const values: PlayerValues = { audio: page.audio.value, subtitles: page.subtitles.value, size: page.size.value, picture: page.picture.value, clock: page.clock.value };
   return (
     <div class="settings__page" data-testid="player-settings" data-modes={page.modes.value.join(' ')}>
       <header class="settings__header">

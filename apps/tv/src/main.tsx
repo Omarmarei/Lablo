@@ -27,7 +27,7 @@ import { LiveApp } from './live/LiveApp';
 import type { Live } from './live/live-state';
 import { createLive } from './live/live-state';
 import type { Guide } from './guide/guide-state';
-import { createGuide } from './guide/guide-state';
+import { createGuide, guideFromPlayer } from './guide/guide-state';
 import type { Movies } from './movies/movies-state';
 import { createMovies, selectSeries } from './movies/movies-state';
 import { episodePlay } from './shows/episode-play';
@@ -631,12 +631,13 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       modes: () => livePlayer().pictureModes(),
       values: () => {
         const made = livePlayer();
-        return { audio: memory.audioLang(), subtitles: memory.subtitleLang(), size: made.menu.size.value, picture: made.picture.value };
+        return { audio: memory.audioLang(), subtitles: memory.subtitleLang(), size: made.menu.size.value, picture: made.picture.value, clock: made.watchClock.value };
       },
       setAudio: (lang) => memory.setAudioLang(lang),
       setSubtitles: (lang) => memory.setSubtitleLang(lang),
       setSize: (size) => livePlayer().setSubtitleSize(size),
       setPicture: (mode) => livePlayer().setPicture(mode),
+      setClock: (on) => livePlayer().setWatchClock(on),
     },
     // A login given again (step 32d4b): the source's own refresh with the schedule held (the
     // schedule keeps a refused `needs-login` for 2 h, and `refreshNow` reads only the guides), then
@@ -711,6 +712,16 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     sized: (size) => memory.setSubtitleSize(size),
     ...(picture === null ? {} : { picture }),
     pictured: (mode) => memory.setPicture(mode),
+    // "Clock while watching" (step 39a).
+    watchClock: memory.clock(),
+    watchClocked: (on) => memory.setClock(on),
+    // The Guide key on a channel (step 39a): the guide on the channel's row, over the live screen or the guide.
+    toGuide: (under) =>
+      guideFromPlayer(
+        under,
+        () => live.status.value === 'ready',
+        (row) => guide.open(row),
+      ),
     // Where a movie is (step 26d): every 10 s while it plays, and when it stops, is left or the app hides; an episode's with its show (step 27c1),
     // and whether one comes after it (step 27d: "Continue watching").
     progressed: (item, positionMs, lengthMs, ended, showKey, more) => progress.save(item.key, positionMs, lengthMs, ended, showKey, more),

@@ -246,6 +246,38 @@ describe('createPlayerMemory', () => {
     expect([again.audioLang(), again.subtitleLang()]).toEqual([null, 'en']);
   });
 
+  it('keeps "Clock while watching" (step 39a) in the profile\'s options: on as `clock: \'on\'`, off taken away', () => {
+    const { memory, edits } = rig();
+    expect(memory.clock()).toBe(false);
+    memory.load(profile({ options: { clock: 'on', buffer: 'stable' } }));
+    expect(memory.clock()).toBe(true);
+    // Anything else is off: another value, no options, options that aren't a record, an inherited name.
+    for (const options of [{ clock: 'off' }, { clock: true }, { clock: 'ON' }, {}, 'clock', null, undefined, Object.create({ clock: 'on' })]) {
+      memory.load(profile({ options }));
+      expect(memory.clock()).toBe(false);
+    }
+    memory.load(profile({ options: { clock: 'on' } }));
+    memory.load(profile({}));
+    expect(memory.clock()).toBe(false);
+    memory.setClock(false);
+    expect(edits).toEqual([]);
+    memory.setClock(true);
+    memory.setClock(true);
+    memory.setClock(false);
+    expect(changes(edits)).toEqual([
+      { field: 'option', name: 'clock', value: 'on' },
+      { field: 'option', name: 'clock', value: null },
+    ]);
+    // The profile after the writes reads back the same; another option is kept.
+    let doc: ProfileDoc = { ...emptyProfile(), player: { ...emptyProfile().player, options: { buffer: 'stable' } } };
+    memory.setClock(true);
+    for (const edit of edits) doc = applyProfileEdit(doc, edit) ?? doc;
+    expect(doc.player.options).toEqual({ buffer: 'stable', clock: 'on' });
+    const again = rig().memory;
+    again.load({ doc, newer: false, migratedFrom: null });
+    expect(again.clock()).toBe(true);
+  });
+
   it('keeps a change for the run when the write fails, and says so', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { memory } = rig(true);

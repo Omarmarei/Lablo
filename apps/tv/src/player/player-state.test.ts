@@ -335,6 +335,8 @@ function setup(
     blocklist?: PlayerOptions['blocklist'];
     favourites?: PlayerOptions['favourites'];
     editChannel?: PlayerOptions['editChannel'];
+    watchClock?: boolean;
+    toGuide?: PlayerOptions['toGuide'];
   } = {},
 ) {
   const list = new FakeList();
@@ -342,6 +344,7 @@ function setup(
   const tuned: string[] = [];
   const sized: SubtitleSize[] = [];
   const pictured: PictureMode[] = [];
+  const watchClocked: boolean[] = [];
   const controller = new FakeController();
   const clock = manualTimers();
   const nav = createNavigator({
@@ -373,6 +376,9 @@ function setup(
     tuned: (r, index) => tuned.push(`${r.item.key} @${index}`),
     sized: (size) => sized.push(size),
     pictured: (mode) => pictured.push(mode),
+    watchClocked: (on) => watchClocked.push(on),
+    ...(kept.watchClock === undefined ? {} : { watchClock: kept.watchClock }),
+    ...(kept.toGuide === undefined ? {} : { toGuide: kept.toGuide }),
     ...(kept.subtitleSize === undefined ? {} : { subtitleSize: kept.subtitleSize }),
     ...(kept.outputFormats === undefined ? {} : { outputFormats: kept.outputFormats }),
     ...(kept.picture === undefined ? {} : { picture: kept.picture }),
@@ -402,7 +408,7 @@ function setup(
     const f = nav.snapshot();
     return `${f.screen} · ${f.zone} ${f.index}`;
   };
-  return { list, controller, clock, nav, player, chrome, closed, tuned, sized, pictured, saved, emit, listening: () => lifecycleListeners.length, press, at, made: () => made };
+  return { list, controller, clock, nav, player, chrome, closed, tuned, sized, pictured, watchClocked, saved, emit, listening: () => lifecycleListeners.length, press, at, made: () => made };
 }
 
 describe('the player: opening and closing (RELAY step 20a)', () => {
@@ -3607,5 +3613,108 @@ describe('the player: a radio channel (RELAY step 37b)', () => {
     t.controller.set('playing');
     expect(t.player.playing.value).toBe(3);
     expect(t.player.radio()).toBeNull();
+  });
+});
+
+describe('the player: the clock over the video and the Guide key (RELAY step 39a)', () => {
+  it('starts with the clock off, or as the app kept it, and tells the app each change once', () => {
+    const t = setup();
+    expect(t.player.watchClock.value).toBe(false);
+    t.player.setWatchClock(false);
+    t.player.setWatchClock(true);
+    t.player.setWatchClock(true);
+    expect(t.player.watchClock.value).toBe(true);
+    t.player.setWatchClock(false);
+    expect(t.watchClocked).toEqual([true, false]);
+    const kept = setup('ltr', { watchClock: true });
+    expect(kept.player.watchClock.value).toBe(true);
+    expect(kept.watchClocked).toEqual([]);
+  });
+
+  it('closes on a channel as Back does, then hands the row to what the app gave for the screen under it', async () => {
+    const asked: string[] = [];
+    /** Each row the app was handed, with the rows Back's `closed` had been told by then. */
+    const opened: string[] = [];
+    const t = setup('ltr', {
+      toGuide: (under) => {
+        asked.push(under);
+        return under === 'live' ? (index) => opened.push(`${index} after ${t.closed.join(',')}`) : null;
+      },
+    });
+    t.player.show(2);
+    t.controller.set('playing');
+    // The bar's focus and a number being typed change nothing.
+    await t.press('RIGHT', 'DIGIT_1');
+    await t.press('GUIDE');
+    expect(asked).toEqual(['live']);
+    // Closed first (the list on the row), then the app's: the guide opens over the list's row.
+    expect(t.closed).toEqual([2]);
+    expect(opened).toEqual(['2 after 2']);
+    expect(t.player.open.value).toBe(false);
+    expect(t.player.entry.value).toBeNull();
+    expect(t.nav.snapshot().depth).toBe(1);
+    expect(t.chrome).toEqual([true, false]);
+    // The number typed is dropped with the player: nothing opens later.
+    t.clock.advance(5000);
+    await flush();
+    expect(t.controller.plays).toHaveLength(1);
+    // A zap that waits: the channel that plays is the one the list and the guide go to, as Back.
+    t.player.show(4);
+    t.controller.set('playing');
+    await t.press('CH_UP');
+    expect([t.player.target.value, t.player.playing.value]).toEqual([5, 4]);
+    await t.press('GUIDE');
+    expect(t.closed).toEqual([2, 4]);
+    expect(opened).toEqual(['2 after 2', '4 after 2,4']);
+  });
+
+  it('does nothing where the app says the key has no use, in a movie, or without the app', async () => {
+    const asked: string[] = [];
+    const t = setup('ltr', {
+      toGuide: (under) => {
+        asked.push(under);
+        return null;
+      },
+    });
+    t.nav.push({ id: 'home', zones: [{ kind: 'list', id: 'shelf', axis: 'vertical', count: 1 }] });
+    t.player.show(1);
+    // The player takes the key, so no screen under it sees it.
+    expect(t.nav.handle('GUIDE')).toBe('screen');
+    await flush();
+    expect(asked).toEqual(['home']);
+    expect(t.player.open.value).toBe(true);
+    expect(t.closed).toEqual([]);
+    t.player.close();
+    // A movie: the app isn't asked.
+    const film: CatalogItem = { ...row(0).item, key: 'x:s1:movie:201', kind: 'movie', name: 'Sintel', url: 'http://panel.test/movie/u/p/201.mkv' };
+    t.player.playMovie({ item: film, request: { key: film.key, src: 's1', mode: 'vod', candidates: [{ url: film.url, container: 'mkv' }] }, lengthMs: null, closed: () => undefined });
+    expect(t.nav.handle('GUIDE')).toBe('screen');
+    await flush();
+    expect(asked).toEqual(['home']);
+    expect(t.player.movie.value).not.toBeNull();
+    // No `toGuide`: the key is taken and nothing happens.
+    const bare = setup();
+    bare.player.show(0);
+    expect(bare.nav.handle('GUIDE')).toBe('screen');
+    await flush();
+    expect(bare.player.open.value).toBe(true);
+    expect(bare.closed).toEqual([]);
+  });
+
+  it('reads the screen under the player at each opening', async () => {
+    const asked: string[] = [];
+    const t = setup('ltr', {
+      toGuide: (under) => {
+        asked.push(under);
+        return () => undefined;
+      },
+    });
+    t.player.show(0);
+    await t.press('GUIDE');
+    t.nav.push({ id: 'guide', zones: [{ kind: 'list', id: 'grid', axis: 'vertical', count: 1 }] });
+    t.player.show(1);
+    await t.press('GUIDE');
+    expect(asked).toEqual(['live', 'guide']);
+    expect(t.nav.top.id).toBe('guide');
   });
 });

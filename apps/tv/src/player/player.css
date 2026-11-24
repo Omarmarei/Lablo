@@ -213,6 +213,23 @@ html[data-player='on'] .player-stage {
 }
 
 /*
+ * "Clock while watching" (step 39a): the time in the top-end corner, where the number being typed
+ * shows (the two never show together), while the info bar with its own clock is hidden.
+ */
+.player__corner-clock {
+  position: absolute;
+  right: var(--safe-x);
+  top: var(--safe-y);
+  margin: 0;
+  padding: var(--space-2) var(--space-5);
+  background: var(--color-scrim);
+  border-radius: var(--radius-l);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+/*
  * The bottom of the safe area (step 20b2b): the subtitles, then the info bar under them, so
  * the subtitles rise above the bar while it shows. The menu and the card paint over both.
  */

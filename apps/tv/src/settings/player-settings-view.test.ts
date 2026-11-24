@@ -45,12 +45,13 @@ function page(values: PlayerValues, modes: readonly PictureMode[] = ['fit', 'zoo
     subtitles: signal(values.subtitles),
     size: signal(values.size),
     picture: signal(values.picture),
+    clock: signal(values.clock),
     modes: signal(modes),
     open: () => undefined,
   };
 }
 
-const START: PlayerValues = { audio: null, subtitles: null, size: 'm', picture: 'fit' };
+const START: PlayerValues = { audio: null, subtitles: null, size: 'm', picture: 'fit', clock: false };
 
 describe('Settings › "Player" as drawn (RELAY step 38d3)', () => {
   it('names each row with its value and line in English', () => {
@@ -65,6 +66,8 @@ describe('Settings › "Player" as drawn (RELAY step 38d3)', () => {
     expect(playerRowText(en.t, 'size', { ...START, size: 'l' }).value).toBe('Large');
     expect(playerRowText(en.t, 'picture', START)).toEqual({ name: 'Picture', value: 'Fit', hint: 'How the picture fills the screen, on every channel' });
     expect(['zoom', 'stretch', '4:3'].map((picture) => playerRowText(en.t, 'picture', { ...START, picture: picture as PictureMode }).value)).toEqual(['Zoom', 'Stretch', '4:3']);
+    expect(playerRowText(en.t, 'clock', START)).toEqual({ name: 'Clock while watching', value: 'Off', hint: 'The time in a corner of the picture while the info bar is hidden' });
+    expect(playerRowText(en.t, 'clock', { ...START, clock: true }).value).toBe('On');
   });
 
   it('names each row with its value in Arabic', () => {
@@ -74,20 +77,23 @@ describe('Settings › "Player" as drawn (RELAY step 38d3)', () => {
     expect(playerRowText(ar.t, 'subtitles', { ...START, subtitles: 'ar' }).value).toBe('العربية');
     expect(playerRowText(ar.t, 'size', { ...START, size: 'l' })).toMatchObject({ name: 'حجم الترجمة', value: 'كبير' });
     expect(playerRowText(ar.t, 'picture', { ...START, picture: 'stretch' })).toMatchObject({ name: 'الصورة', value: 'تمديد' });
+    expect(playerRowText(ar.t, 'clock', START)).toMatchObject({ name: 'الساعة أثناء المشاهدة', value: 'متوقفة' });
+    expect(playerRowText(ar.t, 'clock', { ...START, clock: true }).value).toBe('مفعّلة');
   });
 
-  it('draws the four rows, each with its binding, its value as stored, and the modes offered', () => {
+  it('draws the five rows, each with its binding, its value as stored, and the modes offered', () => {
     const asked: number[] = [];
     const root = PlayerSettingsView({
       i18n: en,
-      page: page({ audio: 'ar', subtitles: null, size: 'l', picture: '4:3' }, ['fit', 'stretch', '4:3']),
+      page: page({ audio: 'ar', subtitles: null, size: 'l', picture: '4:3', clock: true }, ['fit', 'stretch', '4:3']),
       item: (i) => (asked.push(i), i === 1 ? focused : idle),
     });
-    expect(asked).toEqual([0, 1, 2, 3]);
+    expect(asked).toEqual([0, 1, 2, 3, 4]);
     expect(propsOf(byTestId(root, 'player-settings')[0])['data-modes']).toBe('fit stretch 4:3');
-    const rows = ['audio', 'subtitles', 'size', 'picture'].map((row) => propsOf(byTestId(root, `player-settings-${row}`)[0]));
-    expect(rows.map((p) => p['data-value'])).toEqual(['ar', 'off', 'l', '4:3']);
-    expect(rows.map((p) => p['data-state'])).toEqual(['idle', 'focused', 'idle', 'idle']);
+    const rows = ['audio', 'subtitles', 'size', 'picture', 'clock'].map((row) => propsOf(byTestId(root, `player-settings-${row}`)[0]));
+    expect(rows.map((p) => p['data-value'])).toEqual(['ar', 'off', 'l', '4:3', 'on']);
+    expect(rows.map((p) => p['data-state'])).toEqual(['idle', 'focused', 'idle', 'idle', 'idle']);
+    expect(textOf(byTestId(root, 'player-settings-clock-value')[0])).toBe('On');
     expect(rows[1]!['class']).toBe('settings__row settings__switch is-focused');
     expect(textOf(byTestId(root, 'player-settings-audio-value')[0])).toBe('Arabic');
     expect(textOf(byTestId(root, 'player-settings-picture')[0])).toBe('Picture4:3How the picture fills the screen, on every channel');

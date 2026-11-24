@@ -7,7 +7,7 @@ import { SCREEN, createNavigator, guideCellAt, guideHeight, guideWidth } from '@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LiveRow, Timers } from '../live/live-state';
 import type { GuideEngine, GuideList } from './guide-state';
-import { GUIDE, GUIDE_ASK_MS, GUIDE_DAYS, GUIDE_GRID, GUIDE_KEEP, GUIDE_REACH, GUIDE_SCREEN, GUIDE_VISIBLE, askedDays, createGuide, dayOf, guideDays, guideRange, mergeDays } from './guide-state';
+import { GUIDE, GUIDE_ASK_MS, GUIDE_DAYS, GUIDE_GRID, GUIDE_KEEP, GUIDE_REACH, GUIDE_SCREEN, GUIDE_VISIBLE, askedDays, createGuide, dayOf, guideDays, guideFromPlayer, guideRange, mergeDays } from './guide-state';
 import { DETAILS_SCREEN } from './programme-details';
 
 const MINUTE = 60_000;
@@ -996,6 +996,36 @@ describe('OK and Back in the guide', () => {
     expect(t.guide.schedule(44)).toBeNull();
     expect(t.position().time).toBe(NOW);
     expect(t.engine.calls).toHaveLength(2);
+  });
+
+  it("decides the player's Guide key by the screen under the player (RELAY step 39a)", () => {
+    const opened: number[] = [];
+    let ready = true;
+    const open = (row: number): number => opened.push(row);
+    // Over the guide: the player's close lands there; nothing opens.
+    const overGuide = guideFromPlayer(GUIDE_SCREEN, () => ready, open);
+    expect(overGuide).not.toBeNull();
+    overGuide!(3);
+    expect(opened).toEqual([]);
+    // Over the live screen: the guide on the row, while the list is ready.
+    const overLive = guideFromPlayer('live', () => ready, open);
+    overLive!(4);
+    expect(opened).toEqual([4]);
+    ready = false;
+    overLive!(5);
+    expect(opened).toEqual([4]);
+    // Elsewhere: the key does nothing.
+    for (const under of ['home', 'search', 'movies', 'player', '']) expect(guideFromPlayer(under, () => true, open)).toBeNull();
+  });
+
+  it('closes on the Guide key as on Back (RELAY step 39a)', async () => {
+    const t = setup();
+    t.open(42);
+    await flush();
+    await t.press('DOWN', 'GUIDE');
+    expect(t.at()).toBe('live · channels 0');
+    expect(t.closed).toHaveBeenCalledWith(43);
+    expect(t.guide.screen.value).toBeNull();
   });
 
   it('drops the answers of a guide that closed, and asks nothing after', async () => {

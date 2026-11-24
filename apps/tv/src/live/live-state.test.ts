@@ -1876,6 +1876,36 @@ describe("the header's Guide and Settings buttons (RELAY steps 22b2 and 23c)", (
     expect(openGuide).toHaveBeenCalledTimes(3);
   });
 
+  it("opens the guide on the Guide key from any zone, on the list's focused row, only while the list has channels (RELAY step 39a)", async () => {
+    const openGuide = vi.fn();
+    const t = await setup({ openGuide });
+    await t.press('DOWN', 'GUIDE');
+    expect(t.at()).toBe('live · channels 1');
+    expect(openGuide).toHaveBeenLastCalledWith(1);
+    // From the rail and the header: the list's row; the focus stays where it was.
+    await t.press('DOWN', 'LEFT', 'GUIDE');
+    expect(t.at()).toBe('live · rail 0');
+    expect(openGuide).toHaveBeenLastCalledWith(2);
+    await t.press('UP', 'RIGHT', 'GUIDE');
+    expect(t.at()).toBe('live · header 1');
+    expect(openGuide).toHaveBeenLastCalledWith(2);
+    expect(openGuide).toHaveBeenCalledTimes(3);
+    // Not while the screen loads or has no channels; the key is taken all the same.
+    const engine = new FakeEngine();
+    engine.hold = new Set(['profile']);
+    const loading = await setup({ engine, openGuide });
+    expect(loading.live.nav.handle('GUIDE')).toBe('screen');
+    const none = new FakeEngine();
+    none.catalog = {};
+    const empty = await setup({ engine: none, openGuide });
+    expect(empty.live.nav.handle('GUIDE')).toBe('screen');
+    expect(openGuide).toHaveBeenCalledTimes(3);
+    // Without a guide, the key does nothing.
+    const bare = await setup();
+    await bare.press('GUIDE');
+    expect(bare.at()).toBe('live · channels 0');
+  });
+
   it('asks no short guide while it has the focus', async () => {
     const t = await setup();
     expect(t.engine.focusCalls.map((c) => c?.key ?? null)).toEqual(['x:s1:live:0-0']);

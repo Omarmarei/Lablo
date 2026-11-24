@@ -204,8 +204,9 @@ export interface LiveOptions {
   /** OK on the header's "Settings" button (step 22b2): the settings screen opens. */
   readonly openSettings?: () => void;
   /**
-   * OK on the header's "Guide" button (step 23c), while the list has channels: the guide opens
-   * on the category on show, on `row`, the list's focused row.
+   * OK on the header's "Guide" button (step 23c), or the Guide key anywhere on the screen (step
+   * 39a), while the list has channels: the guide opens on the category on show, on `row`, the
+   * list's focused row.
    */
   readonly openGuide?: (row: number) => void;
   /** OK on the header's "Movies" button (step 26a): the movies screen opens. */
@@ -1254,6 +1255,11 @@ export function createLive(options: LiveOptions): Live {
     scheduleGuides();
   };
 
+  /** The guide on the list's focused row (step 23c; the header's "Guide", and the Guide key: step 39a): none while the list loads, failed or is empty. */
+  const toGuide = (): void => {
+    if (status.value === 'ready') options.openGuide?.(home.position('channels').index);
+  };
+
   const nav = createNavigator({
     root: {
       id: 'live',
@@ -1267,7 +1273,9 @@ export function createLive(options: LiveOptions): Live {
         }
         // DOWN or Back in the header: back to the zone the focus came from.
         if ((intent === 'DOWN' || intent === 'BACK') && focus.zone === 'header') return leaveHeader();
-        return false;
+        if (intent !== 'GUIDE') return false;
+        toGuide();
+        return true;
       },
       onSelect: (focus) => {
         if (focus.zone === 'header') {
@@ -1278,8 +1286,7 @@ export function createLive(options: LiveOptions): Live {
           // The movies and series screens read their own data: they open in every state of the list.
           else if (focus.index === HEADER_MOVIES) options.openMovies?.();
           else if (focus.index === HEADER_SERIES) options.openSeries?.();
-          // The guide shows the list's channels: none while it loads, failed or is empty.
-          else if (status.value === 'ready') options.openGuide?.(home.position('channels').index);
+          else toGuide();
         } else if (focus.zone === 'rail') {
           const at = rail.value[focus.index];
           if (at !== undefined && at.kind === 'locked') options.lockEntry?.();

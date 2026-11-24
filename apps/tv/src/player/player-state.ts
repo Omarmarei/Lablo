@@ -40,6 +40,9 @@ import { createTrackMenu } from './track-menu';
  *   once the stream has a picture. The error card keeps it up.
  * - **Back** (or STOP) closes the player: playback stops, and the live list's focus goes to the
  *   channel that played. Back during number entry only cancels the entry.
+ * - **The Guide key** (step 39a): on a channel, the player closes as Back does when the app says
+ *   the key acts over the screen it opened on (`toGuide`), and the app then shows the guide on
+ *   the channel's row. A movie takes it and does nothing.
  * - The controller comes from `player()`, made on the first play (the stage and the engines with
  *   it). Its states give "Connecting…", the "Reconnecting…" badge and the error card.
  * - **The track menu** (step 20b, `track-menu.ts`): the info bar's "Audio and subtitles", or the
@@ -59,6 +62,9 @@ import { createTrackMenu } from './track-menu';
  *   controller gets the kept mode when it is made (`picture`), and each change is kept (`pictured`).
  *   Settings › "Player" (step 38d3) sets it and the subtitles' size here too (`setPicture`,
  *   `setSubtitleSize`), and lists the engine's modes (`pictureModes`, which makes the controller).
+ * - **The clock over the video** (step 39a): Settings › "Player"'s "Clock while watching" turns
+ *   it on (`setWatchClock`, kept by `watchClocked`); the screen shows the time while the info bar
+ *   is hidden.
  * - **A catalog refresh while it plays** (step 22a): `listChanging` comes before the live screen's
  *   list is replaced. The channel playing stays pinned at its row and the stream isn't touched;
  *   `locate` then moves it (and the previous channel) to their rows in the new list.
@@ -290,6 +296,16 @@ export interface PlayerOptions {
   readonly picture?: PictureMode;
   /** The user chose another picture mode (the app keeps it). */
   readonly pictured?: (mode: PictureMode) => void;
+  /** "Clock while watching" to start with (step 39a: the profile's; default off). */
+  readonly watchClock?: boolean;
+  /** Settings › "Player" turned the clock on or off (the app keeps it). */
+  readonly watchClocked?: (on: boolean) => void;
+  /**
+   * The Guide key on a channel (step 39a), given the id of the screen the player opened over:
+   * `null` when the key does nothing there; else what follows once the player has closed onto
+   * row `index` (as Back closes it).
+   */
+  readonly toGuide?: (under: string) => ((index: number) => void) | null;
   /**
    * A programme's request from a channel's archive (step 25a; `null`: its URL can't carry one),
    * from its start, or from `from` (epoch ms, a whole minute: step 25d's seek by URL).
@@ -369,6 +385,10 @@ export interface Player {
   setPicture(mode: PictureMode): void;
   /** The subtitles' size from now on, as the track menu's "Size" does, kept (`sized`). */
   setSubtitleSize(size: SubtitleSize): void;
+  /** "Clock while watching" (step 39a): the time over the video while the info bar is hidden. */
+  readonly watchClock: ReadonlySignal<boolean>;
+  /** Turns the clock over the video on or off from now on, kept (`watchClocked`). */
+  setWatchClock(on: boolean): void;
   /** The programme playing from the archive (step 25a; `null`: live). */
   readonly archive: ReadonlySignal<ArchiveProgramme | null>;
   /**
@@ -490,6 +510,7 @@ export function createPlayer(options: PlayerOptions): Player {
   const plays = signal(0);
   const subtitles = signal<SubtitleView>(NO_SUBTITLES);
   const picture = signal<PictureMode>(options.picture ?? 'fit');
+  const watchClock = signal(options.watchClock === true);
   const archive = signal<ArchiveProgramme | null>(null);
   const position = signal<ArchivePosition | null>(null);
   const movie = signal<PlayingMovie | null>(null);
@@ -527,6 +548,8 @@ export function createPlayer(options: PlayerOptions): Player {
   let seq = 0;
   /** The card's zone has its buttons. */
   let carded = false;
+  /** The id of the screen the player opened over (step 39a: the Guide key). */
+  let under = '';
   /** The catch-up stream's start (epoch ms at its media time 0), and where it was last seen (step 25d). */
   let streamFrom = 0;
   let lastAt = 0;
@@ -1028,6 +1051,7 @@ export function createPlayer(options: PlayerOptions): Player {
   const openScreen = (buttons: readonly PlayerAction[] = CHANNEL_ACTIONS): boolean => {
     if (open.value) return false;
     open.value = true;
+    under = nav.top.id;
     carded = false;
     actions.value = buttons;
     screen.value = nav.push({ id: 'player', zones: [seekZone(0), actionsZone(buttons.length), cardZone(0)], initial: 'actions', onIntent, onSelect });
@@ -1262,6 +1286,16 @@ export function createPlayer(options: PlayerOptions): Player {
       case 'SUBTITLES':
         openMenu('text');
         return true;
+      case 'GUIDE': {
+        // Step 39a: on a channel, where the app says the key acts (over the live screen or the guide).
+        const then = inFilm || options.toGuide === undefined ? null : options.toGuide(under);
+        if (then !== null) {
+          const index = playing.value !== -1 ? playing.value : target.value;
+          close();
+          then(index);
+        }
+        return true;
+      }
       case 'INFO':
         if (info.value) {
           infoTimer = clear(infoTimer);
@@ -1380,6 +1414,12 @@ export function createPlayer(options: PlayerOptions): Player {
     pictureModes: () => ctrl().pictureModes,
     setPicture: choosePicture,
     setSubtitleSize: (size) => menu.setSize(size),
+    watchClock,
+    setWatchClock(on: boolean): void {
+      if (on === watchClock.value) return;
+      watchClock.value = on;
+      if (options.watchClocked !== undefined) options.watchClocked(on);
+    },
     archive,
     position,
     movie,
