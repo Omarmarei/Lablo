@@ -1256,12 +1256,13 @@ describe('the settings screen', () => {
       }),
       values: vi.fn(() => {
         calls.push('values');
-        return { audio: 'ar' as const, subtitles: null, size: 'l' as const, picture: 'stretch' as const };
+        return { audio: 'ar' as const, subtitles: null, size: 'l' as const, picture: 'stretch' as const, clock: true };
       }),
       setAudio: vi.fn(),
       setSubtitles: vi.fn(),
       setSize: vi.fn(),
       setPicture: vi.fn(),
+      setClock: vi.fn(),
     };
     const settings = createSettings({
       nav: t.nav,
@@ -1288,7 +1289,7 @@ describe('the settings screen', () => {
     // The modes first, then the values.
     expect(calls).toEqual(['modes', 'values']);
     const page = settings.player!;
-    expect([page.audio.value, page.subtitles.value, page.size.value, page.picture.value]).toEqual(['ar', null, 'l', 'stretch']);
+    expect([page.audio.value, page.subtitles.value, page.size.value, page.picture.value, page.clock.value]).toEqual(['ar', null, 'l', 'stretch', true]);
     expect(page.modes.value).toEqual(['fit', 'stretch', '4:3']);
     await t.press('BACK');
     expect(t.at()).toBe('settings · items 5');

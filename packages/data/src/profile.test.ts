@@ -754,6 +754,29 @@ describe('applyProfileEdit: what the player keeps (step 20c1)', () => {
     expect(before.player.audioLang).toBeUndefined();
   });
 
+  it("keeps Settings › Player's options by name in a document without them (step 39a, no migration): null takes one away; the same value changes nothing", () => {
+    const before = emptyProfile();
+    expect('options' in before.player).toBe(false);
+    expect(player(before, { field: 'option', name: 'clock', value: null })).toBeNull();
+    const on = player(before, { field: 'option', name: 'clock', value: 'on' })!;
+    expect(on.v).toBe(PROFILE_VERSION);
+    expect(on.player).toEqual({ ...before.player, options: { clock: 'on' } });
+    expect(player(on, { field: 'option', name: 'clock', value: 'on' })).toBeNull();
+    const two = player(on, { field: 'option', name: 'buffer', value: 'stable' })!;
+    expect(two.player.options).toEqual({ clock: 'on', buffer: 'stable' });
+    const changed = player(two, { field: 'option', name: 'clock', value: 'off' })!;
+    expect(changed.player.options).toEqual({ clock: 'off', buffer: 'stable' });
+    // Taken away, the name is gone and the other one kept; an inherited name is no option.
+    const noClock = player(changed, { field: 'option', name: 'clock', value: null })!;
+    expect(noClock.player.options).toEqual({ buffer: 'stable' });
+    expect(player(noClock, { field: 'option', name: 'toString', value: null })).toBeNull();
+    expect(player(noClock, { field: 'option', name: 'toString', value: 'x' })!.player.options).toEqual({ buffer: 'stable', toString: 'x' });
+    // The documents before are left as they were.
+    expect(on.player.options).toEqual({ clock: 'on' });
+    expect(two.player.options).toEqual({ clock: 'on', buffer: 'stable' });
+    expect(before.player.options).toBeUndefined();
+  });
+
   it("keeps each content's track choice, dropping the one changed longest ago past the cap", () => {
     let doc = emptyProfile();
     for (let i = 0; i < MAX_TRACK_CHOICES; i++) doc = player(doc, { field: 'track', key: `k${i}`, choice: choice('ar', 1000 - i) })!;

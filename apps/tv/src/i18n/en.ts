@@ -666,6 +666,10 @@ export const EN = {
   'playerSettings.sizeHint': 'How large subtitles are shown',
   'playerSettings.picture': 'Picture',
   'playerSettings.pictureHint': 'How the picture fills the screen, on every channel',
+  'playerSettings.clock': 'Clock while watching',
+  'playerSettings.clockHint': 'The time in a corner of the picture while the info bar is hidden',
+  'playerSettings.on': 'On',
+  'playerSettings.off': 'Off',
   // Settings › "Language" (step 38d2): its line and its buttons are each language's own name (`LANGUAGE_NAMES`).
   'settings.language': 'Language',
   'settings.languageBody': 'Menus and buttons change at once. Channel and programme names stay as your provider sends them.',

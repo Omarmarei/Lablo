@@ -19,6 +19,8 @@ import type { SubtitleSize } from './track-menu';
  *   20c2b), to the app;
  * - the audio and subtitle languages Settings › "Player" chose (step 38d3), to the player's
  *   preferences (`trackPreferences`);
+ * - Settings › "Player"'s other rows, kept by name in the profile's `player.options` (step 39a:
+ *   "Clock while watching", `clock: 'on'`, absent when off), to the player;
  * - the channels played last (step 28b2, the profile's `channels`, version 7), to Home: the
  *   query worker puts each new last channel first in the same write, and `tuned` does the same
  *   here.
@@ -58,6 +60,9 @@ export interface PlayerMemory {
   /** The subtitles' language chosen there (`null`: none turned on). */
   subtitleLang(): TrackLang | null;
   setSubtitleLang(lang: TrackLang | null): void;
+  /** "Clock while watching" (step 39a; off until set). */
+  clock(): boolean;
+  setClock(on: boolean): void;
 }
 
 /** A track language Settings › "Player" offers (step 38d3): the app's two. */
@@ -187,6 +192,7 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
   let picture: PictureMode | null = null;
   let audioLang: TrackLang | null = null;
   let subtitleLang: TrackLang | null = null;
+  let clock = false;
 
   const write = (change: PlayerChange): void => {
     options.edit({ kind: 'player', change }).catch((error: unknown) => console.warn('The player memory was not saved', error));
@@ -264,6 +270,8 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
       picture = asPictureMode(doc['picture']);
       audioLang = asTrackLang(doc['audioLang']);
       subtitleLang = asTrackLang(doc['subtitleLang']);
+      const storedOptions = doc['options'];
+      clock = isRecord(storedOptions) && own(storedOptions, 'clock') === 'on';
       last = lastChannelOf(profile);
       channels = recentChannelsOf(profile);
     },
@@ -298,6 +306,12 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
       if (next === subtitleLang) return;
       subtitleLang = next;
       write({ field: 'subtitleLang', lang: next });
+    },
+    clock: () => clock,
+    setClock(on: boolean): void {
+      if (on === clock) return;
+      clock = on;
+      write({ field: 'option', name: 'clock', value: on ? 'on' : null });
     },
   };
 }

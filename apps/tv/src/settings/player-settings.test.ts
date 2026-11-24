@@ -3,7 +3,7 @@ import type { PictureMode } from '@lablo/player';
 import { createNavigator } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
 import type { PlayerValues } from './player-settings';
-import { PLAYER_SETTINGS_ROWS, PLAYER_SETTINGS_SCREEN, TRACK_CHOICES, createPlayerSettings, nextValue } from './player-settings';
+import { CLOCK_CHOICES, PLAYER_SETTINGS_ROWS, PLAYER_SETTINGS_SCREEN, TRACK_CHOICES, createPlayerSettings, nextValue } from './player-settings';
 
 /**
  * Settings › "Player" (RELAY step 38d3): four rows, each changed in place by OK (round its values)
@@ -30,6 +30,7 @@ function setup(values: PlayerValues, modes: readonly PictureMode[] = ['fit', 'zo
     setSubtitles: vi.fn((lang: string | null) => told.push(`subtitles ${String(lang)}`)),
     setSize: vi.fn((size: string) => told.push(`size ${size}`)),
     setPicture: vi.fn((mode: string) => told.push(`picture ${mode}`)),
+    setClock: vi.fn((on: boolean) => told.push(`clock ${String(on)}`)),
   };
   const page = createPlayerSettings(nav, options);
   const at = (): string => {
@@ -39,11 +40,11 @@ function setup(values: PlayerValues, modes: readonly PictureMode[] = ['fit', 'zo
   const press = (...keys: Intent[]): void => {
     for (const key of keys) nav.handle(key);
   };
-  const shown = (): unknown[] => [page.audio.value, page.subtitles.value, page.size.value, page.picture.value];
+  const shown = (): unknown[] => [page.audio.value, page.subtitles.value, page.size.value, page.picture.value, page.clock.value];
   return { nav, settings, page, options, told, at, press, shown };
 }
 
-const START: PlayerValues = { audio: null, subtitles: null, size: 'm', picture: 'fit' };
+const START: PlayerValues = { audio: null, subtitles: null, size: 'm', picture: 'fit', clock: false };
 
 describe('nextValue (RELAY step 38d3)', () => {
   it('goes round the list on OK, and towards an end on LEFT or RIGHT, stopping there', () => {
@@ -64,19 +65,20 @@ describe('nextValue (RELAY step 38d3)', () => {
 });
 
 describe('Settings › "Player" (RELAY step 38d3)', () => {
-  it('opens its four rows over the settings, the modes read before the values', () => {
-    const t = setup({ audio: 'en', subtitles: 'ar', size: 'l', picture: 'stretch' }, ['fit', 'stretch', '4:3']);
-    expect(PLAYER_SETTINGS_ROWS).toEqual(['audio', 'subtitles', 'size', 'picture']);
+  it('opens its five rows over the settings, the modes read before the values', () => {
+    const t = setup({ audio: 'en', subtitles: 'ar', size: 'l', picture: 'stretch', clock: true }, ['fit', 'stretch', '4:3']);
+    expect(PLAYER_SETTINGS_ROWS).toEqual(['audio', 'subtitles', 'size', 'picture', 'clock']);
     expect(TRACK_CHOICES).toEqual([null, 'ar', 'en']);
+    expect(CLOCK_CHOICES).toEqual([false, true]);
     // Nothing read before it opens.
     expect(t.options.modes).not.toHaveBeenCalled();
     expect(t.options.values).not.toHaveBeenCalled();
     t.page.open();
     expect(t.nav.top.id).toBe(PLAYER_SETTINGS_SCREEN);
-    expect(t.nav.top.zone('rows')).toMatchObject({ kind: 'list', axis: 'vertical', count: 4 });
+    expect(t.nav.top.zone('rows')).toMatchObject({ kind: 'list', axis: 'vertical', count: 5 });
     expect(t.at()).toBe('player-settings · rows 0');
     expect(t.options.modes.mock.invocationCallOrder[0]!).toBeLessThan(t.options.values.mock.invocationCallOrder[0]!);
-    expect(t.shown()).toEqual(['en', 'ar', 'l', 'stretch']);
+    expect(t.shown()).toEqual(['en', 'ar', 'l', 'stretch', true]);
     expect(t.page.modes.value).toEqual(['fit', 'stretch', '4:3']);
     // Back returns to the settings' row.
     t.press('BACK');
@@ -100,7 +102,28 @@ describe('Settings › "Player" (RELAY step 38d3)', () => {
     t.told.length = 0;
     t.press('DOWN', 'OK', 'OK', 'OK', 'OK');
     expect(t.told).toEqual(['picture zoom', 'picture stretch', 'picture 4:3', 'picture fit']);
-    expect(t.shown()).toEqual([null, null, 'm', 'fit']);
+    t.told.length = 0;
+    t.press('DOWN', 'OK', 'OK', 'OK');
+    expect(t.at()).toBe('player-settings · rows 4');
+    expect(t.told).toEqual(['clock true', 'clock false', 'clock true']);
+    expect(t.shown()).toEqual([null, null, 'm', 'fit', true]);
+  });
+
+  it("turns the clock on by the reading end's arrow and off by the other, stopping at each (step 39a)", () => {
+    for (const dir of ['ltr', 'rtl'] as const) {
+      const t = setup(START);
+      t.nav.setDir(dir);
+      const on: Intent = dir === 'ltr' ? 'RIGHT' : 'LEFT';
+      const off: Intent = dir === 'ltr' ? 'LEFT' : 'RIGHT';
+      t.page.open();
+      t.press('DOWN', 'DOWN', 'DOWN', 'DOWN', off);
+      expect(t.told).toEqual([]);
+      t.press(on, on);
+      expect(t.page.clock.value).toBe(true);
+      t.press(off, off);
+      expect(t.told).toEqual(['clock true', 'clock false']);
+      expect(t.page.clock.value).toBe(false);
+    }
   });
 
   it('steps by RIGHT towards the end in English, stopping there; LEFT back towards the start', () => {
@@ -151,9 +174,9 @@ describe('Settings › "Player" (RELAY step 38d3)', () => {
     t.options.values.mockImplementation(() => values);
     t.page.open();
     t.press('BACK');
-    values = { audio: 'ar', subtitles: 'en', size: 's', picture: 'zoom' };
+    values = { audio: 'ar', subtitles: 'en', size: 's', picture: 'zoom', clock: true };
     t.page.open();
-    expect(t.shown()).toEqual(['ar', 'en', 's', 'zoom']);
+    expect(t.shown()).toEqual(['ar', 'en', 's', 'zoom', true]);
     expect(t.options.modes).toHaveBeenCalledTimes(2);
   });
 

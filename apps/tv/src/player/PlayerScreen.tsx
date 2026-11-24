@@ -354,7 +354,8 @@ function MovieEndCard({ movie, upNext, i18n, screen, binding }: { movie: Playing
  * card. Its root carries the focus (`data-screen/zone/index`) and the player's state for tests.
  * A radio channel (step 37b) has its card in place of the picture, under all the rest.
  * The subtitles (step 20b2b) share the bottom of the safe area with the info bar, above it. The
- * stream info (step 20c2a) sits under the badge; the error card replaces it while it shows.
+ * stream info (step 20c2a) sits under the badge; the error card replaces it while it shows. The
+ * clock over the video (step 39a) takes the top-end corner while nothing else is up.
  * What settings.js paints over the player (`over`: step 36c's "Edit channel") goes on top, and
  * the info bar hides under it. The picture's mode (step 20c2b) is on the info bar's fourth button. In 4:3 the screen draws the
  * black side bars itself, under everything else: outside its 4:3 box the `<video>` leaves the
@@ -394,6 +395,8 @@ export function PlayerScreen({ live, player, i18n, over = null }: { live: Live; 
   const panel = favourites === null ? null : favourites.screen.value;
   const starred = row !== null && lists.some((list) => list.keys.indexOf(row.item.key) !== -1);
   const radio = player.radio();
+  // "Clock while watching" (step 39a): on the player's own screen, with no bar, number, card or panel over it.
+  const cornerClock = player.watchClock.value && focus.screen === 'player' && !player.info.value && entry === null && failure === null && refused === null && !ended;
   return (
     <main
       class="player"
@@ -432,6 +435,7 @@ export function PlayerScreen({ live, player, i18n, over = null }: { live: Live; 
       data-favourites={String(panel !== null)}
       data-editing={favourites === null ? '' : (favourites.editor.editing.value ?? '')}
       data-radio={String(radio !== null)}
+      data-clock={String(player.watchClock.value)}
     >
       {refused !== null && <div class="player__blank" aria-hidden="true" data-testid="player-blank" />}
       {player.picture.value === '4:3' && (
@@ -455,6 +459,11 @@ export function PlayerScreen({ live, player, i18n, over = null }: { live: Live; 
         )}
         {stats && failure === null && refused === null && <StreamInfoPanel info={info} container={status.container} i18n={i18n} />}
       </div>
+      {cornerClock && (
+        <p class="player__corner-clock" data-testid="player-clock">
+          {i18n.time(new Date(live.clock.value))}
+        </p>
+      )}
       {entry !== null && (
         <div class="player__entry" data-testid="player-entry">
           <span class="player__digits" dir="ltr">

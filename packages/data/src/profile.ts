@@ -25,7 +25,7 @@
  * `epgOverrides`, step 24d; `ShowProgress.more`, step 27d; `noticesShown`, step 30c2a;
  * `telemetry`, step 33b1; `favouriteLists`, `hiddenGroups` and `groupOrder`, step 35a;
  * `channelEdits` and `cleanNames`, step 36a; `PlayerMemoryDoc.audioLang` and `subtitleLang`,
- * step 38d3).
+ * step 38d3; `PlayerMemoryDoc.options`, step 39a).
  */
 
 import type { CatalogItem, ContentKey, ContentKind, EpgOverride, XtreamAccount } from '@lablo/core';
@@ -188,6 +188,11 @@ export type PlayerMemoryDoc = {
   audioLang?: string;
   /** The subtitles' language chosen there (`ar`, `en`; step 38d3). Absent: none turned on. */
   subtitleLang?: string;
+  /**
+   * Settings › "Player"'s other rows (step 39a: `clock`), by name; main checks each value on read.
+   * Absent: none set. Optional, so no migration.
+   */
+  options?: Record<string, string>;
 };
 
 export type ProfileV3 = {
@@ -452,7 +457,9 @@ export type PlayerChange =
   | { field: 'picture'; mode: string }
   /** Settings › "Player"'s languages (step 38d3): `null` takes the field away. */
   | { field: 'audioLang'; lang: string | null }
-  | { field: 'subtitleLang'; lang: string | null };
+  | { field: 'subtitleLang'; lang: string | null }
+  /** A Settings › "Player" option (step 39a): `null` takes it away. */
+  | { field: 'option'; name: string; value: string | null };
 
 /** A change to the user's guide list (step 22b). */
 export type GuideChange =
@@ -695,7 +702,20 @@ function applyPlayerChange(player: PlayerMemoryDoc, change: PlayerChange): Playe
     case 'audioLang':
     case 'subtitleLang':
       return withLang(player, change.field, change.lang);
+    case 'option':
+      return withOption(player, change.name, change.value);
   }
+}
+
+/** `player` with option `name` set to `value`, or taken away for `null` (new objects; `null` when it changes nothing). */
+function withOption(player: PlayerMemoryDoc, name: string, value: string | null): PlayerMemoryDoc | null {
+  const options: Record<string, string> = {};
+  const kept = player.options ?? {};
+  for (const key in kept) if (Object.prototype.hasOwnProperty.call(kept, key)) options[key] = kept[key]!;
+  if ((Object.prototype.hasOwnProperty.call(options, name) ? options[name] : null) === value) return null;
+  if (value === null) delete options[name];
+  else options[name] = value;
+  return { ...player, options };
 }
 
 /** `player` with its `field` language set, or taken away for `null` (a new object; `null` when it changes nothing). */

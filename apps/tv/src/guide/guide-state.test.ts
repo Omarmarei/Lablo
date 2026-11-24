@@ -998,6 +998,16 @@ describe('OK and Back in the guide', () => {
     expect(t.engine.calls).toHaveLength(2);
   });
 
+  it('closes on the Guide key as on Back (RELAY step 39a)', async () => {
+    const t = setup();
+    t.open(42);
+    await flush();
+    await t.press('DOWN', 'GUIDE');
+    expect(t.at()).toBe('live · channels 0');
+    expect(t.closed).toHaveBeenCalledWith(43);
+    expect(t.guide.screen.value).toBeNull();
+  });
+
   it('drops the answers of a guide that closed, and asks nothing after', async () => {
     const t = setup();
     t.engine.hold = true;

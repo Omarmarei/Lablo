@@ -595,8 +595,9 @@ export function createGuide(options: GuideOptions): Guide {
       const shown = nav.push({
         id: GUIDE_SCREEN,
         zones: [zone],
+        // Back, or the Guide key again (step 39a), closes the guide.
         onIntent: (intent) => {
-          if (intent !== 'BACK') return false;
+          if (intent !== 'BACK' && intent !== 'GUIDE') return false;
           close();
           return true;
         },
