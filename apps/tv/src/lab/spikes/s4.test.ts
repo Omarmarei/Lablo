@@ -141,7 +141,7 @@ describe('S4, the AVPlay battery on a fake AVPlay (RELAY step 15c2)', () => {
       return TV_PLAN(url);
     };
     const results = await s4({ plan }).runAll();
-    expect(results['hevc-4k']).toMatchObject({ status: 'fail', value: { unsupported: true }, note: 'no picture: prepareAsync: PLAYER_ERROR_NOT_SUPPORTED_FORMAT, HEVC (only 2020+ TVs need it)' });
+    expect(results['hevc-4k']).toMatchObject({ status: 'fail', value: { unsupported: true }, note: 'no picture: prepareAsync: PLAYER_ERROR_NOT_SUPPORTED_FORMAT, HEVC (needs a 4K panel and decoder)' });
     expect(results['audio-tracks']).toMatchObject({ status: 'fail', value: { route: null } });
     expect(results['audio-tracks']?.note).toMatch(/; the switch took \d+ ms and the stream started over$/);
     expect(results['subtitles']).toMatchObject({ status: 'fail', note: 'subs-mkv: no text track; subs-mp4: no text track' });

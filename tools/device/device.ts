@@ -14,17 +14,15 @@
  * docs/runbooks/tv-setup.md.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { AppTarget, DeviceAction, DeviceCommand, DevicePlatform } from './src/commands';
-import { DEVICE_ACTIONS, DEVICE_PLATFORMS, deviceCommand } from './src/commands';
+import { DEVICE_ACTIONS, DEVICE_PLATFORMS, deviceCommand, tizenManifest } from './src/commands';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
 const PACKAGES = path.join(ROOT, 'dist/packages');
 const DIST_LAB = path.join(ROOT, 'dist/tv-lab');
-/** The lab's Tizen package is named after its widget ("Lablo Lab"); the app's is not. */
-const isLabWgt = (name: string): boolean => name.endsWith('.wgt') && /lab/i.test(name);
 const require = createRequire(import.meta.url);
 
 function fail(message: string): never {
@@ -39,10 +37,14 @@ function appTarget(platform: DevicePlatform): AppTarget {
       .version;
     return { appId: appinfo.id, packageFile: path.join(PACKAGES, `${appinfo.id}_${version}_all.ipk`) };
   }
-  const config = readFileSync(path.join(ROOT, 'platforms/tizen/config.xml'), 'utf8');
-  const appId = /<tizen:application\s+id="([^"]+)"/.exec(config)?.[1] ?? fail('No application id in config.xml');
-  const wgt = existsSync(PACKAGES) ? readdirSync(PACKAGES).find((name) => name.endsWith('.wgt') && !isLabWgt(name)) : undefined;
-  return { appId, packageFile: path.join(PACKAGES, wgt ?? 'Lablo.wgt') };
+  return tizenTarget(readFileSync(path.join(ROOT, 'platforms/tizen/config.xml'), 'utf8'), 'config.xml');
+}
+
+/** A Tizen app's id and its package, both from its manifest (`tizenManifest`). */
+function tizenTarget(config: string, what: string): AppTarget {
+  const manifest = tizenManifest(config);
+  if (typeof manifest === 'string') fail(`${what}: ${manifest}`);
+  return { appId: manifest.appId, packageFile: path.join(PACKAGES, manifest.packageName) };
 }
 
 /** The lab's ids and package, read from its staged manifests (its version can differ from the app's). */
@@ -53,10 +55,7 @@ function labTarget(platform: DevicePlatform): AppTarget {
     const appinfo = JSON.parse(readFileSync(path.join(staged, 'appinfo.json'), 'utf8')) as { id: string; version: string };
     return { appId: appinfo.id, packageFile: path.join(PACKAGES, `${appinfo.id}_${appinfo.version}_all.ipk`) };
   }
-  const config = readFileSync(path.join(staged, 'config.xml'), 'utf8');
-  const appId = /<tizen:application\s+id="([^"]+)"/.exec(config)?.[1] ?? fail('No application id in the lab config.xml');
-  const wgt = existsSync(PACKAGES) ? readdirSync(PACKAGES).find(isLabWgt) : undefined;
-  return { appId, packageFile: path.join(PACKAGES, wgt ?? 'LabloLab.wgt') };
+  return tizenTarget(readFileSync(path.join(staged, 'config.xml'), 'utf8'), 'the lab config.xml');
 }
 
 function run(command: DeviceCommand): number {

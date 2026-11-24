@@ -61,6 +61,25 @@ export function deviceCommand(
   }
 }
 
+/**
+ * The `.wgt` `pnpm build:tv` writes for a Tizen manifest: the widget's `<name>` without spaces
+ * (`Lablo.wgt`, `LabloLab.wgt`), the rule of tools/build/src/package.ts's `tizenPackageFile`.
+ * The exact name, never a match on a listing: `/lab/i` also matched `Lablo.wgt`, and the TV
+ * refused `Lablo Lab.wgt` (RELAY step 39s5). `null` when the manifest has no name.
+ */
+export function tizenPackageName(configXml: string): string | null {
+  const name = /<name\b[^>]*>([^<]*)<\/name>/.exec(configXml)?.[1]?.replace(/\s+/g, '') ?? '';
+  return name === '' ? null : `${name}.wgt`;
+}
+
+/** A Tizen manifest's application id and package name, or what it lacks. */
+export function tizenManifest(configXml: string): { readonly appId: string; readonly packageName: string } | string {
+  const appId = /<tizen:application\s+id="([^"]+)"/.exec(configXml)?.[1];
+  if (appId === undefined) return 'no application id';
+  const packageName = tizenPackageName(configXml);
+  return packageName === null ? 'no widget <name>' : { appId, packageName };
+}
+
 function basename(file: string): string {
   return file.split(/[\\/]/).pop() ?? file;
 }

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
@@ -24,6 +24,18 @@ export function packageWebos(stageDir: string, outDir: string, expected: { id: s
   return { ok: true, file };
 }
 
+/**
+ * The `.wgt`'s file name: the widget's `<name>` without spaces (`Lablo.wgt`, `LabloLab.wgt`).
+ * The Tizen CLI names it after `<name>` as written, and the TV failed to install
+ * `Lablo Lab.wgt` with no reason (RELAY step 39s5). tools/device/src/commands.ts's
+ * `tizenPackageName` applies the same rule to find the file.
+ */
+export function tizenPackageFile(configXml: string): string {
+  const name = /<name\b[^>]*>([^<]*)<\/name>/.exec(configXml)?.[1]?.replace(/\s+/g, '') ?? '';
+  if (name === '') throw new Error('config.xml has no widget <name> to name the .wgt after');
+  return `${name}.wgt`;
+}
+
 function tizenCliAvailable(): boolean {
   const probe = spawnSync('tizen', ['version'], { encoding: 'utf8', shell: true });
   return probe.status === 0;
@@ -31,8 +43,9 @@ function tizenCliAvailable(): boolean {
 
 /**
  * Builds the signed Tizen `.wgt` with the Tizen Studio CLI when it is installed and a signing
- * profile is named in `TIZEN_SIGNING_PROFILE`. Otherwise it reports why it skipped; the
- * manual route is in docs/runbooks/tv-build.md.
+ * profile is named in `TIZEN_SIGNING_PROFILE`, and moves it to `outDir` under
+ * `tizenPackageFile`'s name. Otherwise it reports why it skipped; the manual route is in
+ * docs/runbooks/tv-build.md.
  */
 export function packageTizen(stageDir: string, outDir: string): PackageResult {
   const profile = process.env.TIZEN_SIGNING_PROFILE;
@@ -52,8 +65,10 @@ export function packageTizen(stageDir: string, outDir: string): PackageResult {
     throw new Error(`tizen package failed (exit ${run.status ?? 'none'}):\n${run.stdout}\n${run.stderr}`);
   }
   mkdirSync(outDir, { recursive: true });
-  const file = path.join(outDir, built);
+  const file = path.join(outDir, tizenPackageFile(readFileSync(path.join(stageDir, 'config.xml'), 'utf8')));
   rmSync(file, { force: true });
+  // An older build's package under the CLI's own name (`Lablo Lab.wgt`) goes too.
+  rmSync(path.join(outDir, built), { force: true });
   renameSync(path.join(stageDir, built), file);
   return { ok: true, file };
 }
