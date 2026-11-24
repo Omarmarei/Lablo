@@ -516,7 +516,7 @@ describe('the battery checks', () => {
   it('fails the redirect row when nothing plays, with the reason', async () => {
     const results = await battery({ plan: () => ({ frameAfterMs: null, error: { afterMs: 400, error: { code: 2, message: 'MEDIA_ERR_NETWORK', unsupported: false } } }) }).runAll();
     expect(results['redirect']).toMatchObject({ status: 'fail', note: 'TS through redirects: no picture within 400 ms: MEDIA_ERR_NETWORK', value: { container: 'ts', unsupported: true } });
-    expect(results['hevc-4k']).toMatchObject({ status: 'fail', note: 'no picture: MEDIA_ERR_NETWORK (only 2020+ TVs need it)' });
+    expect(results['hevc-4k']).toMatchObject({ status: 'fail', note: 'no picture: MEDIA_ERR_NETWORK (needs a 4K panel and decoder)' });
     expect(results['audio-tracks']).toMatchObject({ status: 'fail', note: 'the MKV never played: MEDIA_ERR_NETWORK' });
   });
 
@@ -527,7 +527,7 @@ describe('the battery checks', () => {
     expect(narrow['hevc-4k']).toMatchObject({ status: 'fail', note: 'plays at 3840×1600, not 3840×2160' });
     const sound = await battery({ plan: (url) => (url.indexOf('205') !== -1 ? { frameAfterMs: 500, soundOnly: true } : { frameAfterMs: 500 }) }).runAll();
     expect(sound['hevc-4k']).toMatchObject({ status: 'fail', value: { unsupported: true, expected: { width: 3840 } } });
-    expect(sound['hevc-4k']?.note).toMatch(/^no picture: sound without a picture \(the clock reached 9\.5 s\) \(only 2020\+ TVs need it\)$/);
+    expect(sound['hevc-4k']?.note).toMatch(/^no picture: sound without a picture \(the clock reached 9\.5 s\) \(needs a 4K panel and decoder\)$/);
   });
 
   it('fails the audio row without the API, with one track, a refused, slow or restarting switch', async () => {

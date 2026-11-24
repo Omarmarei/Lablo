@@ -8,7 +8,8 @@
  * - `redirect`: the live channel through 3 × 302, in the first container that played;
  * - `redirect-probe` (with `probeRedirect`: AVPlay, S4): the same at the URL the redirect probe
  *   found, where AVPlay may freeze on the 302s themselves;
- * - `hevc-4k`: the 4K HEVC file shows 3840×2160 frames (needed on 2020+ TVs);
+ * - `hevc-4k`: the 4K HEVC file shows 3840×2160 frames (on a TV with a 4K panel and decoder,
+ *   whatever its year: the 2020 HD Samsung refuses it, RELAY step 39s5);
  * - `audio-tracks`: the MKV's audio tracks listed, and a switch to another one in < 2 s without
  *   the stream starting over: through the engine's list, else the platform's service (webOS luna
  *   `selectTrack`, step 15c2); the record says which route worked;
@@ -479,7 +480,7 @@ export function batteryChecks(spike: string, deps: BatteryDeps): Check[] {
 
   const hevc: Check = {
     id: 'hevc-4k',
-    title: '4K HEVC VOD plays (2020+ TVs)',
+    title: '4K HEVC VOD plays (4K TVs)',
     run: async () => {
       const item = itemFor('hevc-4k');
       if (!isItem(item)) return item;
@@ -490,7 +491,7 @@ export function batteryChecks(spike: string, deps: BatteryDeps): Check[] {
         const value = { played: r.played, ms: r.ms, width: r.width, height: r.height, canPlay, expected: item.video };
         if (!r.played) {
           const why = noPicture(r, canPlay, HEVC_MIME);
-          return { status: 'fail', value: { ...value, positionMs: r.positionMs, error: r.error, unsupported: why.unsupported }, note: `no picture: ${why.reason} (only 2020+ TVs need it)` };
+          return { status: 'fail', value: { ...value, positionMs: r.positionMs, error: r.error, unsupported: why.unsupported }, note: `no picture: ${why.reason} (needs a 4K panel and decoder)` };
         }
         if (r.width < 3840 || r.height < 2160) return { status: 'fail', value, note: `plays at ${r.width}×${r.height}, not 3840×2160` };
         return { status: 'pass', value, note: `3840×2160, first frame in ${r.ms} ms` };

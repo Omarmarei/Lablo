@@ -257,7 +257,7 @@ A Samsung TV installs only packages signed with a **Samsung** certificate profil
    pnpm device launch tizen 192.168.1.20:26101 --lab
    ```
 
-   The build signs `dist/packages/Lablo Lab.wgt` with the profile (`tizen package -t wgt -s lablo-dev`). `pnpm device` runs `tizen install|run -s <serial>`.
+   The build signs `dist/packages/LabloLab.wgt` with the profile (`tizen package -t wgt -s lablo-dev`): the widget's name without its space, since the TV refused `Lablo Lab.wgt` (RELAY step 39s5). `pnpm device` runs `tizen install|run -s <serial>`.
    - "1010 : App install fail" means a certificate problem: a wrong profile, or a DUID missing from the distributor certificate ([using a TV](https://developer.samsung.com/smarttv/develop/getting-started/using-sdk/tv-device.html)).
    - Until step 15d, `pnpm device` passed the serial to `-t`, which takes the target *name*; now it uses `-s` (the CLI page: "`-s`, `--serial`", "`-t`, `--target <target name>`").
 5. **Installs don't survive a power-off:** "Applications installed to a TV through the Tizen Studio are uninstalled when the TV is switched off" ([FAQ](https://developer.samsung.com/smarttv/develop/faq/application-testing.html), Q7). Run S2's update test (install 0.1.0, run, install 0.1.1 over it) and S3's reinstall test without switching the TV off in between, and expect a fresh S2/S3 baseline after any power-off.

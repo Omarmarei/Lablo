@@ -107,7 +107,7 @@ The Tizen Studio CLI is not installed on the build machine, and GUI tools are ne
    TIZEN_SIGNING_PROFILE=lablo-dev pnpm build:tv --platform tizen
    ```
 
-   This runs `tizen package -t wgt -s lablo-dev -- dist/tv/tizen` and moves the `.wgt` into `dist/packages/`.
+   This runs `tizen package -t wgt -s lablo-dev -- dist/tv/tizen` and moves the `.wgt` into `dist/packages/`, named after the widget's `<name>` without spaces (`Lablo.wgt`; the lab's `LabloLab.wgt`), the name `pnpm device` asks for.
    Without the env var, the equivalent by hand is `tizen package -t wgt -s lablo-dev -- dist/tv/tizen`.
 4. Install: `sdb connect <tv-ip>`, then `pnpm device install tizen <serial>` (serial from `pnpm device devices tizen`), then `pnpm device launch tizen <serial>`.
 
