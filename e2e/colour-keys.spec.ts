@@ -46,7 +46,8 @@ async function dot(button: Locator, rtl: boolean): Promise<{ key: string | null;
   const box = (await button.boundingBox())!;
   const at = (await mark.boundingBox())!;
   const colour = await mark.evaluate((el) => getComputedStyle(el).backgroundColor);
-  const top = at.y - box.y < box.height / 2;
+  // The top third: a dot in the flow would sit in the middle.
+  const top = at.y - box.y < box.height / 3;
   const end = rtl ? at.x - box.x < box.width / 2 : at.x - box.x > box.width / 2;
   return { key: await mark.getAttribute('data-key'), colour, corner: top && end };
 }
@@ -86,6 +87,9 @@ for (const { locale, tag } of [
       await remote.press('RED');
       await remote.expectFocus('favourites/lists/0');
       await expect(panel).toHaveClass('tracks tracks--solid');
+      // Under the header, where the list starts.
+      const head = (await page.locator('.live__header').boundingBox())!;
+      expect((await panel.boundingBox())!.y).toBeGreaterThanOrEqual(head.y + head.height);
       await expect(page.getByTestId('live')).toBeVisible();
       await expect(player).toHaveCount(0);
       if (tag !== 'en-XA') {
@@ -101,6 +105,18 @@ for (const { locale, tag } of [
       await remote.expectFocus('live/channels/1');
       await expect(panel).toHaveCount(0);
       await settled(live);
+      // "New list" opens its form over the list; Back closes the form, then STOP the panel.
+      await remote.press('RED');
+      await remote.expectFocus('favourites/lists/0');
+      await remote.go('DOWN', 'favourites/lists/1');
+      await remote.press('OK');
+      await remote.expectFocus('favourite-new/field/0');
+      await expect(page.getByTestId('favourite-new')).toBeVisible();
+      await expect(page.getByTestId('live')).toBeVisible();
+      await remote.go('BACK', 'favourites/lists/1');
+      await remote.press('STOP');
+      await remote.expectFocus('live/channels/1');
+      await expect(panel).toHaveCount(0);
       // The rail has the list after "All channels".
       if (tag !== 'en-XA') expect(await text(page, 'chip-1')).toContain(words['category.favourites']);
       // Red in the rail: nothing.

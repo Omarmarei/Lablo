@@ -447,8 +447,9 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     changed: () => live.listsChanged(),
     platform,
     nav: live.nav,
+    // The panel closes itself on Back and STOP; over the list, nothing closes with it.
     closed: () => undefined,
-    stop: () => listFavourites.close(),
+    stop: () => undefined,
   });
   favourite = (item) => listFavourites.show(item);
   // OK on a poster (step 26c): the movie's details over the grid; "Play" opens the player over them, and Back from it returns to them.
