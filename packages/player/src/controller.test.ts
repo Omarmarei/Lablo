@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { ControllerOptions, PlayerStatus } from './controller';
 import { PlayerController } from './controller';
-import type { EngineSource, EngineStats, PlaybackError } from './engine';
+import type { EngineBuffer, EngineSource, EngineStats, PlaybackError } from './engine';
 import type { FakeScript } from './fake-engine';
 import { FakeClock, FakeEngine } from './fake-engine';
 import type { AccountStatus } from './failure';
+import type { PlayTuning, WatchdogConfig } from './ladder';
+import { DEFAULT_TUNING, DEFAULT_WATCHDOG } from './ladder';
 import type { PlayRequest } from './request';
 import { MemorySourceMemory, streamCandidates } from './request';
 
@@ -417,6 +419,114 @@ describe('PlayerController: the watchdog', () => {
     await r.clock.advance(10_000);
     expect(r.engine.loads.map((l) => l.source.container)).toEqual(['ts', 'ts', 'ts', 'ts', 'ts']);
     expect(r.player.status).toMatchObject({ state: 'failed', failure: { code: 'PRV-UNREACHABLE' } });
+  });
+});
+
+describe('PlayerController: the tuning (RELAY step 39d)', () => {
+  const patient: WatchdogConfig = { ...DEFAULT_WATCHDOG, liveFrozenMs: 9000, liveBufferingMs: 25_000, vodBufferingMs: 40_000, openTimeoutMs: 20_000 };
+  const LIVE_BUFFER: EngineBuffer = { playSeconds: 5, resumeSeconds: null };
+  const VOD_BUFFER: EngineBuffer = { playSeconds: 10, resumeSeconds: 15 };
+
+  it('asks for its tuning at each play and keeps it for the session', async () => {
+    let tuning: PlayTuning = { watchdog: patient, liveBuffer: null, vodBuffer: null };
+    let asked = 0;
+    // Frame at 500; the first load's picture freezes at 3200 (the 3500 tick is the last to see it move).
+    const r = rig((_s, n) => ({ frameMs: 500, freezeMs: n === 1 ? 3200 : undefined }), {
+      tuning: () => {
+        asked += 1;
+        return tuning;
+      },
+    });
+    void r.player.play(live(1));
+    expect(asked).toBe(1);
+    // A change while it plays waits for the next play.
+    tuning = DEFAULT_TUNING;
+    await r.clock.advance(12_450);
+    expect(r.player.status.state).toBe('playing');
+    await r.clock.advance(50);
+    expect(r.player.status).toMatchObject({ state: 'reconnecting', attempt: 1 });
+    // The retry is the same session: nothing asked.
+    expect(asked).toBe(1);
+    void r.player.play(live(2));
+    expect(asked).toBe(2);
+    await r.clock.advance(20_000);
+    expect(r.player.status).toMatchObject({ state: 'playing', key: 's1:live:2' });
+  });
+
+  it('times out an open by its numbers', async () => {
+    const r = rig((s) => ({ frameMs: s.container === 'ts' ? null : 500 }), { tuning: () => ({ watchdog: patient, liveBuffer: null, vodBuffer: null }) });
+    void r.player.play(live(1));
+    await r.clock.advance(19_950);
+    expect(r.player.status).toMatchObject({ state: 'opening', attempt: 0, container: 'ts' });
+    await r.clock.advance(50);
+    expect(r.player.status).toMatchObject({ state: 'opening', attempt: 1, container: 'hls' });
+  });
+
+  it('waits out live and VOD buffering by its numbers', async () => {
+    const tuning = (): PlayTuning => ({ watchdog: patient, liveBuffer: null, vodBuffer: null });
+    const channel = rig((_s, n) => ({ bufferingMs: n === 1 ? 2000 : undefined }), { tuning });
+    const film = rig((_s, n) => ({ bufferingMs: n === 1 ? 2000 : undefined }), { tuning });
+    void channel.player.play(live(1));
+    void film.player.play(vod(1));
+    await channel.clock.advance(26_950);
+    await film.clock.advance(41_950);
+    expect(channel.player.status.state).toBe('buffering');
+    expect(film.player.status.state).toBe('buffering');
+    await channel.clock.advance(50);
+    await film.clock.advance(50);
+    expect(channel.player.status).toMatchObject({ state: 'reconnecting', attempt: 1 });
+    expect(film.player.status).toMatchObject({ state: 'reconnecting', attempt: 1 });
+  });
+
+  it('gives its ladder its numbers', async () => {
+    const r = rig(() => ({ frameMs: null }), { tuning: () => ({ watchdog: { ...DEFAULT_WATCHDOG, maxAttempts: 2 }, liveBuffer: null, vodBuffer: null }) });
+    void r.player.play(live(1));
+    // Opens at 0, then the .m3u8 at 10 s and a reopen at 20 s; the second retry's timeout gives up.
+    await r.clock.advance(30_100);
+    expect(r.engine.loads.map((l) => l.source.container)).toEqual(['ts', 'hls', 'hls']);
+    expect(r.player.status).toMatchObject({ state: 'failed', failure: { code: 'PRV-TIMEOUT' } });
+  });
+
+  it('gives up on a stream that never opens with a 20 s open timeout only when its window holds four attempts', async () => {
+    const tuned = (windowMs: number) => () => ({ watchdog: { ...DEFAULT_WATCHDOG, openTimeoutMs: 20_000, windowMs }, liveBuffer: null, vodBuffer: null });
+    const narrow = rig(() => ({ frameMs: null }), { tuning: tuned(60_000) });
+    const wide = rig(() => ({ frameMs: null }), { tuning: tuned(92_000) });
+    void narrow.player.play(live(1));
+    void wide.player.play(live(1));
+    // Attempts at 20 s (.m3u8), 40 s (reopen), 60 s (switch), 81 s (after 1 s): the fourth's timeout gives up.
+    await wide.clock.advance(100_950);
+    expect(wide.player.status).toMatchObject({ state: 'opening', attempt: 4 });
+    await wide.clock.advance(100);
+    expect(wide.player.status).toMatchObject({ state: 'failed', failure: { code: 'PRV-TIMEOUT' } });
+    // 60 s never holds four of them: it tries for ever.
+    await narrow.clock.advance(300_000);
+    expect(narrow.player.status.state).toBe('opening');
+  });
+
+  it("tells the engine the live buffer for a channel and the VOD buffer for a film or catch-up, on every load", async () => {
+    const tuning = (): PlayTuning => ({ watchdog: DEFAULT_WATCHDOG, liveBuffer: LIVE_BUFFER, vodBuffer: VOD_BUFFER });
+    const r = rig((_s, n) => ({ frameMs: 500, error: n === 1 ? { atMs: 1000, error: NETWORK } : undefined }), { tuning });
+    void r.player.play(live(1));
+    await r.clock.advance(2000);
+    expect(r.engine.loads.map((l) => l.opts)).toStrictEqual([{ buffer: LIVE_BUFFER }, { buffer: LIVE_BUFFER }]);
+    void r.player.play(vod(1), { startMs: 7000 });
+    await r.clock.advance(1000);
+    expect(r.engine.loads[2]!.opts).toStrictEqual({ startMs: 7000, buffer: VOD_BUFFER });
+    const catchup: PlayRequest = { key: 's1:live:3', src: 's1', mode: 'catchup', candidates: [{ url: `${BASE}/timeshift/u/p/60/2026-11-24:20-00/3.m3u8`, container: 'hls' }] };
+    void r.player.play(catchup);
+    await r.clock.advance(1000);
+    expect(r.engine.loads[3]!.opts).toStrictEqual({ buffer: VOD_BUFFER });
+  });
+
+  it("tells the engine nothing to buffer where the tuning leaves the engine's own", async () => {
+    const r = rig(undefined, { tuning: () => ({ watchdog: DEFAULT_WATCHDOG, liveBuffer: null, vodBuffer: VOD_BUFFER }) });
+    const plain = rig();
+    void r.player.play(live(1));
+    void plain.player.play(vod(1));
+    await r.clock.advance(1000);
+    await plain.clock.advance(1000);
+    expect(r.engine.loads[0]!.opts).toStrictEqual({});
+    expect(plain.engine.loads[0]!.opts).toStrictEqual({});
   });
 });
 

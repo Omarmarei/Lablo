@@ -19,10 +19,11 @@
  * It gives up when 4 attempts have been made within the last 60 s. A frame on the screen
  * starts the ladder again from its first rung; the attempts keep counting in the window.
  *
- * Remote config can tune every number per model (`WatchdogConfig`).
+ * The app chooses the numbers for each play (`PlayTuning`, RELAY step 39d): Settings › "Player"'s
+ * "Buffering" (Fast start or Stable) and remote config's tunables.
  */
 
-import type { PlaybackError } from './engine';
+import type { EngineBuffer, PlaybackError } from './engine';
 import { isDefinitive } from './failure';
 
 export interface WatchdogConfig {
@@ -53,6 +54,19 @@ export const DEFAULT_WATCHDOG: WatchdogConfig = {
   windowMs: 60_000,
   backoffMs: [1000, 2000, 4000],
 };
+
+/**
+ * What one play is tuned with (RELAY step 39d): the watchdog's numbers, and the engine's buffers
+ * for a live stream and for VOD or catch-up (`null`: the engine's own).
+ */
+export interface PlayTuning {
+  readonly watchdog: WatchdogConfig;
+  readonly liveBuffer: EngineBuffer | null;
+  readonly vodBuffer: EngineBuffer | null;
+}
+
+/** Today's watchdog and each engine's own buffers. */
+export const DEFAULT_TUNING: PlayTuning = { watchdog: DEFAULT_WATCHDOG, liveBuffer: null, vodBuffer: null };
 
 /** What an attempt does: the next untried URL, the same URL again, the same URL re-probed, or the next URL in the list. */
 export type Rung = 'next-url' | 'reopen' | 'reprobe' | 'switch';

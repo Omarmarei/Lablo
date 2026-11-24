@@ -71,7 +71,7 @@ describe("the settings list's window (RELAY step 38c1)", () => {
     const last = SettingsView({ i18n: en, list, item: (i) => (asked.push(i), idle), telemetry: null, top: 3 });
     expect(rowIds(last)).toEqual(['settings-channels', 'settings-parental', 'settings-player', 'settings-language', 'settings-backup', 'settings-telemetry', 'settings-report']);
     expect(asked).toEqual([3, 4, 5, 6, 7, 8, 9]);
-    expect(textOf(byTestId(last, 'settings-player')[0])).toBe('PlayerAudio and subtitle languages, picture, clock and sleep timer');
+    expect(textOf(byTestId(last, 'settings-player')[0])).toBe('PlayerAudio and subtitle languages, picture, clock, sleep timer and buffering');
     expect(textOf(byTestId(last, 'settings-parental')[0])).toBe('Parental controlYour PIN, and the groups and channels it locks');
   });
 
@@ -84,7 +84,7 @@ describe("the settings list's window (RELAY step 38c1)", () => {
 
   it('names the row in Arabic', () => {
     expect(itemText(ar.t, 'parental')).toEqual({ name: 'الرقابة الأبوية', hint: 'رمزك السري، والمجموعات والقنوات التي يقفلها' });
-    expect(itemText(ar.t, 'player')).toEqual({ name: 'المشغّل', hint: 'لغة الصوت والترجمة، والصورة والساعة ومؤقّت النوم' });
+    expect(itemText(ar.t, 'player')).toEqual({ name: 'المشغّل', hint: 'لغة الصوت والترجمة، والصورة والساعة ومؤقّت النوم والتخزين المؤقت' });
   });
 });
 

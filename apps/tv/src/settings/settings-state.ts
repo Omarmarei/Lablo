@@ -1,6 +1,5 @@
 import type { LifecycleEvent } from '@lablo/platform-api';
 import type { Navigator } from '@lablo/ui';
-import { SCREEN, fits } from '@lablo/ui';
 import type { SourceDraft } from '../onboarding/form';
 import type { LoadResult } from '../onboarding/loader';
 import type { Pairing } from '../pairing/pair-state';
@@ -34,6 +33,7 @@ import type { TelemetrySwitch, TelemetrySwitchOptions } from './telemetry-switch
 import { createTelemetrySwitch } from './telemetry-switch';
 import type { UnmatchedEngine, UnmatchedList } from './unmatched-state';
 import { createUnmatchedList } from './unmatched-state';
+import { SETTINGS_VISIBLE } from './settings-window';
 
 /**
  * The settings screen (RELAY step 22b2): opened by the live screen's header "Settings" button,
@@ -60,11 +60,8 @@ import { createUnmatchedList } from './unmatched-state';
 export type { SettingsItem } from './settings-items';
 export { SETTINGS_ITEMS } from './settings-items';
 
-/** A settings row's height and the gap between rows (settings.css uses the same numbers). */
-export const SETTINGS_ROW = { height: 120, gap: 8 } as const;
-
-/** The rows in view: the safe area less the header (56 px and a 24 px gap). */
-export const SETTINGS_VISIBLE = fits(SCREEN.height - 2 * SCREEN.safeY - 56 - 24, SETTINGS_ROW.height, SETTINGS_ROW.gap);
+/** A settings row's height and the rows in view (step 39d: shared with the "Player" page). */
+export { SETTINGS_ROW, SETTINGS_VISIBLE } from './settings-window';
 
 /** The screens the settings put on the live navigator (the live screen paints them instead of its own). */
 export const SETTINGS_SCREENS: readonly string[] = [

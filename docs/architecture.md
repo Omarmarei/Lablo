@@ -1066,6 +1066,22 @@ Profile schema changes go through versioned migrations with fixture tests. A mig
         - mutation 153 of 153 (`artifacts/mutate39c.py`; two survivors closed by tests: the refusal's info bar, a key in a menu over the player).
         - main.js 465.0 KB on Tizen (+5.4: the guard, the card, 15 strings in two languages), settings.js 98.9 KB (+0.9), the query worker unchanged (149.0 of 150 KB: no new `PlayerChange`), core-js unchanged (173 / 2); one module added to main.js (`watch-guard.ts`).
         - The e2e moves the clock in jumps (`fastForward`): a clock run ahead of the real stream for more than about 6 s reads to the controller's watchdog as a frozen picture.
+    - **Built in step 39d: "Buffering", Fast start or Stable** (Omar's Q3, option 1: one row on both TVs, saying what it changes; `player/play-tuning.ts`, `app-player.ts`, `player-memory.ts`; `settings/player-settings.ts`, `PlayerSettingsPage.tsx`, `settings-window.ts`; `main.tsx`; `packages/player` `controller.ts`, `engine.ts`, `ladder.ts`; `packages/platform-tizen` `avplay-engine.ts`, `avplay.ts`; RELAY 39d's "Refined before building").
+      - **Samsung's reference** (the AVPlay API page, read 2026-11-24): `setBufferingParam(option, unit, amount)` with `PLAYER_BUFFER_FOR_PLAY` (before playback starts) or `PLAYER_BUFFER_FOR_RESUME` (after a stall), in `PLAYER_BUFFER_SIZE_IN_SECOND` (bytes deprecated since Tizen 5.0), "at least 4 seconds", in `IDLE` only. With nothing set, AVPlay's own: "32MB or 10 seconds of playable data". Samsung's example: 5 s to play, 15 s to resume.
+      - **The two values** (`playTuning`, a first guess until step 21's TV session):
+        - **Fast start** (the default): the watchdog as before (live frozen 6 s, live buffering 12 s, VOD buffering 20 s, open 10 s); AVPlay plays once it holds 5 s of media, and keeps its own buffer after a stall.
+        - **Stable:** live frozen 12 s, live buffering 25 s, VOD buffering 40 s, open 20 s; AVPlay holds 10 s before playing (its own amount) and 15 s after a stall. Live buffering outlasts that 15 s plus AVPlay's own reconnect about 7 s after the data stops (docs/spikes/results.md).
+        - The `<video>` (webOS, the desktop, Tizen's HLS fallback) can't be told a buffer: there Stable changes the watchdog only.
+      - **The give-up window grows with the open timeout** (`windowFor`): the ladder's four attempts, each waiting out the open timeout with the 4 s backoff between them, must fit in it, or a stream that never shows a frame is tried again for ever (with a 20 s timeout the attempts come every 24 s, and four never fall within 60 s). Never under 60 s: Fast start's stays 60 s, Stable's is 92 s.
+      - **Remote config's tunables set Fast start's numbers:** `openTimeoutMs` the open timeout, `stallTimeoutMs` the live buffering limit, `liveBufferSeconds` and `vodBufferSeconds` AVPlay's buffer before playing. Stable keeps its own numbers, or Fast start's where those are larger. The tunables apply to every TV: the doc has no per-model match (a schema change, later, if step 21 shows a need). AVPlay's floor and whole seconds are the engine's (`avplayBufferSeconds`: 2.5 plays at 4).
+      - **Read at each play:** the controller asks for its tuning at each `play()` (`ControllerOptions.tuning`, which replaces the `config` nothing passed) and keeps it for the session (its retries and the ladder); the engine gets the buffer through `LoadOptions.buffer`. A change applies from the next play, a config refresh likewise. AVPlay sets the buffers at each open (a hide's close and reopen too), between `setDisplayMethod` and `prepareAsync`; a firmware without the call, or one that refuses a value, keeps its own.
+      - **The row:** the Player page's eighth, "Buffering": "Fast start" or "Stable", OK round and the arrows towards the reading end, as the other rows. Its line says what the value does (Fast start: "Playback starts sooner, and a stalled stream reconnects quickly"; Stable: "For slow providers: waits longer before it reconnects, and may start later"). Kept in `player.options` as `buffer: 'stable'` (nothing for Fast start; anything else reads as Fast start). The settings list's "Player" line adds "and buffering".
+      - **The page scrolls**, seven rows in view (`SETTINGS_VISIBLE`, moved to `settings-window.ts` so the page needs nothing from `settings-state.ts`, which builds it), drawn from the focus engine's window as the settings list is.
+      - **Tests (leg 147):**
+        - unit: the controller's tuning (read at each play and kept for the session, its open timeout, buffering limits and ladder, the buffers by mode, a 20 s open timeout's window); AVPlay's buffers on the fake AVPlay (the order in `IDLE`, whole seconds of at least 4, a refusal, a firmware without the call, a reopen after a hide); `playTuning` and `windowFor`; the memory; the app player; the row, its window and its words in en and ar;
+        - e2e `e2e/buffering.spec.ts` (en, ar, en-XA): the eighth row scrolled to and back, its values, words and line, the profile, a restart; in English, the next play read it: the desktop never plays the mock's placeholder streams, so the player opens the `.m3u8` again at its open timeout, 20 s after under Stable and 10 s under Fast start (the `<video>`'s `src` set again);
+        - mutation 81 of 81 (`artifacts/mutate39d.py`).
+        - main.js 467.7 KB on Tizen (+2.7), settings.js 99.4 KB (+0.5), the query worker unchanged (149.0 of 150 KB: no new `PlayerChange`); module diff: `play-tuning.ts` added to main.js and `settings-window.ts` to settings.js, nothing else; core-js 173 / 2 unchanged.
 11. **Search.** `indexOf` over the search string, then a binary search over offsets to find the item.
     - **Ranking:** word-prefix matches first, then substring matches; live before VOD before series; favourites boosted.
     - **Results** are capped at 200.
@@ -1421,7 +1437,7 @@ export type PlayRequest = { key: ContentKey; src: string; mode: 'live'|'vod'|'ca
     4. Repeat with backoff of 1, 2 and 4 s.
   - **Give up:** after 4 attempts within 60 s, show the error card.
   - **While retrying:** the UI shows a small "Reconnecting…" badge, not a black screen.
-  - **Thresholds** are tunable per model through remote config.
+  - **Thresholds** are tunable through remote config's tunables (every TV: the doc has no per-model match), and Settings › "Player"'s "Buffering" chooses Fast start or Stable (§1.4 item 10, "Built in step 39d").
 - **Error classifier** (complaint #9). It produces four user-facing categories, each with a diagnostic code:
 
   | Category | Examples |
@@ -1436,7 +1452,7 @@ export type PlayRequest = { key: ContentKey; src: string; mode: 'live'|'vod'|'ca
   - The on-screen info bar updates instantly; loading starts after 350 ms with no new key press.
   - Number entry collects digits for 1.5 s. Channel numbers come from `tvg-chno`, then Xtream `num`, then list position, and user overrides win.
   - Previous channel uses the Samsung PRE-CH key where it can be registered, with an info-bar action and the yellow key everywhere (step 39b).
-  - On AVPlay, `setBufferingParam` sets a lower first-play buffer. A "Fast start / Stable" setting controls this, and remote config can override it per model.
+  - On AVPlay, `setBufferingParam` sets the first-play buffer: 5 s under "Fast start" (the default), 10 s and 15 s after a stall under "Stable"; remote config's tunables set Fast start's (step 39d, §1.4 item 10).
 - **Tracks.**
   - Preferred audio and subtitle language lists, e.g. `['ar','en']`, are applied automatically when tracks appear.
   - The user's per-channel choice is remembered.

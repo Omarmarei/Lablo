@@ -4,6 +4,7 @@ import type { RedirectMemory, RedirectMode } from '@lablo/platform-api';
 import type { Container, PictureMode, SourceMemory, TrackChoice, TrackMemory, TrackPick } from '@lablo/player';
 import { asPictureMode } from '@lablo/player';
 import type { RailRef } from '../live/live-state';
+import type { BufferMode } from './play-tuning';
 import type { SubtitleSize } from './track-menu';
 import { DEFAULT_STILL_HOURS, STILL_HOURS } from './watch-guard';
 
@@ -22,7 +23,8 @@ import { DEFAULT_STILL_HOURS, STILL_HOURS } from './watch-guard';
  *   preferences (`trackPreferences`);
  * - Settings › "Player"'s other rows, kept by name in the profile's `player.options` (step 39a:
  *   "Clock while watching", `clock: 'on'`, absent when off; step 39c: "Still watching?",
- *   `stillWatching: 'off'`, `'2'` or `'6'`, absent for its default 4 hours), to the player;
+ *   `stillWatching: 'off'`, `'2'` or `'6'`, absent for its default 4 hours; step 39d:
+ *   "Buffering", `buffer: 'stable'`, absent for Fast start), to the player;
  * - the channels played last (step 28b2, the profile's `channels`, version 7), to Home: the
  *   query worker puts each new last channel first in the same write, and `tuned` does the same
  *   here.
@@ -68,6 +70,9 @@ export interface PlayerMemory {
   /** "Still watching?" (step 39c): the hours without a key before it asks (`null`: never; `DEFAULT_STILL_HOURS` until set). */
   stillHours(): number | null;
   setStillHours(hours: number | null): void;
+  /** "Buffering" (step 39d): Fast start until set. */
+  bufferMode(): BufferMode;
+  setBufferMode(mode: BufferMode): void;
 }
 
 /** A track language Settings › "Player" offers (step 38d3): the app's two. */
@@ -209,6 +214,7 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
   let subtitleLang: TrackLang | null = null;
   let clock = false;
   let stillHours: number | null = DEFAULT_STILL_HOURS;
+  let bufferMode: BufferMode = 'fast';
 
   const write = (change: PlayerChange): void => {
     options.edit({ kind: 'player', change }).catch((error: unknown) => console.warn('The player memory was not saved', error));
@@ -289,6 +295,8 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
       const storedOptions = doc['options'];
       clock = isRecord(storedOptions) && own(storedOptions, 'clock') === 'on';
       stillHours = asStillHours(isRecord(storedOptions) ? own(storedOptions, 'stillWatching') : undefined);
+      // Anything but `stable` is Fast start.
+      bufferMode = isRecord(storedOptions) && own(storedOptions, 'buffer') === 'stable' ? 'stable' : 'fast';
       last = lastChannelOf(profile);
       channels = recentChannelsOf(profile);
     },
@@ -336,6 +344,13 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
       stillHours = hours;
       // The default leaves nothing stored.
       write({ field: 'option', name: 'stillWatching', value: hours === null ? 'off' : hours === DEFAULT_STILL_HOURS ? null : String(hours) });
+    },
+    bufferMode: () => bufferMode,
+    setBufferMode(mode: BufferMode): void {
+      if (mode === bufferMode) return;
+      bufferMode = mode;
+      // Fast start, the default, leaves nothing stored.
+      write({ field: 'option', name: 'buffer', value: mode === 'stable' ? 'stable' : null });
     },
   };
 }

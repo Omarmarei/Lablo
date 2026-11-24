@@ -167,6 +167,19 @@ export interface LoadOptions {
    * can't tell an audio-only stream from a picture it can't decode, so only the request says so.
    */
   readonly audioOnly?: boolean;
+  /**
+   * How much media to hold before playing and after a stall (RELAY step 39d, "Fast start /
+   * Stable"). Only AVPlay can be told (`setBufferingParam`); the `<video>` ignores it.
+   */
+  readonly buffer?: EngineBuffer;
+}
+
+/** An engine's buffers (RELAY step 39d), in seconds of media. */
+export interface EngineBuffer {
+  /** Before playback starts. */
+  readonly playSeconds: number;
+  /** After a stall, before playback goes on (`null`: the engine's own). */
+  readonly resumeSeconds: number | null;
 }
 
 export interface PlayerEngine {

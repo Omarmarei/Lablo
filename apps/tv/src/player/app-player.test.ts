@@ -1,6 +1,6 @@
 import type { LifecycleEvent, PlatformCall } from '@lablo/platform-api';
-import type { AccountStatus, EngineCaps, EngineEvent, EngineSource, PlayerEngine, PlayerReport, Track, TrackPreferences } from '@lablo/player';
-import { NO_STATS } from '@lablo/player';
+import type { AccountStatus, EngineCaps, EngineEvent, EngineSource, LoadOptions, PlayerEngine, PlayerReport, Track, TrackPreferences } from '@lablo/player';
+import { DEFAULT_WATCHDOG, NO_STATS } from '@lablo/player';
 import { describe, expect, it, vi } from 'vitest';
 import type { AppPlayerDeps } from './app-player';
 import { appPlayer, trackPreferences, uiTrackPreferences } from './app-player';
@@ -10,6 +10,8 @@ class StubEngine implements PlayerEngine {
   readonly kind = 'html5' as const;
   readonly caps: EngineCaps = { maxHeight: 1080, trackSwitch: 'none', deliversSubtitleText: false, preloadSlots: 0, rates: [1], fits: ['contain', 'fill', 'cover'] };
   readonly log: string[] = [];
+  /** Each load's options. */
+  readonly opts: LoadOptions[] = [];
   failLoads = false;
   /** Arabic sound (playing) and English. */
   audio: Track[] = [
@@ -18,8 +20,9 @@ class StubEngine implements PlayerEngine {
   ];
   private listeners: ((e: EngineEvent & { readonly token: number }) => void)[] = [];
 
-  load(source: EngineSource, token: number): Promise<void> {
+  load(source: EngineSource, token: number, opts: LoadOptions = {}): Promise<void> {
     this.log.push(`load ${source.url}`);
+    this.opts.push(opts);
     if (this.failLoads) return Promise.reject({ kind: 'http', code: 'HTTP', status: 404 });
     for (const listener of this.listeners.slice()) listener({ type: 'firstFrame', token });
     return Promise.resolve();
@@ -84,6 +87,7 @@ function setup(
     trackMemory?: AppPlayerDeps['trackMemory'];
     blocked?: AppPlayerDeps['blocked'];
     report?: AppPlayerDeps['report'];
+    tuning?: AppPlayerDeps['tuning'];
   } = {},
 ) {
   const engine = new StubEngine();
@@ -123,6 +127,7 @@ function setup(
     ...(options.trackMemory === undefined ? {} : { trackMemory: options.trackMemory }),
     ...(options.blocked === undefined ? {} : { blocked: options.blocked }),
     ...(options.report === undefined ? {} : { report: options.report }),
+    ...(options.tuning === undefined ? {} : { tuning: options.tuning }),
   });
   return { engine, stages, screenSaver, accounts, make, stage, lifecycle: (event: LifecycleEvent) => lifecycle?.(event) };
 }
@@ -202,6 +207,17 @@ describe('appPlayer (RELAY step 20a)', () => {
     await flush();
     expect(t.make().status.state).toBe('playing');
     expect(reports).toEqual([{ type: 'play', engine: 'html5', container: 'ts', mode: 'live', ttffMs: expect.any(Number) as number, error: null }]);
+  });
+
+  it('tunes each play as it is told (step 39d): the buffer reaches the engine; without a tuning, nothing does', async () => {
+    const t = setup({ tuning: () => ({ watchdog: DEFAULT_WATCHDOG, liveBuffer: { playSeconds: 7, resumeSeconds: 15 }, vodBuffer: null }) });
+    void t.make().play(live('http://panel.test/live/u/p/1.ts'));
+    await flush();
+    expect(t.engine.opts).toEqual([{ buffer: { playSeconds: 7, resumeSeconds: 15 } }]);
+    const plain = setup();
+    void plain.make().play(live('http://panel.test/live/u/p/1.ts'));
+    await flush();
+    expect(plain.engine.opts).toStrictEqual([{}]);
   });
 
   it('keeps the screensaver away while it plays and lets it back on stop; a refusal changes nothing', async () => {

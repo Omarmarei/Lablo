@@ -63,6 +63,13 @@ export interface AvplayManager {
    */
   setDisplayMethod?(mode: string): void;
   setListener(listener: AvplayListener): void;
+  /**
+   * How much media AVPlay holds before it plays (`PLAYER_BUFFER_FOR_PLAY`) and after a stall
+   * (`PLAYER_BUFFER_FOR_RESUME`), in `PLAYER_BUFFER_SIZE_IN_SECOND` (bytes are deprecated since
+   * Tizen 5.0); "at least 4 seconds". IDLE only: after `open`, before `prepareAsync`. Unset, the
+   * TV's own: "32MB or 10 seconds of playable data" (Samsung's AVPlay reference; RELAY step 39d).
+   */
+  setBufferingParam?(option: string, unit: string, amount: number): void;
   play(): void;
   pause(): void;
   stop(): void;

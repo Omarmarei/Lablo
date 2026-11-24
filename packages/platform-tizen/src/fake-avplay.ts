@@ -101,6 +101,8 @@ export class FakeAvplay implements AvplayManager {
   connections = 0;
   /** Every URL opened, in order. */
   readonly urls: string[] = [];
+  /** The buffers AVPlay took since the last open, by option (a refused call sets none). */
+  buffers: { [option: string]: number } = {};
   /**
    * Plays by itself: ms from `prepareAsync` until the prepare answers and the clock starts
    * moving, by URL; null: the prepare never answers (AVPlay's 302 freeze). Unset: the test answers.
@@ -138,6 +140,7 @@ export class FakeAvplay implements AvplayManager {
     this.call('open ' + url, 'open');
     if (this.state !== 'NONE') this.refuse('open');
     this.state = 'IDLE';
+    this.buffers = {};
     this.connections++;
     this.urls.push(url);
   }
@@ -177,6 +180,16 @@ export class FakeAvplay implements AvplayManager {
 
   setDisplayMethod(mode: string): void {
     this.call('setDisplayMethod ' + mode, 'setDisplayMethod');
+  }
+
+  /** IDLE only, in seconds of at least 4 (Samsung's reference); logged as `setBufferingParam <option> <amount>`. */
+  setBufferingParam(option: string, unit: string, amount: number): void {
+    this.call('setBufferingParam ' + option + ' ' + String(amount), 'setBufferingParam');
+    if (this.state !== 'IDLE') this.refuse('setBufferingParam');
+    if (option !== 'PLAYER_BUFFER_FOR_PLAY' && option !== 'PLAYER_BUFFER_FOR_RESUME') throw new Thrown('TypeMismatchError', option);
+    if (unit !== 'PLAYER_BUFFER_SIZE_IN_SECOND') throw new Thrown('TypeMismatchError', unit);
+    if (amount < 4 || Math.round(amount) !== amount) throw new Thrown('InvalidValuesError', String(amount));
+    this.buffers[option] = amount;
   }
 
   setListener(listener: AvplayListener): void {

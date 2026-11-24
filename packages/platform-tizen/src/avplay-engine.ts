@@ -6,7 +6,8 @@
  * no Samsung TV has run it yet (step 19b).
  *
  * - **Open:** `open`, `setListener`, `setDisplayRect` (the rect `setRect` gave, in AVPlay's
- *   1920×1080 space), `setDisplayMethod` (the fit `setFit` gave), `prepareAsync`, then `play`.
+ *   1920×1080 space), `setDisplayMethod` (the fit `setFit` gave), `setBufferingParam` (the load's
+ *   `buffer`, RELAY step 39d), `prepareAsync`, then `play`.
  *   `load()` resolves once `play` was called and rejects with the error that comes before it. A prepare that hasn't answered within 8 s
  *   (AVPlay freezes on some 302s) fails as `timeout`/`PREPARE_TIMEOUT`; the controller's ladder
  *   then re-runs the redirect probe (`redirect-probe.ts`).
@@ -26,7 +27,7 @@
  *   (`setSilentSubtitle(false)`): AVPlay draws none itself.
  */
 
-import type { Clock, EngineCaps, EngineEvent, EngineSource, EngineStats, LoadOptions, PictureFit, PlaybackError, PlayerEngine, Rect, Track } from '@lablo/player';
+import type { Clock, EngineBuffer, EngineCaps, EngineEvent, EngineSource, EngineStats, LoadOptions, PictureFit, PlaybackError, PlayerEngine, Rect, Track } from '@lablo/player';
 import { NO_STATS, SYSTEM_CLOCK } from '@lablo/player';
 import type { AvplayListener, AvplayManager, AvplayTrack } from './avplay';
 import { avplayTracks, avplayUnsupported } from './avplay';
@@ -35,6 +36,14 @@ import { avplayTracks, avplayUnsupported } from './avplay';
 export const AVPLAY_FRAME_POLL_MS = 50;
 /** A prepare that hasn't answered by then is AVPlay's freeze (architecture.md §2: re-probe after 8 s). */
 export const PREPARE_TIMEOUT_MS = 8000;
+
+/** AVPlay's smallest buffer (Samsung's reference: "The time buffer size must be at least 4 seconds"). */
+export const AVPLAY_MIN_BUFFER_SECONDS = 4;
+
+/** A buffer in the whole seconds AVPlay takes, no less than its smallest. */
+export function avplayBufferSeconds(seconds: number): number {
+  return Math.max(AVPLAY_MIN_BUFFER_SECONDS, Math.round(seconds));
+}
 
 /** `setDisplayRect` for the whole screen (AVPlay's 1920×1080 space). */
 const FULL: Rect = { x: 0, y: 0, width: 1920, height: 1080 };
@@ -112,6 +121,8 @@ interface Load {
   suspended: 'no' | 'native' | 'closed';
   /** A text track is selected: its cues go out. */
   textShown: boolean;
+  /** What AVPlay is told to buffer at each open (step 39d; `null`: its own). */
+  readonly buffer: EngineBuffer | null;
 }
 
 const ABORTED: PlaybackError = { kind: 'app', code: 'ABORTED' };
@@ -192,6 +203,7 @@ export class AvplayEngine implements PlayerEngine {
         failed: false,
         suspended: 'no',
         textShown: false,
+        buffer: opts.buffer ?? null,
       };
       this.cur = l;
       this.open(l);
@@ -395,6 +407,7 @@ export class AvplayEngine implements PlayerEngine {
     }
     this.applyRect();
     this.applyFit();
+    this.applyBuffer(l);
     this.prepareTimer = this.clock.setTimeout(() => this.fail(l, PREPARE_TIMEOUT), this.prepareTimeoutMs);
     try {
       api.prepareAsync(
@@ -509,6 +522,20 @@ export class AvplayEngine implements PlayerEngine {
     const r = this.rect === 'full' ? FULL : this.rect;
     // A rect AVPlay refuses leaves the picture where it was.
     attempt(() => this.api.setDisplayRect(Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)));
+  }
+
+  /**
+   * The load's buffers (RELAY step 39d), in whole seconds of at least 4, before it plays and
+   * after a stall. A firmware without `setBufferingParam`, or one that refuses a value, keeps
+   * its own.
+   */
+  private applyBuffer(l: Load): void {
+    const buffer = l.buffer;
+    if (buffer === null) return;
+    const api = this.api;
+    const resume = buffer.resumeSeconds;
+    attempt(() => api.setBufferingParam?.('PLAYER_BUFFER_FOR_PLAY', 'PLAYER_BUFFER_SIZE_IN_SECOND', avplayBufferSeconds(buffer.playSeconds)));
+    if (resume !== null) attempt(() => api.setBufferingParam?.('PLAYER_BUFFER_FOR_RESUME', 'PLAYER_BUFFER_SIZE_IN_SECOND', avplayBufferSeconds(resume)));
   }
 
   /** A firmware without `setDisplayMethod` has nothing to call; a mode AVPlay refuses leaves the picture as it was. */
