@@ -5,8 +5,10 @@
  *   are dropped, so a late event from a channel the user zapped away from changes nothing;
  * - **close-before-open:** the engine's `stop()` is awaited before every `load` (providers often
  *   allow one connection), and a stop already under way is shared, not overtaken;
- * - **the URL strategy:** a request's URLs are tried in order, with the container that last
- *   played for the source first (`request.ts`);
+ * - **the URL strategy:** a request's URLs are tried in order, with the source's remembered
+ *   container first (`request.ts`); a container other than the request's first is remembered only
+ *   after a definitive failure, and a live URL that shows nothing gives way to an untried one
+ *   at the fallback's cap (step 39s2);
  * - **the watchdog and the retry ladder** (`ladder.ts`): stalls and errors reopen, re-probe or
  *   switch container while the UI shows "Reconnecting…", and give up after 4 attempts in 60 s;
  * - **the error classifier** (`failure.ts`): giving up yields a category and a code, with the
@@ -792,9 +794,17 @@ export class PlayerController {
     this.setState('failed', blockedFailure());
   }
 
-  /** No first frame for the load `token` within the open timeout fails it. */
+  /**
+   * No first frame for the load `token` within the open timeout fails it. A live URL that hasn't
+   * shown a frame in the session while another URL is untried fails sooner, at the fallback's cap
+   * (RELAY step 39s2), and the ladder tries that URL.
+   */
   private armOpenTimer(token: number): void {
-    this.openTimer = this.clock.setTimeout(() => this.fail(token, { kind: 'timeout', code: 'OPEN' }), this.s!.watchdog.openTimeoutMs);
+    const s = this.s!;
+    const limits = s.watchdog;
+    const capped = s.live && s.framed[s.current] !== true && s.ladder.untriedLeft();
+    const ms = capped ? Math.min(limits.fallbackMs, limits.openTimeoutMs) : limits.openTimeoutMs;
+    this.openTimer = this.clock.setTimeout(() => this.fail(token, { kind: 'timeout', code: 'OPEN' }), ms);
   }
 
   /** Stops the engine, or joins the stop already under way. */
@@ -935,13 +945,23 @@ export class PlayerController {
     s.attempt = 0;
     s.ladder.recovered();
     // Only a choice between URLs is worth remembering (a VOD play must not reset a live preference).
-    if (s.candidates.length > 1) this.memory.remember(s.req.src, s.candidates[s.current]!.container);
+    if (s.candidates.length > 1 && this.movesMemory(s)) this.memory.remember(s.req.src, s.candidates[s.current]!.container);
     // An engine may list its tracks before the picture without an event.
     this.onTracks(s, this.liveToken);
     this.lastPos = this.engine.positionMs();
     this.lastMoveAt = this.clock.now();
     this.setState('playing');
     this.scheduleTick();
+  }
+
+  /**
+   * Whether the URL that showed a frame becomes the source's first choice (RELAY step 39s2): the
+   * request's own first container always does (the default order is back); another one only when
+   * a URL failed definitively in the session (`isDefinitive`). An outage, a timeout or a stall
+   * never moves the source: a switch that played after one says nothing about the other URL.
+   */
+  private movesMemory(s: Session): boolean {
+    return s.candidates[s.current]!.container === s.req.candidates[0]!.container || s.ladder.otherFailedForGood(s.current);
   }
 
   /**

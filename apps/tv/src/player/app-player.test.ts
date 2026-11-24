@@ -148,12 +148,18 @@ describe('appPlayer (RELAY step 20a)', () => {
       trackMemory: { choice: () => ({ audio: { id: '1', lang: 'en', label: '' }, text: null, delayMs: 500 }), remember: () => undefined },
     });
     const controller = t.make();
-    void controller.play({ ...live('http://panel.test/live/u/p/1.ts'), candidates: [{ url: 'http://panel.test/live/u/p/1.ts', container: 'ts' }, { url: 'http://panel.test/live/u/p/1.m3u8', container: 'hls' }] });
+    const both = (src: string) => ({ ...live('http://panel.test/live/u/p/1.ts'), src, candidates: [{ url: 'http://panel.test/live/u/p/1.ts', container: 'ts' as const }, { url: 'http://panel.test/live/u/p/1.m3u8', container: 'hls' as const }] });
+    void controller.play(both('s1'));
     await flush();
     // The channel's remembered English, switched to when the tracks appear.
     expect(t.engine.log).toEqual(['stop', 'load http://panel.test/live/u/p/1.m3u8', 'selectAudio 1']);
-    expect(remembered).toEqual(['s1 hls']);
+    // The .m3u8 was first already, and nothing failed (step 39s2): nothing to remember.
+    expect(remembered).toEqual([]);
     expect(controller.subtitleDelay).toBe(500);
+    // Another source's .ts plays: its default order is remembered.
+    void controller.play(both('s2'));
+    await flush();
+    expect(remembered).toEqual(['s2 ts']);
   });
 
   it('throws when the platform builds no engine', () => {

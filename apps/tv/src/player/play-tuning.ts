@@ -14,7 +14,8 @@ import { DEFAULT_WATCHDOG } from '@lablo/player';
  *   playing (its own amount) and 15 s after a stall (Samsung's example). Live buffering must
  *   outlast that 15 s plus AVPlay's own reconnect, about 7 s after the data stops. The give-up
  *   window grows with the open timeout (`windowFor`: 92 s), so a stream that never opens still
- *   ends on the error card.
+ *   ends on the error card. A live URL that shows nothing while another is untried gets 12 s
+ *   (Fast start 6 s: the fallback's cap, RELAY step 39s2), so a slow first URL isn't left early.
  *
  * The `<video>` (webOS, the desktop, Tizen's HLS fallback) can't be told a buffer: there Stable
  * changes the watchdog only. Remote config's tunables set Fast start's numbers (`PlayTunables`);
@@ -48,6 +49,7 @@ export const STABLE = {
   liveBufferingMs: 25_000,
   vodBufferingMs: 40_000,
   openTimeoutMs: 20_000,
+  fallbackMs: 12_000,
   playSeconds: 10,
   resumeSeconds: 15,
 } as const;
@@ -64,10 +66,10 @@ export function windowFor(openTimeoutMs: number): number {
   return Math.max(d.windowMs, d.maxAttempts * openTimeoutMs + (d.maxAttempts - 1) * longest);
 }
 
-/** The default watchdog with its four limits replaced, and the window to fit its open timeout. */
-function watchdog(liveFrozenMs: number, liveBufferingMs: number, vodBufferingMs: number, openTimeoutMs: number): WatchdogConfig {
+/** The default watchdog with its five limits replaced, and the window to fit its open timeout. */
+function watchdog(liveFrozenMs: number, liveBufferingMs: number, vodBufferingMs: number, openTimeoutMs: number, fallbackMs: number): WatchdogConfig {
   const d = DEFAULT_WATCHDOG;
-  return { liveFrozenMs, liveBufferingMs, vodBufferingMs, openTimeoutMs, tickMs: d.tickMs, maxAttempts: d.maxAttempts, windowMs: windowFor(openTimeoutMs), backoffMs: d.backoffMs };
+  return { liveFrozenMs, liveBufferingMs, vodBufferingMs, openTimeoutMs, fallbackMs, tickMs: d.tickMs, maxAttempts: d.maxAttempts, windowMs: windowFor(openTimeoutMs), backoffMs: d.backoffMs };
 }
 
 /** What a play is tuned with in `mode`, Fast start's numbers set by remote config's `tunables`. */
@@ -79,13 +81,13 @@ export function playTuning(mode: BufferMode, tunables: PlayTunables): PlayTuning
   const vod = tunables.vodBufferSeconds ?? FAST_PLAY_SECONDS;
   if (mode === 'fast') {
     return {
-      watchdog: watchdog(d.liveFrozenMs, stall, d.vodBufferingMs, open),
+      watchdog: watchdog(d.liveFrozenMs, stall, d.vodBufferingMs, open, d.fallbackMs),
       liveBuffer: { playSeconds: live, resumeSeconds: null },
       vodBuffer: { playSeconds: vod, resumeSeconds: null },
     };
   }
   return {
-    watchdog: watchdog(STABLE.liveFrozenMs, Math.max(STABLE.liveBufferingMs, stall), STABLE.vodBufferingMs, Math.max(STABLE.openTimeoutMs, open)),
+    watchdog: watchdog(STABLE.liveFrozenMs, Math.max(STABLE.liveBufferingMs, stall), STABLE.vodBufferingMs, Math.max(STABLE.openTimeoutMs, open), STABLE.fallbackMs),
     liveBuffer: { playSeconds: Math.max(STABLE.playSeconds, live), resumeSeconds: STABLE.resumeSeconds },
     vodBuffer: { playSeconds: Math.max(STABLE.playSeconds, vod), resumeSeconds: STABLE.resumeSeconds },
   };

@@ -22,12 +22,12 @@ describe('playTuning (RELAY step 39d)', () => {
       liveBuffer: { playSeconds: 5, resumeSeconds: null },
       vodBuffer: { playSeconds: 5, resumeSeconds: null },
     });
-    expect(DEFAULT_WATCHDOG).toMatchObject({ liveFrozenMs: 6000, liveBufferingMs: 12_000, vodBufferingMs: 20_000, openTimeoutMs: 10_000 });
+    expect(DEFAULT_WATCHDOG).toMatchObject({ liveFrozenMs: 6000, liveBufferingMs: 12_000, vodBufferingMs: 20_000, openTimeoutMs: 10_000, fallbackMs: 6000 });
   });
 
   it('Stable: live frozen 12 s, live buffering 25 s, VOD buffering 40 s, open 20 s; AVPlay 10 s before playing and 15 s after a stall', () => {
     expect(playTuning('stable', {})).toEqual({
-      watchdog: { liveFrozenMs: 12_000, liveBufferingMs: 25_000, vodBufferingMs: 40_000, openTimeoutMs: 20_000, windowMs: 92_000, ...SAME },
+      watchdog: { liveFrozenMs: 12_000, liveBufferingMs: 25_000, vodBufferingMs: 40_000, openTimeoutMs: 20_000, fallbackMs: 12_000, windowMs: 92_000, ...SAME },
       liveBuffer: { playSeconds: 10, resumeSeconds: 15 },
       vodBuffer: { playSeconds: 10, resumeSeconds: 15 },
     });
@@ -36,13 +36,13 @@ describe('playTuning (RELAY step 39d)', () => {
     // Every number at least Fast start's.
     const fast = playTuning('fast', {}).watchdog;
     const stable = playTuning('stable', {}).watchdog;
-    for (const limit of ['liveFrozenMs', 'liveBufferingMs', 'vodBufferingMs', 'openTimeoutMs'] as const) expect(stable[limit]).toBeGreaterThan(fast[limit]);
+    for (const limit of ['liveFrozenMs', 'liveBufferingMs', 'vodBufferingMs', 'openTimeoutMs', 'fallbackMs'] as const) expect(stable[limit]).toBeGreaterThan(fast[limit]);
   });
 
   it("takes remote config's tunables as Fast start's numbers", () => {
     const tuned = playTuning('fast', { liveBufferSeconds: 8, vodBufferSeconds: 12, openTimeoutMs: 15_000, stallTimeoutMs: 18_000 });
     expect(tuned).toEqual({
-      watchdog: { liveFrozenMs: 6000, liveBufferingMs: 18_000, vodBufferingMs: 20_000, openTimeoutMs: 15_000, windowMs: 72_000, ...SAME },
+      watchdog: { liveFrozenMs: 6000, liveBufferingMs: 18_000, vodBufferingMs: 20_000, openTimeoutMs: 15_000, fallbackMs: 6000, windowMs: 72_000, ...SAME },
       liveBuffer: { playSeconds: 8, resumeSeconds: null },
       vodBuffer: { playSeconds: 12, resumeSeconds: null },
     });
@@ -54,6 +54,16 @@ describe('playTuning (RELAY step 39d)', () => {
     expect(playTuning('fast', { openTimeoutMs: 4000 }).watchdog).toEqual({ ...DEFAULT_WATCHDOG, openTimeoutMs: 4000 });
     // Absent fields (as zod reads them) are the defaults.
     expect(playTuning('fast', { liveBufferSeconds: undefined, stallTimeoutMs: undefined })).toEqual(playTuning('fast', {}));
+  });
+
+  it("leaves a live URL that shows nothing at 6 s under Fast start, 12 s under Stable (the fallback's cap, RELAY step 39s2)", () => {
+    // Above the slowest first frame the Samsung showed (HLS 4.3 s at the launch), under each open timeout.
+    expect(playTuning('fast', {}).watchdog.fallbackMs).toBe(6000);
+    expect(playTuning('stable', {}).watchdog.fallbackMs).toBe(12_000);
+    expect(STABLE.fallbackMs).toBeLessThan(STABLE.openTimeoutMs);
+    // Remote config's open timeout leaves it alone (the controller never waits longer than the open timeout).
+    expect(playTuning('fast', { openTimeoutMs: 15_000 }).watchdog.fallbackMs).toBe(6000);
+    expect(playTuning('stable', { openTimeoutMs: 30_000 }).watchdog.fallbackMs).toBe(12_000);
   });
 
   it('gives up within a window that holds four attempts at the open timeout, never under 60 s', () => {
@@ -70,7 +80,7 @@ describe('playTuning (RELAY step 39d)', () => {
     // Larger: Fast start's.
     const raised = playTuning('stable', { liveBufferSeconds: 12, vodBufferSeconds: 20, openTimeoutMs: 30_000, stallTimeoutMs: 40_000 });
     expect(raised).toEqual({
-      watchdog: { liveFrozenMs: 12_000, liveBufferingMs: 40_000, vodBufferingMs: 40_000, openTimeoutMs: 30_000, windowMs: 132_000, ...SAME },
+      watchdog: { liveFrozenMs: 12_000, liveBufferingMs: 40_000, vodBufferingMs: 40_000, openTimeoutMs: 30_000, fallbackMs: 12_000, windowMs: 132_000, ...SAME },
       liveBuffer: { playSeconds: 12, resumeSeconds: 15 },
       vodBuffer: { playSeconds: 20, resumeSeconds: 15 },
     });

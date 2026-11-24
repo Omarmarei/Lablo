@@ -3,7 +3,10 @@
  *
  * Stalls: a live stream whose position hasn't moved for 6 s while playing, or that has
  * buffered for 12 s; a VOD file or recording that has buffered for 20 s. Nothing on the screen
- * 10 s after a load is an open timeout (a three-302 chain took up to 4.1 s on the LG TV).
+ * 10 s after a load is an open timeout (a three-302 chain took up to 4.1 s on the LG TV). A live
+ * URL that hasn't shown a frame in the session while another URL is still untried gets 6 s, then
+ * that URL is tried (the fallback's cap, RELAY step 39s2: AVPlay retried a `.m3u8` answering 404
+ * for about 15 s before the app went on to `.ts`).
  *
  * After a failure the ladder decides the next attempt:
  * 1. Before the stream has shown a frame on a URL, the next untried URL (the URL strategy).
@@ -35,6 +38,12 @@ export interface WatchdogConfig {
   readonly vodBufferingMs: number;
   /** No first frame this long after a load starts. */
   readonly openTimeoutMs: number;
+  /**
+   * Live: no first frame this long after a load starts, on a URL that hasn't shown one in the
+   * session while another URL is untried, tries that URL (the fallback's cap; capped by
+   * `openTimeoutMs`).
+   */
+  readonly fallbackMs: number;
   /** How often the watchdog reads the position. */
   readonly tickMs: number;
   /** Give up once this many attempts were made within `windowMs`. */
@@ -49,6 +58,7 @@ export const DEFAULT_WATCHDOG: WatchdogConfig = {
   liveBufferingMs: 12_000,
   vodBufferingMs: 20_000,
   openTimeoutMs: 10_000,
+  fallbackMs: 6000,
   tickMs: 500,
   maxAttempts: 4,
   windowMs: 60_000,
@@ -105,6 +115,17 @@ export class RetryLadder {
   /** The stream showed a frame: the next failure starts again from the first rung. */
   recovered(): void {
     this.step = 0;
+  }
+
+  /** Whether a URL is still untried in this session. */
+  untriedLeft(): boolean {
+    return this.untried() !== -1;
+  }
+
+  /** Whether a URL other than `current` failed definitively in this session. */
+  otherFailedForGood(current: number): boolean {
+    for (let i = 0; i < this.options.candidates; i++) if (i !== current && this.dead[i] === true) return true;
+    return false;
   }
 
   /**
