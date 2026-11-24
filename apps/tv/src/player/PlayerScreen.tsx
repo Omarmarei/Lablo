@@ -395,8 +395,8 @@ export function PlayerScreen({ live, player, i18n, over = null }: { live: Live; 
   const panel = favourites === null ? null : favourites.screen.value;
   const starred = row !== null && lists.some((list) => list.keys.indexOf(row.item.key) !== -1);
   const radio = player.radio();
-  // "Clock while watching" (step 39a): on the player's own screen, with no bar, number, card or panel over it.
-  const cornerClock = player.watchClock.value && focus.screen === 'player' && !player.info.value && entry === null && failure === null && refused === null && !ended;
+  // "Clock while watching" (step 39a): on the player's own screen (no menu or panel over it), with no bar or number.
+  const cornerClock = player.watchClock.value && focus.screen === 'player' && !player.info.value && entry === null;
   return (
     <main
       class="player"

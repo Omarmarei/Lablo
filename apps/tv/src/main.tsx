@@ -27,7 +27,7 @@ import { LiveApp } from './live/LiveApp';
 import type { Live } from './live/live-state';
 import { createLive } from './live/live-state';
 import type { Guide } from './guide/guide-state';
-import { GUIDE_SCREEN, createGuide } from './guide/guide-state';
+import { createGuide, guideFromPlayer } from './guide/guide-state';
 import type { Movies } from './movies/movies-state';
 import { createMovies, selectSeries } from './movies/movies-state';
 import { episodePlay } from './shows/episode-play';
@@ -715,15 +715,13 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     // "Clock while watching" (step 39a).
     watchClock: memory.clock(),
     watchClocked: (on) => memory.setClock(on),
-    // The Guide key on a channel (step 39a): over the live screen, the guide opens on the row the
-    // player closed onto; over the guide, the close lands there already (`closed`); elsewhere nothing.
-    toGuide: (under) => {
-      if (under === GUIDE_SCREEN) return () => undefined;
-      if (under !== 'live') return null;
-      return (index) => {
-        if (live.status.value === 'ready') guide.open(index);
-      };
-    },
+    // The Guide key on a channel (step 39a): the guide on the channel's row, over the live screen or the guide.
+    toGuide: (under) =>
+      guideFromPlayer(
+        under,
+        () => live.status.value === 'ready',
+        (row) => guide.open(row),
+      ),
     // Where a movie is (step 26d): every 10 s while it plays, and when it stops, is left or the app hides; an episode's with its show (step 27c1),
     // and whether one comes after it (step 27d: "Continue watching").
     progressed: (item, positionMs, lengthMs, ended, showKey, more) => progress.save(item.key, positionMs, lengthMs, ended, showKey, more),

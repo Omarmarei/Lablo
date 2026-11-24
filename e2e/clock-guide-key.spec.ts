@@ -15,14 +15,17 @@ import { openSettings, settingsRow, toSettingsRow } from './settings-rows';
 
 /**
  * RELAY step 39a on the mock's panel, in English, Arabic and the pseudo-locale:
- * - Settings › "Player"'s fifth row, "Clock while watching": Off at the start, On by the reading
- *   end's arrow (no further), kept in the profile's `player.options`;
+ * - the clock off at the start: none over the video with the bar hidden;
+ * - Settings › "Player"'s fifth row, "Clock while watching": Off, then On by the reading end's
+ *   arrow (no further), kept in the profile's `player.options`;
  * - the player: no corner clock while the info bar shows (the bar has the time); with the bar
  *   hidden, the time in the top-end corner (the bar's time, at the right in English and the left
- *   in Arabic); gone while a number is typed, back after Back;
+ *   in Arabic); gone while a number is typed or the audio and subtitles menu shows;
  * - the Guide key: from the player, the player closes and the guide opens on the channel's row;
- *   on the guide, it closes it; from the list, the guide opens on the focused row;
- * - a restart: the last channel plays with the clock still on.
+ *   on the guide, it closes it; from the list and the header, the guide opens on the focused
+ *   row; a player opened from the guide closes back onto it;
+ * - a restart: the last channel plays with the clock still on; turned off in Settings, the
+ *   player shows none.
  */
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');
 
@@ -81,6 +84,16 @@ for (const { locale, tag } of [
     const player = page.getByTestId('player');
     const corner = page.getByTestId('player-clock');
     const clockRow = page.getByTestId('player-settings-clock');
+
+    await test.step('off at the start: no clock over the video with the bar hidden', async () => {
+      await remote.press('OK');
+      await remote.expectFocus('player/actions/0');
+      await expect(player).toHaveAttribute('data-clock', 'false');
+      await remote.press('INFO');
+      await expect(player).toHaveAttribute('data-info', 'false');
+      await expect(corner).toHaveCount(0);
+      await remote.go('BACK', 'live/channels/0');
+    });
 
     await test.step('Settings › "Player": the clock row Off, then On by the reading end\'s arrow and no further', async () => {
       await openSettings(remote, next);
@@ -145,6 +158,14 @@ for (const { locale, tag } of [
       await remote.press('BACK');
       await expect(player).toHaveAttribute('data-entry', '');
       await expect(corner).toBeVisible();
+      // The audio and subtitles menu over the player: no clock under it.
+      await remote.press('AUDIO');
+      await expect(player).toHaveAttribute('data-menu', 'true');
+      await expect(player).toHaveAttribute('data-info', 'false');
+      await expect(corner).toHaveCount(0);
+      await remote.press('BACK');
+      await expect(player).toHaveAttribute('data-menu', 'false');
+      await cornerShowsBarTime();
     });
 
     await test.step("the Guide key: from the player to the guide on its channel's row, closed by the key again, then from the list", async () => {
@@ -158,15 +179,38 @@ for (const { locale, tag } of [
       await remote.go('UP', 'live/channels/0');
       await remote.go('UP', 'live/header/5');
       await remote.go('GUIDE', 'guide/grid/0');
+      // A channel played from the guide: the key closes the player back onto the guide, as Back does.
+      await remote.go('OK', 'player/actions/0');
+      await expect(player).toHaveAttribute('data-playing', '0');
+      await remote.go('GUIDE', 'guide/grid/0');
+      await expect(player).toHaveCount(0);
       await remote.go('GUIDE', 'live/channels/0');
     });
 
-    await test.step('a restart: the last channel plays, the clock still on', async () => {
+    await test.step('a restart: the last channel plays, the clock still on; turned off, none with the bar hidden', async () => {
       await appIdle(page);
       await page.goto(`/?locale=${locale}`);
       await remote.expectFocus('player/actions/0');
       await expect(player).toHaveAttribute('data-clock', 'true');
       await cornerShowsBarTime();
+      await remote.go('BACK', 'live/channels/0');
+      await openSettings(remote, next);
+      await toSettingsRow(remote, 'player');
+      await remote.go('OK', 'player-settings/rows/0');
+      for (let i = 1; i <= 4; i += 1) await remote.go('DOWN', `player-settings/rows/${i}`);
+      await expect(clockRow).toHaveAttribute('data-value', 'on');
+      await remote.press(back);
+      await expect(clockRow).toHaveAttribute('data-value', 'off');
+      await expect.poll(() => storedOptions(page)).toEqual({});
+      await remote.go('BACK', settingsRow('player'));
+      await remote.go('BACK', 'live/header/5');
+      await remote.go('DOWN', 'live/channels/0');
+      await remote.press('OK');
+      await remote.expectFocus('player/actions/0');
+      await expect(player).toHaveAttribute('data-clock', 'false');
+      await remote.press('INFO');
+      await expect(player).toHaveAttribute('data-info', 'false');
+      await expect(corner).toHaveCount(0);
       await remote.go('BACK', 'live/channels/0');
     });
 

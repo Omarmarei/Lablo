@@ -59,6 +59,20 @@ import { createDetails } from './programme-details';
 
 /** The screen's id on the navigator, and its one zone's. */
 export const GUIDE_SCREEN = 'guide';
+
+/**
+ * The Guide key in the player on a channel (RELAY step 39a), by the id of the screen the player
+ * opened over: over the guide, nothing more (the player's close lands there); over the live
+ * screen, the guide opens on the row the player closed onto, while the list is `ready`;
+ * elsewhere (Home, search), `null`: the key does nothing.
+ */
+export function guideFromPlayer(under: string, ready: () => boolean, open: (row: number) => void): ((row: number) => void) | null {
+  if (under === GUIDE_SCREEN) return () => undefined;
+  if (under !== 'live') return null;
+  return (row) => {
+    if (ready()) open(row);
+  };
+}
 export const GUIDE_GRID = 'grid';
 
 /** Sizes, all layout constants (no DOM measuring). guide.css uses the same numbers. */
