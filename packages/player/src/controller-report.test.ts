@@ -77,11 +77,11 @@ describe('PlayerController: a play reports its result once (RELAY step 33b2)', (
   });
 
   it('counts the retries before the first frame in its time, and names the URL that played', async () => {
-    // The .ts URL never shows a frame: the open times out at 10 s and the .m3u8 plays.
+    // The .ts URL never shows a frame: it gives way to the .m3u8 at the fallback's 6 s (step 39s2), which plays.
     const r = rig((source) => ({ frameMs: source.container === 'ts' ? null : 500 }));
     void r.player.play(live(1));
-    await r.clock.advance(10_600);
-    expect(r.reports).toEqual([played({ container: 'hls', ttffMs: 10_550 })]);
+    await r.clock.advance(6600);
+    expect(r.reports).toEqual([played({ container: 'hls', ttffMs: 6550 })]);
   });
 
   it('at its give-up before any frame: no time, the last error and the URL it was on', async () => {

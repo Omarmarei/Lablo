@@ -140,6 +140,34 @@ describe('RetryLadder', () => {
     expect(both.next(unsupported, 1, false, 1000)).toBeNull();
   });
 
+  it("says whether a URL is untried, for the fallback's cap (RELAY step 39s2)", () => {
+    const l = ladder(3, false);
+    expect(l.untriedLeft()).toBe(true);
+    l.next(stall, 0, false, 0);
+    expect(l.untriedLeft()).toBe(true);
+    l.next(stall, 1, false, 1000);
+    expect(l.untriedLeft()).toBe(false);
+    expect(ladder(1, false).untriedLeft()).toBe(false);
+    // A plan refused (the window full) opens nothing.
+    const full = ladder(2, false, { ...DEFAULT_WATCHDOG, maxAttempts: 0 });
+    expect(full.next(stall, 0, false, 0)).toBeNull();
+    expect(full.untriedLeft()).toBe(true);
+  });
+
+  it('says whether a URL other than the current one failed definitively, for the source memory (RELAY step 39s2)', () => {
+    const l = ladder(3, false, { ...DEFAULT_WATCHDOG, maxAttempts: 10 });
+    l.next(stall, 0, true, 0);
+    l.next({ kind: 'timeout', code: 'OPEN' }, 0, false, 1000);
+    l.next({ kind: 'http', code: 'PROBE', status: 503 }, 0, false, 2000);
+    // An outage, a timeout and a server error are not definitive.
+    expect([l.otherFailedForGood(0), l.otherFailedForGood(1), l.otherFailedForGood(2)]).toEqual([false, false, false]);
+    l.next(notFound, 1, false, 3000);
+    // URL 1 failed for good: true for the others, not for itself.
+    expect([l.otherFailedForGood(0), l.otherFailedForGood(1), l.otherFailedForGood(2)]).toEqual([true, false, true]);
+    l.next(unsupported, 2, false, 4000);
+    expect(l.otherFailedForGood(1)).toBe(true);
+  });
+
   it('switches to the next live URL, wrapping and skipping a dead one', () => {
     const l = ladder(3, false, { ...DEFAULT_WATCHDOG, maxAttempts: 10 });
     expect(l.next(stall, 0, false, 0)).toEqual({ rung: 'next-url', candidate: 1, delayMs: 0 });

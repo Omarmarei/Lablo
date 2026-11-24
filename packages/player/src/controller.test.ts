@@ -373,10 +373,10 @@ describe('PlayerController: the watchdog', () => {
     expect(r.player.status.state).toBe('reconnecting');
   });
 
-  it('times out an open after 10 s and tries the .m3u8 URL next', async () => {
+  it("leaves a live URL that shows nothing for the untried .m3u8 at the fallback's 6 s (RELAY step 39s2)", async () => {
     const r = rig((s) => ({ frameMs: s.container === 'ts' ? null : 500 }));
     void r.player.play(live(1));
-    await r.clock.advance(9950);
+    await r.clock.advance(5950);
     expect(r.player.status).toMatchObject({ state: 'opening', attempt: 0 });
     await r.clock.advance(50);
     // Nothing played yet: still "opening", on the next URL.
@@ -389,16 +389,17 @@ describe('PlayerController: the watchdog', () => {
   it('gives up after 4 attempts within 60 s: the error card', async () => {
     const r = rig(() => ({ frameMs: null }));
     void r.player.play(live(1));
-    // Opens at 0, then retries at 10 s (.m3u8), 20 s (reopen), 30 s (switch), 41 s (after 1 s; the
-    // connection closed long before, so that load needs no wait).
-    await r.clock.advance(50_950);
+    // Opens at 0, then retries at 6 s (.m3u8, the fallback's cap), then a whole open timeout each
+    // with no URL untried: 16 s (reopen), 26 s (switch), 37 s (after 1 s; the connection closed
+    // long before, so that load needs no wait).
+    await r.clock.advance(46_950);
     expect(r.player.status).toMatchObject({ state: 'opening', attempt: 4 });
     expect(r.engine.loads.map((l) => [l.at, l.source.container])).toEqual([
       [0, 'ts'],
-      [10_050, 'hls'],
-      [20_050, 'hls'],
-      [30_050, 'ts'],
-      [41_000, 'ts'],
+      [6050, 'hls'],
+      [16_050, 'hls'],
+      [26_050, 'ts'],
+      [37_000, 'ts'],
     ]);
     await r.clock.advance(50);
     expect(r.player.status).toMatchObject({ state: 'failed', key: 's1:live:1', failure: { category: 'provider', code: 'PRV-TIMEOUT', detail: 'OPEN', account: null } });
@@ -423,7 +424,7 @@ describe('PlayerController: the watchdog', () => {
 });
 
 describe('PlayerController: the tuning (RELAY step 39d)', () => {
-  const patient: WatchdogConfig = { ...DEFAULT_WATCHDOG, liveFrozenMs: 9000, liveBufferingMs: 25_000, vodBufferingMs: 40_000, openTimeoutMs: 20_000 };
+  const patient: WatchdogConfig = { ...DEFAULT_WATCHDOG, liveFrozenMs: 9000, liveBufferingMs: 25_000, vodBufferingMs: 40_000, openTimeoutMs: 20_000, fallbackMs: 12_000 };
   const LIVE_BUFFER: EngineBuffer = { playSeconds: 5, resumeSeconds: null };
   const VOD_BUFFER: EngineBuffer = { playSeconds: 10, resumeSeconds: 15 };
 
@@ -453,13 +454,28 @@ describe('PlayerController: the tuning (RELAY step 39d)', () => {
     expect(r.player.status).toMatchObject({ state: 'playing', key: 's1:live:2' });
   });
 
-  it('times out an open by its numbers', async () => {
-    const r = rig((s) => ({ frameMs: s.container === 'ts' ? null : 500 }), { tuning: () => ({ watchdog: patient, liveBuffer: null, vodBuffer: null }) });
+  it('times out an open by its numbers: the fallback for an untried URL, then the open timeout', async () => {
+    const r = rig(() => ({ frameMs: null }), { tuning: () => ({ watchdog: patient, liveBuffer: null, vodBuffer: null }) });
     void r.player.play(live(1));
-    await r.clock.advance(19_950);
+    await r.clock.advance(11_950);
     expect(r.player.status).toMatchObject({ state: 'opening', attempt: 0, container: 'ts' });
     await r.clock.advance(50);
     expect(r.player.status).toMatchObject({ state: 'opening', attempt: 1, container: 'hls' });
+    // The last untried URL waits out the whole open timeout.
+    await r.clock.advance(19_950);
+    expect(r.player.status).toMatchObject({ state: 'opening', attempt: 1, container: 'hls' });
+    await r.clock.advance(50);
+    expect(r.player.status).toMatchObject({ state: 'opening', attempt: 2, container: 'hls' });
+  });
+
+  it('never gives the fallback more than the open timeout', async () => {
+    const quick: WatchdogConfig = { ...DEFAULT_WATCHDOG, openTimeoutMs: 4000, fallbackMs: 6000 };
+    const r = rig(() => ({ frameMs: null }), { tuning: () => ({ watchdog: quick, liveBuffer: null, vodBuffer: null }) });
+    void r.player.play(live(1));
+    await r.clock.advance(3950);
+    expect(r.player.status).toMatchObject({ attempt: 0, container: 'ts' });
+    await r.clock.advance(50);
+    expect(r.player.status).toMatchObject({ attempt: 1, container: 'hls' });
   });
 
   it('waits out live and VOD buffering by its numbers', async () => {
@@ -481,20 +497,20 @@ describe('PlayerController: the tuning (RELAY step 39d)', () => {
   it('gives its ladder its numbers', async () => {
     const r = rig(() => ({ frameMs: null }), { tuning: () => ({ watchdog: { ...DEFAULT_WATCHDOG, maxAttempts: 2 }, liveBuffer: null, vodBuffer: null }) });
     void r.player.play(live(1));
-    // Opens at 0, then the .m3u8 at 10 s and a reopen at 20 s; the second retry's timeout gives up.
+    // Opens at 0, then the .m3u8 at 6 s (the fallback's cap) and a reopen at 16 s; the second retry's timeout gives up.
     await r.clock.advance(30_100);
     expect(r.engine.loads.map((l) => l.source.container)).toEqual(['ts', 'hls', 'hls']);
     expect(r.player.status).toMatchObject({ state: 'failed', failure: { code: 'PRV-TIMEOUT' } });
   });
 
   it('gives up on a stream that never opens with a 20 s open timeout only when its window holds four attempts', async () => {
-    const tuned = (windowMs: number) => () => ({ watchdog: { ...DEFAULT_WATCHDOG, openTimeoutMs: 20_000, windowMs }, liveBuffer: null, vodBuffer: null });
+    const tuned = (windowMs: number) => () => ({ watchdog: { ...DEFAULT_WATCHDOG, openTimeoutMs: 20_000, fallbackMs: 12_000, windowMs }, liveBuffer: null, vodBuffer: null });
     const narrow = rig(() => ({ frameMs: null }), { tuning: tuned(60_000) });
     const wide = rig(() => ({ frameMs: null }), { tuning: tuned(92_000) });
     void narrow.player.play(live(1));
     void wide.player.play(live(1));
-    // Attempts at 20 s (.m3u8), 40 s (reopen), 60 s (switch), 81 s (after 1 s): the fourth's timeout gives up.
-    await wide.clock.advance(100_950);
+    // Attempts at 12 s (.m3u8, the fallback's cap), 32 s (reopen), 52 s (switch), 73 s (after 1 s): the fourth's timeout gives up.
+    await wide.clock.advance(92_950);
     expect(wide.player.status).toMatchObject({ state: 'opening', attempt: 4 });
     await wide.clock.advance(100);
     expect(wide.player.status).toMatchObject({ state: 'failed', failure: { code: 'PRV-TIMEOUT' } });
@@ -645,6 +661,86 @@ describe('PlayerController: retries and URLs', () => {
     await r.clock.advance(100);
     expect(memory.preferred('s2')).toBeNull();
     expect(r.engine.loads.map((l) => l.source.container)).toEqual(['ts', 'hls', 'mp4', 'hls', 'ts', 'hls']);
+  });
+
+  it("keeps the source's .ts first when an outage moved a playing channel to its .m3u8 (RELAY step 39s2)", async () => {
+    const memory = new MemorySourceMemory();
+    // The .ts plays, then the link drops: its reopen fails too, and the switch to the .m3u8 plays.
+    const r = rig((s, n) => (n === 1 ? { frameMs: 500, error: { atMs: 1500, error: NETWORK } } : s.container === 'ts' ? { loadError: NETWORK } : {}), { memory });
+    void r.player.play(live(1));
+    await r.clock.advance(3000);
+    expect(r.engine.loads.map((l) => l.source.container)).toEqual(['ts', 'ts', 'hls']);
+    expect(r.player.status).toMatchObject({ state: 'playing', container: 'hls' });
+    expect(memory.preferred('s1')).toBe('ts');
+    // The next channel starts with its .ts.
+    void r.player.play(live(2));
+    await r.clock.advance(100);
+    expect(r.engine.loads[3]!.source.container).toBe('ts');
+  });
+
+  it('keeps nothing for a source whose .ts failed to open in an outage', async () => {
+    const memory = new MemorySourceMemory();
+    const r = rig((s) => (s.container === 'ts' ? { loadError: NETWORK } : {}), { memory });
+    void r.player.play(live(1));
+    await r.clock.advance(1000);
+    expect(r.player.status).toMatchObject({ state: 'playing', container: 'hls' });
+    expect(memory.preferred('s1')).toBeNull();
+  });
+
+  it('moves the source to its .m3u8 when its .ts failed definitively, even after the .ts played', async () => {
+    const memory = new MemorySourceMemory();
+    const gone: PlaybackError = { kind: 'http', code: 'PROBE_HTTP', status: 404 };
+    // The .ts plays and drops; its reopen answers 404, and the .m3u8 plays.
+    const r = rig((_s, n) => (n === 1 ? { frameMs: 500, error: { atMs: 1500, error: NETWORK } } : n === 2 ? { loadError: gone } : {}), { memory });
+    void r.player.play(live(1));
+    await r.clock.advance(1000);
+    expect(memory.preferred('s1')).toBe('ts');
+    await r.clock.advance(2000);
+    expect(r.engine.loads.map((l) => l.source.container)).toEqual(['ts', 'ts', 'hls']);
+    expect(r.player.status).toMatchObject({ state: 'playing', container: 'hls' });
+    expect(memory.preferred('s1')).toBe('hls');
+  });
+
+  it("goes back to the .ts when the remembered .m3u8 shows nothing, at the fallback's 6 s (the Samsung's 404 playlist)", async () => {
+    const memory = new MemorySourceMemory();
+    memory.remember('s1', 'hls');
+    // The .m3u8 answers 404 and the engine keeps asking for it (AVPlay): no error, no frame.
+    const r = rig((s) => ({ frameMs: s.container === 'hls' ? null : 500 }), { memory });
+    void r.player.play(live(1));
+    await r.clock.advance(5950);
+    expect(r.engine.loads.map((l) => l.source.container)).toEqual(['hls']);
+    await r.clock.advance(600);
+    expect(r.player.status).toMatchObject({ state: 'playing', container: 'ts' });
+    expect(memory.preferred('s1')).toBe('ts');
+    void r.player.play(live(2));
+    await r.clock.advance(600);
+    expect(r.engine.loads.map((l) => l.source.container)).toEqual(['hls', 'ts', 'ts']);
+  });
+
+  it('gives the whole open timeout to catch-up, and to a live URL that showed a frame in the session', async () => {
+    // A catch-up's archive can be slow to start: its .ts keeps 10 s, though its .m3u8 is untried.
+    const archive = rig(() => ({ frameMs: null }));
+    const catchup: PlayRequest = {
+      key: 's1:live:3',
+      src: 's1',
+      mode: 'catchup',
+      candidates: [
+        { url: `${BASE}/timeshift/u/p/60/2026-11-24:20-00/3.ts`, container: 'ts' },
+        { url: `${BASE}/timeshift/u/p/60/2026-11-24:20-00/3.m3u8`, container: 'hls' },
+      ],
+    };
+    void archive.player.play(catchup);
+    await archive.clock.advance(9950);
+    expect(archive.engine.loads).toHaveLength(1);
+    await archive.clock.advance(100);
+    expect(archive.engine.loads.map((l) => l.source.container)).toEqual(['ts', 'hls']);
+    // A .ts that played and dropped at 1.5 s reopens with 10 s to show a frame again.
+    const r = rig((_s, n) => (n === 1 ? { frameMs: 500, error: { atMs: 1500, error: NETWORK } } : { frameMs: null }));
+    void r.player.play(live(1));
+    await r.clock.advance(11_450);
+    expect(r.engine.loads.map((l) => l.source.container)).toEqual(['ts', 'ts']);
+    await r.clock.advance(100);
+    expect(r.engine.loads.map((l) => l.source.container)).toEqual(['ts', 'ts', 'hls']);
   });
 
   it('goes back to the .m3u8 that played when the switch to .ts fails for good (RELAY step 20a)', async () => {

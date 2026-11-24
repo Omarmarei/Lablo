@@ -4,8 +4,10 @@
  *
  * Xtream live streams can be served as MPEG-TS (`.ts`, faster to start: 1.1–1.8 s on the LG
  * TV against 1.6–2.5 s for HLS, docs/spikes/results.md) or HLS (`.m3u8`). The player tries
- * `.ts` first, then `.m3u8`, unless the account's `allowed_output_formats` rules one out, and
- * a source whose `.m3u8` played puts `.m3u8` first from then on.
+ * `.ts` first, then `.m3u8`, unless the account's `allowed_output_formats` rules one out. A
+ * source puts `.m3u8` first from then on only when its `.m3u8` played after its `.ts` failed
+ * definitively, and goes back to `.ts` once a `.ts` plays (RELAY step 39s2, the controller's
+ * `movesMemory`): an outage never moves it (on AVPlay HLS starts slower than TS).
  */
 
 import type { CatchupInfo, CatchupWindow, ContentKey, ZoneOffset } from '@lablo/core';
@@ -132,8 +134,9 @@ export function orderCandidates(candidates: readonly PlayCandidate[], preferred:
 }
 
 /**
- * Where the player keeps the container that last played for each source. `MemorySourceMemory`
- * keeps it for the app's run; the app can back it with the profile (step 20).
+ * Where the player keeps each source's first container (what the controller remembers, step
+ * 39s2). `MemorySourceMemory` keeps it for the app's run; the app backs it with the profile
+ * (step 20).
  */
 export interface SourceMemory {
   preferred(src: string): Container | null;
