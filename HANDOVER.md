@@ -1,27 +1,25 @@
-# Lablo IPTV: relay leg 151 opening prompt
+# Lablo IPTV: relay leg 152 opening prompt
 
-You are leg 151 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 152 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 ## Status
-- **Earlier legs:** leg 0 planned the work. Legs 1–149 did steps 1–33, 35–39 (all sub-steps; step 39's real-TV proof waits for step 21), 39s1 (the storage quota, PR #175) and 39s2 (the ladder's HLS stickiness, PR #176).
-- **Leg 150 (2026-11-24): step 39s3 (stall injection that reaches the watchdog) refined, built and merged: PR #177 as `7e947fe`.**
-  - CI: changes, verify 22 m, media 12 m and web 3 m passed. Engines hit the known Chromium 53 DevTools start-up flake ("DevTools on port 32768 did not answer within 60000 ms") at the first run, then passed on the rerun.
-  - **No question for Omar.** The 6.9 s case is the design working. The fault's numbers are leg 150's choices (below).
-  - **The 6.9 s stall:**
-    - In the stall test, the TV's stalls after tuning showed "Connecting…". After a session's first frame, that overlay belongs only to `buffering` (a retry shows "Reconnecting…"). So AVPlay had sent `onbufferingstart`.
-    - In `buffering` only `liveBufferingMs` runs (12 s; Stable 25 s), and the frozen rule doesn't. That limit is meant to outlast AVPlay's own reconnect, about 7 s after the data stops.
-    - The reconnect recovered the picture in 6.9 s, sooner than a reopen at 6 s plus a zap would have.
-    - A controller test pins both sides: a picture frozen with no event is reopened at 6 s; the same picture while the engine buffers is left to it.
+- **Earlier legs:** leg 0 planned the work. Legs 1–150 did steps 1–33, 35–39 (all sub-steps; step 39's real-TV proof waits for step 21), 39s1 (storage quota, PR #175), 39s2 (the ladder's HLS stickiness, PR #176) and 39s3 (stall injection, PR #177).
+- **Leg 151 (2026-11-24): step 39s5 (small fixes from the Samsung session) refined, built and merged: PR #178 as `b0a3033`.**
+  - CI: changes, verify 21 m, engines 27 m and web 3 m passed. Media hit the known `epg-declared-300mb` timing flake (28.4 ms against 20) at the first run, then passed on the rerun (13 m).
+  - **No question for Omar.** Item 1 had one fix, and items 2–4 were notes. The two gaps found on the way are recorded as later fixes (below).
   - **Built:**
-    - **`stall:outage_ms=N`:** after the stall, the stream is down for N ms. The stream is the account and the stream id, else the path (`outageKey`, `server.ts`).
-      - Requests that carry the fault are held with headers and 0 bytes. When the outage ends, they are closed (`Outages`, `faults.ts`).
-      - A scenario switch ends every outage, and the request log prints each one.
-      - A held response still counts against the account's connections.
-    - **The scenario `live-outages`** (step 21's soak): live TS streams 60 s past its 6 s burst, then the channel is down 25 s.
-    - **`MediaSource.liveBytesPerSecond`:** the lab's `stall-ts` row stalls after 18 s of its channel's media (2,125,152 bytes for 104; 2,368,800 with placeholder bytes).
-    - **`stalling-streams`** stalls 12 s into each response (18 s of media on every channel).
-    - **Docs:** architecture.md §2 "Built in step 39s3", the mock runbook's Faults section and tables, lab.md's soak row, results.md pointers.
-  - **Docs in RELAY:** `- [x] 39s3.` (refined before building: 6 points; gates), row 150.
+    - **The lab's Tizen package is `LabloLab.wgt`.** The Tizen CLI names a `.wgt` after the widget's `<name>`, so the lab used to be `Lablo Lab.wgt`, and the TV refused it.
+      - `packageTizen` (`tools/build/src/package.ts`) moves the CLI's file to `tizenPackageFile`'s name, the `<name>` without spaces. It also removes an older build's file under the CLI's name.
+      - `pnpm device` asks for the exact file, read from each `config.xml` (`tizenManifest` and `tizenPackageName` in `tools/device/src/commands.ts`). It used to pick from a listing: `/lab/i` also matched `Lablo.wgt`, and the lab was found only because a space sorts before `.`.
+      - `test/tizen-package-names.test.ts` holds the two tools' copies of the rule together.
+    - **The lab's `hevc-4k` row** goes by a 4K panel and decoder, not "2020+". The app never had a year gate.
+    - **architecture.md §2 "Step 39s5":**
+      - 4K goes by the TV, never by its year, and not by `canPlayType` alone: the HD Samsung answered `probably` for HEVC level 5.0, then failed the file.
+      - AVPlay's `UNKNOWN_ERROR_EVENT_FROM_PLAYER` for a 4K file reads as `network`.
+      - AVPlay lists an MP4's `mov_text` tracks but sends no cue.
+      - S8's prebuffering was intermittent: a future prebuffered zap opens plainly when the prepared player isn't ready.
+      - Also updated: §5's S4 row, §7's v1.2 row, lab.md, tv-setup.md, tv-build.md, results.md.
+  - **Docs in RELAY:** `- [x] 39s5.` (refined before building, refined while building, gates), row 151.
 - **Waiting for Omar:**
   - step 16's remaining Samsung parts, and 21 (the TVs);
   - his "3a": the real-remote checks wait until he is next at the TV (S4 `suspend`, S10 by hand, S11's lifecycle and reading by ear, the "Zoma" he saw);
@@ -29,113 +27,134 @@ You are leg 151 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
 
 ## Read first
 1. **RELAY.md:**
-   - the 39s block: **39s5 is the next step** (small fixes), then 39s6 (`pnpm tv` tools). 39s4 needs the TV;
-   - the `- [x] 39s3.` and `- [x] 39s2.` lines as models for "Refined before building", the choices and "Gates";
-   - the last progress row (150).
-2. **docs/spikes/results.md**, "From the Samsung TV (2026-11-24)": the sources for 39s5's four items.
-3. **For 39s5:**
-   - **item 1:** `tools/device/device.ts` (`isLabWgt`, `appTarget`, `labTarget`), `tools/device/src/commands.ts` (+ `commands.test.ts`), and `tools/build/src/package.ts` (`packageTizen`, which keeps the CLI's own `.wgt` name);
-   - **item 2:** `apps/tv/src/lab/battery.ts` lines ~11, ~482, ~493 ("2020+ TVs"), lab.md line ~156;
-   - **items 3 and 4:** architecture.md §2 (the subtitles and the S8 prebuffer notes).
+   - the 39s block. **39s6 is the next step** (`pnpm tv` tools). 39s4 needs the TV;
+   - the `- [x] 39s5.` and `- [x] 39s3.` lines as models for "Refined before building", the choices and "Gates";
+   - the last progress row (151).
+2. **docs/spikes/results.md**, "The app on the Samsung TV": how the TV was driven from the PC (the source of 39s6).
+3. **For 39s6:**
+   - `tools/device/` as the model of a small tool package: a thin CLI entry, logic in `src/` with tests, and a root `package.json` script (`"device": "tsx tools/device/device.ts"`). `pnpm-workspace.yaml` already takes `tools/*`;
+   - the reference scripts, **outside the repo**, in `D:/tmp/lablo-samsung/artifacts/`: `tvraw.mjs` (95 lines), `cdp.mjs` (43), `soak-monitor.js` (33), `soak-report.js` (15), `stalls.js` (27), `soak-loop.sh` (23). **They hold the TV's LAN address and read `tv-token.txt`: never copy an address or a token into the repo** (it is public);
+   - `docs/testing-without-tvs.md` and `docs/runbooks/tv-setup.md` §3 (where the README section goes).
 
 ## Next steps, in order
 1. **Check the state:**
    - `git -C "<wt>" status` is clean;
-   - `git -C "<wt>" log --oneline -3` shows this handover's commit, then `fda7829` (39s3 ticked, row 150), then `7e947fe` (the merge);
+   - `git -C "<wt>" log --oneline -3` shows this handover's commit, then `31adb2b` (39s5 ticked, row 151), then `b0a3033` (the merge);
    - no `*.mutbak` anywhere;
    - `docker ps` shows `lablo-web-postgres-1` (needed only for the web-backed tests) and no `lablo-chrome*` container.
-2. **Step 39s5: refine against the code first** (write "Refined before building" under 39s5). Leg 150's read-ahead:
-   - **Item 1, the trap:** the Tizen CLI names the `.wgt` after the widget's `<name>` ("Lablo Lab"), and `packageTizen` keeps that name.
-     - `device.ts`'s `isLabWgt` is `/lab/i`, which also matches the app's `Lablo.wgt`. Today the lab is found only because `"Lablo Lab.wgt"` sorts before `"Lablo.wgt"` (a space comes before `.`).
-     - If the lab's package is renamed to `LabloLab.wgt` alone, NTFS lists `Lablo.wgt` first, and `--lab` would install the app.
-     - Fix both together:
-       - a name without spaces in `packageTizen` (a pure function with a test in `tools/build`);
-       - an exact lab test, e.g. `/lab\.wgt$/i` after removing spaces, moved into `tools/device/src/commands.ts` with `commands.test.ts` cases;
-       - check `appTarget`'s `!isLabWgt` too.
-     - `run()` already quotes paths with spaces, yet `tizen install` failed on one: the cause is on Tizen's side, so a name without a space is the fix.
-   - **Item 2:** the app has no year gate (grep to confirm). Fix the lab's `hevc-4k` title and note ("2020+ TVs") and lab.md's row, so they say the TV's decoder and panel decide. That changes `battery.ts` (the lab bundle): update any `battery.test.ts` text pins.
-   - **Items 3 and 4:** docs only (architecture.md §2, and step 20's subtitle notes).
-   - **Gates as 39s3:**
-     - unit tests (item 1's path);
-     - lint, typecheck;
+2. **Step 39s6: refine against the scripts first** (write "Refined before building" under 39s6). Leg 151's read-ahead:
+   - **Where:** a new workspace package `tools/tv` (`@lablo/tools-tv`), with a root script `"tv": "tsx tools/tv/tv.ts"`. Keep the CLI entry thin: `device.ts` runs `main()` on import, so nothing in an entry file can be unit-tested. Don't import from tools/device or tools/build (the tools never import each other; a root `test/` file may hold a shared rule together).
+   - **`src/ws.ts`, a raw WebSocket client over TLS.** The TV never answers Node's built-in `WebSocket` on `wss://<tv>:8002`; `tvraw.mjs`'s hand-written upgrade does. It needs:
+     - the upgrade request: Host, `Upgrade: websocket`, `Connection: Upgrade`, `Sec-WebSocket-Key`, version 13, and an `Origin` header;
+     - masked client text frames, with 7-bit, 16-bit (126) and 64-bit (127) lengths;
+     - server frames parsed across chunk splits;
+     - close, and a ping answered with a pong;
+     - `rejectUnauthorized: false` (the TV's own certificate).
+   - **`src/remote.ts`, Samsung's remote messages:**
+     - the path `/api/v2/channels/samsung.remote.control?name=<base64 name>&token=<token>`;
+     - `ms.remote.control` with `SendRemoteKey` (`Cmd: 'Click'`, `DataOfCmd: KEY_X`);
+     - `SendInputString` (base64 text, `DataOfCmd: 'base64'`), then `SendInputEnd`, while the keyboard is up (the `ms.remote.imeStart` frame);
+     - the token saved from `ms.channel.connect`'s `data.token`;
+     - a script of keys, pauses and text, like tvraw's arguments (`KEY_DOWN 800 KEY_ENTER TEXT:abc END`).
+   - **`src/cdp.ts`, the inspector:**
+     - `sdb -s <serial> shell 0 debug <appid>` prints a port, new at each launch: parse it;
+     - `sdb -s <serial> forward tcp:P tcp:P`, then the `/json` list and `Runtime.evaluate` (`awaitPromise`, `returnByValue`);
+     - Node's built-in `WebSocket` works for CDP (cdp.mjs uses it);
+     - `Page.captureScreenshot` never answers on Tizen 5.5: read `document.body.innerText` and `__LABLO_TEST__.focusPath()` instead.
+   - **Launch and state:**
+     - `sdb shell 0 was_execute <appid>` launches in about 0.8 s (`tizen run` takes about 10 s);
+     - `http://<tv>:8001/api/v2/applications/<id>` gives the running state.
+   - **The soak monitor:**
+     - an ES5 page script (Chromium 69) samples AVPlay's state and position every 100 ms. A stall is the position frozen for at least 1.5 s, and the script records the heap every 5 minutes;
+     - put the stall detection in a pure TS function over the samples (tested), and keep the injected sampler small;
+     - a report command, plus a loop with an sdb reconnect, as `soak-loop.sh` does.
+   - **Config:** the TV's address, its sdb serial and the token go in a gitignored file (for example `.tv.local.json` at the root; add it to `.gitignore`). Never print the token.
+   - **Done when:**
+     - unit tests of the framing and messages, with no TV;
+     - a README section;
+     - one run on the Samsung by Omar or a leg he hands the TV to. That last part waits for the TV: build and merge the rest, and leave 39s6 open, as 39s4 is.
+   - **Gates as 39s5:**
+     - unit tests and lint, typecheck;
      - mutation with the list written first;
-     - `build:tv` only if TV source changes (item 2 changes the lab bundle: build it and check the lab still builds; no budget there);
+     - no TV source changes, so no `build:tv`;
      - the PR, CI, the merge on green.
-3. **Then** 39s6 (`pnpm tv` tools; the reference scripts are in `D:/tmp/lablo-samsung/artifacts/`, outside the repo; no LAN address or token may enter the repo).
+3. **Then step 40** (the diagnostics and legal pages), or the next unticked step without `[needs Omar]` or `[needs TV]`.
 
 ## Git state to expect
-- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed. It is `origin/main` (`7e947fe`) plus `fda7829` (39s3's tick, row 150) and this handover's commit.
+- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed. It is `origin/main` (`b0a3033`) plus `31adb2b` (39s5's tick, row 151) and this handover's commit.
 - **No open PR.** The main checkout was not touched (its local `main` is old; never use it).
 - **The dev database** (`lablo-web-postgres-1`) has migration `20261123160000_pair_purpose`. Nothing is in production.
 - **Gitignored but present:**
   - `node_modules`, `.cache/*` (including `.cache/media`, used by Omar's Samsung session), `apps/web/.env`, `apps/web/.next`;
-  - `dist/`: `build:tv` of 39s2's code (39s3 changed no TV source);
+  - `dist/`:
+    - `build:tv` of 39s2's code;
+    - `dist/tv-lab/` rebuilt by leg 151 (`--target lab`; its `lab-config.js` holds this PC's address);
+    - `dist/packages/com.lablo.iptv.lab_0.1.0_all.ipk` rebuilt;
+    - no `.wgt` (no signing profile here);
   - in `artifacts/`:
-    - `mutate39s3.py`, `mutate39s3.log`, `mutate39s3-clean.log`;
-    - `unit-39s3.log`, `unit-39s3-rerun.log`, `lint-39s3.log`, `typecheck-39s3.log`, `e2e-39s3-lab-media.log`, `mock-39s3-outage.log`;
-    - leg 149's 39s2 logs, leg 148's 39s1 logs and the storage screenshots.
+    - leg 151's logs: `mutate39s5.py`, `mutate39s5.log`, `unit-39s5.log`, `lint-39s5.log`, `typecheck-39s5.log`, `build-lab-39s5.log`;
+    - leg 150's 39s3 logs, leg 149's 39s2 logs, and leg 148's 39s1 logs with the storage screenshots.
 
 ## Verified vs not
-- **Verified in leg 150 (39s3):**
-  - unit 8,911 (329 files) at the full run. Nine heavy tests timed out at 30 s under load (the crypto and pair worker bundles, the fixtures' 61-byte chunk oracles) and passed alone, 16 of 16;
+- **Verified in leg 151 (39s5):**
+  - unit tests in the touched areas: 939 of 939 (65 files: `apps/tv/src/lab`, `tools/`, `test/lab-probes.test.ts`, the new root test). After `tizenManifest` moved into `commands.ts`, tools/device and the root test passed again (13). CI's verify job ran the full suite;
   - lint and typecheck clean;
-  - mutation 36 of 36 at the first run;
-  - `pnpm lab:media` 2 of 2;
-  - the real mock with generated media: the outage held a reconnect with 0 bytes and closed it at its end, and the request after it played;
-  - CI green after one engines flake rerun.
+  - mutation 16 of 16 at the first run;
+  - `build:tv --target lab`: lab main.js 423.3 KB on Tizen, 403.0 KB on webOS;
+  - with no package built, `pnpm device install tizen <serial> [--lab]` asks for `dist/packages/LabloLab.wgt` and `dist/packages/Lablo.wgt`;
+  - CI green after one media flake rerun.
 - **Not done:**
-  - **The proof on the TV:** a soak with `live-outages` where the app's watchdog acts. That is step 21, with Omar.
-  - `build:tv` and engines locally: no TV source changed in 39s3, and the PR's CI ran both.
-  - Steps 39s4–39s6; production (step 34).
+  - installing `LabloLab.wgt` on the Samsung through `pnpm device` (the next session with the TV);
+  - steps 39s4 and 39s6; production (step 34).
 - **Migrations and deploys:** none. Nothing is deployed.
 
 ## Gotchas and lessons
-**New in leg 150:**
+**New in leg 151:**
+- **The tools don't import each other.** When two tools need one rule, keep a copy in each and let a root `test/` file check that they agree (`test/tizen-package-names.test.ts`). Root tests may import any `tools/*/src` module.
+- **`vi.mock` of a Node module:** ESLint refuses `importOriginal<typeof import('node:child_process')>()`. Write `import type * as ChildProcess from 'node:child_process'` and `importOriginal<typeof ChildProcess>()`. A stand-in `spawnSync` that writes the CLI's output file tests `packageTizen` without the Tizen CLI.
+- **A NBSP escape in Write-tool content landed as the raw character** (twice). Fix: a `python -X utf8 -I -c` replace of `chr(0xa0)` with `chr(92) + 'u00a0'` (`newline=''` on read and write), then grep for the escape.
+- **The Samsung lab's raw records** (`D:/tmp/lablo-samsung/artifacts/lab-logs/*.ndjson`) hold more than results.md: track counts, `prepareMs`, `canPlayType`, AVPlay's error text. Grep them before guessing.
+- **`epg-declared-300mb` flaked again** (28.4 ms against 20): rerun once the whole run is done.
+- **Never `cd`** in a Bash call: one `cd /d` moved the session's directory, and the shell reset to the main checkout. Use absolute paths.
+
+**From leg 150 (still true):**
 - **The `lablo` test account has 2 connections, and a held response counts until its socket closes.** A socket test with more streams open at once gets 403 "Max connections reached". Use `forever`/`forever-test` (4).
-- **`packages/*` tests run only from the repo root's Vitest config:** `pnpm --dir "<wt>" exec vitest run packages/player/src/controller.test.ts`. With `--dir <wt>/packages/player` it says "No test files found". `apps/mock-provider` and `apps/tv` also run from their own folder.
-- **`e2e/lab-media.spec.ts` runs only under `pnpm lab:media`** (about 2 min). `playwright test e2e/lab-media.spec.ts` finds no tests.
-- **Live TS:** it bursts its current 6 s segment, then paces at real time. So `after_ms` equals media seconds minus 6 on every channel, while a byte count depends on the channel (37–338 KB/s; 104 is 118 KB/s).
-- **Engines' Chromium 53 start-up flake** happened again at the self-test (2.5 min in). Read the log with `gh api repos/Omarmarei/Lablo/actions/jobs/<id>/logs` (it works before the run ends), then rerun once the whole run is done.
-- **I `cd`'d once in a Bash call** (into `D:/tmp`), and the session's working directory moved. Never `cd`; use absolute paths.
+- **`packages/*` tests run only from the repo root's Vitest config:** `pnpm --dir "<wt>" exec vitest run packages/player/src/controller.test.ts`. `apps/mock-provider` and `apps/tv` also run from their own folder.
+- **`e2e/lab-media.spec.ts` runs only under `pnpm lab:media`** (about 2 min).
+- **Live TS** bursts its current 6 s segment, then paces at real time. A byte count depends on the channel (37–338 KB/s; 104 is 118 KB/s).
+- **Engines' Chromium 53 start-up flake:** read the log with `gh api repos/Omarmarei/Lablo/actions/jobs/<id>/logs`, then rerun once the whole run is done.
 
 **From leg 149 (still true):**
-- **The background CI wait was reaped** ("system is running low on memory", while the session was idle). Don't restart it. What worked:
-  - check once in the foreground (`gh pr checks <n> --repo Omarmarei/Lablo`);
-  - then foreground waits bounded by `timeout 570`: `until s=$(gh api repos/Omarmarei/Lablo/actions/jobs/<id> --jq ".status + \" \" + (.conclusion // \"\")") && [ "${s%% *}" = "completed" ]; do read -t 30 < /dev/zero; done`, repeated until done.
-- **After `gh run rerun <run> --failed`** the job has a new id: `gh run view <run> --repo Omarmarei/Lablo --json jobs --jq '.jobs[] | select(.name=="engines") | (.databaseId|tostring) + " " + .status'`.
+- **The background CI wait was reaped** under memory pressure. Don't restart it. What works:
+  - check once in the foreground (`gh pr checks <n> --repo Omarmarei/Lablo`, about 25 s after `gh pr create`);
+  - then foreground waits bounded by `timeout 570`: `until s=$(gh api repos/Omarmarei/Lablo/actions/runs/<run> --jq ".status + \" \" + (.conclusion // \"\")") && [ "${s%% *}" = "completed" ]; do read -t 30 < /dev/zero; done`, repeated until done (a job id works the same way under `actions/jobs/<id>`).
+- **After `gh run rerun <run> --failed`** the job has a new id: `gh run view <run> --repo Omarmarei/Lablo --json jobs --jq '.jobs[] | select(.name=="media") | (.databaseId|tostring) + " " + .status'`.
 - **Python patches in a Bash heredoc lose escaped quotes.** Write patch scripts with the Write tool (an EDITS list plus the apply loop, `newline=''` on read and write).
-- **`WatchdogConfig` has `fallbackMs`:** a test that spreads `{ ...DEFAULT_WATCHDOG, openTimeoutMs: 20_000 }` inherits the 6 s cap. Set `fallbackMs` too when a test means a patient open.
-- **Desktop e2e never meets the cap:** Chromium refuses the `.ts` at once (`unsupported`, definitive).
-- **The module probe** (`tools/build/mprobe-<step>.ts`, temporary, deleted after): its output holds NUL bytes (`grep -a`, sort both lists, then `diff`).
-- **Sizes:** main.js 471.0 of 500 KB on Tizen (29 KB left); settings.js 99.7 of 150; the query worker 149.3 of 150 (0.7 KB left: keep its code changes tiny).
+- **`WatchdogConfig` has `fallbackMs`:** a test that spreads `{ ...DEFAULT_WATCHDOG, openTimeoutMs: 20_000 }` inherits the 6 s cap.
+- **Sizes:** main.js 471.0 of 500 KB on Tizen; settings.js 99.7 of 150; the query worker 149.3 of 150 (0.7 KB left: keep its code changes tiny).
 
-**From leg 148 (still true):**
-- **Chromium's quota rule:** it checks the quota only for a transaction that writes. A delete-only transaction always commits; split deletes from puts.
-- **`fillStore`** (`packages/data/src/test-support.ts`) fakes a full store at each put.
-- **e2e full store:** patch `IDBObjectStore.prototype` in the workers (`e2e/storage-full.spec.ts`); DevTools' quota override does nothing.
-- **A spec comparing words with the catalog it imports** checks nothing against a catalog change: pin the English sentence as a literal.
-
-**From legs 130–147 (still true):**
-- **Plain e2e never plays a channel** (the desktop refuses the `.ts`; the placeholder `.m3u8` never shows a frame). To measure the watchdog, watch the `<video>`'s `src`.
-- **A moved clock and a playing stream:** `page.clock.runFor` of more than about 6 s trips the watchdog; use `page.clock.fastForward`.
+**From legs 130–148 (still true):**
+- **Chromium's quota rule:** it checks the quota only for a transaction that writes; split deletes from puts. `fillStore` fakes a full store; e2e patches `IDBObjectStore.prototype` in the workers.
+- **A spec comparing words with the catalog it imports** checks nothing: pin the English sentence as a literal.
+- **Plain e2e never plays a channel** (the desktop refuses the `.ts`). To measure the watchdog, watch the `<video>`'s `src`. `page.clock.runFor` over about 6 s trips the watchdog; use `page.clock.fastForward`.
 - **`rm` on a shell variable is refused:** write a literal path. `sleep N; cmd` is blocked: wait with `read -t N < /dev/zero` under `timeout`.
 - **CI:**
   - a run takes about 30 minutes; `verify` and `media` have 30-minute caps, engines 35;
   - known flakes: `auto-next.spec.ts:151`, `telemetry.spec.ts:202`, `epg-declared-300mb`, `guide-offset.spec.ts` en-US, `rpc.test.ts:179`, Chromium 53/56 start-up and stuck deletes;
-  - read the annotations or the job log, then `gh run rerun <run> --failed` once the whole run is done;
-  - no `jq` in Git Bash; a push to an open PR cancels its CI.
+  - read the annotations (`gh api repos/Omarmarei/Lablo/check-runs/<job id>/annotations`) or the job log, then `gh run rerun <run> --failed` once the whole run is done;
+  - no `jq` in Git Bash (use `gh --jq`); a push to an open PR cancels its CI.
 - **Run the engines check alone** (`verify:engines --engine chrome68`, about 4 minutes).
-- **Mutation and builds don't mix:** never run mutation beside a build, an e2e run, a probe, a unit run or an agent reading the tree. Don't edit test files while a unit run is going.
+- **Mutation and builds don't mix:** never run mutation beside a build, an e2e run, a probe, a unit run or an agent reading the tree.
 - **Settings rows in e2e go by id** (`e2e/settings-rows.ts`). **Onboard in the language you test.** **In Arabic the rail is on the right.** Use `--workers=2` for e2e on this PC.
 - **A local unit run of everything** times out heavy tests at 30 s under load: rerun them alone before calling them failures.
-- **Peer sessions** (Omar's Samsung session) may send his decisions: act on what Omar decided; ask him directly before ticks a handover reserved for his word.
+- **Peer sessions** (Omar's Samsung session) may send his decisions: act on what Omar decided, but ask him directly before ticks a handover reserved for his word.
 
 **From earlier legs (still true):**
-- **Main-safe code** (settings.js too): none of `trim`, `.sort(`, `.split(`, regex `.test` or `new RegExp`; no new `for…of`, no `Uint8Array` as a value, no `JSON.stringify`; no array destructuring or spread, no object spread in new code, no fragments; no `Promise.prototype.finally`; no fields named like built-ins. (The mock and `tools/` are Node code: these rules don't apply there.)
+- **Main-safe code** (settings.js too): none of `trim`, `.sort(`, `.split(`, regex `.test` or `new RegExp`; no new `for…of`, no `Uint8Array` as a value, no `JSON.stringify`; no array destructuring or spread, no object spread in new code, no fragments; no `Promise.prototype.finally`; no fields named like built-ins. (The mock and `tools/` are Node code: these rules don't apply there; a script injected into the TV page is ES5.)
 - **Layout and text:** physical CSS only, no Grid or flex `gap`, ES2017. UI text comes only from the catalogs. Preact: write `translate={false}`.
-- **Every file under `apps/tv/src/settings/` must stay in settings.js.** Helpers main needs live outside `settings/`.
+- **Every file under `apps/tv/src/settings/` must stay in settings.js.**
 - **Smart App Control:** before every pnpm/npx command, `export NODE_OPTIONS="--require \"D:/Claude Code PlayGround/IPTV-relay-20261101-214120/.cache/rollup-wasm/hook.cjs\""`.
-- **Environment:** CI runs Node 22, this PC Node 24. Heavy checks one at a time; `build:tv` in the background (about 8 minutes).
+- **Environment:** CI runs Node 22, this PC Node 24. Heavy checks one at a time; the full `build:tv` in the background (about 8 minutes; `--target lab` alone fits in the foreground). For sdb paths in Git Bash: `export MSYS_NO_PATHCONV=1`; the Tizen tools are in `/c/tizen-studio/tools/ide/bin` and `/c/tizen-studio/tools`.
 
 ## Working rules (unchanged)
 - **Never call EnterWorktree.** Use `git -C "<wt>"`, absolute paths, scoped `git add` (check `git diff --cached --name-only`), and `git commit -F -` ending with the attribution lines the session gives. Never a bare `git stash`.
@@ -145,19 +164,18 @@ You are leg 151 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
 - **CLAUDE.md edits need Omar's direct word in his own tab.**
 
 ## Open decisions and gates
-- **Leg 150's choices for 39s3** (Omar may overrule; each is a number or a line to change):
-  - `live-outages`: 60 s of stream past the burst, then 25 s down (under Fast start the watchdog reopens at 12 s of buffering, inside the outage; about two attempts per 85 s cycle, so the ladder's four in 60 s never end a soak). A Stable soak needs a longer outage, in a copy of the file;
-  - step 21's "each stall recovered in ≤ 10 s" counts from the outage's end (the mock's `back` log line) to the moving picture, plus a check that the app reopened. Step 21 decides its rule;
-  - the lab's soak stays a plain held socket per response (spike S4's measure; AVPlay hides most of its stalls).
-- **Leg 149's choices for 39s2 stand** (the fallback's cap 6 s and 12 s; catch-up keeps the whole open timeout; no hysteresis).
-- **Leg 148's, 147's, 146's and 145's choices stand.**
+- **Omar's decision, when he wants (not blocking): MP4 subtitles on the Samsung.** AVPlay lists an MP4's `mov_text` tracks and sends no cue, so the track menu shows rows that show nothing. Options: leave them (they may work on newer TVs), hide AVPlay's MP4 text rows, or demux `mov_text` ourselves (a feature). Sidecar files work today. architecture.md §2 "Step 39s5".
+- **Leg 151's later fix (no step yet):** map AVPlay's `UNKNOWN_ERROR_EVENT_FROM_PLAYER` (a 4K file on an HD set, 0.4–1.7 s) away from `network` once step 21 shows AVPlay's error for a real network cut. Today the app retries such a file, then shows a network failure.
+- **Leg 150's choices for 39s3** (Omar may overrule):
+  - `live-outages`: 60 s of stream past the burst, then 25 s down (a Stable soak needs a longer outage, in a copy of the file);
+  - step 21's "each stall recovered in ≤ 10 s" counts from the outage's end (the mock's `back` line) to the moving picture, plus a check that the app reopened;
+  - the lab's soak stays a plain held socket per response.
+- **Leg 149's choices for 39s2 stand** (the fallback's cap 6 s and 12 s; catch-up keeps the whole open timeout; no hysteresis). **Legs 145–148's choices stand.**
 - **Step 34 `[needs Omar]`:** the R2 and Upstash adapters; R2's host in `connect-src` and the bucket's CORS rule; `LABLO_RATE_SECRET` in Vercel; the config key ceremony; the accounts and the domain; the first production migration (including `pair_purpose`) and the deploy, each with his one-word OK.
 - **Steps 16's rest and 21 wait for Omar and the TVs** (his "3a").
-- **What remains after 39s:** 40 (diagnostics and legal pages), 43 (accessibility), 44 (store documents), 45 (release engineering); with Omar or a TV: 34, 16, 21, 39s4, 41, 42, 46, 47.
+- **What remains after 39s:** 40 (diagnostics and legal pages), 43 (accessibility), 44 (store documents), 45 (release engineering); with Omar or a TV: 34, 16, 21, 39s4, 39s6's TV run, 41, 42, 46, 47.
 - **Later fixes to propose (no step yet):**
-  - new in leg 150:
-    - a mock endpoint listing the outages (for a soak report that doesn't parse the log);
-    - whether a position that moves while `buffering` should count as playing (an engine that never sends `playing` would be reopened at 12 s on a moving picture; no evidence on the TV);
+  - from leg 150: a mock endpoint listing the outages; whether a position that moves while `buffering` should count as playing;
   - from leg 149: a fresh redirect probe on Tizen for a remembered container other than the request's first; the cut's time measured on the Samsung;
   - from leg 148: the live line in the old-engine walk; seed the storage state at start from stored guide failures; a remove-a-source action; measure on the Samsung whether deleting frees usage at once;
   - from leg 147: a per-model tunables block in the config doc (only if step 21 shows a need); whether AVPlay's `prepareAsync` waits for the first buffer; the "Buffering" row in the old-engine walk;
@@ -165,7 +183,7 @@ You are leg 151 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
   - older: the restored-source login gap; renaming a source; the info bar overflowing in en-XA; a renamed hidden channel's old name over the list; CH+ after hiding the playing channel; `editChannel.close`'s e2e; the guides screen's third line; `auto-next`'s `endEpisode` race; a best-of-3 for `epg-declared-300mb`; `guide-offset` en-US; `rpc.test.ts:179`; caching ffmpeg in CI; the engines job's 35-minute cap; forwarding workers' unhandled rejections; `epgOverrides` after a re-match; `config-server.ts`'s `close()`; ingest request timeouts; the query worker's budget (0.7 KB left); the start's resume before the worker's load; a VNode test of the pad; the local e2e worker count under load; stored guides keeping their titles' language after a language switch.
 
 ## Checks for Omar
-1. **39s3 has no screen:** nothing to look at. He may overrule `live-outages`' numbers (60 s, then 25 s down) or the soak's recovery rule.
+1. **39s5 has no screen.** The lab's `hevc-4k` row now reads "4K HEVC VOD plays (4K TVs)". He may choose what happens to MP4 subtitle rows on the Samsung (above).
 2. **The storage line (from leg 148):** `artifacts/screenshots/storage-full-en.png`, `-ar.png`, `-en-XA.png` (in the worktree, gitignored). Nothing to decide unless he wants other words.
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
@@ -193,7 +211,9 @@ You are leg 151 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
   - a channel's start under "Fast start" and under "Stable" (AVPlay's buffers);
   - the lab's S2 again (the lab now carries `unlimitedstorage`): does `storage.estimate()` still say 88 MB?
   - after a network outage, the next zap and the next launch start on `.ts` again; with the `.m3u8` answering 404 and `.m3u8` remembered, how long until `.ts` plays (expect about 6 s plus AVPlay's close);
-  - **new (39s3):** step 21's soak with `pnpm mock --scenario live-outages` on channel 104: the app should show "Reconnecting…" once per outage and play again within a few seconds of the mock's `back` line.
+  - step 21's soak with `pnpm mock --scenario live-outages` on channel 104: the app should show "Reconnecting…" once per outage and play again within a few seconds of the mock's `back` line;
+  - **new (39s5):** install the lab with `pnpm device install tizen <serial> --lab` (now `LabloLab.wgt`, no `sdb push` workaround);
+  - **new (39s6, once built):** one run of the `pnpm tv` tools on the TV.
 - **Samsung:** back up `C:\Users\Omarm\SamsungCertificate\lablo-dev\author.p12` somewhere safe for good.
 - **Samsung Seller Office Partner application:** submit it as soon as possible (Samsung Gulf).
 - **Trademark clearance** (US, CA, AE, SA) and domains for **"Lablo"**.
