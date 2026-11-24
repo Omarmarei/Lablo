@@ -3701,6 +3701,78 @@ describe('the player: the clock over the video and the Guide key (RELAY step 39a
     expect(bare.closed).toEqual([]);
   });
 
+  it('takes the colour keys on a channel (RELAY step 39b): red the star, green the Guide key, yellow the previous channel', async () => {
+    const opened: number[] = [];
+    const favourites: NonNullable<PlayerOptions['favourites']> = {
+      edit: () => Promise.resolve(true),
+      lists: signal<readonly FavouriteList[]>([]),
+      changed: () => Promise.resolve(),
+      platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+      now: () => 5,
+    };
+    const t = setup('ltr', { favourites, toGuide: () => (index) => opened.push(index) });
+    t.player.show(1);
+    // Yellow: as PRE-CH, nothing before the first channel; then back and forth.
+    await t.press('YELLOW');
+    expect(t.controller.played()).toEqual([1]);
+    await t.press('CH_UP');
+    t.clock.advance(ZAP_DELAY_MS);
+    await flush();
+    await t.press('YELLOW');
+    expect(t.controller.played()).toEqual([1, 2, 1]);
+    // Red: the favourites panel for the channel on the bar, with the bar hidden.
+    t.controller.set('playing');
+    await t.press('RED');
+    expect(t.at()).toBe('favourites · lists 0');
+    expect(t.player.favourites!.item.value?.key).toBe('x:s1:live:1');
+    expect(t.player.info.value).toBe(false);
+    await t.press('BACK');
+    expect(t.at()).toBe('player · actions 0');
+    // Red with the error card up: nothing (as the star, which the card hides).
+    t.controller.set('failed', NOT_FOUND);
+    await flush();
+    expect(t.nav.handle('RED')).toBe('screen');
+    expect(t.player.favourites!.screen.value).toBeNull();
+    // Green: the Guide key, the player closed onto the row first.
+    await t.press('GREEN');
+    expect(t.closed).toEqual([1]);
+    expect(opened).toEqual([1]);
+    // Blue: nothing in the player.
+    t.player.show(3);
+    expect(t.nav.handle('BLUE')).toBe('ignored');
+    expect(t.player.open.value).toBe(true);
+  });
+
+  it('takes the colour keys in a movie and does nothing with them (RELAY step 39b)', async () => {
+    const asked: string[] = [];
+    const favourites: NonNullable<PlayerOptions['favourites']> = {
+      edit: () => Promise.resolve(true),
+      lists: signal<readonly FavouriteList[]>([]),
+      changed: () => Promise.resolve(),
+      platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
+      now: () => 5,
+    };
+    const t = setup('ltr', {
+      favourites,
+      toGuide: (under) => {
+        asked.push(under);
+        return () => undefined;
+      },
+    });
+    t.player.show(1);
+    t.player.close();
+    const film: CatalogItem = { ...row(0).item, key: 'x:s1:movie:201', kind: 'movie', name: 'Sintel', url: 'http://panel.test/movie/u/p/201.mkv' };
+    t.player.playMovie({ item: film, request: { key: film.key, src: 's1', mode: 'vod', candidates: [{ url: film.url, container: 'mkv' }] }, lengthMs: null, closed: () => undefined });
+    t.controller.set('playing');
+    for (const key of ['RED', 'GREEN', 'YELLOW'] as const) expect(t.nav.handle(key)).toBe('screen');
+    await flush();
+    expect(asked).toEqual([]);
+    expect(t.player.favourites!.screen.value).toBeNull();
+    expect(t.player.movie.value).not.toBeNull();
+    // The channel, then the movie: yellow played no previous channel.
+    expect(t.controller.plays.map((p) => p.key)).toEqual(['x:s1:live:1', film.key]);
+  });
+
   it('reads the screen under the player at each opening', async () => {
     const asked: string[] = [];
     const t = setup('ltr', {

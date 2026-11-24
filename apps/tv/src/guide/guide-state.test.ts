@@ -1018,13 +1018,20 @@ describe('OK and Back in the guide', () => {
     for (const under of ['home', 'search', 'movies', 'player', '']) expect(guideFromPlayer(under, () => true, open)).toBeNull();
   });
 
-  it('closes on the Guide key as on Back (RELAY step 39a)', async () => {
+  it('closes on the Guide key as on Back (RELAY step 39a), and on the green key (39b)', async () => {
     const t = setup();
     t.open(42);
     await flush();
     await t.press('DOWN', 'GUIDE');
     expect(t.at()).toBe('live · channels 0');
     expect(t.closed).toHaveBeenCalledWith(43);
+    expect(t.guide.screen.value).toBeNull();
+    t.open(7);
+    await flush();
+    // The other colour keys do nothing in the guide.
+    for (const key of ['RED', 'YELLOW', 'BLUE'] as const) expect(t.nav.handle(key)).not.toBe('screen');
+    await t.press('GREEN');
+    expect(t.closed).toHaveBeenLastCalledWith(7);
     expect(t.guide.screen.value).toBeNull();
   });
 

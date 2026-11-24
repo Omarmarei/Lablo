@@ -142,9 +142,9 @@ const PENCIL = (
 function actionButton(player: Player, i18n: AppI18n, action: PlayerAction, binding: ReturnType<typeof useZone>, index: number, starred: boolean) {
   const { t } = i18n;
   const item = binding.item(index);
-  if (action === 'favourite') return <Button key={action} label={t('player.favourites')} icon={star(starred)} {...item} testId="player-favourite" />;
+  if (action === 'favourite') return <Button key={action} label={t('player.favourites')} icon={star(starred)} colourKey="red" {...item} testId="player-favourite" />;
   if (action === 'edit') return <Button key={action} label={t('player.editChannel')} icon={PENCIL} iconOnly {...item} testId="player-edit" />;
-  if (action === 'previous') return <Button key={action} label={t('player.previous')} disabled={player.previous.value === -1} {...item} testId="player-previous" />;
+  if (action === 'previous') return <Button key={action} label={t('player.previous')} disabled={player.previous.value === -1} colourKey="yellow" {...item} testId="player-previous" />;
   if (action === 'tracks') return <Button key={action} label={t('player.tracks')} {...item} testId="player-tracks" />;
   if (action === 'stats') return <Button key={action} label={t('player.streamInfo')} {...item} testId="player-stats" />;
   return <Button key={action} label={t('player.picture', { mode: t(PICTURE_TEXT[player.picture.value]) })} {...item} testId="player-picture" />;

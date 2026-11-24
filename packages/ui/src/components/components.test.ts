@@ -102,6 +102,23 @@ describe('Button', () => {
     expect(text(bare)).toBe('Search');
   });
 
+  it('shows its colour key as a dot after the label, hidden from screen readers (RELAY step 39b)', () => {
+    for (const colourKey of ['red', 'green', 'yellow', 'blue'] as const) {
+      const el = expand(Button({ label: 'Guide', colourKey }));
+      const dot = one(el, `z-button__key--${colourKey}`);
+      expect(dot.props.class).toBe(`z-button__key z-button__key--${colourKey}`);
+      expect(dot.props['aria-hidden']).toBe('true');
+      expect(dot.props['data-key']).toBe(colourKey);
+      expect(text(el)).toBe('Guide');
+    }
+    // An icon-only button keeps its name and gets the dot too.
+    const search = expand(Button({ label: 'Search', icon: h('svg', null), iconOnly: true, colourKey: 'blue' }));
+    expect(search.props['aria-label']).toBe('Search');
+    expect(all(search).filter((e) => e.props['data-key'] === 'blue')).toHaveLength(1);
+    // None without one.
+    expect(byClass(expand(Button({ label: 'Play' })), 'z-button__key')).toHaveLength(0);
+  });
+
   it('can be disabled: dimmed, focusable, not clickable', () => {
     const el = expand(Button({ label: 'Delete', variant: 'danger', disabled: true, state: 'memory', onPress: vi.fn(), onHover: vi.fn() }));
     expect(el.props.class).toBe('z-button z-button--danger is-disabled is-memory');

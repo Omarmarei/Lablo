@@ -1,6 +1,6 @@
 import { computed, signal } from '@preact/signals';
 import { render } from 'preact';
-import type { ContentKey, DeviceTier } from '@lablo/core';
+import type { CatalogItem, ContentKey, DeviceTier } from '@lablo/core';
 import { normalizeLang } from '@lablo/core';
 import type { BackupCallRequest, DiagSendResult, LastChannel, LoadedProfile } from '@lablo/data';
 import type { Language, Navigator } from '@lablo/ui';
@@ -28,6 +28,7 @@ import type { Live } from './live/live-state';
 import { createLive } from './live/live-state';
 import type { Guide } from './guide/guide-state';
 import { createGuide, guideFromPlayer } from './guide/guide-state';
+import { createFavouriteMenu } from './player/favourite-menu';
 import type { Movies } from './movies/movies-state';
 import { createMovies, selectSeries } from './movies/movies-state';
 import { episodePlay } from './shows/episode-play';
@@ -416,6 +417,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   readFacts();
   let openSettings: () => void = () => undefined;
   let lockEntry: () => void = () => undefined;
+  let favourite: (item: CatalogItem) => void = () => undefined;
   const live = createLive({
     platform,
     engine: dataEngine(),
@@ -435,7 +437,20 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     openHome: () => home.open(),
     // The rail's "Locked groups" / "Lock again" (step 38b).
     lockEntry: () => lockEntry(),
+    // The red key on a channel of the list (step 39b).
+    favourite: (item) => favourite(item),
   });
+  // The red key's favourites panel over the list (step 39b): the info bar's panel, on the live screen.
+  const listFavourites = createFavouriteMenu({
+    edit: (edit) => dataEngine().editProfile(edit),
+    lists: live.lists,
+    changed: () => live.listsChanged(),
+    platform,
+    nav: live.nav,
+    closed: () => undefined,
+    stop: () => listFavourites.close(),
+  });
+  favourite = (item) => listFavourites.show(item);
   // OK on a poster (step 26c): the movie's details over the grid; "Play" opens the player over them, and Back from it returns to them.
   // A movie left part way (step 26d): "Resume from" plays it from there; back from the player, the details read its position again.
   const details = createMovieDetails({
@@ -753,7 +768,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       );
   }
   showFocus(live.nav);
-  paint = () => render(<LiveApp platform={platform} live={live} language={shown} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} home={home} parental={parental} />, into);
+  paint = () => render(<LiveApp platform={platform} live={live} language={shown} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} home={home} parental={parental} favourites={listFavourites} />, into);
   paint();
   startRefreshes(live, guide, [movies, series], search, home, readFacts, restored ? 0 : undefined);
   backup.start();

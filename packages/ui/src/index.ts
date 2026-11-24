@@ -56,7 +56,7 @@ export { createI18n } from './i18n/runtime';
 
 export type { BadgeProps, BadgeTone } from './components/Badge';
 export { Badge } from './components/Badge';
-export type { ButtonProps } from './components/Button';
+export type { ButtonProps, ColourKey } from './components/Button';
 export { Button } from './components/Button';
 export type { ChipProps } from './components/Chip';
 export { Chip } from './components/Chip';

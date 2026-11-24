@@ -61,13 +61,15 @@ interface Props {
   readonly i18n: AppI18n;
   readonly screen: Screen;
   readonly binding: FocusBinding;
+  /** On an opaque surface (step 39b: over the live list, whose rows would show through the scrim). */
+  readonly solid?: boolean;
 }
 
 /**
  * The favourites panel (RELAY step 35c): at the inline end over the picture, as the track menu
  * is. Each list with its check, then "New list"; with no list yet, "Favourites" first.
  */
-export function FavouritePanel({ menu, lists, i18n, screen, binding }: Props) {
+export function FavouritePanel({ menu, lists, i18n, screen, binding, solid = false }: Props) {
   const { t } = i18n;
   const view = useZone(binding, screen, 'lists');
   const count = menu.rows();
@@ -85,7 +87,7 @@ export function FavouritePanel({ menu, lists, i18n, screen, binding }: Props) {
   }
   const problem = menu.problem.value;
   return (
-    <aside class="tracks" data-testid="favourites" data-pending={menu.pending.value} data-problem={problem ?? ''} data-top={top}>
+    <aside class={solid ? 'tracks tracks--solid' : 'tracks'} data-testid="favourites" data-pending={menu.pending.value} data-problem={problem ?? ''} data-top={top}>
       <h2 class="tracks__title">{t('favourites.title')}</h2>
       <div class="tracks__list" role="menu">
         {rows}

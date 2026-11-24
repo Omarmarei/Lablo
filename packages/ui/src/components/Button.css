@@ -4,6 +4,7 @@
  * mirrors them (CLAUDE.md, Chromium 53 cheat sheet).
  */
 .z-button {
+  position: relative;
   display: inline-flex;
   align-items: center;
   height: 72px;
@@ -19,6 +20,36 @@
   white-space: nowrap;
   vertical-align: top;
   transition: background-color var(--motion-fast), border-color var(--motion-fast);
+}
+
+/* The colour key's dot (step 39b) sits in the top-end corner, out of the flow. */
+.z-button__key {
+  position: absolute;
+  top: 8px;
+  right: 20px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.z-button--icon .z-button__key {
+  right: 10px;
+}
+
+.z-button__key--red {
+  background: var(--color-key-red);
+}
+
+.z-button__key--green {
+  background: var(--color-key-green);
+}
+
+.z-button__key--yellow {
+  background: var(--color-key-yellow);
+}
+
+.z-button__key--blue {
+  background: var(--color-key-blue);
 }
 
 .z-button__icon {

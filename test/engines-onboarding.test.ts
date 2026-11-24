@@ -188,7 +188,7 @@ describe('the grid guide of the old-engine harness (RELAY step 23e)', () => {
     expect(read('packages/ui/src/components/GuideGrid.tsx')).toContain(`{marked && <span class="z-guide__mark">{archiveName ?? ''}</span>}`);
     expect(read('e2e/guide-grid.ts')).toContain("mark: cell.querySelector('.z-guide__mark')?.textContent ?? null,");
     expect(read('apps/tv/src/live/live-state.ts')).toContain('export const HEADER_GUIDE = 0;');
-    expect(read('apps/tv/src/live/LiveApp.tsx')).toContain('<Button label={t(\'guide.open\')} {...header.item(HEADER_GUIDE)} testId="live-guide" />');
+    expect(read('apps/tv/src/live/LiveApp.tsx')).toContain('<Button label={t(\'guide.open\')} colourKey="green" {...header.item(HEADER_GUIDE)} testId="live-guide" />');
     expect(read('apps/tv/src/live/live-state.ts')).toContain("neighbours: { start: 'rail', up: 'header' }");
     expect(guideSteps('en', 'tizen').find((s) => s.id === 'guide-header')?.expect).toMatchObject({ zone: 'header', index: 0 });
   });

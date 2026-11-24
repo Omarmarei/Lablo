@@ -287,6 +287,7 @@ async function setup(
     openSearch?: () => void;
     openHome?: () => void;
     lockEntry?: () => void;
+    favourite?: (item: CatalogItem) => void;
   } = {},
 ) {
   const engine = options.engine ?? new FakeEngine();
@@ -308,6 +309,7 @@ async function setup(
     ...(options.openSearch === undefined ? {} : { openSearch: options.openSearch }),
     ...(options.openHome === undefined ? {} : { openHome: options.openHome }),
     ...(options.lockEntry === undefined ? {} : { lockEntry: options.lockEntry }),
+    ...(options.favourite === undefined ? {} : { favourite: options.favourite }),
   });
   if (options.settle !== false) await flush();
   const at = (): string => {
@@ -1874,6 +1876,38 @@ describe("the header's Guide and Settings buttons (RELAY steps 22b2 and 23c)", (
     expect(empty.live.status.value).toBe('empty');
     await empty.press('UP', 'OK');
     expect(openGuide).toHaveBeenCalledTimes(3);
+  });
+
+  it("takes the colour keys (RELAY step 39b): green as the Guide key, blue the search, red the focused channel's favourites", async () => {
+    const openGuide = vi.fn();
+    const openSearch = vi.fn();
+    const favourite = vi.fn();
+    const t = await setup({ openGuide, openSearch, favourite });
+    // Red on a channel: its item; the focus stays on the row.
+    await t.press('DOWN', 'RED');
+    expect(t.at()).toBe('live · channels 1');
+    expect(favourite).toHaveBeenCalledTimes(1);
+    expect(favourite.mock.calls[0]![0]).toBe(t.live.row(1)!.item);
+    // Green: the guide on the list's row, as the Guide key.
+    expect(t.live.nav.handle('GREEN')).toBe('screen');
+    expect(openGuide).toHaveBeenLastCalledWith(1);
+    // Blue: the search, from the list, the rail and the header; red in the rail or the header:
+    // nothing, the key taken all the same.
+    await t.press('BLUE', 'LEFT');
+    expect(t.at()).toBe('live · rail 0');
+    expect(t.live.nav.handle('RED')).toBe('screen');
+    await t.press('BLUE', 'UP');
+    expect(t.at()).toBe('live · header 0');
+    expect(t.live.nav.handle('RED')).toBe('screen');
+    await t.press('BLUE');
+    expect(openSearch).toHaveBeenCalledTimes(3);
+    expect(favourite).toHaveBeenCalledTimes(1);
+    // Yellow does nothing on the live screen.
+    expect(t.live.nav.handle('YELLOW')).toBe('ignored');
+    // Without the app's callbacks, the keys do nothing.
+    const bare = await setup();
+    await bare.press('RED', 'BLUE', 'GREEN');
+    expect(bare.at()).toBe('live · channels 0');
   });
 
   it("opens the guide on the Guide key from any zone, on the list's focused row, only while the list has channels (RELAY step 39a)", async () => {
