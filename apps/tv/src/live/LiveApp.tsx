@@ -1,3 +1,4 @@
+import type { ReadonlySignal } from '@preact/signals';
 import { useSignal } from '@preact/signals';
 import { useEffect } from 'preact/hooks';
 import type { EpgNowNext } from '@lablo/data';
@@ -121,6 +122,7 @@ function LiveScreen({
   shelves,
   parental,
   favourites,
+  storageFull,
 }: {
   live: Live;
   i18n: AppI18n;
@@ -138,6 +140,8 @@ function LiveScreen({
   parental: Parental | null;
   /** The red key's favourites panel over the list (step 39b). */
   favourites: FavouriteMenu | null;
+  /** Lablo's storage on the TV is full (step 39s1). */
+  storageFull: boolean;
 }) {
   const { t } = i18n;
   const { binding, home } = live;
@@ -235,6 +239,11 @@ function LiveScreen({
           <Button label={t('settings.open')} icon={SETTINGS_ICON} iconOnly {...header.item(HEADER_SETTINGS)} testId="live-settings" />
         </div>
       </header>
+      {storageFull && (
+        <p class="live__storage" role="status" data-testid="live-storage">
+          {t('live.storageFull')}
+        </p>
+      )}
 
       {status === 'loading' && (
         <div class="live__message">
@@ -323,6 +332,8 @@ interface Props {
   readonly parental?: Parental | null;
   /** The red key's favourites panel over the list (step 39b; `null`: none paints). */
   readonly favourites?: FavouriteMenu | null;
+  /** Lablo's storage on the TV is full (step 39s1): a line under the header says so. */
+  readonly storageFull?: ReadonlySignal<boolean>;
 }
 
 /**
@@ -331,7 +342,7 @@ interface Props {
  * paints it again with another `language`: the page, the focus engine's direction and every
  * screen's words switch in place, the remote's keys untouched.
  */
-export function LiveApp({ platform, live, language, player = null, settings = null, guide = null, movies = null, series = null, details = null, show = null, search = null, home = null, parental = null, favourites = null }: Props) {
+export function LiveApp({ platform, live, language, player = null, settings = null, guide = null, movies = null, series = null, details = null, show = null, search = null, home = null, parental = null, favourites = null, storageFull }: Props) {
   const i18n = useSignal<AppI18n | null>(null);
   useEffect(() => {
     let closed = false;
@@ -376,5 +387,5 @@ export function LiveApp({ platform, live, language, player = null, settings = nu
       </main>
     );
   }
-  return <LiveScreen live={live} i18n={i18n.value} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} shelves={home} parental={parental} favourites={favourites} />;
+  return <LiveScreen live={live} i18n={i18n.value} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} shelves={home} parental={parental} favourites={favourites} storageFull={storageFull?.value === true} />;
 }

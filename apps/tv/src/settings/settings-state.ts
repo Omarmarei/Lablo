@@ -91,6 +91,8 @@ export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | '
   readonly backup?: { readonly engine: BackupPageEngine; readonly host: BackupPageHost };
   /** The sources screen's login form's refresh (step 32d4b, `SourceLoginOptions.refresh`). */
   readonly refreshSource?: SourceLoginOptions['refresh'];
+  /** Whether a source's last refresh failed because the storage is full (step 39s1, `SourcesOptions.storageFull`). */
+  readonly storageFull?: (src: string) => boolean;
   /** The usage reports' switch (step 33b3); without it there is no "Usage and crash reports" row. */
   readonly telemetry?: TelemetrySwitchOptions;
   /** The diagnostics report's send (step 33d2); without it there is no "Send a report to support" row. */
@@ -176,7 +178,10 @@ export function createSettings(options: SettingsOptions): Settings {
         });
   // The login form (step 32d4b): the settings' keyboard, and the save's refresh when the app gives one.
   const login: SourceLoginOptions = { platform: options.platform, find: options.find, now: options.now, refresh: options.refreshSource };
-  const sources = createSourcesList(pairing === null ? { nav, engine: options.engine, login } : { nav, engine: options.engine, addFromPhone: () => pairing.open(), login });
+  const storageFull = options.storageFull;
+  const sources = createSourcesList(
+    pairing === null ? { nav, engine: options.engine, login, storageFull } : { nav, engine: options.engine, addFromPhone: () => pairing.open(), login, storageFull },
+  );
   const backup = options.backup === undefined ? null : createBackupPage({ nav, engine: options.backup.engine, host: options.backup.host });
   const telemetry = options.telemetry === undefined ? null : createTelemetrySwitch(options.telemetry);
   const report = options.report === undefined ? null : createReportRow(options.report);

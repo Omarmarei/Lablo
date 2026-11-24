@@ -227,6 +227,7 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'error.file': 'تعذّرت قراءة الملف المُرسَل من هاتفك. أرسله مرة أخرى.',
   'error.fileFormat': 'هذا الملف ليس قائمة تشغيل.',
   'error.fileNetwork': 'تعذّر جلب الملف من هاتفك. تحقّق من اتصالك بالإنترنت وأرسله مرة أخرى.',
+  'error.storage': 'لا توجد مساحة تخزين كافية على هذا التلفزيون ليحفظ لابلو هذه القائمة.',
   'error.refused': 'لا يضيف لابلو مصادر جديدة حاليًا. حاول مرة أخرى لاحقًا.',
   'error.blocklisted': 'لا يمكن استخدام هذا الخادم مع لابلو.',
 
@@ -246,6 +247,7 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'live.loading': 'جارٍ تحميل قنواتك',
   'live.empty': 'لا توجد قنوات مباشرة في مصادرك.',
   'live.failed': 'تعذّرت قراءة قنواتك.',
+  'live.storageFull': 'مساحة تخزين لابلو ممتلئة، فلا يمكن حفظ التحديثات. أزِل دليل تلفزيون لا تستخدمه من الإعدادات لتوفير مساحة.',
   'live.retry': 'إعادة المحاولة',
 
   'continue.title': 'متابعة المشاهدة',
@@ -356,6 +358,7 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'guides.failure.network': 'تعذّرت قراءته: تعذّر الوصول إلى الخادم.',
   'guides.failure.format': 'تعذّرت قراءته: لم يُرجع هذا الرابط دليل {format}.',
   'guides.failure.empty': 'تعذّرت قراءته: لا توجد لديك قنوات مباشرة ليطابقها.',
+  'guides.failure.storage': 'تعذّر حفظه: مساحة تخزين لابلو على هذا التلفزيون ممتلئة.',
   'guides.failure.other': 'تعذّرت قراءته. ستُعاد المحاولة لاحقًا.',
   'guides.blocked': 'لا يُقرأ: لا يمكن استخدام هذا الخادم مع لابلو.',
 
@@ -370,6 +373,8 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'sources.fileAgain': 'لم يُحمَّل بعد: أرسل هذا الملف من هاتفك مرة أخرى.',
   'sources.blocked': 'لا يُحدَّث: لا يمكن استخدام هذا الخادم مع لابلو.',
   'sources.blockedSince': 'لم يُحدَّث منذ {day}، {time}: لا يمكن استخدام هذا الخادم مع لابلو.',
+  'sources.storage': 'لم يُحدَّث: مساحة تخزين لابلو على هذا التلفزيون ممتلئة.',
+  'sources.storageSince': 'لم يُحدَّث منذ {day}، {time}: مساحة تخزين لابلو على هذا التلفزيون ممتلئة.',
   'sources.failedRead': 'تعذّرت قراءة مصادرك.',
   'sources.addPhone': 'أضف من هاتفك',
   'sources.needsLogin': 'يحتاج إلى بيانات الدخول مرة أخرى',

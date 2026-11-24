@@ -23,6 +23,7 @@ export function errorText(t: Translate, code: LoadErrorCode, status: number | nu
   if (code === 'network') return t('error.network');
   if (code === 'format') return t('error.format');
   if (code === 'empty') return t('error.empty');
+  if (code === 'storage') return t('error.storage');
   return t('error.other');
 }
 

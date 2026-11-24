@@ -22,6 +22,7 @@ import type { FetchStamp } from './catalog-store';
 import { GenerationError, otherGenerations } from './catalog-store';
 import { onSuccess, transact } from './idb';
 import { STORE } from './schema';
+import { isQuotaError } from './storage-room';
 
 /** What a committed generation matched and kept (the diagnostics' match rate; step 24 shows it). */
 export interface EpgSummary {
@@ -294,15 +295,30 @@ export function setEpgRank(db: IDBDatabase, epgSrc: string, rank: number): Promi
   });
 }
 
-/** Drops a generation that will never be committed, and its `building` mark. */
-export function abandonEpgGeneration(db: IDBDatabase, epgSrc: string, gen: number): Promise<void> {
-  return transact<void>(db, [STORE.epgMeta, ...EPG_STORES], 'readwrite', (tx) => {
+/**
+ * Drops a generation that will never be committed, then its `building` mark: the records in a
+ * transaction that only deletes, so a full store never keeps them (step 39s1), the mark after them
+ * (`unmarkEpg`).
+ */
+export async function abandonEpgGeneration(db: IDBDatabase, epgSrc: string, gen: number): Promise<void> {
+  if (gen > 0) await deleteEpgGeneration(db, epgSrc, gen);
+  await unmarkEpg(db, epgSrc, gen);
+}
+
+/**
+ * Clears the `building` mark when it is still `gen`. On a full store the mark stays: nothing but
+ * this module reads it, a mark on deleted records changes nothing, and the next refresh's
+ * `beginEpgGeneration` replaces it.
+ */
+function unmarkEpg(db: IDBDatabase, epgSrc: string, gen: number): Promise<void> {
+  return transact<void>(db, STORE.epgMeta, 'readwrite', (tx) => {
     const metas = tx.objectStore(STORE.epgMeta);
     onSuccess(metas.get(epgSrc), (value) => {
       const meta = value as EpgMeta | undefined;
       if (meta && meta.building === gen) metas.put({ ...meta, building: null } satisfies EpgMeta);
     });
-    if (gen > 0) for (const name of EPG_STORES) tx.objectStore(name).delete(generationRange(epgSrc, gen));
+  }).catch((error: unknown) => {
+    if (!isQuotaError(error)) throw error;
   });
 }
 
@@ -315,17 +331,18 @@ export function deleteEpgGeneration(db: IDBDatabase, epgSrc: string, gen: number
 
 /**
  * Deletes the generations of `epgSrc` that are neither active nor being built (with `abandon`,
- * the one being built too: no refresh runs in this session).
+ * the one being built too: no refresh runs in this session), its mark after its records, as
+ * `abandonEpgGeneration` does (step 39s1).
  */
-export function pruneEpgGenerations(db: IDBDatabase, epgSrc: string, options: { abandon?: boolean } = {}): Promise<void> {
-  return transact<void>(db, [STORE.epgMeta, ...EPG_STORES], 'readwrite', (tx) => {
-    const metas = tx.objectStore(STORE.epgMeta);
-    onSuccess(metas.get(epgSrc), (value) => {
+export async function pruneEpgGenerations(db: IDBDatabase, epgSrc: string, options: { abandon?: boolean } = {}): Promise<void> {
+  const abandoned = await transact<number | null>(db, [STORE.epgMeta, ...EPG_STORES], 'readwrite', (tx, done) => {
+    done(null);
+    onSuccess(tx.objectStore(STORE.epgMeta).get(epgSrc), (value) => {
       const meta = value as EpgMeta | undefined;
       const keep: number[] = [];
       if (meta && meta.gen > 0) keep.push(meta.gen);
       if (meta && meta.building !== null && !options.abandon) keep.push(meta.building);
-      if (meta && meta.building !== null && options.abandon) metas.put({ ...meta, building: null } satisfies EpgMeta);
+      if (meta && meta.building !== null && options.abandon) done(meta.building);
       const ranges = otherGenerations(epgSrc, keep);
       for (const name of EPG_STORES) {
         const store = tx.objectStore(name);
@@ -333,6 +350,7 @@ export function pruneEpgGenerations(db: IDBDatabase, epgSrc: string, options: { 
       }
     });
   });
+  if (abandoned !== null) await unmarkEpg(db, epgSrc, abandoned);
 }
 
 /** Deletes a guide: its bookkeeping and every generation. */

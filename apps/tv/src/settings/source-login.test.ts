@@ -492,7 +492,7 @@ const en = appI18n('en-US', { isolate: false });
 const ar = appI18n('ar-SA');
 const item: ItemBinding = { state: 'focused', onHover: () => undefined, onPress: () => undefined };
 const idle: ItemBinding = { state: 'idle', onHover: () => undefined, onPress: () => undefined };
-const row = (patch: Partial<SourceRow> = {}): SourceRow => ({ id: 's1', name: 'My panel', type: 'xtream', host: 'panel.test:8080', checkedAt: T, blocked: false, needs: null, answer: null, ...patch });
+const row = (patch: Partial<SourceRow> = {}): SourceRow => ({ id: 's1', name: 'My panel', type: 'xtream', host: 'panel.test:8080', checkedAt: T, blocked: false, storage: false, needs: null, answer: null, ...patch });
 
 describe('a row without its login, and its save’s answer, as drawn', () => {
   it('says it needs its login or link, the answer first: updating, or why it failed', () => {

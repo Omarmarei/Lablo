@@ -37,13 +37,14 @@ import {
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RefreshDone, WorkerLike } from '../apps/tv/src/data/engine';
+import type { StorageItem } from '../apps/tv/src/data/storage-state';
 import { BlockedSourceError, DataEngine, NeedsLoginError, sourceUrlOf } from '../apps/tv/src/data/engine';
 import { createEngineLoader } from '../apps/tv/src/onboarding/engine-loader';
 import { epgMatch } from '../apps/tv/src/telemetry/usage-events';
 import type { SourceDraft } from '../apps/tv/src/onboarding/form';
 import { fileError } from '../apps/tv/src/pairing/pair-draft';
 import type { FakeResponse } from '../packages/data/src/test-support';
-import { configAnswer, configDocFields, configSigner, dumpStore, fakeTransport, freshFactory, ingest, item } from '../packages/data/src/test-support';
+import { configAnswer, configDocFields, configSigner, dumpStore, fakeTransport, fillStore, freshFactory, ingest, item } from '../packages/data/src/test-support';
 
 const opened: MessagePort[] = [];
 const engines: DataEngine[] = [];
@@ -108,6 +109,14 @@ interface Setup {
   refreshed: RefreshDone[];
   /** Telemetry workers started and still running, and the bodies they posted (step 33b1). */
   telemetry: { started: number; live: number; posts: { url: string; body: string }[] };
+  /** Which stores refuse puts as a full store does, in the query, ingest and EPG workers' databases (step 39s1). */
+  fullness: { on: (store: string) => boolean };
+  /** The ingest workers' `dropGuides` calls (step 39s1). */
+  drops: { n: number };
+  /** The puts `fullness` refused, by store, in every worker's database. */
+  refused: string[];
+  /** What `storage` heard: `failed source:s1`, `saved profile`… (step 39s1). */
+  storageEvents: string[];
 }
 
 function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: RpcHandlers['run'], reloadConfig?: RpcHandlers['reloadConfig']): Setup {
@@ -126,6 +135,18 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: 
   const busyChanges: boolean[] = [];
   const profileChanges = { n: 0 };
   const refreshed: RefreshDone[] = [];
+  const fullness: Setup['fullness'] = { on: () => false };
+  const drops = { n: 0 };
+  const refused: string[] = [];
+  const storageEvents: string[] = [];
+  /** A worker's database, full where `fullness` says (step 39s1). */
+  const openFull = async (dbs: IDBDatabase[]): Promise<IDBDatabase> => {
+    const db = await openDatabase(factory);
+    fillStore(db, (store) => fullness.on(store), refused);
+    dbs.push(db);
+    return db;
+  };
+  const named = (item: StorageItem): string => (item.kind === 'profile' ? 'profile' : `${item.kind}:${item.id}`);
 
   /** A stand-in Worker: the handlers are served on one end of a channel, the engine gets the other. */
   function worker(handlers: RpcHandlers, dbs: IDBDatabase[], onTerminate: () => void = () => undefined): WorkerLike {
@@ -159,30 +180,21 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: 
       profileChanges.n++;
     },
     onRefreshed: (done) => refreshed.push(done),
+    storage: {
+      failed: (item) => storageEvents.push(`failed ${named(item)}`),
+      saved: (item) => storageEvents.push(`saved ${named(item)}`),
+    },
     startQueryWorker: () => {
       started.query++;
       const dbs: IDBDatabase[] = [];
-      const service = new QueryService({
-        openDb: async () => {
-          const db = await openDatabase(factory);
-          dbs.push(db);
-          return db;
-        },
-      });
+      const service = new QueryService({ openDb: () => openFull(dbs) });
       return worker(reloadConfig ? { ...service.handlers(), reloadConfig } : service.handlers(), dbs);
     },
     startIngestWorker: () => {
       started.ingest++;
       live++;
       const dbs: IDBDatabase[] = [];
-      const service = new IngestService({
-        transport,
-        openDb: async () => {
-          const db = await openDatabase(factory);
-          dbs.push(db);
-          return db;
-        },
-      });
+      const service = new IngestService({ transport, openDb: () => openFull(dbs) });
       const handlers = service.handlers();
       return worker(
         {
@@ -190,6 +202,10 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: 
           setBusy: (arg: { busy: boolean }) => {
             busyCalls.push(arg.busy);
             return handlers.setBusy(arg);
+          },
+          dropGuides: () => {
+            drops.n++;
+            return handlers.dropGuides();
           },
         },
         dbs,
@@ -202,15 +218,7 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: 
       started.epg++;
       live++;
       const dbs: IDBDatabase[] = [];
-      const service = new EpgService({
-        transport,
-        now: () => clock.now,
-        openDb: async () => {
-          const db = await openDatabase(factory);
-          dbs.push(db);
-          return db;
-        },
-      });
+      const service = new EpgService({ transport, now: () => clock.now, openDb: () => openFull(dbs) });
       const handlers = service.handlers();
       return worker(
         {
@@ -305,7 +313,7 @@ function setup(respond: (url: string) => FakeResponse, idleMs = 40, configRun?: 
     },
   });
   engines.push(engine);
-  return { engine, factory, started, configLive: () => configLive, pairLive: () => pairLive, backup, backupApi, backupHold, clock, live: () => live, busyCalls, busyChanges, profileChanges, refreshed, telemetry };
+  return { engine, factory, started, configLive: () => configLive, pairLive: () => pairLive, backup, backupApi, backupHold, clock, live: () => live, busyCalls, busyChanges, profileChanges, refreshed, telemetry, fullness, drops, refused, storageEvents };
 }
 
 const CONFIG_URL = 'http://api.test/v1/config';
@@ -1378,5 +1386,131 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     s.engine.noteActivity();
     expect(s.busyChanges).toEqual([]);
     expect(() => s.engine.query).toThrow('The data engine was disposed');
+  });
+});
+
+describe('DataEngine on a full store (step 39s1)', () => {
+  const catalogs = [{ src: 'debug', type: 'm3u' as const }];
+  /** A source with its guide stored: the room the app may make. */
+  async function stored() {
+    // Each link its own list (the same bytes would end as unchanged).
+    const lists = ['list', 'other', 'third', 'fourth'];
+    const s = setup((url) => (url === GUIDE_URL ? { body: guide(4) } : { body: playlist(8 + lists.indexOf(url.slice(14, -4)), 4, true) }));
+    await s.engine.refresh(job());
+    const epg = await s.engine.refreshEpg(catalogs, { tier: 'full' });
+    expect(epg.outcomes.map((o) => o.result?.status)).toEqual(['committed']);
+    s.storageEvents.splice(0);
+    return s;
+  }
+  const guideRecords = async (factory: IDBFactory): Promise<number> => {
+    const db = await openDatabase(factory);
+    const n = (await dumpStore(db, STORE.epgMeta)).length + (await dumpStore(db, STORE.epgBuckets)).length;
+    db.close();
+    return n;
+  };
+
+  it('saves a profile edit refused for space after deleting the guides in an ingest worker, and the query worker reads them again', async () => {
+    const s = await stored();
+    expect(await guideRecords(s.factory)).toBeGreaterThan(0);
+    expect((await s.engine.epgStatus()).guides).toHaveLength(1);
+    expect((await s.engine.epgStatus()).matched).toBeGreaterThan(0);
+    s.fullness.on = (store) => store === STORE.profile && s.drops.n === 0;
+    const ingests = s.started.ingest;
+    expect(await s.engine.editProfile({ kind: 'answers', answers: { language: 'ar' } })).toBe(true);
+    expect(s.drops.n).toBe(1);
+    expect(s.started.ingest).toBe(ingests + 1);
+    expect(await guideRecords(s.factory)).toBe(0);
+    // The query worker read the guides again: none is stored, no channel has one.
+    expect((await s.engine.epgStatus()).guides).toEqual([]);
+    expect((await s.engine.epgStatus()).matched).toBe(0);
+    expect(((await s.engine.profile())!.doc as unknown as { onboarding: { language: string } }).onboarding.language).toBe('ar');
+    expect(s.storageEvents).toEqual(['saved profile']);
+    expect(s.profileChanges.n).toBe(2);
+  });
+
+  it('fails an edit still refused after the room, says so, and the next edit that goes through clears it', async () => {
+    const s = await stored();
+    s.fullness.on = (store) => store === STORE.profile;
+    await expect(s.engine.editProfile({ kind: 'answers', answers: { language: 'ar' } })).rejects.toMatchObject({ code: 'QuotaExceededError' });
+    expect(s.drops.n).toBe(1);
+    expect(s.storageEvents).toEqual(['failed profile']);
+    s.fullness.on = () => false;
+    expect(await s.engine.editProfile({ kind: 'answers', answers: { language: 'ar' } })).toBe(true);
+    expect(s.storageEvents).toEqual(['failed profile', 'saved profile']);
+    // An edit that changes nothing writes nothing: nothing to say.
+    expect(await s.engine.editProfile({ kind: 'answers', answers: { language: 'ar' } })).toBe(false);
+    expect(s.storageEvents).toHaveLength(2);
+  });
+
+  it('makes no room for an edit that failed for another reason', async () => {
+    const s = await stored();
+    const query = s.engine as unknown as { query: { call(name: string, arg?: unknown): Promise<unknown> } };
+    const call = query.query.call.bind(query.query);
+    query.query.call = (name, arg) => (name === 'editProfile' ? Promise.reject(Object.assign(new Error('closing'), { code: 'InvalidStateError' })) : call(name, arg));
+    await expect(s.engine.editProfile({ kind: 'answers', answers: { language: 'ar' } })).rejects.toMatchObject({ code: 'InvalidStateError' });
+    expect(s.drops.n).toBe(0);
+    expect(s.storageEvents).toEqual([]);
+  });
+
+  it('reloads the query worker when a refresh made room, and hears which sources failed for space and went through', async () => {
+    const s = await stored();
+    s.fullness.on = (store) => store === STORE.chunks && s.refused.length === 0;
+    const r = await s.engine.refresh(job('http://p.test/other.m3u'));
+    // The chunks were refused until the guides went; then the refresh committed.
+    expect(r).toMatchObject({ status: 'committed' });
+    expect(await guideRecords(s.factory)).toBe(0);
+    expect((await s.engine.epgStatus()).guides).toEqual([]);
+    expect(s.storageEvents).toEqual(['saved source:debug']);
+    expect([s.refused, s.drops.n]).toEqual([[STORE.chunks], 0]);
+
+    s.fullness.on = (store) => store === STORE.chunks;
+    await expect(s.engine.refresh(job('http://p.test/third.m3u'))).rejects.toMatchObject({ code: 'storage' });
+    expect(s.storageEvents).toEqual(['saved source:debug', 'failed source:debug']);
+    s.fullness.on = () => false;
+    await s.engine.refresh(job('http://p.test/fourth.m3u'));
+    expect(s.storageEvents).toEqual(['saved source:debug', 'failed source:debug', 'saved source:debug']);
+  });
+
+  it('reloads the query worker when a refresh made room and then failed for space', async () => {
+    const s = await stored();
+    expect((await s.engine.epgStatus()).matched).toBeGreaterThan(0);
+    s.fullness.on = (store) => store === STORE.chunks;
+    await expect(s.engine.refresh(job('http://p.test/other.m3u'))).rejects.toMatchObject({ code: 'storage' });
+    expect(await guideRecords(s.factory)).toBe(0);
+    expect((await s.engine.epgStatus()).matched).toBe(0);
+  });
+
+  it('hears which guides failed for space, went through or were deleted', async () => {
+    const s = await stored();
+    s.fullness.on = (store) => store === STORE.epgBuckets;
+    const failed = await s.engine.refreshEpg(catalogs, { tier: 'full', force: true });
+    expect(failed.outcomes.map((o) => o.error?.code)).toEqual(['storage']);
+    const epgSrc = failed.outcomes[0]!.epgSrc;
+    expect(s.storageEvents).toEqual([`failed guide:${epgSrc}`]);
+    s.fullness.on = () => false;
+    await s.engine.refreshEpg(catalogs, { tier: 'full', force: true });
+    expect(s.storageEvents).toEqual([`failed guide:${epgSrc}`, `saved guide:${epgSrc}`]);
+    // A guide no longer listed is deleted: nothing of it can be failing.
+    await s.engine.refreshEpg([], { tier: 'full' });
+    expect(s.storageEvents).toEqual([`failed guide:${epgSrc}`, `saved guide:${epgSrc}`, `saved guide:${epgSrc}`]);
+    // A guide that failed for another reason says nothing of the storage.
+    const network = setup((url) => (url === GUIDE_URL ? { status: 500 } : { body: playlist(8, 4, true) }));
+    await network.engine.refresh(job());
+    network.storageEvents.splice(0);
+    const other = await network.engine.refreshEpg(catalogs, { tier: 'full' });
+    expect(other.outcomes.map((o) => o.error?.code)).toEqual(['http']);
+    expect(network.storageEvents).toEqual([]);
+  });
+});
+
+describe('DataEngine on a store with room (step 39s1)', () => {
+  it('says nothing of the storage when a refresh fails for another reason', async () => {
+    let status = 200;
+    const s = setup(() => (status === 200 ? { body: playlist(8) } : { status, body: 'gone' }));
+    await s.engine.refresh(job());
+    status = 404;
+    await expect(s.engine.refresh(job())).rejects.toThrow(/HTTP 404/);
+    expect(s.storageEvents).toEqual(['saved source:debug']);
+    expect(s.drops.n).toBe(0);
   });
 });

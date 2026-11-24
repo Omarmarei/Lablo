@@ -87,6 +87,7 @@ export function failureText(t: Translate, failure: EpgFailure): string {
   if (failure.code === 'network') return t('guides.failure.network');
   if (failure.code === 'format') return t('guides.failure.format', { format: NAMES.guide });
   if (failure.code === 'empty') return t('guides.failure.empty');
+  if (failure.code === 'storage') return t('guides.failure.storage');
   return t('guides.failure.other');
 }
 
@@ -227,6 +228,7 @@ export function sourceKindText(t: Translate, row: SourceRow): string {
  * file from the phone is never updated by itself: when it was sent (step 31d2b1), or, with no
  * catalog (a restored backup holds no file, step 32c2), that it has to be sent again. Step 32d4b:
  * a save's refresh running ("Updating…") or why it failed, else that it needs its login or link.
+ * Step 39s1: a source whose refresh failed for space says so, with when it was last updated.
  */
 export function statusText(i18n: AppI18n, row: SourceRow): string {
   const answer = row.answer;
@@ -234,13 +236,14 @@ export function statusText(i18n: AppI18n, row: SourceRow): string {
   if (row.needs !== null) return row.needs === 'login' ? i18n.t('sources.needsLogin') : i18n.t('sources.needsLink');
   const at = row.checkedAt === null ? null : new Date(row.checkedAt);
   if (row.type === 'm3u-file') return at === null ? i18n.t('sources.fileAgain') : i18n.t('sources.fileSent', { day: i18n.date(at, 'day'), time: i18n.time(at) });
+  if (row.storage) return at === null ? i18n.t('sources.storage') : i18n.t('sources.storageSince', { day: i18n.date(at, 'day'), time: i18n.time(at) });
   if (row.blocked) return at === null ? i18n.t('sources.blocked') : i18n.t('sources.blockedSince', { day: i18n.date(at, 'day'), time: i18n.time(at) });
   return at === null ? i18n.t('sources.notUpdated') : i18n.t('sources.updated', { day: i18n.date(at, 'day'), time: i18n.time(at) });
 }
 
-/** A source's line is in the warning colour: blocked, without its login, or its save failed (step 32d4b). */
+/** A source's line is in the warning colour: blocked, without its login, its save failed (step 32d4b), or it failed for space (step 39s1). */
 export function warns(row: SourceRow): boolean {
-  return row.blocked || row.needs !== null || (row.answer !== null && row.answer.state === 'failed');
+  return row.blocked || row.storage || row.needs !== null || (row.answer !== null && row.answer.state === 'failed');
 }
 
 export function SourceItem({ i18n, row, index, item }: { i18n: AppI18n; row: SourceRow; index: number; item: ItemBinding }) {
@@ -257,6 +260,7 @@ export function SourceItem({ i18n, row, index, item }: { i18n: AppI18n; row: Sou
       data-state={item.state}
       data-checked={row.checkedAt ?? ''}
       data-blocked={String(row.blocked)}
+      data-storage={String(row.storage)}
       data-needs={row.needs ?? ''}
       data-answer={answer === null ? '' : answer.state}
       data-code={answer !== null && answer.state === 'failed' ? answer.code : ''}

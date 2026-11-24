@@ -24,7 +24,7 @@ export interface LoadProgress {
  * `blocklisted`: the source's server is on the signed config's blocklist (step 30c3a). `file`: the
  * phone's file couldn't be fetched or opened, or isn't there any more (step 31d2b1).
  */
-export type LoadErrorCode = 'auth' | 'expired' | 'blocked' | 'blocklisted' | 'network' | 'http' | 'format' | 'empty' | 'file' | 'other';
+export type LoadErrorCode = 'auth' | 'expired' | 'blocked' | 'blocklisted' | 'network' | 'http' | 'format' | 'empty' | 'file' | 'storage' | 'other';
 
 export class LoadError extends Error {
   constructor(

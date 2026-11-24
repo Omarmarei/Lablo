@@ -43,8 +43,9 @@ import type { ChannelEdit } from './channel-edits';
 import { channelEditsOf, cleanNamesOn } from './channel-edits';
 import type { ParentalChange, ParentalDoc, ParentalState } from './parental';
 import { applyParentalChange, parentalOf } from './parental';
-import { onSuccess, transact } from './idb';
+import { getValue, onSuccess, transact } from './idb';
 import { STORE } from './schema';
+import { isQuotaError } from './storage-room';
 
 /**
  * A favourite item. When its key disappears from a refresh, `normName` (narrowed by `epgId` and
@@ -915,10 +916,18 @@ export interface ProfileOptions {
   migrations?: readonly ProfileMigration[];
 }
 
+/** A stored document as loaded: upgraded to this version in memory. */
+function loadedOf(record: ProfileRecord, migrations: readonly ProfileMigration[] | undefined): { loaded: LoadedProfile; migrated: boolean } {
+  const result = migrateProfile(record.doc, migrations);
+  return { loaded: { doc: result.doc, newer: result.newer, migratedFrom: result.migrated ? result.from : null }, migrated: result.migrated };
+}
+
 /**
  * Loads the current profile, upgrading it in place if it is older than this app version (the old
  * document goes to a snapshot slot in the same transaction). `null` when there is none: a fresh
- * install, or a webOS wipe (step 32 restores it from the cloud).
+ * install, or a webOS wipe (step 32 restores it from the cloud). When the store is full (RELAY step
+ * 39s1) the upgrade can't be written: the stored document is untouched, and the upgraded one is
+ * given from memory (the next save writes it).
  */
 export function loadProfile(db: IDBDatabase, options: ProfileOptions = {}): Promise<LoadedProfile | null> {
   const now = options.now ?? Date.now();
@@ -930,15 +939,18 @@ export function loadProfile(db: IDBDatabase, options: ProfileOptions = {}): Prom
         done(null);
         return;
       }
-      const result = migrateProfile(record.doc, options.migrations);
-      done({ doc: result.doc, newer: result.newer, migratedFrom: result.migrated ? result.from : null });
+      const result = loadedOf(record, options.migrations);
+      done(result.loaded);
       if (!result.migrated) return;
       onSuccess(store.getAll(SNAPSHOTS()), (snaps) => {
         const snapshot: ProfileSnapshot = { id: snapshotSlot(snaps as ProfileSnapshot[]), savedAt: now, doc: record.doc, reason: 'migration' };
         store.put(snapshot);
-        store.put({ id: CURRENT, savedAt: now, doc: result.doc } satisfies ProfileRecord);
+        store.put({ id: CURRENT, savedAt: now, doc: result.loaded.doc } satisfies ProfileRecord);
       });
     });
+  }).catch((error: unknown) => {
+    if (!isQuotaError(error)) throw error;
+    return getValue<ProfileRecord>(db, STORE.profile, CURRENT).then((record) => (record ? loadedOf(record, options.migrations).loaded : null));
   });
 }
 

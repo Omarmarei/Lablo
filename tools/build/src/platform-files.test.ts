@@ -72,6 +72,13 @@ describe('platform manifests', () => {
     const text = fillTemplate(read('platforms/tizen/config.xml'), '0.1.0');
     expect(() => checkConfigXml(text, '0.2.0')).toThrow(/widget version/);
   });
+
+  it('rejects a config.xml without the unlimitedstorage privilege (step 39s1)', () => {
+    const text = fillTemplate(read('platforms/tizen/config.xml'), '0.1.0');
+    expect(text).toContain('<tizen:privilege name="http://tizen.org/privilege/unlimitedstorage"/>');
+    const without = text.replace('<tizen:privilege name="http://tizen.org/privilege/unlimitedstorage"/>', '');
+    expect(() => checkConfigXml(without, '0.1.0')).toThrow(/the unlimitedstorage privilege is missing/);
+  });
 });
 
 describe('foreignCode', () => {

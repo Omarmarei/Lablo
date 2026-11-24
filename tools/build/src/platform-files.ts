@@ -83,6 +83,8 @@ export function checkConfigXml(text: string, version: string): { appId: string }
   if (!text.includes(`version="${version}"`)) problems.push(`widget version is not "${version}"`);
   if (!text.includes('<content src="index.html"/>')) problems.push('<content src="index.html"/> is missing');
   if (!text.includes('http://tizen.org/privilege/tv.inputdevice')) problems.push('the tv.inputdevice privilege is missing');
+  // The catalog and the guides need more than the default quota (step 39s1).
+  if (!text.includes('http://tizen.org/privilege/unlimitedstorage')) problems.push('the unlimitedstorage privilege is missing');
   const appId = /<tizen:application\s+id="([^"]+)"/.exec(text)?.[1];
   if (appId === undefined) problems.push('<tizen:application id="…"> is missing');
   if (problems.length > 0 || appId === undefined) throw new Error(`platforms/tizen/config.xml: ${problems.join('; ')}`);

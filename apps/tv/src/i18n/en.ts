@@ -246,6 +246,8 @@ export const EN = {
   'error.file': "The file from your phone couldn't be read. Send it again.",
   'error.fileFormat': "This file isn't a playlist.",
   'error.fileNetwork': "Couldn't get the file from your phone. Check your internet connection and send it again.",
+  // Step 39s1: Lablo's storage on the TV is full, even after the guides made room.
+  'error.storage': "There isn't enough storage left on this TV for Lablo to save this list.",
 
   // The source is added.
   'done.title': "You're all set",
@@ -265,6 +267,7 @@ export const EN = {
   'live.loading': 'Loading your channels',
   'live.empty': 'Your sources have no live channels.',
   'live.failed': "Couldn't read your channels.",
+  'live.storageFull': "Lablo's storage is full, so updates can't be saved. Remove a TV guide you don't use in Settings to make room.",
   'live.retry': 'Try again',
 
   // What was left part way (RELAY step 27d): first in the movies and series rails when there is any.
@@ -396,6 +399,7 @@ export const EN = {
   'guides.failure.network': "Couldn't read it: the server couldn't be reached.",
   'guides.failure.format': "Couldn't read it: this link didn't give an {format} guide.",
   'guides.failure.empty': "Couldn't read it: you have no live channels for it to match.",
+  'guides.failure.storage': "Couldn't save it: Lablo's storage on this TV is full.",
   'guides.failure.other': "Couldn't read it. It will be tried again later.",
   'guides.blocked': "Not read: this server can't be used with Lablo.",
 
@@ -411,6 +415,8 @@ export const EN = {
   'sources.fileAgain': 'Not loaded yet: send this file again from your phone.',
   'sources.blocked': "Not updated: this server can't be used with Lablo.",
   'sources.blockedSince': "Not updated since {day}, {time}: this server can't be used with Lablo.",
+  'sources.storage': "Not updated: Lablo's storage on this TV is full.",
+  'sources.storageSince': "Not updated since {day}, {time}: Lablo's storage on this TV is full.",
   'sources.failedRead': "Couldn't read your sources.",
   'sources.addPhone': 'Add from your phone',
   // A source a backup brought back without its login or link (RELAY step 32d4b), and its form.

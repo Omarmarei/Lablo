@@ -116,6 +116,23 @@
   min-width: 0;
 }
 
+/*
+ * Lablo's storage on the TV is full (step 39s1): one line under the header while it lasts, 32 px
+ * plus a 4 px gap (LIVE.storageLine). The body below has 36 px to spare (12 chips and 9 rows take
+ * 856 of 892 px), so the rail and the list keep their rows.
+ */
+.live__storage {
+  flex: none;
+  height: 32px;
+  margin: 0 0 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-warn);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
 .live__message {
   display: flex;
   flex: 1;

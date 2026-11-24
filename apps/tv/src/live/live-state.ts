@@ -77,6 +77,8 @@ export const LIVE = {
   railGap: 8,
   columnGap: 32,
   rowGap: 8,
+  /** The storage line under the header (step 39s1): 32 px and a 4 px gap, taken from the body's spare room. */
+  storageLine: 36,
 } as const;
 
 /** The rail's and the list's height: the safe area less the header. */

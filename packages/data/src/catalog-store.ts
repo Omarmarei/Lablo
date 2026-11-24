@@ -19,6 +19,7 @@ import type { CatalogChunk, CategoryInfo } from './chunker';
 import { onSuccess, transact } from './idb';
 import type { RecentItem } from './recent';
 import { STORE } from './schema';
+import { isQuotaError } from './storage-room';
 
 /** Ingest bookkeeping for one source. */
 export interface SourceMeta {
@@ -111,16 +112,29 @@ export function markChecked(db: IDBDatabase, src: string, now: number, patch: So
 
 /**
  * Drops a generation that will never be committed (a failed or cancelled refresh, or one that
- * turned out unchanged): its records, and the `building` mark if it is still the one being built.
+ * turned out unchanged): its records, then the `building` mark if it is still the one being built.
+ * The records go in a transaction that only deletes, so a full store never keeps them (step
+ * 39s1); the mark goes after them, and stays when the store is too full for that (`unmark`).
  */
-export function abandonGeneration(db: IDBDatabase, src: string, gen: number): Promise<void> {
-  return transact<void>(db, [STORE.sources, ...CATALOG_STORES], 'readwrite', (tx) => {
+export async function abandonGeneration(db: IDBDatabase, src: string, gen: number): Promise<void> {
+  if (gen > 0) await deleteGeneration(db, src, gen);
+  await unmark(db, src, gen);
+}
+
+/**
+ * Clears the `building` mark when it is still `gen`. On a full store the mark stays: nothing but
+ * this module reads it, a mark on deleted records changes nothing, and the next refresh's
+ * `beginGeneration` replaces it.
+ */
+function unmark(db: IDBDatabase, src: string, gen: number): Promise<void> {
+  return transact<void>(db, STORE.sources, 'readwrite', (tx) => {
     const sources = tx.objectStore(STORE.sources);
     onSuccess(sources.get(src), (value) => {
       const meta = value as SourceMeta | undefined;
       if (meta && meta.building === gen) sources.put({ ...meta, building: null } satisfies SourceMeta);
     });
-    if (gen > 0) for (const name of CATALOG_STORES) tx.objectStore(name).delete(generationRange(src, gen));
+  }).catch((error: unknown) => {
+    if (!isQuotaError(error)) throw error;
   });
 }
 
@@ -207,17 +221,18 @@ export function deleteGeneration(db: IDBDatabase, src: string, gen: number): Pro
 /**
  * Deletes the generations of `src` that are neither active nor being built: leftovers of a
  * crashed refresh or an interrupted background delete. Run at startup. With `abandon`, the one
- * being built is dropped too (no refresh is running in this session).
+ * being built is dropped too (no refresh is running in this session), its mark after its records,
+ * as `abandonGeneration` does (step 39s1).
  */
-export function pruneGenerations(db: IDBDatabase, src: string, options: { abandon?: boolean } = {}): Promise<void> {
-  return transact<void>(db, [STORE.sources, ...CATALOG_STORES], 'readwrite', (tx) => {
-    const sources = tx.objectStore(STORE.sources);
-    onSuccess(sources.get(src), (value) => {
+export async function pruneGenerations(db: IDBDatabase, src: string, options: { abandon?: boolean } = {}): Promise<void> {
+  const abandoned = await transact<number | null>(db, [STORE.sources, ...CATALOG_STORES], 'readwrite', (tx, done) => {
+    done(null);
+    onSuccess(tx.objectStore(STORE.sources).get(src), (value) => {
       const meta = value as SourceMeta | undefined;
       const keep: number[] = [];
       if (meta && meta.gen > 0) keep.push(meta.gen);
       if (meta && meta.building !== null && !options.abandon) keep.push(meta.building);
-      if (meta && meta.building !== null && options.abandon) sources.put({ ...meta, building: null } satisfies SourceMeta);
+      if (meta && meta.building !== null && options.abandon) done(meta.building);
       const ranges = otherGenerations(src, keep);
       for (const name of CATALOG_STORES) {
         const store = tx.objectStore(name);
@@ -225,6 +240,7 @@ export function pruneGenerations(db: IDBDatabase, src: string, options: { abando
       }
     });
   });
+  if (abandoned !== null) await unmark(db, src, abandoned);
 }
 
 /**
