@@ -435,6 +435,12 @@ importers:
         specifier: ^22.20.5
         version: 22.20.5
 
+  tools/tv:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
+
 packages:
 
   '@babel/code-frame@7.29.7':

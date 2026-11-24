@@ -11,6 +11,7 @@
     "dev": "pnpm --filter @lablo/app-tv dev",
     "build:tv": "tsx tools/build/build-tv.ts",
     "device": "tsx tools/device/device.ts",
+    "tv": "tsx tools/tv/tv.ts",
     "mock": "tsx apps/mock-provider/src/main.ts",
     "mock:media": "tsx apps/mock-provider/src/media-cli.ts generate",
     "mock:open-movies": "tsx apps/mock-provider/src/media-cli.ts open-movies",
