@@ -657,7 +657,7 @@ export const EN = {
   'settings.parentalHint': 'Your PIN, and the groups and channels it locks',
   // Settings › "Player" (step 38d3): its values are the track menu's and the info bar's words (`lang.*`, `tracks.*`, `player.picture.*`).
   'settings.player': 'Player',
-  'settings.playerHint': 'Audio and subtitle languages, picture, clock and sleep timer',
+  'settings.playerHint': 'Audio and subtitle languages, picture, clock, sleep timer and buffering',
   'playerSettings.audio': 'Audio language',
   'playerSettings.audioHint': 'Plays first when a channel or film has more than one',
   'playerSettings.app': 'Same as the app',
@@ -679,6 +679,12 @@ export const EN = {
   'playerSettings.sleepUntil': 'Stops playback at {time}',
   'playerSettings.sleepOff': 'Off',
   'playerSettings.sleepFor': '{n, plural, one {# minute} other {# minutes}}',
+  // "Buffering" (RELAY step 39d): its line says what the value does.
+  'playerSettings.buffer': 'Buffering',
+  'playerSettings.fast': 'Fast start',
+  'playerSettings.stable': 'Stable',
+  'playerSettings.fastHint': 'Playback starts sooner, and a stalled stream reconnects quickly',
+  'playerSettings.stableHint': 'For slow providers: waits longer before it reconnects, and may start later',
   'player.still.title': 'Still watching?',
   'player.still.idle': 'No button has been pressed for a while.',
   'player.still.sleep': 'The sleep timer has ended.',

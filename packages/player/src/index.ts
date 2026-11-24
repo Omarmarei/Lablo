@@ -10,6 +10,7 @@ export { SYSTEM_CLOCK } from './clock';
 
 export type {
   Container,
+  EngineBuffer,
   EngineCaps,
   EngineEvent,
   EngineSource,
@@ -37,8 +38,8 @@ export { FILE_TRACK, MemoryTrackMemory, NO_PREFERENCES, NO_TRACKS, fileIndex, fi
 export type { AccountStatus, FailureCategory, FailureFacts, PlaybackFailure } from './failure';
 export { BLOCKED_CODE, blockedFailure, classifyFailure, isDefinitive, wantsAccountCheck } from './failure';
 
-export type { LadderOptions, RetryPlan, Rung, WatchdogConfig } from './ladder';
-export { DEFAULT_WATCHDOG, RetryLadder } from './ladder';
+export type { LadderOptions, PlayTuning, RetryPlan, Rung, WatchdogConfig } from './ladder';
+export { DEFAULT_TUNING, DEFAULT_WATCHDOG, RetryLadder } from './ladder';
 
 export type { ControllerOptions, PlayOptions, PlayerReport, PlayerState, PlayerStatus, StreamStats, SubtitleFeed, SubtitleView } from './controller';
 export { CUE_TICK_MS, ENGINE_CUE_MS, MAX_ENGINE_CUES, PlayerController } from './controller';

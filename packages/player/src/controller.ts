@@ -27,6 +27,8 @@
  *   `checkBlocklist` asks again about the stream on show after a config refresh.
  * - **telemetry's reports** (step 33b2, `report`): each play's result once (its time to the first
  *   frame, or the error it gave up on) and each stall's end (recovered or not, with its retries).
+ * - **the tuning** (step 39d, `tuning`): the watchdog's numbers and the engine's buffers, asked for
+ *   at each `play` (Settings' "Buffering" and remote config's tunables) and kept for the session.
  *
  * Debounced zapping, number entry, the info bar, the track menu and the subtitle overlay are the
  * app's (apps/tv/src/player). Platform-specific needs arrive as callbacks (ADR-008).
@@ -36,14 +38,14 @@ import type { ContentKey, SubtitleCue } from '@lablo/core';
 import { SubtitleTrack, cueText } from '@lablo/core';
 import type { Clock } from './clock';
 import { SYSTEM_CLOCK } from './clock';
-import type { Container, EngineEvent, EngineStats, LoadOptions, PlayMode, PlaybackError, PlayerEngine } from './engine';
+import type { Container, EngineBuffer, EngineEvent, EngineStats, LoadOptions, PlayMode, PlaybackError, PlayerEngine } from './engine';
 import { isPlaybackError } from './engine';
 import type { PictureMode } from './picture';
 import { pictureLayout, pictureModes } from './picture';
 import type { AccountStatus, PlaybackFailure } from './failure';
 import { blockedFailure, classifyFailure, wantsAccountCheck } from './failure';
-import type { WatchdogConfig } from './ladder';
-import { DEFAULT_WATCHDOG, RetryLadder } from './ladder';
+import type { PlayTuning, WatchdogConfig } from './ladder';
+import { DEFAULT_TUNING, RetryLadder } from './ladder';
 import type { ExternalSub, PlayCandidate, PlayRequest, SourceMemory } from './request';
 import { MemorySourceMemory, orderCandidates } from './request';
 import type { PlayerTrack, PlayerTracks, TrackChoice, TrackMemory, TrackPreferences } from './tracks';
@@ -115,7 +117,11 @@ export type PlayerReport =
 export interface ControllerOptions {
   readonly clock?: Clock;
   readonly memory?: SourceMemory;
-  readonly config?: WatchdogConfig;
+  /**
+   * The watchdog's numbers and the engine's buffers (RELAY step 39d), asked for at each `play` and
+   * kept for its session (default: `DEFAULT_TUNING`).
+   */
+  readonly tuning?: () => PlayTuning;
   /** Whether the TV can reach the internet (default: always). */
   readonly online?: () => boolean | Promise<boolean>;
   /** Re-checks a source's account after a provider failure (Xtream `player_api.php`); `null` when it can't. */
@@ -193,6 +199,10 @@ interface Session {
   startedAt: number;
   readonly candidates: readonly PlayCandidate[];
   readonly live: boolean;
+  /** The watchdog's numbers for this session (step 39d). */
+  readonly watchdog: WatchdogConfig;
+  /** What the engine is told to buffer for this session's stream (`null`: its own). */
+  readonly buffer: EngineBuffer | null;
   readonly ladder: RetryLadder;
   /** Index of the URL being played or tried. */
   current: number;
@@ -250,12 +260,14 @@ interface EngineCue {
 }
 
 /**
- * What the engine is told besides the URL: where a VOD or catch-up starts, and that a radio
- * channel's stream has no picture (`PlayRequest.hints.audioOnly`, RELAY step 37b).
+ * What the engine is told besides the URL: where a VOD or catch-up starts, that a radio
+ * channel's stream has no picture (`PlayRequest.hints.audioOnly`, RELAY step 37b), and how much
+ * to buffer (step 39d).
  */
 function loadOptions(s: Session): LoadOptions {
-  const opts: { startMs?: number; audioOnly?: boolean } = {};
+  const opts: { startMs?: number; audioOnly?: boolean; buffer?: EngineBuffer } = {};
   if (s.resumeMs !== undefined) opts.startMs = s.resumeMs;
+  if (s.buffer !== null) opts.buffer = s.buffer;
   const hints = s.req.hints;
   if (hints !== undefined && hints.audioOnly === true) opts.audioOnly = true;
   return opts;
@@ -269,7 +281,7 @@ function asPlaybackError(reason: unknown): PlaybackError {
 export class PlayerController {
   private readonly clock: Clock;
   private readonly memory: SourceMemory;
-  private readonly config: WatchdogConfig;
+  private readonly tuning: () => PlayTuning;
   private readonly online: () => boolean | Promise<boolean>;
   private readonly checkAccount: ((src: string) => Promise<AccountStatus | null>) | undefined;
   private readonly resolveUrl: ((url: string, src: string, fresh: boolean) => Promise<string>) | undefined;
@@ -320,7 +332,7 @@ export class PlayerController {
   ) {
     this.clock = options.clock ?? SYSTEM_CLOCK;
     this.memory = options.memory ?? new MemorySourceMemory();
-    this.config = options.config ?? DEFAULT_WATCHDOG;
+    this.tuning = options.tuning ?? (() => DEFAULT_TUNING);
     this.online = options.online ?? (() => true);
     this.checkAccount = options.checkAccount;
     this.resolveUrl = options.resolveUrl;
@@ -387,12 +399,16 @@ export class PlayerController {
   play(req: PlayRequest, opts: PlayOptions = {}): Promise<void> {
     ++this.sessionSeq;
     const candidates = orderCandidates(req.candidates, this.memory.preferred(req.src));
+    const tuning = this.tuning();
+    const live = req.mode === 'live';
     const s: Session = {
       req,
       startedAt: this.clock.now(),
       candidates,
-      live: req.mode === 'live',
-      ladder: new RetryLadder(this.config, { candidates: candidates.length, canReprobe: this.resolveUrl !== undefined }),
+      live,
+      watchdog: tuning.watchdog,
+      buffer: live ? tuning.liveBuffer : tuning.vodBuffer,
+      ladder: new RetryLadder(tuning.watchdog, { candidates: candidates.length, canReprobe: this.resolveUrl !== undefined }),
       current: 0,
       url: null,
       framed: [],
@@ -778,7 +794,7 @@ export class PlayerController {
 
   /** No first frame for the load `token` within the open timeout fails it. */
   private armOpenTimer(token: number): void {
-    this.openTimer = this.clock.setTimeout(() => this.fail(token, { kind: 'timeout', code: 'OPEN' }), this.config.openTimeoutMs);
+    this.openTimer = this.clock.setTimeout(() => this.fail(token, { kind: 'timeout', code: 'OPEN' }), this.s!.watchdog.openTimeoutMs);
   }
 
   /** Stops the engine, or joins the stop already under way. */
@@ -999,7 +1015,7 @@ export class PlayerController {
   }
 
   private scheduleTick(): void {
-    this.tickTimer = this.clock.setTimeout(() => this.tick(), this.config.tickMs);
+    this.tickTimer = this.clock.setTimeout(() => this.tick(), this.s!.watchdog.tickMs);
   }
 
   /** The watchdog: reads the position and checks the stall rules. */
@@ -1013,11 +1029,12 @@ export class PlayerController {
       if (!s.live) s.resumeMs = pos;
     }
     const state = this.current.state;
-    if (state === 'playing' && s.live && now - this.lastMoveAt >= this.config.liveFrozenMs) {
+    const limits = s.watchdog;
+    if (state === 'playing' && s.live && now - this.lastMoveAt >= limits.liveFrozenMs) {
       this.fail(this.liveToken, { kind: 'stall', code: 'FROZEN' });
       return;
     }
-    if (state === 'buffering' && now - this.bufferingSince >= (s.live ? this.config.liveBufferingMs : this.config.vodBufferingMs)) {
+    if (state === 'buffering' && now - this.bufferingSince >= (s.live ? limits.liveBufferingMs : limits.vodBufferingMs)) {
       this.fail(this.liveToken, { kind: 'stall', code: 'BUFFERING' });
       return;
     }

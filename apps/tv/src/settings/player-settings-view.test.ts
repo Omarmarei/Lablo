@@ -51,13 +51,14 @@ function page(values: PlayerShown, modes: readonly PictureMode[] = ['fit', 'zoom
     picture: signal(values.picture),
     clock: signal(values.clock),
     still: signal(values.still),
+    buffer: signal(values.buffer),
     sleep: () => values.sleep,
     modes: signal(modes),
     open: () => undefined,
   };
 }
 
-const START: PlayerShown = { audio: null, subtitles: null, size: 'm', picture: 'fit', clock: false, still: 4, sleep: null };
+const START: PlayerShown = { audio: null, subtitles: null, size: 'm', picture: 'fit', clock: false, still: 4, sleep: null, buffer: 'fast' };
 /** 21:30 on 2026-11-24 in the test's zone (the catalogs' times are the locale's). */
 const UNTIL = new Date(2026, 10, 24, 21, 30).getTime();
 const SLEEPING: SleepTimer = { minutes: 60, until: UNTIL };
@@ -99,6 +100,13 @@ describe('Settings › "Player" as drawn (RELAY step 38d3)', () => {
     expect(playerRowText(ar, 'sleep', { ...START, sleep: { minutes: 120, until: UNTIL } }).value).toBe(`${ar.number(120)} دقيقةً`);
   });
 
+  it('names "Buffering" with its value, and a line that says what the value does (step 39d)', () => {
+    expect(playerRowText(en, 'buffer', START)).toEqual({ name: 'Buffering', value: 'Fast start', hint: 'Playback starts sooner, and a stalled stream reconnects quickly' });
+    expect(playerRowText(en, 'buffer', { ...START, buffer: 'stable' })).toEqual({ name: 'Buffering', value: 'Stable', hint: 'For slow providers: waits longer before it reconnects, and may start later' });
+    expect(playerRowText(ar, 'buffer', START)).toEqual({ name: 'التخزين المؤقت', value: 'بدء سريع', hint: 'يبدأ التشغيل أسرع، ويُعاد الاتصال بسرعة حين يتوقف البث' });
+    expect(playerRowText(ar, 'buffer', { ...START, buffer: 'stable' })).toEqual({ name: 'التخزين المؤقت', value: 'ثابت', hint: 'للمزوّدين البطيئين: ينتظر مدة أطول قبل إعادة الاتصال، وقد يتأخر بدء التشغيل' });
+  });
+
   it('names each row with its value in Arabic', () => {
     expect(playerRowText(ar, 'audio', START)).toMatchObject({ name: 'لغة الصوت', value: 'مثل لغة التطبيق' });
     expect(playerRowText(ar, 'audio', { ...START, audio: 'en' }).value).toBe('الإنجليزية');
@@ -110,14 +118,16 @@ describe('Settings › "Player" as drawn (RELAY step 38d3)', () => {
     expect(playerRowText(ar, 'clock', { ...START, clock: true }).value).toBe('مفعّلة');
   });
 
-  it('draws the seven rows, each with its binding, its value as stored, and the modes offered', () => {
+  it('draws the first seven rows, each with its binding, its value as stored, and the modes offered', () => {
     const asked: number[] = [];
     const root = PlayerSettingsView({
       i18n: en,
-      page: page({ audio: 'ar', subtitles: null, size: 'l', picture: '4:3', clock: true, still: 6, sleep: SLEEPING }, ['fit', 'stretch', '4:3']),
+      page: page({ audio: 'ar', subtitles: null, size: 'l', picture: '4:3', clock: true, still: 6, sleep: SLEEPING, buffer: 'stable' }, ['fit', 'stretch', '4:3']),
       item: (i) => (asked.push(i), i === 1 ? focused : idle),
     });
     expect(asked).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(walk(root).find((v) => propsOf(v)['role'] === 'menu')?.props).toMatchObject({ 'data-top': 0, 'data-count': 8 });
+    expect(byTestId(root, 'player-settings-buffer')).toEqual([]);
     expect(propsOf(byTestId(root, 'player-settings')[0])['data-modes']).toBe('fit stretch 4:3');
     const rows = ['audio', 'subtitles', 'size', 'picture', 'clock', 'still', 'sleep'].map((row) => propsOf(byTestId(root, `player-settings-${row}`)[0]));
     expect(rows.map((p) => p['data-value'])).toEqual(['ar', 'off', 'l', '4:3', 'on', '6', '60']);
@@ -138,6 +148,20 @@ describe('Settings › "Player" as drawn (RELAY step 38d3)', () => {
     expect(propsOf(byTestId(none, 'player-settings-sleep')[0])['data-value']).toBe('off');
     expect(textOf(byTestId(none, 'player-settings-sleep')[0])).toBe('Sleep timerOffStops playback after this long');
     expect(propsOf(byTestId(app, 'player-settings-still')[0])['data-value']).toBe('4');
+  });
+
+  it('draws the window from its top: the eighth row, "Buffering", once the list scrolled (step 39d)', () => {
+    const asked: number[] = [];
+    const root = PlayerSettingsView({ i18n: ar, page: page({ ...START, buffer: 'stable' }), item: (i) => (asked.push(i), i === 7 ? focused : idle), top: 1 });
+    expect(asked).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(walk(root).find((v) => propsOf(v)['role'] === 'menu')?.props).toMatchObject({ 'data-top': 1, 'data-count': 8 });
+    expect(byTestId(root, 'player-settings-audio')).toEqual([]);
+    const row = propsOf(byTestId(root, 'player-settings-buffer')[0]);
+    expect(row).toMatchObject({ 'data-value': 'stable', 'data-state': 'focused' });
+    expect(textOf(byTestId(root, 'player-settings-buffer-value')[0])).toBe('ثابت');
+    const fast = PlayerSettingsView({ i18n: en, page: page(START), item: () => idle, top: 1 });
+    expect(propsOf(byTestId(fast, 'player-settings-buffer')[0])['data-value']).toBe('fast');
+    expect(textOf(byTestId(fast, 'player-settings-buffer')[0])).toBe('BufferingFast startPlayback starts sooner, and a stalled stream reconnects quickly');
   });
 
   it('reads the sleep timer as it stands at each draw: a timer that ended shows Off (step 39c)', () => {

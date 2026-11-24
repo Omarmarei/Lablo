@@ -317,6 +317,38 @@ describe('createPlayerMemory', () => {
     expect([again.stillHours(), again.clock()]).toEqual([null, true]);
   });
 
+  it('keeps "Buffering" (step 39d) in the profile\'s options: `stable` for Stable, nothing for Fast start', () => {
+    const { memory, edits } = rig();
+    expect(memory.bufferMode()).toBe('fast');
+    const read = (options: unknown): string => {
+      memory.load(profile({ options }));
+      return memory.bufferMode();
+    };
+    expect(read({ buffer: 'stable' })).toBe('stable');
+    // Anything else is Fast start: another word, no options, an inherited name.
+    for (const options of [{ buffer: 'fast' }, { buffer: 'Stable' }, { buffer: true }, { clock: 'on' }, {}, null, undefined, Object.create({ buffer: 'stable' })]) {
+      expect(read(options)).toBe('fast');
+    }
+    memory.setBufferMode('fast');
+    expect(edits).toEqual([]);
+    memory.setBufferMode('stable');
+    memory.setBufferMode('stable');
+    memory.setBufferMode('fast');
+    expect(changes(edits)).toEqual([
+      { field: 'option', name: 'buffer', value: 'stable' },
+      { field: 'option', name: 'buffer', value: null },
+    ]);
+    expect(memory.bufferMode()).toBe('fast');
+    // The profile after the writes reads back the same; another option is kept beside it.
+    let doc: ProfileDoc = { ...emptyProfile(), player: { ...emptyProfile().player, options: { stillWatching: '2' } } };
+    memory.setBufferMode('stable');
+    for (const edit of edits) doc = applyProfileEdit(doc, edit) ?? doc;
+    expect(doc.player.options).toEqual({ stillWatching: '2', buffer: 'stable' });
+    const again = rig().memory;
+    again.load({ doc, newer: false, migratedFrom: null });
+    expect([again.bufferMode(), again.stillHours()]).toEqual(['stable', 2]);
+  });
+
   it('keeps a change for the run when the write fails, and says so', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { memory } = rig(true);

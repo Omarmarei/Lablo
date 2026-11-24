@@ -50,6 +50,7 @@ import { createPairing } from './pairing/pair-state';
 import { appPlayer, trackPreferences } from './player/app-player';
 import { catchupRequest } from './player/catchup';
 import { createPlayerMemory, railRefOf } from './player/player-memory';
+import { playTuning } from './player/play-tuning';
 import type { Player } from './player/player-state';
 import { createPlayer } from './player/player-state';
 import { createStage, setPlayerChrome } from './player/stage';
@@ -347,6 +348,8 @@ const playerController = appPlayer({
   blocked: (urls) => dataEngine().blockedOrNone(urls),
   // Telemetry's `play_result` and `stall` (step 33b2).
   report: (report) => telemetry.record(playerEvent(Date.now(), report)),
+  // "Buffering" (step 39d): Fast start or Stable, Fast start's numbers from remote config, read at each play.
+  tuning: () => playTuning(memory.bufferMode(), config.policy.value.tunables),
 });
 
 /** The background refreshes while the live screen shows (RELAY step 22a). */
@@ -647,7 +650,15 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       modes: () => livePlayer().pictureModes(),
       values: () => {
         const made = livePlayer();
-        return { audio: memory.audioLang(), subtitles: memory.subtitleLang(), size: made.menu.size.value, picture: made.picture.value, clock: made.watchClock.value, still: made.stillHours.value };
+        return {
+          audio: memory.audioLang(),
+          subtitles: memory.subtitleLang(),
+          size: made.menu.size.value,
+          picture: made.picture.value,
+          clock: made.watchClock.value,
+          still: made.stillHours.value,
+          buffer: memory.bufferMode(),
+        };
       },
       setAudio: (lang) => memory.setAudioLang(lang),
       setSubtitles: (lang) => memory.setSubtitleLang(lang),
@@ -658,6 +669,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       setStill: (hours) => livePlayer().setStillHours(hours),
       sleep: () => livePlayer().sleep.value,
       setSleep: (minutes) => livePlayer().setSleep(minutes),
+      // "Buffering" (step 39d): the profile's, read at the next play.
+      setBuffer: (mode) => memory.setBufferMode(mode),
     },
     // A login given again (step 32d4b): the source's own refresh with the schedule held (the
     // schedule keeps a refused `needs-login` for 2 h, and `refreshNow` reads only the guides), then

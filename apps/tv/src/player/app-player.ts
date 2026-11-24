@@ -1,7 +1,7 @@
 import { normalizeLang } from '@lablo/core';
 import type { LifecycleEvent, Platform } from '@lablo/platform-api';
 import type { SubtitleCue } from '@lablo/core';
-import type { AccountStatus, Clock, ControllerOptions, ExternalSub, PlayerReport, SourceMemory, TrackMemory, TrackPreferences } from '@lablo/player';
+import type { AccountStatus, Clock, ControllerOptions, ExternalSub, PlayTuning, PlayerReport, SourceMemory, TrackMemory, TrackPreferences } from '@lablo/player';
 import { PlayerController } from '@lablo/player';
 import type { TrackLang } from './player-memory';
 import { createSubtitleLoader } from './subtitle-loader';
@@ -22,7 +22,9 @@ import { createSubtitleLoader } from './subtitle-loader';
  *   (`subtitle-loader.ts`);
  * - `memory` and `trackMemory` (step 20c1): the profile's, through `player-memory.ts`;
  * - `blocked` (step 30c3b): the config's blocklist, asked before each stream opens;
- * - `report` (step 33b2): telemetry's play results and stalls.
+ * - `report` (step 33b2): telemetry's play results and stalls;
+ * - `tuning` (step 39d): the watchdog's numbers and AVPlay's buffers for each play (Settings ›
+ *   "Player"'s "Buffering" and remote config's tunables, `play-tuning.ts`).
  */
 export interface AppPlayerDeps {
   readonly platform: Pick<Platform, 'id' | 'createEngines' | 'resolveUrl' | 'setScreenSaver' | 'onLifecycle'>;
@@ -46,6 +48,8 @@ export interface AppPlayerDeps {
   readonly blocked?: (urls: string[]) => Promise<boolean[]>;
   /** Telemetry's reports (step 33b2: `play_result`, `stall`; absent: none). */
   readonly report?: (report: PlayerReport) => void;
+  /** What each play is tuned with (step 39d: `playTuning`; absent: `DEFAULT_TUNING`). */
+  readonly tuning?: () => PlayTuning;
   /** The app's lifecycle (step 38b: `visible` may come late; absent: the platform's). */
   readonly lifecycle?: (listener: (event: LifecycleEvent) => void) => () => void;
 }
@@ -90,6 +94,7 @@ export function appPlayer(deps: AppPlayerDeps): () => PlayerController {
       ...(deps.trackMemory === undefined ? {} : { trackMemory: deps.trackMemory }),
       ...(deps.blocked === undefined ? {} : { blocked: deps.blocked }),
       ...(deps.report === undefined ? {} : { report: deps.report }),
+      ...(deps.tuning === undefined ? {} : { tuning: deps.tuning }),
       screenSaver: (allowed) => {
         platform.setScreenSaver(allowed).catch((error: unknown) => console.warn('The screensaver setting was refused', error));
       },

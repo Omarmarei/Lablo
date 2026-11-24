@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { EngineEvent, EngineSource, PlaybackError } from '@lablo/player';
 import { NO_STATS } from '@lablo/player';
 import type { AvplayEngineOptions } from './avplay-engine';
-import { AvplayEngine, PREPARE_TIMEOUT_MS, avplayError, createAvplayPlane } from './avplay-engine';
+import { AvplayEngine, PREPARE_TIMEOUT_MS, avplayBufferSeconds, avplayError, createAvplayPlane } from './avplay-engine';
 import { FakeAvplay, FakeClock } from './fake-avplay';
 
 const LIVE: EngineSource = { url: 'http://panel.example/live/u/p/1.ts', container: 'ts', live: true };
@@ -220,6 +220,78 @@ describe('AvplayEngine: opening a source', () => {
     engine.setFit('contain');
     expect(avplay.log.length).toBe(4);
     await engine.stop();
+  });
+});
+
+describe('AvplayEngine: the buffers (RELAY step 39d)', () => {
+  const OPEN = ['open ' + LIVE.url, 'setListener', 'setDisplayRect 0,0,1920,1080', 'setDisplayMethod PLAYER_DISPLAY_MODE_LETTER_BOX'];
+
+  it('sets the buffer before playing, then the one after a stall, in IDLE before the prepare', async () => {
+    const r = rig();
+    const load = watch(r.engine.load(LIVE, 1, { buffer: { playSeconds: 10, resumeSeconds: 15 } }));
+    expect(r.avplay.log).toEqual(OPEN.concat(['setBufferingParam PLAYER_BUFFER_FOR_PLAY 10', 'setBufferingParam PLAYER_BUFFER_FOR_RESUME 15', 'prepareAsync']));
+    // Taken: in seconds, in IDLE.
+    expect(r.avplay.buffers).toEqual({ PLAYER_BUFFER_FOR_PLAY: 10, PLAYER_BUFFER_FOR_RESUME: 15 });
+    r.avplay.answerPrepare();
+    r.avplay.move();
+    await r.clock.advance(100);
+    expect(load.state).toBe('resolved');
+    expect(r.events()).toEqual(['tracks', 'firstFrame']);
+  });
+
+  it("leaves the buffer after a stall to AVPlay when the load gives none, and sets nothing without a buffer", async () => {
+    const r = rig();
+    quiet(r.engine.load(LIVE, 1, { buffer: { playSeconds: 5, resumeSeconds: null } }));
+    expect(r.avplay.log).toEqual(OPEN.concat(['setBufferingParam PLAYER_BUFFER_FOR_PLAY 5', 'prepareAsync']));
+    expect(r.avplay.buffers).toEqual({ PLAYER_BUFFER_FOR_PLAY: 5 });
+    await r.engine.stop();
+    r.avplay.log.length = 0;
+    quiet(r.engine.load(LIVE, 2));
+    expect(r.avplay.log).toEqual(OPEN.concat(['prepareAsync']));
+    expect(r.avplay.buffers).toEqual({});
+    await r.engine.stop();
+  });
+
+  it('gives AVPlay whole seconds, never under its 4', async () => {
+    expect([0, 2.5, 3.4, 3.5, 4, 4.4, 4.6, 10, 59.5].map(avplayBufferSeconds)).toEqual([4, 4, 4, 4, 4, 4, 5, 10, 60]);
+    const r = rig();
+    quiet(r.engine.load(LIVE, 1, { buffer: { playSeconds: 2.5, resumeSeconds: 7.6 } }));
+    expect(r.avplay.log.slice(4, 6)).toEqual(['setBufferingParam PLAYER_BUFFER_FOR_PLAY 4', 'setBufferingParam PLAYER_BUFFER_FOR_RESUME 8']);
+    // The fake refuses what Samsung's reference does: none was refused.
+    expect(r.avplay.buffers).toEqual({ PLAYER_BUFFER_FOR_PLAY: 4, PLAYER_BUFFER_FOR_RESUME: 8 });
+    expect(r.avplay.log[6]).toBe('prepareAsync');
+    await r.engine.stop();
+  });
+
+  it('plays on when AVPlay refuses a buffer, or has no such call', async () => {
+    const r = rig();
+    r.avplay.throws.setBufferingParam = 'NotSupportedError';
+    const load = watch(r.engine.load(LIVE, 1, { buffer: { playSeconds: 10, resumeSeconds: 15 } }));
+    // Each is tried on its own.
+    expect(r.avplay.log.slice(4)).toEqual(['setBufferingParam PLAYER_BUFFER_FOR_PLAY 10', 'setBufferingParam PLAYER_BUFFER_FOR_RESUME 15', 'prepareAsync']);
+    r.avplay.answerPrepare();
+    r.avplay.move();
+    await r.clock.advance(100);
+    expect(load.state).toBe('resolved');
+
+    const clock = new FakeClock();
+    const old = new FakeAvplay(clock);
+    Object.defineProperty(old, 'setBufferingParam', { value: undefined });
+    const engine = new AvplayEngine(old, { clock });
+    quiet(engine.load(LIVE, 1, { buffer: { playSeconds: 10, resumeSeconds: 15 } }));
+    expect(old.log).toEqual(OPEN.concat(['prepareAsync']));
+    await engine.stop();
+  });
+
+  it('sets the buffers again when a source closed by a hide opens again', async () => {
+    const r = rig();
+    quiet(r.engine.load(VOD, 1, { buffer: { playSeconds: 10, resumeSeconds: 15 } }));
+    r.engine.suspend();
+    r.avplay.log.length = 0;
+    r.engine.resume();
+    expect(r.avplay.log).toEqual(['open ' + VOD.url, 'setListener', 'setDisplayRect 0,0,1920,1080', 'setDisplayMethod PLAYER_DISPLAY_MODE_LETTER_BOX', 'setBufferingParam PLAYER_BUFFER_FOR_PLAY 10', 'setBufferingParam PLAYER_BUFFER_FOR_RESUME 15', 'prepareAsync']);
+    expect(r.avplay.buffers).toEqual({ PLAYER_BUFFER_FOR_PLAY: 10, PLAYER_BUFFER_FOR_RESUME: 15 });
+    await r.engine.stop();
   });
 });
 
