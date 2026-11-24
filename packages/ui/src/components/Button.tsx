@@ -25,9 +25,17 @@ export interface ButtonProps extends FocusableProps {
    * ("English" on the Arabic screen). The label gets `lang` and is never translated.
    */
   readonly lang?: string;
+  /**
+   * The remote's colour key that presses this button too (RELAY step 39b): a small dot of its
+   * colour in the button's top-end corner, which takes no room (decorative: `aria-hidden`).
+   */
+  readonly colourKey?: ColourKey;
 }
 
-export function Button({ label, variant = 'secondary', disabled = false, icon, iconOnly = false, lang, state, onHover, onPress, testId }: ButtonProps) {
+/** A colour key on the remote (RELAY step 39b). */
+export type ColourKey = 'red' | 'green' | 'yellow' | 'blue';
+
+export function Button({ label, variant = 'secondary', disabled = false, icon, iconOnly = false, lang, colourKey, state, onHover, onPress, testId }: ButtonProps) {
   const bare = iconOnly && icon !== undefined;
   const base = `z-button z-button--${variant}${bare ? ' z-button--icon' : ''}${disabled ? ' is-disabled' : ''}`;
   return (
@@ -47,6 +55,7 @@ export function Button({ label, variant = 'secondary', disabled = false, icon, i
           {label}
         </span>
       )}
+      {colourKey !== undefined && <span class={`z-button__key z-button__key--${colourKey}`} aria-hidden="true" data-key={colourKey} />}
     </div>
   );
 }

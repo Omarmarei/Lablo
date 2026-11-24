@@ -15,7 +15,9 @@ import type { AppI18n } from '../i18n';
 import { appI18n, switchedTag } from '../i18n';
 import type { Player } from '../player/player-state';
 import { PlayerScreen } from '../player/PlayerScreen';
+import type { FavouriteMenu } from '../player/favourite-menu';
 import { FAVOURITES_SCREEN, NEW_LIST_SCREEN } from '../player/favourite-menu';
+import { FavouritePanel, NewListForm } from '../player/FavouritePanel';
 import { MoviesScreen } from '../movies/MoviesScreen';
 import type { Movies } from '../movies/movies-state';
 import { MOVIES_SCREEN, SERIES_SCREEN } from '../movies/movies-state';
@@ -118,6 +120,7 @@ function LiveScreen({
   search,
   shelves,
   parental,
+  favourites,
 }: {
   live: Live;
   i18n: AppI18n;
@@ -133,6 +136,8 @@ function LiveScreen({
   shelves: Home | null;
   /** Parental control (step 38b): the PIN pad and the no-PIN dialog paint over everything. */
   parental: Parental | null;
+  /** The red key's favourites panel over the list (step 39b). */
+  favourites: FavouriteMenu | null;
 }) {
   const { t } = i18n;
   const { binding, home } = live;
@@ -150,7 +155,9 @@ function LiveScreen({
   const loaded = settings === null ? null : settings.loaded.value;
   // The player covers the live screen (step 20a), its track menu too (20b), the favourites panel (35c) and settings.js's "Edit channel" (36c): only their own parts paint, over the stage.
   const above = loaded !== null && loaded.over(focus.screen);
-  const over = above || focus.screen === 'player' || focus.screen === 'tracks' || focus.screen === FAVOURITES_SCREEN || focus.screen === NEW_LIST_SCREEN;
+  // The list's own favourites panel (step 39b) has the same screens: the live screen paints under it.
+  const listPanel = favourites === null ? null : favourites.screen.value;
+  const over = above || focus.screen === 'player' || focus.screen === 'tracks' || (listPanel === null && (focus.screen === FAVOURITES_SCREEN || focus.screen === NEW_LIST_SCREEN));
   if (over && player !== null) return <PlayerScreen live={live} player={player} i18n={i18n} over={above && loaded !== null ? <loaded.Over settings={loaded.settings} i18n={i18n} binding={binding} focus={focus} /> : null} />;
   // The settings screens (step 22b2) paint instead of the live screen.
   if (loaded !== null && loaded.screens.indexOf(focus.screen) !== -1) return <loaded.Screen settings={loaded.settings} i18n={i18n} binding={binding} focus={focus} />;
@@ -220,11 +227,11 @@ function LiveScreen({
           {i18n.time(new Date(live.clock.value))}
         </p>
         <div class="live__end">
-          <Button label={t('guide.open')} {...header.item(HEADER_GUIDE)} testId="live-guide" />
+          <Button label={t('guide.open')} colourKey="green" {...header.item(HEADER_GUIDE)} testId="live-guide" />
           <Button label={t('movies.open')} {...header.item(HEADER_MOVIES)} testId="live-movies" />
           <Button label={t('series.open')} {...header.item(HEADER_SERIES)} testId="live-series" />
           <Button label={t('home.open')} {...header.item(HEADER_HOME)} testId="live-home" />
-          <Button label={t('search.open')} icon={SEARCH_ICON} iconOnly {...header.item(HEADER_SEARCH)} testId="live-search" />
+          <Button label={t('search.open')} icon={SEARCH_ICON} iconOnly colourKey="blue" {...header.item(HEADER_SEARCH)} testId="live-search" />
           <Button label={t('settings.open')} icon={SETTINGS_ICON} iconOnly {...header.item(HEADER_SETTINGS)} testId="live-settings" />
         </div>
       </header>
@@ -274,6 +281,8 @@ function LiveScreen({
         </div>
       )}
 
+      {favourites !== null && listPanel !== null && <FavouritePanel menu={favourites} lists={live.lists.value} i18n={i18n} screen={listPanel} binding={binding} solid />}
+      {favourites !== null && focus.screen === NEW_LIST_SCREEN && <NewListForm i18n={i18n} menu={favourites} binding={binding} />}
       {dialog !== null && (
         <Dialog title={t('exit.title')} message={t('exit.message')} testId="exit-dialog">
           <Button label={t('exit.stay')} {...dialog.item(0)} testId="dialog-0" />
@@ -312,6 +321,8 @@ interface Props {
   readonly home?: Home | null;
   /** Parental control (step 38b; `null`: no PIN pad paints). */
   readonly parental?: Parental | null;
+  /** The red key's favourites panel over the list (step 39b; `null`: none paints). */
+  readonly favourites?: FavouriteMenu | null;
 }
 
 /**
@@ -320,7 +331,7 @@ interface Props {
  * paints it again with another `language`: the page, the focus engine's direction and every
  * screen's words switch in place, the remote's keys untouched.
  */
-export function LiveApp({ platform, live, language, player = null, settings = null, guide = null, movies = null, series = null, details = null, show = null, search = null, home = null, parental = null }: Props) {
+export function LiveApp({ platform, live, language, player = null, settings = null, guide = null, movies = null, series = null, details = null, show = null, search = null, home = null, parental = null, favourites = null }: Props) {
   const i18n = useSignal<AppI18n | null>(null);
   useEffect(() => {
     let closed = false;
@@ -352,5 +363,5 @@ export function LiveApp({ platform, live, language, player = null, settings = nu
       </main>
     );
   }
-  return <LiveScreen live={live} i18n={i18n.value} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} shelves={home} parental={parental} />;
+  return <LiveScreen live={live} i18n={i18n.value} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} shelves={home} parental={parental} favourites={favourites} />;
 }

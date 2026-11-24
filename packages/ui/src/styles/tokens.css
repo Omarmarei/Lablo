@@ -27,6 +27,12 @@
   --color-success: #5cc98d;
   --color-live: #ff5a5f;
   --color-scrim: rgba(5, 8, 12, 0.78);
+  /* The remote's colour keys (RELAY step 39b): the dot on the button a key presses, 3:1 on the
+     buttons' surfaces (test/ui-tokens.test.ts). */
+  --color-key-red: #ff5a5f;
+  --color-key-green: #4cc66a;
+  --color-key-yellow: #f2c94c;
+  --color-key-blue: #4c9aff;
 
   /* Type: Lablo Sans (fonts.css), sizes for viewing at 3 m. Nothing smaller than 22 px. */
   --font-family: 'Lablo Sans', 'Noto Sans', 'Segoe UI', Roboto, Arial, sans-serif;

@@ -43,6 +43,8 @@ import { createTrackMenu } from './track-menu';
  * - **The Guide key** (step 39a): on a channel, the player closes as Back does when the app says
  *   the key acts over the screen it opened on (`toGuide`), and the app then shows the guide on
  *   the channel's row. A movie takes it and does nothing.
+ * - **The colour keys** (step 39b), on a channel: red is the star (the favourites panel), green
+ *   the Guide key, yellow the previous channel (as PRE-CH). A movie takes them and does nothing.
  * - The controller comes from `player()`, made on the first play (the stage and the engines with
  *   it). Its states give "Connecting…", the "Reconnecting…" badge and the error card.
  * - **The track menu** (step 20b, `track-menu.ts`): the info bar's "Audio and subtitles", or the
@@ -1276,9 +1278,14 @@ export function createPlayer(options: PlayerOptions): Player {
         seekBy(intent === 'FF' ? 1 : -1, 'jump');
         return true;
       case 'PREV_CH':
+      case 'YELLOW':
         if (inFilm) return true;
         cancelEntry();
         previousChannel();
+        return true;
+      case 'RED':
+        // The info bar's star (step 39b): a channel's favourites panel.
+        if (!inFilm) openFavourites();
         return true;
       case 'AUDIO':
         openMenu('audio');
@@ -1286,7 +1293,8 @@ export function createPlayer(options: PlayerOptions): Player {
       case 'SUBTITLES':
         openMenu('text');
         return true;
-      case 'GUIDE': {
+      case 'GUIDE':
+      case 'GREEN': {
         // Step 39a: on a channel, where the app says the key acts (over the live screen or the guide).
         const then = inFilm || options.toGuide === undefined ? null : options.toGuide(under);
         if (then !== null) {

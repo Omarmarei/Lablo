@@ -89,6 +89,17 @@ describe('design tokens', () => {
     expect(contrast(get('--color-surface'), get('--color-border-memory'))).toBeLessThan(contrast(get('--color-surface'), get('--color-focus')));
   });
 
+  it("shows the colour keys' dots on the buttons' surfaces, idle and focused (step 39b: 3:1)", () => {
+    const tokens = rootTokens();
+    const get = (name: string): string => tokens.get(name) ?? '';
+    for (const key of ['--color-key-red', '--color-key-green', '--color-key-yellow', '--color-key-blue']) {
+      expect(get(key)).toMatch(/^#[0-9a-f]{6}$/i);
+      for (const surface of ['--color-surface-raised', '--color-surface-focus']) {
+        expect([key, surface, contrast(get(surface), get(key)) >= 3]).toEqual([key, surface, true]);
+      }
+    }
+  });
+
   it('sets no text size under 22 px', () => {
     const sizes = [...rootTokens()].filter(([name]) => name.startsWith('--font-size-')).map(([, value]) => parseInt(value, 10));
     expect(sizes.length).toBeGreaterThan(4);

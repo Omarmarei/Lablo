@@ -213,12 +213,14 @@ export interface LiveOptions {
   readonly openMovies?: () => void;
   /** OK on the header's "Series" button (step 27a): the series screen opens. */
   readonly openSeries?: () => void;
-  /** OK on the header's "Search" button (step 28a): the search screen opens. */
+  /** OK on the header's "Search" button (step 28a), or the blue key anywhere on the screen (step 39b): the search screen opens. */
   readonly openSearch?: () => void;
   /** OK on the header's "Home" button (step 28b1): Home opens. */
   readonly openHome?: () => void;
   /** OK on the rail's last entry (step 38b): "Locked groups" or "Lock again". */
   readonly lockEntry?: () => void;
+  /** The red key on a channel of the list (step 39b): the favourites panel for `item`. */
+  readonly favourite?: (item: CatalogItem) => void;
 }
 
 /** Where the search found a channel (step 28a: a `SearchHit`'s place, and the item's key). */
@@ -1260,6 +1262,12 @@ export function createLive(options: LiveOptions): Live {
     if (status.value === 'ready') options.openGuide?.(home.position('channels').index);
   };
 
+  /** The red key (step 39b): the favourites panel for the channel focused in the list; nothing in the rail or the header. */
+  const favouriteAt = (focus: Focus): void => {
+    const row = focus.zone === 'channels' ? rowAt(focus.index) : null;
+    if (row !== null) options.favourite?.(row.item);
+  };
+
   const nav = createNavigator({
     root: {
       id: 'live',
@@ -1273,8 +1281,12 @@ export function createLive(options: LiveOptions): Live {
         }
         // DOWN or Back in the header: back to the zone the focus came from.
         if ((intent === 'DOWN' || intent === 'BACK') && focus.zone === 'header') return leaveHeader();
-        if (intent !== 'GUIDE') return false;
-        toGuide();
+        // The colour keys (step 39b): green is the Guide key, blue the header's "Search", red the
+        // favourites of the channel focused in the list.
+        if (intent === 'GUIDE' || intent === 'GREEN') toGuide();
+        else if (intent === 'BLUE') options.openSearch?.();
+        else if (intent === 'RED') favouriteAt(focus);
+        else return false;
         return true;
       },
       onSelect: (focus) => {

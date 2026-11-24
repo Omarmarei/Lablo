@@ -625,6 +625,17 @@ html[data-player='on'] .player-stage {
   text-align: left;
 }
 
+/*
+ * Over the live list (step 39b), the panel is opaque (the rows would show through the scrim) and
+ * starts where the list does, under the live screen's header (56 px and its 24 px gap: LIVE).
+ */
+.tracks--solid {
+  top: calc(var(--safe-y) + 80px);
+  max-height: calc(var(--screen-height) - 2 * var(--safe-y) - 80px);
+  background: var(--color-surface);
+  border: 2px solid var(--color-border);
+}
+
 /* The favourites panel (step 35c) is drawn as the track menu: a list's name takes the row. */
 .favourites__name {
   flex: 1;
