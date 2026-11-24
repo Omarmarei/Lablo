@@ -353,8 +353,21 @@ export function LiveApp({ platform, live, language, player = null, settings = nu
       closed = true;
     };
   }, [platform, live, language]);
-  // The remote's keys, apart from the language: a switch keeps them connected.
-  useEffect(() => connectRemote({ platform, nav: live.nav, target: window, onIntent: () => live.activity() }), [platform, live]);
+  // The remote's keys, apart from the language: a switch keeps them connected. Each key is told to
+  // the refresh schedule (it pauses) and to the player ("Still watching?" counts from it, step 39c).
+  useEffect(
+    () =>
+      connectRemote({
+        platform,
+        nav: live.nav,
+        target: window,
+        onIntent: () => {
+          live.activity();
+          if (player !== null) player.activity();
+        },
+      }),
+    [platform, live, player],
+  );
 
   if (i18n.value === null) {
     return (

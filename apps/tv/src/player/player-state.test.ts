@@ -39,6 +39,7 @@ import {
 import { STATS_MS } from './stream-info';
 import type { SubtitleSize } from './track-menu';
 import { DEFAULT_SUBTITLE_SIZE, DELAY_STEP_MS, MAX_DELAY_MS, MENU_ROWS } from './track-menu';
+import { PROMPT_SECONDS, PROMPT_TICK_MS } from './watch-guard';
 
 const COUNT = 20;
 
@@ -337,6 +338,8 @@ function setup(
     editChannel?: PlayerOptions['editChannel'];
     watchClock?: boolean;
     toGuide?: PlayerOptions['toGuide'];
+    /** "Still watching?"'s hours as the app kept them (step 39c; `null`: never; left out: the default). */
+    stillHours?: number | null;
   } = {},
 ) {
   const list = new FakeList();
@@ -345,6 +348,8 @@ function setup(
   const sized: SubtitleSize[] = [];
   const pictured: PictureMode[] = [];
   const watchClocked: boolean[] = [];
+  /** Each "Still watching?" setting the player told the app (step 39c). */
+  const stillSet: (number | null)[] = [];
   const controller = new FakeController();
   const clock = manualTimers();
   const nav = createNavigator({
@@ -379,6 +384,8 @@ function setup(
     watchClocked: (on) => watchClocked.push(on),
     ...(kept.watchClock === undefined ? {} : { watchClock: kept.watchClock }),
     ...(kept.toGuide === undefined ? {} : { toGuide: kept.toGuide }),
+    stillSet: (hours) => stillSet.push(hours),
+    ...(kept.stillHours === undefined ? {} : { stillHours: kept.stillHours }),
     ...(kept.subtitleSize === undefined ? {} : { subtitleSize: kept.subtitleSize }),
     ...(kept.outputFormats === undefined ? {} : { outputFormats: kept.outputFormats }),
     ...(kept.picture === undefined ? {} : { picture: kept.picture }),
@@ -408,7 +415,15 @@ function setup(
     const f = nav.snapshot();
     return `${f.screen} · ${f.zone} ${f.index}`;
   };
-  return { list, controller, clock, nav, player, chrome, closed, tuned, sized, pictured, watchClocked, saved, emit, listening: () => lifecycleListeners.length, press, at, made: () => made };
+  /** Keys as the remote sends them (step 39c): told to the player as activity first, then handled. */
+  const key = async (...keys: Intent[]): Promise<void> => {
+    for (const k of keys) {
+      player.activity();
+      nav.handle(k);
+    }
+    await flush();
+  };
+  return { list, controller, clock, nav, player, chrome, closed, tuned, sized, pictured, watchClocked, stillSet, saved, emit, listening: () => lifecycleListeners.length, press, key, at, made: () => made };
 }
 
 describe('the player: opening and closing (RELAY step 20a)', () => {
@@ -754,7 +769,8 @@ describe('the player: previous channel, the info bar and the card', () => {
     expect(t.player.info.value).toBe(false);
     await t.press('INFO', 'INFO');
     expect(t.player.info.value).toBe(false);
-    expect(t.clock.pending()).toBe(0);
+    // (Only "Still watching?"'s count is left: step 39c.)
+    expect(t.clock.pending()).toBe(1);
     t.controller.set('failed', NOT_FOUND);
     t.clock.advance(INFO_MS * 3);
     expect(t.player.info.value).toBe(true);
@@ -1801,7 +1817,8 @@ describe("the player: catch-up's position, pause, seeking and end (RELAY step 25
     t.clock.advance(INFO_MS);
     expect(t.player.info.value).toBe(false);
     expect(t.at()).toBe('player · actions 0');
-    expect(t.clock.pending()).toBe(0);
+    // (Only "Still watching?"'s count is left: step 39c.)
+    expect(t.clock.pending()).toBe(1);
   });
 
   it('takes the focus to the seek bar on FF from the buttons, and pauses on a pointer click on the bar', async () => {
@@ -3094,11 +3111,11 @@ describe("the player: the config's disable-playback (RELAY step 30c2b)", () => {
     expect(t.saved).toEqual([`${film.key} @600000 /${90 * MIN}`]);
     expect(t.controller.stops).toBe(1);
     expect(t.at()).toBe('player · card 0');
-    // No more saves while the card shows, and only the info bar's timer is left (the position isn't read any more).
-    expect(t.clock.pending()).toBe(1);
+    // No more saves while the card shows, and only the info bar's timer and "Still watching?"'s count (step 39c) are left (the position isn't read any more).
+    expect(t.clock.pending()).toBe(2);
     t.clock.advance(60_000);
     expect(t.saved).toHaveLength(1);
-    expect(t.clock.pending()).toBe(1);
+    expect(t.clock.pending()).toBe(2);
     await t.press('BACK');
     expect(back).toEqual(['details']);
   });
@@ -3788,5 +3805,565 @@ describe('the player: the clock over the video and the Guide key (RELAY step 39a
     await t.press('GUIDE');
     expect(asked).toEqual(['live', 'guide']);
     expect(t.nav.top.id).toBe('guide');
+  });
+});
+
+describe('the player: "Still watching?" and the sleep timer (RELAY step 39c)', () => {
+  const HOUR = 3_600_000;
+  const MINUTE = 60_000;
+  /** The wall clock at the test's start: the sleep timer is kept on it. */
+  const WALL = Date.UTC(2026, 10, 24, 18, 0, 0);
+  const cardCount = (t: ReturnType<typeof setup>): number => {
+    const zone = t.player.screen.value!.zone('card');
+    return zone.kind === 'list' ? zone.count : -1;
+  };
+  const film: CatalogItem = { ...row(0).item, key: 'x:s1:movie:201', kind: 'movie', name: 'Sintel', url: 'http://panel.test/movie/u/p/201.mkv' };
+  const filmRequest: PlayRequest = { key: film.key, src: 's1', mode: 'vod', candidates: [{ url: film.url, container: 'mkv' }] };
+
+  it('asks after four hours with no key: its two buttons take the card\'s zone, "Keep watching" focused, the info bar gone', () => {
+    const t = setup();
+    expect(t.player.stillHours.value).toBe(4);
+    expect(t.player.still.value).toBeNull();
+    t.player.show(2);
+    t.controller.set('playing');
+    expect(t.player.info.value).toBe(true);
+    t.clock.advance(4 * HOUR - 1);
+    expect(t.player.still.value).toBeNull();
+    expect(cardCount(t)).toBe(0);
+    t.clock.advance(1);
+    expect(t.player.still.value).toEqual({ reason: 'idle', seconds: PROMPT_SECONDS });
+    expect(t.at()).toBe('player · card 0');
+    expect(cardCount(t)).toBe(2);
+    expect(t.player.info.value).toBe(false);
+    // The stream plays on under it.
+    expect(t.controller.stops).toBe(0);
+    expect(t.player.open.value).toBe(true);
+  });
+
+  it('counts from the last key the remote sent, whatever screen took it', async () => {
+    const t = setup();
+    t.player.show(2);
+    t.controller.set('playing');
+    t.clock.advance(4 * HOUR - 1);
+    await t.key('INFO');
+    t.clock.advance(4 * HOUR - 1);
+    expect(t.player.still.value).toBeNull();
+    // A key in the menu over the player counts too.
+    await t.key('AUDIO');
+    expect(t.nav.top.id).not.toBe('player');
+    t.clock.advance(HOUR);
+    await t.key('DOWN');
+    t.clock.advance(4 * HOUR - 1);
+    expect(t.player.still.value).toBeNull();
+    t.clock.advance(1);
+    expect(t.player.still.value).not.toBeNull();
+    // A key with the player closed starts nothing.
+    const closed = setup();
+    closed.player.activity();
+    expect(closed.clock.pending()).toBe(0);
+  });
+
+  it('makes room as a card does: the menu over the player, a number being typed and a seek that waits go', async () => {
+    const t = setup();
+    t.player.show(2);
+    t.controller.set('playing');
+    await t.key('AUDIO');
+    expect(t.player.menu.screen.value).not.toBeNull();
+    t.clock.advance(4 * HOUR);
+    expect(t.player.menu.screen.value).toBeNull();
+    expect(t.at()).toBe('player · card 0');
+    // The closing menu asked for the bar: it stays hidden under the prompt.
+    expect(t.player.info.value).toBe(false);
+    t.clock.advance(INFO_MS);
+    expect(t.at()).toBe('player · card 0');
+    // A number whose channel is being looked for: dropped, and its late answer plays nothing.
+    const typed = setup();
+    typed.player.show(2);
+    typed.controller.set('playing');
+    await typed.key('DIGIT_7');
+    typed.clock.advance(DIGITS_MS);
+    expect(typed.player.entry.value).toEqual({ digits: '7', phase: 'finding' });
+    typed.clock.advance(4 * HOUR);
+    expect(typed.player.still.value).not.toBeNull();
+    expect(typed.player.entry.value).toBeNull();
+    typed.list.finds[0]!.answer(6);
+    await flush();
+    expect(typed.controller.played()).toEqual([2]);
+    expect(typed.player.info.value).toBe(false);
+  });
+
+  it('a seek that waits is dropped, and the bar\'s own timer no longer takes the focus to the seek bar', async () => {
+    const EVENING: ArchiveProgramme = { start: 29_000_000, end: 29_000_060, title: 'Evening News' };
+    const catchupRequest = (r: LiveRow, p: ArchiveProgramme): PlayRequest => ({ key: r.item.key, src: r.item.src, mode: 'catchup', candidates: [{ url: `http://panel.test/timeshift/u/p/60/${p.start}/${r.number + 99}.ts`, container: 'ts' }] });
+    const t = setup('ltr', { catchupRequest, wallAt: EVENING.end * MINUTE + HOUR, stillHours: null });
+    t.player.catchup(4, EVENING);
+    t.controller.set('playing');
+    t.player.setSleep(30);
+    t.clock.advance(30 * MINUTE - 100);
+    // A seek key: the bar shows, and the seek waits for the keys to rest.
+    await t.key('RIGHT');
+    expect(t.player.position.value!.seeking).toBe(true);
+    expect(t.player.info.value).toBe(true);
+    t.clock.advance(100);
+    expect(t.player.still.value).toEqual({ reason: 'sleep', seconds: PROMPT_SECONDS });
+    expect(t.at()).toBe('player · card 0');
+    expect(t.player.info.value).toBe(false);
+    // Neither the seek nor the bar's timer does anything under the prompt.
+    t.clock.advance(SEEK_DELAY_MS);
+    await flush();
+    expect(t.controller.plays).toHaveLength(1);
+    expect(t.controller.seeks).toEqual([]);
+    t.clock.advance(INFO_MS);
+    expect(t.at()).toBe('player · card 0');
+    await t.key('OK');
+    expect(t.at()).toBe('player · seek 0');
+  });
+
+  it('a menu of settings.js that says it closed while the prompt shows doesn\'t bring the bar up under it', async () => {
+    let late: (() => void) | null = null;
+    const t = setup('ltr', {
+      editChannel: {
+        open: (_item, closed) => {
+          late = closed;
+        },
+        close: () => undefined,
+      },
+    });
+    t.player.show(2);
+    t.controller.set('playing');
+    t.player.screen.value!.focus('actions', EDIT_ACTION);
+    await t.key('OK');
+    expect(late).not.toBeNull();
+    expect(t.player.info.value).toBe(false);
+    t.clock.advance(4 * HOUR);
+    expect(t.player.still.value).not.toBeNull();
+    late!();
+    expect(t.player.info.value).toBe(false);
+    t.clock.advance(INFO_MS);
+    expect(t.at()).toBe('player · card 0');
+    // Once the prompt has gone, a closing menu shows the bar as before.
+    await t.key('OK');
+    late!();
+    expect(t.player.info.value).toBe(true);
+  });
+
+  it('"Keep watching": the prompt goes, the keys are the bar\'s again and the count starts over', async () => {
+    const t = setup();
+    t.player.show(2);
+    t.controller.set('playing');
+    t.clock.advance(4 * HOUR + 10 * PROMPT_TICK_MS);
+    expect(t.player.still.value).toEqual({ reason: 'idle', seconds: 50 });
+    await t.key('OK');
+    expect(t.player.still.value).toBeNull();
+    expect(t.at()).toBe('player · actions 0');
+    expect(cardCount(t)).toBe(0);
+    expect(t.player.info.value).toBe(false);
+    expect(t.player.open.value).toBe(true);
+    expect(t.controller.stops).toBe(0);
+    expect(t.controller.plays).toHaveLength(1);
+    // Nothing closes the player a minute later; it asks again after four more hours.
+    t.clock.advance(4 * HOUR - 1);
+    expect(t.player.open.value).toBe(true);
+    expect(t.player.still.value).toBeNull();
+    t.clock.advance(1);
+    expect(t.player.still.value).toEqual({ reason: 'idle', seconds: PROMPT_SECONDS });
+  });
+
+  it('LEFT and RIGHT move between its two buttons; the second closes the player onto the channel\'s row', async () => {
+    for (const dir of ['ltr', 'rtl'] as const) {
+      const t = setup(dir);
+      const next: Intent = dir === 'ltr' ? 'RIGHT' : 'LEFT';
+      const back: Intent = dir === 'ltr' ? 'LEFT' : 'RIGHT';
+      t.player.show(3);
+      t.controller.set('playing');
+      t.clock.advance(4 * HOUR);
+      await t.key(back);
+      expect(t.at()).toBe('player · card 0');
+      await t.key(next);
+      expect(t.at()).toBe('player · card 1');
+      // The arrows only move: the prompt stays, counting.
+      expect(t.player.still.value).not.toBeNull();
+      await t.key(back, next, 'OK');
+      expect(t.player.open.value).toBe(false);
+      expect(t.closed).toEqual([3]);
+      expect(t.controller.stops).toBe(1);
+      expect(t.player.still.value).toBeNull();
+      // Its countdown went with it.
+      t.clock.advance(2 * PROMPT_SECONDS * PROMPT_TICK_MS);
+      expect(t.closed).toEqual([3]);
+    }
+  });
+
+  it('any other key, Back included, is "Keep watching" and does nothing else', async () => {
+    const opened: number[] = [];
+    const t = setup('ltr', { toGuide: () => (index) => opened.push(index) });
+    t.player.show(2);
+    t.controller.set('playing');
+    for (const pressed of ['BACK', 'UP', 'DOWN', 'CH_UP', 'CH_DOWN', 'DIGIT_5', 'INFO', 'GUIDE', 'GREEN', 'RED', 'YELLOW', 'PREV_CH', 'AUDIO', 'SUBTITLES', 'PLAY_PAUSE', 'FF', 'BLUE'] as const) {
+      t.clock.advance(4 * HOUR);
+      expect(t.player.still.value).not.toBeNull();
+      t.player.activity();
+      // The player's screen takes it: no screen under it sees the key.
+      expect(t.nav.handle(pressed)).toBe('screen');
+      await flush();
+      expect(t.player.still.value).toBeNull();
+      expect(t.at()).toBe('player · actions 0');
+    }
+    // Nothing else happened: no zap, no number, no bar, no menu, no guide, and the player is open.
+    t.clock.advance(ZAP_DELAY_MS + DIGITS_MS);
+    await flush();
+    expect(t.controller.played()).toEqual([2]);
+    expect([t.player.target.value, t.player.entry.value, t.player.info.value, t.player.menu.screen.value]).toEqual([2, null, false, null]);
+    expect(opened).toEqual([]);
+    expect(t.closed).toEqual([]);
+    expect(t.player.open.value).toBe(true);
+  });
+
+  it('STOP closes the player from the prompt, as it does without it', async () => {
+    const t = setup();
+    t.player.show(2);
+    t.controller.set('playing');
+    t.clock.advance(4 * HOUR);
+    await t.key('STOP');
+    expect(t.player.open.value).toBe(false);
+    expect(t.closed).toEqual([2]);
+    expect(t.player.still.value).toBeNull();
+  });
+
+  it('closes the player as Back does when nobody answers for 60 seconds', () => {
+    const t = setup();
+    t.player.show(5);
+    t.controller.set('playing');
+    t.clock.advance(4 * HOUR + (PROMPT_SECONDS - 1) * PROMPT_TICK_MS);
+    expect(t.player.still.value).toEqual({ reason: 'idle', seconds: 1 });
+    expect(t.player.open.value).toBe(true);
+    t.clock.advance(PROMPT_TICK_MS);
+    expect(t.player.still.value).toBeNull();
+    expect(t.player.open.value).toBe(false);
+    expect(t.closed).toEqual([5]);
+    expect(t.chrome).toEqual([true, false]);
+    expect(t.controller.stops).toBe(1);
+    expect(t.nav.snapshot().depth).toBe(1);
+    // Opened again: the count starts from zero.
+    t.player.show(5);
+    t.clock.advance(4 * HOUR - 1);
+    expect(t.player.still.value).toBeNull();
+    t.clock.advance(1);
+    expect(t.player.still.value).not.toBeNull();
+  });
+
+  it('asks over a paused movie too, hands the keys back to its seek bar, and closes onto the details with its place kept', async () => {
+    const back: string[] = [];
+    const t = setup();
+    t.player.playMovie({ item: film, request: filmRequest, lengthMs: 90 * MINUTE, closed: () => back.push('details') });
+    t.controller.media = 600_000;
+    t.controller.set('playing');
+    await t.key('PLAY_PAUSE');
+    expect(t.player.status.value.state).toBe('paused');
+    // The pause was a key: four hours from it, paused or not.
+    t.clock.advance(4 * HOUR);
+    expect(t.player.still.value).toEqual({ reason: 'idle', seconds: PROMPT_SECONDS });
+    expect(t.at()).toBe('player · card 0');
+    await t.key('BACK');
+    expect(t.player.still.value).toBeNull();
+    expect(t.at()).toBe('player · seek 0');
+    expect(t.player.movie.value).not.toBeNull();
+    expect(back).toEqual([]);
+    // Unanswered the next time: closed onto the details, the position saved first.
+    const saves = t.saved.length;
+    t.clock.advance(4 * HOUR + PROMPT_SECONDS * PROMPT_TICK_MS);
+    expect(back).toEqual(['details']);
+    expect(t.saved.slice(saves)).toEqual([`${film.key} @600000 /${90 * MINUTE}`]);
+    expect(t.closed).toEqual([]);
+  });
+
+  it('gives way to a card: under the error card it waits, and a key there drops it', async () => {
+    const t = setup();
+    t.player.show(2);
+    t.controller.set('failed', NOT_FOUND);
+    expect(t.at()).toBe('player · card 0');
+    t.clock.advance(4 * HOUR);
+    // The card keeps its buttons and the bar; no prompt.
+    expect(t.player.still.value).toBeNull();
+    expect(cardCount(t)).toBe(2);
+    expect(t.player.info.value).toBe(true);
+    // "Try again": a key, so nobody is asked when the stream opens.
+    await t.key('OK');
+    expect(t.controller.plays).toHaveLength(2);
+    expect(t.player.still.value).toBeNull();
+    expect(t.at()).toBe('player · actions 0');
+    // Four hours from that key.
+    t.controller.set('playing');
+    t.clock.advance(4 * HOUR);
+    expect(t.player.still.value).not.toBeNull();
+  });
+
+  it('a stream that fails under the prompt shows its card instead; the countdown closes nothing', async () => {
+    const t = setup();
+    t.player.show(2);
+    t.controller.set('playing');
+    t.clock.advance(4 * HOUR + 30 * PROMPT_TICK_MS);
+    t.controller.set('failed', NOT_FOUND);
+    expect(t.player.still.value).toBeNull();
+    expect(t.at()).toBe('player · card 0');
+    expect(cardCount(t)).toBe(2);
+    expect(t.player.info.value).toBe(true);
+    t.clock.advance(HOUR);
+    expect(t.player.open.value).toBe(true);
+    // The card's "Channels" is the card's own.
+    await t.key('RIGHT', 'OK');
+    expect(t.closed).toEqual([2]);
+  });
+
+  it("the config's refusal takes the prompt's place", () => {
+    const refusal = signal<Refusal | null>(null);
+    const t = setup('ltr', { refusal });
+    t.player.show(2);
+    t.controller.set('playing');
+    t.clock.advance(4 * HOUR);
+    expect(t.player.still.value).not.toBeNull();
+    refusal.value = { id: 'r1', message: null };
+    expect(t.player.still.value).toBeNull();
+    expect(t.player.refused.value).toEqual({ id: 'r1', message: null });
+    expect(cardCount(t)).toBe(1);
+    expect(t.at()).toBe('player · card 0');
+    // The refusal's card has the info bar with it, as without the prompt.
+    expect(t.player.info.value).toBe(true);
+    t.clock.advance(HOUR);
+    expect(t.player.open.value).toBe(true);
+  });
+
+  it('asks over the next episode when the count ended under the end card: the prompt keeps the focus, then the seek bar has it', async () => {
+    const show: CatalogItem = { ...row(0).item, key: 'x:s1:series:301', kind: 'series', name: 'Lablo Test Series', url: '' };
+    const episode = (id: number, number: number): MoviePlay => {
+      const item: CatalogItem = { ...show, key: `x:s1:episode:${id}`, name: `Episode ${number}`, url: `http://panel.test/series/u/p/${id}.mkv` };
+      return {
+        item,
+        request: { key: item.key, src: 's1', mode: 'vod', candidates: [{ url: item.url, container: 'mkv' }] },
+        lengthMs: 40 * MINUTE,
+        episode: { show, season: 1, number, title: `Episode ${number}`, more: number < 3 },
+        closed: () => undefined,
+        next: () => (number === 2 ? episode(3003, 3) : null),
+      };
+    };
+    const t = setup('ltr', { stillHours: 2 });
+    t.player.playMovie(episode(3002, 2));
+    t.controller.set('playing');
+    // The episode ends five seconds before the two hours are up: its card counts ten down.
+    t.clock.advance(2 * HOUR - 5000);
+    t.controller.set('ended');
+    expect(t.player.upNext.value!.seconds).toBe(NEXT_COUNTDOWN_S);
+    expect(cardCount(t)).toBe(2);
+    t.clock.advance(5000);
+    // The two hours ended under the card: nothing shows over it.
+    expect(t.player.still.value).toBeNull();
+    expect(t.player.upNext.value!.seconds).toBe(5);
+    // The next episode starts by itself, and the prompt asks over it.
+    t.clock.advance(5000);
+    expect(t.controller.plays).toHaveLength(2);
+    expect(t.player.still.value).toEqual({ reason: 'idle', seconds: PROMPT_SECONDS });
+    expect(t.at()).toBe('player · card 0');
+    expect(cardCount(t)).toBe(2);
+    expect(t.player.info.value).toBe(false);
+    await t.key('OK');
+    expect(t.player.still.value).toBeNull();
+    expect(t.at()).toBe('player · seek 0');
+    expect(t.player.movie.value!.item.key).toBe('x:s1:episode:3003');
+    expect(t.controller.stops).toBe(0);
+  });
+
+  it('comes back after the end card when an episode ended under the prompt', () => {
+    const show: CatalogItem = { ...row(0).item, key: 'x:s1:series:301', kind: 'series', name: 'Lablo Test Series', url: '' };
+    const last: CatalogItem = { ...show, key: 'x:s1:episode:3003', name: 'Episode 3', url: 'http://panel.test/series/u/p/3003.mkv' };
+    const first: CatalogItem = { ...show, key: 'x:s1:episode:3002', name: 'Episode 2', url: 'http://panel.test/series/u/p/3002.mkv' };
+    const t = setup('ltr', { stillHours: 2 });
+    t.player.playMovie({
+      item: first,
+      request: { key: first.key, src: 's1', mode: 'vod', candidates: [{ url: first.url, container: 'mkv' }] },
+      lengthMs: 40 * MINUTE,
+      episode: { show, season: 1, number: 2, title: '', more: true },
+      closed: () => undefined,
+      next: () => ({ item: last, request: { key: last.key, src: 's1', mode: 'vod', candidates: [{ url: last.url, container: 'mkv' }] }, lengthMs: 40 * MINUTE, episode: { show, season: 1, number: 3, title: '', more: false }, closed: () => undefined, next: () => null }),
+    });
+    t.controller.set('playing');
+    t.clock.advance(2 * HOUR + 20 * PROMPT_TICK_MS);
+    expect(t.player.still.value!.seconds).toBe(40);
+    // The episode ends under the prompt: its card, with the next one counting down.
+    t.controller.set('ended');
+    expect(t.player.still.value).toBeNull();
+    expect(t.player.upNext.value!.seconds).toBe(NEXT_COUNTDOWN_S);
+    t.clock.advance(NEXT_COUNTDOWN_S * NEXT_TICK_MS);
+    // The next one started by itself: asked again, from 60, and unanswered it closes.
+    expect(t.controller.plays).toHaveLength(2);
+    expect(t.player.still.value).toEqual({ reason: 'idle', seconds: PROMPT_SECONDS });
+    t.clock.advance(PROMPT_SECONDS * PROMPT_TICK_MS);
+    expect(t.player.open.value).toBe(false);
+  });
+
+  it('the app hiding takes the prompt away and stops the count; back, it counts from zero', () => {
+    const t = setup();
+    t.player.show(2);
+    t.controller.set('playing');
+    t.clock.advance(4 * HOUR + 30 * PROMPT_TICK_MS);
+    t.emit('hidden');
+    expect(t.player.still.value).toBeNull();
+    expect(t.at()).toBe('player · actions 0');
+    expect(cardCount(t)).toBe(0);
+    // Hidden for a day: nothing asks, nothing closes.
+    t.clock.advance(24 * HOUR);
+    expect(t.player.still.value).toBeNull();
+    expect(t.player.open.value).toBe(true);
+    t.emit('visible');
+    t.clock.advance(4 * HOUR - 1);
+    expect(t.player.still.value).toBeNull();
+    t.clock.advance(1);
+    expect(t.player.still.value).not.toBeNull();
+    // A relaunch is neither.
+    t.emit('relaunch');
+    expect(t.player.still.value).not.toBeNull();
+  });
+
+  it('the sleep timer: set in minutes on the wall clock, it asks over what plays and is off from then', async () => {
+    const t = setup('ltr', { wallAt: WALL, stillHours: null });
+    expect(t.player.sleep.value).toBeNull();
+    t.player.setSleep(30);
+    expect(t.player.sleep.value).toEqual({ minutes: 30, until: WALL + 30 * MINUTE });
+    t.player.show(2);
+    t.controller.set('playing');
+    // Keys don't move it.
+    t.clock.advance(29 * MINUTE);
+    await t.key('INFO');
+    t.clock.advance(MINUTE - 1);
+    expect(t.player.still.value).toBeNull();
+    t.clock.advance(1);
+    expect(t.player.still.value).toEqual({ reason: 'sleep', seconds: PROMPT_SECONDS });
+    expect(t.player.sleep.value).toBeNull();
+    expect(t.at()).toBe('player · card 0');
+    await t.key('OK');
+    expect(t.player.open.value).toBe(true);
+    // Set again and left unanswered: the player closes; the timer is off.
+    t.player.setSleep(60);
+    t.clock.advance(60 * MINUTE + PROMPT_SECONDS * PROMPT_TICK_MS);
+    expect(t.closed).toEqual([2]);
+    expect(t.player.sleep.value).toBeNull();
+    // Off before its time: nothing asks.
+    t.player.show(2);
+    t.player.setSleep(30);
+    t.player.setSleep(null);
+    t.clock.advance(HOUR);
+    expect(t.player.still.value).toBeNull();
+  });
+
+  it('the sleep timer runs on with the player closed, and ends silently when nothing plays', () => {
+    const t = setup('ltr', { wallAt: WALL });
+    t.player.show(2);
+    t.player.setSleep(30);
+    t.player.close();
+    expect(t.player.sleep.value).not.toBeNull();
+    t.clock.advance(30 * MINUTE);
+    expect(t.player.sleep.value).toBeNull();
+    t.player.show(3);
+    expect(t.player.still.value).toBeNull();
+    // Through a hide: back before its time it still ends on it; back after, it is off.
+    t.player.setSleep(60);
+    t.emit('hidden');
+    t.clock.advance(20 * MINUTE);
+    t.emit('visible');
+    t.clock.advance(40 * MINUTE);
+    expect(t.player.still.value).toEqual({ reason: 'sleep', seconds: PROMPT_SECONDS });
+    t.emit('hidden');
+    t.player.setSleep(30);
+    t.clock.advance(31 * MINUTE);
+    t.emit('visible');
+    expect(t.player.sleep.value).toBeNull();
+    expect(t.player.still.value).toBeNull();
+  });
+
+  it('the sleep timer that ended under the error card asks once the stream opens again', async () => {
+    const t = setup('ltr', { wallAt: WALL, stillHours: null });
+    t.player.show(2);
+    t.player.setSleep(30);
+    t.controller.set('failed', NOT_FOUND);
+    t.clock.advance(30 * MINUTE);
+    expect(t.player.still.value).toBeNull();
+    expect(t.player.sleep.value).toBeNull();
+    await t.key('OK');
+    expect(t.controller.plays).toHaveLength(2);
+    expect(t.player.still.value).toEqual({ reason: 'sleep', seconds: PROMPT_SECONDS });
+    expect(t.at()).toBe('player · card 0');
+    expect(cardCount(t)).toBe(2);
+    // The play's own bar stays hidden under it.
+    expect(t.player.info.value).toBe(false);
+  });
+
+  it('a zap that waits plays under the prompt; the prompt keeps the focus', async () => {
+    const t = setup('ltr', { wallAt: WALL, stillHours: null });
+    t.player.show(2);
+    t.controller.set('playing');
+    t.player.setSleep(30);
+    t.clock.advance(30 * MINUTE - 100);
+    await t.key('CH_UP');
+    t.clock.advance(100);
+    expect(t.player.still.value).not.toBeNull();
+    t.clock.advance(ZAP_DELAY_MS);
+    await flush();
+    expect(t.controller.played()).toEqual([2, 3]);
+    expect(t.at()).toBe('player · card 0');
+    expect(t.player.still.value).not.toBeNull();
+    expect(t.player.info.value).toBe(false);
+  });
+
+  it("keeps the app's hours, never asks when they are none, and tells the app each new setting once", () => {
+    const never = setup('ltr', { stillHours: null });
+    expect(never.player.stillHours.value).toBeNull();
+    never.player.show(1);
+    never.clock.advance(24 * HOUR);
+    expect(never.player.still.value).toBeNull();
+    const t = setup('ltr', { stillHours: 2 });
+    expect(t.player.stillHours.value).toBe(2);
+    t.player.show(1);
+    t.clock.advance(2 * HOUR);
+    expect(t.player.still.value).not.toBeNull();
+    t.player.close();
+    t.player.setStillHours(2);
+    expect(t.stillSet).toEqual([]);
+    t.player.setStillHours(6);
+    t.player.setStillHours(6);
+    t.player.setStillHours(null);
+    expect(t.stillSet).toEqual([6, null]);
+    expect(t.player.stillHours.value).toBeNull();
+    t.player.setStillHours(6);
+    t.player.show(1);
+    t.clock.advance(6 * HOUR - 1);
+    expect(t.player.still.value).toBeNull();
+    t.clock.advance(1);
+    expect(t.player.still.value).not.toBeNull();
+  });
+
+  it('a key for a screen that came over the prompt is "Keep watching"; the prompt\'s own screen answers its keys itself', async () => {
+    const t = setup();
+    t.player.show(2);
+    t.controller.set('playing');
+    t.clock.advance(4 * HOUR);
+    // On the player's own screen, activity alone changes nothing: the key that follows answers.
+    t.player.activity();
+    expect(t.player.still.value).not.toBeNull();
+    // settings.js arrives late and puts "Edit channel" over the prompt.
+    t.nav.push({ id: 'channel-edit', zones: [{ kind: 'list', id: 'rows', axis: 'vertical', count: 3 }] });
+    await t.key('DOWN');
+    expect(t.player.still.value).toBeNull();
+    expect(t.nav.top.id).toBe('channel-edit');
+    expect(t.at()).toBe('channel-edit · rows 1');
+    expect(t.player.screen.value!.active).toBe('actions');
+    expect(cardCount(t)).toBe(0);
+    expect(t.player.open.value).toBe(true);
+  });
+
+  it('stops its timers when the player is disposed', () => {
+    const t = setup('ltr', { wallAt: WALL });
+    t.player.setSleep(30);
+    expect(t.clock.pending()).toBe(1);
+    t.player.dispose();
+    expect(t.clock.pending()).toBe(0);
   });
 });

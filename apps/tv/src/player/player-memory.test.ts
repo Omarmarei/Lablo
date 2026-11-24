@@ -278,6 +278,45 @@ describe('createPlayerMemory', () => {
     expect(again.clock()).toBe(true);
   });
 
+  it('keeps "Still watching?" (step 39c) in the profile\'s options: 4 hours with nothing stored, `off` for never, else its hours as text', () => {
+    const { memory, edits } = rig();
+    expect(memory.stillHours()).toBe(4);
+    const read = (options: unknown): number | null => {
+      memory.load(profile({ options }));
+      return memory.stillHours();
+    };
+    expect([read({ stillWatching: 'off' }), read({ stillWatching: '2' }), read({ stillWatching: '4' }), read({ stillWatching: '6' })]).toEqual([null, 2, 4, 6]);
+    // Anything else is the default: other hours, a number, no options, an inherited name.
+    for (const options of [{ stillWatching: '3' }, { stillWatching: 6 }, { stillWatching: 'OFF' }, { stillWatching: null }, { clock: 'on' }, {}, null, undefined, Object.create({ stillWatching: 'off' })]) {
+      expect(read(options)).toBe(4);
+    }
+    expect(read({ stillWatching: 'off' })).toBeNull();
+    memory.load(profile({}));
+    expect(memory.stillHours()).toBe(4);
+    memory.setStillHours(4);
+    expect(edits).toEqual([]);
+    memory.setStillHours(2);
+    memory.setStillHours(2);
+    memory.setStillHours(null);
+    memory.setStillHours(6);
+    memory.setStillHours(4);
+    expect(changes(edits)).toEqual([
+      { field: 'option', name: 'stillWatching', value: '2' },
+      { field: 'option', name: 'stillWatching', value: 'off' },
+      { field: 'option', name: 'stillWatching', value: '6' },
+      { field: 'option', name: 'stillWatching', value: null },
+    ]);
+    expect(memory.stillHours()).toBe(4);
+    // The profile after the writes reads back the same; the clock's option is kept beside it.
+    let doc: ProfileDoc = { ...emptyProfile(), player: { ...emptyProfile().player, options: { clock: 'on' } } };
+    memory.setStillHours(null);
+    for (const edit of edits) doc = applyProfileEdit(doc, edit) ?? doc;
+    expect(doc.player.options).toEqual({ clock: 'on', stillWatching: 'off' });
+    const again = rig().memory;
+    again.load({ doc, newer: false, migratedFrom: null });
+    expect([again.stillHours(), again.clock()]).toEqual([null, true]);
+  });
+
   it('keeps a change for the run when the write fails, and says so', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { memory } = rig(true);

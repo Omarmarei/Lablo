@@ -5,6 +5,8 @@ import type { Navigator } from '@lablo/ui';
 import type { TrackLang } from '../player/player-memory';
 import type { SubtitleSize } from '../player/track-menu';
 import { DEFAULT_SUBTITLE_SIZE, SUBTITLE_SIZES } from '../player/track-menu';
+import type { SleepTimer } from '../player/watch-guard';
+import { DEFAULT_STILL_HOURS } from '../player/watch-guard';
 
 /**
  * Settings › "Player" (RELAY step 38d3): a page of rows, each with its value beside its name.
@@ -16,25 +18,34 @@ import { DEFAULT_SUBTITLE_SIZE, SUBTITLE_SIZES } from '../player/track-menu';
  *   size       Small, Medium, Large: the player's subtitle size (the track menu's "Size")
  *   picture    the modes the TV's engine can show (the info bar's "Picture")
  *   clock      Off, On: the time over the video while the info bar is hidden (step 39a)
+ *   still      Never, After 2, 4 or 6 hours: "Still watching?" after that long with no key (step 39c)
+ *   sleep      Off, 30, 60, 90 or 120 minutes: the sleep timer, counted from the change (step 39c)
  *
  * Main gives the values and their changes (`PlayerSettingsOptions`): the languages are the
  * profile's (`player-memory.ts`), read at each stream's tracks; the size and the picture are the
  * player's own, so the next play shows them (the clock at once). A content's own remembered
- * track choice still wins.
+ * track choice still wins. The sleep timer is the player's own too, for the app's run only: its
+ * row reads it as it stands (`sleep`), so it shows Off once the timer has ended.
  *
  * Main-safe as the settings are: no `trim`, `.sort(`, regex or object spread.
  */
 
 export const PLAYER_SETTINGS_SCREEN = 'player-settings';
 
-export type PlayerSettingsRow = 'audio' | 'subtitles' | 'size' | 'picture' | 'clock';
-export const PLAYER_SETTINGS_ROWS: readonly PlayerSettingsRow[] = ['audio', 'subtitles', 'size', 'picture', 'clock'];
+export type PlayerSettingsRow = 'audio' | 'subtitles' | 'size' | 'picture' | 'clock' | 'still' | 'sleep';
+export const PLAYER_SETTINGS_ROWS: readonly PlayerSettingsRow[] = ['audio', 'subtitles', 'size', 'picture', 'clock', 'still', 'sleep'];
 
 /** The languages the audio and subtitle rows go round: `null` ("Same as the app", "Off") first. */
 export const TRACK_CHOICES: readonly (TrackLang | null)[] = [null, 'ar', 'en'];
 
 /** The clock row's values (step 39a): Off, then On. */
 export const CLOCK_CHOICES: readonly boolean[] = [false, true];
+
+/** "Still watching?"'s values (step 39c), in hours: never (`null`), then the guard's `STILL_HOURS`. */
+export const STILL_CHOICES: readonly (number | null)[] = [null, 2, 4, 6];
+
+/** The sleep timer's values (step 39c), in minutes: off (`null`), then the guard's `SLEEP_MINUTES`. */
+export const SLEEP_CHOICES: readonly (number | null)[] = [null, 30, 60, 90, 120];
 
 /** The rows' values now. */
 export interface PlayerValues {
@@ -46,6 +57,8 @@ export interface PlayerValues {
   readonly picture: PictureMode;
   /** "Clock while watching" (step 39a). */
   readonly clock: boolean;
+  /** "Still watching?" (step 39c): the hours without a key before it asks (`null`: never). */
+  readonly still: number | null;
 }
 
 /** What main gives (step 38d3): the player's values and their changes. */
@@ -59,6 +72,11 @@ export interface PlayerSettingsOptions {
   setSize(size: SubtitleSize): void;
   setPicture(mode: PictureMode): void;
   setClock(on: boolean): void;
+  setStill(hours: number | null): void;
+  /** The sleep timer as it stands (step 39c; `null`: off), read from the player's signal: a row that reads it while drawing follows it. */
+  sleep(): SleepTimer | null;
+  /** Sets the sleep timer to `minutes` from now (`null`: off). */
+  setSleep(minutes: number | null): void;
 }
 
 export interface PlayerSettings {
@@ -67,6 +85,9 @@ export interface PlayerSettings {
   readonly size: ReadonlySignal<SubtitleSize>;
   readonly picture: ReadonlySignal<PictureMode>;
   readonly clock: ReadonlySignal<boolean>;
+  readonly still: ReadonlySignal<number | null>;
+  /** The sleep timer as it stands (main's `sleep`). */
+  sleep(): SleepTimer | null;
   /** The picture modes the page offers (read at each opening). */
   readonly modes: ReadonlySignal<readonly PictureMode[]>;
   /** Opens the page over the settings, its values read again. */
@@ -100,6 +121,7 @@ export function createPlayerSettings(nav: Navigator, options: PlayerSettingsOpti
   const picture = signal<PictureMode>('fit');
   const modes = signal<readonly PictureMode[]>(['fit']);
   const clock = signal(false);
+  const still = signal<number | null>(DEFAULT_STILL_HOURS);
 
   const change = (index: number, step: 0 | 1 | -1): void => {
     const row = PLAYER_SETTINGS_ROWS[index];
@@ -107,7 +129,15 @@ export function createPlayerSettings(nav: Navigator, options: PlayerSettingsOpti
     else if (row === 'subtitles') move(subtitles, TRACK_CHOICES, step, (lang) => options.setSubtitles(lang));
     else if (row === 'size') move(size, SUBTITLE_SIZES, step, (next) => options.setSize(next));
     else if (row === 'picture') move(picture, modes.value, step, (mode) => options.setPicture(mode));
-    else move(clock, CLOCK_CHOICES, step, (on) => options.setClock(on));
+    else if (row === 'clock') move(clock, CLOCK_CHOICES, step, (on) => options.setClock(on));
+    else if (row === 'still') move(still, STILL_CHOICES, step, (hours) => options.setStill(hours));
+    else {
+      // The sleep timer is the player's: the row shows what main says, and a new value starts it from now.
+      const set = options.sleep();
+      const minutes = set === null ? null : set.minutes;
+      const next = nextValue(SLEEP_CHOICES, minutes, step);
+      if (next !== minutes) options.setSleep(next);
+    }
   };
 
   return {
@@ -116,6 +146,8 @@ export function createPlayerSettings(nav: Navigator, options: PlayerSettingsOpti
     size,
     picture,
     clock,
+    still,
+    sleep: () => options.sleep(),
     modes,
     open(): void {
       modes.value = options.modes();
@@ -125,6 +157,7 @@ export function createPlayerSettings(nav: Navigator, options: PlayerSettingsOpti
       size.value = now.size;
       picture.value = now.picture;
       clock.value = now.clock;
+      still.value = now.still;
       nav.push({
         id: PLAYER_SETTINGS_SCREEN,
         zones: [{ kind: 'list', id: 'rows', axis: 'vertical', count: PLAYER_SETTINGS_ROWS.length }],

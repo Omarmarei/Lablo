@@ -5,6 +5,7 @@ import type { Container, PictureMode, SourceMemory, TrackChoice, TrackMemory, Tr
 import { asPictureMode } from '@lablo/player';
 import type { RailRef } from '../live/live-state';
 import type { SubtitleSize } from './track-menu';
+import { DEFAULT_STILL_HOURS, STILL_HOURS } from './watch-guard';
 
 /**
  * What the player keeps across starts (RELAY step 20c1, architecture.md §2 "Built in step 20c1"):
@@ -20,7 +21,8 @@ import type { SubtitleSize } from './track-menu';
  * - the audio and subtitle languages Settings › "Player" chose (step 38d3), to the player's
  *   preferences (`trackPreferences`);
  * - Settings › "Player"'s other rows, kept by name in the profile's `player.options` (step 39a:
- *   "Clock while watching", `clock: 'on'`, absent when off), to the player;
+ *   "Clock while watching", `clock: 'on'`, absent when off; step 39c: "Still watching?",
+ *   `stillWatching: 'off'`, `'2'` or `'6'`, absent for its default 4 hours), to the player;
  * - the channels played last (step 28b2, the profile's `channels`, version 7), to Home: the
  *   query worker puts each new last channel first in the same write, and `tuned` does the same
  *   here.
@@ -63,6 +65,9 @@ export interface PlayerMemory {
   /** "Clock while watching" (step 39a; off until set). */
   clock(): boolean;
   setClock(on: boolean): void;
+  /** "Still watching?" (step 39c): the hours without a key before it asks (`null`: never; `DEFAULT_STILL_HOURS` until set). */
+  stillHours(): number | null;
+  setStillHours(hours: number | null): void;
 }
 
 /** A track language Settings › "Player" offers (step 38d3): the app's two. */
@@ -72,6 +77,16 @@ export const TRACK_LANGS: readonly TrackLang[] = ['ar', 'en'];
 /** A stored value as a track language, or `null` when it isn't one. */
 function asTrackLang(value: unknown): TrackLang | null {
   return TRACK_LANGS.indexOf(value as TrackLang) === -1 ? null : (value as TrackLang);
+}
+
+/**
+ * A stored "Still watching?" (step 39c) as hours: `off` is never (`null`), one of `STILL_HOURS` as
+ * text is itself, and anything else (absent too) is the default.
+ */
+function asStillHours(value: unknown): number | null {
+  if (value === 'off') return null;
+  for (let i = 0; i < STILL_HOURS.length; i += 1) if (String(STILL_HOURS[i]) === value) return STILL_HOURS[i]!;
+  return DEFAULT_STILL_HOURS;
 }
 
 /** The channels played last that are kept (the profile's `MAX_CHANNELS`, step 28b2). */
@@ -193,6 +208,7 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
   let audioLang: TrackLang | null = null;
   let subtitleLang: TrackLang | null = null;
   let clock = false;
+  let stillHours: number | null = DEFAULT_STILL_HOURS;
 
   const write = (change: PlayerChange): void => {
     options.edit({ kind: 'player', change }).catch((error: unknown) => console.warn('The player memory was not saved', error));
@@ -272,6 +288,7 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
       subtitleLang = asTrackLang(doc['subtitleLang']);
       const storedOptions = doc['options'];
       clock = isRecord(storedOptions) && own(storedOptions, 'clock') === 'on';
+      stillHours = asStillHours(isRecord(storedOptions) ? own(storedOptions, 'stillWatching') : undefined);
       last = lastChannelOf(profile);
       channels = recentChannelsOf(profile);
     },
@@ -312,6 +329,13 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
       if (on === clock) return;
       clock = on;
       write({ field: 'option', name: 'clock', value: on ? 'on' : null });
+    },
+    stillHours: () => stillHours,
+    setStillHours(hours: number | null): void {
+      if (hours === stillHours) return;
+      stillHours = hours;
+      // The default leaves nothing stored.
+      write({ field: 'option', name: 'stillWatching', value: hours === null ? 'off' : hours === DEFAULT_STILL_HOURS ? null : String(hours) });
     },
   };
 }
