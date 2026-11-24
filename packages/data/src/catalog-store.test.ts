@@ -2,6 +2,7 @@ import { buildSearchSegment } from '@lablo/core';
 import { describe, expect, it } from 'vitest';
 import {
   GenerationError,
+  abandonGeneration,
   beginGeneration,
   commitGeneration,
   deleteGeneration,
@@ -18,7 +19,7 @@ import type { CatalogChunk } from './chunker';
 import { CatalogChunker } from './chunker';
 import { openDatabase } from './idb';
 import { STORE } from './schema';
-import { dumpStore, freshFactory, ingest, item } from './test-support';
+import { dumpStore, fillStore, freshFactory, ingest, item } from './test-support';
 
 describe('CatalogChunker', () => {
   const summary = (chunks: CatalogChunk[]): string[] => chunks.map((c) => `${c.catIdx}/${c.chunk}:${c.items.map((i) => i.name).join(',')}`);
@@ -95,6 +96,40 @@ describe('catalog generations', () => {
     expect((await dumpStore(db, STORE.index)).map(([k]) => k)).toEqual([['tv', 1, 'live']]);
     // Committing the abandoned generation is refused.
     await expect(commitGeneration(db, 'tv', 2, { live: 6 })).rejects.toBeInstanceOf(GenerationError);
+    db.close();
+  });
+
+  it('abandons and prunes on a full store (step 39s1): the records go, the mark stays for the next begin', async () => {
+    const db = await openDatabase(freshFactory());
+    await ingest(db, 'tv', live(4), { chunkSize: 2 });
+    const half = await ingest(db, 'tv', live(6, 'Half'), { chunkSize: 2, commit: false });
+    const full = fillStore(db, () => true);
+    await abandonGeneration(db, 'tv', half.gen);
+    expect(full.refused).toEqual([STORE.sources]);
+    expect(new Set((await dumpStore(db, STORE.chunks)).map(([k]) => (k as unknown[])[1]))).toEqual(new Set([1]));
+    expect((await getSources(db))[0]).toMatchObject({ gen: 1, building: 2 });
+
+    const left = await openDatabase(freshFactory());
+    await ingest(left, 'tv', live(4), { chunkSize: 2 });
+    await ingest(left, 'tv', live(6, 'Half'), { chunkSize: 2, commit: false });
+    fillStore(left, () => true);
+    await pruneGenerations(left, 'tv', { abandon: true });
+    expect((await dumpStore(left, STORE.cats)).map(([k]) => (k as unknown[])[1])).toEqual([1]);
+    expect((await getSources(left))[0]).toMatchObject({ gen: 1, building: 2 });
+    db.close();
+    left.close();
+  });
+
+  it('fails an abandon for any other reason than space', async () => {
+    const db = await openDatabase(freshFactory());
+    await ingest(db, 'tv', live(2), { chunkSize: 2 });
+    const half = await ingest(db, 'tv', live(2, 'Half'), { chunkSize: 2, commit: false });
+    const transaction = db.transaction.bind(db);
+    db.transaction = ((stores: string | string[], mode?: IDBTransactionMode) => {
+      if (stores === STORE.sources && mode === 'readwrite') throw new DOMException('closing', 'InvalidStateError');
+      return transaction(stores, mode);
+    }) as IDBDatabase['transaction'];
+    await expect(abandonGeneration(db, 'tv', half.gen)).rejects.toMatchObject({ code: 'InvalidStateError' });
     db.close();
   });
 

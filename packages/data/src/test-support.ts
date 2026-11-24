@@ -82,6 +82,39 @@ export function fakeTransport(respond: (url: string, headers: Record<string, str
 /** A fresh, empty IndexedDB implementation per test. */
 export const freshFactory = (): IDBFactory => new IDBFactory();
 
+/** What `fillStore` refused: one store name per put or add. */
+export interface FullStore {
+  readonly refused: string[];
+}
+
+/**
+ * A full store (RELAY step 39s1), as Chromium refuses one: while `full(store)` says so, a put or an
+ * add on that store throws `QuotaExceededError`, so its transaction aborts and keeps nothing it
+ * wrote; reads, deletes and clears go through. Asked at each `objectStore` call, so a test can let
+ * writes through again (room made) mid-refresh. `refused` may be shared by several databases.
+ */
+export function fillStore(db: IDBDatabase, full: (store: string) => boolean, refused: string[] = []): FullStore {
+  const transaction = db.transaction.bind(db);
+  db.transaction = ((stores: string | string[], mode?: IDBTransactionMode, options?: IDBTransactionOptions) => {
+    const tx = transaction(stores, mode, options);
+    const objectStore = tx.objectStore.bind(tx);
+    tx.objectStore = (name: string): IDBObjectStore => {
+      const store = objectStore(name);
+      if (full(name)) {
+        const refuse = (): never => {
+          refused.push(name);
+          throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+        };
+        store.put = refuse;
+        store.add = refuse;
+      }
+      return store;
+    };
+    return tx;
+  }) as IDBDatabase['transaction'];
+  return { refused };
+}
+
 export interface StoreShape {
   keyPath: string | string[] | null;
   autoIncrement: boolean;

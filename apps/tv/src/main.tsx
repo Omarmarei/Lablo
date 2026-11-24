@@ -15,6 +15,7 @@ import type { DataEngine, SourceFacts } from './data/engine';
 import { readApiBase, readRestored, readScreen, restartUrl } from './data/params';
 import type { RefreshScheduler } from './data/refresh-scheduler';
 import { createRefreshScheduler } from './data/refresh-scheduler';
+import { createStorageState } from './data/storage-state';
 import { createLazyFile } from './lazy/lazy-file';
 import type { LoadedSettings } from './settings/settings';
 import type { SettingsOptions } from './settings/settings-state';
@@ -99,6 +100,8 @@ let sourceFacts = new Map<string, SourceFacts>();
 /** Remote keys are being pressed (a running refresh pauses). */
 const busy = signal(false);
 let engine: DataEngine | null = null;
+/** Whether Lablo's storage on the TV is full (step 39s1): the live screen's line, the sources' rows. */
+const storage = createStorageState();
 
 /** The data engine, started once and shared by every screen. */
 function dataEngine(): DataEngine {
@@ -113,6 +116,7 @@ function dataEngine(): DataEngine {
       onRefreshed: (done) => void recordRefresh(done, dataEngine(), (event) => telemetry.record(event), Date.now),
       // Telemetry's `crash` for a worker's uncaught error (step 33c).
       onWorkerError: (error) => crashes.worker(error),
+      storage,
     });
   }
   return engine;
@@ -683,6 +687,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
         }
         return result;
       }),
+    // A source whose refresh failed for space says so on its row (step 39s1).
+    storageFull: (src) => storage.sourceFull(src),
   };
   // settings.js loads the first time Settings opens (or the guide's "Guide channel"): a loading screen meanwhile, Back cancels.
   const settings = createLazyFile<LoadedSettings>({
@@ -789,7 +795,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       );
   }
   showFocus(live.nav);
-  paint = () => render(<LiveApp platform={platform} live={live} language={shown} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} home={home} parental={parental} favourites={listFavourites} />, into);
+  paint = () => render(<LiveApp platform={platform} live={live} language={shown} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} home={home} parental={parental} favourites={listFavourites} storageFull={storage.full} />, into);
   paint();
   startRefreshes(live, guide, [movies, series], search, home, readFacts, restored ? 0 : undefined);
   backup.start();

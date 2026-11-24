@@ -14,7 +14,7 @@ import { QueryService } from './query-service';
 import { CancelError, CancelSource } from './rpc';
 import { STORE } from './schema';
 import type { FakeResponse } from './test-support';
-import { dumpStore, fakeTransport, freshFactory, ingest, item } from './test-support';
+import { dumpStore, fakeTransport, fillStore, freshFactory, ingest, item } from './test-support';
 
 const NOW = Date.UTC(2026, 10, 2, 12);
 const MIN = 60_000;
@@ -470,5 +470,68 @@ describe('runEpgRefresh', () => {
     await expect(result).rejects.toBeInstanceOf(CancelError);
     expect(await dumpStore(db, STORE.epgBuckets)).toEqual([]);
     expect((await getEpgMeta(db, G.epgSrc))!).toMatchObject({ gen: 0, building: null });
+  });
+});
+
+describe('runEpgRefresh: a full store (step 39s1)', () => {
+  const G2: EpgGuide = { epgSrc: 'u~two', url: 'http://p.test/two.xml', zone: { minutes: 0 } };
+  const both = (url: string): FakeResponse => ({ body: guide({ tag: url.includes('two') ? 'two ' : '' }) });
+
+  it("makes room from the guide's own programmes, never another guide's, and swaps the new ones in", async () => {
+    await refresh(both, { guides: [G, G2] }).result;
+    const other = await stored(1, G2.epgSrc);
+    expect(other.size).toBeGreaterThan(0);
+    const full = fillStore(db, (name) => name === STORE.epgBuckets && full.refused.length === 0);
+    const text = guide({ tag: 'v2 ' });
+    const r = await refresh(() => ({ body: text }), { guides: [G, G2], only: [G.epgSrc] }, { now: () => NOW + 1 }).result;
+    expect(r.outcomes.map((o) => [o.epgSrc, o.error?.code ?? o.result!.status])).toEqual([[G.epgSrc, 'committed']]);
+    expect(full.refused).toEqual([STORE.epgBuckets]);
+    expect(await stored(1)).toEqual(new Map());
+    expect(await stored(2)).toEqual(await expected(text, 'full', 0, NOW + 1));
+    expect(await getEpgMeta(db, G.epgSrc)).toMatchObject({ gen: 2, building: null });
+    expect(await stored(1, G2.epgSrc)).toEqual(other);
+  });
+
+  it('swaps the same bytes in again when their stored copy went to make room', async () => {
+    const text = guide();
+    await refresh(() => ({ body: text })).result;
+    const full = fillStore(db, (name) => name === STORE.epgBuckets && full.refused.length === 0);
+    const r = await refresh(() => ({ body: text }), {}, { now: () => NOW + 1 }).result;
+    expect(r.outcomes[0]!.result).toMatchObject({ status: 'committed', gen: 2, previous: 1 });
+    expect(await stored(2)).toEqual(await expected(text, 'full', 0, NOW + 1));
+  });
+
+  it('deletes the guide whole when the room is not enough, keeps why, and leaves the other guides', async () => {
+    await refresh(both, { guides: [G, G2] }).result;
+    const other = await stored(1, G2.epgSrc);
+    const full = fillStore(db, (name) => name === STORE.epgBuckets);
+    const r = await refresh(() => ({ body: guide({ tag: 'v2 ' }) }), { guides: [G, G2], only: [G.epgSrc] }, { now: () => NOW + 1 }).result;
+    expect(r.outcomes.map((o) => [o.epgSrc, o.error?.code ?? o.result!.status])).toEqual([[G.epgSrc, 'storage']]);
+    expect(full.refused).toEqual([STORE.epgBuckets, STORE.epgBuckets]);
+    expect((await dumpStore(db, STORE.epgBuckets)).filter(([key]) => (key as string[])[0] === G.epgSrc)).toEqual([]);
+    expect((await dumpStore(db, STORE.epgChannels)).filter(([key]) => (key as string[])[0] === G.epgSrc)).toEqual([]);
+    expect(await getEpgMeta(db, G.epgSrc)).toMatchObject({ gen: 0, building: null, failedAt: NOW + 1, failure: { code: 'storage', status: null } });
+    expect(await stored(1, G2.epgSrc)).toEqual(other);
+  });
+
+  it('keeps an unchanged guide whole when its check fails for space', async () => {
+    const text = guide();
+    await refresh(() => ({ body: text, headers: { ETag: '"v1"' } })).result;
+    const before = await stored(1);
+    const full = fillStore(db, (name) => name === STORE.epgMeta && full.refused.length === 0);
+    const r = await refresh((_url, headers) => (headers['If-None-Match'] === '"v1"' ? { status: 304 } : { body: text }), {}, { now: () => NOW + 1 }).result;
+    expect(r.outcomes[0]!.error).toMatchObject({ code: 'storage' });
+    expect(full.refused).toEqual([STORE.epgMeta]);
+    expect(await stored(1)).toEqual(before);
+    expect(await getEpgMeta(db, G.epgSrc)).toMatchObject({ gen: 1, failure: { code: 'storage' } });
+  });
+
+  it('has no room to make for a guide with nothing stored: it fails as `storage`', async () => {
+    const full = fillStore(db, (name) => name === STORE.epgBuckets);
+    const r = await refresh(() => ({ body: guide() })).result;
+    expect(r.outcomes[0]!.error).toMatchObject({ code: 'storage' });
+    expect(full.refused).toEqual([STORE.epgBuckets, STORE.epgBuckets]);
+    expect(await dumpStore(db, STORE.epgBuckets)).toEqual([]);
+    expect(await getEpgMeta(db, G.epgSrc)).toMatchObject({ gen: 0, failure: { code: 'storage' } });
   });
 });

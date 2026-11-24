@@ -121,7 +121,7 @@ export function storedSources(profile: LoadedProfile | null): StoredSource[] {
   return Array.isArray(sources) ? (sources as StoredSource[]) : [];
 }
 
-const PASSED_ON: readonly LoadErrorCode[] = ['auth', 'expired', 'blocked', 'blocklisted', 'network', 'format', 'empty', 'file'];
+const PASSED_ON: readonly LoadErrorCode[] = ['auth', 'expired', 'blocked', 'blocklisted', 'network', 'format', 'empty', 'file', 'storage'];
 
 /**
  * Whether an upgrade's failed Xtream read (step 37a) goes on to the link as a playlist: yes,
@@ -130,7 +130,7 @@ const PASSED_ON: readonly LoadErrorCode[] = ['auth', 'expired', 'blocked', 'bloc
  */
 export function triesPlaylist(error: unknown): boolean {
   const code = loadError(error).code;
-  return code !== 'expired' && code !== 'blocked' && code !== 'blocklisted';
+  return code !== 'expired' && code !== 'blocked' && code !== 'blocklisted' && code !== 'storage';
 }
 
 /**
@@ -142,6 +142,8 @@ export function loadError(error: unknown): LoadError {
   if (error instanceof LoadError) return error;
   const { code, status } = (error ?? {}) as { code?: unknown; status?: unknown };
   if (code === 'http') return new LoadError('http', typeof status === 'number' ? status : null);
+  // A save that failed for space (step 39s1): IndexedDB's own error, from the profile's write.
+  if (code === 'QuotaExceededError') return new LoadError('storage');
   for (const known of PASSED_ON) if (known === code) return new LoadError(known);
   return new LoadError('other');
 }

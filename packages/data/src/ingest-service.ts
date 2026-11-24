@@ -9,6 +9,8 @@
  *   the port its plain frames come on from the pair worker (file-feed.ts, RELAY step 31d2a).
  * - `setBusy`: the UI is zapping or starting playback; the refresh pauses until it is idle.
  * - `prune`: at app start, removes what crashed or killed refreshes left behind, for every source.
+ * - `dropGuides`: the store is full and a profile save failed (RELAY step 39s1): deletes the stored
+ *   guides to make room (storage-room.ts). A refresh makes its own room, with a `room` event.
  *
  * Low-tier TVs pass `lowTier`, which turns on the 50/50 duty cycle for that refresh.
  */
@@ -21,6 +23,7 @@ import type { GunzipMode } from './gunzip';
 import type { IngestJob, IngestProgress, IngestResult, IngestSwap } from './ingest';
 import { runIngest } from './ingest';
 import type { RpcContext } from './rpc';
+import { dropGuides } from './storage-room';
 import type { Clock, DutyCycle } from './throttle';
 import { LOW_TIER_DUTY, Throttle } from './throttle';
 
@@ -38,6 +41,8 @@ export interface IngestRunRequest {
 export interface IngestEvents extends Record<string, unknown> {
   progress: IngestProgress;
   swapped: IngestSwap;
+  /** The refresh deleted the stored guides to make room (step 39s1). */
+  room: null;
 }
 
 export interface IngestServiceOptions {
@@ -63,6 +68,7 @@ export class IngestService {
         return this.throttle.busy;
       },
       prune: (): Promise<number> => this.prune(),
+      dropGuides: async (): Promise<void> => dropGuides(await this.db()),
     };
   }
 
@@ -88,6 +94,7 @@ export class IngestService {
       file: req.file === undefined ? undefined : feedResponse(req.file),
       onProgress: (p) => ctx.emit('progress', p),
       onSwap: (s) => ctx.emit('swapped', s),
+      onRoom: () => ctx.emit('room', null),
     });
   }
 

@@ -252,7 +252,9 @@ describe('a file from the phone, stored (step 31d2b1)', () => {
 describe('loadError', () => {
   it("maps the ingest's codes (from the worker) to the loader's", () => {
     const rpc = (code: string, status: number | null = null): RpcError => new RpcError('failed', code, 'IngestError', status);
-    for (const code of ['auth', 'expired', 'blocked', 'blocklisted', 'network', 'format', 'empty', 'file'] as const) expect(loadError(rpc(code))).toMatchObject({ code, status: null });
+    for (const code of ['auth', 'expired', 'blocked', 'blocklisted', 'network', 'format', 'empty', 'file', 'storage'] as const) expect(loadError(rpc(code))).toMatchObject({ code, status: null });
+    // A profile save that failed for space (step 39s1): IndexedDB's own error.
+    expect(loadError(new RpcError('quota', 'QuotaExceededError', 'IdbError'))).toMatchObject({ code: 'storage', status: null });
     // The data engine's own refusal (step 30c3a): not an RpcError, the same code.
     expect(loadError(new BlockedSourceError())).toMatchObject({ name: 'LoadError', code: 'blocklisted', status: null });
     expect(loadError(rpc('http', 404))).toMatchObject({ code: 'http', status: 404 });
@@ -582,10 +584,12 @@ describe('createEngineLoader', () => {
     expect(calls.edits.map((e) => e.kind)).toEqual(['source', 'guide']);
   });
 
-  it('fails as other when the profile write fails', async () => {
+  it('fails as other when the profile write fails, and as `storage` when it fails for space (step 39s1)', async () => {
     const { engine } = fake();
-    engine.editProfile = () => Promise.reject(new RpcError('quota', 'QuotaExceededError', 'DOMException'));
+    engine.editProfile = () => Promise.reject(new RpcError('closing', 'InvalidStateError', 'IdbError'));
     await expect(loaderFor(engine).start(M3U, () => undefined).done).rejects.toMatchObject({ code: 'other' });
+    engine.editProfile = () => Promise.reject(new RpcError('quota', 'QuotaExceededError', 'DOMException'));
+    await expect(loaderFor(engine).start(M3U, () => undefined).done).rejects.toMatchObject({ code: 'storage' });
   });
 
   it('cancel stops the refresh, reports nothing more and never settles; the next load waits for it to let go', async () => {
@@ -862,9 +866,9 @@ describe('the M3U→Xtream upgrade (step 37a)', () => {
     expect(calls.refresh.map((c) => c.job.source)).toEqual([{ type: 'xtream', account: { base: 'https://p.test/iptv', username: 'u', password: 'p' }, upgrade: true }]);
   });
 
-  it('triesPlaylist: every code but the account and the blocklist', () => {
+  it('triesPlaylist: every code but the account, the blocklist and a full storage (step 39s1)', () => {
     for (const code of ['auth', 'http', 'network', 'format', 'empty', 'file', 'superseded']) expect(triesPlaylist(failed(code))).toBe(true);
-    for (const code of ['expired', 'blocked', 'blocklisted']) expect(triesPlaylist(failed(code))).toBe(false);
+    for (const code of ['expired', 'blocked', 'blocklisted', 'storage']) expect(triesPlaylist(failed(code))).toBe(false);
     expect(triesPlaylist(new BlockedSourceError())).toBe(false);
     expect(triesPlaylist(new Error('x'))).toBe(true);
   });

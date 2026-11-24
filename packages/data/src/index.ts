@@ -171,6 +171,7 @@ export { relinkChannelEdits, trackedRefs } from './channel-relink';
 
 export type { IngestErrorCode, IngestJob, IngestOptions, IngestProgress, IngestResult, IngestSource, IngestSwap, LinkSource } from './ingest';
 export { INGEST_VERSION, IngestError, WRITE_BATCH, runIngest } from './ingest';
+export { QUOTA_ERROR, Room, dropGuides, isQuotaError } from './storage-room';
 
 export type { DeclaredChannel, EpgBucketKey, EpgChannelTable, EpgDeclaredChannels, EpgFailure, EpgMeta, EpgMetaPatch, EpgSummary, StoredEpgMatch } from './epg-store';
 export {

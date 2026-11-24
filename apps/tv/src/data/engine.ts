@@ -51,6 +51,10 @@
  * - a **telemetry worker** starts for each `sendTelemetry` (step 33b1) and ends when it answers: it
  *   keeps the install ID and the events not yet sent in `kv`, and posts them to the telemetry API.
  *   It runs beside the refresh slot.
+ * - **a full store** (step 39s1, storage-room.ts): a refresh makes its own room (the guides go;
+ *   its ingest worker's `room` event makes the query worker reload). A profile save that fails for
+ *   space deletes the guides in a short-lived ingest worker (`dropGuides`) and is tried once more.
+ *   `storage` hears which writes failed for space and which went through (storage-state.ts).
  *
  * Workers come from factories, so tests serve the real services over message channels; the
  * app passes the `?worker` imports (`./workers.ts`).
@@ -139,6 +143,8 @@ import {
   lacksLogin,
 } from '@lablo/data/client';
 import type { PairPurpose, PairStatus } from '@lablo/protocol';
+import type { StorageItem, StorageWatch } from './storage-state';
+import { isStorageError } from './storage-state';
 
 /** What a source's stream and catch-up URLs need from its last login (`DataEngine.sourceFacts`). */
 export interface SourceFacts {
@@ -207,6 +213,8 @@ export interface DataEngineOptions {
    * message and position, and which worker.
    */
   onWorkerError?: (error: WorkerError) => void;
+  /** Hears each catalog refresh, guide and profile save that failed for space or went through (step 39s1). */
+  storage?: StorageWatch;
 }
 
 /** The engine's workers, as `onWorkerError` names them. */
@@ -291,6 +299,9 @@ export interface FocusedChannel {
 }
 
 const ignore = (): void => undefined;
+
+/** The profile, as `storage` hears of its saves. */
+const PROFILE: StorageItem = { kind: 'profile' };
 
 /**
  * A refresh the data engine refused because the source's server is on the signed config's
@@ -428,10 +439,31 @@ export class DataEngine {
    * Resolves `false` when nothing changed or the stored profile is from a newer app version.
    */
   editProfile(edit: ProfileEdit): Promise<boolean> {
-    return this.query.call('editProfile', edit).then((changed) => {
-      if (changed) this.options.onProfileChanged?.();
-      return changed;
-    });
+    const storage = this.options.storage;
+    return this.query
+      .call('editProfile', edit)
+      .catch((error: unknown) => {
+        if (!isStorageError(error)) throw error;
+        // The store is full (step 39s1): room from the guides, then once more.
+        return this.dropGuides().then(() => this.query.call('editProfile', edit));
+      })
+      .then(
+        (changed) => {
+          if (changed) storage?.saved(PROFILE);
+          if (changed) this.options.onProfileChanged?.();
+          return changed;
+        },
+        (error: unknown) => {
+          if (isStorageError(error)) storage?.failed(PROFILE);
+          throw error;
+        },
+      );
+  }
+
+  /** Deletes the stored guides to make room (step 39s1) in a short-lived ingest worker; the query worker then reads the guides again. */
+  private async dropGuides(): Promise<void> {
+    await this.withIngestWorker((client) => client.call('dropGuides'));
+    await this.query.call('reload').catch(ignore);
   }
 
   /**
@@ -461,6 +493,11 @@ export class DataEngine {
           reload = this.query.call('reload');
           reload.catch(ignore);
         });
+        // The refresh deleted the guides to make room (step 39s1): the query worker reads them again.
+        client.on('room', () => {
+          reload = this.query.call('reload');
+          reload.catch(ignore);
+        });
         if (options.onProgress) client.on('progress', options.onProgress);
         const file = options.file;
         const result = await client.call(
@@ -471,10 +508,14 @@ export class DataEngine {
         // The refresh itself succeeded; a query worker that can't reload reports that on the
         // next read.
         await reload.catch(ignore);
+        this.options.storage?.saved({ kind: 'source', id: job.src });
         if (result.status === 'committed') this.options.onProfileChanged?.();
         this.options.onRefreshed?.({ kind: 'catalog', source: source.type, result });
         return result;
       });
+    } catch (error) {
+      if (isStorageError(error)) this.options.storage?.failed({ kind: 'source', id: job.src });
+      throw error;
     } finally {
       this.release();
     }
@@ -519,12 +560,26 @@ export class DataEngine {
         // A guide that only moved sends no swap: the query worker orders the guides by rank.
         if (result.reranked.length > 0) reload = this.query.call('reload');
         await reload.catch(ignore);
+        this.noteGuides(result);
         this.options.onRefreshed?.({ kind: 'epg', result });
         return result;
       });
     } finally {
       this.release();
     }
+  }
+
+  /** Tells `storage` which guides failed for space and which went through or are gone (step 39s1). */
+  private noteGuides(result: EpgRefreshResult): void {
+    const storage = this.options.storage;
+    if (storage === undefined) return;
+    for (let i = 0; i < result.outcomes.length; i++) {
+      const outcome = result.outcomes[i]!;
+      const guide = { kind: 'guide', id: outcome.epgSrc } as const;
+      if (outcome.error === null) storage.saved(guide);
+      else if (outcome.error.code === 'storage') storage.failed(guide);
+    }
+    for (let i = 0; i < result.deleted.length; i++) storage.saved({ kind: 'guide', id: result.deleted[i]! });
   }
 
   /**

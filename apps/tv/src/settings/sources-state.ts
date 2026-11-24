@@ -51,6 +51,8 @@ export interface SourceRow {
   readonly checkedAt: number | null;
   /** Its server is on the signed config's blocklist: it isn't updated. */
   readonly blocked: boolean;
+  /** Its last refresh in this run failed because Lablo's storage is full (step 39s1). */
+  readonly storage: boolean;
   /** A backup without logins brought it back without its login (Xtream) or link (M3U) (step 32d4b; `null`: it has it). */
   readonly needs: 'login' | 'link' | null;
   /** Its last save's answer (step 32d4b; `null`: none, or it worked). */
@@ -97,6 +99,8 @@ export interface SourcesOptions {
   readonly addFromPhone?: () => void;
   /** The login form for a source without its login (step 32d4b); without it, OK on a row does nothing. */
   readonly login?: SourceLoginOptions;
+  /** Whether a source's last refresh failed for space (step 39s1, main's storage state); without it, none did. */
+  readonly storageFull?: (src: string) => boolean;
 }
 
 export interface SourcesList {
@@ -132,9 +136,16 @@ function linkOf(record: StoredSource): string {
 
 /**
  * The rows, in the profile's order; `blocked[i]` is the i-th source's answer (missing: not
- * blocked), `answers` the saves' answers by source id (step 32d4b).
+ * blocked), `answers` the saves' answers by source id (step 32d4b), `full` whether a source's
+ * refresh failed for space (step 39s1).
  */
-export function sourceRows(profile: LoadedProfile | null, metas: readonly SourceMeta[], blocked: readonly boolean[], answers: Readonly<Record<string, SaveAnswer>> = {}): SourceRow[] {
+export function sourceRows(
+  profile: LoadedProfile | null,
+  metas: readonly SourceMeta[],
+  blocked: readonly boolean[],
+  answers: Readonly<Record<string, SaveAnswer>> = {},
+  full: (src: string) => boolean = () => false,
+): SourceRow[] {
   const rows: SourceRow[] = [];
   const records = storedSources(profile);
   for (let i = 0; i < records.length; i += 1) {
@@ -151,6 +162,7 @@ export function sourceRows(profile: LoadedProfile | null, metas: readonly Source
       checkedAt: meta !== null && meta.gen > 0 ? checkedAt : null,
       // A file has no server to block (its URL is empty; its streams are checked as they play).
       blocked: record.type !== 'm3u-file' && blocked[i] === true,
+      storage: full(record.id),
       needs: needsLogin(record) ? (record.type === 'xtream' ? 'login' : 'link') : null,
       answer: answers[record.id] ?? null,
     });
@@ -170,6 +182,7 @@ function sourcesZone(count: number, header: boolean): ZoneSpec {
 export function createSourcesList(options: SourcesOptions): SourcesList {
   const { nav, engine } = options;
   const header = options.addFromPhone !== undefined;
+  const full = options.storageFull ?? ((): boolean => false);
   const status = signal<SourcesStatus>('loading');
   const rows = signal<readonly SourceRow[]>([]);
   const pending = signal(0);
@@ -215,7 +228,7 @@ export function createSourcesList(options: SourcesOptions): SourcesList {
         return asked.then((blocked) => {
           if (!current()) return;
           last = { profile, metas, blocked };
-          rows.value = sourceRows(profile, metas, blocked, answers);
+          rows.value = sourceRows(profile, metas, blocked, answers, full);
           status.value = 'ready';
           // (A closed screen ignores updates and focus moves.)
           screen.value?.update(sourcesZone(rows.value.length, header));
@@ -238,7 +251,7 @@ export function createSourcesList(options: SourcesOptions): SourcesList {
 
   /** The rows drawn again from the last read, with the answers as they are now. */
   const draw = (): void => {
-    if (last !== null) rows.value = sourceRows(last.profile, last.metas, last.blocked, answers);
+    if (last !== null) rows.value = sourceRows(last.profile, last.metas, last.blocked, answers, full);
   };
 
   /**

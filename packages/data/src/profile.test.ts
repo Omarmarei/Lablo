@@ -34,7 +34,7 @@ import {
   updateProfile,
 } from './profile';
 import { STORE } from './schema';
-import { freshFactory } from './test-support';
+import { fillStore, freshFactory } from './test-support';
 
 const DAY = SNAPSHOT_EVERY_MS;
 const fav = (n: number): ProfileDoc['favourites'][number] => ({ key: `x:tv:live:${n}`, src: 'tv', kind: 'live', normName: `ch ${n}`, added: n, missingSince: null });
@@ -239,6 +239,51 @@ describe('profile storage', () => {
     expect(snaps).toEqual([{ id: 'snap:0', savedAt: 50, doc: v1(1, 2), reason: 'migration' }]);
     // The upgrade was written: the next load has nothing to migrate.
     expect(await loadProfile(db, { now: 60, migrations: [toV2, toV3] })).toMatchObject({ migratedFrom: null, doc: { v: 3 } });
+    db.close();
+  });
+
+  it('gives the upgrade from memory when the store is too full to write it (step 39s1), and writes it later', async () => {
+    const db = await openDatabase(freshFactory());
+    await writeCurrent(db, v1(1, 2));
+    const full = fillStore(db, () => true);
+    const loaded = await loadProfile(db, { now: 50, migrations: [toV2, toV3] });
+    expect(loaded).toMatchObject({ migratedFrom: 1, newer: false, doc: { v: 3 } });
+    expect(full.refused).toEqual([STORE.profile]);
+    // Nothing was written: the stored document and its snapshots are as they were.
+    expect(await listSnapshots(db)).toEqual([]);
+    expect(await loadProfile(db, { now: 55, migrations: [toV2, toV3] })).toMatchObject({ migratedFrom: 1 });
+    // A store with room again: the next load writes the upgrade.
+    const room = await openDatabase(freshFactory());
+    await writeCurrent(room, v1(1, 2));
+    db.close();
+    expect(await loadProfile(room, { now: 60, migrations: [toV2, toV3] })).toMatchObject({ migratedFrom: 1, doc: { v: 3 } });
+    expect(await loadProfile(room, { now: 61, migrations: [toV2, toV3] })).toMatchObject({ migratedFrom: null });
+    room.close();
+  });
+
+  it('gives nothing from memory when there is no profile, and passes other failures on', async () => {
+    const db = await openDatabase(freshFactory());
+    fillStore(db, () => true);
+    expect(await loadProfile(db)).toBeNull();
+    const broken = await openDatabase(freshFactory());
+    await writeCurrent(broken, v1(1));
+    const transaction = broken.transaction.bind(broken);
+    broken.transaction = ((stores: string | string[], mode?: IDBTransactionMode) => {
+      if (mode === 'readwrite') throw new DOMException('closing', 'InvalidStateError');
+      return transaction(stores, mode);
+    }) as IDBDatabase['transaction'];
+    await expect(loadProfile(broken)).rejects.toMatchObject({ code: 'InvalidStateError' });
+    db.close();
+    broken.close();
+  });
+
+  it('fails an edit on a full store and keeps the stored profile as it was (step 39s1)', async () => {
+    const db = await openDatabase(freshFactory());
+    await saveProfile(db, withFavs(1), { now: 10 });
+    fillStore(db, () => true);
+    await expect(updateProfile(db, () => withFavs(2), { now: 20 })).rejects.toMatchObject({ name: 'QuotaExceededError' });
+    await expect(saveProfile(db, withFavs(3), { now: 30 })).rejects.toMatchObject({ name: 'QuotaExceededError' });
+    expect(await loadProfile(db)).toEqual({ doc: withFavs(1), newer: false, migratedFrom: null });
     db.close();
   });
 

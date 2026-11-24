@@ -27,7 +27,7 @@ import {
 import { EPG_AHEAD_MS, EPG_REFRESH_MS, EPG_RETRY_MS, epgGuides, epgRefreshDue } from './epg-sources';
 import { openDatabase } from './idb';
 import { STORE } from './schema';
-import { dumpStore, freshFactory } from './test-support';
+import { dumpStore, fillStore, freshFactory } from './test-support';
 
 const DAY = 1440;
 const D0 = 20394; // 2025-11-02, a UTC day number
@@ -109,6 +109,32 @@ describe('EPG generations', () => {
     await putEpgChannels(db, 'g', g3, table(['b']));
     expect(await commitEpgGeneration(db, 'g', g3, 300)).toBe(1);
     expect((await readEpgChannels(db, [{ epgSrc: 'g', gen: 3 }, { epgSrc: 'g', gen: 1 }]))[0]!.channels[0]!.id).toBe('b');
+  });
+
+  it('abandons and prunes on a full store (step 39s1): the records go, the mark stays for the next begin', async () => {
+    const g1 = await beginEpgGeneration(db, 'g');
+    await putEpgBuckets(db, 'g', g1, [bucket('a', D0, [prog(D0 * DAY, D0 * DAY + 60, 'one')])]);
+    await commitEpgGeneration(db, 'g', g1, 1);
+    const g2 = await beginEpgGeneration(db, 'g');
+    await putEpgBuckets(db, 'g', g2, [bucket('a', D0, [prog(D0 * DAY, D0 * DAY + 60, 'two')])]);
+    const full = fillStore(db, () => true);
+    await abandonEpgGeneration(db, 'g', g2);
+    expect(full.refused).toEqual([STORE.epgMeta]);
+    expect(await gens('g')).toEqual([1]);
+    expect(await getEpgMeta(db, 'g')).toMatchObject({ gen: 1, building: 2 });
+    await pruneEpgGenerations(db, 'g', { abandon: true });
+    expect(full.refused).toEqual([STORE.epgMeta, STORE.epgMeta]);
+    expect(await gens('g')).toEqual([1]);
+  });
+
+  it('fails an abandon for any other reason than space', async () => {
+    const g1 = await beginEpgGeneration(db, 'g');
+    const transaction = db.transaction.bind(db);
+    db.transaction = ((stores: string | string[], mode?: IDBTransactionMode) => {
+      if (stores === STORE.epgMeta && mode === 'readwrite') throw new DOMException('closing', 'InvalidStateError');
+      return transaction(stores, mode);
+    }) as IDBDatabase['transaction'];
+    await expect(abandonEpgGeneration(db, 'g', g1)).rejects.toMatchObject({ code: 'InvalidStateError' });
   });
 
   it('prunes leftovers around the active and building generations, and deletes a whole guide', async () => {

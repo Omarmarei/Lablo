@@ -21,6 +21,11 @@
  * A failure before the swap abandons the new generation and keeps the active one; a crash keeps it
  * too, and the next refresh prunes what was half written. One guide's failure doesn't stop the
  * others; a cancel stops the whole refresh. Error messages never contain URLs.
+ *
+ * A full store (step 39s1, storage-room.ts): a write that fails for space deletes this guide's
+ * active generation (never another guide's) and is tried once more. When the refresh then fails,
+ * the guide is deleted whole, so it reads as nothing stored and its failure (`storage`, or any
+ * other) is kept on a new record.
  */
 
 import type { CatalogItem, DeviceTier, EpgBucket, EpgOverride, EpgWantedChannel, ZoneOffset } from '@lablo/core';
@@ -58,6 +63,7 @@ import { readEpgOverrides } from './profile';
 import type { IngestErrorCode } from './ingest-errors';
 import { IngestError, headerNumber, ingestError } from './ingest-errors';
 import type { CancelToken } from './rpc';
+import { Room } from './storage-room';
 import { CancelError, NEVER } from './rpc';
 import { STORE } from './schema';
 import type { ThrottleStats } from './throttle';
@@ -202,6 +208,7 @@ class BucketWriter {
     readonly gen: number,
     private readonly throttle: Throttle,
     private readonly token: CancelToken,
+    private readonly room: Room,
   ) {}
 
   async add(buckets: EpgBucket[], all = false): Promise<void> {
@@ -210,7 +217,8 @@ class BucketWriter {
       for (let i = 0; i < b.end.length; i++) if (this.until === null || b.end[i]! > this.until) this.until = b.end[i]!;
     }
     while (this.pending.length >= EPG_WRITE_BATCH || (all && this.pending.length > 0)) {
-      await putEpgBuckets(this.db, this.epgSrc, this.gen, this.pending.splice(0, EPG_WRITE_BATCH));
+      const batch = this.pending.splice(0, EPG_WRITE_BATCH);
+      await this.room.write(() => putEpgBuckets(this.db, this.epgSrc, this.gen, batch));
       await this.throttle.checkpoint(this.token);
     }
   }
@@ -273,6 +281,9 @@ export async function runEpgIngest(
   await pruneEpgGenerations(db, epgSrc, { abandon: true });
   const meta = await getEpgMeta(db, epgSrc);
   const known = !job.force && meta !== null && meta.gen > 0 && meta.basis === wanted.basis && meta.fetch ? meta.fetch : null;
+  // Room for this guide's new programmes: its own older ones (none when it has none stored).
+  const active = meta === null ? 0 : meta.gen;
+  const room = new Room(() => (active > 0 ? deleteEpgGeneration(db, epgSrc, active) : Promise.resolve()));
   const hasher = new Fnv1a();
   let unzip: MaybeGunzip | null = null;
   let writer: BucketWriter | null = null;
@@ -299,6 +310,7 @@ export async function runEpgIngest(
   /** Nothing new: drop the past days the stored generation still has. */
   const unchanged = async (fields: Partial<EpgResult>, patch: { fetch?: FetchStamp }): Promise<EpgResult> => {
     const at = now();
+    // Never room from its own programmes here: they are the guide (a full store fails the check, `storage`).
     await markEpgChecked(db, epgSrc, at, { ...patch, rank });
     const pastDays = meta && meta.summary ? meta.summary.pastDays : EPG_WINDOWS[job.tier].maxPastDays;
     await pruneEpgDays(db, epgSrc, epgFirstDay(at, pastDays));
@@ -324,7 +336,7 @@ export async function runEpgIngest(
     const etag = res.header('etag');
     const lastModified = res.header('last-modified');
     total = headerNumber(res.header('content-length'));
-    writer = new BucketWriter(db, epgSrc, await beginEpgGeneration(db, epgSrc, rank), throttle, token);
+    writer = new BucketWriter(db, epgSrc, await room.write(() => beginEpgGeneration(db, epgSrc, rank)), throttle, token, room);
     unzip = new MaybeGunzip(
       tapBytes(res, (chunk) => hasher.update(chunk)),
       options.gunzip,
@@ -364,7 +376,8 @@ export async function runEpgIngest(
     if (xmltv.channels === 0 && xmltv.programmes === 0) throw new IngestError('format', null, 'This is not an XMLTV guide');
     const stamp: FetchStamp = { v: EPG_INGEST_VERSION, hash: hasher.digest(), bytes: hasher.bytes, etag, lastModified };
 
-    if (known && known.hash === stamp.hash && known.bytes === stamp.bytes) {
+    // The same bytes, unless its stored programmes went to make room: then the new ones are swapped in.
+    if (known && !room.made && known.hash === stamp.hash && known.bytes === stamp.bytes) {
       const unused = writer.gen;
       writer = null;
       await abandonEpgGeneration(db, epgSrc, unused);
@@ -373,16 +386,22 @@ export async function runEpgIngest(
 
     const gen = writer.gen;
     const summary = summarize(reader, job.tier, nowMs);
-    await putEpgChannels(db, epgSrc, gen, channelTable(reader, wanted.wanted));
-    await putEpgDeclared(db, epgSrc, gen, epgDeclared(reader.matcher.declaredChannels()));
-    const previous = await commitEpgGeneration(db, epgSrc, gen, now(), { fetch: stamp, basis: wanted.basis, mapping: wanted.mapping, until: writer.until, summary, rank });
+    const table = channelTable(reader, wanted.wanted);
+    const declared = epgDeclared(reader.matcher.declaredChannels());
+    const until = writer.until;
+    await room.write(() => putEpgChannels(db, epgSrc, gen, table));
+    await room.write(() => putEpgDeclared(db, epgSrc, gen, declared));
+    const previous = await room.write(() => commitEpgGeneration(db, epgSrc, gen, now(), { fetch: stamp, basis: wanted.basis, mapping: wanted.mapping, until, summary, rank }));
     committed = true;
     options.onSwap?.({ epgSrc, gen, previous });
     // Best effort: a previous generation left behind is pruned by the next refresh.
     if (previous > 0 && previous !== gen) await deleteEpgGeneration(db, epgSrc, previous).catch(() => undefined);
     return done('committed', { gen, previous, summary, fetch: stamp });
   } catch (error) {
-    if (writer && !committed) {
+    if (room.made && !committed) {
+      // Its older programmes are gone: nothing of the guide is kept (deletes only, so it goes through).
+      await deleteEpgSource(db, epgSrc).catch(() => undefined);
+    } else if (writer && !committed) {
       const unused = writer.gen;
       await abandonEpgGeneration(db, epgSrc, unused).catch(() => undefined);
     }

@@ -7,7 +7,7 @@ import { SCREEN, Spinner, VirtualList, bindFocus, createNavigator } from '@lablo
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { appI18n } from '../i18n';
 import { GUIDES } from './guides-state';
-import { SourceItem, SourcesPage, sourceKindText, statusText } from './SettingsScreen';
+import { SourceItem, SourcesPage, sourceKindText, statusText, warns } from './SettingsScreen';
 import type { SourceRow, SourcesEngine } from './sources-state';
 import { SOURCES_BODY, SOURCES_SCREEN, SOURCES_VISIBLE, createSourcesList, shownHost, sourceRows } from './sources-state';
 
@@ -152,9 +152,19 @@ describe('sourceRows', () => {
     const engine = new FakeEngine();
     const rows = sourceRows(profileOf(engine.sources), engine.metas, [false, true]);
     expect(rows).toEqual([
-      { id: 's1', name: 'My panel', type: 'xtream', host: 'panel.test:8080', checkedAt: T, blocked: false, needs: null, answer: null },
-      { id: 's2', name: 'قائمتي', type: 'm3u', host: 'lists.test', checkedAt: T - 60_000, blocked: true, needs: null, answer: null },
-      { id: 's3', name: 'Wiped', type: 'm3u', host: 'wiped.test', checkedAt: null, blocked: false, needs: null, answer: null },
+      { id: 's1', name: 'My panel', type: 'xtream', host: 'panel.test:8080', checkedAt: T, blocked: false, storage: false, needs: null, answer: null },
+      { id: 's2', name: 'قائمتي', type: 'm3u', host: 'lists.test', checkedAt: T - 60_000, blocked: true, storage: false, needs: null, answer: null },
+      { id: 's3', name: 'Wiped', type: 'm3u', host: 'wiped.test', checkedAt: null, blocked: false, storage: false, needs: null, answer: null },
+    ]);
+  });
+
+  it('marks the sources whose refresh failed for space (step 39s1)', () => {
+    const engine = new FakeEngine();
+    const rows = sourceRows(profileOf(engine.sources), engine.metas, [], {}, (src) => src === 's2');
+    expect(rows.map((r) => [r.id, r.storage])).toEqual([
+      ['s1', false],
+      ['s2', true],
+      ['s3', false],
     ]);
   });
 
@@ -169,8 +179,8 @@ describe('sourceRows', () => {
   it('lists a file from the phone with no server, never blocked, whatever the blocklist answers (step 31d2b1)', () => {
     const file: SourceRecord = { id: 's4', type: 'm3u-file', name: 'Kitchen', added: 4 };
     expect(sourceRows(profileOf([PANEL, file]), [meta('s1', { checkedAt: T }), meta('s4', { checkedAt: T - 5_000 })], [true, true])).toEqual([
-      { id: 's1', name: 'My panel', type: 'xtream', host: 'panel.test:8080', checkedAt: T, blocked: true, needs: null, answer: null },
-      { id: 's4', name: 'Kitchen', type: 'm3u-file', host: '', checkedAt: T - 5_000, blocked: false, needs: null, answer: null },
+      { id: 's1', name: 'My panel', type: 'xtream', host: 'panel.test:8080', checkedAt: T, blocked: true, storage: false, needs: null, answer: null },
+      { id: 's4', name: 'Kitchen', type: 'm3u-file', host: '', checkedAt: T - 5_000, blocked: false, storage: false, needs: null, answer: null },
     ]);
   });
 
@@ -178,8 +188,8 @@ describe('sourceRows', () => {
     const panel: StoredSource = { id: 's5', type: 'xtream', name: 'Bare panel', account: null, base: 'http://bare.test:8080', added: 5 };
     const link: StoredSource = { id: 's6', type: 'm3u', name: 'Bare list', url: null, origin: 'https://lists.bare.test', added: 6 };
     expect(sourceRows(profileOf([panel, link]), [], [true, false])).toEqual([
-      { id: 's5', name: 'Bare panel', type: 'xtream', host: 'bare.test:8080', checkedAt: null, blocked: true, needs: 'login', answer: null },
-      { id: 's6', name: 'Bare list', type: 'm3u', host: 'lists.bare.test', checkedAt: null, blocked: false, needs: 'link', answer: null },
+      { id: 's5', name: 'Bare panel', type: 'xtream', host: 'bare.test:8080', checkedAt: null, blocked: true, storage: false, needs: 'login', answer: null },
+      { id: 's6', name: 'Bare list', type: 'm3u', host: 'lists.bare.test', checkedAt: null, blocked: false, storage: false, needs: 'link', answer: null },
     ]);
   });
 
@@ -383,7 +393,7 @@ const textOf = (node: unknown): string => {
 const en = appI18n('en-US', { isolate: false });
 const ar = appI18n('ar-SA');
 const item: ItemBinding = { state: 'focused', onHover: () => undefined, onPress: () => undefined };
-const row = (patch: Partial<SourceRow> = {}): SourceRow => ({ id: 's1', name: 'My panel', type: 'xtream', host: 'panel.test:8080', checkedAt: T, blocked: false, needs: null, answer: null, ...patch });
+const row = (patch: Partial<SourceRow> = {}): SourceRow => ({ id: 's1', name: 'My panel', type: 'xtream', host: 'panel.test:8080', checkedAt: T, blocked: false, storage: false, needs: null, answer: null, ...patch });
 
 describe('a source’s row as drawn', () => {
   it('names the kind, the format isolated in Arabic', () => {
@@ -421,6 +431,25 @@ describe('a source’s row as drawn', () => {
     expect(statusText(en, row({ checkedAt: null }))).toBe('Not updated yet');
     expect(stripIsolates(statusText(ar, row()))).toBe(stripIsolates(`حُدّث ${ar.date(at, 'day')}، ${ar.time(at)}`));
     expect(statusText(ar, row({ checkedAt: null }))).toBe('لم يُحدَّث بعد');
+  });
+
+  it('says a source is not updated because the storage is full, since when when it ever was (step 39s1)', () => {
+    const at = new Date(T);
+    expect(statusText(en, row({ storage: true }))).toBe(`Not updated since ${en.date(at, 'day')}, ${en.time(at)}: Lablo's storage on this TV is full.`);
+    expect(statusText(en, row({ storage: true, checkedAt: null }))).toBe("Not updated: Lablo's storage on this TV is full.");
+    expect(stripIsolates(statusText(ar, row({ storage: true })))).toBe(stripIsolates(`لم يُحدَّث منذ ${ar.date(at, 'day')}، ${ar.time(at)}: مساحة تخزين لابلو على هذا التلفزيون ممتلئة.`));
+    expect(statusText(ar, row({ storage: true, checkedAt: null }))).toBe('لم يُحدَّث: مساحة تخزين لابلو على هذا التلفزيون ممتلئة.');
+    // A save's answer and a missing login say more; the storage comes before the blocklist.
+    expect(statusText(en, row({ storage: true, needs: 'login' }))).toBe(en.t('sources.needsLogin'));
+    expect(statusText(en, row({ storage: true, blocked: true, checkedAt: null }))).toBe("Not updated: Lablo's storage on this TV is full.");
+    // A file from the phone says when it was sent.
+    expect(statusText(en, row({ storage: true, type: 'm3u-file' }))).toBe(en.t('sources.fileSent', { day: en.date(at, 'day'), time: en.time(at) }));
+    expect(warns(row({ storage: true }))).toBe(true);
+    expect(warns(row())).toBe(false);
+    const drawn = SourceItem({ i18n: en, row: row({ storage: true }), index: 2, item });
+    expect(drawn.props as Props).toMatchObject({ 'data-storage': 'true' });
+    expect((byTestId(drawn, 'source-2-status')[0]!.props as Props).class).toBe('guides__failure');
+    expect((SourceItem({ i18n: en, row: row(), index: 2, item }).props as Props)['data-storage']).toBe('false');
   });
 
   it('says a blocked source is no longer updated, since when when it ever was', () => {

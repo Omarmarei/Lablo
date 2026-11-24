@@ -350,6 +350,12 @@ describe('the live screen’s layout numbers', () => {
     expect(listHeight(CHANNELS_VISIBLE + 1, LAYOUT.rowHeight, LIVE.rowGap)).toBeGreaterThan(LIVE_BODY);
     expect(LIVE.railWidth + LIVE.columnGap).toBeLessThan(LIVE.width / 2);
   });
+
+  it('keeps every row with the storage line under the header (step 39s1)', () => {
+    const body = LIVE_BODY - LIVE.storageLine;
+    expect(listHeight(RAIL_VISIBLE, LAYOUT.railHeight, LIVE.railGap)).toBeLessThanOrEqual(body);
+    expect(listHeight(CHANNELS_VISIBLE, LAYOUT.rowHeight, LIVE.rowGap)).toBeLessThanOrEqual(body);
+  });
 });
 
 describe('railEntries', () => {

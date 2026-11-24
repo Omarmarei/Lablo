@@ -31,6 +31,9 @@
  * Any failure before the swap (network, gzip, HTTP, cancel) abandons the new generation and
  * leaves the active one untouched; a crash leaves it untouched too, with the leftovers pruned
  * by the next refresh. Error messages never contain URLs (they carry credentials).
+ *
+ * A full store (step 39s1, storage-room.ts): a write that fails for space deletes the stored guides
+ * (`onRoom` then tells the app) and is tried once more; a second one fails the refresh (`storage`).
  */
 
 import type { CatalogItem, ContentKind, M3uStats, TextTransport, XtreamAccount, XtreamListStats, XtreamLogin, XtreamServerInfo } from '@lablo/core';
@@ -65,6 +68,7 @@ import { loadProfile, updateProfile } from './profile';
 import { RECENT_KINDS, RecentList } from './recent';
 import type { CancelToken } from './rpc';
 import { CancelError, NEVER } from './rpc';
+import { Room, dropGuides } from './storage-room';
 import type { ThrottleStats } from './throttle';
 import { Throttle } from './throttle';
 
@@ -165,6 +169,8 @@ export interface IngestOptions {
   onProgress?: (progress: IngestProgress) => void;
   /** Right after the swap: the query worker should reload. */
   onSwap?: (swap: IngestSwap) => void;
+  /** The store was full, so the stored guides were deleted to make room (step 39s1): the app reads the guides again. */
+  onRoom?: () => void;
   /** The time limit of an M3U link's panel login (default `PANEL_LOGIN_MS`). */
   panelLoginMs?: number;
   /** An `m3u-file` source's plain bytes (file-feed.ts: the pair worker opens its frames). */
@@ -274,6 +280,7 @@ class GenerationWriter {
     readonly gen: number,
     private readonly throttle: Throttle,
     private readonly token: CancelToken,
+    private readonly room: Room,
     private readonly chunkSize?: number,
   ) {}
 
@@ -292,7 +299,8 @@ class GenerationWriter {
   /** Writes the full batches waiting (with `all`, every chunk waiting). */
   async flush(all = false): Promise<void> {
     while (this.pending.length >= WRITE_BATCH || (all && this.pending.length > 0)) {
-      await putChunks(this.db, this.src, this.gen, this.pending.splice(0, WRITE_BATCH));
+      const batch = this.pending.splice(0, WRITE_BATCH);
+      await this.room.write(() => putChunks(this.db, this.src, this.gen, batch));
       await this.throttle.checkpoint(this.token);
     }
   }
@@ -305,7 +313,9 @@ class GenerationWriter {
     for (const c of w.end()) this.pending.push(c);
     await this.flush(true);
     const data = w.builder.finish();
-    await putCatalogKind(this.db, this.src, this.gen, kind, w.chunker.categories(), data, w.recent?.list());
+    const cats = w.chunker.categories();
+    const recent = w.recent?.list();
+    await this.room.write(() => putCatalogKind(this.db, this.src, this.gen, kind, cats, data, recent));
     this.segments.set(kind, new SearchSegment(data));
   }
 
@@ -334,6 +344,9 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
   await pruneGenerations(db, src, { abandon: true });
   const meta = await getSource(db, src);
   const loaded = await loadProfile(db, { now: now() });
+  const room = new Room(() => dropGuides(db), options.onRoom);
+  /** A new generation's writer, its number reserved (room made when that fails for space). */
+  const begin = async (): Promise<GenerationWriter> => new GenerationWriter(db, src, await room.write(() => beginGeneration(db, src)), throttle, token, room, options.chunkSize);
   // The favourites and the changed channels (step 36a), each key once.
   const matcher = new FavouriteMatcher(src, loaded && !loaded.newer ? trackedRefs((loaded.doc as ProfileDoc).favourites, channelEditsOf(loaded.doc)) : []);
   const known = !job.force && meta !== null && meta.gen > 0 && meta.fetch && meta.fetch.v === INGEST_VERSION ? meta.fetch : null;
@@ -429,7 +442,7 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
       const res = options.file;
       if (res === undefined) throw new IngestError('file', null, 'No file came with the job');
       current = res;
-      writer = new GenerationWriter(db, src, await beginGeneration(db, src), throttle, token, options.chunkSize);
+      writer = await begin();
       m3u = await playlist(res);
     } else if (source.type === 'm3u') {
       const account = xtreamFromM3uUrl(source.url);
@@ -448,7 +461,7 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
       // Only an answer to our own validators means "unchanged".
       if (res.status === 304 && Object.keys(headers).length > 0) {
         res.cancel();
-        await markChecked(db, src, now(), panel);
+        await room.write(() => markChecked(db, src, now(), panel));
         return done('unchanged', {});
       }
       if (res.status < 200 || res.status >= 300) {
@@ -457,7 +470,7 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
       }
       etag = res.header('etag');
       lastModified = res.header('last-modified');
-      writer = new GenerationWriter(db, src, await beginGeneration(db, src), throttle, token, options.chunkSize);
+      writer = await begin();
       m3u = await playlist(res);
     } else {
       /** An upgrade's login ran past its limit: an answer coming after it is let go. */
@@ -488,7 +501,7 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
       // An expired, banned or disabled account still logs in, but gets no lists: say why.
       const problem = xtreamAccountProblem(login.user);
       if (problem !== null) throw new IngestError(problem);
-      writer = new GenerationWriter(db, src, await beginGeneration(db, src), throttle, token, options.chunkSize);
+      writer = await begin();
       const lists: Partial<Record<ContentKind, XtreamListStats>> = {};
       for (const kind of source.kinds ?? CONTENT_KINDS) {
         kindNow = kind;
@@ -522,7 +535,7 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
       const unused = writer.gen;
       writer = null;
       await abandonGeneration(db, src, unused);
-      await markChecked(db, src, now(), { ...extra, fetch: stamp });
+      await room.write(() => markChecked(db, src, now(), { ...extra, fetch: stamp }));
       return done('unchanged', { fetch: stamp, m3u, xtream });
     }
 
@@ -530,7 +543,7 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
     const at = now();
     const counts = writer.counts();
     const gen = writer.gen;
-    const previous = await commitGeneration(db, src, gen, counts, at, { ...extra, fetch: stamp, checkedAt: at });
+    const previous = await room.write(() => commitGeneration(db, src, gen, counts, at, { ...extra, fetch: stamp, checkedAt: at }));
     committed = true;
     options.onSwap?.({ src, gen, previous, counts });
 
@@ -544,7 +557,8 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
     };
     const kinds = source.type === 'xtream' && source.kinds ? source.kinds : undefined;
     try {
-      await updateProfile(
+      await room.write(() =>
+        updateProfile(
         db,
         (doc) => {
           const r = reconcileFavourites(doc.favourites, src, view, at, kinds);
@@ -563,6 +577,7 @@ export async function runIngest(job: IngestJob, options: IngestOptions): Promise
           return next;
         },
         { now: at },
+        ),
       );
     } catch (error) {
       favourites = null;

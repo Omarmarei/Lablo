@@ -42,6 +42,9 @@ describe('a guide’s row text (RELAY step 22b2)', () => {
     expect(failureText(en.t, { code: 'empty', status: null })).toBe("Couldn't read it: you have no live channels for it to match.");
     expect(failureText(en.t, { code: 'failed', status: null })).toBe("Couldn't read it. It will be tried again later.");
     expect(failureText(en.t, { code: 'superseded', status: null })).toBe("Couldn't read it. It will be tried again later.");
+    // Step 39s1: the storage is full, even after the guide's own room.
+    expect(failureText(en.t, { code: 'storage', status: null })).toBe("Couldn't save it: Lablo's storage on this TV is full.");
+    expect(failureText(ar.t, { code: 'storage', status: null })).toBe('تعذّر حفظه: مساحة تخزين لابلو على هذا التلفزيون ممتلئة.');
     // In Arabic, with the format name isolated.
     expect(stripIsolates(failureText(ar.t, { code: 'format', status: null }))).toBe('تعذّرت قراءته: لم يُرجع هذا الرابط دليل XMLTV.');
   });

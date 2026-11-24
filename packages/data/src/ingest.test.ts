@@ -19,7 +19,7 @@ import type { RpcPort } from './rpc';
 import { CancelError, CancelSource } from './rpc';
 import { STORE } from './schema';
 import type { FakeResponse } from './test-support';
-import { dumpStore, fakeTransport, freshFactory } from './test-support';
+import { dumpStore, fakeTransport, fillStore, freshFactory } from './test-support';
 import type { Clock } from './throttle';
 import { LOW_TIER_DUTY, Throttle } from './throttle';
 
@@ -892,3 +892,123 @@ describe('runIngest: favourites', () => {
   });
 });
 
+
+describe('runIngest: a full store (step 39s1)', () => {
+  const text = playlist(bigList());
+
+  /** A stored guide: what a refresh deletes to make room. */
+  const seedGuide = (): Promise<void> =>
+    transact(db, [STORE.epgMeta, STORE.epgBuckets, STORE.epgChannels], 'readwrite', (tx) => {
+      tx.objectStore(STORE.epgMeta).put({ epgSrc: 'g1', gen: 1, building: null, nextGen: 2, updatedAt: NOW, checkedAt: NOW, rank: 0 });
+      tx.objectStore(STORE.epgBuckets).put({ start: [1] }, ['g1', 1, 'c', 0]);
+      tx.objectStore(STORE.epgChannels).put({ matches: [] }, ['g1', 1]);
+    });
+  const guideRecords = async (): Promise<number> => (await dumpStore(db, STORE.epgMeta)).length + (await dumpStore(db, STORE.epgBuckets)).length + (await dumpStore(db, STORE.epgChannels)).length;
+
+  /** A store full for `store` until the refresh made room (and, with `when`, only while it says so). */
+  function fullUntilRoom(store: string, when: () => boolean = () => true) {
+    const state = { room: 0 };
+    const full = fillStore(db, (name) => name === store && state.room === 0 && when());
+    return { state, full, onRoom: () => state.room++ };
+  }
+
+  it.each([
+    ['its chunks', STORE.chunks],
+    ["a kind's categories", STORE.cats],
+    ["a kind's search segment", STORE.index],
+    ['the new generation', STORE.sources],
+  ])('deletes the guides to make room when %s fail for space, then commits', async (_what, store) => {
+    await run(serve(text)).result;
+    await seedGuide();
+    const { state, full, onRoom } = fullUntilRoom(store);
+    const r = await run(serve(playlist(bigList('Other'))), { now: () => NOW + DAY, onRoom }).result;
+    expect(r).toMatchObject({ status: 'committed', gen: 2, previous: 1 });
+    expect(state.room).toBe(1);
+    expect(full.refused).toEqual([store]);
+    expect(await guideRecords()).toBe(0);
+    expect(await sourceMeta()).toMatchObject({ gen: 2, building: null });
+    expect(await storedGens()).toEqual([2]);
+  });
+
+  it('makes room for the commit too', async () => {
+    await run(serve(text)).result;
+    await seedGuide();
+    let committing = false;
+    const { state, full, onRoom } = fullUntilRoom(STORE.sources, () => committing);
+    const r = await run(serve(playlist(bigList('Other'))), {
+      now: () => NOW + DAY,
+      onRoom,
+      onProgress: (p) => {
+        if (p.phase === 'commit') committing = true;
+      },
+    }).result;
+    expect(r).toMatchObject({ status: 'committed', gen: 2 });
+    expect([state.room, full.refused]).toEqual([1, [STORE.sources]]);
+    expect(await sourceMeta()).toMatchObject({ gen: 2, building: null, updatedAt: NOW + DAY });
+  });
+
+  it('makes room to record a 304 and the same bytes', async () => {
+    await run(serve(text, { headers: { ETag: '"v1"' } })).result;
+    await seedGuide();
+    const first = fullUntilRoom(STORE.sources);
+    const r1 = await run((_url, headers) => (headers['If-None-Match'] === '"v1"' ? { status: 304 } : { body: text }), { now: () => NOW + DAY, onRoom: first.onRoom }).result;
+    expect(r1.status).toBe('unchanged');
+    expect(first.state.room).toBe(1);
+    expect((await sourceMeta()).checkedAt).toBe(NOW + DAY);
+
+    // The same bytes again (no validators sent back by the server): recorded after the room.
+    await seedGuide();
+    let checking = false;
+    const second = fullUntilRoom(STORE.sources, () => checking);
+    const r2 = await run(serve(text), {
+      now: () => NOW + 2 * DAY,
+      onRoom: second.onRoom,
+      force: false,
+      onProgress: () => {
+        checking = true;
+      },
+    }).result;
+    expect(r2.status).toBe('unchanged');
+    expect(second.state.room).toBe(1);
+    expect(await guideRecords()).toBe(0);
+    expect((await sourceMeta()).checkedAt).toBe(NOW + 2 * DAY);
+    expect(await storedGens()).toEqual([1]);
+  });
+
+  it('fails with `storage` when the room is not enough, and keeps the active generation', async () => {
+    await run(serve(text)).result;
+    await seedGuide();
+    const full = fillStore(db, (name) => name === STORE.chunks);
+    let room = 0;
+    const error = (await run(serve(playlist(bigList('Other'))), { now: () => NOW + DAY, onRoom: () => room++ }).result.catch((e: unknown) => e)) as IngestError;
+    expect(error).toBeInstanceOf(IngestError);
+    expect([error.code, error.status]).toEqual(['storage', null]);
+    expect(room).toBe(1);
+    expect(full.refused).toEqual([STORE.chunks, STORE.chunks]);
+    expect(await sourceMeta()).toMatchObject({ gen: 1, building: null, counts: { live: 1200 } });
+    expect(await storedGens()).toEqual([1]);
+    expect(await names(db, 'channel 1199')).toEqual(['Channel 1199']);
+    expect(await names(db, 'other 1')).toEqual([]);
+  });
+
+  it("makes room for the favourites' save after the swap", async () => {
+    const base: Entry[] = [
+      { name: 'Alpha News', group: 'News', tvgId: 'alpha.test' },
+      { name: 'Beta Sport', group: 'Sport', tvgId: 'beta.test' },
+    ];
+    const v1 = playlist(base);
+    await run(serve(v1)).result;
+    const k1 = keysOf(v1);
+    const beta = k1.get('Beta Sport')!;
+    await saveProfile(db, { ...emptyProfile(), favourites: [{ key: beta.key, src: SRC, kind: 'live', normName: beta.normName, group: beta.group, epgId: beta.epgId, added: 1, missingSince: null }] }, { now: NOW });
+    await seedGuide();
+    const { state, full, onRoom } = fullUntilRoom(STORE.profile);
+    const v2 = playlist([base[0]!, { ...base[1]!, name: 'Beta Sports HD' }]);
+    const renamed = keysOf(v2).get('Beta Sports HD')!.key;
+    const r = await run(serve(v2), { now: () => NOW + DAY, onRoom }).result;
+    expect(r.favouritesError).toBeNull();
+    expect(r.favourites).toMatchObject({ changed: true, rematched: [{ from: beta.key, to: renamed }] });
+    expect([state.room, full.refused]).toEqual([1, [STORE.profile]]);
+    expect(((await loadProfile(db))!.doc as ProfileDoc).favourites.map((f) => f.key)).toEqual([renamed]);
+  });
+});
