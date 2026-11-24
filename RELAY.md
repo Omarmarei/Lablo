@@ -3407,6 +3407,41 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
        - Seven rows fit unwindowed (checked by the e2e's safe-area check on the last row).
     8. **The words (choice 4):** "Still watching?"; "No button has been pressed for a while." or "The sleep timer has ended."; "Stops in 60 s" (as "Starts in 10 s"); "Keep watching". Arabic addresses the viewer as the catalog does (masculine).
 - [ ] 39d. **"Fast start / Stable"**, as Q3's option 1 (decided 2026-11-24). **Before its row:** the Player page has seven rows, all the screen fits (the last ends at 1020 of 1026 px); the eighth needs a windowed `list` zone (`visible`, as `SETTINGS_VISIBLE` in `settings-state.ts`) and the page's rows drawn by the window (the e2e's safe-area check on the last row then needs a scroll). Read first: docs/spikes/results.md "The app on the Samsung TV" (PR #171): AVPlay reconnects a held stream by itself about 7 s after the data stops and hides most stalls from the watchdog; it needs more than 600 KB before it plays.
+  - **Refined before building** (leg 147, against the code and Samsung's AVPlay reference; each choice the conventional one, none with a trade-off that needs Omar):
+    1. **Samsung's reference** (the AVPlay API page, read 2026-11-24):
+       - `setBufferingParam(option, unit, amount)`: `PLAYER_BUFFER_FOR_PLAY` (before playback starts) and `PLAYER_BUFFER_FOR_RESUME` (after a stall), in `PLAYER_BUFFER_SIZE_IN_SECOND` (bytes are deprecated since Tizen 5.0);
+       - "The time buffer size must be at least 4 seconds"; callable in `IDLE` only, which is after `open` and before `prepareAsync`;
+       - with nothing set, the TV's own: "32MB or 10 seconds of playable data" (`setTimeoutForBuffering`'s text);
+       - Samsung's example: 5 s to play, 15 s to resume.
+    2. **The numbers:**
+       - **Fast start** (the default): the watchdog as today (live frozen 6 s, live buffering 12 s, VOD buffering 20 s, open 10 s). AVPlay waits for 5 s of media before playing (Samsung's example: half the TV's own 10 s, above the 4 s floor); after a stall, the TV's own (nothing set).
+       - **Stable:** live frozen 12 s, live buffering 25 s, VOD buffering 40 s (the shape's guess), and the open timeout 10 → 20 s, so a larger first buffer on a slow provider doesn't trip it. AVPlay waits for 10 s before playing (the TV's own amount) and 15 s after a stall (Samsung's example).
+       - Why live buffering 25 s: it must outlast AVPlay's 15 s resume buffer plus its own reconnect, about 7 s after the data stops (docs/spikes/results.md).
+       - The `<video>` (webOS, the desktop, Tizen's HLS fallback) has no buffer setting: there Stable changes the watchdog only.
+    3. **Remote config's tunables set Fast start's numbers:**
+       - `openTimeoutMs` sets the open timeout, `stallTimeoutMs` the live buffering limit;
+       - `liveBufferSeconds` and `vodBufferSeconds` set AVPlay's buffer before playing (live; VOD and catch-up); AVPlay's floor applies (under 4 s plays at 4; fractions round);
+       - Stable keeps its own numbers, or Fast start's where those are larger, so Stable is never less patient than Fast start;
+       - the tunables apply to every TV: the doc has no per-model match (architecture.md's "per model" needs a schema change; later, if step 21 shows a need).
+    4. **Read at each play:** the controller asks for its tuning at each `play()` (`ControllerOptions.tuning`, which replaces the `config` nothing passed) and keeps it for the session; the engine gets the buffer through `LoadOptions.buffer`. A change applies from the next play (Settings never shows over a playing stream), and so does a config refresh.
+    5. **Kept** in `player.options` as `buffer: 'stable'` (nothing kept for Fast start; any other value reads as Fast start), read by `player-memory.ts`. No new `PlayerChange` case (the query worker has 1.0 KB left).
+    6. **The row:** the page's eighth, "Buffering": "Fast start" or "Stable". Its line says what the value does:
+       - Fast start: "Playback starts sooner, and a stalled stream reconnects quickly";
+       - Stable: "For slow providers: waits longer before it reconnects, and may start later".
+       - Settings' "Player" line adds "and buffering".
+    7. **The window:** the page's `rows` zone gets `visible: SETTINGS_VISIBLE` (7) and draws `listWindow(top, 8, 7)`, as the main settings list does.
+  - **Refined while building** (leg 147):
+    1. **The give-up window grows with the open timeout** (`windowFor`, never under 60 s): with Stable's 20 s open timeout the ladder's attempts come every 24 s, so four never fell within 60 s and a stream that never shows a frame was tried for ever (the e2e's probe showed it). Stable's window is 92 s; Fast start's stays 60 s.
+    2. **`SETTINGS_VISIBLE` moved to `settings/settings-window.ts`** (re-exported by `settings-state.ts`): the page would otherwise import the module that builds it.
+    3. **The e2e proves the next play reads the row** without a playing stream: the desktop never plays the mock's placeholder streams, so the player opens the `.m3u8` again at its open timeout, 20 s after under Stable and 10 s under Fast start (the `<video>`'s `src` set again).
+    4. **The fake AVPlay keeps the buffers it took** (`buffers`), so a value AVPlay refuses can't pass unseen (found while writing the mutation list).
+  - **Gates (leg 147):**
+    - unit 8,820 (326 files);
+    - e2e `buffering.spec.ts` 3 of 3 (en, ar, en-XA), 25 related (clock-guide-key, parental-settings, player-settings, still-watching, player, language), `tv-bundle` 10;
+    - lint, typecheck;
+    - `build:tv` main.js 467.7 KB Tizen (+2.7), settings.js 99.4 (+0.5), query worker 149.0 of 150 (unchanged); module diff: `player/play-tuning.ts` added to main.js and `settings/settings-window.ts` to settings.js, nothing else, core-js 173 / 2;
+    - `verify:engines --engine chrome68` 13 of 13;
+    - mutation 81 of 81 (`artifacts/mutate39d.py`).
 - [ ] 39s. **Fixes from the first Samsung TV session** (Omar's "1a" of 2026-11-24, asked in his Samsung session: add the fixes as relay steps after step 39). The source: docs/spikes/results.md "From the Samsung TV (2026-11-24)" and "The app on the Samsung TV" (PR #171). The TV: UA32T5300AUXEG, 2020 HD, Tizen 5.5, Chromium 69. Steps 19b and 21 keep their own lines; their ticks wait for Omar's word.
   - [ ] 39s1. **The storage quota** (code only). The 2020 budget Samsung gives 88 MB (`storage.estimate`); S2's write stopped at 84 MB with `QuotaExceededError`. The 200k scale run fit (668k guide programmes), but only the lab handles `QuotaExceededError` (`apps/tv/src/lab/storage.ts`). Every IndexedDB write path (the ingest's commit, the guide's days, the profile, the telemetry queue, the backup's state) must survive it: no half-written generation, the last good catalog kept, and a state the user sees (a line on the live screen or in Settings, with what to do).
     - **Done when:** unit and `test/` cases with a fake IndexedDB that throws `QuotaExceededError` at each write path (the old generation still serves; the profile write fails without losing the profile); an e2e that fills the quota (or a test hook) and shows the message in en and ar; the shape of the message and what it offers decided first (a question for Omar if it has trade-offs).
