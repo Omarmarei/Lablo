@@ -3511,6 +3511,13 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
       4. **The 6.9 s case is the design, not a bug.** The TV's stalls after tuning showed "Connecting…" (the overlay of `opening` and `buffering`; after the first frame a retry shows "Reconnecting…"), so AVPlay had sent `onbufferingstart`: the controller was in `buffering`, where only `liveBufferingMs` (12 s) runs and the frozen rule doesn't. That limit is chosen to outlast AVPlay's own reconnect, about 7 s after the data stops (play-tuning.ts's comment), and the reconnect recovered the picture in 6.9 s, sooner than a reopen at 6 s plus a zap (1.6–1.9 s) would have. A controller test pins both sides with the same 6.9 s picture: frozen with no event, reopened at 6 s; frozen while the engine buffers, left to it.
       5. **Step 21's "each recovered in ≤ 10 s"** can't hold for a stall that reaches the watchdog through buffering (12 s by design), nor during an outage: with `live-outages` the soak counts from the outage's end (the mock's log) to the moving picture, and checks that the app reopened (a request off AVPlay's rhythm). Written in docs/runbooks/mock-provider.md; step 21 decides its rule.
       6. **Not changed:** the watchdog's numbers, AVPlay's events, the lab's soak (a plain held socket per response, as S4 measures).
+    - **Gates (leg 150):**
+      - unit 8,911 (329 files) at the full run; nine heavy tests timed out at 30 s under the run's load (the crypto and pair worker bundles, the fixtures' 61-byte chunk oracles) and passed alone (16 of 16). New: `faults.test.ts` +5 (the `Outages` class with fake timers, the key, the outage over real sockets, a scenario switch with the log lines) and the parse and scenario cases, `lab-media.test.ts` +1, `file-media.test.ts` +1, `controller.test.ts` +1;
+      - lint, typecheck;
+      - mutation 36 of 36 at the first run (`artifacts/mutate39s3.py`, the list written first);
+      - `pnpm lab:media` 2 of 2 (the desktop soak through the mock's stall path);
+      - the real mock with the generated media: `104.ts?mock_fault=stall:after_ms=2000:outage_ms=5000` streamed 919 KB, then the next request got 0 bytes and closed at the outage's end, the one after played; `stall-ts` is 2,125,152 bytes;
+      - `build:tv` and engines not run locally: no TV source changed (`apps/tv/src/lab/fakes.ts` is test-only), so the bundles are the same; the PR's CI runs them.
   - [ ] 39s4. **[needs TV] Launch to the last channel in ≤ 4 s on the Samsung.**
     - It takes 8–9.5 s now. From the page's start: `DOMContentLoaded` 2.4 s, `lablo:resume` 4.8–5.4 s, `lablo:live-ready` 43–55 ms later, `lablo:resume-frame` 9.1–9.6 s. The page itself starts 2.6 s after `was_execute`.
     - Leads:
