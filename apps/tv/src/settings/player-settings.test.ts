@@ -2,8 +2,10 @@ import type { Intent } from '@lablo/platform-api';
 import type { PictureMode } from '@lablo/player';
 import { createNavigator } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
+import type { SleepTimer } from '../player/watch-guard';
+import { DEFAULT_STILL_HOURS, SLEEP_MINUTES, STILL_HOURS } from '../player/watch-guard';
 import type { PlayerValues } from './player-settings';
-import { CLOCK_CHOICES, PLAYER_SETTINGS_ROWS, PLAYER_SETTINGS_SCREEN, TRACK_CHOICES, createPlayerSettings, nextValue } from './player-settings';
+import { CLOCK_CHOICES, PLAYER_SETTINGS_ROWS, PLAYER_SETTINGS_SCREEN, SLEEP_CHOICES, STILL_CHOICES, TRACK_CHOICES, createPlayerSettings, nextValue } from './player-settings';
 
 /**
  * Settings › "Player" (RELAY step 38d3): four rows, each changed in place by OK (round its values)
@@ -23,6 +25,8 @@ function setup(values: PlayerValues, modes: readonly PictureMode[] = ['fit', 'zo
   const settings = nav.push({ id: 'settings', zones: [{ kind: 'list', id: 'items', axis: 'vertical', count: 10, visible: 7 }] });
   settings.focus('items', ROW);
   const told: string[] = [];
+  /** The player's sleep timer, as main would give it: `setSleep` starts it at the test's time. */
+  const timer: { set: SleepTimer | null } = { set: null };
   const options = {
     modes: vi.fn(() => modes),
     values: vi.fn(() => values),
@@ -31,6 +35,12 @@ function setup(values: PlayerValues, modes: readonly PictureMode[] = ['fit', 'zo
     setSize: vi.fn((size: string) => told.push(`size ${size}`)),
     setPicture: vi.fn((mode: string) => told.push(`picture ${mode}`)),
     setClock: vi.fn((on: boolean) => told.push(`clock ${String(on)}`)),
+    setStill: vi.fn((hours: number | null) => told.push(`still ${String(hours)}`)),
+    sleep: vi.fn(() => timer.set),
+    setSleep: vi.fn((minutes: number | null) => {
+      told.push(`sleep ${String(minutes)}`);
+      timer.set = minutes === null ? null : { minutes, until: 1000 + minutes * 60_000 };
+    }),
   };
   const page = createPlayerSettings(nav, options);
   const at = (): string => {
@@ -41,10 +51,10 @@ function setup(values: PlayerValues, modes: readonly PictureMode[] = ['fit', 'zo
     for (const key of keys) nav.handle(key);
   };
   const shown = (): unknown[] => [page.audio.value, page.subtitles.value, page.size.value, page.picture.value, page.clock.value];
-  return { nav, settings, page, options, told, at, press, shown };
+  return { nav, settings, page, options, told, timer, at, press, shown };
 }
 
-const START: PlayerValues = { audio: null, subtitles: null, size: 'm', picture: 'fit', clock: false };
+const START: PlayerValues = { audio: null, subtitles: null, size: 'm', picture: 'fit', clock: false, still: 4 };
 
 describe('nextValue (RELAY step 38d3)', () => {
   it('goes round the list on OK, and towards an end on LEFT or RIGHT, stopping there', () => {
@@ -65,9 +75,9 @@ describe('nextValue (RELAY step 38d3)', () => {
 });
 
 describe('Settings › "Player" (RELAY step 38d3)', () => {
-  it('opens its five rows over the settings, the modes read before the values', () => {
-    const t = setup({ audio: 'en', subtitles: 'ar', size: 'l', picture: 'stretch', clock: true }, ['fit', 'stretch', '4:3']);
-    expect(PLAYER_SETTINGS_ROWS).toEqual(['audio', 'subtitles', 'size', 'picture', 'clock']);
+  it('opens its seven rows over the settings, the modes read before the values', () => {
+    const t = setup({ audio: 'en', subtitles: 'ar', size: 'l', picture: 'stretch', clock: true, still: 6 }, ['fit', 'stretch', '4:3']);
+    expect(PLAYER_SETTINGS_ROWS).toEqual(['audio', 'subtitles', 'size', 'picture', 'clock', 'still', 'sleep']);
     expect(TRACK_CHOICES).toEqual([null, 'ar', 'en']);
     expect(CLOCK_CHOICES).toEqual([false, true]);
     // Nothing read before it opens.
@@ -75,10 +85,11 @@ describe('Settings › "Player" (RELAY step 38d3)', () => {
     expect(t.options.values).not.toHaveBeenCalled();
     t.page.open();
     expect(t.nav.top.id).toBe(PLAYER_SETTINGS_SCREEN);
-    expect(t.nav.top.zone('rows')).toMatchObject({ kind: 'list', axis: 'vertical', count: 5 });
+    expect(t.nav.top.zone('rows')).toMatchObject({ kind: 'list', axis: 'vertical', count: 7 });
     expect(t.at()).toBe('player-settings · rows 0');
     expect(t.options.modes.mock.invocationCallOrder[0]!).toBeLessThan(t.options.values.mock.invocationCallOrder[0]!);
     expect(t.shown()).toEqual(['en', 'ar', 'l', 'stretch', true]);
+    expect(t.page.still.value).toBe(6);
     expect(t.page.modes.value).toEqual(['fit', 'stretch', '4:3']);
     // Back returns to the settings' row.
     t.press('BACK');
@@ -174,10 +185,63 @@ describe('Settings › "Player" (RELAY step 38d3)', () => {
     t.options.values.mockImplementation(() => values);
     t.page.open();
     t.press('BACK');
-    values = { audio: 'ar', subtitles: 'en', size: 's', picture: 'zoom', clock: true };
+    values = { audio: 'ar', subtitles: 'en', size: 's', picture: 'zoom', clock: true, still: null };
     t.page.open();
     expect(t.shown()).toEqual(['ar', 'en', 's', 'zoom', true]);
+    expect(t.page.still.value).toBeNull();
     expect(t.options.modes).toHaveBeenCalledTimes(2);
+  });
+
+  it('"Still watching?" (step 39c): never, then the guard\'s hours; 4 hours until main says otherwise', () => {
+    expect(STILL_CHOICES).toEqual([null, ...STILL_HOURS]);
+    expect(SLEEP_CHOICES).toEqual([null, ...SLEEP_MINUTES]);
+    const t = setup(START);
+    // Before the page opens: the default.
+    expect(t.page.still.value).toBe(DEFAULT_STILL_HOURS);
+    t.page.open();
+    t.press('DOWN', 'DOWN', 'DOWN', 'DOWN', 'DOWN');
+    expect(t.at()).toBe('player-settings · rows 5');
+    // OK goes round: 6, never, 2, 4.
+    t.press('OK', 'OK', 'OK', 'OK');
+    expect(t.told).toEqual(['still 6', 'still null', 'still 2', 'still 4']);
+    expect(t.page.still.value).toBe(4);
+    t.told.length = 0;
+    // The arrows stop at the ends.
+    t.press('RIGHT', 'RIGHT', 'LEFT', 'LEFT', 'LEFT', 'LEFT');
+    expect(t.told).toEqual(['still 6', 'still 4', 'still 2', 'still null']);
+    expect(t.page.still.value).toBeNull();
+    expect(t.options.setSleep).not.toHaveBeenCalled();
+  });
+
+  it("the sleep timer (step 39c): the row shows the player's own timer, and each new value starts it", () => {
+    const t = setup(START);
+    t.page.open();
+    for (let i = 0; i < 6; i += 1) t.press('DOWN');
+    expect(t.at()).toBe('player-settings · rows 6');
+    expect(t.page.sleep()).toBeNull();
+    // Off's start: LEFT changes nothing; RIGHT steps to the end and no further.
+    t.press('LEFT');
+    expect(t.told).toEqual([]);
+    t.press('RIGHT', 'RIGHT', 'RIGHT', 'RIGHT', 'RIGHT');
+    expect(t.told).toEqual(['sleep 30', 'sleep 60', 'sleep 90', 'sleep 120']);
+    expect(t.page.sleep()).toEqual({ minutes: 120, until: 1000 + 120 * 60_000 });
+    // OK goes round, to off after the last.
+    t.told.length = 0;
+    t.press('OK', 'OK');
+    expect(t.told).toEqual(['sleep null', 'sleep 30']);
+    // The timer ended by itself (the player's): the row starts from off again.
+    t.timer.set = null;
+    t.told.length = 0;
+    t.press('RIGHT');
+    expect(t.told).toEqual(['sleep 30']);
+    // In Arabic LEFT steps towards the end.
+    t.nav.setDir('rtl');
+    t.press('LEFT', 'RIGHT', 'RIGHT');
+    expect(t.told).toEqual(['sleep 30', 'sleep 60', 'sleep 30', 'sleep null']);
+    expect(t.options.setStill).not.toHaveBeenCalled();
+    // The clock's row is still its own.
+    t.press('UP', 'UP', 'OK');
+    expect(t.told.slice(-1)).toEqual(['clock true']);
   });
 
   it('leaves other keys to the navigator', () => {

@@ -21,6 +21,8 @@ import type { StreamInfoPanel } from './stream-info';
 import { createStreamInfo } from './stream-info';
 import type { SubtitleSize, TrackMenu, TrackSection } from './track-menu';
 import { createTrackMenu } from './track-menu';
+import type { SleepTimer, StillPrompt } from './watch-guard';
+import { DEFAULT_STILL_HOURS, createWatchGuard } from './watch-guard';
 
 /**
  * The player (RELAY step 20a, architecture.md §2 "Zapping"): the full-screen route that OK on a
@@ -129,6 +131,15 @@ import { createTrackMenu } from './track-menu';
  * - **Edit channel** (step 36c): the info bar's last button, a pencil, opens settings.js's "Edit
  *   channel" menu over the player for the channel on the bar (`editChannel`), as the star opens
  *   the favourites. A movie has no pencil. The menu closes with the player, and when a card shows.
+ * - **"Still watching?" and the sleep timer** (step 39c, `watch-guard.ts`): after the set hours
+ *   with no key (`activity`: every key the remote sends, on any screen), or when the sleep timer
+ *   ends, a prompt takes the card's zone with "Keep watching" (focused) and the cards' way out.
+ *   The menus over the player, a number being typed, a seek that waits and the info bar make room
+ *   for it, and the bar stays hidden under it. OK presses its focused button, LEFT and RIGHT move
+ *   between the two, STOP closes the player; any other key, Back included, is "Keep watching" and
+ *   does nothing else. After `PROMPT_SECONDS` the player closes as Back does. A card wins: the
+ *   prompt waits under the error, end or refusal card and shows once it goes. The app hiding
+ *   takes the prompt away and stops the counts.
  */
 
 /** The info bar's stream opens this long after the last zap key. */
@@ -302,6 +313,10 @@ export interface PlayerOptions {
   readonly watchClock?: boolean;
   /** Settings › "Player" turned the clock on or off (the app keeps it). */
   readonly watchClocked?: (on: boolean) => void;
+  /** "Still watching?" (step 39c): the hours without a key before it asks (the profile's; `null`: never; default `DEFAULT_STILL_HOURS`). */
+  readonly stillHours?: number | null;
+  /** Settings › "Player" chose other hours (the app keeps them). */
+  readonly stillSet?: (hours: number | null) => void;
   /**
    * The Guide key on a channel (step 39a), given the id of the screen the player opened over:
    * `null` when the key does nothing there; else what follows once the player has closed onto
@@ -391,6 +406,18 @@ export interface Player {
   readonly watchClock: ReadonlySignal<boolean>;
   /** Turns the clock over the video on or off from now on, kept (`watchClocked`). */
   setWatchClock(on: boolean): void;
+  /** "Still watching?" (step 39c; `null`: not asked now): why it asks, and the seconds before the player closes. */
+  readonly still: ReadonlySignal<StillPrompt | null>;
+  /** The hours without a key before it asks (`null`: never). */
+  readonly stillHours: ReadonlySignal<number | null>;
+  /** Other hours from now on, kept (`stillSet`). */
+  setStillHours(hours: number | null): void;
+  /** The sleep timer (step 39c; `null`: off): for the app's run only. */
+  readonly sleep: ReadonlySignal<SleepTimer | null>;
+  /** Sets the sleep timer to `minutes` from now (`null`: off). */
+  setSleep(minutes: number | null): void;
+  /** A remote key was pressed, on any screen (step 39c): "Still watching?" counts from it. */
+  activity(): void;
   /** The programme playing from the archive (step 25a; `null`: live). */
   readonly archive: ReadonlySignal<ArchiveProgramme | null>;
   /**
@@ -578,6 +605,18 @@ export function createPlayer(options: PlayerOptions): Player {
     return null;
   };
 
+  /** "Still watching?" and the sleep timer (step 39c): the prompt has room while no card is up, and closes the player at zero. */
+  const guard = createWatchGuard({
+    timers,
+    clock: wall,
+    now: keyClock,
+    hours: options.stillHours === undefined ? DEFAULT_STILL_HOURS : options.stillHours,
+    room: () => !carded,
+    shown: () => askStill(),
+    kept: () => stillKept(),
+    stop: () => close(),
+  });
+
   /** Hides the info bar `INFO_MS` from now, unless the stream is opening, paused, ended or failed. */
   const armInfo = (): void => {
     infoTimer = clear(infoTimer);
@@ -594,7 +633,9 @@ export function createPlayer(options: PlayerOptions): Player {
     }, INFO_MS);
   };
 
+  /** Shows the info bar and arms its timer; never under "Still watching?" (step 39c), which has the screen to itself. */
   const showInfo = (): void => {
+    if (guard.prompt.value !== null) return;
     info.value = true;
     armInfo();
   };
@@ -643,6 +684,8 @@ export function createPlayer(options: PlayerOptions): Player {
     if (card) {
       closeMenus();
       cancelSeek();
+      // "Still watching?" (step 39c) gives way to the card, and waits for it to go.
+      guard.covered();
     } else menu.sync();
     const top = screen.value;
     if (top === null || card === carded) return;
@@ -655,9 +698,11 @@ export function createPlayer(options: PlayerOptions): Player {
     if (card) {
       top.focus('card', 0);
       showInfo();
-    } else if (top.active === 'card') {
-      top.focus('actions', 0);
+      return;
     }
+    if (top.active === 'card') top.focus('actions', 0);
+    // The card went: a "Still watching?" that waited under it shows (step 39c).
+    guard.retry();
   };
 
   /** The menu's style rows follow where the subtitles come from. */
@@ -710,6 +755,7 @@ export function createPlayer(options: PlayerOptions): Player {
     positionTimer = clear(positionTimer);
     stopNext();
     closeMenus();
+    guard.covered();
     resumeFrame = false;
     // The card first: the stopped stream's states then find it shown.
     const top = screen.value!;
@@ -912,7 +958,8 @@ export function createPlayer(options: PlayerOptions): Player {
     if (top !== null) {
       if (!on && top.active === 'seek') top.focus('actions', 0);
       top.update(seekZone(on ? 1 : 0));
-      if (on) top.focus('seek', 0);
+      // "Still watching?" keeps the focus (step 39c: the next episode can start under it).
+      if (on && guard.prompt.value === null) top.focus('seek', 0);
     }
     tickPosition();
   }
@@ -921,6 +968,29 @@ export function createPlayer(options: PlayerOptions): Player {
   function focusSeek(): void {
     const top = screen.value;
     if (top !== null && (archive.value !== null || movie.value !== null) && top.active !== 'seek') top.focus('seek', 0);
+  }
+
+  /**
+   * "Still watching?" is about to show (step 39c): it takes the card's zone, as a card does. The
+   * menus over the player, a number being typed, a seek that waits and the info bar make room for it.
+   */
+  function askStill(): void {
+    closeMenus();
+    cancelEntry();
+    cancelSeek();
+    infoTimer = clear(infoTimer);
+    info.value = false;
+    const top = screen.value!;
+    top.update(cardZone(2));
+    top.focus('card', 0);
+  }
+
+  /** "Still watching?" went and the player stays (step 39c): its buttons go, and the keys are the bar's again (a catch-up's or a movie's seek bar's). */
+  function stillKept(): void {
+    const top = screen.value!;
+    top.update(cardZone(0));
+    top.focus('actions', 0);
+    focusSeek();
   }
 
   /** Drops a waiting seek and its key run. */
@@ -1058,6 +1128,8 @@ export function createPlayer(options: PlayerOptions): Player {
     actions.value = buttons;
     screen.value = nav.push({ id: 'player', zones: [seekZone(0), actionsZone(buttons.length), cardZone(0)], initial: 'actions', onIntent, onSelect });
     options.chrome(true);
+    // "Still watching?" counts from here (step 39c).
+    guard.watching(true);
     return true;
   };
 
@@ -1205,6 +1277,8 @@ export function createPlayer(options: PlayerOptions): Player {
     cancelSeek();
     positionTimer = clear(positionTimer);
     stopNext();
+    // "Still watching?" and its count go with the player (step 39c); the sleep timer runs on.
+    guard.watching(false);
     entry.value = null;
     info.value = false;
     open.value = false;
@@ -1249,6 +1323,14 @@ export function createPlayer(options: PlayerOptions): Player {
   };
 
   const onIntent = (intent: Intent, focus: Focus): boolean => {
+    // "Still watching?" (step 39c): OK presses its focused button, LEFT and RIGHT move between the
+    // two; STOP closes the player; any other key says someone is there, and does nothing else.
+    if (guard.prompt.value !== null) {
+      if (intent === 'OK' || intent === 'LEFT' || intent === 'RIGHT') return false;
+      if (intent === 'STOP') close();
+      else guard.keep();
+      return true;
+    }
     // A movie (step 26c): the channel keys do nothing (they don't reach the screens below either).
     const inFilm = movie.value !== null;
     const d = DIGIT_INTENTS.indexOf(intent as (typeof DIGIT_INTENTS)[number]);
@@ -1357,6 +1439,11 @@ export function createPlayer(options: PlayerOptions): Player {
     else if (action === 'edit') openEdit();
     // OK on a catch-up's or a movie's seek bar (steps 25d, 26c; hidden, the focus is on it) pauses it or plays it on.
     else if (focus.zone === 'seek') togglePause();
+    // "Still watching?" (step 39c): "Keep watching", or the way out.
+    else if (focus.zone === 'card' && guard.prompt.value !== null) {
+      if (focus.index === 0) guard.keep();
+      else close();
+    }
     // The config's refusal (step 30c2b): its one button closes the player.
     else if (focus.zone === 'card' && refused.value !== null) close();
     // A movie's cards (step 26c): the error card's "Try again" plays on from where it was; "Back" closes the player.
@@ -1382,7 +1469,12 @@ export function createPlayer(options: PlayerOptions): Player {
             nextTimer = clear(nextTimer);
             const shown = upNext.value;
             if (shown !== null) upNext.value = { play: shown.play, seconds: null };
-          } else if (event === 'visible') hidden = false;
+            // "Still watching?" goes and the counts stop (step 39c): leaving the app is an answer.
+            guard.hidden();
+          } else if (event === 'visible') {
+            hidden = false;
+            guard.visible();
+          }
         });
 
   // The config's disable-playback arriving while the player is open (step 30c2b): the stream stops, the card shows.
@@ -1427,6 +1519,20 @@ export function createPlayer(options: PlayerOptions): Player {
       if (on === watchClock.value) return;
       watchClock.value = on;
       if (options.watchClocked !== undefined) options.watchClocked(on);
+    },
+    still: guard.prompt,
+    stillHours: guard.hours,
+    setStillHours(hours: number | null): void {
+      if (hours === guard.hours.value) return;
+      guard.setHours(hours);
+      if (options.stillSet !== undefined) options.stillSet(hours);
+    },
+    sleep: guard.sleep,
+    setSleep: (minutes) => guard.setSleep(minutes),
+    activity(): void {
+      // A key for a screen that came over the prompt (settings.js loading late for the pencil): someone is there.
+      if (guard.prompt.value !== null && nav.top !== screen.value) guard.keep();
+      else guard.activity();
     },
     archive,
     position,
@@ -1498,6 +1604,7 @@ export function createPlayer(options: PlayerOptions): Player {
       stopLifecycle();
       stopRefusal();
       stopBlocklist();
+      guard.dispose();
       favourites?.dispose();
       if (unsubscribe !== null) unsubscribe();
       if (unsubscribeSubtitles !== null) unsubscribeSubtitles();

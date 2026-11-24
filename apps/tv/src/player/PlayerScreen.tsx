@@ -2,7 +2,7 @@ import type { VNode } from 'preact';
 import type { EpgProgramme } from '@lablo/core';
 import type { EpgNowNext } from '@lablo/data';
 import type { PictureMode, PlaybackFailure } from '@lablo/player';
-import type { FocusBinding, ItemState, Screen } from '@lablo/ui';
+import type { FocusBinding, ItemBinding, ItemState, Screen } from '@lablo/ui';
 import { Badge, Button, ProgressBar, Spinner, useFocus, useZone } from '@lablo/ui';
 import type { Refusal } from '../gate/gate-state';
 import { messageIn } from '../gate/gate-state';
@@ -17,6 +17,7 @@ import { RadioCard } from './RadioCard';
 import { StreamInfoPanel } from './StreamInfoPanel';
 import { SubtitleOverlay } from './SubtitleOverlay';
 import { TrackMenuPanel } from './TrackMenuPanel';
+import type { StillPrompt } from './watch-guard';
 import './player.css';
 
 const MINUTE_MS = 60_000;
@@ -349,6 +350,35 @@ function MovieEndCard({ movie, upNext, i18n, screen, binding }: { movie: Playing
 }
 
 /**
+ * "Still watching?" as drawn, hook-free (step 39c): why it asks (no key for the set hours, or the
+ * sleep timer ended), the seconds before the player closes, "Keep watching" and the cards' way
+ * out ("Channels", or "Back" from a movie).
+ */
+export function StillCardView({ prompt, i18n, movie, item }: { prompt: StillPrompt; i18n: AppI18n; movie: boolean; item: (index: number) => ItemBinding }) {
+  const { t } = i18n;
+  return (
+    <section class="player__card" role="alertdialog" data-testid="player-still" data-reason={prompt.reason}>
+      <h2 class="player__card-title">{t('player.still.title')}</h2>
+      <p class="player__card-text" data-testid="player-still-text">
+        {t(prompt.reason === 'sleep' ? 'player.still.sleep' : 'player.still.idle')}
+      </p>
+      <p class="player__card-countdown" data-testid="player-still-countdown">
+        {t('player.still.in', { seconds: prompt.seconds })}
+      </p>
+      <div class="player__card-buttons">
+        <Button label={t('player.still.keep')} variant="primary" {...item(0)} testId="player-still-keep" />
+        <Button label={t(movie ? 'movie.back' : 'player.channels')} {...item(1)} testId="player-still-stop" />
+      </div>
+    </section>
+  );
+}
+
+function StillCard({ prompt, i18n, screen, binding, movie }: { prompt: StillPrompt; i18n: AppI18n; screen: Screen; binding: FocusBinding; movie: boolean }) {
+  const buttons = useZone(binding, screen, 'card');
+  return <StillCardView prompt={prompt} i18n={i18n} movie={movie} item={(i) => buttons.item(i)} />;
+}
+
+/**
  * The player route (RELAY step 20a): drawn over the stage, so the page itself stays transparent.
  * The info bar, the number being typed, "Connecting…", the "Reconnecting…" badge and the error
  * card. Its root carries the focus (`data-screen/zone/index`) and the player's state for tests.
@@ -356,6 +386,8 @@ function MovieEndCard({ movie, upNext, i18n, screen, binding }: { movie: Playing
  * The subtitles (step 20b2b) share the bottom of the safe area with the info bar, above it. The
  * stream info (step 20c2a) sits under the badge; the error card replaces it while it shows. The
  * clock over the video (step 39a) takes the top-end corner while nothing else is up.
+ * "Still watching?" (step 39c) is a card where the error card would be: the two never show together,
+ * and "Connecting…" doesn't show under it (its words would stick out below the card).
  * What settings.js paints over the player (`over`: step 36c's "Edit channel") goes on top, and
  * the info bar hides under it. The picture's mode (step 20c2b) is on the info bar's fourth button. In 4:3 the screen draws the
  * black side bars itself, under everything else: outside its 4:3 box the `<video>` leaves the
@@ -397,6 +429,8 @@ export function PlayerScreen({ live, player, i18n, over = null }: { live: Live; 
   const radio = player.radio();
   // "Clock while watching" (step 39a): on the player's own screen (no menu or panel over it), with no bar or number.
   const cornerClock = player.watchClock.value && focus.screen === 'player' && !player.info.value && entry === null;
+  // "Still watching?" (step 39c).
+  const still = player.still.value;
   return (
     <main
       class="player"
@@ -436,6 +470,8 @@ export function PlayerScreen({ live, player, i18n, over = null }: { live: Live; 
       data-editing={favourites === null ? '' : (favourites.editor.editing.value ?? '')}
       data-radio={String(radio !== null)}
       data-clock={String(player.watchClock.value)}
+      data-still={still === null ? '' : still.reason}
+      data-still-seconds={still === null ? '' : still.seconds}
     >
       {refused !== null && <div class="player__blank" aria-hidden="true" data-testid="player-blank" />}
       {player.picture.value === '4:3' && (
@@ -445,7 +481,7 @@ export function PlayerScreen({ live, player, i18n, over = null }: { live: Live; 
         </div>
       )}
       {radio !== null && <RadioCard card={radio} i18n={i18n} onLogoError={player.logoFailed} />}
-      {waiting && (
+      {waiting && still === null && (
         <div class="player__wait" data-testid="player-wait">
           <Spinner size="l" label={t('player.connecting')} />
           <p class="player__wait-text">{t('player.connecting')}</p>
@@ -486,6 +522,7 @@ export function PlayerScreen({ live, player, i18n, over = null }: { live: Live; 
       {screen !== null && failure !== null && <ErrorCard failure={failure} i18n={i18n} screen={screen} binding={binding} movie={movie !== null} />}
       {screen !== null && ended && archive !== null && <EndCard archive={archive} i18n={i18n} screen={screen} binding={binding} />}
       {screen !== null && ended && movie !== null && <MovieEndCard movie={movie} upNext={upNext} i18n={i18n} screen={screen} binding={binding} />}
+      {screen !== null && still !== null && <StillCard prompt={still} i18n={i18n} screen={screen} binding={binding} movie={movie !== null} />}
     </main>
   );
 }

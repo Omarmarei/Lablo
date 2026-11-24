@@ -647,13 +647,17 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       modes: () => livePlayer().pictureModes(),
       values: () => {
         const made = livePlayer();
-        return { audio: memory.audioLang(), subtitles: memory.subtitleLang(), size: made.menu.size.value, picture: made.picture.value, clock: made.watchClock.value };
+        return { audio: memory.audioLang(), subtitles: memory.subtitleLang(), size: made.menu.size.value, picture: made.picture.value, clock: made.watchClock.value, still: made.stillHours.value };
       },
       setAudio: (lang) => memory.setAudioLang(lang),
       setSubtitles: (lang) => memory.setSubtitleLang(lang),
       setSize: (size) => livePlayer().setSubtitleSize(size),
       setPicture: (mode) => livePlayer().setPicture(mode),
       setClock: (on) => livePlayer().setWatchClock(on),
+      // "Still watching?" and the sleep timer (step 39c): the player's; the timer's row reads its signal.
+      setStill: (hours) => livePlayer().setStillHours(hours),
+      sleep: () => livePlayer().sleep.value,
+      setSleep: (minutes) => livePlayer().setSleep(minutes),
     },
     // A login given again (step 32d4b): the source's own refresh with the schedule held (the
     // schedule keeps a refused `needs-login` for 2 h, and `refreshNow` reads only the guides), then
@@ -731,6 +735,9 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     // "Clock while watching" (step 39a).
     watchClock: memory.clock(),
     watchClocked: (on) => memory.setClock(on),
+    // "Still watching?" (step 39c): its hours; the sleep timer lives in the player, for this run only.
+    stillHours: memory.stillHours(),
+    stillSet: (hours) => memory.setStillHours(hours),
     // The Guide key on a channel (step 39a): the guide on the channel's row, over the live screen or the guide.
     toGuide: (under) =>
       guideFromPlayer(
