@@ -104,7 +104,7 @@ function walk(over: Partial<PairWalk> = {}): PairWalk {
 describe('the pairing walk', () => {
   it('opens the app with its API on the forwarded port of the device itself (a TV build takes ?api= only there)', () => {
     expect(PAIR_ORIGIN).toBe('http://127.0.0.1:8091');
-    expect(pairingUrl('app', 'webos')).toBe('file:///app/app/webos/index.html?api=http%3A%2F%2F127.0.0.1%3A8091');
+    expect(pairingUrl('app', 'webos')).toBe('file:///app/app/webos/index.html?keyboard=native&api=http%3A%2F%2F127.0.0.1%3A8091');
   });
 
   it("expects the QR code to hold the TV's own link: the code, then the TV's key, in the fragment", () => {

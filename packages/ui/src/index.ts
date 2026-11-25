@@ -20,6 +20,8 @@ export type { RemoteOptions } from './focus/remote';
 export { connectRemote, isEditable } from './focus/remote';
 export type { EditKeyEvent, EditableLike, FieldEditing, TextEditor, TextEditorOptions } from './focus/text-editor';
 export { createTextEditor } from './focus/text-editor';
+export type { KeyboardEnd, KeyboardInput, KeyboardLabels, KeyboardSession, ScreenKeyboard } from './focus/screen-keyboard';
+export { createScreenKeyboard, setScreenKeyboardLabels, sharedScreenKeyboard } from './focus/screen-keyboard';
 export type {
   Direction,
   EpgCell,

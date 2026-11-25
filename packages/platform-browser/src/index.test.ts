@@ -117,6 +117,12 @@ describe('createBrowserPlatform', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
+  it("draws the app's own keyboard only when a test asks (?keyboard=own, step 40e)", () => {
+    expect(createBrowserPlatform(fakeEnv()).ownKeyboard).toBe(false);
+    expect(createBrowserPlatform(fakeEnv({ search: '?keyboard=native' })).ownKeyboard).toBe(false);
+    expect(createBrowserPlatform(fakeEnv({ search: '?locale=ar-SA&keyboard=own' })).ownKeyboard).toBe(true);
+  });
+
   it('has no screensaver, screen reader setting or TV speech (RELAY step 15b2)', async () => {
     const platform = createBrowserPlatform(fakeEnv());
     expect(await platform.setScreenSaver(false)).toBe('unsupported');

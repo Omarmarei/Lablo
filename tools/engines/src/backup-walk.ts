@@ -118,7 +118,7 @@ export async function simLookupId(appId: string): Promise<string> {
 
 /** The simulated webOS build of `variant`, its API on the forwarded port. */
 export function backupWalkUrl(variant: string): string {
-  return `file:///app/${variant}/${WEBOS_SIM}/index.html?api=${encodeURIComponent(PAIR_ORIGIN)}`;
+  return `file:///app/${variant}/${WEBOS_SIM}/index.html?keyboard=native&api=${encodeURIComponent(PAIR_ORIGIN)}`;
 }
 
 export type BackupStepId = PairStepId | 'watch';

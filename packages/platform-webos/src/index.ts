@@ -11,7 +11,7 @@
  */
 import { chromiumMajorFromUserAgent, deviceTier } from '@lablo/core';
 import type { DeviceInfo, Intent, KeyLike, KeyRegistration, LifecycleEvent, Platform, PlatformCall, TextKey } from '@lablo/platform-api';
-import { DIGIT_INTENTS } from '@lablo/platform-api';
+import { DIGIT_INTENTS, nativeKeyboardAsked } from '@lablo/platform-api';
 import { Html5Engine, createStageVideo } from '@lablo/player';
 import { parsePalmDeviceInfo, webosVersionFacts } from './device';
 import { readLgudid, webosSelectTrack } from './luna';
@@ -136,6 +136,8 @@ export function createWebosPlatform(): Platform {
     info: () => Promise.resolve(readDeviceInfo()),
     registerKeys: (): KeyRegistration => ({ skipped: 'webOS delivers every key', supported: null, registered: [], unsupported: [], refused: [] }),
     keyToIntent: webosKeyToIntent,
+    // The app's keyboard by default (Arabic, one layout on every TV); its key hands over to the system keyboard (step 40e).
+    ownKeyboard: typeof location === 'undefined' || !nativeKeyboardAsked(location.search),
     textKey: webosTextKey,
     onLifecycle(listener: (event: LifecycleEvent) => void): () => void {
       const onVisibility = (): void => listener(document.hidden ? 'hidden' : 'visible');

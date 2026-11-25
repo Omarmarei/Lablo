@@ -227,8 +227,9 @@ export function createLab(options: {
       let keys: KeyPress[] = [];
       let inputs = 0;
       let settled = false;
+      // The lab asks the TV's own keyboard (spike S10), never ours.
       const editor = createTextEditor({
-        platform,
+        platform: { ...platform, ownKeyboard: false },
         nav,
         find: options.findInput,
         now,

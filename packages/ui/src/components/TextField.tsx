@@ -75,6 +75,7 @@ export function TextField({ id, label, value, kind = 'text', hint, error, dir, m
           dir={dir ?? (kind === 'text' ? 'auto' : 'ltr')}
           maxLength={maxLength}
           tabIndex={-1}
+          readOnly={edit?.readOnly === true}
           spellcheck={false}
           autocomplete="off"
           autocapitalize="off"

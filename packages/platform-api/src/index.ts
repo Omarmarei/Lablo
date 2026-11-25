@@ -106,6 +106,15 @@ export type LifecycleEvent = 'hidden' | 'visible' | 'relaunch';
  * - `up` / `down`: the edit ends and the focus moves up or down.
  * Every other key (letters, Backspace, the caret keys) belongs to the field.
  */
+/**
+ * `?keyboard=native` on the page's address keeps the TV's own keyboard where the app would draw
+ * its own (`Platform.ownKeyboard`, step 40e): the engine walks type through DOM focus, and the lab's
+ * keyboard spike (S10) asks the TV's keyboard itself. Plain `indexOf`, for the old engines.
+ */
+export function nativeKeyboardAsked(search: string): boolean {
+  return search.indexOf('keyboard=native') !== -1;
+}
+
 export type TextKey = 'done' | 'close' | 'up' | 'down';
 
 /**
@@ -211,6 +220,11 @@ export interface Platform {
   registerKeys(): KeyRegistration;
   /** The Intent for a key event, or `null` for keys the app does not handle. */
   keyToIntent(event: KeyLike): Intent | null;
+  /**
+   * The app draws its own on-screen keyboard for text fields instead of opening the TV's (Tizen: its
+   * IME offers no Arabic, step 40e). Absent or false: the TV's keyboard, through DOM focus.
+   */
+  readonly ownKeyboard?: boolean;
   /** What a key does in a text field being edited, or `null` when the field takes it (see `TextKey`). */
   textKey(event: KeyLike): TextKey | null;
   /**

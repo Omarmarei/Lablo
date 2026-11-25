@@ -85,6 +85,17 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'onboarding.telemetryNote':
     'يرسل لابلو أيضًا تقارير استخدام وأعطال مجهولة الهوية لتحسين التطبيق، ولا تتضمن أبدًا روابطك أو بيانات دخولك أو أسماء قنواتك. يمكنك إيقافها من الإعدادات.',
   'onboarding.privacyNote': 'تجد سياسة الخصوصية كاملة في الإعدادات تحت «عن لابلو».',
+  // لوحة المفاتيح على الشاشة (الخطوة 40e).
+  'keyboard.title': 'لوحة المفاتيح',
+  'keyboard.done': 'تم',
+  'keyboard.native': 'لوحة مفاتيح التلفاز',
+  'keyboard.space': 'مسافة',
+  'keyboard.delete': 'حذف',
+  'keyboard.shift': 'تبديل',
+  'keyboard.symbols': 'أرقام ورموز',
+  'keyboard.letters': 'حروف',
+  'keyboard.arabic': 'حروف عربية',
+  'keyboard.latin': 'حروف إنجليزية',
   'onboarding.allow': 'سماح',
   'onboarding.notNow': 'ليس الآن',
   'onboarding.sourceTitle': 'أضف مصدرك',

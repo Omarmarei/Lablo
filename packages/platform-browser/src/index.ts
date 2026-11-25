@@ -135,6 +135,8 @@ export function createBrowserPlatform(env: BrowserEnv = defaultEnv()): Platform 
     info: () => Promise.resolve(fakeDeviceInfo(env)),
     registerKeys: (): KeyRegistration => ({ skipped: 'a desktop keyboard delivers every key', supported: null, registered: [], unsupported: [], refused: [] }),
     keyToIntent: browserKeyToIntent,
+    // A test asks for the app's own keyboard with `?keyboard=own` (step 40e); a desktop has a real one.
+    ownKeyboard: new URLSearchParams(env.search).get('keyboard') === 'own',
     textKey: browserTextKey,
     onLifecycle(listener: (event: LifecycleEvent) => void): () => void {
       const onVisibility = (): void => listener(env.document.hidden ? 'hidden' : 'visible');
