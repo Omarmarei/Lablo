@@ -296,6 +296,9 @@ for (const { locale, tag } of [
           await expect(page.getByTestId('connection-test-play')).toHaveCount(0);
           await expect(page.getByTestId('connection-test')).toHaveCount(0);
           await remote.expectFocus('connection-check/actions/0');
+          // This check read the last stream again: the test's failure never became it.
+          await expect(page.getByTestId('connection-last')).toHaveAttribute('data-tone', 'info');
+          expect(await text(page, 'connection-last-value')).toBe(EN['connection.lastNone']);
         });
 
         await test.step('a config without the link: no button and no line at the next check', async () => {

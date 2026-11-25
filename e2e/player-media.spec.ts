@@ -381,7 +381,11 @@ test('"Test stream" plays the config\'s link on the app\'s player under its bar;
     await expect(page.getByTestId('connection')).toHaveAttribute('data-verdict', 'ok');
     expect(stripIsolates((await page.getByTestId('connection-test-value').textContent()) ?? '')).toMatch(/^Played \(HLS\): the picture after \d+(\.\d)? s$/);
     await expect(page.getByTestId('connection-test')).toHaveAttribute('data-tone', 'ok');
-    // The test isn't a provider's stream: "Last stream" (and telemetry) never hear of it.
+    // The test isn't a provider's stream: "Last stream" (and telemetry) never hear of it. Opened
+    // again (a fresh check, its result cleared), the page reads the last stream again.
+    await remote.go('BACK', settingsRow('connection'));
+    await remote.go('OK', 'connection-check/actions/0');
+    await expect(page.getByTestId('connection-test-value')).toHaveText('Not played yet');
     await expect(page.getByTestId('connection-last-value')).toHaveText('Nothing played since Lablo started');
     expect(errors).toEqual([]);
   } finally {
