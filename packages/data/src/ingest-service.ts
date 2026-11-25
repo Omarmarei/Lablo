@@ -16,7 +16,7 @@
  */
 
 import type { ByteTransport } from './bytes';
-import { getSources, pruneGenerations } from './catalog-store';
+import { deleteSource, getSources, pruneGenerations } from './catalog-store';
 import type { FileFeed } from './file-feed';
 import { feedResponse } from './file-feed';
 import type { GunzipMode } from './gunzip';
@@ -72,6 +72,8 @@ export class IngestService {
       },
       prune: (): Promise<number> => this.prune(),
       dropGuides: async (): Promise<void> => dropGuides(await this.db()),
+      // Settings' remove source (step 40f): its bookkeeping and every generation of its catalog.
+      removeSource: async (arg: { src: string }): Promise<void> => deleteSource(await this.db(), arg.src),
       // Settings' "Check the connection" (step 40a): every source's server asked at once; nothing is written.
       probe: (arg: { sources: StoredSource[] }): Promise<SourceProbe[]> =>
         Promise.all(arg.sources.map((source) => probeSource(source, { transport: this.options.transport, now: () => (this.options.clock ?? REAL_CLOCK).now() }))),

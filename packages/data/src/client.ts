@@ -22,6 +22,7 @@ import { RpcClient } from './rpc';
 // The favourites lists and the live groups as main reads them (step 35a): favourite-lists.ts imports
 // nothing and uses nothing Babel polyfills; the edits themselves are the query worker's.
 export type { FavouriteList, GroupRef } from './favourite-lists';
+export { sourceFavouriteCount } from './source-removal';
 export { LIST_NAME_MAX, MAX_FAVOURITES, MAX_FAVOURITE_LISTS, MAX_LIST_ITEMS, favouriteListsOf, groupId, groupOrderOf, hiddenGroupsOf } from './favourite-lists';
 export type { FavouriteChange, FavouriteItem, GroupChange } from './favourite-edits';
 // The changed channels as main and settings.js read them (step 36a): channel-edits.ts imports

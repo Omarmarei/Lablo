@@ -465,6 +465,26 @@ export class DataEngine {
       );
   }
 
+  /**
+   * Removes a source (step 40f): its catalog first (in the refresh slot, so no refresh of it runs
+   * meanwhile; one running makes this throw as a second refresh does), then the profile's record of
+   * it and everything that names it (favourites, locks, places, mappings: `removeSource` edit),
+   * then the query worker reads it all again. A failure after the catalog went leaves the source
+   * listed with an empty catalog: removing it again works, so does refreshing it. Resolves `false`
+   * when the profile held no such source.
+   */
+  async removeSource(src: string): Promise<boolean> {
+    await this.claim('catalog');
+    try {
+      await this.withIngestWorker((client) => client.call('removeSource', { src }));
+    } finally {
+      this.release();
+    }
+    const changed = await this.editProfile({ kind: 'removeSource', id: src });
+    await this.query.call('reload');
+    return changed;
+  }
+
   /** Deletes the stored guides to make room (step 39s1) in a short-lived ingest worker; the query worker then reads the guides again. */
   private async dropGuides(): Promise<void> {
     await this.withIngestWorker((client) => client.call('dropGuides'));
