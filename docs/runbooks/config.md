@@ -65,7 +65,8 @@ config is a normal change: sign, verify, commit.
   ],
   "blocklist": { "salt": "<fixed, never change it>", "hashes": ["<43 characters>", "..."] },
   "flags": { "newGuide": true },
-  "tunables": { "liveBufferSeconds": 4 }
+  "tunables": { "liveBufferSeconds": 4 },
+  "testStream": { "url": "https://<Lablo's storage>/test/pattern.m3u8" }
 }
 ```
 
@@ -83,6 +84,11 @@ config is a normal change: sign, verify, commit.
 - **Hosts** (`blocklistHost`): lowercase ASCII, one trailing dot dropped, `[...]` around an IPv6
   address; a port, path or login is refused. Give a non-ASCII name in its `xn--` (punycode) form.
   IP addresses are taken as written (`127.1` is not `127.0.0.1`).
+- **`testStream`** (step 40b, optional): Lablo's own test pattern with a tone, which Settings ›
+  "Check the connection" offers to play ("Test stream") when the doc names it. `sign` takes only
+  an `https://` link (every TV plays it from Lablo's storage; the e2e stand-in's http link to the
+  mock is for tests). The committed config names none until step 34 hosts the file. Played as a
+  file (`vod`): a file ends with "The test stream has ended.", a live stream plays on.
 - Unknown fields are refused by `sign` and stripped by older apps; a change older apps must not
   misread needs a new `v` (they refuse it and keep their cached config).
 
@@ -283,6 +289,15 @@ stops plays and adds, and `disable-playback` also stops adds.
   - **Not covered:** on LG (webOS) and the desktop the TV follows a stream's redirects itself, so
     only the stream's own link is checked; an HLS stream's playlists and segments on other
     servers; a movie's subtitle files.
+- **The test stream** (step 40b): with `testStream` in the doc and no `disable-playback` (or
+  stronger) in force, Settings › "Check the connection" has a "Test stream" button and line. The
+  button plays the link on the app's own player, as a channel plays, under a bar ("If you see the
+  picture and hear the sound, this TV and Lablo play video.", or "Didn't play" with the player's
+  code) with "Close". Back on the page, the line says whether it played, and the verdict reads it:
+  a failed test says Lablo's test stream didn't play on this TV; a played test with the last
+  channel failed by the provider says the problem is with the provider's streams. The test's
+  plays stay out of "Last stream" and telemetry. A `disable-playback` arriving during a test
+  doesn't stop it (Lablo's own stream); the button is gone at the next check.
 - **The language:** the one the user picked (else the TV's); the rule's message in it, English for
   any language but Arabic.
 - **Trying it locally:** start a stand-in server that answers `GET /v1/config` with a dev-signed
@@ -293,7 +308,11 @@ stops plays and adds, and `disable-playback` also stops adds.
   127.0.0.1 (e2e/config-gate.spec.ts does both; e2e/config-modes.spec.ts the two modes inside
   the app; e2e/config-blocklist.spec.ts the blocklist at add and on refresh, with the mock
   provider's `127.0.0.1` on it; e2e/config-blocklist-play.spec.ts before playing, with an M3U link
-  on `localhost` whose streams are on `127.0.0.1`).
+  on `localhost` whose streams are on `127.0.0.1`; e2e/connection-check.spec.ts the test stream's
+  button and a failed test, e2e/player-media.spec.ts a played one, with a `testStream` naming the
+  mock's first channel). `pnpm dev` against apps/web shows no "Test stream" until the committed
+  config names one (step 34): try it with the stand-in and a `testStream` naming a mock channel's
+  `.m3u8` (`http://127.0.0.1:<mock port>/live/<user>/<password>/101.m3u8`).
 
 ## Gotchas
 

@@ -85,6 +85,8 @@ describe('the bundled config worker', () => {
         { id: 'elsewhere', match: { platform: 'webos' }, mode: 'disable-app' },
       ],
       blocklist: { salt: SALT, hashes: [createHash('sha256').update(`${SALT}blocked.example`, 'utf8').digest('base64url')] },
+      // Step 40b: the test stream's link reaches the policy through the bundled schema.
+      testStream: { url: 'https://media.lablo.example/test/pattern.m3u8' },
     });
     const factory = freshFactory();
 
@@ -92,7 +94,7 @@ describe('the bundled config worker', () => {
     const first = startWorker(code, factory, () => new Response(configAnswer(doc, configSigner(), 'AE'), { status: 200 }));
     const one = await run(first.port);
     expect(first.asked).toEqual(['http://api.test/v1/config']);
-    expect(one.cached).toEqual([{ status: 'none', policy: { kill: null, notices: [], updateRequired: false, minVersion: null, flags: {}, tunables: {} }, issuedAt: null, expiresAt: null, failure: null, stored: false }]);
+    expect(one.cached).toEqual([{ status: 'none', policy: { kill: null, notices: [], updateRequired: false, minVersion: null, flags: {}, tunables: {}, testStream: null }, issuedAt: null, expiresAt: null, failure: null, stored: false }]);
     expect(one.result).toEqual({
       status: 'fresh',
       policy: {
@@ -102,6 +104,7 @@ describe('the bundled config worker', () => {
         minVersion: '0.2.0',
         flags: {},
         tunables: {},
+        testStream: 'https://media.lablo.example/test/pattern.m3u8',
       },
       issuedAt: now - 60_000,
       expiresAt: now + 86_400_000,

@@ -175,11 +175,19 @@ describe('checking the doc', () => {
         blocklist: { salt: SALT, hashes: [nodeHash(SALT, 'a.example'), nodeHash(SALT, 'b.example')].sort() },
         flags: { newGuide: true },
         tunables: { liveBufferSeconds: 4 },
+        testStream: { url: 'HTTPS://media.lablo.example/test/pattern.m3u8' },
       }),
       NOW,
       30,
     );
     expect(docProblems(doc)).toStrictEqual([]);
+  });
+
+  it("wants the test stream's link on https (step 40b)", () => {
+    const message = "testStream.url: must be an https:// link (the TVs play it from Lablo's storage)";
+    expect(docProblems(stampDoc(source({ testStream: { url: 'http://127.0.0.1:8080/live/u/p/101.m3u8' } }), NOW, 30))).toStrictEqual([message]);
+    expect(docProblems(stampDoc(source({ testStream: { url: 'HTTP://media.lablo.example/test/pattern.m3u8' } }), NOW, 30))).toStrictEqual([message]);
+    expect(docProblems(stampDoc(source({ testStream: { url: 'https://media.lablo.example/test/pattern.mp4' } }), NOW, 30))).toStrictEqual([]);
   });
 
   it("names the schema's issues by path", () => {

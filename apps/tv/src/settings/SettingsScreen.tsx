@@ -21,8 +21,8 @@ import { MappingReading } from '../guide/MappingReading';
 import { MappingPage } from './MappingPage';
 import { PARENTAL_SCREENS } from './parental-page';
 import { PLAYER_SETTINGS_SCREEN } from './player-settings';
-import { CONNECTION_SCREEN } from './connection-check';
-import { ConnectionPage } from './ConnectionPage';
+import { CONNECTION_SCREEN, TEST_SCREEN } from './connection-check';
+import { ConnectionPage, TestStreamPage } from './ConnectionPage';
 import { PlayerSettingsPage } from './PlayerSettingsPage';
 import { CHECK_SCREEN } from './pin-check';
 import { ParentalPageScreen } from './ParentalPage';
@@ -927,6 +927,7 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       {parental !== null && focus.screen === CHECK_SCREEN && checking !== null && <LoginDialog i18n={i18n} binding={binding} form={parental.check.form} source={checking} />}
       {settings.player !== null && focus.screen === PLAYER_SETTINGS_SCREEN && <PlayerSettingsPage i18n={i18n} binding={binding} page={settings.player} />}
       {settings.connection !== null && focus.screen === CONNECTION_SCREEN && <ConnectionPage i18n={i18n} binding={binding} check={settings.connection} />}
+      {settings.connection !== null && focus.screen === TEST_SCREEN && <TestStreamPage i18n={i18n} binding={binding} check={settings.connection} />}
     </main>
   );
 }

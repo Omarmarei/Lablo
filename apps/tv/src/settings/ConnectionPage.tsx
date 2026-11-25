@@ -7,7 +7,7 @@ import type { AppI18n, MessageKey } from '../i18n';
 import type { LastPlay } from '../player/last-play';
 import { ACCOUNT_TEXT, CATEGORY_TEXT } from '../player/PlayerScreen';
 import { containerName } from '../player/stream-info';
-import type { ConnectionCheck, ConnectionState, ConnectionVerdict } from './connection-check';
+import type { ConnectionCheck, ConnectionState, ConnectionVerdict, TestResult, TestView } from './connection-check';
 import { connectionVerdict } from './connection-check';
 
 /**
@@ -16,6 +16,10 @@ import { connectionVerdict } from './connection-check';
  * the provider wrote it) and one for the last stream, each its name, its answer at the end and a
  * line under it where there is more to say; then "Check again" and "Close". An account's problems
  * and the last stream's failure use the error card's words (`ACCOUNT_TEXT`, `CATEGORY_TEXT`).
+ *
+ * With a test stream in the config (step 40b) the page has its line (after the last stream's) and
+ * a "Test stream" button between the two; the test screen (`TestStreamPage`) is the player's
+ * picture with a bar at the bottom: the test's name, the player's state and "Close".
  */
 
 /** How a line reads: `ok`, `warn` (the warning colour), `info`, or `checking`. */
@@ -39,7 +43,9 @@ const VERDICT_TEXT: Readonly<Record<ConnectionVerdict, MessageKey>> = {
   full: 'player.account.full',
   provider: 'connection.verdict.provider',
   login: 'connection.verdict.login',
+  test: 'connection.verdict.test',
   device: 'connection.verdict.device',
+  streams: 'connection.verdict.streams',
   channel: 'connection.verdict.channel',
   ok: 'connection.verdict.ok',
 };
@@ -108,6 +114,23 @@ export function lastText(i18n: AppI18n, last: LastPlay | null): LineText {
   return { value: t(CATEGORY_TEXT[failure.category][0]), detail: t('player.code', { code: failure.code }), tone: 'warn' };
 }
 
+/** The test stream's line (step 40b): not played yet, played (its format and the time to the picture), or didn't play (the player's code). */
+export function testText(i18n: AppI18n, test: TestResult | null): LineText {
+  const { t } = i18n;
+  if (test === null) return { value: t('connection.testNone'), detail: null, tone: 'info' };
+  if (test.state === 'played') return { value: t('connection.played', { format: containerName(test.container), seconds: seconds(test.ms) }), detail: null, tone: 'ok' };
+  return { value: t('connection.testFailed'), detail: t('player.code', { code: test.failure.code }), tone: 'warn' };
+}
+
+/** The test screen's bar (step 40b): the player's state in words. */
+export function testViewText(i18n: AppI18n, view: TestView): LineText {
+  const { t } = i18n;
+  if (view.phase === 'playing') return { value: t('connection.testPlaying'), detail: null, tone: 'ok' };
+  if (view.phase === 'ended') return { value: t('connection.testEnded'), detail: null, tone: 'info' };
+  if (view.phase === 'failed') return { value: t('connection.testFailed'), detail: view.failure === null ? null : t('player.code', { code: view.failure.code }), tone: 'warn' };
+  return { value: t(view.phase === 'reconnecting' ? 'player.reconnecting' : 'player.connecting'), detail: null, tone: 'checking' };
+}
+
 /** One line, a plain function (not a component: the view's tests read its markup whole). */
 function lineView(name: string, text: LineText, testId: string, own: boolean): VNode {
   return (
@@ -153,13 +176,45 @@ export function ConnectionView({ i18n, check, button }: { i18n: AppI18n; check: 
         {lineView(t('connection.internet'), internetText(i18n, state), 'connection-internet', false)}
         {sources.map((line, i) => lineView(line.name, sourceText(i18n, line.probe), `connection-source-${i}`, true))}
         {lineView(t('connection.last'), lastText(i18n, state.last), 'connection-last', false)}
+        {state.testable && lineView(t('connection.test'), testText(i18n, state.test), 'connection-test', false)}
       </div>
       <div class="connection__buttons">
         <Button label={t('connection.again')} variant="primary" {...button(0)} testId="connection-again" />
-        <Button label={t('action.close')} {...button(1)} testId="connection-close" />
+        {state.testable && <Button label={t('connection.test')} {...button(1)} testId="connection-test-play" />}
+        <Button label={t('action.close')} {...button(state.testable ? 2 : 1)} testId="connection-close" />
       </div>
     </div>
   );
+}
+
+/** The test screen as drawn (step 40b), hook-free: the stage's picture shows through; the bar at the bottom. */
+export function TestStreamView({ i18n, check, button }: { i18n: AppI18n; check: ConnectionCheck; button: (index: number) => ItemBinding }) {
+  const { t } = i18n;
+  const view = check.testView.value;
+  const text = testViewText(i18n, view);
+  return (
+    <div class="test-stream" data-testid="test-stream" data-phase={view.phase}>
+      <div class={`test-stream__bar is-${text.tone}`}>
+        <div class="test-stream__text">
+          <span class="test-stream__name">{t('connection.test')}</span>
+          <span class="test-stream__state" role="status" aria-live="polite" data-testid="test-stream-state">
+            {text.value}
+          </span>
+          {text.detail !== null && (
+            <span class="test-stream__detail" data-testid="test-stream-detail">
+              {text.detail}
+            </span>
+          )}
+        </div>
+        <Button label={t('action.close')} {...button(0)} testId="test-stream-close" />
+      </div>
+    </div>
+  );
+}
+
+export function TestStreamPage({ i18n, binding, check }: { i18n: AppI18n; binding: FocusBinding; check: ConnectionCheck }) {
+  const buttons = useZone(binding, binding.nav.top, 'test');
+  return <TestStreamView i18n={i18n} check={check} button={(i) => buttons.item(i)} />;
 }
 
 export function ConnectionPage({ i18n, binding, check }: { i18n: AppI18n; binding: FocusBinding; check: ConnectionCheck }) {

@@ -145,6 +145,9 @@ export function docProblems(doc: unknown): string[] {
     return parsed.error.issues.map((issue) => `${issue.path.map(String).join('.') || '(doc)'}: ${issue.message}`);
   }
   const problems = strippedPaths(doc, parsed.data).map((path) => `${path}: not a field of the config (a typo?)`);
+  // Every TV plays the test stream from Lablo's storage (step 40b); a test's http link must never ship.
+  const test = parsed.data.testStream;
+  if (test !== undefined && test.url.slice(0, 8).toLowerCase() !== 'https://') problems.push("testStream.url: must be an https:// link (the TVs play it from Lablo's storage)");
   const hashes = parsed.data.blocklist.hashes;
   for (let i = 1; i < hashes.length; i++) {
     if (!(hashes[i - 1]! < hashes[i]!)) {

@@ -172,6 +172,13 @@ describe('configPolicy', () => {
     expect(policy.flags).toEqual({ newGuide: true, oldPlayer: false });
     expect(policy.tunables).toEqual({ liveBufferSeconds: 8, telemetrySampling: { crash: 0.5 } });
   });
+
+  it("gives the test stream's link, null without one (step 40b)", () => {
+    const url = 'https://media.lablo.example/test/pattern.m3u8';
+    expect(configPolicy(doc({ testStream: { url } }), TV).testStream).toBe(url);
+    expect(configPolicy(doc(), TV).testStream).toBeNull();
+    expect(noPolicy().testStream).toBeNull();
+  });
 });
 
 describe('policyStops', () => {

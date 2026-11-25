@@ -9,7 +9,7 @@
  * old apps refuse, keeping their cached copy.
  */
 import * as z from 'zod/mini';
-import { appVersion, bytes32, country, epochMs, platform, signature64, text } from './wire';
+import { appVersion, bytes32, country, epochMs, link, platform, signature64, text } from './wire';
 
 /** The doc's text: the config is small (the blocklist is hashes, about 45 bytes each). */
 export const CONFIG_DOC_MAX_CHARS = 1048576;
@@ -56,6 +56,15 @@ export const tunables = z.object({
   telemetrySampling: z.optional(z.record(z.string().check(z.regex(/^[a-z_]{1,32}$/)), z.number().check(z.gte(0), z.lte(1)))),
 });
 
+/**
+ * Lablo's test stream (RELAY step 40b): Settings › "Check the connection" offers to play it when the
+ * doc names it. Optional, so older docs and older apps are unchanged (an old app drops the field).
+ * `pnpm sign-config sign` takes only an https link: every TV plays it from Lablo's storage.
+ */
+export const testStream = z.object({
+  url: link,
+});
+
 export const configDocSchema = z
   .object({
     v: z.literal(1),
@@ -70,6 +79,7 @@ export const configDocSchema = z
     }),
     flags: z.record(z.string().check(z.regex(/^[a-z][A-Za-z0-9]{0,39}$/)), z.boolean()),
     tunables,
+    testStream: z.optional(testStream),
   })
   .check(
     z.refine((doc) => doc.expiresAt > doc.issuedAt, { message: 'expiresAt must be after issuedAt', path: ['expiresAt'] }),
