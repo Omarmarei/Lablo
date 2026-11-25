@@ -145,6 +145,7 @@ export { BUSY_MAX_MS, BUSY_POLL_MS, LOW_TIER_DUTY, REAL_CLOCK, Throttle, YIELD_E
 
 export type { CatalogView, Candidate, FavouriteReport } from './favourites';
 export type { FavouriteList, GroupRef } from './favourite-lists';
+export { keySource, removeSourceFromProfile, sourceFavouriteCount } from './source-removal';
 export {
   LIST_ID_MAX,
   LIST_NAME_MAX,

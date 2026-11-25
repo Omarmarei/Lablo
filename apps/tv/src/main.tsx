@@ -654,6 +654,9 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       },
     },
     sourceAdded,
+    // Sources › "Add a source" (step 40f): the same loader as the phone's add, the refreshes held while it runs; a removal runs with the refreshes held too.
+    addSource: { loader: addLoader, refusal: addRefusal, busy: holdRefreshes, setPin: (kept) => parental.choose(kept) },
+    quiet,
     // "Usage and crash reports" (step 33b3): the profile's switch, then telemetry follows what it stored.
     telemetry: { engine: dataEngine(), setOn: (on) => telemetry.setOn(on) },
     // "Send a report to support" (step 33d2): main's parts and the session's last events; the worker adds the rest.

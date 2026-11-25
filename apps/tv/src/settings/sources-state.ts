@@ -1,12 +1,16 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
-import type { IngestResult, LinkSource, LoadedProfile, ProfileEdit, SourceMeta, SourceRecord, StoredSource } from '@lablo/data';
+import type { IngestResult, LinkSource, LoadedProfile, ProfileDoc, ProfileEdit, SourceMeta, SourceRecord, StoredSource } from '@lablo/data';
+import { sourceFavouriteCount } from '@lablo/data/client';
 import type { Platform } from '@lablo/platform-api';
 import type { Navigator, Screen, ScreenSpec, TextEditorOptions, ZoneSpec } from '@lablo/ui';
 import { SCREEN, fits } from '@lablo/ui';
 import { sourceUrlOf } from '../data/engine';
 import { ingestSourceOf, loadError, needsLogin, storedSources } from '../onboarding/engine-loader';
-import type { LoadErrorCode } from '../onboarding/loader';
+import type { LoadErrorCode, SourceLoader } from '../onboarding/loader';
+import type { Refusal } from '../gate/gate-state';
+import type { AddForm } from './source-add';
+import { createAddForm } from './source-add';
 import { GUIDES, shownLink } from './guides-state';
 import type { LoginForm } from './source-login';
 import { createLoginForm } from './source-login';
@@ -15,9 +19,10 @@ import { createLoginForm } from './source-login';
  * The sources screen (RELAY step 30c3a): the playlists and panels the user added, opened by the
  * settings screen's "Sources" row and pushed on the live navigator.
  *
- *   header   ("Add from your phone", step 31c2a: the pairing screen; only when the app can pair)
+ *   header   ("Add from your phone", step 31c2a: the pairing screen; only when the app can pair, and
+ *             "Add a source", step 40f: the form on the TV, `source-add.ts`)
  *   sources  (one row per stored source, in the profile's order: its name, its kind and server,
- *             and when its catalog was last updated; no actions yet)
+ *             and when its catalog was last updated; OK opens its menu)
  *
  * - **Reads,** when it opens: the profile (the sources, their names and their links), every
  *   catalog's record (`sourceStatus`: when it was last checked), then the signed config's
@@ -31,10 +36,19 @@ import { createLoginForm } from './source-login';
  *   engine's own refresh, with no other running), and the row shows the answer: "Updating…", then
  *   when it was updated, or why it failed (OK opens the form again). The answers last as long as
  *   the settings, so a screen opened again still shows them.
+ * - **A row's menu** (step 40f, OK on the row): "Change server and login" (the login form again, for
+ *   a source with a login or a link; a phone's file has none) and "Remove". "Remove" asks first
+ *   (`SOURCE_REMOVE`): the confirm says how many favourites go, and "Cancel" has the focus. A
+ *   removal takes the source's catalog, favourites, locks, places and mappings with it
+ *   (`DataEngine.removeSource`); the row says "Removing…" until it is done. One that fails leaves the
+ *   row with its failure line. Adding the same source again starts fresh.
  * - Back closes it (the navigator's own Back).
  */
 
 export const SOURCES_SCREEN = 'sources';
+/** A row's menu and the removal's confirm (step 40f), over the sources screen. */
+export const SOURCE_MENU = 'source-menu';
+export const SOURCE_REMOVE = 'source-remove';
 
 /** Under the header and its line, as on the guides screen; a source's row is a guide's. */
 export const SOURCES_BODY = SCREEN.height - 2 * SCREEN.safeY - GUIDES.headerHeight - GUIDES.headerGap - GUIDES.introHeight;
@@ -60,9 +74,34 @@ export interface SourceRow {
 }
 
 /** A save's answer (step 32d4b): its refresh running, or why the save or the refresh failed. */
-export type SaveAnswer = { readonly state: 'updating' } | { readonly state: 'failed'; readonly code: LoadErrorCode; readonly status: number | null };
+export type SaveAnswer = { readonly state: 'updating' } | { readonly state: 'removing' } | { readonly state: 'failed'; readonly code: LoadErrorCode; readonly status: number | null };
 
 const UPDATING: SaveAnswer = { state: 'updating' };
+const REMOVING: SaveAnswer = { state: 'removing' };
+
+/** What a row's menu offers (step 40f), in screen order. */
+export type SourceAction = 'edit' | 'remove' | 'cancel';
+
+/** The menu on show: its source and its buttons. */
+export interface SourceMenu {
+  readonly row: SourceRow;
+  readonly actions: readonly SourceAction[];
+}
+
+/** The removal's confirm on show: the source, and how many of its favourites go with it. */
+export interface SourceRemoval {
+  readonly row: SourceRow;
+  readonly favourites: number;
+}
+
+/** The confirm's buttons: "Remove", then "Cancel" (which has the focus). */
+export const REMOVE_CONFIRM = 0;
+export const REMOVE_CANCEL = 1;
+
+/** A row's menu buttons: "Change server and login" for a source that has a login or a link (never a phone's file), "Remove", "Cancel". */
+export function menuActions(row: SourceRow, canEdit: boolean): readonly SourceAction[] {
+  return canEdit && row.type !== 'm3u-file' ? ['edit', 'remove', 'cancel'] : ['remove', 'cancel'];
+}
 
 export type SourcesStatus = 'loading' | 'ready' | 'failed';
 
@@ -73,6 +112,8 @@ export interface SourcesEngine {
   blocked(urls: string[]): Promise<boolean[]>;
   /** The login form's save: the `source` edit (step 32d4b). */
   editProfile(edit: ProfileEdit): Promise<boolean>;
+  /** A source's removal (step 40f): its catalog and everything in the profile that names it. */
+  removeSource(src: string): Promise<boolean>;
 }
 
 /** The login form's needs (step 32d4b): the TV's keyboard and the save's refresh. */
@@ -97,6 +138,20 @@ export interface SourcesOptions {
    * list gives it to the button. Without it the screen has no header.
    */
   readonly addFromPhone?: () => void;
+  /**
+   * "Add a source" (step 40f): the form on the TV, loaded by `loader`. It needs `login` (the
+   * keyboard). The list keeps the first focus, as with the phone's add.
+   */
+  readonly add?: {
+    readonly loader: SourceLoader;
+    readonly refusal?: ReadonlySignal<Refusal | null>;
+    readonly busy?: (on: boolean) => void;
+    readonly setPin?: (kept: () => void) => void;
+  };
+  /** A source was added or removed here: the screens read the catalogs again (main's `sourceAdded`). */
+  readonly changed?: () => void;
+  /** Runs a removal with the refreshes held and no refresh running (main's `quiet`); without it the removal runs as it is. */
+  readonly quiet?: <T>(job: () => Promise<T>) => Promise<T>;
   /** The login form for a source without its login (step 32d4b); without it, OK on a row does nothing. */
   readonly login?: SourceLoginOptions;
   /** Whether a source's last refresh failed for space (step 39s1, main's storage state); without it, none did. */
@@ -110,8 +165,16 @@ export interface SourcesList {
   readonly rows: ReadonlySignal<readonly SourceRow[]>;
   /** Data requests in flight (0: the screen is done with the workers). */
   readonly pending: ReadonlySignal<number>;
-  /** The screen has the header's "Add from your phone" (step 31c2a). */
+  /** The screen has the header's "Add from your phone" (step 31c2a), or "Add a source" (step 40f). */
   readonly canAdd: boolean;
+  /** The header's first button is "Add from your phone". */
+  readonly phone: boolean;
+  /** The form on the TV (step 40f), when the screen has one. */
+  readonly add: AddForm | null;
+  /** A row's menu while it shows (step 40f). */
+  readonly menu: ReadonlySignal<SourceMenu | null>;
+  /** The removal's confirm while it shows (step 40f). */
+  readonly removing: ReadonlySignal<SourceRemoval | null>;
   /** The login form (step 32d4b), when the screen has one. */
   readonly form: LoginForm | null;
   /** Opens the screen and reads the sources. */
@@ -170,8 +233,10 @@ export function sourceRows(
   return rows;
 }
 
-/** The header's one button (step 31c2a). */
-const HEADER_ZONE: ZoneSpec = { kind: 'list', id: 'header', axis: 'horizontal', count: 1, neighbours: { down: 'sources' } };
+/** The header's buttons (step 31c2a: "Add from your phone"; step 40f: "Add a source"). */
+function headerZone(count: number): ZoneSpec {
+  return { kind: 'list', id: 'header', axis: 'horizontal', count, neighbours: { down: 'sources' } };
+}
 
 function sourcesZone(count: number, header: boolean): ZoneSpec {
   return header
@@ -181,12 +246,19 @@ function sourcesZone(count: number, header: boolean): ZoneSpec {
 
 export function createSourcesList(options: SourcesOptions): SourcesList {
   const { nav, engine } = options;
-  const header = options.addFromPhone !== undefined;
+  const phone = options.addFromPhone !== undefined;
+  const addOptions = options.add;
+  // (The form needs the keyboard: the login's.)
+  const canAddHere = addOptions !== undefined && options.login !== undefined;
+  const header = phone || canAddHere;
+  const headerCount = (phone ? 1 : 0) + (canAddHere ? 1 : 0);
   const full = options.storageFull ?? ((): boolean => false);
   const status = signal<SourcesStatus>('loading');
   const rows = signal<readonly SourceRow[]>([]);
   const pending = signal(0);
   const screen = signal<Screen | null>(null);
+  const menu = signal<SourceMenu | null>(null);
+  const removing = signal<SourceRemoval | null>(null);
   let disposed = false;
   /** Bumps on each opening: an older opening's answer is dropped. */
   let openSeq = 0;
@@ -287,18 +359,109 @@ export function createSourcesList(options: SourcesOptions): SourcesList {
   };
 
   const form = options.login === undefined ? null : createLoginForm({ nav, platform: options.login.platform, find: options.login.find, now: options.login.now, save });
+  const add: AddForm | null =
+    !canAddHere || options.login === undefined || addOptions === undefined
+      ? null
+      : createAddForm({
+          nav,
+          platform: options.login.platform,
+          find: options.login.find,
+          now: options.login.now,
+          loader: addOptions.loader,
+          refusal: addOptions.refusal,
+          busy: addOptions.busy,
+          setPin: addOptions.setPin,
+          added: () => {
+            reload();
+            options.changed?.();
+          },
+        });
 
-  /** OK on a row: the login form for a source without its login, or one whose last save failed. */
-  const select = (index: number): void => {
-    const row = rows.value[index];
-    if (form === null || row === undefined) return;
-    const answer = row.answer;
-    if (row.needs === null && (answer === null || answer.state !== 'failed')) return;
+  const closeMenu = (): void => {
+    menu.value = null;
+    nav.pop();
+  };
+
+  const closeRemoval = (): void => {
+    removing.value = null;
+    nav.pop();
+  };
+
+  /** The removal (step 40f): "Removing…" on the row until the engine is done, then the rows again. */
+  const remove = (row: SourceRow): void => {
+    if (disposed) return;
+    answers[row.id] = REMOVING;
+    draw();
+    const run = (): Promise<boolean> => engine.removeSource(row.id);
+    track(() => (options.quiet === undefined ? run() : options.quiet(run)))
+      .then(
+        () => {
+          delete answers[row.id];
+          options.changed?.();
+        },
+        (error: unknown) => {
+          answers[row.id] = { state: 'failed', code: loadError(error).code, status: loadError(error).status };
+          console.warn('The source was not removed', error);
+        },
+      )
+      .then(reload);
+  };
+
+  /** The confirm (step 40f): what goes with the source, "Cancel" focused. */
+  const confirmRemoval = (row: SourceRow): void => {
+    removing.value = { row, favourites: sourceFavouriteCount(last === null || last.profile === null ? null : (last.profile.doc as ProfileDoc), row.id) };
+    const shown = nav.push({
+      id: SOURCE_REMOVE,
+      zones: [{ kind: 'list', id: 'actions', axis: 'horizontal', count: 2 }],
+      onIntent: (intent) => {
+        if (intent !== 'BACK') return false;
+        closeRemoval();
+        return true;
+      },
+      onSelect: (focus) => {
+        closeRemoval();
+        if (focus.index === REMOVE_CONFIRM) remove(row);
+      },
+    });
+    shown.focus('actions', REMOVE_CANCEL);
+  };
+
+  const act = (action: SourceAction | undefined, row: SourceRow): void => {
+    closeMenu();
+    if (action === 'remove') {
+      confirmRemoval(row);
+      return;
+    }
+    if (action !== 'edit' || form === null) return;
     const records = storedSources(last === null ? null : last.profile);
     for (let i = 0; i < records.length; i += 1) {
       const record = records[i]!;
       if (record.id === row.id && record.type !== 'm3u-file') form.open(record);
     }
+  };
+
+  /** OK on a row: its menu (step 40f). A row whose removal runs has none. */
+  const select = (index: number): void => {
+    const row = rows.value[index];
+    if (row === undefined || (row.answer !== null && row.answer.state !== 'failed')) return;
+    const actions = menuActions(row, form !== null);
+    menu.value = { row, actions };
+    nav.push({
+      id: SOURCE_MENU,
+      zones: [{ kind: 'list', id: 'actions', axis: 'vertical', count: actions.length }],
+      onIntent: (intent) => {
+        if (intent !== 'BACK') return false;
+        closeMenu();
+        return true;
+      },
+      onSelect: (focus) => act(actions[focus.index], row),
+    });
+  };
+
+  /** The header's buttons: "Add from your phone" first when there is one, then "Add a source". */
+  const addAt = (index: number): void => {
+    if (phone && index === 0) options.addFromPhone?.();
+    else add?.open();
   };
 
   return {
@@ -307,6 +470,10 @@ export function createSourcesList(options: SourcesOptions): SourcesList {
     rows,
     pending,
     canAdd: header,
+    phone,
+    add,
+    menu,
+    removing,
     form,
     open(): void {
       if (disposed) return;
@@ -316,10 +483,10 @@ export function createSourcesList(options: SourcesOptions): SourcesList {
       const spec: ScreenSpec = header
         ? {
             id: SOURCES_SCREEN,
-            zones: [HEADER_ZONE, sourcesZone(0, true)],
+            zones: [headerZone(headerCount), sourcesZone(0, true)],
             initial: 'sources',
             onSelect: (focus) => {
-              if (focus.zone === 'header') options.addFromPhone?.();
+              if (focus.zone === 'header') addAt(focus.index);
               else select(focus.index);
             },
           }
@@ -331,6 +498,7 @@ export function createSourcesList(options: SourcesOptions): SourcesList {
     dispose(): void {
       disposed = true;
       form?.dispose();
+      add?.dispose();
     },
   };
 }

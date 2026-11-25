@@ -25,8 +25,9 @@ import { PLAYER_SETTINGS_SCREEN, createPlayerSettings } from './player-settings'
 import type { SettingsItem } from './settings-items';
 import { SETTINGS_ITEMS } from './settings-items';
 import { LOGIN_SCREEN } from './source-login';
-import type { SourceLoginOptions, SourcesEngine, SourcesList } from './sources-state';
-import { SOURCES_SCREEN, createSourcesList } from './sources-state';
+import type { SourceLoginOptions, SourcesEngine, SourcesList, SourcesOptions } from './sources-state';
+import { SOURCE_MENU, SOURCE_REMOVE, SOURCES_SCREEN, createSourcesList } from './sources-state';
+import { ADD_SCREEN } from './source-add';
 import type { ReportOptions, ReportRow } from './diag-report';
 import { createReportRow } from './diag-report';
 import type { ConnectionCheck, ConnectionOptions } from './connection-check';
@@ -84,6 +85,9 @@ export const SETTINGS_SCREENS: readonly string[] = [
   SOURCES_SCREEN,
   PAIR_SCREEN,
   LOGIN_SCREEN,
+  SOURCE_MENU,
+  SOURCE_REMOVE,
+  ADD_SCREEN,
   BACKUP_SCREEN,
   BACKUP_CONFIRM,
 ].concat(GROUP_SCREENS, [CHANNELS_SCREEN], EDIT_SCREENS, PARENTAL_SCREENS, [PLAYER_SETTINGS_SCREEN, LANGUAGE_SCREEN, CONNECTION_SCREEN, TEST_SCREEN, HELP_SCREEN, HELP_TOPIC_SCREEN, ABOUT_SCREEN, ABOUT_INFO_SCREEN, ABOUT_DOC_SCREEN]);
@@ -93,8 +97,12 @@ export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | '
   readonly engine: GuidesEngine & UnmatchedEngine & MappingEngine & SourcesEngine & GroupsEngine & ParentalPageEngine;
   /** Makes the pairing screen on the live navigator (step 31c2a); without it Sources has no "Add" button. */
   readonly pairing?: (nav: Navigator, added: (draft: SourceDraft, result: LoadResult) => void) => Pairing;
-  /** A source was added from the phone: the live screens read the catalogs and guides again. */
+  /** A source was added (from the phone, or on the TV: step 40f) or removed: the live screens read the catalogs and guides again. */
   readonly sourceAdded?: () => void;
+  /** "Add a source" on the TV (step 40f, `SourcesOptions.add`); without it Sources has no such button. */
+  readonly addSource?: SourcesOptions['add'];
+  /** Runs a source's removal with the refreshes held (step 40f, main's `quiet`). */
+  readonly quiet?: SourcesOptions['quiet'];
   /** Settings' backup page (step 32d2b); without it there is no "Backup" row. */
   readonly backup?: { readonly engine: BackupPageEngine; readonly host: BackupPageHost };
   /** The sources screen's login form's refresh (step 32d4b, `SourceLoginOptions.refresh`). */
@@ -198,7 +206,9 @@ export function createSettings(options: SettingsOptions): Settings {
   const login: SourceLoginOptions = { platform: options.platform, find: options.find, now: options.now, refresh: options.refreshSource };
   const storageFull = options.storageFull;
   const sources = createSourcesList(
-    pairing === null ? { nav, engine: options.engine, login, storageFull } : { nav, engine: options.engine, addFromPhone: () => pairing.open(), login, storageFull },
+    pairing === null
+      ? { nav, engine: options.engine, login, storageFull, add: options.addSource, changed: options.sourceAdded, quiet: options.quiet }
+      : { nav, engine: options.engine, addFromPhone: () => pairing.open(), login, storageFull, add: options.addSource, changed: options.sourceAdded, quiet: options.quiet },
   );
   const backup = options.backup === undefined ? null : createBackupPage({ nav, engine: options.backup.engine, host: options.backup.host });
   const telemetry = options.telemetry === undefined ? null : createTelemetrySwitch(options.telemetry);

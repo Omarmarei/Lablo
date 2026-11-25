@@ -12,7 +12,7 @@ import { LoginFormView, SourceItem, SourcesPage, loginHint, loginLabel, statusTe
 import type { LoginSource } from './source-login';
 import { LOGIN_CANCEL, LOGIN_FIELDS, LOGIN_SAVE, LOGIN_SCREEN, checkLogin, createLoginForm, loginFieldId, loginValues } from './source-login';
 import type { SourceRow, SourcesEngine } from './sources-state';
-import { SOURCES_SCREEN, createSourcesList } from './sources-state';
+import { SOURCES_SCREEN, SOURCE_MENU, createSourcesList } from './sources-state';
 
 /**
  * A source's login given again (RELAY step 32d4b): the form's checks and keys, the sources list's
@@ -245,6 +245,9 @@ class FakeEngine implements SourcesEngine {
   blocked(urls: string[]): Promise<boolean[]> {
     return Promise.resolve(urls.map(() => false));
   }
+  removeSource(): Promise<boolean> {
+    return Promise.resolve(false);
+  }
   editProfile(edit: ProfileEdit): Promise<boolean> {
     this.edits.push(edit);
     if (this.editFails) return Promise.reject(new Error('no query worker'));
@@ -290,22 +293,31 @@ describe('the sources list’s rows without a login and their save (RELAY step 3
     expect(t.list.screen.value?.id).toBe(SOURCES_SCREEN);
   });
 
-  it('opens the form on OK on such a row, for that source; on any other row OK does nothing', async () => {
+  it('opens the form from the row’s menu, for that source: the first button, whichever row (step 40f)', async () => {
     const t = await opened();
     t.nav.handle('OK');
+    t.nav.handle('OK'); // (the row's menu, then its first button)
     expect(t.at()).toBe(`${LOGIN_SCREEN} · fields 1`);
     expect(t.form.source.value).toEqual(BARE_PANEL);
     t.nav.handle('BACK');
     t.nav.handle('DOWN');
     t.nav.handle('OK');
+    t.nav.handle('OK'); // (the row's menu, then its first button)
     expect(t.form.source.value).toEqual(BARE_LIST);
     t.nav.handle('BACK');
-    for (const index of [2, 3]) {
-      t.nav.handle('DOWN');
-      t.nav.handle('OK');
-      expect(t.at()).toBe(`${SOURCES_SCREEN} · sources ${index}`);
-      expect(t.form.source.value).toBeNull();
-    }
+    // A phone's file has no login to change: its menu has "Remove" and "Cancel" only.
+    t.nav.handle('DOWN');
+    t.nav.handle('OK');
+    expect(t.list.menu.value!.actions).toEqual(['remove', 'cancel']);
+    t.nav.handle('BACK');
+    // A source that has its login has the same first button: its form shows what it holds.
+    t.nav.handle('DOWN');
+    t.nav.handle('OK');
+    expect(t.at()).toBe(`${SOURCE_MENU} · actions 0`);
+    t.nav.handle('OK');
+    expect(t.form.source.value).toEqual(KEPT);
+    t.nav.handle('BACK');
+    expect(t.at()).toBe(`${SOURCES_SCREEN} · sources 3`);
   });
 
   it('opens the form from the header’s screen too (with "Add from your phone")', async () => {
@@ -323,6 +335,7 @@ describe('the sources list’s rows without a login and their save (RELAY step 3
     list.open();
     await flush();
     nav.handle('OK');
+    nav.handle('OK'); // (the row's menu, then its first button)
     expect(at()).toBe(`${LOGIN_SCREEN} · fields 1`);
     nav.handle('BACK');
     nav.handle('UP');
@@ -330,19 +343,21 @@ describe('the sources list’s rows without a login and their save (RELAY step 3
     expect(adds).toBe(1);
   });
 
-  it('has no form without its options: OK on such a row does nothing', async () => {
+  it('has no form without its options: the row’s menu has no "Change server and login"', async () => {
     const { nav, at } = navigator();
     const list = createSourcesList({ nav, engine: new FakeEngine() });
     expect(list.form).toBeNull();
     list.open();
     await flush();
     nav.handle('OK');
-    expect(at()).toBe(`${SOURCES_SCREEN} · sources 0`);
+    expect(at()).toBe(`${SOURCE_MENU} · actions 0`);
+    expect(list.menu.value!.actions).toEqual(['remove', 'cancel']);
   });
 
   it('saves: the login written, the mark gone, "Updating…" while it is read, then the rows read again', async () => {
     const t = await opened();
     t.nav.handle('OK');
+    t.nav.handle('OK'); // (the row's menu, then its first button)
     t.form.setValue('username', 'ann');
     t.form.setValue('password', 'pw');
     t.nav.handle('DOWN');
@@ -372,6 +387,7 @@ describe('the sources list’s rows without a login and their save (RELAY step 3
     const t = await opened();
     t.nav.handle('DOWN');
     t.nav.handle('OK');
+    t.nav.handle('OK'); // (the row's menu, then its first button)
     t.form.setValue('playlist', 'lists.test:8443/get.php?u=1');
     t.nav.handle('DOWN');
     t.nav.handle('OK');
@@ -382,6 +398,7 @@ describe('the sources list’s rows without a login and their save (RELAY step 3
     expect(warn).toHaveBeenCalledTimes(1);
     expect(t.at()).toBe(`${SOURCES_SCREEN} · sources 1`);
     t.nav.handle('OK');
+    t.nav.handle('OK'); // (the row's menu, then its first button)
     expect(t.at()).toBe(`${LOGIN_SCREEN} · fields 0`);
     expect(t.form.values.value).toEqual({ playlist: 'http://lists.test:8443/get.php?u=1' });
     // Saved again: the answer this time.
@@ -401,6 +418,7 @@ describe('the sources list’s rows without a login and their save (RELAY step 3
     engine.editFails = true;
     const t = await opened(engine);
     t.nav.handle('OK');
+    t.nav.handle('OK'); // (the row's menu, then its first button)
     t.form.setValue('username', 'ann');
     t.form.setValue('password', 'pw');
     t.nav.handle('DOWN');
@@ -415,6 +433,7 @@ describe('the sources list’s rows without a login and their save (RELAY step 3
   it('only writes the login without a refresh to ask', async () => {
     const t = await opened(new FakeEngine(), false);
     t.nav.handle('OK');
+    t.nav.handle('OK'); // (the row's menu, then its first button)
     t.form.setValue('username', 'ann');
     t.form.setValue('password', 'pw');
     t.nav.handle('DOWN');
@@ -428,6 +447,7 @@ describe('the sources list’s rows without a login and their save (RELAY step 3
   it('keeps the answers while the settings live: the screen opened again still shows them', async () => {
     const t = await opened();
     t.nav.handle('OK');
+    t.nav.handle('OK'); // (the row's menu, then its first button)
     t.form.setValue('username', 'ann');
     t.form.setValue('password', 'pw');
     t.nav.handle('DOWN');
@@ -444,6 +464,7 @@ describe('the sources list’s rows without a login and their save (RELAY step 3
     // OK on a row still updating does nothing.
     t.nav.handle('DOWN');
     t.nav.handle('OK');
+    t.nav.handle('OK'); // (the row's menu, then its first button)
     t.form.setValue('playlist', 'lists.test/a.m3u');
     t.nav.handle('DOWN');
     t.nav.handle('OK');
@@ -456,6 +477,7 @@ describe('the sources list’s rows without a login and their save (RELAY step 3
   it('disposes the form with the list, and saves nothing once disposed', async () => {
     const t = await opened();
     t.nav.handle('OK');
+    t.nav.handle('OK'); // (the row's menu, then its first button)
     t.list.dispose();
     t.form.setValue('username', 'ann');
     t.form.setValue('password', 'pw');
@@ -619,6 +641,7 @@ describe('the sources page with its form', () => {
     expect(root.props as Props).toMatchObject({ 'data-count': 4, 'data-needs': 2 });
     expect(named(root)).toEqual([]);
     nav.handle('OK');
+    nav.handle('OK'); // (the row's menu, then its first button)
     root = SourcesPage({ i18n: en, binding, focus: nav.snapshot(), list })!;
     const dialog = named(root);
     expect(dialog).toHaveLength(1);
