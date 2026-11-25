@@ -127,6 +127,8 @@ export function testViewText(i18n: AppI18n, view: TestView): LineText {
   const { t } = i18n;
   if (view.phase === 'playing') return { value: t('connection.testPlaying'), detail: null, tone: 'ok' };
   if (view.phase === 'ended') return { value: t('connection.testEnded'), detail: null, tone: 'info' };
+  // The config turned playback off while it played (step 50c): the player's own words for it.
+  if (view.phase === 'off') return { value: t('player.refused.title'), detail: null, tone: 'warn' };
   if (view.phase === 'failed') return { value: t('connection.testFailed'), detail: view.failure === null ? null : t('player.code', { code: view.failure.code }), tone: 'warn' };
   return { value: t(view.phase === 'reconnecting' ? 'player.reconnecting' : 'player.connecting'), detail: null, tone: 'checking' };
 }

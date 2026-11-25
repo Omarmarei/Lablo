@@ -13,6 +13,7 @@ import { lookupRequest } from './backup/lookup-request';
 import { createConfigSchedule } from './data/config-schedule';
 import type { DataEngine, SourceFacts } from './data/engine';
 import { readApiBase, readRestored, readScreen, restartUrl } from './data/params';
+import { createRefreshHold } from './data/refresh-hold';
 import type { RefreshScheduler } from './data/refresh-scheduler';
 import { createRefreshScheduler } from './data/refresh-scheduler';
 import { createStorageState } from './data/storage-state';
@@ -591,31 +592,21 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   });
   // Settings' "Restore it" (step 32d2b): the app starts again on the restored profile.
   let restarting = false;
-  const holdRefreshes = (on: boolean): void => {
-    if (on) {
+  // The refreshes held while something needs the slot to itself (step 50b): the holds nest, and
+  // the last to let go starts them again.
+  const refreshHold = createRefreshHold({
+    stop: () => {
       refreshes?.dispose();
       refreshes = null;
-    } else if (!gateStopped && !restarting) {
-      startRefreshes(live, guide, [movies, series], search, home, readFacts);
-    }
-  };
+    },
+    start: () => {
+      if (!gateStopped && !restarting) startRefreshes(live, guide, [movies, series], search, home, readFacts);
+    },
+    slotFree: refreshSlotFree,
+  });
+  const holdRefreshes = refreshHold.hold;
   /** Runs `job` with no catalog or guide refresh running or starting (a restore clears the catalogs). */
-  function quiet<T>(job: () => Promise<T>): Promise<T> {
-    holdRefreshes(true);
-    const again = (): void => holdRefreshes(false);
-    return refreshSlotFree()
-      .then(job)
-      .then(
-        (value) => {
-          again();
-          return value;
-        },
-        (error: unknown) => {
-          again();
-          throw error;
-        },
-      );
-  }
+  const quiet = refreshHold.quiet;
   /** A source's catalog came in outside the schedule (the phone's add, a login given again): the screens read it, and its guides. */
   const sourceAdded = (): void => {
     readFacts();
@@ -887,7 +878,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       telemetry.stop();
     },
     resume: () => {
-      startRefreshes(live, guide, [movies, series], search, home, readFacts);
+      // Under a hold (a removal, an add) the last to let go starts them.
+      if (refreshHold.holders() === 0) startRefreshes(live, guide, [movies, series], search, home, readFacts);
       backup.start();
       telemetry.start();
     },

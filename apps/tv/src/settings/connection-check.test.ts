@@ -1,3 +1,4 @@
+import { signal } from '@preact/signals';
 import type { VNode } from 'preact';
 import { stripIsolates } from '@lablo/core';
 import type { LoadedProfile, SourceProbe, StoredSource } from '@lablo/data';
@@ -121,12 +122,24 @@ function fakePlayer() {
 
 const LINK = 'https://media.lablo.example/test/pattern.m3u8';
 
-/** A test stream host: its link (changeable), the fake player, its clock and what it was told. */
+/**
+ * A test stream host: its link (changeable, and a signal, as main's reads the config's: step 50c),
+ * the fake player, its clock and what it was told.
+ */
 function testHost(link: string | null = LINK) {
   const fake = fakePlayer();
   const told: boolean[] = [];
   let at = 1000;
-  const control = { link, made: 0 };
+  const current = signal<string | null>(link);
+  const control = {
+    get link(): string | null {
+      return current.value;
+    },
+    set link(value: string | null) {
+      current.value = value;
+    },
+    made: 0,
+  };
   const host: TestStreamHost = {
     link: () => control.link,
     player: () => {
@@ -300,6 +313,62 @@ describe('the connection check (RELAY step 40a)', () => {
 describe('the test stream (RELAY step 40b)', () => {
   const PLAYED: TestResult = { state: 'played', container: 'hls', ms: 1200 };
   const NET: PlaybackFailure = { category: 'internet', code: 'NET-HTTP', detail: 'MEDIA_ERR_NETWORK', account: null };
+
+  it('stops when the config turns playback off while it plays, says so until Close, and the page loses its button (step 50c)', () => {
+    const test = testHost();
+    const { nav, page } = setup({ test: test.host });
+    page.open();
+    nav.top.focus('actions', 1);
+    nav.handle('OK');
+    test.setNow(2200);
+    test.fake.emit('playing');
+    expect(test.fake.stops()).toBe(0);
+    // main's link() is null once the config's disable-playback is in.
+    test.control.link = null;
+    expect(test.fake.stops()).toBe(1);
+    expect(test.fake.listening()).toBe(0);
+    expect(test.told).toEqual([true, false]);
+    expect(page.testView.value).toEqual({ phase: 'off', failure: null });
+    // The played result stays: the question was answered before.
+    expect(page.state.value.test).toEqual(PLAYED);
+    // The screen stays, saying why, until Close: a test asked for meanwhile starts nothing, even
+    // with playback back on; then the page has no "Test stream" any more.
+    expect(nav.snapshot().screen).toBe(TEST_SCREEN);
+    test.control.link = LINK;
+    page.test();
+    expect(test.fake.plays).toHaveLength(1);
+    expect(nav.snapshot().depth).toBe(4);
+    test.control.link = null;
+    nav.handle('OK');
+    expect(nav.snapshot()).toMatchObject({ screen: CONNECTION_SCREEN, zone: 'actions', index: 1 });
+    expect(page.state.value.testable).toBe(false);
+    expect(nav.top.zone('actions')).toMatchObject({ count: 2 });
+    // Nothing follows the link afterwards: no play, no stop.
+    test.control.link = LINK;
+    test.control.link = null;
+    expect([test.fake.plays.length, test.fake.stops()]).toEqual([1, 1]);
+  });
+
+  it('stops watching the config once the test ends or the page goes', () => {
+    const test = testHost();
+    const { nav, page } = setup({ test: test.host });
+    page.open();
+    nav.top.focus('actions', 1);
+    nav.handle('OK');
+    nav.handle('BACK');
+    expect(test.fake.stops()).toBe(1);
+    test.control.link = null;
+    expect(test.fake.stops()).toBe(1);
+    expect(test.told).toEqual([true, false]);
+    test.control.link = LINK;
+    nav.handle('OK');
+    expect(test.fake.plays).toHaveLength(2);
+    page.dispose();
+    expect(test.fake.stops()).toBe(2);
+    test.control.link = null;
+    expect(test.fake.stops()).toBe(2);
+    expect(page.testView.value.phase).not.toBe('off');
+  });
 
   it('has no button or line without a link, and three buttons and five sources with one', async () => {
     const none = setup({ test: testHost(null).host });
@@ -656,6 +725,7 @@ describe('the page in words', () => {
     expect(testViewText(en, { phase: 'ended', failure: null })).toEqual({ value: 'The test stream has ended.', detail: null, tone: 'info' });
     expect(testViewText(en, { phase: 'failed', failure: { category: 'provider', code: 'PRV-HTTP-404', detail: 'X', account: null } })).toEqual({ value: "Didn't play", detail: 'Code PRV-HTTP-404', tone: 'warn' });
     expect(testViewText(en, { phase: 'failed', failure: null })).toEqual({ value: "Didn't play", detail: null, tone: 'warn' });
+    expect(testViewText(en, { phase: 'off', failure: null })).toEqual({ value: 'Playback is turned off', detail: null, tone: 'warn' });
     expect(testViewText(ar, { phase: 'playing', failure: null }).value).toBe('إذا رأيت الصورة وسمعت الصوت، فهذا التلفاز ولابلو يشغّلان الفيديو.');
   });
 
