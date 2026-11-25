@@ -843,3 +843,37 @@
 .help__buttons .z-button {
   height: 56px;
 }
+
+/*
+ * "About Lablo" (step 40d): the draft mark, a document section's heading and its page counter, and
+ * the three buttons of a document page. The body is `help__body` (it clips what does not fit: the
+ * sections are written to fit in every language and in en-XA).
+ */
+.about__draft {
+  display: inline-block;
+  margin: 0 0 var(--space-3);
+  padding: 2px var(--space-4);
+  border: 2px solid var(--color-warn);
+  border-radius: 6px;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  font-weight: var(--font-weight-bold);
+}
+
+.about__heading {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-accent);
+}
+
+.about__page {
+  margin: 0;
+  font-size: var(--font-size-body);
+  color: var(--color-text-muted);
+}
+
+.about__buttons .z-button {
+  margin-right: var(--space-4);
+}

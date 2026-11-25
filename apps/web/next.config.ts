@@ -23,7 +23,7 @@ export const PHONE_CSP = [
 
 type Headers = Awaited<ReturnType<NonNullable<NextConfig['headers']>>>;
 
-/** The pages' headers in a production build; `next dev` gets none (its reloads use eval and a websocket). */
+/** The pages' headers in a production build (`/p`, `/terms`, `/privacy`); `next dev` gets none (its reloads use eval and a websocket). */
 export function pageHeaders(production: boolean): Headers {
   if (!production) return [];
   return [
@@ -35,6 +35,16 @@ export function pageHeaders(production: boolean): Headers {
         { key: 'X-Content-Type-Options', value: 'nosniff' },
       ],
     },
+    // The legal pages (step 40d): plain text pages under the same policy; they open from the stores' listings and the TV's
+    // text, so they may be linked from anywhere, and send no referrer of their own.
+    ...['/terms', '/privacy'].map((source) => ({
+      source,
+      headers: [
+        { key: 'Content-Security-Policy', value: PHONE_CSP },
+        { key: 'Referrer-Policy', value: 'no-referrer' },
+        { key: 'X-Content-Type-Options', value: 'nosniff' },
+      ],
+    })),
   ];
 }
 

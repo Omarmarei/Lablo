@@ -8,7 +8,7 @@ const lazy = (fileName: string) => ({ fileName, code: '', inlinedBytes: 0, modul
 
 describe('the lazy files of a split app build (RELAY step 35e)', () => {
   it('wants settings.js, with all of apps/tv/src/settings/ in it', () => {
-    expect(APP_LAZY).toEqual({ files: ['settings.js'], only: ['apps/tv/src/settings/'] });
+    expect(APP_LAZY).toEqual({ files: ['settings.js'], only: ['apps/tv/src/settings/', 'packages/protocol/src/legal.ts'] });
   });
 
   it('passes a build whose main.js holds none of those folders', () => {
@@ -21,6 +21,13 @@ describe('the lazy files of a split app build (RELAY step 35e)', () => {
     expect(lazyProblems({ modules, lazy: [lazy('settings.js')] }, APP_LAZY, ROOT)).toEqual([
       'apps/tv/src/settings/backup-state.ts is in main.js: something main.js holds imports it statically (only the import() that loads settings.js may)',
       'apps/tv/src/settings/MappingPage.tsx is in main.js: something main.js holds imports it statically (only the import() that loads settings.js may)',
+    ]);
+  });
+
+  it('names the legal text when main.js holds it (step 40d)', () => {
+    const modules = [at('apps/tv/src/main.tsx'), at('packages/protocol/src/legal.ts'), at('packages/protocol/src/legal-other.ts')];
+    expect(lazyProblems({ modules, lazy: [lazy('settings.js')] }, APP_LAZY, ROOT).slice(0, 1)).toEqual([
+      'packages/protocol/src/legal.ts is in main.js: something main.js holds imports it statically (only the import() that loads settings.js may)',
     ]);
   });
 

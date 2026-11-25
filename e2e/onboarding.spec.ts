@@ -202,6 +202,8 @@ test.describe('onboarding by keys (pnpm dev, the start screen)', () => {
         return note.top - buttons.bottom;
       });
       expect(below).toBeGreaterThan(0);
+      // The privacy policy (step 40d): the note points at its place in Settings, after the usage note.
+      await expect(page.getByTestId('consent-privacy')).toHaveText(ar ? 'تجد سياسة الخصوصية كاملة في الإعدادات تحت «عن لابلو».' : 'The full privacy policy is in Settings, under "About Lablo".');
       // The buttons' row mirrors in Arabic: "Not now" is to the left of "Allow" there.
       await remote.press(ar ? 'LEFT' : 'RIGHT');
       await remote.expectFocus('consent/actions/1');

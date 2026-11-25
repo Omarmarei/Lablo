@@ -136,6 +136,9 @@ function ConsentScreen({ ob, i18n }: ScreenProps) {
       <p class="onboarding__note onboarding__note--after" data-testid="consent-telemetry">
         {t('onboarding.telemetryNote')}
       </p>
+      <p class="onboarding__note onboarding__note--after" data-testid="consent-privacy">
+        {t('onboarding.privacyNote')}
+      </p>
     </Panel>
   );
 }

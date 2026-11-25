@@ -31,6 +31,8 @@ import type { ReportOptions, ReportRow } from './diag-report';
 import { createReportRow } from './diag-report';
 import type { ConnectionCheck, ConnectionOptions } from './connection-check';
 import { CONNECTION_SCREEN, TEST_SCREEN, createConnectionCheck } from './connection-check';
+import type { AboutPage } from './about-page';
+import { ABOUT_DOC_SCREEN, ABOUT_INFO_SCREEN, ABOUT_SCREEN, createAboutPage } from './about-page';
 import type { HelpPage } from './help-page';
 import { HELP_SCREEN, HELP_TOPIC_SCREEN, createHelpPage } from './help-page';
 import type { TelemetrySwitch, TelemetrySwitchOptions } from './telemetry-switch';
@@ -84,7 +86,7 @@ export const SETTINGS_SCREENS: readonly string[] = [
   LOGIN_SCREEN,
   BACKUP_SCREEN,
   BACKUP_CONFIRM,
-].concat(GROUP_SCREENS, [CHANNELS_SCREEN], EDIT_SCREENS, PARENTAL_SCREENS, [PLAYER_SETTINGS_SCREEN, LANGUAGE_SCREEN, CONNECTION_SCREEN, TEST_SCREEN, HELP_SCREEN, HELP_TOPIC_SCREEN]);
+].concat(GROUP_SCREENS, [CHANNELS_SCREEN], EDIT_SCREENS, PARENTAL_SCREENS, [PLAYER_SETTINGS_SCREEN, LANGUAGE_SCREEN, CONNECTION_SCREEN, TEST_SCREEN, HELP_SCREEN, HELP_TOPIC_SCREEN, ABOUT_SCREEN, ABOUT_INFO_SCREEN, ABOUT_DOC_SCREEN]);
 
 export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | 'engine'> {
   readonly nav: Navigator;
@@ -101,6 +103,8 @@ export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | '
   readonly storageFull?: (src: string) => boolean;
   /** The usage reports' switch (step 33b3); without it there is no "Usage and crash reports" row. */
   readonly telemetry?: TelemetrySwitchOptions;
+  /** The app's version, shown on "About Lablo" (step 40d, main's `__APP_VERSION__`); without it the page shows none. */
+  readonly version?: string;
   /** The diagnostics report's send (step 33d2); without it there is no "Send a report to support" row. */
   readonly report?: ReportOptions;
   /** "Check the connection"'s online flag, last stream and servers' check (step 40a); without them there is no such row. */
@@ -141,6 +145,8 @@ export interface Settings {
   readonly connection: ConnectionCheck | null;
   /** "Help" (step 40c): always there. */
   readonly help: HelpPage;
+  /** "About Lablo" (step 40d): always there. */
+  readonly about: AboutPage;
   /** "Channel groups" (step 35d). */
   readonly groups: Groups;
   /** "Edit channel" (step 36c): from "Channels", or over the player (the info bar's pencil). */
@@ -206,6 +212,7 @@ export function createSettings(options: SettingsOptions): Settings {
       return sent !== null && sent.state === 'sent' ? sent.code : null;
     },
   });
+  const about = createAboutPage({ nav, version: options.version });
   const groups = createGroups({ nav, engine: options.engine, changed: options.listsChanged, platform: options.platform, find: options.find, now: options.now });
   const channel = createChannelEditor({ nav, engine: options.engine, changed: options.channelsChanged, platform: options.platform, find: options.find, now: options.now, pad: options.pad });
   const channels = createEditedChannels({ nav, engine: options.engine, editor: channel, changed: options.channelsChanged });
@@ -241,6 +248,7 @@ export function createSettings(options: SettingsOptions): Settings {
         else if (item === 'report') report?.press();
         else if (item === 'connection') connection?.open();
         else if (item === 'help') help.open();
+        else if (item === 'about') about.open();
         else if (item === 'groups') groups.open();
         else if (item === 'channels') channels.open();
         else if (item === 'parental') parental?.open();
@@ -264,6 +272,7 @@ export function createSettings(options: SettingsOptions): Settings {
     report,
     connection,
     help,
+    about,
     groups,
     channel,
     channels,
