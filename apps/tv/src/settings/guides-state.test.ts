@@ -1262,7 +1262,7 @@ describe('the settings screen', () => {
       }),
       values: vi.fn(() => {
         calls.push('values');
-        return { audio: 'ar' as const, subtitles: null, size: 'l' as const, picture: 'stretch' as const, clock: true, still: 2, buffer: 'stable' as const };
+        return { audio: 'ar' as const, subtitles: null, size: 'l' as const, picture: 'stretch' as const, clock: true, still: 2, buffer: 'stable' as const, captionBg: 'dark' as const, captionColor: 'white' as const, largeText: false };
       }),
       setAudio: vi.fn(),
       setSubtitles: vi.fn(),
@@ -1273,6 +1273,9 @@ describe('the settings screen', () => {
       sleep: vi.fn(() => null),
       setSleep: vi.fn(),
       setBuffer: vi.fn(),
+      setCaptionBg: vi.fn(),
+      setCaptionColor: vi.fn(),
+      setLargeText: vi.fn(),
     };
     const settings = createSettings({
       nav: t.nav,

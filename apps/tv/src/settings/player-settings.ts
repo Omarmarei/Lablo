@@ -3,6 +3,8 @@ import { signal } from '@preact/signals';
 import type { PictureMode } from '@lablo/player';
 import type { Navigator } from '@lablo/ui';
 import type { TrackLang } from '../player/player-memory';
+import type { CaptionBackground, CaptionColor } from '../player/appearance';
+import { CAPTION_BACKGROUNDS, CAPTION_COLORS } from '../player/appearance';
 import type { SubtitleSize } from '../player/track-menu';
 import { DEFAULT_SUBTITLE_SIZE, SUBTITLE_SIZES } from '../player/track-menu';
 import type { SleepTimer } from '../player/watch-guard';
@@ -24,6 +26,7 @@ import { SETTINGS_VISIBLE } from './settings-window';
  *   still      Never, After 2, 4 or 6 hours: "Still watching?" after that long with no key (step 39c)
  *   sleep      Off, 30, 60, 90 or 120 minutes: the sleep timer, counted from the change (step 39c)
  *   buffer     Fast start, Stable: "Buffering", the watchdog's patience and AVPlay's buffers (step 39d)
+ *   captionBg, captionColor, largeText   (step 43) the captions' box (Dark, None, Solid), their colour, and "Larger text"
  *
  * Main gives the values and their changes (`PlayerSettingsOptions`): the languages are the
  * profile's (`player-memory.ts`), read at each stream's tracks; the size and the picture are the
@@ -38,8 +41,8 @@ import { SETTINGS_VISIBLE } from './settings-window';
 
 export const PLAYER_SETTINGS_SCREEN = 'player-settings';
 
-export type PlayerSettingsRow = 'audio' | 'subtitles' | 'size' | 'picture' | 'clock' | 'still' | 'sleep' | 'buffer';
-export const PLAYER_SETTINGS_ROWS: readonly PlayerSettingsRow[] = ['audio', 'subtitles', 'size', 'picture', 'clock', 'still', 'sleep', 'buffer'];
+export type PlayerSettingsRow = 'audio' | 'subtitles' | 'size' | 'picture' | 'clock' | 'still' | 'sleep' | 'buffer' | 'captionBg' | 'captionColor' | 'largeText';
+export const PLAYER_SETTINGS_ROWS: readonly PlayerSettingsRow[] = ['audio', 'subtitles', 'size', 'picture', 'clock', 'still', 'sleep', 'buffer', 'captionBg', 'captionColor', 'largeText'];
 
 /** The languages the audio and subtitle rows go round: `null` ("Same as the app", "Off") first. */
 export const TRACK_CHOICES: readonly (TrackLang | null)[] = [null, 'ar', 'en'];
@@ -67,6 +70,10 @@ export interface PlayerValues {
   readonly still: number | null;
   /** "Buffering" (step 39d). */
   readonly buffer: BufferMode;
+  /** Step 43: the captions' box and colour, and "Larger text". */
+  readonly captionBg: CaptionBackground;
+  readonly captionColor: CaptionColor;
+  readonly largeText: boolean;
 }
 
 /** What main gives (step 38d3): the player's values and their changes. */
@@ -86,6 +93,9 @@ export interface PlayerSettingsOptions {
   /** Sets the sleep timer to `minutes` from now (`null`: off). */
   setSleep(minutes: number | null): void;
   setBuffer(mode: BufferMode): void;
+  setCaptionBg(value: CaptionBackground): void;
+  setCaptionColor(value: CaptionColor): void;
+  setLargeText(on: boolean): void;
 }
 
 export interface PlayerSettings {
@@ -96,6 +106,9 @@ export interface PlayerSettings {
   readonly clock: ReadonlySignal<boolean>;
   readonly still: ReadonlySignal<number | null>;
   readonly buffer: ReadonlySignal<BufferMode>;
+  readonly captionBg: ReadonlySignal<CaptionBackground>;
+  readonly captionColor: ReadonlySignal<CaptionColor>;
+  readonly largeText: ReadonlySignal<boolean>;
   /** The sleep timer as it stands (main's `sleep`). */
   sleep(): SleepTimer | null;
   /** The picture modes the page offers (read at each opening). */
@@ -133,6 +146,9 @@ export function createPlayerSettings(nav: Navigator, options: PlayerSettingsOpti
   const clock = signal(false);
   const still = signal<number | null>(DEFAULT_STILL_HOURS);
   const buffer = signal<BufferMode>('fast');
+  const captionBg = signal<CaptionBackground>('dark');
+  const captionColor = signal<CaptionColor>('white');
+  const largeText = signal(false);
 
   const change = (index: number, step: 0 | 1 | -1): void => {
     const row = PLAYER_SETTINGS_ROWS[index];
@@ -143,6 +159,9 @@ export function createPlayerSettings(nav: Navigator, options: PlayerSettingsOpti
     else if (row === 'clock') move(clock, CLOCK_CHOICES, step, (on) => options.setClock(on));
     else if (row === 'still') move(still, STILL_CHOICES, step, (hours) => options.setStill(hours));
     else if (row === 'buffer') move(buffer, BUFFER_MODES, step, (mode) => options.setBuffer(mode));
+    else if (row === 'captionBg') move(captionBg, CAPTION_BACKGROUNDS, step, (value) => options.setCaptionBg(value));
+    else if (row === 'captionColor') move(captionColor, CAPTION_COLORS, step, (value) => options.setCaptionColor(value));
+    else if (row === 'largeText') move(largeText, CLOCK_CHOICES, step, (on) => options.setLargeText(on));
     else {
       // The sleep timer is the player's: the row shows what main says, and a new value starts it from now.
       const set = options.sleep();
@@ -160,6 +179,9 @@ export function createPlayerSettings(nav: Navigator, options: PlayerSettingsOpti
     clock,
     still,
     buffer,
+    captionBg,
+    captionColor,
+    largeText,
     sleep: () => options.sleep(),
     modes,
     open(): void {
@@ -172,6 +194,9 @@ export function createPlayerSettings(nav: Navigator, options: PlayerSettingsOpti
       clock.value = now.clock;
       still.value = now.still;
       buffer.value = now.buffer;
+      captionBg.value = now.captionBg;
+      captionColor.value = now.captionColor;
+      largeText.value = now.largeText;
       nav.push({
         id: PLAYER_SETTINGS_SCREEN,
         zones: [{ kind: 'list', id: 'rows', axis: 'vertical', count: PLAYER_SETTINGS_ROWS.length, visible: SETTINGS_VISIBLE }],

@@ -1,6 +1,7 @@
 import type { FocusBinding, ItemBinding } from '@lablo/ui';
 import { listWindow, useZone } from '@lablo/ui';
-import type { AppI18n } from '../i18n';
+import type { AppI18n, MessageKey } from '../i18n';
+import type { CaptionBackground, CaptionColor } from '../player/appearance';
 import type { TrackLang } from '../player/player-memory';
 import { PICTURE_TEXT } from '../player/PlayerScreen';
 import { SIZE_KEYS } from '../player/TrackMenuPanel';
@@ -27,6 +28,9 @@ function rowClass(base: string, item: ItemBinding): string {
   return item.state === 'focused' ? `${base} is-focused` : item.state === 'memory' ? `${base} is-memory` : base;
 }
 
+const BACKGROUND_TEXT: Readonly<Record<CaptionBackground, MessageKey>> = { dark: 'playerSettings.bg.dark', none: 'playerSettings.bg.none', solid: 'playerSettings.bg.solid' };
+const COLOR_TEXT: Readonly<Record<CaptionColor, MessageKey>> = { white: 'playerSettings.color.white', yellow: 'playerSettings.color.yellow', cyan: 'playerSettings.color.cyan', green: 'playerSettings.color.green' };
+
 /** A track language in words; `none` for `null` ("Same as the app", "Off"). */
 function langText(t: AppI18n['t'], lang: TrackLang | null, none: string): string {
   return lang === null ? none : t(lang === 'ar' ? 'lang.ar' : 'lang.en');
@@ -43,6 +47,9 @@ export function playerRowText(i18n: AppI18n, row: PlayerSettingsRow, values: Pla
   if (row === 'still') {
     return { name: t('player.still.title'), value: values.still === null ? t('playerSettings.stillNever') : t('playerSettings.stillAfter', { n: values.still }), hint: t('playerSettings.stillHint') };
   }
+  if (row === 'captionBg') return { name: t('playerSettings.captionBg'), value: t(BACKGROUND_TEXT[values.captionBg]), hint: t('playerSettings.captionBgHint') };
+  if (row === 'captionColor') return { name: t('playerSettings.captionColor'), value: t(COLOR_TEXT[values.captionColor]), hint: t('playerSettings.captionColorHint') };
+  if (row === 'largeText') return { name: t('playerSettings.largeText'), value: t(values.largeText ? 'playerSettings.on' : 'playerSettings.off'), hint: t('playerSettings.largeTextHint') };
   if (row === 'buffer') {
     const stable = values.buffer === 'stable';
     return { name: t('playerSettings.buffer'), value: t(stable ? 'playerSettings.stable' : 'playerSettings.fast'), hint: t(stable ? 'playerSettings.stableHint' : 'playerSettings.fastHint') };
@@ -60,6 +67,9 @@ function rawValue(row: PlayerSettingsRow, values: PlayerShown): string {
   if (row === 'still') return values.still === null ? 'off' : String(values.still);
   if (row === 'sleep') return values.sleep === null ? 'off' : String(values.sleep.minutes);
   if (row === 'buffer') return values.buffer;
+  if (row === 'captionBg') return values.captionBg;
+  if (row === 'captionColor') return values.captionColor;
+  if (row === 'largeText') return values.largeText ? 'on' : 'off';
   return row === 'size' ? values.size : values.picture;
 }
 
@@ -74,6 +84,9 @@ export function PlayerSettingsView({ i18n, page, item, top = 0 }: { i18n: AppI18
     clock: page.clock.value,
     still: page.still.value,
     buffer: page.buffer.value,
+    captionBg: page.captionBg.value,
+    captionColor: page.captionColor.value,
+    largeText: page.largeText.value,
     sleep: page.sleep(),
   };
   const { from, to } = listWindow(top, PLAYER_SETTINGS_ROWS.length, SETTINGS_VISIBLE);

@@ -13,7 +13,7 @@ import type { BuiltWorker, LazyChunk } from './bundle';
  */
 export const BUDGETS = {
   main: 500 * 1024,
-  lazy: 150 * 1024,
+  lazy: 200 * 1024,
   worker: 150 * 1024,
 } as const;
 

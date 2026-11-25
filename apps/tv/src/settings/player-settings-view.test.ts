@@ -52,13 +52,16 @@ function page(values: PlayerShown, modes: readonly PictureMode[] = ['fit', 'zoom
     clock: signal(values.clock),
     still: signal(values.still),
     buffer: signal(values.buffer),
+    captionBg: signal(values.captionBg),
+    captionColor: signal(values.captionColor),
+    largeText: signal(values.largeText),
     sleep: () => values.sleep,
     modes: signal(modes),
     open: () => undefined,
   };
 }
 
-const START: PlayerShown = { audio: null, subtitles: null, size: 'm', picture: 'fit', clock: false, still: 4, sleep: null, buffer: 'fast' };
+const START: PlayerShown = { audio: null, subtitles: null, size: 'm', picture: 'fit', clock: false, still: 4, sleep: null, buffer: 'fast', captionBg: 'dark', captionColor: 'white', largeText: false };
 /** 21:30 on 2026-11-24 in the test's zone (the catalogs' times are the locale's). */
 const UNTIL = new Date(2026, 10, 24, 21, 30).getTime();
 const SLEEPING: SleepTimer = { minutes: 60, until: UNTIL };
@@ -107,6 +110,18 @@ describe('Settings › "Player" as drawn (RELAY step 38d3)', () => {
     expect(playerRowText(ar, 'buffer', { ...START, buffer: 'stable' })).toEqual({ name: 'التخزين المؤقت', value: 'ثابت', hint: 'للمزوّدين البطيئين: ينتظر مدة أطول قبل إعادة الاتصال، وقد يتأخر بدء التشغيل' });
   });
 
+  it('names the caption box and colour and "Larger text" (step 43), in English and Arabic', () => {
+    expect(playerRowText(en, 'captionBg', START)).toMatchObject({ name: 'Caption background', value: 'Dark' });
+    expect(playerRowText(en, 'captionBg', { ...START, captionBg: 'solid' }).value).toBe('Solid');
+    expect(playerRowText(en, 'captionBg', { ...START, captionBg: 'none' }).value).toBe('None');
+    expect(playerRowText(en, 'captionColor', { ...START, captionColor: 'yellow' })).toMatchObject({ name: 'Caption colour', value: 'Yellow' });
+    expect(playerRowText(en, 'largeText', START)).toMatchObject({ name: 'Larger text', value: 'Off' });
+    expect(playerRowText(en, 'largeText', { ...START, largeText: true }).value).toBe('On');
+    expect(playerRowText(ar, 'captionBg', START).name).toBe('خلفية الترجمة');
+    expect(playerRowText(ar, 'captionColor', { ...START, captionColor: 'green' }).value).toBe('أخضر');
+    expect(playerRowText(ar, 'largeText', { ...START, largeText: true })).toMatchObject({ name: 'نص أكبر', value: 'مفعّلة' });
+  });
+
   it('names each row with its value in Arabic', () => {
     expect(playerRowText(ar, 'audio', START)).toMatchObject({ name: 'لغة الصوت', value: 'مثل لغة التطبيق' });
     expect(playerRowText(ar, 'audio', { ...START, audio: 'en' }).value).toBe('الإنجليزية');
@@ -122,11 +137,11 @@ describe('Settings › "Player" as drawn (RELAY step 38d3)', () => {
     const asked: number[] = [];
     const root = PlayerSettingsView({
       i18n: en,
-      page: page({ audio: 'ar', subtitles: null, size: 'l', picture: '4:3', clock: true, still: 6, sleep: SLEEPING, buffer: 'stable' }, ['fit', 'stretch', '4:3']),
+      page: page({ audio: 'ar', subtitles: null, size: 'l', picture: '4:3', clock: true, still: 6, sleep: SLEEPING, buffer: 'stable', captionBg: 'dark', captionColor: 'white', largeText: false }, ['fit', 'stretch', '4:3']),
       item: (i) => (asked.push(i), i === 1 ? focused : idle),
     });
     expect(asked).toEqual([0, 1, 2, 3, 4, 5, 6]);
-    expect(walk(root).find((v) => propsOf(v)['role'] === 'menu')?.props).toMatchObject({ 'data-top': 0, 'data-count': 8 });
+    expect(walk(root).find((v) => propsOf(v)['role'] === 'menu')?.props).toMatchObject({ 'data-top': 0, 'data-count': 11 });
     expect(byTestId(root, 'player-settings-buffer')).toEqual([]);
     expect(propsOf(byTestId(root, 'player-settings')[0])['data-modes']).toBe('fit stretch 4:3');
     const rows = ['audio', 'subtitles', 'size', 'picture', 'clock', 'still', 'sleep'].map((row) => propsOf(byTestId(root, `player-settings-${row}`)[0]));
@@ -154,7 +169,7 @@ describe('Settings › "Player" as drawn (RELAY step 38d3)', () => {
     const asked: number[] = [];
     const root = PlayerSettingsView({ i18n: ar, page: page({ ...START, buffer: 'stable' }), item: (i) => (asked.push(i), i === 7 ? focused : idle), top: 1 });
     expect(asked).toEqual([1, 2, 3, 4, 5, 6, 7]);
-    expect(walk(root).find((v) => propsOf(v)['role'] === 'menu')?.props).toMatchObject({ 'data-top': 1, 'data-count': 8 });
+    expect(walk(root).find((v) => propsOf(v)['role'] === 'menu')?.props).toMatchObject({ 'data-top': 1, 'data-count': 11 });
     expect(byTestId(root, 'player-settings-audio')).toEqual([]);
     const row = propsOf(byTestId(root, 'player-settings-buffer')[0]);
     expect(row).toMatchObject({ 'data-value': 'stable', 'data-state': 'focused' });

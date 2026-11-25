@@ -317,6 +317,33 @@ describe('createPlayerMemory', () => {
     expect([again.stillHours(), again.clock()]).toEqual([null, true]);
   });
 
+  it('keeps the caption box and colour and "Larger text" (step 43) in the options: nothing for the defaults', () => {
+    const { memory, edits } = rig();
+    expect([memory.captionBackground(), memory.captionColor(), memory.largeText()]).toEqual(['dark', 'white', false]);
+    memory.load(profile({ options: { captionBg: 'solid', captionColor: 'cyan', largeText: 'on' } }));
+    expect([memory.captionBackground(), memory.captionColor(), memory.largeText()]).toEqual(['solid', 'cyan', true]);
+    // Anything else is the default.
+    memory.load(profile({ options: { captionBg: 'pink', captionColor: 'Cyan', largeText: 'yes' } }));
+    expect([memory.captionBackground(), memory.captionColor(), memory.largeText()]).toEqual(['dark', 'white', false]);
+    memory.setCaptionBackground('dark');
+    memory.setCaptionColor('white');
+    memory.setLargeText(false);
+    expect(edits).toEqual([]);
+    memory.setCaptionBackground('none');
+    memory.setCaptionBackground('none');
+    memory.setCaptionColor('green');
+    memory.setLargeText(true);
+    memory.setCaptionBackground('dark');
+    memory.setLargeText(false);
+    expect(changes(edits)).toEqual([
+      { field: 'option', name: 'captionBg', value: 'none' },
+      { field: 'option', name: 'captionColor', value: 'green' },
+      { field: 'option', name: 'largeText', value: 'on' },
+      { field: 'option', name: 'captionBg', value: null },
+      { field: 'option', name: 'largeText', value: null },
+    ]);
+  });
+
   it('keeps "Buffering" (step 39d) in the profile\'s options: `stable` for Stable, nothing for Fast start', () => {
     const { memory, edits } = rig();
     expect(memory.bufferMode()).toBe('fast');

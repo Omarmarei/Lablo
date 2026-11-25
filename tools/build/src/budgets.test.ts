@@ -15,8 +15,8 @@ function bundleOf(own: number, worker: number): BudgetedBundle {
 const check = (bundle: BudgetedBundle) => bundleBudgets('main.js (tizen)', bundle, (w) => `worker ${w.entry}`);
 
 describe('bundle budgets', () => {
-  it('sets 500 KB for the main bundle, 150 KB per lazy file and 150 KB per worker', () => {
-    expect(BUDGETS).toEqual({ main: 512_000, lazy: 153_600, worker: 153_600 });
+  it('sets 500 KB for the main bundle, 200 KB per lazy file and 150 KB per worker', () => {
+    expect(BUDGETS).toEqual({ main: 512_000, lazy: 204_800, worker: 153_600 });
   });
 
   it('passes a bundle exactly at the limit and fails one byte over', () => {

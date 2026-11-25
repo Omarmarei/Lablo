@@ -15,6 +15,7 @@ import { NEW_LIST_SCREEN } from './favourite-menu';
 import { FavouritePanel, NewListForm, star } from './FavouritePanel';
 import { RadioCard } from './RadioCard';
 import { StreamInfoPanel } from './StreamInfoPanel';
+import { appearance } from './appearance';
 import { SubtitleOverlay } from './SubtitleOverlay';
 import { TrackMenuPanel } from './TrackMenuPanel';
 import type { StillPrompt } from './watch-guard';
@@ -509,7 +510,7 @@ export function PlayerScreen({ live, player, i18n, over = null }: { live: Live; 
         </div>
       )}
       <div class="player__bottom">
-        {subtitles.cues.length > 0 && <SubtitleOverlay cues={subtitles.cues} size={player.menu.size.value} />}
+        {subtitles.cues.length > 0 && <SubtitleOverlay cues={subtitles.cues} size={player.menu.size.value} background={appearance.captionBackground.value} color={appearance.captionColor.value} />}
         {screen !== null && menu === null && panel === null && over === null && player.info.value && (
           <InfoBar live={live} player={player} i18n={i18n} screen={screen} binding={binding} row={row} guide={guide} archive={archive} movie={movie} starred={starred} />
         )}
