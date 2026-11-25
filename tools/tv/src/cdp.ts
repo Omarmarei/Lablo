@@ -40,22 +40,36 @@ export function evaluateResult(message: unknown): { readonly value: unknown } | 
   return { value: remote?.value };
 }
 
-/** Evaluates `expression` in the TV page on a forwarded inspector port (promises awaited). */
-export async function evaluateOnPort(port: number, expression: string, timeoutMs = 60_000): Promise<unknown> {
+/** The part of a WebSocket the inspector client uses (Node's built-in one, or a test's). */
+export interface InspectorSocket {
+  addEventListener(type: 'open' | 'error', listener: () => void): void;
+  addEventListener(type: 'message', listener: (event: { readonly data: unknown }) => void): void;
+  send(data: string): void;
+  close(): void;
+}
+
+/**
+ * Evaluates `expression` in the TV page on a forwarded inspector port (promises awaited).
+ *
+ * Each path settles first and closes after, and the error path never closes: on Node 22 a
+ * `close()` of a socket that never opened fires `error` again from inside `close()`, so an error
+ * handler that closed called itself until the stack ran out (PR #179's first CI run).
+ */
+export async function evaluateOnPort(
+  port: number,
+  expression: string,
+  timeoutMs = 60_000,
+  open: (url: string) => InspectorSocket = (url) => new WebSocket(url),
+): Promise<unknown> {
   const response = await fetch(`http://127.0.0.1:${port}/json`, { signal: AbortSignal.timeout(timeoutMs) });
   const url = pageTarget(await response.json(), port);
   if (url === null) throw new Error(`no page on the inspector at port ${port}`);
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
+    const ws = open(url);
     const timer = setTimeout(() => {
-      ws.close();
       reject(new Error(`no answer from the inspector within ${timeoutMs} ms`));
-    }, timeoutMs);
-    const finish = (outcome: () => void): void => {
-      clearTimeout(timer);
       ws.close();
-      outcome();
-    };
+    }, timeoutMs);
     ws.addEventListener('open', () => {
       ws.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression, awaitPromise: true, returnByValue: true } }));
     });
@@ -63,8 +77,14 @@ export async function evaluateOnPort(port: number, expression: string, timeoutMs
       const message = JSON.parse(String(event.data)) as { id?: unknown };
       if (message.id !== 1) return;
       const answer = evaluateResult(message);
-      finish(() => ('error' in answer ? reject(new Error(answer.error)) : resolve(answer.value)));
+      clearTimeout(timer);
+      if ('error' in answer) reject(new Error(answer.error));
+      else resolve(answer.value);
+      ws.close();
     });
-    ws.addEventListener('error', () => finish(() => reject(new Error(`the inspector's WebSocket failed (${url})`))));
+    ws.addEventListener('error', () => {
+      clearTimeout(timer);
+      reject(new Error(`the inspector's WebSocket failed (${url})`));
+    });
   });
 }

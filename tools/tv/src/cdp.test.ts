@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import type { InspectorSocket } from './cdp';
 import { evaluateOnPort, evaluateResult, pageTarget, parseDebugPort } from './cdp';
 import type { TestServer } from './test-server';
 import { startTestServer } from './test-server';
@@ -105,6 +106,69 @@ describe('evaluateOnPort (a local inspector, no TV)', () => {
     await server.close();
     server = await inspector(() => undefined);
     await expect(evaluateOnPort(server.port, '1', 200)).rejects.toThrow('no answer from the inspector within 200 ms');
+  });
+
+  /** A socket that never opens and, like Node 22's, fires `error` again from inside `close()`. */
+  class NeverOpens implements InspectorSocket {
+    closes = 0;
+    private readonly onError: (() => void)[] = [];
+    constructor(failAtOnce: boolean) {
+      if (failAtOnce) setTimeout(() => this.fail(), 5);
+    }
+    addEventListener(type: 'open' | 'error' | 'message', listener: (() => void) | ((event: { readonly data: unknown }) => void)): void {
+      if (type === 'error') this.onError.push(listener as () => void);
+    }
+    send(): void {
+      throw new Error('never opened');
+    }
+    close(): void {
+      this.closes += 1;
+      if (this.closes > 20) throw new RangeError('close() called itself');
+      this.fail();
+    }
+    private fail(): void {
+      for (const listener of this.onError) listener();
+    }
+  }
+
+  it("rejects a failed socket once, without closing it (Node 22's close() fires error again)", async () => {
+    server = await inspector(() => undefined);
+    const socket = new NeverOpens(true);
+    await expect(evaluateOnPort(server.port, '1', 100, () => socket)).rejects.toThrow("the inspector's WebSocket failed (ws://127.0.0.1:");
+    // Past the time limit too: its timer is gone, or it would close the socket (and hold the CLI open).
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(socket.closes).toBe(0);
+  });
+
+  it('closes once after the answer, its timer gone', async () => {
+    server = await inspector(() => undefined);
+    const listeners: Record<string, ((event: { readonly data: unknown }) => void)[]> = {};
+    let closes = 0;
+    const socket: InspectorSocket = {
+      addEventListener: (type: string, listener: (event: { readonly data: unknown }) => void) => {
+        (listeners[type] ??= []).push(listener);
+      },
+      send: (data) => {
+        const { id } = JSON.parse(data) as { id: number };
+        for (const listener of listeners.message ?? []) listener({ data: JSON.stringify({ id, result: { result: { value: 42 } } }) });
+      },
+      close: () => {
+        closes += 1;
+      },
+    };
+    setTimeout(() => {
+      for (const listener of listeners.open ?? []) listener({ data: null });
+    }, 5);
+    expect(await evaluateOnPort(server.port, '6 * 7', 100, () => socket)).toBe(42);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(closes).toBe(1);
+  });
+
+  it('rejects with the time limit, not the error its close() fires', async () => {
+    server = await inspector(() => undefined);
+    const socket = new NeverOpens(false);
+    await expect(evaluateOnPort(server.port, '1', 50, () => socket)).rejects.toThrow('no answer from the inspector within 50 ms');
+    expect(socket.closes).toBe(1);
   });
 
   it('rejects when the debugger URL fails', async () => {
