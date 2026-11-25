@@ -2686,6 +2686,16 @@ describe("the player: a show's episode (RELAY step 27c1)", () => {
     u.controller.set('ended');
     expect(u.saved).toEqual([at(299_000, true)]);
   });
+
+  it("saves the episode's position with the show's key as the app hides (step 40h: the TV may end a hidden app)", () => {
+    const t = watch();
+    t.controller.media = 77_000;
+    t.controller.set('playing');
+    t.clock.advance(POSITION_MS);
+    expect(t.saved).toEqual([]);
+    t.emit('hidden');
+    expect(t.saved).toEqual([at(77_000)]);
+  });
 });
 
 describe('the player: the next episode (RELAY step 27c2)', () => {
