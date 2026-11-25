@@ -319,6 +319,7 @@ describe('where the screens paint', () => {
     backup: null,
     telemetry: null,
     report: null,
+    connection: null,
     groups: { pending: signal(0), editor: { editing: signal(null) } },
     channels: { pending: signal(0), screen: signal(null) },
     parental: null,

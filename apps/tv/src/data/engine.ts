@@ -100,6 +100,8 @@ import type {
   ShortEpgNowNext,
   ShortEpgSource,
   SourceMeta,
+  SourceProbe,
+  StoredSource,
   UnmatchedPage,
   UnmatchedRequest,
   StoredGuide,
@@ -329,6 +331,9 @@ export class NeedsLoginError extends Error {
     this.name = 'NeedsLoginError';
   }
 }
+
+/** A source on a blocked server (step 40a's check never asks it). */
+const BLOCKED_PROBE: SourceProbe = { kind: 'blocked' };
 
 /**
  * The URL whose host a source's catalog comes from: an Xtream account's server, an M3U link (for a
@@ -860,6 +865,27 @@ export class DataEngine {
    */
   account(src: string): Promise<AccountCheck | null> {
     return this.query.call('account', { src });
+  }
+
+  /**
+   * Settings' "Check the connection" (step 40a): how each source's server stands, in a fresh
+   * ingest worker (`probeSource`), outside the refresh slot (it writes nothing), in `sources`'
+   * order. A source whose server the config's blocklist names is never asked (`blocked`). Rejects
+   * when the worker fails.
+   */
+  async checkSources(sources: readonly StoredSource[]): Promise<SourceProbe[]> {
+    const linked: number[] = [];
+    const urls: string[] = [];
+    sources.forEach((source, i) => {
+      if (source.type === 'm3u-file' || lacksLogin(source)) return;
+      linked.push(i);
+      urls.push(sourceUrlOf(source));
+    });
+    const blocked = urls.length === 0 ? [] : await this.blockedOrNone(urls);
+    const asked = sources.filter((_, i) => blocked[linked.indexOf(i)] !== true);
+    const answers = asked.length === 0 ? [] : await this.withIngestWorker((client) => client.call('probe', { sources: asked }));
+    let next = 0;
+    return sources.map((_, i) => (blocked[linked.indexOf(i)] === true ? BLOCKED_PROBE : answers[next++]!));
   }
 
   /**

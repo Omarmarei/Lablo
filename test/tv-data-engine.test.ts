@@ -11,7 +11,7 @@
 
 import { boxKeyPairFromSecretKey, sealFile, sealPairPayload, toBase64Url, utf8 } from '@lablo/crypto';
 import type { ConfigResult, RpcHandlers } from '@lablo/data';
-import type { BackupStandIn, ByteRequest } from '@lablo/data';
+import type { BackupStandIn, ByteRequest, StoredSource } from '@lablo/data';
 import {
   BACKUP_CODE_KEY,
   BACKUP_MASTER_KEY,
@@ -870,6 +870,43 @@ describe('DataEngine (the app wiring of the data workers)', () => {
     expect(await s.engine.refresh(job())).toMatchObject({ status: 'unchanged' });
     expect(await s.engine.refresh({ ...job(), force: false })).toMatchObject({ status: 'unchanged' });
     expect(await s.engine.refresh({ ...job(), force: true })).toMatchObject({ status: 'committed' });
+  });
+
+  it("checks the sources' servers for \"Check the connection\" in a short-lived ingest worker, never asking a blocked one (step 40a)", async () => {
+    const asked: string[] = [];
+    const s = setup((url) => {
+      asked.push(url);
+      if (url === CONFIG_URL) return { body: configAnswer(CONFIG_DOC) };
+      if (url.includes('player_api.php')) return { body: JSON.stringify({ user_info: { auth: 1, status: 'Active', active_cons: '0', max_connections: '1' } }) };
+      return url.includes('gone') ? { status: 404, body: 'gone' } : { body: playlist(3) };
+    });
+    expect((await s.engine.refreshConfig(CONFIG_REQUEST)).status).toBe('fresh');
+    const fetched = asked.length;
+    const sources: StoredSource[] = [
+      { id: 'a', type: 'xtream', name: 'Panel', account: { base: 'http://panel.example:8080', username: 'u', password: 'p' }, added: 1 },
+      { id: 'b', type: 'm3u', name: 'Blocked', url: 'http://lists.blocked.example/a.m3u', added: 1 },
+      { id: 'c', type: 'm3u-file', name: 'File', added: 1 },
+      { id: 'd', type: 'xtream', name: 'No login', account: null, base: 'http://blocked.example:8080', added: 1 },
+      { id: 'e', type: 'm3u', name: 'Gone', url: 'http://free.example/gone.m3u', added: 1 },
+      { id: 'f', type: 'm3u', name: 'List', url: 'http://free.example/list.m3u', added: 1 },
+    ];
+    const before = s.started.ingest;
+    const probes = await s.engine.checkSources(sources);
+    expect(probes.map((p) => p.kind)).toEqual(['answered', 'blocked', 'file', 'no-login', 'answered', 'answered']);
+    expect(probes[0]).toMatchObject({ status: 200, account: { auth: true, status: 'Active', activeCons: 0, maxConnections: 1 }, playlist: null });
+    expect(probes[4]).toMatchObject({ status: 404, account: null, playlist: null });
+    expect(probes[5]).toMatchObject({ status: 200, account: null, playlist: true });
+    expect(asked.slice(fetched)).toEqual(['http://panel.example:8080/player_api.php?username=u&password=p', 'http://free.example/gone.m3u', 'http://free.example/list.m3u']);
+    expect(s.started.ingest).toBe(before + 1);
+    expect(s.live()).toBe(0);
+    // Nothing to ask (only blocked sources, or none): no worker starts.
+    expect(await s.engine.checkSources([sources[1]!])).toEqual([{ kind: 'blocked' }]);
+    expect(await s.engine.checkSources([])).toEqual([]);
+    expect(s.started.ingest).toBe(before + 1);
+    // The check runs beside a refresh: it never takes the refresh slot.
+    const refresh = s.engine.refresh(job('http://free.example/list.m3u'));
+    expect((await s.engine.checkSources([sources[5]!]))[0]).toMatchObject({ kind: 'answered', playlist: true });
+    expect(await refresh).toMatchObject({ status: 'committed' });
   });
 
   it("lets a source through when the blocklist can't be read (step 30c3a)", async () => {

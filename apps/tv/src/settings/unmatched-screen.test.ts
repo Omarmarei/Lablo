@@ -190,13 +190,16 @@ describe('"Channels without a guide" as drawn (step 24c)', () => {
     // And "Edit channel"'s and "Channels"' (step 36c), the menu's fields too.
     const channel = { pending: signal(256), over: signal(false), editor: { editing: signal<string | null>(null) } };
     const channels = { pending: signal(512) };
-    const settings = { guides: { pending: signal(2), editor: { editing: signal<string | null>(null) } }, unmatched: t.list, mapping, sources, backup, telemetry, report, groups, channel, channels, parental: null } as unknown as Settings;
+    // And "Check the connection"'s (step 40a).
+    const connection = { pending: signal(1024) };
+    const settings = { guides: { pending: signal(2), editor: { editing: signal<string | null>(null) } }, unmatched: t.list, mapping, sources, backup, telemetry, report, connection, groups, channel, channels, parental: null } as unknown as Settings;
     const draw2 = () => SettingsScreen({ settings, i18n: t.i18n, binding: t.binding, focus: t.nav.snapshot() });
     let root = draw2();
-    expect((root.props as Props)['data-pending']).toBe(1023);
-    expect((SettingsScreen({ settings: { ...settings, backup: null }, i18n: t.i18n, binding: t.binding, focus: t.nav.snapshot() }).props as Props)['data-pending']).toBe(1007);
-    expect((SettingsScreen({ settings: { ...settings, telemetry: null }, i18n: t.i18n, binding: t.binding, focus: t.nav.snapshot() }).props as Props)['data-pending']).toBe(991);
-    expect((SettingsScreen({ settings: { ...settings, report: null }, i18n: t.i18n, binding: t.binding, focus: t.nav.snapshot() }).props as Props)['data-pending']).toBe(959);
+    expect((root.props as Props)['data-pending']).toBe(2047);
+    expect((SettingsScreen({ settings: { ...settings, backup: null }, i18n: t.i18n, binding: t.binding, focus: t.nav.snapshot() }).props as Props)['data-pending']).toBe(2031);
+    expect((SettingsScreen({ settings: { ...settings, telemetry: null }, i18n: t.i18n, binding: t.binding, focus: t.nav.snapshot() }).props as Props)['data-pending']).toBe(2015);
+    expect((SettingsScreen({ settings: { ...settings, report: null }, i18n: t.i18n, binding: t.binding, focus: t.nav.snapshot() }).props as Props)['data-pending']).toBe(1983);
+    expect((SettingsScreen({ settings: { ...settings, connection: null }, i18n: t.i18n, binding: t.binding, focus: t.nav.snapshot() }).props as Props)['data-pending']).toBe(1023);
     expect((root.props as Props)['data-screen']).toBe('unmatched');
     expect((root.props as Props)['data-editing']).toBe('');
     // The list's page gets the mapping's reading count.

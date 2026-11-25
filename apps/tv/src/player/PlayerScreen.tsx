@@ -23,7 +23,7 @@ import './player.css';
 const MINUTE_MS = 60_000;
 
 /** The card's title and advice for each of the classifier's four categories. */
-const CATEGORY_TEXT: Readonly<Record<PlaybackFailure['category'], readonly [MessageKey, MessageKey]>> = {
+export const CATEGORY_TEXT: Readonly<Record<PlaybackFailure['category'], readonly [MessageKey, MessageKey]>> = {
   internet: ['player.internet.title', 'player.internet.advice'],
   provider: ['player.provider.title', 'player.provider.advice'],
   device: ['player.device.title', 'player.device.advice'],
@@ -33,7 +33,7 @@ const CATEGORY_TEXT: Readonly<Record<PlaybackFailure['category'], readonly [Mess
 };
 
 /** The account's own problem says more than the category's advice. */
-const ACCOUNT_TEXT: Readonly<Record<string, MessageKey>> = {
+export const ACCOUNT_TEXT: Readonly<Record<string, MessageKey>> = {
   'PRV-AUTH': 'player.account.refused',
   'PRV-EXPIRED': 'player.account.expired',
   'PRV-BLOCKED': 'player.account.blocked',

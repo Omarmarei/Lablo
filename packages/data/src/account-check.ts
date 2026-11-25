@@ -41,6 +41,11 @@ export async function checkAccount(account: XtreamAccount, transport: TextTransp
     if (error instanceof XtreamError && error.code === 'auth') return LOGIN_REFUSED;
     throw error;
   }
+  return accountOf(answer);
+}
+
+/** What a panel's `player_api.php` answer says of the account; `null` without `user_info` (step 40a shares it). */
+export function accountOf(answer: unknown): AccountCheck | null {
   const login = decodeLogin(answer);
   if (login === null) return null;
   const user = login.user;

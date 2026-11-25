@@ -579,3 +579,117 @@
 .tracks__note.channel-edit__name {
   margin-bottom: var(--space-4);
 }
+
+/*
+ * "Check the connection" (step 40a), inside the safe area's 972 px: the header (80), the verdict
+ * (two lines at most: 112, then 16), eight lines of 76 px with 8 px between them (the internet's,
+ * six sources', the last stream's: 664), then the buttons (24 + 56).
+ */
+.connection__verdict {
+  flex: none;
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-m);
+  background: var(--color-surface);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.connection__verdict.is-ok {
+  color: var(--color-success);
+}
+
+.connection__verdict.is-warn {
+  color: var(--color-warn);
+}
+
+.connection__verdict.is-checking {
+  color: var(--color-text-muted);
+}
+
+.connection__lines {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.connection__line {
+  box-sizing: border-box;
+  height: 76px;
+  padding: var(--space-1) var(--space-5);
+  border-left: 6px solid var(--color-border);
+}
+
+.connection__line + .connection__line {
+  margin-top: var(--space-2);
+}
+
+.connection__line.is-ok {
+  border-left-color: var(--color-success);
+}
+
+.connection__line.is-warn {
+  border-left-color: var(--color-warn);
+}
+
+.connection__top {
+  display: flex;
+  align-items: baseline;
+}
+
+.connection__name {
+  flex: 1;
+  min-width: 0;
+  /* A source's name in its own direction (dir=auto) still starts at the page's start. */
+  text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  font-weight: var(--font-weight-bold);
+}
+
+.connection__value {
+  flex: none;
+  max-width: 60%;
+  margin-left: var(--space-6);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.connection__line.is-warn .connection__value {
+  color: var(--color-warn);
+}
+
+.connection__line.is-checking .connection__value,
+.connection__line.is-info .connection__value {
+  color: var(--color-text-muted);
+}
+
+.connection__detail {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+}
+
+.connection__buttons {
+  flex: none;
+  margin-top: var(--space-5);
+}
+
+.connection__buttons .z-button {
+  height: 56px;
+}
+
+.connection__buttons .z-button + .z-button {
+  margin-left: var(--space-4);
+}

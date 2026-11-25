@@ -1162,7 +1162,7 @@ describe('the settings screen', () => {
       telemetry: { engine: switchEngine, setOn },
     });
     expect(both.items).toEqual(['sources', 'guides', 'groups', 'channels', 'backup', 'telemetry']);
-    expect(SETTINGS_ITEMS).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'player', 'language', 'backup', 'telemetry', 'report']);
+    expect(SETTINGS_ITEMS).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'player', 'language', 'backup', 'telemetry', 'connection', 'report']);
     both.dispose();
   });
 
@@ -1356,8 +1356,8 @@ describe('the settings screen', () => {
       offsetChanged: t.offsetChanged,
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
     });
-    expect(SETTINGS_ITEMS).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'player', 'language', 'backup', 'telemetry', 'report']);
-    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'backup', 'backup-confirm', 'groups', 'group-menu', 'group-rename', 'group-delete', 'group-channels', 'group-channel-menu', 'channels', 'channel-edit', 'channel-rename', 'channel-number', 'parental', 'locked-groups', 'pin-pick', 'pin-check', 'pin-none', 'player-settings', 'language']);
+    expect(SETTINGS_ITEMS).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'player', 'language', 'backup', 'telemetry', 'connection', 'report']);
+    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'backup', 'backup-confirm', 'groups', 'group-menu', 'group-rename', 'group-delete', 'group-channels', 'group-channel-menu', 'channels', 'channel-edit', 'channel-rename', 'channel-number', 'parental', 'locked-groups', 'pin-pick', 'pin-check', 'pin-none', 'player-settings', 'language', 'connection-check']);
     // Without a backup page (step 32d2b) there is no "Backup" row, nor without a switch "Usage and crash reports" (step 33b3).
     expect(settings.backup).toBeNull();
     expect(settings.telemetry).toBeNull();

@@ -22,10 +22,13 @@ import { feedResponse } from './file-feed';
 import type { GunzipMode } from './gunzip';
 import type { IngestJob, IngestProgress, IngestResult, IngestSwap } from './ingest';
 import { runIngest } from './ingest';
+import type { StoredSource } from './profile';
 import type { RpcContext } from './rpc';
+import type { SourceProbe } from './source-probe';
+import { probeSource } from './source-probe';
 import { dropGuides } from './storage-room';
 import type { Clock, DutyCycle } from './throttle';
-import { LOW_TIER_DUTY, Throttle } from './throttle';
+import { LOW_TIER_DUTY, REAL_CLOCK, Throttle } from './throttle';
 
 export interface IngestRunRequest {
   job: IngestJob;
@@ -69,6 +72,9 @@ export class IngestService {
       },
       prune: (): Promise<number> => this.prune(),
       dropGuides: async (): Promise<void> => dropGuides(await this.db()),
+      // Settings' "Check the connection" (step 40a): every source's server asked at once; nothing is written.
+      probe: (arg: { sources: StoredSource[] }): Promise<SourceProbe[]> =>
+        Promise.all(arg.sources.map((source) => probeSource(source, { transport: this.options.transport, now: () => (this.options.clock ?? REAL_CLOCK).now() }))),
     };
   }
 

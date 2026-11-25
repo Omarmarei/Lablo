@@ -211,7 +211,9 @@ export type { LinkWithoutLogin, RefreshSource } from './logins';
 export { backupDoc, lacksLogin, linkOrigin, withoutLogins } from './logins';
 
 export type { AccountCheck } from './account-check';
-export { LOGIN_REFUSED, checkAccount, sourceAccount } from './account-check';
+export { LOGIN_REFUSED, accountOf, checkAccount, sourceAccount } from './account-check';
+export type { ProbeOptions, SourceProbe } from './source-probe';
+export { PROBE_ANSWER_MAX, PROBE_TIMEOUT_MS, probeSource, startsPlaylist } from './source-probe';
 
 export type { VodInfoRequest, VodInfoTarget } from './vod-info';
 export { VOD_INFO_TTL_MS, VodInfoCache, vodInfoTarget } from './vod-info';

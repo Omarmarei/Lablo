@@ -29,6 +29,8 @@ import type { SourceLoginOptions, SourcesEngine, SourcesList } from './sources-s
 import { SOURCES_SCREEN, createSourcesList } from './sources-state';
 import type { ReportOptions, ReportRow } from './diag-report';
 import { createReportRow } from './diag-report';
+import type { ConnectionCheck, ConnectionOptions } from './connection-check';
+import { CONNECTION_SCREEN, createConnectionCheck } from './connection-check';
 import type { TelemetrySwitch, TelemetrySwitchOptions } from './telemetry-switch';
 import { createTelemetrySwitch } from './telemetry-switch';
 import type { UnmatchedEngine, UnmatchedList } from './unmatched-state';
@@ -52,7 +54,8 @@ import { SETTINGS_VISIBLE } from './settings-window';
  * languages, step 38d2: `language-choice.ts`). The rows scroll, seven in view (step 38c1), in the
  * order of `settings-items.ts` (step 38d1: Sources first; the rows above are told in the order the
  * steps built them) and "Player" (the player's track languages, subtitle size and picture, step
- * 38d3: `player-settings.ts`).
+ * 38d3: `player-settings.ts`) and "Check the connection" (the internet, each source's server and
+ * the last stream, step 40a: `connection-check.ts`).
  * Back closes it.
  */
 
@@ -78,7 +81,7 @@ export const SETTINGS_SCREENS: readonly string[] = [
   LOGIN_SCREEN,
   BACKUP_SCREEN,
   BACKUP_CONFIRM,
-].concat(GROUP_SCREENS, [CHANNELS_SCREEN], EDIT_SCREENS, PARENTAL_SCREENS, [PLAYER_SETTINGS_SCREEN, LANGUAGE_SCREEN]);
+].concat(GROUP_SCREENS, [CHANNELS_SCREEN], EDIT_SCREENS, PARENTAL_SCREENS, [PLAYER_SETTINGS_SCREEN, LANGUAGE_SCREEN, CONNECTION_SCREEN]);
 
 export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | 'engine'> {
   readonly nav: Navigator;
@@ -97,6 +100,8 @@ export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | '
   readonly telemetry?: TelemetrySwitchOptions;
   /** The diagnostics report's send (step 33d2); without it there is no "Send a report to support" row. */
   readonly report?: ReportOptions;
+  /** "Check the connection"'s online flag, last stream and servers' check (step 40a); without them there is no such row. */
+  readonly connection?: ConnectionOptions;
   /** "Channel groups" changed the lists or the groups (step 35d): the live screen reads them again. */
   readonly listsChanged?: () => void;
   /** "Edit channel" or "Channels" changed the channels (step 36c): the live screen reads them again. */
@@ -129,6 +134,8 @@ export interface Settings {
   readonly telemetry: TelemetrySwitch | null;
   /** The diagnostics report's row (step 33d2), when the app has one. */
   readonly report: ReportRow | null;
+  /** "Check the connection" (step 40a), when the app gives its online flag and last stream. */
+  readonly connection: ConnectionCheck | null;
   /** "Channel groups" (step 35d). */
   readonly groups: Groups;
   /** "Edit channel" (step 36c): from "Channels", or over the player (the info bar's pencil). */
@@ -141,7 +148,7 @@ export interface Settings {
   readonly language: LanguageChoice | null;
   /** "Player" (step 38d3), when the app gives the player's values. */
   readonly player: PlayerSettings | null;
-  /** The settings screen's rows: `SETTINGS_ITEMS`, "Backup" only with its page, "Usage and crash reports" only with its switch, "Send a report to support" only with its send, "Parental control" only with the pad, "Player" only with the player's values, "Language" only with the switch. */
+  /** The settings screen's rows: `SETTINGS_ITEMS`, "Backup" only with its page, "Usage and crash reports" only with its switch, "Send a report to support" only with its send, "Check the connection" only with its options, "Parental control" only with the pad, "Player" only with the player's values, "Language" only with the switch. */
   readonly items: readonly SettingsItem[];
   /** Opens the settings screen. */
   open(): void;
@@ -185,6 +192,7 @@ export function createSettings(options: SettingsOptions): Settings {
   const backup = options.backup === undefined ? null : createBackupPage({ nav, engine: options.backup.engine, host: options.backup.host });
   const telemetry = options.telemetry === undefined ? null : createTelemetrySwitch(options.telemetry);
   const report = options.report === undefined ? null : createReportRow(options.report);
+  const connection = options.connection === undefined ? null : createConnectionCheck(nav, options.engine, options.connection);
   const groups = createGroups({ nav, engine: options.engine, changed: options.listsChanged, platform: options.platform, find: options.find, now: options.now });
   const channel = createChannelEditor({ nav, engine: options.engine, changed: options.channelsChanged, platform: options.platform, find: options.find, now: options.now, pad: options.pad });
   const channels = createEditedChannels({ nav, engine: options.engine, editor: channel, changed: options.channelsChanged });
@@ -202,6 +210,7 @@ export function createSettings(options: SettingsOptions): Settings {
       (item !== 'backup' || backup !== null) &&
       (item !== 'telemetry' || telemetry !== null) &&
       (item !== 'report' || report !== null) &&
+      (item !== 'connection' || connection !== null) &&
       (item !== 'parental' || parental !== null) &&
       (item !== 'player' || player !== null) &&
       (item !== 'language' || language !== null),
@@ -217,6 +226,7 @@ export function createSettings(options: SettingsOptions): Settings {
         else if (item === 'backup') backup?.open();
         else if (item === 'telemetry') telemetry?.press();
         else if (item === 'report') report?.press();
+        else if (item === 'connection') connection?.open();
         else if (item === 'groups') groups.open();
         else if (item === 'channels') channels.open();
         else if (item === 'parental') parental?.open();
@@ -238,6 +248,7 @@ export function createSettings(options: SettingsOptions): Settings {
     backup,
     telemetry,
     report,
+    connection,
     groups,
     channel,
     channels,
@@ -267,6 +278,7 @@ export function createSettings(options: SettingsOptions): Settings {
       backup?.dispose();
       telemetry?.dispose();
       report?.dispose();
+      connection?.dispose();
       groups.dispose();
       channel.dispose();
       channels.dispose();
