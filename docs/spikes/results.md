@@ -88,7 +88,7 @@ The store build of `main` at `8932057` (`Lablo.wgt`, main.js 454.6 KB), against 
   - keys through the TV's remote-control API (`wss://<tv>:8002`; Node's built-in `WebSocket` gets no answer, a TLS socket with an `Origin` header does);
   - text through the same API's `SendInputString` while the TV's keyboard is open;
   - the app's state through the remote inspector (`sdb shell 0 debug`, then `sdb forward`): `Runtime.evaluate` reads `window.__LABLO_TEST__.focusPath()`, `webapis.avplay` and the User Timing marks. `Page.captureScreenshot` never answers on Tizen 5.5, so there are no screenshots.
-  - The scripts stayed local (`artifacts/`, gitignored). They could become a `tools/` step.
+  - The scripts stayed local (`artifacts/`, gitignored). Step 39s6 made them `pnpm tv` (`tools/tv`, [tv-setup.md 3.7](../runbooks/tv-setup.md)), with the TV's address and token in the gitignored `.tv.local.json`.
 - **Onboarding: pass.**
   - English, the disclaimer, "Not now" for the device ID, then the Xtream form.
   - Each field opened the TV's keyboard in its own layout (`url`, `input`, `password`) and took the typed text.

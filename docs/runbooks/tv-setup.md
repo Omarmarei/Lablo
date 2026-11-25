@@ -280,6 +280,24 @@ Free remote Samsung TVs from 2019 to 2026 in Korea; why and when to use them is 
 1. **sdb goes through sdbproxy:** install **RTL TV Tools** from Tizen Studio's Package Manager (Extension SDK tab), book a TV on the [RTL TV page](https://developer.samsung.com/remotetestlab/devices/117/tv), press its **SDB** button and agree to open sdbproxy ([RTL sdb guide](https://developer.samsung.com/remotetestlab/document/sdb-guide.html)). Then `pnpm device devices tizen` shows the TV's serial, and 3.3 steps 3–4 apply. Whether RTL TV Tools work with the SDK 10 tools instead of Tizen Studio is **unconfirmed**.
 2. **The lab server must be public:** the TVs reach the internet through RTL's own Wi-Fi, never our LAN. Build the lab with `--lab-server https://<public host>` (a tunnel to `pnpm mock`, or the mock's Docker image on a VPS); the lab accepts `https://` addresses.
 
+### 3.7 Driving the TV from the PC (`pnpm tv`)
+
+`pnpm tv` (`tools/tv`, RELAY step 39s6) drives a Samsung TV with nobody at it, as the Samsung session of 2026-11-24 did by hand ([results.md](../spikes/results.md), "The app on the Samsung TV"): the remote's keys and text, the launch, the app's state through the inspector, and a soak monitor. The TV must be on and in Developer Mode (3.3), and sdb must be on PATH (3.1).
+
+1. **Once per TV:** `pnpm tv setup <tv-ip>` writes `.tv.local.json` at the repo root. It is **gitignored**, because it holds the TV's LAN address and, later, the remote's token, and the repo is public. Never copy either into a tracked file. The sdb serial defaults to `<tv-ip>:26101`; give another as the second word.
+2. **The remote:** `pnpm tv keys` connects to `wss://<tv-ip>:8002` (a raw TLS WebSocket with an `Origin` header; the TV never answers Node's built-in `WebSocket` there).
+   - **The first connection shows an "Allow" prompt on the TV;** someone must accept it once. The TV then sends a token, which the tool saves in `.tv.local.json` (it never prints it). Later connections send it, and no prompt shows. The client name is `LabloLabPC`, the session's, so a token from that session works if you put it in the file as `"token"`.
+   - A script of words: `KEY_X` presses a key, a number waits that many ms, `TEXT:<text>` types into the TV's keyboard (only while it is open; the tool prints "the TV keyboard is open" when the TV says so), `END` closes the keyboard. Example: `pnpm tv keys KEY_DOWN 800 KEY_ENTER TEXT:http://192.0.2.10:8095 END`. Each key waits 500 ms after it, each text 800 ms.
+   - "The TV refused the remote" means the prompt was declined, or the token is stale: remove `"token"` and connect again.
+3. **Launch:** `pnpm tv launch [--lab]` runs the TV's own launcher, `sdb shell 0 was_execute <app id>` (about 0.8 s; `pnpm device launch` takes about 10 s to return, so it can't time a start), and prints its time. `pnpm tv state [--lab]` asks the TV's REST API (`http://<tv-ip>:8001/api/v2/applications/<id>`) whether the app runs and shows.
+4. **The inspector:** `pnpm tv inspect [--lab]` runs `sdb shell 0 debug <app id>`, which **relaunches** the app with its inspector and prints a port (a new one at each launch), forwards that port, and saves it. Then, with nobody at the TV:
+   - `pnpm tv screen`: the focus path (`__LABLO_TEST__.focusPath()`, e.g. `live/channels/3`) and the page's text. There are no screenshots: `Page.captureScreenshot` never answers on Tizen 5.5.
+   - `pnpm tv marks`: `DOMContentLoaded` and the start's `lablo:` marks, in ms from the page's navigation start (step 39s4's measurement).
+   - `pnpm tv eval '<expression>'` or `pnpm tv eval @file.js`: anything else, with promises awaited.
+   - `pnpm tv reconnect`: `sdb connect` and the forward again, when the TV's link dropped (the app keeps running).
+5. **A soak:** `pnpm tv soak watch --minutes 120 --every 60` puts a sampler in the page (AVPlay's state and position every 100 ms, the JS heap every 5 minutes), drains it at each interval into `artifacts/tv-soak-<time>.ndjson`, and prints one line per drain: the stalls (the position frozen 1.5 s or more while playing), how many passed 10 s (step 21's rule), the longest, a stall still going, the heap. A failed drain reconnects sdb and the forward once; a reloaded page gets a new sampler. The TV keeps up to an hour of samples while the PC can't drain. `pnpm tv soak report <file>` reads a recorded soak again; `pnpm tv soak start` only installs the sampler.
+6. **webOS:** the inspector commands take any forwarded port with `--port N`. `pnpm device inspect webos <tv>` (`ares-inspect`) prints the port it forwards; then `pnpm tv screen --port N`, `marks`, `eval` and `soak` should work there too (not yet tried on the LG), the sampler reading the page's `<video>`. LG's own remote keys (its SSAP API) are not in the tool yet.
+
 ## 4. Engines by model year
 
 | Year | Samsung (Tizen) | LG (webOS) |

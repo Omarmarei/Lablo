@@ -1,0 +1,13 @@
+{
+  "name": "@lablo/tools-tv",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Drive a TV from the PC with nobody at it: remote keys and text, the launch, the inspector, a soak monitor (RELAY step 39s6).",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5"
+  }
+}
