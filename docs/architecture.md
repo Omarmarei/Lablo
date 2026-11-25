@@ -216,7 +216,7 @@ Off-the-shelf libraries such as Norigin measure the DOM on every move. That figh
     - the mirrored positions;
     - the virtual lists by keys and the wheel;
     - the pointer, including a click and an Enter in either order selecting once.
-  - The screenshots (`gallery-<locale>.png` and `-dialog.png`) go to `artifacts/screenshots` on every run, and CI uploads them as `gallery-screenshots`. The step-11b ones are committed in `docs/design/`.
+  - The screenshots (`gallery-<locale>.png` and `-dialog.png`) go to `artifacts/screenshots` on every run, and CI uploads them as `gallery-screenshots` (since step 40ci `gallery-screenshots-1` and `-2`, one per e2e shard). The step-11b ones are committed in `docs/design/`.
   - `e2e/tv-bundle.spec.ts` opens the gallery from both bundles on `file://`.
   - Step 11c: the old-engine harness opens it from both bundles in Chromium 53, 56 and 68, full screen at 1920x1080. The checks are the e2e layout ones (safe area, no scroll, nothing cut or squeezed), 7 rows of 88 px, ArrowDown focusing row 1, and both faces loaded. It saves a screenshot per engine and platform (CI artifact `old-engines-report`).
     - Two CSS seeds prove those checks catch a component's CSS missing from app.css and a lost safe area.
