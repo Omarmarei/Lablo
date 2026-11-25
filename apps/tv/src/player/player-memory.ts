@@ -4,6 +4,8 @@ import type { RedirectMemory, RedirectMode } from '@lablo/platform-api';
 import type { Container, PictureMode, SourceMemory, TrackChoice, TrackMemory, TrackPick } from '@lablo/player';
 import { asPictureMode } from '@lablo/player';
 import type { RailRef } from '../live/live-state';
+import type { CaptionBackground, CaptionColor } from './appearance';
+import { asCaptionBackground, asCaptionColor } from './appearance';
 import type { BufferMode } from './play-tuning';
 import type { SubtitleSize } from './track-menu';
 import { DEFAULT_STILL_HOURS, STILL_HOURS } from './watch-guard';
@@ -73,6 +75,14 @@ export interface PlayerMemory {
   /** "Buffering" (step 39d): Fast start until set. */
   bufferMode(): BufferMode;
   setBufferMode(mode: BufferMode): void;
+  /** "Larger text" (step 43; off until set). */
+  largeText(): boolean;
+  setLargeText(on: boolean): void;
+  /** The captions' box and colour (step 43; dark and white until set). */
+  captionBackground(): CaptionBackground;
+  setCaptionBackground(value: CaptionBackground): void;
+  captionColor(): CaptionColor;
+  setCaptionColor(value: CaptionColor): void;
 }
 
 /** A track language Settings › "Player" offers (step 38d3): the app's two. */
@@ -215,6 +225,9 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
   let clock = false;
   let stillHours: number | null = DEFAULT_STILL_HOURS;
   let bufferMode: BufferMode = 'fast';
+  let largeText = false;
+  let captionBackground: CaptionBackground = 'dark';
+  let captionColor: CaptionColor = 'white';
 
   const write = (change: PlayerChange): void => {
     options.edit({ kind: 'player', change }).catch((error: unknown) => console.warn('The player memory was not saved', error));
@@ -297,6 +310,9 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
       stillHours = asStillHours(isRecord(storedOptions) ? own(storedOptions, 'stillWatching') : undefined);
       // Anything but `stable` is Fast start.
       bufferMode = isRecord(storedOptions) && own(storedOptions, 'buffer') === 'stable' ? 'stable' : 'fast';
+      largeText = isRecord(storedOptions) && own(storedOptions, 'largeText') === 'on';
+      captionBackground = asCaptionBackground(isRecord(storedOptions) ? own(storedOptions, 'captionBg') : undefined);
+      captionColor = asCaptionColor(isRecord(storedOptions) ? own(storedOptions, 'captionColor') : undefined);
       last = lastChannelOf(profile);
       channels = recentChannelsOf(profile);
     },
@@ -351,6 +367,25 @@ export function createPlayerMemory(options: PlayerMemoryOptions): PlayerMemory {
       bufferMode = mode;
       // Fast start, the default, leaves nothing stored.
       write({ field: 'option', name: 'buffer', value: mode === 'stable' ? 'stable' : null });
+    },
+    largeText: () => largeText,
+    setLargeText(on: boolean): void {
+      if (on === largeText) return;
+      largeText = on;
+      write({ field: 'option', name: 'largeText', value: on ? 'on' : null });
+    },
+    captionBackground: () => captionBackground,
+    setCaptionBackground(value: CaptionBackground): void {
+      if (value === captionBackground) return;
+      captionBackground = value;
+      // The default (dark) leaves nothing stored.
+      write({ field: 'option', name: 'captionBg', value: value === 'dark' ? null : value });
+    },
+    captionColor: () => captionColor,
+    setCaptionColor(value: CaptionColor): void {
+      if (value === captionColor) return;
+      captionColor = value;
+      write({ field: 'option', name: 'captionColor', value: value === 'white' ? null : value });
     },
   };
 }

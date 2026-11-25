@@ -14,10 +14,15 @@ function kids(node: VNode): VNode[] {
 }
 
 describe('SubtitleOverlay', () => {
+  it('carries the caption box and colour Settings chose (step 43)', () => {
+    const root = SubtitleOverlay({ cues: ['x'], size: 'm', background: 'solid', color: 'yellow' });
+    expect(root.props).toMatchObject({ class: 'subtitles subtitles--m subtitles--bg-solid subtitles--yellow', 'data-background': 'solid', 'data-color': 'yellow' });
+  });
+
   it('draws each cue as a block in its own direction, untranslated, in the chosen size', () => {
     const arabic = String.fromCharCode(0x645, 0x631, 0x62d, 0x628, 0x627);
     const root = SubtitleOverlay({ cues: ['Hello\nthere', arabic], size: 'l' });
-    expect(root.props).toMatchObject({ class: 'subtitles subtitles--l', 'data-size': 'l', 'data-count': 2, 'data-testid': 'subtitles' });
+    expect(root.props).toMatchObject({ class: 'subtitles subtitles--l subtitles--bg-dark subtitles--white', 'data-size': 'l', 'data-background': 'dark', 'data-color': 'white', 'data-count': 2, 'data-testid': 'subtitles' });
     const cues = kids(root);
     expect(cues.map((c) => (c.props as Props).class)).toEqual(['subtitles__cue', 'subtitles__cue']);
     const texts = cues.map((c) => kids(c)[0]!);
@@ -31,7 +36,7 @@ describe('SubtitleOverlay', () => {
 
   it('draws an empty block when nothing shows', () => {
     const root = SubtitleOverlay({ cues: [], size: 'm' });
-    expect(root.props).toMatchObject({ class: 'subtitles subtitles--m', 'data-count': 0 });
+    expect(root.props).toMatchObject({ class: 'subtitles subtitles--m subtitles--bg-dark subtitles--white', 'data-count': 0 });
     expect(kids(root)).toEqual([]);
   });
 });

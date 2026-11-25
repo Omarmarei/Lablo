@@ -2,6 +2,7 @@ import type { Intent } from '@lablo/platform-api';
 import type { PictureMode } from '@lablo/player';
 import { createNavigator } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
+import { CAPTION_BACKGROUNDS, CAPTION_COLORS } from '../player/appearance';
 import type { SleepTimer } from '../player/watch-guard';
 import { DEFAULT_STILL_HOURS, SLEEP_MINUTES, STILL_HOURS } from '../player/watch-guard';
 import { BUFFER_MODES } from '../player/play-tuning';
@@ -43,6 +44,9 @@ function setup(values: PlayerValues, modes: readonly PictureMode[] = ['fit', 'zo
       timer.set = minutes === null ? null : { minutes, until: 1000 + minutes * 60_000 };
     }),
     setBuffer: vi.fn((mode: string) => told.push(`buffer ${mode}`)),
+    setCaptionBg: vi.fn((value: string) => told.push(`captionBg ${value}`)),
+    setCaptionColor: vi.fn((value: string) => told.push(`captionColor ${value}`)),
+    setLargeText: vi.fn((on: boolean) => told.push(`largeText ${String(on)}`)),
   };
   const page = createPlayerSettings(nav, options);
   const at = (): string => {
@@ -56,7 +60,7 @@ function setup(values: PlayerValues, modes: readonly PictureMode[] = ['fit', 'zo
   return { nav, settings, page, options, told, timer, at, press, shown };
 }
 
-const START: PlayerValues = { audio: null, subtitles: null, size: 'm', picture: 'fit', clock: false, still: 4, buffer: 'fast' };
+const START: PlayerValues = { audio: null, subtitles: null, size: 'm', picture: 'fit', clock: false, still: 4, buffer: 'fast', captionBg: 'dark', captionColor: 'white', largeText: false };
 
 describe('nextValue (RELAY step 38d3)', () => {
   it('goes round the list on OK, and towards an end on LEFT or RIGHT, stopping there', () => {
@@ -77,9 +81,9 @@ describe('nextValue (RELAY step 38d3)', () => {
 });
 
 describe('Settings › "Player" (RELAY step 38d3)', () => {
-  it('opens its eight rows over the settings, seven in view, the modes read before the values', () => {
-    const t = setup({ audio: 'en', subtitles: 'ar', size: 'l', picture: 'stretch', clock: true, still: 6, buffer: 'stable' }, ['fit', 'stretch', '4:3']);
-    expect(PLAYER_SETTINGS_ROWS).toEqual(['audio', 'subtitles', 'size', 'picture', 'clock', 'still', 'sleep', 'buffer']);
+  it('opens its eleven rows over the settings, seven in view, the modes read before the values', () => {
+    const t = setup({ audio: 'en', subtitles: 'ar', size: 'l', picture: 'stretch', clock: true, still: 6, buffer: 'stable', captionBg: 'dark', captionColor: 'white', largeText: false }, ['fit', 'stretch', '4:3']);
+    expect(PLAYER_SETTINGS_ROWS).toEqual(['audio', 'subtitles', 'size', 'picture', 'clock', 'still', 'sleep', 'buffer', 'captionBg', 'captionColor', 'largeText']);
     expect(TRACK_CHOICES).toEqual([null, 'ar', 'en']);
     expect(CLOCK_CHOICES).toEqual([false, true]);
     // Nothing read before it opens.
@@ -87,7 +91,7 @@ describe('Settings › "Player" (RELAY step 38d3)', () => {
     expect(t.options.values).not.toHaveBeenCalled();
     t.page.open();
     expect(t.nav.top.id).toBe(PLAYER_SETTINGS_SCREEN);
-    expect(t.nav.top.zone('rows')).toMatchObject({ kind: 'list', axis: 'vertical', count: 8, visible: 7 });
+    expect(t.nav.top.zone('rows')).toMatchObject({ kind: 'list', axis: 'vertical', count: 11, visible: 7 });
     expect(t.at()).toBe('player-settings · rows 0');
     expect(t.options.modes.mock.invocationCallOrder[0]!).toBeLessThan(t.options.values.mock.invocationCallOrder[0]!);
     expect(t.shown()).toEqual(['en', 'ar', 'l', 'stretch', true]);
@@ -188,7 +192,7 @@ describe('Settings › "Player" (RELAY step 38d3)', () => {
     t.options.values.mockImplementation(() => values);
     t.page.open();
     t.press('BACK');
-    values = { audio: 'ar', subtitles: 'en', size: 's', picture: 'zoom', clock: true, still: null, buffer: 'stable' };
+    values = { audio: 'ar', subtitles: 'en', size: 's', picture: 'zoom', clock: true, still: null, buffer: 'stable', captionBg: 'dark', captionColor: 'white', largeText: false };
     t.page.open();
     expect(t.shown()).toEqual(['ar', 'en', 's', 'zoom', true]);
     expect(t.page.still.value).toBeNull();
@@ -273,6 +277,26 @@ describe('Settings › "Player" (RELAY step 38d3)', () => {
     // The sleep timer's row is still its own.
     t.press('UP', 'OK');
     expect(t.told.slice(-1)).toEqual(['sleep 30']);
+  });
+
+  it('steps the three accessibility rows (step 43) and tells main once per change', () => {
+    const t = setup(START);
+    t.page.open();
+    expect(CAPTION_BACKGROUNDS).toEqual(['dark', 'none', 'solid']);
+    expect(CAPTION_COLORS).toEqual(['white', 'yellow', 'cyan', 'green']);
+    expect([t.page.captionBg.value, t.page.captionColor.value, t.page.largeText.value]).toEqual(['dark', 'white', false]);
+    for (let i = 0; i < 8; i += 1) t.press('DOWN');
+    expect(t.at()).toBe('player-settings · rows 8');
+    t.press('OK', 'OK', 'OK');
+    expect(t.told).toEqual(['captionBg none', 'captionBg solid', 'captionBg dark']);
+    t.press('DOWN', 'OK', 'OK');
+    expect(t.told.slice(3)).toEqual(['captionColor yellow', 'captionColor cyan']);
+    t.press('DOWN', 'OK');
+    expect(t.told.slice(5)).toEqual(['largeText true']);
+    expect([t.page.captionBg.value, t.page.captionColor.value, t.page.largeText.value]).toEqual(['dark', 'cyan', true]);
+    // Stopped at the end by RIGHT (English), nothing told.
+    t.press('RIGHT');
+    expect(t.told).toHaveLength(6);
   });
 
   it('leaves other keys to the navigator', () => {

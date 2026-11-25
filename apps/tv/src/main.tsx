@@ -51,6 +51,7 @@ import { createPairing } from './pairing/pair-state';
 import { appPlayer, trackPreferences } from './player/app-player';
 import { catchupRequest } from './player/catchup';
 import { createLastPlay } from './player/last-play';
+import { appearance } from './player/appearance';
 import { createPlayerMemory, railRefOf } from './player/player-memory';
 import { playTuning } from './player/play-tuning';
 import type { Player } from './player/player-state';
@@ -720,6 +721,9 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
           clock: made.watchClock.value,
           still: made.stillHours.value,
           buffer: memory.bufferMode(),
+          captionBg: memory.captionBackground(),
+          captionColor: memory.captionColor(),
+          largeText: memory.largeText(),
         };
       },
       setAudio: (lang) => memory.setAudioLang(lang),
@@ -733,6 +737,19 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
       setSleep: (minutes) => livePlayer().setSleep(minutes),
       // "Buffering" (step 39d): the profile's, read at the next play.
       setBuffer: (mode) => memory.setBufferMode(mode),
+      // Step 43: the captions' look and "Larger text" (the profile's, shown at once).
+      setCaptionBg: (value) => {
+        memory.setCaptionBackground(value);
+        appearance.setCaptionBackground(value);
+      },
+      setCaptionColor: (value) => {
+        memory.setCaptionColor(value);
+        appearance.setCaptionColor(value);
+      },
+      setLargeText: (on) => {
+        memory.setLargeText(on);
+        appearance.setLargeText(on);
+      },
     },
     // A login given again (step 32d4b): the source's own refresh with the schedule held (the
     // schedule keeps a refused `needs-login` for 2 h, and `refreshNow` reads only the guides), then
@@ -940,6 +957,9 @@ function showOnboarding(into: Element, language: Language | null): void {
  */
 function startWith(into: Element, profile: LoadedProfile | null, restored: boolean, toSources = false, toGuides = false): void {
   memory.load(profile);
+  appearance.setCaptionBackground(memory.captionBackground());
+  appearance.setCaptionColor(memory.captionColor());
+  appearance.setLargeText(memory.largeText());
   progress.load(profile);
   // Telemetry's switch (step 33b1): on unless the profile says `telemetry: false`.
   telemetry.load(telemetryOn(profile));

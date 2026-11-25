@@ -160,3 +160,19 @@ body {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
+/* "Larger text" (RELAY step 43): every text size and its line about 25% up; set on <html> by main. */
+html[data-large-text='on'] {
+  --font-size-display: 80px;
+  --line-height-display: 95px;
+  --font-size-title: 55px;
+  --line-height-title: 70px;
+  --font-size-heading: 42px;
+  --line-height-heading: 55px;
+  --font-size-body: 35px;
+  --line-height-body: 47px;
+  --font-size-label: 30px;
+  --line-height-label: 40px;
+  --font-size-caption: 27px;
+  --line-height-caption: 37px;
+}

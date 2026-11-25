@@ -275,6 +275,26 @@ html[data-player='on'] .player-stage {
   white-space: pre-line;
 }
 
+/* Step 43: the caption's box (dark is the default scrim above) and colour (white is the default). */
+.subtitles--bg-none .subtitles__text {
+  background: transparent;
+}
+
+.subtitles--bg-solid .subtitles__text {
+  background: #000;
+}
+
+.subtitles--yellow .subtitles__text {
+  color: #ffe45c;
+}
+
+.subtitles--cyan .subtitles__text {
+  color: #5cf0ff;
+}
+
+.subtitles--green .subtitles__text {
+  color: #7dff7d;
+}
 /* The info bar: along the bottom of the safe area. */
 .player__bar {
   padding: var(--space-5) var(--space-6);
