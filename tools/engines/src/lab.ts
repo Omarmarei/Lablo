@@ -273,6 +273,7 @@ export const EXPECTED_STATUSES: ReadonlyArray<readonly [string, string]> = [
   ['S4/audio-tracks', 'skip'],
   ['S4/ac3', 'skip'],
   ['S4/subtitles', 'skip'],
+  ['S4/held-socket', 'skip'],
   ['S4/suspend', 'skip'],
   ['S4/soak', 'skip'],
   // The host mock runs with --no-media (placeholder bytes, and these Chromium builds have no

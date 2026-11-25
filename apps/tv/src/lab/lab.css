@@ -143,10 +143,13 @@
 .lab__check {
   display: flex;
   align-items: flex-start;
-  /* 60 px a check with its note (30 + 26 + 4): S4's eleven fit under a one-line question (step 15c2). */
-  margin: 0 0 var(--space-1);
+  /*
+   * 56 px a check with its note (28 + 26 + 2): S4's twelve fit under a one-line question (steps
+   * 15c2 and 49), with 18 px to spare; a thirteenth would not.
+   */
+  margin: 0 0 2px;
   font-size: var(--font-size-caption);
-  line-height: var(--line-height-caption);
+  line-height: 28px;
 }
 
 .lab__check-text {

@@ -315,6 +315,29 @@ for (const { locale, tag } of [
           await expect(page.getByTestId('connection-test')).toHaveCount(0);
           await remote.expectFocus('connection-check/actions/0');
         });
+
+        await test.step('playback turned off while the test plays (step 50c): it stops, the bar says so, and after Close the button is gone', async () => {
+          // The link held unanswered: the test stays "Connecting…" until the config turns playback off.
+          await page.route('**/test/held.m3u8', () => undefined);
+          server.serve(devSignedAnswer(doc({ kill: [], testStream: { url: `${server.origin}/test/held.m3u8` } }, Date.now() + 4_000)));
+          expect(await page.evaluate(() => window.__LABLO_TEST__!.refreshConfig())).toMatchObject({ status: 'fresh' });
+          await remote.press('OK');
+          await expect(page.getByTestId('connection-test-play')).toHaveCount(1);
+          await remote.go(next, 'connection-check/actions/1');
+          await remote.go('OK', 'test-stream/test/0');
+          await expect(page.getByTestId('test-stream')).toHaveAttribute('data-phase', 'opening');
+          await expect(page.locator('html')).toHaveAttribute('data-player', 'on');
+          server.serve(devSignedAnswer(doc({ kill: [{ id: 'off', match: {}, mode: 'disable-playback' }], testStream: { url: `${server.origin}/test/held.m3u8` } }, Date.now() + 5_000)));
+          expect(await page.evaluate(() => window.__LABLO_TEST__!.refreshConfig())).toMatchObject({ status: 'fresh' });
+          await expect(page.getByTestId('test-stream')).toHaveAttribute('data-phase', 'off');
+          await expect(page.locator('html')).toHaveAttribute('data-player', 'off');
+          expect(await text(page, 'test-stream-state')).toBe(EN['player.refused.title']);
+          await page.screenshot({ path: path.join(SHOTS, 'test-stream-off-en.png'), animations: 'disabled' });
+          // Close: the page, "Close" now second, and no "Test stream".
+          await remote.go('OK', 'connection-check/actions/1');
+          await expect(page.getByTestId('connection-test-play')).toHaveCount(0);
+          await expect(page.getByTestId('connection-close')).toHaveAttribute('data-state', 'focused');
+        });
       }
 
       // The 404s the test stream got are the only errors (the browser logs each).

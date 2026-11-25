@@ -182,7 +182,7 @@ The media comes from the lab server (`/__lab/media`, docs/runbooks/mock-provider
 
 ## S4: the AVPlay battery (step 15c2)
 
-S4 asks Samsung's native player, AVPlay, the same questions as S5 (`batteryChecks('S4', …)`), plus one row of its own. The AVPlay player (`avplay-player.ts`) implements `LabPlayer` on platform-tizen's typed AVPlay (`packages/platform-tizen/src/avplay.ts`: `tizenAvplay()`, `avplayTracks()`, `avplayErrorText()`); the lab never touches `webapis` itself. Only the Tizen build reaches it (`avplay-deps.ts`, behind `__PLATFORM__ === 'tizen'`), and `pnpm build:tv` fails if `application/avplayer` or `getTotalTrackInfo` shows up in a webOS bundle.
+S4 asks Samsung's native player, AVPlay, the same questions as S5 (`batteryChecks('S4', …)`), plus two rows of its own (`redirect-probe`, and `held-socket` from step 49). The AVPlay player (`avplay-player.ts`) implements `LabPlayer` on platform-tizen's typed AVPlay (`packages/platform-tizen/src/avplay.ts`: `tizenAvplay()`, `avplayTracks()`, `avplayErrorText()`); the lab never touches `webapis` itself. Only the Tizen build reaches it (`avplay-deps.ts`, behind `__PLATFORM__ === 'tizen'`), and `pnpm build:tv` fails if `application/avplayer` or `getTotalTrackInfo` shows up in a webOS bundle.
 
 How AVPlay answers the battery:
 - **Open:** `open`, `setListener`, `setDisplayRect`, `prepareAsync`, then `play`. A prepare that never answers is AVPlay's 302 freeze: the row's 10 s wait runs out with "no answer".
@@ -198,18 +198,23 @@ How AVPlay answers the battery:
 |---|---|---|
 | S5's ten rows | as in S5 above, on AVPlay | as in S5 |
 | `redirect-probe` | The redirect probe first (`http.ts`): an XHR GET that follows the 302s and is aborted when the final answer's headers come (`readyState` 2), so no body is downloaded; then AVPlay opens `responseURL`. The note compares it with `redirect`, the same stream without the probe ("without the probe it froze"). No URL is recorded. | it plays |
+| `held-socket` (step 49, for 39s7; about 90 s, nobody needed, so it runs at launch too) | The mock's `outage-ts`: live TS that stops 30 s into each response and stays down 30 s, every request held with no data and closed at the end (`live-outages`' fault, on the URL: no scenario switch). It samples once a second `getState`, `getCurrentTime`, `getStreamingProperty` (`CURRENT_BANDWIDTH`, `GET_LIVE_DURATION`, `IS_LIVE`, `AVAILABLE_BITRATE`), `getCurrentStreamInfo` and the last `oncurrentplaytime`, and counts the callbacks (`onbufferingstart`, `onbufferingprogress`, `onbufferingcomplete`, `oncurrentplaytime`, `onevent`, `onerror`, `onerrormsg`). It compares the outage with the time before it (`held-socket.ts`, phases below). | a signal changes at the outage |
 
+- **Reading `held-socket`:** the note lists each signal that changed at the outage, how (`1200000 → 0`, `moving, then still`, `none, then 0.3 per 10 s`, a rate or level halved or doubled), and whether it was back to normal after the outage; then the rest as unchanged. The record keeps every sample (`value.columns`, `value.samples`, one row a second with its phase) and each signal's numbers per phase (`value.signals`), for step 39s7 to choose the watchdog's signal. The phases count from the open: `before` from 2 s after the first frame to the data stopping (30 s); `drain` 10 s while AVPlay plays on from its buffer; `outage` (40 to 60 s) the picture surely frozen; `reconnect` 10 s; `after` to 84 s, before the next stop. A polled signal is judged on `outage`, a callback on `drain` plus `outage` (one that fires once as the buffer runs dry counts; one that fires only once the provider closes the socket does not: a real held socket may never close). It fails when nothing changed: then check the mock's log for `outage …: down for 30000 ms`. AVPlay's listener here sets no buffering parameters, unlike the app's engine ("Fast start", "Stable"): the app's numbers wait for 39s7's TV run.
 - **The audio switch waits 2 s first** (both batteries): AVPlay sends no event when a switch starts the stream over, so the file plays 2 s and a restart shows as the clock going back.
 - **Without AVPlay** (the desktop, a webOS TV, the Tizen bundle in a desktop engine, the old-engine harness) every row skips: "no webapis.avplay here (a Samsung TV has it)" in the Tizen bundle, "no AVPlay: this is not the Tizen build" elsewhere.
-- **Unit tests** run the whole battery on a fake AVPlay (`fakes.ts`: its state machine, callbacks on a fake clock, streams as `extra_info` JSON) in `spikes/s4.test.ts`, including the 302 freeze, the probe, `setSelectTrack`, cues, suspend/restore and a soak.
+- **Unit tests** run the whole battery on a fake AVPlay (`fakes.ts`: its state machine, callbacks on a fake clock, streams as `extra_info` JSON, scripted streaming properties and callbacks) in `spikes/s4.test.ts`, including the 302 freeze, the probe, `setSelectTrack`, cues, suspend/restore, a soak and the held socket; `held-socket.test.ts` holds the row's rules. `e2e/lab.spec.ts` runs `held-socket` in the Tizen lab bundle with a scripted `webapis.avplay` on a 6 s outage.
 
 ### S4 by hand (step 16)
 
 1. As for S5: `pnpm mock:media` once, then `pnpm mock` (`Media: files`).
 2. On the Samsung TV, go to S4 and press OK. The rows play in the box at the bottom right; the rest of the screen is black while they do.
 3. Listen during `audio-tracks` (Arabic to English) and `ac3` (a 5.1 tone per channel). During `subtitles` no text shows on the TV (the lab only records the callback's text).
-4. When the caption says "press Home…", press Home, wait a few seconds, and open the Lablo Lab again.
-5. The soak follows (60 minutes). Then S4 shows its result.
+4. `held-socket` runs before Home: nothing to press. On the picture the burned-in seconds stop a few seconds after 30 s and move again a few seconds after 60 s.
+5. When the caption says "press Home…", press Home, wait a few seconds, and open the Lablo Lab again.
+6. The soak follows (60 minutes). Then S4 shows its result.
+
+**Step 39s7's TV run** needs only a launch: with `pnpm mock` running (generated media), install the lab (`pnpm device install tizen <ip>:26101 --lab`) and open it; S4's `held-socket` runs in the run at launch. A lab built with `--lab-no-auto` runs nothing at launch: there, OK on S4 runs it too, then waits up to 5 minutes for Home (`suspend`) and starts the 60-minute soak; each row's record goes to the collector as the row ends, so the lab can be closed once `held-socket` has sent its own. Read its record from `pnpm mock`'s log collector (`GET /__lab/logs/<session>`, the `S4`/`held-socket` line).
 
 ## S8: AVPlay pre-buffering (step 15c2)
 

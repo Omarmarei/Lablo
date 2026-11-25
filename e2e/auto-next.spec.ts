@@ -109,13 +109,41 @@ function setHidden(page: Page, hidden: boolean): Promise<void> {
   }, hidden);
 }
 
-/** The episode playing ends: the stage's `<video>` says so (its stream is held, so nothing else would). */
+/**
+ * The episode playing ends: the stage's `<video>` says so (its stream is held, so nothing else
+ * would), once the engine has the episode's stream. Between the play and the engine's load the
+ * player closes the last stream and asks the blocklist (a worker's answer, slow on a busy CI
+ * runner) while `data-movie` already names the episode: an `ended` then reaches no stream and is
+ * lost, and the player stays "opening" (the CI flake of RELAY step 50a).
+ */
 async function endEpisode(page: Page, key: string): Promise<void> {
   const player = page.getByTestId('player');
   await expect(player).toHaveAttribute('data-movie', key);
-  await expect(page.locator('#stage video')).toHaveCount(1);
+  const id = key.slice(key.lastIndexOf(':') + 1);
+  await expect(page.locator('#stage video')).toHaveAttribute('src', new RegExp(`/${id}\\.`));
   await page.locator('#stage video').dispatchEvent('ended');
   await expect(player).toHaveAttribute('data-state', 'ended');
+}
+
+/**
+ * Before the play: an `ended` on the stage's `<video>` the moment the player names `key`, before
+ * the engine has its stream. Resolves to that moment's `src` (null: no stream yet).
+ */
+async function endTooEarly(page: Page, key: string): Promise<() => Promise<string | null | undefined>> {
+  await page.evaluate((wanted) => {
+    const seen = window as unknown as { earlyEnd?: string | null };
+    delete seen.earlyEnd;
+    const observer = new MutationObserver(() => {
+      const player = document.querySelector('[data-testid="player"]');
+      const video = document.querySelector('#stage video');
+      if (player === null || player.getAttribute('data-movie') !== wanted || video === null) return;
+      observer.disconnect();
+      seen.earlyEnd = video.getAttribute('src');
+      video.dispatchEvent(new Event('ended'));
+    });
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-movie'] });
+  }, key);
+  return () => page.evaluate(() => (window as unknown as { earlyEnd?: string | null }).earlyEnd);
 }
 
 /** From the live list: the header's "Series", the grid ("Recently updated": 302, then 301), and OK on 301. */
@@ -264,7 +292,14 @@ test.describe('auto-next (RELAY step 27c2)', () => {
       // S2 E1 again, ended: the card's "Back" lands on S2 E2 (S2 E1 is watched); so does the Back key.
       for (const leave of ['button', 'key'] as const) {
         await remote.go('UP', 'show/episodes/0');
+        // The second time, an `ended` the moment the player names it, before the engine has its
+        // stream: it ends nothing (the player opens on), and the end that counts comes after.
+        const early = leave === 'key' ? await endTooEarly(page, S2E1) : null;
         await remote.go('OK', 'player/seek/0');
+        if (early !== null) {
+          await expect.poll(early).toBeNull();
+          await expect(player).toHaveAttribute('data-state', 'opening');
+        }
         await endEpisode(page, S2E1);
         await remote.expectFocus('player/card/0');
         await expect(player).toHaveAttribute('data-next', S2E2);

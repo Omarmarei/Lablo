@@ -44,6 +44,8 @@ export interface AvplayListener {
   onevent?(event: string, data: string): void;
   /** An `AVPlayError` name: `PLAYER_ERROR_CONNECTION_FAILED`, `PLAYER_ERROR_NOT_SUPPORTED_FORMAT`… */
   onerror?(error: string): void;
+  /** The same with a message (Tizen 6.0 and newer). */
+  onerrormsg?(error: string, message: string): void;
   /** An embedded subtitle's text; `type` '0' is text, '1' an image. */
   onsubtitlechange?(duration: string | number, text: string, type: string | number, attributes?: unknown): void;
 }
@@ -77,6 +79,12 @@ export interface AvplayManager {
   getState(): string;
   getCurrentTime(): number;
   getDuration?(): number;
+  /**
+   * A streaming property as text, in READY, PLAYING and PAUSED: `IS_LIVE` ("applicable to all
+   * streaming types"), `AVAILABLE_BITRATE`, `GET_LIVE_DURATION` (`start|end`), `CURRENT_BANDWIDTH`.
+   * Throws where the stream has none (`NotSupportedError`) or in another state.
+   */
+  getStreamingProperty?(property: string): string;
   getTotalTrackInfo(): readonly AvplayStreamInfo[];
   getCurrentStreamInfo(): readonly AvplayStreamInfo[];
   /** `AUDIO` or `TEXT`, and the stream's `index`. */

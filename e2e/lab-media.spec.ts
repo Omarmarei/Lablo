@@ -89,7 +89,7 @@ function expectBattery(records: readonly Record[]): { readonly [check: string]: 
   expect(JSON.stringify(s5)).not.toMatch(/lablo-test|\/live\/|\/movie\/|\/series\//);
 
   const formats = row['formats']?.value as { media: string; items: string[]; engine: Engine };
-  expect(row['formats']).toMatchObject({ status: 'info', note: '10 media items on the lab server' });
+  expect(row['formats']).toMatchObject({ status: 'info', note: `${LAB_MEDIA_IDS.length} media items on the lab server` });
   expect(formats.media).toBe('files');
   expect(formats.items).toEqual(LAB_MEDIA_IDS.slice());
   const can = formats.engine.canPlayType;

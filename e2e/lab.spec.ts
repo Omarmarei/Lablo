@@ -84,6 +84,7 @@ const DESKTOP: ReadonlyArray<readonly [string, string]> = [
   ['S4/audio-tracks', 'skip'],
   ['S4/ac3', 'skip'],
   ['S4/subtitles', 'skip'],
+  ['S4/held-socket', 'skip'],
   ['S4/suspend', 'skip'],
   ['S4/soak', 'skip'],
   // The in-process mock sends placeholder bytes: S5 describes the engine and plays nothing
@@ -275,7 +276,7 @@ test.describe('the Lablo Lab in the desktop browser (pnpm dev)', () => {
     expect(statuses(records)).toEqual(DESKTOP);
     const end = records[records.length - 1];
     expect(end?.type).toBe('end');
-    expect(end?.value).toMatchObject({ run: 1, spikes: ['S0', 'S1', 'S2', 'S3', 'S7', 'S9', 'S10', 'S11', 'S4', 'S5', 'S8', 'S6'], counts: { pass: 16, fail: 3, info: 15, skip: 34 } });
+    expect(end?.value).toMatchObject({ run: 1, spikes: ['S0', 'S1', 'S2', 'S3', 'S7', 'S9', 'S10', 'S11', 'S4', 'S5', 'S8', 'S6'], counts: { pass: 16, fail: 3, info: 15, skip: 35 } });
 
     // What the records say, beyond the status.
     const check = (key: string): Record | undefined => records.find((r) => `${r.spike ?? ''}/${r.check ?? ''}` === key);
@@ -322,7 +323,7 @@ test.describe('the Lablo Lab in the desktop browser (pnpm dev)', () => {
     await remote.go('BACK', 'exit/buttons/0');
     await remote.go('OK', 'lab/spikes/2');
 
-    // The longest lists fit the title-safe height (1080 - 54): twelve spikes, and S4's eleven
+    // The longest lists fit the title-safe height (1080 - 54): twelve spikes, and S4's twelve
     // checks with their notes.
     for (let i = 3; i <= 8; i += 1) await remote.go('DOWN', `lab/spikes/${i}`);
     await expect(page.getByTestId('checks')).toHaveAttribute('data-spike', 'S4');
@@ -545,6 +546,157 @@ test.describe('the Lablo Lab in the desktop browser (pnpm dev)', () => {
       await restarted.close();
     }
   });
+});
+
+/** The short outage of the scripted AVPlay below: the data stops 6 s in, and is back 6 s later. */
+const SHORT_OUTAGE = { afterMs: 6000, outageMs: 6000 };
+
+/**
+ * A scripted `webapis.avplay` for the Tizen lab bundle in a desktop browser (RELAY step 49): what
+ * the Samsung did through a held socket (docs/spikes/results.md, 2026-11-25), on a short outage.
+ * `getState()` stays PLAYING and the clock runs on; the bandwidth reads 0 from half a second after
+ * the stop to half a second after the outage, and `onbufferingstart` comes once, 2 s after the
+ * stop. Times count from `open`. It runs in the page, so it carries everything it uses.
+ */
+function scriptedAvplay(outage: { afterMs: number; outageMs: number }): void {
+  const named = (name: string): Error => {
+    const error = new Error(`${name} (scripted AVPlay)`);
+    error.name = name;
+    return error;
+  };
+  type Callback = ((...args: unknown[]) => void) | undefined;
+  let state = 'NONE';
+  let listener: { [name: string]: Callback } = {};
+  let openedAt = 0;
+  let playAt = 0;
+  let timers: number[] = [];
+  let ticker: number | null = null;
+  const stop = outage.afterMs;
+  const back = outage.afterMs + outage.outageMs;
+  const call = (name: string, ...args: unknown[]): void => listener[name]?.(...args);
+  const clear = (): void => {
+    for (const id of timers) window.clearTimeout(id);
+    timers = [];
+    if (ticker !== null) window.clearInterval(ticker);
+    ticker = null;
+  };
+  const since = (): number => performance.now() - openedAt;
+  const ready = (): void => {
+    if (state !== 'READY' && state !== 'PLAYING' && state !== 'PAUSED') throw named('InvalidStateError');
+  };
+  const streams = [
+    { index: 0, type: 'VIDEO', extra_info: '{"fourCC":"H264","Width":"960","Height":"540","Bit_rate":"1000000"}' },
+    { index: 1, type: 'AUDIO', extra_info: '{"language":"ara","channels":"2","fourCC":"AAC"}' },
+  ];
+  const avplay = {
+    open: (): void => {
+      clear();
+      state = 'IDLE';
+      listener = {};
+      openedAt = performance.now();
+      timers.push(window.setTimeout(() => call('onbufferingstart'), stop + 2000));
+      timers.push(window.setTimeout(() => call('onbufferingcomplete'), back + 500));
+    },
+    close: (): void => {
+      clear();
+      state = 'NONE';
+    },
+    stop: (): void => {
+      state = 'IDLE';
+    },
+    setListener: (l: { [name: string]: Callback }): void => {
+      listener = l;
+    },
+    setDisplayRect: (): void => undefined,
+    prepareAsync: (ok?: () => void): void => {
+      call('onbufferingstart');
+      timers.push(
+        window.setTimeout(() => {
+          state = 'READY';
+          call('onbufferingcomplete');
+          ok?.();
+        }, 100),
+      );
+    },
+    play: (): void => {
+      state = 'PLAYING';
+      playAt = performance.now();
+      ticker = window.setInterval(() => call('oncurrentplaytime', Math.round(performance.now() - playAt)), 500);
+    },
+    pause: (): void => {
+      state = 'PAUSED';
+    },
+    getState: (): string => state,
+    getCurrentTime: (): number => {
+      ready();
+      return Math.round(performance.now() - playAt);
+    },
+    getStreamingProperty: (name: string): string => {
+      ready();
+      const t = since();
+      if (name === 'CURRENT_BANDWIDTH') return t >= stop + 500 && t < back + 500 ? '0' : '1200000';
+      if (name === 'IS_LIVE') return '1';
+      throw named('NotSupportedError');
+    },
+    getTotalTrackInfo: (): unknown[] => streams,
+    getCurrentStreamInfo: (): unknown[] => streams,
+    setSelectTrack: (): void => undefined,
+    setSilentSubtitle: (): void => undefined,
+    suspend: (): void => undefined,
+    restore: (): void => undefined,
+    getVersion: (): string => 'scripted 1.0',
+  };
+  (window as unknown as { webapis: unknown }).webapis = { avplay };
+}
+
+test("the tizen lab bundle samples AVPlay through a held socket (S4's held-socket, a scripted webapis.avplay)", async ({ page }) => {
+  const index = path.join(LAB_DIST, 'tizen', 'index.html');
+  expect(existsSync(index), `${index} is missing: run pnpm build:tv before pnpm e2e`).toBe(true);
+  const errors = trackErrors(page);
+  await page.addInitScript(scriptedAvplay, SHORT_OUTAGE);
+  // The lab server's list with only the outage item, on the short outage: every other row of S4
+  // skips for want of its item. On a TV it is the mock's own `outage-ts` (30 s, then 30 s down).
+  const fault = `stall:after_ms=${SHORT_OUTAGE.afterMs}:outage_ms=${SHORT_OUTAGE.outageMs}`;
+  const media = { media: 'files', items: { 'outage-ts': { url: `${base}/live/lablo/lablo-test/104.ts?mock_fault=${fault}`, kind: 'live', container: 'ts', fault, video: null, audio: null, subtitles: null } } };
+  await page.route(`${base}/__lab/media`, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(media) }));
+  await page.goto(`${pathToFileURL(index).href}?server=${encodeURIComponent(base)}&mb=8&auto=0`);
+  const lab = page.getByTestId('lab');
+  await expect(lab).toHaveAttribute('data-ready', 'true');
+  const remote = new RemoteDriver(page);
+  await remote.expectFocus('lab/actions/0');
+  // To S4 (the ninth spike) and OK: S4 alone.
+  for (let i = 0; i <= 8; i += 1) await remote.go('DOWN', `lab/spikes/${i}`);
+  await expect(page.getByTestId('checks')).toHaveAttribute('data-spike', 'S4');
+  await remote.press('OK');
+  const { records } = await finishedRun(page, 1);
+  const s4 = records.filter((r) => r.spike === 'S4' && r.type === 'check');
+  expect(statuses(s4)).toEqual([
+    ['S4/formats', 'info'],
+    ['S4/ts', 'skip'],
+    ['S4/hls', 'skip'],
+    ['S4/redirect', 'skip'],
+    ['S4/redirect-probe', 'skip'],
+    ['S4/hevc-4k', 'skip'],
+    ['S4/audio-tracks', 'skip'],
+    ['S4/ac3', 'skip'],
+    ['S4/subtitles', 'skip'],
+    ['S4/held-socket', 'pass'],
+    ['S4/suspend', 'skip'],
+    ['S4/soak', 'skip'],
+  ]);
+  expect(s4[0]?.value).toMatchObject({ media: 'files', items: ['outage-ts'], engine: { engine: 'avplay', version: 'scripted 1.0' } });
+  const held = s4.find((r) => r.check === 'held-socket');
+  expect(held?.note).toMatch(/^changed at the outage: CURRENT_BANDWIDTH \(1200000 → 0; back after\), onbufferingstart \(none, then [0-9.]+ per 10 s; back after\); unchanged: getState, getCurrentTime, GET_LIVE_DURATION, IS_LIVE, AVAILABLE_BITRATE, getCurrentStreamInfo, lastPlaytime, /);
+  const value = held?.value as { fault: string; changed: string[]; samplesPerPhase: { before: number; outage: number; after: number }; columns: string[]; samples: unknown[][] };
+  expect(value.fault).toBe(fault);
+  expect(value.changed).toEqual(['CURRENT_BANDWIDTH', 'onbufferingstart']);
+  expect(value.samplesPerPhase.before).toBeGreaterThanOrEqual(2);
+  expect(value.samplesPerPhase.outage).toBeGreaterThanOrEqual(2);
+  expect(value.samplesPerPhase.after).toBeGreaterThanOrEqual(2);
+  expect(value.columns.slice(0, 4)).toEqual(['t', 'phase', 'getState', 'getCurrentTime']);
+  // The mock's test account never reaches a record.
+  expect(JSON.stringify(records)).not.toMatch(/lablo-test|\/live\//);
+  expect(errors).toEqual([]);
 });
 
 for (const platform of ['tizen', 'webos'] as const) {

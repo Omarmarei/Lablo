@@ -1,5 +1,5 @@
 import type { ReadonlySignal } from '@preact/signals';
-import { signal } from '@preact/signals';
+import { effect, signal } from '@preact/signals';
 import type { LoadedProfile, SourceProbe, StoredSource } from '@lablo/data';
 import type { Container, PlaybackFailure, PlayerStatus, PlayRequest } from '@lablo/player';
 import { accountProblemCode, containerOf } from '@lablo/player';
@@ -105,8 +105,11 @@ export interface ConnectionState {
   readonly test: TestResult | null;
 }
 
-/** The test screen's bar: the player's state as it says it. */
-export type TestPhase = 'opening' | 'playing' | 'reconnecting' | 'ended' | 'failed';
+/**
+ * The test screen's bar: the player's state as it says it, or `off`: the config turned playback off
+ * while the test played (RELAY step 50c), so it stopped.
+ */
+export type TestPhase = 'opening' | 'playing' | 'reconnecting' | 'ended' | 'failed' | 'off';
 
 export interface TestView {
   readonly phase: TestPhase;
@@ -221,8 +224,10 @@ export function createConnectionCheck(nav: Navigator, engine: ConnectionEngine, 
   let runs = 0;
   let disposed = false;
   let page: Screen | null = null;
-  /** The test playing: its player and its listener's removal. */
+  /** The test playing: its player, and the removal of its listener and of its watch on the config. */
   let testing: { readonly player: TestPlayer; readonly unsubscribe: () => void } | null = null;
+  /** The test screen is open (its stream may have stopped: playback turned off, step 50c). */
+  let onTestScreen = false;
 
   const testable = (): boolean => options.test !== undefined && options.test.link() !== null;
 
@@ -303,16 +308,26 @@ export function createConnectionCheck(nav: Navigator, engine: ConnectionEngine, 
     options.test!.playing(false);
   };
 
+  /** The config took the test stream away (playback off, or no link): the page loses its button. */
+  const dropTest = (): void => {
+    const now = state.peek();
+    if (!now.testable || testable()) return;
+    state.value = { online: now.online, sources: now.sources, failed: now.failed, last: now.last, testable: false, test: now.test };
+    if (page !== null && page.open) page.update({ kind: 'list', id: 'actions', axis: 'horizontal', count: actionsCount(false) });
+  };
+
   const endTest = (): void => {
-    if (testing === null) return;
+    if (!onTestScreen) return;
+    onTestScreen = false;
     stopTest();
     nav.pop();
+    dropTest();
   };
 
   const startTest = (): void => {
     const host = options.test;
     const url = host === undefined ? null : host.link();
-    if (host === undefined || url === null || testing !== null || disposed) return;
+    if (host === undefined || url === null || testing !== null || onTestScreen || disposed) return;
     const now = host.now ?? Date.now;
     const player = host.player();
     let session = -1;
@@ -328,6 +343,7 @@ export function createConnectionCheck(nav: Navigator, engine: ConnectionEngine, 
         return true;
       },
     });
+    onTestScreen = true;
     host.playing(true);
     const started = now();
     const unsubscribe = player.subscribe((status) => {
@@ -348,7 +364,21 @@ export function createConnectionCheck(nav: Navigator, engine: ConnectionEngine, 
         }
       }
     });
-    testing = { player, unsubscribe };
+    let unwatch = (): void => undefined;
+    testing = {
+      player,
+      unsubscribe: () => {
+        unsubscribe();
+        unwatch();
+      },
+    };
+    // The config turning playback off (main's link() is null then) while the test plays (RELAY
+    // step 50c): the stream stops as any other would, and the bar says so until Close.
+    unwatch = effect(() => {
+      if (host.link() !== null) return;
+      stopTest();
+      testView.value = { phase: 'off', failure: null };
+    });
     void player.play(testRequest(url));
   };
 
