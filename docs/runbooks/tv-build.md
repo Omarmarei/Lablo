@@ -95,6 +95,18 @@ The same pipeline builds `apps/tv/src/lab/lab-main.tsx` per platform, with its o
 
 Already settled: `requiredACG` (step 16a, build-checked). The LG listing declares webOS 5.0+ ([ADR-012](../adr/ADR-012-lg-minimum-webos5.md)).
 
+## The release checklist (RELAY step 45)
+
+`pnpm release:check` lists everything that still blocks a release and exits 1 if anything does; `--no-build` skips the build. It checks:
+
+1. the legal text is final (`LEGAL_DRAFT` false, no counsel placeholders: the same check as `build:tv --release`);
+2. one version: `apps/tv/package.json` feeds both manifests (`{{version}}`) and About (`__APP_VERSION__`); it must be `major.minor.patch`, not `0.0.0`;
+3. `docs/store/*.md` hold no `<official domain>`, `<test server address>`, `<tester username>` or `<tester password>`;
+4. git tracks no key, certificate, package or env file, nothing over 5 MB, no secret pattern, and not the Samsung test TV's hotspot address;
+5. without `--no-build`: `pnpm build:tv --release` (ES2016 and CSS gates, bundle budgets, packages), then the webOS `.ipk` of this version exists. The Tizen `.wgt` is only reported: it needs the Tizen CLI and `TIZEN_SIGNING_PROFILE` (Omar's).
+
+To release: raise `version` in `apps/tv/package.json`, run the check, fix what it lists. Until counsel's text, the domain and the test server exist, it fails on exactly those; that is intended. Logic and tests: `tools/build/src/release-check.ts`.
+
 ## Tizen `.wgt` (manual until the Tizen CLI is installed)
 
 The Tizen Studio CLI is not installed on the build machine, and GUI tools are never installed unattended. To build a signed `.wgt` by hand:
