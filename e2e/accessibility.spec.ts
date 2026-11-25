@@ -135,6 +135,9 @@ for (const { locale, tag } of [
       await remote.press('OK');
       await expect(row('captionBg')).toHaveAttribute('data-value', 'dark');
       await expect.poll(() => storedOptions(page)).toEqual({ captionColor: 'yellow' });
+      await remote.press('OK');
+      await expect(row('captionBg')).toHaveAttribute('data-value', 'none');
+      await expect.poll(() => storedOptions(page)).toEqual({ captionColor: 'yellow', captionBg: 'none' });
     });
 
     await test.step('"Larger text": the root marked, kept, and the page, Settings and the live screen still fit', async () => {
@@ -143,7 +146,7 @@ for (const { locale, tag } of [
       await remote.press('OK');
       await expect(row('largeText')).toHaveAttribute('data-value', 'on');
       await expect(page.locator('html')).toHaveAttribute('data-large-text', 'on');
-      await expect.poll(() => storedOptions(page)).toEqual({ captionColor: 'yellow', largeText: 'on' });
+      await expect.poll(() => storedOptions(page)).toEqual({ captionColor: 'yellow', captionBg: 'none', largeText: 'on' });
       await expectInSafeArea(row('largeText'));
       for (let i = 9; i >= 0; i -= 1) await remote.go('UP', `player-settings/rows/${i}`);
       for (const name of ['audio', 'subtitles', 'size']) await expectInSafeArea(row(name));
@@ -158,10 +161,18 @@ for (const { locale, tag } of [
       await page.screenshot({ path: path.join(SHOTS, `large-text-live-${tag}.png`), animations: 'disabled' });
     });
 
+    await test.step('the player draws captions with the chosen box and colour', async () => {
+      await remote.press('OK');
+      await remote.expectFocus('player/actions/0');
+      const player = page.getByTestId('player');
+      await expect(player).toHaveAttribute('data-caption-bg', 'none');
+      await expect(player).toHaveAttribute('data-caption-color', 'yellow');
+    });
+
     await test.step('a restart keeps all three', async () => {
       await page.goto(`/?locale=${locale}`);
       await expect(page.locator('html')).toHaveAttribute('data-large-text', 'on');
-      await expect.poll(() => storedOptions(page)).toEqual({ captionColor: 'yellow', largeText: 'on' });
+      await expect.poll(() => storedOptions(page)).toEqual({ captionColor: 'yellow', captionBg: 'none', largeText: 'on' });
     });
 
     expect(errors).toEqual([]);

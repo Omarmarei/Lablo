@@ -671,7 +671,7 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'settings.parental': 'الرقابة الأبوية',
   'settings.parentalHint': 'رمزك السري، والمجموعات والقنوات التي يقفلها',
   'settings.player': 'المشغّل',
-  'settings.playerHint': 'لغة الصوت والترجمة، والصورة والساعة ومؤقّت النوم والتخزين المؤقت',
+  'settings.playerHint': 'لغة الصوت والترجمة، وشكل الترجمة، والصورة والساعة ومؤقّت النوم والتخزين المؤقت والنص الأكبر',
   'playerSettings.audio': 'لغة الصوت',
   'playerSettings.audioHint': 'تُشغَّل أولًا حين يكون للقناة أو الفيلم أكثر من لغة',
   'playerSettings.app': 'مثل لغة التطبيق',
