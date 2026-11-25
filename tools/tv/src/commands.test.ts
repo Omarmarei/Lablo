@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { appStateUrl, describeAppState, REST_PORT, sdbConnect, sdbDebug, sdbForward, sdbLaunch, tizenAppId } from './commands';
+import type { SdbRun } from './commands';
+import { appStateUrl, describeAppState, inspectApp, packageId, REST_PORT, sdbConnect, sdbDebug, sdbForward, sdbForwardRemove, sdbKill, sdbLaunch, sdbUninstall, tizenAppId } from './commands';
 
 describe('the sdb commands', () => {
   it('connect, launch, debug and forward by the serial', () => {
@@ -46,5 +47,65 @@ describe("the TV's app state", () => {
     expect(describeAppState(200, '<html>')).toBe('<html>');
     expect(describeAppState(200, 'x'.repeat(300))).toBe('x'.repeat(200));
     expect(describeAppState(500, 'y'.repeat(300))).toBe(`HTTP 500: ${'y'.repeat(200)}`);
+  });
+});
+
+const SERIAL = '10.0.0.2:26101';
+const APP = 'LabloIPTV1.Lablo';
+
+describe('the fixes from the Samsung session (step 40g)', () => {
+  it('kill takes the package id, uninstall the full app id, forward --remove the port', () => {
+    expect(packageId(APP)).toBe('LabloIPTV1');
+    expect(packageId('NoDot')).toBe('NoDot');
+    expect(sdbKill(SERIAL, APP)).toEqual(['-s', SERIAL, 'shell', '0', 'kill', 'LabloIPTV1']);
+    expect(sdbUninstall(SERIAL, APP)).toEqual(['-s', SERIAL, 'shell', '0', 'vd_appuninstall', APP]);
+    expect(sdbForwardRemove(SERIAL, 37_201)).toEqual(['-s', SERIAL, 'forward', '--remove', 'tcp:37201']);
+  });
+
+  /** A fake sdb: records every call, answers by the sub-command. */
+  function fakeSdb(answers: { debug?: string; forwardStatus?: number }): { run: SdbRun; calls: string[][] } {
+    const calls: string[][] = [];
+    const run: SdbRun = (args) => {
+      calls.push(args);
+      if (args.includes('debug')) return { status: 0, output: answers.debug ?? 'debug port: 37201' };
+      if (args.includes('--remove')) return { status: 1, output: 'no such forward' };
+      if (args[2] === 'forward') return { status: answers.forwardStatus ?? 0, output: answers.forwardStatus ? 'error: cannot install forward listener' : '' };
+      return { status: 0, output: 'Pkgid: LabloIPTV1 is Terminated' };
+    };
+    return { run, calls };
+  }
+
+  it('inspect ends the app first, then debugs, drops stale forwards, then forwards', () => {
+    const { run, calls } = fakeSdb({});
+    expect(inspectApp(run, SERIAL, APP, 37_000)).toEqual({ port: 37_201 });
+    expect(calls).toEqual([
+      sdbKill(SERIAL, APP),
+      sdbDebug(SERIAL, APP),
+      sdbForwardRemove(SERIAL, 37_000),
+      sdbForwardRemove(SERIAL, 37_201),
+      sdbForward(SERIAL, 37_201),
+    ]);
+  });
+
+  it('inspect without a saved port only drops the new port', () => {
+    const { run, calls } = fakeSdb({});
+    inspectApp(run, SERIAL, APP, undefined);
+    expect(calls.map((c) => c.join(' '))).toEqual([
+      `-s ${SERIAL} shell 0 kill LabloIPTV1`,
+      `-s ${SERIAL} shell 0 debug ${APP}`,
+      `-s ${SERIAL} forward --remove tcp:37201`,
+      `-s ${SERIAL} forward tcp:37201 tcp:37201`,
+    ]);
+  });
+
+  it("inspect says so when sdb prints no port, and doesn't forward", () => {
+    const { run, calls } = fakeSdb({ debug: '' });
+    expect(inspectApp(run, SERIAL, APP, undefined)).toEqual({ error: "No inspector port in sdb's answer:\n" });
+    expect(calls).toHaveLength(2);
+  });
+
+  it("inspect passes on a forward that still fails, with sdb's words", () => {
+    const { run } = fakeSdb({ forwardStatus: 1 });
+    expect(inspectApp(run, SERIAL, APP, undefined)).toEqual({ error: 'sdb forward failed:\nerror: cannot install forward listener' });
   });
 });

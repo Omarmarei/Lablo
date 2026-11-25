@@ -11,6 +11,9 @@ export function parseDebugPort(output: string): number | null {
   return port >= 1 && port <= 65_535 ? port : null;
 }
 
+/** The TV's inspector serves one client at a time (a second one is refused or never answered). */
+export const ONE_CLIENT = "The TV's inspector allows one client at a time: close Chrome's DevTools (chrome://inspect) and any other `pnpm tv` that holds it.";
+
 interface InspectorTarget {
   readonly type?: string;
   readonly id?: string;
@@ -67,7 +70,7 @@ export async function evaluateOnPort(
   return new Promise((resolve, reject) => {
     const ws = open(url);
     const timer = setTimeout(() => {
-      reject(new Error(`no answer from the inspector within ${timeoutMs} ms`));
+      reject(new Error(`no answer from the inspector within ${timeoutMs} ms. ${ONE_CLIENT}`));
       ws.close();
     }, timeoutMs);
     ws.addEventListener('open', () => {
@@ -84,7 +87,7 @@ export async function evaluateOnPort(
     });
     ws.addEventListener('error', () => {
       clearTimeout(timer);
-      reject(new Error(`the inspector's WebSocket failed (${url})`));
+      reject(new Error(`the inspector's WebSocket failed (${url}). ${ONE_CLIENT}`));
     });
   });
 }

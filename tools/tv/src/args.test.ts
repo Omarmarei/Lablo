@@ -7,6 +7,11 @@ describe('parseTvArgs', () => {
     expect(parseTvArgs(['marks'])).toEqual({ command: 'marks', words: [], lab: false, minutes: 120, everySeconds: 60 });
   });
 
+  it('knows uninstall, with --lab', () => {
+    expect(parseTvArgs(['uninstall', '--lab'])).toEqual({ command: 'uninstall', words: [], lab: true, minutes: 120, everySeconds: 60 });
+    expect(USAGE).toContain('uninstall');
+  });
+
   it('takes the flags anywhere', () => {
     expect(parseTvArgs(['--lab', 'launch'])).toEqual({ command: 'launch', words: [], lab: true, minutes: 120, everySeconds: 60 });
     expect(parseTvArgs(['soak', '--port', '9222', 'watch', '--minutes', '480', '--every', '30'])).toEqual({
