@@ -13,10 +13,13 @@
  *   `onsubtitlechange` as `cue` events.
  * - **Home and back:** `suspend`, then `restore` (live: no resume time; VOD: the position).
  * - **Stop:** `stop` and `close`, which ends the connection (providers allow few).
+ * - **Signals** (S4's `held-socket`, RELAY step 49): `signals()` reads `getState`,
+ *   `getCurrentTime`, the four streaming properties and `getCurrentStreamInfo`; every callback
+ *   also comes raw as a `signal` event.
  */
 import type { AvplayError, AvplayListener, AvplayManager, AvplayTrack } from '@lablo/platform-tizen';
 import { avplayErrorText, avplayTracks, avplayUnsupported } from '@lablo/platform-tizen';
-import type { LabPlayer, LabPlayerEvent, LabTrack, OpenOptions, PlayerError, PlayerSnapshot } from './player';
+import type { LabPlayerEvent, LabTrack, OpenOptions, PlayerError, PlayerSnapshot, SignalPlayer } from './player';
 import type { VideoTimers } from './video-player';
 
 /** Every 50 ms until this open's first frame. */
@@ -45,8 +48,11 @@ export interface AvplayReadiness {
   readonly error: PlayerError | null;
 }
 
-/** `LabPlayer` plus what pre-buffering needs. */
-export interface AvplayLabPlayer extends LabPlayer {
+/** The streaming properties `signals()` reads, in the order the record lists them (Samsung's AVPlay reference, `getStreamingProperty`). */
+export const STREAMING_PROPERTIES = ['CURRENT_BANDWIDTH', 'GET_LIVE_DURATION', 'IS_LIVE', 'AVAILABLE_BITRATE'] as const;
+
+/** `LabPlayer` plus its signals and what pre-buffering needs. */
+export interface AvplayLabPlayer extends SignalPlayer {
   /** Opens and prepares `url` without playing it. */
   prepare(url: string, options: OpenOptions): void;
   /** Plays what `prepare` opened: now if it is prepared, else as soon as it is. */
@@ -73,6 +79,22 @@ function attempt(call: () => void): string | null {
   } catch (error) {
     return avplayErrorText(error);
   }
+}
+
+/** A signal's reading as text, or `throws <name>` (S4's `held-socket`). */
+function probe(call: () => unknown): string {
+  try {
+    return String(call());
+  } catch (error) {
+    const name = (error as { name?: unknown } | null)?.name;
+    return `throws ${typeof name === 'string' && name !== '' ? name : avplayErrorText(error)}`;
+  }
+}
+
+/** `getCurrentStreamInfo()` in one line: each stream's type, index and `extra_info` as AVPlay gives it. */
+function streamsText(infos: unknown): string {
+  if (!Array.isArray(infos)) return String(infos);
+  return infos.map((s: { type?: unknown; index?: unknown; extra_info?: unknown }) => `${String(s.type)}${String(s.index)} ${String(s.extra_info)}`).join(' | ');
 }
 
 function read<T>(call: () => T, fallback: T): T {
@@ -147,26 +169,42 @@ export function createAvplayPlayer(api: AvplayManager, stage: AvplayStage, env: 
 
   const listenerFor = (mine: number): AvplayListener => {
     const live = (): boolean => mine === token;
+    const signal = (name: string, data: string): void => emit({ type: 'signal', name, data });
     return {
       onbufferingstart: () => {
         if (!live()) return;
         buffering = true;
+        signal('onbufferingstart', '');
         if (framed) emit({ type: 'waiting' });
       },
+      onbufferingprogress: (percent) => {
+        if (live()) signal('onbufferingprogress', String(percent));
+      },
       onbufferingcomplete: () => {
-        if (live()) buffering = false;
+        if (!live()) return;
+        buffering = false;
+        signal('onbufferingcomplete', '');
       },
       oncurrentplaytime: (ms) => {
-        if (live() && typeof ms === 'number') observe(ms);
+        if (!live()) return;
+        signal('oncurrentplaytime', String(ms));
+        if (typeof ms === 'number') observe(ms);
       },
       onstreamcompleted: () => {
         if (live()) emit({ type: 'ended' });
       },
       onevent: (event, data) => {
-        if (live()) lastEvent = typeof data !== 'string' || data === '' ? String(event) : `${String(event)} ${data}`;
+        if (!live()) return;
+        lastEvent = typeof data !== 'string' || data === '' ? String(event) : `${String(event)} ${data}`;
+        signal('onevent', lastEvent);
       },
       onerror: (name) => {
-        if (live()) fail(String(name), String(name));
+        if (!live()) return;
+        signal('onerror', String(name));
+        fail(String(name), String(name));
+      },
+      onerrormsg: (name, message) => {
+        if (live()) signal('onerrormsg', `${String(name)} ${String(message)}`);
       },
       onsubtitlechange: (_duration, text) => {
         if (!live() || shownText === null || typeof text !== 'string' || text === '') return;
@@ -294,6 +332,13 @@ export function createAvplayPlayer(api: AvplayManager, stage: AvplayStage, env: 
       if (prepared && !playing) play(token);
     },
     readiness: () => ({ prepared, ms: prepareMs, error }),
+    signals: () => {
+      const out: Record<string, string> = { getState: probe(() => api.getState()), getCurrentTime: probe(() => api.getCurrentTime()) };
+      const property = typeof api.getStreamingProperty === 'function' ? api.getStreamingProperty.bind(api) : null;
+      for (const name of STREAMING_PROPERTIES) out[name] = property === null ? 'no getStreamingProperty' : probe(() => property(name));
+      out['getCurrentStreamInfo'] = probe(() => streamsText(api.getCurrentStreamInfo()));
+      return out;
+    },
     snapshot: (): PlayerSnapshot => {
       const state = read(() => api.getState(), 'unknown');
       if (playing && (state === 'PLAYING' || state === 'PAUSED')) lastPos = read(() => api.getCurrentTime(), lastPos);

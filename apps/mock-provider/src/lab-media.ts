@@ -9,7 +9,7 @@
 // The items are fixed catalog entries (fixtures/catalog.yaml): the bilingual live channel 104 as
 // TS and HLS, the same through a chain of 302s and with a stall after a set amount of its media
 // (each new request plays that much again, so a reopening player meets a stall at a steady
-// rhythm), the 4K HEVC movie 205, the multi-audio MKV 206 (AAC ara/eng/spa, AC3 and E-AC3 5.1,
+// rhythm) and with an outage that holds the socket (S4's `held-socket`), the 4K HEVC movie 205, the multi-audio MKV 206 (AAC ara/eng/spa, AC3 and E-AC3 5.1,
 // SRT), and the episodes with SRT in MKV (3001) and mov_text in MP4 (3011). A catalog without
 // one of them (`--catalog` with the scale fixtures) leaves it out.
 
@@ -34,6 +34,15 @@ export const LAB_REDIRECT_HOPS = 3;
  * for AVPlay to start (docs/spikes/results.md, the S4 soak; RELAY step 39s3).
  */
 export const LAB_STALL_TS_SECONDS = 18;
+/**
+ * The held-socket row (S4 `held-socket`, RELAY step 49): live TS that stops `afterMs` into each
+ * response and stays down `outageMs`, every request for it held with no data meanwhile and closed
+ * at the end. `live-outages`' fault (60 s, 25 s) made shorter and carried by the URL, so the row
+ * runs under any scenario: long enough to watch AVPlay play, then through its own reconnects
+ * (about 7 s after the data stops) and the outage (docs/spikes/results.md, "From the Samsung TV
+ * (2026-11-25)").
+ */
+export const LAB_OUTAGE = { afterMs: 30_000, outageMs: 30_000 } as const;
 /** The VOD stall row: bytes of each response; the file (3011, about 50 KB/s) plays about 20 s. */
 export const LAB_STALL_VOD_BYTES = 1_000_000;
 
@@ -48,6 +57,7 @@ export type LabMediaId =
   | 'redirect-ts'
   | 'redirect-hls'
   | 'stall-ts'
+  | 'outage-ts'
   | 'stall-vod'
   | 'hevc-4k'
   | 'multi-audio'
@@ -58,7 +68,7 @@ export interface LabMediaItem {
   readonly url: string;
   readonly kind: 'live' | 'vod';
   readonly container: 'ts' | 'hls' | 'mp4' | 'mkv';
-  /** What the URL's `mock_fault` adds: `redirect:hops=3`, `stall:after_bytes=2125152`, or null. */
+  /** What the URL's `mock_fault` adds: `redirect:hops=3`, `stall:after_bytes=2125152`, `stall:after_ms=30000:outage_ms=30000`, or null. */
   readonly fault: string | null;
   /** From the manifest; null with placeholder bytes. */
   readonly video: { readonly codec: string; readonly width: number; readonly height: number; readonly fps: number } | null;
@@ -132,6 +142,7 @@ export function labMedia(state: MockState, base: string): LabMedia | null {
     items['redirect-ts'] = live('ts', redirect);
     items['redirect-hls'] = live('hls', redirect);
     items['stall-ts'] = live('ts', `stall:after_bytes=${labStallTsBytes(state.media.liveBytesPerSecond(LAB_LIVE_CHANNEL))}`);
+    items['outage-ts'] = live('ts', `stall:after_ms=${LAB_OUTAGE.afterMs}:outage_ms=${LAB_OUTAGE.outageMs}`);
   }
 
   for (const id of Object.keys(VOD) as Array<keyof typeof VOD>) {

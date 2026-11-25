@@ -51,7 +51,14 @@ export type LabPlayerEvent =
   /** The engine started the stream again on its own (not after `open`). */
   | { readonly type: 'restart' }
   /** A subtitle cue of the shown text track. */
-  | { readonly type: 'cue'; readonly track: number; readonly text: string };
+  | { readonly type: 'cue'; readonly track: number; readonly text: string }
+  /**
+   * One of the engine's own callbacks, raw, for the probes that watch them (S4's `held-socket`,
+   * RELAY step 49): AVPlay's `onbufferingstart`, `onbufferingprogress` (data: the percent),
+   * `onbufferingcomplete`, `oncurrentplaytime` (the ms), `onevent` (the event and its data),
+   * `onerror` and `onerrormsg`.
+   */
+  | { readonly type: 'signal'; readonly name: string; readonly data: string };
 
 export interface OpenOptions {
   /** A live stream: `resume` reopens it at the live edge, not at the position it was hidden at. */
@@ -101,4 +108,14 @@ export interface LabPlayer {
   stop(): void;
   /** Stops and takes the picture off the screen. */
   dispose(): void;
+}
+
+/** A player whose own state can be read beyond the snapshot (AVPlay; S4's `held-socket`, RELAY step 49). */
+export interface SignalPlayer extends LabPlayer {
+  /**
+   * Every signal it can be asked for, now, by its API name and as text: `getState`,
+   * `getCurrentTime`, AVPlay's streaming properties, `getCurrentStreamInfo`. A call that threw reads
+   * `throws <its name>`. Its callbacks come as `signal` events.
+   */
+  signals(): Readonly<Record<string, string>>;
 }

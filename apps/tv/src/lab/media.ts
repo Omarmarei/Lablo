@@ -15,7 +15,7 @@ export const HEVC_MIME = 'video/mp4; codecs="hvc1.1.6.L150.B0"';
 export const AC3_MIME = 'audio/mp4; codecs="ac-3"';
 export const EAC3_MIME = 'audio/mp4; codecs="ec-3"';
 
-export const LAB_MEDIA_IDS = ['live-ts', 'live-hls', 'redirect-ts', 'redirect-hls', 'stall-ts', 'stall-vod', 'hevc-4k', 'multi-audio', 'subs-mkv', 'subs-mp4'] as const;
+export const LAB_MEDIA_IDS = ['live-ts', 'live-hls', 'redirect-ts', 'redirect-hls', 'stall-ts', 'outage-ts', 'stall-vod', 'hevc-4k', 'multi-audio', 'subs-mkv', 'subs-mp4'] as const;
 export type LabMediaId = (typeof LAB_MEDIA_IDS)[number];
 
 export interface MediaTrackInfo {

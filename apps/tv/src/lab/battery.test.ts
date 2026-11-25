@@ -485,7 +485,7 @@ describe('the battery checks', () => {
       ['suspend', 'skip'],
       ['soak', 'skip'],
     ]);
-    expect(results['formats']?.note).toBe('10 media items on the lab server');
+    expect(results['formats']?.note).toBe('11 media items on the lab server');
     expect(results['ts']).toMatchObject({ note: "no picture within 10000 ms: no answer, and the engine says it can't play video/mp2t (canPlayType '')", value: { unsupported: true, limitMs: 2500 } });
     expect(results['hls']).toMatchObject({ note: 'first frame in 900 ms (960×540)', value: { limitMs: 4000 } });
     // TS never played, so the redirect row took HLS.

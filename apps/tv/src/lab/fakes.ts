@@ -100,6 +100,10 @@ export interface AvplayPlan {
   readyError?: string;
   /** A switch that starts the stream over (the clock goes back to the start). */
   restartOnSwitch?: boolean;
+  /** `getStreamingProperty`'s answers by ms since the open; one it lacks throws `NotSupportedError` (S4's `held-socket`). */
+  properties?: (sinceOpenMs: number) => Readonly<Record<string, string>>;
+  /** Callbacks at set ms since the open, each once: `[ms, name, ...its arguments]`. */
+  callbacks?: ReadonlyArray<readonly [number, keyof AvplayListener, ...unknown[]]>;
 }
 
 const STREAM = (index: number, type: string, extra: Record<string, string>): AvplayStreamInfo => {
@@ -138,6 +142,9 @@ export class FakeAvplay implements AvplayManager {
   private textIndex: number | null = null;
   private silent = true;
   private nextCue: number | null = null;
+  /** When this open happened (the plan's `properties` and `callbacks` count from it). */
+  openedAt = 0;
+  private callbacksDone = 0;
   /** A jump: the clock lands 100 ms after the call, the success callback 100 ms after that. */
   private seek: { at: number; ms: number; landed: boolean; ok?: () => void } | null = null;
 
@@ -177,6 +184,12 @@ export class FakeAvplay implements AvplayManager {
 
   private tick(t: number): void {
     const p = this.plan;
+    const scripted = p.callbacks ?? [];
+    while (this.state !== 'NONE' && this.callbacksDone < scripted.length && t - this.openedAt >= (scripted[this.callbacksDone] as readonly [number, ...unknown[]])[0]) {
+      const [, name, ...args] = scripted[this.callbacksDone] as readonly [number, keyof AvplayListener, ...unknown[]];
+      this.callbacksDone += 1;
+      (this.listener[name] as ((...a: unknown[]) => void) | undefined)?.(...args);
+    }
     const prep = this.preparing;
     if (prep !== null && p.prepareAfterMs !== null && t - prep.at >= p.prepareAfterMs) {
       this.preparing = null;
@@ -223,6 +236,8 @@ export class FakeAvplay implements AvplayManager {
     this.urls.push(url);
     this.plan = this.script(url, this.urls.length);
     this.state = 'IDLE';
+    this.openedAt = this.clock.t;
+    this.callbacksDone = 0;
     this.listener = {};
     this.preparing = null;
     this.playAt = null;
@@ -287,6 +302,13 @@ export class FakeAvplay implements AvplayManager {
   getCurrentTime(): number {
     if (this.state !== 'PLAYING' && this.state !== 'PAUSED') throw new Thrown('InvalidStateError', `getCurrentTime in ${this.state}`);
     return this.position();
+  }
+  getStreamingProperty(property: string): string {
+    this.call('getStreamingProperty', property);
+    if (this.state !== 'READY' && this.state !== 'PLAYING' && this.state !== 'PAUSED') throw new Thrown('InvalidStateError', `getStreamingProperty in ${this.state}`);
+    const value = this.plan.properties?.(this.clock.t - this.openedAt)[property];
+    if (value === undefined) throw new Thrown('NotSupportedError', `no ${property} here`);
+    return value;
   }
   getTotalTrackInfo(): readonly AvplayStreamInfo[] {
     if (this.state === 'NONE' || this.state === 'IDLE') throw new Thrown('InvalidStateError', `getTotalTrackInfo in ${this.state}`);
@@ -358,6 +380,7 @@ export const LAB_MEDIA_FIXTURE: LabMedia = {
     'redirect-ts': labMediaItem('http://lab/live/104.ts?mock_fault=redirect:hops=3', { fault: 'redirect:hops=3' }),
     'redirect-hls': labMediaItem('http://lab/live/104.m3u8?mock_fault=redirect:hops=3', { container: 'hls', fault: 'redirect:hops=3' }),
     'stall-ts': labMediaItem('http://lab/live/104.ts?mock_fault=stall:after_bytes=2125152', { fault: 'stall:after_bytes=2125152' }),
+    'outage-ts': labMediaItem('http://lab/live/104.ts?mock_fault=stall:after_ms=30000:outage_ms=30000', { fault: 'stall:after_ms=30000:outage_ms=30000' }),
     'stall-vod': labMediaItem('http://lab/series/3011.mp4?mock_fault=stall:after_bytes=1000000', { kind: 'vod', container: 'mp4', fault: 'stall:after_bytes=1000000' }),
     'hevc-4k': labMediaItem('http://lab/movie/205.mp4', { kind: 'vod', container: 'mp4', video: { codec: 'hevc', width: 3840, height: 2160 } }),
     'multi-audio': labMediaItem('http://lab/movie/206.mkv', { kind: 'vod', container: 'mkv', audio: FIVE_AUDIO }),

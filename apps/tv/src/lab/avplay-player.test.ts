@@ -16,8 +16,13 @@ function setup(script: (url: string, n: number) => AvplayPlan = () => ({ prepare
   const stage = fakeAvplayStage();
   const player = createAvplayPlayer(api, stage, { timers: clock.timers, now: clock.now });
   const events: LabPlayerEvent[] = [];
-  player.on((event) => events.push(event));
-  return { clock, api, stage, player, events };
+  /** AVPlay's callbacks as they came, raw (`signal` events, S4's `held-socket`). */
+  const signals: Array<[string, string]> = [];
+  player.on((event) => {
+    if (event.type === 'signal') signals.push([event.name, event.data]);
+    else events.push(event);
+  });
+  return { clock, api, stage, player, events, signals };
 }
 
 /** Waits `ms` on the fake clock in the battery's 50 ms steps. */
@@ -135,7 +140,7 @@ describe('the AVPlay player (RELAY step 15c2)', () => {
   });
 
   it('drops the callbacks of an earlier open', async () => {
-    const { clock, api, player, events } = setup();
+    const { clock, api, player, events, signals } = setup();
     const kept: Array<{ ok?: () => void; error?: (e: AvplayError) => void }> = [];
     const prepare = api.prepareAsync.bind(api);
     api.prepareAsync = (ok, error) => {
@@ -158,8 +163,17 @@ describe('the AVPlay player (RELAY step 15c2)', () => {
     listeners[0]?.onstreamcompleted?.();
     listeners[0]?.onbufferingstart?.();
     listeners[0]?.onsubtitlechange?.('1', 'old', '0');
+    listeners[0]?.onbufferingprogress?.(50);
+    listeners[0]?.onbufferingcomplete?.();
+    listeners[0]?.onevent?.('PLAYER_MSG_NONE', 'old');
+    listeners[0]?.onerrormsg?.('PLAYER_ERROR_CONNECTION_FAILED', 'old');
     expect(api.calls.filter((c) => c === 'play').length).toBe(plays);
     expect(events).toEqual([]);
+    // Each prepare's own buffering start, while it was the current open; nothing from the old one after.
+    expect(signals).toEqual([
+      ['onbufferingstart', ''],
+      ['onbufferingstart', ''],
+    ]);
     expect(player.readiness()).toEqual({ prepared: false, ms: null, error: null });
     // The newer open goes on as usual.
     await wait(clock, 400);
@@ -359,6 +373,57 @@ describe('the AVPlay player (RELAY step 15c2)', () => {
     expect(early.api.calls).not.toContain('play');
     await wait(early.clock, 600);
     expect(early.events).toEqual([{ type: 'frame' }]);
+  });
+
+  it("passes every callback on raw as a signal, and reads AVPlay's signals (S4's held-socket, RELAY step 49)", async () => {
+    const { clock, api, player, events, signals } = setup(() => ({ prepareAfterMs: 100, properties: (ms) => ({ CURRENT_BANDWIDTH: String(1000 + ms), IS_LIVE: '1' }) }));
+    // Before an open AVPlay is NONE, and every other reading throws.
+    expect(player.signals()).toEqual({
+      getState: 'NONE',
+      getCurrentTime: 'throws InvalidStateError',
+      CURRENT_BANDWIDTH: 'throws InvalidStateError',
+      GET_LIVE_DURATION: 'throws InvalidStateError',
+      IS_LIVE: 'throws InvalidStateError',
+      AVAILABLE_BITRATE: 'throws InvalidStateError',
+      getCurrentStreamInfo: 'throws InvalidStateError',
+    });
+    player.open(LIVE, { live: true });
+    await wait(clock, 400);
+    // Prepared at 100 ms, moving from 200: 400 ms after the open.
+    expect(player.signals()).toEqual({
+      getState: 'PLAYING',
+      getCurrentTime: '200',
+      CURRENT_BANDWIDTH: '1400',
+      GET_LIVE_DURATION: 'throws NotSupportedError',
+      IS_LIVE: '1',
+      AVAILABLE_BITRATE: 'throws NotSupportedError',
+      getCurrentStreamInfo: 'VIDEO0 {"fourCC":"H264","Width":"1920","Height":"1080"} | AUDIO1 {"language":"eng","fourCC":"AAC","channels":"2"}',
+    });
+    // Each reading asks for the four properties, in the record's order.
+    const four = ['getStreamingProperty CURRENT_BANDWIDTH', 'getStreamingProperty GET_LIVE_DURATION', 'getStreamingProperty IS_LIVE', 'getStreamingProperty AVAILABLE_BITRATE'];
+    expect(api.calls.filter((c) => c.indexOf('getStreamingProperty') === 0)).toEqual(four.concat(four));
+    api.fire('onbufferingprogress', 40);
+    api.fire('onevent', 'PLAYER_MSG_BITRATE_CHANGE', '800000');
+    api.fire('onevent', 'PLAYER_MSG_NONE', '');
+    api.fire('onerrormsg', 'PLAYER_ERROR_CONNECTION_FAILED', 'timeout');
+    api.fire('onerror', 'PLAYER_ERROR_CONNECTION_FAILED');
+    expect(signals).toEqual([
+      ['onbufferingstart', ''],
+      ['onbufferingcomplete', ''],
+      ['oncurrentplaytime', '0'],
+      ['onbufferingprogress', '40'],
+      ['onevent', 'PLAYER_MSG_BITRATE_CHANGE 800000'],
+      ['onevent', 'PLAYER_MSG_NONE'],
+      ['onerrormsg', 'PLAYER_ERROR_CONNECTION_FAILED timeout'],
+      ['onerror', 'PLAYER_ERROR_CONNECTION_FAILED'],
+    ]);
+    // The error is still the player's error too.
+    expect(events).toEqual([{ type: 'frame' }, { type: 'error', error: { code: null, message: 'PLAYER_ERROR_CONNECTION_FAILED', unsupported: false } }]);
+    // An error without a name gives its text; an AVPlay without getStreamingProperty says so.
+    api.throws['getStreamingProperty'] = '';
+    expect(player.signals()).toMatchObject({ CURRENT_BANDWIDTH: 'throws getStreamingProperty refused', IS_LIVE: 'throws getStreamingProperty refused' });
+    (api as { getStreamingProperty?: unknown }).getStreamingProperty = undefined;
+    expect(player.signals()).toMatchObject({ getState: 'PLAYING', CURRENT_BANDWIDTH: 'no getStreamingProperty', AVAILABLE_BITRATE: 'no getStreamingProperty' });
   });
 
   it('describes the engine, has no canPlayType, and captions on its stage', () => {

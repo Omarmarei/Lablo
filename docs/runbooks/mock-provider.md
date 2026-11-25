@@ -390,6 +390,7 @@ The batteries (S5 on `<video>`, S4 and S8 on AVPlay; S8 uses `live-ts` twice at 
 | `live-ts`, `live-hls` | `/live/{u}/{p}/104.ts`, `.m3u8` | the bilingual channel (AAC ara + eng) |
 | `redirect-ts`, `redirect-hls` | the same with `mock_fault=redirect:hops=3` | three 302s first |
 | `stall-ts` | `104.ts?mock_fault=stall:after_bytes=N` | each response stalls after 18 s of the channel's media: N from its bitrate (2,125,152 with today's generated 104; 2,368,800 with placeholder bytes) |
+| `outage-ts` | `104.ts?mock_fault=stall:after_ms=30000:outage_ms=30000` | S4's `held-socket` (step 49): 30 s of play, then the stream is down 30 s, every request for it held with no data and closed at the end (`LAB_OUTAGE`) |
 | `stall-vod` | `/series/{u}/{p}/3011.mp4?mock_fault=stall:after_bytes=1000000` | the same for an engine without TS (about 20 s each) |
 | `hevc-4k` | `/movie/{u}/{p}/205.mp4` | 4K HEVC |
 | `multi-audio` | `/movie/{u}/{p}/206.mkv` | AAC ara/eng/spa, AC3 5.1, E-AC3 5.1, SRT ara + eng |

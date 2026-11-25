@@ -48,7 +48,7 @@ describe("the lab server's media list", () => {
     ];
     for (const item of bad) expect(parseLabMedia({ media: 'files', items: { 'subs-mkv': item } })?.items).toEqual({});
     expect(parseLabMedia({ media: 'files', items: { 'other-thing': ITEM } })?.items).toEqual({});
-    expect(LAB_MEDIA_IDS).toHaveLength(10);
+    expect(LAB_MEDIA_IDS).toHaveLength(11);
   });
 
   it('drops a track list with a bad track, and a channel count it lacks reads as 0', () => {

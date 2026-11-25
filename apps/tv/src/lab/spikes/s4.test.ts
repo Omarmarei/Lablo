@@ -18,6 +18,14 @@ const TV_PLAN = (url: string): AvplayPlan => {
   if (url.indexOf('/206.') !== -1) return { prepareAfterMs: 800, audio: FIVE_AUDIO };
   if (url.indexOf('/3001.') !== -1 || url.indexOf('/3011.mp4') !== -1) return { prepareAfterMs: 700, text: [{ lang: 'eng', codec: 'srt' }], stallAfterMs: url.indexOf('stall') !== -1 ? 20_000 : undefined };
   if (url.indexOf('.m3u8') !== -1) return { prepareAfterMs: 1500 };
+  // The held socket (30 s, then 30 s down): the bandwidth reads 0 and the buffer runs dry once.
+  if (url.indexOf('outage_ms') !== -1) {
+    return {
+      prepareAfterMs: 600,
+      properties: (ms) => ({ CURRENT_BANDWIDTH: ms >= 31_000 && ms < 61_000 ? '0' : '1200000', IS_LIVE: '1' }),
+      callbacks: [[36_000, 'onbufferingstart']],
+    };
+  }
   return { prepareAfterMs: 600, stallAfterMs: url.indexOf('stall') !== -1 ? 18_000 : undefined };
 };
 
@@ -93,10 +101,11 @@ describe('S4, the AVPlay battery on a fake AVPlay (RELAY step 15c2)', () => {
       ['audio-tracks', 'pass'],
       ['ac3', 'pass'],
       ['subtitles', 'pass'],
+      ['held-socket', 'pass'],
       ['suspend', 'skip'],
       ['soak', 'skip'],
     ]);
-    expect(results['formats']).toMatchObject({ value: { media: 'files', engine: { engine: 'avplay', version: 'fake-avplay 1.0' } }, note: '10 media items on the lab server' });
+    expect(results['formats']).toMatchObject({ value: { media: 'files', engine: { engine: 'avplay', version: 'fake-avplay 1.0' } }, note: '11 media items on the lab server' });
     // Prepared at 600 ms, the clock moving at 700 ms, seen at 750 ms; no canPlayType on AVPlay.
     expect(results['ts']).toMatchObject({ note: 'first frame in 750 ms (1920×1080)', value: { canPlay: null } });
     expect(results['hls']?.note).toBe('first frame in 1650 ms (1920×1080)');
@@ -108,6 +117,9 @@ describe('S4, the AVPlay battery on a fake AVPlay (RELAY step 15c2)', () => {
     expect(results['audio-tracks']).toMatchObject({ note: '5 of 5 tracks listed (ara "AAC 2ch", eng "AAC 2ch", spa "AAC 2ch", eng "AC3 6ch", eng "EAC3 6ch"); switched to eng "AAC 2ch" in 200 ms', value: { route: 'setSelectTrack' } });
     expect(results['ac3']?.note).toBe('ac3 in 200 ms, eac3 in 200 ms (setSelectTrack); both played on (whether they sound right is for the ear)');
     expect(results['subtitles']?.note).toBe('subs-mkv: 1 tracks, a cue in 5000 ms; subs-mp4: 1 tracks, a cue in 5000 ms');
+    // It needs nobody, so a run at launch has it (RELAY step 49): AVPlay's own signals through a held socket.
+    expect(results['held-socket']?.note).toMatch(/^changed at the outage: CURRENT_BANDWIDTH \(1200000 → 0; back after\), onbufferingstart \(none, then 0\.3 per 10 s; back after\); unchanged: getState, getCurrentTime, /);
+    expect(b.api.calls).toContain('getStreamingProperty CURRENT_BANDWIDTH');
     // AVPlay was told each stream, with the tracks chosen by their stream index.
     expect(b.api.calls).toContain('setSelectTrack AUDIO 2');
     expect(b.api.calls).toContain('setSelectTrack AUDIO 4');
@@ -149,7 +161,7 @@ describe('S4, the AVPlay battery on a fake AVPlay (RELAY step 15c2)', () => {
 
   it('skips every row without AVPlay, and on placeholder bytes all but formats', async () => {
     const none = createS4(() => null);
-    expect(none.checks.map((c) => c.id)).toEqual(['formats', 'ts', 'hls', 'redirect', 'redirect-probe', 'hevc-4k', 'audio-tracks', 'ac3', 'subtitles', 'suspend', 'soak']);
+    expect(none.checks.map((c) => c.id)).toEqual(['formats', 'ts', 'hls', 'redirect', 'redirect-probe', 'hevc-4k', 'audio-tracks', 'ac3', 'subtitles', 'held-socket', 'suspend', 'soak']);
     for (const check of none.checks) expect(await check.run({} as LabContext)).toEqual({ status: 'skip', note: NOT_TIZEN });
     const desktop = s4({ missing: NO_AVPLAY });
     const results = await desktop.runAll();

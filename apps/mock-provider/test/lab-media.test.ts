@@ -6,7 +6,8 @@ import type { Catalog } from '../src/config';
 import { loadCatalog } from '../src/config';
 import type { MediaManifest } from '../src/file-media';
 import type { LabMedia } from '../src/lab-media';
-import { LAB_LIVE_CHANNEL, LAB_REDIRECT_HOPS, LAB_STALL_TS_SECONDS, LAB_STALL_VOD_BYTES, labStallTsBytes } from '../src/lab-media';
+import { parseFaultFlags } from '../src/faults';
+import { LAB_LIVE_CHANNEL, LAB_OUTAGE, LAB_REDIRECT_HOPS, LAB_STALL_TS_SECONDS, LAB_STALL_VOD_BYTES, labStallTsBytes } from '../src/lab-media';
 import type { MediaSource } from '../src/media';
 import { PlaceholderMedia } from '../src/media';
 import { P, U, mock } from './helpers';
@@ -72,6 +73,17 @@ async function labMediaOf(options: Parameters<typeof mock>[0] = {}): Promise<{ s
 const BASE = 'http://tv-lab.test:8080';
 const ACCOUNT = `${U}/${P}`;
 
+describe('the held-socket row (S4, RELAY step 49)', () => {
+  it("is live-outages' fault on the URL: 30 s of play, then 30 s down with every request held", async () => {
+    expect(LAB_OUTAGE).toEqual({ afterMs: 30_000, outageMs: 30_000 });
+    const { body } = await labMediaOf({ media: filesMedia(MANIFEST) });
+    const item = body.items['outage-ts'];
+    expect(item).toMatchObject({ kind: 'live', container: 'ts', fault: 'stall:after_ms=30000:outage_ms=30000', video: VIDEO });
+    // The server reads it as an outage of the stream (faults.test.ts: held, then closed at its end).
+    expect(parseFaultFlags(item?.fault ?? '')).toEqual([{ type: 'stall', afterBytes: undefined, afterMs: 30_000, holdMs: 120_000, outageMs: 30_000 }]);
+  });
+});
+
 describe('the live stall row', () => {
   it("stalls after 18 s of the channel's own media", () => {
     expect(LAB_STALL_TS_SECONDS).toBe(18);
@@ -93,6 +105,7 @@ describe('/__lab/media', () => {
       'redirect-hls': `${BASE}/live/${ACCOUNT}/${LAB_LIVE_CHANNEL}.m3u8?mock_fault=redirect:hops=${LAB_REDIRECT_HOPS}`,
       // 18 s of the test's placeholder bytes (2,632,000 bytes a second).
       'stall-ts': `${BASE}/live/${ACCOUNT}/${LAB_LIVE_CHANNEL}.ts?mock_fault=stall:after_bytes=47376000`,
+      'outage-ts': `${BASE}/live/${ACCOUNT}/${LAB_LIVE_CHANNEL}.ts?mock_fault=stall:after_ms=30000:outage_ms=30000`,
       'hevc-4k': `${BASE}/movie/${ACCOUNT}/205.mp4`,
       'multi-audio': `${BASE}/movie/${ACCOUNT}/206.mkv`,
       'subs-mkv': `${BASE}/series/${ACCOUNT}/3001.mkv`,
