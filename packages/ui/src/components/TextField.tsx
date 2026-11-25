@@ -1,3 +1,5 @@
+import { firstStrongDirection } from '@lablo/core';
+import { maskText } from '../focus/screen-keyboard';
 import type { FieldEditing } from '../focus/text-editor';
 import type { FocusableProps } from './focusable';
 import { focusClass } from './focusable';
@@ -44,12 +46,21 @@ interface InputTarget {
  *
  * The box is aligned to the label's side in both directions (its text-align is mirrored), while
  * a link inside it still reads left to right.
+ *
+ * While the app's own keyboard types (`edit.typing`, step 51) the input has no DOM focus, so no
+ * caret: the box draws the text itself with a caret at its end, and the input hides. A line too
+ * long for the box spills out at the box's end edge (CSS Text 3; old Blink does the same), so the
+ * line runs opposite to its text (`dir`): the text's end, where the caret is, stays in sight.
  */
 export function TextField({ id, label, value, kind = 'text', hint, error, dir, maxLength, onValue, edit, state, onHover, onPress, testId }: TextFieldProps) {
   const editing = edit?.editing === true;
+  const typing = editing && edit?.typing === true;
   const invalid = error !== undefined && error !== null && error !== '';
   const note = invalid ? error : (hint ?? '');
-  const base = `z-field${editing ? ' is-editing' : ''}${invalid ? ' is-invalid' : ''}`;
+  const base = `z-field${editing ? ' is-editing' : ''}${typing ? ' is-typing' : ''}${invalid ? ' is-invalid' : ''}`;
+  const reads = dir ?? (kind === 'text' ? 'auto' : 'ltr');
+  // The typed text's own direction (a name is `auto`: its first letter decides, as the input's would).
+  const runs = reads === 'ltr' ? 'ltr' : (firstStrongDirection(value) ?? 'ltr');
   const onInput = (event: InputTarget): void => {
     edit?.onEditInput();
     onValue?.(event.currentTarget.value);
@@ -72,7 +83,7 @@ export function TextField({ id, label, value, kind = 'text', hint, error, dir, m
           class="z-field__input"
           type={kind}
           value={value}
-          dir={dir ?? (kind === 'text' ? 'auto' : 'ltr')}
+          dir={reads}
           maxLength={maxLength}
           tabIndex={-1}
           readOnly={edit?.readOnly === true}
@@ -86,6 +97,14 @@ export function TextField({ id, label, value, kind = 'text', hint, error, dir, m
           onFocus={edit?.onEditFocus}
           onBlur={edit?.onEditBlur}
         />
+        {typing ? (
+          <span class="z-field__typed" dir={runs === 'ltr' ? 'rtl' : 'ltr'} aria-hidden="true">
+            <span dir={runs}>
+              {kind === 'password' ? maskText(value) : value}
+              <span class="z-field__caret" />
+            </span>
+          </span>
+        ) : null}
       </div>
       <p class="z-field__note" id={`${id}-note`} role={invalid ? 'alert' : undefined}>
         {note}

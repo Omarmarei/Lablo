@@ -58,11 +58,18 @@ export interface FieldEditing {
   readonly onEditBlur: () => void;
   /** The input takes no typing of its own (the app's keyboard types into it): no TV keyboard opens on its focus. */
   readonly readOnly?: boolean;
+  /**
+   * The app's keyboard types into this field now (not handed over to the TV's): the input has
+   * no DOM focus, so no caret of its own, and the field draws the text with a caret (step 51).
+   */
+  readonly typing?: boolean;
 }
 
 export interface TextEditor {
   /** The id of the field being edited, or `null`. */
   readonly editing: string | null;
+  /** The id of the field the app's keyboard types into (`FieldEditing.typing`), or `null`. */
+  readonly typing: string | null;
   /** Gives the field's input DOM focus, ending any other edit first. False when it isn't there. */
   open(id: string): boolean;
   /** Ends the edit, if any, keeping the text and the engine's focus. */
@@ -128,6 +135,8 @@ export function createTextEditor(options: TextEditorOptions): TextEditor {
     handedOver = id;
     (input as { readOnly?: boolean }).readOnly = false;
     input.focus();
+    // The field stops drawing its own caret: the TV's keyboard types into the input now.
+    notify();
   };
 
   /** Opens the app's keyboard on field `id`'s input (nothing gets DOM focus). */
@@ -148,6 +157,9 @@ export function createTextEditor(options: TextEditorOptions): TextEditor {
     get editing() {
       return editing;
     },
+    get typing() {
+      return own && editing !== handedOver ? editing : null;
+    },
     open(id: string): boolean {
       if (editing === id) return true;
       const input = find(id);
@@ -165,6 +177,7 @@ export function createTextEditor(options: TextEditorOptions): TextEditor {
       return {
         editing: editing === id,
         readOnly: own,
+        typing: own && editing === id && handedOver !== id,
         onEditKey(event: EditKeyEvent): void {
           // Typing is the field's: nothing behind it (the remote wiring, a screen) sees it.
           event.stopPropagation();

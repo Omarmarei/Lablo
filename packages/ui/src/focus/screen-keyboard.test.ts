@@ -2,7 +2,7 @@ import type { Intent, KeyLike, TextKey } from '@lablo/platform-api';
 import { describe, expect, it } from 'vitest';
 import { layoutRows, offersArabic, startLayout } from './keyboard-layouts';
 import type { KeyboardEnd, KeyboardInput } from './screen-keyboard';
-import { createScreenKeyboard, setScreenKeyboardLabels } from './screen-keyboard';
+import { LIFT_GAP, createScreenKeyboard, setScreenKeyboardLabels } from './screen-keyboard';
 
 /** The few parts of the DOM the keyboard touches. */
 class FakeElement {
@@ -15,6 +15,21 @@ class FakeElement {
   type = '';
   tabIndex = 0;
   style: Record<string, string> = {};
+  /** Where it is drawn before any lift (step 51). */
+  top = 0;
+  bottom = 0;
+  getBoundingClientRect(): { top: number; bottom: number } {
+    // The panel: 100 px a row of keys, along the bottom of the 1080 px canvas.
+    if (this.className === 'z-kbd') return { top: 1080 - 100 * (this.children[1]?.children.length ?? 0), bottom: 1080 };
+    // Anything else where it was put, moved by its own and its ancestors' translateY.
+    const moved = (el: FakeElement): number => {
+      const found = /^translateY\((-?\d+)px\)$/.exec(el.style.transform ?? '');
+      return found === null ? 0 : Number(found[1]);
+    };
+    let shift = moved(this);
+    for (let at = this.parentNode; at !== null; at = at.parentNode) shift += moved(at);
+    return { top: this.top + shift, bottom: this.bottom + shift };
+  }
   get firstChild(): FakeElement | null {
     return this.children[0] ?? null;
   }
@@ -90,7 +105,30 @@ function setup(type = 'text', lang = 'en', maxLength = -1) {
     for (const l of doc.listeners.get('keydown') ?? []) l(event);
     return event;
   };
-  return { doc, keyboard, input, ends, root, grid, keyAt, focused, send, preview: () => root.children[0]!.textContent };
+  const line = root.children[0]!;
+  return { doc, keyboard, input, ends, root, grid, keyAt, focused, send, line, preview: () => line.children[0]!.textContent };
+}
+
+/** The keyboard over a page part (the app's root) holding a field whose box ends at `bottom` px. */
+function lifting(bottom: number, type = 'text', lang = 'en') {
+  const doc = new FakeDocument();
+  doc.documentElement.lang = lang;
+  const part = doc.body.appendChild(new FakeElement());
+  const field = part.appendChild(new FakeElement()).appendChild(new FakeElement());
+  field.className = 'z-field';
+  field.top = bottom - 150;
+  field.bottom = bottom;
+  const asked: string[] = [];
+  const input = Object.assign(new FakeInput(type), { closest: (selector: string) => (asked.push(selector), field as unknown as Element) });
+  const keyboard = createScreenKeyboard(doc as unknown as Document);
+  const ends: KeyboardEnd[] = [];
+  keyboard.open({ input, platform, onEnd: (how) => ends.push(how) });
+  const root = doc.body.children[1]!;
+  const keyAt = (row: number, col: number): FakeElement => root.children[1]!.children[row]!.children[col]!;
+  const send = (keyCode: number) => {
+    for (const l of doc.listeners.get('keydown') ?? []) l({ keyCode, stopPropagation() {}, preventDefault() {} });
+  };
+  return { doc, part, field, keyboard, root, asked, ends, keyAt, send };
 }
 
 describe('layouts (step 40e)', () => {
@@ -340,6 +378,21 @@ describe('createScreenKeyboard (step 40e)', () => {
     }
   });
 
+  it('its text line shows the end of a long text: the line runs opposite to the text (step 51)', () => {
+    const r = setup();
+    // Empty: a Latin line, on the left.
+    expect([r.line.attributes.get('dir'), r.line.style.textAlign, r.line.children[0]!.attributes.get('dir')]).toEqual(['rtl', 'left', 'ltr']);
+    r.send(0, 'a');
+    expect([r.line.attributes.get('dir'), r.line.style.textAlign, r.line.children[0]!.attributes.get('dir')]).toEqual(['rtl', 'left', 'ltr']);
+    // Arabic first: the text runs right to left and sits on the right.
+    r.send(0, 'Backspace');
+    r.keyAt(4, 1).click();
+    r.keyAt(0, 0).click();
+    r.send(0, '1');
+    expect(r.preview()).toBe('ض1');
+    expect([r.line.attributes.get('dir'), r.line.style.textAlign, r.line.children[0]!.attributes.get('dir')]).toEqual(['ltr', 'right', 'rtl']);
+  });
+
   it('opening again replaces the first session without ending it', () => {
     const r = setup();
     const second = new FakeInput();
@@ -351,5 +404,74 @@ describe('createScreenKeyboard (step 40e)', () => {
     expect(second.value).toBe('1');
     expect(r.input.value).toBe('');
     expect(r.ends).toEqual([]);
+  });
+});
+
+describe('the keyboard keeps the field above its panel (step 51)', () => {
+  it('moves the page up until a field low on the screen is above the panel, and back when it closes', () => {
+    // The Latin page has five rows: the panel's top is at 580.
+    const r = lifting(900);
+    expect(r.asked).toEqual(['.z-field']);
+    expect(r.part.style.transform).toBe('translateY(-344px)');
+    expect(r.field.getBoundingClientRect().bottom).toBe(580 - LIFT_GAP);
+    // The Arabic page has four rows: less to move.
+    r.keyAt(4, 1).click();
+    expect(r.root.children[1]!.children).toHaveLength(4);
+    expect(r.part.style.transform).toBe('translateY(-244px)');
+    expect(r.field.getBoundingClientRect().bottom).toBe(680 - LIFT_GAP);
+    // Back closes it, and the page goes back down.
+    r.send(27);
+    expect(r.ends).toEqual(['close']);
+    expect(r.part.style.transform).toBe('');
+  });
+
+  it('leaves a field above the panel where it is', () => {
+    expect(lifting(400).part.style.transform).toBe('');
+    expect(lifting(580 - LIFT_GAP).part.style.transform).toBe('');
+    expect(lifting(581 - LIFT_GAP).part.style.transform).toBe('translateY(-1px)');
+    // A field's edge between pixels: lifted the whole pixel, never short of the gap.
+    expect(lifting(581.5 - LIFT_GAP).part.style.transform).toBe('translateY(-2px)');
+  });
+
+  it('a page of keys that makes the panel taller lifts a field that was clear of it', () => {
+    // Arabic first: four rows, the panel's top at 680; the field is clear of it.
+    const r = lifting(600, 'text', 'ar');
+    expect(r.root.children[1]!.children).toHaveLength(4);
+    expect(r.part.style.transform).toBe('');
+    // The Latin page has five rows: the panel's top at 580.
+    r.keyAt(3, 1).click();
+    expect(r.root.children[1]!.children).toHaveLength(5);
+    expect(r.part.style.transform).toBe('translateY(-44px)');
+  });
+
+  it('closing from the app puts the page back too', () => {
+    const r = lifting(900);
+    r.keyboard.close();
+    expect(r.part.style.transform).toBe('');
+    expect(r.ends).toEqual([]);
+  });
+
+  it('opening on another field puts the first page part back before moving the new one', () => {
+    const r = lifting(900);
+    const other = r.doc.body.appendChild(new FakeElement());
+    const field = other.appendChild(new FakeElement());
+    field.bottom = 1000;
+    r.keyboard.open({ input: Object.assign(new FakeInput(), { closest: () => field as unknown as Element }), platform, onEnd: () => undefined });
+    expect(r.part.style.transform).toBe('');
+    expect(other.style.transform).toBe('translateY(-444px)');
+  });
+
+  it('moves nothing for an input outside a field, or a field outside the page', () => {
+    const doc = new FakeDocument();
+    const part = doc.body.appendChild(new FakeElement());
+    const keyboard = createScreenKeyboard(doc as unknown as Document);
+    keyboard.open({ input: Object.assign(new FakeInput(), { closest: () => null }), platform, onEnd: () => undefined });
+    expect(part.style.transform).toBeUndefined();
+    const away = new FakeElement();
+    const field = away.appendChild(new FakeElement());
+    field.bottom = 1000;
+    keyboard.open({ input: Object.assign(new FakeInput(), { closest: () => field as unknown as Element }), platform, onEnd: () => undefined });
+    expect(away.style.transform).toBeUndefined();
+    expect(field.style.transform).toBeUndefined();
   });
 });

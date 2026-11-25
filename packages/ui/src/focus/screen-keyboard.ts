@@ -1,3 +1,4 @@
+import { firstStrongDirection } from '@lablo/core';
 import type { Intent, Platform } from '@lablo/platform-api';
 import '../components/ScreenKeyboard.css';
 import type { KeyDef, KeyboardKind, LayoutName } from './keyboard-layouts';
@@ -13,12 +14,20 @@ import { layoutRows, offersArabic, startLayout } from './keyboard-layouts';
  *
  * How a press reaches the field: nothing has DOM focus. A press sets the input's `value` and
  * sends it an `input` event, which the field's `onInput` reads like a typed key. The text is
- * added at the end (a TV field is short; there is no caret). Keys are heard on the document in
- * the capture phase and stopped, so the remote wiring on the window never sees them.
+ * added at the end (a TV field is short), where the field draws a caret (step 51). Keys are
+ * heard on the document in the capture phase and stopped, so the remote wiring on the window
+ * never sees them.
  *
  * Drawn left to right in both languages (a physical keyboard does not mirror): LEFT moves
  * toward the left edge, so the focus engine's RTL swap does not apply here.
+ *
+ * A field low on the screen would sit under the panel (step 51): while the keyboard is up, the
+ * part of the page that holds the field (the body's child it is in) is moved up until the field,
+ * its note line included, is above the panel; it goes back when the keyboard closes.
  */
+
+/** The room between a lifted field and the panel, in px. */
+export const LIFT_GAP = 24;
 
 /** The parts of the field's `<input>` the keyboard uses. */
 export interface KeyboardInput {
@@ -26,6 +35,8 @@ export interface KeyboardInput {
   readonly maxLength: number;
   readonly type: string;
   dispatchEvent(event: Event): boolean;
+  /** Finds the field around the input (`TextField`'s `.z-field`), to keep it above the panel. */
+  closest?(selector: string): Element | null;
 }
 
 export type KeyboardEnd = 'done' | 'close' | 'native';
@@ -76,6 +87,13 @@ let labelSource: () => KeyboardLabels = () => DEFAULT_LABELS;
 /** The app gives the words in the page's language; read each time the keyboard opens. */
 export function setScreenKeyboardLabels(source: () => KeyboardLabels): void {
   labelSource = source;
+}
+
+/** What a password shows: a dot for each character (the keyboard's line and the field, step 51). */
+export function maskText(value: string): string {
+  let shown = '';
+  for (let i = 0; i < value.length; i++) shown += '•';
+  return shown;
 }
 
 /** The glyph on a key that has no word (the word is its `aria-label`). */
@@ -155,7 +173,12 @@ export function createScreenKeyboard(doc: Document): ScreenKeyboard {
   let session: KeyboardSession | null = null;
   let root: HTMLElement | null = null;
   let preview: HTMLElement | null = null;
+  /** The text inside the preview line (it runs in the text's direction, the line opposite). */
+  let typed: HTMLElement | null = null;
   let grid: HTMLElement | null = null;
+  /** The part of the page moved up (`lift` px) to keep the field above the panel. */
+  let lifted: HTMLElement | null = null;
+  let lift = 0;
   let labels = DEFAULT_LABELS;
   let kind: KeyboardKind = 'text';
   let layout: LayoutName = 'latin';
@@ -169,14 +192,31 @@ export function createScreenKeyboard(doc: Document): ScreenKeyboard {
     input.type === 'url' || input.type === 'password' || input.type === 'tel' ? input.type : 'text';
 
   const showText = (): void => {
-    if (preview === null || session === null) return;
+    if (preview === null || typed === null || session === null) return;
     const value = session.input.value;
-    let shown = value;
-    if (kind === 'password') {
-      shown = '';
-      for (let i = 0; i < value.length; i++) shown += '•';
-    }
-    preview.textContent = shown;
+    // As in the field (TextField.tsx): a long line spills out at the line's end edge, so the line
+    // runs opposite to the text and the text's end stays in sight; short, it sits on its own start.
+    const runs = firstStrongDirection(value) ?? 'ltr';
+    preview.setAttribute('dir', runs === 'ltr' ? 'rtl' : 'ltr');
+    preview.style.textAlign = runs === 'ltr' ? 'left' : 'right';
+    typed.setAttribute('dir', runs);
+    typed.textContent = kind === 'password' ? maskText(value) : value;
+  };
+
+  /** Moves the page's part that holds the field up until the field is above the panel (or back down). */
+  const raise = (): void => {
+    if (root === null || session === null || session.input.closest === undefined) return;
+    const field = session.input.closest('.z-field');
+    if (field === null) return;
+    let part = field as HTMLElement;
+    while (part.parentNode !== null && part.parentNode !== doc.body) part = part.parentNode as HTMLElement;
+    if (part.parentNode === null) return;
+    // The field's bottom as drawn with no lift (its box includes the lift so far).
+    const bottom = field.getBoundingClientRect().bottom + lift;
+    const need = Math.ceil(bottom + LIFT_GAP - root.getBoundingClientRect().top);
+    lift = need > 0 ? need : 0;
+    lifted = part;
+    part.style.transform = lift > 0 ? 'translateY(-' + lift + 'px)' : '';
   };
 
   const paintFocus = (): void => {
@@ -248,6 +288,8 @@ export function createScreenKeyboard(doc: Document): ScreenKeyboard {
       buttons.push(lineButtons);
     }
     paintFocus();
+    // A page of keys with another number of rows changes the panel's height.
+    raise();
   };
 
   const switchTo = (next: LayoutName): void => {
@@ -352,8 +394,12 @@ export function createScreenKeyboard(doc: Document): ScreenKeyboard {
   const teardown = (): void => {
     doc.removeEventListener('keydown', onKey, true);
     if (root !== null && root.parentNode !== null) root.parentNode.removeChild(root);
+    if (lifted !== null) lifted.style.transform = '';
+    lifted = null;
+    lift = 0;
     root = null;
     preview = null;
+    typed = null;
     grid = null;
     buttons = [];
     session = null;
@@ -383,8 +429,9 @@ export function createScreenKeyboard(doc: Document): ScreenKeyboard {
       root.addEventListener('mousedown', (event) => event.preventDefault());
       preview = doc.createElement('div');
       preview.className = 'z-kbd__text';
-      preview.setAttribute('dir', 'auto');
       preview.setAttribute('aria-live', 'polite');
+      typed = doc.createElement('span');
+      preview.appendChild(typed);
       grid = doc.createElement('div');
       grid.className = 'z-kbd__grid';
       root.appendChild(preview);
