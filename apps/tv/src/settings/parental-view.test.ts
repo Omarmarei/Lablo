@@ -85,7 +85,7 @@ describe("the settings list's window (RELAY step 38c1)", () => {
 
   it('names the row in Arabic', () => {
     expect(itemText(ar.t, 'parental')).toEqual({ name: 'الرقابة الأبوية', hint: 'رمزك السري، والمجموعات والقنوات التي يقفلها' });
-    expect(itemText(ar.t, 'player')).toEqual({ name: 'المشغّل', hint: 'لغة الصوت والترجمة، والصورة والساعة ومؤقّت النوم والتخزين المؤقت' });
+    expect(itemText(ar.t, 'player')).toEqual({ name: 'المشغّل', hint: 'لغة الصوت والترجمة، وشكل الترجمة، والصورة والساعة ومؤقّت النوم والتخزين المؤقت والنص الأكبر' });
     expect(itemText(ar.t, 'connection')).toEqual({ name: 'فحص الاتصال', hint: 'هل المشكلة في التطبيق أم لدى مزوّد الخدمة؟' });
     expect(itemText(ar.t, 'help')).toEqual({ name: 'المساعدة', hint: 'إضافة مصدر ورموز الأخطاء وأزرار جهاز التحكم والدعم' });
   });

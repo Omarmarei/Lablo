@@ -457,6 +457,8 @@ export function PlayerScreen({ live, player, i18n, over = null }: { live: Live; 
       data-menu={String(menu !== null)}
       data-subtitles={subtitles.feed ?? ''}
       data-subtitle-size={player.menu.size.value}
+      data-caption-bg={appearance.captionBackground.value}
+      data-caption-color={appearance.captionColor.value}
       data-stats={String(stats)}
       data-picture={player.picture.value}
       data-archive={archive === null ? '' : archive.start}

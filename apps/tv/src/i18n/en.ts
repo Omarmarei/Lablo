@@ -731,7 +731,7 @@ export const EN = {
   'settings.parentalHint': 'Your PIN, and the groups and channels it locks',
   // Settings › "Player" (step 38d3): its values are the track menu's and the info bar's words (`lang.*`, `tracks.*`, `player.picture.*`).
   'settings.player': 'Player',
-  'settings.playerHint': 'Audio and subtitle languages, picture, clock, sleep timer and buffering',
+  'settings.playerHint': 'Audio and subtitle languages, caption look, picture, clock, sleep timer, buffering and larger text',
   'playerSettings.audio': 'Audio language',
   'playerSettings.audioHint': 'Plays first when a channel or film has more than one',
   'playerSettings.app': 'Same as the app',

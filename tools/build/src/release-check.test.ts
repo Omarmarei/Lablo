@@ -39,6 +39,10 @@ describe('storePlaceholderProblems', () => {
     ]);
     expect(out).toEqual(['docs/store/a.md still has <official domain>']);
   });
+  it('knows all four placeholders', () => {
+    const text = '<official domain> <test server address> <tester username> <tester password>';
+    expect(storePlaceholderProblems([{ name: 'n', text }])).toHaveLength(4);
+  });
 });
 
 describe('trackedFileProblems', () => {
