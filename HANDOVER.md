@@ -1,22 +1,16 @@
-# Lablo IPTV: relay leg 155 opening prompt
+# Lablo IPTV: relay leg 156 opening prompt
 
-You are leg 155 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 156 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 ## Status
-- **Earlier legs:** leg 0 planned the work. Legs 1–153 did steps 1–33, 35–39 (all sub-steps; step 39's real-TV proof waits for step 21), 39s1–39s3, 39s5, 39s6's code and 40a (PRs #175–#180).
-- **Leg 154 (2026-11-25): step 40ci (the CI speed-up) built and merged: PR #181 as `018b4fc`.**
-  - **Before:** a PR's CI took 27–29 min from the first job's start to the last job's end. engines ran Chromium 53, 56 and 68 one after another (25 min); verify ran `pnpm verify` as one chain (17–22 min, e2e 12 of it).
-  - **After:** 12 m 46 s on PR #181's green run; the `workflow_dispatch` run took 14 m 00 s. Chromium 56 (about 12.6 min) and media (about 11.8) now set the run's length.
-  - **`ci.yml` now has 11 checks:**
-    - `changes`, `web` and `media` are unchanged;
-    - `engines (chrome53)`, `engines (chrome56)`, `engines (chrome68)`: a matrix, each `--self-test --engine <id>` with its own `build:tv --skip-package`, capped at 25 min. The cache key is `engines-<id>-<hash>`; the artifact is `old-engines-report-<id>`;
-    - `verify (lint)` (lint and typecheck, 10 min) and `verify (unit)` (15 min);
-    - `verify (e2e 1/2)` and `verify (e2e 2/2)`: each runs `pnpm build:tv`, then `pnpm e2e --project=chromium --shard=N/2` (25 min). Shard 1 uploads `tv-builds`; each shard uploads `gallery-screenshots-N`;
-    - `verify (e2e throttled)`: `pnpm e2e --project=throttled --no-deps`, alone on its runner (15 min).
-  - **Found on the way:**
-    - Playwright never shards a project another depends on: a plain `--shard` ran all of chromium in every shard;
-    - a test race in `tools/tv/src/cdp.test.ts` (step 39s6's). It is fixed, and two mutants are caught.
-  - **The three memory notes are updated:** gh-pr-checks-watch-race, iptv-ci-media-ffmpeg-apt and bg-watcher-memory-reap. iptv-tools-test-gotchas got the race lesson.
+- **Earlier legs:** leg 0 planned the work. Legs 1–154 did steps 1–33, 35–39 (all sub-steps; step 39's real-TV proof waits for step 21), 39s1–39s3, 39s5, 39s6's code, 40a and 40ci (PRs #175–#181).
+- **Leg 155 (2026-11-25): step 40b ("Test stream") built and merged: PR #182 as `8f67a10`**, green CI at the first run (all 11 checks).
+  - **Config:** the signed config doc has an optional `testStream: { url }` (`packages/protocol/src/config.ts`), passed on as `ConfigPolicy.testStream`. Old apps strip the field (no new `v`). `pnpm sign-config sign` refuses a non-https link. The committed config names none until step 34 hosts Lablo's test pattern.
+  - **Page** (Settings › "Check the connection"): with a link, and no `disable-playback` or stronger in force, a "Test stream" line and a "Test stream" button between "Check again" and "Close"; five sources at most then (`CONNECTION_SOURCES_WITH_TEST`).
+  - **Test screen** (`test-stream`, settings.js): plays the link on the app's one player (main's `watchedPlayer`) under a bar with "Close"; Close, Back and STOP stop it. Main's `testing` flag keeps its plays out of "Last stream" and telemetry.
+  - **Verdict:** a failed test → `test`; a played test with the last stream failed by the provider or the internet → `streams`; a played test while no server answered → `provider`.
+  - **Gates:** unit +10 (`connection-check.test.ts` 31); e2e `connection-check.spec.ts` 6/6 and the media played path; `build:tv` within budgets; mutation 64/64 (`artifacts/mutate40b.py`).
+  - **Found:** this PC's `.cache/media` predates the rename: its live loops burn in "Zoma Test 1 SMPTE". `pnpm mock:media` regenerates them. This may be the "Zoma" Omar saw on the Samsung (if it played from this PC's mock).
 - **Waiting for Omar:**
   - step 16's remaining Samsung parts, and step 21 (the TVs);
   - his "3a": the real-remote checks wait until he is next at the TV;
@@ -25,108 +19,89 @@ You are leg 155 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
 
 ## Read first
 1. **RELAY.md:**
-   - the `- [ ] 40.` block's "Refined before building": Omar's three answers (the legal draft, the test stream's link from the remote config, support at `lablo.iptv@gmail.com`);
-   - the `- [ ] 40b.` line: the next step;
-   - the `- [x] 40a.` block's "Refined while building", as a model, and 40a's page: `apps/tv/src/settings/connection-check.ts`, `ConnectionPage.tsx`;
-   - the `- [x] 40ci.` block ("Built in leg 154", "Measured");
-   - the last progress row (154).
-2. **For 40b:**
-   - the signed config doc: `packages/protocol/src/config.ts` and its tests; docs/runbooks/config.md;
-   - the config worker (`packages/data/src/config.worker.ts`; about 10.8 KB left of 150);
-   - how 40a's page gets its dependencies (`SettingsOptions.connection`, main's wiring in `apps/tv/src/main.tsx`);
-   - the player's play path and `last-play.ts` (40a);
-   - the e2e config stand-in `e2e/config-server.ts`, and `e2e/connection-check.spec.ts`.
-3. **Memory notes:** iptv-ci-media-ffmpeg-apt (the new check names, caps, artifacts and flakes), gh-pr-checks-watch-race (the waits), iptv-zod-protocol-gotchas (zod/mini in the config schema, main.js cost per schema).
+   - the `- [ ] 40.` block's "Refined before building": Omar's three answers (the legal draft marked "Draft for counsel", the test stream's link from the remote config, support at `lablo.iptv@gmail.com`);
+   - the `- [ ] 40c.` line (the next step) and the `- [ ] 40d.` line;
+   - the `- [x] 40b.` block ("Refined before building", "Refined while building", "Gates") and `- [x] 40a.`, as models;
+   - the last progress row (155).
+2. **For 40c (Help):**
+   - how Settings' rows and pages are built: `apps/tv/src/settings/settings-items.ts`, `settings-state.ts` (`SETTINGS_SCREENS`, `SettingsOptions`), `SettingsScreen.tsx`, and 40a/40b's page (`connection-check.ts`, `ConnectionPage.tsx`);
+   - "Send a report to support" (step 33d2): `apps/tv/src/settings/diag-report.ts`, `report-row.test.ts`: its support code;
+   - the error card's codes and words: `apps/tv/src/player/PlayerScreen.tsx` (`CATEGORY_TEXT`, `ACCOUNT_TEXT`), `packages/player/src/failure.ts`;
+   - the catalogs `apps/tv/src/i18n/en.ts`, `ar.ts`, and how settings.js loads (`apps/tv/src/settings/settings.ts`, tv-build.md "Settings load on first open").
+3. **Memory notes:** iptv-tv-bundle-polyfills (sizes; long text must not go in the main catalogs), iptv-ui-test-gotchas (leg 155: re-check before asserting a value read only at a check), iptv-parser-test-patterns (mutation; `MEDIA ` commands), gh-pr-checks-watch-race (CI waits), use-write-tool-for-doc-batches.
 
 ## Next steps, in order
 1. **Check the state:**
    - `git -C "<wt>" status` is clean;
-   - `git -C "<wt>" log --oneline -3` shows this handover's commit, then `0a590df` (40ci's notes, row 154), then `018b4fc` (PR #181's merge);
-   - `origin/main` is `018b4fc`;
+   - `git -C "<wt>" log --oneline -3` shows this handover's commit, then `02305c0` (40b ticked, row 155), then `8f67a10` (PR #182's merge);
+   - `origin/main` is `8f67a10`;
    - no `*.mutbak` anywhere;
    - `docker ps` shows `lablo-web-postgres-1` and no `lablo-chrome*` container.
-2. **Step 40b, "Test stream"** (Omar's answer: the link comes from the signed remote config). Refine it first against the code, and write "Refined before building" points into RELAY.md. Then build:
-   - a new optional field in the signed config doc, e.g. a test stream's URL (`packages/protocol/src/config.ts`). Check what an old TV does with an unknown field, and what the config worker's size gate allows;
-   - a "Test stream" button on 40a's page, only when the config names a link;
-   - the play goes through the app's own player (the same engine as channels);
-   - a played result reads "This TV and Lablo play video: the problem is with the provider's streams"; a failure reads the player's code. The verdict (`connectionVerdict`) reads it;
-   - the e2e config stand-in names the mock's stream; dev uses it too. Step 34 hosts the real test pattern (with a tone).
-   - **Done when:** unit tests (the config field, the button's presence, the verdict's new rows); e2e in en-US, ar-SA and en-XA (button shown with the config's link, hidden without it, played and failed). `build:tv` within budgets. Mutation, with the list written first. The PR merged on green CI.
-3. **Then 40c** (Help, with `lablo.iptv@gmail.com`) **and 40d** (the legal draft: `/terms` and `/privacy` in apps/web, and a release check that refuses the draft mark). **Their long text must not go in the main catalogs** (see Gotchas).
+2. **Step 40c, Help** (Omar's answer: `lablo.iptv@gmail.com`, public on purpose). Refine it first against the code, and write "Refined before building" points into RELAY.md. The step's line: Settings › "Help": short answers in English and Arabic (adding a playlist or a login, what the error card's codes mean, the remote's keys, the support code), and the support address with "Send a report to support"'s code.
+   - **Size is the key design point:** every catalog key of both languages lives in main.js (478.7 of 500 KB on Tizen, 21.3 KB left). The help's long text must load with Settings (settings.js 110.0 of 150 KB) or from a lazy file of its own, never the main catalogs. Decide how the text gets there (a settings.js-only text table per language that the lint rule `lablo/no-hard-coded-text` accepts, or a lazy JSON) and record the choice.
+   - Where the row goes (likely near "Check the connection" and "Send a report to support"), and the settings pins it moves (see Gotchas).
+   - **Done when:** unit tests; e2e in en-US, ar-SA and en-XA (the row, the page, scrolling if long, the address and the code); `build:tv` within budgets (main.js must not grow by the help's text); mutation with the list written first; the PR merged on green CI.
+3. **Then 40d** (the legal pages: Settings › "About Lablo" with the version, the disclaimer, the terms and privacy text marked "Draft for counsel"; `/terms` and `/privacy` (en, ar) in apps/web; onboarding's consent pointing at the privacy text; a release check that refuses the draft mark). Same size rule.
 
 ## Git state to expect
-- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed. It is `origin/main` (`018b4fc`) plus `0a590df` (row 154) and this handover's commit.
+- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed. It is `origin/main` (`8f67a10`) plus `02305c0` (40b ticked, row 155) and this handover's commit.
 - **No open PR.** The main checkout was not touched (its local `main` is old; never use it).
 - **The dev database** (`lablo-web-postgres-1`) has migration `20261123160000_pair_purpose`. Nothing is in production.
 - **Gitignored but present:**
-  - `node_modules`, `.cache/*` (including `.cache/media`), `apps/web/.env`, `apps/web/.next`;
-  - `dist/`: `build:tv` of 40a's code (40ci changed no TV code);
-  - `artifacts/`: leg 153's mutation logs and screenshots.
-- **Leg 154's scratch** (`C:/Users/Omarm/.claude/jobs/aa027b40/tmp`; safe to ignore): CI job logs, `check-ci.mjs` (parses `ci.yml` and prints jobs, matrices and step conditions; it needs the worktree's `yaml@2.9.1`), `race.py`, `mut-cdp.py`, the PR body.
+  - `node_modules`, `.cache/*` (including the pre-rename `.cache/media`), `apps/web/.env`, `apps/web/.next`;
+  - `dist/`: `build:tv` of 40b's code;
+  - `artifacts/`: `mutate40b.py` (64/64) and leg 155's screenshots (`test-stream-<tag>.png`, `connection-test-<tag>.png`, `test-stream-playing-en.png`).
+- **Leg 155's scratch** (`C:/Users/Omarm/.claude/jobs/9f618c26/tmp`; safe to ignore): the patch scripts `p1.py`–`p13.py`, `build-tv.log`, `pr-body.md`, `mem155.py`.
 
 ## Verified vs not
-- **Verified in leg 154 (40ci):**
-  - `ci.yml` parses, and the matrices and step conditions expand as intended;
-  - `playwright test --list --project=chromium --shard=1/2` lists 115 tests, `2/2` lists 109, and no test is in both; the throttled project alone (`--no-deps`) lists 9 and passed locally (9 of 9, 2.7 min);
-  - the cdp race: reproduced with fetch delayed 20 ms (the old tests fail, the new pass), two mutants caught, typecheck and lint clean;
-  - PR #181's second run was green (12 m 46 s); its first run failed on the cdp race and the `epg-declared-300mb` flake;
-  - the `workflow_dispatch` run `45595162742` was green after one rerun of `verify (e2e 1/2)` (the known `auto-next.spec.ts:151` ar-SA flake).
+- **Verified in leg 155 (40b):**
+  - unit, typecheck and lint clean; the config worker bundle test carries the link into the policy;
+  - `build:tv` (Tizen): main.js 478.7 of 500 KB, settings.js 110.0 of 150, config worker 139.3 of 150, ingest 139.9, query 149.3;
+  - e2e `connection-check.spec.ts` 6/6 in three languages (a 404 link fails as `PRV-UNREACHABLE` within seconds; a config turning playback off, or dropping the link, hides the button); the media test plays the mock's first channel as the test stream (960x540, the picture moving under the bar);
+  - screenshots looked at (en, ar, en-XA): the bar at the bottom over the stage, the page's fourth line and three buttons in reading order;
+  - mutation 64/64; PR #182 green at the first run.
 - **Not done:**
-  - 40a on a real TV;
-  - steps 40b–40d and 41–47;
+  - 40b and 40a on a real TV (AVPlay under the bar, the stage under settings.js on Tizen);
+  - steps 40c, 40d and 41–47;
   - 39s4, and 39s6's TV run;
-  - production (step 34).
+  - production (step 34), including the test pattern's file and its link in the production config.
 - **Migrations and deploys:** none. Nothing is deployed (this project has no deploy before step 34).
 
 ## Gotchas and lessons
-**New in leg 154:**
-- **CI now has 11 checks and takes about 13 minutes.** Wait with two foreground rounds of `timeout 575 bash -c 'until s=$(gh api repos/Omarmarei/Lablo/actions/runs/<run> --jq ".status + \" \" + (.conclusion // \"\")") && [ "${s%% *}" = "completed" ]; do read -t 30 < /dev/zero; done; echo "$s"'`.
-  - `gh run rerun <run> --failed` reruns only the failed matrix jobs: a flaky engine or e2e shard reruns alone.
-  - A rerun job has a new id: wait on `gh api repos/Omarmarei/Lablo/actions/jobs/<id>`.
+**New in leg 155:**
+- **A value a page reads only when its check runs** ("Last stream" on the connection page) is stale after something changes it. An e2e must make a check happen and wait for a change only that check makes (reopen the page and wait for a cleared line; a button the new config removes) before asserting.
+- **A plain-e2e playback failure needs no media:** a stand-in link answering 404 ends as `PRV-UNREACHABLE` on the desktop's `<video>` within a few seconds.
+- **The connection page's "Close" index** is 1 without a test link and 2 with one: e2e paths use `connection-check/actions/<n>` accordingly.
+- **Mutation with the media e2e:** in `artifacts/mutate40b.py`, a command starting `MEDIA ` runs with `LABLO_E2E_MEDIA=1`; name the project on every e2e command.
+- **Python patch scripts:** write them with the Write tool and run `python -X utf8 -I <file> <worktree>`. A quoted-heredoc script lost a backslash again this leg.
+- **Never `cd` in a Bash call** (one slipped this leg; it moved the session's directory, harmlessly, into the worktree).
+
+**From leg 154 (still true):**
+- **CI has 11 checks and takes about 13 minutes.** Wait with two foreground rounds of `timeout 575 bash -c 'until s=$(gh api repos/Omarmarei/Lablo/actions/runs/<run> --jq ".status + \" \" + (.conclusion // \"\")") && [ "${s%% *}" = "completed" ]; do read -t 30 < /dev/zero; done; echo "$s"'`. Find the run with `gh run list --repo Omarmarei/Lablo --branch relay/iptv-20261101-214120 --limit 2` about 25 s after `gh pr create`.
+  - `gh run rerun <run> --failed` reruns only the failed matrix jobs; a rerun job has a new id.
   - One job's log: `gh api repos/Omarmarei/Lablo/actions/runs/<run>/jobs --jq '.jobs[] | "\(.name)=\(.id)"'`, then `gh api repos/Omarmarei/Lablo/actions/jobs/<id>/logs`.
-- **The new artifact names:**
-  - `old-engines-report-<engine>`, `gallery-screenshots-1` and `-2`;
-  - `playwright-report-1`, `-2` or `-throttled`, on failure only;
-  - `tv-builds`, from shard 1.
-- **Playwright never shards a project another depends on.** `throttled` depends on `chromium`, so CI shards `--project=chromium` and runs `--project=throttled --no-deps` on its own. A new project with `dependencies` needs the same care. Check a split with `playwright test --list --project=<p> --shard=N/2`.
-- **A fake event scheduled before an async call races that call's I/O.** Start a fake's timers inside the injected factory, when the code under test asks for the object.
-- **A local `verify:engines` run** is only for reproducing one engine's failure (`--engine <id>`). CI's per-engine jobs are the check of all three.
-- **Flakes seen this leg:**
-  - `epg-declared-300mb` (22.0 ms vs 20);
-  - `auto-next.spec.ts:151` ar-SA (`endEpisode` sends `ended` while the next play is `opening`).
-  - Both passed on rerun. Read the job log before rerunning.
+- **Playwright never shards a project another depends on:** CI shards `--project=chromium` and runs `--project=throttled --no-deps` alone.
+- **A fake event scheduled before an async call races that call's I/O:** start a fake's timers inside the injected factory.
+- **Known flakes:** `epg-declared-300mb` (22.0 ms vs 20); `auto-next.spec.ts:151` ar-SA. Read the job log before rerunning.
 
 **From leg 153 (still true):**
-- **Catalog text lives in main.js:** every UI string of both languages ships in the main bundle. 40c's help and 40d's legal text must load with Settings (settings.js 106.6 of 150 KB) or a lazy file of their own.
-- **Sizes after 40a (Tizen):** main.js 477.2 of 500 KB, settings.js 106.6, the ingest worker 139.9 of 150, the query worker 149.3 of 150 (0.7 KB left; keep its code changes tiny), the config worker 139.2 of 150.
-- **VNode tests don't expand components:** a line drawn by a sub-component is invisible to `walk()`. Draw it with a plain function (`lineView`).
-- **A new settings row moves pins:**
-  - `SETTINGS_ITEMS` and `SETTINGS_SCREENS` in `guides-state.test.ts`;
-  - the last window in `parental-view.test.ts`;
-  - the `data-pending` sum in `unmatched-screen.test.ts`;
-  - fakes without the new `Settings` field.
-  - Pass a new page's dependencies through its own options, not the settings' engine.
+- **Catalog text lives in main.js:** every UI string of both languages ships in the main bundle. 40c's help and 40d's legal text must load with Settings or a lazy file of their own.
+- **VNode tests don't expand components:** draw lines with plain functions (`lineView`).
+- **A new settings row moves pins:** `SETTINGS_ITEMS` and `SETTINGS_SCREENS` in `guides-state.test.ts`; the last window in `parental-view.test.ts`; the `data-pending` sum in `unmatched-screen.test.ts`; fakes without the new `Settings` field. Pass a new page's dependencies through its own options, not the settings' engine. A new settings screen goes in `SETTINGS_SCREENS` (its pin too).
 - **A source's name with `dir="auto"` in a flex row needs a physical `text-align: left`.**
-- **e2e can change the mock while the app runs:**
-  - `app.mockState.scenario = parseScenario({ rules: [...] }, 'name')`;
-  - an account's status through `app.mockState.fixture.accounts`;
-  - `page.context().setOffline(true)`;
-  - reset all of them in `afterEach`.
-  - `trackErrors` counts the browser's 404 resource lines: filter them in a spec that faults streams.
-- **One media spec:** `LABLO_E2E_MEDIA=1 pnpm exec playwright test e2e/player-media.spec.ts --project=playback-media -g "…"` (the file before `--project=`). A played stream's text carries bidi marks even in en-US: `stripIsolates`.
+- **e2e can change the mock while the app runs** (`app.mockState.scenario`, `fixture.accounts`, `setOffline`); reset in `afterEach`. `trackErrors` counts the browser's 404 resource lines: filter them where streams fail.
+- **e2e with a config:** `startConfigServer('')`, `server.serve(devSignedAnswer(doc({ kill: [], ... })))` (the harness doc's default notice rule would otherwise show), `?api=<origin>` in the onboarding query, then poll `window.__LABLO_TEST__?.config()?.status` for `fresh`; `refreshConfig()` after serving a new doc (date it later: `doc(fields, Date.now() + N)`).
+- **One media spec:** `LABLO_E2E_MEDIA=1 pnpm exec playwright test e2e/player-media.spec.ts --project=playback-media -g "…"`. A played stream's text carries bidi marks even in en-US: `stripIsolates`.
 - **When a mutant shows code changes nothing,** drop the code rather than invent a test.
 - **Escapes in memory files:** write them with `chr(92) + 'u…'` and check with `od -c`.
-- **Never `cd` in a Bash call.**
 
 **From legs 130–152 (still true):**
-- **Node 22 differs from this PC's Node 24:** its `WebSocket` re-fires `error` from `close()` on a socket that never opened. Never close from an error handler.
-- **Python patches:** use a Write-tool script with an EDITS list and `newline=''` (inline `python -c` with backslashes fails).
+- **Node 22 (CI) differs from this PC's Node 24:** its `WebSocket` re-fires `error` from `close()`.
 - **Derive test expectations step by step** (`containerName('ts')` is `MPEG-TS`).
 - **The tools don't import each other;** a root `test/` file holds a shared rule together.
 - **`packages/*` tests run only from the repo root's Vitest config:** `pnpm --dir "<wt>" exec vitest run packages/...`.
 - **The `lablo` test account has 2 connections;** use `forever` (4) for more streams.
-- **Check CI once about 25 s after `gh pr create`.** No `jq` in Git Bash (use `gh --jq`). A push to an open PR cancels its CI.
-- **Chromium's quota** is checked only for a writing transaction.
+- **No `jq` in Git Bash** (use `gh --jq`). A push to an open PR cancels its CI.
 - **Plain e2e never plays a channel.** Use `page.clock.fastForward`, never `runFor` over about 6 s.
 - **`rm` on a shell variable is refused:** write a literal path. `sleep N` is blocked: wait with `read -t N < /dev/zero` under `timeout`.
 - **Mutation and builds don't mix:** never run mutation beside a build, an e2e run, a unit run or an agent reading the tree.
@@ -141,7 +116,7 @@ You are leg 155 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
   - no array destructuring or spread, no object spread in new code, no fragments;
   - no `Promise.prototype.finally`; no fields named like built-ins;
   - these don't apply to the mock and `tools/` (Node code); a script injected into the TV page is ES5.
-- **Layout and text:** physical CSS only, no Grid or flex `gap`, ES2017. UI text comes only from the catalogs. Preact: write `translate={false}`.
+- **Layout and text:** physical CSS only, no Grid or flex `gap`, ES2017. UI text comes only from the catalogs (or, for 40c/40d, whatever settings.js-only text source the step decides). Preact: write `translate={false}`.
 - **Every file under `apps/tv/src/settings/` must stay in settings.js.**
 - **Smart App Control:** before every pnpm/npx command, `export NODE_OPTIONS="--require \"D:/Claude Code PlayGround/IPTV-relay-20261101-214120/.cache/rollup-wasm/hook.cjs\""`.
 - **Environment:**
@@ -152,28 +127,24 @@ You are leg 155 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
 ## Working rules (unchanged)
 - **Never call EnterWorktree.** Use `git -C "<wt>"`, absolute paths, scoped `git add` (check `git diff --cached --name-only`), and `git commit -F -` ending with the attribution lines the session gives. Never a bare `git stash`.
 - **The repo is public as `Omarmarei/Lablo`:** no secrets, no LG or Samsung binaries or certificates, no personal data, no LAN addresses or TV tokens. The support address `lablo.iptv@gmail.com` is public on purpose (Omar's answer).
-- **Merging:** IPTV PRs merge on green CI without Omar (merge commit, keep the branch). Name the three riskiest changes first. Omar said on 2026-11-23: carry on with new changes without asking.
+- **Merging:** IPTV PRs merge on green CI without Omar (merge commit, keep the branch). Name the three riskiest changes first. Omar said on 2026-11-23: carry on with new changes without asking. After the merge: `git -C "<wt>" merge --ff-only origin/main`, then tick the step and add the progress row.
 - **Production:** nothing goes to production before step 34. Its migrations (including `pair_purpose`) and its deploy each need Omar's one-word OK.
 - **CLAUDE.md edits need Omar's direct word in his own tab.**
 
 ## Open decisions and gates
 - **None pending for step 40:** Omar answered all three questions in leg 153.
-- **Leg 154's choices for 40ci** (Omar may overrule):
-  - every engine's job runs its own seeds. A separate seeds job per engine would take the engines to about 8 min, but media (about 12) would then set the run's length;
-  - each e2e shard builds the TV apps, rather than one build job passing `dist/` as an artifact;
-  - two e2e shards, plus the throttled project on its own runner.
+- **Leg 155's choices for 40b** (Omar may overrule):
+  - the test plays as a file (`vod`): a file ends with "The test stream has ended.", a live stream plays on;
+  - a played test stays "played" even if the stream fails later (the question is whether the TV plays video);
+  - the button hides while the config turns playback off, but a `disable-playback` arriving during a test doesn't stop it;
+  - five sources at most on the page when the test line shows.
+- **Leg 154's choices for 40ci** (Omar may overrule): every engine's job runs its own seeds; each e2e shard builds the TV apps; two e2e shards plus the throttled project on its own runner.
 - **Omar's decision, when he wants (not blocking): MP4 subtitles on the Samsung.** AVPlay lists an MP4's `mov_text` tracks and sends no cue. Options: leave them; hide AVPlay's MP4 text rows; demux `mov_text` ourselves (architecture.md §2 "Step 39s5").
-- **Leg 153's choices for 40a** (Omar may overrule):
-  - six sources at most on the page;
-  - no reference host (a check against Lablo's `/v1/health` can come with step 34);
-  - the row sits before "Send a report to support".
-- **Leg 152's choices for 39s6** (Omar may overrule):
-  - the client name `LabloLabPC`;
-  - the soak's 1.5 s stall rule and the hour's sample cap;
-  - TLS accepts the TV's self-signed certificate on :8002 only;
-  - LG's own remote keys (SSAP) come in a later part.
+- **Leg 153's choices for 40a** (Omar may overrule): six sources at most on the page; no reference host; the row before "Send a report to support".
+- **Leg 152's choices for 39s6** (Omar may overrule): the client name `LabloLabPC`; the soak's 1.5 s stall rule and the hour's sample cap; TLS accepts the TV's self-signed certificate on :8002 only; LG's own remote keys (SSAP) in a later part.
 - **Later fixes to propose (no step yet):**
-  - from leg 154: media's own split (its Docker probe, 2 min, and the benchmark, 1 min, could run beside `verify:media`) if media becomes the only long job; a fix for the `auto-next` `endEpisode` race (wait for `playing` before dispatching `ended`);
+  - from leg 155: regenerate `.cache/media` (`pnpm mock:media`) so the mock's pictures say Lablo; stop a test stream when a `disable-playback` arrives during it, if Omar wants;
+  - from leg 154: media's own split if media becomes the only long job; a fix for the `auto-next` `endEpisode` race (wait for `playing` before dispatching `ended`);
   - from leg 153: a reference check of Lablo's server on the connection page (with step 34); the page's codec and bitrate of the last stream;
   - from leg 152: `pnpm tv` on webOS (SSAP keys; `ares-inspect`'s port); a `pnpm tv` mode that types into the TV keyboard only after `ms.remote.imeStart`;
   - from leg 151: map AVPlay's `UNKNOWN_ERROR_EVENT_FROM_PLAYER` away from `network` once step 21 shows AVPlay's error for a real network cut;
@@ -189,16 +160,17 @@ You are leg 155 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
 - **Step 34 `[needs Omar]`:**
   - the R2 and Upstash adapters; R2's host in `connect-src` and the bucket's CORS rule;
   - `LABLO_RATE_SECRET` in Vercel; the config key ceremony; the accounts and the domain;
-  - the test stream's file on Lablo's storage and its link in the production config (40b's answer);
+  - the test stream's file on Lablo's storage (a test pattern with a tone, https) and its `testStream` link in the production config (`pnpm sign-config sign` refuses http);
   - the first production migration (including `pair_purpose`) and the deploy, each with his one-word OK.
 - **What remains:**
-  - without Omar or a TV: 40b, 40c, 40d, 43 (accessibility), 44 (store documents), 45 (release engineering);
+  - without Omar or a TV: 40c, 40d, 43 (accessibility), 44 (store documents), 45 (release engineering);
   - with Omar or a TV: 34, 16, 21, 39s4, 39s6's TV run, 41, 42, 46, 47.
 
 ## Checks for Omar
-1. **40ci:** nothing to do. CI now reports 11 checks and takes about 13 minutes instead of 28. A flaky engine or e2e shard reruns alone.
-2. **40a, Settings › "Check the connection":** the screenshots are in the worktree (gitignored): `artifacts/screenshots/connection-check-en.png`, `-ar.png` and `-en-XA.png`.
-3. **39s6 has no screen.** Try `pnpm tv` at the Samsung next time (tv-setup.md §3.7): `pnpm tv setup <tv-ip>`, `pnpm tv keys` (accept "Allow" once), `pnpm tv inspect`, `pnpm tv screen`, `pnpm tv soak watch`.
+1. **40b, Settings › "Check the connection" › "Test stream":** nothing to do until step 34 names a link. The screenshots are in the worktree (gitignored): `artifacts/screenshots/test-stream-playing-en.png` (the bar over a playing stream), `test-stream-en.png`, `-ar.png`, `-en-XA.png` (a failed test), `connection-test-<tag>.png` (the page after it).
+2. **"Zoma" on the Samsung:** this PC's cached mock media still burns in "Zoma Test 1 SMPTE" (generated before the rename). If the Samsung played from this PC's mock, that is what you saw. `pnpm mock:media` regenerates the files.
+3. **40a's screenshots:** `artifacts/screenshots/connection-check-en.png`, `-ar.png` and `-en-XA.png`.
+4. **39s6 has no screen.** Try `pnpm tv` at the Samsung next time (tv-setup.md §3.7): `pnpm tv setup <tv-ip>`, `pnpm tv keys` (accept "Allow" once), `pnpm tv inspect`, `pnpm tv screen`, `pnpm tv soak watch`.
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
 - **At the LG TV next time:**
@@ -222,7 +194,7 @@ You are leg 155 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
   - Settings › "Check the connection", with the TV's network on and off.
 - **At the Samsung TV next time** (his "3a"):
   - S4 `suspend`, S10 by hand, S11's lifecycle and reading by ear, with the TV's own remote;
-  - look for the "Zoma" he saw;
+  - look for the "Zoma" he saw (see check 2 above);
   - the sleep timer's prompt as on the LG;
   - a channel's start under "Fast start" and under "Stable" (AVPlay's buffers);
   - the lab's S2 again (the lab now carries `unlimitedstorage`): does `storage.estimate()` still say 88 MB?
@@ -243,11 +215,7 @@ You are leg 155 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
   - 55: `git show e85772d:HANDOVER.md`;
   - 56: `git show 6235456:HANDOVER.md`;
   - 57: `git show b54b260:HANDOVER.md` ("e2e specs address a settings row by its id through `e2e/settings-rows.ts`, never by its number");
-  - **58 (new, leg 154):** CLAUDE.md's commands table says of `pnpm verify`: "CI job `verify` runs exactly this (after `playwright install --with-deps chromium`)". Since step 40ci the `verify` job runs it in five parallel parts:
-    - lint and typecheck;
-    - unit;
-    - e2e of the chromium project in two shards, each after `build:tv`;
-    - the throttled project alone.
+  - 58 (leg 154): CLAUDE.md's commands table says of `pnpm verify`: "CI job `verify` runs exactly this (after `playwright install --with-deps chromium`)". Since step 40ci the `verify` job runs it in five parallel parts: lint and typecheck; unit; e2e of the chromium project in two shards, each after `build:tv`; the throttled project alone.
 - **Step 34:** the accounts, the domain and the keys are his. He puts them in `.env`, plus `LABLO_RATE_SECRET` in Vercel.
 - **GitHub billing:** keep the payment method valid.
 - **Secrets:** none pending.
