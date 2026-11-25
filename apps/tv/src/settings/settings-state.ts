@@ -30,7 +30,7 @@ import { SOURCES_SCREEN, createSourcesList } from './sources-state';
 import type { ReportOptions, ReportRow } from './diag-report';
 import { createReportRow } from './diag-report';
 import type { ConnectionCheck, ConnectionOptions } from './connection-check';
-import { CONNECTION_SCREEN, createConnectionCheck } from './connection-check';
+import { CONNECTION_SCREEN, TEST_SCREEN, createConnectionCheck } from './connection-check';
 import type { TelemetrySwitch, TelemetrySwitchOptions } from './telemetry-switch';
 import { createTelemetrySwitch } from './telemetry-switch';
 import type { UnmatchedEngine, UnmatchedList } from './unmatched-state';
@@ -81,7 +81,7 @@ export const SETTINGS_SCREENS: readonly string[] = [
   LOGIN_SCREEN,
   BACKUP_SCREEN,
   BACKUP_CONFIRM,
-].concat(GROUP_SCREENS, [CHANNELS_SCREEN], EDIT_SCREENS, PARENTAL_SCREENS, [PLAYER_SETTINGS_SCREEN, LANGUAGE_SCREEN, CONNECTION_SCREEN]);
+].concat(GROUP_SCREENS, [CHANNELS_SCREEN], EDIT_SCREENS, PARENTAL_SCREENS, [PLAYER_SETTINGS_SCREEN, LANGUAGE_SCREEN, CONNECTION_SCREEN, TEST_SCREEN]);
 
 export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | 'engine'> {
   readonly nav: Navigator;

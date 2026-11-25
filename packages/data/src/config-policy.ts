@@ -47,6 +47,8 @@ export interface ConfigPolicy {
   flags: ConfigDoc['flags'];
   /** Tuning (what is missing is the app's default). */
   tunables: ConfigDoc['tunables'];
+  /** Lablo's test stream's link (step 40b: Settings › "Check the connection"), `null` when the doc names none. */
+  testStream: string | null;
 }
 
 type KillRule = ConfigDoc['kill'][number];
@@ -61,7 +63,7 @@ export const KILL_STRENGTH: Readonly<Record<KillMode, number>> = {
 
 /** No config yet (or none that verifies): nothing killed, nothing blocked, no update asked for. */
 export function noPolicy(): ConfigPolicy {
-  return { kill: null, notices: [], updateRequired: false, minVersion: null, flags: {}, tunables: {} };
+  return { kill: null, notices: [], updateRequired: false, minVersion: null, flags: {}, tunables: {}, testStream: null };
 }
 
 /** True when the policy's kill rule is `mode` or stronger (`policyStops(p, 'disable-playback')`). */
@@ -147,5 +149,6 @@ export function configPolicy(doc: ConfigDoc, input: PolicyInput): ConfigPolicy {
     minVersion,
     flags: doc.flags,
     tunables: doc.tunables,
+    testStream: doc.testStream === undefined ? null : doc.testStream.url,
   };
 }

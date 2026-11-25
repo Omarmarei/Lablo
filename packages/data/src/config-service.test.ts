@@ -94,7 +94,7 @@ async function cachedSetup(respond: (url: string) => FakeResponse) {
 
 const CACHED_RESULT: Omit<ConfigResult, 'failure'> = {
   status: 'cached',
-  policy: { kill: { id: 'old', mode: 'block-new-sources', message: null }, notices: [], updateRequired: true, minVersion: '1.2.0', flags: {}, tunables: {} },
+  policy: { kill: { id: 'old', mode: 'block-new-sources', message: null }, notices: [], updateRequired: true, minVersion: '1.2.0', flags: {}, tunables: {}, testStream: null },
   issuedAt: 1_000_000,
   expiresAt: 2_000_000,
   stored: true,

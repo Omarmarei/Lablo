@@ -583,7 +583,8 @@
 /*
  * "Check the connection" (step 40a), inside the safe area's 972 px: the header (80), the verdict
  * (two lines at most: 112, then 16), eight lines of 76 px with 8 px between them (the internet's,
- * six sources', the last stream's: 664), then the buttons (24 + 56).
+ * six sources', the last stream's: 664), then the buttons (24 + 56). With the test stream's line
+ * (step 40b) five sources at most: the same eight lines.
  */
 .connection__verdict {
   flex: none;
@@ -692,4 +693,81 @@
 
 .connection__buttons .z-button + .z-button {
   margin-left: var(--space-4);
+}
+
+/*
+ * The test stream (step 40b): the player's picture on the stage shows through the page
+ * (html[data-player='on']); a bar at the bottom of the safe area: the test's name, the player's
+ * state (and the code of a failure), and "Close".
+ */
+.test-stream {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 0;
+}
+
+.test-stream__bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  padding: var(--space-4) var(--space-6);
+  border-left: 6px solid var(--color-border);
+  border-radius: var(--radius-m);
+  background: var(--color-surface);
+}
+
+.test-stream__bar.is-ok {
+  border-left-color: var(--color-success);
+}
+
+.test-stream__bar.is-warn {
+  border-left-color: var(--color-warn);
+}
+
+.test-stream__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.test-stream__name,
+.test-stream__state,
+.test-stream__detail {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.test-stream__name {
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  font-weight: var(--font-weight-bold);
+}
+
+.test-stream__state {
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.test-stream__bar.is-warn .test-stream__state {
+  color: var(--color-warn);
+}
+
+.test-stream__bar.is-checking .test-stream__state,
+.test-stream__bar.is-info .test-stream__state {
+  color: var(--color-text-muted);
+}
+
+.test-stream__detail {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+}
+
+.test-stream__bar .z-button {
+  flex: none;
+  height: 56px;
+  margin-left: var(--space-6);
 }

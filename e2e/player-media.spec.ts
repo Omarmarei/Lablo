@@ -7,6 +7,8 @@ import { FileMedia } from '../apps/mock-provider/src/file-media';
 import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { stripIsolates } from '../packages/core/src/bidi';
+import { devSignedAnswer } from '../tools/engines/src/config';
+import { doc, startConfigServer } from './config-server';
 import { addXtreamAndWatch, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
 import { openSettings, settingsRow, toSettingsRow } from './settings-rows';
@@ -27,6 +29,11 @@ import { openSettings, settingsRow, toSettingsRow } from './settings-rows';
  *
  * The stream info (RELAY step 20c2a) on real live channels: the picture size, the frame rate and
  * the bitrate measured from the `<video>`'s counters, the format and the player.
+ *
+ * "Test stream" (RELAY step 40b): a dev-signed config names the mock's first channel (SMPTE bars
+ * with a tone) as Lablo's test stream; Settings › "Check the connection" › "Test stream" plays it
+ * on the app's player under the test screen's bar, and back on the page its line says it played
+ * (HLS, the time to the picture) while "Last stream" still says nothing played.
  *
  * The picture's 4:3 mode (RELAY step 20c2b) on a real picture, read from the screen's pixels.
  *
@@ -340,6 +347,46 @@ test('the stream info on real live channels: the size, a measured frame rate and
   expect(last).toMatch(/^Played \(HLS\): the picture after \d+(\.\d)? s$/);
   await expect(page.getByTestId('connection-last')).toHaveAttribute('data-tone', 'ok');
   expect(errors).toEqual([]);
+});
+
+test('"Test stream" plays the config\'s link on the app\'s player under its bar; the page says it played, the last stream untouched (step 40b)', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = trackErrors(page);
+  const remote = new RemoteDriver(page);
+  const server = await startConfigServer('');
+  try {
+    // The mock's first channel (Lablo Test 1 SMPTE: bars and a tone) stands in for Lablo's test pattern.
+    server.serve(devSignedAnswer(doc({ kill: [], testStream: { url: `http://${host}/live/${U}/${P}/101.m3u8` } })));
+    await addXtreamAndWatch(remote, { host, username: U, password: P }, `locale=en-US&api=${encodeURIComponent(server.origin)}`);
+    await expect.poll(() => page.evaluate(() => window.__LABLO_TEST__?.config()?.status ?? null)).toBe('fresh');
+    await openSettings(remote, 'RIGHT');
+    await toSettingsRow(remote, 'connection');
+    await remote.go('OK', 'connection-check/actions/0');
+    await expect(page.getByTestId('connection')).toHaveAttribute('data-verdict', 'ok');
+    await expect(page.getByTestId('connection-test-value')).toHaveText('Not played yet');
+    await remote.go('RIGHT', 'connection-check/actions/1');
+    await remote.go('OK', 'test-stream/test/0');
+    const screen = page.getByTestId('test-stream');
+    await expect(screen).toHaveAttribute('data-phase', 'playing', { timeout: 30_000 });
+    await expect(page.getByTestId('test-stream-state')).toHaveText('If you see the picture and hear the sound, this TV and Lablo play video.');
+    // The bars move on the stage, under the transparent page.
+    await expectMoving(page);
+    expect(await video(page)).toMatchObject({ width: 960, height: 540 });
+    await page.screenshot({ path: path.join(SHOTS, 'test-stream-playing-en.png'), animations: 'disabled' });
+
+    await remote.go('BACK', 'connection-check/actions/1');
+    await expect(page.locator('html')).toHaveAttribute('data-player', 'off');
+    // The player let the stream go.
+    await expect.poll(() => page.evaluate(() => document.querySelector('#stage video')?.getAttribute('src') ?? null)).toBeNull();
+    await expect(page.getByTestId('connection')).toHaveAttribute('data-verdict', 'ok');
+    expect(stripIsolates((await page.getByTestId('connection-test-value').textContent()) ?? '')).toMatch(/^Played \(HLS\): the picture after \d+(\.\d)? s$/);
+    await expect(page.getByTestId('connection-test')).toHaveAttribute('data-tone', 'ok');
+    // The test isn't a provider's stream: "Last stream" (and telemetry) never hear of it.
+    await expect(page.getByTestId('connection-last-value')).toHaveText('Nothing played since Lablo started');
+    expect(errors).toEqual([]);
+  } finally {
+    await server.close();
+  }
 });
 
 /** The screen's colour (r, g, b) at each point, from a screenshot the page decodes itself. */

@@ -341,6 +341,8 @@ let playerLifecycle: LifecycleSource = (listener) => platform.onLifecycle(listen
  */
 /** The run's last stream, for Settings › "Check the connection" (RELAY step 40a). */
 const lastPlay = createLastPlay();
+/** Lablo's test stream plays (step 40b): its plays stay out of "Last stream" and telemetry. */
+let testing = false;
 
 const playerController = appPlayer({
   lifecycle: (listener) => playerLifecycle(listener),
@@ -356,6 +358,7 @@ const playerController = appPlayer({
   blocked: (urls) => dataEngine().blockedOrNone(urls),
   // Telemetry's `play_result` and `stall` (step 33b2).
   report: (report) => {
+    if (testing) return;
     lastPlay.report(report);
     telemetry.record(playerEvent(Date.now(), report));
   },
@@ -369,7 +372,9 @@ const watchedPlayer: typeof playerController = () => {
   const made = playerController();
   if (!watched) {
     watched = true;
-    made.subscribe((status) => lastPlay.status(status));
+    made.subscribe((status) => {
+      if (!testing) lastPlay.status(status);
+    });
   }
   return made;
 };
@@ -637,7 +642,20 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     // "Send a report to support" (step 33d2): main's parts and the session's last events; the worker adds the rest.
     report: { send: sendReport },
     // "Check the connection" (step 40a): the TV's online flag and the run's last stream; the servers through the data engine.
-    connection: { online: () => navigator.onLine, last: () => lastPlay.value(), checkSources: (sources) => dataEngine().checkSources(sources) },
+    connection: {
+      online: () => navigator.onLine,
+      last: () => lastPlay.value(),
+      checkSources: (sources) => dataEngine().checkSources(sources),
+      // Lablo's test stream (step 40b): the config's link while playback is allowed, on the app's player.
+      test: {
+        link: () => (playRefusal.value === null ? config.policy.value.testStream : null),
+        player: watchedPlayer,
+        playing: (on) => {
+          testing = on;
+          setPlayerChrome(document, on);
+        },
+      },
+    },
     // "Channel groups" (step 35d): after each edit the live screen reads the lists and groups again.
     listsChanged: () => void live.listsChanged(),
     // "Edit channel" and "Channels" (step 36c): after each edit the live screen reads the channels again.

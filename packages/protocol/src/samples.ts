@@ -89,6 +89,7 @@ const configFull = {
     epgDaysAhead: 7,
     telemetrySampling: { play_result: 0.1, crash: 1 },
   },
+  testStream: { url: 'https://media.lablo.example/test/pattern.m3u8' },
 };
 
 const sealed = { phonePk: KEY, nonce: NONCE, ct: CT_18 };
@@ -122,6 +123,8 @@ export const SAMPLES: readonly ProtocolSample[] = [
   { name: 'config.flag-not-boolean', schema: 'configDoc', input: config({ flags: { radio: 1 } }), issues: ['invalid_type@flags.radio'] },
   { name: 'config.flag-key-upper', schema: 'configDoc', input: config({ flags: { Radio: true } }), issues: ['invalid_key@flags.Radio'] },
   { name: 'config.tunable-too-big', schema: 'configDoc', input: config({ tunables: { liveBufferSeconds: 61 } }), issues: ['too_big@tunables.liveBufferSeconds'] },
+  { name: 'config.test-stream-not-http', schema: 'configDoc', input: config({ testStream: { url: 'ftp://media.lablo.example/pattern.ts' } }), issues: ['invalid_format@testStream.url'] },
+  { name: 'config.test-stream-no-url', schema: 'configDoc', input: config({ testStream: {} }), issues: ['invalid_type@testStream.url'] },
   { name: 'config.sampling-over-one', schema: 'configDoc', input: config({ tunables: { telemetrySampling: { crash: 1.5 } } }), issues: ['too_big@tunables.telemetrySampling.crash'] },
   {
     name: 'config.two-issues',

@@ -1,15 +1,27 @@
 import type { VNode } from 'preact';
 import { stripIsolates } from '@lablo/core';
 import type { LoadedProfile, SourceProbe, StoredSource } from '@lablo/data';
-import type { PlaybackFailure } from '@lablo/player';
+import type { PlaybackFailure, PlayerState, PlayerStatus, PlayRequest } from '@lablo/player';
+import { NO_TRACKS } from '@lablo/player';
 import type { ItemBinding } from '@lablo/ui';
 import { createNavigator } from '@lablo/ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { appI18n } from '../i18n';
 import type { LastPlay } from '../player/last-play';
-import type { ConnectionState } from './connection-check';
-import { CONNECTION_SCREEN, CONNECTION_SOURCES_MAX, accountVerdict, answersBadly, connectionVerdict, createConnectionCheck } from './connection-check';
-import { ConnectionView, internetText, lastText, seconds, sourceText } from './ConnectionPage';
+import type { ConnectionState, TestPlayer, TestResult, TestStreamHost } from './connection-check';
+import {
+  CONNECTION_SCREEN,
+  CONNECTION_SOURCES_MAX,
+  CONNECTION_SOURCES_WITH_TEST,
+  TEST_SCREEN,
+  TEST_SOURCE,
+  accountVerdict,
+  answersBadly,
+  connectionVerdict,
+  createConnectionCheck,
+  testRequest,
+} from './connection-check';
+import { ConnectionView, TestStreamView, internetText, lastText, seconds, sourceText, testText, testViewText } from './ConnectionPage';
 
 /**
  * Settings › "Check the connection" (RELAY step 40a): the page's state (the profile read, the
@@ -57,7 +69,7 @@ function failure(category: PlaybackFailure['category'], code: string): LastPlay 
 }
 
 function stateOf(probes: (SourceProbe | null)[], extra: Partial<ConnectionState> = {}): ConnectionState {
-  return { online: true, failed: false, last: null, sources: probes.map((probe, i) => ({ id: `s${i}`, name: `S${i}`, probe })), ...extra };
+  return { online: true, failed: false, last: null, testable: false, test: null, sources: probes.map((probe, i) => ({ id: `s${i}`, name: `S${i}`, probe })), ...extra };
 }
 
 /** Promises the test settles. */
@@ -74,7 +86,60 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 6; i++) await Promise.resolve();
 };
 
-function setup(options: { online?: () => boolean; last?: () => LastPlay | null } = {}) {
+/** The app's player as the test sees it: its plays and stops, and the statuses the test sends. */
+function fakePlayer() {
+  let listeners: ((status: PlayerStatus) => void)[] = [];
+  let session = 0;
+  const plays: PlayRequest[] = [];
+  let stops = 0;
+  const emit = (state: PlayerState, extra: Partial<PlayerStatus> = {}): void => {
+    const status: PlayerStatus = { state, session, key: TEST_SOURCE, container: 'hls', attempt: 0, failure: null, tracks: NO_TRACKS, ...extra };
+    for (const listener of listeners.slice()) listener(status);
+  };
+  const player: TestPlayer = {
+    play: (req) => {
+      session += 1;
+      plays.push(req);
+      emit('opening');
+      return Promise.resolve();
+    },
+    stop: () => {
+      session += 1;
+      stops += 1;
+      emit('idle');
+      return Promise.resolve();
+    },
+    subscribe: (listener) => {
+      listeners.push(listener);
+      return () => {
+        listeners = listeners.filter((l) => l !== listener);
+      };
+    },
+  };
+  return { player, plays, emit, stops: () => stops, listening: () => listeners.length, session: () => session };
+}
+
+const LINK = 'https://media.lablo.example/test/pattern.m3u8';
+
+/** A test stream host: its link (changeable), the fake player, its clock and what it was told. */
+function testHost(link: string | null = LINK) {
+  const fake = fakePlayer();
+  const told: boolean[] = [];
+  let at = 1000;
+  const control = { link, made: 0 };
+  const host: TestStreamHost = {
+    link: () => control.link,
+    player: () => {
+      control.made += 1;
+      return fake.player;
+    },
+    playing: (on) => told.push(on),
+    now: () => at,
+  };
+  return { host, fake, told, control, setNow: (ms: number) => (at = ms) };
+}
+
+function setup(options: { online?: () => boolean; last?: () => LastPlay | null; test?: TestStreamHost } = {}) {
   const nav = createNavigator({
     root: { id: 'live', zones: [{ kind: 'list', id: 'channels', axis: 'vertical', count: 3 }] },
     rootBack: 'exit-dialog',
@@ -84,7 +149,7 @@ function setup(options: { online?: () => boolean; last?: () => LastPlay | null }
   nav.push({ id: 'settings', zones: [{ kind: 'list', id: 'items', axis: 'vertical', count: 11, visible: 7 }] });
   const profile = held<LoadedProfile | null>();
   const check = held<SourceProbe[]>();
-  const page = createConnectionCheck(nav, { profile: () => profile.fn() }, { online: options.online ?? (() => true), last: options.last ?? (() => null), checkSources: (s) => check.fn(s) });
+  const page = createConnectionCheck(nav, { profile: () => profile.fn() }, { online: options.online ?? (() => true), last: options.last ?? (() => null), checkSources: (s) => check.fn(s), ...(options.test === undefined ? {} : { test: options.test }) });
   return { nav, page, profile, check };
 }
 
@@ -95,7 +160,7 @@ describe('the connection check (RELAY step 40a)', () => {
     const { nav, page, profile, check } = setup({ last: () => ({ state: 'played', container: 'hls', ttffMs: 900 }) });
     page.open();
     expect(nav.snapshot()).toMatchObject({ screen: CONNECTION_SCREEN, zone: 'actions', index: 0 });
-    expect(page.state.value).toEqual({ online: true, sources: null, failed: false, last: { state: 'played', container: 'hls', ttffMs: 900 } });
+    expect(page.state.value).toEqual({ online: true, sources: null, failed: false, last: { state: 'played', container: 'hls', ttffMs: 900 }, testable: false, test: null });
     expect(page.pending.value).toBe(1);
     const sources = [source('a'), source('b')];
     profile.calls[0]!.resolve(profileOf(sources));
@@ -127,7 +192,7 @@ describe('the connection check (RELAY step 40a)', () => {
   it('asks nothing offline, and nothing for a profile without sources', async () => {
     const offline = setup({ online: () => false });
     offline.page.open();
-    expect(offline.page.state.value).toEqual({ online: false, sources: [], failed: false, last: null });
+    expect(offline.page.state.value).toEqual({ online: false, sources: [], failed: false, last: null, testable: false, test: null });
     expect(offline.profile.calls).toHaveLength(0);
     expect(offline.page.pending.value).toBe(0);
     const empty = setup();
@@ -177,7 +242,7 @@ describe('the connection check (RELAY step 40a)', () => {
     last = failure('provider', 'PRV-HTTP-404');
     nav.top.focus('actions', 0);
     nav.handle('OK');
-    expect(page.state.value).toEqual({ online: true, sources: null, failed: false, last: failure('provider', 'PRV-HTTP-404') });
+    expect(page.state.value).toEqual({ online: true, sources: null, failed: false, last: failure('provider', 'PRV-HTTP-404'), testable: false, test: null });
     expect(page.pending.value).toBe(2);
     // The first run's answer comes after the second started: dropped.
     check.calls[0]!.resolve([ACTIVE]);
@@ -232,13 +297,191 @@ describe('the connection check (RELAY step 40a)', () => {
   });
 });
 
+describe('the test stream (RELAY step 40b)', () => {
+  const PLAYED: TestResult = { state: 'played', container: 'hls', ms: 1200 };
+  const NET: PlaybackFailure = { category: 'internet', code: 'NET-HTTP', detail: 'MEDIA_ERR_NETWORK', account: null };
+
+  it('has no button or line without a link, and three buttons and five sources with one', async () => {
+    const none = setup({ test: testHost(null).host });
+    none.page.open();
+    expect(none.page.state.value.testable).toBe(false);
+    expect(none.nav.top.zone('actions')).toMatchObject({ count: 2 });
+    const absent = setup();
+    absent.page.open();
+    expect(absent.page.state.value.testable).toBe(false);
+    const { nav, page, profile, check } = setup({ test: testHost().host });
+    page.open();
+    expect(page.state.value).toMatchObject({ testable: true, test: null });
+    expect(nav.top.zone('actions')).toMatchObject({ count: 3 });
+    const sources = ['1', '2', '3', '4', '5', '6', '7'].map((id) => source(id));
+    profile.calls[0]!.resolve(profileOf(sources));
+    await flush();
+    expect(CONNECTION_SOURCES_WITH_TEST).toBe(5);
+    expect(check.calls[0]!.arg).toEqual(sources.slice(0, CONNECTION_SOURCES_WITH_TEST));
+    expect(page.state.value.sources).toHaveLength(CONNECTION_SOURCES_WITH_TEST);
+  });
+
+  it('"Check again" reads the link again: the button comes and goes', () => {
+    const test = testHost(null);
+    const { nav, page } = setup({ test: test.host });
+    page.open();
+    nav.top.focus('actions', 1);
+    test.control.link = LINK;
+    page.again();
+    expect(page.state.value.testable).toBe(true);
+    expect(nav.top.zone('actions')).toMatchObject({ count: 3 });
+    nav.top.focus('actions', 2);
+    test.control.link = null;
+    page.again();
+    expect(page.state.value.testable).toBe(false);
+    expect(nav.snapshot()).toMatchObject({ screen: CONNECTION_SCREEN, zone: 'actions', index: 1 });
+    // "Close" is then the second button.
+    nav.handle('OK');
+    expect(nav.snapshot().screen).toBe('settings');
+  });
+
+  it("plays the link on the app's player over the stage, and keeps its first frame as played", () => {
+    const test = testHost();
+    const { nav, page } = setup({ test: test.host });
+    page.open();
+    nav.top.focus('actions', 1);
+    nav.handle('OK');
+    expect(nav.snapshot()).toMatchObject({ screen: TEST_SCREEN, zone: 'test', index: 0 });
+    expect(test.told).toEqual([true]);
+    expect(test.control.made).toBe(1);
+    expect(test.fake.plays).toEqual([testRequest(LINK)]);
+    expect(testRequest(LINK)).toEqual({ key: 'lablo-test', src: 'lablo-test', mode: 'vod', candidates: [{ url: LINK, container: 'hls' }] });
+    expect(testRequest('https://media.lablo.example/test/pattern.mp4').candidates).toEqual([{ url: 'https://media.lablo.example/test/pattern.mp4', container: 'mp4' }]);
+    expect(page.testView.value).toEqual({ phase: 'opening', failure: null });
+    expect(page.state.value.test).toBeNull();
+    test.setNow(2200);
+    test.fake.emit('playing');
+    expect(page.testView.value).toEqual({ phase: 'playing', failure: null });
+    expect(page.state.value.test).toEqual(PLAYED);
+    // A later failure shows, but the TV did play video.
+    test.setNow(9000);
+    test.fake.emit('buffering');
+    expect(page.state.value.test).toEqual(PLAYED);
+    test.fake.emit('failed', { failure: NET });
+    expect(page.testView.value).toEqual({ phase: 'failed', failure: NET });
+    expect(page.state.value.test).toEqual(PLAYED);
+    // "Close": the player stops, the stage goes, the page is back with the result.
+    nav.handle('OK');
+    expect(test.fake.stops()).toBe(1);
+    expect(test.told).toEqual([true, false]);
+    expect(test.fake.listening()).toBe(0);
+    expect(nav.snapshot()).toMatchObject({ screen: CONNECTION_SCREEN, zone: 'actions', index: 1 });
+    expect(page.state.value.test).toEqual(PLAYED);
+  });
+
+  it("says a give-up before any frame failed, with the player's code; Back and STOP close it", () => {
+    const test = testHost();
+    const { nav, page } = setup({ test: test.host });
+    page.open();
+    page.test();
+    test.fake.emit('failed', { failure: NET });
+    expect(page.state.value.test).toEqual({ state: 'failed', failure: NET });
+    expect(nav.handle('BACK')).toBe('screen');
+    expect(nav.snapshot().screen).toBe(CONNECTION_SCREEN);
+    expect(test.told).toEqual([true, false]);
+    page.test();
+    expect(nav.snapshot().screen).toBe(TEST_SCREEN);
+    // Other keys do nothing there.
+    expect(nav.handle('INFO')).not.toBe('screen');
+    expect(nav.handle('STOP')).toBe('screen');
+    expect(nav.snapshot().screen).toBe(CONNECTION_SCREEN);
+    expect(test.fake.stops()).toBe(2);
+    expect(test.told).toEqual([true, false, true, false]);
+    // A failure with no details changes nothing kept.
+    page.test();
+    test.fake.emit('failed');
+    expect(page.testView.value).toEqual({ phase: 'failed', failure: null });
+    expect(page.state.value.test).toEqual({ state: 'failed', failure: NET });
+    page.endTest();
+    expect(nav.snapshot().screen).toBe(CONNECTION_SCREEN);
+    page.endTest();
+    expect(nav.snapshot().screen).toBe(CONNECTION_SCREEN);
+  });
+
+  it("follows only its own play's statuses, and says each state", () => {
+    const test = testHost('https://media.lablo.example/test/pattern.mp4');
+    const { page } = setup({ test: test.host });
+    page.open();
+    page.test();
+    const own = test.fake.session();
+    test.fake.emit('playing', { session: own + 1 });
+    test.fake.emit('failed', { session: own - 1, failure: NET });
+    expect(page.state.value.test).toBeNull();
+    expect(page.testView.value.phase).toBe('opening');
+    test.fake.emit('idle');
+    expect(page.testView.value.phase).toBe('opening');
+    test.fake.emit('paused', { container: null });
+    expect(page.testView.value.phase).toBe('playing');
+    // No container on the status: the link's own.
+    expect(page.state.value.test).toEqual({ state: 'played', container: 'mp4', ms: 0 });
+    test.fake.emit('reconnecting');
+    expect(page.testView.value.phase).toBe('reconnecting');
+    test.fake.emit('ended');
+    expect(page.testView.value.phase).toBe('ended');
+    test.fake.emit('opening');
+    expect(page.testView.value.phase).toBe('opening');
+  });
+
+  it('starts nothing without a link at the time, twice, or after dispose', () => {
+    const test = testHost();
+    const { nav, page } = setup({ test: test.host });
+    page.open();
+    test.control.link = null;
+    nav.top.focus('actions', 1);
+    nav.handle('OK');
+    expect(nav.snapshot().screen).toBe(CONNECTION_SCREEN);
+    expect(test.fake.plays).toHaveLength(0);
+    test.control.link = LINK;
+    page.test();
+    page.test();
+    expect(test.fake.plays).toHaveLength(1);
+    expect(test.told).toEqual([true]);
+    page.dispose();
+    expect(test.fake.stops()).toBe(1);
+    expect(test.told).toEqual([true, false]);
+    page.test();
+    expect(test.fake.plays).toHaveLength(1);
+    expect(setup().page.test).not.toThrow();
+  });
+
+  it('clears the result at each opening and keeps it through "Check again" and late answers', async () => {
+    const test = testHost();
+    const { nav, page, profile, check } = setup({ test: test.host });
+    page.open();
+    page.test();
+    test.fake.emit('playing');
+    page.endTest();
+    page.again();
+    expect(page.state.value.test).toEqual({ state: 'played', container: 'hls', ms: 0 });
+    // A new test's result replaces the last; a check's answers coming meanwhile keep it.
+    page.test();
+    profile.calls[1]!.resolve(profileOf([source('a')]));
+    await flush();
+    test.fake.emit('failed', { failure: NET });
+    expect(page.state.value.test).toEqual({ state: 'failed', failure: NET });
+    check.calls[0]!.resolve([ACTIVE]);
+    await flush();
+    expect(page.state.value.test).toEqual({ state: 'failed', failure: NET });
+    expect(page.state.value.sources!.map((l) => l.probe)).toEqual([ACTIVE]);
+    page.endTest();
+    nav.handle('BACK');
+    page.open();
+    expect(page.state.value.test).toBeNull();
+  });
+});
+
 describe('connectionVerdict', () => {
   const blockedAccount = (status: string): SourceProbe => ({ kind: 'answered', status: 200, ms: 1, account: { auth: true, status, expDate: null, activeCons: null, maxConnections: null }, playlist: null });
 
   it('says offline first, then the app, then waits for every line', () => {
-    expect(connectionVerdict({ online: false, sources: null, failed: true, last: failure('device', 'TV-UNSUPPORTED') })).toBe('offline');
-    expect(connectionVerdict({ online: true, sources: [], failed: true, last: null })).toBe('app');
-    expect(connectionVerdict({ online: true, sources: null, failed: false, last: null })).toBeNull();
+    expect(connectionVerdict({ online: false, sources: null, failed: true, last: failure('device', 'TV-UNSUPPORTED'), testable: false, test: null })).toBe('offline');
+    expect(connectionVerdict({ online: true, sources: [], failed: true, last: null, testable: false, test: null })).toBe('app');
+    expect(connectionVerdict({ online: true, sources: null, failed: false, last: null, testable: false, test: null })).toBeNull();
     expect(connectionVerdict(stateOf([ACTIVE, null]))).toBeNull();
     expect(connectionVerdict(stateOf([]))).toBe('none');
   });
@@ -274,6 +517,23 @@ describe('connectionVerdict', () => {
     expect(connectionVerdict(stateOf([ACTIVE], { last: { state: 'played', container: 'ts', ttffMs: 1 } }))).toBe('ok');
   });
 
+  it('reads the test stream (step 40b): failed after the login rule, played with the last stream and no answer', () => {
+    const played: Partial<ConnectionState> = { test: { state: 'played', container: 'hls', ms: 1 } };
+    const failed: Partial<ConnectionState> = { test: { state: 'failed', failure: { category: 'device', code: 'TV-UNSUPPORTED', detail: 'X', account: null } } };
+    expect(connectionVerdict(stateOf([ACTIVE], failed))).toBe('test');
+    expect(connectionVerdict(stateOf([ACTIVE], { ...failed, last: failure('device', 'TV-UNSUPPORTED') }))).toBe('test');
+    expect(connectionVerdict(stateOf([{ kind: 'no-login' }], failed))).toBe('login');
+    expect(connectionVerdict(stateOf([{ kind: 'timeout' }], failed))).toBe('no-answer');
+    expect(connectionVerdict(stateOf([{ kind: 'timeout' }, { kind: 'file' }], played))).toBe('provider');
+    expect(connectionVerdict(stateOf([ACTIVE], { ...played, last: failure('provider', 'PRV-HTTP-404') }))).toBe('streams');
+    expect(connectionVerdict(stateOf([ACTIVE], { ...played, last: failure('internet', 'NET-HTTP') }))).toBe('streams');
+    expect(connectionVerdict(stateOf([ACTIVE], { ...played, last: failure('device', 'TV-UNSUPPORTED') }))).toBe('device');
+    expect(connectionVerdict(stateOf([ACTIVE], { ...played, last: failure('app', 'APP-ERROR') }))).toBe('app');
+    expect(connectionVerdict(stateOf([ACTIVE], { ...played, last: failure('blocked', 'CFG-BLOCKLIST') }))).toBe('ok');
+    expect(connectionVerdict(stateOf([ACTIVE], played))).toBe('ok');
+    expect(connectionVerdict(stateOf([], failed))).toBe('none');
+  });
+
   it('reads a bad answer: an error status, a playlist that is not one, a panel without its account', () => {
     expect(answersBadly({ kind: 'answered', status: 199, ms: 1, account: null, playlist: true })).toBe(true);
     expect(answersBadly({ kind: 'answered', status: 200, ms: 1, account: null, playlist: true })).toBe(false);
@@ -297,13 +557,13 @@ describe('the page in words', () => {
   });
 
   it("says the internet's state from the TV's flag and the servers' answers", () => {
-    expect(internetText(en, { online: false, sources: [], failed: false, last: null })).toEqual({ value: 'Not connected', detail: null, tone: 'warn' });
-    expect(internetText(en, { online: true, sources: null, failed: false, last: null })).toMatchObject({ value: 'Checking…', tone: 'checking' });
+    expect(internetText(en, { online: false, sources: [], failed: false, last: null, testable: false, test: null })).toEqual({ value: 'Not connected', detail: null, tone: 'warn' });
+    expect(internetText(en, { online: true, sources: null, failed: false, last: null, testable: false, test: null })).toMatchObject({ value: 'Checking…', tone: 'checking' });
     expect(internetText(en, stateOf([ACTIVE, null]))).toMatchObject({ tone: 'checking' });
     expect(internetText(en, stateOf([{ kind: 'unreachable' }, { kind: 'timeout' }]))).toEqual({ value: 'No server answered', detail: null, tone: 'warn' });
     expect(internetText(en, stateOf([{ kind: 'timeout' }, { kind: 'answered', status: 503, ms: 1, account: null, playlist: null }]))).toEqual({ value: 'Connected', detail: null, tone: 'ok' });
     expect(internetText(en, stateOf([{ kind: 'file' }]))).toMatchObject({ value: 'Connected', tone: 'ok' });
-    expect(internetText(ar, { online: false, sources: [], failed: false, last: null }).value).toBe('غير متصل');
+    expect(internetText(ar, { online: false, sources: [], failed: false, last: null, testable: false, test: null }).value).toBe('غير متصل');
   });
 
   it("says each source's answer, with its account under it", () => {
@@ -385,10 +645,75 @@ describe('the page in words', () => {
     expect(textOf(byTestId(view(ar), 'connection-verdict'))).toBe('خادم مزوّد الخدمة لا يجيب كما ينبغي. المشكلة لدى مزوّد الخدمة: حاول لاحقًا، أو تواصل معه.');
   });
 
+  it("says the test stream's line and its screen's state (step 40b)", () => {
+    expect(testText(en, null)).toEqual({ value: 'Not played yet', detail: null, tone: 'info' });
+    expect(testText(en, { state: 'played', container: 'hls', ms: 1260 })).toEqual({ value: 'Played (HLS): the picture after 1.3 s', detail: null, tone: 'ok' });
+    expect(testText(en, { state: 'failed', failure: { category: 'internet', code: 'NET-HTTP', detail: 'X', account: null } })).toEqual({ value: "Didn't play", detail: 'Code NET-HTTP', tone: 'warn' });
+    expect(testText(ar, null).value).toBe('لم يُشغَّل بعد');
+    expect(testViewText(en, { phase: 'opening', failure: null })).toEqual({ value: 'Connecting…', detail: null, tone: 'checking' });
+    expect(testViewText(en, { phase: 'reconnecting', failure: null })).toEqual({ value: 'Reconnecting…', detail: null, tone: 'checking' });
+    expect(testViewText(en, { phase: 'playing', failure: null })).toEqual({ value: 'If you see the picture and hear the sound, this TV and Lablo play video.', detail: null, tone: 'ok' });
+    expect(testViewText(en, { phase: 'ended', failure: null })).toEqual({ value: 'The test stream has ended.', detail: null, tone: 'info' });
+    expect(testViewText(en, { phase: 'failed', failure: { category: 'provider', code: 'PRV-HTTP-404', detail: 'X', account: null } })).toEqual({ value: "Didn't play", detail: 'Code PRV-HTTP-404', tone: 'warn' });
+    expect(testViewText(en, { phase: 'failed', failure: null })).toEqual({ value: "Didn't play", detail: null, tone: 'warn' });
+    expect(testViewText(ar, { phase: 'playing', failure: null }).value).toBe('إذا رأيت الصورة وسمعت الصوت، فهذا التلفاز ولابلو يشغّلان الفيديو.');
+  });
+
+  it('draws the test stream\'s line and button with a link, and its screen', async () => {
+    const test = testHost();
+    const { page, profile, check } = setup({ test: test.host });
+    page.open();
+    profile.calls[0]!.resolve(profileOf([source('a')]));
+    await flush();
+    check.calls[0]!.resolve([ACTIVE]);
+    await flush();
+    const asked: number[] = [];
+    const drawn = ConnectionView({
+      i18n: en,
+      check: page,
+      button: (i) => {
+        asked.push(i);
+        return idle;
+      },
+    });
+    const ids = walk(drawn)
+      .map((v) => (v.props as Props)['data-testid'])
+      .filter((id) => typeof id === 'string' && /^connection-(internet|source-\d|last|test)$/.test(id));
+    expect(ids).toEqual(['connection-internet', 'connection-source-0', 'connection-last', 'connection-test']);
+    expect(textOf(walk(drawn).filter((v) => (v.props as Props)['data-testid'] === 'connection-test-value'))).toBe('Not played yet');
+    const buttons = walk(drawn).filter((v) => typeof (v.props as Props)['testId'] === 'string');
+    expect(buttons.map((v) => [(v.props as Props)['testId'], (v.props as Props)['label']])).toEqual([
+      ['connection-again', 'Check again'],
+      ['connection-test-play', 'Test stream'],
+      ['connection-close', 'Close'],
+    ]);
+    expect(asked).toEqual([0, 1, 2]);
+
+    page.test();
+    const screen = (i18n = en): unknown => TestStreamView({ i18n, check: page, button: () => idle });
+    const byTestId = (root: unknown, id: string): VNode[] => walk(root).filter((v) => (v.props as Props)['data-testid'] === id);
+    let shown = screen();
+    expect((byTestId(shown, 'test-stream')[0]!.props as Props)['data-phase']).toBe('opening');
+    expect(textOf(byTestId(shown, 'test-stream-state'))).toBe('Connecting…');
+    expect(byTestId(shown, 'test-stream-detail')).toHaveLength(0);
+    expect(walk(shown).filter((v) => (v.props as Props)['class'] === 'test-stream__bar is-checking')).toHaveLength(1);
+    expect(walk(shown).filter((v) => (v.props as Props)['class'] === 'test-stream__name').map(textOf)).toEqual(['Test stream']);
+    expect(walk(shown).filter((v) => typeof (v.props as Props)['testId'] === 'string').map((v) => [(v.props as Props)['testId'], (v.props as Props)['label']])).toEqual([['test-stream-close', 'Close']]);
+    test.fake.emit('failed', { failure: { category: 'internet', code: 'NET-HTTP', detail: 'X', account: null } });
+    shown = screen();
+    expect((byTestId(shown, 'test-stream')[0]!.props as Props)['data-phase']).toBe('failed');
+    expect(textOf(byTestId(shown, 'test-stream-detail'))).toBe('Code NET-HTTP');
+    expect(stripIsolates(textOf(byTestId(screen(ar), 'test-stream-state')))).toBe('لم يعمل');
+    page.endTest();
+    const back = ConnectionView({ i18n: en, check: page, button: () => idle });
+    expect(textOf(walk(back).filter((v) => (v.props as Props)['data-testid'] === 'connection-test-value'))).toBe("Didn't play");
+    expect(textOf(walk(back).filter((v) => (v.props as Props)['data-testid'] === 'connection-test-detail'))).toBe('Code NET-HTTP');
+  });
+
   it('says every verdict in its own words', () => {
     const verdicts: [ConnectionState, string][] = [
-      [{ online: false, sources: [], failed: false, last: null }, "This TV isn't connected to the internet. Check its network settings, then check again."],
-      [{ online: true, sources: [], failed: true, last: null }, 'Something went wrong in Lablo. If it keeps happening, send a report to support from Settings.'],
+      [{ online: false, sources: [], failed: false, last: null, testable: false, test: null }, "This TV isn't connected to the internet. Check its network settings, then check again."],
+      [{ online: true, sources: [], failed: true, last: null, testable: false, test: null }, 'Something went wrong in Lablo. If it keeps happening, send a report to support from Settings.'],
       [stateOf([]), 'Lablo has no playlist or login to check yet.'],
       [stateOf([{ kind: 'timeout' }]), "No server answered. Check the TV's internet connection. If other apps work, the problem is on your provider's side."],
       [stateOf([{ kind: 'answered', status: 200, ms: 1, account: { auth: false, status: '', expDate: null, activeCons: null, maxConnections: null }, playlist: null }]), "Your provider didn't accept the login. Check the username and password."],
@@ -397,6 +722,8 @@ describe('the page in words', () => {
       [stateOf([{ kind: 'no-login' }]), 'A source has no login on this TV. Give it again in Settings › Sources.'],
       [stateOf([ACTIVE], { last: failure('device', 'TV-UNSUPPORTED') }), "Your internet and your provider answer, but this TV can't play the last stream's format. Other channels may play."],
       [stateOf([ACTIVE], { last: failure('provider', 'PRV-STALLED') }), "Your internet and your provider answer, but the provider didn't send the last stream. Ask your provider about that channel."],
+      [stateOf([ACTIVE], { test: { state: 'failed', failure: { category: 'internet', code: 'NET-HTTP', detail: 'X', account: null } } }), "Lablo's test stream didn't play on this TV. Restart the TV, then try again. If it still doesn't play, send a report to support from Settings."],
+      [stateOf([ACTIVE], { test: { state: 'played', container: 'hls', ms: 1 }, last: failure('provider', 'PRV-STALLED') }), "This TV and Lablo play video: the problem is with your provider's streams. Ask your provider about the channels that don't play."],
       [stateOf([ACTIVE]), "Your internet and your provider answer. If a channel doesn't play, try it again, or send a report to support from Settings."],
     ];
     for (const [state, words] of verdicts) {
