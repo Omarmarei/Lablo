@@ -1085,9 +1085,9 @@ describe('the settings screen', () => {
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
       backup: { engine: backupEngine as unknown as BackupPageEngine, host },
     });
-    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels', 'backup', 'help']);
+    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels', 'backup', 'help', 'about']);
     settings.open();
-    expect((t.nav.top.zone('items') as { count: number }).count).toBe(6);
+    expect((t.nav.top.zone('items') as { count: number }).count).toBe(7);
     await t.press('DOWN', 'DOWN', 'DOWN', 'DOWN', 'OK');
     expect(t.at()).toBe('backup · switch 0');
     expect(settings.backup!.screen.value).toBe(t.nav.top);
@@ -1123,12 +1123,12 @@ describe('the settings screen', () => {
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
       telemetry: { engine: switchEngine, setOn },
     });
-    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels', 'telemetry', 'help']);
+    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels', 'telemetry', 'help', 'about']);
     expect(settings.telemetry).not.toBeNull();
     expect(switchEngine.profile).not.toHaveBeenCalled();
     settings.open();
     expect(switchEngine.profile).toHaveBeenCalledTimes(1);
-    expect((t.nav.top.zone('items') as { count: number }).count).toBe(6);
+    expect((t.nav.top.zone('items') as { count: number }).count).toBe(7);
     await flush();
     expect(settings.telemetry!.value.value).toBe(true);
     await t.press('DOWN', 'DOWN', 'DOWN', 'DOWN');
@@ -1161,8 +1161,8 @@ describe('the settings screen', () => {
       backup: { engine: {} as unknown as BackupPageEngine, host: { schedule: { held: signal(false), last: signal(null) } } as unknown as BackupPageHost },
       telemetry: { engine: switchEngine, setOn },
     });
-    expect(both.items).toEqual(['sources', 'guides', 'groups', 'channels', 'backup', 'telemetry', 'help']);
-    expect(SETTINGS_ITEMS).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'player', 'language', 'backup', 'telemetry', 'connection', 'report', 'help']);
+    expect(both.items).toEqual(['sources', 'guides', 'groups', 'channels', 'backup', 'telemetry', 'help', 'about']);
+    expect(SETTINGS_ITEMS).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'player', 'language', 'backup', 'telemetry', 'connection', 'report', 'help', 'about']);
     both.dispose();
   });
 
@@ -1180,11 +1180,11 @@ describe('the settings screen', () => {
       report: { send: vi.fn() },
       pad,
     });
-    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'backup', 'telemetry', 'report', 'help']);
+    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'backup', 'telemetry', 'report', 'help', 'about']);
     expect(settings.parental).not.toBeNull();
     expect(SETTINGS_VISIBLE).toBe(7);
     settings.open();
-    expect(t.nav.top.zone('items')).toMatchObject({ count: 9, visible: 7 });
+    expect(t.nav.top.zone('items')).toMatchObject({ count: 10, visible: 7 });
     for (let i = 0; i < 4; i += 1) await t.press('DOWN');
     expect(t.at()).toBe('settings · items 4');
     expect(t.nav.top.position('items').top).toBe(0);
@@ -1215,10 +1215,10 @@ describe('the settings screen', () => {
       pad: { ask: vi.fn(), choose: vi.fn() },
       language,
     });
-    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'language', 'backup', 'telemetry', 'report', 'help']);
+    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'language', 'backup', 'telemetry', 'report', 'help', 'about']);
     expect(settings.language).not.toBeNull();
     settings.open();
-    expect(t.nav.top.zone('items')).toMatchObject({ count: 10, visible: 7 });
+    expect(t.nav.top.zone('items')).toMatchObject({ count: 11, visible: 7 });
     for (let i = 0; i < 5; i += 1) await t.press('DOWN');
     expect(t.at()).toBe('settings · items 5');
     await t.press('OK');
@@ -1242,7 +1242,7 @@ describe('the settings screen', () => {
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
       language,
     });
-    expect(fewer.items).toEqual(['sources', 'guides', 'groups', 'channels', 'language', 'help']);
+    expect(fewer.items).toEqual(['sources', 'guides', 'groups', 'channels', 'language', 'help', 'about']);
     fewer.dispose();
   });
 
@@ -1281,9 +1281,9 @@ describe('the settings screen', () => {
       language: { current: vi.fn(() => 'en' as const), set: vi.fn() },
       player,
     });
-    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'player', 'language', 'backup', 'telemetry', 'report', 'help']);
+    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'player', 'language', 'backup', 'telemetry', 'report', 'help', 'about']);
     settings.open();
-    expect(t.nav.top.zone('items')).toMatchObject({ count: 11, visible: 7 });
+    expect(t.nav.top.zone('items')).toMatchObject({ count: 12, visible: 7 });
     // Nothing read before the page opens (its modes make the player's controller).
     expect(calls).toEqual([]);
     for (let i = 0; i < 5; i += 1) await t.press('DOWN');
@@ -1308,7 +1308,7 @@ describe('the settings screen', () => {
       language: { current: vi.fn(() => 'en' as const), set: vi.fn() },
     });
     expect(fewer.player).toBeNull();
-    expect(fewer.items).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'language', 'help']);
+    expect(fewer.items).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'language', 'help', 'about']);
     settings.dispose();
     fewer.dispose();
   });
@@ -1325,7 +1325,7 @@ describe('the settings screen', () => {
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
       report: { send },
     });
-    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels', 'report', 'help']);
+    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels', 'report', 'help', 'about']);
     settings.open();
     await t.press('DOWN', 'DOWN', 'DOWN', 'DOWN');
     expect(t.at()).toBe('settings · items 4');
@@ -1368,8 +1368,8 @@ describe('the settings screen', () => {
       offsetChanged: t.offsetChanged,
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
     });
-    expect(SETTINGS_ITEMS).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'player', 'language', 'backup', 'telemetry', 'connection', 'report', 'help']);
-    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'backup', 'backup-confirm', 'groups', 'group-menu', 'group-rename', 'group-delete', 'group-channels', 'group-channel-menu', 'channels', 'channel-edit', 'channel-rename', 'channel-number', 'parental', 'locked-groups', 'pin-pick', 'pin-check', 'pin-none', 'player-settings', 'language', 'connection-check', 'test-stream', 'help', 'help-topic']);
+    expect(SETTINGS_ITEMS).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'player', 'language', 'backup', 'telemetry', 'connection', 'report', 'help', 'about']);
+    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'backup', 'backup-confirm', 'groups', 'group-menu', 'group-rename', 'group-delete', 'group-channels', 'group-channel-menu', 'channels', 'channel-edit', 'channel-rename', 'channel-number', 'parental', 'locked-groups', 'pin-pick', 'pin-check', 'pin-none', 'player-settings', 'language', 'connection-check', 'test-stream', 'help', 'help-topic', 'about', 'about-info', 'about-doc']);
     // Without a backup page (step 32d2b) there is no "Backup" row, nor without a switch "Usage and crash reports" (step 33b3).
     expect(settings.backup).toBeNull();
     expect(settings.telemetry).toBeNull();
@@ -1379,10 +1379,10 @@ describe('the settings screen', () => {
     expect(settings.language).toBeNull();
     // Nor without main's values "Player" (step 38d3).
     expect(settings.player).toBeNull();
-    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels', 'help']);
+    expect(settings.items).toEqual(['sources', 'guides', 'groups', 'channels', 'help', 'about']);
     settings.open();
     expect(t.at()).toBe('settings · items 0');
-    expect((t.nav.top.zone('items') as { count: number }).count).toBe(5);
+    expect((t.nav.top.zone('items') as { count: number }).count).toBe(6);
     await t.press('DOWN', 'OK');
     expect(t.at()).toBe('guides · guides 0');
     expect(settings.guides.rows.value).toHaveLength(4);

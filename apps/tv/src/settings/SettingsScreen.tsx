@@ -24,6 +24,8 @@ import { PLAYER_SETTINGS_SCREEN } from './player-settings';
 import { CONNECTION_SCREEN, TEST_SCREEN } from './connection-check';
 import { ConnectionPage, TestStreamPage } from './ConnectionPage';
 import { PlayerSettingsPage } from './PlayerSettingsPage';
+import { ABOUT_DOC_SCREEN, ABOUT_INFO_SCREEN, ABOUT_SCREEN } from './about-page';
+import { AboutDocPage, AboutInfoPage, AboutListPage } from './AboutPage';
 import { HELP_SCREEN, HELP_TOPIC_SCREEN } from './help-page';
 import { HelpListPage, HelpTopicPage } from './HelpPage';
 import { CHECK_SCREEN } from './pin-check';
@@ -437,6 +439,7 @@ export function itemText(t: Translate, id: SettingsItem): { name: string; hint: 
   if (id === 'player') return { name: t('settings.player'), hint: t('settings.playerHint') };
   if (id === 'report') return { name: t('settings.report'), hint: t('settings.reportHint') };
   if (id === 'connection') return { name: t('settings.connection'), hint: t('settings.connectionHint') };
+  if (id === 'about') return { name: t('settings.about'), hint: t('settings.aboutHint') };
   if (id === 'help') return { name: t('settings.help'), hint: t('settings.helpHint') };
   if (id === 'groups') return { name: t('settings.groups'), hint: t('settings.groupsHint') };
   if (id === 'channels') return { name: t('settings.channels'), hint: t('settings.channelsHint') };
@@ -932,6 +935,9 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       {settings.connection !== null && focus.screen === CONNECTION_SCREEN && <ConnectionPage i18n={i18n} binding={binding} check={settings.connection} />}
       {focus.screen === HELP_SCREEN && <HelpListPage i18n={i18n} binding={binding} />}
       {focus.screen === HELP_TOPIC_SCREEN && <HelpTopicPage i18n={i18n} binding={binding} page={settings.help} />}
+      {focus.screen === ABOUT_SCREEN && <AboutListPage i18n={i18n} binding={binding} />}
+      {focus.screen === ABOUT_INFO_SCREEN && <AboutInfoPage i18n={i18n} binding={binding} page={settings.about} />}
+      {focus.screen === ABOUT_DOC_SCREEN && <AboutDocPage i18n={i18n} binding={binding} page={settings.about} />}
       {settings.connection !== null && focus.screen === TEST_SCREEN && <TestStreamPage i18n={i18n} binding={binding} check={settings.connection} />}
     </main>
   );

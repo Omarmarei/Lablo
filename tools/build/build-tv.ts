@@ -28,6 +28,8 @@
  *
  * Options: --platform tizen|webos (repeatable; default both), --target app|dev|lab|vectors
  * (repeatable; default all four), --skip-package.
+ * --release: a release build (step 40d): refuses while the legal text is still the draft for counsel
+ * (src/legal-gate.ts; step 45's checklist runs the same check).
  * Lab options: --lab-server http://host:port (the mock provider the TV reaches; default this
  * PC's LAN address, port 8080), --lab-version x.y.z (default the app's: raise it to test an
  * update over an installed lab, spike S2), --lab-write-mb N (S2's write test, default 200),
@@ -41,6 +43,7 @@ import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } f
 import { networkInterfaces } from 'node:os';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import { checkLegalRelease } from './src/legal-gate';
 import type { BudgetResult } from './src/budgets';
 import { bundleBudgets, formatBudget, kb } from './src/budgets';
 import type { BundleResult, LazyChunk } from './src/bundle';
@@ -241,6 +244,7 @@ async function main(): Promise<void> {
       platform: { type: 'string', multiple: true },
       target: { type: 'string', multiple: true },
       'skip-package': { type: 'boolean', default: false },
+      release: { type: 'boolean', default: false },
       'lab-server': { type: 'string' },
       'lab-version': { type: 'string' },
       'lab-write-mb': { type: 'string' },
@@ -249,6 +253,10 @@ async function main(): Promise<void> {
       'unsafe-no-polyfills': { type: 'boolean', default: false },
     },
   });
+  if (values.release) {
+    const legal = checkLegalRelease(ROOT);
+    if (legal.length > 0) throw new Error(['--release refused:'].concat(legal).join('\n  '));
+  }
   const polyfills = !values['unsafe-no-polyfills'];
   if (!polyfills && values.out === undefined) {
     throw new Error('--unsafe-no-polyfills is for the old-engine self-test only and needs --out <dir> (never dist/tv)');

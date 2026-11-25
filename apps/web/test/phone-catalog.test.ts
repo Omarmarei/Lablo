@@ -175,6 +175,14 @@ describe('the phone page’s headers', () => {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
         ],
       },
+      ...['/terms', '/privacy'].map((source) => ({
+        source,
+        headers: [
+          { key: 'Content-Security-Policy', value: PHONE_CSP },
+          { key: 'Referrer-Policy', value: 'no-referrer' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+        ],
+      })),
     ]);
     expect(pageHeaders(false)).toEqual([]);
     // The config's own: none under Vitest (NODE_ENV=test), the policy under NODE_ENV=production.

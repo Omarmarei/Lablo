@@ -84,6 +84,7 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'onboarding.consentNo': 'إن لم تسمح بذلك، تعرض الإعدادات رمزًا احتياطيًا لتدوّنه بدلًا منه.',
   'onboarding.telemetryNote':
     'يرسل لابلو أيضًا تقارير استخدام وأعطال مجهولة الهوية لتحسين التطبيق، ولا تتضمن أبدًا روابطك أو بيانات دخولك أو أسماء قنواتك. يمكنك إيقافها من الإعدادات.',
+  'onboarding.privacyNote': 'تجد سياسة الخصوصية كاملة في الإعدادات تحت «عن لابلو».',
   'onboarding.allow': 'سماح',
   'onboarding.notNow': 'ليس الآن',
   'onboarding.sourceTitle': 'أضف مصدرك',
@@ -341,6 +342,8 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'settings.connectionHint': 'هل المشكلة في التطبيق أم لدى مزوّد الخدمة؟',
   'settings.help': 'المساعدة',
   'settings.helpHint': 'إضافة مصدر ورموز الأخطاء وأزرار جهاز التحكم والدعم',
+  'settings.about': 'عن لابلو',
+  'settings.aboutHint': 'الإصدار وشروط الاستخدام وسياسة الخصوصية',
   'connection.checking': 'جارٍ الفحص…',
   'connection.again': 'إعادة الفحص',
   'connection.internet': 'الإنترنت',

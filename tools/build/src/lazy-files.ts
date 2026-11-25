@@ -7,6 +7,9 @@ import type { BundleResult } from './bundle';
  * something main.js holds imports it statically (not through the `import()` that loads the
  * settings), so it costs main.js again without a word: the build fails instead, naming it.
  */
+/** The terms and the privacy policy (step 40d): shared with the web app, read only by the settings, so only settings.js may hold it. */
+export const LEGAL_MODULE = 'packages/protocol/src/legal.ts';
+
 export interface LazyRule {
   /** The lazy files the build writes, in order (`settings.js`). */
   readonly files: readonly string[];
@@ -15,11 +18,11 @@ export interface LazyRule {
 }
 
 /**
- * The app's (its test copy's too): settings.js holds everything under apps/tv/src/settings/. What
+ * The app's (its test copy's too): settings.js holds everything under apps/tv/src/settings/ and the legal text. What
  * main.js keeps to open it is elsewhere (apps/tv/src/lazy/, the guide's MappingReading, the backup
  * code's codeGroups).
  */
-export const APP_LAZY: LazyRule = { files: ['settings.js'], only: ['apps/tv/src/settings/'] };
+export const APP_LAZY: LazyRule = { files: ['settings.js'], only: ['apps/tv/src/settings/', LEGAL_MODULE] };
 
 /** What breaks `rule` in a split build of the app; [] when nothing does. */
 export function lazyProblems(bundle: Pick<BundleResult, 'modules' | 'lazy'>, rule: LazyRule, root: string): string[] {

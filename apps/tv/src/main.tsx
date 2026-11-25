@@ -613,6 +613,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   // The settings' screens are in settings.js (step 35e): what they need from here is kept, and they are made when the file is in.
   const settingsOptions: SettingsOptions = {
     nav: live.nav,
+    version: __APP_VERSION__,
     engine: dataEngine(),
     refreshNow: () => (refreshes === null ? Promise.resolve() : refreshes.refreshNow()),
     offsetChanged: () => {

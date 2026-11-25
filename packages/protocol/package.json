@@ -10,6 +10,7 @@
     ".": "./src/index.ts",
     "./check-samples": "./src/check-samples.ts",
     "./backup-limits": "./src/backup-limits.ts",
+    "./legal": "./src/legal.ts",
     "./scrub": "./src/scrub.ts",
     "./telemetry-buckets": "./src/telemetry-buckets.ts"
   },

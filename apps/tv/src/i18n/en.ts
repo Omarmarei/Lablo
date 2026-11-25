@@ -95,6 +95,7 @@ export const EN = {
   // Under the consent's buttons (step 33b3): they answer the TV ID only.
   'onboarding.telemetryNote':
     'Lablo also sends anonymous usage and crash reports to improve the app, never your links, logins or channel names. You can turn them off in Settings.',
+  'onboarding.privacyNote': 'The full privacy policy is in Settings, under "About Lablo".',
   'onboarding.allow': 'Allow',
   'onboarding.notNow': 'Not now',
   'onboarding.sourceTitle': 'Add your source',
@@ -381,6 +382,9 @@ export const EN = {
   'settings.connectionHint': 'Is it the app or your provider?',
   'settings.help': 'Help',
   'settings.helpHint': "Adding a source, error codes, the remote's keys and support",
+  // "About Lablo" (step 40d): the row; its pages' words are in packages/protocol/src/legal.ts (settings.js only).
+  'settings.about': 'About Lablo',
+  'settings.aboutHint': 'The version, the terms of use and the privacy policy',
   'connection.checking': 'Checking…',
   'connection.again': 'Check again',
   'connection.internet': 'Internet',
