@@ -60,13 +60,41 @@ jobs:
             echo "web=$(hit "$web" code.txt)"
           } | tee -a "$GITHUB_OUTPUT"
 
+  # `pnpm verify` (lint, typecheck, unit tests, build:tv, e2e) in five parallel parts (RELAY step
+  # 40ci): run one after another it took 17-22 min (e2e alone 12), and it set the run's length with
+  # the engines. Each e2e shard builds the TV apps itself: tv-bundle, config-gate, lab and
+  # crypto-vectors open dist/, and a build beside each shard is quicker than a build job before
+  # them. So the build's gates (syntax, budgets, .ipk) run in both shards. `pnpm verify` stays the
+  # one local command.
   verify:
     needs: changes
     if: needs.changes.outputs.code == 'true'
+    name: verify (${{ matrix.part }})
     runs-on: ubuntu-latest
-    # pnpm verify took 15-20 min on PRs #165-#167 (8,576 unit tests, the builds, 212 e2e); at 20 the
-    # cap cancelled PR #168's run during its last e2e spec (RELAY leg 143).
-    timeout-minutes: 30
+    # Lint and typecheck about 1 min, the unit tests 2, an e2e shard 9-10 with its build (step 40ci).
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: lint
+            timeout: 10
+          - part: unit
+            timeout: 15
+          # Only the chromium project is sharded: Playwright never shards a project that another
+          # one depends on (throttled depends on chromium), so a plain --shard ran all of chromium
+          # in every shard.
+          - part: e2e 1/2
+            shard: 1
+            timeout: 25
+          - part: e2e 2/2
+            shard: 2
+            timeout: 25
+          # The CPU-throttled timings (about 2.5 min, one worker) on a runner of their own: no
+          # other browser competes for its CPU, as when they ran after the rest of pnpm e2e.
+          - part: e2e throttled
+            throttled: true
+            timeout: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -80,14 +108,32 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Chromium for the Playwright smoke tests (pnpm e2e, part of pnpm verify).
-      - run: pnpm exec playwright install --with-deps chromium
+      - if: matrix.part == 'lint'
+        run: pnpm lint
 
-      # lint + typecheck + unit tests + TV builds (syntax gate, budgets, .ipk) + Playwright.
-      - run: pnpm verify
+      - if: matrix.part == 'lint'
+        run: pnpm typecheck
+
+      - if: matrix.part == 'unit'
+        run: pnpm test
+
+      # Chromium for the Playwright tests.
+      - if: matrix.shard || matrix.throttled
+        run: pnpm exec playwright install --with-deps chromium
+
+      # The TV builds (syntax gate, budgets, .ipk), which the dist/ specs open.
+      - if: matrix.shard
+        run: pnpm build:tv
+
+      - if: matrix.shard
+        run: pnpm e2e --project=chromium --shard=${{ matrix.shard }}/2
+
+      # They build their catalogs in the spec: no dist/.
+      - if: matrix.throttled
+        run: pnpm e2e --project=throttled --no-deps
 
       - name: Upload the TV builds
-        if: always()
+        if: always() && matrix.shard == 1
         uses: actions/upload-artifact@v7
         with:
           name: tv-builds
@@ -97,21 +143,22 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      # The component gallery in en, ar and en-XA (e2e/gallery.spec.ts, RELAY step 11b).
-      - name: Upload the gallery screenshots
-        if: always()
+      # The component gallery in en, ar and en-XA (e2e/gallery.spec.ts, RELAY step 11b), and the
+      # other specs' screenshots, from each shard.
+      - name: Upload the screenshots
+        if: always() && matrix.shard
         uses: actions/upload-artifact@v7
         with:
-          name: gallery-screenshots
+          name: gallery-screenshots-${{ matrix.shard }}
           path: artifacts/screenshots/
           if-no-files-found: warn
           retention-days: 30
 
       - name: Upload the Playwright report
-        if: failure()
+        if: failure() && (matrix.shard || matrix.throttled)
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shard || 'throttled' }}
           path: artifacts/
           if-no-files-found: ignore
           retention-days: 14
@@ -120,14 +167,24 @@ jobs:
   # apps in Chromium 53/56/68 snapshots under Docker, the hello screen and the component
   # gallery, plus the self-test that seeded ES2018/ES2020 syntax, a build without polyfills and
   # two seeded CSS breakages are caught. Separate job so `verify` stays fast.
+  # One job per engine (RELAY step 40ci): the three one after another took 25 min. Each runs its
+  # engine's seeded variants too (--self-test): whether a seed must fail depends on the engine
+  # (mustPass), and the seeds are about half of each engine's time. A flaky Chromium 53 run
+  # reruns alone (`gh run rerun --failed`).
   engines:
     needs: changes
     if: needs.changes.outputs.engines == 'true'
+    name: engines (${{ matrix.engine }})
     # The engines run inside a pinned Debian 9 container, so the host image barely matters;
     # pinned anyway (ubuntu-latest moves to 26.04).
     runs-on: ubuntu-24.04
-    # verify:engines took 18.5 min for 114 runs (2026-11-17); the pairing walk adds 12 (step 31c2b).
-    timeout-minutes: 35
+    # On PR #180's run (step 40ci): Chromium 53 took 8 min, 56 9.3 and 68 6.3, with their seeds;
+    # set up and build:tv add about 2.5.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chrome53, chrome56, chrome68]
     steps:
       - uses: actions/checkout@v7
 
@@ -140,25 +197,26 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # ~280 MB of pinned Chromium snapshots; the key changes when an engine changes.
-      - name: Cache the Chromium snapshots
+      # The job's pinned Chromium snapshot (about 95 MB of the three's 280; the harness downloads
+      # only the engines it runs); the key changes when an engine changes.
+      - name: Cache the Chromium snapshot
         uses: actions/cache@v6
         with:
           path: .cache/engines
-          key: engines-${{ hashFiles('tools/engines/src/engines.ts') }}
+          key: engines-${{ matrix.engine }}-${{ hashFiles('tools/engines/src/engines.ts') }}
 
       - run: pnpm build:tv --skip-package
 
-      - run: pnpm verify:engines --self-test
+      - run: pnpm verify:engines --self-test --engine ${{ matrix.engine }}
 
       # The report, and the component gallery (RELAY step 11c), onboarding's form and done
-      # screens (step 13c) and the pairing screen's code and done views (step 31c2b) as each
+      # screens (step 13c) and the pairing screen's code and done views (step 31c2b) as the
       # engine drew them.
       - name: Upload the old-engine report and screenshots
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: old-engines-report
+          name: old-engines-report-${{ matrix.engine }}
           path: |
             artifacts/engines/report.json
             artifacts/engines/gallery-*.png

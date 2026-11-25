@@ -10,7 +10,7 @@ import { ARABIC_FACE, LATIN_FACE, renderedFontsUnder } from './fonts';
 /**
  * The component gallery (`?screen=gallery`, RELAY step 11b) in the dev app: every base
  * component in English, Arabic and the en-XA pseudo-locale. Each run writes the screenshots
- * to artifacts/screenshots (CI uploads them as `gallery-screenshots`); docs/design keeps the
+ * to artifacts/screenshots (CI uploads them as `gallery-screenshots-<shard>`); docs/design keeps the
  * step-11b ones.
  */
 const SHOTS = path.resolve(import.meta.dirname, '../artifacts/screenshots');

@@ -133,11 +133,18 @@ describe('evaluateOnPort (a local inspector, no TV)', () => {
 
   it("rejects a failed socket once, without closing it (Node 22's close() fires error again)", async () => {
     server = await inspector(() => undefined);
-    const socket = new NeverOpens(true);
-    await expect(evaluateOnPort(server.port, '1', 100, () => socket)).rejects.toThrow("the inspector's WebSocket failed (ws://127.0.0.1:");
+    // Made when the client opens it, after its fetch of /json: a socket made before that failed
+    // before anyone listened whenever the fetch took over 5 ms (CI, step 40ci).
+    const sockets: NeverOpens[] = [];
+    const open = (): InspectorSocket => {
+      const socket = new NeverOpens(true);
+      sockets.push(socket);
+      return socket;
+    };
+    await expect(evaluateOnPort(server.port, '1', 100, open)).rejects.toThrow("the inspector's WebSocket failed (ws://127.0.0.1:");
     // Past the time limit too: its timer is gone, or it would close the socket (and hold the CLI open).
     await new Promise((resolve) => setTimeout(resolve, 150));
-    expect(socket.closes).toBe(0);
+    expect(sockets.map((socket) => socket.closes)).toEqual([0]);
   });
 
   it('closes once after the answer, its timer gone', async () => {
@@ -156,10 +163,14 @@ describe('evaluateOnPort (a local inspector, no TV)', () => {
         closes += 1;
       },
     };
-    setTimeout(() => {
-      for (const listener of listeners.open ?? []) listener({ data: null });
-    }, 5);
-    expect(await evaluateOnPort(server.port, '6 * 7', 100, () => socket)).toBe(42);
+    // It opens 5 ms after the client asks for it (after the client's fetch of /json, as above).
+    const open = (): InspectorSocket => {
+      setTimeout(() => {
+        for (const listener of listeners.open ?? []) listener({ data: null });
+      }, 5);
+      return socket;
+    };
+    expect(await evaluateOnPort(server.port, '6 * 7', 100, open)).toBe(42);
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(closes).toBe(1);
   });
