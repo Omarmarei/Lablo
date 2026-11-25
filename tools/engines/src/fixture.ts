@@ -336,5 +336,5 @@ export function stageFixtures(root: string, nowMs = Date.now(), trustsDevKey = t
 export function appUrl(variant: string, platform: TvPlatform, check: DataCheck): string {
   const source = `${FIXTURE_ORIGIN}/${check.file}`;
   const probes = check.config.checks.map((url) => `&check=${encodeURIComponent(url)}`).join('');
-  return `file:///app/${variant}/${platform}/index.html?screen=hello&force=1&q=${encodeURIComponent(check.query)}&api=${encodeURIComponent(FIXTURE_ORIGIN)}${probes}&source=${encodeURIComponent(source)}`;
+  return `file:///app/${variant}/${platform}/index.html?keyboard=native&screen=hello&force=1&q=${encodeURIComponent(check.query)}&api=${encodeURIComponent(FIXTURE_ORIGIN)}${probes}&source=${encodeURIComponent(source)}`;
 }

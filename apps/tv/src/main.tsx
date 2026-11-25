@@ -4,7 +4,7 @@ import type { CatalogItem, ContentKey, DeviceTier } from '@lablo/core';
 import { normalizeLang } from '@lablo/core';
 import type { BackupCallRequest, DiagSendResult, LastChannel, LoadedProfile } from '@lablo/data';
 import type { Language, Navigator } from '@lablo/ui';
-import { Spinner } from '@lablo/ui';
+import { Spinner, setScreenKeyboardLabels } from '@lablo/ui';
 import { backupRequest, consentOf } from './backup/backup-request';
 import { createBackupSchedule } from './backup/backup-schedule';
 import { createBackupStart } from './backup/backup-start';
@@ -76,6 +76,22 @@ const memory = createPlayerMemory({ edit: (edit) => dataEngine().editProfile(edi
 const progress = createMovieProgress({ edit: (edit) => dataEngine().editProfile(edit) });
 const platform = createPlatform({ redirects: memory.redirects });
 platform.registerKeys();
+// The app's own keyboard (step 40e) says its words in the page's language each time it opens.
+setScreenKeyboardLabels(() => {
+  const t = appI18n(document.documentElement.lang || 'en').t;
+  return {
+    title: t('keyboard.title'),
+    done: t('keyboard.done'),
+    native: t('keyboard.native'),
+    space: t('keyboard.space'),
+    delete: t('keyboard.delete'),
+    shift: t('keyboard.shift'),
+    symbols: t('keyboard.symbols'),
+    letters: t('keyboard.letters'),
+    arabic: t('keyboard.arabic'),
+    latin: t('keyboard.latin'),
+  };
+});
 /** The device's tier once the platform says it (the guide's days). */
 let tier: DeviceTier = 'full';
 // tokens.css turns motion off on the low tier (`?tier=low` forces it in the browser).

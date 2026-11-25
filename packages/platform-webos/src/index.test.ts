@@ -172,6 +172,12 @@ describe('webosVersionFacts (relay step 16a: the year is not the firmware)', () 
   });
 });
 
+describe("the webOS platform's own keyboard (step 40e)", () => {
+  it("opens the app's keyboard by default (its key hands over to the system keyboard)", () => {
+    expect(createWebosPlatform().ownKeyboard).toBe(true);
+  });
+});
+
 describe('createWebosPlatform().info() on a webOS 6 TV', () => {
   afterEach(() => {
     vi.unstubAllGlobals();

@@ -1,6 +1,8 @@
 import type { KeyLike, Platform, TextKey } from '@lablo/platform-api';
 import type { Navigator } from './navigator';
 import { OK_CLICK_WINDOW_MS } from './navigator';
+import type { KeyboardInput, ScreenKeyboard } from './screen-keyboard';
+import { sharedScreenKeyboard } from './screen-keyboard';
 
 /**
  * Text input on a TV (RELAY step 13a, docs/architecture.md §1.2 "Text input"). The focus engine
@@ -34,7 +36,9 @@ export interface EditKeyEvent extends KeyLike {
 }
 
 export interface TextEditorOptions {
-  readonly platform: Pick<Platform, 'textKey' | 'onSoftKeyboard'>;
+  readonly platform: Pick<Platform, 'textKey' | 'onSoftKeyboard'> & Partial<Pick<Platform, 'ownKeyboard' | 'keyToIntent'>>;
+  /** The app's own keyboard, used when `platform.ownKeyboard` is true. Default: the shared one (step 40e). */
+  readonly keyboard?: ScreenKeyboard;
   /** Moves the focus after `done`, `up` and `down`. */
   readonly nav: Pick<Navigator, 'handle'>;
   /** Finds a field's input by its id. Default `document.getElementById`. */
@@ -52,6 +56,8 @@ export interface FieldEditing {
   readonly onEditInput: () => void;
   readonly onEditFocus: () => void;
   readonly onEditBlur: () => void;
+  /** The input takes no typing of its own (the app's keyboard types into it): no TV keyboard opens on its focus. */
+  readonly readOnly?: boolean;
 }
 
 export interface TextEditor {
@@ -97,14 +103,41 @@ export function createTextEditor(options: TextEditorOptions): TextEditor {
   };
 
   /** Ends the edit of `id`: `editing` is cleared before the blur, so its blur event finds no edit. */
-  const finish = (id: string, how: TextKey, blur: boolean): void => {
+  const finish = (id: string, how: TextKey, blur: boolean, closeOwn: boolean = true): void => {
     if (editing !== id) return;
     editing = null;
+    if (own && closeOwn) screenKeyboard().close();
+    if (handedOver === id) {
+      handedOver = null;
+      const input = find(id) as { readOnly?: boolean } | null;
+      if (input !== null) input.readOnly = true;
+    }
     if (blur) find(id)?.blur();
     notify();
     if (how === 'done' || how === 'down') options.nav.handle('DOWN');
     else if (how === 'up') options.nav.handle('UP');
     options.onEnd?.(id, how);
+  };
+
+  const own = options.platform.ownKeyboard === true && options.platform.keyToIntent !== undefined;
+  const screenKeyboard = (): ScreenKeyboard => options.keyboard ?? sharedScreenKeyboard();
+
+  /** The field whose input the TV's own keyboard has (the key that hands over): its input is typable until the edit ends. */
+  let handedOver: string | null = null;
+  const handOver = (id: string, input: EditableLike): void => {
+    handedOver = id;
+    (input as { readOnly?: boolean }).readOnly = false;
+    input.focus();
+  };
+
+  /** Opens the app's keyboard on field `id`'s input (nothing gets DOM focus). */
+  const openOwn = (id: string, input: EditableLike): void => {
+    const platform = options.platform as Pick<Platform, 'keyToIntent' | 'textKey'>;
+    screenKeyboard().open({
+      input: input as unknown as KeyboardInput,
+      platform,
+      onEnd: (how) => (how === 'native' ? handOver(id, input) : finish(id, how, true, false)),
+    });
   };
 
   const stopKeyboard = options.platform.onSoftKeyboard((visible) => {
@@ -121,7 +154,8 @@ export function createTextEditor(options: TextEditorOptions): TextEditor {
       if (input === null) return false;
       if (editing !== null) finish(editing, 'close', true);
       start(id);
-      input.focus();
+      if (own) openOwn(id, input);
+      else input.focus();
       return true;
     },
     close(): void {
@@ -130,6 +164,7 @@ export function createTextEditor(options: TextEditorOptions): TextEditor {
     field(id: string): FieldEditing {
       return {
         editing: editing === id,
+        readOnly: own,
         onEditKey(event: EditKeyEvent): void {
           // Typing is the field's: nothing behind it (the remote wiring, a screen) sees it.
           event.stopPropagation();
@@ -146,6 +181,11 @@ export function createTextEditor(options: TextEditorOptions): TextEditor {
         onEditFocus(): void {
           // A pointer click right on the input focuses it natively, before any open().
           if (editing === id) return;
+          // Our keyboard types for the input: a pointer focusing it opens the keyboard like OK.
+          if (own) {
+            editor.open(id);
+            return;
+          }
           if (editing !== null) finish(editing, 'close', true);
           start(id);
         },
@@ -162,6 +202,7 @@ export function createTextEditor(options: TextEditorOptions): TextEditor {
       };
     },
     dispose(): void {
+      if (own && editing !== null) screenKeyboard().close();
       stopKeyboard();
     },
   };

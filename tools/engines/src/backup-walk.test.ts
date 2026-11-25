@@ -126,7 +126,7 @@ function walk(over: Partial<BackupWalk> = {}): BackupWalk {
 describe('the simulated webOS', () => {
   it('opens the staged copy with its API on the forwarded port of the device itself', () => {
     expect(WEBOS_SIM).toBe('webos-sim');
-    expect(backupWalkUrl('app')).toBe('file:///app/app/webos-sim/index.html?api=http%3A%2F%2F127.0.0.1%3A8091');
+    expect(backupWalkUrl('app')).toBe('file:///app/app/webos-sim/index.html?keyboard=native&api=http%3A%2F%2F127.0.0.1%3A8091');
   });
 
   it('is plain ES5, so it runs before the bundle on every engine', () => {

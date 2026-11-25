@@ -70,7 +70,7 @@ export const WALK_LANGUAGES: readonly WalkLanguage[] = ['en', 'ar'];
 
 /** What a TV opens: no `?screen=`, so the start screen (apps/tv/src/data/params.ts `readScreen`). */
 export function onboardingUrl(variant: string, platform: TvPlatform): string {
-  return `file:///app/${variant}/${platform}/index.html`;
+  return `file:///app/${variant}/${platform}/index.html?keyboard=native`;
 }
 
 /** A page of the apps' file:// origin with no app on it, next to the staged variants. */

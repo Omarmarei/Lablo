@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { nativeKeyboardAsked } from '@lablo/platform-api';
 import type { TizenKey } from './index';
 import { FakeAvplay, FakeClock, settle } from './fake-avplay';
 import { TIZEN_IME_CANCEL, TIZEN_IME_DONE, buildTizenKeyMap, createTizenEngines, createTizenPlatform, registerTizenKeys, tizenChromiumVersion, tizenKeysToRegister, tizenModelYear, tizenTextKey } from './index';
@@ -137,6 +138,19 @@ describe('Tizen version tables', () => {
   it.each(['unknown', '', '42.0'])('unknown version %j -> null', (version) => {
     expect(tizenModelYear(version)).toBeNull();
     expect(tizenChromiumVersion(version)).toBeNull();
+  });
+});
+
+describe("the Tizen platform's own keyboard (step 40e)", () => {
+  it("asks for the app's keyboard: the IME has no Arabic (spike S10)", () => {
+    expect(createTizenPlatform().ownKeyboard).toBe(true);
+  });
+
+  it("keeps the TV's keyboard where the address says ?keyboard=native (the engine walks, the lab)", () => {
+    expect(nativeKeyboardAsked('?keyboard=native')).toBe(true);
+    expect(nativeKeyboardAsked('?restored=1&keyboard=native&api=x')).toBe(true);
+    expect(nativeKeyboardAsked('')).toBe(false);
+    expect(nativeKeyboardAsked('?keyboard=own')).toBe(false);
   });
 });
 

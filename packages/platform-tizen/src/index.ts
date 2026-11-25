@@ -10,6 +10,7 @@
  */
 import { chromiumMajorFromUserAgent, deviceTier } from '@lablo/core';
 import type { DeviceInfo, Intent, KeyLike, KeyRegistration, LifecycleEvent, Platform, PlatformCall, PlatformOptions, ScreenReaderState, TextKey } from '@lablo/platform-api';
+import { nativeKeyboardAsked } from '@lablo/platform-api';
 import type { PlayerEngine } from '@lablo/player';
 import { FallbackEngine, Html5Engine, createStageVideo } from '@lablo/player';
 import { tizenAvplay } from './avplay';
@@ -126,6 +127,8 @@ export function createTizenPlatform(options: PlatformOptions = {}): Platform {
     info: () => Promise.resolve(readDeviceInfo()),
     registerKeys: (): KeyRegistration => registerTizenKeys(attempt(() => globals().tizen?.tvinputdevice, undefined)),
     keyToIntent: (event: KeyLike): Intent | null => getKeyMap().get(event.keyCode) ?? null,
+    // The Tizen IME has no Arabic and its language setting can be locked (spike S10): the app's keyboard.
+    ownKeyboard: typeof location === 'undefined' || !nativeKeyboardAsked(location.search),
     textKey: (event: KeyLike): TextKey | null => tizenTextKey(event),
     onLifecycle(listener: (event: LifecycleEvent) => void): () => void {
       const onVisibility = (): void => listener(document.hidden ? 'hidden' : 'visible');

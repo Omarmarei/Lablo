@@ -96,6 +96,17 @@ export const EN = {
   'onboarding.telemetryNote':
     'Lablo also sends anonymous usage and crash reports to improve the app, never your links, logins or channel names. You can turn them off in Settings.',
   'onboarding.privacyNote': 'The full privacy policy is in Settings, under "About Lablo".',
+  // The app's own on-screen keyboard (step 40e).
+  'keyboard.title': 'Keyboard',
+  'keyboard.done': 'Done',
+  'keyboard.native': 'TV keyboard',
+  'keyboard.space': 'Space',
+  'keyboard.delete': 'Delete',
+  'keyboard.shift': 'Shift',
+  'keyboard.symbols': 'Numbers and symbols',
+  'keyboard.letters': 'Letters',
+  'keyboard.arabic': 'Arabic letters',
+  'keyboard.latin': 'English letters',
   'onboarding.allow': 'Allow',
   'onboarding.notNow': 'Not now',
   'onboarding.sourceTitle': 'Add your source',

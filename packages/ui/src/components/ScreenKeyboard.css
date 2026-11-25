@@ -1,0 +1,68 @@
+/*
+ * The app's own on-screen keyboard (RELAY step 40e). A panel along the bottom of the 1920x1080
+ * canvas, over the screen: a line with the text typed so far, then the rows of keys. It is
+ * dir="ltr" in both languages (a keyboard does not mirror), so nothing here depends on the
+ * page's direction. No flex gap (old Chromium): keys carry a margin instead.
+ */
+.z-kbd {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  z-index: 20;
+  width: 100%;
+  padding: var(--space-4) var(--safe-x) var(--safe-y);
+  border-top: 2px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.z-kbd__text {
+  height: 64px;
+  margin: 0 0 var(--space-3);
+  padding: 0 var(--space-5);
+  overflow: hidden;
+  border-radius: var(--radius-m);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: var(--font-size-body);
+  line-height: 64px;
+  white-space: pre;
+  text-align: start;
+}
+
+.z-kbd__row {
+  display: flex;
+  width: 100%;
+  margin-bottom: var(--space-2);
+}
+
+.z-kbd__key {
+  flex-basis: 0;
+  flex-shrink: 1;
+  min-width: 0;
+  height: 72px;
+  margin: 0 var(--space-1);
+  padding: 0;
+  border: var(--focus-ring) solid transparent;
+  border-radius: var(--radius-m);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--font-size-body);
+  line-height: 1;
+  text-align: center;
+}
+
+.z-kbd__key.is-action {
+  color: var(--color-text-muted);
+}
+
+.z-kbd__key.is-action.is-on {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.z-kbd__key.is-focused {
+  border-color: var(--color-focus);
+  background: var(--color-surface-focus);
+  color: var(--color-text);
+}

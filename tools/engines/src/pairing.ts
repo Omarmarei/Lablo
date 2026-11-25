@@ -63,7 +63,7 @@ export const QR_MAX_PX = 460;
 
 /** The app at `variant`/`platform` with its API on the forwarded port. */
 export function pairingUrl(variant: string, platform: TvPlatform): string {
-  return `file:///app/${variant}/${platform}/index.html?api=${encodeURIComponent(PAIR_ORIGIN)}`;
+  return `file:///app/${variant}/${platform}/index.html?keyboard=native&api=${encodeURIComponent(PAIR_ORIGIN)}`;
 }
 
 /** The name the phone gives the source in each walk. */

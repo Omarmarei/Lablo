@@ -50,7 +50,7 @@ const UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Geck
 const CODE = '3F7KQ9XM2HD8VBN4T6WCRY1PAG';
 const LOOKUP = 'L'.repeat(43);
 const MISTYPED_LOOKUP = 'M'.repeat(43);
-const URL = 'file:///app/app/tizen/index.html?api=http%3A%2F%2F127.0.0.1%3A8091';
+const URL = 'file:///app/app/tizen/index.html?keyboard=native&api=http%3A%2F%2F127.0.0.1%3A8091';
 
 /** A fixture of two channels, one category each, no guide. */
 const CATEGORIES: WalkCheck['categories'] = [
@@ -210,7 +210,7 @@ describe('the plain Tizen build', () => {
   });
 
   it("knows where the app starts again after a restore: restored=1 first, the rest of the query after it", () => {
-    expect(restartedUrl(URL)).toBe('file:///app/app/tizen/index.html?restored=1&api=http%3A%2F%2F127.0.0.1%3A8091');
+    expect(restartedUrl(URL)).toBe('file:///app/app/tizen/index.html?restored=1&keyboard=native&api=http%3A%2F%2F127.0.0.1%3A8091');
     expect(restartedUrl('file:///app/app/tizen/index.html')).toBe('file:///app/app/tizen/index.html?restored=1');
   });
 

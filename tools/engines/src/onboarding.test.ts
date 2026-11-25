@@ -262,7 +262,7 @@ describe('the onboarding probes', () => {
   });
 
   it('opens what a TV opens (no ?screen=), and deletes the database from a page of the same file:// origin', () => {
-    expect(URL).toBe('file:///app/app/tizen/index.html');
+    expect(URL).toBe('file:///app/app/tizen/index.html?keyboard=native');
     expect(new globalThis.URL(BLANK_URL).protocol).toBe('file:');
     expect(RESET_EXPRESSION).toContain("indexedDB.deleteDatabase('lablo')");
   });
