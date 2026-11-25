@@ -1,37 +1,42 @@
-# Lablo IPTV: relay leg 164 opening prompt
+# Lablo IPTV: relay leg 164 opening prompt (written at the end of leg 163, cont.)
 
 You are leg 164 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 ## Status
 - **Earlier legs:** legs 1–162 did steps 1–33, 35–40h, 40ci, 40g(a–d), 39s1–39s3, 39s5, 39s6's code, 43, 44 (PRs #175–#191). RELAY.md is ~70 KB, detail in `docs/relay-archive.md`: grep it, never read it whole.
 - **Leg 163 (2026-11-25): step 45 release engineering, PR #192 merged as `8c7cd95`, CI green (11 checks).** New `pnpm release:check [--no-build]` (`tools/build/release-check.ts` CLI; pure checks and 8 unit tests in `tools/build/src/release-check.ts` / `.test.ts`): legal gate, version consistency (one source: `apps/tv/package.json` feeds both manifests' `{{version}}` and About's `__APP_VERSION__`, not 0.0.0), store-doc placeholders (`<official domain>`, `<test server address>`, `<tester username>`, `<tester password>`), tracked keys/packages/env files/files >5 MB/secret patterns/the Samsung test TV's hotspot address (`10.50.231.x`), then `build:tv --release` and the webOS `.ipk` of this version; the Tizen `.wgt` is only reported. Runbook: `docs/runbooks/tv-build.md` "The release checklist". Today `pnpm release:check --no-build` fails with exactly 7 intended problems (3 legal-draft, 4 placeholders). The hotspot address was redacted from HANDOVER.md. Signed packages: code already existed in `package.ts` (webOS `.ipk`; Tizen `.wgt` needs the Tizen CLI + `TIZEN_SIGNING_PROFILE`, Omar's). **Mutation testing was NOT run on 43 or 45.** `release:check` full (with build) was not run (legal draft would refuse).
-- **Sizes (Tizen, unchanged by 45): main.js 492.5/500 KB (tight), settings.js 150.6/200, query worker 149.3/150, ingest worker 142.4/150.**
+- **Leg 163 (cont.), after Omar's "Proceed to what doesn't need the tv now" (his own words in leg 163's tab):** RELAY.md got steps **48–52** (work that needs no TV, under step 47). **Step 48 merged: PR #193 as `0146079`**, CI green: mutation 11/11 killed on 43 and the release check (a new e2e step in `e2e/accessibility.spec.ts` checks the player root's new `data-caption-bg`/`data-caption-color`; it now leaves `captionBg: 'none'` stored), a test for all four store placeholders, `settings.playerHint` en/ar names the caption look and larger text.
+- **Sizes (Tizen; 48 added 0.1 KB): main.js 492.6/500 KB (tight), settings.js 150.6/200, query worker 149.3/150, ingest worker 142.4/150.**
 - **Omar's advance answers (RELAY.md under 40g):** 39s4 "biggest gain, then accept" (one leg, TV); 41: the 2018 tier goes through Samsung Remote Test Lab, `[needs Omar]` for the tunnel.
 - **Samsung TV is in Omar's hands (from `iptv-df`, 2026-11-25 ~17:30): no `pnpm tv`, sdb or `pnpm device` against it until he says it is free.** Park TV-only parts (39s7's check, step 21's soak rerun, 39s4's measurement, 40g(e)).
 - **39s6's tick:** `iptv-df` relayed "tick 39s6" as Omar's word; recorded, NOT ticked (a handover reserved it for Omar himself). Ask in his own tab.
 - **Waiting for Omar:** step 16's remaining parts, step 21, "3a" real-remote checks, 39s4, step 34 (deferred: skip), 41/42/46/47's TV parts, the LG's Audio Guidance check for 43, the Tizen signing profile for a real `.wgt`.
 
 ## Read first
-1. **RELAY.md** (read all): open steps 39s4/39s7/40g(e)/41/42/46/47, the "Omar's answers" block, last progress rows (163).
+1. **RELAY.md** (read all): steps 49–52 ("Work that needs no TV", under step 47), 39s7 (for 49), the "Omar's answers" block, last progress rows (163, 163 cont.).
+   For 49: `docs/spikes/results.md` "From the Samsung TV (2026-11-25)", the lab's S4 rows (`apps/tv/src/lab/`), the Tizen engine (`grep -rn AVPlay apps/tv/src/playback`), the mock's `live-outages` scenario, `docs/runbooks/lab.md`.
 2. **Memory notes:** iptv-tv-bundle-polyfills, iptv-ui-test-gotchas, gh-pr-checks-watch-race, use-write-tool-for-doc-batches, relay-speed-without-cuts.
 
 ## Next steps, in order
-1. **Check the state:** `git -C "<wt>" status` clean; `git log --oneline -3` shows this handover's commit, `8c4f684`, `8c7cd95`; origin/main = `8c7cd95`; no `*.mutbak`; the branch is pushed.
-2. **Optional cheap follow-ups (step 43's leftovers):** mutation pass on 43 (drop `appearance.setCaptionBackground` in the settings wiring; drop the `data-large-text` attribute write; change the `captionBg` default) and a one-line hint update in `settings.playerHint` (en/ar) mentioning captions and larger text (unit/e2e pins may need updating). Maybe also a mutation pass on `release-check.ts` (drop one secret pattern; drop one placeholder; flip the `.env` allowance). Do these only if each is cheap; one PR.
-3. **Everything left is `[needs Omar]` or `[needs TV]`:** 46 beta (native Arabic review), 47 store submissions, 34 production, 39s4/39s7/40g(e)/41/42 on the TVs. If nothing doable remains, end **needs-you** with a short numbered list (what he must do: free the Samsung TV; Tizen signing profile; counsel's text; domain/test server; 39s6's tick in his own words; the "3a" TV checks).
+1. **Check the state:** `git -C "<wt>" status` clean; `git log --oneline -3` shows this handover's commit, `f4e9d8e`, `0146079`; origin/main = `0146079`; no `*.mutbak`; the branch is pushed.
+2. **Step 49: 39s7 prep, the held-socket probe in the lab (no TV).** Refine against the lab code first, then build: a new S4 row sampling the candidate signals once a second through a `live-outages` hold, reporting which change at the outage; "n/a" off Tizen; unit tests with a fake AVPlay; lab e2e on desktop; runbook line; mutation; PR merged.
+3. **Steps 50, 51, 52** in order (each its own PR; 50 and 51 may share a leg if small). 52 is docs with web research: official LG/Samsung pages, quotes, link-check (memory: iptv-research-doc-method).
+4. Then everything left is `[needs Omar]`/`[needs TV]`: end **needs-you** with a short numbered list (free the Samsung TV; Tizen signing profile; counsel's text; domain/test server; 39s6's tick in his own words; the "3a" TV checks).
 
 ## Git state to expect
-- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed. origin/main = `8c7cd95`; the branch is main plus `8c4f684` and this handover's commit (docs only). **No open PR.** The main checkout was not touched.
+- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed. origin/main = `0146079`; the branch is main plus `f4e9d8e` and this handover's commit (docs only). **No open PR.** The main checkout was not touched.
 - **Dev database** has migration `20261123160000_pair_purpose`; nothing in production, nothing deployed, no migrations.
 - **Gitignored but present:** `node_modules`, `.cache/*`, `apps/web/.env`, `dist/`, `artifacts/`.
 
 ## Verified vs not
-- **Verified:** 45: tools/build tests 174 green, eslint, tsc for tools/build, CI 11 checks green, `release:check --no-build` output seen. 43/44 as in leg 162.
+- **Verified:** 48: mutation 11/11, unit (player, i18n, settings, tools/build), e2e accessibility + player-settings, typecheck, lint, build:tv, CI 11/11. 45: tools/build tests 174 green, eslint, tsc for tools/build, CI 11 checks green, `release:check --no-build` output seen. 43/44 as in leg 162.
 - **Not done:** 40a–40f and 43's looks on a real TV ("3a"); LG Audio Guidance; keyboard on Chromium 53/56/68; 39s7, 39s4, 40g(e), 41–42, 46–47; counsel's text; production (step 34); a full `release:check` with build.
 - **Migrations and deploys:** none.
 
 ## Gotchas and lessons
 **New in leg 163:**
+- The subtitle overlay draws only when there are cues, and the desktop gives it none: e2e checks player-level `data-*` attributes (`data-subtitle-size`, `data-caption-bg`, `data-caption-color`) instead.
+- Mutation runner for mixed unit/e2e mutants: a Write'd python script with exact-count patterns, one mutant at a time, restore in `finally` (leg 163's `mutate48.py` in the scratchpad, gone with the session).
 - Git Bash `sed -i` with `\'` and backslash-heavy regexes mangles TS source: use the Edit tool for any line with a backslash (the secret-pattern regex got eaten once).
 - The Smart App Control hook path in `NODE_OPTIONS` must be absolute (`D:/…/.cache/rollup-wasm/hook.cjs`); `$PWD`-based paths failed after a `cd`.
 - A `for … break` loop around `gh pr checks` polling exits after one iteration: poll with separate calls of 8 × `read -t 14 < /dev/zero`; CI takes ~13 min, engines (chrome53) finishes last.
@@ -82,4 +87,4 @@ You are leg 164 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
 - **Fifty-nine CLAUDE.md gaps** wait for his word: 1–28: `git show d05d5fd:HANDOVER.md`; 29–47: `git show 5fffb27:HANDOVER.md`; 48–54: `git show 081c1ee:HANDOVER.md`; 55: `git show e85772d:HANDOVER.md`; 56: `git show 6235456:HANDOVER.md`; 57: `git show b54b260:HANDOVER.md`; 58: the commands table says `pnpm verify` is what the `verify` job runs, since step 40ci it runs in five parts; 59: CLAUDE.md's budget line omits lazy files (200 KB; runbook updated). 60 (leg 163): CLAUDE.md's commands table lacks `pnpm release:check`.
 - **Step 34:** the accounts, the domain and the keys are his; he puts them in `.env`, plus `LABLO_RATE_SECRET` in Vercel.
 - **GitHub billing:** keep the payment method valid.
-- **Secrets:** none pending.
+- **Secrets: rotate the lionz IPTV provider password** (pasted in chat 2026-11-25 in the Samsung session; never in the repo). Remind Omar every handover until he confirms.
