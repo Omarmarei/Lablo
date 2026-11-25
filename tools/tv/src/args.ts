@@ -1,13 +1,13 @@
 /** `pnpm tv` arguments: the command, its words, and the flags (RELAY step 39s6). */
 
-export const TV_COMMANDS = ['setup', 'keys', 'launch', 'inspect', 'reconnect', 'state', 'eval', 'screen', 'marks', 'soak'] as const;
+export const TV_COMMANDS = ['setup', 'keys', 'launch', 'inspect', 'uninstall', 'reconnect', 'state', 'eval', 'screen', 'marks', 'soak'] as const;
 export type TvCommand = (typeof TV_COMMANDS)[number];
 
 export interface TvArgs {
   readonly command: TvCommand;
   /** The words after the command, flags removed. */
   readonly words: readonly string[];
-  /** The Lablo Lab instead of the app (launch, inspect, state). */
+  /** The Lablo Lab instead of the app (launch, inspect, uninstall, state). */
   readonly lab: boolean;
   /** An inspector port other than the saved one (webOS: `ares-inspect`'s). */
   readonly port?: number;
@@ -22,7 +22,8 @@ export const USAGE = [
   '  keys <KEY_X|ms|TEXT:abc|END>...   the remote: keys, pauses, text, keyboard done',
   '  launch [--lab]               sdb was_execute, timed',
   '  inspect [--lab]              relaunch with the inspector, forward its port',
-  '  reconnect                    sdb connect and forward the saved port again',
+  '  uninstall [--lab]            sdb vd_appuninstall with the full app id',
+  '  reconnect                  sdb connect and forward the saved port again',
   '  state [--lab]                running and visible, from the TV',
   '  eval <expression|@file> [--port N]',
   '  screen [--port N]            the focus path and the page text',

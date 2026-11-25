@@ -9,8 +9,8 @@ import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { TvArgs } from './args';
 import { parseTvArgs } from './args';
-import { evaluateOnPort, parseDebugPort } from './cdp';
-import { appStateUrl, describeAppState, sdbConnect, sdbDebug, sdbForward, sdbLaunch, tizenAppId } from './commands';
+import { evaluateOnPort } from './cdp';
+import { appStateUrl, describeAppState, inspectApp, sdbConnect, sdbForward, sdbLaunch, sdbUninstall, tizenAppId } from './commands';
 import type { TvConfig } from './config';
 import { CONFIG_FILE, clientName, formatTvConfig, parseTvConfig, setupConfig, tvSerial } from './config';
 import { formatJson } from './format';
@@ -204,13 +204,17 @@ async function run(args: TvArgs): Promise<void> {
     }
     case 'inspect': {
       const config = loadConfig();
-      const debug = sdb(sdbDebug(tvSerial(config), appId(args.lab)));
-      const port = parseDebugPort(debug.output);
-      if (port === null) throw new TvError(`No inspector port in sdb's answer:\n${debug.output}`);
-      const forward = sdb(sdbForward(tvSerial(config), port));
-      if (forward.status !== 0) throw new TvError(`sdb forward failed:\n${forward.output}`);
-      saveConfig({ ...config, cdpPort: port });
-      console.log(`the inspector is on port ${port}, forwarded and saved in ${CONFIG_FILE}. Next: pnpm tv screen`);
+      const result = inspectApp(sdb, tvSerial(config), appId(args.lab), config.cdpPort);
+      if ('error' in result) throw new TvError(result.error);
+      saveConfig({ ...config, cdpPort: result.port });
+      console.log(`the inspector is on port ${result.port}, forwarded and saved in ${CONFIG_FILE}. Next: pnpm tv screen`);
+      return;
+    }
+    case 'uninstall': {
+      const config = loadConfig();
+      const result = sdb(sdbUninstall(tvSerial(config), appId(args.lab)));
+      console.log(result.output);
+      process.exitCode = result.status;
       return;
     }
     case 'reconnect': {

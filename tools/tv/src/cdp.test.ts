@@ -105,7 +105,7 @@ describe('evaluateOnPort (a local inspector, no TV)', () => {
     await expect(evaluateOnPort(server.port, '1')).rejects.toThrow(`no page on the inspector at port ${server.port}`);
     await server.close();
     server = await inspector(() => undefined);
-    await expect(evaluateOnPort(server.port, '1', 200)).rejects.toThrow('no answer from the inspector within 200 ms');
+    await expect(evaluateOnPort(server.port, '1', 200)).rejects.toThrow(/no answer from the inspector within 200 ms. .*allows one client at a time/);
   });
 
   /** A socket that never opens and, like Node 22's, fires `error` again from inside `close()`. */
@@ -141,7 +141,7 @@ describe('evaluateOnPort (a local inspector, no TV)', () => {
       sockets.push(socket);
       return socket;
     };
-    await expect(evaluateOnPort(server.port, '1', 100, open)).rejects.toThrow("the inspector's WebSocket failed (ws://127.0.0.1:");
+    await expect(evaluateOnPort(server.port, '1', 100, open)).rejects.toThrow(/the inspector's WebSocket failed \(ws:\/\/127\.0\.0\.1:.*allows one client at a time/);
     // Past the time limit too: its timer is gone, or it would close the socket (and hold the CLI open).
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(sockets.map((socket) => socket.closes)).toEqual([0]);
