@@ -158,6 +158,9 @@ for (const { locale, tag } of [
     await test.step('a password shows dots on the keyboard', async () => {
       await remote.go('DOWN', 'form/fields/1');
       await remote.go('DOWN', 'form/fields/2');
+      // A press of OK within the click window after a pointer click is that click's twin (step 11b): let it pass.
+      await page.waitForTimeout(600);
+      await expect(onboarding).toHaveAttribute('data-editing', '');
       await remote.press('OK');
       await expect(keyboard).toBeVisible();
       await page.keyboard.type('s3cret');
