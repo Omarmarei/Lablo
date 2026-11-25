@@ -200,14 +200,16 @@ for (const platform of ['tizen', 'webos'] as const) {
     // English, I understand, Allow, M3U link: the form, by the remote's own key codes.
     for (const key of ['Enter', 'Enter', 'Enter', 'ArrowDown', 'Enter']) await page.keyboard.press(key);
     await expect(root).toHaveAttribute('data-screen', 'form');
-    // OK gives the field DOM focus (the TV's keyboard), Enter (key 13) ends the edit and moves on.
+    // OK opens the app's own keyboard (step 40e: the TV default; nothing has DOM focus); its Done key ends the edit and moves on.
     await page.keyboard.press('Enter');
     await expect(root).toHaveAttribute('data-editing', 'onboarding-playlist');
-    expect(await page.evaluate(() => document.activeElement?.id)).toBe('onboarding-playlist');
+    await expect(page.locator('.z-kbd')).toBeVisible();
+    expect(await page.evaluate(() => document.activeElement?.id)).not.toBe('onboarding-playlist');
     // The mock's playlist, typed without `http://` (the form adds it).
     const link = `${base.replace(/^http:\/\//, '')}/get.php?username=${U}&password=${P}&type=m3u_plus`;
     await page.keyboard.type(link);
-    await page.keyboard.press('Enter');
+    await page.locator('.z-kbd__row:last-child .z-kbd__key').last().click();
+    await expect(page.locator('.z-kbd')).toHaveCount(0);
     await expect(root).toHaveAttribute('data-editing', '');
     await expect(root).toHaveAttribute('data-index', '1');
     await expect(page.locator('#onboarding-playlist')).toHaveValue(link);
