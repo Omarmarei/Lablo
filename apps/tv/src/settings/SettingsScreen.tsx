@@ -21,6 +21,8 @@ import { MappingReading } from '../guide/MappingReading';
 import { MappingPage } from './MappingPage';
 import { PARENTAL_SCREENS } from './parental-page';
 import { PLAYER_SETTINGS_SCREEN } from './player-settings';
+import { CONNECTION_SCREEN } from './connection-check';
+import { ConnectionPage } from './ConnectionPage';
 import { PlayerSettingsPage } from './PlayerSettingsPage';
 import { CHECK_SCREEN } from './pin-check';
 import { ParentalPageScreen } from './ParentalPage';
@@ -432,6 +434,7 @@ export function itemText(t: Translate, id: SettingsItem): { name: string; hint: 
   if (id === 'parental') return { name: t('settings.parental'), hint: t('settings.parentalHint') };
   if (id === 'player') return { name: t('settings.player'), hint: t('settings.playerHint') };
   if (id === 'report') return { name: t('settings.report'), hint: t('settings.reportHint') };
+  if (id === 'connection') return { name: t('settings.connection'), hint: t('settings.connectionHint') };
   if (id === 'groups') return { name: t('settings.groups'), hint: t('settings.groupsHint') };
   if (id === 'channels') return { name: t('settings.channels'), hint: t('settings.channelsHint') };
   if (id === 'telemetry') return { name: t('settings.telemetry'), hint: t('settings.telemetryOnHint') };
@@ -901,7 +904,7 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       data-testid="settings-screen"
       data-ready="true"
       data-language={i18n.locale.pseudo ? 'pseudo' : i18n.locale.language}
-      data-pending={guides.pending.value + settings.unmatched.pending.value + mapping.pending.value + settings.sources.pending.value + (backup === null ? 0 : backup.pending.value) + (settings.telemetry === null ? 0 : settings.telemetry.pending.value) + (settings.report === null ? 0 : settings.report.pending.value) + groups.pending.value + settings.channel.pending.value + settings.channels.pending.value + (parental === null ? 0 : parental.pending.value + parental.check.pending.value)}
+      data-pending={guides.pending.value + settings.unmatched.pending.value + mapping.pending.value + settings.sources.pending.value + (backup === null ? 0 : backup.pending.value) + (settings.telemetry === null ? 0 : settings.telemetry.pending.value) + (settings.report === null ? 0 : settings.report.pending.value) + (settings.connection === null ? 0 : settings.connection.pending.value) + groups.pending.value + settings.channel.pending.value + settings.channels.pending.value + (parental === null ? 0 : parental.pending.value + parental.check.pending.value)}
       data-editing={guides.editor.editing.value ?? mapping.editor.editing.value ?? settings.sources.form?.editor.editing.value ?? groups.editor.editing.value ?? settings.channel.editor.editing.value ?? parental?.check.form.editor.editing.value ?? ''}
       data-screen={focus.screen}
       data-zone={focus.zone}
@@ -923,6 +926,7 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       {parental !== null && PARENTAL_SCREENS.indexOf(focus.screen) !== -1 && <ParentalPageScreen i18n={i18n} binding={binding} focus={focus} page={parental} />}
       {parental !== null && focus.screen === CHECK_SCREEN && checking !== null && <LoginDialog i18n={i18n} binding={binding} form={parental.check.form} source={checking} />}
       {settings.player !== null && focus.screen === PLAYER_SETTINGS_SCREEN && <PlayerSettingsPage i18n={i18n} binding={binding} page={settings.player} />}
+      {settings.connection !== null && focus.screen === CONNECTION_SCREEN && <ConnectionPage i18n={i18n} binding={binding} check={settings.connection} />}
     </main>
   );
 }

@@ -52,8 +52,11 @@ export interface FailureFacts {
   readonly account?: AccountStatus | null;
 }
 
-/** The account's own problem, if it has one: refused login, expired, blocked, or at its connection limit. */
-function accountCode(account: AccountStatus): string | null {
+/**
+ * The account's own problem, if it has one: refused login, expired, blocked, or at its connection
+ * limit (Settings' "Check the connection" reads it too, RELAY step 40a).
+ */
+export function accountProblemCode(account: AccountStatus): string | null {
   if (!account.auth) return 'PRV-AUTH';
   const problem = xtreamAccountProblem(account);
   if (problem === 'expired') return 'PRV-EXPIRED';
@@ -73,7 +76,7 @@ export function classifyFailure(facts: FailureFacts): PlaybackFailure {
   // Before `unsupported`: panels answer an expired or blocked account with an error page or a
   // short "expired" clip, which a `<video>` reports as an unsupported format.
   if (account !== null) {
-    const code = accountCode(account);
+    const code = accountProblemCode(account);
     if (code !== null) return make('provider', code);
   }
   switch (error.kind) {

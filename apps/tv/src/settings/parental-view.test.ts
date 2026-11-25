@@ -65,12 +65,13 @@ describe("the settings list's window (RELAY step 38c1)", () => {
     const first = SettingsView({ i18n: en, list, item: (i) => (asked.push(i), i === 0 ? focused : idle), telemetry: null });
     expect(rowIds(first)).toEqual(['settings-sources', 'settings-guides', 'settings-groups', 'settings-channels', 'settings-parental', 'settings-player', 'settings-language']);
     expect(asked).toEqual([0, 1, 2, 3, 4, 5, 6]);
-    expect(propsOf(walk(first).find((v) => propsOf(v)['role'] === 'menu'))).toMatchObject({ 'data-top': 0, 'data-count': 10 });
+    expect(propsOf(walk(first).find((v) => propsOf(v)['role'] === 'menu'))).toMatchObject({ 'data-top': 0, 'data-count': 11 });
     asked.length = 0;
-    // The last window (step 38d3: ten rows).
-    const last = SettingsView({ i18n: en, list, item: (i) => (asked.push(i), idle), telemetry: null, top: 3 });
-    expect(rowIds(last)).toEqual(['settings-channels', 'settings-parental', 'settings-player', 'settings-language', 'settings-backup', 'settings-telemetry', 'settings-report']);
-    expect(asked).toEqual([3, 4, 5, 6, 7, 8, 9]);
+    // The last window (step 40a: eleven rows).
+    const last = SettingsView({ i18n: en, list, item: (i) => (asked.push(i), idle), telemetry: null, top: 4 });
+    expect(rowIds(last)).toEqual(['settings-parental', 'settings-player', 'settings-language', 'settings-backup', 'settings-telemetry', 'settings-connection', 'settings-report']);
+    expect(asked).toEqual([4, 5, 6, 7, 8, 9, 10]);
+    expect(textOf(byTestId(last, 'settings-connection')[0])).toBe('Check the connectionIs it the app or your provider?');
     expect(textOf(byTestId(last, 'settings-player')[0])).toBe('PlayerAudio and subtitle languages, picture, clock, sleep timer and buffering');
     expect(textOf(byTestId(last, 'settings-parental')[0])).toBe('Parental controlYour PIN, and the groups and channels it locks');
   });
@@ -85,6 +86,7 @@ describe("the settings list's window (RELAY step 38c1)", () => {
   it('names the row in Arabic', () => {
     expect(itemText(ar.t, 'parental')).toEqual({ name: 'الرقابة الأبوية', hint: 'رمزك السري، والمجموعات والقنوات التي يقفلها' });
     expect(itemText(ar.t, 'player')).toEqual({ name: 'المشغّل', hint: 'لغة الصوت والترجمة، والصورة والساعة ومؤقّت النوم والتخزين المؤقت' });
+    expect(itemText(ar.t, 'connection')).toEqual({ name: 'فحص الاتصال', hint: 'هل المشكلة في التطبيق أم لدى مزوّد الخدمة؟' });
   });
 });
 

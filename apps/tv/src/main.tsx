@@ -50,6 +50,7 @@ import type { Pairing } from './pairing/pair-state';
 import { createPairing } from './pairing/pair-state';
 import { appPlayer, trackPreferences } from './player/app-player';
 import { catchupRequest } from './player/catchup';
+import { createLastPlay } from './player/last-play';
 import { createPlayerMemory, railRefOf } from './player/player-memory';
 import { playTuning } from './player/play-tuning';
 import type { Player } from './player/player-state';
@@ -338,6 +339,9 @@ let playerLifecycle: LifecycleSource = (listener) => platform.onLifecycle(listen
  * The app's player controller, made on the first play (RELAY step 20a): the stage under the page,
  * the platform's engines on it, and the platform's probe, screensaver and lifecycle.
  */
+/** The run's last stream, for Settings › "Check the connection" (RELAY step 40a). */
+const lastPlay = createLastPlay();
+
 const playerController = appPlayer({
   lifecycle: (listener) => playerLifecycle(listener),
   platform,
@@ -351,10 +355,24 @@ const playerController = appPlayer({
   // The config's blocklist (step 30c3b): each stream URL, and Tizen's redirect answer, before it opens.
   blocked: (urls) => dataEngine().blockedOrNone(urls),
   // Telemetry's `play_result` and `stall` (step 33b2).
-  report: (report) => telemetry.record(playerEvent(Date.now(), report)),
+  report: (report) => {
+    lastPlay.report(report);
+    telemetry.record(playerEvent(Date.now(), report));
+  },
   // "Buffering" (step 39d): Fast start or Stable, Fast start's numbers from remote config, read at each play.
   tuning: () => playTuning(memory.bufferMode(), config.policy.value.tunables),
 });
+
+let watched = false;
+/** The controller, its statuses kept for "Check the connection" too (step 40a: the last failure). */
+const watchedPlayer: typeof playerController = () => {
+  const made = playerController();
+  if (!watched) {
+    watched = true;
+    made.subscribe((status) => lastPlay.status(status));
+  }
+  return made;
+};
 
 /** The background refreshes while the live screen shows (RELAY step 22a). */
 let refreshes: RefreshScheduler | null = null;
@@ -618,6 +636,8 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     telemetry: { engine: dataEngine(), setOn: (on) => telemetry.setOn(on) },
     // "Send a report to support" (step 33d2): main's parts and the session's last events; the worker adds the rest.
     report: { send: sendReport },
+    // "Check the connection" (step 40a): the TV's online flag and the run's last stream; the servers through the data engine.
+    connection: { online: () => navigator.onLine, last: () => lastPlay.value(), checkSources: (sources) => dataEngine().checkSources(sources) },
     // "Channel groups" (step 35d): after each edit the live screen reads the lists and groups again.
     listsChanged: () => void live.listsChanged(),
     // "Edit channel" and "Channels" (step 36c): after each edit the live screen reads the channels again.
@@ -729,7 +749,7 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   player = createPlayer({
     nav: live.nav,
     list: live.list,
-    player: playerController,
+    player: watchedPlayer,
     chrome: (on) => setPlayerChrome(document, on),
     // Back from the player: the list on the channel that played, and the guide when the player opened from it.
     closed: (index) => {

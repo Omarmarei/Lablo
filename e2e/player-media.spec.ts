@@ -6,6 +6,7 @@ import { parseScenario } from '../apps/mock-provider/src/faults';
 import { FileMedia } from '../apps/mock-provider/src/file-media';
 import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
+import { stripIsolates } from '../packages/core/src/bidi';
 import { addXtreamAndWatch, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
 import { openSettings, settingsRow, toSettingsRow } from './settings-rows';
@@ -328,6 +329,16 @@ test('the stream info on real live channels: the size, a measured frame rate and
 
   await remote.press('BACK');
   await remote.expectFocus('live/channels/8');
+
+  // Settings › "Check the connection" (step 40a): the last stream played over HLS, and when its picture came.
+  for (let i = 7; i >= 0; i -= 1) await remote.go('UP', `live/channels/${i}`);
+  await openSettings(remote, 'RIGHT');
+  await toSettingsRow(remote, 'connection');
+  await remote.go('OK', 'connection-check/actions/0');
+  await expect(page.getByTestId('connection')).toHaveAttribute('data-verdict', 'ok');
+  const last = stripIsolates((await page.getByTestId('connection-last-value').textContent()) ?? '');
+  expect(last).toMatch(/^Played \(HLS\): the picture after \d+(\.\d)? s$/);
+  await expect(page.getByTestId('connection-last')).toHaveAttribute('data-tone', 'ok');
   expect(errors).toEqual([]);
 });
 
