@@ -379,6 +379,8 @@ export const EN = {
   // "Check the connection" (step 40a): the row, its page's lines and its verdict.
   'settings.connection': 'Check the connection',
   'settings.connectionHint': 'Is it the app or your provider?',
+  'settings.help': 'Help',
+  'settings.helpHint': "Adding a source, error codes, the remote's keys and support",
   'connection.checking': 'Checking…',
   'connection.again': 'Check again',
   'connection.internet': 'Internet',

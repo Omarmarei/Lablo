@@ -31,6 +31,8 @@ import type { ReportOptions, ReportRow } from './diag-report';
 import { createReportRow } from './diag-report';
 import type { ConnectionCheck, ConnectionOptions } from './connection-check';
 import { CONNECTION_SCREEN, TEST_SCREEN, createConnectionCheck } from './connection-check';
+import type { HelpPage } from './help-page';
+import { HELP_SCREEN, HELP_TOPIC_SCREEN, createHelpPage } from './help-page';
 import type { TelemetrySwitch, TelemetrySwitchOptions } from './telemetry-switch';
 import { createTelemetrySwitch } from './telemetry-switch';
 import type { UnmatchedEngine, UnmatchedList } from './unmatched-state';
@@ -55,7 +57,8 @@ import { SETTINGS_VISIBLE } from './settings-window';
  * order of `settings-items.ts` (step 38d1: Sources first; the rows above are told in the order the
  * steps built them) and "Player" (the player's track languages, subtitle size and picture, step
  * 38d3: `player-settings.ts`) and "Check the connection" (the internet, each source's server and
- * the last stream, step 40a: `connection-check.ts`).
+ * the last stream, step 40a: `connection-check.ts`) and "Help" (short answers and the support
+ * address, step 40c: `help-page.ts`, its words `help-text.ts`).
  * Back closes it.
  */
 
@@ -81,7 +84,7 @@ export const SETTINGS_SCREENS: readonly string[] = [
   LOGIN_SCREEN,
   BACKUP_SCREEN,
   BACKUP_CONFIRM,
-].concat(GROUP_SCREENS, [CHANNELS_SCREEN], EDIT_SCREENS, PARENTAL_SCREENS, [PLAYER_SETTINGS_SCREEN, LANGUAGE_SCREEN, CONNECTION_SCREEN, TEST_SCREEN]);
+].concat(GROUP_SCREENS, [CHANNELS_SCREEN], EDIT_SCREENS, PARENTAL_SCREENS, [PLAYER_SETTINGS_SCREEN, LANGUAGE_SCREEN, CONNECTION_SCREEN, TEST_SCREEN, HELP_SCREEN, HELP_TOPIC_SCREEN]);
 
 export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | 'engine'> {
   readonly nav: Navigator;
@@ -136,6 +139,8 @@ export interface Settings {
   readonly report: ReportRow | null;
   /** "Check the connection" (step 40a), when the app gives its online flag and last stream. */
   readonly connection: ConnectionCheck | null;
+  /** "Help" (step 40c): always there. */
+  readonly help: HelpPage;
   /** "Channel groups" (step 35d). */
   readonly groups: Groups;
   /** "Edit channel" (step 36c): from "Channels", or over the player (the info bar's pencil). */
@@ -193,6 +198,14 @@ export function createSettings(options: SettingsOptions): Settings {
   const telemetry = options.telemetry === undefined ? null : createTelemetrySwitch(options.telemetry);
   const report = options.report === undefined ? null : createReportRow(options.report);
   const connection = options.connection === undefined ? null : createConnectionCheck(nav, options.engine, options.connection);
+  // The support topic shows the code the report row gave, read where the page is drawn (the row can't send while Help is open).
+  const help = createHelpPage({
+    nav,
+    supportCode: () => {
+      const sent = report === null ? null : report.state.peek();
+      return sent !== null && sent.state === 'sent' ? sent.code : null;
+    },
+  });
   const groups = createGroups({ nav, engine: options.engine, changed: options.listsChanged, platform: options.platform, find: options.find, now: options.now });
   const channel = createChannelEditor({ nav, engine: options.engine, changed: options.channelsChanged, platform: options.platform, find: options.find, now: options.now, pad: options.pad });
   const channels = createEditedChannels({ nav, engine: options.engine, editor: channel, changed: options.channelsChanged });
@@ -227,6 +240,7 @@ export function createSettings(options: SettingsOptions): Settings {
         else if (item === 'telemetry') telemetry?.press();
         else if (item === 'report') report?.press();
         else if (item === 'connection') connection?.open();
+        else if (item === 'help') help.open();
         else if (item === 'groups') groups.open();
         else if (item === 'channels') channels.open();
         else if (item === 'parental') parental?.open();
@@ -249,6 +263,7 @@ export function createSettings(options: SettingsOptions): Settings {
     telemetry,
     report,
     connection,
+    help,
     groups,
     channel,
     channels,

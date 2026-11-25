@@ -339,6 +339,8 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   // "Check the connection" (step 40a): the row, its page's lines and its verdict.
   'settings.connection': 'فحص الاتصال',
   'settings.connectionHint': 'هل المشكلة في التطبيق أم لدى مزوّد الخدمة؟',
+  'settings.help': 'المساعدة',
+  'settings.helpHint': 'إضافة مصدر ورموز الأخطاء وأزرار جهاز التحكم والدعم',
   'connection.checking': 'جارٍ الفحص…',
   'connection.again': 'إعادة الفحص',
   'connection.internet': 'الإنترنت',

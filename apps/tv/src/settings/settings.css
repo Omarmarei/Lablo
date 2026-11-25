@@ -771,3 +771,75 @@
   height: 56px;
   margin-left: var(--space-6);
 }
+
+/*
+ * "Help" (step 40c): a topic's page inside the safe area: the header (80), the body (it clips
+ * what does not fit, the words are written to fit eight lines in every language and in en-XA),
+ * then "Close" (24 + 56). An item is a term (an error code, left to right, or a key's name) and
+ * what it says beside it.
+ */
+.help__body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.help__p {
+  margin: 0 0 var(--space-4);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.help__item {
+  display: flex;
+  align-items: baseline;
+  padding: var(--space-1) var(--space-5);
+  border-left: 6px solid var(--color-border);
+}
+
+.help__item + .help__item {
+  margin-top: var(--space-2);
+}
+
+.help__term {
+  flex: none;
+  width: 320px;
+  margin-right: var(--space-6);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  font-weight: var(--font-weight-bold);
+}
+
+/* A code is left to right and aligned to the left, in both languages. */
+.help__term--code {
+  text-align: left;
+}
+
+.help__meaning {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.help__mail {
+  font-weight: var(--font-weight-bold);
+}
+
+.help__address {
+  unicode-bidi: isolate;
+  color: var(--color-accent);
+}
+
+.help__none {
+  color: var(--color-text-muted);
+}
+
+.help__buttons {
+  flex: none;
+  margin-top: var(--space-5);
+}
+
+.help__buttons .z-button {
+  height: 56px;
+}

@@ -528,6 +528,17 @@ for (const [locale, language] of [
       await settled(root);
       await shoot(page, `report-settings-sent-${language}`);
 
+      // "Help" (step 40c), the row after it: its support topic shows the same code, left to right.
+      await remote.go('DOWN', settingsRow('help'));
+      await remote.go('OK', 'help/topics/0');
+      for (let i = 1; i <= 6; i += 1) await remote.go('DOWN', `help/topics/${i}`);
+      await remote.go('OK', 'help-topic/actions/0');
+      await expect(page.getByTestId('help-code-value')).toHaveText(DIAG_STAND_IN_CODE);
+      await expect(page.getByTestId('help-code-value')).toHaveAttribute('dir', 'ltr');
+      await remote.go('BACK', 'help/topics/6');
+      await remote.go('BACK', settingsRow('help'));
+      await remote.go('UP', settingsRow('report'));
+
       // What the server read: the dev app's platform swapped for a TV's, as telemetry's stand-in does.
       expect(server.diag.posts).toHaveLength(2);
       const body = JSON.parse(server.diag.posts[1]!) as { platform: string; report: Record<string, unknown> };
