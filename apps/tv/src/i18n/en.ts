@@ -484,6 +484,18 @@ export const EN = {
   'sources.formBody': 'Its channels come back once you save; your favourites stay.',
   'sources.linkWas': 'It was on {host}',
   'sources.save': 'Save',
+  // Sources: a row's menu, its removal and "Add a source" on the TV (RELAY step 40f).
+  'sources.add': 'Add a source',
+  'sources.addTitle': 'Add a source',
+  'sources.menuTitle': 'This source',
+  'sources.menuLine': 'Source: {name}',
+  'sources.editLogin': 'Change server and login',
+  'sources.editLink': 'Change link',
+  'sources.remove': 'Remove',
+  'sources.removing': 'Removing…',
+  'sources.removeTitle': 'Remove {name}?',
+  'sources.removeBody':
+    '{n, plural, =0 {Its channels, places and settings go from this TV. Adding it again starts fresh.} one {Its channels, places and settings go from this TV, and one favourite with them. Adding it again starts fresh.} other {Its channels, places and settings go from this TV, and # favourites with them. Adding it again starts fresh.}}',
   'guides.menuTitle': 'This guide',
   'guides.menuLink': 'Link: {link}',
   'guides.moveUp': 'Move up',

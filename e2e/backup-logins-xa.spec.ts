@@ -181,6 +181,7 @@ test('shows the logins row, "Welcome back"’s line, the sources row and its for
     await shoot(page, 'backup-logins-sources-en-XA');
 
     // Its form, "Save" with the link empty: the problem under the field.
+    await remote.go('OK', 'source-menu/actions/0');
     await remote.go('OK', 'source-login/fields/0');
     await remote.go('DOWN', 'source-login/actions/0');
     await remote.go('OK', 'source-login/fields/0');

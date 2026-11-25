@@ -35,7 +35,9 @@ import { SETTINGS_VISIBLE } from './settings-state';
 import type { LoginField, LoginForm, LoginSource } from './source-login';
 import { LOGIN_CANCEL, LOGIN_FIELDS, LOGIN_PHONE, LOGIN_SAVE, LOGIN_SCREEN, loginFieldId } from './source-login';
 import type { SourceRow, SourcesList } from './sources-state';
-import { SOURCES_SCREEN, shownHost } from './sources-state';
+import { SOURCE_MENU, SOURCE_REMOVE, SOURCES_SCREEN, shownHost } from './sources-state';
+import { ADD_SCREEN } from './source-add';
+import { SourceAddPage, SourceMenuDialog, SourceRemoveDialog, SourcesHeader } from './SourceDialogs';
 import type { ReportRow, ReportState } from './diag-report';
 import type { TelemetrySwitch } from './telemetry-switch';
 import type { UnmatchedList } from './unmatched-state';
@@ -238,7 +240,7 @@ export function sourceKindText(t: Translate, row: SourceRow): string {
  */
 export function statusText(i18n: AppI18n, row: SourceRow): string {
   const answer = row.answer;
-  if (answer !== null) return answer.state === 'updating' ? i18n.t('sources.updating') : errorText(i18n.t, answer.code, answer.status);
+  if (answer !== null) return answer.state === 'updating' ? i18n.t('sources.updating') : answer.state === 'removing' ? i18n.t('sources.removing') : errorText(i18n.t, answer.code, answer.status);
   if (row.needs !== null) return row.needs === 'login' ? i18n.t('sources.needsLogin') : i18n.t('sources.needsLink');
   const at = row.checkedAt === null ? null : new Date(row.checkedAt);
   if (row.type === 'm3u-file') return at === null ? i18n.t('sources.fileAgain') : i18n.t('sources.fileSent', { day: i18n.date(at, 'day'), time: i18n.time(at) });
@@ -291,16 +293,6 @@ export function SourceItem({ i18n, row, index, item }: { i18n: AppI18n; row: Sou
       <p class={warns(row) ? 'guides__failure' : 'guides__status'} data-testid={`source-${index}-status`}>
         {statusText(i18n, row)}
       </p>
-    </div>
-  );
-}
-
-/** The header's "Add from your phone" (step 31c2a). A hook of its own: the screen has the zone only when the app can pair. */
-function AddFromPhone({ i18n, binding, screen }: { i18n: AppI18n; binding: FocusBinding; screen: Screen }) {
-  const header = useZone(binding, screen, 'header');
-  return (
-    <div class="settings__end">
-      <Button label={i18n.t('sources.addPhone')} variant="primary" {...header.item(0)} testId="sources-add-phone" />
     </div>
   );
 }
@@ -389,11 +381,16 @@ export function SourcesPage({ i18n, binding, focus, list }: { i18n: AppI18n; bin
   const needs = rows.filter((row) => row.needs !== null).length;
   const form = list.form;
   const editing = form === null ? null : form.source.value;
+  const add = list.add;
+  // "Add a source" (step 40f) takes the page's place, its states with it.
+  if (add !== null && focus.screen === ADD_SCREEN) return <SourceAddPage i18n={i18n} binding={binding} screen={binding.nav.top} add={add} />;
+  const menu = list.menu.value;
+  const removing = list.removing.value;
   return (
     <div class="settings__page" data-testid="sources" data-status={status} data-count={rows.length} data-blocked={blocked} data-needs={needs}>
       <header class="settings__header">
         <h1 class="settings__title">{t('sources.title')}</h1>
-        {list.canAdd && <AddFromPhone i18n={i18n} binding={binding} screen={screen} />}
+        {list.canAdd && <SourcesHeader i18n={i18n} binding={binding} screen={screen} list={list} />}
       </header>
       <p class="guides__intro">{t('sources.intro')}</p>
       {status === 'loading' && (
@@ -422,6 +419,8 @@ export function SourcesPage({ i18n, binding, focus, list }: { i18n: AppI18n; bin
         />
       )}
       {focus.screen === LOGIN_SCREEN && form !== null && editing !== null && <LoginDialog i18n={i18n} binding={binding} form={form} source={editing} />}
+      {focus.screen === SOURCE_MENU && menu !== null && <SourceMenuDialog i18n={i18n} binding={binding} menu={menu} />}
+      {focus.screen === SOURCE_REMOVE && removing !== null && <SourceRemoveDialog i18n={i18n} binding={binding} removing={removing} />}
     </div>
   );
 }
@@ -911,7 +910,7 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       data-ready="true"
       data-language={i18n.locale.pseudo ? 'pseudo' : i18n.locale.language}
       data-pending={guides.pending.value + settings.unmatched.pending.value + mapping.pending.value + settings.sources.pending.value + (backup === null ? 0 : backup.pending.value) + (settings.telemetry === null ? 0 : settings.telemetry.pending.value) + (settings.report === null ? 0 : settings.report.pending.value) + (settings.connection === null ? 0 : settings.connection.pending.value) + groups.pending.value + settings.channel.pending.value + settings.channels.pending.value + (parental === null ? 0 : parental.pending.value + parental.check.pending.value)}
-      data-editing={guides.editor.editing.value ?? mapping.editor.editing.value ?? settings.sources.form?.editor.editing.value ?? groups.editor.editing.value ?? settings.channel.editor.editing.value ?? parental?.check.form.editor.editing.value ?? ''}
+      data-editing={guides.editor.editing.value ?? mapping.editor.editing.value ?? settings.sources.form?.editor.editing.value ?? settings.sources.add?.editor.editing.value ?? groups.editor.editing.value ?? settings.channel.editor.editing.value ?? parental?.check.form.editor.editing.value ?? ''}
       data-screen={focus.screen}
       data-zone={focus.zone}
       data-index={focus.index}
@@ -923,7 +922,7 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       {onGuides && <GuidesPage i18n={i18n} binding={binding} focus={focus} guides={guides} />}
       {focus.screen === 'unmatched' && <UnmatchedPage i18n={i18n} binding={binding} list={settings.unmatched} reading={mapping.reading.value} />}
       {focus.screen === MAPPING_SCREEN && <MappingPage i18n={i18n} binding={binding} mapping={mapping} />}
-      {(focus.screen === SOURCES_SCREEN || focus.screen === LOGIN_SCREEN) && <SourcesPage i18n={i18n} binding={binding} focus={focus} list={settings.sources} />}
+      {(focus.screen === SOURCES_SCREEN || focus.screen === LOGIN_SCREEN || focus.screen === SOURCE_MENU || focus.screen === SOURCE_REMOVE || focus.screen === ADD_SCREEN) && <SourcesPage i18n={i18n} binding={binding} focus={focus} list={settings.sources} />}
       {focus.screen === PAIR_SCREEN && settings.pairing !== null && <PairPage pairing={settings.pairing} binding={binding} i18n={i18n} />}
       {(focus.screen === BACKUP_SCREEN || focus.screen === BACKUP_CONFIRM) && backup !== null && <BackupPageScreen i18n={i18n} binding={binding} focus={focus} page={backup} />}
       {!onChannels && GROUP_SCREENS.indexOf(focus.screen) !== -1 && <GroupsPage i18n={i18n} binding={binding} focus={focus} groups={groups} />}

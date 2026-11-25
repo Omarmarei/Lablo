@@ -43,7 +43,6 @@ import type { ChannelEdit } from './channel-edits';
 import { channelEditsOf, cleanNamesOn } from './channel-edits';
 import type { ParentalChange, ParentalDoc, ParentalState } from './parental';
 import { applyParentalChange, parentalOf } from './parental';
-import { removeSourceFromProfile } from './source-removal';
 import { getValue, onSuccess, transact } from './idb';
 import { STORE } from './schema';
 import { isQuotaError } from './storage-room';
@@ -481,11 +480,6 @@ export type ProfileEdit =
   | { kind: 'answers'; answers: Partial<OnboardingAnswers> }
   /** Adds the source, or replaces the one with its id (in place). */
   | { kind: 'source'; source: SourceRecord }
-  /**
-   * Removes the source with its id and everything that names it (step 40f, source-removal.ts): its
-   * favourites, locks, places, mappings and edits. One the profile doesn't hold changes nothing.
-   */
-  | { kind: 'removeSource'; id: string }
   /** One thing the player keeps (step 20c1). */
   | { kind: 'player'; change: PlayerChange }
   /** The user's guide list (step 22b). */
@@ -856,7 +850,6 @@ export function applyProfileEdit(doc: ProfileDoc, edit: ProfileEdit): ProfileDoc
     const offsets = withOffset(doc.epgOffsets, edit.epgSrc, edit.minutes);
     return offsets === null ? null : { ...doc, epgOffsets: offsets };
   }
-  if (edit.kind === 'removeSource') return removeSourceFromProfile(doc, edit.id);
   const at = doc.sources.findIndex((s) => s.id === edit.source.id);
   const sources = doc.sources.slice();
   if (at === -1) sources.push(edit.source);

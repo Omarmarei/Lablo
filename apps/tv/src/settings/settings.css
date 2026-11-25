@@ -877,3 +877,64 @@
 .about__buttons .z-button {
   margin-right: var(--space-4);
 }
+
+/* "Add a source" on the TV (step 40f): the header's two buttons, the kind's buttons, the load's progress and the counts. */
+.sources__header > * + * {
+  margin-left: var(--space-4);
+}
+
+.sources__types {
+  display: flex;
+  margin-bottom: var(--space-4);
+}
+
+.sources__types > * + * {
+  margin-left: var(--space-4);
+}
+
+.sources__progress {
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--space-4);
+}
+
+.sources__progress > * + * {
+  margin-left: var(--space-4);
+}
+
+.sources__counts {
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+/* The add form's fields, as onboarding lays them (a label beside its box, the hint under it): five fields fit under the title. */
+.sources__fields .z-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.sources__fields .z-field + .z-field {
+  margin-top: var(--space-2);
+}
+
+.sources__fields .z-field__label {
+  flex: none;
+  width: 360px;
+  margin: 0;
+  padding-right: var(--space-5);
+}
+
+.sources__fields .z-field__box {
+  flex: none;
+  width: 960px;
+}
+
+.sources__fields .z-field__note {
+  flex: none;
+  width: 960px;
+  margin-left: 360px;
+}

@@ -283,6 +283,7 @@ for (const language of ['en', 'ar'] as const) {
       // The form, its login given back.
       const root = page.getByTestId('settings-screen');
       if (language === 'en') {
+        await remote.go('OK', 'source-menu/actions/0');
         await remote.go('OK', 'source-login/fields/1');
         await expect(page.getByTestId('source-login-server').locator('input')).toHaveValue(`http://${host}`);
         await shoot(page, 'backup-logins-form-en');
@@ -298,12 +299,14 @@ for (const language of ['en', 'ar'] as const) {
         expect(await statusOf(page, 0)).toBe(says.refused);
         await shoot(page, 'backup-logins-refused-en');
         // OK opens the form again, with what was typed.
+        await remote.go('OK', 'source-menu/actions/0');
         await remote.go('OK', 'source-login/fields/0');
         await expect(page.getByTestId('source-login-username').locator('input')).toHaveValue(U);
         await remote.go('DOWN', 'source-login/fields/1');
         await remote.go('DOWN', 'source-login/fields/2');
         await typeIn(remote, root, 'password', P);
       } else {
+        await remote.go('OK', 'source-menu/actions/0');
         await remote.go('OK', 'source-login/fields/0');
         expect(stripIsolates((await page.getByTestId('source-login-playlist').locator('.z-field__note').textContent()) ?? '')).toBe(`كان على ${host}`);
         await shoot(page, 'backup-logins-form-ar');

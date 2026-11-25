@@ -23,6 +23,8 @@ import type { GunzipMode } from './gunzip';
 import type { IngestJob, IngestProgress, IngestResult, IngestSwap } from './ingest';
 import { runIngest } from './ingest';
 import type { StoredSource } from './profile';
+import { updateProfile } from './profile';
+import { removeSourceFromProfile } from './source-removal';
 import type { RpcContext } from './rpc';
 import type { SourceProbe } from './source-probe';
 import { probeSource } from './source-probe';
@@ -72,8 +74,8 @@ export class IngestService {
       },
       prune: (): Promise<number> => this.prune(),
       dropGuides: async (): Promise<void> => dropGuides(await this.db()),
-      // Settings' remove source (step 40f): its bookkeeping and every generation of its catalog.
-      removeSource: async (arg: { src: string }): Promise<void> => deleteSource(await this.db(), arg.src),
+      // Settings' remove source (step 40f): the catalog first, then the profile's record and everything that names it.
+      removeSource: (arg: { src: string }): Promise<boolean> => this.removeSource(arg.src),
       // Settings' "Check the connection" (step 40a): every source's server asked at once; nothing is written.
       probe: (arg: { sources: StoredSource[] }): Promise<SourceProbe[]> =>
         Promise.all(arg.sources.map((source) => probeSource(source, { transport: this.options.transport, now: () => (this.options.clock ?? REAL_CLOCK).now() }))),
@@ -104,6 +106,19 @@ export class IngestService {
       onSwap: (s) => ctx.emit('swapped', s),
       onRoom: () => ctx.emit('room', null),
     });
+  }
+
+  /**
+   * Removes a source (step 40f): its bookkeeping and every generation of its catalog, then the
+   * profile without it and everything that names it (`removeSourceFromProfile`), in one write.
+   * Resolves `false` when the profile held no such source (or is a newer app's, never written
+   * over). A crash between the two leaves the source listed with an empty catalog: removing it
+   * again works. The query worker reads it all again afterwards (`DataEngine.removeSource`).
+   */
+  async removeSource(src: string): Promise<boolean> {
+    const db = await this.db();
+    await deleteSource(db, src);
+    return updateProfile(db, (doc) => removeSourceFromProfile(doc, src), { now: (this.options.clock ?? REAL_CLOCK).now() });
   }
 
   /** Prunes every source; returns how many there are. Run before any refresh starts. */

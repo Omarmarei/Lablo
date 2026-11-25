@@ -101,6 +101,40 @@ class FakeEngine implements SourcesEngine {
     return Promise.resolve(true);
   }
 
+  /** The removals asked for (step 40f); `removeFails` makes the engine refuse, `removeHold` holds the answer until `release()`. */
+  readonly removed: string[] = [];
+  removeFails = false;
+  removeHold = false;
+
+  removeSource(src: string): Promise<boolean> {
+    this.removed.push(src);
+    const run = (): boolean => {
+      if (this.removeFails) throw new Error('A catalog refresh is already running');
+      this.sources = this.sources.filter((s) => s.id !== src);
+      this.metas = this.metas.filter((m) => m.src !== src);
+      return true;
+    };
+    if (!this.removeHold) {
+      try {
+        return Promise.resolve(run());
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    }
+    return new Promise<boolean>((resolve, reject) => {
+      this.held.push({
+        resolve: () => {
+          try {
+            resolve(run());
+          } catch (error) {
+            reject(error);
+          }
+        },
+        reject,
+      } as Held<unknown>);
+    });
+  }
+
   release(): void {
     for (const held of this.held.splice(0)) held.resolve(undefined);
   }
@@ -231,8 +265,10 @@ describe('the sources list', () => {
     t.nav.handle('DOWN');
     t.nav.handle('DOWN');
     expect(t.at()).toBe('sources · sources 2');
-    // OK does nothing yet; Back closes it.
+    // OK opens the row's menu, Back closes it; Back again closes the screen (step 40f).
     t.nav.handle('OK');
+    expect(t.at()).toBe('source-menu · actions 0');
+    t.nav.handle('BACK');
     expect(t.at()).toBe('sources · sources 2');
     t.nav.handle('BACK');
     expect(t.at()).toBe('settings · items 0');
@@ -654,12 +690,12 @@ describe('"Add from your phone" (RELAY step 31c2a)', () => {
     await flush();
     const binding = bindFocus(t.nav);
     const header = walk(SourcesPage({ i18n: en, binding, focus: t.nav.snapshot(), list: t.list })).filter((v) => v.type === 'header')[0]!;
-    const button = walk(header).filter((v) => typeof v.type === 'function' && (v.type as { name?: string }).name === 'AddFromPhone')[0]!;
+    const button = walk(header).filter((v) => typeof v.type === 'function' && (v.type as { name?: string }).name === 'SourcesHeader')[0]!;
     // Its own component, with the zone's hook (the e2e draws its label).
     expect(button.props as Props).toMatchObject({ i18n: en, binding });
     const plain = setup();
     plain.list.open();
-    const none = walk(SourcesPage({ i18n: en, binding: bindFocus(plain.nav), focus: plain.nav.snapshot(), list: plain.list })).filter((v) => typeof v.type === 'function' && (v.type as { name?: string }).name === 'AddFromPhone');
+    const none = walk(SourcesPage({ i18n: en, binding: bindFocus(plain.nav), focus: plain.nav.snapshot(), list: plain.list })).filter((v) => typeof v.type === 'function' && (v.type as { name?: string }).name === 'SourcesHeader');
     expect(none).toEqual([]);
   });
 });

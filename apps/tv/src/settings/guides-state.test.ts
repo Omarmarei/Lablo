@@ -22,7 +22,7 @@ import type {
   UserGuide,
 } from '@lablo/data';
 import { signal } from '@preact/signals';
-import { applyProfileEdit, emptyProfile } from '@lablo/data';
+import { applyProfileEdit, emptyProfile, removeSourceFromProfile } from '@lablo/data';
 import type { Intent, KeyLike, TextKey } from '@lablo/platform-api';
 import type { EditableLike } from '@lablo/ui';
 import { SCREEN, createNavigator } from '@lablo/ui';
@@ -179,6 +179,12 @@ class FakeEngine implements GuidesEngine {
 
   itemsByKey(): Promise<CatalogItem[]> {
     return Promise.resolve([]);
+  }
+
+  removeSource(src: string): Promise<boolean> {
+    const next = removeSourceFromProfile(this.doc, src);
+    if (next !== null) this.doc = next;
+    return Promise.resolve(next !== null);
   }
 
   editProfile(edit: ProfileEdit): Promise<boolean> {
@@ -1369,7 +1375,7 @@ describe('the settings screen', () => {
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
     });
     expect(SETTINGS_ITEMS).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'player', 'language', 'backup', 'telemetry', 'connection', 'report', 'help', 'about']);
-    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'backup', 'backup-confirm', 'groups', 'group-menu', 'group-rename', 'group-delete', 'group-channels', 'group-channel-menu', 'channels', 'channel-edit', 'channel-rename', 'channel-number', 'parental', 'locked-groups', 'pin-pick', 'pin-check', 'pin-none', 'player-settings', 'language', 'connection-check', 'test-stream', 'help', 'help-topic', 'about', 'about-info', 'about-doc']);
+    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'source-menu', 'source-remove', 'source-add', 'backup', 'backup-confirm', 'groups', 'group-menu', 'group-rename', 'group-delete', 'group-channels', 'group-channel-menu', 'channels', 'channel-edit', 'channel-rename', 'channel-number', 'parental', 'locked-groups', 'pin-pick', 'pin-check', 'pin-none', 'player-settings', 'language', 'connection-check', 'test-stream', 'help', 'help-topic', 'about', 'about-info', 'about-doc']);
     // Without a backup page (step 32d2b) there is no "Backup" row, nor without a switch "Usage and crash reports" (step 33b3).
     expect(settings.backup).toBeNull();
     expect(settings.telemetry).toBeNull();
@@ -1464,6 +1470,7 @@ describe('the settings screen', () => {
     settings.openSources();
     await flush();
     expect(settings.sources.rows.value.map((r) => [r.id, r.needs])).toEqual([['s1', 'login']]);
+    await t.press('OK');
     await t.press('OK');
     expect(t.at()).toBe('source-login · fields 1');
     settings.sources.form!.setValue('username', 'ann');

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LastChannel, ProfileDoc, SourceRecord } from './profile';
-import { applyProfileEdit, emptyProfile } from './profile';
+import { emptyProfile } from './profile';
 import { keySource, removeSourceFromProfile, sourceFavouriteCount } from './source-removal';
 
 const source = (id: string): SourceRecord => ({ id, type: 'xtream', name: id.toUpperCase(), account: { base: 'http://panel.test', username: 'u', password: 'p' }, added: 7 });
@@ -97,14 +97,13 @@ describe('removeSourceFromProfile (step 40f)', () => {
     const doc = full();
     const before = JSON.stringify(doc);
     expect(removeSourceFromProfile(doc, 's9')).toBeNull();
-    expect(applyProfileEdit(doc, { kind: 'removeSource', id: 's9' })).toBeNull();
     expect(JSON.stringify(doc)).toBe(before);
   });
 
   it('leaves a profile of one source with nothing optional behind, and does not touch the input', () => {
     const doc: ProfileDoc = { ...emptyProfile(), sources: [source('s1')], favourites: [fav('s1', 1)], hiddenGroups: [{ src: 's1', name: 'X' }], epgOffsets: { 's1:xmltv': 30 }, parental: { groups: [{ src: 's1', kind: 'live', name: 'A', locked: true }] } };
     const before = JSON.stringify(doc);
-    const removed = applyProfileEdit(doc, { kind: 'removeSource', id: 's1' })!;
+    const removed = removeSourceFromProfile(doc, 's1')!;
     expect(removed).toEqual({ ...emptyProfile() });
     expect(JSON.stringify(doc)).toBe(before);
   });
