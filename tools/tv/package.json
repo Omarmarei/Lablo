@@ -7,6 +7,9 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
+  "dependencies": {
+    "@webos-tools/cli": "^3.2.6"
+  },
   "devDependencies": {
     "@types/node": "^22.20.5"
   }

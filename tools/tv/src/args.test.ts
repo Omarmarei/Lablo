@@ -1,23 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { parseTvArgs, TV_COMMANDS, USAGE } from './args';
+import { parseTvArgs, TV_COMMANDS, USAGE, WEBOS_COMMANDS } from './args';
 
 describe('parseTvArgs', () => {
   it('reads the command, its words and the defaults', () => {
-    expect(parseTvArgs(['keys', 'KEY_UP', '800', 'TEXT:a'])).toEqual({ command: 'keys', words: ['KEY_UP', '800', 'TEXT:a'], lab: false, minutes: 120, everySeconds: 60 });
-    expect(parseTvArgs(['marks'])).toEqual({ command: 'marks', words: [], lab: false, minutes: 120, everySeconds: 60 });
+    expect(parseTvArgs(['keys', 'KEY_UP', '800', 'TEXT:a'])).toEqual({ command: 'keys', words: ['KEY_UP', '800', 'TEXT:a'], lab: false, webos: false, minutes: 120, everySeconds: 60 });
+    expect(parseTvArgs(['marks'])).toEqual({ command: 'marks', words: [], lab: false, webos: false, minutes: 120, everySeconds: 60 });
   });
 
   it('knows uninstall, with --lab', () => {
-    expect(parseTvArgs(['uninstall', '--lab'])).toEqual({ command: 'uninstall', words: [], lab: true, minutes: 120, everySeconds: 60 });
+    expect(parseTvArgs(['uninstall', '--lab'])).toEqual({ command: 'uninstall', words: [], lab: true, webos: false, minutes: 120, everySeconds: 60 });
     expect(USAGE).toContain('uninstall');
   });
 
   it('takes the flags anywhere', () => {
-    expect(parseTvArgs(['--lab', 'launch'])).toEqual({ command: 'launch', words: [], lab: true, minutes: 120, everySeconds: 60 });
+    expect(parseTvArgs(['--lab', 'launch'])).toEqual({ command: 'launch', words: [], lab: true, webos: false, minutes: 120, everySeconds: 60 });
     expect(parseTvArgs(['soak', '--port', '9222', 'watch', '--minutes', '480', '--every', '30'])).toEqual({
       command: 'soak',
       words: ['watch'],
       lab: false,
+      webos: false,
       port: 9222,
       minutes: 480,
       everySeconds: 30,
@@ -34,6 +35,22 @@ describe('parseTvArgs', () => {
     }
     expect(parseTvArgs(['eval', '--port', '65536'])).toBe('--port needs a port number');
     expect(parseTvArgs(['soak', '--minutes', '65536'])).toMatchObject({ minutes: 65_536 });
+  });
+
+  it('takes --webos for the inspector commands only (step 56)', () => {
+    expect(parseTvArgs(['inspect', '--webos', 'tv', '--lab'])).toEqual({ command: 'inspect', words: ['tv'], lab: true, webos: true, minutes: 120, everySeconds: 60 });
+    expect(parseTvArgs(['soak', 'watch', '--port', '9229', '--webos'])).toMatchObject({ command: 'soak', words: ['watch'], webos: true, port: 9229 });
+    expect(WEBOS_COMMANDS).toEqual(['inspect', 'eval', 'screen', 'marks', 'soak']);
+    for (const command of WEBOS_COMMANDS) expect(parseTvArgs([command, '--webos'])).toMatchObject({ command, webos: true });
+    for (const command of TV_COMMANDS.filter((c) => !WEBOS_COMMANDS.includes(c))) {
+      const refused = parseTvArgs(['--webos', command]);
+      expect(refused).toBe(
+        `pnpm tv ${command} drives the Samsung only (sdb, its remote, its REST API). On an LG TV: pnpm device launch|install webos <tv> [--lab], and ares-install --device <tv> --remove <app id>.`,
+      );
+      expect(parseTvArgs([command])).toMatchObject({ command, webos: false });
+    }
+    expect(parseTvArgs(['--webos'])).toBe(USAGE);
+    expect(USAGE).toContain('inspect --webos <ares device>');
   });
 
   it('answers the usage for no command or an unknown one', () => {
