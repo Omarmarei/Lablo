@@ -10,6 +10,7 @@ The submission pack of PLAN.md §7, drafted from what the app does today. Store 
 | `samsung-submission.md` | UI Description outline (for the PPTX), package fields, self-checks | Draft; PPTX built at step 47 |
 | `samsung-tester-notes.md` | Test info for both stores | Template; credentials filled from the live server |
 | `test-server.md` | Public test server runbook | `[needs Omar]`, nothing done |
+| `beta.md` | Step 46's closed beta: how testers get a build on LG and Samsung (from the stores' own pages), the invitation (en/ar), the feedback questions, what Lablo collects meanwhile, Omar's checklist | Draft (step 52). The route per store is Omar's choice; the Arabic needs the native read (step 46) |
 
 ## Listing lines that depend on other steps
 - **Accessibility paragraph** (Voice Guide, captions, larger text): true only after step 43 ships it. Cut or edit the paragraph in both languages if 43 slips.
