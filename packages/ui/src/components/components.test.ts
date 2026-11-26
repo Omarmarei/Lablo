@@ -609,6 +609,46 @@ describe('TextField (RELAY step 13a)', () => {
     expect(onValue).toHaveBeenCalledWith('ab');
   });
 
+  it('while our keyboard types, draws the text with a caret at its end in place of the input (step 51)', () => {
+    const typing = (value: string, kind?: 'text' | 'url' | 'password', dir?: 'ltr' | 'auto') =>
+      expand(TextField({ id: 'f', label: 'L', value, kind, dir, edit: { ...edit(true), typing: true } }));
+    const el = typing('http://tv.x', 'url');
+    expect(el.props.class).toBe('z-field is-editing is-typing');
+    // The input stays, with the text the keyboard writes into it.
+    expect(one(el, 'z-field__input').props).toMatchObject({ value: 'http://tv.x', dir: 'ltr' });
+    const drawn = one(el, 'z-field__typed');
+    // Seen, not read: the input and the keyboard's own line are what a screen reader has.
+    expect(drawn.props['aria-hidden']).toBe('true');
+    // A link runs left to right inside a line that runs the other way: a long one shows its end.
+    expect(drawn.props.dir).toBe('rtl');
+    const line = drawn.children[0] as El;
+    expect(line.props.dir).toBe('ltr');
+    expect(line.children[0]).toBe('http://tv.x');
+    // The caret comes last: at the text's end, whichever way the text runs.
+    expect(line.children.length).toBe(2);
+    expect((line.children[1] as El).props.class).toBe('z-field__caret');
+    // A password shows a dot for each character.
+    expect(text(one(typing('s3cret', 'password'), 'z-field__typed'))).toBe('••••••');
+    // A name follows its first letter, as the input's dir="auto" does; empty, it is left to right.
+    const runs = (value: string, dir?: 'ltr' | 'auto') => {
+      const outer = one(typing(value, 'text', dir), 'z-field__typed');
+      return [outer.props.dir, (outer.children[0] as El).props.dir];
+    };
+    expect(runs('قناة 1')).toEqual(['ltr', 'rtl']);
+    expect(runs('1 News')).toEqual(['rtl', 'ltr']);
+    expect(runs('')).toEqual(['rtl', 'ltr']);
+    // A name field set to read left to right stays so whatever its text.
+    expect(runs('قناة', 'ltr')).toEqual(['rtl', 'ltr']);
+  });
+
+  it('draws nothing of its own while not typing, or while the TV keyboard has the input', () => {
+    expect(byClass(expand(TextField({ id: 'f', label: 'L', value: 'a', edit: edit(true) })), 'z-field__typed')).toEqual([]);
+    // `typing` without the edit (a stale binding) draws nothing either.
+    const stale = expand(TextField({ id: 'f', label: 'L', value: 'a', edit: { ...edit(false), typing: true } }));
+    expect(stale.props.class).toBe('z-field');
+    expect(byClass(stale, 'z-field__typed')).toEqual([]);
+  });
+
   it('works without an editor (no handlers, never editing)', () => {
     const el = expand(TextField({ id: 'f', label: 'L', value: '', edit: edit(false) }));
     expect(el.props['data-editing']).toBe('false');

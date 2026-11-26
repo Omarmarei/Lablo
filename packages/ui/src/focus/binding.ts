@@ -102,15 +102,18 @@ export interface EditorBinding {
 
 export function bindEditor(editor: TextEditor): EditorBinding {
   const editing = signal(editor.editing);
+  // A hand-over to the TV's keyboard changes it with the same field still edited (step 51).
+  const typing = signal(editor.typing);
   const stop = editor.subscribe((next) => {
     editing.value = next;
+    typing.value = editor.typing;
   });
   return {
     editor,
     editing,
     field(id: string): FieldEditing {
       const handlers = editor.field(id);
-      return { ...handlers, editing: editing.value === id };
+      return { ...handlers, editing: editing.value === id, typing: typing.value === id };
     },
     dispose: stop,
   };

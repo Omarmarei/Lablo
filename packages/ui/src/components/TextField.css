@@ -71,10 +71,48 @@
   color: var(--color-text);
 }
 
-/* Typing: the TV's keyboard is up and the caret shows. */
+/* Typing: a keyboard is up and the caret shows. */
 .z-field.is-editing .z-field__box {
   border-color: var(--color-accent);
   background: var(--color-bg);
+}
+
+/*
+ * The app's own keyboard types (step 51): the box draws the text and a caret (TextField.tsx).
+ * The input stays focusable (no display: none), so the key that hands over to the TV's keyboard
+ * can give it DOM focus before the next render shows it again.
+ */
+.z-field.is-typing .z-field__input {
+  width: 0;
+  opacity: 0;
+}
+
+.z-field__typed {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: var(--line-height-body);
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  white-space: pre;
+  text-align: left;
+}
+
+.z-field__caret {
+  display: inline-block;
+  width: 3px;
+  height: var(--font-size-body);
+  vertical-align: middle;
+  background: var(--color-accent);
+  animation: z-caret 1s step-end infinite;
+}
+
+@keyframes z-caret {
+  50% {
+    opacity: 0;
+  }
 }
 
 .z-field.is-invalid .z-field__note {

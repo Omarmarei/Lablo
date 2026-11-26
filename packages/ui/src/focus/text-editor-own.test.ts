@@ -131,6 +131,43 @@ describe('createTextEditor with the app\'s own keyboard (step 40e)', () => {
     expect(r.ends).toEqual([['a', 'close']]);
   });
 
+  it('says which field our keyboard types into, until the TV keyboard takes it (step 51)', () => {
+    const r = setup(true);
+    const binding = bindEditor(r.editor);
+    const seen: Array<string | null> = [];
+    r.editor.subscribe((editing) => seen.push(editing));
+    expect(r.editor.typing).toBeNull();
+    r.editor.open('a');
+    expect(r.editor.typing).toBe('a');
+    expect(r.editor.field('a').typing).toBe(true);
+    expect(r.editor.field('b').typing).toBe(false);
+    expect(binding.field('a').typing).toBe(true);
+    expect(binding.field('b').typing).toBe(false);
+    // The hand-over: the same field is still edited, but the TV's keyboard types (its own caret).
+    r.keyboard.end('native');
+    expect(r.editor.editing).toBe('a');
+    expect(r.editor.typing).toBeNull();
+    expect(r.editor.field('a').typing).toBe(false);
+    // The field is told, so it stops drawing its own caret.
+    expect(seen).toEqual(['a', 'a']);
+    expect(binding.field('a').typing).toBe(false);
+    r.editor.close();
+    expect(r.editor.typing).toBeNull();
+    // A new edit of the field is ours again.
+    r.editor.open('a');
+    expect(r.editor.typing).toBe('a');
+    expect(binding.field('a').typing).toBe(true);
+  });
+
+  it('never says so with the TV\'s own keyboard', () => {
+    const r = setup(false);
+    r.editor.open('a');
+    expect(r.editor.editing).toBe('a');
+    expect(r.editor.typing).toBeNull();
+    expect(r.editor.field('a').typing).toBe(false);
+    expect(bindEditor(r.editor).field('a').typing).toBe(false);
+  });
+
   it('close() closes the keyboard', () => {
     const r = setup(true);
     r.editor.open('a');
