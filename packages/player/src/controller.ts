@@ -318,6 +318,9 @@ export class PlayerController {
   private lastPos = 0;
   private lastMoveAt = 0;
   private bufferingSince = 0;
+  /** The engine's last inflow reading (`PlayerEngine.inflow`) and when it last changed (step 39s7). */
+  private lastInflow: string | null = null;
+  private inflowAt = 0;
 
   private subtitleView: SubtitleView = NO_SUBTITLES;
   private subtitleListeners: ((view: SubtitleView) => void)[] = [];
@@ -537,6 +540,7 @@ export class PlayerController {
     if (this.current.state !== 'paused') return;
     this.engine.play();
     this.lastMoveAt = this.clock.now();
+    this.inflowAt = this.lastMoveAt;
     this.setState('playing');
     this.scheduleTick();
   }
@@ -762,6 +766,13 @@ export class PlayerController {
       }
     }
     s.url = url;
+    // The time spent asking (the blocklist, the redirect probe) doesn't count against the open
+    // timeout or the fallback's cap (step 39s7): on the Samsung TV a 4.7 s probe left a .ts URL
+    // 1.3 s of the cap's 6 s, and the start went to .m3u8.
+    if (verdict !== null || this.resolveUrl !== undefined) {
+      this.clock.clearTimeout(this.openTimer);
+      this.armOpenTimer(token);
+    }
     try {
       await this.engine.load({ url, container: candidate.container, live: s.live }, token, loadOptions(s));
     } catch (reason) {
@@ -797,12 +808,16 @@ export class PlayerController {
   /**
    * No first frame for the load `token` within the open timeout fails it. A live URL that hasn't
    * shown a frame in the session while another URL is untried fails sooner, at the fallback's cap
-   * (RELAY step 39s2), and the ladder tries that URL.
+   * (RELAY step 39s2), and the ladder tries that URL. Not a `.ts` URL when `.ts` is the source's
+   * remembered container (step 39s7: on the Samsung TV a real panel's `.ts` was 0.6 s from playing
+   * when the cap cut it, and its `.m3u8` never showed a frame); a remembered `.m3u8` keeps the cap,
+   * since AVPlay asks again for a playlist that answers 404 without an error (step 39s2).
    */
   private armOpenTimer(token: number): void {
     const s = this.s!;
     const limits = s.watchdog;
-    const capped = s.live && s.framed[s.current] !== true && s.ladder.untriedLeft();
+    const trusted = s.candidates[s.current]!.container === 'ts' && this.memory.preferred(s.req.src) === 'ts';
+    const capped = s.live && !trusted && s.framed[s.current] !== true && s.ladder.untriedLeft();
     const ms = capped ? Math.min(limits.fallbackMs, limits.openTimeoutMs) : limits.openTimeoutMs;
     this.openTimer = this.clock.setTimeout(() => this.fail(token, { kind: 'timeout', code: 'OPEN' }), ms);
   }
@@ -836,6 +851,7 @@ export class PlayerController {
       case 'playing':
         if (this.current.state !== 'buffering') return;
         this.lastMoveAt = this.clock.now();
+        this.inflowAt = this.lastMoveAt;
         this.setState('playing');
         return;
       case 'ended':
@@ -938,18 +954,21 @@ export class PlayerController {
     this.openTimer = null;
     // The play's result, or the end of a stall (retries since the last frame); a resume after a
     // hide has none.
-    if (!s.played) this.tell(this.playReport(s, this.clock.now() - s.startedAt, null));
+    const first = !s.played;
+    if (first) this.tell(this.playReport(s, this.clock.now() - s.startedAt, null));
     else if (s.attempt > 0) this.tell({ type: 'stall', recovered: true, attempts: s.attempt });
     s.played = true;
     s.framed[s.current] = true;
     s.attempt = 0;
-    s.ladder.recovered();
+    s.ladder.recovered(first);
     // Only a choice between URLs is worth remembering (a VOD play must not reset a live preference).
     if (s.candidates.length > 1 && this.movesMemory(s)) this.memory.remember(s.req.src, s.candidates[s.current]!.container);
     // An engine may list its tracks before the picture without an event.
     this.onTracks(s, this.liveToken);
     this.lastPos = this.engine.positionMs();
     this.lastMoveAt = this.clock.now();
+    this.lastInflow = this.readInflow();
+    this.inflowAt = this.lastMoveAt;
     this.setState('playing');
     this.scheduleTick();
   }
@@ -1038,6 +1057,16 @@ export class PlayerController {
     this.tickTimer = this.clock.setTimeout(() => this.tick(), this.s!.watchdog.tickMs);
   }
 
+  /** The engine's inflow reading (step 39s7), or `null` where it has none or the reading throws. */
+  private readInflow(): string | null {
+    if (this.engine.inflow === undefined) return null;
+    try {
+      return this.engine.inflow();
+    } catch {
+      return null;
+    }
+  }
+
   /** The watchdog: reads the position and checks the stall rules. */
   private tick(): void {
     const s = this.s!;
@@ -1048,10 +1077,20 @@ export class PlayerController {
       this.lastMoveAt = now;
       if (!s.live) s.resumeMs = pos;
     }
+    const flow = this.readInflow();
+    if (flow === null || flow !== this.lastInflow) {
+      this.lastInflow = flow;
+      this.inflowAt = now;
+    }
     const state = this.current.state;
     const limits = s.watchdog;
     if (state === 'playing' && s.live && now - this.lastMoveAt >= limits.liveFrozenMs) {
       this.fail(this.liveToken, { kind: 'stall', code: 'FROZEN' });
+      return;
+    }
+    // A held socket (step 39s7): nothing has arrived for `liveNoDataMs`, whatever the engine's clock says.
+    if (state === 'playing' && s.live && flow !== null && now - this.inflowAt >= limits.liveNoDataMs) {
+      this.fail(this.liveToken, { kind: 'stall', code: 'NO_DATA' });
       return;
     }
     if (state === 'buffering' && now - this.bufferingSince >= (s.live ? limits.liveBufferingMs : limits.vodBufferingMs)) {

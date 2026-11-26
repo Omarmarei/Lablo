@@ -235,6 +235,9 @@ export class FakeAvplay implements AvplayManager {
   /** `getDuration` (ms), set by a test; none by default, as on an AVPlay without the method. */
   getDuration?: () => number;
 
+  /** `getStreamingProperty` (RELAY step 39s7), set by a test; none by default, as on older firmware. */
+  getStreamingProperty?: (property: string) => string;
+
   getTotalTrackInfo(): readonly AvplayStreamInfo[] {
     if (!this.prepared) this.refuse('getTotalTrackInfo');
     return this.streams;

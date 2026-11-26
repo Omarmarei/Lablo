@@ -8,7 +8,7 @@ import { BUFFER_MODES, FAST_PLAY_SECONDS, STABLE, playTuning, windowFor } from '
  * Remote config's tunables set Fast start's numbers, and Stable is never less patient.
  */
 
-const SAME = { tickMs: DEFAULT_WATCHDOG.tickMs, maxAttempts: DEFAULT_WATCHDOG.maxAttempts, backoffMs: DEFAULT_WATCHDOG.backoffMs };
+const SAME = { liveNoDataMs: 30_000, tickMs: DEFAULT_WATCHDOG.tickMs, maxAttempts: DEFAULT_WATCHDOG.maxAttempts, backoffMs: DEFAULT_WATCHDOG.backoffMs };
 
 describe('playTuning (RELAY step 39d)', () => {
   it('lists Fast start, then Stable', () => {

@@ -146,8 +146,8 @@ import { DEFAULT_STILL_HOURS, createWatchGuard } from './watch-guard';
 export const ZAP_DELAY_MS = 350;
 /** Digits collect for this long after the last one. */
 export const DIGITS_MS = 1500;
-/** The most digits a channel number has. */
-export const MAX_DIGITS = 4;
+/** The most digits number entry takes: big panels number channels past 9,999 (10214 on the Samsung TV, RELAY step 39s7). */
+export const MAX_DIGITS = 5;
 /** "No channel 57" stays this long. */
 export const MISSING_MS = 2000;
 /** The info bar hides this long after the last key (once the stream shows a picture). */
