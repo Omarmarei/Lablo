@@ -808,12 +808,16 @@ export class PlayerController {
   /**
    * No first frame for the load `token` within the open timeout fails it. A live URL that hasn't
    * shown a frame in the session while another URL is untried fails sooner, at the fallback's cap
-   * (RELAY step 39s2), and the ladder tries that URL.
+   * (RELAY step 39s2), and the ladder tries that URL. Not a `.ts` URL when `.ts` is the source's
+   * remembered container (step 39s7: on the Samsung TV a real panel's `.ts` was 0.6 s from playing
+   * when the cap cut it, and its `.m3u8` never showed a frame); a remembered `.m3u8` keeps the cap,
+   * since AVPlay asks again for a playlist that answers 404 without an error (step 39s2).
    */
   private armOpenTimer(token: number): void {
     const s = this.s!;
     const limits = s.watchdog;
-    const capped = s.live && s.framed[s.current] !== true && s.ladder.untriedLeft();
+    const trusted = s.candidates[s.current]!.container === 'ts' && this.memory.preferred(s.req.src) === 'ts';
+    const capped = s.live && !trusted && s.framed[s.current] !== true && s.ladder.untriedLeft();
     const ms = capped ? Math.min(limits.fallbackMs, limits.openTimeoutMs) : limits.openTimeoutMs;
     this.openTimer = this.clock.setTimeout(() => this.fail(token, { kind: 'timeout', code: 'OPEN' }), ms);
   }

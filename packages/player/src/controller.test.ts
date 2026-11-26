@@ -1314,3 +1314,23 @@ describe('PlayerController: from the Samsung TV (RELAY step 39s7)', () => {
     expect(r.player.status).toMatchObject({ state: 'playing', attempt: 0 });
   });
 });
+
+describe("PlayerController: the fallback's cap and the source's memory (RELAY step 39s7)", () => {
+  it("gives a remembered .ts the whole open timeout before the untried .m3u8", async () => {
+    const memory = new MemorySourceMemory();
+    memory.remember('s1', 'ts');
+    // The real panel's .ts: a first frame 9 s after its load, past the cap's 6 s.
+    const r = rig((s) => ({ frameMs: s.container === 'ts' ? 9000 : null }), { memory });
+    void r.player.play(live(1));
+    await r.clock.advance(9050);
+    expect(r.player.status).toMatchObject({ state: 'playing', container: 'ts', attempt: 0 });
+    expect(r.engine.loads.map((l) => l.source.container)).toEqual(['ts']);
+  });
+
+  it('keeps the cap for a .ts the source has no memory of', async () => {
+    const r = rig((s) => ({ frameMs: s.container === 'ts' ? 9000 : 500 }));
+    void r.player.play(live(1));
+    await r.clock.advance(6600);
+    expect(r.player.status).toMatchObject({ state: 'playing', container: 'hls' });
+  });
+});
