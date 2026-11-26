@@ -69,7 +69,7 @@ export function windowFor(openTimeoutMs: number): number {
 /** The default watchdog with its five limits replaced, and the window to fit its open timeout. */
 function watchdog(liveFrozenMs: number, liveBufferingMs: number, vodBufferingMs: number, openTimeoutMs: number, fallbackMs: number): WatchdogConfig {
   const d = DEFAULT_WATCHDOG;
-  return { liveFrozenMs, liveBufferingMs, vodBufferingMs, openTimeoutMs, fallbackMs, tickMs: d.tickMs, maxAttempts: d.maxAttempts, windowMs: windowFor(openTimeoutMs), backoffMs: d.backoffMs };
+  return { liveFrozenMs, liveBufferingMs, liveNoDataMs: d.liveNoDataMs, vodBufferingMs, openTimeoutMs, fallbackMs, tickMs: d.tickMs, maxAttempts: d.maxAttempts, windowMs: windowFor(openTimeoutMs), backoffMs: d.backoffMs };
 }
 
 /** What a play is tuned with in `mode`, Fast start's numbers set by remote config's `tunables`. */

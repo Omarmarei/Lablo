@@ -846,3 +846,57 @@ describe("AVPlay's plane", () => {
     expect(made[0]).toEqual({ tag: 'object', attrs: { type: 'application/avplayer', 'data-testid': 'player-avplay' }, style: { position: 'absolute', left: '0', top: '0', width: '100%', height: '100%' }, setAttribute: expect.any(Function) });
   });
 });
+
+describe('AvplayEngine: the inflow (RELAY step 39s7)', () => {
+  it("reads CURRENT_BANDWIDTH once prepared; a 0 keeps the last reading (bytes stopped)", async () => {
+    const r = rig();
+    let bandwidth = '3148536';
+    r.avplay.getStreamingProperty = (p) => (p === 'CURRENT_BANDWIDTH' ? bandwidth : '0|0');
+    expect(r.engine.inflow()).toBeNull();
+    await playing(r);
+    expect(r.engine.inflow()).toBe('b3148536');
+    bandwidth = '1096616';
+    expect(r.engine.inflow()).toBe('b1096616');
+    // The Samsung TV: the value stays once the data stops, then reads 0 about 10 s later.
+    bandwidth = '0';
+    expect(r.engine.inflow()).toBe('b1096616');
+    bandwidth = '9127600';
+    expect(r.engine.inflow()).toBe('b9127600');
+  });
+
+  it("reads an HLS stream's live window where it has no bandwidth, and nothing where it has neither", async () => {
+    const r = rig();
+    let edge = '300000|336000';
+    r.avplay.getStreamingProperty = (p) => (p === 'GET_LIVE_DURATION' ? edge : '');
+    await playing(r);
+    expect(r.engine.inflow()).toBe('w300000|336000');
+    edge = '306000|342000';
+    expect(r.engine.inflow()).toBe('w306000|342000');
+    edge = '';
+    expect(r.engine.inflow()).toBeNull();
+  });
+
+  it('gives null while a load prepares, without the method, when it throws, and after a stop; a new load forgets the last reading', async () => {
+    const r = rig();
+    r.avplay.getStreamingProperty = () => '5000';
+    quiet(r.engine.load(LIVE, 1));
+    // Opened, not prepared yet (AVPlay refuses the property in IDLE).
+    expect(r.avplay.getState()).toBe('IDLE');
+    expect(r.engine.inflow()).toBeNull();
+    await r.engine.stop();
+    r.avplay.getStreamingProperty = undefined;
+    await playing(r);
+    expect(r.engine.inflow()).toBeNull();
+    r.avplay.getStreamingProperty = () => {
+      throw new Error('NotSupportedError');
+    };
+    expect(r.engine.inflow()).toBeNull();
+    r.avplay.getStreamingProperty = () => '5000';
+    expect(r.engine.inflow()).toBe('b5000');
+    await r.engine.stop();
+    expect(r.engine.inflow()).toBeNull();
+    await playing(r);
+    r.avplay.getStreamingProperty = () => '0';
+    expect(r.engine.inflow()).toBe('b0');
+  });
+});
