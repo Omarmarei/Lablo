@@ -3,7 +3,10 @@ name: CI
 # Pull requests only (Omar 2026-11-05, CI minutes): the relay merges one pull request at a time
 # into a main that hasn't moved, so a run on main after the merge tested the same code again.
 # A full run of main or any branch: Actions -> CI -> Run workflow. Each night the media job alone
-# runs on main (RELAY step 54), for the changes its pull-request filter leaves out.
+# can run on main (RELAY step 54), for the changes its pull-request filter leaves out: only while
+# the repository variable NIGHTLY_MEDIA is "on" (Omar 2026-11-26, the repo private again, its
+# minutes billed). Off, the nightly run skips every job and costs nothing. On again:
+# gh variable set NIGHTLY_MEDIA --body on --repo Omarmarei/Lablo
 on:
   pull_request:
   workflow_dispatch:
@@ -23,8 +26,9 @@ jobs:
   # harness can change, media when the code its tests exercise does (the mock, the data layer at
   # scale, the player through Chromium and the lab), and web when the backend or the packages it
   # shares with the TV do. A run by hand runs them all, the nightly run media alone. A skipped job
-  # counts as passed.
+  # counts as passed. The nightly run starts nothing unless NIGHTLY_MEDIA is "on" (see the top).
   changes:
+    if: github.event_name != 'schedule' || vars.NIGHTLY_MEDIA == 'on'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
