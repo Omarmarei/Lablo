@@ -10,9 +10,11 @@
 
 import { createReadStream, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { setFlagsFromString } from 'node:v8';
+import { runInNewContext } from 'node:vm';
 import { createGunzip } from 'node:zlib';
 import { EpgGuideReader, EpgWantedSet } from '@lablo/core';
-import type { GuideChannelsPage, GuideChannelsRequest } from '@lablo/data';
+import type { DeclaredChannel, GuideChannelsPage, GuideChannelsRequest } from '@lablo/data';
 import { QueryService, beginEpgGeneration, commitEpgGeneration, epgDeclared, openDatabase, putEpgChannels, putEpgDeclared } from '@lablo/data';
 import { describe, expect, it } from 'vitest';
 import { freshFactory } from '../packages/data/src/test-support';
@@ -25,38 +27,64 @@ const playlist = join(fixtures, 'playlist.m3u');
 const CHANNELS = 5_000;
 
 /**
- * The budgets, in calibrations (RELAY step 53). A calibration is a fixed piece of work of the
- * store's shape in this file's own code (`calibration` below), timed in the same process between
- * the measured runs, so a slow or busy machine slows it as much as the work it measures: the
- * budgets hold the code's speed against the machine's, not against a clock. Each time is the
- * fastest of `SAMPLES` runs (a collection or a busy moment only adds time), as is the calibration.
+ * The budgets, in calibrations (RELAY step 53). A calibration is the store's kind of work in this
+ * file's own code (`calibration` below), timed in the same process just before each measured run,
+ * so a slow or busy machine slows both alike: the budgets hold the code's speed against the
+ * machine's, not against a clock. Each figure is the median of `SAMPLES` runs, each run's time
+ * over its own calibration's.
  *
  * What is timed: building and writing the record, once per refresh in the EPG worker (the store);
  * the first search after a reload, which reads the record as the picker opens (first); each later
- * search, a key typed, which scans it in memory. Each budget is about twice what the work took on
- * this project's desktop and on CI (2026-11-26: store 1.2, first 0.5, the slowest search 0.07
- * calibrations), so work made 3× slower fails (`LABLO_SLOWDOWN=3`). In time, a calibration took
- * about 10 ms on the desktop and 10–30 ms on CI; a 2018 TV is about 15× slower than the desktop
- * (architecture.md §1.5 step 10), so the store's budget is about half a second there, the first
- * search's 0.2 s and a later search's 25 ms.
+ * search, a key typed, which scans it in memory. Measured 2026-11-26 on three CI runners (alone and
+ * beside the other media tests) and on this project's desktop (idle and with 14 busy cores):
  *
- * Until step 53 the budgets were milliseconds of one run (store 60, first 20, each search 5):
- * CI runners took 9.6 to 89 ms for the store, and one run in five or six failed.
+ *   store  1.09–1.64 calibrations, 3.3–4.3 with the work done 3 times (`LABLO_SLOWDOWN=3`)
+ *   first  0.36–0.67, 1.19–1.47
+ *   the slowest search ("by number")  0.05–0.24, 0.34–0.67
+ *
+ * Each budget sits between the two, so work made 3× slower fails while a busy machine passes. A
+ * calibration took about 4 ms on CI's runners and 15 ms on the desktop; the store 5.5–6 ms on CI.
+ *
+ * Until step 53 the budgets were milliseconds of a single run (store 60, first 20, each search 5):
+ * CI's runners took 9.6 to 89 ms for the store, and about one run in five failed.
  */
-const LIMIT = { store: 2.5, first: 1, search: 0.15 };
-const SAMPLES = 5;
+const LIMIT = { store: 2.5, first: 0.9, search: 0.33 };
+const SAMPLES = 9;
 /**
- * Runs each timed piece of work this many times, as code that many times slower would. With 3
- * every budget must fail: the check that they aren't blind (`LABLO_SLOWDOWN=3 pnpm test:media
- * test/epg-declared-300mb.media.test.ts`).
+ * Runs each timed piece of work this many times, as code that many times slower would. With 3 the
+ * store's budget fails, and so do the first search's and the slowest search's: the check that the
+ * budgets aren't blind (`LABLO_SLOWDOWN=3 pnpm test:media test/epg-declared-300mb.media.test.ts`).
  */
 const SLOWDOWN = Number(process.env['LABLO_SLOWDOWN'] ?? '1');
 
+let codes = new Uint16Array(256);
 /**
- * One calibration, in ms: 5,000 records of three strings (an id, a name with an accent, a
- * lower-cased NFKD search text) built and put into a fresh fake IndexedDB in one transaction.
+ * A character loop of `normalizeName`'s shape, for the calibration: ASCII letters lowered, digits
+ * and every non-ASCII character kept, any run of the rest one space.
  */
-async function calibration(): Promise<number> {
+function lowered(input: string): string {
+  const n = input.length;
+  if (codes.length < n) codes = new Uint16Array(n * 2);
+  let len = 0;
+  let space = false;
+  for (let i = 0; i < n; i++) {
+    let c = input.charCodeAt(i);
+    if (c >= 65 && c <= 90) c += 32;
+    if ((c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c > 127) {
+      if (space && len > 0) codes[len++] = 32;
+      space = false;
+      codes[len++] = c;
+    } else space = true;
+  }
+  return String.fromCharCode.apply(null, codes.subarray(0, len) as unknown as number[]);
+}
+
+/**
+ * One calibration, in ms: the guide's declared channels made into three columns as the store's
+ * record is (each search text the id and the names through `lowered`), and put into a fresh fake
+ * IndexedDB in one transaction.
+ */
+async function calibration(channels: readonly DeclaredChannel[]): Promise<number> {
   const db = await new Promise<IDBDatabase>((resolve, reject) => {
     const open = freshFactory().open('calibration', 1);
     open.onupgradeneeded = () => open.result.createObjectStore('records');
@@ -65,12 +93,12 @@ async function calibration(): Promise<number> {
   });
   const t = performance.now();
   const record = { ids: [] as string[], names: [] as string[], search: [] as string[] };
-  for (let k = 0; k < CHANNELS; k++) {
-    const id = `calibration${k}.example.test`;
-    const name = `Calibration Channel ${k} Évening`;
-    record.ids.push(id);
-    record.names.push(name);
-    record.search.push(`${id} ${name.normalize('NFKD').toLowerCase()}`);
+  for (const c of channels) {
+    let search = lowered(c.id);
+    for (const name of c.names) search += String.fromCharCode(1) + lowered(name);
+    record.ids.push(c.id);
+    record.names.push(c.name);
+    record.search.push(search);
   }
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction('records', 'readwrite');
@@ -83,27 +111,45 @@ async function calibration(): Promise<number> {
   return ms;
 }
 
-/** The fastest calibration so far (ms). */
-let calibrationMs = Infinity;
+/**
+ * A full collection, as `pnpm bench` makes before each run (`--expose-gc`): taken before each
+ * calibration and each measured run, so neither pays for the other's garbage or for the guide's.
+ */
+setFlagsFromString('--expose-gc');
+const collect = runInNewContext('gc') as () => void;
+
+const median = (values: number[]): number => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
+
+/** A timed piece of work: its median time (ms), and the median of its runs' times in calibrations. */
+interface Timing {
+  ms: number;
+  units: number;
+}
 
 /**
- * The fastest of `SAMPLES` runs of `run` (ms), each after a calibration and `prepare` (neither
- * timed). With `SLOWDOWN` above 1, a run is `prepare` and `run` that many times, the `run`s timed.
+ * `run` timed `SAMPLES` times, each after `prepare` and a calibration (neither timed), each of
+ * the two from a collection. With `SLOWDOWN` above 1, a run is `run` that many times, each after
+ * `prepare`.
  */
-async function fastest(run: () => Promise<unknown>, prepare?: () => Promise<unknown>): Promise<number> {
-  let best = Infinity;
+async function timed(channels: readonly DeclaredChannel[], run: () => Promise<unknown>, prepare?: () => Promise<unknown>): Promise<Timing> {
+  const ms: number[] = [];
+  const units: number[] = [];
   for (let s = 0; s < SAMPLES; s++) {
-    calibrationMs = Math.min(calibrationMs, await calibration());
-    let ms = 0;
+    await prepare?.();
+    collect();
+    const calibrated = await calibration(channels);
+    collect();
+    let took = 0;
     for (let k = 0; k < SLOWDOWN; k++) {
-      await prepare?.();
+      if (k > 0) await prepare?.();
       const t = performance.now();
       await run();
-      ms += performance.now() - t;
+      took += performance.now() - t;
     }
-    best = Math.min(best, ms);
+    ms.push(took);
+    units.push(took / calibrated);
   }
-  return best;
+  return { ms: median(ms), units: median(units) };
 }
 
 /** The fixture's channels whose number holds `digits` (their names and ids hold no other digit). */
@@ -137,30 +183,37 @@ const SEARCHES: { name: string; req: Omit<GuideChannelsRequest, 'epgSrc'>; count
   { name: 'last page', req: { query: '', offset: CHANNELS - 50, limit: 50 }, count: CHANNELS, rows: range(CHANNELS - 50, CHANNELS) },
 ];
 
+/** The guide's declared channels, read as the EPG worker reads the guide (its reader is then let go). */
+async function declaredChannels(epgSrc: string): Promise<readonly DeclaredChannel[]> {
+  const live = await parsePlaylistItems(playlist, 'live');
+  const reader = new EpgGuideReader({ epgSrc, wanted: EpgWantedSet.fromItems(live), tier: 'full', nowMs: EPG_BENCH_NOW, languages: ['en'] });
+  const decoder = new TextDecoder();
+  for await (const chunk of createReadStream(guide).pipe(createGunzip())) reader.push(decoder.decode(chunk as Uint8Array, { stream: true }));
+  reader.push(decoder.decode());
+  reader.end();
+  expect(reader.report().match.declared).toBe(CHANNELS);
+  return reader.matcher.declaredChannels();
+}
+
 describe("the 300 MB guide's declared channels", () => {
   it(`stores the 5,000 in ≤ ${LIMIT.store} calibrations and searches them in ≤ ${LIMIT.first} (first) and ≤ ${LIMIT.search} (each)`, async () => {
     if (!existsSync(guide) || !existsSync(playlist)) throw new Error(`${fixtures} lacks the guide or playlist: run pnpm fixtures (pnpm verify:media does)`);
-    const live = await parsePlaylistItems(playlist, 'live');
-    const db = await openDatabase(freshFactory());
     const epgSrc = 'fx:tvg0';
+    const channels = await declaredChannels(epgSrc);
+    expect(channels.length).toBe(CHANNELS);
+    const db = await openDatabase(freshFactory());
     const gen = await beginEpgGeneration(db, epgSrc, 0);
-    const reader = new EpgGuideReader({ epgSrc, wanted: EpgWantedSet.fromItems(live), tier: 'full', nowMs: EPG_BENCH_NOW, languages: ['en'] });
-    const decoder = new TextDecoder();
-    for await (const chunk of createReadStream(guide).pipe(createGunzip())) reader.push(decoder.decode(chunk as Uint8Array, { stream: true }));
-    reader.push(decoder.decode());
-    reader.end();
-    expect(reader.report().match.declared).toBe(CHANNELS);
-
-    const times: Record<string, number> = {};
+    const times: Record<string, Timing> = {};
     // The same record each time, under the same key: each run writes it again.
-    times['store'] = await fastest(() => putEpgDeclared(db, epgSrc, gen, epgDeclared(reader.matcher.declaredChannels())));
+    times['store'] = await timed(channels, () => putEpgDeclared(db, epgSrc, gen, epgDeclared(channels)));
     await putEpgChannels(db, epgSrc, gen, { matches: [], channels: [], unmatched: [] });
     await commitEpgGeneration(db, epgSrc, gen, EPG_BENCH_NOW);
 
     const q = new QueryService({ openDb: async () => db, now: () => EPG_BENCH_NOW });
     let first: GuideChannelsPage | null = null;
     // A reload forgets the record read, so each run reads it again.
-    times['first'] = await fastest(
+    times['first'] = await timed(
+      channels,
       async () => (first = await q.guideChannels({ query: '', offset: 0, limit: 50 })),
       () => q.reload(),
     );
@@ -171,21 +224,19 @@ describe("the 300 MB guide's declared channels", () => {
 
     for (const s of SEARCHES) {
       let page: GuideChannelsPage | null = null;
-      times[s.name] = await fastest(async () => (page = await q.guideChannels(s.req)));
+      times[s.name] = await timed(channels, async () => (page = await q.guideChannels(s.req)));
       expect(page!.count, s.name).toBe(s.count);
       expect(
         page!.rows.map((row) => row.id),
         s.name,
       ).toEqual(s.rows);
     }
-    const tenths = (v: number): number => Math.round(v * 10) / 10;
-    const units = Object.fromEntries(Object.entries(times).map(([k, v]) => [k, v / calibrationMs]));
-    const shown = (o: Record<string, number>, round: (v: number) => number): string => JSON.stringify(Object.fromEntries(Object.entries(o).map(([k, v]) => [k, round(v)])));
-    console.log(`declared channels (fastest of ${SAMPLES}${SLOWDOWN === 1 ? '' : `, slowed ${SLOWDOWN}×`}): calibration ${tenths(calibrationMs)} ms; ms ${shown(times, tenths)}; calibrations ${shown(units, (v) => Math.round(v * 1000) / 1000)}`);
-    const over = (name: string, limit: number): string => `${name}: ${tenths(times[name]!)} ms is ${units[name]!.toFixed(3)} calibrations of ${tenths(calibrationMs)} ms (budget ${limit})`;
-    expect(units['store'], over('store', LIMIT.store)).toBeLessThanOrEqual(LIMIT.store);
-    expect(units['first'], over('first', LIMIT.first)).toBeLessThanOrEqual(LIMIT.first);
-    for (const s of SEARCHES) expect(units[s.name], over(s.name, LIMIT.search)).toBeLessThanOrEqual(LIMIT.search);
+    const shown = (pick: (t: Timing) => number, digits: number): string => JSON.stringify(Object.fromEntries(Object.entries(times).map(([k, t]) => [k, Number(pick(t).toFixed(digits))])));
+    console.log(`declared channels (medians of ${SAMPLES}${SLOWDOWN === 1 ? '' : `, slowed ${SLOWDOWN}×`}): calibrations ${shown((t) => t.units, 3)}; ms ${shown((t) => t.ms, 2)}`);
+    const over = (name: string, limit: number): string => `${name}: ${times[name]!.units.toFixed(3)} calibrations (${times[name]!.ms.toFixed(2)} ms), budget ${limit}`;
+    expect(times['store']!.units, over('store', LIMIT.store)).toBeLessThanOrEqual(LIMIT.store);
+    expect(times['first']!.units, over('first', LIMIT.first)).toBeLessThanOrEqual(LIMIT.first);
+    for (const s of SEARCHES) expect(times[s.name]!.units, over(s.name, LIMIT.search)).toBeLessThanOrEqual(LIMIT.search);
     db.close();
   }, 300_000);
 });
