@@ -2,10 +2,13 @@ name: CI
 
 # Pull requests only (Omar 2026-11-05, CI minutes): the relay merges one pull request at a time
 # into a main that hasn't moved, so a run on main after the merge tested the same code again.
-# A full run of main or any branch: Actions -> CI -> Run workflow.
+# A full run of main or any branch: Actions -> CI -> Run workflow. Each night the media job alone
+# runs on main (RELAY step 54), for the changes its pull-request filter leaves out.
 on:
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: '17 1 * * *'
 
 permissions:
   contents: read
@@ -15,10 +18,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # What a pull request changes decides which jobs run: docs alone run none, the old engines run
-  # when the TV bundles or their harness can change, media when the code it exercises does
-  # (the mock, the data layer at scale, the player and the lab), and web when the backend or the
-  # packages it shares with the TV do. A run by hand runs them all. A skipped job counts as passed.
+  # What a pull request changes decides which jobs run (.github/scripts/changes.mjs, tested by
+  # test/ci-changes.test.ts): docs alone run none, the old engines run when the TV bundles or their
+  # harness can change, media when the code its tests exercise does (the mock, the data layer at
+  # scale, the player through Chromium and the lab), and web when the backend or the packages it
+  # shares with the TV do. A run by hand runs them all, the nightly run media alone. A skipped job
+  # counts as passed.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -37,28 +42,17 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
+          if [ "$EVENT" = "schedule" ]; then
+            printf 'code=false\nengines=false\nmedia=true\nweb=false\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "$EVENT" != "pull_request" ]; then
             printf 'code=true\nengines=true\nmedia=true\nweb=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           git diff --name-only "$BASE" HEAD > changed.txt
           echo "Changed files:"; cat changed.txt
-          # Not docs; then not tests either (what ends up in a build or a tool).
-          grep -vE '\.md$|^docs/|^LICENSE' changed.txt > code.txt || true
-          grep -vE '\.test\.tsx?$|^test/|^e2e/' code.txt > source.txt || true
-          shared='^package\.json$|^pnpm-lock\.yaml$|^pnpm-workspace\.yaml$|^\.github/workflows/'
-          engines="$shared|^apps/tv/|^packages/[^/]+/src/|^packages/crypto/test/|^tools/(engines|build|fonts)/"
-          media="$shared|^apps/mock-provider/|^tools/(fixtures|bench)/|^packages/[^/]+/src/|^apps/tv/src/(player|lab|data)/|^apps/tv/(playback|lab)\.html$|^apps/tv/vite\.config\.ts$|^vitest\.media\.config\.ts$|^playwright\.config\.ts$"
-          # The TV's pairing against the real API (e2e/pairing-api.spec.ts, step 31c3) runs the TV's
-          # dev app and the mock: their sources and the spec's own files count too.
-          web="$shared|^apps/(web|tv|mock-provider)/|^packages/(protocol|crypto)/|^packages/[^/]+/src/|^config/|^vitest\.web\.config\.ts$|^playwright\.web\.config\.ts$|^e2e/(pairing-api\.spec|api-front|pairing-steps|config-server|onboard|remote-driver|remote-keys)\.ts$|^tools/engines/src/(pair-phone|pair-server|pair-stand-in|config)\.ts$"
-          hit() { if grep -qE "$1" "$2"; then echo true; else echo false; fi; }
-          {
-            echo "code=$(if [ -s code.txt ]; then echo true; else echo false; fi)"
-            echo "engines=$(hit "$engines" source.txt)"
-            if [ "$(hit "$media" source.txt)" = true ] || [ "$(hit '\.media\.test\.ts$|-media\.spec\.ts$' code.txt)" = true ]; then echo media=true; else echo media=false; fi
-            echo "web=$(hit "$web" code.txt)"
-          } | tee -a "$GITHUB_OUTPUT"
+          node .github/scripts/changes.mjs changed.txt | tee -a "$GITHUB_OUTPUT"
 
   # `pnpm verify` (lint, typecheck, unit tests, build:tv, e2e) in five parallel parts (RELAY step
   # 40ci): run one after another it took 17-22 min (e2e alone 12), and it set the run's length with

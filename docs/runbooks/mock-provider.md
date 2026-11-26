@@ -157,7 +157,11 @@ A file is served only under the extension the catalog lists, as `container_exten
 
 ### Validation
 
-`pnpm test:media` is part of `pnpm verify:media` and runs in CI job `media`. It generates the media, serves it from a real socket and checks it with ffprobe and ffmpeg:
+`pnpm test:media` is part of `pnpm verify:media` and runs in CI job `media`. On a pull request that job runs only when the code its tests exercise changes (`.github/scripts/changes.mjs`, tested by `test/ci-changes.test.ts`): the mock, the fixtures and benchmarks, the media tests and specs, the TV app's player, lab and data folders, and packages core, crypto, data, player, platform-api, platform-browser and protocol. Changes to the screens (packages/ui and the rest of apps/tv/src) and to platform-tizen or platform-webos skip it; it also runs alone on main every night at 01:17 UTC (RELAY step 54). A new package needs a line in that test. GitHub turns a schedule off after 60 days without activity in the repository; Actions › CI shows whether it is on, and GitHub mails a failed nightly run to whoever last changed the schedule.
+
+The media job's timing checks are budgets in calibrations, not milliseconds (`test/epg-declared-300mb.media.test.ts`, step 53): each time is the median of nine runs, each over a calibration timed just before it, so a slow or busy runner passes and work made 3× slower fails (`LABLO_SLOWDOWN=3 pnpm test:media test/epg-declared-300mb.media.test.ts` shows it failing).
+
+The media tests generate the media, serve it from a real socket and check it with ffprobe and ffmpeg:
 
 | What | Checks |
 |---|---|
