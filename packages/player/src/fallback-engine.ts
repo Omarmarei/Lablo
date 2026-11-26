@@ -135,6 +135,12 @@ export class FallbackEngine implements PlayerEngine {
     return this.active.positionMs();
   }
 
+  /** The active engine's inflow reading (RELAY step 39s7), or `null` when it has none. */
+  inflow(): string | null {
+    const active = this.active;
+    return active.inflow === undefined ? null : active.inflow();
+  }
+
   durationMs(): number {
     return this.active.durationMs();
   }

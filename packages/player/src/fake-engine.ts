@@ -221,6 +221,9 @@ export class FakeEngine implements PlayerEngine {
     return p.base + (p.movingSince === null ? 0 : this.clock.now() - p.movingSince);
   }
 
+  /** `inflow` (RELAY step 39s7), set by a test; absent by default, as on the `<video>`. */
+  inflow?: () => string | null;
+
   /** The length `durationMs` gives (0: not known). */
   duration = 0;
 

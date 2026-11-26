@@ -1228,3 +1228,89 @@ describe('PlayerController: the position and seeking (RELAY step 25d)', () => {
     expect(await seeking).toBe(false);
   });
 });
+
+describe('PlayerController: from the Samsung TV (RELAY step 39s7)', () => {
+  /** An inflow that changes every second until `stopMs`, then stays (nothing arrives). */
+  const inflowUntil = (clock: FakeClock, stopMs: number) => (): string => 'b' + String(Math.floor(Math.min(clock.now(), stopMs - 1) / 1000));
+
+  it('reaches the ladder when nothing has arrived for 30 s while the clock runs on (a held socket)', async () => {
+    const r = rig(() => ({ frameMs: 500 }));
+    r.engine.inflow = inflowUntil(r.clock, 10_000);
+    void r.player.play(live(1));
+    // The reading last changes at the 9000 tick; the position never stops moving.
+    await r.clock.advance(38_950);
+    expect(r.player.status.state).toBe('playing');
+    await r.clock.advance(50);
+    expect(r.player.status).toMatchObject({ state: 'reconnecting', attempt: 1, container: 'ts' });
+    await r.clock.advance(600);
+    expect(r.player.status).toMatchObject({ state: 'playing', attempt: 0 });
+    expect(r.engine.loads).toHaveLength(2);
+  });
+
+  it('never calls a stream whose inflow keeps changing a stall', async () => {
+    const r = rig(() => ({ frameMs: 500 }));
+    r.engine.inflow = inflowUntil(r.clock, Number.MAX_SAFE_INTEGER);
+    void r.player.play(live(1));
+    await r.clock.advance(120_000);
+    expect(r.player.status.state).toBe('playing');
+    expect(r.engine.loads).toHaveLength(1);
+  });
+
+  it('rests without a reading, and for VOD', async () => {
+    const none = rig(() => ({ frameMs: 500 }));
+    none.engine.inflow = () => null;
+    void none.player.play(live(1));
+    await none.clock.advance(120_000);
+    expect(none.engine.loads).toHaveLength(1);
+    const film = rig(() => ({ frameMs: 500 }));
+    film.engine.inflow = () => 'b1';
+    void film.player.play(vod(1));
+    await film.clock.advance(120_000);
+    expect(film.player.status.state).toBe('playing');
+    expect(film.engine.loads).toHaveLength(1);
+  });
+
+  it('starts the count again when the stream plays on after buffering', async () => {
+    // Nothing changes from the start, but a buffering spell (5-15 s) ends at 15 s: 30 s from there.
+    const r = rig(() => ({ frameMs: 500, bufferingMs: 5000, playingMs: 15_000 }));
+    r.engine.inflow = () => 'b1';
+    void r.player.play(live(1));
+    await r.clock.advance(44_950);
+    expect(r.player.status.state).toBe('playing');
+    await r.clock.advance(100);
+    expect(r.player.status).toMatchObject({ state: 'reconnecting', attempt: 1 });
+  });
+
+  it("counts the open timeout and the fallback's cap from the load, not from the redirect probe", async () => {
+    // A 4.7 s probe, then the .ts URL's first frame 2 s after its load (the Samsung TV's start on a real panel).
+    const clock = new FakeClock();
+    const r = rig((s) => ({ frameMs: s.container === 'ts' ? 2000 : 500 }), { resolveUrl: (url) => new Promise((resolve) => clock.setTimeout(() => resolve(url), 4700)) }, clock);
+    void r.player.play(live(1));
+    await clock.advance(6750);
+    expect(r.player.status).toMatchObject({ state: 'playing', container: 'ts', attempt: 0 });
+    expect(r.engine.loads.map((l) => l.source.container)).toEqual(['ts']);
+  });
+
+  it('still bounds a probe that never answers by the open timer', async () => {
+    const r = rig(() => ({ frameMs: 500 }), { resolveUrl: (url) => (url.indexOf('.ts') !== -1 ? new Promise<string>(() => undefined) : Promise.resolve(url)) });
+    void r.player.play(live(1));
+    await r.clock.advance(6050);
+    expect(r.player.status).toMatchObject({ state: 'opening', attempt: 1, container: 'hls' });
+    await r.clock.advance(600);
+    expect(r.player.status).toMatchObject({ state: 'playing', container: 'hls' });
+  });
+
+  it("forgets the start's attempts at the first frame, so the provider's first drop is retried", async () => {
+    // Four attempts find a URL (next URL, reopen, re-probe, switch); the stream plays, then drops 15 s later.
+    const r = rig((_s, n) => (n < 5 ? { frameMs: null } : n === 5 ? { frameMs: 500, error: { atMs: 15_000, error: NETWORK } } : { frameMs: 500 }), { resolveUrl: (url) => Promise.resolve(url) });
+    void r.player.play(live(1));
+    await r.clock.advance(45_000);
+    expect(r.engine.loads).toHaveLength(5);
+    expect(r.player.status).toMatchObject({ state: 'playing', container: 'ts' });
+    await r.clock.advance(15_000);
+    expect(r.player.status.state).not.toBe('failed');
+    expect(r.engine.loads).toHaveLength(6);
+    await r.clock.advance(1000);
+    expect(r.player.status).toMatchObject({ state: 'playing', attempt: 0 });
+  });
+});

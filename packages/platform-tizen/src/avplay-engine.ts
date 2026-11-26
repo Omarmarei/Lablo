@@ -140,6 +140,11 @@ function attempt(call: () => void): boolean {
   }
 }
 
+/** A streaming property as text: '' for none. */
+function property(value: unknown): string {
+  return value === undefined || value === null ? '' : String(value);
+}
+
 function read<T>(call: () => T, fallback: T): T {
   try {
     return call();
@@ -168,6 +173,8 @@ export class AvplayEngine implements PlayerEngine {
   private rect: Rect | 'full' = 'full';
   private fit: 'contain' | 'fill' = 'contain';
   private lastPos = 0;
+  /** The last inflow reading that showed bytes arriving (step 39s7); a later 0 keeps it. */
+  private inflowSeen: string | null = null;
   private pollTimer: unknown = null;
   private prepareTimer: unknown = null;
 
@@ -295,6 +302,30 @@ export class AvplayEngine implements PlayerEngine {
   positionMs(): number {
     this.lastPos = read(() => this.api.getCurrentTime(), this.lastPos);
     return this.lastPos;
+  }
+
+  /**
+   * RELAY step 39s7, from the Samsung TV (2026-11-26, docs/spikes/results.md): a TS stream's
+   * `CURRENT_BANDWIDTH` changes every second while bytes arrive, stays the same once they stop and
+   * reads 0 about 10 s later; an HLS stream has none, but its live window's end
+   * (`GET_LIVE_DURATION`) moves at each playlist refresh and stops while the playlist is held. A 0
+   * keeps the last reading, so the watchdog sees no change. `null` before a stream is prepared or
+   * where the firmware gives neither.
+   */
+  inflow(): string | null {
+    const l = this.cur;
+    const api = this.api;
+    const get = api.getStreamingProperty;
+    if (l === null || !l.prepared || typeof get !== 'function') return null;
+    const bandwidth = read(() => property(get.call(api, 'CURRENT_BANDWIDTH')), '');
+    if (bandwidth !== '') {
+      if (bandwidth !== '0' || this.inflowSeen === null) this.inflowSeen = 'b' + bandwidth;
+      return this.inflowSeen;
+    }
+    const live = read(() => property(get.call(api, 'GET_LIVE_DURATION')), '');
+    if (live === '') return null;
+    this.inflowSeen = 'w' + live;
+    return this.inflowSeen;
   }
 
   /** AVPlay's `getDuration` (ms) once a stream is prepared; 0 before, without one, or when it throws. */
@@ -559,6 +590,7 @@ export class AvplayEngine implements PlayerEngine {
   private drop(): void {
     const l = this.cur;
     this.cur = null;
+    this.inflowSeen = null;
     this.stopTimers();
     if (l !== null && l.settle !== null) {
       const settle = l.settle;

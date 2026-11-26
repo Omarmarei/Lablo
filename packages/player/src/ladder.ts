@@ -20,7 +20,11 @@
  *    broken `.m3u8` to a `.ts` the TV refuses goes back to the `.m3u8` with backoff), and gives
  *    up only when every URL has.
  * It gives up when 4 attempts have been made within the last 60 s. A frame on the screen
- * starts the ladder again from its first rung; the attempts keep counting in the window.
+ * starts the ladder again from its first rung; the attempts keep counting in the window, except
+ * that the session's first frame forgets the attempts that found a URL (RELAY step 39s7).
+ *
+ * Stalls also include a live stream whose inflow (`PlayerEngine.inflow`: AVPlay's current
+ * bandwidth, or an HLS live window's end) hasn't changed for 30 s while it plays (step 39s7).
  *
  * The app chooses the numbers for each play (`PlayTuning`, RELAY step 39d): Settings › "Player"'s
  * "Buffering" (Fast start or Stable) and remote config's tunables.
@@ -34,6 +38,12 @@ export interface WatchdogConfig {
   readonly liveFrozenMs: number;
   /** Live: buffering for this long. */
   readonly liveBufferingMs: number;
+  /**
+   * Live: what the engine says arrives (`PlayerEngine.inflow`) hasn't changed for this long while
+   * it plays (RELAY step 39s7). A held socket can freeze the picture while the engine's clock runs
+   * on and no buffering is reported (the Samsung TV on 2026-11-25); the bytes stop either way.
+   */
+  readonly liveNoDataMs: number;
   /** VOD and catch-up: buffering for this long. */
   readonly vodBufferingMs: number;
   /** No first frame this long after a load starts. */
@@ -56,6 +66,7 @@ export interface WatchdogConfig {
 export const DEFAULT_WATCHDOG: WatchdogConfig = {
   liveFrozenMs: 6000,
   liveBufferingMs: 12_000,
+  liveNoDataMs: 30_000,
   vodBufferingMs: 20_000,
   openTimeoutMs: 10_000,
   fallbackMs: 6000,
@@ -112,9 +123,15 @@ export class RetryLadder {
     this.opened[0] = true;
   }
 
-  /** The stream showed a frame: the next failure starts again from the first rung. */
-  recovered(): void {
+  /**
+   * The stream showed a frame: the next failure starts again from the first rung. The session's
+   * first frame also forgets the attempts that found a URL (RELAY step 39s7: on the Samsung TV a
+   * slow start used three of the four, and the provider's first drop 15 s later gave up at once);
+   * a stream that keeps failing after it played still gives up after `maxAttempts`.
+   */
+  recovered(first = false): void {
     this.step = 0;
+    if (first) this.attempts = [];
   }
 
   /** Whether a URL is still untried in this session. */

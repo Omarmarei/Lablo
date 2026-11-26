@@ -86,6 +86,22 @@ describe('RetryLadder', () => {
     expect(l.next(stall, 0, true, 4000)).toBeNull();
   });
 
+  it("forgets the start's attempts at the session's first frame only (RELAY step 39s7)", () => {
+    const l = ladder(2, true);
+    for (const t of [0, 10_000, 20_000, 30_000]) expect(l.next(stall, 0, false, t)).not.toBeNull();
+    expect(l.next(stall, 0, false, 31_000)).toBeNull();
+    // The first frame: the four that found a URL no longer count, and the ladder starts over.
+    l.recovered(true);
+    expect(l.next(stall, 0, true, 32_000)).toEqual({ rung: 'reopen', candidate: 0, delayMs: 0 });
+    // Later frames keep counting: three more, then the window is full again.
+    for (const t of [33_000, 34_000, 35_000]) {
+      l.recovered();
+      expect(l.next(stall, 0, true, t)).not.toBeNull();
+    }
+    l.recovered();
+    expect(l.next(stall, 0, true, 36_000)).toBeNull();
+  });
+
   it('tries the untried URL first while nothing has played on the current one', () => {
     const l = ladder(3, true);
     expect(l.next(stall, 0, false, 0)).toEqual({ rung: 'next-url', candidate: 1, delayMs: 0 });

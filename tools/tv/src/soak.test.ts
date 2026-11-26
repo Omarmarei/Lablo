@@ -4,6 +4,7 @@ import type { Sample } from './soak';
 import {
   HEAP_EVERY,
   LISTED_STALLS,
+  NO_DATA_MS,
   readDrain,
   replaySoak,
   SAMPLE_CAP,
@@ -127,6 +128,10 @@ describe('StallDetector', () => {
       medianMs: 11_000,
       maxMs: 12_000,
       openStallMs: 3000,
+      inflow: false,
+      noData: 0,
+      longestNoDataMs: null,
+      openNoDataMs: null,
       heapMB: [
         [0, 10],
         [5, 11],
@@ -146,6 +151,10 @@ describe('StallDetector', () => {
       medianMs: null,
       maxMs: null,
       openStallMs: null,
+      inflow: false,
+      noData: 0,
+      longestNoDataMs: null,
+      openNoDataMs: null,
       heapMB: [[0, 3]],
     });
   });
@@ -183,6 +192,56 @@ describe('StallDetector', () => {
   });
 });
 
+describe('StallDetector: no data (RELAY step 40g(e))', () => {
+  /** Playing samples every 100 ms with an inflow reading from `reading(t)`: the position always moves. */
+  function flowing(start: number, count: number, reading: (t: number) => string, from = 0): Sample[] {
+    return Array.from({ length: count }, (_, i): Sample => [start + i * SAMPLE_MS, 'PLAYING', from + i * 100, reading(start + i * SAMPLE_MS)]);
+  }
+
+  it("counts the 2026-11-25 freeze the position never showed: bytes stop for 25 s while the clock runs on", () => {
+    const d = new StallDetector();
+    // Bytes for 10 s (a new bandwidth each second), none for 25 s (the same, then 0), then bytes again.
+    feed(d, flowing(0, 100, (t) => 'b' + String(1000 + Math.floor(t / 1000))));
+    feed(d, flowing(10_000, 100, () => 'b1009', 10_000));
+    feed(d, flowing(20_000, 150, () => 'b0', 20_000));
+    feed(d, flowing(35_000, 50, (t) => 'b' + String(2000 + Math.floor(t / 1000)), 35_000));
+    expect(d.stalls).toEqual([]);
+    expect(d.noData).toEqual([{ startMs: 9000, ms: 26_000 }]);
+    expect(d.summary([])).toMatchObject({ stalls: 0, inflow: true, noData: 1, longestNoDataMs: 26_000, openNoDataMs: null });
+  });
+
+  it('says nothing for a gap under 12 s, nor for an HLS live window moving every 6 s', () => {
+    const d = new StallDetector();
+    feed(d, flowing(0, 100, (t) => 'b' + String(Math.floor(t / 1000))));
+    feed(d, flowing(10_000, 110, () => 'b9', 10_000));
+    feed(d, flowing(21_000, 20, (t) => 'b' + String(Math.floor(t / 1000)), 21_000));
+    const hls = new StallDetector();
+    feed(hls, flowing(0, 1200, (t) => 'w' + String(Math.floor(t / 6000) * 6000) + '|' + String(Math.floor(t / 6000) * 6000 + 36_000)));
+    expect(NO_DATA_MS).toBe(12_000);
+    expect(d.noData).toEqual([]);
+    expect(hls.noData).toEqual([]);
+    expect(hls.summary([])).toMatchObject({ inflow: true, noData: 0, openNoDataMs: null });
+  });
+
+  it('starts a stretch only while playing, and reports one still going', () => {
+    const d = new StallDetector();
+    feed(d, flowing(0, 10, (t) => 'b' + String(t)));
+    // 20 s with the same reading, not playing: nothing; then playing: 12 s from the last bytes is already past.
+    feed(d, Array.from({ length: 200 }, (_, i): Sample => [1000 + i * SAMPLE_MS, 'PAUSED', 900, 'b900']));
+    expect(d.summary([]).openNoDataMs).toBeNull();
+    feed(d, flowing(21_000, 10, () => 'b900', 900));
+    expect(d.summary([]).openNoDataMs).toBe(21_900 - 900);
+    expect(summaryLine(d.summary([]))).toContain('no data 0 (longest -), no data now 21.0 s');
+  });
+
+  it('ignores samples without a reading (no AVPlay inflow, the <video>)', () => {
+    const d = new StallDetector();
+    feed(d, playing(0, 400));
+    expect(d.summary([])).toMatchObject({ inflow: false, noData: 0, openNoDataMs: null });
+    expect(summaryLine(d.summary([]))).not.toContain('no data');
+  });
+});
+
 describe('summaryLine', () => {
   it('reads one line per drain', () => {
     const detector = new StallDetector();
@@ -211,6 +270,8 @@ describe('readDrain', () => {
 
   it('takes a drain as the page returns it', () => {
     expect(readDrain(good)).toEqual(good);
+    const withFlow = { ...good, samples: [[2, 'PLAYING', 3, 'b1096616'], [3, 'PLAYING', 4]] };
+    expect(readDrain(withFlow)).toEqual(withFlow);
     expect(readDrain({ ...good, samples: [], heap: [] })).toEqual({ ...good, samples: [], heap: [] });
   });
 
@@ -224,6 +285,8 @@ describe('readDrain', () => {
       { ...good, dropped: null },
       { ...good, samples: [[2, 'PLAYING']] },
       { ...good, samples: [[2, 'PLAYING', 3, 4]] },
+      { ...good, samples: [[2, 'PLAYING', 3, null]] },
+      { ...good, samples: [[2, 'PLAYING', 3, 'b1', 'x']] },
       { ...good, samples: [['2', 'PLAYING', 3]] },
       { ...good, samples: [[2, 7, 3]] },
       { ...good, samples: [[2, 'PLAYING', '3']] },
@@ -312,6 +375,36 @@ describe('the sampler in the page', () => {
     });
     tv.tick(1);
     expect(JSON.parse(JSON.stringify(tv.run(SOAK_DRAIN)))).toEqual({ started: 1_000_000, samples: [[1_000_400, 'PLAYING', 400]], heap: [], dropped: 0 });
+  });
+
+  it("adds AVPlay's inflow where it gives one: the bandwidth, else the live window (RELAY step 40g(e))", () => {
+    let bandwidth = '3148536';
+    let edge = '';
+    const tv = page({
+      webapis: {
+        avplay: {
+          getState: () => 'PLAYING',
+          getCurrentTime: () => 100,
+          getStreamingProperty: (name: string) => {
+            if (name === 'CURRENT_BANDWIDTH') return bandwidth;
+            if (edge === 'throw') throw new Error('NotSupportedError');
+            return edge;
+          },
+        },
+      },
+    });
+    tv.run(SOAK_SAMPLER);
+    tv.tick(1);
+    bandwidth = '';
+    edge = '300000|336000';
+    tv.tick(1);
+    edge = 'throw';
+    tv.tick(1);
+    expect(JSON.parse(JSON.stringify((tv.run(SOAK_DRAIN) as { samples: unknown[] }).samples))).toEqual([
+      [1_000_100, 'PLAYING', 100, 'b3148536'],
+      [1_000_200, 'PLAYING', 100, 'w300000|336000'],
+      [1_000_300, 'PLAYING', 100],
+    ]);
   });
 
   it("records AVPlay's errors as ERR and -1", () => {

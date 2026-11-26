@@ -246,6 +246,19 @@ describe('FallbackEngine', () => {
     expect(r.fallback.listenerCount).toBe(0);
   });
 
+  it("gives the active engine's inflow, and null from one without it (RELAY step 39s7)", async () => {
+    const r = rig();
+    r.primary.inflow = () => 'b42';
+    void r.engine.load(TS, 1);
+    await r.clock.advance(500);
+    expect(r.engine.inflow()).toBe('b42');
+    // AVPlay refuses the .m3u8: the <video> takes over, and it has no reading.
+    void r.engine.load(HLS, 2);
+    await r.clock.advance(700);
+    expect(r.active.slice(-1)[0]).toBe(r.fallback);
+    expect(r.engine.inflow()).toBeNull();
+  });
+
   it('sends nothing to a listener that unsubscribed', async () => {
     const r = rig();
     const mine: string[] = [];

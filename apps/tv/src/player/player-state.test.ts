@@ -620,13 +620,14 @@ describe('the player: number entry', () => {
     expect(t.player).toMatchObject({ target: { value: 7 }, previous: { value: 0 }, info: { value: true } });
   });
 
-  it('ends early on OK, keeps at most four digits, and Back cancels it without closing', async () => {
+  it('ends early on OK, keeps at most five digits, and Back cancels it without closing', async () => {
+    // Five: a big panel numbers its channels past 9,999 (10214 on the Samsung TV, RELAY step 39s7).
     const t = setup();
     t.player.show(0);
-    await t.press('DIGIT_9', 'DIGIT_8', 'DIGIT_7', 'DIGIT_6', 'DIGIT_5');
-    expect(t.player.entry.value?.digits).toBe('9876');
+    await t.press('DIGIT_1', 'DIGIT_0', 'DIGIT_2', 'DIGIT_1', 'DIGIT_4', 'DIGIT_5');
+    expect(t.player.entry.value?.digits).toBe('10214');
     await t.press('OK');
-    expect(t.list.finds.map((f) => f.n)).toEqual([9876]);
+    expect(t.list.finds.map((f) => f.n)).toEqual([10214]);
     // OK again while it looks: nothing more.
     await t.press('OK');
     expect(t.list.finds).toHaveLength(1);
