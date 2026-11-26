@@ -446,6 +446,10 @@ function startRefreshes(live: Live, guide: Guide, posters: readonly Movies[], se
  * screen painted again in it.
  */
 function showLive(into: Element, language: Language | null, resume: LastChannel | null = null, restored = false, toSources = false, toGuides = false): void {
+  // The last channel's check first (RELAY step 39s4): the query worker answers in order, so asked
+  // before the live screen's reads it comes back at once, not after the catalog's (about 0.9 s on
+  // the Samsung TV).
+  const resumeCheck = resume === null ? null : dataEngine().itemsByKey({ keys: [resume.item.key], kind: 'live', sources: [resume.item.src], limit: 1 });
   let player: Player | null = null;
   /** The player: made further down, before any key reaches the live screen (Settings › "Player" uses it, step 38d3). */
   const livePlayer = (): Player => player!;
@@ -849,11 +853,9 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   });
   // The channel watched last plays once the query worker gives it (step 38b): a locked one, or one
   // gone from the catalog, doesn't play; nor does it once the user has moved on.
-  if (resume !== null) {
+  if (resume !== null && resumeCheck !== null) {
     const resumed = player;
-    dataEngine()
-      .itemsByKey({ keys: [resume.item.key], kind: 'live', sources: [resume.item.src], limit: 1 })
-      .then(
+    resumeCheck.then(
         (found) => {
           if (found.length > 0 && live.nav.top === live.home) resumed.resume({ item: resume.item, number: resume.number }, resume.index);
         },
@@ -863,6 +865,19 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
   showFocus(live.nav);
   paint = () => render(<LiveApp platform={platform} live={live} language={shown} player={player} settings={settings} guide={guide} movies={movies} series={series} details={details} show={show} search={search} home={home} parental={parental} favourites={listFavourites} storageFull={storage.full} />, into);
   paint();
+  // The player's engines (AVPlay's object on Tizen) take most of a second to make on the Samsung TV
+  // (step 39s4): made once the live screen has painted, while the query worker answers the check
+  // above, instead of after it. A start with no last channel still makes none.
+  if (resumeCheck !== null) {
+    setTimeout(() => {
+      try {
+        playerController();
+      } catch (error) {
+        // The first play says so again, on its error card.
+        console.warn('The player could not be made ahead of the last channel', error);
+      }
+    }, 0);
+  }
   startRefreshes(live, guide, [movies, series], search, home, readFacts, restored ? 0 : undefined);
   backup.start();
   telemetry.start();
