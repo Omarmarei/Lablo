@@ -21,7 +21,7 @@ import { MAPPING_SCREEN, createMapping } from './mapping-state';
 import type { ParentalAsk, ParentalPage, ParentalPageEngine } from './parental-page';
 import { PARENTAL_SCREENS, createParentalPage } from './parental-page';
 import type { PlayerSettings, PlayerSettingsOptions } from './player-settings';
-import { PLAYER_SETTINGS_SCREEN, createPlayerSettings } from './player-settings';
+import { PLAYER_ACCESS_SCREEN, PLAYER_SETTINGS_SCREEN, createPlayerSettings } from './player-settings';
 import type { SettingsItem } from './settings-items';
 import { SETTINGS_ITEMS } from './settings-items';
 import { LOGIN_SCREEN } from './source-login';
@@ -90,7 +90,7 @@ export const SETTINGS_SCREENS: readonly string[] = [
   ADD_SCREEN,
   BACKUP_SCREEN,
   BACKUP_CONFIRM,
-].concat(GROUP_SCREENS, [CHANNELS_SCREEN], EDIT_SCREENS, PARENTAL_SCREENS, [PLAYER_SETTINGS_SCREEN, LANGUAGE_SCREEN, CONNECTION_SCREEN, TEST_SCREEN, HELP_SCREEN, HELP_TOPIC_SCREEN, ABOUT_SCREEN, ABOUT_INFO_SCREEN, ABOUT_DOC_SCREEN]);
+].concat(GROUP_SCREENS, [CHANNELS_SCREEN], EDIT_SCREENS, PARENTAL_SCREENS, [PLAYER_SETTINGS_SCREEN, PLAYER_ACCESS_SCREEN, LANGUAGE_SCREEN, CONNECTION_SCREEN, TEST_SCREEN, HELP_SCREEN, HELP_TOPIC_SCREEN, ABOUT_SCREEN, ABOUT_INFO_SCREEN, ABOUT_DOC_SCREEN]);
 
 export interface SettingsOptions extends Omit<GuidesOptions, 'openUnmatched' | 'engine'> {
   readonly nav: Navigator;

@@ -7,7 +7,7 @@ import type { SleepTimer } from '../player/watch-guard';
 import { DEFAULT_STILL_HOURS, SLEEP_MINUTES, STILL_HOURS } from '../player/watch-guard';
 import { BUFFER_MODES } from '../player/play-tuning';
 import type { PlayerValues } from './player-settings';
-import { CLOCK_CHOICES, PLAYER_SETTINGS_ROWS, PLAYER_SETTINGS_SCREEN, SLEEP_CHOICES, STILL_CHOICES, TRACK_CHOICES, createPlayerSettings, nextValue } from './player-settings';
+import { CLOCK_CHOICES, PLAYER_ACCESS_ROWS, PLAYER_ACCESS_SCREEN, PLAYER_SETTINGS_ROWS, PLAYER_SETTINGS_SCREEN, SLEEP_CHOICES, STILL_CHOICES, TRACK_CHOICES, createPlayerSettings, nextValue } from './player-settings';
 
 /**
  * Settings › "Player" (RELAY step 38d3): four rows, each changed in place by OK (round its values)
@@ -81,9 +81,11 @@ describe('nextValue (RELAY step 38d3)', () => {
 });
 
 describe('Settings › "Player" (RELAY step 38d3)', () => {
-  it('opens its eleven rows over the settings, seven in view, the modes read before the values', () => {
+  it('opens its nine rows over the settings, seven in view, the modes read before the values', () => {
     const t = setup({ audio: 'en', subtitles: 'ar', size: 'l', picture: 'stretch', clock: true, still: 6, buffer: 'stable', captionBg: 'dark', captionColor: 'white', largeText: false }, ['fit', 'stretch', '4:3']);
-    expect(PLAYER_SETTINGS_ROWS).toEqual(['audio', 'subtitles', 'size', 'picture', 'clock', 'still', 'sleep', 'buffer', 'captionBg', 'captionColor', 'largeText']);
+    // Step 55: "Accessibility" last, which opens step 43's three rows on a page of their own.
+    expect(PLAYER_SETTINGS_ROWS).toEqual(['audio', 'subtitles', 'size', 'picture', 'clock', 'still', 'sleep', 'buffer', 'access']);
+    expect(PLAYER_ACCESS_ROWS).toEqual(['captionBg', 'captionColor', 'largeText']);
     expect(TRACK_CHOICES).toEqual([null, 'ar', 'en']);
     expect(CLOCK_CHOICES).toEqual([false, true]);
     // Nothing read before it opens.
@@ -91,7 +93,7 @@ describe('Settings › "Player" (RELAY step 38d3)', () => {
     expect(t.options.values).not.toHaveBeenCalled();
     t.page.open();
     expect(t.nav.top.id).toBe(PLAYER_SETTINGS_SCREEN);
-    expect(t.nav.top.zone('rows')).toMatchObject({ kind: 'list', axis: 'vertical', count: 11, visible: 7 });
+    expect(t.nav.top.zone('rows')).toMatchObject({ kind: 'list', axis: 'vertical', count: 9, visible: 7 });
     expect(t.at()).toBe('player-settings · rows 0');
     expect(t.options.modes.mock.invocationCallOrder[0]!).toBeLessThan(t.options.values.mock.invocationCallOrder[0]!);
     expect(t.shown()).toEqual(['en', 'ar', 'l', 'stretch', true]);
@@ -279,24 +281,68 @@ describe('Settings › "Player" (RELAY step 38d3)', () => {
     expect(t.told.slice(-1)).toEqual(['sleep 30']);
   });
 
-  it('steps the three accessibility rows (step 43) and tells main once per change', () => {
+  it('opens "Accessibility" from its last row (step 55): the arrows move nothing there, Back comes back to it', () => {
+    const t = setup(START);
+    t.page.open();
+    for (let i = 0; i < 8; i += 1) t.press('DOWN');
+    expect(t.at()).toBe('player-settings · rows 8');
+    // The row has no value: the arrows stay on it, telling nothing.
+    t.press('RIGHT', 'LEFT', 'RIGHT');
+    expect(t.at()).toBe('player-settings · rows 8');
+    expect(t.told).toEqual([]);
+    t.press('OK');
+    expect(t.nav.top.id).toBe(PLAYER_ACCESS_SCREEN);
+    expect(t.nav.top.zone('rows')).toMatchObject({ kind: 'list', axis: 'vertical', count: 3, visible: 7 });
+    expect(t.at()).toBe('player-access · rows 0');
+    expect(t.told).toEqual([]);
+    t.press('DOWN', 'DOWN');
+    t.press('BACK');
+    expect(t.at()).toBe('player-settings · rows 8');
+    // Opened again: at its first row.
+    t.press('OK');
+    expect(t.at()).toBe('player-access · rows 0');
+    t.press('BACK', 'BACK');
+    expect(t.at()).toBe('settings · items 5');
+  });
+
+  it('steps the three accessibility rows (step 43) on their page and tells main once per change', () => {
     const t = setup(START);
     t.page.open();
     expect(CAPTION_BACKGROUNDS).toEqual(['dark', 'none', 'solid']);
     expect(CAPTION_COLORS).toEqual(['white', 'yellow', 'cyan', 'green']);
     expect([t.page.captionBg.value, t.page.captionColor.value, t.page.largeText.value]).toEqual(['dark', 'white', false]);
     for (let i = 0; i < 8; i += 1) t.press('DOWN');
-    expect(t.at()).toBe('player-settings · rows 8');
+    t.press('OK');
+    expect(t.at()).toBe('player-access · rows 0');
     t.press('OK', 'OK', 'OK');
     expect(t.told).toEqual(['captionBg none', 'captionBg solid', 'captionBg dark']);
     t.press('DOWN', 'OK', 'OK');
     expect(t.told.slice(3)).toEqual(['captionColor yellow', 'captionColor cyan']);
     t.press('DOWN', 'OK');
+    expect(t.at()).toBe('player-access · rows 2');
     expect(t.told.slice(5)).toEqual(['largeText true']);
     expect([t.page.captionBg.value, t.page.captionColor.value, t.page.largeText.value]).toEqual(['dark', 'cyan', true]);
-    // Stopped at the end by RIGHT (English), nothing told.
+    // Stopped at the end by RIGHT (English), nothing told; LEFT goes back to Off.
     t.press('RIGHT');
     expect(t.told).toHaveLength(6);
+    t.press('LEFT');
+    expect(t.told.slice(6)).toEqual(['largeText false']);
+    t.press('UP', 'RIGHT', 'RIGHT');
+    expect(t.told.slice(7)).toEqual(['captionColor green']);
+    expect(t.page.captionColor.value).toBe('green');
+  });
+
+  it('steps the accessibility rows by LEFT towards the end in Arabic (step 55)', () => {
+    const t = setup(START);
+    t.nav.setDir('rtl');
+    t.page.open();
+    for (let i = 0; i < 8; i += 1) t.press('DOWN');
+    t.press('LEFT', 'OK');
+    expect(t.at()).toBe('player-access · rows 0');
+    t.press('LEFT', 'LEFT', 'LEFT', 'RIGHT');
+    expect(t.told).toEqual(['captionBg none', 'captionBg solid', 'captionBg none']);
+    t.press('DOWN', 'DOWN', 'LEFT');
+    expect(t.told.slice(3)).toEqual(['largeText true']);
   });
 
   it('leaves other keys to the navigator', () => {

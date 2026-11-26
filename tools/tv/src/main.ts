@@ -1,10 +1,12 @@
 /**
  * `pnpm tv`: the I/O around the tested pieces (RELAY step 39s6). Each command reads
  * `.tv.local.json`, runs sdb, the remote's socket or the inspector, and prints what it found.
+ * With `--webos` (RELAY step 56) the inspector commands go through `ares-inspect`'s port instead.
  * The how-to is docs/runbooks/tv-setup.md 3.7.
  */
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { TvArgs } from './args';
@@ -18,6 +20,8 @@ import { formatMarks, MARKS_EXPRESSION, SCREEN_EXPRESSION } from './probes';
 import { parseScript, REMOTE_PORT, remoteEvent, remotePath, runScript } from './remote';
 import type { HeapReading } from './soak';
 import { LISTED_STALLS, readDrain, replaySoak, SOAK_DRAIN, SOAK_SAMPLER, StallDetector, summaryLine } from './soak';
+import type { AresInspect } from './webos';
+import { forwardInspector, WEBOS_PORT, webosAppId, webosPage } from './webos';
 import { openRawWebSocket } from './ws';
 
 const ROOT = path.resolve(import.meta.dirname, '../../..');
@@ -58,11 +62,64 @@ function appId(lab: boolean): string {
   return id;
 }
 
-function inspectorPort(args: TvArgs): number {
-  if (args.port !== undefined) return args.port;
+/** The LG app's id (or the lab's), from the manifest `pnpm device` installs. */
+function webosApp(lab: boolean): string {
+  const file = lab ? path.join(ROOT, 'dist/tv-lab/webos/appinfo.json') : path.join(ROOT, 'platforms/webos/appinfo.json');
+  if (!existsSync(file)) throw new TvError(`${path.relative(ROOT, file)} does not exist. Run pnpm build:tv --platform webos --target lab first.`);
+  const id = webosAppId(readFileSync(file, 'utf8'));
+  if (id === null) throw new TvError(`${path.relative(ROOT, file)} has no "id"`);
+  return id;
+}
+
+/** Where the inspector commands evaluate: the Samsung's saved (or given) port; on webOS ares-inspect's port and the app's page. */
+interface InspectorTarget {
+  readonly port: number;
+  readonly page?: string;
+}
+
+function inspector(args: TvArgs): InspectorTarget {
+  if (args.webos) return { port: args.port ?? WEBOS_PORT, page: webosPage(webosApp(args.lab)) };
+  if (args.port !== undefined) return { port: args.port };
   const port = loadConfig().cdpPort;
   if (port === undefined) throw new TvError('No inspector port: run pnpm tv inspect first (or pass --port N).');
-  return port;
+  return { port };
+}
+
+function evaluate(target: InspectorTarget, expression: string, timeoutMs?: number): Promise<unknown> {
+  return evaluateOnPort(target.port, expression, { ...(timeoutMs === undefined ? {} : { timeoutMs }), ...(target.page === undefined ? {} : { page: target.page }) });
+}
+
+/**
+ * `pnpm tv inspect --webos <device>` (RELAY step 56): ares-inspect launches the app if it isn't
+ * running and forwards its inspector to a port here, then holds the tunnel; so does this command,
+ * until Ctrl+C or ares-inspect ends. It checks the app's page answers before saying so.
+ */
+async function inspectWebos(args: TvArgs): Promise<void> {
+  const [device] = args.words;
+  if (device === undefined) throw new TvError('Usage: pnpm tv inspect --webos <ares device> [--lab] [--port N] (the name pnpm device devices webos lists)');
+  const appId = webosApp(args.lab);
+  const script = createRequire(import.meta.url).resolve('@webos-tools/cli/bin/ares-inspect.js');
+  let ended: Promise<number | null> = Promise.resolve(null);
+  const start = (aresArgs: string[]): AresInspect => {
+    const child = spawn(process.execPath, [script, ...aresArgs], { stdio: ['ignore', 'pipe', 'pipe'] });
+    ended = new Promise((resolve) => child.once('exit', (code) => resolve(code)));
+    return child;
+  };
+  let forwarded: Awaited<ReturnType<typeof forwardInspector>>;
+  try {
+    forwarded = await forwardInspector(start, device, appId, args.port ?? WEBOS_PORT);
+  } catch (error) {
+    throw new TvError(error instanceof Error ? error.message : String(error));
+  }
+  const { child, port, href } = forwarded;
+  console.log(`the inspector of ${appId} is on port ${port} (${String(href)})`);
+  const flags = `--webos${args.lab ? ' --lab' : ''}${port === WEBOS_PORT ? '' : ` --port ${port}`}`;
+  console.log(`ares-inspect holds the tunnel while this runs (Ctrl+C ends it). In another terminal: pnpm tv screen ${flags}`);
+  child.stdout?.pipe(process.stdout);
+  child.stderr?.pipe(process.stderr);
+  const code = await ended;
+  console.log(`ares-inspect ended (exit ${String(code)}): the tunnel is closed.`);
+  process.exitCode = code === 0 ? 0 : 1;
 }
 
 function print(value: unknown): void {
@@ -126,13 +183,15 @@ async function soak(args: TvArgs): Promise<void> {
     print({ ...detector.summary(heap), dropped, list: detector.recent(LISTED_STALLS) });
     return;
   }
-  const port = inspectorPort(args);
+  const target = inspector(args);
+  const { port } = target;
   if (sub === 'start') {
-    print(await evaluateOnPort(port, SOAK_SAMPLER));
+    print(await evaluate(target, SOAK_SAMPLER));
     return;
   }
   if (sub !== 'watch') throw new TvError('Usage: pnpm tv soak start|watch|report <file>');
-  const config = args.port === undefined ? loadConfig() : readConfig();
+  // The Samsung's sdb comes back after a drop; on webOS a failed drain waits for the next one (ares-inspect holds the tunnel).
+  const config = args.webos ? null : args.port === undefined ? loadConfig() : readConfig();
   const out = path.join(ROOT, 'artifacts', `tv-soak-${new Date().toISOString().replace(/[:.]/g, '-')}.ndjson`);
   mkdirSync(path.dirname(out), { recursive: true });
   const detector = new StallDetector();
@@ -140,17 +199,17 @@ async function soak(args: TvArgs): Promise<void> {
   const drainOnce = async (): Promise<void> => {
     let value: unknown;
     try {
-      value = await evaluateOnPort(port, SOAK_DRAIN, 30_000);
+      value = await evaluate(target, SOAK_DRAIN, 30_000);
     } catch (error) {
       if (config === null) throw error;
       // sdb drops when the TV's link degrades; the app keeps running (soak-loop.sh's fix).
       sdb(sdbConnect(tvSerial(config)));
       sdb(sdbForward(tvSerial(config), port));
       await sleep(3000);
-      value = await evaluateOnPort(port, SOAK_DRAIN, 30_000);
+      value = await evaluate(target, SOAK_DRAIN, 30_000);
     }
     if (value === null) {
-      console.log(`${clock()} no sampler in the page (first drain, or the page reloaded): ${String(await evaluateOnPort(port, SOAK_SAMPLER))}`);
+      console.log(`${clock()} no sampler in the page (first drain, or the page reloaded): ${String(await evaluate(target, SOAK_SAMPLER))}`);
       return;
     }
     const drain = readDrain(value);
@@ -203,6 +262,10 @@ async function run(args: TvArgs): Promise<void> {
       return;
     }
     case 'inspect': {
+      if (args.webos) {
+        await inspectWebos(args);
+        return;
+      }
       const config = loadConfig();
       const result = inspectApp(sdb, tvSerial(config), appId(args.lab), config.cdpPort);
       if ('error' in result) throw new TvError(result.error);
@@ -232,16 +295,16 @@ async function run(args: TvArgs): Promise<void> {
     case 'eval': {
       const [expression] = args.words;
       if (expression === undefined) throw new TvError('Usage: pnpm tv eval <expression|@file.js> [--port N]');
-      print(await evaluateOnPort(inspectorPort(args), expression.startsWith('@') ? readFileSync(expression.slice(1), 'utf8') : expression));
+      print(await evaluate(inspector(args), expression.startsWith('@') ? readFileSync(expression.slice(1), 'utf8') : expression));
       return;
     }
     case 'screen': {
-      const screen = (await evaluateOnPort(inspectorPort(args), SCREEN_EXPRESSION)) as { focus: string | null; text: string };
+      const screen = (await evaluate(inspector(args), SCREEN_EXPRESSION)) as { focus: string | null; text: string };
       console.log(`focus: ${screen.focus ?? '(none)'}\n${screen.text}`);
       return;
     }
     case 'marks':
-      console.log(formatMarks(await evaluateOnPort(inspectorPort(args), MARKS_EXPRESSION)));
+      console.log(formatMarks(await evaluate(inspector(args), MARKS_EXPRESSION)));
       return;
     case 'soak':
       await soak(args);

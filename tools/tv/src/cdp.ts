@@ -17,14 +17,22 @@ export const ONE_CLIENT = "The TV's inspector allows one client at a time: close
 interface InspectorTarget {
   readonly type?: string;
   readonly id?: string;
+  readonly url?: string;
   readonly webSocketDebuggerUrl?: string;
 }
 
-/** The page's debugger URL from the inspector's `/json` list (the first page, else the first target). */
-export function pageTarget(list: unknown, port: number): string | null {
-  if (!Array.isArray(list)) return null;
-  const targets = list.filter((item): item is InspectorTarget => typeof item === 'object' && item !== null);
-  const target = targets.find((item) => item.type === 'page') ?? targets[0];
+function targetsOf(list: unknown): InspectorTarget[] {
+  return Array.isArray(list) ? list.filter((item): item is InspectorTarget => typeof item === 'object' && item !== null) : [];
+}
+
+/**
+ * The page's debugger URL from the inspector's `/json` list: the first page, else the first
+ * target. With `page` (webOS, RELAY step 56: the TV's inspector lists every page of its web
+ * runtime), only a page whose URL holds it.
+ */
+export function pageTarget(list: unknown, port: number, page?: string): string | null {
+  const targets = targetsOf(list);
+  const target = page === undefined ? (targets.find((item) => item.type === 'page') ?? targets[0]) : targets.find((item) => item.type === 'page' && typeof item.url === 'string' && item.url.includes(page));
   if (target === undefined) return null;
   if (typeof target.webSocketDebuggerUrl === 'string') return target.webSocketDebuggerUrl;
   return typeof target.id === 'string' ? `ws://127.0.0.1:${port}/devtools/page/${target.id}` : null;
@@ -51,6 +59,15 @@ export interface InspectorSocket {
   close(): void;
 }
 
+export interface EvaluateOptions {
+  /** How long the inspector may take (default 60 s). */
+  readonly timeoutMs?: number;
+  /** Opens the page's socket (Node's built-in `WebSocket`, or a test's). */
+  readonly open?: (url: string) => InspectorSocket;
+  /** Only a page whose URL holds this (webOS: `webosPage`). */
+  readonly page?: string;
+}
+
 /**
  * Evaluates `expression` in the TV page on a forwarded inspector port (promises awaited).
  *
@@ -58,14 +75,15 @@ export interface InspectorSocket {
  * `close()` of a socket that never opened fires `error` again from inside `close()`, so an error
  * handler that closed called itself until the stack ran out (PR #179's first CI run).
  */
-export async function evaluateOnPort(
-  port: number,
-  expression: string,
-  timeoutMs = 60_000,
-  open: (url: string) => InspectorSocket = (url) => new WebSocket(url),
-): Promise<unknown> {
+export async function evaluateOnPort(port: number, expression: string, options: EvaluateOptions = {}): Promise<unknown> {
+  const { timeoutMs = 60_000, open = (url: string): InspectorSocket => new WebSocket(url), page } = options;
   const response = await fetch(`http://127.0.0.1:${port}/json`, { signal: AbortSignal.timeout(timeoutMs) });
-  const url = pageTarget(await response.json(), port);
+  const list: unknown = await response.json();
+  const url = pageTarget(list, port, page);
+  if (url === null && page !== undefined) {
+    const pages = targetsOf(list).map((item) => item.url ?? item.id ?? '?');
+    throw new Error(`no page of ${page} on the inspector at port ${port} (is the app running?); it lists: ${pages.length === 0 ? 'nothing' : pages.join(', ')}`);
+  }
   if (url === null) throw new Error(`no page on the inspector at port ${port}`);
   return new Promise((resolve, reject) => {
     const ws = open(url);

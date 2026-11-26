@@ -6,8 +6,8 @@ import type { TrackLang } from '../player/player-memory';
 import { PICTURE_TEXT } from '../player/PlayerScreen';
 import { SIZE_KEYS } from '../player/TrackMenuPanel';
 import type { SleepTimer } from '../player/watch-guard';
-import type { PlayerSettings, PlayerSettingsRow, PlayerValues } from './player-settings';
-import { PLAYER_SETTINGS_ROWS } from './player-settings';
+import type { PlayerSettings, PlayerValueRow, PlayerValues } from './player-settings';
+import { PLAYER_ACCESS_ROWS, PLAYER_SETTINGS_ROWS } from './player-settings';
 import { SETTINGS_VISIBLE } from './settings-window';
 
 /**
@@ -17,6 +17,8 @@ import { SETTINGS_VISIBLE } from './settings-window';
  * "Still watching?" (step 39c) is named by its prompt's title; the sleep timer's line says when
  * playback stops while it runs. "Buffering" (step 39d) says what its value does. The page draws
  * `SETTINGS_VISIBLE` rows from `top`, the focus engine's window, as the settings list does.
+ * "Accessibility" (step 55), the last row, is drawn as the settings list's rows are (its name and
+ * what its page holds, no value); its page draws step 43's three rows as this page draws its own.
  */
 
 /** What the rows show: the page's values, and the sleep timer as it stands. */
@@ -37,7 +39,7 @@ function langText(t: AppI18n['t'], lang: TrackLang | null, none: string): string
 }
 
 /** A row's name, its value and the line under it. */
-export function playerRowText(i18n: AppI18n, row: PlayerSettingsRow, values: PlayerShown): { name: string; value: string; hint: string } {
+export function playerRowText(i18n: AppI18n, row: PlayerValueRow, values: PlayerShown): { name: string; value: string; hint: string } {
   const { t } = i18n;
   if (row === 'audio') return { name: t('playerSettings.audio'), value: langText(t, values.audio, t('playerSettings.app')), hint: t('playerSettings.audioHint') };
   if (row === 'subtitles') return { name: t('tracks.subtitles'), value: langText(t, values.subtitles, t('tracks.off')), hint: t('playerSettings.subtitlesHint') };
@@ -60,7 +62,7 @@ export function playerRowText(i18n: AppI18n, row: PlayerSettingsRow, values: Pla
 }
 
 /** A row's value as stored (`data-value`): a language, `app` or `off`, a size, a mode, `on` or `off`, the hours or the minutes, `fast` or `stable`. */
-function rawValue(row: PlayerSettingsRow, values: PlayerShown): string {
+function rawValue(row: PlayerValueRow, values: PlayerShown): string {
   if (row === 'audio') return values.audio ?? 'app';
   if (row === 'subtitles') return values.subtitles ?? 'off';
   if (row === 'clock') return values.clock ? 'on' : 'off';
@@ -73,10 +75,9 @@ function rawValue(row: PlayerSettingsRow, values: PlayerShown): string {
   return row === 'size' ? values.size : values.picture;
 }
 
-/** The page as drawn, hook-free: the rows in its window from `top`. */
-export function PlayerSettingsView({ i18n, page, item, top = 0 }: { i18n: AppI18n; page: PlayerSettings; item: (index: number) => ItemBinding; top?: number }) {
-  const { t } = i18n;
-  const values: PlayerShown = {
+/** The values the rows show now, read from the page's signals (the sleep timer as it stands). */
+function shown(page: PlayerSettings): PlayerShown {
+  return {
     audio: page.audio.value,
     subtitles: page.subtitles.value,
     size: page.size.value,
@@ -89,6 +90,37 @@ export function PlayerSettingsView({ i18n, page, item, top = 0 }: { i18n: AppI18
     largeText: page.largeText.value,
     sleep: page.sleep(),
   };
+}
+
+/** A row with its value: its name, the value beside it and the line under it (called, not a component, so VNode tests see it). */
+function valueRow(i18n: AppI18n, row: PlayerValueRow, values: PlayerShown, binding: ItemBinding) {
+  const text = playerRowText(i18n, row, values);
+  return (
+    <div
+      key={row}
+      class={rowClass('settings__row settings__switch', binding)}
+      role="menuitem"
+      data-testid={`player-settings-${row}`}
+      data-state={binding.state}
+      data-value={rawValue(row, values)}
+      onMouseMove={binding.onHover}
+      onClick={binding.onPress}
+    >
+      <div class="settings__top">
+        <span class="settings__name">{text.name}</span>
+        <span class="settings__value" data-testid={`player-settings-${row}-value`}>
+          {text.value}
+        </span>
+      </div>
+      <span class="settings__hint">{text.hint}</span>
+    </div>
+  );
+}
+
+/** The page as drawn, hook-free: the rows in its window from `top`. */
+export function PlayerSettingsView({ i18n, page, item, top = 0 }: { i18n: AppI18n; page: PlayerSettings; item: (index: number) => ItemBinding; top?: number }) {
+  const { t } = i18n;
+  const values = shown(page);
   const { from, to } = listWindow(top, PLAYER_SETTINGS_ROWS.length, SETTINGS_VISIBLE);
   return (
     <div class="settings__page" data-testid="player-settings" data-modes={page.modes.value.join(' ')}>
@@ -98,25 +130,11 @@ export function PlayerSettingsView({ i18n, page, item, top = 0 }: { i18n: AppI18
       <div class="settings__items" role="menu" data-top={from} data-count={PLAYER_SETTINGS_ROWS.length}>
         {PLAYER_SETTINGS_ROWS.slice(from, to).map((row, n) => {
           const binding = item(from + n);
-          const text = playerRowText(i18n, row, values);
+          if (row !== 'access') return valueRow(i18n, row, values, binding);
           return (
-            <div
-              key={row}
-              class={rowClass('settings__row settings__switch', binding)}
-              role="menuitem"
-              data-testid={`player-settings-${row}`}
-              data-state={binding.state}
-              data-value={rawValue(row, values)}
-              onMouseMove={binding.onHover}
-              onClick={binding.onPress}
-            >
-              <div class="settings__top">
-                <span class="settings__name">{text.name}</span>
-                <span class="settings__value" data-testid={`player-settings-${row}-value`}>
-                  {text.value}
-                </span>
-              </div>
-              <span class="settings__hint">{text.hint}</span>
+            <div key={row} class={rowClass('settings__row', binding)} role="menuitem" data-testid="player-settings-access" data-state={binding.state} onMouseMove={binding.onHover} onClick={binding.onPress}>
+              <span class="settings__name">{t('playerSettings.access')}</span>
+              <span class="settings__hint">{t('playerSettings.accessHint')}</span>
             </div>
           );
         })}
@@ -125,7 +143,28 @@ export function PlayerSettingsView({ i18n, page, item, top = 0 }: { i18n: AppI18
   );
 }
 
+/** "Accessibility"'s page as drawn (step 55), hook-free: step 43's three rows, from `top`. */
+export function PlayerAccessView({ i18n, page, item, top = 0 }: { i18n: AppI18n; page: PlayerSettings; item: (index: number) => ItemBinding; top?: number }) {
+  const values = shown(page);
+  const { from, to } = listWindow(top, PLAYER_ACCESS_ROWS.length, SETTINGS_VISIBLE);
+  return (
+    <div class="settings__page" data-testid="player-access">
+      <header class="settings__header">
+        <h1 class="settings__title">{i18n.t('playerSettings.access')}</h1>
+      </header>
+      <div class="settings__items" role="menu" data-top={from} data-count={PLAYER_ACCESS_ROWS.length}>
+        {PLAYER_ACCESS_ROWS.slice(from, to).map((row, n) => valueRow(i18n, row, values, item(from + n)))}
+      </div>
+    </div>
+  );
+}
+
 export function PlayerSettingsPage({ i18n, binding, page }: { i18n: AppI18n; binding: FocusBinding; page: PlayerSettings }) {
   const zone = useZone(binding, binding.nav.top, 'rows');
   return <PlayerSettingsView i18n={i18n} page={page} item={(i) => zone.item(i)} top={zone.position.top} />;
+}
+
+export function PlayerAccessPage({ i18n, binding, page }: { i18n: AppI18n; binding: FocusBinding; page: PlayerSettings }) {
+  const zone = useZone(binding, binding.nav.top, 'rows');
+  return <PlayerAccessView i18n={i18n} page={page} item={(i) => zone.item(i)} top={zone.position.top} />;
 }

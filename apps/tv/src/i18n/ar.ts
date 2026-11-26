@@ -710,6 +710,8 @@ export const AR: Readonly<Record<MessageKey, string>> = {
   'playerSettings.color.green': 'أخضر',
   'playerSettings.largeText': 'نص أكبر',
   'playerSettings.largeTextHint': 'يكبّر كل النصوص بنحو الربع في التطبيق كله',
+  'playerSettings.access': 'إمكانية الوصول',
+  'playerSettings.accessHint': 'خلفية الترجمة ولونها، والنص الأكبر',
   'player.still.title': 'هل ما زلت تشاهد؟',
   'player.still.idle': 'لم يُضغط أي زر منذ مدة.',
   'player.still.sleep': 'انتهى مؤقّت النوم.',

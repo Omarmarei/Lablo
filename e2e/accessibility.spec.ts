@@ -12,8 +12,9 @@ import { RemoteDriver } from './remote-driver';
 import { openSettings, settingsRow, toSettingsRow } from './settings-rows';
 
 /**
- * RELAY step 43 on the mock's panel, in English and Arabic: Settings › "Player"'s last three rows
- * (rows 8, 9 and 10):
+ * RELAY step 43 on the mock's panel, in English and Arabic, on "Accessibility"'s page since step 55
+ * (Settings › "Player"'s last row opens it; the arrows move nothing on that row; Back comes back
+ * to it):
  * - "Caption background" (Dark, None, Solid) and "Caption colour" (White, Yellow, Cyan, Green):
  *   the words, the value as stored, kept in the profile's `player.options` (nothing for the
  *   defaults);
@@ -89,7 +90,7 @@ for (const { locale, tag } of [
   const words = tag === 'ar' ? AR : EN;
   const next = tag === 'ar' ? 'LEFT' : 'RIGHT';
 
-  test(`accessibility rows: caption box and colour, "Larger text" kept, fitted, through a restart (${locale})`, async ({ page }) => {
+  test(`"Accessibility" page: caption box and colour, "Larger text" kept, fitted, through a restart (${locale})`, async ({ page }) => {
     test.setTimeout(150_000);
     const errors = trackErrors(page);
     const remote = new RemoteDriver(page);
@@ -103,32 +104,49 @@ for (const { locale, tag } of [
     };
     const row = (name: string): Locator => page.getByTestId(`player-settings-${name}`);
 
-    await test.step('the three rows at the end of the page: defaults, nothing kept', async () => {
+    await test.step('"Accessibility" last in Settings › "Player"; its page holds the three rows: defaults, nothing kept', async () => {
       await toPlayer();
       for (let i = 1; i <= 8; i += 1) await remote.go('DOWN', `player-settings/rows/${i}`);
+      await expect(page.locator('[data-testid=player-settings] [role=menu]')).toHaveAttribute('data-count', '9');
+      expect(await text(page, '[data-testid=player-settings-access] .settings__name')).toBe(words['playerSettings.access']);
+      expect(await text(page, '[data-testid=player-settings-access] .settings__hint')).toBe(words['playerSettings.accessHint']);
+      await expectInSafeArea(row('access'));
+      for (const name of ['captionBg', 'captionColor', 'largeText']) await expect(row(name)).toHaveCount(0);
+      // The arrows move nothing on it.
+      await remote.press(next);
+      await remote.expectFocus('player-settings/rows/8');
+      await page.screenshot({ path: path.join(SHOTS, `access-row-${tag}.png`), animations: 'disabled' });
+      await remote.go('OK', 'player-access/rows/0');
+      await expect(page.getByTestId('player-settings')).toHaveCount(0);
+      expect(await text(page, '[data-testid=player-access] .settings__title')).toBe(words['playerSettings.access']);
       await expect(row('captionBg')).toHaveAttribute('data-value', 'dark');
       expect(await text(page, '[data-testid=player-settings-captionBg] .settings__name')).toBe(words['playerSettings.captionBg']);
       expect(await text(page, '[data-testid=player-settings-captionBg-value]')).toBe(words['playerSettings.bg.dark']);
       await expectInSafeArea(row('captionBg'));
-      await remote.go('DOWN', 'player-settings/rows/9');
+      await remote.go('DOWN', 'player-access/rows/1');
       await expect(row('captionColor')).toHaveAttribute('data-value', 'white');
-      await remote.go('DOWN', 'player-settings/rows/10');
+      await remote.go('DOWN', 'player-access/rows/2');
       await expect(row('largeText')).toHaveAttribute('data-value', 'off');
       expect(await text(page, '[data-testid=player-settings-largeText-value]')).toBe(words['playerSettings.off']);
       await expectInSafeArea(row('largeText'));
+      expect(await spilled(page, '[data-testid=player-access]')).toEqual([]);
+      await page.screenshot({ path: path.join(SHOTS, `access-page-${tag}.png`), animations: 'disabled' });
       await expect.poll(() => storedOptions(page)).toBeNull();
       await expect(page.locator('html')).not.toHaveAttribute('data-large-text', 'on');
+      // Back comes back to its row, and OK opens the page again at its first row.
+      await remote.go('BACK', 'player-settings/rows/8');
+      await remote.go('OK', 'player-access/rows/0');
     });
 
     await test.step('the caption box and colour go round and are kept, the defaults leave nothing', async () => {
-      await remote.go('UP', 'player-settings/rows/9');
+      await remote.go('DOWN', 'player-access/rows/1');
       await remote.press('OK');
       await expect(row('captionColor')).toHaveAttribute('data-value', 'yellow');
       expect(await text(page, '[data-testid=player-settings-captionColor-value]')).toBe(words['playerSettings.color.yellow']);
-      await remote.go('UP', 'player-settings/rows/8');
+      await remote.go('UP', 'player-access/rows/0');
       await remote.press('OK');
       await expect(row('captionBg')).toHaveAttribute('data-value', 'none');
-      await remote.press('OK');
+      await remote.press(next);
       await expect(row('captionBg')).toHaveAttribute('data-value', 'solid');
       expect(await text(page, '[data-testid=player-settings-captionBg-value]')).toBe(words['playerSettings.bg.solid']);
       await expect.poll(() => storedOptions(page)).toEqual({ captionColor: 'yellow', captionBg: 'solid' });
@@ -140,15 +158,21 @@ for (const { locale, tag } of [
       await expect.poll(() => storedOptions(page)).toEqual({ captionColor: 'yellow', captionBg: 'none' });
     });
 
-    await test.step('"Larger text": the root marked, kept, and the page, Settings and the live screen still fit', async () => {
-      await remote.go('DOWN', 'player-settings/rows/9');
-      await remote.go('DOWN', 'player-settings/rows/10');
+    await test.step('"Larger text": the root marked, kept, and its page, Player, Settings and the live screen still fit', async () => {
+      await remote.go('DOWN', 'player-access/rows/1');
+      await remote.go('DOWN', 'player-access/rows/2');
       await remote.press('OK');
       await expect(row('largeText')).toHaveAttribute('data-value', 'on');
       await expect(page.locator('html')).toHaveAttribute('data-large-text', 'on');
       await expect.poll(() => storedOptions(page)).toEqual({ captionColor: 'yellow', captionBg: 'none', largeText: 'on' });
-      await expectInSafeArea(row('largeText'));
-      for (let i = 9; i >= 0; i -= 1) await remote.go('UP', `player-settings/rows/${i}`);
+      for (const name of ['captionBg', 'captionColor', 'largeText']) await expectInSafeArea(row(name));
+      expect(await spilled(page, '[data-testid=player-access]')).toEqual([]);
+      await page.screenshot({ path: path.join(SHOTS, `large-text-access-page-${tag}.png`), animations: 'disabled' });
+      await remote.go('BACK', 'player-settings/rows/8');
+      await expectInSafeArea(row('access'));
+      expect(await spilled(page, '[data-testid=player-settings]')).toEqual([]);
+      await page.screenshot({ path: path.join(SHOTS, `large-text-access-row-${tag}.png`), animations: 'disabled' });
+      for (let i = 7; i >= 0; i -= 1) await remote.go('UP', `player-settings/rows/${i}`);
       for (const name of ['audio', 'subtitles', 'size']) await expectInSafeArea(row(name));
       expect(await spilled(page, '[data-testid=player-settings]')).toEqual([]);
       await page.screenshot({ path: path.join(SHOTS, `large-text-player-settings-${tag}.png`), animations: 'disabled' });

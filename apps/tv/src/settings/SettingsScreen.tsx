@@ -20,10 +20,10 @@ import { MAPPING_SCREEN } from './mapping-state';
 import { MappingReading } from '../guide/MappingReading';
 import { MappingPage } from './MappingPage';
 import { PARENTAL_SCREENS } from './parental-page';
-import { PLAYER_SETTINGS_SCREEN } from './player-settings';
+import { PLAYER_ACCESS_SCREEN, PLAYER_SETTINGS_SCREEN } from './player-settings';
 import { CONNECTION_SCREEN, TEST_SCREEN } from './connection-check';
 import { ConnectionPage, TestStreamPage } from './ConnectionPage';
-import { PlayerSettingsPage } from './PlayerSettingsPage';
+import { PlayerAccessPage, PlayerSettingsPage } from './PlayerSettingsPage';
 import { ABOUT_DOC_SCREEN, ABOUT_INFO_SCREEN, ABOUT_SCREEN } from './about-page';
 import { AboutDocPage, AboutInfoPage, AboutListPage } from './AboutPage';
 import { HELP_SCREEN, HELP_TOPIC_SCREEN } from './help-page';
@@ -931,6 +931,7 @@ export function SettingsScreen({ settings, i18n, binding, focus }: Props) {
       {parental !== null && PARENTAL_SCREENS.indexOf(focus.screen) !== -1 && <ParentalPageScreen i18n={i18n} binding={binding} focus={focus} page={parental} />}
       {parental !== null && focus.screen === CHECK_SCREEN && checking !== null && <LoginDialog i18n={i18n} binding={binding} form={parental.check.form} source={checking} />}
       {settings.player !== null && focus.screen === PLAYER_SETTINGS_SCREEN && <PlayerSettingsPage i18n={i18n} binding={binding} page={settings.player} />}
+      {settings.player !== null && focus.screen === PLAYER_ACCESS_SCREEN && <PlayerAccessPage i18n={i18n} binding={binding} page={settings.player} />}
       {settings.connection !== null && focus.screen === CONNECTION_SCREEN && <ConnectionPage i18n={i18n} binding={binding} check={settings.connection} />}
       {focus.screen === HELP_SCREEN && <HelpListPage i18n={i18n} binding={binding} />}
       {focus.screen === HELP_TOPIC_SCREEN && <HelpTopicPage i18n={i18n} binding={binding} page={settings.help} />}

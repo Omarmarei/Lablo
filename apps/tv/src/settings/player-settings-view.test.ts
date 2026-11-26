@@ -7,7 +7,7 @@ import { appI18n } from '../i18n';
 import type { SleepTimer } from '../player/watch-guard';
 import type { PlayerSettings } from './player-settings';
 import type { PlayerShown } from './PlayerSettingsPage';
-import { PlayerSettingsView, playerRowText } from './PlayerSettingsPage';
+import { PlayerAccessView, PlayerSettingsView, playerRowText } from './PlayerSettingsPage';
 
 /**
  * Settings › "Player" as drawn (RELAY step 38d3): each row's name, its value beside it in the
@@ -141,7 +141,7 @@ describe('Settings › "Player" as drawn (RELAY step 38d3)', () => {
       item: (i) => (asked.push(i), i === 1 ? focused : idle),
     });
     expect(asked).toEqual([0, 1, 2, 3, 4, 5, 6]);
-    expect(walk(root).find((v) => propsOf(v)['role'] === 'menu')?.props).toMatchObject({ 'data-top': 0, 'data-count': 11 });
+    expect(walk(root).find((v) => propsOf(v)['role'] === 'menu')?.props).toMatchObject({ 'data-top': 0, 'data-count': 9 });
     expect(byTestId(root, 'player-settings-buffer')).toEqual([]);
     expect(propsOf(byTestId(root, 'player-settings')[0])['data-modes']).toBe('fit stretch 4:3');
     const rows = ['audio', 'subtitles', 'size', 'picture', 'clock', 'still', 'sleep'].map((row) => propsOf(byTestId(root, `player-settings-${row}`)[0]));
@@ -169,7 +169,7 @@ describe('Settings › "Player" as drawn (RELAY step 38d3)', () => {
     const asked: number[] = [];
     const root = PlayerSettingsView({ i18n: ar, page: page({ ...START, buffer: 'stable' }), item: (i) => (asked.push(i), i === 7 ? focused : idle), top: 1 });
     expect(asked).toEqual([1, 2, 3, 4, 5, 6, 7]);
-    expect(walk(root).find((v) => propsOf(v)['role'] === 'menu')?.props).toMatchObject({ 'data-top': 1, 'data-count': 11 });
+    expect(walk(root).find((v) => propsOf(v)['role'] === 'menu')?.props).toMatchObject({ 'data-top': 1, 'data-count': 9 });
     expect(byTestId(root, 'player-settings-audio')).toEqual([]);
     const row = propsOf(byTestId(root, 'player-settings-buffer')[0]);
     expect(row).toMatchObject({ 'data-value': 'stable', 'data-state': 'focused' });
@@ -177,6 +177,44 @@ describe('Settings › "Player" as drawn (RELAY step 38d3)', () => {
     const fast = PlayerSettingsView({ i18n: en, page: page(START), item: () => idle, top: 1 });
     expect(propsOf(byTestId(fast, 'player-settings-buffer')[0])['data-value']).toBe('fast');
     expect(textOf(byTestId(fast, 'player-settings-buffer')[0])).toBe('BufferingFast startPlayback starts sooner, and a stalled stream reconnects quickly');
+  });
+
+  it('draws "Accessibility" last as the settings list draws its rows: its name and what its page holds, no value (step 55)', () => {
+    const asked: number[] = [];
+    const root = PlayerSettingsView({ i18n: en, page: page(START), item: (i) => (asked.push(i), i === 8 ? focused : idle), top: 2 });
+    expect(asked).toEqual([2, 3, 4, 5, 6, 7, 8]);
+    const row = byTestId(root, 'player-settings-access')[0];
+    expect(propsOf(row)).toMatchObject({ class: 'settings__row is-focused', role: 'menuitem', 'data-state': 'focused' });
+    expect(propsOf(row)['data-value']).toBeUndefined();
+    expect(textOf(row)).toBe('AccessibilityCaption background and colour, and larger text');
+    // Step 43's rows are not on this page any more.
+    for (const name of ['captionBg', 'captionColor', 'largeText']) expect(byTestId(root, `player-settings-${name}`)).toEqual([]);
+    const arabic = PlayerSettingsView({ i18n: ar, page: page(START), item: () => idle, top: 2 });
+    expect(textOf(byTestId(arabic, 'player-settings-access')[0])).toBe('إمكانية الوصولخلفية الترجمة ولونها، والنص الأكبر');
+  });
+
+  it('draws "Accessibility"\'s page: its title and step 43\'s three rows with their values, in English and Arabic (step 55)', () => {
+    const asked: number[] = [];
+    const root = PlayerAccessView({ i18n: en, page: page({ ...START, captionBg: 'solid', captionColor: 'cyan', largeText: true }), item: (i) => (asked.push(i), i === 1 ? focused : idle) });
+    expect(asked).toEqual([0, 1, 2]);
+    expect(byTestId(root, 'player-access')).toHaveLength(1);
+    expect(byTestId(root, 'player-settings')).toEqual([]);
+    expect(textOf(walk(root).find((v) => propsOf(v)['class'] === 'settings__title'))).toBe('Accessibility');
+    expect(walk(root).find((v) => propsOf(v)['role'] === 'menu')?.props).toMatchObject({ 'data-top': 0, 'data-count': 3 });
+    const rows = ['captionBg', 'captionColor', 'largeText'].map((name) => byTestId(root, `player-settings-${name}`)[0]);
+    expect(rows.map((r) => propsOf(r)['data-value'])).toEqual(['solid', 'cyan', 'on']);
+    expect(rows.map((r) => propsOf(r)['data-state'])).toEqual(['idle', 'focused', 'idle']);
+    expect(propsOf(rows[1])['class']).toBe('settings__row settings__switch is-focused');
+    expect(rows.map((r) => textOf(r))).toEqual([
+      'Caption backgroundSolidThe box behind subtitles: a dark tint, none, or solid black',
+      'Caption colourCyanThe colour of the subtitle text',
+      'Larger textOnMakes every text about a quarter bigger, in the whole app',
+    ]);
+    expect(textOf(byTestId(root, 'player-settings-captionColor-value')[0])).toBe('Cyan');
+    const arabic = PlayerAccessView({ i18n: ar, page: page(START), item: () => idle });
+    expect(textOf(walk(arabic).find((v) => propsOf(v)['class'] === 'settings__title'))).toBe('إمكانية الوصول');
+    expect(['captionBg', 'captionColor', 'largeText'].map((name) => propsOf(byTestId(arabic, `player-settings-${name}`)[0])['data-value'])).toEqual(['dark', 'white', 'off']);
+    expect(textOf(byTestId(arabic, 'player-settings-largeText-value')[0])).toBe('متوقفة');
   });
 
   it('reads the sleep timer as it stands at each draw: a timer that ended shows Off (step 39c)', () => {
