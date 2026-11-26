@@ -772,6 +772,8 @@ export const EN = {
   'playerSettings.color.green': 'Green',
   'playerSettings.largeText': 'Larger text',
   'playerSettings.largeTextHint': 'Makes every text about a quarter bigger, in the whole app',
+  'playerSettings.access': 'Accessibility',
+  'playerSettings.accessHint': 'Caption background and colour, and larger text',
   'player.still.title': 'Still watching?',
   'player.still.idle': 'No button has been pressed for a while.',
   'player.still.sleep': 'The sleep timer has ended.',

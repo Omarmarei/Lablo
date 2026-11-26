@@ -1,7 +1,7 @@
 import type { ReadonlySignal, Signal } from '@preact/signals';
 import { signal } from '@preact/signals';
 import type { PictureMode } from '@lablo/player';
-import type { Navigator } from '@lablo/ui';
+import type { Navigator, ScreenSpec } from '@lablo/ui';
 import type { TrackLang } from '../player/player-memory';
 import type { CaptionBackground, CaptionColor } from '../player/appearance';
 import { CAPTION_BACKGROUNDS, CAPTION_COLORS } from '../player/appearance';
@@ -26,7 +26,9 @@ import { SETTINGS_VISIBLE } from './settings-window';
  *   still      Never, After 2, 4 or 6 hours: "Still watching?" after that long with no key (step 39c)
  *   sleep      Off, 30, 60, 90 or 120 minutes: the sleep timer, counted from the change (step 39c)
  *   buffer     Fast start, Stable: "Buffering", the watchdog's patience and AVPlay's buffers (step 39d)
- *   captionBg, captionColor, largeText   (step 43) the captions' box (Dark, None, Solid), their colour, and "Larger text"
+ *   access     "Accessibility" (step 55): opens a page of its own with step 43's three rows,
+ *              captionBg, captionColor, largeText: the captions' box (Dark, None, Solid), their
+ *              colour, and "Larger text"; Back returns to this row
  *
  * Main gives the values and their changes (`PlayerSettingsOptions`): the languages are the
  * profile's (`player-memory.ts`), read at each stream's tracks; the size and the picture are the
@@ -34,15 +36,25 @@ import { SETTINGS_VISIBLE } from './settings-window';
  * track choice still wins. The sleep timer is the player's own too, for the app's run only: its
  * row reads it as it stands (`sleep`), so it shows Off once the timer has ended. "Buffering" is the
  * profile's, read at each play (`play-tuning.ts`). The rows scroll, seven in view (step 39d), as
- * the settings list does.
+ * the settings list does. "Accessibility"'s page shares the values and their changes: it opens
+ * only from this page, so the values it shows are the ones this page read at its opening.
  *
  * Main-safe as the settings are: no `trim`, `.sort(`, regex or object spread.
  */
 
 export const PLAYER_SETTINGS_SCREEN = 'player-settings';
+/** "Accessibility"'s page (step 55), over Settings › "Player". */
+export const PLAYER_ACCESS_SCREEN = 'player-access';
 
-export type PlayerSettingsRow = 'audio' | 'subtitles' | 'size' | 'picture' | 'clock' | 'still' | 'sleep' | 'buffer' | 'captionBg' | 'captionColor' | 'largeText';
-export const PLAYER_SETTINGS_ROWS: readonly PlayerSettingsRow[] = ['audio', 'subtitles', 'size', 'picture', 'clock', 'still', 'sleep', 'buffer', 'captionBg', 'captionColor', 'largeText'];
+/** "Accessibility"'s rows (step 43's, on their own page since step 55). */
+export type PlayerAccessRow = 'captionBg' | 'captionColor' | 'largeText';
+export const PLAYER_ACCESS_ROWS: readonly PlayerAccessRow[] = ['captionBg', 'captionColor', 'largeText'];
+
+/** The rows with a value, on either page. */
+export type PlayerValueRow = 'audio' | 'subtitles' | 'size' | 'picture' | 'clock' | 'still' | 'sleep' | 'buffer' | PlayerAccessRow;
+/** Settings › "Player"'s rows: the values, then "Accessibility", which opens its page. */
+export type PlayerSettingsRow = Exclude<PlayerValueRow, PlayerAccessRow> | 'access';
+export const PLAYER_SETTINGS_ROWS: readonly PlayerSettingsRow[] = ['audio', 'subtitles', 'size', 'picture', 'clock', 'still', 'sleep', 'buffer', 'access'];
 
 /** The languages the audio and subtitle rows go round: `null` ("Same as the app", "Off") first. */
 export const TRACK_CHOICES: readonly (TrackLang | null)[] = [null, 'ar', 'en'];
@@ -117,6 +129,11 @@ export interface PlayerSettings {
   open(): void;
 }
 
+/** A row of either page by the focus's place: Settings › "Player"'s, or "Accessibility"'s. */
+function rowAt(screen: string, index: number): PlayerSettingsRow | PlayerAccessRow | undefined {
+  return screen === PLAYER_ACCESS_SCREEN ? PLAYER_ACCESS_ROWS[index] : PLAYER_SETTINGS_ROWS[index];
+}
+
 /**
  * The value after `value` in `list`: OK (`step` 0) goes round the list; LEFT or RIGHT (`step` 1 or
  * -1) goes towards an end and no further. A value the list lacks (`indexOf` -1) moves to its first
@@ -150,8 +167,7 @@ export function createPlayerSettings(nav: Navigator, options: PlayerSettingsOpti
   const captionColor = signal<CaptionColor>('white');
   const largeText = signal(false);
 
-  const change = (index: number, step: 0 | 1 | -1): void => {
-    const row = PLAYER_SETTINGS_ROWS[index];
+  const change = (row: PlayerSettingsRow | PlayerAccessRow | undefined, step: 0 | 1 | -1): void => {
     if (row === 'audio') move(audio, TRACK_CHOICES, step, (lang) => options.setAudio(lang));
     else if (row === 'subtitles') move(subtitles, TRACK_CHOICES, step, (lang) => options.setSubtitles(lang));
     else if (row === 'size') move(size, SUBTITLE_SIZES, step, (next) => options.setSize(next));
@@ -162,7 +178,7 @@ export function createPlayerSettings(nav: Navigator, options: PlayerSettingsOpti
     else if (row === 'captionBg') move(captionBg, CAPTION_BACKGROUNDS, step, (value) => options.setCaptionBg(value));
     else if (row === 'captionColor') move(captionColor, CAPTION_COLORS, step, (value) => options.setCaptionColor(value));
     else if (row === 'largeText') move(largeText, CLOCK_CHOICES, step, (on) => options.setLargeText(on));
-    else {
+    else if (row === 'sleep') {
       // The sleep timer is the player's: the row shows what main says, and a new value starts it from now.
       const set = options.sleep();
       const minutes = set === null ? null : set.minutes;
@@ -197,16 +213,30 @@ export function createPlayerSettings(nav: Navigator, options: PlayerSettingsOpti
       captionBg.value = now.captionBg;
       captionColor.value = now.captionColor;
       largeText.value = now.largeText;
+      const onIntent: ScreenSpec['onIntent'] = (intent, focus) => {
+        if (intent !== 'LEFT' && intent !== 'RIGHT') return false;
+        // RIGHT goes towards the reading end in English, LEFT in Arabic ("Accessibility"'s row has no value: nothing moves).
+        change(rowAt(focus.screen, focus.index), (intent === 'RIGHT') === (focus.dir === 'ltr') ? 1 : -1);
+        return true;
+      };
       nav.push({
         id: PLAYER_SETTINGS_SCREEN,
         zones: [{ kind: 'list', id: 'rows', axis: 'vertical', count: PLAYER_SETTINGS_ROWS.length, visible: SETTINGS_VISIBLE }],
-        onIntent: (intent, focus) => {
-          if (intent !== 'LEFT' && intent !== 'RIGHT') return false;
-          // RIGHT goes towards the reading end in English, LEFT in Arabic.
-          change(focus.index, (intent === 'RIGHT') === (focus.dir === 'ltr') ? 1 : -1);
-          return true;
+        onIntent,
+        onSelect: (focus) => {
+          const row = rowAt(focus.screen, focus.index);
+          if (row !== 'access') {
+            change(row, 0);
+            return;
+          }
+          // "Accessibility" (step 55): its page over this one; Back comes back to this row.
+          nav.push({
+            id: PLAYER_ACCESS_SCREEN,
+            zones: [{ kind: 'list', id: 'rows', axis: 'vertical', count: PLAYER_ACCESS_ROWS.length, visible: SETTINGS_VISIBLE }],
+            onIntent,
+            onSelect: (inner) => change(rowAt(inner.screen, inner.index), 0),
+          });
         },
-        onSelect: (focus) => change(focus.index, 0),
       });
     },
   };

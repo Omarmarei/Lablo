@@ -1378,7 +1378,7 @@ describe('the settings screen', () => {
       platform: { textKey: () => null, onSoftKeyboard: () => () => undefined },
     });
     expect(SETTINGS_ITEMS).toEqual(['sources', 'guides', 'groups', 'channels', 'parental', 'player', 'language', 'backup', 'telemetry', 'connection', 'report', 'help', 'about']);
-    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'source-menu', 'source-remove', 'source-add', 'backup', 'backup-confirm', 'groups', 'group-menu', 'group-rename', 'group-delete', 'group-channels', 'group-channel-menu', 'channels', 'channel-edit', 'channel-rename', 'channel-number', 'parental', 'locked-groups', 'pin-pick', 'pin-check', 'pin-none', 'player-settings', 'language', 'connection-check', 'test-stream', 'help', 'help-topic', 'about', 'about-info', 'about-doc']);
+    expect(SETTINGS_SCREENS).toEqual(['settings', 'guides', 'guide-menu', 'guide-offset', 'guide-matches', 'guide-add', 'unmatched', 'guide-map', 'sources', 'pair', 'source-login', 'source-menu', 'source-remove', 'source-add', 'backup', 'backup-confirm', 'groups', 'group-menu', 'group-rename', 'group-delete', 'group-channels', 'group-channel-menu', 'channels', 'channel-edit', 'channel-rename', 'channel-number', 'parental', 'locked-groups', 'pin-pick', 'pin-check', 'pin-none', 'player-settings', 'player-access', 'language', 'connection-check', 'test-stream', 'help', 'help-topic', 'about', 'about-info', 'about-doc']);
     // Without a backup page (step 32d2b) there is no "Backup" row, nor without a switch "Usage and crash reports" (step 33b3).
     expect(settings.backup).toBeNull();
     expect(settings.telemetry).toBeNull();
