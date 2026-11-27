@@ -7,8 +7,10 @@
  * 2. Layout, as `layout()` in e2e/gallery.spec.ts: a 1920x1080 viewport that doesn't scroll,
  *    every component box inside the title-safe area (96/54 px), no label of ours cut and no
  *    channel name squeezed by its badges.
- * 3. The channel list's window: 7 rows, each 88 px tall (each component's CSS reached
- *    app.css and the engine applied it).
+ * 3. The channel list's window: 7 rows, each 88 px tall, each with its number beside the rest
+ *    of the row (each component's CSS reached app.css and the engine applied it). Since step
+ *    58a the list's slot alone makes a row 88 px tall, so the height no longer proves that
+ *    ListRow.css arrived: its flex line does.
  * 4. ArrowDown (key code 40) focuses row 1.
  * Then a CDP `Page.captureScreenshot` of the screen, for people to look at.
  * 5. In Arabic (RELAY step 12b): the TV bundles take the engine's own locale (English), so the
@@ -64,6 +66,8 @@ export interface GalleryState {
   readonly scroll: readonly [number, number];
   /** The height in px of each row the channel list drew. */
   readonly rows: readonly number[];
+  /** Channel rows whose number is not beside the rest of the row (ListRow.css's flex line missing). */
+  readonly stacked: readonly string[];
   /** Component boxes outside the safe area (badges hidden by their container count too). */
   readonly outside: readonly string[];
   /** Labels of ours whose text is cut. */
@@ -123,6 +127,16 @@ export const GALLERY_EXPRESSION = `(function () {
   var rows = all('[data-testid="channels"] .z-row').map(function (el) {
     return Math.round(el.getBoundingClientRect().height * 10) / 10;
   });
+  var stacked = all('[data-testid="channels"] .z-row').filter(function (el) {
+    var number = el.querySelector('.z-row__number');
+    var main = el.querySelector('.z-row__main');
+    if (!number || !main) return true;
+    var a = number.getBoundingClientRect();
+    var b = main.getBoundingClientRect();
+    var oneLine = a.top < b.bottom && b.top < a.bottom;
+    var apart = a.right <= b.left + 0.5 || b.right <= a.left + 0.5;
+    return !(oneLine && apart);
+  }).map(name);
   var gallery = document.querySelector('[data-testid="gallery"]');
   var row1 = document.querySelector('[data-testid="row-1"]');
   var boot = document.getElementById('boot-error');
@@ -139,6 +153,7 @@ export const GALLERY_EXPRESSION = `(function () {
     viewport: [window.innerWidth, window.innerHeight],
     scroll: [root.scrollWidth, root.scrollHeight],
     rows: rows,
+    stacked: stacked,
     outside: outside,
     cut: labels,
     squeezed: squeezed,
@@ -320,6 +335,7 @@ function layoutFailures(state: GalleryState): string[] {
   if (state.rows.length !== GALLERY_ROWS) failures.push(`the channel list drew ${state.rows.length} rows, expected ${GALLERY_ROWS}`);
   const wrong = state.rows.filter((h) => h !== ROW_HEIGHT);
   if (wrong.length > 0) failures.push(`channel rows ${list([...new Set(wrong)].map((h) => `${h} px`))} tall, expected ${ROW_HEIGHT} px`);
+  if (state.stacked.length > 0) failures.push(`channel rows without their line (the number not beside the name): ${list(state.stacked)}`);
   if (state.outside.length > 0) failures.push(`outside the safe area: ${list(state.outside)}`);
   if (state.cut.length > 0) failures.push(`labels cut: ${list(state.cut)}`);
   if (state.squeezed.length > 0) failures.push(`channel names squeezed: ${list(state.squeezed)}`);
