@@ -1,3 +1,4 @@
+import { shownRows } from '../design/tokens';
 import { clamp, epgClamp, epgTimeStep } from './epg';
 import { freeStep } from './free';
 import type { Direction, ZonePosition, ZoneSpec } from './types';
@@ -29,10 +30,12 @@ function rowCount(zone: ZoneSpec): number {
   return Math.ceil(zoneCount(zone) / columns(zone));
 }
 
-/** Rows the viewport shows; `Infinity` when the zone doesn't scroll. */
+/** Rows the viewport shows; `Infinity` when the zone doesn't scroll. A vertical list shows fewer with larger text (`shownRows`). */
 function visibleRows(zone: ZoneSpec): number {
   const visible = zone.kind === 'list' ? zone.visible : zone.kind === 'free' ? undefined : zone.visibleRows;
-  return visible === undefined ? Infinity : Math.max(1, whole(visible));
+  if (visible === undefined) return Infinity;
+  const rows = Math.max(1, whole(visible));
+  return zone.kind === 'list' && zone.axis === 'vertical' ? shownRows(rows) : rows;
 }
 
 /** `top` moved as little as possible to bring `row` into a view of `visible` rows. */

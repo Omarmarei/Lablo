@@ -1,5 +1,5 @@
 import type { FocusBinding, ItemBinding } from '@lablo/ui';
-import { listWindow, useZone } from '@lablo/ui';
+import { useZone } from '@lablo/ui';
 import type { AppI18n, MessageKey } from '../i18n';
 import type { CaptionBackground, CaptionColor } from '../player/appearance';
 import type { TrackLang } from '../player/player-memory';
@@ -8,7 +8,7 @@ import { SIZE_KEYS } from '../player/TrackMenuPanel';
 import type { SleepTimer } from '../player/watch-guard';
 import type { PlayerSettings, PlayerValueRow, PlayerValues } from './player-settings';
 import { PLAYER_ACCESS_ROWS, PLAYER_SETTINGS_ROWS } from './player-settings';
-import { SETTINGS_VISIBLE } from './settings-window';
+import { settingsWindow } from './settings-window';
 
 /**
  * Settings › "Player" as drawn (RELAY step 38d3): each row its name, its value beside it and a line
@@ -118,16 +118,16 @@ function valueRow(i18n: AppI18n, row: PlayerValueRow, values: PlayerShown, bindi
 }
 
 /** The page as drawn, hook-free: the rows in its window from `top`. */
-export function PlayerSettingsView({ i18n, page, item, top = 0 }: { i18n: AppI18n; page: PlayerSettings; item: (index: number) => ItemBinding; top?: number }) {
+export function PlayerSettingsView({ i18n, page, item, top = 0, at }: { i18n: AppI18n; page: PlayerSettings; item: (index: number) => ItemBinding; top?: number; at?: number }) {
   const { t } = i18n;
   const values = shown(page);
-  const { from, to } = listWindow(top, PLAYER_SETTINGS_ROWS.length, SETTINGS_VISIBLE);
+  const { from, to, height } = settingsWindow(top, PLAYER_SETTINGS_ROWS.length, at);
   return (
     <div class="settings__page" data-testid="player-settings" data-modes={page.modes.value.join(' ')}>
       <header class="settings__header">
         <h1 class="settings__title">{t('settings.player')}</h1>
       </header>
-      <div class="settings__items" role="menu" data-top={from} data-count={PLAYER_SETTINGS_ROWS.length}>
+      <div class="settings__items" role="menu" data-top={from} data-count={PLAYER_SETTINGS_ROWS.length} style={{ '--settings-row': `${height}px` }}>
         {PLAYER_SETTINGS_ROWS.slice(from, to).map((row, n) => {
           const binding = item(from + n);
           if (row !== 'access') return valueRow(i18n, row, values, binding);
@@ -144,15 +144,15 @@ export function PlayerSettingsView({ i18n, page, item, top = 0 }: { i18n: AppI18
 }
 
 /** "Accessibility"'s page as drawn (step 55), hook-free: step 43's three rows, from `top`. */
-export function PlayerAccessView({ i18n, page, item, top = 0 }: { i18n: AppI18n; page: PlayerSettings; item: (index: number) => ItemBinding; top?: number }) {
+export function PlayerAccessView({ i18n, page, item, top = 0, at }: { i18n: AppI18n; page: PlayerSettings; item: (index: number) => ItemBinding; top?: number; at?: number }) {
   const values = shown(page);
-  const { from, to } = listWindow(top, PLAYER_ACCESS_ROWS.length, SETTINGS_VISIBLE);
+  const { from, to, height } = settingsWindow(top, PLAYER_ACCESS_ROWS.length, at);
   return (
     <div class="settings__page" data-testid="player-access">
       <header class="settings__header">
         <h1 class="settings__title">{i18n.t('playerSettings.access')}</h1>
       </header>
-      <div class="settings__items" role="menu" data-top={from} data-count={PLAYER_ACCESS_ROWS.length}>
+      <div class="settings__items" role="menu" data-top={from} data-count={PLAYER_ACCESS_ROWS.length} style={{ '--settings-row': `${height}px` }}>
         {PLAYER_ACCESS_ROWS.slice(from, to).map((row, n) => valueRow(i18n, row, values, item(from + n)))}
       </div>
     </div>
@@ -161,10 +161,10 @@ export function PlayerAccessView({ i18n, page, item, top = 0 }: { i18n: AppI18n;
 
 export function PlayerSettingsPage({ i18n, binding, page }: { i18n: AppI18n; binding: FocusBinding; page: PlayerSettings }) {
   const zone = useZone(binding, binding.nav.top, 'rows');
-  return <PlayerSettingsView i18n={i18n} page={page} item={(i) => zone.item(i)} top={zone.position.top} />;
+  return <PlayerSettingsView i18n={i18n} page={page} item={(i) => zone.item(i)} top={zone.position.top} at={zone.position.index} />;
 }
 
 export function PlayerAccessPage({ i18n, binding, page }: { i18n: AppI18n; binding: FocusBinding; page: PlayerSettings }) {
   const zone = useZone(binding, binding.nav.top, 'rows');
-  return <PlayerAccessView i18n={i18n} page={page} item={(i) => zone.item(i)} top={zone.position.top} />;
+  return <PlayerAccessView i18n={i18n} page={page} item={(i) => zone.item(i)} top={zone.position.top} at={zone.position.index} />;
 }

@@ -1,5 +1,5 @@
 import type { ComponentChild, VNode } from 'preact';
-import { LAYOUT } from '../design/tokens';
+import { LAYOUT, shownRowSize, shownRows } from '../design/tokens';
 import type { FocusBinding, ItemBinding } from '../focus/binding';
 import { useZone } from '../focus/binding';
 import type { Screen } from '../focus/navigator';
@@ -12,10 +12,17 @@ export interface ListWindow {
   readonly to: number;
 }
 
-/** `visible` items from `top`, inside `[0, count)`. */
-export function listWindow(top: number, count: number, visible: number): ListWindow {
+/**
+ * `visible` items from `top`, inside `[0, count)`. With `focused`, the window first moves as
+ * little as it must to hold that item: a `top` kept from a window of more rows (larger text
+ * switched on, step 58a) still shows the focus.
+ */
+export function listWindow(top: number, count: number, visible: number, focused?: number): ListWindow {
   const n = Math.max(0, Math.floor(count));
-  const from = Math.min(Math.max(0, Math.floor(top)), n);
+  let start = Math.floor(top);
+  if (focused !== undefined && focused < start) start = focused;
+  else if (focused !== undefined && focused >= start + visible) start = focused - visible + 1;
+  const from = Math.min(Math.max(0, start), n);
   return { from, to: Math.min(n, from + Math.max(0, Math.floor(visible))) };
 }
 
@@ -57,11 +64,15 @@ export function VirtualList({ binding, screen, zone, itemSize, gap = 0, renderIt
   if (spec.kind !== 'list') throw new Error(`VirtualList: zone ${zone} is not a list`);
   const horizontal = spec.axis === 'horizontal';
   if (horizontal && itemSize === undefined) throw new Error(`VirtualList: the horizontal list ${zone} needs an itemSize`);
-  const size = itemSize ?? LAYOUT.rowHeight;
+  const laid = itemSize ?? LAYOUT.rowHeight;
   const count = zoneCount(spec);
-  const visible = spec.visible === undefined ? count : Math.max(1, Math.floor(spec.visible));
-  const { from, to } = listWindow(view.position.top, count, visible);
-  const length = `${listHeight(visible, size, gap)}px`;
+  const room = spec.visible === undefined ? count : Math.max(1, Math.floor(spec.visible));
+  // Larger text (step 58a): a vertical window of fewer, taller rows in the same box. The focus
+  // engine scrolls by the same rows; a window kept from before the switch is moved to the focus.
+  const visible = horizontal || spec.visible === undefined ? room : shownRows(room);
+  const size = visible === room ? laid : shownRowSize(room, laid, gap);
+  const { from, to } = listWindow(view.position.top, count, visible, visible === room ? undefined : view.position.index);
+  const length = `${listHeight(room, laid, gap)}px`;
   const items: VNode[] = [];
   for (let i = from; i < to; i += 1) {
     items.push(

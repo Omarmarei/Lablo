@@ -23,3 +23,8 @@
 .z-vlist--horizontal > .z-vlist__item + .z-vlist__item {
   margin-left: var(--z-vlist-gap);
 }
+
+/* A vertical list's rows fill their item: with larger text the items are taller (step 58a). */
+.z-vlist--vertical > .z-vlist__item > * {
+  height: 100%;
+}

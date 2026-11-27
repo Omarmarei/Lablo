@@ -1,5 +1,6 @@
 import type { ReadonlySignal } from '@preact/signals';
 import { signal } from '@preact/signals';
+import { LARGE_TEXT_ROWS, setRowScale } from '@lablo/ui';
 
 /**
  * How text looks (RELAY step 43, Omar's answers): "Larger text" (ONE on/off row, about +25% on
@@ -49,6 +50,8 @@ export function createAppearance(onLargeText: (on: boolean) => void): Appearance
     captionColor,
     setLargeText(on: boolean): void {
       largeText.value = on;
+      // Lists' rows grow with the text (step 58a): set before anything draws them again.
+      setRowScale(on ? LARGE_TEXT_ROWS : 1);
       onLargeText(on);
     },
     setCaptionBackground(value: CaptionBackground): void {

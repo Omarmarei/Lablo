@@ -1,7 +1,7 @@
 import fc from 'fast-check';
 import { h } from 'preact';
-import { describe, expect, it, vi } from 'vitest';
-import { LAYOUT, fits } from '../design/tokens';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LARGE_TEXT_ROWS, LAYOUT, fits, setRowScale, shownRowSize, shownRows } from '../design/tokens';
 import type { ItemBinding } from '../focus/binding';
 import { bindFocus } from '../focus/binding';
 import type { ScreenSpec } from '../focus/navigator';
@@ -655,5 +655,78 @@ describe('TextField (RELAY step 13a)', () => {
     const bare = one(expand(TextField({ id: 'f', label: 'L', value: '' })), 'z-field__input').props;
     expect(bare.onKeyDown).toBeUndefined();
     expect(() => (bare.onInput as (e: { currentTarget: { value: string } }) => void)({ currentTarget: { value: 'x' } })).not.toThrow();
+  });
+});
+
+describe('larger text: a vertical list of fewer, taller rows (RELAY step 58a)', () => {
+  afterEach(() => setRowScale(1));
+
+  it('shows about a quarter fewer rows, sharing the same box, at least one', () => {
+    expect([shownRows(9), shownRows(7), shownRows(6), shownRowSize(7, 120, 8)]).toEqual([9, 7, 6, 120]);
+    setRowScale(LARGE_TEXT_ROWS);
+    expect([shownRows(9), shownRows(8), shownRows(7), shownRows(6), shownRows(1)]).toEqual([7, 6, 5, 4, 1]);
+    // Settings: 7 rows of 120 and 8 between (888 px) become 5 rows of 171 (887 px).
+    expect(shownRowSize(7, 120, 8)).toBe(171);
+    expect(listHeight(5, 171, 8)).toBeLessThanOrEqual(listHeight(7, 120, 8));
+    expect(shownRowSize(9, 88, 8)).toBe(115);
+    expect(shownRowSize(1, 88, 8)).toBe(88);
+    // Never smaller than the layout's.
+    setRowScale(0.5);
+    expect(shownRows(7)).toBe(7);
+  });
+
+  it('listWindow keeps a focused item in a window', () => {
+    expect(listWindow(2, 9, 5, 8)).toEqual({ from: 4, to: 9 });
+    expect(listWindow(4, 9, 5, 1)).toEqual({ from: 1, to: 6 });
+    expect(listWindow(2, 9, 5, 4)).toEqual({ from: 2, to: 7 });
+    expect(listWindow(2, 9, 5)).toEqual({ from: 2, to: 7 });
+  });
+
+  function setup(count = 240) {
+    const nav = createNavigator({
+      root: { id: 'browse', zones: [{ kind: 'list', id: 'channels', axis: 'vertical', count, visible: 7 }, { kind: 'list', id: 'rail', axis: 'horizontal', count: 12, visible: 5 }], initial: 'channels' },
+      rootBack: 'exit-dialog',
+      exit: () => undefined,
+      exitDialog: () => undefined,
+    });
+    const binding = bindFocus(nav);
+    const render = (): El => expand(VirtualList({ binding, screen: nav.top, zone: 'channels', gap: 8, renderItem: (i) => h('div', { class: 'row' }, String(i)) }));
+    return { nav, binding, render };
+  }
+
+  it('draws the window the focus scrolls by, rows sized to fill the box', () => {
+    setRowScale(LARGE_TEXT_ROWS);
+    const { nav, render } = setup();
+    let el = render();
+    expect(el.props.style).toEqual({ height: '664px', '--z-vlist-gap': '8px' });
+    const rows = byClass(el, 'z-vlist__item');
+    expect(rows.map((r) => r.key)).toEqual([0, 1, 2, 3, 4]);
+    expect(rows.map((r) => r.props.style)).toEqual(Array.from({ length: 5 }, () => ({ height: '126px' })));
+    // The fifth DOWN leaves the five rows: the focus engine and the list scroll together.
+    for (let i = 0; i < 5; i += 1) nav.handle('DOWN');
+    expect(nav.snapshot()).toMatchObject({ index: 5 });
+    el = render();
+    expect(el.props['data-top']).toBe(1);
+    expect(byClass(el, 'z-vlist__item').map((r) => r.key)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('a window kept from the normal size moves to hold the focus once the text grows', () => {
+    const { nav, render } = setup();
+    for (let i = 0; i < 6; i += 1) nav.handle('DOWN');
+    expect(render().props['data-top']).toBe(0);
+    setRowScale(LARGE_TEXT_ROWS);
+    const el = render();
+    expect(byClass(el, 'z-vlist__item').map((r) => r.key)).toEqual([2, 3, 4, 5, 6]);
+    // The next DOWN scrolls on from there, by the focus engine's rows.
+    nav.handle('DOWN');
+    expect(byClass(render(), 'z-vlist__item').map((r) => r.key)).toEqual([3, 4, 5, 6, 7]);
+  });
+
+  it('leaves a horizontal list as laid out', () => {
+    setRowScale(LARGE_TEXT_ROWS);
+    const { nav, binding } = setup();
+    nav.top.focus('rail', 7);
+    const el = expand(VirtualList({ binding, screen: nav.top, zone: 'rail', itemSize: 240, gap: 8, renderItem: (i) => h('div', null, String(i)) }));
+    expect(byClass(el, 'z-vlist__item').map((r) => r.props.style)).toEqual(Array.from({ length: 5 }, () => ({ width: '240px' })));
   });
 });

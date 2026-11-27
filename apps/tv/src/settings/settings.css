@@ -68,8 +68,9 @@
   background: var(--color-surface);
 }
 
+/* 120 px (SETTINGS_ROW); in a settings page's list, taller with larger text (settingsWindow, step 58a). */
 .settings__row {
-  height: 120px;
+  height: var(--settings-row, 120px);
 }
 
 /* "Sources" under "TV guides" (step 30c3a): the lists' 8 px between rows. */
@@ -99,6 +100,19 @@
   color: var(--color-text-muted);
   font-size: var(--font-size-body);
   line-height: var(--line-height-body);
+}
+
+/* A row's hint (step 58a): one line, cut with an ellipsis; two with larger text, where a page's rows are taller (settingsWindow). */
+.settings__row > .settings__hint {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+html[data-large-text='on'] .settings__row > .settings__hint {
+  white-space: normal;
+  -webkit-line-clamp: 2;
 }
 
 /* A row's line saying a change didn't take (the usage reports' switch, step 33b3). */
@@ -541,7 +555,9 @@
   line-height: var(--line-height-heading);
 }
 
+/* Its full line height under the name (step 58a): never squeezed into the row's room. */
 .groups__line {
+  flex: none;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -615,9 +631,10 @@
   overflow: hidden;
 }
 
+/* At least 76 px; taller with larger text, its name and detail lines whole (step 58a). */
 .connection__line {
   box-sizing: border-box;
-  height: 76px;
+  min-height: 76px;
   padding: var(--space-1) var(--space-5);
   border-left: 6px solid var(--color-border);
 }

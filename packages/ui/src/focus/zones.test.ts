@@ -1,5 +1,6 @@
 import { INTENTS } from '@lablo/platform-api';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { LARGE_TEXT_ROWS, setRowScale } from '../design/tokens';
 import { epgCell } from './epg';
 import { freeStep } from './free';
 import type { EpgCell, EpgZone, GridZone, ListZone, Rect, ZonePosition } from './types';
@@ -347,5 +348,26 @@ describe('EPG zones', () => {
   it('uses a slot where the screen gives a cell that does not hold the minute', () => {
     const wrong: EpgZone = { ...zone, slot: 15, cell: () => ({ start: 0, end: 10 }) };
     expect(epgCell(wrong, 0, 12 * H + 20)).toEqual({ start: 12 * H + 15, end: 12 * H + 30 });
+  });
+});
+
+describe('larger text (RELAY step 58a)', () => {
+  afterEach(() => setRowScale(1));
+
+  it('a vertical list scrolls by fewer rows; a horizontal list and a grid as laid out', () => {
+    setRowScale(LARGE_TEXT_ROWS);
+    const zone = list(10, { visible: 5 });
+    let pos = at(0);
+    const tops: number[] = [];
+    for (let i = 0; i < 6; i += 1) {
+      pos = step(zone, pos, 'down')!;
+      tops.push(pos.top);
+    }
+    expect(tops).toEqual([0, 0, 0, 1, 2, 3]);
+    expect(page(zone, at(0), 1)).toMatchObject({ index: 4, top: 4 });
+    expect(clampPosition(list(20, { visible: 5 }), at(12))).toMatchObject({ index: 12, top: 9 });
+    const rail = list(10, { axis: 'horizontal', visible: 5 });
+    expect(clampPosition(rail, at(4))).toMatchObject({ top: 0 });
+    expect(clampPosition(grid(40, 4, 5), at(19))).toMatchObject({ top: 0 });
   });
 });

@@ -35,6 +35,33 @@ export function pxTokens(): Record<string, number> {
   return tokens;
 }
 
+/**
+ * "Larger text" (RELAY steps 43 and 58a): the text is about a quarter bigger, so a vertical list
+ * shows about a quarter fewer rows, each taller, in the same box (nothing beside the list moves).
+ * A row's text then fits its row in both languages (e2e/text-fit.spec.ts). Main sets the scale
+ * with the text size; the focus engine (`zones.ts`) and `VirtualList` read it, so the rows the
+ * focus scrolls through are the rows drawn. Horizontal lists and grids keep their sizes.
+ */
+export const LARGE_TEXT_ROWS = 1.25;
+
+let rowScale = 1;
+
+/** The rows' scale: `LARGE_TEXT_ROWS` with larger text, 1 without. */
+export function setRowScale(scale: number): void {
+  rowScale = scale > 1 ? scale : 1;
+}
+
+/** The rows a vertical list laid out for `visible` rows shows at the current scale (at least one). */
+export function shownRows(visible: number): number {
+  return Math.max(1, Math.floor(visible / rowScale));
+}
+
+/** The size of each of those rows: the list's box (`visible` rows of `size`, `gap` apart) shared among them. */
+export function shownRowSize(visible: number, size: number, gap = 0): number {
+  const shown = shownRows(visible);
+  return shown === visible ? size : Math.floor((visible * (size + gap)) / shown) - gap;
+}
+
 /** How many fixed-size items fit in `extent` pixels: the `visible` of a focus-engine list. */
 export function fits(extent: number, item: number, gap = 0): number {
   if (item <= 0) throw new RangeError('item size must be positive');
