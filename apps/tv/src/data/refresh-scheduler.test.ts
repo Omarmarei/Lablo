@@ -138,6 +138,7 @@ function setup(options: { engine?: FakeEngine; tier?: DeviceTier; languages?: st
   const clock = manualTimers(T0);
   const catalogs: string[][] = [];
   let guides = 0;
+  let facts = 0;
   let listener: ((event: LifecycleEvent) => void) | null = null;
   let subscriptions = 0;
   let unsubscribed = 0;
@@ -154,6 +155,9 @@ function setup(options: { engine?: FakeEngine; tier?: DeviceTier; languages?: st
       };
     },
     onCatalog: (srcs) => catalogs.push(srcs),
+    onFacts: () => {
+      facts += 1;
+    },
     onGuides: () => {
       guides += 1;
     },
@@ -175,6 +179,7 @@ function setup(options: { engine?: FakeEngine; tier?: DeviceTier; languages?: st
     scheduler,
     catalogs,
     guides: () => guides,
+    facts: () => facts,
     subscriptions: () => subscriptions,
     unsubscribed: () => unsubscribed,
     listening: () => listener !== null,
@@ -372,6 +377,31 @@ describe('the refresh schedule', () => {
     expect(t.catalogs).toEqual([['s2']]);
   });
 
+  it("reads the sources' facts again after any refresh that ended, an unchanged catalog too (RELAY step 59)", async () => {
+    // An unchanged catalog still stores its account's formats and zone: the app reads them again.
+    const engine = new FakeEngine();
+    engine.metas = [meta('s1', T0 - CATALOG_REFRESH_MS), meta('s2', T0)];
+    engine.answers.set('s1', 'unchanged');
+    const t = setup({ engine });
+    t.scheduler.start();
+    await t.run(FIRST_CHECK_MS);
+    expect(engine.refreshCalls.map((c) => c.job.src)).toEqual(['s1']);
+    expect(t.catalogs).toEqual([]);
+    expect(t.facts()).toBe(1);
+    // Nothing due: no refresh, nothing read.
+    engine.metas = [meta('s1', T0 + FIRST_CHECK_MS), meta('s2', T0)];
+    await t.run(CHECK_MS);
+    expect(engine.refreshCalls).toHaveLength(1);
+    expect(t.facts()).toBe(1);
+    // One commits, one doesn't: once for the pass, with the catalogs.
+    engine.metas = [];
+    engine.answers.set('s1', 'committed');
+    await t.run(CHECK_MS);
+    expect(engine.refreshCalls).toHaveLength(3);
+    expect(t.catalogs).toEqual([['s1']]);
+    expect(t.facts()).toBe(2);
+  });
+
   it('names every catalog that committed in one call', async () => {
     const engine = new FakeEngine();
     engine.metas = [];
@@ -393,6 +423,8 @@ describe('the refresh schedule', () => {
     await t.run(FIRST_CHECK_MS);
     expect(engine.refreshCalls.map((c) => c.job.src)).toEqual(['s1']);
     expect(warn).toHaveBeenCalledWith('A catalog refresh failed', expect.any(Error));
+    // Nothing stored: the facts aren't read again.
+    expect(t.facts()).toBe(0);
     expect(engine.epgCalls).toHaveLength(1);
     expect(engine.epgCalls[0]!.options.due).toBe(true);
     // 15 min later, and up to 2 h after the failure: not again.
