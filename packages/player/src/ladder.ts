@@ -11,7 +11,11 @@
  * After a failure the ladder decides the next attempt:
  * 1. Before the stream has shown a frame on a URL, the next untried URL (the URL strategy).
  * 2. Otherwise: reopen the same URL, re-run the redirect probe (only where the platform probes),
- *    switch container (only with a second URL), then reopen with backoff (1, 2, 4 s).
+ *    switch container (only with a second URL), then reopen with backoff (1, 2, 4 s). The backoff
+ *    reopens the URL that last showed a frame in the session, while it hasn't failed definitively
+ *    (RELAY step 59: on the LG TV an outage held the `.ts`, the switch found an `.m3u8` answering
+ *    404, which the `<video>` reports as `network`, and the backoff gave up on the `.m3u8` while
+ *    the `.ts` was back); before any frame, the URL that failed.
  * 3. A failure that a retry of the same URL can't fix (`isDefinitive`) tries an untried URL
  *    first, and the URL stays out of the session: the switch rung never goes back to it (on the
  *    desktop a `.ts` URL the browser can't play would otherwise take an attempt, and its
@@ -115,6 +119,8 @@ export class RetryLadder {
   private readonly dead: boolean[] = [];
   /** Rungs climbed since the stream last showed a frame. */
   private step = 0;
+  /** The URL that last showed a frame in this play session (-1: none yet). */
+  private shown = -1;
 
   constructor(
     private readonly config: WatchdogConfig,
@@ -124,13 +130,15 @@ export class RetryLadder {
   }
 
   /**
-   * The stream showed a frame: the next failure starts again from the first rung. The session's
-   * first frame also forgets the attempts that found a URL (RELAY step 39s7: on the Samsung TV a
-   * slow start used three of the four, and the provider's first drop 15 s later gave up at once);
-   * a stream that keeps failing after it played still gives up after `maxAttempts`.
+   * URL `candidate` showed a frame: the next failure starts again from the first rung, and the
+   * backoff goes back to it (RELAY step 59). The session's first frame also forgets the attempts
+   * that found a URL (RELAY step 39s7: on the Samsung TV a slow start used three of the four, and
+   * the provider's first drop 15 s later gave up at once); a stream that keeps failing after it
+   * played still gives up after `maxAttempts`.
    */
-  recovered(first = false): void {
+  recovered(candidate: number, first = false): void {
     this.step = 0;
+    this.shown = candidate;
     if (first) this.attempts = [];
   }
 
@@ -194,6 +202,8 @@ export class RetryLadder {
     }
     const backoff = this.config.backoffMs;
     const delayMs = backoff.length === 0 ? 0 : backoff[Math.min(step - rungs.length, backoff.length - 1)]!;
-    return { rung: 'reopen', candidate: current, delayMs };
+    // Past the rungs, the URL that last showed a frame, while it hasn't failed for good (step 59).
+    const shown = this.shown;
+    return { rung: 'reopen', candidate: shown !== -1 && this.dead[shown] !== true ? shown : current, delayMs };
   }
 }

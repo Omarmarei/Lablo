@@ -1464,7 +1464,7 @@ export type PlayRequest = { key: ContentKey; src: string; mode: 'live'|'vod'|'ca
     1. Reopen the same URL (live jumps to the live edge; VOD resumes at the last position).
     2. Re-run the redirect probe.
     3. Switch container (`.ts` and `.m3u8`).
-    4. Repeat with backoff of 1, 2 and 4 s.
+    4. Repeat with backoff of 1, 2 and 4 s, on the URL that last showed a frame in the session (step 59; before any frame, the URL that failed).
   - **Give up:** after 4 attempts within 60 s, show the error card.
   - **While retrying:** the UI shows a small "Reconnecting…" badge, not a black screen.
   - **Thresholds** are tunable through remote config's tunables (every TV: the doc has no per-model match), and Settings › "Player"'s "Buffering" chooses Fast start or Stable (§1.4 item 10, "Built in step 39d").

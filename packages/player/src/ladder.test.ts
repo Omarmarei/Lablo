@@ -66,7 +66,7 @@ describe('RetryLadder', () => {
     // Four attempts at 0, 10, 20 and 30 s; a failure at 59.95 s still sees all four.
     for (const t of [0, 10_000, 20_000, 30_000]) {
       expect(l.next(stall, 0, true, t)).not.toBeNull();
-      l.recovered();
+      l.recovered(0);
     }
     expect(l.next(stall, 0, true, 59_950)).toBeNull();
     // At 60 s the first has left the window.
@@ -79,10 +79,10 @@ describe('RetryLadder', () => {
     const l = ladder(2, true);
     expect(l.next(stall, 0, true, 0)?.rung).toBe('reopen');
     expect(l.next(stall, 0, true, 1000)?.rung).toBe('reprobe');
-    l.recovered();
+    l.recovered(0);
     expect(l.next(stall, 0, true, 2000)?.rung).toBe('reopen');
     expect(l.next(stall, 0, true, 3000)?.rung).toBe('reprobe');
-    l.recovered();
+    l.recovered(0);
     expect(l.next(stall, 0, true, 4000)).toBeNull();
   });
 
@@ -91,14 +91,14 @@ describe('RetryLadder', () => {
     for (const t of [0, 10_000, 20_000, 30_000]) expect(l.next(stall, 0, false, t)).not.toBeNull();
     expect(l.next(stall, 0, false, 31_000)).toBeNull();
     // The first frame: the four that found a URL no longer count, and the ladder starts over.
-    l.recovered(true);
+    l.recovered(0, true);
     expect(l.next(stall, 0, true, 32_000)).toEqual({ rung: 'reopen', candidate: 0, delayMs: 0 });
     // Later frames keep counting: three more, then the window is full again.
     for (const t of [33_000, 34_000, 35_000]) {
-      l.recovered();
+      l.recovered(0);
       expect(l.next(stall, 0, true, t)).not.toBeNull();
     }
-    l.recovered();
+    l.recovered(0);
     expect(l.next(stall, 0, true, 36_000)).toBeNull();
   });
 
@@ -135,7 +135,7 @@ describe('RetryLadder', () => {
     expect(three.next(stall, 0, true, 0)).toEqual({ rung: 'reopen', candidate: 0, delayMs: 0 });
     expect(three.next(notFound, 0, true, 1000)).toEqual({ rung: 'next-url', candidate: 1, delayMs: 0 });
     expect(three.next(stall, 1, false, 2000)).toEqual({ rung: 'next-url', candidate: 2, delayMs: 0 });
-    three.recovered();
+    three.recovered(2);
     expect(three.next(stall, 2, true, 3000)).toEqual({ rung: 'reopen', candidate: 2, delayMs: 0 });
     // 2 + 1 wraps to 0, which answered 404: 1.
     expect(three.next(stall, 2, true, 4000)).toEqual({ rung: 'switch', candidate: 1, delayMs: 0 });
@@ -184,6 +184,53 @@ describe('RetryLadder', () => {
     expect(l.otherFailedForGood(1)).toBe(true);
   });
 
+  it('hands the backoff back to the URL that showed a frame when the switch found one that fails before a frame (RELAY step 59)', () => {
+    // The LG TV (21L): the .ts played until an outage held it; its reopen timed out; the switch to
+    // the .m3u8 failed at once as `network` (a 404 the <video> reports as an unsupported source).
+    // The backoff stayed on the .m3u8 and gave up, though the .ts was back 1 s later.
+    const timeout: PlaybackError = { kind: 'timeout', code: 'OPEN' };
+    const refused: PlaybackError = { kind: 'network', code: 'MEDIA_ERR_SRC_NOT_SUPPORTED' };
+    const l = ladder(2, false);
+    l.recovered(0, true);
+    expect(l.next(stall, 0, true, 0)).toEqual({ rung: 'reopen', candidate: 0, delayMs: 0 });
+    expect(l.next(timeout, 0, true, 10_000)).toEqual({ rung: 'switch', candidate: 1, delayMs: 0 });
+    expect(l.next(refused, 1, false, 10_100)).toEqual({ rung: 'reopen', candidate: 0, delayMs: 1000 });
+    // Still held: the backoff stays on the .ts, and the window gives up as before.
+    expect(l.next(timeout, 0, true, 21_100)).toEqual({ rung: 'reopen', candidate: 0, delayMs: 2000 });
+    expect(l.next(timeout, 0, true, 33_100)).toBeNull();
+    // The same on Tizen's ladder (with the re-probe rung).
+    const tizen = ladder(2, true);
+    tizen.recovered(0, true);
+    expect(tizen.next(stall, 0, true, 0)).toEqual({ rung: 'reopen', candidate: 0, delayMs: 0 });
+    expect(tizen.next(stall, 0, true, 1000)).toEqual({ rung: 'reprobe', candidate: 0, delayMs: 0 });
+    expect(tizen.next(stall, 0, true, 2000)).toEqual({ rung: 'switch', candidate: 1, delayMs: 0 });
+    expect(tizen.next(timeout, 1, false, 12_000)).toEqual({ rung: 'reopen', candidate: 0, delayMs: 1000 });
+  });
+
+  it('hands the backoff to the URL that showed a frame last, never to one that failed for good since (RELAY step 59)', () => {
+    const l = ladder(2, false, { ...DEFAULT_WATCHDOG, maxAttempts: 10 });
+    // The .ts played, then the .m3u8 the switch found: the .m3u8 is the one to go back to.
+    l.recovered(0, true);
+    expect(l.next(stall, 0, true, 0)).toEqual({ rung: 'reopen', candidate: 0, delayMs: 0 });
+    expect(l.next(stall, 0, true, 1000)).toEqual({ rung: 'switch', candidate: 1, delayMs: 0 });
+    l.recovered(1);
+    expect(l.next(stall, 1, true, 2000)).toEqual({ rung: 'reopen', candidate: 1, delayMs: 0 });
+    expect(l.next(stall, 1, true, 3000)).toEqual({ rung: 'switch', candidate: 0, delayMs: 0 });
+    expect(l.next(stall, 0, true, 4000)).toEqual({ rung: 'reopen', candidate: 1, delayMs: 1000 });
+    // It fails for good (a 404): the backoff goes on with the other.
+    expect(l.next(notFound, 1, true, 5000)).toEqual({ rung: 'reopen', candidate: 0, delayMs: 4000 });
+    expect(l.next(stall, 0, true, 6000)).toEqual({ rung: 'reopen', candidate: 0, delayMs: 4000 });
+  });
+
+  it('keeps the backoff on the URL that failed while nothing has shown a frame in the session', () => {
+    const timeout: PlaybackError = { kind: 'timeout', code: 'OPEN' };
+    const l = ladder(2, false);
+    expect(l.next(timeout, 0, false, 0)).toEqual({ rung: 'next-url', candidate: 1, delayMs: 0 });
+    expect(l.next(timeout, 1, false, 10_000)).toEqual({ rung: 'reopen', candidate: 1, delayMs: 0 });
+    expect(l.next(timeout, 1, false, 20_000)).toEqual({ rung: 'switch', candidate: 0, delayMs: 0 });
+    expect(l.next(timeout, 0, false, 30_000)).toEqual({ rung: 'reopen', candidate: 0, delayMs: 1000 });
+  });
+
   it('switches to the next live URL, wrapping and skipping a dead one', () => {
     const l = ladder(3, false, { ...DEFAULT_WATCHDOG, maxAttempts: 10 });
     expect(l.next(stall, 0, false, 0)).toEqual({ rung: 'next-url', candidate: 1, delayMs: 0 });
@@ -191,7 +238,7 @@ describe('RetryLadder', () => {
     expect(l.next(stall, 2, false, 2000)).toEqual({ rung: 'reopen', candidate: 2, delayMs: 0 });
     // 2 + 1 wraps to 0.
     expect(l.next(stall, 2, false, 3000)).toEqual({ rung: 'switch', candidate: 0, delayMs: 0 });
-    l.recovered();
+    l.recovered(0);
     expect(l.next(stall, 0, true, 4000)).toEqual({ rung: 'reopen', candidate: 0, delayMs: 0 });
     // 1 is dead: 2.
     expect(l.next(stall, 0, true, 5000)).toEqual({ rung: 'switch', candidate: 2, delayMs: 0 });
