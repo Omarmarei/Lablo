@@ -129,9 +129,21 @@ export function misfits(page: Page, root = 'body'): Promise<Misfit[]> {
           if (!clips && !painted(style)) continue;
           const box = clips ? inner(el, style) : outer(el);
           const worst = Math.max(0, ...lines.map((line) => out(line, box, true, true)));
-          if (worst > tolerance) found.push({ text: text.slice(0, 60), box: name(el), by: Math.ceil(worst), how: clips ? 'clipped' : 'spills' });
+          // Out of a box that doesn't clip, but cut off where nobody sees it (a name pushed away for a screen reader): not a misfit.
+          if (worst > tolerance && (clips || seen(lines, el.parentElement))) found.push({ text: text.slice(0, 60), box: name(el), by: Math.ceil(worst), how: clips ? 'clipped' : 'spills' });
           return;
         }
+      };
+      /** Some of `lines` shows through every clipping ancestor from `from` up (text pushed out of sight for a screen reader does not). */
+      const seen = (lines: Box[], from: Element | null): boolean => {
+        let left = lines;
+        for (let el: Element | null = from; el !== null && left.length > 0; el = el.parentElement) {
+          const style = getComputedStyle(el);
+          if (style.overflowX === 'visible' && style.overflowY === 'visible') continue;
+          const box = inner(el, style);
+          left = left.filter((line) => Math.min(line.r, box.r) > Math.max(line.l, box.l) && Math.min(line.b, box.b) > Math.max(line.t, box.t));
+        }
+        return left.length > 0;
       };
       const walker = document.createTreeWalker(start, NodeFilter.SHOW_TEXT);
       for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
