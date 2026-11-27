@@ -1,195 +1,220 @@
-# Lablo IPTV: relay leg 167 opening prompt (written at the end of leg 166)
+# Lablo IPTV: relay leg 168 opening prompt (written at the end of leg 167)
 
-You are leg 167 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
+You are leg 168 of relay run `iptv-20261101-214120`. The product, **Lablo**, is a content-free IPTV player (M3U and Xtream only) for Samsung Tizen and LG webOS TVs. v1 is free, launches in the GCC and North America, and ships Arabic (RTL) and English from day one.
 
 ## Status
-- **Earlier legs:** legs 1–165 did steps 1–33, 35–40h, 40ci, 40g(a–d), 39s1–39s3, 39s5, 39s6, 43–45, 48–52 (PRs up to #197). RELAY.md is about 90 KB; older steps' detail is in `docs/relay-archive.md`: grep it, never read it whole.
-- **Leg 166 (2026-11-26): steps 53 and 54 done and merged in PR #199 (`93b6786`), CI 11/11 at the first run (media included, no rerun).**
-  - **53, the `epg-declared-300mb` flake:** the test's budgets are now in **calibrations**, not ms. Each figure is the median of 9 runs; each run is divided by a calibration timed just before it, with a forced GC before both. The calibration: the same channels through a test-local character loop, put into a fresh fake IndexedDB. Budgets: store 2.5, first 0.9, each search 0.33. Measured: store 1.06–1.64 (CI and the desktop, idle and loaded); 3.3–4.3 with `LABLO_SLOWDOWN=3`, which fails all three. Method and pitfalls: memory `timing-budgets-calibrated`.
-  - **54, the media job only for media code:** `.github/scripts/changes.mjs` (the `changes` job's filter as a tested script) and `test/ci-changes.test.ts` (recorded PRs; every package under `packages/` must be in one of its two lists). Media now runs for core, crypto, data, player, platform-api, platform-browser, protocol, the mock, fixtures/bench, the media tests and `apps/tv/src/(player|lab|data)`. It no longer runs for packages/ui, the rest of apps/tv/src, platform-tizen or platform-webos. A nightly `schedule` (01:17 UTC) runs media alone on main. Runbook: mock-provider.md "Validation".
-  - **`iptv-b6`'s results recorded** (Omar's Samsung tab; the TV is back with Omar; it said reply only on a conflict, and there was none):
-    - 39s7 ticked: PR #196 as `91ce58f`, the no-data rule on the inflow. Its check on the TV is still open.
-    - 39s4 ticked: PR #198 as `e48dfee`, the start's order. First frame at 6.7 s; Omar accepted the gap to 4 s.
-    - 40g(e) is done.
-    - Step 21: the soak was cut at 2 min; still to do.
-    - Step 42: update in place passed on the Samsung.
-    - S10 by hand is done; Omar's "3a" look checks passed on the Samsung.
-- **Sizes (Tizen, last measured in leg 165, before #196/#198 touched main.tsx and the player):** main.js 493.9/500 KB (tight), settings.js 151.0/200, query worker 149.3/150, ingest worker 142.4/150. Run `pnpm build:tv` early to get today's figures.
+- **Earlier legs:**
+  - Legs 1–166 did steps 1–33, 35–40h, 40ci, 40g(a–e), 39s1–39s7, 43–45 and 48–54 (PRs up to #199).
+  - RELAY.md is about 95 KB. Older steps' detail is in `docs/relay-archive.md`: grep it, never read it whole.
+- **Leg 167 (2026-11-26):**
+  - **Steps 55 and 56 are merged in PR #200, as `eb47dde`.**
+    - **55:** Settings › "Player" ends in an "Accessibility" row (9 rows). It opens `player-access`, which holds Caption background, Caption colour and Larger text.
+    - **56:** `pnpm tv inspect --webos <ares device>` uses `ares-inspect --host-port 9998` with no `--open`. `eval`/`screen`/`marks`/`soak --webos` evaluate only in the page under `/applications/<app id>/`. Runbook: tv-setup.md 3.7 item 6.
+  - **The repo went private at 10:04 UTC.** CI's `verify (e2e throttled)` then failed on main's own commit too. Omar made it public again, #200 merged on 11/11, and then he chose **"2": keep the repo private**:
+    - **The nightly media run is off.** PR #201, merged as `768897f`: CI's `changes` job runs on a schedule only while the repository variable `NIGHTLY_MEDIA` is `on`. It is unset; every job skips.
+    - **The throttled job gets fixed for the private runners before the next merge.** That is **step 57, yours now.**
+  - **The repo is PRIVATE** (checked at the end of leg 167). Every CI minute is billed: a full PR run is about 100 min, and a scratch probe 10–20 min a job. Keep the rounds few.
+- **Sizes (Tizen, leg 167):** main.js 495.5/500 KB (tight), settings.js 152.3/200, query worker 149.3/150, ingest worker 142.4/150.
 
 ## Read first
-1. **RELAY.md:** steps 55 and 56 (after 54 under "No-TV fixes, round 2"), and the last progress rows (165, 166, 166 cont.).
-   - For 55: `apps/tv/src/settings/player-settings.ts` (11 rows; rows 9–11 are step 43's Caption background, Caption colour, Larger text), `e2e/accessibility.spec.ts`, and the tests that pin row counts and positions.
-   - For 56: `tools/tv/src` (sdb, the inspector, `eval`, `screen`, `soak`), `tools/device` (`pnpm device inspect webos tv`), and docs/runbooks/tv-setup.md §3.7.
-2. **Memory notes:** iptv-player-settings-rows, iptv-ui-test-gotchas, iptv-store-build-test-copy (all of settings/ is in settings.js), and iptv-css-pipeline-gotchas for 55. For 56: iptv-tools-test-gotchas, iptv-lg-tv-devmode, iptv-webos-acg. Always: gh-pr-checks-watch-race, bg-watcher-memory-reap, relay-peer-session-decisions.
+1. **RELAY.md:**
+   - step 57 (just after 56, under "No-TV fixes, round 2");
+   - the progress rows 167, 167 (cont.) and 167 (cont. 2).
+2. **The specs:**
+   - `e2e/search-throttled.spec.ts`, `e2e/movies-throttled.spec.ts` and `e2e/guide-throttled.spec.ts`;
+   - `e2e/big-catalog.ts`;
+   - `playwright.config.ts`: the `throttled` project, `workers: 1`, `trace: 'retain-on-failure'`;
+   - `.github/workflows/ci.yml`: the `verify` matrix's `e2e throttled` part runs `pnpm e2e --project=throttled --no-deps`.
+3. **Memory notes:** iptv-throttled-e2e, timing-budgets-calibrated (step 53's method and the scratch-branch recipe), iptv-repo-public-lablo (private, small runners), bg-watcher-memory-reap and gh-pr-checks-watch-race.
+
+## Step 57: what leg 167 measured
+- **The private repo's runners:** `nproc` 2, 7.9 GB RAM, AMD EPYC 7763. Node's default heap limit is **2096 MB** (4144 MB with `--max-old-space-size=4096`). Public runners are 4 vCPU / 16 GB, where everything passed.
+- **`search-throttled.spec.ts`:**
+  - Its Playwright worker dies with "Ineffective mark-compacts near heap limit … JavaScript heap out of memory" at about 2040 MB, every run, **also alone**. It shows as "worker process exited unexpectedly (SIGABRT)" at 0 ms.
+  - With a 4 GB heap it ran, and only missed its 300 ms estimate: "lablo test film 4321" at 311 ms with the worker 4× slower. Median 155 ms, max 311.
+  - It builds a 200,000-item `bigCatalog` at module level and serves it from the spec's mock.
+  - **Find what holds over 2 GB in the test worker:** the catalog objects, JSON strings the mock builds per request, or the trace?
+- **`movies-throttled.spec.ts`, full tier**, fails on most small-runner runs, also alone. The log reads "movie N's poster started 1–11 ms after a key, before the 150 ms rest"; 129–204 posters downloaded against 117 on a green run.
+  - **Hypothesis:** the spec stamps keys with the page's `keydown` `event.timeStamp` (line ~106), which is when the input arrived, not when the app handled it. On 2 busy cores, a rest timer that was due fires while the next key is still queued, and the poster starts before the app has seen that key.
+  - Check this with `performance.now()` inside the listener (when the key is dispatched), or log when the app handles the key. Then decide whether the rule should count keys the app has seen.
+  - The low tier stays fine: the soonest poster comes 304 ms after a key.
+- **`guide-throttled.spec.ts`, full tier,** failed on some runs: "LEFT 13 on row 155 (no marks): 178 ms, over the 150 ms budget". Long tasks of 50–160 ms appear on the small runners and not on the large ones.
+- **Main's own commit `93b6786` failed the same way on 2 of 2 control runs.** It is not PR code.
 
 ## Next steps, in order
 1. **Check the state:**
    - `git -C "<wt>" status` is clean.
-   - `git log --oneline -3` shows this handover's commit, then `db6de93` (tick 53/54), then `93b6786` (merge of #199).
-   - origin/main = `93b6786`; the branch is pushed; no open PR.
-2. **The first nightly media run** (2026-11-27, 01:17 UTC): `gh run list --repo Omarmarei/Lablo --event schedule --limit 3`.
-   - Green: note it in the next progress row.
-   - Failed: read its annotations (`gh api repos/Omarmarei/Lablo/check-runs/<job id>/annotations`) before anything else.
-   - Didn't run: check Actions › CI. A schedule only runs from the default branch's workflow.
-3. **Step 55, Player settings' accessibility rows on a page of their own.** Refine against the code first (which tests pin counts and positions; the row that opens the page goes at the END of Player settings). Done when (RELAY): unit and e2e in en and ar, the pins updated, a screenshot checked by eye, mutation, PR merged.
-4. **Step 56, `pnpm tv` on webOS (code only; the run on the LG waits for Omar).** Done when (RELAY): unit tests with a fake `ares-inspect` and a fake inspector socket, tv-setup.md updated, mutation, PR merged. The LG run joins Omar's "At the LG TV" list.
-5. **Any message from `iptv-b6`** (or another of Omar's tabs): check its claims against main, then record them in RELAY.md (a progress row; ticks only where the message says done and merged; write the source beside each tick). Reply to its `from=` address only on a conflict.
-6. **When 55 and 56 are done**, everything left is Omar's or a TV session's: end **needs-you** with a short numbered list:
+   - `git log --oneline -3` shows this handover's commit, then `c51ed59` (RELAY row: #201 merged), then `768897f` (the merge of #201).
+   - origin/main is `768897f`; no open PR.
+   - `gh repo view Omarmarei/Lablo --json visibility` says PRIVATE. If it says PUBLIC, step 57 can't be measured: needs-you, and ask Omar.
+2. **Reproduce locally first (free):**
+   - **The OOM:** `NODE_OPTIONS="--require \"<wt>/.cache/rollup-wasm/hook.cjs\" --max-old-space-size=2048" pnpm exec playwright test --project=throttled --no-deps e2e/search-throttled.spec.ts`. Playwright's worker inherits NODE_OPTIONS. Measure the worker's heap; a heap snapshot or `process.memoryUsage()` logs in the spec work.
+   - **The timings:** 2 cores on Windows. Start the run under a process limited to 2 CPUs, e.g. PowerShell `Start-Process` plus `ProcessorAffinity = 3`, or `cmd /c start /affinity 3 …`. The child processes inherit the affinity. Local timings are ±30%: use them to find causes, never to set budgets (memory timing-budgets-calibrated).
+3. **Fix in this order:**
+   1. The worker's memory: make the mock's 200k responses cheaper, or raise the heap for e2e only, with a reason.
+   2. The poster rule's key time.
+   3. What else competes for the 2 cores while specs time. The Vite dev server compiles on first load; warm it up before the timed part, or serve a built bundle.
+   4. Only then budgets, in calibrations as step 53 did.
+   - Keep each spec's "can fail" tests passing; they prove the checks still fail when they should.
+4. **Prove it on the private runners:** a scratch `on: push` branch (recipe below), 3 runs in a row of the throttled project, plus one slowed run that must fail. Then a PR. CI there is billed, so run the full PR once.
+5. **Done when (RELAY 57):**
+   - three runs in a row pass on the private runners;
+   - the budgets still fail a slowed build;
+   - mutation of any changed budget code;
+   - PR merged (green 11/11);
+   - tick 57 and add a progress row.
+6. **Then everything left needs Omar or a TV:** end **needs-you** with a short numbered list:
    - the Tizen signing profile;
    - counsel's text;
-   - the domain and the test server;
-   - the LG "3a" checks and Audio Guidance;
-   - the TV check of 39s7's inflow rule;
-   - step 21's 2 h soak on the merged build;
-   - step 42's 8 h soaks and the LG's update in place;
-   - step 41;
-   - the beta route per store (46);
-   - store submissions (47);
-   - step 34.
+   - the domain and test server;
+   - the LG "3a" checks, Audio Guidance, and step 56's first real run (`pnpm tv inspect --webos tv`);
+   - 39s7's TV check;
+   - step 21's zaps and 2 h soak;
+   - step 42's soaks and the LG's update in place;
+   - steps 41, 46, 47 and 34.
+7. **Any message from `iptv-b6`** (or another of Omar's tabs): check its claims against main, then record them in RELAY.md (ticks only where it says done and merged, with the source beside each). Reply to its `from=` address only on a conflict.
 
 ## Git state to expect
-- **Worktree:** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed. It is origin/main (`93b6786`) plus `db6de93` (tick 53/54) and this handover's commit, docs only. The main checkout was not touched.
-- **Dev database:** has migration `20261123160000_pair_purpose`. Nothing in production, nothing deployed, no migrations.
+- **Worktree** `D:/Claude Code PlayGround/IPTV-relay-20261101-214120`, branch `relay/iptv-20261101-214120`, pushed. It is origin/main (`768897f`) plus `c51ed59` (RELAY row) and this handover's commit, docs only. The main checkout was not touched.
+- **Dev database:** migration `20261123160000_pair_purpose`. Nothing in production, nothing deployed, no migrations.
 - **Gitignored but present:**
-  - `node_modules`, `apps/web/.env`, `dist/` (built in leg 165; rebuild before trusting it);
-  - `.cache/*`: **`.cache/fixtures` regenerated in leg 166** (the old files still said "zoma"); `.cache/media` is still from before the rename (burned-in "Zoma Test 1 SMPTE");
-  - `artifacts/`: `probe53.ts`, `probe53b.ts`, `mutate54.py`, and leg 165's files.
-- **GitHub:** the scratch branch `scratch/calib53` is deleted. Its workflow ("calib53 (scratch, step 53)") still shows in Actions' workflow list, but it has no file on any branch and can't run. `gh workflow disable` would hide it.
+  - `node_modules`, `apps/web/.env` and `dist/` (built in leg 167);
+  - `.cache/fixtures` (leg 166) and **`.cache/media`, regenerated in leg 167** (no more "Zoma");
+  - `artifacts/`: `mutate55.py`, `mutate56.py`, the screenshots `access-*` and `large-text-access-*`, and leg 166's files.
+- **GitHub:** no scratch branches. Three scratch workflows are disabled in Actions (`calib53`, `throttled control`, `throttled probe`); only `CI` is active. A new scratch workflow shows up there too: disable it after (`gh workflow disable <id>`).
 
 ## Verified vs not
-- **Verified (leg 166):**
-  - **53, locally:** 10 runs in a row under 14 busy cores passed (store 1.09–1.40, first 0.36–0.67, slowest search ≤ 0.20). `LABLO_SLOWDOWN=3` fails all three: store 3.32–3.57, first 1.28–1.29, "by number" 0.34–0.36.
-  - **53, on CI:** three scratch probes on 3 runners each, alone, beside the other media tests, and slowed 3×. PR #199's media job passed at the first run (store 1.06, first 0.51, slowest search 0.056).
-  - **53, gates:** lint, typecheck.
-  - **54:** `test/ci-changes.test.ts` 8/8; hand mutants 8/8 killed; lint, typecheck (root tsconfig checks the `.mjs`); CI 11/11.
-  - **`iptv-b6`'s claims:** checked against main (merge commits, results.md 2026-11-26, architecture.md §2 "The start's order").
-- **Not yet seen:** the nightly schedule's first run; a real UI-only PR showing media "skipping" (the next one will).
+- **Verified (leg 167):**
+  - **55:** unit `apps/tv` 5086/5086; e2e `accessibility.spec.ts` in en and ar; the player-settings, buffering, still-watching and clock specs; screenshots checked by eye; mutants 19/19; CI 11/11.
+  - **56:** `tools/tv` and the root id test, 122 tests, with a stand-in ares-inspect (child processes) and a local inspector. Mutants 19/19. Smoke runs:
+    - headless Chromium with two pages: `screen`, `eval`, `marks` and a 1-minute soak (`--webos --port 9334`);
+    - ares-inspect with an unknown device.
+  - **#201:** CI 11/11 after one rerun of a `telemetry.spec.ts` 30 s timeout. The workflow YAML parses; `changes.if` is set.
+- **Not yet seen:**
+  - step 56 on the real LG;
+  - a scheduled run with every job skipped (the first is due 2026-11-27 01:17 UTC);
+  - any CI on the private runners since #201.
 - **Still not done (Omar's or a TV session's):**
-  - the TV look of 40a–40f, 43 and 51 on the LG (Omar's "3a" passed on the Samsung);
-  - LG Audio Guidance;
+  - the LG look checks (40a–40f, 43 now on the Accessibility page, 51) and Audio Guidance;
   - 39s7's TV check;
-  - step 21's zaps and 2 h soak;
-  - steps 41, 42 (8 h soaks, network drops, the LG's update in place), 46 and 47;
+  - step 21;
+  - steps 41, 42, 46 and 47;
   - counsel's text;
-  - production (step 34);
+  - step 34;
   - a full `release:check` with build.
 - **Migrations and deploys:** none.
 
 ## Gotchas and lessons
-**New in leg 166:**
-- **Timing budgets:** never set ms budgets from this PC's numbers. It has hybrid P/E cores; absolute times swing 2–3× between processes, and CI's runners were about 4× faster on this work. Use calibrations:
-  - the same input data in the test's own code, timed just before each run;
-  - the median of the per-run ratios;
-  - a GC before each (`setFlagsFromString('--expose-gc')` plus `runInNewContext('gc')`);
-  - a fastest-of-many calibration against a fastest-of-few run is biased under load.
-  - Full method: memory `timing-budgets-calibrated`.
-- **CI numbers fast, without touching the PR:**
-  - commit a temporary `on: push: branches: [scratch/x]` workflow on top of HEAD with a temporary `GIT_INDEX_FILE` and `git commit-tree`;
-  - `git push origin <sha>:refs/heads/scratch/x`;
-  - read the job logs; delete the branch. About 6–8 min a round.
-- **`epg-declared-300mb` should no longer flake.** If it fails, read the printed line (calibrations and ms) instead of rerunning.
-- **The media filter:** a new package under `packages/` fails `test/ci-changes.test.ts` until it is listed as media or nightly. A `.github/` change runs every job.
-- **`.github/scripts/*.mjs`:** lint allows no Node globals (import `process` from `node:process`); the root tsconfig type-checks it (`checkJs`), so give it JSDoc types and use no `@ts-expect-error` when importing it.
-- **Patches with backslashes:** a Python heredoc again turned `\n` inside a YAML `printf` into real newlines. Edit such lines with the Edit tool (memory use-write-tool-for-doc-batches).
-- **Hand mutants from Python on Windows:** capture output with `encoding='utf-8'` or `-X utf8`.
-- **A `cd` into another folder in Bash** resets the shell to the main checkout: use absolute worktree paths.
+**New in leg 167:**
+- **When the throttled job, or several timing specs at once, starts failing everywhere:**
+  - check `gh repo view Omarmarei/Lablo --json visibility`, and `nproc` in the job, before suspecting the PR;
+  - run the job on main's commit on a scratch branch as a control. That proved the cause in one round.
+- **Scratch workflow:**
+  - `actions/checkout` with `ref:` needs **full** SHAs; a 7-char SHA fails the checkout.
+  - `gh run rerun --failed` works only once the whole run has finished.
+  - Pushing to a PR branch cancels its running CI (`cancel-in-progress`).
+- **Settings pages:**
+  - Settings › Player is 9 rows. A new value row goes before `access`, or on the Accessibility page.
+  - `rowAt(screen, index)` finds a row on either page.
+  - A new settings screen id must be in `SETTINGS_SCREENS`, and in the pin in `guides-state.test.ts`.
+- **webOS tooling:**
+  - ares-inspect prints `Application Debugging - http://localhost:P…` and stays up holding the tunnel; `--open` would take the inspector's one client.
+  - Headless Chromium takes one start URL only; open more with `curl -X PUT "http://127.0.0.1:<port>/json/new?<url>"`.
+  - On Windows, an ares exit of -1 shows as 4294967295.
+- **Python heredocs in Bash** mangled `\n` again. Write patch scripts with the Write tool.
 
 **From earlier legs (still true):**
+- **Timing budgets:**
+  - never set ms budgets from this PC: it has hybrid cores, and times swing 2–3×;
+  - use calibrations: the same data timed just before each run, the median of the per-run ratios, a GC before each (memory timing-budgets-calibrated).
+- **CI numbers without touching a PR:**
+  1. commit a temporary `on: push: branches: [scratch/x]` workflow on top of a commit, with a temporary `GIT_INDEX_FILE` and `git commit-tree`;
+  2. `git push origin <sha>:refs/heads/scratch/x`;
+  3. read the job logs (`gh api repos/Omarmarei/Lablo/actions/jobs/<id>/logs`), then delete the branch.
+- **The media filter:**
+  - a new package under `packages/` fails `test/ci-changes.test.ts` until it is listed;
+  - a `.github/` change runs every job.
+- **`.github/scripts/*.mjs`:** no Node globals; JSDoc types (the root tsconfig checks it).
 - **A new lab row or media item is pinned in five places:**
   - `e2e/lab.spec.ts`;
   - `tools/engines/src/lab.ts` and `lab.test.ts`;
   - `spikes/s4.test.ts` and `battery.test.ts`;
-  - `e2e/lab-media.spec.ts` (CI's `media` job only).
-- **Player settings rows:** a new row goes at the END of `PLAYER_SETTINGS_ROWS` (tests pin positions and counts). The lazy budget is 200 KB. Docs-only PRs run only `changes`: merge at once.
-- **Refresh holds nest** (`refresh-hold.ts`): every `busy(true)` needs exactly one `busy(false)`.
+  - `e2e/lab-media.spec.ts`.
+- **Refresh holds nest:** every `busy(true)` needs exactly one `busy(false)`.
 - **The keyboard (step 51):**
-  - the input goes to `width: 0; opacity: 0` while our keyboard types, never `display: none`;
-  - the lift is a `transform` on `#app`, so anything `position: fixed` inside moves with it;
-  - in e2e, test a clip with `elementFromPoint`, and read a zero-width element with `getBoundingClientRect()`.
-- **CI waits:** a background wait loop gets reaped under memory pressure.
-  - Wait in the foreground: loops of 8 × (`gh pr checks … | awk`, then `read -t 14 < /dev/zero`), about 2 min a call.
-  - Wait ~20 s after `gh pr create`.
-  - Never restart a reaped watcher unasked.
-- **Python patches:** write them with the Write tool when they hold backslashes. Arabic needs `python -X utf8 -I` and `encoding='utf-8', newline=''`.
-- **GitHub API:** 500/502s on `gh pr create/merge` often still succeed: check REST. After a merge, `git fetch` before merging origin/main.
-- **Worker budgets decide where code lives:** check `pnpm build:tv` early.
-- **Input modes:** a new default-on input mode breaks e2e that types through DOM focus (`?keyboard=native`). An `OK` within 500 ms of a pointer click is its twin.
+  - the input goes to `width: 0; opacity: 0`, never `display: none`;
+  - the lift is a `transform` on `#app`;
+  - in e2e, test a clip with `elementFromPoint`.
+- **CI waits:**
+  - wait in the foreground: loops of 8 × (`gh pr checks … | awk`, then `read -t 14 < /dev/zero`);
+  - wait ~20 s after `gh pr create`;
+  - a background wait loop gets reaped; never restart one unasked.
+- **GitHub API:** a 500 on `gh pr create/merge` often still succeeds: check REST.
 - **CI facts:**
-  - 11 checks, about 13–23 min (media's installs vary); engines can queue.
-  - Find the run with `gh run list --repo Omarmarei/Lablo --branch relay/iptv-20261101-214120 --limit 1`.
-  - Known flake: Chromium 53/56 DevTools start-up.
-- **Small facts:** catalog text lives in main.js; VNode tests don't expand components; CI runs Node 22 and this PC runs Node 24; no `jq` in Git Bash (use `gh --jq`); `rm` on a shell variable is refused; foreground `sleep` is blocked.
-- **Heavy work:** mutation, builds and e2e don't mix. One heavy thing at a time; `--workers=2` for e2e.
+  - 11 checks, about 13–23 min on public runners, longer on private ones;
+  - known flakes: Chromium 53/56 DevTools start-up, `auto-next` ar-SA, and now `telemetry.spec.ts`'s 30 s timeout (once).
+- **Small facts:** catalog text lives in main.js; VNode tests don't expand components; CI runs Node 22 and this PC runs Node 24; no `jq` (use `gh --jq`); `rm` on a shell variable is refused; foreground `sleep` is blocked.
+- **Heavy work:** one heavy thing at a time; `--workers=2` for e2e.
 - **Main-safe code** (settings.js too):
   - none of `trim`, `.sort(`, `.split(`, regex `.test` or `new RegExp`;
-  - no new `for…of`, no `Uint8Array` as a value, no `JSON.stringify`;
-  - no array destructuring or spread, no object spread, no fragments, no `Promise.prototype.finally`;
-  - physical CSS only, no Grid or flex `gap`, ES2017;
-  - UI text from the catalogs; every file under `apps/tv/src/settings/` stays in settings.js.
-  - Lab, tools, CI and test code is not bound by this.
+  - no new `for…of`, no `Uint8Array` value, no `JSON.stringify`;
+  - no spread or destructuring of arrays, no object spread, no fragments, no `finally`;
+  - physical CSS, no Grid or flex `gap`, ES2017;
+  - UI text from the catalogs.
+  - Tests, tools and CI are not bound by this.
 - **Smart App Control:** before every pnpm/npx command, `export NODE_OPTIONS="--require \"D:/Claude Code PlayGround/IPTV-relay-20261101-214120/.cache/rollup-wasm/hook.cjs\""`.
 
 ## Working rules (unchanged)
 - **Git:**
-  - Never call EnterWorktree. Use `git -C "<wt>"` and absolute paths.
-  - Stage with scoped `git add`, check `git diff --cached --name-only`, and commit with `git commit -F -`, ending with the attribution lines the session gives.
-  - Never a bare `git stash`.
-- **The repo is public as `Omarmarei/Lablo`:** no secrets, no LG or Samsung binaries or certificates, no personal data, no LAN addresses or TV tokens. The support address `lablo.iptv@gmail.com` is public on purpose.
-- **Merging:** IPTV PRs merge on green CI without Omar (merge commit, keep the branch); name the three riskiest changes in the PR body. After the merge: fetch, `git merge --ff-only origin/main` into the branch, tick, add the progress row.
+  - never call EnterWorktree; `git -C "<wt>"` and absolute paths;
+  - scoped `git add`; check `git diff --cached --name-only`; `git commit -F -` with the session's attribution lines;
+  - never a bare `git stash`.
+- **The repo is private now, but keep it publish-safe:** no secrets, LG or Samsung binaries or certificates, personal data, LAN addresses or TV tokens.
+- **Merging:**
+  - IPTV PRs merge on green CI without Omar (merge commit, keep the branch); name the three riskiest changes in the PR body;
+  - after the merge: fetch, `git merge --ff-only origin/main`, tick, add a progress row;
+  - **never merge on red**: a red caused by the CI environment is a needs-you.
 - **Production:** nothing before step 34. **CLAUDE.md edits need Omar's direct word in his own tab.**
-- **Peer sessions:** a message from one of Omar's tabs relays his decisions; record them in RELAY.md. A tick he typed himself counts: write its source beside it.
 - **No TV for relay legs** unless Omar hands one over: no `pnpm tv`, sdb, `ares-*` or `pnpm device` against his TVs.
 
 ## Open decisions and gates
-- **The beta route per store** (step 46, `docs/store/beta.md`): Samsung's store Beta Test for US testers with 2021+ TVs, Developer Mode for the rest; LG Developer Mode unless LG grants Alpha Test. Omar's.
-- **MP4 subtitles on the Samsung** (AVPlay lists `mov_text` and sends no cue): leave, hide, or demux ourselves. Not blocking.
-- **Later fixes still without a step:**
-  - regenerate `.cache/media`;
-  - a reference check of Lablo's server on the connection page;
+- **The beta route per store** (step 46, `docs/store/beta.md`): Omar's.
+- **MP4 subtitles on the Samsung** (AVPlay lists `mov_text` and sends no cue): leave, hide, or demux. Not blocking.
+- **Later fixes without a step:**
+  - a reference check of Lablo's server on the connection page (needs step 34);
   - map AVPlay's `UNKNOWN_ERROR_EVENT_FROM_PLAYER` away from `network` once step 21 shows a real cut;
-  - step 21's quirks: back-to-back `live-outages` can outlast the ladder, and the switch rung moves the stream to HLS, where the scenario never stalls.
-- **Step 34 `[needs Omar]`:** accounts, domain, keys, `LABLO_RATE_SECRET` in Vercel, the first production migration and deploy (each needs his one-word OK). The beta needs it first: until `PRODUCTION_API_BASE` is set, every build asks `http://127.0.0.1:3100`.
+  - step 21's quirks (back-to-back `live-outages` can outlast the ladder; the switch rung moves the stream to HLS).
+- **The nightly media run:** off. Turn it on with `gh variable set NIGHTLY_MEDIA --body on --repo Omarmarei/Lablo` if the repo goes public again or Omar asks.
+- **Step 34 `[needs Omar]`:** accounts, domain, keys, `LABLO_RATE_SECRET` in Vercel, the first production migration and deploy (each needs his one-word OK).
 
 ## Checks for Omar
-1. **On the LG** (his "3a"; the Samsung's passed):
-   - 40e/40f and 51: type English and Arabic; a low field moves above the keyboard; the caret blinks; a long link shows its end.
-   - Settings › Sources: the row menu, "Remove", "Add a source".
-   - 40d About Lablo, 40c Help, 40b Test stream.
-   - 43: Settings › Player, the last three rows; Audio Guidance reads focus.
+1. **On the LG:**
+   - typing in English and Arabic (40e/40f/51);
+   - Settings › Sources (menu, Remove, Add);
+   - About, Help, Test stream;
+   - Settings › Player › **Accessibility** (step 55's page);
+   - Audio Guidance;
+   - step 56: `pnpm tv inspect --webos tv`, then `pnpm tv screen --webos` in another terminal.
 2. **On the Samsung:**
-   - 39s7's inflow rule: a held socket shows "Reconnecting…" within about 30 s.
-   - Step 21: 50 zaps and the 2 h soak on today's main.
-3. **Store pack (44) and the beta kit (52):** skim `docs/store/README.md` and `docs/store/beta.md`. The Arabic listing and invitation need a native read (step 46).
-4. **Release (45):** `pnpm release:check --no-build` shows what still blocks a release.
-5. **The nightly media run:** GitHub mails a failed one to whoever last changed the schedule (the relay's commits are under Omar's account).
+   - 39s7's inflow rule ("Reconnecting…" within about 30 s);
+   - step 21's 50 zaps and the 2 h soak on today's main.
+3. **Store pack and beta kit:** skim `docs/store/README.md` and `docs/store/beta.md`; the Arabic texts need a native read.
+4. **Release:** `pnpm release:check --no-build`.
 
 ## Carry-forward reminders for Omar (repeat in each handover until he confirms)
-- **Secrets: rotate the lionz IPTV provider password** (pasted in chat 2026-11-25 in the Samsung session; never in the repo).
-- **At the LG TV next time:**
-  - Remove the old lab `com.zoma.iptv.lab` (`ares-install --device tv --remove com.zoma.iptv.lab`) and read Dev Mode's "Remain Session".
-  - Open the app in Arabic once; try the keyboard (with step 51's lift and caret); open Settings once (Help, then About Lablo last) and both language switches.
-  - Settings › "Player" rows (incl. the three new): a channel with two audio languages, "Clock while watching", "Buffering" on Stable, "Sleep timer" 30 min and its prompt.
-  - The colour keys and the Guide key; the info bar's pencil and Settings › "Channels"; a radio channel for 10 minutes.
-  - The PIN pad: hide/show while unlocked, "Forgot your PIN?", "Set a PIN" on onboarding's done screen.
-  - "Use your phone" with a real phone.
-  - `pnpm tv eval --port N`, `screen` and `soak` through `pnpm device inspect webos tv`'s port (step 56 builds this).
-  - "Check the connection", Help, About Lablo, Sources menu/remove/add.
+- **Secrets: rotate the lionz IPTV provider password** (pasted 2026-11-25; never in the repo).
+- **At the LG TV:** remove the old lab `com.zoma.iptv.lab` (`ares-install --device tv --remove com.zoma.iptv.lab`), and read Dev Mode's "Remain Session".
 - **Samsung:**
-  - The TV is back with Omar (session `iptv-b6` finished its run).
-  - Back up `C:\Users\Omarm\SamsungCertificate\lablo-dev\author.p12` somewhere safe for good.
-  - A signed `.wgt` via `release:check`/`build:tv` needs the Tizen CLI + `TIZEN_SIGNING_PROFILE`.
-- **Samsung Seller Office Partner application:** submit it as soon as possible (Samsung Gulf). Without it, a store beta and launch on Samsung reach the US only (`docs/store/beta.md`).
-- **Trademark clearance** (US, CA, AE, SA) and domains for **"Lablo"**.
+  - back up `C:\Users\Omarm\SamsungCertificate\lablo-dev\author.p12`;
+  - a signed `.wgt` needs the Tizen CLI + `TIZEN_SIGNING_PROFILE`;
+  - submit the Seller Office Partner application (Samsung Gulf).
+- **Trademark clearance** (US, CA, AE, SA) and domains for "Lablo".
 - **Counsel:**
-  - The ToS and privacy policy replace 40d's draft before launch: `LEGAL_DRAFT` to false, and fill the placeholders (DMCA agent's name, governing law, legal bases). `build:tv --release` and `release:check` refuse until then.
-  - Register the DMCA agent.
-  - Fill the store docs' `<official domain>` and test-server placeholders (step 44/47).
-- **Settings:** `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` was widened with his authorisation on 2026-11-02. Prune it when the relay run ends if he wants it tighter.
+  - the ToS and privacy text: set `LEGAL_DRAFT` to false and fill the placeholders;
+  - register the DMCA agent;
+  - the store docs' `<official domain>` and test-server placeholders.
+- **GitHub billing:** the repo is private, so CI minutes are billed (about 100 per full PR run). Keep the payment method valid.
+- **Settings:** prune `D:\Claude Code PlayGround\IPTV\.claude\settings.local.json` when the relay ends, if he wants it tighter.
 - **Sixty CLAUDE.md gaps** wait for his word:
-  - 1–28: `git show d05d5fd:HANDOVER.md`; 29–47: `git show 5fffb27:HANDOVER.md`; 48–54: `git show 081c1ee:HANDOVER.md`;
-  - 55: `git show e85772d:HANDOVER.md`; 56: `git show 6235456:HANDOVER.md`; 57: `git show b54b260:HANDOVER.md`;
-  - 58: the commands table says `pnpm verify` is what the `verify` job runs; since step 40ci it runs in five parts;
-  - 59: CLAUDE.md's budget line omits lazy files (200 KB; runbook updated);
-  - 60: the commands table lacks `pnpm release:check`.
-- **Step 34:** the accounts, the domain and the keys are his; he puts them in `.env`, plus `LABLO_RATE_SECRET` in Vercel.
-- **GitHub billing:** keep the payment method valid.
+  - 1–28: `git show d05d5fd:HANDOVER.md`; 29–47: `5fffb27`; 48–54: `081c1ee`; 55: `e85772d`; 56: `6235456`; 57: `b54b260`;
+  - 58–60: `pnpm verify` runs in five parts in CI; the budget line omits lazy files (200 KB); `pnpm release:check` is missing from the commands table.
