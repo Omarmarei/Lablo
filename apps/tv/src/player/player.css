@@ -528,6 +528,12 @@ html[data-player='on'] .player-stage {
   margin-right: var(--space-5);
 }
 
+/* Larger text (step 58a): the six buttons' words are a quarter wider, so less room around them keeps the row inside the bar. */
+html[data-large-text='on'] .player__actions .z-button {
+  margin-right: var(--space-3);
+  padding: 0 var(--space-4);
+}
+
 /* The track menu (step 20b): a panel at the end side of the safe area, over the picture. */
 .tracks {
   position: absolute;

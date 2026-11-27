@@ -155,7 +155,7 @@ export const EN = {
 
   // Settings' backup page (RELAY step 32d2b).
   'backup.title': 'Backup',
-  'backup.intro': 'An encrypted copy of your sources, favourites and settings, so they come back after an app update or a reset.',
+  'backup.intro': 'An encrypted copy of your sources, favourites and settings, to bring back after a reset.',
   'backup.switch': 'Backup',
   'backup.on': 'On',
   'backup.off': 'Off',
@@ -731,7 +731,7 @@ export const EN = {
   'settings.parentalHint': 'Your PIN, and the groups and channels it locks',
   // Settings › "Player" (step 38d3): its values are the track menu's and the info bar's words (`lang.*`, `tracks.*`, `player.picture.*`).
   'settings.player': 'Player',
-  'settings.playerHint': 'Audio and subtitle languages, caption look, picture, clock, sleep timer, buffering and larger text',
+  'settings.playerHint': 'Languages, caption look, picture, clock, sleep timer, buffering and larger text',
   'playerSettings.audio': 'Audio language',
   'playerSettings.audioHint': 'Plays first when a channel or film has more than one',
   'playerSettings.app': 'Same as the app',

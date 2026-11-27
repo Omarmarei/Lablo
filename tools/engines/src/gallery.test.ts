@@ -34,6 +34,7 @@ function state(overrides: Partial<GalleryState> = {}): GalleryState {
     viewport: [1920, 1080],
     scroll: [1920, 1080],
     rows: [88, 88, 88, 88, 88, 88, 88],
+    stacked: [],
     outside: [],
     cut: [],
     squeezed: [],
@@ -221,9 +222,20 @@ describe('evaluateGallery', () => {
   });
 
   it('catches rows without their CSS, and a list that drew the wrong window', () => {
-    // What seed-css-no-list-row measured on Chromium 53/56/68.
+    // What seed-css-no-list-row measured on Chromium 53/56/68 before step 58a.
     const unstyled = run({ boot: state({ rows: [197, 196, 235, 114, 197, 235, 114] }) });
     expect(evaluateGallery(unstyled, engine56, 20_000)).toEqual(['channel rows 197 px; 196 px; 235 px; 114 px tall, expected 88 px']);
+    // Since 58a the list's slot gives every row its 88 px, ListRow.css or not: the seed shows as
+    // rows whose number sits above the name. The first five are named.
+    const stacked = ['1', '2', '3', '4', '5', '6', '7'].map((n) => `z-row: ${n}Lablo ${n}`);
+    expect(evaluateGallery(run({ boot: state({ stacked }) }), engine56, 20_000)).toEqual([
+      'channel rows without their line (the number not beside the name): z-row: 1Lablo 1; z-row: 2Lablo 2; z-row: 3Lablo 3; z-row: 4Lablo 4; z-row: 5Lablo 5 and 2 more',
+    ]);
+    // In Arabic too (the phase after the switch reads the same fields).
+    const arabicStacked = run({ arabic: arabic({ stacked: ['z-row: 1Lablo 1'] }) });
+    expect(evaluateGallery(arabicStacked, engine56, 20_000)).toEqual([
+      'in Arabic: channel rows without their line (the number not beside the name): z-row: 1Lablo 1',
+    ]);
     expect(evaluateGallery(run({ boot: state({ rows: [88, 88, 88, 88, 88, 88] }) }), engine56, 20_000)).toEqual([
       'the channel list drew 6 rows, expected 7',
     ]);

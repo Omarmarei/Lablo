@@ -1,3 +1,4 @@
+import { shownRows } from '@lablo/ui';
 import { describe, expect, it, vi } from 'vitest';
 import { CAPTION_BACKGROUNDS, CAPTION_COLORS, asCaptionBackground, asCaptionColor, createAppearance, setLargeTextAttribute } from './appearance';
 
@@ -21,6 +22,14 @@ describe('appearance', () => {
     look.setCaptionColor('cyan');
     expect([look.largeText.value, look.captionBackground.value, look.captionColor.value]).toEqual([true, 'none', 'cyan']);
     expect(told).toHaveBeenCalledWith(true);
+  });
+
+  it('larger text makes list rows taller (fewer in a list) and off puts them back (step 58a)', () => {
+    const look = createAppearance(() => undefined);
+    look.setLargeText(true);
+    expect(shownRows(7)).toBe(5);
+    look.setLargeText(false);
+    expect(shownRows(7)).toBe(7);
   });
 
   it('puts data-large-text on the root while on, and removes it when off', () => {

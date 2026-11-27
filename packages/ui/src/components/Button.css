@@ -22,11 +22,15 @@
   transition: background-color var(--motion-fast), border-color var(--motion-fast);
 }
 
-/* The colour key's dot (step 39b) sits in the top-end corner, out of the flow. */
+/*
+ * The colour key's dot (step 39b) sits in the top-end corner, out of the flow: above the words'
+ * capitals and past their end in a button padded 24 px or more (step 58c: 20 px in, it covered
+ * the last letter of "Guide" in the live header, whose padding is 24 px).
+ */
 .z-button__key {
   position: absolute;
-  top: 8px;
-  right: 20px;
+  top: 4px;
+  right: 6px;
   width: 12px;
   height: 12px;
   border-radius: 50%;

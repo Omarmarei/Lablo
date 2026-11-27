@@ -10,7 +10,7 @@
 import './styles/fonts.css';
 import './styles/tokens.css';
 
-export { FOCUS_RING, LAYOUT, SCREEN, SPACE, fits, pxTokens } from './design/tokens';
+export { FOCUS_RING, LARGE_TEXT_ROWS, LAYOUT, SCREEN, SPACE, fits, pxTokens, setRowScale, shownRowSize, shownRows } from './design/tokens';
 export type { EditorBinding, FocusBinding, ItemBinding, ItemState, ZoneView } from './focus/binding';
 export { bindEditor, bindFocus, useFocus, useZone } from './focus/binding';
 export type { BackOutcome, Focus, HandleResult, Navigator, NavigatorOptions, Screen, ScreenSpec } from './focus/navigator';

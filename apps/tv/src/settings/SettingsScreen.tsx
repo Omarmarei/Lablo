@@ -1,6 +1,6 @@
 import type { EpgFailure, EpgSummary } from '@lablo/data';
 import type { Focus, FocusBinding, ItemBinding, Screen } from '@lablo/ui';
-import { Button, Dialog, Spinner, TextField, VirtualList, listWindow, shapeDigits, useZone } from '@lablo/ui';
+import { Button, Dialog, Spinner, TextField, VirtualList, shapeDigits, useZone } from '@lablo/ui';
 import type { AppI18n } from '../i18n';
 import { errorText } from '../onboarding/load-text';
 import { PAIR_SCREEN } from '../pairing/pair-state';
@@ -31,7 +31,7 @@ import { HelpListPage, HelpTopicPage } from './HelpPage';
 import { CHECK_SCREEN } from './pin-check';
 import { ParentalPageScreen } from './ParentalPage';
 import type { Settings, SettingsItem } from './settings-state';
-import { SETTINGS_VISIBLE } from './settings-state';
+import { settingsWindow } from './settings-window';
 import type { LoginField, LoginForm, LoginSource } from './source-login';
 import { LOGIN_CANCEL, LOGIN_FIELDS, LOGIN_PHONE, LOGIN_SAVE, LOGIN_SCREEN, loginFieldId } from './source-login';
 import type { SourceRow, SourcesList } from './sources-state';
@@ -535,7 +535,8 @@ export function ReportItem({ i18n, item, report }: { i18n: AppI18n; item: ItemBi
 
 /**
  * The settings screen as drawn, hook-free (the rows' bindings come from `SettingsPage`): the
- * `SETTINGS_VISIBLE` rows from `top`, the focus engine's window (step 38c1).
+ * `SETTINGS_VISIBLE` rows from `top`, the focus engine's window (step 38c1); with larger text
+ * fewer, taller rows, kept on the focused row `at` (step 58a).
  */
 export function SettingsView({
   i18n,
@@ -544,6 +545,7 @@ export function SettingsView({
   telemetry,
   report = null,
   top = 0,
+  at,
 }: {
   i18n: AppI18n;
   list: readonly SettingsItem[];
@@ -551,15 +553,16 @@ export function SettingsView({
   telemetry: TelemetrySwitch | null;
   report?: ReportRow | null;
   top?: number;
+  at?: number;
 }) {
   const { t } = i18n;
-  const { from, to } = listWindow(top, list.length, SETTINGS_VISIBLE);
+  const { from, to, height } = settingsWindow(top, list.length, at);
   return (
     <div class="settings__page" data-testid="settings">
       <header class="settings__header">
         <h1 class="settings__title">{t('settings.title')}</h1>
       </header>
-      <div class="settings__items" role="menu" data-top={from} data-count={list.length}>
+      <div class="settings__items" role="menu" data-top={from} data-count={list.length} style={{ '--settings-row': `${height}px` }}>
         {list.slice(from, to).map((id, n) => {
           const i = from + n;
           const binding = item(i);
@@ -582,7 +585,7 @@ export function SettingsView({
 /** The settings' list: on top, or under "Language"'s dialog (`screen`, step 38d2). */
 function SettingsPage({ i18n, binding, list, telemetry, report, screen }: Omit<PageProps, 'focus'> & { list: readonly SettingsItem[]; telemetry: TelemetrySwitch | null; report: ReportRow | null; screen: Screen }) {
   const items = useZone(binding, screen, 'items');
-  return <SettingsView i18n={i18n} list={list} item={(i) => items.item(i)} telemetry={telemetry} report={report} top={items.position.top} />;
+  return <SettingsView i18n={i18n} list={list} item={(i) => items.item(i)} telemetry={telemetry} report={report} top={items.position.top} at={items.position.index} />;
 }
 
 /** The guide menu's buttons in words ("Give its link": step 32d4c). */

@@ -2,7 +2,7 @@ import type { Intent, KeyLike, TextKey } from '@lablo/platform-api';
 import { describe, expect, it } from 'vitest';
 import { layoutRows, offersArabic, startLayout } from './keyboard-layouts';
 import type { KeyboardEnd, KeyboardInput } from './screen-keyboard';
-import { LIFT_GAP, createScreenKeyboard, setScreenKeyboardLabels } from './screen-keyboard';
+import { KEY_ICONS, LIFT_GAP, createScreenKeyboard, keyFace, setScreenKeyboardLabels } from './screen-keyboard';
 
 /** The few parts of the DOM the keyboard touches. */
 class FakeElement {
@@ -62,6 +62,12 @@ class FakeDocument extends FakeElement {
   documentElement = { lang: 'en' };
   createElement(): FakeElement {
     return new FakeElement();
+  }
+  /** An SVG element (the icon keys, step 58b): its namespace and tag kept. */
+  createElementNS(ns: string, tag: string): FakeElement {
+    const el = new FakeElement();
+    el.type = `${ns} ${tag}`;
+    return el;
   }
 }
 
@@ -473,5 +479,50 @@ describe('the keyboard keeps the field above its panel (step 51)', () => {
     keyboard.open({ input: Object.assign(new FakeInput(), { closest: () => field as unknown as Element }), platform, onEnd: () => undefined });
     expect(away.style.transform).toBeUndefined();
     expect(field.style.transform).toBeUndefined();
+  });
+});
+
+describe('keys drawn as icons (RELAY step 58b)', () => {
+  const SVG = 'http://www.w3.org/2000/svg';
+
+  it('Shift, Delete and the TV keyboard draw an SVG path and no text; their word is the label', () => {
+    const r = setup();
+    const keys: Array<[number, number, string, string]> = [
+      [3, 0, 'shift', 'Shift'],
+      [3, 8, 'delete', 'Delete'],
+      [4, 4, 'native', 'TV keyboard'],
+    ];
+    for (const [row, col, action, word] of keys) {
+      const key = r.keyAt(row, col);
+      expect(key.textContent).toBe('');
+      expect(key.attributes.get('aria-label')).toBe(word);
+      expect(key.children).toHaveLength(1);
+      const svg = key.children[0]!;
+      expect(svg.type).toBe(`${SVG} svg`);
+      expect(Object.fromEntries(svg.attributes)).toEqual({ class: 'z-kbd__icon', viewBox: '0 0 24 24', 'aria-hidden': 'true' });
+      expect(svg.children.map((c) => [c.type, c.attributes.get('d')])).toEqual([[`${SVG} path`, KEY_ICONS[action]]]);
+    }
+  });
+
+  it('keeps its icon through a page change and Shift, and other keys have no child', () => {
+    const r = setup();
+    r.keyAt(3, 0).click();
+    expect(r.keyAt(3, 0).children).toHaveLength(1);
+    expect(r.keyAt(3, 0).attributes.get('aria-pressed')).toBe('true');
+    expect(r.keyAt(1, 0).textContent).toBe('Q');
+    expect(r.keyAt(1, 0).children).toHaveLength(0);
+    expect(r.keyAt(4, 5).children).toHaveLength(0);
+    expect(r.keyAt(4, 5).textContent).toBe('Done');
+  });
+
+  it('keyFace: a letter (upper-case under Shift on the Latin page), a word, or nothing for an icon', () => {
+    const labels = { title: 'T', done: 'D', native: 'N', space: 'S', delete: 'X', shift: 'H', symbols: 'Y', letters: 'L', arabic: 'A', latin: 'E' };
+    expect(keyFace({ text: 'q' }, labels, 'latin', true)).toBe('Q');
+    expect(keyFace({ text: 'q' }, labels, 'latin', false)).toBe('q');
+    expect(keyFace({ text: 'ب' }, labels, 'arabic', true)).toBe('ب');
+    expect(keyFace({ action: 'space' }, labels, 'latin', false)).toBe('S');
+    expect(keyFace({ action: 'done' }, labels, 'latin', false)).toBe('D');
+    expect(keyFace({ action: 'symbols' }, labels, 'latin', false)).toBe('123');
+    for (const action of ['shift', 'delete', 'native'] as const) expect(keyFace({ action }, labels, 'latin', false)).toBe('');
   });
 });

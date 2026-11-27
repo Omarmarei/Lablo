@@ -11,7 +11,8 @@ import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { TvArgs } from './args';
 import { parseTvArgs } from './args';
-import { evaluateOnPort } from './cdp';
+import type { CdpStep } from './cdp';
+import { evaluateOnPort, evaluateResult, runOnPort } from './cdp';
 import { appStateUrl, describeAppState, inspectApp, sdbConnect, sdbForward, sdbLaunch, sdbUninstall, tizenAppId } from './commands';
 import type { TvConfig } from './config';
 import { CONFIG_FILE, clientName, formatTvConfig, parseTvConfig, setupConfig, tvSerial } from './config';
@@ -21,7 +22,7 @@ import { parseScript, REMOTE_PORT, remoteEvent, remotePath, runScript } from './
 import type { HeapReading } from './soak';
 import { LISTED_STALLS, readDrain, replaySoak, SOAK_DRAIN, SOAK_SAMPLER, StallDetector, summaryLine } from './soak';
 import type { AresInspect } from './webos';
-import { forwardInspector, WEBOS_PORT, webosAppId, webosPage } from './webos';
+import { forwardInspector, SCREENSHOT, screenshotBytes, WEBOS_PORT, webosAppId, webosKeySteps, webosPage } from './webos';
 import { openRawWebSocket } from './ws';
 
 const ROOT = path.resolve(import.meta.dirname, '../../..');
@@ -87,6 +88,35 @@ function inspector(args: TvArgs): InspectorTarget {
 
 function evaluate(target: InspectorTarget, expression: string, timeoutMs?: number): Promise<unknown> {
   return evaluateOnPort(target.port, expression, { ...(timeoutMs === undefined ? {} : { timeoutMs }), ...(target.page === undefined ? {} : { page: target.page }) });
+}
+
+/** Inspector steps in the page, over one socket (`keys` and `shot` on webOS, step 58d). */
+function steps(target: InspectorTarget, list: readonly CdpStep[]): Promise<unknown[]> {
+  return runOnPort(target.port, list, { timeoutMs: 120_000, ...(target.page === undefined ? {} : { page: target.page }) });
+}
+
+/** `pnpm tv keys --webos <key|ms>...` (step 58d): the keys in the app's page, then what the screen shows. */
+async function webosKeys(args: TvArgs): Promise<void> {
+  const list = webosKeySteps(args.words);
+  if (typeof list === 'string') throw new TvError(list);
+  // The screen is read over the same socket: one socket per command.
+  const results = await steps(inspector(args), [...list, { method: 'Runtime.evaluate', params: { expression: SCREEN_EXPRESSION, awaitPromise: true, returnByValue: true } }]);
+  const answer = evaluateResult({ result: results[results.length - 1] });
+  if ('error' in answer) throw new TvError(answer.error);
+  const screen = answer.value as { focus: string | null; text: string };
+  console.log(`focus: ${screen.focus ?? '(none)'}\n${screen.text}`);
+}
+
+/** `pnpm tv shot --webos <file.png>` (step 58d): the screen as a PNG. */
+async function webosShot(args: TvArgs): Promise<void> {
+  const [file] = args.words;
+  if (file === undefined) throw new TvError('Usage: pnpm tv shot --webos <file.png> [--lab] [--port N]');
+  const [result] = await steps(inspector(args), [SCREENSHOT]);
+  const png = screenshotBytes(result);
+  if (png === null) throw new TvError('the inspector sent no picture');
+  mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
+  writeFileSync(file, png);
+  console.log(`saved ${file} (${png.length} bytes)`);
 }
 
 /**
@@ -251,7 +281,10 @@ async function run(args: TvArgs): Promise<void> {
       return;
     }
     case 'keys':
-      await keys(args);
+      await (args.webos ? webosKeys(args) : keys(args));
+      return;
+    case 'shot':
+      await webosShot(args);
       return;
     case 'launch': {
       const config = loadConfig();

@@ -105,3 +105,17 @@ export function startLayout(kind: KeyboardKind, uiLanguage: string): LayoutName 
 export function offersArabic(kind: KeyboardKind): boolean {
   return kind === 'text' || kind === 'password';
 }
+
+/**
+ * The keys drawn as an icon (RELAY step 58b): Lablo Sans has no ⇧, ⌫ or ⌨, so they came from the
+ * TV's own fonts, and the LG had no ⌫ (an empty box). Each is an SVG path on a 24 px grid, drawn
+ * in the key's text colour; the key's word is its `aria-label`. Here, import-free, for e2e too.
+ */
+export const KEY_ICONS: { readonly [action: string]: string } = {
+  // An arrow up, hollow.
+  shift: 'M12 4 4 12h4.5v7h7v-7H20z',
+  // A key with a point on the left and a cross in it.
+  delete: 'M9 6h11v12H9l-6-6zM12 9l5 6M17 9l-5 6',
+  // A keyboard: its outline and three rows of keys.
+  native: 'M3 6h18v12H3zM6 9h2M10 9h2M14 9h2M18 9h0M6 12h2M10 12h2M14 12h2M8 15h8',
+};

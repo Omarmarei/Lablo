@@ -19,11 +19,12 @@
   height: 110px;
 }
 
+/* With the details' line, 110 px at both text sizes (step 58a). */
 .guide__top {
   display: flex;
   align-items: baseline;
   height: 56px;
-  margin-bottom: var(--space-4);
+  margin-bottom: calc(54px - var(--line-height-body));
 }
 
 .guide__title {
@@ -69,7 +70,7 @@
 
 .guide__details {
   display: flex;
-  height: 38px;
+  height: var(--line-height-body);
   margin: 0;
   font-size: var(--font-size-body);
   line-height: var(--line-height-body);

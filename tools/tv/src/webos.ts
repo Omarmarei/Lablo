@@ -3,9 +3,12 @@
  * runs it) forwards the app's inspector to a port on this PC and holds the tunnel while it runs;
  * `eval`, `screen`, `marks` and `soak` then evaluate in the app's page there. It runs without
  * `--open`: the inspector serves one client at a time, and the browser's DevTools would take it.
- * The TV's own remote keys (LG's SSAP API) are not here.
+ * `keys` and `shot` (step 58d) press the app's keys and take the screen through the same port
+ * (`Input.dispatchKeyEvent`, `Page.captureScreenshot`): keys reach the page, not the TV's own
+ * menus, and the TV's screensaver still comes (they are not remote activity).
  */
 import type { ChildProcess } from 'node:child_process';
+import type { CdpStep } from './cdp';
 import { evaluateOnPort } from './cdp';
 
 /** The PC's port for the inspector when no `--port` is given: the TV's own inspector port, so the number is the same at both ends (as `sdb forward` has it on the Samsung). */
@@ -116,4 +119,74 @@ export async function forwardInspector(
     child.kill();
     throw error;
   }
+}
+
+/** The keys `pnpm tv keys --webos` presses, by name: the codes the LG's remote sends the page (step 58d). */
+export const WEBOS_KEY_CODES: { readonly [name: string]: number } = {
+  UP: 38,
+  DOWN: 40,
+  LEFT: 37,
+  RIGHT: 39,
+  OK: 13,
+  BACK: 461,
+  CH_UP: 33,
+  CH_DOWN: 34,
+  RED: 403,
+  GREEN: 404,
+  YELLOW: 405,
+  BLUE: 406,
+  INFO: 457,
+  PLAY: 415,
+  PAUSE: 19,
+  STOP: 413,
+  DIGIT_0: 48,
+  DIGIT_1: 49,
+  DIGIT_2: 50,
+  DIGIT_3: 51,
+  DIGIT_4: 52,
+  DIGIT_5: 53,
+  DIGIT_6: 54,
+  DIGIT_7: 55,
+  DIGIT_8: 56,
+  DIGIT_9: 57,
+};
+
+/** The pause after each key, so the screen has drawn before the next one (leg 168: keys sent too fast went wrong once). */
+export const WEBOS_KEY_GAP_MS = 450;
+
+/** A key's press and release on the page, as the remote's. */
+function keySteps(code: number): CdpStep[] {
+  return [
+    { method: 'Input.dispatchKeyEvent', params: { type: 'rawKeyDown', windowsVirtualKeyCode: code, nativeVirtualKeyCode: code } },
+    { method: 'Input.dispatchKeyEvent', params: { type: 'keyUp', windowsVirtualKeyCode: code, nativeVirtualKeyCode: code } },
+  ];
+}
+
+/**
+ * `keys --webos` words as inspector steps: each key name (`WEBOS_KEY_CODES`) pressed and released,
+ * then `WEBOS_KEY_GAP_MS`; a number is a further pause in ms. What is wrong, as a sentence.
+ */
+export function webosKeySteps(words: readonly string[]): CdpStep[] | string {
+  const names = Object.keys(WEBOS_KEY_CODES).join(' ');
+  if (words.length === 0) return `Usage: pnpm tv keys --webos <key|ms>... (keys: ${names})`;
+  const steps: CdpStep[] = [];
+  for (const word of words) {
+    const code = WEBOS_KEY_CODES[word];
+    if (code !== undefined) {
+      steps.push(...keySteps(code), { pause: WEBOS_KEY_GAP_MS });
+      continue;
+    }
+    if (!/^\d{1,6}$/.test(word)) return `"${word}" is not a key (${names}) or a pause in ms`;
+    steps.push({ pause: Number(word) });
+  }
+  return steps;
+}
+
+/** `shot --webos`: the page as a PNG (1920x1080 on the LG). */
+export const SCREENSHOT: CdpStep = { method: 'Page.captureScreenshot', params: { format: 'png' } };
+
+/** The PNG in a `Page.captureScreenshot` answer, or null. */
+export function screenshotBytes(result: unknown): Buffer | null {
+  const data = (result as { data?: unknown } | null)?.data;
+  return typeof data === 'string' && data !== '' ? Buffer.from(data, 'base64') : null;
 }

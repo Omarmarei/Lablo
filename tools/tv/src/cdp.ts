@@ -109,3 +109,69 @@ export async function evaluateOnPort(port: number, expression: string, options: 
     });
   });
 }
+
+/** A step of `runOnPort`: an inspector method and its params, or a pause in ms. */
+export type CdpStep = { readonly method: string; readonly params?: object } | { readonly pause: number };
+
+/**
+ * Runs `steps` in order over one socket to the page (RELAY step 58d: `keys --webos` and
+ * `shot --webos`): each method waits for its answer before the next one goes. Resolves with each
+ * step's `result` (`null` for a pause); rejects with the first error, the time limit (for the
+ * whole run) or a failed socket, under evaluateOnPort's rules: settle first, close after, never
+ * close from the error handler.
+ */
+export async function runOnPort(port: number, steps: readonly CdpStep[], options: EvaluateOptions = {}): Promise<unknown[]> {
+  const { timeoutMs = 60_000, open = (url: string): InspectorSocket => new WebSocket(url), page } = options;
+  const response = await fetch(`http://127.0.0.1:${port}/json`, { signal: AbortSignal.timeout(timeoutMs) });
+  const list: unknown = await response.json();
+  const url = pageTarget(list, port, page);
+  if (url === null) throw new Error(page === undefined ? `no page on the inspector at port ${port}` : `no page of ${page} on the inspector at port ${port} (is the app running?)`);
+  return new Promise((resolve, reject) => {
+    const ws = open(url);
+    const results: unknown[] = [];
+    let settled = false;
+    let waiting = -1;
+    const finish = (error: Error | null): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error === null) resolve(results);
+      else reject(error);
+    };
+    const timer = setTimeout(() => {
+      finish(new Error(`no answer from the inspector within ${timeoutMs} ms. ${ONE_CLIENT}`));
+      ws.close();
+    }, timeoutMs);
+    const next = (): void => {
+      if (settled) return;
+      const step = steps[results.length];
+      if (step === undefined) {
+        finish(null);
+        ws.close();
+        return;
+      }
+      if ('pause' in step) {
+        setTimeout(() => {
+          results.push(null);
+          next();
+        }, step.pause);
+        return;
+      }
+      waiting = results.length + 1;
+      ws.send(JSON.stringify({ id: waiting, method: step.method, params: step.params ?? {} }));
+    };
+    ws.addEventListener('open', next);
+    ws.addEventListener('message', (event) => {
+      const message = JSON.parse(String(event.data)) as { id?: unknown; result?: unknown; error?: unknown };
+      if (message.id !== waiting || settled) return;
+      if (message.error !== undefined) {
+        finish(new Error(`inspector error: ${JSON.stringify(message.error)}`));
+        ws.close();
+        return;
+      }
+      results.push(message.result ?? null);
+      next();
+    });
+    ws.addEventListener('error', () => finish(new Error(`the inspector's WebSocket failed (${url}). ${ONE_CLIENT}`)));
+  });
+}

@@ -54,9 +54,10 @@
 }
 
 /* Our own words: on the page's side. */
+/* Its line and the gap under it are 56 px at both text sizes (step 58a). */
 .home__shelf-title {
-  height: 44px;
-  margin: 0 0 12px;
+  height: var(--line-height-heading);
+  margin: 0 0 calc(56px - var(--line-height-heading));
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;

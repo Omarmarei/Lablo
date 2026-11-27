@@ -245,7 +245,7 @@ const LIVE_SELECTOR = /\.live(?:__|(?![\w-]))/;
 export const CSS_SEEDS: readonly CssSeed[] = [
   {
     id: 'seed-css-no-list-row',
-    description: "app.css without ListRow.css's rules: the channel rows lose their 88 px height",
+    description: "app.css without ListRow.css's rules: the channel rows lose their flex line (the number above the name)",
     minChrome: Number.POSITIVE_INFINITY,
     screens: ['gallery'],
     edit: (css) => removeRules(css, (selector) => LIST_ROW_SELECTOR.test(selector)),

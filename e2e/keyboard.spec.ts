@@ -3,6 +3,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { AR } from '../apps/tv/src/i18n/ar';
 import { EN } from '../apps/tv/src/i18n/en';
+import { KEY_ICONS } from '../packages/ui/src/focus/keyboard-layouts';
 import { toSourceTypes } from './onboard';
 import { RemoteDriver } from './remote-driver';
 
@@ -36,6 +37,8 @@ for (const { locale, tag } of [
     const preview = page.locator('.z-kbd__text');
     const input = (n: number) => page.locator('[data-testid=onboarding] .z-field__input').nth(n);
     const key = (label: string) => keyboard.locator('.z-kbd__key', { hasText: new RegExp(`^${label}$`) });
+    /** A key drawn as an icon (step 58b): Shift, Delete, the TV keyboard. */
+    const iconKey = (action: 'shift' | 'delete' | 'native') => keyboard.locator(`.z-kbd__key:has(path[d="${KEY_ICONS[action]}"])`);
 
     await test.step('OK on the link field opens the keyboard: no Arabic key, left to right, read-only input', async () => {
       await remote.go('OK', 'form/fields/0');
@@ -46,6 +49,15 @@ for (const { locale, tag } of [
       await expect(input(0)).toHaveAttribute('readonly', '');
       await expect(key('ع')).toHaveCount(0);
       if (words !== null) await expect(keyboard).toHaveAttribute('aria-label', words['keyboard.title']);
+      // Shift, Delete and the TV keyboard drawn as icons, no font needed (step 58b): 36 px, inside their keys, no text.
+      for (const action of ['shift', 'delete', 'native'] as const) {
+        const box = (await iconKey(action).boundingBox())!;
+        const icon = (await iconKey(action).locator('svg').boundingBox())!;
+        expect(icon.width).toBe(36);
+        expect(icon.x).toBeGreaterThan(box.x);
+        expect(icon.x + icon.width).toBeLessThan(box.x + box.width);
+        expect(await iconKey(action).textContent()).toBe('');
+      }
     });
 
     await test.step('the panel and every key are on the canvas and not clipped', async () => {
@@ -90,7 +102,7 @@ for (const { locale, tag } of [
     await test.step('Shift upper-cases one letter; symbols and back', async () => {
       await page.keyboard.press('Backspace');
       await page.keyboard.press('Backspace');
-      await key('⇧').click();
+      await iconKey('shift').click();
       await key('Q').click();
       await key('q').click();
       await expect(input(0)).toHaveValue('Qq');
@@ -257,7 +269,7 @@ for (const { locale, tag } of [
     });
 
     await test.step('the key that hands over to the TV keyboard shows the input again, focused and typable', async () => {
-      await keyboard.locator('.z-kbd__key', { hasText: /^⌨$/ }).click();
+      await iconKey('native').click();
       await expect(keyboard).toHaveCount(0);
       await expect(onboarding).toHaveAttribute('data-editing', 'onboarding-server');
       await expect(field(0).locator('.z-field__typed')).toHaveCount(0);

@@ -60,6 +60,18 @@
   color: var(--color-text-muted);
 }
 
+/* Shift, delete and the TV keyboard's key (step 58b): drawn, not a font's glyph. */
+.z-kbd__icon {
+  width: 36px;
+  height: 36px;
+  vertical-align: middle;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .z-kbd__key.is-action.is-on {
   border-color: var(--color-accent);
   color: var(--color-text);

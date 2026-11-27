@@ -8,6 +8,7 @@ import { LOCKED_SCREEN, PARENTAL_SCREEN } from './parental-page';
 import type { PinCheck } from './pin-check';
 import { CHECK_SCREEN, NONE_BUTTONS, NONE_SCREEN, PICK_HEADER, PICK_SCREEN } from './pin-check';
 import type { CheckSource } from './source-login';
+import { settingsWindow } from './settings-window';
 import { shownHost } from './sources-state';
 
 /**
@@ -70,7 +71,7 @@ export function ParentalView({ i18n, page, item }: { i18n: AppI18n; page: Parent
       </header>
       {rows.length === 0 && message(status, t('parental.failedRead'), 'parental')}
       {rows.length > 0 && (
-        <div class="settings__items" role="menu">
+        <div class="settings__items" role="menu" style={{ '--settings-row': `${settingsWindow(0, rows.length).height}px` }}>
           {rows.map((row, i) => {
             const binding = item(i);
             const text = parentalText(t, row, state);

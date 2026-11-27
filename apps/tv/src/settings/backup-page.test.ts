@@ -828,7 +828,7 @@ describe('the backup page as drawn', () => {
     expect(walk(root).filter((v) => v.type === Spinner)).toHaveLength(1);
     expect(byTestId(root, 'backup-switch')).toHaveLength(0);
     expect(textOf(walk(root).filter((v) => v.type === 'h1')[0])).toBe('Backup');
-    expect(textOf(walk(root).filter((v) => v.type === 'p')[0])).toBe('An encrypted copy of your sources, favourites and settings, so they come back after an app update or a reset.');
+    expect(textOf(walk(root).filter((v) => v.type === 'p')[0])).toBe('An encrypted copy of your sources, favourites and settings, to bring back after a reset.');
     engine.heldStatus[0]!.reject(new Error('no worker'));
     await flush();
     root = t.draw();
