@@ -1,10 +1,10 @@
 /** `pnpm tv` arguments: the command, its words, and the flags (RELAY step 39s6). */
 
-export const TV_COMMANDS = ['setup', 'keys', 'launch', 'inspect', 'uninstall', 'reconnect', 'state', 'eval', 'screen', 'marks', 'soak'] as const;
+export const TV_COMMANDS = ['setup', 'keys', 'launch', 'inspect', 'uninstall', 'reconnect', 'state', 'eval', 'screen', 'marks', 'soak', 'shot'] as const;
 export type TvCommand = (typeof TV_COMMANDS)[number];
 
-/** The commands `--webos` takes (RELAY step 56): the inspector's. The others drive the Samsung's sdb, remote and REST API. */
-export const WEBOS_COMMANDS: readonly TvCommand[] = ['inspect', 'eval', 'screen', 'marks', 'soak'];
+/** The commands `--webos` takes (RELAY step 56): the inspector's, and its keys and screenshot (step 58d). The others drive the Samsung's sdb, remote and REST API. */
+export const WEBOS_COMMANDS: readonly TvCommand[] = ['inspect', 'eval', 'screen', 'marks', 'soak', 'keys', 'shot'];
 
 export interface TvArgs {
   readonly command: TvCommand;
@@ -36,6 +36,8 @@ export const USAGE = [
   '  soak start|watch|report <file> [--minutes 120] [--every 60] [--port N]',
   '  inspect --webos <ares device> [--lab] [--port N]   ares-inspect, held open; then:',
   '  eval|screen|marks|soak ... --webos [--lab] [--port N]',
+  '  keys --webos <UP|OK|BACK|...|ms>...   the app keys through the inspector, then the screen',
+  '  shot --webos <file.png>      the screen as a PNG',
 ].join('\n');
 
 /** The parsed arguments, or what is wrong with them. */
@@ -71,6 +73,7 @@ export function parseTvArgs(argv: readonly string[]): TvArgs | string {
   }
   const [command, ...rest] = words;
   if (!TV_COMMANDS.includes(command as TvCommand)) return USAGE;
+  if (command === 'shot' && !webos) return "pnpm tv shot takes --webos: the Samsung's inspector never answers Page.captureScreenshot (Tizen 5.5). Use pnpm tv screen there.";
   if (webos && !WEBOS_COMMANDS.includes(command as TvCommand)) {
     return `pnpm tv ${String(command)} drives the Samsung only (sdb, its remote, its REST API). On an LG TV: pnpm device launch|install webos <tv> [--lab], and ares-install --device <tv> --remove <app id>.`;
   }

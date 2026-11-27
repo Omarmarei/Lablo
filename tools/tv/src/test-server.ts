@@ -37,6 +37,8 @@ export interface TestServerOptions {
   readonly onOpen?: (peer: ServerPeer) => void;
   /** A status other than 101 refuses the upgrade (for this path). */
   readonly upgradeStatus?: (path: string) => number;
+  /** False: a close frame gets no answer and the socket stays open, as through ares-inspect (step 58d). */
+  readonly answerClose?: boolean;
 }
 
 export async function startTestServer(options: TestServerOptions = {}): Promise<TestServer> {
@@ -75,7 +77,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
     socket.on('data', (chunk: Buffer) => {
       for (const frame of parser.push(chunk)) {
         peer.frames.push(frame);
-        if (frame.opcode === OPCODE.close) socket.end(encodeFrame(OPCODE.close, frame.payload, null));
+        if (frame.opcode === OPCODE.close && options.answerClose !== false) socket.end(encodeFrame(OPCODE.close, frame.payload, null));
         options.onFrame?.(frame, peer);
       }
     });

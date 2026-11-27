@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { InspectorSocket } from './cdp';
-import { evaluateOnPort, evaluateResult, pageTarget, parseDebugPort } from './cdp';
+import { evaluateOnPort, evaluateResult, pageTarget, parseDebugPort, runOnPort } from './cdp';
 import type { TestServer } from './test-server';
 import { startTestServer } from './test-server';
 import { webosPage } from './webos';
@@ -223,5 +223,92 @@ describe('evaluateOnPort (a local inspector, no TV)', () => {
   it('rejects when the debugger URL fails', async () => {
     server = await inspector(() => undefined, () => [{ type: 'page', webSocketDebuggerUrl: 'ws://127.0.0.1:1/devtools/page/X' }]);
     await expect(evaluateOnPort(server.port, '1', { timeoutMs: 5000 })).rejects.toThrow("the inspector's WebSocket failed (ws://127.0.0.1:1/devtools/page/X)");
+  });
+});
+
+describe('runOnPort (step 58d: several calls over one socket, a local inspector)', () => {
+  let server: TestServer | undefined;
+  afterEach(async () => {
+    await server?.close();
+    server = undefined;
+  });
+
+  /** Answers each call with its method and params (or an error for `Fail`), and keeps when it came. */
+  function inspector(seen: Array<{ method: string; at: number }>): Promise<TestServer> {
+    return startTestServer({
+      http: (path, port) => (path === '/json' ? [{ type: 'page', id: 'P', url: 'file:///x/applications/com.lablo.iptv/index.html', webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/page/P` }] : undefined),
+      onFrame: (frame, peer) => {
+        if (frame.opcode !== OPCODE.text) return;
+        const request = JSON.parse(frame.payload.toString()) as { id: number; method: string; params: unknown };
+        seen.push({ method: request.method, at: Date.now() });
+        peer.send(OPCODE.text, JSON.stringify({ method: 'Page.frameNavigated', params: {} }));
+        if (request.method === 'Fail') peer.send(OPCODE.text, JSON.stringify({ id: request.id, error: { message: 'no such method' } }));
+        else peer.send(OPCODE.text, JSON.stringify({ id: request.id, result: { method: request.method, params: request.params } }));
+      },
+    });
+  }
+
+  it('runs the calls in order, each after the last one answered, with the pauses between', async () => {
+    const seen: Array<{ method: string; at: number }> = [];
+    server = await inspector(seen);
+    const results = await runOnPort(server.port, [{ method: 'A', params: { n: 1 } }, { pause: 120 }, { method: 'B' }], { page: '/applications/com.lablo.iptv/' });
+    expect(results).toEqual([{ method: 'A', params: { n: 1 } }, null, { method: 'B', params: {} }]);
+    expect(seen.map((s) => s.method)).toEqual(['A', 'B']);
+    expect(seen[1]!.at - seen[0]!.at).toBeGreaterThanOrEqual(110);
+    expect(server.peers).toHaveLength(1);
+  });
+
+  it('stops at the first error, sending nothing after it', async () => {
+    const seen: Array<{ method: string; at: number }> = [];
+    server = await inspector(seen);
+    await expect(runOnPort(server.port, [{ method: 'A' }, { method: 'Fail' }, { method: 'C' }])).rejects.toThrow('inspector error: {"message":"no such method"}');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(seen.map((s) => s.method)).toEqual(['A', 'Fail']);
+  });
+
+  it('names a missing page, and gives up at the time limit for the whole run', async () => {
+    server = await inspector([]);
+    await expect(runOnPort(server.port, [{ method: 'A' }], { page: '/applications/com.lablo.iptv.lab/' })).rejects.toThrow(`no page of /applications/com.lablo.iptv.lab/ on the inspector at port ${server.port} (is the app running?)`);
+    await expect(runOnPort(server.port, [{ method: 'A' }, { pause: 500 }], { timeoutMs: 150 })).rejects.toThrow(/no answer from the inspector within 150 ms/);
+  });
+
+  it('closes once when done; a failed socket is never closed', async () => {
+    server = await inspector([]);
+    const listeners: Record<string, ((event: { readonly data: unknown }) => void)[]> = {};
+    let closes = 0;
+    const socket: InspectorSocket = {
+      addEventListener: (type: string, listener: (event: { readonly data: unknown }) => void) => {
+        (listeners[type] ??= []).push(listener);
+      },
+      send: (data) => {
+        const { id } = JSON.parse(data) as { id: number };
+        for (const listener of listeners.message ?? []) listener({ data: JSON.stringify({ id, result: { ok: id } }) });
+      },
+      close: () => {
+        closes += 1;
+      },
+    };
+    const open = (): InspectorSocket => {
+      setTimeout(() => {
+        for (const listener of listeners.open ?? []) listener({ data: null });
+      }, 5);
+      return socket;
+    };
+    expect(await runOnPort(server.port, [{ method: 'A' }, { method: 'B' }], { timeoutMs: 200, open })).toEqual([{ ok: 1 }, { ok: 2 }]);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(closes).toBe(1);
+    let failed = 0;
+    const fails: InspectorSocket = {
+      addEventListener: (type: string, listener: (event: { readonly data: unknown }) => void) => {
+        if (type === 'error') setTimeout(() => listener({ data: null }), 5);
+      },
+      send: () => undefined,
+      close: () => {
+        failed += 1;
+      },
+    };
+    await expect(runOnPort(server.port, [{ method: 'A' }], { timeoutMs: 100, open: () => fails })).rejects.toThrow(/the inspector's WebSocket failed/);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(failed).toBe(0);
   });
 });

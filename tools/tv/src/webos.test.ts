@@ -5,7 +5,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { TestServer } from './test-server';
 import { startTestServer } from './test-server';
-import { aresInspectArgs, forwardInspector, parseAresInspect, waitForAresInspect, WEBOS_PORT, webosAppId, webosPage } from './webos';
+import { aresInspectArgs, forwardInspector, parseAresInspect, SCREENSHOT, screenshotBytes, waitForAresInspect, WEBOS_KEY_CODES, WEBOS_KEY_GAP_MS, WEBOS_PORT, webosAppId, webosKeySteps, webosPage } from './webos';
 import { OPCODE } from './ws';
 
 /**
@@ -182,5 +182,45 @@ describe('forwardInspector (a stand-in ares-inspect and a local inspector)', () 
     await expect(forwardInspector(() => fakeAres('console.error("ares-inspect ERR! [Tips]: Invalid device name"); process.exit(2);'), 'tw', APP, 9998, 10_000)).rejects.toThrow(
       'ares-inspect ended (exit 2) before it forwarded a port:\nares-inspect ERR! [Tips]: Invalid device name',
     );
+  });
+});
+
+describe('keys and shot on the LG (step 58d)', () => {
+  const press = (code: number) => [
+    { method: 'Input.dispatchKeyEvent', params: { type: 'rawKeyDown', windowsVirtualKeyCode: code, nativeVirtualKeyCode: code } },
+    { method: 'Input.dispatchKeyEvent', params: { type: 'keyUp', windowsVirtualKeyCode: code, nativeVirtualKeyCode: code } },
+  ];
+
+  it('presses and releases each key with a pause after it; a number is a further pause', () => {
+    expect(webosKeySteps(['DOWN', 'OK', '1200', 'BACK'])).toEqual([
+      ...press(40),
+      { pause: WEBOS_KEY_GAP_MS },
+      ...press(13),
+      { pause: WEBOS_KEY_GAP_MS },
+      { pause: 1200 },
+      ...press(461),
+      { pause: WEBOS_KEY_GAP_MS },
+    ]);
+    expect(WEBOS_KEY_GAP_MS).toBe(450);
+  });
+
+  it("sends the LG remote's codes", () => {
+    expect([WEBOS_KEY_CODES.UP, WEBOS_KEY_CODES.LEFT, WEBOS_KEY_CODES.RIGHT, WEBOS_KEY_CODES.CH_UP, WEBOS_KEY_CODES.RED, WEBOS_KEY_CODES.BLUE, WEBOS_KEY_CODES.INFO]).toEqual([38, 37, 39, 33, 403, 406, 457]);
+    expect([WEBOS_KEY_CODES.DIGIT_0, WEBOS_KEY_CODES.DIGIT_9, WEBOS_KEY_CODES.PLAY, WEBOS_KEY_CODES.PAUSE]).toEqual([48, 57, 415, 19]);
+  });
+
+  it('says what is wrong: no keys, an unknown name, a pause that is not a whole number', () => {
+    expect(webosKeySteps([])).toMatch(/^Usage: pnpm tv keys --webos <key\|ms>\.\.\. \(keys: UP DOWN LEFT RIGHT OK BACK /);
+    expect(webosKeySteps(['OK', 'ENTER'])).toMatch(/^"ENTER" is not a key \(UP DOWN .*\) or a pause in ms$/);
+    expect(webosKeySteps(['-5'])).toMatch(/^"-5" is not a key/);
+    expect(webosKeySteps(['1.5'])).toMatch(/^"1.5" is not a key/);
+    expect(webosKeySteps(['1234567'])).toMatch(/^"1234567" is not a key/);
+    expect(webosKeySteps(['up'])).toMatch(/^"up" is not a key/);
+  });
+
+  it('asks for a PNG and reads its bytes', () => {
+    expect(SCREENSHOT).toEqual({ method: 'Page.captureScreenshot', params: { format: 'png' } });
+    expect(screenshotBytes({ data: Buffer.from('PNG!').toString('base64') })?.toString()).toBe('PNG!');
+    expect([screenshotBytes({ data: '' }), screenshotBytes({}), screenshotBytes(null), screenshotBytes({ data: 3 })]).toEqual([null, null, null, null]);
   });
 });
