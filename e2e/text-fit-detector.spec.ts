@@ -29,6 +29,8 @@ const PAGE = `<!doctype html>
   <div class="bar" data-testid="bar"><span class="z-button">One</span><span class="z-button">Two</span><span class="z-button" aria-label="Edit"></span></div>
   <div class="row" style="visibility: hidden"><div>hidden</div><div>so</div><div>never counted</div></div>
   <div class="row"><div>&#x2068;&#x200f;isolated&#x2069;</div></div>
+  <div class="keyed"><span class="z-button" data-testid="dot-on" style="position: relative; width: auto; padding: 0 10px; line-height: 40px">Guide<span class="z-button__key" style="position: absolute; top: 12px; right: 6px; width: 12px; height: 12px"></span></span></div>
+  <div class="keyed"><span class="z-button" data-testid="dot-off" style="position: relative; width: auto; padding: 0 24px; line-height: 40px">Guide<span class="z-button__key" style="position: absolute; top: 2px; right: 6px; width: 12px; height: 12px"></span></span></div>
 </body></html>`;
 
 test('finds text over a box, cut by it, own words cut short and a button out of its bar; leaves fits, provider text, tight lines and boxes that draw nothing', async ({ page }) => {
@@ -42,8 +44,9 @@ test('finds text over a box, cut by it, own words cut short and a button out of 
   expect(by('fits')).toEqual([]);
   expect(by('own-cut').map((f) => f.how)).toEqual(['cut']);
   expect(by('bar').map((f) => [f.text, f.how, f.by])).toEqual([['button Edit', 'spills', 60]]);
-  // Nothing else: the provider's cut text, the tight line, the bare box, the hidden row, the isolates.
-  expect(found).toHaveLength(4);
+  expect(by('dot-on').map((f) => [f.text, f.how])).toEqual([['Guide', 'covered']]);
+  // Nothing else: the provider's cut text, the tight line, the bare box, the hidden row, the isolates, the dot clear of its words.
+  expect(found).toHaveLength(5);
 });
 
 test('a root narrows the look; a misfit by one pixel or less is layout rounding', async ({ page }) => {

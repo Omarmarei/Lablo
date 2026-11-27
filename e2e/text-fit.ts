@@ -20,7 +20,8 @@ import type { Page } from '@playwright/test';
  *   it clips). That is the finding.
  * A line is its line box (the line height around the glyphs' middle): a font's glyph box is
  * taller than a tight line (Noto Sans: 1.36 em; a title's line is 1.19 em), and the glyphs drawn
- * stay inside the line. Lines more than `TOLERANCE` px out count (sub-pixel layout).
+ * stay inside the line. Lines more than `TOLERANCE` px out count (sub-pixel layout). A colour
+ * key's dot must not cover its button's words.
  */
 export interface Misfit {
   /** The start of the text. */
@@ -29,8 +30,8 @@ export interface Misfit {
   readonly box: string;
   /** How far out, in px (rounded up). */
   readonly by: number;
-  /** `spills`: drawn over the box's edge; `clipped`: cut off by it; `cut`: the app's own words cut short (an ellipsis). */
-  readonly how: 'spills' | 'clipped' | 'cut';
+  /** `spills`: drawn over the box's edge; `clipped`: cut off by it; `cut`: the app's own words cut short (an ellipsis); `covered`: a colour key's dot on a button's words. */
+  readonly how: 'spills' | 'clipped' | 'cut' | 'covered';
 }
 
 export const TOLERANCE = 1;
@@ -45,7 +46,7 @@ export function misfits(page: Page, root = 'body'): Promise<Misfit[]> {
         r: number;
         b: number;
       }
-      const found: Array<{ text: string; box: string; by: number; how: 'spills' | 'clipped' | 'cut' }> = [];
+      const found: Array<{ text: string; box: string; by: number; how: 'spills' | 'clipped' | 'cut' | 'covered' }> = [];
       const start = document.querySelector(rootSelector);
       if (start === null) return found;
       const name = (el: Element): string => {
@@ -163,6 +164,30 @@ export function misfits(page: Page, root = 'body'): Promise<Misfit[]> {
         if (!shown(button) || button.parentElement === null) continue;
         const r = button.getBoundingClientRect();
         check([{ l: r.left, t: r.top, r: r.right, b: r.bottom }], button.parentElement, `button ${(button.getAttribute('aria-label') ?? button.textContent ?? '').trim()}`, false);
+      }
+      // A colour key's dot (step 58c) clear of its button's words: their ink, from the capitals' top
+      // (0.3 em under the glyph box's) to the baseline (0.25 em over its bottom).
+      const dots = start.querySelectorAll('.z-button__key');
+      for (let i = 0; i < dots.length; i++) {
+        const dot = dots[i]!;
+        const button = dot.closest('.z-button');
+        if (button === null || !shown(dot)) continue;
+        const d = dot.getBoundingClientRect();
+        const words = document.createTreeWalker(button, NodeFilter.SHOW_TEXT);
+        for (let node = words.nextNode(); node !== null; node = words.nextNode()) {
+          const text = (node.textContent ?? '').trim();
+          if (text === '' || node.parentElement === null) continue;
+          const em = px(getComputedStyle(node.parentElement).fontSize);
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          const rects = range.getClientRects();
+          for (let j = 0; j < rects.length; j++) {
+            const r = rects[j]!;
+            const across = Math.min(r.right, d.right) - Math.max(r.left, d.left);
+            const down = Math.min(r.bottom - 0.25 * em, d.bottom) - Math.max(r.top + 0.3 * em, d.top);
+            if (across > tolerance && down > tolerance) found.push({ text: text.slice(0, 60), box: name(button), by: Math.ceil(Math.min(across, down)), how: 'covered' });
+          }
+        }
       }
       return found;
     },
