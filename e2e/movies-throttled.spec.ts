@@ -24,7 +24,7 @@ import { THROTTLE, baseBusyMs, busyMs, throttle, transitionOf } from './throttle
  * The posters are watched in the page meanwhile (`recordPosters`):
  * - the `img` elements drawn, at every change of the DOM: never more than the view's 18;
  * - each poster's first download starts only once the view has rested for the tier's time
- *   (150 ms full, 300 ms low) after the last key: a held key starts none;
+ *   (150 ms full, 300 ms low) after the last key to reach the page: a held key starts none;
  * - between two keys, at most the view's 18 first downloads;
  * - at each rest the walk waits for, the view's 18 tiles draw their own posters, loaded.
  *
@@ -86,7 +86,14 @@ test.afterAll(async () => {
 
 /** What the page records about the posters (`recordPosters`). */
 interface PosterLog {
-  /** Each keydown's `timeStamp` (ms from the page's time origin). */
+  /**
+   * When each keydown reached the page (`performance.now()` in a capturing listener on the
+   * window, which runs before the app's own): the first moment the app could know of the key.
+   * Not the event's `timeStamp`, which is when the input arrived: on a busy 2-vCPU runner a key
+   * can wait in the queue while the rest timer of the key before it fires, and the app rightly
+   * starts the posters of a view it saw rest (RELAY step 57: posters 1-11 ms after a key's
+   * `timeStamp`, before the app had seen it).
+   */
   readonly keys: number[];
   /** Each poster download: its movie id and its start (Resource Timing's `startTime`, same clock). */
   readonly starts: Array<[number, number]>;
@@ -103,7 +110,7 @@ function recordPosters(): void {
   const w = window as unknown as { __labloPosters: PosterLog };
   const log: PosterLog = { keys: [], starts: [], maxImages: 0 };
   w.__labloPosters = log;
-  addEventListener('keydown', (event) => log.keys.push(event.timeStamp), true);
+  addEventListener('keydown', () => log.keys.push(performance.now()), true);
   performance.setResourceTimingBufferSize(100_000);
   new PerformanceObserver((list) => {
     for (const entry of list.getEntries()) {

@@ -1,10 +1,11 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import type { MockServer } from '../apps/mock-provider/src/server';
 import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
-import { bigCatalog } from './big-catalog';
+import { bigCatalog, writeBigGuide } from './big-catalog';
 import { addXtreamAndWatch, settled, trackErrors } from './onboard';
 import { RemoteDriver } from './remote-driver';
 import type { PressBudget, PressTiming } from './remote-keys';
@@ -47,14 +48,26 @@ const catalog = bigCatalog({
 });
 let app: MockServer;
 let host: string;
+let guideDir: string;
 
+/**
+ * The panel's guide is a file of four programmes per channel (`writeBigGuide`, as the live
+ * list's run), not the mock's own: that one covers days for each of the 27,000 guided channels
+ * (3.4 million programmes, about 940 MB of XMLTV built as one string), which ran the test worker
+ * out of Node's 2 GB heap on the private repo's 2-vCPU runners (RELAY step 57) and, past V8's
+ * longest string, never reached the app anyway. The search reads no programmes.
+ */
 test.beforeAll(async () => {
-  app = await mock({ catalog, now: () => Date.now() });
+  guideDir = mkdtempSync(path.join(tmpdir(), 'lablo-e2e-search-'));
+  const guide = path.join(guideDir, 'guide.xml');
+  writeBigGuide(catalog, Date.now(), guide);
+  app = await mock({ catalog, xmltvFile: guide, now: () => Date.now() });
   host = (await listen(app)).replace(/^http:\/\//, '');
   mkdirSync(REPORT, { recursive: true });
 });
 test.afterAll(async () => {
   await app.close();
+  rmSync(guideDir, { recursive: true, force: true });
 });
 
 interface ChangeResult {

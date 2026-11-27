@@ -32,8 +32,19 @@ export default defineConfig({
     { name: 'chromium', testIgnore: /(throttled|lab-scale|lab-media|playback-media|player-media|pairing-api|no-plaintext|backup-api|backup-logins)\.spec\.ts$/ },
     // The CPU-throttled timings (RELAY steps 14b and 23d) run after every other test, one test
     // at a time (one worker: the live list's file and the grid's never overlap), so no other
-    // browser competes for the CPU while they measure.
-    { name: 'throttled', testMatch: /throttled\.spec\.ts$/, dependencies: ['chromium'], fullyParallel: false, workers: 1 },
+    // browser competes for the CPU while they measure. Their trace keeps the actions, the console
+    // and the network, without the DOM snapshot taken around every evaluate (on the throttled main
+    // thread, between a timed key and the frame its press waits for) or the screencast (frames
+    // encoded beside the timed page): on the 2-vCPU runners of a private repo both ran inside the
+    // timings (RELAY step 57).
+    {
+      name: 'throttled',
+      testMatch: /throttled\.spec\.ts$/,
+      dependencies: ['chromium'],
+      fullyParallel: false,
+      workers: 1,
+      use: { trace: { mode: 'retain-on-failure', snapshots: false, screenshots: false } },
+    },
     // S6 on the scale fixtures (needs `pnpm fixtures`; minutes, so never part of `pnpm e2e`).
     ...(LAB_SCALE ? [{ name: 'lab-scale', testMatch: /lab-scale\.spec\.ts$/, fullyParallel: false }] : []),
     // S5 on the generated media (needs `pnpm mock:media`, which pnpm test:media runs first; about 2 min).
