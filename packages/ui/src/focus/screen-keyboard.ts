@@ -2,7 +2,9 @@ import { firstStrongDirection } from '@lablo/core';
 import type { Intent, Platform } from '@lablo/platform-api';
 import '../components/ScreenKeyboard.css';
 import type { KeyDef, KeyboardKind, LayoutName } from './keyboard-layouts';
-import { layoutRows, offersArabic, startLayout } from './keyboard-layouts';
+import { KEY_ICONS, layoutRows, offersArabic, startLayout } from './keyboard-layouts';
+
+export { KEY_ICONS } from './keyboard-layouts';
 
 /**
  * The app's own on-screen keyboard (RELAY step 40e, docs/architecture.md §1.2 "Own keyboard").
@@ -96,13 +98,19 @@ export function maskText(value: string): string {
   return shown;
 }
 
-/** The glyph on a key that has no word (the word is its `aria-label`). */
+/**
+ * What a key shows as text: its letter (upper-case under Shift on the Latin page), its word, or
+ * nothing for a key drawn as an icon (`KEY_ICONS`). Every character of it is in Lablo Sans
+ * (test/keyboard-glyphs.test.ts).
+ */
+export function keyFace(key: KeyDef, labels: KeyboardLabels, layout: LayoutName, shifted: boolean): string {
+  if (key.action === undefined) return shifted && layout === 'latin' ? (key.text ?? '').toUpperCase() : (key.text ?? '');
+  return KEY_ICONS[key.action] === undefined ? actionGlyph(key, labels) : '';
+}
+
+/** The text on an action key that is not an icon (its full name is its `aria-label`). */
 function actionGlyph(key: KeyDef, labels: KeyboardLabels): string {
   switch (key.action) {
-    case 'shift':
-      return '⇧';
-    case 'delete':
-      return '⌫';
     case 'space':
       return labels.space;
     case 'done':
@@ -111,8 +119,6 @@ function actionGlyph(key: KeyDef, labels: KeyboardLabels): string {
       return '123';
     case 'letters':
       return 'abc';
-    case 'native':
-      return '⌨';
     case 'arabic':
       return 'ع';
     default:
@@ -167,6 +173,20 @@ function centreOf(row: readonly KeyDef[], index: number): number {
     total += weightOf(row[i]!);
   }
   return (before + weightOf(row[index]!) / 2) / total;
+}
+
+const SVG = 'http://www.w3.org/2000/svg';
+
+/** A key's icon: a 24 px SVG path, stroked in the text's colour (ScreenKeyboard.css). */
+function drawIcon(doc: Document, path: string): Element {
+  const svg = doc.createElementNS(SVG, 'svg');
+  svg.setAttribute('class', 'z-kbd__icon');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  const line = doc.createElementNS(SVG, 'path');
+  line.setAttribute('d', path);
+  svg.appendChild(line);
+  return svg;
 }
 
 export function createScreenKeyboard(doc: Document): ScreenKeyboard {
@@ -268,13 +288,12 @@ export function createScreenKeyboard(doc: Document): ScreenKeyboard {
         button.tabIndex = -1;
         button.setAttribute('translate', 'no');
         button.style.flexGrow = String(weightOf(key));
+        button.textContent = keyFace(key, labels, layout, shifted);
         if (key.action !== undefined) {
-          button.textContent = actionGlyph(key, labels);
+          const icon = KEY_ICONS[key.action];
+          if (icon !== undefined) button.appendChild(drawIcon(doc, icon));
           button.setAttribute('aria-label', actionName(key, labels));
           if (key.action === 'shift') button.setAttribute('aria-pressed', shifted ? 'true' : 'false');
-        } else {
-          const text = key.text ?? '';
-          button.textContent = shifted && layout === 'latin' ? text.toUpperCase() : text;
         }
         button.addEventListener('click', () => {
           row = r;
