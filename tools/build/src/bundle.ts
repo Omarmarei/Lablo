@@ -20,8 +20,11 @@ const ROOT = path.resolve(import.meta.dirname, '../../..');
 /** The installed core-js version; Babel's usage-based polyfills must match it. */
 export const CORE_JS_VERSION = (require('core-js/package.json') as { version: string }).version;
 
-/** The oldest TV engine: Chromium 53 (2018 LG webOS 4). Tizen 4 (2018) runs Chromium 56. */
-export const TV_TARGETS = { chrome: '53' } as const;
+/**
+ * The oldest TV engine: Chromium 68 (2020 LG webOS 5; Samsung's 2020 Tizen 5.5 runs 69). RELAY
+ * step 61a moved it from 53 when the 2018-2019 sets were dropped (ADR-012, ADR-015).
+ */
+export const TV_TARGETS = { chrome: '68' } as const;
 
 export type BuildPlatform = 'tizen' | 'webos' | 'browser';
 
@@ -102,7 +105,7 @@ export interface BundleResult {
   readonly lazy: readonly LazyChunk[];
 }
 
-/** A bundle that would not run on Chromium 53. */
+/** A bundle that would not run on Chromium 68. */
 export class SyntaxGateError extends Error {
   override readonly name = 'SyntaxGateError';
 }
@@ -111,8 +114,8 @@ const EXTENSIONS = ['.ts', '.tsx', '.mjs', '.js', '.jsx'];
 
 /**
  * Dependencies that get no core-js polyfills (see the Babel `overrides` below). Only for
- * libraries whose used code needs nothing Chromium 53 lacks: fflate's `Gunzip` uses typed
- * arrays only, and the bundled ingest worker runs it with the ES2017 APIs deleted
+ * libraries whose used code needs nothing Chromium 68 lacks: fflate's `Gunzip` uses typed
+ * arrays only, and the bundled ingest worker runs it with the APIs 68 lacks deleted
  * (`test/ingest-worker-bundle.test.ts`).
  */
 export const POLYFILL_FREE_DEPENDENCIES = [/[\\/]node_modules[\\/]fflate[\\/]/];
@@ -122,12 +125,13 @@ export const POLYFILL_FREE_DEPENDENCIES = [/[\\/]node_modules[\\/]fflate[\\/]/];
  * into a file for every API name it sees there, before tree-shaking, and core-js modules are
  * never dropped: zod 4's core files name `URL`, `atob`, `Promise`, typed arrays and more in
  * code `@lablo/protocol` never runs, so one small `zod/mini` schema came to a 110 KB bundle,
- * most of it polyfills (URL, DOMException…). What zod calls on Chromium 53 for the protocol's
- * schemas, all while the schemas are built: `globalThis` (its core reads it at load),
- * `Object.fromEntries` (every `z.enum`), `Object.entries` and `Object.values` (the enum's
- * values) and `Object.getOwnPropertyDescriptors` (`z.extend`). A new kind of schema may need
- * more: the protocol samples, bundled alone, run in a realm without those APIs
- * (test/crypto-vectors-bundle.test.ts), and with the crypto vectors on Chromium 53, 56 and 68
+ * most of it polyfills (URL, DOMException…). What zod calls for the protocol's schemas, all
+ * while the schemas are built: `globalThis` (its core reads it at load), `Object.fromEntries`
+ * (every `z.enum`), `Object.entries` and `Object.values` (the enum's values) and
+ * `Object.getOwnPropertyDescriptors` (`z.extend`). Chromium 68 has the last three (54), so only
+ * the first two are injected since RELAY step 61a. A new kind of schema may need more: the
+ * protocol samples, bundled alone, run in a realm without what 68 lacks
+ * (test/crypto-vectors-bundle.test.ts), and with the crypto vectors on Chromium 68
  * (`pnpm verify:engines`, RELAY step 29b2a).
  */
 export const DEPENDENCY_POLYFILLS: ReadonlyArray<{ readonly test: RegExp; readonly polyfills: readonly string[] }> = [
@@ -181,9 +185,9 @@ const workerPlaceholder = (n: number): string => `__LABLO_WORKER_${n}__`;
 const WORKER_PLACEHOLDERS = /(["'])__LABLO_WORKER_(\d+)__\1/g;
 
 /**
- * U+2028 and U+2029 end a line inside an ES2016 string literal (they became legal there
- * only in ES2019), so inlined worker code escapes them. Built from char codes so the source
- * file itself never contains the raw characters.
+ * U+2028 and U+2029 ended a line inside a string literal before ES2019 (Chromium 66), and still
+ * do in a regex literal, so inlined worker code keeps them escaped, as terser does in the code
+ * around it. Built from char codes so the source file itself never contains the raw characters.
  */
 const LINE_SEPARATORS = new RegExp(`[${String.fromCharCode(0x2028, 0x2029)}]`, 'g');
 
@@ -194,8 +198,7 @@ function escapeLineSeparators(text: string): string {
 const occurrences = (text: string, char: string): number => text.split(char).length - 1;
 
 /**
- * An ES2016 string literal for `text`, in whichever quote needs fewer escapes (as terser
- * would pick): minified code is mostly double-quoted strings, so the four workers inlined in
+ * A string literal for `text`, in whichever quote needs fewer escapes (as terser would pick): minified code is mostly double-quoted strings, so the four workers inlined in
  * single quotes are 5.9 KB (1.6%) smaller than in their `JSON.stringify` form.
  */
 export function stringLiteral(text: string): string {
@@ -270,7 +273,7 @@ export function storeSwaps(swaps: readonly StoreSwap[], root: string = ROOT): Pl
 
 /**
  * `import MyWorker from './my.worker?worker'` (the same syntax Vite uses in development):
- * the worker is bundled as its own Chromium 53 IIFE, gated, and inlined as a string that is
+ * the worker is bundled as its own Chromium 68 IIFE, gated, and inlined as a string that is
  * started from a Blob URL. Blob workers avoid the `file://` worker question on packaged TV
  * apps (spike S1 confirms them on the TVs).
  *
@@ -456,7 +459,7 @@ function plugins(options: BundleOptions, collected: Collected): Plugin[] {
     // `\uXXXX` escape cost 6 (about 35 KB of main.js in step 32d3). The TV pages declare
     // `<meta charset="utf-8">`, so a file:// script without a charset of its own is read as
     // UTF-8, and Blob workers always are. Terser still escapes what can't stand as it is: U+2028
-    // and U+2029 (they end a line in an ES2016 literal; the syntax gate would refuse them),
+    // and U+2029 (they ended a line in a string before ES2019, and still do in a regex literal),
     // U+FEFF and lone surrogates (no UTF-8 form). bundle.test.ts pins each.
     terser({
       format: { comments: false, ascii_only: false },
@@ -507,9 +510,9 @@ function gate(code: string, label: string): void {
 
 /**
  * Bundles `input` into one minified classic-script IIFE for the TV, with every
- * `?worker` import inlined, then runs the ES2016 syntax gate on the result. With `split`, main.js
+ * `?worker` import inlined, then runs the ES2019 syntax gate on the result. With `split`, main.js
  * and its lazy files instead (`BundleOptions.split`), each gated.
- * Throws `SyntaxGateError` if the output would not parse on Chromium 53.
+ * Throws `SyntaxGateError` if the output would not parse on Chromium 68.
  */
 export async function bundleIife(options: BundleOptions): Promise<BundleResult> {
   const collected: Collected = { workers: [], literals: [], inlined: new Map(), css: [] };

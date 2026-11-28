@@ -8,30 +8,55 @@ import { DEFINE_NAME } from './amd-loader';
 import { scriptPage } from '../test/script-page';
 import { tvDefines } from '../../../tv-defines.config';
 import { checkSyntax } from './syntax-gate';
+import { parse } from 'acorn';
 
 const FIXTURES = path.resolve(import.meta.dirname, '../test/fixtures');
 const fixture = (name: string): string => path.join(FIXTURES, name);
 
 /**
- * Runs an IIFE bundle in a fresh realm with the ES2017 APIs that Chromium 53 lacks
- * removed, so the result only works if the core-js polyfills made it into the bundle.
+ * What Chromium 68 lacks that the fixtures call (RELAY step 61a): a realm without them runs a
+ * bundle only if core-js filled them. (A vm realm has no `queueMicrotask` or `structuredClone`.)
  */
+const WITHOUT_CHROMIUM_68 =
+  'delete Object.fromEntries; delete Array.prototype.flat; delete Array.prototype.flatMap; delete String.prototype.matchAll; delete Promise.allSettled;';
+
+/** Runs an IIFE bundle in a fresh realm without what Chromium 68 lacks (`WITHOUT_CHROMIUM_68`). */
 function runWithoutModernApis(code: string): unknown {
   const context = vm.createContext({});
-  vm.runInContext(
-    'delete Object.entries; delete Object.values; delete String.prototype.padStart; delete String.prototype.padEnd;',
-    context,
-  );
+  vm.runInContext(WITHOUT_CHROMIUM_68, context);
   vm.runInContext(code, context);
   return vm.runInContext('globalThis.fixture', context);
 }
 
-describe('bundleIife (Rollup IIFE + Babel chrome 53 + core-js)', () => {
-  it('turns modern source into gated Chromium 53 code with working polyfills and an inlined worker', async () => {
+/** Whether `code` parses as an ES`ecmaVersion` classic script. */
+function parsesAs(code: string, ecmaVersion: 2016 | 2018): boolean {
+  try {
+    parse(code, { ecmaVersion, sourceType: 'script' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The core-js modules in a bundle, by name (`es.object.from-entries`). */
+const coreJs = (modules: readonly string[]): string[] =>
+  modules.map((id) => /core-js[\\/]modules[\\/]((?:es|esnext|web)\.[a-z0-9.-]+?)\.js/.exec(id)?.[1]).filter((name): name is string => name !== undefined);
+
+describe('bundleIife (Rollup IIFE + Babel chrome 68 + core-js)', () => {
+  it('turns modern source into gated Chromium 68 code with working polyfills and an inlined worker', async () => {
     const result = await bundleIife({ input: fixture('modern.ts'), platform: 'webos' });
 
-    // Async functions, object rest/spread, ?. and ?? are gone (the gate already ran inside).
+    // ?. and ?? are gone (the ES2019 gate already ran inside); async functions and object
+    // rest/spread (Chromium 55 and 60) stay as they are: the code is ES2018, not ES2016.
     expect(checkSyntax(result.code, 'main')).toBeNull();
+    expect([parsesAs(result.code, 2018), parsesAs(result.code, 2016)]).toEqual([true, false]);
+    expect(result.code).toMatch(/\basync\b/);
+    expect(result.code).toMatch(/\bawait\b/);
+    // core-js fills what 68 lacks, and only that: Object.entries (54) and padStart (57) are native.
+    expect(coreJs(result.modules)).toEqual(expect.arrayContaining(['es.object.from-entries', 'es.array.flat']));
+    expect(coreJs(result.modules)).not.toEqual(expect.arrayContaining(['es.object.entries']));
+    expect(coreJs(result.modules)).not.toEqual(expect.arrayContaining(['es.string.pad-start']));
+    expect(coreJs(result.modules)).not.toEqual(expect.arrayContaining(['es.promise']));
 
     const exported = runWithoutModernApis(result.code) as { run(): Promise<string> };
     await expect(exported.run()).resolves.toBe('2,none,y=002');
@@ -53,7 +78,7 @@ describe('bundleIife (Rollup IIFE + Babel chrome 53 + core-js)', () => {
     expect(result.inlinedBytes).toBeGreaterThan(0);
   }, 60_000);
 
-  it('writes worker strings as ES2016 literals in the quote that needs fewer escapes', () => {
+  it('writes worker strings as literals in the quote that needs fewer escapes', () => {
     const sep = String.fromCharCode(0x2028);
     const cases = [
       ['plain', '"plain"'],
@@ -104,7 +129,7 @@ describe('bundleIife (Rollup IIFE + Babel chrome 53 + core-js)', () => {
     });
   }, 60_000);
 
-  it("compiles core's parsers and search to gated Chromium 53 code that gives the same results as Node", async () => {
+  it("compiles core's parsers and search to gated Chromium 68 code that gives the same results as Node", async () => {
     const result = await bundleIife({ input: fixture('core-parsers.ts'), platform: 'webos', label: 'core-parsers' });
     expect(checkSyntax(result.code, 'main')).toBeNull();
     const bundled = (runWithoutModernApis(result.code) as { run(): string }).run();
@@ -123,14 +148,16 @@ describe('bundleIife (Rollup IIFE + Babel chrome 53 + core-js)', () => {
 
   it('injects no polyfills for the ES2019+ APIs nothing can call, and still the ones that are needed', async () => {
     const result = await bundleIife({ input: fixture('collections.ts'), platform: 'webos' });
-    expect((runWithoutModernApis(result.code) as { run(): string }).run()).toBe('n3,n1,n2|3,2|007|7');
+    expect((runWithoutModernApis(result.code) as { run(): string }).run()).toBe('n3,n1,n2|3,2|007|7|3');
     // Method names the excluded core-js modules define (terser keeps property names), and the
     // error text of the JSON.parse source-text polyfill (`esnext.json.parse` → `es.json.parse`).
     const excluded = ['toBase64', 'setFromHex', 'getOrInsert', 'symmetricDifference', 'isDisjointFrom', 'toSorted', 'transferToFixedLength'];
     for (const name of [...excluded, 'after the parsed data at']) {
       expect(result.code).not.toContain(name);
     }
-    expect(result.code).toContain('padStart');
+    // Chromium 68 has padStart (57): no polyfill. It lacks Object.fromEntries (73): core-js fills it.
+    expect(coreJs(result.modules)).not.toEqual(expect.arrayContaining(['es.string.pad-start']));
+    expect(coreJs(result.modules)).toEqual(expect.arrayContaining(['es.object.from-entries']));
   }, 60_000);
 
   it('excludes only APIs that TV code cannot call: every bundled package compiles against lib ES2017', () => {
@@ -146,17 +173,17 @@ describe('bundleIife (Rollup IIFE + Babel chrome 53 + core-js)', () => {
 
   it('leaves the polyfills out only when asked to (the old-engine self-test build)', async () => {
     const result = await bundleIife({ input: fixture('modern.ts'), platform: 'webos', polyfills: false });
-    // Still Chromium 53 syntax, but nothing patches the missing APIs.
+    // Still Chromium 68 syntax, but nothing patches the missing APIs.
     expect(checkSyntax(result.code, 'main')).toBeNull();
     expect(result.code).not.toContain('core-js');
     const exported = runWithoutModernApis(result.code) as { run(): Promise<string> };
     await expect(exported.run()).rejects.toThrow(/is not a function/);
   }, 60_000);
 
-  it('fails the build on ES2018 syntax that Babel cannot transpile (regex lookbehind)', async () => {
-    const build = bundleIife({ input: fixture('lookbehind.ts'), platform: 'tizen', label: 'main.js (tizen)' });
+  it('fails the build on syntax newer than Chromium 68 that Babel cannot transpile (the regex d flag)', async () => {
+    const build = bundleIife({ input: fixture('match-indices.ts'), platform: 'tizen', label: 'main.js (tizen)' });
     await expect(build).rejects.toThrow(SyntaxGateError);
-    await expect(build).rejects.toThrow(/ES2016 syntax gate failed for main\.js \(tizen\).*Invalid regular expression/);
+    await expect(build).rejects.toThrow(/ES2019 syntax gate failed for main\.js \(tizen\).*Invalid regular expression flag/);
   }, 60_000);
 
   it.each([
@@ -234,8 +261,6 @@ describe('the worker cache (RELAY step 35b)', () => {
 });
 
 describe('the split build (RELAY step 35e)', () => {
-  const WITHOUT_ES2017 = 'delete Object.entries; delete Object.values; delete String.prototype.padStart; delete String.prototype.padEnd;';
-
   it('writes main.js with the loader at its top and one lazy file, each gated, each with its own polyfills and workers', async () => {
     const result = await bundleIife({ input: fixture('split/entry.ts'), platform: 'webos', split: true, label: 'main.js (webos)' });
     expect(result.lazy.map((file) => file.fileName)).toEqual(['lazy-part.js']);
@@ -251,15 +276,15 @@ describe('the split build (RELAY step 35e)', () => {
     expect(result.code).not.toContain('echo-worker-marker');
     expect(part!.inlinedBytes).toBe(Buffer.byteLength(stringLiteral(result.workers[0]!.code), 'utf8'));
     expect(result.inlinedBytes).toBe(0);
-    expect(result.code).not.toContain('padStart');
-    expect(part!.code).toContain('padStart');
+    expect(coreJs(result.modules)).not.toContain('es.array.flat');
+    expect(coreJs(part!.modules)).toContain('es.array.flat');
     expect(result.modules.map((id) => path.basename(id))).toEqual(expect.arrayContaining(['entry.ts', 'shared.ts']));
     expect(result.modules.some((id) => id.endsWith('lazy-part.ts'))).toBe(false);
     expect(part!.modules.map((id) => path.basename(id))).toContain('lazy-part.ts');
     expect(part!.modules.some((id) => id.endsWith('shared.ts'))).toBe(false);
 
-    // On a page without the ES2017 APIs: the lazy part loads once, by one tag, and shares main's modules.
-    const page = scriptPage(new Map([['lazy-part.js', part!.code]]), WITHOUT_ES2017);
+    // On a page without what Chromium 68 lacks: the lazy part loads once, by one tag, and shares main's modules.
+    const page = scriptPage(new Map([['lazy-part.js', part!.code]]), WITHOUT_CHROMIUM_68);
     page.run(result.code);
     const fixtureApi = page.fixture<{ open(from: string): Promise<string>; count(): number }>();
     expect(fixtureApi.count()).toBe(1);
@@ -285,9 +310,9 @@ describe('the split build (RELAY step 35e)', () => {
   it('gates each lazy file, labelled as asked', async () => {
     const labelled = bundleIife({ input: fixture('split/bad-lazy.ts'), platform: 'webos', split: true, label: 'main.js (webos)', lazyLabel: (file) => `${file} (webos)` });
     await expect(labelled).rejects.toThrow(SyntaxGateError);
-    await expect(labelled).rejects.toThrow(/ES2016 syntax gate failed for lookbehind\.js \(webos\).*Invalid regular expression/);
+    await expect(labelled).rejects.toThrow(/ES2019 syntax gate failed for match-indices\.js \(webos\).*Invalid regular expression flag/);
     const plain = bundleIife({ input: fixture('split/bad-lazy.ts'), platform: 'webos', split: true, label: 'main.js (webos)' });
-    await expect(plain).rejects.toThrow(/gate failed for lookbehind\.js of main\.js \(webos\)/);
+    await expect(plain).rejects.toThrow(/gate failed for match-indices\.js of main\.js \(webos\)/);
   }, 60_000);
 
   it('refuses a shape its loader cannot load: a file shared by two lazy files', async () => {

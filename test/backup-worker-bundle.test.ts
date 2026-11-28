@@ -1,9 +1,8 @@
 // The backup worker as the TV runs it (RELAY step 32b): `packages/data/src/backup.worker.ts`
-// bundled by the TV pipeline (Rollup IIFE, Babel chrome 53, core-js, the ES2016 gate), checked
-// against the worker budget, then started in fresh realms that stand in for Chromium 53 workers:
-// no `BigInt` (noble's top-level BigInt calls must be tree-shaken out), no `globalThis` (noble's
-// scheduler reads it: core-js must fill it), none of the ES2017+ APIs Chromium 53 lacks, and no
-// code generation. IndexedDB is fake-indexeddb, shared by the runs as a TV's database is; the
+// bundled by the TV pipeline (Rollup IIFE, Babel chrome 68, core-js, the ES2019 gate), checked
+// against the worker budget, then started in fresh realms that stand in for Chromium 68 workers:
+// no `globalThis` (noble's scheduler reads it: core-js must fill it), none of the newer APIs
+// Chromium 68 lacks, and no code generation. IndexedDB is fake-indexeddb, shared by the runs as a TV's database is; the
 // realm's `crypto.getRandomValues` makes the backup code. Step 32c1: the realm's `fetch` answers
 // from the backup API in memory (`backupStandIn`): a profile is sent, then restored after a wipe.
 import { randomFillSync } from 'node:crypto';
@@ -19,7 +18,7 @@ import { freshFactory } from '../packages/data/src/test-support';
 import { BACKUP_CHECKS } from '../tools/engines/src/vectors';
 import { checkBudget, formatBudget } from '../tools/build/src/budgets';
 import { bundleIife } from '../tools/build/src/bundle';
-import { CHROMIUM_53_MISSING, pipe } from './realm-support';
+import { CHROMIUM_68_MISSING, pipe } from './realm-support';
 
 const VECTOR = (
   JSON.parse(readFileSync(join(import.meta.dirname, '../packages/crypto/test/vectors.json'), 'utf8')) as {
@@ -38,7 +37,7 @@ function standInFetch(api: BackupStandIn) {
   };
 }
 
-/** Starts `code` in a fresh Chromium 53 stand-in realm. */
+/** Starts `code` in a fresh Chromium 68 stand-in realm. */
 function startWorker(code: string, factory: IDBFactory, randoms: { calls: number }, fetch?: ReturnType<typeof standInFetch>): RpcPort {
   const [workerPort, uiPort] = pipe();
   const realm = vm.createContext(
@@ -63,12 +62,12 @@ function startWorker(code: string, factory: IDBFactory, randoms: { calls: number
     { codeGeneration: { strings: false, wasm: false } },
   );
   vm.runInContext('var self = this;', realm);
-  vm.runInContext(CHROMIUM_53_MISSING, realm);
-  expect(vm.runInContext('typeof BigInt + " " + typeof globalThis + " " + typeof Object.values', realm)).toBe('undefined undefined undefined');
+  vm.runInContext(CHROMIUM_68_MISSING, realm);
+  expect(vm.runInContext('typeof globalThis + " " + typeof Object.fromEntries', realm)).toBe('undefined undefined');
   expect(() => vm.runInContext('new Function("return 1")', realm)).toThrow(/Code generation from strings disallowed/);
   vm.runInContext(code, realm);
-  // core-js filled globalThis again; BigInt stays missing.
-  expect(vm.runInContext('typeof globalThis + " " + typeof BigInt', realm)).toBe('object undefined');
+  // core-js filled globalThis again.
+  expect(vm.runInContext('typeof globalThis', realm)).toBe('object');
   return uiPort;
 }
 
@@ -104,12 +103,11 @@ function workerCode(): Promise<string> {
 }
 
 describe('the bundled backup worker', () => {
-  it('builds to gated Chromium 53 code within the worker budget, and derives, keeps and reads back the master and the backup code without BigInt or globalThis', async () => {
+  it('builds to gated Chromium 68 code within the worker budget, and derives, keeps and reads back the master and the backup code without globalThis', async () => {
     const code = await workerCode();
     const budget = checkBudget('backup.worker.js', 'worker', code);
     console.log(formatBudget(budget));
     expect(budget.ok).toBe(true);
-    expect(code).not.toMatch(/BigInt\s*\(\s*\d/);
 
     const factory = freshFactory();
     const randoms = { calls: 0 };
@@ -146,7 +144,7 @@ describe('the bundled backup worker', () => {
     expect(await kv(factory, BACKUP_CODE_KEY)).toBe(backupCode);
   }, 120_000);
 
-  it('sends a profile, then restores it into a wiped database, without BigInt or globalThis (step 32c1)', async () => {
+  it('sends a profile, then restores it into a wiped database, without globalThis (step 32c1)', async () => {
     const code = await workerCode();
     const api = backupStandIn();
     const randoms = { calls: 0 };

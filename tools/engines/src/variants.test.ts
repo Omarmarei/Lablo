@@ -157,7 +157,7 @@ function fakeDist(devScreens = false): string {
 }
 
 describe('seeded variants', () => {
-  it.each(SEEDS)('$id uses exactly ES$ecmaVersion syntax, which the build gate (ES2016) would reject', (seed) => {
+  it.each(SEEDS)('$id uses exactly ES$ecmaVersion syntax, which an engine older than its minChrome refuses', (seed) => {
     expect(parses(seed.code, seed.ecmaVersion)).toBe(true);
     expect(parses(seed.code, (seed.ecmaVersion - 1) as 2017 | 2019)).toBe(false);
     expect(parses(seed.code, 2016)).toBe(false);

@@ -7,10 +7,10 @@ import { CssGateError, checkCss, formatCssViolations } from './css-gate';
 
 /**
  * The TV build's CSS (ADR-003): every `.css` file the bundle imports, in import order,
- * as one app.css for Chromium 53.
+ * as one app.css for Chromium 68.
  *   1. Each `url()` (fonts, images) is copied next to it under `assets/` and rewritten.
  *   2. The shared PostCSS plugins (tv-css.config.ts: postcss-rtlcss) run on the result.
- *   3. The Chromium 53 CSS gate checks the output and fails the build on a violation.
+ *   3. The Chromium 68 CSS gate checks the output and fails the build on a violation.
  * The Vite dev loop runs the same plugins (apps/tv/vite.config.ts) and serves the assets itself.
  */
 export interface CssAsset {

@@ -1,4 +1,4 @@
-// Build fixture: modern source that must come out as Chromium 53 code with working polyfills.
+// Build fixture: modern source that must come out as Chromium 68 code with working polyfills.
 import FixtureWorker from './echo.worker?worker';
 
 interface Point {
@@ -16,8 +16,10 @@ async function run(): Promise<string> {
   const moved: Point = { ...base, x: (await one()) + 1 };
   const { x, ...rest } = moved;
   const label = moved.label?.text ?? 'none';
-  const pairs = Object.entries(rest).map(([key, value]) => `${key}=${String(value).padStart(3, '0')}`);
-  return [x, label, ...pairs].join(',');
+  const pairs = Object.entries(rest).map(([key, value]): [string, string] => [key, String(value).padStart(3, '0')]);
+  // Object.fromEntries (Chromium 73) and Array.prototype.flat (69): core-js fills them on 68.
+  const padded = Object.fromEntries(pairs) as Record<string, string>;
+  return [x, label, ...[Object.keys(padded).map((key) => `${key}=${padded[key]}`)].flat()].join(',');
 }
 
 (globalThis as unknown as { fixture: unknown }).fixture = { run, createWorker: () => new FixtureWorker() };

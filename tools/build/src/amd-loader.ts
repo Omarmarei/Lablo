@@ -1,7 +1,7 @@
 /**
  * The loader at the top of a split main.js (RELAY step 35e, ADR-003's amendment of 2026-11-21).
  *
- * Chromium 53 has no `import()` (63 added it), and a second IIFE can't share main's modules (two
+ * The build began on Chromium 53, which has no `import()` (the ES2019 gate still refuses it), and a second IIFE can't share main's modules (two
  * Preacts, two signals cores). So a split build is Rollup's own code splitting, written as AMD:
  * every file calls `__labloDefine(id, dependencies, factory)` (Rollup's `amd.define` and
  * `amd.autoId`), and Rollup writes each dynamic `import()` as

@@ -1,13 +1,13 @@
 // The telemetry scrubber as the TV runs it (RELAY step 33a): `@lablo/protocol/scrub` bundled by
-// the TV pipeline (Rollup IIFE, Babel chrome 53, core-js, the ES2016 gate) and run in a realm that
-// stands in for a Chromium 53 worker, where it must give every answer it gives in Node, and take
+// the TV pipeline (Rollup IIFE, Babel chrome 68, core-js, the ES2019 gate) and run in a realm that
+// stands in for a Chromium 68 worker, where it must give every answer it gives in Node, and take
 // no zod with it.
 import { join } from 'node:path';
 import vm from 'node:vm';
 import { scrubText } from '@lablo/protocol/scrub';
 import { describe, expect, it } from 'vitest';
 import { bundleIife } from '../tools/build/src/bundle';
-import { CHROMIUM_53_MISSING } from './realm-support';
+import { CHROMIUM_68_MISSING } from './realm-support';
 
 const ROOT = join(import.meta.dirname, '..');
 
@@ -21,13 +21,13 @@ const CASES: readonly (readonly [string, readonly string[]])[] = [
 ];
 
 describe('the scrubber bundle', () => {
-  it('builds to gated Chromium 53 code without zod and gives every answer it gives in Node', async () => {
+  it('builds to gated Chromium 68 code without zod and gives every answer it gives in Node', async () => {
     const { code } = await bundleIife({ input: join(ROOT, 'test/scrub-bundle-entry.ts'), platform: 'webos', label: 'scrub alone' });
     // No zod: its messages and its registry would be in the bundle.
     for (const marker of ['Invalid input', '$ZodType', 'zod']) expect([marker, code.includes(marker)]).toEqual([marker, false]);
     const realm = vm.createContext({}, { codeGeneration: { strings: false, wasm: false } });
     vm.runInContext('var self = this;', realm);
-    vm.runInContext(CHROMIUM_53_MISSING, realm);
+    vm.runInContext(CHROMIUM_68_MISSING, realm);
     vm.runInContext(code, realm);
     for (const [text, known] of CASES) {
       const got = vm.runInContext(`self.__scrub(${JSON.stringify(text)}, ${JSON.stringify(known)})`, realm) as string;

@@ -2590,19 +2590,37 @@ envelope   = {v:1, kdf:"scrypt-15-8-1", nonce:24B, ct: secretbox(gzip(profileJSO
 ## 4. Build tooling and test strategy
 
 **Build pipeline** (`tools/build/build-tv.ts`):
-1. Build each worker as an IIFE with Rollup and Babel (`targets: {chrome:'53'}`, `useBuiltIns:'usage'`, core-js 3). Async/await becomes generators, which Chromium 53 runs natively.
-2. Run the syntax gate on the workers. It parses with acorn at `ecmaVersion: 2016` and fails on anything newer.
-3. Build the main IIFE. Workers are imported as strings and started from Blob URLs, which avoids the `file://` worker question. The CSS the modules import becomes app.css through `postcss-rtlcss` and a Chromium 53 CSS gate (since step 11a, without `postcss-preset-env`: ADR-003).
-4. Run the syntax gate on the main bundle. Check bundle budgets: main JS ≤ 500 KB minified (its own code, without the inlined workers: ADR-003), each worker ≤ 150 KB. The bundles are written as UTF-8 (step 32d3a): the TV pages declare `<meta charset="utf-8">`, and terser escapes only what an ES2016 literal or a UTF-8 file can't hold (U+2028, U+2029, U+FEFF, lone surrogates).
+1. Build each worker as an IIFE with Rollup and Babel (`targets: {chrome:'68'}`, `useBuiltIns:'usage'`, core-js 3). Async functions and object spread stay as they are (Chromium 55 and 60); `?.` and `??` are transpiled. Until step 61a the target was Chromium 53, and async/await became generators.
+2. Run the syntax gate on the workers. It parses with acorn at `ecmaVersion: 2019` (2016 until step 61a) and fails on anything newer.
+3. Build the main IIFE. Workers are imported as strings and started from Blob URLs, which avoids the `file://` worker question. The CSS the modules import becomes app.css through `postcss-rtlcss` and a Chromium 68 CSS gate (since step 11a, without `postcss-preset-env`: ADR-003; Chromium 53 until step 61a).
+4. Run the syntax gate on the main bundle. Check bundle budgets: main JS ≤ 500 KB minified (its own code, without the inlined workers: ADR-003), each worker ≤ 150 KB. The bundles are written as UTF-8 (step 32d3a): the TV pages declare `<meta charset="utf-8">`, and terser escapes only what a script literal or a UTF-8 file can't hold (U+2028, U+2029, U+FEFF, lone surrogates).
 5. Copy the platform files and package: `tizen package -t wgt -s <profile>` and `ares-package`.
 6. **The store build and its test copy** (step 35b, Omar's decision of 2026-11-20; runbook tv-build.md): the developer screens behind `?screen=` (hello, the component gallery, the grid guide's gallery page, `apps/tv/src/dev/dev-screens.tsx`) are swapped for a stand-in that shows none in the store build (`STORE_SWAPS`), so none of their code, CSS or worker ships: main.js 490.8 → 459.9 KB on Tizen. The `dev` target builds a test copy with them into `dist/tv-dev` (never packaged, no main budget), which the old-engine harness's hello and gallery runs and `e2e/tv-bundle.spec.ts` open. Each worker is built once per run (`workerCache`) and inlined into the app, its test copy and the lab alike.
 7. **Settings load on first open** (step 35e, Omar's option 1 of 2026-11-21; ADR-014, which amends ADR-003; runbook tv-build.md § "Settings load on first open"):
    - The app and its test copy are split by Rollup as `amd`: everything under `apps/tv/src/settings/` goes to `settings.js`, behind `main.tsx`'s `import()`.
-   - Chromium 53 has no `import()`, so an ES5 loader of ours sits at the top of main.js (`tools/build/src/amd-loader.ts`, about 700 bytes, Rollup's `banner` on the entry; one global, `__labloDefine`) and loads settings.js by a `<script>` tag.
+   - Chromium 53 has no `import()` (and the ES2019 gate refuses it), so an ES5 loader of ours sits at the top of main.js (`tools/build/src/amd-loader.ts`, about 700 bytes, Rollup's `banner` on the entry; one global, `__labloDefine`) and loads settings.js by a `<script>` tag.
    - `checkChunks` allows one shape only: one entry, and lazy files that need only main.js. Each file goes through terser, the worker strings and the ES2016 gate. settings.js has a budget of its own, 150 KB (66.1 KB).
    - `APP_LAZY` (`lazy-files.ts`) fails the build when main.js holds a module of `apps/tv/src/settings/` (a static import somewhere), naming each one.
    - The `.wgt` and the `.ipk` package settings.js beside main.js. The lab and the vectors page stay one file each.
    - main.js 487.6 → 426.1 KB on Tizen, 474.9 → 413.4 KB on webOS. Steps 36, 38 and 40's screens go to settings.js too.
+8. **The Chromium 68 retarget** (step 61a, Omar's decision 6 of 2026-11-28; ADR-012 and ADR-015 dropped the 2018-2019 sets): `TV_TARGETS` is `{ chrome: '68' }`, the syntax gate ES2019, the CSS gate Chromium 68's (grid, sticky, `:focus-within`, `#rgba` pass). At 68 Babel stops transforming 13 syntax plugins and core-js drops 39 polyfills (`es.promise`, the RegExp and string-regex methods, typed-array constructors, `URL`, `Object.entries`…). Sizes from `pnpm build:tv`, KB of own code (the same on both platforms unless two numbers):
+
+   | File | Before (Chromium 53) | After (Chromium 68) | Change |
+   |---|---|---|---|
+   | main.js | Tizen 496.6, webOS 482.9 | Tizen 470.6, webOS 456.9 | −26.0 |
+   | main.js's inlined workers | 909.6 | 647.9 | −261.7 |
+   | settings.js | 152.7 | 153.4 | +0.7 |
+   | ingest worker | 142.4 | 101.7 | −40.7 |
+   | epg worker | 118.1 | 79.7 | −38.4 |
+   | telemetry worker | 79.3 | 44.3 | −35.0 |
+   | backup worker | 136.9 | 103.7 | −33.2 |
+   | query worker | 149.3 | 108.6 | −40.7 |
+   | pair worker | 143.2 | 106.9 | −36.3 |
+   | config worker | 139.3 | 102.1 | −37.2 |
+   | app.css | 117.8 | 117.8 | 0 |
+   | crypto vectors page (not shipped) | main.js 174.2, its workers 319.3 | 141.1, 251.9 | −33.1, −67.4 |
+
+   main.js gained 26.0 KB of room, under the 30 KB step 61d asks for, so 61d (catalogs other than English and the pairing screen in lazy files) is due. settings.js grew 0.7 KB (not traced; likely its native async functions and spreads are longer than the calls into main.js's shared helpers were).
 
 **Linting:** `eslint-plugin-compat` with browserslist `chrome 53`. The polyfill allowlist lives in CLAUDE.md.
 
@@ -2612,7 +2630,7 @@ envelope   = {v:1, kdf:"scrypt-15-8-1", nonce:24B, ct: secretbox(gzip(profileJSO
 - **Installed builds:** `pnpm device:install <alias>` wraps `sdb`/`tizen install` and `ares-install`. `ares-inspect` gives remote DevTools.
 - **LG Dev Mode** expires after about 50 h; the runbook covers extending it.
 
-**Chromium 53 cheat sheet for CLAUDE.md.** These are missing and must be avoided or polyfilled:
+**Chromium 53 cheat sheet for CLAUDE.md** (the build targets Chromium 68 since step 61a; step 61c rewrites this list from probes on the 68 snapshot). These are missing and must be avoided or polyfilled:
 - AbortController
 - `Object.values` and `Object.entries`
 - `padStart`
