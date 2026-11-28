@@ -7,7 +7,9 @@ You are leg 173 of relay run `iptv-20261101-214120`. The product, **Lablo**, is 
 - **The first store build carries 14 new features.**
 - **Samsung's minimum is now 2020, and the build retargets to Chromium 68 first.**
 
-RELAY.md has his eight decisions in "Phase 2: Omar's decisions", above the steps. Its new phases 11–19 hold steps 60–86, about 130 legs.
+**Names:** the app as it stands is **v1**: git tag `v1` at `daa8d58`. Never move or delete the tag. A built copy is kept at `D:/Claude Code PlayGround/Lablo-v1/`, with a README on installing it. What phase 2 builds is **Lablo 1.1**.
+
+RELAY.md has his nine decisions in "Phase 2: Omar's decisions", above the steps. Its new phases 11–19 hold steps 60–86, about 130 legs.
 
 ## Status
 - **Earlier legs:** 1–172 did steps 1–33, 35–40 (all sub-steps), 39s1–39s7, 43–45 and 48–59.

@@ -37,6 +37,11 @@ UI steps also end with a short "press these keys" checklist that Omar can run in
    - Omar's word for the CLAUDE.md change is his choice of this option in the planning session.
 7. **"These TVs are mine" is a Lablo code, with no email.**
 8. **All 14 features are in the first store build;** no Ramadan deadline.
+9. **Names** (Omar, later the same day):
+   - **v1** is the app as it stands: git tag `v1` at `daa8d58`. Never move or delete the tag.
+   - A built copy is kept ready at `D:/Claude Code PlayGround/Lablo-v1/` (`Lablo.wgt` signed with `lablo-dev`, the LG `.ipk`, a README with the install commands).
+   - **What phase 2 builds is Lablo 1.1;** its store build is version 1.1.0.
+   - When Omar asks for v1: install from that folder, or rebuild from the tag (its README).
 
 Not planned: faster zapping, multiview, USB recording, new platforms, B2B, DRM, white-label.
 
@@ -1151,7 +1156,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
   - [ ] 86b. **Start-up with everything in.** Cold start to the last channel on the desktop (throttled), against step 41's numbers. Nothing new runs on the start path before the first frame.
     - **Done when:** standard done.
   - [ ] 86c. **The release build.**
-    - Version 1.0.0 and both packages.
+    - Version 1.1.0 (Omar's decision 9: v1 is the tag; this build is Lablo 1.1) and both packages.
     - `release:check` fails only on counsel's text, the domain and the test server.
     - **Done when:** the packages are built and listed in the row.
 - **Then, in order:**

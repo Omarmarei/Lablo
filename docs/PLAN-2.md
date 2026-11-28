@@ -1,6 +1,11 @@
-# Lablo phase 2: the paid launch build
+# Lablo 1.1 (phase 2): the paid launch build
 
 **Status:** approved by Omar on 2026-11-28 (planning session after relay leg 172).
+**Names (Omar, 2026-11-28):**
+- **v1** is the app as it stands: git tag `v1`, at `daa8d58`, steps 1–59.
+- A built copy of v1 is kept ready at `D:/Claude Code PlayGround/Lablo-v1/` (both TV packages, a README with the install commands).
+- **What this plan builds is Lablo 1.1.** Its store build carries version 1.1.0.
+- "Phase 2" in RELAY.md means the work toward 1.1.
 **Relation to [PLAN.md](PLAN.md):** this plan extends it. Where they differ, this one wins. Mainly:
 - Lablo is no longer free: a 6-week trial, then a lock.
 - Accounts, sync and profiles move from v1.3 into the first store build.
