@@ -15,6 +15,7 @@ One file per decision, numbered in order. Format: Status, Date, Context, Decisio
 | [009](ADR-009-m3u-content-keys.md) | M3U ContentKeys hash tvg-id plus name; key functions are frozen | Accepted |
 | [010](ADR-010-catchup-time-zones.md) | Catch-up time zones (Intl, then the panel clock, then UTC) and M3U catch-up mode inference | Accepted |
 | [011](ADR-011-i18n-runtime-and-digits.md) | i18n: CLDR plurals in core, an ICU message subset, our own formats instead of `Intl`, Western digits in Arabic by default (reversible), provider text isolated | Accepted |
-| [012](ADR-012-lg-minimum-webos5.md) | LG minimum webOS 5 (2020); the webOS year from `sdkVersion` or the engine; `requiredACG` in every webOS manifest, checked by the build; the harness keeps Chromium 53 | Accepted |
+| [012](ADR-012-lg-minimum-webos5.md) | LG minimum webOS 5 (2020); the webOS year from `sdkVersion` or the engine; `requiredACG` in every webOS manifest, checked by the build; the harness keeps Chromium 53 | Accepted (amended by 015) |
 | [013](ADR-013-logins-on-the-tv-unsealed.md) | Logins on the TV are not encrypted at rest; everything that leaves the TV is (Omar, 2026-11-19) | Accepted |
 | [014](ADR-014-settings-loaded-on-first-open.md) | Settings load on first open: the app build split as AMD, with an ES5 loader of our own at the top of main.js (Omar, 2026-11-21) | Accepted |
+| [015](ADR-015-samsung-minimum-tizen55.md) | Samsung minimum Tizen 5.5 (2020), `required_version` checked by the build; no supported TV is in the `low` tier, no memory signal, and an unknown year and engine give `full` (Omar, 2026-11-28) | Accepted |

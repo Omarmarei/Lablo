@@ -1,6 +1,6 @@
 # Samsung Seller Office submission pack
 
-For **Samsung US first** (Public Seller). GCC and Canada follow once the Partner contract is signed (Omar's business track: the Partner application is waiting on him). Minimum: **Tizen 4.0 (2018)** and newer. The `.wgt` is signed with the Samsung author certificate (never committed; backup is Omar's, see RELAY carry-forward).
+For **Samsung US first** (Public Seller). GCC and Canada follow once the Partner contract is signed (Omar's business track: the Partner application is waiting on him). Minimum: **Tizen 5.5 (2020)** and newer ([ADR-015](../adr/ADR-015-samsung-minimum-tizen55.md); `required_version="5.5"` in config.xml, checked by the build). The `.wgt` is signed with the Samsung author certificate (never committed; backup is Omar's, see RELAY carry-forward).
 
 Samsung tests the upload with a pre-test, then a function test. **"Anything the testers can't test is a critical defect"**: the tester notes must hold a working account (`samsung-tester-notes.md`).
 

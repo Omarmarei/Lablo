@@ -116,7 +116,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 - [x] 15c2. **The AVPlay batteries (S4, S8) and S5's luna route.** Detail: docs/relay-archive.md, "Step 15c2".
 - [x] 15d. **The docs (research).** Detail: docs/relay-archive.md, "Step 15d".
 - [x] 15e. **The lab in an emulator.** Detail: docs/relay-archive.md, "Step 15e".
-- [ ] 16. **[needs Omar] Run the spikes on the available hardware.**
+- [x] 16. **[needs Omar] Run the spikes on the available hardware.** **Closed in step 60 (leg 173, 2026-11-28):** results.md's "Still to run" marks each row run, moved (to 21, 41, 42 or 86's TV checks) or not needed (ADR-015: no 2018 Samsung, no Remote Test Lab).
   - **Omar:**
     - tell the relay the LG TV's model and year (which webOS version)
     - put it in Developer Mode on the LAN
@@ -425,7 +425,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - **New finding to check (step 40h, small):** on this Samsung a backgrounded app is ended by the TV (Home, another app, return = a fresh start twice: a `hidden` event, then a new session, no `visible`/`relaunch`; lab sessions ...161816, ...162733, ...163117). Anything held only in memory is lost on Home: a VOD or episode position since the last save, an open screen. Check that VOD and series positions (and anything else that must survive) are saved at `hidden`; if not, fix it. S4's suspend/restore row cannot run on this TV for the same reason.
 ### Phase 10: Hardening and release
 - [ ] 41. **[needs TV] Performance.** **Rewritten 2026-11-28 (phase 2, Samsung 2020 and up, ADR-015):** a performance and memory pass against the S6 thresholds on the oldest supported sets. That is Omar's 2020 Samsung (UA32T5300AUXEG, Tizen 5.5, Chromium 69) and the LG, with the phase 2 build (all features in).
-  - Since ADR-015 no `low` tier by year remains. Step 60 decides whether a memory signal (`navigator.deviceMemory`, Chromium 63+) keeps a lighter tier for small-memory 2020 sets (low-end LG, the 32" Samsung).
+  - Since ADR-015 no `low` tier by year remains. **Decided in step 60 (ADR-015): no memory signal.** The 32" Samsung reports `deviceMemory` 1 and passed every tier-gated S6 check in `full`, and an unknown year and engine now give `full`. A lighter tier comes back only if this step measures a TV failing a tier-gated check (the guide's window, the duty cycle, posters, motion).
   - Measure cold start to the last channel with the phase 2 main.js, the licence check off the start path, and the alert host and extras worker idle.
   - From step 25c (architecture.md §4, "Built in step 25c"): the guide's two days back with archive marks, each press within 150 ms over channels with catch-up; the marks drawn; holding LEFT across a day; two past days of a large guide with catch-up channels within the tier's memory.
   - From step 25d (architecture.md §1.2, "Built in step 25d"), on each TV: a catch-up's position (an HLS archive's and a TS timeshift's media time must start at 0 at the URL's start, or "Aired at" is off); RIGHT inside an HLS archive (AVPlay `seekTo`, webOS's `<video>`); a seek by URL's reconnect time; the remote's PLAY and PAUSE keys (webOS maps both to one toggle); a programme's end card from a real archive.
@@ -516,6 +516,29 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - the store pack and the beta kit say 2020, in en and ar;
     - `release:check` knows the new line.
   - **Close step 16:** mark each row of results.md's "Still to run" as run, moved to 21, 41 or 42, or not needed. Then tick 16.
+  - **Refined in leg 173 (before building):**
+    - **What reads the tier, and the 2020 Samsung's numbers** (results.md, run `scyp` in the `full` tier):
+      - the guide's window (`EPG_WINDOWS`, `packages/core/src/epg-guide.ts:65`; `GUIDE_DAYS`/`GUIDE_REACH`, `apps/tv/src/guide/guide-state.ts:107-113`; the ingest's basis, `packages/data/src/epg-ingest.ts:195`): full keeps 7 + 7 days and 1,000-character descriptions. The Samsung kept 668,536 programmes in 202.8 s (≤ 4 min) inside its 88 MB quota;
+      - the 50/50 duty cycle (`LOW_TIER_DUTY`: the ingest and guide services, `engine-loader.ts`, `refresh-scheduler.ts`, `main.tsx:755`, the hello screen's DataPanel): without it the Samsung ingested 200k items in 69.7 s (≤ 90 s), with keys during the refresh at median 62 ms, slowest 129 ms (≤ 200 ms). The duty cycle would about double the ingest, to ~140 s: a fail;
+      - posters (`POSTER_TIERS`, `apps/tv/src/movies/posters.ts:32`, home and movies): no Samsung number; Omar's checks by eye on 2026-11-26 found nothing;
+      - motion (`[data-tier='low']`, `packages/ui/src/styles/tokens.css:88`, set by `main.tsx:103`): no number;
+      - telemetry and diagnostics (`app_start.tier`, `probes.lowTier`; `packages/protocol/src/telemetry.ts:30`): records only;
+      - the lab (the battery's 4 s TS first-frame limit on low, `battery.ts:407`; S6's `lowTier`): the lab only.
+    - **The memory signal:** S0 recorded `navigator.deviceMemory` = **1** on the Samsung (sessions `wpev`, `cvj5`, `scyp`) and 2 on the LG. A "1 GB is low" rule would put the very TV that passed in `full` into `low`, so there is no memory signal.
+    - **A gap found:** Tizen's user agent has no `Chrome/` token (the TV's: `… (KHTML, like Gecko) 69.0.3497.106/5.5 TV Safari/537.36`). So a Tizen newer than `TIZEN_RELEASES` (10.0, the 2026 sets) reads no year and no engine, and `deviceTier` answers `low`. With both platforms at 2020 and up, an unknown set is newer than the tables: `full`.
+    - **The decision for ADR-015:** the tier stays (the type, the limits, `?tier=low`, the telemetry field) as the seam step 41 may use; `low` now means a set below the minimum (a developer install, the harness's Chromium 53/56 until 61b); year and engine unknown → `full`.
+    - **Lines naming Samsung 2018 that change here:**
+      - `platforms/tizen/config.xml` and `checkConfigXml`, which `release:check` runs;
+      - `docs/store/samsung-submission.md:3`;
+      - `docs/store/beta.md` 12, 17, 26, 107 (en), 130 (ar) and 186;
+      - `docs/testing-without-tvs.md` (a note at the top: the 2018 set and the RTL route are no longer needed);
+      - results.md's devices table and "Still to run";
+      - PLAN.md 22, 157 and 340;
+      - architecture.md 72, 1150, 2800, 2804, 2823, 2709, 606 and 610;
+      - `docs/runbooks/tv-setup.md:14`;
+      - the comments in `packages/core/src/device.ts` and `posters.ts`.
+      - The listings name no year.
+    - **Left for step 61:** the build's Chromium 53 target, the harness's 53 and 56, CLAUDE.md, old-engines.md, and the gates' and engines' comments. Progress rows, the archive and the "a 2018 TV is slower" estimates in code comments stay as history.
   - **Done when:** standard done; ADR-015 is listed in docs/adr/README.md; step 16 is ticked.
 - [ ] 61. **Retarget the TV build to Chromium 68.** Omar's decision 6. 3–4 legs.
   - **Refine first against:**

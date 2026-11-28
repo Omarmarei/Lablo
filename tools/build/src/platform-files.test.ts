@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { checkSyntax } from './syntax-gate';
 import {
   BOOT_ERROR_SCRIPT,
+  TIZEN_REQUIRED_VERSION,
   assertAppVersion,
   checkAppinfo,
   checkConfigXml,
@@ -71,6 +72,21 @@ describe('platform manifests', () => {
   it('rejects a config.xml with the wrong version', () => {
     const text = fillTemplate(read('platforms/tizen/config.xml'), '0.1.0');
     expect(() => checkConfigXml(text, '0.2.0')).toThrow(/widget version/);
+  });
+
+  it('pins the oldest Tizen the app installs on: 5.5, the 2020 sets (ADR-015)', () => {
+    expect(TIZEN_REQUIRED_VERSION).toBe('5.5');
+    expect(read('platforms/tizen/config.xml')).toContain('<tizen:application id="LabloIPTV1.Lablo" package="LabloIPTV1" required_version="5.5"/>');
+  });
+
+  it.each(['4.0', '5.0', '6.0', ''])('rejects a config.xml whose required_version is %j (ADR-015)', (version) => {
+    const text = fillTemplate(read('platforms/tizen/config.xml'), '0.1.0').replace('required_version="5.5"', `required_version="${version}"`);
+    expect(() => checkConfigXml(text, '0.1.0')).toThrow(`required_version is "${version}", expected "5.5" (ADR-015)`);
+  });
+
+  it('rejects a config.xml without required_version (ADR-015)', () => {
+    const text = fillTemplate(read('platforms/tizen/config.xml'), '0.1.0').replace(' required_version="5.5"', '');
+    expect(() => checkConfigXml(text, '0.1.0')).toThrow('required_version is missing, expected "5.5" (ADR-015)');
   });
 
   it('rejects a config.xml without the unlimitedstorage privilege (step 39s1)', () => {

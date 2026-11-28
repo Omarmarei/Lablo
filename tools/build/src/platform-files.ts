@@ -77,6 +77,9 @@ export function checkAppinfo(text: string, version: string): { id: string; versi
   return { id: info.id as string, version, requiredACG: acg as string[] };
 }
 
+/** The oldest Tizen the app installs on: 5.5, the 2020 sets (ADR-015). */
+export const TIZEN_REQUIRED_VERSION = '5.5';
+
 /** Checks the Tizen manifest; returns the application id used to launch the app. */
 export function checkConfigXml(text: string, version: string): { appId: string } {
   const problems: string[] = [];
@@ -87,6 +90,10 @@ export function checkConfigXml(text: string, version: string): { appId: string }
   if (!text.includes('http://tizen.org/privilege/unlimitedstorage')) problems.push('the unlimitedstorage privilege is missing');
   const appId = /<tizen:application\s+id="([^"]+)"/.exec(text)?.[1];
   if (appId === undefined) problems.push('<tizen:application id="…"> is missing');
+  const required = /<tizen:application\s[^>]*required_version="([^"]*)"/.exec(text)?.[1];
+  if (required !== TIZEN_REQUIRED_VERSION) {
+    problems.push(`required_version is ${required === undefined ? 'missing' : `"${required}"`}, expected "${TIZEN_REQUIRED_VERSION}" (ADR-015)`);
+  }
   if (problems.length > 0 || appId === undefined) throw new Error(`platforms/tizen/config.xml: ${problems.join('; ')}`);
   return { appId };
 }

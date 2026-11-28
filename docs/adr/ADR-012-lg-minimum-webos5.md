@@ -1,6 +1,6 @@
 # ADR-012: LG minimum webOS 5 (2020), the webOS model year, and LG's ACG
 
-- **Status:** Accepted. Omar raised the LG minimum on 2026-11-04 (relay leg 34), and added LG's ACG (`requiredACG`) to the same step.
+- **Status:** Accepted. Omar raised the LG minimum on 2026-11-04 (relay leg 34), and added LG's ACG (`requiredACG`) to the same step. **Amended by [ADR-015](ADR-015-samsung-minimum-tizen55.md) (2026-11-28):** Samsung starts at Tizen 5.5 (2020) too, and no supported TV is in the `low` tier.
 - **Date:** 2026-11-04 (relay step 16a)
 - **Amends:** docs/PLAN.md §"Minimum supported" and spike S6 ("raise the LG minimum to 2019/2020 (I'll ask you first)"); docs/architecture.md §4 (device matrix) and §5 (S1, S5, S6); implemented in `packages/platform-webos/src/device.ts`, `platforms/webos/appinfo.json` and `tools/build/src/acg.ts`.
 
