@@ -9,12 +9,12 @@ Sources: LG's and Samsung's own pages, read on 2026-11-26. Every quote is copied
 ### What this means for Lablo (summary)
 | | Through the store | Developer Mode on the tester's TV |
 |---|---|---|
-| **Samsung** | **Beta Test** in Seller Office: activation codes, up to 90 days, only on 2021 and newer TVs, only in the app's service countries. A Public Seller launches only in the US, so GCC testers need the Partner contract first. | A `.wgt` signed with a distributor certificate that lists each TV's DUID (up to 50), installed from a PC on the same network. Works on 2018–2020 TVs too. |
+| **Samsung** | **Beta Test** in Seller Office: activation codes, up to 90 days, only on 2021 and newer TVs, only in the app's service countries. A Public Seller launches only in the US, so GCC testers need the Partner contract first. | A `.wgt` signed with a distributor certificate that lists each TV's DUID (up to 50), installed from a PC on the same network. Works on 2020 TVs too (Lablo's Samsung minimum, ADR-015). |
 | **LG** | **Alpha Test** in Seller Lounge: up to 100 TVs by wired MAC address, up to 30 days. Only for sellers with a separate commercial contract. | An `.ipk` installed with the webOS CLI from a PC; the tester signs in to the Developer Mode app with an LG Developer account; the session runs for a limited time. |
 
 **The likely mix for a 10–30 person beta while Lablo has no partner contract with either brand:**
 - **Samsung, US testers with a 2021 or newer TV:** the store's Beta Test (if Seller Office offers it to a Public Seller; its pages neither say yes nor no).
-- **Samsung, GCC testers or a 2018–2020 TV:** Developer Mode, with Omar or a helper at the TV with a laptop (the DUID goes into our certificate first).
+- **Samsung, GCC testers or a 2020 TV:** Developer Mode, with Omar or a helper at the TV with a laptop (the DUID goes into our certificate first).
 - **LG, everyone:** Developer Mode, the same way, unless LG grants Alpha Test after a partnership request (Seller Lounge › 1:1 Q&A › Partnership › Business Partnership).
 
 So a GCC beta is mostly hands-on installs, which suits a small group of people Omar can reach. Which route and how many testers per route is Omar's call at step 46.
@@ -23,7 +23,7 @@ So a GCC beta is mostly hands-on installs, which suits a small group of people O
 Seller Office › Applications › Distribute › "Create Beta Test".
 - **Before it:** "The application information except 'Verification Info' must be fully entered before beta testing can begin." The build need not be certified or released: "You can choose from a version that has not yet been released on TV or has not been requested to be released." ([Distributing an application](https://developer.samsung.com/tv-seller-office/guides/applications/distributing-application.html))
 - **Review:** "Samsung's verification test is not performed. However, after registering beta test information, you must obtain approval from Samsung Content Manager" ([Beta test FAQ](https://developer.samsung.com/tv-seller-office/faq/beta-test.html))
-- **TVs:** "Beta testing is available starting from Smart TVs released in 2021." ([Beta test FAQ](https://developer.samsung.com/tv-seller-office/faq/beta-test.html)) The 2020 test Samsung (UA32T5300) and every 2018–2020 TV cannot join.
+- **TVs:** "Beta testing is available starting from Smart TVs released in 2021." ([Beta test FAQ](https://developer.samsung.com/tv-seller-office/faq/beta-test.html)) The 2020 test Samsung (UA32T5300) and every other 2020 TV cannot join.
 - **Countries:** "beta testing is only available in the service country of the application." ([Beta test FAQ](https://developer.samsung.com/tv-seller-office/faq/beta-test.html)) And "Public Sellers can only launch in the US." ([Entering application information](https://developer.samsung.com/tv-seller-office/guides/applications/entering-application-information.html)) To become a Partner, "you need to sign an offline contract with Samsung HQ or a local subsidiary" ([Becoming a Seller Office member](https://developer.samsung.com/tv-seller-office/guides/membership/becoming-seller-office-member.html)): the Samsung Gulf application on Omar's list.
 - **Testers:** by activation code, not by email: "you can only install beta on a TV that is certified with the beta test activation code" and "one activation code is used as a one-time" ([Beta test FAQ](https://developer.samsung.com/tv-seller-office/faq/beta-test.html)). Codes come as a CSV. "You can issue up to 1000 activation codes" ([Distributing](https://developer.samsung.com/tv-seller-office/guides/applications/distributing-application.html)); the FAQ also says "Up to 100,000 additional activation codes can be issued." Either way, far more than we need.
 - **Recruiting and feedback are ours:** "Application development company should recruit beta testers on their own and provide a path to receive feedback." ([Beta test FAQ](https://developer.samsung.com/tv-seller-office/faq/beta-test.html))
@@ -104,7 +104,7 @@ Send it from the support address (`lablo.iptv@gmail.com`) or Omar's own. Fill th
 > We're building Lablo, a free player for your own IPTV playlist on Samsung and LG smart TVs, in Arabic and English. Before it goes into the stores, we're looking for {number} people to use it on their own TV for two weeks and tell us what works and what doesn't.
 >
 > **You'll need:**
-> - A Samsung smart TV from 2018 or newer, or an LG smart TV from 2020 or newer (webOS 5 or later). Please send us its model: it's on a label on the back, or in the TV's settings under "About this TV".
+> - A Samsung smart TV from 2020 or newer (Tizen 5.5 or later), or an LG smart TV from 2020 or newer (webOS 5 or later). Please send us its model: it's on a label on the back, or in the TV's settings under "About this TV".
 > - Your own IPTV subscription: an M3U link or an Xtream login from a service you have the right to watch. Lablo provides no channels, playlists or subscriptions. We will never ask for your link or login, and you should never send them to us.
 > - A short install (we'll send the steps for your TV, and for some TVs we install it with you), two weeks of normal use, and 10 minutes for a short form at the end.
 >
@@ -127,7 +127,7 @@ Send it from the support address (`lablo.iptv@gmail.com`) or Omar's own. Fill th
 > نعمل على لابلو، وهو مشغّل مجاني لقائمة IPTV الخاصة بك على تلفزيونات سامسونج وإل جي الذكية، بالعربية والإنجليزية. قبل وصوله إلى المتاجر، نبحث عن {العدد} أشخاص يستخدمونه على تلفازهم مدة أسبوعين ويخبروننا بما يعمل وما لا يعمل.
 >
 > **ستحتاج إلى:**
-> - تلفاز سامسونج ذكي من عام 2018 أو أحدث، أو تلفاز إل جي ذكي من عام 2020 أو أحدث (webOS 5 أو أحدث). أرسل لنا طرازه: تجده على ملصق خلف التلفاز، أو في إعدادات التلفاز تحت «حول هذا التلفاز».
+> - تلفاز سامسونج ذكي من عام 2020 أو أحدث (Tizen 5.5 أو أحدث)، أو تلفاز إل جي ذكي من عام 2020 أو أحدث (webOS 5 أو أحدث). أرسل لنا طرازه: تجده على ملصق خلف التلفاز، أو في إعدادات التلفاز تحت «حول هذا التلفاز».
 > - اشتراك IPTV خاص بك: رابط M3U أو بيانات دخول Xtream من خدمة لك الحق في مشاهدتها. لابلو لا يقدّم أي قنوات أو قوائم أو اشتراكات. لن نطلب منك رابطك أو بيانات دخولك أبداً، ولا ترسلها إلينا.
 > - تثبيت قصير (نرسل لك خطوات تلفازك، ولبعض التلفزيونات نثبّته معك)، ثم استخدام عادي لمدة أسبوعين، و10 دقائق لاستبيان قصير في النهاية.
 >
@@ -183,7 +183,7 @@ For a form Omar makes (any form tool; the answers are his, not the repo's). Ask 
 - [ ] **Developer Mode testers:** each Samsung TV's DUID added to our distributor certificate and the build signed again (a factory reset changes the DUID); each LG tester's own LG Developer account; one laptop visit or call per install, and on LG a reminder to press EXTEND before the session runs out.
 - [ ] **The legal text:** a store beta needs a store build, and `build:tv --release` refuses while the draft mark is on (counsel's text, step 40d). A Developer Mode build carries the "Draft for counsel" mark; tell testers that the terms are a draft.
 - [ ] **The remote config's sampling** (`tunables.telemetrySampling`) unset or 1 for every kind while the beta runs.
-- [ ] **Testers:** 10 to 30, in the GCC and North America; both brands; TV years spread from 2018 (Samsung) and 2020 (LG) to now; at least five who read Arabic natively (one of them also does step 46's read of `listing-ar.md` and this invitation); every one with their own provider.
+- [ ] **Testers:** 10 to 30, in the GCC and North America; both brands; TV years spread from 2020 (both brands) to now, at least one 2020 Samsung among them; at least five who read Arabic natively (one of them also does step 46's read of `listing-ar.md` and this invitation); every one with their own provider.
 - [ ] **The form** made from the questions above, in English and Arabic, and its link added to the invitation.
 - [ ] **The support inbox** (`lablo.iptv@gmail.com`) watched daily during the beta.
 

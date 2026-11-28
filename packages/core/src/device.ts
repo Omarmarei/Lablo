@@ -3,9 +3,10 @@
  */
 
 /**
- * Performance tier. `low` covers 2018–2019 TVs (about 1–1.5 GB RAM, Chromium 53–63; since
- * ADR-012 only Samsung's, as LG starts at 2020); `full` covers 2020 and newer. Tier-dependent limits (EPG window, image caps, ingest duty
- * cycle) key off this value.
+ * Performance tier. `full` covers 2020 and newer, which since ADR-012 (LG) and ADR-015 (Samsung)
+ * is every TV the stores install Lablo on. `low` is left for a set below that minimum (a developer
+ * install on a 2018–2019 TV, an old engine in the harness) and for tests (`?tier=low`).
+ * Tier-dependent limits (EPG window, poster loading, ingest duty cycle, motion) key off this value.
  */
 export type DeviceTier = 'low' | 'full';
 
@@ -20,12 +21,13 @@ export const FULL_TIER_FROM_CHROMIUM = 68;
 
 /**
  * The tier for a device. The model year decides when it is known; otherwise the Chromium
- * version does. With neither, the answer is `low`, the safe choice on a TV.
+ * version does. With neither, the answer is `full`: both platforms start at 2020, so a set the
+ * version tables don't know is newer than them (a Tizen user agent names no `Chrome/`; ADR-015).
  */
 export function deviceTier(facts: { modelYear: number | null; chromiumVersion: number | null }): DeviceTier {
   if (facts.modelYear !== null) return facts.modelYear >= FULL_TIER_FROM_YEAR ? 'full' : 'low';
   if (facts.chromiumVersion !== null) return facts.chromiumVersion >= FULL_TIER_FROM_CHROMIUM ? 'full' : 'low';
-  return 'low';
+  return 'full';
 }
 
 /**

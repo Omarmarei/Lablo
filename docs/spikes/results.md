@@ -1,6 +1,6 @@
 # Spike results
 
-What the Lablo Lab ([runbooks/lab.md](../runbooks/lab.md)) found on each device, spike by spike. The spikes and their pass criteria are in [architecture.md §5](../architecture.md); the decisions they led to are ADRs ([ADR-012](../adr/ADR-012-lg-minimum-webos5.md) so far).
+What the Lablo Lab ([runbooks/lab.md](../runbooks/lab.md)) found on each device, spike by spike. The spikes and their pass criteria are in [architecture.md §5](../architecture.md); the decisions they led to are ADRs ([ADR-012](../adr/ADR-012-lg-minimum-webos5.md), [ADR-015](../adr/ADR-015-samsung-minimum-tizen55.md)).
 
 - **Started:** 2026-11-04 (relay step 16a). Step 16 adds the Samsung TVs and the checks that need a person at the TV.
 - **The first Samsung TV:** 2026-11-23 and 24, a session beside the relay. It ran the lab and also the app itself (steps 19b and 21, "The app on the Samsung TV" below).
@@ -17,7 +17,7 @@ What the Lablo Lab ([runbooks/lab.md](../runbooks/lab.md)) found on each device,
 | **Desktop Chromium 156** (Playwright) | Chromium 156 | `pnpm lab:media` (S5 only, a 1-minute soak) | `browser-Desktop-browser-20261104-073916-6sbc`, `-074123-jxnu` | S5: 5/4/1/0 each |
 | **Old-engine harness** | Chromium 53, 56, 68 | `pnpm verify:engines` (Docker; both bundles; no media) | CI job `engines` on every PR | every check as expected (architecture.md §5, steps 15a–15c2) |
 | **Samsung UA32T5300AUXEG** (2020 T5300, 32" HD; Tizen 5.5, firmware T-KTS2UABC-2743.0; armv7) | Chromium 69 | a TV in Developer Mode on the LAN (tv-setup.md 3), driven from the PC (below) | `235813-wpev` (0.1.0, closed part-way during the set-up); `001024-cvj5` (0.1.0, run at launch, then S4 alone); `004301-scyp` (0.1.0, run at launch, then S4 alone with the soak, then S6 alone at scale). All `tizen-UA32T5300AUXEG-2026112*` | the runs at launch: 34/7/18/9; 35/6/18/9 |
-| **The other Samsung TVs** | Chromium 56 (2018) to 130 | the Remote Test Lab (2019–2026) and a used 2018 set | not run yet (step 16) | — |
+| **The other Samsung TVs** | Chromium 69 (2020) to 130 | ~~the Remote Test Lab (2019–2026) and a used 2018 set~~ not needed since [ADR-015](../adr/ADR-015-samsung-minimum-tizen55.md) (Samsung starts at 2020); newer sets come through the closed beta (step 46) | — | — |
 
 The Simulators' runs predate 16a: their S0 year and S1 CSS rows came from the old code (see "Fixed by these runs").
 
@@ -170,15 +170,17 @@ Step 21's LG half (RELAY 21L, leg 171), on Omar's OLED55A1PVA (2021, webOS 6, fi
 - **Not run:** the full 2 h (the TV's standby ended run 3 at 86 minutes) and a soak with a working `.m3u8` beside the `.ts` (run 1's case, where the switch rung ends the stalls). Both belong to the LG soak again after step 59.
 - The tunnel (`ares-inspect`) dropped once on its own after about 25 minutes ("Unable to connect to the device", while the TV stayed on); `pnpm tv inspect --webos tv` again brought it back. The TV was in standby when the session began (23:18), until Omar turned it on (23:29), and went to standby again at about 01:34.
 
-## Still to run (step 16)
+## Still to run (step 16, closed in step 60)
 
-| What | Where | Needs | Plan |
-|---|---|---|---|
-| S10 keys, Magic Remote pointer, the TV keyboard (en and ar) | LG TV | Omar at the TV, ~10 min | start S10 from its row (lab.md "S10") |
-| S11 reading by ear (focus and `aria-live`), lifecycle (Home and back) | LG TV | Omar, Audio Guidance on | start S11 from its row (lab.md "S11") |
-| S5 suspend (Home while playing) and the 60-minute soak | LG TV | Omar to start it; the soak runs alone | start S5 from its row |
-| S6 at scale (200k items, the 150 MB guide) | LG TV, then the 2018 Samsung (the 2020 Samsung: done, search and cold start failed) | nobody at the TV: the mock with the scale fixtures, then S6 from its row | next TV session |
-| Step 21's soak with stalls that reach the app's watchdog | the Samsung (the LG: done, "From the LG TV (2026-11-27)" above; again after step 59) | a stall scenario that outlasts AVPlay's own reconnects ("From the Samsung TV" above) | step 21 |
-| S2 across a **store** update | LG and Samsung | the first store release | release checklist (step 45) |
-| Everything on Samsung: S0–S11 with S4 and S8 on AVPlay | Remote Test Lab (2019–2026) and the used 2018 set (the 2020 HD Samsung: done, above) | Omar: the tunnel for the RTL TVs, the 2018 set itself (the Samsung account and the certificate exist now) | tv-setup.md 3.2–3.6 |
-| A low-end 2020 LG (webOS 5, ~1.5 GB) | none owned | a decision if step 41 finds the tier rule wrong | ADR-012 "Consequences" |
+Step 16 closed on 2026-11-28 (relay step 60, leg 173). Samsung starts at 2020 since [ADR-015](../adr/ADR-015-samsung-minimum-tizen55.md), so the 2018 set and the Remote Test Lab are no longer needed. Each row below is **run**, **moved** to the step that now owns it, or **not needed**.
+
+| What | Where | Status (2026-11-28) |
+|---|---|---|
+| S10 keys, Magic Remote pointer, the TV keyboard (en and ar) | LG TV | **Moved to step 86's TV checks.** Partly covered: leg 171 drove the keys the player uses (100 zaps, BACK, OK, the arrows) through the inspector; our own keyboard (step 40e) replaced the TV's for typing, in English and Arabic; the pointer was built in step 11b. The S10 key tester, the pointer and the keyboard by hand still need a person at the TV |
+| S11 reading by ear (focus and `aria-live`), lifecycle (Home and back) | LG TV | **Reading by ear: moved to step 86's TV checks**, on an LG that offers Audio Guidance (Omar's OLED55A1PVA doesn't; Tizen's Voice Guide read focus and `aria-live`, 2026-11-25). **Lifecycle: moved to step 42** |
+| S5 suspend (Home while playing) and the 60-minute soak | LG TV | **The soak: run** ("From the LG TV (2026-11-27)": 86 minutes with 60 outages, each stall ended 1.0–1.2 s after the stream came back). **Suspend: moved to step 42**, with the lifecycle |
+| S6 at scale (200k items, the 150 MB guide) | LG TV, ~~then the 2018 Samsung~~ | **The 2020 Samsung: run** (above; search's first query and the cold start failed, step 41). **The 2018 Samsung: not needed** (ADR-015). **The LG at scale: moved to step 41**, with the phase 2 build |
+| Step 21's soak with stalls that reach the app's watchdog | the Samsung (the LG: run) | **Moved to step 21** (its Samsung half: the 2 h soak on today's main). The 39s7 runs on 2026-11-26 passed (8 TS outages, the picture back about 1 s after each) |
+| S2 across a **store** update | LG and Samsung | **Moved to step 42** (update in place: the Samsung passed by developer install on 2026-11-26, the LG on 2026-11-04) and to the release checklist for the first real store update |
+| Everything on Samsung: S0–S11 with S4 and S8 on AVPlay | ~~Remote Test Lab (2019–2026) and the used 2018 set~~ | **The 2020 Samsung: run** (above). **The 2018 set and the Remote Test Lab: not needed** (ADR-015). 2021+ Samsung sets: the closed beta (step 46) and Samsung's Beta Test |
+| A low-end 2020 LG (webOS 5, ~1.5 GB) | none owned | **Stays with step 41.** ADR-015 keeps the `low` tier as a seam with no supported TV in it; a lighter tier comes back only if a measured TV fails a tier-gated check |

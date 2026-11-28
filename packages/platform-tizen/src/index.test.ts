@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { nativeKeyboardAsked } from '@lablo/platform-api';
 import type { TizenKey } from './index';
 import { FakeAvplay, FakeClock, settle } from './fake-avplay';
@@ -138,6 +138,36 @@ describe('Tizen version tables', () => {
   it.each(['unknown', '', '42.0'])('unknown version %j -> null', (version) => {
     expect(tizenModelYear(version)).toBeNull();
     expect(tizenChromiumVersion(version)).toBeNull();
+  });
+});
+
+describe('createTizenPlatform().info(): the year, the engine and the tier (ADR-015)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  // Tizen's own user agents carry the engine as `69.0.3497.106/5.5`, with no `Chrome/` token.
+  const tv = (platformVersion: string, userAgent: string): void => {
+    vi.stubGlobal('window', {
+      tizen: { systeminfo: { getCapability: () => platformVersion } },
+      webapis: { productinfo: { getRealModel: () => 'UA32T5300AUXEG', getFirmware: () => 'T-KTS2UABC-2743.0' } },
+    });
+    vi.stubGlobal('navigator', { userAgent, language: 'en-GB' });
+  };
+
+  it('reads 2020, Chromium 69 and the full tier on the 2020 Samsung, whose user agent names no Chrome', async () => {
+    tv('5.5', 'Mozilla/5.0 (SMART-TV; LINUX; Tizen 5.5) AppleWebKit/537.36 (KHTML, like Gecko) 69.0.3497.106/5.5 TV Safari/537.36');
+    expect(await createTizenPlatform().info()).toMatchObject({ platform: 'tizen', model: 'UA32T5300AUXEG', modelYear: 2020, osVersion: '5.5', chromiumVersion: 69, tier: 'full' });
+  });
+
+  it('gives the full tier to a Tizen newer than the table: no year, no engine (a 2026 set)', async () => {
+    tv('10.0', 'Mozilla/5.0 (SMART-TV; LINUX; Tizen 10.0) AppleWebKit/537.36 (KHTML, like Gecko) 130.0.6723.58/10.0 TV Safari/537.36');
+    expect(await createTizenPlatform().info()).toMatchObject({ modelYear: null, osVersion: '10.0', chromiumVersion: null, tier: 'full' });
+  });
+
+  it('keeps the low tier for a set below the minimum (a developer install on a 2019 set)', async () => {
+    tv('5.0', 'Mozilla/5.0 (SMART-TV; LINUX; Tizen 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Version/5.0 TV Safari/537.36');
+    expect(await createTizenPlatform().info()).toMatchObject({ modelYear: 2019, chromiumVersion: 63, tier: 'low' });
   });
 });
 

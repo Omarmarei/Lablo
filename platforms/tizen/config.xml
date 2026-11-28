@@ -4,9 +4,11 @@
   dist/tv/tizen and replaces {{version}} with apps/tv/package.json "version".
   PLACEHOLDERS until release engineering (RELAY step 45): the widget id URL and the
   10-character package id "LabloIPTV1". Both are permanent once the app is published.
+  required_version: Tizen 5.5, the 2020 sets, is the oldest Samsung Lablo supports (ADR-015;
+  tools/build/src/platform-files.ts checks it).
 -->
 <widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="https://lablo-iptv.invalid/tv" version="{{version}}" viewmodes="maximized">
-    <tizen:application id="LabloIPTV1.Lablo" package="LabloIPTV1" required_version="4.0"/>
+    <tizen:application id="LabloIPTV1.Lablo" package="LabloIPTV1" required_version="5.5"/>
     <tizen:profile name="tv-samsung"/>
     <name>Lablo</name>
     <content src="index.html"/>

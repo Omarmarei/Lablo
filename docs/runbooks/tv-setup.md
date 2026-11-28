@@ -11,7 +11,7 @@ How to get the Lablo Lab (and later the app) onto each device we test on: an LG 
 | **LG TV**, webOS 5+ (2020+, [ADR-012](../adr/ADR-012-lg-minimum-webos5.md)) | The Developer Mode app, an LG developer account, the TV on the LAN | the TV's own (webOS 5 = Chromium 68; ours: webOS 6 = Chromium 79) | the TV's own | `pnpm device install webos tv --lab` |
 | **webOS TV Emulator** 1.2–6.0 | VirtualBox 6.1 | 4.0 = Chromium 53 | **no HLS before 5.0**, no DRM | `pnpm device install webos emulator --lab` |
 | **webOS TV Simulator** 6.0, 22–26 | a zip from LG | 6.0 = Chromium 79 | "different from actual TV devices", no DRM | `ares-launch -s <version> … dist/tv-lab/webos` (an app folder, no `.ipk`); on this PC, the Linux build in Docker (2.4) |
-| **Samsung TV**, Tizen 4+ (2018+) | the Tizen CLI, a Samsung certificate with the TV's DUID, Developer Mode | the TV's own (2018 = Chromium 56) | the TV's own (AVPlay) | `pnpm device install tizen <serial> --lab` |
+| **Samsung TV**, Tizen 5.5+ (2020+, [ADR-015](../adr/ADR-015-samsung-minimum-tizen55.md)) | the Tizen CLI, a Samsung certificate with the TV's DUID, Developer Mode | the TV's own (2020 = Chromium 69) | the TV's own (AVPlay) | `pnpm device install tizen <serial> --lab` |
 | **Tizen TV Emulator** | the Tizen SDK, an Intel CPU with HAXM (Hyper-V off) | **TV 10.0 only = Chromium 130** | no DRM, no 4K; AVPlay unconfirmed | `pnpm device install tizen emulator-26101 --lab` |
 | **Samsung Remote Test Lab TV**, Tizen 5.0+ (2019+) | as for a Samsung TV, plus RTL TV Tools and a public lab server | 2019 = Chromium 63 | the TV's own | the same, through sdbproxy (3.6) |
 

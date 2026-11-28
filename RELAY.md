@@ -5,6 +5,8 @@
 
 This file replaces the `ROADMAP.md` that PLAN.md mentions: these steps are the per-session checklist.
 
+**Extended on 2026-11-28 (phase 2):** the first store build also carries 14 new features and a paid licence. [docs/PLAN-2.md](docs/PLAN-2.md) holds the plan; it wins over PLAN.md where they differ. Its steps are phases 11–19 below (steps 60–86), taken in order after the open v1 steps that need no TV or Omar.
+
 ## Definition of done (global DoD applied to Lablo)
 1. **Tests and build:** `pnpm verify` is green (lint incl. boundaries, typecheck, tests, both TV builds, ES2016 syntax gate, bundle budgets; each part counts once it exists).
 2. **PR and CI:** a PR to `main` on private repo `Omarmarei/Lablo` with green CI, merged with a merge commit (not squash, so the long-lived `relay/<run>` branch stays mergeable).
@@ -21,6 +23,27 @@ UI steps also end with a short "press these keys" checklist that Omar can run in
 - Never ask Omar to act at a TV (turn it on, accept a prompt, change a setting, disable standby). A leg uses a TV only when it answers by itself (`tools/tv/node_modules/.bin/ares-device.CMD --system-info --device tv`); otherwise the TV check stays open and the leg goes on. A TV alone is never a needs-you: TV items go in the handover's "Checks for Omar".
 - After every launch or relaunch of Lablo on the LG, mute it: `pnpm -s tv eval --webos @"<wt>/artifacts/21L-tools/mute.js"` (gitignored; check the answer says "muted"). The TV's own mute is out of reach.
 - No Wake-on-LAN at night without his word.
+
+**Phase 2: Omar's decisions** (2026-11-28, the planning session after leg 172; detail and reasons in docs/PLAN-2.md §2):
+1. **A paid app with no free tier.**
+   - Each TV gets the full app for 6 weeks from its own install, with a countdown from day 1. Then the app locks.
+   - After the lock, Settings, Check the connection, Send a report, Help, Backup, About and Licence stay open.
+   - The trial length is a config value.
+2. **The licence:** 5 TVs, transferable, 14-day refund. Two one-time products priced per country: a 1-year pass and lifetime. No auto-renew.
+3. **Purchase is in the launch build.** The lock is switched per store and country by the signed config. Where it is switched on late, TVs get 6 weeks from that day.
+4. **Closed-beta testers get a free lifetime licence** (vouchers).
+5. **Samsung minimum: 2020** (Tizen 5.5). 2018–2019 Samsung sets are dropped (ADR-015, step 60).
+6. **Retarget the build to Chromium 68 first** (step 61).
+   - Omar's word for the CLAUDE.md change is his choice of this option in the planning session.
+7. **"These TVs are mine" is a Lablo code, with no email.**
+8. **All 14 features are in the first store build;** no Ramadan deadline.
+9. **Names** (Omar, later the same day):
+   - **v1** is the app as it stands: git tag `v1` at `daa8d58`. Never move or delete the tag.
+   - A built copy is kept ready at `D:/Claude Code PlayGround/Lablo-v1/` (`Lablo.wgt` signed with `lablo-dev`, the LG `.ipk`, a README with the install commands).
+   - **What phase 2 builds is Lablo 1.1;** its store build is version 1.1.0.
+   - When Omar asks for v1: install from that folder, or rebuild from the tag (its README).
+
+Not planned: faster zapping, multiview, USB recording, new platforms, B2B, DRM, white-label.
 
 ## Steps
 
@@ -93,7 +116,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 - [x] 15c2. **The AVPlay batteries (S4, S8) and S5's luna route.** Detail: docs/relay-archive.md, "Step 15c2".
 - [x] 15d. **The docs (research).** Detail: docs/relay-archive.md, "Step 15d".
 - [x] 15e. **The lab in an emulator.** Detail: docs/relay-archive.md, "Step 15e".
-- [ ] 16. **[needs Omar] Run the spikes on the available hardware.**
+- [x] 16. **[needs Omar] Run the spikes on the available hardware.** **Closed in step 60 (leg 173, 2026-11-28):** results.md's "Still to run" marks each row run, moved (to 21, 41, 42 or 86's TV checks) or not needed (ADR-015: no 2018 Samsung, no Remote Test Lab).
   - **Omar:**
     - tell the relay the LG TV's model and year (which webOS version)
     - put it in Developer Mode on the LAN
@@ -127,6 +150,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - **Done in leg 35 without a person at the TV:** S2 across an update (lab 0.1.0 → 0.1.1 installed over it: localStorage and IndexedDB both kept their markers) and S3 across an uninstall and reinstall (the same LGUDID hash). See `docs/spikes/results.md`.
   - **Order (Omar, leg 34):** 16a next, then step 17 onward while the rest of 16 waits for Omar. Legs skip step 16 until Omar says the Samsung route is ready or he has time at the TV.
   - **Done when:** results.md has a row per spike per device. Spikes that couldn't be run are listed with the plan to cover them.
+  - **2026-11-28 (Omar, phase 2):** Samsung 2018–2019 is dropped, so no 2018 set and no Remote Test Lab route is needed. Step 60 closes this step: results.md's "Still to run" lists each spike as run, moved to step 21, 41 or 42, or no longer needed.
 - [x] 16a. **The webOS model year, the LG minimum, and the first results.** Detail: docs/relay-archive.md, "Step 16a".
 
 ### Phase 5: Player and live TV
@@ -277,6 +301,11 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
   - **Omar:** creates the Vercel/Neon/R2/Upstash accounts and the domain, and puts the keys in `.env` himself.
   - **Omar, the config key ceremony** (`docs/runbooks/config.md`, from step 30a): `pnpm sign-config keygen` twice (the current key and the next one, for rotation) on his own machine, each seed into his password manager and on paper, never into the repo or the chat; he gives Claude the two public keys for `config/keys.json` and signs the production config himself (`pnpm sign-config sign --key <file>`).
   - **Claude:** the first production migration and deploy, each with Omar's one-word OK; then verifies the live endpoints.
+  - **Added by phase 2 (2026-11-28):**
+    - **More accounts for Omar:** Cloudflare Workers for the relay (step 77) and an email provider for the opt-in (step 83).
+    - **More keys:** the licence-signing key (step 71), backed up in two places like the config keys; its public key goes into the signed config.
+    - **More env vars:** the Samsung DPI key and the Paymentwall keys (steps 75–76), which Omar puts in Vercel himself.
+    - **Code:** the R2 and Upstash adapters are built before this step, in step 65.
 
 ### Phase 9: Personalization
 - [x] 35. **Favourites and groups.** PR #150), 35b (PR #151, PR #152) and 35d (PR #153. Detail: docs/relay-archive.md, "Step 35".
@@ -305,7 +334,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 - [x] 39b. **The colour keys** PR #172. Commits: `ddaa00b`. Detail: docs/relay-archive.md, "Step 39b".
 - [x] 39c. **"Still watching?" and the sleep timer** PR #173. Commits: `8880cf5`. Detail: docs/relay-archive.md, "Step 39c".
 - [x] 39d. **"Fast start / Stable"** PR #174, PR #171. Commits: `2868c35`. Detail: docs/relay-archive.md, "Step 39d".
-- [ ] 39s. **Fixes from the first Samsung TV session** (Omar's "1a" of 2026-11-24, asked in his Samsung session: add the fixes as relay steps after step 39). The source: docs/spikes/results.md "From the Samsung TV (2026-11-24)" and "The app on the Samsung TV" (PR #171). The TV: UA32T5300AUXEG, 2020 HD, Tizen 5.5, Chromium 69. Steps 19b and 21 keep their own lines; their ticks wait for Omar's word.
+- [x] 39s. **Ticked 2026-11-28 (phase 2 planning): every sub-step is done.** The checks left on the Samsung are in steps 21, 41 and 42. **Fixes from the first Samsung TV session** (Omar's "1a" of 2026-11-24, asked in his Samsung session: add the fixes as relay steps after step 39). The source: docs/spikes/results.md "From the Samsung TV (2026-11-24)" and "The app on the Samsung TV" (PR #171). The TV: UA32T5300AUXEG, 2020 HD, Tizen 5.5, Chromium 69. Steps 19b and 21 keep their own lines; their ticks wait for Omar's word.
   - [x] 39s1. **The storage quota** PR #175. Commits: `ac2781e`. Detail: docs/relay-archive.md, "Step 39s1".
   - [x] 39s2. **The ladder's HLS stickiness.** PR #176. Commits: `694a298`. Detail: docs/relay-archive.md, "Step 39s2".
   - [x] 39s3. **Stall injection that reaches the watchdog** PR #177. Commits: `7e947fe`. Detail: docs/relay-archive.md, "Step 39s3".
@@ -356,7 +385,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
       - no TV source changed, so no `build:tv`; the PR's CI runs every job (the root `package.json` and the lockfile changed);
       - not done: the run on the Samsung (Omar, or a leg he hands the TV to); webOS through `ares-inspect` (`--port`) untried.
   - **Waiting for Omar at the TV** (his "3a"): S4's `suspend`, S10 by hand, S11's lifecycle and reading by ear on the Samsung, which need the TV's own remote (the network remote's Home doesn't hide the app); and the "Zoma" he saw on screen. docs/spikes/results.md's "Still to run" table lists them.
-- [ ] 40. **Diagnostics and legal pages.** Diagnostics screen ("app or provider?"), test stream, help, in-app legal pages.
+- [x] 40. **Ticked 2026-11-28 (phase 2 planning): every sub-step is done.** Counsel's text replaces the draft legal pages (step 85, Omar), and the test stream shows once step 34's config names one. **Diagnostics and legal pages.** Diagnostics screen ("app or provider?"), test stream, help, in-app legal pages.
   - **Refined before building** (leg 153, against PLAN.md §4 pillar 4 and "Legal surfaces", §7's legal track, architecture.md §2 "Error classifier" and "Built in step 33d2", and the code):
     1. **What exists:** the player's error card (four categories, the code, the account's expiry and connections after a provider failure, step 20a); the info bar's "Stream info" (codec, resolution, frame rate, bitrate while watching); Settings' "Send a report to support" (a support code, step 33d2); the guides' match diagnostics (step 24c); onboarding's disclaimer ("Lablo is a player…") and the device-ID consent (steps 13, 32). No page answers "is it the app or my provider?" outside a failed play, and there is no help, no "Test stream", no terms or privacy text in the app or on the web (`apps/web/src/app` has `p`, `v1`, `dev`).
     2. **The split:** 40a, the diagnostics page (no decision needed); 40b, "Test stream" (where the stream lives: Omar's); 40c, help (the support address: Omar's); 40d, the legal pages (counsel's text: Omar's). The connection speed test is v1.1 (PLAN §6), not here.
@@ -395,8 +424,9 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - **41:** the 2018 low tier goes through Samsung Remote Test Lab, not a bought set; that part becomes `[needs Omar]`: the tunnel so RTL TVs reach the lab server (tv-setup.md 3.2-3.6).
     - **New finding to check (step 40h, small):** on this Samsung a backgrounded app is ended by the TV (Home, another app, return = a fresh start twice: a `hidden` event, then a new session, no `visible`/`relaunch`; lab sessions ...161816, ...162733, ...163117). Anything held only in memory is lost on Home: a VOD or episode position since the last save, an open screen. Check that VOD and series positions (and anything else that must survive) are saved at `hidden`; if not, fix it. S4's suspend/restore row cannot run on this TV for the same reason.
 ### Phase 10: Hardening and release
-- [ ] 41. **[needs TV] Performance.** 2018-tier performance and memory pass against the S6 thresholds.
-  - Since ADR-012 the low tier is Samsung 2018–2019 only (the used 2018 set). Consider a memory signal for the tier (`navigator.deviceMemory`, Chromium 63+) for low-end 2020 LG sets, which the year rule puts in `full`.
+- [ ] 41. **[needs TV] Performance.** **Rewritten 2026-11-28 (phase 2, Samsung 2020 and up, ADR-015):** a performance and memory pass against the S6 thresholds on the oldest supported sets. That is Omar's 2020 Samsung (UA32T5300AUXEG, Tizen 5.5, Chromium 69) and the LG, with the phase 2 build (all features in).
+  - Since ADR-015 no `low` tier by year remains. **Decided in step 60 (ADR-015): no memory signal.** The 32" Samsung reports `deviceMemory` 1 and passed every tier-gated S6 check in `full`, and an unknown year and engine now give `full`. A lighter tier comes back only if this step measures a TV failing a tier-gated check (the guide's window, the duty cycle, posters, motion).
+  - Measure cold start to the last channel with the phase 2 main.js, the licence check off the start path, and the alert host and extras worker idle.
   - From step 25c (architecture.md §4, "Built in step 25c"): the guide's two days back with archive marks, each press within 150 ms over channels with catch-up; the marks drawn; holding LEFT across a day; two past days of a large guide with catch-up channels within the tier's memory.
   - From step 25d (architecture.md §1.2, "Built in step 25d"), on each TV: a catch-up's position (an HLS archive's and a TS timeshift's media time must start at 0 at the URL's start, or "Aired at" is off); RIGHT inside an HLS archive (AVPlay `seekTo`, webOS's `<video>`); a seek by URL's reconnect time; the remote's PLAY and PAUSE keys (webOS maps both to one toggle); a programme's end card from a real archive.
 - [ ] 42. **[needs TV] Resilience.** 8 h soaks, network-drop tests, update-in-place data survival on both platforms.
@@ -408,8 +438,19 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
   - **[needs Omar]** public test-server deploy.
 - [x] 45. **Release engineering.** Leg 163: versioning was already one source (`apps/tv/package.json` to both manifests and About); signed packages: webOS `.ipk` and Tizen `.wgt` code already exist in `package.ts` (the `.wgt` needs the Tizen CLI + `TIZEN_SIGNING_PROFILE`, Omar's); new `pnpm release:check` (`tools/build/release-check.ts`, `src/release-check.ts`): legal gate, version consistency, store-doc placeholders, tracked keys/packages/env/secrets/TV address, then `build:tv --release` and the `.ipk`. Fails today on counsel's text, `<official domain>` and the test-server placeholders, as intended. Runbook: tv-build.md "The release checklist".
 - [ ] 46. **[needs Omar] Beta.** Native Arabic review and a closed beta (10–30 users in GCC + North America).
+  - **Phase 2 (2026-11-28):**
+    - The beta runs the phase 2 build.
+    - Each tester gets a free lifetime licence: a voucher from step 71d's CLI.
+    - The kit (`docs/store/beta.md`) adds three checks: the trial countdown, the lock with a short trial set by voucher, and purchase in each store's sandbox.
+    - It also adds native reviews of French (Canada) and Spanish (US).
+    - Testers' TVs are 2020 and newer on both brands.
 - [ ] 47. **[needs Omar] Store submissions.** LG (US, AE, SA, KW, QA, BH, OM) and Samsung US. Samsung GCC/Canada follow once the Partner contract is signed.
-  - LG: webOS 5.0 and newer (ADR-012); Samsung: Tizen 4.0 (2018) and newer.
+  - LG: webOS 5.0 and newer (ADR-012); Samsung: **Tizen 5.5 (2020) and newer** (ADR-015, 2026-11-28; was Tizen 4.0).
+  - **Phase 2 (2026-11-28):**
+    - **The listings describe a paid app:** a 6-week trial, then a 1-year pass or lifetime, 5 TVs (step 85).
+    - **Each store's lock is switched on in the signed config only after that store has approved payments.**
+    - **Samsung Checkout most likely needs Partner status** (docs/PLAN-2.md §4). Until the Samsung Gulf contract is signed, Samsung US may ship with the lock off.
+    - **Reviewers get** a voucher, a test card and test buyers (Samsung), and the Paymentwall test route (LG).
 
 **Work that needs no TV** (Omar 2026-11-25, in leg 163's tab: "Proceed to what doesn't need the tv now"). Legs take these in order while the TVs are busy; the TV parts stay in 39s7, 41, 42.
 - [x] 48. **Leftovers of 43 and 45.** Leg 163 (cont.): 11/11 mutants killed (5 on 43, 6 on release-check); the player root now carries `data-caption-bg`/`data-caption-color` so e2e sees the caption look (the overlay draws only with cues, which the desktop has none of); `settings.playerHint` en/ar names the caption look and larger text. Mutation on 43 (drop `appearance.setCaptionBackground` in main's settings wiring; drop the `data-large-text` write; change the `captionBg` default) and on `tools/build/src/release-check.ts` (drop a secret pattern, a placeholder, the `.env.example` allowance, the 0.0.0 rule); `settings.playerHint` (en/ar) names captions and larger text. Done when: every mutant killed (or noted equivalent), unit/e2e pins updated, PR merged on green CI.
@@ -434,7 +475,7 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
   - (d) `pnpm tv eval|screen|marks|soak --webos` do their work but never exit: through ares-inspect the WebSocket's close handshake never completes (readyState stays 2, the TCP socket stays open; `artifacts/probe56-exit.ts`). End the process when a command ends. Add `pnpm tv keys --webos <keys…>` and `pnpm tv shot --webos <file>` (what lg-drive.ts does), so later legs check the LG without Omar.
   - Not fixable here: **Audio Guidance is not offered on this TV** (no row in Accessibility, a long press on mute opens nothing; the setting reads `off`, LG's TTS answers 8101, `setSystemSettings` is refused to a Dev Mode app). It needs another LG (`[needs TV]`). The test stream shows only once step 34's config names one.
   - Done when: the overflow check green in en/ar at both text sizes; unit tests for (b) and (d); mutation of the detector and the exit; LG screenshots show (a)-(c) fixed (Omar leaves the TV on in Lablo; no remote needed); PR merged (the repo public only while CI runs, memory iptv-repo-public-lablo).
-- [ ] 59. **The retry ladder gives up when its switch to the other container fails at once** (found by 21L on the LG, leg 171). Three times under `live-outages` (25 s down, 60 s into each live response) with the live `.m3u8` failing (404 from a local copy of the scenario; 403 when the account allowed `ts` only but the player still held both URLs): "Your provider isn't sending this channel" (`PRV-UNREACHABLE`) 4.0–4.6 s after the stream came back, and the `.ts` that played until the outage was never tried again. The page's media events each time (docs/spikes/results.md, "From the LG TV (2026-11-27)"): the data stops; the picture freezes about 2 s later; at 12 s of buffering the watchdog reopens `.ts` (held by the outage); the open timeout (10 s) switches to `.m3u8` 0.4–0.9 s before the outage ends; the `<video>` reports the 404/403 as `MEDIA_ERR_SRC_NOT_SUPPORTED`, which `mediaError` (packages/player/src/html5-engine.ts) maps to `network` by design (it may be an HTTP error); `RetryLadder.plan` (packages/player/src/ladder.ts) then reopens the failed `.m3u8` with backoff (`current = failed`: 1 s, 2 s), and the fourth attempt in 60 s gives up. So with a provider whose `.m3u8` fails, any outage that outlasts the reopen (about 24 s after the data stops) ends on the card though `.ts` is back. With the `.m3u8` working the same outage ends on HLS; with one URL (`ts` only) every outage ended by a backoff reopen of `.ts` (21L's run 3).
+- [x] 59. **Merged in PR #204 as `daa8d58` (leg 172); the LG's 2 h soak under `live-outages-hls-404` and with both containers working waits for the TV (step 21).** **The retry ladder gives up when its switch to the other container fails at once** (found by 21L on the LG, leg 171). Three times under `live-outages` (25 s down, 60 s into each live response) with the live `.m3u8` failing (404 from a local copy of the scenario; 403 when the account allowed `ts` only but the player still held both URLs): "Your provider isn't sending this channel" (`PRV-UNREACHABLE`) 4.0–4.6 s after the stream came back, and the `.ts` that played until the outage was never tried again. The page's media events each time (docs/spikes/results.md, "From the LG TV (2026-11-27)"): the data stops; the picture freezes about 2 s later; at 12 s of buffering the watchdog reopens `.ts` (held by the outage); the open timeout (10 s) switches to `.m3u8` 0.4–0.9 s before the outage ends; the `<video>` reports the 404/403 as `MEDIA_ERR_SRC_NOT_SUPPORTED`, which `mediaError` (packages/player/src/html5-engine.ts) maps to `network` by design (it may be an HTTP error); `RetryLadder.plan` (packages/player/src/ladder.ts) then reopens the failed `.m3u8` with backoff (`current = failed`: 1 s, 2 s), and the fourth attempt in 60 s gives up. So with a provider whose `.m3u8` fails, any outage that outlasts the reopen (about 24 s after the data stops) ends on the card though `.ts` is back. With the `.m3u8` working the same outage ends on HLS; with one URL (`ts` only) every outage ended by a backoff reopen of `.ts` (21L's run 3).
   - (a) **The ladder:** after the switch rung, a URL that hasn't shown a frame in the session and fails before showing one should hand the next attempts back to the URL that last showed a frame (or the backoff reopens alternate between the two), so a `.m3u8` that never played doesn't take the last attempts. Refine against `ladder.ts`'s rules 1–3 (RELAY 20a, 39s2, 39s7) and its tests first; AVPlay's path must keep working (on the Samsung an HTTP 404 is `http`, definitive).
   - (b) **The player's formats after a login given again:** on the LG, Settings › Sources › "Change server and login" › Save stored the account's new `allowed_output_formats` (`ts` only), yet the next outage still switched to `.m3u8` (403); after a relaunch it didn't. `sourceAdded` → `readFacts` (apps/tv/src/main.tsx) should re-read them: find why it didn't (the order against the store's write, or a path that never calls it).
   - Done when: failing tests first (the ladder: a framed `.ts`, a stall, the reopen times out, the switch to `.m3u8` fails as `network` before a frame → the next plan opens `.ts`; (b) a test of the re-read after a login given again), the fixes, an e2e under `live-outages` with the live `.m3u8` on 404 (a fixture scenario: update `faults.test.ts`' list and the runbook table) that recovers on `.ts` after the outage, mutation, PR merged.
@@ -442,6 +483,710 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
     - (a) `RetryLadder.recovered(candidate, first)` records the URL that showed the frame; past the rungs the backoff reopens it while it hasn't failed definitively (before any frame: the URL that failed). Commit `03d0f83`.
     - (b) found three gaps, not one: the login's refresh compared bytes, and another account's lists on the same server are the same bytes, so it ended `unchanged` with the OLD login's URLs (`refreshSource` now forces a rebuild); the query worker kept the sources' metas from its last load, so even a re-read after `unchanged` saw the old formats and the schedule the old check time (`DataEngine.refresh` has it reload after `unchanged`); the schedule re-read the facts only after a commit (`onFacts`). Commit `398c5ad`.
     - The fixture scenario `live-outages-hls-404`. **No e2e reaches the ladder's path:** Playwright's Chromium plays no TS (the `.ts` is `unsupported`, definitive, rule 3), so the controller's fake-engine test is the proof, and the LG soak the real one. Then, with Omar's word and the LG on, the full 2 h LG soak under that scenario and once with both containers working (21L's way: `pnpm tv soak watch --webos`, the page's event recorder, the mock's log timestamped; results.md "From the LG TV (2026-11-27)").
+
+### Phase 11: phase 2's enabling work (docs/PLAN-2.md §6.0)
+**Standard done, for every step in phases 11–19.** Each step's "Done when" says "standard done" plus its own items.
+- **Before building:** refine against the files the step names, and write into the step what that changed.
+- **Tests:**
+  - failing tests first, then the change;
+  - unit tests;
+  - mutation of new logic, with the hand list written before the run.
+- **UI:**
+  - e2e in en and ar;
+  - the text-fit check (`e2e/text-fit.spec.ts`) for every new screen and row, at both text sizes;
+  - a "press these keys" list for Omar.
+- **Budgets:** main 500 KB, each lazy file 200 KB, each worker 150 KB. The sizes go in the progress row.
+- **Data that crosses our server:** sealed on the device, plus a "no plaintext" test over every new row and object (`e2e/no-plaintext.ts`'s pattern).
+- **Row or list CSS changes:** run `pnpm verify:engines --self-test` on the oldest engine before CI.
+- **Merge:** PR merged on green CI, with a merge commit and the branch kept. The repo is public only while CI runs (memory iptv-repo-public-lablo).
+- **`[needs TV]` sub-steps:** run only when the TV answers by itself. Otherwise they go to the handover's "Checks for Omar" and the leg goes on.
+
+- [ ] 60. **Samsung 2020 and up (ADR-015), and phase 2's bookkeeping.** Omar's decision 5. 1 leg.
+  - **Refine first against:**
+    - ADR-012;
+    - `platforms/tizen/config.xml` (`required_version="4.0"`);
+    - `packages/core/src/device.ts` (`deviceTier`) and `packages/platform-tizen/src/device.ts`;
+    - `tools/build/src/release-check.ts`;
+    - `docs/store/samsung-submission.md`, `beta.md` (lines 17, 107, 130 and 186) and the listings;
+    - `docs/testing-without-tvs.md`;
+    - results.md's "Still to run".
+  - **ADR-015** amends ADR-012's "Samsung keeps 2018": Samsung needs Tizen 5.5 or newer. It also says what the `low` tier means now: a memory signal, or nothing. Decide by what each code path that reads the tier does with the 2020 Samsung's numbers in results.md.
+  - **The manifest and docs:**
+    - `required_version` becomes 5.5, with a build test that pins it;
+    - the store pack and the beta kit say 2020, in en and ar;
+    - `release:check` knows the new line.
+  - **Close step 16:** mark each row of results.md's "Still to run" as run, moved to 21, 41 or 42, or not needed. Then tick 16.
+  - **Refined in leg 173 (before building):**
+    - **What reads the tier, and the 2020 Samsung's numbers** (results.md, run `scyp` in the `full` tier):
+      - the guide's window (`EPG_WINDOWS`, `packages/core/src/epg-guide.ts:65`; `GUIDE_DAYS`/`GUIDE_REACH`, `apps/tv/src/guide/guide-state.ts:107-113`; the ingest's basis, `packages/data/src/epg-ingest.ts:195`): full keeps 7 + 7 days and 1,000-character descriptions. The Samsung kept 668,536 programmes in 202.8 s (≤ 4 min) inside its 88 MB quota;
+      - the 50/50 duty cycle (`LOW_TIER_DUTY`: the ingest and guide services, `engine-loader.ts`, `refresh-scheduler.ts`, `main.tsx:755`, the hello screen's DataPanel): without it the Samsung ingested 200k items in 69.7 s (≤ 90 s), with keys during the refresh at median 62 ms, slowest 129 ms (≤ 200 ms). The duty cycle would about double the ingest, to ~140 s: a fail;
+      - posters (`POSTER_TIERS`, `apps/tv/src/movies/posters.ts:32`, home and movies): no Samsung number; Omar's checks by eye on 2026-11-26 found nothing;
+      - motion (`[data-tier='low']`, `packages/ui/src/styles/tokens.css:88`, set by `main.tsx:103`): no number;
+      - telemetry and diagnostics (`app_start.tier`, `probes.lowTier`; `packages/protocol/src/telemetry.ts:30`): records only;
+      - the lab (the battery's 4 s TS first-frame limit on low, `battery.ts:407`; S6's `lowTier`): the lab only.
+    - **The memory signal:** S0 recorded `navigator.deviceMemory` = **1** on the Samsung (sessions `wpev`, `cvj5`, `scyp`) and 2 on the LG. A "1 GB is low" rule would put the very TV that passed in `full` into `low`, so there is no memory signal.
+    - **A gap found:** Tizen's user agent has no `Chrome/` token (the TV's: `… (KHTML, like Gecko) 69.0.3497.106/5.5 TV Safari/537.36`). So a Tizen newer than `TIZEN_RELEASES` (10.0, the 2026 sets) reads no year and no engine, and `deviceTier` answers `low`. With both platforms at 2020 and up, an unknown set is newer than the tables: `full`.
+    - **The decision for ADR-015:** the tier stays (the type, the limits, `?tier=low`, the telemetry field) as the seam step 41 may use; `low` now means a set below the minimum (a developer install, the harness's Chromium 53/56 until 61b); year and engine unknown → `full`.
+    - **Lines naming Samsung 2018 that change here:**
+      - `platforms/tizen/config.xml` and `checkConfigXml`, which `release:check` runs;
+      - `docs/store/samsung-submission.md:3`;
+      - `docs/store/beta.md` 12, 17, 26, 107 (en), 130 (ar) and 186;
+      - `docs/testing-without-tvs.md` (a note at the top: the 2018 set and the RTL route are no longer needed);
+      - results.md's devices table and "Still to run";
+      - PLAN.md 22, 157 and 340;
+      - architecture.md 72, 1150, 2800, 2804, 2823, 2709, 606 and 610;
+      - `docs/runbooks/tv-setup.md:14`;
+      - the comments in `packages/core/src/device.ts` and `posters.ts`.
+      - The listings name no year.
+    - **Left for step 61:** the build's Chromium 53 target, the harness's 53 and 56, CLAUDE.md, old-engines.md, and the gates' and engines' comments. Progress rows, the archive and the "a 2018 TV is slower" estimates in code comments stay as history.
+  - **Done when:** standard done; ADR-015 is listed in docs/adr/README.md; step 16 is ticked.
+- [ ] 61. **Retarget the TV build to Chromium 68.** Omar's decision 6. 3–4 legs.
+  - **Refine first against:**
+    - `tools/build/src/bundle.ts` (Babel `preset-env {chrome: 53}`, core-js `usage`) and `tools/build/package.json`;
+    - `tools/build/src/syntax-gate.ts`, `css-gate.ts` and `budgets.ts`;
+    - ADR-003, and ADR-012's "Later cleanup";
+    - CLAUDE.md's "Chromium 53 cheat sheet" and its commands table;
+    - `tools/engines` (`src/engines.ts`, `verify-engines.ts`) and `docs/runbooks/old-engines.md`;
+    - `.github/workflows/ci.yml` (the `engines` job) and `test/ci-changes.test.ts`;
+    - HANDOVER's main-safe list;
+    - memory iptv-tv-bundle-polyfills.
+  - [ ] 61a. **The build.**
+    - Babel and core-js target Chromium 68.
+    - The syntax gate moves to ES2018. Chromium 68 has all of ES2018. `Array.prototype.flat` arrives only in 69, so ES2019 library methods stay polyfilled or avoided.
+    - The CSS gate allows grid, and still refuses flex `gap` (Chromium 84) and logical properties (Chromium 87).
+    - Make a size table, before and after, for main.js, settings.js and every worker on both platforms.
+    - **Done when:** standard done; the table is in the progress row and in architecture.md.
+  - [ ] 61b. **The harness and CI.**
+    - The engines harness runs Chromium 68 only: drop the 53 and 56 snapshots and their seeds.
+    - Update the CI `engines` job, `test/ci-changes.test.ts` and the runbook.
+    - **Done when:** standard done; `verify:engines --self-test` is green on 68; the CI job's minutes, before and after, are in the row.
+  - [ ] 61c. **The rules.**
+    - Amend ADR-003 (or write ADR-019), and mark ADR-012's "Later cleanup" done.
+    - Rewrite CLAUDE.md's cheat sheet for Chromium 68. Keep an "avoid" item only after a probe on the 68 snapshot shows it missing or polyfilled.
+    - Shorten HANDOVER's main-safe list to match.
+    - Update the memories that name Chromium 53.
+    - **Done when:** standard done; every line removed from the cheat sheet has its probe result in the row.
+  - [ ] 61d. **Only if 61a freed less than 30 KB of main.js.**
+    - Catalogs other than English load on demand. ADR-011's "with two languages, loading on demand isn't worth it" no longer holds.
+    - The pairing screen moves to a lazy file.
+    - **Done when:** standard done; main.js has at least 30 KB free on Tizen.
+- [ ] 62. **Shared pieces for the new features.** 2 legs.
+  - **Refine first against:**
+    - `apps/tv/src/gate/gate-state.ts` and `main.tsx:980-982` (the gate's own root);
+    - `apps/tv/src/player/watch-guard.ts` (the card zone);
+    - `apps/tv/src/live/live-state.ts:1096` (the minute tick);
+    - `apps/tv/src/data/workers.ts`;
+    - `tools/build/src/lazy-files.ts` and `bundle.ts`'s `checkChunks`;
+    - ADR-014.
+  - [ ] 62a. **The alert host, and several lazy files.**
+    - The alert host is a card over any screen and over the player, on its own root. It has a queue with priorities, answers OK and BACK, is spoken by the screen reader, and works in en and ar.
+    - `APP_LAZY` takes more than one file; each still imports only main.js. A test lazy file proves it.
+    - **Done when:** standard done; e2e shows an alert over live, the guide and the player.
+  - [ ] 62b. **The `extras` worker.**
+    - A persistent worker with its own 150 KB budget and typed RPC, like the query worker.
+    - It reads the guide stores read-only: it takes the current generation from `epg_meta` and reads again after a refresh.
+    - It starts after the first paint.
+    - Add a bench of one full scan at the scale fixture (668k programmes).
+    - **Done when:** standard done; the bench numbers are in the row, from the desktop and with `LABLO_SLOWDOWN`.
+
+### Phase 12: small features and the server's production pieces
+- [ ] 63. **Setup-funnel telemetry (#14).** 2 legs.
+  - **Refine first against:**
+    - `packages/protocol/src/telemetry.ts` and `telemetry-buckets.ts`;
+    - `packages/data/src/telemetry-service.ts`;
+    - `apps/tv/src/telemetry/telemetry-state.ts`;
+    - `apps/web/src/server/telemetry.ts`;
+    - `e2e/telemetry.spec.ts`;
+    - `main.tsx:885`.
+  - [ ] 63a. **The event.**
+    - A `funnel` kind whose `step` is `install`, `first_source`, `first_play` or `return_d7`. Leave room for step 72's `trial_day`, `locked` and `purchased`.
+    - Each step is sent once per install.
+    - The server keeps it, and the scrubber's tests cover it.
+    - **Done when:** standard done.
+  - [ ] 63b. **Sending from onboarding.**
+    - The telemetry worker starts once onboarding's telemetry note has shown, not at the live screen. So a dropout before the first source becomes visible.
+    - Add a runbook query for the funnel (docs/runbooks/web.md).
+    - **Done when:** standard done; e2e checks that the posts carry no URL, host or login, and that reports turned off send nothing.
+- [ ] 64. **Connection speed test (#11).** 2 legs.
+  - **Refine first against:**
+    - `packages/protocol/src/config.ts:59-66` (`testStream`);
+    - `packages/data/src/config-policy.ts`;
+    - `apps/tv/src/settings/connection-check.ts`;
+    - the mock provider's static files.
+  - [ ] 64a. **The measurement.**
+    - A signed-config field `speedTest {url, bytes}`: https, on our own storage only.
+    - An XHR download timed for at most 8 s with progress, then `abort()`.
+    - The result in Mbit/s, with a verdict against HD and 4K bitrates.
+    - The mock serves a test file for dev and e2e.
+    - **Done when:** standard done.
+  - [ ] 64b. **The row.** "Connection speed" on Check the connection, shown when the config names a file, in en and ar.
+    - **Done when:** standard done.
+- [ ] 65. **The server's production adapters.** Code only; the accounts are step 34's. 2 legs.
+  - **Refine first against:**
+    - `apps/web/src/server/blob-store.ts`, `rate-limit.ts` and `services.ts`;
+    - `eslint.config.js` (the outbound-network rule);
+    - `docs/runbooks/web.md`.
+  - [ ] 65a. **R2 and Upstash.**
+    - An R2 blob store (S3 presigning, a fixed host from env) and an Upstash rate limiter (REST, a fixed host), behind the existing interfaces.
+    - `createServices` works on Vercel.
+    - The lint allows exactly these hosts, in their two files only.
+    - **Done when:** standard done; contract tests run the same suite against the fakes, and against the real services when the env is set.
+  - [ ] 65b. **The production shape.**
+    - `next build` with the production env names.
+    - `/v1/health` checks both services.
+    - The env table and a deploy checklist go in the runbook.
+    - The R2 lifecycle rule (24 h for pairing files) is written as config.
+    - **Done when:** standard done; step 34's list says exactly what Omar creates.
+
+### Phase 13: player features
+- [ ] 66. **Start over, and pause and rewind on live (#2).** 7 legs. docs/PLAN-2.md §6.5.
+  - **Refine first against:**
+    - `apps/tv/src/player/catchup.ts` (`inArchive` at :80-82, `archiveDays`);
+    - `player-state.ts` (seeking at :1005-1079, keys at :1353-1361);
+    - `packages/core/src/catchup.ts`;
+    - `packages/player/src/controller.ts` (pause at :531-546, `KEEPS_SCREENSAVER_AWAY` at :191);
+    - `apps/tv/src/guide/guide-state.ts:534-550`;
+    - ADR-010;
+    - `apps/mock-provider/src/streams.ts:115-130`;
+    - architecture.md's "Built in step 25d".
+  - [ ] 66a. **The mock's archive of a programme in progress.**
+    - The mock serves catch-up of a programme on air up to now minus a lag (`catchup_lag_s`, in a scenario), and answers 404 for minutes past that.
+    - Add the scenario to `faults.test.ts` and the runbook.
+    - **Done when:** standard done.
+  - [ ] 66b. **Start over in the data and the player.**
+    - `inArchive` accepts the programme on air, on a channel with catch-up.
+    - The request ends at the programme's end.
+    - Reaching the live edge goes live, through the existing play-on and go-live paths.
+    - **Done when:** standard done.
+  - [ ] 66c. **Start over in the UI.**
+    - A "Start over" button in the live info bar.
+    - On the guide's current cell, OK opens Watch live / Start over.
+    - **Done when:** standard done.
+  - [ ] 66d. **Pause on live.** PLAY_PAUSE works on live.
+    - **With catch-up:** pause holds the picture and keeps the screensaver away. Resume opens catch-up from the pause minute and shows "behind live".
+    - **Without catch-up:** a plain pause. Resume reopens live, with a hint.
+    - **Done when:** standard done.
+  - [ ] 66e. **Rewind on live, and Go live.**
+    - RW and LEFT on live open catch-up at now minus one step.
+    - FF past now, and "Go live", return to live.
+    - The time behind live is shown.
+    - **Done when:** standard done.
+  - [ ] 66f. **Edge cases.**
+    - When the newest minutes are refused, go one minute back, then to live with a message. Keep the lag found per source.
+    - A pause longer than the provider holds the connection.
+    - A channel whose catch-up days are unknown.
+    - **Done when:** standard done; e2e over 66a's scenario in en and ar.
+  - [ ] 66g. **[needs TV]** Start over, pause and rewind on the LG and the Samsung, together with step 41's catch-up list: position from 0, RIGHT in an HLS archive, the PLAY and PAUSE keys.
+    - **Done when:** results.md has the rows; any fault becomes a step.
+- [ ] 67. **Live preview while browsing (#7).** 5 legs. PLAN-2 §6.6.
+  - **Refine first against:**
+    - `packages/player/src/engine.ts:202` (`setRect`), `controller.ts:658-662` (`setPicture`), `html5-engine.ts:265-278`;
+    - `packages/platform-tizen/src/avplay-engine.ts:552-556`;
+    - `apps/tv/src/player/stage.ts` and `player.css:9-34`;
+    - the Lab's box (`apps/tv/src/lab/lab.css:324-341`, `avplay-player.ts:273`);
+    - `live-state.ts`;
+    - ADR-004.
+  - [ ] 67a. **The controller.** A preview rect, separate from the picture mode (the 4:3 box sits inside the preview), changed without reopening the stream.
+    - **Done when:** standard done, with the fake engine.
+  - [ ] 67b. **The live screen.**
+    - A box beside the list with a transparent hole; the rest of the screen stays opaque (`html[data-preview]`).
+    - A channel plays once the focus rests on it (debounced). Leaving the list stops it.
+    - Physical CSS only.
+    - **Done when:** standard done, with text-fit for the narrower list.
+  - [ ] 67c. **To full screen and back.**
+    - OK goes full screen without a restart.
+    - BACK from the player returns to the list, and the preview goes on.
+    - Locked, adult and radio channels never preview.
+    - A setting "Preview while browsing", on by default.
+    - **Done when:** standard done.
+  - [ ] 67d. **Tests at scale.**
+    - e2e in en and ar.
+    - Rapid moves through the list open no stream for each channel passed.
+    - The provider's single connection is respected (close before open).
+    - **Done when:** standard done.
+  - [ ] 67e. **[needs TV]** The box's place and size, black flashes, the 4:3 mode, and moving fast, on both TVs.
+    - **Done when:** results.md has the rows and screenshots.
+
+### Phase 14: the guide's features and the prayer pack
+- [ ] 68. **Reminders and Follow my team (#4).** 7 legs. PLAN-2 §6.7.
+  - **Refine first against:**
+    - 62a's alert host and 62b's extras worker;
+    - `packages/core/src/epg-guide.ts` (the bucket columns);
+    - `packages/core/src/search.ts` (`normalizeName`, AND words);
+    - `packages/data/src/profile.ts` (optional fields);
+    - `apps/tv/src/guide/` (programme details) and `apps/tv/src/search/`.
+  - [ ] 68a. **Reminders in the data.**
+    - An optional profile field `reminders`: channel key, start, title; at most 100; past ones dropped.
+    - Its edit operations, and kept in the backup.
+    - **Done when:** standard done, with the profile's version pins.
+  - [ ] 68b. **Remind me.**
+    - "Remind me" on a future programme's details.
+    - An alert one minute before (Watch / Dismiss), while Lablo is open.
+    - A Reminders page to remove them, in a lazy file.
+    - **Done when:** standard done; e2e with the clock pinned.
+  - [ ] 68c. **The guide scan.**
+    - `scanGuide(terms)` in core, run by the extras worker in chunks, over every guide's current generation.
+    - Cached per text and generation.
+    - **Done when:** standard done; the bench at scale is in the row.
+  - [ ] 68d. **The My teams page.**
+    - Add up to 10 texts with the app's keyboard.
+    - Matches are grouped by day. OK opens the programme's details: Watch live / Start over / Remind me.
+    - In a lazy file.
+    - **Done when:** standard done.
+  - [ ] 68e. **Remind me of all.**
+    - A switch for each followed text that adds reminders for new matches after each guide refresh.
+    - A Home shelf, "Coming up for you".
+    - **Done when:** standard done.
+  - [ ] 68f. **Wording and limits.**
+    - No team, league or broadcaster names in the app, the tests or the store copy. A test scans the catalogs for them.
+    - Low-memory TVs scan fewer days.
+    - **Done when:** standard done; mutation covers the scan and the reminder clock.
+  - [ ] 68g. **[needs TV]** The scan's time at scale on the Samsung, and an alert over AVPlay and over the LG's `<video>`.
+    - **Done when:** results.md has the rows.
+- [ ] 69. **Ramadan and prayer pack (#3).** 7 legs. PLAN-2 §6.8.
+  - **Refine first against:**
+    - 62a;
+    - `packages/ui/src/i18n/format.ts` (times, Arabic digits) and ADR-011;
+    - `apps/tv/src/player/player-memory.ts` (`player.options`);
+    - `packages/player/src/engine.ts` (no mute yet);
+    - `platforms/tizen/config.xml`'s privileges;
+    - `tools/build/src/acg.ts`.
+  - [ ] 69a. **Prayer times in core.**
+    - Sun position.
+    - Methods: Umm al-Qura, MWL, ISNA, Egypt, Karachi, Gulf, Dubai.
+    - Asr: Shafi'i or Hanafi. A high-latitude rule.
+    - Computed in UTC from the coordinates, shown in the TV's zone.
+    - Published test vectors for several cities and dates.
+    - **Done when:** standard done.
+  - [ ] 69b. **The Hijri date.**
+    - A compact Umm al-Qura month table, with conversion both ways and a ±1 day adjust.
+    - Test vectors from the official calendar.
+    - **Done when:** standard done.
+  - [ ] 69c. **The cities.**
+    - GeoNames cities (CC BY 4.0, credited in About) for the GCC, Egypt, the Levant, the Maghreb, North America and Europe's large cities.
+    - Names in en and ar, coordinates, and the country's default method.
+    - In a lazy file, with a size line.
+    - A search picker with the app's keyboard.
+    - **Done when:** standard done; the file's size is in the row.
+  - [ ] 69d. **Mute.**
+    - `mute()` and `unmute()` on the engines: `<video>.muted`, and on Tizen the route found in refine (`tizen.tvaudiocontrol` and its privilege, or the AVPlay route).
+    - Any new privilege goes into config.xml.
+    - **Done when:** standard done.
+  - [ ] 69e. **Prayer settings and alerts.**
+    - A "Prayer times" page: city, method, Asr, minutes per prayer, and an alert per prayer (Off / Notice / Pause / Mute) with its length.
+    - The alert goes through 62a. Playback resumes or unmutes after that time, or on OK.
+    - **Done when:** standard done; e2e with the clock pinned.
+  - [ ] 69f. **Ramadan.**
+    - In the Hijri month of Ramadan, Iftar and Suhoor countdowns in the live header and the info bar.
+    - An option to show the Hijri date beside the clock.
+    - **Done when:** standard done; e2e with the clock pinned in Ramadan 1448 (2027-02).
+  - [ ] 69g. **[needs TV]** Pause and mute by alert on both TVs. A native reader checks the Arabic wording (Omar's list).
+    - **Done when:** results.md has the rows.
+
+### Phase 15: the licence, the trial, the lock and purchase
+- [ ] 70. **The licence's design.** 3 legs. PLAN-2 §6.1, §4 and §9.
+  - **Refine first against:**
+    - ADR-005, ADR-006 and ADR-013;
+    - `packages/crypto/src/backup.ts`, `backup-code.ts` and `sign.ts`;
+    - `packages/protocol/src/config.ts`, `pairing.ts` and `wire.ts`;
+    - `tools/sign-config`;
+    - `packages/data/src/backup-service.ts:619-635`.
+  - [ ] 70a. **ADR-016 and the schemas.**
+    - ADR-016 covers the trial, the token, the household, and the store hosts the server may call. It amends ADR-005's list of what the backend handles.
+    - `packages/protocol/src/licence.ts`: check, redeem, household, seat, purchase, token.
+    - The config's `licence` policy: `rules[]` per platform, country and version; `trialDays`; `graceDays`; `tokenKeys`. sign-config supports it.
+    - `docs/store/payments-questions.md`: the two tickets for Omar (PLAN-2 §9).
+    - **Done when:** standard done.
+  - [ ] 70b. **The TV's licence keys.**
+    - `licenceKey = HMAC(master, "licence")`, the `tvId`, the secret that proves possession, and the check of the token's signature.
+    - Test vectors shared by the TV and the server, checked on Chromium 68.
+    - **Done when:** standard done.
+  - [ ] 70c. **The Lablo code's keys.**
+    - The household key from a random code (the backup code's format, scrypt), `householdId`, the seat token and the sealed `link` envelope.
+    - Test vectors.
+    - **Done when:** standard done.
+- [ ] 71. **The licence server.** 4 legs.
+  - **Refine first against:**
+    - `apps/web/prisma/schema.prisma`;
+    - `apps/web/src/server/{http,pair,backup,rate-limit}.ts`;
+    - `apps/web/test/web-db.ts:59-87` and `database.web.test.ts:67`;
+    - `e2e/no-plaintext.ts`;
+    - `eslint.config.js:108-143`.
+  - [ ] 71a. **Tables, with a dev migration.**
+    - Trial: the tvId hash, the secret's hash, platform, first seen, the lock-on date.
+    - Household.
+    - Licence: kind, until, store, receipt hash, refunded.
+    - Seat, with a sealed label.
+    - Voucher: code hash, kind, uses.
+    - The guard tests change on purpose: the table count. There is still no raw device ID and no email.
+    - The production migration is step 34's, with Omar's OK.
+    - **Done when:** standard done.
+  - [ ] 71b. **Endpoints.**
+    - check: registers or reads, and answers a signed token with `serverNow`;
+    - redeem, household create, seat add and remove (at most 5);
+    - rate limits;
+    - the signing key comes from env (`LABLO_LICENCE_KEY`) and rotates through the config's `tokenKeys`.
+    - **Done when:** standard done; the no-plaintext search covers the new tables.
+  - [ ] 71c. **Store verification.**
+    - Samsung's `/invoice/verify` and `/invoice/apply`; the DPI key stays on the server.
+    - The Paymentwall pingback, with its signature checked.
+    - Both sit behind fakes in tests. The outbound lint allows exactly those hosts, in `apps/web/src/server/stores/`.
+    - **Done when:** standard done.
+  - [ ] 71d. **The admin CLI and runbook.**
+    - `pnpm licence`: vouchers (beta lifetime, reviewer), refund (the licence ends at the next check), seat reset, lookup by voucher or receipt.
+    - `docs/runbooks/licence.md`.
+    - **Done when:** standard done.
+- [ ] 72. **The licence on the TV: countdown and lock.** 4 legs.
+  - **Refine first against:**
+    - `packages/data/src/config-schedule.ts` and `config-check.ts`;
+    - `apps/tv/src/gate/`;
+    - `apps/tv/src/settings/settings-items.ts`;
+    - `main.tsx` (the start order);
+    - ADR-014.
+  - [ ] 72a. **The licence worker.**
+    - It checks after the first paint and every 12 h, then verifies and caches the token.
+    - It keeps the largest `serverNow` it has seen, so a clock set back never extends a trial.
+    - It works out the state, with `graceDays` offline.
+    - main.js gets only a small state signal.
+    - **Done when:** standard done.
+  - [ ] 72b. **The countdown.**
+    - A chip on the live header ("12 days left", with plurals in en and ar), from day 1, while the lock is on for this store.
+    - A Settings row "Licence" that opens `licence.js` (lazy).
+    - **Done when:** standard done.
+  - [ ] 72c. **The lock.**
+    - When locked, live, the guide, movies, series, search and the player show the lock card: Buy / I already have a licence.
+    - Settings, Check the connection, Send a report, Help, Backup, About and Licence stay open.
+    - The config's rule applies per store and country. A late switch-on gives 6 weeks from that day.
+    - Add step 63's funnel steps.
+    - **Done when:** standard done.
+  - [ ] 72d. **Tests over time.** e2e with the clock pinned on days 1, 41, 42 and 43; offline grace; the clock set back; unlock by voucher; the lock off by config; in en and ar.
+    - **Done when:** standard done.
+- [ ] 73. **The Lablo code, linking and seats.** 3 legs. PLAN-2 §6.2.
+  - [ ] 73a. **Create.**
+    - At the first purchase (or from Licence › Your TVs) the TV makes the household.
+    - It shows the Lablo code once; after that, in Settings behind the PIN.
+    - The key is kept in `kv` and sealed in the backup.
+    - **Done when:** standard done.
+  - [ ] 73b. **Add and remove TVs.**
+    - On a new TV, "I already have a licence" shows a QR and a short code.
+    - A TV already in scans or types it (pairing purpose `link`) and sends the household key sealed. Or the user types the Lablo code.
+    - At most 5 seats. Any TV can remove a TV.
+    - **Done when:** standard done.
+  - [ ] 73c. **Two TVs in e2e.**
+    - Two browser contexts link.
+    - A sixth seat is refused.
+    - A removed TV locks at its next check.
+    - No plaintext crosses the server.
+    - **Done when:** standard done.
+- [ ] 74. **Purchase, the fake store and vouchers.** 2 legs.
+  - [ ] 74a. **The flow.**
+    - A `Store` interface in platform-api: products with the store's own price text, buy, restore.
+    - A fake store in platform-browser.
+    - The Buy screen: 1-year pass, lifetime, "Refund within 14 days", 5 TVs.
+    - A purchase creates or joins the household.
+    - The voucher entry.
+    - **Done when:** standard done.
+  - [ ] 74b. **Tests.** e2e of a purchase, a restore after reinstall, a refund that locks at the next check, and a reviewer voucher; in en and ar.
+    - **Done when:** standard done.
+- [ ] 75. **LG: Paymentwall.** 2 legs.
+  - [ ] 75a. **The adapter.**
+    - Paymentwall's hosted form, or a QR to pay on the phone, in platform-webos.
+    - The server's pingback.
+    - The `webos` lock rule in the config.
+    - No luna call, so the ACG check stays empty.
+    - **Done when:** standard done.
+  - [ ] 75b. **[needs Omar: the Paymentwall account] [needs TV]**
+    - A sandbox purchase on the LG, and a restore after reinstall.
+    - The submission form's paid-content fields, filled in `docs/store/lg-submission.md`.
+    - **Done when:** results.md has the rows.
+- [ ] 76. **Samsung: Checkout.** 2 legs.
+  - [ ] 76a. **The adapter.**
+    - `webapis.billing` in platform-tizen: the country check, the product list, `buyItem`, the purchase list.
+    - The server applies and verifies the purchase.
+    - `sso.partner`, `productinfo` and `billing` appear only in a Partner build (a build flag and a second config.xml), so the Public Seller build never declares them.
+    - **Done when:** standard done.
+  - [ ] 76b. **[needs Omar: Partner status and DPI] [needs TV]**
+    - A sandbox purchase with a test buyer on the Samsung, and a restore after reinstall.
+    - The price screenshot and the tester notes.
+    - **Done when:** results.md has the rows.
+
+### Phase 16: the real-time relay, the phone companion and the family helper
+- [ ] 77. **The relay (ADR-017).** 5 legs. PLAN-2 §6.3.
+  - **Refine first against:**
+    - ADR-005 and ADR-006;
+    - `packages/crypto/src/pairing.ts` and `packages/protocol/src/pairing.ts`;
+    - `apps/web/next.config.ts` (CSP);
+    - `eslint.config.js:88,108-138`;
+    - `apps/web/src/phone/`;
+    - `test/ci-changes.test.ts` (a new app must be listed).
+  - [ ] 77a. **ADR-017 and `apps/relay`.**
+    - A Cloudflare Worker with a Durable Object per room, using WebSocket.
+    - Frames are ciphertext only. Room ids are random, with a time-to-live and rate limits.
+    - Local runs use Wrangler's dev server. Add the CI job.
+    - It imports only protocol and crypto.
+    - **Done when:** standard done.
+  - [ ] 77b. **The frames.**
+    - hello, key, text, search, results, lineup, edit, ack, bye.
+    - Each frame is sealed under the session key, with counters and a replay guard.
+    - Test vectors.
+    - **Done when:** standard done.
+  - [ ] 77c. **The TV's client.** A companion worker (WebSocket, reconnect, the room's life) with its own budget.
+    - **Done when:** standard done.
+  - [ ] 77d. **The phone's client.**
+    - The `/r` page's shell in `apps/web`, in en and ar.
+    - CSP `connect-src` allows the relay host on that route only, and the lint exception covers its file only.
+    - **Done when:** standard done.
+  - [ ] 77e. **Abuse and load.** Many rooms, the limits, a room nobody joins, and a runbook. Cloudflare's account is step 34's.
+    - **Done when:** standard done.
+- [ ] 78. **Phone companion (#1).** 10 legs.
+  - **Refine first against:**
+    - 77;
+    - `packages/platform-api/src/index.ts:60-87` (`Intent`);
+    - `packages/ui/src/focus/navigator.ts` and `remote.ts:42`;
+    - the text editor and keyboard (`packages/ui/src/focus/keyboard-layouts.ts`);
+    - `packages/data/src/query-service.ts` (search);
+    - `favourite-edits.ts` and `channel-changes.ts`;
+    - `apps/tv/src/settings/groups-state.ts` and `channel-edit.ts`.
+  - [ ] 78a. **Joining.**
+    - "Phone remote" on the TV, from Settings and from a colour key.
+    - A QR with the TV's key and the room.
+    - The typed code, with a number to compare on both screens.
+    - **Done when:** standard done.
+  - [ ] 78b. **The remote pad.**
+    - Arrows, OK, Back, Home, channel up and down, numbers, colour keys, play and pause, sent as Intents.
+    - A latency harness on the desktop.
+    - **Done when:** standard done.
+  - [ ] 78c. **The keyboard.** Text from the phone goes into the TV's focused field; the TV's own keyboard closes while the phone types.
+    - **Done when:** standard done.
+  - [ ] 78d. **Search on the phone.** The query runs on the TV; the results are paged to the phone, sealed; OK plays on the TV.
+    - **Done when:** standard done.
+  - [ ] 78e. **The lineup, read.** The TV pages its groups, lists and channels to the phone.
+    - **Done when:** standard done.
+  - [ ] 78f. **The lineup, edited,** through `ProfileEdit`:
+    - favourites and lists: add, remove, move, new, rename, delete;
+    - groups: hide, show, order;
+    - channels: hide, rename, number. Lock needs the PIN on the TV.
+    - **Done when:** standard done.
+  - [ ] 78g. **Reordering channels inside a group.** A new data operation, built only if refine shows it fits the 2,000-edit cap and the query worker. Otherwise record that it wasn't done, and why.
+    - **Done when:** standard done, or the decision is in the row.
+  - [ ] 78h. **The phone page's finish.**
+    - RTL, focus and touch sizes, the screen reader, en and ar.
+    - e2e with the phone and the TV (the two projects in the web Playwright config).
+    - **Done when:** standard done.
+  - [ ] 78i. **No plaintext.** The relay's logs and frames hold no channel name, URL or login.
+    - **Done when:** standard done, with mutation of the sealing.
+  - [ ] 78j. **[needs TV]** Key to focus move in under 300 ms on both TVs, and typing into a TV field.
+    - **Done when:** results.md has the rows.
+- [ ] 79. **Family helper (#5).** 6 legs. PLAN-2 §6.4.
+  - [ ] 79a. **Enrolment.**
+    - An approval on the TV, with the number compared on both screens.
+    - A long-term phone key kept on the TV and in the backup.
+    - Settings › Trusted phones, with remove.
+    - **Done when:** standard done.
+  - [ ] 79b. **The TV listens.** While Lablo is open, the TV joins its helpers' room, and "Helper connected" shows on the TV.
+    - **Done when:** standard done.
+  - [ ] 79c. **The helper's page.** The TVs this phone helps (keys in the phone's IndexedDB), with connect from anywhere.
+    - **Done when:** standard done.
+  - [ ] 79d. **What a helper can do.**
+    - Step 78's lineup edits.
+    - A set of settings: language, Larger text, captions.
+    - Adding a source through the sealed pairing payload.
+    - Parental changes still need the PIN on the TV.
+    - **Done when:** standard done.
+  - [ ] 79e. **Tests.** e2e over two contexts, no plaintext, and mutation of the approval.
+    - **Done when:** standard done.
+  - [ ] 79f. **[needs TV]** A helper on mobile data editing the LG.
+    - **Done when:** results.md has the rows.
+
+### Phase 17: sync and viewer profiles
+- [ ] 80. **Sync across TVs (#6).** 9 legs. PLAN-2 §6.2.
+  - **Refine first against:**
+    - 73;
+    - `packages/data/src/profile.ts` (version 9, migrations at :368-389);
+    - `backup-service.ts` and `logins.ts:123-140`;
+    - `packages/protocol/src/backup-limits.ts`;
+    - `apps/web/src/server/backup.ts`.
+  - [ ] 80a. **ADR-018.**
+    - Sections: favourites and lists, channel edits, groups, progress and shows, recents, settings. Sources go only with "Include logins and links" on.
+    - Sealed under keys from the household key, with revisions and merge rules per section.
+    - **Done when:** standard done.
+  - [ ] 80b. **The server.**
+    - Sync documents per household and section: ciphertext in the blob store, with revision, size and date.
+    - Get and put with a revision check.
+    - A no-plaintext test.
+    - **Done when:** standard done.
+  - [ ] 80c. **Merge in core.** A per-section merge with item times and tombstones, with fast-check property tests.
+    - **Done when:** standard done.
+  - [ ] 80d. **Profile v10.** Item times and tombstones, the migration, and the version pins.
+    - **Done when:** standard done.
+  - [ ] 80e. **The sync worker.** It pulls at start and every few minutes, and pushes changed sections after edits (debounced).
+    - **Done when:** standard done.
+  - [ ] 80f. **Apply.** Merged sections go into the profile and the query worker. Licence › Your TVs shows "Synced just now".
+    - **Done when:** standard done.
+  - [ ] 80g. **With the backup.** A wiped TV restores from its backup, then pulls. Test that order.
+    - **Done when:** standard done.
+  - [ ] 80h. **Two TVs in e2e.**
+    - An edit on one shows on the other.
+    - Offline edits on both merge.
+    - Removals stay removed.
+    - No plaintext crosses the server.
+    - **Done when:** standard done.
+  - [ ] 80i. **[needs TV]** The LG and the Samsung linked, with an edit on each.
+    - **Done when:** results.md has the rows.
+- [ ] 81. **Viewer profiles and a kids profile (#8).** 8 legs. PLAN-2 §6.9.
+  - **Refine first against:**
+    - 80d;
+    - `packages/data/src/parental.ts`;
+    - `query-service.ts` (`LockView`);
+    - `packages/core/src/adult.ts`;
+    - `player-memory.ts`;
+    - `profile.test.ts`.
+  - [ ] 81a. **Profile v11.**
+    - Up to 5 viewers, each with a name, colour and kind, and their own favourites, lists, recents, progress and player preferences.
+    - Everything that exists today goes to viewer 1.
+    - A large fixture stays under the backup's cap.
+    - **Done when:** standard done.
+  - [ ] 81b. **The query worker per viewer,** and the kids allow-list in `LockView`.
+    - **Done when:** standard done.
+  - [ ] 81c. **Who's watching?**
+    - Asked at start, and off when there is one viewer.
+    - Switching from Settings and from the live header.
+    - **Done when:** standard done.
+  - [ ] 81d. **Manage viewers.** Add, rename, colour, remove, and the kids switch with its lists and groups.
+    - **Done when:** standard done.
+  - [ ] 81e. **Kids.**
+    - Only the allowed lists and groups.
+    - No Settings; search covers the allowed content only.
+    - Leaving needs the PIN.
+    - Adult content is always locked.
+    - **Done when:** standard done.
+  - [ ] 81f. **Preferences, per viewer or per TV.**
+    - Per viewer: subtitle size, audio and subtitle languages, captions.
+    - Per TV: buffer, clock, prayer.
+    - **Done when:** standard done.
+  - [ ] 81g. **Sync and backup of viewers,** with e2e in en and ar.
+    - **Done when:** standard done.
+  - [ ] 81h. **[needs TV]** The picker and switching on both TVs.
+    - **Done when:** results.md has the rows.
+
+### Phase 18: appearance, growth and languages
+- [ ] 82. **Themes and layouts (#10).** 6 legs. PLAN-2 §6.10.
+  - **Refine first against:**
+    - `packages/ui/src/styles/tokens.css:10-36`;
+    - `packages/ui/src/design/tokens.ts:38-63`;
+    - `test/ui-tokens.test.ts:56-103`;
+    - `apps/tv/src/player/appearance.ts`;
+    - `Tile.css:52` and `player.css`;
+    - `apps/tv/src/live/`;
+    - `packages/ui`'s `VirtualGrid`.
+  - [ ] 82a. **Themes.**
+    - `html[data-theme]`, with a light theme and two more.
+    - A contrast test per theme.
+    - The hard-coded colours move to tokens.
+    - The player's overlays stay dark in every theme.
+    - **Done when:** standard done; screenshots of each theme are checked by eye.
+  - [ ] 82b. **The Appearance page.** Theme, list density, logo size, guide density and channel view, kept in `player.options`.
+    - **Done when:** standard done.
+  - [ ] 82c. **Density and logo size** through the row scale, with the text-fit matrix (density × Larger text × en and ar).
+    - **Done when:** standard done.
+  - [ ] 82d. **A channel grid view** on the live screen (VirtualGrid, RTL).
+    - **Done when:** standard done.
+  - [ ] 82e. **Guide density.** Rows per screen and the timeline's width.
+    - **Done when:** standard done.
+  - [ ] 82f. **The engines run** on Chromium 68 for every theme and density.
+    - **Done when:** standard done.
+- [ ] 83. **Growth links (#13, web).** 3 legs. PLAN-2 §6.13.
+  - **Refine first against:**
+    - `apps/web/src/app/`;
+    - `apps/web/src/phone/` (the success screen, the catalog);
+    - `next.config.ts` (CSP);
+    - `apps/web/test/web-db.ts` and `database.web.test.ts`;
+    - `packages/protocol/src/legal.ts`.
+  - [ ] 83a. **A landing page** `/`, in en and ar: what Lablo is, the stores' links (from a config list), and the privacy note.
+    - **Done when:** standard done.
+  - [ ] 83b. **Share and rate,** on the phone page's success screen.
+    - "Share with family": Web Share, or copy a link.
+    - "Rate Lablo": the store page of the TV's platform, which the TV's status word names.
+    - **Done when:** standard done.
+  - [ ] 83c. **The email opt-in.**
+    - A `Subscriber` table, apart from every TV and household row.
+    - Double opt-in and unsubscribe.
+    - The provider sits behind an interface with a fake; Omar's account comes at step 34.
+    - The guard tests allow `email` in that table only, and `legal.ts` says it.
+    - **Done when:** standard done.
+- [ ] 84. **French (Canada) and Spanish (US) (#9).** 8 legs. PLAN-2 §6.11.
+  - **Refine first against:**
+    - `packages/ui/src/i18n/runtime.ts:14-20` and `format.ts`;
+    - `packages/core/src/plural.ts`;
+    - `apps/tv/src/i18n/index.ts`;
+    - `apps/tv/src/onboarding/onboarding-state.ts:47`;
+    - `apps/tv/src/settings/language-choice.ts`;
+    - `main.tsx:696`;
+    - `player-memory.ts:89`;
+    - `keyboard-layouts.ts:19`;
+    - `help-text.ts` and `legal.ts`;
+    - `packages/protocol/src/diag.ts:57`;
+    - `apps/web/src/phone/catalog.ts`;
+    - `e2e/text-fit.spec.ts:45-48` and `test/i18n-cldr.test.ts`.
+  - [ ] 84a. **The runtime for any number of languages.**
+    - `Language`, `resolveLocale`, plural rules for fr and es, and `format.ts`'s names, hour cycles and date orders.
+    - Catalogs beyond English load on demand.
+    - **Done when:** standard done.
+  - [ ] 84b. **Language lists, keyboard and tracks.**
+    - The five hard-coded lists are generalised, and Settings › Language becomes a list.
+    - Accented keys for French and Spanish.
+    - Audio and subtitle languages fr and es.
+    - **Done when:** standard done.
+  - [ ] 84c. **The fr-CA catalog,** drafted and marked for native review.
+    - **Done when:** standard done; every key is present.
+  - [ ] 84d. **The es-US catalog,** the same way.
+    - **Done when:** standard done; every key is present.
+  - [ ] 84e. **Help, legal, the phone page and the web pages,** in both languages. Legal waits for counsel.
+    - **Done when:** standard done.
+  - [ ] 84f. **Text fit in four languages,** at both text sizes. Add a CI shard if the e2e job's time needs it.
+    - **Done when:** standard done.
+  - [ ] 84g. **Listings and locale lists.**
+    - Store copy in fr-CA and es-US, and the Canada listing.
+    - The report's and telemetry's locale lists.
+    - **Done when:** standard done.
+  - [ ] 84h. **[needs Omar: native reviewers]** Their fixes.
+    - **Done when:** the catalogs' review marks are gone.
+
+### Phase 19: release
+- [ ] 85. **Texts for a paid app.** 3 legs.
+  - [ ] 85a. **Legal.**
+    - `legal.ts` terms: the licence, the trial, the 14-day refund, 5 TVs, transfers.
+    - `legal.ts` privacy: the licence record, the household, sync, the relay, the email opt-in, funnel telemetry.
+    - `legal.test.ts`, and the consent wording on the TV and the phone.
+    - It stays `LEGAL_DRAFT` until counsel's text.
+    - **Done when:** standard done.
+  - [ ] 85b. **The store pack.**
+    - Listings in en and ar without "free": a paid app, the trial, 5 TVs.
+    - The Samsung submission's purchase slide, test card and vouchers, and the tester notes.
+    - The LG form's paid-content fields.
+    - The beta kit's licence voucher.
+    - The screenshot plan for the new features.
+    - **Done when:** standard done; `release:check` knows the new placeholders.
+  - [ ] 85c. **The plans.** PLAN.md's "free" lines are marked as replaced by PLAN-2, and architecture.md gets "Built in" notes for phase 2.
+    - **Done when:** the docs are merged.
+- [ ] 86. **Regression and the release build.** 3 legs.
+  - [ ] 86a. **Everything.**
+    - `pnpm verify`, every e2e spec, and the engines on Chromium 68.
+    - Text fit in four languages.
+    - A mutation sample over phase 2's logic.
+    - The budget table.
+    - **Done when:** all green; the table is in the row.
+  - [ ] 86b. **Start-up with everything in.** Cold start to the last channel on the desktop (throttled), against step 41's numbers. Nothing new runs on the start path before the first frame.
+    - **Done when:** standard done.
+  - [ ] 86c. **The release build.**
+    - Version 1.1.0 (Omar's decision 9: v1 is the tag; this build is Lablo 1.1) and both packages.
+    - `release:check` fails only on counsel's text, the domain and the test server.
+    - **Done when:** the packages are built and listed in the row.
+- **Then, in order:**
+  1. The TV checks: step 21's Samsung half, the LG's 2 h soak after 59, 41, 42, and each feature's `[needs TV]` sub-step not yet run.
+  2. Step 34.
+  3. Step 46.
+  4. Step 47.
 
 ## Omar's parallel track (not relay steps; see PLAN.md section 7)
 - **Week 0–1:**
@@ -451,6 +1196,18 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
   - "Lablo" trademark clearance in the US, CA, AE and SA. Domains.
 - **Week 2–4:** counsel for ToS, privacy (PDPL, PIPEDA, Quebec Law 25) and DMCA policy; register the DMCA agent.
 - **Before step 16:** install Tizen Studio and create the Samsung certificate (runbook from step 15).
+
+**Phase 2 checklist** (2026-11-28; docs/PLAN-2.md §8 and §9; each handover repeats the open items):
+| By | Item |
+|---|---|
+| now | Rotate the lionz provider password. Back up the Samsung `author.p12` in two places. |
+| 1 Dec | Submit the Samsung Partner application (Samsung Gulf). Purchase on Samsung depends on it. |
+| 3 Dec | Send the two store tickets (PLAN-2 §9): the trial-then-lock rule, the payment route, and licences bought elsewhere. Step 70a drafts them. |
+| 5 Dec | Set up the publishing company. Brief counsel: ToS and privacy for a paid app, the 14-day refund policy, the DMCA agent. |
+| 10 Dec | Step 34: the domain, Vercel, Neon, R2, Upstash, Cloudflare Workers and an email provider. The config key ceremony and the licence-signing key, each backed up in two places. |
+| 12 Dec | Samsung DPI: the bank account and registration number. A Paymentwall merchant account. Trademark clearance (US, CA, AE, SA). |
+| 20 Dec | The public test server. The beta route per store and 10–30 testers. Native reviewers for Arabic, French (Canada) and Spanish (US). |
+| 5 Jan | Counsel's text. Prices per country in both stores. Test buyers and a test card for the reviewers. |
 
 ## Progress log
 | Session | Date | Step | Result | Commit |
@@ -493,3 +1250,5 @@ Omar has **one LG TV and no Samsung TV** (2026-11-01). Testing relies on several
 | 170 | 2026-11-27 | 58 checked on the LG, merged | Local gates: lint, tsc, `pnpm build:tv` (Tizen main.js 496.4/500 KB, settings.js 152.7/200), `pnpm test` 365 files / 9647 tests, 17 e2e specs 58/58 (`--workers=2`). **LG** (PC still 192.168.1.7, firmware 03.60.96): the store build installed in place, `pnpm tv inspect --webos tv` + `pnpm mock`, driven with `pnpm tv keys --webos` / `shot --webos` (every command ended by itself): Settings top and bottom, Player, Accessibility, Live TV, search with results, the keyboard's three icon keys, en and ar at both sizes; all text in its box (with Larger text Settings shows 5 rows, two long hints wrap to a second line inside), Guide dot in the corner (mirrored in Arabic). The language picker is horizontal (RIGHT/LEFT, not DOWN); `أسرع` draws its ع apart because ر never joins (shaping, not a bug); `pnpm tv eval` with quotes or parentheses fails in cmd: use `eval @file.js`. TV left in English, Larger text off; mock and tunnel ended. **PR #203** first run: the three engine jobs failed on one result each, `seed-css-no-list-row` passed (rows now fill their VirtualList slot, so 88 px without ListRow.css). Fix `c1768a1`: the gallery probe also checks each row's number sits beside the rest (ListRow.css's flex line); Chromium 53 locally with `--self-test` 32 seeds caught. Second run 11/11, merged as `832d9c4` (merge commit, branch kept). Repo public only during the two CI runs, private after each. | `c1768a1`, `832d9c4` |
 | 170 (cont.) | 2026-11-27 | Omar's "1" | Omar chose step 21's LG half next (the LG stays on in Lablo for about 3 h): step 21L added under 21 (launch to the last channel, 50 zaps, the 2 h soak with stalls, all through `pnpm tv --webos`). The Samsung half and the other gates stay with Omar. | - |
 | 171 | 2026-11-27/28 | 21L done (the LG); step 59 added | The LG was in standby at the leg's start (23:18; needs-you), Omar turned it on (his "1", 23:29). Store build of `832d9c4` installed in place, `pnpm tv inspect --webos tv`, the mock. **Launch** 4/4: first frame 2335/1938/2085/2342 ms from navigation start (3.0-4.0 s from the PC's command, the CLI's own ~1.1 s included; the TV's clock 358 ms behind the PC's). **Zaps** 2x50 (keys ~570 ms apart): no error, the channel shown = the one playing, picture back 1.26-3.01 s after the last key; exact heap (`Runtime.getHeapUsage` after GC) 2.08 -> 2.15 MB; `performance.memory` is a coarse 9.54 MB bucket on this Chromium. **Soak:** run 1 (`live-outages` as is) moved to `.m3u8` at the first outage (no stalls after: the known quirk); run 2 (`.m3u8` 404, local scenario) and 3a (account `ts` only, player still holding both URLs: 403) gave up 4.0-4.6 s after the stream came back (the switch to `.m3u8` fails as `network`, the backoff reopens stay on it; the page's media events) -> **step 59**; run 3 (`ts` only after a relaunch) pass for 86 of 120 min (TV standby at 01:34): 60 stalls of 24.2-24.5 s vs 25 s outages, each ended 1.0-1.2 s after the stream came back. `ares-inspect` dropped once on its own (restarted). Raw files in `artifacts/` (gitignored). Docs only: reaches main with the next code PR. | this commit |
+| 172 | 2026-11-28 | 59 built and merged | (a) `RetryLadder.recovered(candidate, first)`: past the rungs the backoff reopens the URL that last showed a frame while it hasn't failed definitively (the LG sequence now plays the `.ts` 1 s after the `.m3u8`'s 404). (b) three gaps found by tests written first: the login's refresh ended `unchanged` on another account's same-bytes lists and kept the OLD login's URLs (`force` now); the query worker kept the sources' metas from its last load, so the facts and the schedule's check time stayed old after `unchanged` (`DataEngine.refresh` reloads it); the schedule re-read the facts only after a commit (`onFacts`). Scenario `live-outages-hls-404`. Gates: unit 366 files / 9,654 tests, lint, tsc, `build:tv` (Tizen main.js 496.6/500 KB, query worker 149.3/150), e2e 31 related (`--workers=2`), mutation 7/7 + 6/6. No e2e reaches the ladder's path (no TS in Playwright's Chromium). PR #204 green at the first run (11/11), merged; repo public only during the run. Omar's TV rule (autonomous, muted, no WoL at night; from leg 171's tab) is in the notes above the steps. | `03d0f83`, `398c5ad`, `437590e`, `daa8d58` (PR #204) |
+| plan-2 | 2026-11-28 | Phase 2 planned (a planning session, not a leg) | Omar's session after leg 172; his decisions are in "Phase 2: Omar's decisions" above the steps. **Docs:** `docs/PLAN-2.md` (features, store facts read on official pages, order, his checklist, the store questions). **RELAY:** phases 11–19 added (steps 60–86, about 130 legs: 115–145); 39s and 40 ticked; 16, 34, 41, 46 and 47 updated; the Samsung minimum is now 2020. **Recent pace:** 5.6 legs a day over legs 145–172. The relay run is at session 172 of its 200 cap. Docs only; nothing built, deployed or migrated. | this commit |

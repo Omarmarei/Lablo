@@ -28,7 +28,7 @@ export interface PosterTier {
   readonly parallel: number;
 }
 
-/** The low tier (2018–19 Samsung, ADR-012) rests longer and downloads fewer at once. */
+/** The low tier (a set below the 2020 minimum, ADR-015) rests longer and downloads fewer at once. */
 export const POSTER_TIERS: Readonly<Record<DeviceTier, PosterTier>> = {
   full: { restMs: 150, parallel: 6 },
   low: { restMs: 300, parallel: 2 },

@@ -10,7 +10,7 @@ import {
 const TIZEN = [
   '<widget version="{{version}}">',
   '<content src="index.html"/>',
-  '<tizen:application id="abc.Lablo" package="abc"/>',
+  '<tizen:application id="abc.Lablo" package="abc" required_version="5.5"/>',
   '<tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>',
   '<tizen:privilege name="http://tizen.org/privilege/unlimitedstorage"/>',
   '</widget>',
@@ -28,6 +28,10 @@ describe('versionProblems', () => {
   it('flags a template with a hard-coded version', () => {
     const hard = TIZEN.replace('{{version}}', '1.0.0');
     expect(versionProblems('1.2.3', hard, WEBOS).join('|')).toContain('platforms/tizen/config.xml has no {{version}}');
+  });
+  it('flags a Tizen manifest that installs below Tizen 5.5 (ADR-015)', () => {
+    const old = TIZEN.replace('required_version="5.5"', 'required_version="4.0"');
+    expect(versionProblems('1.0.0', old, WEBOS)).toEqual(['platforms/tizen/config.xml: required_version is "4.0", expected "5.5" (ADR-015)']);
   });
 });
 

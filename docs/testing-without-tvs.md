@@ -1,5 +1,7 @@
 # Testing on Samsung TVs without owning them
 
+> **Superseded on 2026-11-28 by [ADR-015](adr/ADR-015-samsung-minimum-tizen55.md).** Lablo's Samsung minimum is now 2020 (Tizen 5.5), so **no 2018 set is needed** and the Remote Test Lab route was never set up. The one Samsung we test on is Omar's 2020 UA32T5300AUXEG (results in [spikes/results.md](spikes/results.md)); newer Samsung sets come through Samsung's Beta Test (2021+) and the closed beta's testers (step 46). The comparison below is kept as it was written on 2026-11-04.
+
 We have an LG TV (step 16) and no Samsung. The plan wants four test TVs, two of them Samsung: a 2018 Tizen 4.0 set (e.g. NU7100) and a 2023/24 one ([architecture.md §4](architecture.md), "Minimum (must own)" and "Current (must own)"). This doc compares the ways to run the Lablo Lab ([runbooks/lab.md](runbooks/lab.md)) on real Samsung hardware without buying both, with cost and coverage, and ends with a recommendation. How to set each one up is in [runbooks/tv-setup.md](runbooks/tv-setup.md).
 
 **Since 2026-11-04 the LG minimum is webOS 5 (2020)** ([ADR-012](adr/ADR-012-lg-minimum-webos5.md)), so the used 2018 Samsung is the only low-tier set we will have: S6's low-tier thresholds are measured on it alone. Omar chose the Remote Test Lab plus that set (step 16).

@@ -19,7 +19,7 @@ The research covered about 20 competing apps, user reviews from Trustpilot, foru
   - **LG:** lets us choose countries.
   - **Both stores:** have removed IPTV players before.
   - **How Lablo stays clean:** no bundled channels, our servers never touch provider links, and a remote kill-switch.
-- **Tech:** one TypeScript codebase for both TVs (Preact). It supports **2018+ TVs**, with a full-feature tier for 2020+ models. It uses each TV's built-in video player (AVPlay on Samsung). The backend is small: Next.js, Prisma and Postgres.
+- **Tech:** one TypeScript codebase for both TVs (Preact). It supports **2018+ TVs**, with a full-feature tier for 2020+ models. **Since ADR-012 and ADR-015 (2026-11-28) both brands start at 2020**, so every supported TV is in the full tier. It uses each TV's built-in video player (AVPlay on Samsung). The backend is small: Next.js, Prisma and Postgres.
 - **Timeline:** about **17 weeks to store submission** (around 52 Claude Code sessions), plus store review time. Weeks 1–2 are tests on real TVs that can change the plan.
 
 ### Decisions from Omar (2026-11-01)
@@ -154,7 +154,7 @@ Samsung's web engine never gets upgraded after the TV ships, so each model year 
 | 2024 | 8.0 | Chromium 108 | 24 | Chromium 108 |
 | 2026 | 10.0 | Chromium 130 | 26 | Chromium 132 |
 
-- **Minimum supported: 2018 models** (Tizen 4 / webOS 4). **LG since 2026-11-04: 2020 models (webOS 5)**, Omar's decision after S6 had no 2018 LG to run on ([ADR-012](adr/ADR-012-lg-minimum-webos5.md)); Samsung keeps 2018. The build is compiled down to what Chrome 53 understands, shipped as classic scripts (no ES modules), with polyfills.
+- **Minimum supported: 2018 models** (Tizen 4 / webOS 4). **LG since 2026-11-04: 2020 models (webOS 5)**, Omar's decision after S6 had no 2018 LG to run on ([ADR-012](adr/ADR-012-lg-minimum-webos5.md)). **Samsung since 2026-11-28: 2020 models (Tizen 5.5)**, Omar's phase 2 decision ([ADR-015](adr/ADR-015-samsung-minimum-tizen55.md)). The build is compiled down to what Chrome 53 understands, shipped as classic scripts (no ES modules), with polyfills.
 - **Full-feature tier: 2020+ models.**
 - **2015–2017 models are skipped.** Samsung's current SDK can't build for 2015–16 TVs, and 2016–17 LG TVs (Chromium 38) need ES5, which makes modern frameworks very painful.
 
@@ -337,7 +337,7 @@ lablo/
 - **EPG:** a streaming XMLTV tokenizer, filtered at ingest to matched channels only (usually drops over 90% of the file).
   - **Matching cascade:** user override → tvg-id → Xtream `epg_channel_id` → normalized name → name with quality/country tags stripped.
   - **Storage:** one record per channel per day.
-  - **Window:** 7 days ahead plus catch-up days on 2020+ TVs, 3 days plus 1 on 2018–19 TVs.
+  - **Window:** 7 days ahead plus catch-up days on 2020+ TVs, 3 days plus 1 on 2018–19 TVs (since ADR-015 only a set below the minimum gets the short window).
   - **Fallback:** Xtream `get_short_epg` covers unmatched channels.
 - **Storage plan for the webOS update wipe:** the profile (credentials, favourites, hidden groups, progress, settings; under 300 KB) is kept in IDB with 3 rolling snapshots, a DB8 mirror if spike S2 passes, and the encrypted cloud backup. **Nothing important goes in localStorage.**
 
