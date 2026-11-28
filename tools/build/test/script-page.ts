@@ -31,7 +31,7 @@ export interface ScriptPage {
  * A page for the AMD loader in a vm realm (RELAY step 35e). A script tag added to `<head>` loads
  * `files.get(src)` a task later and then fires `onload`, or fires `onerror` when `files` has no
  * such file (a test can add it later, for a retry). `prelude` runs first: e.g. deleting the
- * ES2017 APIs Chromium 53 lacks.
+ * APIs Chromium 68 lacks.
  */
 export function scriptPage(files: Map<string, string>, prelude = ''): ScriptPage {
   const requested: string[] = [];

@@ -1,5 +1,5 @@
 // Build fixture: non-ASCII text in strings and regexes. main.js is written as UTF-8
-// (bundle.ts), except what an ES2016 script or a UTF-8 file can't hold as it is.
+// (bundle.ts), except what a script or a UTF-8 file can't hold as it is.
 const arabic = 'مرحبًا بعودتك';
 const isolated = '\u2068x\u2069';
 const separators = 'a\u2028b\u2029c';

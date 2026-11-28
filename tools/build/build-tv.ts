@@ -2,9 +2,9 @@
  * `pnpm build:tv`: the production TV build (ADR-003, docs/architecture.md §4).
  *
  * For each TV platform:
- *   1. Bundle apps/tv/src/main.tsx as a Rollup IIFE through Babel (chrome 53) and core-js.
+ *   1. Bundle apps/tv/src/main.tsx as a Rollup IIFE through Babel (chrome 68) and core-js.
  *      Every `?worker` import is built the same way first and inlined as a Blob URL.
- *   2. ES2016 syntax gate on each worker and on the main bundle (inside bundleIife).
+ *   2. ES2019 syntax gate on each worker and on the main bundle (inside bundleIife).
  *   3. Bundle budgets: main's own code ≤ 500 KB (the inlined workers don't count there),
  *      each lazy file's own code ≤ 150 KB, each worker ≤ 150 KB.
  *   (The app and its test copy are split (RELAY step 35e): main.js, with a small AMD loader at its
@@ -13,7 +13,7 @@
  *   and the vectors page stay one file.)
  *   4. Check that no other platform's adapter leaked into the bundle.
  *   5. app.css from the CSS files the bundle imports: postcss-rtlcss, the url() assets copied
- *      to assets/, the Chromium 53 CSS gate (src/css.ts).
+ *      to assets/, the Chromium 68 CSS gate (src/css.ts).
  *   6. Stage dist/tv/<platform>/ (index.html, main.js, settings.js, app.css, assets, manifest, icons).
  *   7. Package: webOS .ipk via ares-package; Tizen .wgt only with the Tizen CLI and a profile.
  *
@@ -68,7 +68,7 @@ import {
   foreignCode,
   renderIndexHtml,
 } from './src/platform-files';
-import { checkSyntax, formatViolation } from './src/syntax-gate';
+import { GATE_ECMA_VERSION, checkSyntax, formatViolation } from './src/syntax-gate';
 import { readVectorsJson, renderVectorsIndexHtml, vectorsDataScript } from './src/vectors';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
@@ -220,8 +220,8 @@ async function buildPlatform(platform: TvPlatform, target: Target, options: Buil
 }
 
 /**
- * The crypto vectors page: the page and its inlined worker through bundleIife (Babel chrome 53,
- * core-js, the ES2016 gate), the vectors as a gated classic script. Not packaged, no budget.
+ * The crypto vectors page: the page and its inlined worker through bundleIife (Babel chrome 68,
+ * core-js, the ES2019 gate), the vectors as a gated classic script. Not packaged, no budget.
  */
 async function buildVectors(): Promise<{ mainBytes: number; workerBytes: number; dataBytes: number }> {
   const bundle = await bundleIife({ input: path.join(APP_DIR, 'src/vectors/vectors-main.ts'), platform: 'webos', label: 'vectors main.js' });
@@ -314,7 +314,7 @@ async function main(): Promise<void> {
     if (target === 'vectors') {
       const started = Date.now();
       const sizes = await buildVectors();
-      console.log(`\n[crypto vectors] built in ${((Date.now() - started) / 1000).toFixed(1)} s, ES2016 gate passed`);
+      console.log(`\n[crypto vectors] built in ${((Date.now() - started) / 1000).toFixed(1)} s, ES${GATE_ECMA_VERSION} gate passed`);
       console.log(`  main.js ${kb(sizes.mainBytes)} + its two workers ${kb(sizes.workerBytes)}, vectors.js ${kb(sizes.dataBytes)}`);
       console.log(`  staged:  ${rel(DIST_VECTORS)}/`);
       continue;
@@ -328,7 +328,7 @@ async function main(): Promise<void> {
 
 function printReport(report: PlatformReport, started: number): void {
   const platform = report.target === 'lab' ? `lab ${report.platform}` : report.target === 'dev' ? `test copy ${report.platform}` : report.platform;
-  console.log(`\n[${platform}] built in ${((Date.now() - started) / 1000).toFixed(1)} s, ES2016 and CSS gates passed`);
+  console.log(`\n[${platform}] built in ${((Date.now() - started) / 1000).toFixed(1)} s, ES${GATE_ECMA_VERSION} and CSS gates passed`);
   for (const budget of report.budgets) {
     // (The test copy's main.js has no budget: its size, for the record.)
     if (report.target === 'dev' && budget.kind === 'main') console.log(`  size ${budget.label}: ${kb(budget.bytes)} own code (no budget: never shipped)`);

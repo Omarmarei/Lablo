@@ -1,7 +1,7 @@
 // Build fixture: core's parsers and search (RELAY steps 5-7) through the TV pipeline. The app doesn't use
 // them until the data worker does (step 8), so they are tree-shaken out of the TV bundle; this
-// fixture proves they transpile to Chromium 53 code, pass the syntax gate and run without the
-// ES2017 APIs that engine lacks. bundle.test.ts compares the bundled result with a native run.
+// fixture proves they transpile to Chromium 68 code, pass the syntax gate and run without the
+// APIs that engine lacks. bundle.test.ts compares the bundled result with a native run.
 import {
   JsonArraySplitter,
   M3uCatalogParser,

@@ -1,11 +1,17 @@
 import { parse } from 'acorn';
 
 /**
- * The newest syntax the TV bundles may contain. Chromium 53 (2018 LG webOS 4) runs ES2016;
- * async functions, object rest/spread, trailing commas in calls, regex lookbehind and named
- * groups are all newer and must never reach the TV (ADR-003).
+ * The newest syntax the TV bundles may contain. The oldest TV engine is Chromium 68 (2020 LG
+ * webOS 5; RELAY step 61a, ADR-003), which runs every ES2019 syntax addition: async functions,
+ * object rest/spread, async iteration, the regex `s` flag, lookbehind and named groups (ES2017-18,
+ * Chromium 55-64), optional catch binding and line separators in strings (ES2019, Chromium 66).
+ * ES2020 and newer (`?.`, `??`, BigInt literals, class fields, the regex `d` flag…) must never
+ * reach the TV: Babel transpiles most of it, and this gate catches what it can't.
  */
-export const GATE_ECMA_VERSION = 2016;
+export const GATE_ECMA_VERSION = 2019;
+
+/** The oldest engine the gate stands for, for its messages. */
+const OLDEST_ENGINE = 'Chromium 68';
 
 export interface GateViolation {
   readonly label: string;
@@ -25,7 +31,7 @@ function isAcornError(error: unknown): error is AcornSyntaxError {
   return error instanceof SyntaxError && 'pos' in error && 'loc' in error;
 }
 
-/** Parses `code` as an ES2016 classic script. Returns the first violation, or `null`. */
+/** Parses `code` as an ES2019 classic script. Returns the first violation, or `null`. */
 export function checkSyntax(code: string, label: string): GateViolation | null {
   try {
     parse(code, { ecmaVersion: GATE_ECMA_VERSION, sourceType: 'script', locations: true });
@@ -47,7 +53,7 @@ export function formatViolation(v: GateViolation): string {
   return [
     `ES${GATE_ECMA_VERSION} syntax gate failed for ${v.label} at ${v.line}:${v.column}: ${v.message}`,
     `  near: ${v.excerpt}`,
-    '  Something newer than Chromium 53 supports reached the bundle. Babel could not',
-    '  transpile it (e.g. a regex lookbehind) or it came from an untranspiled file.',
+    `  Something newer than ${OLDEST_ENGINE} supports reached the bundle. Babel could not`,
+    '  transpile it (e.g. the regex d flag) or it came from an untranspiled file.',
   ].join('\n');
 }

@@ -162,13 +162,14 @@ jobs:
           retention-days: 14
 
   # Old-engine harness (RELAY steps 2b and 11c, docs/runbooks/old-engines.md): the built TV
-  # apps in Chromium 53/56/68 snapshots under Docker, the hello screen and the component
+  # apps in the Chromium 68 snapshot under Docker, the hello screen and the component
   # gallery, plus the self-test that seeded ES2018/ES2020 syntax, a build without polyfills and
   # two seeded CSS breakages are caught. Separate job so `verify` stays fast.
-  # One job per engine (RELAY step 40ci): the three one after another took 25 min. Each runs its
-  # engine's seeded variants too (--self-test): whether a seed must fail depends on the engine
-  # (mustPass), and the seeds are about half of each engine's time. A flaky Chromium 53 run
-  # reruns alone (`gh run rerun --failed`).
+  # One job per engine (RELAY step 40ci). Since step 61a the build targets Chromium 68 (the oldest
+  # supported TV, ADR-012 and ADR-015), so the Chromium 53 and 56 jobs are gone: a 68-targeted
+  # build fails there by design. Each job runs its engine's seeded variants too (--self-test):
+  # whether a seed must fail depends on the engine (mustPass). A flaky run reruns alone
+  # (`gh run rerun --failed`).
   engines:
     needs: changes
     if: needs.changes.outputs.engines == 'true'
@@ -182,7 +183,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        engine: [chrome53, chrome56, chrome68]
+        engine: [chrome68]
     steps:
       - uses: actions/checkout@v7
 

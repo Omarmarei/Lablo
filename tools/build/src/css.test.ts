@@ -48,9 +48,11 @@ describe('TV CSS (tools/build/src/css.ts)', () => {
     expect(built.css).toMatch(/\.app \{\s*color: #fff;/);
   });
 
-  it('fails the build on CSS Chromium 53 lacks, and on assets it cannot ship', async () => {
-    await expect(buildCss([cssFile('grid.css', '.a { display: grid; }')])).rejects.toThrow(CssGateError);
-    await expect(buildCss([cssFile('grid.css', '.a { display: grid; }')])).rejects.toThrow(/grid\.css:1:6 {2}display: grid/);
+  it('fails the build on CSS Chromium 68 lacks, and on assets it cannot ship', async () => {
+    await expect(buildCss([cssFile('gap.css', '.a { display: flex; gap: 8px; }')])).rejects.toThrow(CssGateError);
+    await expect(buildCss([cssFile('gap.css', '.a { display: flex; gap: 8px; }')])).rejects.toThrow(/gap\.css:1:21 {2}gap: 8px/);
+    // Grid is Chromium 57: it passes since step 61a.
+    await expect(buildCss([cssFile('grid.css', '.a { display: grid; }')])).resolves.toMatchObject({ assets: [] });
     await expect(buildCss([cssFile('remote.css', ".a { background: url('https://cdn.example/x.png'); }")])).rejects.toThrow(/remote URLs are not allowed/);
     await expect(buildCss([cssFile('missing.css', ".a { background: url('nope.png'); }")])).rejects.toThrow(/does not exist/);
     // A data: URI stays inline.

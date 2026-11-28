@@ -1,7 +1,7 @@
 // The pair worker as the TV runs it (RELAY step 31c1): packages/data/src/pair.worker.ts bundled by
-// the TV pipeline (Rollup IIFE, Babel chrome 53, core-js, the ES2016 gate), then run in a fresh
-// realm that stands in for a Chromium 53 worker (no `BigInt`, no `globalThis`, none of the ES2017
-// APIs Chromium 53 lacks), with a fake `fetch` playing the pairing API. A whole pairing goes
+// the TV pipeline (Rollup IIFE, Babel chrome 68, core-js, the ES2019 gate), then run in a fresh
+// realm that stands in for a Chromium 68 worker (no `globalThis`, none of the newer APIs Chromium
+// 68 lacks), with a fake `fetch` playing the pairing API. A whole pairing goes
 // through its RPC: a code (whose QR modules equal Node's), `waiting`, the phone's payload opened
 // and parsed, the status posted. Step 31d2a: the phone's M3U file, its URL asked for, fetched and
 // opened frame by frame in the realm, its plain frames read from a port as the ingest worker reads
@@ -17,7 +17,7 @@ import { feedResponse } from '@lablo/data';
 import { describe, expect, it } from 'vitest';
 import { bundleIife } from '../tools/build/src/bundle';
 import { BUDGETS } from '../tools/build/src/budgets';
-import { CHROMIUM_53_MISSING } from './realm-support';
+import { CHROMIUM_68_MISSING } from './realm-support';
 
 const ROOT = join(import.meta.dirname, '..');
 const BASE = 'http://api.test';
@@ -42,7 +42,7 @@ interface Request {
 
 type Fetch = (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => Promise<unknown>;
 
-/** A `fetch` answer as Chromium 53 gives it: a status, headers and a body stream in 64 KB chunks. */
+/** A `fetch` answer as Chromium 68 gives it: a status, headers and a body stream in 64 KB chunks. */
 function response(status: number, body: string | Uint8Array, headers: Record<string, string> = {}) {
   const bytes = typeof body === 'string' ? new TextEncoder().encode(body) : body;
   let at = 0;
@@ -93,7 +93,7 @@ function pairWorkerCode(): Promise<string> {
   return bundled;
 }
 
-/** The worker started in a fresh Chromium 53 realm over `fetch`: its RPC, called as the app calls it. */
+/** The worker started in a fresh Chromium 68 realm over `fetch`: its RPC, called as the app calls it. */
 function startRealm(code: string, fetch: Fetch): (m: string, a?: unknown) => Promise<unknown> {
   const replies: Reply[] = [];
   const listeners: Listener[] = [];
@@ -111,8 +111,8 @@ function startRealm(code: string, fetch: Fetch): (m: string, a?: unknown) => Pro
     clearTimeout,
   });
   vm.runInContext('var self = this;', realm);
-  vm.runInContext(CHROMIUM_53_MISSING, realm);
-  expect(vm.runInContext('typeof BigInt + " " + typeof globalThis + " " + typeof Object.values', realm)).toBe('undefined undefined undefined');
+  vm.runInContext(CHROMIUM_68_MISSING, realm);
+  expect(vm.runInContext('typeof globalThis + " " + typeof Object.fromEntries', realm)).toBe('undefined undefined');
   vm.runInContext(code, realm);
   expect(listeners).toHaveLength(1);
 
@@ -134,10 +134,9 @@ function startRealm(code: string, fetch: Fetch): (m: string, a?: unknown) => Pro
 }
 
 describe('the pair worker bundle', () => {
-  it('builds to gated Chromium 53 code within its budget and runs a whole pairing without BigInt or globalThis', async () => {
+  it('builds to gated Chromium 68 code within its budget and runs a whole pairing without globalThis', async () => {
     const code = await pairWorkerCode();
     expect(Buffer.byteLength(code, 'utf8')).toBeLessThanOrEqual(BUDGETS.worker);
-    expect(code).not.toMatch(/BigInt\s*\(\s*\d/);
     // Neither core-js's DOMException nor its URL (zod's unused paths would bring them).
     for (const marker of ['DATA_CLONE_ERR', 'searchParams']) expect([marker, code.includes(marker)]).toEqual([marker, false]);
 
@@ -173,7 +172,7 @@ describe('the pair worker bundle', () => {
     console.log(`pair worker: ${(Buffer.byteLength(code, 'utf8') / 1024).toFixed(1)} KB`);
   });
 
-  it("fetches the phone's file and serves its opened frames on a port, in the Chromium 53 realm (step 31d2a)", async () => {
+  it("fetches the phone's file and serves its opened frames on a port, in the Chromium 68 realm (step 31d2a)", async () => {
     const code = await pairWorkerCode();
     const fileKey = new Uint8Array(32).fill(12);
     const base = new Uint8Array(24).fill(0xff);

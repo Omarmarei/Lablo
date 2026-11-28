@@ -20,7 +20,7 @@ export const BOOT_ERROR_SCRIPT = [
   '};',
 ].join('\n');
 
-/** The classic-script page for a TV build (no ES modules on Chromium 53). */
+/** The classic-script page for a TV build (the bundles are classic scripts, not ES modules). */
 export function renderIndexHtml(platform: TvPlatform): string {
   // Samsung's Product API (model, firmware) is injected by the TV at this virtual path.
   const platformScripts = platform === 'tizen' ? ['<script src="$WEBAPIS/webapis/webapis.js"></script>'] : [];

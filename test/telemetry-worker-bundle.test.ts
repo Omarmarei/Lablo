@@ -1,7 +1,7 @@
 // The telemetry worker as the TV runs it (RELAY step 33b1): `packages/data/src/telemetry.worker.ts`
-// bundled by the TV pipeline (Rollup IIFE, Babel chrome 53, core-js, the ES2016 gate), checked
-// against the worker budget, then started in fresh realms that stand in for Chromium 53 workers
-// (none of the ES2017+ APIs Chromium 53 lacks, no `globalThis`, no code generation). IndexedDB is
+// bundled by the TV pipeline (Rollup IIFE, Babel chrome 68, core-js, the ES2019 gate), checked
+// against the worker budget, then started in fresh realms that stand in for Chromium 68 workers
+// (none of the newer APIs Chromium 68 lacks, no `globalThis`, no code generation). IndexedDB is
 // fake-indexeddb, shared by the runs as a TV's database is; the realm's `crypto.getRandomValues`
 // makes the install ID, and its `fetch` records the posts. The posted batch is read with the
 // server's own schema.
@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { freshFactory } from '../packages/data/src/test-support';
 import { checkBudget, formatBudget } from '../tools/build/src/budgets';
 import { bundleIife } from '../tools/build/src/bundle';
-import { CHROMIUM_53_MISSING, pipe } from './realm-support';
+import { CHROMIUM_68_MISSING, pipe } from './realm-support';
 
 interface Post {
   url: string;
@@ -34,7 +34,7 @@ function recordingFetch(posts: Post[], statuses: number[], answer = '{"state":"s
   };
 }
 
-/** Starts `code` in a fresh Chromium 53 stand-in realm. */
+/** Starts `code` in a fresh Chromium 68 stand-in realm. */
 function startWorker(code: string, factory: IDBFactory, randoms: { calls: number }, fetch: ReturnType<typeof recordingFetch>): RpcPort {
   const [workerPort, uiPort] = pipe();
   const realm = vm.createContext(
@@ -59,8 +59,8 @@ function startWorker(code: string, factory: IDBFactory, randoms: { calls: number
     { codeGeneration: { strings: false, wasm: false } },
   );
   vm.runInContext('var self = this;', realm);
-  vm.runInContext(CHROMIUM_53_MISSING, realm);
-  expect(vm.runInContext('typeof globalThis + " " + typeof Object.values', realm)).toBe('undefined undefined');
+  vm.runInContext(CHROMIUM_68_MISSING, realm);
+  expect(vm.runInContext('typeof globalThis + " " + typeof Object.fromEntries', realm)).toBe('undefined undefined');
   expect(() => vm.runInContext('new Function("return 1")', realm)).toThrow(/Code generation from strings disallowed/);
   vm.runInContext(code, realm);
   return uiPort;
@@ -81,7 +81,7 @@ function workerCode(): Promise<string> {
 }
 
 describe('the bundled telemetry worker', () => {
-  it('builds to gated Chromium 53 code within the worker budget, and posts a batch the server reads whole, then keeps the ID and clears the queue', async () => {
+  it('builds to gated Chromium 68 code within the worker budget, and posts a batch the server reads whole, then keeps the ID and clears the queue', async () => {
     const code = await workerCode();
     const budget = checkBudget('telemetry.worker.js', 'worker', code);
     console.log(formatBudget(budget));
@@ -131,7 +131,7 @@ describe('the bundled telemetry worker', () => {
     after.close();
   }, 120_000);
 
-  it("scrubs a crash's stack with the stored profile's logins before it is queued (step 33c), in the Chromium 53 realm", async () => {
+  it("scrubs a crash's stack with the stored profile's logins before it is queued (step 33c), in the Chromium 68 realm", async () => {
     const code = await workerCode();
     const tv = freshFactory();
     const db = await openDatabase(tv);
@@ -161,7 +161,7 @@ describe('the bundled telemetry worker', () => {
     for (const secret of ['omar.k', 'p@ss99', 'Panel.Example', 'list-host', 'listuser', '10.1.2.3', '/media/', 'blob:']) expect(posts[0]!.body).not.toContain(secret);
   }, 120_000);
 
-  it('sends the diagnostics report (step 33d2) and reads its support code, in the Chromium 53 realm', async () => {
+  it('sends the diagnostics report (step 33d2) and reads its support code, in the Chromium 68 realm', async () => {
     const code = await workerCode();
     const tv = freshFactory();
     const db = await openDatabase(tv);

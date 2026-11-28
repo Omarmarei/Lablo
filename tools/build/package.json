@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "TV build pipeline: Rollup IIFE + Babel (chrome 53) + core-js, inline Blob workers, ES2016 syntax gate, bundle budgets, .ipk/.wgt packaging.",
+  "description": "TV build pipeline: Rollup IIFE + Babel (chrome 68) + core-js, inline Blob workers, ES2019 syntax gate, bundle budgets, .ipk/.wgt packaging.",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

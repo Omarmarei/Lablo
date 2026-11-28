@@ -1,9 +1,9 @@
 // The query worker as the TV runs it (RELAY step 7): `packages/data/src/query.worker.ts` bundled
-// by the TV pipeline (Rollup IIFE, Babel chrome 53, core-js, ES2016 syntax gate), checked
+// by the TV pipeline (Rollup IIFE, Babel chrome 68, core-js, ES2019 syntax gate), checked
 // against the worker budget, then started in a fresh realm that stands in for a worker: `self`
-// is a message port, `indexedDB` is fake-indexeddb, and the ES2017 APIs that Chromium 53 lacks
-// are deleted. A UI-side DataClient then searches a catalog written by the data layer. Real
-// Chromium 53/56 runs of the data workers come with step 8b (engines harness, Blob worker + IDB).
+// is a message port, `indexedDB` is fake-indexeddb, and the APIs that Chromium 68 lacks are
+// deleted. A UI-side DataClient then searches a catalog written by the data layer. The engines
+// harness runs the data workers on a real Chromium 68 (Blob worker + IDB).
 
 import { createHash } from 'node:crypto';
 import vm from 'node:vm';
@@ -13,10 +13,10 @@ import { describe, expect, it } from 'vitest';
 import { configAnswer, configDocFields, freshFactory, ingest, item } from '../packages/data/src/test-support';
 import { checkBudget, formatBudget } from '../tools/build/src/budgets';
 import { bundleIife } from '../tools/build/src/bundle';
-import { pipe } from './realm-support';
+import { CHROMIUM_68_MISSING_APIS, pipe } from './realm-support';
 
 describe('the bundled query worker', () => {
-  it('builds to gated Chromium 53 code within the worker budget and serves search over IndexedDB', async () => {
+  it('builds to gated Chromium 68 code within the worker budget and serves search over IndexedDB', async () => {
     const input = join(import.meta.dirname, '..', 'packages', 'data', 'src', 'query.worker.ts');
     const { code } = await bundleIife({ input, platform: 'webos', label: 'query.worker.js' });
     const budget = checkBudget('query.worker.js', 'worker', code);
@@ -35,7 +35,7 @@ describe('the bundled query worker', () => {
     // As in a real worker, the global object is the port and `self` is the global object
     // (core-js's `self` polyfill replaces any other `self`).
     const [workerPort, uiPort] = pipe();
-    // The short-EPG fallback's network (step 9c): fetch and TextDecoder, as in Chromium 53.
+    // The short-EPG fallback's network (step 9c): fetch and TextDecoder, as in Chromium 68.
     const asked: string[] = [];
     const noon = Date.UTC(2026, 10, 2, 12) / 1000;
     const answer = { epg_listings: [0, 1].map((i) => ({ title: Buffer.from(`Bundled ${i}`).toString('base64'), start_timestamp: noon + i * 1800, stop_timestamp: noon + (i + 1) * 1800 })) };
@@ -46,7 +46,7 @@ describe('the bundled query worker', () => {
     const realm = vm.createContext({
       fetch: fakeFetch,
       TextDecoder,
-      // The blocklist hash (step 30b2): Chromium 53 has TextEncoder in workers too.
+      // The blocklist hash (step 30b2): Chromium 68 has TextEncoder in workers too.
       TextEncoder,
       postMessage: workerPort.postMessage,
       addEventListener: workerPort.addEventListener,
@@ -57,7 +57,7 @@ describe('the bundled query worker', () => {
       clearTimeout,
     });
     vm.runInContext('var self = globalThis;', realm);
-    vm.runInContext('delete Object.entries; delete Object.values; delete String.prototype.padStart; delete String.prototype.padEnd;', realm);
+    vm.runInContext(CHROMIUM_68_MISSING_APIS, realm);
     vm.runInContext(code, realm);
 
     const client = createDataClient(uiPort);

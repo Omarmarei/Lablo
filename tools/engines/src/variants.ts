@@ -4,7 +4,7 @@
  * build has no hello screen and no gallery).
  *
  * `--self-test` adds deliberately broken bundles to prove the harness catches what the TVs
- * would choke on, even if the build-time ES2016 gate were bypassed:
+ * would choke on, even if the build-time syntax gate (ES2019 since RELAY step 61a) were bypassed:
  * - a seeded ES2018 feature (object spread, Chromium 60+), prepended to the shipped main.js;
  * - a seeded ES2020 feature (optional chaining, Chromium 80+), which even Chromium 68 rejects;
  * - the real app built without core-js (`build-tv --unsafe-no-polyfills`): `Object.entries`

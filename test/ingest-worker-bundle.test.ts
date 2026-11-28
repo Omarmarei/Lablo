@@ -1,8 +1,8 @@
 // The ingest worker as the TV runs it (RELAY step 8): `packages/data/src/ingest.worker.ts`
-// bundled by the TV pipeline (Rollup IIFE, Babel chrome 53, core-js, ES2016 syntax gate),
+// bundled by the TV pipeline (Rollup IIFE, Babel chrome 68, core-js, ES2019 syntax gate),
 // checked against the worker budget, then started in a fresh realm that stands in for a
-// Chromium 53 worker: `self` is a message port, `indexedDB` is fake-indexeddb, the ES2017 APIs
-// Chromium 53 lacks are deleted and there is no DecompressionStream, so gzip goes through the
+// Chromium 68 worker: `self` is a message port, `indexedDB` is fake-indexeddb, the APIs
+// Chromium 68 lacks are deleted and there is no DecompressionStream (Chromium 80), so gzip goes through the
 // bundled fflate. It ingests from the in-process mock provider with Node's fetch; the UI side
 // talks to it through createIngestClient, and the query service then reads what it wrote. Step
 // 31d2a: the phone's M3U file, its plain frames pulled from a transferred MessagePort whose other
@@ -20,6 +20,7 @@ import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { fakeTransport, freshFactory } from '../packages/data/src/test-support';
 import { checkBudget, formatBudget } from '../tools/build/src/budgets';
 import { bundleIife } from '../tools/build/src/bundle';
+import { CHROMIUM_68_MISSING_APIS } from './realm-support';
 
 type Listener = (event: MessageEvent) => void;
 
@@ -62,7 +63,7 @@ function ingestWorkerCode(): Promise<string> {
   return bundled;
 }
 
-/** The worker in a fresh realm standing in for Chromium 53's, over `factory`: the UI's client. */
+/** The worker in a fresh realm standing in for Chromium 68's, over `factory`: the UI's client. */
 function startRealm(code: string, factory: IDBFactory) {
   const [workerPort, uiPort] = pipe();
   const realm = vm.createContext({
@@ -77,14 +78,14 @@ function startRealm(code: string, factory: IDBFactory) {
     clearTimeout,
   });
   vm.runInContext('var self = globalThis;', realm);
-  vm.runInContext('delete Object.entries; delete Object.values; delete String.prototype.padStart; delete String.prototype.padEnd;', realm);
+  vm.runInContext(CHROMIUM_68_MISSING_APIS, realm);
   expect(vm.runInContext('typeof DecompressionStream', realm)).toBe('undefined');
   vm.runInContext(code, realm);
   return createIngestClient(uiPort);
 }
 
 describe('the bundled ingest worker', () => {
-  it('builds to gated Chromium 53 code within the worker budget and ingests from the mock provider', async () => {
+  it('builds to gated Chromium 68 code within the worker budget and ingests from the mock provider', async () => {
     const code = await ingestWorkerCode();
     const budget = checkBudget('ingest.worker.js', 'worker', code);
     console.log(formatBudget(budget));

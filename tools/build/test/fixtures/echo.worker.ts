@@ -1,4 +1,4 @@
-// Build fixture: a worker using syntax newer than Chromium 53 (object spread).
+// Build fixture: a worker using object spread (Chromium 60, left as it is at chrome 68).
 const scope = self as unknown as {
   onmessage: ((event: { data: unknown }) => void) | null;
   postMessage(message: unknown): void;
