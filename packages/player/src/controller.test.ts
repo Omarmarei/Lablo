@@ -782,6 +782,37 @@ describe('PlayerController: retries and URLs', () => {
     expect(gone.player.status).toMatchObject({ state: 'failed', failure: { category: 'provider', code: 'PRV-UNREACHABLE' } });
   });
 
+  it('goes back to the .ts that played when the switch finds an .m3u8 that fails before a frame (RELAY step 59)', async () => {
+    // The LG TV (21L): an outage holds the .ts (buffering from 1 s); the watchdog's reopen at 13 s
+    // shows nothing; its open timeout switches to the .m3u8, whose 404 the <video> reports as an
+    // unsupported source, read as `network`. The .ts is back by then.
+    const refused: PlaybackError = { kind: 'network', code: 'MEDIA_ERR_SRC_NOT_SUPPORTED' };
+    const memory = new MemorySourceMemory();
+    const reports: unknown[] = [];
+    const r = rig((s, n) => (n === 1 ? { frameMs: 500, bufferingMs: 1000 } : n === 2 ? { frameMs: null } : s.container === 'hls' ? { loadError: refused } : {}), { memory, report: (report) => reports.push(report) });
+    void r.player.play(live(1));
+    await r.clock.advance(40_000);
+    const loads = r.engine.loads;
+    expect(loads.map((l) => l.source.container)).toEqual(['ts', 'ts', 'hls', 'ts']);
+    // The reopen at 12 s of buffering, the switch at its open timeout, and the .ts again after the
+    // backoff's first delay (1 s), which plays.
+    expect(loads[1]!.at).toBeGreaterThanOrEqual(13_000);
+    expect(loads[2]!.at - loads[1]!.at).toBeGreaterThanOrEqual(10_000);
+    expect(loads[3]!.at - loads[2]!.at).toBe(1000);
+    expect(r.states()).toEqual(['opening', 'playing', 'buffering', 'reconnecting', 'reconnecting', 'reconnecting', 'playing']);
+    expect(r.player.status).toMatchObject({ state: 'playing', container: 'ts', failure: null });
+    expect(reports).toContainEqual({ type: 'stall', recovered: true, attempts: 3 });
+    expect(memory.preferred('s1')).toBe('ts');
+    expectCloseBeforeOpen(r.engine);
+    // The other way round: the .ts refused at the start, the .m3u8 played until an outage held it,
+    // and the switch found the .ts refused again: back to the .m3u8.
+    const other = rig((s, n) => (s.container === 'ts' ? { loadError: refused } : n === 2 ? { frameMs: 500, bufferingMs: 1000 } : n === 3 ? { frameMs: null } : {}));
+    void other.player.play(live(1));
+    await other.clock.advance(40_000);
+    expect(other.engine.loads.map((l) => l.source.container)).toEqual(['ts', 'hls', 'hls', 'ts', 'hls']);
+    expect(other.player.status).toMatchObject({ state: 'playing', container: 'hls', failure: null });
+  });
+
   it('gives up at once when every URL failed definitively', async () => {
     const r = rig(() => ({ loadError: { kind: 'http', code: 'PROBE', status: 404 } }));
     void r.player.play(live(1));

@@ -494,8 +494,9 @@ export class DataEngine {
 
   /**
    * One refresh in a fresh ingest worker. Waits for the start-up prune first (a prune would
-   * abandon a refresh running next to it). When the refresh swaps generations, the query worker
-   * reloads before this resolves, so the next read sees the new catalog.
+   * abandon a refresh running next to it). When the refresh swaps generations, or ends unchanged
+   * (its check time and account facts stored, RELAY step 59), the query worker reloads before
+   * this resolves, so the next read sees the new catalog and facts.
    */
   async refresh(job: RefreshJob, options: RefreshOptions = {}): Promise<IngestResult> {
     const source = job.source;
@@ -531,6 +532,9 @@ export class DataEngine {
           file === undefined ? { job: ingest, lowTier: options.lowTier } : { job: ingest, lowTier: options.lowTier, file },
           file === undefined ? { cancel: options.cancel } : { cancel: options.cancel, transfer: [file.port as MessagePort] },
         );
+        // An unchanged catalog still stored its check time and its account's facts (step 59):
+        // the query worker reads them again too, after any reload already running.
+        if (result.status === 'unchanged') reload = reload.catch(ignore).then(() => this.query.call('reload'));
         // The refresh itself succeeded; a query worker that can't reload reports that on the
         // next read.
         await reload.catch(ignore);

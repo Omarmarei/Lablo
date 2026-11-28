@@ -8,7 +8,8 @@ import { P, U, listen, mock } from '../apps/mock-provider/test/helpers';
 import { AR } from '../apps/tv/src/i18n/ar';
 import { EN } from '../apps/tv/src/i18n/en';
 import { stripIsolates } from '../packages/core/src/bidi';
-import { addXtreamAndWatch, trackErrors } from './onboard';
+import { addXtreamAndWatch, settled, trackErrors } from './onboard';
+import { openSources } from './pairing-steps';
 import { RemoteDriver } from './remote-driver';
 
 /**
@@ -288,6 +289,55 @@ test("an account that allows HLS only: the player never asks it for .ts (allowed
   expect(live.filter((p) => p.slice(-5) !== '.m3u8')).toEqual([]);
   await remote.press('BACK');
   await remote.expectFocus('live/channels/2');
+  expect(errors).toEqual([]);
+});
+
+test('a login given again on the same server: the player plays the new account, in the formats it allows (RELAY step 59)', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = trackErrors(page);
+  /** The live stream URLs the page asked the mock for. */
+  const live: string[] = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.host === host && url.pathname.indexOf('/live/') === 0) live.push(url.pathname);
+  });
+  const remote = new RemoteDriver(page);
+  await addXtreamAndWatch(remote, { host, username: U, password: P }, 'locale=en-US');
+  // Settings › Sources › the row's "Change server and login": the `hls` account (HLS only) on the
+  // same server. Its lists are the same bytes, so a refresh that compares them ends `unchanged`.
+  const root = await openSources(remote, 'en');
+  await remote.go('OK', 'source-menu/actions/0');
+  await remote.go('OK', 'source-login/fields/0');
+  await remote.go('DOWN', 'source-login/fields/1');
+  for (const [field, value] of [['username', 'hls'], ['password', 'hls-test']] as const) {
+    await remote.press('OK');
+    await expect(root).toHaveAttribute('data-editing', `source-login-${field}`);
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type(value);
+    await remote.press('OK');
+    await expect(root).toHaveAttribute('data-editing', '');
+  }
+  // (Each edit moves the focus on: the password, then "Save".)
+  await remote.expectFocus('source-login/actions/0');
+  await remote.press('OK');
+  await remote.expectFocus('sources/sources/0');
+  await expect(page.getByTestId('source-0')).toHaveAttribute('data-answer', '', { timeout: 30_000 });
+  await settled(root, 30_000);
+  // Back to the live list, channel 1 played: the new account's .m3u8 only.
+  await remote.press('BACK');
+  await remote.press('BACK');
+  await expect(page.getByTestId('live')).toBeVisible();
+  await remote.go('DOWN', 'live/channels/0');
+  live.length = 0;
+  await remote.press('OK');
+  const player = page.getByTestId('player');
+  await expect(player).toHaveAttribute('data-plays', '1');
+  await expect(player).toHaveAttribute('data-container', 'hls');
+  await expect.poll(() => live.length).toBeGreaterThan(0);
+  expect(live).toContain('/live/hls/hls-test/101.m3u8');
+  // Never the old account's URLs, nor a .ts the mock refuses this account (403).
+  expect(live.filter((p) => p.indexOf('/live/hls/hls-test/') !== 0 || p.slice(-5) !== '.m3u8')).toEqual([]);
+  await remote.press('BACK');
   expect(errors).toEqual([]);
 });
 

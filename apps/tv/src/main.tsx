@@ -109,8 +109,8 @@ const root = document.getElementById('app');
 if (root === null) throw new Error('#app element missing from index.html');
 
 /**
- * Each source's facts (`DataEngine.sourceFacts`), read when the live screen opens and after a
- * catalog refresh: an Xtream account's `allowed_output_formats` (RELAY step 20c2a; until they are
+ * Each source's facts (`DataEngine.sourceFacts`), read when the live screen opens and after any
+ * catalog refresh that ended, an unchanged one too (step 59): an Xtream account's `allowed_output_formats` (RELAY step 20c2a; until they are
  * read, the start's last channel tries every format, the one that played first) and the panel's
  * zone for catch-up (step 25a).
  */
@@ -419,8 +419,8 @@ function startRefreshes(live: Live, guide: Guide, posters: readonly Movies[], se
       return ui === '' ? [] : [ui];
     },
     lifecycle: (listener) => platform.onLifecycle(listener),
+    onFacts: readFacts,
     onCatalog: () => {
-      readFacts();
       live.catalogChanged();
       for (const screen of posters) screen.catalogChanged();
       search.catalogChanged();
@@ -748,9 +748,11 @@ function showLive(into: Element, language: Language | null, resume: LastChannel 
     },
     // A login given again (step 32d4b): the source's own refresh with the schedule held (the
     // schedule keeps a refused `needs-login` for 2 h, and `refreshNow` reads only the guides), then
-    // its guides at once and the screens.
+    // its guides at once and the screens. Always a new catalog (`force`, step 59): an Xtream
+    // catalog's URLs carry the login, and another account's lists can be the same bytes, which a
+    // plain refresh keeps (`unchanged`) with the old URLs, and the account's formats unread.
     refreshSource: (src, source) =>
-      quiet(() => deviceTier().then((tier) => dataEngine().refresh({ src, source }, { lowTier: tier === 'low' }))).then((result) => {
+      quiet(() => deviceTier().then((tier) => dataEngine().refresh({ src, source, force: true }, { lowTier: tier === 'low' }))).then((result) => {
         if (result.status === 'committed') {
           void refreshes?.refreshNow();
           sourceAdded();

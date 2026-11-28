@@ -370,6 +370,8 @@ describe('scenario rules', () => {
       'broken-playlist',
       'flaky-live',
       'gzip-epg',
+      // (By file name: '-' sorts before '.'.)
+      'live-outages-hls-404',
       'live-outages',
       'no-xmltv',
       'odd-timezone',
@@ -393,6 +395,12 @@ describe('scenario rules', () => {
     // Step 21's soak: 60 s past the burst, then the channel is down 25 s.
     expect(scenarioFaults(loadScenario('live-outages'), live)).toEqual([{ type: 'stall', afterBytes: undefined, afterMs: 60_000, holdMs: 120_000, outageMs: 25_000 }]);
     expect(scenarioFaults(loadScenario('live-outages'), vod)).toEqual([]);
+    // The same with the live .m3u8 on 404 (RELAY step 59): the .ts as above, the .m3u8 refused.
+    const hls404 = loadScenario('live-outages-hls-404');
+    expect(scenarioFaults(hls404, live)).toEqual([{ type: 'stall', afterBytes: undefined, afterMs: 60_000, holdMs: 120_000, outageMs: 25_000 }]);
+    expect(scenarioFaults(hls404, ctx({ path: '/live/lablo/lablo-test/107.m3u8' })).map((f) => f.type)).toEqual(['stall', 'status']);
+    expect(scenarioFaults(hls404, ctx({ path: '/live/lablo/lablo-test/107.m3u8' })).filter((f) => f.type === 'status')).toMatchObject([{ type: 'status', status: 404 }]);
+    expect(scenarioFaults(hls404, vod)).toEqual([]);
   });
 });
 
@@ -466,7 +474,7 @@ describe('scenario control', () => {
     expect((await put(null)).json()).toEqual({ active: null });
     expect((await inject('/live/lablo/lablo-test/101.ts')).statusCode).toBe(200);
     const listed = (await inject('/__mock/scenarios')).json<{ active: null; available: { name: string }[] }>();
-    expect(listed.available).toHaveLength(10);
+    expect(listed.available).toHaveLength(11);
   });
 
   it('never faults the control and lab endpoints', async () => {

@@ -27,7 +27,9 @@ import type { EpgRefreshOptions, RefreshOptions } from './engine';
  *   catalog and a guide refresh at once. When something else holds it (onboarding, the hello
  *   screen), the work waits `BUSY_RETRY_MS`.
  * - **The screens:** `onCatalog` after a catalog swapped in (the live screen reads it again),
- *   `onGuides` after a guide swapped in, was deleted or moved (now/next is asked again).
+ *   `onGuides` after a guide swapped in, was deleted or moved (now/next is asked again), and
+ *   `onFacts` after any catalog refresh that ended (RELAY step 59: an unchanged catalog still
+ *   stores its account's formats and zone, which the player reads).
  * - **Now** (step 22b): `refreshNow` reads the guides at once when the user changed the list, or
  *   right after the pass running. A new guide is due at once, a removed one is deleted and a
  *   moved one gets its new rank, with no download. The catalogs wait for the next check.
@@ -68,6 +70,8 @@ export interface SchedulerOptions {
   readonly lifecycle?: (listener: (event: LifecycleEvent) => void) => () => void;
   /** Catalogs swapped in: the sources' ids. */
   readonly onCatalog?: (srcs: string[]) => void;
+  /** A catalog refresh ended, committed or unchanged: the sources' facts are stored again. */
+  readonly onFacts?: () => void;
   /** A guide swapped in, one no longer listed was deleted, or one moved in the order. */
   readonly onGuides?: () => void;
   readonly now?: () => number;
@@ -140,6 +144,7 @@ export function createRefreshScheduler(options: SchedulerOptions): RefreshSchedu
     if (records.length === 0) return false;
     const [metas, tier] = await Promise.all([catalogs ? engine.sourceStatus() : Promise.resolve([]), options.tier()]);
     const committed: string[] = [];
+    let ended = false;
     for (const record of catalogs ? records : []) {
       if (disposed) return false;
       let meta: SourceMeta | undefined;
@@ -153,6 +158,7 @@ export function createRefreshScheduler(options: SchedulerOptions): RefreshSchedu
         // A failure kept here is never older than 2 h when the source is tried again, so a
         // success needs no clearing.
         const result = await engine.refresh({ src: record.id, source }, { lowTier: tier === 'low', cancel: cancel.token });
+        ended = true;
         if (result.status === 'committed') committed.push(record.id);
       } catch (error) {
         if (disposed) return false;
@@ -164,6 +170,7 @@ export function createRefreshScheduler(options: SchedulerOptions): RefreshSchedu
       }
     }
     if (disposed) return false;
+    if (ended) options.onFacts?.();
     if (committed.length > 0) {
       readAll = true;
       options.onCatalog?.(committed);

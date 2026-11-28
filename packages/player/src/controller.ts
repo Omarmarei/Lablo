@@ -960,7 +960,7 @@ export class PlayerController {
     s.played = true;
     s.framed[s.current] = true;
     s.attempt = 0;
-    s.ladder.recovered(first);
+    s.ladder.recovered(s.current, first);
     // Only a choice between URLs is worth remembering (a VOD play must not reset a live preference).
     if (s.candidates.length > 1 && this.movesMemory(s)) this.memory.remember(s.req.src, s.candidates[s.current]!.container);
     // An engine may list its tracks before the picture without an event.

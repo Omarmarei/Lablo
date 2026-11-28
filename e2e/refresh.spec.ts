@@ -53,7 +53,7 @@ async function expectGuideRows(page: Page): Promise<void> {
     .toBe(true);
 }
 
-test('reads a guide that failed at onboarding 2 h later, then the catalog and the guides again after 12 h', async ({ page }) => {
+test("reads a guide that failed at onboarding 2 h later, then the catalog and the guides again after 12 h, and the account's formats with them", async ({ page }) => {
   const errors = trackErrors(page);
   const m = await startMock('no-xmltv');
   try {
@@ -85,6 +85,9 @@ test('reads a guide that failed at onboarding 2 h later, then the catalog and th
     await test.step('12 h after the start the catalog and the guides are read again; the screen stays where it was', async () => {
       await remote.go('DOWN', 'live/channels/1');
       await remote.go('DOWN', 'live/channels/2');
+      // The account now allows HLS only (RELAY step 59); its lists stay the same bytes.
+      const account = m.app.mockState.fixture.accounts.find((a) => a.username === U)!;
+      (account as { outputFormats: string[] }).outputFormats = ['m3u8'];
       await page.clock.fastForward('10:15:00');
       await expect.poll(() => count(m, 'action=get_live_streams')).toBe(2);
       await expect.poll(() => count(m, '/xmltv.php')).toBe(3);
@@ -92,6 +95,19 @@ test('reads a guide that failed at onboarding 2 h later, then the catalog and th
       await expect(live).toHaveAttribute('data-status', 'ready');
       await remote.expectFocus('live/channels/2');
       await expectGuideRows(page);
+    });
+
+    await test.step("the refresh read the account's formats again: the player asks for its .m3u8 only (RELAY step 59)", async () => {
+      const from = m.requests.length;
+      const streams = (): string[] => m.requests.slice(from).filter((url) => url.indexOf('/live/') === 0);
+      await remote.press('OK');
+      const player = page.getByTestId('player');
+      await expect(player).toHaveAttribute('data-plays', '1');
+      await expect(player).toHaveAttribute('data-container', 'hls');
+      expect(streams().length).toBeGreaterThan(0);
+      // The mock refuses the .ts now (403): the player never asked for it.
+      expect(streams().filter((url) => url.split('?')[0]!.slice(-5) !== '.m3u8')).toEqual([]);
+      await remote.press('BACK');
     });
     expect(errors).toEqual([]);
   } finally {
