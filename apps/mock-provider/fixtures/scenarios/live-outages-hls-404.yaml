@@ -1,0 +1,16 @@
+description: live-outages with the live .m3u8 answering 404, so every outage reaches the app's ladder on the .ts (RELAY step 59, the LG soak of 21L).
+rules:
+  # As live-outages: 60 s past the 6 s burst, then the channel is down for 25 s (RELAY step 39s3).
+  - match:
+      path: /live/**
+    faults:
+      - type: stall
+        after_ms: 60000
+        outage_ms: 25000
+  # The live .m3u8 answers 404 at once, before any outage hold: the switch rung finds nothing
+  # there, and the ladder must go back to the .ts that played (RELAY step 59).
+  - match:
+      path: /live/**/*.m3u8
+    faults:
+      - type: status
+        status: 404
